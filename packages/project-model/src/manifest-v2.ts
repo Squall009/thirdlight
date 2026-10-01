@@ -249,6 +249,8 @@ export interface CapturedAssetV3 {
   vertexColors?: 'tint';
   /** Model only: the default material mapping. */
   materials?: Record<string, string>;
+  /** Model only: the texture asset each extracted image became (image index → texture assetId). */
+  textures?: Record<string, string>;
   /** Model only: an animation-only file whose clips play on this model asset's rig. */
   clipsFor?: string;
   /** Model only: the version's recorded bounds (absent for versions imported before). */
@@ -301,6 +303,8 @@ export interface ManifestAssetInputV2 {
   vertexColors?: 'tint';
   /** Model only: the default material mapping. */
   materials?: Record<string, string>;
+  /** Model only: the texture asset each extracted image became (image index → texture assetId). */
+  textures?: Record<string, string>;
   /** Model only: an animation-only file whose clips play on this model asset's rig. */
   clipsFor?: string;
   /** Model only: the version's recorded bounds (the runtime's pickups without a size read them). */
@@ -658,6 +662,7 @@ export function captureContentViewV3(
       metricsDigest: metricsDigestOf(version.metrics, sha256),
       ...(record.vertexColors === 'tint' ? { vertexColors: 'tint' as const } : {}),
       ...(record.materials !== undefined ? { materials: { ...record.materials } } : {}),
+      ...(record.textures !== undefined ? { textures: { ...record.textures } } : {}),
       ...(record.clipsFor !== undefined ? { clipsFor: record.clipsFor } : {}),
       // A model version's recorded bounds (absent before; the digests of older captures are unchanged).
       ...(record.kind === 'model' && (version.metrics as { bounds?: CapturedAssetV3['bounds'] }).bounds !== undefined ? { bounds: boundsCopy((version.metrics as { bounds: NonNullable<CapturedAssetV3['bounds']> }).bounds) } : {}),
@@ -777,6 +782,7 @@ export function manifestAssetRow(a: ManifestAssetInputV2): Record<string, unknow
     path: `content/sha256/${a.sourceDigest}`,
     ...(a.vertexColors === 'tint' ? { vertexColors: 'tint' as const } : {}),
     ...(a.materials !== undefined ? { materials: canonicalMaterialMapping(a.materials) } : {}),
+    ...(a.textures !== undefined ? { textures: { ...a.textures } } : {}),
     ...(a.clipsFor !== undefined ? { clipsFor: a.clipsFor } : {}),
     ...(a.bounds !== undefined ? { bounds: boundsCopy(a.bounds) } : {}),
     ...(a.durationMs !== undefined && a.kind === 'audio' ? { durationMs: a.durationMs } : {}),

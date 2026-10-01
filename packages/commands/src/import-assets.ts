@@ -26,6 +26,8 @@ export interface ImportAssetsArgs {
   labels?: string[];
   /** How PNG/JPEG textures in the folder are imported: encoded to KTX2 with this encoding (absent: as they are). */
   ktx2?: 'color' | 'normal' | 'data';
+  /** Whether new models' images are extracted into texture assets (absent: yes; read by the host that prepares the files). */
+  extractTextures?: boolean;
 }
 
 /** One file's prepared facts: a `publishAsset` create's, plus its labels. */
@@ -51,10 +53,10 @@ export interface ImportAssetsInverse {
   assetIds: string[];
 }
 
-const KNOWN = 'folder, labels (optional), ktx2 (optional)';
+const KNOWN = 'folder, labels (optional), ktx2 (optional), extractTextures (optional)';
 
 export function validateImportAssetsArgs(args: Record<string, unknown>): { ok: true; args: ImportAssetsArgs } | { ok: false; error: CommandError } {
-  for (const k of Object.keys(args)) if (k !== 'folder' && k !== 'labels' && k !== 'ktx2') return { ok: false, error: fieldUnexpected(`/args/${k}`, k, KNOWN) };
+  for (const k of Object.keys(args)) if (k !== 'folder' && k !== 'labels' && k !== 'ktx2' && k !== 'extractTextures') return { ok: false, error: fieldUnexpected(`/args/${k}`, k, KNOWN) };
   if (args['folder'] === undefined) return { ok: false, error: fieldMissing('/args/folder', 'folder') };
   if (typeof args['folder'] !== 'string') return { ok: false, error: fieldType('/args/folder', args['folder'], 'string (a folder of the game folder)') };
   const out: ImportAssetsArgs = { folder: args['folder'] };
@@ -70,6 +72,10 @@ export function validateImportAssetsArgs(args: Record<string, unknown>): { ok: t
     const k = args['ktx2'];
     if (k !== 'color' && k !== 'normal' && k !== 'data') return { ok: false, error: fieldValue('/args/ktx2', k, '"color", "normal" or "data"', 'ktx2 names the KTX2 encoding of the PNG/JPEG textures') };
     out.ktx2 = k;
+  }
+  if (args['extractTextures'] !== undefined) {
+    if (typeof args['extractTextures'] !== 'boolean') return { ok: false, error: fieldType('/args/extractTextures', args['extractTextures'], 'boolean') };
+    out.extractTextures = args['extractTextures'];
   }
   return { ok: true, args: out };
 }

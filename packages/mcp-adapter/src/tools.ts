@@ -223,7 +223,11 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       'setAssetOptions {assetId (a texture), streaming: bool|null} streams its mips in Play and the export: the mip tail (levels up to 128 px) is read first and larger levels as its size on screen needs them, inside the texture budget (setting texture_budget_mb); ' +
       'null: the default, on for a KTX2 texture over 1024 px; only a KTX2 mip chain streams (import a PNG/JPEG with ktx2 to stream it); queryAssets shows streaming {on, set, possible}. Every imported file is kept in the game folder next to its .tlasset sidecar; uploaded bytes land in assets/, or in ' +
       'the folder publishAsset names with folder: "assets/props" (relative to the game folder; never a hidden folder or the project\'s own files). ' +
-      'importAssets {folder, labels?: [label], ktx2?: "color"|"normal"|"data"} imports every supported file of a game-folder folder, subfolders ' +
+      'Extract textures (a model import setting, on for a new model unless publishAsset says extractTextures: false; a reimport keeps the model\'s setting or takes extractTextures: true|false): ' +
+      'the GLB\'s images become texture assets in <model folder>/<model>_textures/ (a PNG/JPEG encoded to KTX2 with mips — colour, normal map or data by what its materials sample it as — a KTX2 or WebP as it is; ' +
+      'an image some texture asset already holds is that asset), the model names them in textures {image index: assetId}, and they count and stream like any texture; ' +
+      'the result\'s textureExtraction lists each image. ' +
+      'importAssets {folder, labels?: [label], ktx2?: "color"|"normal"|"data", extractTextures?: bool} imports every supported file of a game-folder folder, subfolders ' +
       'included, in one command and one undo: each becomes an asset named after its file (assets/audio/voice/line-001.ogg → "line-001"; the id is the ' +
       'name made id-safe, -2, -3 … when taken; a file whose sidecar names an unused id keeps it), with the labels on every one (a label: a letter or ' +
       'digit, then letters, digits, _ - . /). Files already imported are skipped, and the result\'s ' +

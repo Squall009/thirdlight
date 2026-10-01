@@ -4,7 +4,7 @@
  */
 
 import { EVENT_CUE_BUSES, EVENT_CUE_LIMITS, EVENT_CUE_SOURCES } from './event-cues';
-import { AUDIO_MAX_LATE_MS_DEFAULT, AUDIO_MAX_LATE_MS_LIMIT } from './content-limits';
+import { ASSET_METRIC_CAPS, AUDIO_MAX_LATE_MS_DEFAULT, AUDIO_MAX_LATE_MS_LIMIT } from './content-limits';
 import { SHELL_LIMITS } from './shell';
 import { SAVE_LIMITS, SAVE_SECTIONS } from './save-schema';
 import { MAX_ANIMATOR_MORPHS } from './animator';
@@ -566,6 +566,8 @@ export const CONTENT: readonly ContentBlockDescriptor[] = [
       list('versions', 'Versions', 'Every imported version (append-only, written by the importer).', json('*', 'Version', 'An imported version: source, recipe and metrics.', { readOnly: true }), { required: true, minItems: 1, readOnly: true }),
       enm('vertexColors', 'Vertex colours', 'Data: COLOR_0 feeds shaders (wind weights). Tint: multiplies the colour.', ['data', 'tint'], { when: when('kind', 'model'), default: 'data', omitDefault: true }),
       map('materials', 'Default materials', 'Material slot → project material, for every placement.', 'Slot', ref('*', 'Material', 'A project material.', 'material'), { when: when('kind', 'model'), keyFormat: 'materialSlot', minEntries: 1, maxEntries: MAX_MATERIAL_SLOTS }),
+      bool('extractTextures', 'Extract textures', 'Import setting: the file\'s images become texture assets the model draws with (they count and stream like any texture). Set when the model is imported or re-imported.', { when: when('kind', 'model'), default: false, omitDefault: true, readOnly: true }),
+      map('textures', 'Extracted textures', 'The file\'s image index → the texture asset it was extracted into (written by the importer).', 'Image', asset('*', 'Texture', 'A texture asset.', ['texture']), { when: when('kind', 'model'), minEntries: 1, maxEntries: ASSET_METRIC_CAPS.images }),
       asset('clipsFor', 'Clips for', 'An animation-only file: its clips play on this model\'s rig.', ['model'], { when: when('kind', 'model') }),
       list('labels', 'Labels', 'Names a script may load the asset by, with every other asset carrying them (ascending; set with setLabels).', str('*', 'Label', 'A letter or digit, then letters, digits, _ - . /.', { minLength: 1, maxLength: ASSET_LABEL_MAX_LENGTH }), { minItems: 1, unique: true, readOnly: true }),
       str('address', 'Address', 'The one name a script may load the asset by (unique in the project; set with setAddress).', { minLength: 1, maxLength: ADDRESS_MAX_LENGTH, readOnly: true }),

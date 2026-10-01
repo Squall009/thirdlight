@@ -20,9 +20,11 @@ import { randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 
 import { AUDIO_TOOLCHAIN, FONT_TOOLCHAIN, IMAGE_TOOLCHAIN, M2_GLTF_TOOLCHAIN, type ImportJobPort } from '@thirdlight/asset-pipeline';
-import { importKeyOfConverted, type AssetFileEntry, type ImportHeader, type MutationSuccess, type ResourceCheckReport, type StageInspector, type WorkspaceService } from '@thirdlight/workspace';
+import { DEFAULT_ASSET_FOLDER, importKeyOfConverted, type AssetFileEntry, type ImportHeader, type MutationSuccess, type ResourceCheckReport, type StageInspector, type WorkspaceService } from '@thirdlight/workspace';
 
 import type { FbxConverter } from './fbx';
+import { readGlbImages, stripGlbImages } from './glb-images';
+import type { TextureExtraction } from './model-textures';
 import { KTX2_ENCODER, type Ktx2Mode, type TextureEncoder } from './texture-encode';
 
 /** What one check did. */
@@ -86,6 +88,8 @@ export interface AssetFileCheckDeps {
   inspector: StageInspector;
   fbx?: FbxConverter;
   textureEncoder?: TextureEncoder;
+  /** A model with "extract textures" on is extracted again when its file changes (absent: re-imported as it is). */
+  textures?: TextureExtraction;
   now: () => number;
   /** A command the check ran was applied (the change feed). */
   onApplied: (projectId: string, result: MutationSuccess) => void;
@@ -179,6 +183,8 @@ export function createAssetFileCheck(deps: AssetFileCheckDeps) {
     if (!src.ok) return { code: src.error.code, message: src.error.message ?? src.error.code };
     let made: Uint8Array;
     let converter: { name: string; version: string };
+    // A model's extracted images are made again by the extraction (`reextract`, `restrip`), not here.
+    if (conv.format === 'glb') return { code: 'converter_unavailable', message: `${file}: its images were extracted, and the extraction is not available here` };
     if (conv.encoding !== undefined) {
       const encoder = deps.textureEncoder;
       if (encoder === undefined) return { code: 'converter_unavailable', message: 'KTX2 encoding is not available on this server' };
@@ -212,6 +218,54 @@ export function createAssetFileCheck(deps: AssetFileCheckDeps) {
     return { convertedFrom, facts };
   };
 
+  /**
+   * A changed model file whose "extract textures" setting is on: its images
+   * are extracted again (new textures come in with their own command, an
+   * image already a texture asset is that asset) and the model is published
+   * with them. Null: not such a model.
+   */
+  const reextract = async (projectId: string, e: AssetFileEntry, file: string): Promise<{ args: Record<string, unknown>; newDigest: string } | { code: string; message: string } | null> => {
+    const textures = deps.textures;
+    if (textures === undefined || e.extract === undefined || e.kind !== 'model' || (e.converted !== undefined && e.converted.format !== 'glb')) return null;
+    const src = service.conversionSource(projectId, file);
+    if (!src.ok) return { code: src.error.code, message: src.error.message ?? src.error.code };
+    const glb = textures.readModelFile(projectId, file, src.digest);
+    if (glb === null) return { code: 'asset_source_changed', message: `${file} changed while it was read; the next check imports it` };
+    const slash = file.lastIndexOf('/');
+    const stem = file.slice(slash + 1).replace(/\.[^.]+$/, '');
+    const planned = await textures.plan(projectId, { glb, original: { sourceDigest: src.digest, sourceByteLength: src.byteLength, sourcePath: file }, folder: slash > 0 ? file.slice(0, slash) : DEFAULT_ASSET_FOLDER, stem });
+    if (!planned.ok) return planned;
+    const p = planned.plan;
+    if (p.model === null) {
+      const f = inspectFile(projectId, file, 'model', src.digest);
+      return 'code' in f ? f : { args: { sourcePath: file, ...factsArgs(f) }, newDigest: f.sourceDigest };
+    }
+    const committed = textures.commit(projectId, p, (op, a) => {
+      const r = command(projectId, op, a);
+      return r.ok ? { ok: true, revision: r.result.revision, change: r.result.change } : r;
+    });
+    if (!committed.ok) return committed;
+    const m = p.model;
+    return { args: { convertedFrom: m.convertedFrom, sourceDigest: m.sourceDigest, sourceByteLength: m.sourceByteLength, importRecipe: m.importRecipe, metrics: m.metrics, textures: committed.textures }, newDigest: src.digest };
+  };
+
+  /** The model file without its extracted images again (the cache lost it; the file is unchanged). */
+  const restrip = (projectId: string, e: AssetFileEntry): { convertedFrom: Record<string, unknown>; facts: Facts } | { code: string; message: string } => {
+    const file = e.file!;
+    const src = service.conversionSource(projectId, file);
+    if (!src.ok) return { code: src.error.code, message: src.error.message ?? src.error.code };
+    const glb = new Uint8Array(readFileSync(src.real));
+    const read = readGlbImages(glb);
+    if (!read.ok) return { code: 'conversion_failed', message: read.message };
+    const stripped = stripGlbImages(glb, read.images, new Set(Object.keys(e.extract?.textures ?? {}).map(Number)));
+    if (stripped === null) return { code: 'conversion_failed', message: `${file}: its images could not be taken out again` };
+    const convertedFrom = { format: 'glb', sourceDigest: src.digest, sourceByteLength: src.byteLength, sourcePath: file, converter: { ...e.converted!.converter } };
+    const stored = service.writeImportedArtifact(projectId, importKeyOfConverted(convertedFrom), stripped);
+    if (!stored.ok) return { code: stored.error.code, message: stored.error.message ?? stored.error.code };
+    const facts = inspectBytes(stripped, 'model');
+    return 'code' in facts ? facts : { convertedFrom, facts };
+  };
+
   /** Import a changed file again: one `publishAsset` reimport with the file's new facts. */
   const reimport = async (projectId: string, e: AssetFileEntry, report: AssetFileCheckReport): Promise<void> => {
     const file = e.file!;
@@ -219,7 +273,12 @@ export function createAssetFileCheck(deps: AssetFileCheckDeps) {
     if (e.animated === true) return fail('animation_mapping_required', `${file} changed; the asset's animation roles must be chosen again: re-import it from the Assets tab`);
     let args: Record<string, unknown>;
     let newDigest: string;
-    if (e.converted !== undefined) {
+    const extracted = await reextract(projectId, e, file);
+    if (extracted !== null) {
+      if ('code' in extracted) return fail(extracted.code, extracted.message);
+      args = extracted.args;
+      newDigest = extracted.newDigest;
+    } else if (e.converted !== undefined) {
       const c = await convertFile(projectId, file, e.converted, e.kind as Kind);
       if ('code' in c) return fail(c.code, c.message);
       args = { convertedFrom: c.convertedFrom, ...factsArgs(c.facts) };
@@ -238,7 +297,7 @@ export function createAssetFileCheck(deps: AssetFileCheckDeps) {
 
   /** Make a converted asset's cached data again; bytes that differ from the recorded ones are a re-import. */
   const rebuild = async (projectId: string, e: AssetFileEntry, report: AssetFileCheckReport): Promise<void> => {
-    const c = await convertFile(projectId, e.file!, e.converted!, e.kind as Kind);
+    const c = e.converted!.format === 'glb' ? restrip(projectId, e) : await convertFile(projectId, e.file!, e.converted!, e.kind as Kind);
     if ('code' in c) {
       report.failed.push({ assetId: e.assetId, file: e.file, code: c.code, message: `the imported data could not be made again: ${c.message}` });
       return;
@@ -249,7 +308,7 @@ export function createAssetFileCheck(deps: AssetFileCheckDeps) {
       return;
     }
     // The converter made other bytes (another Blender, another encoder): record them as the asset's data.
-    const r = command(projectId, 'publishAsset', { mode: 'reimport', assetId: e.assetId, convertedFrom: c.convertedFrom, ...factsArgs(c.facts), importedAt: utcSecond(deps.now()) });
+    const r = command(projectId, 'publishAsset', { mode: 'reimport', assetId: e.assetId, convertedFrom: c.convertedFrom, ...factsArgs(c.facts), ...(e.extract !== undefined && Object.keys(e.extract.textures).length > 0 ? { textures: e.extract.textures } : {}), importedAt: utcSecond(deps.now()) });
     if (!r.ok) {
       report.failed.push({ assetId: e.assetId, file: e.file, code: r.code, message: r.message });
       return;

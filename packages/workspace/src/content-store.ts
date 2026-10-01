@@ -1283,7 +1283,7 @@ export interface ContentIntegrityEntry {
    * has the recorded bytes. The version itself stays readable (its GLB is
    * stored); a changed original only means a re-import would differ.
    */
-  convertedFrom?: { format: 'fbx'; sourcePath?: string; status: 'ok' | 'missing' | 'corrupt' | 'unreadable' | 'changed' };
+  convertedFrom?: { format: string; sourcePath?: string; status: 'ok' | 'missing' | 'corrupt' | 'unreadable' | 'changed' };
   /**
    * `changed`: a file referenced in place no longer has the recorded bytes
    * (the version cannot be read until the file is restored).
@@ -1402,7 +1402,7 @@ export function contentIntegrity(
     for (const record of catalog.assets) {
       for (const v of record.versions as readonly CatalogVersionLike[]) {
         known.add(v.sourceDigest);
-        const conv = (v as { convertedFrom?: { format: 'fbx'; sourceDigest: string; sourceByteLength: number; sourcePath?: string; converter: { name: string; version: string }; encoding?: string } }).convertedFrom;
+        const conv = (v as { convertedFrom?: { format: string; sourceDigest: string; sourceByteLength: number; sourcePath?: string; converter: { name: string; version: string }; encoding?: string } }).convertedFrom;
         if (conv !== undefined && conv.sourcePath === undefined) known.add(conv.sourceDigest);
         entries.push({
           assetId: record.assetId,

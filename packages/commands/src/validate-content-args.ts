@@ -58,9 +58,9 @@ export function validatePublishAssetArgs(
   args: Record<string, unknown>,
 ): ArgsOk<PublishAssetArgs> | { ok: false; error: CommandError } {
   const KNOWN =
-    'mode, assetId, kind (required on create), displayName (optional), sourceDigest, sourceByteLength, sourcePath (optional), convertedFrom (optional), packedFrom (optional), importRecipe, metrics, importedAt, animation (reimport only)';
+    'mode, assetId, kind (required on create), displayName (optional), sourceDigest, sourceByteLength, sourcePath (optional), convertedFrom (optional), packedFrom (optional), importRecipe, metrics, importedAt, animation (reimport only), extractTextures (model, optional), textures (model, optional)';
   for (const key of Object.keys(args)) {
-    if (!['mode', 'assetId', 'kind', 'displayName', 'sourceDigest', 'sourceByteLength', 'sourcePath', 'convertedFrom', 'packedFrom', 'importRecipe', 'metrics', 'importedAt', 'animation'].includes(key)) {
+    if (!['mode', 'assetId', 'kind', 'displayName', 'sourceDigest', 'sourceByteLength', 'sourcePath', 'convertedFrom', 'packedFrom', 'importRecipe', 'metrics', 'importedAt', 'animation', 'extractTextures', 'textures'].includes(key)) {
       return { ok: false, error: fieldUnexpected(`/args/${key}`, key, KNOWN) };
     }
   }
@@ -214,6 +214,20 @@ export function validatePublishAssetArgs(
     return { ok: false, error: fieldType('/args/importedAt', args['importedAt'], 'string (timestamp)') };
   }
   out.importedAt = args['importedAt'];
+  // The model's "extract textures" import setting and the texture asset each
+  // extracted image became (the model validates the ids with the catalog).
+  const nonModel = args['kind'] === 'audio' || args['kind'] === 'texture' || args['kind'] === 'font';
+  if (args['extractTextures'] !== undefined) {
+    if (nonModel) return { ok: false, error: fieldUnexpected('/args/extractTextures', 'extractTextures', KNOWN, 'only a model extracts its images') };
+    if (typeof args['extractTextures'] !== 'boolean') return { ok: false, error: fieldType('/args/extractTextures', args['extractTextures'], 'boolean') };
+    out.extractTextures = args['extractTextures'];
+  }
+  if (args['textures'] !== undefined) {
+    if (nonModel) return { ok: false, error: fieldUnexpected('/args/textures', 'textures', KNOWN, 'only a model has extracted textures') };
+    if (!isPlainObject(args['textures'])) return { ok: false, error: fieldType('/args/textures', args['textures'], 'object { <image index>: texture assetId }') };
+    if (args['extractTextures'] === false) return { ok: false, error: fieldUnexpected('/args/textures', 'textures', KNOWN, 'a model that keeps its images inside has no extracted textures') };
+    out.textures = { ...(args['textures'] as Record<string, string>) };
+  }
   // `animation` is permitted only on a model reimport; its presence
   // rule and binding are the op's.
   if (args['animation'] !== undefined) {

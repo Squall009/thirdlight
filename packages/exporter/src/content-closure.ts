@@ -783,6 +783,7 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
       metricsDigest: a.metricsDigest,
       ...(a.vertexColors === 'tint' ? { vertexColors: 'tint' as const } : {}),
       ...(a.materials !== undefined ? { materials: { ...a.materials } } : {}),
+      ...(a.textures !== undefined ? { textures: { ...a.textures } } : {}),
       ...(a.clipsFor !== undefined ? { clipsFor: a.clipsFor } : {}),
       ...(a.bounds !== undefined ? { bounds: a.bounds } : {}),
       ...(a.kind === 'audio' && durationOf(a.assetId, a.version) !== undefined ? { durationMs: durationOf(a.assetId, a.version)! } : {}),

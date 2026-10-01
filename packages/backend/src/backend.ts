@@ -35,6 +35,7 @@ import { createMissingFiles, makeMissingFilesRoute } from './missing-files';
 import { createFolderImport } from './folder-import';
 import { createFbxConverter } from './fbx';
 import { createInlineTextureEncoder, createWorkerTextureEncoder } from './texture-encode';
+import { createTextureExtraction } from './model-textures';
 
 /** The KTX2 encoder's worker script, when this runs as the built bundle. */
 const KTX2_WORKER: URL | null = (() => {
@@ -291,12 +292,15 @@ export function createBackend(
   // KTX2 encoding on import — a worker thread next to the deployment bundle
   // (dist/backend/ktx2-worker.mjs), in this thread when run from source (tests).
   const textureEncoder = KTX2_WORKER !== null ? createWorkerTextureEncoder(KTX2_WORKER) : createInlineTextureEncoder();
+  // A model's "extract textures" import setting: its images become texture assets.
+  const textures = createTextureExtraction({ service, inspector: assetInspector, textureEncoder, now: nowMs });
   // The game folder is the truth for assets: moved and changed files, the import cache.
   const assetFiles = createAssetFileCheck({
     service,
     inspector: assetInspector,
     fbx,
     textureEncoder,
+    textures,
     now: nowMs,
     onApplied: (projectId, r) => notifyMutationApplied(projectId, r.requestId, r.revision, { kind: 'admin', clientId: 'file-check' }, r.change, (r as { sceneId?: string }).sceneId),
     // A full check is when a Play build is made ahead (the Play routes are made below).
@@ -310,7 +314,7 @@ export function createBackend(
   });
   let warmPlay: ((projectId: string) => void) | undefined;
   // A folder's files are inspected before its importAssets command.
-  const folderImport = createFolderImport({ service, assetFiles, now: nowMs });
+  const folderImport = createFolderImport({ service, assetFiles, textures, now: nowMs });
   const contentRoutes = new ContentRoutes({
     service,
     now: nowMs,
@@ -1828,7 +1832,7 @@ export function createBackend(
   const externalAnnounced = new Set<string>();
 
 
-  const { establishSession, listSessions, sessionLog, commandRoute } = makeSessionRoutes({ timeouts, nowMs, service, sessions, sendJson, sendError, bearerToken, tokenScope, requireAuth, readBody, fullState, workspaceError, sessionView, recordProblem, notifyMutationApplied, headless, folderImport, onOwnerLost: (sessionId: string, detail?: string) => plays.onOwnerDisconnected(sessionId, detail) });
+  const { establishSession, listSessions, sessionLog, commandRoute } = makeSessionRoutes({ timeouts, nowMs, service, sessions, sendJson, sendError, bearerToken, tokenScope, requireAuth, readBody, fullState, workspaceError, sessionView, recordProblem, notifyMutationApplied, headless, folderImport, textures, onOwnerLost: (sessionId: string, detail?: string) => plays.onOwnerDisconnected(sessionId, detail) });
 
   const backend: Backend = {
     config,

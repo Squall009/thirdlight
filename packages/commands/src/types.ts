@@ -398,6 +398,10 @@ export type CommandAssetRecord = Omit<AssetRecord, 'kind' | 'versions'> & {
   vertexColors?: 'tint';
   /** The labels a script may load the asset by (ascending, unique). */
   labels?: string[];
+  /** Model only: the "extract textures" import setting (stored only as true). */
+  extractTextures?: true;
+  /** Model only: the texture asset each image of the current version was extracted into. */
+  textures?: Record<string, string>;
 };
 
 /**
@@ -1554,6 +1558,14 @@ export interface PublishAssetArgs {
   importedAt: string;
   /** Atomic version-local role mapping. */
   animation?: PublishAssetAnimation;
+  /**
+   * Model only: the "extract textures" import setting (true: on; false: off,
+   * the extracted textures are forgotten; absent: a create leaves it off, a
+   * reimport keeps the record's).
+   */
+  extractTextures?: boolean;
+  /** Model only: the texture asset each image of this version was extracted into (absent: none). */
+  textures?: Record<string, string>;
 }
 
 /** `publishBehavior` args. */

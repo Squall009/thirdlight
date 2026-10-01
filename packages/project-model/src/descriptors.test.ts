@@ -802,9 +802,11 @@ function runAllProbes(): void {
   probe('settings', contentErrors, contentDoc({ settings: { gravity_y: -19.62, run_speed: 4, jump_velocity: 7, max_fall_speed: -30, max_slope_climb_deg: 45, min_slope_slide_deg: 30, fixed_step_hz: 240, audio_voices: 12, music_fade_s: 2, animation_crossfade_s: 0.3, render_backend: 1, physics_dimension: 3, sim_thread: 2, debug_console: 1, random_seed: 7, depth_buffer: 2, audio_spatial: 2, instance_chunk_m: 16, texture_budget_mb: 256 } }), '/settings', block('settings'), 'settings:');
   probe('scenes', contentErrors, contentDoc(), '/scenes', block('scenes'), 'scenes:');
   probe('startScenes', contentErrors, contentDoc(), '/startScenes', block('startScenes'), 'startScenes:');
-  const anims = { ...MODEL_ASSET, assetId: 'anims-0001', displayName: 'Anims', vertexColors: 'tint', materials: { '*': 'mat-a' }, clipsFor: MODEL_ASSET['assetId'], labels: ['level-3', 'voice'], address: 'anims/walk' };
+  const anims = { ...MODEL_ASSET, assetId: 'anims-0001', displayName: 'Anims', vertexColors: 'tint', materials: { '*': 'mat-a' }, extractTextures: true, textures: { '0': 'tex-albedo' }, clipsFor: MODEL_ASSET['assetId'], labels: ['level-3', 'voice'], address: 'anims/walk' };
+  const v0 = (MODEL_ASSET['versions'] as Obj[])[0]!;
+  const texture = { ...MODEL_ASSET, assetId: 'tex-albedo', kind: 'texture', displayName: 'Albedo', versions: [{ ...v0, importRecipe: { profile: 'image', recipeVersion: 1, toolchain: { 'asset-pipeline': '0.1.0' } }, metrics: { format: 'png', width: 64, height: 64, decodedBytes: 16384 } }] };
   const mat = { materialId: 'mat-a', name: 'M', shader: 'standard', params: {}, textures: {} };
-  probe('assets', contentErrors, contentDoc({ assets: [anims, MODEL_ASSET], materials: [mat] }), '/assets', block('assets'), 'assets:');
+  probe('assets', contentErrors, contentDoc({ assets: [anims, MODEL_ASSET, texture], materials: [mat] }), '/assets', block('assets'), 'assets:');
   PROPERTY_BASES.forEach((p, i) =>
     probe(`behaviors[${i}]`, contentErrors, contentDoc({ behaviors: [{ behaviorId: 'beh-a', displayName: 'Behavior', declaration: { properties: [p] }, source: null, publishedRevision: 0 }] }), '/behaviors', block('behaviors'), 'behaviors:'),
   );

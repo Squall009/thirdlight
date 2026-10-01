@@ -819,6 +819,14 @@ function validateMaterialReferences(doc: Record<string, unknown>, errors: ModelE
     else if (target === undefined || target['kind'] !== 'model') errors.push(withFound({ code: 'asset_reference_missing', path: `/assets/${i}/clipsFor`, message: 'clipsFor must name a model asset of this project', expected: 'a model assetId' }, rig));
     else if (target['clipsFor'] !== undefined) errors.push(withFound({ code: 'reference_missing', path: `/assets/${i}/clipsFor`, message: 'clipsFor must name a model with its own rig, not another clips-only asset', expected: 'a model assetId without clipsFor' }, rig));
   });
+  // A model's extracted images name texture assets of this project.
+  assets.forEach((a, i) => {
+    const images = a['textures'];
+    if (!isPlainObject(images) || a['kind'] !== 'model') return;
+    for (const [image, id] of Object.entries(images)) {
+      if (typeof id === 'string' && byId.get(id)?.['kind'] !== 'texture') errors.push(withFound({ code: 'asset_reference_missing', path: `/assets/${i}/textures/${pointerSegment(image)}`, message: 'an extracted image must name a texture asset of this project', expected: 'a texture assetId' }, id));
+    }
+  });
   assets.forEach((a, i) => {
     const mapping = a['materials'];
     if (mapping === undefined) return;

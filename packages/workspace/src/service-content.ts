@@ -27,6 +27,9 @@ import {
   findSidecars,
   hasImported,
   holdBytes,
+  readGameFile,
+  readHeld,
+  removeGameFile,
   importedArtifactFile,
   importKeyOfConverted,
   readHeader,
@@ -77,6 +80,7 @@ import { contentPublishFailed, pathRejected, projectNotFound, projectUnavailable
 import { locateMipParts, type MipPartFile } from './mip-parts';
 import { scanAssetFolder, writeUploadedFile, type FolderImportScan, type PreparedImportFile } from './folder-import';
 import { deepFreeze } from './isolate';
+import { sha256Hex } from './digest';
 import { ensureSession, type Core, type ProjectSession } from './session';
 import { restoreSidecars } from './session-v4';
 import { checkResourceFiles } from './resource-check';
@@ -184,6 +188,8 @@ export interface AssetFileEntry {
   packed?: true;
   /** A model a legacy `modelAnimation` binding names (a re-import needs its role mapping). */
   animated?: true;
+  /** A model whose "extract textures" setting is on, with the texture each extracted image became. */
+  extract?: { textures: Record<string, string> };
 }
 
 export type AssetFilesResult =
@@ -281,6 +287,8 @@ export function contentOps(core: Core) {
         };
       }
       if (v.packedFrom !== undefined) entry.packed = true;
+      const extracted = r as { extractTextures?: true; textures?: Record<string, string> };
+      if (extracted.extractTextures === true) entry.extract = { textures: { ...(extracted.textures ?? {}) } };
       if (animated(r.assetId)) entry.animated = true;
       entries.push(entry);
       watched?.noteVisit(
@@ -572,6 +580,19 @@ export function contentOps(core: Core) {
     takeUpgradeNotes,
     takeOpenProblems,
     writeUploadedFile: (projectId: string, path: string, bytes: Uint8Array) => run(projectId, (s) => writeUploadedFile(core, contentCtx(s), path, bytes)),
+    readHeldBytes: (projectId: string, digest: string): Uint8Array | null => withOpenSession(projectId, (s) => readHeld(contentCtx(s), digest), () => null),
+    // Only a file that still holds what was written is taken back (one changed since is the user's).
+    removeWrittenFile: (projectId: string, path: string, digest: string): void =>
+      void withOpenSession(
+        projectId,
+        (s) => {
+          const ctx = contentCtx(s);
+          const there = readGameFile(ctx, path);
+          if (there !== null && sha256Hex(there) === digest) removeGameFile(ctx, path);
+          return null;
+        },
+        () => null,
+      ),
     checkAssetFolder: (projectId: string, folder: string) => run(projectId, (s) => checkAssetFolder(contentCtx(s), folder)),
     checkResourceFiles: (projectId: string) => run(projectId, (s) => ({ ok: true as const, ...checkResourceFiles(core, s) })),
   };

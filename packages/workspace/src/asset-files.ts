@@ -532,7 +532,8 @@ export function importKeyOfConverted(c: ConvertedLike): ImportKey {
     sourceDigest: c.sourceDigest,
     importer: c.converter.name,
     importerVersion: c.converter.version,
-    settings: c.encoding !== undefined ? { ktx2: c.encoding } : { to: 'glb' },
+    // A GLB whose images were extracted, an FBX made a GLB, an image encoded to KTX2.
+    settings: c.encoding !== undefined ? { ktx2: c.encoding } : c.format === 'glb' ? { extract: 'images' } : { to: 'glb' },
   };
 }
 

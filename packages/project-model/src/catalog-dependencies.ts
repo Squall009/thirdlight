@@ -5,7 +5,8 @@
  * The scan is generic over the documents: every string in them that names a
  * shipped asset is a dependency; one that names a material, a material
  * function, an effect, an animator or a prefab brings in what that resource
- * names; a model found brings in its own material map. So a component or a
+ * names; a model found brings in its own material map and the textures its
+ * images were extracted into. So a component or a
  * resource field added later is covered without a table of fields. A string
  * that only happens to equal an asset id adds that asset: a dependency list
  * may hold more than is needed, never less than the documents name.
@@ -15,7 +16,7 @@
 export interface DependencyScanTables {
   /** Every shipped asset id. */
   readonly assets: ReadonlySet<string>;
-  /** A model asset's material map (slot → material id). */
+  /** A model asset's material map (slot → material id) and extracted images (image → texture id). */
   readonly modelMaterials?: ReadonlyMap<string, unknown>;
   /** The resources followed by id: materials (resolved), material functions, effects, animators, prefabs. */
   readonly resources: ReadonlyMap<string, unknown>;
@@ -26,7 +27,7 @@ const SCAN_DEPTH = 64;
 
 /** Build the tables of one build's resources. */
 export function dependencyTables(o: {
-  readonly assets: Iterable<{ readonly assetId: string; readonly kind?: string; readonly materials?: unknown }>;
+  readonly assets: Iterable<{ readonly assetId: string; readonly kind?: string; readonly materials?: unknown; readonly textures?: unknown }>;
   readonly materials?: readonly { readonly materialId: string }[];
   readonly functions?: readonly { readonly graphId: string }[];
   readonly effects?: readonly { readonly effectId: string }[];
@@ -37,7 +38,7 @@ export function dependencyTables(o: {
   const modelMaterials = new Map<string, unknown>();
   for (const a of o.assets) {
     assets.add(a.assetId);
-    if (a.kind === 'model' && a.materials !== undefined) modelMaterials.set(a.assetId, a.materials);
+    if (a.kind === 'model' && (a.materials !== undefined || a.textures !== undefined)) modelMaterials.set(a.assetId, [a.materials, a.textures]);
   }
   const resources = new Map<string, unknown>();
   for (const m of o.materials ?? []) resources.set(m.materialId, m);

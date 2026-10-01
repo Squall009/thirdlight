@@ -262,6 +262,18 @@ export type ConvertedFrom =
       converter: { name: 'blender'; version: string };
     }
   | {
+      /**
+       * A GLB whose images were extracted into texture assets at import (the
+       * model's `textures` names them): the stored GLB is the file with each
+       * image replaced by a one-pixel stand-in.
+       */
+      format: 'glb';
+      sourceDigest: string;
+      sourceByteLength: number;
+      sourcePath?: string;
+      converter: { name: 'texture-extract'; version: string };
+    }
+  | {
       /** A PNG/JPEG texture encoded to KTX2 at import. */
       format: 'png' | 'jpeg';
       sourceDigest: string;

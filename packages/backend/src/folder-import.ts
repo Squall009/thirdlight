@@ -13,6 +13,7 @@
 import { assetNameOfFile, type PreparedImportFile, type WorkspaceService } from '@thirdlight/workspace';
 
 import type { AssetFileCheck } from './asset-files';
+import { EXTRACT_TEXTURES_ON_NEW_IMPORT, type TextureExtraction, type TextureExtractionReport } from './model-textures';
 import type { Ktx2Mode } from './texture-encode';
 
 /** What a folder import did besides the assets it added. */
@@ -26,11 +27,15 @@ export interface FolderImportReport {
   unsupported: { path: string; reason: string }[];
   /** Supported files an importer refused (why). */
   rejected: { path: string; code: string; message: string }[];
+  /** Models whose images were extracted into texture assets (each model's file and what became of its images). */
+  extracted?: { path: string; images: TextureExtractionReport['images'] }[];
 }
 
 export interface FolderImportDeps {
   service: WorkspaceService;
   assetFiles: AssetFileCheck;
+  /** New models' images become texture assets ("extract textures": the request's `extractTextures`, else the default for new imports). */
+  textures?: TextureExtraction;
   now: () => number;
 }
 
@@ -48,13 +53,21 @@ export function createFolderImport(deps: FolderImportDeps) {
     // Malformed args are the command's to refuse (field errors with their paths).
     if (typeof folder !== 'string') return { ok: true, report: { folder: '', prepared: 0, skipped: [], unsupported: [], rejected: [] } };
     const ktx2 = a['ktx2'] === 'color' || a['ktx2'] === 'normal' || a['ktx2'] === 'data' ? (a['ktx2'] as Ktx2Mode) : undefined;
+    const extract = typeof a['extractTextures'] === 'boolean' ? a['extractTextures'] : EXTRACT_TEXTURES_ON_NEW_IMPORT;
     const scanned = service.scanAssetFolder(projectId, folder);
     if (!scanned.ok) return { ok: false, code: scanned.error.code, message: scanned.error.message ?? scanned.error.code, path: '/args/folder' };
     const scan = scanned.scan;
     const report: FolderImportReport = { folder, prepared: 0, skipped: scan.known, unsupported: scan.unsupported, rejected: [] };
     const files: PreparedImportFile[] = [];
     const importedAt = utcSecond(deps.now());
+    // Texture files a model's extraction already prepared are not prepared again as the folder's own.
+    const preparedPaths = new Set<string>();
     for (const f of scan.files) {
+      if (preparedPaths.has(f.path.toLowerCase())) continue;
+      if (extract && f.kind === 'model' && /\.glb$/i.test(f.path) && deps.textures !== undefined) {
+        const done = await extractModel(projectId, f, deps.textures, importedAt, files, preparedPaths, report);
+        if (done) continue;
+      }
       const r = await deps.assetFiles.importFile(projectId, f.path, f.kind, ktx2 !== undefined ? { ktx2 } : {});
       if ('code' in r) {
         report.rejected.push({ path: f.path, code: r.code, message: r.message });
@@ -71,6 +84,48 @@ export function createFolderImport(deps: FolderImportDeps) {
     if (!kept.ok) return { ok: false, code: kept.error.code, message: kept.error.message ?? kept.error.code };
     report.prepared = files.length;
     return { ok: true, report };
+  }
+
+  /**
+   * A new model file with its images extracted: its texture files (written
+   * into `<model>_textures/`, inside the folder) and the model itself go into
+   * the same `importAssets`; the model names its textures by file, and the
+   * command gives them their ids. False: nothing was extracted (the file is
+   * imported as it is).
+   */
+  async function extractModel(
+    projectId: string,
+    f: { path: string; sidecar: { id: string; labels: string[] } | null },
+    textures: TextureExtraction,
+    importedAt: string,
+    files: PreparedImportFile[],
+    preparedPaths: Set<string>,
+    report: FolderImportReport,
+  ): Promise<boolean> {
+    const src = service.conversionSource(projectId, f.path);
+    if (!src.ok) return false;
+    const glb = textures.readModelFile(projectId, f.path, src.digest);
+    if (glb === null) return false;
+    const slash = f.path.lastIndexOf('/');
+    const planned = await textures.plan(projectId, { glb, original: { sourceDigest: src.digest, sourceByteLength: src.byteLength, sourcePath: f.path }, folder: f.path.slice(0, Math.max(0, slash)), stem: f.path.slice(slash + 1).replace(/\.[^.]+$/, '') });
+    if (!planned.ok || planned.plan.model === null) return false;
+    const p = planned.plan;
+    for (const t of p.files) {
+      // A texture file this or another model of the import already prepared is that one.
+      if (preparedPaths.has(t.path.toLowerCase())) continue;
+      preparedPaths.add(t.path.toLowerCase());
+      files.push(t);
+    }
+    const m = p.model!;
+    files.push({
+      path: f.path,
+      idHint: f.sidecar?.id ?? null,
+      labels: f.sidecar?.labels ?? [],
+      item: { kind: 'model', displayName: assetNameOfFile(f.path), importedAt, convertedFrom: m.convertedFrom, sourceDigest: m.sourceDigest, sourceByteLength: m.sourceByteLength, importRecipe: m.importRecipe, metrics: m.metrics, extractTextures: true } as PreparedImportFile['item'],
+      texturePaths: p.imagePaths,
+    });
+    (report.extracted ??= []).push({ path: f.path, images: p.report.images });
+    return true;
   }
 
   return { prepare };

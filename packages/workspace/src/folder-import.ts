@@ -154,6 +154,12 @@ export interface PreparedImportFile {
   /** The labels its sidecar names. */
   labels: string[];
   item: Omit<PreparedAssetImportItem, 'assetId' | 'labels'>;
+  /**
+   * A model whose images were extracted: the game-folder file of the texture
+   * each image became (one of this import's files or an asset's file), made
+   * the model's `textures` once their ids are chosen.
+   */
+  texturePaths?: Record<string, string>;
 }
 
 /** The asset's name: the file's name without its extension. */
@@ -200,6 +206,32 @@ export function mintImportItems(content: ContentCatalogV4 | null, files: readonl
     // A sidecar's label that is not one (edited by hand) is left out rather than refusing the import.
     const labels = f.labels.filter(isAssetLabel);
     out.push({ ...f.item, assetId, ...(labels.length > 0 ? { labels } : {}) });
+  }
+  // A model's extracted images name their textures by file: the ids chosen above, or the assets those files already are.
+  if (files.some((f) => f.texturePaths !== undefined)) {
+    const idOfPath = new Map<string, string>();
+    for (const r of (content?.assets ?? []) as unknown as RecordLike[]) {
+      const file = fileOfRecord(r);
+      if (file !== null) idOfPath.set(file.toLowerCase(), r.assetId);
+    }
+    let i = 0;
+    for (const f of files) {
+      if (known.has(f.path.toLowerCase())) continue;
+      idOfPath.set(f.path.toLowerCase(), out[i]!.assetId);
+      i += 1;
+    }
+    i = 0;
+    for (const f of files) {
+      if (known.has(f.path.toLowerCase())) continue;
+      const item = out[i++]!;
+      if (f.texturePaths === undefined) continue;
+      const textures: Record<string, string> = {};
+      for (const [image, path] of Object.entries(f.texturePaths)) {
+        const id = idOfPath.get(path.toLowerCase());
+        if (id !== undefined) textures[image] = id;
+      }
+      if (Object.keys(textures).length > 0) item.textures = textures;
+    }
   }
   return out;
 }

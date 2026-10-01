@@ -162,6 +162,21 @@ export function createdAssetRecord(args: PublishAssetArgs, revision: number): Co
     displayName: args.displayName ?? args.assetId,
     currentVersion: 1,
     versions: [assetVersionRecord(args, 1, revision)],
+    ...extractedFieldsOf(args, null),
+  };
+}
+
+/**
+ * A model's extracted-image fields after a publish: the setting as the args
+ * say (a reimport without it keeps the record's), and the map of the
+ * published version only (a version whose images stay inside has none).
+ */
+function extractedFieldsOf(args: PublishAssetArgs, existing: CommandAssetRecord | null): { extractTextures?: true; textures?: Record<string, string> } {
+  const kept = existing?.extractTextures === true;
+  const on = args.extractTextures ?? (args.mode === 'reimport' && kept);
+  return {
+    ...(on ? { extractTextures: true as const } : {}),
+    ...(args.textures !== undefined && Object.keys(args.textures).length > 0 ? { textures: { ...args.textures } } : {}),
   };
 }
 
@@ -248,12 +263,16 @@ export function applyPublishAsset(input: OpInput, args: PublishAssetArgs): OpOut
   const versionRecord = assetVersionRecord(args, version, input.revision);
   const record: CommandAssetRecord =
     existing !== null
-      ? {
-          ...deepClone(existing),
-          displayName: args.displayName ?? existing.displayName,
-          currentVersion: version,
-          versions: [...deepClone(keptVersions), versionRecord],
-        }
+      ? (() => {
+          const { extractTextures: _setting, textures: _images, ...rest } = deepClone(existing) as CommandAssetRecord;
+          return {
+            ...rest,
+            displayName: args.displayName ?? existing.displayName,
+            currentVersion: version,
+            versions: [...deepClone(keptVersions), versionRecord],
+            ...extractedFieldsOf(args, existing as CommandAssetRecord),
+          };
+        })()
       : createdAssetRecord(args, input.revision);
   const assets = [
     ...catalog.assets.filter((a) => a.assetId !== args.assetId),

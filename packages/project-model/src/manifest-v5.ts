@@ -312,7 +312,7 @@ function factRowOf(e: CatalogEntry, textures: boolean): Record<string, unknown> 
   if (known !== undefined) return known;
   let row: Record<string, unknown> | null = null;
   // Every model (a page knows from these whether the build draws models at all).
-  if (e.kind === 'model') row = { assetId: e.assetId, kind: 'model', ...(e['bounds'] !== undefined ? { bounds: e['bounds'] } : {}), ...(e['materials'] !== undefined ? { materials: e['materials'] } : {}) };
+  if (e.kind === 'model') row = { assetId: e.assetId, kind: 'model', ...(e['bounds'] !== undefined ? { bounds: e['bounds'] } : {}), ...(e['materials'] !== undefined ? { materials: e['materials'] } : {}), ...(e['textures'] !== undefined ? { textures: e['textures'] } : {}) };
   else if (e.kind === 'audio' && e['durationMs'] !== undefined) row = { assetId: e.assetId, kind: 'audio', durationMs: e['durationMs'] };
   else if (e.kind === 'texture' && textures) row = { assetId: e.assetId, kind: 'texture' };
   if (Object.isFrozen(e)) memo.set(e, row === null ? null : deepFreeze(row));

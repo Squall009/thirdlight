@@ -76,7 +76,7 @@ const METRIC_ORDER: Exclude<keyof AssetMetrics, 'bounds'>[] = [
 
 /** A header-only recipe (font, texture) has no `extensions` key. */
 const AUDIO_RECIPE_FIELDS = new Set(['profile', 'recipeVersion', 'toolchain']);
-const KNOWN_ASSET_FIELDS = new Set(['assetId', 'kind', 'displayName', 'currentVersion', 'versions', 'vertexColors', 'materials', 'clipsFor', 'labels', 'address', 'loadType', 'preload', 'streaming']);
+const KNOWN_ASSET_FIELDS = new Set(['assetId', 'kind', 'displayName', 'currentVersion', 'versions', 'vertexColors', 'materials', 'extractTextures', 'textures', 'clipsFor', 'labels', 'address', 'loadType', 'preload', 'streaming']);
 const KNOWN_VERSION_FIELDS = new Set([
   'version',
   'sourceDigest',
@@ -376,7 +376,7 @@ function validateAssetVersion(v: unknown, path: string, errors: ModelErrorV2[], 
     else if (sourcePath !== undefined) errors.push(unexpectedField(cpath, 'convertedFrom', 'a converted version is stored; it cannot also have a sourcePath'));
     else if (!isPlainObject(converted)) errors.push(fieldType(cpath, converted, 'object'));
     else {
-      if (!texture && converted['format'] !== 'fbx') errors.push(fieldValue(`${cpath}/format`, converted['format'], '"fbx"', 'the converted format must be "fbx"'));
+      if (!texture && converted['format'] !== 'fbx' && converted['format'] !== 'glb') errors.push(fieldValue(`${cpath}/format`, converted['format'], '"fbx" | "glb"', 'a model is converted from an FBX, or from a GLB whose images were extracted'));
       if (texture && converted['format'] !== 'png' && converted['format'] !== 'jpeg') errors.push(fieldValue(`${cpath}/format`, converted['format'], '"png" | "jpeg"', 'a texture is encoded from a PNG or JPEG'));
       if (texture && !(KTX2_ENCODINGS as readonly unknown[]).includes(converted['encoding'])) errors.push(fieldValue(`${cpath}/encoding`, converted['encoding'], '"color" | "normal" | "data"', 'the KTX2 encoding is "color" (ETC1S), "normal" or "data" (UASTC)'));
       if (texture && isPlainObject(v['metrics']) && v['metrics']['format'] !== 'ktx2') errors.push(fieldValue(`${cpath}/format`, v['metrics']['format'], 'metrics.format "ktx2"', 'an encoded texture version holds the KTX2'));
@@ -392,7 +392,7 @@ function validateAssetVersion(v: unknown, path: string, errors: ModelErrorV2[], 
         errors.push(fieldValue(`${cpath}/sourcePath`, sp, 'a relative path inside the game folder', 'convertedFrom.sourcePath must be a relative path inside the game folder'));
       }
       const c = converted['converter'];
-      const converterName = texture ? 'ktx2-encoder' : 'blender';
+      const converterName = texture ? 'ktx2-encoder' : converted['format'] === 'glb' ? 'texture-extract' : 'blender';
       if (!isPlainObject(c) || c['name'] !== converterName || typeof c['version'] !== 'string' || !/^\d+\.\d+(\.\d+)?$/.test(c['version']) || Object.keys(c).length !== 2) {
         errors.push(fieldValue(`${cpath}/converter`, c, `{ name: "${converterName}", version: "X.Y.Z" }`, `the converter must name ${converterName} and its exact version`));
       }
@@ -433,6 +433,32 @@ function validateAssetVersion(v: unknown, path: string, errors: ModelErrorV2[], 
   }
   for (const k of Object.keys(v)) {
     if (!KNOWN_VERSION_FIELDS.has(k)) errors.push(unexpectedField(`${path}/${pointerSegment(k)}`, k, [...KNOWN_VERSION_FIELDS].join(', ')));
+  }
+}
+
+/**
+ * A model's extracted images: the import setting (`extractTextures`, stored
+ * only as true) and the texture asset each image became (`textures`: the
+ * file's image index → texture assetId; that the ids name texture assets is
+ * the catalog's check).
+ */
+function validateExtractedTextures(a: Record<string, unknown>, path: string, errors: ModelErrorV2[], isModel: boolean): void {
+  const setting = a['extractTextures'];
+  if (setting !== undefined) {
+    if (!isModel) errors.push(unexpectedField(`${path}/extractTextures`, 'extractTextures', 'only a model asset extracts its images'));
+    else if (setting !== true) errors.push(fieldValue(`${path}/extractTextures`, setting, 'true (absent = the images stay inside the file)', 'extractTextures is stored only as true'));
+  }
+  const map = a['textures'];
+  if (map === undefined) return;
+  if (!isModel) return void errors.push(unexpectedField(`${path}/textures`, 'textures', 'only a model asset has extracted textures'));
+  if (!isPlainObject(map)) return void errors.push(fieldType(`${path}/textures`, map, 'object'));
+  const keys = Object.keys(map);
+  if (keys.length < 1 || keys.length > ASSET_METRIC_CAPS.images) errors.push(fieldValue(`${path}/textures`, keys.length, `1-${ASSET_METRIC_CAPS.images} images`, 'textures lists each extracted image of the file'));
+  for (const k of keys) {
+    const index = Number(k);
+    if (!/^(0|[1-9]\d*)$/.test(k) || index >= ASSET_METRIC_CAPS.images) errors.push(fieldValue(`${path}/textures/${pointerSegment(k)}`, k, `an image index 0-${ASSET_METRIC_CAPS.images - 1}`, 'textures is keyed by the file\'s image index'));
+    const id = map[k];
+    if (typeof id !== 'string' || !ID_RE_V2.test(id)) errors.push(fieldValue(`${path}/textures/${pointerSegment(k)}`, id, 'a texture assetId', 'an extracted image names the texture asset it became'));
   }
 }
 
@@ -528,6 +554,7 @@ export function validateAsset(a: unknown, path: string, errors: ModelErrorV2[], 
       errors.push(fieldValue(`${path}/vertexColors`, vertexColors, '"tint" (absent = data)', 'vertexColors is stored only as "tint"; the default treats COLOR_0 as shader data'));
     }
   }
+  validateExtractedTextures(a, path, errors, v3 && kind === 'model');
   // An animation-only model whose clips play on another model's rig (checked against the catalog in v4).
   const clipsFor = a['clipsFor'];
   if (clipsFor !== undefined) {
@@ -665,6 +692,8 @@ export function canonicalAssetV3(a: AssetRecordV3): AssetRecordV3 {
     versions: a.versions.map((v) => canonicalVersionV3(v, kind)),
     ...(a.vertexColors === 'tint' ? { vertexColors: 'tint' as const } : {}),
     ...(a.materials !== undefined ? { materials: canonicalMaterialMapping(a.materials) } : {}),
+    ...(a.extractTextures === true ? { extractTextures: true as const } : {}),
+    ...(a.textures !== undefined ? { textures: canonicalImageMap(a.textures) } : {}),
     ...(a.clipsFor !== undefined ? { clipsFor: a.clipsFor } : {}),
     ...(a.loadType !== undefined ? { loadType: a.loadType } : {}),
     ...(a.preload === false ? { preload: false as const } : {}),
@@ -672,6 +701,13 @@ export function canonicalAssetV3(a: AssetRecordV3): AssetRecordV3 {
     ...(a.labels !== undefined ? { labels: [...a.labels] } : {}),
     ...(a.address !== undefined ? { address: a.address } : {}),
   };
+}
+
+/** An extracted-image map in image order. */
+function canonicalImageMap(m: Readonly<Record<string, string>>): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const k of Object.keys(m).sort((x, y) => Number(x) - Number(y))) out[k] = m[k]!;
+  return out;
 }
 
 /** Whether a value is one asset label. */

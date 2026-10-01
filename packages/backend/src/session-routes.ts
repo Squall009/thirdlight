@@ -1,4 +1,5 @@
 import type { FolderImport, FolderImportReport } from './folder-import';
+import type { TextureExtraction, TextureExtractionReport } from './model-textures';
 import type { HeadlessEditors } from './headless';
 import { type IncomingMessage, type ServerResponse } from 'node:http';
 import { parseCommandEnvelope, parseEstablishRequest, parseStrictJsonBytes, sessionError, statusFor, isMutationOp, type SessionError } from '@thirdlight/protocol';
@@ -26,6 +27,8 @@ export interface SessionRoutesContext {
   readonly recordProblem: (projectId: string, source: Problem["source"], code: string, message: string) => void;
   /** Inspects a folder's files before its `importAssets` command (absent: the command refuses an unprepared folder). */
   readonly folderImport?: FolderImport;
+  /** Extracts a model's images before its `publishAsset` (absent: models keep their images). */
+  readonly textures?: TextureExtraction;
   readonly notifyMutationApplied: (projectId: string, requestId: string, revision: number, origin: OriginDoc | null, change: unknown, sceneId?: string) => void;
   /** The backend's headless editors (the owner's browser evicts them). */
   readonly headless: HeadlessEditors;
@@ -34,7 +37,7 @@ export interface SessionRoutesContext {
 }
 
 export function makeSessionRoutes(ctx: SessionRoutesContext) {
-  const { timeouts, nowMs, service, sessions, sendJson, sendError, bearerToken, tokenScope, requireAuth, readBody, fullState, workspaceError, sessionView, recordProblem, notifyMutationApplied, headless, onOwnerLost, folderImport } = ctx;
+  const { timeouts, nowMs, service, sessions, sendJson, sendError, bearerToken, tokenScope, requireAuth, readBody, fullState, workspaceError, sessionView, recordProblem, notifyMutationApplied, headless, onOwnerLost, folderImport, textures } = ctx;
 
   const establishSession = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
     const scope = tokenScope(bearerToken(req), req);
@@ -238,7 +241,40 @@ export function makeSessionRoutes(ctx: SessionRoutesContext) {
         }
         folderReport = prep.report;
       }
-      const result = service.runCommand(env);
+      // A model publish with "extract textures" on: its images become texture assets first (their own command).
+      let extraction: TextureExtractionReport | null = null;
+      let command = env;
+      if (envelope.op === 'publishAsset' && textures !== undefined) {
+        let refused: CommandError | null = null;
+        const prep = await textures.beforePublish(projectId, env, (request) => {
+          const r = service.runCommand(request);
+          if (!r.ok) {
+            refused = r.error;
+            return { ok: false, code: r.error.code, message: r.error.message ?? r.error.code };
+          }
+          if (r.duplicated === false) notifyMutationApplied(projectId, r.requestId, r.revision, envOrigin, r.change, (r as { sceneId?: string }).sceneId);
+          return { ok: true, revision: r.revision, change: r.change };
+        });
+        if (prep !== null && !prep.ok) {
+          recordProblem(projectId, 'import', prep.code, `publishAsset: ${prep.message}`);
+          // The textures' own command's refusal as it is (a stale revision is the publish's too).
+          const error: CommandError | null = refused;
+          if (error !== null) sendJson(res, statusFor((error as CommandError).cls), { ok: false, error: { ...(error as CommandError), message: prep.message } });
+          else sendJson(res, 400, { ok: false, error: { code: prep.code, cls: 'validation', message: prep.message } });
+          return;
+        }
+        if (prep !== null) {
+          command = prep.envelope;
+          extraction = prep.report;
+        }
+      }
+      const result = service.runCommand(command);
+      if (result.ok && extraction !== null && result.duplicated === false) {
+        if (session) sessions.record(session, 'command', result.requestId, result.revision, nowMs());
+        notifyMutationApplied(projectId, result.requestId, result.revision, envOrigin, result.change, (result as { sceneId?: string }).sceneId);
+        sendJson(res, 200, { ...result, textureExtraction: extraction });
+        return;
+      }
       if (!result.ok && folderReport !== null) {
         // The refusal says what the folder held besides it.
         sendJson(res, statusFor(result.error.cls), { ...result, folderImport: folderReport });

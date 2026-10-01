@@ -343,6 +343,17 @@ export interface AssetRecordV3 {
   /** Model only: the default material mapping of every placement (source material name or "*" → materialId). */
   materials?: Record<string, string>;
   /**
+   * Model only: the import setting "extract textures" — the file's images
+   * become texture assets the model draws with (absent: they stay inside the
+   * file).
+   */
+  extractTextures?: true;
+  /**
+   * Model only: the texture asset each image of the current version was
+   * extracted into (the file's image index → texture assetId).
+   */
+  textures?: Record<string, string>;
+  /**
    * Model only (v4): an animation-only file — its clips play on
    * the model asset named here (matched by bone names). Absent = the file's
    * clips are for its own nodes.
