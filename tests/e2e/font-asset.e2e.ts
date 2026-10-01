@@ -42,7 +42,7 @@ test('a TTF and a WOFF2 import as font assets and show font tiles', async ({ pag
   await importFont(page, 'neutral-sans.ttf', 1);
   const tile = page.locator('.tl-assets__list li[data-asset-id]').filter({ hasText: 'neutral-sans' }).first();
   await expect(tile).toContainText('font · v1');
-  await expect(tile.locator('img.tl-tile__img')).toHaveAttribute('src', './icons/empty.png');
+  await expect(tile.locator('img.tl-tile__img')).toHaveAttribute('src', './icons/kinds/font.webp');
   // A font dropped on the Scene view places nothing: no entity, no command.
   const entityCount = async (): Promise<number> => Number((await be.command({ op: 'queryEntities', projectId: be.projectId, args: { limit: 1, offset: 0 } }))['total']);
   const revision = async (): Promise<number> => Number((await be.command({ op: 'queryProject', projectId: be.projectId, args: {} }))['revision']);
