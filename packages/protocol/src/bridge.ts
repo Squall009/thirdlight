@@ -24,7 +24,7 @@ import {
   validateInputRelayResult,
 } from './delivery';
 import { SCREENSHOT_DATA_URL_MAX, SCREENSHOT_MAX_WIDTH_MAX } from './http';
-import { debugCommandCallProblem, REPLAY_ANSWER_WITHIN_MAX_MS } from './m3';
+import { debugCommandCallProblem, RELAY_ANSWER_WITHIN_MAX_MS } from './m3';
 
 /** The exhaustive allowlists (v2). */
 export const BRIDGE_EDITOR_TO_PREVIEW_TYPES = [
@@ -211,12 +211,15 @@ export function validateBridgeEditorToPreview(value: unknown): Verdict {
       return { ok: true };
     }
     case 'tl.screenshot.request': {
-      const bad = rejectUnknown(m, ['v', 'type', 'playSessionId', 'relayId', 'maxWidth']);
+      const bad = rejectUnknown(m, ['v', 'type', 'playSessionId', 'relayId', 'maxWidth', 'answerWithinMs']);
       if (bad) return { ok: false, reason: bad.reason, path: bad.path };
       if (!isPlaySessionId(m['playSessionId'])) return { ok: false, reason: 'playSessionId must be play- + 32 hex', path: '/playSessionId' };
       if (!isRelayId(m['relayId'])) return { ok: false, reason: 'relayId must be relay- + 32 hex', path: '/relayId' };
       if (m['maxWidth'] !== undefined && !int(m['maxWidth'], 256, 2048)) {
         return { ok: false, reason: 'maxWidth must be an integer 256–2048', path: '/maxWidth' };
+      }
+      if (m['answerWithinMs'] !== undefined && !int(m['answerWithinMs'], 0, RELAY_ANSWER_WITHIN_MAX_MS)) {
+        return { ok: false, reason: `answerWithinMs must be an integer of 0..${RELAY_ANSWER_WITHIN_MAX_MS}`, path: '/answerWithinMs' };
       }
       return { ok: true };
     }
@@ -249,8 +252,8 @@ export function validateBridgeEditorToPreview(value: unknown): Verdict {
       if (sceneCommand && (typeof m['sceneId'] !== 'string' || !/^[a-z0-9][a-z0-9_-]{0,63}$/.test(m['sceneId']))) {
         return { ok: false, reason: 'sceneId must be a scene id', path: '/sceneId' };
       }
-      if (replay && m['answerWithinMs'] !== undefined && (typeof m['answerWithinMs'] !== 'number' || !Number.isInteger(m['answerWithinMs']) || m['answerWithinMs'] < 0 || m['answerWithinMs'] > REPLAY_ANSWER_WITHIN_MAX_MS)) {
-        return { ok: false, reason: `answerWithinMs must be an integer of 0..${REPLAY_ANSWER_WITHIN_MAX_MS}`, path: '/answerWithinMs' };
+      if (replay && m['answerWithinMs'] !== undefined && (typeof m['answerWithinMs'] !== 'number' || !Number.isInteger(m['answerWithinMs']) || m['answerWithinMs'] < 0 || m['answerWithinMs'] > RELAY_ANSWER_WITHIN_MAX_MS)) {
+        return { ok: false, reason: `answerWithinMs must be an integer of 0..${RELAY_ANSWER_WITHIN_MAX_MS}`, path: '/answerWithinMs' };
       }
       if (type === 'tl.game.control' && debugCommand) {
         const p = debugCommandCallProblem(m['name'], m['args']);

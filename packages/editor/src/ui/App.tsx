@@ -556,7 +556,8 @@ function EditorApp(): JSX.Element {
   useEffect(() => {
     clientRef.current?.setSelection(selection.ids);
   }, [selection]);
-  useSelectionAcrossWindow(windowOpen, selection, setSelection, (id) => clientRef.current?.projection.getEntity(id) !== undefined);
+  const sameWindowTurn = useSelectionAcrossWindow(windowOpen, selection, setSelection, (id) => clientRef.current?.projection.getEntity(id) !== undefined);
+  const selectLater = useCallback(() => sameWindowTurn(setSelectedId), [sameWindowTurn, setSelectedId]);
   // Drop selected ids whose entity is gone (deleted, undone).
   useEffect(() => {
     const present = new Set(entities.map((e) => e.id));
@@ -587,7 +588,7 @@ function EditorApp(): JSX.Element {
   }, []);
 
   const sceneView = useSceneViewLending(viewportHostRef, viewportRef);
-  const sceneEditing = useSceneEditing({ clientRef, viewportRef, modelInstancesRef, selectedIdRef, selectionRef, setSelectedId, setSelectedCopy, setNotice, reportFailure, registry, refreshEntities });
+  const sceneEditing = useSceneEditing({ clientRef, viewportRef, modelInstancesRef, selectedIdRef, selectionRef, setSelectedId, selectLater, setSelectedCopy, setNotice, reportFailure, registry, refreshEntities });
   const { editCopiesRef, rename, move, sceneAction } = sceneEditing;
   useEditorShortcuts({ viewportRef, gestureRef, shiftRef, workspaceRef, blockHandlersRef, selectedIdRef, setSelectedId, setGizmoMode, scene: sceneEditing });
 

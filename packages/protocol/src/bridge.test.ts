@@ -200,6 +200,8 @@ describe('editor → preview validators', () => {
     expect(validateBridgeEditorToPreview({ v: 2, type: 'tl.screenshot.request', playSessionId: play, relayId: relay }).ok).toBe(true);
     expect(validateBridgeEditorToPreview({ v: 2, type: 'tl.screenshot.request', playSessionId: play, relayId: relay, maxWidth: 512 }).ok).toBe(true);
     expect(validateBridgeEditorToPreview({ v: 2, type: 'tl.screenshot.request', playSessionId: play, relayId: relay, maxWidth: 100 }).ok).toBe(false);
+    expect(validateBridgeEditorToPreview({ v: 2, type: 'tl.screenshot.request', playSessionId: play, relayId: relay, answerWithinMs: 5_000 }).ok).toBe(true);
+    expect(validateBridgeEditorToPreview({ v: 2, type: 'tl.screenshot.request', playSessionId: play, relayId: relay, answerWithinMs: -1 }).ok).toBe(false);
     expect(validateBridgeEditorToPreview({ v: 2, type: 'tl.diagnostics.request', playSessionId: play, relayId: relay }).ok).toBe(true);
     expect(validateBridgeEditorToPreview({ v: 2, type: 'tl.diagnostics.request', playSessionId: play, relayId: `relay-bad` }).ok).toBe(false);
   });

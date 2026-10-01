@@ -80,9 +80,6 @@ test('items open in a window over the editor: editor left, the one Inspector rig
     events: [],
   });
   await cmd('setAnimator', { controller: controller('Walker') });
-  // The editor has caught up with the MCP edits (its next command is sent at the backend's revision).
-  const revision = Number((await query('queryProject'))['revision']);
-  await expect(page.locator('.tl-statusbar')).toContainText(`revision ${revision}`);
 
   // The default view: the centre has the Scene and Game views only, no window, the Inspector on the right dock.
   expect(await centreTabs(page)).toEqual(['Scene', 'Game']);
@@ -127,18 +124,28 @@ test('items open in a window over the editor: editor left, the one Inspector rig
     .poll(async () => ((await query('queryBehaviors', { includeDeclaration: true, limit: 50, offset: 0 }))['behaviors'] as { behaviorId: string; declaration?: { properties: { default: unknown }[] } }[]).find((b) => b.behaviorId === 'mover')?.declaration?.properties[0]?.default)
     .toBe(5);
 
-  // A box made from the menu bar while the window shows is selected underneath; closing the window
-  // returns to the default view with the selection it had when the window opened.
+  // A box made from the menu bar while the window shows, and Esc before the box's command answered (its
+  // answer is held back): closing the window returns to the default view with the selection it had when
+  // the window opened, and the late answer does not replace it.
+  let created!: () => void;
+  const answered = new Promise<void>((r) => { created = r; });
+  await page.route(/\/commands$/, async (route) => {
+    if (!(route.request().postData() ?? '').includes('"createEntity"')) return route.fallback();
+    const res = await route.fetch();
+    await new Promise((r) => setTimeout(r, 800));
+    await route.fulfill({ response: res });
+    created();
+  });
   await menu(page, 'GameObject', 'Box');
-  await expect.poll(async () => page.locator('.tl-hierarchy__list li[data-entity-id]').count()).toBeGreaterThan(1);
-  const made = page.locator('.tl-hierarchy__list li[aria-selected="true"]');
-  await expect(made).toHaveCount(1);
-  await expect(made).not.toHaveAttribute('data-entity-id', crate);
   await page.keyboard.press('Escape');
   await expect(win).toHaveCount(0);
+  await answered;
+  await expect.poll(async () => page.locator('.tl-hierarchy__list li[data-entity-id]').count()).toBeGreaterThan(1);
+  await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
   await expect(row(page, crate)).toHaveAttribute('aria-selected', 'true');
   await expect(page.locator('.tl-hierarchy__list li[aria-selected="true"]')).toHaveCount(1);
   await expect(inspector(page)).toHaveAttribute('data-tl-inspector', 'dock');
+  await page.unroute(/\/commands$/);
 
   // A second item joins the window's tabs (the window's tabs stayed while it was closed).
   await openEditor(page, 'Animator', 'Walker');
@@ -267,4 +274,46 @@ test('the default view keeps the Scene and Game views and the maximize toggle', 
   await expect(maximize).toHaveAttribute('aria-pressed', 'false');
   await expect(page.locator('.tl-dock--left')).toBeVisible();
   await expect(page.locator('.tl-dock--bottom')).toBeVisible();
+});
+
+test('an editor command right after MCP edits is applied once the change feed brings them, not refused', async ({ page }) => {
+  test.setTimeout(90_000);
+  const crate = String((await cmd('createEntity', { kind: 'box', name: 'Crate', box: { size: [1, 1, 1], material: { color: '#b0b0b0' } }, transform: { position: [0, 0.5, 0] } }))['createdId']);
+  // The MCP edits' change-feed events reach the page late (held for a while, or until released), as on a busy
+  // page or a slow socket; every other message passes straight through.
+  let hold: 'none' | 'late' | 'stalled' = 'none';
+  const stalled: (() => void)[] = [];
+  await page.routeWebSocket(/\/api\/v1\/ws/, (ws) => {
+    const server = ws.connectToServer();
+    server.onMessage((m) => {
+      if (typeof m !== 'string' || !m.includes('e2e-editor-window') || hold === 'none') return ws.send(m);
+      if (hold === 'late') setTimeout(() => ws.send(m), 1_500);
+      else stalled.push(() => ws.send(m));
+    });
+    ws.onMessage((m) => server.send(m));
+  });
+  await open(page);
+  await expect(row(page, crate)).toHaveCount(1);
+  const boxes = async (): Promise<number> => Number((await query('queryEntities', { limit: 100, offset: 0 }))['total']);
+  const before = await boxes();
+  const rows = await page.locator('.tl-hierarchy__list li[data-entity-id]').count();
+
+  // An MCP edit, then at once an editor command made on the view without it.
+  hold = 'late';
+  await cmd('updateEntity', { entityId: crate, name: 'Crate renamed' });
+  await menu(page, 'GameObject', 'Box');
+  await expect.poll(boxes).toBe(before + 1);
+  await expect(row(page, crate)).toContainText('Crate renamed');
+  await expect(page.locator('.tl-statusbar')).not.toContainText('conflict');
+
+  // The feed stalls past the client's wait: the state is read again and the command still goes through.
+  hold = 'stalled';
+  await cmd('updateEntity', { entityId: crate, name: 'Crate again' });
+  await menu(page, 'GameObject', 'Box');
+  await expect.poll(boxes, { timeout: 15_000 }).toBe(before + 2);
+  await expect(row(page, crate)).toContainText('Crate again');
+  await expect(page.locator('.tl-statusbar')).not.toContainText('conflict');
+  hold = 'none';
+  for (const send of stalled.splice(0)) send();
+  await expect(page.locator('.tl-hierarchy__list li[data-entity-id]')).toHaveCount(rows + 2);
 });

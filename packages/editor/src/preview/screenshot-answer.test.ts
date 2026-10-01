@@ -7,7 +7,7 @@
 import { validateBridgePreviewToEditor } from '@thirdlight/protocol';
 import { describe, expect, it } from 'vitest';
 
-import { answerScreenshot, type CaptureOutcome } from './screenshot-answer';
+import { answerScreenshot, answerScreenshotWhenDrawn, type CaptureOutcome } from './screenshot-answer';
 
 const PLAY = `play-${'a'.repeat(32)}`;
 const RELAY = `relay-${'b'.repeat(32)}`;
@@ -79,5 +79,33 @@ describe('answerScreenshot', () => {
       expect(a.error.message).toContain('over the 1048576-character bound');
     }
     expect(calls).toBeLessThan(20);
+  });
+});
+
+describe('answerScreenshotWhenDrawn', () => {
+  const notDrawn: CaptureOutcome = { ok: false, error: { code: 'render_not_ready', message: 'the renderer is still initialising; nothing is drawn yet' } };
+  const drawn: CaptureOutcome = { ok: true, result: { dataUrl: png(64), width: 512, height: 288 } };
+
+  it('a renderer still starting is asked again until its first frame', async () => {
+    let calls = 0;
+    const a = await answerScreenshotWhenDrawn(() => (++calls < 4 ? notDrawn : drawn), 512, 5_000, () => true);
+    expect(a).toEqual({ ok: true, dataUrl: png(64), width: 512, height: 288 });
+    expect(calls).toBe(4);
+  });
+
+  it('past the allowed wait the not-ready answer stands', async () => {
+    const t0 = performance.now();
+    const a = await answerScreenshotWhenDrawn(() => notDrawn, 512, 60, () => true);
+    expect(a).toEqual({ ok: false, error: notDrawn.error });
+    expect(performance.now() - t0).toBeGreaterThanOrEqual(55);
+    expect(bridged(a).ok).toBe(true);
+  });
+
+  it('a stopped play or another failure answers at once', async () => {
+    let calls = 0;
+    expect(await answerScreenshotWhenDrawn(() => (calls++, notDrawn), 512, 5_000, () => false)).toEqual({ ok: false, error: notDrawn.error });
+    expect(calls).toBe(1);
+    const failed = await answerScreenshotWhenDrawn(() => ({ ok: false, error: { code: 'render_failed', message: 'render failed: x' } }), 512, 5_000, () => true);
+    expect(failed).toEqual({ ok: false, error: { code: 'render_failed', message: 'render failed: x' } });
   });
 });

@@ -1,7 +1,7 @@
 import { type IncomingMessage, type ServerResponse } from 'node:http';
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import { makeDiagnosticsRequest, makeInputRelayRequest, makePlayStarted, playSnapshotPath, makeScreenshotRequest, parseAdminNoArgsBody, parseInputRelayRequest, parsePlayStartRequest, parseScreenshotRequest, parseStrictJsonBytes, SCREENSHOT_DATA_URL_MAX, sessionError, statusFor, WS_OUT_FRAME_MAX, makeGameControlRequest, makeGameObserveRequest, parseGameControlRequest, parseGameObserveRequest, replayAnswerWithinMs, GAME_CONTROL_BODY_MAX_BYTES, GAME_OBSERVE_BODY_MAX_BYTES, type RuntimeSnapshotDoc, type SessionError } from '@thirdlight/protocol';
+import { makeDiagnosticsRequest, makeInputRelayRequest, makePlayStarted, playSnapshotPath, makeScreenshotRequest, parseAdminNoArgsBody, parseInputRelayRequest, parsePlayStartRequest, parseScreenshotRequest, parseStrictJsonBytes, SCREENSHOT_DATA_URL_MAX, sessionError, statusFor, WS_OUT_FRAME_MAX, makeGameControlRequest, makeGameObserveRequest, parseGameControlRequest, parseGameObserveRequest, relayAnswerWithinMs, GAME_CONTROL_BODY_MAX_BYTES, GAME_OBSERVE_BODY_MAX_BYTES, type RuntimeSnapshotDoc, type SessionError } from '@thirdlight/protocol';
 import { type CommandError, type QueryResult, type WorkspaceService } from '@thirdlight/workspace';
 import type { MissingPlayFile } from '@thirdlight/project-model';
 import { type BackendConfig } from './config';
@@ -571,7 +571,7 @@ export function makePlayRoutes(ctx: PlayRoutesContext) {
     }
     const relayId = newRelayId();
     const payload =
-      kind === 'screenshot' ? makeScreenshotRequest(relayId, maxWidth) : makeDiagnosticsRequest(relayId);
+      kind === 'screenshot' ? makeScreenshotRequest(relayId, maxWidth, relayAnswerWithinMs(relayTimeoutMs())) : makeDiagnosticsRequest(relayId);
     const outcome: RelayOutcome = await plays.relay(rec.playSessionId, kind, relayId, payload);
     sessions.record(owner, kind, relayId, rec.revision, nowMs(), outcome.ok ? 'ok' : (outcome.ok ? undefined : outcome.code));
     if (outcome.ok && outcome.kind === 'screenshot') {
@@ -823,7 +823,7 @@ export function makePlayRoutes(ctx: PlayRoutesContext) {
     }
     const relayId = `relay-${hex(16)}`;
     // A replay answers once its restart is applied, or says it is pending while the relay still waits.
-    const answerWithinMs = parsedReq.request.command === 'replay' ? replayAnswerWithinMs(relayTimeoutMs()) : undefined;
+    const answerWithinMs = parsedReq.request.command === 'replay' ? relayAnswerWithinMs(relayTimeoutMs()) : undefined;
     const payload = makeGameControlRequest(relayId, parsedReq.request.command, parsedReq.request.expectedRunId, parsedReq.request.sceneId, parsedReq.request.name !== undefined ? { name: parsedReq.request.name, args: parsedReq.request.args ?? {} } : undefined, answerWithinMs);
     const outcome: GameRelayOutcome = await plays.relayGame(rec.playSessionId, 'control', relayId, payload, relayTimeoutMs());
     if (outcome.ok) {

@@ -198,9 +198,9 @@ export class Bridge {
   }
 
   /** Request a bounded screenshot (editor side). */
-  requestScreenshot(playSessionId: string, relayId: string, maxWidth?: number): void {
+  requestScreenshot(playSessionId: string, relayId: string, maxWidth?: number, answerWithinMs?: number): void {
     if (this.direction !== 'editor') throw new Error('requestScreenshot is editor-side only');
-    this.postLocal({ v: 2, type: 'tl.screenshot.request', playSessionId, relayId, maxWidth });
+    this.postLocal({ v: 2, type: 'tl.screenshot.request', playSessionId, relayId, maxWidth, ...(answerWithinMs !== undefined ? { answerWithinMs } : {}) });
   }
 
   /** Forward a game control command (editor side). */

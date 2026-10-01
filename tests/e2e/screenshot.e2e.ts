@@ -27,7 +27,7 @@ import { startBackend, type E2EBackend } from './backend';
 import { multiPieceGlb } from './multi-piece-glb';
 import { decodePng, type Image } from './png';
 import { makePng } from './png-make';
-import { editorUrlFor, expectRendererBackend, onlyInItsProject, RENDERER_VARIANTS, type RendererVariant } from './renderer-variants';
+import { backendOf, editorUrlFor, expectRendererBackend, onlyInItsProject, RENDERER_VARIANTS, type RendererVariant } from './renderer-variants';
 import { projectWindow } from './ui';
 
 let be: E2EBackend;
@@ -242,3 +242,34 @@ test('a capture that fails answers with the reason, and the next one works', asy
   expect(again.status, JSON.stringify(again.json).slice(0, 300)).toBe(200);
   expect(greenPixels(pngOf(again.json['dataUrl']))).toBeGreaterThan(10);
 });
+
+for (const variant of ['auto', 'webgpu'] as const) {
+  test(`a screenshot asked as soon as Play runs waits for the renderer's first frame (${variant})`, async ({ page }) => {
+    onlyInItsProject(variant);
+    test.skip(backendOf(variant) !== 'webgpu', 'the renderer starts asynchronously on WebGPU');
+    test.setTimeout(150_000);
+    // The Play page's WebGPU adapter arrives late (as on a loaded host): the game runs before anything is drawn.
+    await page.addInitScript((delayMs) => {
+      if (!location.pathname.includes('/play') || typeof GPU === 'undefined') return;
+      const ask = GPU.prototype.requestAdapter;
+      GPU.prototype.requestAdapter = function (this: GPU, ...args: Parameters<GPU['requestAdapter']>) {
+        return new Promise((r) => setTimeout(r, delayMs)).then(() => ask.apply(this, args));
+      };
+    }, 2_500);
+    await page.goto(editorUrlFor(be.editorUrl, variant));
+    await expect(page.locator('.tl-statusbar')).toContainText('connected');
+    const api = async (path: string, body: unknown): Promise<{ status: number; json: Record<string, unknown> }> => {
+      const r = await fetch(`${be.origin}/api/v1/projects/${be.projectId}/${path}`, { method: 'POST', headers: { authorization: `Bearer ${be.token}`, 'content-type': 'application/json', origin: be.origin }, body: JSON.stringify(body) });
+      return { status: r.status, json: (await r.json()) as Record<string, unknown> };
+    };
+    const started = await api('play', { options: {} });
+    expect(started.status, JSON.stringify(started.json).slice(0, 300)).toBe(200);
+    const psid = String(started.json['playSessionId']);
+    await expect.poll(async () => (await api(`play/${psid}/observe`, {})).json['state'], { timeout: 60_000 }).toBe('running');
+    // At once, no waiting and no asking again: the answer is the first frame.
+    const shot = await screenshot(psid, 512);
+    expect(shot.status, JSON.stringify(shot.json).slice(0, 300)).toBe(200);
+    expect(pngOf(shot.json['dataUrl']).width).toBe(512);
+    await expectRendererBackend(page.frameLocator('iframe.tl-app__preview-frame').locator('canvas').first(), variant);
+  });
+}

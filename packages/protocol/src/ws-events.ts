@@ -200,9 +200,10 @@ export function makePlayStopped(payload: {
   return emit(obj);
 }
 
-export function makeScreenshotRequest(relayId: string, maxWidth?: number): string {
+export function makeScreenshotRequest(relayId: string, maxWidth?: number, answerWithinMs?: number): string {
   const obj: Record<string, unknown> = { type: 'screenshot.request', relayId };
   if (maxWidth !== undefined) obj.maxWidth = maxWidth;
+  if (answerWithinMs !== undefined) obj.answerWithinMs = answerWithinMs;
   return emit(obj);
 }
 

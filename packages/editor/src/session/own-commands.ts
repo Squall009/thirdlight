@@ -14,8 +14,11 @@
  *   (`enqueue`), and the HTTP ack's change is applied before the next one is
  *   sent (the WS event for it is then a duplicate, deduped by requestId);
  * - a command whose view was behind only by this editor's own acked commands
- *   is sent against the current revision (`rebase`); a revision made by
- *   anyone else (MCP, another tool) in between still conflicts;
+ *   is sent against the current revision (`rebase`) before it goes; one
+ *   refused because anyone else (MCP, another tool) edited in between is
+ *   sent once more after the change feed brought that edit (the client's
+ *   `command`), unless its args are a whole document built from the older
+ *   view;
  * - a whole-document edit is re-applied onto the current document
  *   (`mergeDocumentEdit`): only the parts the edit changed are written.
  *
@@ -129,3 +132,13 @@ export function mergeListEdit<T extends object>(base: readonly T[] | null, next:
   if (base === null || current === null || base.length !== next.length || current.length !== base.length) return [...next];
   return next.map((row, i) => mergeDocumentEdit(base[i] ?? null, row, current[i] ?? null) ?? row);
 }
+
+/**
+ * How long a command refused for an edit the change feed has not brought yet
+ * waits for the feed before the state is read again instead. The feed brings
+ * an edit within a frame or two; this bounds a stalled socket.
+ */
+export const CHANGE_FEED_CATCH_UP_MS = 3000;
+
+/** How often that wait looks at the projection's revision. */
+export const CHANGE_FEED_POLL_MS = 16;

@@ -21,6 +21,8 @@ export interface SceneEditingDeps {
   selectedIdRef: MutableRefObject<string | null>;
   selectionRef: MutableRefObject<string[]>;
   setSelectedId: (id: string | null) => void;
+  /** Taken before a command is sent: selects what it made when it answers, unless the editor window opened or closed meanwhile. */
+  selectLater: () => (id: string | null) => void;
   setSelectedCopy: (index: number | null) => void;
   setNotice: SetNotice;
   reportFailure: ReportFailure;
@@ -29,7 +31,7 @@ export interface SceneEditingDeps {
 }
 
 export function useSceneEditing(deps: SceneEditingDeps) {
-  const { clientRef, viewportRef, modelInstancesRef, selectedIdRef, selectionRef, setSelectedId, setSelectedCopy, setNotice, reportFailure, registry, refreshEntities } = deps;
+  const { clientRef, viewportRef, modelInstancesRef, selectedIdRef, selectionRef, setSelectedId, selectLater, setSelectedCopy, setNotice, reportFailure, registry, refreshEntities } = deps;
   // ---- toolbar actions (all delegated to the backend) ---------------------
   const newBox = useCallback(async () => {
     const c = clientRef.current;
@@ -37,13 +39,14 @@ export function useSceneEditing(deps: SceneEditingDeps) {
     // Spawn where the camera is looking (on the 0.25 m grid) so new boxes don't stack at the origin.
     const focus = viewportRef.current?.focusPoint() ?? [0, 0.5, 0];
     const position = focus.map((v) => Math.round(v * 4) / 4);
+    const select = selectLater();
     const res = await c.command(
       'createEntity',
       { kind: 'box', parentId: null, name: `box-${Date.now() % 10000}`, transform: { position } },
       c.projection.revision,
     );
-    if (res.ok && res.createdId !== undefined) setSelectedId(res.createdId);
-  }, [clientRef, setSelectedId, viewportRef]);
+    if (res.ok && res.createdId !== undefined) select(res.createdId);
+  }, [clientRef, selectLater, viewportRef]);
   const del = useCallback(async () => {
     const c = clientRef.current;
     if (!c || !selectedIdRef.current) return;
@@ -77,11 +80,12 @@ export function useSceneEditing(deps: SceneEditingDeps) {
       if (!c) return;
       const focus = viewportRef.current?.focusPoint() ?? [0, 0.5, 0];
       const at = position ?? focus.map((v) => Math.round(v * 4) / 4);
+      const select = selectLater();
       const res = await c.command('createEntity', { parentId: null, transform: { position: at }, ...args }, c.projection.revision);
-      if (res.ok && res.createdId !== undefined) setSelectedId(res.createdId);
+      if (res.ok && res.createdId !== undefined) select(res.createdId);
       else reportFailure(what, res);
     },
-    [clientRef, reportFailure, setSelectedId, viewportRef],
+    [clientRef, reportFailure, selectLater, viewportRef],
   );
   const createEmpty = useCallback(() => createEntityAt('Create empty', { kind: 'group', name: `entity-${Date.now() % 10000}` }), [createEntityAt]);
   // The camera and the lights are the descriptor's add value and
@@ -95,6 +99,7 @@ export function useSceneEditing(deps: SceneEditingDeps) {
     const focus = viewportRef.current?.focusPoint() ?? [0, 0.5, 0];
     const at = focus.map((v) => Math.round(v * 4) / 4);
     // createEntity does not add cameras (its component set is closed): an object, then its camera (a setComponent add).
+    const select = selectLater();
     void (async () => {
       const made = await c.command('createEntity', { parentId: null, kind: 'group', name: 'Camera', transform: { position: [at[0]!, at[1]!, at[2]! + 4] } }, c.projection.revision);
       if (!made.ok || made.createdId === undefined) return reportFailure('Create camera', made);
@@ -105,9 +110,9 @@ export function useSceneEditing(deps: SceneEditingDeps) {
         await c.command('deleteEntity', { entityId: made.createdId }, c.projection.revision);
         return;
       }
-      setSelectedId(made.createdId);
+      select(made.createdId);
     })();
-  }, [clientRef, registry, reportFailure, setNotice, setSelectedId, viewportRef]);
+  }, [clientRef, registry, reportFailure, selectLater, setNotice, viewportRef]);
   const createLight = useCallback(
     (type: 'directional' | 'ambient' | 'point' | 'spot' | 'hemisphere') => {
       const name = `${type.charAt(0).toUpperCase()}${type.slice(1)} light`;
@@ -143,10 +148,11 @@ export function useSceneEditing(deps: SceneEditingDeps) {
     // The duplicated roots are named "<name> copy" (their children keep their names).
     const ids = new Set(values.map((v) => v['id']));
     const named = values.map((v) => (ids.has(v['parentId']) ? v : { ...v, name: `${String(v['name'] ?? v['id'])} copy`.slice(0, 128) }));
+    const select = selectLater();
     const res = await c.command('pasteEntities', { entities: named, offset: [0.5, 0, 0], ...(sceneId !== undefined ? { sceneId } : {}) }, c.projection.revision);
-    if (res.ok && res.createdId !== undefined) setSelectedId(res.createdId);
+    if (res.ok && res.createdId !== undefined) select(res.createdId);
     else reportFailure('Duplicate', res);
-  }, [clientRef, reportFailure, selectionValues, setSelectedId]);
+  }, [clientRef, reportFailure, selectionValues, selectLater]);
 
   /** Edit → Copy (Ctrl+C): remember the selection's values (any scene). */
   const clipboardRef = useRef<Record<string, unknown>[] | null>(null);
@@ -164,10 +170,11 @@ export function useSceneEditing(deps: SceneEditingDeps) {
     if (!c || values === null) return;
     const target = selectedIdRef.current !== null ? c.projection.listEntities().find((e) => e.id === selectedIdRef.current) : undefined;
     const parentId = target?.kind === 'folder' ? target.id : null;
+    const select = selectLater();
     const res = await c.command('pasteEntities', { entities: values, parentId }, c.projection.revision);
-    if (res.ok && res.createdId !== undefined) setSelectedId(res.createdId);
+    if (res.ok && res.createdId !== undefined) select(res.createdId);
     else reportFailure('Paste', res);
-  }, [clientRef, reportFailure, selectedIdRef, setSelectedId]);
+  }, [clientRef, reportFailure, selectedIdRef, selectLater]);
   const editRef = useRef({ duplicate, copySelection, paste });
   editRef.current = { duplicate, copySelection, paste };
 
@@ -295,10 +302,11 @@ export function useSceneEditing(deps: SceneEditingDeps) {
     if (!c) return;
     const sel = selectedIdRef.current !== null ? c.projection.getEntity(selectedIdRef.current) : undefined;
     const parentId = sel?.kind === 'folder' ? sel.id : null;
+    const select = selectLater();
     const res = await c.command('createEntity', { kind: 'folder', name: 'Folder', parentId }, c.projection.revision);
-    if (res.ok && res.createdId !== undefined) setSelectedId(res.createdId);
+    if (res.ok && res.createdId !== undefined) select(res.createdId);
     else reportFailure('Create folder', res);
-  }, [clientRef, reportFailure, selectedIdRef, setSelectedId]);
+  }, [clientRef, reportFailure, selectedIdRef, selectLater]);
   const editTransform = useCallback(async (entityId: string, patch: { position?: number[]; rotation?: number[]; scale?: number[] }) => {
     const c = clientRef.current;
     if (!c) return;

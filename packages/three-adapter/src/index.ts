@@ -15,7 +15,7 @@
  * @thirdlight/runtime, three.
  */
 export { createSceneAdapter, type SceneAdapter, type SceneAdapterDiagnostics, type SceneAdapterOptions, type ScreenshotResult, type FrameDrawnInfo } from './adapter';
-export { ERROR_CODES, type AdapterError, type AdapterErrorCode } from './errors';
+export { ERROR_CODES, RENDER_NOT_READY, type AdapterError, type AdapterErrorCode } from './errors';
 // The one renderer factory (Play/export, the Scene view, previews).
 export {
   createRenderer,

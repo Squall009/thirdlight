@@ -39,7 +39,7 @@ import { GamePageError, startGamePage, type GamePageHandle, type GamePageManifes
 import type { SceneAdapter } from '@thirdlight/three-adapter';
 import type { InputConfigLike } from '@thirdlight/input';
 import { Bridge } from './bridge';
-import { answerScreenshot } from './screenshot-answer';
+import { answerScreenshotWhenDrawn } from './screenshot-answer';
 import { awaitRestart } from './replay-answer';
 import { resolveRelayFrames, type IncomingRelayFrame } from './relay-frames';
 
@@ -402,14 +402,16 @@ export function bootstrapPreviewM3(): void {
   });
 
   bridge.on('tl.screenshot.request', (m) => {
-    const body = m as { relayId: string; maxWidth?: number };
+    const body = m as { relayId: string; maxWidth?: number; answerWithinMs?: number };
     if (handle === null) {
       bridge.sendScreenshotResult(playId, body.relayId, notReady);
       return;
     }
-    // Always answers (a throw or an over-bound PNG becomes an answer, not a relay timeout).
-    const adapter = handle.adapter;
-    bridge.sendScreenshotResult(playId, body.relayId, answerScreenshot(adapter === null ? null : (w) => adapter.captureScreenshot(w), body.maxWidth ?? 1024));
+    // Always answers (a throw or an over-bound PNG becomes an answer, not a relay timeout); a renderer
+    // still starting is waited for within the relay's allowance, so a capture right after Play starts gets the first frame.
+    const current = handle;
+    const adapter = current.adapter;
+    void answerScreenshotWhenDrawn(adapter === null ? null : (w) => adapter.captureScreenshot(w), body.maxWidth ?? 1024, body.answerWithinMs ?? 0, () => handle === current).then((answer) => bridge.sendScreenshotResult(playId, body.relayId, answer));
   });
 
   bridge.on('tl.diagnostics.request', (m) => {

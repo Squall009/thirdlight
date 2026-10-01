@@ -540,17 +540,18 @@ export const GAME_OBSERVE_BODY_MAX_BYTES = 4_096;
 export const GAME_CONTROL_RESULT_MAX_BYTES = 4_096;
 export const GAME_OBSERVATION_MAX_BYTES = 16_384;
 /**
- * How long the preview may wait for a replay's restart to be applied before
- * it answers that the restart is still pending: half the relay's timeout,
- * the other half left for the request's and the answer's way through the
- * editor page (a loaded page delays both by seconds), so a slow restart
- * answers "pending" instead of timing the relay out.
+ * How long the preview may wait inside a relay before it answers with what
+ * it has: a replay's restart to be applied (else "pending"), a screenshot's
+ * first drawn frame (else the renderer's "not ready"). Half the relay's
+ * timeout, the other half left for the request's and the answer's way
+ * through the editor page (a loaded page delays both by seconds), so a slow
+ * start answers instead of timing the relay out.
  */
-export function replayAnswerWithinMs(relayTimeoutMs: number): number {
+export function relayAnswerWithinMs(relayTimeoutMs: number): number {
   return Math.max(0, Math.floor(relayTimeoutMs / 2));
 }
 /** The answer's bound on `answerWithinMs` (a relay never waits longer). */
-export const REPLAY_ANSWER_WITHIN_MAX_MS = 60_000;
+export const RELAY_ANSWER_WITHIN_MAX_MS = 60_000;
 /** A replay's restart in its answer: applied (at the step the new run began) or still pending. */
 export const REPLAY_RESTART_STATES = ['applied', 'pending'] as const;
 

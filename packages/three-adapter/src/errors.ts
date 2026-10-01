@@ -15,6 +15,8 @@ export const ERROR_CODES = [
   /** A render/capture step failed after context creation (e.g. the
    *  runtime state is unavailable). */
   'render_failed',
+  /** The renderer has not drawn its first frame yet (WebGPU still starting): nothing to capture. */
+  'render_not_ready',
   /** PNG capture failed (e.g. `toDataURL` unavailable). */
   'screenshot_failed',
   /** A method was called after `dispose()`. */
@@ -70,6 +72,9 @@ export const ERROR_CODES = [
 ] as const;
 
 export type AdapterErrorCode = (typeof ERROR_CODES)[number];
+
+/** A capture asked before the renderer drew its first frame (a caller may ask again once it has). */
+export const RENDER_NOT_READY: AdapterErrorCode = 'render_not_ready';
 
 /** One structured adapter error object. */
 export interface AdapterError {

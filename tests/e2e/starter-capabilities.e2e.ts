@@ -339,15 +339,7 @@ test('a new Starter project: scene lights with a spot cookie, a script writing a
   await expect.poll(async () => (await observe()).state, { timeout: 60_000 }).toBe('running');
 
   // The cookie: the spot's patch on the wall is striped (a plain spot would be one bright run), and white.
-  // A loaded host can report the game running before its renderer drew a frame: that screenshot is refused
-  // with its reason, and the poll asks again.
-  const shotWhenDrawn = async (): Promise<Image | null> => {
-    const r = await api(`play/${psid}/screenshot`, { maxWidth: 512 });
-    if (r.status === 503 && JSON.stringify(r.json).includes('still initialising')) return null;
-    expect(r.status, JSON.stringify(r.json).slice(0, 200)).toBe(200);
-    return decodePng(Buffer.from(String(r.json['dataUrl']).replace(/^data:image\/png;base64,/, ''), 'base64'));
-  };
-  await expect.poll(async () => { const img = await shotWhenDrawn(); return img === null ? -1 : stripes(img, bright); }, { timeout: 30_000 }).toBeGreaterThanOrEqual(3);
+  await expect.poll(async () => stripes(await shot(), bright), { timeout: 30_000 }).toBeGreaterThanOrEqual(3);
   const before = await shot();
   console.log(`start: bright stripes ${stripes(before, bright)}, green stripes ${stripes(before, green)}`);
   expect(stripes(before, green)).toBe(0);

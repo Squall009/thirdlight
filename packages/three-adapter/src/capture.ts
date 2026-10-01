@@ -3,7 +3,7 @@
  * screenshot) and a save slot's downscaled picture. Both draw their own frame
  * and read it back in the same task.
  */
-import { adapterError, type AdapterError } from './errors';
+import { adapterError, RENDER_NOT_READY, type AdapterError } from './errors';
 
 export interface ScreenshotResult {
   /** Base64 PNG data URL (same-origin canvas). */
@@ -64,7 +64,7 @@ export function createFrameCapture({ canvas, drawFrame, skipped }: FrameCaptureD
       return { ok: false, error: adapterError('screenshot_failed', `the frame for the capture failed: ${reasonOf(e)}`) };
     }
     if (!frame.ok) return { ok: false, error: frame.error };
-    if (skipped()) return { ok: false, error: adapterError('render_failed', 'the renderer is still initialising; nothing is drawn yet') };
+    if (skipped()) return { ok: false, error: adapterError(RENDER_NOT_READY, 'the renderer is still initialising; nothing is drawn yet') };
     if (typeof canvas?.toDataURL !== 'function') {
       return { ok: false, error: adapterError('screenshot_failed', 'canvas does not expose toDataURL()') };
     }

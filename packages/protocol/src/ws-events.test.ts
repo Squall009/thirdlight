@@ -79,9 +79,10 @@ describe('server → client builders', () => {
     expect(JSON.parse(makePlayStopped({ playSessionId: play, reason: 'preview_timeout' }))).toEqual({ type: 'play.stopped', playSessionId: play, reason: 'preview_timeout' });
     expect(JSON.parse(makePlayStopped({ playSessionId: play, reason: 'request', stopUnconfirmed: true }))).toEqual({ type: 'play.stopped', playSessionId: play, reason: 'request', stopUnconfirmed: true });
   });
-  it('screenshot.request { relayId, maxWidth? }', () => {
+  it('screenshot.request { relayId, maxWidth?, answerWithinMs? }', () => {
     expect(JSON.parse(makeScreenshotRequest(relay))).toEqual({ type: 'screenshot.request', relayId: relay });
     expect(JSON.parse(makeScreenshotRequest(relay, 512))).toEqual({ type: 'screenshot.request', relayId: relay, maxWidth: 512 });
+    expect(JSON.parse(makeScreenshotRequest(relay, 512, 5_000))).toEqual({ type: 'screenshot.request', relayId: relay, maxWidth: 512, answerWithinMs: 5_000 });
   });
   it('error { code, frameHint? ≤ 64 }', () => {
     expect(JSON.parse(makeErrorEvent('unknown_event'))).toEqual({ type: 'error', code: 'unknown_event' });

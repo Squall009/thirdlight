@@ -440,7 +440,7 @@ describe('scene adapter on the factory (stubbed WebGPURenderer)', () => {
     expect(adapter.renderFrame()).toEqual({ ok: true });
     const shot = adapter.captureScreenshot(64);
     expect(shot.ok).toBe(false);
-    if (!shot.ok) expect(shot.error.code).toBe('render_failed');
+    if (!shot.ok) expect(shot.error.code).toBe('render_not_ready');
     const d = adapter.diagnostics();
     expect(d.ok).toBe(true);
     if (d.ok) {

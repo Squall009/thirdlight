@@ -9,9 +9,15 @@
  * the screenshot bound. A PNG over the bound is captured again at a smaller
  * width (the answer reports the width it has); at the smallest width (the
  * request's lower maxWidth bound) it is an error.
+ *
+ * A renderer that has not drawn its first frame yet (WebGPU starts
+ * asynchronously, so a Play reads `running` before it draws) is waited for
+ * within the time the relay allows (`answerScreenshotWhenDrawn`), so a
+ * capture asked right after Play starts gets that frame.
  */
 
 import { SCREENSHOT_DATA_URL_MAX, SCREENSHOT_MAX_WIDTH_MIN } from '@thirdlight/protocol';
+import { RENDER_NOT_READY } from '@thirdlight/three-adapter';
 
 /** The bridge's error message bound. */
 const MESSAGE_MAX = 256;
@@ -55,5 +61,22 @@ export function answerScreenshot(capture: ((maxWidth: number) => CaptureOutcome)
     // PNG size grows about with the pixel count: shrink by the square root of the excess, with a margin.
     const next = Math.max(SCREENSHOT_MAX_WIDTH_MIN, Math.floor(w * Math.sqrt(dataUrlMax / dataUrl.length) * 0.9));
     width = Math.min(next, w - 1);
+  }
+}
+
+/** How often a capture is tried again while the renderer starts (about a frame). */
+const DRAWN_POLL_MS = 16;
+
+/**
+ * `answerScreenshot`, asked again while the renderer has not drawn its first
+ * frame, until `withinMs` passed or `alive` turns false (the play stopped);
+ * then the last answer stands.
+ */
+export async function answerScreenshotWhenDrawn(capture: ((maxWidth: number) => CaptureOutcome) | null, maxWidth: number, withinMs: number, alive: () => boolean, dataUrlMax = SCREENSHOT_DATA_URL_MAX): Promise<ScreenshotAnswer> {
+  const end = performance.now() + withinMs;
+  for (;;) {
+    const answer = answerScreenshot(capture, maxWidth, dataUrlMax);
+    if (answer.ok || answer.error.code !== RENDER_NOT_READY || !alive() || performance.now() >= end) return answer;
+    await new Promise((r) => setTimeout(r, Math.min(DRAWN_POLL_MS, Math.max(0, end - performance.now()))));
   }
 }

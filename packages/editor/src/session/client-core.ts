@@ -41,7 +41,7 @@ import { committed, planAssetQuery } from './asset-browser';
 import { type Transform } from './gesture';
 import { type CompileDiagnosticView } from './behavior-publication';
 import { fromWireChange, RESOURCE_CREATING_OPS } from '@thirdlight/protocol';
-import { OwnCommands, WHOLE_DOCUMENT_OPS } from './own-commands';
+import { CHANGE_FEED_CATCH_UP_MS, CHANGE_FEED_POLL_MS, OwnCommands, WHOLE_DOCUMENT_OPS } from './own-commands';
 import type { BehaviorRecord, PrefabDefinition } from '@thirdlight/project-model';
 import { ASSET_QUERY_PAGE_MAX } from '@thirdlight/project-model/limits';
 
@@ -1069,6 +1069,14 @@ export class SessionClientCore {
    * was behind only by this editor's own edits is sent against the current
    * revision (own-commands.ts). `args` may be a function: it is called at
    * send time, so args derived from the client state see every earlier edit.
+   *
+   * A command refused with `revision_conflict` because someone else (MCP,
+   * another tool) edited first was made on a view the change feed had not
+   * caught up yet: the client waits for the feed to reach the backend's
+   * revision and sends it once more against it (`rebaseAfterFeed`), so a
+   * person editing while a tool edits is not refused. A whole-document op
+   * whose args were built from the older view is not resent (it would undo
+   * the edits in between); its conflict is surfaced.
    */
   command(
     op: string,
@@ -1078,11 +1086,35 @@ export class SessionClientCore {
     origin: Origin = { kind: 'browser', clientId: this.sessionId },
   ): Promise<CommandResult> {
     const lazy = typeof args === 'function';
-    return this.ownCommands.enqueue(() => {
-      // A whole-document op with args built at call time keeps its revision (stale args conflict instead of undoing an edit).
-      const expected = lazy || !WHOLE_DOCUMENT_OPS.has(op) ? this.ownCommands.rebase(expectedRevision, this.projection.revision) : expectedRevision;
-      return this.sendCommand(op, lazy ? (args as () => unknown)() : args, expected, requestId, origin);
+    // A whole-document op with args built at call time keeps its revision (stale args conflict instead of undoing an edit).
+    const rebases = lazy || !WHOLE_DOCUMENT_OPS.has(op);
+    return this.ownCommands.enqueue(async () => {
+      const expected = rebases ? this.ownCommands.rebase(expectedRevision, this.projection.revision) : expectedRevision;
+      const first = await this.sendCommand(op, lazy ? (args as () => unknown)() : args, expected, requestId, origin, !rebases);
+      if (first.ok || first.response.ok || first.response.code !== 'revision_conflict' || !rebases) return first;
+      const behind = first.response.currentRevision;
+      if (!(await this.rebaseAfterFeed(typeof behind === 'number' ? behind : this.projection.revision + 1))) {
+        return this.finishCommand({ status: 'response', response: first.response }, expected);
+      }
+      return this.sendCommand(op, lazy ? (args as () => unknown)() : args, this.projection.revision, requestId, origin, true);
     });
+  }
+
+  /**
+   * Wait until the change feed has brought the projection to `revision`
+   * (bounded by `CHANGE_FEED_CATCH_UP_MS`; past it the state is read again,
+   * as after a gap). True when the projection got there.
+   */
+  private async rebaseAfterFeed(revision: number): Promise<boolean> {
+    const deadline = Date.now() + CHANGE_FEED_CATCH_UP_MS;
+    while (this.projection.revision < revision && Date.now() < deadline && !this.disposed) {
+      await new Promise((r) => setTimeout(r, CHANGE_FEED_POLL_MS));
+    }
+    if (this.projection.revision < revision && !this.disposed) {
+      await this.fullResync();
+      this.cb.onSceneChanged();
+    }
+    return this.projection.revision >= revision;
   }
 
   private readonly ownCommands = new OwnCommands();
@@ -1093,6 +1125,7 @@ export class SessionClientCore {
     expectedRevision: number,
     requestId: string | undefined,
     origin: Origin,
+    final: boolean,
   ): Promise<CommandResult> {
     const rid = requestId ?? makeRequestId();
     // A new root entity goes into the active scene (with a
@@ -1118,6 +1151,8 @@ export class SessionClientCore {
       outcome = await this.postCommand(env);
     }
     if (outcome.status === 'response' && outcome.response.ok) this.applyOwnAck(rid, outcome.response);
+    // A conflict that may still be sent again is not shown until it is the answer.
+    if (!final && outcome.status === 'response' && !outcome.response.ok && outcome.response.code === 'revision_conflict') return { ok: false, response: outcome.response };
     return this.finishCommand(outcome, expectedRevision);
   }
 

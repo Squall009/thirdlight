@@ -15,7 +15,7 @@
  *
  * Browser-only (React).
  */
-import { useEffect, useReducer, useRef, useState, type Dispatch, type JSX, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
+import { useCallback, useEffect, useReducer, useRef, useState, type Dispatch, type JSX, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 
 import {
   INITIAL_WORKSPACE,
@@ -92,16 +92,26 @@ export function useWorkspace(projectId: string | null): [WorkspaceState, Dispatc
   return [state, dispatch];
 }
 
+/** Wraps a selection made when a command answers so it applies only if the window neither opened nor closed meanwhile. */
+export type SameWindowTurn = <T>(apply: (value: T) => void) => (value: T) => void;
+
 /**
  * The default view's selection survives the window: what was selected when
  * the window opened is selected again when it closes (the objects that still
  * exist), whatever the window's editors selected meanwhile.
+ *
+ * A selection a command makes when it answers (a new object selects itself)
+ * belongs to the view it was asked from: one asked while the window showed
+ * and answered after it closed would replace the selection just restored, so
+ * it is dropped (the returned wrapper).
  */
-export function useSelectionAcrossWindow<S extends { ids: string[]; primary: string | null }>(open: boolean, selection: S, restore: (s: { ids: string[]; primary: string | null }) => void, exists: (id: string) => boolean): void {
+export function useSelectionAcrossWindow<S extends { ids: string[]; primary: string | null }>(open: boolean, selection: S, restore: (s: { ids: string[]; primary: string | null }) => void, exists: (id: string) => boolean): SameWindowTurn {
   const saved = useRef<{ ids: string[]; primary: string | null } | null>(null);
   const selectionRef = useRef(selection);
   selectionRef.current = selection;
+  const turn = useRef(0);
   useEffect(() => {
+    turn.current += 1;
     if (open) {
       if (saved.current === null) saved.current = { ids: selectionRef.current.ids, primary: selectionRef.current.primary };
       return;
@@ -115,6 +125,12 @@ export function useSelectionAcrossWindow<S extends { ids: string[]; primary: str
     if (now.primary === primary && now.ids.length === ids.length && now.ids.every((id, i) => id === ids[i])) return;
     restore({ ids, primary });
   }, [open]); // eslint-disable-line react-hooks/exhaustive-deps -- runs on the window opening or closing only; the selection and the existence check are read when it does
+  return useCallback(<T,>(apply: (value: T) => void) => {
+    const at = turn.current;
+    return (value: T) => {
+      if (turn.current === at) apply(value);
+    };
+  }, []);
 }
 
 /** Forget every project's remembered editor window tabs (Window → Reset layout). */

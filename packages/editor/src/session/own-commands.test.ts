@@ -74,6 +74,7 @@ function fakeBackend() {
   const fetchStub = vi.fn(async (_url: string, init: { body?: string }) => {
     await new Promise((r) => setTimeout(r, 1));
     const env = JSON.parse(init.body ?? '{}') as { op: string; requestId?: string; expectedRevision?: number; args: Record<string, unknown> };
+    if (env.op === 'queryEntities') return reply(200, { ok: true, revision: state.revision, entities: [crateAt(state.box)], total: 1 });
     if (env.op.startsWith('query')) return reply(200, { ok: true, history: { undoDepth: 0, redoDepth: 0 } });
     sent.push({ op: env.op, expectedRevision: env.expectedRevision ?? -1, args: env.args });
     if (env.expectedRevision !== state.revision) {
@@ -94,10 +95,12 @@ function fakeBackend() {
   return { state, sent, fetchStub };
 }
 
-function makeClient(): SessionClient {
+const crateAt = (box: Record<string, unknown>): never => ({ id: 'crate', name: 'crate', components: { transform: { position: [0, 0, 0], rotation: [0, 0, 0, 1], scale: [1, 1, 1] }, box: { size: [1, 1, 1], material: box } } }) as never;
+
+function makeClient(onState: (s: { conflict: unknown }) => void = () => undefined): SessionClient {
   const c = new SessionClient(
     { projectId: 'p', authoringOrigin: 'http://authoring.test', previewOrigin: 'http://preview.test', authoringToken: 't' },
-    { onState: () => undefined, onSceneChanged: () => undefined, onPlayStarted: () => undefined, onPlayStopped: () => undefined },
+    { onState, onSceneChanged: () => undefined, onPlayStarted: () => undefined, onPlayStopped: () => undefined },
     'sess-' + '0'.repeat(32),
   );
   c.projection.hydrate({
@@ -141,14 +144,36 @@ describe('SessionClient — own commands made before the previous result arrived
     expect(be.state.shell).toEqual({ screens: { title: 'title-doc', pause: 'pause-doc' }, pause: false });
   });
 
-  it('does not rebase over someone else\'s revision, nor a whole-document edit built from the old view', async () => {
+  it('an edit refused for someone else\'s revision is sent again once the change feed brought it', async () => {
+    const be = fakeBackend();
+    vi.stubGlobal('fetch', be.fetchStub);
+    const conflicts: unknown[] = [];
+    const c = makeClient((st) => { if (st.conflict !== null) conflicts.push(st.conflict); });
+    // Someone else (MCP) edited: revision 2 exists, its event arrives a moment after the refusal.
+    be.state.revision = 2;
+    be.state.box = { color: '#0000ff' };
+    const r = c.command('setComponent', { entityId: 'crate', component: 'box', value: { roughness: 0.5 } }, c.projection.revision);
+    await vi.waitFor(() => expect(be.sent).toHaveLength(1));
+    setTimeout(() => {
+      c.projection.applyMutationApplied({ requestId: 'req-mcp', revision: 2, change: { type: 'setComponent', id: 'crate', component: 'box', previous: { color: '#ffffff' }, next: { color: '#0000ff' }, changedFields: ['color'] } as never });
+    }, 40);
+    expect(await r).toMatchObject({ ok: true, revision: 3 });
+    expect(be.sent.map((s) => s.expectedRevision)).toEqual([1, 2]);
+    expect(be.state.box).toEqual({ color: '#0000ff', roughness: 0.5 });
+    expect(conflicts).toEqual([]);
+  });
+
+  it('when the change feed does not come, the state is read again and the edit sent against it', async () => {
     const be = fakeBackend();
     vi.stubGlobal('fetch', be.fetchStub);
     const c = makeClient();
-    // Someone else (MCP) edited: revision 2 exists, its event has not arrived.
-    be.state.revision = 2;
-    const r = await c.command('setComponent', { entityId: 'crate', component: 'box', value: { color: '#00ff00' } }, c.projection.revision);
-    expect(r).toMatchObject({ ok: false, response: { code: 'revision_conflict' } });
+    be.state.revision = 4;
+    const r = await c.command('setComponent', { entityId: 'crate', component: 'box', value: { roughness: 0.5 } }, c.projection.revision);
+    expect(r).toMatchObject({ ok: true, revision: 5 });
+    expect(be.sent.map((s) => s.expectedRevision)).toEqual([1, 4]);
+  }, 10_000);
+
+  it('does not resend a whole-document edit built from the old view', async () => {
 
     const be2 = fakeBackend();
     vi.stubGlobal('fetch', be2.fetchStub);
