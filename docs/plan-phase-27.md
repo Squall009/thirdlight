@@ -304,7 +304,8 @@ moves at least as many lines out as it adds.
 | 27.9 | done 2026-10-01: `tests/e2e/ui.ts` opens tool windows (`openWindow`, `windowTab`, `expectWindowOpen`), the project window (`projectWindow`), settings sections (`openProjectSettings`), item editors (`openEditor` — to the front if open, else a double-click in the project window found by search — `closeEditor`, `editorTab`, `editorPane`, `expectEditorOpen`) and the Scene/Game views (`showView`, `viewTab`); 78 specs moved to them (the 74 counted plus four that only named editor panes), two fast gates with every moved spec green |
 | 27.10 | done 2026-10-01: each scene file carries its look (`SceneV4.environment`: sky, fog, post, wind); `content.environment` keeps the default quality and the presets; `project.json` schemaVersion 6, a 5 upgraded on open (the project look copied into every scene; fixture `fixtures/phase27/legacy-v5-environment` upgraded, replayed and exported over HTTP); `setEnvironment {sceneId}` (MCP too), `createScene {environmentFrom}`, a deleted scene's look kept for undo; the runtime's active scene (`ctx.scenes.active/setActive`, a transition taking over the active scene's place makes its scene active over the fade) blends the looks as simulation state (page, worker, replay agree); Scene view, Play and export draw the active scene's look, checked in pixels in a two-scene Play and its export (D107) |
 | 27.11 | done 2026-10-01: an item opens in the editor window over the editor (double-click in the project window, "Open" beside an Inspector reference): its editor left, the one Inspector right (the same `InspectorDock`, moved), one split with a remembered width; open items are its tabs (reorder, close, middle-click, Ctrl+Tab), remembered per project; Esc/× return to the default view with the selection it had; undo, the change feed and MCP edits reach the open editor; the centre keeps Scene and Game; e2e `editor-window` (DOM structure, geometry, selection, reload) |
-| 27.12–27.17 | — |
+| 27.12 | done 2026-10-01: one preview pane above the one Inspector in the editor window, one renderer for as long as the window shows: a material on a shape or model, an effect (timeline, counters, cost, preview parameters), a model with its animator; a timeline, a conversation and a UI document at the editor's resolution on their scene (the Scene view's canvas lent to the pane); editors say what to preview (`usePreview`), none builds a renderer; the material/effect/Animator/asset-stage renderers are gone, the timeline window is no longer see-through; e2e `preview-pane` (pixels on WebGPU, WebGL 2 and the webgpu project), the area's specs and the memory e2e (switching previews, both renderers) green; D109 found |
+| 27.13–27.17 | — |
 
 ## 6. Decision log
 
@@ -616,6 +617,32 @@ moves at least as many lines out as it adds.
   models) have none. Until 27.12's preview pane, a timeline's window is
   see-through above the timeline panel so its scrub preview in the Scene view
   stays visible.
+- 2026-10-01 (27.12): the preview pane has one renderer for as long as the
+  editor window shows (made when it opens, kept while its items are switched,
+  released when it closes); a switch only swaps the subject (material,
+  effect, model with its animator). The Assets tab's asset preview draws with
+  the same `PreviewRenderer` until 27.15 moves it into the Inspector. The
+  material preview keeps its own material library on that renderer (the one
+  three-adapter compile path; GPU copies of shared textures per renderer, as
+  before). What shows on its scene (a timeline at its playhead, a
+  conversation, a UI document) is drawn by the Scene view itself: its canvas
+  moves into the pane while such an item is in front and back when it leaves
+  (no second renderer of the scene, no copy of it); input there does not
+  reach the Scene view, and a timeline shows from the editor camera with its
+  camera track's frustum, as the Scene view did. The timeline's see-through
+  window is gone. The UI document pane shows the stored document at the
+  editor's resolution (a drag shows when released) over the scene; the UI
+  editor's editing surface stays in the editor (it is the editor, not a
+  preview) and both draw with one UI layer path (`ui-layer-view`). The
+  Animator preview runs as soon as its editor is in front (no Preview
+  button, no dock choice). Unity's Shader Graph and Animator each keep their
+  own preview; one shared pane is the owner's choice (§1).
+- 2026-10-01 (27.12): previews are checked independently of their own
+  bookkeeping (D88): the pane canvas publishes the renderer's live resource
+  counts, and `<html data-tl-previews>` the counts of an empty stage after
+  each switch (`idle`), which must not grow over switches (effect-editor) and
+  the memory e2e's heap and GPU counts over 50 switches between an animator,
+  a material, an effect and a timeline.
 - 2026-10-01 (27.9): the helpers name what a person opens, not where it is:
   `openWindow(name)` for tools, `openProjectSettings(section)` for the
   settings that 27.13 moves, `openEditor(kind, name)` with the kind as the

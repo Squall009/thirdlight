@@ -9,7 +9,8 @@
  *   released (one command, one undo step per gesture); field edits in the key
  *   inspector are one command each.
  * - Scrubbing: a click or drag on the ruler moves the playhead; play/pause
- *   runs it in real time. The Scene view previews the timeline at that time
+ *   runs it in real time. The Scene view, shown in the editor window's
+ *   preview pane, previews the timeline at that time
  *   (transforms and the live camera, evaluated by the runtime's own
  *   `evaluateTimelineAt`); animator tracks show the state their keys lead to
  *   (the runtime's AnimatorMachine run from 0 to the playhead); the other
@@ -21,6 +22,7 @@ import { useEffect, useMemo, useRef, useState, type JSX, type PointerEvent as Re
 import type { AnimatorController, TimelineAsset, TimelineKey, TimelineTrack, TimelineTrackType } from '@thirdlight/project-model';
 import { AnimatorMachine, evaluateTimelineAt, TIMELINE_EASINGS, TIMELINE_TARGET_TRACKS, TIMELINE_TRACK_TYPES, type AnimatorControllerLike } from '@thirdlight/runtime';
 import { AUDIO_KINDS, RefPicker, useFirstEntry } from '../catalog/RefPicker';
+import { usePreview } from '../preview/preview-request';
 
 export interface TimelineEntityLike {
   id: string;
@@ -145,7 +147,8 @@ export function TimelineDocument(props: TimelineDocumentProps): JSX.Element {
   timeRef.current = time;
   const onPreview = props.onPreview;
 
-  // The Scene view shows the timeline at the playhead while the tab is open.
+  // The Scene view shows the timeline at the playhead while the tab is open, in the preview pane.
+  usePreview(useMemo(() => ({ kind: 'timeline' as const, timelineId: props.timelineId }), [props.timelineId]));
   useEffect(() => {
     if (tl === null) return;
     const p = evaluateTimelineAt(tl, Math.min(time, tl.duration));
@@ -699,7 +702,7 @@ export function TimelineDocument(props: TimelineDocumentProps): JSX.Element {
       {tl.tracks.length === 0 && <p className="tl-hint">No tracks yet: add slots for the objects it acts on, then add tracks.</p>}
       {keyInspector()}
       <p className="tl-hint">
-        Scene view preview at {time.toFixed(2)} s:{' '}
+        Preview at {time.toFixed(2)} s:{' '}
         {(() => {
           const p = evaluateTimelineAt(tl, Math.min(time, tl.duration));
           const moved = [...p.transforms.keys()].map((id) => entityName.get(id) ?? id);

@@ -131,6 +131,9 @@ test('items open in a window over the editor: editor left, the one Inspector rig
   // returns to the default view with the selection it had when the window opened.
   await menu(page, 'GameObject', 'Box');
   await expect.poll(async () => page.locator('.tl-hierarchy__list li[data-entity-id]').count()).toBeGreaterThan(1);
+  const made = page.locator('.tl-hierarchy__list li[aria-selected="true"]');
+  await expect(made).toHaveCount(1);
+  await expect(made).not.toHaveAttribute('data-entity-id', crate);
   await page.keyboard.press('Escape');
   await expect(win).toHaveCount(0);
   await expect(row(page, crate)).toHaveAttribute('aria-selected', 'true');

@@ -24,6 +24,12 @@ export interface PreviewDeps {
   loadEffectModel: (assetId: string) => Promise<THREE.Object3D | null>;
   /** A controller running on its model under the stage. */
   startAnimator: StartPreview;
+  /**
+   * The Scene view itself, for what is shown on its scene (a timeline, a
+   * conversation, a UI document): `borrow` moves its canvas into `host` and
+   * returns the call that puts it back; `resize` follows the host's size.
+   */
+  sceneView: { borrow(host: HTMLElement): () => void; resize(): void };
 }
 
 export interface PreviewControlsProps<K extends PreviewRequest['kind']> {

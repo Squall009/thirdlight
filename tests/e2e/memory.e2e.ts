@@ -13,8 +13,9 @@
  *   show in the editor window's preview pane (its renderer goes with the
  *   window);
  * - the preview panes 50×: the asset browser's model preview, the editor
- *   window's preview pane switched between an animator, a material and an
- *   effect, and the material preview's shapes;
+ *   window's preview pane switched between an animator, a material, an
+ *   effect and a timeline (on the lent Scene view), and the material
+ *   preview's shapes;
  * - the Scene view: an editor scene closed/opened 50× (its objects leave and
  *   come back), instancing groups formed and dissolved 50×, the renderer
  *   backend swapped 10× (a new canvas each time);
@@ -277,8 +278,12 @@ test('preview panes: the asset preview, switching the editor window\'s preview b
   });
 
   // The editor window's preview pane switching previews: the animator's model, the material and the effect take
-  // turns on the pane's one renderer (each switch releases the last subject).
+  // turns on the pane's one renderer (each switch releases the last subject), and a timeline borrows the Scene view.
   await cmd('setEffect', { effect: streamEffect() });
+  await cmd('setTimeline', { timeline: { timelineId: 'cut', name: 'Cut', duration: 2, tracks: [] } });
+  await openWindow(page, 'Timelines');
+  await page.getByRole('button', { name: 'Open Cut' }).click();
+  await expectEditorOpen(page, 'Timeline', 'Cut');
   await openWindow(page, 'Animator');
   await page.getByLabel('animator controllers').getByRole('button', { name: 'Walker' }).dblclick();
   await expectEditorOpen(page, 'Animator', 'Walker');
@@ -292,7 +297,7 @@ test('preview panes: the asset preview, switching the editor window\'s preview b
   const frames = async (): Promise<number> => Number((await canvas.getAttribute('data-frames')) ?? 0);
   const pane = previewPane(page);
   const opened = (await page.locator('html').getAttribute('data-tl-previews')) ?? '';
-  await leakCheck(page, probe, 'Preview pane switching (animator → material → effect)', n, async () => {
+  await leakCheck(page, probe, 'Preview pane switching (animator → material → effect → timeline on the Scene view)', n, async () => {
     await editorTab(page, 'Animator', 'Walker').click();
     await expect(pane.getByLabel('animator preview', { exact: true })).toHaveAttribute('data-state', 'Idle', { timeout: 30_000 });
     await editorTab(page, 'Material', 'Graph').click();
@@ -301,6 +306,8 @@ test('preview panes: the asset preview, switching the editor window\'s preview b
     await expect.poll(frames, { timeout: 10_000 }).toBeGreaterThan(before + 1);
     await editorTab(page, 'Effect', 'Stream').click();
     await expect.poll(async () => JSON.parse((await pane.getByLabel('effect preview', { exact: true }).getAttribute('data-tl-effect-preview')) ?? '{}').steps ?? 0, { timeout: 30_000 }).toBeGreaterThan(0);
+    await editorTab(page, 'Timeline', 'Cut').click();
+    await expect(pane.locator('canvas.tl-viewport')).toHaveCount(1);
   });
   // One renderer for all of it: no renderer was made per switch.
   expect(JSON.parse((await page.locator('html').getAttribute('data-tl-previews')) ?? '{}').opened).toBe(JSON.parse(opened).opened);

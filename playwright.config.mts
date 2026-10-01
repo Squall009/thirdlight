@@ -80,6 +80,8 @@ export default defineConfig({
         '**/effects-runtime.e2e.ts',
         // Phase 20.3: the Effect tab's preview on the WebGPU compute executor.
         '**/effect-editor.e2e.ts',
+        // The editor window's one preview pane: on its own canvas and on the lent Scene view, on WebGPU.
+        '**/preview-pane.e2e.ts',
         // Phase 22.1: thumbnails from a WebGPU canvas snapshot (the other editor-worker tests skip here).
         '**/editor-workers.e2e.ts',
         // Phase 21.3: instancing, render on demand and MSAA by quality on WebGPU.

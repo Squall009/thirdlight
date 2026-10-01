@@ -31,7 +31,7 @@ import { expect, test, type Locator, type Page } from '@playwright/test';
 
 import { startBackend, type E2EBackend } from './backend';
 import { decodePng, type Image } from './png';
-import { editorTab, menu, projectWindow, openWindow } from './ui';
+import { editorTab, menu, projectWindow, openWindow, previewPane } from './ui';
 
 const REPO = resolve(import.meta.dirname, '..', '..');
 let be: E2EBackend | null = null;
@@ -352,7 +352,9 @@ test('editor: the timeline tab scrubs the Scene view; a key drag is one command 
   await expect(editorTab(page, 'Timeline', /Slide/)).toBeVisible();
   const ruler = page.getByLabel('Timeline ruler');
   await expect(ruler).toBeVisible();
-  const canvas = page.locator('canvas[data-timeline-preview]');
+  // The timeline previews on its scene in the editor window's preview pane (the Scene view's canvas, lent).
+  const canvas = previewPane(page).locator('canvas[data-timeline-preview]');
+  await expect(canvas).toHaveCount(1);
   const preview = async (): Promise<{ time: number; transforms: Record<string, number[]>; camera: { id: string } | null } | null> => {
     const raw = await canvas.getAttribute('data-timeline-preview');
     return raw === null || raw === '' ? null : JSON.parse(raw);

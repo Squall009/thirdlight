@@ -65,6 +65,7 @@ import { useEditorShortcuts } from './shell/useEditorShortcuts';
 import { useEditorDialogs } from './shell/useEditorDialogs';
 import { EditorDialogs } from './shell/EditorDialogs';
 import { useCuePreview } from './shell/useCuePreview';
+import { useSceneViewLending } from './shell/useSceneViewLending';
 import { useEntityEditing } from './shell/useEntityEditing';
 import { usePrefabAuthoring } from './shell/usePrefabAuthoring';
 import { useAssetsWindow } from './shell/useAssetsWindow';
@@ -574,6 +575,7 @@ function EditorApp(): JSX.Element {
     return () => ro.disconnect();
   }, []);
 
+  const sceneView = useSceneViewLending(viewportHostRef, viewportRef);
   const sceneEditing = useSceneEditing({ clientRef, viewportRef, modelInstancesRef, selectedIdRef, selectionRef, setSelectedId, setSelectedCopy, setNotice, reportFailure, registry, refreshEntities });
   const { editCopiesRef, rename, move, sceneAction } = sceneEditing;
   useEditorShortcuts({ viewportRef, gestureRef, shiftRef, workspaceRef, blockHandlersRef, selectedIdRef, setSelectedId, setGizmoMode, scene: sceneEditing });
@@ -798,6 +800,7 @@ function EditorApp(): JSX.Element {
     uiPreviewAssets,
     openDocument,
     workspaceDispatch,
+    sceneView,
   });
 
   const menus = editorMenus({

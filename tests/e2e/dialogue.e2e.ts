@@ -32,7 +32,7 @@ import { expect, test, type Frame, type Locator, type Page } from '@playwright/t
 import { startBackend, type E2EBackend } from './backend';
 import { decodePng } from './png';
 import { makePng } from './png-make';
-import { projectWindow, openWindow, editorTab } from './ui';
+import { projectWindow, openWindow, editorTab, previewPane } from './ui';
 
 const REPO = resolve(import.meta.dirname, '..', '..');
 let be: E2EBackend | null = null;
@@ -384,8 +384,10 @@ test('dialogue with voice: the editor previewer, Play and the export', async ({ 
   await page.getByRole('button', { name: 'Open Garden talk' }).click();
   await expect(editorTab(page, 'Dialogue', 'Garden talk')).toBeVisible();
   await expect(page.locator('[aria-label="dialogue graph"]')).toBeVisible();
+  // The previewer is the editor window's preview pane: the conversation plays over its scene (the Scene view's canvas).
+  await expect(previewPane(page).locator('canvas.tl-viewport')).toHaveCount(1);
   await page.getByRole('button', { name: 'play dialogue preview' }).click();
-  const stage = page.locator('[aria-label="dialogue preview stage"]');
+  const stage = previewPane(page).locator('[aria-label="dialogue preview stage"]');
   const pdoc = stage.locator('[data-tl-ui-doc="tl-dialogue"]');
   await expect(pdoc).toHaveCount(1, { timeout: 40_000 });
   await expect(pdoc.locator('[data-widget="text"]')).toContainText('Welcome to the garden.', { timeout: 30_000 });

@@ -5,6 +5,8 @@
  * - Left: the widget hierarchy — select, add (a widget of any type into the
  *   selected container), delete, reorder, reparent (drag a row onto a
  *   container, or "Move into"), duplicate.
+ * - The editor window's preview pane shows the stored document at the
+ *   chosen resolution over its scene.
  * - Centre: the live preview, drawn by the game host's own UI layer at a
  *   chosen resolution (16:9, 4:3, 21:9, portrait, the document's reference
  *   size) with a safe-area frame. Click selects; dragging an anchored widget
@@ -69,6 +71,7 @@ import {
 } from '../../session/ui-edit';
 import { ActionsField, BindingField, CommitText, SizeField, StyleEditor, StyleMapEditor, StyleRefField } from './UiFields';
 import { UiPreview, type Measured, type PreviewAssets, type PreviewHandle } from './UiPreview';
+import { usePreview } from '../preview/preview-request';
 import { RefPicker, TEXTURE_KINDS, useFirstEntry } from '../catalog/RefPicker';
 
 export interface UiDocumentEditorProps {
@@ -198,6 +201,8 @@ export function UiDocumentEditor(p: UiDocumentEditorProps): JSX.Element {
     const r = RESOLUTION_PRESETS.find((x) => x.id === res) ?? RESOLUTION_PRESETS[0]!;
     return { w: r.w, h: r.h };
   }, [res, doc?.scale]);
+  // The editor window's preview pane: the stored document at this resolution over its scene (a drag shows there when released).
+  usePreview(useMemo(() => (stored !== null ? { kind: 'ui' as const, doc: stored, themes: p.themes, mock, size, assets: p.assets } : null), [stored, p.themes, mock, size, p.assets]));
 
   if (doc === null) return <p className="tl-hint">This UI document no longer exists (deleted or undone). Close the tab, or undo the deletion.</p>;
   if (p.descriptors === null) return <p className="tl-hint">Loading the UI descriptors…</p>;

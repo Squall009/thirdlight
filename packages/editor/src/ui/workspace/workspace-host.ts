@@ -40,6 +40,8 @@ export interface WorkspaceHostInput {
   uiPreviewAssets: ReturnType<typeof useUiPreviewAssets>;
   openDocument: (kind: string, id: string) => void;
   workspaceDispatch: Dispatch<WorkspaceAction>;
+  /** The Scene view lent to the preview pane (what is shown on its scene). */
+  sceneView: PreviewDeps['sceneView'];
 }
 
 export function workspaceHostOf(input: WorkspaceHostInput): WorkspaceHost {
@@ -144,6 +146,7 @@ export function workspaceHostOf(input: WorkspaceHostInput): WorkspaceHost {
         return made !== undefined && made.ok ? made.instance.root : null;
       },
       startAnimator: previewAnimator,
+      sceneView: input.sceneView,
     },
     dialogue: {
       dialogues,

@@ -1,24 +1,25 @@
 /**
  * The "Dialogue: <name>" tab of the editor window — one conversation's node
- * graph (graph kind `dialogue` on the graph framework) and a previewer.
+ * graph (graph kind `dialogue` on the graph framework).
  *
  * - The graph: every gesture is one `graphEdit` on owner kind `dialogue`
  *   (owner id = the dialogueId); the selected node shows in the right dock's
  *   Inspector (speaker, expression, text, voice clip, auto-advance, a
  *   condition, effects…). Start is fixed; wires say what comes next.
- * - The previewer (right column): plays the conversation outside Play with
- *   the game's own dialogue UI and audio (portraits, typewriter, voice on
- *   the voice bus with music/SFX ducked, auto-advance, choices, backlog) —
- *   from the start, an entry or the selected node, with starting variables.
+ * - The previewer (the editor window's preview pane): plays the
+ *   conversation outside Play over its scene with the game's own dialogue UI
+ *   and audio — from the start, an entry or the selected node, with starting
+ *   variables.
  *
  * Browser-only (React).
  */
-import { useEffect, useRef, useState, type JSX } from 'react';
+import { useMemo, type JSX } from 'react';
 import type { DialogueDocument as DialogueDoc, DialogueSettings, DialogueSpeaker, GraphValue, UiDocument, UiTheme } from '@thirdlight/project-model';
 
 import { GraphEditor } from '../../graph/GraphEditor';
 import type { GraphKindDef, GraphOp } from '../../graph/model';
-import { mountDialoguePreview, type DialoguePreviewHost, type PreviewAssetRef } from './preview-host';
+import { usePreview } from '../preview/preview-request';
+import type { PreviewAssetRef } from './preview-host';
 
 export interface DialogueDocumentProps {
   dialogueId: string;
@@ -46,6 +47,11 @@ export interface DialogueDocumentProps {
 export function DialogueDocument(p: DialogueDocumentProps): JSX.Element {
   const d = p.dialogues.find((x) => x.dialogueId === p.dialogueId) ?? null;
   const kind = p.kinds['dialogue'];
+  // The previewer in the editor window's preview pane: this conversation over its scene.
+  const { speakers, settings, uiDocuments, uiThemes, assets, readAsset, conversations, selection } = p;
+  usePreview(
+    useMemo(() => (d !== null ? { kind: 'dialogue' as const, dialogue: d, selection, source: { speakers, settings, uiDocuments, uiThemes, assets, readAsset, conversations } } : null), [d, selection, speakers, settings, uiDocuments, uiThemes, assets, readAsset, conversations]),
+  );
   // Read by id when its tab opens (a conversation that is gone closes its tab).
   if (d === null) return <p className="tl-hint">Reading the conversation…</p>;
   if (kind === undefined) return <p className="tl-hint">Loading the dialogue node catalogue…</p>;
@@ -72,128 +78,7 @@ export function DialogueDocument(p: DialogueDocumentProps): JSX.Element {
         <div className="tl-animator-doc__graph">
           <GraphEditor key={d.dialogueId} kind={kind} owner={{ kind: 'dialogue', id: d.dialogueId }} graph={d.graph} onEdit={(ops) => p.onEdit(d.dialogueId, ops)} onSelection={p.onSelection} focus={p.focus} newNodeData={newNodeData} />
         </div>
-        <div className="tl-animator-doc__preview tl-animator-doc__preview--right tl-dialogue-doc__preview">
-          <DialoguePreviewPane {...p} dialogue={d} />
-        </div>
       </div>
-    </div>
-  );
-}
-
-/** The previewer: the game's dialogue UI and audio in a box, driven by the runtime's runner. */
-function DialoguePreviewPane(p: DialogueDocumentProps & { dialogue: DialogueDoc }): JSX.Element {
-  const stageRef = useRef<HTMLDivElement | null>(null);
-  const hostRef = useRef<DialoguePreviewHost | null>(null);
-  const [status, setStatus] = useState<string>('Not playing');
-  const [from, setFrom] = useState<string>('start');
-  const [vars, setVars] = useState('');
-  const [sound, setSound] = useState(true);
-  const [obs, setObs] = useState<Record<string, unknown> | null>(null);
-  const [busy, setBusy] = useState(false);
-  const entries = p.dialogue.graph.nodes.filter((n) => n.type === 'entry').map((n) => String(n.data?.['name'] ?? 'entry'));
-  const selectedNode = p.selection.length === 1 ? p.dialogue.graph.nodes.find((n) => n.id === p.selection[0]) : undefined;
-
-  useEffect(
-    () => () => {
-      hostRef.current?.dispose();
-      hostRef.current = null;
-    },
-    [],
-  );
-  // The observation line (reveal, voice, backlog) while it plays.
-  useEffect(() => {
-    const t = setInterval(() => {
-      const h = hostRef.current;
-      if (h === null) return;
-      const o = h.observe();
-      setObs(o.dialogue);
-      // How many sound files the preview has read (the voices ahead, not the project's; tests read it).
-      stageRef.current?.setAttribute('data-sounds-read', String(o.soundsRead));
-      if (!o.running) setStatus('Ended');
-    }, 200);
-    return () => clearInterval(t);
-  }, []);
-
-  const play = async (): Promise<void> => {
-    const stage = stageRef.current;
-    if (stage === null || busy) return;
-    let variables: Record<string, number | string | boolean | null> | undefined;
-    if (vars.trim() !== '') {
-      try {
-        const v = JSON.parse(vars) as unknown;
-        if (typeof v !== 'object' || v === null || Array.isArray(v)) throw new Error('variables are a JSON object');
-        variables = v as Record<string, number | string | boolean | null>;
-      } catch (e) {
-        setStatus(`Variables: ${e instanceof Error ? e.message : String(e)}`);
-        return;
-      }
-    }
-    setBusy(true);
-    hostRef.current?.dispose();
-    hostRef.current = null;
-    stage.textContent = '';
-    try {
-      const dialogues = await p.conversations(p.dialogue.dialogueId);
-      const host = await mountDialoguePreview({ container: stage, dialogues, speakers: p.speakers, settings: p.settings, documents: p.uiDocuments, themes: p.uiThemes, assets: p.assets, readAsset: p.readAsset, sound });
-      hostRef.current = host;
-      const opts = from === 'start' ? {} : from === 'selected' && selectedNode !== undefined ? { node: selectedNode.id } : from.startsWith('entry:') ? { entry: from.slice(6) } : {};
-      // The first lines' voices are read before it starts; the rest as it goes (as in Play).
-      await host.prepare(p.dialogue.dialogueId, opts);
-      const ok = host.start(p.dialogue.dialogueId, { ...opts, ...(variables !== undefined ? { variables } : {}) });
-      setStatus(ok ? 'Playing' : 'Could not start (an empty conversation, or the node is gone)');
-      stage.focus();
-    } catch (e) {
-      setStatus(`Preview failed: ${e instanceof Error ? e.message : String(e)}`);
-    } finally {
-      setBusy(false);
-    }
-  };
-  const stop = (): void => {
-    hostRef.current?.stop();
-    setStatus('Stopped');
-  };
-
-  const line = obs !== null && typeof obs === 'object' ? obs : null;
-  return (
-    <div className="tl-dialogue-preview" aria-label="dialogue preview">
-      <div className="tl-subhead">Preview</div>
-      <div className="tl-dialogue-preview__bar">
-        <select className="tl-input" aria-label="preview from" value={from} onChange={(e) => setFrom(e.target.value)}>
-          <option value="start">From Start</option>
-          {entries.map((e) => (
-            <option key={e} value={`entry:${e}`}>
-              From entry “{e}”
-            </option>
-          ))}
-          <option value="selected" disabled={selectedNode === undefined}>
-            From the selected node
-          </option>
-        </select>
-        <label className="tl-check">
-          <input type="checkbox" aria-label="preview sound" checked={sound} onChange={(e) => setSound(e.target.checked)} /> Sound
-        </label>
-        <button type="button" className="tl-btn tl-btn--small" aria-label="play dialogue preview" onClick={() => void play()} disabled={busy}>
-          ▶ Play
-        </button>
-        <button type="button" className="tl-btn tl-btn--small" aria-label="stop dialogue preview" onClick={stop}>
-          ■ Stop
-        </button>
-      </div>
-      <input className="tl-input" aria-label="preview variables" placeholder='Starting variables, e.g. {"met": true}' value={vars} onChange={(e) => setVars(e.target.value)} />
-      <div
-        ref={stageRef}
-        className="tl-dialogue-preview__stage"
-        tabIndex={0}
-        aria-label="dialogue preview stage"
-        style={{ position: 'relative', width: '100%', aspectRatio: '16 / 9', overflow: 'hidden', background: '#1b1f2a', outline: 'none' }}
-        onKeyDown={(e) => {
-          if (hostRef.current?.key(e.key) === true) e.preventDefault();
-        }}
-      />
-      <p className="tl-hint" role="status" aria-label="dialogue preview status" data-status={status}>
-        {status}
-        {line !== null && line['running'] === true ? ` · ${String(line['kind'])} ${String(line['node'])}${typeof line['revealed'] === 'number' ? ` · ${String(line['revealed'])}/${String(line['total'])}` : ''}${line['voice'] === true ? ' · voice' : ''} · backlog ${String(line['backlog'])}` : ''}
-      </p>
     </div>
   );
 }

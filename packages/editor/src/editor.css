@@ -711,12 +711,18 @@ input.tl-inspector__name:hover, input.tl-inspector__name:focus { border-color: v
 .tl-preview > .tl-subhead { display: flex; align-items: center; gap: 6px; }
 .tl-preview__canvas { flex: none; width: 100%; aspect-ratio: 1; max-height: 360px; display: block; border: 1px solid var(--line);
   border-radius: var(--radius); background: #000; touch-action: none; }
+.tl-preview__canvas[hidden] { display: none; }
 .tl-preview__controls { display: flex; flex-direction: column; gap: 6px; }
-/* A timeline draws its scrub preview in the Scene view: the window is see-through above it. */
-.tl-editor-window[data-doc-kind="timeline"] { background: transparent; pointer-events: none; }
-.tl-editor-window[data-doc-kind="timeline"] .tl-editor-window__head,
-.tl-editor-window[data-doc-kind="timeline"] .tl-editor-window__inspector,
-.tl-editor-window[data-doc-kind="timeline"] .tl-splitter { pointer-events: auto; }
+/* What is shown on its scene: the Scene view's own canvas lent to the pane (for looking only), with the item over it. */
+.tl-preview__scene { position: relative; flex: none; width: 100%; aspect-ratio: 16 / 9; overflow: hidden; border: 1px solid var(--line);
+  border-radius: var(--radius); background: #000; }
+.tl-preview__scene-canvas { position: absolute; inset: 0; }
+.tl-preview__scene-canvas > canvas.tl-viewport { pointer-events: none; }
+.tl-dialogue-preview { display: flex; flex-direction: column; gap: 6px; }
+.tl-dialogue-preview__bar { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.tl-dialogue-preview__stage { position: absolute; inset: 0; overflow: hidden; outline: none; }
+.tl-uiview { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
+.tl-uiview__screen { position: absolute; left: 50%; top: 50%; overflow: hidden; }
 .tl-preview__row { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
 
 /* A reference with "Open" beside it (the item opens in the editor window). */
@@ -748,8 +754,6 @@ input.tl-inspector__name:hover, input.tl-inspector__name:focus { border-color: v
 .tl-animator-doc__path [aria-current] { color: var(--text); font-weight: 600; }
 .tl-animator-doc__body { flex: 1; display: flex; flex-direction: column; min-height: 0; gap: 6px; }
 .tl-animator-doc__body.is-row { flex-direction: row; }
-.tl-animator-doc__preview { flex: none; overflow-y: auto; font-size: 12px; border: 1px solid var(--line); border-radius: var(--radius); padding: 6px; background: var(--surface-1); }
-.tl-animator-doc__preview--right { width: 280px; }
 .tl-animator-doc__main { flex: 1; display: flex; min-height: 0; gap: 6px; }
 .tl-animator-doc__side { width: 250px; flex: none; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; font-size: 12px; }
 .tl-animator-doc__graph { flex: 1; min-width: 0; min-height: 280px; display: flex; border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
