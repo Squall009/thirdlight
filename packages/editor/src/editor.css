@@ -3,7 +3,9 @@
  * Tokens: five surface levels (app chrome → panels → inputs → menus), two
  * line weights, three text levels, a brand accent (amber, the "third
  * light") kept separate from the selection colour (blue) so state and
- * identity never compete, plus status and entity-kind colours. */
+ * identity never compete, status and item-kind colours, graph node family
+ * colours (read by the graph canvas too), and one scale each for spacing,
+ * type, corner radius and icon size. New rules use these, not literals. */
 :root {
   /* surfaces */
   --bg-app: #0d0f13;
@@ -43,6 +45,50 @@
   --kind-audio: #6fe0b2;
   --kind-prefab: #c39bff;
   --kind-script: #7fe0a6;
+  --kind-material: #f0a35e;
+  --kind-texture: #7cc4f0;
+  --kind-graph: #8fb4ff;
+  --kind-effect: #ff8fb4;
+  --kind-timeline: #8fa8d8;
+  --kind-dialogue: #8fd0ff;
+  --kind-ui: #9ad48a;
+  --kind-animator: #d29bff;
+  /* graph node families (the header of a node; see graph/node-style.ts) */
+  --node-input: #285e5a;
+  --node-math: #2b4a7a;
+  --node-logic: #4a3a78;
+  --node-event: #7a3a30;
+  --node-output: #2e6440;
+  --node-render: #6b5220;
+  --node-state: #5c3168;
+  --node-action: #374255;
+  --node-note: #3d4048;
+  /* spacing (a 4 px grid) */
+  --space-1: 2px;
+  --space-2: 4px;
+  --space-3: 8px;
+  --space-4: 12px;
+  --space-5: 16px;
+  --space-6: 24px;
+  --space-7: 32px;
+  /* type */
+  --text-xs: 11px;
+  --text-sm: 12px;
+  --text-md: 13px;
+  --text-lg: 15px;
+  --text-xl: 18px;
+  --weight-regular: 400;
+  --weight-medium: 500;
+  --weight-bold: 650;
+  --tracking-caps: .06em;
+  /* corners and icons */
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 10px;
+  --icon-sm: 16px;
+  --icon-md: 24px;
+  --icon-lg: 32px;
+  --icon-xl: 56px;
   /* legacy aliases (older panels) */
   --bg: var(--bg-app);
   --panel: var(--surface-1);
@@ -721,6 +767,8 @@ input.tl-inspector__name:hover, input.tl-inspector__name:focus { border-color: v
 .tl-preview { flex: none; display: flex; flex-direction: column; gap: 4px; max-height: 60%; overflow-y: auto; padding: 6px;
   font-size: 12px; border-bottom: 1px solid var(--line); background: var(--surface-1); }
 .tl-preview[hidden] { display: none; }
+/* The pane takes the Inspector's width below it (its long captions wrap rather than widen the column). */
+.tl-editor-window__side > .tl-preview { width: 0; min-width: 100%; }
 .tl-preview > .tl-subhead { display: flex; align-items: center; gap: 6px; }
 .tl-preview__canvas { flex: none; width: 100%; aspect-ratio: 1; max-height: 360px; display: block; border: 1px solid var(--line);
   border-radius: var(--radius); background: #000; touch-action: none; }
@@ -741,7 +789,7 @@ input.tl-inspector__name:hover, input.tl-inspector__name:focus { border-color: v
 /* A reference with "Open" beside it (the item opens in the editor window). */
 .tl-ref { display: flex; align-items: center; gap: 4px; min-width: 0; flex: 1; }
 .tl-ref > select, .tl-ref > .tl-picker, .tl-ref > .tl-input { flex: 1; min-width: 0; }
-.tl-ref__open { flex: none; }
+.tl-ref__open { flex: none; display: inline-flex; align-items: center; gap: var(--space-1); }
 .tl-field > .tl-ref__open { margin-left: 4px; }
 
 /* Centre tabs (Scene, Game) and maximize; the editor window's tabs share the tab look. */
@@ -963,12 +1011,8 @@ input.tl-inspector__name:hover, input.tl-inspector__name:focus { border-color: v
 .tl-modes__col { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .tl-modes .tl-tags__row.is-selected { outline: 1px solid var(--tl-accent, #5aa0ff); border-radius: 4px; }
 .tl-toolbar__mode { align-self: center; padding: 2px 8px; margin-right: 6px; border-radius: 999px; font-size: 12px; background: #ffffff14; }
-/* The Timeline tab leaves the Scene view visible above it (the scrub preview shows there):
-   the document layer is see-through and lets the pointer reach the view; the timeline sits at the bottom. */
-.tl-workspace__doc:has(.tl-timeline-doc) { background: transparent; pointer-events: none; }
-.tl-workspace__doc:has(.tl-timeline-doc) .tl-workspace__view { padding: 0; overflow: hidden; justify-content: flex-end; }
-.tl-timeline-doc { pointer-events: auto; background: var(--panel); display: flex; flex-direction: column; gap: 6px; padding: 8px;
-  max-height: 62%; overflow: auto; box-sizing: border-box; border-top: 1px solid var(--border, #3b4252); }
+/* The Timeline editor fills its window (the scene at the playhead shows in the preview pane). */
+.tl-timeline-doc { display: flex; flex-direction: column; gap: var(--space-3); min-height: 0; }
 .tl-timeline__field { display: inline-flex; flex-direction: column; font-size: 11px; gap: 2px; }
 .tl-timeline__track-head.is-active { background: rgba(143, 180, 255, 0.12); }
 /* ---- The UI document editor ---------------------------------------- */
@@ -1059,7 +1103,7 @@ input.tl-inspector__name:hover, input.tl-inspector__name:focus { border-color: v
 .tl-project__node.is-drop, .tl-project__crumb.is-drop, .tl-project__folder.is-drop { outline: 1px dashed var(--select-line); background: var(--select-bg); }
 .tl-project__twist { width: 16px; flex: none; padding: 0; border: 0; background: none; color: var(--muted); font: inherit; cursor: pointer; }
 .tl-project__node-name { display: flex; align-items: center; gap: 4px; padding: 2px 4px; border: 0; background: none; color: var(--text); font: inherit; cursor: pointer; text-align: left; overflow: hidden; text-overflow: ellipsis; }
-.tl-project__folder-icon { width: 14px; height: 14px; flex: none; color: var(--kind-folder, #d8b25a); }
+.tl-project__folder-icon { width: 14px; height: 14px; flex: none; object-fit: contain; }
 .tl-project__main { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; outline: none; }
 .tl-project__bar { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; padding: 3px 6px; border-bottom: 1px solid var(--line); }
 .tl-project__crumbs { display: flex; align-items: center; flex-wrap: wrap; gap: 2px; margin-right: auto; font-size: 12px; }
@@ -1109,3 +1153,73 @@ input.tl-inspector__name:hover, input.tl-inspector__name:focus { border-color: v
 .tl-context-menu--up .tl-menu__item--sub > .tl-menu { top: auto; bottom: -5px; }
 /* A block layer's tools inside its Inspector section. */
 .tl-inspector .tl-blocks { flex: none; overflow: visible; padding: 4px 0; }
+
+/* ---- Item editors: header, toolbar, tool buttons, empty states -------------------------------
+ * Every editor in the editor window is built from these (ui/chrome/EditorChrome.tsx,
+ * ui/workspace/EditorHeader.tsx); their pictures come from the icon registry (session/item-icons.ts). */
+.tl-editor-header { flex: none; display: flex; align-items: center; gap: var(--space-4); padding: var(--space-3) var(--space-5);
+  background: var(--surface-1); border-bottom: 1px solid var(--line); }
+.tl-editor-header__icon { width: var(--icon-lg); height: var(--icon-lg); flex: none; object-fit: contain; }
+.tl-editor-header__text { display: flex; flex-direction: column; gap: var(--space-1); min-width: 0; flex: 1; }
+.tl-editor-header__name { font-size: var(--text-xl); font-weight: var(--weight-bold); color: var(--text); background: transparent;
+  border: 1px solid transparent; border-radius: var(--radius-sm); padding: 0 var(--space-2); margin-left: calc(-1 * var(--space-2));
+  max-width: 32em; min-width: 0; }
+.tl-editor-header__name:hover { border-color: var(--line); }
+.tl-editor-header__name:focus { border-color: var(--select-line); background: var(--surface-2); outline: none; }
+.tl-editor-header__name.is-static { border: 0; margin: 0; padding: 0; }
+.tl-editor-header__meta { display: flex; align-items: center; gap: var(--space-3); font-size: var(--text-xs); color: var(--text-dim);
+  text-transform: uppercase; letter-spacing: var(--tracking-caps); }
+.tl-editor-header__folder { display: inline-flex; align-items: center; gap: var(--space-2); text-transform: none; letter-spacing: 0; color: var(--text-faint); }
+.tl-editor-header__folder::before { content: ""; width: 12px; height: 12px; background: url("./icons/kinds/folder.webp") center / contain no-repeat; }
+.tl-editor-header__error { margin-left: auto; }
+
+.tl-editor-toolbar { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); min-height: 34px;
+  padding: var(--space-2) var(--space-3); background: var(--surface-1); border: 1px solid var(--line); border-radius: var(--radius-md); }
+.tl-editor-toolbar__sep { width: 1px; align-self: stretch; margin: var(--space-1) var(--space-2); background: var(--line); }
+.tl-editor-toolbar__spacer { flex: 1; }
+.tl-editor-toolbar__note { font-size: var(--text-sm); color: var(--text-dim); display: inline-flex; align-items: center; gap: var(--space-2); }
+
+.tl-tool-button { display: inline-flex; align-items: center; gap: var(--space-2); height: 26px; padding: 0 var(--space-3);
+  font-size: var(--text-sm); font-weight: var(--weight-medium); color: var(--text); background: var(--surface-2);
+  border: 1px solid var(--line); border-radius: var(--radius-sm); cursor: pointer; white-space: nowrap; }
+.tl-tool-button:hover:not(:disabled) { background: var(--surface-3); border-color: var(--line-strong); }
+.tl-tool-button:disabled { opacity: .45; cursor: default; }
+.tl-tool-button.is-icon { width: 26px; padding: 0; justify-content: center; }
+.tl-tool-button[aria-pressed="true"] { background: var(--select-bg); border-color: var(--select-line); }
+.tl-tool-button.is-primary { background: var(--brand); border-color: var(--brand); color: #1a1407; }
+.tl-tool-button.is-primary:hover:not(:disabled) { background: #f6c262; border-color: #f6c262; }
+.tl-tool-button__icon { width: var(--icon-sm); height: var(--icon-sm); flex: none; object-fit: contain; }
+.tl-tool-button.is-primary .tl-tool-button__icon { filter: brightness(.25); }
+
+.tl-empty-state { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--space-3);
+  margin: var(--space-6) auto; padding: var(--space-6); max-width: 440px; text-align: center;
+  background: var(--surface-1); border: 1px dashed var(--line-strong); border-radius: var(--radius-lg); }
+/* Over a graph it stands at the top, clear of the required nodes a new graph centres. */
+.tl-empty-state.is-overlay { position: absolute; left: 50%; top: var(--space-3); transform: translateX(-50%); margin: 0; z-index: 2;
+  padding: var(--space-5); background: var(--surface-1); pointer-events: none; }
+.tl-empty-state.is-overlay .tl-empty-state__actions { pointer-events: auto; }
+/* A compact strip over a graph: picture left, words and the action right. */
+.tl-empty-state.is-overlay { display: grid; grid-template-columns: auto 1fr; column-gap: var(--space-4); row-gap: var(--space-1);
+  align-items: center; text-align: left; max-width: 560px; width: max-content; padding: var(--space-3) var(--space-4); }
+.tl-empty-state.is-overlay .tl-empty-state__icon { grid-row: 1 / span 3; width: var(--icon-lg); height: var(--icon-lg); }
+.tl-empty-state.is-overlay .tl-empty-state__actions { justify-content: flex-start; margin-top: var(--space-1); }
+.tl-empty-state__icon { width: var(--icon-xl); height: var(--icon-xl); object-fit: contain; opacity: .95; }
+.tl-empty-state__title { font-size: var(--text-lg); font-weight: var(--weight-bold); color: var(--text); }
+.tl-empty-state__text { font-size: var(--text-sm); color: var(--text-dim); line-height: 1.5; }
+.tl-empty-state__actions { display: flex; flex-wrap: wrap; justify-content: center; gap: var(--space-3); margin-top: var(--space-2); }
+
+/* The graph catalogue's category headings carry their node family's colour (the canvas paints the node headers with it). */
+.tl-graph__cat[data-node-family]::before { content: ""; display: inline-block; width: 8px; height: 8px; margin-right: var(--space-2);
+  border-radius: 2px; background: var(--node-action); vertical-align: middle; }
+.tl-graph__cat[data-node-family="input"]::before { background: var(--node-input); }
+.tl-graph__cat[data-node-family="math"]::before { background: var(--node-math); }
+.tl-graph__cat[data-node-family="logic"]::before { background: var(--node-logic); }
+.tl-graph__cat[data-node-family="event"]::before { background: var(--node-event); }
+.tl-graph__cat[data-node-family="output"]::before { background: var(--node-output); }
+.tl-graph__cat[data-node-family="render"]::before { background: var(--node-render); }
+.tl-graph__cat[data-node-family="state"]::before { background: var(--node-state); }
+.tl-graph__cat[data-node-family="note"]::before { background: var(--node-note); }
+
+/* Kind pictures in the project window: the registry's art fills the tile's icon box. */
+.tl-tile__img--kind { width: 100%; height: 100%; object-fit: contain; padding: 10%; }
+.tl-graph__toolbar.tl-editor-toolbar { border-radius: 0; border-width: 0 0 1px; }

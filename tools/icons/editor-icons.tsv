@@ -1,0 +1,54 @@
+# The editor icon registry's art (packages/editor/src/session/item-icons.ts), packed by pack-editor-icons.mjs.
+# Generated with the Studio (Qwen-Image, transparent, 256x256, 20 steps, project thirdlight) in the style of
+# generate-phase9-icons.sh: kinds "A flat minimalist UI icon: <thing>. Simple bold vector shapes, <colours>, soft rounded
+# edges, no text, no letters, no drop shadow, centered, the icon fills most of the frame, on a plain background.";
+# actions "A flat minimalist UI toolbar icon: <thing>. One simple bold glyph, <colours>, thick rounded strokes, ..." (same tail).
+# A source names a phase-9 object icon reused for its kind (no prompt).
+# name	group	source	seed	job	thing	colours
+model	kind	model.png	-	-	-	-
+audio	kind	audio.png	-	-	-	-
+prefab	kind	prefab.png	-	-	-	-
+behavior	kind	script.png	-	-	-	-
+material	kind	-	42	692e7933-2ba1-4b7a-aa76-0e895a89ec6d	a glossy shaded sphere showing a material swatch, half checker pattern	warm orange and cream
+texture	kind	-	42	c559034b-83df-4951-a9b6-01746eac32c6	a square photo picture frame showing a small mountain and a sun, like an image texture	sky blue and green
+font	kind	-	42	d6596ffc-d21e-4c1e-bada-1ce6488702d3	a single bold serif capital letter shape on a rounded square tile, representing a typeface font	white glyph on a coral red tile
+animator	kind	-	7	8d213718-91bc-4df9-a545-3f82409f3fe1	a simple running person silhouette inside a circular loop arrow	violet and pink
+graph	kind	-	1234	cdf896dd-0967-4bab-a89c-41e36969dd98	one blue box on the left joined by two curved lines to an amber box and a green box on the right, a node graph	blue, amber and green nodes
+effect	kind	-	42	22a588f5-7ec3-48d4-9149-7e96ace69245	a burst of sparkles and particles, a four-pointed star with small glowing dots flying out, a particle effect	golden yellow and hot pink
+library	kind	-	1234	36131b7a-fe1c-45d1-9d18-e61ab26070e2	three upright books side by side on a shelf, the third book leaning, each book a different shade with a pale stripe across its spine	dark teal, mint green and light mint
+ui	kind	-	42	c175a198-11ae-401f-b3b5-c2a5c8421c59	a game screen window with a health bar, a round button and a small panel, a user interface layout	light blue frame, green and amber widgets
+uitheme	kind	-	42	2ee5a6c7-6a79-4125-be96-df580a9fa479	an artist paint palette with four round colour wells and a small brush, a visual style theme	tan palette with red, blue, green and yellow paint
+dialogue	kind	-	42	6bcec503-8c92-4cb4-b905-c77e90408e66	two overlapping rounded speech bubbles, a conversation dialogue	sky blue and white
+timeline	kind	-	7	f6f9504b-12a3-499e-b3d9-649d08a5d976	three thick horizontal track bars, each with one large diamond keyframe on it, crossed by a vertical red playhead line, an animation timeline	slate blue bars, big amber diamonds, red playhead
+envpreset	kind	-	42	94026a6c-4d91-4829-b3d4-3dbaba28937a	a small round landscape badge with a sky gradient, a sun and a cloud above green hills, an environment look preset	sky blue, orange sun, green hills
+scene	kind	-	1234	227f294a-61a4-4b67-8564-45bbc98b82e2	a movie clapperboard, representing a game scene or level	dark grey board, the clapper bar striped with clean alternating orange and white diagonal bands
+visual-script	kind	-	42	875953ca-1f1f-4e49-b0be-15ee3c2480d3	a flowchart of connected rounded blocks with an arrow and a small lightning bolt, a visual script	emerald green and cyan
+folder	kind	-	42	68d45ae6-aaa3-4421-9d85-c1749e14835a	a closed file folder	warm golden yellow
+add-node	action	-	1234	ace830eb-838c-4615-b386-cd96a80846e0	a solid rounded square on the left and a large bold plus sign on the right, side by side, add a node	pale lavender white
+comment	action	-	42	4e3e28cc-5911-4405-bca9-61e687faa6eb	a sticky note with a folded corner	pale lavender white
+group	action	-	1234	cb06a720-3697-4b01-a3a3-432efe66ff5a	two solid small squares side by side inside a square border made of eight thick short dashes	pale lavender white
+breakpoint	action	-	42	1e7de3c8-e05b-4c30-87dc-c18690505a88	a solid filled circle dot, a debugger breakpoint	red
+align-left	action	-	1234	3957aca3-dd64-4b0e-8c4f-f9eeee5a4b1f	align left symbol, a vertical line on the left with exactly three horizontal bars to its right, the top bar long, the middle bar short, the bottom bar medium, with gaps between the bars	pale lavender white
+align-center-x	action	-	1234	6a380fe9-32ab-45f3-a096-3d0dc7dc4748	align centre symbol, a vertical line through the middle with exactly three horizontal bars centred on it, the top bar long, the middle bar short, the bottom bar medium, with gaps between the bars	pale lavender white
+align-right	action	-	1234	dc5d5363-9676-4143-a822-36dba647b824	align right symbol, a vertical line on the right with exactly three horizontal bars to its left, the top bar long, the middle bar short, the bottom bar medium, with gaps between the bars	pale lavender white
+align-top	action	-	42	6fd14991-7db8-4f66-9507-616b5e878a0a	three vertical bars of different lengths hanging from a horizontal line at the top	pale lavender white
+align-center-y	action	-	42	5d8666ee-19d5-4a7a-8f60-79343a3ff4e5	three vertical bars of different lengths centred on a horizontal line through their middle	pale lavender white
+align-bottom	action	-	42	b9323a22-7df9-45b4-bd11-cf3fe7e8c5aa	three vertical bars of different lengths standing on a horizontal line at the bottom	pale lavender white
+distribute-x	action	-	42	ec64af34-1954-495e-84ab-7be848c28fd6	three equal small squares in a row with equal gaps and two short arrows between them	pale lavender white
+distribute-y	action	-	7	68e086e7-9555-4e1c-9126-490af8e8491f	three equal solid rounded squares stacked in a vertical column with equal gaps, a small downward chevron arrow in each gap	pale lavender white
+fit	action	-	42	978fa72b-22a5-4740-b8c4-c9b9af1d12ce	four corner brackets framing a small square, fit to view	pale lavender white
+snap	action	-	42	311991a4-72fc-4308-b6b5-076354461aee	a horseshoe magnet	pale lavender white with red tips
+compile	action	-	42	a4d466df-f646-48a3-b1fb-3986dd11ff35	a check mark inside a gear cog, compile and check	pale lavender white
+publish	action	-	42	8e64a21f-3dbb-448d-afb9-86e983834694	an upward arrow rising out of an open tray, publish	pale lavender white
+save	action	-	42	25576be1-7ba6-459e-a7aa-1268018f7f6c	a floppy disk	pale lavender white
+play	action	-	7	7a20f4e5-0777-457b-a4a5-e6b5557c9f9d	a solid filled right-pointing play triangle with rounded corners	green
+pause	action	-	42	04c800b2-4679-4f87-b326-27e771009ce5	two vertical pause bars	pale lavender white
+add	action	-	42	5937bf8b-4f0d-40f5-b2ac-24b18b592a8c	a bold plus sign	pale lavender white
+delete	action	-	42	582f078d-72df-4494-9752-21f4362eca6d	a trash can bin with a lid	pale lavender white
+add-key	action	-	42	c5508cee-62b2-499f-9294-bb19dd3f4185	a diamond keyframe shape with a small plus sign	amber
+marker	action	-	42	51444a89-1772-4a3a-a727-da2a2baad1ed	a small flag on a pole	pale lavender white
+layer	action	-	42	94928c0d-df1c-4624-9d28-44ac8ecf6a4d	three stacked flat square sheets, layers	pale lavender white
+open	action	-	42	a808a8c3-4a10-4965-923b-f25ff5c32878	a square with an arrow pointing out of its top right corner, open in a window	pale lavender white
+move	action	move.png	-	-	-	-
+rotate	action	rotate.png	-	-	-	-
+scale	action	scale.png	-	-	-	-

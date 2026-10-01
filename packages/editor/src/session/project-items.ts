@@ -113,6 +113,17 @@ const DOCUMENT_KIND_OF: Readonly<Record<string, string>> = {
   behavior: 'script',
 };
 
+/** Every document kind the editor window opens, with the item kind it edits (a visual script is a behavior shown as a graph). */
+export const ITEM_KIND_OF_DOCUMENT: Readonly<Record<string, string>> = {
+  ...Object.fromEntries(Object.entries(DOCUMENT_KIND_OF).map(([item, doc]) => [doc, item])),
+  'visual-script': 'behavior',
+};
+
+/** The picture kind of a document (its item's kind; a visual script has its own). */
+export function iconKindOfDocument(docKind: string): string {
+  return docKind === 'visual-script' ? 'visual-script' : (ITEM_KIND_OF_DOCUMENT[docKind] ?? docKind);
+}
+
 /** A lower-case id from a name (letters, digits, `-` and `_`), or `fallback` when the name has none. */
 export function idFromName(name: string, fallback: string): string {
   return name.toLowerCase().replace(/[^a-z0-9_-]+/g, '-').replace(/^[-_]+|[-_]+$/g, '').slice(0, 56) || fallback;

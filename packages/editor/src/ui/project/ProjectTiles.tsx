@@ -12,6 +12,7 @@ import type { IndexEntryView } from '../../session/catalog';
 import type { TileThumbnails } from '../../viewport/thumbnails';
 import { useAssetSummaries } from '../catalog/catalog-context';
 import { TileImage } from '../assets/TileImage';
+import { kindIcon } from '../../session/item-icons';
 
 /** How a list draws its items: tiles in a grid, or one row each. */
 export type ProjectView = 'grid' | 'list';
@@ -31,37 +32,18 @@ function classOf(base: string, c: Common, extra = ''): string {
   return `${c.view === 'list' ? 'tl-project__row' : 'tl-tile'} ${base}${c.chosen ? ' is-selected' : ''}${c.cut ? ' is-cut' : ''}${extra}`;
 }
 
-/** Short names for the kinds without a picture of their own. */
-const GLYPHS: Readonly<Record<string, string>> = {
-  prefab: 'PF',
-  behavior: 'JS',
-  library: 'LIB',
-  material: 'MAT',
-  animator: 'AN',
-  graph: 'GR',
-  effect: 'FX',
-  ui: 'UI',
-  uitheme: 'TH',
-  dialogue: 'DLG',
-  timeline: 'TL',
-  envpreset: 'ENV',
-  scene: 'SC',
-};
-
+/** A resource's or scene's picture from the icon registry (its kind's short name for a kind the registry does not know). */
 function Glyph(p: { kind: string }): JSX.Element {
+  const src = kindIcon(p.kind);
   return (
-    <span className={`tl-tile__icon tl-tile__icon--${p.kind} tl-project__glyph`} aria-hidden="true">
-      {GLYPHS[p.kind] ?? p.kind.slice(0, 3).toUpperCase()}
+    <span className={`tl-tile__icon tl-tile__icon--${p.kind}${src === undefined ? ' tl-project__glyph' : ''}`} aria-hidden="true">
+      {src !== undefined ? <img className="tl-tile__img tl-tile__img--kind" src={src} alt="" draggable={false} /> : p.kind.slice(0, 3).toUpperCase()}
     </span>
   );
 }
 
 export function FolderIcon(): JSX.Element {
-  return (
-    <svg className="tl-project__folder-icon" viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M3 6.5A1.5 1.5 0 0 1 4.5 5h5l2 2h8A1.5 1.5 0 0 1 21 8.5v9A1.5 1.5 0 0 1 19.5 19h-15A1.5 1.5 0 0 1 3 17.5z" fill="currentColor" />
-    </svg>
-  );
+  return <img className="tl-project__folder-icon" src={kindIcon('folder')} alt="" aria-hidden="true" draggable={false} />;
 }
 
 /** A folder: double-click opens it; items and folders dropped on it move into it. */

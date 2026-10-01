@@ -30,6 +30,7 @@ import {
 } from '../session/behavior-publication';
 import type { BehaviorDeclarationView } from '../session/prefab-projection';
 import { DeclarationEditor, type DeclarationSave } from './DeclarationEditor';
+import { kindIcon } from '../session/item-icons';
 
 export interface BehaviorPanelProps {
   behaviors: readonly BehaviorDeclarationView[];
@@ -86,7 +87,7 @@ export function BehaviorPanel(p: BehaviorPanelProps): JSX.Element {
             onDoubleClick={() => p.onOpen?.(b.behaviorId)}
             title={b.behaviorId}
           >
-            <span className="tl-tile__icon tl-tile__icon--script" aria-hidden="true"><img className="tl-tile__img" src="./icons/script.png" alt="" /></span>
+            <span className="tl-tile__icon tl-tile__icon--script" aria-hidden="true"><img className="tl-tile__img" src={kindIcon('behavior')} alt="" /></span>
             <span className="tl-tile__name">{b.displayName}</span>
             <span className="tl-tile__meta">
               {b.declaration.properties.length} prop · r{b.publishedRevision}

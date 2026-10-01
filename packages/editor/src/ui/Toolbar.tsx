@@ -5,6 +5,7 @@
 import type { JSX } from 'react';
 
 import type { GizmoMode } from '../viewport/viewport';
+import { actionIcon } from '../session/item-icons';
 
 interface Props {
   projectId: string;
@@ -27,9 +28,9 @@ interface Props {
 }
 
 const TOOLS: ReadonlyArray<{ mode: GizmoMode; icon: string; title: string }> = [
-  { mode: 'translate', icon: './icons/move.png', title: 'Move tool (W)' },
-  { mode: 'rotate', icon: './icons/rotate.png', title: 'Rotate tool (E)' },
-  { mode: 'scale', icon: './icons/scale.png', title: 'Scale tool (R)' },
+  { mode: 'translate', icon: actionIcon('move'), title: 'Move tool (W)' },
+  { mode: 'rotate', icon: actionIcon('rotate'), title: 'Rotate tool (E)' },
+  { mode: 'scale', icon: actionIcon('scale'), title: 'Scale tool (R)' },
 ];
 
 export function Toolbar(p: Props): JSX.Element {

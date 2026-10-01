@@ -9,6 +9,7 @@ import { useEffect, useState, type JSX } from 'react';
 
 import type { AssetView } from '../../session/content-projection';
 import type { TileRef, TileThumbnails } from '../../viewport/thumbnails';
+import { kindIcon } from '../../session/item-icons';
 
 /** The picture URL of an asset version (and piece) while the caller is on screen (null: none yet). */
 export function useTileUrl(summary: AssetView | undefined, piece: string | null, thumbnails: TileThumbnails | null): string | null {
@@ -44,7 +45,7 @@ function useTile(summary: AssetView | undefined, piece: string | null, thumbnail
 
 export function TileImage(p: { summary: AssetView | undefined; kind: string; piece: string | null; thumbnails: TileThumbnails | null }): JSX.Element {
   const { url, pending } = useTile(p.summary, p.piece, p.thumbnails);
-  const icon = `./icons/${p.kind === 'audio' ? 'audio' : p.kind === 'texture' || p.kind === 'font' ? 'empty' : 'model'}.png`;
+  const icon = kindIcon(p.kind) ?? kindIcon('model')!;
   // `data-thumb`: pending while the picture is read or made (tests wait for the tiles in view to settle).
   return <img className={url !== null ? 'tl-tile__img tl-tile__img--thumb' : 'tl-tile__img'} src={url ?? icon} alt="" draggable={false} data-thumb={pending ? 'pending' : url !== null ? 'ready' : 'none'} />;
 }

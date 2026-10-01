@@ -9,6 +9,7 @@
 import { createContext, useContext, type JSX, type ReactNode } from 'react';
 
 import { documentOfItem } from '../../session/project-items';
+import { actionIcon } from '../../session/item-icons';
 
 export interface ItemOpener {
   /** Open a project item (an index entry's kind and id) as a double-click in the project window does. */
@@ -34,6 +35,7 @@ export function OpenItemButton(p: { kind: string | null; id: string; aria: strin
   if (open === null) return null;
   return (
     <button type="button" className="tl-btn tl-btn--small tl-ref__open" aria-label={`Open ${p.aria}`} title="Open in the editor window" onClick={() => open(p.id)}>
+      <img className="tl-tool-button__icon" src={actionIcon('open')} alt="" aria-hidden="true" />
       Open
     </button>
   );
