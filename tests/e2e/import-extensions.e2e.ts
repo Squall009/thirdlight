@@ -15,6 +15,7 @@ import { expect, test, type Page } from '@playwright/test';
 
 import { startBackend, type E2EBackend } from './backend';
 import { colorCount, decodePng, litBands } from './png';
+import { projectWindow, openWindow, closeEditor } from './ui';
 
 const REPO = resolve(import.meta.dirname, '..', '..');
 const FIXTURES = join(REPO, 'fixtures', 'import-ext');
@@ -111,7 +112,7 @@ test('WebP, material extensions, unlit and quantized GLBs import, render in Play
   // The WebP export (what the Blender pipeline writes) through the picker UI.
   await page.goto(`${be.origin}/?project=game#token=${be.token}`);
   await expect(status(page)).toContainText('connected');
-  await page.getByRole('tab', { name: 'Assets' }).click();
+  await projectWindow(page);
   await page.getByRole('button', { name: 'from project folder…' }).click();
   const picker = page.getByRole('dialog', { name: 'Import from project folder' });
   await picker.getByRole('button', { name: /^webp-cube\.glb/ }).click();
@@ -134,9 +135,9 @@ test('WebP, material extensions, unlit and quantized GLBs import, render in Play
   await page.locator('.tl-app__stage').screenshot({ path: join(SHOTS, '1-editor.png') });
 
   // The editor viewport realized all three (no visual load failure).
-  await page.getByRole('tab', { name: /Problems/ }).click();
+  await openWindow(page, 'Problems');
   await expect(page.getByRole('list', { name: 'Scene view' })).toHaveCount(0);
-  await page.getByRole('tab', { name: 'Scene' }).click();
+  await closeEditor(page);
 
   // Play.
   await page.getByTitle('Start an isolated play preview').click();
@@ -202,7 +203,7 @@ test('Draco (Blender), meshopt (animated) and KTX2/Basis GLBs render in the edit
   await expect(page.locator('.tl-hierarchy__list li.tl-row').filter({ hasText: /-cube/ })).toHaveCount(3);
   await page.waitForTimeout(2000);
   await page.locator('.tl-app__stage').screenshot({ path: join(SHOTS, '4-compressed-editor.png') });
-  await page.getByRole('tab', { name: /Problems/ }).click();
+  await openWindow(page, 'Problems');
   await expect(page.getByRole('list', { name: 'Scene view' })).toHaveCount(0);
 
   // Play: the decoders come from the preview origin's /decoders/.

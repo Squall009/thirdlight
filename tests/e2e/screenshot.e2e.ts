@@ -28,6 +28,7 @@ import { multiPieceGlb } from './multi-piece-glb';
 import { decodePng, type Image } from './png';
 import { makePng } from './png-make';
 import { editorUrlFor, expectRendererBackend, onlyInItsProject, RENDERER_VARIANTS, type RendererVariant } from './renderer-variants';
+import { projectWindow } from './ui';
 
 let be: E2EBackend;
 let dir: string;
@@ -84,7 +85,7 @@ async function playTexturedCrate(page: Page, variant: RendererVariant, texture =
   await page.goto(editorUrlFor(be.editorUrl, variant));
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
   await expectRendererBackend(page.locator('canvas.tl-viewport'), variant);
-  await page.getByRole('tab', { name: 'Assets' }).click();
+  await projectWindow(page);
   await page.getByLabel('extract model textures').setChecked(extract);
   await page.locator('.tl-assets__file').first().setInputFiles(file);
   const publish = page.getByRole('button', { name: 'publish' });

@@ -19,6 +19,7 @@ import { extname, join, normalize } from 'node:path';
 import { expect, test, type Page } from '@playwright/test';
 
 import { startBackend, type E2EBackend } from './backend';
+import { openProjectSettings } from './ui';
 
 let be: E2EBackend | null = null;
 test.afterEach(async () => {
@@ -125,7 +126,7 @@ test('a 3D project: the capsule lands on the box in Play (worker and main thread
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
   await page.locator(`.tl-hierarchy__list li[data-entity-id="${floor}"]`).click();
   await expect(page.getByLabel('collider shape hz', { exact: true })).toHaveValue('5');
-  await page.getByRole('tab', { name: 'Gameplay' }).click();
+  await openProjectSettings(page, 'Gameplay');
   await page.locator('.tl-gameplay__tabs').getByRole('button', { name: 'settings', exact: true }).click();
   const field = page.getByLabel('gameplay settings').getByLabel('settings physics_dimension', { exact: true });
   await expect(field).toHaveValue('2');

@@ -14,6 +14,7 @@ import { randomBytes } from 'node:crypto';
 import { expect, test, type Page } from '@playwright/test';
 
 import { startBackend, type E2EBackend } from './backend';
+import { openWindow } from './ui';
 
 let be: E2EBackend | null = null;
 test.afterEach(async () => {
@@ -91,7 +92,7 @@ test('terrain brushes: Height raises and lowers, Smooth softens, Flatten levels;
   await page.goto(be.editorUrl);
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
   await expect.poll(async () => JSON.parse((await view(page).getAttribute('data-block-layers')) ?? '{"chunks":0}').chunks as number, { timeout: 30_000 }).toBe(4);
-  await page.getByRole('tab', { name: 'Blocks', exact: true }).click();
+  await openWindow(page, 'Blocks');
   await expect(panel(page).getByLabel('block layer')).toHaveValue(layer);
   await expect(view(page)).toHaveAttribute('data-view-proj', /\[/);
 

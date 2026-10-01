@@ -32,6 +32,7 @@ import { expect, test, type Frame, type Page } from '@playwright/test';
 
 import { startBackend, type E2EBackend } from './backend';
 import { decodePng, type Image } from './png';
+import { openProjectSettings } from './ui';
 
 const REPO = resolve(import.meta.dirname, '..', '..');
 
@@ -240,7 +241,7 @@ test('game modes in Play: one switch changes input map, camera, UI and ticking g
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
 
   // The Game modes panel: the modes (the first is the start mode) and the groups.
-  await page.getByRole('tab', { name: 'Game modes' }).click();
+  await openProjectSettings(page, 'Game modes');
   const panel = page.getByLabel('game modes', { exact: true });
   await expect(panel.locator('[data-mode="explore"]')).toContainText('start');
   await expect(panel.locator('[data-mode="tactical"]')).toBeVisible();

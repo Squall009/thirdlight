@@ -30,6 +30,7 @@ import { expect, test, type Frame, type Page } from '@playwright/test';
 
 import { STARTER, type E2EBackend, startBackend } from './backend';
 import { makePng } from './png-make';
+import { projectWindow } from './ui';
 
 const REPO = resolve(import.meta.dirname, '..', '..');
 const FONTS = join(REPO, 'fixtures', 'fonts');
@@ -107,7 +108,7 @@ async function publishScript(entityId: string): Promise<void> {
 }
 
 async function importFile(page: Page, file: string, label: string): Promise<string> {
-  await page.getByRole('tab', { name: 'Assets' }).click();
+  await projectWindow(page);
   await page.locator('.tl-assets__file').first().setInputFiles(file);
   const publish = page.getByRole('button', { name: 'publish' });
   await expect(publish).toBeEnabled({ timeout: 15_000 });

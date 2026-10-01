@@ -28,6 +28,7 @@ import { expect, test, type Locator, type Page } from '@playwright/test';
 import { startBackend, type E2EBackend } from './backend';
 import { decodePng, type Image } from './png';
 import { editorUrlFor, expectRendererBackend, exportQueryFor, onlyInItsProject, type RendererVariant } from './renderer-variants';
+import { openWindow } from './ui';
 
 let be: E2EBackend | null = null;
 test.afterEach(async () => {
@@ -256,7 +257,7 @@ for (const variant of VARIANTS) test(`environment presets: capture and preview i
   await synced();
 
   // Capture "Day": the look and every scene light as they are now.
-  await page.getByRole('tab', { name: 'Environment' }).click();
+  await openWindow(page, 'Environment');
   const panel = page.getByLabel('environment presets');
   await panel.getByLabel('new preset name').fill('Day');
   await panel.getByRole('button', { name: 'capture current as preset' }).click();

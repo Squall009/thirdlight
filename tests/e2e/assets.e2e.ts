@@ -8,6 +8,7 @@ import { expect, test } from '@playwright/test';
 
 import { startBackend, type E2EBackend } from './backend';
 import { colorCount, decodePng } from './png';
+import { projectWindow, closeEditor } from './ui';
 
 const GLB = resolve(import.meta.dirname, '..', '..', 'fixtures', 'm2', 'assets', 'tiny-v1.glb');
 
@@ -24,7 +25,7 @@ test('import → publish → isolated preview → place', async ({ page }) => {
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
   const entitiesBefore = await page.locator('.tl-hierarchy__list li.tl-row').count();
 
-  await page.getByRole('tab', { name: 'Assets' }).click();
+  await projectWindow(page);
   await page.locator('.tl-assets__file').first().setInputFiles(join(GLB));
   const publish = page.getByRole('button', { name: 'publish' });
   await expect(publish).toBeEnabled({ timeout: 15_000 });
@@ -43,7 +44,7 @@ test('import → publish → isolated preview → place', async ({ page }) => {
   await expect.poll(async () => colorCount(decodePng(await canvas.screenshot()), 1), { timeout: 10_000 }).toBeGreaterThan(empty + 2);
 
   await page.getByRole('button', { name: 'place' }).click();
-  await page.getByRole('tab', { name: 'Scene' }).click();
+  await closeEditor(page);
   await expect(page.locator('.tl-hierarchy__list li.tl-row')).toHaveCount(entitiesBefore + 1);
   await expect(page.locator('.tl-hierarchy__list li.tl-row').filter({ hasText: 'tiny-v1' })).toHaveCount(1);
 });

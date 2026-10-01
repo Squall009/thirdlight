@@ -19,7 +19,7 @@ const expect = baseExpect.configure({ timeout: 15_000 });
 
 import { startBackend, type E2EBackend } from './backend';
 import { skinnedGlb } from './skinned-glb';
-import { menu } from './ui';
+import { menu, projectWindow, openWindow, closeEditor, openProjectSettings, expectEditorOpen } from './ui';
 
 const REPO = resolve(import.meta.dirname, '..', '..');
 
@@ -66,7 +66,7 @@ async function select(page: Page, id: string): Promise<void> {
   await page.locator(`.tl-hierarchy__list li[data-entity-id="${id}"]`).click();
 }
 async function importFile(page: Page, path: string, count: number, name: string): Promise<string> {
-  await page.getByRole('tab', { name: 'Assets' }).click();
+  await projectWindow(page);
   await page.locator('.tl-assets__file').first().setInputFiles(path);
   const publish = page.getByRole('button', { name: 'publish' });
   await expect(publish).toBeEnabled({ timeout: 15_000 });
@@ -201,13 +201,13 @@ test('every component kind: added, edited (one undo) and removed through the Ins
   await expect.poll(comp(id, 'model')).toEqual({ asset: { assetId: model } });
   await expect(inspector(page).locator('.tl-inspector__kind')).toHaveText('model');
   // An animator for the model: a controller made in the Animator window, picked in the Inspector.
-  await page.getByRole('tab', { name: 'Animator', exact: true }).click();
+  await openWindow(page, 'Animator');
   await page.getByLabel('animator model').selectOption(model);
   await page.getByRole('button', { name: 'New controller' }).click();
   await expect.poll(async () => (((await be.command({ op: 'queryGameConfig', projectId: be.projectId }))['animators'] as unknown[]) ?? []).length).toBe(1);
   // The new controller opens as a centre tab (the Inspector then shows the graph); back to the Scene.
-  await expect(page.getByRole('tab', { name: 'Animator: New animator', exact: true })).toHaveAttribute('aria-selected', 'true');
-  await page.getByRole('tab', { name: 'Scene', exact: true }).click();
+  await expectEditorOpen(page, 'Animator', 'New animator');
+  await closeEditor(page);
   await select(page, id);
   await add(page, 'Animator');
   await inspector(page).getByLabel('animator controller', { exact: true }).selectOption({ index: 1 });
@@ -256,7 +256,7 @@ test('a content table built from its descriptor sends a second edit on top of a 
   const second = await importFile(page, join(REPO, 'fixtures', 'm3', 'media', 'wav', 'cue-start.wav'), 2, 'cue-start');
   const cues = (): { on: string; name: string; assetId: string }[] => (JSON.parse(readFileSync(join(be.projectDir, 'content.json'), 'utf8')) as { content: { eventCues?: { on: string; name: string; assetId: string }[] } }).content.eventCues ?? [];
 
-  await page.getByRole('tab', { name: 'Media' }).click();
+  await openWindow(page, 'Media');
   const table = page.getByLabel('event sounds');
   await table.getByLabel('new event sound name', { exact: true }).fill('opened');
   await table.getByLabel('new event sound asset', { exact: true }).selectOption(first);
@@ -305,7 +305,7 @@ test('the gameplay settings are built from their descriptor: a number and the st
   await page.goto(be.editorUrl);
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
   const settings = (): Record<string, unknown> => (JSON.parse(readFileSync(join(be.projectDir, 'content.json'), 'utf8')) as { content: { settings: Record<string, unknown> } }).content.settings;
-  await page.getByRole('tab', { name: 'Gameplay' }).click();
+  await openProjectSettings(page, 'Gameplay');
   await page.locator('.tl-gameplay__tabs').getByRole('button', { name: 'settings', exact: true }).click();
   const tab = page.getByLabel('gameplay settings');
   const run = tab.getByLabel('settings run_speed', { exact: true });

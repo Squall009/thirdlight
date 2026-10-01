@@ -15,7 +15,7 @@ import { join, resolve } from 'node:path';
 import { expect, test, type Page } from '@playwright/test';
 
 import { startBackend, type E2EBackend } from './backend';
-import { menu } from './ui';
+import { menu, projectWindow, openWindow } from './ui';
 
 const REPO = resolve(import.meta.dirname, '..', '..');
 const OPUS = readFileSync(join(REPO, 'fixtures', 'music', 'chord-opus.ogg'));
@@ -46,7 +46,7 @@ test('labels on several assets at once, an address in the inspector, undo, reloa
 
   await page.goto(be.editorUrl);
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
-  await page.getByRole('tab', { name: 'Assets' }).click();
+  await projectWindow(page);
   await expect(tile(page, 'line-a')).toHaveCount(1, { timeout: 10_000 });
 
   // Choose three: a click, a Ctrl-click, a Shift-click; label them in one command.
@@ -87,7 +87,7 @@ test('labels on several assets at once, an address in the inspector, undo, reloa
   // After a reload: the labels stayed, the address is gone.
   await page.reload();
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
-  await page.getByRole('tab', { name: 'Assets' }).click();
+  await projectWindow(page);
   await tile(page, 'line-a').click();
   await expect(page.getByTestId('asset-labels')).toHaveText('labels: act-1, voice');
   await expect(page.getByLabel('address')).toHaveValue('');
@@ -97,13 +97,13 @@ test('labels on several assets at once, an address in the inspector, undo, reloa
   // A script library that names "thud" by id: it is not loadable, so Problems says so.
   const lib = await be.command({ op: 'setScriptLibrary', projectId: be.projectId, expectedRevision: await revision(), requestId: `req-${'2'.repeat(32)}`, origin: { kind: 'mcp', clientId: 'e2e' }, args: { libraryId: 'sounds', name: 'Sounds', files: [{ path: 'src/index.ts', text: 'export const THUD = "thud";\nexport const LINE = "line-a";\n' }] } });
   expect(lib['ok'], JSON.stringify(lib)).toBe(true);
-  await page.getByRole('tab', { name: /Problems/ }).click();
+  await openWindow(page, 'Problems');
   const problem = page.locator('.tl-problem').filter({ hasText: 'isn\'t loadable' });
   await expect(problem).toContainText('"thud" (library sounds (src/index.ts))', { timeout: 10_000 });
   await expect(problem).not.toContainText('"line-a"');
 
   // Labelled, it is loadable (its inspector says so).
-  await page.getByRole('tab', { name: 'Assets' }).click();
+  await projectWindow(page);
   await tile(page, 'thud').click();
   await page.getByLabel('add label').fill('sfx');
   await page.getByLabel('add label').press('Enter');

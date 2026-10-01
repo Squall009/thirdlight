@@ -8,7 +8,7 @@ import { join } from 'node:path';
 import { expect, test } from '@playwright/test';
 
 import { startBackend, type E2EBackend } from './backend';
-import { createBox } from './ui';
+import { createBox, openWindow, closeEditor, windowTab } from './ui';
 
 
 let be: E2EBackend;
@@ -46,9 +46,9 @@ test('a corrupt edit cannot be loaded; keeping the editor version resumes editin
   await expect(banner).toContainText('invalid');
   await expect(banner.getByRole('button', { name: 'load disk version' })).toBeDisabled();
 
-  await page.getByRole('tab', { name: /Problems/ }).click();
+  await openWindow(page, 'Problems');
   await expect(page.locator('.tl-problem').first()).toContainText('changed on disk');
-  await page.getByRole('tab', { name: 'Scene' }).click();
+  await closeEditor(page);
 
   await banner.getByRole('button', { name: 'keep editor version' }).click();
   await expect(banner).toHaveCount(0);
@@ -70,7 +70,7 @@ test('a failed command from any client shows up in Problems live', async ({ page
     args: { entityId: 'cam-main', parentId: 'no-such-entity' },
   });
   expect(res.ok).toBe(false);
-  await expect(page.getByRole('tab', { name: /Problems/ })).toContainText('1');
-  await page.getByRole('tab', { name: /Problems/ }).click();
+  await expect(windowTab(page, 'Problems')).toContainText('1');
+  await openWindow(page, 'Problems');
   await expect(page.locator('.tl-problem').first()).toContainText('updateEntity');
 });

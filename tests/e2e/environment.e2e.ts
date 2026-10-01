@@ -19,7 +19,7 @@ import { expect, test, type Locator, type Page } from '@playwright/test';
 import { startBackend, type E2EBackend } from './backend';
 import { decodePng, type Image } from './png';
 import { editorUrlFor, expectRendererBackend, exportQueryFor, onlyInItsProject, RENDERER_VARIANTS } from './renderer-variants';
-import { menu } from './ui';
+import { menu, openWindow } from './ui';
 
 let be: E2EBackend;
 test.beforeEach(async () => {
@@ -94,7 +94,7 @@ for (const variant of RENDERER_VARIANTS) test(`sky, vignette, bloom and a fog vo
     await expect(page.locator('.tl-statusbar')).toContainText(new RegExp(`revision ${rev}(?!\\d)`));
   };
   // A solid sky colour: the top of the Scene view turns light blue (#7ec8ff).
-  await page.getByRole('tab', { name: 'Environment' }).click();
+  await openWindow(page, 'Environment');
   await page.getByRole('combobox', { name: 'sky mode' }).selectOption('color');
   await expect.poll(async () => avg(await shot(viewport), 0.05, 0.02, 0.95, 0.15)[2], { timeout: 10_000 }).toBeGreaterThan(before[2] + 80);
   // The physical sky: still a bright sky, now with a gradient.

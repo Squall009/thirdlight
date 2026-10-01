@@ -17,6 +17,7 @@ import { createHash } from 'node:crypto';
 import { expect, test, type Page } from '@playwright/test';
 
 import { type E2EBackend, startBackend } from './backend';
+import { openWindow } from './ui';
 
 let be: E2EBackend;
 test.beforeEach(async () => {
@@ -102,7 +103,7 @@ test('a public and a private script property: Inspector, per-object override and
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
 
   // Behaviors tab: declare a public and a private property with the declaration editor.
-  await page.getByRole('tab', { name: 'Behaviors' }).click();
+  await openWindow(page, 'Behaviors');
   await page.getByRole('button', { name: '+ New behavior' }).click();
   const editor = page.getByLabel('declaration editor');
   await fill(page, 'behavior id', 'probe');
@@ -226,7 +227,7 @@ test('properties declared in the script source: the compiler derives the declara
 
   await page.goto(be.editorUrl);
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
-  await page.getByRole('tab', { name: 'Behaviors' }).click();
+  await openWindow(page, 'Behaviors');
   await page.locator('.tl-behaviors__list li').filter({ hasText: 'Coded' }).click();
   const editor = page.getByLabel('declaration editor');
   await expect(editor.locator('[data-declared-in-code="true"]')).toBeVisible();

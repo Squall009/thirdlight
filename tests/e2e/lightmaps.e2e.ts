@@ -20,6 +20,7 @@ import * as THREE from 'three';
 import { startBackend, type E2EBackend } from './backend';
 import { decodePng, type Image } from './png';
 import { editorUrlFor, expectRendererBackend, onlyInItsProject, RENDERER_VARIANTS, type RendererVariant } from './renderer-variants';
+import { openWindow } from './ui';
 
 let be: E2EBackend;
 let seq = 0;
@@ -120,7 +121,7 @@ for (const variant of RENDERER_VARIANTS) test(`Bake preview puts the static cube
   expect(Math.abs(beforeShadow - beforeLit)).toBeLessThan(15);
 
   // Bake in the Lighting window.
-  await page.getByRole('tab', { name: 'Lighting' }).click();
+  await openWindow(page, 'Lighting');
   await expect(page.locator('[aria-label="bake status"]')).toContainText('No bake for this scene');
   await page.getByRole('button', { name: 'Bake preview (browser)' }).click();
   await expect(page.locator('[aria-label="bake status"]')).toContainText('Preview (browser) bake', { timeout: 120_000 });
@@ -158,7 +159,7 @@ test('Bake final runs Blender Cycles on the bake host; its lightmap shows the sh
   const before = await play();
   const beforeLit = brightnessAt(before, litSpot);
 
-  await page.getByRole('tab', { name: 'Lighting' }).click();
+  await openWindow(page, 'Lighting');
   await expect(page.getByRole('button', { name: 'Bake final (Blender)' })).toBeEnabled();
   await page.getByRole('button', { name: /settings/ }).click();
   // A small, quick bake (the real samples are the owner's choice).

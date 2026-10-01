@@ -26,6 +26,7 @@ import { extname, join, normalize, resolve } from 'node:path';
 import { expect, test, type Page } from '@playwright/test';
 
 import { startBackend, type E2EBackend } from './backend';
+import { projectWindow, closeEditor } from './ui';
 
 const REPO = resolve(import.meta.dirname, '..', '..');
 let be: E2EBackend | null = null;
@@ -86,7 +87,7 @@ async function script(behaviorId: string, source: string, entityId: string, asse
 /** Import a WAV through the editor's Assets tab; returns its asset id. */
 async function importWav(page: Page, file: string, name: string): Promise<string> {
   const before = ((await query('queryAssets', { limit: 50, offset: 0 }))['assets'] as unknown[]).length;
-  await page.getByRole('tab', { name: 'Assets' }).click();
+  await projectWindow(page);
   await page.locator('.tl-assets__file').first().setInputFiles(join(REPO, 'fixtures', 'm3', 'media', 'wav', file));
   const publish = page.getByRole('button', { name: 'publish' });
   await expect(publish).toBeEnabled({ timeout: 15_000 });
@@ -276,7 +277,7 @@ test('editor: the audio source\'s panner fields in the Inspector', async ({ page
   const asset = await importWav(page, 'cue-goal.wav', 'cue-goal');
   const source = await create('Brook', [0, 1, 0]);
   await cmd('setComponent', { entityId: source, component: 'audioSource', value: { assetId: asset, volume: 0.8, range: 12 } });
-  await page.getByRole('tab', { name: 'Scene' }).click().catch(() => undefined);
+  await closeEditor(page).catch(() => undefined);
   await page.locator(`.tl-hierarchy__list li[data-entity-id="${source}"]`).click();
   await expect(page.locator('.tl-hierarchy__list li.is-selected')).toHaveAttribute('data-entity-id', source);
   const inspector = page.locator('.tl-inspector');

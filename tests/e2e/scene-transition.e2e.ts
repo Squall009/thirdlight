@@ -23,6 +23,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { expect, test, type Page } from '@playwright/test';
 
 import { publishWav, STARTER, startBackend, type E2EBackend } from './backend';
+import { openWindow, closeEditor } from './ui';
 
 let be: E2EBackend;
 test.beforeEach(async () => {
@@ -87,7 +88,7 @@ const METRONOME = [
 ].join('\n');
 
 async function select(page: Page, id: string): Promise<void> {
-  await page.getByRole('tab', { name: 'Scene', exact: true }).click().catch(() => undefined);
+  await closeEditor(page).catch(() => undefined);
   await page.locator(`.tl-hierarchy__list li[data-entity-id="${id}"]`).click();
   await expect(page.locator('.tl-hierarchy__list li.is-selected')).toHaveAttribute('data-entity-id', id);
 }
@@ -148,7 +149,7 @@ test('a trigger\'s scene transition, a track camera and event sounds from the ed
   await expect.poll(async () => (await comp(tracker, 'virtualCamera'))?.['target']).toBe(STARTER.playerId);
 
   // i: an event sound for the metronome's signal, on the ui bus.
-  await page.getByRole('tab', { name: 'Media' }).click();
+  await openWindow(page, 'Media');
   const events = page.getByLabel('event sounds');
   await events.getByLabel('new event sound source').selectOption('signal');
   await events.getByLabel('new event sound name').fill('tick');

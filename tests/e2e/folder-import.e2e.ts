@@ -18,6 +18,7 @@ import { join, resolve } from 'node:path';
 import { expect, test, type Page } from '@playwright/test';
 
 import { startBackend, type E2EBackend } from './backend';
+import { projectWindow } from './ui';
 
 const REPO = resolve(import.meta.dirname, '..', '..');
 const GLB = join(REPO, 'fixtures', 'm2', 'assets', 'tiny-v1.glb');
@@ -63,7 +64,7 @@ test('uploads land in the folder named; a picked folder and a game-folder folder
   page.on('pageerror', (e) => errors.push(e.message));
   await page.goto(be.editorUrl);
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
-  await page.getByRole('tab', { name: 'Assets' }).click();
+  await projectWindow(page);
 
   // One file, uploaded into the folder the tab names.
   await page.getByLabel('upload folder').fill('assets/props');
@@ -103,7 +104,7 @@ test('uploads land in the folder named; a picked folder and a game-folder folder
   // After a reload: the assets, their files and labels.
   await page.reload();
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
-  await page.getByRole('tab', { name: 'Assets' }).click();
+  await projectWindow(page);
   await expect(tile(page, 'line-001')).toHaveCount(2, { timeout: 10_000 });
   await expect(tile(page, 'line-002')).toHaveCount(1);
   await tile(page, 'line-002').click();

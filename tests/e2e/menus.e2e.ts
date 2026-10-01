@@ -6,7 +6,7 @@
 import { expect, test, type Page } from '@playwright/test';
 
 import { startBackend, type E2EBackend } from './backend';
-import { closeMenu, menu, menuItem } from './ui';
+import { closeMenu, menu, menuItem, expectWindowOpen, viewTab } from './ui';
 
 let be: E2EBackend;
 test.beforeEach(async () => {
@@ -128,9 +128,9 @@ test('File → Export game… exports and downloads a zip holding the standalone
 test('Window and Help menus: panels, views, shortcuts dialog', async ({ page }) => {
   await open(page);
   await menu(page, 'Window', 'Problems');
-  await expect(page.getByRole('tab', { name: /Problems/ })).toHaveAttribute('aria-selected', 'true');
+  await expectWindowOpen(page, 'Problems');
   await menu(page, 'Window', 'Game');
-  await expect(page.getByRole('tab', { name: 'Game', exact: true })).toHaveAttribute('aria-selected', 'true');
+  await expect(viewTab(page, 'Game')).toHaveAttribute('aria-selected', 'true');
   await menu(page, 'Help', 'Keyboard shortcuts');
   await expect(page.getByRole('dialog', { name: 'Keyboard shortcuts' })).toContainText('Undo / redo');
   await page.keyboard.press('Escape');

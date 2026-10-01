@@ -24,6 +24,7 @@ import { expect, test, type Page } from '@playwright/test';
 
 import { startBackend, type E2EBackend } from './backend';
 import { decodePng, type Image } from './png';
+import { openProjectSettings } from './ui';
 
 let be: E2EBackend;
 test.beforeEach(async () => {
@@ -152,7 +153,7 @@ test('the game shell from the editor: title, HUD bound to a counter, pause, save
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
 
   // The Game shell tab: add the shell, its title and pause screens and the HUD (one setShell each).
-  await page.getByRole('tab', { name: 'Game shell' }).click();
+  await openProjectSettings(page, 'Game shell');
   const panel = page.getByLabel('game shell', { exact: true });
   const shell = async (): Promise<unknown> => (await query('queryGameConfig'))['shell'];
   await panel.getByRole('button', { name: 'add game shell' }).click();
@@ -315,7 +316,7 @@ test('the export saves to a slot and a new page continues from it; Clear Play sa
   await expect.poll(async () => (await play.observe())?.shell?.screen ?? null, { timeout: 10_000 }).toBe('pause');
   await play.frame.locator('[data-tl-ui-doc="paused"] [data-widget="save"]').click();
   await expect.poll(async () => ((await play.observe())?.saves?.slots ?? []).map((s) => s.slot), { timeout: 15_000 }).toContain(1);
-  await page.getByRole('tab', { name: 'Saves', exact: true }).click();
+  await openProjectSettings(page, 'Saves');
   await page.getByRole('button', { name: 'Clear Play save' }).click();
   await expect(page.getByRole('status').filter({ hasText: 'cleared' })).toBeVisible({ timeout: 15_000 });
   await page.getByTitle('Stop the play preview').click();

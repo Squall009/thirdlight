@@ -22,6 +22,7 @@ import { expect, test, type Page } from '@playwright/test';
 
 import { opusVoice } from '../../tools/perf/scale-media';
 import { startBackend, type E2EBackend } from './backend';
+import { projectWindow } from './ui';
 
 let be: E2EBackend | null = null;
 let dir = '';
@@ -61,7 +62,7 @@ async function asset(assetId: string): Promise<{ assetId: string; kind: string; 
 async function importFile(page: Page, file: string, name: string): Promise<string> {
   const assets = async () => (await query('queryAssets', { limit: 50, offset: 0 }))['assets'] as { assetId: string; displayName: string }[];
   const before = (await assets()).length;
-  await page.getByRole('tab', { name: 'Assets' }).click();
+  await projectWindow(page);
   await page.locator('.tl-assets__file').first().setInputFiles(file);
   const publish = page.getByRole('button', { name: 'publish' });
   await expect(publish).toBeEnabled({ timeout: 15_000 });

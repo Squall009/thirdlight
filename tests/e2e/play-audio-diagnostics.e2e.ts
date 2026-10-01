@@ -26,6 +26,7 @@ import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { expect, test, type Page } from '@playwright/test';
 
 import { startBackend, type E2EBackend } from './backend';
+import { projectWindow } from './ui';
 
 const REPO = resolve(import.meta.dirname, '..', '..');
 let be: E2EBackend | null = null;
@@ -76,7 +77,7 @@ async function script(behaviorId: string, source: string, entityId: string, asse
 /** Import a WAV through the editor's Assets tab; returns its asset id. */
 async function importWav(page: Page, file: string, name: string): Promise<string> {
   const before = ((await query('queryAssets', { limit: 50, offset: 0 }))['assets'] as unknown[]).length;
-  await page.getByRole('tab', { name: 'Assets' }).click();
+  await projectWindow(page);
   await page.locator('.tl-assets__file').first().setInputFiles(join(REPO, 'fixtures', 'm3', 'media', 'wav', file));
   const publish = page.getByRole('button', { name: 'publish' });
   await expect(publish).toBeEnabled({ timeout: 15_000 });

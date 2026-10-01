@@ -16,6 +16,7 @@ import { expect, test, type Page } from '@playwright/test';
 
 import { startBackend, type E2EBackend } from './backend';
 import { multiPieceGlb, type PieceSpec } from './multi-piece-glb';
+import { openWindow } from './ui';
 
 const bakeBlender = process.env['TL_BAKE_BLENDER'] ?? process.env['THIRDLIGHT_BLENDER'] ?? 'blender';
 const bakeHost = process.env['TL_BAKE_HOST'] ?? 'local';
@@ -118,7 +119,7 @@ test('a multi-piece kit bakes in the browser: every piece gets a lightmap and Pl
   const { ids, play } = await buildKitScene(page);
   await play('preview-before');
 
-  await page.getByRole('tab', { name: 'Lighting' }).click();
+  await openWindow(page, 'Lighting');
   await expect(page.locator('[aria-label="bake status"]')).toContainText('No bake for this scene');
   await page.getByRole('button', { name: 'Bake preview (browser)' }).click();
   await expect(page.locator('[aria-label="bake status"]')).toContainText('Preview (browser) bake', { timeout: 120_000 });
@@ -138,7 +139,7 @@ test('a multi-piece kit bakes with Blender Cycles and Play uses the lightmaps', 
   const { ids, play } = await buildKitScene(page);
   await play('final-before');
 
-  await page.getByRole('tab', { name: 'Lighting' }).click();
+  await openWindow(page, 'Lighting');
   await expect(page.getByRole('button', { name: 'Bake final (Blender)' })).toBeEnabled();
   await page.getByRole('button', { name: /settings/ }).click();
   // A small, quick bake (the real samples are the owner's choice).

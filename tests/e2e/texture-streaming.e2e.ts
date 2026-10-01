@@ -30,6 +30,7 @@ import { startBackend, type E2EBackend } from './backend';
 import { decodePng, type Image } from './png';
 import { makePng } from './png-make';
 import { editorUrlFor, expectRendererBackend, exportQueryFor, onlyInItsProject, RENDERER_VARIANTS } from './renderer-variants';
+import { projectWindow } from './ui';
 
 let be: E2EBackend | null = null;
 test.afterEach(async () => {
@@ -298,7 +299,7 @@ test('the asset inspector sets a texture\'s mip streaming (one command, in its s
   await importKtx2(new Uint8Array(makePng(256, 256, () => [90, 140, 200, 255])), 'small');
   await page.goto(be.editorUrl);
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
-  await page.getByRole('tab', { name: 'Assets' }).click();
+  await projectWindow(page);
   const pick = async (name: string): Promise<void> => {
     const tile = page.locator('.tl-assets__list li[data-asset-id]').filter({ hasText: name });
     await expect(tile).toHaveCount(1, { timeout: 10_000 });

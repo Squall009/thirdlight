@@ -15,6 +15,7 @@ import { expect, test, type Page } from '@playwright/test';
 import { startBackend, type E2EBackend } from './backend';
 import { KIT_PIECES, multiPieceGlb } from './multi-piece-glb';
 import { decodePng, type Image } from './png';
+import { projectWindow } from './ui';
 
 let be: E2EBackend;
 let dir: string;
@@ -61,7 +62,7 @@ async function importKit(page: Page): Promise<void> {
   writeFileSync(file, multiPieceGlb(KIT_PIECES));
   await page.goto(be.editorUrl);
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
-  await page.getByRole('tab', { name: 'Assets' }).click();
+  await projectWindow(page);
   await page.locator('.tl-assets__file').first().setInputFiles(file);
   const publish = page.getByRole('button', { name: 'publish' });
   await expect(publish).toBeEnabled({ timeout: 15_000 });

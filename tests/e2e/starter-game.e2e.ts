@@ -25,6 +25,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { expect, test, type Page } from '@playwright/test';
 
 import { controls, STARTER, startBackend, type E2EBackend } from './backend';
+import { openProjectSettings, closeEditor } from './ui';
 
 let be: E2EBackend;
 test.beforeEach(async () => {
@@ -137,7 +138,7 @@ interface Obs {
 }
 
 async function select(page: Page, id: string): Promise<void> {
-  await page.getByRole('tab', { name: 'Scene', exact: true }).click().catch(() => undefined);
+  await closeEditor(page).catch(() => undefined);
   await page.locator(`.tl-hierarchy__list li[data-entity-id="${id}"]`).click();
   await expect(page.locator('.tl-hierarchy__list li.is-selected')).toHaveAttribute('data-entity-id', id);
 }
@@ -198,7 +199,7 @@ test('acceptance: a small game from the Starter template with primitives and a p
   await expect.poll(async () => (await comp(door, 'trigger'))?.['sceneTransition']).toEqual({ scene: 'scene-two', spawn: arrival });
 
   // The game shell: the title screen and the HUD.
-  await page.getByRole('tab', { name: 'Game shell' }).click();
+  await openProjectSettings(page, 'Game shell');
   const panel = page.getByLabel('game shell', { exact: true });
   const shell = async (): Promise<unknown> => (await query('queryGameConfig'))['shell'];
   await panel.getByRole('button', { name: 'add game shell' }).click();

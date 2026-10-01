@@ -15,6 +15,7 @@ import { expect, test, type Page } from '@playwright/test';
 
 import { startBackend, type E2EBackend } from './backend';
 import { colorCount, decodePng } from './png';
+import { projectWindow, closeEditor, openWindow } from './ui';
 
 const REPO = resolve(import.meta.dirname, '..', '..');
 const GLB = join(REPO, 'fixtures', 'm2', 'assets', 'tiny-v1.glb');
@@ -41,7 +42,7 @@ test('an imported file has a sidecar; renamed outside the editor with it, "check
   const before = await rows(page).count();
 
   // Import in the editor: the upload is written into the project's folder with its sidecar.
-  await page.getByRole('tab', { name: 'Assets' }).click();
+  await projectWindow(page);
   await page.locator('.tl-assets__file').first().setInputFiles(GLB);
   const publish = page.getByRole('button', { name: 'publish' });
   await expect(publish).toBeEnabled({ timeout: 15_000 });
@@ -61,7 +62,7 @@ test('an imported file has a sidecar; renamed outside the editor with it, "check
 
   // Place it.
   await page.getByRole('button', { name: 'place' }).click();
-  await page.getByRole('tab', { name: 'Scene' }).click();
+  await closeEditor(page);
   await expect(rows(page)).toHaveCount(before + 1);
 
   // Rename the file and its sidecar outside the editor (a file manager, git mv).
@@ -71,11 +72,11 @@ test('an imported file has a sidecar; renamed outside the editor with it, "check
   renameSync(`${file}.tlasset`, `${moved}.tlasset`);
 
   // "check files": the asset is found by its sidecar and keeps its id.
-  await page.getByRole('tab', { name: /Problems/ }).click();
+  await openWindow(page, 'Problems');
   await page.getByRole('button', { name: 'check files' }).click();
   await expect(page.getByRole('button', { name: 'check files' })).toBeEnabled();
   await expect(page.getByRole('list', { name: 'Asset files' })).toHaveCount(0);
-  await page.getByRole('tab', { name: 'Assets' }).click();
+  await projectWindow(page);
   await tile.click();
   await expect(page.locator('.tl-assets__source')).toHaveText('file: assets/props/crate.glb');
   expect(JSON.parse(readFileSync(`${moved}.tlasset`, 'utf8'))).toMatchObject({ id: sidecar.id });

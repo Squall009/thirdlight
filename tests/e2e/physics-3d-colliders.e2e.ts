@@ -28,6 +28,7 @@ import { expect, test, type Page } from '@playwright/test';
 
 import { startBackend, type E2EBackend } from './backend';
 import { multiPieceGlb } from './multi-piece-glb';
+import { projectWindow } from './ui';
 
 let be: E2EBackend | null = null;
 let dir: string;
@@ -161,7 +162,7 @@ test('3D: a `_COL` node becomes a mesh then a convex collider; a 3D trigger star
   writeFileSync(file, multiPieceGlb([{ name: 'pad', lods: [[2, 0.5, 2]], col: [2, 0.5, 2] }]));
   await page.goto(be.editorUrl);
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
-  await page.getByRole('tab', { name: 'Assets' }).click();
+  await projectWindow(page);
   await page.locator('.tl-assets__file').first().setInputFiles(file);
   const publish = page.getByRole('button', { name: 'publish' });
   await expect(publish).toBeEnabled({ timeout: 15_000 });

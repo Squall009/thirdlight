@@ -20,7 +20,7 @@ import { expect, test, type Page } from '@playwright/test';
 
 import { startBackend, type E2EBackend } from './backend';
 import { decodePng, type Image } from './png';
-import { menuItem } from './ui';
+import { menuItem, openWindow, projectWindow } from './ui';
 
 let be: E2EBackend | null = null;
 test.afterEach(async () => {
@@ -118,7 +118,7 @@ test('the Blocks panel paints, fills, picks, replaces, selects, stamps and paint
   await page.goto(be.editorUrl);
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
   await expect.poll(async () => JSON.parse((await view(page).getAttribute('data-block-layers')) ?? '{"chunks":0}').chunks as number, { timeout: 30_000 }).toBe(16);
-  await page.getByRole('tab', { name: 'Blocks', exact: true }).click();
+  await openWindow(page, 'Blocks');
   await expect(panel(page).getByLabel('block layer')).toHaveValue(layer);
   await expect(view(page)).toHaveAttribute('data-block-tool', 'single');
   await expect(view(page)).toHaveAttribute('data-view-proj', /\[/);
@@ -275,7 +275,7 @@ test('the Blocks panel paints, fills, picks, replaces, selects, stamps and paint
   await expect.poll(async () => (await entity(layer)).active ?? true).toBe(true);
 
   // ---- snapping settings: a 1 m move step moves an object in whole metres.
-  await page.getByRole('tab', { name: 'Assets', exact: true }).click();
+  await projectWindow(page);
   await expect(view(page)).toHaveAttribute('data-block-tool', '');
   await (await menuItem(page, 'Edit', 'Snapping settings…')).click();
   const dialog = page.getByRole('dialog', { name: 'Snapping settings' });

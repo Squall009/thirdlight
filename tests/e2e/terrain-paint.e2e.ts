@@ -15,6 +15,7 @@ import { expect, test, type Page } from '@playwright/test';
 import { startBackend, type E2EBackend } from './backend';
 import { ALBEDO_HEIGHT_LAYERS, count, isBlue, materials, packNormalAndOrm, packTexture, publishLayerSources, useArrays } from './painted-layers';
 import { decodePng } from './png';
+import { openWindow, closeEditor } from './ui';
 
 let be: E2EBackend | null = null;
 test.afterEach(async () => {
@@ -97,7 +98,7 @@ test('Paint mode: a drag paints a layer (one undo step), Ctrl erases, undo/redo,
 
   await page.goto(be.editorUrl);
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
-  await page.getByRole('tab', { name: 'Materials' }).click();
+  await openWindow(page, 'Materials');
   await page.getByRole('combobox', { name: 'graph material template' }).selectOption('layers');
   await page.getByRole('button', { name: '+ new graph material' }).click();
   await expect.poll(async () => (await materials(be!)).filter((m) => JSON.stringify(m.graph ?? {}).includes('heightBlend')).length, { timeout: 15_000 }).toBe(1);
@@ -112,9 +113,9 @@ test('Paint mode: a drag paints a layer (one undo step), Ctrl erases, undo/redo,
   }
   expect(await paint(layer)).toEqual({});
 
-  await page.getByRole('tab', { name: 'Scene', exact: true }).click();
+  await closeEditor(page);
   await expect.poll(async () => JSON.parse((await view(page).getAttribute('data-block-layers')) ?? '{"chunks":0}').chunks as number, { timeout: 30_000 }).toBe(4);
-  await page.getByRole('tab', { name: 'Blocks', exact: true }).click();
+  await openWindow(page, 'Blocks');
   await expect(panel(page).getByLabel('block layer')).toHaveValue(layer);
   await expect(view(page)).toHaveAttribute('data-view-proj', /\[/);
   // Nothing blue before painting (the layer is all layer 1: red).
@@ -162,7 +163,7 @@ test('Paint mode: a drag paints a layer (one undo step), Ctrl erases, undo/redo,
   await page.reload();
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
   await expect.poll(async () => JSON.parse((await view(page).getAttribute('data-block-layers')) ?? '{"chunks":0}').chunks as number, { timeout: 30_000 }).toBe(4);
-  await page.getByRole('tab', { name: 'Blocks', exact: true }).click();
+  await openWindow(page, 'Blocks');
   await expect(view(page)).toHaveAttribute('data-view-proj', /\[/);
   await expect.poll(() => blueNear(page, ground(17, 16)), { timeout: 30_000 }).toBeGreaterThan(20);
   expect(await paint(layer)).toEqual(erased);

@@ -18,6 +18,7 @@ import { expect, test, type Page } from '@playwright/test';
 
 import { startBackend, type E2EBackend } from './backend';
 import { decodePng, litBands, type Image } from './png';
+import { projectWindow, closeEditor, openWindow } from './ui';
 
 const REPO = resolve(import.meta.dirname, '..', '..');
 const FBX = join(REPO, 'fixtures', 'import-ext', 'fbx');
@@ -88,7 +89,7 @@ test('an FBX in the game folder is converted, placed, played, exported; rebuilt 
 
   await page.goto(`${be.origin}/?project=game#token=${be.token}`);
   await expect(status(page)).toContainText('connected');
-  await page.getByRole('tab', { name: 'Assets' }).click();
+  await projectWindow(page);
   await page.getByRole('button', { name: 'from project folder…' }).click();
   const picker = page.getByRole('dialog', { name: 'Import from project folder' });
   await picker.getByRole('button', { name: 'props/' }).click();
@@ -108,7 +109,7 @@ test('an FBX in the game folder is converted, placed, played, exported; rebuilt 
   expect(cached).toHaveLength(1);
   expect(readFileSync(join(game, 'thirdlight', 'cache', 'imported', cached[0]!)).subarray(0, 4).toString()).toBe('glTF');
   await page.getByRole('button', { name: 'place' }).click();
-  await page.getByRole('tab', { name: 'Scene' }).click();
+  await closeEditor(page);
   await expect(page.locator('.tl-hierarchy__list li.tl-row').filter({ hasText: 'crate' })).toHaveCount(1);
   await page.waitForTimeout(1000);
   await page.locator('.tl-app__stage').screenshot({ path: join(SHOTS, '1-editor.png') });
@@ -132,12 +133,12 @@ test('an FBX in the game folder is converted, placed, played, exported; rebuilt 
   // Rebuild the FBX (a blue checker): the file is the asset, so "check files" converts and imports it again.
   copyFileSync(join(FBX, 'crate-blue.fbx'), join(assets, 'crate.fbx'));
   copyFileSync(join(FBX, 'crate_checker_blue.png'), join(assets, 'crate_checker_blue.png'));
-  await page.getByRole('tab', { name: /Problems/ }).click();
+  await openWindow(page, 'Problems');
   await page.getByRole('button', { name: 'check files' }).click();
   await expect(page.getByRole('button', { name: 'check files' })).toBeEnabled({ timeout: 120_000 });
   await expect(page.getByRole('list', { name: 'Asset files' })).toHaveCount(0);
   await page.screenshot({ path: join(SHOTS, '3-problems.png') });
-  await page.getByRole('tab', { name: 'Assets' }).click();
+  await projectWindow(page);
   await expect(tile).toContainText('v2');
   expect(await play('5-play-blue.png')).toBe('blue');
   expect(errors).toEqual([]);

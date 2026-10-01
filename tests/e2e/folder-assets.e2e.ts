@@ -20,6 +20,7 @@ import { expect, test, type Page } from '@playwright/test';
 
 import { startBackend, type E2EBackend } from './backend';
 import { colorCount, decodePng } from './png';
+import { projectWindow, closeEditor, openWindow } from './ui';
 
 const REPO = resolve(import.meta.dirname, '..', '..');
 const GLB_V1 = join(REPO, 'fixtures', 'm2', 'assets', 'tiny-v1.glb');
@@ -136,7 +137,7 @@ test('import a .glb from the project folder, place, reload, restart, Play, expor
   const before = await rows(page).count();
 
   // Import from the project folder: browse assets/props, pick crate.glb.
-  await page.getByRole('tab', { name: 'Assets' }).click();
+  await projectWindow(page);
   await page.getByRole('button', { name: 'from project folder…' }).click();
   const picker = page.getByRole('dialog', { name: 'Import from project folder' });
   await expect(picker).toBeVisible();
@@ -167,7 +168,7 @@ test('import a .glb from the project folder, place, reload, restart, Play, expor
   // Place it; it survives a reload and a backend restart.
   await tile.click();
   await page.getByRole('button', { name: 'place' }).click();
-  await page.getByRole('tab', { name: 'Scene' }).click();
+  await closeEditor(page);
   await expect(rows(page)).toHaveCount(before + 1);
   await expect(rows(page).filter({ hasText: 'crate' })).toHaveCount(1);
   await page.reload();
@@ -177,12 +178,12 @@ test('import a .glb from the project folder, place, reload, restart, Play, expor
   await page.reload();
   await expect(status(page)).toContainText('connected');
   await expect(rows(page).filter({ hasText: 'crate' })).toHaveCount(1);
-  await page.getByRole('tab', { name: 'Assets' }).click();
+  await projectWindow(page);
   await tile.click();
   await expect(page.locator('.tl-assets__source')).toBeVisible();
   await expect(page.locator('.tl-assets__source')).toHaveText('file: assets/props/crate.glb');
   await page.screenshot({ path: join(SHOTS, '1-editor-v1.png') });
-  await page.getByRole('tab', { name: 'Scene' }).click();
+  await closeEditor(page);
 
   // Play renders it from the game-folder bytes.
   await playShows(page, D1, '2-play-v1.png');
@@ -207,16 +208,16 @@ test('import a .glb from the project folder, place, reload, restart, Play, expor
   await page.reload();
   await expect(status(page)).toContainText('connected');
   await expect(rows(page).filter({ hasText: 'crate' })).toHaveCount(1);
-  await page.getByRole('tab', { name: 'Assets' }).click();
+  await projectWindow(page);
   await expect(tile).toContainText('v2', { timeout: 15_000 });
-  await page.getByRole('tab', { name: /Problems/ }).click();
+  await openWindow(page, 'Problems');
   await page.getByRole('button', { name: 'check files' }).click();
   await expect(page.getByRole('button', { name: 'check files' })).toBeEnabled();
   await expect(page.getByRole('list', { name: 'Asset files' })).toHaveCount(0);
   await page.screenshot({ path: join(SHOTS, '4-problems-changed.png') });
   // The sidecar next to the file names the asset.
   expect(JSON.parse(readFileSync(`${file}.tlasset`, 'utf8'))).toMatchObject({ tlasset: 3, id: expect.any(String), kind: 'model', record: { kind: 'model' } });
-  await page.getByRole('tab', { name: 'Scene' }).click();
+  await closeEditor(page);
 
   // Play and export now use the new bytes.
   await playShows(page, D2, '5-play-v2.png');

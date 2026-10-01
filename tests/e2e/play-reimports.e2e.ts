@@ -26,6 +26,7 @@ import { expect, test } from '@playwright/test';
 import { PERF_ROOT, startPerfBackend, type PerfBackend } from '../../tools/perf/backend';
 import { sphereGlb } from '../../tools/perf/assets';
 import { makePng } from './png-make';
+import { openWindow } from './ui';
 
 const REPO = resolve(import.meta.dirname, '..', '..');
 let be: PerfBackend;
@@ -72,7 +73,7 @@ test('Play reports the files the check before it imported again, with old and ne
   page.on('pageerror', (e) => errors.push(`${e.message} ${e.stack ?? ''}`.slice(0, 400)));
   await page.goto(`${be.origin}/?project=${ID}#token=${be.token}`);
   await expect(page.locator('.tl-statusbar')).toContainText('connected', { timeout: 60_000 });
-  await page.getByRole('tab', { name: /Problems/ }).click();
+  await openWindow(page, 'Problems');
   // The editor's own check at connect has run (nothing to re-import yet).
   await expect(page.getByRole('button', { name: 'check files' })).toBeEnabled({ timeout: 30_000 });
   const problems = async (): Promise<{ code: string; message: string }[]> => (JSON.parse((await be.get(`/api/v1/projects/${ID}/problems`)).body.toString('utf8')) as { problems: { code: string; message: string }[] }).problems;

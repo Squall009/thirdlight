@@ -15,6 +15,7 @@ import { join } from 'node:path';
 import { expect, test, type Page } from '@playwright/test';
 
 import { startBackend, type E2EBackend } from './backend';
+import { projectWindow, closeEditor, openWindow } from './ui';
 
 let be: E2EBackend;
 test.afterEach(async () => {
@@ -38,7 +39,7 @@ test('new scenes and materials go into the folder named; files added outside the
   await expect(status(page)).toContainText('connected');
 
   // The folder new items go into: made in the project window and chosen there.
-  await page.getByRole('tab', { name: 'Assets' }).click();
+  await projectWindow(page);
   await page.getByRole('button', { name: 'folder (game folder)', exact: true }).click();
   await page.getByRole('button', { name: 'new folder', exact: true }).click();
   await page.getByLabel('folder name').fill('world');
@@ -51,7 +52,7 @@ test('new scenes and materials go into the folder named; files added outside the
   await expect(page.getByTestId('new-item-folder')).toContainText('world/levels');
 
   // A new scene: written into that folder, found by its id.
-  await page.getByRole('tab', { name: 'Scene' }).click();
+  await closeEditor(page);
   await page.getByRole('button', { name: '+ Scene' }).click();
   await expect(header(page, 'Scene 2')).toHaveCount(1);
   const scenes = (await query('queryProject')).scenes as { sceneId: string; name: string }[];
@@ -60,7 +61,7 @@ test('new scenes and materials go into the folder named; files added outside the
   expect(existsSync(join(be.projectDir, 'scenes', `${sceneId}.json`))).toBe(false);
 
   // A new material: the same folder.
-  await page.getByRole('tab', { name: 'Materials' }).click();
+  await openWindow(page, 'Materials');
   await page.getByRole('button', { name: '+ new material' }).click();
   await expect(page.locator('.tl-materials li[data-material-id]')).toHaveCount(1);
   await expect.poll(() => readdirSync(join(be.projectDir, 'world', 'levels')).filter((n) => n.endsWith('.material.json')).length).toBe(1);
@@ -73,14 +74,14 @@ test('new scenes and materials go into the folder named; files added outside the
   writeFileSync(join(be.projectDir, 'imported', 'sand.material.json'), JSON.stringify({ tlresource: 1, kind: 'material', id: 'sand', data: { materialId: 'sand', name: 'Sand', shader: 'standard', params: { color: '#c2b280' }, textures: {} } }));
 
   // The window gets focus back: the file check takes both in.
-  await page.getByRole('tab', { name: 'Scene' }).click();
+  await closeEditor(page);
   await page.evaluate(() => window.dispatchEvent(new Event('focus')));
   const open = page.getByLabel('open scene');
   await expect(open.locator('option', { hasText: 'Arena' })).toHaveCount(1, { timeout: 15_000 });
   await open.selectOption({ label: 'Arena' });
   await expect(header(page, 'Arena')).toHaveCount(1);
   await expect(row(page, 'Barrel')).toHaveCount(1);
-  await page.getByRole('tab', { name: 'Materials' }).click();
+  await openWindow(page, 'Materials');
   await expect(page.locator('.tl-materials li[data-material-id="sand"]')).toHaveCount(1);
   await page.screenshot({ path: 'test-results/resource-folders.png' });
 

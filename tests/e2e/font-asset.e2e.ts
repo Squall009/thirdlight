@@ -13,6 +13,7 @@ import { join, resolve } from 'node:path';
 import { expect, test, type Page } from '@playwright/test';
 
 import { startBackend, type E2EBackend } from './backend';
+import { projectWindow } from './ui';
 
 const FONTS = resolve(import.meta.dirname, '..', '..', 'fixtures', 'fonts');
 
@@ -36,7 +37,7 @@ test('a TTF and a WOFF2 import as font assets and show font tiles', async ({ pag
   test.skip(test.info().project.name === 'webgpu', 'no renderer involved (the asset list)');
   await page.goto(be.editorUrl);
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
-  await page.getByRole('tab', { name: 'Assets' }).click();
+  await projectWindow(page);
 
   await importFont(page, 'neutral-sans.ttf', 1);
   const tile = page.locator('.tl-assets__list li[data-asset-id]').filter({ hasText: 'neutral-sans' }).first();

@@ -33,6 +33,7 @@ import { publishBytes, startBackend, type E2EBackend } from './backend';
 import { decodePng, type Image } from './png';
 import { makePng } from './png-make';
 import { editorUrlFor, exportQueryFor, expectRendererBackend, onlyInItsProject, RENDERER_VARIANTS } from './renderer-variants';
+import { projectWindow, closeEditor } from './ui';
 
 let be: E2EBackend | null = null;
 test.afterEach(async () => {
@@ -176,7 +177,7 @@ for (const variant of RENDERER_VARIANTS) test(`a model's extracted images are te
   // ---- The import in the Assets tab, "extract model textures" on by default.
   await page.goto(editorUrlFor(be.editorUrl, variant));
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
-  await page.getByRole('tab', { name: 'Assets' }).click();
+  await projectWindow(page);
   await expect(page.getByLabel('extract model textures')).toBeChecked();
   mkdirSync(join(shots, 'extract-textures'), { recursive: true });
   const file = join(shots, 'extract-textures', 'crate.glb');
@@ -213,7 +214,7 @@ for (const variant of RENDERER_VARIANTS) test(`a model's extracted images are te
   for (const e of ents) if (e.components['box'] !== undefined || e.components['model'] !== undefined) await cmd('setTransform', { entityId: e.id, transform: { position: [0, -50, 0] } });
   const extractedId = String((await cmd('createEntity', { parentId: null, kind: 'model', name: 'Extracted', model: { asset: { assetId: model.assetId } }, transform: { position: [-1.8, 1.6, 0], scale: [3, 3, 3] } }))['createdId']);
   const twinId = String((await cmd('createEntity', { parentId: null, kind: 'model', name: 'Twin', model: { asset: { assetId: 'twin' } }, transform: { position: [1.8, 1.6, 0], scale: [3, 3, 3] } }))['createdId']);
-  await page.getByRole('tab', { name: 'Scene' }).click();
+  await closeEditor(page);
 
   // ---- The Scene view: both drawn alike; only the twin's image is inside a model file.
   const viewResident = async (): Promise<Resources['resident'] | null> => {
@@ -293,7 +294,7 @@ test('an existing model switches to extracted textures only when re-imported wit
   await publishBytes(be, texturedQuadGlb({ bytes: makePng(256, 256, (x, y) => [...QUARTERS[(y < 128 ? 0 : 2) + (x < 128 ? 0 : 1)]!, 255]), format: 'png' }, 'barrel'), 'model', 'barrel', 'barrel', {}, { extractTextures: false });
   await page.goto(be.editorUrl);
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
-  await page.getByRole('tab', { name: 'Assets' }).click();
+  await projectWindow(page);
   await page.locator('.tl-assets__list li').filter({ hasText: 'barrel' }).first().click();
   const setting = page.getByLabel('extract textures', { exact: true });
   await expect(setting).not.toBeChecked();

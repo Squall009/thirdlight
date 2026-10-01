@@ -31,7 +31,7 @@ import { publishBytes, startBackend, type E2EBackend } from './backend';
 import { multiPieceGlb } from './multi-piece-glb';
 import { count, isBlue, isGreenish, isMagenta, materials, packNormalAndOrm, publishLayerSources, reds, useArrays } from './painted-layers';
 import { decodePng, type Image } from './png';
-import { menu } from './ui';
+import { menu, projectWindow, openWindow, closeEditor } from './ui';
 import { editorUrlFor, expectRendererBackend, exportQueryFor, onlyInItsProject, RENDERER_VARIANTS } from './renderer-variants';
 
 let be: E2EBackend | null = null;
@@ -120,7 +120,7 @@ for (const variant of RENDERER_VARIANTS) test(`painted terrain: height-blended l
   await expectRendererBackend(viewport, variant);
 
   // ---- Editor: pack the albedo + height array in the Assets panel.
-  await page.getByRole('tab', { name: 'Assets' }).click();
+  await projectWindow(page);
   await page.getByRole('button', { name: 'pack texture…' }).click();
   const form = page.getByLabel('pack texture');
   await form.getByLabel('packed texture name').fill('Terrain albedo');
@@ -142,7 +142,7 @@ for (const variant of RENDERER_VARIANTS) test(`painted terrain: height-blended l
   expect(assets.find((a) => a.assetId === 'terrain-orm')!.image).toEqual({ format: 'ktx2', width: 16, height: 16, codec: 'uastc', levels: 5, layers: 4 });
 
   // ---- Editor: the height-blended layers template, its texture parameters set to the arrays.
-  await page.getByRole('tab', { name: 'Materials' }).click();
+  await openWindow(page, 'Materials');
   await page.getByRole('combobox', { name: 'graph material template' }).selectOption('layers');
   await page.getByRole('button', { name: '+ new graph material' }).click();
   await expect.poll(async () => (await materials(be!)).filter((m) => JSON.stringify(m.graph ?? {}).includes('heightBlend')).length, { timeout: 15_000 }).toBe(1);
@@ -180,7 +180,7 @@ for (const variant of RENDERER_VARIANTS) test(`painted terrain: height-blended l
   await cmd('setComponent', { entityId: patch, component: 'materials', value: { '*': mat } });
 
   // ---- Scene view: zoom out until the layer and the patch are in view.
-  await page.getByRole('tab', { name: 'Scene', exact: true }).click();
+  await closeEditor(page);
   await page.keyboard.press('Escape');
   const box = (await viewport.boundingBox())!;
   const inView = async (): Promise<boolean> => {
@@ -191,7 +191,7 @@ for (const variant of RENDERER_VARIANTS) test(`painted terrain: height-blended l
     return true;
   };
   // The Blocks tab publishes the view's projection (the block tools map cells to the screen); it is closed again for the pictures.
-  await page.getByRole('tab', { name: 'Blocks', exact: true }).click();
+  await openWindow(page, 'Blocks');
   await expect(viewport).toHaveAttribute('data-view-proj', /\[/);
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
   for (let i = 0; i < 40 && !(await inView()); i++) {
@@ -199,7 +199,7 @@ for (const variant of RENDERER_VARIANTS) test(`painted terrain: height-blended l
     await page.waitForTimeout(80);
   }
   expect(await inView()).toBe(true);
-  await page.getByRole('tab', { name: 'Assets' }).click();
+  await projectWindow(page);
   // The editor's icons (the lights' yellow) stay out of the picture.
   await menu(page, 'Gizmos', 'Icons: on');
   let problem: string | null = 'not checked';

@@ -15,6 +15,7 @@ import { expect, test } from '@playwright/test';
 
 import { startBackend, type E2EBackend } from './backend';
 import { makePng } from './png-make';
+import { openProjectSettings, projectWindow } from './ui';
 
 let be: E2EBackend;
 test.beforeEach(async () => {
@@ -40,7 +41,7 @@ test('jump rebound to W in the Input window: W jumps in Play, Space does not', a
   await page.goto(be.editorUrl);
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
 
-  await page.getByRole('tab', { name: 'Input' }).click();
+  await openProjectSettings(page, 'Input');
   const jump = page.getByLabel('action jump', { exact: true });
   await expect(jump.getByLabel('binding Space', { exact: true })).toBeVisible();
   await expect(page.getByLabel('action attack', { exact: true })).toBeVisible();
@@ -88,7 +89,7 @@ test('a hold time on a binding and a project glyph image, edited in the Input wi
   writeFileSync(file, makePng(32, 32, () => [40, 110, 250, 255]));
   await page.goto(be.editorUrl);
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
-  await page.getByRole('tab', { name: 'Assets' }).click();
+  await projectWindow(page);
   await page.locator('.tl-assets__file').first().setInputFiles(file);
   const publish = page.getByRole('button', { name: 'publish' });
   await expect(publish).toBeEnabled({ timeout: 15_000 });
@@ -98,7 +99,7 @@ test('a hold time on a binding and a project glyph image, edited in the Input wi
   const assets = (await be.command({ op: 'queryAssets', projectId: be.projectId, args: { limit: 50, offset: 0 } }))['assets'] as { assetId: string; kind: string }[];
   const texture = assets.find((a) => a.kind === 'texture');
   expect(texture, 'the imported texture').toBeDefined();
-  await page.getByRole('tab', { name: 'Input' }).click();
+  await openProjectSettings(page, 'Input');
   const hold = page.getByLabel('hold seconds for Space of jump', { exact: true });
   await hold.fill('0.5');
   await hold.blur();
@@ -126,7 +127,7 @@ test('a project map\'s cursor, set in the Input window, applies in Play while a 
   };
   await page.goto(be.editorUrl);
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
-  await page.getByRole('tab', { name: 'Input' }).click();
+  await openProjectSettings(page, 'Input');
   await page.getByLabel('new input map name', { exact: true }).fill('tactical');
   await page.getByRole('button', { name: 'Add map', exact: true }).click();
   await expect.poll(async () => (await config()).input?.maps).toEqual(['tactical']);
@@ -148,7 +149,7 @@ test('a project map\'s cursor, set in the Input window, applies in Play while a 
 
   // Removing the map (once no mode names it) drops its cursor setting in the same edit.
   await run('setModes', { modes: [] });
-  await page.getByRole('tab', { name: 'Input' }).click();
+  await openProjectSettings(page, 'Input');
   await page.getByRole('button', { name: 'remove input map tactical', exact: true }).click();
   await expect.poll(async () => JSON.stringify([(await config()).input?.maps ?? null, (await config()).input?.cursor ?? null])).toBe('[null,null]');
 });

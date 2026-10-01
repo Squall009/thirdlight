@@ -16,7 +16,7 @@ import { startBackend, type E2EBackend } from './backend';
 import { decodePng, type Image } from './png';
 import { makePng } from './png-make';
 import { editorUrlFor, expectRendererBackend, onlyInItsProject, RENDERER_VARIANTS } from './renderer-variants';
-import { menu } from './ui';
+import { menu, projectWindow, openWindow } from './ui';
 
 let be: E2EBackend;
 let dir: string;
@@ -35,7 +35,7 @@ test('a PNG imports as a texture asset and its tile shows the image', async ({ p
   writeFileSync(file, makePng(64, 64, (x, y) => ((x >> 3) + (y >> 3)) % 2 === 0 ? [240, 60, 60, 255] : [40, 40, 200, 255]));
   await page.goto(be.editorUrl);
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
-  await page.getByRole('tab', { name: 'Assets' }).click();
+  await projectWindow(page);
   await page.locator('.tl-assets__file').first().setInputFiles(file);
   const publish = page.getByRole('button', { name: 'publish' });
   await expect(publish).toBeEnabled({ timeout: 15_000 });
@@ -64,7 +64,7 @@ function redPixels(img: Image): number {
 const reds = async (target: Locator): Promise<number> => redPixels(decodePng(await target.screenshot()));
 
 async function importTexture(page: Page, file: string): Promise<void> {
-  await page.getByRole('tab', { name: 'Assets' }).click();
+  await projectWindow(page);
   await page.locator('.tl-assets__file').first().setInputFiles(file);
   const publish = page.getByRole('button', { name: 'publish' });
   await expect(publish).toBeEnabled({ timeout: 15_000 });
@@ -83,7 +83,7 @@ for (const variant of RENDERER_VARIANTS) {
     const viewport = page.locator('canvas.tl-viewport');
     await expectRendererBackend(viewport, variant);
     await importTexture(page, file);
-    await page.getByRole('tab', { name: 'Materials' }).click();
+    await openWindow(page, 'Materials');
     await page.getByRole('button', { name: '+ new material' }).click();
     await expect(page.locator('.tl-materials li[data-material-id]')).toHaveCount(1);
     await page.getByRole('combobox', { name: 'texture map' }).selectOption({ label: 'checker' });

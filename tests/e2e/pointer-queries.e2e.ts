@@ -27,7 +27,7 @@ import { expect, test, type Page } from '@playwright/test';
 
 import { startBackend, type E2EBackend } from './backend';
 import { decodePng, type Image } from './png';
-import { menu } from './ui';
+import { menu, openProjectSettings } from './ui';
 
 let be: E2EBackend | null = null;
 test.afterEach(async () => {
@@ -272,7 +272,7 @@ test('editor: a pointer binding and a locked cursor in the Input window; a colli
   await page.goto(be.editorUrl);
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
 
-  await page.getByRole('tab', { name: 'Input' }).click();
+  await openProjectSettings(page, 'Input');
   const attack = page.getByLabel('action attack', { exact: true });
   await attack.getByLabel('add a pointer binding to attack', { exact: true }).selectOption({ label: 'left button' });
   await expect(attack.getByLabel('binding Mouse left', { exact: true })).toBeVisible();

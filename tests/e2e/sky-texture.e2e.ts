@@ -17,6 +17,7 @@ import { startBackend, type E2EBackend } from './backend';
 import { decodePng } from './png';
 import { makePng } from './png-make';
 import { editorUrlFor, expectRendererBackend, onlyInItsProject, RENDERER_VARIANTS } from './renderer-variants';
+import { projectWindow } from './ui';
 
 let be: E2EBackend;
 let dir: string;
@@ -37,7 +38,7 @@ for (const variant of RENDERER_VARIANTS) test(`a texture sky is upright: sky abo
   await page.goto(editorUrlFor(be.editorUrl, variant));
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
   await expectRendererBackend(page.locator('canvas.tl-viewport'), variant);
-  await page.getByRole('tab', { name: 'Assets' }).click();
+  await projectWindow(page);
   await page.locator('.tl-assets__file').first().setInputFiles(file);
   const publish = page.getByRole('button', { name: 'publish' });
   await expect(publish).toBeEnabled({ timeout: 15_000 });

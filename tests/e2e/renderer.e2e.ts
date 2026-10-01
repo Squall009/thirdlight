@@ -25,7 +25,7 @@ import { expect as baseExpect, test, type Locator, type Page } from '@playwright
 import { startBackend, type E2EBackend } from './backend';
 import { KIT_PIECES, multiPieceGlb } from './multi-piece-glb';
 import { decodePng, type Image } from './png';
-import { menu } from './ui';
+import { menu, openProjectSettings, projectWindow } from './ui';
 
 // WebGPU initialisation and SwiftShader frames are slow on a loaded host: poll generously.
 const expect = baseExpect.configure({ timeout: 30_000 });
@@ -170,7 +170,7 @@ test('the project setting picks the backend of the Scene view, Play (tl_game_obs
   await page.goto(be.editorUrl);
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
   // The setting is a select in the descriptor-built settings form.
-  await page.getByRole('tab', { name: 'Gameplay' }).click();
+  await openProjectSettings(page, 'Gameplay');
   await page.locator('.tl-gameplay__tabs').getByRole('button', { name: 'settings', exact: true }).click();
   const field = page.getByLabel('gameplay settings').getByLabel('settings render_backend', { exact: true });
   // Unset: the default, auto (1); the archived WebGL renderer (0) is no longer offered.
@@ -268,7 +268,7 @@ test('asset thumbnails render with the editor\'s backend (WebGPU where it starts
     await expect(page.locator('.tl-statusbar')).toContainText('connected');
     // The editor's backend (auto): the Scene view and the thumbnail renderer use it.
     await expect(page.locator('.tl-statusbar__renderer')).toHaveAttribute('data-render-backend', expected('auto'));
-    await page.getByRole('tab', { name: 'Assets' }).click();
+    await projectWindow(page);
     await page.locator('.tl-assets__file').first().setInputFiles(file);
     const publish = page.getByRole('button', { name: 'publish' });
     await expect(publish).toBeEnabled({ timeout: 15_000 });

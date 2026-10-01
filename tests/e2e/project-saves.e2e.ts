@@ -28,6 +28,7 @@ import { expect, test, type Frame, type Page } from '@playwright/test';
 
 import { startBackend, type E2EBackend } from './backend';
 import { onlyInItsProject } from './renderer-variants';
+import { openProjectSettings } from './ui';
 
 let be: E2EBackend | null = null;
 test.afterEach(async () => {
@@ -187,7 +188,7 @@ test('a script saves to slot 2 with metadata and a thumbnail; a reload lists it 
   // Editor: the Saves tab — add a schema, 5 slots, the cell and storage sections, a "hints" setting (default on).
   await page.goto(be.editorUrl);
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
-  await page.getByRole('tab', { name: 'Saves' }).click();
+  await openProjectSettings(page, 'Saves');
   const panel = page.getByLabel('project saves');
   await panel.getByRole('button', { name: 'add save schema' }).click();
   const schemaNow = async (): Promise<unknown> => (await query('queryGameConfig'))['saveSchema'];

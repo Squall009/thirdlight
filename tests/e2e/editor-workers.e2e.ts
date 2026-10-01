@@ -25,7 +25,7 @@ import { expect, test, type Page } from '@playwright/test';
 import { startBackend, type E2EBackend } from './backend';
 import { decodePng } from './png';
 import { editorUrlFor, expectRendererBackend } from './renderer-variants';
-import { menu } from './ui';
+import { menu, openWindow } from './ui';
 
 let be: E2EBackend;
 let seq = 0;
@@ -260,7 +260,7 @@ test('a preview bake: no long main-thread task above the bound; the lightmap is 
   await bakeScene(page);
   await page.goto(be.editorUrl);
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
-  await page.getByRole('tab', { name: 'Lighting' }).click();
+  await openWindow(page, 'Lighting');
   await expect(page.locator('[aria-label="bake status"]')).toContainText('No bake for this scene');
   await settle(page);
   const prof = await startProfile(page);
@@ -288,7 +288,7 @@ test('a preview bake: no long main-thread task above the bound; the lightmap is 
     const worker = await bakedAtlas();
     await page.goto(be.editorUrl.replace('#', '&workers=off#'));
     await expect(page.locator('.tl-statusbar')).toContainText('connected');
-    await page.getByRole('tab', { name: 'Lighting' }).click();
+    await openWindow(page, 'Lighting');
     await page.getByRole('button', { name: 'Bake preview (browser)' }).click();
     await expect(page.getByRole('status')).toContainText('Baked 13 objects', { timeout: 180_000 });
     await expect.poll(async () => bakedAtlas(), { timeout: 30_000 }).not.toBe('');
@@ -374,7 +374,7 @@ test('graph diagnostics after an edit of a 2000-node graph (long tasks logged)',
   }
   await page.goto(be.editorUrl);
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
-  await page.getByRole('tab', { name: 'Graphs' }).click();
+  await openWindow(page, 'Graphs');
   await expect(page.locator('[data-graph-id="big"]')).toContainText('2000 nodes', { timeout: 30_000 });
   await settle(page);
   const results: LongTasks[] = [];

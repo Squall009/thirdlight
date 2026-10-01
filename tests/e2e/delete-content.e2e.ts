@@ -14,6 +14,7 @@ import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { expect, test } from '@playwright/test';
 
 import { publishWav, startBackend, STARTER, type E2EBackend } from './backend';
+import { projectWindow, openWindow, closeEditor } from './ui';
 
 const REPO = resolve(import.meta.dirname, '..', '..');
 
@@ -51,7 +52,7 @@ test('assets: the editor refuses a used one and deletes an unused one; MCP gets 
   await publishWav(be, 'cue-goal.wav', 'sfx-ping', 'ping');
   await page.goto(be.editorUrl);
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
-  await page.getByRole('tab', { name: 'Assets' }).click();
+  await projectWindow(page);
 
   // The pillar model is placed in the start scene: refused, and the editor says by what.
   await page.locator('.tl-assets__list li[data-asset-id="starter-pillar"]').click();
@@ -87,7 +88,7 @@ test('prefabs: refused while a copy is placed, deleted after; createEntities is 
   expect(placed.isError, JSON.stringify(placed.body)).toBe(false);
   await page.goto(be.editorUrl);
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
-  await page.getByRole('tab', { name: 'Prefabs' }).click();
+  await openWindow(page, 'Prefabs');
 
   const tile = page.locator('.tl-prefabs__list li').filter({ hasText: 'Crate' });
   await expect(tile).toHaveCount(1);
@@ -113,7 +114,7 @@ test('prefabs: refused while a copy is placed, deleted after; createEntities is 
   const made = await command('createEntities', { entities: items });
   expect(made.isError, JSON.stringify(made.body).slice(0, 400)).toBe(false);
   expect(await rev()).toBe(before + 1);
-  await page.getByRole('tab', { name: 'Scene' }).click();
+  await closeEditor(page);
   const rows = page.locator('.tl-hierarchy__list li.tl-row').filter({ hasText: /^post \d+/ });
   await expect(page.locator('.tl-hierarchy__list li.tl-row').filter({ hasText: 'Row' })).toHaveCount(1);
   expect((await command('undo', {})).isError).toBe(false);

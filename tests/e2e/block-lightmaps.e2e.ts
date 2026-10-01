@@ -24,6 +24,7 @@ import * as THREE from 'three';
 import { startBackend, type E2EBackend } from './backend';
 import { decodePng, type Image } from './png';
 import { editorUrlFor, expectRendererBackend, exportQueryFor, onlyInItsProject, RENDERER_VARIANTS, type RendererVariant } from './renderer-variants';
+import { openWindow } from './ui';
 
 let be: E2EBackend | null = null;
 test.afterEach(async () => {
@@ -132,7 +133,7 @@ for (const variant of RENDERER_VARIANTS) test(`Bake preview bakes a static block
   expect(Math.abs(brightnessAt(before, shadowSpot) - beforeLit)).toBeLessThan(15);
 
   // Bake in the Lighting window: the cube and the layer's chunk.
-  await page.getByRole('tab', { name: 'Lighting' }).click();
+  await openWindow(page, 'Lighting');
   await page.getByRole('button', { name: 'Bake preview (browser)' }).click();
   await expect(page.locator('[aria-label="bake status"]')).toContainText('Preview (browser) bake', { timeout: 120_000 });
   const entries = await bakeEntries();
@@ -191,7 +192,7 @@ test('Bake final (Blender Cycles) bakes the block layer\'s chunks too; Play show
   test.setTimeout(900_000);
   const { layer } = await openScene(page, 'auto', { THIRDLIGHT_BAKE_HOST: bakeHost, THIRDLIGHT_BAKE_BLENDER: bakeBlender, THIRDLIGHT_BAKE_TIMEOUT_MINUTES: '12' });
   const beforeLit = brightnessAt(await play(page, 'auto'), litSpot);
-  await page.getByRole('tab', { name: 'Lighting' }).click();
+  await openWindow(page, 'Lighting');
   await page.getByRole('button', { name: /settings/ }).click();
   await page.getByRole('spinbutton', { name: 'bake finalSamples' }).fill(bakeHost === 'local' ? '32' : '256');
   await page.getByRole('spinbutton', { name: 'bake texelsPerMeter' }).fill('8');

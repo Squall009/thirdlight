@@ -22,6 +22,7 @@ import { PERF_ROOT, startPerfBackend, type PerfBackend } from '../../tools/perf/
 import { sphereGlb } from '../../tools/perf/assets';
 import { decodePng, type Image } from './png';
 import { makePng } from './png-make';
+import { openWindow } from './ui';
 
 let be: PerfBackend;
 let root: string;
@@ -107,7 +108,7 @@ test('missing files are listed at open and in Problems; Play stands placeholders
   page.on('pageerror', (e) => errors.push(`${e.message} ${e.stack ?? ''}`.slice(0, 400)));
   await page.goto(`${be.origin}/?project=${ID}#token=${be.token}`);
   await expect(page.locator('.tl-statusbar')).toContainText('connected', { timeout: 60_000 });
-  await page.getByRole('tab', { name: /Problems/ }).click();
+  await openWindow(page, 'Problems');
   const missing = page.getByRole('list', { name: 'Missing files' });
   await expect(missing).toContainText(`${bulk + 2} asset files are missing`, { timeout: 30_000 });
   const row = (assetId: string) => missing.locator(`li[data-asset="${assetId}"]`);

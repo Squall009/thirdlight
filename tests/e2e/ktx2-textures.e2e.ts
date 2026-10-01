@@ -27,6 +27,7 @@ import { startBackend, type E2EBackend } from './backend';
 import { decodePng, type Image } from './png';
 import { makePng } from './png-make';
 import { editorUrlFor, expectRendererBackend, exportQueryFor, onlyInItsProject, RENDERER_VARIANTS } from './renderer-variants';
+import { projectWindow, closeEditor } from './ui';
 
 let be: E2EBackend | null = null;
 let dir = '';
@@ -120,7 +121,7 @@ for (const variant of RENDERER_VARIANTS) test(`KTX2 textures encoded on import (
   // Editor: import the checker as a KTX2 (colour).
   const checker = join(dir, 'checker.png');
   writeFileSync(checker, makePng(64, 64, (x, y) => (((x >> 3) + (y >> 3)) % 2 === 0 ? [240, 60, 60, 255] : [40, 40, 220, 255])));
-  await page.getByRole('tab', { name: 'Assets' }).click();
+  await projectWindow(page);
   await page.getByRole('combobox', { name: 'texture import encoding' }).selectOption('color');
   await page.locator('.tl-assets__file').first().setInputFiles(checker);
   const publish = page.getByRole('button', { name: 'publish' });
@@ -159,7 +160,7 @@ for (const variant of RENDERER_VARIANTS) test(`KTX2 textures encoded on import (
   }
 
   // Scene view.
-  await page.getByRole('tab', { name: 'Scene', exact: true }).click();
+  await closeEditor(page);
   await page.keyboard.press('Escape');
   let problem: string | null = 'not checked';
   await expect.poll(async () => (problem = checkPicture(await shot(viewport), true)), { timeout: 30_000, message: 'Scene view picture' }).toBeNull();
