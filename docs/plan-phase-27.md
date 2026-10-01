@@ -309,7 +309,7 @@ moves at least as many lines out as it adds.
 | 27.14 | done 2026-10-01: Window → Lighting and Window → Environment open floating windows over the Scene view (moved by the title bar, resized by the corner, place and open state remembered per browser; set aside by the Game view, the editor window and Project Settings), each naming the scene it edits with a scene picker (the active scene; picking opens and activates another, so the Scene view previews what the window edits); a block layer's tools are in its Inspector while it is selected (GameObject → Block layer; the move gizmo stands aside while they are armed); GameObject → Create prefab from selection and the Hierarchy's new context menu; an audio asset chosen in the project window shows in the Inspector (facts, load type, preload, listening); Project Settings → Audio holds the event sounds; the Lighting, Environment, Blocks and Media dock tabs are gone; e2e `window-tools` (two scenes, pixels, move/resize/reload); test backends no longer lose their ports (D110); look: owner look pending |
 | 27.15 | done 2026-10-01: the bottom dock holds Project (the project window), Console and Problems; the Materials, Animator, Prefabs, Graphs, Effects, Dialogue, Timelines, Libraries and UI tabs are gone, and the Window menu lists the three; every kind is listed, made (Create menu: the "create" button or a right-click, named in place, in the folder shown), opened, renamed and deleted from the project window and the Inspector; the Assets side panel is gone: the chosen asset, material, prefab, resource or scene shows in the one Inspector (facts, options, preview, placing, address and labels); speakers and dialogue settings in Project Settings → Dialogue; libraries' "Save all" above each library's editor; e2e `project-items` (dock DOM, Window menu, creating and opening every kind, the Inspector, deletes); look: owner look pending |
 | 27.16 | done 2026-10-01: one icon registry for every kind and every editor toolbar action, the art generated with the Studio in the phase-9 style and shipped as small WebPs (47 files, 105.7 KiB); `editor.css` spacing, type, radius and icon tokens; every item editor has a header (picture, name renamed in place, kind, folder), a toolbar of picture buttons and, while empty, an empty state with its first actions; graph nodes are coloured by category family; the timeline fills its window (D112); e2e `editor-chrome` (headers, toolbars, empty states acting, node header pixels, project-window pictures); before/after screenshots for the owner; look: owner look pending |
-| 27.17 | — |
+| 27.17 | done 2026-10-01 (before 27.18/27.19; the full gate is the main session's): D108 (an editor command after MCP edits waits for the change feed and is sent again), D109 (a late selection after the window closed is dropped), D111 (a screenshot waits for the first frame) fixed and their test syncs removed; D113 found and fixed (input exercises on a game without scripts); acceptance mapped to its specs in the decision log, new: every kind edited from its window back to the default view (`project-window`), a v5 project in the editor with matching replays (`project-upgrade`); a material, an effect and a timeline built through the UI only (`by-hand`, driven by a test; the owner's own try pending); `docs/deployment.md` (what you can do now, stale dock and tab wording) and the MCP descriptions updated |
 
 ## 6. Decision log
 
@@ -785,3 +785,77 @@ moves at least as many lines out as it adds.
   `TL_LOOK_DIR`), are in `~/.cache/thirdlight-phase27/look/` with a README
   pairing them. The look is unverified until the owner has seen them; a round
   of owner changes is expected.
+- 2026-10-01 (27.17): the queued defects. D108: an editor command refused
+  with `revision_conflict` because someone else edited first is not shown as a
+  refusal: the client waits for the change feed to bring the backend's
+  revision (`CHANGE_FEED_CATCH_UP_MS`, 3 s; past it the state is read again,
+  as after a gap) and sends it once more against it, as a collaborative
+  editor does (the user's edit wins over the tool's for the same field). A
+  whole-document edit whose args were built from the older view is not resent
+  (it would undo the tool's edit) and still shows the conflict; built at send
+  time (`mergeDocumentEdit`) it is. D109: a selection a command makes when it
+  answers belongs to the view it was asked from: asked under the editor
+  window and answered after the window closed, it is dropped (closing restores
+  the opening selection, as decided in 27.11). D111: `running` stays the
+  simulation's state (a renderer is presentation, and the worker runs without
+  one); the screenshot waits for the first drawn frame within half the relay
+  timeout (the replay's `answerWithinMs`, now `relayAnswerWithinMs`, carried
+  by the screenshot relay too) and answers `render_not_ready` past it. The
+  test syncs that hid them are gone (editor-window's revision wait and
+  wait-before-Esc, starter-capabilities' retry).
+- 2026-10-01 (27.17): acceptance found D113 (an input exercise, so
+  `tl_playtest`, on a game without scripts never answered: the plain step did
+  not sample input); fixed (the plain step samples the input source).
+- 2026-10-01 (27.17): this item ran before 27.18 and 27.19 (main session's
+  order); their done-when lines stay open, and the full gate after them is
+  the main session's.
+- 2026-10-01 (27.17) — which test proves each "done when" line:
+  - 27.1 screenshots: `screenshot.e2e.ts` ("a large, noisy scene's
+    screenshot comes back whole over HTTP and MCP", per renderer; "a capture
+    too large…", "a capture that fails…"; new: "a screenshot asked as soon as
+    Play runs waits for the renderer's first frame").
+  - 27.2 messages/signals/audio block: `tests/integration/m27-held-modes`
+    (3D and 2D, with and without physics, page/worker/replay) and
+    `play-audio-diagnostics.e2e.ts` (HTTP and MCP before and after unlock).
+  - 27.3 missing files: `missing-files.e2e.ts` (Problems over HTTP and in the
+    Problems tab, the refusal naming all, placeholders outside the start).
+  - 27.4 re-imports: `play-reimports.e2e.ts` (HTTP, MCP, Problems tab).
+  - 27.5 replay answer: `replay-answer.e2e.ts` (bench and Starter, both
+    threading modes, HTTP and MCP, pending with the debugger holding).
+  - 27.6/27.7 textures in models: `embedded-textures.e2e.ts`,
+    `extract-textures.e2e.ts` (both renderers, webgpu project), bench numbers
+    under the 27.6/27.7 entries above.
+  - Default view (Scene/Game, Hierarchy, Inspector, dock of Project, Console,
+    Problems): `project-items.e2e.ts` ("the bottom dock holds…"),
+    `editor-window.e2e.ts` ("the default view keeps…"), and after every
+    close in `project-window.e2e.ts`.
+  - Every kind opens by double-click in a full window, edit, close, back to
+    the default view: `project-window.e2e.ts` ("a double-click opens each
+    kind…": material, timeline, UI document, UI theme, dialogue, effect,
+    graph, animator and library renamed in their editor's header and read
+    back, script; scene, prefab and shader material where they open);
+    `editor-window.e2e.ts` (the window's geometry, the one Inspector, a
+    script's declaration edit, Esc/× with the selection);
+    `project-items.e2e.ts` (every kind made from the Create menu opens).
+  - Each Project Settings sub-tab: `project-settings.e2e.ts` (Gameplay,
+    Input, Tags, Collision layers, Quality, Saves, Game modes, Game shell,
+    Scripts, each edit read back; search), `inspector.e2e.ts` (Audio's event
+    sounds edited and read back), `window-tools.e2e.ts` (Audio's search),
+    `project-items.e2e.ts` (Dialogue's speakers).
+  - Lighting and Environment from the Window menu on two scenes:
+    `window-tools.e2e.ts` ("Lighting and Environment float over the Scene
+    view…; two scenes", pixels).
+  - Two scenes with different skies and fog in the Scene view, Play and the
+    export, both renderers: `scene-environment.e2e.ts` (both tests, per
+    renderer variant and the webgpu project) and
+    `tests/integration/m27-scene-environment`.
+  - A version-5 project upgrades, replays match: `project-upgrade.e2e.ts`
+    (new: opened in the editor, Problems, the Environment window on both
+    scenes, the recorded command replayed, `tl_playtest` twice per threading
+    mode with the same digests) and
+    `packages/backend/src/format-upgrade.test.ts` (files, export).
+  - By hand (a material, an effect and a timeline without the API):
+    `by-hand.e2e.ts`, run with `TL_BY_HAND_DIR` (UI only; read back after a
+    reload from the page); driven by a test, the owner's own try is pending.
+  - The owner has looked at the new look: pending.
+  - 27.18, 27.19: not done yet. `tools/gate.sh full`: the main session's.

@@ -148,8 +148,8 @@ unless moved (the open finds them anywhere in the game folder by their name
 and id). A scene may live in the game folder too, as `<name>.scene.json`
 (the same format as `scenes/<id>.json`), found by the scene id it holds.
 
-**Where new things go.** The folder chosen in the Assets tab's project
-window (the upload folder's rules: inside the game folder, no hidden folder,
+**Where new things go.** The folder chosen in the project
+window (the dock's Project tab) (the upload folder's rules: inside the game folder, no hidden folder,
 not the project's own files) is where uploads land and a new scene, prefab,
 material or other resource is created (`<folder>/<id>.scene.json`,
 `<folder>/<id>.<kind>.json`). With "All assets" chosen: scenes go to
@@ -297,13 +297,91 @@ project scripts (in its own repository when it has one).
   checkpoint, score, platformer, …; `tools/check-boundaries.mjs`, with a
   short reviewed allowlist for the upgrade code).
 
+### What you can do now (editor layout)
+
+The editor is laid out as Unity's and Godot's are: the **Scene** or **Game**
+view in the centre, the **Hierarchy** on the left, the one **Inspector** on
+the right and a bottom dock with three tabs only — **Project** (the project
+window), **Console** and **Problems** (Window menu lists just those).
+
+- **Every item is made, found and opened in the project window.** Its
+  **create ▾** button (or a right-click on the list) is the Create menu:
+  material, graph material (from a template), animator controller (with the
+  clips of the model chosen), graph, effect, dialogue, timeline, script
+  library, UI document, UI theme, scenes and folders, named in place and
+  made in the folder shown. A double-click opens it; whatever is chosen
+  shows in the Inspector (an asset's facts, import options, preview, address
+  and labels; a shader material; a prefab with **place copy**; any resource's
+  name, address, labels, **Open** and delete).
+- **Items open in the editor window**, a full window over the editor: the
+  item's editor on the left with a header (picture, name renamed in place,
+  kind, folder), a picture toolbar and, while empty, an empty state with its
+  first actions; the Inspector on the right. Esc or × return to the default
+  view with the selection it had (below, "Editor window").
+- **One preview pane** above the Inspector in the editor window, with one
+  renderer for as long as the window shows: a material on a shape or model,
+  an effect (timeline, counters, cost), a model with its animator, and a
+  timeline, conversation or UI document on its scene at the editor's
+  resolution.
+- **File → Project Settings…** is one full window with sub-tabs: Gameplay,
+  Input, Tags, Collision layers, Quality (the quality level and the texture
+  budget), Audio (event sounds), Dialogue (speakers, dialogue settings),
+  Saves, Game modes, Game shell and Scripts (trust and publication). Its
+  search filters the sub-tabs by name and by the settings they hold.
+- **Window → Lighting** and **Window → Environment** float over the Scene
+  view (they preview in it): moved by the title bar, resized by the corner,
+  remembered per browser; each names the scene it edits and its picker makes
+  another scene active. A block layer's tools show in its Inspector while it
+  is selected; **GameObject → Create prefab from selection** (also the
+  Hierarchy's right-click menu); an audio asset's load type, preload and
+  listening are in its Inspector.
+- **Each scene has its own look** (sky, fog, post, wind, in its scene file;
+  `setEnvironment {sceneId}`); the quality level and environment presets
+  stay the project's. With several scenes loaded the **active scene's** look
+  applies: the first start scene, or the one `ctx.scenes.setActive(id,
+  {blend})` names, blended over the given time; a new scene starts from the
+  engine defaults or copies another's (`createScene {environmentFrom}`).
+  The Scene view, Play and the export draw the same look. A schemaVersion 5
+  project is upgraded on open (its one look copied into every scene, noted
+  in Problems; recorded commands and runs replay as before).
+- **Missing files are listed, not discovered one by one**: Problems shows
+  every asset whose file is missing (path, asset, who uses it; paged, also
+  `GET problems/missing-files` and `tl_diagnostics`) at open and after each
+  file check. A Play that cannot start names every missing file at once;
+  missing files no start scene draws are stood in for (a magenta box, a
+  checker texture, silence) and listed in the start result (`placeholders`).
+  The export refuses any missing file.
+- **Re-imports are reported**: files changed on disk and re-imported by a
+  check (also the one before Play) are named in Problems and in the Play
+  start result's `check`, with the old and new file digests.
+- **Screenshots of real scenes answer** (`tl_screenshot`, up to a 1 MiB PNG
+  data URL, smaller widths tried when larger); one asked right after Play
+  starts waits for the first drawn frame; a capture that fails answers with
+  its reason, never a timeout.
+- **Replay answers say what happened**: `tl_game_control replay` answers
+  once the new run began (`restart: {state: "applied", atStep}`, run id
+  `<snapshot>#<run>`), or `pending` when no step came in time.
+- **Textures inside models**: images embedded in a GLB count against the
+  texture budget (`textures.embedded` in Play diagnostics); the model import
+  setting **extract model textures** (on for new models; an existing model
+  changes only when re-imported with it, from its Inspector) makes them
+  KTX2 texture assets in `<model>_textures/` that stream by mip like any
+  texture.
+- **Play diagnostics** carry an `audio` block (unlock state, what plays,
+  cues skipped or late and why) and a warning when a script message queue
+  refuses sends.
+- **Editing while a tool edits**: an editor command refused because an MCP
+  edit landed first is sent again once the change feed brought that edit
+  (a whole-document edit built from the older view is still refused and
+  shown, so nothing is undone silently).
+
 ## Editor window
 
 The centre of the editor shows the **Scene** or the **Game** view, nothing
 else. An item — a material, effect, graph, timeline, animator controller,
 dialogue, script, script library, UI document or theme — opens in the
 **editor window**, a full window over the editor: double-click it in the
-project window (or in its bottom-dock list), or press **Open** beside a
+project window, or press **Open** beside a
 reference to it in the Inspector. The item's editor is on the left and the
 Inspector on the right (the same Inspector as in the default view, showing
 the selected node, state or object); drag the line between them to resize
@@ -415,7 +493,7 @@ controller's capsule (**Fit to model**, **Default**), a surface (presets), an ob
 editor, which knows the model's own material names) and a script (its
 declared properties). Gameplay → Settings is built the same way (every project setting, the engine
 settings included; the step rate is a choice of 60, 120 or 240 Hz; each
-change is saved at once); the Gameplay tab's Camera page points to the camera object, whose
+change is saved at once); Project Settings → Gameplay's Camera page points to the camera object, whose
 lens and follow settings are Inspector sections. An audio asset chosen in
 the project window shows in the Inspector: its load type, preload and a play
 button (after "enable preview sound").
@@ -474,7 +552,7 @@ inactive entities are removed, and each entity gets its effective `static`.
 
 ## Tags
 
-- **The registry** (bottom dock → Tags, or File → Project tags) holds up to
+- **The registry** (File → Project Settings… → Tags) holds up to
   32 named tags. Each tag has a fixed bit (0–31):
   - Renaming keeps the bit, so every object keeps the tag.
   - A new tag takes the lowest free bit.
@@ -895,17 +973,17 @@ Everything refers to the id, so a file moved or renamed together with its
 sidecar keeps every reference. Commit the files and the sidecars; there is
 no count limit on either.
 
-- **Uploads** (the Assets tab's file picker or drop, MCP
+- **Uploads** (the project window's file picker or drop, MCP
   `tl_content_upload` + `publishAsset`) are written into the folder chosen
   in the project window, or `assets/` (MCP: `publishAsset {folder}`); a name
   already taken gets `-2`, `-3`, …
-- **A file already in the game folder** is imported where it is: Assets tab
-  → "from project folder…" (a picker limited to the game folder; hidden
+- **A file already in the game folder** is imported where it is: project
+  window → "from project folder…" (a picker limited to the game folder; hidden
   entries, `.git` and `thirdlight/` are not offered, a symlink out of the
   folder is refused), or MCP `tl_content_query {target: "projectFiles",
   dir}` then `tl_content_upload {projectPath}` and `publishAsset` with the
   returned `sourcePath`.
-- **A whole folder** comes in with **import folder…** in the Assets tab (or
+- **A whole folder** comes in with **import folder…** in the project window (or
   **upload a folder…**, which first copies a folder from your computer into
   the upload folder): every supported file in it and its subfolders becomes
   an asset named after its file (`assets/audio/voice/line-001.ogg` → an asset
@@ -954,7 +1032,7 @@ no count limit on either.
 - **Labels and addresses.** Any asset or resource may carry labels (`voice`,
   `level-3`: a letter or digit, then letters, digits, `_ - . /`) and one
   address (a name scripts use, unique in the project), set in the project
-  window (labels on many items at once), in the asset's side panel, or with
+  window (labels on many items at once), in the Inspector of the chosen item, or with
   `setLabels {items: [{kind, id}], add?, remove?}` and `setAddress {kind, id,
   address | null}` (one command and one undo however many items). An asset or
   resource with an address or a label is **loadable**: Play and the export
@@ -964,7 +1042,7 @@ no count limit on either.
 
 ### The project window
 
-The Assets tab is a project window over the game folder's real folders, as
+The project window (the dock's **Project** tab) shows the game folder's real folders, as
 Unity's Project window and Godot's FileSystem dock: a folder tree (every
 folder of the game folder, and folders the project's files are in) and
 **All assets** (every asset file wherever it is). A folder shows its
@@ -981,7 +1059,7 @@ pieces load when it is chosen, not to draw its tile).
   search covers its subfolders. The kind menu writes the `t:` for you.
 - **Choosing**: click, Ctrl/Cmd-click, Shift-click (a range, also past the
   tiles on screen), Ctrl/Cmd-A. The labels bar labels every chosen asset and
-  resource at once; the side panel sets one item's address and labels.
+  resource at once; the Inspector sets the chosen item's address and labels.
 - **Organizing**: drag items or folders onto a folder, or cut (Ctrl/Cmd-X)
   and paste (Ctrl/Cmd-V); **new folder**, rename a folder (F2). A move is one
   command and one undo (`moveResources`, `renameFolder`, `createFolder`,
@@ -989,9 +1067,12 @@ pieces load when it is chosen, not to draw its tile).
   no reference and no built file changes. A taken target is refused.
 - **Opening**: a double-click opens a folder, or the item's editor (a
   material, animator, graph, effect, script or visual script, library, UI
-  document or theme, dialogue, timeline); a scene opens in the Scene view, a
-  prefab in the Prefabs panel, an environment preset in the Environment
-  panel, an asset in its preview. The per-kind panels stay as views.
+  document or theme, dialogue, timeline) in the editor window; a scene opens
+  in the Scene view; a prefab, a shader material, an environment preset or
+  an asset shows in the Inspector.
+- **Creating**: **create ▾** (or a right-click on the list) is the Create
+  menu for every kind of resource and scenes; the new item is named in place
+  and opens in its editor (or the Inspector).
 - The folder chosen is where uploads land and new scenes and resources are
   created (above, "Where new things go").
 
@@ -1022,7 +1103,7 @@ A texture can be a KTX2 (Basis Universal ETC1S or UASTC, with its mip
 levels): it stays compressed on the GPU and is transcoded on the player's
 machine (three's Basis transcoder, shipped in an export only when it is
 needed). Import a `.ktx2` as it is, or let the backend encode a PNG/JPEG on
-import: Assets panel → **textures** → *KTX2 colour (ETC1S)* for albedo and
+import: the project window's **texture import encoding** → *KTX2 colour (ETC1S)* for albedo and
 emissive art, *KTX2 normal map (UASTC)* for normal maps (MCP:
 `tl_content_upload {kind: "texture", ktx2: "color" | "normal"}`, then publish
 with the returned `convertedFrom`). Encoding takes seconds (a 2048² normal map
@@ -1064,7 +1145,7 @@ presentation only: it never touches the simulation.
 
 ### Packed textures and texture arrays (phase 25.21)
 
-Assets panel → **pack texture…** makes one KTX2 from PNG/JPEG texture assets
+The project window's **pack texture…** makes one KTX2 from PNG/JPEG texture assets
 already in the project, channel by channel: each layer's R, G, B and A come
 from a channel of a texture (or a constant 0 / 128 / 255; "RGBA of…" fills a
 layer from one texture), all sources one size; the encoding is colour
@@ -1115,7 +1196,7 @@ engine reads only this shape, never the tool:
   when given.
 - MCP: `tl_content_upload {jobExport: {path: "exports/crate"}}` (or a `.zip`
   path), or `{jobExport: {}, dataBase64: <zip>}`; then `tl_command
-  publishAsset`. There is no editor button for it yet: the Assets tab's
+  publishAsset`. There is no editor button for it yet: the project window's
   "from project folder…" still imports the GLB itself.
 - Limits: a manifest up to 64 KiB, files up to 128 MB in a folder, an
   uploaded zip up to the 32 MB stage limit; zips are read with stored or
@@ -1147,7 +1228,7 @@ ever loads GLB:
   cannot convert with `conversion_failed` (with Blender's reason).
 
 Animations survive the conversion, but a model's animations only play in the
-game through a role binding (Media panel), as for any GLB.
+game through a role binding, as for any GLB.
 
 The Draco and Basis decoders are three's own (`three@0.186.1`,
 `examples/jsm/libs/{draco,basis}`, Apache-2.0). The editor and the Play
@@ -1203,16 +1284,16 @@ editor (the headless one works too).
 Models with clips (skinned or not) play them through **animator
 controllers**: parameters (float, int, bool, trigger), states that play a
 clip or a 1D blend tree, transitions with conditions, crossfade and exit
-time, an entry state, and clip events. Bottom dock → **Animator** lists the
-controllers: pick the model whose clips a new controller uses, then **New
-controller** or **New from clips: Character locomotion** (idle/run/jump/fall/land
-states from a model's clips, driven by the character's speed, grounded,
-velocityY and landed); a controller opens as the centre tab
-**Animator: <controller>** with a double-click, Enter or **Open in tab**
-(a new one opens by itself). The Inspector's "+ Add component" →
+time, an entry state, and clip events. The project window lists the
+controllers (`t:animator`); choose the model whose clips a new controller
+uses, then Create → **Animator controller** or **Animator controller:
+character locomotion** (idle/run/jump/fall/land states from a model's clips,
+driven by the character's speed, grounded, velocityY and landed); a
+controller opens in the editor window as **Animator: <controller>** with a
+double-click (a new one opens by itself). The Inspector's "+ Add component" →
 **Animator** puts a controller on a model object.
 
-**The Animator tab** shows a layer's state machine on the node-graph editor
+**The Animator editor** shows a layer's state machine on the node-graph editor
 (all its gestures work, see "Graph editing" below):
 
 - **Nodes**: one per state — **State** (plays a clip), **Blend tree**, and on
@@ -1317,11 +1398,11 @@ and blend trees) open from that document. The only standalone kind is
 **Test graph**, a small numeric graph used to test the editor; it has no
 effect on the game and is never exported.
 
-Bottom dock → **Graphs** lists the project's graphs: pick a kind, type a
-name and **Create graph**; **Open** (or double-click) shows it in the centre
-area as a **Graph: <name>** document tab (like the other centre tabs:
-opening an open graph brings its tab to the front, × or middle-click closes
-it, Ctrl+Tab cycles, and the open tabs come back after a reload). While a
+The project window lists the project's graphs (`t:graph`); Create →
+**Graph** → a kind, named in place, makes one; a double-click opens it in the
+editor window as a **Graph: <name>** tab (see "Editor window": opening an
+open graph brings its tab to the front, × or middle-click closes it,
+Ctrl+Tab cycles, and the open tabs come back after a reload). While a
 graph tab is in front, the Inspector on the right shows the selected node
 (its fields), wire (its type or implicit conversion), group (title, colour)
 or comment. Deleting a graph closes its tab.
@@ -1380,10 +1461,10 @@ graphs as it needs, each its own file under the 1 MiB content file cap (about
 
 ## Material graphs
 
-A material can be built as a node graph (phase 18). Bottom dock →
-**Materials** lists every material (a graph material's tile says *graph*):
-**+ new graph material** makes one and opens it as a **Material: <name>**
-centre tab — from the menu beside it, an empty graph (a **PBR output**) or a
+A material can be built as a node graph (phase 18). The project window
+lists every material (`t:material`): Create → **Graph material** makes one
+and opens it in the editor window as a **Material: <name>** tab — from the
+submenu, an empty graph (a **PBR output**) or a
 built-in template: *standard*, *foliage wind*, *world-aligned kit*, *unlit*
 or *water* (the shader types as graphs, with their defaults), or (25.21)
 *height-blended layers (painted terrain)* — four layers from texture arrays,
@@ -1413,13 +1494,13 @@ default materials (every placement), or in a block type's `materials`; an
 instance may have instances. The game ships each used instance already
 resolved. MCP: `setMaterial {material: {…, instanceOf, values?}}`.
 
-**The Material tab** (phase 18.2): on the left a live **Preview** — the
-material on a *sphere*, *plane*, *cube* or a *model* of the project (pick
-it below), in the project environment (sky, image-based light, fog, tone
+**The Material editor** (phase 18.2): the editor window's **preview pane**
+(above the Inspector) shows the material live on a *sphere*, *plane*, *cube*
+or a *model* of the project, in the active scene's look (sky, image-based light, fog, tone
 mapping and post; a neutral backdrop when the project has none), drawn on
 the editor's renderer and compiled exactly as the Scene view and the game do
 (drag to orbit; the line under it names the backend and counts compile
-errors) — then the **exposed parameters**; in the middle the graph. A
+errors); the editor shows the **exposed parameters** and the graph. A
 problem shows as a badge on its node (the graph's rules and the compiler's:
 a missing texture, function or parameter, a sampling node without a
 texture, a pixel-only input in a vertex offset) and in the bottom dock's
@@ -1466,7 +1547,7 @@ exactly as it would a standard one. A lightmapped custom-lit object adds its
 lightmap to the total. Used under a PBR or Unlit output (which light
 themselves) the Lighting inputs read no light and show a compile error on
 the node; in a vertex offset a warning; a Custom-lit normal cannot read
-them. The Material tab's preview, the Scene view, Play and exports draw
+them. The Material editor's preview, the Scene view, Play and exports draw
 custom-lit graphs with their lights.
 
 **The catalogue** (generic, any genre): *Inputs* — Float, Vector 2/3/4,
@@ -1558,8 +1639,8 @@ catalogues are in `tl_content_query target="game" includeDescriptors`
 ## Visual scripts
 
 A behavior can be written as a node graph instead of TypeScript (phase
-19). Bottom dock → **Behaviors**: type a name next to **+ Visual script**
-and press it; the new behavior opens as a **Graph: <name>** centre tab (the
+19). File → Project Settings… → **Scripts**: type a name next to **+ Visual script**
+and press it; the new behavior opens in the editor window as a **Graph: <name>** tab (the
 graph editor above, with the visual-script catalogue) holding an **On
 start** node (a script needs no variable: a behavior may declare no
 property). Double-click a visual script's tile (it says "visual script") to
@@ -1759,10 +1840,11 @@ previewed in their tab (20.3). They are **visual only**: nothing in an
 effect changes the game simulation, so recorded replays never depend on
 them.
 
-Bottom dock → **Effects**: type a name and press **Create effect**; the
-effect opens as an **Effect: <name>** centre tab (double-click a row or
-**Open** to reopen it; **Rename** and **Delete** are there too — an effect
-an object still plays cannot be deleted). In the tab:
+The project window's Create → **Effect**, named in place, makes one; it
+opens in the editor window as an **Effect: <name>** tab (double-click it in
+the project window to reopen it; rename it in the editor's header, delete it
+from the Inspector — an effect an object still plays cannot be deleted). In
+the tab:
 
 - **Effect settings** (left): the cycle **duration** (bursts and the effect
   time refer to it), **loop** (off: spawning stops after one cycle and the
@@ -1847,10 +1929,10 @@ an object still plays cannot be deleted). In the tab:
     range around its value), three per vector, a colour picker per colour
     — preview only, never saved (**reset** goes back to the effect's
     values; objects set theirs in the Inspector's Effect component).
-  - Closing the tab (or switching to another) disposes the preview's
-    renderer, buffers and materials; the page's `data-tl-effect-previews`
-    attribute counts open/closed previews and closes whose renderer
-    geometry/buffer counts did not return to their baseline (`leaks`, 0).
+  - The effect plays in the editor window's preview pane; closing the
+    window disposes the pane's renderer, buffers and materials (one renderer
+    for every preview while the window shows); the page's `data-tl-previews`
+    attribute counts the pane's renderers opened, closed and released.
 
 **Playing an effect:** select an object, **+ Add component → Effect** and
 pick the effect. **Play on start** (on by default) starts it with the scene;
@@ -1936,7 +2018,7 @@ executor runs it and the WebGPU executor mirrors it (three-adapter
 
 ## Input actions
 
-The game reads named **actions**, not keys (bottom dock → Input): `move`
+The game reads named **actions**, not keys (File → Project Settings… → Input): `move`
 (A/D, ←/→, D-pad, left stick), `jump` (Space, pad A), `attack` (J, pad X),
 `interact` (E, pad Y), and for menus `pause` (Esc, Start), `submit` (Enter,
 pad A), `cancel` (Backspace, pad B), `navigate` (arrows/WASD, stick). "+ key"
@@ -2128,7 +2210,7 @@ tab):
   **Settings**, **Controls** (rebinding), **Save** and **Load**. Their buttons
   use engine actions: `newGame`, `continue` (the newest save), `resume`,
   `back`, `open` (a screen), `save` / `load` (slot 1–3, the project saves of
-  the Saves tab), `setSetting`, `rebind`, `nextScene`, `quitToTitle`.
+  Project Settings → Saves), `setSetting`, `rebind`, `nextScene`, `quitToTitle`.
 - **HUD**: documents shown while the game plays. Bindings read
   `$flow.counters.<name>` (named counters: collectibles, scripts),
   `$flow.health.<objectId>.current|max`, `$flow.prompts` (made from the
@@ -2228,7 +2310,7 @@ A scene's objects load what they use with the scene. A script that needs
 assets no loaded scene uses (a level's props before it opens, a boss's
 models, a set of voice lines) loads them by name and lets them go when it is
 done, as Unity's Addressables do. Give the assets (or prefabs, materials) an
-address or a label first (Assets tab or Inspector; `setLabels`,
+address or a label first (project window or Inspector; `setLabels`,
 `setAddress`): only what has one ships for scripts.
 
 - `ctx.assets.load(key)` takes an address, an asset or resource id, or a
@@ -2258,7 +2340,7 @@ and Assets error nodes.
 ### Script libraries and JSON data (phase 23.7)
 
 - **Libraries** are shared TypeScript (and JSON) every script of the
-  project can use: the **Libraries** tab (bottom dock) creates one from a
+  project can use: the project window's Create → **Script library** makes one from a
   name (its id is the name in lower case, e.g. "Scoring" → `scoring`),
   renames, deletes and opens it. Its tab is the code editor: `src/index.ts`
   is what scripts import — `import { points } from '@lib/scoring';` — and
@@ -2438,7 +2520,7 @@ fields:
 - An object stores only the public values it sets; a key added to a script
   in use reads its default until set.
 
-Declare them in Bottom dock → **Behaviors**: "+ New behavior" (or select a
+Declare them in File → Project Settings… → **Scripts**: "+ New behavior" (or select a
 behavior) opens the declaration editor — key, label, type, default,
 visibility, group, header, tooltip and the type's limits (min/max/step,
 max length, choices, vector bounds) — and one save publishes the whole
@@ -2461,7 +2543,7 @@ step, maxLength, values, bounds, group, header, tooltip. The compiler reads
 it without running the code and publishes it as the declaration: **the code
 wins** over any JSON declaration sent with the source (the source route then
 needs none), so the two cannot drift. Such a declaration shows read-only in
-the Behaviors tab, and a JSON `declaration-update` of it is refused
+Project Settings → Scripts, and a JSON `declaration-update` of it is refused
 (`behavior_declaration_mismatch`, reason `declared_in_code`): change the
 source. The source still publishes into an existing behavior record. A
 script without that export keeps using its JSON declaration.
@@ -2496,7 +2578,7 @@ Safari before 18.4 (macOS 15.4, iOS 18.4) does not play them, as it does for
 more than 32 channels or a rate outside 8–96 kHz.
 
 Each audio asset has two import settings, in its `.tlasset` sidecar and in
-the Assets tab's side panel (`setAssetOptions {assetId, loadType, preload}`,
+the audio asset's Inspector (`setAssetOptions {assetId, loadType, preload}`,
 one undo): the **load type** — *decode on load* (decoded into memory when it
 loads, no wait when played), *decode while playing* (kept compressed,
 decoded when played) or *stream* — defaulting by length: under 5 s decode on
@@ -2594,7 +2676,7 @@ refused.
 ### Project save documents (phase 23.19)
 
 Any game can declare its own save format in
-the **Saves** tab (MCP: `setSaveSchema {schema | null}`):
+Project Settings → **Saves** (MCP: `setSaveSchema {schema | null}`):
 
 - **Version** of the save document, and **migrations**: for each older
   version the name of a script function that upgrades a document by one
@@ -2726,8 +2808,7 @@ preset is project content (`environment.presets`, at most 64) with any of:
   entries win per field;
 - `lightmap: { intensity?, tint? }` — a multiplier on baked lightmaps.
 
-A part a preset does not set is the **base look**'s: the project environment
-with the playing level's look over it, and the lights as authored.
+A part a preset does not set is the **base look**'s: the active scene's look, and the lights as authored.
 
 **Editor.** The Environment window's *Presets* section: type a name and
 **capture current as preset** — the environment's sky, fog and post and
@@ -3354,8 +3435,8 @@ virtual cameras.
 
 ## Timelines (sequencer, phase 23.17)
 
-A **timeline** is project content (bottom dock → **Timelines**: create,
-open, delete; one undo step each) that sequences what a cutscene or a
+A **timeline** is project content (the project window: Create →
+**Timeline**, double-click to open, delete from the Inspector; one undo step each) that sequences what a cutscene or a
 scripted event does on a time ruler. It has a **duration**, **tracks** of
 **keys** (a key with a duration is a clip) and **markers**. Tracks never name
 objects: they name **slots**, and a play binds the slots to objects (each slot
@@ -3424,7 +3505,7 @@ step's input frame, and every change goes through the same channels scripts
 use — so the simulation worker, the export and replays (skip and waits
 included) give the same result.
 
-**Editor.** Open a timeline in its centre tab: the timeline's fields and
+**Editor.** Open a timeline in the editor window (it plays on its scene in the preview pane): the timeline's fields and
 slots at the top, the track list beside the time ruler (zoom slider), keys
 dragged along the ruler (one command per drag), a key inspector for the
 selected key, **Add key at playhead**. Clicking or dragging the ruler scrubs:
@@ -3531,7 +3612,7 @@ brushes, overlays and stamp UI are below (23.6).
 
 ## Block layer editing (phase 23.6)
 
-The **Blocks** tab (bottom dock) edits block layers in the Scene view. Every
+A block layer's tools show in its Inspector while it is selected (GameObject → Block layer makes one); they edit block layers in the Scene view. Every
 action is an ordinary command — `editBlocks` for cells and regions,
 `setBlockType` / `setCellFields` / `setBlockStamp` for content — so each
 stroke or button is one undo step, and MCP can do the same.
@@ -3720,11 +3801,11 @@ the browser granted it.
   rebinding screen is built on these. Replays stay valid: the simulation only
   sees action values and the binding information travels in the recorded input.
 - **Hold instead of tap**: a key, pad button or mouse button binding takes a
-  `hold` time (seconds) in the Input window.
+  `hold` time (seconds) in Project Settings → Input.
 - **Glyphs**: the engine has a neutral SVG icon set (key caps, face buttons by
   position, bumpers/triggers, D-pad, sticks, mouse buttons); pad labels follow
   the pad family (Xbox, PlayStation, Switch, generic) detected from the pad.
-  Projects replace icons with their own textures in the Input window's Glyphs
+  Projects replace icons with their own textures in Project Settings → Input's Glyphs
   list (e.g. `xbox:pad-south`, `pad-south`, `key:Space`).
 - Observation: Play observe and the export's `window.__thirdlightObserve()`
   report `inputBindings` (device used last, profile, listening, changed
@@ -3949,8 +4030,9 @@ back: an editor session with many tab, preview and Play round trips, and a
 game that loads and unloads scenes or spawns and destroys objects for a long
 time, stay at the memory they started with.
 
-- *Closed tabs and previews* (the Material and Effect tabs' previews, the
-  asset browser's model preview, the Animator's live preview) release their
+- *Closed windows and previews* (the editor window's preview pane, which
+  draws materials, effects, models with their animator, timelines,
+  conversations and UI documents, and the asset preview) release their
   renderer at once — also the WebGL context or the WebGPU device (before,
   browsers kept up to ~16 WebGL contexts and then dropped the oldest, which
   could be the Scene view's) — and nothing keeps the closed pane reachable.
@@ -4117,12 +4199,12 @@ exported games.
 
 A project defines game modes — named states of the running game such as
 explore and tactical, on foot and driving, build and play, a photo mode or a
-title screen. Edit them in the **Game modes** tab (the list, the selected
+title screen. Edit them in Project Settings → **Game modes** (the list, the selected
 mode's form, the behavior groups) or with `setModes` / `setBehaviorGroups`
 through MCP. The first mode is the one a run starts in.
 
 - Each mode sets, together: the **input maps** that are active (gameplay, ui
-  or maps the project adds in the Input tab — the actions of other maps read
+  or maps the project adds in Project Settings → Input — the actions of other maps read
   as released), the **camera** (a virtual camera that is live over the
   priorities while the mode is), the **UI documents** shown, the **behavior
   groups** whose scripts run (an object joins a group with its Behavior group
@@ -4151,9 +4233,10 @@ through MCP. The first mode is the one a run starts in.
 
 ### The UI document editor
 
-- The **UI** tab of the bottom dock lists the UI documents and themes: create,
-  rename, delete, open. **Assets → new UI document** creates one too.
-- A document opens as a **UI: <name>** tab. Left: the widget hierarchy (add a
+- The project window lists the UI documents and themes (`t:ui`, `t:uitheme`):
+  Create → **UI document** / **UI theme**, rename in the editor's header,
+  delete from the Inspector, double-click to open.
+- A document opens in the editor window as a **UI: <name>** tab. Left: the widget hierarchy (add a
   widget of any type into the selected container, delete, move up/down,
   duplicate, move into another container — or drag a row onto a container).
   Centre: the live preview — the same game-host code Play uses — at 16:9, 4:3,
@@ -4175,7 +4258,7 @@ through MCP. The first mode is the one a run starts in.
   in this browser; they are not project data.
 - Every change is one command with undo/redo; a drag is one command when you
   let go.
-- **Game shell** (bottom dock) picks the UI documents shown as the title,
+- **Game shell** (Project Settings → Game shell) picks the UI documents shown as the title,
   pause, settings, controls, save and load screens and as HUDs.
 
 ## Dialogue (phase 23.16)
@@ -4183,13 +4266,14 @@ through MCP. The first mode is the one a run starts in.
 Conversations with speakers, portraits, voice and choices, built into the
 engine as project content; the game's own rules stay in its scripts.
 
-- **Dialogue window** (bottom dock → Dialogue): *Conversations* (create,
-  rename, delete, open), *Speakers* (name, name-plate colour, portraits per
+- **Conversations** are made in the project window (Create → **Dialogue**),
+  renamed in the editor's header, deleted from the Inspector, opened with a
+  double-click. **Project Settings → Dialogue** holds the *Speakers* (name, name-plate colour, portraits per
   expression — texture assets —, default expression, voice profile id, text
   blip sound), *Settings* (text speed in characters/s, 0 = whole lines;
   auto-advance and its delay; how low music and effects go under a voice;
   backlog length; the UI document and theme of the dialogue box).
-- **Dialogue tab** ("Dialogue: <name>"): the conversation is a node graph.
+- **Dialogue editor** (the editor window's "Dialogue: <name>" tab): the conversation is a node graph.
   Start → Lines (speaker, expression, text, voice clip — an audio asset of
   any length —, auto-advance default/on/off) → Choice → Options (text, condition,
   effects, once; top to bottom) → Branch (condition), Set (effects), Signal
