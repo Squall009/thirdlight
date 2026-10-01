@@ -300,7 +300,8 @@ moves at least as many lines out as it adds.
 | 27.5 | done 2026-10-01: E49's timeout not reproduced (scale bench at full, 20 and 150 scenes loaded, worker and single thread: answers in ≤ 0.1 s / ≤ 0.55 s); a replay now answers once the new run began (`restart {applied, atStep}`, run id `<snapshot>#<run>`) or `pending` with the run id it will have when no step comes in time; observations carry the current run id; a game without scripts applies a restart at all (D101, D102); bench step `replay` (`--threads`, `--replays`, `--replay-scenes`) |
 | 27.6 | done 2026-10-01: the images inside model files are counted against the texture budget (its `fixedBytes`, so streamed textures make room for them) and reported under the textures in Play diagnostics and observe (`textures.embedded`: images, bytes, models, the 8 largest by `<assetId>@<version>`) and under their models (`resident.model.textures`); the Scene view counts them with the same function (`data-resources`); bench numbers below the decision log entry; e2e `embedded-textures` (WebP and KTX2 inside bench spheres, both renderers; fails without the fix) (D103); the bench's new KTX2 models showed the Assets tab drawing no model thumbnails after one (D104, fixed) |
 | 27.7 | done 2026-10-01: the model import setting "extract textures" (on for a new model; an existing one switches only when re-imported with it, from its inspector) takes a GLB's images out into texture assets in `<model>_textures/` (PNG/JPEG encoded to KTX2 with mips by what the material samples them as, KTX2/WebP as they are, one image a texture asset however many models carry it); the model is stored without them (one-pixel stand-ins, `convertedFrom: glb`) and names them in `textures`; Play, the export, the Scene view and model thumbnails draw them from the texture assets, streamed by mip; publish, folder import and the file check do it; e2e `extract-textures` (both renderers, the webgpu project too); bench below (D105; D106 found) |
-| 27.8–27.17 | — |
+| 27.8 | done 2026-10-01: `App.tsx` split, no behaviour change: 4,826 → 1,083 lines; each area's state and commands in a hook returning one object (`ui/shell/use*.ts`, `ui/workspace/useDocument*.ts`), the shell's pieces as components taking those objects (`BottomDock`, `AssetsTab`, `InspectorDock`, `EditorDialogs`), the menus as `editorMenus`, the document tabs' host as `workspaceHostOf`; fast gate with 38 editor-shell specs + the smoke set green (D91) |
+| 27.9–27.17 | — |
 
 ## 6. Decision log
 
@@ -545,4 +546,15 @@ moves at least as many lines out as it adds.
   the plain re-imports do not: the backend's peak comes from 200
   re-imports of an 18,000-asset catalog one after another (D106), not from
   KTX2 encoding.
-
+- 2026-10-01 (27.8): `App.tsx` is split by area, not by size: each area
+  (Play and its bridge, the project's content, the project settings, scene
+  edits, Inspector edits, prefabs, blocks, bakes, scripts, the Animator, the
+  documents' selections and commands, the project window, the dialogs) is a
+  hook whose one returned object the shell's components take whole
+  (`BottomDock`, `AssetsTab`, `InspectorDock` with `EntityInspector`,
+  `EditorDialogs`, `editorMenus`, `workspaceHostOf`). The editor window, the
+  Project Settings window, the window tools and the new dock (27.11–27.15)
+  are built from those objects; `App.tsx` keeps the mount (client, Scene
+  view), the projection refresh and the layout. The bottom dock's panels are
+  still branches of one component (`BottomDock.tsx`) until 27.13–27.15 move
+  them to their windows.

@@ -1,0 +1,149 @@
+/**
+ * Block-layer editing: the Blocks panel's layers, types, cell fields and
+ * stamps, the Scene view's block tools, props' block footprints and
+ * cell-top snapping. `receive` copies the layers from the session client
+ * after every applied change and hands them to the Scene view.
+ */
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { SessionClient } from '../../session/client';
+import { effectiveFlagsOf } from '../../session/hierarchy';
+import { presetValue } from '../../session/descriptor-fields';
+import type { DescriptorRegistry, BlockEdit, BlockFootprintComponent, BlockStamp, BlockType, CellField } from '@thirdlight/project-model';
+import type { BlockLayerRow, BlockPanelHandlers } from '../BlocksPanel';
+import type { BlockEditor } from '../../viewport/block-editor';
+import { BlockGrid } from '@thirdlight/runtime';
+import { footprintCells, footprintEdits, snapToCellTop, yawQuarterTurns, type PropLayer } from '../../session/block-footprint';
+import type { Stable } from './useProjectContent';
+import type { ClientRef, ReportFailure, SetNotice, ViewportRef } from './commands';
+
+export interface BlockLayersDeps {
+  clientRef: ClientRef;
+  viewportRef: ViewportRef;
+  registry: DescriptorRegistry | null;
+  /** Moved and dropped objects land on the block cells under them. */
+  cellTops: boolean;
+  reportFailure: ReportFailure;
+  setNotice: SetNotice;
+}
+
+export function useBlockLayers(deps: BlockLayersDeps) {
+  const { clientRef, viewportRef, registry, cellTops, reportFailure, setNotice } = deps;
+  // Block-layer editing (the Blocks panel and the Scene view's block tools).
+  const [blockEditor, setBlockEditor] = useState<BlockEditor | null>(null);
+  const [blockRows, setBlockRows] = useState<readonly BlockLayerRow[]>([]);
+  const [blockTypes, setBlockTypes] = useState<readonly BlockType[]>([]);
+  const [cellFields, setCellFields] = useState<readonly CellField[]>([]);
+  const [blockStamps, setBlockStamps] = useState<readonly BlockStamp[]>([]);
+  const [blockLayerId, setBlockLayerId] = useState<string | null>(null);
+  const blockLayerIdRef = useRef<string | null>(null);
+  blockLayerIdRef.current = blockLayerId;
+  const blockHandlersRef = useRef<BlockPanelHandlers | null>(null);
+  /** Each layer's cells as a grid (props snap to them and footprints read them), by the client's block revision. */
+  const propGridsRef = useRef<{ revision: number; grids: Map<string, BlockGrid> }>({ revision: -1, grids: new Map() });
+  /** The block layers props sit on (their cells as grids, rebuilt when the client's cells change). */
+  const propLayers = useCallback((only?: string): PropLayer[] => {
+    const c = clientRef.current;
+    if (!c) return [];
+    const cache = propGridsRef.current;
+    if (cache.revision !== c.getBlockRevision()) propGridsRef.current = { revision: c.getBlockRevision(), grids: new Map() };
+    const grids = propGridsRef.current.grids;
+    const out: PropLayer[] = [];
+    for (const [id, l] of c.getBlockLayers()) {
+      if (only !== undefined && id !== only) continue;
+      const e = c.projection.getEntity(id);
+      if (!e || e.active === false) continue;
+      let g = grids.get(id);
+      if (g === undefined) grids.set(id, (g = BlockGrid.from(l.component, { entityId: id, chunks: [...l.chunks.values()] })));
+      const grid = g;
+      out.push({ entityId: id, component: l.component, origin: e.position, columnTop: (x, z) => grid.columnTop(x, z) });
+    }
+    return out;
+  }, [clientRef]);
+  /** Write a prop's block footprint: its fields leave the cells under `before` and land on those under `after` (one editBlocks per layer). */
+  const writeFootprint = useCallback(async (entityId: string, before: { position: number[]; rotation: number[] } | null, after: { position: number[]; rotation: number[] }, fp?: BlockFootprintComponent) => {
+    const c = clientRef.current;
+    if (!c) return;
+    const footprint = fp ?? ((c.projection.getEntity(entityId)?.components as { blockFootprint?: BlockFootprintComponent } | undefined)?.blockFootprint);
+    if (footprint === undefined) return;
+    for (const layer of propLayers(footprint.layer)) {
+      const was = before === null ? [] : footprintCells(layer, before.position, before.rotation, footprint);
+      const now = footprintCells(layer, after.position, after.rotation, footprint);
+      const edits = footprintEdits(was, now, footprint.set);
+      if (edits === null) continue;
+      const r = await c.command('editBlocks', { entityId: layer.entityId, edits }, c.projection.revision);
+      if (!r.ok && (r.response as { code?: string }).code !== 'no_change') reportFailure('Block footprint', r);
+    }
+  }, [clientRef, propLayers, reportFailure]);
+  const writeFootprintRef = useRef(writeFootprint);
+  writeFootprintRef.current = writeFootprint;
+  // Cell-top snapping: moved and dropped objects land on the block cells under them.
+  useEffect(() => {
+    const v = viewportRef.current;
+    if (!v) return;
+    v.setCellTopSnap(
+      cellTops
+        ? (entityId, position, rotation) => {
+            const c = clientRef.current;
+            if (!c) return null;
+            if (entityId !== null && c.getBlockLayers().has(entityId)) return null;
+            const fp = entityId !== null ? ((c.projection.getEntity(entityId)?.components as { blockFootprint?: BlockFootprintComponent } | undefined)?.blockFootprint) : undefined;
+            return snapToCellTop(propLayers(fp?.layer), position, fp?.size, yawQuarterTurns(rotation));
+          }
+        : null,
+    );
+  }, [cellTops, propLayers, blockEditor, viewportRef, clientRef]);
+  const blockRun = useCallback(async (what: string, op: string, args: Record<string, unknown>): Promise<boolean> => {
+    const c = clientRef.current;
+    if (!c) return false;
+    const r = await c.command(op, args, c.projection.revision);
+    if (!r.ok && (r.response as { code?: string }).code === 'no_change') return false;
+    reportFailure(what, r);
+    return r.ok;
+  }, [clientRef, reportFailure]);
+  const blockEdit = useCallback((what: string, entityId: string, edits: BlockEdit[]) => blockRun(what, 'editBlocks', { entityId, edits }), [blockRun]);
+  const createBlockLayer = useCallback(async () => {
+    const c = clientRef.current;
+    if (!c) return;
+    const value = presetValue(registry, 'blockLayer');
+    if (value === null) return setNotice('New block layer failed: the component defaults have not arrived yet');
+    const res = await c.command('createEntity', { parentId: null, kind: 'group', name: 'Block layer', transform: { position: [0, 0, 0] } }, c.projection.revision);
+    if (!res.ok || res.createdId === undefined) return reportFailure('New block layer', res);
+    const id = res.createdId;
+    reportFailure('New block layer', await c.command('setComponent', { entityId: id, component: 'blockLayer', value }, c.projection.revision));
+    setBlockLayerId(id);
+  }, [clientRef, registry, reportFailure, setNotice]);
+
+  /** The block layers (cells, block types) at their entities' positions, for the panel and the Scene view. */
+  const receive = useCallback((c: SessionClient, stable: Stable) => {
+    // The block layers (cells, block types) at their entities' positions.
+    const blockLayers = c.getBlockLayers();
+    if (blockLayers.size > 0 || c.getBlockRevision() > 0) {
+      const byId = new Map(c.projection.listEntities().map((e) => [e.id, e]));
+      const layers = new Map([...blockLayers].filter(([id]) => byId.has(id)).map(([id, l]) => [id, { component: l.component, chunks: l.chunks, origin: byId.get(id)!.position }]));
+      // An inactive layer object is not drawn.
+      const flags = effectiveFlagsOf(c.projection.listEntities());
+      for (const [id, l] of layers) (l as { hidden?: boolean }).hidden = flags.get(id)?.active === false;
+      viewportRef.current?.setBlockLayers(c.getBlockTypes(), layers, c.getBlockRevision());
+      // The Blocks panel's layer list and the Scene view's selected layer.
+      const rows: BlockLayerRow[] = [...blockLayers]
+        .filter(([id]) => byId.has(id))
+        .map(([id, l]) => ({ entityId: id, name: byId.get(id)!.name ?? id, component: l.component, regions: l.regions, active: flags.get(id)?.active !== false, locked: flags.get(id)?.locked === true }));
+      setBlockRows(stable('blockRows', rows));
+      const sel = blockLayerIdRef.current;
+      const l = sel !== null ? layers.get(sel) : undefined;
+      const row = rows.find((r) => r.entityId === sel);
+      viewportRef.current?.blockEditor()?.setLayer(l !== undefined && row !== undefined ? { entityId: sel!, component: l.component, origin: l.origin, chunks: l.chunks, regions: row.regions, locked: row.locked, hidden: !row.active } : null, c.getBlockRevision());
+    } else setBlockRows(stable('blockRows', []));
+    setBlockTypes(stable('blockTypes', c.getBlockTypes()));
+    setCellFields(stable('cellFields', c.getCellFields()));
+    setBlockStamps(stable('blockStamps', c.getBlockStamps()));
+    viewportRef.current?.blockEditor()?.setContent(c.getBlockTypes(), c.getCellFields(), c.getBlockStamps());
+  }, [viewportRef]);
+
+  return {
+    blockEditor, setBlockEditor, blockRows, blockTypes, cellFields, blockStamps, blockLayerId, setBlockLayerId, blockLayerIdRef, blockHandlersRef,
+    propLayers, writeFootprint, writeFootprintRef, blockRun, blockEdit, createBlockLayer, receive,
+  };
+}
+
+export type BlockLayers = ReturnType<typeof useBlockLayers>;
