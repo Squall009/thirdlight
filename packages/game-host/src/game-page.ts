@@ -72,6 +72,7 @@ import {
   createBrowserSimWorker,
   createGameAudioOwner,
   createGameHost,
+  type AudioReport,
   createLocalSimAccess,
   createScenePreloader,
   createVerifiedAssetReader,
@@ -237,6 +238,8 @@ export interface GamePageHandle {
   catalogReads(): { files: number; bytes: number };
   /** What is loaded from assets now (resident per kind, loads, frees, script handles alive). */
   resources(): ResourceObservation;
+  /** The sound: unlock state, what plays, what did not play and why (Play diagnostics' audio block). */
+  audio(): AudioReport | null;
   dispose(): void;
 }
 
@@ -950,6 +953,7 @@ export async function startGamePage(o: GamePageOptions): Promise<GamePageHandle>
         const o = host.observe();
         return o.ok && o.observation.resources !== undefined ? o.observation.resources : resources.observe();
       },
+      audio: () => audio.report?.() ?? null,
       // The host disposes its runtime (in worker mode the mirror, which ends the worker);
       // then the physics port, the audio owner, the input and the page listeners; the resources last.
       dispose: () => releaseAll(),

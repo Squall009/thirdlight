@@ -325,5 +325,11 @@ export interface RuntimeDiagnostics {
    * objects switched off now. Present once a script wrote.
    */
   entityWrites?: { applied: number; refused: number; conflicts: number; inactive: number };
+  /**
+   * `ctx.messages.send` calls refused at the per-step limit over the play,
+   * the first and last step one was, and a warning that says so. Present
+   * once a send was refused.
+   */
+  messageQueue?: { refused: number; firstRefusedStep: number; lastRefusedStep: number; perStepLimit: number; warning: string };
 
 }

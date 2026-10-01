@@ -23,7 +23,11 @@ import type { AudioContextLike, MediaElementLike } from './audio';
 export {
   AUDIO_MAX_VOICES,
   AUDIO_MAX_DIAGNOSTICS,
+  AUDIO_REPORT_LISTED,
+  AUDIO_REPORT_NOTES,
   createGameAudioOwner,
+  type AudioReport,
+  type AudioSkipReason,
   type GameCueEvent,
   type GameAudioStatus,
   type GameAudioError,

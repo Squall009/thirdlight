@@ -332,6 +332,8 @@ export class GameplayBlocks {
   /** Script messages sent in this step, and in the previous one (what scripts see); `to` null = every script. */
   private messagesNow: { message: BehaviorMessage; to: string | null }[] = [];
   private messagesPrev: readonly { message: BehaviorMessage; to: string | null }[] = Object.freeze([]);
+  /** Sends refused at the per-step limit over the whole play (a run's restart keeps them: they are diagnostics). */
+  private refused: { count: number; firstStep: number; lastStep: number } | null = null;
   private carry: Vec2 = { x: 0, y: 0 };
   /** 3D: the carried platform's motion (and pushes) this step, and where each script-driven collider was posed last. */
   private carry3: Readonly<Vec3> = NO_CARRY3;
@@ -727,9 +729,34 @@ export class GameplayBlocks {
 
   /** Queue a script message for the next step; false at the step's limit. */
   sendMessage(message: BehaviorMessage, to: string | null): boolean {
-    if (this.messagesNow.length >= MAX_MESSAGES_PER_STEP) return false;
+    if (this.messagesNow.length >= MAX_MESSAGES_PER_STEP) {
+      const r = this.refused;
+      if (r === null) this.refused = { count: 1, firstStep: message.stepIndex, lastStep: message.stepIndex };
+      else {
+        r.count += 1;
+        r.lastStep = message.stepIndex;
+      }
+      return false;
+    }
     this.messagesNow.push({ message: Object.freeze({ ...message }), to });
     return true;
+  }
+
+  /**
+   * The message queue's refused sends (null while none was refused): a full
+   * queue means scripts send more in one step than the limit, the warning a
+   * runaway sender (or a queue nothing turns over) shows in Play diagnostics.
+   */
+  messageQueueView(): { refused: number; firstRefusedStep: number; lastRefusedStep: number; perStepLimit: number; warning: string } | null {
+    const r = this.refused;
+    if (r === null) return null;
+    return {
+      refused: r.count,
+      firstRefusedStep: r.firstStep,
+      lastRefusedStep: r.lastStep,
+      perStepLimit: MAX_MESSAGES_PER_STEP,
+      warning: `ctx.messages.send refused ${r.count} message(s): more than ${MAX_MESSAGES_PER_STEP} sent in one step (first at step ${r.firstStep}, last at step ${r.lastStep}); the refused ones never arrive`,
+    };
   }
 
   /** The messages of `name` sent in the previous step to every script or to `to`, in send order. */
@@ -765,8 +792,14 @@ export class GameplayBlocks {
 
   // ---- the step --------------------------------------------------------------------
 
-  /** Start of a step: signals turn over, movers advance (their colliders are posed for physics). */
-  beforeStep(stepIndex: number): void {
+  /**
+   * Signals, trigger events, script messages and the primitives' events turn
+   * over: what was sent or happened last step is what scripts see now. Every
+   * step does this, whatever holds physics (a game mode's hold, a plain step
+   * without a physics world): messages and signals are script-to-script and
+   * have nothing to do with the bodies, movers and triggers a hold stops.
+   */
+  turnover(stepIndex: number): void {
     this.step = stepIndex;
     // The primitives' events turn over with the trigger events.
     this.primitives.turnover(stepIndex);
@@ -795,6 +828,11 @@ export class GameplayBlocks {
         if (t.signal !== null && this.signalsPrev.has(t.signal)) this.host.effect?.({ op: 'play', effectId: t.effectId, entityId: id, position: [0, 0, 0], source: 'component' });
       }
     }
+  }
+
+  /** Start of a step that runs physics: the turnover, then movers advance (their colliders are posed for physics). */
+  beforeStep(stepIndex: number): void {
+    this.turnover(stepIndex);
     if (this.host.physics3d !== undefined) {
       this.beforeStep3D(this.host.physics3d);
       return;
@@ -997,11 +1035,9 @@ export class GameplayBlocks {
     }
   }
 
-  /** A 2D-plane plain step (no simulation modules): the primitives' events turn over and they step. */
-  stepPrimitivesOnly(stepIndex: number): void {
+  /** A 2D-plane plain step (no simulation modules), after its turnover: the primitives step. */
+  stepPrimitivesOnly(): void {
     if (!this.primitives.active && this.facers.size === 0) return;
-    this.step = stepIndex;
-    this.primitives.turnover(stepIndex);
     this.primitives.afterPhysics(true);
     if (this.facers.size > 0) this.turnFacers(1 / this.host.hz);
   }

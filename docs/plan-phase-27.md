@@ -294,7 +294,8 @@ moves at least as many lines out as it adds.
 |---|---|
 | 27.0 | done 2026-10-01: §2 re-checked against the code, §3 confirmed with links (two corrections), phase-26 review and open defects read (§2), three.js 0.186.1 is the latest (nothing to take); Skyforge E46–E51 planned as 27.1–27.7, layout items renumbered 27.8–27.17 |
 | 27.1 | done 2026-10-01: screenshot answers keep their own bound (`SCREENSHOT_DATA_URL_MAX`, protocol, used by preview, bridge rule, WS ack bound and backend); a refused bridge message answers its relay with `bridge_message_refused` and the reason; e2e captures a ~280 KiB PNG over HTTP and MCP on WebGPU and WebGL 2 (D95) |
-| 27.2–27.17 | — |
+| 27.2 | done 2026-10-01: signals, trigger events, script messages (and the primitives' events) turn over every step whatever the mode's physics; the 2D step without scripts too (D96, D97); Play diagnostics carry `runtime.messageQueue` (refused sends with a warning) and an `audio` block (unlock state, what plays by bus, started, skipped by why, late, notes), read over HTTP and MCP before and after the unlock in a real browser |
+| 27.3–27.17 | — |
 
 ## 6. Decision log
 
@@ -387,3 +388,25 @@ moves at least as many lines out as it adds.
   with `tl.error` would stop a Play over a progress report. Checked: without
   the validator change the new e2e gets 503 `bridge_message_refused`
   "message exceeds the 65536-byte bound" at once instead of a timeout.
+- 2026-10-01 (27.2): a game mode's physics hold stops the controller, the
+  bodies, movers, triggers, switches and the primitives' stepping (patrols,
+  hitboxes); everything that is an event turns over regardless — signals,
+  trigger events, script messages, the primitives' events and the
+  signal-driven effect components (they are script-to-script, not
+  physics). The 2D step without scripts was broken
+  the same way (confirmed by a test, D97) and takes the same turnover.
+  `runtime.ts` shrank while touched: its diagnostics reads moved to
+  `runtime/src/diagnostics-reads.ts` (5,698 → 5,657 lines).
+- 2026-10-01 (27.2): the message-queue warning is a Play diagnostics block
+  (`runtime.messageQueue`: refused count, first and last step, the per-step
+  limit, a warning sentence), present only once a send was refused so other
+  frames keep their shape; it counts over the whole play (a restart keeps
+  it). The per-step limit (256) is unchanged.
+- 2026-10-01 (27.2): the audio block is always in Play diagnostics.
+  `unlock.state` tells `locked` (no gesture yet; the old status said
+  `blocked`/`autoplay_denied` for this) apart from `blocked` (the browser
+  refused a gesture's resume, or no device); skipped sounds are counted by
+  why (muted, locked, not_ready, decode_failed, not_registered, voice_cap,
+  context_closed, stale_run) — a muted script play and the host's fallback
+  `playSound` now note why instead of returning silently; lists stay
+  bounded (8 sounds, 4 notes, 4 late outcomes) inside the 16 KiB frame.

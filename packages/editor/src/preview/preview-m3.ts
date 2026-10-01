@@ -442,6 +442,8 @@ export function bootstrapPreviewM3(): void {
           catalogReads: h.catalogReads(),
           // What is loaded from assets now: resident count and bytes per kind, loads, frees, script handles alive.
           resources: h.resources(),
+          // The sound: unlocked or why not, what plays, what did not play and why.
+          audio: h.audio(),
         },
       });
     });

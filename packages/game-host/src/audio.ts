@@ -302,6 +302,56 @@ export interface AudioLateOutcome {
   /** Dropped: what it waited for (its file, or the player's first gesture that turns sound on). */
   readonly waitedFor?: 'file' | 'unlock';
 }
+/** Sounds the audio report lists one by one (the rest are only counted). */
+export const AUDIO_REPORT_LISTED = 8;
+/** The newest notes and late outcomes the audio report carries. */
+export const AUDIO_REPORT_NOTES = 4;
+
+/** Why a sound did not play (the audio report counts each). */
+export type AudioSkipReason = 'muted' | 'locked' | 'not_ready' | 'decode_failed' | 'not_registered' | 'voice_cap' | 'context_closed' | 'stale_run';
+
+/**
+ * The audio block of Play diagnostics: whether sound can play and why not,
+ * what plays now, and the sounds that did not play or started late, with
+ * why — what a silent Play needs to be explained.
+ */
+export interface AudioReport {
+  readonly unlock: {
+    /**
+     * locked: no sound until the player's first key press or click in the
+     * game; unlocked: sound plays; blocked: the browser refused (autoplay
+     * policy, no output device); unsupported: no Web Audio here.
+     */
+    readonly state: 'locked' | 'unlocked' | 'blocked' | 'unsupported' | 'disposed';
+    readonly reason?: 'waiting_for_gesture' | 'autoplay_denied' | 'no_device' | 'no_audio_context';
+    /** The AudioContext's state (none: not created yet — it is made on the first gesture). */
+    readonly context: 'none' | 'suspended' | 'running' | 'closed';
+    readonly muted: boolean;
+    /** The page is hidden (sound pauses until it shows again). */
+    readonly hidden: boolean;
+  };
+  readonly playing: {
+    /** The wanted track, whether it sounds, and what it waits for when it does not. */
+    readonly music: { readonly assetId: string | null; readonly playing: boolean; readonly waitingFor?: 'unlock' | 'muted' | 'file' };
+    /** Sounding now: one-shots and script sounds (by bus), loops. */
+    readonly voices: number;
+    readonly byBus: Readonly<Record<'sfx' | 'ui' | 'voice' | 'music', number>>;
+    readonly loops: number;
+    /** Script sounds waiting to start (their file, or the unlock). */
+    readonly pending: number;
+    /** The first `AUDIO_REPORT_LISTED` of them. */
+    readonly list: readonly { readonly assetId: string; readonly bus: 'sfx' | 'ui' | 'voice' | 'music'; readonly kind: 'sound' | 'loop' | 'music'; readonly state: 'playing' | 'pending' | 'stopping' }[];
+  };
+  /** Sounds started since the play began, by bus (music: tracks started). */
+  readonly started: Readonly<Record<'sfx' | 'ui' | 'voice' | 'music', number>>;
+  /** Sounds that did not play since the play began, by why (only reasons that happened). */
+  readonly skipped: Readonly<Partial<Record<AudioSkipReason, number>>>;
+  /** Script sounds that started late or were dropped as too late (the newest `AUDIO_REPORT_NOTES`). */
+  readonly late: AudioLateReport;
+  /** The newest notes, each saying which sound and why (at most `AUDIO_REPORT_NOTES`). */
+  readonly notes: readonly string[];
+}
+
 /** Names each owner's holders apart in a shared resource manager. */
 let ownerSerial = 0;
 /** One-shot sounds' holder names. */
@@ -338,6 +388,7 @@ export interface GameAudioOwnerConfig {
 interface Voice {
   readonly source: PlaySource;
   readonly assetId: string;
+  readonly bus: 'sfx' | 'ui';
   /** True once the source fired onended (stop() must not be called again —
    * real Web Audio throws InvalidStateNode on stop-after-ender). */
   ended: boolean;
@@ -365,6 +416,8 @@ export interface GameAudioOwner {
   /** Additive observation surface (not a binding owner member): the bounded
    * diagnostic ring, newest last. */
   diagnostics(): readonly GameAudioDiagnostic[];
+  /** The audio block of Play diagnostics (unlock state, what plays, what did not and why). */
+  report?(): AudioReport;
   /** Additive observation surface (the host observation's
    * `sound.voices`): the live concurrent voice count (0..8). */
   liveVoices(): number;
@@ -534,6 +587,11 @@ export function createGameAudioOwner(config: GameAudioOwnerConfig = {}): GameAud
   let muted = false;
   let hidden = false;
   let blockedReason: 'autoplay_denied' | 'no_device' | null = null;
+  /** The last gesture's context factory made none (no Web Audio; a later gesture retries). */
+  let noContext = false;
+  /** Sounds started by bus, and sounds that did not play by why, since the owner was made (the audio report). */
+  const startedBy: Record<'sfx' | 'ui' | 'voice' | 'music', number> = { sfx: 0, ui: 0, voice: 0, music: 0 };
+  const skippedBy: Partial<Record<AudioSkipReason, number>> = {};
 
   /** Bumped by a runId change and by dispose() (rule 5: a cue of an old run is never played into a new one). */
   let activeRunId: string | null = null;
@@ -716,10 +774,13 @@ export function createGameAudioOwner(config: GameAudioOwnerConfig = {}): GameAud
   function tryStart(v: HandleVoice, atOnce = false): 'started' | 'wait' | 'drop' {
     if (disposed || context === null || !unlocked || context.state === 'closed') return 'wait';
     const p = playable(v.assetId, `voice:${v.handle}`);
-    if (p === 'failed') return 'drop';
+    if (p === 'failed') {
+      diag('cue_skipped', v.assetId, `sound ${v.handle} (${v.assetId}) skipped: its file could not be read or decoded`, 'decode_failed');
+      return 'drop';
+    }
     if (p === 'wait') return 'wait';
     if (voices.size + startedHandleVoices() >= maxVoices) {
-      diag('voice_cap', v.assetId, `sound ${v.handle} (${v.assetId}) dropped: ${maxVoices} voices busy`);
+      diag('voice_cap', v.assetId, `sound ${v.handle} (${v.assetId}) dropped: ${maxVoices} voices busy`, 'voice_cap');
       return 'drop';
     }
     const ctx = context;
@@ -750,6 +811,7 @@ export function createGameAudioOwner(config: GameAudioOwnerConfig = {}): GameAud
     v.source = source;
     v.gain = gain;
     if (v.bus === 'sfx' || v.bus === 'ui') played[v.bus] += 1;
+    startedBy[v.bus] += 1;
     if (v.lateMs > 0) noteLate({ handle: v.handle, assetId: v.assetId, outcome: 'started', lateMs: v.lateMs, maxLateMs: v.maxLateMs });
     return 'started';
   }
@@ -790,7 +852,7 @@ export function createGameAudioOwner(config: GameAudioOwnerConfig = {}): GameAud
   function dropLate(v: HandleVoice): void {
     const waited = Math.round(now() - v.askedAt);
     const waitedFor = context === null || !unlocked ? 'unlock' : 'file';
-    diag('late_dropped', v.assetId, `sound ${v.handle} (${v.assetId}) dropped: not ready within its ${v.maxLateMs} ms (${waitedFor === 'unlock' ? 'sound is off until the player’s first key or click' : 'its file was still loading'})`);
+    diag('late_dropped', v.assetId, `sound ${v.handle} (${v.assetId}) dropped: not ready within its ${v.maxLateMs} ms (${waitedFor === 'unlock' ? 'sound is off until the player’s first key or click' : 'its file was still loading'})`, waitedFor === 'unlock' ? 'locked' : 'not_ready');
     noteLate({ handle: v.handle, assetId: v.assetId, outcome: 'dropped', lateMs: waited, maxLateMs: v.maxLateMs, waitedFor });
     forgetHandle(v);
   }
@@ -822,7 +884,12 @@ export function createGameAudioOwner(config: GameAudioOwnerConfig = {}): GameAud
     audioUsed = true;
     switch (c.op) {
       case 'play': {
-        if (handleVoices.has(c.handle) || muted) return; // nothing plays while muted
+        if (handleVoices.has(c.handle)) return;
+        if (muted) {
+          // Nothing plays while muted.
+          diag('cue_skipped', c.assetId, `sound ${c.handle} (${c.assetId}) skipped: muted`, 'muted');
+          return;
+        }
         const positional = c.spatial !== undefined;
         const offset = positional ? ([...(c.position ?? [0, 0, 0])] as [number, number, number]) : null;
         const v: HandleVoice = {
@@ -1018,10 +1085,13 @@ export function createGameAudioOwner(config: GameAudioOwnerConfig = {}): GameAud
     gain.connect(duckNode ?? bus.music);
     ramp(gain, 1, wantedFade, ctx);
     source.start();
+    startedBy.music += 1;
     track = { assetId: wantedMusic, source, gain };
   }
 
-  function diag(code: GameAudioDiagnosticCode, assetId: string | null, message: string): void {
+  /** A diagnostic; `why` counts a sound that did not play (the audio report). */
+  function diag(code: GameAudioDiagnosticCode, assetId: string | null, message: string, why?: AudioSkipReason): void {
+    if (why !== undefined) skippedBy[why] = (skippedBy[why] ?? 0) + 1;
     diagnostics.push({ code, assetId, message: clipMessage(message) });
     if (diagnostics.length > AUDIO_MAX_DIAGNOSTICS) diagnostics.shift();
   }
@@ -1057,7 +1127,8 @@ export function createGameAudioOwner(config: GameAudioOwnerConfig = {}): GameAud
     gain.gain.value = Math.max(0, Math.min(1, volume));
     source.node.connect(gain);
     gain.connect(ensureBuses(ctx)[bus]);
-    const voice: Voice = { source, assetId, ended: false, released: false, holder };
+    const voice: Voice = { source, assetId, bus, ended: false, released: false, holder };
+    startedBy[bus] += 1;
     source.onended = () => {
       voice.ended = true;
       releaseVoice(voice);
@@ -1067,6 +1138,58 @@ export function createGameAudioOwner(config: GameAudioOwnerConfig = {}): GameAud
     // no replay (rule 6).
     source.start();
     voices.add(voice);
+  }
+
+  function unlockReport(): AudioReport['unlock'] {
+    const contextState = context === null ? 'none' : context.state;
+    const base = { context: contextState, muted, hidden } as const;
+    if (disposed) return { state: 'disposed', ...base };
+    if (!factory || noContext) return { state: 'unsupported', reason: 'no_audio_context', ...base };
+    if (context !== null && context.state === 'closed') return { state: 'blocked', reason: 'no_device', ...base };
+    if (unlocked) return { state: 'unlocked', ...base };
+    if (blockedReason !== null) return { state: 'blocked', reason: blockedReason, ...base };
+    return { state: 'locked', reason: 'waiting_for_gesture', ...base };
+  }
+
+  function audioReport(): AudioReport {
+    type Row = AudioReport['playing']['list'][number];
+    const list: Row[] = [];
+    const byBus = { sfx: 0, ui: 0, voice: 0, music: 0 };
+    let pending = 0;
+    const add = (row: Row): void => {
+      if (list.length < AUDIO_REPORT_LISTED) list.push(row);
+    };
+    if (track !== null) {
+      byBus.music += 1;
+      add({ assetId: track.assetId, bus: 'music', kind: 'music', state: 'playing' });
+    }
+    for (const v of voices) {
+      byBus[v.bus] += 1;
+      add({ assetId: v.assetId, bus: v.bus, kind: 'sound', state: 'playing' });
+    }
+    for (const v of handleVoices.values()) {
+      if (v.source === null) pending += 1;
+      else byBus[v.bus] += 1;
+      add({ assetId: v.assetId, bus: v.bus, kind: v.loop ? 'loop' : 'sound', state: v.source === null ? 'pending' : v.stopping ? 'stopping' : 'playing' });
+    }
+    for (const v of loopVoices.values()) add({ assetId: v.assetId, bus: 'sfx', kind: 'loop', state: 'playing' });
+    const musicPlaying = track !== null && track.assetId === wantedMusic;
+    const waitingFor = wantedMusic === null || musicPlaying ? undefined : context === null || !unlocked ? 'unlock' : muted ? 'muted' : 'file';
+    return {
+      unlock: unlockReport(),
+      playing: {
+        music: { assetId: wantedMusic, playing: musicPlaying, ...(waitingFor !== undefined ? { waitingFor } : {}) },
+        voices: voices.size + startedHandleVoices(),
+        byBus,
+        loops: loopVoices.size,
+        pending,
+        list,
+      },
+      started: { ...startedBy },
+      skipped: { ...skippedBy },
+      late: { started: late.started, dropped: late.dropped, recent: late.recent.slice(-AUDIO_REPORT_NOTES) },
+      notes: diagnostics.slice(-AUDIO_REPORT_NOTES).map((d) => `${d.code}: ${d.message}`),
+    };
   }
 
   function currentStatus(): GameAudioStatus {
@@ -1125,26 +1248,26 @@ export function createGameAudioOwner(config: GameAudioOwnerConfig = {}): GameAud
 
       for (const event of events) {
         if (event.runId !== runId) {
-          diag('stale_work_discarded', event.assetId, `event ${event.id} is from a different run; skipped, never played into the new run`);
+          diag('stale_work_discarded', event.assetId, `event ${event.id} is from a different run; skipped, never played into the new run`, 'stale_run');
           continue;
         }
         if (playedIds.has(event.id)) continue; // rule 4: at most once — no-op
         playedIds.add(event.id); // a dropped cue is not replayed (no queue)
         if (muted) {
-          diag('cue_skipped', event.assetId, `cue ${event.id} skipped: muted (nothing is decoded or played)`);
+          diag('cue_skipped', event.assetId, `cue ${event.id} (${event.assetId}) skipped: muted (nothing is decoded or played)`, 'muted');
           continue;
         }
         if (!context || !unlocked) {
-          diag('cue_skipped', event.assetId, `cue ${event.id} skipped: sound off (${currentStatus().state}), the game continues`);
+          diag('cue_skipped', event.assetId, `cue ${event.id} (${event.assetId}) skipped: sound off (${currentStatus().state}), the game continues`, 'locked');
           continue;
         }
         const ctx = context;
         if (ctx.state === 'closed') {
-          diag('cue_skipped', event.assetId, `cue ${event.id} skipped: context closed`);
+          diag('cue_skipped', event.assetId, `cue ${event.id} (${event.assetId}) skipped: context closed`, 'context_closed');
           continue;
         }
         if (loader.loadTypeOf(event.assetId) === undefined) {
-          diag('cue_skipped', event.assetId, `cue ${event.id} skipped: asset not registered (the host registers every referenced cue's bytes at load)`);
+          diag('cue_skipped', event.assetId, `cue ${event.id} (${event.assetId}) skipped: asset not registered (the host registers every referenced cue's bytes at load)`, 'not_registered');
           continue;
         }
         soundSerial += 1;
@@ -1152,12 +1275,12 @@ export function createGameAudioOwner(config: GameAudioOwnerConfig = {}): GameAud
         const p = loader.playable(event.assetId, holder);
         if (p === 'wait' || p === 'failed') {
           letGo(holder);
-          diag('cue_skipped', event.assetId, `cue ${event.id} skipped: asset ${p === 'failed' ? 'decode failed' : 'still decoding'}`);
+          diag('cue_skipped', event.assetId, `cue ${event.id} (${event.assetId}) skipped: asset ${p === 'failed' ? 'decode failed' : 'still decoding'}`, p === 'failed' ? 'decode_failed' : 'not_ready');
           continue;
         }
         if (voices.size >= maxVoices) {
           letGo(holder);
-          diag('voice_cap', event.assetId, `cue ${event.id} dropped: ${maxVoices} voices busy (voice_cap — never queued)`);
+          diag('voice_cap', event.assetId, `cue ${event.id} (${event.assetId}) dropped: ${maxVoices} voices busy (voice_cap — never queued)`, 'voice_cap');
           continue;
         }
         startOneShot(ctx, p, event.assetId, 1, 'sfx', holder);
@@ -1177,9 +1300,11 @@ export function createGameAudioOwner(config: GameAudioOwnerConfig = {}): GameAud
           // Absent AudioContext / no device → soft sound-off. The
           // factory is NOT marked consumed: a later gesture retries (the
           // environment may recover).
+          noContext = true;
           return { state: 'unsupported', reason: 'no_audio_context' };
         }
         contextCreated = true;
+        noContext = false;
         context = created;
         if (context.state === 'closed') {
           // Created but immediately closed: the environment has no usable
@@ -1320,21 +1445,29 @@ export function createGameAudioOwner(config: GameAudioOwnerConfig = {}): GameAud
     },
 
     playSound(assetId, volume, bus = 'sfx') {
-      if (disposed || muted || context === null || !unlocked || context.state === 'closed') return false;
+      if (disposed) return false;
+      const off: AudioSkipReason | null = muted ? 'muted' : context === null || !unlocked ? 'locked' : context.state === 'closed' ? 'context_closed' : null;
+      if (off !== null) {
+        diag('cue_skipped', assetId, `sound ${assetId} skipped: ${off === 'locked' ? 'sound is off until the player’s first key or click' : off.replace('_', ' ')}`, off);
+        return false;
+      }
       if (voices.size >= maxVoices) {
-        diag('voice_cap', assetId, `sound ${assetId} dropped: ${maxVoices} voices busy`);
+        diag('voice_cap', assetId, `sound ${assetId} dropped: ${maxVoices} voices busy`, 'voice_cap');
         return false;
       }
       // A sound not ready is not played now; its load goes on for the next ask.
       const p = playable(assetId, `decode:${assetId}`);
-      if (p === 'wait' || p === 'failed') return false;
+      if (p === 'wait' || p === 'failed') {
+        diag('cue_skipped', assetId, `sound ${assetId} skipped: ${p === 'failed' ? 'its file could not be read or decoded' : 'its file was still loading'}`, p === 'failed' ? 'decode_failed' : 'not_ready');
+        return false;
+      }
       soundSerial += 1;
       const holder = `sound:${soundSerial}`;
       if (p.kind === 'buffer') {
         loader.playable(assetId, holder);
         letGo(`decode:${assetId}`);
       } else loader.adopt(`decode:${assetId}`, holder);
-      startOneShot(context, p, assetId, volume, bus === 'ui' ? 'ui' : 'sfx', holder);
+      startOneShot(context!, p, assetId, volume, bus === 'ui' ? 'ui' : 'sfx', holder);
       played[bus === 'ui' ? 'ui' : 'sfx'] += 1;
       return true;
     },
@@ -1375,6 +1508,7 @@ export function createGameAudioOwner(config: GameAudioOwnerConfig = {}): GameAud
         } else gainNode.connect(ensureBuses(ctx).sfx);
       } else gainNode.connect(ensureBuses(ctx).sfx);
       source.start();
+      startedBy.sfx += 1;
       loopVoices.set(key, { assetId, source, gain: gainNode });
     },
 
@@ -1463,6 +1597,10 @@ export function createGameAudioOwner(config: GameAudioOwnerConfig = {}): GameAud
         diagnostics: diagnostics.slice(-3).map((d) => `${d.code}: ${d.message}`),
         late: { started: late.started, dropped: late.dropped, recent: [...late.recent] },
       };
+    },
+
+    report() {
+      return audioReport();
     },
 
     soundsPlayed() {

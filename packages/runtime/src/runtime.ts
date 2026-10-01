@@ -94,6 +94,7 @@ import { GameplayBlocks, MAX_SIGNAL_NAME, type SceneTransitionRequest } from './
 import { EntityAccess, type EntityFieldsSave, type LightOverride } from './entity-access';
 import { MAX_LIVE_SPAWNED, MAX_SPAWNS_PER_STEP, SPAWN_ID_PREFIX, expandPrefab, parseSpawnOptions } from './spawn';
 import { TransformMirror } from './step-buffers';
+import { actionDiagnostics, behaviorLogTotals, physicsDiagnostics } from './diagnostics-reads';
 import {
   validateCharacterMoveResult,
   validateCharacterMoveResult3D,
@@ -3104,8 +3105,11 @@ class RuntimeInstance implements Runtime {
       this.curr = cloneCurr(backup);
       return true;
     }
-    // A 2D-plane plain step runs the generic primitives (patrols walk; no physics world for their probes).
-    if (this.physics3d === undefined && !this.modes.physicsHeld) this.blocks?.stepPrimitivesOnly(stepOrdinal);
+    // Signals, events and messages turn over every step (a 3D step running physics in beforeStep below);
+    // a 2D-plane plain step runs the generic primitives (patrols walk; no physics world for their probes).
+    const held = this.modes.physicsHeld;
+    if (this.physics3d === undefined || held) this.blocks?.turnover(stepOrdinal);
+    if (this.physics3d === undefined && !held) this.blocks?.stepPrimitivesOnly();
     // A respawn places the character (a plain step has no intent phase).
     if (this.physics3d !== undefined && this.pendingRespawn !== null) {
       const [x, y, z] = this.pendingRespawn;
@@ -3121,7 +3125,7 @@ class RuntimeInstance implements Runtime {
         return false;
       }
     }
-    if (this.physics3d !== undefined && !this.modes.physicsHeld) {
+    if (this.physics3d !== undefined && !held) {
       // A 3D game steps its physics in a plain (scene-mode) step
       // too — its character falls and rests under the runtime's 3D phase
       // even without a controller module. The 2D plane's scene mode has no
@@ -3221,9 +3225,11 @@ class RuntimeInstance implements Runtime {
     this.raycastsThisStep = 0;
     // The colliders scripts drive become kinematic bodies before they are first posed.
     if (this.physics3d !== undefined && this.scriptCollidersDirty && !this.syncScriptColliders3D()) return false;
-    // A game mode may hold physics (the controller, physics, movers and triggers stand still).
+    // A game mode may hold physics (the controller, physics, movers and triggers stand still);
+    // signals, trigger events and script messages turn over all the same.
     const held = this.modes.physicsHeld;
-    if (!held) this.blocks?.beforeStep(ordinal);
+    if (held) this.blocks?.turnover(ordinal);
+    else this.blocks?.beforeStep(ordinal);
     this.stepFacing = null;
     // The character's jump action (its controller's jumpAction; frame version 2 has no jump channel).
     const jumpName = this.characterActions.jump;
@@ -5561,42 +5567,6 @@ class RuntimeInstance implements Runtime {
     this.errorCount += 1;
   }
 
-  private actionDiagnostics(): { suspend: number; activate: number; disconnect: number; mappingUnsupported: number } {
-    let d: { suspendCount?: number; activateCount?: number; disconnectCount?: number; mappingUnsupportedCount?: number } = {};
-    if (typeof this.actions.diagnostics === 'function') {
-      try {
-        d = this.actions.diagnostics() ?? {};
-      } catch {
-        d = {};
-      }
-    }
-    const num = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : 0);
-    return {
-      suspend: num(d.suspendCount),
-      activate: num(d.activateCount),
-      disconnect: num(d.disconnectCount),
-      mappingUnsupported: num(d.mappingUnsupportedCount),
-    };
-  }
-
-  private physicsDiagnostics(): { stall: number; penetration: number } {
-    let stall = 0;
-    let penetration = 0;
-    const diag = this.physics ?? this.physics3d;
-    if (diag && typeof diag.diagnostics === 'function') {
-      try {
-        const d = diag.diagnostics() ?? {};
-        if (typeof d.stallSteps === 'number' && Number.isFinite(d.stallSteps)) stall = d.stallSteps;
-        if (typeof d.penetrationCorrectedCount === 'number' && Number.isFinite(d.penetrationCorrectedCount)) {
-          penetration = d.penetrationCorrectedCount;
-        }
-      } catch {
-        /* diagnostics must never break getDiagnostics() */
-      }
-    }
-    return { stall, penetration };
-  }
-
   /**
    * The property values every behavior instance on `entityId`
    * reads (public and private) — read-only, for the Play debug view.
@@ -5629,23 +5599,9 @@ class RuntimeInstance implements Runtime {
     return out;
   }
 
-  /** Cumulative behavior log totals the host instances report. */
+  /** Cumulative behavior log totals the host instances report (kept: they stay readable after dispose). */
   private behaviorLogDiagnostics(): { logCount: number; logDropped: number } {
-    if (this.entries.length === 0) return this.behaviorLogTotals;
-    let logCount = 0;
-    let logDropped = 0;
-    for (const entry of this.entries) {
-      const probe = entry.instance as { behaviorDiagnostics?: () => { logCount?: number; logDropped?: number } };
-      if (typeof probe.behaviorDiagnostics !== 'function') continue;
-      try {
-        const d = probe.behaviorDiagnostics();
-        if (typeof d?.logCount === 'number' && Number.isFinite(d.logCount)) logCount += d.logCount;
-        if (typeof d?.logDropped === 'number' && Number.isFinite(d.logDropped)) logDropped += d.logDropped;
-      } catch {
-        /* diagnostics must never break getDiagnostics() */
-      }
-    }
-    this.behaviorLogTotals = { logCount, logDropped };
+    if (this.entries.length > 0) this.behaviorLogTotals = behaviorLogTotals(this.entries.map((e) => e.instance));
     return this.behaviorLogTotals;
   }
 
@@ -5667,8 +5623,8 @@ class RuntimeInstance implements Runtime {
       errorCount: this.errorCount,
     };
     if (!this.isM2) return base;
-    const actions = this.actionDiagnostics();
-    const physics = this.physicsDiagnostics();
+    const actions = actionDiagnostics(this.actions);
+    const physics = physicsDiagnostics(this.physics ?? this.physics3d);
     const logs = this.behaviorLogDiagnostics();
     const m2: RuntimeDiagnostics = {
       ...base,
@@ -5690,6 +5646,9 @@ class RuntimeInstance implements Runtime {
     // Generic component writes (only once a script used them: every other diagnostics frame keeps its shape).
     const ea = this.entityAccess;
     if (ea.applied + ea.refused + ea.conflicts > 0) m2.entityWrites = { applied: ea.applied, refused: ea.refused, conflicts: ea.conflicts, inactive: ea.inactive().size };
+    // Script messages refused at the per-step limit (only once one was: the warning).
+    const queue = this.blocks?.messageQueueView() ?? null;
+    if (queue !== null) m2.messageQueue = queue;
     if (this.failedModuleId !== undefined) m2.failedModuleId = this.failedModuleId;
     if (this.failedPhase !== undefined) m2.failedPhase = this.failedPhase;
     if (this.failedStepIndex !== undefined) m2.failedStepIndex = this.failedStepIndex;

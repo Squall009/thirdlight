@@ -147,11 +147,12 @@ describe('ctx.messages', () => {
     ]);
   });
 
-  it(`bad names and values are refused; at most ${MAX_MESSAGES_PER_STEP} per step; a new run clears them`, () => {
+  it(`bad names and values are refused; at most ${MAX_MESSAGES_PER_STEP} per step (the refusals are a diagnostics warning); a new run clears them`, () => {
     const results: boolean[] = [];
     let lastStep = 0;
     let receivedAfterReplay = 0;
     let replayed = false;
+    let burstStep = -1;
     const h = harness(
       (ctx) => {
         if (ctx.phase !== 'intent') return;
@@ -162,6 +163,7 @@ describe('ctx.messages', () => {
             results.push(ctx.messages.send(n, v as number, t as string));
           }
           let accepted = 0;
+          burstStep = ctx.stepIndex;
           for (let i = 0; i < MAX_MESSAGES_PER_STEP + 5; i++) if (ctx.messages.send('burst', i)) accepted += 1;
           results.push(accepted === MAX_MESSAGES_PER_STEP);
           // The engine restart (a new run) applies at the next step boundary.
@@ -177,5 +179,19 @@ describe('ctx.messages', () => {
     expect(lastStep).toBeGreaterThan(0);
     h.tick(3);
     expect(receivedAfterReplay).toBe(0);
+    // The five over the limit are counted and named in the diagnostics (a restart keeps them: they are the play's).
+    const d = h.rt.getDiagnostics();
+    if (!d.ok) throw new Error('no diagnostics');
+    expect(d.diagnostics.messageQueue).toMatchObject({ refused: 5, firstRefusedStep: burstStep, lastRefusedStep: burstStep, perStepLimit: MAX_MESSAGES_PER_STEP });
+    expect(d.diagnostics.messageQueue!.warning).toContain(`more than ${MAX_MESSAGES_PER_STEP} sent in one step`);
+  });
+
+  it('no refused send: the diagnostics have no message-queue block', () => {
+    const h = harness((ctx) => {
+      if (ctx.phase === 'intent') ctx.messages.send('ping', 1);
+    }, ['box-a']);
+    h.tick(5);
+    const d = h.rt.getDiagnostics();
+    expect(d.ok && d.diagnostics.messageQueue).toBe(undefined);
   });
 });
