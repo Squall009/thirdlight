@@ -216,7 +216,15 @@ test('several items cut and pasted in one command, one undo brings them back; th
   expect(errors).toEqual([]);
 });
 
-test('a double-click opens each kind of item in its editor; the kind menu writes t:; grid and list', async ({ page }) => {
+/** The default view: Scene and Game in the centre, no editor window, the Inspector docked, the dock's three tabs. */
+async function expectDefaultView(page: Page): Promise<void> {
+  await expect(editorWindow(page)).toHaveCount(0);
+  await expect(page.locator('.tl-tabs--center [role="tab"]')).toHaveText(['Scene', 'Game']);
+  await expect(inspector(page)).toHaveAttribute('data-tl-inspector', 'dock');
+  await expect(page.locator('.tl-dock--bottom > [role=tablist] [role=tab]')).toHaveText([/^Project/, /^Console/, /^Problems/]);
+}
+
+test('a double-click opens each kind of item in its editor, an edit there is saved, Esc returns to the default view; the kind menu writes t:; grid and list', async ({ page }) => {
   test.setTimeout(150_000);
   be = await startBackend('project-window-0003', 'starter');
   const errors: string[] = [];
@@ -232,28 +240,40 @@ test('a double-click opens each kind of item in its editor; the kind menu writes
   await cmd('setAnimator', { controller: { controllerId: 'anim-one', name: 'Animator One', parameters: [], states: [{ id: 'idle', name: 'Idle', motion: { kind: 'clip', clip: { assetId: model, clip: 'idle', duration: 1 } }, speed: 1, loop: true }], transitions: [], entry: 'idle', events: [] } });
   await cmd('publishBehavior', { behaviorId: 'script-one', displayName: 'Script One', mode: 'declaration-create', declaration: { properties: [] } });
   await cmd('setScriptLibrary', { libraryId: 'lib-one', name: 'Library One', files: [{ path: 'src/index.ts', text: 'export const one = 1;\n' }] });
+  await cmd('setUiTheme', { theme: { uiThemeId: 'theme-one', name: 'Theme One', styles: {} } });
   await cmd('createScene', { name: 'Scene Two', sceneId: 'scene-two', folder: 'levels' });
   await cmd('createPrefab', { prefabId: 'prefab-one', displayName: 'Prefab One', sourceEntityId: STARTER.groundId });
   await openAssets(page);
   await treeFolder(page, '').click();
   const search = page.getByLabel('search the project');
-  // Each opens in the editor window (its tab in front); Esc returns to the project window.
-  const opens = async (id: string, kind: string, title: string): Promise<void> => {
+  // Each opens in the editor window (its tab in front); an edit made there (the name, in its header) reaches the
+  // project; Esc returns to the default view. A script's edit is its declaration (editor-window.e2e.ts).
+  const named = async (kind: string, id: string): Promise<string | undefined> =>
+    ((await be.command({ op: 'queryIndex', projectId: be.projectId, args: { kind, ids: [id], refs: false } }))['entries'] as { name: string }[] | undefined)?.[0]?.name;
+  const opens = async (id: string, kind: string, title: string, label?: string): Promise<void> => {
     await search.fill(`t:${kind} ${id}`);
     await itemTile(page, id).dblclick();
     await expect(editorWindow(page).getByRole('tablist', { name: 'open items' }).getByRole('tab', { selected: true }), `${kind} ${id}`).toContainText(title);
+    if (label !== undefined) {
+      const name = editorWindow(page).locator('header.tl-editor-header:visible').getByLabel(`${label} name`, { exact: true });
+      await name.fill(`${title} edited`);
+      await name.press('Enter');
+      await expect.poll(() => named(kind, id), { message: `${kind} ${id} renamed` }).toBe(`${title} edited`);
+      await expect(editorWindow(page).getByRole('tablist', { name: 'open items' }).getByRole('tab', { selected: true })).toContainText(`${title} edited`);
+    }
     await page.keyboard.press('Escape');
-    await expect(editorWindow(page)).toHaveCount(0);
+    await expectDefaultView(page);
   };
-  await opens('mat-one', 'material', 'Mat One');
-  await opens('tl-one', 'timeline', 'Timeline One');
-  await opens('ui-one', 'ui', 'Hud One');
-  await opens('talk-one', 'dialogue', 'Talk One');
-  await opens('fx-one', 'effect', 'Effect One');
-  await opens('fn-one', 'graph', 'Function One');
-  await opens('anim-one', 'animator', 'Animator One');
+  await opens('mat-one', 'material', 'Mat One', 'material');
+  await opens('tl-one', 'timeline', 'Timeline One', 'timeline');
+  await opens('ui-one', 'ui', 'Hud One', 'ui');
+  await opens('theme-one', 'uitheme', 'Theme One', 'ui theme');
+  await opens('talk-one', 'dialogue', 'Talk One', 'dialogue');
+  await opens('fx-one', 'effect', 'Effect One', 'effect');
+  await opens('fn-one', 'graph', 'Function One', 'graph');
+  await opens('anim-one', 'animator', 'Animator One', 'animator');
   await opens('script-one', 'behavior', 'Script One');
-  await opens('lib-one', 'library', 'Library One');
+  await opens('lib-one', 'library', 'Library One', 'library');
   // A scene opens in the Scene view (its header in the Hierarchy); a prefab and a shader material have no editor: the Inspector shows them.
   await search.fill('t:scene scene-two');
   await itemTile(page, 'scene-two').dblclick();

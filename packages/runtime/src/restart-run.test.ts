@@ -11,10 +11,10 @@ import { baseScene, cloneJson, snapshotOf } from './test-helpers';
 
 const DT = 1 / 120;
 
-function plainGame(modules?: string[]): { rt: Runtime; step: (n: number) => void } {
+function plainGame(modules?: string[], actions?: { sample(stepIndex: number): unknown }): { rt: Runtime; step: (n: number) => void } {
   const r = createSimulationRegistry();
   for (const spec of BUILTIN_MODULES) registerSimulationModule(r, spec.id, spec);
-  const res = instantiateRuntime({ snapshot: snapshotOf(cloneJson(baseScene())), registry: r, driver: { kind: 'manual' }, clock: () => 0, ...(modules !== undefined ? { modules } : {}) });
+  const res = instantiateRuntime({ snapshot: snapshotOf(cloneJson(baseScene())), registry: r, driver: { kind: 'manual' }, clock: () => 0, ...(modules !== undefined ? { modules } : {}), ...(actions !== undefined ? { actions } : {}) } as never);
   if (!res.ok) throw new Error(`instantiate failed: ${JSON.stringify((res as { error: RuntimeError }).error)}`);
   const rt = res.runtime;
   rt.start();
@@ -51,6 +51,20 @@ describe('a restart is applied and counted', () => {
       expect(rt.queueUiEvent!(restart).ok).toBe(true);
       step(2);
       expect(rt.runStart!()).toMatchObject({ step: 63, run: 2 });
+      rt.dispose();
+    });
+  }
+});
+
+describe('a game without scripts samples its input source every step', () => {
+  for (const modules of [undefined, []] as const) {
+    it(`so a relayed input exercise counts its frames (${modules === undefined ? 'the built-in demo' : 'no modules'})`, () => {
+      const sampled: number[] = [];
+      const { rt, step } = plainGame(modules === undefined ? undefined : [...modules], { sample: (stepIndex) => (sampled.push(stepIndex), { stepIndex }) });
+      const before = sampled.length;
+      step(30);
+      expect(sampled.length - before).toBe(30);
+      expect(sampled.slice(-3)).toEqual([sampled.at(-3), sampled.at(-3)! + 1, sampled.at(-3)! + 2]);
       rt.dispose();
     });
   }

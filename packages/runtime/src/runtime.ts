@@ -2970,9 +2970,15 @@ class RuntimeInstance implements Runtime {
     this.modes.beginStep(this.stepIndex + 1);
     this.grid.beginStep(this.stepIndex + 1);
     this.materials.beginStep(this.stepIndex + 1);
-    // A plain step samples no input, so what the host queued for the UI (the pause panel's restart, a
-    // relayed replay) is taken here; without it a restart asked of a game without scripts never applied.
-    this.deliverUiEvents(this.uiQueue.length > 0 ? this.uiQueue.splice(0, MAX_FRAME_UI_EVENTS) : undefined, this.stepIndex);
+    // Nothing in a plain step reads actions, but the input source is sampled all the same: what the host
+    // queued for the UI rides on the frame (the pause panel's restart, a relayed replay), and a relayed
+    // input exercise counts its frames by the steps that sample it (without it a game without scripts
+    // never answered one).
+    try {
+      this.sampleAction(this.stepIndex);
+    } catch (e) {
+      this.recordError({ code: 'module_error', message: `input frame refused: ${messageOf(e)}`, stepIndex: this.stepIndex + 1 });
+    }
     // Copy curr before the step; restore it if any module throws
     // (no partial module application). Into the reused step
     // buffer `prev` does not hold (as the M2 step does) — a 3D scene plays on
