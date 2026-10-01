@@ -43,7 +43,7 @@ import {
   textureHolds,
   type TextureHolds,
 } from '@thirdlight/three-adapter';
-import type { BlockChunk, BlockLayerComponent, BlockType } from '@thirdlight/project-model';
+import type { BlockChunk, BlockLayerComponent, BlockType, InstanceBrush, InstanceStroke } from '@thirdlight/project-model';
 import * as THREE from 'three';
 import { type EnvironmentBlendView, type ResourceManager } from '@thirdlight/runtime';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
@@ -55,7 +55,8 @@ import { clampScale, getSnapSettings } from '../session/snapping';
 import type { DescriptorRegistry } from '@thirdlight/project-model';
 import { HelperOverlay } from './helper-overlay';
 import { commitValue, type HandleShape } from '../session/handles';
-import { BRUSH_SPACING_M, copyAt, type CopyTransform } from '../session/instance-copies';
+import { copyAt, type CopyTransform } from '../session/instance-copies';
+import { BrushBlockSurfaces, InstanceBrushTool, type InstanceBrushMode } from './instance-brush';
 import { fitSprite, iconKindFor, iconTableOf, makeIconSprite, setSpriteSelected, type IconKind, type IconTable } from './icons';
 import { materialOverridesOf, type ModelInstances } from './model-instances';
 import { planSync, removedIds, helperRelevant } from './sync-plan';
@@ -83,8 +84,8 @@ export interface ViewportCallbacks {
   onCopyPick?: (entityId: string, index: number | null) => void;
   /** The selected copy was moved, turned or scaled with the gizmo (its new local transform). */
   onCopyTransform?: (entityId: string, index: number, t: CopyTransform) => void;
-  /** A brush stroke on the selected instance set — new copies at these points (the set's local space). */
-  onBrushStroke?: (entityId: string, points: [number, number, number][]) => void;
+  /** An instance-brush stroke on the selected set (one `paintInstances`); resolves true when stored. */
+  onBrushStroke?: (entityId: string, stroke: InstanceStroke) => Promise<boolean>;
   /** The Scene view's renderer changed state (initialising, ready, lost, replaced). */
   onRendererChange?: (info: RendererInfo) => void;
 }
@@ -184,6 +185,11 @@ export class Viewport {
   private highlightedId: string | null = null;
   /** Armed block tools own the left button: the selection (the layer they edit) gets no gizmo meanwhile. */
   private blockToolsArmed = false;
+  /** The instance brush and the block layers it paints on. */
+  private readonly brushSurfaces = new BrushBlockSurfaces();
+  private readonly instanceBrush: InstanceBrushTool;
+  /** The left button went down on a brush stroke (its release ends it, even one the brush gave up). */
+  private brushPressed = false;
   /** When animated materials started (their clock). */
   private readonly clockStart = performance.now();
 
@@ -209,6 +215,19 @@ export class Viewport {
     this.scene.add(this.ground);
     this.grid = new THREE.GridHelper(GROUND_SIZE, GROUND_SIZE, 0x333844, 0x23262f);
     this.scene.add(this.grid);
+    this.instanceBrush = new InstanceBrushTool(
+      {
+        scene: this.scene,
+        camera: this.camera,
+        canvas: canvas,
+        requestRender: () => this.requestRender(),
+        colliders: (exceptId) => this.colliderObjects(exceptId),
+        blockRoot: () => this.blockView?.root ?? null,
+        blockLayers: () => this.brushSurfaces.layers(),
+        refused: (message) => this.cb.onHandleRefused?.(message),
+      },
+      (entityId, stroke) => this.cb.onBrushStroke?.(entityId, stroke) ?? Promise.resolve(false),
+    );
 
     this.lights = new SceneLighting({
       scene: this.scene,
@@ -345,6 +364,7 @@ export class Viewport {
    */
   setBlockLayers(types: readonly BlockType[], layers: ReadonlyMap<string, { component: BlockLayerComponent; chunks: ReadonlyMap<string, BlockChunk>; origin: readonly number[]; hidden?: boolean }>, revision: number): void {
     const view = this.ensureBlockView();
+    this.brushSurfaces.update(types, layers, revision);
     if (revision !== this.blockRevision) {
       this.blockRevision = revision;
       view.setTypes(types);
@@ -856,7 +876,7 @@ export class Viewport {
       const animated = lib !== null && lib.animated();
       if (animated) lib!.tick((performance.now() - this.clockStart) / 1000);
       // While the block tools are on, the view-projection matrix (tests map cells to the screen).
-      if (this.blockEditorInst?.isActive() === true) {
+      if (this.blockEditorInst?.isActive() === true || this.instanceBrush.active(this.selectedId)) {
         this.camera.updateMatrixWorld();
         const vp = new THREE.Matrix4().multiplyMatrices(this.camera.projectionMatrix, this.camera.matrixWorldInverse);
         this.root.setAttribute('data-view-proj', JSON.stringify(vp.elements.map((v) => Math.round(v * 1e6) / 1e6)));
@@ -1004,9 +1024,8 @@ export class Viewport {
       this.render();
       return true;
     }
-    if (this.brushStroke !== null) {
+    if (this.instanceBrush.cancel()) {
       this.orbit.enabled = true;
-      this.endBrush(true);
       return true;
     }
     if (!this.draggingGizmo || this.gizmoCancelled) return false;
@@ -1390,7 +1409,7 @@ export class Viewport {
     this.syncCopyProxy();
     // No gizmo on a folder (no transform) or a locked entity.
     const movable = id !== null && !this.folderIds.has(id) && this.hierarchyFlags.get(id)?.locked !== true;
-    const target = this.blockToolsArmed ? null : this.copySel !== null && this.copyProxy.parent !== null ? this.copyProxy : id && movable ? this.targetFor(id) : null;
+    const target = this.blockToolsArmed || this.instanceBrush.active(id) ? null : this.copySel !== null && this.copyProxy.parent !== null ? this.copyProxy : id && movable ? this.targetFor(id) : null;
     if (id && target) {
       if (this.gizmo.object !== target) this.gizmo.attach(target);
       this.gizmo.setMode(mode);
@@ -1540,6 +1559,7 @@ export class Viewport {
     this.root.addEventListener('pointermove', this.onPointerMove, { capture: true });
     this.root.addEventListener('pointerup', this.onPointerUp, { capture: true });
     this.root.addEventListener('contextmenu', this.onContextMenu);
+    this.root.addEventListener('pointerleave', this.onPointerLeave);
   }
 
   private unbindCanvasEvents(): void {
@@ -1547,16 +1567,16 @@ export class Viewport {
     this.root.removeEventListener('pointermove', this.onPointerMove, { capture: true });
     this.root.removeEventListener('pointerup', this.onPointerUp, { capture: true });
     this.root.removeEventListener('contextmenu', this.onContextMenu);
+    this.root.removeEventListener('pointerleave', this.onPointerLeave);
   }
+
+  private onPointerLeave = (): void => this.instanceBrush.leave();
 
   private onContextMenu = (e: Event): void => e.preventDefault();
   private onWindowResize = (): void => this.resize();
 
   /** A handle drag is in flight (the overlay holds the previewed shape). */
   private handleDragging = false;
-
-  /** An in-flight brush stroke on an instance set (world points, their preview dots). */
-  private brushStroke: { entityId: string; points: THREE.Vector3[]; dots: THREE.Group } | null = null;
 
   private onPointerDown = (e: PointerEvent): void => {
     this.downAt = { x: e.clientX, y: e.clientY };
@@ -1588,56 +1608,16 @@ export class Viewport {
       this.requestRender();
       return;
     }
-    // The brush paints copies onto the selected instance set (not while the gizmo is under the pointer).
-    if (this.brush !== null && this.brush === this.selectedId && this.gizmo.axis === null) {
+    // The instance brush paints or erases on the selected set (not while the gizmo is under the pointer).
+    if (this.instanceBrush.active(this.selectedId) && !e.altKey && this.gizmo.axis === null && this.instanceBrush.begin(e.clientX, e.clientY)) {
       e.stopImmediatePropagation();
-      const dots = new THREE.Group();
-      this.scene.add(dots);
-      this.brushStroke = { entityId: this.brush, points: [], dots };
+      this.brushPressed = true;
+      this.downAt = null;
       this.orbit.enabled = false;
       this.root.setPointerCapture(e.pointerId);
-      this.brushAt(e.clientX, e.clientY);
       return;
     }
   };
-
-  /** Add a brush point (the surface under the pointer), at least the brush spacing from the others. */
-  private brushAt(clientX: number, clientY: number): void {
-    const s = this.brushStroke;
-    if (s === null) return;
-    const [x, y, z] = this.dropPoint(clientX, clientY);
-    const p = new THREE.Vector3(x, y, z);
-    if (s.points.some((q) => q.distanceTo(p) < BRUSH_SPACING_M)) return;
-    s.points.push(p);
-    const dot = new THREE.Mesh(new THREE.SphereGeometry(0.12, 10, 8), new THREE.MeshBasicMaterial({ color: 0x7fe0a0, depthTest: false }));
-    dot.position.copy(p);
-    dot.renderOrder = 12;
-    s.dots.add(dot);
-    this.requestRender();
-  }
-
-  private endBrush(cancel: boolean): void {
-    const s = this.brushStroke;
-    this.brushStroke = null;
-    if (s === null) return;
-    s.dots.removeFromParent();
-    s.dots.traverse((o) => {
-      const m = o as THREE.Mesh;
-      if (m.isMesh === true) {
-        m.geometry.dispose();
-        (m.material as THREE.Material).dispose();
-      }
-    });
-    this.requestRender();
-    const node = this.meshes.get(s.entityId);
-    if (cancel || node === undefined || s.points.length === 0) return;
-    node.updateWorldMatrix(true, false);
-    const round = (v: number): number => Math.round(v * 1000) / 1000;
-    this.cb.onBrushStroke?.(s.entityId, s.points.map((p) => {
-      const l = node.worldToLocal(p.clone());
-      return [round(l.x), round(l.y), round(l.z)] as [number, number, number];
-    }));
-  }
 
   /** Store a handle shape (one setComponent), or say why it cannot be stored. */
   private commitHandle(shape: HandleShape): void {
@@ -1661,10 +1641,12 @@ export class Viewport {
       this.requestRender();
       return;
     }
-    if (this.brushStroke !== null) {
-      e.stopImmediatePropagation();
-      this.brushAt(e.clientX, e.clientY);
-      return;
+    if (this.instanceBrush.active(this.selectedId)) {
+      this.instanceBrush.move(e.clientX, e.clientY);
+      if (this.instanceBrush.stroking()) {
+        e.stopImmediatePropagation();
+        return;
+      }
     }
     if (this.draggingGizmo) this.applySnapping();
   };
@@ -1686,10 +1668,11 @@ export class Viewport {
       if (shape !== null) this.commitHandle(shape);
       return;
     }
-    if (this.brushStroke !== null) {
+    if (this.brushPressed) {
       e.stopImmediatePropagation();
+      this.brushPressed = false;
       this.orbit.enabled = true;
-      this.endBrush(false);
+      this.instanceBrush.end(e.clientX, e.clientY);
       return;
     }
     // A left click (no drag, not on a gizmo handle) picks or deselects.
@@ -1712,7 +1695,6 @@ export class Viewport {
   private gameAspect = DEFAULT_GAME_ASPECT;
   /** Which component shows which icon (from the descriptors). */
   private iconTable: IconTable = [];
-  private brush: string | null = null;
   private copySel: { entityId: string; index: number } | null = null;
   private readonly copyProxy = new THREE.Object3D();
   private copyHighlight: THREE.Box3Helper | null = null;
@@ -1745,11 +1727,29 @@ export class Viewport {
     this.requestRender();
   }
 
-  /** The brush paints copies onto this instance set (null: off). */
-  setBrush(entityId: string | null): void {
-    this.brush = entityId;
-    if (entityId === null && this.brushStroke !== null) this.endBrush(true);
-    this.root.setAttribute('data-brush', entityId ?? '');
+  /** The instance brush paints or erases on this set (null: off); the gizmo stands aside while it is on. */
+  setInstanceBrush(entityId: string | null, mode: InstanceBrushMode, brush: InstanceBrush): void {
+    this.instanceBrush.set(entityId, mode, brush);
+    this.orbit.enabled = true;
+    this.setSelected(this.selectedId);
+  }
+
+  /** Every instance-brush stroke sent so far has been answered. */
+  instanceStrokesSettled(): Promise<unknown> {
+    return this.instanceBrush.settled();
+  }
+
+  /** The drawn objects that collide (shown and switched on; instance sets and `exceptId` left out): what the brush paints on besides block layers. */
+  private colliderObjects(exceptId: string): THREE.Object3D[] {
+    const out: THREE.Object3D[] = [];
+    for (const e of this.projected) {
+      if (e.collider === undefined || e.instances !== undefined || e.id === exceptId || this.hierarchyFlags.get(e.id)?.active === false) continue;
+      const m = this.meshes.get(e.id);
+      if (m !== undefined && m.visible) out.push(m);
+      const holder = this.models?.instanceFor(e.id);
+      if (holder) out.push(holder);
+    }
+    return out;
   }
 
   /** Select one copy of the selected instance set (null: the whole set). */
@@ -1970,6 +1970,7 @@ export class Viewport {
     this.gizmo.dispose();
     disposeOrbitControls(this.orbit);
     this.disposeMesh(this.ground);
+    this.instanceBrush.dispose();
     this.rendererHandle.dispose();
     this.batcher.dispose();
     this.unitBox.dispose();

@@ -187,7 +187,9 @@ export type V3MutationOp =
   // The project window: files and folders moved, a folder renamed or made (one undo each)
   | 'moveResources'
   | 'renameFolder'
-  | 'createFolder';
+  | 'createFolder'
+  // An instance set painted or erased with the brush (one stroke, one undo)
+  | 'paintInstances';
 
 /** Every implemented mutation op. */
 export type MutationOp = M1MutationOp | ContentMutationOp | PrefabMutationOp | V3MutationOp;
@@ -1417,6 +1419,8 @@ export interface CommandState<S extends SceneDocument = SceneDocument> {
   preparedResourceImport?: PreparedResourceImport;
   /** The host's prepared file and folder moves (`moveResources`, `renameFolder`, `createFolder` read only these). */
   preparedMoves?: PreparedMoves;
+  /** The host's planned and published stroke (`paintInstances` reads only this). */
+  preparedInstanceStroke?: import('./instance-stroke-ops').PreparedInstanceStroke;
   /** The looks of the scenes a scene-index op names besides the edited one (a deleted scene, the scene a new one copies). */
   sceneEnvironments?: ReadonlyMap<string, SceneEnvironment>;
 }

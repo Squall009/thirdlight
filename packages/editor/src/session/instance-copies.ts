@@ -11,8 +11,6 @@
  */
 
 export const INSTANCE_FLOATS = 10;
-/** The brush spaces painted copies at least this far apart (m): about one prop's footprint, for any genre. */
-export const BRUSH_SPACING_M = 1;
 
 export interface CopyTransform {
   position: [number, number, number];
@@ -50,23 +48,5 @@ export function withoutCopy(floats: Float32Array, index: number): Float32Array |
   const out = new Float32Array((n - 1) * INSTANCE_FLOATS);
   out.set(floats.subarray(0, index * INSTANCE_FLOATS), 0);
   out.set(floats.subarray((index + 1) * INSTANCE_FLOATS, n * INSTANCE_FLOATS), index * INSTANCE_FLOATS);
-  return out;
-}
-
-/** The buffer with copies appended (at local positions, upright, at `scale`). */
-export function withAddedCopies(floats: Float32Array, positions: readonly [number, number, number][], scale = 1): Float32Array {
-  const n = copyCount(floats);
-  const out = new Float32Array((n + positions.length) * INSTANCE_FLOATS);
-  out.set(floats.subarray(0, n * INSTANCE_FLOATS), 0);
-  positions.forEach((p, i) => write(out, n + i, { position: [p[0], p[1], p[2]], rotation: [0, 0, 0, 1], scale: [scale, scale, scale] }));
-  return out;
-}
-
-/** The brush stroke's points, at least `spacing` apart (the first always kept). */
-export function spacedPoints(points: readonly [number, number, number][], spacing = BRUSH_SPACING_M): [number, number, number][] {
-  const out: [number, number, number][] = [];
-  for (const p of points) {
-    if (out.every((q) => Math.hypot(p[0] - q[0], p[1] - q[1], p[2] - q[2]) >= spacing)) out.push(p);
-  }
   return out;
 }

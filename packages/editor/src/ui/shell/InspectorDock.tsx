@@ -8,7 +8,7 @@
  * (EntityInspector, a block layer's tools included), and the running Play's
  * script values for it.
  */
-import type { JSX, Dispatch, SetStateAction } from 'react';
+import type { JSX } from 'react';
 import type { ProjectedEntity } from '../../session/projection';
 import { effectiveFlagsOf } from '../../session/hierarchy';
 import { addEntries } from '../../session/descriptor-fields';
@@ -29,6 +29,7 @@ import { SURFACE_PRESET_NAMES, type SurfacePresetName } from '../../session/medi
 import type { GizmoMode } from '../../viewport/viewport';
 import type { TileThumbnails } from '../../viewport/thumbnails';
 import { BlocksPanel } from '../BlocksPanel';
+import { InstanceBrushPanel, type useInstanceBrush } from '../instances/InstanceBrush';
 import { ItemInspector } from '../project/ItemInspector';
 import type { ItemActions } from '../project/useItemActions';
 import type { ProjectItem } from '../../session/project-items';
@@ -74,8 +75,7 @@ export interface InspectorDockProps {
   instanceChunks: Record<string, number>;
   selectedCopy: number | null;
   setSelectedCopy: (index: number | null) => void;
-  brushOn: boolean;
-  setBrushOn: Dispatch<SetStateAction<boolean>>;
+  instanceBrush: ReturnType<typeof useInstanceBrush>;
   reportFailure: ReportFailure;
   setNotice: SetNotice;
   /** An item chosen in the project window after the last selection (shown instead of the selection). */
@@ -270,7 +270,7 @@ export function InspectorDock(props: InspectorDockProps): JSX.Element {
 
 /** The Inspector of the selected object (several selected: the primary one). */
 function EntityInspector(props: InspectorDockProps): JSX.Element {
-  const { clientRef, viewportRef, entities, selected, selection, hierarchyFlags, fieldContext, gizmoMode, setGizmoMode, instanceChunks, selectedCopy, setSelectedCopy, brushOn, setBrushOn, reportFailure, setNotice } = props;
+  const { clientRef, viewportRef, entities, selected, selection, hierarchyFlags, fieldContext, gizmoMode, setGizmoMode, instanceChunks, selectedCopy, setSelectedCopy, instanceBrush, reportFailure, setNotice } = props;
   const { declarations, materials, prefabSummaries, registry } = props.content;
   const { settings, tags } = props.settings;
   const { addComponentTo, applyPreset, colliderFromModel, colliderFromModel3D, componentError, editComponent, editProperty, fitCapsuleToModel, propertyError, selectedSourceMaterials, setEntityMaterialParams, setEntityMaterials } = props.entity;
@@ -434,9 +434,7 @@ function EntityInspector(props: InspectorDockProps): JSX.Element {
                       </div>
                     </>
                   )}
-                  <button className="tl-btn" aria-pressed={brushOn} title="Click or drag in the Scene view to add copies (at least 1 m apart); each stroke is one undo step" onClick={() => setBrushOn((v) => !v)}>
-                    {brushOn ? 'Brush: on' : 'Brush: add copies'}
-                  </button>
+                  <InstanceBrushPanel {...instanceBrush} />
                 </div>
               ),
               // A collider from the model's outline; how to edit a polygon in the Scene view.

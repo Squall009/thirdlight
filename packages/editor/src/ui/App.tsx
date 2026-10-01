@@ -79,6 +79,7 @@ import { useAnimatorTools } from './shell/useAnimatorTools';
 import { editorMenus, hierarchyContextMenu } from './shell/menus';
 import { BottomDock } from './shell/BottomDock';
 import { InspectorDock } from './shell/InspectorDock';
+import { useInstanceBrush } from './instances/InstanceBrush';
 import type { BottomTab } from './shell/dock-tabs';
 import { TOOL_WINDOWS, useToolWindows, type ToolWindowId } from './tools/tool-windows';
 import { defaultToolPlace, SceneToolWindows } from './tools/SceneToolWindows';
@@ -185,9 +186,9 @@ function EditorApp(): JSX.Element {
   const environmentKeyRef = useRef('');
   const lightingKeyRef = useRef('');
   const loadTextureRef = useRef<((assetId: string) => Promise<THREE.Texture | null>) | null>(null);
-  /** The selected copy of the selected instance set, and the copy brush. */
+  /** The selected copy of the selected instance set, and the instance brush. */
   const [selectedCopy, setSelectedCopy] = useState<number | null>(null);
-  const [brushOn, setBrushOn] = useState(false);
+  const instanceBrush = useInstanceBrush(selectedId);
   // The Scene view's helpers (Gizmos menu).
   const [gizmos, setGizmos] = useState({ icons: true, lights: true, colliders: true, gameplay: true });
   useEffect(() => viewportRef.current?.setGizmos(gizmos), [gizmos]);
@@ -385,7 +386,7 @@ function EditorApp(): JSX.Element {
         setSelectedCopy(index);
       },
       onCopyTransform: (entityId, index, t) => void editCopiesRef.current.transform(entityId, index, t),
-      onBrushStroke: (entityId, points) => void editCopiesRef.current.add(entityId, points),
+      onBrushStroke: (entityId, stroke) => editCopiesRef.current.paint(entityId, stroke),
       onRendererChange: (info) => setSceneRenderer(info),
     }, { snapping: () => snappingRef.current && !shiftRef.current, renderer: initialRenderer });
     setSceneRenderer(viewport.rendererInfo());
@@ -519,14 +520,13 @@ function EditorApp(): JSX.Element {
   useEffect(() => {
     viewportRef.current?.setSelected(selectedId, gizmoMode);
   }, [selectedId, gizmoMode]);
-  // Another selection drops the selected copy and the brush.
+  // Another selection drops the selected copy (and the brush's mode, in its hook).
   useEffect(() => {
     setSelectedCopy(null);
-    setBrushOn(false);
   }, [selectedId]);
   useEffect(() => {
-    viewportRef.current?.setBrush(brushOn ? selectedId : null);
-  }, [brushOn, selectedId]);
+    viewportRef.current?.setInstanceBrush(instanceBrush.mode !== 'off' ? selectedId : null, instanceBrush.mode === 'erase' ? 'erase' : 'paint', instanceBrush.brush);
+  }, [instanceBrush.mode, instanceBrush.brush, selectedId]);
   // The descriptors drive the Scene-view handles.
   useEffect(() => {
     viewportRef.current?.setDescriptors(registry);
@@ -916,8 +916,7 @@ function EditorApp(): JSX.Element {
       instanceChunks={instanceChunks}
       selectedCopy={selectedCopy}
       setSelectedCopy={setSelectedCopy}
-      brushOn={brushOn}
-      setBrushOn={setBrushOn}
+      instanceBrush={instanceBrush}
       reportFailure={reportFailure}
       setNotice={setNotice}
       inspectedItem={inspectedItem}

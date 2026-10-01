@@ -311,6 +311,7 @@ moves at least as many lines out as it adds.
 | 27.16 | done 2026-10-01: one icon registry for every kind and every editor toolbar action, the art generated with the Studio in the phase-9 style and shipped as small WebPs (47 files, 105.7 KiB); `editor.css` spacing, type, radius and icon tokens; every item editor has a header (picture, name renamed in place, kind, folder), a toolbar of picture buttons and, while empty, an empty state with its first actions; graph nodes are coloured by category family; the timeline fills its window (D112); e2e `editor-chrome` (headers, toolbars, empty states acting, node header pixels, project-window pictures); before/after screenshots for the owner; look: owner look pending |
 | 27.17 | done 2026-10-01 (before 27.18/27.19; the full gate is the main session's): D108 (an editor command after MCP edits waits for the change feed and is sent again), D109 (a late selection after the window closed is dropped), D111 (a screenshot waits for the first frame) fixed and their test syncs removed; D113 found and fixed (input exercises on a game without scripts); acceptance mapped to its specs in the decision log, new: every kind edited from its window back to the default view (`project-window`), a v5 project in the editor with matching replays (`project-upgrade`); a material, an effect and a timeline built through the UI only (`by-hand`, driven by a test; the owner's own try pending); `docs/deployment.md` (what you can do now, stale dock and tab wording) and the MCP descriptions updated |
 | 27.18 | done 2026-10-01: a block layer's **Smoothing angle** (`smoothAngle`, degrees 0–180, Inspector and MCP; 0/absent = flat-shaded tops as before) averages the normals of tops meeting at the same height across cells and chunk edges (one ring of columns around the chunk is read; a corner cell re-meshes the diagonal chunk too), keeps edges sharper than the angle hard and never mixes walls in; **Top subdivision** (`topSubdivision` 2) draws sloped tops cut 2 × 2 with the inner heights blended from the corners; colliders and surface queries unchanged; a baked layer goes stale when either changes; e2e `smooth-tops` (Scene view, Play, export; pixels on auto, WebGL 2 and the webgpu project), unit `block-smooth`; default pictures before/after identical (0 differing pixels); mesher bench below the decision log entry |
+| 27.19 | done 2026-10-01: an instance set's Inspector has the **instance brush** (Paint / Erase; radius, density per m², spacing, scale min/max, rotation, align to the surface normal, seed; kept per browser); a drag in the Scene view paints copies onto block layers (their colliders' shape) and objects with a collider (their drawn shape), straight down within two radii of the stroke, or erases them; one stroke = one `paintInstances` command and one undo, MCP the same op (without a surface the backend drops onto the scene's block layers); places from the seed (the same stroke gives the same copies, repainting adds none); the stroke's payload bounded once (`INSTANCE_BRUSH_LIMITS`: 256 dabs, 1,536 places), no count of the set's own; copies keep the set's chunking; e2e `instance-brush` (paint, undo, redo, the same stroke over MCP gives the same buffer, reload, erase, a model's cap, pixels in the Scene view and Play; MCP without surface, erase, undo, refusal), units; bench below the decision log entry |
 
 ## 6. Decision log
 
@@ -844,6 +845,43 @@ moves at least as many lines out as it adds.
   subdivided 2 × 2 + smoothed 1,655 ms (+80 %; 79,136 triangles instead of
   46,300). Per 16 × 16 chunk: ~55 ms flat, ~70 ms smoothed, ~100 ms
   subdivided on this host (a stroke re-meshes 1–4 chunks).
+- 2026-10-01 (27.19): **instance brush.** One op, `paintInstances {entityId,
+  mode: paint|erase, dabs, brush, surface?}`, run in the backend that owns the
+  state: the workspace reads the set's buffer, the command package plans the
+  stroke (pure), the new buffer is published and stored as a `setComponent
+  instances` change, so undo points back to the old buffer and a conflicting
+  edit is rebased like any partial edit. Where copies may go does not depend
+  on the dabs' overlap or order: world XZ is cut into cells of 1/density m²
+  with one point each, jittered by a hash of the seed and the cell (integer
+  arithmetic), and a stroke takes the points inside its dabs; so the same
+  stroke gives the same copies and repainting with the same seed adds none
+  (Unity's detail painting fills to a density in the same way; Godot has no
+  built-in instance painter). Surfaces: copies drop straight down (as
+  Unity's terrain detail and tree brushes do), within two radii
+  (`INSTANCE_BRUSH_REACH`) above and below their dab; the editor finds the
+  surface under every place (block layers through the colliders' surface
+  query, objects with a collider through their drawn shape: the Scene view
+  has no physics world) and sends it with the stroke; a caller without a
+  view (MCP) gets the scene's block layers, the only colliders the backend
+  can query without the models' geometry. Erase takes copies within the
+  radius across and the reach up and down. Spacing is measured across the
+  ground, against the set's copies and the new ones. One stroke carries up
+  to 256 dabs and 1,536 places (`INSTANCE_BRUSH_LIMITS`, the worst case with
+  millimetre numbers is under the 64 KiB command, a unit test checks it); a
+  longer drag in the editor goes on as the next stroke (each one undo). The
+  set keeps the model's 65,536-copy bound (phase 26's limits audit kept it:
+  one buffer and one draw set); the brush adds no count of its own. The old
+  click brush (upright copies 1 m apart, built in the editor and stored with
+  `setComponent`) is replaced; single-copy editing stays.
+- 2026-10-01 (27.19) — brush bench (`node tools/perf/run.mjs scale --preset
+  full --steps open,commands,brush`, new step `brush`): a 128 × 128 block
+  layer and a 50,000-copy set in the full-size project; strokes of 1,505
+  places (~1,000 copies added each) with the editor's surface 161 ms p50
+  (183 max) per command round trip, without a surface (the backend's
+  block-layer drop) 150 ms, erase 104 ms, undo 136 ms, redo 143 ms; the
+  scene edit in the same run 31 ms p50; backend 437 MiB resident after.
+  In the editor (e2e, a small set): its surface pass 1–2 ms for 54 places,
+  the command 20 ms.
 - 2026-10-01 (27.17) — which test proves each "done when" line:
   - 27.1 screenshots: `screenshot.e2e.ts` ("a large, noisy scene's
     screenshot comes back whole over HTTP and MCP", per renderer; "a capture
@@ -904,4 +942,14 @@ moves at least as many lines out as it adds.
     both sides of chunk edges and corners, walls and cliffs left out,
     crease kept, subdivided surface, collision unchanged, the default mesh
     byte for byte as before).
-  - 27.19: not done yet. `tools/gate.sh full`: the main session's.
+  - 27.19 instance brush ("an instance set is painted and erased with a
+    brush on terrain, one undo per stroke"): `instance-brush.e2e.ts` (a
+    stroke on a block-layer top and on a model's cap: one paintInstances,
+    copies on the surface inside the stroke with the brush's scale and
+    spacing; one undo, one redo; the same stroke over MCP gives the same
+    buffer and repainting adds none; a reload; erase and its undo; the
+    copies in the Scene view's and Play's pixels; the set's chunks; over MCP
+    without a surface onto the block layer, erase, undo, a stroke too large
+    refused), `packages/project-model/src/instance-brush.test.ts`,
+    `packages/commands/src/instance-stroke-ops.test.ts`.
+  - `tools/gate.sh full`: the main session's.

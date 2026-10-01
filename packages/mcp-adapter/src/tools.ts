@@ -67,6 +67,8 @@ import {
   SAVE_LIMITS,
   SCRIPT_LIBRARY_LIMITS,
   SCULPT_LIMITS,
+  INSTANCE_BRUSH_LIMITS,
+  INSTANCE_BRUSH_REACH,
   TEXTURE_BUDGET_DEFAULT_MB,
   TEXTURE_BUDGET_MAX_MB,
   TEXTURE_BUDGET_MIN_MB,
@@ -206,7 +208,15 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       'a scene it creates is written as <folder>/<sceneId>.scene.json, a resource as <folder>/<id>.<kind>.json; a record the op only changes stays where its file is. ' +
       'Without folder a scene goes to scenes/ in the project folder and a resource to assets/<kind>/. Scenes and resources are found by their id wherever they are. ' +
       'one command edits one scene and entity ids are unique across scenes. An instance set is ' +
-      'setComponent "instances" {asset:{assetId, piece?}, buffer:<sha256 of a staged buffer>, count}. Models: createEntity kind "model" ' +
+      'setComponent "instances" {asset:{assetId, piece?}, buffer:<sha256 of a staged buffer>, count}. ' +
+      'paintInstances {entityId, mode: paint|erase, dabs: [[x, y, z] world points of the stroke, ' + `1-${INSTANCE_BRUSH_LIMITS.dabs}], ` +
+      'brush: {radius (m), density (copies per m2), spacing (m, the least distance between copies across the ground), scale: [min, max], yaw (random turn 0-yaw degrees), ' +
+      'align (0 upright - 1 along the surface normal), seed (whole number)}, surface?} is the editor\'s instance brush: one stroke, one command, one undo. ' +
+      'Places come from the seed (a jittered grid of 1/density m2 cells in world XZ, the points inside any dab), so the same stroke gives the same copies and painting it again adds none; ' +
+      `each drops straight down onto the surface within ${INSTANCE_BRUSH_REACH} radii above and below its dab: without surface onto the scene's block layers (other places get no copy); ` +
+      `surface (the editor sends it: per candidate in that order [y, nx, nz] or null, up to ${INSTANCE_BRUSH_LIMITS.samples}) names the surface itself. ` +
+      `erase removes the copies within the radius across and ${INSTANCE_BRUSH_REACH} radii up and down of any dab (a set keeps one copy). ` +
+      'The copies stay in the set\'s chunks. Models: createEntity kind "model" ' +
       'takes model {asset:{assetId}, piece?} — piece names one piece of a multi-piece GLB (the base name of its <piece>_LOD0..n / ' +
       '<piece>_COL nodes, or a top-level node); LOD nodes switch by screen size and _COL nodes are never drawn. A folder create ' +
       'may carry children: [createEntity args without parentId] (up to 256, one undo). createEntity also takes active, visible, locked, static (booleans) ' +
@@ -675,7 +685,7 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       '{asset:{assetId}, buffer:digest, count}}} or setComponent "instances". Publishing changes no project state. ' +
       'Give digest instead (an instance set\'s buffer) to READ its copies ({digest, count, transforms}; sets of up to ' +
       `${INSTANCE_BUFFER_INLINE_MAX} copies) - to move, turn, scale, delete or add single copies, edit that list, publish it and setComponent "instances" ` +
-      '{buffer, count} (one undo step; the editor\'s copy editing and brush do exactly this).',
+      '{buffer, count} (one undo step; the editor\'s copy editing does exactly this; to paint or erase many copies on a surface use tl_command paintInstances).',
     inputSchema: {
       type: 'object',
       properties: {

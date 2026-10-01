@@ -1020,6 +1020,28 @@ export { SCULPT_LIMITS, SCULPT_OPS, columnHeights, sculptHeights, setColumnSurfa
 export { BRUSH_FALLOFFS, PAINT_BRUSH_LIMITS, brushFalloff, paintBrushError, paintPoint, type BrushFalloff, type PaintBrush, type PaintLayout } from './paint-brush';
 export { BLOCK_PAINT_LAYOUT, PAINT_BYTES, PAINT_CHANNELS, PAINT_CHUNK_SIZE, PAINT_VERTICES, PAINT_WETNESS_CHANNEL, chunkPaintColors, chunkPaintError, chunksOfVertex, decodeChunkPaint, encodeChunkPaint, isUnpainted, paintDab, paintOffset, unpaintedChunk, type PaintSurface } from './block-paint';
 export { chunkLightmapLayout, type ChunkLightmapLayout } from './block-lightmap';
+// The instance brush (paint and erase copies of an instance set on a surface).
+export {
+  INSTANCE_BRUSH_DEFAULTS,
+  INSTANCE_BRUSH_LIMITS,
+  INSTANCE_BRUSH_REACH,
+  StrokeCandidates,
+  applyInstanceStroke,
+  candidateDrop,
+  dropOntoBlockLayers,
+  instanceStrokeError,
+  strokeCandidates,
+  type BrushBlockLayer,
+  type BrushVec3,
+  type InstanceBrush,
+  type InstanceSetSpace,
+  type InstanceStroke,
+  type InstanceStrokeMode,
+  type InstanceStrokeResult,
+  type StrokeCandidate,
+  type StrokeSurfaceDrop,
+  type StrokeSurfaceSample,
+} from './instance-brush';
 export {
   FLAT_CORNERS,
   blockTopAt,

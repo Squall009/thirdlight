@@ -8,7 +8,7 @@
  * delete, a concave shape refused), colliders from the model's outline, a
  * spawn's yaw, the camera's real frustum, an animator's starting
  * parameter values, and single copies of an instance set (select, delete,
- * move with the gizmo, brush) — each one undo step.
+ * move with the gizmo; the brush is instance-brush.e2e.ts) — each one undo step.
  */
 import { expect, test, type Page } from '@playwright/test';
 
@@ -312,7 +312,7 @@ test('a spawn\'s yaw, the camera\'s real frustum, an animator\'s starting parame
   await expect.poll(async () => JSON.stringify((await comp('model-0001', 'animator'))!['parameters'])).toMatch(/"grounded":(true|false)/);
 });
 
-test('instance copies: select one copy, delete it, move it with the gizmo, brush new ones — each one undo step', async ({ page }) => {
+test('instance copies: select one copy, delete it, move it with the gizmo — each one undo step', async ({ page }) => {
   test.setTimeout(240_000);
   // Three pillars 3 m apart behind the level, published through the buffer route MCP uses.
   const transforms = [-3, 0, 3].flatMap((x) => [x, 0, 0, 0, 0, 0, 1, 0.3, 0.3, 0.3]);
@@ -363,14 +363,4 @@ test('instance copies: select one copy, delete it, move it with the gizmo, brush
   expect(moved.slice(1)).toEqual([[0, 0, 0], [3, 0, 0]]);
   await undo(page);
   await expect.poll(copies).toEqual([[-3, 0, 0], [0, 0, 0], [3, 0, 0]]);
-
-  // The brush: a click in the Scene view adds one copy there; one undo removes it.
-  await page.locator('.tl-inspector').getByRole('button', { name: 'Whole set' }).click();
-  await page.locator('.tl-inspector').getByRole('button', { name: 'Brush: add copies' }).click();
-  await expect(view(page)).toHaveAttribute('data-brush', set);
-  const box = (await view(page).boundingBox())!;
-  await page.mouse.click(box.x + box.width * 0.5, box.y + box.height * 0.8);
-  await expect.poll(async () => (await copies()).length).toBe(4);
-  await undo(page);
-  await expect.poll(async () => (await copies()).length).toBe(3);
 });

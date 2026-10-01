@@ -24,6 +24,7 @@ import { changedFiles, detectExternalChangeV4, gameRootOf, publishV4, setPending
 import { pendingInfo, type Core, type ProjectSession } from './session';
 import { envelopeRequestId, failRequest } from './request-envelope';
 import { scriptsNaming } from './script-names';
+import { prepareInstanceStroke } from './instance-strokes';
 import { catalogV4Of, commandContentOf, crossSceneEntities, projectRuleError, sceneMissing, sceneNotEmpty, sceneV4Of } from './content-shapes';
 
 /**
@@ -174,6 +175,12 @@ export function runCommandV4(core: Core, s: ProjectSession, sent: unknown, D: st
     const prepared = prepareFileMoves(contentCtx(s), state, s.index, op, args);
     if (prepared !== null && !prepared.ok) return failRequest(request, prepared.error);
     if (prepared !== null) commandState.preparedMoves = prepared.prepared;
+  }
+  // A brush stroke: its copies planned here from the set's buffer and the scene, the new buffer published.
+  if (op === 'paintInstances') {
+    const prepared = prepareInstanceStroke(core, s, carrier, commandState.content, args);
+    if (!prepared.ok) return failRequest(request, prepared.error);
+    commandState.preparedInstanceStroke = prepared.prepared;
   }
   const outcome = applyMutation(commandState, pureRequest);
   if (!outcome.ok) return outcome.result;

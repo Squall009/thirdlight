@@ -1223,3 +1223,6 @@ input.tl-inspector__name:hover, input.tl-inspector__name:focus { border-color: v
 /* Kind pictures in the project window: the registry's art fills the tile's icon box. */
 .tl-tile__img--kind { width: 100%; height: 100%; object-fit: contain; padding: 10%; }
 .tl-graph__toolbar.tl-editor-toolbar { border-radius: 0; border-width: 0 0 1px; }
+.tl-instance-brush__fields { display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-3); padding: 0 var(--space-4) var(--space-4); }
+.tl-instance-brush__fields label { display: inline-flex; align-items: center; gap: var(--space-2); }
+.tl-instance-brush .tl-btn[aria-pressed='true'] { background: var(--select-bg); border-color: var(--select-line); }

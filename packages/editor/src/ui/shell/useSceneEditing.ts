@@ -7,8 +7,8 @@
 import { useCallback, useRef, type MutableRefObject } from 'react';
 import { draggedRoots, subtreeOrder } from '../../session/hierarchy';
 import { presetValue } from '../../session/descriptor-fields';
-import { withAddedCopies, withCopy, withoutCopy, type CopyTransform } from '../../session/instance-copies';
-import type { DescriptorRegistry } from '@thirdlight/project-model';
+import { withCopy, withoutCopy, type CopyTransform } from '../../session/instance-copies';
+import type { DescriptorRegistry, InstanceStroke } from '@thirdlight/project-model';
 import type { SceneAction } from '../Hierarchy';
 import type { EntityFlag } from '../Inspector';
 import { waitFor } from '../wait-for';
@@ -209,15 +209,24 @@ export function useSceneEditing(deps: SceneEditingDeps) {
   };
   const editCopiesRef = useRef({
     transform: async (_e: string, _i: number, _t: CopyTransform): Promise<void> => undefined,
-    add: async (_e: string, _p: [number, number, number][]): Promise<void> => undefined,
+    paint: async (_e: string, _s: InstanceStroke): Promise<boolean> => false,
     remove: async (_e: string, _i: number): Promise<void> => undefined,
   });
   editCopiesRef.current = {
     transform: async (entityId, index, t) => {
       await editCopies(entityId, 'Move copy', (f) => withCopy(f, index, t));
     },
-    add: async (entityId, points) => {
-      await editCopies(entityId, 'Brush', (f) => withAddedCopies(f, points));
+    // One instance-brush stroke: one paintInstances (the backend makes the copies; one undo step).
+    paint: async (entityId, stroke) => {
+      const c = clientRef.current;
+      if (!c) return false;
+      const r = await c.command('paintInstances', { entityId, ...stroke }, c.projection.revision);
+      if (!r.ok && (r.response as { code?: string }).code === 'no_change') {
+        setNotice(stroke.mode === 'erase' ? 'Erase: no copies under the stroke' : 'Paint: no place under the stroke takes a copy (nothing that collides there, or copies already within the spacing)');
+        return true;
+      }
+      reportFailure(stroke.mode === 'erase' ? 'Erase' : 'Paint', r);
+      return r.ok;
     },
     remove: async (entityId, index) => {
       const ok = await editCopies(entityId, 'Delete copy', (f) => withoutCopy(f, index) ?? 'an instance set keeps at least one copy (delete the object instead)');

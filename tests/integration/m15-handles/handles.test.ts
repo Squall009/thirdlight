@@ -20,7 +20,7 @@ import { DESCRIPTORS, HANDLE_KINDS, validateContentV4, validateSceneV4, type Fie
 import { applyMutation, createCommandState, type CommandState, type ContentDocument } from '@thirdlight/commands';
 import { commitValue, deletePoint, dragGrip, gripsOf, handleShapesOf, insertPoint, maxPolygonCorners, type HandleShape, type P3 } from '@thirdlight/editor/handles';
 import { boxFromOutline, convexHull, polygonFromOutline } from '@thirdlight/editor/outline';
-import { copyAt, copyCount, spacedPoints, withAddedCopies, withCopy, withoutCopy } from '@thirdlight/editor/instance-copies';
+import { copyAt, copyCount, withCopy, withoutCopy } from '@thirdlight/editor/instance-copies';
 
 type Any = any;
 type State = CommandState<Any>;
@@ -332,7 +332,7 @@ describe('the Scene-view handles over the real registry and commands', () => {
     expect(polygonFromOutline([{ x: 0, y: 0 }, { x: 1, y: 1 }, { x: 2, y: 2 }], 8).ok).toBe(false); // a line has no area
   });
 
-  it('instance copies: move one, delete one, paint new ones — the rest stay as they were', () => {
+  it('instance copies: move one, delete one — the rest stay as they were', () => {
     const floats = new Float32Array([0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 0, 0, 0, 0, 0, 1, 1, 1, 1]);
     expect(copyCount(floats)).toBe(2);
     const moved = withCopy(floats, 1, { position: [3, 1, 0], rotation: [0, 0.5, 0, 0.8660254], scale: [2, 2, 2] });
@@ -343,9 +343,6 @@ describe('the Scene-view handles over the real registry and commands', () => {
     expect(copyCount(fewer)).toBe(1);
     expect(copyAt(fewer, 0)!.position).toEqual([3, 1, 0]);
     expect(withoutCopy(fewer, 0)).toBeNull(); // a set keeps one copy
-    const painted = withAddedCopies(fewer, spacedPoints([[0, 0, 0], [0.3, 0, 0], [1.2, 0, 0], [2.5, 0, 0]]));
-    expect(copyCount(painted)).toBe(4);
-    expect(copyAt(painted, 3)).toEqual({ position: [2.5, 0, 0], rotation: [0, 0, 0, 1], scale: [1, 1, 1] });
   });
 
   it('playerSpawn.yaw: v4 data — stored, removed with null, the old facing refused (yaw replaced it)', () => {

@@ -32,14 +32,16 @@ import { checkerPng, opusVoice } from './scale-media';
 import { summarize, type Summary } from './stats';
 import { measureEditorAtScale, type EditorScaleReport } from './scale-editor';
 import { measureProjectWindowAtScale, type ProjectWindowScaleReport } from './scale-project';
+import { measureInstanceBrush, type BrushScaleReport } from './scale-brush';
 
-export type ScaleStep = 'files' | 'open' | 'commands' | 'editor' | 'import' | 'extract' | 'play' | 'walk' | 'handles' | 'dialogue' | 'stream' | 'replay' | 'export';
+export type ScaleStep = 'files' | 'open' | 'commands' | 'editor' | 'import' | 'extract' | 'brush' | 'play' | 'walk' | 'handles' | 'dialogue' | 'stream' | 'replay' | 'export';
 /**
- * Every step; `import` (a folder of new files imported in one command), `stream` (large KTX2 textures
+ * Every step; `import` (a folder of new files imported in one command), `brush` (instance-brush strokes on a
+ * 50,000-copy set), `stream` (large KTX2 textures
  * streamed past the camera under a small texture budget) and `replay` (the run restarted with scenes
  * loaded) run only when asked for.
  */
-export const SCALE_STEPS: readonly ScaleStep[] = ['files', 'open', 'commands', 'editor', 'import', 'extract', 'play', 'walk', 'handles', 'dialogue', 'stream', 'replay', 'export'];
+export const SCALE_STEPS: readonly ScaleStep[] = ['files', 'open', 'commands', 'editor', 'import', 'extract', 'brush', 'play', 'walk', 'handles', 'dialogue', 'stream', 'replay', 'export'];
 export const SCALE_DEFAULT_STEPS: readonly ScaleStep[] = ['files', 'open', 'commands', 'editor', 'play', 'walk', 'handles', 'dialogue', 'export'];
 
 export interface ScaleBenchOptions {
@@ -209,6 +211,8 @@ export interface ScaleReport {
    * 50 ms), its output on disk, and the exported game played from a static server with the backend stopped.
    */
   export?: { ms: number; files: number; bytes: number; backendRssBeforeMiB: number | null; backendRssPeakMiB: number | null; firstFrameMs: number | null; state: string | null; pageErrors: string[] };
+  /** Instance-brush strokes on a 50,000-copy set (scale-brush.ts). */
+  brush?: BrushScaleReport;
   /** Steps that could not be taken, and why. */
   broke: Partial<Record<ScaleStep, string>>;
 }
@@ -326,6 +330,9 @@ export class ScaleBench {
       if (want('editor')) await this.attempt('editor', () => this.measureEditor());
       if (want('import')) await this.attempt('import', () => this.measureFolderImport());
       if (want('extract')) await this.attempt('extract', () => this.measureExtraction());
+      if (want('brush')) await this.attempt('brush', async () => {
+        this.report.brush = await measureInstanceBrush(this.backend, this.opts.projectId, () => backendRssMiB(this.backend.pid), this.opts.log);
+      });
       if (want('stream')) await this.attempt('stream', () => this.setUpStreaming());
       const needPlay = want('play') || want('walk') || want('handles') || want('dialogue') || want('stream') || want('replay');
       if (needPlay && (await this.attempt('play', () => this.measurePlayStart()))) {

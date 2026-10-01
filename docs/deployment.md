@@ -684,13 +684,37 @@ detail. Copies have no ids, colliders or scripts.
 - Single copies (phase 15.2): with the set selected, click one of its copies
   in the Scene view. The gizmo then moves, turns or scales just that copy
   (W/E/R), **Del** (or **Delete copy**) removes it, **Whole set** goes back
-  to the set. **Brush: add copies** paints new copies where you click or drag
-  in the Scene view (upright, scale 1, at least 1 m apart). Every edit
-  publishes a new buffer and stores it with one `setComponent instances
-  {buffer, count}` — one undo step; the old buffer stays, so undo points back
-  to it. MCP does the same: `tl_instance_buffer {digest}` reads a set's
-  copies (`{digest, count, transforms}`, sets of up to 4096 copies), edit the
-  list, publish it, `setComponent`.
+  to the set. Every edit publishes a new buffer and stores it with one
+  `setComponent instances {buffer, count}` — one undo step; the old buffer
+  stays, so undo points back to it. MCP does the same: `tl_instance_buffer
+  {digest}` reads a set's copies (`{digest, count, transforms}`, sets of up to
+  4096 copies), edit the list, publish it, `setComponent`.
+- **Instance brush**: with a set selected, the Inspector shows **Paint** and
+  **Erase** and the brush's settings — **Radius** (m), **Density** (copies per
+  m²), **Spacing** (no two copies closer across the ground, m), **Scale
+  min/max** (a random size each), **Rotation** (a random turn about up, 0 to
+  that many degrees), **Align** (0 upright, 1 leaning along the surface
+  normal) and **Seed**; the settings are kept per browser. Drag in the Scene
+  view: copies land on anything that collides — block layers (their
+  colliders' shape) and objects with a collider (their drawn shape) — straight
+  down within two radii above or below the stroke; nothing lands where
+  nothing collides. Erase takes away the copies within the radius (and two
+  radii up and down). Alt+drag orbits, Esc drops a stroke. One stroke is one
+  command, `paintInstances {entityId, mode: paint|erase, dabs: [[x, y, z]],
+  brush: {radius, density, spacing, scale: [min, max], yaw, align, seed},
+  surface?}`, and one undo. Where copies may go comes from the seed: the
+  world's XZ plane is cut into cells of 1/density m², each with one point
+  jittered by the seed, and a stroke takes the points inside its dabs — so
+  the same stroke gives the same copies, painting it again adds none, and a
+  long stroke is as dense as one dab. The backend makes the copies (in the
+  set's own space, after its copies, within its chunking); the editor sends
+  the surface it found under each place (`surface`, `[y, nx, nz]` or null),
+  and an MCP caller without one gets the scene's block layers. One stroke
+  carries up to 256 dabs and 1,536 places (`INSTANCE_BRUSH_LIMITS`, so it fits
+  one 64 KiB command); a longer drag in the editor goes on as the next
+  stroke. A set has no count of its own beyond an instance set's 65,536
+  copies. GameObject → **Instance set…** (the rectangle fill) still makes a
+  new set.
 - **Chunks** (phase 25.7d): a set is drawn in chunks, each hidden when out of
   view and given its level of detail at its own centre. The copies are split
   by count (about 2048 per chunk) and by extent: no chunk is wider than the
@@ -3043,6 +3067,7 @@ its reason (the same line is next to its constant in the code):
 | Scripts | 256 KiB of source, 16 files of 64 KiB each, 128 KiB compiled output per script; no count of scripts (a game runs as many as it has) | One compile and one module |
 | Model import | 2,000,000 vertices, 4,000,000 triangles, 64 animations, 512 MiB decoded (geometry and images) per model | What one model's inspection and the page's decode hold |
 | Instance sets | 65,536 copies per set | One buffer file and one draw set |
+| Instance brush | 256 dabs and 1,536 places per stroke (`INSTANCE_BRUSH_LIMITS`); no count of strokes or painted copies beyond a set's | One stroke with its surface is one 64 KiB command; a longer drag is the next stroke |
 | Block edits | 1,048,576 cells per edit | One command's work; a layer is stored in chunks |
 | WebSocket message to the editor | 1 MiB (a larger Play snapshot is fetched over HTTP; a larger change makes the editor re-read the project; anything else over it is dropped and listed under Problems) | One frame |
 
