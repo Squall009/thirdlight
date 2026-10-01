@@ -310,6 +310,7 @@ moves at least as many lines out as it adds.
 | 27.15 | done 2026-10-01: the bottom dock holds Project (the project window), Console and Problems; the Materials, Animator, Prefabs, Graphs, Effects, Dialogue, Timelines, Libraries and UI tabs are gone, and the Window menu lists the three; every kind is listed, made (Create menu: the "create" button or a right-click, named in place, in the folder shown), opened, renamed and deleted from the project window and the Inspector; the Assets side panel is gone: the chosen asset, material, prefab, resource or scene shows in the one Inspector (facts, options, preview, placing, address and labels); speakers and dialogue settings in Project Settings → Dialogue; libraries' "Save all" above each library's editor; e2e `project-items` (dock DOM, Window menu, creating and opening every kind, the Inspector, deletes); look: owner look pending |
 | 27.16 | done 2026-10-01: one icon registry for every kind and every editor toolbar action, the art generated with the Studio in the phase-9 style and shipped as small WebPs (47 files, 105.7 KiB); `editor.css` spacing, type, radius and icon tokens; every item editor has a header (picture, name renamed in place, kind, folder), a toolbar of picture buttons and, while empty, an empty state with its first actions; graph nodes are coloured by category family; the timeline fills its window (D112); e2e `editor-chrome` (headers, toolbars, empty states acting, node header pixels, project-window pictures); before/after screenshots for the owner; look: owner look pending |
 | 27.17 | done 2026-10-01 (before 27.18/27.19; the full gate is the main session's): D108 (an editor command after MCP edits waits for the change feed and is sent again), D109 (a late selection after the window closed is dropped), D111 (a screenshot waits for the first frame) fixed and their test syncs removed; D113 found and fixed (input exercises on a game without scripts); acceptance mapped to its specs in the decision log, new: every kind edited from its window back to the default view (`project-window`), a v5 project in the editor with matching replays (`project-upgrade`); a material, an effect and a timeline built through the UI only (`by-hand`, driven by a test; the owner's own try pending); `docs/deployment.md` (what you can do now, stale dock and tab wording) and the MCP descriptions updated |
+| 27.18 | done 2026-10-01: a block layer's **Smoothing angle** (`smoothAngle`, degrees 0–180, Inspector and MCP; 0/absent = flat-shaded tops as before) averages the normals of tops meeting at the same height across cells and chunk edges (one ring of columns around the chunk is read; a corner cell re-meshes the diagonal chunk too), keeps edges sharper than the angle hard and never mixes walls in; **Top subdivision** (`topSubdivision` 2) draws sloped tops cut 2 × 2 with the inner heights blended from the corners; colliders and surface queries unchanged; a baked layer goes stale when either changes; e2e `smooth-tops` (Scene view, Play, export; pixels on auto, WebGL 2 and the webgpu project), unit `block-smooth`; default pictures before/after identical (0 differing pixels); mesher bench below the decision log entry |
 
 ## 6. Decision log
 
@@ -809,6 +810,40 @@ moves at least as many lines out as it adds.
 - 2026-10-01 (27.17): this item ran before 27.18 and 27.19 (main session's
   order); their done-when lines stay open, and the full gate after them is
   the main session's.
+- 2026-10-01 (27.18): **smooth tops.** `smoothAngle` follows Unity's
+  model import "Smoothing Angle" (0–180°; Blender's auto-smooth is the same
+  idea); absent or 0 is today's flat shading, so nothing changes until a
+  layer sets it (stored only when above 0; `topSubdivision` only when 2;
+  both values defined once, `BLOCK_SMOOTH_ANGLE_RANGE`,
+  `BLOCK_TOP_SUBDIVISIONS`). A "top" is any up-facing triangle lying on its
+  block's top surface, for stand-ins and model looks alike; its corners are
+  welded by position (0.1 mm), so "the same height" is literal and a cliff or
+  wall never averages in. Vertex normals are corner-angle weighted (a quad's
+  triangulation does not tilt them); each point's tops are summed in a sorted
+  order, so both chunks of an edge give bit-identical normals.
+  `topSubdivision` 2 blends the inner heights bilinearly (rolling, not
+  diamonds) and changes only the drawn surface: colliders, `ctx.grid`
+  surface queries and brushes keep the corners' two triangles (they differ
+  by at most a quarter of a top's twist at its centre). Side faces on the
+  cell boundary and the base are not cut (the blend is linear along an
+  edge). Lightmaps: either field puts a shading key into the chunk's layout
+  digest, so a bake made before the change is drawn without its lightmap
+  until baked again; the default digest is unchanged. Proof that existing
+  scenes look the same: the mesher's output for a mixed fixture (every
+  shape, slopes, a cliff, a pit, 2 × 2 chunks) hashed before the change and
+  checked after (`block-smooth.test.ts`), and `smooth-tops`' default Scene
+  view (1310 × 641) and Play (960 × 448) pictures from the old build and the
+  new one: 0 differing pixels.
+- 2026-10-01 (27.18) — mesher bench (`TL_PERF=1 tests/perf/block-layers.test.ts`,
+  new case: 64 × 64 rolling sloped terrain, 0.5 m rows, 41,865 cells, 16
+  chunks, stand-ins, median of 7 whole-layer meshes): before (old code)
+  1,319 and 1,423 ms; after, the same default path 856–926 ms (the host was
+  busier during the "before" runs — the code path is unchanged, the digest
+  proves it), smoothed 1,137–1,163 ms (+25–30 % over flat in the same run;
+  87,135 vertices instead of 118,116: smoothed tops share corners),
+  subdivided 2 × 2 + smoothed 1,655 ms (+80 %; 79,136 triangles instead of
+  46,300). Per 16 × 16 chunk: ~55 ms flat, ~70 ms smoothed, ~100 ms
+  subdivided on this host (a stroke re-meshes 1–4 chunks).
 - 2026-10-01 (27.17) — which test proves each "done when" line:
   - 27.1 screenshots: `screenshot.e2e.ts` ("a large, noisy scene's
     screenshot comes back whole over HTTP and MCP", per renderer; "a capture
@@ -858,4 +893,15 @@ moves at least as many lines out as it adds.
     `by-hand.e2e.ts`, run with `TL_BY_HAND_DIR` (UI only; read back after a
     reload from the page); driven by a test, the owner's own try is pending.
   - The owner has looked at the new look: pending.
-  - 27.18, 27.19: not done yet. `tools/gate.sh full`: the main session's.
+  - 27.18 smooth block-layer tops ("a block layer with a crease angle shows
+    smooth rolling tops and hard cliffs, with no seam at chunk edges, on both
+    renderers"): `smooth-tops.e2e.ts` (crease angle and subdivision set in the
+    Inspector and read back over HTTP; brightness jumps across cell edges in
+    the Scene view, Play and the export: faceted by default, none at the
+    chunk edge or on the rolling ground with the angle, a hard crease at the
+    steep slope; auto, WebGL 2 and the webgpu project) and
+    `packages/project-model/src/block-smooth.test.ts` (identical normals on
+    both sides of chunk edges and corners, walls and cliffs left out,
+    crease kept, subdivided surface, collision unchanged, the default mesh
+    byte for byte as before).
+  - 27.19: not done yet. `tools/gate.sh full`: the main session's.

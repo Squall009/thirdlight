@@ -6,11 +6,12 @@
  *
  * Pure data.
  */
-import { BLOCK_MAX_SLOPE_RANGE } from './block-layers';
-import type { BoolFieldDescriptor, ComponentDescriptor, EntityRefFieldDescriptor, FieldDescriptor, JsonFieldDescriptor, NumberFieldDescriptor, ObjectFieldDescriptor, VecFieldDescriptor } from './descriptors';
+import { BLOCK_MAX_SLOPE_RANGE, BLOCK_SMOOTH_ANGLE_RANGE, BLOCK_TOP_SUBDIVISIONS } from './block-layers';
+import type { BoolFieldDescriptor, ComponentDescriptor, EntityRefFieldDescriptor, FieldDescriptor, IntFieldDescriptor, JsonFieldDescriptor, NumberFieldDescriptor, ObjectFieldDescriptor, VecFieldDescriptor } from './descriptors';
 
 type Opts<T extends FieldDescriptor> = Omit<T, 'type' | 'key' | 'label' | 'tooltip'>;
 const num = (key: string, label: string, tooltip: string, o: Opts<NumberFieldDescriptor> = {}): NumberFieldDescriptor => ({ type: 'number', key, label, tooltip, ...o });
+const int = (key: string, label: string, tooltip: string, o: Opts<IntFieldDescriptor> = {}): IntFieldDescriptor => ({ type: 'int', key, label, tooltip, ...o });
 const bool = (key: string, label: string, tooltip: string, o: Opts<BoolFieldDescriptor> = {}): BoolFieldDescriptor => ({ type: 'bool', key, label, tooltip, ...o });
 const vec2 = (key: string, label: string, tooltip: string, o: Omit<Opts<VecFieldDescriptor>, 'labels'> & { labels?: readonly string[] } = {}): VecFieldDescriptor => ({ type: 'vec2', key, label, tooltip, labels: ['x', 'y'], ...o });
 const vec3 = (key: string, label: string, tooltip: string, o: Omit<Opts<VecFieldDescriptor>, 'labels'> & { labels?: readonly string[] } = {}): VecFieldDescriptor => ({ type: 'vec3', key, label, tooltip, labels: ['x', 'y', 'z'], ...o });
@@ -36,6 +37,18 @@ export const blockLayer: ComponentDescriptor = {
       max: BLOCK_MAX_SLOPE_RANGE.max,
       step: 1,
       unit: 'deg',
+    }),
+    num('smoothAngle', 'Smoothing angle', "The crease angle of the layer's tops: where tops meet at the same height at less than this angle (across cells and chunk edges) they are shaded smooth; sharper edges, cliffs and walls stay hard. 0: flat-shaded tops. The collision shape does not change.", {
+      min: BLOCK_SMOOTH_ANGLE_RANGE.min,
+      max: BLOCK_SMOOTH_ANGLE_RANGE.max,
+      step: 1,
+      unit: 'deg',
+      default: 0,
+    }),
+    int('topSubdivision', 'Top subdivision', "How finely sloped tops are drawn: 1 × 1 is the corners' two flat triangles; 2 × 2 cuts each top in four with the inner heights blended from the corners, so hills read as rolling ground. The collision shape stays the corners' two triangles.", {
+      values: BLOCK_TOP_SUBDIVISIONS,
+      valueLabels: BLOCK_TOP_SUBDIVISIONS.map((n) => `${n} × ${n}`),
+      default: 1,
     }),
   ]),
   // 1 m cells over 64 × 16 × 64 — a common kit module over the interactive-editing target; no genre assumed.

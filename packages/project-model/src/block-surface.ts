@@ -71,6 +71,39 @@ export function cornerGradientAt(c: CellCorners, u: number, v: number): [number,
   return u + v <= 1 ? [c[1] - c[0], c[3] - c[0]] : [c[2] - c[3], c[2] - c[1]];
 }
 
+/** The bilinear blend of a top's corners at (u, v): the height a subdivided top gives its inner lattice points. */
+function bilinear(c: CellCorners, u: number, v: number): number {
+  return c[0] * (1 - u) * (1 - v) + c[1] * u * (1 - v) + c[2] * u * v + c[3] * (1 - u) * v;
+}
+
+/** The sub-square of a top cut n × n that holds (u, v): its column, row and its own corners (lattice heights blended from the cell's). */
+export function topSubSquare(c: CellCorners, n: number, u: number, v: number): { i: number; j: number; corners: CellCorners } {
+  const i = Math.min(n - 1, Math.max(0, Math.floor(u * n)));
+  const j = Math.min(n - 1, Math.max(0, Math.floor(v * n)));
+  return { i, j, corners: [bilinear(c, i / n, j / n), bilinear(c, (i + 1) / n, j / n), bilinear(c, (i + 1) / n, (j + 1) / n), bilinear(c, i / n, (j + 1) / n)] };
+}
+
+/**
+ * The height of a top cut n × n at (u, v) (a fraction of the cell height):
+ * the lattice points' heights blended bilinearly from the corners, each
+ * sub-square split along its own diagonal by the same rule as a whole top.
+ * n = 1 is `cornerHeightAt`. This is the drawn surface only; collision and
+ * surface queries keep the corners' two triangles.
+ */
+export function subdividedHeightAt(c: CellCorners, n: number, u: number, v: number): number {
+  if (n <= 1) return cornerHeightAt(c, u, v);
+  const s = topSubSquare(c, n, u, v);
+  return cornerHeightAt(s.corners, u * n - s.i, v * n - s.j);
+}
+
+/** How the height of a top cut n × n changes along u and v at (u, v) (fractions of the cell height per cell); n = 1 is `cornerGradientAt`. */
+export function subdividedGradientAt(c: CellCorners, n: number, u: number, v: number): [number, number] {
+  if (n <= 1) return cornerGradientAt(c, u, v);
+  const s = topSubSquare(c, n, u, v);
+  const [gu, gv] = cornerGradientAt(s.corners, u * n - s.i, v * n - s.j);
+  return [gu * n, gv * n];
+}
+
 /** A block's top at a point: its height above the block's base and how it rises along x and z (metres per metre, layer axes). */
 export interface BlockTopSample {
   height: number;

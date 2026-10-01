@@ -10,6 +10,8 @@
  * - A 40 × 40 × 12 terrain map (heightmap-like, three block types): the
  *   merged chunk meshes (one draw per block look per chunk, before shadows),
  *   triangles after hidden-face removal, meshing and collision-building time.
+ * - A 64 × 64 rolling terrain of sloped cells: meshing time flat (the
+ *   default), with smoothed tops and with subdivided tops.
  * The numbers are printed (and recorded in docs/plan-phase-23.md); the
  * assertions are the budgets (interactive: an edit under 50 ms; a few draws
  * per chunk).
@@ -107,4 +109,48 @@ describe.skipIf(process.env['TL_PERF'] === undefined)('block layers: measurement
     expect(numbers.triangles).toBeLessThan(numbers.trianglesIfAllFaces / 5);
     void applyBlockEdits;
   });
+
+  it('a 64 × 64 rolling sloped terrain meshes flat, smoothed and with subdivided tops', () => {
+    const g = slopedTerrain(64);
+    const types = new Map(TYPES.map((t) => [t.blockId, t]));
+    const looks = { source: (t: BlockType, v: number, fm: [number, number, number]) => ({ key: `${t.blockId}:${v}`, source: shapeSource(t.shape, fm[0], fm[1], fm[2]) }) };
+    const keys = g.chunkKeys();
+    const run = (options?: Record<string, number>): { ms: number; triangles: number; vertices: number } => {
+      const times: number[] = [];
+      let triangles = 0;
+      let vertices = 0;
+      for (let rep = 0; rep < 7; rep++) {
+        triangles = 0;
+        vertices = 0;
+        const t0 = performance.now();
+        for (const k of keys) {
+          const [cx, cz] = k.split(',').map(Number) as [number, number];
+          for (const p of meshBlockChunk(g, cx, cz, types, looks, options)) {
+            triangles += p.indices.length / 3;
+            vertices += p.positions.length / 3;
+          }
+        }
+        times.push(performance.now() - t0);
+      }
+      return { ms: median(times), triangles, vertices };
+    };
+    const numbers = { cells: g.size, chunks: keys.length, flat: run(), smooth: run({ smoothAngle: 45 }), subdivided: run({ smoothAngle: 45, topSubdivision: 2 }) };
+    record(`block-layers sloped 64x64: ${JSON.stringify(numbers)}`);
+    expect(numbers.flat.triangles).toBeGreaterThan(0);
+  }, 300_000);
 });
+
+/** Rolling ground of sloped cells (0.5 m rows): under each column full cells up to the row of its lowest corner, then one sloped top. */
+function slopedTerrain(n: number): BlockGrid {
+  const g = new BlockGrid({ cellSize: [1, 0.5, 1], bounds: { min: [0, 0, 0], max: [n, 24, n] } });
+  const q = (v: number): number => Math.round(v * 16) / 16;
+  const h = (x: number, z: number): number => q(10 + 4 * Math.sin(x / 7) * Math.cos(z / 9) + 1.2 * Math.sin(x / 2.3 + z / 3.1));
+  for (let x = 0; x < n; x++) for (let z = 0; z < n; z++) {
+    const c = [h(x, z), h(x + 1, z), h(x + 1, z + 1), h(x, z + 1)];
+    const row = Math.floor(Math.min(...c) - 1e-9);
+    for (let y = 0; y < row; y++) g.set(x, y, z, { block: 'stone' });
+    const corners = c.map((v) => v - row) as [number, number, number, number];
+    g.set(x, row, z, { block: 'grass', ...(corners.every((v) => v === 1) ? {} : { corners }) });
+  }
+  return g;
+}

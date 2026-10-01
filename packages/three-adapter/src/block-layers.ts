@@ -23,6 +23,11 @@
  * to stand-ins too ("*": a stand-in has one material) — a painted terrain
  * material on plain sloped blocks.
  *
+ * Tops: a layer's crease angle and top subdivision (`smoothAngle`,
+ * `topSubdivision`) go to the mesher, so every level of detail is smoothed
+ * and cut the same way; a change of either re-meshes the layer (it is a
+ * component change).
+ *
  * Paint: the chunks of a painted layer carry its paint as vertex
  * colours — COLOR_0 the four layer weights, COLOR_1.r the wetness
  * (`chunkPaintColors`) — unless their material draws vertex colours as a tint.
@@ -36,6 +41,7 @@ import * as THREE from 'three';
 import {
   BlockGrid,
   CHUNK_SIZE,
+  blockTopOptions,
   chunkLightmapLayout,
   chunkPaintColors,
   meshBlockChunk,
@@ -449,6 +455,7 @@ export class BlockLayerView {
     if (layer.component.metadataOnly === true) return;
     const [cx, cz] = ck.split(',').map(Number) as [number, number];
     const looks = new Map<string, { materials: readonly THREE.Material[]; type: BlockType; assetId: string | null; color: string | null; levels: BlockModelLook['levels'] }>();
+    const tops = blockTopOptions(layer.component);
     /** The chunk meshed at one level of detail: model looks at that level (or their last), stand-ins as they are. */
     const mesh = (level: number): ChunkMeshPart[] =>
       meshBlockChunk(layer.grid, cx, cz, this.types, {
@@ -472,7 +479,7 @@ export class BlockLayerView {
           looks.set(key, { materials: [], type, assetId: null, color, levels: undefined });
           return { key, source: this.standIn(type, fm) };
         },
-      });
+      }, tops);
     let parts = mesh(0);
     if (parts.length === 0) return;
     // Chunk levels of detail from the model looks' own levels: level L shows each model at its level L (or
@@ -487,7 +494,9 @@ export class BlockLayerView {
     // Lightmap UVs where a bake has (or is making) this layer's lightmaps: one square per chunk; coarser levels map into it.
     let lightmap: { layout: string; area: number; side: number } | null = null;
     if (this.forcedUv.has(entityId) || this.deps.lightmapped?.(entityId) === true) {
-      const lm = chunkLightmapLayout(parts, layer.grid.cellSize);
+      // Smoothed or subdivided tops light differently: a bake made without them no longer matches the chunk.
+      const shading = tops.smoothAngle !== undefined || tops.topSubdivision !== undefined ? `tops:${tops.smoothAngle ?? 0}:${tops.topSubdivision ?? 1}` : undefined;
+      const lm = chunkLightmapLayout(parts, layer.grid.cellSize, undefined, shading);
       parts = lm.parts;
       for (const c of coarse) c.parts = chunkLightmapLayout(c.parts, layer.grid.cellSize, lm).parts;
       lightmap = { layout: lm.layout, area: lm.area, side: lm.side };

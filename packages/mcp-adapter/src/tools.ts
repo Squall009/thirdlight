@@ -352,7 +352,9 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       'shape: full|half|ramp|stairs|custom|none (collision; ramps/stairs rise toward +Z), boxes? (custom: [x0,y0,z0,x1,y1,z1] in 0-1), solid?, footprint? [x,y,z] cells, ' +
       'rotations? [0,90,180,270], metadata? {field: value}, materials?}} / deleteBlockType {blockId}; setCellFields {fields: [{key, type: bool|enum|int|float|string, default?, values? (enum), min?, max?, color?, label?}]} ' +
       '(the cell metadata schema); an entity gets setComponent "blockLayer" {cellSize: [x,y,z] m, bounds: {min: [x,y,z], max: [x,y,z]} cells (max exclusive), metadataOnly?, collision?, ' +
-      'maxSlope? (degrees: characters do not walk up steeper parts of the layer; surface queries call them not walkable)} ' +
+      'maxSlope? (degrees: characters do not walk up steeper parts of the layer; surface queries call them not walkable), ' +
+      'smoothAngle? (degrees 0-180, the crease angle of the tops: tops meeting at the same height at less than it are shaded smooth across cells and chunk edges, sharper edges stay hard; 0 or absent: flat-shaded), ' +
+      'topSubdivision? 1|2 (2: sloped tops drawn cut 2×2 with the inner heights blended from the corners; collision keeps the corners\' two triangles)} ' +
       '(its position is the min corner of cell 0; a root at identity rotation and unit scale). A prop may carry setComponent "blockFootprint" {layer?: layer entity id, size?: [x,z] cells, set: {field: value}} ' +
       '(the metadata the editor writes into the cells beneath it when it is placed or moved; via MCP write them with an editBlocks meta edit). editBlocks {entityId, edits: [...]} edits one layer as one undo step (cells are {block?, rot? 90|180|270, variant?, ' +
       'corners? [h, h, h, h] (a sloped top of a single-cell full block: the corner heights −x−z, +x−z, +x+z, −x+z in cell heights 0-4, steps of 1/64; above 1 reaches into the empty cells above), meta?}; ' +

@@ -3593,6 +3593,15 @@ brushes, overlays and stamp UI are below (23.6).
   steepest ground: characters do not walk up steeper parts, and
   `ctx.grid.surface(layer, position)` / `columnSurface(layer, x, z)` report
   the ground's height, normal, slope and whether it is walkable.
+- **Smooth tops**: the layer's **Smoothing angle** (`smoothAngle`, degrees
+  0–180, Inspector and MCP) shades its tops smooth where they meet at the
+  same height at less than that angle — across cells and chunk edges alike —
+  and keeps sharper edges (a crest steeper than the angle, cliffs, walls)
+  hard; 0 (the default) keeps flat-shaded tops. **Top subdivision**
+  (`topSubdivision` 2) draws sloped tops cut 2 × 2 with the inner heights
+  blended from the corners, so noise reads as rolling ground. Colliders and
+  surface queries keep the corners' two triangles. Changing either makes a
+  baked layer's chunks stale (bake again).
 - **Levels of detail** (25.20): blocks shown by a model with `_LOD1..n`
   levels switch per chunk — each chunk's models at their coarser level past
   the models' own distance plus the chunk's size; stand-ins stay detailed.

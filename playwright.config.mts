@@ -113,6 +113,8 @@ export default defineConfig({
         '**/ktx2-textures.e2e.ts',
         // Phase 25.21: height-blended layers from texture arrays on a painted block layer and a GLB (Scene view, Play, export) on WebGPU.
         '**/painted-terrain.e2e.ts',
+        // Smoothed block-layer tops (no seam at a chunk edge, a hard crease) in the Scene view, Play and the export on WebGPU.
+        '**/smooth-tops.e2e.ts',
         // Mip streaming of large KTX2 textures under the texture budget (Play, the export's files) on WebGPU.
         '**/texture-streaming.e2e.ts',
         // A model's images extracted into texture assets, drawn and streamed (Scene view, Play, export) on WebGPU.

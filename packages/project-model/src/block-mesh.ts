@@ -20,9 +20,9 @@
  * rotation.y). Ramps and stairs rise toward +Z at rotation 0.
  */
 import { COLLIDER_3D_LIMITS } from './components';
-import { CHUNK_SIZE, blockTypeSolid, rotatedFootprint, type BlockCell, type BlockShape, type BlockType } from './block-layers';
+import { CHUNK_SIZE, blockTypeSolid, rotatedFootprint, type BlockCell, type BlockLayerComponent, type BlockShape, type BlockType } from './block-layers';
 import { autoVariant, chunkKeyOf, type BlockGrid } from './block-grid';
-import { cellCorners, cornerGradientAt, cornerHeightAt, diagonalSide, rotateXZ, type CellCorners } from './block-surface';
+import { blockTopAt, cellCorners, cornerGradientAt, cornerHeightAt, diagonalSide, rotateXZ, subdividedGradientAt, subdividedHeightAt, topSubSquare, type CellCorners } from './block-surface';
 
 /** Indexed triangles in the block-local frame; `groups` split the index list by material. */
 export interface BlockMeshSource {
@@ -231,17 +231,24 @@ const slopedCache = new WeakMap<BlockMeshSource, Map<string, { source: BlockMesh
  * Jacobian), and pieces that shrink to nothing (a side whose corners are both
  * 0) are dropped. The result is in the cell's frame at rotation 0 (the
  * rotation is already applied), classified for hidden faces like any look.
+ *
+ * A top cut n × n (`subdivision` above 1) is cut along the sub-squares'
+ * lines first and then along each sub-square's own diagonal, and follows the
+ * subdivided surface (inner heights blended from the corners).
  */
-function slopedLook(src: BlockMeshSource, rot: number, w: number, h: number, d: number, corners: CellCorners): { source: BlockMeshSource; classified: Classified } {
+function slopedLook(src: BlockMeshSource, rot: number, w: number, h: number, d: number, corners: CellCorners, subdivision = 1): { source: BlockMeshSource; classified: Classified } {
   let byKey = slopedCache.get(src);
   if (byKey === undefined) {
     byKey = new Map();
     slopedCache.set(src, byKey);
   }
-  const key = `${rot}|${w}|${h}|${d}|${corners.join(',')}`;
+  const n = subdivision;
+  const key = `${rot}|${w}|${h}|${d}|${corners.join(',')}${n > 1 ? `|${n}` : ''}`;
   const hit = byKey.get(key);
   if (hit !== undefined) return hit;
   if (byKey.size > 4096) byKey.clear();
+  const heightAt = n > 1 ? (u: number, v: number): number => subdividedHeightAt(corners, n, u, v) : (u: number, v: number): number => cornerHeightAt(corners, u, v);
+  const gradientAt = n > 1 ? (u: number, v: number): [number, number] => subdividedGradientAt(corners, n, u, v) : (u: number, v: number): [number, number] => cornerGradientAt(corners, u, v);
   const base = classify(src, rot, w, h, d);
   // A quarter turn swaps the look's x and z extents; stretched back to the cell's, so a sloped look fills its cell whatever its rotation.
   const sx = rot === 90 || rot === 270 ? w / d : 1;
@@ -278,9 +285,9 @@ function slopedLook(src: BlockMeshSource, rot: number, w: number, h: number, d: 
   const emit = (tri: V[]): void => {
     const cu = (uOf(tri[0]!) + uOf(tri[1]!) + uOf(tri[2]!)) / 3;
     const cv = (vOf(tri[0]!) + vOf(tri[1]!) + vOf(tri[2]!)) / 3;
-    const [gu, gv] = cornerGradientAt(corners, cu, cv);
+    const [gu, gv] = gradientAt(cu, cv);
     const warped = tri.map((v) => {
-      const f = cornerHeightAt(corners, uOf(v), vOf(v));
+      const f = heightAt(uOf(v), vOf(v));
       const y = v.p[1];
       const a = (y * gu) / w;
       const b = (y * gv) / d;
@@ -301,39 +308,70 @@ function slopedLook(src: BlockMeshSource, rot: number, w: number, h: number, d: 
     }
     out += 3;
   };
+  /** Cut a triangle along a line (`sideOf`: a signed distance, linear in the vertex's position, 0 on it); the pieces go to `next`. */
+  const cut = (tri: V[], sideOf: (v: V) => number, next: (t: V[]) => void): void => {
+    const s = tri.map(sideOf);
+    if (!(s.some((x) => x > 0) && s.some((x) => x < 0))) {
+      next(tri);
+      return;
+    }
+    // Cut along the line: the lone vertex on one side makes a triangle, the other two a quad (two triangles).
+    const pos = s.filter((x) => x > 0).length;
+    const lone = s.findIndex((x) => (pos === 1 ? x > 0 : x < 0));
+    if (s.some((x) => x === 0)) {
+      // One vertex on the line: the edge opposite it crosses it once.
+      const on = s.findIndex((x) => x === 0);
+      const a = tri[(on + 1) % 3]!;
+      const b = tri[(on + 2) % 3]!;
+      const sa = s[(on + 1) % 3]!;
+      const sb = s[(on + 2) % 3]!;
+      const m = lerp(a, b, sa / (sa - sb));
+      next([tri[on]!, a, m]);
+      next([tri[on]!, m, b]);
+      return;
+    }
+    const L = tri[lone]!;
+    const P = tri[(lone + 1) % 3]!;
+    const Q = tri[(lone + 2) % 3]!;
+    const sl = s[lone]!;
+    const m1 = lerp(L, P, sl / (sl - s[(lone + 1) % 3]!));
+    const m2 = lerp(L, Q, sl / (sl - s[(lone + 2) % 3]!));
+    next([L, m1, m2]);
+    next([m1, P, Q]);
+    next([m1, Q, m2]);
+  };
+  const snap = (x: number): number => (Math.abs(x) < 1e-7 ? 0 : x);
+  /**
+   * A subdivided top: cut along the sub-squares' lines, then each piece along
+   * its sub-square's diagonal. A face on the cell's side follows a straight
+   * line of the surface (the blend is linear along a cell edge) and the base
+   * does not move, so neither needs the cuts.
+   */
+  const cutSubdivided = (tri: V[]): void => {
+    const on = (f: (v: V) => number, at: number): boolean => tri.every((v) => Math.abs(f(v) - at) < 1e-7);
+    if (on(uOf, 0) || on(uOf, 1) || on(vOf, 0) || on(vOf, 1) || tri.every((v) => Math.abs(v.p[1]) < 1e-9)) {
+      emit(tri);
+      return;
+    }
+    let pieces = [tri];
+    for (let k = 1; k < n; k++) {
+      for (const along of [uOf, vOf]) {
+        const next: V[][] = [];
+        for (const piece of pieces) cut(piece, (v) => snap(along(v) - k / n), (t) => next.push(t));
+        pieces = next;
+      }
+    }
+    for (const piece of pieces) {
+      const sq = topSubSquare(corners, n, (uOf(piece[0]!) + uOf(piece[1]!) + uOf(piece[2]!)) / 3, (vOf(piece[0]!) + vOf(piece[1]!) + vOf(piece[2]!)) / 3);
+      cut(piece, (v) => snap(diagonalSide(sq.corners, uOf(v) * n - sq.i, vOf(v) * n - sq.j)), emit);
+    }
+  };
   for (const g of src.groups) {
     const start = out;
     for (let i = g.start; i < g.start + g.count; i += 3) {
       const tri = [vertex(src.indices[i]!), vertex(src.indices[i + 1]!), vertex(src.indices[i + 2]!)];
-      const s = tri.map(side);
-      if (!(s.some((x) => x > 0) && s.some((x) => x < 0))) {
-        emit(tri);
-        continue;
-      }
-      // Cut along the diagonal: the lone vertex on one side makes a triangle, the other two a quad (two triangles).
-      const pos = s.filter((x) => x > 0).length;
-      const lone = s.findIndex((x) => (pos === 1 ? x > 0 : x < 0));
-      if (s.some((x) => x === 0)) {
-        // One vertex on the diagonal: the edge opposite it crosses it once.
-        const on = s.findIndex((x) => x === 0);
-        const a = tri[(on + 1) % 3]!;
-        const b = tri[(on + 2) % 3]!;
-        const sa = s[(on + 1) % 3]!;
-        const sb = s[(on + 2) % 3]!;
-        const m = lerp(a, b, sa / (sa - sb));
-        emit([tri[on]!, a, m]);
-        emit([tri[on]!, m, b]);
-        continue;
-      }
-      const L = tri[lone]!;
-      const P = tri[(lone + 1) % 3]!;
-      const Q = tri[(lone + 2) % 3]!;
-      const sl = s[lone]!;
-      const m1 = lerp(L, P, sl / (sl - s[(lone + 1) % 3]!));
-      const m2 = lerp(L, Q, sl / (sl - s[(lone + 2) % 3]!));
-      emit([L, m1, m2]);
-      emit([m1, P, Q]);
-      emit([m1, Q, m2]);
+      if (n > 1) cutSubdivided(tri);
+      else cut(tri, side, emit);
     }
     if (out > start) groups.push({ start, count: out - start, material: g.material });
   }
@@ -404,12 +442,65 @@ class Accumulator {
 }
 
 /**
+ * How a layer's tops are drawn: the `blockLayer` fields `smoothAngle` and
+ * `topSubdivision` (absent: flat-shaded tops as the corners lay them — the
+ * mesh is then exactly what it was before either field existed).
+ */
+export interface BlockTopOptions {
+  /** Degrees: tops meeting at the same height at less than this angle share smoothed normals; above 0 to take effect. */
+  readonly smoothAngle?: number;
+  /** Sloped tops cut n × n (1: the corners' two triangles). */
+  readonly topSubdivision?: number;
+}
+
+/** A layer component's top options. */
+export function blockTopOptions(c: Pick<BlockLayerComponent, 'smoothAngle' | 'topSubdivision'>): BlockTopOptions {
+  return { ...(c.smoothAngle !== undefined && c.smoothAngle > 0 ? { smoothAngle: c.smoothAngle } : {}), ...(c.topSubdivision !== undefined && c.topSubdivision > 1 ? { topSubdivision: c.topSubdivision } : {}) };
+}
+
+/** A block cell placed for meshing: its look, its turned geometry, its origin and which of its sides are hidden. */
+interface PlacedCell {
+  look: CellLook;
+  source: BlockMeshSource;
+  rotated: Classified;
+  cell: BlockCell;
+  ox: number;
+  oy: number;
+  oz: number;
+  hidden: boolean[];
+}
+
+/** One top triangle of the chunk waiting for its smoothed normals. */
+interface PendingTop {
+  part: { acc: Accumulator; seen: Map<string, number> };
+  /** Layer-local positions and uvs of its three corners, its unit face normal and its corners' weld keys. */
+  p: number[];
+  uv: number[];
+  n: [number, number, number];
+  keys: [string, string, string];
+}
+
+/** A weld key: a position on a 0.1 mm grid (layer-local metres). */
+const weldKey = (x: number, y: number, z: number): string => `${Math.round(x * 1e4)},${Math.round(y * 1e4)},${Math.round(z * 1e4)}`;
+
+/**
  * The merged geometry of one chunk: for each block cell of the chunk its
  * look, turned and placed, with the faces hidden by neighbours left out.
  * Positions are relative to the layer origin (the min corner of cell 0).
+ *
+ * With a crease angle (`options.smoothAngle`) the tops — triangles facing up
+ * that lie on their block's top surface — get vertex normals averaged over
+ * every top meeting at the same point (the same height there), weighted by
+ * the corner angle, leaving out tops turned away by more than the angle (a
+ * crease stays hard). The tops of the columns just outside the chunk count
+ * too, so both chunks give a point on their shared edge the same normal (no
+ * seam). Walls and other faces keep their own normals.
  */
-export function meshBlockChunk(grid: BlockGrid, cx: number, cz: number, types: ReadonlyMap<string, BlockType>, looks: BlockLookResolver): ChunkMeshPart[] {
+export function meshBlockChunk(grid: BlockGrid, cx: number, cz: number, types: ReadonlyMap<string, BlockType>, looks: BlockLookResolver, options: BlockTopOptions = {}): ChunkMeshPart[] {
   const cs = grid.cellSize;
+  const subdivision = Math.max(1, Math.floor(options.topSubdivision ?? 1));
+  const smoothAngle = options.smoothAngle ?? 0;
+  const smoothing = smoothAngle > 0;
   const solidOf = (t: BlockType): boolean => (looks.solid !== undefined ? looks.solid(t) : blockTypeSolid(t));
   const lookCache = new Map<number, CellLook | null>();
   const lookOf = (x: number, y: number, z: number): CellLook | null => {
@@ -429,7 +520,7 @@ export function meshBlockChunk(grid: BlockGrid, cx: number, cz: number, types: R
     const src = looks.source(t, variant, fm);
     const rot = cell.rot ?? 0;
     const corners = single ? cellCorners(cell) : null;
-    const sloped = src !== null && corners !== null ? slopedLook(src.source, rot, fm[0], fm[1], fm[2], corners) : null;
+    const sloped = src !== null && corners !== null ? slopedLook(src.source, rot, fm[0], fm[1], fm[2], corners, subdivision) : null;
     const look: CellLook =
       sloped !== null
         ? { type: t, variant, rot: 0, single, solid: false, corners, classified: sloped.classified, key: src!.key, source: sloped.source }
@@ -437,18 +528,10 @@ export function meshBlockChunk(grid: BlockGrid, cx: number, cz: number, types: R
     if (!auto) lookCache.set(cacheKey, look);
     return look;
   };
-  const parts = new Map<string, { acc: Accumulator; blockId: string; variant: number; material: number }>();
-  grid.forEachInChunk(chunkKeyOf(cx, cz), (x, y, z, idx) => {
-    const cell: BlockCell = grid.valueOf(idx);
-    if (cell.block === undefined) return;
+  const place = (x: number, y: number, z: number, cell: BlockCell): PlacedCell | null => {
     const look = lookOf(x, y, z);
-    if (look === null || look.source === null || look.key === null) return;
-    const src = look.source;
+    if (look === null || look.source === null || look.key === null) return null;
     const f = rotatedFootprint(look.type, look.rot);
-    // The block origin: the bottom centre of its (turned) footprint.
-    const ox = (x + f[0] / 2) * cs[0]!;
-    const oy = y * cs[1]!;
-    const oz = (z + f[2] / 2) * cs[2]!;
     // Which sides are hidden.
     const hidden = [false, false, false, false, false, false];
     if (look.classified !== null) {
@@ -462,12 +545,67 @@ export function meshBlockChunk(grid: BlockGrid, cx: number, cz: number, types: R
         else if (nb.classified !== null && nb.classified.profile[OPPOSITE[s]!] === look.classified.profile[s]) hidden[s] = true;
       }
     }
-    const rotated = look.classified ?? classifyUnculled(src, look.rot);
+    // The block origin: the bottom centre of its (turned) footprint.
+    return { look, source: look.source, rotated: look.classified ?? classifyUnculled(look.source, look.rot), cell, ox: (x + f[0] / 2) * cs[0]!, oy: y * cs[1]!, oz: (z + f[2] / 2) * cs[2]!, hidden };
+  };
+  // Tops (with a crease angle): each top corner's weld key → its tops' face normals and corner angles, [nx, ny, nz, weight] each.
+  const weld = new Map<string, number[]>();
+  const tops: PendingTop[] = [];
+  const topEps = 1e-4 * Math.max(cs[0]!, cs[1]!, cs[2]!);
+  /** A visible triangle of a placed cell when it is a top (its corners in layer-local metres and its unit face normal), else null. */
+  const topOf = (c: PlacedCell, a: number, b: number, d: number): { p: number[]; n: [number, number, number] } | null => {
+    const r = c.rotated.positions;
+    const p = [r[a * 3]! + c.ox, r[a * 3 + 1]! + c.oy, r[a * 3 + 2]! + c.oz, r[b * 3]! + c.ox, r[b * 3 + 1]! + c.oy, r[b * 3 + 2]! + c.oz, r[d * 3]! + c.ox, r[d * 3 + 1]! + c.oy, r[d * 3 + 2]! + c.oz];
+    const e = [p[3]! - p[0]!, p[4]! - p[1]!, p[5]! - p[2]!];
+    const f = [p[6]! - p[0]!, p[7]! - p[1]!, p[8]! - p[2]!];
+    const nx = e[1]! * f[2]! - e[2]! * f[1]!;
+    const ny = e[2]! * f[0]! - e[0]! * f[2]!;
+    const nz = e[0]! * f[1]! - e[1]! * f[0]!;
+    const len = Math.hypot(nx, ny, nz);
+    if (!(len > 0) || ny / len < 1e-6) return null;
+    // On the block's top surface: the centroid at the top's height there.
+    const mx = (p[0]! + p[3]! + p[6]!) / 3 - c.ox;
+    const my = (p[1]! + p[4]! + p[7]!) / 3 - c.oy;
+    const mz = (p[2]! + p[5]! + p[8]!) / 3 - c.oz;
+    let top: number;
+    if (c.look.corners !== null) top = subdividedHeightAt(c.look.corners, subdivision, Math.min(1, Math.max(0, mx / cs[0]! + 0.5)), Math.min(1, Math.max(0, mz / cs[2]! + 0.5))) * cs[1]!;
+    else {
+      const sample = blockTopAt(c.look.type, c.cell, cs, mx, mz);
+      if (sample === null) return null;
+      top = sample.height;
+    }
+    return Math.abs(my - top) < topEps ? { p, n: [nx / len, ny / len, nz / len] } : null;
+  };
+  /** Count a top's corners in the weld (their angles weight its normal). */
+  const weldTop = (p: readonly number[], n: readonly number[]): [string, string, string] => {
+    const keys: string[] = [];
+    for (let k = 0; k < 3; k++) {
+      const o = k * 3;
+      const a = ((k + 1) % 3) * 3;
+      const b = ((k + 2) % 3) * 3;
+      const ux = p[a]! - p[o]!, uy = p[a + 1]! - p[o + 1]!, uz = p[a + 2]! - p[o + 2]!;
+      const vx = p[b]! - p[o]!, vy = p[b + 1]! - p[o + 1]!, vz = p[b + 2]! - p[o + 2]!;
+      const cos = (ux * vx + uy * vy + uz * vz) / (Math.hypot(ux, uy, uz) * Math.hypot(vx, vy, vz) || 1);
+      const key = weldKey(p[o]!, p[o + 1]!, p[o + 2]!);
+      let list = weld.get(key);
+      if (list === undefined) weld.set(key, (list = []));
+      list.push(n[0]!, n[1]!, n[2]!, Math.acos(Math.min(1, Math.max(-1, cos))));
+      keys.push(key);
+    }
+    return keys as [string, string, string];
+  };
+  const parts = new Map<string, { acc: Accumulator; seen: Map<string, number>; blockId: string; variant: number; material: number }>();
+  grid.forEachInChunk(chunkKeyOf(cx, cz), (x, y, z, idx) => {
+    const cell: BlockCell = grid.valueOf(idx);
+    if (cell.block === undefined) return;
+    const placed = place(x, y, z, cell);
+    if (placed === null) return;
+    const { look, source: src, rotated, ox, oy, oz, hidden } = placed;
     for (const g of src.groups) {
       const key = `${look.key}#${g.material}`;
       let part = parts.get(key);
       if (part === undefined) {
-        part = { acc: new Accumulator(), blockId: look.type.blockId, variant: look.variant, material: g.material };
+        part = { acc: new Accumulator(), seen: new Map(), blockId: look.type.blockId, variant: look.variant, material: g.material };
         parts.set(key, part);
       }
       const acc = part.acc;
@@ -476,6 +614,18 @@ export function meshBlockChunk(grid: BlockGrid, cx: number, cz: number, types: R
         const t = i / 3;
         const s = look.classified !== null ? look.classified.side[t]! : -1;
         if (s >= 0 && hidden[s]) continue;
+        if (smoothing) {
+          const top = topOf(placed, src.indices[i]!, src.indices[i + 1]!, src.indices[i + 2]!);
+          if (top !== null) {
+            const uv: number[] = [];
+            for (let k = 0; k < 3; k++) {
+              const v = src.indices[i + k]!;
+              uv.push(...uvOf(src, rotated, v, top.p[k * 3]!, top.p[k * 3 + 1]!, top.p[k * 3 + 2]!, cs));
+            }
+            tops.push({ part, p: top.p, uv, n: top.n, keys: weldTop(top.p, top.n) });
+            continue;
+          }
+        }
         for (let k = 0; k < 3; k++) {
           const v = src.indices[i + k]!;
           let out = remap.get(v);
@@ -486,32 +636,105 @@ export function meshBlockChunk(grid: BlockGrid, cx: number, cz: number, types: R
             const py = rotated.positions[v * 3 + 1]! + oy;
             const pz = rotated.positions[v * 3 + 2]! + oz;
             acc.positions.push(px, py, pz);
-            const nx = rotated.normals[v * 3]!;
-            const ny = rotated.normals[v * 3 + 1]!;
-            const nz = rotated.normals[v * 3 + 2]!;
-            acc.normals.push(nx, ny, nz);
-            if (src.uvs !== undefined) acc.uvs.push(src.uvs[v * 2]!, src.uvs[v * 2 + 1]!);
-            else {
-              // World-aligned planar UVs (one unit per cell) for the stand-ins.
-              const ax = Math.abs(nx);
-              const ay = Math.abs(ny);
-              const az = Math.abs(nz);
-              if (ay >= ax && ay >= az) acc.uvs.push(px / cs[0]!, pz / cs[2]!);
-              else if (ax >= az) acc.uvs.push(pz / cs[2]!, py / cs[1]!);
-              else acc.uvs.push(px / cs[0]!, py / cs[1]!);
-            }
+            acc.normals.push(rotated.normals[v * 3]!, rotated.normals[v * 3 + 1]!, rotated.normals[v * 3 + 2]!);
+            acc.uvs.push(...uvOf(src, rotated, v, px, py, pz, cs));
           }
           acc.indices.push(out);
         }
       }
     }
   });
+  if (smoothing && tops.length > 0) {
+    // The tops of the columns around the chunk, so a point on the chunk's edge averages the same tops either side.
+    const x0 = cx * CHUNK_SIZE;
+    const z0 = cz * CHUNK_SIZE;
+    const ring = (x: number, z: number): void =>
+      grid.forEachInColumn(x, z, (y, idx) => {
+        const cell = grid.valueOf(idx);
+        if (cell.block === undefined) return;
+        const placed = place(x, y, z, cell);
+        if (placed === null) return;
+        const { look, source: src } = placed;
+        for (const g of src.groups) {
+          for (let i = g.start; i < g.start + g.count; i += 3) {
+            const s = look.classified !== null ? look.classified.side[i / 3]! : -1;
+            if (s >= 0 && placed.hidden[s]) continue;
+            const top = topOf(placed, src.indices[i]!, src.indices[i + 1]!, src.indices[i + 2]!);
+            if (top !== null) weldTop(top.p, top.n);
+          }
+        }
+      });
+    for (let x = x0 - 1; x <= x0 + CHUNK_SIZE; x++) {
+      ring(x, z0 - 1);
+      ring(x, z0 + CHUNK_SIZE);
+    }
+    for (let z = z0; z < z0 + CHUNK_SIZE; z++) {
+      ring(x0 - 1, z);
+      ring(x0 + CHUNK_SIZE, z);
+    }
+    const cosAngle = Math.cos((Math.min(180, smoothAngle) * Math.PI) / 180) - 1e-9;
+    // Each point's tops in one order (whichever chunk sums them), so both chunks of an edge get the very same normal.
+    const sorted = new Set<string>();
+    const contributions = (key: string): number[] => {
+      const list = weld.get(key)!;
+      if (!sorted.has(key)) {
+        const entries: number[][] = [];
+        for (let i = 0; i < list.length; i += 4) entries.push(list.slice(i, i + 4));
+        entries.sort((a, b) => a[0]! - b[0]! || a[1]! - b[1]! || a[2]! - b[2]! || a[3]! - b[3]!);
+        list.length = 0;
+        for (const e of entries) list.push(...e);
+        sorted.add(key);
+      }
+      return list;
+    };
+    for (const t of tops) {
+      const { acc, seen } = t.part;
+      for (let k = 0; k < 3; k++) {
+        const list = contributions(t.keys[k]!);
+        let sx = 0;
+        let sy = 0;
+        let sz = 0;
+        for (let i = 0; i < list.length; i += 4) {
+          if (list[i]! * t.n[0] + list[i + 1]! * t.n[1] + list[i + 2]! * t.n[2] < cosAngle) continue;
+          sx += list[i]! * list[i + 3]!;
+          sy += list[i + 1]! * list[i + 3]!;
+          sz += list[i + 2]! * list[i + 3]!;
+        }
+        const len = Math.hypot(sx, sy, sz);
+        const n = len > 1e-12 ? [sx / len, sy / len, sz / len] : t.n;
+        const u = t.uv[k * 2]!;
+        const v = t.uv[k * 2 + 1]!;
+        // Corners that land on the same point with the same normal and uv share one vertex.
+        const id = `${t.keys[k]}|${Math.round(n[0]! * 1e6)},${Math.round(n[1]! * 1e6)},${Math.round(n[2]! * 1e6)}|${Math.round(u * 1e5)},${Math.round(v * 1e5)}`;
+        let out = seen.get(id);
+        if (out === undefined) {
+          out = acc.positions.length / 3;
+          seen.set(id, out);
+          acc.positions.push(t.p[k * 3]!, t.p[k * 3 + 1]!, t.p[k * 3 + 2]!);
+          acc.normals.push(n[0]!, n[1]!, n[2]!);
+          acc.uvs.push(u, v);
+        }
+        acc.indices.push(out);
+      }
+    }
+  }
   const out: ChunkMeshPart[] = [];
   for (const [key, p] of [...parts.entries()].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) {
     if (p.acc.indices.length === 0) continue;
     out.push({ key, blockId: p.blockId, variant: p.variant, material: p.material, positions: new Float32Array(p.acc.positions), normals: new Float32Array(p.acc.normals), uvs: new Float32Array(p.acc.uvs), indices: new Uint32Array(p.acc.indices) });
   }
   return out;
+}
+
+/** A vertex's uv: the look's own, or (a stand-in) world-aligned planar uvs, one unit per cell, on the plane its normal faces most. */
+function uvOf(src: BlockMeshSource, rotated: Classified, v: number, px: number, py: number, pz: number, cs: readonly number[]): [number, number] {
+  if (src.uvs !== undefined) return [src.uvs[v * 2]!, src.uvs[v * 2 + 1]!];
+  const ax = Math.abs(rotated.normals[v * 3]!);
+  const ay = Math.abs(rotated.normals[v * 3 + 1]!);
+  const az = Math.abs(rotated.normals[v * 3 + 2]!);
+  if (ay >= ax && ay >= az) return [px / cs[0]!, pz / cs[2]!];
+  if (ax >= az) return [pz / cs[2]!, py / cs[1]!];
+  return [px / cs[0]!, py / cs[1]!];
 }
 
 const unculledCache = new WeakMap<BlockMeshSource, Map<number, Classified>>();

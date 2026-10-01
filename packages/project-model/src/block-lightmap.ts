@@ -76,8 +76,13 @@ const PLANE: readonly (readonly [number, number])[] = [
  * same planar projection, so a face of the coarse level reads the texels of
  * the detailed faces at its place (a face whose cell and facing the detailed
  * level lacks takes a slot of the same cell, else the first).
+ *
+ * `shading` names how the chunk was meshed when that changes what a bake sees
+ * without moving a face (smoothed normals): it goes into the digest, so a bake
+ * made before such a change no longer matches the chunk. Absent: the digest
+ * is the faces' alone, as it always was.
  */
-export function chunkLightmapLayout(parts: readonly ChunkMeshPart[], cellSize: readonly number[], reference?: ChunkLightmapLayout): ChunkLightmapLayout {
+export function chunkLightmapLayout(parts: readonly ChunkMeshPart[], cellSize: readonly number[], reference?: ChunkLightmapLayout, shading?: string): ChunkLightmapLayout {
   const slots = new Map<string, Slot>();
   const triSlot: Slot[][] = [];
   let area = 0;
@@ -124,7 +129,7 @@ export function chunkLightmapLayout(parts: readonly ChunkMeshPart[], cellSize: r
   ordered.forEach((s, i) => (s.index = i));
   const side = reference?.side ?? Math.max(1, Math.ceil(Math.sqrt(ordered.length)));
   const round = (x: number): number => Math.round(x * 1e4);
-  const layout = reference?.layout ?? digest(`${side}|${ordered.map((s) => `${s.key}:${round(s.minU)},${round(s.minV)},${round(s.maxU)},${round(s.maxV)}`).join(';')}`);
+  const layout = reference?.layout ?? digest(`${shading !== undefined && shading !== '' ? `${shading}|` : ''}${side}|${ordered.map((s) => `${s.key}:${round(s.minU)},${round(s.minV)},${round(s.maxU)},${round(s.maxV)}`).join(';')}`);
   const out = parts.map((part, pi) => {
     const positions: number[] = [];
     const normals: number[] = [];

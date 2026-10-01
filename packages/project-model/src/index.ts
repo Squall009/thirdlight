@@ -949,6 +949,8 @@ export {
   BLOCK_CORNER_MAX,
   BLOCK_LAYER_FIELDS,
   BLOCK_MAX_SLOPE_RANGE,
+  BLOCK_SMOOTH_ANGLE_RANGE,
+  BLOCK_TOP_SUBDIVISIONS,
   validateBlockCell,
   validateBlockLayerComponent,
   validateBlockRegion,
@@ -1002,12 +1004,14 @@ export {
 } from './block-grid';
 export {
   COLLISION_PIECE_LIMITS,
+  blockTopOptions,
   chunkOfCell,
   collisionMeshChunk,
   meshBlockChunk,
   shapeSource,
   type BlockLookResolver,
   type BlockMeshSource,
+  type BlockTopOptions,
   type ChunkMeshPart,
   type CollisionMeshPiece,
 } from './block-mesh';
@@ -1023,6 +1027,8 @@ export {
   cornerGradientAt,
   cornerHeightAt,
   rotateXZ,
+  subdividedGradientAt,
+  subdividedHeightAt,
   surfaceBelow,
   type BlockTopSample,
   type CellCorners,

@@ -220,6 +220,10 @@ export class BlockGrid {
     if (lx === CHUNK_SIZE - 1) this.meshDirty.add(chunkKeyOf(cx + 1, cz));
     if (lz === 0) this.meshDirty.add(chunkKeyOf(cx, cz - 1));
     if (lz === CHUNK_SIZE - 1) this.meshDirty.add(chunkKeyOf(cx, cz + 1));
+    // A corner cell touches the diagonal chunk's corner vertex (smoothed tops average across it).
+    const ex = lx === 0 ? -1 : lx === CHUNK_SIZE - 1 ? 1 : 0;
+    const ez = lz === 0 ? -1 : lz === CHUNK_SIZE - 1 ? 1 : 0;
+    if (ex !== 0 && ez !== 0) this.meshDirty.add(chunkKeyOf(cx + ex, cz + ez));
     return true;
   }
 
@@ -319,6 +323,13 @@ export class BlockGrid {
       const z = cz * CHUNK_SIZE + Math.floor(ci / CHUNK_SIZE);
       for (let i = 0; i < col.data.length; i++) if (col.data[i]! >= 0) cb(x, col.y0 + i, z, col.data[i]!);
     }
+  }
+
+  /** Every stored cell of one column (y ascending); nothing for a column outside the stored chunks. */
+  forEachInColumn(x: number, z: number, cb: (y: number, index: number) => void): void {
+    const col = this.column(x, z, false);
+    if (col === undefined) return;
+    for (let i = 0; i < col.data.length; i++) if (col.data[i]! >= 0) cb(col.y0 + i, col.data[i]!);
   }
 
   /** The chunk keys holding cells, sorted (cz, cx). */

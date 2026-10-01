@@ -113,6 +113,15 @@ export interface BlockLayerComponent {
    * `max_slope_climb_deg`).
    */
   maxSlope?: number;
+  /**
+   * Degrees: the crease angle of the layer's tops. Tops that meet at the same
+   * height share smoothed vertex normals (across cells and chunk edges) where
+   * they meet at less than this angle; sharper edges stay hard (absent or 0:
+   * flat-shaded tops; stored only when above 0).
+   */
+  smoothAngle?: number;
+  /** How finely sloped tops are cut, one of `BLOCK_TOP_SUBDIVISIONS` (absent: 1; stored only when above 1). */
+  topSubdivision?: number;
 }
 
 export type BlockShape = 'full' | 'half' | 'ramp' | 'stairs' | 'custom' | 'none';
@@ -229,6 +238,18 @@ export const BLOCK_CORNER_MAX = 4;
 
 /** The steepest and flattest `maxSlope` a layer may set (degrees). */
 export const BLOCK_MAX_SLOPE_RANGE = Object.freeze({ min: 1, max: 89 });
+/**
+ * A layer's crease angle (`smoothAngle`, degrees): 0 keeps every top
+ * flat-shaded (the default), 180 smooths across any edge where tops meet.
+ */
+export const BLOCK_SMOOTH_ANGLE_RANGE = Object.freeze({ min: 0, max: 180 });
+/**
+ * How finely a sloped top is cut (`topSubdivision`): 1 is the corners' two
+ * planar triangles; 2 cuts it 2 × 2 with the inner heights blended from the
+ * corners, so a hill reads as rolling ground instead of diamonds. The
+ * collision shape stays the corners' two triangles either way.
+ */
+export const BLOCK_TOP_SUBDIVISIONS: readonly number[] = Object.freeze([1, 2]);
 export const CELL_FIELD_KEY_RE = /^[A-Za-z_][A-Za-z0-9_]{0,31}$/;
 export const REGION_ID_RE = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/;
 const COLOR_RE = /^#[0-9a-f]{6}$/;
@@ -689,7 +710,7 @@ export function canonicalBlockStamps(list: readonly BlockStamp[]): BlockStamp[] 
 export const BLOCK_LAYER_DEFAULT: BlockLayerComponent = Object.freeze({ cellSize: [1, 1, 1], bounds: { min: [0, 0, 0], max: [64, 16, 64] } }) as BlockLayerComponent;
 
 /** The stored fields of the `blockLayer` component, in canonical order. */
-export const BLOCK_LAYER_FIELDS = ['cellSize', 'bounds', 'metadataOnly', 'collision', 'castShadow', 'receiveShadow', 'maxSlope'] as const;
+export const BLOCK_LAYER_FIELDS = ['cellSize', 'bounds', 'metadataOnly', 'collision', 'castShadow', 'receiveShadow', 'maxSlope', 'smoothAngle', 'topSubdivision'] as const;
 
 export function validateBlockLayerComponent(v: unknown, path: string, errors: ModelErrorV2[]): void {
   if (!isPlainObject(v)) return err(errors, 'field_type', path, 'blockLayer is an object', v, 'object');
@@ -719,6 +740,10 @@ export function validateBlockLayerComponent(v: unknown, path: string, errors: Mo
   for (const k of ['metadataOnly', 'collision', 'castShadow', 'receiveShadow']) if (v[k] !== undefined && typeof v[k] !== 'boolean') err(errors, 'field_type', `${path}/${k}`, `${k} is a boolean`, v[k], 'boolean');
   const ms = v['maxSlope'];
   if (ms !== undefined && (!finite(ms) || ms < BLOCK_MAX_SLOPE_RANGE.min || ms > BLOCK_MAX_SLOPE_RANGE.max)) err(errors, 'field_value', `${path}/maxSlope`, `maxSlope is degrees in ${BLOCK_MAX_SLOPE_RANGE.min}-${BLOCK_MAX_SLOPE_RANGE.max}`, ms);
+  const sa = v['smoothAngle'];
+  if (sa !== undefined && (!finite(sa) || sa < BLOCK_SMOOTH_ANGLE_RANGE.min || sa > BLOCK_SMOOTH_ANGLE_RANGE.max)) err(errors, 'field_value', `${path}/smoothAngle`, `smoothAngle is degrees in ${BLOCK_SMOOTH_ANGLE_RANGE.min}-${BLOCK_SMOOTH_ANGLE_RANGE.max} (0: flat-shaded tops)`, sa);
+  const ts = v['topSubdivision'];
+  if (ts !== undefined && !BLOCK_TOP_SUBDIVISIONS.includes(ts as number)) err(errors, 'field_value', `${path}/topSubdivision`, `topSubdivision is one of ${BLOCK_TOP_SUBDIVISIONS.join(', ')}`, ts);
 }
 
 export function canonicalBlockLayerComponent(c: BlockLayerComponent): BlockLayerComponent {
@@ -730,6 +755,8 @@ export function canonicalBlockLayerComponent(c: BlockLayerComponent): BlockLayer
     ...(c.castShadow === false ? { castShadow: false as const } : {}),
     ...(c.receiveShadow === false ? { receiveShadow: false as const } : {}),
     ...(c.maxSlope !== undefined ? { maxSlope: canonNum(c.maxSlope) } : {}),
+    ...(c.smoothAngle !== undefined && c.smoothAngle > 0 ? { smoothAngle: canonNum(c.smoothAngle) } : {}),
+    ...(c.topSubdivision !== undefined && c.topSubdivision > 1 ? { topSubdivision: c.topSubdivision } : {}),
   };
 }
 
