@@ -690,7 +690,9 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       'all go to an explicitly presented play ' +
       'session. expectedRunId is an optional optimistic guard (<snapshotId>#<replayEpoch>); a mismatch is refused ' +
       'with game_run_stale and no command is applied. The result is the preview\'s exact accepted result (identity ' +
-      'tuple + play state running|paused); replay restarts the game; with no connected/presenting browser the contracted session_unavailable is returned - ' +
+      'tuple + play state running|paused); replay restarts the game and answers once the restart is applied: runId is then the new run ' +
+      '(<snapshotId>#<replayEpoch>, the epoch counting the restarts of this play, a script\'s too) and restart {state: applied, atStep (the step the new run began at)}; ' +
+      'when the game takes no step in time (paused, held by the debugger, a busy page) it answers restart {state: pending} with the runId the restarted run will have - the restart still applies at the next step (tl_game_observe runId shows it); with no connected/presenting browser the contracted session_unavailable is returned - ' +
       'never a fabricated success. Body <= 4 KiB; no gameplay simulation, no eval.',
     inputSchema: {
       type: 'object',

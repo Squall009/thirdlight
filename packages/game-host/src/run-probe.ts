@@ -86,3 +86,19 @@ export class RunProbe {
     this.rt.setStepObserver?.(null);
   }
 }
+
+/** The simulation's run and step (a cheap read: no digest). */
+export interface RunNow {
+  readonly run: number;
+  /** The step count the run began at (0, or the boundary of its restart). */
+  readonly startStep: number;
+  readonly stepIndex: number;
+}
+
+/** `RunNow` of a runtime (null before it can say). */
+export function runNowOf(rt: Runtime): RunNow | null {
+  const d = rt.getDiagnostics();
+  const start = rt.runStart?.();
+  if (!d.ok || start === undefined) return null;
+  return { run: start.run ?? 0, startStep: start.step, stepIndex: d.diagnostics.stepIndex };
+}

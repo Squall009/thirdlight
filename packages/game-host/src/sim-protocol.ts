@@ -123,7 +123,9 @@ export type SimQuery =
   | { readonly op: 'debug.control'; readonly command: 'debugPause' | 'debugResume' | 'debugStep' }
   | { readonly op: 'debug.observation' }
   /** The run digest now and after the last exercise. */
-  | { readonly op: 'runDigests' };
+  | { readonly op: 'runDigests' }
+  /** Which run the simulation is in, and its step. */
+  | { readonly op: 'runNow' };
 
 export type MainToWorker =
   | SimInitMessage

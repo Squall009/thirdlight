@@ -10,7 +10,7 @@ import type { ActionFrame, Runtime } from '@thirdlight/runtime';
 import { PlayDebugger, type DebugRequest } from './play-debug';
 import type { RelayActionSource, RelayEffect, RelayTestFrame } from './relay-input';
 import { hitUiTargets, type UiHitTarget } from './ui-hit';
-import { RunProbe, type RunDigests } from './run-probe';
+import { RunProbe, runNowOf, type RunDigests, type RunNow } from './run-probe';
 import type { ThreadingMode } from './threading';
 
 export interface SimRay {
@@ -37,6 +37,8 @@ export interface SimAccess {
   beginInputTest(frames: readonly RelayTestFrame[], onComplete: (from: number, to: number) => void, options?: { readonly restart?: boolean; readonly hold?: boolean }): boolean;
   /** The run digest now and after the last exercise's last step (null: nothing to observe). */
   runDigests(): Promise<RunDigests | null>;
+  /** Which run the simulation is in (0: the one the play started with; one more per restart applied) and its step now. */
+  runNow(): Promise<RunNow | null>;
   readonly inputTestActive: boolean;
   /**
    * The page's UI for the input exercise — its hit targets (a
@@ -100,6 +102,7 @@ export function createLocalSimAccess(opts: { runtime: Runtime; relay?: RelayActi
       );
     },
     runDigests: () => Promise.resolve(probe.read()),
+    runNow: () => Promise.resolve(runNowOf(rt)),
     get inputTestActive() {
       return opts.relay?.testActive === true;
     },

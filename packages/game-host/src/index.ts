@@ -147,7 +147,7 @@ export { PHYSICS_MEMORY_CAP_BYTES, TRANSFORM_STRIDE, type FrameState, type SimEn
 export { resolveThreadingMode, resolveTransport, threadingFromUrl, threadingLogLine, SIM_THREAD_SETTING_VALUES, THREADS_URL_PARAM, type SimTransport, type ThreadingMode } from './threading';
 export { TickInputSource, continueFrame, mergePhase } from './tick-input';
 export { runDigest, stepDigest } from './step-digest';
-export { RunProbe, type InputRunDigest, type RunDigestNow, type RunDigests } from './run-probe';
+export { RunProbe, runNowOf, type InputRunDigest, type RunDigestNow, type RunDigests, type RunNow } from './run-probe';
 // The verified asset reader (start-scene assets first, bounded parallel; the rest on demand).
 export { AssetReadError, ASSET_READS_IN_FLIGHT, createVerifiedAssetReader, startSceneAssets, mipPartsOf, type AssetReaderIo, type MipPartRow, type AssetRowSource, type DeclaredAssetRow, type StartAssetSources, type VerifiedAssetReader } from './asset-reader';
 // Where a game page's start time goes (stages, first frame, slow frames, scene loads).

@@ -32,12 +32,13 @@ import { summarize, type Summary } from './stats';
 import { measureEditorAtScale, type EditorScaleReport } from './scale-editor';
 import { measureProjectWindowAtScale, type ProjectWindowScaleReport } from './scale-project';
 
-export type ScaleStep = 'files' | 'open' | 'commands' | 'editor' | 'import' | 'play' | 'walk' | 'handles' | 'dialogue' | 'stream' | 'export';
+export type ScaleStep = 'files' | 'open' | 'commands' | 'editor' | 'import' | 'play' | 'walk' | 'handles' | 'dialogue' | 'stream' | 'replay' | 'export';
 /**
- * Every step; `import` (a folder of new files imported in one command) and `stream` (large KTX2 textures
- * streamed past the camera under a small texture budget) run only when asked for.
+ * Every step; `import` (a folder of new files imported in one command), `stream` (large KTX2 textures
+ * streamed past the camera under a small texture budget) and `replay` (the run restarted with scenes
+ * loaded) run only when asked for.
  */
-export const SCALE_STEPS: readonly ScaleStep[] = ['files', 'open', 'commands', 'editor', 'import', 'play', 'walk', 'handles', 'dialogue', 'stream', 'export'];
+export const SCALE_STEPS: readonly ScaleStep[] = ['files', 'open', 'commands', 'editor', 'import', 'play', 'walk', 'handles', 'dialogue', 'stream', 'replay', 'export'];
 export const SCALE_DEFAULT_STEPS: readonly ScaleStep[] = ['files', 'open', 'commands', 'editor', 'play', 'walk', 'handles', 'dialogue', 'export'];
 
 export interface ScaleBenchOptions {
@@ -59,6 +60,11 @@ export interface ScaleBenchOptions {
   /** The `stream` step: large KTX2 textures (2048²) imported, and the texture budget (MiB) Play runs with. */
   streamTextures?: number;
   streamBudgetMb?: number;
+  /** The `replay` step: restarts asked for, and the on-demand scenes loaded before each (the restart unloads them). */
+  replays?: number;
+  replayScenes?: number;
+  /** Where Play runs the simulation (the project's `sim_thread`; absent: the project's setting). */
+  threads?: 'worker' | 'single';
   steps: ScaleStep[];
   /**
    * Play after the open has settled: the editor's connect-time file check
@@ -177,6 +183,18 @@ export interface ScaleReport {
     /** Encoding and importing the textures (before Play), and the backend's resident set before and after it. */
     importMs: number;
     importBackendRssMiB: { before: number | null; after: number | null };
+  };
+  /**
+   * The run restarted (`replay` through the control relay) with on-demand scenes loaded, which the restart
+   * unloads: each call's answer (time, HTTP status, the answer's state or error code) and the time until the
+   * observation shows the new run (its run step counting from the restart, the loaded scenes gone).
+   */
+  replay?: {
+    threads: string | null;
+    scenesLoaded: number;
+    answerMs: Summary;
+    appliedMs: Summary;
+    answers: { status: number; ms: number; code?: string; state?: string; runId?: string; appliedMs: number | null }[];
   };
   /**
    * The export request (its time, the backend's resident set before it and its peak while it ran, sampled every
@@ -300,12 +318,13 @@ export class ScaleBench {
       if (want('editor')) await this.attempt('editor', () => this.measureEditor());
       if (want('import')) await this.attempt('import', () => this.measureFolderImport());
       if (want('stream')) await this.attempt('stream', () => this.setUpStreaming());
-      const needPlay = want('play') || want('walk') || want('handles') || want('dialogue') || want('stream');
+      const needPlay = want('play') || want('walk') || want('handles') || want('dialogue') || want('stream') || want('replay');
       if (needPlay && (await this.attempt('play', () => this.measurePlayStart()))) {
         if (want('walk')) await this.attempt('walk', () => this.walkScenes());
         if (want('handles')) await this.attempt('handles', () => this.loadByLabel());
         if (want('dialogue')) await this.attempt('dialogue', () => this.playDialogue());
         if (want('stream') && this.streamSetup !== null) await this.attempt('stream', () => this.streamPastCamera());
+        if (want('replay')) await this.attempt('replay', () => this.replayRuns());
         await this.stopPlay();
       }
       if (want('export')) await this.attempt('export', () => this.measureExport());
@@ -536,7 +555,8 @@ export class ScaleBench {
 
   /** Play from the editor's button to the first frame, split into its stages. */
   private async measurePlayStart(): Promise<void> {
-    if (this.opts.generated !== undefined && (this.opts.steps.includes('dialogue') || this.opts.steps.includes('handles') || this.opts.steps.includes('stream'))) await this.installDriver();
+    if (this.opts.generated !== undefined && (this.opts.steps.includes('dialogue') || this.opts.steps.includes('handles') || this.opts.steps.includes('stream') || this.opts.steps.includes('replay'))) await this.installDriver();
+    if (this.opts.threads !== undefined) await this.backend.project(this.opts.projectId).command('setSettings', { settings: { sim_thread: this.opts.threads === 'worker' ? 1 : 2 } });
     const page = this.page!;
     if (this.opts.settleMs !== undefined) {
       await this.connectCheck;
@@ -843,6 +863,44 @@ export class ScaleBench {
       importMs: setup.importMs,
       importBackendRssMiB: setup.rss,
     };
+  }
+
+  /** Restart the run with scenes loaded: each answer, and when the observation shows the new run. */
+  private async replayRuns(): Promise<void> {
+    const psid = this.play!.psid;
+    const ids = (this.opts.generated?.sceneIds ?? []).slice(1, 1 + (this.opts.replayScenes ?? 10));
+    const n = this.opts.replays ?? 10;
+    const answers: NonNullable<ScaleReport['replay']>['answers'] = [];
+    let threads: string | null = null;
+    for (let i = 0; i < n; i += 1) {
+      for (const id of ids) {
+        const r = await this.relay(`${psid}/control`, { command: 'loadScene', sceneId: id });
+        if (r.status !== 200) throw new Error(`loadScene ${id} refused: ${JSON.stringify(r.json).slice(0, 300)}`);
+      }
+      await this.until((o) => ids.every((id) => o?.scenes?.loaded?.includes(id) === true), 300_000, 'the scenes to load before the replay');
+      const before = (await this.observe()) as (Obs & { run?: { runStep: number }; stepIndex?: number; simulation?: { mode?: string } }) | null;
+      threads = before?.simulation?.mode ?? threads;
+      const t0 = performance.now();
+      const r = await this.relay(`${psid}/control`, { command: 'replay' });
+      const ms = Math.round(performance.now() - t0);
+      const err = r.json['error'] as { code?: string } | undefined;
+      const answer: (typeof answers)[number] = { status: r.status, ms, appliedMs: null, ...(err?.code !== undefined ? { code: err.code } : {}), ...(typeof r.json['state'] === 'string' ? { state: r.json['state'] } : {}), ...(typeof r.json['runId'] === 'string' ? { runId: r.json['runId'] } : {}) };
+      // The new run: its steps count from the restart (below the steps since the old run's start) and the loaded scenes are gone.
+      this.opts.log(`scale: replay ${i + 1}/${n} answered: ${JSON.stringify(answer)} (before: step ${String(before?.stepIndex)}, run step ${String(before?.run?.runStep)})`);
+      const since = (before?.run?.runStep ?? 0) + 1;
+      let last: unknown = null;
+      await this.until((o) => {
+        const run = (o as { run?: { runStep: number } } | null)?.run;
+        last = { stepIndex: (o as { stepIndex?: number } | null)?.stepIndex, run, loaded: o?.scenes?.loaded?.length, state: o?.state };
+        return run !== undefined && run.runStep < since && ids.every((id) => o?.scenes?.loaded?.includes(id) !== true);
+      }, 60_000, 'the restarted run').catch((e: Error) => {
+        throw new Error(`${e.message} (answer ${JSON.stringify(answer)}; last observation ${JSON.stringify(last)})`);
+      });
+      answer.appliedMs = Math.round(performance.now() - t0);
+      answers.push(answer);
+      this.opts.log(`scale: replay ${i + 1}/${n}: ${JSON.stringify(answer)}`);
+    }
+    this.report.replay = { threads, scenesLoaded: ids.length, answerMs: summarize(answers.map((a) => a.ms)), appliedMs: summarize(answers.flatMap((a) => (a.appliedMs === null ? [] : [a.appliedMs]))), answers };
   }
 
   private async stopPlay(): Promise<void> {

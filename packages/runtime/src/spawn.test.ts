@@ -340,8 +340,8 @@ describe('spawn: the runtime (ctx.spawn / ctx.destroy)', () => {
     a.h.tick(20);
     expect(a.ids[firstAfter]).toBe(`spawn-${firstAfter + 1}`);
     // The run began at the restart's boundary, after the copies numbered so far (tools name a run's copies from there).
-    expect(a.h.rt.runStart!()).toEqual({ step: boundary, spawnBase: firstAfter });
-    expect(b.h.rt.runStart!()).toEqual({ step: 0, spawnBase: 0 });
+    expect(a.h.rt.runStart!()).toEqual({ step: boundary, spawnBase: firstAfter, run: 1 });
+    expect(b.h.rt.runStart!()).toEqual({ step: 0, spawnBase: 0, run: 0 });
   });
 });
 

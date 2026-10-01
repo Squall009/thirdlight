@@ -43,7 +43,7 @@ import { FrameMirror } from './sim-state';
 import { TRANSFORM_STRIDE, type FrameState, type MainToWorker, type SceneEntities, type SimCommand, type SimInitMessage, type SimQuery, type SimWorkerHandle, type WorkerToMain } from './sim-protocol';
 import type { RelayPage, SimAccess } from './sim-access';
 import type { UiHitTarget } from './ui-hit';
-import type { RunDigests } from './run-probe';
+import type { RunDigests, RunNow } from './run-probe';
 
 export interface RemoteSimulationOptions {
   readonly worker: SimWorkerHandle;
@@ -560,6 +560,7 @@ export function startRemoteSimulation(opts: RemoteSimulationOptions): Promise<Re
       return relayActive;
     },
     runDigests: async () => ((await ask({ op: 'runDigests' })) as RunDigests | null) ?? null,
+    runNow: async () => ((await ask({ op: 'runNow' })) as RunNow | null) ?? null,
     relayIdle: () => {
       if (relayActive) post({ t: 'relay.idle' });
     },

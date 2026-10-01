@@ -716,6 +716,14 @@ as `relay_failed` with the preview's code in `cause` (`screenshot_failed`,
 1 MiB bound is captured again at a smaller width; the reply's `width` says
 which. It works the same on the WebGPU and WebGL 2 renderers.
 
+`tl_game_control` `replay` answers once the restart is applied: `runId` is
+the new run (`<snapshotId>#<run>`, the run counting every restart of the
+play) and `restart {state: "applied", atStep}`. When the game takes no step
+within half the relay's timeout (paused, held by the debugger, a
+busy page), it answers `restart {state: "pending"}` with the run id the
+restart will have; the restart still applies at the next step, and
+`tl_game_observe`'s `runId` shows it.
+
 A play that has ended says why. `tl_game_observe`, `tl_diagnostics`,
 `tl_game_control`, `tl_screenshot`, `tl_input_exercise` and `tl_play_stop`
 on it answer `play_not_found` with `ended {reason, presented, at, detail?}`

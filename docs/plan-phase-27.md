@@ -297,7 +297,8 @@ moves at least as many lines out as it adds.
 | 27.2 | done 2026-10-01: signals, trigger events, script messages (and the primitives' events) turn over every step whatever the mode's physics; the 2D step without scripts too (D96, D97); Play diagnostics carry `runtime.messageQueue` (refused sends with a warning) and an `audio` block (unlock state, what plays by bus, started, skipped by why, late, notes), read over HTTP and MCP before and after the unlock in a real browser |
 | 27.3 | done 2026-10-01: missing asset files are listed in Problems at open and after each file check (path, asset, who uses it; paged, one log line per change; `GET problems/missing-files`, MCP `tl_diagnostics`); a Play or export refusal names every missing file (`missingFiles`); Play stands placeholders in (magenta box, checker texture, silence) for missing files no start scene draws and lists them in its result (`placeholders`); the Play button's refusal shows its reason (D98, D99) |
 | 27.4 | done 2026-10-01: every file check (the editor's, before Play, before export) reports its re-imports: a Problems line per asset (`asset_reimported`, file, asset, version, old → new digest) and the Play start result's `check` (the check's report; `reimported` carries `reason`, `oldDigest`, `newDigest`); e2e over HTTP, MCP and the Problems tab (D100) |
-| 27.5–27.17 | — |
+| 27.5 | done 2026-10-01: E49's timeout not reproduced (scale bench at full, 20 and 150 scenes loaded, worker and single thread: answers in ≤ 0.1 s / ≤ 0.55 s); a replay now answers once the new run began (`restart {applied, atStep}`, run id `<snapshot>#<run>`) or `pending` with the run id it will have when no step comes in time; observations carry the current run id; a game without scripts applies a restart at all (D101, D102); bench step `replay` (`--threads`, `--replays`, `--replay-scenes`) |
+| 27.6–27.17 | — |
 
 ## 6. Decision log
 
@@ -434,3 +435,17 @@ moves at least as many lines out as it adds.
   material map, clips and streaming do not apply to them). The list pages with
   the asset list's bounds (50 / 128); the Problems log gets one line when the
   list changes, and "no files missing" when it empties.
+- 2026-10-01 (27.5): E49 was reproduced on the scale bench, not on a copy
+  of Skyforge; the timeout did not appear (D101 has the numbers), so the
+  item answers when the restart is applied without claiming Skyforge's
+  cause. A replay's answer waits for the new run up to the relay timeout less
+  a margin (half of it: `replayAnswerWithinMs`, protocol; the backend sends
+  it with the request), then answers `pending`. A first margin of 2 s timed
+  out under a loaded fast gate (3 workers): the way back through the editor
+  page took longer. The run id's
+  epoch is the runtime's run count (every restart: the control, the pause
+  panel, a script's `ctx.lifecycle.restart`, an input exercise's restart),
+  so the backend's last-known run and `expectedRunId` follow it. Two replays
+  queued before a step make one restart (the pending answers name the same
+  run). A replay does not lift the engine pause (as before; the pause
+  panel's restart does) — a paused game answers pending until it runs.

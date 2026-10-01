@@ -22,7 +22,7 @@ import { createRecordedActionSource, type ActionSource, type PhysicsPort, type P
 import { composeGameRuntime, linkBehaviorModules } from './host';
 import { PlayDebugger, type DebugRequest, type DebugRuntime } from './play-debug';
 import { RelayActionSource } from './relay-input';
-import { RunProbe } from './run-probe';
+import { RunProbe, runNowOf } from './run-probe';
 import { hitUiTargets, type UiHitTarget } from './ui-hit';
 import { FrameEncoder } from './sim-state';
 import { PHYSICS_MEMORY_CAP_BYTES, type MainToWorker, type SimCommand, type SimEndpoint, type SimInitMessage, type SimQuery, type WorkerToMain } from './sim-protocol';
@@ -288,6 +288,8 @@ export function runSimWorker(endpoint: SimEndpoint, deps: SimWorkerDeps): void {
         return (debug ?? (rt.debugHeld === true ? debuggerOf() : null))?.observation() ?? null;
       case 'runDigests':
         return probe?.read() ?? null;
+      case 'runNow':
+        return runNowOf(rt);
     }
   };
 

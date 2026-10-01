@@ -539,6 +539,21 @@ export const GAME_CONTROL_BODY_MAX_BYTES = 4_096;
 export const GAME_OBSERVE_BODY_MAX_BYTES = 4_096;
 export const GAME_CONTROL_RESULT_MAX_BYTES = 4_096;
 export const GAME_OBSERVATION_MAX_BYTES = 16_384;
+/**
+ * How long the preview may wait for a replay's restart to be applied before
+ * it answers that the restart is still pending: half the relay's timeout,
+ * the other half left for the request's and the answer's way through the
+ * editor page (a loaded page delays both by seconds), so a slow restart
+ * answers "pending" instead of timing the relay out.
+ */
+export function replayAnswerWithinMs(relayTimeoutMs: number): number {
+  return Math.max(0, Math.floor(relayTimeoutMs / 2));
+}
+/** The answer's bound on `answerWithinMs` (a relay never waits longer). */
+export const REPLAY_ANSWER_WITHIN_MAX_MS = 60_000;
+/** A replay's restart in its answer: applied (at the step the new run began) or still pending. */
+export const REPLAY_RESTART_STATES = ['applied', 'pending'] as const;
+
 /** Observe timeout: 250–15 000 ms, default 5 000. */
 export const GAME_OBSERVE_TIMEOUT_MIN_MS = 250;
 export const GAME_OBSERVE_TIMEOUT_MAX_MS = 15_000;
@@ -730,6 +745,15 @@ export function validateGameControlResult(value: unknown): FieldErrorResult {
   }
   if (value.inputMode !== 'physical' && value.inputMode !== 'test') {
     return fieldError('field_value', '/inputMode', 'inputMode must be "physical" or "test"');
+  }
+  if (value.restart !== undefined) {
+    const r = value.restart;
+    if (!isPlainObject(r) || !(REPLAY_RESTART_STATES as readonly unknown[]).includes(r.state)) {
+      return fieldError('field_value', '/restart/state', `restart.state must be one of ${REPLAY_RESTART_STATES.join(', ')}`);
+    }
+    if (r.state === 'applied' && (typeof r.atStep !== 'number' || !Number.isInteger(r.atStep) || r.atStep < 0)) {
+      return fieldError('field_value', '/restart/atStep', 'an applied restart names the step its run began at');
+    }
   }
   const n = utf8Bytes(value);
   if (n === null || n > GAME_CONTROL_RESULT_MAX_BYTES) {

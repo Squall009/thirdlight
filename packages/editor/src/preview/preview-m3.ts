@@ -40,6 +40,7 @@ import type { SceneAdapter } from '@thirdlight/three-adapter';
 import type { InputConfigLike } from '@thirdlight/input';
 import { Bridge } from './bridge';
 import { answerScreenshot } from './screenshot-answer';
+import { awaitRestart } from './replay-answer';
 import { resolveRelayFrames, type IncomingRelayFrame } from './relay-frames';
 
 /** Three's Draco and Basis decoders on the preview origin. */
@@ -293,6 +294,8 @@ export function bootstrapPreviewM3(): void {
   // dispose cancels its in-flight model loads — L9).
   let generation = 0;
   let handle: M3PreviewHandle | null = null;
+  /** The running play's handle (read where a parameter shadows it: a wait ends when the play went). */
+  const current = (): M3PreviewHandle | null => handle;
   let expectedBuildId = '';
   const disposePlay = (): void => {
     if (handle !== null) {
@@ -456,6 +459,8 @@ export function bootstrapPreviewM3(): void {
     const debug = await h.access.debugObservation();
     // The run digest now and after the last input exercise (asked of the worker in worker mode).
     const digests = await h.access.runDigests();
+    // Which run this is (its number is the run id's replay epoch).
+    const runNow = await h.access.runNow();
     // Stopped while the simulation answered: nothing to observe (the host and its runtime are gone).
     if (handle !== h) return null;
     // Every game plays as a scene (the step, the play state, sound, the character…).
@@ -467,7 +472,7 @@ export function bootstrapPreviewM3(): void {
       playSessionId: playId,
       snapshotId: o.snapshotId,
       buildId: h.identity.buildId,
-      runId: `${o.snapshotId}#0`,
+      runId: `${o.snapshotId}#${runNow?.run ?? 0}`,
       revision: h.identity.revision,
       observedAt: new Date().toISOString(),
       stepIndex: o.stepIndex,
@@ -546,6 +551,8 @@ export function bootstrapPreviewM3(): void {
       const o = handle.host.observe();
       return o.ok ? { ok: true, state: o.observation.state, acceptedAtStep: o.observation.stepIndex } : { ok: true, state: 'running', acceptedAtStep: 0 };
     };
+    // The run a replay restarts (read before it is queued).
+    const before = body.command === 'replay' ? await handle.access.runNow() : null;
     // A scene request goes to the runtime like a script's ctx.scenes.
     let r: ReturnType<GameHost['control']>;
     if (body.command === 'debugCommand') {
@@ -565,7 +572,9 @@ export function bootstrapPreviewM3(): void {
       bridge.sendGameResult('control', playId, body.relayId, { ok: false, error: { code: r.error.code, message: r.error.message } });
       return;
     }
-    // Every play answers alike (run 0 of its snapshot).
+    // A replay answers once the new run began (or as pending, with the run it will be); the others with the run now.
+    const restart = body.command === 'replay' && before !== null ? await awaitRestart(handle.access, before.run, body.answerWithinMs ?? 0, () => handle === current()) : null;
+    const run = restart?.run ?? (await handle.access.runNow())?.run ?? 0;
     const snap = handle.identity.snapshotId;
     bridge.sendGameResult('control', playId, body.relayId, {
       ok: true,
@@ -574,11 +583,13 @@ export function bootstrapPreviewM3(): void {
         playSessionId: playId,
         snapshotId: snap,
         buildId: handle.identity.buildId,
-        runId: `${snap}#0`,
+        runId: `${snap}#${run}`,
         command: body.command,
-        state: r.state,
+        // The state now (a restart waited for may have changed it).
+        state: restart === null ? r.state : (playStateOf(handle) ?? r.state),
         acceptedAtStep: r.acceptedAtStep,
         inputMode: handle.access.inputTestActive ? 'test' : 'physical',
+        ...(restart !== null ? { restart: restart.state === 'applied' ? { state: 'applied', atStep: restart.atStep } : { state: 'pending' } } : {}),
       },
     });
   };
@@ -647,9 +658,16 @@ function modeDiagnostics(h: M3PreviewHandle): { mode?: { current: string; name: 
   return mv === null ? {} : { mode: { current: mv.current, name: mv.name } };
 }
 
-/** A relayed game control request (`debugCommand` with its name and arguments). */
+/** The play state the host reports now (null: it cannot say). */
+function playStateOf(h: M3PreviewHandle): 'running' | 'paused' | 'stopped' | null {
+  const o = h.host.observe();
+  return o.ok ? o.observation.state : null;
+}
+
+/** A relayed game control request (`debugCommand` with its name and arguments; a replay how long its answer may wait). */
 interface ControlBody {
   relayId: string;
+  answerWithinMs?: number;
   command: 'replay' | 'mute' | 'unmute' | 'loadScene' | 'unloadScene' | 'clearSave' | 'debugPause' | 'debugResume' | 'debugStep' | 'debugCommand';
   sceneId?: string;
   name?: string;

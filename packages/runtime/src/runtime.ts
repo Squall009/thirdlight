@@ -1354,6 +1354,8 @@ class RuntimeInstance implements Runtime {
   private startVariables: Readonly<Record<string, unknown>> | undefined;
   /** The step count when this run began (0; a restart's boundary) and the last spawned copy's number then. */
   private runStartStep = 0;
+  /** Restarts applied in this play (a tool tells the restarted run from the one it asked to restart). */
+  private runNumber = 0;
   private runSpawnBase = 0;
   /** Loaded scenes, in load order. */
   private batches = new Map<string, SceneBatchState>();
@@ -2269,8 +2271,8 @@ class RuntimeInstance implements Runtime {
    * of the last restart) and the number of the last spawned copy then (a
    * run's copies are numbered after it: ids are never reused in a play).
    */
-  runStart(): { readonly step: number; readonly spawnBase: number } {
-    return { step: this.runStartStep, spawnBase: this.runSpawnBase };
+  runStart(): { readonly step: number; readonly spawnBase: number; readonly run: number } {
+    return { step: this.runStartStep, spawnBase: this.runSpawnBase, run: this.runNumber };
   }
 
   /**
@@ -3062,6 +3064,9 @@ class RuntimeInstance implements Runtime {
     this.modes.beginStep(this.stepIndex + 1);
     this.grid.beginStep(this.stepIndex + 1);
     this.materials.beginStep(this.stepIndex + 1);
+    // A plain step samples no input, so what the host queued for the UI (the pause panel's restart, a
+    // relayed replay) is taken here; without it a restart asked of a game without scripts never applied.
+    this.deliverUiEvents(this.uiQueue.length > 0 ? this.uiQueue.splice(0, MAX_FRAME_UI_EVENTS) : undefined, this.stepIndex);
     // Copy curr before the step; restore it if any module throws
     // (no partial module application). Into the reused step
     // buffer `prev` does not hold (as the M2 step does) — a 3D scene plays on
@@ -3534,6 +3539,7 @@ class RuntimeInstance implements Runtime {
     this.applyStartVariables();
     // A new run — its steps count from here (tools compare a run with its replay by run step).
     this.runStartStep = ordinal - 1;
+    this.runNumber += 1;
     this.listedScene = null;
     this.pendingRestore = null;
     // scripts' impulses and a spawn facing do not outlive the run.
@@ -3989,18 +3995,23 @@ class RuntimeInstance implements Runtime {
     this.assetHandles.deliver(check.frame.assets);
     // The host's input status (device, bindings, rebind events).
     this.inputStatus.apply(check.frame.input);
-    // The frame's show/hide entries apply before any script runs.
-    this.ui.deliver(check.frame.ui);
+    this.deliverUiEvents(check.frame.ui, stepIndex);
     // The frame's dialogue inputs (applied at the end of the step).
     this.dialogue.deliver(check.frame.dialogue);
-    // A mode action switches now (before the scripts); a restart applies at the next boundary.
-    if (check.frame.ui !== undefined) {
-      this.modes.deliver(check.frame.ui, stepIndex + 1);
-      if (check.frame.ui.some((e) => e.kind === 'restart')) this.pendingRestart = true;
-      // A move along the shell's scene list applies at the next boundary (after a restart of the same frame).
-      for (const e of check.frame.ui) if (e.kind === 'scene' && typeof e.value === 'number') this.pendingListedScene = e.value;
-    }
     return this.withHeldPointer(check.frame);
+  }
+
+  /**
+   * A step's UI events: show/hide entries apply before any script runs, a mode action switches now
+   * (before the scripts), a restart and a move along the shell's scene list apply at the next boundary.
+   */
+  private deliverUiEvents(events: readonly UiEventRecord[] | undefined, stepIndex: number): void {
+    this.ui.deliver(events);
+    if (events === undefined) return;
+    this.modes.deliver(events, stepIndex + 1);
+    if (events.some((e) => e.kind === 'restart')) this.pendingRestart = true;
+    // The scene list move comes after a restart of the same frame.
+    for (const e of events) if (e.kind === 'scene' && typeof e.value === 'number') this.pendingListedScene = e.value;
   }
 
   /**

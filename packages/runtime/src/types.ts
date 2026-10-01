@@ -49,8 +49,11 @@ export interface Runtime {
   setStepWatcher?(watcher: ((stepIndex: number) => boolean) | null): void;
   /** Told after every executed step (settle steps excluded) with the step count; never holds. */
   setStepObserver?(observer: ((stepIndex: number) => void) | null): void;
-  /** Where this run began: the step count (0, or the boundary of the last restart) and the last spawned copy's number then. */
-  runStart?(): { readonly step: number; readonly spawnBase: number };
+  /**
+   * Where this run began: the step count (0, or the boundary of the last restart), the last spawned copy's
+   * number then, and the run's number (0 for the run the play started with, one more per restart applied).
+   */
+  runStart?(): { readonly step: number; readonly spawnBase: number; readonly run?: number };
   behaviorDebug?(filter?: { behaviorId?: string; entityId?: string }): { behaviorId: string; entityId: string; debug: unknown }[];
   /** Entities hidden (collected collectibles, `ctx.game.setVisible`; the renderer hides them). */
   hiddenEntities?(): ReadonlySet<string>;

@@ -24,7 +24,7 @@ import {
   validateInputRelayResult,
 } from './delivery';
 import { SCREENSHOT_DATA_URL_MAX, SCREENSHOT_MAX_WIDTH_MAX } from './http';
-import { debugCommandCallProblem } from './m3';
+import { debugCommandCallProblem, REPLAY_ANSWER_WITHIN_MAX_MS } from './m3';
 
 /** The exhaustive allowlists (v2). */
 export const BRIDGE_EDITOR_TO_PREVIEW_TYPES = [
@@ -234,7 +234,8 @@ export function validateBridgeEditorToPreview(value: unknown): Verdict {
       // An observation may name an entity (its script property values).
       // A debug command carries its name and arguments.
       const debugCommand = m['command'] === 'debugCommand';
-      const fields = type === 'tl.game.control' ? ['v', 'type', 'playSessionId', 'relayId', 'command', ...(sceneCommand ? ['sceneId'] : []), ...(debugCommand ? ['name', 'args'] : [])] : ['v', 'type', 'playSessionId', 'relayId', 'entityId'];
+      const replay = m['command'] === 'replay';
+      const fields = type === 'tl.game.control' ? ['v', 'type', 'playSessionId', 'relayId', 'command', ...(sceneCommand ? ['sceneId'] : []), ...(debugCommand ? ['name', 'args'] : []), ...(replay ? ['answerWithinMs'] : [])] : ['v', 'type', 'playSessionId', 'relayId', 'entityId'];
       const bad = rejectUnknown(m, fields);
       if (bad) return { ok: false, reason: bad.reason, path: bad.path };
       if (!isPlaySessionId(m['playSessionId'])) return { ok: false, reason: 'playSessionId must be play- + 32 hex', path: '/playSessionId' };
@@ -247,6 +248,9 @@ export function validateBridgeEditorToPreview(value: unknown): Verdict {
       }
       if (sceneCommand && (typeof m['sceneId'] !== 'string' || !/^[a-z0-9][a-z0-9_-]{0,63}$/.test(m['sceneId']))) {
         return { ok: false, reason: 'sceneId must be a scene id', path: '/sceneId' };
+      }
+      if (replay && m['answerWithinMs'] !== undefined && (typeof m['answerWithinMs'] !== 'number' || !Number.isInteger(m['answerWithinMs']) || m['answerWithinMs'] < 0 || m['answerWithinMs'] > REPLAY_ANSWER_WITHIN_MAX_MS)) {
+        return { ok: false, reason: `answerWithinMs must be an integer of 0..${REPLAY_ANSWER_WITHIN_MAX_MS}`, path: '/answerWithinMs' };
       }
       if (type === 'tl.game.control' && debugCommand) {
         const p = debugCommandCallProblem(m['name'], m['args']);
