@@ -1122,8 +1122,8 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
         // The character's impulse and the look overrides.
         if (src.character !== undefined) fields['character'] = { value: src.character, enumerable: true };
         if (src.look !== undefined) fields['look'] = { value: src.look, enumerable: true };
-        // Sounds (played by the host; the simulation never waits on them).
-        if (src.audio !== undefined) fields['audio'] = { value: src.audio, enumerable: true };
+        // Sounds (played by the host; the simulation never waits on them), owned by this instance's object.
+        if (src.audio !== undefined) fields['audio'] = { value: src.audioOwned?.(instance.entityId) ?? src.audio, enumerable: true };
         // Visual effects (played by the renderer; the simulation never reads them back).
         if (src.effects !== undefined) fields['effects'] = { value: src.effects, enumerable: true };
         // Values kept in the player's save.

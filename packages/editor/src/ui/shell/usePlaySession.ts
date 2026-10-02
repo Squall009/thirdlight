@@ -232,6 +232,11 @@ export function usePlaySession(
       setNotice(`Play failed: ${failure.message}`);
       void clientRef.current?.sendPlayPreviewFailed(playInfo.playSessionId, r?.code ?? 'play_content_not_ready', r?.message);
     });
+    // The running game's problems go to the backend's Problems log (it writes one line per kind and play).
+    bridge.on('tl.play.problem', (m) => {
+      const r = m as { code: string; message: string };
+      clientRef.current?.sendPlayProblem(playInfo.playSessionId, r.code, r.message);
+    });
     // Relay results: the preview's exact answer goes back to the backend.
     const ack = (frame: Record<string, unknown>): void => clientRef.current?.sendRelayAck(frame);
     const outcome = (r: Record<string, unknown>, keys: readonly string[]): Record<string, unknown> => {

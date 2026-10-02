@@ -38,6 +38,7 @@ export {
 
 // Play diagnostics: one bound, and the trim that keeps a long run's report inside it.
 export { PLAY_DIAGNOSTICS_MAX_BYTES, fitPlayDiagnostics, type PlayDiagnosticsTrim } from './diagnostics-bound';
+export { PLAY_PROBLEM_CODE_RE, PLAY_PROBLEM_KINDS_MAX, PLAY_PROBLEM_MESSAGE_MAX, playProblemProblem } from './play-problems';
 
 // Session-layer error model.
 export {

@@ -383,6 +383,12 @@ export interface GameAudioOwnerConfig {
   readonly createMediaElement?: () => MediaElementLike | null;
   /** A millisecond clock for the lateness bound (absent: `performance.now`). */
   readonly now?: () => number;
+  /**
+   * Told once, the first time a sound is dropped because every voice is
+   * busy (`voice_cap`): the author sees it in Play's Problems; later drops
+   * are only counted (`skipped.voice_cap`).
+   */
+  readonly onProblem?: (code: 'voice_cap', message: string) => void;
 }
 
 interface Voice {
@@ -1092,6 +1098,12 @@ export function createGameAudioOwner(config: GameAudioOwnerConfig = {}): GameAud
   /** A diagnostic; `why` counts a sound that did not play (the audio report). */
   function diag(code: GameAudioDiagnosticCode, assetId: string | null, message: string, why?: AudioSkipReason): void {
     if (why !== undefined) skippedBy[why] = (skippedBy[why] ?? 0) + 1;
+    if (why === 'voice_cap' && skippedBy.voice_cap === 1) {
+      config.onProblem?.(
+        'voice_cap',
+        `${clipMessage(message)}. More sounds play at once than the project's Sound voices setting (audio_voices, ${maxVoices}) allows, so later sounds are dropped: stop sounds that are no longer needed (loops a scene started stop with their object), or raise the setting. Further drops in this Play are only counted (Play diagnostics: audio.skipped.voice_cap).`,
+      );
+    }
     diagnostics.push({ code, assetId, message: clipMessage(message) });
     if (diagnostics.length > AUDIO_MAX_DIAGNOSTICS) diagnostics.shift();
   }

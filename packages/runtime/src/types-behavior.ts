@@ -306,6 +306,15 @@ export interface AudioPlayOptions {
    * 0: now or never. The simulation's timing never waits for it.
    */
   maxLateMs?: number;
+  /**
+   * What the sound belongs to (`object`): it stops when the script's object
+   * leaves the game (its scene unloads or reloads, a spawned copy is
+   * destroyed); `scene`: when the object's scene unloads or reloads (a
+   * spawned copy's: with the copy); `none`: it plays until stopped.
+   */
+  owner?: 'object' | 'scene' | 'none';
+  /** Seconds it fades out over when its owner stops it (0). */
+  fadeOut?: number;
 }
 
 /** Options of `ctx.audio.stinger`. */
@@ -318,6 +327,16 @@ export interface AudioStingerOptions {
   fade?: number;
   /** How late it may still start, in ms (500; see `AudioPlayOptions.maxLateMs`). */
   maxLateMs?: number;
+  /** What it belongs to (`object`; see `AudioPlayOptions.owner`). */
+  owner?: 'object' | 'scene' | 'none';
+  /** Seconds it fades out over when its owner stops it (0). */
+  fadeOut?: number;
+}
+
+/** Options of `ctx.audio.music`. */
+export interface AudioMusicOptions {
+  /** What the track belongs to (`object`; see `AudioPlayOptions.owner`): when it goes, the music is released over the track's fade. */
+  owner?: 'object' | 'scene' | 'none';
 }
 
 /** A script's view of the music (`ctx.audio.musicState()`). */
@@ -338,7 +357,7 @@ export interface AudioMusicState {
  */
 export interface BehaviorAudio {
   /**
-   * Play an audio asset of any length (volume 0–1). Returns its handle (0 when refused: a bad id, more than 32 plays in one step or 64 sounds alive). Options: `loop`, `pitch` (playback rate 0.25–4), `bus` (sfx, music, voice, ui), `fadeIn` seconds; positional with `entityId` (it follows the entity) and/or `position` (world metres, or the offset from the entity), fading by `distanceModel` (linear, inverse, exponential), `refDistance` (2 m), `maxDistance` (30 m) and `rolloff` (1); `maxLateMs` (500): a sound whose file is not ready yet starts when it is, or is dropped once it would start later than this.
+   * Play an audio asset of any length (volume 0–1). Returns its handle (0 when refused: a bad id, more than 32 plays in one step or 64 sounds alive). The sound belongs to the script's object: it stops (fading out over `fadeOut` seconds, 0) when the object leaves the game — its scene unloads or reloads; `owner: 'scene'` ties it to the object's scene instead, `owner: 'none'` to nothing. Options: `loop`, `pitch` (playback rate 0.25–4), `bus` (sfx, music, voice, ui), `fadeIn` seconds; positional with `entityId` (it follows the entity) and/or `position` (world metres, or the offset from the entity), fading by `distanceModel` (linear, inverse, exponential), `refDistance` (2 m), `maxDistance` (30 m) and `rolloff` (1); `maxLateMs` (500): a sound whose file is not ready yet starts when it is, or is dropped once it would start later than this.
    * @graphNode Play sound
    * @graphLabel assetId sound
    * @graphAsset assetId audio
@@ -399,13 +418,13 @@ export interface BehaviorAudio {
    */
   events(): readonly AudioFinishedEvent[];
   /**
-   * Play an audio asset as the music track (looped), crossfading over `fadeSeconds` (1); null fades to silence. The scripts then own the music until `releaseMusic`.
+   * Play an audio asset as the music track (looped), crossfading over `fadeSeconds` (1); null fades to silence. The scripts then own the music until `releaseMusic`. The track belongs to the script's object (`options.owner`: `scene`, `none`): when that goes, the music is released over the same fade.
    * @graphNode Set music
    * @graphLabel assetId track
    * @graphAsset assetId audio
    * @graphDefault fadeSeconds 1
    */
-  music(assetId: string | null, fadeSeconds?: number): void;
+  music(assetId: string | null, fadeSeconds?: number, options?: AudioMusicOptions): void;
   /**
    * Give the music back to the host (silence: the engine has no level-flow music), crossfading over `fadeSeconds` (1).
    * @graphNode Release music
@@ -451,6 +470,12 @@ export interface BehaviorAudio {
    * @graphPure
    */
   busVolume(bus: 'sfx' | 'music' | 'voice' | 'ui'): number;
+  /**
+   * Stop every sound on `bus` (sfx, music, voice, ui; every bus when absent) over `fadeSeconds` (0), whoever started it; on the music bus (or every bus) the scripts' music track is released too. Returns how many sounds it stopped.
+   * @graphNode Stop all sounds
+   * @graphDefault fadeSeconds 0
+   */
+  stopAll(bus?: 'sfx' | 'music' | 'voice' | 'ui', fadeSeconds?: number): number;
 }
 
 /**

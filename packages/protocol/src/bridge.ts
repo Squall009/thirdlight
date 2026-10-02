@@ -25,6 +25,7 @@ import {
 } from './delivery';
 import { SCREENSHOT_DATA_URL_MAX, SCREENSHOT_MAX_WIDTH_MAX, SCREENSHOT_MAX_WIDTH_MIN } from './http';
 import { PLAY_DIAGNOSTICS_MAX_BYTES } from './diagnostics-bound';
+import { playProblemProblem } from './play-problems';
 import { debugCommandCallProblem, RELAY_ANSWER_WITHIN_MAX_MS } from './m3';
 
 /** The exhaustive allowlists (v2). */
@@ -55,6 +56,8 @@ export const BRIDGE_PREVIEW_TO_EDITOR_TYPES = [
   'tl.game.observe.result',
   'tl.debug.result',
   'tl.error',
+  // A problem the running game reports for its author (once per kind).
+  'tl.play.problem',
   'tl.pong',
 ] as const;
 export type BridgePreviewToEditorType = (typeof BRIDGE_PREVIEW_TO_EDITOR_TYPES)[number];
@@ -444,6 +447,14 @@ export function validateBridgePreviewToEditor(value: unknown): Verdict {
       if (m['message'] !== undefined && !str(m['message'], 0, 256)) {
         return { ok: false, reason: 'message must be a string ≤ 256', path: '/message' };
       }
+      return { ok: true };
+    }
+    case 'tl.play.problem': {
+      const bad = rejectUnknown(m, ['v', 'type', 'playSessionId', 'code', 'message']);
+      if (bad) return { ok: false, reason: bad.reason, path: bad.path };
+      if (!isPlaySessionId(m['playSessionId'])) return { ok: false, reason: 'playSessionId must be play- + 32 hex', path: '/playSessionId' };
+      const problem = playProblemProblem(m['code'], m['message']);
+      if (problem !== null) return { ok: false, reason: problem };
       return { ok: true };
     }
     case 'tl.pong': {

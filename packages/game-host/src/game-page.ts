@@ -218,6 +218,8 @@ export interface GamePageOptions {
   readonly onModelsFailed?: (code: string) => void;
   /** Truthful load progress. */
   readonly onProgress?: (phase: string, loadedBytes: number, totalBytes: number) => void;
+  /** A problem the game reports for its author, once per kind (Play: a Problems line; the export has no one to tell). */
+  readonly onProblem?: (code: string, message: string) => void;
   /** The page's start timings. */
   readonly timings?: StartTimings;
 }
@@ -783,6 +785,7 @@ export async function startGamePage(o: GamePageOptions): Promise<GamePageHandle>
       source: (assetId) => audioFiles.source(assetId),
       ...(mediaElements !== null ? { createMediaElement: mediaElements } : {}),
       ...(settings.audio_voices !== undefined ? { maxVoices: settings.audio_voices } : {}),
+      ...(o.onProblem !== undefined ? { onProblem: o.onProblem } : {}),
     });
     releases.push(() => void audio.dispose());
     const assetPathsById: Record<string, string> = {};

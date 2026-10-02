@@ -91,6 +91,8 @@ export interface M3PreviewConfig {
   readonly container: HTMLElement;
   /** Truthful load progress (the bridge's `tl.load.progress`, ≤ 1 KiB). */
   readonly onProgress?: (phase: string, loadedBytes: number, totalBytes: number) => void;
+  /** A problem of the running game for its author (once per kind). */
+  readonly onProblem?: (code: string, message: string) => void;
   /** The page's start timings (stages, frames, scene loads); absent: none recorded. */
   readonly timings?: StartTimings;
 }
@@ -221,6 +223,7 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
     // Ready only after the models settle; a hard failure fails the start.
     waitForModels: true,
     onProgress,
+    ...(cfg.onProblem !== undefined ? { onProblem: cfg.onProblem } : {}),
     ...(timings !== undefined ? { timings } : {}),
   });
   if (handle.access === null) {
@@ -339,6 +342,9 @@ export function bootstrapPreviewM3(): void {
       timings,
       onProgress: (phase, loadedBytes, totalBytes) => {
         if (gen === generation) bridge.sendLoadProgress(playId, phase, loadedBytes, totalBytes);
+      },
+      onProblem: (code, message) => {
+        if (gen === generation) bridge.sendProblem(playId, code, message);
       },
     })
       .then((h) => {

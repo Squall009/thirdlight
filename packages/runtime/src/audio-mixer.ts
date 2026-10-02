@@ -16,6 +16,12 @@
  * snapshot). A clip whose duration is unknown only finishes when stopped.
  * The finished events a step produces are seen by scripts in the next step.
  *
+ * Ownership: a sound or music track a script starts belongs to the script's
+ * object (or its scene, or nothing — the play's `owner` option) and stops
+ * with the play's fade-out when its owner leaves the game, so a scene that
+ * starts a loop each time it loads cannot pile loops up (Unity and Godot stop
+ * an object's sounds with the object the same way).
+ *
  * Music priority: a script that sets a track (`music`) owns the music until
  * it calls `releaseMusic` (or the run restarts); meanwhile the game flow's
  * level/title music waits and comes back on release. The music duck is the
@@ -105,6 +111,25 @@ export type AudioCommand =
   /** A new run: every script voice stops, the music goes back to the flow, the duck and the mix to 1. */
   | { readonly op: 'reset'; readonly stepIndex: number };
 
+/**
+ * What a script sound belongs to: it stops when this object (and so its
+ * scene) leaves the game, or when this scene unloads or reloads. Null:
+ * nothing (it plays until stopped or the run starts over).
+ */
+export interface AudioOwner {
+  readonly entityId?: string;
+  readonly sceneId?: string;
+}
+
+/** The owners a play may name (`object`: the script's object, the default). */
+export type AudioOwnerMode = 'object' | 'scene' | 'none';
+
+/** The owner a play's options ask for (anything else is the default, the script's object). */
+export function ownerModeOf(options: unknown): AudioOwnerMode {
+  const o = typeof options === 'object' && options !== null ? (options as { owner?: unknown }).owner : undefined;
+  return o === 'scene' || o === 'none' ? o : 'object';
+}
+
 interface Ramp {
   from: number;
   to: number;
@@ -128,7 +153,13 @@ interface VoiceState {
   /** A stinger's duck level (null: not a stinger). */
   readonly duck: number | null;
   readonly duckFade: number;
+  /** Who it belongs to (null: nobody) and the fade (steps) it stops with when that owner goes. */
+  readonly owner: AudioOwner | null;
+  readonly fadeOut: number;
 }
+
+const ownedBy = (owner: AudioOwner | null, gone: { entities?: ReadonlySet<string>; sceneId?: string }): boolean =>
+  owner !== null && ((owner.entityId !== undefined && gone.entities?.has(owner.entityId) === true) || (owner.sceneId !== undefined && owner.sceneId === gone.sceneId));
 
 const clamp = (v: number, lo: number, hi: number): number => Math.max(lo, Math.min(hi, v));
 const num = (v: unknown, fallback: number): number => {
@@ -203,6 +234,9 @@ export class AudioMixer {
   private playsThisStep = 0;
   /** undefined: the flow owns the music; else the scripts' track (null = silence). */
   private musicTrack: string | null | undefined = undefined;
+  /** Who the scripts' track belongs to and the fade (s) it was set with (it is released with it when the owner goes). */
+  private musicOwner: AudioOwner | null = null;
+  private musicFade = 0;
   /** Duck requests by source (`script`, `stinger:<handle>`, `voice`), each a level 0–1 and its fade. */
   private readonly ducks = new Map<string, { level: number; fade: number }>();
   private duckLevel = 1;
@@ -221,7 +255,7 @@ export class AudioMixer {
 
   // ---- script calls ---------------------------------------------------------
 
-  play(assetId: unknown, options?: AudioPlayOptions, stinger?: { duck: number; fade: number; maxLateMs?: number }): number {
+  play(assetId: unknown, options?: AudioPlayOptions, stinger?: { duck: number; fade: number; maxLateMs?: number }, owner: AudioOwner | null = null): number {
     if (typeof assetId !== 'string' || !ASSET_RE.test(assetId) || assetId.length === 0) return 0;
     const step = this.stepOf();
     if (this.playsStep !== step) {
@@ -235,6 +269,7 @@ export class AudioMixer {
     const volume = clamp(num(o.volume, 1), 0, 1);
     const pitch = clamp(num(o.pitch, 1), AUDIO_PITCH_MIN, AUDIO_PITCH_MAX);
     const fadeIn = clamp(num(o.fadeIn, 0), 0, AUDIO_FADE_MAX_SECONDS);
+    const fadeOut = this.steps(clamp(num(o.fadeOut, 0), 0, AUDIO_FADE_MAX_SECONDS));
     const loop = stinger === undefined && o.loop === true;
     const bus: AudioBusName = stinger !== undefined ? 'music' : o.bus === 'music' || o.bus === 'voice' || o.bus === 'ui' ? o.bus : 'sfx';
     const handle = ++this.nextHandle;
@@ -253,6 +288,8 @@ export class AudioMixer {
       stopping: false,
       duck: stinger !== undefined ? stinger.duck : null,
       duckFade: stinger !== undefined ? stinger.fade : 0,
+      owner,
+      fadeOut,
     });
     const spatial = stinger === undefined ? spatialOf(o) : null;
     let position: [number, number, number] | undefined;
@@ -280,11 +317,11 @@ export class AudioMixer {
     return handle;
   }
 
-  stinger(assetId: unknown, options?: AudioStingerOptions): number {
+  stinger(assetId: unknown, options?: AudioStingerOptions, owner: AudioOwner | null = null): number {
     const o = (typeof options === 'object' && options !== null ? options : {}) as AudioStingerOptions;
     const duck = clamp(num(o.duck, STINGER_DEFAULTS.duck), 0, 1);
     const fade = this.steps(clamp(num(o.fade, STINGER_DEFAULTS.fade), 0, AUDIO_FADE_MAX_SECONDS)) / this.hz;
-    return this.play(assetId, { volume: num(o.volume, 1) }, { duck, fade, ...(o.maxLateMs !== undefined ? { maxLateMs: o.maxLateMs } : {}) });
+    return this.play(assetId, { volume: num(o.volume, 1), ...(o.fadeOut !== undefined ? { fadeOut: o.fadeOut } : {}) }, { duck, fade, ...(o.maxLateMs !== undefined ? { maxLateMs: o.maxLateMs } : {}) }, owner);
   }
 
   stop(handle: unknown, fadeSeconds?: unknown): void {
@@ -354,17 +391,20 @@ export class AudioMixer {
     return this.visible;
   }
 
-  music(assetId: unknown, fadeSeconds?: unknown): void {
+  music(assetId: unknown, fadeSeconds?: unknown, owner: AudioOwner | null = null): void {
     const id = assetId === null ? null : typeof assetId === 'string' && assetId.length > 0 && assetId.length <= 128 ? assetId : undefined;
     if (id === undefined) return;
     this.used = true;
     this.musicTrack = id;
-    this.push({ op: 'music', stepIndex: this.stepOf(), assetId: id, fade: this.steps(clamp(num(fadeSeconds, 1), 0, AUDIO_FADE_MAX_SECONDS)) / this.hz });
+    this.musicOwner = owner;
+    this.musicFade = this.steps(clamp(num(fadeSeconds, 1), 0, AUDIO_FADE_MAX_SECONDS)) / this.hz;
+    this.push({ op: 'music', stepIndex: this.stepOf(), assetId: id, fade: this.musicFade });
   }
 
   releaseMusic(fadeSeconds?: unknown): void {
     if (this.musicTrack === undefined) return;
     this.musicTrack = undefined;
+    this.musicOwner = null;
     this.push({ op: 'music', stepIndex: this.stepOf(), assetId: null, fade: this.steps(clamp(num(fadeSeconds, 1), 0, AUDIO_FADE_MAX_SECONDS)) / this.hz, release: true });
   }
 
@@ -421,7 +461,44 @@ export class AudioMixer {
     return Object.freeze({ owner: this.musicTrack === undefined ? 'flow' : 'script', track: this.musicTrack ?? null, duck: this.duckLevel });
   }
 
+  /**
+   * Stop every sound on `bus` (every bus when absent) over `fadeSeconds` (0:
+   * now); the scripts' music track too (on the music bus or every bus): it is
+   * released, as by `releaseMusic`. Returns how many sounds it stopped.
+   */
+  stopAll(bus?: unknown, fadeSeconds?: unknown): number {
+    const only = bus === 'sfx' || bus === 'music' || bus === 'voice' || bus === 'ui' ? bus : undefined;
+    if (bus !== undefined && bus !== null && only === undefined) return 0;
+    let n = 0;
+    for (const v of [...this.voices.values()]) {
+      if (v.stopping || (only !== undefined && v.bus !== only)) continue;
+      this.stop(v.handle, fadeSeconds);
+      n += 1;
+    }
+    if (only === undefined || only === 'music') this.releaseMusic(num(fadeSeconds, 0));
+    return n;
+  }
+
   // ---- the runtime's calls -------------------------------------------------
+
+  /**
+   * Objects left the game (a scene unloaded or reloaded, a spawned copy
+   * destroyed): the sounds and music they own stop, each with its fade-out.
+   */
+  entitiesGone(ids: ReadonlySet<string>): void {
+    this.ownerGone({ entities: ids });
+  }
+
+  /** A scene unloaded (or is reloading): the sounds and music it owns stop, each with its fade-out. */
+  sceneGone(sceneId: string): void {
+    this.ownerGone({ sceneId });
+  }
+
+  private ownerGone(gone: { entities?: ReadonlySet<string>; sceneId?: string }): void {
+    if (this.voices.size === 0 && this.musicOwner === null) return;
+    for (const v of [...this.voices.values()]) if (!v.stopping && ownedBy(v.owner, gone)) this.stop(v.handle, v.fadeOut / this.hz);
+    if (this.musicTrack !== undefined && ownedBy(this.musicOwner, gone)) this.releaseMusic(this.musicFade);
+  }
 
   /**
    * The end of a fixed step: fades advance one step, clips `pitch / hz`
@@ -454,6 +531,7 @@ export class AudioMixer {
     this.voices.clear();
     this.visible = Object.freeze([]);
     this.musicTrack = undefined;
+    this.musicOwner = null;
     this.ducks.clear();
     this.duckLevel = 1;
     this.sfxDucks.clear();

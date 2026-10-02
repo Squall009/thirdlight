@@ -232,6 +232,8 @@ export interface StepContext {
   readonly game?: BehaviorGameState;
   /** Play a sound (an audio asset) — presentation only, never part of the simulation. */
   readonly audio?: BehaviorAudio;
+  /** `ctx.audio` for a script on an object: the sounds it starts belong to that object (or its scene; the play's `owner`). */
+  readonly audioOwned?: (entityId: string) => BehaviorAudio;
   /** Play visual effects — presentation only, never part of the simulation. */
   readonly effects?: BehaviorEffects;
   /** Values kept in the player's save. */

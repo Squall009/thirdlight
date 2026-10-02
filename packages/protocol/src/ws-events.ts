@@ -24,6 +24,7 @@ import { validateGameControlResult, validateGameObservation } from './m3';
 import type { SessionError } from './errors';
 import { SCREENSHOT_DATA_URL_MAX } from './http';
 import { PLAY_DIAGNOSTICS_MAX_BYTES } from './diagnostics-bound';
+import { PLAY_PROBLEM_MESSAGE_MAX, playProblemProblem } from './play-problems';
 
 // ---- catalog constants (the exhaustive allowlists) -----------
 
@@ -61,6 +62,8 @@ export const CLIENT_EVENT_TYPES = [
   'game.observe.ack',
   // The editor's current selection (so tools can inspect "what is selected").
   'selection.changed',
+  // A running play's problem for the Problems log (once per kind and play).
+  'play.problem',
 ] as const;
 export type ClientEventType = (typeof CLIENT_EVENT_TYPES)[number];
 
@@ -281,6 +284,7 @@ export type InboundEvent =
   | { type: 'play.preview.ready'; playSessionId: string }
   | { type: 'play.preview.progress'; playSessionId: string }
   | { type: 'play.preview.failed'; playSessionId: string; code: string; message?: string }
+  | { type: 'play.problem'; playSessionId: string; code: string; message: string }
   | { type: 'play.stopped.ack'; playSessionId: string }
   | {
       type: 'screenshot.ack';
@@ -426,6 +430,35 @@ export function parseInboundEvent(value: unknown):
         ok: true,
         event: { type: 'play.preview.failed', playSessionId: id.value as string, code: code.value as string, message },
       };
+    }
+    case 'play.problem': {
+      const s = checkShape(
+        obj,
+        '',
+        new Map([
+          ['type', '"play.problem"'],
+          ['playSessionId', 'play- + 32 hex'],
+          ['code', 'lowercase code ≤ 64'],
+          ['message', `string 1–${PLAY_PROBLEM_MESSAGE_MAX}`],
+        ]),
+        ['type', 'playSessionId', 'code', 'message'],
+      );
+      if (!s.ok) return { ok: false, kind: 'protocol_error', error: s.error };
+      const id = checkField(s.value, 'playSessionId', '', 'play- + 32 hex', (v) =>
+        isPlaySessionId(v) ? null : { problem: 'playSessionId must be play- + 32 hex', kind: 'value' },
+      );
+      if (!id.ok) return { ok: false, kind: 'protocol_error', error: id.error };
+      const code = checkField(s.value, 'code', '', 'lowercase code ≤ 64', (v) => {
+        const why = playProblemProblem(v, 'x');
+        return why === null ? null : { problem: why, kind: 'value' };
+      });
+      if (!code.ok) return { ok: false, kind: 'protocol_error', error: code.error };
+      const message = checkField(s.value, 'message', '', `string 1–${PLAY_PROBLEM_MESSAGE_MAX}`, (v) => {
+        const why = playProblemProblem('x', v);
+        return why === null ? null : { problem: why, kind: 'type' };
+      });
+      if (!message.ok) return { ok: false, kind: 'protocol_error', error: message.error };
+      return { ok: true, event: { type: 'play.problem', playSessionId: id.value as string, code: code.value as string, message: message.value as string } };
     }
     case 'screenshot.ack': {
       const s = checkShape(

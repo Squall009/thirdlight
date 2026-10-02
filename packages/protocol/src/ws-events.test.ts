@@ -35,8 +35,16 @@ describe('catalog constants', () => {
   });
   it('client → server: exactly the set + input.result + the relay acks + selection.changed', () => {
     expect([...CLIENT_EVENT_TYPES].sort()).toEqual(
-      ['game.control.ack', 'game.observe.ack', 'input.result', 'ping', 'play.diagnostics.ack', 'play.preview.failed', 'play.preview.progress', 'play.preview.ready', 'play.stopped.ack', 'screenshot.ack', 'selection.changed'].sort(),
+      ['game.control.ack', 'game.observe.ack', 'input.result', 'ping', 'play.diagnostics.ack', 'play.preview.failed', 'play.preview.progress', 'play.preview.ready', 'play.stopped.ack', 'screenshot.ack', 'selection.changed', 'play.problem'].sort(),
     );
+  });
+  it('play.problem: a play id, a lowercase code and a bounded line', () => {
+    const id = `play-${hex32}`;
+    const parse = (o: unknown) => parseInboundEvent(o);
+    expect(parse({ type: 'play.problem', playSessionId: id, code: 'voice_cap', message: 'sound dropped' })).toMatchObject({ ok: true, event: { type: 'play.problem', code: 'voice_cap' } });
+    expect(parse({ type: 'play.problem', playSessionId: id, code: 'Voice cap', message: 'x' }).ok).toBe(false);
+    expect(parse({ type: 'play.problem', playSessionId: id, code: 'voice_cap', message: 'x'.repeat(513) }).ok).toBe(false);
+    expect(parse({ type: 'play.problem', playSessionId: id, code: 'voice_cap', message: 'x', extra: 1 }).ok).toBe(false);
   });
 });
 

@@ -148,6 +148,8 @@ export interface PlayRecord {
   demo: boolean;
   /** The immutable runtime-content manifest `buildId`. */
   buildId: string;
+  /** The kinds of problem this play already wrote to the Problems log (one line each). */
+  problemKinds?: Set<string>;
   /**
    * The last-known run identity `${snapshotId}#${replayEpoch}`. It starts at `${snapshotId}#0` and only ever advances from an
    * accepted control/observation result, so a stale `expectedRunId` is

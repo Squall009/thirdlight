@@ -66,12 +66,19 @@ describe('allowlist constants (v2)', () => {
         'tl.handshake.ack',
         'tl.input.result',
         'tl.load.progress',
+        'tl.play.problem',
         'tl.pong',
         'tl.ready',
         'tl.screenshot.result',
         'tl.stopped',
       ].sort(),
     );
+  });
+  it('tl.play.problem: a play id, a lowercase code and a bounded line', () => {
+    const playSessionId = `play-${'a'.repeat(32)}`;
+    expect(validateBridgePreviewToEditor({ v: 2, type: 'tl.play.problem', playSessionId, code: 'voice_cap', message: 'sound dropped' }).ok).toBe(true);
+    expect(validateBridgePreviewToEditor({ v: 2, type: 'tl.play.problem', playSessionId, code: '', message: 'x' }).ok).toBe(false);
+    expect(validateBridgePreviewToEditor({ v: 2, type: 'tl.play.problem', playSessionId, code: 'voice_cap', message: '' }).ok).toBe(false);
   });
   it('the M2 discriminator is v: 2 (a v: 1 message is rejected like an unknown field)', () => {
     expect(BRIDGE_VERSION).toBe(2);

@@ -24,7 +24,7 @@ import { dirname, join } from 'node:path';
 import { WebSocketServer, type WebSocket } from 'ws';
 import { listTemplates } from './templates';
 import { isExportDirOf, listExports, zipDirectory } from './exports';
-import { makeAttached, makeErrorEvent, makePong, parseStrictJsonBytes, parseInboundEvent, encodeBinaryFreeStateFrame, sessionError, statusFor, WS_OUT_FRAME_MAX, WS_SCREENSHOT_ACK_MAX, enforceDefaultFrameBound, validateGameControlResult, validateGameObservation, toWireChange, type SessionError } from '@thirdlight/protocol';
+import { makeAttached, makeErrorEvent, makePong, parseStrictJsonBytes, parseInboundEvent, encodeBinaryFreeStateFrame, sessionError, statusFor, WS_OUT_FRAME_MAX, WS_SCREENSHOT_ACK_MAX, PLAY_PROBLEM_KINDS_MAX, enforceDefaultFrameBound, validateGameControlResult, validateGameObservation, toWireChange, type SessionError } from '@thirdlight/protocol';
 import { openWorkspaceService, readMarker, type CommandError, type WorkspaceService } from '@thirdlight/workspace';
 import { mergeTimeouts, parseBackendConfig, type BackendConfig } from './config';
 import { publishBehaviorSource } from './behavior';
@@ -780,6 +780,19 @@ export function createBackend(
           return;
         }
         plays.onStoppedAck(rec.playSessionId);
+        return;
+      }
+      case 'play.problem': {
+        const rec = plays.get(inbound.playSessionId);
+        if (rec === undefined || rec.ownerSessionId !== session.sessionId) {
+          sessions.record(session, 'error', inbound.playSessionId, undefined, nowMs(), 'problem for unknown play');
+          return;
+        }
+        // One line per kind and play; a page reporting new kinds without end is bounded.
+        const kinds = (rec.problemKinds ??= new Set());
+        if (kinds.has(inbound.code) || kinds.size >= PLAY_PROBLEM_KINDS_MAX) return;
+        kinds.add(inbound.code);
+        recordProblem(session.projectId, 'play', inbound.code, inbound.message);
         return;
       }
       case 'screenshot.ack':

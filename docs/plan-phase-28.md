@@ -126,7 +126,8 @@ surfaces). Format changes share one bump: `project.json` schemaVersion 7
 |---|---|
 | 28.0 | done 2026-10-02 |
 | 28.1 | done 2026-10-02 — counter-name rule, refused script calls return false, Play diagnostics trimmed, real-overlap penetration count, dialogue focus in any document, createEntity takes setComponent's components, upload names, 256 animations, RGBA KTX2 as data textures (D83, D84, D104, D125, D128–D130, D132, D133) |
-| 28.2–28.13 | — |
+| 28.2 | done 2026-10-02 — script sounds owned by their object (or scene, or nothing), stopped with the play's fade-out when it leaves; `ctx.audio.stopAll`; the run restart stops every script sound; one Problems line per Play for voice-cap drops; 20 scenes leave one loop (D126) |
+| 28.3–28.13 | — |
 
 ## 6. Decision log
 
@@ -177,3 +178,16 @@ surfaces). Format changes share one bump: `project.json` schemaVersion 7
   size) and WebGL refuses the compressed upload. RGBA transcodes become
   `DataTexture`s (streamed ones `StreamedDataTexture`) rather than patching
   the renderer.
+- 2026-10-02 (28.2): script sounds — the owner is resolved when the sound
+  starts (`object` default, `scene`, `none`); a spawned copy has no scene, so
+  its `scene` sounds go with the copy. The owner's stop fades over the play's
+  `fadeOut` (default 0, as Unity and Godot stop an object's sounds with it);
+  a music track set with `music()` has an owner too and is released over its
+  own fade. `stopAll(bus?, fade?)` stops every voice on the bus whoever
+  started it and releases the scripts' music on the music bus or all. The
+  run restart resets the mixer (voices, music, duck, mix), as a new run.
+  Event cues, timelines and dialogue keep owning nothing.
+- 2026-10-02 (28.2): a running game's problems reach Problems through a new
+  bridge/WS message (`tl.play.problem` → `play.problem`); the backend writes
+  one line per kind and Play (at most `PLAY_PROBLEM_KINDS_MAX` kinds). The
+  voice cap is its first kind; 28.5's deprecation lines can use it.

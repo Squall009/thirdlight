@@ -81,6 +81,7 @@ import { isSimulationRegistry, validatePhaseList } from './registry';
 import { deepFreeze, validateRuntimeSnapshot } from './snapshot';
 import { AnimatorMachine, type AnimatorControllerLike, type AnimatorPose } from './animator';
 import { AudioMixer, type AudioCommand } from './audio-mixer';
+import { createScriptAudio, type ScriptAudioControl } from './script-audio';
 import { DialogueRunner, validateDialogueInput, type DialogueInputRecord } from './dialogue';
 import { CameraBrain, type CameraViewInfo } from './camera-brain';
 import { EnvironmentDirector, MAX_ENVIRONMENT_BLEND_SECONDS, type EnvironmentSaveState } from './environment-director';
@@ -1471,7 +1472,7 @@ class RuntimeInstance implements Runtime {
   /** Scripts' asset handles (`ctx.assets`) and the host's answers waiting for the next sampled step. */
   private readonly assetHandles = new RuntimeAssetHandles((message) => this.recordBehaviorLog('thirdlight.runtime:assets', 'warn', message));
   private assetAnswerQueue: AssetHandleAnswer[] = [];
-  private readonly audioControl: import('./types').BehaviorAudio;
+  private readonly audioControl: ScriptAudioControl;
   // ---- Visual effect requests (presentation only) ----
   /** Requests since the adapter last took them (bounded: the oldest are dropped beyond 256). */
   private effectQueue: EffectRequest[] = [];
@@ -1622,7 +1623,7 @@ class RuntimeInstance implements Runtime {
     this.addAnimators(args.initialEntities);
     // The audio intent log (clip lengths from the snapshot's recorded durations).
     this.audio = new AudioMixer(this.hz, args.audioDurations, () => this.stepIndex);
-    this.audioControl = this.buildAudioControl();
+    this.audioControl = createScriptAudio(this.audio, (id) => this.sceneOfEntity(id));
     // The virtual cameras of the start set (the brain is inert without one).
     this.cameras = new CameraBrain(this.hz, { fovY: args.cameraInfo.fovY, near: args.cameraInfo.near, far: args.cameraInfo.far }, (message) => this.recordBehaviorLog('thirdlight.runtime:camera', 'warn', message));
     this.cameras.add(args.initialEntities);
@@ -2587,29 +2588,10 @@ class RuntimeInstance implements Runtime {
     return true;
   }
 
-  /** `ctx.audio` (arguments checked by the mixer; every change is a command in step order). */
-  private buildAudioControl(): import('./types').BehaviorAudio {
-    const a = this.audio;
-    return Object.freeze({
-      play: (assetId: string, options?: import('./types').AudioPlayOptions): number => a.play(assetId, options),
-      stop: (handle: number, fadeSeconds?: number): void => a.stop(handle, fadeSeconds),
-      fade: (handle: number, to: number, seconds: number): void => a.fade(handle, to, seconds),
-      setVolume: (handle: number, volume: number): void => a.setVolume(handle, volume),
-      setPitch: (handle: number, pitch: number): void => a.setPitch(handle, pitch),
-      setLoop: (handle: number, loop: boolean): void => a.setLoop(handle, loop),
-      playing: (handle: number): boolean => a.playing(handle),
-      volumeOf: (handle: number): number => a.volumeOf(handle),
-      finished: (handle: number): boolean => a.finished(handle),
-      events: () => a.events(),
-      music: (assetId: string | null, fadeSeconds?: number): void => a.music(assetId, fadeSeconds),
-      releaseMusic: (fadeSeconds?: number): void => a.releaseMusic(fadeSeconds),
-      stinger: (assetId: string, options?: import('./types').AudioStingerOptions): number => a.stinger(assetId, options),
-      duck: (level: number, seconds?: number): void => a.duck(level, seconds),
-      unduck: (seconds?: number): void => a.unduck(seconds),
-      musicState: () => a.musicState(),
-      setBusVolume: (bus: 'sfx' | 'music' | 'voice' | 'ui', volume: number, seconds?: number): void => a.setBusVolume(bus, volume, seconds),
-      busVolume: (bus: 'sfx' | 'music' | 'voice' | 'ui'): number => a.busVolume(bus),
-    });
+  /** The loaded scene holding an object (undefined: none — a spawned copy). */
+  private sceneOfEntity(entityId: string): string | undefined {
+    for (const b of this.batches.values()) if (b.ids.has(entityId)) return b.sceneId;
+    return undefined;
   }
 
   /** `ctx.camera` (arguments checked here; the brain applies them in order). */
@@ -3451,6 +3433,8 @@ class RuntimeInstance implements Runtime {
     this.pendingFacing = null;
     this.clearSpawned();
     this.runSpawnBase = this.spawnSerial;
+    // Every sound scripts started stops: the new run's scripts hold no handle to them.
+    this.audio.reset();
     // The scripts start over knowing no handle: those still open are released (and reported).
     this.assetHandles.endRun();
     if (!this.restoreStartSet()) return false;
@@ -4422,6 +4406,8 @@ class RuntimeInstance implements Runtime {
     this.cameras.remove(ids);
     // Their written fields go with them.
     this.entityAccess.removed(ids);
+    // So do the sounds they own.
+    this.audio.entitiesGone(ids);
   }
 
   /** Remove one scene and release what belongs to it. */
@@ -4438,6 +4424,7 @@ class RuntimeInstance implements Runtime {
     if (batch === undefined) return;
     const ids = batch.ids;
     this.detachEntities(ids, batch.contribution.colliders.map((c) => c.entityId), `scene "${sceneId}"`);
+    this.audio.sceneGone(sceneId);
     // A pending arrival at a spawn of the unloaded scene is dropped.
     if (this.pendingArrival !== null && ids.has(this.pendingArrival.spawnId)) this.pendingArrival = null;
     this.batches.delete(sceneId);
@@ -4705,7 +4692,8 @@ class RuntimeInstance implements Runtime {
       // The character's impulse and the per-object look overrides.
       fields['character'] = { value: this.characterControl, enumerable: true };
       fields['look'] = { value: this.lookControl, enumerable: true };
-      fields['audio'] = { value: this.audioControl, enumerable: true };
+      fields['audio'] = { value: this.audioControl.control, enumerable: true };
+      fields['audioOwned'] = { value: this.audioControl.owned, enumerable: true };
       fields['effects'] = { value: this.effectsControl, enumerable: true };
       fields['save'] = { value: this.saveControl, enumerable: true };
       fields['spawner'] = { value: this.spawnControl, enumerable: true };

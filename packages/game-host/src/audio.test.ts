@@ -409,6 +409,21 @@ describe('committed cue submission: dedupe, cap, stale runs', () => {
     }
   });
 
+  it('the first voice-cap drop is told to the author once (onProblem); later drops are only counted', async () => {
+    const ctx = new FakeContext();
+    const told: [string, string][] = [];
+    const owner = createGameAudioOwner({ contextFactory: () => ctx, maxVoices: 2, onProblem: (code, message) => told.push([code, message]) });
+    owner.registerCue('cue-hit', new Uint8Array([1, 2, 3, 4]));
+    await owner.unlock();
+    await settle();
+    for (let step = 0; step < 6; step += 1) owner.submit([cue('run-1', 'hit', step)]);
+    expect(owner.diagnostics().filter((d) => d.code === 'voice_cap')).toHaveLength(4);
+    expect(told).toHaveLength(1);
+    expect(told[0]![0]).toBe('voice_cap');
+    expect(told[0]![1]).toContain("Sound voices setting (audio_voices, 2)");
+    owner.dispose();
+  });
+
   it('the diagnostic ring is bounded (drop-oldest at AUDIO_MAX_DIAGNOSTICS)', async () => {
     const { owner } = await armed();
     for (let step = 0; step < AUDIO_MAX_VOICES; step += 1) owner.submit([cue('run-1', 'hit', step)]);

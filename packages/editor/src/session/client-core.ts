@@ -1315,6 +1315,11 @@ export class SessionClientCore {
     });
   }
 
+  /** Relay a running play's problem (the preview's `tl.play.problem`) to the backend's Problems log. */
+  sendPlayProblem(playSessionId: string, code: string, message: string): boolean {
+    return this.sendWsFrame({ type: 'play.problem', playSessionId, code, message });
+  }
+
   /** The one WS client→server send path: a strict JSON
    * text frame on the live socket. Returns false when no live socket exists
    * (the caller treats a dropped frame as bounded by the session's accepted

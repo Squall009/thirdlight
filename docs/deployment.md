@@ -2704,6 +2704,21 @@ gain, playback rate, pan and distance gain (the Web Audio graph's state, not
 heard sound), music owner and duck, bus gains and the listener. How it
 sounds is owner look pending.
 
+**Script sounds have an owner.** A sound, stinger or music track a script
+starts belongs to the script's object: it stops when the object leaves the
+game — its scene unloads or reloads, a spawned copy is destroyed — fading
+out over the play's `fadeOut` seconds (default 0, at once, as Unity and Godot
+stop an object's sounds with it); a music track is released over its own
+fade. `owner: 'scene'` ties it to the object's scene instead (a spawned
+copy's: to the copy), `owner: 'none'` to nothing (it plays until stopped).
+`ctx.audio.stopAll(bus?, fadeSeconds?)` stops every sound on one bus or all
+of them, whoever started it, and on the music bus releases the scripts'
+music. A run restart (the deprecated `restartLevel`/`newGame` actions and
+`ctx.lifecycle.restart()`) stops every script sound. The first sound a Play
+drops because every voice is busy (`audio_voices`, 8 by default) writes one
+Problems line for that Play; later drops are counted in Play diagnostics
+(`audio.skipped.voice_cap`). An exported game only counts them.
+
 ## Saves
 
 Saves are the project's own (below): the game shell's Save and Load screens

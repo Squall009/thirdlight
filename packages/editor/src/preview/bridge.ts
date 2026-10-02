@@ -32,6 +32,7 @@
  */
 
 import {
+  PLAY_PROBLEM_MESSAGE_MAX,
   validateBridgeEditorToPreview,
   validateBridgePreviewToEditor,
   type BridgeEditorToPreviewType,
@@ -339,6 +340,12 @@ export class Bridge {
       ...(phase !== undefined ? { phase } : {}),
       ...(message !== undefined ? { message: message.slice(0, 256) } : {}),
     });
+  }
+
+  /** Report a problem of the running game for its author's Problems log (preview side; once per kind). */
+  sendProblem(playSessionId: string, code: string, message: string): void {
+    if (this.direction !== 'preview') throw new Error('sendProblem is preview-side only');
+    this.postLocal({ v: 2, type: 'tl.play.problem', playSessionId, code, message: message.slice(0, PLAY_PROBLEM_MESSAGE_MAX) });
   }
 
   /** Respond to a ping (preview side). */
