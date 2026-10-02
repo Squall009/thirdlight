@@ -40,7 +40,8 @@ import {
   type PrefabDefinition,
   type Quat,
   type RuntimeUiDocumentRow,
-  MAX_TRANSITION_FADE, MAX_TRANSITION_UNLOADS, SAVE_LIMITS, SCRIPT_SAVE_LIMITS,
+  type UiEngineAction,
+  MAX_TRANSITION_FADE, SAVE_LIMITS, SCRIPT_SAVE_LIMITS, UI_DEPRECATED_ENGINE_ACTIONS,
 } from '@thirdlight/project-model';
 import {
   actionPhase,
@@ -87,16 +88,18 @@ import { DialogueRunner, validateDialogueInput, type DialogueInputRecord } from 
 import type { CameraViewInfo } from './camera-brain';
 import { RuntimeViews } from './views';
 import { KeptObjects } from './kept';
-import { EnvironmentDirector, MAX_ENVIRONMENT_BLEND_SECONDS, type EnvironmentSaveState } from './environment-director';
+import { EnvironmentDirector, type EnvironmentSaveState } from './environment-director';
 import { emptyMutableIntents, resetMutableIntents, type MutableIntentSet } from './mutable-intents';
 import { colliderEntityOf, PHYSICS_QUERY_LIMIT, queryDistance, queryPositive, queryQuat, queryVec3 } from './physics-query-args';
-import { ENVIRONMENT_EASINGS, type EnvironmentBlendView, type EnvironmentEasing } from './environment-blend';
+import { type EnvironmentBlendView } from './environment-blend';
 import type { ClimbQuery } from './types';
 import { SocketSystem } from './sockets';
 import { TimelineSystem, type TimelineView } from './timeline';
 import type { TimelineAsset } from '@thirdlight/project-model';
 import { GameplayBlocks, MAX_SIGNAL_NAME, type SceneTransitionRequest } from './blocks';
 import { createGameControl } from './game-control';
+import { SpawnScenes } from './spawn-scenes';
+import { createSceneControl, FADE_COLOR_RE, LIFECYCLE_RESTART_DEPRECATED, loadOp, sceneRequestProblem, type SceneOp, type SceneRequestHost, type TransitionSpec } from './scene-control';
 import { EntityAccess, type EntityFieldsSave, type LightOverride } from './entity-access';
 import { MAX_LIVE_SPAWNED, MAX_SPAWNS_PER_STEP, SPAWN_ID_PREFIX, expandPrefab, parseSpawnOptions } from './spawn';
 import { TransformMirror } from './step-buffers';
@@ -133,7 +136,6 @@ import {
   type DiagnosticErrorEntry,
   type RuntimeSceneRow,
   type SceneLoadOptions,
-  type SceneActivateOptions,
   type SceneLoadRequest,
   type SceneLoadingView,
   type SceneTransitionView,
@@ -1046,7 +1048,7 @@ interface RuntimeArgs {
 }
 
 /** One requested spawn or destroy, applied at the next step boundary in request order. */
-type SpawnOp = { op: 'spawn'; entities: readonly EntityV3[] } | { op: 'destroy'; entityId: string };
+type SpawnOp = { op: 'spawn'; entities: readonly EntityV3[]; origin?: string } | { op: 'destroy'; entityId: string };
 
 /** One loaded scene inside the runtime. */
 interface SceneBatchState {
@@ -1057,18 +1059,6 @@ interface SceneBatchState {
   contribution: SceneContribution;
 }
 
-/** One requested scene operation, committed with its step. */
-/** What a transition does once its scene is in: the scenes it unloads (in the same step), its fade (seconds, colour). */
-interface TransitionSpec {
-  readonly unload: readonly string[];
-  readonly fade: number;
-  readonly color: string;
-}
-type SceneOp =
-  | { op: 'load'; sceneId: string; at?: readonly [number, number, number]; transition?: TransitionSpec }
-  | { op: 'unload'; sceneId: string }
-  /** `ctx.scenes.setActive`: its look blends in over `blend` seconds. */
-  | { op: 'activate'; sceneId: string; blend: number; easing: EnvironmentEasing };
 /**
  * The time a step boundary spends preparing loaded scenes'
  * entities (copying and freezing them) before it attaches them; a large
@@ -1076,7 +1066,6 @@ type SceneOp =
  */
 const SCENE_PREP_BUDGET_MS = 4;
 const nowMs = (): number => (typeof performance !== 'undefined' ? performance.now() : Date.now());
-const FADE_COLOR_RE = /^#[0-9a-f]{6}$/;
 
 /** The largest impulse component a script may give the character (m/s; a safety limit, far above a jump). */
 export const CHARACTER_IMPULSE_MAX = 100;
@@ -1246,6 +1235,8 @@ class RuntimeInstance implements Runtime {
   /** Fetched scenes being prepared (copied and frozen, a budget per step boundary) before they attach. */
   private preparedLoads = new Map<string, { readonly out: EntityV3[]; next: number }>();
   private pendingUnloads = new Set<string>();
+  /** Loaded scenes whose objects return as authored at the next boundary (`ctx.scenes.reload`). */
+  private readonly pendingReloads = new Set<string>();
   /**
    * Transitions waiting for their scene (keyed by it): the
    * scenes they unload stay loaded (and drawn) until it is in, then both
@@ -1495,6 +1486,7 @@ class RuntimeInstance implements Runtime {
   private problems: { code: string; message: string }[] = [];
   private readonly problemCodes = new Set<string>();
   private readonly sceneControl: BehaviorSceneControl;
+  private readonly sceneControlHost: SceneRequestHost;
   // ---- Spawned prefab copies ----
   private readonly prefabs: ReadonlyMap<string, PrefabDefinition>;
   /** The live spawned entities, in spawn order (parents before children). */
@@ -1510,6 +1502,15 @@ class RuntimeInstance implements Runtime {
   private spawnsThisStep = 0;
   private spawnRefusalLogged = false;
   private readonly spawnControl: BehaviorSpawnControl;
+  /** Each script object's own `ctx.spawn` (its copies are spawned in its scene). */
+  private readonly spawnControls = new Map<string, BehaviorSpawnControl>();
+  /** The scene each spawned copy was spawned in (a scene reload removes them). */
+  private readonly spawnScenes = new SpawnScenes();
+  private readonly spawnerOwned = (entityId: string): BehaviorSpawnControl => {
+    let c = this.spawnControls.get(entityId);
+    if (c === undefined) this.spawnControls.set(entityId, (c = this.buildSpawnControl(entityId)));
+    return c;
+  };
 
   constructor(args: RuntimeArgs) {
     this.stateName = 'instantiated';
@@ -1571,7 +1572,19 @@ class RuntimeInstance implements Runtime {
         this.sceneStatus.set(b.sceneId, 'loaded');
       }
     }
-    this.sceneControl = this.buildSceneControl();
+    this.sceneControlHost = {
+      hasCatalog: () => this.sceneRows !== null,
+      status: (sceneId) => this.sceneStatus.get(sceneId),
+      unkeptPlayerIn: (sceneId) => {
+        const player = this.controllerEntityId;
+        return player !== undefined && this.batches.get(sceneId)?.ids.has(player) === true && !this.kept.has(player) ? player : null;
+      },
+      loaded: () => [...this.batches.keys()],
+      loadingView: () => this.sceneLoadingView(),
+      activeScene: () => this.environment.activeScene(),
+      push: (op) => void this.stepSceneOps.push(op),
+    };
+    this.sceneControl = createSceneControl(this.sceneControlHost);
     this.prefabs = new Map(args.prefabs.map((d) => [d.prefabId, d]));
     this.spawnControl = this.buildSpawnControl();
     // The start scenes' block layers; in 3D their chunks collide (a 2D plane draws them only).
@@ -2618,22 +2631,10 @@ class RuntimeInstance implements Runtime {
     if (this.stateName === 'disposed') return { ok: false, error: fail('runtime_disposed', 'runtime is disposed') };
     const problem = this.sceneOpProblem(op, sceneId, options);
     if (problem !== null) return { ok: false, error: fail('scene_invalid', problem, { reason: op }) };
-    this.enqueueSceneOp(op === 'load' ? this.loadOp(sceneId, options) : { op, sceneId });
+    this.enqueueSceneOp(op === 'load' ? loadOp(sceneId, options) : { op, sceneId });
     return { ok: true };
   }
 
-  /** A load op from (validated) load options: its offset, and a transition when it unloads or fades. */
-  private loadOp(sceneId: string, options: SceneLoadOptions | undefined): SceneOp {
-    const at = options?.at;
-    const unload = options?.unload ?? [];
-    const fade = options?.fade ?? 0;
-    return {
-      op: 'load',
-      sceneId,
-      ...(at !== undefined ? { at: Object.freeze([at[0], at[1], at[2]] as const) } : {}),
-      ...(unload.length > 0 || fade > 0 ? { transition: Object.freeze({ unload: Object.freeze([...unload]), fade, color: options?.fadeColor ?? '#000000' }) } : {}),
-    };
-  }
 
   /** The scenes being loaded, the transition waiting and the last swap (unchanged views are the same object). */
   sceneLoadingView(): import('./types').SceneLoadingView {
@@ -3316,6 +3317,7 @@ class RuntimeInstance implements Runtime {
       spawnPoint: (): string => this.activeSpawn ?? this.playerSpawnIds()[0] ?? '',
       restart: (): boolean => {
         this.pendingRestart = true;
+        this.problem(LIFECYCLE_RESTART_DEPRECATED.code, `ctx.lifecycle.restart() is deprecated and will be removed (it restarts the whole run); use ${LIFECYCLE_RESTART_DEPRECATED.replacement} — see the migration notes`);
         return true;
       },
     });
@@ -3816,7 +3818,14 @@ class RuntimeInstance implements Runtime {
     this.ui.deliver(events);
     if (events === undefined) return;
     this.modes.deliver(events, stepIndex + 1);
-    if (events.some((e) => e.kind === 'restart')) this.pendingRestart = true;
+    for (const e of events) {
+      if (e.kind === 'restart') {
+        this.pendingRestart = true;
+        // The run restart is a deprecated way to restart a level or start a new game: said once per Play.
+        const deprecated = UI_DEPRECATED_ENGINE_ACTIONS[e.name as UiEngineAction];
+        if (deprecated !== undefined) this.problem(deprecated.code, `the ${e.name} engine action is deprecated and will be removed (it restarts the whole run); use ${deprecated.replacement} — see the migration notes`);
+      } else if (e.kind === 'reload') this.reloadFromUi(typeof e.value === 'string' && e.value !== '' ? e.value : undefined);
+    }
     // The scene list move comes after a restart of the same frame.
     for (const e of events) if (e.kind === 'scene' && typeof e.value === 'number') this.pendingListedScene = e.value;
   }
@@ -3946,41 +3955,21 @@ class RuntimeInstance implements Runtime {
     return this.sceneOpProblem(op, sceneId);
   }
 
-  private sceneOpProblem(op: 'load' | 'unload', sceneId: unknown, options?: SceneLoadOptions): string | null {
-    if (this.sceneRows === null) return 'this game has no scene catalog (a v4 project runs with one)';
-    if (typeof sceneId !== 'string' || !this.sceneStatus.has(sceneId)) return `unknown scene ${JSON.stringify(String(sceneId))}`;
-    if (op === 'load' && options !== undefined) {
-      if (typeof options !== 'object' || options === null) return 'load options must be an object';
-      const at = (options as { at?: unknown }).at;
-      if (at !== undefined && !(Array.isArray(at) && at.length === 3 && at.every((v) => typeof v === 'number' && Number.isFinite(v) && Math.abs(v) <= 1e6))) {
-        return 'load option "at" must be [x, y, z] (finite, |v| <= 1e6)';
-      }
-      // A transition's unloads and fade.
-      const o = options as { unload?: unknown; fade?: unknown; fadeColor?: unknown };
-      if (o.unload !== undefined) {
-        if (!Array.isArray(o.unload) || o.unload.length > MAX_TRANSITION_UNLOADS || !o.unload.every((x) => typeof x === 'string')) return `load option "unload" must be up to ${MAX_TRANSITION_UNLOADS} scene ids`;
-        for (const u of o.unload as string[]) {
-          if (u === sceneId) return `load option "unload" names the scene it loads (${JSON.stringify(u)})`;
-          const p = this.sceneOpProblem('unload', u);
-          if (p !== null) return `load option "unload": ${p}`;
-        }
-      }
-      if (o.fade !== undefined && !(typeof o.fade === 'number' && Number.isFinite(o.fade) && o.fade >= 0 && o.fade <= MAX_TRANSITION_FADE)) return `load option "fade" must be seconds (0–${MAX_TRANSITION_FADE})`;
-      if (o.fadeColor !== undefined && !(typeof o.fadeColor === 'string' && FADE_COLOR_RE.test(o.fadeColor))) return 'load option "fadeColor" must be "#rrggbb" (lower case)';
-    }
-    if (op === 'unload') {
-      // The player's body is made once, when the game starts: it can leave its scene only as a kept object.
-      const player = this.controllerEntityId;
-      if (player !== undefined && this.batches.get(sceneId)?.ids.has(player) === true && !this.kept.has(player)) {
-        return `scene "${sceneId}" holds the player "${player}", which is not kept loaded (mark it Keep loaded to unload its scene)`;
-      }
-    }
-    return null;
+  private sceneOpProblem(op: 'load' | 'unload' | 'reload', sceneId: unknown, options?: SceneLoadOptions): string | null {
+    return sceneRequestProblem(this.sceneControlHost, op, sceneId, options);
   }
 
-  /** Queue a validated op: loads go to the host, unloads wait for the next boundary; an activation applies now. */
+  /** Queue a validated op: loads go to the host, unloads and reloads wait for the next boundary; an activation applies now. */
   private enqueueSceneOp(op: SceneOp): void {
     const status = this.sceneStatus.get(op.sceneId);
+    if (op.op === 'reload') {
+      // A scene being loaded arrives as authored anyway; one not loaded loads; the last of unload and reload in a step wins.
+      if (status === 'loaded') {
+        this.pendingUnloads.delete(op.sceneId);
+        this.pendingReloads.add(op.sceneId);
+      } else if (status === 'unloaded') this.enqueueSceneOp({ op: 'load', sceneId: op.sceneId });
+      return;
+    }
     if (op.op === 'activate') {
       // Still loaded when the step commits (an unload earlier in the step wins).
       if (status === 'loaded' && !this.pendingUnloads.has(op.sceneId)) this.environment.activate(op.sceneId, op.blend, op.easing);
@@ -4006,6 +3995,7 @@ class RuntimeInstance implements Runtime {
     }
     if (status === 'loaded') {
       this.pendingUnloads.add(op.sceneId);
+      this.pendingReloads.delete(op.sceneId);
       return;
     }
     if (status === 'loading') {
@@ -4018,52 +4008,6 @@ class RuntimeInstance implements Runtime {
     }
   }
 
-  /** `ctx.scenes`: requests are collected with the step and committed with it. */
-  private buildSceneControl(): BehaviorSceneControl {
-    const rt = this;
-    const refuse = (message: string): never => {
-      throw new BehaviorHostError('module_error', 'behavior_scene_invalid', message);
-    };
-    return Object.freeze({
-      load(sceneId: string, options?: SceneLoadOptions): void {
-        const problem = rt.sceneOpProblem('load', sceneId, options);
-        if (problem !== null) refuse(`ctx.scenes.load: ${problem}`);
-        rt.stepSceneOps.push(rt.loadOp(sceneId, options));
-      },
-      unload(sceneId: string): void {
-        const problem = rt.sceneOpProblem('unload', sceneId);
-        if (problem !== null) refuse(`ctx.scenes.unload: ${problem}`);
-        rt.stepSceneOps.push({ op: 'unload', sceneId });
-      },
-      status(sceneId: string): SceneStatus {
-        const st = rt.sceneStatus.get(sceneId);
-        if (st === undefined) refuse(`ctx.scenes.status: unknown scene ${JSON.stringify(String(sceneId))}`);
-        return st as SceneStatus;
-      },
-      loaded(): readonly string[] {
-        return Object.freeze([...rt.batches.keys()]);
-      },
-      loading(): readonly string[] {
-        return rt.sceneLoadingView().loading;
-      },
-      transition() {
-        return rt.sceneLoadingView().transition;
-      },
-      active(): string | null {
-        return rt.environment.activeScene();
-      },
-      setActive(sceneId: string, options?: SceneActivateOptions): void {
-        if (rt.sceneRows === null) refuse('ctx.scenes.setActive: this game has no scene catalog (a v4 project runs with one)');
-        if (typeof sceneId !== 'string' || !rt.batches.has(sceneId)) refuse(`ctx.scenes.setActive: scene ${JSON.stringify(String(sceneId))} is not loaded`);
-        const o = (typeof options === 'object' && options !== null ? options : {}) as SceneActivateOptions;
-        const blend = o.blend ?? 0;
-        if (typeof blend !== 'number' || !Number.isFinite(blend) || blend < 0 || blend > MAX_ENVIRONMENT_BLEND_SECONDS) refuse(`ctx.scenes.setActive: blend is 0–${MAX_ENVIRONMENT_BLEND_SECONDS} seconds`);
-        const easing = o.easing ?? 'linear';
-        if (!(ENVIRONMENT_EASINGS as readonly string[]).includes(easing)) refuse(`ctx.scenes.setActive: easing is one of ${ENVIRONMENT_EASINGS.join(', ')}`);
-        rt.stepSceneOps.push({ op: 'activate', sceneId, blend, easing });
-      },
-    });
-  }
 
   /**
    * The step boundary for scenes: pending unloads, then fetched loads.
@@ -4076,6 +4020,11 @@ class RuntimeInstance implements Runtime {
       this.pendingUnloads.clear();
       // The active scene unloaded on its own: the first scene still loaded (in load order) is active, at once.
       this.reactivateIfGone();
+    }
+    if (this.pendingReloads.size > 0) {
+      const reloads = [...this.pendingReloads];
+      this.pendingReloads.clear();
+      for (const sceneId of reloads) if (!this.reloadBatch(sceneId)) return false;
     }
     // Fade-outs advance one step per step (a paused game draws no fade: it is done at once).
     for (const t of this.transitions.values()) {
@@ -4137,7 +4086,7 @@ class RuntimeInstance implements Runtime {
       return true;
     };
     // A kept object of this scene that is still alive (the scene loaded again) is not brought a second time.
-    const { entities } = this.kept.arriving(all, (id) => this.entities.has(id));
+    const { entities, skipped } = this.kept.arriving(all, (id) => this.entities.has(id));
     for (const e of entities) {
       if (this.entities.has(e.id)) return refuse(`entity "${e.id}" is already loaded`);
       // The player's body is made when the game starts: a scene loaded later cannot bring one.
@@ -4170,7 +4119,10 @@ class RuntimeInstance implements Runtime {
         return false;
       }
     }
-    this.batches.set(sceneId, { sceneId, start, entities: frozen, ids, contribution });
+    // Its kept objects that waited scene-less belong to it again (a restart keeping the scene keeps them).
+    const adopted = skipped.length > 0 ? this.kept.adopt(skipped) : [];
+    for (const e of adopted) ids.add(e.id);
+    this.batches.set(sceneId, { sceneId, start, entities: adopted.length > 0 ? Object.freeze([...frozen, ...adopted]) : frozen, ids, contribution });
     this.setSceneStatus(sceneId, 'loaded');
     this.sceneRevision += 1;
     if (!start) this.arriveAtListedSpawn(sceneId);
@@ -4311,12 +4263,13 @@ class RuntimeInstance implements Runtime {
   }
 
   /** Take entities out of the simulation and release what belongs to them (`what` names them in diagnostics). */
-  private detachEntities(ids: ReadonlySet<string>, colliderIds: readonly string[], what: string): void {
+  private detachEntities(ids: ReadonlySet<string>, colliderIds: readonly string[], what: string, how: 'unload' | 'reload' = 'unload'): void {
     this.kept.removed(ids);
     // Sockets of (and on) these entities let go.
     this.sockets.remove(ids);
     this.materials.removeEntities(ids);
     for (const id of ids) {
+      this.spawnControls.delete(id);
       this.colliderComponents3D.delete(id);
       this.scriptColliders3D.delete(id);
       this.behaviorGroupOf.delete(id);
@@ -4325,7 +4278,7 @@ class RuntimeInstance implements Runtime {
       const instance = entry.instance as SimulationPhaseModule;
       if (!entry.phased || typeof instance.sceneUnloaded !== 'function') continue;
       try {
-        instance.sceneUnloaded(ids);
+        instance.sceneUnloaded(ids, how);
       } catch (e) {
         this.recordError({ code: 'scene_load_failed', message: clipMessage(`module "${entry.id}" failed to release ${what}: ${messageOf(e)}`), stepIndex: this.stepIndex, reason: 'unload', moduleId: entry.id });
       }
@@ -4385,14 +4338,14 @@ class RuntimeInstance implements Runtime {
     if (next.done !== true) this.environment.activate(next.value);
   }
 
-  private removeBatch(sceneId: string): void {
+  private removeBatch(sceneId: string, reloading = false): void {
     const batch = this.batches.get(sceneId);
     if (batch === undefined) return;
     // Its kept objects stay (scene-less); the rest goes.
     const ids = this.kept.leave(batch.entities);
-    this.detachEntities(ids, batch.contribution.colliders.map((c) => c.entityId).filter((id) => ids.has(id)), `scene "${sceneId}"`);
-    // What a kept object named in the scene now reads as empty: said once.
-    const refs = this.kept.referencesTo(ids, (id) => this.entityDocument(id));
+    this.detachEntities(ids, batch.contribution.colliders.map((c) => c.entityId).filter((id) => ids.has(id)), `scene "${sceneId}"`, reloading ? 'reload' : 'unload');
+    // What a kept object named in the scene now reads as empty: said once (a reload brings it straight back).
+    const refs = reloading ? [] : this.kept.referencesTo(ids, (id) => this.entityDocument(id));
     if (refs.length > 0) {
       const list = refs.slice(0, 4).map((r) => `"${r.from}" → "${r.to}"`).join(', ');
       const message = `kept objects name objects of the unloaded scene "${sceneId}" (${list}${refs.length > 4 ? ', …' : ''}): those references read as empty until something with the id is loaded again`;
@@ -4407,10 +4360,46 @@ class RuntimeInstance implements Runtime {
     this.sceneRevision += 1;
   }
 
+  /** The reloadScene engine action (its scene, else the active one), at the next boundary; a refusal is logged. */
+  private reloadFromUi(sceneId: string | undefined): void {
+    const id = sceneId ?? this.environment.activeScene();
+    const problem = id === null ? 'no scene is active' : this.sceneOpProblem('reload', id);
+    if (problem !== null) {
+      this.recordError({ code: 'scene_invalid', message: clipMessage(`reloadScene: ${problem}`), stepIndex: this.stepIndex, reason: 'reload' });
+      return;
+    }
+    this.enqueueSceneOp({ op: 'reload', sceneId: id! });
+  }
+
+  /**
+   * `ctx.scenes.reload` at the boundary: the scene's objects leave and come
+   * back as authored (where it was loaded), their scripts start over from
+   * their reset hook (disposed and made again, no leave callbacks), the
+   * copies its objects spawned go and its sounds stop. Kept objects, other
+   * scenes, `ctx.save` and the counters are left as they are; a kept player
+   * arrives at the scene's listed spawn as on a load. Returns false after a
+   * fail-stop.
+   */
+  private reloadBatch(sceneId: string): boolean {
+    const batch = this.batches.get(sceneId);
+    if (batch === undefined) return true;
+    // Checked again at the boundary: a script may have let the player go since the request.
+    const problem = this.sceneOpProblem('reload', sceneId);
+    if (problem !== null) {
+      this.recordError({ code: 'scene_invalid', message: clipMessage(`scene "${sceneId}" was not reloaded: ${problem}`), stepIndex: this.stepIndex, reason: 'reload' });
+      return true;
+    }
+    this.removeSpawnedIds(this.spawnScenes.copiesOf(sceneId, (id) => this.kept.has(id)));
+    this.removeBatch(sceneId, true);
+    if (!this.addBatch(sceneId, batch.entities, batch.start, true)) return false;
+    if (batch.start) this.arriveAtListedSpawn(sceneId);
+    return true;
+  }
+
   // ---- Spawned prefab copies ------------------------------------
 
   /** `ctx.spawn` / `ctx.destroy`: requests queue with the step; ids are handed out at once. */
-  private buildSpawnControl(): BehaviorSpawnControl {
+  private buildSpawnControl(origin?: string): BehaviorSpawnControl {
     const rt = this;
     const refuse = (reason: string, message: string): never => {
       throw new BehaviorHostError('module_error', reason, message);
@@ -4433,7 +4422,7 @@ class RuntimeInstance implements Runtime {
         }
         rt.spawnsThisStep += 1;
         const ids = def.entities.map(() => rt.allocateSpawnId());
-        rt.spawnOps.push({ op: 'spawn', entities: expandPrefab(def, ids, parsed.placement, rt.entityRefKeysOf) });
+        rt.spawnOps.push({ op: 'spawn', entities: expandPrefab(def, ids, parsed.placement, rt.entityRefKeysOf), ...(origin !== undefined ? { origin } : {}) });
         return ids[0]!;
       },
       destroy(entityId: string): boolean {
@@ -4484,6 +4473,11 @@ class RuntimeInstance implements Runtime {
       }
       for (const e of op.entities) this.reservedSpawnIds.delete(e.id);
       if (!this.addSpawned(op.entities)) return false;
+      // Spawned in the spawner's scene (a kept or scene-less spawner: none).
+      const origin = op.origin;
+      if (origin !== undefined && this.spawnedEntities.has(op.entities[0]!.id) && !this.kept.has(origin)) {
+        this.spawnScenes.record(op.entities.map((e) => e.id), this.sceneOfEntity(origin) ?? this.spawnScenes.sceneOf(origin));
+      }
     }
     return true;
   }
@@ -4536,6 +4530,7 @@ class RuntimeInstance implements Runtime {
     const colliderIds = [...ids].filter((id) => (this.spawnedEntities.get(id)?.components as { collider?: unknown } | undefined)?.collider !== undefined);
     this.detachEntities(ids, colliderIds, `spawned "${[...ids][0]}"`);
     for (const id of ids) this.spawnedEntities.delete(id);
+    this.spawnScenes.removed(ids);
     this.sceneRevision += 1;
     this.sceneSetCache = null;
   }
@@ -4572,6 +4567,7 @@ class RuntimeInstance implements Runtime {
     this.readyLoads.clear();
     this.preparedLoads.clear();
     this.pendingUnloads.clear();
+    this.pendingReloads.clear();
     // Transitions and their fades do not outlive the run.
     this.transitions.clear();
     this.lastSwap = null;
@@ -4681,6 +4677,7 @@ class RuntimeInstance implements Runtime {
       fields['effects'] = { value: this.effectsControl, enumerable: true };
       fields['save'] = { value: this.saveControl, enumerable: true };
       fields['spawner'] = { value: this.spawnControl, enumerable: true };
+      fields['spawnerOwned'] = { value: this.spawnerOwned, enumerable: true };
       // The virtual cameras (ctx.camera).
       fields['camera'] = { value: this.views.control, enumerable: true };
       // Sockets (ctx.sockets).

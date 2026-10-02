@@ -268,7 +268,7 @@ export interface GameHostObservation {
   readonly mode?: ModeView;
   readonly paused?: boolean;
   /** The engine's pause panel (a paused game with modes and no pause screen of its own). */
-  readonly pausePanel?: { readonly focus: 'resume' | 'restart' };
+  readonly pausePanel?: { readonly focus: 'resume' };
   /** The project saves (slot metadata, settings document). */
   readonly saves?: ProjectSavesObservation;
   /** The timelines (screen fade/letterbox, plays, the last step's events) once one played. */
@@ -841,10 +841,18 @@ export function createGameHost(config: GameHostConfig): GameHost {
     }
     return mv;
   };
-  /** A restart of the game: an input-frame entry (so recordings replay it). */
-  const sceneRestart = (): void => {
-    const r = runtime?.queueUiEvent?.({ kind: 'restart', doc: '', widget: '', name: '' });
+  /** A restart of the game, named by the action that asked: an input-frame entry (so recordings replay it). */
+  const queueRestart = (rt: Runtime | null, cause: string): void => {
+    const r = rt?.queueUiEvent?.({ kind: 'restart', doc: '', widget: '', name: cause });
     if (r !== undefined && r.ok === false) console.warn('[game-host] restart refused:', r.error.message);
+  };
+  /** A scene's objects as authored again (absent: the active scene): an input-frame entry, so recordings replay it. */
+  const queueReload = (rt: Runtime | null, sceneId: string | undefined): void => {
+    const r = rt?.queueUiEvent?.({ kind: 'reload', doc: '', widget: '', name: '', ...(sceneId !== undefined ? { value: sceneId } : {}) });
+    if (r !== undefined && r.ok === false) console.warn('[game-host] scene reload refused:', r.error.message);
+  };
+  const sceneRestart = (cause: string): void => {
+    queueRestart(runtime, cause);
     setScenePause(false);
   };
   const setScenePause = (on: boolean): void => {
@@ -857,7 +865,7 @@ export function createGameHost(config: GameHostConfig): GameHost {
     if (on) {
       if (mv!.pauseScreen !== undefined && uiLayer !== null) uiLayer.showScreen(mv!.pauseScreen);
       else if (hostDom !== null) {
-        pausePanel ??= createPausePanel(hostDom, config.container, { resume: () => setScenePause(false), restart: sceneRestart });
+        pausePanel ??= createPausePanel(hostDom, config.container, { resume: () => setScenePause(false) });
         pausePanel.show();
       }
     } else {
@@ -887,10 +895,8 @@ export function createGameHost(config: GameHostConfig): GameHost {
         scenePaused = on;
         rt.setPaused?.(on);
       },
-      restart: () => {
-        const r = rt.queueUiEvent?.({ kind: 'restart', doc: '', widget: '', name: '' });
-        if (r !== undefined && r.ok === false) console.warn('[game-host] restart refused:', r.error.message);
-      },
+      restart: (cause) => queueRestart(rt, cause),
+      reloadScene: (sceneId) => queueReload(rt, sceneId),
       goToScene: (index) => {
         const r = rt.queueUiEvent?.({ kind: 'scene', doc: '', widget: '', name: '', value: index });
         if (r !== undefined && r.ok === false) console.warn('[game-host] scene move refused:', r.error.message);
@@ -915,10 +921,7 @@ export function createGameHost(config: GameHostConfig): GameHost {
       modePauseScreen: () => rt.modeView?.()?.pauseScreen,
       pausePanel: () => {
         if (hostDom === null) return null;
-        pausePanel ??= createPausePanel(hostDom, config.container, {
-          resume: () => shellCtl?.engine({ do: 'engine', action: 'resume' }),
-          restart: () => shellCtl?.engine({ do: 'engine', action: 'restartLevel' }),
-        });
+        pausePanel ??= createPausePanel(hostDom, config.container, { resume: () => shellCtl?.engine({ do: 'engine', action: 'resume' }) });
         return pausePanel;
       },
       setVolume: (bus, value) => config.audio.setVolume?.(bus, value),
@@ -931,8 +934,8 @@ export function createGameHost(config: GameHostConfig): GameHost {
       log: (message) => console.warn(`[game-host] ${message}`),
     });
 
-  /** A project UI document's engine action in a game without a shell (with modes: pause, resume, restart). */
-  const sceneEngineAction = (a: { readonly action: string }): void => {
+  /** A project UI document's engine action in a game without a shell (with modes: pause, resume; a scene reload; the deprecated restart). */
+  const sceneEngineAction = (a: { readonly action: string; readonly scene?: string }): void => {
     switch (a.action) {
       case 'resume':
       case 'back':
@@ -944,7 +947,10 @@ export function createGameHost(config: GameHostConfig): GameHost {
       case 'restartLevel':
       case 'newGame':
       case 'quitToTitle':
-        sceneRestart();
+        sceneRestart(a.action);
+        break;
+      case 'reloadScene':
+        queueReload(runtime, a.scene);
         break;
       default:
         break; // settings and saves belong to the game shell
@@ -1510,7 +1516,7 @@ export function createGameHost(config: GameHostConfig): GameHost {
   };
 
   /** The game modes, the engine pause and its panel (a project with modes). */
-  const modeObservation = (rt: Runtime): { mode?: ModeView; paused?: boolean; pausePanel?: { focus: 'resume' | 'restart' } } => {
+  const modeObservation = (rt: Runtime): { mode?: ModeView; paused?: boolean; pausePanel?: { focus: 'resume' } } => {
     const mv = rt.modeView?.() ?? null;
     if (mv === null) return {};
     return { mode: mv, paused: scenePaused, ...(pausePanel?.shown === true ? { pausePanel: { focus: pausePanel.focus } } : {}) };

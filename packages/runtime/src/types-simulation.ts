@@ -189,8 +189,12 @@ export interface SimulationPhaseModule {
    * host) attaches to them; it may throw to refuse (the load fails the run).
    */
   sceneLoaded?(entities: readonly EntityV3[]): void;
-  /** These entities were unloaded; release what belongs to them. */
-  sceneUnloaded?(entityIds: ReadonlySet<string>): void;
+  /**
+   * These entities were unloaded; release what belongs to them. `reload`:
+   * their scene is reloaded and they come straight back as authored (a
+   * script host starts them over as at a run restart, without leave callbacks).
+   */
+  sceneUnloaded?(entityIds: ReadonlySet<string>, how?: 'unload' | 'reload'): void;
   dispose?(): void;
 }
 
@@ -239,6 +243,8 @@ export interface StepContext {
   readonly save?: BehaviorSave;
   /** Spawn prefab copies into the running game and destroy them. */
   readonly spawner?: BehaviorSpawnControl;
+  /** One script object's own `ctx.spawn` (its copies are spawned in its scene; a scene reload removes them). */
+  readonly spawnerOwned?: (entityId: string) => BehaviorSpawnControl;
   /**
    * The triggers the player entered or left in the previous step
    * (every trigger; the behavior host gives each script those it owns, in

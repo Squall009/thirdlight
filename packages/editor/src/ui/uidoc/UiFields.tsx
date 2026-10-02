@@ -11,7 +11,7 @@
  *
  * Browser-only (React).
  */
-import { UI_LIMITS } from '@thirdlight/project-model/limits';
+import { UI_DEPRECATED_ENGINE_ACTIONS, UI_LIMITS } from '@thirdlight/project-model/limits';
 import { useEffect, useState, type JSX } from 'react';
 import type { FieldDescriptor, ObjectFieldDescriptor, UiAction, UiEngineAction, UiStyle } from '@thirdlight/project-model';
 
@@ -312,8 +312,8 @@ export function StyleMapEditor(p: {
 // Actions
 // ---------------------------------------------------------------------------
 
-// + open (a game shell screen) and nextScene (the shell's scene list).
-const ENGINE_ACTIONS: readonly UiEngineAction[] = ['resume', 'pause', 'restartLevel', 'newGame', 'continue', 'quitToTitle', 'settings', 'load', 'save', 'back', 'setSetting', 'mute', 'unmute', 'open', 'nextScene'];
+// + open (a game shell screen), nextScene (the shell's scene list) and reloadScene (a scene as authored again).
+const ENGINE_ACTIONS: readonly UiEngineAction[] = ['resume', 'pause', 'reloadScene', 'restartLevel', 'newGame', 'continue', 'quitToTitle', 'settings', 'load', 'save', 'back', 'setSetting', 'mute', 'unmute', 'open', 'nextScene'];
 const SHELL_SCREENS = ['title', 'pause', 'settings', 'controls', 'save', 'load'] as const;
 // + dialogue (advance, choose, skip, auto, backlog — a dialogue document's buttons).
 const DO_KINDS = ['event', 'engine', 'show', 'hide', 'toggle', 'play', 'dialogue'] as const;
@@ -344,6 +344,8 @@ export function ActionsField(p: {
   docs: readonly string[];
   tweens: readonly string[];
   widgets: readonly string[];
+  /** The project's scenes (a reloadScene action names one; none: the active scene). */
+  scenes?: readonly { sceneId: string; name: string }[];
   onChange: (v: UiAction | UiAction[] | undefined) => void;
   onFail: (msg: string) => void;
 }): JSX.Element {
@@ -379,11 +381,22 @@ export function ActionsField(p: {
             <>
               <select className="tl-input" aria-label={`${p.aria} ${i + 1} engine action`} value={a.action} onChange={(e) => setAtI(i, { do: 'engine', action: e.target.value as UiEngineAction, ...(e.target.value === 'setSetting' ? { setting: 'music', step: 1 } : {}), ...(e.target.value === 'open' ? { screen: 'settings' } : {}) })}>
                 {ENGINE_ACTIONS.map((x) => (
-                  <option key={x} value={x}>
-                    {x}
+                  <option key={x} value={x} title={UI_DEPRECATED_ENGINE_ACTIONS[x] !== undefined ? `Deprecated: use ${UI_DEPRECATED_ENGINE_ACTIONS[x].replacement}` : undefined}>
+                    {UI_DEPRECATED_ENGINE_ACTIONS[x] !== undefined ? `${x} (deprecated)` : x}
                   </option>
                 ))}
               </select>
+              {a.action === 'reloadScene' && (
+                <select className="tl-input" aria-label={`${p.aria} ${i + 1} scene`} value={a.scene ?? ''} onChange={(e) => setAtI(i, e.target.value === '' ? (({ scene: _s, ...r }) => r)(a) : { ...a, scene: e.target.value })}>
+                  <option value="">active scene</option>
+                  {(p.scenes ?? []).map((sc) => (
+                    <option key={sc.sceneId} value={sc.sceneId}>
+                      {sc.name}
+                    </option>
+                  ))}
+                  {a.scene !== undefined && !(p.scenes ?? []).some((sc) => sc.sceneId === a.scene) && <option value={a.scene}>{a.scene}</option>}
+                </select>
+              )}
               {a.action === 'open' && (
                 <select className="tl-input" aria-label={`${p.aria} ${i + 1} screen`} value={a.screen ?? 'settings'} onChange={(e) => setAtI(i, { ...a, screen: e.target.value as (typeof SHELL_SCREENS)[number] })}>
                   {SHELL_SCREENS.map((s) => (

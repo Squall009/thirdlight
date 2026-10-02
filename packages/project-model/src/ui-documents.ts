@@ -116,14 +116,16 @@ export type UiEngineAction =
   | 'resetBindings'
   // The game shell — open one of its screens (`screen`), move on to the next listed scene.
   | 'open'
-  | 'nextScene';
+  | 'nextScene'
+  // A scene's objects as authored again (`scene`; absent: the active scene) — `ctx.scenes.reload`.
+  | 'reloadScene';
 
 /** What a button click (or an input submit, a cancel, a focus) does. */
 export type UiAction =
   /** Raise a UI event to scripts (on the next input frame). */
   | { do: 'event'; name: string; value?: UiScalar | UiBinding }
   /** An engine action of the game shell (resume, quit to title, save, load, set a setting, …). */
-  | { do: 'engine'; action: UiEngineAction; screen?: 'title' | 'pause' | 'settings' | 'controls' | 'save' | 'load'; slot?: string; setting?: 'music' | 'sfx' | 'ui' | 'quality'; value?: number | string; step?: number; input?: string; device?: 'keyboardMouse' | 'gamepad'; index?: number; part?: 'negative' | 'positive' | 'up' | 'down' | 'left' | 'right'; policy?: 'swap' | 'refuse' | 'allow' }
+  | { do: 'engine'; action: UiEngineAction; screen?: 'title' | 'pause' | 'settings' | 'controls' | 'save' | 'load'; scene?: string; slot?: string; setting?: 'music' | 'sfx' | 'ui' | 'quality'; value?: number | string; step?: number; input?: string; device?: 'keyboardMouse' | 'gamepad'; index?: number; part?: 'negative' | 'positive' | 'up' | 'down' | 'left' | 'right'; policy?: 'swap' | 'refuse' | 'allow' }
   /** Show / hide / toggle a UI document (through the input frame, so replays hold). */
   | { do: 'show' | 'hide' | 'toggle'; doc: string }
   /** Play a tween of this document (presentation only). */
@@ -283,7 +285,17 @@ export const UI_LIMITS = Object.freeze({
 });
 
 export const UI_WIDGET_TYPES: readonly UiWidgetType[] = ['panel', 'stack', 'grid', 'text', 'image', 'bar', 'button', 'list', 'input'];
-export const UI_ENGINE_ACTIONS: readonly UiEngineAction[] = ['resume', 'pause', 'restartLevel', 'newGame', 'continue', 'quitToTitle', 'settings', 'load', 'save', 'back', 'setSetting', 'mute', 'unmute', 'rebind', 'cancelRebind', 'resetBindings', 'open', 'nextScene'];
+export const UI_ENGINE_ACTIONS: readonly UiEngineAction[] = ['resume', 'pause', 'restartLevel', 'newGame', 'continue', 'quitToTitle', 'settings', 'load', 'save', 'back', 'setSetting', 'mute', 'unmute', 'rebind', 'cancelRebind', 'resetBindings', 'open', 'nextScene', 'reloadScene'];
+/**
+ * Engine actions that decide a game's flow — the engine does not know what a
+ * level restart or a new game is. They keep working (a run restart) and each
+ * use writes one Problems line per Play naming what replaces it; they are
+ * removed once no game uses them.
+ */
+export const UI_DEPRECATED_ENGINE_ACTIONS: Readonly<Partial<Record<UiEngineAction, { readonly code: string; readonly replacement: string }>>> = Object.freeze({
+  restartLevel: Object.freeze({ code: 'deprecated_restart_level', replacement: 'the reloadScene engine action (or ctx.scenes.reload in a script), with the game resetting what it keeps itself' }),
+  newGame: Object.freeze({ code: 'deprecated_new_game', replacement: 'a new game the game builds in a script: load its first scene, unload the others, reset the counters and ctx.save values it uses' }),
+});
 export const UI_TWEEN_KINDS: readonly UiTweenKind[] = ['fade', 'slide', 'scale', 'stamp'];
 export const UI_EASINGS: readonly UiEasing[] = ['linear', 'easeIn', 'easeOut', 'easeInOut', 'back'];
 export const UI_GENERIC_FONTS = ['sans', 'serif', 'mono', 'rounded'] as const;
@@ -458,7 +470,9 @@ function validateActions(errors: ModelErrorV2[], v: unknown, path: string, refs:
         }
         break;
       case 'engine': {
-        only(a, ['do', 'action', 'screen', 'slot', 'setting', 'value', 'step', 'input', 'device', 'index', 'part', 'policy'], p, errors, 'engine action');
+        only(a, ['do', 'action', 'screen', 'scene', 'slot', 'setting', 'value', 'step', 'input', 'device', 'index', 'part', 'policy'], p, errors, 'engine action');
+        // reloadScene names the scene it reloads (absent: the active scene).
+        if (a['scene'] !== undefined && !(typeof a['scene'] === 'string' && ID_RE.test(a['scene']))) err(errors, 'field_value', `${p}/scene`, 'scene names a scene', a['scene'], 'a sceneId');
         // Open names the shell screen it opens.
         oneOf(errors, a['screen'], `${p}/screen`, UI_SHELL_SCREENS, 'screen');
         if (a['action'] === 'open' && a['screen'] === undefined) err(errors, 'field_missing', `${p}/screen`, 'open names the shell screen it opens', undefined, UI_SHELL_SCREENS.join(' | '));

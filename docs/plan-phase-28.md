@@ -129,7 +129,8 @@ surfaces). Format changes share one bump: `project.json` schemaVersion 7
 | 28.2 | done 2026-10-02 — script sounds owned by their object (or scene, or nothing), stopped with the play's fade-out when it leaves; `ctx.audio.stopAll`; the run restart stops every script sound; one Problems line per Play for voice-cap drops; 20 scenes leave one loop (D126) |
 | 28.3 | done 2026-10-02 — the effect light pool's 16 lights are added dark before the first frame of a game whose effects emit light (Play, export, Scene view, Effect tab), never mid-play; e2e: lights rising 1 → 16 build no program or pipeline in Play and the export (D127) |
 | 28.4 | done 2026-10-02 — schemaVersion 7 (scene cameras upgraded to lowest-priority fixed shots, their lens the project's camera settings; camera and player keep loaded); the camera brain owns the view per view key (default pose + Play warning without a live shot); `keepLoaded` (flag, spawn option, handle write; survives unload/reload/applyWorld, no second copy, references read empty with a Problems line, listed spawns place a kept player); start rules checked at Play/export; cross-scene `moveEntities {sceneId}`; creates need a scene over the API; Inspector flag, hierarchy marker, cross-scene drag |
-| 28.5–28.13 | — |
+| 28.5 | done 2026-10-02 — `ctx.scenes.reload(sceneId)` and the `reloadScene` UI engine action (`scene`, default the active scene) at the step boundary: objects as authored, copies spawned in the scene gone, its scripts made again, its sounds stopped, kept objects/`ctx.save`/counters/other scenes untouched; the engine pause panel has only Resume; `restartLevel`, `newGame`, `ctx.lifecycle.restart()` work with one Problems line per Play; migration notes; `resume` leaves the shell title (D137) |
+| 28.6–28.13 | — |
 
 ## 6. Decision log
 
@@ -241,3 +242,34 @@ surfaces). Format changes share one bump: `project.json` schemaVersion 7
   the input change, and the upgrade note names that camera. Fixtures shaped
   like both games (`fixtures/phase28/move-frame`) carry paths recorded on the
   v6 engine; the upgraded projects walk them.
+- 2026-10-02 (28.5): a reload is an unload and a load of the scene's own
+  authored entities at one step boundary (no fetch; where it was loaded with
+  `at`). Its scripts start over as at a run restart — disposed and made
+  again, no `onDisable`/`onDestroy` (the objects come straight back),
+  `onEnable` again, their random streams from the start. Copies "spawned in
+  it" are those a script on one of its objects spawned (a copy spawned by a
+  copy takes its scene; a kept or scene-less spawner gives none), as a Godot
+  scene frees the nodes its scripts added; an unload leaves copies as before.
+  Like unload it is refused for a scene holding a player that is not kept; an
+  unloaded scene loads, one being loaded is left to arrive, and of an unload
+  and a reload in one step the last wins. A kept player arrives at the
+  scene's listed spawn, as on a load.
+- 2026-10-02 (28.5): `reloadScene` takes `scene`; without it the active
+  scene (UI documents have no scene of their own; reloading the active scene
+  is Unity's restart idiom). Neither a reload nor the button resumes a paused
+  game: a button lists `resume` too when it should.
+- 2026-10-02 (28.5): the deprecated restarts ride the existing channels: a
+  restart UI event carries the action that asked (`restartLevel`, `newGame`,
+  `quitToTitle`; the tool's replay none), the runtime writes one problem per
+  kind (`deprecated_restart_level`, `deprecated_new_game`,
+  `deprecated_lifecycle_restart`) through `takeProblems`, and Play's
+  Problems shows one line per Play. `quitToTitle` is not deprecated (not in
+  the owner's list) though it restarts the run too. The table of deprecated
+  actions and their replacements is project-model's
+  `UI_DEPRECATED_ENGINE_ACTIONS` (the editor marks them "(deprecated)").
+- 2026-10-02 (28.5): `resume` now leaves the shell's title for play (it did
+  nothing there): with `newGame` deprecated, a game whose script builds its
+  new game had no other way off the title. The engine pause panel lost
+  Restart. Found on the way: a start scene unloaded and loaded again lost its
+  kept objects at the next run restart (D137, fixed: an arriving scene takes
+  its scene-less kept objects back).

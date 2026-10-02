@@ -203,6 +203,14 @@ export interface BehaviorSceneControl {
    */
   unload(sceneId: string): void;
   /**
+   * Request a reload at the next step boundary: the scene's objects return as authored (where it was loaded), the
+   * copies its objects spawned go, its scripts start over (as at a run restart), its sounds stop. Kept objects,
+   * `ctx.save`, the counters and the other scenes stay as they are. An unloaded scene loads; a loading one ⇒ no-op.
+   * Refused for a scene holding a player that is not kept loaded.
+   * @graphNode Reload scene
+   */
+  reload(sceneId: string): void;
+  /**
    * Where a scene is in its load cycle.
    * @graphPure
    * @graphNode Scene status

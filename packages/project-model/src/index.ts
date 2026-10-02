@@ -562,6 +562,7 @@ export type { BehaviorLibraryPin, ScriptLibrary, ScriptLibraryFile, ScriptLibrar
 export {
   UI_EASINGS,
   UI_ENGINE_ACTIONS,
+  UI_DEPRECATED_ENGINE_ACTIONS,
   UI_GENERIC_FONTS,
   UI_LIMITS,
   UI_SAVE_SLOTS,

@@ -687,9 +687,9 @@ function WidgetInspector(p: {
         own style (this widget only)
       </label>
       {(ownStyle || w.css !== undefined) && <StyleEditor desc={p.D.style} style={w.css ?? {}} aria="widget css" ctx={p.ctx} withStates onChange={(next) => put('css', Object.keys(next).length === 0 ? undefined : next)} onFail={p.onFail} />}
-      {field('onClick') !== undefined && <ActionsField label="On click" aria="widget on click" value={w.onClick} docs={p.docIds} tweens={p.tweens} widgets={p.ids} onChange={(v) => put('onClick', v)} onFail={p.onFail} />}
-      {field('onSubmit') !== undefined && <ActionsField label="On submit" aria="widget on submit" value={w.onSubmit} docs={p.docIds} tweens={p.tweens} widgets={p.ids} onChange={(v) => put('onSubmit', v)} onFail={p.onFail} />}
-      <ActionsField label="On focus" aria="widget on focus" value={w.onFocus} docs={p.docIds} tweens={p.tweens} widgets={p.ids} onChange={(v) => put('onFocus', v)} onFail={p.onFail} />
+      {field('onClick') !== undefined && <ActionsField label="On click" aria="widget on click" value={w.onClick} docs={p.docIds} tweens={p.tweens} widgets={p.ids} scenes={p.ctx.scenes} onChange={(v) => put('onClick', v)} onFail={p.onFail} />}
+      {field('onSubmit') !== undefined && <ActionsField label="On submit" aria="widget on submit" value={w.onSubmit} docs={p.docIds} tweens={p.tweens} widgets={p.ids} scenes={p.ctx.scenes} onChange={(v) => put('onSubmit', v)} onFail={p.onFail} />}
+      <ActionsField label="On focus" aria="widget on focus" value={w.onFocus} docs={p.docIds} tweens={p.tweens} widgets={p.ids} scenes={p.ctx.scenes} onChange={(v) => put('onFocus', v)} onFail={p.onFail} />
       <div className="tl-desc__group-title">World anchor</div>
       <label className="tl-flag" title={wa.tooltip}>
         <input type="checkbox" aria-label="widget follows the world" checked={w.worldAnchor !== undefined} onChange={(e) => put('worldAnchor', e.target.checked ? { point: [0, 0, 0] } : undefined)} />
@@ -775,7 +775,7 @@ function DocumentInspector(p: {
         )}
       </div>
       <ObjectFields desc={p.D.document} value={d as unknown as Record<string, unknown>} path={[]} component="document" ctx={p.ctx} skip={DOC_CUSTOM} onEdit={(path: FieldPath, next: unknown) => p.onEdit((doc) => setAt(doc, path, next) as UiDocument)} onFail={p.onFail} />
-      <ActionsField label="On cancel" aria="document on cancel" value={d.onCancel} docs={p.docIds} tweens={tweenNames} widgets={p.ids} onChange={(v) => p.onEdit((doc) => setAt(doc, ['onCancel'], v) as UiDocument)} onFail={p.onFail} />
+      <ActionsField label="On cancel" aria="document on cancel" value={d.onCancel} docs={p.docIds} tweens={tweenNames} widgets={p.ids} scenes={p.ctx.scenes} onChange={(v) => p.onEdit((doc) => setAt(doc, ['onCancel'], v) as UiDocument)} onFail={p.onFail} />
       <div className="tl-desc__group-title">Styles</div>
       <StyleMapEditor desc={p.D.style} styles={d.styles ?? {}} aria="document" ctx={p.ctx} onChange={(next) => setMap('styles', next)} onFail={p.onFail} />
       <div className="tl-desc__group-title">Tweens</div>

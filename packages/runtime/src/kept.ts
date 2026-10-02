@@ -51,6 +51,22 @@ export class KeptObjects {
     return { entities: entities.filter((e) => !skip.has(e.id)), skipped: [...skip] };
   }
 
+  /**
+   * Their scene arrived again: the scene-less kept objects among `ids` belong
+   * to it once more (a run restart that keeps the scene keeps them too).
+   * Returns their documents.
+   */
+  adopt(ids: readonly string[]): EntityV3[] {
+    const out: EntityV3[] = [];
+    for (const id of ids) {
+      const e = this.orphans.get(id);
+      if (e === undefined) continue;
+      this.orphans.delete(id);
+      out.push(e);
+    }
+    return out;
+  }
+
   /** The kept objects whose scene is gone. */
   orphanList(): EntityV3[] {
     return [...this.orphans.values()];

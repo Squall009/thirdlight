@@ -314,3 +314,37 @@ test('UI document editor: build a HUD, drag, anchor, theme colour, undo/redo, th
   await page.screenshot({ path: 'test-results/ui-editor-play.png' });
   expect(errors).toEqual([]);
 });
+
+test("a button's engine action reloads the scene it names or the active one; the deprecated run restarts are marked", async ({ page }) => {
+  test.setTimeout(120_000);
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await cmd('createScene', { sceneId: 'level-two', name: 'Level two' });
+  await page.goto(be.editorUrl);
+  await expect(page.locator('.tl-statusbar')).toContainText('connected');
+  await createItem(page, 'UI document', 'UI document 1');
+  const editor = page.locator(`[data-ui-document="${DOC_ID}"]`);
+  await expect.poll(async () => (await storedDoc())?.root.type).toBe('panel');
+  await addWidget(page, 'button');
+  await expect.poll(async () => (await widget('button'))?.type).toBe('button');
+  const onClick = async (): Promise<unknown> => (await widget('button'))?.onClick;
+  await editor.getByLabel('widget on click new action').selectOption('engine');
+  await editor.getByRole('button', { name: 'add widget on click', exact: true }).click();
+  await expect.poll(onClick).toEqual({ do: 'engine', action: 'resume' });
+  // The deprecated run restarts are still listed (a document using one keeps it), marked with what replaces them.
+  const action = editor.getByLabel('widget on click 1 engine action');
+  await expect(action.locator('option[value="restartLevel"]')).toHaveText('restartLevel (deprecated)');
+  await expect(action.locator('option[value="newGame"]')).toHaveAttribute('title', /^Deprecated: use a new game the game builds in a script/);
+  await expect(action.locator('option[value="reloadScene"]')).toHaveText('reloadScene');
+  // reloadScene: the active scene unless a scene is named.
+  await action.selectOption('reloadScene');
+  await expect.poll(onClick).toEqual({ do: 'engine', action: 'reloadScene' });
+  const scene = editor.getByLabel('widget on click 1 scene');
+  await expect(scene).toHaveValue('');
+  await expect(scene.locator('option[value="level-two"]')).toHaveText('Level two');
+  await scene.selectOption('level-two');
+  await expect.poll(onClick).toEqual({ do: 'engine', action: 'reloadScene', scene: 'level-two' });
+  await scene.selectOption('');
+  await expect.poll(onClick).toEqual({ do: 'engine', action: 'reloadScene' });
+  expect(errors).toEqual([]);
+});

@@ -6,8 +6,9 @@
  * the HUD documents shown while the game plays.
  *
  * The shell changes the game only through the host's seams: the engine pause
- * (no steps while a menu is open), a restart and a move along the scene list
- * (UI events on the next input frame, so replays hold), and project saves
+ * (no steps while a menu is open), a scene reload, the deprecated run restart
+ * and a move along the scene list (UI events on the next input frame, so
+ * replays hold), and project saves
  * (a save made by the simulation, a slot loaded by the save service).
  * It knows no game rules.
  *
@@ -49,8 +50,10 @@ export interface ShellDeps {
   readonly setHud: (docIds: readonly string[]) => void;
   /** The engine pause (no steps while true). */
   readonly setPaused: (on: boolean) => void;
-  /** A fresh run (a restart UI event on the next input frame). */
-  readonly restart: () => void;
+  /** A fresh run (a restart UI event on the next input frame), named by the action that asked for it. */
+  readonly restart: (cause: 'restartLevel' | 'newGame' | 'quitToTitle') => void;
+  /** A scene's objects as authored again (a reload UI event; absent: the active scene). */
+  readonly reloadScene: (sceneId: string | undefined) => void;
   /** Move to an entry of the scene list (a scene UI event on the next input frame). */
   readonly goToScene: (index: number) => void;
   /** The scene list entry the run is at (-1: none). */
@@ -67,7 +70,7 @@ export interface ShellDeps {
   readonly pauseAllowed: () => boolean;
   /** A game mode's own pause screen (absent: the shell's). */
   readonly modePauseScreen: () => string | undefined;
-  /** The engine's pause panel, made on first use (null: no DOM). */
+  /** The engine's pause panel (Resume only), made on first use (null: no DOM). */
   readonly pausePanel: () => { show(): void; hide(): void; readonly shown: boolean; handleEdges(e: { up: boolean; down: boolean; submit: boolean; cancel: boolean }): void } | null;
   readonly setVolume?: (bus: 'music' | 'sfx' | 'ui', value: number) => void;
   readonly setQuality?: (q: 'low' | 'medium' | 'high') => void;
@@ -205,12 +208,12 @@ export function createShellController(deps: ShellDeps): ShellController {
     go('pause');
   };
   const toTitle = (): void => {
-    deps.restart();
+    deps.restart('quitToTitle');
     stack = [];
     go(screens.title !== undefined ? 'title' : 'playing');
   };
   const newGame = (): void => {
-    deps.restart();
+    deps.restart('newGame');
     if (list.length > 0) deps.goToScene(0);
     note = '';
     play();
@@ -256,7 +259,8 @@ export function createShellController(deps: ShellDeps): ShellController {
       if (disposed) return;
       switch (a.action) {
         case 'resume':
-          if (screen !== 'title') play();
+          // From the title too: a game that builds its own new game (a UI event its script answers) leaves the title with it.
+          play();
           return;
         case 'back':
           back();
@@ -274,8 +278,12 @@ export function createShellController(deps: ShellDeps): ShellController {
           return;
         }
         case 'restartLevel':
-          deps.restart();
+          deps.restart('restartLevel');
           play();
+          return;
+        case 'reloadScene':
+          // A primitive: it leaves the screen as it is (a button that also resumes lists resume too).
+          deps.reloadScene(a.scene);
           return;
         case 'quitToTitle':
           toTitle();

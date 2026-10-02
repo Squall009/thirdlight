@@ -702,6 +702,18 @@ unique across the whole project. One command edits one scene.
     `scenes/<id>.json` and checks its digest; the scene joins at the next
     step boundary. `at` offsets its root objects.
   - `unload(sceneId)` removes the scene at the next boundary.
+  - `reload(sceneId)` puts a loaded scene back as authored at the next
+    boundary: its objects return where they were authored (where it was
+    loaded with `at`), the copies its objects' scripts spawned go, its
+    scripts start over (disposed and made again, as at the start: no
+    `onDisable`/`onDestroy`, `onEnable` again), its sounds stop. Kept
+    objects (their scripts too), `ctx.save`, the counters and the other
+    scenes stay as they are; a kept player arrives at the scene's listed
+    spawn as on a load. An unloaded scene loads; a scene being loaded is
+    left to arrive. Like `unload`, it is refused for a scene holding a
+    player that is not kept loaded. A UI button does the same with the
+    engine action `{do: "engine", action: "reloadScene", scene?}` (absent
+    scene: the active one).
   - `status(sceneId)` returns `unloaded`, `loading` or `loaded`.
   - `loaded()` lists the loaded scenes.
   - A loaded scene brings its colliders, script instances, tags and triggers.
@@ -716,7 +728,8 @@ unique across the whole project. One command edits one scene.
     that is not kept does not unload. When a scene of the shell's scene
     list loads, however it was loaded, a kept player arrives at that
     entry's spawn (a transition or the list naming its own spawn wins).
-  - A replay returns to the start scenes.
+  - A replay returns to the start scenes. A start scene unloaded and
+    loaded again takes its kept objects back, so a replay keeps them.
 - **Scene transitions**: a trigger's scene transition loads and unloads
   scenes when the character enters it and can name a spawn it arrives at
   (see "Scene transitions, impulses, …").
@@ -2329,9 +2342,9 @@ the menus and HUD with the project's own UI documents (make them in the UI
 tab):
 
 - **Screens**: **Title** (shown before play; the game waits behind it),
-  **Pause** (Escape / pad Start; absent: the engine's Resume / Restart panel),
+  **Pause** (Escape / pad Start; absent: the engine's pause panel, Resume only),
   **Settings**, **Controls** (rebinding), **Save** and **Load**. Their buttons
-  use engine actions: `newGame`, `continue` (the newest save), `resume`,
+  use engine actions: `resume` (from the title too: it starts play), `reloadScene`, `continue` (the newest save),
   `back`, `open` (a screen), `save` / `load` (slot 1–3, the project saves of
   Project Settings → Saves), `setSetting`, `rebind`, `nextScene`, `quitToTitle`.
 - **HUD**: documents shown while the game plays. Bindings read
@@ -2341,7 +2354,8 @@ tab):
   (screen, scene, `canContinue`, `saves.<n>.label`, `note`) and script values
   (`ctx.ui.set`).
 - **Scene list**: the game's scenes in order, each with the spawn it starts
-  at. New game begins a fresh run at the first; **Next scene** loads the next
+  at (a new game the game builds starts at the first; the deprecated `newGame`
+  action restarts the run there, see "Migration notes"); **Next scene** loads the next
   and moves the character to its spawn.
 - **Pause allowed**, and a debug **Status line** (screen, scene, prompts).
 
@@ -2787,7 +2801,8 @@ fade. `owner: 'scene'` ties it to the object's scene instead (a spawned
 copy's: to the copy), `owner: 'none'` to nothing (it plays until stopped).
 `ctx.audio.stopAll(bus?, fadeSeconds?)` stops every sound on one bus or all
 of them, whoever started it, and on the music bus releases the scripts'
-music. A run restart (the deprecated `restartLevel`/`newGame` actions and
+music. A scene reload stops the sounds its objects and the scene own; a run
+restart (the deprecated `restartLevel`/`newGame` actions and
 `ctx.lifecycle.restart()`) stops every script sound. The first sound a Play
 drops because every voice is busy (`audio_voices`, 8 by default) writes one
 Problems line for that Play; later drops are counted in Play diagnostics
@@ -4288,6 +4303,40 @@ node tools/project.mjs check ~/projects/<game>    # per folder project; --repin 
 Projects in an older layout are upgraded the first time they are opened
 (see "Projects").
 
+## Migration notes
+
+### The run restart and the engine's new game (deprecated)
+
+The engine does not know what a level restart or a new game is: that is the
+game's own flow. These keep working for now and are removed once no game uses
+them; each use writes one Problems line per Play naming its replacement:
+
+- **`restartLevel`** (UI engine action) restarts the whole run: the start
+  scenes, every object as authored, every script fresh, the start mode, every
+  script sound stopped; `ctx.save` values stay. Use **`reloadScene`** (or
+  `ctx.scenes.reload(sceneId)` in a script) for the scene that starts over,
+  and reset what the game keeps itself (its counters, its `ctx.save` values,
+  a kept player's place: `ctx.lifecycle.respawn` or the scene list's spawn).
+- **`newGame`** (UI engine action; also a title without a focusable button
+  on submit) restarts the run and goes to the scene list's first entry.
+- **`ctx.lifecycle.restart()`** restarts the run like `restartLevel`.
+- The engine's pause panel no longer offers Restart (Resume only); a game
+  that wants one shows its own pause document.
+
+The pattern for a new game is the one Skyforge Tactics builds in script: no
+engine new game, a director script that owns the flow. Its title is a game
+mode (or a UI document) whose button raises a UI event (`{do: "event", name:
+"new-game"}`, plus `{do: "engine", action: "resume"}` when it is the shell's
+title screen); the director answers the event: it resets the counters and
+`ctx.save` values the game uses, unloads the scenes of the old run
+(`ctx.scenes.unload`), loads the first scene (`ctx.scenes.load`, or
+`ctx.scenes.reload` for one that is already in), places the kept player
+(`ctx.lifecycle.respawn`, or the scene list's spawn on load), stops its own
+music (`ctx.audio.stopAll`) and switches to the play mode
+(`ctx.modes.switch`). Quit to title is the same in reverse. A level restart is
+a `reloadScene` button (or `ctx.scenes.reload` from the director) plus
+whatever the game resets of its own.
+
 ## Verification
 
 ```sh
@@ -4383,12 +4432,12 @@ through MCP. The first mode is the one a run starts in.
   Nothing is loaded: the switch happens in one step and replays exactly.
 - Pause: a game with modes pauses with the pause key when its mode allows
   it — the mode's pause screen document (buttons with the engine actions
-  resume and restartLevel), the game shell's pause screen or the engine's
+  resume, reloadScene or the game's own events), the game shell's pause screen or the engine's
   small pause panel; a mode that does not allow the pause keeps it closed.
-- Every game has the run lifecycle as script calls: `ctx.lifecycle.respawn(spawnId?)` puts the character at a
-  Player spawn object (from rest), `setSpawn` picks the spawn respawns use,
-  `restart()` starts the run over (objects at their authored place, scripts
-  fresh, the start mode). What winning, losing or a death means is the
+- Every game has these lifecycle calls: `ctx.lifecycle.respawn(spawnId?)` puts the character at a
+  Player spawn object (from rest), `setSpawn` picks the spawn respawns use
+  (`restart()` is deprecated: see "Migration notes"; `ctx.scenes.reload`
+  puts a scene back as authored). What winning, losing or a death means is the
   game's own scripts.
 - Play from a mode: "Play from…" / MCP `tl_play_start` `mode`; the Play
   toolbar shows the mode the running game is in; `tl_game_observe` reports

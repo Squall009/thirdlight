@@ -37,7 +37,7 @@ export interface BehaviorCameraState {
 /** One UI event of this step (from the input frame). */
 export interface BehaviorUiEvent {
   /** click (a button's event action), submit (an input), focus (the focus moved to `widget`), custom, show, hide, toggle; mode (a mode action: `value` is the mode), restart (the engine's restart), scene (the game shell's move along its scene list: `value` is the entry). */
-  readonly kind: 'click' | 'submit' | 'focus' | 'custom' | 'show' | 'hide' | 'toggle' | 'mode' | 'restart' | 'scene';
+  readonly kind: 'click' | 'submit' | 'focus' | 'custom' | 'show' | 'hide' | 'toggle' | 'mode' | 'restart' | 'scene' | 'reload';
   /** The UI document it happened in. */
   readonly doc: string;
   /** The widget ('' for none). */
@@ -441,8 +441,11 @@ export interface BehaviorLifecycle {
    */
   spawnPoint(): string;
   /**
-   * Restart the run at the next step: scenes, objects, scripts, cameras, UI and the start mode as at the start.
-   * @graphNode Restart run
+   * Deprecated: the engine does not know what a run restart is. Restarts the run at the next step (scenes,
+   * objects, scripts, cameras, UI and the start mode as at the start) and writes one Problems line per Play;
+   * reload scenes with `ctx.scenes.reload` and reset what the game keeps itself.
+   * @deprecated Use `ctx.scenes.reload(sceneId)`.
+   * @graphNode Restart run (deprecated)
    */
   restart(): boolean;
 }

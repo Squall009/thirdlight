@@ -3,12 +3,13 @@
  * shell without a pause screen of its own). Shown while the game
  * is paused in a mode whose `pauseScreen` is not set; a project replaces it
  * with its own UI document (the mode's `pauseScreen`, drawn by the UI layer
- * with the engine actions resume / restart).
+ * with whatever engine actions and events the game binds).
  *
- * Plain DOM, text only, two buttons (Resume, Restart), keyboard/gamepad
- * navigable through the host's ui edges and clickable; styled through the
- * CSSOM (the Play page's content security policy refuses style attributes
- * and inline style elements). Genre-neutral: only resume and restart.
+ * Plain DOM, text only, one button (Resume), keyboard/gamepad navigable
+ * through the host's ui edges and clickable; styled through the CSSOM (the
+ * Play page's content security policy refuses style attributes and inline
+ * style elements). Only Resume: what a restart or a new game is belongs to
+ * the game, so no engine screen offers one.
  */
 import type { HostDom, HostDomNode } from './dom';
 
@@ -19,10 +20,10 @@ export interface PausePanel {
   /** The frame's ui edges while shown: up/down move, submit presses, cancel resumes. */
   handleEdges(edges: { up: boolean; down: boolean; submit: boolean; cancel: boolean }): void;
   /** The focused button (observations). */
-  readonly focus: 'resume' | 'restart';
+  readonly focus: 'resume';
   /** Where a pointer press goes to the panel while shown (its buttons, then the whole view it covers), topmost first; fractions of the view. */
   hitTargets(viewport: { width: number; height: number }): { key: string; rect: [number, number, number, number] }[];
-  /** A click on one of its targets ('resume', 'restart'; 'backdrop' does nothing). */
+  /** A click on one of its targets ('resume'; 'backdrop' does nothing). */
   click(which: string): boolean;
   dispose(): void;
 }
@@ -35,7 +36,7 @@ function css(node: HostDomNode, text: string): void {
   else node.setAttribute?.('style', text);
 }
 
-export function createPausePanel(dom: HostDom, container: HostDomNode, actions: { resume(): void; restart(): void }): PausePanel {
+export function createPausePanel(dom: HostDom, container: HostDomNode, actions: { resume(): void }): PausePanel {
   const root = dom.createElement('div');
   root.setAttribute?.('data-tl-pause-panel', '');
   root.setAttribute?.('role', 'dialog');
@@ -43,9 +44,9 @@ export function createPausePanel(dom: HostDom, container: HostDomNode, actions: 
   const box = dom.createElement('div');
   const title = dom.createElement('div');
   title.textContent = 'Paused';
-  const items: { id: 'resume' | 'restart'; el: HostDomNode }[] = (['resume', 'restart'] as const).map((id) => {
+  const items: { id: 'resume'; el: HostDomNode }[] = (['resume'] as const).map((id) => {
     const el = dom.createElement('button');
-    el.textContent = id === 'resume' ? 'Resume' : 'Restart';
+    el.textContent = 'Resume';
     el.setAttribute?.('data-tl-pause-item', id);
     el.setAttribute?.('type', 'button');
     return { id, el };
@@ -55,7 +56,7 @@ export function createPausePanel(dom: HostDom, container: HostDomNode, actions: 
   root.appendChild(box);
   let shown = false;
   let index = 0;
-  const run = (id: 'resume' | 'restart'): void => (id === 'resume' ? actions.resume() : actions.restart());
+  const run = (_id: 'resume'): void => actions.resume();
   const handlers = items.map((it) => {
     const h = (): void => run(it.id);
     it.el.addEventListener?.('click', h);
@@ -85,7 +86,7 @@ export function createPausePanel(dom: HostDom, container: HostDomNode, actions: 
     get shown(): boolean {
       return shown;
     },
-    get focus(): 'resume' | 'restart' {
+    get focus(): 'resume' {
       return items[index]!.id;
     },
     handleEdges(e): void {
@@ -110,8 +111,8 @@ export function createPausePanel(dom: HostDom, container: HostDomNode, actions: 
     },
     click(which: string): boolean {
       if (!shown) return false;
-      if (which === 'resume' || which === 'restart') run(which);
-      return which === 'resume' || which === 'restart' || which === 'backdrop';
+      if (which === 'resume') run(which);
+      return which === 'resume' || which === 'backdrop';
     },
     dispose(): void {
       items.forEach((it, i) => it.el.removeEventListener?.('click', handlers[i]!));

@@ -1151,8 +1151,9 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
         if (src.shell !== undefined) fields['shell'] = { value: src.shell, enumerable: true };
         // Prefab copies in the running game.
         if (src.spawner !== undefined) {
-          fields['spawn'] = { value: src.spawner.spawn, enumerable: true };
-          fields['destroy'] = { value: src.spawner.destroy, enumerable: true };
+          const spawner = src.spawnerOwned?.(instance.entityId) ?? src.spawner;
+          fields['spawn'] = { value: spawner.spawn, enumerable: true };
+          fields['destroy'] = { value: spawner.destroy, enumerable: true };
         }
         fields['emit'] = { value: emitFor(instance, src, phase), enumerable: true };
         if (instance.log === null) instance.log = logFor(instance);
@@ -1377,14 +1378,15 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
             instances.push(instantiateFor(e.id, values));
           }
         },
-        sceneUnloaded(ids): void {
+        sceneUnloaded(ids, how): void {
           const left: BehaviorInstance[] = [];
           for (let i = instances.length - 1; i >= 0; i -= 1) {
             const instance = instances[i]!;
             if (!ids.has(instance.entityId)) continue;
             instances.splice(i, 1);
-            // A script with onDisable/onDestroy hears it in the next intent phase (then it is disposed).
-            if (leaveCallbacks) left.push(instance);
+            // A script with onDisable/onDestroy hears it in the next intent phase (then it is disposed);
+            // a reloaded object's script starts over as at a run restart (disposed, made again, no leave callbacks).
+            if (leaveCallbacks && how !== 'reload') left.push(instance);
             else disposeInstance(instance);
           }
           // In instance order (the loop above ran backwards).
