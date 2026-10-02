@@ -328,17 +328,21 @@ export function contentOps(core: Core) {
     return run(projectId, (s): { ok: true; files: MissingAssetFile[] } => {
       const ctx = contentCtx(s);
       const records = ((s.content as ContentCatalogV4 | null)?.assets ?? []) as unknown as (RecordLike & { displayName?: string })[];
-      const found: { record: RecordLike & { displayName?: string }; path: string }[] = [];
+      const found: { record: RecordLike & { displayName?: string }; path: string; fromCache: boolean }[] = [];
       for (const r of records) {
         const file = fileOfRecord(r);
         if (file === null) continue;
         const res = resolveProjectFile(ctx, file);
-        if (!res.ok && res.missing === true) found.push({ record: r, path: file });
+        if (res.ok || res.missing !== true) continue;
+        // A converted asset's missing original: Play still draws what the import cache made from it.
+        const v = currentVersionOf(r);
+        const conv = v?.convertedFrom;
+        found.push({ record: r, path: file, fromCache: v !== undefined && conv !== undefined && hasImported(ctx, importKeyOfConverted(conv), v.sourceDigest, v.sourceByteLength) });
       }
       if (found.length === 0) return { ok: true, files: [] };
       const users = assetUsers(s.content, [...(s.v4?.scenes.values() ?? [])], new Set(found.map((f) => f.record.assetId)));
       const files = found
-        .map(({ record, path }) => ({ assetId: record.assetId, displayName: record.displayName ?? record.assetId, kind: record.kind ?? 'model', path, usedBy: users.get(record.assetId) ?? [] }))
+        .map(({ record, path, fromCache }) => ({ assetId: record.assetId, displayName: record.displayName ?? record.assetId, kind: record.kind ?? 'model', path, usedBy: users.get(record.assetId) ?? [], ...(fromCache ? { fromCache: true as const } : {}) }))
         .sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
       return { ok: true, files };
     }) as { ok: true; files: MissingAssetFile[] } | { ok: false; error: CommandError };

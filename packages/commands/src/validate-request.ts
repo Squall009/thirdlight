@@ -109,7 +109,8 @@ const TOP_FIELDS = [
   'args',
 ] as const;
 
-const OPS: readonly MutationOp[] = [
+/** Every mutation op a request may name (the one list: records, the host and the wire check against it). */
+export const MUTATION_OPS: readonly MutationOp[] = [
   'createEntity',
   'setTransform',
   'deleteEntity',
@@ -418,7 +419,7 @@ function validateEnvelope(
       error: invalidRequest('/op', undefined, EXPECT.op, 'required field \'op\' is missing'),
     };
   }
-  if (typeof req['op'] !== 'string' || !OPS.includes(req['op'] as MutationOp)) {
+  if (typeof req['op'] !== 'string' || !MUTATION_OPS.includes(req['op'] as MutationOp)) {
     return {
       ok: false,
       error: invalidRequest(

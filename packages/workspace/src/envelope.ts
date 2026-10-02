@@ -24,7 +24,7 @@ import {
   validateSceneV3,
   validateSceneV4,
 } from '@thirdlight/project-model';
-import type { MutationSuccess } from '@thirdlight/commands';
+import { MUTATION_OPS, type MutationSuccess } from '@thirdlight/commands';
 
 import { isPlainObject, isSafeInt, pointerSegment } from './errors';
 
@@ -279,8 +279,7 @@ function validateV3Envelope(root: Record<string, unknown>, pid: string): Envelop
       count,
     };
   }
-  // Retry block (v3 records may carry any op of `M1_MUTATION_OPS`,
-  // `M2_RESULT_OPS` or `V3_RESULT_OPS`).
+  // Retry block (a record may carry any mutation op, `MUTATION_OPS`).
   const scene = sceneRes.normalized as SceneV3;
   const retryRes = validateRetryBlock(root['retry'], scene.revision, pid, 3);
   if (!retryRes.ok) {
@@ -442,38 +441,12 @@ function bad(message: string, found: unknown, expected: string, path: string): {
 
 // ---- record result shape --------------------------------
 
-const M1_MUTATION_OPS = ['createEntity', 'setTransform', 'deleteEntity', 'undo', 'redo'];
-/** The content/prefab operation set. */
-const M2_RESULT_OPS = [
-  'publishAsset',
-  'publishBehavior',
-  'setBehaviorProperties',
-  'setComponent',
-  'setSettings',
-  'acknowledgeBehaviorTrust',
-  'createPrefab',
-  'instantiatePrefab',
-];
-
-/** The v3 operation set. */
-const V3_RESULT_OPS = ['applySurfacePreset', 'updateEntity', 'moveEntities', 'setTags', 'setAssetOptions', 'pasteEntities', 'setMaterial', 'deleteMaterial', 'setEnvironment', 'setLighting', 'setAnimator', 'deleteAnimator', 'setInput', 'setCollisionLayers', 'setSaveSchema', 'createScene', 'renameScene', 'deleteScene', 'setStartScenes', 'setGraph', 'deleteGraph', 'graphEdit', 'setEffect', 'deleteEffect', 'renameEffect', 'setScriptLibrary', 'deleteScriptLibrary', 'editBlocks', 'setBlockType', 'deleteBlockType', 'setCellFields', 'setBlockStamp', 'deleteBlockStamp', 'setUiDocument', 'deleteUiDocument', 'setUiTheme', 'deleteUiTheme', 'setTimeline', 'deleteTimeline', 'setModes', 'setBehaviorGroups', 'setEventCues', 'setShell', 'setDialogue', 'deleteDialogue', 'setSpeaker', 'deleteSpeaker', 'setDialogueSettings', 'deleteAsset', 'deletePrefab', 'importAssets', 'importResources', 'createEntities', 'commitScriptLibraryStage', 'setLabels', 'setAddress', 'moveResources', 'renameFolder', 'createFolder', 'paintInstances'];
-/** The ops only a v4 project records (the scene index). */
-const V4_RESULT_OPS = ['createScene', 'renameScene', 'deleteScene', 'setStartScenes'];
-
-/** The mutation ops a record of a `storageVersion` 3 envelope / 4 file can carry. */
-export function mutationOpsForStorageVersion(storageVersion: 3 | 4): readonly string[] {
-  return storageVersion === 3
-    ? [...M1_MUTATION_OPS, ...M2_RESULT_OPS, ...V3_RESULT_OPS]
-    : [...M1_MUTATION_OPS, ...M2_RESULT_OPS, ...V3_RESULT_OPS, ...V4_RESULT_OPS];
-}
-
 /**
  * Strict shape check of a recorded success payload (fields and types;
  * unknown fields rejected — envelope strictness).
  * Returns a LoadDetail describing the first problem, or null when well-formed.
  *
- * `storageVersion` selects the accepted op set (a v4 file additionally
- * records the scene-index ops) and the scene rules the historical entity
+ * `storageVersion` selects the scene rules the historical entity
  * payloads are checked against; the content-op payloads are checked
  * structurally (record well-formedness).
  */
@@ -488,13 +461,14 @@ function validateRecordResult(
   if (!isPlainObject(result)) return rerr('record result must be an object', undefined, '/result');
   const keys = Object.keys(result);
   const base = ['ok', 'op', 'projectId', 'requestId', 'revision', 'duplicated', 'change', 'history'];
-  const acceptedOps = mutationOpsForStorageVersion(storageVersion);
+  // A v3 envelope and a v4 file accept the same ops (the scene-index ops were never refused in a v3 record).
+  const acceptedOps: readonly string[] = MUTATION_OPS;
   // The op discriminator must be a primitive string BEFORE any
   // coercion — a JSON object such as `{"toString":0}` is corrupt shape,
   // not a valid op.
   const opRaw = result['op'];
   if (typeof opRaw !== 'string' || !acceptedOps.includes(opRaw)) {
-    return rerr('recorded result op is not a known M1/M2/v3 mutation op', opRaw, '/result/op');
+    return rerr('recorded result op is not a known mutation op', opRaw, '/result/op');
   }
   const op = opRaw;
   let allowed: string[];
@@ -640,7 +614,7 @@ function validateChangeShape(change: unknown, op: string, storageVersion: 3 | 4)
       return rerr(`recorded change type does not match the recorded op '${op}'`, t, '/result/change/type');
     }
     if (expected === undefined) {
-      // The `M1_MUTATION_OPS` keep their exact correspondence (createEntity/setTransform/
+      // The entity and history ops keep their exact correspondence (createEntity/setTransform/
       // deleteEntity); any other op/type pair is corrupt shape.
       const m1Expected: Record<string, string> = {
         createEntity: 'createEntity',
@@ -814,7 +788,7 @@ const V2_CHANGE_OPTIONAL_KEYS: Record<string, readonly string[]> = {
   setSceneIndex: ['environments'],
 };
 
-/** Forward-op → change-type correspondence for the `M2_RESULT_OPS`. */
+/** Forward-op → change-type correspondence for the content and prefab ops. */
 const M2_CHANGE_TYPE_BY_OP: Record<string, string> = {
   publishAsset: 'publishAsset',
   publishBehavior: 'publishBehavior',

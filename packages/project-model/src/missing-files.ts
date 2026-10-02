@@ -36,6 +36,12 @@ export interface MissingAssetFile {
   readonly path: string;
   /** What names the asset (empty: nothing does; a script may still load it by name). */
   readonly usedBy: readonly MissingFileUser[];
+  /**
+   * The file is an original the asset was converted from (an extracted model, an encoded texture) and its
+   * import cache still holds what was made from it: Play draws that, while an export refuses the asset
+   * until the original is back.
+   */
+  readonly fromCache?: true;
 }
 
 /** One asset a Play stands a placeholder in for, or a refusal names. */

@@ -236,7 +236,7 @@ test("a block layer's tools in the Inspector; a prefab from the selection; an au
   await expect(audio).toHaveAttribute('data-asset-id', sound);
   await expect(audio.getByTestId('audio-facts')).toContainText('WAV');
   await page.screenshot({ path: 'test-results/window-tools-audio.png' });
-  // Its options are no longer in the project window's side panel (one place for them).
+  // Its options show once, in the Inspector: one place for an asset's options.
   await expect(page.getByLabel('audio load type')).toHaveCount(1);
   await audio.getByLabel('audio load type').selectOption('stream');
   await expect.poll(async () => ((await query('queryAssets', { assetId: sound }))['assets'] as { audio: { loadType: string; loadTypeSet: boolean } }[])[0]!.audio).toMatchObject({ loadType: 'stream', loadTypeSet: true });

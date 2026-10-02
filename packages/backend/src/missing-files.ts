@@ -36,7 +36,10 @@ function userLabel(u: MissingAssetFile['usedBy'][number]): string {
 /** The Problems line for a new list (the count and the first files with their uses). */
 export function missingFilesLine(files: readonly MissingAssetFile[]): string {
   const first = files.slice(0, 3).map((f) => `${f.path} (${f.assetId}${f.usedBy.length > 0 ? `, used by ${f.usedBy.slice(0, 2).map(userLabel).join(', ')}${f.usedBy.length > 2 ? ', …' : ''}` : ''})`);
-  return `${files.length} asset file${files.length === 1 ? ' is' : 's are'} missing from the game folder: ${first.join('; ')}${files.length > 3 ? '; …' : ''}`;
+  const cached = files.filter((f) => f.fromCache === true).length;
+  // Play draws a converted asset from its import cache, so a missing original shows up only at export.
+  const note = cached === 0 ? '' : ` ${cached === files.length ? (cached === 1 ? 'It is an original' : 'They are originals') : `${cached} of them are originals`} the import cache still holds a conversion of: Play draws ${cached === 1 ? 'it' : 'them'} from the cache, an export refuses ${cached === 1 ? 'it' : 'them'} until the file is back.`;
+  return `${files.length} asset file${files.length === 1 ? ' is' : 's are'} missing from the game folder: ${first.join('; ')}${files.length > 3 ? '; …' : ''}.${note}`;
 }
 
 export function createMissingFiles(deps: MissingFilesDeps) {
@@ -65,6 +68,21 @@ export function createMissingFiles(deps: MissingFilesDeps) {
     return r.files;
   };
 
+  /** Read again soon, coalesced (only a project whose list was read once). */
+  const schedule = (projectId: string): void => {
+    if (deps.closed() || timers.has(projectId) || !lists.has(projectId)) return;
+    const t = setTimeout(() => {
+      timers.delete(projectId);
+      try {
+        refresh(projectId);
+      } catch (e) {
+        deps.logStartup(`missing-file check of ${projectId} failed: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }, 25);
+    (t as { unref?: () => void }).unref?.();
+    timers.set(projectId, t);
+  };
+
   return {
     refresh,
     /** One page of the list (the last read; read now when it never was). */
@@ -79,18 +97,13 @@ export function createMissingFiles(deps: MissingFilesDeps) {
       return files === null ? null : { total: files.length, offset: 0, files: files.slice(0, CONTENT_ASSETS_LIMIT_DEFAULT) };
     },
     /** After a change to the asset records (a move followed, an asset removed): read again soon, coalesced. */
-    schedule: (projectId: string): void => {
-      if (deps.closed() || timers.has(projectId) || !lists.has(projectId)) return;
-      const t = setTimeout(() => {
-        timers.delete(projectId);
-        try {
-          refresh(projectId);
-        } catch (e) {
-          deps.logStartup(`missing-file check of ${projectId} failed: ${e instanceof Error ? e.message : String(e)}`);
-        }
-      }, 25);
-      (t as { unref?: () => void }).unref?.();
-      timers.set(projectId, t);
+    schedule,
+    /**
+     * After a change that can only change what uses a file (a material, a graph): read again only while
+     * files are listed, so their "used by" stays current; an empty list stays empty without a walk.
+     */
+    scheduleUses: (projectId: string): void => {
+      if ((lists.get(projectId)?.length ?? 0) > 0) schedule(projectId);
     },
   };
 }

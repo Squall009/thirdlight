@@ -350,7 +350,10 @@ window), **Console** and **Problems** (Window menu lists just those).
   file check. A Play that cannot start names every missing file at once;
   missing files no start scene draws are stood in for (a magenta box, a
   checker texture, silence) and listed in the start result (`placeholders`).
-  The export refuses any missing file.
+  The export refuses any missing file. A missing file that is the original
+  of a converted asset (an extracted model's GLB, a PNG encoded to KTX2)
+  whose conversion is still in the import cache is marked so: Play draws the
+  cached conversion, the export refuses it until the file is back.
 - **Re-imports are reported**: files changed on disk and re-imported by a
   check (also the one before Play) are named in Problems and in the Play
   start result's `check`, with the old and new file digests.
@@ -370,6 +373,15 @@ window), **Console** and **Problems** (Window menu lists just those).
 - **Play diagnostics** carry an `audio` block (unlock state, what plays,
   cues skipped or late and why) and a warning when a script message queue
   refuses sends.
+- **Smooth block-layer tops**: a block layer's **Smoothing angle** shades
+  tops smooth across cells and chunks below that crease angle, and **Top
+  subdivision** 2 draws sloped tops cut 2 × 2 (below, "Block layer
+  editing"); colliders keep the corners' shape.
+- **Instance brush**: with an instance set selected, **Paint** and **Erase**
+  in its Inspector drag copies onto anything that collides (block layers and
+  objects with a collider) with radius, density, spacing, scale, rotation,
+  align and seed; one stroke is one `paintInstances` command and one undo,
+  the same stroke over MCP gives the same copies (below, "Instance sets").
 - **Editing while a tool edits**: an editor command refused because an MCP
   edit landed first is sent again once the change feed brought that edit
   (a whole-document edit built from the older view is still refused and
@@ -712,8 +724,9 @@ detail. Copies have no ids, colliders or scripts.
   and an MCP caller without one gets the scene's block layers. One stroke
   carries up to 256 dabs and 1,536 places (`INSTANCE_BRUSH_LIMITS`, so it fits
   one 64 KiB command); a longer drag in the editor goes on as the next
-  stroke. A set has no count of its own beyond an instance set's 65,536
-  copies. GameObject → **Instance set…** (the rectangle fill) still makes a
+  stroke, so a long drag is several strokes and takes several undos to take
+  back (one per stroke). A set has no count of its own beyond an instance
+  set's 65,536 copies. GameObject → **Instance set…** (the rectangle fill) still makes a
   new set.
 - **Chunks** (phase 25.7d): a set is drawn in chunks, each hidden when out of
   view and given its level of detail at its own centre. The copies are split

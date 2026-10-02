@@ -301,4 +301,17 @@ describe('extract textures over HTTP (a project in the data root)', () => {
     expect(added.some((a) => a.assetId === door.textures!['0'] && a.kind === 'texture')).toBe(true);
     expect(added.length).toBe(2);
   });
+
+  it('lists an extracted model whose file went missing as drawn from the import cache in Play and refused by an export', async () => {
+    const glb = readFileSync(join(dir(), 'assets', 'kit', 'door.glb'));
+    rmSync(join(dir(), 'assets', 'kit', 'door.glb'));
+    await check();
+    const problems = (await api(`${tb.authUrl}/api/v1/projects/${PID}/problems`, { method: 'GET', token: tb.adminToken, origin: null })).json as { missingFiles: { files: { assetId: string; fromCache?: boolean }[] }; problems: { code: string; message: string }[] };
+    expect(problems.missingFiles.files.find((f) => f.assetId === 'door')).toMatchObject({ fromCache: true });
+    const line = problems.problems.filter((p) => p.code === 'asset_files_missing').at(-1)!.message;
+    expect(line).toContain('assets/kit/door.glb');
+    expect(line).toContain('Play draws it from the cache, an export refuses it until the file is back');
+    put('assets/kit/door.glb', glb);
+    await check();
+  });
 });

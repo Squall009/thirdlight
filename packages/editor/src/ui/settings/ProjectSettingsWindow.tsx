@@ -2,9 +2,9 @@
  * Project Settings (File → Project Settings): one full window over the
  * editor with a sub-tab per area of the project's settings, as Unity's and
  * Godot's Project Settings windows are, and a search field that filters the
- * sub-tabs by their names and the settings they hold. The panels are the
- * ones the bottom dock used to show, unchanged: every edit is the same
- * ordinary command.
+ * sub-tabs by their names and the settings they hold. Settings are
+ * project-wide, so they live in one window rather than beside the scene;
+ * every edit is the same ordinary command.
  *
  * Esc (not while typing, not under a modal dialog) or × closes it and the
  * editor returns as it was; opening an item in the editor window (a script

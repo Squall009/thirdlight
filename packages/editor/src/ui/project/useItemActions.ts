@@ -13,7 +13,7 @@
  */
 import { useCallback, useMemo, useState, type Dispatch } from 'react';
 import type { AnimatorController, MaterialDef } from '@thirdlight/project-model';
-import { RESOURCE_KIND_TABLE } from '@thirdlight/project-model/limits';
+import { DIALOGUE_LIMITS, NAME_MAX, RESOURCE_KIND_TABLE, SCRIPT_LIBRARY_LIMITS, TIMELINE_LIMITS, UI_LIMITS } from '@thirdlight/project-model/limits';
 
 import { docKey, type WorkspaceAction } from '../../session/editor-window';
 import { newEffect } from '../../session/effect-edit';
@@ -48,8 +48,22 @@ export const GRAPH_MATERIAL_TEMPLATES: readonly { value: string; label: string }
   { value: 'layers', label: 'Height-blended layers (painted terrain)' },
 ];
 
-/** A name for a new item longer than the commands accept is cut here. */
-const NAME_MAX = 64;
+/** A name longer than its kind's model accepts is cut here (each bound is the model's own). */
+function nameMaxOf(kind: string): number {
+  switch (kind) {
+    case 'dialogue':
+      return DIALOGUE_LIMITS.nameChars;
+    case 'ui':
+    case 'uitheme':
+      return UI_LIMITS.nameChars;
+    case 'library':
+      return SCRIPT_LIBRARY_LIMITS.nameChars;
+    case 'timeline':
+      return TIMELINE_LIMITS.nameChars;
+    default:
+      return NAME_MAX;
+  }
+}
 
 /** Each resource kind's delete command (its id goes under the kind's id key). */
 const DELETE_OP: Readonly<Record<string, string>> = {
@@ -119,10 +133,10 @@ export function useItemActions(deps: ItemActionsDeps): ItemActions {
     async (key: string, rawName: string): Promise<string | null> => {
       const c = clientRef.current;
       if (c === null) return 'not connected';
-      const name = rawName.trim().slice(0, NAME_MAX);
-      if (name === '') return 'give it a name';
       const [head, arg = ''] = key.includes(':') ? [key.slice(0, key.indexOf(':')), key.slice(key.indexOf(':') + 1)] : [key, ''];
       const kind = head === 'graph-material' ? 'material' : head === 'animator-locomotion' ? 'animator' : head;
+      const name = rawName.trim().slice(0, nameMaxOf(kind));
+      if (name === '') return 'give it a name';
       const id = await freeItemId(name, kind, (ids) => c.catalog.taken(ids, [kind]));
       const run = async (op: string, args: Record<string, unknown>): Promise<string | null> => refusal(await c.command(op, args, c.projection.revision));
       let err: string | null;
@@ -238,7 +252,7 @@ export function useItemActions(deps: ItemActionsDeps): ItemActions {
     async (item: ProjectItem, rawName: string): Promise<string | null> => {
       const c = clientRef.current;
       if (c === null) return 'not connected';
-      const name = rawName.trim().slice(0, NAME_MAX);
+      const name = rawName.trim().slice(0, nameMaxOf(item.kind));
       if (name === '') return 'give it a name';
       const sent = renameArgs(item, name);
       if (sent === null) return `${item.kind} ${item.id} cannot be renamed here`;

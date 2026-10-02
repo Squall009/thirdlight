@@ -62,6 +62,7 @@ export const SCRIPT_LIBRARY_LIMITS = Object.freeze({
   files: MAX_BEHAVIOR_FILES,
   fileBytes: MAX_BEHAVIOR_FILE_BYTES,
   containerBytes: MAX_BEHAVIOR_SOURCE_BYTES,
+  nameChars: 64,
 });
 const PATH_RE = /^[a-z0-9][a-z0-9._-]*(\/[a-z0-9][a-z0-9._-]*)*$/;
 
@@ -111,7 +112,7 @@ export function validateScriptLibrary(value: unknown, path: string, errors: Mode
   const id = value['libraryId'];
   if (typeof id !== 'string' || !ID_RE.test(id)) err(errors, 'id_invalid', `${path}/libraryId`, 'libraryId uses the id syntax [a-z0-9][a-z0-9_-]{0,63}', id, 'an id');
   const name = value['name'];
-  if (typeof name !== 'string' || name.length < 1 || name.length > 64 || /[\u0000-\u001f\u007f]/.test(name)) err(errors, 'field_value', `${path}/name`, 'a library name has 1-64 characters', name, '1-64 characters');
+  if (typeof name !== 'string' || name.length < 1 || name.length > SCRIPT_LIBRARY_LIMITS.nameChars || /[\u0000-\u001f\u007f]/.test(name)) err(errors, 'field_value', `${path}/name`, `a library name has 1-${SCRIPT_LIBRARY_LIMITS.nameChars} characters`, name, `1-${SCRIPT_LIBRARY_LIMITS.nameChars} characters`);
   const files = value['files'];
   if (!Array.isArray(files)) return err(errors, 'field_type', `${path}/files`, 'files is a list of { path, text }', files, 'array');
   if (files.length < 1 || files.length > SCRIPT_LIBRARY_LIMITS.files) {

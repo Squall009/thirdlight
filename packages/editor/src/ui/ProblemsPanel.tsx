@@ -53,6 +53,7 @@ function MissingFiles({ missing }: { missing: MissingFilesView }): JSX.Element {
           <span className="tl-problem__message" title={`${f.kind} asset ${f.assetId}`}>
             <span className="tl-problem__path">{f.path}</span> ({f.displayName}
             {f.displayName !== f.assetId ? `, ${f.assetId}` : ''}) — {f.usedBy.length > 0 ? `used by ${f.usedBy.map(userText).join(', ')}` : 'nothing uses it'}
+            {f.fromCache === true ? '; Play draws it from the import cache, an export refuses it until the file is back' : ''}
           </span>
         </li>
       ))}

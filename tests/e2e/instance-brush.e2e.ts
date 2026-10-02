@@ -20,7 +20,7 @@
  * command may carry is refused with its reason.
  */
 import { randomBytes } from 'node:crypto';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
@@ -213,8 +213,11 @@ async function playPicture(page: Page): Promise<{ img: Image; png: Buffer }> {
     png = Buffer.from(String(shot.json.dataUrl ?? '').split(',')[1] ?? '', 'base64');
     return true;
   }, { timeout: 60_000, intervals: [500] }).toBe(true);
-  // A second picture a moment later: the first frames may still be loading models.
-  await page.waitForTimeout(1500);
+  // A screenshot is the frame as drawn, models still loading absent: the picture is taken once Play has none loading.
+  await expect.poll(async () => {
+    const r = (await relay(`${psid}/observe`, {})).json['resources'] as { loading?: number; resident?: Record<string, { count: number }> } | undefined;
+    return r !== undefined && r.loading === 0 && (r.resident?.['model']?.count ?? 0) > 0;
+  }, { timeout: 60_000 }).toBe(true);
   const shot = await relay(`${psid}/screenshot`, { maxWidth: 960 });
   if (shot.status === 200) png = Buffer.from(String(shot.json.dataUrl ?? '').split(',')[1] ?? '', 'base64');
   await page.getByTitle('Stop the play preview').click();
@@ -403,6 +406,14 @@ test('paintInstances over MCP: no surface drops onto the block layer, erase, one
     expect(big['ok']).not.toBe(true);
     expect(JSON.stringify(big)).toMatch(/more than 1536 places/);
     expect((await setState(set)).buffer).toBe(original.buffer);
+    // A stroke refused after it was planned (a stale revision) leaves no buffer behind: nothing collects an unused one.
+    const blobs = (): number => readdirSync(join(be!.projectDir, 'sources', 'sha256')).length;
+    const before = blobs();
+    expect(before).toBeGreaterThan(0);
+    const revision = Number((await query('queryProject')).revision);
+    const stale = await be!.command({ op: 'paintInstances', projectId: be!.projectId, expectedRevision: revision - 1, requestId: `req-${randomBytes(16).toString('hex')}`, origin: { kind: 'mcp', clientId: 'e2e-instance-brush' }, args: { entityId: set, mode: 'paint', dabs: [[-14, 2, -14]], brush } });
+    expect(JSON.stringify(stale)).toContain('revision_conflict');
+    expect(blobs()).toBe(before);
   } finally {
     await mcp.close();
   }

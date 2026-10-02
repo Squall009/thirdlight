@@ -297,6 +297,16 @@ describe('preview → editor validators', () => {
     expect(control.ok ? '' : control.reason).toContain(`${BRIDGE_MESSAGE_MAX_BYTES}-byte bound`);
   });
 
+  it('a screenshot answer that is not ok keeps the general bound and only code and message in its error', () => {
+    const refused = (error: Record<string, unknown>): Record<string, unknown> => ({ v: 2, type: 'tl.screenshot.result', playSessionId: play, relayId: relay, ok: false, error });
+    expect(validateBridgePreviewToEditor(refused({ code: 'render_not_ready', message: 'no frame yet' })).ok).toBe(true);
+    const extra = validateBridgePreviewToEditor(refused({ code: 'render_not_ready', pad: 'x' }));
+    expect(extra).toMatchObject({ ok: false, path: '/error/pad' });
+    // A not-ok answer with a bulky stray field is refused by size before its fields are read.
+    const huge = validateBridgePreviewToEditor({ ...refused({ code: 'render_not_ready' }), dataUrl: 'x'.repeat(BRIDGE_MESSAGE_MAX_BYTES) });
+    expect(huge.ok ? '' : huge.reason).toContain(`${BRIDGE_MESSAGE_MAX_BYTES}-byte bound`);
+  });
+
   it('tl.diagnostics.result (≤ 16 KiB) / tl.error (phase) / tl.pong', () => {
     const ok = validateBridgePreviewToEditor({ v: 2, type: 'tl.diagnostics.result', playSessionId: play, relayId: relay, ok: true, diagnostics: { renderBackend: 'webgl2' } });
     expect(ok.ok).toBe(true);

@@ -312,6 +312,7 @@ moves at least as many lines out as it adds.
 | 27.17 | done 2026-10-01 (before 27.18/27.19; the full gate is the main session's): D108 (an editor command after MCP edits waits for the change feed and is sent again), D109 (a late selection after the window closed is dropped), D111 (a screenshot waits for the first frame) fixed and their test syncs removed; D113 found and fixed (input exercises on a game without scripts); acceptance mapped to its specs in the decision log, new: every kind edited from its window back to the default view (`project-window`), a v5 project in the editor with matching replays (`project-upgrade`); a material, an effect and a timeline built through the UI only (`by-hand`, driven by a test; the owner's own try pending); `docs/deployment.md` (what you can do now, stale dock and tab wording) and the MCP descriptions updated |
 | 27.18 | done 2026-10-01: a block layer's **Smoothing angle** (`smoothAngle`, degrees 0–180, Inspector and MCP; 0/absent = flat-shaded tops as before) averages the normals of tops meeting at the same height across cells and chunk edges (one ring of columns around the chunk is read; a corner cell re-meshes the diagonal chunk too), keeps edges sharper than the angle hard and never mixes walls in; **Top subdivision** (`topSubdivision` 2) draws sloped tops cut 2 × 2 with the inner heights blended from the corners; colliders and surface queries unchanged; a baked layer goes stale when either changes; e2e `smooth-tops` (Scene view, Play, export; pixels on auto, WebGL 2 and the webgpu project), unit `block-smooth`; default pictures before/after identical (0 differing pixels); mesher bench below the decision log entry |
 | 27.19 | done 2026-10-01: an instance set's Inspector has the **instance brush** (Paint / Erase; radius, density per m², spacing, scale min/max, rotation, align to the surface normal, seed; kept per browser); a drag in the Scene view paints copies onto block layers (their colliders' shape) and objects with a collider (their drawn shape), straight down within two radii of the stroke, or erases them; one stroke = one `paintInstances` command and one undo, MCP the same op (without a surface the backend drops onto the scene's block layers); places from the seed (the same stroke gives the same copies, repainting adds none); the stroke's payload bounded once (`INSTANCE_BRUSH_LIMITS`: 256 dabs, 1,536 places), no count of the set's own; copies keep the set's chunking; e2e `instance-brush` (paint, undo, redo, the same stroke over MCP gives the same buffer, reload, erase, a model's cap, pixels in the Scene view and Play; MCP without surface, erase, undo, refusal), units; bench below the decision log entry |
+| Phase | **done 2026-10-02, owner look pending.** `tools/gate.sh full --both-renderers` at `6b9e53cd`: vitest 509 files, e2e 439 passed, 112 skipped, 2 failed once under load and passed alone (D114, D115). Independent post-phase review in §6 (2026-10-02); review fixes REVIEWFIX; open: D93, D104 (second half), D106, D114, D115, D119; phase-26 owner decisions still open (revised targets, D83, D84, boundary allowlist, prefabs read whole) |
 
 ## 6. Decision log
 
@@ -953,3 +954,68 @@ moves at least as many lines out as it adds.
     refused), `packages/project-model/src/instance-brush.test.ts`,
     `packages/commands/src/instance-stroke-ops.test.ts`.
   - `tools/gate.sh full`: the main session's.
+- 2026-10-02: independent post-phase review (a read-only reviewer that did
+  not build the phase; `8913310f..6b9e53cd`, 36 commits), after the full
+  gate (`--both-renderers`, GREEN: 509 vitest files, 439 e2e passed, 112
+  skipped, 2 failed once under load and passed alone, D114 and D115).
+  - Security (none high or medium): **fixed** S1 a not-ok screenshot answer
+    keeps the bridge's general bound and only `code`/`message` in its error
+    (D116). Checked and fine: `GET problems/missing-files` (auth, integer
+    paging, page bound), texture-extraction writes (folder vetting, cleaned
+    names, never overwrite, digest-checked cleanup), bridge refusal answers,
+    placeholders (memory only), `paintInstances` arguments, no tokens in
+    docs, fixtures or look outputs.
+  - Correctness: **fixed** C1 the missing-file walk ran after every graph
+    and material edit; measured on the full scale bench (18,000 assets,
+    `service.missingAssetFiles` 21 times): 166 ms median (174 ms first, 177
+    ms max) of main-thread work per burst of edits; now it runs after
+    asset-record changes and file checks only, and after a material or
+    graph edit only while files are listed — 0 walks per edit burst with
+    nothing missing (D117). **Fixed** C3 a refused stroke left an unused
+    buffer blob (nothing collects them): the buffer is published once the
+    command passed (D118). **Fixed** C4 a missing original whose conversion
+    the import cache still holds (an extracted model's GLB, an encoded
+    texture's PNG) is marked `fromCache` and its Problems line and row say
+    Play draws it from the cache and the export refuses it. C5 (a drag past
+    1,536 places is several strokes and several undos) is now said in
+    `docs/deployment.md`. **Decided** C2: the Inspector's asset preview
+    keeps its own canvas (the same `PreviewRenderer` class, made when the
+    Inspector shows a model and released when it goes), as Unity's
+    Inspector has its own preview area and Godot's Inspector previews a
+    resource in place; the editor window's pane previews the open
+    document. Two contexts can exist at once only while a model asset is
+    inspected with the editor window open.
+  - Rules: **fixed** R1 the project window's name cut is each kind's own
+    model bound (project-model `NAME_MAX` 128, and the dialogue, UI and
+    timeline limits; the library name bound moved into
+    `SCRIPT_LIBRARY_LIMITS.nameChars`) instead of a copied 64; R2 the
+    mutation op list is defined once in commands (`MUTATION_OPS`, the
+    validator and the workspace's record check); protocol's wire copy
+    stays (protocol takes only types from commands) and
+    `tests/mutation-ops-parity.test.ts` holds it to the same ops; R3 the
+    bridge's `maxWidth` uses `SCREENSHOT_MAX_WIDTH_MIN/MAX`, the
+    `answerWithinMs` check is written once; R4 four comments say why, not
+    what used to be; R5 the fixed waits in `embedded-textures` and
+    `extract-textures` poll the streamer at rest (`texture-settle.ts`: none
+    loading, the same levels twice), `instance-brush` waits for Play to
+    have no model loading — the product behaviour behind it is D119 (a
+    screenshot is the frame as drawn, not after loads; open). No file grew
+    past 2,000 lines (close: `viewport.ts` 1,980, `commands/types.ts`
+    1,953, `backend.ts` ~1,917, `client-core.ts` 1,853 — the next change to
+    any splits first); no per-project caps added; engine/game separation
+    clean, the guard unchanged.
+  - Open: D93 (backend memory on Skyforge), D104's second half (an
+    RGBA-transcoded KTX2 stops the worker renderer), D106 (re-imports grow
+    the backend), D114, D115 (watch), D119; E49's cause never reproduced
+    (D101's fix answers instead).
+  - Owner's eyes and ears: the editor window (split, tabs, Esc/× back);
+    the preview pane (material, effect, animator; timeline, dialogue and UI
+    on their scene); Project Settings and its search; the Lighting and
+    Environment windows with the scene picker; the three-tab dock and the
+    Create menu; the 47 icons, headers, toolbars and empty states
+    (`~/.cache/thirdlight-phase27/look/`); node category colours; the
+    two-scene look blend; the magenta and checker placeholders; smooth and
+    subdivided tops; how the instance brush feels; by ear: audio listening
+    in the Inspector, Project Settings → Audio, whether the audio block
+    explains a silent Play; the owner's own by-hand try (a material, an
+    effect, a timeline); Skyforge to confirm E46–E52/E55 in its repo.

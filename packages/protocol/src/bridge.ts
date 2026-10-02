@@ -23,7 +23,7 @@ import {
   relayFrameEnd,
   validateInputRelayResult,
 } from './delivery';
-import { SCREENSHOT_DATA_URL_MAX, SCREENSHOT_MAX_WIDTH_MAX } from './http';
+import { SCREENSHOT_DATA_URL_MAX, SCREENSHOT_MAX_WIDTH_MAX, SCREENSHOT_MAX_WIDTH_MIN } from './http';
 import { debugCommandCallProblem, RELAY_ANSWER_WITHIN_MAX_MS } from './m3';
 
 /** The exhaustive allowlists (v2). */
@@ -82,6 +82,12 @@ type Verdict = { ok: true } | { ok: false; reason: string; path?: string };
 
 function str(v: unknown, min = 1, max = 256): v is string {
   return typeof v === 'string' && v.length >= min && v.length <= max;
+}
+
+/** The optional wait a relay request asks its answer within, or why it is refused. */
+function answerWithinProblem(v: unknown): Verdict | null {
+  if (v === undefined || int(v, 0, RELAY_ANSWER_WITHIN_MAX_MS)) return null;
+  return { ok: false, reason: `answerWithinMs must be an integer of 0..${RELAY_ANSWER_WITHIN_MAX_MS}`, path: '/answerWithinMs' };
 }
 
 function int(v: unknown, min: number, max: number): v is number {
@@ -215,13 +221,10 @@ export function validateBridgeEditorToPreview(value: unknown): Verdict {
       if (bad) return { ok: false, reason: bad.reason, path: bad.path };
       if (!isPlaySessionId(m['playSessionId'])) return { ok: false, reason: 'playSessionId must be play- + 32 hex', path: '/playSessionId' };
       if (!isRelayId(m['relayId'])) return { ok: false, reason: 'relayId must be relay- + 32 hex', path: '/relayId' };
-      if (m['maxWidth'] !== undefined && !int(m['maxWidth'], 256, 2048)) {
-        return { ok: false, reason: 'maxWidth must be an integer 256–2048', path: '/maxWidth' };
+      if (m['maxWidth'] !== undefined && !int(m['maxWidth'], SCREENSHOT_MAX_WIDTH_MIN, SCREENSHOT_MAX_WIDTH_MAX)) {
+        return { ok: false, reason: `maxWidth must be an integer ${SCREENSHOT_MAX_WIDTH_MIN}–${SCREENSHOT_MAX_WIDTH_MAX}`, path: '/maxWidth' };
       }
-      if (m['answerWithinMs'] !== undefined && !int(m['answerWithinMs'], 0, RELAY_ANSWER_WITHIN_MAX_MS)) {
-        return { ok: false, reason: `answerWithinMs must be an integer of 0..${RELAY_ANSWER_WITHIN_MAX_MS}`, path: '/answerWithinMs' };
-      }
-      return { ok: true };
+      return answerWithinProblem(m['answerWithinMs']) ?? { ok: true };
     }
     case 'tl.diagnostics.request': {
       const bad = rejectUnknown(m, ['v', 'type', 'playSessionId', 'relayId']);
@@ -252,8 +255,9 @@ export function validateBridgeEditorToPreview(value: unknown): Verdict {
       if (sceneCommand && (typeof m['sceneId'] !== 'string' || !/^[a-z0-9][a-z0-9_-]{0,63}$/.test(m['sceneId']))) {
         return { ok: false, reason: 'sceneId must be a scene id', path: '/sceneId' };
       }
-      if (replay && m['answerWithinMs'] !== undefined && (typeof m['answerWithinMs'] !== 'number' || !Number.isInteger(m['answerWithinMs']) || m['answerWithinMs'] < 0 || m['answerWithinMs'] > RELAY_ANSWER_WITHIN_MAX_MS)) {
-        return { ok: false, reason: `answerWithinMs must be an integer of 0..${RELAY_ANSWER_WITHIN_MAX_MS}`, path: '/answerWithinMs' };
+      if (replay) {
+        const late = answerWithinProblem(m['answerWithinMs']);
+        if (late !== null) return late;
       }
       if (type === 'tl.game.control' && debugCommand) {
         const p = debugCommandCallProblem(m['name'], m['args']);
@@ -300,7 +304,9 @@ export function validateBridgePreviewToEditor(value: unknown): Verdict {
   // A screenshot answer carries the image and has its own bound (every field
   // is bounded below, the data URL by SCREENSHOT_DATA_URL_MAX); the general
   // bound would refuse any real scene's PNG.
-  if (type !== 'tl.screenshot.result') {
+  // A screenshot answer that is not ok carries no image, so the general bound
+  // holds for it as for every other message.
+  if (type !== 'tl.screenshot.result' || m['ok'] !== true) {
     const general = tooLarge(m, BRIDGE_MESSAGE_MAX_BYTES);
     if (general !== null) return { ok: false, reason: general.reason };
   }
@@ -386,6 +392,8 @@ export function validateBridgePreviewToEditor(value: unknown): Verdict {
         if (e['message'] !== undefined && !str(e['message'], 0, 256)) {
           return { ok: false, reason: 'error.message must be a string ≤ 256', path: '/error/message' };
         }
+        const extra = rejectUnknown(e, ['code', 'message']);
+        if (extra) return { ok: false, reason: extra.reason, path: `/error${extra.path}` };
       }
       return { ok: true };
     }

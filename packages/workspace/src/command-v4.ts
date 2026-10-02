@@ -24,7 +24,7 @@ import { changedFiles, detectExternalChangeV4, gameRootOf, publishV4, setPending
 import { pendingInfo, type Core, type ProjectSession } from './session';
 import { envelopeRequestId, failRequest } from './request-envelope';
 import { scriptsNaming } from './script-names';
-import { prepareInstanceStroke } from './instance-strokes';
+import { prepareInstanceStroke, publishStrokeBuffer, type StrokeBuffer } from './instance-strokes';
 import { catalogV4Of, commandContentOf, crossSceneEntities, projectRuleError, sceneMissing, sceneNotEmpty, sceneV4Of } from './content-shapes';
 
 /**
@@ -176,11 +176,13 @@ export function runCommandV4(core: Core, s: ProjectSession, sent: unknown, D: st
     if (prepared !== null && !prepared.ok) return failRequest(request, prepared.error);
     if (prepared !== null) commandState.preparedMoves = prepared.prepared;
   }
-  // A brush stroke: its copies planned here from the set's buffer and the scene, the new buffer published.
+  // A brush stroke: its copies planned here from the set's buffer and the scene; the new buffer is published once the command passed.
+  let strokeBuffer: StrokeBuffer | null = null;
   if (op === 'paintInstances') {
     const prepared = prepareInstanceStroke(core, s, carrier, commandState.content, args);
     if (!prepared.ok) return failRequest(request, prepared.error);
     commandState.preparedInstanceStroke = prepared.prepared;
+    strokeBuffer = prepared.buffer;
   }
   const outcome = applyMutation(commandState, pureRequest);
   if (!outcome.ok) return outcome.result;
@@ -225,6 +227,8 @@ export function runCommandV4(core: Core, s: ProjectSession, sent: unknown, D: st
     if (inst === undefined) continue;
     const before = carrier.entities.find((x) => x.id === e.id)?.components.instances;
     if (before !== undefined && before.buffer === inst.buffer && before.count === inst.count) continue;
+    // The stroke's own buffer is in hand (published below), its size the planner's.
+    if (strokeBuffer !== null && inst.buffer === strokeBuffer.digest && strokeBuffer.bytes.byteLength === inst.count * INSTANCE_FLOATS * 4) continue;
     const v = verifyReferencedBlob(contentCtx(s), inst.buffer, inst.count * INSTANCE_FLOATS * 4);
     if (!v.ok) return refuse(v.error);
   }
@@ -252,6 +256,10 @@ export function runCommandV4(core: Core, s: ProjectSession, sent: unknown, D: st
     return refuse(contentInUse(op === 'deleteAsset' ? 'asset' : 'prefab', String(args[op === 'deleteAsset' ? 'assetId' : 'prefabId']), errors));
   }
   if (errors.length > 0) return refuse(projectRuleError(errors));
+  if (strokeBuffer !== null) {
+    const unpublished = publishStrokeBuffer(core, s, strokeBuffer);
+    if (unpublished !== null) return refuse(unpublished);
+  }
   // The acknowledgement names the edited scene (the editor
   // files new entities under it); a scene-index change names none.
   // The record stores that acknowledgement, so a replay carries it.

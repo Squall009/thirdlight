@@ -4,7 +4,8 @@
  * sub-tab (Gameplay, Input, Tags, Collision layers, Quality, Saves, Game
  * modes, Game shell, Scripts) shows its panel and an edit in it reaches the
  * backend (read back over HTTP); the search filters the sub-tabs; Esc and ×
- * return to the editor; the bottom dock no longer lists the settings; opening
+ * return to the editor; the bottom dock lists no settings (they have one
+ * place); opening
  * a script from Scripts brings the editor window to the front.
  */
 import { readFileSync } from 'node:fs';

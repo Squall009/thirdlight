@@ -3,7 +3,8 @@
  * renderer.
  *
  * - A timeline shows on its scene: the Scene view's own canvas moves into
- *   the pane (the window is no longer see-through), and scrubbing moves the
+ *   the pane (the window covers the Scene view, so a scene-bound preview
+ *   needs that canvas in front), and scrubbing moves the
  *   crate in the pane's pixels.
  * - A material shows on the pane's own canvas; the Scene view's canvas is
  *   back home meanwhile.

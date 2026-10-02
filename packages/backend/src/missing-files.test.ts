@@ -13,7 +13,7 @@
 import { mkdtempSync, readFileSync, renameSync, rmSync, unlinkSync, writeFileSync, mkdirSync, utimesSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { join, resolve } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { FakeEditor } from './test-editor';
 import { api, establish, mkRequestId, mkSessionId, playContentOf, startBackend, upgrade, type TestBackend } from './test-helpers';
@@ -178,4 +178,48 @@ describe('missing asset files', () => {
       rmSync(exportRoot, { recursive: true, force: true });
     }
   }, 180_000);
+
+  it('are walked again after an asset-record change, and after a material edit only while some are listed', async () => {
+    const tb: TestBackend = await startBackend({ engineRoot: REPO });
+    const dir = join(tb.root, 'data', 'projects', PID);
+    const revision = (): number => {
+      const r = tb.backend._test.service.readCapturedV3(PID);
+      if (!r.ok) throw new Error(r.error.code);
+      return r.read.revision;
+    };
+    const command = async (op: string, args: Record<string, unknown>): Promise<void> => {
+      const r = await api(`${tb.authUrl}/api/v1/projects/${PID}/commands`, { body: { op, projectId: PID, expectedRevision: revision(), requestId: mkRequestId(), origin: { kind: 'mcp', clientId: 'missing-files-test' }, args }, token: tb.adminToken, origin: null });
+      expect(r.status, `${op}: ${JSON.stringify(r.json)}`).toBe(200);
+    };
+    const problems = async (): Promise<{ missingFiles: { total: number } }> =>
+      (await api(`${tb.authUrl}/api/v1/projects/${PID}/problems`, { method: 'GET', token: tb.adminToken, origin: null })).json as never;
+    const walks = vi.spyOn(tb.backend._test.service, 'missingAssetFiles');
+    // The scheduled walk runs 25 ms after a change; an absent walk is waited for well past it.
+    const settle = (): Promise<void> => new Promise((r) => setTimeout(r, 200));
+    const material = (n: number) => ({ material: { materialId: 'mat-walk', name: `Walk ${n}`, shader: 'unlit', params: {}, textures: {} } });
+    try {
+      mkdirSync(join(dir, 'assets', 'walk'), { recursive: true });
+      writeFileSync(join(dir, 'assets', 'walk', 'one.wav'), variant(0));
+      expect((await problems()).missingFiles.total).toBe(0);
+      await command('importAssets', { folder: 'assets/walk' });
+      await settle();
+      const afterImport = walks.mock.calls.length;
+      expect(afterImport).toBeGreaterThanOrEqual(2);
+      // Nothing listed: material edits read no files.
+      for (let i = 0; i < 5; i++) await command('setMaterial', material(i));
+      await settle();
+      expect(walks.mock.calls.length).toBe(afterImport);
+      // A file goes missing: a material edit now walks again, so the listed files' uses stay current.
+      unlinkSync(join(dir, 'assets', 'walk', 'one.wav'));
+      const check = await api(`${tb.authUrl}/api/v1/projects/${PID}/content/files/check`, { body: {}, token: tb.adminToken, origin: null });
+      expect(check.status).toBe(200);
+      expect((await problems()).missingFiles.total).toBe(1);
+      const listed = walks.mock.calls.length;
+      await command('setMaterial', material(9));
+      await expect.poll(() => walks.mock.calls.length).toBe(listed + 1);
+    } finally {
+      walks.mockRestore();
+      await tb.teardown();
+    }
+  }, 120_000);
 });

@@ -609,6 +609,11 @@ export function createBackend(
       type === 'setAssetOptions'
     );
   };
+  /** Whether a change adds, removes, moves or re-imports an asset record (what the missing-file walk reads). */
+  const changesAssetRecords = (change: unknown): boolean => {
+    const type = (change as { type?: unknown } | null)?.type;
+    return type === 'publishAsset' || type === 'removeAsset' || type === 'importAssets' || type === 'importResources' || type === 'setAssetOptions';
+  };
   // ---------- The engine this process runs ----------
   const engineInfo = makeEngineInfo({ engineRoot: config.engineRoot, distDir: dirname(config.editorStaticDir), startedAtMs: Date.now() - process.uptime() * 1000 });
 
@@ -623,8 +628,11 @@ export function createBackend(
     // Materials are checked again after a change that can change what they compile to.
     if (changeReachesMaterials(change)) {
       scheduleMaterialCheck(projectId);
-      // An asset moved, removed or added, or a material's textures changed: the missing files and their uses.
-      missingFiles.schedule(projectId);
+      // Only an asset-record change can change which files are missing (the walk stats every asset, which
+      // on a big project costs a noticeable main-thread pause per burst of graph edits); a material or
+      // graph edit can only change what uses the files already listed.
+      if (changesAssetRecords(change)) missingFiles.schedule(projectId);
+      else missingFiles.scheduleUses(projectId);
     }
     scriptNames.changed(projectId, change);
     for (const line of audioPlaybackProblems(change)) recordProblem(projectId, 'import', 'audio_browser_support', line);

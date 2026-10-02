@@ -33,6 +33,7 @@ import { publishBytes, startBackend, type E2EBackend } from './backend';
 import { decodePng, type Image } from './png';
 import { makePng } from './png-make';
 import { editorUrlFor, exportQueryFor, expectRendererBackend, onlyInItsProject, RENDERER_VARIANTS } from './renderer-variants';
+import { textureStreamerSettled } from './texture-settle';
 import { projectWindow, closeEditor } from './ui';
 
 let be: E2EBackend | null = null;
@@ -139,6 +140,7 @@ function expectBothQuads(img: Image, where: string, ahead = true): void {
 }
 
 interface Textures {
+  loading?: number;
   budgetBytes: number;
   residentBytes: number;
   over: boolean;
@@ -256,7 +258,7 @@ for (const variant of RENDERER_VARIANTS) test(`a model's extracted images are te
   await cmd('setSettings', { settings: { texture_budget_mb: 1 } });
   const pressed = await startPlay(page);
   await expect.poll(async () => streamed(await pressed())?.wanted ?? -1, { timeout: 60_000 }).toBe(0);
-  await page.waitForTimeout(3_000);
+  await textureStreamerSettled(async () => (await pressed())?.textures);
   for (let i = 0; i < 4; i++) {
     const r = (await pressed())!;
     const t = streamed(r)!;

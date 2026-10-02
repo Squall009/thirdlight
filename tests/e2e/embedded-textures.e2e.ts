@@ -29,6 +29,7 @@ import { sphereGlbWith } from '../../tools/perf/assets';
 import { publishBytes, startBackend, type E2EBackend } from './backend';
 import { makePng } from './png-make';
 import { editorUrlFor, expectRendererBackend, onlyInItsProject, RENDERER_VARIANTS } from './renderer-variants';
+import { textureStreamerSettled } from './texture-settle';
 import { makeTwoColourWebp } from './webp-make';
 
 let be: E2EBackend | null = null;
@@ -59,6 +60,7 @@ interface Embedded {
   largest: { kind: string; key: string; count: number; bytes: number }[];
 }
 interface Textures {
+  loading?: number;
   budgetBytes: number;
   residentBytes: number;
   streamedBytes: number;
@@ -171,8 +173,8 @@ for (const variant of RENDERER_VARIANTS) test(`images inside model files count a
   const pressed = await startPlay(page);
   await expect.poll(async () => checkerOf((await pressed.resources())?.textures)?.wanted ?? -1, { timeout: 60_000 }).toBe(0);
   await expect.poll(async () => (await pressed.resources())?.textures?.embedded?.count ?? 0, { timeout: 30_000 }).toBe(2);
-  // Give the streamer time to move as far as the budget lets it.
-  await page.waitForTimeout(3_000);
+  // The streamer moves as far as the budget lets it, then rests.
+  await textureStreamerSettled(async () => (await pressed.resources())?.textures);
   const underPressure: Textures[] = [];
   for (let i = 0; i < 5; i++) {
     underPressure.push((await pressed.resources())!.textures!);

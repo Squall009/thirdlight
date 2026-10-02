@@ -1,8 +1,9 @@
 /**
  * The host's part of an instance-brush stroke (`paintInstances`): read the
  * set's buffer, plan the stroke against the scene (the command package's
- * pure planner), publish the new buffer and hand its digest to the command,
- * which stores it in one undoable change. The planner runs in the backend
+ * pure planner) and hand the new buffer's digest to the command, which
+ * stores it in one undoable change; the buffer is published only once the
+ * command passed its checks, since nothing collects an unused blob. The planner runs in the backend
  * that owns the project, so the editor and MCP get the same copies from the
  * same stroke.
  */
@@ -15,14 +16,24 @@ import { sha256Hex } from './digest';
 import { contentCtx } from './service-content';
 import type { Core, ProjectSession } from './session';
 
-export function prepareInstanceStroke(core: Core, s: ProjectSession, scene: SceneDocument, content: ContentDocument | undefined, args: Record<string, unknown>): { ok: true; prepared: PreparedInstanceStroke } | { ok: false; error: CommandError } {
+/** A stroke's new buffer, held until the command is accepted (a refused stroke leaves no blob behind). */
+export interface StrokeBuffer {
+  readonly digest: string;
+  readonly bytes: Uint8Array;
+}
+
+export function prepareInstanceStroke(core: Core, s: ProjectSession, scene: SceneDocument, content: ContentDocument | undefined, args: Record<string, unknown>): { ok: true; prepared: PreparedInstanceStroke; buffer: StrokeBuffer } | { ok: false; error: CommandError } {
   const v = validatePaintInstancesArgs(args);
   if (!v.ok) return v;
   const plan = planInstanceStroke(scene, content, v.args, (digest) => readSourceBlob(core, contentCtx(s), { digest }));
   if (!plan.ok) return plan;
   const bytes = new Uint8Array(plan.floats.buffer, plan.floats.byteOffset, plan.floats.byteLength);
   const digest = sha256Hex(bytes);
-  const put = publishBlob(core, contentCtx(s), { digest, byteLength: bytes.byteLength, source: { kind: 'bytes', bytes } });
-  if (!put.ok) return { ok: false, error: put.error };
-  return { ok: true, prepared: { entityId: v.args.entityId, buffer: digest, count: plan.floats.length / INSTANCE_FLOATS } };
+  return { ok: true, prepared: { entityId: v.args.entityId, buffer: digest, count: plan.floats.length / INSTANCE_FLOATS }, buffer: { digest, bytes } };
+}
+
+/** Publish an accepted stroke's buffer (just before its change is written). */
+export function publishStrokeBuffer(core: Core, s: ProjectSession, buffer: StrokeBuffer): CommandError | null {
+  const put = publishBlob(core, contentCtx(s), { digest: buffer.digest, byteLength: buffer.bytes.byteLength, source: { kind: 'bytes', bytes: buffer.bytes } });
+  return put.ok ? null : put.error;
 }
