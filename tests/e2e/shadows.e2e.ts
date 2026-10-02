@@ -86,8 +86,8 @@ for (const variant of RENDERER_VARIANTS) test(`a box casts the sun's shadow on a
   // The new project's camera stands at (0, 0.5, 4) looking along −Z; its sun casts shadows.
   // The floor ends 2 m in front of the camera (a floor edge through the camera's own
   // plane breaks depth testing on SwiftShader, both backends).
-  await command('createEntity', { kind: 'box', name: 'floor', transform: { position: [0, -1, -1] }, box: { size: [8, 0.2, 6], material: { color: '#c8c8c8' } } });
-  const cube = await command('createEntity', { kind: 'box', name: 'cube', transform: { position: [0, -0.3, 0] }, box: { size: [1, 1, 1], material: { color: '#c05030' } } });
+  await command('createEntity', { sceneId: 'scene-main', kind: 'box', name: 'floor', transform: { position: [0, -1, -1] }, box: { size: [8, 0.2, 6], material: { color: '#c8c8c8' } } });
+  const cube = await command('createEntity', { sceneId: 'scene-main', kind: 'box', name: 'cube', transform: { position: [0, -0.3, 0] }, box: { size: [1, 1, 1], material: { color: '#c05030' } } });
   const cubeId = String(cube['createdId']);
   // The sun from behind-left-above: the shadow falls right and towards the camera (in view).
   await command('setComponent', { entityId: 'light-0001', component: 'light', value: { type: 'directional', color: '#ffffff', intensity: 1.2, direction: [0.5, -1, 0.6], castShadow: true } });

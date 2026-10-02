@@ -113,7 +113,7 @@ describe('POST /api/v1/admin/projects/:projectId/export (real backend e2e)', () 
           projectId: PROJECT,
           requestId: `req-${hex(32)}`,
           expectedRevision: 0,
-          args: { kind: 'box', name: 'Exported Box' },
+          args: { sceneId: 'scene-main', kind: 'box', name: 'Exported Box' },
           origin: { kind: 'mcp', clientId: 'export-e2e' },
         }),
       });

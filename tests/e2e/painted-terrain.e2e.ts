@@ -155,7 +155,7 @@ for (const variant of RENDERER_VARIANTS) test(`painted terrain: height-blended l
   await cmd('setTransform', { entityId: cam, transform: { position: [0, 21, 0.5], rotation: [-Math.SQRT1_2, 0, 0, Math.SQRT1_2] } });
   for (const e of ents) if (e.components['box'] !== undefined) await cmd('setTransform', { entityId: e.id, transform: { position: [0, -80, 0] } });
   await cmd('setBlockType', { block: { blockId: 'ground', name: 'Ground', variants: [{ color: '#808080' }], shape: 'full', materials: { '*': mat } } });
-  const layer = String((await cmd('createEntity', { parentId: null, kind: 'group', name: 'Terrain', transform: { position: ORIGIN } }))['createdId']);
+  const layer = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Terrain', transform: { position: ORIGIN } }))['createdId']);
   await cmd('setComponent', { entityId: layer, component: 'blockLayer', value: { cellSize: [1, 1, 1], bounds: { min: [0, 0, 0], max: [32, 4, 16] } } });
   await cmd('editBlocks', {
     entityId: layer,
@@ -174,7 +174,7 @@ for (const variant of RENDERER_VARIANTS) test(`painted terrain: height-blended l
   // The GLB: all layer 4 by its vertex colours, beside the layer.
   const glb = multiPieceGlb([{ name: 'patch', lods: [[5, 0.3, 2.5]], vertexColor: [0, 0, 0, 1] }]);
   await publishBytes(be, new Uint8Array(glb), 'model', 'layered-patch');
-  const patch = String((await cmd('createEntity', { kind: 'model', name: 'Patch', model: { asset: { assetId: 'layered-patch' } }, transform: { position: [-2.5, 0.2, 10] } }))['createdId']);
+  const patch = String((await cmd('createEntity', { sceneId: 'scene-main', kind: 'model', name: 'Patch', model: { asset: { assetId: 'layered-patch' } }, transform: { position: [-2.5, 0.2, 10] } }))['createdId']);
   await cmd('setComponent', { entityId: patch, component: 'materials', value: { '*': mat } });
 
   // ---- Scene view: zoom out until the layer and the patch are in view.

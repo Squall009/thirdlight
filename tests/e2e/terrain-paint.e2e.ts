@@ -103,7 +103,7 @@ test('Paint mode: a drag paints a layer (one undo step), Ctrl erases, undo/redo,
   const mat = (await materials(be)).find((m) => JSON.stringify(m.graph ?? {}).includes('heightBlend'))!.materialId;
   await useArrays(be, mat, { albedoHeight: 'terrain-albedo', normals: 'terrain-normals', orm: 'terrain-orm' });
   await cmd('setBlockType', { block: { blockId: 'soil', name: 'Soil', variants: [{ color: '#7a6040' }], shape: 'full', materials: { '*': mat } } });
-  const layer = String((await cmd('createEntity', { parentId: null, kind: 'group', name: 'Ground', transform: { position: [...ORIGIN] } }))['createdId']);
+  const layer = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Ground', transform: { position: [...ORIGIN] } }))['createdId']);
   await cmd('setComponent', { entityId: layer, component: 'blockLayer', value: { cellSize: [1, 0.5, 1], bounds: { min: [0, 0, 0], max: [32, 16, 32] } } });
   await cmd('editBlocks', { entityId: layer, edits: [{ kind: 'fill', box: [0, 0, 0, 32, 4, 32], cell: { block: 'soil' } }] });
   for (const e of ((await query('queryEntities', { limit: 200, offset: 0 })) as { entities: { id: string; components: Record<string, unknown> }[] }).entities) {

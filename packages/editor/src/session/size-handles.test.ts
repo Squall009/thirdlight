@@ -17,6 +17,7 @@ const entity = (over: Partial<ProjectedEntity>): ProjectedEntity => ({
   visible: true,
   locked: false,
   static: false,
+  keepLoaded: false,
   tags: 0,
   position: [2, 1, 0],
   rotation: [0, 0, 0, 1],

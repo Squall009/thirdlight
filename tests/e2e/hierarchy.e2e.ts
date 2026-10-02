@@ -116,9 +116,9 @@ test('folders: drag to file and reorder keeps world positions, a selection moves
   // A folder has no transform: the inspector shows no position fields for it.
   await expect(page.getByLabel('position x')).toHaveCount(0);
 
-  const alpha = String((await cmd('createEntity', { kind: 'box', name: 'alpha', transform: { position: [2, 0, 0] } })).createdId);
-  const beta = String((await cmd('createEntity', { kind: 'box', name: 'beta', transform: { position: [-2, 0, 1] } })).createdId);
-  const gamma = String((await cmd('createEntity', { kind: 'box', name: 'gamma', transform: { position: [0, 3, 0] } })).createdId);
+  const alpha = String((await cmd('createEntity', { sceneId: 'scene-main', kind: 'box', name: 'alpha', transform: { position: [2, 0, 0] } })).createdId);
+  const beta = String((await cmd('createEntity', { sceneId: 'scene-main', kind: 'box', name: 'beta', transform: { position: [-2, 0, 1] } })).createdId);
+  const gamma = String((await cmd('createEntity', { sceneId: 'scene-main', kind: 'box', name: 'gamma', transform: { position: [0, 3, 0] } })).createdId);
   await expect(row(page, 'gamma')).toHaveCount(1);
 
   // Drop alpha into the folder: filed, same world position.
@@ -173,12 +173,12 @@ test('folders: drag to file and reorder keeps world positions, a selection moves
 });
 
 test('folder flags pass down: inherited values in the inspector, locked is not pickable, inactive is hidden and left out of Play', async ({ page }) => {
-  const folderId = String((await cmd('createEntity', { kind: 'folder', name: 'Hazards' })).createdId);
+  const folderId = String((await cmd('createEntity', { sceneId: 'scene-main', kind: 'folder', name: 'Hazards' })).createdId);
   const redId = String(
     (await cmd('createEntity', { kind: 'box', name: 'red', parentId: folderId, transform: { position: [0, 0.5, 0] }, box: { size: [1.5, 1.5, 1.5], material: { color: '#ff0000' } } })).createdId,
   );
   // A green box outside the folder proves a frame has been drawn before "no red" is believed.
-  await cmd('createEntity', { kind: 'box', name: 'green', transform: { position: [-1.8, 0.5, 0] }, box: { size: [0.5, 0.5, 0.5], material: { color: '#00ff00' } } });
+  await cmd('createEntity', { sceneId: 'scene-main', kind: 'box', name: 'green', transform: { position: [-1.8, 0.5, 0] }, box: { size: [0.5, 0.5, 0.5], material: { color: '#00ff00' } } });
   await openEditor(page);
   const viewport = page.locator('canvas.tl-viewport');
   await expect.poll(async () => redPixels(decodePng(await viewport.screenshot()))).toBeGreaterThan(50);

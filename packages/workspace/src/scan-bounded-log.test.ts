@@ -214,7 +214,7 @@ describe('R14 (group B1): the scan cap bounds the LOG, not the work', () => {
         projectId: 'p000',
         expectedRevision: q.revision,
         requestId: nextRequestId(),
-        args: { kind: 'box' },
+        args: { sceneId: 'scene-main', kind: 'box' },
       });
       expect(m.ok, JSON.stringify(m)).toBe(true);
       // NOTE: the service is left OPEN on purpose — test 3 runs on this

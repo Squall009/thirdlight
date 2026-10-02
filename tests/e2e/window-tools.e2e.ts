@@ -165,10 +165,10 @@ test('Lighting and Environment float over the Scene view and edit the scene they
 test("a block layer's tools in the Inspector; a prefab from the selection; an audio asset's Inspector; Project Settings → Audio", async ({ page }) => {
   test.setTimeout(180_000);
   be = await startBackend('window-tools-selection');
-  const layer = String((await cmd('createEntity', { parentId: null, kind: 'group', name: 'Ground', transform: { position: [0, 0, 0] } }))['createdId']);
+  const layer = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Ground', transform: { position: [0, 0, 0] } }))['createdId']);
   await cmd('setComponent', { entityId: layer, component: 'blockLayer', value: { cellSize: [1, 1, 1], bounds: { min: [0, 0, 0], max: [16, 8, 16] } } });
-  const crate = String((await cmd('createEntity', { parentId: null, kind: 'box', name: 'Crate', transform: { position: [3, 0.5, 0] }, box: { size: [1, 1, 1], material: { color: '#a07040' } } }))['createdId']);
-  await cmd('createEntity', { parentId: null, kind: 'box', name: 'Barrel', transform: { position: [-3, 0.5, 0] }, box: { size: [1, 1, 1], material: { color: '#4070a0' } } });
+  const crate = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'box', name: 'Crate', transform: { position: [3, 0.5, 0] }, box: { size: [1, 1, 1], material: { color: '#a07040' } } }))['createdId']);
+  await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'box', name: 'Barrel', transform: { position: [-3, 0.5, 0] }, box: { size: [1, 1, 1], material: { color: '#4070a0' } } });
   const sound = await publishWav(be, 'cue-goal.wav', 'sfx-ping', 'ping');
   await page.goto(be.editorUrl);
   await expect(page.locator('.tl-statusbar')).toContainText('connected');

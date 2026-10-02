@@ -18,7 +18,7 @@ import type { SceneV4 } from '@thirdlight/project-model';
 
 import { applyMutation, createCommandState } from './index';
 import type { CommandState } from './index';
-import { bytesEqual, fixtureProjectV4, fixtureText, withoutSceneId } from './test-fixtures';
+import { bytesEqual, fixtureProjectV4, fixtureText, pureRequestOf, withoutSceneId } from './test-fixtures';
 
 const DIR = 'scenarios/05-undo-redo-mixed';
 
@@ -45,7 +45,7 @@ describe('scenario 05 — undo/redo with mixed human/agent edits (pure replay)',
 
     for (let i = 0; i < messages.length; i++) {
       const msg = messages[i]!;
-      const outcome = applyMutation(state, msg.in);
+      const outcome = applyMutation(state, pureRequestOf(msg.in));
       // Every step succeeds in this scenario.
       if (!outcome.ok) {
         throw new Error(`step ${i + 1} unexpectedly failed: ${JSON.stringify(outcome.result)}`);
@@ -77,7 +77,7 @@ describe('scenario 05 — undo/redo with mixed human/agent edits (pure replay)',
     // Re-run to step 8 (fresh edit) and verify the redo tail is gone.
     let state: CommandState<SceneV4> = initial();
     for (let i = 0; i < 8; i++) {
-      const outcome = applyMutation(state, messages[i]!.in);
+      const outcome = applyMutation(state, pureRequestOf(messages[i]!.in));
       if (!outcome.ok) throw new Error(`step ${i + 1} failed: ${JSON.stringify(outcome.result)}`);
       state = outcome.state;
     }

@@ -46,7 +46,7 @@ describe('committed storage fixtures', () => {
       expectedRevision: q.revision,
       requestId: 'req-' + '7'.repeat(32),
       origin: { kind: 'mcp', clientId: 'pi' },
-      args: { kind: 'box', name: 'Integrated' },
+      args: { sceneId: 'scene-main', kind: 'box', name: 'Integrated' },
     } as const;
     const r = svc.runCommand(edit) as { ok: boolean; revision?: number; duplicated?: boolean };
     expect(r.ok, JSON.stringify(r)).toBe(true);

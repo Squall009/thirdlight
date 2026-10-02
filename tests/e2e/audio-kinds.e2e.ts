@@ -177,10 +177,10 @@ test('a long Opus and a stereo 44.1 kHz WAV are one Audio kind: inspector load s
 
   // The scene: a 3D floor and player, the Opus as an audio source and a dialogue voice, the WAV as an event cue.
   await cmd('setSettings', { settings: { physics_dimension: 3 } });
-  await cmd('createEntity', { parentId: null, kind: 'box', name: 'Floor', transform: { position: [0, -0.5, 0] }, box: { size: [40, 1, 40], material: { color: '#8a8f98' } }, components: { collider: { shape: { type: 'box', hx: 20, hy: 0.5, hz: 20 } } } });
-  const player = String((await cmd('createEntity', { parentId: null, kind: 'group', name: 'Player', transform: { position: [0, 0.91, 0] } }))['createdId']);
+  await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'box', name: 'Floor', transform: { position: [0, -0.5, 0] }, box: { size: [40, 1, 40], material: { color: '#8a8f98' } }, components: { collider: { shape: { type: 'box', hx: 20, hy: 0.5, hz: 20 } } } });
+  const player = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Player', transform: { position: [0, 0.91, 0] } }))['createdId']);
   await cmd('setComponent', { entityId: player, component: 'controller', value: {} });
-  const brook = String((await cmd('createEntity', { parentId: null, kind: 'group', name: 'Brook', transform: { position: [-6, 1, 0] } }))['createdId']);
+  const brook = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Brook', transform: { position: [-6, 1, 0] } }))['createdId']);
   await cmd('setComponent', { entityId: brook, component: 'audioSource', value: { assetId: opus, volume: 0.4, range: 20 } });
   await cmd('setSpeaker', { speaker: { speakerId: 'host', name: 'Host' } });
   const node = (id: string, type: string, y: number, data?: Record<string, unknown>) => ({ id, type, position: [0, y], ...(data !== undefined ? { data } : {}) });
@@ -193,7 +193,7 @@ test('a long Opus and a stereo 44.1 kHz WAV are one Audio kind: inspector load s
   });
   await cmd('setEventCues', { cues: [{ on: 'signal', name: 'chime', assetId: chime, volume: 0.8 }] });
   await cmd('setInput', { input: { actions: [{ name: 'talk', type: 'button', map: 'gameplay', bindings: [{ kind: 'key', code: 'KeyT' }] }, { name: 'chime', type: 'button', map: 'gameplay', bindings: [{ kind: 'key', code: 'KeyC' }] }] } });
-  const caller = String((await cmd('createEntity', { parentId: null, kind: 'group', name: 'Caller', transform: { position: [0, -3, 0] } }))['createdId']);
+  const caller = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Caller', transform: { position: [0, -3, 0] } }))['createdId']);
   await publishScript(caller);
 
   // Play.

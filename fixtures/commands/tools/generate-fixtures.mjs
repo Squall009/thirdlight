@@ -618,13 +618,13 @@ mainline.snapshot("T0");
 const A = (i) => `req-1${String(i).padStart(31, "0")}`; // req-1...01 .. req-1...07 (32 hex)
 
 const mainlineRequests = {
-  A1: req("createEntity", P, 0, A(1), browserOrigin, { kind: "box" }),
-  A2: req("createEntity", P, 1, A(2), browserOrigin, { kind: "box" }),
+  A1: req("createEntity", P, 0, A(1), browserOrigin, { sceneId: SCENE_ID, kind: "box" }),
+  A2: req("createEntity", P, 1, A(2), browserOrigin, { sceneId: SCENE_ID, kind: "box" }),
   A3: req("setTransform", P, 2, A(3), mcpOrigin, { entityId: "box-000001", transform: { position: [1.5, 0.25, 0] } }),
-  A4: req("createEntity", P, 3, A(4), browserOrigin, { kind: "group", name: "Walls" }),
+  A4: req("createEntity", P, 3, A(4), browserOrigin, { sceneId: SCENE_ID, kind: "group", name: "Walls" }),
   A5: req("setTransform", P, 4, A(5), mcpOrigin, { entityId: "box-000002", transform: { rotation: [0.7071067811865476, 0, 0, 0.7071067811865476] } }),
-  A6: req("createEntity", P, 5, A(6), browserOrigin, { kind: "box" }),
-  A7: req("createEntity", P, 6, A(7), mcpOrigin, { kind: "box" }),
+  A6: req("createEntity", P, 5, A(6), browserOrigin, { sceneId: SCENE_ID, kind: "box" }),
+  A7: req("createEntity", P, 6, A(7), mcpOrigin, { sceneId: SCENE_ID, kind: "box" }),
 };
 const mainlineResults = {};
 for (let i = 1; i <= 7; i++) {
@@ -650,9 +650,9 @@ function s5m(request, mutate) {
   const recorded = S5P.mutation(request, mutate);
   s5.push({ in: request, out: liveAck(recorded) });
 }
-s5m(req("createEntity", P, 0, B(1), browserOrigin, { kind: "box", name: "Ground" }), { op: "createEntity" });
+s5m(req("createEntity", P, 0, B(1), browserOrigin, { sceneId: SCENE_ID, kind: "box", name: "Ground" }), { op: "createEntity" });
 s5m(req("setTransform", P, 1, B(2), mcpOrigin, { entityId: "box-000001", transform: { position: [0, 0, -0.5] } }), { op: "setTransform" });
-s5m(req("createEntity", P, 2, B(3), browserOrigin, { kind: "box", name: "Crate" }), { op: "createEntity" });
+s5m(req("createEntity", P, 2, B(3), browserOrigin, { sceneId: SCENE_ID, kind: "box", name: "Crate" }), { op: "createEntity" });
 s5m(req("deleteEntity", P, 3, B(4), mcpOrigin, { entityId: "box-000002" }), { op: "deleteEntity" });
 s5m(req("undo", P, 4, B(5), browserOrigin, {}), { undo: true });
 s5m(req("undo", P, 5, B(6), browserOrigin, {}), { undo: true });
@@ -695,7 +695,7 @@ const D = (i) => `req-5${String(i).padStart(31, "0")}`;
 const d4reqs = {
   zeroQuat: req("setTransform", P, 5, D(1), mcpOrigin, { entityId: "box-000001", transform: { rotation: [0, 0, 0, 0] } }),
   ghostDelete: req("deleteEntity", P, 5, D(2), mcpOrigin, { entityId: "ghost-0001" }),
-  ghostParent: req("createEntity", P, 5, D(3), browserOrigin, { kind: "box", parentId: "ghost-0001" }),
+  ghostParent: req("createEntity", P, 5, D(3), browserOrigin, { sceneId: SCENE_ID, kind: "box", parentId: "ghost-0001" }),
   noChange: req("setTransform", P, 5, D(4), browserOrigin, { entityId: "box-000001", transform: { position: [1.5, 0.25, 0] } }),
 };
 // sanity: the no_change request must equal the current state
@@ -771,7 +771,7 @@ const RETMAN = manifestObj(RET, "Retention Fixture", "2026-09-17T08:00:00Z");
 const ret = FixtureProject.fresh(RET, RETMAN);
 const F = (i) => `req-4${String(i).padStart(31, "0")}`;
 const retRequest = (i) => (i === 1
-  ? req("createEntity", RET, 0, F(1), browserOrigin, { kind: "box" })
+  ? req("createEntity", RET, 0, F(1), browserOrigin, { sceneId: SCENE_ID, kind: "box" })
   : req("setTransform", RET, i - 1, F(i), mcpOrigin, { entityId: "box-000001", transform: { position: [(i - 1) / 100, 0, 0] } }));
 for (let i = 1; i <= 129; i++) ret.mutation(retRequest(i), { op: retRequest(i).op });
 if (ret.revision !== 129) throw new Error("fixture-tool: retention revision wrong");

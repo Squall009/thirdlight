@@ -96,7 +96,7 @@ async function fill(page: Page, label: string, value: string): Promise<void> {
 
 test('a public and a private script property: Inspector, per-object override and the Play debug view', async ({ page }) => {
   test.setTimeout(240_000);
-  const made = await cmd('createEntity', { kind: 'box', name: 'Probe box', transform: { position: [6, 1, 0] }, box: { size: [0.5, 0.5, 0.5], material: { color: '#808080' } } });
+  const made = await cmd('createEntity', { sceneId: 'scene-main', kind: 'box', name: 'Probe box', transform: { position: [6, 1, 0] }, box: { size: [0.5, 0.5, 0.5], material: { color: '#808080' } } });
   const boxId = String(made.createdId);
 
   await page.goto(be.editorUrl);

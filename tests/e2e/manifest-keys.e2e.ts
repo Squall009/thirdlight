@@ -110,7 +110,7 @@ async function buildProject(): Promise<void> {
     nodes: [{ id: 'start', type: 'start', position: [0, 0] }, { id: 'hello', type: 'line', position: [0, 100], data: { text: 'Hello.' } }],
     edges: [{ id: 'w1', from: { node: 'start', port: 'next' }, to: { node: 'hello', port: 'in' } }],
   } } });
-  const metronome = String((await cmd('createEntity', { parentId: null, kind: 'group', name: 'Metronome', transform: { position: [0, -5, 0] } }))['createdId']);
+  const metronome = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Metronome', transform: { position: [0, -5, 0] } }))['createdId']);
   await script('metronome', METRONOME, metronome);
   // A material an object wears, one nothing names, and an instance set (its buffer table).
   await cmd('setMaterial', { material: { materialId: 'mat-used', name: 'Used', shader: 'standard', params: {}, textures: {} } });
@@ -123,7 +123,7 @@ async function buildProject(): Promise<void> {
   bufferDigest = String(published.json.digest);
   const assets = (await query('queryAssets', { limit: 50, offset: 0 })).assets as { assetId: string; displayName: string }[];
   const pillar = assets.find((a) => a.displayName === 'Pillar')!.assetId;
-  await cmd('createEntity', { kind: 'group', name: 'Pillars', components: { instances: { asset: { assetId: pillar }, buffer: bufferDigest, count: 6 } } });
+  await cmd('createEntity', { sceneId: 'scene-main', kind: 'group', name: 'Pillars', components: { instances: { asset: { assetId: pillar }, buffer: bufferDigest, count: 6 } } });
 }
 
 interface CatalogRoot {

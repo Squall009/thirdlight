@@ -70,7 +70,7 @@ async function publish(behaviorId: string, source: string): Promise<void> {
 
 /** A box carrying a (declared) script. */
 async function scripted(behaviorId: string, x: number): Promise<void> {
-  const made = await cmd('createEntity', { kind: 'box', name: `Box ${behaviorId}`, transform: { position: [x, 1, 0] }, box: { size: [0.5, 0.5, 0.5], material: { color: '#808080' } } });
+  const made = await cmd('createEntity', { sceneId: 'scene-main', kind: 'box', name: `Box ${behaviorId}`, transform: { position: [x, 1, 0] }, box: { size: [0.5, 0.5, 0.5], material: { color: '#808080' } } });
   await cmd('publishBehavior', { behaviorId, displayName: behaviorId, mode: 'declaration-create', declaration: { properties: [] } });
   await cmd('setBehaviorProperties', { entityId: String(made.createdId), behaviorId, values: {} });
 }

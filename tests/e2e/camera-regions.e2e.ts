@@ -114,7 +114,7 @@ async function greens(frame: Locator): Promise<number> {
 test('a track camera\'s look-ahead, bounds and dead zone and a camera region set up in the editor; in Play the camera moves back inside the region and returns', async ({ page }) => {
   test.setTimeout(300_000);
   // A green board just behind the plane, between the character's start (x 3) and the region (x 5.25).
-  await cmd('createEntity', { parentId: null, kind: 'box', name: 'Board', transform: { position: [4.1, 2.7, -1] }, box: { size: [1.2, 1.2, 0.2], material: { color: '#00ff00' } } });
+  await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'box', name: 'Board', transform: { position: [4.1, 2.7, -1] }, box: { size: [1.2, 1.2, 0.2], material: { color: '#00ff00' } } });
 
   await page.goto(be.editorUrl);
   await expect(page.locator('.tl-statusbar')).toContainText('connected');

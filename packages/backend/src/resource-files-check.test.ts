@@ -89,7 +89,7 @@ describe('scenes and resources as files over HTTP', () => {
     expect(service.holdAssetBytes(PID, GLB).ok).toBe(true);
     let r = await command('publishAsset', { mode: 'create', assetId: 'tiny', kind: 'model', displayName: 'Tiny', sourceDigest: sha, sourceByteLength: GLB.length, importRecipe: { profile: 'gltf-glb', recipeVersion: 1, toolchain: { three: '0.186.0' }, extensions: [] }, metrics: { nodes: 1, meshes: 1, primitives: 1, materials: 1, images: 0, textures: 0, vertices: 3, triangles: 1, animations: 0, animationChannels: 0, clipDurationMs: 0, decodedGeometryBytes: 36, decodedImageBytes: 0 }, importedAt: '2026-09-30T10:00:00Z' });
     expect(r.status, JSON.stringify(r.json)).toBe(200);
-    r = await command('createEntity', { kind: 'model', name: 'Tiny', model: { asset: { assetId: 'tiny' } } });
+    r = await command('createEntity', { sceneId: 'scene-main', kind: 'model', name: 'Tiny', model: { asset: { assetId: 'tiny' } } });
     expect(r.status, JSON.stringify(r.json)).toBe(200);
     const sidecar = join(dir(), 'assets', 'Tiny.glb.tlasset');
     const bytes = readFileSync(sidecar);
@@ -97,7 +97,7 @@ describe('scenes and resources as files over HTTP', () => {
     expect(service.releaseWorkspace(PID).ok).toBe(true);
     unlinkSync(sidecar);
     // The next command re-opens the released project (the scene still uses the asset: before, this open was refused).
-    const again = await api(`${tb.authUrl}/api/v1/projects/${PID}/commands`, { body: { op: 'createEntity', projectId: PID, expectedRevision: rev, requestId: mkRequestId(), origin: { kind: 'mcp', clientId: 'resource-files-test' }, args: { kind: 'box', name: 'After' } }, token: tb.adminToken, origin: null });
+    const again = await api(`${tb.authUrl}/api/v1/projects/${PID}/commands`, { body: { op: 'createEntity', projectId: PID, expectedRevision: rev, requestId: mkRequestId(), origin: { kind: 'mcp', clientId: 'resource-files-test' }, args: { sceneId: 'scene-main', kind: 'box', name: 'After' } }, token: tb.adminToken, origin: null });
     expect(again.status, JSON.stringify(again.json)).toBe(200);
     expect(readFileSync(sidecar).equals(bytes)).toBe(true);
     expect((await problems()).filter((p) => p.code === 'asset_sidecar_restored').map((p) => p.message)).toEqual([expect.stringContaining('assets/Tiny.glb.tlasset')]);

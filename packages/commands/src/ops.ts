@@ -123,7 +123,7 @@ function bytesEqual(a: Uint8Array, b: Uint8Array): boolean {
   return true;
 }
 
-function entitiesById(scene: SceneDocument): Map<string, AnyEntity> {
+export function entitiesById(scene: SceneDocument): Map<string, AnyEntity> {
   return new Map(scene.entities.map((e) => [e.id, e]));
 }
 
@@ -154,7 +154,7 @@ export function subtreeClosure(scene: SceneDocument, rootId: string): string[] |
 }
 
 /** Closure members in pre-deletion array order (ascending index). */
-function closureInArrayOrder(scene: SceneDocument, closure: string[]): string[] {
+export function closureInArrayOrder(scene: SceneDocument, closure: string[]): string[] {
   const index = new Map(scene.entities.map((e, i) => [e.id, i]));
   return [...closure].sort((a, b) => {
     const ia = index.get(a) ?? 0;
@@ -245,6 +245,8 @@ export interface OpSuccess {
   change: ForwardChange;
   inverse: InverseSpec;
   createdId?: string;
+  /** A cross-scene move's second scene as it now is. */
+  otherScene?: { sceneId: string; scene: SceneDocument };
 }
 
 export type OpOutcome =
@@ -993,12 +995,12 @@ function reorder(entities: readonly unknown[], order: readonly string[]): unknow
   return reordered;
 }
 
-function isFolder(e: AnyEntity | undefined): boolean {
+export function isFolder(e: AnyEntity | undefined): boolean {
   return e !== undefined && (e.components as { folder?: unknown }).folder !== undefined;
 }
 
 /** A folder may only be filed at the root or in another folder. */
-function folderParentError(path: string, parentId: string): CommandError {
+export function folderParentError(path: string, parentId: string): CommandError {
   return fieldValue(path, parentId, 'null (root) or the id of a folder', 'a folder sits at the root or inside another folder, never under an object');
 }
 

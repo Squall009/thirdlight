@@ -15,6 +15,7 @@
  * well as the scene) differs.
  */
 
+import { applyMoveEntitiesScene } from './move-scene-ops';
 import type { Manifest } from '@thirdlight/project-model';
 
 import {
@@ -179,6 +180,7 @@ function completeForward<S extends SceneDocument>(
   const history = recordForwardEdit(state.history, entry);
   const nextState = { ...state, scene: applied.scene, history } as CommandState<S>;
   if (applied.content !== undefined) nextState.content = applied.content;
+  if (applied.otherScene !== undefined) nextState.otherScene = applied.otherScene as CommandState<S>['otherScene'];
   return {
     ok: true,
     state: nextState,
@@ -555,6 +557,14 @@ export function applyMutation<S extends SceneDocument>(
       return completeForward(state, 'setAssetOptions', envelope.projectId, envelope.requestId, revision, envelope.origin, r.op);
     }
     case 'moveEntities': {
+      // Into another scene: the host gave the command that scene.
+      if (va.validated.args.sceneId !== undefined) {
+        const other = state.otherScene;
+        if (other === undefined || other.sceneId !== va.validated.args.sceneId) return { ok: false, result: failure(request, { code: 'reference_missing', cls: 'validation', path: '/args/sceneId', reason: 'scene', found: va.validated.args.sceneId, message: 'no such scene in this project' } as CommandError) };
+        const m = applyMoveEntitiesScene(scene, other, va.validated.args, state.content);
+        if (!m.ok) return { ok: false, result: failure(request, m.error) };
+        return completeForward(state, 'moveEntities', envelope.projectId, envelope.requestId, revision, envelope.origin, { scene: m.result.scene, change: m.result.change, inverse: m.inverse, otherScene: m.result.otherScene });
+      }
       const r = applyMoveEntities(scene, va.validated.args, state.content);
       if (!r.ok) return { ok: false, result: failure(request, r.error) };
       return completeForward(
@@ -657,6 +667,7 @@ export function applyMutation<S extends SceneDocument>(
       const { outcome } = r;
       const nextState = { ...state, scene: outcome.scene, history: outcome.history } as CommandState<S>;
       if (outcome.content !== undefined) nextState.content = outcome.content;
+      if (outcome.otherScene !== undefined) nextState.otherScene = outcome.otherScene as CommandState<S>['otherScene'];
       return {
         ok: true,
         state: nextState,

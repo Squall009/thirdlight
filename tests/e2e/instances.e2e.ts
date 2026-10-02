@@ -133,7 +133,7 @@ test('a set is chunked by extent (the project default, overridden per set in the
   expect(published.status, JSON.stringify(published.json)).toBe(200);
   const assets = (await query('queryAssets', { limit: 50, offset: 0 })).assets as { assetId: string; displayName: string }[];
   const pillar = assets.find((a) => a.displayName === 'Pillar')!.assetId;
-  const made = await cmd('createEntity', { kind: 'group', name: 'Row', components: { instances: { asset: { assetId: pillar }, buffer: published.json.digest, count: 200 } } });
+  const made = await cmd('createEntity', { sceneId: 'scene-main', kind: 'group', name: 'Row', components: { instances: { asset: { assetId: pillar }, buffer: published.json.digest, count: 200 } } });
   const id = String(made.createdId);
 
   await page.goto(be.editorUrl);

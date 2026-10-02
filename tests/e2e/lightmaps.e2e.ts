@@ -79,8 +79,8 @@ async function openScene(page: Page, variant: RendererVariant = 'auto'): Promise
   await page.goto(editorUrlFor(be.editorUrl, variant));
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
   await expectRendererBackend(page.locator('canvas.tl-viewport'), variant);
-  const ground = String((await cmd('createEntity', { kind: 'box', name: 'ground', box: { size: [12, 0.5, 8], material: { color: '#b0b0b0' } }, transform: { position: [0, -0.25, 0] } })).createdId);
-  const cube = String((await cmd('createEntity', { kind: 'box', name: 'cube', box: { size: [1, 2, 1], material: { color: '#b0b0b0' } }, transform: { position: [0, 1, 0] } })).createdId);
+  const ground = String((await cmd('createEntity', { sceneId: 'scene-main', kind: 'box', name: 'ground', box: { size: [12, 0.5, 8], material: { color: '#b0b0b0' } }, transform: { position: [0, -0.25, 0] } })).createdId);
+  const cube = String((await cmd('createEntity', { sceneId: 'scene-main', kind: 'box', name: 'cube', box: { size: [1, 2, 1], material: { color: '#b0b0b0' } }, transform: { position: [0, 1, 0] } })).createdId);
   // The camera looks down on the ground at 30° (a side-view game camera sits higher than eye level).
   await cmd('setTransform', { entityId: 'cam-main', transform: { position: [0, 3, 6], rotation: [-0.2588190451, 0, 0, 0.9659258263] } });
   await cmd('updateEntity', { entityId: ground, static: true });

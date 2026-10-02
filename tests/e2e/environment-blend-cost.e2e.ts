@@ -132,9 +132,9 @@ for (const variant of VARIANTS) test(`environment blend: a new t every step at 1
   be = await startBackend('environment-blend-cost-e2e');
 
   await cmd('setTransform', { entityId: 'cam-main', transform: { position: [0, 1, 6], rotation: [0, 0, 0, 1] } });
-  await cmd('createEntity', { parentId: null, kind: 'box', name: 'Panel', transform: { position: [-2.5, 0.3, 0] }, box: { size: [4, 2, 0.1], material: { color: '#c0c0c0' } } });
-  await cmd('createEntity', { parentId: null, kind: 'box', name: 'Far wall', transform: { position: [30, 0, -80] }, box: { size: [60, 40, 1], material: { color: '#c0c0c0' } } });
-  const driver = String((await cmd('createEntity', { parentId: null, kind: 'group', name: 'Driver', transform: { position: [0, -20, 0] } }))['createdId']);
+  await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'box', name: 'Panel', transform: { position: [-2.5, 0.3, 0] }, box: { size: [4, 2, 0.1], material: { color: '#c0c0c0' } } });
+  await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'box', name: 'Far wall', transform: { position: [30, 0, -80] }, box: { size: [60, 40, 1], material: { color: '#c0c0c0' } } });
+  const driver = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Driver', transform: { position: [0, -20, 0] } }))['createdId']);
   await cmd('setInput', { input: { actions: [{ name: 'switchPair', type: 'button', map: 'gameplay', bindings: [{ kind: 'key', code: 'Digit1' }] }] } });
   await script('env-driver', DRIVER, driver);
   await cmd('setComponent', { entityId: 'light-0001', component: 'light', value: { type: 'directional', color: '#ffffff', intensity: 2.5, direction: [0.2, -1, -0.3], castShadow: true } });

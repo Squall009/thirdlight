@@ -69,7 +69,7 @@ for (const variant of VARIANTS) test(`one preview pane: a timeline and a UI docu
   test.setTimeout(240_000);
   be = await startBackend('preview-pane-e2e');
   // A green crate at the origin, a timeline that slides it 4 m along x in 2 s.
-  const crate = String((await cmd('createEntity', { kind: 'box', name: 'Crate', transform: { position: [0, 0.5, 0] }, box: { size: [1, 1, 1], material: { color: '#20e020' } } }))['createdId']);
+  const crate = String((await cmd('createEntity', { sceneId: 'scene-main', kind: 'box', name: 'Crate', transform: { position: [0, 0.5, 0] }, box: { size: [1, 1, 1], material: { color: '#20e020' } } }))['createdId']);
   await cmd('setTimeline', {
     timeline: {
       timelineId: 'slide',

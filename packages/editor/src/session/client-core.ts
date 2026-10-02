@@ -1130,9 +1130,12 @@ export class SessionClientCore {
     const rid = requestId ?? makeRequestId();
     // A new root entity goes into the active scene (with a
     // parent, the parent's scene decides).
-    if ((op === 'createEntity' || op === 'instantiatePrefab' || op === 'pasteEntities') && this.activeScene !== null && typeof args === 'object' && args !== null) {
+    if ((op === 'createEntity' || op === 'instantiatePrefab' || op === 'pasteEntities' || op === 'createEntities') && this.activeScene !== null && typeof args === 'object' && args !== null) {
       const a = args as Record<string, unknown>;
-      if ((a['parentId'] === undefined || a['parentId'] === null) && a['sceneId'] === undefined) args = { ...a, sceneId: this.activeScene };
+      // An item under an object that already exists goes to that object's scene.
+      const named = (id: unknown): boolean => typeof id === 'string' && this.projection.getEntity(id) !== undefined;
+      const parented = op === 'createEntities' ? Array.isArray(a['entities']) && (a['entities'] as { parentId?: unknown }[]).some((x) => named(x?.parentId)) : named(a['parentId']);
+      if (!parented && a['sceneId'] === undefined) args = { ...a, sceneId: this.activeScene };
     }
     // A new scene or resource goes into the current folder (a record the op only changes stays where its file is).
     if (this.newItemFolder !== '' && RESOURCE_CREATING_OPS.includes(op) && typeof args === 'object' && args !== null && (args as Record<string, unknown>)['folder'] === undefined) {

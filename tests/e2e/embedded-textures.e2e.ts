@@ -116,11 +116,11 @@ for (const variant of RENDERER_VARIANTS) test(`images inside model files count a
   const cam = ents.find((e) => e.components['virtualCamera'] !== undefined)!.id;
   await cmd('setTransform', { entityId: cam, transform: { position: [0, 0, 6], rotation: [0, 0, 0, 1] } });
   for (const e of ents) if (e.components['box'] !== undefined || e.components['model'] !== undefined) await cmd('setTransform', { entityId: e.id, transform: { position: [0, -50, 0] } });
-  const box = String((await cmd('createEntity', { parentId: null, kind: 'box', name: 'Checker box', transform: { position: [0, 0, 3] }, box: { size: [2, 2, 0.05], material: { color: '#ffffff' } } }))['createdId']);
+  const box = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'box', name: 'Checker box', transform: { position: [0, 0, 3] }, box: { size: [2, 2, 0.05], material: { color: '#ffffff' } } }))['createdId']);
   await cmd('setComponent', { entityId: box, component: 'materials', value: { '*': 'mat-checker' } });
   const balls: string[] = [];
   for (const [assetId, x] of [['webp-ball', -2.2], ['ktx2-ball', 2.2]] as const) {
-    balls.push(String((await cmd('createEntity', { parentId: null, kind: 'model', name: assetId, model: { asset: { assetId } }, transform: { position: [x, -0.5, 1] } }))['createdId']));
+    balls.push(String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'model', name: assetId, model: { asset: { assetId } }, transform: { position: [x, -0.5, 1] } }))['createdId']));
   }
 
   await page.goto(editorUrlFor(be.editorUrl, variant));

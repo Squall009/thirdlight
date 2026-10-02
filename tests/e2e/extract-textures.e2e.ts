@@ -214,8 +214,8 @@ for (const variant of RENDERER_VARIANTS) test(`a model's extracted images are te
   const cam = ents.find((e) => e.components['virtualCamera'] !== undefined)!.id;
   await cmd('setTransform', { entityId: cam, transform: { position: [0, 1.6, 3.6], rotation: [0, 0, 0, 1] } });
   for (const e of ents) if (e.components['box'] !== undefined || e.components['model'] !== undefined) await cmd('setTransform', { entityId: e.id, transform: { position: [0, -50, 0] } });
-  const extractedId = String((await cmd('createEntity', { parentId: null, kind: 'model', name: 'Extracted', model: { asset: { assetId: model.assetId } }, transform: { position: [-1.8, 1.6, 0], scale: [3, 3, 3] } }))['createdId']);
-  const twinId = String((await cmd('createEntity', { parentId: null, kind: 'model', name: 'Twin', model: { asset: { assetId: 'twin' } }, transform: { position: [1.8, 1.6, 0], scale: [3, 3, 3] } }))['createdId']);
+  const extractedId = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'model', name: 'Extracted', model: { asset: { assetId: model.assetId } }, transform: { position: [-1.8, 1.6, 0], scale: [3, 3, 3] } }))['createdId']);
+  const twinId = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'model', name: 'Twin', model: { asset: { assetId: 'twin' } }, transform: { position: [1.8, 1.6, 0], scale: [3, 3, 3] } }))['createdId']);
   await closeEditor(page);
 
   // ---- The Scene view: both drawn alike; only the twin's image is inside a model file.

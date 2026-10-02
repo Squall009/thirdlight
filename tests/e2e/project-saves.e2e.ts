@@ -179,10 +179,10 @@ test('a script saves to slot 2 with metadata and a thumbnail; a reload lists it 
   const cam = ((await query('queryEntities', { limit: 100, offset: 0 })) as { entities: { id: string; components: Record<string, unknown> }[] }).entities.find((e) => e.components['virtualCamera'] !== undefined)!.id;
   const pitch = (-30 * Math.PI) / 180;
   await cmd('setTransform', { entityId: cam, transform: { position: [2, 5, 9], rotation: [Math.sin(pitch / 2), 0, 0, Math.cos(pitch / 2)] } });
-  const layer = String((await cmd('createEntity', { parentId: null, kind: 'group', name: 'Ground', transform: { position: [0, 0, 0] } }))['createdId']);
+  const layer = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Ground', transform: { position: [0, 0, 0] } }))['createdId']);
   await cmd('setComponent', { entityId: layer, component: 'blockLayer', value: { cellSize: [1, 1, 1], bounds: { min: [0, 0, 0], max: [4, 3, 4] } } });
   await cmd('editBlocks', { entityId: layer, edits: [{ kind: 'fill', box: [0, 0, 0, 4, 1, 4], cell: { block: 'stone' } }] });
-  const saver = String((await cmd('createEntity', { parentId: null, kind: 'group', name: 'Saver', transform: { position: [0, 0, 0] } }))['createdId']);
+  const saver = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Saver', transform: { position: [0, 0, 0] } }))['createdId']);
   await script('saver', SAVER, saver, layer);
 
   // Editor: the Saves tab — add a schema, 5 slots, the cell and storage sections, a "hints" setting (default on).

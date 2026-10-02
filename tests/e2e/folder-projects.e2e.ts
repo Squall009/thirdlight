@@ -171,7 +171,7 @@ test('the MCP adapter finds the project from its working folder (no THIRDLIGHT_P
     expect(listed.isError, JSON.stringify(listed.body)).toBe(false);
     expect((listed.body.entities as Array<{ name?: string }>).map((e) => e.name)).toContain('Player');
     const project = await call(mcp, 'tl_inspect', { target: 'project' });
-    const edit = await call(mcp, 'tl_command', { op: 'createEntity', expectedRevision: project.body.revision, args: { kind: 'box', name: 'From MCP' } });
+    const edit = await call(mcp, 'tl_command', { op: 'createEntity', expectedRevision: project.body.revision, args: { sceneId: 'scene-main', kind: 'box', name: 'From MCP' } });
     expect(edit.isError, JSON.stringify(edit.body)).toBe(false);
     await expect.poll(() => readFileSync(join(mine, 'thirdlight', 'scenes', 'scene-main.json'), 'utf8')).toContain('From MCP');
   } finally {

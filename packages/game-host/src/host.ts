@@ -325,6 +325,8 @@ export interface GameHostConfig {
   /** The resolved gameplay settings (the wrapper passes the manifest's
    * `gameplaySettings` or the model default). */
   readonly settings: GameplaySettings;
+  /** A problem for the author (Play's Problems; one per kind and Play). */
+  readonly onProblem?: (code: string, message: string) => void;
   /** The injected physics port (physics-rapier in the preview; a fake in
    * tests). Absent: a game without physics. */
   readonly physics?: PhysicsPort | PhysicsPort3D;
@@ -1223,6 +1225,8 @@ export function createGameHost(config: GameHostConfig): GameHost {
     serviceCursor(runtime);
     // The simulation's save requests (a thumbnail is drawn now, in this frame; held ones go once it can be).
     if (projectSaves !== null) projectSaves.handle(runtime.takeSaveRequests?.() ?? []);
+    // The simulation's problems for the author (Play's Problems; an export has none to show).
+    for (const p of runtime.takeProblems?.() ?? []) config.onProblem?.(p.code, p.message);
     // Scripts' asset loads and releases; each answer is the next step's input.
     assets.serviceHandles(runtime.takeAssetRequests?.() ?? [], (answer) => {
       const r = disposed || runtime === null ? undefined : runtime.queueAssetAnswer?.(answer);

@@ -75,6 +75,18 @@ export function withoutSceneId(out: Record<string, unknown>): Record<string, unk
   return rest;
 }
 
+/**
+ * A fixture request as the workspace hands it to the pure layer: the
+ * workspace resolves `args.sceneId` (the scene a new object goes into) to the
+ * scene it passes in and drops the key, so the pure command never sees it.
+ */
+export function pureRequestOf<T>(request: T): T {
+  const r = request as { args?: Record<string, unknown> };
+  if (r.args === undefined || !('sceneId' in r.args)) return request;
+  const { sceneId: _sceneId, ...args } = r.args;
+  return { ...(request as object), args } as T;
+}
+
 /** Constant-time-free plain byte equality (no Buffer dependency). */
 export function bytesEqual(a: Uint8Array, b: Uint8Array): boolean {
   if (a.length !== b.length) return false;

@@ -1218,7 +1218,8 @@ export function validateSceneV3Value(doc: Record<string, unknown>, version: 3 | 
         ),
       );
     }
-    if (counts.controllers > 1) {
+    // v3 (one scene is the game): one player. v4 checks the player count when the game starts (Play), not per edit.
+    if (version === 3 && counts.controllers > 1) {
       errors.push(
         withFound(
           { code: 'controller_count_invalid', path: '', message: 'a scene must not contain more than one entity carrying the controller component', expected: 'at most 1 controller' },

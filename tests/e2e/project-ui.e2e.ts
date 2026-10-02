@@ -133,7 +133,7 @@ async function setUp(page: Page): Promise<{ fontId: string }> {
   await publishScript(STARTER.playerId);
   // The camera follows the character (a track rig; the world label then moves across the view as it walks).
   const cam = ((await query('queryEntity', { entityId: STARTER.cameraId }))['entity'] as { components: { transform: { position: number[]; rotation?: number[] } } }).components.transform;
-  await cmd('createEntity', { kind: 'group', name: 'Follow shot', transform: { position: cam.position, ...(cam.rotation !== undefined ? { rotation: cam.rotation } : {}) }, components: { virtualCamera: { rig: 'track', target: STARTER.playerId } } });
+  await cmd('createEntity', { sceneId: 'scene-main', kind: 'group', name: 'Follow shot', transform: { position: cam.position, ...(cam.rotation !== undefined ? { rotation: cam.rotation } : {}) }, components: { virtualCamera: { rig: 'track', target: STARTER.playerId } } });
 
   await cmd('setUiTheme', { theme: { uiThemeId: 'neutral', name: 'Neutral', styles: {
     label: { font: fontId, fontSize: 20, color: '#ffffff', textShadow: '#000000' },

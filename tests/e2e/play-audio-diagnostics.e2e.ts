@@ -120,7 +120,7 @@ test('Play diagnostics: the audio block before and after the unlock, and the mes
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
   const theme = await importWav(page, 'cue-max.wav', 'cue-max');
   const blip = await importWav(page, 'cue-goal.wav', 'cue-goal');
-  const holder = String((await cmd('createEntity', { parentId: null, kind: 'group', name: 'Sounds', transform: { position: [0, -3, 0] } }))['createdId']);
+  const holder = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Sounds', transform: { position: [0, -3, 0] } }))['createdId']);
   await script('sounds', SOUNDS, holder, { theme, blip });
 
   const started = page.waitForResponse((r) => r.request().method() === 'POST' && r.url().endsWith('/play'));

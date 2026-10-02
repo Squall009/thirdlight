@@ -86,6 +86,7 @@ import { createScriptAudio, type ScriptAudioControl } from './script-audio';
 import { DialogueRunner, validateDialogueInput, type DialogueInputRecord } from './dialogue';
 import type { CameraViewInfo } from './camera-brain';
 import { RuntimeViews } from './views';
+import { KeptObjects } from './kept';
 import { EnvironmentDirector, MAX_ENVIRONMENT_BLEND_SECONDS, type EnvironmentSaveState } from './environment-director';
 import { emptyMutableIntents, resetMutableIntents, type MutableIntentSet } from './mutable-intents';
 import { colliderEntityOf, PHYSICS_QUERY_LIMIT, queryDistance, queryPositive, queryQuat, queryVec3 } from './physics-query-args';
@@ -1488,8 +1489,11 @@ class RuntimeInstance implements Runtime {
     },
   });
 
-  /** Entities that are never unloaded with their scene (camera, player, start spawn). Lights go with their scene. */
-  private readonly pinnedIds: ReadonlySet<string>;
+  /** Kept objects (`keepLoaded`): they survive their scene's unload, reload and a save's scene changes. */
+  private readonly kept = new KeptObjects();
+  /** Problems for the author (one Problems line per kind and Play; the host drains them). */
+  private problems: { code: string; message: string }[] = [];
+  private readonly problemCodes = new Set<string>();
   private readonly sceneControl: BehaviorSceneControl;
   // ---- Spawned prefab copies ----
   private readonly prefabs: ReadonlyMap<string, PrefabDefinition>;
@@ -1559,10 +1563,7 @@ class RuntimeInstance implements Runtime {
     this.liveTags = args.liveTags;
     this.queryTags = args.queryTags;
     this.startBatchSource = new Map(args.startBatches.map((b) => [b.sceneId, b.entities]));
-    const pinned = new Set<string>();
-    if (args.controllerEntityId !== undefined) pinned.add(args.controllerEntityId);
-    for (const e of args.initialEntities) if ((e as { keepLoaded?: boolean }).keepLoaded === true) pinned.add(e.id);
-    this.pinnedIds = pinned;
+    this.kept.add(args.initialEntities);
     if (args.sceneRows !== null) {
       for (const row of args.sceneRows) this.sceneStatus.set(row.sceneId, 'unloaded');
       for (const b of args.startBatches) {
@@ -2197,6 +2198,9 @@ class RuntimeInstance implements Runtime {
         return rt.controllerEntityId;
       },
       isPhysicsBody: (id) => id === rt.controllerEntityId || rt.entities.get(id)?.hasCollider === true,
+      isKept: (id) => rt.kept.has(id),
+      keepProblem: (id, keep) => rt.keepProblem(id, keep),
+      setKept: (id, keep) => rt.setKept(id, keep),
       transformIntentWrote: (id) => {
         const stored = rt.intents.axes.get(id);
         const tag = rt.intents.axesTag * 64;
@@ -2574,7 +2578,8 @@ class RuntimeInstance implements Runtime {
         revision: this.sceneRevision,
         batches: Object.freeze([...this.batches.values()].map((b) => Object.freeze({ sceneId: b.sceneId, start: b.start, entities: b.entities }))),
         status: Object.freeze(Object.fromEntries(this.sceneStatus)),
-        spawned: Object.freeze([...this.spawnedEntities.values()]),
+        // Kept objects whose scene went are scene-less, as spawned copies are.
+        spawned: Object.freeze([...this.spawnedEntities.values(), ...this.kept.orphanList()]),
       });
     }
     return this.sceneSetCache;
@@ -3610,7 +3615,7 @@ class RuntimeInstance implements Runtime {
       if (!b.ids.has(id)) continue;
       return b.entities.find((e) => e.id === id);
     }
-    return this.spawnedEntities.get(id);
+    return this.spawnedEntities.get(id) ?? this.kept.orphan(id);
   }
 
   /**
@@ -3964,11 +3969,10 @@ class RuntimeInstance implements Runtime {
       if (o.fadeColor !== undefined && !(typeof o.fadeColor === 'string' && FADE_COLOR_RE.test(o.fadeColor))) return 'load option "fadeColor" must be "#rrggbb" (lower case)';
     }
     if (op === 'unload') {
-      const batch = this.batches.get(sceneId);
-      if (batch !== undefined) {
-        for (const id of batch.ids) {
-          if (this.pinnedIds.has(id)) return `scene "${sceneId}" holds "${id}" (the camera, player and start spawn stay loaded)`;
-        }
+      // The player's body is made once, when the game starts: it can leave its scene only as a kept object.
+      const player = this.controllerEntityId;
+      if (player !== undefined && this.batches.get(sceneId)?.ids.has(player) === true && !this.kept.has(player)) {
+        return `scene "${sceneId}" holds the player "${player}", which is not kept loaded (mark it Keep loaded to unload its scene)`;
       }
     }
     return null;
@@ -4126,18 +4130,19 @@ class RuntimeInstance implements Runtime {
    * entity, colliders without a capable port) is refused: logged, left
    * unloaded, the run continues. Returns `false` only after a fail-stop.
    */
-  private addBatch(sceneId: string, entities: readonly EntityV3[], start: boolean, prepared = false): boolean {
+  private addBatch(sceneId: string, all: readonly EntityV3[], start: boolean, prepared = false): boolean {
     const refuse = (why: string): boolean => {
       this.setSceneStatus(sceneId, 'unloaded');
       this.recordError({ code: 'scene_load_failed', message: clipMessage(`scene "${sceneId}" was not loaded: ${why}`), stepIndex: this.stepIndex, reason: 'refused' });
       return true;
     };
+    // A kept object of this scene that is still alive (the scene loaded again) is not brought a second time.
+    const { entities } = this.kept.arriving(all, (id) => this.entities.has(id));
     for (const e of entities) {
       if (this.entities.has(e.id)) return refuse(`entity "${e.id}" is already loaded`);
-      const c = e.components as unknown as Record<string, unknown>;
-      // Lights belong to their scene (any kind, any scene); the camera and the player stay start-scene only.
-      if (!start && (c['camera'] !== undefined || c['controller'] !== undefined)) {
-        return refuse(`entity "${e.id}" belongs in a start scene (camera, player)`);
+      // The player's body is made when the game starts: a scene loaded later cannot bring one.
+      if (!start && (e.components as unknown as Record<string, unknown>)['controller'] !== undefined) {
+        return refuse(`entity "${e.id}" is a player controller: the game makes its player when it starts (put it in a start scene and keep it loaded)`);
       }
     }
     // A loaded scene's entities arrive copied and frozen (prepared over the steps before).
@@ -4154,6 +4159,7 @@ class RuntimeInstance implements Runtime {
       }
     }
     const ids = new Set(frozen.map((e) => e.id));
+    this.kept.add(frozen);
     this.attachEntities(frozen);
     // The scene's block layers and their colliders (at this step boundary).
     if (this.grid.addLayers(frozen).length > 0) {
@@ -4167,7 +4173,54 @@ class RuntimeInstance implements Runtime {
     this.batches.set(sceneId, { sceneId, start, entities: frozen, ids, contribution });
     this.setSceneStatus(sceneId, 'loaded');
     this.sceneRevision += 1;
+    if (!start) this.arriveAtListedSpawn(sceneId);
     return this.notifyLoaded(frozen);
+  }
+
+  /**
+   * A kept player arrives at a listed scene's spawn (`shell.scenes[].spawn`)
+   * when that scene loads, however it was loaded — unless the load already
+   * names an arrival (a transition, the scene list) or a save is placing it.
+   */
+  private arriveAtListedSpawn(sceneId: string): void {
+    const player = this.controllerEntityId;
+    if (player === undefined || !this.kept.has(player) || this.pendingArrival !== null || this.pendingRestore !== null) return;
+    const entry = this.sceneList.find((x) => x.scene === sceneId && x.spawn !== undefined);
+    if (entry?.spawn !== undefined) this.pendingArrival = { spawnId: entry.spawn, waitFor: sceneId };
+  }
+
+  /** Why a script cannot switch an object's keep flag now (null: it can). */
+  private keepProblem(id: string, keep: boolean): string | null {
+    const parent = this.entities.get(id)?.parentId ?? null;
+    if (parent !== null && this.kept.has(parent)) return keep ? null : `its parent "${parent}" keeps it loaded`;
+    if (keep && parent !== null) return `its parent "${parent}" is not kept loaded (the object would go with it)`;
+    if (!keep && this.kept.orphan(id) !== undefined) return 'its scene is not loaded: it would have nowhere to be';
+    return null;
+  }
+
+  /** Keep (or stop keeping) an object and everything under it (a script's write, at the end of the step). */
+  private setKept(id: string, keep: boolean): void {
+    const subtree = new Set([id]);
+    for (const other of this.order) {
+      const p = this.entities.get(other)?.parentId;
+      if (p !== null && p !== undefined && subtree.has(p)) subtree.add(other);
+    }
+    this.kept.set([...subtree], keep);
+  }
+
+  /** One Problems line per kind for the author (the host passes them to Play's Problems; repeated kinds are dropped). */
+  private problem(code: string, message: string): void {
+    if (this.problemCodes.has(code)) return;
+    this.problemCodes.add(code);
+    this.problems.push({ code, message: clipMessage(message) });
+  }
+
+  /** The problems since the last call (the host relays them). */
+  takeProblems(): { code: string; message: string }[] {
+    if (this.problems.length === 0) return [];
+    const out = this.problems;
+    this.problems = [];
+    return out;
   }
 
   /**
@@ -4259,6 +4312,7 @@ class RuntimeInstance implements Runtime {
 
   /** Take entities out of the simulation and release what belongs to them (`what` names them in diagnostics). */
   private detachEntities(ids: ReadonlySet<string>, colliderIds: readonly string[], what: string): void {
+    this.kept.removed(ids);
     // Sockets of (and on) these entities let go.
     this.sockets.remove(ids);
     this.materials.removeEntities(ids);
@@ -4334,8 +4388,17 @@ class RuntimeInstance implements Runtime {
   private removeBatch(sceneId: string): void {
     const batch = this.batches.get(sceneId);
     if (batch === undefined) return;
-    const ids = batch.ids;
-    this.detachEntities(ids, batch.contribution.colliders.map((c) => c.entityId), `scene "${sceneId}"`);
+    // Its kept objects stay (scene-less); the rest goes.
+    const ids = this.kept.leave(batch.entities);
+    this.detachEntities(ids, batch.contribution.colliders.map((c) => c.entityId).filter((id) => ids.has(id)), `scene "${sceneId}"`);
+    // What a kept object named in the scene now reads as empty: said once.
+    const refs = this.kept.referencesTo(ids, (id) => this.entityDocument(id));
+    if (refs.length > 0) {
+      const list = refs.slice(0, 4).map((r) => `"${r.from}" → "${r.to}"`).join(', ');
+      const message = `kept objects name objects of the unloaded scene "${sceneId}" (${list}${refs.length > 4 ? ', …' : ''}): those references read as empty until something with the id is loaded again`;
+      this.recordBehaviorLog('thirdlight.runtime:scenes', 'warn', message);
+      this.problem('kept_reference_unloaded', message);
+    }
     this.audio.sceneGone(sceneId);
     // A pending arrival at a spawn of the unloaded scene is dropped.
     if (this.pendingArrival !== null && ids.has(this.pendingArrival.spawnId)) this.pendingArrival = null;
@@ -4451,6 +4514,7 @@ class RuntimeInstance implements Runtime {
         return false;
       }
     }
+    this.kept.add(frozen);
     this.attachEntities(frozen);
     for (const e of frozen) this.spawnedEntities.set(e.id, e);
     this.sceneRevision += 1;
@@ -4492,6 +4556,14 @@ class RuntimeInstance implements Runtime {
   private restoreStartSet(): boolean {
     if (this.sceneRows === null) return true;
     for (const b of [...this.batches.values()]) if (!b.start) this.removeBatch(b.sceneId);
+    // The kept objects whose scene went go too: their start scenes bring them back.
+    const orphans = this.kept.takeOrphans();
+    if (orphans.size > 0) {
+      const colliders = [...orphans].filter((id) => this.colliderComponents3D.has(id) || this.entities.get(id)?.hasCollider === true);
+      this.detachEntities(orphans, colliders, 'kept objects');
+      this.sceneRevision += 1;
+      this.sceneSetCache = null;
+    }
     for (const sceneId of [...this.requestedLoads.keys(), ...this.fetchingLoads.keys(), ...this.readyLoads.keys()]) {
       if (!this.startBatchSource.has(sceneId)) this.setSceneStatus(sceneId, 'unloaded');
     }

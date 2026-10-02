@@ -83,7 +83,7 @@ for (const variant of RENDERER_VARIANTS) test(`block-layer chunks switch to the 
   await cmd('setEnvironment', { sceneId: 'scene-main', environment: { sky: { mode: 'color', color: '#303030' } } });
   await publishBytes(be, multiPieceGlb([{ name: 'crate', lods: [[1, 1, 1], [1, 1, 1]], colors: [[1, 0.02, 0.02], [0.02, 0.05, 1]] }]), 'model', 'kit', 'Kit');
   await cmd('setBlockType', { block: { blockId: 'crate', name: 'Crate', variants: [{ model: { assetId: 'kit', piece: 'crate' } }], shape: 'full' } });
-  const layer = String((await cmd('createEntity', { parentId: null, kind: 'group', name: 'Crates', transform: { position: [0, 0, 0] } }))['createdId']);
+  const layer = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Crates', transform: { position: [0, 0, 0] } }))['createdId']);
   await cmd('setComponent', { entityId: layer, component: 'blockLayer', value: { cellSize: [1, 1, 1], bounds: { min: [0, 0, 0], max: [16, 2, 96] } } });
   // A row of crates in the chunk at z 0-16 (near the camera) and one in the chunk at z 48-64 (over 60 m away).
   await cmd('editBlocks', { entityId: layer, edits: [{ kind: 'fill', box: [0, 0, 4, 16, 1, 12], cell: { block: 'crate' } }, { kind: 'fill', box: [0, 0, 52, 16, 1, 60], cell: { block: 'crate' } }] });

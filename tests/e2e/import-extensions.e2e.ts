@@ -88,7 +88,7 @@ async function importFromFolder(path: string, assetId: string): Promise<void> {
   expect(res.ok, JSON.stringify(res)).toBe(true);
 }
 async function place(assetId: string, x: number, name = assetId): Promise<void> {
-  const res = await command('createEntity', { kind: 'model', name, model: { asset: { assetId } }, transform: { position: [x, 0, 0] } });
+  const res = await command('createEntity', { sceneId: 'scene-main', kind: 'model', name, model: { asset: { assetId } }, transform: { position: [x, 0, 0] } });
   expect(res.ok, JSON.stringify(res)).toBe(true);
 }
 

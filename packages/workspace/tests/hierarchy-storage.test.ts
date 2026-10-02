@@ -44,10 +44,10 @@ describe('phase 12 — hierarchy edits on disk', () => {
     const svc = open(root);
     let rev = (svc.query({ op: 'queryProject', projectId: PROJECT_ID }) as { revision: number }).revision;
 
-    const folder = run(svc, rev, 'createEntity', { kind: 'folder', name: 'Props' });
+    const folder = run(svc, rev, 'createEntity', { sceneId: 'scene-main', kind: 'folder', name: 'Props' });
     rev = folder.revision;
     const folderId = (folder as unknown as { createdId: string }).createdId;
-    const box = run(svc, rev, 'createEntity', { kind: 'box', name: 'crate', transform: { position: [4, 1, 0] } });
+    const box = run(svc, rev, 'createEntity', { sceneId: 'scene-main', kind: 'box', name: 'crate', transform: { position: [4, 1, 0] } });
     rev = box.revision;
     const boxId = (box as unknown as { createdId: string }).createdId;
     rev = run(svc, rev, 'moveEntities', { entityIds: [boxId], parentId: folderId }).revision;

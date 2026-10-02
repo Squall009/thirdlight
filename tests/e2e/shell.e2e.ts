@@ -51,7 +51,7 @@ async function cmd(op: string, args: Record<string, unknown>): Promise<Record<st
   return res;
 }
 async function create(name: string, position: number[], components: Record<string, unknown>): Promise<string> {
-  return String((await cmd('createEntity', { parentId: null, kind: 'group', name, transform: { position }, components }))['createdId']);
+  return String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name, transform: { position }, components }))['createdId']);
 }
 
 const FULL = { anchor: [0, 0], pivot: [0, 0], stretch: 'both' };

@@ -150,15 +150,8 @@ export function composeV4(
     if (!sceneIds.has(id)) errors.push(projectError(`/startScenes/${i}`, 'reference_missing', 'a start scene names no scene of the project', 'an existing scene id', { document: 'content', reason: 'scene' } as never, id));
   });
   // Lights belong to scenes — any light kind may sit in any scene (each scene's own limits:
-  // one directional, one ambient, one hemisphere, 16 point/spot). The controller stays start-scene only.
-  let controllers = 0;
-  for (const s of scenes) {
-    const r = sceneStartRule(s, start.has(s.sceneId));
-    errors.push(...r.errors);
-    controllers += r.controllers;
-  }
-  if (controllers > 1) errors.push(projectError('/startScenes', 'controller_count_invalid', 'the start scenes hold at most one player controller', 'at most 1 controller', { document: 'content' } as never, controllers));
-
+  // one directional, one ambient, one hemisphere, 16 point/spot). Where the player and the cameras are is
+  // checked when the game starts (play-checks.ts), not per edit.
   // The shell's listed scenes are scenes of the project, each spawn a player spawn in its scene.
   const shell = (content as { shell?: { scenes?: { scene: string; spawn?: string }[] } }).shell;
   if (shell?.scenes !== undefined) {
@@ -256,38 +249,6 @@ function entityIdErrors(scenes: readonly SceneV4[]): readonly ModelErrorV3[] {
   }
   lastEntityIds = { scenes: [...scenes], counts, errors };
   return errors;
-}
-
-/** The controller of one scene: counted in a start scene, refused in any other. */
-const startRules = new WeakMap<SceneV4, { inStart: boolean; controllers: number; errors: readonly ModelErrorV3[] }>();
-function sceneStartRule(s: SceneV4, inStart: boolean): { controllers: number; errors: readonly ModelErrorV3[] } {
-  const hit = startRules.get(s);
-  if (hit !== undefined && hit.inStart === inStart) return hit;
-  const errors: ModelErrorV3[] = [];
-  let controllers = 0;
-  s.entities.forEach((e, i) => {
-    if (isFolderEntity(e)) return;
-    const c = e.components;
-    const oneOf: string[] = [];
-    if (c.controller !== undefined) oneOf.push('controller');
-    if (oneOf.length === 0) return;
-    if (!inStart) {
-      errors.push(
-        sceneError(s.sceneId, withFound({
-          code: 'component_conflict',
-          path: `/entities/${i}/components`,
-          reason: 'start_scene_only',
-          message: `a ${oneOf.join(' / ')} belongs in a start scene (scenes loaded later hold level content and lights only)`,
-          expected: 'the entity in a scene listed in content.startScenes',
-        }, oneOf)),
-      );
-      return;
-    }
-    if (c.controller !== undefined) controllers += 1;
-  });
-  const out = { inStart, controllers, errors };
-  startRules.set(s, out);
-  return out;
 }
 
 /** How many rules `sceneReferenceRules` checks (its result holds one error list per rule). */

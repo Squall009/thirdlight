@@ -155,7 +155,7 @@ for (const variant of RENDERER_VARIANTS) test(`KTX2 textures encoded on import (
   await cmd('setTransform', { entityId: cam, transform: { position: [0, 0, 6], rotation: [0, 0, 0, 1] } });
   for (const e of ents) if (e.components['box'] !== undefined) await cmd('setTransform', { entityId: e.id, transform: { position: [0, -50, 0] } });
   for (const [name, x, mat] of [['Checker box', -1.4, 'mat-checker'], ['Normal box', 1.4, 'mat-normal']] as const) {
-    const id = String((await cmd('createEntity', { parentId: null, kind: 'box', name, transform: { position: [x, 0, 0] }, box: { size: [2, 2, 0.05], material: { color: '#ffffff' } } }))['createdId']);
+    const id = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'box', name, transform: { position: [x, 0, 0] }, box: { size: [2, 2, 0.05], material: { color: '#ffffff' } } }))['createdId']);
     await cmd('setComponent', { entityId: id, component: 'materials', value: { '*': mat } });
   }
 

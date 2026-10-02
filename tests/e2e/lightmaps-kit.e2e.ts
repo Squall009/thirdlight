@@ -74,7 +74,7 @@ async function buildKitScene(page: Page): Promise<{ ids: string[]; play: (name: 
   ];
   const ids: string[] = [];
   for (const [piece, x, y] of row) {
-    const id = String((await cmd('createEntity', { kind: 'model', name: piece, model: { asset: { assetId }, piece }, transform: { position: [x, y, 0] } })).createdId);
+    const id = String((await cmd('createEntity', { sceneId: 'scene-main', kind: 'model', name: piece, model: { asset: { assetId }, piece }, transform: { position: [x, y, 0] } })).createdId);
     await cmd('updateEntity', { entityId: id, static: true });
     ids.push(id);
   }

@@ -149,7 +149,7 @@ describe('Gate B repair G1: one corrupt envelope must not abort startup', () => 
           expectedRevision: 0,
           requestId: 'req-30000000000000000000000000000001',
           origin: { kind: 'mcp', clientId: 'pi-harness' },
-          args: { kind: 'box', name: 'Ground' },
+          args: { sceneId: 'scene-main', kind: 'box', name: 'Ground' },
         });
         expect(m.ok, JSON.stringify(m)).toBe(true);
         if (m.ok) expect(m.revision).toBe(1);
@@ -169,7 +169,7 @@ describe('Gate B repair G1: one corrupt envelope must not abort startup', () => 
           expectedRevision: 0,
           requestId: 'req-30000000000000000000000000000002',
           origin: { kind: 'mcp', clientId: 'pi-harness' },
-          args: { kind: 'box', name: 'Nope' },
+          args: { sceneId: 'scene-main', kind: 'box', name: 'Nope' },
         });
         expect(mc.ok).toBe(false);
         if (!mc.ok) {
@@ -221,7 +221,7 @@ describe('Gate B repair G2: on-demand open on a corrupt manifest blocks, never t
           expectedRevision: 0,
           requestId: 'req-40000000000000000000000000000001',
           origin: { kind: 'mcp', clientId: 'pi-harness' },
-          args: { kind: 'box', name: 'Nope' },
+          args: { sceneId: 'scene-main', kind: 'box', name: 'Nope' },
         });
         expect(m.ok).toBe(false);
         if (!m.ok) {

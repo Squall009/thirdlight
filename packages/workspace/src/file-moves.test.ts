@@ -87,7 +87,7 @@ function stocked(tag: string): { dir: string; open: () => WorkspaceService } {
     ok(s, 'publishAsset', { mode: 'create', assetId: 'crate', kind: 'model', displayName: 'Crate', sourceDigest: sha(CRATE), sourceByteLength: CRATE.length, importRecipe: RECIPE, metrics: METRICS, importedAt: '2026-09-30T10:00:00Z' });
     ok(s, 'setMaterial', { material: mat('stone') });
     ok(s, 'createScene', { name: 'Level 1', sceneId: 'level-1', folder: 'levels' });
-    ok(s, 'createEntity', { kind: 'model', name: 'Crate', model: { asset: { assetId: 'crate' } } });
+    ok(s, 'createEntity', { sceneId: 'scene-main', kind: 'model', name: 'Crate', model: { asset: { assetId: 'crate' } } });
   } finally {
     s.close();
   }

@@ -18,7 +18,7 @@ import type { SceneV4 } from '@thirdlight/project-model';
 
 import { applyMutation, createCommandState } from './index';
 import type { CommandState } from './index';
-import { bytesEqual, fixtureProjectV4, fixtureText } from './test-fixtures';
+import { bytesEqual, fixtureProjectV4, fixtureText, pureRequestOf } from './test-fixtures';
 
 const DIR = 'scenarios/04-invalid-no-partial';
 
@@ -46,7 +46,7 @@ describe('scenario 04 — invalid commands leave the state byte-identical', () =
 
     for (let i = 0; i < messages.length; i++) {
       const msg = messages[i]!;
-      const outcome = applyMutation(state, msg.in);
+      const outcome = applyMutation(state, pureRequestOf(msg.in));
       if (outcome.ok) {
         throw new Error(`step ${i + 1} unexpectedly succeeded`);
       }

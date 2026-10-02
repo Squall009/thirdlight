@@ -202,7 +202,7 @@ test('an MCP-origin edit appears in the browser without a reload', async ({ page
     expectedRevision: q.revision,
     requestId: `req-${'a'.repeat(32)}`,
     origin: { kind: 'mcp', clientId: 'e2e' },
-    args: { kind: 'box', parentId: null, name: 'from-mcp' },
+    args: { sceneId: 'scene-main', kind: 'box', parentId: null, name: 'from-mcp' },
   });
   expect(res.ok).toBe(true);
   await expect(rows(page).filter({ hasText: 'from-mcp' })).toHaveCount(1);

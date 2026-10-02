@@ -74,14 +74,14 @@ async function buildScene(): Promise<{ set: string; layer: string; platform: str
   await cmd('setSettings', { settings: { physics_dimension: 3 } });
   await publishBytes(be!, new Uint8Array(readFileSync(join(REPO, 'templates', 'starter', 'assets', 'model', 'pillar.glb'))), 'model', 'pillar', 'Pillar', {}, { extractTextures: false });
   await cmd('setBlockType', { block: { blockId: 'turf', name: 'Turf', variants: [{ color: '#3f8f3a' }], shape: 'full' } });
-  const layer = String((await cmd('createEntity', { parentId: null, kind: 'group', name: 'Terrain', transform: { position: [...LAYER_AT] } }))['createdId']);
+  const layer = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Terrain', transform: { position: [...LAYER_AT] } }))['createdId']);
   await cmd('setComponent', { entityId: layer, component: 'blockLayer', value: { cellSize: [1, 0.5, 1], bounds: { min: [0, 0, 0], max: [12, 8, 8] }, castShadow: false, receiveShadow: false } });
   await cmd('editBlocks', { entityId: layer, edits: [{ kind: 'fill', box: [0, 0, 0, 12, 4, 8], cell: { block: 'turf' } }] });
-  const platform = String((await cmd('createEntity', { parentId: null, kind: 'model', name: 'Platform', transform: { position: [...PLATFORM_AT], scale: [6, 1.5, 6] }, model: { asset: { assetId: 'pillar' } }, components: { collider: { shape: { type: 'box', hx: 0.45, hy: 1, hz: 0.45 } } } }))['createdId']);
+  const platform = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'model', name: 'Platform', transform: { position: [...PLATFORM_AT], scale: [6, 1.5, 6] }, model: { asset: { assetId: 'pillar' } }, components: { collider: { shape: { type: 'box', hx: 0.45, hy: 1, hz: 0.45 } } } }))['createdId']);
   // The set: one copy far off, chunks of 4 m (painted copies keep the set's chunking).
   const res = await fetch(`${be!.origin}/api/v1/projects/${be!.projectId}/content/buffers`, { method: 'POST', headers: { authorization: `Bearer ${be!.token}`, 'content-type': 'application/json', origin: be!.origin }, body: JSON.stringify({ transforms: [40, 0, 40, 0, 0, 0, 1, 0.3, 0.3, 0.3] }) });
   const published = (await res.json()) as { digest: string };
-  const set = String((await cmd('createEntity', { parentId: null, kind: 'group', name: 'Sprinkles', components: { instances: { asset: { assetId: 'pillar' }, buffer: published.digest, count: 1, chunkSize: 4 } } }))['createdId']);
+  const set = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Sprinkles', components: { instances: { asset: { assetId: 'pillar' }, buffer: published.digest, count: 1, chunkSize: 4 } } }))['createdId']);
   // The game camera looks down at the terrain from the south-east.
   const entities = (await query('queryEntities', { limit: 100, offset: 0 }))['entities'] as { id: string; components: Record<string, unknown> }[];
   const camera = entities.find((e) => e.components['virtualCamera'] !== undefined)!.id;

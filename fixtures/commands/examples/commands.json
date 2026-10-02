@@ -10,6 +10,7 @@
         "clientId": "browser-demo"
       },
       "args": {
+        "sceneId": "scene-main",
         "kind": "box"
       }
     },

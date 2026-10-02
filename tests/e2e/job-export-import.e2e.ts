@@ -204,7 +204,7 @@ test('a job export (folder, zip in the game folder, uploaded zip) imports throug
     expect(all.filter((a) => a.kind === 'texture').map((a) => a.assetId)).toEqual([...shared]);
     // The imported model is usable like any other.
     const project = await call('tl_inspect', { target: 'project' });
-    const placed = await call('tl_command', { op: 'createEntity', expectedRevision: project.body.revision, args: { kind: 'model', name: 'Crate', model: { asset: { assetId: 'crate-zip' } }, transform: { position: [0, 0, 0] } } });
+    const placed = await call('tl_command', { op: 'createEntity', expectedRevision: project.body.revision, args: { sceneId: 'scene-main', kind: 'model', name: 'Crate', model: { asset: { assetId: 'crate-zip' } }, transform: { position: [0, 0, 0] } } });
     expect(placed.isError, JSON.stringify(placed.body)).toBe(false);
 
     // ---- refusals: nothing is written ----

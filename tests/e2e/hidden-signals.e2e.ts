@@ -78,7 +78,7 @@ async function entityOf(entityId: string): Promise<Record<string, unknown> | und
 /** The wall, the timelines, the conversation and an input action with a key. */
 async function setUp(projectId: string): Promise<string> {
   be = await startBackend(projectId, 'starter');
-  const wallId = String((await cmd('createEntity', { parentId: null, kind: 'box', name: 'Secret wall', transform: { position: [4, 3, -4] }, box: { size: [60, 40, 1], material: { color: '#ff00ff' } } }))['createdId']);
+  const wallId = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'box', name: 'Secret wall', transform: { position: [4, 3, -4] }, box: { size: [60, 40, 1], material: { color: '#ff00ff' } } }))['createdId']);
   const activation = (timelineId: string, active: boolean) => ({
     timelineId,
     name: timelineId,

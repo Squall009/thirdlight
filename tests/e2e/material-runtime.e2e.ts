@@ -227,13 +227,13 @@ for (const variant of VARIANTS) test(`a script sets one object's colour and writ
   // Anything else the blank project shows (its floor) moves out of the view.
   for (const e of ents) if (e.components['box'] !== undefined) await cmd('setTransform', { entityId: e.id, transform: { position: [0, -50, 0] } });
   const make = async (name: string, x: number): Promise<string> => {
-    const id = String((await cmd('createEntity', { parentId: null, kind: 'box', name, transform: { position: [x, 0, 0] }, box: { size: [2, 2, 0.05], material: { color: '#ffffff' } } }))['createdId']);
+    const id = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'box', name, transform: { position: [x, 0, 0] }, box: { size: [2, 2, 0.05], material: { color: '#ffffff' } } }))['createdId']);
     await cmd('setComponent', { entityId: id, component: 'materials', value: { '*': 'overlay' } });
     return id;
   };
   const tinted = await make('Tinted', -1.3);
   const patterned = await make('Patterned', 1.3);
-  const painter = String((await cmd('createEntity', { parentId: null, kind: 'group', name: 'Painter', transform: { position: [0, -20, 0] } }))['createdId']);
+  const painter = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Painter', transform: { position: [0, -20, 0] } }))['createdId']);
   await script('painter', PAINTER, painter, ['tinted', 'patterned'], { tinted, patterned });
 
   // Scene view: both boxes in the material's own tint (no script runs in the editor).

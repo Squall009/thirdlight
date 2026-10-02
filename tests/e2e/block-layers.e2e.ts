@@ -118,10 +118,10 @@ async function buildMap(): Promise<{ layer: string; player: string }> {
   const cam = ((await query('queryEntities', { limit: 100, offset: 0 })) as { entities: { id: string; components: Record<string, unknown> }[] }).entities.find((e) => e.components['virtualCamera'] !== undefined)!.id;
   const pitch = (-35 * Math.PI) / 180;
   await cmd('setTransform', { entityId: cam, transform: { position: [8, 11, 26], rotation: [Math.sin(pitch / 2), 0, 0, Math.cos(pitch / 2)] } });
-  await cmd('createEntity', { parentId: null, kind: 'group', name: 'Ground', transform: { position: [0, 0, 0] } });
-  await cmd('createEntity', { parentId: null, kind: 'box', name: 'Lower floor', transform: { position: [8, -5.5, 8] }, box: { size: [40, 1, 40], material: { color: '#404650' } }, components: { collider: { shape: { type: 'box', hx: 20, hy: 0.5, hz: 20 } } } });
-  await cmd('createEntity', { parentId: null, kind: 'group', name: 'Player', transform: { position: [8.5, 6, 8.5] } });
-  await cmd('createEntity', { parentId: null, kind: 'group', name: 'Digger', transform: { position: [0, 0, 0] } });
+  await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Ground', transform: { position: [0, 0, 0] } });
+  await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'box', name: 'Lower floor', transform: { position: [8, -5.5, 8] }, box: { size: [40, 1, 40], material: { color: '#404650' } }, components: { collider: { shape: { type: 'box', hx: 20, hy: 0.5, hz: 20 } } } });
+  await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Player', transform: { position: [8.5, 6, 8.5] } });
+  await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Digger', transform: { position: [0, 0, 0] } });
   const ents = ((await query('queryEntities', { limit: 100, offset: 0 })) as { entities: { id: string; name?: string }[] }).entities;
   const id = (name: string): string => ents.find((e) => e.name === name)!.id;
   await cmd('setComponent', { entityId: id('Player'), component: 'controller', value: {} });

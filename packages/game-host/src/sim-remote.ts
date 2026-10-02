@@ -347,6 +347,11 @@ export function startRemoteSimulation(opts: RemoteSimulationOptions): Promise<Re
       mirror.saveReq = [];
       return out;
     },
+    takeProblems: () => {
+      const out = mirror.problems;
+      mirror.problems = [];
+      return out;
+    },
     queueSaveEvent: (event: SaveEvent) => {
       if (gone()) return { ok: false, error: rtError('runtime_disposed', 'runtime is disposed') };
       const checked = validateSaveEvents([event]);

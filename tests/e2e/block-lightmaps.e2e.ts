@@ -101,10 +101,10 @@ async function play(page: Page, variant: RendererVariant): Promise<Image> {
 async function openScene(page: Page, variant: RendererVariant, env: Record<string, string> = {}): Promise<{ layer: string; cube: string }> {
   be = await startBackend('block-lightmaps-e2e', undefined, env);
   await cmd('setBlockType', { block: { blockId: 'stone', name: 'Stone', variants: [{ color: '#b0b0b0' }], shape: 'full' } });
-  const layer = String((await cmd('createEntity', { parentId: null, kind: 'group', name: 'Floor', transform: { position: [-6, -1, -4] } }))['createdId']);
+  const layer = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Floor', transform: { position: [-6, -1, -4] } }))['createdId']);
   await cmd('setComponent', { entityId: layer, component: 'blockLayer', value: { cellSize: [1, 1, 1], bounds: { min: [0, 0, 0], max: [12, 4, 8] } } });
   await cmd('editBlocks', { entityId: layer, edits: [{ kind: 'fill', box: [0, 0, 0, 12, 1, 8], cell: { block: 'stone' } }] });
-  const cube = String((await cmd('createEntity', { kind: 'box', name: 'cube', box: { size: [1, 2, 1], material: { color: '#b0b0b0' } }, transform: { position: [0, 1, 0] } })).createdId);
+  const cube = String((await cmd('createEntity', { sceneId: 'scene-main', kind: 'box', name: 'cube', box: { size: [1, 2, 1], material: { color: '#b0b0b0' } }, transform: { position: [0, 1, 0] } })).createdId);
   await cmd('setTransform', { entityId: 'cam-main', transform: { position: [0, 3, 6], rotation: [-0.2588190451, 0, 0, 0.9659258263] } });
   await cmd('updateEntity', { entityId: layer, static: true });
   await cmd('updateEntity', { entityId: cube, static: true });

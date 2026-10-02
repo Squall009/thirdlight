@@ -238,7 +238,7 @@ test('the Scene view\'s edit-mode effect preview follows edits of the effect liv
   await cmd('setEffect', { effect: streamEffect(300) });
   await page.goto(be.editorUrl);
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
-  const created = await cmd('createEntity', { kind: 'group', name: 'Emitter', transform: { position: [0, 0, 0] } });
+  const created = await cmd('createEntity', { sceneId: 'scene-main', kind: 'group', name: 'Emitter', transform: { position: [0, 0, 0] } });
   const id = String(created['createdId']);
   await cmd('setComponent', { entityId: id, component: 'effect', value: { effectId: 'fx-stream', params: { size: 0.5 } } });
   const viewport = page.locator('canvas.tl-viewport');

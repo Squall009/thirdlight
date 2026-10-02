@@ -24,7 +24,7 @@ describe('script access marks', () => {
   it('writable fields are exactly the listed first set, all of them readable', () => {
     const t = scriptAccessTable();
     const writable = Object.entries(t.components).filter(([, a]) => a.write.length > 0).map(([c, a]) => `${c}:${a.write.join(',')}`);
-    expect(writable).toEqual(['object:active,visible', 'transform:position,rotation,scale', 'materialParams:*', 'light:color,intensity,range', 'mover:speed,active']);
+    expect(writable).toEqual(['object:active,visible,keepLoaded', 'transform:position,rotation,scale', 'materialParams:*', 'light:color,intensity,range', 'mover:speed,active']);
     for (const a of Object.values(t.components)) for (const w of a.write) expect(a.read).toContain(w);
   });
 
@@ -80,7 +80,7 @@ describe('script access marks', () => {
   });
 });
 
-const PINNED_V7 = '3faaa7722d7b1c30';
+const PINNED_V7 = '513542a845761bdd';
 
 /** 64-bit FNV-1a (two 32-bit lanes) of a text (project-model tests use no Node builtins). */
 function fnv(text: string): string {

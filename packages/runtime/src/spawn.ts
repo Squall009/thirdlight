@@ -37,6 +37,8 @@ export interface SpawnPlacement {
   position: [number, number, number];
   rotation: [number, number, number, number];
   scale: [number, number, number];
+  /** The copy survives scene changes (`keepLoaded` on its root). */
+  keepLoaded?: true;
 }
 
 const LIMIT = 1e6;
@@ -44,9 +46,10 @@ const finite = (v: unknown, max = LIMIT): v is number => typeof v === 'number' &
 
 /** Parse a script's spawn options against the definition (null message: ok). */
 export function parseSpawnOptions(def: PrefabDefinition, options: unknown): { ok: true; placement: SpawnPlacement } | { ok: false; message: string } {
-  if (typeof options !== 'object' || options === null || Array.isArray(options)) return { ok: false, message: 'options must be { position, rotation?, scale? }' };
+  if (typeof options !== 'object' || options === null || Array.isArray(options)) return { ok: false, message: 'options must be { position, rotation?, scale?, keepLoaded? }' };
   const o = options as Record<string, unknown>;
-  for (const k of Object.keys(o)) if (k !== 'position' && k !== 'rotation' && k !== 'scale') return { ok: false, message: `unknown option "${k}" (position, rotation, scale)` };
+  for (const k of Object.keys(o)) if (k !== 'position' && k !== 'rotation' && k !== 'scale' && k !== 'keepLoaded') return { ok: false, message: `unknown option "${k}" (position, rotation, scale, keepLoaded)` };
+  if (o['keepLoaded'] !== undefined && typeof o['keepLoaded'] !== 'boolean') return { ok: false, message: 'keepLoaded must be true or false' };
   const root = def.entities[0]!.components.transform;
   const p = o['position'];
   if (!Array.isArray(p) || (p.length !== 2 && p.length !== 3) || !p.every((v) => finite(v))) {
@@ -74,7 +77,7 @@ export function parseSpawnOptions(def: PrefabDefinition, options: unknown): { ok
     if (Math.abs(rotation[0]) > 1e-6 || Math.abs(rotation[1]) > 1e-6) return { ok: false, message: `prefab "${def.prefabId}" has a collider: rotate it about Z only` };
     if (scale[0] !== 1 || scale[1] !== 1 || scale[2] !== 1) return { ok: false, message: `prefab "${def.prefabId}" has a collider: its scale stays [1, 1, 1]` };
   }
-  return { ok: true, placement: { position, rotation, scale } };
+  return { ok: true, placement: { position, rotation, scale, ...(o['keepLoaded'] === true ? { keepLoaded: true as const } : {}) } };
 }
 
 /**
@@ -112,6 +115,8 @@ export function expandPrefab(def: PrefabDefinition, ids: readonly string[], plac
       id: ids[i]!,
       ...(de.name !== undefined ? { name: de.name } : {}),
       ...(parentId !== undefined ? { parentId } : {}),
+      // Kept: the root carries the flag (its children are kept with it).
+      ...(i === 0 && placement.keepLoaded === true ? { keepLoaded: true } : {}),
       components,
     } as unknown as EntityV3;
   });

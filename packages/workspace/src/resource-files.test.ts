@@ -220,7 +220,7 @@ describe('project resources as files', () => {
       expect((json(join(dir, 'content.json')) as { content: { assets: unknown[] } }).content.assets).toEqual([]);
 
       ok(s, 'setMaterial', { material: mat('stone', '#808080') });
-      ok(s, 'createEntity', { kind: 'model', name: 'crate', model: { asset: { assetId: 'crate' } }, components: { materials: { '*': 'stone' } } });
+      ok(s, 'createEntity', { sceneId: 'scene-main', kind: 'model', name: 'crate', model: { asset: { assetId: 'crate' } }, components: { materials: { '*': 'stone' } } });
       const users = s.query({ op: 'queryIndex', projectId: PID, args: { referencing: 'stone' } }) as unknown as { entries: { kind: string; id: string }[] };
       expect(users.entries.map((e) => `${e.kind}:${e.id}`)).toEqual(['scene:scene-main']);
       const crate = s.query({ op: 'queryIndex', projectId: PID, args: { id: 'crate' } }) as unknown as { entries: { kind: string; path: string; name: string }[] };

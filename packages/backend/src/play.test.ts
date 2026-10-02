@@ -62,7 +62,7 @@ describe('play start', () => {
           projectId: 'demo-0001',
           requestId: `req-${'ab'.repeat(16)}`,
           expectedRevision: 0,
-          args: { kind: 'box', parentId: null, name: 'box1' },
+          args: { sceneId: 'scene-main', kind: 'box', parentId: null, name: 'box1' },
           origin: { kind: 'mcp', clientId: 'harness' },
         },
         token: tb.authToken,
@@ -285,7 +285,7 @@ describe('caching across Plays', () => {
       // An edit: a new capture, derived again (never the remembered one).
       const revision = Number((b.manifest as { revision?: number }).revision ?? 0);
       const mut = await api(`${tb.authUrl}/api/v1/projects/demo-0001/commands`, {
-        body: { op: 'createEntity', projectId: 'demo-0001', requestId: `req-${'cd'.repeat(16)}`, expectedRevision: revision, args: { kind: 'box', parentId: null, name: 'box-25-24c' }, origin: { kind: 'mcp', clientId: 'harness' } },
+        body: { op: 'createEntity', projectId: 'demo-0001', requestId: `req-${'cd'.repeat(16)}`, expectedRevision: revision, args: { sceneId: 'scene-main', kind: 'box', parentId: null, name: 'box-25-24c' }, origin: { kind: 'mcp', clientId: 'harness' } },
         token: tb.authToken,
         origin: null,
       });
@@ -886,7 +886,7 @@ describe('screenshot / diagnostics relay', () => {
           projectId: 'demo-0001',
           requestId: `req-${'cd'.repeat(16)}`,
           expectedRevision: 0,
-          args: { kind: 'box', parentId: null, name: 'boxX' },
+          args: { sceneId: 'scene-main', kind: 'box', parentId: null, name: 'boxX' },
           origin: { kind: 'mcp', clientId: 'harness' },
         },
         token: tb.authToken,

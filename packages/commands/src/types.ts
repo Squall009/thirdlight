@@ -978,6 +978,21 @@ export interface MoveEntitiesChange {
   order: { previous: readonly string[]; next: readonly string[] };
 }
 
+/**
+ * `moveEntities` with a `sceneId`: entities (with their subtrees) moved from
+ * one scene into another, ids and references kept, world transforms kept.
+ * `entities` are the moved objects as they arrive (parents first);
+ * `toOrder` is the destination scene's id order after.
+ */
+export interface MoveEntitiesSceneChange {
+  type: 'moveEntitiesScene';
+  fromSceneId: string;
+  toSceneId: string;
+  parentId: string | null;
+  entities: readonly EntityV3[];
+  toOrder: readonly string[];
+}
+
 export interface DeleteEntityChange {
   type: 'deleteEntity';
   rootId: string;
@@ -1011,6 +1026,7 @@ export type ChangeData =
   | ApplySurfacePresetChange
   | UpdateEntityChange
   | MoveEntitiesChange
+  | MoveEntitiesSceneChange
   | SetTagsChange
   | SetAssetOptionsChange
   | PasteEntitiesChange
@@ -1062,6 +1078,7 @@ export type ForwardChange =
   | ApplySurfacePresetChange
   | UpdateEntityChange
   | MoveEntitiesChange
+  | MoveEntitiesSceneChange
   | SetTagsChange
   | SetAssetOptionsChange
   | PasteEntitiesChange
@@ -1193,6 +1210,13 @@ export interface UpdateEntityInverse {
   transform?: TransformComponent;
 }
 
+/** Undo of a cross-scene move: the moved objects as they were, at their place in the source scene's order. */
+export interface MoveEntitiesSceneInverse {
+  kind: 'moveEntitiesScene';
+  restore: readonly EntityV3[];
+  order: readonly string[];
+}
+
 /** Undo of a `moveEntities`: restore the order, parents and local transforms. */
 export interface MoveEntitiesInverse {
   kind: 'moveEntities';
@@ -1303,6 +1327,7 @@ export type InverseSpec =
   | SetTagsInverse
   | UpdateEntityInverse
   | MoveEntitiesInverse
+  | MoveEntitiesSceneInverse
   | DeleteInverse
   | SetTransformInverse
   | RestoreSubtreeInverse
@@ -1423,6 +1448,12 @@ export interface CommandState<S extends SceneDocument = SceneDocument> {
   preparedInstanceStroke?: import('./instance-stroke-ops').PreparedInstanceStroke;
   /** The looks of the scenes a scene-index op names besides the edited one (a deleted scene, the scene a new one copies). */
   sceneEnvironments?: ReadonlyMap<string, SceneEnvironment>;
+  /**
+   * A second scene a cross-scene move edits (the destination; for its undo,
+   * the scene the objects go back from). After the command: that scene as it
+   * now is.
+   */
+  otherScene?: { sceneId: string; scene: S };
 }
 
 /**
@@ -1517,6 +1548,8 @@ export interface MoveEntitiesArgs {
   entityIds: string[];
   parentId: string | null;
   beforeId?: string | null;
+  /** Another scene to move them into (the host gives the command that scene as `otherScene`). */
+  sceneId?: string;
 }
 
 /** undo/redo args: exactly the empty object (strictly enforced at runtime). */

@@ -59,13 +59,24 @@ export function sceneMissing(found: unknown): CommandError {
   return { code: 'reference_missing', cls: 'validation', path: '/args/sceneId', reason: 'scene', found, message: 'no such scene in this project' };
 }
 
+/** A new object needs a scene: there is no default one (the editor sends the scene it has active). */
+export function sceneRequired(): CommandError {
+  return {
+    code: 'field_missing',
+    cls: 'validation',
+    path: '/args/sceneId',
+    message: 'a new object goes into a scene: name it (sceneId) or a parent (parentId)',
+    expected: 'sceneId of a scene of the project, or the id of a parent object',
+  };
+}
+
 /** One command's entities are in more than one scene. */
 export function crossSceneEntities(path: string): CommandError {
   return {
     code: 'field_value',
     cls: 'validation',
     path,
-    message: 'the entities of one command must be in one scene (moving between scenes is not supported yet)',
+    message: 'the entities of one command must be in one scene (moveEntities with a sceneId moves them into another)',
     expected: 'entities of a single scene',
   };
 }

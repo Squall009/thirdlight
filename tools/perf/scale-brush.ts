@@ -44,7 +44,7 @@ export async function measureInstanceBrush(be: PerfBackend, projectId: string, r
   if (model === undefined) throw new Error('no model asset for the instance set');
   await p.command('setSettings', { settings: { physics_dimension: 3 } });
   await p.command('setBlockType', { block: { blockId: 'bench-turf', name: 'Bench turf', variants: [{ color: '#3f8f3a' }], shape: 'full' } });
-  const layer = String((await p.command('createEntity', { parentId: null, kind: 'group', name: 'Brush bench ground', transform: { position: [0, 0, 0] } }))['createdId']);
+  const layer = String((await p.command('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Brush bench ground', transform: { position: [0, 0, 0] } }))['createdId']);
   await p.command('setComponent', { entityId: layer, component: 'blockLayer', value: { cellSize: [1, 1, 1], bounds: { min: [0, 0, 0], max: [SIDE, 4, SIDE] } } });
   await p.command('editBlocks', { entityId: layer, edits: [{ kind: 'fill', box: [0, 0, 0, SIDE, 1, SIDE], cell: { block: 'bench-turf' } }] });
 
@@ -59,7 +59,7 @@ export async function measureInstanceBrush(be: PerfBackend, projectId: string, r
   const stageId = await be.stage(projectId, new Uint8Array(floats.buffer));
   const published = await be.post(`/api/v1/projects/${projectId}/content/buffers`, { stageId });
   if (published.status !== 200) throw new Error(`the set's buffer was refused: ${JSON.stringify(published.json).slice(0, 300)}`);
-  const set = String((await p.command('createEntity', { parentId: null, kind: 'group', name: 'Brush bench set', components: { instances: { asset: { assetId: model.assetId }, buffer: published.json['digest'], count: SET_COPIES } } }))['createdId']);
+  const set = String((await p.command('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Brush bench set', components: { instances: { asset: { assetId: model.assetId }, buffer: published.json['digest'], count: SET_COPIES } } }))['createdId']);
   const count = async (): Promise<number> => Number((((await p.query('queryEntity', { entityId: set }))['entity'] as { components: { instances: { count: number } } }).components.instances.count));
 
   // A stroke as large as one may be: a row of dabs across the free stripe.

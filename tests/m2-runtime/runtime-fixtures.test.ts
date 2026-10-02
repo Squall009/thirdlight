@@ -290,6 +290,11 @@ describe('accepted scheduler fixture (fixtures/m2/contracts/runtime/catchup.json
       if (c.outcome === 'ok' || c.caseId === 'O4-camera-claim') {
         expect(res.ok, `${c.caseId} expected ok`).toBe(true);
         if (res.ok) res.runtime.dispose();
+      } else if (c.caseId === 'O7b-controller-count-two') {
+        // Two controllers are a scene the editor takes (the count is checked when Play starts), so the
+        // scene validates; a controller module still needs exactly one, and the runtime refuses it as O7 does.
+        expect(res.ok, `${c.caseId} expected an error`).toBe(false);
+        if (!res.ok) expect({ code: res.error.code, reason: res.error.reason }, c.caseId).toEqual({ code: 'config_invalid', reason: 'controller_target' });
       } else {
         expect(res.ok, `${c.caseId} expected an error`).toBe(false);
         if (!res.ok) {

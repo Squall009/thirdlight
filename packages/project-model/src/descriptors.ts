@@ -102,7 +102,7 @@ const SCRIPT_OBJECT_READ: ReadonlySet<string> = new Set(['id', 'name', 'parentId
  * static colliders, instancing, assets that need loading — stays fixed.
  */
 const SCRIPT_WRITABLE: Readonly<Record<string, readonly string[]>> = {
-  entity: ['active', 'visible'],
+  entity: ['active', 'visible', 'keepLoaded'],
   transform: ['position', 'rotation', 'scale'],
   light: ['color', 'intensity', 'range'],
   mover: ['speed', 'active'],

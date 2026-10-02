@@ -226,9 +226,9 @@ for (const variant of VARIANTS) test(`environment presets: capture and preview i
 
   // The fixture: the camera looking along −Z, a grey panel near it, a wall behind the fog's reach.
   await cmd('setTransform', { entityId: 'cam-main', transform: { position: [0, 1, 6], rotation: [0, 0, 0, 1] } });
-  await cmd('createEntity', { parentId: null, kind: 'box', name: 'Panel', transform: { position: [-2.5, 0.3, 0] }, box: { size: [4, 2, 0.1], material: { color: '#c0c0c0' } } });
-  await cmd('createEntity', { parentId: null, kind: 'box', name: 'Far wall', transform: { position: [30, 0, -80] }, box: { size: [60, 40, 1], material: { color: '#c0c0c0' } } });
-  const director = String((await cmd('createEntity', { parentId: null, kind: 'group', name: 'Director', transform: { position: [0, -20, 0] } }))['createdId']);
+  await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'box', name: 'Panel', transform: { position: [-2.5, 0.3, 0] }, box: { size: [4, 2, 0.1], material: { color: '#c0c0c0' } } });
+  await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'box', name: 'Far wall', transform: { position: [30, 0, -80] }, box: { size: [60, 40, 1], material: { color: '#c0c0c0' } } });
+  const director = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Director', transform: { position: [0, -20, 0] } }))['createdId']);
   await cmd('setInput', {
     input: {
       actions: [

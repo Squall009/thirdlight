@@ -165,11 +165,13 @@ export interface BehaviorSpawnControl {
    * Copy the project prefab `prefabId` into the running game with its root at
    * `options.position` (`[x, y]` keeps the root's authored z, or `[x, y, z]`),
    * optional `rotation` (quaternion `[x, y, z, w]`) and `scale` (number or
-   * `[x, y, z]`). Returns the new root id (`spawn-<n>`), or `null` when an
+   * `[x, y, z]`). `keepLoaded: true`: the copy survives scene loads,
+   * unloads and reloads (as the object flag; writable later on its handle).
+   * Returns the new root id (`spawn-<n>`), or `null` when an
    * engine limit refuses it (`MAX_SPAWNS_PER_STEP` a step, `MAX_LIVE_SPAWNED` alive).
    * An unknown prefab or bad options throw.
    */
-  spawn(prefabId: string, options: { position: readonly number[]; rotation?: readonly number[]; scale?: number | readonly number[] }): string | null;
+  spawn(prefabId: string, options: { position: readonly number[]; rotation?: readonly number[]; scale?: number | readonly number[]; keepLoaded?: boolean }): string | null;
   /**
    * Remove a spawned entity and its children at the next step boundary.
    * `false` when it is already gone (or queued). An authored entity throws:

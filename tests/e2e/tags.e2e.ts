@@ -67,7 +67,7 @@ test('tags in project settings and the inspector: add, rename keeps the bit, fol
 
   // A folder tagged "foe" with a box inside (the Hierarchy and the Inspector are under the settings window).
   await closeProjectSettings(page);
-  const folderId = String((await cmd('createEntity', { kind: 'folder', name: 'Enemies' })).createdId);
+  const folderId = String((await cmd('createEntity', { sceneId: 'scene-main', kind: 'folder', name: 'Enemies' })).createdId);
   const boxId = String((await cmd('createEntity', { kind: 'box', name: 'grunt', parentId: folderId })).createdId);
   await row(page, 'Enemies').click();
   const foe = page.getByRole('checkbox', { name: 'tag foe' });
@@ -102,12 +102,12 @@ test('a script queries objects by tag in Play: folder tags count, inactive objec
   be = await startBackend('tags-e2e', 'starter');
   const REPO_BOX = { size: [0.3, 0.3, 0.3], material: { color: '#ff00ff' } };
   await cmd('setTags', { tags: [{ name: 'hazard' }, { name: 'pickup' }] });
-  const hazards = String((await cmd('createEntity', { kind: 'folder', name: 'Hazards' })).createdId);
+  const hazards = String((await cmd('createEntity', { sceneId: 'scene-main', kind: 'folder', name: 'Hazards' })).createdId);
   await cmd('updateEntity', { entityId: hazards, tags: ['hazard'] });
   const spike = String((await cmd('createEntity', { kind: 'box', name: 'spike', parentId: hazards, transform: { position: [0, -20, -6] }, box: REPO_BOX })).createdId);
-  const lava = String((await cmd('createEntity', { kind: 'box', name: 'lava', transform: { position: [1, -20, -6] }, box: REPO_BOX })).createdId);
+  const lava = String((await cmd('createEntity', { sceneId: 'scene-main', kind: 'box', name: 'lava', transform: { position: [1, -20, -6] }, box: REPO_BOX })).createdId);
   await cmd('updateEntity', { entityId: lava, tags: ['hazard', 'pickup'] });
-  const off = String((await cmd('createEntity', { kind: 'folder', name: 'Off' })).createdId);
+  const off = String((await cmd('createEntity', { sceneId: 'scene-main', kind: 'folder', name: 'Off' })).createdId);
   const buried = String((await cmd('createEntity', { kind: 'box', name: 'buried', parentId: off, transform: { position: [2, -20, -6] }, box: REPO_BOX })).createdId);
   await cmd('updateEntity', { entityId: buried, tags: ['hazard'] });
   await cmd('updateEntity', { entityId: off, active: false });

@@ -197,7 +197,7 @@ describe('content flow (real process + real fs + real stdio MCP)', () => {
       expectedRevision: revision,
       requestId: mkRequestId(),
       origin: { kind: 'mcp', clientId: 'parity-mcp' },
-      args: { kind: 'box', name: 'Parity MCP', parentId: null },
+      args: { sceneId: 'scene-main', kind: 'box', name: 'Parity MCP', parentId: null },
     });
     expect(mcpCreate.body.ok).toBe(true);
     const browserCreate = await command(
@@ -207,7 +207,7 @@ describe('content flow (real process + real fs + real stdio MCP)', () => {
         expectedRevision: Number(mcpCreate.body.revision),
         requestId: mkRequestId(),
         origin: { kind: 'browser', clientId: 'parity-browser' },
-        args: { kind: 'box', name: 'Parity Browser', parentId: null },
+        args: { sceneId: 'scene-main', kind: 'box', name: 'Parity Browser', parentId: null },
       },
       true,
     );
@@ -255,7 +255,7 @@ describe('content flow (real process + real fs + real stdio MCP)', () => {
     expect(publishBehavior.isError, JSON.stringify(publishBehavior.body)).toBe(false);
     revision = Number(publishBehavior.body.revision);
 
-    const group = await mcp.call('tl_command', { op: 'createEntity', expectedRevision: revision, args: { kind: 'group', name: 'Kit' } });
+    const group = await mcp.call('tl_command', { op: 'createEntity', expectedRevision: revision, args: { sceneId: 'scene-main', kind: 'group', name: 'Kit' } });
     expect(group.body.ok).toBe(true);
     revision = Number(group.body.revision);
     const groupId = String(group.body.createdId);
@@ -287,7 +287,7 @@ describe('content flow (real process + real fs + real stdio MCP)', () => {
     const instantiate = await mcp.call('tl_command', {
       op: 'instantiatePrefab',
       expectedRevision: revision,
-      args: { prefabId, overrides: [{ localId: boxId, key: 'speed', value: 7.25 }] },
+      args: { sceneId: 'scene-main', prefabId, overrides: [{ localId: boxId, key: 'speed', value: 7.25 }] },
     });
     expect(instantiate.isError, JSON.stringify(instantiate.body)).toBe(false);
     const change = instantiate.body.change as Record<string, unknown>;
@@ -303,7 +303,7 @@ describe('content flow (real process + real fs + real stdio MCP)', () => {
     expect(entity.components.behavior.values.speed).toBe(7.25);
     expect(entity.components.behavior.values.target).toBe(rootId);
 
-    const second = await mcp.call('tl_command', { op: 'instantiatePrefab', expectedRevision: revision, args: { prefabId } });
+    const second = await mcp.call('tl_command', { op: 'instantiatePrefab', expectedRevision: revision, args: { sceneId: 'scene-main', prefabId } });
     expect(second.body.ok).toBe(true);
     const secondChange = second.body.change as Record<string, unknown>;
     const secondMapping = secondChange.mapping as Array<{ localId: string; entityId: string }>;

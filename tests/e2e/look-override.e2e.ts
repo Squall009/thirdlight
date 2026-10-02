@@ -95,7 +95,7 @@ for (const variant of VARIANTS) test(`a script's look override glows an object r
   test.setTimeout(240_000);
   be = await startBackend('look-override-e2e', 'starter');
   // A grey block in the middle of the starter camera's view (the camera at [4, 3, 12] looks along −Z).
-  const block = String((await cmd('createEntity', { parentId: null, kind: 'box', name: 'Lamp', transform: { position: [4, 3, 0] }, box: { size: [3, 2, 1], material: { color: '#808080' } } }))['createdId']);
+  const block = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'box', name: 'Lamp', transform: { position: [4, 3, 0] }, box: { size: [3, 2, 1], material: { color: '#808080' } } }))['createdId']);
   await script('blink', BLINK, block);
 
   await page.goto(editorUrlFor(be.editorUrl, variant));

@@ -61,7 +61,7 @@ async function api(path: string, body: unknown): Promise<{ status: number; json:
 }
 
 async function create(name: string, position: number[], extra: Record<string, unknown> = {}, kind = 'group'): Promise<string> {
-  return String((await cmd('createEntity', { parentId: null, kind, name, transform: { position }, ...extra }))['createdId']);
+  return String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind, name, transform: { position }, ...extra }))['createdId']);
 }
 
 /** Publish a behavior with entityRef properties and attach it to `entityId`. */

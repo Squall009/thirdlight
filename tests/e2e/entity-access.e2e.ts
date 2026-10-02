@@ -127,9 +127,9 @@ for (const variant of RENDERER_VARIANTS) test(`ctx.entity: object properties pic
   // A red sun shining at the camera's view, a dim fill, a white wall behind everything, a director box and a lift.
   await cmd('setComponent', { entityId: 'light-0001', component: 'light', value: { type: 'directional', color: '#ff0000', intensity: 3, direction: [0, -0.2, -1], castShadow: false } });
   await cmd('setComponent', { entityId: 'light-0002', component: 'light', value: { type: 'ambient', color: '#ffffff', intensity: 0.05 } });
-  const wallId = String((await cmd('createEntity', { parentId: null, kind: 'box', name: 'Back wall', transform: { position: [4, 3, -4] }, box: { size: [60, 40, 1], material: { color: '#ffffff' } } }))['createdId']);
-  const directorId = String((await cmd('createEntity', { parentId: null, kind: 'box', name: 'Director', transform: { position: [0, -20, 0] }, box: { size: [0.2, 0.2, 0.2], material: { color: '#808080' } } }))['createdId']);
-  const liftId = String((await cmd('createEntity', { parentId: null, kind: 'box', name: 'Lift', transform: { position: [0, -30, 0] }, box: { size: [1, 0.2, 1], material: { color: '#808080' } } }))['createdId']);
+  const wallId = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'box', name: 'Back wall', transform: { position: [4, 3, -4] }, box: { size: [60, 40, 1], material: { color: '#ffffff' } } }))['createdId']);
+  const directorId = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'box', name: 'Director', transform: { position: [0, -20, 0] }, box: { size: [0.2, 0.2, 0.2], material: { color: '#808080' } } }))['createdId']);
+  const liftId = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'box', name: 'Lift', transform: { position: [0, -30, 0] }, box: { size: [1, 0.2, 1], material: { color: '#808080' } } }))['createdId']);
   await cmd('setComponent', { entityId: liftId, component: 'mover', value: { waypoints: [[2, 0, 0]], speed: 2, mode: 'pingpong' } });
   await publishDirector();
   await cmd('setBehaviorProperties', { entityId: directorId, behaviorId: 'director', values: {} });

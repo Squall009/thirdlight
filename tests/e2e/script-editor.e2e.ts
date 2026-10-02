@@ -80,7 +80,7 @@ const FIXED = BROKEN.replace('amountOf(ctx.properties.amount);', 'amountOf(ctx.p
 
 test('script tab: edit, see a compile error inline, fix it, publish, Play runs it', async ({ page }) => {
   test.setTimeout(240_000);
-  const made = await cmd('createEntity', { kind: 'box', name: 'Counter box', transform: { position: [6, 1, 0] }, box: { size: [0.5, 0.5, 0.5], material: { color: '#808080' } } });
+  const made = await cmd('createEntity', { sceneId: 'scene-main', kind: 'box', name: 'Counter box', transform: { position: [6, 1, 0] }, box: { size: [0.5, 0.5, 0.5], material: { color: '#808080' } } });
   const boxId = String(made.createdId);
   await cmd('publishBehavior', { behaviorId: 'counter', displayName: 'Counter', mode: 'declaration-create', declaration: { properties: [{ key: 'amount', label: 'Amount', type: 'number', default: 3 }] } });
   await cmd('setBehaviorProperties', { entityId: boxId, behaviorId: 'counter', values: {} });
@@ -188,7 +188,7 @@ test('script tab: edit, see a compile error inline, fix it, publish, Play runs i
 
 test('an import-scan hit in a comment is marked on its line and says it is in a comment', async ({ page }) => {
   test.setTimeout(120_000);
-  const made = await cmd('createEntity', { kind: 'box', name: 'Scan box', transform: { position: [6, 1, 0] }, box: { size: [0.5, 0.5, 0.5], material: { color: '#808080' } } });
+  const made = await cmd('createEntity', { sceneId: 'scene-main', kind: 'box', name: 'Scan box', transform: { position: [6, 1, 0] }, box: { size: [0.5, 0.5, 0.5], material: { color: '#808080' } } });
   await cmd('publishBehavior', { behaviorId: 'scanned', displayName: 'Scanned', mode: 'declaration-create', declaration: { properties: [] } });
   await cmd('setBehaviorProperties', { entityId: String(made.createdId), behaviorId: 'scanned', values: {} });
   await page.goto(be.editorUrl);

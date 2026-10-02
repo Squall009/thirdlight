@@ -250,6 +250,7 @@ describe('role-aware animated reimport reaches stages 5–7', () => {
       mcp,
       'createEntity',
       {
+        sceneId: 'scene-main',
         kind: 'model',
         name: 'Courier',
         model: { asset: { assetId: 'asset-courier-0001' } },

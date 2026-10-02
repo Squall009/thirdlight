@@ -226,6 +226,8 @@ export interface FrameState {
   readonly saveReq?: readonly import('@thirdlight/runtime').SaveRequest[];
   /** The asset loads and releases scripts asked for (the page holds the assets). */
   readonly assetReq?: readonly import('@thirdlight/runtime').AssetHandleRequest[];
+  /** Problems the simulation raised for the author (one per kind). */
+  readonly problems?: readonly { readonly code: string; readonly message: string }[];
 }
 
 export type WorkerToMain =

@@ -99,7 +99,7 @@ describe('MCP end-to-end (real client + real backend)', () => {
       arguments: {
         op: 'createEntity',
         expectedRevision: 0,
-        args: { kind: 'box', name: 'Demo Box', box: { size: [1, 1, 1], material: { color: '#ff0000' } } },
+        args: { sceneId: 'scene-main', kind: 'box', name: 'Demo Box', box: { size: [1, 1, 1], material: { color: '#ff0000' } } },
       },
     });
     const body = text(res);

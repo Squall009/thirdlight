@@ -51,6 +51,7 @@
         "clientId": "pi-harness"
       },
       "args": {
+        "sceneId": "scene-main",
         "kind": "box"
       }
     },

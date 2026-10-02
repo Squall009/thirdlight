@@ -223,11 +223,12 @@ describe('runtime scene set', () => {
     expect(seen.rocks).toEqual([]);
   });
 
-  it('refuses bad requests and keeps the start scene holding the camera and player', () => {
+  it('refuses bad requests and keeps the start scene holding a player that is not kept loaded', () => {
     const h = harness();
     const pinned = h.rt.requestScene!('unload', 'scene-main');
     expect(pinned.ok).toBe(false);
     expect(!pinned.ok && pinned.error.code).toBe('scene_invalid');
+    expect(!pinned.ok && pinned.error.message).toContain('holds the player "player-0001", which is not kept loaded');
     const unknown = h.rt.requestScene!('load', 'scene-nope');
     expect(!unknown.ok && unknown.error.message).toContain('unknown scene');
     // A failed fetch leaves the scene unloaded and says why in diagnostics.
@@ -244,7 +245,7 @@ describe('runtime scene set', () => {
     expect(rock?.position).toEqual([42, 11, 0]);
   });
 
-  it('a later-loaded scene may hold every light kind, and its lights leave with it; a camera stays refused', () => {
+  it('a later-loaded scene may hold every light kind, and its lights leave with it; a player controller stays refused', () => {
     const h = harness();
     const lights = [
       { id: 'light-sun', components: { transform: at(0, 0), light: { type: 'directional', color: '#ff0000', intensity: 1, direction: [0, -1, 0] } } },
@@ -264,12 +265,20 @@ describe('runtime scene set', () => {
     h.tick();
     expect(h.rt.sceneSet!().status['scene-cave']).toBe('unloaded');
     expect(h.ids()).not.toContain('light-sun');
-    // A camera still belongs in a start scene.
+    // The engine owns the view: an old scene camera no longer ties a scene to the start set.
     expect(h.rt.requestScene!('load', 'scene-cave').ok).toBe(true);
     h.serveWith([{ id: 'cam-two', components: { transform: at(0, 0), camera: { type: 'perspective', fovY: 45, near: 0.1, far: 100 } } }]);
     h.tick();
+    expect(h.rt.sceneSet!().status['scene-cave']).toBe('loaded');
+    expect(h.rt.requestScene!('unload', 'scene-cave').ok).toBe(true);
+    h.tick();
     expect(h.rt.sceneSet!().status['scene-cave']).toBe('unloaded');
-    expect(h.diag().errors.some((e) => e.code === 'scene_load_failed' && e.message.includes('belongs in a start scene (camera, player)'))).toBe(true);
+    // The player's body is made when the game starts: a later scene cannot bring a second one.
+    expect(h.rt.requestScene!('load', 'scene-cave').ok).toBe(true);
+    h.serveWith([{ id: 'player-two', components: { transform: at(0, 0), controller: {} } }]);
+    h.tick();
+    expect(h.rt.sceneSet!().status['scene-cave']).toBe('unloaded');
+    expect(h.diag().errors.some((e) => e.code === 'scene_load_failed' && e.message.includes('"player-two" is a player controller'))).toBe(true);
   });
 
   it('a paused game still applies scene loads and unloads (no step runs)', () => {

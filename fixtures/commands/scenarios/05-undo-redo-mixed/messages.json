@@ -10,6 +10,7 @@
         "clientId": "browser-demo"
       },
       "args": {
+        "sceneId": "scene-main",
         "kind": "box",
         "name": "Ground"
       }
@@ -156,6 +157,7 @@
         "clientId": "browser-demo"
       },
       "args": {
+        "sceneId": "scene-main",
         "kind": "box",
         "name": "Crate"
       }

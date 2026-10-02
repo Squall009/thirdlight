@@ -53,11 +53,11 @@ async function relay(path: string, body: unknown): Promise<{ status: number; jso
 }
 
 async function block(name: string, center: number[], half: number[]): Promise<void> {
-  await cmd('createEntity', { parentId: null, kind: 'box', name, transform: { position: center }, box: { size: half.map((h) => h * 2), material: { color: '#8a8f98' } }, components: { collider: { shape: { type: 'box', hx: half[0], hy: half[1], hz: half[2] } } } });
+  await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'box', name, transform: { position: center }, box: { size: half.map((h) => h * 2), material: { color: '#8a8f98' } }, components: { collider: { shape: { type: 'box', hx: half[0], hy: half[1], hz: half[2] } } } });
 }
 
 async function player(): Promise<string> {
-  await cmd('createEntity', { parentId: null, kind: 'group', name: 'Player', transform: { position: [0, STAND + 0.01, 0] } });
+  await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Player', transform: { position: [0, STAND + 0.01, 0] } });
   const q = (await be!.command({ op: 'queryEntities', projectId: be!.projectId, args: { limit: 100, offset: 0 } })) as { entities: { id: string; name?: string }[] };
   const id = q.entities.find((e) => e.name === 'Player')!.id;
   await cmd('setComponent', { entityId: id, component: 'controller', value: {} });

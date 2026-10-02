@@ -179,7 +179,7 @@ test('a circle trigger in the Inspector and the Scene view; a timed door script 
   await expect.poll(triggerValue).toEqual({ signal: 'here', shape: 'circle', radius: 0.5, mode: 'stay' });
 
   // The door: a magenta slab right of the player, with the timed script naming the trigger.
-  const made = await cmd('createEntity', { kind: 'box', name: 'Timed door', transform: { position: [5, 1.3, 0] }, box: { size: [0.5, 2.6, 1], material: { color: '#ff00ff' } } });
+  const made = await cmd('createEntity', { sceneId: 'scene-main', kind: 'box', name: 'Timed door', transform: { position: [5, 1.3, 0] }, box: { size: [0.5, 2.6, 1], material: { color: '#ff00ff' } } });
   const doorId = String(made.createdId);
   await script('behavior-timed-door', DOOR, doorId, { sensor: trigger.id });
 

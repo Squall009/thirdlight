@@ -189,12 +189,12 @@ test('3D: a `_COL` node becomes a mesh then a convex collider; a 3D trigger star
 
   // The pad waits for "landed", then slides 3 m along +x; the trigger sits just above its top; the player 2.5 m over it.
   await cmd('setComponent', { entityId: pad.id, component: 'mover', value: { waypoints: [[3, 0, 0]], speed: 1, mode: 'once', startOn: 'landed' } });
-  await cmd('createEntity', { parentId: null, kind: 'group', name: 'Landing', transform: { position: [1, 0.53, 0] }, components: { trigger: { size: [1, 0.06, 1], signal: 'landed', once: true } } });
-  const player = String((await cmd('createEntity', { parentId: null, kind: 'group', name: 'Player', transform: { position: [1, 3, 0] } }))['createdId']);
+  await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Landing', transform: { position: [1, 0.53, 0] }, components: { trigger: { size: [1, 0.06, 1], signal: 'landed', once: true } } });
+  const player = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Player', transform: { position: [1, 3, 0] } }))['createdId']);
   await cmd('setComponent', { entityId: player, component: 'controller', value: {} });
 
   // A new 3D shape's Scene handle: "Collider: Sphere" from the add menu, then drag its radius.
-  const ball = String((await cmd('createEntity', { parentId: null, kind: 'group', name: 'Ball', transform: { position: [-4, 3, 0] } }))['createdId']);
+  const ball = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Ball', transform: { position: [-4, 3, 0] } }))['createdId']);
   await page.reload();
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
   await selectAndFocus(page, ball);

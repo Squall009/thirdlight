@@ -42,7 +42,7 @@ describe('v4 limits through the service', () => {
     const dir = join(root, 'projects', PROJECT_ID);
     const svc = open(root);
     expect(svc.createProject(PROJECT_ID, 'Limits').ok).toBe(true);
-    const box = send(svc, 'createEntity', { kind: 'box', name: 'crate' }) as MutationResult & { ok: true; createdId?: string };
+    const box = send(svc, 'createEntity', { sceneId: 'scene-main', kind: 'box', name: 'crate' }) as MutationResult & { ok: true; createdId?: string };
     expect(box.ok, JSON.stringify(box)).toBe(true);
     const prefab = send(svc, 'createPrefab', { prefabId: 'prefab-0001', displayName: 'Crate', sourceEntityId: box.createdId });
     expect(prefab.ok, JSON.stringify(prefab)).toBe(true);
@@ -60,7 +60,7 @@ describe('v4 limits through the service', () => {
     const q = svc2.query({ op: 'queryProject', projectId: PROJECT_ID }) as unknown as { ok: boolean; scene: { entityCount: number } };
     expect(q.ok, JSON.stringify(q)).toBe(true);
     expect(q.scene.entityCount).toBe(1100);
-    const inst = send(svc2, 'instantiatePrefab', { prefabId: 'prefab-0001' });
+    const inst = send(svc2, 'instantiatePrefab', { sceneId: 'scene-main', prefabId: 'prefab-0001' });
     expect(inst.ok, JSON.stringify(inst)).toBe(true);
     const after = svc2.query({ op: 'queryProject', projectId: PROJECT_ID }) as unknown as { scene: { entityCount: number } };
     expect(after.scene.entityCount).toBe(1101);

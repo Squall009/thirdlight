@@ -484,8 +484,10 @@ trigger's radius, a spot light's cone): switching fills the new variant's
 fields from its preset or default and drops the old ones, in the same edit.
 
 Every edit is one command and one undo step (Edit → Undo, Ctrl+Z); a
-refused edit says why under the section (e.g. "the start scenes together
-hold exactly one active camera") and changes nothing.
+refused edit says why under the section (e.g. "a block layer is its own
+level geometry") and changes nothing. Rules about what a game needs to
+start (a camera live, one player) are not checked per edit: Play and the
+export check them (see **The view, cameras and kept objects**).
 
 **+ Add component** (and the Component menu, the same list) offers every
 component by category, with its presets (Light: directional, ambient, point,
@@ -494,10 +496,10 @@ that needs a choice first — a model's asset, a script, an animator's
 controller, an audio source's sound, a material mapping — opens a small form
 with just that choice and **Add**. Components that cannot be added are
 listed greyed with the reason: already on the object, excluded by another
-one ("an object shows one model, box or camera"), needing another one (a
+one ("an object shows one model or box"), needing another one (a
 surface needs a box or a model), or made by
 a tool (instance sets, prefab copies, folders). Each section has **remove**;
-box, camera and model are added and removed like any other component
+box and model are added and removed like any other component
 (`setComponent` with a complete value / `null`).
 
 Some sections have extra tools next to the generic fields: the player
@@ -505,8 +507,10 @@ controller's capsule (**Fit to model**, **Default**), a surface (presets), an ob
 editor, which knows the model's own material names) and a script (its
 declared properties). Gameplay → Settings is built the same way (every project setting, the engine
 settings included; the step rate is a choice of 60, 120 or 240 Hz; each
-change is saved at once); Project Settings → Gameplay's Camera page points to the camera object, whose
-lens and follow settings are Inspector sections. An audio asset chosen in
+change is saved at once); Project Settings → Gameplay's Camera page lists the
+cameras (each one's rig and lens are Inspector sections) and the project's
+camera settings (field of view, near and far: the lens of every camera that
+sets none). An audio asset chosen in
 the project window shows in the Inspector: its load type, preload and a play
 button (after "enable preview sound").
 
@@ -538,10 +542,15 @@ button (after "enable preview sound").
   - The inspector shows the entity's own value, and next to it any value it
     inherits and from where.
   - Inactive: hidden in the Scene view and left out of Play and the export.
-    The scene camera must stay active.
   - Locked: editor only. The object cannot be picked or moved in the Scene
     view, but can still be selected in the hierarchy.
   - Static: stored and inherited; nothing uses it yet.
+  - **Keep loaded** (`updateEntity {keepLoaded: true}`, the Inspector's
+    flag): the object, its children and its scripts survive scene loads,
+    unloads, reloads and a save's scene changes. A folder or a kept object
+    passes it down; on an object under an object that is not kept it has
+    no effect (the Inspector says so, Play warns). The hierarchy marks every
+    kept object with **K** (its title says whether the flag is its own).
   - **Visible** off (`updateEntity {visible: false}`, also on
     `createEntity`): the object starts the game hidden. It is loaded,
     collides, triggers and ticks, but is not drawn (with its children) until
@@ -598,14 +607,64 @@ inactive entities are removed, and each entity gets its effective `static`.
   - `tl_inspect target="project"` lists the registry.
   - `tl_inspect target="entity"` shows `tagNames: {own, effective}`.
 
+## The view, cameras and kept objects
+
+The engine owns the view. A camera is a shot: a `virtualCamera` (GameObject
+→ Cameras → Camera for a plain one; follow, orbit, top-down, rail and track
+rigs as before) in any scene, any number of them. The view shows the enabled
+camera with the highest priority (on a tie the one activated last); its
+lens is the camera's own `fovY`/`near`/`far`, else the project's camera
+settings (Gameplay → Camera: `camera_fov_deg` 60, `camera_near_m` 0.1,
+`camera_far_m` 100). With no camera live the view holds a default pose
+(1.6 m up, 6 m back along +Z, looking down −Z): Play and the export start
+anyway and write one Problems line ("no camera is live when the game
+starts"); the game's log warns whenever the view falls back to it.
+Every view read is keyed by a view (`readCameraView(…, view)`): there is one
+view today, so a second one (a split screen) is a new key.
+
+Checked when the game starts (Play and the export), not per edit — each a
+Problems line: no camera live (warning), more than one player controller in
+the start scenes (refused: one player controller per view), a player in a
+scene the game does not start with (warning: loading it is refused while
+the game runs), one id kept loaded in two scenes (refused), Keep loaded under
+an object that is not kept (warning).
+
+**Upgrade (schemaVersion 7, on open).** A project's scene `camera` entity
+becomes a fixed virtual camera at the lowest priority, where it was placed
+(the view whenever no other camera is live, as before); its lens becomes the
+project's camera settings where it was not the default. The camera and the
+player (each start scene's controller) were never unloaded before, so the
+object at the top of each one's hierarchy gets **Keep loaded**. A game with a
+camera entity in a start scene, or a title scene holding the camera and the
+player, plays as it did; clear Keep loaded to let them go with their scene.
+A 3D character now moves relative to the live camera's heading, the upgraded
+camera included (before, a project without virtual cameras moved along world
+axes; a scene camera turned about Y now turns the move input with it).
+
+Scripts: `ctx.spawn(prefab, {position, keepLoaded: true})` spawns a kept
+copy; `ctx.entity(id).set('object', {keepLoaded})` keeps an object (and its
+children) or lets it go (refused for an object under a kept parent, and for
+a kept object whose scene is not loaded); `get('object').keepLoaded` reads
+it. A save's world block never destroys a kept object; the engine saves
+nothing for them — a game fills them in from its own save data.
+
 ## Scenes
 
 A project has one or more scenes (up to 64), one file each. Entity ids are
 unique across the whole project. One command edits one scene.
 
 - **Start scenes.** The game starts with the scenes in the start set,
-  merged. The camera, the player and the start spawn live only in start
-  scenes.
+  merged. The player (the controller) is made when the game starts, so it
+  is in a start scene; cameras and spawns may be in any scene.
+- **New objects** go into the scene the editor has active (or their
+  parent's). Over the API `createEntity`, `createEntities`,
+  `instantiatePrefab` and `pasteEntities` need a `sceneId` or a `parentId`:
+  there is no default scene.
+- **Moving between scenes**: drag objects onto another scene's header or
+  rows in the hierarchy, or `moveEntities {entityIds, parentId, beforeId?,
+  sceneId}`: they move with their children into that scene, ids (and so
+  every reference to them) and world positions kept, one undo for both
+  scene files.
 - **Lights belong to scenes** (phase 25.8). Any scene may hold any light:
   at most one directional, one ambient and one hemisphere light and 16
   point/spot lights per scene. With scenes loaded together (start scenes in
@@ -646,8 +705,14 @@ unique across the whole project. One command edits one scene.
     An unload releases them: colliders leave the physics world, scripts get
     `dispose`, meshes and textures are freed, and a model no loaded object
     uses any more is released.
-  - A scene holding the camera, the player or the start spawn cannot be
-    unloaded (its lights go with it).
+  - Kept objects (Keep loaded) stay when their scene unloads: they belong to
+    no scene from then on (as spawned copies), and loading their scene
+    again does not bring a second copy. A kept object's reference to an
+    object of a scene that went reads as empty (one Problems line per Play).
+    The player is the one object that cannot go: a scene holding a player
+    that is not kept does not unload. When a scene of the shell's scene
+    list loads, however it was loaded, a kept player arrives at that
+    entry's spawn (a transition or the list naming its own spawn wins).
   - A replay returns to the start scenes.
 - **Scene transitions**: a trigger's scene transition loads and unloads
   scenes when the character enters it and can name a spawn it arrives at
@@ -2943,15 +3008,16 @@ surfaces (a light a bake holds is not realtime at all). Give such presets a
 ## Icons and gizmos
 
 The Scene view and the hierarchy show what an object is: its light type
-(directional, ambient, point, spot, hemisphere), a camera, or the icon its
+(directional, ambient, point, spot, hemisphere), or the icon its
 components' descriptors name (phase 24.5: a spawn, an audio source, a fog
 volume, a patrol, a mover, a switch, a collectible, a trigger, a hitbox or
 health; the most specific wins). The **Gizmos** menu turns the helpers on and off: icons,
 light ranges (point spheres, spot cones), **collider outlines** (every box
 and polygon collider on the game plane — a kit piece's `_COL` shape too;
 one-way platforms in a softer green), and gameplay paths and areas (a patrol's waypoints, hitboxes, collect areas). A
-selected camera shows its real frustum (its field of view, near and far, at
-the game view's aspect — the Game preview while it plays, else the window).
+selected camera shows its frustum where its rig puts it (its field of view,
+near and far — its own lens or the project's — at the game view's aspect:
+the Game preview while it plays, else the window).
 Handles for sizes, ranges, directions and paths: see **Scene handles**.
 
 Inspector → "+ Add component" → **Face movement** on a model under the player or a
@@ -3122,9 +3188,11 @@ its reason (the same line is next to its constant in the code):
 Every default is sized for any project, not for a sample: sizes are set
 against the default 1.8 m character and its 1.25 m jump, and each default has
 its reason next to it in the code (`project-model/src/descriptors.ts` and the
-constants it names). The GameObject menu's camera and lights are the same
-values as "+ Add component" and a new project's starter camera and lights
-(a white key light at 1.2 with shadows and a cool fill at 0.6, a 60° camera).
+constants it names). The GameObject menu's camera (Cameras → Camera, a
+fixed shot) and lights are the same values as "+ Add component" and a new
+project's starter camera and lights (a white key light at 1.2 with shadows
+and a cool fill at 0.6; the starter camera is that shot at the lowest
+priority, kept loaded, with the project's 60° lens).
 A gradient sky is grey below the horizon; an instance scatter starts as a
 20 × 20 m square. Games keep their own values in their own data. HUD prompts
 (`$flow.prompts`) name the game's actual bindings (the player's rebinding

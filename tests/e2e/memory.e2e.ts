@@ -333,7 +333,7 @@ test('Scene view: an editor scene closed and opened 50×, instancing groups re-f
   await cmd('createEntity', { sceneId: 'scene-side', kind: 'group', name: 'Side lamp', transform: { position: [0, 3, -3] }, components: { light: { type: 'point', color: '#ffffff', intensity: 2, range: 8 } } });
   // Four equal boxes in the main scene: one instancing group (≥ 4 members).
   const boxes: string[] = [];
-  for (let i = 0; i < 4; i++) boxes.push(String((await cmd('createEntity', { kind: 'box', name: `Row box ${i}`, transform: { position: [i * 1.5 - 2, 0.5, 2] }, box: { size: [1, 1, 1], material: { color: '#8080ff' } } }))['createdId']));
+  for (let i = 0; i < 4; i++) boxes.push(String((await cmd('createEntity', { sceneId: 'scene-main', kind: 'box', name: `Row box ${i}`, transform: { position: [i * 1.5 - 2, 0.5, 2] }, box: { size: [1, 1, 1], material: { color: '#8080ff' } } }))['createdId']));
   const probe = await openEditor(page);
   const view = page.locator('canvas.tl-viewport');
   const frames = async (): Promise<number> => Number((await view.getAttribute('data-frames')) ?? 0);
@@ -484,7 +484,7 @@ for (const threads of ['off', 'worker'] as const) {
     const emitter = String((await cmd('createEntity', { sceneId: 'scene-side', kind: 'group', name: 'Side emitter', transform: { position: [1, 1.5, -2] } }))['createdId']);
     await cmd('setComponent', { entityId: emitter, component: 'effect', value: { effectId: 'fx-stream' } });
     // The spawned copy: a small box prefab made from a scene box (then removed from the scene).
-    const bolt = String((await cmd('createEntity', { kind: 'box', name: 'Bolt', transform: { position: [0, 30, 0] }, box: { size: [0.3, 0.3, 0.3], material: { color: '#ff00ff' } } }))['createdId']);
+    const bolt = String((await cmd('createEntity', { sceneId: 'scene-main', kind: 'box', name: 'Bolt', transform: { position: [0, 30, 0] }, box: { size: [0.3, 0.3, 0.3], material: { color: '#ff00ff' } } }))['createdId']);
     await cmd('createPrefab', { prefabId: 'projectile', displayName: 'Projectile', sourceEntityId: bolt });
     await cmd('deleteEntity', { entityId: bolt });
     // The spawner sits in its own scene, loaded for the spawn phase only (near the player's start, in view).
@@ -495,7 +495,7 @@ for (const threads of ['off', 'worker'] as const) {
     const probe = await openEditor(page, `${editorUrl().replace('#', `&threads=${threads}#`)}`);
     // The second spawned copy: the skinned test model (its own geometry, skeleton and animation mixer).
     const assetId = await importModel(page);
-    const statue = String((await cmd('createEntity', { kind: 'model', name: 'Statue', model: { asset: { assetId } }, transform: { position: [0, 30, 0], scale: [0.4, 0.4, 0.4] } }))['createdId']);
+    const statue = String((await cmd('createEntity', { sceneId: 'scene-main', kind: 'model', name: 'Statue', model: { asset: { assetId } }, transform: { position: [0, 30, 0], scale: [0.4, 0.4, 0.4] } }))['createdId']);
     await cmd('createPrefab', { prefabId: 'statue', displayName: 'Statue', sourceEntityId: statue });
     await cmd('deleteEntity', { entityId: statue });
     await cmd('createEntity', { sceneId: 'scene-side', kind: 'model', name: 'Side statue', model: { asset: { assetId } }, transform: { position: [5, 0, -2.5], scale: [0.5, 0.5, 0.5] } });

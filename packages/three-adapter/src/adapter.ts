@@ -1045,9 +1045,17 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     if (set === undefined || set.revision === realizedRevision) return;
     realizedRevision = set.revision;
     const live = new Set(set.batches.map((b) => b.sceneId));
+    // Objects that stay when their scene goes (kept loaded) move to the scene-less list as they are drawn.
+    const staying = new Map<string, unknown>();
+    for (const e of (set as { spawned?: readonly unknown[] }).spawned ?? []) staying.set((e as { id: string }).id, e);
     let removed = false;
-    for (const [sceneId, ids] of [...realizedScenes]) {
+    for (const [sceneId, all] of [...realizedScenes]) {
       if (live.has(sceneId)) continue;
+      const ids = new Set([...all].filter((id) => {
+        if (!staying.has(id) || realizedSpawned.has(id)) return true;
+        realizedSpawned.set(id, staying.get(id));
+        return false;
+      }));
       for (const id of ids) lightmaps?.release(id);
       realization?.removeEntities(ids);
       for (const id of ids) shownLooks.delete(id);

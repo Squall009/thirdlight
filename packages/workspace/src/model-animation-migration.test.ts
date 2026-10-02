@@ -98,7 +98,7 @@ describe('the old modelAnimation profile moves to an animator on open', () => {
       importedAt: '2026-09-24T10:00:00Z',
     });
     expect(pub.ok, JSON.stringify(pub)).toBe(true);
-    const created = command(service, 'createEntity', { kind: 'model', name: 'hero', model: { asset: { assetId: 'hero' } } });
+    const created = command(service, 'createEntity', { sceneId: 'scene-main', kind: 'model', name: 'hero', model: { asset: { assetId: 'hero' } } });
     expect(created.ok, JSON.stringify(created)).toBe(true);
     const id = created.createdId!;
     const roles = { idle: { clipIndex: 0, clipName: 'Idle' }, run: { clipIndex: 1, clipName: 'Run' }, airborne: { clipIndex: 2, clipName: 'Jump' } };

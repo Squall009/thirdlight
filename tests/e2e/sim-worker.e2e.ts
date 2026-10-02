@@ -56,7 +56,7 @@ async function setup(isolation: boolean): Promise<void> {
   const q = (await be.command({ op: 'queryEntities', projectId: be.projectId, args: { limit: 200, offset: 0 } })) as { entities?: { id: string; sceneId?: string; components: { transform?: { position: number[] } } }[] };
   const player = q.entities!.find((e) => e.id === 'model-0001')!;
   const [px, py] = player.components.transform!.position as [number, number];
-  await cmd('createEntity', { ...(player.sceneId !== undefined ? { sceneId: player.sceneId } : {}), kind: 'group', name: 'Chime item', transform: { position: [px + 1.5, py, 0] }, components: { collectible: { counter: 'items', size: [0.8, 2, 0.8] } } });
+  await cmd('createEntity', { sceneId: 'scene-main', ...(player.sceneId !== undefined ? { sceneId: player.sceneId } : {}), kind: 'group', name: 'Chime item', transform: { position: [px + 1.5, py, 0] }, components: { collectible: { counter: 'items', size: [0.8, 2, 0.8] } } });
   await cmd('setEventCues', { cues: [{ on: 'event', name: 'collected', assetId: chime }] });
   await addTitleShell(be);
 }

@@ -106,7 +106,7 @@ test('a controller built in the Animator tab poses a skinned model in Play by it
 
   // Import the skinned model and place it.
   const assetId = await importColumn(page);
-  const column = String((await cmd('createEntity', { kind: 'model', name: 'column', model: { asset: { assetId } }, transform: { position: [0, 0, 0] } })).createdId);
+  const column = String((await cmd('createEntity', { sceneId: 'scene-main', kind: 'model', name: 'column', model: { asset: { assetId } }, transform: { position: [0, 0, 0] } })).createdId);
 
   // A new controller from the project window's Create menu (the chosen model's clips) opens in the editor window with its graph.
   await chooseItem(page, 'model', assetId);

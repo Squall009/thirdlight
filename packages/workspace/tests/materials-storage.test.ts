@@ -48,8 +48,8 @@ describe('materials and environment (storage v4)', () => {
     expect(send(svc, 'setMaterial', { material: { ...FOLIAGE, textures: { map: 'no-such-texture' } } }).ok).toBe(false);
 
     // An object uses it; while it does, the material cannot be deleted.
-    const box = ok(svc, 'createEntity', { kind: 'box', name: 'bush', components: { materials: { '*': 'mat-foliage' } } });
-    expect(send(svc, 'createEntity', { kind: 'box', components: { materials: { '*': 'mat-nope' } } }).ok).toBe(false);
+    const box = ok(svc, 'createEntity', { sceneId: 'scene-main', kind: 'box', name: 'bush', components: { materials: { '*': 'mat-foliage' } } });
+    expect(send(svc, 'createEntity', { sceneId: 'scene-main', kind: 'box', components: { materials: { '*': 'mat-nope' } } }).ok).toBe(false);
     expect(send(svc, 'deleteMaterial', { materialId: 'mat-foliage' }).ok).toBe(false);
     // setComponent replaces the whole mapping (its keys are material names).
     ok(svc, 'setComponent', { entityId: box.createdId, component: 'materials', value: { bark: 'mat-foliage' } });

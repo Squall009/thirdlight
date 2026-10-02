@@ -8,6 +8,9 @@
  * - `active: false` on any ancestor makes the whole subtree inactive.
  * - A folder passes `locked` and `static` down to its whole subtree (through
  *   objects too); an object's own `locked`/`static` apply to itself only.
+ * - `keepLoaded` on a folder or an object keeps its whole subtree; on an
+ *   object under an object that is not kept it has no effect (the object
+ *   would go with its parent: `keepIgnored`).
  *
  * `resolveSceneHierarchy` is what the game loads: folders and inactive
  * entities removed, children re-hung under their nearest non-folder ancestor
@@ -29,15 +32,19 @@ export interface EffectiveEntityFlags {
   active: boolean;
   locked: boolean;
   static: boolean;
+  /** Survives scene changes (its own flag on a root or folder-filed object, or a kept folder or object above). */
+  keepLoaded: boolean;
+  /** Its own `keepLoaded` has no effect: its parent object is not kept. */
+  keepIgnored?: true;
   /** The effective tag mask — own mask OR every folder above's mask. */
   tags: number;
   /** The tag bits that come from folders above (not set on the entity itself). */
   inheritedTags: number;
   /** The id of the nearest ancestor that switched the flag on/off for this entity (absent: its own value). */
-  inheritedFrom: { active?: string; locked?: string; static?: string };
+  inheritedFrom: { active?: string; locked?: string; static?: string; keepLoaded?: string };
 }
 
-type FlagEntity = Pick<SceneEntityV3, 'id' | 'parentId' | 'active' | 'locked' | 'static' | 'tags' | 'components'>;
+type FlagEntity = Pick<SceneEntityV3, 'id' | 'parentId' | 'active' | 'locked' | 'static' | 'keepLoaded' | 'tags' | 'components'>;
 
 /**
  * Effective flags for every entity, keyed by id. Entities must be in
@@ -49,7 +56,8 @@ export function effectiveEntityFlags(entities: readonly FlagEntity[]): Map<strin
   // What each entity hands to its children: inactive (any entity), and the
   // locked/static a folder set somewhere above (or on itself), with the id of
   // the entity that set it.
-  const down = new Map<string, { inactive?: string; locked?: string; static?: string; tags?: number }>();
+  const down = new Map<string, { inactive?: string; locked?: string; static?: string; kept?: string; tags?: number }>();
+  const folders = new Set<string>();
   for (const e of entities) {
     const inherited = (e.parentId !== undefined ? down.get(e.parentId) : undefined) ?? {};
     const own = (e.tags ?? 0) >>> 0;
@@ -58,6 +66,7 @@ export function effectiveEntityFlags(entities: readonly FlagEntity[]): Map<strin
       active: e.active !== false,
       locked: e.locked === true,
       static: e.static === true,
+      keepLoaded: false,
       tags: (own | fromFolders) >>> 0,
       inheritedTags: (fromFolders & ~own) >>> 0,
       inheritedFrom: {},
@@ -75,7 +84,18 @@ export function effectiveEntityFlags(entities: readonly FlagEntity[]): Map<strin
       flags.inheritedFrom.static = inherited.static;
     }
     const folder = isFolderEntity(e);
+    if (folder) folders.add(e.id);
+    if (inherited.kept !== undefined) {
+      flags.keepLoaded = true;
+      if (e.keepLoaded !== true) flags.inheritedFrom.keepLoaded = inherited.kept;
+    } else if (e.keepLoaded === true) {
+      // Under an object that is not kept, the object would go with its parent.
+      const parentIsObject = e.parentId !== undefined && out.has(e.parentId) && !folders.has(e.parentId);
+      if (parentIsObject) flags.keepIgnored = true;
+      else flags.keepLoaded = true;
+    }
     down.set(e.id, {
+      ...(flags.keepLoaded ? { kept: inherited.kept ?? e.id } : {}),
       ...(flags.active ? {} : { inactive: inherited.inactive ?? e.id }),
       ...(inherited.locked !== undefined ? { locked: inherited.locked } : folder && e.locked === true ? { locked: e.id } : {}),
       ...(inherited.static !== undefined ? { static: inherited.static } : folder && e.static === true ? { static: e.id } : {}),
@@ -110,8 +130,8 @@ export function nearestObjectAncestor(
 /**
  * The scene as the game loads it: no folders, no inactive entities, each
  * child under its nearest non-folder ancestor, effective `static` on each
- * entity, its own `visible: false` (the game starts it hidden) and
- * `keepLoaded` (`locked` is editor-only and dropped). Document order is kept.
+ * entity, its own `visible: false` (the game starts it hidden) and its
+ * effective `keepLoaded` (`locked` is editor-only and dropped). Document order is kept.
  */
 export function resolveSceneHierarchy(scene: SceneV3 | ResolvedSceneV3 | SceneV4): ResolvedSceneV3 {
   const entities = scene.entities as readonly SceneEntityV3[];
@@ -140,7 +160,7 @@ export function resolveSceneHierarchy(scene: SceneV3 | ResolvedSceneV3 | SceneV4
       ...(parentId !== null ? { parentId } : {}),
       ...(e.visible === false ? { visible: false as const } : {}),
       ...(f.static ? { static: true as const } : {}),
-      ...(e.keepLoaded === true ? { keepLoaded: true as const } : {}),
+      ...(f.keepLoaded ? { keepLoaded: true as const } : {}),
       ...(f.tags !== 0 ? { tags: f.tags } : {}),
       components: data !== undefined && e.components.blockLayer !== undefined ? ({ ...e.components, blockLayer: { ...e.components.blockLayer, data } } as typeof e.components) : e.components,
     });

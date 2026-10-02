@@ -154,8 +154,8 @@ async function setUp(page: Page): Promise<Ids> {
   });
   await cmd('setDialogueSettings', { settings: { textSpeed: 40, autoDelay: 0.3, duck: 0.3 } });
   await cmd('setInput', { input: { actions: [{ name: 'talk', type: 'button', map: 'gameplay', bindings: [{ kind: 'key', code: 'KeyT' }] }] } });
-  await cmd('createEntity', { parentId: null, kind: 'box', name: 'Floor', transform: { position: [0, -0.5, 0] }, box: { size: [10, 1, 10], material: { color: '#8a8f98' } } });
-  const talker = String((await cmd('createEntity', { parentId: null, kind: 'group', name: 'Talker', transform: { position: [0, 0, 0] } }))['createdId']);
+  await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'box', name: 'Floor', transform: { position: [0, -0.5, 0] }, box: { size: [10, 1, 10], material: { color: '#8a8f98' } } });
+  const talker = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Talker', transform: { position: [0, 0, 0] } }))['createdId']);
   await publishScript(talker);
   // MCP reads it back.
   const cfg = await query('queryGameConfig');

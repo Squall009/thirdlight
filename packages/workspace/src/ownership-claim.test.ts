@@ -164,7 +164,7 @@ function mutation(requestId: string, expectedRevision: number) {
     expectedRevision,
     requestId,
     origin: { kind: 'mcp', clientId: 'pi-harness' },
-    args: { kind: 'box', name: `Box ${requestId}` },
+    args: { sceneId: 'scene-main', kind: 'box', name: `Box ${requestId}` },
   };
 }
 
@@ -174,7 +174,7 @@ function createEntityMutation(requestId: string, expectedRevision: number) {
     projectId: PROJECT,
     expectedRevision,
     requestId,
-    args: { kind: 'box', name: 'Box E1' },
+    args: { sceneId: 'scene-main', kind: 'box', name: 'Box E1' },
   };
 }
 

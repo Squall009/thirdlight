@@ -984,7 +984,7 @@ function EditorApp(): JSX.Element {
           primaryId={selection.primary}
           onSelect={(ids, primary) => setSelection({ ids, primary })}
           onRename={(id, name) => void rename(id, name)}
-          onMove={(ids, parentId, beforeId) => void move(ids, parentId, beforeId)}
+          onMove={(ids, parentId, beforeId, sceneId) => void move(ids, parentId, beforeId, sceneId)}
           icons={iconTable}
           onAssetDrop={(asset, parentId, sceneId) => {
             if (sceneId !== null) clientRef.current?.setActiveScene(sceneId);

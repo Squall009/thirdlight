@@ -57,7 +57,7 @@ async function cmd(op: string, args: Record<string, unknown>): Promise<Record<st
   return res;
 }
 
-test('several scenes in the editor: new scene is active, objects go there, rename, start set, close/open, delete, no drag across', async ({ page }) => {
+test('several scenes in the editor: new scene is active, objects go there, rename, start set, drag across, close/open, delete', async ({ page }) => {
   be = await startBackend();
   await page.goto(be.editorUrl);
   await expect(status(page)).toContainText('connected');
@@ -105,17 +105,19 @@ test('several scenes in the editor: new scene is active, objects go there, renam
   await cave.getByRole('button', { name: 'start scene Cave' }).click();
   await expect.poll(async () => (await query('queryProject')).startScenes).toEqual(['scene-main']);
 
-  // Dragging the box onto the Main header is refused (one command edits one scene).
+  // Dragging the box onto the Main header moves it into Main (its id kept, one undo); undo puts it back in Cave.
   const boxRow = page.locator(`.tl-hierarchy__list li[data-entity-id="${boxId}"]`);
   await boxRow.dragTo(main);
-  await expect(page.locator('.tl-hierarchy__hint')).toHaveCount(0); // the hint goes with the drag
-  expect(((await query('queryEntity', { entityId: boxId })) as { sceneId: string }).sceneId).toBe(secondId);
-  await boxRow.hover();
-  await page.mouse.down();
-  await main.hover();
-  await main.hover({ position: { x: 20, y: 5 } });
-  await page.screenshot({ path: 'test-results/scenes-drag-refused.png' });
-  await page.mouse.up();
+  await expect.poll(async () => ((await query('queryEntity', { entityId: boxId })) as { sceneId: string }).sceneId).toBe('scene-main');
+  await expect.poll(() => JSON.parse(readFileSync(join(be.projectDir, 'scenes', `${secondId}.json`), 'utf8')).scene.entities.length).toBe(0);
+  let rows = await page.locator('.tl-hierarchy__list > li').evaluateAll((els) => els.map((el) => el.getAttribute('data-scene-id') ?? el.getAttribute('data-entity-id')));
+  expect(rows.indexOf(boxId)).toBeLessThan(rows.indexOf(secondId));
+  await cmd('undo', {});
+  await expect.poll(async () => ((await query('queryEntity', { entityId: boxId })) as { sceneId: string }).sceneId).toBe(secondId);
+  await expect.poll(async () => {
+    rows = await page.locator('.tl-hierarchy__list > li').evaluateAll((els) => els.map((el) => el.getAttribute('data-scene-id') ?? el.getAttribute('data-entity-id')));
+    return rows.indexOf(boxId) > rows.indexOf(secondId);
+  }).toBe(true);
 
   await page.screenshot({ path: 'test-results/scenes-hierarchy.png' });
 
@@ -216,7 +218,7 @@ test('Play: a scene transition trigger loads its scene and moves the player ther
   // A trigger with a scene transition. It sits on the
   // start spawn: the character starts inside it, so the scene plays straight into the transition.
   const caveSpawn = String(((await query('queryEntities', { sceneId: 'scene-cave' })).entities as { id: string; name?: string }[]).find((e) => e.name === 'Cave spawn')!.id);
-  await cmd('createEntity', { kind: 'group', name: 'To the cave', transform: { position: [3, 1, 0] }, components: { trigger: { size: [1, 2], signal: 'to-cave', sceneTransition: { scene: 'scene-cave', spawn: caveSpawn } } } });
+  await cmd('createEntity', { sceneId: 'scene-main', kind: 'group', name: 'To the cave', transform: { position: [3, 1, 0] }, components: { trigger: { size: [1, 2], signal: 'to-cave', sceneTransition: { scene: 'scene-cave', spawn: caveSpawn } } } });
   const { psid, observe } = await startPlay(page);
   await expect.poll(async () => (await observe()).scenes?.loaded, { timeout: 10_000 }).toEqual(['scene-main', 'scene-cave']);
   await expect.poll(async () => (await observe()).player!.x, { timeout: 5_000 }).toBeCloseTo(65, 0);
@@ -228,8 +230,10 @@ test('Play: a scene transition trigger loads its scene and moves the player ther
   const unload = await api(`play/${psid}/control`, { command: 'unloadScene', sceneId: 'scene-cave' });
   expect(unload.status, JSON.stringify(unload.json)).toBe(200);
   await expect.poll(async () => (await observe()).scenes?.loaded, { timeout: 5_000 }).toEqual(['scene-main']);
-  const pinned = await api(`play/${psid}/control`, { command: 'unloadScene', sceneId: 'scene-main' });
-  expect(pinned.status).not.toBe(200);
+  // The main scene unloads too: its kept camera and player stay (the starter's are kept loaded).
+  const main = await api(`play/${psid}/control`, { command: 'unloadScene', sceneId: 'scene-main' });
+  expect(main.status, JSON.stringify(main.json)).toBe(200);
+  await expect.poll(async () => (await observe()).scenes?.loaded, { timeout: 5_000 }).toEqual([]);
   await page.waitForTimeout(300);
   await page.screenshot({ path: 'test-results/scenes-exit-unloaded.png' });
 });

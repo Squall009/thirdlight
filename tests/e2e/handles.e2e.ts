@@ -31,7 +31,7 @@ async function mutate(op: string, args: Record<string, unknown>): Promise<Record
   return r;
 }
 async function create(name: string, position: number[], components: Record<string, unknown>, kind = 'group', extra: Record<string, unknown> = {}): Promise<string> {
-  return String((await mutate('createEntity', { parentId: null, kind, name, transform: { position }, components, ...extra }))['createdId']);
+  return String((await mutate('createEntity', { sceneId: 'scene-main', parentId: null, kind, name, transform: { position }, components, ...extra }))['createdId']);
 }
 async function comp(id: string, name: string): Promise<Record<string, unknown> | undefined> {
   const r = await be.command({ op: 'queryEntity', projectId: be.projectId, args: { entityId: id } });

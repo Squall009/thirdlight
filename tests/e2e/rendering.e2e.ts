@@ -83,7 +83,7 @@ async function boxField(): Promise<void> {
       },
     });
   }
-  await command('pasteEntities', { entities });
+  await command('pasteEntities', { sceneId: 'scene-main', entities });
 }
 
 const attr = async (page: Page, name: string): Promise<string> => (await page.locator('canvas.tl-viewport').getAttribute(name)) ?? '';
@@ -227,7 +227,7 @@ test('the export draws the box field instanced and looks the same as without ins
 
 test('MSAA follows the quality level: the low level draws without it in the Scene view and in Play', async ({ page }) => {
   test.setTimeout(180_000);
-  await command('createEntity', { kind: 'box', name: 'cube', transform: { position: [0, 0.5, 0] }, box: { size: [1, 1, 1], material: { color: '#c05030' } } });
+  await command('createEntity', { sceneId: 'scene-main', kind: 'box', name: 'cube', transform: { position: [0, 0.5, 0] }, box: { size: [1, 1, 1], material: { color: '#c05030' } } });
   await page.goto(be.editorUrl);
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
   // The default (no level set: high) keeps the renderer's MSAA.
@@ -246,7 +246,7 @@ test('the Scene view draws nothing behind the Game view during Play, and again w
   test.setTimeout(180_000);
   // Water is animated: it keeps the Scene view drawing every frame.
   await command('setMaterial', { material: { materialId: 'mat-water', name: 'Water', shader: 'water', params: { color: '#3070a0' }, textures: {} } });
-  await command('pasteEntities', {
+  await command('pasteEntities', { sceneId: 'scene-main',
     entities: [{ id: 'pond', name: 'pond', components: { transform: { position: [0, 0, 0], rotation: [0, 0, 0, 1], scale: [1, 1, 1] }, box: { size: [4, 0.2, 4], material: { color: '#3070a0' } }, materials: { '*': 'mat-water' } } }],
   });
   await page.goto(be.editorUrl);
@@ -310,8 +310,8 @@ test.describe('on a HiDPI display', () => {
 
   test('Play renders at one pixel per CSS pixel; the AO + SMAA post stack is not multisampled and builds', async ({ page }) => {
     test.setTimeout(180_000);
-    await command('createEntity', { kind: 'box', name: 'ground', transform: { position: [0, -0.5, 0] }, box: { size: [20, 1, 20], material: { color: '#808080' } } });
-    await command('createEntity', { kind: 'box', name: 'cube', transform: { position: [0, 0.5, 0] }, box: { size: [1, 1, 1], material: { color: '#c05030' } } });
+    await command('createEntity', { sceneId: 'scene-main', kind: 'box', name: 'ground', transform: { position: [0, -0.5, 0] }, box: { size: [20, 1, 20], material: { color: '#808080' } } });
+    await command('createEntity', { sceneId: 'scene-main', kind: 'box', name: 'cube', transform: { position: [0, 0.5, 0] }, box: { size: [1, 1, 1], material: { color: '#c05030' } } });
     await command('setEnvironment', { sceneId: 'scene-main', environment: { post: { antialias: 'smaa', ssao: { enabled: true, radius: 0.5, intensity: 1 } } } });
     await page.addInitScript(watchTargets);
     const gpuErrors: string[] = [];

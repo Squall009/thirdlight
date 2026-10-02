@@ -22,6 +22,7 @@ export function effectiveFlagsOf(entities: readonly ProjectedEntity[]): Map<stri
       ...(e.active ? {} : { active: false as const }),
       ...(e.locked ? { locked: true as const } : {}),
       ...(e.static ? { static: true as const } : {}),
+      ...(e.keepLoaded ? { keepLoaded: true as const } : {}),
       ...(e.tags !== 0 ? { tags: e.tags } : {}),
       components: e.kind === 'folder' ? { folder: {} } : {},
     })) as Parameters<typeof effectiveEntityFlags>[0],
@@ -127,6 +128,8 @@ export interface DropTarget {
   parentId: string | null;
   beforeId: string | null;
   zone: DropZone;
+  /** Another scene the dragged objects move into (absent: they stay in theirs). */
+  sceneId?: string;
 }
 
 /**
@@ -146,8 +149,10 @@ export function dropTarget(
   if (targetId === null) return { parentId: null, beforeId: null, zone: 'after' };
   const target = byId.get(targetId);
   if (target === undefined) return null;
-  // One command edits one scene — no drops across scenes.
-  if (!sameScene(byId, dragged, target.sceneId)) return null;
+  // The dragged objects share one scene; dropped in another, they move there (ids kept).
+  const from = oneScene(byId, dragged);
+  if (from === null) return null;
+  const into = target.sceneId !== from && target.sceneId !== undefined ? { sceneId: target.sceneId } : {};
   // Not onto a dragged entity or anything inside one.
   const draggedSet = new Set(dragged);
   for (let cur: ProjectedEntity | undefined = target; cur !== undefined; cur = cur.parentId !== null ? byId.get(cur.parentId) : undefined) {
@@ -157,28 +162,31 @@ export function dropTarget(
     !draggingFolder || parentId === null || byId.get(parentId)?.kind === 'folder';
   let z = zone;
   if (z === 'into' && !canHold(target.id)) z = 'after';
-  if (z === 'into') return { parentId: target.id, beforeId: null, zone: 'into' };
+  if (z === 'into') return { parentId: target.id, beforeId: null, zone: 'into', ...into };
   const parentId = target.parentId;
   if (!canHold(parentId)) return null;
-  if (z === 'before') return { parentId, beforeId: target.id, zone: 'before' };
-  // After: before the next sibling that is not being dragged (or at the end).
-  const siblings = childrenByParent(entities).get(parentId) ?? [];
+  if (z === 'before') return { parentId, beforeId: target.id, zone: 'before', ...into };
+  // After: before the next sibling of the target's scene that is not being dragged (or at the end).
+  const siblings = (childrenByParent(entities).get(parentId) ?? []).filter((s) => s.sceneId === target.sceneId);
   const at = siblings.findIndex((s) => s.id === target.id);
   const next = siblings.slice(at + 1).find((s) => !draggedSet.has(s.id));
-  return { parentId, beforeId: next?.id ?? null, zone: 'after' };
+  return { parentId, beforeId: next?.id ?? null, zone: 'after', ...into };
 }
 
-/** Whether every dragged entity is in `sceneId` (always true without scenes). */
-function sameScene(byId: ReadonlyMap<string, ProjectedEntity>, dragged: readonly string[], sceneId: string | undefined): boolean {
-  return dragged.every((id) => byId.get(id)?.sceneId === sceneId);
+/** The one scene every dragged entity is in (undefined without scenes; null: several). */
+function oneScene(byId: ReadonlyMap<string, ProjectedEntity>, dragged: readonly string[]): string | undefined | null {
+  const scenes = new Set(dragged.map((id) => byId.get(id)?.sceneId));
+  return scenes.size === 1 ? [...scenes][0] : null;
 }
 
 /**
- * Whether dropping `dragged` on a scene header (the scene's
- * root, at the end) is allowed — only within the scene they already live in.
+ * Dropping `dragged` on a scene header: the scene's root, at the end — moved
+ * into that scene when they live in another (null: they are in several).
  */
-export function sceneDropAllowed(entities: readonly ProjectedEntity[], dragged: readonly string[], sceneId: string): boolean {
-  return sameScene(new Map(entities.map((e) => [e.id, e])), dragged, sceneId);
+export function sceneDrop(entities: readonly ProjectedEntity[], dragged: readonly string[], sceneId: string): DropTarget | null {
+  const from = oneScene(new Map(entities.map((e) => [e.id, e])), dragged);
+  if (from === null) return null;
+  return { parentId: null, beforeId: null, zone: 'into', ...(from !== sceneId ? { sceneId } : {}) };
 }
 
 /** The dragged roots: selected ids without those whose ancestor is also selected, in document order. */

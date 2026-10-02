@@ -168,7 +168,7 @@ describe('asset files in the game folder', () => {
     try {
       service.holdAssetBytes('game', V1);
       expect(command(service, 'game', 'publishAsset', upload('create', V1)).ok).toBe(true);
-      expect(command(service, 'game', 'createEntity', { kind: 'model', name: 'Crate', model: { asset: { assetId: 'crate' } } }).ok).toBe(true);
+      expect(command(service, 'game', 'createEntity', { sceneId: 'scene-main', kind: 'model', name: 'Crate', model: { asset: { assetId: 'crate' } } }).ok).toBe(true);
       const moved = command(service, 'game', 'setAssetOptions', { assetId: 'crate', sourcePath: 'assets/props/crate.glb' });
       expect(moved.ok, JSON.stringify(moved)).toBe(true);
       expect(existsSync(join(game, 'assets', 'Wooden-Crate.glb'))).toBe(false);

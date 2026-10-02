@@ -50,7 +50,7 @@ async function cmd(op: string, args: Record<string, unknown>): Promise<Record<st
   return res;
 }
 async function create(name: string, position: number[], extra: Record<string, unknown> = {}, kind = 'group'): Promise<string> {
-  return String((await cmd('createEntity', { parentId: null, kind, name, transform: { position }, ...extra }))['createdId']);
+  return String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind, name, transform: { position }, ...extra }))['createdId']);
 }
 async function comp(id: string, name: string): Promise<Record<string, unknown> | undefined> {
   const r = await query('queryEntity', { entityId: id });

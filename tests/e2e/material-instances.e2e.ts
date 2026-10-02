@@ -127,11 +127,11 @@ for (const variant of VARIANTS) test(`material instances on an object, a model a
   await cmd('setTransform', { entityId: cam, transform: { position: [0, 0, 6], rotation: [0, 0, 0, 1] } });
   for (const e of ents) if (e.components['box'] !== undefined) await cmd('setTransform', { entityId: e.id, transform: { position: [0, -50, 0] } });
   const box = async (name: string, x: number): Promise<string> =>
-    String((await cmd('createEntity', { parentId: null, kind: 'box', name, transform: { position: [x, 0, 0] }, box: { size: [1.6, 1.6, 0.05], material: { color: '#ffffff' } } }))['createdId']);
+    String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'box', name, transform: { position: [x, 0, 0] }, box: { size: [1.6, 1.6, 0.05], material: { color: '#ffffff' } } }))['createdId']);
   await box('Box A', -2.4);
   const boxB = await box('Box B', 0);
   const slab = await publishBytes(be, multiPieceGlb([{ name: 'slab', lods: [[1.6, 1.6, 0.05]] }]), 'model', 'slab', 'Slab');
-  await cmd('createEntity', { kind: 'model', name: 'Slab', model: { asset: { assetId: slab } }, transform: { position: [1.6, -0.8, 0] } });
+  await cmd('createEntity', { sceneId: 'scene-main', kind: 'model', name: 'Slab', model: { asset: { assetId: slab } }, transform: { position: [1.6, -0.8, 0] } });
   // The command path (as MCP): an instance of the shader material, on box B.
   await cmd('setMaterial', { material: { materialId: 'plain-blue', name: 'Plain blue', shader: 'unlit', params: { color: '#0000ff' }, textures: {}, instanceOf: 'plain' } });
   await cmd('setComponent', { entityId: boxB, component: 'materials', value: { '*': 'plain-blue' } });

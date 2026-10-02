@@ -185,6 +185,8 @@ export interface Runtime {
   // ---- Project saves ------------------------------------------------------
   /** The save/load/delete/settings requests scripts made since the last call (the host owns storage). */
   takeSaveRequests?(): import('./project-saves').SaveRequest[];
+  /** Problems for the author since the last call (the host relays each to Play's Problems; one per kind). */
+  takeProblems?(): { code: string; message: string }[];
   /**
    * The player's save from the game shell — the save is made now,
    * between steps (the state of the last step), and handed to the host with

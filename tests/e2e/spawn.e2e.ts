@@ -131,7 +131,7 @@ async function magenta(target: Page | Locator): Promise<number> {
 test('a script spawns a projectile every second in Play (and in the export); old ones are destroyed', async ({ page }) => {
   test.setTimeout(300_000);
   // The prefab: a small magenta box whose own script flies it to the right (made far below the level).
-  const made = await cmd('createEntity', { kind: 'box', name: 'Projectile', transform: { position: [0, -40, 0] }, box: { size: [0.5, 0.5, 0.5], material: { color: '#ff00ff' } } });
+  const made = await cmd('createEntity', { sceneId: 'scene-main', kind: 'box', name: 'Projectile', transform: { position: [0, -40, 0] }, box: { size: [0.5, 0.5, 0.5], material: { color: '#ff00ff' } } });
   const sourceId = String(made.createdId);
   await script('behavior-bolt', BOLT, ['@self'], sourceId);
   await cmd('createPrefab', { prefabId: 'projectile', displayName: 'Projectile', sourceEntityId: sourceId });

@@ -50,6 +50,7 @@ function entity(id: string, assetId: string): ProjectedEntity {
     visible: true,
     locked: false,
     static: false,
+    keepLoaded: false,
     tags: 0,
     kind: 'model',
     position: [0, 0, 0],

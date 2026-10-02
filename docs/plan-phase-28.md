@@ -128,7 +128,8 @@ surfaces). Format changes share one bump: `project.json` schemaVersion 7
 | 28.1 | done 2026-10-02 — counter-name rule, refused script calls return false, Play diagnostics trimmed, real-overlap penetration count, dialogue focus in any document, createEntity takes setComponent's components, upload names, 256 animations, RGBA KTX2 as data textures (D83, D84, D104, D125, D128–D130, D132, D133) |
 | 28.2 | done 2026-10-02 — script sounds owned by their object (or scene, or nothing), stopped with the play's fade-out when it leaves; `ctx.audio.stopAll`; the run restart stops every script sound; one Problems line per Play for voice-cap drops; 20 scenes leave one loop (D126) |
 | 28.3 | done 2026-10-02 — the effect light pool's 16 lights are added dark before the first frame of a game whose effects emit light (Play, export, Scene view, Effect tab), never mid-play; e2e: lights rising 1 → 16 build no program or pipeline in Play and the export (D127) |
-| 28.4–28.13 | — |
+| 28.4 | done 2026-10-02 — schemaVersion 7 (scene cameras upgraded to lowest-priority fixed shots, their lens the project's camera settings; camera and player keep loaded); the camera brain owns the view per view key (default pose + Play warning without a live shot); `keepLoaded` (flag, spawn option, handle write; survives unload/reload/applyWorld, no second copy, references read empty with a Problems line, listed spawns place a kept player); start rules checked at Play/export; cross-scene `moveEntities {sceneId}`; creates need a scene over the API; Inspector flag, hierarchy marker, cross-scene drag |
+| 28.5–28.13 | — |
 
 ## 6. Decision log
 
@@ -197,3 +198,36 @@ surfaces). Format changes share one bump: `project.json` schemaVersion 7
   an edit that adds the first Lights block adds the pool once (one
   recompile, edit time only). The pool size `EFFECT_LIGHT_LIMIT` moved to
   project-model, where it is also the Lights block's `maxLights` max.
+- 2026-10-02 (28.4): the view — the scene `camera` component is gone from
+  the format; the upgrade (`upgrade-scene-model.ts`, the phase's one v7
+  step) turns it into a `fixed` shot at the lowest priority (-1000, so any
+  camera a game has goes live over it, as before) and moves a non-default
+  lens to three new settings (`camera_fov_deg/near_m/far_m`, Unity's and
+  Godot's per-camera lens with a project default). The default pose without
+  a live shot is 1.6 m up, 6 m back, level, looking at the origin; Play and
+  the export warn, the runtime logs. A build or test snapshot that still
+  holds a scene camera plays it as that shot (`sceneCamerasAsShots`). Views
+  are keyed in the runtime/host API (`DEFAULT_VIEW_ID`); `ctx.camera` drives
+  the main view (a second view adds an option there, not a new API). A 3D
+  character moves relative to the live shot's heading, the upgraded camera
+  included (it used world axes without virtual cameras): noted in the
+  upgrade docs, not special-cased.
+- 2026-10-02 (28.4): keep loaded follows Unity's DontDestroyOnLoad: an object
+  under a parent that is not kept is not kept (Play warns); a folder passes
+  the flag down. The upgrade marks the camera and the start scenes' players
+  (their top object) kept, since the runtime never unloaded them; new
+  projects take the same shape. The player body is still made at start: a
+  scene holding a player that is not kept does not unload, and a later scene
+  cannot bring one (Play warns). A kept object whose scene went is listed
+  with the spawned copies (renderers and audio follow it there) and goes at
+  a run restart (its start scene brings it back). References into a scene
+  that went are found by id in the kept object's components and reported
+  once per Play through a new runtime → page → Problems channel
+  (`takeProblems`, the one 28.5's deprecation lines can use).
+- 2026-10-02 (28.4): creates — no default scene: the editor sends its active
+  scene (`createEntities` too); the API refuses a create without `sceneId`
+  or a parent (`field_missing /args/sceneId`). Cross-scene `moveEntities`
+  edits two scene files in one transaction; the pure command layer gets the
+  second scene as `otherScene` and records `moveEntitiesScene` with its
+  inverse. Prefabs may carry a camera (the capture refusal was for the scene
+  camera).

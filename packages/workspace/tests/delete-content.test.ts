@@ -99,7 +99,7 @@ describe('deleteAsset / deletePrefab (phase 25.7c)', () => {
   it('refuses a prefab while a copy or a script literal names it; removes it otherwise, undo restores the definition', () => {
     const { svc } = setup('delete-prefab');
     ok(svc, 'createPrefab', { prefabId: 'crate', displayName: 'Crate', sourceEntityId: 'box-0001' });
-    const copy = ok(svc, 'instantiatePrefab', { prefabId: 'crate' });
+    const copy = ok(svc, 'instantiatePrefab', { sceneId: 'scene-main', prefabId: 'crate' });
     const byCopy = refused(svc, 'deletePrefab', { prefabId: 'crate' });
     expect(byCopy.code).toBe('reference_in_use');
     expect(byCopy.details?.some((d) => /\/components\/prefab$/.test(d.path ?? ''))).toBe(true);
@@ -139,11 +139,11 @@ describe('bulk building (phase 25.7e)', () => {
   it('createEntity takes static, active, locked and tags', () => {
     const { svc } = setup('create-flags');
     ok(svc, 'setTags', { tags: [{ name: 'wall' }, { name: 'loot' }] });
-    const r = ok(svc, 'createEntity', { kind: 'box', name: 'Wall', static: true, locked: true, active: false, tags: ['wall', 'loot'] });
+    const r = ok(svc, 'createEntity', { sceneId: 'scene-main', kind: 'box', name: 'Wall', static: true, locked: true, active: false, tags: ['wall', 'loot'] });
     const e = (svc.query({ op: 'queryEntity', projectId: PROJECT_ID, args: { entityId: r.createdId } }) as { entity: Record<string, unknown> }).entity;
     expect(e).toMatchObject({ static: true, locked: true, active: false, tags: 3 });
-    expect(refused(svc, 'createEntity', { kind: 'box', tags: ['nope'] }).code).toBe('field_value');
-    expect(refused(svc, 'createEntity', { kind: 'box', static: 'yes' }).code).toBe('field_type');
+    expect(refused(svc, 'createEntity', { sceneId: 'scene-main', kind: 'box', tags: ['nope'] }).code).toBe('field_value');
+    expect(refused(svc, 'createEntity', { sceneId: 'scene-main', kind: 'box', static: 'yes' }).code).toBe('field_type');
     svc.dispose();
   });
 
@@ -154,7 +154,7 @@ describe('bulk building (phase 25.7e)', () => {
     const entitiesBefore = (svc.query({ op: 'queryProject', projectId: PROJECT_ID }) as { entityCount?: number; counts?: { entities?: number } });
     const items: Record<string, unknown>[] = [{ kind: 'folder', name: 'Forest', ref: 'forest' }];
     for (let i = 0; i < 40; i += 1) items.push({ kind: 'box', parentId: 'forest', name: `tree ${i}`, static: true, tags: ['tree'], transform: { position: [i, 0, 0] } });
-    const r = ok(svc, 'createEntities', { entities: items });
+    const r = ok(svc, 'createEntities', { sceneId: 'scene-main', entities: items });
     expect(r.revision).toBe(before + 1);
     const created = (r.change as { type: string; entities: { id: string; parentId?: string; static?: boolean; tags?: number; name?: string }[] });
     expect(created.type).toBe('pasteEntities');
@@ -171,11 +171,13 @@ describe('bulk building (phase 25.7e)', () => {
     const redone = ok(svc, 'redo', {});
     expect((redone.change as { entities: { id: string }[] }).entities.map((e) => e.id)).toEqual(created.entities.map((e) => e.id));
     // All or nothing: one bad item refuses the whole batch at its path.
-    const bad = refused(svc, 'createEntities', { entities: [{ kind: 'box' }, { kind: 'box', tags: ['nope'] }] }) as { code: string; path?: string };
+    const bad = refused(svc, 'createEntities', { sceneId: 'scene-main', entities: [{ kind: 'box' }, { kind: 'box', tags: ['nope'] }] }) as { code: string; path?: string };
     expect(bad.code).toBe('field_value');
     expect((bad as { path?: string }).path).toBe('/args/entities/1/tags/0');
-    expect(refused(svc, 'createEntities', { entities: [{ kind: 'box', ref: 'a' }, { kind: 'box', ref: 'a' }] }).code).toBe('field_value');
-    expect(refused(svc, 'createEntities', { entities: [] }).code).toBe('field_value');
+    expect(refused(svc, 'createEntities', { sceneId: 'scene-main', entities: [{ kind: 'box', ref: 'a' }, { kind: 'box', ref: 'a' }] }).code).toBe('field_value');
+    expect(refused(svc, 'createEntities', { sceneId: 'scene-main', entities: [] }).code).toBe('field_value');
+    // There is no default scene: items without a parent need the scene named.
+    expect(refused(svc, 'createEntities', { entities: [{ kind: 'box' }] })).toMatchObject({ code: 'field_missing', path: '/args/sceneId' });
     void entitiesBefore;
     svc.dispose();
   });

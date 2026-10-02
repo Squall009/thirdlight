@@ -37,7 +37,7 @@ async function relay(path: string, body: unknown): Promise<{ status: number; jso
 test('Play: jumping against a wall of stacked boxes, the player slides down past every seam to the ground', async ({ page }) => {
   test.setTimeout(180_000);
   for (let i = 0; i < 5; i++) {
-    const r = await mutate('createEntity', { parentId: null, kind: 'box', name: `Wall ${i + 1}`, transform: { position: [1, 0.5 + i, 0] }, box: { size: [1, 1, 1], material: { color: '#777777' } }, components: { collider: { shape: { type: 'box', hx: 0.5, hy: 0.5 } } } });
+    const r = await mutate('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'box', name: `Wall ${i + 1}`, transform: { position: [1, 0.5 + i, 0] }, box: { size: [1, 1, 1], material: { color: '#777777' } }, components: { collider: { shape: { type: 'box', hx: 0.5, hy: 0.5 } } } });
     expect(r['ok'], JSON.stringify(r)).toBe(true);
   }
 

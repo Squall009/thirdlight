@@ -85,7 +85,7 @@ test('a script sees a timeline ended event in Play (the simulation worker)', asy
   test.setTimeout(180_000);
   await cmd('setTimeline', { timeline: { timelineId: 'intro', name: 'Intro', duration: 0.5, playOnStart: true, tracks: [{ trackId: 'bars', type: 'letterbox', keys: [{ time: 0, value: 0.1 }] }] } });
   await cmd('setTimeline', { timeline: { timelineId: 'cut', name: 'Cut', duration: 0.5, tracks: [{ trackId: 'bars', type: 'letterbox', keys: [{ time: 0, value: 0.2 }] }] } });
-  const holder = String((await cmd('createEntity', { parentId: null, kind: 'group', name: 'Watcher', transform: { position: [0, -5, 0] } }))['createdId']);
+  const holder = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Watcher', transform: { position: [0, -5, 0] } }))['createdId']);
   await script('watcher', WATCHER, holder);
 
   await page.goto(be.editorUrl);

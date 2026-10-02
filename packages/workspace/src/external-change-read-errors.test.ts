@@ -105,7 +105,7 @@ function request(expectedRevision: number) {
     projectId: PROJECT,
     expectedRevision,
     requestId: `req-${sequence.toString(16).padStart(32, '0')}`,
-    args: { kind: 'box', name: `Box ${sequence}` },
+    args: { sceneId: 'scene-main', kind: 'box', name: `Box ${sequence}` },
   };
 }
 

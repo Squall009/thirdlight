@@ -76,7 +76,7 @@ const port = (page: Page, id: string, side: 'in' | 'out', name: string): Locator
 
 test('visual script: build On start → Add to counter in the Graph tab, publish, Play shows the counter', async ({ page }) => {
   test.setTimeout(240_000);
-  const made = await cmd('createEntity', { kind: 'box', name: 'Script box', transform: { position: [6, 1, 0] }, box: { size: [0.5, 0.5, 0.5], material: { color: '#808080' } } });
+  const made = await cmd('createEntity', { sceneId: 'scene-main', kind: 'box', name: 'Script box', transform: { position: [6, 1, 0] }, box: { size: [0.5, 0.5, 0.5], material: { color: '#808080' } } });
   const boxId = String(made.createdId);
 
   await page.goto(be.editorUrl);
@@ -176,8 +176,8 @@ async function magenta(target: Page | Locator): Promise<number> {
 test('visual script from the catalogue search: on trigger enter → timer → hide the door, count it, play a sound', async ({ page }) => {
   test.setTimeout(300_000);
   // The sensor on the player's start (3, 0.91: the player stands in it when the run begins) and a magenta door beside it.
-  const trigger = String((await cmd('createEntity', { parentId: null, kind: 'group', name: 'Door sensor', transform: { position: [3, 0.91, 0] }, components: { trigger: { size: [1, 1], signal: 'sensor' } } }))['createdId']);
-  const door = String((await cmd('createEntity', { kind: 'box', name: 'Door', transform: { position: [5, 1.3, 0] }, box: { size: [0.5, 2.6, 1], material: { color: '#ff00ff' } } }))['createdId']);
+  const trigger = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Door sensor', transform: { position: [3, 0.91, 0] }, components: { trigger: { size: [1, 1], signal: 'sensor' } } }))['createdId']);
+  const door = String((await cmd('createEntity', { sceneId: 'scene-main', kind: 'box', name: 'Door', transform: { position: [5, 1.3, 0] }, box: { size: [0.5, 2.6, 1], material: { color: '#ff00ff' } } }))['createdId']);
   const audio = await publishWav(be, 'cue-start.wav', 'audio-cue', 'Cue');
 
   await page.goto(be.editorUrl);

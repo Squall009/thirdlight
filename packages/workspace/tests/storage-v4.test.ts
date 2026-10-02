@@ -71,7 +71,7 @@ describe('storage v4', () => {
 
     // An entity edit writes the scene file only.
     const contentHash = hashOf(join(dir, 'content.json'));
-    const box = ok(svc, 'createEntity', { kind: 'box', name: 'crate' });
+    const box = ok(svc, 'createEntity', { sceneId: 'scene-main', kind: 'box', name: 'crate' });
     expect(hashOf(join(dir, 'content.json'))).toBe(contentHash);
 
     // A new scene: index + empty file in one transaction; a box created in it.
@@ -91,11 +91,11 @@ describe('storage v4', () => {
     // One transaction touches one scene: a move across scenes is refused.
     const cross = send(svc, 'moveEntities', { entityIds: [caveBox.createdId], parentId: box.createdId });
     expect(cross.ok).toBe(false);
-    // The player's controller does not belong in a scene that is not a start scene.
-    const player = send(svc, 'setComponent', { entityId: caveBox.createdId, component: 'controller', value: {} });
-    expect(player.ok).toBe(false);
-    expect(JSON.stringify(player)).toContain('start_scene_only');
-    // Phase 25.8: a light does (any kind, any scene); undone again.
+    // A controller in a scene that is not a start scene is an edit like any other: where the player
+    // may be is checked when Play starts, not per command. Undone again.
+    ok(svc, 'setComponent', { entityId: caveBox.createdId, component: 'controller', value: {} });
+    ok(svc, 'undo', {});
+    // A light goes in any scene, any kind; undone again.
     ok(svc, 'setComponent', { entityId: caveBox.createdId, component: 'light', value: { type: 'ambient', color: '#ffffff', intensity: 1 } });
     ok(svc, 'undo', {});
     // A non-empty scene cannot be deleted; undo of the create in the cave, then it can.

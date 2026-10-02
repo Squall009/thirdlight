@@ -34,7 +34,7 @@ import {
   dropTarget,
   dropZoneAt,
   nextSelection,
-  sceneDropAllowed,
+  sceneDrop,
   visibleRows,
   type DropTarget,
   type TreeRow,
@@ -62,7 +62,7 @@ interface Props {
   primaryId: string | null;
   onSelect: (ids: string[], primary: string | null) => void;
   onRename: (id: string, name: string) => void;
-  onMove: (ids: string[], parentId: string | null, beforeId: string | null) => void;
+  onMove: (ids: string[], parentId: string | null, beforeId: string | null, sceneId?: string) => void;
   /** The open scenes (absent: a single-scene project, one plain tree). */
   scenes?: readonly SceneHeaderView[];
   /** The scenes that are not open in this browser. */
@@ -242,6 +242,11 @@ const HierarchyRow = memo(function HierarchyRow({ entity: e, row: r, flags: f, s
         </span>
       )}
       {f?.static === true && <span className="tl-row__flag tl-row__flag--static" title="static">S</span>}
+      {f?.keepLoaded === true && (
+        <span className="tl-row__flag tl-row__flag--kept" data-flag="kept" title={f.inheritedFrom.keepLoaded !== undefined ? 'kept loaded with the object above' : 'kept loaded: survives scene changes'}>
+          K
+        </span>
+      )}
       {!e.visible && <span className="tl-row__flag tl-row__flag--hidden" data-flag="hidden" title="starts hidden in the game">H</span>}
     </li>
   );
@@ -381,16 +386,17 @@ export function Hierarchy({ entities, structureKey, flags, projectId, selectedId
     }
     if (!ev.dataTransfer.types.includes(DRAG_TYPE) || dragging.current === null) return;
     ev.stopPropagation();
-    if (!sceneDropAllowed(entities, dragging.current, sceneId)) {
+    const target = sceneDrop(entities, dragging.current, sceneId);
+    if (target === null) {
       ev.dataTransfer.dropEffect = 'none';
       setDrop(null);
-      setHint('Objects stay in their scene: moving between scenes is not supported yet.');
+      setHint('The dragged objects are in several scenes: move them one scene at a time.');
       return;
     }
     ev.preventDefault();
     ev.dataTransfer.dropEffect = 'move';
     setHint(null);
-    setDrop({ targetId: `scene:${sceneId}`, target: { parentId: null, beforeId: null, zone: 'after' } });
+    setDrop({ targetId: `scene:${sceneId}`, target: { ...target, zone: 'after' } });
   };
   const overRow = (ev: DragEvent<HTMLLIElement>, id: string): void => {
     if (isAssetDrag(ev)) {
@@ -411,7 +417,7 @@ export function Hierarchy({ entities, structureKey, flags, projectId, selectedId
       ev.dataTransfer.dropEffect = 'none';
       setDrop(null);
       const dragged = dragging.current;
-      if (scenes !== undefined && dragged.some((d) => byId.get(d)?.sceneId !== byId.get(id)?.sceneId)) setHint('Objects stay in their scene: moving between scenes is not supported yet.');
+      if (scenes !== undefined && new Set(dragged.map((d) => byId.get(d)?.sceneId)).size > 1) setHint('The dragged objects are in several scenes: move them one scene at a time.');
       return;
     }
     setHint(null);
@@ -440,7 +446,7 @@ export function Hierarchy({ entities, structureKey, flags, projectId, selectedId
     const ids = dragging.current;
     const target = drop?.target ?? null;
     endDrag();
-    if (ids !== null && target !== null) onMove(ids, target.parentId, target.beforeId);
+    if (ids !== null && target !== null) onMove(ids, target.parentId, target.beforeId, target.sceneId);
   };
 
   const dropClass = (id: string): string => {
@@ -689,7 +695,7 @@ export function Hierarchy({ entities, structureKey, flags, projectId, selectedId
           // the dragged objects live in (they must share one).
           if (scenes !== undefined) {
             const first = byId.get(dragging.current[0] ?? '')?.sceneId;
-            if (first === undefined || !sceneDropAllowed(entities, dragging.current, first)) return;
+            if (first === undefined || sceneDrop(entities, dragging.current, first) === null) return;
           }
           ev.preventDefault();
           setDrop({ targetId: null, target: { parentId: null, beforeId: null, zone: 'after' } });

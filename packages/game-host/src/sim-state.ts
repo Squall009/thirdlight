@@ -305,6 +305,9 @@ export class FrameEncoder {
     // Project save requests (the page carries them out).
     const saveReq = rt.takeSaveRequests?.() ?? [];
     if (saveReq.length > 0) out.saveReq = saveReq;
+    // Problems for the author (the page relays them to Play's Problems).
+    const problems = rt.takeProblems?.() ?? [];
+    if (problems.length > 0) out.problems = problems;
     // Scripts' asset loads and releases (the page holds the assets).
     const assetReq = rt.takeAssetRequests?.() ?? [];
     if (assetReq.length > 0) out.assetReq = assetReq;
@@ -460,6 +463,8 @@ export class FrameMirror {
   saveReq: import('@thirdlight/runtime').SaveRequest[] = [];
   /** Asset loads and releases not carried out yet (the host takes them every frame). */
   assetReq: import('@thirdlight/runtime').AssetHandleRequest[] = [];
+  /** Problems the simulation raised, not relayed yet. */
+  problems: { code: string; message: string }[] = [];
   /** Binding requests not taken by the host yet (at most 32 wait). */
   bindingRequests: import('@thirdlight/runtime').InputBindingRequest[] = [];
   bindingDropped = 0;
@@ -552,6 +557,7 @@ export class FrameMirror {
     if (s.env !== undefined) this.env = s.env;
     if (s.saveReq !== undefined) for (const r of s.saveReq) this.saveReq.push(r);
     if (s.assetReq !== undefined) for (const r of s.assetReq) this.assetReq.push(r);
+    if (s.problems !== undefined) for (const p of s.problems) this.problems.push(p);
     if (s.grid !== undefined) for (const g of s.grid) this.grid.set(`${g.entityId}|${g.cx},${g.cz}`, g);
     if (s.mat !== undefined) {
       for (const c of s.mat) {

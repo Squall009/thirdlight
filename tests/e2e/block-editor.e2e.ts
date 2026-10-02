@@ -110,7 +110,7 @@ test('the Blocks panel paints, fills, picks, replaces, selects, stamps and paint
   be = await startBackend('block-editor-e2e');
   await cmd('setCellFields', { fields: [{ key: 'hazard', type: 'bool', color: '#ff0000' }] });
   for (const [blockId, color] of [['stone', '#6b7280'], ['grass', '#3fa34d'], ['sand', '#d8c27a']] as const) await cmd('setBlockType', { block: { blockId, name: blockId[0]!.toUpperCase() + blockId.slice(1), variants: [{ color }], shape: 'full' } });
-  const layer = String((await cmd('createEntity', { parentId: null, kind: 'group', name: 'Ground', transform: { position: [...ORIGIN] } }))['createdId']);
+  const layer = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Ground', transform: { position: [...ORIGIN] } }))['createdId']);
   await cmd('setComponent', { entityId: layer, component: 'blockLayer', value: { cellSize: [1, 1, 1], bounds: { min: [0, 0, 0], max: [64, 16, 64] } } });
   await cmd('editBlocks', { entityId: layer, edits: [{ kind: 'fill', box: [0, 0, 0, 64, 8, 64], cell: { block: 'stone' } }] });
   expect(await cellCount(layer)).toBe(32_768);
@@ -281,7 +281,7 @@ test('the Blocks panel paints, fills, picks, replaces, selects, stamps and paint
   const dialog = page.getByRole('dialog', { name: 'Snapping settings' });
   await dialog.getByLabel('Move step (m)').fill('1');
   await dialog.getByRole('button', { name: 'Save', exact: true }).click();
-  const mover = String((await cmd('createEntity', { parentId: null, kind: 'box', name: 'Mover', transform: { position: [0.3, 0.5, -3] }, box: { size: [1, 1, 1], material: { color: '#dd44dd' } } }))['createdId']);
+  const mover = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'box', name: 'Mover', transform: { position: [0.3, 0.5, -3] }, box: { size: [1, 1, 1], material: { color: '#dd44dd' } } }))['createdId']);
   await dragGizmoX(page, mover);
   await expect.poll(async () => (await entity(mover)).components.transform.position[0]).not.toBe(0.3);
   const moved = (await entity(mover)).components.transform.position;
@@ -292,7 +292,7 @@ test('the Blocks panel paints, fills, picks, replaces, selects, stamps and paint
   await (await menuItem(page, 'Edit', 'Snapping settings…')).click();
   await dialog.getByLabel('snap to cell tops').check();
   await dialog.getByRole('button', { name: 'Save', exact: true }).click();
-  const hut = String((await cmd('createEntity', { parentId: null, kind: 'box', name: 'Hut', transform: { position: [-4.5, 3, -5.5] }, box: { size: [1, 1, 1], material: { color: '#dd8844' } } }))['createdId']);
+  const hut = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'box', name: 'Hut', transform: { position: [-4.5, 3, -5.5] }, box: { size: [1, 1, 1], material: { color: '#dd8844' } } }))['createdId']);
   await cmd('setComponent', { entityId: hut, component: 'blockFootprint', value: { layer, set: { hazard: true } } });
   await dragGizmoX(page, hut);
   await expect.poll(async () => (await entity(hut)).components.transform.position[1]).toBe(0.5);

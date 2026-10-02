@@ -117,7 +117,7 @@ async function playCounters(page: Page, expected: Record<string, number>): Promi
 test('a library made in the editor is imported by two scripts; Play shows it; saving it recompiles them', async ({ page }) => {
   test.setTimeout(300_000);
   for (const [i, id] of (['alpha', 'beta'] as const).entries()) {
-    const made = await cmd('createEntity', { kind: 'box', name: `Box ${id}`, transform: { position: [6 + i, 1, 0] }, box: { size: [0.5, 0.5, 0.5], material: { color: '#808080' } } });
+    const made = await cmd('createEntity', { sceneId: 'scene-main', kind: 'box', name: `Box ${id}`, transform: { position: [6 + i, 1, 0] }, box: { size: [0.5, 0.5, 0.5], material: { color: '#808080' } } });
     await cmd('publishBehavior', { behaviorId: `user-${id}`, displayName: `User ${id}`, mode: 'declaration-create', declaration: { properties: [] } });
     await cmd('setBehaviorProperties', { entityId: String(made.createdId), behaviorId: `user-${id}`, values: {} });
   }

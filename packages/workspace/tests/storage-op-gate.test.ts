@@ -23,7 +23,7 @@ describe('storage-version op gate', () => {
       expectedRevision: 0,
       requestId: 'req-00000000000000000000000000000001',
       origin: { kind: 'browser', clientId: 'test' },
-      args: { kind: 'box', parentId: null, name: 'b' },
+      args: { sceneId: 'scene-main', kind: 'box', parentId: null, name: 'b' },
     }) as MutationResult;
     expect(created.ok).toBe(true);
     const boxId = (created as unknown as { createdId: string }).createdId;

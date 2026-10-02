@@ -5,11 +5,11 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { draggedRoots, dropTarget, dropZoneAt, effectiveFlagsOf, nextSelection, visibleRows } from './hierarchy';
+import { draggedRoots, dropTarget, dropZoneAt, effectiveFlagsOf, nextSelection, sceneDrop, visibleRows } from './hierarchy';
 import { Projection, type ProjectedEntity } from './projection';
 
 function e(id: string, parentId: string | null, kind: ProjectedEntity['kind'] = 'box', extra: Partial<ProjectedEntity> = {}): ProjectedEntity {
-  return { id, name: id, parentId, kind, active: true, visible: true, locked: false, static: false, tags: 0, position: [0, 0, 0], rotation: [0, 0, 0, 1], scale: [1, 1, 1], components: {}, ...extra };
+  return { id, name: id, parentId, kind, active: true, visible: true, locked: false, static: false, keepLoaded: false, tags: 0, position: [0, 0, 0], rotation: [0, 0, 0, 1], scale: [1, 1, 1], components: {}, ...extra };
 }
 
 // F (folder) > a > a1 ; b ; G (folder, empty)
@@ -61,6 +61,17 @@ describe('dropTarget', () => {
     expect(dropTarget(tree(), ['G'], 'b', 'into')).toEqual({ parentId: null, beforeId: null, zone: 'after' });
     expect(dropTarget(tree(), ['G'], 'a1', 'before')).toBeNull();
     expect(dropTarget(tree(), ['G'], 'F', 'into')).toEqual({ parentId: 'F', beforeId: null, zone: 'into' });
+  });
+
+  it('a drop in another scene moves the objects there; objects of several scenes do not move together', () => {
+    const two = [e('a', null, 'box', { sceneId: 's1' }), e('b', null, 'box', { sceneId: 's1' }), e('c', null, 'box', { sceneId: 's2' }), e('d', null, 'box', { sceneId: 's2' })];
+    expect(dropTarget(two, ['a'], 'c', 'into')).toEqual({ parentId: 'c', beforeId: null, zone: 'into', sceneId: 's2' });
+    // After the target: before its next sibling in that scene.
+    expect(dropTarget(two, ['a'], 'c', 'after')).toEqual({ parentId: null, beforeId: 'd', zone: 'after', sceneId: 's2' });
+    expect(dropTarget(two, ['a'], 'b', 'after')).toEqual({ parentId: null, beforeId: null, zone: 'after' });
+    expect(dropTarget(two, ['a', 'c'], 'b', 'after')).toBeNull();
+    expect(sceneDrop(two, ['a'], 's2')).toEqual({ parentId: null, beforeId: null, zone: 'into', sceneId: 's2' });
+    expect(sceneDrop(two, ['a'], 's1')).toEqual({ parentId: null, beforeId: null, zone: 'into' });
   });
 
   it('dragged roots drop descendants of other selected entities', () => {

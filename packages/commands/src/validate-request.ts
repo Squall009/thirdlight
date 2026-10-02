@@ -1165,8 +1165,8 @@ function validateMoveEntitiesArgs(args: Record<string, unknown>):
   | { ok: true; args: MoveEntitiesArgs }
   | { ok: false; error: CommandError } {
   for (const key of Object.keys(args)) {
-    if (key !== 'entityIds' && key !== 'parentId' && key !== 'beforeId') {
-      return { ok: false, error: fieldUnexpected(`/args/${pointerSegment(key)}`, key, 'entityIds, parentId, beforeId (optional)') };
+    if (key !== 'entityIds' && key !== 'parentId' && key !== 'beforeId' && key !== 'sceneId') {
+      return { ok: false, error: fieldUnexpected(`/args/${pointerSegment(key)}`, key, 'entityIds, parentId, beforeId (optional), sceneId (optional)') };
     }
   }
   const ids = args['entityIds'];
@@ -1193,6 +1193,12 @@ function validateMoveEntitiesArgs(args: Record<string, unknown>):
       return { ok: false, error: fieldType('/args/beforeId', beforeId, 'string (entity ID) or null') };
     }
     out.beforeId = beforeId;
+  }
+  // Into another scene (ids and references kept).
+  const sceneId = args['sceneId'];
+  if (sceneId !== undefined) {
+    if (typeof sceneId !== 'string') return { ok: false, error: fieldType('/args/sceneId', sceneId, 'string (scene ID)') };
+    out.sceneId = sceneId;
   }
   return { ok: true, args: out };
 }

@@ -866,6 +866,7 @@ export async function startGamePage(o: GamePageOptions): Promise<GamePageHandle>
       // How audio sources are heard (the audio_spatial setting; 3D: panned).
       audioSpatial: audioSpatialOf(settings),
       ...(o.debugConsole ? { debugConsole: true, focusGame: () => o.canvas.focus() } : {}),
+      ...(o.onProblem !== undefined ? { onProblem: o.onProblem } : {}),
       ...(startVariables !== undefined ? { variables: startVariables } : {}),
       ...(o.start?.options !== undefined ? { start: o.start.options } : {}),
       // The project UI documents and themes (the host draws them).

@@ -171,7 +171,7 @@ test('an upper-body layer masked by bone plays clips of an animation-only file i
   // Play: the runtime steps both layers and the renderer plays the clips file's
   // `wave` on the column's bones — only when the layer's mask holds `upper`.
   const q = await be.command({ op: 'queryProject', projectId: be.projectId, args: {} });
-  const created = await be.command({ op: 'createEntity', projectId: be.projectId, expectedRevision: q.revision, requestId: 'req-00000000000000000000000000146a01', origin: { kind: 'mcp', clientId: 'e2e-layers' }, args: { kind: 'model', name: 'column', model: { asset: { assetId: column.assetId } }, transform: { position: [0, 0, 0] } } });
+  const created = await be.command({ op: 'createEntity', projectId: be.projectId, expectedRevision: q.revision, requestId: 'req-00000000000000000000000000146a01', origin: { kind: 'mcp', clientId: 'e2e-layers' }, args: { sceneId: 'scene-main', kind: 'model', name: 'column', model: { asset: { assetId: column.assetId } }, transform: { position: [0, 0, 0] } } });
   expect(created.ok, JSON.stringify(created)).toBe(true);
   const q2 = await be.command({ op: 'queryProject', projectId: be.projectId, args: {} });
   const put = await be.command({ op: 'setComponent', projectId: be.projectId, expectedRevision: q2.revision, requestId: 'req-00000000000000000000000000146a02', origin: { kind: 'mcp', clientId: 'e2e-layers' }, args: { entityId: created['createdId'], component: 'animator', value: { controller: (stored as unknown as { controllerId: string }).controllerId } } });

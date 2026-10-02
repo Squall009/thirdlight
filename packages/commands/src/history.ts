@@ -22,6 +22,7 @@
  * (defensive).
  */
 
+import { replaySceneMove } from './move-scene-ops';
 import type { AnimatorController, EnvironmentConfig, InputConfig, LightingBake, MaterialDef, SceneEnvironment } from '@thirdlight/project-model';
 import { withAnimator, withEnvironment, withInput, withLighting, withMaterial, withSceneEnvironment } from './material-ops';
 import { withCollisionLayers } from './layer-ops';
@@ -158,6 +159,8 @@ interface AppliedState {
   scene: SceneDocument;
   content?: ContentDocument;
   change: ChangeData;
+  /** A cross-scene move's second scene as it now is. */
+  otherScene?: { sceneId: string; scene: SceneDocument };
 }
 
 type ApplyResult =
@@ -267,6 +270,12 @@ function applyInverse(state: CommandState<SceneDocument>, entry: HistoryEntry): 
   if (inv.kind === 'moveEntities') {
     const f = entry.change as MoveEntitiesChange;
     return applyMove(state, inv.order, inv.restore, f.entities[0]?.previous.parentId ?? null, null, entry.requestId);
+  }
+  if (inv.kind === 'moveEntitiesScene') {
+    // The objects go back to the carrier (the scene they came from), as they were.
+    const r = replaySceneMove(scene, state.otherScene, inv.restore, inv.order, true, inv.restore[0]?.parentId ?? null, entry.requestId, state.content);
+    if (!r.ok) return r;
+    return { ok: true, applied: { scene: r.result.scene, content: state.content, change: r.result.change, otherScene: r.result.otherScene } };
   }
 
   if (inv.kind === 'delete') {
@@ -756,6 +765,12 @@ function applyForward(state: CommandState<SceneDocument>, entry: HistoryEntry): 
   const f = entry.change;
 
   if (f.type === 'updateEntity') return applyHeader(state, f.id, f.next, f.order?.next ?? null, entry.requestId, f.transform?.next);
+  if (f.type === 'moveEntitiesScene') {
+    // Out of the carrier (the source) into the other scene again, as the move left them.
+    const r = replaySceneMove(scene, state.otherScene, f.entities, f.toOrder, false, f.parentId, entry.requestId, state.content);
+    if (!r.ok) return r;
+    return { ok: true, applied: { scene: r.result.scene, content: state.content, change: r.result.change, otherScene: r.result.otherScene } };
+  }
   if (f.type === 'moveEntities') {
     return applyMove(
       state,
@@ -1249,6 +1264,8 @@ function applyForward(state: CommandState<SceneDocument>, entry: HistoryEntry): 
 export interface HistoryOutcome {
   scene: SceneDocument;
   content?: ContentDocument;
+  /** A cross-scene move's second scene as it now is. */
+  otherScene?: { sceneId: string; scene: SceneDocument };
   history: HistoryState;
   change: ChangeData;
   appliedOf: string;
@@ -1273,6 +1290,7 @@ export function executeUndo(
     outcome: {
       scene: applied.applied.scene,
       content: applied.applied.content,
+      ...(applied.applied.otherScene !== undefined ? { otherScene: applied.applied.otherScene } : {}),
       history: { ...history, cursor: history.cursor - 1 },
       change: applied.applied.change,
       appliedOf: entry.requestId,
@@ -1300,6 +1318,7 @@ export function executeRedo(
     outcome: {
       scene: applied.applied.scene,
       content: applied.applied.content,
+      ...(applied.applied.otherScene !== undefined ? { otherScene: applied.applied.otherScene } : {}),
       history: { ...history, cursor: history.cursor + 1 },
       change: applied.applied.change,
       appliedOf: entry.requestId,

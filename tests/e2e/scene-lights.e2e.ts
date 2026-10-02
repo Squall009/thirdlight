@@ -128,7 +128,7 @@ for (const variant of RENDERER_VARIANTS) test(`lights belong to scenes: the most
   // The start scene: a red sun shining at the camera's view (-z), a dim fill, a white wall behind everything.
   await cmd('setComponent', { entityId: 'light-0001', component: 'light', value: { type: 'directional', color: '#ff0000', intensity: 3, direction: [0, -0.2, -1], castShadow: false } });
   await cmd('setComponent', { entityId: 'light-0002', component: 'light', value: { type: 'ambient', color: '#ffffff', intensity: 0.05 } });
-  await cmd('createEntity', { parentId: null, kind: 'box', name: 'Back wall', transform: { position: [4, 3, -4] }, box: { size: [60, 40, 1], material: { color: '#ffffff' } } });
+  await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'box', name: 'Back wall', transform: { position: [4, 3, -4] }, box: { size: [60, 40, 1], material: { color: '#ffffff' } } });
 
   // Dusk: a blue sun only.
   await cmd('createScene', { sceneId: 'scene-dusk', name: 'Dusk' });

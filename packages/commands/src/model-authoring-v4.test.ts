@@ -12,7 +12,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import type { SceneV4 } from '@thirdlight/project-model';
+import { playChecks, type SceneV4 } from '@thirdlight/project-model';
 
 import { applyMutation, createCommandState } from './index';
 import type { CommandState, MutationSuccess } from './index';
@@ -177,7 +177,7 @@ describe('fixtures/m2/commands/model-authoring.messages.json replay (C27-1/C28-1
     });
   });
 
-  it('adds and removes the controller marker and rejects a second controller', () => {
+  it('adds and removes the controller marker; a second controller is refused at Play, not per edit', () => {
     const s1 = ok(
       mutation(baseState(), 'createEntity', {
         kind: 'model',
@@ -194,12 +194,13 @@ describe('fixtures/m2/commands/model-authoring.messages.json replay (C27-1/C28-1
       mutation(s2.state, 'setComponent', { entityId: 'model-000001', component: 'controller', value: {} }),
     );
     expect(add.result.change).toMatchObject({ component: 'controller', previous: null, next: {}, changedFields: [] });
-    const second = mutation(add.state, 'setComponent', {
-      entityId: 'model-000002',
-      component: 'controller',
-      value: {},
-    });
-    expect(failCode(second)).toBe('controller_count_invalid');
+    // Two players in one scene is a state an author passes through (moving the player to another
+    // object): the edit is taken, and the game's start refuses it.
+    const second = ok(
+      mutation(add.state, 'setComponent', { entityId: 'model-000002', component: 'controller', value: {} }),
+    );
+    const sceneId = second.state.scene.sceneId;
+    expect(playChecks({}, [second.state.scene], [sceneId]).find((c) => c.code === 'player_count')?.refuse).toBe(true);
     const remove = ok(
       mutation(add.state, 'setComponent', { entityId: 'model-000001', component: 'controller', value: null }),
     );

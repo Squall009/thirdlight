@@ -84,7 +84,7 @@ test('assets: the editor refuses a used one and deletes an unused one; MCP gets 
 
 test('prefabs: refused while a copy is placed, deleted after; createEntities is one revision and one undo', async ({ page }) => {
   expect((await command('createPrefab', { prefabId: 'crate', displayName: 'Crate', sourceEntityId: STARTER.groundId })).isError).toBe(false);
-  const placed = await command('instantiatePrefab', { prefabId: 'crate', transform: { position: [0, 3, 0] } });
+  const placed = await command('instantiatePrefab', { sceneId: 'scene-main', prefabId: 'crate', transform: { position: [0, 3, 0] } });
   expect(placed.isError, JSON.stringify(placed.body)).toBe(false);
   await page.goto(be.editorUrl);
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
@@ -112,7 +112,7 @@ test('prefabs: refused while a copy is placed, deleted after; createEntities is 
   // Bulk building over MCP: one revision, the editor shows every object, one undo removes them all.
   const before = await rev();
   const items = [{ kind: 'folder', name: 'Row', ref: 'row' }, ...Array.from({ length: 12 }, (_, i) => ({ kind: 'box', parentId: 'row', name: `post ${i}`, static: true, transform: { position: [i * 1.5 - 8, 0.5, -4] } }))];
-  const made = await command('createEntities', { entities: items });
+  const made = await command('createEntities', { sceneId: 'scene-main', entities: items });
   expect(made.isError, JSON.stringify(made.body).slice(0, 400)).toBe(false);
   expect(await rev()).toBe(before + 1);
   await closeEditor(page);

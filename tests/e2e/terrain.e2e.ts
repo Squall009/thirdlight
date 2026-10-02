@@ -99,9 +99,9 @@ async function buildTerrain(): Promise<{ layer: string; player: string }> {
   // South of the lane, above it, looking down its length a little.
   const pitch = (-30 * Math.PI) / 180;
   await cmd('setTransform', { entityId: cam, transform: { position: [8, 10, 14], rotation: [Math.sin(pitch / 2), 0, 0, Math.cos(pitch / 2)] } });
-  const layer = String((await cmd('createEntity', { parentId: null, kind: 'group', name: 'Terrain', transform: { position: [...ORIGIN] } }))['createdId']);
+  const layer = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Terrain', transform: { position: [...ORIGIN] } }))['createdId']);
   // Over the gentle slope's middle (layer column 6.5, world x 4.5), a few metres up.
-  const player = String((await cmd('createEntity', { parentId: null, kind: 'group', name: 'Player', transform: { position: [4.5, 4, 0] } }))['createdId']);
+  const player = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Player', transform: { position: [4.5, 4, 0] } }))['createdId']);
   await cmd('setComponent', { entityId: player, component: 'controller', value: {} });
   await cmd('setComponent', { entityId: layer, component: 'blockLayer', value: { cellSize: [1, 1, 1], bounds: { min: [0, 0, 0], max: [24, 12, 8] }, maxSlope: 30 } });
   const res = await cmd('editBlocks', { entityId: layer, edits: laneEdits(1, 7) });

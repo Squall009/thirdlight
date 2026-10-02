@@ -25,7 +25,7 @@ function createBox(svc: WorkspaceService, projectId: string): { ok: boolean; rev
     expectedRevision: q.revision,
     requestId: rid(),
     origin: { kind: 'mcp', clientId: 'registry-test' },
-    args: { kind: 'box', parentId: null, name: 'crate' },
+    args: { sceneId: 'scene-main', kind: 'box', parentId: null, name: 'crate' },
   }) as { ok: boolean; revision?: number };
 }
 

@@ -84,7 +84,7 @@ test('terrain brushes: Height raises and lowers, Smooth softens, Flatten levels;
   test.setTimeout(300_000);
   be = await startBackend('terrain-brushes-e2e');
   await cmd('setBlockType', { block: { blockId: 'soil', name: 'Soil', variants: [{ color: '#7a6040' }], shape: 'full' } });
-  const layer = String((await cmd('createEntity', { parentId: null, kind: 'group', name: 'Ground', transform: { position: [...ORIGIN] } }))['createdId']);
+  const layer = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Ground', transform: { position: [...ORIGIN] } }))['createdId']);
   await cmd('setComponent', { entityId: layer, component: 'blockLayer', value: { cellSize: [1, 0.5, 1], bounds: { min: [0, 0, 0], max: [32, 16, 32] } } });
   await cmd('editBlocks', { entityId: layer, edits: [{ kind: 'fill', box: [0, 0, 0, 32, 4, 32], cell: { block: 'soil' } }] });
   const flat = await chunks(layer);

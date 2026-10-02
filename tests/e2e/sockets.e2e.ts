@@ -132,11 +132,11 @@ function clipTime(step: number): number {
 async function buildScene(page: Page): Promise<{ table: string; gem: string }> {
   const assetId = await importModel(page);
   await cmd('setAnimator', { controller: CONTROLLER(assetId) });
-  const table = String((await cmd('createEntity', { parentId: null, kind: 'model', name: 'Table', model: { asset: { assetId } }, transform: { position: [-2, 0, 0] } }))['createdId']);
+  const table = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'model', name: 'Table', model: { asset: { assetId } }, transform: { position: [-2, 0, 0] } }))['createdId']);
   await cmd('setComponent', { entityId: table, component: 'animator', value: { controller: 'ctl-slide' } });
-  const gem = String((await cmd('createEntity', { parentId: null, kind: 'box', name: 'Gem', transform: { position: [4, 4, 4] }, box: { size: [0.2, 0.2, 0.2], material: { color: '#3366ff' } } }))['createdId']);
+  const gem = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'box', name: 'Gem', transform: { position: [4, 4, 4] }, box: { size: [0.2, 0.2, 0.2], material: { color: '#3366ff' } } }))['createdId']);
   await cmd('setComponent', { entityId: gem, component: 'socketAttach', value: { target: table, node: 'hand', position: [0, 0.25, 0] } });
-  const director = String((await cmd('createEntity', { parentId: null, kind: 'group', name: 'Director', transform: { position: [0, -5, 0] } }))['createdId']);
+  const director = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Director', transform: { position: [0, -5, 0] } }))['createdId']);
   await script('director', DIRECTOR, director, { table, gem });
   return { table, gem };
 }
@@ -263,8 +263,8 @@ test('editor: "+ Add component" → Socket, the Inspector node list from the mod
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
   const assetId = await importModel(page);
   await cmd('setAnimator', { controller: CONTROLLER(assetId) });
-  const table = String((await cmd('createEntity', { parentId: null, kind: 'model', name: 'Table', model: { asset: { assetId } }, transform: { position: [0, 0, 0] } }))['createdId']);
-  const lamp = String((await cmd('createEntity', { parentId: null, kind: 'box', name: 'Lamp', transform: { position: [2, 1, 0] }, box: { size: [0.3, 0.3, 0.3], material: { color: '#ffcc00' } } }))['createdId']);
+  const table = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'model', name: 'Table', model: { asset: { assetId } }, transform: { position: [0, 0, 0] } }))['createdId']);
+  const lamp = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'box', name: 'Lamp', transform: { position: [2, 1, 0] }, box: { size: [0.3, 0.3, 0.3], material: { color: '#ffcc00' } } }))['createdId']);
   const inspector = page.locator('.tl-inspector');
 
   // "+ Add component" → Socket: the target is the model object; the node starts as a placeholder.

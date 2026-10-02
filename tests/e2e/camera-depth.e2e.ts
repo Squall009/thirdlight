@@ -30,7 +30,7 @@ async function cmd(op: string, args: Record<string, unknown>): Promise<Record<st
 }
 
 async function create(name: string, position: number[], extra: Record<string, unknown> = {}, kind = 'group'): Promise<string> {
-  return String((await cmd('createEntity', { parentId: null, kind, name, transform: { position }, ...extra }))['createdId']);
+  return String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind, name, transform: { position }, ...extra }))['createdId']);
 }
 
 /** Pixels of a colour in the view (sampled every 2 px). */

@@ -87,7 +87,7 @@ const GRAPH: Graph = {
 
 test('visual script editor and debugging: problems, variables, functions, switch cases, active nodes, breakpoint pause, wire values, watch, step, resume', async ({ page }) => {
   test.setTimeout(300_000);
-  const boxId = String((await cmd('createEntity', { kind: 'box', name: 'Debug box', transform: { position: [6, 1, 0] }, box: { size: [0.5, 0.5, 0.5], material: { color: '#808080' } } }))['createdId']);
+  const boxId = String((await cmd('createEntity', { sceneId: 'scene-main', kind: 'box', name: 'Debug box', transform: { position: [6, 1, 0] }, box: { size: [0.5, 0.5, 0.5], material: { color: '#808080' } } }))['createdId']);
   // The counter name is left empty: a compile problem on "add".
   await cmd('publishBehavior', { behaviorId: 'stepper', displayName: 'Stepper', mode: 'declaration-create', declaration: { properties: [] }, graph: GRAPH });
 

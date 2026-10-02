@@ -58,7 +58,7 @@ test('items open in a window over the editor: editor left, the one Inspector rig
   // Neutral fixtures: two declared behaviors, an object to select and (below) a one-state animator controller.
   await cmd('publishBehavior', { behaviorId: 'mover', displayName: 'Mover', mode: 'declaration-create', declaration: { properties: [{ key: 'speed', label: 'Speed', type: 'number', default: 2 }] } });
   await cmd('publishBehavior', { behaviorId: 'door', displayName: 'Door', mode: 'declaration-create', declaration: { properties: [{ key: 'open', label: 'Open', type: 'boolean', default: false }] } });
-  const crate = String((await cmd('createEntity', { kind: 'box', name: 'Crate', box: { size: [1, 1, 1], material: { color: '#b0b0b0' } }, transform: { position: [0, 0.5, 0] } }))['createdId']);
+  const crate = String((await cmd('createEntity', { sceneId: 'scene-main', kind: 'box', name: 'Crate', box: { size: [1, 1, 1], material: { color: '#b0b0b0' } }, transform: { position: [0, 0.5, 0] } }))['createdId']);
   await open(page);
   const dir = mkdtempSync(join(tmpdir(), 'tl-ewin-'));
   writeFileSync(join(dir, 'column.glb'), skinnedGlb());
@@ -228,7 +228,7 @@ test('"Open" beside an Inspector reference opens the item in the window; Esc ret
   test.setTimeout(90_000);
   await cmd('setMaterial', { material: { materialId: 'mat-one', name: 'Mat One', shader: 'standard', params: { roughness: 0.5 }, textures: {}, graph: { nodes: [{ id: 'output', type: 'pbr', position: [400, 0] }], edges: [] } } });
   await cmd('setMaterial', { material: { materialId: 'mat-plain', name: 'Mat Plain', shader: 'standard', params: { roughness: 0.5 }, textures: {} } });
-  const crate = String((await cmd('createEntity', { kind: 'box', name: 'Crate', box: { size: [1, 1, 1], material: { color: '#b0b0b0' } }, transform: { position: [0, 0.5, 0] }, components: { materials: { '*': 'mat-one' } } }))['createdId']);
+  const crate = String((await cmd('createEntity', { sceneId: 'scene-main', kind: 'box', name: 'Crate', box: { size: [1, 1, 1], material: { color: '#b0b0b0' } }, transform: { position: [0, 0.5, 0] }, components: { materials: { '*': 'mat-one' } } }))['createdId']);
   await open(page);
   await row(page, crate).click();
   const openRef = inspector(page).getByRole('button', { name: 'Open material for all', exact: true });
@@ -278,7 +278,7 @@ test('the default view keeps the Scene and Game views and the maximize toggle', 
 
 test('an editor command right after MCP edits is applied once the change feed brings them, not refused', async ({ page }) => {
   test.setTimeout(90_000);
-  const crate = String((await cmd('createEntity', { kind: 'box', name: 'Crate', box: { size: [1, 1, 1], material: { color: '#b0b0b0' } }, transform: { position: [0, 0.5, 0] } }))['createdId']);
+  const crate = String((await cmd('createEntity', { sceneId: 'scene-main', kind: 'box', name: 'Crate', box: { size: [1, 1, 1], material: { color: '#b0b0b0' } }, transform: { position: [0, 0.5, 0] } }))['createdId']);
   // The MCP edits' change-feed events reach the page late (held for a while, or until released), as on a busy
   // page or a slow socket; every other message passes straight through.
   let hold: 'none' | 'late' | 'stalled' = 'none';

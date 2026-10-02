@@ -156,7 +156,7 @@ describe('a scene load reads its own catalog files (HTTP, a real Play)', () => {
     await command('acknowledgeBehaviorTrust', { sourceDigest: sha(bytes) });
     const published = await api(`${tb.authUrl}/api/v1/projects/${PID}/content/behaviors/source`, { body: { stageId, behaviorId: 'reader', displayName: 'Reader', declaration, expectedRevision: revision(), requestId: mkRequestId() }, token: tb.adminToken, origin: null });
     expect(published.status, JSON.stringify(published.json)).toBe(200);
-    const holder = String((await command('createEntity', { kind: 'group', parentId: null, name: 'Reader' }))['createdId']);
+    const holder = String((await command('createEntity', { sceneId: 'scene-main', kind: 'group', parentId: null, name: 'Reader' }))['createdId']);
     await command('setBehaviorProperties', { entityId: holder, behaviorId: 'reader', values: {} });
     expect(physics(await modulesOf())).toHaveLength(1);
   }, 120_000);

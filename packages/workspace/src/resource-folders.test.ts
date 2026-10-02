@@ -214,7 +214,7 @@ describe('files changed in the game folder while the project is open', () => {
       ok(s, 'setMaterial', { material: mat('stone', '#808080') });
       ok(s, 'setMaterial', { material: mat('grass', '#40a040') });
       ok(s, 'createScene', { name: 'Level 1', sceneId: 'level-1', folder: 'levels' });
-      ok(s, 'createEntity', { kind: 'box', name: 'Wall', components: { materials: { '*': 'grass' } } });
+      ok(s, 'createEntity', { sceneId: 'scene-main', kind: 'box', name: 'Wall', components: { materials: { '*': 'grass' } } });
       const rev = revision(s);
       // Moves: a material and a scene, renamed into other folders.
       mkdirSync(join(dir, 'art'), { recursive: true });
@@ -278,7 +278,7 @@ describe('a sidecar lost while the project is closed', () => {
       s.holdAssetBytes(PID, CRATE);
       ok(s, 'publishAsset', { mode: 'create', assetId: 'crate', kind: 'model', displayName: 'Crate', sourceDigest: sha(CRATE), sourceByteLength: CRATE.length, importRecipe: RECIPE, metrics: METRICS, importedAt: '2026-09-30T10:00:00Z' });
       ok(s, 'setAssetOptions', { assetId: 'crate', vertexColors: 'tint' });
-      ok(s, 'createEntity', { kind: 'model', name: 'Crate', model: { asset: { assetId: 'crate' } } });
+      ok(s, 'createEntity', { sceneId: 'scene-main', kind: 'model', name: 'Crate', model: { asset: { assetId: 'crate' } } });
     } finally {
       s.close();
     }

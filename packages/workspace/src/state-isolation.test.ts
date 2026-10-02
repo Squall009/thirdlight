@@ -88,7 +88,7 @@ function request(revision: number): {
   projectId: string;
   expectedRevision: number;
   requestId: string;
-  args: { kind: 'box'; name: string };
+  args: { sceneId: string; kind: 'box'; name: string };
 } {
   sequence += 1;
   return {
@@ -96,7 +96,7 @@ function request(revision: number): {
     projectId: 'demo',
     expectedRevision: revision,
     requestId: `req-${sequence.toString(16).padStart(32, '0')}`,
-    args: { kind: 'box', name: `Box ${sequence}` },
+    args: { sceneId: 'scene-main', kind: 'box', name: `Box ${sequence}` },
   };
 }
 

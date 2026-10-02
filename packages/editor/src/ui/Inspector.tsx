@@ -112,13 +112,14 @@ function TagControls(props: { entity: ProjectedEntity; flags: EffectiveEntityFla
 }
 
 /** The entity flags the Inspector edits (`updateEntity`). */
-export type EntityFlag = 'active' | 'visible' | 'locked' | 'static';
+export type EntityFlag = 'active' | 'visible' | 'locked' | 'static' | 'keepLoaded';
 
 const FLAG_ROWS = [
   { flag: 'active', label: 'Active', hint: 'Off: left out of the game and hidden in the editor, with everything under it.' },
   { flag: 'visible', label: 'Visible', hint: 'Off: the game starts it hidden (still simulated and colliding) until a script or a timeline shows it; the Scene view still draws it.' },
   { flag: 'locked', label: 'Locked', hint: 'Editor only: cannot be picked or moved in the Scene view.' },
   { flag: 'static', label: 'Static', hint: 'Marks the object as not moving.' },
+  { flag: 'keepLoaded', label: 'Keep loaded', hint: 'Survives scene changes with its children and scripts: loading, unloading or reloading its scene, or loading a save, never destroys it. On a root object (or one in folders); a kept parent keeps it too.' },
 ] as const;
 
 /**
@@ -142,7 +143,12 @@ function FlagControls(props: { entity: ProjectedEntity; flags: EffectiveEntityFl
             <span>{label}</span>
             {from !== undefined && (
               <span className="tl-flag__inherited" data-flag={flag}>
-                {flag === 'active' ? (effective ? 'active' : 'inactive') : effective ? flag : `not ${flag}`} — inherited from {props.entityName(from)}
+                {flag === 'active' ? (effective ? 'active' : 'inactive') : flag === 'keepLoaded' ? 'kept loaded' : effective ? flag : `not ${flag}`} — inherited from {props.entityName(from)}
+              </span>
+            )}
+            {flag === 'keepLoaded' && flags?.keepIgnored === true && (
+              <span className="tl-flag__inherited" data-flag="keepIgnored">
+                no effect: its parent is not kept loaded (it goes with its parent)
               </span>
             )}
           </label>

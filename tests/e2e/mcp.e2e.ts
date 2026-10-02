@@ -106,7 +106,7 @@ test('an MCP agent files entities into folders and sets folder flags; the editor
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
   const rev = async (): Promise<number> => (await call('tl_inspect', { target: 'project' })).body.revision as number;
 
-  const made = await call('tl_command', { op: 'createEntity', expectedRevision: await rev(), args: { kind: 'folder', name: 'Characters' } });
+  const made = await call('tl_command', { op: 'createEntity', expectedRevision: await rev(), args: { sceneId: 'scene-main', kind: 'folder', name: 'Characters' } });
   expect(made.isError, JSON.stringify(made.body)).toBe(false);
   const folderId = String(made.body.createdId);
   const list = (await call('tl_inspect', { target: 'entities', limit: 200 })).body.entities as Array<{ id: string; name?: string; components: Record<string, unknown> }>;
@@ -189,7 +189,7 @@ test('an MCP agent builds a visual script with graphEdit, publishes it through t
   await expect(view.getByText('published', { exact: true })).toBeVisible({ timeout: 20_000 });
 
   // Attach it to a new box and play with the MCP tools: On start adds 4 to "gifts".
-  const box = String((await ok('createEntity', { kind: 'box', name: 'Gift box', transform: { position: [6, 1, 0] } }))['createdId']);
+  const box = String((await ok('createEntity', { sceneId: 'scene-main', kind: 'box', name: 'Gift box', transform: { position: [6, 1, 0] } }))['createdId']);
   await ok('setBehaviorProperties', { entityId: box, behaviorId: 'mcp-gifts', values: {} });
   const sessionId = ((await call('tl_sessions')).body.sessions as Array<{ sessionId: string; connected: boolean }>).find((s) => s.connected)!.sessionId;
   const started = await call('tl_play_start', { demo: false, sessionId });

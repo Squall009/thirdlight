@@ -110,9 +110,9 @@ test('callbacks: completion in the script editor, On enable in the node menu, li
   test.setTimeout(300_000);
   be = await startBackend('callbacks-e2e', 'starter');
 
-  const lampId = String((await cmd('createEntity', { parentId: null, kind: 'box', name: 'Lamp', transform: { position: [2, 3, 0] }, box: { size: [0.5, 0.5, 0.5], material: { color: '#ffffff' } } }))['createdId']);
+  const lampId = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'box', name: 'Lamp', transform: { position: [2, 3, 0] }, box: { size: [0.5, 0.5, 0.5], material: { color: '#ffffff' } } }))['createdId']);
   const childId = String((await cmd('createEntity', { parentId: lampId, kind: 'box', name: 'Lamp child', transform: { position: [0, -0.5, 0] }, box: { size: [0.2, 0.2, 0.2], material: { color: '#ffff00' } } }))['createdId']);
-  const directorId = String((await cmd('createEntity', { parentId: null, kind: 'box', name: 'Director', transform: { position: [0, -20, 0] }, box: { size: [0.2, 0.2, 0.2], material: { color: '#808080' } } }))['createdId']);
+  const directorId = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'box', name: 'Director', transform: { position: [0, -20, 0] }, box: { size: [0.2, 0.2, 0.2], material: { color: '#808080' } } }))['createdId']);
   await publishScript('director', 'Director', DIRECTOR, { properties: [{ key: 'lamp', label: 'Lamp', type: 'entityRef', default: null }] });
   await publishScript('watcher', 'Watcher', WATCHER, { properties: [{ key: 'director', label: 'Director', type: 'entityRef', default: null }] });
   await cmd('setBehaviorProperties', { entityId: directorId, behaviorId: 'director', values: { lamp: lampId } });

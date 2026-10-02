@@ -234,7 +234,7 @@ function mutation(requestId: string, expectedRevision: number, name?: string) {
     projectId: PROJECT,
     expectedRevision,
     requestId,
-    args: { kind: 'box', name: name ?? `Box ${requestId.slice(4, 12)}` },
+    args: { sceneId: 'scene-main', kind: 'box', name: name ?? `Box ${requestId.slice(4, 12)}` },
   };
 }
 

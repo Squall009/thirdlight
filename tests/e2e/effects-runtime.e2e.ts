@@ -209,7 +209,7 @@ test('the Scene view plays the selected object\'s effect in edit mode (Gizmos to
   await cmd('setEffect', { effect: burstEffect('fx-loop', true) });
   await page.goto(be.editorUrl);
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
-  const created = await cmd('createEntity', { kind: 'group', name: 'Fountain', transform: { position: [0, 1, 0] } });
+  const created = await cmd('createEntity', { sceneId: 'scene-main', kind: 'group', name: 'Fountain', transform: { position: [0, 1, 0] } });
   const id = String(created['createdId']);
   await cmd('setComponent', { entityId: id, component: 'effect', value: { effectId: 'fx-loop' } });
   const viewport = page.locator('canvas.tl-viewport');

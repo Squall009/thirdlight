@@ -144,11 +144,11 @@ async function buildScene(): Promise<{ a: string; b: string }> {
   for (const e of ents) if (e.components['box'] !== undefined) await cmd('setTransform', { entityId: e.id, transform: { position: [0, -50, 0] } });
   const ids: string[] = [];
   for (const [name, mat, x] of [['Box A', 'mat-a', 0], ['Box B', 'mat-b', 0]] as const) {
-    const id = String((await cmd('createEntity', { parentId: null, kind: 'box', name, transform: { position: [x, 0, -60] }, box: { size: [2, 2, 0.05], material: { color: '#ffffff' } } }))['createdId']);
+    const id = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'box', name, transform: { position: [x, 0, -60] }, box: { size: [2, 2, 0.05], material: { color: '#ffffff' } } }))['createdId']);
     await cmd('setComponent', { entityId: id, component: 'materials', value: { '*': mat } });
     ids.push(id);
   }
-  const driver = String((await cmd('createEntity', { parentId: null, kind: 'group', name: 'Driver', transform: { position: [0, -10, 0] } }))['createdId']);
+  const driver = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Driver', transform: { position: [0, -10, 0] } }))['createdId']);
   await installMover(driver);
   return { a: ids[0]!, b: ids[1]! };
 }

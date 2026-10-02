@@ -71,10 +71,10 @@ for (const variant of RENDERER_VARIANTS) {
     // Two groups of four equal boxes (one material each) and one single box, all on the unit box mesh.
     const blue: string[] = [];
     for (let i = 0; i < 4; i++) {
-      blue.push(String((await cmd('createEntity', { kind: 'box', name: `Blue ${i}`, transform: { position: [i * 1.4 - 2.1, 0.5, 1] }, box: { size: [1, 1, 1], material: { color: COLORS.blue } } }))['createdId']));
-      await cmd('createEntity', { kind: 'box', name: `Red ${i}`, transform: { position: [i * 1.4 - 2.1, 0.5, -1] }, box: { size: [1, 1, 1], material: { color: COLORS.red } } });
+      blue.push(String((await cmd('createEntity', { sceneId: 'scene-main', kind: 'box', name: `Blue ${i}`, transform: { position: [i * 1.4 - 2.1, 0.5, 1] }, box: { size: [1, 1, 1], material: { color: COLORS.blue } } }))['createdId']));
+      await cmd('createEntity', { sceneId: 'scene-main', kind: 'box', name: `Red ${i}`, transform: { position: [i * 1.4 - 2.1, 0.5, -1] }, box: { size: [1, 1, 1], material: { color: COLORS.red } } });
     }
-    await cmd('createEntity', { kind: 'box', name: 'Green', transform: { position: [0, 2, 0] }, box: { size: [1, 1, 1], material: { color: COLORS.green } } });
+    await cmd('createEntity', { sceneId: 'scene-main', kind: 'box', name: 'Green', transform: { position: [0, 2, 0] }, box: { size: [1, 1, 1], material: { color: COLORS.green } } });
 
     const validation: string[] = [];
     page.on('console', (m) => {

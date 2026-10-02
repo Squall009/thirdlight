@@ -231,11 +231,11 @@ test('a scatter of 50 000 copies: the same buffer with and without workers; no l
 });
 
 async function bakeScene(page: Page): Promise<void> {
-  const ground = String((await cmd('createEntity', { kind: 'box', name: 'ground', box: { size: [40, 0.5, 40], material: { color: '#b0b0b0' } }, transform: { position: [0, -0.25, 0] } })).createdId);
+  const ground = String((await cmd('createEntity', { sceneId: 'scene-main', kind: 'box', name: 'ground', box: { size: [40, 0.5, 40], material: { color: '#b0b0b0' } }, transform: { position: [0, -0.25, 0] } })).createdId);
   await cmd('updateEntity', { entityId: ground, static: true });
   // A 40 m ground (a large lightmap: the CPU-side work grows with its texels) and a row of static boxes.
   for (let i = 0; i < 12; i += 1) {
-    const id = String((await cmd('createEntity', { kind: 'box', name: `crate ${i}`, box: { size: [0.8, 1 + (i % 3) * 0.5, 0.8], material: { color: '#b0b0b0' } }, transform: { position: [-5 + (i % 6) * 2, 0.6, i < 6 ? -2 : 2] } })).createdId);
+    const id = String((await cmd('createEntity', { sceneId: 'scene-main', kind: 'box', name: `crate ${i}`, box: { size: [0.8, 1 + (i % 3) * 0.5, 0.8], material: { color: '#b0b0b0' } }, transform: { position: [-5 + (i % 6) * 2, 0.6, i < 6 ? -2 : 2] } })).createdId);
     await cmd('updateEntity', { entityId: id, static: true });
   }
   await cmd('setComponent', { entityId: 'light-0001', component: 'light', value: { type: 'directional', color: '#ffffff', intensity: 1.2, direction: [0.4, -1, -0.3], castShadow: false, mode: 'baked' } });

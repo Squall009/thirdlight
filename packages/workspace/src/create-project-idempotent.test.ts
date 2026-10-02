@@ -328,7 +328,7 @@ describe('R15 (group B2): the idempotent createProject is read-only', () => {
           projectId: 'fresh',
           expectedRevision: 0,
           requestId: nextRequestId(),
-          args: { kind: 'box' },
+          args: { sceneId: 'scene-main', kind: 'box' },
         });
         expect(m.ok, JSON.stringify(m)).toBe(true);
         if (m.ok) {

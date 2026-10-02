@@ -10,12 +10,13 @@
  *
  * Pure: the documents in, the problems out.
  */
+import { effectiveEntityFlags } from './hierarchy-v3';
 import type { ContentCatalogV4, SceneEntityV3, SceneV4 } from './types-v3';
 import { isFolderEntity } from './types-v3';
 
 export interface PlayCheck {
   /** Stable code (Problems line kind). */
-  code: 'view_missing';
+  code: 'view_missing' | 'player_count' | 'player_scene' | 'kept_twice' | 'kept_ignored';
   /** True: the start is refused; false: a warning (the game starts). */
   refuse: boolean;
   message: string;
@@ -49,6 +50,30 @@ export function playChecks(_content: ContentCatalogV4 | Record<string, unknown>,
     const vc = (e.components as { virtualCamera?: { enabled?: boolean } }).virtualCamera;
     return vc !== undefined && vc.enabled !== false;
   }));
+  // One player controller per view (the game has one view): the scenes it starts with hold at most one.
+  const players = started.flatMap((s) => inGame(s.entities).filter((e) => (e.components as { controller?: unknown }).controller !== undefined).map((e) => `"${e.id}" (scene "${s.sceneId}")`));
+  if (players.length > 1) {
+    checks.push({ code: 'player_count', refuse: true, message: `the game starts with ${players.length} player controllers (${players.slice(0, 4).join(', ')}): one player controller per view` });
+  }
+  // A player body is made when the game starts: a scene loaded later cannot bring one.
+  for (const s of scenes) {
+    if (start.has(s.sceneId)) continue;
+    const p = inGame(s.entities).find((e) => (e.components as { controller?: unknown }).controller !== undefined);
+    if (p !== undefined) checks.push({ code: 'player_scene', refuse: false, message: `scene "${s.sceneId}" holds the player controller "${p.id}", but the game does not start with it: loading it while the game runs is refused (put the player in a start scene and keep it loaded)` });
+  }
+  // A kept object is one object: its id in two scenes would be two copies.
+  const keptIn = new Map<string, string>();
+  for (const s of scenes) {
+    const flags = effectiveEntityFlags(s.entities);
+    for (const e of s.entities) {
+      const f = flags.get(e.id);
+      if (f?.keepIgnored === true) checks.push({ code: 'kept_ignored', refuse: false, message: `"${e.id}" (scene "${s.sceneId}") keeps loaded under "${String(e.parentId)}", which does not: it goes with its parent (keep the parent, or move it to the scene's root)` });
+      if (f?.keepLoaded !== true || isFolderEntity(e)) continue;
+      const other = keptIn.get(e.id);
+      if (other !== undefined && other !== s.sceneId) checks.push({ code: 'kept_twice', refuse: true, message: `"${e.id}" keeps loaded in scene "${other}" and in scene "${s.sceneId}": a kept object is one object (give one of them another id)` });
+      else keptIn.set(e.id, s.sceneId);
+    }
+  }
   if (!shot) {
     checks.push({
       code: 'view_missing',

@@ -213,11 +213,11 @@ export function useSceneEditing(deps: SceneEditingDeps) {
     },
   };
 
-  /** File entities (with their subtrees) under a parent, before a sibling or at the end. */
-  const move = useCallback(async (entityIds: string[], parentId: string | null, beforeId: string | null) => {
+  /** File entities (with their subtrees) under a parent, before a sibling or at the end — in another scene when one is named. */
+  const move = useCallback(async (entityIds: string[], parentId: string | null, beforeId: string | null, sceneId?: string) => {
     const c = clientRef.current;
     if (!c || entityIds.length === 0) return;
-    const res = await c.command('moveEntities', { entityIds, parentId, ...(beforeId !== null ? { beforeId } : {}) }, c.projection.revision);
+    const res = await c.command('moveEntities', { entityIds, parentId, ...(beforeId !== null ? { beforeId } : {}), ...(sceneId !== undefined ? { sceneId } : {}) }, c.projection.revision);
     // Dropping something where it already is changes nothing; not an error.
     if (!res.ok && (res.response as { code?: string }).code === 'no_change') return;
     reportFailure('Move', res);

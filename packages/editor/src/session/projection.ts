@@ -36,6 +36,8 @@ export interface ProjectedEntity {
   visible: boolean;
   locked: boolean;
   static: boolean;
+  /** Its own keep-loaded flag (it survives scene changes; folders and kept parents pass it down). */
+  keepLoaded: boolean;
   /** The entity's own tag mask (0 = none). */
   tags: number;
   /** Local transform; a folder has none and shows the identity. */
@@ -175,7 +177,7 @@ function capsuleOf(controller: unknown): ProjectedEntity['capsule'] {
 }
 
 function toProjected(e: EntityV3): ProjectedEntity {
-  const flags = e as { active?: boolean; visible?: boolean; locked?: boolean; static?: boolean; tags?: number };
+  const flags = e as { active?: boolean; visible?: boolean; locked?: boolean; static?: boolean; keepLoaded?: boolean; tags?: number };
   const c = e.components as {
     folder?: unknown;
     box?: { size?: number[]; material?: { color?: string } };
@@ -206,6 +208,7 @@ function toProjected(e: EntityV3): ProjectedEntity {
     visible: flags.visible !== false,
     locked: flags.locked === true,
     static: flags.static === true,
+    keepLoaded: flags.keepLoaded === true,
     tags: typeof flags.tags === 'number' ? flags.tags >>> 0 : 0,
     position: [...t.position],
     rotation: [...t.rotation],
@@ -467,6 +470,7 @@ export class Projection {
         p.visible = change.next.visible !== false;
         p.locked = change.next.locked === true;
         p.static = change.next.static === true;
+        p.keepLoaded = change.next.keepLoaded === true;
         p.tags = typeof change.next.tags === 'number' ? change.next.tags >>> 0 : 0;
         if (change.transform !== undefined) {
           p.position = [...change.transform.next.position];
@@ -491,6 +495,19 @@ export class Projection {
           }
         }
         this.order = [...change.order.next];
+        this.structural();
+        return true;
+      }
+      case 'moveEntitiesScene': {
+        // Objects moved into another scene: the same ids, now in that scene (with their new parent and transform).
+        for (const entity of change.entities) {
+          const prev = this.entities.get(entity.id);
+          const p = toProjected(entity);
+          p.sceneId = change.toSceneId;
+          this.entities.set(p.id, p);
+          if (prev === undefined) this.order.push(p.id);
+          this.touch(p.id);
+        }
         this.structural();
         return true;
       }

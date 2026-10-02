@@ -53,7 +53,7 @@ test('the player capsule: Inspector, outline, top-handle drag with one undo, the
   test.setTimeout(240_000);
   const PLAYER = 'model-0001';
   // A neutral low ceiling over x 4.2..5.0 (underside 1.2 m above the ground) and a child under the player.
-  expect((await mutate('createEntity', { parentId: null, kind: 'box', name: 'Low ceiling', transform: { position: [4.6, 1.7, 0] }, box: { size: [0.8, 1, 1], material: { color: '#777777' } }, components: { collider: { shape: { type: 'box', hx: 0.4, hy: 0.5 } } } }))['ok']).toBe(true);
+  expect((await mutate('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'box', name: 'Low ceiling', transform: { position: [4.6, 1.7, 0] }, box: { size: [0.8, 1, 1], material: { color: '#777777' } }, components: { collider: { shape: { type: 'box', hx: 0.4, hy: 0.5 } } } }))['ok']).toBe(true);
   expect((await mutate('createEntity', { parentId: PLAYER, kind: 'group', name: 'Hat', transform: { position: [0, 1, 0] } }))['ok']).toBe(true);
   expect(await controllerOf(PLAYER)).toEqual({});
 
@@ -160,7 +160,7 @@ test('the player capsule: Inspector, outline, top-handle drag with one undo, the
 
 test('area handles: a trigger is resized by its side handle (snapped, centred, one undo)', async ({ page }) => {
   test.setTimeout(120_000);
-  expect((await mutate('createEntity', { parentId: null, kind: 'group', name: 'Sensor', transform: { position: [6, 1, 0] }, components: { trigger: { size: [1, 1], signal: 'hello' } } }))['ok']).toBe(true);
+  expect((await mutate('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Sensor', transform: { position: [6, 1, 0] }, components: { trigger: { size: [1, 1], signal: 'hello' } } }))['ok']).toBe(true);
   const entities = async (): Promise<{ id: string; name?: string; components: Record<string, unknown> }[]> =>
     (await be.command({ op: 'queryEntities', projectId: be.projectId, args: { limit: 100, offset: 0 } }))['entities'] as never;
   const sensor = (await entities()).find((e) => e.name === 'Sensor')!;

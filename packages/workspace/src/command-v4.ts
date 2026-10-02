@@ -25,7 +25,7 @@ import { pendingInfo, type Core, type ProjectSession } from './session';
 import { envelopeRequestId, failRequest } from './request-envelope';
 import { scriptsNaming } from './script-names';
 import { prepareInstanceStroke, publishStrokeBuffer, type StrokeBuffer } from './instance-strokes';
-import { catalogV4Of, commandContentOf, crossSceneEntities, projectRuleError, sceneMissing, sceneNotEmpty, sceneV4Of } from './content-shapes';
+import { catalogV4Of, commandContentOf, crossSceneEntities, projectRuleError, sceneMissing, sceneNotEmpty, sceneRequired, sceneV4Of } from './content-shapes';
 
 /**
  * The bytes a successful publication references (the new version's
@@ -92,6 +92,11 @@ export function runCommandV4(core: Core, s: ProjectSession, sent: unknown, D: st
     const { sceneId: _s, ...rest } = args;
     pureRequest = { ...(request as object), args: rest };
   }
+  // A move within its own scene names no other scene.
+  if (op === 'moveEntities' && 'sceneId' in args && target.otherSceneId === undefined) {
+    const { sceneId: _s, ...rest } = args;
+    pureRequest = { ...(request as object), args: rest };
+  }
   const carrierId = target.sceneId ?? primarySceneIdV4(state);
   const carrier = state.scenes.get(carrierId);
   if (carrier === undefined) return failRequest(request, sceneMissing(carrierId));
@@ -118,6 +123,13 @@ export function runCommandV4(core: Core, s: ProjectSession, sent: unknown, D: st
     history: s.history,
     reservedIds: reserved,
   };
+  // A cross-scene move (or its undo or redo) edits a second scene.
+  const otherId = target.otherSceneId;
+  if (otherId !== undefined) {
+    const other = state.scenes.get(otherId);
+    if (other === undefined) return failRequest(request, sceneMissing(otherId));
+    commandState.otherScene = { sceneId: otherId, scene: { ...other, revision: state.revision } };
+  }
   if (core.content.behaviorCompiler !== undefined) commandState.behaviorPreparerRegistered = true;
   if (s.preparedSources.size > 0) commandState.preparedBehaviorSources = preparedFactsOf(s.preparedSources);
   // The look of a scene a scene-index op names besides the edited one: the scene a new one copies, a deleted scene.
@@ -200,6 +212,7 @@ export function runCommandV4(core: Core, s: ProjectSession, sent: unknown, D: st
   if (op !== 'undo' && op !== 'redo' && entries.length > 0) {
     const last = entries[entries.length - 1] as HistoryEntry;
     if (target.sceneId !== null) (last as { sceneId?: string }).sceneId = target.sceneId;
+    if (otherId !== undefined) (last as { otherSceneId?: string }).otherSceneId = otherId;
   }
 
   // Commit-time blob checks: a published asset version; an instance buffer.
@@ -241,8 +254,10 @@ export function runCommandV4(core: Core, s: ProjectSession, sent: unknown, D: st
   const adopted = new Map<string, SceneV4>();
   const change = outcome.result.change as { type: string; scenesAdded?: AdoptedScene[]; environments?: Record<string, SceneEnvironment> };
   if (change.type === 'importResources') for (const a of change.scenesAdded ?? []) adopted.set(a.sceneId, a.scene as SceneV4);
+  const otherResult = otherId !== undefined && outcome.state.otherScene !== undefined ? sceneV4Of(outcome.state.otherScene.scene) : null;
   for (const entry of nextContent.scenes) {
     if (entry.sceneId === carrierId) nextScenes.set(entry.sceneId, { ...resultScene, sceneId: carrierId });
+    else if (otherResult !== null && entry.sceneId === otherId) nextScenes.set(entry.sceneId, { ...otherResult, sceneId: otherId });
     else {
       // A scene the index gains gets a new file, with the look the change carries (a copied look, an undone delete's).
       const look = change.type === 'setSceneIndex' ? change.environments?.[entry.sceneId] : undefined;
@@ -317,7 +332,7 @@ function targetSceneV4(
   history: HistoryState,
   op: string,
   args: Record<string, unknown>,
-): { ok: true; sceneId: string | null } | { ok: false; error: CommandError } {
+): { ok: true; sceneId: string | null; otherSceneId?: string } | { ok: false; error: CommandError } {
   const sceneOf = (id: unknown): string | null => {
     if (typeof id !== 'string') return null;
     for (const [sid, sc] of state.scenes) if (sc.entities.some((e) => e.id === id)) return sid;
@@ -326,7 +341,8 @@ function targetSceneV4(
   const cross = (path: string): { ok: false; error: CommandError } => ({ ok: false, error: crossSceneEntities(path) });
   if (op === 'undo' || op === 'redo') {
     const entry = op === 'undo' ? history.entries[history.cursor - 1] : history.entries[history.cursor];
-    return { ok: true, sceneId: (entry as { sceneId?: string } | undefined)?.sceneId ?? null };
+    const other = (entry as { otherSceneId?: string } | undefined)?.otherSceneId;
+    return { ok: true, sceneId: (entry as { sceneId?: string } | undefined)?.sceneId ?? null, ...(other !== undefined ? { otherSceneId: other } : {}) };
   }
   if (op === 'createEntity' || op === 'instantiatePrefab' || op === 'pasteEntities') {
     const explicit = args['sceneId'];
@@ -338,7 +354,10 @@ function targetSceneV4(
       if (typeof args['parentId'] === 'string' && parentScene !== null && parentScene !== explicit) return cross('/args/parentId');
       return { ok: true, sceneId: explicit };
     }
-    return { ok: true, sceneId: sceneOf(args['parentId']) ?? primarySceneIdV4(state) };
+    // No default scene: a new object goes into the scene named, or its parent's.
+    const parentScene = sceneOf(args['parentId']);
+    if (parentScene === null) return { ok: false, error: sceneRequired() };
+    return { ok: true, sceneId: parentScene };
   }
   if (op === 'createEntities') {
     // Every item lands in one scene: `sceneId`, else the scene of the items' existing parents, else the primary one.
@@ -353,11 +372,25 @@ function targetSceneV4(
       return { ok: true, sceneId: explicit };
     }
     if (parents.size > 1) return cross('/args/entities');
-    return { ok: true, sceneId: [...parents][0] ?? primarySceneIdV4(state) };
+    const parentScene = [...parents][0];
+    if (parentScene === undefined) return { ok: false, error: sceneRequired() };
+    return { ok: true, sceneId: parentScene };
   }
   if (op === 'moveEntities') {
     const ids = Array.isArray(args['entityIds']) ? (args['entityIds'] as unknown[]) : [];
     const scenes = new Set(ids.map(sceneOf).filter((x): x is string => x !== null));
+    // Into another scene: the objects' scene is the carrier, the named one the other scene the move edits.
+    const into = args['sceneId'];
+    if (into !== undefined) {
+      if (typeof into !== 'string' || !state.scenes.has(into)) return { ok: false, error: sceneMissing(into) };
+      if (scenes.size > 1) return cross('/args/entityIds');
+      for (const key of ['parentId', 'beforeId']) {
+        const at = sceneOf(args[key]);
+        if (at !== null && at !== into) return cross(`/args/${key}`);
+      }
+      const from = [...scenes][0] ?? into;
+      return from === into ? { ok: true, sceneId: into } : { ok: true, sceneId: from, otherSceneId: into };
+    }
     const parent = sceneOf(args['parentId']);
     if (parent !== null) scenes.add(parent);
     const before = sceneOf(args['beforeId']);

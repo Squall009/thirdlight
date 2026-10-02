@@ -98,7 +98,7 @@ const GRAPH = {
 describe('Play debug builds of visual scripts, never in exports', () => {
   it('Play serves the debug build; the export carries the published module without debug hooks; unpublished edits play the published module', async () => {
     await command('publishBehavior', { behaviorId: 'ticker', displayName: 'Ticker', mode: 'declaration-create', declaration: { properties: [] }, graph: GRAPH });
-    const box = await command('createEntity', { kind: 'box', name: 'Ticker box' });
+    const box = await command('createEntity', { sceneId: 'scene-main', kind: 'box', name: 'Ticker box' });
     await command('setBehaviorProperties', { entityId: String(box['createdId']), behaviorId: 'ticker', values: {} });
     const checked = await source({ check: true, graph: true, behaviorId: 'ticker' });
     const digest = String(checked['sourceDigest']);

@@ -88,7 +88,7 @@ const REFUSER = [
 test('refused script calls answer false and are logged once; a long run\'s diagnostics are trimmed, not refused', async ({ page }) => {
   test.setTimeout(240_000);
   be = await startBackend('play-logs-refusals', 'starter');
-  const holder = String((await cmd('createEntity', { parentId: null, kind: 'group', name: 'Refuser' }))['createdId']);
+  const holder = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Refuser' }))['createdId']);
   await publishScript('refuser', REFUSER);
   await cmd('setBehaviorProperties', { entityId: holder, behaviorId: 'refuser', values: {} });
   const psid = await play(page);
@@ -187,7 +187,7 @@ test('a project dialogue document of its own id gets the runner\'s focus: the fi
     },
   });
   await cmd('setDialogueSettings', { settings: { document: 'talk-box', textSpeed: 1000 } });
-  const holder = String((await cmd('createEntity', { parentId: null, kind: 'group', name: 'Talker' }))['createdId']);
+  const holder = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Talker' }))['createdId']);
   await publishScript('talker', TALKER);
   await cmd('setBehaviorProperties', { entityId: holder, behaviorId: 'talker', values: {} });
 

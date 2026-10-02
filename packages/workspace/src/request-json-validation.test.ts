@@ -101,14 +101,14 @@ function createEntityRequest(
   projectId: string;
   expectedRevision: number;
   requestId: string;
-  args: { kind: 'box' };
+  args: { sceneId: string; kind: 'box' };
 } {
   return {
     op: 'createEntity',
     projectId,
     expectedRevision: revision,
     requestId,
-    args: { kind: 'box' },
+    args: { sceneId: 'scene-main', kind: 'box' },
   };
 }
 
@@ -341,7 +341,7 @@ describe('request JSON validation: edge cases', () => {
         'r11-bigint',
         () => ({
           ...createEntityRequest('demo', 0, nextRequestId()),
-          args: { kind: 'box', scale: [1n] },
+          args: { sceneId: 'scene-main', kind: 'box', scale: [1n] },
         }),
         '/args/scale/0',
       );
@@ -352,7 +352,7 @@ describe('request JSON validation: edge cases', () => {
         'r11-date',
         () => ({
           ...createEntityRequest('demo', 0, nextRequestId()),
-          args: { kind: 'box', stamp: new Date() },
+          args: { sceneId: 'scene-main', kind: 'box', stamp: new Date() },
         }),
         '/args/stamp',
       );
@@ -363,7 +363,7 @@ describe('request JSON validation: edge cases', () => {
         'r11-nested-undefined',
         () => ({
           ...createEntityRequest('demo', 0, nextRequestId()),
-          args: { kind: 'box', name: undefined },
+          args: { sceneId: 'scene-main', kind: 'box', name: undefined },
         }),
         '/args/name',
       );

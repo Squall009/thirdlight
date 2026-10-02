@@ -51,8 +51,8 @@ async function relay(path: string, body: unknown): Promise<{ status: number; jso
 
 /** The neutral 3D scene: a 10 × 1 × 10 m floor box with depth, a player capsule above it. */
 async function buildScene(): Promise<{ floor: string; player: string }> {
-  await cmd('createEntity', { parentId: null, kind: 'box', name: 'Floor', transform: { position: [0, -0.5, 0] }, box: { size: [10, 1, 10], material: { color: '#8a8f98' } }, components: { collider: { shape: { type: 'box', hx: 5, hy: 0.5, hz: 5 } } } });
-  await cmd('createEntity', { parentId: null, kind: 'group', name: 'Player', transform: { position: START } });
+  await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'box', name: 'Floor', transform: { position: [0, -0.5, 0] }, box: { size: [10, 1, 10], material: { color: '#8a8f98' } }, components: { collider: { shape: { type: 'box', hx: 5, hy: 0.5, hz: 5 } } } });
+  await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Player', transform: { position: START } });
   const q = (await be!.command({ op: 'queryEntities', projectId: be!.projectId, args: { limit: 100, offset: 0 } })) as { entities: { id: string; name?: string }[] };
   const floor = q.entities.find((e) => e.name === 'Floor')!.id;
   const player = q.entities.find((e) => e.name === 'Player')!.id;

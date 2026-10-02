@@ -104,7 +104,7 @@ async function buildScene(): Promise<{ layer: string; fovY: number }> {
   // The sun from +x, low: slopes facing +x are bright, those facing −x dark.
   if (sun !== undefined) await cmd('setComponent', { entityId: sun.id, component: 'light', value: { type: 'directional', color: '#ffffff', intensity: 1.6, direction: [-0.8, -0.6, 0], castShadow: false } });
   if (ambient !== undefined) await cmd('setComponent', { entityId: ambient.id, component: 'light', value: { type: 'ambient', color: '#ffffff', intensity: 0.25 } });
-  const layer = String((await cmd('createEntity', { parentId: null, kind: 'group', name: 'Ground', transform: { position: [...ORIGIN] } }))['createdId']);
+  const layer = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Ground', transform: { position: [...ORIGIN] } }))['createdId']);
   await cmd('setComponent', { entityId: layer, component: 'blockLayer', value: { cellSize: [1, 1, 1], bounds: { min: [0, 0, 0], max: [32, 8, 8] }, castShadow: false, receiveShadow: false } });
   const res = await cmd('editBlocks', { entityId: layer, edits: groundEdits() });
   expect((res.change as { chunks: number[][] }).chunks).toEqual([[0, 0], [1, 0]]);

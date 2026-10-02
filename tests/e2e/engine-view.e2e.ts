@@ -69,8 +69,8 @@ for (const variant of VARIANTS) test(`the view is the live camera's, else the de
   be = await startBackend('engine-view-e2e');
   // The starter's camera, 20 m to the side, looking at a red panel nothing else sees; a blue panel in front of the default pose.
   await cmd('setTransform', { entityId: 'cam-main', transform: { position: [20, 1.6, 6], rotation: [0, 0, 0, 1] } });
-  await cmd('createEntity', { parentId: null, kind: 'box', name: 'Red', transform: { position: [20, 1.6, 0] }, box: { size: [6, 6, 0.2], material: { color: '#ff0000' } } });
-  await cmd('createEntity', { parentId: null, kind: 'box', name: 'Blue', transform: { position: [0, 1.6, -1] }, box: { size: [6, 6, 0.2], material: { color: '#0000ff' } } });
+  await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'box', name: 'Red', transform: { position: [20, 1.6, 0] }, box: { size: [6, 6, 0.2], material: { color: '#ff0000' } } });
+  await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'box', name: 'Blue', transform: { position: [0, 1.6, -1] }, box: { size: [6, 6, 0.2], material: { color: '#0000ff' } } });
 
   await page.goto(editorUrlFor(be.editorUrl, variant));
   await expect(page.locator('.tl-statusbar')).toContainText('connected');

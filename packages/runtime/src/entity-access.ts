@@ -145,6 +145,12 @@ export interface EntityAccessHost {
   transformIntentWrote(id: string): boolean;
   hiddenAtStepStart(id: string): boolean;
   setVisible(id: string, visible: boolean): void;
+  /** The object survives scene changes (effective: its own flag or a kept parent). */
+  isKept(id: string): boolean;
+  /** Why the object's keep flag cannot be written now (null: it can). */
+  keepProblem(id: string, keep: boolean): string | null;
+  /** Keep (or stop keeping) the object and everything under it. */
+  setKept(id: string, keep: boolean): void;
   moverState(id: string): { speed: number; active: boolean } | null;
   setMover(id: string, patch: { speed?: number; active?: boolean }): void;
   readonly materials: RuntimeMaterials;
@@ -261,6 +267,7 @@ export class EntityAccess {
       active: !this.selfInactive.has(doc.id),
       visible: !this.host.hiddenAtStepStart(doc.id),
       static: d.static === true,
+      keepLoaded: this.host.isKept(doc.id),
       tags: d.tags ?? 0,
     };
   }
@@ -317,10 +324,15 @@ export class EntityAccess {
     if (component === SCRIPT_OBJECT_COMPONENT) {
       for (const [key] of fields) {
         const field = `object.${key}`;
-        if (isStatic) return { field, code: 'entity_static', message: `${field}: a static object is batched and baked once (clear its Static flag to switch it at run time)` };
+        if (isStatic && key !== 'keepLoaded') return { field, code: 'entity_static', message: `${field}: a static object is batched and baked once (clear its Static flag to switch it at run time)` };
         if (key === 'active') {
           const holds = this.subtreeHolds(id);
           if (holds === 'character') return { field, code: 'entity_character', message: `${field}: the character (or an object above it) stays active (character_enable switches its controller off)` };
+        }
+        if (key === 'keepLoaded') {
+          const value = fields.find(([k]) => k === 'keepLoaded')?.[1] === true;
+          const why = this.host.keepProblem(id, value);
+          if (why !== null) return { field, code: 'field_value', message: `${field}: ${why}` };
         }
       }
       return null;
@@ -411,6 +423,8 @@ export class EntityAccess {
           } else if (key === 'visible') {
             this.host.setVisible(w.id, value === true);
             this.visibleWrites.set(w.id, value === true);
+          } else if (key === 'keepLoaded') {
+            this.host.setKept(w.id, value === true);
           }
         }
         return active;

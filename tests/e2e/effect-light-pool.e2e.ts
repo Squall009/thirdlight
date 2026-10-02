@@ -123,10 +123,10 @@ for (const variant of VARIANTS) test(`effect lights rising from 1 to 16 build no
   test.setTimeout(420_000);
   be = await startBackend('effect-light-pool-e2e');
   await cmd('setTransform', { entityId: 'cam-main', transform: { position: [0, 1, 7], rotation: [0, 0, 0, 1] } });
-  await cmd('createEntity', { parentId: null, kind: 'box', name: 'Panel', transform: { position: [0, 0.5, -0.5] }, box: { size: [9, 3, 0.1], material: { color: '#c0c0c0' } } });
+  await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'box', name: 'Panel', transform: { position: [0, 0.5, -0.5] }, box: { size: [9, 3, 0.1], material: { color: '#c0c0c0' } } });
   await cmd('setEffect', { effect: GLOW });
   await cmd('setInput', { input: { actions: [{ name: 'more', type: 'button', map: 'gameplay', bindings: [{ kind: 'key', code: 'KeyE' }] }] } });
-  const driver = String((await cmd('createEntity', { parentId: null, kind: 'group', name: 'Driver', transform: { position: [0, -20, 0] } }))['createdId']);
+  const driver = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Driver', transform: { position: [0, -20, 0] } }))['createdId']);
   await publishScript(be, 'glow-driver', DRIVER, driver);
   await page.context().addInitScript(countBuilds);
 
