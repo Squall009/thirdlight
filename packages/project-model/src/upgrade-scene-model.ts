@@ -19,6 +19,12 @@
  * - the camera and the player (each start-scene `controller`) were never
  *   unloaded: the object at the top of each one's hierarchy is marked
  *   `keepLoaded`, so unloading their scene keeps them as it did.
+ * - a 3D character read its move input along the world axes unless a virtual
+ *   camera was loaded (the scene camera never turned it); the shot the scene
+ *   camera became would. A 3D project without any virtual camera (scenes and
+ *   prefabs) gets `moveFrame: 'world'` on each controller that has none, so
+ *   it moves as before. A project with virtual cameras keeps the camera-relative
+ *   default: where one of them is live it moved so before.
  *
  * Later format changes of the same version add their step here.
  */
@@ -131,6 +137,10 @@ export function upgradeSceneModel(contentIn: unknown, scenesIn: readonly unknown
     }
     projectLens = lens;
   }
+  // Whether any virtual camera existed before the scene cameras became shots (a prefab may bring one).
+  const hadVirtualCamera = scenes.some((sc) => isObject(sc) && Array.isArray(sc['entities']) && (sc['entities'] as unknown[]).some((e) => isObject(e) && isObject(e['components']) && e['components']['virtualCamera'] !== undefined))
+    || (isObject(content) && holdsComponent(content['prefabs'], 'virtualCamera'));
+  const turned = cameras.filter((c) => headingTurned(c.entity)).map((c) => `"${String(c.entity['id'])}"`);
   const kept = new Set<Obj>();
   for (const { scene, entity, inStart } of cameras) {
     const comps = entity['components'] as Obj;
@@ -152,8 +162,50 @@ export function upgradeSceneModel(contentIn: unknown, scenesIn: readonly unknown
     e['keepLoaded'] = true;
     keptIds.push(String(e['id']));
   }
+  // The move frame: a 3D project's characters read their input as they did.
+  if (isObject(content) && isObject(content['settings']) && content['settings']['physics_dimension'] === 3) {
+    if (!hadVirtualCamera) {
+      const world: string[] = [];
+      for (const sc of scenes) {
+        if (!isObject(sc) || !Array.isArray(sc['entities'])) continue;
+        for (const e of sc['entities'] as unknown[]) {
+          if (!isObject(e) || !isObject(e['components']) || !isObject(e['components']['controller'])) continue;
+          const c = e['components']['controller'] as Obj;
+          if (c['moveFrame'] !== undefined) continue;
+          c['moveFrame'] = 'world';
+          world.push(`"${String(e['id'])}"`);
+        }
+      }
+      if (world.length > 0) notes.push(`the character${world.length === 1 ? '' : 's'} ${world.join(', ')} move${world.length === 1 ? 's' : ''} along the world axes as before (controller moveFrame "world"; the project had no virtual camera, so the camera never turned the move input)`);
+    } else if (turned.length > 0) {
+      notes.push(`where no other camera is live, a character now moves relative to the heading of ${turned.join(', ')} (before: along the world axes); set the controller's moveFrame to "world" if that scene needs the old input`);
+    }
+  }
   if (keptIds.length > 0) notes.push(`${keptIds.map((id) => `"${id}"`).join(', ')} keep${keptIds.length === 1 ? 's' : ''} loaded when ${keptIds.length === 1 ? 'its' : 'their'} scene unloads (the camera and the player were never unloaded before; clear the flag to let them go with their scene)`);
   return { content, scenes, notes };
+}
+
+/** Whether a document tree holds an entity with the named component (a prefab's entities, at any depth). */
+function holdsComponent(v: unknown, name: string): boolean {
+  if (Array.isArray(v)) return v.some((x) => holdsComponent(x, name));
+  if (!isObject(v)) return false;
+  if (isObject(v['components']) && v['components'][name] !== undefined) return true;
+  return Object.values(v).some((x) => typeof x === 'object' && x !== null && holdsComponent(x, name));
+}
+
+/** Whether a scene camera looks along any heading but −Z (its view, flattened onto the ground, is turned about Y). */
+function headingTurned(entity: Obj): boolean {
+  const t = isObject(entity['components']) ? (entity['components'] as Obj)['transform'] : undefined;
+  const q = isObject(t) && Array.isArray(t['rotation']) ? (t['rotation'] as unknown[]) : [];
+  const [x, y, z, w] = [0, 1, 2, 3].map((i) => (typeof q[i] === 'number' && Number.isFinite(q[i]) ? (q[i] as number) : i === 3 ? 1 : 0)) as [number, number, number, number];
+  let fx = -2 * (x * z + w * y);
+  let fz = -(1 - 2 * (x * x + y * y));
+  if (!(Math.hypot(fx, fz) > 1e-3)) {
+    // Looking straight down (or up): the screen's up is the way forward on the ground, as the view reads it.
+    fx = 2 * (x * y - w * z);
+    fz = 2 * (y * z + w * x);
+  }
+  return Math.hypot(fx, fz) > 1e-9 && Math.abs(Math.atan2(-fx, -fz)) > 1e-6;
 }
 
 const byIdCache = new WeakMap<Obj, Map<string, Obj>>();

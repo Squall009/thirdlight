@@ -185,6 +185,8 @@ export interface ControllerComponent {
   turnSpeed?: number;
   /** 3D: turn to face the movement direction (absent: true). */
   faceMovement?: boolean;
+  /** 3D: what the move input is relative to — the live camera's heading or the world axes (absent: `view`). */
+  moveFrame?: 'view' | 'world';
   /** The input action that moves it (absent: `move`). */
   moveAction?: string;
   /** The input action that makes it jump (absent: `jump`). */

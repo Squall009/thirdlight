@@ -626,7 +626,9 @@ export const CONTROLLER_TUNING_FIELDS = ['acceleration', 'deceleration', 'coyote
  * ledge climb is off (not every game climbs) and, when on, pulls up onto
  * ledges up to 1.2 m (chest height of the default 1.8 m capsule) in 0.6 s;
  * 720°/s turns a half circle in a quarter second (responsive, never a snap)
- * and the character faces where it moves. Run speed, jump speed and the
+ * and the character faces where it moves; the move input is read relative to
+ * the live camera's heading (pushing up walks away from the camera, as most
+ * third-person controllers do; `world` reads it along the world axes). Run speed, jump speed and the
  * slope limit are absent: the project's `run_speed`, `jump_velocity` and
  * `max_slope_climb_deg` settings apply.
  */
@@ -641,6 +643,7 @@ export const DEFAULT_CHARACTER_3D: Readonly<{
   ledgeClimbTime: number;
   turnSpeed: number;
   faceMovement: boolean;
+  moveFrame: CharacterMoveFrame;
 }> = Object.freeze({
   walkSpeed: 2,
   airControl: 0.5,
@@ -652,7 +655,16 @@ export const DEFAULT_CHARACTER_3D: Readonly<{
   ledgeClimbTime: 0.6,
   turnSpeed: 720,
   faceMovement: true,
+  moveFrame: 'view',
 });
+
+/**
+ * What the 3D character's move input is relative to: `view` — the heading of
+ * the live camera of the view (world axes while no camera is live); `world` —
+ * the world axes (up pushes along −Z, right along +X) whatever the camera does.
+ */
+export const CHARACTER_MOVE_FRAMES = ['view', 'world'] as const;
+export type CharacterMoveFrame = (typeof CHARACTER_MOVE_FRAMES)[number];
 
 type Character3DNumberKey = 'walkSpeed' | 'runSpeed' | 'airControl' | 'gravityScale' | 'jumpSpeed' | 'slopeLimit' | 'stepHeight' | 'ledgeHeight' | 'ledgeClimbTime' | 'turnSpeed';
 
@@ -671,7 +683,7 @@ export const CHARACTER_3D_LIMITS: Readonly<Record<Character3DNumberKey, { readon
 });
 
 /** The 3D character fields, in canonical order (after the tuning fields). */
-export const CONTROLLER_3D_FIELDS = ['walkSpeed', 'runSpeed', 'airControl', 'gravityScale', 'jump', 'jumpSpeed', 'slopeLimit', 'stepHeight', 'ledgeClimb', 'ledgeHeight', 'ledgeClimbTime', 'turnSpeed', 'faceMovement'] as const;
+export const CONTROLLER_3D_FIELDS = ['walkSpeed', 'runSpeed', 'airControl', 'gravityScale', 'jump', 'jumpSpeed', 'slopeLimit', 'stepHeight', 'ledgeClimb', 'ledgeHeight', 'ledgeClimbTime', 'turnSpeed', 'faceMovement', 'moveFrame'] as const;
 const CONTROLLER_3D_BOOLEANS: readonly string[] = ['jump', 'ledgeClimb', 'faceMovement'];
 
 /**
@@ -785,6 +797,7 @@ export interface Character3DSettings {
   /** Degrees per second, 0 = at once. */
   turnSpeed: number;
   faceMovement: boolean;
+  moveFrame: CharacterMoveFrame;
 }
 
 /**
@@ -824,6 +837,7 @@ export function character3DSettingsOf(controller: unknown, settings: { run_speed
     ledgeClimbTime: num('ledgeClimbTime', d.ledgeClimbTime),
     turnSpeed: num('turnSpeed', d.turnSpeed),
     faceMovement: bool('faceMovement', d.faceMovement),
+    moveFrame: (CHARACTER_MOVE_FRAMES as readonly unknown[]).includes(c['moveFrame']) ? (c['moveFrame'] as CharacterMoveFrame) : d.moveFrame,
   };
 }
 
@@ -899,6 +913,7 @@ export function validateControllerComponent(c: unknown, path: string, errors: Mo
     }
   }
   for (const key of CONTROLLER_3D_BOOLEANS) if (c[key] !== undefined && typeof c[key] !== 'boolean') errors.push(fieldType(`${path}/${key}`, c[key], 'boolean'));
+  if (c['moveFrame'] !== undefined && !(CHARACTER_MOVE_FRAMES as readonly unknown[]).includes(c['moveFrame'])) errors.push(fieldValue(`${path}/moveFrame`, c['moveFrame'], CHARACTER_MOVE_FRAMES.join(' | '), 'controller moveFrame is view or world'));
   // Climbing and walls.
   for (const [key, lim] of Object.entries(CONTROLLER_MOVEMENT_LIMITS)) {
     const v = c[key];

@@ -1,0 +1,254 @@
+{
+ "shape": "a camera entity in a start scene (turned about Y, tilted down) next to a level scene with an orbit-a-point virtual camera, where the character walks (a 3D project)",
+ "settings": {
+  "physics_dimension": 3
+ },
+ "startScenes": [
+  "scene-main",
+  "battle"
+ ],
+ "scenes": [
+  {
+   "sceneId": "scene-main",
+   "entities": [
+    {
+     "id": "cam-main",
+     "components": {
+      "transform": {
+       "position": [
+        10,
+        12,
+        10
+       ],
+       "rotation": [
+        -0.315985410125,
+        0.35960479749,
+        0.130885442386,
+        0.868162779196
+       ],
+       "scale": [
+        1,
+        1,
+        1
+       ]
+      },
+      "camera": {
+       "type": "perspective",
+       "fovY": 50,
+       "near": 0.3,
+       "far": 400
+      }
+     }
+    },
+    {
+     "id": "light-0001",
+     "components": {
+      "transform": {
+       "position": [
+        0,
+        10,
+        0
+       ],
+       "rotation": [
+        0,
+        0,
+        0,
+        1
+       ],
+       "scale": [
+        1,
+        1,
+        1
+       ]
+      },
+      "light": {
+       "type": "directional",
+       "color": "#ffffff",
+       "intensity": 1,
+       "direction": [
+        -0.4,
+        -1,
+        -0.3
+       ]
+      }
+     }
+    }
+   ]
+  },
+  {
+   "sceneId": "battle",
+   "entities": [
+    {
+     "id": "group-000001",
+     "components": {
+      "transform": {
+       "position": [
+        0,
+        0,
+        0
+       ],
+       "rotation": [
+        0,
+        0,
+        0,
+        1
+       ],
+       "scale": [
+        1,
+        1,
+        1
+       ]
+      },
+      "virtualCamera": {
+       "rig": "orbitPoint",
+       "distance": 15,
+       "pitch": 45,
+       "yaw": -60
+      }
+     }
+    },
+    {
+     "id": "player-0001",
+     "components": {
+      "transform": {
+       "position": [
+        0,
+        0.91,
+        0
+       ],
+       "rotation": [
+        0,
+        0,
+        0,
+        1
+       ],
+       "scale": [
+        1,
+        1,
+        1
+       ]
+      },
+      "controller": {}
+     }
+    },
+    {
+     "id": "floor-0001",
+     "components": {
+      "transform": {
+       "position": [
+        0,
+        -0.5,
+        0
+       ],
+       "rotation": [
+        0,
+        0,
+        0,
+        1
+       ],
+       "scale": [
+        1,
+        1,
+        1
+       ]
+      },
+      "box": {
+       "size": [
+        60,
+        1,
+        60
+       ],
+       "material": {
+        "color": "#888888"
+       }
+      },
+      "collider": {
+       "shape": {
+        "type": "box",
+        "hx": 30,
+        "hy": 0.5,
+        "hz": 30
+       }
+      }
+     }
+    }
+   ]
+  }
+ ],
+ "input": [
+  {
+   "steps": 120,
+   "move": [
+    0,
+    1
+   ]
+  },
+  {
+   "steps": 120,
+   "move": [
+    1,
+    0
+   ]
+  },
+  {
+   "steps": 120,
+   "move": [
+    -0.7,
+    -0.7
+   ]
+  }
+ ],
+ "v6": {
+  "engine": "7cef0542",
+  "path": [
+   [
+    0.396953,
+    -0.229171
+   ],
+   [
+    0.829955,
+    -0.479212
+   ],
+   [
+    1.262535,
+    -0.72877
+   ],
+   [
+    1.645123,
+    -0.791029
+   ],
+   [
+    1.894992,
+    -0.358121
+   ],
+   [
+    2.144844,
+    0.074728
+   ],
+   [
+    2.386491,
+    0.493295
+   ],
+   [
+    2.433131,
+    0.762158
+   ],
+   [
+    1.955159,
+    0.633931
+   ],
+   [
+    1.493013,
+    0.510077
+   ],
+   [
+    1.030964,
+    0.386287
+   ],
+   [
+    0.720441,
+    0.303088
+   ]
+  ]
+ }
+}

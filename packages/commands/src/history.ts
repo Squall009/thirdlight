@@ -23,6 +23,7 @@
  */
 
 import { replaySceneMove } from './move-scene-ops';
+import { CONTROLLER_FIELDS } from '@thirdlight/project-model';
 import type { AnimatorController, EnvironmentConfig, InputConfig, LightingBake, MaterialDef, SceneEnvironment } from '@thirdlight/project-model';
 import { withAnimator, withEnvironment, withInput, withLighting, withMaterial, withSceneEnvironment } from './material-ops';
 import { withCollisionLayers } from './layer-ops';
@@ -92,7 +93,7 @@ const COMPONENT_FIELD_ORDER: Record<string, readonly string[]> = {
   camera: ['type', 'fovY', 'near', 'far'],
   model: ['asset', 'piece', 'castShadow', 'receiveShadow'],
   collider: ['shape'],
-  controller: ['capsule', 'acceleration', 'deceleration', 'coyoteTime', 'jumpBuffer', 'jumpRelease', 'groundSnap', 'skin', 'autostep', 'autostepHeight', 'walkSpeed', 'runSpeed', 'airControl', 'gravityScale', 'jump', 'jumpSpeed', 'slopeLimit', 'stepHeight', 'ledgeClimb', 'ledgeHeight', 'ledgeClimbTime', 'turnSpeed', 'faceMovement', 'moveAction', 'jumpAction', 'climbSpeed', 'climbAction', 'wallSlide', 'wallSlideSpeed', 'wallJump', 'wallJumpAway', 'wallJumpUp', 'wallJumpLock'],
+  controller: CONTROLLER_FIELDS,
   playerSpawn: ['yaw'],
   light: ['type', 'color', 'intensity', 'direction', 'castShadow', 'shadowMapSize', 'shadowBias', 'shadowNormalBias', 'shadowExtent'],
   surface: ['color', 'roughness', 'metalness', 'emissive', 'emissiveIntensity'],

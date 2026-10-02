@@ -27,7 +27,7 @@ import {
   limitsExceeded,
   settingUnknown,
 } from './errors';
-import { BLOCK_LAYER_FIELDS, CAMERA_PATH_FIELDS, CAMERA_REGION_FIELDS, MAX_BEHAVIOR_SOURCE_BYTES, SOCKET_ATTACH_FIELDS, VIRTUAL_CAMERA_FIELDS, isValidSourcePath, type PropertyValue, type SettingsKeySpec } from '@thirdlight/project-model';
+import { BLOCK_LAYER_FIELDS, CAMERA_PATH_FIELDS, CONTROLLER_FIELDS, CAMERA_REGION_FIELDS, MAX_BEHAVIOR_SOURCE_BYTES, SOCKET_ATTACH_FIELDS, VIRTUAL_CAMERA_FIELDS, isValidSourcePath, type PropertyValue, type SettingsKeySpec } from '@thirdlight/project-model';
 import { SURFACE_PRESET_NAMES } from './v3';
 import type {
   AcknowledgeBehaviorTrustArgs,
@@ -465,7 +465,7 @@ const COMPONENT_FIELDS: Record<string, readonly string[]> = {
   // The piece of a multi-piece file is an Inspector field too.
   model: ['asset', 'piece', 'castShadow', 'receiveShadow'],
   collider: ['shape', 'oneWay', 'layers'],
-  controller: ['capsule', 'acceleration', 'deceleration', 'coyoteTime', 'jumpBuffer', 'jumpRelease', 'groundSnap', 'skin', 'autostep', 'autostepHeight', 'walkSpeed', 'runSpeed', 'airControl', 'gravityScale', 'jump', 'jumpSpeed', 'slopeLimit', 'stepHeight', 'ledgeClimb', 'ledgeHeight', 'ledgeClimbTime', 'turnSpeed', 'faceMovement', 'moveAction', 'jumpAction', 'climbSpeed', 'climbAction', 'wallSlide', 'wallSlideSpeed', 'wallJump', 'wallJumpAway', 'wallJumpUp', 'wallJumpLock'],
+  controller: CONTROLLER_FIELDS,
   // An exit zone's scenes and arrival spawn are edited like every other field.
   // Which way the character faces at this spawn (v4; yaw only).
   playerSpawn: ['yaw'],

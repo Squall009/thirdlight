@@ -8,6 +8,7 @@ import { BLOCK_DEFAULTS, BLOCK_TUNING_LIMITS, HITBOX_SHAPES, GRAVITY_SCALE, MOVE
 import {
   CAPSULE_LIMITS,
   CHARACTER_3D_LIMITS,
+  CHARACTER_MOVE_FRAMES,
   COLLIDER_3D_LIMITS,
   CONTROLLER_ACTION_DEFAULTS,
   CONTROLLER_MOVEMENT_LIMITS,
@@ -252,6 +253,7 @@ export const controller: ComponentDescriptor = {
     num('gravityScale', 'Gravity scale', 'Multiplies the project gravity for this character.', { group: 'Movement', ...C3L.gravityScale, step: 0.1, unit: '×', default: C3.gravityScale, dimension: 3 }),
     num('turnSpeed', 'Turn speed', 'How fast it turns to face where it moves (0: at once).', { group: 'Movement', ...C3L.turnSpeed, step: 10, unit: 'deg/s', default: C3.turnSpeed, dimension: 3 }),
     bool('faceMovement', 'Face movement', 'Turn the object about its up axis to face the direction it moves (its +Z forward).', { group: 'Movement', default: C3.faceMovement, dimension: 3 }),
+    enm('moveFrame', 'Move relative to', 'What the move input is read against: the live camera\'s heading (up walks away from the camera; world axes while no camera is live) or the world axes (up pushes along −Z, right along +X).', CHARACTER_MOVE_FRAMES, { group: 'Movement', default: C3.moveFrame, labels: { view: 'Camera', world: 'World axes' }, dimension: 3 }),
     bool('jump', 'Can jump', 'The jump input makes it jump (off: a character that only walks).', { group: 'Jump', default: C3.jump, dimension: 3 }),
     num('jumpSpeed', 'Jump speed', 'Upward speed at a jump (absent: the project jump velocity setting).', { group: 'Jump', when: when('jump', true), ...C3L.jumpSpeed, step: 0.1, unit: 'm/s', dimension: 3 }),
     num('slopeLimit', 'Slope limit', 'The steepest slope it walks up (absent: the project max_slope_climb_deg setting).', { group: 'Collision', ...C3L.slopeLimit, step: 1, unit: 'deg', dimension: 3 }),

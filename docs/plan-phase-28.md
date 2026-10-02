@@ -210,8 +210,8 @@ surfaces). Format changes share one bump: `project.json` schemaVersion 7
   are keyed in the runtime/host API (`DEFAULT_VIEW_ID`); `ctx.camera` drives
   the main view (a second view adds an option there, not a new API). A 3D
   character moves relative to the live shot's heading, the upgraded camera
-  included (it used world axes without virtual cameras): noted in the
-  upgrade docs, not special-cased.
+  included (it used world axes without virtual cameras). Amended by the
+  28.4 fix below: an upgrade must not change how a game plays.
 - 2026-10-02 (28.4): keep loaded follows Unity's DontDestroyOnLoad: an object
   under a parent that is not kept is not kept (Play warns); a folder passes
   the flag down. The upgrade marks the camera and the start scenes' players
@@ -231,3 +231,13 @@ surfaces). Format changes share one bump: `project.json` schemaVersion 7
   second scene as `otherScene` and records `moveEntitiesScene` with its
   inverse. Prefabs may carry a camera (the capture refusal was for the scene
   camera).
+- 2026-10-02 (28.4 fix, D136): the controller has a move frame,
+  `moveFrame: 'view' | 'world'` (Unity's and Godot's controllers read input
+  in camera or world space); `view` stays the default (new projects move
+  relative to the camera). The v7 upgrade writes `world` on every controller
+  of a 3D project that had no virtual camera (scenes and prefabs): it moved
+  along the world axes before. A project with virtual cameras keeps `view`;
+  only where its old scene camera, turned about Y, is the one live shot does
+  the input change, and the upgrade note names that camera. Fixtures shaped
+  like both games (`fixtures/phase28/move-frame`) carry paths recorded on the
+  v6 engine; the upgraded projects walk them.

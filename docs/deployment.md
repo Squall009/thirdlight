@@ -637,9 +637,12 @@ player (each start scene's controller) were never unloaded before, so the
 object at the top of each one's hierarchy gets **Keep loaded**. A game with a
 camera entity in a start scene, or a title scene holding the camera and the
 player, plays as it did; clear Keep loaded to let them go with their scene.
-A 3D character now moves relative to the live camera's heading, the upgraded
-camera included (before, a project without virtual cameras moved along world
-axes; a scene camera turned about Y now turns the move input with it).
+A 3D character moves as it did: a 3D project without any virtual camera
+moved along the world axes, so the upgrade sets each controller's **Move
+relative to** to **World axes** (`moveFrame: "world"`); a project with virtual
+cameras keeps **Camera**, as they turned the input before. Only where such a
+project's old scene camera, turned about Y, is the one live shot does the
+input now follow its heading; the upgrade notes name that camera.
 
 Scripts: `ctx.spawn(prefab, {position, keepLoaded: true})` spawns a kept
 copy; `ctx.entity(id).set('object', {keepLoaded})` keeps an object (and its
@@ -3449,7 +3452,11 @@ any genre:
   Deceleration (shared with the 2D controller), Air control (0.5: the share
   of acceleration in the air), Gravity scale (× the project's gravity), Turn
   speed (720°/s; 0 turns at once) and Face movement (on: the object turns
-  about its up axis so its +Z faces where it moves — its model turns with it);
+  about its up axis so its +Z faces where it moves — its model turns with it),
+  **Move relative to** (`moveFrame`: **Camera** `view`, the default — pushing
+  up walks away from the live camera, world axes while no camera is live; or
+  **World axes** `world` — up pushes along −Z and right along +X whatever the
+  camera does);
 - **Jump:** Can jump (on), Jump speed (absent: the project's jump velocity),
   with the controller's coyote time, jump buffer and jump release;
 - **Collision:** Slope limit (absent: the project's max slope setting),

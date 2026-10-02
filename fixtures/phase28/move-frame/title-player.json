@@ -1,0 +1,265 @@
+{
+ "shape": "a title scene holding the camera and the player; no virtual camera anywhere (a 3D project)",
+ "settings": {
+  "physics_dimension": 3
+ },
+ "startScenes": [
+  "scene-main"
+ ],
+ "scenes": [
+  {
+   "sceneId": "scene-main",
+   "entities": [
+    {
+     "id": "cam-main",
+     "components": {
+      "transform": {
+       "position": [
+        6,
+        5,
+        10
+       ],
+       "rotation": [
+        -0.165611210507,
+        0.296137402728,
+        0.052217014098,
+        0.939227847276
+       ],
+       "scale": [
+        1,
+        1,
+        1
+       ]
+      },
+      "camera": {
+       "type": "perspective",
+       "fovY": 60,
+       "near": 0.1,
+       "far": 100
+      }
+     }
+    },
+    {
+     "id": "light-0001",
+     "components": {
+      "transform": {
+       "position": [
+        0,
+        10,
+        0
+       ],
+       "rotation": [
+        0,
+        0,
+        0,
+        1
+       ],
+       "scale": [
+        1,
+        1,
+        1
+       ]
+      },
+      "light": {
+       "type": "directional",
+       "color": "#ffffff",
+       "intensity": 1,
+       "direction": [
+        -0.4,
+        -1,
+        -0.3
+       ]
+      }
+     }
+    },
+    {
+     "id": "player-0001",
+     "components": {
+      "transform": {
+       "position": [
+        0,
+        0.91,
+        0
+       ],
+       "rotation": [
+        0,
+        0,
+        0,
+        1
+       ],
+       "scale": [
+        1,
+        1,
+        1
+       ]
+      },
+      "controller": {}
+     }
+    },
+    {
+     "id": "floor-0001",
+     "components": {
+      "transform": {
+       "position": [
+        0,
+        -0.5,
+        0
+       ],
+       "rotation": [
+        0,
+        0,
+        0,
+        1
+       ],
+       "scale": [
+        1,
+        1,
+        1
+       ]
+      },
+      "box": {
+       "size": [
+        60,
+        1,
+        60
+       ],
+       "material": {
+        "color": "#888888"
+       }
+      },
+      "collider": {
+       "shape": {
+        "type": "box",
+        "hx": 30,
+        "hy": 0.5,
+        "hz": 30
+       }
+      }
+     }
+    }
+   ]
+  },
+  {
+   "sceneId": "meadow",
+   "entities": [
+    {
+     "id": "floor-0002",
+     "components": {
+      "transform": {
+       "position": [
+        0,
+        -0.5,
+        80
+       ],
+       "rotation": [
+        0,
+        0,
+        0,
+        1
+       ],
+       "scale": [
+        1,
+        1,
+        1
+       ]
+      },
+      "box": {
+       "size": [
+        20,
+        1,
+        20
+       ],
+       "material": {
+        "color": "#888888"
+       }
+      },
+      "collider": {
+       "shape": {
+        "type": "box",
+        "hx": 10,
+        "hy": 0.5,
+        "hz": 10
+       }
+      }
+     }
+    }
+   ]
+  }
+ ],
+ "input": [
+  {
+   "steps": 120,
+   "move": [
+    0,
+    1
+   ]
+  },
+  {
+   "steps": 120,
+   "move": [
+    1,
+    0
+   ]
+  },
+  {
+   "steps": 120,
+   "move": [
+    -0.7,
+    -0.7
+   ]
+  }
+ ],
+ "v6": {
+  "engine": "7cef0542",
+  "path": [
+   [
+    0.000044,
+    -0.458026
+   ],
+   [
+    0.000038,
+    -0.944285
+   ],
+   [
+    0.000045,
+    -1.427589
+   ],
+   [
+    0.122831,
+    -1.77266
+   ],
+   [
+    0.622857,
+    -1.772695
+   ],
+   [
+    1.122865,
+    -1.772757
+   ],
+   [
+    1.622888,
+    -1.772718
+   ],
+   [
+    1.895415,
+    -1.68595
+   ],
+   [
+    1.545368,
+    -1.335899
+   ],
+   [
+    1.195332,
+    -0.985877
+   ],
+   [
+    0.845365,
+    -0.635894
+   ],
+   [
+    0.618055,
+    -0.408603
+   ]
+  ]
+ }
+}

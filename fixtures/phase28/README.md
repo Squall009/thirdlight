@@ -21,3 +21,12 @@ fixed virtual camera at the lowest priority (its lens the project's camera
 settings where it differs from the default), the camera and the player keep
 loaded, the upgrade is reported in Problems, the recorded command replays from
 its record and the export ships the shots and the lens settings.
+
+`move-frame/` — two schemaVersion 6 documents shaped the same way but 3D with
+a scene camera turned about Y (`title-player.json`: the title scene holds the
+camera and the player, no virtual camera anywhere; `start-camera.json`: the
+camera in a start scene, a level with an orbit-a-point virtual camera and the
+player). Each carries a recorded input and `v6.path`, the character's origin
+every 30th step as the engine at `7cef0542` (schemaVersion 6) played it.
+Used by `tests/integration/m23-3d/upgrade-move-frame.test.ts`: upgraded and
+played again, the character walks the same path.

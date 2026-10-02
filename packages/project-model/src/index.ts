@@ -88,7 +88,7 @@ export type {
 } from './types-v2';
 
 // The character capsule (default, limits, resolved form).
-export { CAPSULE_LIMITS, COLLIDER_3D_LIMITS, COLLIDER_3D_SHAPES, CONTROLLER_FIELDS, CONTROLLER_TUNING_FIELDS, CONTROLLER_TUNING_LIMITS, DEFAULT_CONTROLLER_CAPSULE, DEFAULT_CONTROLLER_TUNING, controllerCapsuleOf, controllerCapsuleOffsetZ, controllerTuningOf, CHARACTER_3D_LIMITS, CONTROLLER_3D_FIELDS, DEFAULT_CHARACTER_3D, character3DSettingsOf, CONTROLLER_ACTION_FIELDS, CONTROLLER_ACTION_DEFAULTS, controllerActionsOf, type Character3DSettings, CONTROLLER_MOVEMENT_FIELDS, CONTROLLER_MOVEMENT_LIMITS, DEFAULT_CONTROLLER_MOVEMENT, controllerMovementOf, type ControllerMovementSettings } from './components';
+export { CAPSULE_LIMITS, COLLIDER_3D_LIMITS, COLLIDER_3D_SHAPES, CONTROLLER_FIELDS, CONTROLLER_TUNING_FIELDS, CONTROLLER_TUNING_LIMITS, DEFAULT_CONTROLLER_CAPSULE, DEFAULT_CONTROLLER_TUNING, controllerCapsuleOf, controllerCapsuleOffsetZ, controllerTuningOf, CHARACTER_3D_LIMITS, CONTROLLER_3D_FIELDS, DEFAULT_CHARACTER_3D, character3DSettingsOf, CHARACTER_MOVE_FRAMES, type CharacterMoveFrame, CONTROLLER_ACTION_FIELDS, CONTROLLER_ACTION_DEFAULTS, controllerActionsOf, type Character3DSettings, CONTROLLER_MOVEMENT_FIELDS, CONTROLLER_MOVEMENT_LIMITS, DEFAULT_CONTROLLER_MOVEMENT, controllerMovementOf, type ControllerMovementSettings } from './components';
 // Collision layers.
 export { DEFAULT_COLLISION_LAYER, MAX_COLLISION_LAYERS, validateCollisionLayers } from './components';
 export { parseDocumentBytes, type ByteParse } from './parse-bytes';

@@ -6,7 +6,7 @@
  * Pure fixed-step logic over the injected ports, like the character controller module:
  * in the `controller` phase it turns the step's move vector (its controller's
  * move action: x, y), read relative to the active camera's yaw when a camera
- * provides one, else world axes; or a script's `control_move` /
+ * provides one and the controller's `moveFrame` is `view`, else world axes; or a script's `control_move` /
  * `character_move` intent) into a velocity (walk or run speed, acceleration
  * and deceleration, less of both in the air), adds gravity and jumps, and
  * stages one move; the 3D port sweeps the capsule with Rapier's kinematic
@@ -243,7 +243,7 @@ export function createCharacter3DModule(snapshot: RuntimeSnapshot, cfg: ModuleCo
       const [ax, ay] = actionAxis(action, names.move);
       const mx = intents.move ?? ax;
       const my = intents.move !== null ? (intents.moveY ?? 0) : ay;
-      const camYaw = typeof ctx.cameraYaw === 'number' && Number.isFinite(ctx.cameraYaw) ? ctx.cameraYaw : 0;
+      const camYaw = S.moveFrame === 'view' && typeof ctx.cameraYaw === 'number' && Number.isFinite(ctx.cameraYaw) ? ctx.cameraYaw : 0;
       const c = Math.cos(camYaw);
       const s = Math.sin(camYaw);
       // right = (cos, 0, −sin), forward = (−sin, 0, −cos): at yaw 0, x → +X and y → −Z.
