@@ -27,7 +27,6 @@
     "diagnostics": 32,
     "timeoutMs": 2000,
     "outputBytes": 131072,
-    "properties": 32,
     "declarationBytes": 32768
   },
   "pinnedModules": [
@@ -440,7 +439,7 @@
         "manifestDigest": "7ba7b55414d9a9419f8eb34903e3c59d7e35dc667c6e70e95d1cc799a21a1afd",
         "outputDigest": "ac87c52cf2d81f5d7c93775ce360dfe58ccb34fb9b121ee4968fd09ce4419cb2",
         "outputByteLength": 91,
-        "recipeDigest": "499dfd2f0417de2ae45978f71942609f5dad16844a169f7b34bf61579cc7149b",
+        "recipeDigest": "369365701a258ff19d3f5549abc8ef607564496e250f16765d4865f9449163a5",
         "declarationDigest": "4fb3f66fc84938a9d379a940d52758b1a1b6a0448b7cf7e1985ce6b6b1bdc9d2"
       }
     },
@@ -459,7 +458,7 @@
         "manifestDigest": "86ebf51fe7c0eb32271f07a495ab6a492a29f1910eba59996d393f27a7268136",
         "outputDigest": "55ff57e06358123daa303aeab202f391245eebd695e25b49432e166e4d12bd69",
         "outputByteLength": 500,
-        "recipeDigest": "499dfd2f0417de2ae45978f71942609f5dad16844a169f7b34bf61579cc7149b",
+        "recipeDigest": "369365701a258ff19d3f5549abc8ef607564496e250f16765d4865f9449163a5",
         "declarationDigest": "4fb3f66fc84938a9d379a940d52758b1a1b6a0448b7cf7e1985ce6b6b1bdc9d2"
       }
     }
@@ -560,7 +559,6 @@
         "diagnostics": 32,
         "timeoutMs": 2000,
         "outputBytes": 131072,
-        "properties": 32,
         "declarationBytes": 32768
       },
       "pinnedModules": [
@@ -584,7 +582,7 @@
     },
     "manifestDigest": "86ebf51fe7c0eb32271f07a495ab6a492a29f1910eba59996d393f27a7268136",
     "manifestByteLength": 1417,
-    "recipeDigest": "499dfd2f0417de2ae45978f71942609f5dad16844a169f7b34bf61579cc7149b"
+    "recipeDigest": "369365701a258ff19d3f5549abc8ef607564496e250f16765d4865f9449163a5"
   },
   "declarationCases": [
     {
@@ -598,13 +596,13 @@
       }
     },
     {
-      "caseId": "D02-properties-over",
-      "declaration": "33-properties",
+      "caseId": "D02-declaration-bytes-over",
+      "declaration": "over-bytes",
       "expect": {
         "ok": false,
         "code": "behavior_source_limits_exceeded",
-        "reason": "properties",
-        "limit": "properties"
+        "reason": "declaration_bytes",
+        "limit": "declaration_bytes"
       }
     }
   ],

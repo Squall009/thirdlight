@@ -1954,8 +1954,9 @@ a new digest must be acknowledged first with `acknowledgeBehaviorTrust
 published record (`tl_content_query target="behaviors" behaviorId
 includeDeclaration: true`) shows `source.kind: "graph"`; attach the script
 with `setBehaviorProperties` and play it with `tl_play_start` like any
-behavior. Limits: 256 nodes per graph, 32 functions and 32 properties
-per script; Delay nodes use timers named `vs.delay.<n>`.
+behavior. Limits: 256 nodes per graph and 32 functions per script (its
+variables are bounded only by the declaration's 32 KiB, as below); Delay
+nodes use timers named `vs.delay.<n>`.
 
 **Exports:** an exported game runs a visual script exactly like a
 TypeScript one — the published module is part of the export (a
@@ -2656,6 +2657,11 @@ fields:
   in the file, unused, until that object's properties are next set.
 - An object stores only the public values it sets; a key added to a script
   in use reads its default until set.
+- There is no count limit: a script declares as many properties as fit in
+  32 KiB (`MAX_DECLARATION_BYTES`, the declaration as 2-space JSON). A
+  larger one is refused with `limits_exceeded` (`limit: declaration_bytes`)
+  naming its size — declare fewer or shorter properties (shorter labels,
+  tooltips, choices).
 
 Declare them in File → Project Settings… → **Scripts**: "+ New behavior" (or select a
 behavior) opens the declaration editor — key, label, type, default,

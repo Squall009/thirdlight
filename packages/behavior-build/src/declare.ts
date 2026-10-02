@@ -280,7 +280,6 @@ export function readCodeDeclaration(entryText: string): CodeDeclarationResult {
       seen.add(key);
       r.expect(':');
       properties.push(readProperty(r, key));
-      if (properties.length > 64) r.fail('too many properties');
       if (r.peek() === ',') r.i++;
       else if (r.peek() !== '}') r.fail('expected "," or "}"');
     }

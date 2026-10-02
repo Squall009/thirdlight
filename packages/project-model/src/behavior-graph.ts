@@ -397,7 +397,7 @@ export function behaviorOwnedTransforms(graphs: readonly BehaviorScriptGraph[]):
 /**
  * The compile diagnostics of a structurally valid script (its graph, its
  * functions and the shared functions it calls): variable names, kinds and
- * choices; at most 32 properties; Get/Set naming a declared variable; Set
+ * choices; Get/Set naming a declared variable; Set
  * values; required texts; function calls (an existing function, no call
  * cycles, interface names that do not hide the call's own ports); the
  * phases API nodes and Delays run in; the objects Move/Pose nodes move.
@@ -411,10 +411,6 @@ export function checkBehaviorGraph(graph: GraphData, env: BehaviorScriptEnv = {}
   const functionList = Array.isArray(env.functions) ? env.functions : [];
   if (functionList.length > BEHAVIOR_GRAPH_LIMITS.functions) out.push({ severity: 'error', message: `a script has at most ${BEHAVIOR_GRAPH_LIMITS.functions} functions` });
   for (const sg of graphs) checkOne(sg, sg.scope === '' ? new Map() : sg.scope.startsWith('fn:') ? scriptDecls : new Map(), out);
-
-  // Properties: at most 32 (a behavior declares 0–32).
-  const props = variableNodesOf(graph).filter((n) => variableProperty(n) !== null);
-  if (props.length > BEHAVIOR_GRAPH_LIMITS.variables) out.push({ severity: 'error', nodeId: props[BEHAVIOR_GRAPH_LIMITS.variables]!.id, message: `a script has at most ${BEHAVIOR_GRAPH_LIMITS.variables} public and private variables (its properties)` });
 
   // Calls: an existing function, and no call cycles.
   const byScope = new Map(graphs.map((g) => [g.scope, g]));

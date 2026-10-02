@@ -23,7 +23,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import type { SceneV4 } from '@thirdlight/project-model';
+import { MAX_DECLARATION_BYTES, type SceneV4 } from '@thirdlight/project-model';
 
 import { applyMutation, contentCounts, createCommandState, queryAssets, queryBehaviors } from './index';
 import type { CommandState, MutationSuccess } from './index';
@@ -338,18 +338,16 @@ describe('publishBehavior', () => {
       },
     };
     expect(failCode(mutation(baseState(), 'publishBehavior', dupKey))).toBe('property_value');
-    const tooMany = {
+    // No count cap: 100 properties publish; only the declaration's bytes are bounded.
+    const many = (n: number, label: (i: number) => string) => ({
       ...NEW_BEHAVIOR,
-      declaration: {
-        properties: Array.from({ length: 33 }, (_, i) => ({
-          key: `k${i}`,
-          label: `K${i}`,
-          type: 'number',
-          default: 0,
-        })),
-      },
-    };
-    expect(failCode(mutation(baseState(), 'publishBehavior', tooMany))).toBe('limits_exceeded');
+      declaration: { properties: Array.from({ length: n }, (_, i) => ({ key: `k${i}`, label: label(i), type: 'number', default: 0 })) },
+    });
+    ok(mutation(baseState(), 'publishBehavior', many(100, (i) => `K${i}`)));
+    const err = failError(mutation(baseState(), 'publishBehavior', many(400, (i) => `Property number ${i} with a long label`)));
+    expect(err).toMatchObject({ code: 'limits_exceeded', limit: 'declaration_bytes', max: MAX_DECLARATION_BYTES });
+    expect(err['current']).toBeGreaterThan(MAX_DECLARATION_BYTES);
+    expect(String(err['message'])).toContain(`over the ${MAX_DECLARATION_BYTES}-byte budget`);
   });
 });
 

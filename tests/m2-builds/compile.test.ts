@@ -132,7 +132,7 @@ describe('compileBehavior', () => {
       const declaration =
         c.declaration === 'empty'
           ? { properties: [] }
-          : { properties: Array.from({ length: 33 }, (_, i) => ({ key: `p${i}`, label: `P${i}`, type: 'number', default: 0 })) };
+          : { properties: Array.from({ length: 400 }, (_, i) => ({ key: `p${i}`, label: `Property number ${i} with a long label`, type: 'number', default: 0 })) };
       const result = await compileBehavior({
         behaviorId: BEHAVIOR_ID,
         declaration: declaration as never,
@@ -148,6 +148,19 @@ describe('compileBehavior', () => {
       expect(result.ok, c.caseId).toBe(false);
       if (!result.ok) expectMatches(c.expect, result as unknown as Record<string, unknown>).forEach((p) => expect(p).toBe(''));
     }
+  });
+
+  it('compiles a declaration of 100 properties (no count cap; the byte budget governs)', async () => {
+    const declaration = { properties: Array.from({ length: 100 }, (_, i) => ({ key: `p${i}`, label: `P${i}`, type: 'number' as const, default: i })) };
+    const result = await compileBehavior({
+      behaviorId: BEHAVIOR_ID,
+      declaration,
+      containerBytes: containerBytes('valid/sample.json'),
+      pinnedModules: M2_PINNED_MODULES,
+      limits: RUN_LIMITS,
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.manifest.declaration.properties).toHaveLength(100);
   });
 
   it('reports an injected compiler failure as behavior_compile_failed', async () => {

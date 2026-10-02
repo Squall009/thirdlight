@@ -389,6 +389,7 @@ export { arrayTextureIds, TEXTURE_ARRAY_KIND, MAX_TEXTURE_LAYERS, KTX2_ENCODINGS
 export { canonicalLoadable, ENV_PRESETS_LIST, isAddress, isLoadable, liveLoadable, loadableAssetIds, loadableResourceIds, loadableRows, loadableRowsProblem, RESOURCE_KIND_TABLE, resourceKindDef, resourceRecordsOf, type LoadableEntry, type LoadableRow, type ResourceKindDef } from './loadable';
 // Prefabs spawned into a running game (the snapshot/manifest carry them).
 export { PREFAB_V4_COMPONENTS, canonicalPrefabs, validatePrefabDefinitions } from './content';
+export { declarationBytes } from './content-behaviors';
 export {
   INSTANCE_FLOATS,
   MAX_INSTANCES,

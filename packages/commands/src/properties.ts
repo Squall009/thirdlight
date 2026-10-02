@@ -27,7 +27,7 @@ import {
   propertyValue,
   withBoundedFound,
 } from './errors';
-import { MAX_DECLARATION_BYTES, MAX_ENUM_VALUES, MAX_PROPERTIES } from '@thirdlight/project-model';
+import { declarationBytes, MAX_DECLARATION_BYTES, MAX_ENUM_VALUES } from '@thirdlight/project-model';
 import type { CommandError } from './types';
 import type {
   DeclaredProperty,
@@ -519,21 +519,8 @@ export function checkOverrideValue(
 export function validateDeclaration(
   declaration: PropertyDeclaration,
 ): { ok: true; declaration: PropertyDeclaration } | { ok: false; error: CommandError } {
-  // A behavior may declare no properties at all.
+  // Any number of properties, none included: the byte budget below bounds them.
   const properties = declaration.properties as readonly unknown[];
-  if (properties.length > MAX_PROPERTIES) {
-    return {
-      ok: false,
-      error: {
-        code: 'limits_exceeded',
-        cls: 'validation',
-        limit: 'properties',
-        current: properties.length,
-        max: MAX_PROPERTIES,
-        message: `a declaration may declare at most ${MAX_PROPERTIES} properties`,
-      },
-    };
-  }
   const out: DeclaredProperty[] = [];
   const seen = new Set<string>();
   for (let i = 0; i < properties.length; i++) {
@@ -557,7 +544,7 @@ export function validateDeclaration(
     }
   }
   const canonical: PropertyDeclaration = { properties: out };
-  const bytes = new TextEncoder().encode(JSON.stringify(canonical, null, 2) + '\n').length;
+  const bytes = declarationBytes(canonical);
   if (bytes > MAX_DECLARATION_BYTES) {
     return {
       ok: false,
@@ -567,7 +554,7 @@ export function validateDeclaration(
         limit: 'declaration_bytes',
         current: bytes,
         max: MAX_DECLARATION_BYTES,
-        message: `the canonical declaration exceeds the ${MAX_DECLARATION_BYTES}-byte cap`,
+        message: `the declaration is ${bytes} bytes, over the ${MAX_DECLARATION_BYTES}-byte budget (declare fewer or shorter properties)`,
       },
     };
   }

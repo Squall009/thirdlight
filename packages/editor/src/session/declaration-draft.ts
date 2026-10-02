@@ -9,7 +9,6 @@
  *
  * Pure: no DOM, no I/O, no code evaluation.
  */
-import { MAX_PROPERTIES } from '@thirdlight/project-model/limits';
 import { ID_RE } from '@thirdlight/project-model/limits';
 
 import type { DeclaredProperty, PropertyDeclaration, PropertyType, PropertyValue } from '@thirdlight/project-model';
@@ -39,7 +38,7 @@ export interface PropertyDraft {
 
 export interface DraftProblem {
   index: number;
-  field: keyof PropertyDraft | 'properties';
+  field: keyof PropertyDraft;
   message: string;
 }
 
@@ -112,7 +111,6 @@ function vec(text: string): [number, number, number] | null {
  */
 export function declarationOf(drafts: readonly PropertyDraft[]): { ok: true; declaration: PropertyDeclaration } | { ok: false; problem: DraftProblem } {
   const bad = (index: number, field: DraftProblem['field'], message: string): { ok: false; problem: DraftProblem } => ({ ok: false, problem: { index, field, message } });
-  if (drafts.length > MAX_PROPERTIES) return bad(-1, 'properties', `a behavior declares at most ${MAX_PROPERTIES} properties`);
   const seen = new Set<string>();
   const out: DeclaredProperty[] = [];
   for (let i = 0; i < drafts.length; i++) {

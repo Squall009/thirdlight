@@ -16,7 +16,6 @@ import {
   MAX_BEHAVIOR_SOURCE_BYTES,
   MAX_DECLARATION_BYTES,
   MAX_OWNED_TRANSFORMS,
-  MAX_PROPERTIES,
 } from '@thirdlight/project-model';
 import type { BehaviorCompilerLimits, PinnedModuleRef } from './types';
 
@@ -37,9 +36,8 @@ export const BEHAVIOR_API_VERSION = 1 as const;
 export const ENTRY_PATH = BEHAVIOR_ENTRY_PATH;
 
 /**
- * The defaults. The contract lists the first nine keys; `ownedTransforms`,
- * `properties` and `declarationBytes` are project-model bounds the preparer
- * re-checks here.
+ * The defaults. The contract lists the first nine keys; `ownedTransforms`
+ * and `declarationBytes` are project-model bounds the preparer re-checks here.
  */
 export const COMPILER_LIMITS: Readonly<BehaviorCompilerLimits> = Object.freeze({
   files: MAX_BEHAVIOR_FILES,
@@ -51,7 +49,6 @@ export const COMPILER_LIMITS: Readonly<BehaviorCompilerLimits> = Object.freeze({
   diagnostics: MAX_BEHAVIOR_DIAGNOSTICS,
   timeoutMs: 2_000,
   outputBytes: MAX_BEHAVIOR_OUTPUT_BYTES,
-  properties: MAX_PROPERTIES,
   declarationBytes: MAX_DECLARATION_BYTES,
 } as const);
 

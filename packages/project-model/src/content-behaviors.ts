@@ -31,7 +31,6 @@ import {
   MAX_DECLARATION_STRING_LENGTH,
   MAX_ENUM_VALUES,
   MAX_OWNED_TRANSFORMS,
-  MAX_PROPERTIES,
 } from './content-limits';
 import { canonicalDocBytes, DIGEST_RE, digestError, limitsError, sortedRecord } from './content-helpers';
 
@@ -124,6 +123,15 @@ function checkPropertyValueShape(
     default:
       return failType('a known property type');
   }
+}
+
+/**
+ * A declaration's size against `MAX_DECLARATION_BYTES`: its 2-space JSON and
+ * a newline, as the project file stores it. The model, the publication
+ * command and the compiler measure with this one function.
+ */
+export function declarationBytes(declaration: unknown): number {
+  return canonicalDocBytes(declaration);
 }
 
 /** No C0 control character or DEL (the declared text fields). */
@@ -336,10 +344,6 @@ export function validateBehaviorRecord(b: unknown, path: string, errors: ModelEr
     if (props === undefined) errors.push(fieldMissing(`${path}/declaration/properties`, 'properties'));
     else if (!Array.isArray(props)) errors.push(fieldType(`${path}/declaration/properties`, props, 'array'));
     else {
-      // 0–32 (a script may declare no property).
-      if (props.length > MAX_PROPERTIES) {
-        errors.push(limitsError(`${path}/declaration/properties`, 'properties', props.length, MAX_PROPERTIES, `a declaration has at most ${MAX_PROPERTIES} properties`));
-      }
       const seen = new Set<string>();
       for (let i = 0; i < props.length; i++) {
         const p = props[i];
@@ -350,8 +354,9 @@ export function validateBehaviorRecord(b: unknown, path: string, errors: ModelEr
           } else seen.add(p['key']);
         }
       }
-      if (canonicalDocBytes(declaration) > MAX_DECLARATION_BYTES) {
-        errors.push(limitsError(`${path}/declaration`, 'declaration_bytes', canonicalDocBytes(declaration), MAX_DECLARATION_BYTES, 'canonical declaration exceeds the byte cap'));
+      const bytes = declarationBytes(declaration);
+      if (bytes > MAX_DECLARATION_BYTES) {
+        errors.push(limitsError(`${path}/declaration`, 'declaration_bytes', bytes, MAX_DECLARATION_BYTES, `the declaration is ${bytes} bytes, over the ${MAX_DECLARATION_BYTES}-byte budget (declare fewer or shorter properties)`));
       }
     }
     for (const k of Object.keys(declaration)) {

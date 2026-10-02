@@ -16,7 +16,7 @@
  */
 
 import { build as esbuildBuild, type BuildOptions, type Plugin } from 'esbuild';
-import type { DeclaredProperty } from '@thirdlight/project-model';
+import { declarationBytes, type DeclaredProperty } from '@thirdlight/project-model';
 
 import {
   BEHAVIOR_API_VERSION,
@@ -286,30 +286,19 @@ export async function compileBehavior(
   // Declaration bounds (re-checked here).
   const declaration = declaredInCode ? { properties: code.properties } : input.declaration;
   const properties = declaration.properties;
-  // 0–32 properties (a script may declare none).
+  // Any number of properties, none included: only the byte budget bounds them.
   if (!Array.isArray(properties)) {
-    return fail('behavior_source_limits_exceeded', 'properties', {
-      limit: 'properties',
-      current: 0,
-      max: limits.properties,
-      message: 'a behavior declaration lists 0..32 properties',
+    return fail('behavior_source_invalid', 'properties', {
+      message: 'a behavior declaration is { properties: [...] }',
     });
   }
-  if (properties.length > limits.properties) {
-    return fail('behavior_source_limits_exceeded', 'properties', {
-      limit: 'properties',
-      current: properties.length,
-      max: limits.properties,
-      message: 'the declaration exceeds the property count bound',
-    });
-  }
-  const declarationBytes = utf8Encode(canonicalJsonText(declaration)).length;
-  if (declarationBytes > limits.declarationBytes) {
+  const bytes = declarationBytes(declaration);
+  if (bytes > limits.declarationBytes) {
     return fail('behavior_source_limits_exceeded', 'declaration_bytes', {
       limit: 'declaration_bytes',
-      current: declarationBytes,
+      current: bytes,
       max: limits.declarationBytes,
-      message: 'the canonical declaration exceeds the byte bound',
+      message: `the declaration is ${bytes} bytes, over the ${limits.declarationBytes}-byte budget (declare fewer or shorter properties)`,
     });
   }
   // Steps 1–7.

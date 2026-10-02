@@ -688,10 +688,7 @@ function validateDeclaration(declaration: unknown): PropertyDeclaration {
     throw new BehaviorHostError('config_invalid', 'behavior_declaration_invalid', 'a declaration must be { properties: [] }');
   }
   const properties = declaration['properties'] as unknown[];
-  // 0–32 (a script may declare no property at all).
-  if (properties.length > 32) {
-    throw new BehaviorHostError('config_invalid', 'behavior_declaration_invalid', 'a declaration has at most 32 properties');
-  }
+  // Any number (none included): the publication bounded the declaration's bytes.
   const seen = new Set<string>();
   for (const raw of properties) {
     if (!isPlainObject(raw)) {

@@ -40,9 +40,7 @@ export interface BehaviorCompilerLimits {
   timeoutMs: number;
   /** output bytes. */
   outputBytes: number;
-  /** properties per declaration (re-checked here; owned by properties.md). */
-  properties: number;
-  /** canonical declaration bytes (re-checked here). */
+  /** declaration bytes (re-checked here; `declarationBytes` measures them). The only bound on how many properties a behavior declares. */
   declarationBytes: number;
 }
 

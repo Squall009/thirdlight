@@ -12,7 +12,7 @@ import { ANIMATOR_CONDITION_OPS, ANIMATOR_PARAMETER_TYPES, MAX_ANIMATOR_CONDITIO
 import { MAX_TRANSITION_FADE } from './blocks';
 import { MAX_COLLISION_LAYERS } from './components';
 import { RESOURCE_KIND_TABLE } from './loadable';
-import { ADDRESS_MAX_LENGTH, ASSET_LABEL_MAX_LENGTH, M2_SETTINGS_KEYS, MAX_ENUM_VALUES, MAX_PREFAB_ENTITIES, MAX_PROPERTIES, PREFAB_V4_COMPONENTS } from './content';
+import { ADDRESS_MAX_LENGTH, ASSET_LABEL_MAX_LENGTH, M2_SETTINGS_KEYS, MAX_ENUM_VALUES, MAX_DECLARATION_BYTES, MAX_PREFAB_ENTITIES, PREFAB_V4_COMPONENTS } from './content';
 import {
   CURSOR_MODES,
   DEFAULT_INPUT,
@@ -601,7 +601,7 @@ export const CONTENT: readonly ContentBlockDescriptor[] = [
     value: list('behaviors', 'Behaviors', 'The project\'s scripts (each its own file).', obj('*', 'Behavior', 'A published script.', [
       str('behaviorId', 'Id', 'The stable behavior id.', { ...ID, required: true, readOnly: true }),
       str('displayName', 'Name', 'Shown in pickers.', { ...NAME, required: true }),
-      obj('declaration', 'Declaration', 'The properties objects set.', [list('properties', 'Properties', `1–${MAX_PROPERTIES} declared properties.`, DECLARED_PROPERTY, { required: true, minItems: 1, maxItems: MAX_PROPERTIES })], { required: true }),
+      obj('declaration', 'Declaration', 'The properties objects set.', [list('properties', 'Properties', `The declared properties (none or more; the declaration is at most ${MAX_DECLARATION_BYTES} bytes).`, DECLARED_PROPERTY, { required: true })], { required: true }),
       json('source', 'Source', 'The compiled source record (written by the behavior build; none: declaration only).', { required: true, nullable: true, readOnly: true }),
       int('publishedRevision', 'Published at', 'The project revision it was published at.', { required: true, min: 0, readOnly: true }),
     ]), { required: true }),

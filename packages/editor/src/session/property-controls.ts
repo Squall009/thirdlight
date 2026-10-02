@@ -30,7 +30,7 @@ import type {
   PropertyType,
   PropertyValue,
 } from '@thirdlight/project-model';
-import { DECLARATION_STRING_LENGTH_DEFAULT, MAX_DECLARATION_STRING_LENGTH, MAX_ENUM_VALUES, MAX_PROPERTIES } from '@thirdlight/project-model/limits';
+import { DECLARATION_STRING_LENGTH_DEFAULT, MAX_DECLARATION_STRING_LENGTH, MAX_ENUM_VALUES } from '@thirdlight/project-model/limits';
 
 /** `^[a-z0-9][a-z0-9_-]{0,63}$` — the project model's ID syntax. */
 export const ID_SYNTAX = ID_RE;
@@ -38,8 +38,7 @@ export const ID_SYNTAX = ID_RE;
 /** A `string` declaration without `maxLength` takes the model's default. */
 export const DEFAULT_STRING_MAX_LENGTH = DECLARATION_STRING_LENGTH_DEFAULT;
 
-/** Properties per declaration, enum members, string `maxLength`. */
-export const MAX_DECLARED_PROPERTIES = MAX_PROPERTIES;
+/** Enum members, string `maxLength`. */
 export const MAX_ENUM_MEMBERS = MAX_ENUM_VALUES;
 export const MAX_STRING_MAX_LENGTH = MAX_DECLARATION_STRING_LENGTH;
 

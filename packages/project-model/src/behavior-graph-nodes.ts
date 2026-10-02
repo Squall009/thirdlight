@@ -34,8 +34,6 @@ import { BEHAVIOR_API_NODES } from './behavior-api.generated';
 export const BEHAVIOR_GRAPH_LIMITS = {
   /** Nodes per graph (the script and each function): keeps the generated module within the compiler's bounds. */
   nodes: 256,
-  /** Declared properties (public and private variables) per script = the declared-property bound of a behavior (0–32). */
-  variables: 32,
   /** Functions inside one script. */
   functions: 32,
   /**

@@ -33,8 +33,12 @@ export const MAX_PREFAB_DEPTH = 16;
 export const MAX_PREFAB_BYTES = MAX_CONTENT_FILE_BYTES;
 /** The most overrides one prefab instantiation request carries (commands and the editor's planner check it). */
 export const MAX_PREFAB_OVERRIDES = 64;
-export const MAX_PROPERTIES = 32;
 export const MAX_ENUM_VALUES = 32;
+/**
+ * A behavior declaration's canonical bytes (2-space JSON and a newline). This
+ * alone bounds how many properties a behavior declares: a count cap would
+ * only be a guess at what one game needs.
+ */
 export const MAX_DECLARATION_BYTES = 32_768;
 /** A declared `string` property's length (code points) when it sets no `maxLength`, and the largest `maxLength` it may set. */
 export const DECLARATION_STRING_LENGTH_DEFAULT = 256;

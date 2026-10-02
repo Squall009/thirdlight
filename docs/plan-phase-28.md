@@ -130,7 +130,8 @@ surfaces). Format changes share one bump: `project.json` schemaVersion 7
 | 28.3 | done 2026-10-02 — the effect light pool's 16 lights are added dark before the first frame of a game whose effects emit light (Play, export, Scene view, Effect tab), never mid-play; e2e: lights rising 1 → 16 build no program or pipeline in Play and the export (D127) |
 | 28.4 | done 2026-10-02 — schemaVersion 7 (scene cameras upgraded to lowest-priority fixed shots, their lens the project's camera settings; camera and player keep loaded); the camera brain owns the view per view key (default pose + Play warning without a live shot); `keepLoaded` (flag, spawn option, handle write; survives unload/reload/applyWorld, no second copy, references read empty with a Problems line, listed spawns place a kept player); start rules checked at Play/export; cross-scene `moveEntities {sceneId}`; creates need a scene over the API; Inspector flag, hierarchy marker, cross-scene drag |
 | 28.5 | done 2026-10-02 — `ctx.scenes.reload(sceneId)` and the `reloadScene` UI engine action (`scene`, default the active scene) at the step boundary: objects as authored, copies spawned in the scene gone, its scripts made again, its sounds stopped, kept objects/`ctx.save`/counters/other scenes untouched; the engine pause panel has only Resume; `restartLevel`, `newGame`, `ctx.lifecycle.restart()` work with one Problems line per Play; migration notes; `resume` leaves the shell title (D137) |
-| 28.6–28.13 | — |
+| 28.6 | done 2026-10-02 — no count cap on a behavior's properties (model, commands, compiler, code-declaration reader, runtime, visual-script variables, editor, schema); `MAX_DECLARATION_BYTES` (32 KiB, measured once by `declarationBytes`) refuses with the size; e2e: 100 properties, one edited in the Inspector, a 101st added in the declaration editor, both survive a backend restart |
+| 28.7–28.13 | — |
 
 ## 6. Decision log
 
@@ -273,3 +274,10 @@ surfaces). Format changes share one bump: `project.json` schemaVersion 7
   Restart. Found on the way: a start scene unloaded and loaded again lost its
   kept objects at the next run restart (D137, fixed: an arriving scene takes
   its scene-less kept objects back).
+- 2026-10-02 (28.6): the count caps went everywhere they were copied, not
+  only `MAX_PROPERTIES`: the compiler's `properties` limit (so the compile
+  recipe digest changed once: cached builds recompile), the code-declaration
+  reader's 64, the runtime host's 32 and the visual-script variable limit.
+  One measure, `declarationBytes` (2-space JSON, as stored), serves the model,
+  the command and the compiler (the compiler measured compact JSON before).
+  The schema's `minItems: 1` went too (a behavior may declare none).

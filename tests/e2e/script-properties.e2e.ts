@@ -11,6 +11,9 @@
  * - Play: the script reads the override (speed 5) and the private default
  *   (secret 7) — seen in its counters — and the Play debug view shows both
  *   values read-only for the selected box (as does the observe relay).
+ * - No count cap: a script declaring 100 properties lists them all in the
+ *   Inspector, takes an edit there and a 101st property in the declaration
+ *   editor; only the declaration's byte budget refuses (with its size).
  */
 import { createHash } from 'node:crypto';
 
@@ -235,4 +238,85 @@ test('properties declared in the script source: the compiler derives the declara
   await expect(page.getByLabel('property 2 visibility', { exact: true })).toHaveValue('private');
   await expect(page.getByLabel('property 2 visibility', { exact: true })).toBeDisabled();
   await expect(editor.getByRole('button', { name: 'Save declaration' })).toHaveCount(0);
+});
+
+/** `n` public number properties `p0` … `p<n-1>` (default = index), labelled as given. */
+const numbers = (n: number, label: (i: number) => string = (i) => `P${i}`): { properties: Record<string, unknown>[] } => ({
+  properties: Array.from({ length: n }, (_, i) => ({ key: `p${i}`, label: label(i), type: 'number', default: i })),
+});
+
+test('a script declaring 100 properties: the Inspector edits one, the declaration editor adds one more, both persist', async ({ page }) => {
+  test.setTimeout(240_000);
+  // No count cap: only the declaration's bytes bound it.
+  await cmd('publishBehavior', { behaviorId: 'many', displayName: 'Many', mode: 'declaration-create', declaration: numbers(100) });
+  const made = await cmd('createEntity', { sceneId: 'scene-main', kind: 'box', name: 'Many box', transform: { position: [6, 1, 0] }, box: { size: [0.5, 0.5, 0.5], material: { color: '#808080' } } });
+  const boxId = String(made.createdId);
+  await cmd('setBehaviorProperties', { entityId: boxId, behaviorId: 'many', values: {} });
+  const values = async (): Promise<Record<string, unknown> | undefined> => {
+    const r = await query('queryEntity', { entityId: boxId });
+    return ((r['entity'] as { components: Record<string, { values?: Record<string, unknown> }> }).components['behavior'])?.values;
+  };
+
+  await page.goto(be.editorUrl);
+  await expect(page.locator('.tl-statusbar')).toContainText('connected');
+  await page.locator(`.tl-hierarchy__list li[data-entity-id="${boxId}"]`).click();
+  const inspector = page.locator('.tl-inspector');
+  // Every property is listed; the last one is edited.
+  await expect(inspector.locator('[data-component="behavior"] [data-property]')).toHaveCount(100);
+  const last = inspector.locator('[data-property="p99"] input');
+  await expect(last).toHaveValue('99');
+  await last.fill('42');
+  await last.press('Enter');
+  await expect.poll(async () => (await values())?.['p99']).toBe(42);
+
+  // The declaration editor adds a 101st (its add button was once disabled at the count cap).
+  await openWindow(page, 'Behaviors');
+  await page.locator('.tl-behaviors__list li').filter({ hasText: 'Many' }).click();
+  const editor = page.getByLabel('declaration editor');
+  await expect(page.getByLabel('property 100 key', { exact: true })).toHaveValue('p99');
+  await editor.getByRole('button', { name: '+ Add property' }).click();
+  await fill(page, 'property 101 key', 'extra');
+  await fill(page, 'property 101 label', 'Extra');
+  await fill(page, 'property 101 default', '5');
+  await editor.getByRole('button', { name: 'Save declaration' }).click();
+  const declared = async (): Promise<number | undefined> => {
+    const r = await query('queryBehaviors', { includeDeclaration: true, behaviorId: 'many' });
+    return (r['behaviors'] as { declaration: { properties: unknown[] } }[])[0]?.declaration.properties.length;
+  };
+  await expect.poll(declared).toBe(101);
+
+  // Both survive a backend restart (they were written to the project files).
+  await be.restart();
+  expect(await declared()).toBe(101);
+  expect((await values())?.['p99']).toBe(42);
+});
+
+test('a declaration over the byte budget is refused with its size; 100 properties declared in code publish', async () => {
+  // 400 long-labelled properties are well over 32 KiB.
+  const big = await send('publishBehavior', { behaviorId: 'huge', displayName: 'Huge', mode: 'declaration-create', declaration: numbers(400, (i) => `Property number ${i} with a long label`) });
+  expect(big.ok).toBe(false);
+  const err = big['error'] as { code: string; limit: string; current: number; max: number; message: string };
+  expect(err).toMatchObject({ code: 'limits_exceeded', limit: 'declaration_bytes', max: 32_768 });
+  expect(err.current).toBeGreaterThan(32_768);
+  expect(err.message).toBe(`the declaration is ${err.current} bytes, over the 32768-byte budget (declare fewer or shorter properties)`);
+  const listed = (await query('queryBehaviors', { limit: 50, offset: 0 }))['behaviors'] as { behaviorId: string }[];
+  expect(listed.map((b) => b.behaviorId)).not.toContain('huge');
+
+  // The code declaration reader has no count cap either.
+  await cmd('publishBehavior', { behaviorId: 'coded-many', displayName: 'Coded many', mode: 'declaration-create', declaration: { properties: [] } });
+  const text = ['export const properties = {', ...Array.from({ length: 100 }, (_, i) => `  p${i}: property.number(${i}),`), '};', '', 'export default { step() {} };', ''].join('\n');
+  const bytes = Buffer.from(`${JSON.stringify({ graphVersion: 1, entryPath: 'src/index.ts', requiredModules: [], ownedTransforms: [], files: [{ path: 'src/index.ts', text }] }, null, 2)}\n`);
+  const stage = await api('content/stages', {});
+  const stageId = String(stage.json.stageId);
+  const put = await fetch(`${be.origin}/api/v1/projects/${be.projectId}/content/stages/${stageId}/bytes`, {
+    method: 'PUT',
+    headers: { authorization: `Bearer ${be.token}`, origin: be.origin, 'content-type': 'application/octet-stream', 'x-thirdlight-offset': '0', 'x-thirdlight-total': String(bytes.length) },
+    body: bytes,
+  });
+  expect(put.status).toBe(200);
+  await cmd('acknowledgeBehaviorTrust', { sourceDigest: createHash('sha256').update(bytes).digest('hex') });
+  const published = await api('content/behaviors/source', { stageId, behaviorId: 'coded-many', displayName: 'Coded many', expectedRevision: Number((await query('queryProject')).revision), requestId: `req-${'e'.repeat(32)}` });
+  expect(published.status, JSON.stringify(published.json)).toBe(200);
+  const record = ((await query('queryBehaviors', { includeDeclaration: true, behaviorId: 'coded-many' }))['behaviors'] as { declaration: { properties: unknown[] } }[])[0]!;
+  expect(record.declaration.properties).toHaveLength(100);
 });
