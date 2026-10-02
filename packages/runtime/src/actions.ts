@@ -23,7 +23,7 @@ import { clipMessage } from './errors';
 // The action names a character controller reads (re-exported for the controller modules).
 export { controllerActionsOf } from '@thirdlight/project-model';
 import { validateSaveEvents, type SaveEvent } from './project-saves';
-import { validateInputStatus, type InputStatusEntry } from './input-status';
+import { KEY_CODE_RE, validateInputStatus, type InputStatusEntry } from './input-status';
 import { validateUiEvents, type UiEventRecord } from './ui';
 import { validateDialogueInputs, type DialogueInputRecord } from './dialogue';
 import { validateAssetAnswers, type AssetHandleAnswer } from './asset-handles';
@@ -53,6 +53,13 @@ export interface ActionFrame {
    * over/locked state (no movement, no edges).
    */
   pointer?: PointerSample;
+  /**
+   * Optional: the first key or pad button that went down since the
+   * last sample, bound to an action or not (a mouse button is the pointer's
+   * `pressed`). Absent: none.
+   * @graphNode skip a script reads it with ctx.input.anyPressed
+   */
+  press?: InputPress;
   /**
    * Optional: the debug commands run in this step (a tool, the
    * in-game console) — part of the input so a recording replays them exactly.
@@ -160,6 +167,27 @@ export interface PointerSample {
    * press there went to the UI, not the game; absent false.
    */
   readonly overUi?: boolean;
+}
+
+/**
+ * A button that went down (`ctx.input.anyPressed()`): its device and code —
+ * a key's `KeyboardEvent.code` (`KeyK`, `Space`), a mouse button (`left`,
+ * `right`, `middle`) or a standard-layout pad button (`button0` … `button31`).
+ */
+export interface InputPress {
+  readonly device: 'keyboard' | 'mouse' | 'gamepad';
+  readonly code: string;
+}
+
+/** Validate one frame's press strictly (a frozen copy). */
+export function validateInputPress(value: unknown): { ok: true; press: InputPress } | { ok: false; field: string; message: string } {
+  if (!isPlainObject(value)) return { ok: false, field: 'press', message: 'press is { device, code }' };
+  for (const k in value) if (hasOwn.call(value, k) && k !== 'device' && k !== 'code') return { ok: false, field: `press/${k}`, message: `unknown press field "${k}"` };
+  const device = value['device'];
+  if (device !== 'keyboard' && device !== 'mouse' && device !== 'gamepad') return { ok: false, field: 'press/device', message: 'press device is keyboard, mouse or gamepad' };
+  const code = value['code'];
+  if (typeof code !== 'string' || !KEY_CODE_RE.test(code)) return { ok: false, field: 'press/code', message: 'press code is 1–32 letters or digits' };
+  return { ok: true, press: Object.freeze({ device, code }) };
 }
 
 /** The pointer's button bits (DOM `buttons`). */
@@ -315,7 +343,7 @@ export function validateActionFrame(
     return { ok: false, field: '', message: 'action frame must be an object' };
   }
   for (const key in value) {
-    if (!hasOwn.call(value, key) || key === 'actions' || key === 'pointer' || key === 'commands' || key === 'saves' || key === 'ui' || key === 'input' || key === 'dialogue' || key === 'assets') continue;
+    if (!hasOwn.call(value, key) || key === 'actions' || key === 'pointer' || key === 'commands' || key === 'saves' || key === 'ui' || key === 'input' || key === 'dialogue' || key === 'assets' || key === 'press') continue;
     if (!FRAME_KEYS.has(key)) {
       return { ok: false, field: key, message: V1_CHANNELS.has(key) ? `action frame field "${key}" is a version 1 channel (upgradeActionFrameV1)` : `unknown action frame field "${key}" (strict shape)` };
     }
@@ -390,7 +418,15 @@ export function validateActionFrame(
     if (!a.ok) return a;
     assetAnswers = a.answers;
   }
-  const withExtras1 = <F extends ActionFrame>(f: F): F => (dialogueInputs === undefined ? withExtras0(f) : { ...withExtras0(f), dialogue: dialogueInputs });
+  // The key or pad button that went down (validated and frozen).
+  let press: InputPress | undefined;
+  if (value['press'] !== undefined) {
+    const p = validateInputPress(value['press']);
+    if (!p.ok) return p;
+    press = p.press;
+  }
+  const withExtras2 = <F extends ActionFrame>(f: F): F => (press === undefined ? withExtras0(f) : { ...withExtras0(f), press });
+  const withExtras1 = <F extends ActionFrame>(f: F): F => (dialogueInputs === undefined ? withExtras2(f) : { ...withExtras2(f), dialogue: dialogueInputs });
   const withExtras = <F extends ActionFrame>(f: F): F => (assetAnswers === undefined ? withExtras1(f) : { ...withExtras1(f), assets: assetAnswers });
   const withExtras0 = <F extends ActionFrame>(f: F): F => (pointer === undefined && commands === undefined && uiEvents === undefined && saves === undefined && input === undefined ? f : { ...f, ...(commands !== undefined ? { commands } : {}), ...(saves !== undefined ? { saves } : {}), ...(pointer !== undefined ? { pointer } : {}), ...(uiEvents !== undefined ? { ui: uiEvents } : {}), ...(input !== undefined ? { input } : {}) });
   const rawActions = value['actions'];

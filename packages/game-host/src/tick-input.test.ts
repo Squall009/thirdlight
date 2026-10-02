@@ -44,6 +44,20 @@ describe('TickInputSource', () => {
     expect(continueFrame({ stepIndex: 1, actions: { move: { v: 0.5, p: 'none' }, jump: { v: 0, p: 'released' } } })).toEqual({ stepIndex: 1, actions: { move: { v: 0.5, p: 'none' }, jump: { v: 0, p: 'none' } } });
   });
 
+  it('a press (any key) reaches the first step of its tick only and survives a tick without a step', () => {
+    const src = new TickInputSource();
+    src.push({ stepIndex: 0, press: { device: 'keyboard', code: 'KeyK' } });
+    expect(src.sample(0).press).toEqual({ device: 'keyboard', code: 'KeyK' });
+    expect(src.sample(1).press).toBeUndefined();
+    // Two samples before one step: the first press is kept.
+    src.push({ stepIndex: 2, press: { device: 'gamepad', code: 'button0' } });
+    src.push({ stepIndex: 2, press: { device: 'keyboard', code: 'KeyL' } });
+    expect(src.sample(2).press).toEqual({ device: 'gamepad', code: 'button0' });
+    src.push({ stepIndex: 3 });
+    src.push({ stepIndex: 3, press: { device: 'keyboard', code: 'KeyL' } });
+    expect(src.sample(3).press).toEqual({ device: 'keyboard', code: 'KeyL' });
+  });
+
   it('no sample yet: neutral; reset clears and tells the page', () => {
     const reasons: (string | undefined)[] = [];
     const src = new TickInputSource((r) => reasons.push(r));

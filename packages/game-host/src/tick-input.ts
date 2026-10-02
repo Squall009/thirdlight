@@ -9,7 +9,7 @@
  *
  * - the first step of the tick gets the sampled frame (edges included);
  * - further steps of the same tick get its continuation — a `pressed` button
- *   is `held`, a `released` one is `none` (exactly what a second sample of the
+ *   is `held`, a `released` one is `none`, a press (`anyPressed`) is gone (exactly what a second sample of the
  *   browser owner would return in the same frame: no new device events);
  * - a tick that runs no step (a display faster than the step rate, a paused
  *   game) keeps its frame for the next tick, merged with the next sample so
@@ -152,13 +152,16 @@ export class TickInputSource implements ActionSource {
     // The host's input entries of both samples (the newer device and list, the events of both).
     const input = mergeInputStatus(p.input, frame.input);
     if (input !== undefined) merged.input = input;
+    // The first press of both samples (a second one before a step is not seen, as two presses in one sample).
+    const press = p.press ?? frame.press;
+    if (press !== undefined) merged.press = press;
     this.pending = merged;
   }
 
   sample(stepIndex: number): ActionFrame {
     const f = this.pending;
     if (f === null) return { stepIndex };
-    const out: ActionFrame = { stepIndex, ...(f.actions !== undefined ? { actions: f.actions } : {}), ...(f.pointer !== undefined ? { pointer: f.pointer } : {}), ...(f.input !== undefined ? { input: f.input } : {}) };
+    const out: ActionFrame = { stepIndex, ...(f.actions !== undefined ? { actions: f.actions } : {}), ...(f.pointer !== undefined ? { pointer: f.pointer } : {}), ...(f.input !== undefined ? { input: f.input } : {}), ...(f.press !== undefined ? { press: f.press } : {}) };
     // The next step of this tick sees the continuation (or the owed edge of a merge).
     const next = continueFrame(f);
     if (this.owedActions !== null && next.actions !== undefined) {

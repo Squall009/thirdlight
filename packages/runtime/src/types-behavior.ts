@@ -167,11 +167,15 @@ export interface BehaviorSpawnControl {
    * optional `rotation` (quaternion `[x, y, z, w]`) and `scale` (number or
    * `[x, y, z]`). `keepLoaded: true`: the copy survives scene loads,
    * unloads and reloads (as the object flag; writable later on its handle).
+   * `properties`: this copy's own values for the script on the prefab's root
+   * (keys its declaration has, each as the Inspector would take it; an object
+   * property names a live object id), over the prefab's values; a save's
+   * `spawned` section keeps them.
    * Returns the new root id (`spawn-<n>`), or `null` when an
    * engine limit refuses it (`MAX_SPAWNS_PER_STEP` a step, `MAX_LIVE_SPAWNED` alive).
    * An unknown prefab or bad options throw.
    */
-  spawn(prefabId: string, options: { position: readonly number[]; rotation?: readonly number[]; scale?: number | readonly number[]; keepLoaded?: boolean }): string | null;
+  spawn(prefabId: string, options: { position: readonly number[]; rotation?: readonly number[]; scale?: number | readonly number[]; keepLoaded?: boolean; properties?: Readonly<Record<string, unknown>> }): string | null;
   /**
    * Remove a spawned entity and its children at the next step boundary.
    * `false` when it is already gone (or queued). An authored entity throws:

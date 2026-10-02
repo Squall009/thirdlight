@@ -8,6 +8,9 @@
  *   changes them, bad calls fail-stop as script errors).
  * - `ctx.world.find / findAll / withComponent`: load order, spawned copies
  *   included, bad calls fail-stop.
+ * - `ctx.world.transform` (local to the parent) and `worldTransform` /
+ *   `{space: 'world'}` (composed up the parents) for a moved, turned and
+ *   unevenly scaled parent.
  * - Rotation forms on `transform` / `pose` intents: a quaternion (normalized)
  *   or a facing (+Z forward, optional up) — exactly one form, validated;
  *   the degree form stays valid.
@@ -285,6 +288,67 @@ describe('ctx.random in the runtime', () => {
     const d = h.diag();
     expect(d.state).toBe('failed');
     expect(d.errors[0]?.reason).toBe('behavior_random_invalid');
+  });
+});
+
+describe('ctx.world transforms: local to the parent, or in world space', () => {
+  const Y90 = [0, Math.SQRT1_2, 0, Math.SQRT1_2];
+  it('a child of a moved, turned and unevenly scaled parent reads its world transform; transform stays local', () => {
+    const seen: Record<string, unknown> = {};
+    const h = harness(
+      {
+        // The parent moves itself, turns 90 degrees about Y and stretches x by 2 at step 10.
+        mover: {
+          owned: ['@self'],
+          step: (ctx) => {
+            if (ctx.phase !== 'transform' || ctx.stepIndex !== 10) return;
+            ctx.emit({ kind: 'transform', entityId: ctx.entityId, position: { x: 1, y: 2, z: 3 }, quaternion: Y90 });
+            ctx.emit({ kind: 'pose', entityId: ctx.entityId, scale: [2, 1, 1] });
+          },
+        },
+        reader: {
+          step: (ctx) => {
+            if (ctx.phase !== 'intent' || ctx.stepIndex !== 20) return;
+            seen['local'] = ctx.world.transform('box-child');
+            seen['localOption'] = ctx.world.transform('box-child', { space: 'local' });
+            seen['world'] = ctx.world.worldTransform('box-child');
+            seen['worldOption'] = ctx.world.transform('box-child', { space: 'world' });
+            seen['root'] = ctx.world.worldTransform('box-reader');
+            seen['missing'] = ctx.world.worldTransform('box-none');
+          },
+        },
+      },
+      [
+        { id: 'box-parent', components: { transform: at(0, 0), box: BOX, behavior: { behaviorId: 'mover', values: {} } } },
+        { id: 'box-child', parentId: 'box-parent', components: { transform: { position: [1, 0, 0.5], rotation: [0, 0, 0, 1], scale: [1, 3, 1] }, box: BOX } },
+        carrier('box-reader', 'reader', 'Reader'),
+      ],
+    );
+    h.tick(24);
+    expect(h.diag().state).toBe('running');
+    const local = seen['local'] as { position: number[]; scale: number[] };
+    expect(local.position).toEqual([1, 0, 0.5]);
+    expect(seen['localOption']).toEqual(local);
+    const world = seen['world'] as { position: number[]; rotation: number[]; scale: number[] };
+    // parent + R_y(90) · (S ⊙ child): S ⊙ [1, 0, 0.5] = [2, 0, 0.5]; turned about Y: [0.5, 0, -2]; moved: [1.5, 2, 1].
+    expect(world.position[0]).toBeCloseTo(1.5, 9);
+    expect(world.position[1]).toBeCloseTo(2, 9);
+    expect(world.position[2]).toBeCloseTo(1, 9);
+    // The rotation is the parent's (the child's own is none); each world axis keeps its length (x 2, y 3, z 1).
+    expect(Math.abs(world.rotation[1]!)).toBeCloseTo(Math.SQRT1_2, 6);
+    expect(Math.abs(world.rotation[3]!)).toBeCloseTo(Math.SQRT1_2, 6);
+    expect(world.scale.map((v) => Number(v.toFixed(6)))).toEqual([2, 3, 1]);
+    expect(seen['worldOption']).toEqual(world);
+    // A root object's world transform is its own; an unknown object reads undefined.
+    expect((seen['root'] as { position: number[] }).position).toEqual([5, -5, 0]);
+    expect(seen['missing']).toBeUndefined();
+  });
+
+  it('an unknown space is a script error', () => {
+    const h = harness({ bad: { step: (ctx) => void (ctx.stepIndex === 5 && ctx.world.transform('box-0001', { space: 'screen' as never })) } }, [carrier('box-0001', 'bad')]);
+    h.tick(10);
+    expect(h.diag().state).toBe('failed');
+    expect(h.diag().errors[0]?.reason).toBe('behavior_query_invalid');
   });
 });
 

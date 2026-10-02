@@ -26,6 +26,8 @@ export interface SavedSpawnCopy {
   position: number[];
   rotation: number[];
   scale: number[];
+  /** The property values the copy's root script was spawned with (absent: the prefab's). */
+  properties?: Record<string, unknown>;
 }
 
 /** `ctx.save` rules (shared by the start's injected script variables). */

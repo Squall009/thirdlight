@@ -33,6 +33,29 @@ const CAM = { id: 'cam-main', components: { transform: T([0, 0, 10]), camera: { 
 const SETTINGS = { gravity_y: -19.62, run_speed: 4, jump_velocity: 7, max_fall_speed: -30, max_slope_climb_deg: 45, min_slope_slide_deg: 30 };
 const snap = (entities: unknown[], tags?: unknown[]) => ({ snapshotId: 'pq@r1', projectId: 'pq', revision: 1, scene: { schemaVersion: 4, sceneId: 'scene-main', revision: 1, entities }, ...(tags !== undefined ? { tags } : {}) });
 
+describe('any key, mouse or pad button (ctx.input.anyPressed)', () => {
+  it('a frame\'s press is checked strictly; the view answers it, else a pressed mouse button, else null', () => {
+    const ok = validateActionFrame({ stepIndex: 1, press: { device: 'keyboard', code: 'KeyK' } });
+    expect(ok.ok && ok.frame.press).toEqual({ device: 'keyboard', code: 'KeyK' });
+    for (const [bad, field] of [
+      [{ device: 'pen', code: 'KeyK' }, 'press/device'],
+      [{ device: 'keyboard', code: 'Key K' }, 'press/code'],
+      [{ device: 'keyboard', code: '' }, 'press/code'],
+      [{ device: 'keyboard', code: 'KeyK', at: 1 }, 'press/at'],
+      ['KeyK', 'press'],
+    ] as const) {
+      const r = validateActionFrame({ stepIndex: 1, press: bad });
+      expect(r.ok, JSON.stringify(bad)).toBe(false);
+      if (!r.ok) expect(r.field).toBe(field);
+    }
+    expect(inputView({ stepIndex: 1, press: { device: 'gamepad', code: 'button3' } }).anyPressed()).toEqual({ device: 'gamepad', code: 'button3' });
+    expect(inputView({ stepIndex: 1, pointer: { x: 0.5, y: 0.5, buttons: 2, pressed: 2 } }).anyPressed()).toEqual({ device: 'mouse', code: 'right' });
+    expect(inputView({ stepIndex: 1, press: { device: 'keyboard', code: 'Space' }, pointer: { x: 0.5, y: 0.5, buttons: 1, pressed: 1 } }).anyPressed()).toEqual({ device: 'keyboard', code: 'Space' });
+    expect(inputView({ stepIndex: 1, pointer: { x: 0.5, y: 0.5, buttons: 1 } }).anyPressed()).toBeNull();
+    expect(inputView({ stepIndex: 1 }).anyPressed()).toBeNull();
+  });
+});
+
 describe('pointer samples in the frame', () => {
   it('old frames stay valid; a pointer sample is checked strictly', () => {
     expect(validateActionFrame({ stepIndex: 1 }).ok).toBe(true);

@@ -79,7 +79,7 @@ export function recordingContext(calls: string[], phase: 'intent' | 'transform',
       pickAtPointer: rec('physics.pickAtPointer', { entityId: 'box-1', point: [0, 1, 0], normal: [0, 1, 0], distance: 4 }),
     },
     tags: { mask: rec('tags.mask', 1), of: rec('tags.of', 1), has: rec('tags.has', true), query: rec('tags.query', () => ['box-1']) },
-    world: { transform: rec('world.transform', { position: [1, 2, 3], rotation: [0, 0, 0, 1], scale: [1, 1, 1] }), find: rec('world.find', 'box-2'), findAll: rec('world.findAll', () => ['box-2']), withComponent: rec('world.withComponent', () => ['box-2']) },
+    world: { transform: rec('world.transform', { position: [1, 2, 3], rotation: [0, 0, 0, 1], scale: [1, 1, 1] }), worldTransform: rec('world.worldTransform', { position: [1, 2, 3], rotation: [0, 0, 0, 1], scale: [1, 1, 1] }), find: rec('world.find', 'box-2'), findAll: rec('world.findAll', () => ['box-2']), withComponent: rec('world.withComponent', () => ['box-2']) },
     random: {
       next: rec('random.next', 0.25),
       range: rec('random.range', 1.5),
@@ -92,7 +92,7 @@ export function recordingContext(calls: string[], phase: 'intent' | 'transform',
       },
     },
     scenes: { load: rec('scenes.load'), unload: rec('scenes.unload'), reload: rec('scenes.reload'), status: rec('scenes.status', 'loaded'), loaded: rec('scenes.loaded', () => ['scene-main']), loading: rec('scenes.loading', () => []), transition: rec('scenes.transition', null), active: rec('scenes.active', 'scene-main'), setActive: rec('scenes.setActive') },
-    input: { value: rec('input.value', 1), vector: rec('input.vector', () => [1, 0]), pressed: rec('input.pressed', true), released: rec('input.released', true), held: rec('input.held', true), pointer: rec('input.pointer', () => ({ x: 0.5, y: 0.5, dx: 0, dy: 0, wheel: 0, over: true, entered: false, left: false, locked: false })), pointerPressed: rec('input.pointerPressed', true), pointerReleased: rec('input.pointerReleased', false), pointerHeld: rec('input.pointerHeld', true), setCursor: rec('input.setCursor'), usingGamepad: rec('input.usingGamepad', true), glyphLabel: rec('input.glyphLabel', 'A'), glyphIcon: rec('input.glyphIcon', 'pad-south'), rebinding: rec('input.rebinding', () => ({ action: 'jump', index: 0 })), cancelRebind: rec('input.cancelRebind'), resetBindings: rec('input.resetBindings'), useBindingProfile: rec('input.useBindingProfile'), bindingProfile: rec('input.bindingProfile', 'default') },
+    input: { value: rec('input.value', 1), vector: rec('input.vector', () => [1, 0]), pressed: rec('input.pressed', true), released: rec('input.released', true), held: rec('input.held', true), pointer: rec('input.pointer', () => ({ x: 0.5, y: 0.5, dx: 0, dy: 0, wheel: 0, over: true, entered: false, left: false, locked: false })), pointerPressed: rec('input.pointerPressed', true), pointerReleased: rec('input.pointerReleased', false), pointerHeld: rec('input.pointerHeld', true), anyPressed: rec('input.anyPressed', () => ({ device: 'keyboard', code: 'KeyK' })), setCursor: rec('input.setCursor'), usingGamepad: rec('input.usingGamepad', true), glyphLabel: rec('input.glyphLabel', 'A'), glyphIcon: rec('input.glyphIcon', 'pad-south'), rebinding: rec('input.rebinding', () => ({ action: 'jump', index: 0 })), cancelRebind: rec('input.cancelRebind'), resetBindings: rec('input.resetBindings'), useBindingProfile: rec('input.useBindingProfile'), bindingProfile: rec('input.bindingProfile', 'default') },
     animator: (id: string) => {
       calls.push('animator');
       // Per-instance speed and morph weights.
@@ -433,6 +433,8 @@ describe('the visual-script catalogue (every node type compiles and runs)', () =
       // A frame's dialogue inputs (scripts drive conversations with ctx.dialogue); the variable map and the backlog records are read in code.
       'action.dialogue',
       'action.input',
+      // The first key or pad button of a step is read with ctx.input.anyPressed.
+      'action.press',
       // storage's answers arrive with the input; a migration is a function.
       'action.saves',
       // A frame's UI events are read with ctx.ui.events / ctx.ui.event.

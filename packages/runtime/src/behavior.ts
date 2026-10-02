@@ -38,13 +38,14 @@ import type {
   PropertyType,
   PropertyValue,
 } from '@thirdlight/project-model';
-import type { ActionFrame, PointerSample } from './actions';
+import type { ActionFrame, InputPress, PointerSample } from './actions';
 import { checkRebindOptions, glyphOfAction, isActionName, isBindingProfile, type InputActionStatus, type InputDeviceKind, type InputDeviceStatus, type InputGlyph, type InputRebindEvent, type InputRebindOptions, type InputRebindTarget, type InputStatusView } from './input-status';
 import type { PhysicsStepClient } from './ports';
 import { clipMessage } from './errors';
 import { InstanceRandom, RandomCallError, randomSeedOf } from './random';
 import { DebugCallError } from './debug-commands';
 import { LiveTagIndex } from './scene-set';
+import { worldTransformOf } from './world-transform';
 import { InstanceTimers, TimerCallError } from './timers';
 import {
   BEHAVIOR_LOG_CODE,
@@ -60,6 +61,7 @@ import {
 } from './intents';
 import type { UiEventRecord } from './ui';
 import type {
+  WorldTransformOptions,
   AnimatorEventRecord,
   BehaviorAnimatorHandle,
   BehaviorMessage,
@@ -237,6 +239,8 @@ export interface BehaviorContext {
       rotation?: readonly number[];
       /** The root's scale: one number or [x, y, z]. */
       scale?: number | readonly number[];
+      /** This copy's own values for the script on the prefab's root (property key → value), over the prefab's. */
+      properties?: Readonly<Record<string, unknown>>;
     },
   ) => string | null;
   /**
@@ -1276,6 +1280,7 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
       const module: SimulationPhaseModule & {
         behaviorDiagnostics(): { logCount: number; logDropped: number; instanceCount: number };
         behaviorEntityRefKeys(): readonly string[];
+        behaviorValuesProblem(values: Readonly<Record<string, unknown>>): string | null;
         behaviorProperties(entityId: string): BehaviorPropertyView | null;
         behaviorDebug(filter: { behaviorId?: string; entityId?: string }): BehaviorDebugView[];
       } = {
@@ -1415,6 +1420,17 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
         behaviorEntityRefKeys(): readonly string[] {
           return entityRefKeys;
         },
+        /** Why these values cannot be a copy's own (an undeclared or private key, a value its declaration refuses), or null. */
+        behaviorValuesProblem(values: Readonly<Record<string, unknown>>): string | null {
+          for (const [key, value] of Object.entries(values)) {
+            const prop = declaration.properties.find((p) => p.key === key);
+            if (prop === undefined) return `"${key}" is not a property of "${behaviorId}"`;
+            if (prop.visibility === 'private') return `"${key}" is a private property of "${behaviorId}"`;
+            const detail = checkValue(prop, value);
+            if (detail !== null) return `"${key}" does not satisfy its declared ${prop.type} constraints (${detail})`;
+          }
+          return null;
+        },
         behaviorDebug(filter: { behaviorId?: string; entityId?: string }): BehaviorDebugView[] {
           // Only modules that answer (a Play debug build of a visual script).
           if (typeof spec.debug !== 'function' || (filter.behaviorId !== undefined && filter.behaviorId !== behaviorId)) return [];
@@ -1516,8 +1532,14 @@ function worldView(ctx: StepContext): BehaviorWorldView {
     return hit;
   };
   const named = (name: unknown, what: string): readonly string[] => listFor(byName, name, what, (e) => e.name === name);
+  const parentOf = (id: string): string | null | undefined => state.entities.get(id)?.parentId;
   return Object.freeze({
-    transform(entityId: string) {
+    transform(entityId: string, options?: WorldTransformOptions) {
+      if (options !== undefined) {
+        const space = (options as { space?: unknown } | null)?.space;
+        if (space !== undefined && space !== 'local' && space !== 'world') throw new BehaviorHostError('module_error', 'behavior_query_invalid', `ctx.world.transform: space is 'local' or 'world' (got ${JSON.stringify(String(space)).slice(0, 40)})`);
+        if (space === 'world') return worldTransformOf(entityId, curr, parentOf);
+      }
       const t = curr.get(entityId);
       if (t === undefined) return undefined;
       return Object.freeze({
@@ -1525,6 +1547,9 @@ function worldView(ctx: StepContext): BehaviorWorldView {
         rotation: Object.freeze([t.rotation[0], t.rotation[1], t.rotation[2], t.rotation[3]] as const),
         scale: Object.freeze([t.scale[0], t.scale[1], t.scale[2]] as const),
       });
+    },
+    worldTransform(entityId: string) {
+      return worldTransformOf(entityId, curr, parentOf);
     },
     find(name: string): string | undefined {
       return named(name, 'find')[0];
@@ -1681,6 +1706,12 @@ export interface BehaviorInputView {
    */
   pointerHeld(button?: 'left' | 'right' | 'middle'): boolean;
   /**
+   * Any key, mouse or pad button that went down this step, bound to an action or not — its device (keyboard, mouse, gamepad) and code (a key's code such as `KeyK` or `Space`, `left`/`right`/`middle`, `button0`…), or null. A key or pad button before a mouse button when several went down.
+   * @graphPure
+   * @graphNode Any button pressed
+   */
+  anyPressed(): InputPress | null;
+  /**
    * Ask for a free or a locked cursor (locked: hidden and held in the view — its movement still counts); 'auto' goes back to the active input map's setting. Takes effect after the step (the player may have to click the view once before the browser locks it).
    * @graphNode Set cursor
    */
@@ -1821,6 +1852,7 @@ export function inputView(frame: ActionFrame, setCursor: (mode: 'free' | 'locked
     pointerPressed: (button?: string) => ((frame.pointer?.pressed ?? 0) & bitOf(button)) !== 0,
     pointerReleased: (button?: string) => ((frame.pointer?.released ?? 0) & bitOf(button)) !== 0,
     pointerHeld: (button?: string) => ((frame.pointer?.buttons ?? 0) & bitOf(button)) !== 0,
+    anyPressed: (): InputPress | null => frame.press ?? mousePressOf(frame.pointer?.pressed ?? 0),
     setCursor: (mode: 'free' | 'locked' | 'auto'): void => {
       if (mode !== 'free' && mode !== 'locked' && mode !== 'auto') throw new Error(`setCursor takes 'free', 'locked' or 'auto' (got ${JSON.stringify(String(mode)).slice(0, 40)})`);
       setCursor(mode);
@@ -1846,6 +1878,15 @@ export function inputView(frame: ActionFrame, setCursor: (mode: 'free' | 'locked
     },
     bindingProfile: (): string => status.profile(),
   });
+}
+
+const MOUSE_PRESSES: readonly InputPress[] = Object.freeze(['left', 'right', 'middle'].map((code) => Object.freeze({ device: 'mouse' as const, code })));
+/** The first mouse button among the pressed bits (left, right, middle), or null. */
+function mousePressOf(bits: number): InputPress | null {
+  if ((bits & 1) !== 0) return MOUSE_PRESSES[0]!;
+  if ((bits & 2) !== 0) return MOUSE_PRESSES[1]!;
+  if ((bits & 4) !== 0) return MOUSE_PRESSES[2]!;
+  return null;
 }
 
 function bitOf(button: unknown): number {

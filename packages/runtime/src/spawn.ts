@@ -30,6 +30,8 @@ export interface SpawnOptions {
   rotation?: readonly number[];
   /** Root scale, uniform or `[x, y, z]`; default: the prefab root's. */
   scale?: number | readonly number[];
+  /** Property values of this copy's root script, over the prefab's own (keys its declaration has). */
+  properties?: Readonly<Record<string, unknown>>;
 }
 
 /** Resolved root placement. */
@@ -39,6 +41,8 @@ export interface SpawnPlacement {
   scale: [number, number, number];
   /** The copy survives scene changes (`keepLoaded` on its root). */
   keepLoaded?: true;
+  /** Property values of the root's script for this copy only (checked against its declaration by the caller). */
+  properties?: Readonly<Record<string, unknown>>;
 }
 
 const LIMIT = 1e6;
@@ -46,10 +50,19 @@ const finite = (v: unknown, max = LIMIT): v is number => typeof v === 'number' &
 
 /** Parse a script's spawn options against the definition (null message: ok). */
 export function parseSpawnOptions(def: PrefabDefinition, options: unknown): { ok: true; placement: SpawnPlacement } | { ok: false; message: string } {
-  if (typeof options !== 'object' || options === null || Array.isArray(options)) return { ok: false, message: 'options must be { position, rotation?, scale?, keepLoaded? }' };
+  if (typeof options !== 'object' || options === null || Array.isArray(options)) return { ok: false, message: 'options must be { position, rotation?, scale?, keepLoaded?, properties? }' };
   const o = options as Record<string, unknown>;
-  for (const k of Object.keys(o)) if (k !== 'position' && k !== 'rotation' && k !== 'scale' && k !== 'keepLoaded') return { ok: false, message: `unknown option "${k}" (position, rotation, scale, keepLoaded)` };
+  for (const k of Object.keys(o)) if (k !== 'position' && k !== 'rotation' && k !== 'scale' && k !== 'keepLoaded' && k !== 'properties') return { ok: false, message: `unknown option "${k}" (position, rotation, scale, keepLoaded, properties)` };
   if (o['keepLoaded'] !== undefined && typeof o['keepLoaded'] !== 'boolean') return { ok: false, message: 'keepLoaded must be true or false' };
+  let properties: Record<string, unknown> | undefined;
+  if (o['properties'] !== undefined) {
+    const p = o['properties'];
+    if (typeof p !== 'object' || p === null || Array.isArray(p)) return { ok: false, message: 'properties must be an object of property values ({ key: value })' };
+    if (def.entities[0]!.components.behavior === undefined) return { ok: false, message: `prefab "${def.prefabId}" has no script on its root to take properties` };
+    // A copy of plain data: the script keeps no handle on what the copy reads.
+    properties = {};
+    for (const [k, v] of Object.entries(p as Record<string, unknown>)) properties[k] = Array.isArray(v) ? [...(v as unknown[])] : v;
+  }
   const root = def.entities[0]!.components.transform;
   const p = o['position'];
   if (!Array.isArray(p) || (p.length !== 2 && p.length !== 3) || !p.every((v) => finite(v))) {
@@ -77,7 +90,7 @@ export function parseSpawnOptions(def: PrefabDefinition, options: unknown): { ok
     if (Math.abs(rotation[0]) > 1e-6 || Math.abs(rotation[1]) > 1e-6) return { ok: false, message: `prefab "${def.prefabId}" has a collider: rotate it about Z only` };
     if (scale[0] !== 1 || scale[1] !== 1 || scale[2] !== 1) return { ok: false, message: `prefab "${def.prefabId}" has a collider: its scale stays [1, 1, 1]` };
   }
-  return { ok: true, placement: { position, rotation, scale, ...(o['keepLoaded'] === true ? { keepLoaded: true as const } : {}) } };
+  return { ok: true, placement: { position, rotation, scale, ...(o['keepLoaded'] === true ? { keepLoaded: true as const } : {}), ...(properties !== undefined ? { properties } : {}) } };
 }
 
 /**
@@ -91,7 +104,8 @@ export function parseSpawnOptions(def: PrefabDefinition, options: unknown): { ok
  * property keys, from its declaration) only those values are remapped, so a
  * text property that happens to spell a localId stays as written. Without
  * it (a behavior the game does not know) every value naming a localId is,
- * as before.
+ * as before. The root's script takes the copy's own `properties` over the
+ * prefab's values (runtime values: an object property names a live id).
  */
 export function expandPrefab(def: PrefabDefinition, ids: readonly string[], placement: SpawnPlacement, entityRefKeys?: (behaviorId: string) => readonly string[] | undefined): EntityV3[] {
   const mapping = new Map<string, string>();
@@ -107,6 +121,7 @@ export function expandPrefab(def: PrefabDefinition, ids: readonly string[], plac
       const values: Record<string, unknown> = {};
       const refs = entityRefKeys?.(behavior.behaviorId);
       for (const [k, v] of Object.entries(behavior.values)) values[k] = typeof v === 'string' && mapping.has(v) && (refs === undefined || refs.includes(k)) ? mapping.get(v) : structuredClone(v);
+      if (i === 0 && placement.properties !== undefined) for (const [k, v] of Object.entries(placement.properties)) values[k] = structuredClone(v);
       components['behavior'] = { behaviorId: behavior.behaviorId, values };
     }
     components['prefab'] = { prefabId: def.prefabId, localId: de.localId };

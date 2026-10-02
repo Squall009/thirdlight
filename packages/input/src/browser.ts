@@ -328,6 +328,8 @@ export function attachBrowserInput(
   const isMappedCode = (code: unknown): code is string =>
     typeof code === 'string' && (LEFT_CODES.has(code) || RIGHT_CODES.has(code) || JUMP_CODES.has(code));
   let lastPad: { buttons: boolean[]; axes: number[] } | null = null;
+  /** The first key or pad button that went down since the last sample (`ActionFrame.press`, for `ctx.input.anyPressed`). */
+  let firstPress: { device: 'keyboard' | 'gamepad'; code: string } | null = null;
   /** The device used last (keyboard until a pad button or stick moves). */
   let lastDevice: 'keyboard' | 'gamepad' = 'keyboard';
   /** The id of the pad used last (null: none yet). */
@@ -418,6 +420,7 @@ export function attachBrowserInput(
     held.clear();
     actionHeld.clear();
     actionPressed.clear();
+    firstPress = null;
     evaluator?.reset();
     // Held pointer buttons are let go (the next sample reports their release) and pending movement dropped.
     pointerButtons = 0;
@@ -495,6 +498,28 @@ export function attachBrowserInput(
     }
     // A button let go is ready to be pressed again.
     c.buttons = c.buttons.map((b, i) => b && buttons[i] === true);
+  };
+
+  /** Each standard pad's buttons at the last sample (by index), for the frame's press. */
+  let padsSeen = new Map<number, boolean[]>();
+  /**
+   * A button of any standard pad that went down since the last sample (any
+   * pad, active or not: "press any button" wakes one). A pad first seen with
+   * a button held does not count, nor does a press a rebind takes.
+   */
+  const notePadPresses = (list: ArrayLike<Gamepad | null>): void => {
+    const seen = new Map<number, boolean[]>();
+    for (let i = 0; i < list.length; i += 1) {
+      const gp = list[i];
+      if (!gp || gp.connected === false || gp.mapping !== 'standard') continue;
+      const now = padButtons(gp);
+      seen.set(gp.index, now);
+      const before = padsSeen.get(gp.index);
+      if (before === undefined || firstPress !== null || inputCapture !== null) continue;
+      const hit = now.findIndex((d, k) => d && before[k] !== true);
+      if (hit >= 0 && hit <= 31) firstPress = { device: 'gamepad', code: `button${hit}` };
+    }
+    padsSeen = seen;
   };
 
   const deviceHasActivity = (gp: Gamepad): boolean => {
@@ -621,6 +646,8 @@ export function attachBrowserInput(
     if (UI_KEYS.left.has(code)) pushUi('left');
     if (UI_KEYS.right.has(code)) pushUi('right');
     if (e.repeat === true) return; // auto-repeat never creates a latch (runtime.md)
+    // Any fresh key counts for anyPressed, bound to an action or not (a menu key too).
+    if (firstPress === null && code !== '') firstPress = { device: 'keyboard', code };
     if (UI_KEYS.submit.has(code)) pushUi('submit');
     if (UI_KEYS.cancel.has(code)) pushUi('cancel');
     if (UI_KEYS.pause.has(code)) {
@@ -957,7 +984,10 @@ export function attachBrowserInput(
 
   /** The frame with the host's input entry (device, bindings, rebind outcomes) when it has one. */
   const sample = (stepIndex: number): ActionFrame => {
-    const frame = sampleDevices(stepIndex);
+    const sampled = sampleDevices(stepIndex);
+    const press = firstPress;
+    firstPress = null;
+    const frame = press === null || detached ? sampled : { ...sampled, press };
     const extra = frameInput?.();
     return extra === undefined ? frame : { ...frame, input: extra };
   };
@@ -977,6 +1007,7 @@ export function attachBrowserInput(
         const list = pollGamepads();
         pollCapture(list);
         active = pickActiveGamepad(list);
+        notePadPresses(list);
         lastPad = active ? { buttons: padButtons(active), axes: padAxes(active) } : null;
         if (active !== null && (active.buttons.some((b) => b?.pressed === true) || active.axes.some((v) => Math.abs(v ?? 0) > 0.5))) {
           lastDevice = 'gamepad';

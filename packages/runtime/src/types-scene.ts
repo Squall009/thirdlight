@@ -253,14 +253,26 @@ export interface SceneActivateOptions {
   easing?: 'linear' | 'easeIn' | 'easeOut' | 'easeInOut';
 }
 
+/** `ctx.world.transform` options: the space the transform is read in (default `local`, to the parent). */
+export interface WorldTransformOptions {
+  space?: 'local' | 'world';
+}
+
 /** A read-only view of entity transforms (`ctx.world`). */
 export interface BehaviorWorldView {
   /**
-   * The entity's current transform (this step so far), or `undefined` when it is not loaded.
+   * The entity's transform this step so far, local to its parent (as the Inspector shows it; a root object's is its world transform), or `undefined` when it is not loaded.
+   * `{space: 'world'}` reads the world transform instead (as `worldTransform`).
    * @graphPure
    * @graphNode Transform of
    */
-  transform(entityId: string): Readonly<{ position: readonly [number, number, number]; rotation: readonly [number, number, number, number]; scale: readonly [number, number, number] }> | undefined;
+  transform(entityId: string, options?: WorldTransformOptions): Readonly<{ position: readonly [number, number, number]; rotation: readonly [number, number, number, number]; scale: readonly [number, number, number] }> | undefined;
+  /**
+   * The entity's world transform this step so far: its transform composed up its parents, where it is drawn. Under a parent scaled unevenly and turned, the scale is the length of each world axis. `undefined` when it is not loaded.
+   * @graphPure
+   * @graphNode World transform of
+   */
+  worldTransform(entityId: string): Readonly<{ position: readonly [number, number, number]; rotation: readonly [number, number, number, number]; scale: readonly [number, number, number] }> | undefined;
   /**
    * The first loaded entity whose name is exactly `name` (case-sensitive), or `undefined`.
    * Entities are searched in load order: the start scene in document order, then later scenes and spawned copies as they arrived.

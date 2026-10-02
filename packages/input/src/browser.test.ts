@@ -110,14 +110,15 @@ function harness(options: HarnessOptions = {}) {
   win.navigator = options.gamepads ? { getGamepads: options.gamepads } : {};
   win.isSecureContext = options.secure ?? true;
   const diagnostics: DiagnosticEvent[] = [];
-  const source = viewSource(attachBrowserInput(target as unknown as EventTarget, {
+  const raw = attachBrowserInput(target as unknown as EventTarget, {
     window: win as unknown as Window,
     document: doc as unknown as Document,
     navigator: win.navigator as unknown as Navigator,
     getGamepads: options.gamepads ?? null,
     onDiagnostic: (event) => diagnostics.push({ ...event }),
     ...(options.inputConfig !== undefined ? { inputConfig: options.inputConfig } : {}),
-  }));
+  });
+  const source = viewSource(raw);
   const keyEvent = (
     code: string,
     overrides: { repeat?: boolean; target?: unknown; preventDefault?: () => void } = {},
@@ -127,7 +128,7 @@ function harness(options: HarnessOptions = {}) {
     target: overrides.target ?? target,
     preventDefault: overrides.preventDefault ?? (() => undefined),
   });
-  return { target, win, doc, diagnostics, source, keyEvent };
+  return { target, win, doc, diagnostics, source, raw, keyEvent };
 }
 
 function neutralFrame(stepIndex: number) {
@@ -151,6 +152,29 @@ describe('a 2D move action gives the frame its move vector', () => {
     const m2 = flat.source.sample(5);
     expect(m2.moveX).toBe(1);
     expect('moveY' in m2).toBe(false);
+  });
+});
+
+describe('any key or pad button (the frame\'s press, for anyPressed)', () => {
+  it('the first fresh key since the last sample, bound or not; repeats and later samples carry none', () => {
+    const h = harness({ inputConfig: DEFAULT_INPUT_CONFIG_3D });
+    h.target.dispatch('keydown', h.keyEvent('KeyK'));
+    h.target.dispatch('keydown', h.keyEvent('KeyL'));
+    expect(h.raw.sample(3).press).toEqual({ device: 'keyboard', code: 'KeyK' });
+    h.target.dispatch('keydown', h.keyEvent('KeyK', { repeat: true }));
+    expect(h.raw.sample(4).press).toBeUndefined();
+    // Typing in a text field is not a press of the game.
+    h.target.dispatch('keydown', h.keyEvent('KeyM', { target: { tagName: 'INPUT' } }));
+    expect(h.raw.sample(5).press).toBeUndefined();
+  });
+
+  it('a pad button that went down between samples; one held since the pad appeared does not count', () => {
+    let pressed: number[] = [3];
+    const h = harness({ gamepads: () => [pad({ pressed })] });
+    expect(h.raw.sample(1).press).toBeUndefined();
+    pressed = [3, 9];
+    expect(h.raw.sample(2).press).toEqual({ device: 'gamepad', code: 'button9' });
+    expect(h.raw.sample(3).press).toBeUndefined();
   });
 });
 

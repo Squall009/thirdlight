@@ -735,8 +735,13 @@ unique across the whole project. One command edits one scene.
   (see "Scene transitions, impulses, …").
 - **Game rules in scripts.** There are no level bounds or kill heights any
   more.
-  - `ctx.world.transform(entityId)` reads any loaded object's current
-    position, rotation and scale.
+  - `ctx.world.transform(entityId)` reads any loaded object's position,
+    rotation and scale this step, local to its parent (as the Inspector
+    shows them; for an object without a parent that is its world
+    transform). `ctx.world.worldTransform(entityId)` (or
+    `transform(entityId, {space: 'world'})`) composes them up the parents:
+    where the object is drawn. Under a parent scaled unevenly and turned,
+    its scale is the length of each world axis (Unity's `lossyScale`).
   - `ctx.lifecycle.respawn(spawnId?)` puts the character back at a spawn.
   - `ctx.emit({kind: 'pose', entityId, rotation: {yaw, pitch, roll}, scale})`
     (transform phase, an entity the script owns; degrees, applied yaw then
@@ -2170,7 +2175,11 @@ the standard layout — A jumps, D-pad and left stick move). Players rebind
 the pad on the game shell's Controls screen (see "The game shell"). Scripts read
 `ctx.input.value(name)`, `.vector(name)`, `.pressed(name)`, `.held(name)`,
 `.released(name)`; the actions are part of the recorded input, so replays
-match. MCP: `setInput {input}` through `tl_command`; `tl_input_exercise`
+match. `ctx.input.anyPressed()` answers any key, mouse or pad button that
+went down this step, bound to an action or not — `{device, code}` (device
+`keyboard`, `mouse` or `gamepad`; code a key's `KeyboardEvent.code` such as
+`KeyK`, `left`/`right`/`middle`, or `button0`…`button31` of any standard
+pad) or null: a "press any key" prompt. MCP: `setInput {input}` through `tl_command`; `tl_input_exercise`
 frames may carry `actions: {name: {v, p}}`.
 
 ## Gameplay blocks
@@ -2419,6 +2428,11 @@ prefab.
   id (`spawn-1`, `spawn-2`, …; never reused while the game runs) at once; the copy appears at
   the next step. Children keep their places under the root, and a script
   property that names an object of the prefab points at the copy's object.
+  `properties: {key: value}` gives this copy its own values for the script
+  on the prefab's root (keys its declaration has, values it accepts; an
+  object property names a live object id); the rest keep the prefab's. A
+  key the script does not declare, a private one or a value it refuses is
+  a script error, like bad options. A save's `spawned` section keeps them.
 - `ctx.destroy(id)` removes a spawned object and its children at the next
   step (`false` if it is already gone). Objects placed in the editor cannot
   be destroyed; hide them with `ctx.game.setVisible`.
@@ -2429,8 +2443,8 @@ prefab.
   the script error, like a bad `ctx.scenes` call.
 - A new run (start, replay, the next level) removes every spawned object.
   Scripts keep running before the run starts, so spawn once the game is
-  playing (or spawn again when your object is gone). Saves never keep
-  spawned objects.
+  playing (or spawn again when your object is gone). A save keeps spawned
+  objects only when its schema lists the `spawned` section.
 - A spawned object's own script runs. To let it move its object, list
   `"@self"` in the script's `ownedTransforms` (the source container): every
   object carrying that script — placed in the editor or spawned — may then

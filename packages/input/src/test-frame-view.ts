@@ -3,13 +3,15 @@
  * frame as the version 1 channels (`moveX`, `moveY`, `jump`) the input
  * tests assert — the inverse of `toActionFrame`. The `actions` map is kept
  * when it holds other actions too (then with `move` and `jump`), else dropped.
+ * The frame's `press` (any key, for `anyPressed`) is not a control: tests of
+ * it read the source's own frames.
  */
 import type { ActionFrame, ActionValue, JumpPhase } from '@thirdlight/runtime';
 
-export type ChannelView = Omit<ActionFrame, 'actions'> & { moveX: number; moveY?: number; jump: JumpPhase; actions?: Readonly<Record<string, ActionValue>> };
+export type ChannelView = Omit<ActionFrame, 'actions' | 'press'> & { moveX: number; moveY?: number; jump: JumpPhase; actions?: Readonly<Record<string, ActionValue>> };
 
 export function channelView(frame: ActionFrame): ChannelView {
-  const { actions, ...rest } = frame;
+  const { actions, press: _press, ...rest } = frame;
   const move = actions?.['move'];
   const jump = actions?.['jump'];
   const others: Record<string, ActionValue> = {};

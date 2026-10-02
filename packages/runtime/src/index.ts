@@ -53,6 +53,8 @@ export {
   // Pointer samples in the frame.
   POINTER_BUTTON_BITS,
   validatePointerSample,
+  validateInputPress,
+  type InputPress,
   type PointerSample,
   // Debug commands on input frames.
   validateDebugCommands,
@@ -129,6 +131,7 @@ export {
   type BehaviorTagQuery,
   type BehaviorSceneControl,
   type BehaviorWorldView,
+  type WorldTransformOptions,
   type LoadedSceneBatch,
   type RuntimeSceneRow,
   type SceneLoadOptions,

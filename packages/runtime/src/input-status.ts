@@ -158,7 +158,9 @@ const MAX_TEXT = 64;
 const NAME_RE = /^[A-Za-z_][A-Za-z0-9_]{0,31}$/;
 const ICON_RE = /^[a-z][a-z0-9-]{0,47}$/;
 const PROFILE_RE = /^[A-Za-z0-9_-]{1,32}$/;
-const CODE_RE = /^[A-Za-z0-9]{1,32}$/;
+/** A key's `KeyboardEvent.code` (also an `InputPress` code). */
+export const KEY_CODE_RE = /^[A-Za-z0-9]{1,32}$/;
+const CODE_RE = KEY_CODE_RE;
 const PARTS: readonly string[] = ['negative', 'positive', 'up', 'down', 'left', 'right'];
 const FAMILIES: readonly string[] = ['xbox', 'playstation', 'switch', 'generic'];
 const EVENT_TYPES: readonly string[] = ['started', 'rebound', 'cancelled', 'timeout', 'refused', 'reset', 'profile'];

@@ -5,7 +5,8 @@
  * order, colliders go to the physics port, scripts and gameplay blocks attach,
  * destroy releases all of it, engine limits refuse with a diagnostic, a new
  * run removes every copy (ids are never reused), and
- * the same inputs give the same ids and transforms.
+ * the same inputs give the same ids and transforms. A copy may carry its
+ * own property values (a save keeps them).
  *
  * The character is the scene's controller entity; the physics port records
  * the collider calls; Rapier is covered by tests/integration/m14-spawn.
@@ -26,6 +27,7 @@ import {
   type SimulationModuleSpec,
   type StaticColliderSpec,
 } from './index';
+import { SpawnRequests } from './spawn-requests';
 
 const DT = 1 / 120;
 const DECL = { properties: [{ key: 'target', label: 'Target', type: 'entityRef', default: null }] } as never;
@@ -342,6 +344,77 @@ describe('spawn: the runtime (ctx.spawn / ctx.destroy)', () => {
     // The run began at the restart's boundary, after the copies numbered so far (tools name a run's copies from there).
     expect(a.h.rt.runStart!()).toEqual({ step: boundary, spawnBase: firstAfter, run: 1 });
     expect(b.h.rt.runStart!()).toEqual({ step: 0, spawnBase: 0, run: 0 });
+  });
+});
+
+describe('spawn: per-copy property values', () => {
+  it('a copy\'s root script takes its own values over the prefab\'s; undeclared keys, bad values and a root without a script are script errors', () => {
+    const got: Record<string, unknown> = {};
+    const h = harness((ctx) => {
+      if (ctx.stepIndex !== 20) return;
+      got['own'] = ctx.spawn('pair', { position: [1, 1], properties: { target: 'box-spawner' } } as never);
+      got['plain'] = ctx.spawn('pair', { position: [2, 1] });
+      for (const [key, options] of [['undeclared', { position: [0, 0], properties: { speed: 3 } }], ['badValue', { position: [0, 0], properties: { target: 7 } }], ['notObject', { position: [0, 0], properties: [1] }], ['noScript', { position: [0, 0], properties: {} }]] as const) {
+        try {
+          ctx.spawn(key === 'noScript' ? 'crate' : 'pair', options as never);
+          got[key] = 'accepted';
+        } catch (e) {
+          got[key] = (e as Error).message;
+        }
+      }
+    });
+    h.tick(25);
+    expect(h.diag().state).toBe('running');
+    expect(got['own']).toBe('spawn-1');
+    expect(got['plain']).toBe('spawn-3');
+    // The copy with its own value names the spawner; the other keeps the prefab's (remapped) reference.
+    expect(h.calls).toContain('instantiate part spawn-1 -> box-spawner');
+    expect(h.calls).toContain('instantiate part spawn-3 -> spawn-4');
+    expect(String(got['undeclared'])).toContain('"speed" is not a property of "part"');
+    expect(String(got['badValue'])).toContain('"target" does not satisfy');
+    expect(String(got['notObject'])).toContain('properties must be an object');
+    expect(String(got['noScript'])).toContain('has no script on its root');
+  });
+
+  it('a save keeps a copy\'s own values and a load spawns it with them (older saves without them still load)', () => {
+    const prefabs = new Map(PREFABS.map((d) => [d.prefabId, d])) as never as ReadonlyMap<string, never>;
+    const spawned = new Map<string, unknown>();
+    const transforms = new Map<string, { position: number[]; rotation: number[]; scale: number[] }>();
+    const host = {
+      prefabs,
+      spawned: () => spawned as never,
+      inGame: (id: string) => spawned.has(id),
+      transformOf: (id: string) => transforms.get(id) as never,
+      entityRefKeysOf: () => ['target'],
+      valuesProblem: (_b: string, v: Readonly<Record<string, unknown>>) => (Object.keys(v).every((k) => k === 'target') ? null : 'undeclared'),
+      refused: () => undefined,
+    };
+    const requests = new SpawnRequests(host);
+    const id = requests.control('box-spawner').spawn('pair', { position: [1, 2, 3], properties: { target: 'box-spawner' } });
+    expect(id).toBe('spawn-1');
+    // The boundary applies it: the runtime adds the entities and tells the requests.
+    for (const op of requests.take()) {
+      if (op.op !== 'spawn') continue;
+      requests.spawnApplied(op);
+      for (const e of op.entities) {
+        spawned.set(e.id, e);
+        transforms.set(e.id, (e.components as { transform: { position: number[]; rotation: number[]; scale: number[] } }).transform);
+      }
+      requests.copyArrived(op);
+    }
+    const saved = requests.savedCopies();
+    expect(saved).toEqual([{ prefabId: 'pair', ids: ['spawn-1', 'spawn-2'], position: [1, 2, 3], rotation: [0, 0, 0, 1], scale: [1, 1, 1], properties: { target: 'box-spawner' } }]);
+    expect(requests.savedCopiesProblem(saved)).toBeNull();
+    expect(requests.savedCopiesProblem([{ ...saved[0]!, properties: { speed: 1 } }])).toContain('properties: undeclared');
+    // A load: the copy comes back with its values; an older save's copy keeps the prefab's.
+    requests.restore([saved[0]!, { prefabId: 'pair', ids: ['spawn-7', 'spawn-8'], position: [0, 0, 0], rotation: [0, 0, 0, 1], scale: [1, 1, 1] }]);
+    const ops = requests.take().filter((o) => o.op === 'spawn');
+    const roots = ops.map((o) => (o.op === 'spawn' ? (o.entities[0]!.components as { behavior: { values: Record<string, unknown> } }).behavior.values : null));
+    expect(roots).toEqual([{ target: 'box-spawner' }, { target: 'spawn-8' }]);
+    // A copy that went is forgotten.
+    requests.removed(['spawn-1']);
+    spawned.clear();
+    expect(requests.savedCopies()).toEqual([]);
   });
 });
 
