@@ -406,8 +406,10 @@ describe('spawn: a copy moves itself ("@self" in ownedTransforms)', () => {
         n += 1;
       }
     }, { specs: [boltSpec(poke)], prefabs: BOLT_PREFABS });
-    expect(() => a.tick(30)).toThrow();
-    expect(a.diag().errors.some((e) => e.reason === 'not_owner' || e.message.includes('ownedTransforms'))).toBe(true);
+    // The write to another copy is refused (logged); the run goes on.
+    a.tick(30);
+    expect(a.diag().state).toBe('running');
+    expect(a.diag().errors.some((e) => e.message.includes('not_owner') && e.message.includes('ownedTransforms'))).toBe(true);
     let asked = false;
     const b = harness((ctx) => {
       if (ctx.stepIndex >= 20 && !asked) {

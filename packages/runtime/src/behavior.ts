@@ -106,26 +106,29 @@ import type {
 } from './types';
 
 /**
- * `ctx.debug` over the runtime's per-phase control — the same
- * object for the same control (made once), with the optional handler run once
- * per call returned.
+ * `ctx.debug` over the runtime's per-phase control, made once per behavior
+ * module and control. A declaration the runtime refuses (bad options, a name
+ * declared otherwise, the game's command limit) answers no calls and goes to
+ * `refused` (a log line), instead of failing the run.
  */
-const debugViews = new WeakMap<NonNullable<StepContext['debug']>, BehaviorDebug>();
-function debugFor(control: NonNullable<StepContext['debug']>): BehaviorDebug {
-  let view = debugViews.get(control);
-  if (view === undefined) {
-    view = Object.freeze({
-      command(name: string, options?: DebugCommandOptions, handler?: (args: DebugCommandArgs) => void): readonly DebugCommandArgs[] {
+function debugViewOf(control: NonNullable<StepContext['debug']>, refused: (call: string, e: unknown) => void): BehaviorDebug {
+  return Object.freeze({
+    command(name: string, options?: DebugCommandOptions, handler?: (args: DebugCommandArgs) => void): readonly DebugCommandArgs[] {
+      let calls: readonly DebugCommandArgs[];
+      try {
         if (handler !== undefined && typeof handler !== 'function') throw new DebugCallError('behavior_debug_invalid', `debug command "${String(name)}": the handler must be a function`);
-        const calls = control.command(name, options);
-        if (handler !== undefined) for (const args of calls) handler(args);
-        return calls;
-      },
-    });
-    debugViews.set(control, view);
-  }
-  return view;
+        calls = control.command(name, options);
+      } catch (e) {
+        if (!(e instanceof DebugCallError)) throw e;
+        refused('ctx.debug.command', e);
+        return NO_DEBUG_CALLS;
+      }
+      if (handler !== undefined) for (const args of calls) handler(args);
+      return calls;
+    },
+  });
 }
+const NO_DEBUG_CALLS: readonly DebugCommandArgs[] = Object.freeze([]);
 
 /** The declared-property value map fed to one behavior instance. */
 export type BehaviorProperties = Readonly<Record<string, PropertyValue>>;
@@ -241,8 +244,14 @@ export interface BehaviorContext {
    * @graphNode Destroy spawned
    */
   readonly destroy?: (entityId: string) => boolean;
-  /** Commit one intent (a transform/pose of an owned entity, or a gameplay intent). */
-  emit(intent: BehaviorIntent): void;
+  /**
+   * Commit one intent (a transform/pose of an owned entity, or a gameplay intent).
+   * Returns false when the runtime refuses it (a bad shape or value, the wrong
+   * phase, an entity this script does not own, a second write of the same
+   * channel in the step, the per-step limit): nothing is committed and the
+   * refusal is logged once; the run goes on.
+   */
+  emit(intent: BehaviorIntent): boolean;
   /**
    * Write to the play log (`'info' | 'warn' | 'error'`).
    * @graphNode skip the Log node (debug.log) writes any value as text
@@ -935,7 +944,29 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
 
       /** A listed entity, or (with "@self") the instance's own entity. */
       const owns = (instance: BehaviorInstance, entityId: string): boolean => ownedTransforms.includes(entityId) || (selfOwned && entityId === instance.entityId);
-      const emitFor = (instance: BehaviorInstance, ctx: StepContext, phase: SimulationPhase) => (raw: unknown): void => {
+      /**
+       * A script call the runtime refused: one log line per distinct refusal
+       * (a script that repeats it every step logs it once), and the run goes on.
+       */
+      const refusedSeen = new Set<string>();
+      const refused = (call: string, e: unknown): void => {
+        const why = [(e as { reason?: unknown }).reason, (e as { detail?: unknown }).detail].filter((x) => typeof x === 'string').join(', ');
+        const text = `behavior "${behaviorId}": ${call} refused${why !== '' ? ` (${why})` : ''}: ${messageOf(e)}`;
+        if (refusedSeen.has(text)) return;
+        refusedSeen.add(text);
+        cfg.behaviorLog?.('warn', text, compiledFramesOf(new Error(), 1)[0]);
+      };
+      const emitFor = (instance: BehaviorInstance, ctx: StepContext, phase: SimulationPhase) => (raw: unknown): boolean => {
+        try {
+          commitChecked(instance, ctx, phase, raw);
+          return true;
+        } catch (e) {
+          if (!(e instanceof BehaviorIntentError || e instanceof BehaviorHostIntentLimit)) throw e;
+          refused('ctx.emit', e);
+          return false;
+        }
+      };
+      const commitChecked = (instance: BehaviorInstance, ctx: StepContext, phase: SimulationPhase, raw: unknown): void => {
         // The validation order, per instance: shape → phase → value →
         // ownership → duplicate → caps. The runtime repeats 1–4 and owns the
         // cross-module duplicate and per-step cap before it commits.
@@ -1023,6 +1054,13 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
         }
         return inputOfFrame;
       };
+      /** `ctx.debug` per runtime debug control (made once). */
+      const debugViews = new WeakMap<NonNullable<StepContext['debug']>, BehaviorDebug>();
+      const debugOf = (control: NonNullable<StepContext['debug']>): BehaviorDebug => {
+        let view = debugViews.get(control);
+        if (view === undefined) debugViews.set(control, (view = debugViewOf(control, refused)));
+        return view;
+      };
       /** `ctx.world` per runtime step context (it reads `state.curr` live). */
       const worlds = new WeakMap<StepContext, BehaviorWorldView>();
       const worldFor = (ctx: StepContext): BehaviorWorldView => {
@@ -1095,7 +1133,7 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
         // Sockets (resolved by the runtime at the end of the step, after the animators).
         if (src.sockets !== undefined) fields['sockets'] = { value: src.sockets, enumerable: true };
         // Debug commands (the handler, when given, runs once per call of this step).
-        if (src.debug !== undefined) fields['debug'] = { value: debugFor(src.debug), enumerable: true };
+        if (src.debug !== undefined) fields['debug'] = { value: debugOf(src.debug), enumerable: true };
         // The block layers.
         if (src.grid !== undefined) fields['grid'] = { value: src.grid, enumerable: true };
         // Graph-material parameters per object.

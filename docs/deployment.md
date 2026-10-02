@@ -3078,7 +3078,7 @@ its reason (the same line is next to its constant in the code):
 | Command request | 64 KiB per request (a folder import names the folder, not its files; `setLabels` about 1,500 items per request) | One request's parse; larger edits are staged or name a folder |
 | Upload stages | 8 open and 128 MiB staged per project at once | Uploads in flight in the backend; each is committed or expires |
 | Scripts | 256 KiB of source, 16 files of 64 KiB each, 128 KiB compiled output per script; no count of scripts (a game runs as many as it has) | One compile and one module |
-| Model import | 2,000,000 vertices, 4,000,000 triangles, 64 animations, 512 MiB decoded (geometry and images) per model | What one model's inspection and the page's decode hold |
+| Model import | 2,000,000 vertices, 4,000,000 triangles, 256 animations (16,384 channels), 64 images, 512 MiB decoded (geometry and images) per model | What one model's inspection and the page's decode hold |
 | Instance sets | 65,536 copies per set | One buffer file and one draw set |
 | Instance brush | 256 dabs and 1,536 places per stroke (`INSTANCE_BRUSH_LIMITS`); no count of strokes or painted copies beyond a set's | One stroke with its surface is one 64 KiB command; a longer drag is the next stroke |
 | Block edits | 1,048,576 cells per edit | One command's work; a layer is stored in chunks |

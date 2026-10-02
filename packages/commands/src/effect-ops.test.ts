@@ -169,4 +169,17 @@ describe('the effect component', () => {
     // Deleting an effect an object plays breaks the project rule (the workspace refuses it).
     expect(projectErrors(ok(r.state, 'deleteEffect', { effectId: 'fx-a' }).state)[0]!.message).toMatch(/names no effect/);
   });
+
+  it('createEntity takes the effect component in one command, stored as setComponent stores it', () => {
+    const s = withEffect();
+    const value = { effectId: 'fx-a', playOnStart: false, params: { count: 5 } };
+    const made = ok(s, 'createEntity', { kind: 'box', components: { effect: value } });
+    const id = String(made.result['createdId']);
+    const viaSet = ok(ok(s, 'createEntity', { kind: 'box' }).state, 'setComponent', { entityId: id, component: 'effect', value });
+    const effectOf = (st: State): unknown => (st.scene.entities.find((e) => e.id === id)!.components as Record<string, unknown>)['effect'];
+    expect(effectOf(made.state)).toEqual(effectOf(viaSet.state));
+    expect(projectErrors(made.state)).toEqual([]);
+    // One undo removes the whole object.
+    expect(ok(made.state, 'undo', {}).state.scene.entities.some((e) => e.id === id)).toBe(false);
+  });
 });

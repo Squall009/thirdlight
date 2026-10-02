@@ -8,7 +8,7 @@
  * routes a section to its owner and checks the shapes the runtime keeps
  * itself (the storage keys, the counters).
  */
-import { SCRIPT_SAVE_LIMITS } from '@thirdlight/project-model';
+import { COUNTER_NAME_RULE, SCRIPT_SAVE_LIMITS } from '@thirdlight/project-model';
 
 import type { GameplayBlocks } from './blocks';
 import type { DialogueRunner } from './dialogue';
@@ -116,8 +116,9 @@ export function saveSectionsPort(o: SaveSectionOwners): SaveSectionsPort {
           }
           if (typeof value === 'object' && value !== null && !Array.isArray(value) && 'counters' in value) {
             const { counters, ...rest } = value as Record<string, unknown>;
-            if (typeof counters !== 'object' || counters === null || Array.isArray(counters) || Object.keys(counters).length > 256) return 'the components section\'s counters map at most 256 names to numbers';
-            for (const [k, v] of Object.entries(counters)) if (!/^[A-Za-z_][A-Za-z0-9_]{0,31}$/.test(k) || typeof v !== 'number' || !Number.isFinite(v)) return `counter "${k.slice(0, 40)}" is not a counter name with a number`;
+            // Only the shape refuses the section: a name the counter rule refuses is skipped at restore
+            // (with a log line), so one bad name never costs the whole load.
+            if (typeof counters !== 'object' || counters === null || Array.isArray(counters)) return 'the components section\'s counters map names to numbers';
             return o.blocks()?.primitives.checkState(rest) ?? null;
           }
           return o.blocks()?.primitives.checkState(value) ?? null;
@@ -152,9 +153,9 @@ export function saveSectionsPort(o: SaveSectionOwners): SaveSectionsPort {
           const { counters, fields, ...rest } = (value ?? {}) as Record<string, unknown>;
           const blocks = o.blocks();
           blocks?.primitives.restoreState(rest as PrimitivesSaveState);
-          blocks?.setCounters((counters ?? {}) as Record<string, number>);
+          const skipped = blocks?.setCounters((counters ?? {}) as Record<string, unknown>) ?? [];
           o.entityAccess.restoreState(fields as EntityFieldsSave | undefined);
-          return null;
+          return skipped.length === 0 ? null : `counters not restored (${COUNTER_NAME_RULE}, with a number): ${skipped.slice(0, 8).map((k) => JSON.stringify(k.slice(0, 40))).join(', ')}${skipped.length > 8 ? ` and ${skipped.length - 8} more` : ''}`;
         }
       }
     },

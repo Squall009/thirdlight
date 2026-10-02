@@ -256,7 +256,7 @@ describe('debug commands on input frames', () => {
     expect(rt.debugCommandState!().applied).toEqual([{ stepIndex: step, name: 'giveItem', args: { count: 2, item: 'lantern' } }]);
   });
 
-  it('refuses an undeclared command or mismatched args; a second declaration with other args is a script error', () => {
+  it('refuses an undeclared command or mismatched args; a second declaration with other args is refused and logged, the run goes on', () => {
     const one = (ctx: Ctx): void => void ctx.debug!.command('warp', { args: [{ name: 'x', type: 'number' }] });
     const { rt, tick } = harness({ one }, [carrier('box-0001', 'one')]);
     tick(1);
@@ -284,8 +284,28 @@ describe('debug commands on input frames', () => {
     );
     clash.tick(2);
     const errors = clash.diag().errors;
-    expect(clash.diag().state).toBe('failed');
-    expect(errors.some((e) => e.reason === 'behavior_debug_invalid' && e.message.includes('already declared with other options'))).toBe(true);
+    expect(clash.diag().state).toBe('running');
+    const lines = errors.filter((e) => e.code === 'behavior_log' && e.message.includes('ctx.debug.command refused (behavior_debug_invalid)'));
+    // Once, though the refused script declares it every step.
+    expect(lines.length).toBe(1);
+    expect(lines[0]!.message).toContain('already declared with other options');
+    // The first declaration stands: a call reaches it.
+    expect(clash.rt.queueDebugCommand!({ name: 'heal', args: { n: 1 } }).ok).toBe(true);
+  });
+
+  it('a refused declaration answers no calls and the script keeps running', () => {
+    const seen: number[] = [];
+    const long = 'x'.repeat(121);
+    const { rt, tick, diag } = harness({ s: (ctx: Ctx): void => {
+      const calls = ctx.debug!.command('warp', { description: long });
+      seen.push(calls.length);
+    } }, [carrier('box-0001', 's')]);
+    tick(3);
+    expect(diag().state).toBe('running');
+    expect(seen.length).toBeGreaterThan(2);
+    expect(seen.every((n) => n === 0)).toBe(true);
+    expect(diag().errors.filter((e) => e.message.includes('description must be text of at most')).length).toBe(1);
+    expect(rt.queueDebugCommand!({ name: 'warp', args: {} }).ok).toBe(false);
   });
 
   it('a recording with the calls at their steps reproduces the run exactly (a replay)', () => {
@@ -358,9 +378,10 @@ describe('debug commands on input frames', () => {
     }
   });
 
-  it('a script declaring `signal` with other arguments is a script error naming the engine', () => {
+  it('a script declaring `signal` with other arguments is refused, naming the engine', () => {
     const clash = harness({ c: (ctx: Ctx) => void ctx.debug!.command('signal', { args: [{ name: 'to', type: 'number' }] }) }, [carrier('box-0001', 'c')]);
     clash.tick(2);
-    expect(clash.diag().errors.some((e) => e.reason === 'behavior_debug_invalid' && e.message.includes('already declared (by the engine)'))).toBe(true);
+    expect(clash.diag().state).toBe('running');
+    expect(clash.diag().errors.some((e) => e.message.includes('(behavior_debug_invalid)') && e.message.includes('already declared (by the engine)'))).toBe(true);
   });
 });

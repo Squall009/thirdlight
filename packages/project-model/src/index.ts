@@ -435,6 +435,8 @@ export {
   type SwitchComponent,
   type TriggerComponent,
 } from './blocks';
+// The one counter-name rule (scripts, collectibles and the save loader).
+export { COUNTER_NAME_RE, COUNTER_NAME_RULE, isCounterName } from './counter-names';
 // The generic node-graph model and the registered graph kinds.
 export {
   applyGraphOps,

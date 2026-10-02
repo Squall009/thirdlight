@@ -93,6 +93,7 @@ import { TimelineSystem, type TimelineView } from './timeline';
 import type { TimelineAsset } from '@thirdlight/project-model';
 import { screenToRay as poseScreenToRay, worldToScreen as poseWorldToScreen, type CameraPose } from './camera-rig';
 import { GameplayBlocks, MAX_SIGNAL_NAME, type SceneTransitionRequest } from './blocks';
+import { createGameControl } from './game-control';
 import { EntityAccess, type EntityFieldsSave, type LightOverride } from './entity-access';
 import { MAX_LIVE_SPAWNED, MAX_SPAWNS_PER_STEP, SPAWN_ID_PREFIX, expandPrefab, parseSpawnOptions } from './spawn';
 import { TransformMirror } from './step-buffers';
@@ -1393,16 +1394,7 @@ class RuntimeInstance implements Runtime {
     received: (to: string, name: unknown): readonly BehaviorMessage[] => (typeof name === 'string' ? (this.blocks?.messagesFor(to, name) ?? []) : []),
     all: (to: string): readonly BehaviorMessage[] => this.blocks?.messagesTo(to) ?? [],
   });
-  private readonly gameControl = Object.freeze({
-    counter: (name: string): number => this.blocks?.counter(String(name)) ?? 0,
-    add: (name: string, delta: number): void => {
-      if (typeof name === 'string' && /^[A-Za-z_][A-Za-z0-9_]{0,31}$/.test(name)) this.blocks?.addCounter(name, Number(delta));
-    },
-    health: (): { current: number; max: number } | null => this.blocks?.healthView() ?? null,
-    setVisible: (entityId: string, visible: boolean): void => {
-      if (typeof entityId === 'string' && this.curr.has(entityId)) this.blocks?.setVisible(entityId, visible === true);
-    },
-  });
+  private readonly gameControl = createGameControl({ blocks: () => this.blocks, has: (id) => this.curr.has(id), warn: (message) => this.recordBehaviorLog('thirdlight.runtime:counters', 'warn', message) });
   /** Any object's health (`ctx.health`; changes apply at once, events are seen next step). */
   private readonly healthControl = Object.freeze({
     get: (entityId: string): { current: number; max: number } | null => (typeof entityId === 'string' ? (this.blocks?.primitives.healthOf(entityId) ?? null) : null),

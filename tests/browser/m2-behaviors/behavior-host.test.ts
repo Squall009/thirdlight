@@ -329,19 +329,18 @@ describe('failure modes in the Node host', () => {
     console.log(`P34_FAILSTOP ${JSON.stringify(run.diagnostics.errors[0])}`);
   });
 
-  it('rejects an invalid intent (value out of range) as a fail-stop', async () => {
+  it('refuses an invalid intent (value out of range): emit answers false, one log line, the run goes on', async () => {
     const bad = await compileHosted(
       'behavior-0202',
-      "export default { step(_s, ctx) { ctx.emit({ kind: 'control_move', value: 42 }); } };\n",
+      "export default { step(_s, ctx) { if (ctx.emit({ kind: 'control_move', value: 42 }) !== false) throw new Error('accepted'); } };\n",
     );
     const scene = sceneFor([{ entityId: 'box-0001', behaviorId: 'behavior-0202', speed: 3.5 }]);
     const run = runBehavior([bad], scene, 'box-0001', 5);
-    expect(run.diagnostics.state).toBe('failed');
-    expect(run.diagnostics.errors[0]?.reason).toBe('behavior_intent_invalid');
-    expect(run.diagnostics.errors[0]?.detail).toBe('value');
+    expect(run.diagnostics.state).toBe('running');
+    expect(run.diagnostics.errors.filter((e) => (e.message ?? '').includes('ctx.emit refused (behavior_intent_invalid, value)'))).toHaveLength(1);
   });
 
-  it('rejects a transform intent on an entity the behavior does not own', async () => {
+  it('refuses a transform intent on an entity the behavior does not own', async () => {
     const bad = await compileHosted(
       'behavior-0203',
       "export default { step(_s, ctx) { if (ctx.phase === 'transform') ctx.emit({ kind: 'transform', entityId: 'cam-main', position: { x: 1 } }); } };\n",
@@ -352,9 +351,8 @@ describe('failure modes in the Node host', () => {
       { entityId: 'box-0002', behaviorId: 'behavior-0203', speed: 3.5 },
     ]);
     const run = runBehavior([bad], scene, 'box-0002', 5);
-    expect(run.diagnostics.state).toBe('failed');
-    expect(run.diagnostics.errors[0]?.reason).toBe('behavior_transform_forbidden');
-    expect(run.diagnostics.errors[0]?.detail).toBe('not_owner');
+    expect(run.diagnostics.state).toBe('running');
+    expect(run.diagnostics.errors.some((e) => (e.message ?? '').includes('ctx.emit refused (behavior_transform_forbidden, not_owner)'))).toBe(true);
   });
 
   it('bounds a log flood (16 accepted per step per instance, ring ≤ 32)', async () => {
@@ -378,7 +376,7 @@ describe('failure modes in the Node host', () => {
     );
   });
 
-  it('rejects two writers of one control channel', async () => {
+  it('refuses the second writer of one control channel', async () => {
     const a = await compileHosted(
       'behavior-0205',
       "export default { step(_s, ctx) { ctx.emit({ kind: 'control_move', value: 0.5 }); } };\n",
@@ -392,9 +390,8 @@ describe('failure modes in the Node host', () => {
       { entityId: 'box-0002', behaviorId: 'behavior-0206', speed: 3.5 },
     ]);
     const run = runBehavior([a, b], scene, 'box-0001', 5);
-    expect(run.diagnostics.state).toBe('failed');
-    expect(run.diagnostics.errors[0]?.reason).toBe('behavior_intent_conflict');
-    expect(run.diagnostics.errors[0]?.detail).toBe('duplicate_writer');
+    expect(run.diagnostics.state).toBe('running');
+    expect(run.diagnostics.errors.some((e) => (e.message ?? '').includes('ctx.emit refused (behavior_intent_conflict, duplicate_writer)'))).toBe(true);
   });
 
   it('does not execute unbounded-loop behavior tests in a live browser context (documented limitation)', () => {

@@ -174,6 +174,16 @@ function boot(
   };
 }
 
+
+/** The one log line a refused script call leaves (the run goes on). */
+function refusalLine(d: { state: string; errors: readonly { code: string; reason?: string; message: string }[] }, reason: string, detail?: string): string {
+  expect(d.state).toBe('running');
+  const lines = d.errors.filter((e) => e.code === 'behavior_log' && e.reason === 'warn' && e.message.includes('refused'));
+  expect(lines.length, JSON.stringify(d.errors)).toBe(1);
+  expect(lines[0]!.message).toContain(detail === undefined ? `(${reason}` : `(${reason}, ${detail})`);
+  return lines[0]!.message;
+}
+
 describe('behavior host lifecycle', () => {
   it('runs prepare once, instantiate per carrying entity in document order, one step per declared phase, and dispose exactly once', () => {
     const calls: SpecCall[] = [];
@@ -277,7 +287,7 @@ describe('validated intents', () => {
     for (const v of s2.state.transforms.find((t) => t.id === 'box-0001')!.rotation) expect(v).toBeCloseTo(0.5, 6);
   });
 
-  it('refuses a bad pose: no fields, wrong order, a bad scale, another entity, outside the transform phase', () => {
+  it('refuses a bad pose (no fields, wrong order, a bad scale, another entity, outside the transform phase): emit returns false, one log line, the run goes on', () => {
     for (const [bad, reason, detail, phase] of [
       [{ kind: 'pose', entityId: 'box-0001' }, 'behavior_intent_invalid', 'shape', 'transform'],
       [{ kind: 'pose', entityId: 'box-0001', scale: 2, rotation: { yaw: 1 } }, 'behavior_intent_invalid', 'shape', 'transform'],
@@ -285,33 +295,32 @@ describe('validated intents', () => {
       [{ kind: 'pose', entityId: 'cam-main', scale: 2 }, 'behavior_transform_forbidden', 'not_owner', 'transform'],
       [{ kind: 'pose', entityId: 'box-0001', rotation: { roll: 5 } }, 'behavior_intent_invalid', 'phase', 'intent'],
     ] as const) {
+      const answers: boolean[] = [];
       const art = artifact('behavior-0001', (_s, ctx) => {
-        const c = ctx as { phase: string; emit: (i: unknown) => void };
-        if (c.phase === phase) c.emit(bad);
+        const c = ctx as { phase: string; emit: (i: unknown) => boolean };
+        if (c.phase === phase) answers.push(c.emit(bad));
       }, { ownedTransforms: ['box-0001'] });
       const h = boot([art], sceneWithBehaviors([{ entityId: 'box-0001', behaviorId: 'behavior-0001' }]));
       h.boot();
-      const d = h.diag();
-      expect(d.state, JSON.stringify(bad)).toBe('failed');
-      expect(d.errors[0]?.reason).toBe(reason);
-      expect(d.errors[0]?.detail).toBe(detail);
+      h.tick(DT);
+      h.tick(2 * DT);
+      refusalLine(h.diag(), reason, detail);
+      expect(answers.length).toBeGreaterThan(1);
+      expect(answers.every((a) => !a), JSON.stringify(bad)).toBe(true);
     }
   });
 
-  it('rejects a transform write outside the transform phase (detail phase)', () => {
+  it('refuses a transform write outside the transform phase (detail phase)', () => {
     const art = artifact('behavior-0001', (_s, ctx) => {
       const c = ctx as { emit: (i: unknown) => void };
       c.emit({ kind: 'transform', entityId: 'box-0001', position: { x: 1 } });
     }, { ownedTransforms: ['box-0001'] });
     const h = boot([art], sceneWithBehaviors([{ entityId: 'box-0001', behaviorId: 'behavior-0001' }]));
     h.boot();
-    const d = h.diag();
-    expect(d.state).toBe('failed');
-    expect(d.errors[0]?.reason).toBe('behavior_intent_invalid');
-    expect(d.errors[0]?.detail).toBe('phase');
+    refusalLine(h.diag(), 'behavior_intent_invalid', 'phase');
   });
 
-  it('rejects an invalid control_move value and a malformed shape', () => {
+  it('refuses an invalid control_move value and a malformed shape', () => {
     for (const [bad, detail] of [
       [{ kind: 'control_move', value: 5 }, 'value'],
       [{ kind: 'control_move' }, 'shape'],
@@ -323,28 +332,22 @@ describe('validated intents', () => {
       const h = boot([art], sceneWithBehaviors([{ entityId: 'box-0001', behaviorId: 'behavior-0001' }]));
       h.boot();
       const d = h.diag();
-      expect(d.state).toBe('failed');
-      expect(d.errors[0]?.code).toBe('module_error');
-      expect(d.errors[0]?.reason).toBe('behavior_intent_invalid');
-      expect(d.errors[0]?.detail).toBe(detail);
-      expect(d.failedModuleId).toBe('thirdlight.behavior:behavior-0001');
+      expect(refusalLine(d, 'behavior_intent_invalid', detail)).toContain('behavior "behavior-0001"');
+      expect(d.failedModuleId ?? null).toBe(null);
     }
   });
 
-  it('rejects a transform intent for an entity the module does not own', () => {
+  it('refuses a transform intent for an entity the module does not own', () => {
     const art = artifact('behavior-0001', (_s, ctx) => {
       const c = ctx as { phase: string; emit: (i: unknown) => void };
       if (c.phase === 'transform') c.emit({ kind: 'transform', entityId: 'cam-main', position: { x: 1 } });
     }, { ownedTransforms: ['box-0001'] });
     const h = boot([art], sceneWithBehaviors([{ entityId: 'box-0001', behaviorId: 'behavior-0001' }]));
     h.boot();
-    const d = h.diag();
-    expect(d.state).toBe('failed');
-    expect(d.errors[0]?.reason).toBe('behavior_transform_forbidden');
-    expect(d.errors[0]?.detail).toBe('not_owner');
+    refusalLine(h.diag(), 'behavior_transform_forbidden', 'not_owner');
   });
 
-  it('rejects a duplicate transform write to the same axis in one step', () => {
+  it('refuses a duplicate transform write to the same axis in one step (the first stands)', () => {
     const art = artifact('behavior-0001', (_s, ctx) => {
       const c = ctx as { phase: string; emit: (i: unknown) => void };
       if (c.phase === 'transform') {
@@ -354,13 +357,14 @@ describe('validated intents', () => {
     }, { ownedTransforms: ['box-0001'] });
     const h = boot([art], sceneWithBehaviors([{ entityId: 'box-0001', behaviorId: 'behavior-0001' }]));
     h.boot();
-    const d = h.diag();
-    expect(d.state).toBe('failed');
-    expect(d.errors[0]?.reason).toBe('behavior_intent_conflict');
-    expect(d.errors[0]?.detail).toBe('duplicate_intent');
+    refusalLine(h.diag(), 'behavior_intent_conflict', 'duplicate_intent');
+    // The first write stands.
+    const st = h.rt.getInterpolatedState();
+    if (!st.ok) throw new Error('state failed');
+    expect(st.state.transforms.find((t) => t.id === 'box-0001')!.position[0]).toBeCloseTo(1, 6);
   });
 
-  it('rejects two writers of one control channel (duplicate_writer carrying both module IDs)', () => {
+  it('refuses the second writer of one control channel (duplicate_writer carrying both module IDs)', () => {
     const a = artifact('behavior-0001', (_s, ctx) => {
       (ctx as { emit: (i: unknown) => void }).emit({ kind: 'control_move', value: 0.5 });
     });
@@ -375,15 +379,12 @@ describe('validated intents', () => {
       ]),
     );
     h.boot();
-    const d = h.diag();
-    expect(d.state).toBe('failed');
-    expect(d.errors[0]?.reason).toBe('behavior_intent_conflict');
-    expect(d.errors[0]?.detail).toBe('duplicate_writer');
-    expect(d.errors[0]?.message).toContain('thirdlight.behavior:behavior-0001');
-    expect(d.errors[0]?.message).toContain('thirdlight.behavior:behavior-0002');
+    const line = refusalLine(h.diag(), 'behavior_intent_conflict', 'duplicate_writer');
+    expect(line).toContain('thirdlight.behavior:behavior-0001');
+    expect(line).toContain('thirdlight.behavior:behavior-0002');
   });
 
-  it('accepts the five-channel closed maximum and rejects a sixth write as duplicate_intent (the per-instance cap is defense in depth)', () => {
+  it('accepts the five-channel closed maximum and refuses a sixth write as duplicate_intent (the per-instance cap is defense in depth)', () => {
     const art = artifact('behavior-0001', (_s, ctx) => {
       const c = ctx as { phase: string; emit: (i: unknown) => void };
       if (c.phase === 'intent') {
@@ -399,12 +400,10 @@ describe('validated intents', () => {
     const h = boot([art], sceneWithBehaviors([{ entityId: 'box-0001', behaviorId: 'behavior-0001' }]));
     h.boot();
     const d = h.diag();
-    expect(d.state).toBe('failed');
-    expect(d.errors[0]?.reason).toBe('behavior_intent_conflict');
-    expect(d.errors[0]?.detail).toBe('duplicate_intent');
-    // The five distinct channels of the first pre-roll step committed before
-    // the sixth write was rejected.
-    expect(d.intentCommitCount).toBe(5);
+    refusalLine(d, 'behavior_intent_conflict', 'duplicate_intent');
+    // Every step committed its five distinct channels; each sixth write was refused.
+    expect(d.intentCommitCount).toBeGreaterThan(5);
+    expect((d.intentCommitCount ?? 0) % 5).toBe(0);
   });
 
   it('scales the per-step cap with the live instances (20 instances × 4 intents = 80 > 64 is accepted)', () => {
@@ -623,21 +622,20 @@ describe('create-time failures', () => {
     expect(res.ok).toBe(true);
   });
 
-  it('discards the whole step on an invalid intent (no partial transform write)', () => {
+  it('keeps the step\'s other writes when one intent is refused', () => {
     const art = artifact('behavior-0001', (_s, ctx) => {
       const c = ctx as { phase: string; emit: (i: unknown) => void };
       if (c.phase === 'transform') {
         c.emit({ kind: 'transform', entityId: 'box-0001', position: { x: 9 } });
-        c.emit({ kind: 'transform', entityId: 'box-0001', position: { x: 9 } }); // duplicate → fail-stop
+        c.emit({ kind: 'transform', entityId: 'box-0001', position: { x: 5 } }); // duplicate → refused
       }
     }, { ownedTransforms: ['box-0001'] });
     const h = boot([art], sceneWithBehaviors([{ entityId: 'box-0001', behaviorId: 'behavior-0001' }]));
     h.boot();
     const state = h.rt.getInterpolatedState();
     if (!state.ok) throw new Error('state failed');
-    // The committed state is the pre-roll state; the abandoned step's write is
-    // not observable (fail-stop keeps the last committed state).
-    expect(state.state.transforms.find((t) => t.id === 'box-0001')?.position).toEqual([0, 0, 0]);
+    expect(state.state.transforms.find((t) => t.id === 'box-0001')?.position).toEqual([9, 0, 0]);
+    expect(h.diag().state).toBe('running');
   });
 });
 

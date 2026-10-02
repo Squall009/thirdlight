@@ -30,7 +30,7 @@
  */
 import type { ActionFrame } from './actions';
 import type { ColliderShape3D, KinematicPose3D, PhysicsPort, PhysicsPort3D, Vec2 } from './ports';
-import { BLOCK_DEFAULTS, SWITCH_DEFAULT_ACTION, type EntityV3 } from '@thirdlight/project-model';
+import { BLOCK_DEFAULTS, isCounterName, SWITCH_DEFAULT_ACTION, type EntityV3 } from '@thirdlight/project-model';
 import type { BehaviorMessage, PlayerCapsule, PrimitiveEventRecord, TransformState, TriggerEventRecord } from './types';
 import { capsuleHalfTotal, colliderRotationZ, colliderShape3DOf } from './scene-set';
 import { rotate3, segmentBoxDistance2, segmentPointDistance2, segmentSegmentDistance2, sub3, type V3 } from './geometry3';
@@ -677,15 +677,26 @@ export class GameplayBlocks {
     return this.counters.get(name) ?? 0;
   }
 
-  addCounter(name: string, delta: number): void {
-    if (!Number.isFinite(delta)) return;
+  /** Add to a counter (false: the name breaks the counter rule or the amount is not a number; nothing changes). */
+  addCounter(name: string, delta: number): boolean {
+    if (!isCounterName(name) || !Number.isFinite(delta)) return false;
     this.counters.set(name, (this.counters.get(name) ?? 0) + delta);
+    return true;
   }
 
-  /** The named counters set from a project save's components section (every other counter is cleared). */
-  setCounters(values: Readonly<Record<string, number>>): void {
+  /**
+   * The named counters set from a project save's components section (every
+   * other counter is cleared). Returns the names it skipped: a name the
+   * counter rule refuses or a value that is not a number.
+   */
+  setCounters(values: Readonly<Record<string, unknown>>): string[] {
     this.counters.clear();
-    for (const [k, v] of Object.entries(values)) if (/^[A-Za-z_][A-Za-z0-9_]{0,31}$/.test(k) && Number.isFinite(v)) this.counters.set(k, v);
+    const skipped: string[] = [];
+    for (const [k, v] of Object.entries(values)) {
+      if (isCounterName(k) && typeof v === 'number' && Number.isFinite(v)) this.counters.set(k, v);
+      else skipped.push(k);
+    }
+    return skipped;
   }
 
   /** The character's health (ctx.game.health), or null when it has none. */

@@ -23,6 +23,9 @@ import {
 } from './index';
 import type { CommandState, ContentDocument, MutationSuccess } from './index';
 import { m3NeutralJson } from './test-fixtures';
+import { CREATE_COMPONENTS, CREATE_MADE_BY_KIND } from './validate-request';
+import { SET_COMPONENT_NAMES } from './validate-content-args';
+import { at, cameraEntity, scene, v4State } from './test-scene';
 
 interface EnvelopeFixture {
   projectId: string;
@@ -108,18 +111,31 @@ describe('createEntity with v3 components', () => {
     }
   });
 
-  it('a component only setComponent adds is refused with how to add it, not as unknown', () => {
+  it('createEntity takes every component setComponent adds, bar those its kind makes', () => {
+    // The two lists differ by exactly the kind-made components.
+    expect(SET_COMPONENT_NAMES.filter((c) => !CREATE_COMPONENTS.includes(c)).sort()).toEqual([...CREATE_MADE_BY_KIND].sort());
+    expect(CREATE_COMPONENTS.every((c) => (SET_COMPONENT_NAMES as readonly string[]).includes(c))).toBe(true);
+    // Each of them is a known component name to createEntity on a v4 scene (a value it
+    // refuses is a value error, never component_unknown).
+    const v4 = v4State(scene(0, [cameraEntity()]));
+    for (const c of CREATE_COMPONENTS) {
+      const r = applyMutation(v4, at(v4, 'createEntity', { kind: 'group', components: { [c]: {} } }));
+      if (!r.ok) expect(r.result.error.code, `${c}: ${r.result.error.message}`).not.toBe('component_unknown');
+    }
+    const created = ok(applyMutation(v4, at(v4, 'createEntity', { kind: 'group', components: { cameraPath: { points: [[0, 0, 0], [1, 0, 0]] } } })));
+    expect(created.change.type).toBe('createEntity');
+    if (created.change.type === 'createEntity') expect(Object.keys(created.change.entity.components).sort()).toEqual(['cameraPath', 'transform']);
+  });
+
+  it('a component kind makes, or no component at all, is refused with how to add it', () => {
     const refusal = (components: Record<string, unknown>): { code: string; message: string } => {
       const r = applyMutation(stateOf(BEFORE), req('createEntity', { kind: 'group', components }, 0));
       expect(r.ok).toBe(false);
       return r.ok ? { code: '', message: '' } : { code: r.result.error.code, message: r.result.error.message };
     };
     expect(refusal({ nope: {} }).message).toBe('unknown component name (the registry is closed)');
-    const path = refusal({ cameraPath: { points: [[0, 0, 0], [1, 0, 0]] } });
-    expect(path.code).toBe('component_unknown');
-    expect(path.message).toBe('"cameraPath" cannot be added by createEntity: create the entity, then add it with setComponent');
-    expect(refusal({ materialParams: {} }).message).toContain('then add it with setComponent');
     expect(refusal({ box: {} }).message).toBe('"box" is not added through components: createEntity makes it from kind "box" and its box argument (or add it afterwards with setComponent)');
+    expect(refusal({ camera: {} }).code).toBe('component_unknown');
   });
 
   it('rejects unknown keys, nullable values, preset/surface coexistence and illegal targets', () => {

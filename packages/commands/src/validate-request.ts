@@ -55,6 +55,7 @@ import { validatePasteArgs } from './paste-ops';
 import { CREATE_ENTITIES_MAX } from './ops';
 import {
   isSetComponentName,
+  SET_COMPONENT_NAMES,
   validateAcknowledgeBehaviorTrustArgs,
   validateApplySurfacePresetArgs,
   validatePublishAssetArgs,
@@ -215,47 +216,19 @@ export const MOVE_ENTITIES_MAX = 64;
 const TRANSFORM_FIELDS = ['position', 'rotation', 'scale'] as const;
 type TransformField = (typeof TRANSFORM_FIELDS)[number];
 
-/** The add-capable `createEntity.components` key set (closed). */
-const CREATE_COMPONENTS: readonly string[] = [
-  'collider',
-  'controller',
-  'playerSpawn',
-  'light',
-  'surface',
-  'modelAnimation',
-  // v4 scenes only.
-  'instances',
-  // v4 scenes only.
-  'materials',
-  // v4 scenes only.
-  'fogVolume',
-  // v4 scenes only.
-  'animator',
-  // v4 scenes only.
-  'mover',
-  'trigger',
-  'switch',
-  'health',
-  'audioSource',
-  'faceMovement',
-  // v4 scenes only.
-  'blockLayer',
-  // v4 scenes only.
-  'blockFootprint',
-  // v4 scenes only.
-  'behaviorGroup',
-  // v4 scenes only.
-  'collectible',
-  'patrol',
-  'hitbox',
-  // v4 scenes only.
-  'climbVolume',
-  'gravity',
-  // v4 scenes only (the GameObject menu's camera track is one createEntity).
-  'virtualCamera',
-  // v4 scenes only (the GameObject menu's camera region).
-  'cameraRegion',
-];
+/**
+ * Components `createEntity` makes from its own arguments rather than from
+ * `components`: `box` and `model` from `kind` (and its box/model argument);
+ * the scene's `camera` is not created by a command.
+ */
+export const CREATE_MADE_BY_KIND: readonly string[] = ['box', 'model', 'camera'];
+
+/**
+ * The add-capable `createEntity.components` key set: every component
+ * `setComponent` adds, bar those `kind` makes. The values are checked as the
+ * result scene is (the same rules as `setComponent`'s).
+ */
+export const CREATE_COMPONENTS: readonly string[] = SET_COMPONENT_NAMES.filter((c) => !CREATE_MADE_BY_KIND.includes(c));
 
 /** Expected-text constants (the `expected` strings are log-safe, stable). */
 const EXPECT = {

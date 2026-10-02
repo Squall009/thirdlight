@@ -30,7 +30,7 @@ import type { CommandError, PreparedAssetImportItem } from '@thirdlight/commands
 import { PROJECT_OWN_ENTRIES, SIDECAR_SUFFIX, assetRoot, checkAssetFolder, fileOfRecord, gameFileExists, parseSidecar, readGameFile, sidecarPath, takenPaths, writeGameFile, type RecordLike } from './asset-files';
 import { IMPORTABLE, resolveProjectFile, type ContentConfig, type ContentContext } from './content-store';
 import { sha256Hex } from './digest';
-import { isSkippedFolderName, resourceKindOfName } from './resource-files';
+import { isSceneFileName, isSkippedFolderName, resourceKindOfName, SCENE_SUFFIX } from './resource-files';
 import { pathRejected } from './errors';
 import type { WriteOps } from './write';
 
@@ -237,6 +237,22 @@ export function mintImportItems(content: ContentCatalogV4 | null, files: readonl
 }
 
 /**
+ * Why an uploaded file may not have this name (null: it may). An upload is an
+ * asset's file: it never makes a file the project reads as its own (an
+ * asset's sidecar, a scene, a resource file; the file check would take them
+ * in as project data) or a hidden one (the file check skips it, so it would
+ * sit in the game folder unseen).
+ */
+export function uploadNameProblem(name: string): string | null {
+  if (name.startsWith('.')) return `${name} is a hidden file name (it starts with "."); name the file without the leading dot`;
+  const lower = name.toLowerCase();
+  if (lower.endsWith(SIDECAR_SUFFIX)) return `${name} is an asset sidecar name (${SIDECAR_SUFFIX}); the project writes sidecars itself`;
+  if (isSceneFileName(lower)) return `${name} is a scene file name (${SCENE_SUFFIX}); create scenes with createScene or copy the file into the game folder`;
+  if (resourceKindOfName(lower) !== null) return `${name} is a resource file name; create resources with their commands or copy the file into the game folder`;
+  return null;
+}
+
+/**
  * Write one uploaded file into the game folder at `rel` (its folders are
  * made). Never over another file: the same bytes already there are fine, other
  * bytes are refused (the uploader chooses another folder or name).
@@ -244,6 +260,8 @@ export function mintImportItems(content: ContentCatalogV4 | null, files: readonl
 export function writeUploadedFile(core: { ops: WriteOps; content: ContentConfig }, ctx: ContentContext, rel: string, bytes: Uint8Array): { ok: true; written: boolean } | { ok: false; error: CommandError } {
   const slash = rel.lastIndexOf('/');
   if (slash <= 0) return { ok: false, error: pathRejected(rel, 'an uploaded file goes into a folder of the game folder, e.g. assets/crate.glb') };
+  const refusedName = uploadNameProblem(rel.slice(slash + 1));
+  if (refusedName !== null) return { ok: false, error: pathRejected(rel, refusedName) };
   const vetted = checkAssetFolder(ctx, rel.slice(0, slash));
   if (!vetted.ok) return vetted;
   const there = readGameFile(ctx, rel);

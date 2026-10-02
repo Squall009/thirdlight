@@ -23,6 +23,7 @@
  *   prefab). Each problem names the component and ends with
  *   `REMOVED_FROM_ENGINE`.
  */
+import { isCounterName } from './counter-names';
 import type { ModelErrorV3 } from './errors';
 
 /**
@@ -73,7 +74,6 @@ const SESSION_HEALTH_FIELDS = ['invulnerableSeconds', 'knockback', 'hitBounce', 
 /** Old pickup kind → the counter it added to (a heart healed instead: refused). */
 const PICKUP_COUNTERS: Readonly<Record<string, string>> = Object.freeze({ coin: 'coins', gem: 'gems', key: 'keys', life: 'lives' });
 
-const COUNTER_RE = /^[A-Za-z_][A-Za-z0-9_]{0,31}$/;
 
 export interface UpgradeV24Result {
   /** The upgraded documents (deep copies; the inputs are untouched). */
@@ -148,7 +148,7 @@ export function upgradeProjectDocsV24(contentIn: unknown, scenesIn: readonly unk
       else if (kind === 'custom') counter = isObject(pickup) && typeof pickup['counter'] === 'string' ? pickup['counter'] : 'custom';
       else if (typeof kind === 'string') counter = PICKUP_COUNTERS[kind];
       if (counter === undefined && kind !== 'heart') reasons.push(`its kind ${JSON.stringify(kind)} is not a known pickup kind`);
-      if (counter !== undefined && !COUNTER_RE.test(counter)) reasons.push(`its counter ${JSON.stringify(counter)} is not a counter name`);
+      if (counter !== undefined && !isCounterName(counter)) reasons.push(`its counter ${JSON.stringify(counter)} is not a counter name`);
       if (isObject(pickup) && pickup['respawn'] === 'death') reasons.push('it came back when the player died (a collectible comes back after seconds; a script calls ctx.collectible.restore)');
       if (isObject(pickup) && pickup['effect'] !== undefined) reasons.push('it played an effect when collected');
       const cue = isObject(pickup) ? pickup['cue'] : undefined;

@@ -585,6 +585,13 @@ const UNOWNED = ['transform', 'behavior', 'prefab'];
 export function isSetComponentName(name: string): boolean {
   return (OWNED as readonly string[]).includes(name);
 }
+
+/**
+ * The components `setComponent` adds, as one list: `createEntity` takes the
+ * same ones in its `components` (bar those its `kind` makes), so an object
+ * can be made whole in one command.
+ */
+export const SET_COMPONENT_NAMES: readonly OwnedComponent[] = OWNED;
 const COMPONENT_EXPECTED =
   'one of "box", "camera", "model", "collider", "controller", "playerSpawn", "light", "surface", "modelAnimation", "instances", "materials", "materialParams", "effect"';
 

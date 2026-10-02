@@ -209,6 +209,18 @@ describe('folder import and upload folders over HTTP (a project in the data root
     expect(assets().find((a) => a.assetId === 'crate')).toMatchObject({ kind: 'model', labels: ['props'], versions: [{ sourcePath: 'assets/dropped/props/crate.glb' }] });
   });
 
+  it('refuses an upload named as a hidden file, a sidecar, a scene or a resource file, and writes nothing', async () => {
+    const s = await upload(GLB2);
+    for (const path of ['assets/names/.hidden.glb', 'assets/names/crate.glb.tlasset', 'assets/names/x.TLASSET', 'assets/names/level.scene.json', 'assets/names/crate.material.json']) {
+      const r = await fileStage(s, path);
+      expect(r.status, path).toBe(400);
+      expect(JSON.stringify(r.json), path).toMatch(/hidden file name|sidecar name|scene file name|resource file name/);
+      expect(existsSync(join(dir(), ...path.split('/'))), path).toBe(false);
+    }
+    // The same bytes under an ordinary name are written.
+    expect((await fileStage(s, 'assets/names/crate-2.glb')).status).toBe(200);
+  });
+
   it('files an uploaded publish into the folder it names', async () => {
     const stageId = await upload(GLB2);
     const inspected = await api(`${tb.authUrl}/api/v1/projects/${PID}/content/stages/${stageId}/inspect`, { body: {}, token: tb.adminToken, origin: null });

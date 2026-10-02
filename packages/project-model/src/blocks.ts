@@ -14,6 +14,7 @@
  * player's grace time, knockback and hit bounce were deleted (collectible,
  * patrol and hitbox are the generic primitives below).
  */
+import { COUNTER_NAME_RULE, isCounterName } from './counter-names';
 import { ID_RE } from './validate';
 import type { ModelErrorV2 } from './errors';
 
@@ -499,7 +500,6 @@ export interface HitboxComponent {
   damage?: number;
 }
 
-const COUNTER_RE = /^[A-Za-z_][A-Za-z0-9_]{0,31}$/;
 const COLLECTIBLE_FIELDS = ['counter', 'amount', 'respawn', 'onCollect', 'size'] as const;
 const PATROL_FIELDS = ['mode', 'waypoints', 'loop', 'speed', 'wait', 'direction', 'size', 'wallProbe', 'ledgeProbe'] as const;
 const HITBOX_FIELDS = ['shape', 'size', 'radius', 'damage'] as const;
@@ -512,7 +512,7 @@ function limited(value: Record<string, unknown>, key: string, lim: { min: number
 export function validateCollectibleComponent(value: unknown, path: string, errors: ModelErrorV2[]): void {
   if (!isPlainObject(value)) return err(errors, 'field_type', path, 'collectible is an object', value);
   fields(value, COLLECTIBLE_FIELDS, ['counter'], path, errors);
-  if (value['counter'] !== undefined && (typeof value['counter'] !== 'string' || !COUNTER_RE.test(value['counter']))) err(errors, 'field_value', `${path}/counter`, 'counter is a name: a letter or _, then up to 31 letters, digits or _', value['counter']);
+  if (value['counter'] !== undefined && !isCounterName(value['counter'])) err(errors, 'field_value', `${path}/counter`, COUNTER_NAME_RULE, value['counter']);
   limited(value, 'amount', L.amount, '', path, errors);
   limited(value, 'respawn', L.respawn, ' s', path, errors);
   if (value['onCollect'] !== undefined && (typeof value['onCollect'] !== 'string' || !NAME_RE.test(value['onCollect']))) err(errors, 'field_value', `${path}/onCollect`, 'onCollect is a signal name', value['onCollect']);

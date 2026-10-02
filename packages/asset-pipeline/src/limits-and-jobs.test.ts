@@ -98,6 +98,21 @@ describe('decoded-resource caps (adversarial)', () => {
     expect(proposal.diagnostics.map((d) => d.limit)).toEqual(['materials', 'vertices']);
   });
 
+  it('accepts a model holding 256 animations and refuses 257', () => {
+    const withClips = (n: number): Uint8Array => {
+      const json = baseJson();
+      const clip = (json['animations'] as Record<string, unknown>[])[0]!;
+      json['animations'] = Array.from({ length: n }, (_, i) => ({ ...cloneJson(clip), name: `clip-${i}` }));
+      return buildGlb(json, splitGlb(base).bin);
+    };
+    const ok = inspect(withClips(256));
+    expect(ok.status, JSON.stringify(ok.diagnostics)).toBe('ok');
+    expect(ok.metrics?.animations).toBe(256);
+    const over = inspect(withClips(257));
+    expect(over.status).toBe('rejected');
+    expect(over.diagnostics.map((d) => [d.limit, d.found])).toEqual([['animations', 257]]);
+  });
+
   it('keeps the decoded geometry cap above what a 32 MiB source can decode', () => {
     // Decoded geometry is bounded by the byte cap: 33 554 432 B of embedded
     // data cannot exceed the 268 435 456 B decoded-geometry cap, so the only

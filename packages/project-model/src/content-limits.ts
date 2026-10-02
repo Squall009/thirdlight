@@ -62,7 +62,12 @@ export const MAX_OWNED_TRANSFORMS = 16;
 export const MAX_BEHAVIOR_DIAGNOSTICS = 32;
 export const MAX_BEHAVIOR_OUTPUT_BYTES = 131_072;
 
-/** The decoded-resource caps of one model. */
+/**
+ * The decoded-resource caps of one model. Animations: a character's whole
+ * clip set in one file (256); the channel cap keeps 64 channels per clip on
+ * average over them. Images stay at 64: a model's textures are best shared
+ * as texture assets.
+ */
 export const ASSET_METRIC_CAPS = {
   nodes: 4096,
   meshes: 1024,
@@ -72,8 +77,8 @@ export const ASSET_METRIC_CAPS = {
   textures: 512,
   vertices: 2_000_000,
   triangles: 4_000_000,
-  animations: 64,
-  animationChannels: 4096,
+  animations: 256,
+  animationChannels: 16_384,
   clipDurationMs: 600_000,
   decodedGeometryBytes: 268_435_456,
   decodedImageBytes: 268_435_456,

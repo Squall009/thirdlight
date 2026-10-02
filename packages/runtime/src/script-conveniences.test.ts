@@ -405,11 +405,11 @@ describe('rotation forms on transform and pose intents', () => {
       [{ kind: 'transform', entityId: 'box-0001', position: { x: 1 }, spin: 1 }, 'behavior_intent_invalid', 'shape'],
       [{ kind: 'transform', entityId: 'box-0001', position: { x: 1 }, facing: [0, 0, 0] }, 'behavior_intent_invalid', 'value'],
     ];
+    // Each is refused (one log line naming why) and the run goes on.
     for (const [bad, reason, detail] of cases) {
       const h = posed(() => bad);
-      expect(h.diag().state, JSON.stringify(bad)).toBe('failed');
-      expect(h.diag().errors[0]?.reason, JSON.stringify(bad)).toBe(reason);
-      expect(h.diag().errors[0]?.detail, JSON.stringify(bad)).toBe(detail);
+      expect(h.diag().state, JSON.stringify(bad)).toBe('running');
+      expect(h.diag().errors.filter((e) => e.message.includes(`ctx.emit refused (${reason}, ${detail})`)).length, JSON.stringify(bad)).toBe(1);
     }
     // A pose rotation and a transform facing in one step write the rotation twice.
     const twice = harness(
@@ -426,8 +426,8 @@ describe('rotation forms on transform and pose intents', () => {
       [carrier('box-0001', 'turner')],
     );
     twice.tick(3);
-    expect(twice.diag().state).toBe('failed');
-    expect(twice.diag().errors[0]?.reason).toBe('behavior_intent_conflict');
+    expect(twice.diag().state).toBe('running');
+    expect(twice.diag().errors.some((e) => e.message.includes('ctx.emit refused (behavior_intent_conflict'))).toBe(true);
   });
 
   it('the old forms parse exactly as before (no new keys) and a legacy pose applies the same rotation', () => {

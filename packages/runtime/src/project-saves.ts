@@ -622,7 +622,12 @@ export class RuntimeSaves {
       const p = this.port.apply('grid', saved.grid);
       if (p !== null) return `section grid: ${p}`;
     }
-    for (const s of opted) if (s !== 'grid') this.port.apply(s, saved[s]);
+    for (const s of opted) {
+      if (s === 'grid') continue;
+      // A section restores what it can; what it had to leave out is a log line, never a failed load.
+      const note = this.port.apply(s, saved[s]);
+      if (note !== null) this.log(`section ${s}: ${note}`);
+    }
     // Where the play stood (after the sections: a spawned copy's scene state is in).
     if (file.world !== undefined) this.port.applyWorld(file.world);
     this.doc = doc;

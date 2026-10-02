@@ -713,12 +713,14 @@ export interface BehaviorGameState {
    */
   counter(name: string): number;
   /**
-   * Add to one of the run's named counters (any name); HUD documents read them (`$flow.counters.<name>`).
+   * Add to one of the run's named counters; HUD documents read them (`$flow.counters.<name>`).
+   * A name is a letter or _, then up to 31 letters, digits or _ (what a save keeps): any other
+   * name is refused (false, one Problems line) and no counter changes.
    * @graphNode Add to counter
    * @graphLabel name counter
    * @graphDefault amount 1
    */
-  add(name: string, amount: number): void;
+  add(name: string, amount: number): boolean;
   /**
    * The character's health (the controller's object), or null when it has none.
    * @graphPure
