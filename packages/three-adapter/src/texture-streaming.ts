@@ -67,10 +67,13 @@ interface Mip {
   readonly height: number;
 }
 
+/** A streamed texture of either kind. */
+export type AnyStreamed = StreamedTexture | StreamedDataTexture;
+
 interface TextureStream {
   readonly id: string;
-  readonly root: StreamedTexture;
-  readonly copies: Set<StreamedTexture>;
+  readonly root: AnyStreamed;
+  readonly copies: Set<AnyStreamed>;
   readonly layout: Ktx2Layout;
   readonly source: StreamSource;
   /** The head part's bytes (metadata and tail; a few tens of KiB). */
@@ -78,7 +81,7 @@ interface TextureStream {
   readonly tail: number;
   readonly levels: (Mip | null)[];
   readonly levelBytes: number[];
-  readonly format: THREE.CompressedPixelFormat;
+  readonly format: THREE.CompressedPixelFormat | THREE.PixelFormat;
   resident: number;
   wanted: number;
   weight: number;
@@ -102,21 +105,53 @@ export class StreamedTexture extends THREE.CompressedTexture {
 
   override copy(source: THREE.CompressedTexture): this {
     super.copy(source);
-    const stream = (source as Partial<StreamedTexture>).stream ?? null;
-    this.stream = stream;
-    if (stream !== null && !stream.closed) stream.copies.add(this);
+    joinStream(this, source);
     return this;
   }
 
   override dispose(): void {
-    const s = this.stream;
-    if (s !== null) {
-      if (s.root === this) closeStream(s);
-      else s.copies.delete(this);
-      this.stream = null;
-    }
+    leaveStream(this);
     super.dispose();
   }
+}
+
+/**
+ * A streamed texture the transcoder wrote as plain RGBA (a GPU without a
+ * compressed format): the same stream as a `DataTexture`, which both
+ * renderers upload as data (a `CompressedTexture` of an uncompressed format
+ * they cannot: see `uploadableKtx2Texture`).
+ */
+export class StreamedDataTexture extends THREE.DataTexture {
+  readonly isStreamedTexture = true;
+  /** The stream this texture draws from (null once it is let go). */
+  stream: TextureStream | null = null;
+
+  override copy(source: THREE.DataTexture): this {
+    super.copy(source);
+    joinStream(this, source);
+    return this;
+  }
+
+  override dispose(): void {
+    leaveStream(this);
+    super.dispose();
+  }
+}
+
+/** A copy belongs to its source's stream. */
+function joinStream(copy: AnyStreamed, source: THREE.Texture): void {
+  const stream = (source as Partial<AnyStreamed>).stream ?? null;
+  copy.stream = stream;
+  if (stream !== null && !stream.closed) stream.copies.add(copy);
+}
+
+/** Let a texture go: the root closes its stream; a copy only leaves it. */
+function leaveStream(t: AnyStreamed): void {
+  const s = t.stream;
+  if (s === null) return;
+  if (s.root === t) closeStream(s);
+  else s.copies.delete(t);
+  t.stream = null;
 }
 
 function closeStream(s: TextureStream): void {
@@ -170,7 +205,7 @@ export interface TextureStreamerOptions {
    */
   readonly textureBytes?: () => number;
   /** A streamed texture's resident bytes (one copy) changed (the resource manager's entry). */
-  readonly onResize?: (id: string, texture: StreamedTexture, bytes: number) => void;
+  readonly onResize?: (id: string, texture: AnyStreamed, bytes: number) => void;
   /** Something the page draws changed (a level arrived or went): draw a frame. */
   readonly onChange?: () => void;
   /** Level reads and decodes at once. */
@@ -182,7 +217,7 @@ export interface TextureStreamerOptions {
 
 export interface TextureStreamer {
   /** Open a streamed texture: reads its head and decodes the tail. */
-  open(id: string, source: StreamSource): Promise<StreamedTexture>;
+  open(id: string, source: StreamSource): Promise<AnyStreamed>;
   /**
    * Keep a streamed texture at full size (a user whose need is not a mesh's
    * size on screen: a sky, a light's cookie, a lightmap). It still counts
@@ -243,10 +278,10 @@ function uvDensity(g: THREE.BufferGeometry, channel: number): number {
 }
 
 /** The streamed textures a material draws with (its texture properties, and what a node graph samples). */
-function streamedOf(m: THREE.Material, out: StreamedTexture[]): void {
-  for (const v of Object.values(m)) if (v instanceof StreamedTexture && v.stream !== null) out.push(v);
+function streamedOf(m: THREE.Material, out: AnyStreamed[]): void {
+  for (const v of Object.values(m)) if (isStreamedTexture(v) && v.stream !== null) out.push(v);
   const sampled = (m.userData as Record<string, unknown> | undefined)?.[SAMPLED_TEXTURES_KEY];
-  if (Array.isArray(sampled)) for (const v of sampled) if (v instanceof StreamedTexture && v.stream !== null) out.push(v);
+  if (Array.isArray(sampled)) for (const v of sampled) if (isStreamedTexture(v) && v.stream !== null) out.push(v);
 }
 
 export function createTextureStreamer(options: TextureStreamerOptions): TextureStreamer {
@@ -282,8 +317,8 @@ export function createTextureStreamer(options: TextureStreamerOptions): TextureS
     }
     const top = mips[0];
     if (top === undefined) return;
-    // The source (its image) is shared by the texture and every copy.
-    s.root.image = { width: top.width, height: top.height };
+    // The source (its image) is shared by the texture and every copy; a data texture's image holds its top level.
+    s.root.image = s.root instanceof StreamedDataTexture ? { data: top.data as Uint8Array, width: top.width, height: top.height } : { width: top.width, height: top.height };
     for (const t of [s.root, ...s.copies]) {
       t.mipmaps = mips as unknown as THREE.CompressedTexture['mipmaps'];
       // Let the GPU texture go (and the bind groups using it); the next draw uploads the new chain.
@@ -364,7 +399,7 @@ export function createTextureStreamer(options: TextureStreamerOptions): TextureS
   const projScreen = new THREE.Matrix4();
   const sphere = new THREE.Sphere();
   const camPos = new THREE.Vector3();
-  const found: StreamedTexture[] = [];
+  const found: AnyStreamed[] = [];
 
   const plan = (): void => {
     const candidates: MipCandidate[] = [];
@@ -417,7 +452,12 @@ export function createTextureStreamer(options: TextureStreamerOptions): TextureS
           levelBytes.push(mips[l - tail]?.data.byteLength ?? 0);
         } else levelBytes.push(levelByteSize(decoded.format, blockBytes, Math.max(1, layout.width >>> l), Math.max(1, (layout.height || 1) >>> l)));
       }
-      const root = new StreamedTexture(mips as unknown as THREE.CompressedTexture['mipmaps'], top.width, top.height, decoded.format as THREE.CompressedPixelFormat, decoded.type);
+      // Plain RGBA (no compressed format on this GPU) streams as data; anything else as compressed levels.
+      const root: AnyStreamed =
+        (decoded.format as number) === THREE.RGBAFormat
+          ? new StreamedDataTexture(top.data as Uint8Array, top.width, top.height, THREE.RGBAFormat, decoded.type)
+          : new StreamedTexture(mips as unknown as THREE.CompressedTexture['mipmaps'], top.width, top.height, decoded.format as THREE.CompressedPixelFormat, decoded.type);
+      root.mipmaps = mips as unknown as THREE.CompressedTexture['mipmaps'];
       root.colorSpace = decoded.colorSpace;
       root.premultiplyAlpha = decoded.premultiplyAlpha;
       root.minFilter = decoded.minFilter;
@@ -436,7 +476,7 @@ export function createTextureStreamer(options: TextureStreamerOptions): TextureS
         tail,
         levels,
         levelBytes,
-        format: decoded.format as THREE.CompressedPixelFormat,
+        format: decoded.format,
         resident: tail,
         wanted: tail,
         weight: 0,
@@ -506,7 +546,7 @@ export function createTextureStreamer(options: TextureStreamerOptions): TextureS
     },
 
     pin(texture) {
-      const s = texture instanceof StreamedTexture ? texture.stream : null;
+      const s = isStreamedTexture(texture) ? texture.stream : null;
       if (s === null || s.closed) return;
       s.pinned = true;
       lastUpdate = -Infinity;
@@ -546,6 +586,6 @@ export function createTextureStreamer(options: TextureStreamerOptions): TextureS
 }
 
 /** Whether a texture is a streamed one (its size changes as levels stream). */
-export function isStreamedTexture(t: unknown): t is StreamedTexture {
-  return t instanceof StreamedTexture;
+export function isStreamedTexture(t: unknown): t is StreamedTexture | StreamedDataTexture {
+  return t instanceof StreamedTexture || t instanceof StreamedDataTexture;
 }

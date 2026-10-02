@@ -84,6 +84,8 @@ export default defineConfig({
         '**/preview-pane.e2e.ts',
         // Phase 22.1: thumbnails from a WebGPU canvas snapshot (the other editor-worker tests skip here).
         '**/editor-workers.e2e.ts',
+        // A KTX2 transcoded to RGBA (no compressed format) in the thumbnail worker's WebGPU renderer.
+        '**/ktx2-rgba-thumbnails.e2e.ts',
         // Phase 21.3: instancing, render on demand and MSAA by quality on WebGPU.
         '**/rendering.e2e.ts',
         // Phase 21.5: leak tests of the renderer-specific paths (previews, backend swap, Play) on WebGPU.

@@ -101,7 +101,8 @@ function extractedImagesPlugin(images: ExtractedImages, copies: Set<Texture>): (
         c.minFilter = (GL_FILTERS[sampler.minFilter ?? -1] as MinificationTextureFilter | undefined) ?? LinearMipmapLinearFilter;
         c.wrapS = GL_WRAPS[sampler.wrapS ?? -1] ?? RepeatWrapping;
         c.wrapT = GL_WRAPS[sampler.wrapT ?? -1] ?? RepeatWrapping;
-        if (!(c as { isCompressedTexture?: boolean }).isCompressedTexture) c.generateMipmaps = c.minFilter !== NearestFilter && c.minFilter !== LinearFilter;
+        // A texture that brings its own mip levels (a KTX2, compressed or transcoded to RGBA) keeps them.
+        if (!(c as { isCompressedTexture?: boolean }).isCompressedTexture && c.mipmaps.length === 0) c.generateMipmaps = c.minFilter !== NearestFilter && c.minFilter !== LinearFilter;
         c.userData[TEXTURE_ASSET_KEY] = assetId;
         c.needsUpdate = true;
         copies.add(c);

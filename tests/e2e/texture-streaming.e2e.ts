@@ -292,6 +292,50 @@ for (const variant of RENDERER_VARIANTS) test(`a large KTX2 texture streams its 
   }
 });
 
+/** In a page: hide WebGL 2's compressed texture extensions (counted), as a GPU without them would. */
+function hideCompressedFormats(): void {
+  const g = globalThis as unknown as { __tlHiddenCompressed?: number; WebGL2RenderingContext?: { prototype: { getExtension(name: string): unknown } } };
+  const proto = g.WebGL2RenderingContext?.prototype;
+  if (proto === undefined || g.__tlHiddenCompressed !== undefined) return;
+  g.__tlHiddenCompressed = 0;
+  const get = proto.getExtension;
+  proto.getExtension = function (this: unknown, name: string): unknown {
+    if (/compress/i.test(String(name))) {
+      g.__tlHiddenCompressed = (g.__tlHiddenCompressed ?? 0) + 1;
+      return null;
+    }
+    return get.call(this, name);
+  };
+}
+
+for (const variant of RENDERER_VARIANTS) test(`a large KTX2 transcoded to RGBA (no compressed format on the GPU) streams its mips and shows (${variant})`, async ({ page }) => {
+  onlyInItsProject(variant);
+  test.setTimeout(240_000);
+  be = await startBackend(`tex-stream-rgba-${randomUUID().slice(0, 8)}`);
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  // Every frame (the editor and Play) reports no compressed format: the transcoder writes plain RGBA.
+  await page.context().addInitScript(hideCompressedFormats);
+  await importKtx2(checker([235, 235, 235], [15, 15, 15]), 'checker-a');
+  await importKtx2(checker([240, 220, 40], [20, 20, 120]), 'checker-b');
+  const { a } = await buildScene();
+  await page.goto(editorUrlFor(be.editorUrl, variant));
+  await expect(page.locator('.tl-statusbar')).toContainText('connected');
+  const play = await startPlay(page);
+  await expectRendererBackend(page.frameLocator('iframe.tl-app__preview-frame').locator('canvas').first(), variant);
+  await expect.poll(async () => texOf(await play.observe(), 'checker-a')?.resident ?? -1, { timeout: 60_000 }).toBe(4);
+  // RGBA levels: four bytes a texel (level 4, 128², is 64 KiB of the tail's bytes).
+  expect(texOf(await play.observe(), 'checker-a')!.bytes).toBeGreaterThanOrEqual(128 * 128 * 4);
+  await play.place(a, [0, 0, 4.8]);
+  await expect.poll(async () => texOf(await play.observe(), 'checker-a')?.resident ?? -1, { timeout: 30_000 }).toBe(0);
+  await expect.poll(async () => detail(await shot(play.frame)), { timeout: 30_000, message: 'the RGBA checker at full size' }).toBeGreaterThan(0.08);
+  // The RGBA path was taken in Play: its probe asked for compressed formats and was told none.
+  const playFrame = page.frames().find((f) => f !== page.mainFrame() && f.url().includes('/play'))!;
+  expect(await playFrame.evaluate(() => (globalThis as unknown as { __tlHiddenCompressed?: number }).__tlHiddenCompressed ?? 0)).toBeGreaterThan(0);
+  expect(errors).toEqual([]);
+  await page.getByTitle('Stop the play preview').click();
+});
+
 test('the asset inspector sets a texture\'s mip streaming (one command, in its sidecar)', async ({ page }) => {
   test.setTimeout(180_000);
   be = await startBackend(`tex-stream-ui-${randomUUID().slice(0, 8)}`);

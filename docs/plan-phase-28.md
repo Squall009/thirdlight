@@ -125,7 +125,8 @@ surfaces). Format changes share one bump: `project.json` schemaVersion 7
 | Item | Status |
 |---|---|
 | 28.0 | done 2026-10-02 |
-| 28.1–28.13 | — |
+| 28.1 | done 2026-10-02 — counter-name rule, refused script calls return false, Play diagnostics trimmed, real-overlap penetration count, dialogue focus in any document, createEntity takes setComponent's components, upload names, 256 animations, RGBA KTX2 as data textures (D83, D84, D104, D125, D128–D130, D132, D133) |
+| 28.2–28.13 | — |
 
 ## 6. Decision log
 
@@ -153,3 +154,26 @@ surfaces). Format changes share one bump: `project.json` schemaVersion 7
   refuses hidden, sidecar and scene file names), D84 decided (animations
   per model 256, images stay 64), both in 28.1 with D104's open half.
   Collider outlines off by default, the selection's shown (28.10).
+- 2026-10-02 (28.1): counters — the save loader's 256-counter count check
+  went with the name rule (the 1 MiB save document bounds it); a counter
+  name is checked where it is made and skipped (logged) where it is loaded.
+- 2026-10-02 (28.1): refused script calls — `ctx.emit` (false) and
+  `ctx.debug.command` (no calls) refuse and log once per distinct refusal;
+  a scene or spawn call with a bad argument still stops the run (a wrong id
+  is a script error, as an engine API throws on one).
+- 2026-10-02 (28.1): `createEntity` takes `setComponent`'s list minus what
+  `kind` makes (box, model) and the scene camera (no command creates one; it
+  goes in 28.4).
+- 2026-10-02 (28.1): uploads also refuse resource file names
+  (`<name>.<kind>.json`): like a scene or sidecar, the file check would take
+  them in as project data. A model's animation channels rose with its
+  animations (4,096 → 16,384: 64 a clip on average, as before).
+- 2026-10-02 (28.1): Play diagnostics trim to the bound in the page (log
+  first, then other lists, then whole parts) with a `trimmed` note; no
+  paging. The 3D penetration counter counts steps begun in a real overlap
+  (the 2D port's unchanged: not requested).
+- 2026-10-02 (28.1): D104's cause — three r186's KTX2 loader wraps an RGBA
+  transcode as a `CompressedTexture`; WebGPU throws in the draw (no block
+  size) and WebGL refuses the compressed upload. RGBA transcodes become
+  `DataTexture`s (streamed ones `StreamedDataTexture`) rather than patching
+  the renderer.
