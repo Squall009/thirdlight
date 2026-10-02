@@ -142,6 +142,14 @@ export interface SceneAdapterOptions {
  */
 export const PRECOMPILE_WAIT_MS = 20_000;
 
+/**
+ * The longest a present waits for a precompile that has stopped moving (ms
+ * since an object last finished building). A pipeline that fails to build
+ * leaves three's compileAsync unsettled; the picture must not wait out
+ * PRECOMPILE_WAIT_MS for it.
+ */
+export const PRECOMPILE_STALL_MS = 3_000;
+
 /** What `onFrameDrawn` reports for a drawn frame. */
 export interface FrameDrawnInfo {
   /** The scenes this frame attached (loaded scenes realized in it). */

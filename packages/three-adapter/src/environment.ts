@@ -30,7 +30,7 @@
 import * as THREE from 'three';
 import { PMREMGenerator as NodePMREMGenerator, type WebGPURenderer } from 'three/webgpu';
 
-import { buildPostPipeline, compileIntoTarget, createSkyMesh, gradientSkyMaterial, gradientSkyUniforms, imageSkyMaterial, MAX_FOG_VOLUMES, type FogVolumeBox, type PostPipeline, type PostPlan } from './environment-nodes';
+import { buildPostPipeline, compileIntoTarget, createSkyMesh, SETTLED_PRECOMPILE as settledPrecompile, type Precompile, gradientSkyMaterial, gradientSkyUniforms, imageSkyMaterial, MAX_FOG_VOLUMES, type FogVolumeBox, type PostPipeline, type PostPlan } from './environment-nodes';
 
 /** Structural copies of the project-model environment types. */
 export interface SkyLike {
@@ -177,7 +177,7 @@ export interface EnvironmentRenderer {
    * draws the scene with (its post stack's scene pass, or the canvas), ahead
    * of it (`renderer.compileAsync`; the renderer must be initialised).
    */
-  compileAsync(camera: THREE.Camera): Promise<void>;
+  compileAsync(camera: THREE.Camera): Precompile;
   /** Canvas size in CSS pixels. */
   resize(width: number, height: number): void;
   /** `samples` = the MSAA samples the scene is drawn with (0: none — the low level, or a post stack with its own anti-aliasing). */
@@ -873,7 +873,7 @@ export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE
       pipeline.render();
     },
     compileAsync(camera) {
-      if (disposed) return Promise.resolve();
+      if (disposed) return settledPrecompile;
       buildPipeline(camera);
       pipeline?.setParams(postParams());
       if (pipeline === null) return compileIntoTarget(renderer, scene, camera, renderer.getRenderTarget(), renderer.getMRT());

@@ -20,11 +20,18 @@
  * sends the preview's load progress to the backend before it is ready (the
  * present timeout counts from the last). Runs under each renderer
  * variant (the forced WebGL 2 one with TL_E2E_ALL_VARIANTS=1).
+ *
+ * With ambient occlusion on (the scene pass draws colour and normals), a
+ * scene loaded at run time is not held back by its precompile: the
+ * precompile builds its materials for both outputs (no pipeline fails), it
+ * settles without the adapter giving up on it, and the frame that attached
+ * the scene came within the stall bound.
  */
 import { randomBytes } from 'node:crypto';
 
 import { expect, test, type Page } from '@playwright/test';
 
+import { PRECOMPILE_STALL_MS } from '../../packages/three-adapter/src/adapter-types';
 import { sphereGlb } from '../../tools/perf/assets';
 import { publishBytes, STARTER, startBackend, type E2EBackend } from './backend';
 import { decodePng, type Image } from './png';
@@ -203,4 +210,51 @@ for (const variant of VARIANTS) test(`a scene transition shows no empty frame: t
   expect(share(await shot(), green)).toBeGreaterThan(0.3);
   await expect(page.locator('.tl-notice')).toHaveCount(0);
   expect(STARTER.cameraId).toBe('cam-main');
+});
+
+for (const variant of ['auto', 'webgpu'] as const) test(`with ambient occlusion on, a scene loaded in Play is drawn without waiting out its precompile (${variant})`, async ({ page }) => {
+  onlyInItsProject(variant);
+  test.setTimeout(240_000);
+  be = await startBackend('scene-loads-ao-e2e', 'starter');
+  await publishBytes(be, sphereGlb(3, 24, 64), 'model', 'model-orb');
+  await publishBytes(be, makePng(64, 64, () => [40, 210, 60, 255]), 'texture', 'tex-green');
+  await cmd('setMaterial', { material: { materialId: 'mat-lit-green', name: 'Lit green', shader: 'standard', params: { roughness: 0.8, metalness: 0 }, textures: { map: 'tex-green' } } });
+  await cmd('setEnvironment', { sceneId: 'scene-main', environment: { post: { antialias: 'smaa', ssao: { enabled: true, radius: 0.5, intensity: 1 } } } });
+  await cmd('createScene', { sceneId: 'scene-b', name: 'B' });
+  await cmd('createEntity', { sceneId: 'scene-b', parentId: null, kind: 'box', name: 'Green wall', transform: { position: [4, 3, -4] }, box: { size: [60, 40, 1], material: { color: '#ffffff' } }, components: { materials: { '*': 'mat-lit-green' } } });
+  await cmd('createEntity', { sceneId: 'scene-b', parentId: null, kind: 'model', name: 'Orb', transform: { position: [6, 3, 0] }, model: { asset: { assetId: 'model-orb' } } });
+
+  const failures: string[] = [];
+  page.on('console', (m) => {
+    if (/pipeline creation failed|GPUValidationError/i.test(m.text())) failures.push(m.text().slice(0, 300));
+  });
+  await page.goto(editorUrlFor(be.editorUrl, variant));
+  await expect(page.locator('.tl-statusbar')).toContainText('connected');
+  const started = page.waitForResponse((r) => r.request().method() === 'POST' && r.url().endsWith('/play'));
+  await page.getByTitle('Start an isolated play preview').click();
+  const psid = String(((await (await started).json()) as { playSessionId: string }).playSessionId);
+  await expectRendererBackend(page.frameLocator('iframe.tl-app__preview-frame').locator('canvas').first(), variant);
+  type Diag = { diagnostics?: { renderer?: { precompile?: { runs: number; gaveUp: number; running: boolean } }; startTimings?: { firstFrameMs: number | null; sceneLoads: SceneLoad[] } } };
+  const diag = async (): Promise<NonNullable<Diag['diagnostics']>> => {
+    const r = await api(`play/${psid}/diagnostics`);
+    expect(r.status, JSON.stringify(r.json).slice(0, 300)).toBe(200);
+    return (r.json as Diag).diagnostics ?? {};
+  };
+  await expect.poll(async () => (await diag()).startTimings?.firstFrameMs ?? null, { timeout: 60_000 }).not.toBeNull();
+
+  const asked = await api(`play/${psid}/control`, { command: 'loadScene', sceneId: 'scene-b' });
+  expect(asked.status, JSON.stringify(asked.json)).toBe(200);
+  await expect.poll(async () => (await diag()).startTimings?.sceneLoads.find((l) => l.sceneId === 'scene-b')?.attachedMs ?? null, { timeout: 60_000 }).not.toBeNull();
+  await expect.poll(async () => (await diag()).renderer?.precompile?.running, { timeout: 30_000 }).toBe(false);
+  const d = await diag();
+  const b = d.startTimings!.sceneLoads.find((l) => l.sceneId === 'scene-b')!;
+  console.log(`scene load with AO (${variant}): ${JSON.stringify(b)} precompile ${JSON.stringify(d.renderer?.precompile)}`);
+  expect(failures, 'no pipeline fails to build').toEqual([]);
+  expect(d.renderer?.precompile?.gaveUp, 'the adapter never gave up on a precompile').toBe(0);
+  expect(b.attachFrameMs!, 'the frame that attached B was not held').toBeLessThan(PRECOMPILE_STALL_MS);
+  // B is on screen: the lit green wall.
+  const shot = await api(`play/${psid}/screenshot`, { maxWidth: 256 });
+  expect(shot.status).toBe(200);
+  const lit = (r: number, g: number, b2: number): boolean => g > 60 && g > 1.5 * r && g > 1.5 * b2;
+  expect(share(decodePng(Buffer.from(String(shot.json['dataUrl']).replace(/^data:image\/png;base64,/, ''), 'base64')), lit)).toBeGreaterThan(0.3);
 });

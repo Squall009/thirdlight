@@ -209,7 +209,7 @@ export interface PostPipeline {
    * its first draw (`renderer.compileAsync` into the pass's own target and
    * outputs, so the programs are the ones the pass draws with).
    */
-  compileAsync(camera: THREE.Camera): Promise<void>;
+  compileAsync(camera: THREE.Camera): Precompile;
   dispose(): void;
 }
 
@@ -509,22 +509,80 @@ export function buildPostPipeline(renderer: WebGPURenderer, scene: THREE.Scene, 
 }
 
 /**
- * `renderer.compileAsync(scene, camera)` for a pass that draws
- * into `target` with `mrt`. Once the renderer is initialised, compileAsync
- * collects its work (with the render context of the current target) before
- * its first await, so the target and outputs are set only around that call —
- * a frame drawn while the compile runs sees the renderer as it was.
+ * A precompile running: `done` settles once every collected object's
+ * pipeline is built; `lastProgressAt` is when the last object finished (the
+ * start before the first), so a holder can tell a slow compile from one that
+ * stopped moving.
  */
-export function compileIntoTarget(renderer: WebGPURenderer, scene: THREE.Scene, camera: THREE.Camera, target: THREE.RenderTarget | null, mrt: unknown): Promise<void> {
-  const r = renderer as unknown as { getRenderTarget(): THREE.RenderTarget | null; setRenderTarget(t: THREE.RenderTarget | null): void; getMRT(): unknown; setMRT(m: unknown): void; compileAsync(s: THREE.Object3D, c: THREE.Camera): Promise<void> };
+export interface Precompile {
+  readonly done: Promise<void>;
+  lastProgressAt(): number;
+  /** A synchronous draw while the compile still holds the renderer's target and outputs: drawn with the renderer's own. */
+  aside<T>(draw: () => T): T;
+  /** Give the renderer its own target and outputs back now (the holder stopped waiting; what is left builds at its first draw). */
+  release(): void;
+}
+
+/** Nothing to compile (a disposed renderer). */
+export const SETTLED_PRECOMPILE: Precompile = {
+  done: Promise.resolve(),
+  lastProgressAt: () => performance.now(),
+  aside: (draw) => draw(),
+  release: () => undefined,
+};
+
+/**
+ * `renderer.compileAsync(scene, camera)` for a pass that draws
+ * into `target` with `mrt`. compileAsync collects the objects synchronously
+ * but builds each one's nodes and pipeline later, one per yield to the main
+ * thread, and a material reads its outputs from the renderer's MRT at that
+ * build: the target and outputs stay the pass's until the compile settles
+ * (or `release`), else a material is built with one output for a target with
+ * two and its pipeline fails, which leaves compileAsync unsettled.
+ */
+export function compileIntoTarget(renderer: WebGPURenderer, scene: THREE.Scene, camera: THREE.Camera, target: THREE.RenderTarget | null, mrt: unknown): Precompile {
+  const r = renderer as unknown as {
+    getRenderTarget(): THREE.RenderTarget | null;
+    setRenderTarget(t: THREE.RenderTarget | null): void;
+    getMRT(): unknown;
+    setMRT(m: unknown): void;
+    compileAsync(s: THREE.Object3D, c: THREE.Camera, target?: THREE.Object3D | null, onProgress?: (() => void) | null): Promise<void>;
+  };
   const target0 = r.getRenderTarget();
   const mrt0 = r.getMRT();
-  r.setRenderTarget(target);
-  r.setMRT(mrt);
-  try {
-    return r.compileAsync(scene, camera);
-  } finally {
+  let held = true;
+  let last = performance.now();
+  const release = (): void => {
+    if (!held) return;
+    held = false;
     r.setRenderTarget(target0);
     r.setMRT(mrt0);
+  };
+  r.setRenderTarget(target);
+  r.setMRT(mrt);
+  let job: Promise<void>;
+  try {
+    job = r.compileAsync(scene, camera, null, () => {
+      last = performance.now();
+    });
+  } catch (e) {
+    release();
+    throw e;
   }
+  return {
+    done: job.finally(release),
+    lastProgressAt: () => last,
+    aside<T>(draw: () => T): T {
+      if (!held) return draw();
+      r.setRenderTarget(target0);
+      r.setMRT(mrt0);
+      try {
+        return draw();
+      } finally {
+        r.setRenderTarget(target);
+        r.setMRT(mrt);
+      }
+    },
+    release,
+  };
 }

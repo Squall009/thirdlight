@@ -32,7 +32,7 @@ import { addBoxLightmapUv, createLightmapSet, type LightingBakeLike, type Lightm
 import { releaseEmissiveLooks, setEntityLook, SHARED_MATERIAL_KEY } from './node-materials';
 import { disposeObjectTree } from './dispose';
 import { BATCH_KEY, createAutoBatcher, markBatchable, unitBoxGeometry, type AutoBatcher, type AutoBatcherDiagnostics } from './batching';
-import { compileIntoTarget } from './environment-nodes';
+import { compileIntoTarget, type Precompile } from './environment-nodes';
 import { INSTANCE_MATRIX_ATTRIBUTE } from './attribute-instancing';
 import { createEnvironmentRenderer, environmentHasLook, layerEnvironment, renderPixelRatio, type EnvironmentLayerLike, type EnvironmentLike, type EnvironmentRenderer, type FogVolumeLike, type QualityLevel } from './environment';
 import * as THREE from 'three';
@@ -90,8 +90,8 @@ import {
   type RendererPreferenceSource,
 } from './renderer-factory';
 
-export { PRECOMPILE_WAIT_MS, type FrameDrawnInfo, type SceneAdapter, type SceneAdapterDiagnostics, type SceneAdapterOptions } from './adapter-types';
-import { PRECOMPILE_WAIT_MS, type FrameDrawnInfo, type SceneAdapter, type SceneAdapterDiagnostics, type SceneAdapterOptions } from './adapter-types';
+export { PRECOMPILE_STALL_MS, PRECOMPILE_WAIT_MS, type FrameDrawnInfo, type SceneAdapter, type SceneAdapterDiagnostics, type SceneAdapterOptions } from './adapter-types';
+import { PRECOMPILE_STALL_MS, PRECOMPILE_WAIT_MS, type FrameDrawnInfo, type SceneAdapter, type SceneAdapterDiagnostics, type SceneAdapterOptions } from './adapter-types';
 
 const RENDERER_INFO_LIMIT = 128;
 
@@ -949,6 +949,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     rendererInfo = `WebGPURenderer (${inf.api === 'webgpu' ? 'WebGPU' : 'WebGL 2'})`;
     if (shadowState.shadows === 'on') shadowProbeDone = false;
     // A new renderer (a lost device) builds its programs ahead of its first present too.
+    precompileRun?.job.release();
     precompileRun = null;
     precompileWanted = 'start';
     // The depth buffer the renderer draws with (reversed Z falls back to standard without support).
@@ -1276,8 +1277,8 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   // --- Pipelines precompiled ahead of a present -----------------
   /** Wanted before the next present: the first one, and after a scene attached (or a new renderer). */
   let precompileWanted: 'start' | 'scene' | null = 'start';
-  /** The precompile running (frames are skipped until it settles, at most PRECOMPILE_WAIT_MS). */
-  let precompileRun: { readonly startedAt: number; readonly reason: 'start' | 'scene' } | null = null;
+  /** The precompile running (frames are skipped until it settles, stops moving for PRECOMPILE_STALL_MS, or PRECOMPILE_WAIT_MS passed). */
+  let precompileRun: { readonly startedAt: number; readonly reason: 'start' | 'scene'; readonly job: Precompile } | null = null;
   /** The last precompile that settled, reported with the next drawn frame. */
   let precompileSettled: { readonly startedAt: number; readonly ms: number; readonly reason: 'start' | 'scene' } | null = null;
   const precompileStats = { runs: 0, failed: 0, gaveUp: 0, lastMs: 0 };
@@ -1289,8 +1290,9 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   /** A precompile runs (and is still waited for). */
   function precompileRunning(now: number): boolean {
     if (precompileRun === null) return false;
-    if (now - precompileRun.startedAt < PRECOMPILE_WAIT_MS) return true;
-    // Too long (a device that never answers): draw; the frame builds what is left.
+    if (now - precompileRun.startedAt < PRECOMPILE_WAIT_MS && now - precompileRun.job.lastProgressAt() < PRECOMPILE_STALL_MS) return true;
+    // Too long, or stopped moving (a device that never answers, a pipeline that failed): draw; the frame builds what is left.
+    precompileRun.job.release();
     precompileRun = null;
     precompileStats.gaveUp += 1;
     return false;
@@ -1306,7 +1308,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     }
     const reason = precompileWanted;
     precompileWanted = null;
-    let job: Promise<void>;
+    let job: Precompile;
     try {
       const r = renderer as unknown as import('three/webgpu').WebGPURenderer;
       job = environmentRenderer !== null ? environmentRenderer.compileAsync(camera) : compileIntoTarget(r, scene, camera, r.getRenderTarget(), r.getMRT());
@@ -1314,7 +1316,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       precompileStats.failed += 1;
       return false;
     }
-    const run = { startedAt: now, reason };
+    const run = { startedAt: now, reason, job };
     precompileRun = run;
     const settle = (failed: boolean): void => {
       if (precompileRun !== run) return;
@@ -1326,7 +1328,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       precompileStats.lastMs = Math.round(ms);
       precompileSettled = { startedAt: run.startedAt, ms, reason };
     };
-    job.then(() => settle(false), () => settle(true));
+    job.done.then(() => settle(false), () => settle(true));
     return true;
   }
 
@@ -1582,9 +1584,15 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     const frameInfo = (renderer as { info?: { render?: { drawCalls: number; triangles: number } } }).info?.render ?? { drawCalls: 0, triangles: 0 };
     const drawsBefore = frameInfo.drawCalls;
     const trianglesBefore = frameInfo.triangles;
+    // A capture during a precompile draws with the renderer's own target and outputs (the compile holds the pass's).
+    const job = precompileRun?.job ?? null;
     const draw = (): void => {
-      if (environmentRenderer !== null) environmentRenderer.render(camera!);
-      else renderer.render(scene, camera!);
+      const render = (): void => {
+        if (environmentRenderer !== null) environmentRenderer.render(camera!);
+        else renderer.render(scene, camera!);
+      };
+      if (job !== null) job.aside(render);
+      else render();
     };
     try {
       try {
