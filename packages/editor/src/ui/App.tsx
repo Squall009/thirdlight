@@ -192,6 +192,8 @@ function EditorApp(): JSX.Element {
   // The Scene view's helpers (Gizmos menu).
   const [gizmos, setGizmos] = useState({ icons: true, lights: true, colliders: true, gameplay: true });
   useEffect(() => viewportRef.current?.setGizmos(gizmos), [gizmos]);
+  // Behind the Game view the Scene view draws nothing (Play is not paid for twice).
+  useEffect(() => viewportRef.current?.setHidden(centerTab === 'game'), [centerTab]);
   // The Scene view plays the selected object's effect (edit mode; the Gizmos menu toggles it).
   const [effectPreview, setEffectPreview] = useState(false);
   const [assetDropActive, setAssetDropActive] = useState(false);
@@ -391,6 +393,7 @@ function EditorApp(): JSX.Element {
     }, { snapping: () => snappingRef.current && !shiftRef.current, renderer: initialRenderer });
     setSceneRenderer(viewport.rendererInfo());
     viewportRef.current = viewport;
+    viewport.setHidden(workspaceRef.current.view === 'game');
     // The block tools (a stroke is one editBlocks, sent on release).
     const blockEd = viewport.blockEditor({
       onCommit: async (entityId, edits) => {

@@ -12,6 +12,9 @@
  *    object (`data-sync`: processed 1 of 121+).
  *  - MSAA is the quality level's choice: the low level draws without it in
  *    the Scene view and in Play.
+ *  - Play is not paid for twice: a Scene view kept drawing by an animated
+ *    material draws nothing while the Game view is in front, and draws again
+ *    when it is shown (during Play and after Stop).
  *  - Render resolution and the post stack's cost: on a display with device
  *    pixel ratio 2, Play draws one drawing-buffer pixel per CSS pixel, a post
  *    stack with ambient occlusion and SMAA makes no multisampled target, and
@@ -25,6 +28,7 @@ import { expect, test, type Page } from '@playwright/test';
 
 import { startBackend, type E2EBackend } from './backend';
 import { diff, diffPng, show, STRICT, within } from './parity';
+import { showView } from './ui';
 import { decodePng } from './png';
 
 let be: E2EBackend;
@@ -236,6 +240,42 @@ test('MSAA follows the quality level: the low level draws without it in the Scen
   await page.getByTitle('Stop the play preview').click();
   await command('setEnvironment', { environment: { quality: 'high' } });
   await expect.poll(async () => Number(await attr(page, 'data-msaa')), { timeout: 30_000 }).toBeGreaterThan(0);
+});
+
+test('the Scene view draws nothing behind the Game view during Play, and again when shown', async ({ page }) => {
+  test.setTimeout(180_000);
+  // Water is animated: it keeps the Scene view drawing every frame.
+  await command('setMaterial', { material: { materialId: 'mat-water', name: 'Water', shader: 'water', params: { color: '#3070a0' }, textures: {} } });
+  await command('pasteEntities', {
+    entities: [{ id: 'pond', name: 'pond', components: { transform: { position: [0, 0, 0], rotation: [0, 0, 0, 1], scale: [1, 1, 1] }, box: { size: [4, 0.2, 4], material: { color: '#3070a0' } }, materials: { '*': 'mat-water' } } }],
+  });
+  await page.goto(be.editorUrl);
+  await expect(page.locator('.tl-statusbar')).toContainText('connected');
+  const frames = async (): Promise<number> => Number(await attr(page, 'data-frames'));
+  /** Frames the Scene view drew in `ms`. */
+  const drawn = async (ms: number): Promise<number> => {
+    const a = await frames();
+    await page.waitForTimeout(ms);
+    return (await frames()) - a;
+  };
+  await expect.poll(async () => drawn(1000), { timeout: 60_000 }).toBeGreaterThan(10);
+
+  await page.getByTitle('Start an isolated play preview').click();
+  await expect(page.frameLocator('iframe.tl-app__preview-frame').locator('canvas').first()).toHaveAttribute('data-tl-renderer-state', 'ready', { timeout: 90_000 });
+  await expect(page.locator('canvas.tl-viewport')).toHaveAttribute('data-suspended', 'true');
+  expect(await drawn(2000)).toBe(0);
+
+  // The Scene view shown during Play draws again, and stops when the Game view is back in front.
+  await showView(page, 'Scene');
+  await expect(page.locator('canvas.tl-viewport')).toHaveAttribute('data-suspended', 'false');
+  await expect.poll(async () => drawn(1000), { timeout: 30_000 }).toBeGreaterThan(10);
+  await showView(page, 'Game');
+  await expect(page.locator('canvas.tl-viewport')).toHaveAttribute('data-suspended', 'true');
+  expect(await drawn(2000)).toBe(0);
+
+  await page.getByTitle('Stop the play preview').click();
+  await expect(page.locator('canvas.tl-viewport')).toHaveAttribute('data-suspended', 'false', { timeout: 30_000 });
+  await expect.poll(async () => drawn(1000), { timeout: 30_000 }).toBeGreaterThan(10);
 });
 
 /**

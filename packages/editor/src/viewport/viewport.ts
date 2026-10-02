@@ -67,6 +67,7 @@ import { SceneLighting } from './scene-lighting';
 import { virtualCameraPreviews } from './camera-previews';
 import { cameraFrustum, lightGizmo } from './helper-shapes';
 import { gatherBakeInputs, type BakeInputs } from './bake-inputs';
+import { SceneVisibility } from './scene-visibility';
 
 export interface ViewportCallbacks {
   onPick: (entityId: string | null) => void;
@@ -167,6 +168,11 @@ export class Viewport {
   private gizmoCancelled = false;
   private downAt: { x: number; y: number } | null = null;
   private renderQueued = false;
+  /** Out of sight behind the Game view: no frames, no per-frame work. */
+  private readonly visibility = new SceneVisibility(
+    () => this.requestRender(),
+    (suspended) => this.root.setAttribute('data-suspended', String(suspended)),
+  );
   private readonly raycaster = new THREE.Raycaster();
   /**
    * Repeated boxes and model pieces drawn instanced. Their own
@@ -853,12 +859,24 @@ export class Viewport {
     return p.active;
   }
 
+  /** The Game view is in front (the view draws nothing meanwhile). */
+  setHidden(on: boolean): void {
+    this.visibility.setHidden(on);
+  }
+
+  /** The canvas is lent to a preview pane (seen whatever the centre view shows). */
+  setLent(on: boolean): void {
+    this.visibility.setLent(on);
+  }
+
   /** Schedule one render on the next animation frame (coalesces bursts). */
   requestRender(): void {
+    if (!this.visibility.allows()) return;
     if (this.renderQueued) return;
     this.renderQueued = true;
     requestAnimationFrame(() => {
       this.renderQueued = false;
+      if (!this.visibility.allows()) return;
       // Where the handle grips are on screen (tests drag them); grips keep their screen size.
       this.helpers.scaleGrips();
       this.root.setAttribute('data-size-handles', JSON.stringify(this.helpers.sizeHandleClientPoints()));

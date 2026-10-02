@@ -23,10 +23,12 @@ export function useSceneViewLending(homeRef: RefObject<HTMLDivElement | null>, v
         const canvas = home?.querySelector(SCENE_CANVAS) ?? null;
         if (home === null || canvas === null) return () => undefined;
         host.appendChild(canvas);
+        viewportRef.current?.setLent(true);
         viewportRef.current?.resize();
         return () => {
           const lent = host.querySelector(SCENE_CANVAS);
           if (lent !== null) home.appendChild(lent);
+          viewportRef.current?.setLent(false);
           viewportRef.current?.resize();
         };
       },

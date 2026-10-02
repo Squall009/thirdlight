@@ -4044,6 +4044,11 @@ page needs no extra headers for this (no SharedArrayBuffer is used). Numbers
   animated material (wind, water) or a playing effect preview. Left alone it
   draws nothing (three's own animation-frame tick still runs, drawing
   nothing). After an edit it syncs only the objects the edit touched.
+- *Play is not paid for twice.* While the Game view is in front the Scene
+  view draws nothing at all, animated materials and effect previews
+  included; shown again (its tab during Play, or after Stop) it draws from
+  the next frame. A Scene view lent to an editor window's preview pane keeps
+  drawing there.
 - *MSAA is the quality level's choice.* The environment's (or the player's)
   quality level decides: low draws without MSAA, medium and high with it
   (a post stack uses its own anti-aliasing instead). The Scene view follows
