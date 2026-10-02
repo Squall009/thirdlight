@@ -10,6 +10,7 @@
 export { compileEffect, POST_INTEGRATION_BLOCKS, type CompiledNode, type CompileOptions, type EffectDiagnostic, type EffectProgram, type SystemProgram, type TrailSpec, type WireSource } from './program';
 export { convertValue, EffectInstance, SystemState, type EffectEvent, type EffectInstanceOptions, type EffectMesh, type SpawnPlan, type StepInput } from './evaluator';
 export { billboardAxes, flipbookFrame, flipbookRect, lightParticles, ribbonOrder } from './output';
+export { EFFECT_LIGHT_LIMIT } from '@thirdlight/project-model';
 export { evalCurve, evalGradient, evalGradientSrgb, hexToLinear, srgbToLinear } from './curves';
 export { GradientNoise } from './noise';
 export { hash32, hashFloat, hashString, Rng } from './rng';

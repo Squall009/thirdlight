@@ -127,7 +127,8 @@ surfaces). Format changes share one bump: `project.json` schemaVersion 7
 | 28.0 | done 2026-10-02 |
 | 28.1 | done 2026-10-02 — counter-name rule, refused script calls return false, Play diagnostics trimmed, real-overlap penetration count, dialogue focus in any document, createEntity takes setComponent's components, upload names, 256 animations, RGBA KTX2 as data textures (D83, D84, D104, D125, D128–D130, D132, D133) |
 | 28.2 | done 2026-10-02 — script sounds owned by their object (or scene, or nothing), stopped with the play's fade-out when it leaves; `ctx.audio.stopAll`; the run restart stops every script sound; one Problems line per Play for voice-cap drops; 20 scenes leave one loop (D126) |
-| 28.3–28.13 | — |
+| 28.3 | done 2026-10-02 — the effect light pool's 16 lights are added dark before the first frame of a game whose effects emit light (Play, export, Scene view, Effect tab), never mid-play; e2e: lights rising 1 → 16 build no program or pipeline in Play and the export (D127) |
+| 28.4–28.13 | — |
 
 ## 6. Decision log
 
@@ -191,3 +192,8 @@ surfaces). Format changes share one bump: `project.json` schemaVersion 7
   bridge/WS message (`tl.play.problem` → `play.problem`); the backend writes
   one line per kind and Play (at most `PLAY_PROBLEM_KINDS_MAX` kinds). The
   voice cap is its first kind; 28.5's deprecation lines can use it.
+- 2026-10-02 (28.3): the pool is reserved only when an effect of the game
+  has a Lights block (a game without one pays no shading for 16 dark lights);
+  an edit that adds the first Lights block adds the pool once (one
+  recompile, edit time only). The pool size `EFFECT_LIGHT_LIMIT` moved to
+  project-model, where it is also the Lights block's `maxLights` max.

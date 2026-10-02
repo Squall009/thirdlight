@@ -1438,12 +1438,13 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       if (camera !== null) effects.update(frameSeconds, camera, (now - clockStart) / 1000);
       // The canvas reports the executor and what plays (an export has no other in-page diagnostics surface).
       const d = effects.diagnostics();
-      const mark = `${d.executor ?? 'none'}|${d.playing}|${d.particles}`;
+      const mark = `${d.executor ?? 'none'}|${d.playing}|${d.particles}|${d.lights}`;
       if (mark !== effectsMark && typeof canvasLike?.setAttribute === 'function') {
         effectsMark = mark;
         canvasLike.setAttribute('data-tl-effects', d.executor ?? 'none');
         canvasLike.setAttribute('data-tl-effects-playing', String(d.playing));
         canvasLike.setAttribute('data-tl-effects-particles', String(d.particles));
+        canvasLike.setAttribute('data-tl-effects-lights', String(d.lights));
       }
     }
     if (localShadowLights > 0 && !live.shadowMap.enabled) {

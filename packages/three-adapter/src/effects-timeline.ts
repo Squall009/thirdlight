@@ -17,7 +17,7 @@ import * as THREE from 'three/webgpu';
 
 import type { EffectMesh } from '@thirdlight/effects';
 
-import { LightPool, type DrawContext } from './effects-draw';
+import { emitsLight, LightPool, type DrawContext } from './effects-draw';
 import { buildEffectPlay, chooseEffectExecutor, disposeEffectPlay, drawEffectPlay, effectMeshOf, type EffectDefLike, type EffectPlayParts, type EffectsPlayerOptions } from './effects-player';
 
 /** The preview's fixed simulation step (s): 60 Hz, the display rate most screens run at. */
@@ -76,6 +76,7 @@ export class EffectTimeline {
     this.executor = choice.executor;
     this.reason = choice.reason;
     this.lights = new LightPool(o.scene);
+    if (emitsLight(o.def)) this.lights.reserve();
     const ctx: DrawContext = {
       webgpu: o.api === 'webgpu',
       loadTexture: o.loadTexture,

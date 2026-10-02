@@ -78,6 +78,7 @@ export default defineConfig({
         // Phase 20.2: effects on the WebGPU compute executor.
         '**/effects-gpu.e2e.ts',
         '**/effects-runtime.e2e.ts',
+        '**/effect-light-pool.e2e.ts',
         // Phase 20.3: the Effect tab's preview on the WebGPU compute executor.
         '**/effect-editor.e2e.ts',
         // The editor window's one preview pane: on its own canvas and on the lent Scene view, on WebGPU.

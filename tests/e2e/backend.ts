@@ -3,10 +3,11 @@
  * ports with a throwaway data root, for browser end-to-end tests.
  */
 import { spawn, type ChildProcess } from 'node:child_process';
-import { randomUUID } from 'node:crypto';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { createHash, randomUUID } from 'node:crypto';
+import { createReadStream, existsSync, mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
+import { createServer, type Server } from 'node:http';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { extname, join, normalize, resolve } from 'node:path';
 
 import { readRuntimeContentSync, type ExpandedRuntimeContent } from '@thirdlight/project-model';
 import { launchOnFreePorts, type BackendPorts } from '../../tools/perf/ports';
@@ -237,4 +238,51 @@ export function exportedContent(outDir: string): ExpandedRuntimeContent {
       return null;
     }
   });
+}
+
+/**
+ * Publish a TypeScript behavior (no properties) through the real content
+ * route (stage, upload, declaration, trust, source) and attach it to
+ * `entityId`.
+ */
+export async function publishScript(be: E2EBackend, behaviorId: string, source: string, entityId: string): Promise<void> {
+  const headers = { authorization: `Bearer ${be.token}`, origin: be.origin };
+  const base = `${be.origin}/api/v1/projects/${be.projectId}`;
+  const run = async (op: string, args: Record<string, unknown>): Promise<void> => {
+    const q = await be.command({ op: 'queryProject', projectId: be.projectId, args: {} });
+    const r = await be.command({ op, projectId: be.projectId, expectedRevision: Number(q['revision']), requestId: `req-${randomUUID().replace(/-/g, '')}`, origin: { kind: 'mcp', clientId: 'e2e-script' }, args });
+    if (r['ok'] !== true) throw new Error(`publishScript ${op}: ${JSON.stringify(r).slice(0, 400)}`);
+  };
+  const bytes = Buffer.from(`${JSON.stringify({ graphVersion: 1, entryPath: 'src/index.ts', requiredModules: ['@thirdlight/runtime'], ownedTransforms: [], files: [{ path: 'src/index.ts', text: source }] }, null, 2)}\n`);
+  const stage = (await (await fetch(`${base}/content/stages`, { method: 'POST', headers: { ...headers, 'content-type': 'application/json' }, body: '{}' })).json()) as { stageId: string };
+  const put = await fetch(`${base}/content/stages/${stage.stageId}/bytes`, { method: 'PUT', headers: { ...headers, 'content-type': 'application/octet-stream', 'x-thirdlight-offset': '0', 'x-thirdlight-total': String(bytes.length) }, body: bytes });
+  if (!put.ok) throw new Error(`publishScript ${behaviorId} upload: ${put.status}`);
+  const declaration = { properties: [] };
+  await run('publishBehavior', { behaviorId, displayName: behaviorId, mode: 'declaration-create', declaration });
+  await run('acknowledgeBehaviorTrust', { sourceDigest: createHash('sha256').update(bytes).digest('hex') });
+  const q = await be.command({ op: 'queryProject', projectId: be.projectId, args: {} });
+  const published = await fetch(`${base}/content/behaviors/source`, {
+    method: 'POST',
+    headers: { ...headers, 'content-type': 'application/json' },
+    body: JSON.stringify({ stageId: stage.stageId, behaviorId, displayName: behaviorId, declaration, expectedRevision: Number(q['revision']), requestId: `req-${randomUUID().replace(/-/g, '')}` }),
+  });
+  if (published.status !== 200) throw new Error(`publishScript ${behaviorId}: ${published.status} ${(await published.text()).slice(0, 400)}`);
+  await run('setBehaviorProperties', { entityId, behaviorId, values: {} });
+}
+
+/** Serve an export's folder statically on a free port (the backend can be stopped meanwhile). */
+export function serveDir(root: string): Promise<{ url: string; close: () => Promise<void> }> {
+  const MIME: Record<string, string> = { '.html': 'text/html', '.js': 'text/javascript', '.json': 'application/json', '.wasm': 'application/wasm' };
+  const server: Server = createServer((req, res) => {
+    const rel = normalize(decodeURIComponent((req.url ?? '/').split('?')[0]!)).replace(/^\/+/, '') || 'index.html';
+    const file = join(root, rel);
+    if (!file.startsWith(root) || !existsSync(file) || !statSync(file).isFile()) {
+      res.statusCode = 404;
+      res.end();
+      return;
+    }
+    res.setHeader('content-type', MIME[extname(file)] ?? 'application/octet-stream');
+    createReadStream(file).pipe(res);
+  });
+  return new Promise((ok) => server.listen(0, '127.0.0.1', () => ok({ url: `http://127.0.0.1:${(server.address() as { port: number }).port}/`, close: () => new Promise((d) => server.close(() => d())) })));
 }

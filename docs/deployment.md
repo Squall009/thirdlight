@@ -2030,8 +2030,13 @@ the effect (in its tab or over MCP) shows there at once.
 
 A system's *max particles* is capped to its executor's cap; a play past the
 total or the instance cap is refused (counted in the diagnostics). Point
-lights: 16 shared by all effects (a fixed pool, so the lit materials never
-recompile). A frame longer than 1/30 s is split into up to four steps.
+lights: 16 shared by all effects, a fixed pool: when Play or an exported
+game starts and one of its effects has a *Lights* block, all 16 are added
+to the scene dark before the first frame, so the number of lights never
+changes while it plays and no lit material recompiles (a game without
+light-emitting effects carries none; an edit that adds the first *Lights*
+block in the Scene view adds them then, once). Past 16 lit particles the
+rest give no light. A frame longer than 1/30 s is split into up to four steps.
 *Collide with scene (depth)* is honoured on WebGPU only (the depth of the
 last frame the player drew); *Soft particles* fade against the scene depth
 on WebGPU only. Output block inputs (a billboard's axis, soft distance, a
@@ -2044,9 +2049,10 @@ keep simulating).
 (`webgpu` | `cpu`), its caps, what plays and how many particles (GPU counts
 are read back every half second), refused plays, effect ids no effect of
 the game has, and per playing effect its executor (and why an effect runs
-on the CPU on WebGPU); `tl_game_observe` has a compact `effects` block. The
-game canvas carries `data-tl-effects` (the executor), `data-tl-effects-playing`
-and `data-tl-effects-particles`.
+on the CPU on WebGPU), the pool lights in use (`lights`) and in the scene
+(`lightPool`: 16 or 0); `tl_game_observe` has a compact `effects` block. The
+game canvas carries `data-tl-effects` (the executor), `data-tl-effects-playing`,
+`data-tl-effects-particles` and `data-tl-effects-lights` (pool lights in use).
 
 Every graph gesture is one `graphEdit {owner: {kind: "effect", id:
 "<effectId>/<systemId>"}, ops}` (one undo step); `setEffect {effect}`

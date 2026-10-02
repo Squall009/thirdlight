@@ -24,7 +24,7 @@ import * as THREE from 'three/webgpu';
 
 import { compileEffect, EffectInstance, type CompiledNode, type EffectMesh, type EffectOrigin, type EffectProgram } from '@thirdlight/effects';
 
-import { CpuParticleSource, createOutputRenderer, GpuParticleSource, LightPool, outputSorted, type DrawContext, type FrameInfo, type OutputRenderer } from './effects-draw';
+import { CpuParticleSource, createOutputRenderer, EFFECT_LIGHT_LIMIT, emitsLight, GpuParticleSource, LightPool, outputSorted, type DrawContext, type FrameInfo, type OutputRenderer } from './effects-draw';
 import { GPU_SORT_LIMIT, GpuEffectExecutor, gpuUnsupportedReason } from './effects-gpu';
 import { decodeTexture } from './material-library';
 import type { GlbLoaderPort } from './visual';
@@ -90,6 +90,8 @@ export interface EffectsDiagnostics {
   problems: string[];
   /** Point lights in use of the shared pool. */
   lights: number;
+  /** Point lights the pool holds in the scene, dark when unused (the whole pool once an effect of the game emits light, else 0). */
+  lightPool: number;
 }
 
 export interface EffectsPlayerOptions {
@@ -160,6 +162,8 @@ export function createEffectsPlayer(options: EffectsPlayerOptions): EffectsPlaye
   const pool = new Map<string, Playing[]>();
   const attached = new Map<string, { object: THREE.Object3D; component: EffectComponentLike; play: Playing | null }>();
   const lights = new LightPool(scene);
+  // Before the first frame: a light added mid-play would recompile every lit material.
+  if (options.defs.some(emitsLight)) lights.reserve();
   let refused = 0;
   const unknown = new Set<string>();
   const problems = new Set<string>();
@@ -398,6 +402,7 @@ export function createEffectsPlayer(options: EffectsPlayerOptions): EffectsPlaye
     },
     setDefs(list) {
       defs = new Map(list.map((d) => [d.effectId, d]));
+      if (list.some(emitsLight)) lights.reserve();
       // Plays of a changed or removed effect end; attached components start again with the new definition.
       for (const rec of [...playing]) if (defs.get(rec.effectId) !== rec.def) release(rec, false);
       for (const [id, list2] of [...pool]) {
@@ -480,7 +485,7 @@ export function createEffectsPlayer(options: EffectsPlayerOptions): EffectsPlaye
       }
       return {
         executor: api === null ? null : api === 'webgpu' ? 'webgpu' : 'cpu',
-        caps: { particlesPerSystem: c.particlesPerSystem, particlesTotal: c.particlesTotal, instances: c.instances, lights: 16, sortLimit: api === 'webgpu' ? GPU_SORT_LIMIT : null },
+        caps: { particlesPerSystem: c.particlesPerSystem, particlesTotal: c.particlesTotal, instances: c.instances, lights: EFFECT_LIGHT_LIMIT, sortLimit: api === 'webgpu' ? GPU_SORT_LIMIT : null },
         playing: playing.length,
         particles,
         refused,
@@ -488,6 +493,7 @@ export function createEffectsPlayer(options: EffectsPlayerOptions): EffectsPlaye
         instances,
         problems: [...problems].slice(0, 16),
         lights: lights.active,
+        lightPool: lights.size,
       };
     },
     dispose() {
