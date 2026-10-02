@@ -25,7 +25,6 @@
 import {
   applyDialogueEffect,
   DIALOGUE_DEFAULTS,
-  DIALOGUE_DOCUMENT_ID,
   DIALOGUE_LIMITS,
   dialogueLineText,
   dialogueTruthy,
@@ -649,8 +648,8 @@ export class DialogueRunner {
     this.emit({ kind: 'chosen', node: c.choice.id, text: o.text, name: o.id, index });
     this.applyEffects(c, o.effects);
     c.choice = null;
-    // The engine box: the focus goes back to the box (Enter advances).
-    if (this.data?.document === DIALOGUE_DOCUMENT_ID) this.ui?.focus?.(this.data.document, 'box');
+    // The focus goes back to the box (Enter advances), in whichever document draws the conversation.
+    if (this.data !== null) this.ui?.focus?.(this.data.document, 'box');
     this.follow(c, o.next);
   }
 
@@ -694,8 +693,8 @@ export class DialogueRunner {
           c.phase = 'choice';
           c.choice = { id, options: shown.map((o) => ({ id: o.id, text: this.interpolate(c, o.text), effects: o.effects, next: o.next })) };
           this.skipMode = false;
-          // The engine box: the keyboard/gamepad focus goes to the first option.
-          if (this.data?.document === DIALOGUE_DOCUMENT_ID) this.ui?.focus?.(this.data.document, 'choice');
+          // The keyboard/gamepad focus goes to the first option, in whichever document draws the conversation.
+          if (this.data !== null) this.ui?.focus?.(this.data.document, 'choice');
           this.emit({ kind: 'choice', node: id, name: '', text: c.choice.options.map((o) => o.text).join('\n') });
           return;
         }

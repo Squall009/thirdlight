@@ -24,6 +24,7 @@ import {
   validateInputRelayResult,
 } from './delivery';
 import { SCREENSHOT_DATA_URL_MAX, SCREENSHOT_MAX_WIDTH_MAX, SCREENSHOT_MAX_WIDTH_MIN } from './http';
+import { PLAY_DIAGNOSTICS_MAX_BYTES } from './diagnostics-bound';
 import { debugCommandCallProblem, RELAY_ANSWER_WITHIN_MAX_MS } from './m3';
 
 /** The exhaustive allowlists (v2). */
@@ -405,7 +406,7 @@ export function validateBridgePreviewToEditor(value: unknown): Verdict {
       if (typeof m['ok'] !== 'boolean') return { ok: false, reason: 'ok must be a boolean', path: '/ok' };
       if (m['ok']) {
         if (!isPlainObject(m['diagnostics'])) return { ok: false, reason: 'diagnostics required when ok', path: '/diagnostics' };
-        if (JSON.stringify(m['diagnostics']).length > 16_384) {
+        if (JSON.stringify(m['diagnostics']).length > PLAY_DIAGNOSTICS_MAX_BYTES) {
           return { ok: false, reason: 'diagnostics exceeds the 16 KiB bound', path: '/diagnostics' };
         }
       }

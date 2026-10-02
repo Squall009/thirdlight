@@ -23,6 +23,7 @@ import {
 import { validateGameControlResult, validateGameObservation } from './m3';
 import type { SessionError } from './errors';
 import { SCREENSHOT_DATA_URL_MAX } from './http';
+import { PLAY_DIAGNOSTICS_MAX_BYTES } from './diagnostics-bound';
 
 // ---- catalog constants (the exhaustive allowlists) -----------
 
@@ -519,7 +520,7 @@ export function parseInboundEvent(value: unknown):
             },
           };
         }
-        if (JSON.stringify(s.value.diagnostics).length > 16384) {
+        if (JSON.stringify(s.value.diagnostics).length > PLAY_DIAGNOSTICS_MAX_BYTES) {
           return {
             ok: false,
             kind: 'protocol_error',

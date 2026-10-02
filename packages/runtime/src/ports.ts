@@ -55,7 +55,10 @@ export interface CharacterMoveResult {
 /** Counters a port may expose. */
 export interface PhysicsDiagnostics {
   stallSteps?: number;
+  /** Steps that began with the character inside a collider (moved out by the sweep). */
   penetrationCorrectedCount?: number;
+  /** The deepest such overlap so far: the collider's entity, how deep (m), the port's step. */
+  deepestOverlap?: { entityId: string; depth: number; step: number };
 }
 
 /**

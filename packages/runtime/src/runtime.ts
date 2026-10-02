@@ -5579,7 +5579,7 @@ class RuntimeInstance implements Runtime {
     };
     if (!this.isM2) return base;
     const actions = actionDiagnostics(this.actions);
-    const physics = physicsDiagnostics(this.physics ?? this.physics3d);
+    const physics = physicsDiagnostics(this.physics ?? this.physics3d, this.controllerEntityId);
     const logs = this.behaviorLogDiagnostics();
     const m2: RuntimeDiagnostics = {
       ...base,
@@ -5594,6 +5594,7 @@ class RuntimeInstance implements Runtime {
       inputMappingUnsupportedCount: actions.mappingUnsupported,
       physicsStallSteps: physics.stall,
       physicsPenetrationCorrectedCount: physics.penetration,
+      ...physics.deepest,
       intentCommitCount: this.intentCommitCount,
       logCount: logs.logCount,
       logDropped: logs.logDropped,

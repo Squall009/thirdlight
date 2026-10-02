@@ -4,6 +4,8 @@
  */
 import { randomBytes } from 'node:crypto';
 
+import { PLAY_DIAGNOSTICS_MAX_BYTES } from '@thirdlight/protocol';
+
 // ---- ID / token allocation (hex, CSPRNG) ----------------------
 
 /** Lowercase hex of a byte string (Uint8Array has no `toString('hex')`). */
@@ -33,8 +35,8 @@ export interface OriginDoc {
 
 /** HTTP body bound (in). */
 export const MAX_HTTP_BODY = 1024 * 1024;
-/** Diagnostics relay payload bound. */
-export const MAX_DIAGNOSTICS = 16 * 1024;
+/** Diagnostics relay payload bound (the protocol's: the page trims its report to it). */
+export const MAX_DIAGNOSTICS = PLAY_DIAGNOSTICS_MAX_BYTES;
 
 export const TEXT_ENCODER = new TextEncoder();
 /** UTF-8 byte length of a string (no `Buffer` dependency). */

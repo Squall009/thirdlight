@@ -36,6 +36,9 @@ export {
   type SessionKind,
 } from './ids';
 
+// Play diagnostics: one bound, and the trim that keeps a long run's report inside it.
+export { PLAY_DIAGNOSTICS_MAX_BYTES, fitPlayDiagnostics, type PlayDiagnosticsTrim } from './diagnostics-bound';
+
 // Session-layer error model.
 export {
   ERROR_CODES,

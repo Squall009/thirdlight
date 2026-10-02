@@ -662,6 +662,18 @@ unique across the whole project. One command edits one scene.
     pitch then roll; `scale` is a number or `[x, y, z]`; either may be left
     out) turns or scales it — a spinning sign, a pulsing light. It is visual:
     colliders keep their shape.
+  - A call the runtime refuses does not stop the run: `ctx.emit` returns
+    false for a refused intent (a bad value, the wrong phase, an entity the
+    script does not own, a second write of a channel in one step) and
+    `ctx.debug.command` answers no calls for a refused declaration; each
+    refusal is one Console line. `ctx.game.add` refuses (false, one line) a
+    counter name a save cannot keep (a letter or _, then up to 31 letters,
+    digits or _); a save holding such a name still loads the rest.
+  - Play diagnostics (the Console, `tl_diagnostics`) fit 16 KiB: a long
+    run's report drops its oldest log entries first and says how many
+    (`trimmed.logEntries`). `physicsPenetrationCorrectedCount` counts steps
+    the 3D character began inside a collider; `physicsDeepestOverlap` names
+    the deepest one's entity pair.
   - Camera bounds are optional (Gameplay → Camera → "Keep the camera
     inside bounds").
 - **Play and export** ship every scene file and load the others on demand.

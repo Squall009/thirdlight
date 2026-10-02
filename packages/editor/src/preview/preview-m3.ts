@@ -42,6 +42,7 @@ import { Bridge } from './bridge';
 import { answerScreenshotWhenDrawn } from './screenshot-answer';
 import { awaitRestart } from './replay-answer';
 import { resolveRelayFrames, type IncomingRelayFrame } from './relay-frames';
+import { fitPlayDiagnostics } from '@thirdlight/protocol';
 
 /** Three's Draco and Basis decoders on the preview origin. */
 const PREVIEW_DECODER_BASE = '/decoders/';
@@ -430,7 +431,9 @@ export function bootstrapPreviewM3(): void {
       const ad = h.adapter?.diagnostics();
       bridge.sendDiagnosticsResult(playId, body.relayId, {
         ok: true,
-        diagnostics: {
+        // A long run's report is trimmed to the relay's bound (the play log's oldest entries first, then
+        // other lists), with a note of what was dropped, rather than refused whole.
+        diagnostics: fitPlayDiagnostics({
           runtime: rd.ok ? rd.diagnostics : { error: rd.error.code },
           renderer: ad === undefined ? null : ad.ok ? ad.diagnostics : { error: ad.error.code },
           buildId: h.identity.buildId,
@@ -449,7 +452,7 @@ export function bootstrapPreviewM3(): void {
           resources: h.resources(),
           // The sound: unlocked or why not, what plays, what did not play and why.
           audio: h.audio(),
-        },
+        }),
       });
     });
   });

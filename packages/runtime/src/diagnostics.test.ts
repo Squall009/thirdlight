@@ -156,3 +156,12 @@ describe('structured diagnostics', () => {
     rt.dispose();
   });
 });
+describe('physics diagnostics reads', () => {
+  it('names the deepest overlap as the entity pair, the character first; nothing before there was one', async () => {
+    const { physicsDiagnostics } = await import('./diagnostics-reads');
+    expect(physicsDiagnostics({ diagnostics: () => ({ stallSteps: 2, penetrationCorrectedCount: 0 }) }, 'player-1')).toEqual({ stall: 2, penetration: 0, deepest: {} });
+    const port = { diagnostics: () => ({ penetrationCorrectedCount: 3, deepestOverlap: { entityId: 'crate-2', depth: 0.25, step: 41 } }) };
+    expect(physicsDiagnostics(port, 'player-1').deepest).toEqual({ physicsDeepestOverlap: { entities: ['player-1', 'crate-2'], depth: 0.25, physicsStep: 41 } });
+    expect(physicsDiagnostics({ diagnostics: () => { throw new Error('x'); } }, 'player-1')).toEqual({ stall: 0, penetration: 0, deepest: {} });
+  });
+});

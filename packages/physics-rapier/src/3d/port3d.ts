@@ -456,6 +456,8 @@ function createAdapter(world: RAPIER.World, characterCollider: RAPIER.Collider, 
   let steps = 0;
   let stallSteps = 0;
   let penetrationCorrectedCount = 0;
+  /** The deepest overlap a step began in so far (the collider's entity, how deep, which port step). */
+  let deepestOverlap: { entityId: string; depth: number; step: number } | null = null;
   let released: Rapier3DDiagnostics | null = null;
   // The kinematic (mover) poses for this step, where each was posed last, and the largest move of the last world step.
   let kinematicPoses: readonly KinematicPose3D[] = [];
@@ -544,9 +546,30 @@ function createAdapter(world: RAPIER.World, characterCollider: RAPIER.Collider, 
       controller.enableSnapToGround(snapDistance);
     }
   };
+  /**
+   * The deepest overlap of the character capsule at `p` with a collider
+   * (deeper than the clearance probe's epsilon), or null. A sweep that starts
+   * in one moves the character out of it — a real depenetration. A grounded
+   * character's sweep stopped by the floor starts in none (the controller
+   * keeps its skin above it), so standing never counts.
+   */
+  const overlapCapsule = new RAPIER.Capsule(ch.halfHeight, ch.radius);
+  const overlapAt = (p: PhysicsVec3): { entityId: string; depth: number } | null => {
+    const c = at(p);
+    let best: { entityId: string; depth: number } | null = null;
+    world.intersectionsWithShape(c, IDENTITY, overlapCapsule, (collider) => {
+      const contact = collider.contactShape(overlapCapsule, c, IDENTITY, 0);
+      const depth = contact === null ? 0 : -contact.distance;
+      const entityId = infoByHandle.get(collider.handle)?.entityId;
+      if (entityId !== undefined && depth > CLEARANCE_PENETRATION_EPS && (best === null || depth > best.depth)) best = { entityId, depth };
+      return true;
+    }, undefined, undefined, characterCollider);
+    return best;
+  };
   const counters = (): Rapier3DDiagnostics => ({
     stallSteps,
     penetrationCorrectedCount,
+    ...(deepestOverlap !== null ? { deepestOverlap: { ...deepestOverlap } } : {}),
     implementation: PHYSICS_3D_IMPLEMENTATION,
     worldColliderCount: world.colliders.len(),
     worldBodyCount: world.bodies.len(),
@@ -629,6 +652,12 @@ function createAdapter(world: RAPIER.World, characterCollider: RAPIER.Collider, 
       if (stepping !== null && (commanded.y > 0 || across < 1e-9 || commanded.x * stepping.x + commanded.z * stepping.z <= 0 || stepping.steps >= maxSteppingSteps)) stepping = null;
       const midStep = stepping !== null;
       const before = position;
+      // A step that begins inside a collider is a real depenetration (counted; the deepest is kept for diagnostics).
+      const overlap = overlapAt(before);
+      if (overlap !== null) {
+        penetrationCorrectedCount += 1;
+        if (deepestOverlap === null || overlap.depth > deepestOverlap.depth) deepestOverlap = { ...overlap, step: steps };
+      }
       // Rapier's controller takes a touched kinematic body's velocity into its sweep
       // ("kinematic friction"). In 3D that fights the runtime's own carry: a character riding a
       // mover sideways (its move equal to the mover's) sticks in the mover's offset margin and
@@ -772,8 +801,6 @@ function createAdapter(world: RAPIER.World, characterCollider: RAPIER.Collider, 
       const climbable = support.y >= supportClimbCos - GROUND_NORMAL_TOLERANCE;
       const verticalExtra = movement.y - commanded.y;
       const snapped = rawGrounded && Math.abs(verticalExtra) > 1e-6 && Math.abs(verticalExtra) <= snapDistance + skin + 1e-6;
-      const blocked = Math.abs(movement.x - commanded.x) > 1e-9 || Math.abs(movement.z - commanded.z) > 1e-9 || movement.y > commanded.y + 1e-9;
-      if (blocked) penetrationCorrectedCount += 1;
       if (Math.hypot(requested.x, requested.z) > 1e-9 && Math.hypot(movement.x, movement.z) < 1e-9) stallSteps += 1;
       // A mover that moved into the character in the last world step may push it by up to that move (the 2D rule).
       const kinematicSlack = Math.min(0.5, kinematicMoved);

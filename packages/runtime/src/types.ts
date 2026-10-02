@@ -315,6 +315,8 @@ export interface RuntimeDiagnostics {
   inputMappingUnsupportedCount?: number;
   physicsStallSteps?: number;
   physicsPenetrationCorrectedCount?: number;
+  /** The deepest overlap the character began a step in: the character's and the collider's entities, how deep (m), the physics step (`physicsSteps` counts them). */
+  physicsDeepestOverlap?: { entities: [string, string]; depth: number; physicsStep: number };
   /** Accepted intents committed in this runtime instance. */
   intentCommitCount?: number;
   /** Behavior `ctx.log` calls accepted into the per-instance rings. */

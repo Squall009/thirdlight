@@ -22,20 +22,27 @@ export function actionDiagnostics(actions: ActionSource): { suspend: number; act
   return { suspend: count(d.suspendCount), activate: count(d.activateCount), disconnect: count(d.disconnectCount), mappingUnsupported: count(d.mappingUnsupportedCount) };
 }
 
-/** The physics port's stalled steps and corrected penetrations (2D or 3D port; none: zeros). */
-export function physicsDiagnostics(port: { diagnostics?(): PhysicsDiagnostics } | undefined): { stall: number; penetration: number } {
+/**
+ * The physics port's stalled steps and corrected penetrations (2D or 3D port;
+ * none: zeros), and the deepest overlap the character began a step in, named
+ * as the entity pair (the character's first) once there was one.
+ */
+export function physicsDiagnostics(port: { diagnostics?(): PhysicsDiagnostics } | undefined, characterId: string | undefined): { stall: number; penetration: number; deepest: { physicsDeepestOverlap?: { entities: [string, string]; depth: number; physicsStep: number } } } {
   let stall = 0;
   let penetration = 0;
+  let deepest = {};
   if (port && typeof port.diagnostics === 'function') {
     try {
       const d = port.diagnostics() ?? {};
       if (typeof d.stallSteps === 'number' && Number.isFinite(d.stallSteps)) stall = d.stallSteps;
       if (typeof d.penetrationCorrectedCount === 'number' && Number.isFinite(d.penetrationCorrectedCount)) penetration = d.penetrationCorrectedCount;
+      const o = d.deepestOverlap;
+      if (o !== undefined && typeof o.entityId === 'string' && Number.isFinite(o.depth) && Number.isFinite(o.step)) deepest = { physicsDeepestOverlap: { entities: [characterId ?? '', o.entityId], depth: o.depth, physicsStep: o.step } };
     } catch {
       /* diagnostics must never break getDiagnostics() */
     }
   }
-  return { stall, penetration };
+  return { stall, penetration, deepest };
 }
 
 /** Cumulative behavior log totals the behavior host instances report (summed over the module instances). */

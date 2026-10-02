@@ -806,7 +806,7 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       'and missingFiles {total, offset, files: [{assetId, displayName, kind, path, usedBy: [{kind scene|prefab|material|effect|animator|asset|project, id}]}]} - the asset files missing from the game folder now (listed at the first read and after each file check; ' +
       'the first page here, every page from GET problems/missing-files). A Play refused for missing files names every one in error.missingFiles [{assetId, kind, path, inStart, code}]; ' +
       'a Play whose missing files no start scene draws starts with placeholders (magenta box, checker texture, silence) listed in its result\'s placeholders. With playSessionId: bounded ' +
-      'runtime diagnostics (≤ 16 KiB) from that play\'s connected preview; its renderer block names the backend ' +
+      'runtime diagnostics (≤ 16 KiB; a longer report drops its oldest log entries first, then the oldest of other lists, and says so in trimmed {logEntries, lists, omitted}) from that play\'s connected preview; its renderer block names the backend ' +
       'that draws (renderer.backend legacy|webgpu|webgl2, renderer.state) and why (renderer.reason); renderer.effects is the ' +
       'visual-effect player: executor webgpu|cpu with its caps, what plays, refused plays, unknown effect ids, per-effect executor and why an effect runs on the CPU on WebGPU. ' +
       'startTimings is where the start went (stages in ms from the page\'s time origin, the first frame, slow frames after it, each scene loaded since) and buildTimings the backend\'s part. ' +

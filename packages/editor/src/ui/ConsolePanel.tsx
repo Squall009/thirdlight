@@ -26,6 +26,12 @@ interface Props {
 
 const POLL_MS = 1000;
 
+/** How many play log entries the report left out (`trimmed.logEntries`; 0 when nothing was). */
+function droppedLogEntries(diagnostics: unknown): number {
+  const n = (diagnostics as { trimmed?: { logEntries?: unknown } } | null)?.trimmed?.logEntries;
+  return typeof n === 'number' && Number.isFinite(n) && n > 0 ? n : 0;
+}
+
 function levelOf(e: ConsoleEntry): 'info' | 'warn' | 'error' {
   if (e.code !== 'behavior_log') return 'error';
   return e.reason === 'warn' ? 'warn' : e.reason === 'info' ? 'info' : 'error';
@@ -35,6 +41,8 @@ export function ConsolePanel({ playSessionId, fetchDiagnostics, onOpenSource }: 
   const [entries, setEntries] = useState<ConsoleEntry[]>([]);
   const [from, setFrom] = useState<string | null>(null);
   const [status, setStatus] = useState<string>('');
+  // Older entries a long run's report left out to fit the relay's bound (the page says how many).
+  const [dropped, setDropped] = useState(0);
   const busy = useRef(false);
 
   const refresh = useCallback(async (): Promise<void> => {
@@ -44,6 +52,7 @@ export function ConsolePanel({ playSessionId, fetchDiagnostics, onOpenSource }: 
       const r = await fetchDiagnostics(playSessionId);
       if (r.ok) {
         setEntries(consoleEntriesOf(r.diagnostics));
+        setDropped(droppedLogEntries(r.diagnostics));
         setFrom(playSessionId);
         setStatus('');
       } else setStatus(r.message);
@@ -73,6 +82,11 @@ export function ConsolePanel({ playSessionId, fetchDiagnostics, onOpenSource }: 
           {playSessionId !== null ? ' · Play running' : from !== null ? ' · from the last Play' : ' · start Play to see script logs and errors'}
           {status !== '' ? ` · ${status}` : ''}
         </span>
+        {dropped > 0 && (
+          <span className="tl-prop__caption" data-testid="console-dropped">
+            {` · ${dropped} older ${dropped === 1 ? 'entry' : 'entries'} left out to fit the report`}
+          </span>
+        )}
         <button className="tl-btn tl-btn--small" disabled={playSessionId === null} onClick={() => void refresh()}>
           Refresh
         </button>
