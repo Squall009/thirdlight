@@ -12,6 +12,10 @@
  *    object (`data-sync`: processed 1 of 121+).
  *  - MSAA is the quality level's choice: the low level draws without it in
  *    the Scene view and in Play.
+ *  - Render resolution and the post stack's cost: on a display with device
+ *    pixel ratio 2, Play draws one drawing-buffer pixel per CSS pixel, a post
+ *    stack with ambient occlusion and SMAA makes no multisampled target, and
+ *    the ambient occlusion pass builds (no GPU validation error).
  */
 import { existsSync, createReadStream, mkdirSync, statSync, writeFileSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
@@ -232,4 +236,63 @@ test('MSAA follows the quality level: the low level draws without it in the Scen
   await page.getByTitle('Stop the play preview').click();
   await command('setEnvironment', { environment: { quality: 'high' } });
   await expect.poll(async () => Number(await attr(page, 'data-msaa')), { timeout: 30_000 }).toBeGreaterThan(0);
+});
+
+/**
+ * In every frame: the GPU targets made (WebGPU textures, WebGL 2 multisampled
+ * storage) and their sample counts, read at the API the renderer calls.
+ */
+function watchTargets(): void {
+  const w = window as unknown as { __tlTargets?: { samples: number; w: number; h: number }[] };
+  w.__tlTargets = [];
+  const seen = w.__tlTargets;
+  const D = (globalThis as unknown as { GPUDevice?: { prototype: { createTexture: (d: GPUTextureDescriptor) => GPUTexture } } }).GPUDevice?.prototype;
+  if (D !== undefined) {
+    const create = D.createTexture;
+    D.createTexture = function (this: unknown, d: GPUTextureDescriptor) {
+      const size = d.size as { width?: number; height?: number } | number[];
+      seen.push({ samples: d.sampleCount ?? 1, w: Array.isArray(size) ? (size[0] ?? 0) : (size.width ?? 0), h: Array.isArray(size) ? (size[1] ?? 1) : (size.height ?? 1) });
+      return create.call(this, d);
+    };
+  }
+  const G = (globalThis as unknown as { WebGL2RenderingContext?: { prototype: WebGL2RenderingContext } }).WebGL2RenderingContext?.prototype;
+  if (G !== undefined) {
+    const storage = G.renderbufferStorageMultisample;
+    G.renderbufferStorageMultisample = function (this: WebGL2RenderingContext, target: number, samples: number, format: number, width: number, height: number) {
+      seen.push({ samples, w: width, h: height });
+      storage.call(this, target, samples, format, width, height);
+    };
+  }
+}
+
+test.describe('on a HiDPI display', () => {
+  test.use({ deviceScaleFactor: 2 });
+
+  test('Play renders at one pixel per CSS pixel; the AO + SMAA post stack is not multisampled and builds', async ({ page }) => {
+    test.setTimeout(180_000);
+    await command('createEntity', { kind: 'box', name: 'ground', transform: { position: [0, -0.5, 0] }, box: { size: [20, 1, 20], material: { color: '#808080' } } });
+    await command('createEntity', { kind: 'box', name: 'cube', transform: { position: [0, 0.5, 0] }, box: { size: [1, 1, 1], material: { color: '#c05030' } } });
+    await command('setEnvironment', { sceneId: 'scene-main', environment: { post: { antialias: 'smaa', ssao: { enabled: true, radius: 0.5, intensity: 1 } } } });
+    await page.addInitScript(watchTargets);
+    const gpuErrors: string[] = [];
+    page.on('console', (m) => {
+      if (/GPUValidationError|Invalid RenderPipeline|pipeline creation failed/i.test(m.text())) gpuErrors.push(m.text().slice(0, 300));
+    });
+    await page.goto(be.editorUrl);
+    await expect(page.locator('.tl-statusbar')).toContainText('connected');
+    await page.getByTitle('Start an isolated play preview').click();
+    const frame = page.frameLocator('iframe.tl-app__preview-frame');
+    const canvas = frame.locator('canvas').first();
+    await expect.poll(async () => canvas.getAttribute('data-tl-renderer-state'), { timeout: 90_000 }).toBe('ready');
+    // A few frames of the post stack (its passes are built on the first).
+    await expect.poll(async () => canvas.evaluate(() => (window as unknown as { __tlTargets?: unknown[] }).__tlTargets?.length ?? 0), { timeout: 60_000 }).toBeGreaterThan(0);
+    await page.waitForTimeout(2000);
+    const size = await canvas.evaluate((c: HTMLCanvasElement) => ({ buffer: c.width, css: Math.round(c.getBoundingClientRect().width), dpr: window.devicePixelRatio }));
+    expect(size.dpr).toBe(2);
+    expect(size.buffer).toBe(size.css);
+    const targets = await canvas.evaluate(() => (window as unknown as { __tlTargets: { samples: number; w: number; h: number }[] }).__tlTargets);
+    expect(targets.filter((t) => t.samples > 1), 'multisampled targets').toEqual([]);
+    expect(gpuErrors).toEqual([]);
+    await page.getByTitle('Stop the play preview').click();
+  });
 });

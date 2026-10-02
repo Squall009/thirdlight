@@ -69,6 +69,9 @@ type N = any;
 /** The fog volumes drawn: the model's per-scene cap. */
 export { MAX_FOG_VOLUMES };
 
+/** Resolution of the ambient-occlusion pass relative to the scene pass. */
+export const AO_RESOLUTION_SCALE = 0.5;
+
 /** The physical sky's parameters (the project's `sky` fields). */
 export interface SkyParams {
   turbidity: number;
@@ -167,8 +170,6 @@ export interface PostPlan {
     vignetteOffset: number;
   } | null;
   aa: 'none' | 'fxaa' | 'smaa';
-  /** Resolution of the scene pass relative to the canvas (the quality level's pixel ratio over the device's). */
-  resolutionScale: number;
   /**
    * The scene's background (a colour or an sRGB sky image) is shown as a
    * display colour, not tone mapped — what the WebGL renderer does when it
@@ -226,9 +227,11 @@ export function buildPostPipeline(renderer: WebGPURenderer, scene: THREE.Scene, 
   const disposables: { dispose(): void }[] = [];
   const passes: string[] = ['render'];
   const perspective = camera instanceof THREE.PerspectiveCamera;
-  const scenePass: N = pass(scene, camera, plan.samples > 0 ? { samples: plan.samples } : {});
+  // Samples are always given: without them PassNode takes the renderer's MSAA, which multiplies the
+  // scene pass's cost under a post stack that anti-aliases itself, and its multisampled depth is a
+  // texture GTAO cannot sample on WebGPU (the AO pipeline fails to build).
+  const scenePass: N = pass(scene, camera, { samples: plan.samples });
   disposables.push(scenePass);
-  if (plan.resolutionScale !== 1) scenePass.setResolutionScale(plan.resolutionScale);
   const wantsAo = plan.ssao !== null && perspective;
   // The MRT node is kept so the render contexts drawn with it can be released with the pipeline.
   const sceneMrt: unknown = wantsAo ? mrt({ output, normal: normalView }) : null;
@@ -243,6 +246,8 @@ export function buildPostPipeline(renderer: WebGPURenderer, scene: THREE.Scene, 
   if (wantsAo) {
     const aoNode: N = ao(depth, scenePass.getTextureNode('normal'), camera);
     aoNode.radius.value = plan.ssao!.radius;
+    // Occlusion is low-frequency: half resolution is a quarter of the pass's cost.
+    aoNode.resolutionScale = AO_RESOLUTION_SCALE;
     disposables.push(aoNode);
     const intensity = uniform(plan.ssao!.intensity);
     const occlusion = aoNode.getTextureNode().r;
@@ -464,7 +469,7 @@ export function buildPostPipeline(renderer: WebGPURenderer, scene: THREE.Scene, 
     },
     setSize(width, height, pixelRatio) {
       void height;
-      if (dofPlan !== null) bokehScale.value = 0.4 * dofPlan.maxBlur * width * pixelRatio * plan.resolutionScale;
+      if (dofPlan !== null) bokehScale.value = 0.4 * dofPlan.maxBlur * width * pixelRatio;
     },
     compileAsync(cam) {
       return compileIntoTarget(renderer, scene, cam, (scenePass as { renderTarget: THREE.RenderTarget }).renderTarget, (scenePass as { getMRT(): unknown }).getMRT());

@@ -3156,6 +3156,10 @@ see: scene fog is mixed before tone mapping (the WebGL renderer mixed it
 after when there was no post stack), so its tint is a little different;
 ambient occlusion has a different noise pattern and depth of field a
 slightly different blur shape; the low quality level also turns MSAA off.
+A game view (Play, the export, the Scene view) renders one drawing-buffer
+pixel per CSS pixel on any display, so a HiDPI or scaled screen costs no more
+than a plain one. Under a post stack the scene is drawn without MSAA (the
+stack's SMAA or FXAA anti-aliases) and ambient occlusion at half resolution.
 
 **Shadows (phase 17.4).** Boxes, models and instance sets cast and receive
 the sun's (the directional light's) realtime shadow when the light has "Cast

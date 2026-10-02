@@ -34,7 +34,7 @@ import { disposeObjectTree } from './dispose';
 import { BATCH_KEY, createAutoBatcher, markBatchable, unitBoxGeometry, type AutoBatcher, type AutoBatcherDiagnostics } from './batching';
 import { compileIntoTarget } from './environment-nodes';
 import { INSTANCE_MATRIX_ATTRIBUTE } from './attribute-instancing';
-import { createEnvironmentRenderer, environmentHasLook, layerEnvironment, type EnvironmentLayerLike, type EnvironmentLike, type EnvironmentRenderer, type FogVolumeLike, type QualityLevel } from './environment';
+import { createEnvironmentRenderer, environmentHasLook, layerEnvironment, renderPixelRatio, type EnvironmentLayerLike, type EnvironmentLike, type EnvironmentRenderer, type FogVolumeLike, type QualityLevel } from './environment';
 import * as THREE from 'three';
 import { BlockLayerView, blockLookFromObject, type BlockLayerViewDiagnostics, type BlockModelLook } from './block-layers';
 import { RuntimeMaterialView, type MaterialRenderChangeLike, type RuntimeMaterialsDiagnostics } from './runtime-materials';
@@ -919,9 +919,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
         ...(opts.renderer?.deps !== undefined ? { deps: opts.renderer.deps } : {}),
       });
       owned.renderer = handle;
-      const win = globalThis.window;
-      const dpr = win && typeof win.devicePixelRatio === 'number' && win.devicePixelRatio > 0 ? win.devicePixelRatio : 1;
-      pixelRatio = dpr;
+      pixelRatio = renderPixelRatio(globalThis.window?.devicePixelRatio);
       // Set up when it is ready (adoptRenderer): WebGPURenderer initialises asynchronously.
       return null;
     } catch {

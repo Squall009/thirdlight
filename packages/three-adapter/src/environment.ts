@@ -129,11 +129,25 @@ export interface FogVolumeLike {
 export type QualityLevel = 'low' | 'medium' | 'high';
 
 /** What each quality level allows. */
-export const QUALITY_PROFILE: Readonly<Record<QualityLevel, { pixelRatio: number; bloom: boolean; ssao: boolean; dof: boolean; fogVolumes: boolean; antialias: boolean }>> = {
-  low: { pixelRatio: 1, bloom: false, ssao: false, dof: false, fogVolumes: true, antialias: false },
-  medium: { pixelRatio: 1.5, bloom: true, ssao: false, dof: false, fogVolumes: true, antialias: true },
-  high: { pixelRatio: 2, bloom: true, ssao: true, dof: true, fogVolumes: true, antialias: true },
+export const QUALITY_PROFILE: Readonly<Record<QualityLevel, { bloom: boolean; ssao: boolean; dof: boolean; fogVolumes: boolean; antialias: boolean }>> = {
+  low: { bloom: false, ssao: false, dof: false, fogVolumes: true, antialias: false },
+  medium: { bloom: true, ssao: false, dof: false, fogVolumes: true, antialias: true },
+  high: { bloom: true, ssao: true, dof: true, fogVolumes: true, antialias: true },
 };
+
+/**
+ * Most drawing-buffer pixels per CSS pixel a game view renders. A HiDPI or
+ * scaled display (device pixel ratio 2) would otherwise draw four times the
+ * pixels, every post pass included: an integrated GPU drops from a CPU-bound
+ * ~40 fps to ~15 fps on a lit 3D scene. Anti-aliasing covers the edges.
+ */
+export const MAX_RENDER_PIXEL_RATIO = 1;
+
+/** The pixel ratio a game view renders at on a display with `devicePixelRatio`. */
+export function renderPixelRatio(devicePixelRatio: number | undefined): number {
+  const dpr = typeof devicePixelRatio === 'number' && devicePixelRatio > 0 ? devicePixelRatio : 1;
+  return Math.min(dpr, MAX_RENDER_PIXEL_RATIO);
+}
 
 export interface EnvironmentRendererOptions {
   loadTexture: (assetId: string) => Promise<THREE.Texture | null>;
@@ -680,11 +694,6 @@ export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE
     pipeline = null;
     passNames = [];
   };
-  /** A pixel ratio for the post passes (the quality level's, never above the device's), relative to the renderer's. */
-  const postScale = (): number => {
-    const target = Math.min(QUALITY_PROFILE[quality()].pixelRatio, globalThis.devicePixelRatio ?? 1);
-    return target / Math.max(1e-6, renderer.getPixelRatio());
-  };
   const buildPipeline = (camera: THREE.Camera): void => {
     const w = wanted();
     // The low level has no anti-aliasing: on WebGPURenderer that includes MSAA, so it draws
@@ -701,7 +710,7 @@ export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE
     // the key (nor the exposure, a renderer setting): a blend or an edit of them updates the built stack
     // (postParams) instead of rebuilding it.
     const structure = [post?.toneMapping ?? null, post?.grading?.lut ?? null, post?.ssao ?? null, post?.dof ?? null, post?.antialias ?? null];
-    const key = JSON.stringify({ w, structure, q: quality(), cam: camera.uuid, scale: postScale(), noMsaa, displayBackground });
+    const key = JSON.stringify({ w, structure, q: quality(), cam: camera.uuid, noMsaa, displayBackground });
     if (key === composerKey) return;
     composerKey = key;
     disposePipeline();
@@ -728,7 +737,6 @@ export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE
           }
         : null,
       aa: w.aa,
-      resolutionScale: isPost ? postScale() : 1,
       displayBackground,
       // The post stack renders without MSAA (as the archived EffectComposer did); a plain frame keeps the renderer's.
       samples: isPost || noMsaa ? 0 : renderer.samples,

@@ -40,6 +40,7 @@ import {
   BlockLayerView,
   blockLookFromObject,
   type BlockModelLook,
+  renderPixelRatio,
   textureHolds,
   type TextureHolds,
 } from '@thirdlight/three-adapter';
@@ -1937,7 +1938,8 @@ export class Viewport {
     for (const sp of this.sprites) fitSprite(sp, this.camera.aspect);
     const renderer = this.rendererHandle.current();
     renderer?.setSize(w, h, false);
-    renderer?.setPixelRatio(window.devicePixelRatio);
+    // The game view's render resolution, so the Scene view costs and looks what Play does.
+    renderer?.setPixelRatio(renderPixelRatio(window.devicePixelRatio));
     this.lights.resize(w, h);
     this.requestRender();
   }

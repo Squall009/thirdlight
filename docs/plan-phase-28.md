@@ -107,7 +107,8 @@ Sources:
 ## 4. Items
 
 Order: measure → one realization → layers → shadows → probes → cheap
-lights → effects → AO and render scale → acceptance. Any item that adds to
+lights → effects → AO and render scale → draw-call cost (batcher, static
+batching) → acceptance. Any item that adds to
 `adapter.ts` first moves its area (lights, shadows, probes) into its own
 module. Each item keeps the gate green, checks pixels on both renderers, and
 has a Playwright test for any editor surface. Format changes ride on phase
@@ -123,8 +124,10 @@ has a Playwright test for any editor surface. Format changes ride on phase
 | 28.5 | **Probe grids** (Unity probe volumes; three's `LightProbeGrid`). A scene gets probe grids placed automatically over its static bounds (spacing a scene setting, default 2 m horizontally, finer near the ground; several grids for large scenes), editable as a component. The bake renders only `static` objects and `baked`/`mixed` lights (other objects hidden during the bake), with bounces. Leak handling three lacks: a probe inside geometry (most of its cubemap sees back faces) is invalid, pushed out along the free direction (virtual offset) or left out and filled from valid neighbours (dilation). The baked grid is a scene artifact loaded like lightmaps (through phase 26's resource manager) in Play and export. Every 3D object samples it per pixel for indirect light in place of the flat ambient/hemisphere term inside the grid; lightmapped surfaces keep their lightmap and skip it. The bake runs in the browser (WebGPU; the Scene view says so on WebGL2, where baked grids still render) with a Bake button next to the lightmap one and a probe debug view. `mixed` lights' indirect light goes into the probes, their direct light stays realtime. |
 | 28.6 | **Cheap local lights and dense foliage** (Unity's "Not Important" lights). Instance sets also get a density falloff by distance (each chunk draws fewer instances further away, on top of 25.7d's chunk LOD), so geometry foliage costs less where it's small on screen. LODs (`<piece>_LOD<n>` nodes, `three-adapter/src/pieces.ts`) get Unity LOD Group settings: switch points per level and a cull size below which the model isn't drawn, per model in its import settings (26.3's sidecar), instead of the engine-wide 8 / 3 / 1.2 / 0.5 % screen-height constants and no culling. On top of that (Skyforge E53, owner 2026-10-01): a project LOD bias (a quality setting that scales every switch point), hysteresis (a level switches back only past a margin, so a model at a switch point doesn't flicker), and instance sets pick levels per copy or per smaller cell instead of one level for a whole chunk from its centre (whichever measures cheaper in 28.1's class); a chunk past the cull size is skipped. A light's importance (auto, per pixel, per vertex) and an object's or material's local-light mode (per pixel, per vertex, none) — a custom TSL lighting setup that evaluates the matching local lights in the vertex stage and interpolates. Instance sets default to per vertex (foliage, dressing); characters and hero objects stay per pixel. Flicker still shows (the lights' uniforms change per frame). The sun stays per pixel everywhere. |
 | 28.7 | **Effect lights without the CPU** (E43). A system with a light output no longer moves the whole effect to the CPU executor: the other systems stay on the GPU and only the light system's few particles are read back (or the light follows the effect's parameters: flicker, colour). Effect lights obey light layers and importance. |
-| 28.8 | **Ambient occlusion and render scale.** SSAO (default on, half resolution) or GTAO (quality) as a project setting, applied to the indirect term so probe-lit corners darken. Render scale (0.5–1) with FSR1 upscaling, and an optional dynamic resolution that lowers the scale when frames run over budget. Settings the game can expose to players. Both renderers. |
-| 28.9 | **Acceptance.** 28.1's class after the phase, split in §6. The limits and settings in `docs/deployment.md`. Each item's contribution is shown by switching it off in the class. |
+| 28.8 | **Ambient occlusion and render scale.** (A 2026-10-02 hotfix already draws GTAO at half resolution, renders without MSAA under a post stack, and caps the render pixel ratio at `MAX_RENDER_PIXEL_RATIO` = 1.) SSAO (default on, half resolution) or GTAO (quality) as a project setting, applied to the indirect term so probe-lit corners darken. Render scale (0.5–1) with FSR1 upscaling, and an optional dynamic resolution that lowers the scale when frames run over budget. Settings the game can expose to players. Both renderers. |
+| 28.9 | **The batcher regroups only on a change** (owner, 2026-10-02). `createAutoBatcher().update` walks the whole scene graph every frame, builds a string key per batchable mesh and refills every group's map, though nothing moved: ~18% of the main thread in Skyforge's village (§6, 2026-10-02 profile). Groups are kept between frames and rebuilt only when membership can have changed (a batchable mesh added, removed, shown/hidden, its material, geometry, shadow flags or layers changed, a refusal reason appearing or going: a scene revision counter the adapter bumps on those, not a per-frame scan); member matrices are copied only for members whose world matrix changed (a moved object, an animated parent). LOD level changes regroup only the LOD's meshes. Diagnostics count regroups and matrix copies per frame; an idle frame of a static scene does neither. |
+| 28.10 | **Static batching** (owner, 2026-10-02; Unity static batching, Godot's `MeshInstance3D` merging, Unreal's merge actors). Automatic instancing needs four copies of one mesh, so a scene of unique placed models draws them one by one: Skyforge's village draws ~640 of its ~1,200 meshes singly (674 distinct geometries, 323 models mostly placed once), and each is drawn again into the shadow map. Meshes of `static` entities (models and boxes) that share a material, shadow flags, light layers (28.3) and a world cell are merged into one geometry per (material, cell) at load (Play, export) and when the static set changes (editor: rebuilt off the frame, with the singles drawn until it is ready). Members keep their entities for picking, colliders and scripts; a static object a script moves or hides leaves its batch (the batch is rebuilt without it), as Unity does. Cells keep frustum culling for large scenes; 28.4's static shadow map draws the merged batches. Memory is shown in diagnostics (merged vertex bytes) and has no count cap. Pixel test: the same scene merged and unmerged on both renderers. |
+| 28.11 | **Acceptance.** 28.1's class after the phase, split in §6. The limits and settings in `docs/deployment.md`. Each item's contribution is shown by switching it off in the class. |
 
 **Done when:**
 - 28.1's class holds p95 ≤ 16.7 ms GPU and CPU frame time at 1080p uncapped
@@ -162,9 +165,21 @@ has a Playwright test for any editor surface. Format changes ride on phase
 | Item | Status |
 |---|---|
 | 28.0 | done 2026-09-29 |
-| 28.1–28.9 | — |
+| 28.1–28.11 | — |
 
-(28.1's before split and 28.9's after split.)
+(28.1's before split and 28.11's after split.)
+
+**Skyforge's village, 2026-10-02 (before the phase, r16998 export, this
+host's Iris Xe, WebGPU, 1920 × 1080, headless Chrome).** 34–48 fps at device
+pixel ratio 1, CPU-bound (main thread 94% busy); 17 fps at device pixel
+ratio 2, GPU-bound (55% busy). ~840 draws a frame: 420 in the main pass, 401
+in the 1024² sun shadow map (re-rendered every frame with every caster), the
+rest post. Main thread: drawing ~31%, the shadow map ~27%, the batcher's
+per-frame regroup ~18% (with `updateMatrixWorld`). 1,200 meshes: 638 drawn
+singly (no partner), 54 block chunks, 22 skinned, 48 batches. The GPU half
+was three defects (MSAA under the post stack, GTAO not building on WebGPU,
+an uncapped device pixel ratio), fixed by the hotfix in 28.8's note; the CPU
+half is 28.4, 28.9 and 28.10.
 
 ## 7. Decision log
 
@@ -194,3 +209,8 @@ has a Playwright test for any editor surface. Format changes ride on phase
   switching at 3.6 m, whole chunks switching at once) folded into 28.6, which
   already replaces the fixed screen fractions: a project LOD bias,
   hysteresis and per-copy or finer-cell LOD for instance sets added (owner).
+- 2026-10-02: Skyforge measured at 12 fps by the owner. Three GPU-side
+  defects were fixed at once as a hotfix (see 28.8's note and §6); the CPU
+  side became items 28.9 (the batcher regroups only on a change) and 28.10
+  (static batching), with acceptance moved to 28.11 (owner). Skyforge removes
+  its inverted-hull outline meshes on its side (owner).
