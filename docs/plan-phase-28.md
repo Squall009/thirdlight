@@ -68,15 +68,20 @@ be traced back to the game that raised it.
   needs no API change.
 - **Keep loaded.** An entity flag `keepLoaded` keeps the object, its
   children and its scripts alive across scene loads, unloads, reloads and a
-  save's `applyWorld`. It replaces the hard-wired rule that a scene holding
-  the camera or the player is never unloaded. Acceptance covers:
+  save's `applyWorld`. It is set in the editor or at run time
+  (`ctx.spawn(…, {keepLoaded: true})`, writable on the entity handle). It
+  replaces the hard-wired rule that a scene holding the camera or the
+  player is never unloaded. Acceptance covers:
   - **duplicates:** a scene loaded again does not create a second copy of a
     kept object whose id is alive; Play refuses one id marked keep-loaded in
     two scenes;
   - **references:** a reference from a kept object to an object of an
     unloaded scene reads as empty, with one Problems line, and never throws;
-  - **saves:** kept objects have their own save section, so a save restores
-    them whatever scenes it lists; old saves still load;
+  - **saves:** the engine saves nothing for kept objects. Loading a save
+    only leaves them alone: `applyWorld` unloads the scenes the save
+    doesn't list but never a kept object. The game decides which scene
+    holds or spawns them before Continue and fills them in from its own save
+    schema; old saves still load;
   - **spawns:** each scene's player spawn (`shell.scenes[].spawn`) places a
     kept player on load.
 - **Rules checked at Play, not per command.** "One player controller per
@@ -127,3 +132,9 @@ surfaces). Format changes share one bump: `project.json` schemaVersion 7
   first; the removal is planned once neither game uses them.
 - 2026-10-02: three.js 0.186.1 is the newest release (npm), the version
   in the lockfile; nothing to take at the start of the phase.
+- 2026-10-02: kept objects get no save section of their own (owner). Every
+  game loads a scene before Continue; the game decides where kept objects
+  are held or spawned and restores their state from its own save schema.
+  An engine section would restore them a second time and fight a game that
+  builds them from save data. The engine only guarantees that loading a
+  save never destroys them.
