@@ -405,7 +405,7 @@ export async function generateScaleProject(dataRoot: string, projectId: string, 
   const driverEntityId = 'bench-driver';
   const sceneEntities: Record<string, unknown>[][] = sceneIds.map(() => []);
   sceneEntities[0]!.push(
-    { id: 'cam-main', name: 'Camera', components: { transform: transform(0, 6, 18), camera: { type: 'perspective', fovY: 60, near: 0.1, far: 200 } } },
+    { id: 'cam-main', name: 'Camera', components: { transform: transform(0, 6, 18), virtualCamera: { rig: 'fixed', far: 200 } } },
     { id: 'light-0001', name: 'Sun', components: { transform: transform(0, 10, 0), light: { type: 'directional', color: '#ffffff', intensity: 1.2, direction: [0.4, -1, -0.3], castShadow: true } } },
     { id: 'light-0002', name: 'Ambient', components: { transform: transform(0, 0, 0), light: { type: 'ambient', color: '#8090a8', intensity: 0.6 } } },
     { id: 'floor', name: 'Floor', components: { transform: transform(0, -0.25, 0), box: { size: [60, 0.5, 60], material: { color: '#707070' } } } },

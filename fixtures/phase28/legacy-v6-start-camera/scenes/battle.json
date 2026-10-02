@@ -1,0 +1,23 @@
+{
+  "storageVersion": 4,
+  "type": "scene",
+  "projectId": "legacy-v6-start-camera",
+  "scene": {
+    "schemaVersion": 4,
+    "sceneId": "battle",
+    "revision": 5,
+    "entities": [
+      {"id":"group-000001","name":"Battle camera","components":{"transform":{"position":[0,0,0],"rotation":[0,0,0,1],"scale":[1,1,1]},"virtualCamera":{"rig":"orbitPoint","distance":15,"pitch":45}}},
+      {"id":"box-000001","name":"Tile","components":{"transform":{"position":[0,0,0],"rotation":[0,0,0,1],"scale":[1,1,1]},"box":{"size":[1,0.2,1],"material":{"color":"#b0b0b0"}}}}
+    ]
+  },
+  "retry": {
+    "recordVersion": 2,
+    "retention": 128,
+    "records": [
+      {"requestId":"req-9d0464e362acc4faca4286b651777a09","digest":"6000307274e98caf3065890ee7bdc5b8163fe29f887274224204c61f1840a78c","appliedRevision":3,"result":{"ok":true,"op":"createScene","projectId":"legacy-v6-start-camera","requestId":"req-9d0464e362acc4faca4286b651777a09","revision":3,"duplicated":false,"change":{"type":"setSceneIndex","previous":{"scenes":[{"sceneId":"scene-main","name":"Main"}],"startScenes":["scene-main"]},"next":{"scenes":[{"sceneId":"scene-main","name":"Main"},{"sceneId":"battle","name":"Battle"}],"startScenes":["scene-main"]}},"history":{"undoDepth":3,"redoDepth":0}}},
+      {"requestId":"req-bdbdad812eabaef720b8ac20bb00891c","digest":"ef018a4004acaaace33c2e131e8f33b54ea5ed7ddfab8608735457f6b82d4123","appliedRevision":4,"result":{"ok":true,"op":"createEntity","projectId":"legacy-v6-start-camera","requestId":"req-bdbdad812eabaef720b8ac20bb00891c","revision":4,"duplicated":false,"createdId":"group-000001","change":{"type":"createEntity","id":"group-000001","entity":{"id":"group-000001","name":"Battle camera","components":{"transform":{"position":[0,0,0],"rotation":[0,0,0,1],"scale":[1,1,1]},"virtualCamera":{"rig":"orbitPoint","distance":15,"pitch":45}}}},"history":{"undoDepth":4,"redoDepth":0},"sceneId":"battle"}},
+      {"requestId":"req-a1bc698ac5dbddd434f269614dee4af9","digest":"26fab7ddc2a610d18a5884ec7e76e17c8342fa33c191704633e7f986d8bbab68","appliedRevision":5,"result":{"ok":true,"op":"createEntity","projectId":"legacy-v6-start-camera","requestId":"req-a1bc698ac5dbddd434f269614dee4af9","revision":5,"duplicated":false,"createdId":"box-000001","change":{"type":"createEntity","id":"box-000001","entity":{"id":"box-000001","name":"Tile","components":{"transform":{"position":[0,0,0],"rotation":[0,0,0,1],"scale":[1,1,1]},"box":{"size":[1,0.2,1],"material":{"color":"#b0b0b0"}}}}},"history":{"undoDepth":5,"redoDepth":0},"sceneId":"battle"}}
+    ]
+  }
+}

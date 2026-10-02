@@ -198,8 +198,8 @@ describe('accepted prefab fixture replay', () => {
       const build = SNAPSHOT_BUILDERS[c.state];
       if (build === undefined) continue;
       // F24 (`request_id_reused`) is a workspace dedup-layer outcome, not a
-      // pure-layer one.
-      if (c.caseId.startsWith('F24')) continue;
+      // pure-layer one. F02 captured the scene camera, which is gone: its shot is captured like any object.
+      if (c.caseId.startsWith('F24') || c.caseId.startsWith('F02')) continue;
       let state = build();
       for (const s of c.steps) {
         const r = applyMutation(state, s.in);
@@ -209,10 +209,10 @@ describe('accepted prefab fixture replay', () => {
       expect(c.expect.durableStateUnchanged).toBe(true);
       replayed += 1;
     }
-    // F01–F09 (prefab), F10–F20 (content/property cases, reachable through
+    // F01, F03–F09 (prefab), F10–F20 (content/property cases, reachable through
     // the r3/r4/r5/r7 snapshots), F21 (`reference_in_use`, the Lantern
     // `model-000003`), F22 (no_change), F23 (stale instantiate).
-    expect(replayed).toBe(23);
+    expect(replayed).toBe(22);
   });
 
   it('reference_in_use: a copy outside the deleted subtree blocks the delete', () => {
@@ -361,16 +361,14 @@ describe('createPrefab', () => {
     expect(redone.state.content?.prefabs).toEqual([definition]);
   });
 
-  it('rejects the three forbidden capture contents with the codes', () => {
+  it('rejects the forbidden capture contents with the codes; a camera is captured like any object', () => {
     const state = stateThrough('M5');
     // nested: capture an instance subtree
     expect(
       failError(mutation(state, 'createPrefab', { prefabId: 'prefab-0002', displayName: 'Copy', sourceEntityId: 'group-000001' })),
     ).toMatchObject({ code: 'prefab_nested_forbidden', prefabInstanceIds: ['group-000001', 'box-000001', 'model-000001', 'model-000002'] });
-    // camera
-    expect(
-      failError(mutation(baseState(), 'createPrefab', { prefabId: 'prefab-0002', displayName: 'World', sourceEntityId: 'group-0000' })),
-    ).toMatchObject({ code: 'prefab_camera_capture_forbidden', cameraId: 'cam-main' });
+    // A camera is a shot: a prefab may carry one (a spawned player brings its own camera).
+    ok(mutation(baseState(), 'createPrefab', { prefabId: 'prefab-0002', displayName: 'World', sourceEntityId: 'group-0000' }));
     // external reference
     expect(
       failError(mutation(stateThrough('M2'), 'createPrefab', { prefabId: 'prefab-0002', displayName: 'Lantern Only', sourceEntityId: 'model-0001' })),

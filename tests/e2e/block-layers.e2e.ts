@@ -115,7 +115,7 @@ async function buildMap(): Promise<{ layer: string; player: string }> {
   await cmd('setBlockType', { block: { blockId: 'stone', name: 'Stone', variants: [{ color: '#6b7280' }], shape: 'full' } });
   await cmd('setBlockType', { block: { blockId: 'grass', name: 'Grass', variants: [{ color: '#3fa34d' }], shape: 'full', metadata: { walkable: true } } });
   // The camera looks down at the map from its south side.
-  const cam = ((await query('queryEntities', { limit: 100, offset: 0 })) as { entities: { id: string; components: Record<string, unknown> }[] }).entities.find((e) => e.components['camera'] !== undefined)!.id;
+  const cam = ((await query('queryEntities', { limit: 100, offset: 0 })) as { entities: { id: string; components: Record<string, unknown> }[] }).entities.find((e) => e.components['virtualCamera'] !== undefined)!.id;
   const pitch = (-35 * Math.PI) / 180;
   await cmd('setTransform', { entityId: cam, transform: { position: [8, 11, 26], rotation: [Math.sin(pitch / 2), 0, 0, Math.cos(pitch / 2)] } });
   await cmd('createEntity', { parentId: null, kind: 'group', name: 'Ground', transform: { position: [0, 0, 0] } });

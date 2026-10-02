@@ -7,6 +7,7 @@ import { upgradeProjectDocsV24, removedComponentMessage, REMOVED_FROM_ENGINE } f
 import { validateSceneV4 } from './scene-v3';
 import { validateContentV4 } from './content';
 import { validateProjectV4 } from './project-v4';
+import { upgradeSceneModel } from './upgrade-scene-model';
 
 const T = { position: [0, 0, 0], rotation: [0, 0, 0, 1], scale: [1, 1, 1] };
 const box = { size: [1, 1, 1], material: { color: '#ffffff' } };
@@ -23,7 +24,7 @@ const content = (extra: Record<string, unknown> = {}): Record<string, unknown> =
 });
 const scene = (entities: unknown[]): Record<string, unknown> => ({ schemaVersion: 4, sceneId: 'scene-main', revision: 1, entities });
 const cam = { id: 'cam-main', components: { transform: T, camera: { type: 'perspective', fovY: 60, near: 0.1, far: 100 } } };
-const MANIFEST = { schemaVersion: 6, engineVersion: '0.1.0', id: 'p', name: 'P', createdAt: '2026-09-23T00:00:00Z' };
+const MANIFEST = { schemaVersion: 7, engineVersion: '0.1.0', id: 'p', name: 'P', createdAt: '2026-09-23T00:00:00Z' };
 
 describe('upgrade: generic data is carried over', () => {
   it('pickups become collectibles adding to the counters they added to; the amount, size and sound carry over', () => {
@@ -50,8 +51,8 @@ describe('upgrade: generic data is carried over', () => {
     expect((u.content as { eventCues: unknown[] }).eventCues).toEqual([{ on: 'event', name: 'collected', entity: 'box-0005', assetId: 'audio-0001' }]);
     expect('game' in (u.content as object)).toBe(false);
     expect(u.notes.join('\n')).toContain('6 pickups became collectibles');
-    // The upgraded scene is a valid v4 scene.
-    expect(validateSceneV4(u.scenes[0]).ok).toBe(true);
+    // The upgraded scene is a valid scene once the later steps ran (its scene camera became a shot).
+    expect(validateSceneV4(upgradeSceneModel(u.content, u.scenes).scenes[0]).ok).toBe(true);
   });
 
   it('a spawn facing becomes a yaw (right +90, left -90, none dropped); a yaw already there wins', () => {
@@ -81,7 +82,8 @@ describe('upgrade: generic data is carried over', () => {
     expect(u.errors).toEqual([]);
     const pf = (u.content as { prefabs: Array<{ entities: Array<{ components: Record<string, unknown> }> }> }).prefabs[0]!;
     expect(pf.entities[0]!.components['collectible']).toEqual({ counter: 'coins' });
-    const v = validateProjectV4(MANIFEST, u.content, u.scenes);
+    const later = upgradeSceneModel(u.content, u.scenes);
+    const v = validateProjectV4(MANIFEST, later.content, later.scenes);
     expect(v.ok, JSON.stringify(v.ok ? [] : v.errors)).toBe(true);
   });
 });

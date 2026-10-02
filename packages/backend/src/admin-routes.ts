@@ -270,6 +270,7 @@ export function makeAdminRoutes(ctx: AdminRoutesContext) {
       lockfile: join(engineRoot, 'package-lock.json'),
     });
     if (result.ok) {
+      for (const w of result.warnings ?? []) recordProblem(projectId, 'export', w.code, `Export: ${w.message}`);
       sendJson(res, 200, result);
       return;
     }

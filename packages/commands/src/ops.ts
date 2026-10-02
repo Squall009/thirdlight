@@ -635,6 +635,7 @@ function stageCreate(
     visible: args.visible ?? true,
     locked: args.locked ?? false,
     static: args.static ?? false,
+    keepLoaded: args.keepLoaded ?? false,
     tags,
   });
   const add = (entity: Record<string, unknown>): void => {
@@ -900,7 +901,7 @@ export function applyDeleteEntity(
 // ---- updateEntity (rename / reparent / flags) --------------------------------------
 
 /** The entity's name, parent (null = absent / root) and own flags. */
-export function entityHeader(e: { name?: string; parentId?: string; active?: boolean; visible?: boolean; locked?: boolean; static?: boolean; tags?: number }): EntityHeader {
+export function entityHeader(e: { name?: string; parentId?: string; active?: boolean; visible?: boolean; locked?: boolean; static?: boolean; keepLoaded?: boolean; tags?: number }): EntityHeader {
   return {
     name: e.name ?? null,
     parentId: e.parentId ?? null,
@@ -908,13 +909,15 @@ export function entityHeader(e: { name?: string; parentId?: string; active?: boo
     visible: e.visible !== false,
     locked: e.locked === true,
     static: e.static === true,
+    keepLoaded: e.keepLoaded === true,
     tags: typeof e.tags === 'number' ? e.tags >>> 0 : 0,
   };
 }
 
 /** The header fields that differ between two headers, in field order. */
 export function headerChangedFields(previous: EntityHeader, next: EntityHeader): EntityHeaderField[] {
-  return (['name', 'parentId', 'active', 'visible', 'locked', 'static', 'tags'] as const).filter((f) => previous[f] !== next[f]);
+  // `keepLoaded` is absent in an older record's header (false).
+  return (['name', 'parentId', 'active', 'visible', 'locked', 'static', 'keepLoaded', 'tags'] as const).filter((f) => (previous[f] ?? false) !== (next[f] ?? false));
 }
 
 /**
@@ -929,6 +932,7 @@ export function fullHeader(h: EntityHeader): EntityHeader {
     visible: h.visible !== false,
     locked: h.locked === true,
     static: h.static === true,
+    keepLoaded: h.keepLoaded === true,
     tags: typeof h.tags === 'number' ? h.tags >>> 0 : 0,
   };
 }
@@ -936,7 +940,7 @@ export function fullHeader(h: EntityHeader): EntityHeader {
 /** Write `header` onto an entity record (only non-default flags are stored). */
 function writeHeader(entity: Record<string, unknown>, header: EntityHeader): Record<string, unknown> {
   const h = fullHeader(header);
-  const { id, name: _n, parentId: _p, active: _a, visible: _v, locked: _l, static: _s, tags: _t, components, ...rest } = entity;
+  const { id, name: _n, parentId: _p, active: _a, visible: _v, locked: _l, static: _s, keepLoaded: _k, tags: _t, components, ...rest } = entity;
   return {
     id,
     ...(h.name !== null ? { name: h.name } : {}),
@@ -945,6 +949,7 @@ function writeHeader(entity: Record<string, unknown>, header: EntityHeader): Rec
     ...(h.visible ? {} : { visible: false }),
     ...(h.locked ? { locked: true } : {}),
     ...(h.static ? { static: true } : {}),
+    ...(h.keepLoaded === true ? { keepLoaded: true } : {}),
     ...(h.tags !== 0 ? { tags: h.tags } : {}),
     ...rest,
     components,
@@ -1029,6 +1034,7 @@ export function applyUpdateEntity(scene: SceneDocument, args: UpdateEntityArgs, 
     visible: args.visible ?? previous.visible,
     locked: args.locked ?? previous.locked,
     static: args.static ?? previous.static,
+    keepLoaded: args.keepLoaded ?? previous.keepLoaded === true,
     tags: previous.tags,
   };
   if (args.tags !== undefined) {

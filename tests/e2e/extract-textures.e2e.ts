@@ -211,7 +211,7 @@ for (const variant of RENDERER_VARIANTS) test(`a model's extracted images are te
   // ---- The scene: the camera close in front, the extracted quad left of centre, the twin right.
   await cmd('setEnvironment', { sceneId: 'scene-main', environment: { sky: { mode: 'color', color: '#303030' } } });
   const ents = ((await query('queryEntities', { limit: 100, offset: 0 })) as { entities: { id: string; components: Record<string, unknown> }[] }).entities;
-  const cam = ents.find((e) => e.components['camera'] !== undefined)!.id;
+  const cam = ents.find((e) => e.components['virtualCamera'] !== undefined)!.id;
   await cmd('setTransform', { entityId: cam, transform: { position: [0, 1.6, 3.6], rotation: [0, 0, 0, 1] } });
   for (const e of ents) if (e.components['box'] !== undefined || e.components['model'] !== undefined) await cmd('setTransform', { entityId: e.id, transform: { position: [0, -50, 0] } });
   const extractedId = String((await cmd('createEntity', { parentId: null, kind: 'model', name: 'Extracted', model: { asset: { assetId: model.assetId } }, transform: { position: [-1.8, 1.6, 0], scale: [3, 3, 3] } }))['createdId']);

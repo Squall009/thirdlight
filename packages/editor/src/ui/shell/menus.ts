@@ -61,13 +61,12 @@ export interface EditorMenuInput {
 export function editorMenus(input: EditorMenuInput): Menu[] {
   const { registry, settings, sceneHeaders, closedScenes, entities, selected, selectedId, selectedComponents, ui, snapping, setSnapping, snapSettings } = input;
   const { gizmos, setGizmos, effectPreview, setEffectPreview, workspace, workspaceDispatch, setCenterTab, setBottomTab, showProject, openProjectSettings, showToolWindow, createPrefabFromSelection, createBlockLayer, resync } = input;
-  const { clipboardRef, copySelection, createCamera, createEmpty, createEntityAt, createFolder, createLight, del, duplicate, newBox, paste, redo, undo } = input.scene;
+  const { clipboardRef, copySelection, createEmpty, createEntityAt, createFolder, createLight, del, duplicate, newBox, paste, redo, undo } = input.scene;
   const { addComponentTo, colliderFromModel, colliderFromModel3D, editComponent } = input.entity;
   const { setDialog, setExportState, setSnapDraft } = input.dialogs;
   const noSelection = selectedId === null;
   const selComponents = selectedComponents;
   const v4Reason = 'gameplay components need a v4 project (scenes)';
-  const hasCamera = entities.some((e) => e.kind === 'camera');
   // The scene allows one directional and one ambient light.
   const hasDirectional = entities.some((e) => e.light?.type === 'directional');
   const hasAmbient = entities.some((e) => e.light?.type === 'ambient');
@@ -145,7 +144,6 @@ export function editorMenus(input: EditorMenuInput): Menu[] {
         { label: 'Folder', onSelect: () => void createFolder() },
         { label: 'Create empty', onSelect: () => void createEmpty() },
         { label: 'Box', onSelect: () => void newBox() },
-        { label: 'Camera', disabled: hasCamera, reason: 'the scene already has its camera (one per scene)', onSelect: () => void createCamera() },
         { label: 'Light', items: [
           { label: 'Directional light', disabled: hasDirectional, reason: lightReason('directional'), onSelect: () => void createLight('directional') },
           { label: 'Ambient light', disabled: hasAmbient, reason: lightReason('ambient'), onSelect: () => void createLight('ambient') },

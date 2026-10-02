@@ -5,7 +5,7 @@
  * package's tests/fixtures.
  */
 
-/** A valid v4 scene: one camera, one group, one
+/** A valid v4 scene: one camera shot, one group, one
  *  box under the group (parent before child). */
 export function baseScene(): { schemaVersion: 4; sceneId: string; revision: number; entities: unknown[] } {
   return {
@@ -18,7 +18,7 @@ export function baseScene(): { schemaVersion: 4; sceneId: string; revision: numb
         name: 'Main Camera',
         components: {
           transform: { position: [0, 0.5, 4], rotation: [0, 0, 0, 1], scale: [1, 1, 1] },
-          camera: { type: 'perspective', fovY: 60, near: 0.1, far: 100 },
+          virtualCamera: { rig: 'fixed' },
         },
       },
       {

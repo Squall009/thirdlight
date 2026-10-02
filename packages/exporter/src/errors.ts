@@ -119,6 +119,8 @@ export type ExportResult =
       contentDigest?: string;
       /** The emitted-closure digest recorded in `meta.json`. */
       outputDigest?: string;
+      /** The start's warnings (scene rules checked before a start; one Problems line each). */
+      warnings?: readonly { code: string; message: string }[];
     }
   | { ok: false; error: ExportError };
 

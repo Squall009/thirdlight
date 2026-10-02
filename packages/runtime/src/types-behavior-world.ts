@@ -558,7 +558,7 @@ export interface BehaviorCamera {
    */
   activate(cameraId: string, options?: CameraBlendOptions): boolean;
   /**
-   * Disable a virtual camera (the view blends to the next one, or back to the scene camera).
+   * Disable a virtual camera (the view blends to the next one, or to the default pose when none is left).
    * @graphNode Deactivate camera
    * @graphLabel cameraId camera
    */
@@ -613,7 +613,7 @@ export interface BehaviorCamera {
    */
   shake(amplitude: number, seconds: number, frequency?: number, rotation?: number, seed?: number): void;
   /**
-   * The live virtual camera, or null while the scene camera shows its own view.
+   * The live virtual camera, or null while none is (the view holds the default pose).
    * @graphPure
    * @graphNode Live camera
    */
@@ -655,7 +655,7 @@ export interface BehaviorCamera {
  */
 export interface BehaviorSockets {
   /**
-   * Attach an object to a node of the target's model, with an optional offset in the node's space (position [x, y, z], rotation quaternion [x, y, z, w], scale [x, y, z]). Without a target the object's own Socket component is used. False (and a warning in the play log) when refused: an unknown object, target or node, a loop, or a physics body or the scene camera.
+   * Attach an object to a node of the target's model, with an optional offset in the node's space (position [x, y, z], rotation quaternion [x, y, z, w], scale [x, y, z]). Without a target the object's own Socket component is used. False (and a warning in the play log) when refused: an unknown object, target or node, a loop, or a physics body.
    * @graphNode Attach to socket
    * @graphLabel entityId object
    * @graphLabel targetId target

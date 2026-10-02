@@ -53,16 +53,16 @@ function BackendError({ error }: { error: GameplayBackendError | null }): JSX.El
 }
 
 // ---------------------------------------------------------------------------
-// Camera tab (the camera and its rig are Inspector sections of
-// the camera object; this tab points there)
+// Camera tab (the engine owns the view: the cameras are shots, each an
+// Inspector section of its object; this tab lists them and the project lens)
 // ---------------------------------------------------------------------------
 
 function CameraTab({ entities, onSelectEntity }: { entities: readonly ProjectedEntity[]; onSelectEntity: (id: string) => void }): JSX.Element {
-  const cameras = entities.filter((e) => e.kind === 'camera');
+  const cameras = entities.filter((e) => e.components['virtualCamera'] !== undefined);
   return (
     <div className="tl-gameplay__tab">
-      <p className="tl-note">A camera's lens (field of view, near, far) and its rig (a virtual camera that tracks a target, with a dead zone) are sections of the camera object in the Inspector.</p>
-      {cameras.length === 0 && <p className="tl-note">No camera in the open scenes (GameObject → Camera).</p>}
+      <p className="tl-note">The game shows the enabled camera with the highest priority. A camera's rig and lens are sections of its object in the Inspector; a camera without a lens of its own uses the project's camera settings (Project Settings → Gameplay → Camera).</p>
+      {cameras.length === 0 && <p className="tl-note">No camera in the open scenes (GameObject → Cameras → Camera): Play shows a default view and warns.</p>}
       {cameras.map((c) => (
         <div className="tl-gameplay__actions" key={c.id}>
           <span>{c.name}</span>

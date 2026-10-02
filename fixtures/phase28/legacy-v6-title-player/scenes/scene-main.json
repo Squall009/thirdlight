@@ -1,0 +1,25 @@
+{
+  "storageVersion": 4,
+  "type": "scene",
+  "projectId": "legacy-v6-title-player",
+  "scene": {
+    "schemaVersion": 4,
+    "sceneId": "scene-main",
+    "revision": 2,
+    "entities": [
+      {"id":"cam-main","name":"Main Camera","components":{"transform":{"position":[0,0.5,4],"rotation":[0,0,0,1],"scale":[1,1,1]},"camera":{"type":"perspective","fovY":60,"near":0.1,"far":100}}},
+      {"id":"light-0001","name":"Sun","components":{"transform":{"position":[0,10,0],"rotation":[0,0,0,1],"scale":[1,1,1]},"light":{"type":"directional","color":"#ffffff","intensity":1.2,"direction":[0.4,-1,-0.3],"castShadow":true}}},
+      {"id":"light-0002","name":"Ambient","components":{"transform":{"position":[0,0,0],"rotation":[0,0,0,1],"scale":[1,1,1]},"light":{"type":"ambient","color":"#8090a8","intensity":0.6}}},
+      {"id":"box-000001","name":"Player","components":{"transform":{"position":[0,1,0],"rotation":[0,0,0,1],"scale":[1,1,1]},"box":{"size":[0.8,1.8,0.8],"material":{"color":"#b0b0b0"}},"controller":{}}},
+      {"id":"spawn-000001","name":"Title spawn","components":{"transform":{"position":[0,0,0],"rotation":[0,0,0,1],"scale":[1,1,1]},"playerSpawn":{}}}
+    ]
+  },
+  "retry": {
+    "recordVersion": 2,
+    "retention": 128,
+    "records": [
+      {"requestId":"req-da3302582f649c1a0136d4579d3b180d","digest":"cac85cb6d765783f0063af76f0373e8ad637ac16a7ae9a0b3cb94412c8edebc3","appliedRevision":1,"result":{"ok":true,"op":"createEntity","projectId":"legacy-v6-title-player","requestId":"req-da3302582f649c1a0136d4579d3b180d","revision":1,"duplicated":false,"createdId":"box-000001","change":{"type":"createEntity","id":"box-000001","entity":{"id":"box-000001","name":"Player","components":{"transform":{"position":[0,1,0],"rotation":[0,0,0,1],"scale":[1,1,1]},"box":{"size":[0.8,1.8,0.8],"material":{"color":"#b0b0b0"}},"controller":{}}}},"history":{"undoDepth":1,"redoDepth":0},"sceneId":"scene-main"}},
+      {"requestId":"req-d407354a22b873c24326653766482b1f","digest":"9e8193a7390aaee366895de558e52bc613fed07fb0a4da122c004d91246fe15c","appliedRevision":2,"result":{"ok":true,"op":"createEntity","projectId":"legacy-v6-title-player","requestId":"req-d407354a22b873c24326653766482b1f","revision":2,"duplicated":false,"createdId":"spawn-000001","change":{"type":"createEntity","id":"spawn-000001","entity":{"id":"spawn-000001","name":"Title spawn","components":{"transform":{"position":[0,0,0],"rotation":[0,0,0,1],"scale":[1,1,1]},"playerSpawn":{}}}},"history":{"undoDepth":2,"redoDepth":0},"sceneId":"scene-main"}}
+    ]
+  }
+}

@@ -139,7 +139,7 @@ async function buildScene(): Promise<{ a: string; b: string }> {
   await cmd('setMaterial', { material: { materialId: 'mat-b', name: 'B', shader: 'unlit', params: { tiling: [0.25, 0.25] }, textures: { map: 'checker-b' } } });
   await cmd('setEnvironment', { sceneId: 'scene-main', environment: { sky: { mode: 'color', color: '#303030' } } });
   const ents = ((await query('queryEntities', { limit: 100, offset: 0 })) as { entities: { id: string; components: Record<string, unknown> }[] }).entities;
-  const cam = ents.find((e) => e.components['camera'] !== undefined)!.id;
+  const cam = ents.find((e) => e.components['virtualCamera'] !== undefined)!.id;
   await cmd('setTransform', { entityId: cam, transform: { position: [0, 0, 6], rotation: [0, 0, 0, 1] } });
   for (const e of ents) if (e.components['box'] !== undefined) await cmd('setTransform', { entityId: e.id, transform: { position: [0, -50, 0] } });
   const ids: string[] = [];

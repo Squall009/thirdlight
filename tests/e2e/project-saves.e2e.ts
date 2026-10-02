@@ -176,7 +176,7 @@ test('a script saves to slot 2 with metadata and a thumbnail; a reload lists it 
   await cmd('setSettings', { settings: { physics_dimension: 3 } });
   await cmd('setBlockType', { block: { blockId: 'stone', name: 'Stone', variants: [{ color: '#6b7280' }], shape: 'full' } });
   await cmd('setBlockType', { block: { blockId: 'wood', name: 'Wood', variants: [{ color: '#a0602a' }], shape: 'full' } });
-  const cam = ((await query('queryEntities', { limit: 100, offset: 0 })) as { entities: { id: string; components: Record<string, unknown> }[] }).entities.find((e) => e.components['camera'] !== undefined)!.id;
+  const cam = ((await query('queryEntities', { limit: 100, offset: 0 })) as { entities: { id: string; components: Record<string, unknown> }[] }).entities.find((e) => e.components['virtualCamera'] !== undefined)!.id;
   const pitch = (-30 * Math.PI) / 180;
   await cmd('setTransform', { entityId: cam, transform: { position: [2, 5, 9], rotation: [Math.sin(pitch / 2), 0, 0, Math.cos(pitch / 2)] } });
   const layer = String((await cmd('createEntity', { parentId: null, kind: 'group', name: 'Ground', transform: { position: [0, 0, 0] } }))['createdId']);

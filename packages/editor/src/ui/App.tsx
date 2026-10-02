@@ -40,6 +40,7 @@ import { extractedImagePictures, TileThumbnails } from '../viewport/thumbnails';
 import { setKtx2DecoderBase, pageSearch, resolveRendererPreference, type EnvironmentLike, type LightingBakeLike, type MaterialDefLike, type MaterialFunctionLike, type MaterialLibrary, type RendererInfo, type WindLike } from '@thirdlight/three-adapter';
 import { editorRendererChoice, setEditorRendererChoice } from '../viewport/renderer-choice';
 import type { EffectComponent } from '@thirdlight/project-model';
+import { viewLensOf } from '@thirdlight/runtime';
 import { Hierarchy, type SceneAction, type SceneHeaderView } from './Hierarchy';
 import { Toolbar } from './Toolbar';
 import { StatusBar } from './StatusBar';
@@ -541,6 +542,11 @@ function EditorApp(): JSX.Element {
   useEffect(() => {
     viewportRef.current?.setPhysicsDimension(physicsDimension);
   }, [physicsDimension]);
+  // The cameras without a lens of their own use the project's (its camera settings), in the Scene view as in Play.
+  const lensKey = JSON.stringify(viewLensOf(settings));
+  useEffect(() => {
+    viewportRef.current?.setViewLens(JSON.parse(lensKey) as { fovY: number; near: number; far: number });
+  }, [lensKey]);
   // The cameras' frustums use the game view's aspect: the preview while it plays, else the window (an export fills it).
   useEffect(() => {
     const update = (): void => {

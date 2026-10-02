@@ -3,7 +3,7 @@
  * scene contributes (its static colliders), the root offset of a load and the
  * live tag index that follows loads and unloads. No I/O, no three.js.
  */
-import { character3DSettingsOf, controllerCapsuleOf, controllerCapsuleOffsetZ, controllerTuningOf, resolveSceneHierarchy, validateSceneV4, type EntityV3, type TagDefinition } from '@thirdlight/project-model';
+import { character3DSettingsOf, controllerCapsuleOf, controllerCapsuleOffsetZ, controllerTuningOf, resolveSceneHierarchy, sceneCamerasAsShots, validateSceneV4, type EntityV3, type TagDefinition } from '@thirdlight/project-model';
 
 import type { ColliderShape3D, PhysicsInitConfig3D, StaticColliderSpec, StaticColliderSpec3D, Vec2 } from './ports';
 import type { BehaviorTagQuery, ModelBounds, PlayerCapsule } from './types';
@@ -382,7 +382,9 @@ export function sceneEntitiesFromDocument(
   doc: unknown,
   sceneId: string,
 ): { ok: true; entities: EntityV3[] } | { ok: false; message: string } {
-  const res = validateSceneV4(doc);
+  // A scene file made before the engine owned the view holds a scene camera: it plays as its shot.
+  const entities = typeof doc === 'object' && doc !== null ? (doc as { entities?: unknown }).entities : undefined;
+  const res = validateSceneV4(Array.isArray(entities) ? { ...(doc as object), entities: sceneCamerasAsShots(entities) } : doc);
   if (!res.ok) {
     const first = res.errors[0];
     return { ok: false, message: `scene "${sceneId}" is invalid: ${res.errors.length} error(s)${first ? `; first: ${first.code} at ${first.path}` : ''}` };

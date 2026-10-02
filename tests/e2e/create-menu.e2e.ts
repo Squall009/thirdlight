@@ -68,7 +68,7 @@ test('the create menu lists the descriptors\' generic entries; each creates its 
   expect(top).toEqual(expect.arrayContaining(['Spawn point', 'Gameplay', 'Cameras', 'Light']));
   const gameplay = await submenu(page, 'Gameplay');
   expect(gameplay).toEqual(GAMEPLAY_2D);
-  expect(await submenu(page, 'Cameras')).toEqual(['Camera track', 'Camera region']);
+  expect(await submenu(page, 'Cameras')).toEqual(['Camera', 'Camera track', 'Camera region']);
   expect(await submenu(page, 'Light')).toContain('Fog volume');
   for (const l of [...top, ...gameplay]) expect(l, l).not.toMatch(GENRE);
 
@@ -98,6 +98,7 @@ test('the create menu lists the descriptors\' generic entries; each creates its 
     [['Gameplay', 'Patrolling object'], 'Patrolling object', 'patrol', 'box'],
     [['Gameplay', 'Hitbox'], 'Hitbox', 'hitbox', 'hitbox'],
     [['Gameplay', 'Climb volume'], 'Climb volume', 'climbVolume', 'sensor'],
+    [['Cameras', 'Camera'], 'Camera', 'virtualCamera', 'camera'],
     [['Cameras', 'Camera track'], 'Camera track', 'virtualCamera', 'camera'],
     [['Cameras', 'Camera region'], 'Camera region', 'cameraRegion', 'camera'],
     [['Light', 'Fog volume'], 'Fog volume', 'fogVolume', 'fog'],
@@ -116,6 +117,8 @@ test('the create menu lists the descriptors\' generic entries; each creates its 
   expect(one('Scene transition').components['trigger']).toMatchObject({ signal: 'transition', sceneTransition: { scene: 'scene-far' } });
   expect(one('Collectible').components['collectible']).toEqual({ counter: 'items' });
   expect(one('Patrolling object').components['patrol']).toMatchObject({ mode: 'edges' });
+  // A plain camera: the view from where it is placed (any number of cameras; the engine owns the view).
+  expect(one('Camera').components['virtualCamera']).toEqual({ rig: 'fixed' });
   expect(one('Camera track').components['virtualCamera']).toMatchObject({ rig: 'track' });
   expect(one('Camera region').components['cameraRegion']).toEqual({ size: [10, 6] });
   // No genre components were made.

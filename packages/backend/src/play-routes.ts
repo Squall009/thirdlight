@@ -408,6 +408,8 @@ export function makePlayRoutes(ctx: PlayRoutesContext) {
       };
       playSourceMaps = new Map(builtM3.built.sourceMaps.map((m) => [m.outputDigest, m] as const));
       placeholders = builtM3.built.placeholders;
+      // The start's warnings (scene rules checked at Play, not per command): one Problems line each.
+      for (const c of builtM3.built.checks) recordProblem(projectId, 'play', c.code, c.message);
       if (placeholders.length > 0) recordProblem(projectId, 'play', 'play_placeholders', `Play started with placeholders for ${placeholders.length} missing file${placeholders.length === 1 ? '' : 's'} no start scene draws: ${placeholders.slice(0, 4).map((p) => p.path ?? p.assetId).join(', ')}${placeholders.length > 4 ? ', …' : ''}`);
     }
     const published = playContent.publish({

@@ -70,7 +70,6 @@ export interface SimEntityData {
   name?: string;
   transform: TransformState;
   box?: { size: Vec3; material: { color: string } };
-  camera?: { type: 'perspective'; fovY: number; near: number; far: number };
   /** v2 marker: the entity carries `components.collider`. */
   hasCollider?: true;
   /** v2 marker: the entity carries `components.controller`. */

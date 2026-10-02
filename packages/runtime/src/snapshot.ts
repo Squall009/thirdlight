@@ -12,7 +12,7 @@ import { ID_RE } from '@thirdlight/project-model';
 import { validateModelRig, type ModelRig } from '@thirdlight/project-model';
 import { validateModes, type RuntimeModes } from '@thirdlight/project-model';
 import { validateBlockTypes, validateCellFields, type BlockType, type CellField } from '@thirdlight/project-model';
-import { resolveSceneHierarchy, validateMergedSceneV4, validateSceneV3, validateTagRegistry, validateAnimators, validatePrefabDefinitions, type AnimatorController, type PrefabDefinition, type TagDefinition, type ModelErrorV2, type ModelErrorV3, type SceneV3, type RuntimeUiDocumentRow } from '@thirdlight/project-model';
+import { resolveSceneHierarchy, sceneCamerasAsShots, validateMergedSceneV4, validateSceneV3, validateTagRegistry, validateAnimators, validatePrefabDefinitions, type AnimatorController, type PrefabDefinition, type TagDefinition, type ModelErrorV2, type ModelErrorV3, type SceneV3, type RuntimeUiDocumentRow } from '@thirdlight/project-model';
 import { MAX_INPUT_ACTIONS, MAX_REVISION } from '@thirdlight/project-model';
 import type { RuntimeError } from './errors';
 import type { ModelBounds, RuntimeSceneRow, RuntimeScene, RuntimeSnapshot } from './types';
@@ -176,8 +176,11 @@ export function validateRuntimeSnapshot(
     };
   }
   const sceneVersion: 3 | 4 = rawVersion;
+  // A scene made before the engine owned the view holds a scene camera: it plays as the shot the format upgrade makes of it.
+  const rawEntities = (snap.scene as { entities?: unknown }).entities;
+  const shotScene = sceneVersion === 4 && Array.isArray(rawEntities) ? { ...(snap.scene as object), entities: sceneCamerasAsShots(rawEntities) } : snap.scene;
   // v4: the start scenes merged into one runtime scene (no per-scene limits).
-  const sceneResult = sceneVersion === 4 ? validateMergedSceneV4(snap.scene) : validateSceneV3(snap.scene);
+  const sceneResult = sceneVersion === 4 ? validateMergedSceneV4(shotScene) : validateSceneV3(snap.scene);
   if (!sceneResult.ok) {
     const errors: readonly ModelErrorV3[] = sceneResult.errors;
     return {
@@ -192,7 +195,8 @@ export function validateRuntimeSnapshot(
   }
   // The game never sees folders or inactive entities (resolved
   // once here, at scene load).
-  const scene: RuntimeScene = resolveSceneHierarchy(sceneResult.normalized);
+  const resolved = resolveSceneHierarchy(sceneResult.normalized);
+  const scene: RuntimeScene = sceneVersion === 3 ? { ...resolved, entities: sceneCamerasAsShots(resolved.entities) } : resolved;
   if (scene.revision !== revision) {
     return {
       error: {

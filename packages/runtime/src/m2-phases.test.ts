@@ -169,10 +169,11 @@ describe('M2 phase order', () => {
     ]);
     expect(missing).toMatchObject({ code: 'transform_owner_conflict', reason: 'nope-9999' });
 
+    // A camera is a shot like any object: a module may pose it.
     const camera = instantiateError(['thirdlight.test:a'], [
       probeSpec({ id: 'thirdlight.test:a', phases: ['transform'], owners: ['cam-main'] }),
     ]);
-    expect(camera).toMatchObject({ code: 'transform_owner_forbidden', reason: 'camera' });
+    expect(camera).toBeNull();
 
     const physicsEntity = instantiateError(['thirdlight.test:a'], [
       probeSpec({ id: 'thirdlight.test:a', phases: ['transform'], owners: ['char-0001'] }),

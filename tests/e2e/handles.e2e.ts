@@ -277,23 +277,23 @@ test('a spawn\'s yaw, the camera\'s real frustum, an animator\'s starting parame
   await undo(page);
   await expect.poll(async () => comp('spawn-0001', 'playerSpawn')).toEqual({});
 
-  // The camera's frustum follows its fields and the game's aspect.
-  const stored = (await comp('cam-main', 'camera'))! as { fovY: number; near: number; far: number };
+  // The camera's frustum follows its lens (the project's when it sets none) and the game's aspect.
   await select(page, 'cam-main', false);
-  const frustumNow = async (): Promise<Record<string, number>> => JSON.parse((await view(page).getAttribute('data-camera-frustum')) || '{}') as Record<string, number>;
-  await expect.poll(async () => (await frustumNow())['fovY']).toBe(stored.fovY);
+  const frustumNow = async (): Promise<Record<string, number>> => JSON.parse((await view(page).getAttribute('data-virtual-camera')) || '{}') as Record<string, number>;
+  // No lens of its own: the project's (the engine defaults until the project sets its camera settings).
+  await expect.poll(async () => (await frustumNow())['fovY']).toBe(60);
   const frustum = await frustumNow();
-  expect([frustum['near'], frustum['far']]).toEqual([stored.near, stored.far]);
+  expect([frustum['near'], frustum['far']]).toEqual([0.1, 100]);
   expect(frustum['aspect']).toBeGreaterThan(0.5);
-  const fov = inspector.getByLabel('camera fovY', { exact: true });
-  await fov.fill(String(stored.fovY + 10));
+  const fov = inspector.getByLabel('virtualCamera fovY', { exact: true });
+  await fov.fill('70');
   await fov.press('Enter');
-  await expect.poll(async () => (await frustumNow())['fovY']).toBe(stored.fovY + 10);
+  await expect.poll(async () => (await frustumNow())['fovY']).toBe(70);
   await undo(page);
-  await expect.poll(async () => (await frustumNow())['fovY']).toBe(stored.fovY);
+  await expect.poll(async () => (await frustumNow())['fovY']).toBe(60);
   // Another selection hides it.
   await select(page, 'spawn-0001', false);
-  await expect(view(page)).toHaveAttribute('data-camera-frustum', '');
+  await expect(view(page)).toHaveAttribute('data-virtual-camera', '');
 
   // animator.parameters: the player's controller parameters, each with its starting value.
   await select(page, 'model-0001', false);

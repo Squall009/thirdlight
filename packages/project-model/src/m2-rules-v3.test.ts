@@ -290,6 +290,9 @@ describe('gameplay settings resolution', () => {
       'audio_spatial',
       // The texture budget of Play and the export (MiB; absent: 512).
       'texture_budget_mb',
+      'camera_fov_deg',
+      'camera_near_m',
+      'camera_far_m',
     ]);
     // Every optional key the registry has may follow the six in a manifest, in registry order.
     expect([...M3_OPTIONAL_SETTINGS_KEYS]).toEqual(M2_SETTINGS_KEYS.filter((k) => k.optional === true).map((k) => k.key));

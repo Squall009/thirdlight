@@ -88,31 +88,7 @@ export function useSceneEditing(deps: SceneEditingDeps) {
     [clientRef, reportFailure, selectLater, viewportRef],
   );
   const createEmpty = useCallback(() => createEntityAt('Create empty', { kind: 'group', name: `entity-${Date.now() % 10000}` }), [createEntityAt]);
-  // The camera and the lights are the descriptor's add value and
-  // presets (one table for this menu and "+ Add component").
-  const createCamera = useCallback(() => {
-    const camera = presetValue(registry, 'camera');
-    if (camera === null) return setNotice('Create camera failed: the component defaults have not arrived yet');
-    const c = clientRef.current;
-    if (!c) return;
-    // 4 m in front of the point the Scene view looks at, facing it — the starter camera's framing of the origin.
-    const focus = viewportRef.current?.focusPoint() ?? [0, 0.5, 0];
-    const at = focus.map((v) => Math.round(v * 4) / 4);
-    // createEntity does not add cameras (its component set is closed): an object, then its camera (a setComponent add).
-    const select = selectLater();
-    void (async () => {
-      const made = await c.command('createEntity', { parentId: null, kind: 'group', name: 'Camera', transform: { position: [at[0]!, at[1]!, at[2]! + 4] } }, c.projection.revision);
-      if (!made.ok || made.createdId === undefined) return reportFailure('Create camera', made);
-      const res = await c.setComponent(made.createdId, 'camera', camera, c.projection.revision);
-      if (!res.ok) {
-        // Refused (a v4 project keeps exactly one camera in its start scenes): take the empty object away again.
-        reportFailure('Create camera', res);
-        await c.command('deleteEntity', { entityId: made.createdId }, c.projection.revision);
-        return;
-      }
-      select(made.createdId);
-    })();
-  }, [clientRef, registry, reportFailure, selectLater, setNotice, viewportRef]);
+  // The lights are the descriptor's add value and presets (one table for this menu and "+ Add component").
   const createLight = useCallback(
     (type: 'directional' | 'ambient' | 'point' | 'spot' | 'hemisphere') => {
       const name = `${type.charAt(0).toUpperCase()}${type.slice(1)} light`;
@@ -335,7 +311,7 @@ export function useSceneEditing(deps: SceneEditingDeps) {
   }, [clientRef]);
 
   return {
-    newBox, del, rename, createEntityAt, createEmpty, createCamera, createLight, duplicate, clipboardRef, copySelection, paste, editRef, editCopiesRef,
+    newBox, del, rename, createEntityAt, createEmpty, createLight, duplicate, clipboardRef, copySelection, paste, editRef, editCopiesRef,
     move, sceneAction, setEntityTags, setFlag, createFolder, editTransform, undo, redo,
   };
 }

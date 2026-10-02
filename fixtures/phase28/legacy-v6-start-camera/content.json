@@ -1,0 +1,28 @@
+{
+  "storageVersion": 5,
+  "type": "project-content",
+  "projectId": "legacy-v6-start-camera",
+  "revision": 3,
+  "content": {
+    "assets": [],
+    "settings": {
+      "physics_dimension": 3
+    },
+    "behaviorTrust": {
+      "entries": []
+    },
+    "scenes": [
+      {"sceneId":"scene-main","name":"Main"},
+      {"sceneId":"battle","name":"Battle"}
+    ],
+    "startScenes": ["scene-main"]
+  },
+  "retry": {
+    "recordVersion": 2,
+    "retention": 128,
+    "records": [
+      {"requestId":"req-28515e2fbec0e28d59f78c7d54a1d873","digest":"5db399a8e1663381c2058084afe4838dc9e0ff5d0c118cc84e0a729309e251ee","appliedRevision":1,"result":{"ok":true,"op":"setSettings","projectId":"legacy-v6-start-camera","requestId":"req-28515e2fbec0e28d59f78c7d54a1d873","revision":1,"duplicated":false,"change":{"type":"setSettings","previous":{},"next":{"physics_dimension":3},"changedKeys":["physics_dimension"]},"history":{"undoDepth":1,"redoDepth":0},"sceneId":"scene-main"}},
+      {"requestId":"req-9d0464e362acc4faca4286b651777a09","digest":"6000307274e98caf3065890ee7bdc5b8163fe29f887274224204c61f1840a78c","appliedRevision":3,"result":{"ok":true,"op":"createScene","projectId":"legacy-v6-start-camera","requestId":"req-9d0464e362acc4faca4286b651777a09","revision":3,"duplicated":false,"change":{"type":"setSceneIndex","previous":{"scenes":[{"sceneId":"scene-main","name":"Main"}],"startScenes":["scene-main"]},"next":{"scenes":[{"sceneId":"scene-main","name":"Main"},{"sceneId":"battle","name":"Battle"}],"startScenes":["scene-main"]}},"history":{"undoDepth":3,"redoDepth":0}}}
+    ]
+  }
+}

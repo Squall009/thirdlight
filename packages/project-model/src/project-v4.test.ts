@@ -24,9 +24,9 @@ const GRASS = MODEL.assetId;
 const T = { position: [0, 0, 0], rotation: [0, 0, 0, 1], scale: [1, 1, 1] };
 const at = (x: number, y = 0) => ({ position: [x, y, 0], rotation: [0, 0, 0, 1], scale: [1, 1, 1] });
 const DIGEST = 'ab'.repeat(32);
-const camera = (id = 'cam-main') => ({ id, components: { transform: T, camera: { type: 'perspective', fovY: 60, near: 0.1, far: 100 } } });
+const camera = (id = 'cam-main') => ({ id, components: { transform: T, virtualCamera: { rig: 'fixed' } } });
 const scene = (sceneId: string, entities: unknown[]) => ({ schemaVersion: 4, sceneId, revision: 1, entities });
-const MANIFEST = { schemaVersion: 6, engineVersion: '0.1.0', id: 'p', name: 'P', createdAt: '2026-09-23T00:00:00Z' };
+const MANIFEST = { schemaVersion: 7, engineVersion: '0.1.0', id: 'p', name: 'P', createdAt: '2026-09-23T00:00:00Z' };
 const content = (extra: Record<string, unknown> = {}) => ({
   assets: [MODEL],
   prefabs: [],
@@ -54,7 +54,7 @@ describe('scene v4', () => {
     expect(validateSceneV4(scene('scene-core', [camera()])).ok).toBe(true);
   });
 
-  it('refuses bad instance sets, the removed game components and two cameras', () => {
+  it('refuses bad instance sets, the removed game components and the scene camera', () => {
     const bad = (entities: unknown[], extra: Record<string, unknown> = {}) => validateSceneV4({ ...scene('scene-a', entities), ...extra });
     expect(bad([{ id: 'g-1', components: { transform: T, instances: { asset: { assetId: GRASS }, buffer: 'nope', count: 1 } } }]).ok).toBe(false);
     expect(bad([{ id: 'g-1', components: { transform: T, instances: { asset: { assetId: GRASS }, buffer: DIGEST, count: 70000 } } }]).ok).toBe(false);
@@ -65,7 +65,11 @@ describe('scene v4', () => {
       expect(r.ok).toBe(false);
       if (!r.ok) expect(r.errors.map((e) => [e.code, e.path])).toEqual([['component_unknown', `/entities/0/components/${Object.keys(removed)[0]}`]]);
     }
-    expect(bad([camera('c-1'), camera('c-2')]).ok).toBe(false);
+    // The scene camera is gone (the engine owns the view): refused, saying what replaced it; any number of shots is fine.
+    const sceneCamera = bad([{ id: 'c-1', components: { transform: T, camera: { type: 'perspective', fovY: 60, near: 0.1, far: 100 } } }]);
+    expect(sceneCamera.ok).toBe(false);
+    if (!sceneCamera.ok) expect(sceneCamera.errors[0]).toMatchObject({ code: 'component_unknown', path: '/entities/0/components/camera', message: expect.stringContaining('the engine owns the view') });
+    expect(bad([camera('c-1'), camera('c-2')]).ok).toBe(true);
   });
 });
 
@@ -147,11 +151,12 @@ describe('project v4', () => {
   it('refuses duplicate ids across scenes, one-per-game things outside the start set, and dangling references', () => {
     const dup = scene('scene-level', [{ id: 'cam-main', components: { transform: T } }]);
     expect(JSON.stringify(validateProjectV4(MANIFEST, content(), [core, dup]))).toContain('unique across the project');
-    const camLevel = scene('scene-level', [{ id: 'cam-0009', components: { transform: T, camera: { fovY: 60, near: 0.1, far: 100 } } }]);
-    expect(JSON.stringify(validateProjectV4(MANIFEST, content(), [core, camLevel]))).toContain('start_scene_only');
+    // A camera may sit in any scene, and a project needs none to validate (Play warns when no camera is live).
+    const camLevel = scene('scene-level', [{ id: 'cam-0009', components: { transform: T, virtualCamera: { rig: 'fixed' } } }]);
+    const two = content({ scenes: [{ sceneId: 'scene-core', name: 'Core' }, { sceneId: 'scene-level', name: 'Level' }] });
+    expect(validateProjectV4(MANIFEST, two, [core, camLevel]).ok).toBe(true);
     expect(validateProjectV4(MANIFEST, content({ startScenes: ['scene-nope'] }), [core]).ok).toBe(false);
-    const noCam = scene('scene-core', []);
-    expect(JSON.stringify(validateProjectV4(MANIFEST, content(), [noCam]))).toContain('camera_count_invalid');
+    expect(validateProjectV4(MANIFEST, content({ scenes: [{ sceneId: 'scene-core', name: 'Core' }] }), [scene('scene-core', [])]).ok).toBe(true);
     // A trigger's scene transition names existing scenes and a player spawn in the scene it loads (or its own).
     const door = (t: Record<string, unknown>) => scene('scene-exit', [{ id: 'door-0001', components: { transform: T, trigger: { size: [1, 1], signal: 'door', sceneTransition: t } } }]);
     expect(validateProjectV4(MANIFEST, content(), [core, level, door({ scene: 'scene-level', spawn: 'spawn-0002', unload: ['scene-exit'] })]).ok).toBe(true);

@@ -7,7 +7,7 @@
 //   expected.json index) as byte-exact files with REAL SHA-256 digests, in
 //   the storage-v4 layout (phase 12 c; packages/workspace/src/store-v4.ts):
 //
-//     project.json            manifest schemaVersion 5 (assets as game-folder files with sidecars; 4 before)
+//     project.json            manifest schemaVersion 7 (the engine owns the view: no scene camera entity; 5: assets as game-folder files)
 //     content.json            { storageVersion 5, type "project-content",
 //                               projectId, revision, content, retry }
 //     scenes/<sceneId>.json   { storageVersion 4, type "scene", projectId,
@@ -90,9 +90,10 @@ const deepCopy = (v) => JSON.parse(JSON.stringify(v));
 
 // ---------------------------------------------------------------------------
 // the v4 project a new project starts as (createProject, then the automatic
-// v3 → v4 upgrade on open): the M1 default camera plus the two starter
-// lights (workspace migration.ts `initialEnvelopeBytesV3`), one scene
-// "scene-main" named "Main", an empty content catalog.
+// v3 → v4 upgrade on open): the M1 default camera — the fixed, lowest-priority
+// shot kept loaded the upgrade makes of it — plus the two starter lights
+// (workspace migration.ts `initialEnvelopeBytesV3`), one scene "scene-main"
+// named "Main", an empty content catalog.
 // ---------------------------------------------------------------------------
 
 const SCENE_ID = "scene-main";
@@ -104,9 +105,10 @@ function defaultEntities() {
     {
       id: "cam-main",
       name: "Main Camera",
+      keepLoaded: true,
       components: {
         transform: { position: [0, 0.5, 4], ...IDENTITY() },
-        camera: { type: "perspective", fovY: 60, near: 0.1, far: 100 },
+        virtualCamera: { rig: "fixed", priority: -1000 },
       },
     },
     {
@@ -145,7 +147,7 @@ function defaultContent() {
 }
 
 function manifestObj(id, name, createdAt) {
-  return { schemaVersion: 5, engineVersion: "0.1.0", id, name, createdAt };
+  return { schemaVersion: 7, engineVersion: "0.1.0", id, name, createdAt };
 }
 
 const RETENTION = 128;
@@ -287,12 +289,6 @@ function parentChain(scene, id) {
   return chain;
 }
 
-function cameraIdOf(scene) {
-  const c = scene.entities.find((e) => e.components.camera);
-  if (!c) throw new Error("fixture-tool: no camera");
-  return c.id;
-}
-
 // light structural validation (tool self-check; NOT the contract validator)
 function validateSceneLight(scene) {
   const ids = scene.entities.map((e) => e.id);
@@ -305,8 +301,6 @@ function validateSceneLight(scene) {
     if (e.parentId !== undefined && !seen.has(e.parentId)) throw new Error(`parent-before-child violated for ${e.id}`);
     seen.add(e.id);
   }
-  const cams = scene.entities.filter((e) => e.components.camera);
-  if (cams.length !== 1) throw new Error(`camera count ${cams.length}`);
 }
 
 const maskRevision = (scene) => ({ ...scene, revision: 0 });
@@ -569,7 +563,7 @@ function queryProjectResult({ projectId, manifest, snap, history, workspace }) {
     projectId,
     revision: revisionOf(snap),
     manifest,
-    scene: { sceneId: scene.sceneId, schemaVersion: 4, entityCount: scene.entities.length, cameraId: cameraIdOf(scene) },
+    scene: { sceneId: scene.sceneId, schemaVersion: 4, entityCount: scene.entities.length },
     scenes: snap.content.scenes.map((e) => ({ sceneId: e.sceneId, name: e.name, entityCount: scene.entities.length })),
     startScenes: [...snap.content.startScenes],
     history,
@@ -1031,7 +1025,7 @@ put(sc("09-second-backend-ownership", "disk-after/.thirdlight/ownership.json"), 
   const validEntry = (name, project, snap, note) => ({ dir: `envelope/valid/${name}`, project, revision: revisionOf(snap), records: recordsOf(snap).length, note });
   const idx = {
     indexVersion: 2,
-    storage: "v4: project.json (manifest schemaVersion 5), content.json (storageVersion 5, type project-content: project-wide settings; resources are files), scenes/<sceneId>.json (storageVersion 4, type scene, scene schemaVersion 4)",
+    storage: "v4: project.json (manifest schemaVersion 7), content.json (storageVersion 5, type project-content: project-wide settings; resources are files), scenes/<sceneId>.json (storageVersion 4, type scene, scene schemaVersion 4)",
     contracts: {
       commands: "docs/contracts/commands.md",
       workspace: "docs/contracts/workspace.md (storage v4: packages/workspace/src/store-v4.ts)",

@@ -128,12 +128,11 @@ test('every component kind: added, edited (one undo) and removed through the Ins
     await expect.poll(comp(id, c.name), { message: `remove ${c.name}` }).toBeUndefined();
   }
 
-  // Exclusions say why: with a box on, a model or a camera cannot be added.
+  // Exclusions say why: with a box on, a model cannot be added.
   await add(page, 'Box');
   await expect.poll(comp(id, 'box')).toBeDefined();
   const options = inspector(page).getByLabel('add component', { exact: true }).locator('option');
-  await expect(options.filter({ hasText: /^Model — an object shows one model, box or camera/ })).toHaveCount(1);
-  await expect(options.filter({ hasText: /^Camera — an object shows one model, box or camera/ })).toHaveCount(1);
+  await expect(options.filter({ hasText: /^Model — an object shows one model or box/ })).toHaveCount(1);
   await expect(options.filter({ hasText: /^Instance set — made by the/ })).toHaveCount(1);
   // A surface needs a box or a model: it is on offer now; its presets are a custom widget.
   await add(page, 'Surface');
@@ -160,22 +159,18 @@ test('every component kind: added, edited (one undo) and removed through the Ins
   await inspector(page).getByRole('button', { name: 'remove box', exact: true }).click();
   await expect.poll(comp(id, 'box')).toBeUndefined();
 
-  // The camera: lens fields (one undo). The start scenes hold exactly one active
-  // camera, so adding a second one or removing the only one is refused — the
-  // Inspector says why and nothing changes.
+  // The camera is a shot (the engine owns the view): its lens fields (one undo); any object takes a camera too.
   await select(page, 'cam-main');
-  await field(page, 'camera fovY', '45');
-  await field(page, 'camera far', '250');
-  await expect.poll(comp('cam-main', 'camera')).toEqual({ type: 'perspective', fovY: 45, near: 0.1, far: 250 });
+  await field(page, 'virtualCamera fovY', '45');
+  await field(page, 'virtualCamera far', '250');
+  await expect.poll(comp('cam-main', 'virtualCamera')).toEqual({ rig: 'fixed', priority: -1000, fovY: 45, far: 250 });
   await undo(page);
-  await expect.poll(comp('cam-main', 'camera')).toEqual({ type: 'perspective', fovY: 45, near: 0.1, far: 100 });
-  await inspector(page).getByRole('button', { name: 'remove camera', exact: true }).click();
-  await expect(inspector(page).getByRole('alert').filter({ hasText: 'exactly one active camera' })).toBeVisible();
-  expect(await comp('cam-main', 'camera')()).toBeDefined();
+  await expect.poll(comp('cam-main', 'virtualCamera')).toEqual({ rig: 'fixed', priority: -1000, fovY: 45 });
   await select(page, id);
-  await add(page, 'Camera');
-  await expect(inspector(page).getByRole('alert').filter({ hasText: 'camera_count_invalid' })).toBeVisible();
-  expect(await comp(id, 'camera')()).toBeUndefined();
+  await add(page, 'Virtual camera: Fixed / look-at');
+  await expect.poll(comp(id, 'virtualCamera')).toEqual({ rig: 'fixed' });
+  await inspector(page).getByRole('button', { name: 'remove virtualCamera', exact: true }).click();
+  await expect.poll(comp(id, 'virtualCamera')).toBeUndefined();
 
   // Picked components: a script, a model (then an animator on it), a sound.
   await select(page, id);

@@ -89,7 +89,6 @@ describe('capture planning from a real projected subtree', () => {
       (e): CaptureEntityView => ({
         id: e.id,
         parentId: e.parentId ?? null,
-        camera: (e.components as Record<string, unknown>)['camera'] !== undefined,
         prefab: ((e.components as Record<string, unknown>)['prefab'] as CaptureEntityView['prefab']) ?? null,
         behavior: (() => {
           const b = (e.components as Record<string, unknown>)['behavior'] as { behaviorId: string; values: Record<string, unknown> } | undefined;
@@ -104,17 +103,13 @@ describe('capture planning from a real projected subtree', () => {
       scene,
       existingPrefabIds: ['prefab-0001'],
       declarations: DECLARATIONS,
-      cameraId: 'cam-main',
     });
     expect(plan.ok).toBe(true);
     if (!plan.ok) return;
     expect(plan.command.args).toEqual({ prefabId: 'prefab-0002', displayName: 'Station Kit Copy', sourceEntityId: 'group-0001' });
 
-    // The scene camera cannot be captured.
-    expect(preflightCreatePrefab({ prefabId: 'prefab-0002', displayName: 'x', sourceEntityId: 'cam-main', scene, existingPrefabIds: [], declarations: DECLARATIONS })).toMatchObject({
-      ok: false,
-      error: { code: 'prefab_camera_capture_forbidden' },
-    });
+    // A camera is a shot: it is captured like any object.
+    expect(preflightCreatePrefab({ prefabId: 'prefab-0002', displayName: 'x', sourceEntityId: 'cam-main', scene, existingPrefabIds: [], declarations: DECLARATIONS })).toMatchObject({ ok: true });
     // A materialized copy is itself a copy: nested capture is forbidden.
     expect(preflightCreatePrefab({ prefabId: 'prefab-0002', displayName: 'x', sourceEntityId: 'group-000002', scene, existingPrefabIds: [], declarations: DECLARATIONS })).toMatchObject({
       ok: false,

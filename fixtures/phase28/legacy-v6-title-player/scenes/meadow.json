@@ -1,0 +1,23 @@
+{
+  "storageVersion": 4,
+  "type": "scene",
+  "projectId": "legacy-v6-title-player",
+  "scene": {
+    "schemaVersion": 4,
+    "sceneId": "meadow",
+    "revision": 5,
+    "entities": [
+      {"id":"spawn-000002","name":"Meadow spawn","components":{"transform":{"position":[5,0,0],"rotation":[0,0,0,1],"scale":[1,1,1]},"playerSpawn":{}}},
+      {"id":"box-000002","name":"Ground","components":{"transform":{"position":[5,-0.5,0],"rotation":[0,0,0,1],"scale":[1,1,1]},"box":{"size":[20,1,4],"material":{"color":"#b0b0b0"}}}}
+    ]
+  },
+  "retry": {
+    "recordVersion": 2,
+    "retention": 128,
+    "records": [
+      {"requestId":"req-902347a8cf30461a01a86b771c7dd4c7","digest":"c97d3b1ed2386efac1485f37d00f68a6e6ccf5cf85d6ae5482ff773f88456203","appliedRevision":3,"result":{"ok":true,"op":"createScene","projectId":"legacy-v6-title-player","requestId":"req-902347a8cf30461a01a86b771c7dd4c7","revision":3,"duplicated":false,"change":{"type":"setSceneIndex","previous":{"scenes":[{"sceneId":"scene-main","name":"Main"}],"startScenes":["scene-main"]},"next":{"scenes":[{"sceneId":"scene-main","name":"Main"},{"sceneId":"meadow","name":"Meadow"}],"startScenes":["scene-main"]}},"history":{"undoDepth":3,"redoDepth":0}}},
+      {"requestId":"req-24cf34cb88b36bdc5cb24b2dcf983701","digest":"6bf93931404cbf808bee3c4139ff7b1915be3c9e14239d45713339ebb5349017","appliedRevision":4,"result":{"ok":true,"op":"createEntity","projectId":"legacy-v6-title-player","requestId":"req-24cf34cb88b36bdc5cb24b2dcf983701","revision":4,"duplicated":false,"createdId":"spawn-000002","change":{"type":"createEntity","id":"spawn-000002","entity":{"id":"spawn-000002","name":"Meadow spawn","components":{"transform":{"position":[5,0,0],"rotation":[0,0,0,1],"scale":[1,1,1]},"playerSpawn":{}}}},"history":{"undoDepth":4,"redoDepth":0},"sceneId":"meadow"}},
+      {"requestId":"req-bb290ad0d3fb56ee440e27ffed229cd0","digest":"861305a9452aaa3eeda69f2ca3ebf48562b9555cd45e88e1caab2315692872fd","appliedRevision":5,"result":{"ok":true,"op":"createEntity","projectId":"legacy-v6-title-player","requestId":"req-bb290ad0d3fb56ee440e27ffed229cd0","revision":5,"duplicated":false,"createdId":"box-000002","change":{"type":"createEntity","id":"box-000002","entity":{"id":"box-000002","name":"Ground","components":{"transform":{"position":[5,-0.5,0],"rotation":[0,0,0,1],"scale":[1,1,1]},"box":{"size":[20,1,4],"material":{"color":"#b0b0b0"}}}}},"history":{"undoDepth":5,"redoDepth":0},"sceneId":"meadow"}}
+    ]
+  }
+}

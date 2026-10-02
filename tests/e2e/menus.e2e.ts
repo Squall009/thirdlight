@@ -23,10 +23,12 @@ async function open(page: Page): Promise<number> {
   return rows(page).count();
 }
 
-test('GameObject menu creates lights, spawns, empties; one camera and one light of each type per scene', async ({ page }) => {
+test('GameObject menu creates lights, spawns, empties, cameras; one light of each type per scene', async ({ page }) => {
   const base = await open(page);
-  // The starter scene already has its camera and both lights: the items say so.
-  await expect(await menuItem(page, 'GameObject', 'Camera')).toBeDisabled();
+  // The starter scene already has both lights: the items say so. Cameras are shots: any number of them.
+  const cameras = await menuItem(page, 'GameObject', 'Cameras');
+  await cameras.hover();
+  await expect(cameras.getByRole('menuitem', { name: 'Camera', exact: true })).toBeEnabled();
   await closeMenu(page);
   const dir = await menuItem(page, 'GameObject', 'Light');
   await dir.hover();
@@ -46,7 +48,8 @@ test('GameObject menu creates lights, spawns, empties; one camera and one light 
   await menu(page, 'GameObject', 'Light', 'Ambient light');
   await menu(page, 'GameObject', 'Spawn point');
   await menu(page, 'GameObject', 'Create empty');
-  await expect(rows(page)).toHaveCount(base + 2);
+  await menu(page, 'GameObject', 'Cameras', 'Camera');
+  await expect(rows(page)).toHaveCount(base + 3);
   // The new light is selected and the inspector shows it.
   await rows(page).filter({ hasText: 'Directional light' }).click();
   await expect(page.locator('input.tl-inspector__name')).toHaveValue('Directional light');
@@ -54,11 +57,11 @@ test('GameObject menu creates lights, spawns, empties; one camera and one light 
 
 test('the menu lights are the starter values (the descriptor presets), not a sample\'s', async ({ page }) => {
   await open(page);
-  type Ent = { id: string; components: { light?: { type: string }; camera?: object; transform?: { position: number[] } } };
+  type Ent = { id: string; components: { light?: { type: string }; virtualCamera?: object; transform?: { position: number[] } } };
   const all = async (): Promise<Ent[]> => (await be.command({ op: 'queryEntities', projectId: be.projectId, args: { limit: 50, offset: 0 } }))['entities'] as Ent[];
   const starter = await all();
   const starterLight = (type: string) => starter.find((e) => e.components.light?.type === type)!.components.light;
-  const starterCamera = starter.find((e) => e.components.camera !== undefined)!.components.camera;
+  const starterCamera = starter.find((e) => e.components.virtualCamera !== undefined)!.components.virtualCamera;
   // Delete the starter lights, then create them again from the menu.
   const lightRows = rows(page).filter({ has: page.locator('.tl-row__kind', { hasText: /^light$/ }) });
   await expect(lightRows).toHaveCount(2);
@@ -73,9 +76,11 @@ test('the menu lights are the starter values (the descriptor presets), not a sam
   await expect(rows(page).filter({ hasText: 'Ambient light' })).toHaveCount(1);
   await expect.poll(async () => (await all()).find((e) => e.components.light?.type === 'directional')?.components.light).toEqual(starterLight('directional'));
   await expect.poll(async () => (await all()).find((e) => e.components.light?.type === 'ambient')?.components.light).toEqual(starterLight('ambient'));
-  // (The camera item uses the descriptor's camera too, but a v4 project holds exactly one camera
-  // in its start scenes, so it cannot be exercised here; the starter camera is that value.)
-  expect(starterCamera).toMatchObject({ fovY: 60 });
+  // The menu's camera is the starter's (at the lowest priority there: a camera added later goes live over it).
+  await menu(page, 'GameObject', 'Cameras', 'Camera');
+  await expect.poll(async () => (await all()).filter((e) => e.components.virtualCamera !== undefined).length).toBe(2);
+  const made = (await all()).filter((e) => e.components.virtualCamera !== undefined).find((e) => e.id !== 'cam-main')!.components.virtualCamera;
+  expect({ ...made, priority: -1000 }).toEqual(starterCamera);
 });
 
 test('Edit → Duplicate copies the selection with its components; Component menu adds and removes', async ({ page }) => {

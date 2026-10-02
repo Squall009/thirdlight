@@ -89,7 +89,7 @@ describe('packet 48 repair — v3 queries through the real service', () => {
       manifest?: { schemaVersion?: number };
     };
     expect(proj.scene?.schemaVersion).toBe(4);
-    expect(proj.manifest?.schemaVersion).toBe(6);
+    expect(proj.manifest?.schemaVersion).toBe(7);
 
     const spawns = svc.query({ op: 'queryEntities', projectId: V3, args: { component: 'playerSpawn' } }) as {
       ok: boolean;

@@ -363,6 +363,7 @@ export {
   PROJECT_SCHEMA_VERSION_V24,
   PROJECT_SCHEMA_VERSION_V25,
   PROJECT_SCHEMA_VERSION_PROJECT_LOOK,
+  PROJECT_SCHEMA_VERSION_SCENE_CAMERA,
   isUpgradedProjectSchemaVersion,
   REMOVED_FROM_ENGINE,
   REMOVED_COMPONENTS,
@@ -375,6 +376,7 @@ export {
 export { upgradeProjectDocsV25, type UpgradeV25Result } from './upgrade-v25';
 // project.json schemaVersion 6 (a 5's project-wide look is copied into every scene on load).
 export { upgradeSceneEnvironments, type UpgradeSceneEnvironmentResult } from './upgrade-scene-environment';
+export { upgradeSceneModel, sceneCameraAsShot, sceneCamerasAsShots, type UpgradeSceneModelResult } from './upgrade-scene-model';
 // The materials a game uses (the manifest leaves the others out).
 export { materialsInUse, type MaterialUseInput } from './material-use';
 // The assigned entity ids (at least six digits; four-digit ids still load).
@@ -635,6 +637,10 @@ export {
   CAMERA_PATH_LIMITS,
   CAMERA_RAIL_MODES,
   VIRTUAL_CAMERA_DEFAULTS,
+  VIEW_LENS_DEFAULTS,
+  DEFAULT_VIEW_POSE,
+  DEFAULT_VIEW_ID,
+  viewLensOf,
   VIRTUAL_CAMERA_FIELDS,
   VIRTUAL_CAMERA_LIMITS,
   VIRTUAL_CAMERA_RIGS,
@@ -1142,3 +1148,5 @@ export {
 } from './timelines';
 export type { TimelineAsset, TimelineTrack, TimelineKey, TimelineSlot, TimelineMarker, TimelineTrackType, TimelineEasing, TimelineValue } from './timelines';
 export { SIGNAL_DEBUG_COMMAND_NAME, type SignalDebugCommandName } from './debug-command-names';
+// The scene rules checked before Play and the export (not per command).
+export { playChecks, type PlayCheck } from './play-checks';

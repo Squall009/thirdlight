@@ -21,7 +21,7 @@
  */
 import { PLAY_CONTENT_ARTIFACT_MAX_BYTES, type SessionError } from '@thirdlight/protocol';
 import { buildContentClosureM3, type ClosureSourceMap, type ContentClosureM3 } from '@thirdlight/exporter';
-import type { MissingPlayFile, RuntimeContentManifestV5 } from '@thirdlight/project-model';
+import type { MissingPlayFile, PlayCheck, RuntimeContentManifestV5 } from '@thirdlight/project-model';
 import type { WorkspaceService } from '@thirdlight/workspace';
 import { generateGraphSource, type BehaviorCompiler } from '@thirdlight/behavior-build';
 import { sha256HexBytes, type PlayServed } from './play-content';
@@ -95,6 +95,8 @@ export interface BuiltPlayContentM3 {
   sourceMaps: readonly ClosureSourceMap[];
   /** The missing files placeholders stand in for (none the start draws). */
   placeholders: readonly MissingPlayFile[];
+  /** The start's warnings (scene rules checked at Play). */
+  checks: readonly PlayCheck[];
 }
 
 export type BuildPlayContentM3Result = { ok: true; built: BuiltPlayContentM3 } | { ok: false; error: SessionError };
@@ -218,6 +220,7 @@ export async function buildPlayContentM3(input: BuildPlayContentM3Input): Promis
       needsBasis: closure.decoders.includes('basis'),
       sourceMaps: closure.sourceMaps,
       placeholders: closure.placeholders,
+      checks: closure.checks,
     },
   };
 }

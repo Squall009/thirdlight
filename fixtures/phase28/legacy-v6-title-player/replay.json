@@ -1,0 +1,29 @@
+{
+  "op": "createEntity",
+  "projectId": "legacy-v6-title-player",
+  "requestId": "req-bb290ad0d3fb56ee440e27ffed229cd0",
+  "expectedRevision": 4,
+  "args": {
+    "sceneId": "meadow",
+    "kind": "box",
+    "name": "Ground",
+    "box": {
+      "size": [
+        20,
+        1,
+        4
+      ]
+    },
+    "transform": {
+      "position": [
+        5,
+        -0.5,
+        0
+      ]
+    }
+  },
+  "origin": {
+    "kind": "mcp",
+    "clientId": "fixture-legacy-v6-title-player"
+  }
+}

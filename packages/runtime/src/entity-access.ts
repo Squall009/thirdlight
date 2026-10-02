@@ -138,7 +138,6 @@ export interface EntityAccessHost {
   /** The loaded objects in document order (children after parents). */
   order(): readonly string[];
   parentOf(id: string): string | undefined;
-  readonly cameraId: string | undefined;
   readonly controllerId: string | undefined;
   /** A collider or controller (a physics body; transform writes are refused). */
   isPhysicsBody(id: string): boolean;
@@ -321,7 +320,6 @@ export class EntityAccess {
         if (isStatic) return { field, code: 'entity_static', message: `${field}: a static object is batched and baked once (clear its Static flag to switch it at run time)` };
         if (key === 'active') {
           const holds = this.subtreeHolds(id);
-          if (holds === 'camera') return { field, code: 'entity_camera', message: `${field}: the scene camera (or an object above it) stays active` };
           if (holds === 'character') return { field, code: 'entity_character', message: `${field}: the character (or an object above it) stays active (character_enable switches its controller off)` };
         }
       }
@@ -329,7 +327,6 @@ export class EntityAccess {
     }
     if (component === 'transform') {
       const field = `transform.${fields[0]![0]}`;
-      if (id === this.host.cameraId) return { field, code: 'entity_camera', message: `${field}: the scene camera is posed by its camera system (ctx.camera)` };
       if (this.host.isPhysicsBody(id)) return { field, code: 'entity_physics', message: `${field}: a physics body moves through physics (character_place, a mover, or a script that owns it)` };
       if (isStatic) return { field, code: 'entity_static', message: `${field}: a static object never moves` };
       const driver = DRIVEN.find((k) => c[k] !== undefined);
@@ -359,14 +356,12 @@ export class EntityAccess {
     return null;
   }
 
-  /** Whether the object or one below it is the camera or the character (they stay active). */
-  private subtreeHolds(id: string): 'camera' | 'character' | null {
-    for (const [target, what] of [[this.host.cameraId, 'camera'], [this.host.controllerId, 'character']] as const) {
-      let cur = target;
-      for (let guard = 0; cur !== undefined && guard < 64; guard++) {
-        if (cur === id) return what;
-        cur = this.host.parentOf(cur);
-      }
+  /** Whether the object or one below it is the character (it stays active). */
+  private subtreeHolds(id: string): 'character' | null {
+    let cur = this.host.controllerId;
+    for (let guard = 0; cur !== undefined && guard < 64; guard++) {
+      if (cur === id) return 'character';
+      cur = this.host.parentOf(cur);
     }
     return null;
   }

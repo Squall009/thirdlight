@@ -29,12 +29,12 @@ describe('phase 9.3 — createProject writes storage v4 directly', () => {
     const q = svc.query({ op: 'queryProject', projectId: 'demo-0001' }) as {
       ok: boolean;
       revision: number;
-      scene: { schemaVersion: number; entityCount: number; cameraId: string };
+      scene: { schemaVersion: number; entityCount: number };
       scenes: { sceneId: string; name: string }[];
     };
     expect(q.ok).toBe(true);
     expect(q.revision).toBe(0);
-    expect(q.scene).toMatchObject({ schemaVersion: 4, entityCount: 3, cameraId: 'cam-main' });
+    expect(q.scene).toMatchObject({ schemaVersion: 4, entityCount: 3 });
     expect(q.scenes.map((s) => [s.sceneId, s.name])).toEqual([['scene-main', 'Main']]);
     svc.dispose();
     rmSync(root, { recursive: true, force: true });

@@ -150,7 +150,7 @@ for (const variant of RENDERER_VARIANTS) test(`painted terrain: height-blended l
   // ---- The scene: a dark sky, the camera straight down over the layer, the project's boxes out of the way.
   await cmd('setEnvironment', { sceneId: 'scene-main', environment: { sky: { mode: 'color', color: '#303030' } } });
   const ents = ((await query('queryEntities', { limit: 200, offset: 0 })) as { entities: { id: string; components: Record<string, unknown> }[] }).entities;
-  const cam = ents.find((e) => e.components['camera'] !== undefined)!.id;
+  const cam = ents.find((e) => e.components['virtualCamera'] !== undefined)!.id;
   // −90° about X: looking down −Y, the screen's up is −Z.
   await cmd('setTransform', { entityId: cam, transform: { position: [0, 21, 0.5], rotation: [-Math.SQRT1_2, 0, 0, Math.SQRT1_2] } });
   for (const e of ents) if (e.components['box'] !== undefined) await cmd('setTransform', { entityId: e.id, transform: { position: [0, -80, 0] } });

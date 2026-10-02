@@ -10,14 +10,15 @@
  *
  * Resolution: the live camera is the enabled virtual camera with the highest
  * priority; on a tie the one activated last (`activate` bumps it), then the
- * first in load order. Without an enabled virtual camera the view is the
- * scene camera's own pose (its `cameraFollow` result, or where it is placed)
- * — so a project without virtual cameras draws exactly what it drew before.
- * When the live camera changes the view blends from what is on screen to the
- * new camera: a cut, a linear or an eased move over the incoming camera's
- * blend time (going back to the scene camera: the outgoing camera's), unless
- * the script that caused it names a blend. A blend interrupted by another
- * change continues from the blended view.
+ * first in load order. The brain owns the view: without an enabled virtual
+ * camera the view is the base pose the runtime gives it (the engine's default
+ * pose with the project's lens), and it warns (a scene camera of an older
+ * snapshot reaches it as its shot: snapshot.ts). When the live camera changes the view
+ * blends from what is on screen to the new camera: a cut, a linear or an
+ * eased move over the incoming camera's blend time (going back to the base
+ * pose: the outgoing camera's), unless the script that caused it names a
+ * blend. A blend interrupted by another change continues from the blended
+ * view.
  */
 import type { ActionFrame } from './actions';
 import {
@@ -185,7 +186,7 @@ export interface VirtualCameraState {
 
 /** The resolved view as observers read it (committed at the last step). */
 export interface CameraViewInfo {
-  /** The live virtual camera, or null: the scene camera's own view. */
+  /** The live virtual camera, or null: the base pose. */
   readonly live: string | null;
   /** A blend in progress: from what, how far (0–1). */
   readonly blend: { readonly from: string | null; readonly progress: number; readonly style: CameraBlendStyle } | null;
@@ -254,7 +255,7 @@ function num(v: unknown, fallback: number): number {
   return typeof v === 'number' && Number.isFinite(v) ? v : fallback;
 }
 
-/** Scene camera lens (the base view's). */
+/** The base view's lens (the project's camera settings). */
 export interface BaseLens {
   fovY: number;
   near: number;
@@ -323,7 +324,7 @@ export class CameraBrain {
     this.hz = hz;
   }
 
-  /** Any virtual camera loaded (the runtime steps the brain only then; regions alone do nothing). */
+  /** Any virtual camera loaded. */
   get active(): boolean {
     return this.cams.size > 0;
   }
@@ -614,7 +615,7 @@ export class CameraBrain {
   }
 
   /**
-   * One fixed step: the base view (the scene camera's committed pose), the
+   * One fixed step: the base view (the pose while no camera is live), the
    * step's input, then resolve, advance and blend. `stepIndex` is the step
    * just executed (shake time).
    */
@@ -647,7 +648,7 @@ export class CameraBrain {
         this.blend = null;
         cut = true;
       } else if (this.blend === null && (leaving !== undefined || this.liveId === null)) {
-        // From the camera that was live, still moving (or the scene camera's live view).
+        // From the camera that was live, still moving (or the base pose).
         this.blend = { from: newPose(), fromId: this.liveId, fromLive: true, steps: 0, total: Math.max(1, Math.round(seconds * this.hz)), style };
       } else {
         // Interrupted blend (or a camera that left): from the blended view, frozen.
@@ -657,6 +658,8 @@ export class CameraBrain {
       if (next !== null) next.pivot = null;
     }
     this.pendingBlend = null;
+    // Nothing live: the view holds the base pose (said once each time it starts to).
+    if (nextId === null && (this.liveId !== null || !this.started)) this.warn('no virtual camera is live: the view holds the default pose (add a camera to a loaded scene, or enable one)');
     this.liveId = nextId;
     this.started = true;
 

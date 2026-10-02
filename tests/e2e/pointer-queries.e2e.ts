@@ -106,7 +106,7 @@ async function buildScene(): Promise<Scene> {
   await cmd('setEnvironment', { sceneId: 'scene-main', environment: { sky: { mode: 'color', color: '#202428' } } });
   // The scene camera 12 m in front of the boxes, looking down −Z at their height.
   const ents = (await query('queryEntities', { limit: 200, offset: 0 }))['entities'] as { id: string; components: Record<string, unknown> }[];
-  const camera = ents.find((e) => e.components['camera'] !== undefined)!;
+  const camera = ents.find((e) => e.components['virtualCamera'] !== undefined)!;
   await cmd('setTransform', { entityId: camera.id, transform: { position: [0, 1, 12], rotation: [0, 0, 0, 1] } });
   const pickable = (hx: number) => ({ collider: { shape: { type: 'box', hx, hy: hx, hz: hx }, layers: ['pickable'] } });
   const red = await create('Red', [-3, 1, 0], { box: { size: [1.6, 1.6, 1.6], material: { color: '#e23c3c' } }, components: pickable(0.8) }, 'box');

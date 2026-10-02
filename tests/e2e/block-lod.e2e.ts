@@ -88,7 +88,7 @@ for (const variant of RENDERER_VARIANTS) test(`block-layer chunks switch to the 
   // A row of crates in the chunk at z 0-16 (near the camera) and one in the chunk at z 48-64 (over 60 m away).
   await cmd('editBlocks', { entityId: layer, edits: [{ kind: 'fill', box: [0, 0, 4, 16, 1, 12], cell: { block: 'crate' } }, { kind: 'fill', box: [0, 0, 52, 16, 1, 60], cell: { block: 'crate' } }] });
   // South of the crates, 6 m up, looking along +z and 15° down.
-  const cam = ((await query('queryEntities', { limit: 100, offset: 0 })) as { entities: { id: string; components: Record<string, unknown> }[] }).entities.find((e) => e.components['camera'] !== undefined)!.id;
+  const cam = ((await query('queryEntities', { limit: 100, offset: 0 })) as { entities: { id: string; components: Record<string, unknown> }[] }).entities.find((e) => e.components['virtualCamera'] !== undefined)!.id;
   await cmd('setTransform', { entityId: cam, transform: { position: [8, 6, -8], rotation: [0, 0.9914449, 0.1305262, 0] } });
 
   await page.goto(editorUrlFor(be.editorUrl, variant));

@@ -33,7 +33,6 @@ function harness(entities: EntityV3[]) {
     curr,
     order: () => [...docs.keys()],
     parentOf: (id) => docs.get(id)?.parentId,
-    cameraId: 'cam',
     controllerId: 'player',
     isPhysicsBody: (id) => id === 'player' || (docs.get(id)?.components as { collider?: unknown } | undefined)?.collider !== undefined,
     transformIntentWrote: (id) => intentWrote.has(id),
@@ -70,7 +69,7 @@ function harness(entities: EntityV3[]) {
 
 describe('EntityAccess', () => {
   it('switching a parent off takes its children along; switching it on brings them back (a child switched off itself stays off)', () => {
-    const t = harness([ent('cam', { camera: {} }), ent('player', { controller: {} }), ent('group', {}), ent('a', {}, 'group'), ent('b', {}, 'a'), ent('c', {})]);
+    const t = harness([ent('cam', { virtualCamera: { rig: 'fixed' } }), ent('player', { controller: {} }), ent('group', {}), ent('a', {}, 'group'), ent('b', {}, 'a'), ent('c', {})]);
     expect(t.h('b').set('object', { active: false }).ok).toBe(true);
     t.next();
     expect([...t.access.inactive()]).toEqual(['b']);
@@ -84,9 +83,10 @@ describe('EntityAccess', () => {
     expect(t.changes.at(-1)).toEqual({ off: [], on: ['group', 'a'] });
     // The object's own flag is what `get` reports (a child under a switched-off parent reads its own).
     expect(t.h('b').get('object')).toMatchObject({ active: false, visible: true });
-    // A parent of the camera or of the character stays on.
-    const withCam = harness([ent('rig', {}), ent('cam', { camera: {} }, 'rig'), ent('player', { controller: {} })]);
-    expect(withCam.h('rig').set('object', { active: false })).toMatchObject({ ok: false, code: 'entity_camera', field: 'object.active' });
+    // A parent of the character stays on; a camera is a shot like any object (switching it off takes it out of the view).
+    const withRig = harness([ent('rig', {}), ent('cam', { virtualCamera: { rig: 'fixed' } }, 'rig'), ent('body', {}), ent('player', { controller: {} }, 'body')]);
+    expect(withRig.h('rig').set('object', { active: false }).ok).toBe(true);
+    expect(withRig.h('body').set('object', { active: false })).toMatchObject({ ok: false, code: 'entity_character', field: 'object.active' });
   });
 
   it('a static object is fixed; a baked light too', () => {

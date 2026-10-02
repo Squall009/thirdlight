@@ -16,6 +16,7 @@ import { PROPERTY_KEY_RE } from './components';
 import { AUDIO_VOICE_CAP, AUDIO_VOICES_DEFAULT, MAX_SETTINGS_KEYS } from './content-limits';
 import { limitsError, sortedKeys } from './content-helpers';
 import { TEXTURE_BUDGET_DEFAULT_MB, TEXTURE_BUDGET_MAX_MB, TEXTURE_BUDGET_MIN_MB } from './texture-streaming';
+import { VIEW_LENS_DEFAULTS, VIRTUAL_CAMERA_LIMITS } from './cameras';
 
 // ---- settings registry ------------------------------------------
 
@@ -134,6 +135,11 @@ export const M2_SETTINGS_KEYS: readonly SettingsKeySpec[] = [
   // textures load the mips their on-screen size needs inside it, the least
   // needed dropped first when it is full.
   { key: 'texture_budget_mb', type: 'number', default: TEXTURE_BUDGET_DEFAULT_MB, min: TEXTURE_BUDGET_MIN_MB, max: TEXTURE_BUDGET_MAX_MB, integer: true, unit: 'MiB', optional: true, group: RENDERING_SETTINGS_GROUP, label: 'Texture budget', tooltip: 'GPU memory (MiB) for textures in Play and the export. Streamed textures (large KTX2 textures; per texture in its import settings) load the detail their size on screen needs inside it; when it is full, the least-needed detail is dropped first.' },
+  // The default lens of every virtual camera that sets none (cameras.ts VIEW_LENS_DEFAULTS, where the reasons are;
+  // the ranges are a virtual camera's own lens limits).
+  { key: 'camera_fov_deg', type: 'number', default: VIEW_LENS_DEFAULTS.fovY, min: VIRTUAL_CAMERA_LIMITS.fovY.min, max: VIRTUAL_CAMERA_LIMITS.fovY.max, unit: 'deg', optional: true, group: 'Camera', label: 'Field of view', tooltip: 'The vertical field of view of every camera that does not set its own (and of the view while no camera is live).' },
+  { key: 'camera_near_m', type: 'number', default: VIEW_LENS_DEFAULTS.near, min: VIRTUAL_CAMERA_LIMITS.near.min, max: VIRTUAL_CAMERA_LIMITS.near.max, unit: 'm', optional: true, group: 'Camera', label: 'Near plane', tooltip: 'Nothing closer than this is drawn, for every camera that does not set its own near plane.' },
+  { key: 'camera_far_m', type: 'number', default: VIEW_LENS_DEFAULTS.far, min: VIRTUAL_CAMERA_LIMITS.far.min, max: VIRTUAL_CAMERA_LIMITS.far.max, unit: 'm', optional: true, group: 'Camera', label: 'Far plane', tooltip: 'Nothing farther than this is drawn, for every camera that does not set its own far plane (beyond the near plane).' },
 ];
 
 /** The simulation's dimension (the `physics_dimension` setting's values). */

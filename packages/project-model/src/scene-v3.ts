@@ -113,18 +113,22 @@ export const SURFACE_DEFAULTS = Object.freeze({
   emissiveIntensity: 0,
 });
 
+/** Why a scene `camera` is refused in the current format. */
+export const SCENE_CAMERA_GONE = 'the scene camera is gone: the engine owns the view and a scene holds shots (a virtualCamera, with its lens); an older project\'s camera becomes one when it is opened';
+
 const KNOWN_SCENE_FIELDS = new Set(['schemaVersion', 'sceneId', 'revision', 'entities']);
 // `blocks` — the scene's block-layer cells and regions (absent = none).
 const KNOWN_SCENE_FIELDS_V4 = new Set(['schemaVersion', 'sceneId', 'revision', 'environment', 'entities', 'blocks']);
 /** The v4 per-scene entity cap: a scene is one load unit (a big world is several scenes loaded together; instance sets hold dense detail). */
 export const MAX_ENTITIES_V4 = 16_384;
 /** The boolean flags an entity may carry (only a non-default value is stored). */
-export const ENTITY_FLAGS = ['active', 'visible', 'locked', 'static'] as const;
+export const ENTITY_FLAGS = ['active', 'visible', 'locked', 'static', 'keepLoaded'] as const;
 const KNOWN_ENTITY_FIELDS = new Set(['id', 'name', 'parentId', ...ENTITY_FLAGS, 'tags', 'components']);
 /** The v4 component registry (v3's plus `instances`). */
 // `materialParams` (per-object overrides of graph-material parameters) is appended last.
 // `effect` (plays a visual effect from the entity) is appended after it.
-export const V4_REGISTRY: readonly string[] = [...V3_REGISTRY, 'instances', 'materials', 'fogVolume', 'animator', ...BLOCK_COMPONENT_NAMES, 'materialParams', 'effect', 'virtualCamera', 'cameraPath', 'blockLayer', 'blockFootprint', 'socketAttach', 'behaviorGroup', 'cameraRegion'];
+// No `camera`: the engine owns the view and scenes hold shots (`virtualCamera`); an older project's scene camera is upgraded on open.
+export const V4_REGISTRY: readonly string[] = [...V3_REGISTRY.filter((c) => c !== 'camera'), 'instances', 'materials', 'fogVolume', 'animator', ...BLOCK_COMPONENT_NAMES, 'materialParams', 'effect', 'virtualCamera', 'cameraPath', 'blockLayer', 'blockFootprint', 'socketAttach', 'behaviorGroup', 'cameraRegion'];
 // `cameraRegion` (a track camera's dead zone, bounds and distance while its target is inside) last.
 // `blockLayer` (a grid of blocks; its cells are the scene's `blocks`) is appended after it.
 // `blockFootprint` (the metadata a prop writes into the block cells beneath it) after that.
@@ -169,7 +173,11 @@ const ROLE_KEYS = ['idle', 'run', 'airborne'] as const;
 
 // ---- small helpers -----------------------------------------------------------
 
-function v3ComponentUnknown(path: string, key: string): ModelErrorV3 {
+function v3ComponentUnknown(path: string, key: string, version: 3 | 4 = 3): ModelErrorV3 {
+  // The scene camera went when the engine took the view over: say what replaced it.
+  if (version === 4 && key === 'camera') {
+    return withFound({ code: 'component_unknown', path, message: SCENE_CAMERA_GONE, expected: 'a virtualCamera (a shot; the engine owns the view)' }, key);
+  }
   // A removed game component names itself and says where it went.
   if (isRemovedComponent(key)) {
     return withFound({ code: 'component_unknown', path, message: removedComponentMessage(key), expected: `known component types: ${V3_REGISTRY.join(', ')}` }, key);
@@ -635,7 +643,7 @@ function validateEntityComponentsV3(
   const registry: readonly string[] = version === 4 ? V4_REGISTRY : V3_REGISTRY;
   for (const k of Object.keys(comps)) {
     if (!registry.includes(k)) {
-      errors.push(v3ComponentUnknown(`${path}/${pointerSegment(k)}`, k));
+      errors.push(v3ComponentUnknown(`${path}/${pointerSegment(k)}`, k, version));
     }
   }
   if (comps['folder'] !== undefined) {
@@ -950,12 +958,13 @@ function canonicalModelAnimation(c: unknown): ModelAnimationComponent {
   };
 }
 
-function canonicalFlags(e: Record<string, unknown>): Pick<EntityV3, 'active' | 'visible' | 'locked' | 'static' | 'tags'> {
+function canonicalFlags(e: Record<string, unknown>): Pick<EntityV3, 'active' | 'visible' | 'locked' | 'static' | 'keepLoaded' | 'tags'> {
   return {
     ...(e['active'] === false ? { active: false as const } : {}),
     ...(e['visible'] === false ? { visible: false as const } : {}),
     ...(e['locked'] === true ? { locked: true as const } : {}),
     ...(e['static'] === true ? { static: true as const } : {}),
+    ...(e['keepLoaded'] === true ? { keepLoaded: true as const } : {}),
     ...(typeof e['tags'] === 'number' && e['tags'] !== 0 ? { tags: e['tags'] } : {}),
   };
 }

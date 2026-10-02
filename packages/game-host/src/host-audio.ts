@@ -63,7 +63,6 @@ export function createHostAudio(config: HostAudioConfig): HostAudio {
   const sourceAt = at();
   const spatialAt = at();
   const listenerAt = at();
-  let cameraEntityId: string | null | undefined;
   /** The character (the first controller entity; null: none) — the legacy audio-source model hears from it. */
   let characterId: string | null | undefined;
 
@@ -154,13 +153,8 @@ export function createHostAudio(config: HostAudioConfig): HostAudio {
     }
   };
 
-  /** The listener: the active camera — the resolved virtual camera, else the scene camera. */
-  const listenerOf = (rt: Runtime): { position: readonly number[]; rotation: readonly number[] } | null => {
-    if (rt.readCameraView?.(listenerAt.position, listenerAt.rotation) != null) return listenerAt;
-    cameraEntityId ??= config.snapshot.scene.entities.find((e) => ((e.components ?? {}) as Record<string, unknown>)['camera'] !== undefined)?.id ?? null;
-    if (cameraEntityId !== null && config.readTransform(rt, cameraEntityId, listenerAt)) return listenerAt;
-    return null;
-  };
+  /** The listener: the view (as the camera brain resolved it; none before the first step). */
+  const listenerOf = (rt: Runtime): { position: readonly number[]; rotation: readonly number[] } | null => (rt.readCameraView?.(listenerAt.position, listenerAt.rotation) != null ? listenerAt : null);
 
   /** The scenes loaded changed: their preloaded files are held, those of scenes gone let go. */
   let scenesRevision = -1;

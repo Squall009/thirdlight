@@ -878,6 +878,13 @@ const ZERO_TRANSFORM = {
   scale: [1, 1, 1],
 } as const;
 
+/** A historical entity holding a scene camera, read as the fixed shot the schemaVersion 7 upgrade makes of it. */
+function asShotIfSceneCamera(e: unknown): unknown {
+  if (!isPlainObject(e) || !isPlainObject(e['components']) || e['components']['camera'] === undefined) return e;
+  const { camera: _camera, ...rest } = e['components'];
+  return { ...e, components: { ...rest, virtualCamera: { rig: 'fixed' } } };
+}
+
 function validateHistoricalEntities(
   ents: readonly unknown[],
   base: string,
@@ -908,11 +915,12 @@ function validateHistoricalEntities(
     schemaVersion: storageVersion,
     sceneId: 'scene-main',
     revision: 0,
-    entities: [
-      { id: camId, components: { transform: ZERO_TRANSFORM, camera: {} } },
-      ...placeholders,
-      ...ents,
-    ],
+    // A v3 scene needs its one camera. A v4 record written before the engine owned the view may hold a scene
+    // camera: it is read as the shot the open made of it (the record is history, never applied as written).
+    entities:
+      storageVersion === 4
+        ? [...placeholders, ...ents.map(asShotIfSceneCamera)]
+        : [{ id: camId, components: { transform: ZERO_TRANSFORM, camera: {} } }, ...placeholders, ...ents],
   });
   if (res.ok) return null;
   const first = res.errors[0];

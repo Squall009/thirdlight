@@ -95,7 +95,7 @@ function greenPixels(img: Image): number {
 async function buildTerrain(): Promise<{ layer: string; player: string }> {
   await cmd('setSettings', { settings: { physics_dimension: 3 } });
   await cmd('setBlockType', { block: { blockId: 'grass', name: 'Grass', variants: [{ color: '#3fa34d' }], shape: 'full' } });
-  const cam = ((await query('queryEntities', { limit: 100, offset: 0 })) as { entities: { id: string; components: Record<string, unknown> }[] }).entities.find((e) => e.components['camera'] !== undefined)!.id;
+  const cam = ((await query('queryEntities', { limit: 100, offset: 0 })) as { entities: { id: string; components: Record<string, unknown> }[] }).entities.find((e) => e.components['virtualCamera'] !== undefined)!.id;
   // South of the lane, above it, looking down its length a little.
   const pitch = (-30 * Math.PI) / 180;
   await cmd('setTransform', { entityId: cam, transform: { position: [8, 10, 14], rotation: [Math.sin(pitch / 2), 0, 0, Math.cos(pitch / 2)] } });

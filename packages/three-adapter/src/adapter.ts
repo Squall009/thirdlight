@@ -6,8 +6,8 @@
  *
  * The adapter owns ALL Object3D/material/renderer lifetimes for the
  * scene graph: box primitives (unit-geometry scaled by `size`, simple
- * Lambert material from `material.color`), one perspective camera
- * (project-model: exactly one camera entity), and a fixed
+ * Lambert material from `material.color`), the view's perspective camera
+ * (posed by the runtime's camera brain: the engine owns the view), and a fixed
  * component→Object3D table (no registration API — out of scope per
  * dependencies.md). One renderer path: three's WebGPURenderer from the renderer
  * factory — WebGPU where it starts, else its WebGL 2 backend (the SELECTED
@@ -444,7 +444,10 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   // (planned here around its start), half its side the light's
   // `shadowExtent` (24 m by default).
   const followShadow = isV3;
-  const startCamera = sceneDoc.entities.find((e) => e.components.camera !== undefined)?.components.transform.position ?? [0, 0, 0];
+  // Where the view starts (the runtime's camera brain resolved it before the first frame; the shots move it from there).
+  const startView: [number, number, number] = [0, 0, 0];
+  (opts.runtime as { readCameraView?: (p: number[], r: number[]) => unknown }).readCameraView?.(startView, [0, 0, 0, 1]);
+  const startCamera = startView;
   /**
    * The directional lights of the loaded scenes, each with its
    * own shadow settings and planned outcome (probeOk: true — the capability
@@ -591,7 +594,6 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     let obj: THREE.Object3D;
     const own: { geometries: THREE.BufferGeometry[]; materials: THREE.Material[]; shared?: THREE.Material } = { geometries: [], materials: [] };
     const box = e.components.box;
-    const cam = e.components.camera;
     if (box) {
       // Box primitive: unit-axis geometry sized by `size`; the
       // transform's `scale` multiplies on top per frame.
@@ -615,11 +617,6 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       obj.userData[BATCH_KEY] = { geometry: unitBox, scale: [box.size[0], box.size[1], box.size[2]] };
       // Boxes cast and receive the key light's shadow (data: box.castShadow / receiveShadow).
       applyShadowFlags(obj, shadowFlagsOf(e.components));
-    } else if (cam) {
-      // The single scene camera (project-model). Aspect is a
-      // viewport property — updated per frame from the canvas size.
-      camera = new THREE.PerspectiveCamera(cam.fovY, 1, cam.near, cam.far);
-      obj = camera;
     } else {
       obj = new THREE.Group();
       const local = localLightOf(e);
@@ -745,12 +742,11 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     }
   };
   for (const e of opts.snapshot.scene.entities) realizeEntity(e);
-  if (!camera) {
-    // Unreachable for a runtime-validated snapshot (validateScene
-    // guarantees exactly one camera) — fail closed anyway.
-    camera = new THREE.PerspectiveCamera(60, 1, 0.1, 100);
-    scene.add(camera);
-  }
+  // The view's camera, posed every frame from the camera brain (`applyResolvedCamera`). Aspect is a viewport
+  // property, updated per frame from the canvas size.
+  camera = new THREE.PerspectiveCamera(60, 1, 0.1, 100);
+  camera.position.set(startCamera[0], startCamera[1], startCamera[2]);
+  scene.add(camera);
   // Realized lights. v1/v2 scenes: the accepted fixed pair. v3/v4 scenes:
   // the light entities' own lights (realizeEntity), switched on and off per
   // loaded scene (`selectLights` below).
@@ -1230,42 +1226,18 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   }
 
   /**
-   * The camera brain's resolved view (virtual cameras) replaces the
-   * camera entity's pose and lens after the transform sync; without virtual
-   * cameras the runtime returns null and the camera entity is drawn as before
-   * (its lens restored if a view had changed it). Presentation only: the pose
-   * is the simulation's, interpolated by the runtime.
+   * The view as the runtime's camera brain resolved it (the engine owns the
+   * view): its pose and lens, interpolated by the runtime like every
+   * transform. Presentation only.
    */
   const viewPos: number[] = [0, 0, 0];
   const viewRot: number[] = [0, 0, 0, 1];
-  const viewMatrix = new THREE.Matrix4();
-  const viewParentInverse = new THREE.Matrix4();
-  const viewScale = new THREE.Vector3();
-  let authoredLens: { fov: number; near: number; far: number } | null = null;
   function applyResolvedCamera(): void {
     if (camera === null) return;
     const lens = (opts.runtime as { readCameraView?: (p: number[], r: number[]) => { fovY: number; near: number; far: number } | null }).readCameraView?.(viewPos, viewRot) ?? null;
-    if (lens === null) {
-      if (authoredLens !== null) {
-        camera.fov = authoredLens.fov;
-        camera.near = authoredLens.near;
-        camera.far = authoredLens.far;
-        authoredLens = null;
-      }
-      return;
-    }
-    authoredLens ??= { fov: camera.fov, near: camera.near, far: camera.far };
-    const parent = camera.parent;
-    if (parent !== null && parent !== scene) {
-      // The view is in world space: into the camera entity's parent space.
-      parent.updateMatrixWorld();
-      viewMatrix.compose(new THREE.Vector3(viewPos[0], viewPos[1], viewPos[2]), new THREE.Quaternion(viewRot[0], viewRot[1], viewRot[2], viewRot[3]), new THREE.Vector3(1, 1, 1));
-      viewMatrix.premultiply(viewParentInverse.copy(parent.matrixWorld).invert());
-      viewMatrix.decompose(camera.position, camera.quaternion, viewScale);
-    } else {
-      camera.position.set(viewPos[0]!, viewPos[1]!, viewPos[2]!);
-      camera.quaternion.set(viewRot[0]!, viewRot[1]!, viewRot[2]!, viewRot[3]!);
-    }
+    if (lens === null) return;
+    camera.position.set(viewPos[0]!, viewPos[1]!, viewPos[2]!);
+    camera.quaternion.set(viewRot[0]!, viewRot[1]!, viewRot[2]!, viewRot[3]!);
     camera.fov = lens.fovY;
     camera.near = lens.near;
     camera.far = lens.far;

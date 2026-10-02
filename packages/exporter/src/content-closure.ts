@@ -27,7 +27,7 @@ import type { GameMode } from '@thirdlight/project-model';
 import type { EventCue, GameShell, TimelineAsset } from '@thirdlight/project-model';
 import type { AnimatorController, EnvironmentConfig, PrefabDefinition, InputConfig, LightingMap, MaterialDef, UiDocument, UiTheme } from '@thirdlight/project-model';
 import { animatorsForRuntime, effectsForRuntime, type EffectDef, materialFunctionsForRuntime, materialsForRuntime, type GraphDocument, captureContentViewV3, captureManifestV5, restampManifestV5, type CatalogFile, dependencyTables, scanDependencies, M3_ENGINE_PINS, resolveMediaIdentityV3, sha256Hex, type GameplaySettings, type ManifestAssetInputV2, type ManifestAssetInputV5, type ManifestBehaviorInput, type MediaBlock, type RuntimeContentManifestV5, type ManifestSceneRow, physicsDimensionOf, resolveRequiredModules, materialsInUse, resolveMaterialInstances, loadableAssetIds, loadableResourceIds, loadableRows, scriptLibraryContainerText, scriptLibraryDigest, type ScriptLibrary } from '@thirdlight/project-model';
-import { projectWideRoots, startDrawSet, type MissingPlayFile } from '@thirdlight/project-model';
+import { playChecks, projectWideRoots, startDrawSet, type MissingPlayFile, type PlayCheck, type SceneV4 } from '@thirdlight/project-model';
 import { ASSET_QUERY_PAGE_MAX, audioLoadOf, MODEL_RIG_LIMITS, readModelRig, textureStreamingOf, type AudioLoadType, type ManifestMipPart, type ModelRig } from '@thirdlight/project-model';
 import type { BlobFile, WorkspaceService } from '@thirdlight/workspace';
 
@@ -257,6 +257,8 @@ export interface ContentClosureM3 {
   moduleIds: readonly string[];
   /** The missing files placeholders stand in for (Play only). */
   placeholders: readonly MissingPlayFile[];
+  /** The start's warnings (scene rules checked before a start, not per command; a refusing one fails the build instead). */
+  checks: readonly PlayCheck[];
   /** The resolved six-key settings (registry order) the composition consumes. */
   settings: GameplaySettings;
   /** The resolved media identity (the animation rows; no cue slots). */
@@ -600,6 +602,12 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
   };
 
   const hash = input.sha256 ?? sha256Hex;
+  // The scene rules a start needs (checked here, for Play and the export alike, not per command).
+  const checks = input.scenes !== undefined ? playChecks(input.content as Record<string, unknown>, input.scenes as readonly SceneV4[], input.drawnScenes ?? input.startScenes ?? []) : [];
+  const refused = checks.filter((c) => c.refuse);
+  if (refused.length > 0) {
+    return { ok: false, error: { code: 'play_check_refused', cls: 'validation', reason: refused[0]!.code, message: refused.map((c) => c.message).join('; ') } };
+  }
   // The derivation of this very capture, when a build before this one made it.
   const contentKey = typeof input.content === 'object' && input.content !== null && Object.isFrozen(input.content) ? (input.content as object) : null;
   const identities = contentKey !== null ? captureIdentities(input.scene, input.scenes) : null;
@@ -1032,6 +1040,7 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
       sceneBytes,
       moduleIds,
       placeholders,
+      checks,
       settings: view.settings,
       media,
       assetArtifacts,

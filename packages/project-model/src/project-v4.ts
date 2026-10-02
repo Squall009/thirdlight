@@ -25,7 +25,6 @@ import { composeBlockLayers, type BlockContentView } from './block-layers';
 import { composeContentChecks, composeV3 } from './project-v3';
 import { derivedOf } from './content-helpers';
 import { validateContentV4, physicsDimensionOf, arrayTextureIds, TEXTURE_ARRAY_KIND } from './content';
-import { effectiveEntityFlags } from './hierarchy-v3';
 import { validateSceneV4 } from './scene-v3';
 import { ID_RE_V2, physicsRotationErrors, physicsScaleErrors } from './components';
 import { fail, fieldMissing, fieldType, fieldValue, isPlainObject, isValidName, pointerSegment, unexpectedField, withFound } from './validate';
@@ -36,8 +35,9 @@ import { isFolderEntity } from './types-v3';
 import { materialOverrideErrors } from './materials';
 import { behaviorGroupErrors } from './modes';
 import { effectComponentErrors } from './effects';
-import { PROJECT_SCHEMA_VERSION, PROJECT_SCHEMA_VERSION_PROJECT_LOOK, PROJECT_SCHEMA_VERSION_UPGRADED, PROJECT_SCHEMA_VERSION_V25, isUpgradedProjectSchemaVersion } from './upgrade-v24';
+import { PROJECT_SCHEMA_VERSION, isUpgradedProjectSchemaVersion } from './upgrade-v24';
 import { nextFreeEntityIdOf } from './entity-ids';
+import { upgradeSceneModel } from './upgrade-scene-model';
 
 /**
  * `project.json` — scenes are the files in `scenes/`. schemaVersion 3 (the
@@ -61,7 +61,7 @@ export function validateManifestV2Project(doc: unknown): ModelResultV3<ProjectMa
   if (doc['schemaVersion'] !== PROJECT_SCHEMA_VERSION) {
     errors.push(
       isUpgradedProjectSchemaVersion(doc['schemaVersion'])
-        ? fieldValue('/schemaVersion', doc['schemaVersion'], String(PROJECT_SCHEMA_VERSION), `a schemaVersion ${String(doc['schemaVersion'])} project is upgraded by the loader before it is validated (${doc['schemaVersion'] === PROJECT_SCHEMA_VERSION_UPGRADED ? 'upgradeProjectDocsV24, then ' : ''}${doc['schemaVersion'] === PROJECT_SCHEMA_VERSION_V25 || doc['schemaVersion'] === PROJECT_SCHEMA_VERSION_PROJECT_LOOK ? '' : 'upgradeProjectDocsV25, then '}${doc['schemaVersion'] === PROJECT_SCHEMA_VERSION_PROJECT_LOOK ? '' : 'the asset-file upgrade of the open, then '}upgradeSceneEnvironments)`)
+        ? fieldValue('/schemaVersion', doc['schemaVersion'], String(PROJECT_SCHEMA_VERSION), `a schemaVersion ${String(doc['schemaVersion'])} project is upgraded by the loader before it is validated (each upgrade step from ${String(doc['schemaVersion'])} to ${PROJECT_SCHEMA_VERSION}: upgradeProjectDocsV24, upgradeProjectDocsV25, the asset-file upgrade of the open, upgradeSceneEnvironments, upgradeSceneModel)`)
         : fieldValue('/schemaVersion', doc['schemaVersion'], String(PROJECT_SCHEMA_VERSION), `a v4 project manifest has schemaVersion ${PROJECT_SCHEMA_VERSION}`),
     );
   }
@@ -150,16 +150,13 @@ export function composeV4(
     if (!sceneIds.has(id)) errors.push(projectError(`/startScenes/${i}`, 'reference_missing', 'a start scene names no scene of the project', 'an existing scene id', { document: 'content', reason: 'scene' } as never, id));
   });
   // Lights belong to scenes — any light kind may sit in any scene (each scene's own limits:
-  // one directional, one ambient, one hemisphere, 16 point/spot). The camera and the controller stay start-scene only.
-  let cameras = 0;
+  // one directional, one ambient, one hemisphere, 16 point/spot). The controller stays start-scene only.
   let controllers = 0;
   for (const s of scenes) {
     const r = sceneStartRule(s, start.has(s.sceneId));
     errors.push(...r.errors);
-    cameras += r.cameras;
     controllers += r.controllers;
   }
-  if (cameras !== 1) errors.push(projectError('/startScenes', 'camera_count_invalid', 'the start scenes together hold exactly one active camera', 'exactly 1 camera', { document: 'content' } as never, cameras));
   if (controllers > 1) errors.push(projectError('/startScenes', 'controller_count_invalid', 'the start scenes hold at most one player controller', 'at most 1 controller', { document: 'content' } as never, controllers));
 
   // The shell's listed scenes are scenes of the project, each spawn a player spawn in its scene.
@@ -261,20 +258,17 @@ function entityIdErrors(scenes: readonly SceneV4[]): readonly ModelErrorV3[] {
   return errors;
 }
 
-/** The camera and controller of one scene: counted in a start scene, refused in any other. */
-const startRules = new WeakMap<SceneV4, { inStart: boolean; cameras: number; controllers: number; errors: readonly ModelErrorV3[] }>();
-function sceneStartRule(s: SceneV4, inStart: boolean): { cameras: number; controllers: number; errors: readonly ModelErrorV3[] } {
+/** The controller of one scene: counted in a start scene, refused in any other. */
+const startRules = new WeakMap<SceneV4, { inStart: boolean; controllers: number; errors: readonly ModelErrorV3[] }>();
+function sceneStartRule(s: SceneV4, inStart: boolean): { controllers: number; errors: readonly ModelErrorV3[] } {
   const hit = startRules.get(s);
   if (hit !== undefined && hit.inStart === inStart) return hit;
   const errors: ModelErrorV3[] = [];
-  let cameras = 0;
   let controllers = 0;
-  const flags = effectiveEntityFlags(s.entities);
   s.entities.forEach((e, i) => {
     if (isFolderEntity(e)) return;
     const c = e.components;
     const oneOf: string[] = [];
-    if (c.camera !== undefined) oneOf.push('camera');
     if (c.controller !== undefined) oneOf.push('controller');
     if (oneOf.length === 0) return;
     if (!inStart) {
@@ -289,10 +283,9 @@ function sceneStartRule(s: SceneV4, inStart: boolean): { cameras: number; contro
       );
       return;
     }
-    if (c.camera !== undefined && flags.get(e.id)?.active !== false) cameras += 1;
     if (c.controller !== undefined) controllers += 1;
   });
-  const out = { inStart, cameras, controllers, errors };
+  const out = { inStart, controllers, errors };
   startRules.set(s, out);
   return out;
 }
@@ -720,5 +713,7 @@ export function migrateProjectV3ToV4(manifest: M1Manifest, scene: SceneV3, conte
     name: manifest.name,
     createdAt: manifest.createdAt,
   };
-  return { project: { manifest: manifestV2, content: contentV4, scenes: [sceneV4] }, notes };
+  // A v3 scene holds the scene camera: it becomes a shot, as the open upgrades a 6 (one shape for new and upgraded projects).
+  const model = upgradeSceneModel(contentV4, [sceneV4]);
+  return { project: { manifest: manifestV2, content: model.content as ContentCatalogV4, scenes: model.scenes as SceneV4[] }, notes };
 }

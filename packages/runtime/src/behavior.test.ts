@@ -594,7 +594,8 @@ describe('create-time failures', () => {
     expect(instantiateError(art, sceneWithBehaviors([{ entityId: 'box-0001', behaviorId: 'behavior-0001' }]))).toMatchObject({
       code: 'transform_owner_forbidden',
       reason: 'behavior_ownership_forbidden',
-      detail: 'camera',
+      // A camera is a shot: what refuses it here is that it does not carry the behavior.
+      detail: 'not_behavior_entity',
     });
     const art2 = artifact('behavior-0001', () => {}, { ownedTransforms: ['box-0002'] });
     expect(instantiateError(art2, sceneWithBehaviors([{ entityId: 'box-0001', behaviorId: 'behavior-0001' }]))).toMatchObject({

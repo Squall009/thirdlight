@@ -222,7 +222,7 @@ for (const variant of VARIANTS) test(`a script sets one object's colour and writ
   // The fixture: a plain dark sky, the camera looking along −Z at two flat boxes wearing the material, the script.
   await cmd('setEnvironment', { sceneId: 'scene-main', environment: { sky: { mode: 'color', color: '#303030' } } });
   const ents = ((await query('queryEntities', { limit: 100, offset: 0 })) as { entities: { id: string; components: Record<string, unknown> }[] }).entities;
-  const cam = ents.find((e) => e.components['camera'] !== undefined)!.id;
+  const cam = ents.find((e) => e.components['virtualCamera'] !== undefined)!.id;
   await cmd('setTransform', { entityId: cam, transform: { position: [0, 0, 6], rotation: [0, 0, 0, 1] } });
   // Anything else the blank project shows (its floor) moves out of the view.
   for (const e of ents) if (e.components['box'] !== undefined) await cmd('setTransform', { entityId: e.id, transform: { position: [0, -50, 0] } });

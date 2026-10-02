@@ -44,7 +44,7 @@ test('a version-5 project opens in the editor, upgrades, shows each scene with i
   test.setTimeout(180_000);
   await page.goto(`${be.origin}/?project=${ID}#token=${be.token}`);
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
-  expect(JSON.parse(readFileSync(join(dirname(be.projectDir), ID, 'project.json'), 'utf8'))['schemaVersion']).toBe(6);
+  expect(JSON.parse(readFileSync(join(dirname(be.projectDir), ID, 'project.json'), 'utf8'))['schemaVersion']).toBe(7);
 
   // Problems names the upgrade.
   await openWindow(page, 'Problems');

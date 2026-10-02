@@ -84,7 +84,7 @@ async function buildScene(): Promise<{ set: string; layer: string; platform: str
   const set = String((await cmd('createEntity', { parentId: null, kind: 'group', name: 'Sprinkles', components: { instances: { asset: { assetId: 'pillar' }, buffer: published.digest, count: 1, chunkSize: 4 } } }))['createdId']);
   // The game camera looks down at the terrain from the south-east.
   const entities = (await query('queryEntities', { limit: 100, offset: 0 }))['entities'] as { id: string; components: Record<string, unknown> }[];
-  const camera = entities.find((e) => e.components['camera'] !== undefined)!.id;
+  const camera = entities.find((e) => e.components['virtualCamera'] !== undefined)!.id;
   const aim = new THREE.PerspectiveCamera();
   aim.position.set(-10, 12, -4);
   aim.lookAt(-18, TOP_Y, -16);
@@ -241,7 +241,7 @@ test('the instance brush paints and erases on a block-layer top and a model: one
   page.on('pageerror', (e) => errors.push(e.message));
   const { set, layer, platform } = await buildScene();
   const original = await setState(set);
-  const cameraFov = Number((((await query('queryEntities', { limit: 100, offset: 0 }))['entities'] as { components: Record<string, { fovY?: number }> }[]).find((e) => e.components['camera'] !== undefined)!.components['camera']!.fovY) ?? 60);
+  const cameraFov = Number((((await query('queryEntities', { limit: 100, offset: 0 }))['entities'] as { components: Record<string, { fovY?: number }> }[]).find((e) => e.components['virtualCamera'] !== undefined)!.components['virtualCamera']!.fovY) ?? 60);
   expect(cameraFov).toBe(60);
 
   await page.goto(be.editorUrl);

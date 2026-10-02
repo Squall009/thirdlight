@@ -136,12 +136,12 @@ describe('interpolated state through the runtime', () => {
     rt.dispose();
   });
 
-  it('getCamera returns the snapshot camera parameters (stable for the session)', () => {
+  it('getCamera returns the main view\'s key and the project\'s lens (stable for the session)', () => {
     const rt = makeRuntime();
     const res = rt.getCamera();
     expect(res.ok).toBe(true);
     if (!res.ok) return;
-    expect(res.camera).toEqual({ id: 'cam-main', fovY: 60, near: 0.1, far: 100 });
+    expect(res.camera).toEqual({ id: 'main', fovY: 60, near: 0.1, far: 100 });
     const again = rt.getCamera();
     expect(again.ok).toBe(true);
     if (!again.ok) return;

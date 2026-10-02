@@ -839,7 +839,7 @@ export class ScaleBench {
     const p = this.backend.project(pid);
     const n = this.opts.streamTextures ?? 6;
     const ents = ((await p.query('queryEntities', { limit: 200, offset: 0 }))['entities'] ?? []) as { id: string; components: Record<string, unknown> }[];
-    const cam = ents.find((e) => e.components['camera'] !== undefined);
+    const cam = ents.find((e) => e.components['virtualCamera'] !== undefined);
     const at = ((cam?.components['transform'] as { position?: number[] } | undefined)?.position ?? [0, 0, 6]) as [number, number, number];
     const rssBefore = backendRssMiB(this.backend.pid);
     const t0 = performance.now();

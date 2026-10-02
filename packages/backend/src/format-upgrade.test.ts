@@ -32,7 +32,7 @@ describe('a schemaVersion 2 project opened over HTTP', () => {
     await tb.teardown();
   });
 
-  it('upgrades the generic data and writes the project back as schemaVersion 6', async () => {
+  it('upgrades the generic data and writes the project back as schemaVersion 7', async () => {
     const r = await api(`${tb.authUrl}/api/v1/sessions`, {
       body: { projectId: 'legacy-v2-upgradable', sessionId: mkSessionId(), clientInfo: { kind: 'browser', label: 'format-upgrade' } },
       token: tb.adminToken,
@@ -48,8 +48,8 @@ describe('a schemaVersion 2 project opened over HTTP', () => {
     expect(comps('box-0002')['collectible']).toEqual({ counter: 'stars', amount: 5 });
     expect(comps('box-0003')['health']).toEqual({ max: 3 });
 
-    // On disk: the manifest says 6 (2 → 3 → 4 → 5 → 6 in one open), content.json has no game key, the scene file the upgraded components.
-    expect(readJson('legacy-v2-upgradable', 'project.json')['schemaVersion']).toBe(6);
+    // On disk: the manifest says 7 (2 → 3 → 4 → 5 → 6 → 7 in one open), content.json has no game key, the scene file the upgraded components.
+    expect(readJson('legacy-v2-upgradable', 'project.json')['schemaVersion']).toBe(7);
     const content = readJson('legacy-v2-upgradable', 'content.json');
     expect(content['revision']).toBe(4);
     expect('game' in (content['content'] as Record<string, unknown>)).toBe(false);
@@ -112,7 +112,7 @@ describe('a schemaVersion 3 project with four-digit ids opened over HTTP', () =>
     await tb.teardown();
   });
 
-  it('keeps the old ids, writes schemaVersion 6, and gives new objects six-digit ids unique across scenes', async () => {
+  it('keeps the old ids, writes schemaVersion 7, and gives new objects six-digit ids unique across scenes', async () => {
     const before = readJson('scenes/scene-b.json');
     const r = await api(`${tb.authUrl}/api/v1/sessions`, {
       body: { projectId: ID, sessionId: mkSessionId(), clientInfo: { kind: 'browser', label: 'format-upgrade-25' } },
@@ -126,8 +126,8 @@ describe('a schemaVersion 3 project with four-digit ids opened over HTTP', () =>
     expect(j.scene.entities.map((e) => e.id)).toEqual(['cam-main', 'light-0001', 'light-0002', 'spawn-0001', 'box-0001', 'group-0001', 'box-0002', 'box-0003', 'spawn-0002']);
     expect(j.scene.entities.find((e) => e.id === 'box-0002')!.parentId).toBe('group-0001');
 
-    // On disk: the manifest says 6; the scene files keep their ids (only the revision stamp moved).
-    expect(readJson('project.json')['schemaVersion']).toBe(6);
+    // On disk: the manifest says 7; the scene files keep their ids.
+    expect(readJson('project.json')['schemaVersion']).toBe(7);
     const sceneB = readJson('scenes/scene-b.json')['scene'] as { revision: number; entities: Ent[] };
     expect(sceneB.revision).toBe(4);
     expect(sceneB.entities).toEqual((before['scene'] as { entities: Ent[] }).entities);
@@ -158,7 +158,7 @@ describe('a schemaVersion 3 project with four-digit ids opened over HTTP', () =>
 /**
  * A schemaVersion 4 project whose assets are stored versions in
  * `sources/sha256/` (`fixtures/phase26/legacy-v4-assets`, written by the
- * engine before the asset-file format) opens over HTTP as schemaVersion 6 (5, then 6 on the same open):
+ * engine before the asset-file format) opens over HTTP as schemaVersion 7 (5, 6, then 7 on the same open):
  * each asset's current version becomes a file with its `.tlasset` sidecar
  * (the KTX2 texture's PNG is the file, the KTX2 goes to the import cache),
  * the older version stays in `sources/` and is listed in the report, the
@@ -192,7 +192,7 @@ describe('a schemaVersion 4 project with stored asset versions opened over HTTP'
     const r = await api(`${tb.authUrl}/api/v1/sessions`, { body: { projectId: ID, sessionId: mkSessionId(), clientInfo: { kind: 'browser', label: 'format-upgrade-26' } }, token: tb.adminToken });
     expect(r.status, JSON.stringify(r.json)).toBe(200);
     expect((r.json as { revision: number }).revision).toBe(8);
-    expect(readJson('project.json')['schemaVersion']).toBe(6);
+    expect(readJson('project.json')['schemaVersion']).toBe(7);
 
     // Each asset's current version is a file in the project's own folder with its sidecar.
     const crate = readFileSync(join(dir(), 'assets', 'Crate.glb'));
@@ -350,7 +350,7 @@ describe('a project with music and short-sound records opened over HTTP', () => 
  * Each scene its own look. A schemaVersion 5 project with one project-wide
  * environment (`fixtures/phase27/legacy-v5-environment`, written by that
  * engine through its own backend: two scenes, a gradient sky, linear fog, post,
- * wind, quality medium and a preset) opens over HTTP as schemaVersion 6: the
+ * wind, quality medium and a preset) opens over HTTP as schemaVersion 7: the
  * sky, fog, post and wind are copied into both scene files, the content keeps
  * the quality and the preset, the upgrade is reported, the recorded command
  * replays from its record, and the export ships each scene with its look.
@@ -388,7 +388,7 @@ describe('a schemaVersion 5 project with one project-wide environment opened ove
     expect(r.status, JSON.stringify(r.json)).toBe(200);
     // One new revision for the upgrade (the files were at 4).
     expect((r.json as { revision: number }).revision).toBe(5);
-    expect(readJson('project.json')['schemaVersion']).toBe(6);
+    expect(readJson('project.json')['schemaVersion']).toBe(7);
 
     // The content keeps the quality and the preset's id (the preset is its own file, untouched).
     expect((readJson('content.json')['content'] as { environment: unknown }).environment).toEqual({ quality: 'medium', presets: ['dusk'] });
@@ -398,7 +398,14 @@ describe('a schemaVersion 5 project with one project-wide environment opened ove
       const scene = readJson(`scenes/${sceneId}.json`)['scene'] as { revision: number; environment?: unknown; entities: unknown[] };
       const old = (JSON.parse(readFileSync(join(FIXTURE, 'scenes', `${sceneId}.json`), 'utf8')) as { scene: { entities: unknown[] } }).scene;
       expect(scene.environment, sceneId).toEqual(LOOK);
-      expect(scene.entities, sceneId).toEqual(old.entities);
+      // The objects as they were, the scene camera the shot the same open made of it (5 → 6 → 7).
+      const asShot = (e: unknown): unknown => {
+        const o = e as { id: string; components: Record<string, unknown> };
+        if (o.components['camera'] === undefined) return e;
+        const { camera: _camera, ...rest } = o.components;
+        return { ...o, keepLoaded: true, components: { ...rest, virtualCamera: { rig: 'fixed', priority: -1000 } } };
+      };
+      expect(scene.entities, sceneId).toEqual(old.entities.map(asShot));
       expect(scene.revision, sceneId).toBe(5);
     }
     // The upgrade is reported where the user and MCP look.
@@ -474,4 +481,108 @@ describe('a schemaVersion 5 project with one project-wide environment opened ove
     expect((await send('undo', {}))['ok']).toBe(true);
     expect(lookOf('scene-copy')).toEqual(LOOK);
   }, 60_000);
+});
+
+/**
+ * The engine owns the view. Two schemaVersion 6 projects written by that
+ * engine (`fixtures/phase28`), shaped like each of the two game projects': a
+ * camera entity in a start scene with its own lens next to a level scene with
+ * a virtual camera, and a title scene holding the camera and the player
+ * (the README names the games). Opened over HTTP each becomes schemaVersion 7 in one new revision:
+ * the scene camera is a fixed virtual camera at the lowest priority, its lens
+ * the project's camera settings, the camera and the player keep loaded, the
+ * recorded command replays and the export ships the shots and the lens.
+ */
+describe('a schemaVersion 6 project with a scene camera opened over HTTP', () => {
+  const REPO = resolve(import.meta.dirname, '..', '..', '..');
+  type Ent = { id: string; keepLoaded?: boolean; components: Record<string, unknown> };
+  let tb: TestBackend;
+  let exportRoot: string;
+  const dir = (id: string): string => join(tb.root, 'data', 'projects', id);
+  const readJson = (id: string, rel: string): Record<string, unknown> => JSON.parse(readFileSync(join(dir(id), rel), 'utf8')) as Record<string, unknown>;
+  const entitiesOf = (id: string, sceneId: string): Ent[] => (readJson(id, `scenes/${sceneId}.json`)['scene'] as { entities: Ent[] }).entities;
+  const fixtureEntities = (id: string, sceneId: string): Ent[] => (JSON.parse(readFileSync(join(REPO, 'fixtures', 'phase28', id, 'scenes', `${sceneId}.json`), 'utf8')) as { scene: { entities: Ent[] } }).scene.entities;
+  const open = async (id: string): Promise<number> => {
+    const r = await api(`${tb.authUrl}/api/v1/sessions`, { body: { projectId: id, sessionId: mkSessionId(), clientInfo: { kind: 'browser', label: 'view-upgrade' } }, token: tb.adminToken });
+    expect(r.status, JSON.stringify(r.json)).toBe(200);
+    return (r.json as { revision: number }).revision;
+  };
+  const replay = async (id: string): Promise<void> => {
+    const body = JSON.parse(readFileSync(join(REPO, 'fixtures', 'phase28', id, 'replay.json'), 'utf8')) as Record<string, unknown>;
+    const again = await api(`${tb.authUrl}/api/v1/projects/${id}/commands`, { body, token: tb.adminToken, origin: null });
+    expect(again.status, JSON.stringify(again.json)).toBe(200);
+    expect(again.json).toMatchObject({ ok: true, duplicated: true, requestId: body['requestId'] });
+  };
+  const upgradeNotes = async (id: string): Promise<string> => {
+    const problems = await api(`${tb.authUrl}/api/v1/projects/${id}/problems`, { method: 'GET', token: tb.adminToken, origin: null });
+    return (problems.json as { problems: { code: string; message: string }[] }).problems.filter((p) => p.code === 'project_upgraded').map((p) => p.message).join('\n');
+  };
+
+  beforeAll(async () => {
+    exportRoot = mkdtempSync(join(process.env.TMPDIR ?? '/tmp', 'tl-view-upgrade-export-'));
+    tb = await startBackend({ tokens: [], exportRoot, engineRoot: REPO });
+    for (const id of ['legacy-v6-start-camera', 'legacy-v6-title-player']) cpSync(join(REPO, 'fixtures', 'phase28', id), dir(id), { recursive: true });
+  });
+  afterAll(async () => {
+    await tb.teardown();
+    rmSync(exportRoot, { recursive: true, force: true });
+  });
+
+  it('a camera entity in a start scene becomes the lowest-priority shot, its lens the project\'s; the level camera is untouched; replays and exports', async () => {
+    const ID = 'legacy-v6-start-camera';
+    // The files were at 6: one new revision for the upgrade.
+    expect(await open(ID)).toBe(7);
+    expect(readJson(ID, 'project.json')['schemaVersion']).toBe(7);
+    const cam = entitiesOf(ID, 'scene-main').find((e) => e.id === 'cam-main')!;
+    const old = fixtureEntities(ID, 'scene-main').find((e) => e.id === 'cam-main')!;
+    expect(cam.components['camera']).toBeUndefined();
+    expect(cam.components['virtualCamera']).toEqual({ rig: 'fixed', priority: -1000 });
+    expect(cam.components['transform']).toEqual(old.components['transform']);
+    expect(cam.keepLoaded).toBe(true);
+    // The lens is the project's now (every camera without its own uses it).
+    expect((readJson(ID, 'content.json')['content'] as { settings: unknown }).settings).toEqual({ physics_dimension: 3, camera_fov_deg: 50, camera_near_m: 0.3, camera_far_m: 400 });
+    // The level scene's own virtual camera and tile are as they were (only the revision stamp moved).
+    expect(entitiesOf(ID, 'battle')).toEqual(fixtureEntities(ID, 'battle'));
+    // The lights are untouched.
+    expect(entitiesOf(ID, 'scene-main').filter((e) => e.id !== 'cam-main')).toEqual(fixtureEntities(ID, 'scene-main').filter((e) => e.id !== 'cam-main'));
+    const notes = await upgradeNotes(ID);
+    expect(notes).toContain('project schemaVersion 6 → 7');
+    expect(notes).toContain('"cam-main" (scene "scene-main") became a fixed virtual camera');
+    expect(notes).toContain('field of view 50°, near 0.3 m, far 400 m');
+    // The last recorded command (it set the scene camera's lens) replays its recorded result.
+    await replay(ID);
+    // The export ships the lens settings and the shots.
+    const exported = await api(`${tb.authUrl}/api/v1/admin/projects/${ID}/export`, { body: {}, token: tb.adminToken, origin: null });
+    expect(exported.status, JSON.stringify(exported.json)).toBe(200);
+    const out = join(exportRoot, String((exported.json as { outputDir: string }).outputDir));
+    const manifest = exportContentOf(out) as unknown as { settings: Record<string, unknown>; scenes: { sceneId: string; path: string }[] };
+    expect(manifest.settings).toMatchObject({ camera_fov_deg: 50, camera_near_m: 0.3, camera_far_m: 400 });
+    const shipped = (sceneId: string): Ent[] => (JSON.parse(readFileSync(join(out, manifest.scenes.find((s) => s.sceneId === sceneId)!.path), 'utf8')) as { entities: Ent[] }).entities;
+    expect(shipped('scene-main').find((e) => e.id === 'cam-main')?.components['virtualCamera']).toEqual({ rig: 'fixed', priority: -1000 });
+    expect(shipped('battle').find((e) => e.id === 'group-000001')?.components['virtualCamera']).toEqual({ rig: 'orbitPoint', distance: 15, pitch: 45 });
+    // A start with a camera live: the export warns about nothing.
+    expect((exported.json as { warnings?: unknown[] }).warnings).toBeUndefined();
+  }, 120_000);
+
+  it('a title scene holding the camera and the player: both keep loaded, the default lens stays the default', async () => {
+    const ID = 'legacy-v6-title-player';
+    expect(await open(ID)).toBe(6);
+    expect(readJson(ID, 'project.json')['schemaVersion']).toBe(7);
+    const title = entitiesOf(ID, 'scene-main');
+    const cam = title.find((e) => e.id === 'cam-main')!;
+    expect(cam.components['virtualCamera']).toEqual({ rig: 'fixed', priority: -1000 });
+    expect(cam.keepLoaded).toBe(true);
+    const player = title.find((e) => e.id === 'box-000001')!;
+    expect(player.components['controller']).toBeDefined();
+    expect(player.keepLoaded).toBe(true);
+    // Nothing else is kept: the spawn and the lights go with their scene.
+    expect(title.filter((e) => e.keepLoaded === true).map((e) => e.id).sort()).toEqual(['box-000001', 'cam-main']);
+    // The default lens is the engine default: no settings written.
+    expect((readJson(ID, 'content.json')['content'] as { settings: unknown }).settings).toEqual({});
+    expect(entitiesOf(ID, 'meadow')).toEqual(fixtureEntities(ID, 'meadow'));
+    const notes = await upgradeNotes(ID);
+    expect(notes).toContain('"cam-main", "box-000001" keep loaded when their scene unloads');
+    expect(notes).not.toContain('camera settings');
+    await replay(ID);
+  }, 120_000);
 });

@@ -407,6 +407,7 @@ export async function exportProjectM3(
       buildId: closure.buildId,
       contentDigest: parsedManifest.contentDigest,
       outputDigest: written.outputDigest,
+      ...(closure.checks.length > 0 ? { warnings: closure.checks.map((c) => ({ code: c.code, message: c.message })) } : {}),
     };
   } catch (e) {
     staging.abort();

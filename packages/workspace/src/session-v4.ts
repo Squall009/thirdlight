@@ -1143,7 +1143,6 @@ export function serveQueryV4(s: ProjectSession, op: QueryOp, projectId: string, 
         sceneId: scene.sceneId,
         schemaVersion: 4,
         entityCount: [...state.scenes.values()].reduce((n, x) => n + x.entities.length, 0),
-        cameraId: [...state.scenes.values()].flatMap((x) => x.entities).find((e) => e.components.camera !== undefined)?.id ?? '',
       },
       scenes: state.content.scenes.map((e) => {
         const sc = state.scenes.get(e.sceneId);

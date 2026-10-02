@@ -800,10 +800,8 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
       // With a scene catalog an owner may live in a scene that
       // is not loaded yet; it is checked when its scene loads.
       const deferOwners = snapshot.scenes !== undefined;
-      // An owner must exist, carry THIS behavior's component, and be
-      // neither the camera nor a physics-bearing entity.
+      // An owner must exist, carry THIS behavior's component, and not be a physics-bearing entity.
       const entityIds = new Set<string>();
-      const cameraIds = new Set<string>();
       const physicsIds = new Set<string>();
       const components = new Map<string, { behaviorId?: string; values?: Record<string, unknown> }>();
       // The hierarchy of the loaded entities (a script owns the triggers below its entity).
@@ -814,8 +812,7 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
       const physicsBody = (c: { collider?: unknown; controller?: unknown; mover?: unknown }): boolean =>
         c.controller !== undefined || (c.collider !== undefined && (cfg.physicsDimension !== 3 || c.mover !== undefined));
       for (const e of snapshot.scene.entities) {
-        const c = (e.components as { camera?: unknown; collider?: unknown; controller?: unknown; mover?: unknown; behavior?: { behaviorId?: string; values?: Record<string, unknown> } });
-        if (c.camera !== undefined) cameraIds.add(e.id);
+        const c = (e.components as { collider?: unknown; controller?: unknown; mover?: unknown; behavior?: { behaviorId?: string; values?: Record<string, unknown> } });
         if (physicsBody(c)) physicsIds.add(e.id);
         if (c.behavior?.behaviorId === behaviorId) {
           entityIds.add(e.id);
@@ -823,9 +820,6 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
         }
       }
       const checkOwner = (owner: string): void => {
-        if (cameraIds.has(owner)) {
-          throw new BehaviorHostError('transform_owner_forbidden', 'behavior_ownership_forbidden', `behavior "${behaviorId}" claims the camera entity "${owner}"`, 'camera');
-        }
         if (physicsIds.has(owner)) {
           throw new BehaviorHostError('transform_owner_forbidden', 'behavior_ownership_forbidden', `behavior "${behaviorId}" claims physics entity "${owner}"`, 'physics_entity');
         }
@@ -833,9 +827,8 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
           throw new BehaviorHostError('transform_owner_forbidden', 'behavior_ownership_forbidden', `behavior "${behaviorId}" claims entity "${owner}" which does not carry this behavior`, 'not_behavior_entity');
         }
       };
-      /** A carrier that owns itself ("@self") is neither the camera nor a physics body. */
+      /** A carrier that owns itself ("@self") is not a physics body. */
       const checkSelf = (id: string): void => {
-        if (cameraIds.has(id)) throw new BehaviorHostError('transform_owner_forbidden', 'behavior_ownership_forbidden', `behavior "${behaviorId}" (@self) is on the camera entity "${id}"`, 'camera');
         if (physicsIds.has(id)) throw new BehaviorHostError('transform_owner_forbidden', 'behavior_ownership_forbidden', `behavior "${behaviorId}" (@self) is on physics entity "${id}"`, 'physics_entity');
       };
       /** The current owners: the listed entities, plus every carrier when "@self" (the runtime re-reads it after loads). */
@@ -1366,8 +1359,7 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
           const added = new Set<string>();
           for (const e of entities) if (e.parentId !== undefined) parentOf.set(e.id, e.parentId);
           for (const e of entities) {
-            const c = e.components as { camera?: unknown; collider?: unknown; controller?: unknown; mover?: unknown; behavior?: { behaviorId?: string; values?: Record<string, unknown> } };
-            if (c.camera !== undefined) cameraIds.add(e.id);
+            const c = e.components as { collider?: unknown; controller?: unknown; mover?: unknown; behavior?: { behaviorId?: string; values?: Record<string, unknown> } };
             if (physicsBody(c)) physicsIds.add(e.id);
             if (c.behavior?.behaviorId === behaviorId) {
               entityIds.add(e.id);
@@ -1399,7 +1391,6 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
           for (let i = left.length - 1; i >= 0; i -= 1) leaving.push(left[i]!);
           for (const id of ids) {
             entityIds.delete(id);
-            cameraIds.delete(id);
             physicsIds.delete(id);
             parentOf.delete(id);
           }

@@ -241,6 +241,8 @@ export { RigPoser, composeMat4, decomposeMat4, invertMat4, mat4, mulMat4, sample
 export type { BehaviorSockets } from './types';
 // The rig reader (hosts and the editor read the node names the game resolves sockets on).
 export { readModelRig, rigNodeNames, type ModelRig } from '@thirdlight/project-model';
+// The project's lens (its camera settings) for the editor's camera previews.
+export { VIEW_LENS_DEFAULTS, viewLensOf } from '@thirdlight/project-model';
 export { inputView, type BehaviorInputView } from './behavior';
 // ctx.spawn / ctx.destroy (prefab copies in the running game).
 export { MAX_LIVE_SPAWNED, MAX_SPAWNS_PER_STEP, SPAWN_ID_PREFIX, expandPrefab, parseSpawnOptions, type SpawnOptions, type SpawnPlacement } from './spawn';

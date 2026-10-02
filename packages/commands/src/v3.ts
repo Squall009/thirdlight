@@ -136,17 +136,15 @@ export const V3_COMPONENTS: readonly V3OwnedComponent[] = [
 /** Every component `setComponent` may address. */
 export const ALL_OWNED_COMPONENTS = [
   'box',
-  'camera',
   'model',
   'collider',
   'controller',
   ...V3_COMPONENTS,
 ] as const;
 
-/** Components that support `add`/`remove` (`box`/`camera`/`model` too). */
+/** Components that support `add`/`remove` (`box`/`model` too). */
 export const REMOVABLE_COMPONENTS: readonly string[] = [
   'box',
-  'camera',
   'model',
   'collider',
   'controller',

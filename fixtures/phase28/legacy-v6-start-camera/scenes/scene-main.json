@@ -1,0 +1,23 @@
+{
+  "storageVersion": 4,
+  "type": "scene",
+  "projectId": "legacy-v6-start-camera",
+  "scene": {
+    "schemaVersion": 4,
+    "sceneId": "scene-main",
+    "revision": 6,
+    "entities": [
+      {"id":"cam-main","name":"Main Camera","components":{"transform":{"position":[0,12,14],"rotation":[-0.3420201433256687,0,0,0.9396926207859084],"scale":[1,1,1]},"camera":{"type":"perspective","fovY":50,"near":0.3,"far":400}}},
+      {"id":"light-0001","name":"Sun","components":{"transform":{"position":[0,10,0],"rotation":[0,0,0,1],"scale":[1,1,1]},"light":{"type":"directional","color":"#ffffff","intensity":1.2,"direction":[0.4,-1,-0.3],"castShadow":true}}},
+      {"id":"light-0002","name":"Ambient","components":{"transform":{"position":[0,0,0],"rotation":[0,0,0,1],"scale":[1,1,1]},"light":{"type":"ambient","color":"#8090a8","intensity":0.6}}}
+    ]
+  },
+  "retry": {
+    "recordVersion": 2,
+    "retention": 128,
+    "records": [
+      {"requestId":"req-b1b11f6eb2adcea16fbe7eff87c49370","digest":"bffcaab64e16042c3084a3b465d9c4f21d3c297025c4c8dfa07f6fde06719987","appliedRevision":2,"result":{"ok":true,"op":"setTransform","projectId":"legacy-v6-start-camera","requestId":"req-b1b11f6eb2adcea16fbe7eff87c49370","revision":2,"duplicated":false,"change":{"type":"setTransform","id":"cam-main","previous":{"position":[0,0.5,4],"rotation":[0,0,0,1],"scale":[1,1,1]},"next":{"position":[0,12,14],"rotation":[-0.3420201433256687,0,0,0.9396926207859084],"scale":[1,1,1]},"changedFields":["position","rotation"]},"history":{"undoDepth":2,"redoDepth":0},"sceneId":"scene-main"}},
+      {"requestId":"req-e61d4ae966517bbfa3a8fdd5e3214769","digest":"435714e9d7e448441b3883e2ea7ae529d3ebd22df15acc837bcee0c3de60467a","appliedRevision":6,"result":{"ok":true,"op":"setComponent","projectId":"legacy-v6-start-camera","requestId":"req-e61d4ae966517bbfa3a8fdd5e3214769","revision":6,"duplicated":false,"change":{"type":"setComponent","id":"cam-main","component":"camera","previous":{"type":"perspective","fovY":60,"near":0.1,"far":100},"next":{"type":"perspective","fovY":50,"near":0.3,"far":400},"changedFields":["type","fovY","near","far"]},"history":{"undoDepth":6,"redoDepth":0},"sceneId":"scene-main"}}
+    ]
+  }
+}

@@ -19,12 +19,14 @@ export interface EntityHeader {
   visible: boolean;
   locked: boolean;
   static: boolean;
+  /** Survives scene changes (absent in an older record: false). */
+  keepLoaded?: boolean;
   /** The entity's own tag mask (0 = none). */
   tags: number;
 }
 
 /** The `updateEntity` fields a change can name. */
-export type EntityHeaderField = 'name' | 'parentId' | 'active' | 'visible' | 'locked' | 'static' | 'tags';
+export type EntityHeaderField = 'name' | 'parentId' | 'active' | 'visible' | 'locked' | 'static' | 'keepLoaded' | 'tags';
 
 /**
  * Partial transform args: any non-empty subset; a present field replaces the
@@ -56,11 +58,12 @@ export interface CreateEntityArgs {
   kind: 'group' | 'box' | 'model' | 'folder';
   parentId?: string | null;
   name?: string;
-  /** The entity flags and tags, as `updateEntity` sets them (absent: active, visible, unlocked, not static, no tags). */
+  /** The entity flags and tags, as `updateEntity` sets them (absent: active, visible, unlocked, not static, not kept loaded, no tags). */
   active?: boolean;
   visible?: boolean;
   locked?: boolean;
   static?: boolean;
+  keepLoaded?: boolean;
   /** Tag names of the project's registry. */
   tags?: string[];
   transform?: PartialTransformArgs;
@@ -93,6 +96,8 @@ export interface UpdateEntityArgs {
   visible?: boolean;
   locked?: boolean;
   static?: boolean;
+  /** The object (with its children and scripts) survives scene loads, unloads and reloads. */
+  keepLoaded?: boolean;
   /** The entity's own tags, by name (replaces the whole set; [] clears). */
   tags?: string[];
 }

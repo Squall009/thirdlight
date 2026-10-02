@@ -103,7 +103,6 @@ export function iconKindFor(
     const t = e.light.type;
     return t === 'directional' ? 'sun' : t === 'ambient' ? 'ambient' : t === 'point' ? 'point' : t === 'spot' ? 'spot' : 'hemisphere';
   }
-  if (e.kind === 'camera') return 'camera';
   const comps = e.components ?? {};
   for (const row of table) if (comps[row.component] !== undefined) return row.icon;
   return 'empty';

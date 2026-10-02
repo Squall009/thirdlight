@@ -16,7 +16,7 @@ import { validateSceneV3, validateSceneV4 } from './scene-v3';
 
 const T = (rotation: number[] = [0, 0, 0, 1], position: number[] = [0, 0, 0]) => ({ position, rotation, scale: [1, 1, 1] });
 const TILT_X = [Math.sin(Math.PI / 8), 0, 0, Math.cos(Math.PI / 8)];
-const MANIFEST = { schemaVersion: 6, engineVersion: '0.1.0', id: 'p', name: 'P', createdAt: '2026-09-23T00:00:00Z' };
+const MANIFEST = { schemaVersion: 7, engineVersion: '0.1.0', id: 'p', name: 'P', createdAt: '2026-09-23T00:00:00Z' };
 const content = (settings: Record<string, unknown>) => ({
   assets: [],
   prefabs: [],
@@ -26,7 +26,7 @@ const content = (settings: Record<string, unknown>) => ({
   scenes: [{ sceneId: 'scene-main', name: 'Main' }],
   startScenes: ['scene-main'],
 });
-const CAMERA = { id: 'cam-main', components: { transform: T(undefined, [0, 2, 10]), camera: { type: 'perspective', fovY: 60, near: 0.1, far: 100 } } };
+const CAMERA = { id: 'cam-main', components: { transform: T(undefined, [0, 2, 10]), virtualCamera: { rig: 'fixed' } } };
 const scene = (entities: unknown[]) => ({ schemaVersion: 4, sceneId: 'scene-main', revision: 1, entities });
 const floor = (shape: Record<string, unknown>, rotation?: number[]) => ({ id: 'floor-0001', components: { transform: T(rotation, [0, -0.5, 0]), collider: { shape } } });
 const player = (rotation?: number[], capsule?: Record<string, unknown>) => ({ id: 'player-0001', components: { transform: T(rotation, [0, 2, 0]), controller: capsule !== undefined ? { capsule } : {} } });

@@ -45,7 +45,8 @@ export function cameraEntity(id = 'cam-main', opts: EntityOpts = {}): EntityV3 {
         rotation: opts.rotation ?? [0, 0, 0, 1],
         scale: opts.scale ?? [1, 1, 1],
       },
-      camera: { type: 'perspective', fovY: 60, near: 0.1, far: 100 },
+      // The shot a scene camera became when the engine took the view over.
+      virtualCamera: { rig: 'fixed', priority: -1000 },
     },
   };
   return e;

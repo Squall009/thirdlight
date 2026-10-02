@@ -72,8 +72,7 @@ export const model: ComponentDescriptor = {
   handles: [],
   excludes: [
     { component: 'blockLayer', reason: 'a block layer is its own level geometry' },
-    { component: 'box', reason: 'an object shows one model, box or camera' },
-    { component: 'camera', reason: 'an object shows one model, box or camera' },
+    { component: 'box', reason: 'an object shows one model or box' },
     { component: 'instances', reason: 'an instance set places its own model many times' },
   ],
   prefab: true,
@@ -95,36 +94,10 @@ export const box: ComponentDescriptor = {
   handles: [{ kind: 'box3', label: 'Size', bind: { size: 'size' }, space: 'local', follows: 'transform' }],
   excludes: [
     { component: 'blockLayer', reason: 'a block layer is its own level geometry' },
-    { component: 'model', reason: 'an object shows one model, box or camera' },
-    { component: 'camera', reason: 'an object shows one model, box or camera' },
+    { component: 'model', reason: 'an object shows one model or box' },
     { component: 'instances', reason: 'an instance set places its own model many times' },
   ],
   prefab: true,
-};
-
-export const camera: ComponentDescriptor = {
-  name: 'camera',
-  label: 'Camera',
-  tooltip: 'The scene camera the game looks through (one per scene).',
-  category: 'Camera',
-  value: obj('camera', 'Camera', 'A perspective camera.', [
-    enm('type', 'Projection', 'Only perspective cameras exist.', ['perspective'], { default: 'perspective' }),
-    num('fovY', 'Field of view', 'Vertical field of view.', { min: 0, minExclusive: true, max: 180, maxExclusive: true, step: 1, unit: 'deg', default: 60 }),
-    num('near', 'Near', 'Nothing closer than this is drawn.', { min: 0, minExclusive: true, max: POSITION_LIMIT, step: 0.01, unit: 'm', default: 0.1 }),
-    num('far', 'Far', 'Nothing farther than this is drawn (beyond near).', { min: 0, minExclusive: true, max: POSITION_LIMIT, step: 1, unit: 'm', default: 100 }),
-  ], { rules: ['far > near'] }),
-  // 60° vertical (the common game default, three.js's too), 0.1–100 m (from arm's length to a large level; far is a field).
-  add: { kind: 'menu', value: { type: 'perspective', fovY: 60, near: 0.1, far: 100 } },
-  handles: [],
-  excludes: [
-    { component: 'socketAttach', reason: 'a socket poses the object every step; the scene camera is posed by its camera module' },
-    { component: 'blockLayer', reason: 'a block layer is its own level geometry' },
-    { component: 'model', reason: 'an object shows one model, box or camera' },
-    { component: 'box', reason: 'an object shows one model, box or camera' },
-    { component: 'instances', reason: 'an instance set is scenery, not a camera' },
-    { component: 'virtualCamera', reason: 'a virtual camera is a shot; the scene camera draws whichever shot is live' },
-  ],
-  prefab: false,
 };
 
 export const behavior: ComponentDescriptor = {
@@ -354,7 +327,7 @@ const ACTION_NAME = { format: 'identifier' as const, minLength: 1, maxLength: 32
 export const virtualCamera: ComponentDescriptor = {
   name: 'virtualCamera',
   label: 'Virtual camera',
-  tooltip: 'A camera shot the game cuts or blends to: follow/orbit a target, orbit a point in snapped turns, top-down, fixed/look-at, along a rail, or track a target with a dead zone and bounds. The live one is the enabled camera with the highest priority (on a tie the one activated last); without one the scene camera keeps its own view.',
+  tooltip: 'A camera shot the game cuts or blends to: follow/orbit a target, orbit a point in snapped turns, top-down, fixed/look-at, along a rail, or track a target with a dead zone and bounds. The live one is the enabled camera with the highest priority (on a tie the one activated last); it is what the game shows (without one the view holds a default pose and Play warns).',
   category: 'Camera',
   value: obj('virtualCamera', 'Virtual camera', 'One camera shot and how the view blends to it.', [
     enm('rig', 'Rig', 'How the camera moves: follow/orbit a target, orbit a point, straight down onto the target, fixed where it is placed, along a camera path, or track a target without turning (dead zone, bounds).', VIRTUAL_CAMERA_RIGS, { required: true, default: 'follow', labels: { follow: 'Follow / orbit', orbitPoint: 'Orbit a point', topDown: 'Top-down', fixed: 'Fixed / look-at', rail: 'Rail (path)', track: 'Track (dead zone)' } }),
@@ -395,9 +368,9 @@ export const virtualCamera: ComponentDescriptor = {
     num('progress', 'Progress', 'Where along the path it starts (0: the first point, 1: the end).', { when: when('rig', 'rail'), min: VCL.progress.min, max: VCL.progress.max, step: 0.01, default: VCD.progress }),
     num('railSpeed', 'Rail speed', 'How fast it rides the path (negative: backwards; 0: stays until a script moves it).', { when: when('rig', 'rail'), min: VCL.railSpeed.min, max: VCL.railSpeed.max, step: 0.5, unit: 'm/s', default: VCD.railSpeed }),
     enm('railMode', 'At the end', 'Stop at the end, loop to the start, or ride back and forth.', CAMERA_RAIL_MODES, { when: when('rig', 'rail'), default: VCD.railMode, labels: { once: 'Stop', loop: 'Loop', pingpong: 'Back and forth' } }),
-    num('fovY', 'Field of view', 'Vertical field of view (absent: the scene camera\'s).', { min: VCL.fovY.min, max: VCL.fovY.max, step: 1, unit: 'deg', group: 'Lens' }),
-    num('near', 'Near', 'The near clipping plane (absent: the scene camera\'s).', { min: VCL.near.min, max: VCL.near.max, step: 0.01, unit: 'm', group: 'Lens' }),
-    num('far', 'Far', 'The far clipping plane (absent: the scene camera\'s).', { min: VCL.far.min, max: VCL.far.max, step: 10, unit: 'm', group: 'Lens' }),
+    num('fovY', 'Field of view', 'Vertical field of view (absent: the project\'s camera setting).', { min: VCL.fovY.min, max: VCL.fovY.max, step: 1, unit: 'deg', group: 'Lens' }),
+    num('near', 'Near', 'The near clipping plane (absent: the project\'s camera setting).', { min: VCL.near.min, max: VCL.near.max, step: 0.01, unit: 'm', group: 'Lens' }),
+    num('far', 'Far', 'The far clipping plane (absent: the project\'s camera setting).', { min: VCL.far.min, max: VCL.far.max, step: 10, unit: 'm', group: 'Lens' }),
     enm('blend', 'Blend in', 'How the view moves to this camera when it goes live: a cut, a constant-speed move or an eased move.', CAMERA_BLENDS, { default: VCD.blend, group: 'Blend' }),
     num('blendTime', 'Blend time', 'How long the move to this camera takes.', { when: when('blend', 'linear', 'eased'), min: VCL.blendTime.min, max: VCL.blendTime.max, step: 0.1, unit: 's', default: VCD.blendTime, group: 'Blend' }),
     num('letterbox', 'Letterbox', 'Black bars over the top and bottom while it is live (each a share of the view height).', { min: VCL.letterbox.min, max: VCL.letterbox.max, step: 0.01, default: VCD.letterbox, group: 'Effects' }),
@@ -416,7 +389,11 @@ export const virtualCamera: ComponentDescriptor = {
     { label: 'Track (dead zone)', value: { rig: 'track', deadZone: [2, 1, 2], damping: 0.2 } },
   ],
   // The track rig's shot as its own object (the target is picked in the Inspector; without one it frames where it is placed).
-  create: [{ label: 'Camera track', menu: 'Cameras', value: { rig: 'track', deadZone: [2, 1, 2], damping: 0.2 } }],
+  // A plain shot: the view from where it is placed (the scene's own camera before the engine owned the view).
+  create: [
+    { label: 'Camera', menu: 'Cameras', value: { rig: 'fixed' } },
+    { label: 'Camera track', menu: 'Cameras', value: { rig: 'track', deadZone: [2, 1, 2], damping: 0.2 } },
+  ],
   icon: 'camera',
   handles: [
     { kind: 'point', label: 'Orbit point', bind: { point: 'point' }, space: 'world', when: when('rig', 'orbitPoint') },
@@ -424,9 +401,7 @@ export const virtualCamera: ComponentDescriptor = {
     { kind: 'box3', label: 'Dead zone', bind: { size: 'deadZone' }, space: 'local', when: TRACK, anchor: { entity: 'target', offset: 'targetOffset' } },
     { kind: 'bounds', label: 'Bounds', bind: { min: 'boundsMin', max: 'boundsMax' }, space: 'world', when: TRACK },
   ],
-  excludes: [
-    { component: 'camera', reason: 'a virtual camera is a shot; the scene camera draws whichever shot is live' },
-  ],
+  excludes: [],
   prefab: false,
 };
 
@@ -498,7 +473,7 @@ export const socketAttach: ComponentDescriptor = {
   // A socket needs its target (picked first; the node starts as a placeholder name picked from the target's list next).
   add: { kind: 'pick', value: {}, pick: ['target'] },
   handles: [],
-  excludes: SOCKET_ATTACH_CONFLICTS.map((c) => ({ component: c, reason: c === 'camera' ? 'the scene camera is posed by the camera brain' : 'a physics body is posed by physics, not by a socket' })),
+  excludes: SOCKET_ATTACH_CONFLICTS.map((c) => ({ component: c, reason: 'a physics body is posed by physics, not by a socket' })),
   prefab: false,
 };
 
@@ -637,7 +612,7 @@ export const instances: ComponentDescriptor = {
   add: { kind: 'tool', tool: 'instance brush or instance import' },
   handles: [],
   excludes: [
-    ...['box', 'camera', 'model', 'collider', 'controller', 'modelAnimation', 'playerSpawn', 'light'].map((c) => ({ component: c, reason: 'an instance set is one model placed many times, with nothing of its own' })),
+    ...['box', 'model', 'collider', 'controller', 'modelAnimation', 'playerSpawn', 'light'].map((c) => ({ component: c, reason: 'an instance set is one model placed many times, with nothing of its own' })),
     { component: 'blockLayer', reason: 'a block layer is its own level geometry' },
   ],
   prefab: false,
@@ -1106,6 +1081,7 @@ export const ENTITY: ObjectFieldDescriptor = obj('entity', 'Object', 'An object 
   bool('visible', 'Visible', 'Drawn (with its children, their lights and effects). Off: the object starts hidden until a script or a timeline shows it; it still collides, triggers and ticks while hidden.', { default: true, omitDefault: true }),
   bool('locked', 'Locked', 'Cannot be selected in the Scene view.', { default: false, omitDefault: true }),
   bool('static', 'Static', 'Never moves (baked lighting, cheaper rendering).', { default: false, omitDefault: true }),
+  bool('keepLoaded', 'Keep loaded', 'Survives scene changes (with its children and scripts): loading, unloading or reloading its scene, or loading a save, never destroys it. On a root object (or one in folders).', { default: false, omitDefault: true }),
   int('tags', 'Tags', 'The tag bits (a 32-bit mask of the project\'s tags).', { min: 0, max: 0xffffffff, default: 0, omitDefault: true }),
   { type: 'components', key: 'components', label: 'Components', tooltip: 'What the object is and does.', required: true, allowed: [] },
 ]);

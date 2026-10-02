@@ -29,7 +29,7 @@ export interface ProjectedEntity {
   id: string;
   name: string;
   parentId: string | null;
-  kind: 'box' | 'camera' | 'model' | 'light' | 'entity' | 'folder';
+  kind: 'box' | 'model' | 'light' | 'entity' | 'folder';
   /** Own hierarchy flags; folders pass them down (see session/hierarchy.ts). */
   active: boolean;
   /** False: the game starts it hidden (the Scene view still draws it). */
@@ -163,7 +163,7 @@ const IDENTITY = { position: [0, 0, 0], rotation: [0, 0, 0, 1], scale: [1, 1, 1]
 
 /** What an entity is, from its components (a component added or removed can change it). */
 function kindOf(c: Record<string, unknown>): ProjectedEntity['kind'] {
-  return c['folder'] !== undefined ? 'folder' : c['model'] ? 'model' : c['box'] ? 'box' : c['camera'] ? 'camera' : c['light'] ? 'light' : 'entity';
+  return c['folder'] !== undefined ? 'folder' : c['model'] ? 'model' : c['box'] ? 'box' : c['light'] ? 'light' : 'entity';
 }
 
 /** A controller component's capsule, copied (undefined when it has none). */

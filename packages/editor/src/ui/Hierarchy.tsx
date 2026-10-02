@@ -708,4 +708,4 @@ export function Hierarchy({ entities, structureKey, flags, projectId, selectedId
 }
 
 /** The icon file per entity kind (see packages/editor/public/icons). */
-const ROW_ICON: Record<string, string> = { box: 'box', camera: 'camera', light: 'sun', model: 'model', entity: 'empty' };
+const ROW_ICON: Record<string, string> = { box: 'box', light: 'sun', model: 'model', entity: 'empty' };

@@ -23,13 +23,14 @@ type Pose = { position?: readonly number[]; rotation?: readonly number[]; scale?
 export function virtualCameraPreviews(
   entities: readonly ProjectedEntity[],
   aspect: number,
+  lens: { fovY: number; near: number; far: number },
   only?: { entityId: string; progress: number | null },
   transforms?: ReadonlyMap<string, Pose>,
 ): { id: string; pose: CameraPose; lines: THREE.LineSegments }[] {
   const cams = entities.filter((e) => e.components['virtualCamera'] !== undefined && (only === undefined || e.id === only.entityId));
   if (cams.length === 0) return [];
-  const sceneCam = entities.find((e) => e.kind === 'camera')?.components['camera'] as { fovY?: number; near?: number; far?: number } | undefined;
-  const brain = new CameraBrain(120, { fovY: sceneCam?.fovY ?? 60, near: sceneCam?.near ?? 0.1, far: sceneCam?.far ?? 100 });
+  // A camera without its own lens uses the project's (its camera settings).
+  const brain = new CameraBrain(120, lens);
   brain.add(entities.map((e) => ({ id: e.id, components: e.components })));
   if (only !== undefined && only.progress !== null) brain.set(only.entityId, { progress: only.progress });
   const byId = new Map(entities.map((e) => [e.id, e]));
@@ -90,7 +91,7 @@ export function virtualCameraFrustum(id: string, pose: CameraPose, aspect: numbe
   pts.push(eye, centre);
   const lines = new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineBasicMaterial({ color: 0x4cc9f0, transparent: true, opacity: 0.85, depthTest: false }));
   lines.name = `virtual-camera-frustum:${id}`;
-  lines.userData['virtualCameraFrustum'] = { id, position: [...pose.position], rotation: [...pose.rotation], fovY: pose.fovY, aspect };
+  lines.userData['virtualCameraFrustum'] = { id, position: [...pose.position], rotation: [...pose.rotation], fovY: pose.fovY, near: pose.near, far: pose.far, aspect };
   lines.renderOrder = 10;
   lines.raycast = () => undefined;
   return lines;

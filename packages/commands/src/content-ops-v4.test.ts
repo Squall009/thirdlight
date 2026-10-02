@@ -423,13 +423,9 @@ describe('setBehaviorProperties', () => {
     expect(JSON.stringify(state)).toBe(before);
   });
 
-  it('rejects the camera and resolves entity/asset references', () => {
+  it('a camera takes a script like any object; entity/asset references resolve', () => {
     const state = stateAfterM2();
-    expect(
-      failCode(
-        mutation(state, 'setBehaviorProperties', { entityId: 'cam-main', behaviorId: 'behavior-0001' }),
-      ),
-    ).toBe('field_value');
+    ok(mutation(state, 'setBehaviorProperties', { entityId: 'cam-main', behaviorId: 'behavior-0001' }));
     expect(
       failCode(
         mutation(state, 'setBehaviorProperties', {
@@ -594,9 +590,9 @@ describe('setComponent', () => {
     expect(triggerOf(back.state)).toEqual({ size: [3, 3], signal: 'go' });
   });
 
-  it('edits camera fields and rejects a model asset that does not resolve', () => {
+  it('edits a camera\'s lens and rejects a model asset that does not resolve', () => {
     const state = baseState();
-    const r = ok(mutation(state, 'setComponent', { entityId: 'cam-main', component: 'camera', value: { fovY: 45 } }));
+    const r = ok(mutation(state, 'setComponent', { entityId: 'cam-main', component: 'virtualCamera', value: { fovY: 45 } }));
     expect((r.result.change as unknown as { changedFields: string[] }).changedFields).toEqual(['fovY']);
     expect(failCode(mutation(state, 'setComponent', {
       entityId: 'model-0001',

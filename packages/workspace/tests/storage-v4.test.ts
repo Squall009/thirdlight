@@ -62,7 +62,7 @@ describe('storage v4', () => {
     expect(q.scenes).toEqual([{ sceneId: 'scene-main', name: 'Main', entityCount: expect.any(Number) }]);
     expect(q.startScenes).toEqual(['scene-main']);
     // The files on disk: v2 manifest, content.json, scenes/scene-main.json; the v3 envelope kept aside.
-    expect(JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')).schemaVersion).toBe(6);
+    expect(JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')).schemaVersion).toBe(7);
     expect(existsSync(join(dir, 'content.json'))).toBe(true);
     expect(readdirSync(join(dir, 'scenes'))).toEqual(['scene-main.json']);
     expect(existsSync(join(dir, '.thirdlight', 'migrated-v3', 'main.json'))).toBe(true);

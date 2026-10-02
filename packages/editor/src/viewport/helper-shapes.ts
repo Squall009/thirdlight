@@ -1,6 +1,6 @@
 /**
- * Line shapes the Scene view draws for what has no mesh: a camera's real
- * frustum and a light's reach (a point light's circles, a spot light's cone).
+ * Line shapes the Scene view draws for what has no mesh: a light's reach (a
+ * point light's circles, a spot light's cone).
  * Drawn only: they never take a click meant for what is behind them.
  *
  * Browser-only (three.js).
@@ -8,33 +8,6 @@
 import * as THREE from 'three';
 
 import type { ProjectedEntity } from '../session/projection';
-
-/**
- * A camera's real frustum in its own space (it looks down −Z):
- * the near and far rectangles and the edges from the eye, from its fovY,
- * near and far and the game's aspect.
- */
-export function cameraFrustum(e: ProjectedEntity, aspect: number): THREE.LineSegments {
-  const c = (e.components['camera'] ?? {}) as { fovY?: number; near?: number; far?: number };
-  const fov = ((c.fovY ?? 60) * Math.PI) / 180;
-  const near = c.near ?? 0.1;
-  const far = c.far ?? 100;
-  const rectAt = (d: number): THREE.Vector3[] => {
-    const h = Math.tan(fov / 2) * d;
-    const w = h * aspect;
-    return [new THREE.Vector3(-w, -h, -d), new THREE.Vector3(w, -h, -d), new THREE.Vector3(w, h, -d), new THREE.Vector3(-w, h, -d)];
-  };
-  const n = rectAt(near);
-  const f = rectAt(far);
-  const pts: THREE.Vector3[] = [];
-  for (let i = 0; i < 4; i++) pts.push(n[i]!, n[(i + 1) % 4]!, f[i]!, f[(i + 1) % 4]!, new THREE.Vector3(0, 0, 0), f[i]!);
-  const lines = new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineBasicMaterial({ color: 0xf2b544, transparent: true, opacity: 0.6 }));
-  lines.name = `camera-frustum:${e.id}`;
-  lines.userData['cameraFrustum'] = { fovY: c.fovY ?? 60, near, far, aspect };
-  // Drawn only: its long lines never take a click meant for what is behind them.
-  lines.raycast = () => undefined;
-  return lines;
-}
 
 /** A point light's reach (three circles) or a spot light's cone, as lines. */
 export function lightGizmo(e: ProjectedEntity): THREE.LineSegments {

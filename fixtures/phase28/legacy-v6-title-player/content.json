@@ -1,0 +1,25 @@
+{
+  "storageVersion": 5,
+  "type": "project-content",
+  "projectId": "legacy-v6-title-player",
+  "revision": 3,
+  "content": {
+    "assets": [],
+    "settings": {},
+    "behaviorTrust": {
+      "entries": []
+    },
+    "scenes": [
+      {"sceneId":"scene-main","name":"Main"},
+      {"sceneId":"meadow","name":"Meadow"}
+    ],
+    "startScenes": ["scene-main"]
+  },
+  "retry": {
+    "recordVersion": 2,
+    "retention": 128,
+    "records": [
+      {"requestId":"req-902347a8cf30461a01a86b771c7dd4c7","digest":"c97d3b1ed2386efac1485f37d00f68a6e6ccf5cf85d6ae5482ff773f88456203","appliedRevision":3,"result":{"ok":true,"op":"createScene","projectId":"legacy-v6-title-player","requestId":"req-902347a8cf30461a01a86b771c7dd4c7","revision":3,"duplicated":false,"change":{"type":"setSceneIndex","previous":{"scenes":[{"sceneId":"scene-main","name":"Main"}],"startScenes":["scene-main"]},"next":{"scenes":[{"sceneId":"scene-main","name":"Main"},{"sceneId":"meadow","name":"Meadow"}],"startScenes":["scene-main"]}},"history":{"undoDepth":3,"redoDepth":0}}}
+    ]
+  }
+}

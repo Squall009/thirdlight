@@ -92,7 +92,7 @@ async function buildScene(): Promise<{ layer: string; fovY: number }> {
   await cmd('setSettings', { settings: { physics_dimension: 3 } });
   await cmd('setBlockType', { block: { blockId: 'ground', name: 'Ground', variants: [{ color: '#b8b8b8' }], shape: 'full' } });
   const entities = ((await query('queryEntities', { limit: 100, offset: 0 })) as { entities: { id: string; components: Record<string, unknown> }[] }).entities;
-  const cam = entities.find((e) => e.components['camera'] !== undefined)!;
+  const cam = entities.find((e) => e.components['virtualCamera'] !== undefined)!;
   // A camera's lookAt turns its −z (where it looks) toward the target.
   const aim = new THREE.PerspectiveCamera();
   aim.position.copy(CAMERA_AT);
@@ -108,7 +108,7 @@ async function buildScene(): Promise<{ layer: string; fovY: number }> {
   await cmd('setComponent', { entityId: layer, component: 'blockLayer', value: { cellSize: [1, 1, 1], bounds: { min: [0, 0, 0], max: [32, 8, 8] }, castShadow: false, receiveShadow: false } });
   const res = await cmd('editBlocks', { entityId: layer, edits: groundEdits() });
   expect((res.change as { chunks: number[][] }).chunks).toEqual([[0, 0], [1, 0]]);
-  const fovY = Number(((await query('queryEntities', { limit: 100, offset: 0 })) as { entities: { id: string; components: Record<string, { fovY?: number }> }[] }).entities.find((e) => e.id === cam.id)!.components['camera']!.fovY ?? 60);
+  const fovY = Number(((await query('queryEntities', { limit: 100, offset: 0 })) as { entities: { id: string; components: Record<string, { fovY?: number }> }[] }).entities.find((e) => e.id === cam.id)!.components['virtualCamera']!.fovY ?? 60);
   return { layer, fovY };
 }
 

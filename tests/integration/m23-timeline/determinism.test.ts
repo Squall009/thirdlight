@@ -159,14 +159,15 @@ describe('timelines in page and worker', () => {
       const ended = near(a.obs, 700);
       expect(ended.counters.finished).toBe(1);
       expect(ended.timeline.playing).toEqual([]);
-      expect(ended.camera.live).toBeNull();
+      // The released view goes back to the scene camera (the lowest-priority shot an older scene's camera plays as).
+      expect(ended.camera.live).toBe('cam-main');
       // The second play, skipped at step 900 (before its wait): end states at once.
       const skipped = near(a.obs, 905);
       expect(skipped.counters.skipped).toBe(1);
       expect(skipped.counters.gate, 'the signal fires on skip').toBe(2);
       expect(skipped.counters.marks, 'markers after the skip point are not reported').toBe(1);
       expect(skipped.actor[0]).toBeCloseTo(3, 9);
-      expect(skipped.camera.live).toBeNull();
+      expect(skipped.camera.live).toBe('cam-main');
       expect(skipped.timeline.screen.opacity).toBe(0);
       expect(skipped.timeline.screen.letterbox).toBe(0);
       for (const r of [a, w]) expect(near(r.obs, 1150).counters).toEqual(near(a.obs, 1150).counters);

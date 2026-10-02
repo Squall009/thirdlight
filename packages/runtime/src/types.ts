@@ -107,14 +107,14 @@ export interface Runtime {
   /** One entity's interpolated transform into the caller's arrays; false when disposed or unknown. */
   readInterpolated?(id: string, position: number[], rotation: number[], scale: number[]): boolean;
   /**
-   * The view the camera brain resolved (virtual cameras), interpolated like the transforms —
-   * `position`/`rotation` written, its lens returned; null without a virtual camera (draw the camera entity).
+   * A view as its camera brain resolved it (the engine owns the view), interpolated like the transforms —
+   * `position`/`rotation` written, its lens returned (the default pose before the first step); null for an unknown view. `view`: the view's key (absent: the main view).
    */
-  readCameraView?(position: number[], rotation: number[]): { fovY: number; near: number; far: number; letterbox: number } | null;
-  /** The committed camera view (live camera, blend, pose, lens), or null without a virtual camera. */
-  cameraView?(): import('./camera-brain').CameraViewInfo | null;
-  /** The viewport the view is drawn in (screen↔world projection uses its aspect). */
-  setCameraViewport?(width: number, height: number): boolean;
+  readCameraView?(position: number[], rotation: number[], view?: string): { fovY: number; near: number; far: number; letterbox: number } | null;
+  /** A view's committed state (live camera, blend, pose, lens), or null before the first step. */
+  cameraView?(view?: string): import('./camera-brain').CameraViewInfo | null;
+  /** The viewport a view is drawn in (screen↔world projection uses its aspect). */
+  setCameraViewport?(width: number, height: number, view?: string): boolean;
   /** The objects riding on sockets now (entity, target, node; a stable array while nothing changes). */
   socketAttachments?(): readonly { readonly entityId: string; readonly target: string; readonly node: string }[];
   /**
@@ -234,8 +234,9 @@ export interface InterpolatedState {
  */
 export type InterpolatedVisitor = (id: string, position: readonly number[], rotation: readonly number[], scale: readonly number[]) => void;
 
-/** The snapshot's camera projection parameters (`getCamera`). */
+/** The main view's key and the project's lens, the view's while no camera sets its own (`getCamera`). */
 export interface CameraInfo {
+  /** The view's key (`DEFAULT_VIEW_ID`). */
   id: string;
   fovY: number;
   near: number;

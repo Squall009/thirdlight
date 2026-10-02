@@ -18,7 +18,7 @@
  * appends for a v4 project (`withoutSceneId`), asserted verbatim.
  */
 
-import { validateContentV4, validateSceneV4, type ContentCatalogV4, type SceneV4 } from '@thirdlight/project-model';
+import { sceneCamerasAsShots, validateContentV4, validateSceneV4, type ContentCatalogV4, type SceneV4 } from '@thirdlight/project-model';
 
 import type { ContentDocument } from './types';
 
@@ -116,13 +116,15 @@ export function m2FixtureJson<T = unknown>(rel: string): T {
  * The state of a command envelope under `fixtures/m2/<rel>` lifted to
  * one v4 project scene (the command layer edits no v2 scene): the scene is
  * re-labelled `schemaVersion 4` and the content block gains the v4 keys
- * (`game: null`, the one scene `scene-main` as the index and start set).
+ * (`game: null`, the one scene `scene-main` as the index and start set) and
+ * its scene camera becomes the shot the format upgrade makes of it.
  * Both are validated by the v4 model rules, so a fixture that is not a
  * valid v4 state fails loudly here instead of inside a test.
  */
 export function m2EnvelopeV4(rel: string): { projectId: string; scene: SceneV4; content: ContentDocument } {
   const env = m2FixtureJson<{ projectId: string; scene: Record<string, unknown>; content: Record<string, unknown> }>(rel);
-  const scene = validateSceneV4({ ...env.scene, schemaVersion: 4 });
+  // Its scene camera is the shot the format upgrade makes of it (the engine owns the view).
+  const scene = validateSceneV4({ ...env.scene, schemaVersion: 4, entities: sceneCamerasAsShots((env.scene['entities'] as unknown[]) ?? []) });
   if (!scene.ok) throw new Error(`${rel}: scene is not a valid v4 scene: ${JSON.stringify(scene.errors)}`);
   const content = validateContentV4({
     ...env.content,

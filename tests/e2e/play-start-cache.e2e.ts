@@ -55,7 +55,7 @@ async function sphereProject(projectId: string, cells: number, perCell: number):
   await p.command('publishAsset', { mode: 'create', assetId: 'sphere', kind: 'model', displayName: 'Sphere', sourceDigest: proposal['sourceDigest'], sourceByteLength: proposal['sourceByteLength'], importRecipe: proposal['importRecipe'], metrics: proposal['metrics'], importedAt: new Date().toISOString().replace(/\.\d{3}Z$/, 'Z'), extractTextures: false });
   await be.discardStage(projectId, stageId);
   await p.command('setTransform', { entityId: 'cam-main', transform: { position: [0, 0, 330] } });
-  await p.command('setComponent', { entityId: 'cam-main', component: 'camera', value: { type: 'perspective', fovY: 60, near: 0.5, far: 2000 } });
+  await p.command('setComponent', { entityId: 'cam-main', component: 'virtualCamera', value: { near: 0.5, far: 2000 } });
   for (let c = 0; c < cells; c += 1) {
     for (let i = 0; i < perCell; i += 1) {
       const x = (c - (cells - 1) / 2) * 64 + i * 6 - 9;

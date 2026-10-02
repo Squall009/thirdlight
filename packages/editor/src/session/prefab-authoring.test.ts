@@ -77,12 +77,11 @@ function tr(): PrefabDefinition['entities'][number]['components']['transform'] {
 }
 
 function view(over: Partial<CaptureEntityView> & { id: string }): CaptureEntityView {
-  return { parentId: null, camera: false, prefab: null, behavior: null, ...over };
+  return { parentId: null, prefab: null, behavior: null, ...over };
 }
 
 const SCENE: CaptureEntityView[] = [
   view({ id: 'group-0000' }),
-  view({ id: 'cam-main', camera: true }),
   view({ id: 'group-0001', parentId: 'group-0000' }),
   view({ id: 'box-0001', parentId: 'group-0001' }),
   view({ id: 'model-0001', parentId: 'group-0001', behavior: { behaviorId: 'behavior-0001', values: { speed: 4.5, target: 'group-0001', material: 'asset-7f3a2c9e1b4d5068' } } }),
@@ -122,7 +121,6 @@ describe('capture closure and preflight', () => {
       scene: SCENE,
       existingPrefabIds: ['prefab-0001'],
       declarations: DECLARATIONS,
-      cameraId: 'cam-main',
     });
     expect(plan.ok).toBe(true);
     if (!plan.ok) return;
@@ -132,17 +130,14 @@ describe('capture closure and preflight', () => {
     });
   });
 
-  it('rejects the camera, a nested copy and an external reference atomically', () => {
+  it('rejects a nested copy and an external reference atomically', () => {
     const base = {
       prefabId: 'prefab-0002',
       displayName: 'Kit',
       scene: SCENE,
       existingPrefabIds: [] as string[],
       declarations: DECLARATIONS,
-      cameraId: 'cam-main',
     };
-    const camera = preflightCreatePrefab({ ...base, sourceEntityId: 'cam-main' });
-    expect(camera).toMatchObject({ ok: false, error: { code: 'prefab_camera_capture_forbidden', cameraId: 'cam-main' } });
 
     const nestedScene = [...SCENE, view({ id: 'group-0002', prefab: { prefabId: 'prefab-0001', localId: 'group-0001' } })];
     const nested = preflightCreatePrefab({ ...base, scene: nestedScene, sourceEntityId: 'group-0002' });

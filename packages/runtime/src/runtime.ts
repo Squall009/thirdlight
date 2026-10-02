@@ -35,6 +35,7 @@ import {
   controllerTuningOf,
   controllerCapsuleOffsetZ,
   resolveGameplaySettings,
+  viewLensOf,
   type EntityV3,
   type PrefabDefinition,
   type Quat,
@@ -83,7 +84,8 @@ import { AnimatorMachine, type AnimatorControllerLike, type AnimatorPose } from 
 import { AudioMixer, type AudioCommand } from './audio-mixer';
 import { createScriptAudio, type ScriptAudioControl } from './script-audio';
 import { DialogueRunner, validateDialogueInput, type DialogueInputRecord } from './dialogue';
-import { CameraBrain, type CameraViewInfo } from './camera-brain';
+import type { CameraViewInfo } from './camera-brain';
+import { RuntimeViews } from './views';
 import { EnvironmentDirector, MAX_ENVIRONMENT_BLEND_SECONDS, type EnvironmentSaveState } from './environment-director';
 import { emptyMutableIntents, resetMutableIntents, type MutableIntentSet } from './mutable-intents';
 import { colliderEntityOf, PHYSICS_QUERY_LIMIT, queryDistance, queryPositive, queryQuat, queryVec3 } from './physics-query-args';
@@ -92,7 +94,6 @@ import type { ClimbQuery } from './types';
 import { SocketSystem } from './sockets';
 import { TimelineSystem, type TimelineView } from './timeline';
 import type { TimelineAsset } from '@thirdlight/project-model';
-import { screenToRay as poseScreenToRay, worldToScreen as poseWorldToScreen, type CameraPose } from './camera-rig';
 import { GameplayBlocks, MAX_SIGNAL_NAME, type SceneTransitionRequest } from './blocks';
 import { createGameControl } from './game-control';
 import { EntityAccess, type EntityFieldsSave, type LightOverride } from './entity-access';
@@ -698,7 +699,6 @@ export function instantiateRuntime(
   const entities = new Map<string, SimEntityData>();
   const prev = new Map<string, TransformState>();
   const curr = new Map<string, TransformState>();
-  const cameraEntityIds: string[] = [];
   const colliderEntityIds = new Set<string>();
   const controllerEntityIds: string[] = [];
   for (const e of scene.entities) {
@@ -709,11 +709,6 @@ export function instantiateRuntime(
     data.componentKinds = Object.freeze(Object.keys(components));
     const box = components.box;
     if (box) data.box = { size: [box.size[0], box.size[1], box.size[2]], material: { color: box.material.color } };
-    const cam = components.camera;
-    if (cam) {
-      data.camera = { type: cam.type, fovY: cam.fovY, near: cam.near, far: cam.far };
-      cameraEntityIds.push(e.id);
-    }
     const v2 = components as { collider?: unknown; controller?: unknown };
     if (v2.collider !== undefined) {
       data.hasCollider = true;
@@ -728,22 +723,8 @@ export function instantiateRuntime(
     curr.set(e.id, cloneTransform(t));
   }
 
-  // The camera entity (validateScene guarantees exactly one — defensive
-  // guard for the invariant).
-  const cameraId = cameraEntityIds[0];
-  let cameraInfo: CameraInfo | undefined;
-  const cameraEntity = cameraId !== undefined ? entities.get(cameraId) : undefined;
-  if (cameraEntity?.camera) {
-    cameraInfo = { id: cameraEntity.id, fovY: cameraEntity.camera.fovY, near: cameraEntity.camera.near, far: cameraEntity.camera.far };
-  }
-  if (!cameraInfo) {
-    return {
-      ok: false,
-      error: fail('snapshot_invalid', 'scene has no camera entity (a scene has exactly one)', {
-        reason: 'scene_validation',
-      }),
-    };
-  }
+  // The view's lens while no virtual camera sets its own (the project's camera settings).
+  const viewLens = viewLensOf(resolvedSettings);
 
   // One module instance per selection entry (created at instantiate). The
   // behavior-log sink routes a behavior's accepted `ctx.log` entries into the
@@ -878,21 +859,10 @@ export function instantiateRuntime(
         ownerByEntity.set(entityId, entry.id);
       }
     }
-    // Second pass: camera and physics-entity protections.
+    // Second pass: physics-entity protections.
     for (const entry of entries) {
       const isController = entry.phases.includes('controller');
       for (const entityId of entry.owners) {
-        if (cameraEntityIds.includes(entityId)) {
-          disposeCreated();
-          return {
-            ok: false,
-            error: fail('transform_owner_forbidden', `module "${entry.id}" claims the camera entity "${entityId}"`, {
-              reason: 'camera',
-              moduleId: entry.id,
-              detail: 'camera',
-            }),
-          };
-        }
         // In a 3D project a transform-phase module (a script) may drive a collider
         // that no mover moves — the runtime poses it as a kinematic body (scriptDrivableCollider).
         const drivable = physics3d !== undefined && scriptDrivableCollider(scene.entities.find((x) => x.id === entityId)?.components);
@@ -944,7 +914,7 @@ export function instantiateRuntime(
     controllerEntityId: controllerEntityIds[0],
     order,
     entities,
-    cameraInfo,
+    viewLens,
     prev,
     curr,
     logSink,
@@ -1027,7 +997,8 @@ interface RuntimeArgs {
   controllerEntityId?: string;
   order: string[];
   entities: Map<string, SimEntityData>;
-  cameraInfo: CameraInfo;
+  /** The project's lens (its camera settings): the view's while no camera sets its own. */
+  viewLens: { fovY: number; near: number; far: number };
   prev: Map<string, TransformState>;
   curr: Map<string, TransformState>;
   logSink: BehaviorLogSink;
@@ -1157,7 +1128,6 @@ class RuntimeInstance implements Runtime {
   private readonly characterActionNames: readonly string[];
   private order: readonly string[];
   private entities: Map<string, SimEntityData>;
-  private readonly cameraInfo: CameraInfo;
   private entityCount: number;
   private prev: Map<string, TransformState>;
   private curr: Map<string, TransformState>;
@@ -1299,9 +1269,8 @@ class RuntimeInstance implements Runtime {
   private animatorEvents: readonly AnimatorEventRecord[] = Object.freeze([]);
   private animatorWasGrounded = true;
   private readonly animatorControl: BehaviorAnimatorControl;
-  // ---- The camera brain (virtual cameras; inert without one) ----
-  private readonly cameras: CameraBrain;
-  private readonly cameraControl: import('./types').BehaviorCamera;
+  // ---- The views (each owned by a camera brain) ----
+  private readonly views: RuntimeViews;
   /** Sockets (entities riding on model nodes) and the script API over them. */
   private readonly sockets: SocketSystem;
   private readonly socketControl: import('./types').BehaviorSockets;
@@ -1574,7 +1543,6 @@ class RuntimeInstance implements Runtime {
     this.controllerEntityId = args.controllerEntityId;
     this.order = args.order;
     this.entities = args.entities;
-    this.cameraInfo = args.cameraInfo;
     this.entityCount = args.order.length;
     this.prev = args.prev;
     this.curr = args.curr;
@@ -1591,9 +1559,9 @@ class RuntimeInstance implements Runtime {
     this.liveTags = args.liveTags;
     this.queryTags = args.queryTags;
     this.startBatchSource = new Map(args.startBatches.map((b) => [b.sceneId, b.entities]));
-    const pinned = new Set<string>([args.cameraInfo.id]);
+    const pinned = new Set<string>();
     if (args.controllerEntityId !== undefined) pinned.add(args.controllerEntityId);
-    for (const e of args.entities.values()) if (e.camera !== undefined) pinned.add(e.id);
+    for (const e of args.initialEntities) if ((e as { keepLoaded?: boolean }).keepLoaded === true) pinned.add(e.id);
     this.pinnedIds = pinned;
     if (args.sceneRows !== null) {
       for (const row of args.sceneRows) this.sceneStatus.set(row.sceneId, 'unloaded');
@@ -1624,10 +1592,19 @@ class RuntimeInstance implements Runtime {
     // The audio intent log (clip lengths from the snapshot's recorded durations).
     this.audio = new AudioMixer(this.hz, args.audioDurations, () => this.stepIndex);
     this.audioControl = createScriptAudio(this.audio, (id) => this.sceneOfEntity(id));
-    // The virtual cameras of the start set (the brain is inert without one).
-    this.cameras = new CameraBrain(this.hz, { fovY: args.cameraInfo.fovY, near: args.cameraInfo.near, far: args.cameraInfo.far }, (message) => this.recordBehaviorLog('thirdlight.runtime:camera', 'warn', message));
-    this.cameras.add(args.initialEntities);
-    this.cameraControl = this.buildCameraControl();
+    // The views and the start set's shots.
+    this.views = new RuntimeViews(this.hz, args.viewLens, {
+      worldOf: (id, position, rotation) => this.worldTransformOf(id, position, rotation),
+      raycast: (origin, direction, maxDistance) => {
+        // 3D projects only: a 2D plane's colliders lie in the plane a camera looks at, never between it and the target.
+        const port = this.physics3d;
+        if (port === undefined || typeof port.raycast !== 'function') return null;
+        const hit = port.raycast({ x: origin[0], y: origin[1], z: origin[2] }, { x: direction[0], y: direction[1], z: direction[2] }, maxDistance);
+        return hit === null ? null : { distance: hit.distance };
+      },
+      warn: (message) => this.recordBehaviorLog('thirdlight.runtime:camera', 'warn', message),
+    });
+    this.views.add(args.initialEntities);
     // The project UI (inert until a script or a frame uses it).
     this.ui = new UiState(args.uiDocuments);
     // Conversations (the view model under `dialogue.`, voice through the audio intent log).
@@ -1648,7 +1625,7 @@ class RuntimeInstance implements Runtime {
       showUi: (doc) => void this.ui.show(doc),
       hideUi: (doc) => void this.ui.hide(doc),
       isShown: (doc) => this.ui.isShown(doc),
-      setCamera: (id, blend) => this.cameras.setOverride(id, blend),
+      setCamera: (id, blend) => this.views.main.setOverride(id, blend),
       warn: (message) => this.recordBehaviorLog('thirdlight.runtime:modes', 'warn', message),
     });
     this.modes.setStartMode(args.startMode);
@@ -2216,9 +2193,6 @@ class RuntimeInstance implements Runtime {
       },
       order: () => rt.order,
       parentOf: (id) => rt.entities.get(id)?.parentId ?? undefined,
-      get cameraId() {
-        return rt.cameraInfo.id ?? undefined;
-      },
       get controllerId() {
         return rt.controllerEntityId;
       },
@@ -2489,66 +2463,29 @@ class RuntimeInstance implements Runtime {
   private readonly interpRotation: number[] = [0, 0, 0, 1];
   private readonly interpScale: number[] = [1, 1, 1];
 
-  // ---- The resolved camera (virtual cameras) ------------------------
+  // ---- The resolved view (views.ts) ------------------------
 
   /**
-   * The view the camera brain resolved, interpolated like the transforms
-   * (`position`, `rotation` written; its lens returned), or null when the
-   * game has no virtual camera (the renderer then draws the camera entity
-   * as before) or the brain has not stepped yet.
+   * A view's pose as its camera brain resolved it, interpolated like the
+   * transforms (`position`, `rotation` written; its lens returned; the base
+   * pose before the brain's first step), or null for an unknown view.
    */
-  readCameraView(position: number[], rotation: number[]): { fovY: number; near: number; far: number; letterbox: number } | null {
-    if (this.stateName === 'disposed' || !this.cameras.active || !this.cameras.hasView()) return null;
-    return this.cameras.readInterpolated(this.stateName === 'failed' ? 1 : this.lastAlpha, position, rotation);
+  readCameraView(position: number[], rotation: number[], view?: string): { fovY: number; near: number; far: number; letterbox: number } | null {
+    if (this.stateName === 'disposed') return null;
+    return this.views.readInterpolated(this.stateName === 'failed' ? 1 : this.lastAlpha, position, rotation, view);
   }
 
-  /** The committed camera view (the live camera, a blend in progress, the pose and lens), or null without a virtual camera. */
-  cameraView(): CameraViewInfo | null {
-    if (this.stateName === 'disposed' || !this.cameras.active || !this.cameras.hasView()) return null;
-    return this.cameras.view();
+  /** A view's committed state (the live camera, a blend in progress, the pose and lens), or null before its first step. */
+  cameraView(view?: string): CameraViewInfo | null {
+    if (this.stateName === 'disposed') return null;
+    return this.views.view(view);
   }
 
-  /**
-   * The viewport the view is drawn in (the renderer reports it): screen↔world
-   * projection (`ctx.camera`) uses its aspect (16:9 until reported). It
-   * moves no camera, so games without virtual cameras keep their exact
-   * framing.
-   */
-  setCameraViewport(width: number, height: number): boolean {
+  /** The viewport a view is drawn in (the renderer reports it): screen↔world projection (`ctx.camera`) uses its aspect (16:9 until reported). */
+  setCameraViewport(width: number, height: number, view?: string): boolean {
     if (this.stateName === 'disposed') return false;
-    return this.cameras.setViewport(width, height);
+    return this.views.setViewport(width, height, view);
   }
-
-  /** One camera-brain step on the step's committed transforms. */
-  private stepCameras(action: ActionFrame | null): void {
-    if (!this.cameras.active) return;
-    const base = this.curr.get(this.cameraInfo.id);
-    const pos = this.cameraWorldPos;
-    const rot = this.cameraWorldRot;
-    if (base === undefined || !this.worldTransformOf(this.cameraInfo.id, pos, rot)) {
-      pos[0] = 0;
-      pos[1] = 0;
-      pos[2] = 0;
-      rot[0] = 0;
-      rot[1] = 0;
-      rot[2] = 0;
-      rot[3] = 1;
-    }
-    this.cameras.step({ position: pos, rotation: rot }, action, this.cameraWorld);
-  }
-
-  private readonly cameraWorldPos: number[] = [0, 0, 0];
-  private readonly cameraWorldRot: number[] = [0, 0, 0, 1];
-  private readonly cameraWorld = {
-    worldOf: (id: string, position: number[], rotation: number[]): boolean => this.worldTransformOf(id, position, rotation),
-    raycast: (origin: [number, number, number], direction: [number, number, number], maxDistance: number): { distance: number } | null => {
-      // 3D projects only: a 2D plane's colliders lie in the plane a camera looks at, never between it and the target.
-      const port = this.physics3d;
-      if (port === undefined || typeof port.raycast !== 'function') return null;
-      const hit = port.raycast({ x: origin[0], y: origin[1], z: origin[2] }, { x: direction[0], y: direction[1], z: direction[2] }, maxDistance);
-      return hit === null ? null : { distance: hit.distance };
-    },
-  };
 
   /** An entity's world position and rotation, composed up its parents from the step's transforms (false: not loaded). */
   private worldTransformOf(id: string, position: number[], rotation: number[]): boolean {
@@ -2594,27 +2531,6 @@ class RuntimeInstance implements Runtime {
     return undefined;
   }
 
-  /** `ctx.camera` (arguments checked here; the brain applies them in order). */
-  private buildCameraControl(): import('./types').BehaviorCamera {
-    const brain = this.cameras;
-    const blendOf = (o: unknown): unknown => (typeof o === 'object' && o !== null ? o : undefined);
-    return Object.freeze({
-      activate: (cameraId: string, options?: unknown): boolean => brain.activate(String(cameraId), blendOf(options)),
-      deactivate: (cameraId: string, options?: unknown): boolean => brain.deactivate(String(cameraId), blendOf(options)),
-      setPriority: (cameraId: string, priority: number): boolean => brain.setPriority(String(cameraId), Number(priority)),
-      setTarget: (cameraId: string, entityId: string): boolean => brain.setTarget(String(cameraId), typeof entityId === 'string' ? entityId : null),
-      set: (cameraId: string, params: unknown): boolean => brain.set(String(cameraId), params),
-      turn: (cameraId: string, steps: number): boolean => brain.turn(String(cameraId), Number(steps)),
-      shake: (amplitude: number, seconds: number, frequency?: number, rotation?: number, seed?: number): void => brain.shake(Number(amplitude), Number(seconds), frequency, rotation, seed),
-      live: (): string | null => brain.live(),
-      blending: (): boolean => brain.blending(),
-      get: (cameraId: string) => brain.get(String(cameraId)),
-      // Without a live virtual camera the projection is the scene camera's (it was a fixed default pose).
-      worldToScreen: (position: readonly number[]) => (this.brainHasView() ? brain.worldToScreen(Array.isArray(position) ? position : [0, 0, 0]) : this.baseWorldToScreen(Array.isArray(position) ? position : [0, 0, 0])),
-      screenToRay: (x: number, y: number) => this.screenRay(Number(x), Number(y)),
-    }) as import('./types').BehaviorCamera;
-  }
-
   /** The interpolation rule for one entity into the reused arrays (see `getInterpolatedState`). */
   private interpolateInto(id: string, prev: ReadonlyMap<string, TransformState>, curr: ReadonlyMap<string, TransformState>, alpha: number): boolean {
     const p = prev.get(id);
@@ -2646,12 +2562,8 @@ class RuntimeInstance implements Runtime {
     if (this.stateName === 'disposed') {
       return { ok: false, error: fail('runtime_disposed', 'runtime is disposed') };
     }
-    // Stable for the session: the snapshot's camera
-    // projection parameters; aspect is a viewport property.
-    return {
-      ok: true,
-      camera: { id: this.cameraInfo.id, fovY: this.cameraInfo.fovY, near: this.cameraInfo.near, far: this.cameraInfo.far },
-    };
+    // Stable for the session: the main view's key and the project's lens; aspect is a viewport property.
+    return { ok: true, camera: this.views.info() };
   }
 
   // ---- Scene set ---------------------------------------------------------
@@ -3040,8 +2952,8 @@ class RuntimeInstance implements Runtime {
     }
     // The timelines (no input frame in a plain step: a wait key needs its timeout).
     if (this.timelines.active) this.timelines.step(stepOrdinal, null);
-    // The camera brain resolves the view on the step's transforms.
-    this.stepCameras(null);
+    // The camera brains resolve the views on the step's transforms.
+    this.views.step(null);
     // Conversations advance (before the audio: a voice started now plays from this step).
     this.dialogue.endStep();
     // The environment blend advances with the step.
@@ -3203,7 +3115,7 @@ class RuntimeInstance implements Runtime {
     }
     // The camera brain, after every phase (the camera phase included):
     // the view is resolved in the step, so replays and the worker resolve it alike.
-    this.stepCameras(action);
+    this.views.step(action);
     // Conversations advance: the frame's dialogue inputs and the scripts' calls apply, the view model follows.
     this.dialogue.endStep();
     // The environment blend advances with the step.
@@ -3445,7 +3357,7 @@ class RuntimeInstance implements Runtime {
       for (let k = 0; k < 4; k += 1) t.rotation[k] = data.transform.rotation[k]!;
       for (let k = 0; k < 3; k += 1) t.scale[k] = data.transform.scale[k]!;
     }
-    this.cameras.reset();
+    this.views.reset();
     this.timelines.reset();
     // The look starts over too: the first start scene's, no preset (a replay sees what the first run saw).
     this.environment.reset();
@@ -3804,9 +3716,9 @@ class RuntimeInstance implements Runtime {
         if (pose.scale !== undefined) for (let k = 0; k < 3; k += 1) t.scale[k] = pose.scale[k]!;
         return true;
       },
-      cameraOverride: (id, blend) => void rt.cameras.setTimelineOverride(id, blend ?? undefined),
-      cameraProgress: (id, progress) => void rt.cameras.set(id, { progress }),
-      cameraActivate: (id) => void rt.cameras.activate(id),
+      cameraOverride: (id, blend) => void rt.views.main.setTimelineOverride(id, blend ?? undefined),
+      cameraProgress: (id, progress) => void rt.views.main.set(id, { progress }),
+      cameraActivate: (id) => void rt.views.main.activate(id),
       animator: (id) => {
         const m = rt.animatorMachines.get(id)?.machine;
         if (m === undefined) return null;
@@ -4286,7 +4198,7 @@ class RuntimeInstance implements Runtime {
     this.liveTags?.add(frozen as readonly { id: string; tags?: number }[]);
     this.addAnimators(frozen);
     this.blocks?.add(frozen);
-    this.cameras.add(frozen);
+    this.views.add(frozen);
     // Their models and authored sockets (resolved at the end of the step).
     this.sockets.add(frozen);
     // Children of a switched-off object arrive switched off.
@@ -4334,9 +4246,9 @@ class RuntimeInstance implements Runtime {
       // In 3D a script may drive a collider no mover moves (posed as a kinematic body).
       const drivable = this.physics3d !== undefined && scriptDrivableCollider(this.colliderComponents3D.get(id));
       const physicsBody = (data?.hasCollider === true && !drivable) || id === this.controllerEntityId;
-      if (id === this.cameraInfo.id || (physicsBody && !entry.phases.includes('controller'))) {
-        const what = id === this.cameraInfo.id ? 'camera' : 'physics_entity';
-        this.failStop('transform_owner_forbidden', what, `module "${entry.id}" claims ${what === 'camera' ? 'the camera' : 'physics'} entity "${id}"`, this.stepIndex, entry.id, undefined, what);
+      if (physicsBody && !entry.phases.includes('controller')) {
+        const what = 'physics_entity';
+        this.failStop('transform_owner_forbidden', what, `module "${entry.id}" claims physics entity "${id}"`, this.stepIndex, entry.id, undefined, what);
         return false;
       }
     }
@@ -4403,7 +4315,7 @@ class RuntimeInstance implements Runtime {
     this.liveTags?.remove(ids);
     this.removeAnimators(ids);
     this.blocks?.remove(ids);
-    this.cameras.remove(ids);
+    this.views.remove(ids);
     // Their written fields go with them.
     this.entityAccess.removed(ids);
     // So do the sounds they own.
@@ -4698,7 +4610,7 @@ class RuntimeInstance implements Runtime {
       fields['save'] = { value: this.saveControl, enumerable: true };
       fields['spawner'] = { value: this.spawnControl, enumerable: true };
       // The virtual cameras (ctx.camera).
-      fields['camera'] = { value: this.cameraControl, enumerable: true };
+      fields['camera'] = { value: this.views.control, enumerable: true };
       // Sockets (ctx.sockets).
       fields['sockets'] = { value: this.socketControl, enumerable: true };
       // The cursor channel (ctx.input.setCursor).
@@ -5009,14 +4921,14 @@ class RuntimeInstance implements Runtime {
     },
     pickAt: (x: number, y: number, maxDistance?: number, filter?: unknown) => {
       if (typeof x !== 'number' || !Number.isFinite(x) || typeof y !== 'number' || !Number.isFinite(y)) throw new Error('pickAt takes a screen point x, y (numbers, 0-1 from the top left)');
-      const ray = this.screenRay(x, y);
+      const ray = this.views.screenRay(x, y);
       return this.castRay3D(ray.origin, ray.direction, queryDistance(maxDistance, 1000, 'pickAt'), filter);
     },
     pickAtPointer: (maxDistance?: number, filter?: unknown) => {
       const max = queryDistance(maxDistance, 1000, 'pickAtPointer');
       const p = this.heldPointer;
       if (p === null || (p.over === false && p.locked !== true)) return null;
-      const ray = p.locked === true ? this.screenRay(0.5, 0.5) : this.screenRay(p.x, p.y);
+      const ray = p.locked === true ? this.views.screenRay(0.5, 0.5) : this.views.screenRay(p.x, p.y);
       return this.castRay3D(ray.origin, ray.direction, max, filter);
     },
     // At most PHYSICS_QUERY_LIMIT queries (rays and overlaps) per step for modules and scripts.
@@ -5108,40 +5020,6 @@ class RuntimeInstance implements Runtime {
     if (port === null || typeof port.overlap !== 'function') return [];
     // A block layer's chunk colliders are reported as their layer (once).
     return [...new Set(port.overlap(shape, { x: center[0]!, y: center[1]!, z: center[2]! }, rotation, f).map(colliderEntityOf))].sort();
-  }
-
-  /** The camera brain has resolved a view (a virtual camera is loaded and it has stepped). */
-  private brainHasView(): boolean {
-    return this.cameras.active && this.cameras.hasView();
-  }
-
-  /** The scene camera's pose now (its world transform and lens) — the view when no virtual camera is live. */
-  private basePose(): CameraPose {
-    const pos = [0, 0, 0];
-    const rot = [0, 0, 0, 1];
-    if (!this.worldTransformOf(this.cameraInfo.id, pos, rot)) {
-      pos.fill(0);
-      rot[0] = 0;
-      rot[1] = 0;
-      rot[2] = 0;
-      rot[3] = 1;
-    }
-    return { position: [pos[0]!, pos[1]!, pos[2]!], rotation: [rot[0]!, rot[1]!, rot[2]!, rot[3]!], fovY: this.cameraInfo.fovY, near: this.cameraInfo.near, far: this.cameraInfo.far, letterbox: 0 };
-  }
-
-  /**
-   * The ray from the active camera through a screen point
-   * (normalized, 0,0 top left): the camera brain's resolved view when a
-   * virtual camera is live, else the scene camera's.
-   */
-  private screenRay(x: number, y: number): { origin: readonly [number, number, number]; direction: readonly [number, number, number] } {
-    if (this.brainHasView()) return this.cameras.screenToRay(x, y);
-    return poseScreenToRay(this.basePose(), this.cameras.viewportSize().aspect, Number.isFinite(x) ? x : 0.5, Number.isFinite(y) ? y : 0.5);
-  }
-
-  private baseWorldToScreen(position: readonly number[]): { x: number; y: number; depth: number; onScreen: boolean } {
-    const n = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
-    return poseWorldToScreen(this.basePose(), this.cameras.viewportSize().aspect, n(position[0]), n(position[1]), n(position[2]));
   }
 
   private stageMove(entityId: string, delta: unknown): void {
@@ -5279,19 +5157,7 @@ class RuntimeInstance implements Runtime {
       const v = source();
       return typeof v === 'number' && Number.isFinite(v) ? v : undefined;
     }
-    if (!this.cameras.active || !this.cameras.hasView()) return undefined;
-    const q = this.cameras.view().rotation;
-    // The view's forward (−Z turned by the rotation), flattened onto the ground.
-    const [x, y, z, w] = [q[0]!, q[1]!, q[2]!, q[3]!];
-    let fx = -2 * (x * z + w * y);
-    let fz = -(1 - 2 * (x * x + y * y));
-    if (!(Math.hypot(fx, fz) > 1e-3)) {
-      // Looking straight down (or up): the screen's up is the way forward on the ground.
-      fx = 2 * (x * y - w * z);
-      fz = 2 * (y * z + w * x);
-      if (!(Math.hypot(fx, fz) > 1e-9)) return undefined;
-    }
-    return Math.atan2(-fx, -fz);
+    return this.views.yaw();
   }
 
   /**

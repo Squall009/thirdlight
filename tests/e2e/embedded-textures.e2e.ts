@@ -113,7 +113,7 @@ for (const variant of RENDERER_VARIANTS) test(`images inside model files count a
   await cmd('setMaterial', { material: { materialId: 'mat-checker', name: 'Checker', shader: 'unlit', params: { tiling: [0.125, 0.125] }, textures: { map: 'checker' } } });
   await cmd('setEnvironment', { sceneId: 'scene-main', environment: { sky: { mode: 'color', color: '#303030' } } });
   const ents = ((await query('queryEntities', { limit: 100, offset: 0 })) as { entities: { id: string; components: Record<string, unknown> }[] }).entities;
-  const cam = ents.find((e) => e.components['camera'] !== undefined)!.id;
+  const cam = ents.find((e) => e.components['virtualCamera'] !== undefined)!.id;
   await cmd('setTransform', { entityId: cam, transform: { position: [0, 0, 6], rotation: [0, 0, 0, 1] } });
   for (const e of ents) if (e.components['box'] !== undefined || e.components['model'] !== undefined) await cmd('setTransform', { entityId: e.id, transform: { position: [0, -50, 0] } });
   const box = String((await cmd('createEntity', { parentId: null, kind: 'box', name: 'Checker box', transform: { position: [0, 0, 3] }, box: { size: [2, 2, 0.05], material: { color: '#ffffff' } } }))['createdId']);

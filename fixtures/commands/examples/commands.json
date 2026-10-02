@@ -408,7 +408,7 @@
         "projectId": "demo-0001",
         "revision": 5,
         "manifest": {
-          "schemaVersion": 6,
+          "schemaVersion": 7,
           "engineVersion": "0.1.0",
           "id": "demo-0001",
           "name": "Demo Project",
@@ -417,8 +417,7 @@
         "scene": {
           "sceneId": "scene-main",
           "schemaVersion": 4,
-          "entityCount": 6,
-          "cameraId": "cam-main"
+          "entityCount": 6
         },
         "scenes": [
           {
@@ -553,6 +552,7 @@
           {
             "id": "cam-main",
             "name": "Main Camera",
+            "keepLoaded": true,
             "components": {
               "transform": {
                 "position": [
@@ -572,11 +572,9 @@
                   1
                 ]
               },
-              "camera": {
-                "type": "perspective",
-                "fovY": 60,
-                "near": 0.1,
-                "far": 100
+              "virtualCamera": {
+                "rig": "fixed",
+                "priority": -1000
               }
             }
           },

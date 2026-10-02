@@ -203,10 +203,24 @@ describe('a v4 build opens on the page as the v5 build of the same project', () 
     expect(v4Reads).toEqual(((v4Doc['contentFiles'] as { path: string }[] | undefined) ?? []).map((r) => r.path));
     expect(a.catalog.known().map((r) => r.assetId).sort()).toEqual(['beep', 'crate', 'wall']);
 
-    // The same content: the blocks, the scene rows (the same scene files), the media and behaviors.
-    for (const k of ['settings', 'tags', 'prefabs', 'materials', 'media', 'behaviors', 'sceneDigest', 'projectId']) expect(b.manifest[k], k).toEqual(a.manifest[k]);
-    const sceneRow = (s: { sceneId: string; path: string; digest: string; byteLength: number; start: boolean }) => ({ sceneId: s.sceneId, path: s.path, digest: s.digest, byteLength: s.byteLength, start: s.start });
+    // The same content: the blocks, the scene rows, the media and behaviors.
+    for (const k of ['settings', 'tags', 'prefabs', 'materials', 'media', 'behaviors', 'projectId']) expect(b.manifest[k], k).toEqual(a.manifest[k]);
+    const sceneRow = (s: { sceneId: string; path: string; digest: string; byteLength: number; start: boolean }) => ({ sceneId: s.sceneId, start: s.start });
     expect(b.manifest.scenes!.map(sceneRow)).toEqual(a.manifest.scenes!.map(sceneRow));
+    // The same scene files, but for the scene camera: the project opened as schemaVersion 7 (the engine owns the view),
+    // so the camera is the lowest-priority shot, kept loaded (its default lens is the project's).
+    const asShot = (e: { components: Record<string, unknown> }): unknown => {
+      if (e.components['camera'] === undefined) return e;
+      const { camera: _camera, ...rest } = e.components;
+      return { ...e, keepLoaded: true, components: { ...rest, virtualCamera: { rig: 'fixed', priority: -1000 } } };
+    };
+    for (const row of a.manifest.scenes!) {
+      const v4Scene = JSON.parse(readFileSync(join(FIXTURE, 'build', row.path), 'utf8')) as { entities: { components: Record<string, unknown> }[] };
+      const v5Row = b.manifest.scenes!.find((x) => x.sceneId === row.sceneId)!;
+      const v5Scene = JSON.parse(readFileSync(join(out, v5Row.path), 'utf8')) as { revision?: number; entities: unknown[] };
+      // The upgrade wrote the scene at a new revision.
+      expect(v5Scene, row.sceneId).toEqual({ ...v4Scene, ...(v5Scene.revision !== undefined ? { revision: v5Scene.revision } : {}), entities: v4Scene.entities.map(asShot) });
+    }
     expect(b.manifest['start']).toEqual(a.manifest['start']);
     // Every asset row, found in the v5 catalog (by its shard), as the v4 manifest had it.
     for (const row of a.catalog.known()) {

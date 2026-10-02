@@ -15,7 +15,6 @@ function toCaptureView(e: ProjectedEntity): CaptureEntityView {
   return {
     id: e.id,
     parentId: e.parentId,
-    camera: e.kind === 'camera',
     prefab: e.prefab ?? null,
     behavior: e.behaviorId ? { behaviorId: e.behaviorId, values: e.behaviorValues ?? {} } : null,
   };
@@ -78,7 +77,6 @@ export function usePrefabAuthoring(deps: PrefabAuthoringDeps) {
       scene: scene.map(toCaptureView),
       existingPrefabIds: c.prefabs.prefabIds,
       declarations: c.prefabs.declarationMap(),
-      cameraId: scene.find((e) => e.kind === 'camera')?.id ?? null,
     });
     if (!plan.ok) return setNotice(`Create prefab: ${plan.error.message}`);
     let failure: UiError | null = null;

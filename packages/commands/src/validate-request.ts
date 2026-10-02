@@ -218,10 +218,9 @@ type TransformField = (typeof TRANSFORM_FIELDS)[number];
 
 /**
  * Components `createEntity` makes from its own arguments rather than from
- * `components`: `box` and `model` from `kind` (and its box/model argument);
- * the scene's `camera` is not created by a command.
+ * `components`: `box` and `model` from `kind` (and its box/model argument).
  */
-export const CREATE_MADE_BY_KIND: readonly string[] = ['box', 'model', 'camera'];
+export const CREATE_MADE_BY_KIND: readonly string[] = ['box', 'model'];
 
 /**
  * The add-capable `createEntity.components` key set: every component
@@ -632,7 +631,7 @@ function validateCreateArgs(args: Record<string, unknown>):
   | { ok: true; args: CreateEntityArgs }
   | { ok: false; error: CommandError } {
   const KNOWN =
-    'kind, parentId (optional), name (optional), active, visible, locked, static, tags (optional), transform (optional), box (optional, box only), model (optional, model only), components (optional), surfacePreset (optional), children (optional, folder only)';
+    'kind, parentId (optional), name (optional), active, visible, locked, static, keepLoaded, tags (optional), transform (optional), box (optional, box only), model (optional, model only), components (optional), surfacePreset (optional), children (optional, folder only)';
   for (const key of Object.keys(args)) {
     if (
       key !== 'kind' &&
@@ -642,6 +641,7 @@ function validateCreateArgs(args: Record<string, unknown>):
       key !== 'visible' &&
       key !== 'locked' &&
       key !== 'static' &&
+      key !== 'keepLoaded' &&
       key !== 'tags' &&
       key !== 'transform' &&
       key !== 'box' &&

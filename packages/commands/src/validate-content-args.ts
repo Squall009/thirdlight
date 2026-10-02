@@ -506,7 +506,6 @@ const COMPONENT_FIELDS: Record<string, readonly string[]> = {
 
 const OWNED: readonly OwnedComponent[] = [
   'box',
-  'camera',
   'model',
   'collider',
   'controller',
@@ -539,11 +538,10 @@ const OWNED: readonly OwnedComponent[] = [
   'gravity',
   'cameraRegion',
 ];
-// Box, camera and model are added (a complete value) and removed
+// Box and model are added (a complete value) and removed
 // like every other component (the Inspector's "+ Add component").
 const REMOVABLE: readonly OwnedComponent[] = [
   'box',
-  'camera',
   'model',
   'collider',
   'controller',
@@ -593,7 +591,7 @@ export function isSetComponentName(name: string): boolean {
  */
 export const SET_COMPONENT_NAMES: readonly OwnedComponent[] = OWNED;
 const COMPONENT_EXPECTED =
-  'one of "box", "camera", "model", "collider", "controller", "playerSpawn", "light", "surface", "modelAnimation", "instances", "materials", "materialParams", "effect"';
+  'one of "box", "model", "collider", "controller", "playerSpawn", "light", "surface", "modelAnimation", "instances", "materials", "materialParams", "effect"';
 
 export function validateSetComponentArgs(
   args: Record<string, unknown>,
@@ -706,15 +704,6 @@ export function validateSetComponentArgs(
         if (mk !== 'color') {
           return { ok: false, error: fieldUnexpected(`/args/value/material/${mk}`, mk, 'color') };
         }
-      }
-    }
-  } else if (component === 'camera') {
-    for (const f of ['type', 'fovY', 'near', 'far']) {
-      const v = value[f];
-      if (v === undefined) continue;
-      const expected = f === 'type' ? 'string ("perspective")' : 'number';
-      if (f === 'type' ? typeof v !== 'string' : typeof v !== 'number') {
-        return { ok: false, error: fieldType(`/args/value/${f}`, v, expected) };
       }
     }
   } else if (component === 'collider') {

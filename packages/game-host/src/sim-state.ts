@@ -295,7 +295,7 @@ export class FrameEncoder {
     if (audio.length > 0) out.audio = audio;
     const effects = rt.takeEffectRequests?.() ?? [];
     if (effects.length > 0) out.effects = effects;
-    // The resolved camera (only while the game has a virtual camera).
+    // The main view as the camera brain resolved it (from the first step on).
     const camView = rt.cameraView?.() ?? null;
     if (camView !== null) {
       const lens = rt.readCameraView?.(this.camPos, this.camRot) ?? null;

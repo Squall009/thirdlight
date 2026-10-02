@@ -12,7 +12,7 @@
  *
  * Normative rules implemented here:
  *
- *  - capture rejects the scene camera, a nested copy and an external
+ *  - capture rejects a nested copy and an external
  *    `entityRef` atomically and enforces the
  *    `prefab_entities`/`prefab_depth`/`prefabs` limits;
  *  - instantiation accepts only the contract's three configurables — the root
@@ -65,8 +65,6 @@ export type PlanResult<T> = { ok: true } & T | { ok: false; error: PlanError };
 export interface CaptureEntityView {
   id: string;
   parentId: string | null;
-  /** `components.camera` present. */
-  camera: boolean;
   /** `components.prefab` provenance, when the entity is a materialized copy. */
   prefab: { prefabId: string; localId: string } | null;
   /** `components.behavior`, when present. */
@@ -119,8 +117,6 @@ export interface CaptureInput {
   existingPrefabIds: readonly string[];
   /** Published declarations (to resolve `entityRef` values by declaration). */
   declarations: ReadonlyMap<string, PropertyDeclaration>;
-  /** The scene's camera id, for the forbidden-capture payload. */
-  cameraId?: string | null;
 }
 
 export interface CapturePreflight {
@@ -207,18 +203,6 @@ export function preflightCreatePrefab(input: CaptureInput): PlanResult<CapturePr
     return {
       ok: false,
       error: { code: 'entity_not_found', message: `the source entity ${input.sourceEntityId} does not exist in the current scene`, entityId: input.sourceEntityId },
-    };
-  }
-  const camera = closure.entities.find((e) => e.camera);
-  if (camera !== undefined) {
-    return {
-      ok: false,
-      error: {
-        code: 'prefab_camera_capture_forbidden',
-        message: 'the captured subtree contains the scene camera; a definition must not carry it',
-        sourceEntityId: input.sourceEntityId,
-        cameraId: input.cameraId ?? camera.id,
-      },
     };
   }
   const nested = closure.entities.filter((e) => e.prefab !== null).map((e) => e.id);

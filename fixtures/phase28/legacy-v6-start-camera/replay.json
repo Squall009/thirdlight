@@ -1,0 +1,20 @@
+{
+  "op": "setComponent",
+  "projectId": "legacy-v6-start-camera",
+  "requestId": "req-e61d4ae966517bbfa3a8fdd5e3214769",
+  "expectedRevision": 5,
+  "args": {
+    "entityId": "cam-main",
+    "component": "camera",
+    "value": {
+      "type": "perspective",
+      "fovY": 50,
+      "near": 0.3,
+      "far": 400
+    }
+  },
+  "origin": {
+    "kind": "mcp",
+    "clientId": "fixture-legacy-v6-start-camera"
+  }
+}

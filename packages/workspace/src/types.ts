@@ -170,7 +170,7 @@ export interface QueryProjectResult {
   revision: number;
   /** The full normalized manifest (bounded by construction). */
   manifest: Manifest;
-  scene: { sceneId: string; schemaVersion: number; entityCount: number; cameraId: string };
+  scene: { sceneId: string; schemaVersion: number; entityCount: number; cameraId?: string };
   history: HistoryDepths;
   workspace: WorkspaceQueryInfo;
   /** The project tag registry (ascending bit; empty when none). */

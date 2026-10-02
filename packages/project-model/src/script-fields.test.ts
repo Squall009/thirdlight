@@ -12,13 +12,13 @@ describe('script access marks', () => {
   it('is versioned with the project schema and pinned for it', () => {
     const t = scriptAccessTable();
     expect(t.schemaVersion).toBe(PROJECT_SCHEMA_VERSION);
-    expect(SCRIPT_ACCESS_SCHEMA_VERSION).toBe(6);
+    expect(SCRIPT_ACCESS_SCHEMA_VERSION).toBe(7);
     // A field renamed, unmarked or newly marked changes this digest. A rename or an unmarked field is a
     // schema change (bump the project schemaVersion with an upgrade, then re-pin here for the new version);
     // a new optional field or component only adds to what scripts read — nothing they read before
     // changes — and re-pins for the same version.
     const digest = fnv(JSON.stringify(t));
-    expect({ schemaVersion: t.schemaVersion, digest }).toEqual({ schemaVersion: 6, digest: PINNED_V6 });
+    expect({ schemaVersion: t.schemaVersion, digest }).toEqual({ schemaVersion: 7, digest: PINNED_V7 });
   });
 
   it('writable fields are exactly the listed first set, all of them readable', () => {
@@ -76,11 +76,11 @@ describe('script access marks', () => {
     expect(s).toMatchObject({ type: 'point', color: '#ffffff', intensity: 30, range: 0, decay: 2 });
     expect(Object.isFrozen(s)).toBe(true);
     const obj = scriptSnapshot('object', { id: 'a-000001', active: true, visible: true, locked: true, components: {} } as never);
-    expect(Object.keys(obj).sort()).toEqual(['active', 'id', 'parentId', 'static', 'tags', 'visible']);
+    expect(Object.keys(obj).sort()).toEqual(['active', 'id', 'keepLoaded', 'parentId', 'static', 'tags', 'visible']);
   });
 });
 
-const PINNED_V6 = '24a81a162162a97b';
+const PINNED_V7 = '3faaa7722d7b1c30';
 
 /** 64-bit FNV-1a (two 32-bit lanes) of a text (project-model tests use no Node builtins). */
 function fnv(text: string): string {

@@ -110,8 +110,8 @@ export function nearestObjectAncestor(
 /**
  * The scene as the game loads it: no folders, no inactive entities, each
  * child under its nearest non-folder ancestor, effective `static` on each
- * entity, its own `visible: false` (the game starts it hidden; `locked` is
- * editor-only and dropped). Document order is kept.
+ * entity, its own `visible: false` (the game starts it hidden) and
+ * `keepLoaded` (`locked` is editor-only and dropped). Document order is kept.
  */
 export function resolveSceneHierarchy(scene: SceneV3 | ResolvedSceneV3 | SceneV4): ResolvedSceneV3 {
   const entities = scene.entities as readonly SceneEntityV3[];
@@ -140,6 +140,7 @@ export function resolveSceneHierarchy(scene: SceneV3 | ResolvedSceneV3 | SceneV4
       ...(parentId !== null ? { parentId } : {}),
       ...(e.visible === false ? { visible: false as const } : {}),
       ...(f.static ? { static: true as const } : {}),
+      ...(e.keepLoaded === true ? { keepLoaded: true as const } : {}),
       ...(f.tags !== 0 ? { tags: f.tags } : {}),
       components: data !== undefined && e.components.blockLayer !== undefined ? ({ ...e.components, blockLayer: { ...e.components.blockLayer, data } } as typeof e.components) : e.components,
     });

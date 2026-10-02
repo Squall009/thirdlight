@@ -46,7 +46,7 @@ import {
 } from '@thirdlight/three-adapter';
 import type { BlockChunk, BlockLayerComponent, BlockType, InstanceBrush, InstanceStroke } from '@thirdlight/project-model';
 import * as THREE from 'three';
-import { type EnvironmentBlendView, type ResourceManager } from '@thirdlight/runtime';
+import { VIEW_LENS_DEFAULTS, type EnvironmentBlendView, type ResourceManager } from '@thirdlight/runtime';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { disposeOrbitControls, releaseControlKeyListeners } from './controls';
 import { TransformControls } from 'three/examples/jsm/controls/TransformControls.js';
@@ -65,7 +65,7 @@ import { BlockEditor, type BlockEditorCallbacks } from './block-editor';
 import { SceneLightmaps } from './scene-lightmaps';
 import { SceneLighting } from './scene-lighting';
 import { virtualCameraPreviews } from './camera-previews';
-import { cameraFrustum, lightGizmo } from './helper-shapes';
+import { lightGizmo } from './helper-shapes';
 import { gatherBakeInputs, type BakeInputs } from './bake-inputs';
 import { SceneVisibility } from './scene-visibility';
 
@@ -116,10 +116,9 @@ const N = (v: number | undefined): number => v ?? 0;
  */
 function buildKeyOf(e: ProjectedEntity, aspect: number): string {
   const l = e.light;
-  // The camera's frustum (fovY/near/far and the game's aspect) and a spawn's facing (its yaw) shape the helpers too.
-  const camera = e.kind === 'camera' ? [e.components['camera'] ?? null, aspect] : null;
+  // A spawn's facing (its yaw) shapes the helpers too.
   const facing = e.playerSpawn === true ? ((e.components['playerSpawn'] as { yaw?: number } | undefined)?.yaw ?? null) : null;
-  return JSON.stringify([e.kind, l === undefined ? null : [l.type, l.direction ?? null, l.range ?? null, l.angle ?? null, l.mode ?? null], e.fogVolume !== undefined, e.playerSpawn === true, camera, facing]);
+  return JSON.stringify([e.kind, l === undefined ? null : [l.type, l.direction ?? null, l.range ?? null, l.angle ?? null, l.mode ?? null], e.fogVolume !== undefined, e.playerSpawn === true, facing]);
 }
 
 /** The game's aspect before the Scene view is told one (16:9, the common screen shape). */
@@ -558,7 +557,7 @@ export class Viewport {
       (c as THREE.LineSegments).geometry.dispose();
       ((c as THREE.LineSegments).material as THREE.Material).dispose();
     }
-    const previews = virtualCameraPreviews(entities, this.gameAspect);
+    const previews = virtualCameraPreviews(entities, this.gameAspect, this.viewLens);
     if (previews.length > 0 && this.vcamPreviews.parent === null) {
       this.vcamPreviews.name = 'virtual-camera-previews';
       this.scene.add(this.vcamPreviews);
@@ -619,7 +618,7 @@ export class Viewport {
     }
     let camera: unknown = null;
     if (p.camera !== null) {
-      const v = virtualCameraPreviews(this.projected, this.gameAspect, p.camera, p.transforms)[0];
+      const v = virtualCameraPreviews(this.projected, this.gameAspect, this.viewLens, p.camera, p.transforms)[0];
       if (v !== undefined) {
         this.timelineFrustum = v.lines;
         this.timelineFrustum.name = `timeline-camera:${v.id}`;
@@ -1234,23 +1233,6 @@ export class Viewport {
         group.add(g);
       }
       this.addIcon(group, e.id, iconKindFor(e, this.iconTable));
-    } else if (e.kind === 'camera') {
-      // A camera is an icon billboard plus a small wire frustum showing where it looks (-Z).
-      const w = 0.42;
-      const h = 0.28;
-      const z = -0.9;
-      const o = new THREE.Vector3(0, 0, 0);
-      const c = [new THREE.Vector3(-w, -h, z), new THREE.Vector3(w, -h, z), new THREE.Vector3(w, h, z), new THREE.Vector3(-w, h, z)];
-      const pts = [o, c[0]!, o, c[1]!, o, c[2]!, o, c[3]!, c[0]!, c[1]!, c[1]!, c[2]!, c[2]!, c[3]!, c[3]!, c[0]!];
-      const frustum = new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineBasicMaterial({ color: 0xf2b544 }));
-      frustum.name = e.id;
-      (frustum as { entityId?: string }).entityId = e.id;
-      group.add(frustum);
-      // The real frustum (its fovY, near, far and the game's aspect), shown while the camera is selected.
-      const real = cameraFrustum(e, this.gameAspect);
-      real.visible = this.selectedId === e.id;
-      group.add(real);
-      this.addIcon(group, e.id, 'camera');
     } else {
       // An empty entity: a spawn icon when it is a player spawn, an axis cross otherwise.
       this.addIcon(group, e.id, iconKindFor(e, this.iconTable));
@@ -1413,15 +1395,11 @@ export class Viewport {
       const m = eid === null ? undefined : this.meshes.get(eid);
       if (m === undefined) return;
       this.setMeshHighlight(m, on);
-      // A camera's real frustum shows while it is selected.
-      for (const c of m.children) if (c.userData['cameraFrustum'] !== undefined) c.visible = on;
     };
     if (this.highlightedId !== id) mark(this.highlightedId, false);
     mark(id, true);
     this.highlightedId = id;
     this.applyLightmaps();
-    const frustum = id === null ? undefined : this.meshes.get(id)?.children.find((c) => c.userData['cameraFrustum'] !== undefined);
-    this.root.setAttribute('data-camera-frustum', frustum === undefined ? '' : JSON.stringify(frustum.userData['cameraFrustum']));
     // A virtual camera's preview (where its rig puts it) shows while it is selected.
     this.showVirtualCameraPreview();
     // A selected copy of an instance set takes the gizmo.
@@ -1712,6 +1690,8 @@ export class Viewport {
   // ---- Descriptors, the game's aspect, instance copies, model outlines ----
 
   private gameAspect = DEFAULT_GAME_ASPECT;
+  /** The project's lens (its camera settings; the engine defaults until the project's arrive). */
+  private viewLens: { fovY: number; near: number; far: number } = { ...VIEW_LENS_DEFAULTS };
   /** Which component shows which icon (from the descriptors). */
   private iconTable: IconTable = [];
   private copySel: { entityId: string; index: number } | null = null;
@@ -1735,14 +1715,19 @@ export class Viewport {
     this.requestRender();
   }
 
+  /** The project's lens (its camera settings): a virtual camera without its own uses it. */
+  setViewLens(lens: { fovY: number; near: number; far: number }): void {
+    if (this.viewLens.fovY === lens.fovY && this.viewLens.near === lens.near && this.viewLens.far === lens.far) return;
+    this.viewLens = { ...lens };
+    this.syncVirtualCameraPreviews(this.projected);
+    this.requestRender();
+  }
+
   /** The game view's aspect (width / height): the cameras' frustums use it. */
   setGameAspect(aspect: number): void {
     if (!Number.isFinite(aspect) || aspect <= 0 || Math.abs(aspect - this.gameAspect) < 1e-3) return;
     this.gameAspect = aspect;
-    for (const e of this.projected) {
-      const m = this.meshes.get(e.id);
-      if (e.kind === 'camera' && m !== undefined) this.redecorate(m as THREE.Group, e);
-    }
+    this.syncVirtualCameraPreviews(this.projected);
     this.requestRender();
   }
 

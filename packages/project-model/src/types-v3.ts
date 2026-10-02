@@ -209,6 +209,14 @@ export interface EntityFlagsV3 {
   locked?: true;
   static?: true;
   /**
+   * The object, its children and its scripts stay alive across scene loads,
+   * unloads, reloads and a save's `applyWorld` (Unity's DontDestroyOnLoad):
+   * only its own scene is gone; it is never destroyed with it. On a root
+   * object (or one filed in folders) only: a kept object under an object that
+   * is not kept goes with its parent (Play says so).
+   */
+  keepLoaded?: true;
+  /**
    * The entity's own tag bits (unsigned 32-bit mask; bit i =
    * the tag with `bit: i` in `content.tags`). Stored only when non-zero. The
    * effective mask is this OR the masks of every folder above it.

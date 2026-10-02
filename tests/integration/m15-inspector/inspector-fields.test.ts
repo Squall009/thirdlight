@@ -118,9 +118,8 @@ describe('the generic Inspector over the real registry', () => {
     expect(entries.length).toBeGreaterThan(15);
     for (const entry of entries) {
       let s = fresh();
-      // Room for any light type and a camera anywhere: the fixture's own lights and camera go.
+      // Room for any light type: the fixture's own lights go.
       for (const id of ['light-0001', 'light-0002']) s = must(s, 'deleteEntity', { entityId: id }, `delete ${id}`);
-      if (entry.component === 'camera') s = must(s, 'setComponent', { entityId: 'cam-main', component: 'camera', value: null }, 'remove the fixture camera');
       // A spawn a field can name (a scene transition's arrival).
       s = must(s, 'createEntity', { kind: 'group', name: 'Spawn', components: { playerSpawn: {} } }, 'create a spawn');
       const created = run(s, 'createEntity', { kind: 'group', name: entry.label });
@@ -128,7 +127,7 @@ describe('the generic Inspector over the real registry', () => {
       s = created.state;
       const target = String(created.result.createdId);
       const pre = needs(entry.component);
-      if (pre !== undefined && pre !== 'camera') s = must(s, 'setComponent', { entityId: target, component: pre, value: addValueOf(pre) }, `${entry.label}: add ${pre}`);
+      if (pre !== undefined) s = must(s, 'setComponent', { entityId: target, component: pre, value: addValueOf(pre) }, `${entry.label}: add ${pre}`);
       s = must(s, 'setComponent', { entityId: target, component: entry.component, value: entry.value as Record<string, unknown> }, `add ${entry.label}`);
 
       // Every editable field: one command, accepted; one undo restores the component.
@@ -172,7 +171,7 @@ describe('the generic Inspector over the real registry', () => {
       expect(componentsOf(back, target)[entry.component]).toEqual(kept);
     }
     // The edits reached the fields a designer tunes.
-    for (const k of ['box.size', 'camera.fovY', 'camera.near', 'camera.far', 'light.type', 'light.intensity', 'trigger.shape', 'patrol.mode', 'hitbox.shape', 'collectible.counter', 'controller.capsule.radius', 'fogVolume.density'])
+    for (const k of ['box.size', 'virtualCamera.fovY', 'virtualCamera.near', 'virtualCamera.far', 'light.type', 'light.intensity', 'trigger.shape', 'patrol.mode', 'hitbox.shape', 'collectible.counter', 'controller.capsule.radius', 'fogVolume.density'])
       expect(edited, k).toContain(k);
   });
 });

@@ -56,8 +56,10 @@ import {
   PROJECT_SCHEMA_VERSION_V24,
   PROJECT_SCHEMA_VERSION_V25,
   PROJECT_SCHEMA_VERSION_PROJECT_LOOK,
+  PROJECT_SCHEMA_VERSION_SCENE_CAMERA,
   isUpgradedProjectSchemaVersion,
   upgradeSceneEnvironments,
+  upgradeSceneModel,
   upgradeAudioAssets,
   canonicalLoadable,
   type LoadableEntry,
@@ -526,13 +528,21 @@ export function loadV4(ops: WriteOps, dir: string, projectId: string, gameRoot: 
     upgraded = { ...(upgraded ?? {}), notes: upgraded?.notes ?? [], assetFiles: true };
   }
   // A 5 (or older, just upgraded to 5): each scene gets the project's look (sky, fog, post, wind), the content keeps the quality and presets.
-  if (isUpgradedProjectSchemaVersion(fromVersion)) {
+  if (isUpgradedProjectSchemaVersion(fromVersion) && fromVersion !== PROJECT_SCHEMA_VERSION_SCENE_CAMERA) {
     const u = upgradeSceneEnvironments(contentDoc, docs);
     contentDoc = u.content;
     docs = u.scenes;
+    // A project without a look of its own keeps its documents (and its revision) at this step.
+    upgraded = { ...(upgraded ?? {}), ...(u.notes.length > 0 ? { documents: true as const } : {}), notes: [...(upgraded?.notes ?? []), `project schemaVersion ${PROJECT_SCHEMA_VERSION_PROJECT_LOOK} → ${PROJECT_SCHEMA_VERSION_SCENE_CAMERA}`, ...u.notes] };
+  }
+  // A 6 (or older, just upgraded to 6): the engine owns the view (each scene camera becomes a shot) and what was never unloaded keeps loaded.
+  if (isUpgradedProjectSchemaVersion(fromVersion)) {
+    const u = upgradeSceneModel(contentDoc, docs);
+    contentDoc = u.content;
+    docs = u.scenes;
     manifestDoc = { ...man.value, schemaVersion: PROJECT_SCHEMA_VERSION };
-    // A project without a look of its own keeps its documents (and its revision): only project.json says 6.
-    upgraded = { ...(upgraded ?? {}), ...(u.notes.length > 0 ? { documents: true as const } : {}), manifest: true, notes: [...(upgraded?.notes ?? []), `project schemaVersion ${PROJECT_SCHEMA_VERSION_PROJECT_LOOK} → ${PROJECT_SCHEMA_VERSION}`, ...u.notes] };
+    // A project with nothing to change keeps its documents (and its revision): only project.json says 7.
+    upgraded = { ...(upgraded ?? {}), ...(u.notes.length > 0 ? { documents: true as const } : {}), manifest: true, notes: [...(upgraded?.notes ?? []), `project schemaVersion ${PROJECT_SCHEMA_VERSION_SCENE_CAMERA} → ${PROJECT_SCHEMA_VERSION}`, ...u.notes] };
   }
   // An older content.json holds the resources itself: the open writes each to its own file.
   if (content.value['storageVersion'] !== CONTENT_STORAGE_VERSION) {

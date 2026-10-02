@@ -7,8 +7,9 @@
  * - light intensity/colour/range: a write is seen from the next step (the
  *   step itself reads the step-start state);
  * - refusals name the field (a fixed field, a physics body's transform, the
- *   camera, the character's `active`, a mover-driven transform, a value out
- *   of range, a missing component, a data material parameter);
+ *   character's `active`, a mover-driven transform, a value out of range, a
+ *   missing component, a data material parameter); a camera's transform is
+ *   written like any object's;
  * - relaxed ownership: the director and a helper both move a plain box in
  *   one step — the later script wins and the conflict is in diagnostics;
  * - mover speed and `active` (held where it is), material parameters;
@@ -56,7 +57,8 @@ export default {
     if (s === 7) {
       const r1 = E('lamp-0001').set('light', { type: 'spot' }); mark('r_type', !r1.ok && r1.field === 'light.type' && r1.code === 'field_not_writable');
       const r2 = E('floor-0001').set('transform', { position: [0, 0, 0] }); mark('r_phys', !r2.ok && r2.code === 'entity_physics' && r2.field === 'transform.position');
-      const r3 = E('cam-main').set('transform', { position: [0, 0, 0] }); mark('r_cam', !r3.ok && r3.code === 'entity_camera');
+      // A camera is a shot: a script moves it like any object (here to where it is).
+      const r3 = E('cam-main').set('transform', { position: [0, 4, 14] }); mark('r_cam', r3.ok);
       const r4 = E('player-0001').set('object', { active: false }); mark('r_char', !r4.ok && r4.code === 'entity_character' && r4.field === 'object.active');
       const r5 = E('lift-0001').set('transform', { position: [0, 0, 0] }); mark('r_driven', !r5.ok && r5.code === 'entity_driven');
       const r6 = E('lamp-0001').set('light', { intensity: -1 }); mark('r_range', !r6.ok && r6.code === 'field_value' && r6.field === 'light.intensity');
@@ -321,7 +323,7 @@ describe('ctx.entity get/set, relaxed ownership, typed references, ctx.shell', (
       expect(single.lights).toEqual([['lamp-0001', { intensity: 60, color: '#ff0000', range: 4 }]]);
       // Two writers of the box in one step: one conflict, reported; refusals noted.
       expect(single.writes).toMatchObject({ conflicts: 1 });
-      expect(single.writes.refused).toBeGreaterThanOrEqual(9);
+      expect(single.writes.refused).toBeGreaterThanOrEqual(8);
       expect(single.errors.some((e: Any) => e.code === 'entity_write' && e.reason === 'conflict' && /deco-0001/.test(e.message) && /helper/.test(e.message))).toBe(true);
       expect(single.errors.some((e: Any) => e.code === 'entity_write' && e.reason === 'refused' && e.detail === 'field_not_writable' && /light\.type/.test(e.message))).toBe(true);
 

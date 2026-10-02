@@ -89,5 +89,5 @@ export function canonicalSocketAttach(c: SocketAttachComponent): SocketAttachCom
   };
 }
 
-/** The components an attached entity cannot carry (physics bodies are posed by physics, a camera by its rig). */
-export const SOCKET_ATTACH_CONFLICTS = ['collider', 'controller', 'mover', 'camera'] as const;
+/** The components an attached entity cannot carry (physics bodies are posed by physics). */
+export const SOCKET_ATTACH_CONFLICTS = ['collider', 'controller', 'mover'] as const;

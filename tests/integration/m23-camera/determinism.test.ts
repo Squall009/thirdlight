@@ -199,8 +199,8 @@ describe('the camera is resolved in the simulation (two runs, page and worker)',
       expect(firstDiff(a.digests, w.digests), 'first differing step (page vs worker)').toBe(-1);
       const views = [...a.views.entries()].sort((x, y) => x[0] - y[0]);
       const before = views.find(([s]) => s > 20 && s < 55)![1];
-      // No virtual camera live yet: the view is the scene camera's.
-      expect(before.live).toBeNull();
+      // No other camera live yet: the view is the scene camera's (the lowest-priority shot an older scene's camera plays as).
+      expect(before.live).toBe('cam-main');
       const mainAt = a.h.rt.getInterpolatedState().state.transforms.find((t: Any) => t.id === 'cam-main');
       expect(mainAt).toBeDefined();
       const orbit = views.find(([s]) => s > 200 && s < 230)![1];
@@ -209,7 +209,7 @@ describe('the camera is resolved in the simulation (two runs, page and worker)',
       expect(rail.live).toBe('cam-rail');
       // The rail ended: both virtual cameras off, the view blended back to the scene camera's pose.
       const last = views[views.length - 1]![1];
-      expect(last.live).toBeNull();
+      expect(last.live).toBe('cam-main');
       expect(last.blend).toBeNull();
       expect(last.position[0]).toBeCloseTo(mainAt.position[0], 6);
       expect(last.position[1]).toBeCloseTo(mainAt.position[1], 6);

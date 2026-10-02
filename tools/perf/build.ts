@@ -127,7 +127,8 @@ export async function buildBenchmark(be: PerfBackend, plan: BenchPlan, projectId
   // Camera, player, spawn and a camera track following the player (the game plays as a scene; a camera track
   // rig is what follows the player).
   await cmd('setTransform', { entityId: 'cam-main', transform: { position: plan.camera.position } });
-  await cmd('setComponent', { entityId: 'cam-main', component: 'camera', value: { type: 'perspective', fovY: 50, near: 0.1, far: plan.camera.far } });
+  // The lens of every camera that sets none (the starter's camera and the track below).
+  await cmd('setSettings', { settings: { camera_fov_deg: 50, camera_far_m: plan.camera.far } });
   await cmd('createEntity', { kind: 'group', name: 'Start spawn', transform: { position: plan.spawn }, components: { playerSpawn: {} } });
   const player = await cmd('createEntity', { kind: 'box', name: 'Player', transform: { position: plan.player.position }, box: { size: plan.player.size, material: { color: '#3070c0' } }, components: { controller: {} } });
   await cmd('createEntity', { kind: 'group', name: 'Camera track', transform: { position: plan.camera.position }, components: { virtualCamera: { rig: 'track', target: player['createdId'], deadZone: [1, 1, 1], damping: 0.2 } } });

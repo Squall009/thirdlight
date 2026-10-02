@@ -29,6 +29,7 @@ import {
   type ModelErrorV3,
 } from '@thirdlight/project-model';
 import { bytesEqual } from './test-fixtures';
+import { sceneCamerasAsShots } from './upgrade-scene-model';
 
 // ---- builders -----------------------------------------------------------------
 
@@ -315,7 +316,7 @@ describe('canonical byte layout', () => {
     expect(r2.ok && bytesEqual(r2.bytes, r1.bytes)).toBe(true);
     expect(JSON.parse(decode(r1.bytes))).toEqual(reparse.normalized);
 
-    const v4 = { ...v3, schemaVersion: 4 };
+    const v4 = { ...v3, schemaVersion: 4, entities: sceneCamerasAsShots(v3['entities'] as unknown[]) };
     const s1 = serializeCanonical(v4);
     expect(s1.ok).toBe(true);
     if (!s1.ok) return;
@@ -757,11 +758,11 @@ describe('hierarchy and component rules', () => {
     if (!two.ok) expect(first(two).found).toBe(2);
   });
 
-  it('v4: at most one camera — zero passes, two fail with camera_count_invalid', () => {
+  it('v4: no scene camera (the engine owns the view) — none passes, one is refused naming what replaced it', () => {
     const zero = validateSceneV4({ ...validScene([boxEntity('b1')]), schemaVersion: 4 });
     expect(zero.ok).toBe(true);
-    const two = validateSceneV4({ ...validScene([cameraEntity('c1'), cameraEntity('c2')]), schemaVersion: 4 });
-    expect(!two.ok && codes(two)).toEqual(['camera_count_invalid']);
+    const one = validateSceneV4({ ...validScene([cameraEntity('c1')]), schemaVersion: 4 });
+    expect(!one.ok && codes(one)).toEqual(['component_unknown']);
   });
 
   it('transform required; box/camera conflict; unknown component', () => {
@@ -829,7 +830,7 @@ describe('hierarchy and component rules', () => {
       expect(lim?.path).toBe('/entities');
     }
     // v4 lifts the per-scene entity cap to 16,384.
-    expect(validateSceneV4({ ...mk(1024), schemaVersion: 4 }).ok).toBe(true);
+    expect(validateSceneV4({ ...mk(1024), schemaVersion: 4, entities: sceneCamerasAsShots(mk(1024)['entities'] as unknown[]) }).ok).toBe(true);
 
     const chain = (depth: number) => {
       const ents: Record<string, unknown>[] = [{ ...boxEntity('n1') }];

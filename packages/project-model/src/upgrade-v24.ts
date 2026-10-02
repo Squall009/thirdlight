@@ -27,12 +27,15 @@ import { isCounterName } from './counter-names';
 import type { ModelErrorV3 } from './errors';
 
 /**
- * The `project.json` schemaVersion this build writes (6: each scene carries
- * its own sky, fog, post and wind; the workspace's open upgrades a 5, see
- * `upgrade-scene-environment.ts`, and older formats on the way).
+ * The `project.json` schemaVersion this build writes (7: the engine owns the
+ * view and scenes hold shots — no scene `camera` entity — and objects carry a
+ * keep-loaded flag; the workspace's open upgrades a 6, see
+ * `upgrade-scene-model.ts`, and older formats on the way).
  */
-export const PROJECT_SCHEMA_VERSION = 6;
-/** The format with one project-wide look (`project.json` schemaVersion 5), upgraded to 6 on open (`upgradeSceneEnvironments`). */
+export const PROJECT_SCHEMA_VERSION = 7;
+/** The format with a scene `camera` entity (`project.json` schemaVersion 6), upgraded to 7 on open (`upgradeSceneModel`). */
+export const PROJECT_SCHEMA_VERSION_SCENE_CAMERA = 6;
+/** The format with one project-wide look (`project.json` schemaVersion 5), upgraded to 6 on open (`upgradeSceneEnvironments`), then to 7. */
 export const PROJECT_SCHEMA_VERSION_PROJECT_LOOK = 5;
 /** The format whose asset versions were stored in `sources/sha256/` (`project.json` schemaVersion 4), upgraded to 5 on open (then to 6). */
 export const PROJECT_SCHEMA_VERSION_V25 = 4;
@@ -41,9 +44,9 @@ export const PROJECT_SCHEMA_VERSION_V24 = 3;
 /** The `project.json` schemaVersion `upgradeProjectDocsV24` upgrades (the format with the genre layer), then `upgradeProjectDocsV25`. */
 export const PROJECT_SCHEMA_VERSION_UPGRADED = 2;
 
-/** Whether the loader upgrades a project of this `project.json` schemaVersion (2, 3, 4 or 5). */
-export function isUpgradedProjectSchemaVersion(v: unknown): v is 2 | 3 | 4 | 5 {
-  return v === PROJECT_SCHEMA_VERSION_UPGRADED || v === PROJECT_SCHEMA_VERSION_V24 || v === PROJECT_SCHEMA_VERSION_V25 || v === PROJECT_SCHEMA_VERSION_PROJECT_LOOK;
+/** Whether the loader upgrades a project of this `project.json` schemaVersion (2 to 6). */
+export function isUpgradedProjectSchemaVersion(v: unknown): v is 2 | 3 | 4 | 5 | 6 {
+  return v === PROJECT_SCHEMA_VERSION_UPGRADED || v === PROJECT_SCHEMA_VERSION_V24 || v === PROJECT_SCHEMA_VERSION_V25 || v === PROJECT_SCHEMA_VERSION_PROJECT_LOOK || v === PROJECT_SCHEMA_VERSION_SCENE_CAMERA;
 }
 
 /** The tail every refusal of removed game data carries. */

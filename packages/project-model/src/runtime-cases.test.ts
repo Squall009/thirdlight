@@ -19,6 +19,7 @@ import {
   type ModelErrorV3,
 } from '@thirdlight/project-model';
 import { bytesEqual } from './test-fixtures';
+import { sceneCamerasAsShots } from './upgrade-scene-model';
 
 /** A manifest with NaN/Infinity tokens: INTENTIONALLY not strict JSON. */
 const NON_STRICT_JSON = `{
@@ -164,7 +165,8 @@ describe('runtime non-finite cases R1–R6', () => {
       [(e) => { TR(e)['rotation'] = [0, Number.NEGATIVE_INFINITY, 0, 1]; }, '/entities/0/components/transform/rotation/1'],
     ];
     for (const [mutate, path] of cases) {
-      const doc = { ...sceneWith(mutate), schemaVersion: 4 };
+      const v3 = sceneWith(mutate);
+      const doc = { ...v3, schemaVersion: 4, entities: sceneCamerasAsShots(v3['entities'] as unknown[]) };
       const res = validateSceneV4(doc);
       expect(res.ok).toBe(false);
       if (!res.ok) expect(res.errors.map((er) => [er.code, er.path])).toEqual([['number_not_finite', path]]);

@@ -46,7 +46,7 @@ test('the viewport gets the space at 1920×1080 and an existing scene shows on o
   expect(box.height).toBeGreaterThan(600); // a 300px bottom dock sits under it
   // The default scene's camera is listed without any edit first.
   await expect(rows(page)).toHaveCount(BASE);
-  await expect(rows(page).first()).toContainText('camera');
+  await expect(rows(page).first()).toContainText(/camera/i);
 });
 
 test('create, multi-level undo/redo, and the buttons follow the backend history', async ({ page }) => {

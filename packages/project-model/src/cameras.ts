@@ -4,9 +4,9 @@
  * - `virtualCamera`: one shot the game can cut or blend to. A camera brain in
  *   the runtime picks the live one (the highest `priority` among the enabled
  *   cameras; on a tie the one activated last, then the first in the scene)
- *   and blends from the shot on screen to it. Without an enabled virtual
- *   camera the scene camera shows its own pose (a `cameraFollow`, or where it
- *   was placed) exactly as before. Rigs:
+ *   and blends from the shot on screen to it; the brain owns the view (there
+ *   is no scene camera). Without an enabled virtual camera the view holds a
+ *   default pose (`DEFAULT_VIEW_POSE`) and Play warns. Rigs:
  *   - `follow`: orbits a target at `distance`, `yaw` and `pitch` (pitch
  *     limits), player-rotatable through input actions, pulled in front of
  *     colliders (3D projects);
@@ -28,7 +28,7 @@
  *   and camera regions change its dead zone, bounds and distance while the
  *   target is inside one.
  *   Each camera also sets how the view blends to it (cut, linear, eased over
- *   `blendTime`), its lens (`fovY`, `near`, `far`: absent = the scene camera's),
+ *   `blendTime`), its lens (`fovY`, `near`, `far`: absent = the project's camera settings),
  *   a letterbox amount and a constant shake.
  * - `cameraRegion`: an axis-aligned box (centred on its object;
  *   the object's rotation is not used) that, while a track camera's target is
@@ -109,6 +109,40 @@ export const VIRTUAL_CAMERA_DEFAULTS = Object.freeze({
   lookAheadMax: Object.freeze([3, 3, 3]) as readonly [number, number, number],
   lookAheadSmoothing: 0.2,
 });
+
+/**
+ * The project's default lens (the `camera_fov_deg`, `camera_near_m` and
+ * `camera_far_m` settings; a virtual camera without its own lens uses them):
+ * 60° vertical (the common game default, three.js's too) and 0.1–100 m, from
+ * arm's length to a large level — what the scene camera entity defaulted to
+ * before the engine owned the view, so an upgraded project draws the same.
+ */
+export const VIEW_LENS_DEFAULTS = Object.freeze({ fovY: 60, near: 0.1, far: 100 });
+
+/**
+ * Where the view looks from while no virtual camera is live (Play warns):
+ * 1.6 m up (eye height) and 6 m back along +Z, level and looking down −Z
+ * at the origin, where a new project's first objects land — something is on
+ * screen instead of a black frame, and nothing about it is game-specific.
+ */
+export const DEFAULT_VIEW_POSE = Object.freeze({ position: Object.freeze([0, 1.6, 6]) as readonly [number, number, number], rotation: Object.freeze([0, 0, 0, 1]) as readonly [number, number, number, number] });
+
+/**
+ * The view a game draws through. Every API that reads or sets the view takes
+ * a view key; there is one view today (`DEFAULT_VIEW_ID`), so a second one (a
+ * split screen, a networked player's) is a new key, not a new API.
+ */
+export const DEFAULT_VIEW_ID = 'main';
+
+/** The project's default lens from its settings (absent keys: `VIEW_LENS_DEFAULTS`). */
+export function viewLensOf(settings: unknown): { fovY: number; near: number; far: number } {
+  const s = typeof settings === 'object' && settings !== null ? (settings as Record<string, unknown>) : {};
+  const n = (k: string, d: number): number => (typeof s[k] === 'number' && Number.isFinite(s[k]) ? (s[k] as number) : d);
+  const fovY = n('camera_fov_deg', VIEW_LENS_DEFAULTS.fovY);
+  const near = n('camera_near_m', VIEW_LENS_DEFAULTS.near);
+  const far = n('camera_far_m', VIEW_LENS_DEFAULTS.far);
+  return { fovY, near, far: far > near ? far : near * 1000 };
+}
 
 /** The ranges of the numeric fields (engine limits that keep the maths sane). */
 export const VIRTUAL_CAMERA_LIMITS = Object.freeze({

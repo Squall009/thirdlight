@@ -98,57 +98,25 @@ describe('deleteEntity — subtree closure', () => {
   });
 });
 
-describe('deleteEntity — camera invariant', () => {
-  it('deleting the only camera ⇒ camera_count_invalid carrying cameraId', () => {
+describe('deleteEntity — cameras are shots like any object', () => {
+  it('deleting the camera, an ancestor of it or a descendant is allowed (Play warns when no camera is live)', () => {
     const st = v4State(NESTED);
-    const before = sceneBytes(st.scene);
-    const r = applyMutation(st, req('deleteEntity', { entityId: 'cam-main' }));
-    if (r.ok) throw new Error('should have failed');
-    const e = r.result.ok === false ? r.result.error : ({} as never);
-    expect(e.code).toBe('camera_count_invalid');
-    expect(e.cls).toBe('validation');
-    expect(e.cameraId).toBe('cam-main');
-    expect(bytesEqual(sceneBytes(st.scene), before)).toBe(true);
+    const s = ok(applyMutation(st, req('deleteEntity', { entityId: 'cam-main' })));
+    expect((s.change as DeleteEntityChange).deletedIds).toEqual(['cam-main']);
+    const withCameraChild: SceneV4 = scene(0, [groupEntity('group-0001'), cameraEntity('cam-main', { parentId: 'group-0001' })]);
+    const a = ok(applyMutation(v4State(withCameraChild), req('deleteEntity', { entityId: 'group-0001' })));
+    expect((a.change as DeleteEntityChange).deletedIds).toEqual(['group-0001', 'cam-main']);
+    const camParent: SceneV4 = scene(0, [cameraEntity(), groupEntity('group-0001', { parentId: 'cam-main' }), boxEntity('box-0001', { parentId: 'group-0001' })]);
+    const d = ok(applyMutation(v4State(camParent), req('deleteEntity', { entityId: 'group-0001' })));
+    expect((d.change as DeleteEntityChange).deletedIds).toEqual(['group-0001', 'box-0001']);
   });
 
-  it('deleting an ANCESTOR of the camera ⇒ camera_count_invalid', () => {
-    const withCameraChild: SceneV4 = scene(0, [
-      groupEntity('group-0001'),
-      cameraEntity('cam-main', { parentId: 'group-0001' }),
-    ]);
-    const r = applyMutation(v4State(withCameraChild), req('deleteEntity', { entityId: 'group-0001' }));
-    if (r.ok) throw new Error('should have failed');
-    const e = r.result.ok === false ? r.result.error : ({} as never);
-    expect(e.code).toBe('camera_count_invalid');
-    expect(e.cameraId).toBe('cam-main');
-  });
-
-  it('deleting a DESCENDANT of the camera is allowed (the camera survives)', () => {
-    const camParent: SceneV4 = scene(0, [
-      cameraEntity(),
-      groupEntity('group-0001', { parentId: 'cam-main' }),
-      boxEntity('box-0001', { parentId: 'group-0001' }),
-    ]);
-    const s = ok(applyMutation(v4State(camParent), req('deleteEntity', { entityId: 'group-0001' })));
-    const ch = s.change as DeleteEntityChange;
-    expect(ch.deletedIds).toEqual(['group-0001', 'box-0001']);
-  });
-
-  it('a v4 scene holds at most one camera: a camera-less scene is edited freely', () => {
-    // v4 (unlike v3) allows a scene without a camera (a non-start scene);
-    // the start scenes' "exactly one camera" rule is the workspace's.
+  it('a scene holds any number of cameras, or none', () => {
     const noCam: SceneV4 = scene(0, [groupEntity('group-0001'), boxEntity('box-0001', { parentId: 'group-0001' })]);
-    const st = v4State(noCam);
-    const s = ok(applyMutation(st, req('deleteEntity', { entityId: 'group-0001' })));
+    const s = ok(applyMutation(v4State(noCam), req('deleteEntity', { entityId: 'group-0001' })));
     expect((s.change as DeleteEntityChange).deletedIds).toEqual(['group-0001', 'box-0001']);
-    // A second camera in one v4 scene is refused by the result gate.
     const twoCams = scene(0, [cameraEntity(), cameraEntity('cam-0002'), boxEntity('box-0001')]);
-    const r = applyMutation(v4State(twoCams), req('deleteEntity', { entityId: 'box-0001' }));
-    if (r.ok) throw new Error('two cameras should fail the v4 scene rules');
-    const e = r.result.ok === false ? r.result.error : ({} as never);
-    expect(e.code).toBe('camera_count_invalid');
-    expect(e.detailDocument).toBe('result-scene');
-    expect(e.details?.[0]).toMatchObject({ code: 'camera_count_invalid', expected: 'at most 1 camera', found: 2 });
+    ok(applyMutation(v4State(twoCams), req('deleteEntity', { entityId: 'box-0001' })));
   });
 
   it('nonexistent entity ⇒ entity_not_found (pinned shape)', () => {
@@ -242,10 +210,10 @@ describe('deleteEntity — the inverse restores the exact pre-deletion array', (
     ]);
   });
 
-  it('invalid edits leave the input unmutated (purity on camera_count_invalid)', () => {
+  it('invalid edits leave the input unmutated (purity on entity_not_found)', () => {
     const st = v4State(NESTED);
     const snap = snapshot(st);
-    const r = applyMutation(st, req('deleteEntity', { entityId: 'cam-main' }));
+    const r = applyMutation(st, req('deleteEntity', { entityId: 'ghost-0001' }));
     if (r.ok) throw new Error('should have failed');
     expect(JSON.parse(JSON.stringify(st))).toEqual(snap);
   });
