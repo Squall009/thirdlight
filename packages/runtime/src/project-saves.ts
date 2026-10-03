@@ -28,6 +28,7 @@
 import { ID_RE } from '@thirdlight/project-model';
 import {
   SAVE_LIMITS,
+  saveSlotMetaProblem,
   effectiveField,
   settingsDocumentOf,
   settingsValueFits,
@@ -44,13 +45,15 @@ export const PROJECT_SAVE_FORMAT_VERSION = 2;
  * Where the play stands in a save — the scenes loaded (in load
  * order), the spawn respawns use, the game shell's scene list entry (-1:
  * none) and the character (the controller's object) with its velocity (m/s;
- * z is 0 on the 2D plane), or null without a character.
+ * z is 0 on the 2D plane) and, in 3D, the way it faces (degrees about +Y, as
+ * `characterState().facing` reads it; older saves have none), or null
+ * without a character.
  */
 export interface WorldSave {
   readonly scenes: readonly string[];
   readonly activeSpawn: string | null;
   readonly listedScene: number;
-  readonly character: { readonly position: readonly [number, number, number]; readonly velocity: readonly [number, number, number] } | null;
+  readonly character: { readonly position: readonly [number, number, number]; readonly velocity: readonly [number, number, number]; readonly facing?: number } | null;
 }
 
 const SCENE_ID_RE = ID_RE;
@@ -67,7 +70,8 @@ export function worldSaveProblem(v: unknown): string | null {
   const c = v['character'];
   if (c === null) return null;
   const vec = (x: unknown, lim: number): boolean => Array.isArray(x) && x.length === 3 && x.every((n) => typeof n === 'number' && Number.isFinite(n) && Math.abs(n) <= lim);
-  if (!isObj(c) || Object.keys(c).some((k) => k !== 'position' && k !== 'velocity') || !vec(c['position'], 1e6) || !vec(c['velocity'], 1e4)) return 'world.character is { position: [x, y, z], velocity: [x, y, z] } or null';
+  if (!isObj(c) || Object.keys(c).some((k) => k !== 'position' && k !== 'velocity' && k !== 'facing') || !vec(c['position'], 1e6) || !vec(c['velocity'], 1e4)) return 'world.character is { position: [x, y, z], velocity: [x, y, z], facing? } or null';
+  if (c['facing'] !== undefined && !(typeof c['facing'] === 'number' && Number.isFinite(c['facing']) && Math.abs(c['facing']) <= 360)) return 'world.character.facing is degrees (-360 to 360)';
   return null;
 }
 /** Engine limit: save/load/delete requests one step may make (every script together). */
@@ -93,6 +97,8 @@ export interface SaveSlotInfo {
   readonly bytes: number;
   /** Whether the slot has a picture of the view. */
   readonly thumbnail: boolean;
+  /** The game's own fields the save gave (`meta`: at most 8 short texts; {} when none). */
+  readonly meta: Readonly<Record<string, string>>;
   /** Set when the stored slot cannot be read (it is never loaded). */
   readonly damaged?: string;
 }
@@ -117,6 +123,8 @@ export interface SaveMeta {
   location?: string;
   /** Keep a small picture of the view with the slot. */
   thumbnail?: boolean;
+  /** The game's own fields for the slot card (at most 8 names → texts of up to 128 characters), returned by `slots()`. */
+  meta?: Readonly<Record<string, string>>;
 }
 
 /** A stored save document (the whole body of a slot; also what `tl_play_start` accepts as `save`). */
@@ -149,7 +157,7 @@ export type SaveRequest =
   | {
       readonly op: 'save';
       readonly slot: number;
-      readonly meta: { readonly title: string; readonly chapter: string; readonly location: string; readonly playSeconds: number; readonly version: number; readonly thumbnail: boolean };
+      readonly meta: { readonly title: string; readonly chapter: string; readonly location: string; readonly playSeconds: number; readonly version: number; readonly thumbnail: boolean; readonly meta?: Readonly<Record<string, string>> };
       /** The document's JSON text (≤ 1 MiB). */
       readonly text: string;
     }
@@ -188,7 +196,8 @@ export interface BehaviorSaves {
   read(): unknown;
   /**
    * Save to a slot at the end of this step (the document and the engine sections of the schema);
-   * the outcome arrives in `results()`. False for a slot the game does not have.
+   * the outcome arrives in `results()`. `meta.meta`: the game's own fields for the slot card (at most 8 names → short texts).
+   * False for a slot the game does not have or a meta that does not fit.
    * @graphNode Save to slot
    */
   save(slot: number, meta?: SaveMeta): boolean;
@@ -204,7 +213,7 @@ export interface BehaviorSaves {
    */
   delete(slot: number): boolean;
   /**
-   * The used slots with what they show (title, chapter, location, play time, when, picture).
+   * The used slots with what they show (title, chapter, location, play time, when, picture, the game's own `meta` fields).
    * @graphPure
    * @graphNode Save slots
    */
@@ -329,12 +338,18 @@ function slotInfoProblem(v: unknown): string | null {
   if (!intIn(v['bytes'], 0, SAVE_LIMITS.documentBytes)) return 'bytes is an integer';
   if (typeof v['thumbnail'] !== 'boolean') return 'thumbnail is true or false';
   if (v['damaged'] !== undefined && !text(v['damaged'], 256)) return 'damaged is a reason text';
-  for (const k of Object.keys(v)) if (!['slot', 'title', 'chapter', 'location', 'playSeconds', 'savedAt', 'version', 'bytes', 'thumbnail', 'damaged'].includes(k)) return `unknown slot field "${k}"`;
+  // Older recordings and stores have no meta.
+  if (v['meta'] !== undefined) {
+    const m = saveSlotMetaProblem(v['meta']);
+    if (m !== null) return m;
+  }
+  for (const k of Object.keys(v)) if (!['slot', 'title', 'chapter', 'location', 'playSeconds', 'savedAt', 'version', 'bytes', 'thumbnail', 'meta', 'damaged'].includes(k)) return `unknown slot field "${k}"`;
   return null;
 }
 
+const NO_META: Readonly<Record<string, string>> = Object.freeze({});
 const freezeSlot = (s: SaveSlotInfo): SaveSlotInfo =>
-  Object.freeze({ slot: s.slot, title: s.title, chapter: s.chapter, location: s.location, playSeconds: s.playSeconds, savedAt: s.savedAt, version: s.version, bytes: s.bytes, thumbnail: s.thumbnail, ...(s.damaged !== undefined ? { damaged: s.damaged } : {}) });
+  Object.freeze({ slot: s.slot, title: s.title, chapter: s.chapter, location: s.location, playSeconds: s.playSeconds, savedAt: s.savedAt, version: s.version, bytes: s.bytes, thumbnail: s.thumbnail, meta: s.meta === undefined || Object.keys(s.meta).length === 0 ? NO_META : Object.freeze({ ...s.meta }), ...(s.damaged !== undefined ? { damaged: s.damaged } : {}) });
 
 /**
  * Validate a frame's `saves` entries strictly (bounded; a loaded document at
@@ -402,7 +417,7 @@ const NO_SLOTS: readonly SaveSlotInfo[] = Object.freeze([]);
 
 interface PendingSave {
   readonly slot: number;
-  readonly meta: { title: string; chapter: string; location: string; thumbnail: boolean };
+  readonly meta: { title: string; chapter: string; location: string; thumbnail: boolean; meta?: Readonly<Record<string, string>> };
 }
 
 /**
@@ -457,7 +472,7 @@ export class RuntimeSaves {
     const now: SaveResult[] = [...this.visible];
     for (const e of events) {
       if (e.kind === 'slots') {
-        this.slotList = Object.freeze([...e.slots].filter((s) => s.slot <= this.schema!.slots).sort((a, b) => a.slot - b.slot));
+        this.slotList = Object.freeze([...e.slots].filter((s) => s.slot <= this.schema!.slots).sort((a, b) => a.slot - b.slot).map(freezeSlot));
         this.slotsReady = true;
       } else if (e.kind === 'saved' || e.kind === 'deleted') {
         now.push(Object.freeze({ op: e.kind === 'saved' ? ('save' as const) : ('delete' as const), slot: e.slot, ok: e.ok, ...(e.reason !== undefined ? { reason: e.reason } : {}) }));
@@ -514,8 +529,12 @@ export class RuntimeSaves {
   saveNow(slot: number, meta: SaveMeta): string | null {
     if (!this.slotOk(slot)) return `the game has no save slot ${String(slot)}`;
     for (const k of ['title', 'chapter', 'location'] as const) if (meta[k] !== undefined && !text(meta[k], SAVE_LIMITS.metaText)) return `the save's ${k} is at most ${SAVE_LIMITS.metaText} characters`;
+    if (meta.meta !== undefined) {
+      const p = saveSlotMetaProblem(meta.meta);
+      if (p !== null) return `the save's ${p}`;
+    }
     this.active = true;
-    const built = this.assemble({ slot, meta: { title: String(meta.title ?? ''), chapter: String(meta.chapter ?? ''), location: String(meta.location ?? ''), thumbnail: meta.thumbnail === true } });
+    const built = this.assemble({ slot, meta: { title: String(meta.title ?? ''), chapter: String(meta.chapter ?? ''), location: String(meta.location ?? ''), thumbnail: meta.thumbnail === true, ...(meta.meta !== undefined && Object.keys(meta.meta).length > 0 ? { meta: { ...meta.meta } } : {}) } });
     if (typeof built === 'string') return built;
     this.ready.push(built);
     return null;
@@ -664,8 +683,9 @@ export class RuntimeSaves {
         if (typeof m !== 'object' || m === null || Array.isArray(m)) return false;
         for (const k of ['title', 'chapter', 'location'] as const) if (m[k] !== undefined && !text(m[k], SAVE_LIMITS.metaText)) return false;
         if (m.thumbnail !== undefined && typeof m.thumbnail !== 'boolean') return false;
+        if (m.meta !== undefined && saveSlotMetaProblem(m.meta) !== null) return false;
         if (!r.request()) return false;
-        r.outbox.push({ op: 'save', pending: { slot, meta: { title: String(m.title ?? ''), chapter: String(m.chapter ?? ''), location: String(m.location ?? ''), thumbnail: m.thumbnail === true } } });
+        r.outbox.push({ op: 'save', pending: { slot, meta: { title: String(m.title ?? ''), chapter: String(m.chapter ?? ''), location: String(m.location ?? ''), thumbnail: m.thumbnail === true, ...(m.meta !== undefined && Object.keys(m.meta).length > 0 ? { meta: { ...m.meta } } : {}) } } });
         return true;
       },
       load(slot: number): boolean {

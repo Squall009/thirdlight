@@ -302,7 +302,7 @@ export { ASSET_KEY_MAX_LENGTH, MAX_FRAME_ASSET_ANSWERS, RuntimeAssetHandles, val
 // Project save documents (ctx.saves).
 export { MAX_FRAME_SAVE_EVENTS, PROJECT_SAVE_FORMAT, PROJECT_SAVE_FORMAT_VERSION, SAVE_REQUESTS_PER_STEP, projectSaveFileProblem, worldSaveProblem, utf8Length, validateSaveEvents, type BehaviorSaves, type ProjectSaveFile, type WorldSave, type SaveEvent, type SaveMeta, type SaveRequest, type SaveResult, type SaveSlotInfo } from './project-saves';
 // (the save schema's limits and settings rules, for hosts that do not depend on project-model)
-export { SAVE_LIMITS, SAVE_THUMBNAIL_DEFAULT, settingsDocumentOf, type SaveSchema, type SettingsField, type SettingsFieldValue } from '@thirdlight/project-model';
+export { SAVE_LIMITS, SAVE_THUMBNAIL_DEFAULT, saveSlotMetaProblem, settingsDocumentOf, type SaveSchema, type SettingsField, type SettingsFieldValue } from '@thirdlight/project-model';
 // The runtime content a game page reads: the manifest's versions and buildId inputs, the catalog's shape and parts (v5).
 export {
   catalogRootProblem,

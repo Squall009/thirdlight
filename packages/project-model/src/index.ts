@@ -1072,6 +1072,8 @@ export { PNG_DECODE_MAX_PIXELS, decodeBase64, decodePngRgba, encodeBase64, infla
 // The project save schema (save document, slots, sections, settings document).
 export {
   SAVE_LIMITS,
+  SAVE_META_KEY_RE,
+  saveSlotMetaProblem,
   SAVE_SECTIONS,
   SAVE_THUMBNAIL_DEFAULT,
   SETTINGS_ENGINE_BINDINGS,

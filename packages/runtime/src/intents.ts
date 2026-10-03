@@ -154,6 +154,12 @@ export interface CharacterPlaceIntent {
   kind: 'character_place';
   /** Where its origin goes, [x, y, z] (m; on the 2D plane z is ignored). */
   position: readonly [number, number, number];
+  /**
+   * 3D projects: the way it faces once placed, in degrees about +Y (0 faces
+   * +Z) — what `ctx.physics.characterState().facing` reads, so a saved facing
+   * restores. Absent: it keeps facing as it was. The 2D plane ignores it.
+   */
+  facing?: number;
 }
 
 /**
@@ -258,7 +264,7 @@ const INTENT_KEYS: Record<IntentKind, readonly string[]> = {
   pose: ['kind', 'entityId', 'rotation', 'quaternion', 'facing', 'up', 'scale'],
   respawn: ['kind'],
   character_move: ['kind', 'x', 'z', 'run'],
-  character_place: ['kind', 'position'],
+  character_place: ['kind', 'position', 'facing'],
   character_enable: ['kind', 'enabled'],
 };
 const ROTATION_KEYS = ['yaw', 'pitch', 'roll'] as const;
@@ -405,9 +411,9 @@ function characterShape(kind: 'character_move' | 'character_place' | 'character_
   if (unknownKey !== null) return { ok: false, error: invalid('shape', `unknown ${kind} field "${unknownKey}" (strict shape)`) };
   let keys = 0;
   for (const key in value) if (hasOwn.call(value, key)) keys += 1;
-  const required = kind === 'character_move' ? ['kind', 'x', 'z'] : order;
+  const required = kind === 'character_move' ? ['kind', 'x', 'z'] : kind === 'character_place' ? ['kind', 'position'] : order;
   if (inOrderCount(value, order) !== keys || required.some((k) => !hasOwn.call(value, k))) {
-    return { ok: false, error: invalid('shape', `intent fields must be in canonical order (${order.join(', ')}${kind === 'character_move' ? '; run optional' : ''})`) };
+    return { ok: false, error: invalid('shape', `intent fields must be in canonical order (${order.join(', ')}${kind === 'character_move' ? '; run optional' : kind === 'character_place' ? '; facing optional' : ''})`) };
   }
   if (kind === 'character_move') {
     if (typeof value['x'] !== 'number' || typeof value['z'] !== 'number') return { ok: false, error: invalid('shape', 'character_move.x and .z must be numbers') };
@@ -420,7 +426,8 @@ function characterShape(kind: 'character_move' | 'character_place' | 'character_
   }
   const p = numberTuple(value['position'], 3);
   if (p === null) return { ok: false, error: invalid('shape', 'character_place.position must be [x, y, z]') };
-  return accepted(kind, { kind, position: [p[0]!, p[1]!, p[2]!] });
+  if (value['facing'] !== undefined && typeof value['facing'] !== 'number') return { ok: false, error: invalid('shape', 'character_place.facing must be a number (degrees about +Y)') };
+  return accepted(kind, { kind, position: [p[0]!, p[1]!, p[2]!], ...(value['facing'] !== undefined ? { facing: value['facing'] as number } : {}) });
 }
 
 /** The kind/entityId/position part of a transform intent (shape checks), or the failure. */
@@ -596,6 +603,7 @@ export function validateIntentValue(intent: BehaviorIntent): BehaviorIntentError
     if (!intent.position.every((v) => Number.isFinite(v) && Math.abs(v) <= MAX_POSITION)) {
       return invalid('value', `character_place.position must be finite and |v| <= ${MAX_POSITION}`);
     }
+    if (intent.facing !== undefined && !(Number.isFinite(intent.facing) && Math.abs(intent.facing) <= MAX_DEGREES)) return invalid('value', `character_place.facing must be finite degrees, |v| <= ${MAX_DEGREES}`);
     return null;
   }
   if (intent.kind === 'character_enable') return null;

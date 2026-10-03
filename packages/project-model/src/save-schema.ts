@@ -47,9 +47,28 @@ export const SAVE_LIMITS = Object.freeze({
   migrations: 256,
   /** The highest schema version. */
   version: 1_000_000,
-  /** A slot's title / chapter / location text. */
+  /** A slot's title / chapter / location text, and each value of its own `meta` fields. */
   metaText: 128,
+  /** Fields of a slot's own `meta` (what the game shows on a slot card: a leader, a portrait id, a difficulty). */
+  metaKeys: 8,
+  /** The longest `meta` field name. */
+  metaKeyChars: 32,
 });
+
+/** A slot `meta` field name: an identifier (letters, digits, _; not a digit first). */
+export const SAVE_META_KEY_RE = new RegExp(`^[A-Za-z_][A-Za-z0-9_]{0,${SAVE_LIMITS.metaKeyChars - 1}}$`);
+
+/** Why a slot's `meta` object does not fit (null: it does) — at most 8 identifier keys of short text values. */
+export function saveSlotMetaProblem(v: unknown): string | null {
+  if (typeof v !== 'object' || v === null || Array.isArray(v)) return 'meta is an object of text values';
+  const entries = Object.entries(v as Record<string, unknown>);
+  if (entries.length > SAVE_LIMITS.metaKeys) return `meta has at most ${SAVE_LIMITS.metaKeys} fields`;
+  for (const [k, x] of entries) {
+    if (!SAVE_META_KEY_RE.test(k)) return `meta field "${k.slice(0, 40)}" is not a name (letters, digits and _, at most ${SAVE_LIMITS.metaKeyChars} characters)`;
+    if (typeof x !== 'string' || x.length > SAVE_LIMITS.metaText) return `meta field "${k}" is text of at most ${SAVE_LIMITS.metaText} characters`;
+  }
+  return null;
+}
 
 // + dialogue (the dialogue variables and the seen-lines set).
 // + components (the state of objects' health, collectibles, patrols and hitboxes).

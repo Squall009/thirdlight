@@ -1436,6 +1436,14 @@ export function createGameHost(config: GameHostConfig): GameHost {
         dom: hostDom,
         container: config.container,
         documents: config.ui.documents,
+        // Image widgets may show a save slot's picture (a load screen's slot cards).
+        saveThumbnail: (slot: number) => {
+          const known = projectSaves?.slots().find((s) => s.slot === slot);
+          if (projectSaves === null || known?.thumbnail === undefined) return null;
+          const saves = projectSaves;
+          return { stamp: `${known.savedAt}|${known.bytes}|${known.thumbnail.bytes}`, picture: () => saves.thumbnail(slot) };
+        },
+        saveThumbnailsKey: () => (projectSaves === null ? '' : projectSaves.slots().map((s) => `${s.slot}:${s.savedAt}:${s.thumbnail?.bytes ?? 0}`).join(',')),
         ...(config.ui.themes !== undefined ? { themes: config.ui.themes } : {}),
         ...(config.assetPaths !== undefined ? { assetPaths: config.assetPaths } : {}),
         ...(config.lookupAsset !== undefined ? { lookupPath: (assetId: string) => config.lookupAsset!(assetId).then((r) => r?.path) } : {}),

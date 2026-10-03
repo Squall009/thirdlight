@@ -57,6 +57,10 @@ describe('control_move y and the character intents', () => {
     expect(ok({ kind: 'character_place', position: [1, 2, 3] })).toEqual({ kind: 'character_place', position: [1, 2, 3] });
     bad({ kind: 'character_place', position: { x: 1, y: 2, z: 3 } });
     bad({ kind: 'character_place', position: [1, 2] });
+    // An optional facing (degrees about +Y) after the position.
+    expect(ok({ kind: 'character_place', position: [1, 2, 3], facing: 90 })).toEqual({ kind: 'character_place', position: [1, 2, 3], facing: 90 });
+    bad({ kind: 'character_place', position: [1, 2, 3], facing: 'east' });
+    bad({ kind: 'character_place', facing: 90, position: [1, 2, 3] });
     expect(ok({ kind: 'character_enable', enabled: false })).toEqual({ kind: 'character_enable', enabled: false });
     bad({ kind: 'character_enable', enabled: 0 });
     bad({ kind: 'character_enable', enabled: true, extra: 1 });
@@ -67,6 +71,7 @@ describe('control_move y and the character intents', () => {
     expect(validateIntentValue({ kind: 'character_move', x: Number.NaN, z: 0 })?.detail).toBe('value');
     expect(validateIntentValue({ kind: 'character_place', position: [0, 1e7, 0] })?.detail).toBe('value');
     expect(validateIntentValue({ kind: 'character_place', position: [0, 1, 0] })).toBeNull();
+    expect(validateIntentValue({ kind: 'character_place', position: [0, 1, 0], facing: Number.NaN })?.detail).toBe('value');
     expect(validateIntentValue({ kind: 'character_enable', enabled: true })).toBeNull();
     expect(validateIntentPhase({ kind: 'character_move', x: 1, z: 0 }, 'transform')?.message).toContain('character_move intent is valid only in the intent phase');
     expect(validateIntentPhase({ kind: 'character_place', position: [0, 0, 0] }, 'intent')).toBeNull();

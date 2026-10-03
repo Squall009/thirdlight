@@ -24,6 +24,7 @@
 import { ID_RE } from './validate';
 import type { ModelErrorV2 } from './errors';
 import { projectInputMaps } from './input';
+import { SAVE_LIMITS } from './save-schema';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -199,6 +200,8 @@ export interface UiWidget {
   reveal?: UiBindable<number>;
   // image
   image?: UiBindable<string>;
+  /** Show a save slot's picture instead of a texture (a slot number or a binding to one; nothing while it has none). */
+  saveSlot?: UiBindable<number>;
   slice?: [number, number, number, number];
   fit?: 'stretch' | 'contain' | 'cover';
   tint?: UiColor;
@@ -549,7 +552,7 @@ const TYPE_KEYS: Record<UiWidgetType, readonly string[]> = {
   stack: ['children', 'direction', 'gap', 'align', 'justify', 'wrap'],
   grid: ['children', 'columns', 'gap', 'cellSize', 'align'],
   text: ['text', 'wrap', 'content', 'reveal'],
-  image: ['image', 'slice', 'fit', 'tint'],
+  image: ['image', 'saveSlot', 'slice', 'fit', 'tint'],
   bar: ['value', 'min', 'max', 'direction', 'shape', 'fillColor', 'fillStyle', 'startAngle'],
   button: ['text', 'children', 'onClick', 'direction', 'gap', 'align', 'justify'],
   list: ['items', 'template', 'direction', 'gap', 'align', 'justify', 'columns', 'wrap'],
@@ -699,8 +702,12 @@ function validateWidget(errors: ModelErrorV2[], v: unknown, path: string, refs: 
       break;
     case 'image': {
       const img = v['image'];
-      if (img === undefined) err(errors, 'field_missing', `${path}/image`, 'an image widget names a texture asset', undefined, 'image');
+      const slot = v['saveSlot'];
+      // A texture asset, or a save slot's picture (exactly one).
+      if (img === undefined && slot === undefined) err(errors, 'field_missing', `${path}/image`, 'an image widget names a texture asset or a save slot (saveSlot)', undefined, 'image');
+      if (img !== undefined && slot !== undefined) err(errors, 'field_value', `${path}/saveSlot`, 'an image widget shows a texture or a save slot\'s picture, not both', slot, 'image or saveSlot');
       bindable(errors, img, `${path}/image`, (x) => typeof x === 'string' && ID_RE.test(x), 'image names a texture asset');
+      bindable(errors, slot, `${path}/saveSlot`, (x) => Number.isInteger(x) && isNum(x, 1, SAVE_LIMITS.slots), `saveSlot is a slot number 1–${SAVE_LIMITS.slots}`);
       if (typeof img === 'string' && ID_RE.test(img)) refs.images.push({ id: img, path: `${path}/image` });
       tuple(errors, v['slice'], `${path}/slice`, 4, 0, 4096, 'slice');
       oneOf(errors, v['fit'], `${path}/fit`, ['stretch', 'contain', 'cover'], 'fit');

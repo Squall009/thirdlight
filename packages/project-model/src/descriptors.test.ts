@@ -176,7 +176,7 @@ const ADJUST: Record<string, (o: Obj, v: number) => void> = {
 /** List count probes that cannot run in a minimal base (their items must resolve against other data). */
 const SKIP_COUNT = new Set(['startScenes:']);
 /** Optional fields of an exactly-one-of pair (removing the present one leaves none). */
-const ONE_OF_REMOVAL = new Set(['uiWidget:worldAnchor.point']);
+const ONE_OF_REMOVAL = new Set(['uiWidget:worldAnchor.point', 'uiWidget:image', 'uiWidget:saveSlot']);
 
 
 interface Ctx {
@@ -753,6 +753,7 @@ const UI_WIDGET_BASES: Record<string, unknown>[] = [
   { type: 'text', text: 'Hi', wrap: false },
   { type: 'image', image: 'tex-a', slice: [1, 1, 1, 1], fit: 'contain' },
   { type: 'image', image: 'tex-a', tint: '#ff0000' },
+  { type: 'image', saveSlot: 2, fit: 'cover' },
   { type: 'bar', value: 0.5, min: 0, max: { bind: 'm' }, shape: 'radial', direction: 'left', fillColor: '#00ff00', fillStyle: 's1', startAngle: 90 },
   { id: 'b', type: 'button', text: 'Go', direction: 'row', gap: 2, align: 'center', justify: 'center', onClick: { do: 'event', name: 'go' }, children: [] },
   { type: 'list', items: { bind: 'rows' }, template: { type: 'text', text: '{$item}' }, direction: 'row', gap: 1, align: 'start', justify: 'start', columns: 2, wrap: true },

@@ -606,7 +606,7 @@ function Hierarchy(p: { doc: UiDocument; selKey: string; onSelect: (k: string) =
 // ---------------------------------------------------------------------------
 
 /** Widget fields with their own control (or edited elsewhere): not drawn by the descriptor rows. */
-const WIDGET_CUSTOM = ['type', 'children', 'template', 'size', 'style', 'css', 'visible', 'enabled', 'image', 'value', 'min', 'max', 'startAngle', 'items', 'fillStyle', 'onClick', 'onSubmit', 'onFocus', 'worldAnchor'];
+const WIDGET_CUSTOM = ['type', 'children', 'template', 'size', 'style', 'css', 'visible', 'enabled', 'image', 'saveSlot', 'value', 'min', 'max', 'startAngle', 'items', 'fillStyle', 'onClick', 'onSubmit', 'onFocus', 'worldAnchor'];
 
 function WidgetInspector(p: {
   doc: UiDocument;
@@ -629,7 +629,7 @@ function WidgetInspector(p: {
   const field = (key: string): FieldDescriptor | undefined => desc.fields.find((f) => f.key === key && appliesTo(f, w));
   const put = (key: string, v: unknown): void => p.onEdit((cur) => setAt(cur, [key], v) as UiWidget);
   const cur = currentPreset(w);
-  const bindings = ['value', 'min', 'max', 'startAngle', 'image', 'items', 'visible', 'enabled'].map(field).filter((f): f is FieldDescriptor => f !== undefined);
+  const bindings = ['value', 'min', 'max', 'startAngle', 'image', 'saveSlot', 'items', 'visible', 'enabled'].map(field).filter((f): f is FieldDescriptor => f !== undefined);
   const wa = desc.fields.find((f) => f.key === 'worldAnchor') as ObjectFieldDescriptor;
   const names = styleNames(p.doc, p.theme);
   const [ownStyle, setOwnStyle] = useState(w.css !== undefined);

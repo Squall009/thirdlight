@@ -78,6 +78,14 @@ export interface UiLayerDeps {
   /** The view size in CSS px (default: the window's). */
   readonly viewport?: () => { width: number; height: number };
   /**
+   * A save slot's picture for an image widget's `saveSlot`: a stamp that
+   * changes when the slot is saved again and the picture (a data URL); null
+   * while the slot has none (absent: the game has no saves).
+   */
+  readonly saveThumbnail?: (slot: number) => { readonly stamp: string; picture(): Promise<string | null> } | null;
+  /** Changes whenever a slot's picture may have (a save, a delete). */
+  readonly saveThumbnailsKey?: () => string;
+  /**
    * Mark every widget element with its place in the document's
    * tree (`data-tl-path`: `r` for the root, then child indices, `t` for a
    * list's template: `r.0.2.t`) — the UI document editor's preview selects
@@ -581,8 +589,10 @@ class DocView {
 
   private renderImage(rec: Rec): void {
     const w = rec.w;
-    const id = this.resolve(w.image, rec.scope);
-    const url = typeof id === 'string' ? this.layer.imageUrl(id) : null;
+    // A texture asset, or a save slot's picture.
+    const slot = w.saveSlot !== undefined ? this.resolve(w.saveSlot, rec.scope) : undefined;
+    const id = w.saveSlot !== undefined ? `save-slot:${String(slot)}` : this.resolve(w.image, rec.scope);
+    const url = w.saveSlot !== undefined ? (typeof slot === 'number' && Number.isInteger(slot) ? this.layer.saveThumbnailUrl(slot) : null) : typeof id === 'string' ? this.layer.imageUrl(id) : null;
     const key = `${String(id)}|${url ?? ''}`;
     if (rec.imageKey === key) return;
     rec.imageKey = key;
@@ -798,6 +808,9 @@ class LayerImpl implements UiLayer {
   private flow: Readonly<Record<string, unknown>> | null = null;
   private activeMap: string | null | undefined = undefined;
   private readonly images = new Map<string, { url: string | null; w: number; h: number; pending: boolean }>();
+  /** The save slots' pictures image widgets show (by slot: the stamp read and the data URL once it arrived). */
+  private readonly slotPictures = new Map<number, { stamp: string; url: string | null }>();
+  private slotPicturesKey = '';
   private readonly fonts = new Map<string, { face: unknown; loaded: boolean }>();
   /** Where the images (object URLs) and font faces are held, and this layer's holder name there. */
   private readonly resources: ResourceManager;
@@ -854,6 +867,28 @@ class LayerImpl implements UiLayer {
   }
 
   // --- assets ---------------------------------------------------------------
+
+  /** A save slot's picture as a data URL (null while it has none or it is still being read; an older picture shows until the newer arrives). */
+  saveThumbnailUrl(slot: number): string | null {
+    const t = this.deps.saveThumbnail?.(slot) ?? null;
+    if (t === null) {
+      this.slotPictures.delete(slot);
+      return null;
+    }
+    const known = this.slotPictures.get(slot);
+    if (known !== undefined && known.stamp === t.stamp) return known.url;
+    const entry = { stamp: t.stamp, url: known?.url ?? null };
+    this.slotPictures.set(slot, entry);
+    void t.picture().then(
+      (url) => {
+        if (this.disposed || this.slotPictures.get(slot) !== entry) return;
+        entry.url = url;
+        this.assetsChanged();
+      },
+      () => undefined,
+    );
+    return entry.url;
+  }
 
   imageUrl(assetId: string): string | null {
     const known = this.images.get(assetId);
@@ -1095,6 +1130,12 @@ class LayerImpl implements UiLayer {
     if (gk !== this.glyphKeyNow) {
       this.glyphKeyNow = gk;
       this.dirty = true;
+    }
+    // A slot saved or deleted: the image widgets showing slot pictures read theirs again.
+    const sk = this.deps.saveThumbnailsKey?.() ?? '';
+    if (sk !== this.slotPicturesKey) {
+      this.slotPicturesKey = sk;
+      this.assetsChanged();
     }
     const key = flow === null ? '' : JSON.stringify(flow);
     if (key !== this.flowKey) {

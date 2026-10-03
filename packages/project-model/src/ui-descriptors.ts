@@ -149,7 +149,8 @@ const WIDGET: ObjectFieldDescriptor = obj('widget', 'Widget', 'One element of a 
   binding('content', 'Content', 'Rich text read from a view-model path instead of Text (markup parsed, braces are text) — e.g. dialogue.line.text.', 'text', { group: 'Text', when: when('type', 'text') }),
   binding('reveal', 'Reveal', 'Show only the first N visible characters (a typewriter; the rest keeps its place) — a number or a view-model path such as dialogue.line.reveal.', 'number', { group: 'Text', when: when('type', 'text') }),
   // Image.
-  binding('image', 'Image', 'A texture asset (or a view-model path naming one that some document also uses).', 'texture', { group: 'Image', when: when('type', 'image'), required: true }),
+  binding('image', 'Image', 'A texture asset (or a view-model path naming one that some document also uses); or a save slot\'s picture instead (Save slot).', 'texture', { group: 'Image', when: when('type', 'image') }),
+  binding('saveSlot', 'Save slot', 'Show a save slot\'s picture instead of a texture: the slot number, or a view-model path holding one (a load screen\'s list item); nothing while the slot has no picture.', 'number', { group: 'Image', when: when('type', 'image') }),
   four('slice', '9-slice', 'Insets that do not stretch: top, right, bottom, left in image pixels.', 0, 4096, { group: 'Image', when: when('type', 'image') }),
   enm('fit', 'Fit', 'How the image fills the widget.', ['stretch', 'contain', 'cover'], { group: 'Image', when: when('type', 'image'), default: 'stretch' }),
   color('tint', 'Tint', 'Colour the image\'s shape (not with 9-slice).', { group: 'Image', when: when('type', 'image') }),

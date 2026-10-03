@@ -14,7 +14,7 @@
  * other settings. Play and an export use different namespaces. No backend is
  * involved: an exported game keeps its saves in the player's browser.
  */
-import { SAVE_LIMITS, SAVE_THUMBNAIL_DEFAULT, settingsDocumentOf, type SaveSchema, type SettingsFieldValue, projectSaveFileProblem, utf8Length, type ProjectSaveFile, type SaveEvent, type SaveRequest, type SaveSlotInfo } from '@thirdlight/runtime';
+import { SAVE_LIMITS, SAVE_THUMBNAIL_DEFAULT, saveSlotMetaProblem, settingsDocumentOf, type SaveSchema, type SettingsFieldValue, projectSaveFileProblem, utf8Length, type ProjectSaveFile, type SaveEvent, type SaveRequest, type SaveSlotInfo } from '@thirdlight/runtime';
 
 import { saveChecksum, type SaveStorage } from './storage';
 
@@ -52,6 +52,8 @@ interface StoredMeta {
   bytes: number;
   sum: string;
   thumbnail?: SaveThumbnailInfo;
+  /** The game's own fields (absent: none; older slots have none). */
+  meta?: Record<string, string>;
 }
 
 /** A captured picture of the view (a data URL of the schema's format). */
@@ -122,7 +124,7 @@ export function readProjectSettings(schema: SaveSchema, storage: SaveStorage | u
 }
 
 function slotOf(m: StoredMeta): ProjectSlotObservation {
-  return { slot: m.slot, title: m.title, chapter: m.chapter, location: m.location, playSeconds: m.playSeconds, savedAt: m.savedAt, version: m.version, bytes: m.bytes, ...(m.thumbnail !== undefined ? { thumbnail: m.thumbnail } : {}) };
+  return { slot: m.slot, title: m.title, chapter: m.chapter, location: m.location, playSeconds: m.playSeconds, savedAt: m.savedAt, version: m.version, bytes: m.bytes, meta: { ...(m.meta ?? {}) }, ...(m.thumbnail !== undefined ? { thumbnail: m.thumbnail } : {}) };
 }
 
 function metaProblem(m: unknown, slot: number): string | null {
@@ -130,6 +132,7 @@ function metaProblem(m: unknown, slot: number): string | null {
   if (typeof r !== 'object' || r === null || r.v !== 1 || r.slot !== slot) return 'not a slot record';
   if (typeof r.title !== 'string' || typeof r.chapter !== 'string' || typeof r.location !== 'string' || typeof r.savedAt !== 'string' || typeof r.sum !== 'string') return 'not a slot record';
   if (!(typeof r.playSeconds === 'number' && r.playSeconds >= 0) || !Number.isInteger(r.version) || !Number.isInteger(r.bytes)) return 'not a slot record';
+  if (r.meta !== undefined && saveSlotMetaProblem(r.meta) !== null) return 'not a slot record';
   return null;
 }
 
@@ -153,8 +156,8 @@ export function createProjectSaveService(cfg: ProjectSaveServiceConfig): Project
     const out: SaveSlotInfo[] = [];
     for (let s = 1; s <= schema.slots; s += 1) {
       const k = known.get(s);
-      if (k !== undefined) out.push({ slot: k.slot, title: clip(k.title, SAVE_LIMITS.metaText), chapter: clip(k.chapter, SAVE_LIMITS.metaText), location: clip(k.location, SAVE_LIMITS.metaText), playSeconds: k.playSeconds, savedAt: clip(k.savedAt, 40), version: k.version, bytes: k.bytes, thumbnail: k.thumbnail !== undefined });
-      else if (damaged.has(s)) out.push({ slot: s, title: '', chapter: '', location: '', playSeconds: 0, savedAt: '', version: 0, bytes: 0, thumbnail: false, damaged: damaged.get(s)! });
+      if (k !== undefined) out.push({ slot: k.slot, title: clip(k.title, SAVE_LIMITS.metaText), chapter: clip(k.chapter, SAVE_LIMITS.metaText), location: clip(k.location, SAVE_LIMITS.metaText), playSeconds: k.playSeconds, savedAt: clip(k.savedAt, 40), version: k.version, bytes: k.bytes, thumbnail: k.thumbnail !== undefined, meta: k.meta });
+      else if (damaged.has(s)) out.push({ slot: s, title: '', chapter: '', location: '', playSeconds: 0, savedAt: '', version: 0, bytes: 0, thumbnail: false, meta: {}, damaged: damaged.get(s)! });
     }
     return out;
   };
@@ -214,6 +217,7 @@ export function createProjectSaveService(cfg: ProjectSaveServiceConfig): Project
         version: r.meta.version,
         bytes,
         sum: saveChecksum(r.text),
+        ...(r.meta.meta !== undefined && Object.keys(r.meta.meta).length > 0 ? { meta: { ...r.meta.meta } } : {}),
         ...(picture !== null ? { thumbnail: { type, width: picture.width, height: picture.height, bytes: picture.dataUrl.length } } : {}),
       };
       try {

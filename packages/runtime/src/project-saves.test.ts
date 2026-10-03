@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import type { SaveSchema } from '@thirdlight/project-model';
 
-import { RuntimeSaves, validateSaveEvents, type SaveRequest, type SaveSectionsPort, type WorldSave } from './project-saves';
+import { RuntimeSaves, validateSaveEvents, worldSaveProblem, type SaveRequest, type SaveSectionsPort, type WorldSave } from './project-saves';
 import { validateActionFrame } from './actions';
 
 const SCHEMA: SaveSchema = {
@@ -54,13 +54,26 @@ describe('runtime project saves', () => {
       expect(r.api.write({ level: 'b', hp: 3 })).toBe(true);
       expect(r.api.save(2, { title: 'T', chapter: 'C', location: 'L', thumbnail: true })).toBe(true);
       expect(r.api.save(4)).toBe(false); // the game has 3 slots
+      // The slot's own fields: at most 8 names → short texts.
+      expect(r.api.save(1, { meta: { leader: 'odessa', chapter_no: '3' } })).toBe(true);
+      expect(r.api.save(1, { meta: Object.fromEntries(Array.from({ length: 9 }, (_, i) => [`k${i}`, 'v'])) })).toBe(false);
+      expect(r.api.save(1, { meta: { 'not a name': 'v' } })).toBe(false);
+      expect(r.api.save(1, { meta: { long: 'x'.repeat(129) } })).toBe(false);
+      expect(r.api.save(1, { meta: { n: 3 as never } })).toBe(false);
       port.storage = { k: 2 }; // later in the same step: the save sees it
     });
-    expect(reqs).toHaveLength(1);
+    expect(reqs).toHaveLength(2);
+    expect((reqs[1] as Extract<SaveRequest, { op: 'save' }>).meta.meta).toEqual({ leader: 'odessa', chapter_no: '3' });
     const req = reqs[0] as Extract<SaveRequest, { op: 'save' }>;
     expect(req.meta).toEqual({ title: 'T', chapter: 'C', location: 'L', thumbnail: true, playSeconds: 1, version: 2 });
     // Format version 2 — every save carries where the play stands.
     expect(JSON.parse(req.text)).toEqual({ format: 'thirdlight.save', formatVersion: 2, version: 2, playSeconds: 1, doc: { level: 'b', hp: 3 }, sections: { storage: { k: 2 } }, world: { scenes: ['scene-main'], activeSpawn: null, listedScene: -1, character: null } });
+  });
+
+  it('the world block keeps the character\'s facing (degrees); older worlds without it still load', () => {
+    expect(worldSaveProblem({ scenes: [], activeSpawn: null, listedScene: -1, character: { position: [0, 0, 0], velocity: [0, 0, 0], facing: -90 } })).toBeNull();
+    expect(worldSaveProblem({ scenes: [], activeSpawn: null, listedScene: -1, character: { position: [0, 0, 0], velocity: [0, 0, 0] } })).toBeNull();
+    expect(worldSaveProblem({ scenes: [], activeSpawn: null, listedScene: -1, character: { position: [0, 0, 0], velocity: [0, 0, 0], facing: 'east' } })).toContain('facing');
   });
 
   it('a format 2 save restores its world; a format 1 save (no world) leaves it; a bad world refuses the load', () => {
@@ -125,10 +138,12 @@ describe('runtime project saves', () => {
   it('the slot list and outcomes arrive through the frame; the settings document is checked field by field', () => {
     const r = new RuntimeSaves(SCHEMA, 60, fakePort(), { volume: 0.2, hints: 'no' }, () => undefined);
     expect(r.api.settings()).toEqual({ volume: 0.2, hints: true });
-    const slot = { slot: 2, title: 'T', chapter: '', location: '', playSeconds: 1, savedAt: '2026-09-27T10:00:00.000Z', version: 2, bytes: 10, thumbnail: true };
-    const reqs = step(r, [{ kind: 'slots', slots: [slot] }, { kind: 'saved', slot: 2, ok: true }], () => {
+    const slot = { slot: 2, title: 'T', chapter: '', location: '', playSeconds: 1, savedAt: '2026-09-27T10:00:00.000Z', version: 2, bytes: 10, thumbnail: true, meta: { leader: 'odessa' } };
+    // An entry recorded before slots had meta reads as {}.
+    const { meta: _meta, ...older } = { ...slot, slot: 3 };
+    const reqs = step(r, [{ kind: 'slots', slots: [slot, older as never] }, { kind: 'saved', slot: 2, ok: true }], () => {
       expect(r.api.ready()).toBe(true);
-      expect(r.api.slots()).toEqual([slot]);
+      expect(r.api.slots()).toEqual([slot, { ...older, meta: {} }]);
       expect(r.api.results()).toEqual([{ op: 'save', slot: 2, ok: true }]);
       expect(r.api.setSetting('volume', 2)).toBe(false);
       expect(r.api.setSetting('volume', 0.9)).toBe(true);

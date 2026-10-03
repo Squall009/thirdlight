@@ -2603,6 +2603,9 @@ and Assets error nodes.
   the copy's own objects.
 - `ctx.emit({ kind: 'character_place', position: [x, y, z] })` also works on
   the 2D plane (z ignored): the character is placed from rest in that step.
+  In 3D an optional `facing` (degrees about +Y, 0 facing +Z — what
+  `ctx.physics.characterState().facing` reads) turns it as it is placed;
+  without it it keeps facing as it was.
 - `ctx.shell.nextScene()` moves to the next entry of the shell's scene list
   (the same move as the shell's Next scene action); `sceneIndex()` and
   `sceneCount()` read the list.
@@ -2890,13 +2893,22 @@ Project Settings → **Saves** (MCP: `setSaveSchema {schema | null}`):
 
 Scripts build the document themselves: `ctx.saves.write(doc)` / `read()`
 (any JSON, at most **1 MiB per slot** with its sections), `save(slot, {title,
-chapter, location, thumbnail})`, `load(slot)`, `delete(slot)`, `slots()` (title,
-chapter, location, play time, when, version, size, picture), `ready()`,
+chapter, location, thumbnail, meta})`, `load(slot)`, `delete(slot)`, `slots()` (title,
+chapter, location, play time, when, version, size, picture, `meta`), `ready()`,
 `results()` (the outcomes, one step after storage answers), `playSeconds()`.
 A save is taken at the end of the step it was asked for; a loaded save is
 restored at the end of the step storage's answer arrives, so every host (the
 page, the simulation worker, a replay) restores it at the same step —
-storage's answers are part of the recorded input.
+storage's answers are part of the recorded input. `meta` is the game's own
+small record for a slot card (a party leader, a portrait id, a difficulty):
+at most 8 fields, each a name (letters, digits, _; up to 32 characters) and
+a text of up to 128 characters; `slots()` gives `{}` for a slot saved
+without one. In a 3D project the save's `world.character` also keeps the
+character's facing (degrees), and a load turns it back (older saves without
+it leave it as it is). A UI `image` widget shows a slot's picture with
+`saveSlot` (a slot number, or a binding to one such as `$item.slot` on a
+load screen's list) in place of `image`; nothing while the slot has none, a
+new picture as soon as the slot is saved again.
 
 Slots live in the browser's IndexedDB (localStorage's ~5 MB per site could
 not hold 99 slots of 1 MiB); Play and exported games, and each project, keep
@@ -4421,7 +4433,7 @@ exported games.
 - Widgets: panel (anchors, pivot, offset, size or stretch), stack, grid, list
   (repeats a template for a bound array), text (rich text `[b] [i]
   [color=#…] [size=N] [icon=name]`, `{path}` values), image (texture,
-  9-slice), bar (linear or radial), button, text input. Styles and themes are
+  9-slice, or a save slot's picture: `saveSlot`), bar (linear or radial), button, text input. Styles and themes are
   data (colours, project fonts, padding, borders, 9-slice backgrounds, hover /
   focus / pressed / disabled variants); tweens fade, slide, scale or "stamp".
 - Scripts: `ctx.ui.set('hud.hp', 3)` publishes values the documents bind to

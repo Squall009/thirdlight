@@ -131,7 +131,8 @@ surfaces). Format changes share one bump: `project.json` schemaVersion 7
 | 28.4 | done 2026-10-02 — schemaVersion 7 (scene cameras upgraded to lowest-priority fixed shots, their lens the project's camera settings; camera and player keep loaded); the camera brain owns the view per view key (default pose + Play warning without a live shot); `keepLoaded` (flag, spawn option, handle write; survives unload/reload/applyWorld, no second copy, references read empty with a Problems line, listed spawns place a kept player); start rules checked at Play/export; cross-scene `moveEntities {sceneId}`; creates need a scene over the API; Inspector flag, hierarchy marker, cross-scene drag |
 | 28.5 | done 2026-10-02 — `ctx.scenes.reload(sceneId)` and the `reloadScene` UI engine action (`scene`, default the active scene) at the step boundary: objects as authored, copies spawned in the scene gone, its scripts made again, its sounds stopped, kept objects/`ctx.save`/counters/other scenes untouched; the engine pause panel has only Resume; `restartLevel`, `newGame`, `ctx.lifecycle.restart()` work with one Problems line per Play; migration notes; `resume` leaves the shell title (D137) |
 | 28.6 | done 2026-10-02 — no count cap on a behavior's properties (model, commands, compiler, code-declaration reader, runtime, visual-script variables, editor, schema); `MAX_DECLARATION_BYTES` (32 KiB, measured once by `declarationBytes`) refuses with the size; e2e: 100 properties, one edited in the Inspector, a 101st added in the declaration editor, both survive a backend restart |
-| 28.7–28.13 | — |
+| 28.7 | done 2026-10-03 — `ctx.world.worldTransform` / `{space: 'world'}` (`transform` documented as local, D134); `ctx.input.anyPressed()` (`{device, code}` of any key, mouse or pad button, bound or not); `ctx.spawn` per-copy `properties` (saved with spawned copies); runtime material swaps (entity handle `set('materials', …)` on models, boxes, instance sets; `ctx.grid.setTypeMaterials`; timeline `materialSwap` key) shown only once their textures are loaded; `character_place` `facing` and `world.character.facing`; slot `meta` (≤ 8 short texts) from `slots()`; UI image `saveSlot` shows a slot's picture |
+| 28.8–28.13 | — |
 
 ## 6. Decision log
 
@@ -281,3 +282,38 @@ surfaces). Format changes share one bump: `project.json` schemaVersion 7
   One measure, `declarationBytes` (2-space JSON, as stored), serves the model,
   the command and the compiler (the compiler measured compact JSON before).
   The schema's `minItems: 1` went too (a behavior may declare none).
+- 2026-10-03 (28.7): world transforms — `transform` stays local (what the
+  Inspector shows, Godot's `transform`); `worldTransform` (or `{space:
+  'world'}`) is the composed matrix decomposed, its scale the length of each
+  world axis under a turned, unevenly scaled parent (Unity's `lossyScale`).
+- 2026-10-03 (28.7): `anyPressed()` answers the first key or pad button that
+  went down since the last sample (a new optional input-frame field `press`,
+  so replays hold), else a pressed mouse button (the pointer's edges), as
+  `{device: keyboard | mouse | gamepad, code}` or null; any standard pad
+  counts, active or not, so a "press any button" prompt wakes a pad.
+- 2026-10-03 (28.7): spawn `properties` are the root script's values (an
+  object carries one script) over the prefab's, checked against its
+  declaration like the Inspector (a private or undeclared key is a script
+  error); a save's `spawned` section keeps them.
+- 2026-10-03 (28.7): material swaps are simulation state (the step's end,
+  the digest, a save's `components` fields and `grid` section, cleared by a
+  new run) and visual only; static objects may swap (no static batching yet;
+  lightmaps go back on). A swap may name any material the game ships — one
+  an object or a timeline uses, or one with an address or label (the
+  snapshot carries the ids). The renderer keeps what an object wore until
+  the new materials' textures are decoded and held (resource manager), then
+  puts them on — a newer swap replaces one still loading; reverting loads
+  the authored ones the same way. Block types swap through `ctx.grid`
+  (`setTypeMaterials`, every layer's cells re-mesh once loaded); timelines
+  get a discrete `materialSwap` track. The v7 script-access table now lists
+  `materials` as writable (additive: no format step).
+- 2026-10-03 (28.7): saves — `character_place.facing` is in degrees about +Y
+  (what `characterState().facing` reads; 3D only), kept as optional
+  `world.character.facing` (older saves load and keep the facing as it is).
+  A slot's `meta` is at most 8 identifier names → texts of up to 128
+  characters (`SAVE_LIMITS.metaKeys/metaKeyChars/metaText`), stored in the
+  slot's metadata record (the `:meta` key 28.12 writes in its one
+  transaction). A UI image shows a slot's picture through `saveSlot` (a
+  number or binding) in place of `image`; it refreshes when the slot is
+  saved again.
+
