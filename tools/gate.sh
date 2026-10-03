@@ -30,7 +30,12 @@ set -u
 mode=${1:-}
 shift || true
 cd "$(dirname "$0")/.."
-SMOKE=(tests/e2e/start.e2e.ts tests/e2e/play-export.e2e.ts tests/e2e/menus.e2e.ts tests/e2e/scenes.e2e.ts tests/e2e/rendering.e2e.ts tests/e2e/inspector.e2e.ts tests/e2e/scale-bench.e2e.ts tests/e2e/count-caps.e2e.ts)
+# The fast gate's smoke set: open and start, the authoring loop, Play and the export, scenes, the Inspector and
+# menus, rendering, MCP, a script in Play, and one project at scale (count-caps). Kept to ~2 min on 2 workers.
+SMOKE=(tests/e2e/start.e2e.ts tests/e2e/authoring-loop.e2e.ts tests/e2e/play-export.e2e.ts tests/e2e/scenes.e2e.ts tests/e2e/inspector.e2e.ts tests/e2e/menus.e2e.ts tests/e2e/rendering.e2e.ts tests/e2e/mcp.e2e.ts tests/e2e/script-api.e2e.ts tests/e2e/count-caps.e2e.ts)
+# The phase-end full gate's budget (both renderers, on the GPU host, 2 workers): a run over it says so in its
+# summary; a phase that adds e2e time extends or replaces tests to stay inside it (AGENTS.md).
+FULL_BUDGET_MIN=15
 export TL_E2E_WORKERS=${TL_E2E_WORKERS:-2}
 LOGS=$HOME/.cache/thirdlight-logs
 UNIT=thirdlight-gate
@@ -77,7 +82,11 @@ peak() { # the memory peak of this run's cgroup (the detached unit's, or the cal
   local f=/sys/fs/cgroup$(cut -d: -f3 /proc/self/cgroup)/memory.peak
   [ -r "$f" ] && awk '{printf "memory peak %.1f GB", $1 / 1073741824}' "$f"
 }
-done_() { say "$1 ($(( ($(date +%s) - t0) / 60 )) min, $(peak), logs $L)"; case "$1" in GREEN*) exit 0 ;; *) exit 1 ;; esac; }
+done_() {
+  local min=$(( ($(date +%s) - t0) / 60 )) over=''
+  [ "$mode" = full ] && [ "$min" -gt "$FULL_BUDGET_MIN" ] && over=", OVER BUDGET (${FULL_BUDGET_MIN} min)"
+  say "$1 (${min} min${over}, $(peak), logs $L)"; case "$1" in GREEN*) exit 0 ;; *) exit 1 ;; esac
+}
 
 build_and_unit() {
   npm run build > "$L/build.log" 2>&1

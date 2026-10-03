@@ -4,8 +4,9 @@
  * within the model's limits, deterministically; pastes stay under the command
  * size cap; percentiles, the metric extraction and the baseline comparison
  * behave; the checked-in baseline is well formed and matches the generator.
- * (tests/e2e/perf-harness.e2e.ts drives the whole harness on the small
- * benchmark; tests/perf/regression.test.ts is the opt-in comparison.)
+ * (tests/e2e/perf-harness.e2e.ts, opt-in with TL_PERF=1, drives the whole
+ * harness on the small benchmark; tests/perf/regression.test.ts is the opt-in
+ * comparison.)
  */
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';

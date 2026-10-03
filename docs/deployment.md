@@ -4264,9 +4264,10 @@ and fails on a regression beyond the tolerance (`tools/perf/stats.ts`:
 counts +10 %, memory +25 %, calibrated times +75 %);
 `TL_PERF_REPORT=<report.json>` compares an existing report,
 `TL_PERF_CLASSES=small` limits it and `TL_PERF_KINDS=count,memory` leaves
-out the calibrated times (the noisiest here). The always-on checks are
-`tests/perf/plumbing.test.ts` (generator and comparison) and
-`tests/e2e/perf-harness.e2e.ts` (the whole harness on the small benchmark).
+out the calibrated times (the noisiest here). The always-on check is
+`tests/perf/plumbing.test.ts` (generator and comparison);
+`TL_PERF=1 npx playwright test tests/e2e/perf-harness.e2e.ts` runs the whole
+harness on the small benchmark (run it when `tools/perf` changes).
 Frame and load times on a real GPU: owner look pending.
 
 **Runtime and simulation (21.2).** The fixed step no longer allocates per
@@ -4482,8 +4483,9 @@ Presets: `full`, `caps` (every kind at the count caps engines before phase 26 ha
 `--walk N`, `--lines N`, `--commands N`, `--seed N`,
 `--renderer webgl2|webgpu`, `--gpu`, `--keep`, `--out FILE`.
 The generated project is kept under `~/.cache/thirdlight-perf/scale/<preset>/`
-and copied for each run. `tests/e2e/scale-bench.e2e.ts` (in the fast gate)
-runs every step at the small size. The measured numbers are in
+and copied for each run. `tests/e2e/count-caps.e2e.ts` (in the fast gate)
+runs the files, open, commands, play, walk and export steps on a project over
+every old count cap. The measured numbers are in
 `docs/plan-phase-26.md` §6.
 
 ## Upgrade

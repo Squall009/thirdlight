@@ -244,9 +244,9 @@ test('a capture that fails answers with the reason, and the next one works', asy
   expect(greenPixels(pngOf(again.json['dataUrl']))).toBeGreaterThan(10);
 });
 
-for (const variant of ['auto', 'webgpu'] as const) {
+for (const variant of PRODUCT_RENDERER_VARIANTS) {
   test(`a screenshot asked as soon as Play runs waits for the renderer's first frame (${variant})`, async ({ page }) => {
-    onlyInItsProject(variant);
+    onlyInItsProject(variant, PRODUCT_RENDERER_VARIANTS);
     test.skip(backendOf(variant) !== 'webgpu', 'the renderer starts asynchronously on WebGPU');
     test.setTimeout(150_000);
     // The Play page's WebGPU adapter arrives late (as on a loaded host): the game runs before anything is drawn.

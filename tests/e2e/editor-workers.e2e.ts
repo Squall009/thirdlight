@@ -36,6 +36,14 @@ test.afterEach(async () => {
 const extraEnv = (): Record<string, string> => (process.env['TL_EDITOR_DIR'] !== undefined ? { THIRDLIGHT_EDITOR_DIR: process.env['TL_EDITOR_DIR'] } : {});
 const measureOnly = process.env['TL_WORKERS_MEASURE_ONLY'] === '1';
 const label = process.env['TL_EDITOR_DIR'] !== undefined ? 'before' : 'after';
+/**
+ * The windows that only log numbers run when measuring (TL_WORKERS_MEASURE_ONLY=1 or TL_EDITOR_DIR): the
+ * graph diagnostics are the same on and off the worker in tests/editor-workers.test.ts (the 2000-node graph,
+ * across a structured-clone boundary), and the Hierarchy at 3000 objects is large-project.e2e's.
+ */
+function measuringOnly(): void {
+  test.skip(!measureOnly && process.env['TL_EDITOR_DIR'] === undefined, 'a measurement window: set TL_WORKERS_MEASURE_ONLY=1');
+}
 
 /**
  * The bound on the longest main-thread task during a scatter and a preview
@@ -357,6 +365,7 @@ test('asset tile thumbnails render and are the same with and without workers (lo
 });
 
 test('graph diagnostics after an edit of a 2000-node graph (long tasks logged)', async ({ page }) => {
+  measuringOnly();
   defaultProjectOnly();
   test.setTimeout(240_000);
   be = await startBackend('workers-graph', undefined, extraEnv());
@@ -407,6 +416,7 @@ test('graph diagnostics after an edit of a 2000-node graph (long tasks logged)',
 });
 
 test('projection of changes in a project with 3000 objects (long tasks logged)', async ({ page }) => {
+  measuringOnly();
   defaultProjectOnly();
   test.setTimeout(300_000);
   be = await startBackend('workers-proj', undefined, extraEnv());

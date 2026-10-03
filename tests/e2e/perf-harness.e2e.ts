@@ -1,11 +1,16 @@
 /**
- * Always on, short: the performance harness end to end on the
+ * Opt-in (TL_PERF=1; run it when tools/perf changes): the performance harness end to end on the
  * small benchmark — generated and built through the real backend's command
  * API, measured in Play (preview iframe), in the export (served statically)
  * and in the editor's Scene view while orbiting, with command round trips,
  * and simulated headlessly in Node. Checks the plumbing (every number is
  * there and plausible), not speed: the opt-in comparison is
- * tests/perf/regression.test.ts.
+ * tests/perf/regression.test.ts. The gate's scale check is count-caps.e2e.ts
+ * (a project over every old cap opened, edited, played, walked and exported
+ * through the scale bench); what this test reads from the product is checked
+ * at its boundary elsewhere (one asset read at Play start: play-start-assets;
+ * start-stage timings: play-start-cache; metricsOf: tests/perf/plumbing.test.ts;
+ * the headless simulation child: tests/perf/alloc.test.ts).
  */
 import { rmSync } from 'node:fs';
 import { join } from 'node:path';
@@ -18,6 +23,8 @@ import { buildBenchmark } from '../../tools/perf/build';
 import { generate } from '../../tools/perf/generate';
 import { metricsOf } from '../../tools/perf/harness';
 import { runSimChild } from '../../tools/perf/sim-run';
+
+test.skip(process.env['TL_PERF'] !== '1', 'the harness plumbing: set TL_PERF=1');
 
 let be: PerfBackend;
 let root: string;

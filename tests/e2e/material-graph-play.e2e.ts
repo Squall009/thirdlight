@@ -18,7 +18,7 @@ import { expect, test, type Locator, type Page } from '@playwright/test';
 import { exportedContent, startBackend, type E2EBackend } from './backend';
 import { decodePng, type Image } from './png';
 import { makePng } from './png-make';
-import { editorUrlFor, expectRendererBackend, exportQueryFor, onlyInItsProject, type RendererVariant } from './renderer-variants';
+import { editorUrlFor, expectRendererBackend, exportQueryFor, onlyInItsProject, PRODUCT_RENDERER_VARIANTS, type RendererVariant } from './renderer-variants';
 import { menu, projectWindow } from './ui';
 
 let be: E2EBackend;
@@ -80,10 +80,10 @@ const blue = (r: number, g: number, b: number): boolean => b > 50 && b > 2.5 * r
 const magenta = (r: number, g: number, b: number): boolean => r > 60 && b > 60 && g < 0.4 * r && g < 0.4 * b;
 const shot = async (t: Locator | Page): Promise<Image> => decodePng(await t.screenshot());
 
-const VARIANTS: readonly RendererVariant[] = ['auto', 'webgpu'];
+const VARIANTS: readonly RendererVariant[] = PRODUCT_RENDERER_VARIANTS;
 
 for (const variant of VARIANTS) test(`a graph material (texture × tint, fresnel emissive, a function call, an object override) draws in the Scene view, Play and the export (${variant})`, async ({ page }) => {
-  onlyInItsProject(variant);
+  onlyInItsProject(variant, VARIANTS);
   test.setTimeout(300_000);
   const checker = join(dir, 'checker.png');
   writeFileSync(checker, makePng(64, 64, (x, y) => (((x >> 4) + (y >> 4)) % 2 === 0 ? [250, 250, 250, 255] : [10, 10, 10, 255])));

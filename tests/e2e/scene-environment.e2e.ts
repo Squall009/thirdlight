@@ -11,7 +11,7 @@
  *   scene chosen beside it.
  *
  * In Play and the static export (backend stopped) a script loads the second
- * scene and makes it active over 20 s: the sky starts red (the first start
+ * scene and makes it active over 10 s: the sky starts red (the first start
  * scene's), is between red and blue while the reported share is between, and
  * is the other scene's blue once that is active at once; back to red again.
  *
@@ -178,7 +178,7 @@ function serveDir(dir: string): Promise<{ url: string; close: () => Promise<void
   return new Promise((ok) => server.listen(0, '127.0.0.1', () => ok({ url: `http://127.0.0.1:${(server.address() as { port: number }).port}/`, close: () => new Promise((done) => server.close(() => done())) })));
 }
 
-/** Keys: 1 loads scene-two and makes it active over 20 s once it is in; 2 makes scene-main active at once; 3 scene-two at once. */
+/** Keys: 1 loads scene-two and makes it active over 10 s once it is in; 2 makes scene-main active at once; 3 scene-two at once. */
 const DIRECTOR = [
   'let want = false;',
   'export default {',
@@ -186,7 +186,7 @@ const DIRECTOR = [
   '  step(state: unknown, ctx: any) {',
   "    if (ctx.phase !== 'intent') return;",
   "    if (ctx.input.pressed('one')) { want = true; ctx.scenes.load('scene-two'); }",
-  "    if (want && ctx.scenes.status('scene-two') === 'loaded') { want = false; ctx.scenes.setActive('scene-two', { blend: 20 }); }",
+  "    if (want && ctx.scenes.status('scene-two') === 'loaded') { want = false; ctx.scenes.setActive('scene-two', { blend: 10 }); }",
   "    if (ctx.input.pressed('two')) ctx.scenes.setActive('scene-main');",
   "    if (ctx.input.pressed('three')) ctx.scenes.setActive('scene-two');",
   '  },',
@@ -196,8 +196,8 @@ const DIRECTOR = [
 type SceneView = { active: string | null; from: string | null; weight: number } | null;
 
 /**
- * Red, then the 20 s blend caught between (the share read before and after the
- * picture both between 0.35 and 0.65), then blue at once, red at once.
+ * Red, then the 10 s blend caught between (the share read before and after the
+ * picture both between 0.35 and 0.65: a 3 s window), then blue at once, red at once.
  */
 async function checkScenes(read: () => Promise<SceneView>, target: Locator | Page, press: (key: string) => Promise<void>, label: string): Promise<void> {
   const sky = async (): Promise<[number, number, number]> => skyOf(target);

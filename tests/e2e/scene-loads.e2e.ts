@@ -18,8 +18,9 @@
  * were prepared before, not streamed in after); "B" was prepared before it
  * attached. The final picture is green (pixels). The editor
  * sends the preview's load progress to the backend before it is ready (the
- * present timeout counts from the last). Runs under each renderer
- * variant (the forced WebGL 2 one with TL_E2E_ALL_VARIANTS=1).
+ * present timeout counts from the last). Runs on the product's own renderer
+ * (renderer-variants.ts PRODUCT_RENDERER_VARIANTS): a scene load waiting for
+ * its precompile on WebGL 2 is play-start-cache.e2e's.
  *
  * With ambient occlusion on (the scene pass draws colour and normals), a
  * scene loaded at run time is not held back by its precompile: the
@@ -36,7 +37,7 @@ import { sphereGlb } from '../../tools/perf/assets';
 import { publishBytes, STARTER, startBackend, type E2EBackend } from './backend';
 import { decodePng, type Image } from './png';
 import { makePng } from './png-make';
-import { editorUrlFor, expectRendererBackend, onlyInItsProject, type RendererVariant } from './renderer-variants';
+import { editorUrlFor, expectRendererBackend, onlyInItsProject, PRODUCT_RENDERER_VARIANTS, type RendererVariant } from './renderer-variants';
 
 let be: E2EBackend | null = null;
 test.afterEach(async () => {
@@ -95,10 +96,10 @@ interface SceneLoad {
   after: { frames: number; over250: number };
 }
 
-const VARIANTS: readonly RendererVariant[] = ['auto', 'webgl2', 'webgpu'];
+const VARIANTS: readonly RendererVariant[] = PRODUCT_RENDERER_VARIANTS;
 
 for (const variant of VARIANTS) test(`a scene transition shows no empty frame: the old scene stays until the new one is drawn whole, with a fade set in the Inspector (${variant})`, async ({ page }) => {
-  onlyInItsProject(variant);
+  onlyInItsProject(variant, VARIANTS);
   test.setTimeout(300_000);
   be = await startBackend('scene-loads-e2e', 'starter');
 
@@ -212,8 +213,8 @@ for (const variant of VARIANTS) test(`a scene transition shows no empty frame: t
   expect(STARTER.cameraId).toBe('cam-main');
 });
 
-for (const variant of ['auto', 'webgpu'] as const) test(`with ambient occlusion on, a scene loaded in Play is drawn without waiting out its precompile (${variant})`, async ({ page }) => {
-  onlyInItsProject(variant);
+for (const variant of PRODUCT_RENDERER_VARIANTS) test(`with ambient occlusion on, a scene loaded in Play is drawn without waiting out its precompile (${variant})`, async ({ page }) => {
+  onlyInItsProject(variant, PRODUCT_RENDERER_VARIANTS);
   test.setTimeout(240_000);
   be = await startBackend('scene-loads-ao-e2e', 'starter');
   await publishBytes(be, sphereGlb(3, 24, 64), 'model', 'model-orb');

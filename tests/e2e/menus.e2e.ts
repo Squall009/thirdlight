@@ -23,8 +23,13 @@ async function open(page: Page): Promise<number> {
   return rows(page).count();
 }
 
-test('GameObject menu creates lights, spawns, empties, cameras; one light of each type per scene', async ({ page }) => {
+test('GameObject menu creates lights, spawns, empties, cameras with the starter values; one light of each type per scene', async ({ page }) => {
   const base = await open(page);
+  type Ent = { id: string; components: { light?: { type: string }; virtualCamera?: object } };
+  const all = async (): Promise<Ent[]> => (await be.command({ op: 'queryEntities', projectId: be.projectId, args: { limit: 50, offset: 0 } }))['entities'] as Ent[];
+  const starter = await all();
+  const starterLight = (type: string) => starter.find((e) => e.components.light?.type === type)!.components.light;
+  const starterCamera = starter.find((e) => e.components.virtualCamera !== undefined)!.components.virtualCamera;
   // The starter scene already has both lights: the items say so. Cameras are shots: any number of them.
   const cameras = await menuItem(page, 'GameObject', 'Cameras');
   await cameras.hover();
@@ -50,37 +55,15 @@ test('GameObject menu creates lights, spawns, empties, cameras; one light of eac
   await menu(page, 'GameObject', 'Create empty');
   await menu(page, 'GameObject', 'Cameras', 'Camera');
   await expect(rows(page)).toHaveCount(base + 3);
+  // The menu's lights are the starter values (the descriptor presets), not a sample's; its camera is the starter's
+  // (at the lowest priority there: a camera added later goes live over it).
+  await expect.poll(async () => (await all()).find((e) => e.components.light?.type === 'directional')?.components.light).toEqual(starterLight('directional'));
+  await expect.poll(async () => (await all()).find((e) => e.components.light?.type === 'ambient')?.components.light).toEqual(starterLight('ambient'));
+  const made = (await all()).filter((e) => e.components.virtualCamera !== undefined).find((e) => e.id !== 'cam-main')!.components.virtualCamera;
+  expect({ ...made, priority: -1000 }).toEqual(starterCamera);
   // The new light is selected and the inspector shows it.
   await rows(page).filter({ hasText: 'Directional light' }).click();
   await expect(page.locator('input.tl-inspector__name')).toHaveValue('Directional light');
-});
-
-test('the menu lights are the starter values (the descriptor presets), not a sample\'s', async ({ page }) => {
-  await open(page);
-  type Ent = { id: string; components: { light?: { type: string }; virtualCamera?: object; transform?: { position: number[] } } };
-  const all = async (): Promise<Ent[]> => (await be.command({ op: 'queryEntities', projectId: be.projectId, args: { limit: 50, offset: 0 } }))['entities'] as Ent[];
-  const starter = await all();
-  const starterLight = (type: string) => starter.find((e) => e.components.light?.type === type)!.components.light;
-  const starterCamera = starter.find((e) => e.components.virtualCamera !== undefined)!.components.virtualCamera;
-  // Delete the starter lights, then create them again from the menu.
-  const lightRows = rows(page).filter({ has: page.locator('.tl-row__kind', { hasText: /^light$/ }) });
-  await expect(lightRows).toHaveCount(2);
-  for (let i = 0; i < 2; i += 1) {
-    await lightRows.first().click();
-    await menu(page, 'Edit', 'Delete');
-  }
-  await expect(lightRows).toHaveCount(0);
-  await menu(page, 'GameObject', 'Light', 'Directional light');
-  await expect(rows(page).filter({ hasText: 'Directional light' })).toHaveCount(1);
-  await menu(page, 'GameObject', 'Light', 'Ambient light');
-  await expect(rows(page).filter({ hasText: 'Ambient light' })).toHaveCount(1);
-  await expect.poll(async () => (await all()).find((e) => e.components.light?.type === 'directional')?.components.light).toEqual(starterLight('directional'));
-  await expect.poll(async () => (await all()).find((e) => e.components.light?.type === 'ambient')?.components.light).toEqual(starterLight('ambient'));
-  // The menu's camera is the starter's (at the lowest priority there: a camera added later goes live over it).
-  await menu(page, 'GameObject', 'Cameras', 'Camera');
-  await expect.poll(async () => (await all()).filter((e) => e.components.virtualCamera !== undefined).length).toBe(2);
-  const made = (await all()).filter((e) => e.components.virtualCamera !== undefined).find((e) => e.id !== 'cam-main')!.components.virtualCamera;
-  expect({ ...made, priority: -1000 }).toEqual(starterCamera);
 });
 
 test('Edit → Duplicate copies the selection with its components; Component menu adds and removes', async ({ page }) => {

@@ -219,12 +219,9 @@ test('import a .glb from the project folder, place, reload, restart, Play, expor
   expect(JSON.parse(readFileSync(`${file}.tlasset`, 'utf8'))).toMatchObject({ tlasset: 3, id: expect.any(String), kind: 'model', record: { kind: 'model' } });
   await closeEditor(page);
 
-  // Play and export now use the new bytes.
-  await playShows(page, D2, '5-play-v2.png');
-  const out2 = await exportWith(D2, D1);
+  // The export above already ships the new bytes; a changed file playing at its new URL is play-files.e2e's.
   await page.goto('about:blank');
   await be.halt();
-  await runExport(page, out2, '6-export-v2.png');
   expect(pageErrors).toEqual([]);
 
   // Backup (backend stopped) holds the whole game folder, assets included;

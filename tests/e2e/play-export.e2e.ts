@@ -55,7 +55,7 @@ async function createBox(page: Page): Promise<void> {
   await expect(page.locator('.tl-hierarchy__list li.tl-row').filter({ hasText: 'box' })).toHaveCount(1);
 }
 
-test('Play renders a fresh project scene in the isolated preview', async ({ page }) => {
+test('Play renders a fresh project scene in the isolated preview, which fills the centre view and does not scroll', async ({ page }) => {
   await createBox(page);
   await page.getByTitle('Start an isolated play preview').click();
   const frame = page.locator('iframe.tl-app__preview-frame');
@@ -63,17 +63,6 @@ test('Play renders a fresh project scene in the isolated preview', async ({ page
   // The box is drawn over the clear color: more than one color appears.
   await expect.poll(async () => colorCount(decodePng(await frame.screenshot())), { timeout: 15_000 }).toBeGreaterThan(1);
   await expect(page.locator('.tl-notice')).toHaveCount(0);
-
-  await page.getByTitle('Stop the play preview').click();
-  // Stop is a backend round trip plus the preview's teardown: seconds on a loaded CPU-rendered host.
-  await expect(frame).toHaveCount(0, { timeout: 30_000 });
-});
-
-test('the play preview fills the centre view and its page is not scrollable', async ({ page }) => {
-  await createBox(page);
-  await page.getByTitle('Start an isolated play preview').click();
-  const frame = page.locator('iframe.tl-app__preview-frame');
-  await expect(frame).toBeVisible();
   const stage = (await page.locator('.tl-app__stage').boundingBox())!;
   const full = (await frame.boundingBox())!;
   expect(full.width).toBeGreaterThan(stage.width * 0.95);
@@ -85,7 +74,10 @@ test('the play preview fills the centre view and its page is not scrollable', as
       return { scrollable: d.scrollHeight > d.clientHeight || d.scrollWidth > d.clientWidth };
     }))
     .toMatchObject({ scrollable: false });
+
   await page.getByTitle('Stop the play preview').click();
+  // Stop is a backend round trip plus the preview's teardown: seconds on a loaded CPU-rendered host.
+  await expect(frame).toHaveCount(0, { timeout: 30_000 });
 });
 
 test('the exported game runs from a plain static server with the backend stopped', async ({ page }) => {

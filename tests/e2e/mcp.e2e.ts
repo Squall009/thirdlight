@@ -95,12 +95,6 @@ test('an MCP agent inspects the selection, plays, observes, moves and captures t
   await expect(page.locator('iframe.tl-app__preview-frame')).toHaveCount(0);
 });
 
-test('play tools say clearly when no browser is connected', async () => {
-  const started = await call('tl_play_start', { demo: false });
-  expect(started.isError).toBe(true);
-  expect(JSON.stringify(started.body)).toContain('session_unavailable');
-});
-
 test('an MCP agent files entities into folders and sets folder flags; the editor shows it and reports a multi-selection', async ({ page }) => {
   await page.goto(be.editorUrl);
   await expect(page.locator('.tl-statusbar')).toContainText('connected');

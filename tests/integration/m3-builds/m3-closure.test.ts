@@ -110,7 +110,7 @@ describe('B19 the M3 closure failure modes', () => {
   it('a source-bearing behavior is compiled from its source blob; a missing blob is refused', async () => {
     // Behaviors are reached through the shared `queryBehaviors` edge and
     // recompiled from their immutable source blob (the working path is covered
-    // end to end by tests/e2e/behaviors.e2e.ts).
+    // end to end by tests/e2e/visual-script.e2e.ts and spawn.e2e.ts).
     const { scene, content, blobs } = syntheticV3();
     const res = await buildContentClosureM3({
       service: { ...fakeService({ blobs, behaviors: [{ behaviorId: 'behavior-x', source: { sourceDigest: 'ab'.repeat(32), sourceByteLength: 100 } }] }), readSourceBlob: () => ({ ok: false, error: { code: 'blob_missing', cls: 'not_found', message: 'source blob missing' } }) } as never,

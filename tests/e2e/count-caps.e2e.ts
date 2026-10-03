@@ -97,7 +97,7 @@ function addOtherKinds(dir: string, sceneIds: readonly string[], soundId: string
   writeFileSync(join(dir, 'content.json'), `${JSON.stringify(file, null, 2)}\n`);
 }
 
-test('a project above every old count cap opens, takes one command of each kind, plays and exports', async () => {
+test('a project above every old count cap opens, takes one command of each kind, plays, walks scenes and exports', async () => {
   test.setTimeout(600_000);
   const dataRoot = join(root, 'data');
   const generated = await generateScaleProject(dataRoot, 'caps', SPEC);
@@ -157,7 +157,9 @@ test('a project above every old count cap opens, takes one command of each kind,
     await be.stop();
   }
 
-  // Open in the editor, edit, Play and export (the manifest holds every asset row inline: over the 256 KiB it was capped at).
+  // The scale bench over it: every asset's file seen before and after a restart; open in the editor, edit, Play,
+  // walk two scenes (their prefab copies read their models and textures) and export (the manifest holds every
+  // asset row inline: over the 256 KiB it was capped at).
   const bench = new ScaleBench({
     dataRoot,
     exportRoot: join(root, 'exports'),
@@ -166,14 +168,21 @@ test('a project above every old count cap opens, takes one command of each kind,
     renderer: 'webgl2',
     gpu: gpuAvailable(),
     commands: 1,
-    walk: 0,
+    walk: 2,
     lines: 0,
-    steps: ['open', 'commands', 'play', 'export'],
+    steps: ['files', 'open', 'commands', 'play', 'walk', 'export'],
     log: () => undefined,
   });
   const r = await bench.run();
   expect(r.broke).toEqual({});
+  expect(r.files!.entries).toBeGreaterThanOrEqual(generated.counts['assets']!);
+  expect(r.files!.afterRestartMs).toBeGreaterThan(0);
+  expect(r.open!.assetsListed).toBeGreaterThanOrEqual(generated.counts['assets']!);
   expect(r.play!.split.firstFrameMs).toBeGreaterThan(0);
+  expect(r.walk!.scenes).toBe(2);
+  expect(r.walk!.loaded).toHaveLength(2);
+  // The walked scenes' prefab copies read their models and textures (counted once their reads finish).
+  expect(r.walk!.after.assetReads!.reads).toBeGreaterThan(r.walk!.before.assetReads!.reads);
   expect(r.export!.state).toBe('running');
   expect(r.export!.pageErrors).toEqual([]);
 });

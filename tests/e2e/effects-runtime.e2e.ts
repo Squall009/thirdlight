@@ -20,7 +20,7 @@ import { expect, test, type FrameLocator, type Locator, type Page } from '@playw
 
 import { exportedContent, addTitleShell, startBackend, type E2EBackend } from './backend';
 import { decodePng, type Image } from './png';
-import { backendOf, editorUrlFor, expectRendererBackend, exportQueryFor, onlyInItsProject, type RendererVariant } from './renderer-variants';
+import { backendOf, editorUrlFor, expectRendererBackend, exportQueryFor, onlyInItsProject, PRODUCT_RENDERER_VARIANTS, type RendererVariant } from './renderer-variants';
 import { menu } from './ui';
 
 let be: E2EBackend;
@@ -116,10 +116,10 @@ function count(img: Image, test: (r: number, g: number, b: number) => boolean): 
 const magenta = (r: number, g: number, b: number): boolean => r > 150 && b > 150 && g < 0.55 * Math.min(r, b);
 const shot = async (t: Locator | Page): Promise<Image> => decodePng(await t.screenshot());
 
-const VARIANTS: readonly RendererVariant[] = ['auto', 'webgpu'];
+const VARIANTS: readonly RendererVariant[] = PRODUCT_RENDERER_VARIANTS;
 
 for (const variant of VARIANTS) test(`a burst effect started by a collectible's signal shows particles in Play and the export (${variant})`, async ({ page }) => {
-  onlyInItsProject(variant);
+  onlyInItsProject(variant, VARIANTS);
   test.setTimeout(420_000);
   be = await startBackend('effects-runtime-e2e', 'starter');
   // The effect executor follows the backend (on a GPU host `auto` takes WebGPU: the compute executor).
