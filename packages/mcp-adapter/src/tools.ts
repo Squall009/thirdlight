@@ -277,17 +277,17 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       '(the foliage shader bends by COLOR_0.r); a fogVolume component {size, density, color, falloff?, heightFalloff? per m (density fades above the box bottom)}. Cameras: a virtualCamera component {rig: follow|orbitPoint|topDown|fixed|rail, priority?, enabled?, target? (entity), targetOffset?, distance?, yaw?, pitch?, pitchMin/Max?, yawAction?/pitchAction?/zoomAction?/turnLeftAction?/turnRightAction? (input action names), yawStep?, turnTime?, point?, collision?, damping?, path? (rail: the entity with a cameraPath {points: [[x,y,z]...], closed?, smooth?}), progress?, railSpeed?, railMode?, fovY?, near?, far?, blend?: cut|linear|eased, blendTime?, letterbox?, shakeAmplitude?/Frequency?/Rotation?} — the enabled one with the highest priority is live (scripts: ctx.camera); tl_game_observe reports the resolved camera. Sockets: a socketAttach component {target (an entity with a model), node (a node/bone name of its model), position?, rotation?, scale? (offset in the node space), attached? (default true)} — the object rides on that node every step (scripts: ctx.sockets.attach/detach, ctx.animator(id).setSpeed); tl_game_observe reports sockets [{entityId, target, node, position}]. setLighting {sceneId, ' +
       'lighting: null} clears a scene\'s baked lightmaps (bakes are made in the editor\'s Lighting window). Animation: setAnimator {controller: ' +
       '{controllerId, name, parameters: [{name, type: float|int|bool|trigger, default?}], states: [{id, name, motion: {kind: "clip", clip: ' +
-      '{assetId, clip, duration}} | {kind: "blend1d", parameter, children: [{threshold, clip}]}, speed, speedParameter?, loop}], transitions: ' +
+      '{assetId, clip, duration}} | {kind: "blend1d", parameter, children: [{threshold, clip, speed? (the ground speed in m/s it was authored for; with one on every child the tree reads the parameter as a ground speed and matches it)}]}, speed, speedParameter?, loop}], transitions: ' +
       '[{from: stateId|"*", to, conditions: [{parameter, op: greater|less|equals|notEquals|true|false|trigger, value?}], duration, exitTime?, ' +
       'interruption?: none|source}], entry, events: [{assetId, clip, time, name}], layers?: [{name, mask: [bone names] (empty = every ' +
       'bone), weight 0-1, weightParameter? (a float param it is multiplied by), states (motion may also be {kind: "empty"}: the layers ' +
       'under show through), transitions, entry}] (up to 3 override layers over the base layer, e.g. an upper-body attack while running; ' +
       'state ids are unique across layers), morphs?: [{target (a morph target name), parameter (a float param: its 0-1 value is the weight)}]}}; deleteAnimator {controllerId}; a model entity plays one ' +
-      'with setComponent "animator" {controller, parameters?}. An animation-only GLB (clips, no mesh needed) is marked with ' +
+      'with setComponent "animator" {controller, parameters?, startTime? (normalized 0-1), randomStart? (a start drawn from the random_seed and the object id)}. An animation-only GLB (clips, no mesh needed) is marked with ' +
       'setAssetOptions {assetId, clipsFor: rigModelAssetId | null}; its clips then play on that model (matched by bone names) and ' +
       'controllers may name them. The old modelAnimation idle/run/airborne component becomes an animator controller when the project ' +
       'is opened. The player\'s animators get speed, grounded, velocityY and a landed trigger ' +
-      'automatically; scripts use ctx.animator(entityId)?.set/trigger/state(layer?). Input: setInput {input: {actions: [{name, type: ' +
+      'automatically; scripts use ctx.animator(entityId)?.set/trigger/state(layer?)/play(state, fade?, layer?, normalizedTime?). Input: setInput {input: {actions: [{name, type: ' +
       'button|axis1d|axis2d, map: gameplay|ui, bindings: [{kind: "key", code: KeyboardEvent.code} | {kind: "gamepadButton", button} | ' +
       '{kind: "gamepadAxis", axis} | {kind: "keys1d", negative, positive} | {kind: "keys2d", up, down, left, right} | {kind: ' +
       '"gamepadButtons1d", negative, positive} | {kind: "gamepadStick", x, y} | {kind: "pointerButton", button: left|right|middle} | ' +
@@ -742,7 +742,7 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       properties: {
         playSessionId: { type: 'string' },
         timeoutMs: { type: 'integer', minimum: GAME_OBSERVE_TIMEOUT_MIN_MS, maximum: GAME_OBSERVE_TIMEOUT_MAX_MS },
-        entityId: { type: 'string', description: 'also return this entity\'s running script property values (public and private) as `behaviors`' },
+        entityId: { type: 'string', description: 'also return this entity\'s running script property values (public and private) as `behaviors`, and with an animator its pose as `animator` {state, clips [{assetId, clip, time (s), weight}], layers?}' },
       },
       required: ['playSessionId'],
       additionalProperties: false,

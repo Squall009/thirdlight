@@ -3941,6 +3941,27 @@ morph target (blend shape) by a float parameter (clamped to 0–1);
 morph target from scripts. Morph weights are presentation: the renderer
 applies them to every mesh of the model that has that target.
 
+**Ground speed in a blend tree.** A blend clip may carry the **ground
+speed** (m/s) it was authored for (the blend clip Inspector; MCP
+`children: [{threshold, clip, speed}]`). With a speed on every clip of the
+tree, the tree reads its parameter as a ground speed and scales time so the
+blended clips cover exactly that speed — below the first threshold (a slow
+walk plays the walk slower), between thresholds and past the last one
+(Unity's homogeneous speed). Clip i plays at the rate that makes
+Σ wᵢ·sᵢ·(its seconds per second) equal the parameter. A tree with a speed on
+only some clips plays as authored. Where the blended speed is 0 (a standing
+clip alone) the tree plays as authored too.
+
+**Start time.** The `animator` component's **start time** (0–1, normalized)
+starts every layer's entry state part-way; **random start** draws it from
+the game's seed (the `random_seed` setting and the object's id), so a crowd
+of copies does not breathe in step and a replay, a scene reload or the
+export starts each copy at the same place. Scripts start a state part-way
+with `ctx.animator(id)?.play(state, fade?, layer?, time?)` (Unity's
+`Animator.Play(state, layer, normalizedTime)`; layer 0 is the base layer).
+`tl_game_observe` with an `entityId` returns that object's animator pose
+(`animator: {state, clips: [{clip, time, weight}], layers?}`).
+
 **Observing.** `tl_game_observe` (and `window.__thirdlightObserve()` in an
 export) reports `sockets: [{ entityId, target, node, position }]` (the
 drawn world position) while something rides on a socket.

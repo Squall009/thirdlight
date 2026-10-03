@@ -8,7 +8,7 @@
  * - a transition wire (a state pair): its transitions in priority order,
  *   each with conditions, crossfade, exit time and interruption; add
  *   another, reorder, remove; delete the wire;
- * - a blend tree's clip: threshold and clip; the Blend node: the parameter.
+ * - a blend tree's clip: threshold, clip and ground speed; the Blend node: the parameter.
  *
  * Node fields go through `graphEdit` (setNodeData / connect / remove: the
  * graph's ops, written into the controller by the backend); transitions and
@@ -306,6 +306,16 @@ function BlendClip({ node, kind, clips, model, edit }: { node: GraphNode; kind: 
     if (text.trim() === '' || !Number.isFinite(n)) return setText(String(threshold));
     if (n !== threshold) set({ threshold: n });
   };
+  // The ground speed the clip was authored for (empty: none; −1 in the graph data).
+  const speed = typeof d['speed'] === 'number' && d['speed'] >= 0 ? d['speed'] : null;
+  const [speedText, setSpeedText] = useState(speed === null ? '' : String(speed));
+  useEffect(() => setSpeedText(speed === null ? '' : String(speed)), [speed]);
+  const commitSpeed = (): void => {
+    if (speedText.trim() === '') return void (speed !== null && set({ speed: -1 }));
+    const n = Number(speedText);
+    if (!Number.isFinite(n) || n < 0) return setSpeedText(speed === null ? '' : String(speed));
+    if (n !== speed) set({ speed: n });
+  };
   const value = { assetId: String(d['asset'] ?? ''), clip: String(d['clip'] ?? ''), duration: typeof d['duration'] === 'number' ? d['duration'] : 1 };
   return (
     <div aria-label="blend clip inspector">
@@ -318,7 +328,11 @@ function BlendClip({ node, kind, clips, model, edit }: { node: GraphNode; kind: 
         <span>Clip</span>
         <ClipSelect value={value} clips={clips} model={model} label="blend clip" onPick={(k) => set({ clip: k.clip, asset: k.assetId, duration: k.duration })} />
       </label>
-      <p className="tl-hint">Clips are kept in threshold order; two clips cannot share a threshold.</p>
+      <label className="tl-field">
+        <span>Ground speed (m/s)</span>
+        <input className="tl-input tl-input--num" aria-label="blend ground speed" placeholder="none" value={speedText} onChange={(e) => setSpeedText(e.target.value)} onBlur={commitSpeed} onKeyDown={(e) => e.key === 'Enter' && commitSpeed()} />
+      </label>
+      <p className="tl-hint">Clips are kept in threshold order; two clips cannot share a threshold. With a ground speed on every clip, the blend parameter is read as a speed and the clips play at the rate that matches it.</p>
       <button type="button" className="tl-button" onClick={() => edit([{ op: 'removeNodes', ids: [node.id] }])}>
         Remove clip
       </button>

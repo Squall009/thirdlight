@@ -927,6 +927,12 @@ export interface BehaviorAnimatorHandle {
    */
   state(layer?: number): string;
   /**
+   * Go to a state by name over `fade` seconds (0: at once), on layer `layer` (0: the base layer, 1 the first override layer), the state starting at normalized time `time` (0–1 of its length; 0: its beginning). False for an unknown state or layer, or a time below 0.
+   * @graphNode Play animator state
+   * @graphLabel state state
+   */
+  play(state: string, fade?: number, layer?: number, time?: number): boolean;
+  /**
    * Set this animator's playback speed (× every clip and crossfade; 1 as authored, 0.5 half speed, 0 holds the pose; 0–10). False for a value outside 0–10.
    * @graphNode Set animation speed
    * @graphDefault speed 1

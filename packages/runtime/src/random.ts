@@ -135,6 +135,16 @@ class Stream {
   }
 }
 
+/**
+ * One number in [0, 1) the engine draws for an object from the game's seed
+ * (an animator's random start): its own sfc32 stream seeded by the run seed,
+ * what draws it and the object's id, so it is the same in every run, replay
+ * and export, differs between objects, and never shifts a script's streams.
+ */
+export function seededUnit(seed: number, purpose: string, entityId: string): number {
+  return new Stream(hashSeed(`tl-engine-random-v1\u0000${seed}\u0000${purpose}\u0000${entityId}`)).u32() / TWO_POW_32;
+}
+
 /** `ctx.random` of one script instance (made on first use; streams made on first use). */
 export class InstanceRandom {
   private main: Stream | null = null;

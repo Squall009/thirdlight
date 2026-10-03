@@ -743,6 +743,8 @@ export const animator: ComponentDescriptor = {
   value: obj('animator', 'Animator', 'The controller and this object\'s starting parameter values.', [
     ref('controller', 'Controller', 'The animator controller.', 'animator', { required: true }),
     map('parameters', 'Parameters', 'Starting values for the controller\'s parameters (absent: the controller\'s defaults).', 'Parameter', json('*', 'Value', 'A number or true/false.', { typedBy: 'animatorParameter' }), { keyRef: 'animatorParameter', maxEntries: MAX_ANIMATOR_PARAMETERS }),
+    num('startTime', 'Start time', 'Where the entry states start, in normalized time (0–1 of their length).', { min: 0, max: 1, step: 0.05, when: when('randomStart', false) }),
+    bool('randomStart', 'Random start', 'Start at a random time from the game\'s seeded random numbers (the project\'s random seed and this object\'s id), so copies do not move in step and a replay starts them alike.', { default: false }),
   ]),
   add: { kind: 'pick', value: {}, pick: ['controller'] },
   handles: [],

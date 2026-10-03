@@ -19,6 +19,7 @@ import { MATERIAL_FUNCTION_GRAPH_KIND, MATERIAL_GRAPH_KIND } from './material-gr
 import { BEHAVIOR_FUNCTION_GRAPH_KIND, BEHAVIOR_LIBRARY_GRAPH_KIND } from './behavior-graph-nodes';
 import { EFFECT_GRAPH_KIND } from './effect-graph-kinds';
 import { DIALOGUE_GRAPH_KIND } from './dialogue';
+import { MAX_BLEND_GROUND_SPEED } from './animator';
 
 export const TEST_GRAPH_KIND: GraphKindDef = {
   kind: 'test',
@@ -140,7 +141,8 @@ export const ANIMATOR_BLEND_GRAPH_KIND: GraphKindDef = {
       inputs: [],
       outputs: [{ id: 'motion', label: 'motion', type: 'motion' }],
       titleField: 'clip',
-      fields: [{ key: 'threshold', label: 'Threshold', type: 'number', default: 0, min: -1e6, max: 1e6 }, CLIP_FIELDS[0], CLIP_FIELDS[1], CLIP_FIELDS[2]],
+      // Ground speed −1: not set (the clip carries no speed; a tree uses speeds on every clip or on none).
+      fields: [{ key: 'threshold', label: 'Threshold', type: 'number', default: 0, min: -1e6, max: 1e6 }, CLIP_FIELDS[0], CLIP_FIELDS[1], CLIP_FIELDS[2], { key: 'speed', label: 'Ground speed (m/s)', type: 'number', default: -1, min: -1, max: MAX_BLEND_GROUND_SPEED }],
     },
   ],
   allowCycles: false,

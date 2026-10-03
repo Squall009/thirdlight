@@ -530,7 +530,7 @@ const COMPONENT_BASES: Record<string, J[]> = {
   climbVolume: [{ size: [1, 4, 1] }, { size: [2, 3, 0.5] }],
   gravity: [{ scale: 0.5, size: [1, 2, 1] }, {}],
   audioSource: [{ assetId: 'cue-a', volume: 0.8, range: 12 }, { assetId: 'cue-a', volume: 0.8, range: 12, distanceModel: 'inverse', refDistance: 2, rolloff: 1.5 }],
-  animator: [{ controller: 'ctl-a', parameters: { speed: 1, grounded: true } }],
+  animator: [{ controller: 'ctl-a', parameters: { speed: 1, grounded: true }, startTime: 0.25 }, { controller: 'ctl-a', randomStart: true }],
   faceMovement: [{ yawRight: 90, yawLeft: -90, turnSeconds: 0.12 }, { mode: 'velocity', yawOffset: -90, turnSeconds: 0.2 }],
   modelAnimation: [{ assetId: 'model-a', version: 1, roles: { idle: { clipIndex: 0 }, run: { clipIndex: 1 }, airborne: { clipIndex: 2 } } }],
   behavior: [{ behaviorId: 'beh-a', values: { speed: 3 } }],
@@ -669,7 +669,7 @@ function animatorBase(o: { firstParam: 'float' | 'int' | 'bool' | 'trigger'; fir
   ];
   const first = params.findIndex((p) => p.type === o.firstParam);
   const ordered = [params[first]!, ...params.filter((_, i) => i !== first)];
-  const motion = (kind: string, n: string) => (kind === 'clip' ? { kind: 'clip', clip: CLIP(n) } : kind === 'blend1d' ? { kind: 'blend1d', parameter: 'speed', children: [{ threshold: 0, clip: CLIP(`${n}-a`), position: [0, 0] }, { threshold: 1, clip: CLIP(`${n}-b`) }] } : { kind: 'empty' });
+  const motion = (kind: string, n: string) => (kind === 'clip' ? { kind: 'clip', clip: CLIP(n) } : kind === 'blend1d' ? { kind: 'blend1d', parameter: 'speed', children: [{ threshold: 0, clip: CLIP(`${n}-a`), speed: 0, position: [0, 0] }, { threshold: 1, clip: CLIP(`${n}-b`), speed: 1.4 }] } : { kind: 'empty' });
   const cond = o.cond === 'number' ? { parameter: 'speed', op: 'greater', value: 0.1 } : o.cond === 'bool' ? { parameter: 'grounded', op: 'true' } : { parameter: 'attack', op: 'trigger' };
   return [
     {

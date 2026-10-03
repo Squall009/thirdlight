@@ -264,3 +264,90 @@ describe('animator override layers', () => {
     expect(a.pose()).toEqual(b.pose());
   });
 });
+
+describe('blend tree ground speed (homogeneous speed)', () => {
+  // A walk authored at 1.4 m/s (1 s a cycle) and a run at 2.2 m/s (0.8 s a cycle), thresholds at those speeds.
+  const locomotion = (speeds: boolean): AnimatorControllerLike =>
+    controller({
+      parameters: [{ name: 'speed', type: 'float', default: 0 }],
+      states: [
+        {
+          id: 'move',
+          name: 'Move',
+          motion: { kind: 'blend1d', parameter: 'speed', children: [{ threshold: 1.4, clip: clip('walk', 1), ...(speeds ? { speed: 1.4 } : {}) }, { threshold: 2.2, clip: clip('run', 0.8), ...(speeds ? { speed: 2.2 } : {}) }] },
+          speed: 1,
+          loop: true,
+        },
+      ],
+      transitions: [],
+      entry: 'move',
+    });
+  const CLIP_SPEED: Record<string, number> = { walk: 1.4, run: 2.2 };
+  const LENGTH: Record<string, number> = { walk: 1, run: 0.8 };
+  /**
+   * Ground the blended clips cover a second: each clip covers its authored
+   * speed × the clip seconds it advanced, weighted by its blend weight.
+   */
+  const groundRate = (m: AnimatorMachine, seconds = 0.25): number => {
+    const before = new Map(m.pose().clips.map((c) => [c.clip, c.time]));
+    run(m, seconds);
+    let rate = 0;
+    for (const c of m.pose().clips) {
+      let dt = c.time - (before.get(c.clip) ?? 0);
+      if (dt < 0) dt += LENGTH[c.clip]!;
+      rate += c.weight * CLIP_SPEED[c.clip]! * (dt / seconds);
+    }
+    return rate;
+  };
+
+  for (const x of [0.5, 1.4, 1.8, 2.2, 3]) {
+    it(`plays the blended clips at the parameter's ground speed (${x} m/s)`, () => {
+      const m = new AnimatorMachine(locomotion(true), { speed: x });
+      expect(groundRate(m)).toBeCloseTo(x, 2);
+    });
+  }
+
+  it('a state speed and the machine speed still scale the matched rate', () => {
+    const m = new AnimatorMachine(locomotion(true), { speed: 1.8 });
+    m.setSpeed(2);
+    expect(groundRate(m, 0.2)).toBeCloseTo(3.6, 2);
+  });
+
+  it('without ground speeds a tree plays as authored (one length a cycle)', () => {
+    const m = new AnimatorMachine(locomotion(false), { speed: 0.5 });
+    // Walk alone below its threshold: one cycle a second whatever the parameter.
+    run(m, 0.5);
+    expect(m.pose().clips[0]!.time).toBeCloseTo(0.5, 2);
+  });
+
+  it('a standing clip alone (blended speed 0) plays as authored', () => {
+    const c = controller({
+      parameters: [{ name: 'speed', type: 'float', default: 0 }],
+      states: [{ id: 'move', name: 'Move', motion: { kind: 'blend1d', parameter: 'speed', children: [{ threshold: 0, clip: clip('idle', 2), speed: 0 }, { threshold: 1.4, clip: clip('walk', 1), speed: 1.4 }] }, speed: 1, loop: true }],
+      transitions: [],
+      entry: 'move',
+    });
+    const m = new AnimatorMachine(c, { speed: 0 });
+    run(m, 0.5);
+    expect(m.pose().clips[0]!.time).toBeCloseTo(0.5, 2);
+  });
+});
+
+describe('animator start time and play time', () => {
+  it('starts every layer\'s entry state at the given normalized time', () => {
+    const m = new AnimatorMachine(controller(), {}, 0.25);
+    // Idle is 2 s long: a quarter in is 0.5 s.
+    expect(m.pose().clips[0]!.time).toBeCloseTo(0.5, 6);
+  });
+
+  it('play() starts the new state at the given normalized time', () => {
+    const m = new AnimatorMachine(controller());
+    expect(m.play('Fall', 0, 0, 0.5)).toBe(true);
+    expect(m.stateName()).toBe('Fall');
+    expect(m.pose().clips[0]).toMatchObject({ clip: 'fall' });
+    expect(m.pose().clips[0]!.time).toBeCloseTo(0.3, 6);
+    expect(m.play('Fall', 0, 0, -1)).toBe(false);
+    expect(m.play('Fall', 0, 0, Number.NaN)).toBe(false);
+    expect(m.play('Fall', 0, 5, 0)).toBe(false);
+  });
+});

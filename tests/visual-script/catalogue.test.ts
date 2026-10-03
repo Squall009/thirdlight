@@ -96,7 +96,7 @@ export function recordingContext(calls: string[], phase: 'intent' | 'transform',
     animator: (id: string) => {
       calls.push('animator');
       // Per-instance speed and morph weights.
-      return id === '' ? null : { set: rec('animator.set', true), trigger: rec('animator.trigger', true), get: rec('animator.get', 1), state: rec('animator.state', 'idle'), setSpeed: rec('animator.setSpeed', true), speed: rec('animator.speed', 1), setMorph: rec('animator.setMorph', true), morph: rec('animator.morph', 0.5) };
+      return id === '' ? null : { set: rec('animator.set', true), trigger: rec('animator.trigger', true), get: rec('animator.get', 1), state: rec('animator.state', 'idle'), play: rec('animator.play', true), setSpeed: rec('animator.setSpeed', true), speed: rec('animator.speed', 1), setMorph: rec('animator.setMorph', true), morph: rec('animator.morph', 0.5) };
     },
     events: [
       { type: 'enter', trigger: 'trigger-1', stepIndex: stepIndex - 1 },

@@ -82,7 +82,9 @@ import { DuplicateMoveError, PhaseViolationError, frozenContext, liveScopedState
 import { lerpVec3, lerpVec3Into, quatEqual, slerpQuat, slerpQuatInto, vec3Equal } from './interp';
 import { isSimulationRegistry, validatePhaseList } from './registry';
 import { deepFreeze, validateRuntimeSnapshot } from './snapshot';
-import { AnimatorMachine, type AnimatorControllerLike, type AnimatorPose } from './animator';
+import { type AnimatorControllerLike, type AnimatorPose } from './animator';
+import { AnimatorSystem } from './animator-system';
+import { randomSeedOf } from './random';
 import { AudioMixer, type AudioCommand } from './audio-mixer';
 import { createScriptAudio, type ScriptAudioControl } from './script-audio';
 import { DialogueRunner, validateDialogueInput, type DialogueInputRecord } from './dialogue';
@@ -127,9 +129,6 @@ import {
 import {
   SIM_REGISTRY_BRAND,
   SIMULATION_PHASE_ORDER,
-  type AnimatorEventRecord,
-  type BehaviorAnimatorControl,
-  type BehaviorAnimatorHandle,
   type BehaviorMessage,
   type BehaviorSceneControl,
   type BehaviorSpawnControl,
@@ -1255,13 +1254,7 @@ class RuntimeInstance implements Runtime {
   /** The tag index 3D queries filter by. */
   private readonly queryTags: LiveTagIndex | null;
   // ---- Animators ----
-  private readonly animatorControllers = new Map<string, AnimatorControllerLike>();
-  private readonly animatorMachines = new Map<string, { machine: AnimatorMachine; entity: EntityV3 }>();
-  /** Parent ids of the loaded entities (the player's model may be a child of the player). */
-  private readonly parentOf = new Map<string, string>();
-  private animatorEvents: readonly AnimatorEventRecord[] = Object.freeze([]);
-  private animatorWasGrounded = true;
-  private readonly animatorControl: BehaviorAnimatorControl;
+  private readonly animators: AnimatorSystem;
   // ---- The views (each owned by a camera brain) ----
   private readonly views: RuntimeViews;
   /** Sockets (entities riding on model nodes) and the script API over them. */
@@ -1608,8 +1601,16 @@ class RuntimeInstance implements Runtime {
     this.environment = new EnvironmentDirector(this.hz, args.environmentPresets, (message) => this.recordBehaviorLog('thirdlight.runtime:environment', 'warn', message), args.sceneRows !== null ? (args.startBatches[0]?.sceneId ?? null) : null);
     // Project saves (the document, slots, settings; inert without a save schema).
     this.saves = new RuntimeSaves(args.saveSchema, this.hz, this.buildSaveSections(), args.projectSettings, (message) => this.recordBehaviorLog('thirdlight.runtime:saves', 'warn', message));
-    for (const c of args.animatorControllers) this.animatorControllers.set(c.controllerId, c);
-    this.addAnimators(args.initialEntities);
+    this.animators = new AnimatorSystem(args.animatorControllers, {
+      hz: this.hz,
+      seed: randomSeedOf(this.settings),
+      characterId: () => this.controllerEntityId ?? '',
+      transformOf: (id) => this.curr.get(id),
+      grounded: () => (this.physics3d !== undefined ? (this.lastCharacterResult3D?.grounded ?? true) : (this.lastCharacterResult?.grounded ?? true)),
+      inactive: () => this.entityAccess.inactive(),
+      stepIndex: () => this.stepIndex,
+    });
+    this.animators.add(args.initialEntities);
     // The audio intent log (clip lengths from the snapshot's recorded durations).
     this.audio = new AudioMixer(this.hz, args.audioDurations, () => this.stepIndex);
     this.audioControl = createScriptAudio(this.audio, (id) => this.sceneOfEntity(id));
@@ -1700,24 +1701,6 @@ class RuntimeInstance implements Runtime {
       },
       args.initialEntities,
     );
-    this.animatorControl = Object.freeze({
-      of: (entityId: string): BehaviorAnimatorHandle | null => {
-        const rec = this.animatorMachines.get(String(entityId));
-        if (rec === undefined) return null;
-        const m = rec.machine;
-        return Object.freeze({
-          set: (name: string, value: number | boolean) => m.set(String(name), value),
-          trigger: (name: string) => m.trigger(String(name)),
-          get: (name: string) => m.get(String(name)),
-          state: (layer?: number) => m.stateName(typeof layer === 'number' && Number.isInteger(layer) && layer >= 0 ? layer : 0),
-          // Per-instance playback speed and morph weights.
-          setSpeed: (speed: number) => m.setSpeed(speed),
-          speed: () => m.speed(),
-          setMorph: (name: string, weight: number) => m.setMorph(String(name), weight),
-          morph: (name: string) => m.morph(String(name)),
-        });
-      },
-    });
     // Sockets — the start set's authored ones attach now and sit on their nodes from the first frame.
     this.sockets = new SocketSystem(args.rigs, {
       get curr() {
@@ -1725,7 +1708,7 @@ class RuntimeInstance implements Runtime {
       },
       parentOf: (id: string) => rt.entities.get(id)?.parentId ?? (rt.entities.has(id) ? null : undefined),
       componentsOf: (id: string) => rt.entities.get(id)?.componentKinds ?? (rt.entities.has(id) ? [] : undefined),
-      poseOf: (id: string) => rt.animatorMachines.get(id)?.machine.pose() ?? null,
+      poseOf: (id: string) => rt.animators.poseOf(id),
       warn: (message: string) => rt.recordBehaviorLog('thirdlight.runtime:sockets', 'warn', message),
     });
     this.sockets.add(args.initialEntities);
@@ -1785,99 +1768,6 @@ class RuntimeInstance implements Runtime {
         return Object.freeze({ position: Object.freeze([p[0]!, p[1]!, p[2]!] as const), rotation: Object.freeze([r[0]!, r[1]!, r[2]!, r[3]!] as const) });
       },
     });
-  }
-
-  // ---- Animators -------------------------------------------------
-
-  /** Start an animator for every entity of these that has one (and whose controller exists). */
-  private addAnimators(entities: readonly EntityV3[]): void {
-    for (const e of entities) {
-      if (e.parentId !== undefined) this.parentOf.set(e.id, e.parentId);
-      const a = (e.components as { animator?: { controller: string; parameters?: Record<string, number | boolean> } }).animator;
-      if (a === undefined) continue;
-      const controller = this.animatorControllers.get(a.controller);
-      if (controller === undefined) continue;
-      this.animatorMachines.set(e.id, { machine: new AnimatorMachine(controller, a.parameters ?? {}), entity: e });
-    }
-  }
-
-  private removeAnimators(ids: ReadonlySet<string>): void {
-    for (const id of ids) {
-      this.animatorMachines.delete(id);
-      this.parentOf.delete(id);
-    }
-  }
-
-  /** Back to the entry states (a replay or a new run). */
-  private resetAnimators(): void {
-    const entities = [...this.animatorMachines.values()].map((r) => r.entity);
-    this.animatorMachines.clear();
-    this.addAnimators(entities);
-    this.animatorEvents = Object.freeze([]);
-    this.animatorWasGrounded = true;
-    this.animatorLastPos = null;
-  }
-
-  /** The character the locomotion parameters describe: the controller's object. */
-  private animatedCharacter(): string {
-    return this.controllerEntityId ?? '';
-  }
-
-  private isPlayerOrChild(id: string): boolean {
-    const character = this.animatedCharacter();
-    if (character === '') return false;
-    let cur: string | undefined = id;
-    for (let depth = 0; cur !== undefined && depth < 64; depth++) {
-      if (cur === character) return true;
-      cur = this.parentOf.get(cur);
-    }
-    return false;
-  }
-
-  /**
-   * The character's motion over the last step (its position a
-   * step ago; null after a reset): horizontal speed (x and z), vertical
-   * velocity and the controller's grounding.
-   */
-  private animatorLastPos: [number, number, number] | null = null;
-  private characterMotion(): { speed: number; vy: number; grounded: boolean } {
-    const id = this.animatedCharacter();
-    const t = id !== '' ? this.curr.get(id) : undefined;
-    const grounded = this.physics3d !== undefined ? this.lastCharacterResult3D?.grounded ?? true : this.lastCharacterResult?.grounded ?? true;
-    if (t === undefined) return { speed: 0, vy: 0, grounded };
-    const p = t.position;
-    const last = this.animatorLastPos;
-    this.animatorLastPos = [p[0], p[1], p[2]];
-    if (last === null) return { speed: 0, vy: 0, grounded };
-    return { speed: Math.hypot(p[0] - last[0], p[2] - last[2]) * this.hz, vy: (p[1] - last[1]) * this.hz, grounded };
-  }
-
-  /**
-   * Advance every animator by one fixed step. The character's animators get
-   * `speed` (horizontal, m/s), `grounded`, `velocityY` and the `landed`
-   * trigger from the committed motion, when their controller has them — the
-   * controller's object.
-   */
-  private stepAnimators(): void {
-    if (this.animatorMachines.size === 0) return;
-    const { speed, vy, grounded } = this.characterMotion();
-    const landed = grounded && !this.animatorWasGrounded;
-    this.animatorWasGrounded = grounded;
-    const fired: AnimatorEventRecord[] = [];
-    const dt = 1 / this.hz;
-    const off = this.entityAccess.inactive();
-    for (const [id, { machine }] of this.animatorMachines) {
-      // A switched-off object's animator holds its pose.
-      if (off.size > 0 && off.has(id)) continue;
-      if (this.isPlayerOrChild(id)) {
-        machine.set('speed', speed);
-        machine.set('grounded', grounded);
-        machine.set('velocityY', vy);
-        if (landed) machine.trigger('landed');
-      }
-      for (const e of machine.step(dt)) fired.push(Object.freeze({ entityId: id, name: e.name, clip: e.clip, stepIndex: this.stepIndex }));
-    }
-    this.animatorEvents = Object.freeze(fired);
   }
 
   /**
@@ -2268,9 +2158,7 @@ class RuntimeInstance implements Runtime {
 
   /** Every loaded animator's pose (the renderer plays these). */
   animatorPoses(): ReadonlyMap<string, AnimatorPose> {
-    const out = new Map<string, AnimatorPose>();
-    for (const [id, { machine }] of this.animatorMachines) out.set(id, machine.pose());
-    return out;
+    return this.animators.poses();
   }
 
   start(): { ok: true } | { ok: false; error: RuntimeError } {
@@ -2927,7 +2815,7 @@ class RuntimeInstance implements Runtime {
     this.prev = backup; // prev := curr at the end of step n−1
     this.stepIndex += 1;
     this.simTime = this.stepIndex / this.hz; // single division
-    this.stepAnimators();
+    this.animators.step();
     // Attached entities follow their nodes (posed by the animators just stepped).
     this.stepSockets(null);
     // Cells written after the physics phase collide from the next step.
@@ -3106,7 +2994,7 @@ class RuntimeInstance implements Runtime {
     this.grid.flushCollision(this.physics3d);
     this.committedMirror.copyFrom(this.curr, this.currShape);
     this.committed = this.committedMirror.map;
-    this.stepAnimators();
+    this.animators.step();
     // Attached entities follow their nodes (posed by the animators just stepped); the committed copy too.
     this.stepSockets(this.committed);
     // The step's scene requests commit with it.
@@ -3324,7 +3212,7 @@ class RuntimeInstance implements Runtime {
     // The look starts over too: the first start scene's, no preset (a replay sees what the first run saw).
     this.environment.reset();
     this.cursorMode = null;
-    this.resetAnimators();
+    this.animators.reset();
     this.sockets.reset();
     this.settleSockets();
     this.blocks?.resetRun();
@@ -3631,7 +3519,7 @@ class RuntimeInstance implements Runtime {
    */
   private playEventCues(): void {
     const log = this.blocks?.takeCueLog() ?? null;
-    const clips = this.animatorEvents;
+    const clips = this.animators.events;
     if (log === null && clips.length === 0) return;
     for (const c of this.eventCues) {
       let hit = false;
@@ -3685,7 +3573,7 @@ class RuntimeInstance implements Runtime {
       cameraProgress: (id, progress) => void rt.views.main.set(id, { progress }),
       cameraActivate: (id) => void rt.views.main.activate(id),
       animator: (id) => {
-        const m = rt.animatorMachines.get(id)?.machine;
+        const m = rt.animators.machine(id);
         if (m === undefined) return null;
         return { set: (name, value) => m.set(name, value), trigger: (name) => m.trigger(name), play: (state, fade, layer) => m.play(state, fade, layer) };
       },
@@ -4161,7 +4049,7 @@ class RuntimeInstance implements Runtime {
     // Their behavior groups (game modes tick groups).
     this.noteBehaviorGroups(frozen);
     this.liveTags?.add(frozen as readonly { id: string; tags?: number }[]);
-    this.addAnimators(frozen);
+    this.animators.add(frozen);
     this.blocks?.add(frozen);
     this.views.add(frozen);
     // Their models and authored sockets (resolved at the end of the step).
@@ -4280,7 +4168,7 @@ class RuntimeInstance implements Runtime {
     this.order = this.order.filter((id) => !ids.has(id));
     this.entityCount = this.order.length;
     this.liveTags?.remove(ids);
-    this.removeAnimators(ids);
+    this.animators.remove(ids);
     this.blocks?.remove(ids);
     this.views.remove(ids);
     // Their written fields go with them.
@@ -4557,8 +4445,8 @@ class RuntimeInstance implements Runtime {
         emit: { value: (intent: BehaviorIntent): void => rt.commitIntent(entry, phase, intent), enumerable: true },
       };
       if (this.sceneRows !== null) fields['scenes'] = { value: this.sceneControl, enumerable: true };
-      fields['animators'] = { value: this.animatorControl, enumerable: true };
-      fields['animatorEvents'] = { get: () => rt.animatorEvents, enumerable: true };
+      fields['animators'] = { value: this.animators.control, enumerable: true };
+      fields['animatorEvents'] = { get: () => rt.animators.events, enumerable: true };
       fields['signals'] = { value: this.signalControl, enumerable: true };
       fields['messages'] = { value: this.messageControl, enumerable: true };
       fields['game'] = { value: this.gameControl, enumerable: true };

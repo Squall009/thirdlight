@@ -64,13 +64,33 @@ export type AnimatorMotion =
   | {
       kind: 'blend1d';
       parameter: string;
-      /** `position`: where the graph editor draws the clip (editor-only). */
-      children: { threshold: number; clip: AnimatorClipRef; position?: [number, number] }[];
+      /**
+       * `speed`: the ground speed (m/s) the clip was authored for. When every
+       * child has one, the tree reads its parameter as a ground speed and
+       * scales time so the blended speed matches it (Unity's homogeneous
+       * speed): feet stay planted across the whole range, not only at the
+       * thresholds. `position`: where the graph editor draws the clip
+       * (editor-only).
+       */
+      children: AnimatorBlendChild[];
       /** The blend tree graph's layout (editor-only). */
       layout?: AnimatorLayout;
     }
   /** Override layers only: nothing plays (the layers under it show through). */
   | { kind: 'empty' };
+
+/** One clip of a 1D blend tree. */
+export interface AnimatorBlendChild {
+  threshold: number;
+  clip: AnimatorClipRef;
+  /**
+   * The ground speed (m/s) the clip was authored for. The tree matches its
+   * parameter only when every child has one (a tree being filled in clip by
+   * clip plays as authored until then).
+   */
+  speed?: number;
+  position?: [number, number];
+}
 
 export interface AnimatorState {
   id: string;
@@ -159,6 +179,17 @@ export interface AnimatorComponent {
   controller: string;
   /** Initial parameter values for this entity. */
   parameters?: Record<string, number | boolean>;
+  /**
+   * Where every layer's entry state starts, in normalized time (0–1 = one
+   * length of its motion; absent: 0).
+   */
+  startTime?: number;
+  /**
+   * Start at a random normalized time drawn from the game's seeded random
+   * numbers (the project's `random_seed` and the object's id), so copies of
+   * one character do not move in step and a replay starts them alike.
+   */
+  randomStart?: boolean;
 }
 
 export const MAX_ANIMATOR_PARAMETERS = 32;
@@ -167,6 +198,8 @@ export const MAX_ANIMATOR_TRANSITIONS = 256;
 export const MAX_ANIMATOR_CONDITIONS = 8;
 export const MAX_ANIMATOR_EVENTS = 64;
 export const MAX_BLEND_CHILDREN = 16;
+/** A blend clip's ground speed bound (m/s): well past any running or driving clip. */
+export const MAX_BLEND_GROUND_SPEED = 1000;
 /** Override layers besides the base layer. */
 export const MAX_ANIMATOR_LAYERS = 3;
 /** Bone names in one layer mask (the import cap on joints per skin). */
@@ -301,8 +334,9 @@ function checkGraph(v: Record<string, unknown>, path: string, params: ReadonlyMa
           kids.forEach((k, j) => {
             const kp = `${sp}/motion/children/${j}`;
             if (!isPlainObject(k)) return err(errors, 'field_type', kp, 'a blend child is { threshold, clip }', k);
-            onlyKeys(k, ['threshold', 'clip', 'position'], kp, errors);
+            onlyKeys(k, ['threshold', 'clip', 'speed', 'position'], kp, errors);
             if (k['position'] !== undefined && !pos2(k['position'])) err(errors, 'field_value', `${kp}/position`, 'position is [x, y]', k['position']);
+            if (k['speed'] !== undefined && !num(k['speed'], 0, MAX_BLEND_GROUND_SPEED)) err(errors, 'field_value', `${kp}/speed`, `speed is the clip's ground speed in m/s [0, ${MAX_BLEND_GROUND_SPEED}]`, k['speed']);
             if (!num(k['threshold'], -1e6, 1e6) || k['threshold'] <= last) err(errors, 'field_value', `${kp}/threshold`, 'thresholds are numbers in increasing order', k['threshold']);
             else last = k['threshold'];
             checkClip(k['clip'], `${kp}/clip`, errors);
@@ -453,9 +487,12 @@ export function validateAnimators(value: unknown, path: string, errors: ModelErr
 
 /** The `animator` component (its controller is checked against the content). */
 export function validateAnimatorComponent(value: unknown, path: string, errors: ModelErrorV2[]): void {
-  if (!isPlainObject(value)) return err(errors, 'field_type', path, 'animator is { controller, parameters? }', value);
-  onlyKeys(value, ['controller', 'parameters'], path, errors);
+  if (!isPlainObject(value)) return err(errors, 'field_type', path, 'animator is { controller, parameters?, startTime?, randomStart? }', value);
+  onlyKeys(value, ['controller', 'parameters', 'startTime', 'randomStart'], path, errors);
   if (typeof value['controller'] !== 'string' || !ID_RE.test(value['controller'])) err(errors, 'field_value', `${path}/controller`, 'controller is a controller id', value['controller']);
+  if (value['startTime'] !== undefined && !num(value['startTime'], 0, 1)) err(errors, 'field_value', `${path}/startTime`, 'startTime is a normalized time [0, 1]', value['startTime']);
+  if (value['randomStart'] !== undefined && typeof value['randomStart'] !== 'boolean') err(errors, 'field_type', `${path}/randomStart`, 'randomStart is true or false', value['randomStart']);
+  if (value['randomStart'] === true && value['startTime'] !== undefined) err(errors, 'field_value', `${path}/startTime`, 'a random start draws its own time: set startTime or randomStart, not both', value['startTime']);
   const p = value['parameters'];
   if (p === undefined) return;
   if (!isPlainObject(p) || Object.keys(p).length > MAX_ANIMATOR_PARAMETERS) return err(errors, 'field_value', `${path}/parameters`, 'parameters maps parameter names to numbers or booleans', p);
@@ -491,7 +528,7 @@ const canonicalMotion = (m: AnimatorMotion): AnimatorMotion =>
   m.kind === 'clip'
     ? { kind: 'clip', clip: clipOf(m.clip) }
     : m.kind === 'blend1d'
-      ? { kind: 'blend1d', parameter: m.parameter, children: m.children.map((k) => ({ threshold: k.threshold, clip: clipOf(k.clip), ...(k.position !== undefined ? { position: p2(k.position) } : {}) })), ...withLayout(m.layout) }
+      ? { kind: 'blend1d', parameter: m.parameter, children: m.children.map((k) => ({ threshold: k.threshold, clip: clipOf(k.clip), ...(k.speed !== undefined ? { speed: k.speed } : {}), ...(k.position !== undefined ? { position: p2(k.position) } : {}) })), ...withLayout(m.layout) }
       : { kind: 'empty' };
 const canonicalStates = (list: readonly AnimatorState[]): AnimatorState[] =>
   list.map((s) => ({
@@ -549,7 +586,7 @@ export function canonicalAnimatorController(c: AnimatorController): AnimatorCont
  * which the game never reads (and whose free text must not reach an export).
  */
 export function animatorsForRuntime(list: readonly AnimatorController[]): AnimatorController[] {
-  const motion = (m: AnimatorMotion): AnimatorMotion => (m.kind === 'blend1d' ? { kind: 'blend1d', parameter: m.parameter, children: m.children.map((k) => ({ threshold: k.threshold, clip: k.clip })) } : m);
+  const motion = (m: AnimatorMotion): AnimatorMotion => (m.kind === 'blend1d' ? { kind: 'blend1d', parameter: m.parameter, children: m.children.map((k) => ({ threshold: k.threshold, clip: k.clip, ...(k.speed !== undefined ? { speed: k.speed } : {}) })) } : m);
   const states = (ss: readonly AnimatorState[]): AnimatorState[] => ss.map((s) => (s.motion.kind === 'blend1d' ? { ...s, motion: motion(s.motion) } : s));
   return list.map((c) => {
     const { layout: _l, ...rest } = c;
@@ -576,6 +613,8 @@ export function canonicalAnimatorComponent(c: AnimatorComponent): AnimatorCompon
   return {
     controller: c.controller,
     ...(c.parameters !== undefined ? { parameters: Object.fromEntries(Object.keys(c.parameters).sort().map((k) => [k, c.parameters![k]!])) } : {}),
+    ...(c.startTime !== undefined ? { startTime: c.startTime } : {}),
+    ...(c.randomStart !== undefined ? { randomStart: c.randomStart } : {}),
   };
 }
 

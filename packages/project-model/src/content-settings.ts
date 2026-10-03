@@ -108,7 +108,7 @@ export const M2_SETTINGS_KEYS: readonly SettingsKeySpec[] = [
   // it). 0, off: a release build must never ship a console by accident; a
   // test or playtest build turns it on.
   { key: 'debug_console', type: 'number', default: 0, values: [0, 1], valueLabels: ['Off', 'On'], integer: true, unit: '', optional: true, group: 'Engine', label: 'Debug console in export', tooltip: 'Whether an exported game has the debug console (the ` key: the project\'s debug commands). Play always has it. Leave it off for a release build.' },
-  { key: 'random_seed', type: 'number', default: 0, min: 0, max: 4294967295, integer: true, unit: '', optional: true, group: 'Engine', label: 'Random seed', tooltip: 'The seed of the scripts\' random numbers (ctx.random): the same seed gives the same numbers in every run, replay and export; change it to get a different, still repeatable, sequence (0 to 4294967295).' },
+  { key: 'random_seed', type: 'number', default: 0, min: 0, max: 4294967295, integer: true, unit: '', optional: true, group: 'Engine', label: 'Random seed', tooltip: 'The seed of the scripts\' random numbers (ctx.random) and of animators\' random start times: the same seed gives the same numbers in every run, replay and export; change it to get a different, still repeatable, sequence (0 to 4294967295).' },
   // The depth buffer's precision (three-adapter DEPTH_BUFFER_SETTING_VALUES).
   // 1, standard: what every project drew with before; a level of any genre at
   // the usual near/far planes needs nothing else. Logarithmic or reversed-Z keep

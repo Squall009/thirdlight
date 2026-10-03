@@ -8,7 +8,7 @@ import { ASSET_METRIC_CAPS, AUDIO_MAX_LATE_MS_DEFAULT, AUDIO_MAX_LATE_MS_LIMIT }
 import { SHELL_LIMITS, SHELL_SCREENS, SHELL_SIMULATE } from './shell';
 import { SAVE_LIMITS, SAVE_SECTIONS } from './save-schema';
 import { MAX_ANIMATOR_MORPHS } from './animator';
-import { ANIMATOR_CONDITION_OPS, ANIMATOR_PARAMETER_TYPES, MAX_ANIMATOR_CONDITIONS, MAX_ANIMATOR_EVENTS, MAX_ANIMATOR_LAYERS, MAX_ANIMATOR_PARAMETERS, MAX_ANIMATOR_STATES, MAX_ANIMATOR_TRANSITIONS, MAX_BLEND_CHILDREN, MAX_LAYER_MASK } from './animator';
+import { ANIMATOR_CONDITION_OPS, ANIMATOR_PARAMETER_TYPES, MAX_ANIMATOR_CONDITIONS, MAX_ANIMATOR_EVENTS, MAX_ANIMATOR_LAYERS, MAX_ANIMATOR_PARAMETERS, MAX_ANIMATOR_STATES, MAX_ANIMATOR_TRANSITIONS, MAX_BLEND_CHILDREN, MAX_BLEND_GROUND_SPEED, MAX_LAYER_MASK } from './animator';
 import { MAX_TRANSITION_FADE } from './blocks';
 import { MAX_COLLISION_LAYERS } from './components';
 import { RESOURCE_KIND_TABLE } from './loadable';
@@ -288,6 +288,7 @@ const STATES = (allowEmpty: boolean): ListFieldDescriptor =>
       list('children', 'Clips', `2–${MAX_BLEND_CHILDREN} clips by threshold (increasing).`, obj('*', 'Blend clip', 'A clip and its threshold.', [
         num('threshold', 'Threshold', 'The parameter value where this clip plays fully.', { required: true, min: -1e6, max: 1e6, step: 0.1 }),
         { ...CLIP, required: true },
+        num('speed', 'Ground speed', 'The ground speed the clip was authored for. Set on every clip, the tree reads its parameter as a ground speed and scales time so the blended speed matches it (feet stay planted between the thresholds).', { min: 0, max: MAX_BLEND_GROUND_SPEED, step: 0.1, unit: 'm/s' }),
         // Editor-only (the blend tree graph).
         vec2('position', 'Graph position', 'Where the blend tree graph draws the clip (editor only).', { min: -1e6, max: 1e6, step: 1 }),
       ]), { required: true, when: when('kind', 'blend1d'), minItems: 2, maxItems: MAX_BLEND_CHILDREN }),

@@ -529,6 +529,7 @@ export function bootstrapPreviewM3(): void {
       ...rendererObservation(h),
       ...effectsObservation(h),
       ...(behaviors !== null ? { behaviors } : {}),
+      ...(entityId !== undefined ? animatorPoseOf(h.host.runtime, entityId) : {}),
       ...(debug !== null && debug !== undefined ? { debug } : {}),
       ...debugCommandsObservation(h),
       ...savesObservationOf(h.host),
@@ -767,6 +768,15 @@ function spawnedObservation(runtime: unknown): { spawned?: { count: number; ids:
   const set = (runtime as { sceneSet?: () => { spawned?: readonly { id: string }[] } }).sceneSet?.();
   if (set?.spawned === undefined) return {};
   return { spawned: { count: set.spawned.length, ids: set.spawned.slice(0, 64).map((e) => e.id) } };
+}
+
+/**
+ * One object's animator pose (asked with an entity id): its states, and the
+ * clips each layer plays with their times (seconds) and weights.
+ */
+function animatorPoseOf(runtime: unknown, entityId: string): { animator?: unknown } {
+  const pose = (runtime as { animatorPoses?: () => ReadonlyMap<string, unknown> }).animatorPoses?.().get(entityId);
+  return pose !== undefined ? { animator: structuredClone(pose) } : {};
 }
 
 function animatorStates(runtime: unknown): { animators?: Record<string, string> } {

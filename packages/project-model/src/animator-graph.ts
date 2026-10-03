@@ -33,6 +33,7 @@ import { ID_RE } from './validate';
 import {
   canonicalAnimatorController,
   validateAnimatorController,
+  type AnimatorBlendChild,
   type AnimatorClipRef,
   type AnimatorController,
   type AnimatorLayout,
@@ -195,7 +196,7 @@ export function animatorGraphOf(c: AnimatorController, target: AnimatorOwnerTarg
       type: 'clip',
       position: positions[i]!,
       ...(collapsed.has(`C${i}`) ? { collapsed: true as const } : {}),
-      data: { ...(k.threshold !== 0 ? { threshold: k.threshold } : {}), ...clipData(k.clip) },
+      data: { ...(k.threshold !== 0 ? { threshold: k.threshold } : {}), ...clipData(k.clip), ...(k.speed !== undefined ? { speed: k.speed } : {}) },
     }));
     const maxX = Math.max(...positions.map((p) => p[0]));
     const midY = positions.reduce((a, p) => a + p[1], 0) / Math.max(1, positions.length);
@@ -364,14 +365,15 @@ function writeBlend(c: AnimatorController, stateId: string, graph: GraphData): A
   if (outNode === undefined) return { ok: false, message: 'a blend tree graph keeps its Blend node' };
   const clipNodes = graph.nodes.filter((n) => n.type === 'clip');
   const fallback = m.children[0]?.clip ?? firstClip(c);
-  const items: { id: string; child: { threshold: number; clip: AnimatorClipRef; position: [number, number] } }[] = [];
+  const items: { id: string; child: AnimatorBlendChild }[] = [];
   for (const n of clipNodes) {
     const d = n.data ?? {};
     const i = /^C[0-9]+$/.test(n.id) ? Number(n.id.slice(1)) : -1;
     const prev = i >= 0 ? m.children[i] : undefined;
     const clip = clipFrom(d, prev?.clip ?? fallback);
     if (clip === null) return { ok: false, message: `blend clip "${n.id}" needs a clip` };
-    items.push({ id: n.id, child: { threshold: numOr(d['threshold'], 0), clip, position: [n.position[0], n.position[1]] } });
+    const speed = numOr(d['speed'], -1);
+    items.push({ id: n.id, child: { threshold: numOr(d['threshold'], 0), clip, ...(speed >= 0 ? { speed } : {}), position: [n.position[0], n.position[1]] } });
   }
   if (items.length < 2) return { ok: false, message: 'a blend tree has at least two clips' };
   // Children in threshold order (the stored order); equal thresholds are refused by validation.

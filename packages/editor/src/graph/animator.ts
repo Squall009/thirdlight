@@ -174,7 +174,7 @@ export function animatorGraphOf(c: AnimatorController, target: AnimatorOwnerTarg
       type: 'clip',
       position: positions[i]!,
       ...(collapsed.has(`C${i}`) ? { collapsed: true as const } : {}),
-      data: { ...(k.threshold !== 0 ? { threshold: k.threshold } : {}), ...clipData(k.clip) },
+      data: { ...(k.threshold !== 0 ? { threshold: k.threshold } : {}), ...clipData(k.clip), ...(k.speed !== undefined ? { speed: k.speed } : {}) },
     }));
     const maxX = Math.max(...positions.map((p) => p[0]));
     const midY = positions.reduce((a, p) => a + p[1], 0) / Math.max(1, positions.length);

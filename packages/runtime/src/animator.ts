@@ -14,6 +14,15 @@
  *   transition of the source state with `interruption: "source"` may cut in.
  * - Time is normalized per state (1 = one clip length; a blend tree uses the
  *   blend-weighted length), so blended clips stay in step.
+ * - Homogeneous speed: when every clip of a blend tree carries the ground
+ *   speed it was authored for, the tree reads its parameter as a ground speed
+ *   and scales time so the blended clips cover the ground at the parameter's
+ *   speed (each clip's speed × the rate it plays at, weighted) everywhere in the
+ *   range, below the first and past the last threshold too (Unity's "adjust
+ *   time scale: homogeneous speed"). Where the blended speed is 0 (a standing
+ *   clip alone) the tree plays as authored.
+ * - Start time: each layer's entry state starts at the machine's start
+ *   (normalized), and `play` may name the time the new state starts at.
  * - Clip events fire when a playing clip (weight > 0) passes their time.
  *
  * Override layers. Each layer is its own state machine over the
@@ -36,7 +45,7 @@ export interface AnimatorClipLike {
 
 type MotionLike =
   | { readonly kind: 'clip'; readonly clip: AnimatorClipLike }
-  | { readonly kind: 'blend1d'; readonly parameter: string; readonly children: readonly { readonly threshold: number; readonly clip: AnimatorClipLike }[] }
+  | { readonly kind: 'blend1d'; readonly parameter: string; readonly children: readonly { readonly threshold: number; readonly clip: AnimatorClipLike; readonly speed?: number }[] }
   | { readonly kind: 'empty' };
 
 interface StateLike {
@@ -152,10 +161,11 @@ class LayerGraph {
     private readonly graph: GraphLike,
     private readonly params: Params,
     private readonly events: AnimatorControllerLike['events'],
+    start: number,
   ) {
     for (const s of graph.states) this.states.set(s.id, s);
     const entry = this.states.get(graph.entry) ?? graph.states[0]!;
-    this.current = { state: entry, nt: 0 };
+    this.current = { state: entry, nt: start };
   }
 
   stateName(): string {
@@ -194,11 +204,11 @@ class LayerGraph {
     return true;
   }
 
-  fire(t: TransitionLike): void {
+  fire(t: TransitionLike, startAt = 0): void {
     for (const c of t.conditions) if (c.op === 'trigger') this.params.reset(c.parameter);
     const to = this.states.get(t.to);
     if (to === undefined) return;
-    const target: Playing = { state: to, nt: 0 };
+    const target: Playing = { state: to, nt: startAt };
     if (t.duration <= 0) {
       this.current = target;
       this.next = null;
@@ -211,14 +221,15 @@ class LayerGraph {
 
   /**
    * Go to the state named `name` (by name, then id) over `fade`
-   * seconds (0: at once) — a transition made on the spot. False: no such state.
+   * seconds (0: at once), starting it at normalized time `time` — a
+   * transition made on the spot. False: no such state.
    */
-  play(name: string, fade: number): boolean {
+  play(name: string, fade: number, time = 0): boolean {
     let to: StateLike | undefined;
     for (const st of this.states.values()) if (st.name === name) to = to ?? st;
     to = to ?? this.states.get(name);
     if (to === undefined) return false;
-    this.fire({ from: this.current.state.id, to: to.id, conditions: [], duration: fade > 0 && Number.isFinite(fade) ? fade : 0 });
+    this.fire({ from: this.current.state.id, to: to.id, conditions: [], duration: fade > 0 && Number.isFinite(fade) ? fade : 0 }, time);
     return true;
   }
 
@@ -235,28 +246,28 @@ class LayerGraph {
     return null;
   }
 
-  /** Blend weights of a state's clips (one clip: weight 1; empty: none). */
-  private weights(state: StateLike): { clip: AnimatorClipLike; weight: number }[] {
+  /** Blend weights of a state's clips (one clip: weight 1; empty: none), with each blend clip's ground speed. */
+  private weights(state: StateLike): { clip: AnimatorClipLike; weight: number; speed?: number | undefined }[] {
     const m = state.motion;
     if (m.kind === 'clip') return [{ clip: m.clip, weight: 1 }];
     if (m.kind !== 'blend1d') return [];
     const x = this.params.num(m.parameter);
     const kids = m.children;
-    if (x <= kids[0]!.threshold) return [{ clip: kids[0]!.clip, weight: 1 }];
+    if (x <= kids[0]!.threshold) return [{ clip: kids[0]!.clip, weight: 1, speed: kids[0]!.speed }];
     const last = kids[kids.length - 1]!;
-    if (x >= last.threshold) return [{ clip: last.clip, weight: 1 }];
+    if (x >= last.threshold) return [{ clip: last.clip, weight: 1, speed: last.speed }];
     for (let i = 0; i + 1 < kids.length; i++) {
       const a = kids[i]!;
       const b = kids[i + 1]!;
       if (x >= a.threshold && x <= b.threshold) {
         const f = (x - a.threshold) / (b.threshold - a.threshold);
         return [
-          { clip: a.clip, weight: 1 - f },
-          { clip: b.clip, weight: f },
+          { clip: a.clip, weight: 1 - f, speed: a.speed },
+          { clip: b.clip, weight: f, speed: b.speed },
         ].filter((w) => w.weight > 0);
       }
     }
-    return [{ clip: last.clip, weight: 1 }];
+    return [{ clip: last.clip, weight: 1, speed: last.speed }];
   }
 
   private length(state: StateLike): number {
@@ -269,7 +280,27 @@ class LayerGraph {
   }
 
   private rate(state: StateLike): number {
-    return state.speed * (state.speedParameter !== undefined ? this.params.num(state.speedParameter) : 1);
+    return state.speed * (state.speedParameter !== undefined ? this.params.num(state.speedParameter) : 1) * this.groundScale(state);
+  }
+
+  /**
+   * A blend tree's homogeneous-speed time scale (1 without speeds). Clip i
+   * plays `rate × dᵢ / L` of its seconds a second (L = Σ wᵢ·dᵢ, the
+   * blend-weighted length) and covers sᵢ metres a second of its own time, so
+   * the blend covers rate × Σ wᵢ·sᵢ·dᵢ / L; the scale makes that the
+   * parameter.
+   */
+  private groundScale(state: StateLike): number {
+    const m = state.motion;
+    if (m.kind !== 'blend1d' || m.children.some((k) => k.speed === undefined)) return 1;
+    let ground = 0;
+    let length = 0;
+    for (const w of this.weights(state)) {
+      ground += w.weight * (w.speed ?? 0) * w.clip.duration;
+      length += w.weight * w.clip.duration;
+    }
+    if (!(ground > 1e-9)) return 1;
+    return (Math.max(0, this.params.num(m.parameter)) * length) / ground;
   }
 
   private clipTime(p: Playing, clip: AnimatorClipLike): number {
@@ -338,7 +369,8 @@ export class AnimatorMachine {
   private readonly morphBindings: readonly { readonly target: string; readonly parameter: string }[];
   private readonly scriptMorphs = new Map<string, number>();
 
-  constructor(controller: AnimatorControllerLike, overrides: Readonly<Record<string, AnimatorValue>> = {}) {
+  /** `start`: the normalized time every layer's entry state starts at (0: its beginning). */
+  constructor(controller: AnimatorControllerLike, overrides: Readonly<Record<string, AnimatorValue>> = {}, start = 0) {
     for (const p of controller.parameters) {
       this.types.set(p.name, p.type);
       this.params.set(p.name, p.type === 'trigger' ? false : (p.default ?? (p.type === 'bool' ? false : 0)));
@@ -350,7 +382,8 @@ export class AnimatorMachine {
       reset: (name) => void this.params.set(name, false),
     };
     this.layers = controller.layers ?? [];
-    this.graphs = [controller, ...this.layers].map((g) => new LayerGraph(g, store, controller.events));
+    const at = Number.isFinite(start) && start > 0 ? start : 0;
+    this.graphs = [controller, ...this.layers].map((g) => new LayerGraph(g, store, controller.events, at));
     this.morphBindings = controller.morphs ?? [];
   }
 
@@ -422,10 +455,16 @@ export class AnimatorMachine {
     return this.params.get(name);
   }
 
-  /** Go to a state of layer `layer` (0: the base layer) by name, crossfading over `fade` seconds (timeline animator keys). */
-  play(state: string, fade = 0, layer = 0): boolean {
+  /**
+   * Go to a state of layer `layer` (0: the base layer) by name, crossfading
+   * over `fade` seconds, the new state starting at normalized time `time`
+   * (0–1 of its length; timeline animator keys, scripts). False for an
+   * unknown state or layer, or a time that is not a finite number ≥ 0.
+   */
+  play(state: string, fade = 0, layer = 0, time = 0): boolean {
     const g = this.graphs[layer];
-    return g !== undefined && typeof state === 'string' && g.play(state, fade);
+    if (typeof time !== 'number' || !Number.isFinite(time) || time < 0) return false;
+    return g !== undefined && typeof state === 'string' && g.play(state, fade, time);
   }
 
   /**
