@@ -13,7 +13,7 @@
  * model already validated (`parentId`/`scale`/`rotation`) so the adapter can
  * refuse an unsupported transform instead of silently flattening it.
  */
-import type { CharacterClearanceResult, CharacterMoveResult, OverlapShape, PhysicsResetPort, StaticColliderSpec, Vec2 } from '@thirdlight/runtime';
+import type { CharacterClearanceResult, CharacterMoveResult, OverlapShape, PhysicsResetPort, RaycastHit, StaticColliderSpec, Vec2 } from '@thirdlight/runtime';
 
 /** Validated collider shape vocabulary (the project-model's). */
 export interface ColliderShapeBox {
@@ -115,9 +115,20 @@ export interface RapierCharacterSpec extends Vec2 {
   rotation?: readonly [number, number, number, number];
 }
 
+/** A further player character (a world with several player controllers): its object, and its own tuning (absent: the first's). */
+export interface RapierFurtherCharacterSpec extends RapierCharacterSpec {
+  id: string;
+  controller?: RapierControllerConfig;
+}
+
 export interface RapierPhysicsInitConfig {
-  /** Authored world XY center of the controller entity (root, unit scale, upright). */
+  /** Authored world XY center of the controller entity (root, unit scale, upright); the first, when there are several. */
   character: RapierCharacterSpec;
+  /**
+   * The further player characters (local co-op), keyed by their object.
+   * Each sweeps on its own; characters never collide with each other.
+   */
+  characters?: readonly RapierFurtherCharacterSpec[];
   /** Snapshot document order. */
   statics: readonly RapierStaticColliderSpec[];
   solver: RapierSolverConfig;
@@ -132,20 +143,25 @@ export interface RapierPhysicsInitConfig {
  */
 export interface RapierPhysicsPort extends PhysicsResetPort {
   readonly implementation: string;
-  stageCharacterMove(delta: Vec2): void;
+  stageCharacterMove(delta: Vec2, characterId?: string): void;
   step(): CharacterMoveResult;
-  reset(character: Vec2): void;
+  lastResultOf(characterId: string): CharacterMoveResult | undefined;
+  reset(character: Vec2, characterId?: string): void;
   /** Zero every cached/kinematic motion of the character. */
-  clearCharacterMotion(): void;
+  clearCharacterMotion(characterId?: string): void;
   /** Re-place the capsule centre and return the resulting clearance. */
-  placeCharacter(center: Vec2): CharacterClearanceResult;
+  placeCharacter(center: Vec2, characterId?: string): CharacterClearanceResult;
   /** Query-only clearance of the capsule if placed at `center`. */
-  characterClearance(center: Vec2): CharacterClearanceResult;
+  characterClearance(center: Vec2, characterId?: string): CharacterClearanceResult;
   /** The static colliders of a loaded / unloaded scene. */
   addStaticColliders(specs: readonly StaticColliderSpec[]): void;
   removeStaticColliders(entityIds: readonly string[]): void;
-  /** The entities whose colliders overlap a box or circle (the character excluded), sorted, at most 64. */
+  /** The entities whose colliders overlap a box or circle (the characters excluded), sorted, at most 64. */
   overlap(shape: OverlapShape, center: Vec2): string[];
+  /** The nearest collider hit by a ray (the characters excluded). */
+  raycast(origin: Vec2, direction: Vec2, maxDistance: number): RaycastHit | null;
+  /** Ignore one-way colliders for the next `steps` steps, for a character (absent: the first). */
+  dropThrough(steps: number, characterId?: string): void;
   diagnostics(): RapierPhysicsDiagnostics;
   dispose(): void;
 }
@@ -183,7 +199,7 @@ export interface RapierPhysicsDiagnostics {
   /** Steps whose requested movement was clamped by a contact. */
   penetrationCorrectedCount: number;
   implementation: string;
-  /** Live `World` collider count (statics + the character capsule). */
+  /** Live `World` collider count (statics + the character capsules). */
   worldColliderCount: number;
   /** Live `World` rigid-body count (one fixed body per static collider). */
   worldBodyCount: number;

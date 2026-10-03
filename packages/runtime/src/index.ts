@@ -102,6 +102,7 @@ export {
   type PhysicsStepClient,
   type StaticColliderSpec,
   type OverlapShape,
+  type RaycastHit,
   type Vec2,
   // The 3D port (a project with physics_dimension 3).
   validateCharacterMoveResult3D,

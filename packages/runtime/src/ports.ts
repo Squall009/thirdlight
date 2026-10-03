@@ -68,9 +68,17 @@ export interface PhysicsDiagnostics {
  */
 export interface PhysicsPort {
   readonly implementation?: string;
-  stageCharacterMove(delta: Vec2): void;
+  /**
+   * Stage a character's move for the next step. A world with several player
+   * controllers names the further characters by their object (the init
+   * config's `characters`); absent: the first character.
+   */
+  stageCharacterMove(delta: Vec2, characterId?: string): void;
+  /** Step the world once: every character sweeps its staged move; returns the first character's result. */
   step(): CharacterMoveResult;
-  reset?(character: Vec2): void;
+  /** A further character's result of the last step (undefined: no such character, or before the first step). */
+  lastResultOf?(characterId: string): CharacterMoveResult | undefined;
+  reset?(character: Vec2, characterId?: string): void;
   diagnostics?(): PhysicsDiagnostics;
   /**
    * Add the static colliders of a loaded scene / remove those
@@ -81,11 +89,11 @@ export interface PhysicsPort {
   removeStaticColliders?(entityIds: readonly string[]): void;
   /** Where the kinematic (mover) colliders are after this step's move. */
   setKinematicPositions?(poses: readonly { entityId: string; position: Vec2; rotationZ: number }[]): void;
-  /** Ignore one-way colliders for the next `steps` steps (drop through). */
-  dropThrough?(steps: number): void;
-  /** The nearest collider hit by a ray (the character excluded). */
+  /** Ignore one-way colliders for the next `steps` steps (drop through), for a character (absent: the first). */
+  dropThrough?(steps: number, characterId?: string): void;
+  /** The nearest collider hit by a ray (the characters excluded). */
   raycast?(origin: Vec2, direction: Vec2, maxDistance: number): RaycastHit | null;
-  /** The entities whose colliders overlap `shape` at `center` (the character excluded), sorted, at most 64. */
+  /** The entities whose colliders overlap `shape` at `center` (the characters excluded), sorted, at most 64. */
   overlap?(shape: OverlapShape, center: Vec2): string[];
   dispose(): void;
 }
@@ -241,12 +249,12 @@ export interface CharacterClearanceResult {
  * core carries the type only.
  */
 export interface PhysicsResetPort extends PhysicsPort {
-  /** Zero every cached/kinematic motion (velocity, pending correction) of the character. */
-  clearCharacterMotion(): void;
-  /** Re-place the capsule centre and return the resulting clearance. */
-  placeCharacter(center: Vec2): CharacterClearanceResult;
-  /** Query only: clearance of the capsule if placed at `center`. No mutation. */
-  characterClearance(center: Vec2): CharacterClearanceResult;
+  /** Zero every cached/kinematic motion (velocity, pending correction) of a character (absent: the first). */
+  clearCharacterMotion(characterId?: string): void;
+  /** Re-place a character's capsule centre and return the resulting clearance. */
+  placeCharacter(center: Vec2, characterId?: string): CharacterClearanceResult;
+  /** Query only: clearance of a character's capsule if placed at `center`. No mutation. */
+  characterClearance(center: Vec2, characterId?: string): CharacterClearanceResult;
 }
 
 export type CharacterMoveResultFailure = {
@@ -453,8 +461,14 @@ export interface RaycastHit3D {
  */
 export interface PhysicsInitConfig3D {
   readonly dimension: 3;
-  /** The controller entity: its origin, and its capsule (radius, centre-line half height, centre offset from the origin). */
+  /** The controller entity: its origin, and its capsule (radius, centre-line half height, centre offset from the origin); the first, when there are several. */
   character: { position: PhysicsVec3; radius: number; halfHeight: number; offset: PhysicsVec3 };
+  /**
+   * The further player characters (several player controllers, local co-op),
+   * keyed by their object, each with its own tuning (absent: the first's).
+   * Characters never collide with each other.
+   */
+  characters?: readonly ({ id: string; position: PhysicsVec3; radius: number; halfHeight: number; offset: PhysicsVec3; controller?: PhysicsInitConfig3D['controller'] })[];
   statics: readonly StaticColliderSpec3D[];
   /** The project's step rate and gravity along Y (−Y is down). */
   solver: { hz: number; gravityY: number };
@@ -483,22 +497,26 @@ export interface PhysicsPort3D {
   /** The discriminant: a 3D port (the 2D `PhysicsPort` has none). */
   readonly dimension: 3;
   readonly implementation?: string;
-  stageCharacterMove(delta: PhysicsVec3): void;
+  /** Stage a character's move (absent id: the first character; see the 2D port). */
+  stageCharacterMove(delta: PhysicsVec3, characterId?: string): void;
+  /** Step the world once: every character sweeps its staged move; returns the first character's result. */
   step(): CharacterMoveResult3D;
+  /** A further character's result of the last step (undefined: no such character, or before the first step). */
+  lastResultOf?(characterId: string): CharacterMoveResult3D | undefined;
   diagnostics?(): PhysicsDiagnostics;
   /** A loaded / unloaded scene's static colliders (at a step boundary). */
   addStaticColliders?(specs: readonly StaticColliderSpec3D[]): void;
   removeStaticColliders?(entityIds: readonly string[]): void;
-  /** The nearest collider hit by a ray (the character excluded; only those the filter lets through). */
+  /** The nearest collider hit by a ray (the characters excluded; only those the filter lets through). */
   raycast?(origin: PhysicsVec3, direction: PhysicsVec3, maxDistance: number, filter?: PhysicsQueryFilter3D): RaycastHit3D | null;
   /** Where the kinematic (mover) colliders go with this step's world update (after the character's sweep). */
   setKinematicPoses?(poses: readonly KinematicPose3D[]): void;
   /** The entities whose colliders overlap `shape` at `center` turned by `rotation` (the character excluded), sorted, at most 64. */
   overlap?(shape: OverlapShape3D, center: PhysicsVec3, rotation?: PhysicsQuat, filter?: PhysicsQueryFilter3D): string[];
-  /** Query only — the clearance of the character capsule if its origin were at `origin`. */
-  characterClearance?(origin: PhysicsVec3): CharacterClearanceResult3D;
-  /** Re-place the character (its origin) and return its clearance there; clears its motion caches. */
-  placeCharacter?(origin: PhysicsVec3): CharacterClearanceResult3D;
+  /** Query only — the clearance of a character's capsule (absent id: the first) if its origin were at `origin`. */
+  characterClearance?(origin: PhysicsVec3, characterId?: string): CharacterClearanceResult3D;
+  /** Re-place a character (its origin; absent id: the first) and return its clearance there; clears its motion caches. */
+  placeCharacter?(origin: PhysicsVec3, characterId?: string): CharacterClearanceResult3D;
   dispose(): void;
 }
 

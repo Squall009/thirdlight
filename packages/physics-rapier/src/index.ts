@@ -43,6 +43,7 @@ export type {
   RapierCharacterSpec,
   RapierColliderShape,
   RapierControllerConfig,
+  RapierFurtherCharacterSpec,
   RapierPhysicsDiagnostics,
   RapierPhysicsInitConfig,
   RapierPhysicsPort,

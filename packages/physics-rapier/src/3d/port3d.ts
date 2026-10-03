@@ -7,7 +7,8 @@
  *
  * The pattern is the 2D port's: one `World` per port; static box colliders
  * (half extents `hx`/`hy`/`hz`, the entity's full rotation) on fixed bodies;
- * the character a PARENTLESS capsule collider (standing along Y) swept by
+ * each player character (one per player controller) a PARENTLESS capsule
+ * collider (standing along Y) swept by its own
  * `world.createCharacterController(skin)` → `computeColliderMovement` →
  * `computedMovement()` → `setTranslation(...)`, with the player's tuning
  * (slope limits, ground snap, autostep); `step()` applies the staged delta,
@@ -83,8 +84,9 @@ export interface RapierPhysicsPort3D extends PhysicsPort3D {
   raycast(origin: PhysicsVec3, direction: PhysicsVec3, maxDistance: number, filter?: PhysicsQueryFilter3D): RaycastHit3D | null;
   setKinematicPoses(poses: readonly KinematicPose3D[]): void;
   overlap(shape: OverlapShape3D, center: PhysicsVec3, rotation?: PhysicsQuat, filter?: PhysicsQueryFilter3D): string[];
-  characterClearance(origin: PhysicsVec3): CharacterClearanceResult3D;
-  placeCharacter(origin: PhysicsVec3): CharacterClearanceResult3D;
+  characterClearance(origin: PhysicsVec3, characterId?: string): CharacterClearanceResult3D;
+  placeCharacter(origin: PhysicsVec3, characterId?: string): CharacterClearanceResult3D;
+  lastResultOf(characterId: string): CharacterMoveResult3D | undefined;
   diagnostics(): Rapier3DDiagnostics;
 }
 
@@ -256,30 +258,57 @@ function validateSpec(spec: StaticColliderSpec3D, label: string): { reason: 'inv
   return null;
 }
 
+type ConfigProblem3D = { reason: 'invalid_config' | 'invalid_shape' | 'invalid_transform'; message: string };
+
+/** A character's problem (its origin and capsule), or null; `label` names it in the message. */
+function characterProblem3D(ch: PhysicsInitConfig3D['character'], label: string): ConfigProblem3D | null {
+  if (typeof ch !== 'object' || ch === null || !isVec3(ch.position)) return { reason: 'invalid_transform', message: `${label}.position must be a finite { x, y, z }` };
+  if (!finite(ch.radius) || ch.radius <= 0 || ch.radius > 1e3) return { reason: 'invalid_config', message: `${label}.radius must be a finite number in (0, 1000]` };
+  if (!finite(ch.halfHeight) || ch.halfHeight < 0 || ch.halfHeight > 1e3) return { reason: 'invalid_config', message: `${label}.halfHeight must be a finite number in [0, 1000]` };
+  if (!isVec3(ch.offset)) return { reason: 'invalid_config', message: `${label}.offset must be a finite { x, y, z }` };
+  return null;
+}
+
+/** A character controller config's problem, or null; `label` names it in the message. */
+function controllerProblem3D(cc: PhysicsInitConfig3D['controller'], label: string): ConfigProblem3D | null {
+  if (typeof cc !== 'object' || cc === null) return { reason: 'invalid_config', message: `${label} config is required` };
+  if (!finite(cc.offsetSkin) || cc.offsetSkin < 0.001 || cc.offsetSkin > 0.1) return { reason: 'invalid_config', message: `${label}.offsetSkin must be a finite number in [0.001, 0.1] m` };
+  if (!finite(cc.groundSnap) || cc.groundSnap < 0 || cc.groundSnap > 1) return { reason: 'invalid_config', message: `${label}.groundSnap must be a finite number in [0, 1] m` };
+  if (typeof cc.autostep !== 'boolean') return { reason: 'invalid_config', message: `${label}.autostep must be true or false` };
+  if (cc.autostep && (!finite(cc.autostepHeight) || cc.autostepHeight < 0.01 || cc.autostepHeight > 2)) return { reason: 'invalid_config', message: `${label}.autostep needs autostepHeight, a finite number in [0.01, 2] m` };
+  if (!finite(cc.maxSlopeClimbRad) || cc.maxSlopeClimbRad <= 0 || cc.maxSlopeClimbRad >= Math.PI / 2) return { reason: 'invalid_config', message: `${label}.maxSlopeClimbRad must be a finite angle in (0, pi/2)` };
+  if (!finite(cc.minSlopeSlideRad) || cc.minSlopeSlideRad < 0 || cc.minSlopeSlideRad >= Math.PI / 2) return { reason: 'invalid_config', message: `${label}.minSlopeSlideRad must be a finite angle in [0, pi/2)` };
+  return null;
+}
+
 /** Validate the whole init config before any WASM or world work (nothing is silently defaulted). */
-function validateConfig(config: PhysicsInitConfig3D): { reason: 'invalid_config' | 'invalid_shape' | 'invalid_transform'; message: string } | null {
+function validateConfig(config: PhysicsInitConfig3D): ConfigProblem3D | null {
   if (typeof config !== 'object' || config === null) return { reason: 'invalid_config', message: 'physics init config must be an object' };
   if (config.dimension !== 3) return { reason: 'invalid_config', message: 'a 3D port needs a config with dimension 3' };
-  const ch = config.character;
-  if (typeof ch !== 'object' || ch === null || !isVec3(ch.position)) return { reason: 'invalid_transform', message: 'character.position must be a finite { x, y, z }' };
-  if (!finite(ch.radius) || ch.radius <= 0 || ch.radius > 1e3) return { reason: 'invalid_config', message: 'character.radius must be a finite number in (0, 1000]' };
-  if (!finite(ch.halfHeight) || ch.halfHeight < 0 || ch.halfHeight > 1e3) return { reason: 'invalid_config', message: 'character.halfHeight must be a finite number in [0, 1000]' };
-  if (!isVec3(ch.offset)) return { reason: 'invalid_config', message: 'character.offset must be a finite { x, y, z }' };
+  const first = characterProblem3D(config.character, 'character');
+  if (first !== null) return first;
   const solver = config.solver;
   if (typeof solver !== 'object' || solver === null || !FIXED_HZ_CHOICES.includes(solver.hz)) return { reason: 'invalid_config', message: `solver.hz must be one of ${FIXED_HZ_CHOICES.join(', ')}` };
   if (!finite(solver.gravityY)) return { reason: 'invalid_config', message: 'solver.gravityY must be a finite number' };
-  const cc = config.controller;
-  if (typeof cc !== 'object' || cc === null) return { reason: 'invalid_config', message: 'controller config is required' };
-  if (!finite(cc.offsetSkin) || cc.offsetSkin < 0.001 || cc.offsetSkin > 0.1) return { reason: 'invalid_config', message: 'controller.offsetSkin must be a finite number in [0.001, 0.1] m' };
-  if (!finite(cc.groundSnap) || cc.groundSnap < 0 || cc.groundSnap > 1) return { reason: 'invalid_config', message: 'controller.groundSnap must be a finite number in [0, 1] m' };
-  if (typeof cc.autostep !== 'boolean') return { reason: 'invalid_config', message: 'controller.autostep must be true or false' };
-  if (cc.autostep && (!finite(cc.autostepHeight) || cc.autostepHeight < 0.01 || cc.autostepHeight > 2)) return { reason: 'invalid_config', message: 'controller.autostep needs autostepHeight, a finite number in [0.01, 2] m' };
-  if (!finite(cc.maxSlopeClimbRad) || cc.maxSlopeClimbRad <= 0 || cc.maxSlopeClimbRad >= Math.PI / 2) return { reason: 'invalid_config', message: 'controller.maxSlopeClimbRad must be a finite angle in (0, pi/2)' };
-  if (!finite(cc.minSlopeSlideRad) || cc.minSlopeSlideRad < 0 || cc.minSlopeSlideRad >= Math.PI / 2) return { reason: 'invalid_config', message: 'controller.minSlopeSlideRad must be a finite angle in [0, pi/2)' };
+  const cc = controllerProblem3D(config.controller, 'controller');
+  if (cc !== null) return cc;
   if (!Array.isArray(config.statics)) return { reason: 'invalid_config', message: 'statics must be an array of static collider specs' };
   // The named collision layers (bit 1 + index; "default" is bit 0 and never listed) and a world without a character.
   if (config.layers !== undefined && !(Array.isArray(config.layers) && config.layers.length <= 15 && config.layers.every((n) => typeof n === 'string' && n !== 'default') && new Set(config.layers).size === config.layers.length)) return { reason: 'invalid_config', message: 'layers must be up to 15 unique layer names (not "default")' };
   if (config.noCharacter !== undefined && config.noCharacter !== true) return { reason: 'invalid_config', message: 'noCharacter must be true or absent' };
+  // Further characters (several player controllers): each its own object, origin, capsule and tuning.
+  if (config.characters !== undefined) {
+    if (!Array.isArray(config.characters) || config.noCharacter === true) return { reason: 'invalid_config', message: 'characters must be an array, in a world with a character' };
+    const ids = new Set<string>();
+    for (let i = 0; i < config.characters.length; i += 1) {
+      const c = config.characters[i]!;
+      const label = `characters[${i}]`;
+      if (typeof c !== 'object' || c === null || typeof c.id !== 'string' || c.id.length === 0 || ids.has(c.id)) return { reason: 'invalid_config', message: `${label}.id must be a non-empty string, once` };
+      ids.add(c.id);
+      const problem = characterProblem3D(c, label) ?? (c.controller !== undefined ? controllerProblem3D(c.controller, `${label}.controller`) : null);
+      if (problem !== null) return problem;
+    }
+  }
   const seen = new Set<string>();
   for (let i = 0; i < config.statics.length; i += 1) {
     const spec = config.statics[i]!;
@@ -484,37 +513,91 @@ function addStaticBody(world: RAPIER.World, spec: StaticColliderSpec3D, bits: La
   return { body, colliders };
 }
 
-function createAdapter(world: RAPIER.World, characterCollider: RAPIER.Collider, controller: RAPIER.KinematicCharacterController, config: PhysicsInitConfig3D, bodies: Map<string, RAPIER.RigidBody>, infoByHandle: Map<number, Collider3DInfo>, bits: LayerBits): RapierPhysicsPort3D {
-  const noCharacter = config.noCharacter === true;
-  /** A query filter as Rapier's groups and predicate. */
-  const groupsOf = (filter: PhysicsQueryFilter3D | undefined): number | undefined => (filter?.layers !== undefined ? queryGroups(bits, filter.layers) : undefined);
-  const predicateOf = (filter: PhysicsQueryFilter3D | undefined): ((c: RAPIER.Collider) => boolean) | undefined => {
-    const accept = filter?.accept;
-    if (accept === undefined) return undefined;
-    return (c) => {
-      const id = infoByHandle.get(c.handle)?.entityId;
-      return id !== undefined && accept(id) === true;
-    };
-  };
-  const ch = config.character;
-  const off = { x: ch.offset.x, y: ch.offset.y, z: ch.offset.z };
-  const feetOffset = ch.halfHeight + ch.radius;
-  const at = (p: PhysicsVec3): PhysicsVec3 => ({ x: p.x + off.x, y: p.y + off.y, z: p.z + off.z });
-  const climbCos = Math.cos(config.controller.maxSlopeClimbRad);
-  const snapDistance = config.controller.groundSnap;
-  const skin = config.controller.offsetSkin;
-  const stepLift = config.controller.autostep ? (config.controller.autostepHeight ?? 0.25) : 0;
-  let position: PhysicsVec3 = { x: ch.position.x, y: ch.position.y, z: ch.position.z };
-  let staged: PhysicsVec3 | null = null;
-  let grounded = false;
-  let retainedSupport: PhysicsVec3 = { x: 0, y: 1, z: 0 };
+/**
+ * One player character in the 3D world: its parentless capsule collider,
+ * its own Rapier character controller (the player's skin, snap, slope limits
+ * and step height) and the motion it carries from step to step. A world
+ * with several player controllers (local co-op) holds one per controller;
+ * they never collide with each other (each sweep and query leaves every
+ * character out).
+ */
+interface CharacterBody3D {
+  readonly collider: RAPIER.Collider;
+  readonly controller: RAPIER.KinematicCharacterController;
+  readonly shape: { readonly radius: number; readonly halfHeight: number; readonly offset: PhysicsVec3 };
+  readonly tuning: PhysicsInitConfig3D['controller'];
+  readonly overlapCapsule: RAPIER.Capsule;
+  /** The authoritative position (a double; the collider holds its f32 rounding). */
+  position: PhysicsVec3;
+  staged: PhysicsVec3 | null;
+  grounded: boolean;
+  retainedSupport: PhysicsVec3;
   /**
    * A step-up in progress — the character was lifted onto a riser
    * it pushes against and moves on at that height (no snap, no fall) until
    * the ground under its centre is the step's top; the way it went, and how
    * many steps it has taken so far.
    */
-  let stepping: { x: number; z: number; steps: number } | null = null;
+  stepping: { x: number; z: number; steps: number } | null;
+  /** The result of the last step (further characters read it with `lastResultOf`). */
+  last: CharacterMoveResult3D | undefined;
+}
+
+/** A character's capsule collider (parentless, at its origin + offset) and its controller. */
+function makeCharacterBody3D(world: RAPIER.World, ch: PhysicsInitConfig3D['character'], tuning: PhysicsInitConfig3D['controller']): CharacterBody3D {
+  // PARENTLESS character collider (the 2D port's normative pattern): moved with setTranslation only.
+  const collider = world.createCollider(RAPIER.ColliderDesc.capsule(ch.halfHeight, ch.radius).setTranslation(ch.position.x + ch.offset.x, ch.position.y + ch.offset.y, ch.position.z + ch.offset.z));
+  const controller = world.createCharacterController(tuning.offsetSkin);
+  // Up is +Y (gravity along −Y), as in the 2D plane.
+  controller.setUp({ x: 0, y: 1, z: 0 });
+  controller.setMaxSlopeClimbAngle(tuning.maxSlopeClimbRad);
+  controller.setMinSlopeSlideAngle(tuning.minSlopeSlideRad);
+  controller.enableSnapToGround(tuning.groundSnap);
+  // Stepping up is the port's own (`stepProbe` / `stepping` in `step()`), not Rapier's
+  // autostep, which missed risers above about 0.15 m with a capsule.
+  return {
+    collider,
+    controller,
+    shape: { radius: ch.radius, halfHeight: ch.halfHeight, offset: { x: ch.offset.x, y: ch.offset.y, z: ch.offset.z } },
+    tuning,
+    overlapCapsule: new RAPIER.Capsule(ch.halfHeight, ch.radius),
+    position: { x: ch.position.x, y: ch.position.y, z: ch.position.z },
+    staged: null,
+    grounded: false,
+    retainedSupport: { x: 0, y: 1, z: 0 },
+    stepping: null,
+    last: undefined,
+  };
+}
+
+/** Both predicates (either may be absent). */
+function bothPredicates(a: ((c: RAPIER.Collider) => boolean) | undefined, b: ((c: RAPIER.Collider) => boolean) | undefined): ((c: RAPIER.Collider) => boolean) | undefined {
+  if (a === undefined) return b;
+  if (b === undefined) return a;
+  return (c) => a(c) && b(c);
+}
+
+function createAdapter(world: RAPIER.World, primary: CharacterBody3D, further: ReadonlyMap<string, CharacterBody3D>, config: PhysicsInitConfig3D, bodies: Map<string, RAPIER.RigidBody>, infoByHandle: Map<number, Collider3DInfo>, bits: LayerBits): RapierPhysicsPort3D {
+  const noCharacter = config.noCharacter === true;
+  /** Every character, the init config's first, then the further ones in their order (the step sweeps them in this order). */
+  const chars: readonly CharacterBody3D[] = noCharacter ? [] : [primary, ...further.values()];
+  const characterHandles = new Set([primary, ...further.values()].map((b) => b.collider.handle));
+  /**
+   * With several characters, the predicate that leaves the other characters
+   * out of a sweep or a query (each already leaves its own character out);
+   * with one, none (the queries are exactly as they were).
+   */
+  const othersOut: ((c: RAPIER.Collider) => boolean) | undefined = characterHandles.size > 1 ? (c) => !characterHandles.has(c.handle) : undefined;
+  /** A query filter as Rapier's groups and predicate. */
+  const groupsOf = (filter: PhysicsQueryFilter3D | undefined): number | undefined => (filter?.layers !== undefined ? queryGroups(bits, filter.layers) : undefined);
+  const predicateOf = (filter: PhysicsQueryFilter3D | undefined): ((c: RAPIER.Collider) => boolean) | undefined => {
+    const accept = filter?.accept;
+    if (accept === undefined) return othersOut;
+    return bothPredicates(othersOut, (c) => {
+      const id = infoByHandle.get(c.handle)?.entityId;
+      return id !== undefined && accept(id) === true;
+    });
+  };
   /** A step-up that has not reached the top after a second ends (the character falls as usual). */
   const maxSteppingSteps = config.solver.hz;
   let disposed = false;
@@ -532,25 +615,35 @@ function createAdapter(world: RAPIER.World, characterCollider: RAPIER.Collider, 
   const assertLive = (op: string): void => {
     if (disposed) throw new Error(`physics port is disposed (${op})`);
   };
+  /** The character a call names (absent: the first); an unknown id is an error. */
+  const bodyOf = (characterId: string | undefined, op: string): CharacterBody3D => {
+    if (characterId === undefined) return primary;
+    const b = further.get(characterId);
+    if (b === undefined) throw new Error(`${op}: no character "${String(characterId)}" in this world`);
+    return b;
+  };
   const down = { x: 0, y: -1, z: 0 };
-  const probeFrom = (p: PhysicsVec3): PhysicsVec3 => ({ x: p.x + off.x, y: p.y + off.y - feetOffset + 0.05, z: p.z + off.z });
-  const groundUnder = (p: PhysicsVec3): string | null => {
-    const hit = world.castRay(new RAPIER.Ray(probeFrom(p), down), 0.2, true, undefined, undefined, characterCollider);
+  const IDENTITY = { x: 0, y: 0, z: 0, w: 1 };
+  const at = (b: CharacterBody3D, p: PhysicsVec3): PhysicsVec3 => ({ x: p.x + b.shape.offset.x, y: p.y + b.shape.offset.y, z: p.z + b.shape.offset.z });
+  const probeFrom = (b: CharacterBody3D, p: PhysicsVec3): PhysicsVec3 => ({ x: p.x + b.shape.offset.x, y: p.y + b.shape.offset.y - (b.shape.halfHeight + b.shape.radius) + 0.05, z: p.z + b.shape.offset.z });
+  const groundUnder = (b: CharacterBody3D, p: PhysicsVec3): string | null => {
+    const hit = world.castRay(new RAPIER.Ray(probeFrom(b, p), down), 0.2, true, undefined, undefined, b.collider, undefined, othersOut);
     return hit === null ? null : (infoByHandle.get(hit.collider.handle)?.entityId ?? null);
   };
   /** The cosine of the steepest slope the character walks up on a collider: its own, or the collider's stricter one (a block layer's maxSlope). */
-  const climbCosOf = (collider: RAPIER.Collider | null | undefined): number => {
+  const climbCosOf = (b: CharacterBody3D, collider: RAPIER.Collider | null | undefined): number => {
+    const climbCos = Math.cos(b.tuning.maxSlopeClimbRad);
     const own = collider === null || collider === undefined ? undefined : infoByHandle.get(collider.handle)?.climbCos;
     return own !== undefined && own > climbCos ? own : climbCos;
   };
-  const floorUnder = (p: PhysicsVec3): { normal: PhysicsVec3; climbCos: number } | null => {
-    const hit = world.castRayAndGetNormal(new RAPIER.Ray(probeFrom(p), down), 0.2, true, undefined, undefined, characterCollider);
+  const floorUnder = (b: CharacterBody3D, p: PhysicsVec3): { normal: PhysicsVec3; climbCos: number } | null => {
+    const hit = world.castRayAndGetNormal(new RAPIER.Ray(probeFrom(b, p), down), 0.2, true, undefined, undefined, b.collider, undefined, othersOut);
     if (hit === null) return null;
     const len = Math.hypot(hit.normal.x, hit.normal.y, hit.normal.z);
-    return len > 0 ? { normal: { x: hit.normal.x / len, y: hit.normal.y / len, z: hit.normal.z / len }, climbCos: climbCosOf(hit.collider) } : null;
+    return len > 0 ? { normal: { x: hit.normal.x / len, y: hit.normal.y / len, z: hit.normal.z / len }, climbCos: climbCosOf(b, hit.collider) } : null;
   };
-  const walkableFloorUnder = (p: PhysicsVec3): boolean => {
-    const f = floorUnder(p);
+  const walkableFloorUnder = (b: CharacterBody3D, p: PhysicsVec3): boolean => {
+    const f = floorUnder(b, p);
     return f !== null && f.normal.y >= f.climbCos - GROUND_NORMAL_TOLERANCE;
   };
   /**
@@ -558,11 +651,12 @@ function createAdapter(world: RAPIER.World, characterCollider: RAPIER.Collider, 
    * would walk up but their collider forbids (a slope steeper than a block
    * layer's maxSlope, gentler than the character's own limit); null: none.
    */
-  const stricterClimb = (): number | null => {
+  const stricterClimb = (b: CharacterBody3D): number | null => {
+    const climbCos = Math.cos(b.tuning.maxSlopeClimbRad);
     let out: number | null = null;
-    const collisions = controller.numComputedCollisions();
+    const collisions = b.controller.numComputedCollisions();
     for (let i = 0; i < collisions; i += 1) {
-      const hit = controller.computedCollision(i);
+      const hit = b.controller.computedCollision(i);
       const limit = hit?.collider?.handle !== undefined ? infoByHandle.get(hit.collider.handle)?.climbCos : undefined;
       if (hit === null || limit === undefined || limit <= climbCos) continue;
       const n = hit.normal1;
@@ -583,32 +677,35 @@ function createAdapter(world: RAPIER.World, characterCollider: RAPIER.Collider, 
    * wall keeps the across sweep blocked; a ceiling stops the lift). The
    * capsule is back at `from` afterwards.
    */
-  const stepProbe = (from: PhysicsVec3, dx: number, dz: number): number | null => {
+  const stepProbe = (b: CharacterBody3D, from: PhysicsVec3, dx: number, dz: number): number | null => {
+    const { controller, collider: characterCollider } = b;
+    const skin = b.tuning.offsetSkin;
+    const stepLift = b.tuning.autostep ? (b.tuning.autostepHeight ?? 0.25) : 0;
     const lift = stepLift + 2 * skin;
-    const reach = ch.radius + 2 * skin;
+    const reach = b.shape.radius + 2 * skin;
     controller.disableSnapToGround();
     try {
-      characterCollider.setTranslation(at(from));
-      controller.computeColliderMovement(characterCollider, { x: 0, y: lift, z: 0 });
+      characterCollider.setTranslation(at(b, from));
+      controller.computeColliderMovement(characterCollider, { x: 0, y: lift, z: 0 }, undefined, undefined, othersOut);
       const up = controller.computedMovement().y;
       if (!(up > 1e-3)) return null;
       const p1 = { x: from.x, y: from.y + up, z: from.z };
-      characterCollider.setTranslation(at(p1));
-      controller.computeColliderMovement(characterCollider, { x: dx * reach, y: 0, z: dz * reach });
+      characterCollider.setTranslation(at(b, p1));
+      controller.computeColliderMovement(characterCollider, { x: dx * reach, y: 0, z: dz * reach }, undefined, undefined, othersOut);
       const across = controller.computedMovement();
       if (Math.hypot(across.x, across.z) < reach * 0.9) return null;
       const p2 = { x: p1.x + across.x, y: p1.y + across.y, z: p1.z + across.z };
-      characterCollider.setTranslation(at(p2));
-      controller.computeColliderMovement(characterCollider, { x: 0, y: -(up + skin), z: 0 });
+      characterCollider.setTranslation(at(b, p2));
+      controller.computeColliderMovement(characterCollider, { x: 0, y: -(up + skin), z: 0 }, undefined, undefined, othersOut);
       const drop = controller.computedMovement();
       if (!controller.computedGrounded()) return null;
       const p3 = { x: p2.x + drop.x, y: p2.y + drop.y, z: p2.z + drop.z };
       const rise = p3.y - from.y;
       if (!(rise > 1e-3) || rise > stepLift + skin + 1e-6) return null;
-      return walkableFloorUnder(p3) ? rise : null;
+      return walkableFloorUnder(b, p3) ? rise : null;
     } finally {
-      characterCollider.setTranslation(at(from));
-      controller.enableSnapToGround(snapDistance);
+      characterCollider.setTranslation(at(b, from));
+      controller.enableSnapToGround(b.tuning.groundSnap);
     }
   };
   /**
@@ -618,17 +715,16 @@ function createAdapter(world: RAPIER.World, characterCollider: RAPIER.Collider, 
    * character's sweep stopped by the floor starts in none (the controller
    * keeps its skin above it), so standing never counts.
    */
-  const overlapCapsule = new RAPIER.Capsule(ch.halfHeight, ch.radius);
-  const overlapAt = (p: PhysicsVec3): { entityId: string; depth: number } | null => {
-    const c = at(p);
+  const overlapAt = (b: CharacterBody3D, p: PhysicsVec3): { entityId: string; depth: number } | null => {
+    const c = at(b, p);
     let best: { entityId: string; depth: number } | null = null;
-    world.intersectionsWithShape(c, IDENTITY, overlapCapsule, (collider) => {
-      const contact = collider.contactShape(overlapCapsule, c, IDENTITY, 0);
+    world.intersectionsWithShape(c, IDENTITY, b.overlapCapsule, (collider) => {
+      const contact = collider.contactShape(b.overlapCapsule, c, IDENTITY, 0);
       const depth = contact === null ? 0 : -contact.distance;
       const entityId = infoByHandle.get(collider.handle)?.entityId;
       if (entityId !== undefined && depth > CLEARANCE_PENETRATION_EPS && (best === null || depth > best.depth)) best = { entityId, depth };
       return true;
-    }, undefined, undefined, characterCollider);
+    }, undefined, undefined, b.collider, undefined, othersOut);
     return best;
   };
   const counters = (): Rapier3DDiagnostics => ({
@@ -641,30 +737,30 @@ function createAdapter(world: RAPIER.World, characterCollider: RAPIER.Collider, 
     steps,
     live: true,
   });
-  const IDENTITY = { x: 0, y: 0, z: 0, w: 1 };
 
   /**
    * The clearance of the character capsule if its origin were at
    * `origin` (query only; the 2D probe's rules): blocked by the deepest
    * overlap with a collider (a narrow-phase contact deeper than the
    * penetration epsilon), else supported by the nearest collider straight
-   * below the capsule's lowest point, else `no_support`.
+   * below the capsule's lowest point, else `no_support`. Characters are never
+   * in the way.
    */
-  function computeClearance(origin: PhysicsVec3): CharacterClearanceResult3D {
-    const capsule = new RAPIER.Capsule(ch.halfHeight, ch.radius);
-    const c = at(origin);
+  function computeClearance(b: CharacterBody3D, origin: PhysicsVec3): CharacterClearanceResult3D {
+    const capsule = new RAPIER.Capsule(b.shape.halfHeight, b.shape.radius);
+    const c = at(b, origin);
     let maxPenetration = 0;
     world.colliders.forEach((collider) => {
-      if (collider === characterCollider) return;
+      if (characterHandles.has(collider.handle)) return;
       const contact = collider.contactShape(capsule, c, IDENTITY, 0);
       if (contact !== null && contact.distance < -CLEARANCE_PENETRATION_EPS) maxPenetration = Math.max(maxPenetration, -contact.distance);
     });
     if (maxPenetration > 0) return { ok: false, reason: 'blocked', penetration: maxPenetration };
-    const ray = new RAPIER.Ray({ x: c.x, y: c.y - feetOffset + CLEARANCE_RAY_EPS, z: c.z }, down);
+    const ray = new RAPIER.Ray({ x: c.x, y: c.y - (b.shape.halfHeight + b.shape.radius) + CLEARANCE_RAY_EPS, z: c.z }, down);
     let support: PhysicsVec3 | null = null;
     let best = Infinity;
     world.colliders.forEach((collider) => {
-      if (collider === characterCollider) return;
+      if (characterHandles.has(collider.handle)) return;
       const hit = collider.castRayAndGetNormal(ray, CLEARANCE_SUPPORT_PROBE, true);
       if (hit !== null && hit.timeOfImpact < best) {
         best = hit.timeOfImpact;
@@ -675,9 +771,26 @@ function createAdapter(world: RAPIER.World, characterCollider: RAPIER.Collider, 
     return { ok: true, supportNormal: support, penetration: 0 };
   }
 
+  /** The movers are posed (after every character's sweep) and the world updates once. */
+  function poseMoversAndStep(): void {
+    kinematicMoved = 0;
+    for (const pose of kinematicPoses) {
+      const body = bodies.get(pose.entityId);
+      if (body === undefined || !body.isKinematic()) continue;
+      const was = kinematicAt.get(pose.entityId);
+      if (was !== undefined) kinematicMoved = Math.max(kinematicMoved, Math.hypot(pose.position.x - was.x, pose.position.y - was.y, pose.position.z - was.z));
+      kinematicAt.set(pose.entityId, { x: pose.position.x, y: pose.position.y, z: pose.position.z });
+      body.setNextKinematicTranslation({ x: pose.position.x, y: pose.position.y, z: pose.position.z });
+      body.setNextKinematicRotation({ x: pose.rotation.x, y: pose.rotation.y, z: pose.rotation.z, w: pose.rotation.w });
+    }
+    kinematicPoses = [];
+    world.step();
+    steps += 1;
+  }
+
   /** The step of a world without a character — the movers are posed and the world updates; nothing is swept. */
   function stepWithoutCharacter(): CharacterMoveResult3D {
-    staged = null;
+    primary.staged = null;
     for (const pose of kinematicPoses) {
       const body = bodies.get(pose.entityId);
       if (body === undefined || !body.isKinematic()) continue;
@@ -689,208 +802,196 @@ function createAdapter(world: RAPIER.World, characterCollider: RAPIER.Collider, 
     world.step();
     steps += 1;
     const zero = { x: 0, y: 0, z: 0 };
-    return { requested: zero, applied: { ...zero }, position: { x: position.x, y: position.y, z: position.z }, grounded: false, supportNormal: { x: 0, y: 1, z: 0 }, contacts: { ground: false, wall: false, head: false, steepSlope: false }, snapped: false, groundEntityId: null };
+    const p = primary.position;
+    return { requested: zero, applied: { ...zero }, position: { x: p.x, y: p.y, z: p.z }, grounded: false, supportNormal: { x: 0, y: 1, z: 0 }, contacts: { ground: false, wall: false, head: false, steepSlope: false }, snapped: false, groundEntityId: null };
   }
 
-  return {
-    dimension: 3,
-    implementation: PHYSICS_3D_IMPLEMENTATION,
-
-    stageCharacterMove(delta: PhysicsVec3): void {
-      assertLive('stageCharacterMove');
-      staged = { x: delta.x, y: delta.y, z: delta.z };
-    },
-
-    step(): CharacterMoveResult3D {
-      assertLive('step');
-      if (noCharacter) return stepWithoutCharacter();
-      const requested: PhysicsVec3 = staged ?? { x: 0, y: 0, z: 0 };
-      staged = null;
-      if (!isVec3(requested)) throw new Error(`staged movement must be a finite { x, y, z } (got ${JSON.stringify(requested)})`);
-      // The request is swept as it is, a grounded character's small downward part
-      // included (dropping it, as the 2D port does, which made Rapier's grounded status
-      // flicker every other step on flat ground — measured with a walking character; the sweep
-      // stops it on the ground and keeps it grounded).
-      const commanded: PhysicsVec3 = { x: requested.x, y: requested.y, z: requested.z };
-      const across = Math.hypot(commanded.x, commanded.z);
-      // A step-up goes on while the character keeps pushing the way it went (not up).
-      if (stepping !== null && (commanded.y > 0 || across < 1e-9 || commanded.x * stepping.x + commanded.z * stepping.z <= 0 || stepping.steps >= maxSteppingSteps)) stepping = null;
-      const midStep = stepping !== null;
-      const before = position;
-      // A step that begins inside a collider is a real depenetration (counted; the deepest is kept for diagnostics).
-      const overlap = overlapAt(before);
-      if (overlap !== null) {
-        penetrationCorrectedCount += 1;
-        if (deepestOverlap === null || overlap.depth > deepestOverlap.depth) deepestOverlap = { ...overlap, step: steps };
+  /**
+   * One character's sweep of its staged move, up to the collider written at
+   * its new place: the result (without the ground entity, read after the
+   * world step) and where it ends. Throws and leaves the capsule where it was.
+   */
+  function sweep(b: CharacterBody3D): { result: CharacterMoveResult3D; next: PhysicsVec3; grounded: boolean } {
+    const { controller, collider: characterCollider } = b;
+    const climbCos = Math.cos(b.tuning.maxSlopeClimbRad);
+    const snapDistance = b.tuning.groundSnap;
+    const skin = b.tuning.offsetSkin;
+    const stepLift = b.tuning.autostep ? (b.tuning.autostepHeight ?? 0.25) : 0;
+    const requested: PhysicsVec3 = b.staged ?? { x: 0, y: 0, z: 0 };
+    b.staged = null;
+    if (!isVec3(requested)) throw new Error(`staged movement must be a finite { x, y, z } (got ${JSON.stringify(requested)})`);
+    // The request is swept as it is, a grounded character's small downward part
+    // included (dropping it, as the 2D port does, which made Rapier's grounded status
+    // flicker every other step on flat ground — measured with a walking character; the sweep
+    // stops it on the ground and keeps it grounded).
+    const commanded: PhysicsVec3 = { x: requested.x, y: requested.y, z: requested.z };
+    const across = Math.hypot(commanded.x, commanded.z);
+    // A step-up goes on while the character keeps pushing the way it went (not up).
+    const st = b.stepping;
+    if (st !== null && (commanded.y > 0 || across < 1e-9 || commanded.x * st.x + commanded.z * st.z <= 0 || st.steps >= maxSteppingSteps)) b.stepping = null;
+    const midStep = b.stepping !== null;
+    const before = b.position;
+    // A step that begins inside a collider is a real depenetration (counted; the deepest is kept for diagnostics).
+    const overlap = overlapAt(b, before);
+    if (overlap !== null) {
+      penetrationCorrectedCount += 1;
+      if (deepestOverlap === null || overlap.depth > deepestOverlap.depth) deepestOverlap = { ...overlap, step: steps };
+    }
+    // Rapier's controller takes a touched kinematic body's velocity into its sweep
+    // ("kinematic friction"). In 3D that fights the runtime's own carry: a character riding a
+    // mover sideways (its move equal to the mover's) sticks in the mover's offset margin and
+    // stalls (measured: 20 iterations, no motion, about one step in three on a sliding lift).
+    // The runtime moves the character with what it stands on (the carry) and pushes it out of a
+    // mover's way (the 2D rules), so every kinematic body is at rest for the sweep — made
+    // velocity-based with zero velocity and turned back right after; its next pose is set below
+    // and the world step derives its velocity from it as always. (The 2D port does the same for
+    // a mover rising past the character.)
+    stilled.length = 0;
+    for (const info of infoByHandle.values()) {
+      if (!info.kinematic) continue;
+      const body = info.body;
+      if (body.bodyType() !== RAPIER.RigidBodyType.KinematicPositionBased) continue;
+      body.setBodyType(RAPIER.RigidBodyType.KinematicVelocityBased, false);
+      body.setLinvel({ x: 0, y: 0, z: 0 }, false);
+      body.setAngvel({ x: 0, y: 0, z: 0 }, false);
+      stilled.push(body);
+    }
+    if (midStep) {
+      // On the riser's height: across only, without the snap (which would pull it back down the riser).
+      controller.disableSnapToGround();
+      controller.computeColliderMovement(characterCollider, { x: commanded.x, y: 0, z: commanded.z }, undefined, undefined, othersOut);
+      controller.enableSnapToGround(snapDistance);
+    } else {
+      controller.computeColliderMovement(characterCollider, commanded, undefined, undefined, othersOut);
+      // A slope the character could climb but whose collider sets a stricter limit (a block layer's maxSlope):
+      // swept again with that limit, so the slope is a wall to it. Colliders without a limit never get here.
+      const stricter = stricterClimb(b);
+      if (stricter !== null) {
+        controller.setMaxSlopeClimbAngle(Math.acos(stricter));
+        controller.computeColliderMovement(characterCollider, commanded, undefined, undefined, othersOut);
+        controller.setMaxSlopeClimbAngle(b.tuning.maxSlopeClimbRad);
       }
-      // Rapier's controller takes a touched kinematic body's velocity into its sweep
-      // ("kinematic friction"). In 3D that fights the runtime's own carry: a character riding a
-      // mover sideways (its move equal to the mover's) sticks in the mover's offset margin and
-      // stalls (measured: 20 iterations, no motion, about one step in three on a sliding lift).
-      // The runtime moves the character with what it stands on (the carry) and pushes it out of a
-      // mover's way (the 2D rules), so every kinematic body is at rest for the sweep — made
-      // velocity-based with zero velocity and turned back right after; its next pose is set below
-      // and the world step derives its velocity from it as always. (The 2D port does the same for
-      // a mover rising past the character.)
-      stilled.length = 0;
-      for (const info of infoByHandle.values()) {
-        if (!info.kinematic) continue;
-        const body = info.body;
-        if (body.bodyType() !== RAPIER.RigidBodyType.KinematicPositionBased) continue;
-        body.setBodyType(RAPIER.RigidBodyType.KinematicVelocityBased, false);
-        body.setLinvel({ x: 0, y: 0, z: 0 }, false);
-        body.setAngvel({ x: 0, y: 0, z: 0 }, false);
-        stilled.push(body);
+    }
+    let swept = { x: controller.computedMovement().x, y: controller.computedMovement().y, z: controller.computedMovement().z };
+    // The support normal comes from the collision results (the obstacle's outward normal), never from a floor constant.
+    let best: PhysicsVec3 | null = null;
+    let wall = false;
+    let head = false;
+    let groundOnly = true;
+    const readCollisions = (): void => {
+      const collisions = controller.numComputedCollisions();
+      for (let i = 0; i < collisions; i += 1) {
+        const hit = controller.computedCollision(i);
+        if (!hit) continue;
+        const n = hit.normal1;
+        const len = Math.hypot(n.x, n.y, n.z);
+        if (!(len > 0)) continue;
+        const u = { x: n.x / len, y: n.y / len, z: n.z / len };
+        if (best === null || u.y > best.y) best = u;
+        if (Math.hypot(u.x, u.z) > climbCos) wall = true;
+        if (u.y < -climbCos) head = true;
+        if (u.y < climbCos) groundOnly = false;
       }
-      if (midStep) {
-        // On the riser's height: across only, without the snap (which would pull it back down the riser).
+    };
+    readCollisions();
+    let rawGrounded = midStep ? true : controller.computedGrounded();
+    if (b.stepping !== null) {
+      b.stepping.steps += 1;
+      // On top: the ground under its centre is walkable (the step's top) — the step-up ends.
+      if (walkableFloorUnder(b, { x: before.x + swept.x, y: before.y + swept.y, z: before.z + swept.z })) b.stepping = null;
+    }
+    // Riding a kinematic body (a mover, a collider a script drives) Rapier's sweep
+    // sometimes reads the support's normal numerically tilted within its skin and takes it for a
+    // block — measured on a sliding lift: no motion at all, 20 iterations, about one step in
+    // three. When a grounded character's horizontal move is stopped by nothing but ground-like
+    // contacts while it stands on a kinematic body, the horizontal part is swept again without
+    // that one body (walls and everything else still block it); the vertical result and the
+    // grounding stay the first sweep's.
+    if (!midStep && b.grounded && rawGrounded && groundOnly && Math.hypot(commanded.x, commanded.z) > 1e-9 && Math.hypot(swept.x, swept.z) < 1e-9) {
+      const hit = world.castRay(new RAPIER.Ray(probeFrom(b, before), down), 0.2, true, undefined, undefined, characterCollider, undefined, othersOut);
+      const supportHandle = hit !== null && infoByHandle.get(hit.collider.handle)?.kinematic === true ? hit.collider.handle : null;
+      if (supportHandle !== null) {
+        characterCollider.setTranslation(at(b, { x: before.x, y: before.y + swept.y, z: before.z }));
+        controller.computeColliderMovement(characterCollider, { x: commanded.x, y: 0, z: commanded.z }, undefined, undefined, bothPredicates(othersOut, (c) => c.handle !== supportHandle));
+        const again = controller.computedMovement();
+        swept = { x: again.x, y: swept.y, z: again.z };
+        readCollisions();
+      }
+    }
+    // Standing still. A grounded character asked for nothing across and at most a
+    // fall, whose sweep moved it less than its skin, on something that does not move (not a
+    // mover or a collider a script drives), stays exactly where it is — Rapier's sweep and
+    // ground snap otherwise alternate it by about 0.1 mm every step (measured), so it never
+    // comes to rest.
+    if (!midStep && b.grounded && rawGrounded && across < 1e-12 && commanded.y <= 0 && Math.hypot(swept.x, swept.y, swept.z) < skin) {
+      const under = world.castRay(new RAPIER.Ray(probeFrom(b, before), down), 0.2, true, undefined, undefined, characterCollider, undefined, othersOut);
+      if (under !== null && infoByHandle.get(under.collider.handle)?.kinematic !== true) swept = { x: 0, y: 0, z: 0 };
+    }
+    // Stepping up. Rapier's own autostep missed risers above about 0.15 m with a
+    // capsule (measured with rapier3d 0.20.0: a 0.2 m riser blocked a walking capsule of radius
+    // 0.3 m whatever its minimum width), so a grounded character whose move across is cut to
+    // less than half probes the riser (`stepProbe`): when it can stand on top, it is lifted by
+    // the rise this step (and moves across at that height), then goes on at that height until
+    // its centre is over the top (`stepping`) — the rounded bottom of a capsule would otherwise
+    // slide back off the riser's edge. A taller block or a wall is not climbed.
+    if (!midStep && stepLift > 0 && b.grounded && rawGrounded && commanded.y <= 0 && across > 1e-9 && Math.hypot(swept.x, swept.z) < across * 0.5) {
+      const dx = commanded.x / across;
+      const dz = commanded.z / across;
+      const rise = stepProbe(b, before, dx, dz);
+      if (rise !== null) {
+        const lifted = { x: before.x, y: before.y + rise, z: before.z };
+        characterCollider.setTranslation(at(b, lifted));
         controller.disableSnapToGround();
-        controller.computeColliderMovement(characterCollider, { x: commanded.x, y: 0, z: commanded.z });
+        controller.computeColliderMovement(characterCollider, { x: commanded.x, y: 0, z: commanded.z }, undefined, undefined, othersOut);
         controller.enableSnapToGround(snapDistance);
-      } else {
-        controller.computeColliderMovement(characterCollider, commanded);
-        // A slope the character could climb but whose collider sets a stricter limit (a block layer's maxSlope):
-        // swept again with that limit, so the slope is a wall to it. Colliders without a limit never get here.
-        const stricter = stricterClimb();
-        if (stricter !== null) {
-          controller.setMaxSlopeClimbAngle(Math.acos(stricter));
-          controller.computeColliderMovement(characterCollider, commanded);
-          controller.setMaxSlopeClimbAngle(config.controller.maxSlopeClimbRad);
-        }
+        const on = controller.computedMovement();
+        characterCollider.setTranslation(at(b, before));
+        swept = { x: on.x, y: rise + on.y, z: on.z };
+        best = null;
+        wall = false;
+        head = false;
+        readCollisions();
+        rawGrounded = true;
+        b.stepping = walkableFloorUnder(b, { x: before.x + swept.x, y: before.y + swept.y, z: before.z + swept.z }) ? null : { x: dx, z: dz, steps: 0 };
       }
-      let swept = { x: controller.computedMovement().x, y: controller.computedMovement().y, z: controller.computedMovement().z };
-      // The support normal comes from the collision results (the obstacle's outward normal), never from a floor constant.
-      let best: PhysicsVec3 | null = null;
-      let wall = false;
-      let head = false;
-      let groundOnly = true;
-      const readCollisions = (): void => {
-        const collisions = controller.numComputedCollisions();
-        for (let i = 0; i < collisions; i += 1) {
-          const hit = controller.computedCollision(i);
-          if (!hit) continue;
-          const n = hit.normal1;
-          const len = Math.hypot(n.x, n.y, n.z);
-          if (!(len > 0)) continue;
-          const u = { x: n.x / len, y: n.y / len, z: n.z / len };
-          if (best === null || u.y > best.y) best = u;
-          if (Math.hypot(u.x, u.z) > climbCos) wall = true;
-          if (u.y < -climbCos) head = true;
-          if (u.y < climbCos) groundOnly = false;
-        }
-      };
-      readCollisions();
-      let rawGrounded = midStep ? true : controller.computedGrounded();
-      if (stepping !== null) {
-        stepping.steps += 1;
-        // On top: the ground under its centre is walkable (the step's top) — the step-up ends.
-        if (walkableFloorUnder({ x: before.x + swept.x, y: before.y + swept.y, z: before.z + swept.z })) stepping = null;
+    }
+    for (const body of stilled) body.setBodyType(RAPIER.RigidBodyType.KinematicPositionBased, false);
+    const movement = swept;
+    const next = { x: before.x + movement.x, y: before.y + movement.y, z: before.z + movement.z };
+    if (!isVec3(next)) throw new Error('the character controller produced a non-finite correction');
+    if (best === null && rawGrounded) {
+      // The ground-offset push-out is not a sweep collision; its direction is the surface normal.
+      const e = { x: movement.x - commanded.x, y: movement.y - commanded.y, z: movement.z - commanded.z };
+      const len = Math.hypot(e.x, e.y, e.z);
+      if (len > 1e-9) best = { x: e.x / len, y: e.y / len, z: e.z / len };
+    }
+    if (best !== null && rawGrounded) b.retainedSupport = best;
+    let support: PhysicsVec3 = rawGrounded ? b.retainedSupport : (best ?? { x: 0, y: 1, z: 0 });
+    let supportClimbCos = climbCos;
+    if (rawGrounded) {
+      const floor = floorUnder(b, next);
+      if (floor !== null && floor.normal.y > 0) {
+        support = floor.normal;
+        b.retainedSupport = floor.normal;
+        supportClimbCos = floor.climbCos;
       }
-      // Riding a kinematic body (a mover, a collider a script drives) Rapier's sweep
-      // sometimes reads the support's normal numerically tilted within its skin and takes it for a
-      // block — measured on a sliding lift: no motion at all, 20 iterations, about one step in
-      // three. When a grounded character's horizontal move is stopped by nothing but ground-like
-      // contacts while it stands on a kinematic body, the horizontal part is swept again without
-      // that one body (walls and everything else still block it); the vertical result and the
-      // grounding stay the first sweep's.
-      if (!midStep && grounded && rawGrounded && groundOnly && Math.hypot(commanded.x, commanded.z) > 1e-9 && Math.hypot(swept.x, swept.z) < 1e-9) {
-        const hit = world.castRay(new RAPIER.Ray(probeFrom(before), down), 0.2, true, undefined, undefined, characterCollider);
-        const supportHandle = hit !== null && infoByHandle.get(hit.collider.handle)?.kinematic === true ? hit.collider.handle : null;
-        if (supportHandle !== null) {
-          characterCollider.setTranslation(at({ x: before.x, y: before.y + swept.y, z: before.z }));
-          controller.computeColliderMovement(characterCollider, { x: commanded.x, y: 0, z: commanded.z }, undefined, undefined, (c) => c.handle !== supportHandle);
-          const again = controller.computedMovement();
-          swept = { x: again.x, y: swept.y, z: again.z };
-          readCollisions();
-        }
-      }
-      // Standing still. A grounded character asked for nothing across and at most a
-      // fall, whose sweep moved it less than its skin, on something that does not move (not a
-      // mover or a collider a script drives), stays exactly where it is — Rapier's sweep and
-      // ground snap otherwise alternate it by about 0.1 mm every step (measured), so it never
-      // comes to rest.
-      if (!midStep && grounded && rawGrounded && across < 1e-12 && commanded.y <= 0 && Math.hypot(swept.x, swept.y, swept.z) < skin) {
-        const under = world.castRay(new RAPIER.Ray(probeFrom(before), down), 0.2, true, undefined, undefined, characterCollider);
-        if (under !== null && infoByHandle.get(under.collider.handle)?.kinematic !== true) swept = { x: 0, y: 0, z: 0 };
-      }
-      // Stepping up. Rapier's own autostep missed risers above about 0.15 m with a
-      // capsule (measured with rapier3d 0.20.0: a 0.2 m riser blocked a walking capsule of radius
-      // 0.3 m whatever its minimum width), so a grounded character whose move across is cut to
-      // less than half probes the riser (`stepProbe`): when it can stand on top, it is lifted by
-      // the rise this step (and moves across at that height), then goes on at that height until
-      // its centre is over the top (`stepping`) — the rounded bottom of a capsule would otherwise
-      // slide back off the riser's edge. A taller block or a wall is not climbed.
-      if (!midStep && stepLift > 0 && grounded && rawGrounded && commanded.y <= 0 && across > 1e-9 && Math.hypot(swept.x, swept.z) < across * 0.5) {
-        const dx = commanded.x / across;
-        const dz = commanded.z / across;
-        const rise = stepProbe(before, dx, dz);
-        if (rise !== null) {
-          const lifted = { x: before.x, y: before.y + rise, z: before.z };
-          characterCollider.setTranslation(at(lifted));
-          controller.disableSnapToGround();
-          controller.computeColliderMovement(characterCollider, { x: commanded.x, y: 0, z: commanded.z });
-          controller.enableSnapToGround(snapDistance);
-          const on = controller.computedMovement();
-          characterCollider.setTranslation(at(before));
-          swept = { x: on.x, y: rise + on.y, z: on.z };
-          best = null;
-          wall = false;
-          head = false;
-          readCollisions();
-          rawGrounded = true;
-          stepping = walkableFloorUnder({ x: before.x + swept.x, y: before.y + swept.y, z: before.z + swept.z }) ? null : { x: dx, z: dz, steps: 0 };
-        }
-      }
-      for (const body of stilled) body.setBodyType(RAPIER.RigidBodyType.KinematicPositionBased, false);
-      const movement = swept;
-      const next = { x: before.x + movement.x, y: before.y + movement.y, z: before.z + movement.z };
-      if (!isVec3(next)) throw new Error('the character controller produced a non-finite correction');
-      if (best === null && rawGrounded) {
-        // The ground-offset push-out is not a sweep collision; its direction is the surface normal.
-        const e = { x: movement.x - commanded.x, y: movement.y - commanded.y, z: movement.z - commanded.z };
-        const len = Math.hypot(e.x, e.y, e.z);
-        if (len > 1e-9) best = { x: e.x / len, y: e.y / len, z: e.z / len };
-      }
-      if (best !== null && rawGrounded) retainedSupport = best;
-      let support: PhysicsVec3 = rawGrounded ? retainedSupport : (best ?? { x: 0, y: 1, z: 0 });
-      let supportClimbCos = climbCos;
-      if (rawGrounded) {
-        const floor = floorUnder(next);
-        if (floor !== null && floor.normal.y > 0) {
-          support = floor.normal;
-          retainedSupport = floor.normal;
-          supportClimbCos = floor.climbCos;
-        }
-        if (!(support.y > 0)) support = { x: 0, y: 1, z: 0 };
-      }
-      const climbable = support.y >= supportClimbCos - GROUND_NORMAL_TOLERANCE;
-      const verticalExtra = movement.y - commanded.y;
-      const snapped = rawGrounded && Math.abs(verticalExtra) > 1e-6 && Math.abs(verticalExtra) <= snapDistance + skin + 1e-6;
-      if (Math.hypot(requested.x, requested.z) > 1e-9 && Math.hypot(movement.x, movement.z) < 1e-9) stallSteps += 1;
-      // A mover that moved into the character in the last world step may push it by up to that move (the 2D rule).
-      const kinematicSlack = Math.min(0.5, kinematicMoved);
-      const allowance = (snapped ? snapDistance + skin : 0.001) + (stepLift > 0 ? stepLift + skin : 0) + kinematicSlack;
-      if (Math.hypot(movement.x, movement.y, movement.z) > Math.hypot(requested.x, requested.y, requested.z) + allowance + 1e-12) {
-        throw new Error(`collision correction out of the contracted bound: requested (${requested.x}, ${requested.y}, ${requested.z}), applied (${movement.x}, ${movement.y}, ${movement.z})`);
-      }
-      characterCollider.setTranslation(at(next));
-      // The movers move after the character's sweep (the runtime already added a carrying platform's motion).
-      kinematicMoved = 0;
-      for (const pose of kinematicPoses) {
-        const body = bodies.get(pose.entityId);
-        if (body === undefined || !body.isKinematic()) continue;
-        const was = kinematicAt.get(pose.entityId);
-        if (was !== undefined) kinematicMoved = Math.max(kinematicMoved, Math.hypot(pose.position.x - was.x, pose.position.y - was.y, pose.position.z - was.z));
-        kinematicAt.set(pose.entityId, { x: pose.position.x, y: pose.position.y, z: pose.position.z });
-        body.setNextKinematicTranslation({ x: pose.position.x, y: pose.position.y, z: pose.position.z });
-        body.setNextKinematicRotation({ x: pose.rotation.x, y: pose.rotation.y, z: pose.rotation.z, w: pose.rotation.w });
-      }
-      kinematicPoses = [];
-      world.step();
-      position = next;
-      grounded = rawGrounded;
-      steps += 1;
-      return {
+      if (!(support.y > 0)) support = { x: 0, y: 1, z: 0 };
+    }
+    const climbable = support.y >= supportClimbCos - GROUND_NORMAL_TOLERANCE;
+    const verticalExtra = movement.y - commanded.y;
+    const snapped = rawGrounded && Math.abs(verticalExtra) > 1e-6 && Math.abs(verticalExtra) <= snapDistance + skin + 1e-6;
+    if (Math.hypot(requested.x, requested.z) > 1e-9 && Math.hypot(movement.x, movement.z) < 1e-9) stallSteps += 1;
+    // A mover that moved into the character in the last world step may push it by up to that move (the 2D rule).
+    const kinematicSlack = Math.min(0.5, kinematicMoved);
+    const allowance = (snapped ? snapDistance + skin : 0.001) + (stepLift > 0 ? stepLift + skin : 0) + kinematicSlack;
+    if (Math.hypot(movement.x, movement.y, movement.z) > Math.hypot(requested.x, requested.y, requested.z) + allowance + 1e-12) {
+      throw new Error(`collision correction out of the contracted bound: requested (${requested.x}, ${requested.y}, ${requested.z}), applied (${movement.x}, ${movement.y}, ${movement.z})`);
+    }
+    characterCollider.setTranslation(at(b, next));
+    return {
+      next,
+      grounded: rawGrounded,
+      result: {
         requested: { x: requested.x, y: requested.y, z: requested.z },
         applied: { x: movement.x, y: movement.y, z: movement.z },
         position: { x: next.x, y: next.y, z: next.z },
@@ -898,9 +999,41 @@ function createAdapter(world: RAPIER.World, characterCollider: RAPIER.Collider, 
         supportNormal: support,
         contacts: { ground: rawGrounded, wall, head, steepSlope: rawGrounded && !climbable },
         snapped,
-        groundEntityId: rawGrounded ? groundUnder(next) : null,
+        groundEntityId: null,
         ...(kinematicSlack > 0 ? { kinematicSlack } : {}),
-      };
+      },
+    };
+  }
+
+  return {
+    dimension: 3,
+    implementation: PHYSICS_3D_IMPLEMENTATION,
+
+    stageCharacterMove(delta: PhysicsVec3, characterId?: string): void {
+      assertLive('stageCharacterMove');
+      bodyOf(characterId, 'stageCharacterMove').staged = { x: delta.x, y: delta.y, z: delta.z };
+    },
+
+    step(): CharacterMoveResult3D {
+      assertLive('step');
+      if (noCharacter) return stepWithoutCharacter();
+      // Every character's sweep (the first, then the further ones); the movers move after them
+      // (the runtime already added a carrying platform's motion to each request).
+      const swept = chars.map((b) => sweep(b));
+      poseMoversAndStep();
+      for (let i = 0; i < chars.length; i += 1) {
+        const b = chars[i]!;
+        const s = swept[i]!;
+        b.position = s.next;
+        b.grounded = s.grounded;
+        b.last = { ...s.result, groundEntityId: s.grounded ? groundUnder(b, s.next) : null };
+      }
+      return primary.last!;
+    },
+
+    lastResultOf(characterId: string): CharacterMoveResult3D | undefined {
+      assertLive('lastResultOf');
+      return further.get(characterId)?.last;
     },
 
     setKinematicPoses(poses: readonly KinematicPose3D[]): void {
@@ -918,7 +1051,7 @@ function createAdapter(world: RAPIER.World, characterCollider: RAPIER.Collider, 
       const u = { x: direction.x / len, y: direction.y / len, z: direction.z / len };
       // A script's filter (collision layers as groups; tags and exclusions as the predicate); a ray reaches 10 km.
       const reach = Math.min(maxDistance, 10000);
-      const hit = world.castRayAndGetNormal(new RAPIER.Ray({ x: origin.x, y: origin.y, z: origin.z }, u), reach, true, undefined, groupsOf(filter), characterCollider, undefined, predicateOf(filter));
+      const hit = world.castRayAndGetNormal(new RAPIER.Ray({ x: origin.x, y: origin.y, z: origin.z }, u), reach, true, undefined, groupsOf(filter), primary.collider, undefined, predicateOf(filter));
       if (hit === null) return null;
       const entityId = infoByHandle.get(hit.collider.handle)?.entityId;
       const t = hit.timeOfImpact;
@@ -939,27 +1072,28 @@ function createAdapter(world: RAPIER.World, characterCollider: RAPIER.Collider, 
         const id = infoByHandle.get(c.handle)?.entityId;
         if (id !== undefined) ids.add(id);
         return ids.size < 64;
-      }, undefined, groupsOf(filter), characterCollider, undefined, predicateOf(filter));
+      }, undefined, groupsOf(filter), primary.collider, undefined, predicateOf(filter));
       return [...ids].sort();
     },
 
-    characterClearance(origin: PhysicsVec3): CharacterClearanceResult3D {
+    characterClearance(origin: PhysicsVec3, characterId?: string): CharacterClearanceResult3D {
       assertLive('characterClearance');
       if (!isVec3(origin)) throw new Error('characterClearance origin must be a finite { x, y, z }');
-      return computeClearance(origin);
+      return computeClearance(bodyOf(characterId, 'characterClearance'), origin);
     },
 
-    placeCharacter(origin: PhysicsVec3): CharacterClearanceResult3D {
+    placeCharacter(origin: PhysicsVec3, characterId?: string): CharacterClearanceResult3D {
       assertLive('placeCharacter');
       if (!isVec3(origin)) throw new Error('placeCharacter origin must be a finite { x, y, z }');
-      position = { x: origin.x, y: origin.y, z: origin.z };
-      characterCollider.setTranslation(at(position));
-      staged = null;
-      grounded = false;
-      retainedSupport = { x: 0, y: 1, z: 0 };
-      stepping = null;
+      const b = bodyOf(characterId, 'placeCharacter');
+      b.position = { x: origin.x, y: origin.y, z: origin.z };
+      b.collider.setTranslation(at(b, b.position));
+      b.staged = null;
+      b.grounded = false;
+      b.retainedSupport = { x: 0, y: 1, z: 0 };
+      b.stepping = null;
       world.step();
-      return computeClearance(origin);
+      return computeClearance(b, origin);
     },
 
     addStaticColliders(specs: readonly StaticColliderSpec3D[]): void {
@@ -1048,22 +1182,15 @@ export async function createPhysicsPort3D(config: PhysicsInitConfig3D, signal?: 
       bodies.set(spec.entityId, added.body);
       for (const c of added.colliders) infoByHandle.set(c.collider.handle, c.info);
     }
-    // PARENTLESS character collider (the 2D port's normative pattern): moved with setTranslation only.
-    const ch = config.character;
-    const characterCollider = world.createCollider(RAPIER.ColliderDesc.capsule(ch.halfHeight, ch.radius).setTranslation(ch.position.x + ch.offset.x, ch.position.y + ch.offset.y, ch.position.z + ch.offset.z));
+    // The first character, then each further one (several player controllers), each with its own tuning.
+    const primary = makeCharacterBody3D(world, config.character, config.controller);
     // A world without a character keeps its placeholder capsule disabled (no contacts, no query sees it).
-    if (config.noCharacter === true) characterCollider.setEnabled(false);
-    const controller = world.createCharacterController(config.controller.offsetSkin);
-    // Up is +Y (gravity along −Y), as in the 2D plane.
-    controller.setUp({ x: 0, y: 1, z: 0 });
-    controller.setMaxSlopeClimbAngle(config.controller.maxSlopeClimbRad);
-    controller.setMinSlopeSlideAngle(config.controller.minSlopeSlideRad);
-    controller.enableSnapToGround(config.controller.groundSnap);
-    // Stepping up is the port's own (`stepProbe` / `stepping` in `step()`), not Rapier's
-    // autostep, which missed risers above about 0.15 m with a capsule.
+    if (config.noCharacter === true) primary.collider.setEnabled(false);
+    const further = new Map<string, CharacterBody3D>();
+    for (const c of config.characters ?? []) further.set(c.id, makeCharacterBody3D(world, c, c.controller ?? config.controller));
     // One pipeline update so the first sweep and any ray see every collider (no dynamic bodies: nothing moves).
     world.step();
-    return { ok: true, port: createAdapter(world, characterCollider, controller, config, bodies, infoByHandle, bits) };
+    return { ok: true, port: createAdapter(world, primary, further, config, bodies, infoByHandle, bits) };
   } catch (error) {
     world?.free();
     return { ok: false, error: { code: 'physics_init_failed', reason: 'wasm_unavailable', message: `Rapier 3D world construction failed: ${error instanceof Error ? error.message : String(error)}` } };
