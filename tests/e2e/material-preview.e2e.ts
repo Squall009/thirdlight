@@ -19,7 +19,7 @@ import { startBackend, type E2EBackend } from './backend';
 import { KIT_PIECES, multiPieceGlb } from './multi-piece-glb';
 import { decodePng, type Image } from './png';
 import { makePng } from './png-make';
-import { backendOf, editorUrlFor, onlyInItsProject, type RendererVariant } from './renderer-variants';
+import { backendOf, editorUrlFor, onlyInItsProject, PRODUCT_RENDERER_VARIANTS, type RendererVariant } from './renderer-variants';
 import { projectWindow, openWindow, createItem, inspector, expectEditorOpen, openEditor, previewCanvas } from './ui';
 
 let be: E2EBackend;
@@ -77,10 +77,10 @@ function changed(a: Image, b: Image): number {
 const orange = (r: number, g: number, b: number): boolean => r > 90 && r > 1.4 * g && g > 1.4 * b;
 const red = (r: number, g: number, b: number): boolean => r > 150 && g < 60 && b < 60;
 
-const VARIANTS: readonly RendererVariant[] = ['auto', 'webgl2', 'webgpu'];
+const VARIANTS: readonly RendererVariant[] = PRODUCT_RENDERER_VARIANTS;
 
 for (const variant of VARIANTS) test(`the Material tab previews the graph on a sphere, a plane, a cube and a model in the project environment (${variant})`, async ({ page }) => {
-  onlyInItsProject(variant);
+  onlyInItsProject(variant, VARIANTS);
   test.setTimeout(240_000);
   const glb = join(dir, 'kit.glb');
   writeFileSync(glb, multiPieceGlb(KIT_PIECES));

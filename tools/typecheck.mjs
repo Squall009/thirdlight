@@ -27,7 +27,8 @@
 import { existsSync, readdirSync, realpathSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { spawnSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
+import { availableParallelism } from 'node:os';
 import process from 'node:process';
 import ts from 'typescript'; // pinned devDependency
 
@@ -121,7 +122,7 @@ export function validatePackageTsconfig(root, pkgName) {
   return violations;
 }
 
-function main() {
+async function main() {
   const root = process.cwd();
   const tscScript = join(root, 'node_modules', 'typescript', 'lib', 'tsc.js');
   if (!existsSync(tscScript)) {
@@ -169,20 +170,48 @@ function main() {
   }
 
   // 2) tsc --noEmit per package (piped so the output is both shown here and
-  //    capturable by the test suite).
+  //    capturable by the test suite). The packages are independent checks,
+  //    and one at a time takes about two minutes: a few run at once,
+  //    their output printed in package order.
+  const runs = await runLimited(pkgs, TSC_PARALLEL, (name) => tscRun(tscScript, root, name));
   let failed = false;
-  for (const name of pkgs) {
+  pkgs.forEach((name, i) => {
+    const r = runs[i];
     console.log(`typecheck: tsc --noEmit -p packages/${name}`);
-    const r = spawnSync(
-      process.execPath,
-      [tscScript, '--noEmit', '-p', join('packages', name)],
-      { cwd: root, encoding: 'utf8' },
-    );
     if (r.stdout) process.stdout.write(r.stdout);
     if (r.stderr) process.stderr.write(r.stderr);
     if (r.status !== 0) failed = true;
-  }
+  });
   process.exit(failed ? 1 : 0);
+}
+
+/** How many tsc processes run at once: each takes up to ~1 GB, and the gate runs under a memory cap. */
+const TSC_PARALLEL = Math.max(1, Math.min(4, Math.floor(availableParallelism() / 2)));
+
+function tscRun(tscScript, root, name) {
+  return new Promise((done) => {
+    const child = spawn(process.execPath, [tscScript, '--noEmit', '-p', join('packages', name)], { cwd: root });
+    let stdout = '';
+    let stderr = '';
+    child.stdout.setEncoding('utf8').on('data', (d) => { stdout += d; });
+    child.stderr.setEncoding('utf8').on('data', (d) => { stderr += d; });
+    child.on('error', (e) => done({ status: 1, stdout, stderr: `${stderr}${e.message}\n` }));
+    child.on('close', (status) => done({ status, stdout, stderr }));
+  });
+}
+
+/** Map `items` through `run` with at most `limit` in flight; results in input order. */
+async function runLimited(items, limit, run) {
+  const results = new Array(items.length);
+  let next = 0;
+  const worker = async () => {
+    while (next < items.length) {
+      const i = next++;
+      results[i] = await run(items[i]);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return results;
 }
 
 // CLI guard — realpath-based, so it also works when the tool is invoked

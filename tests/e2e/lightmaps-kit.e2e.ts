@@ -16,6 +16,7 @@ import { expect, test, type Page } from '@playwright/test';
 
 import { startBackend, type E2EBackend } from './backend';
 import { multiPieceGlb, type PieceSpec } from './multi-piece-glb';
+import { colorCount, decodePng } from './png';
 import { openWindow } from './ui';
 
 const bakeBlender = process.env['TL_BAKE_BLENDER'] ?? process.env['THIRDLIGHT_BLENDER'] ?? 'blender';
@@ -90,12 +91,13 @@ async function buildKitScene(page: Page): Promise<{ ids: string[]; play: (name: 
   await editorCaughtUp(page);
 
   const frame = page.locator('iframe.tl-app__preview-frame');
+  // Play starts on the baked scene and draws it (more than the clear colour), no notice raised.
   const play = async (name: string): Promise<void> => {
     await page.getByTitle('Start an isolated play preview').click();
     await expect(frame).toBeVisible();
-    await page.waitForTimeout(3000);
-    const png = await frame.screenshot();
-    if (shots !== undefined) writeFileSync(join(shots, `kit-bake-${name}.png`), png);
+    await expect.poll(async () => colorCount(decodePng(await frame.screenshot())), { timeout: 30_000 }).toBeGreaterThan(1);
+    await expect(page.locator('.tl-notice')).toHaveCount(0);
+    if (shots !== undefined) writeFileSync(join(shots, `kit-bake-${name}.png`), await frame.screenshot());
     await page.getByTitle('Stop the play preview').click();
   };
   return { ids, play };
@@ -117,7 +119,6 @@ test('a multi-piece kit bakes in the browser: every piece gets a lightmap and Pl
   test.setTimeout(240_000);
   be = await startBackend();
   const { ids, play } = await buildKitScene(page);
-  await play('preview-before');
 
   await openWindow(page, 'Lighting');
   await expect(page.locator('[aria-label="bake status"]')).toContainText('No bake for this scene');
@@ -137,7 +138,6 @@ test('a multi-piece kit bakes with Blender Cycles and Play uses the lightmaps', 
   test.setTimeout(900_000);
   be = await startBackend('e2e-0001', undefined, { THIRDLIGHT_BAKE_HOST: bakeHost, THIRDLIGHT_BAKE_BLENDER: bakeBlender, THIRDLIGHT_BAKE_TIMEOUT_MINUTES: '12' });
   const { ids, play } = await buildKitScene(page);
-  await play('final-before');
 
   await openWindow(page, 'Lighting');
   await expect(page.getByRole('button', { name: 'Bake final (Blender)' })).toBeEnabled();

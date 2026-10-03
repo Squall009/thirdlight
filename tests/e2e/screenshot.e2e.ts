@@ -27,7 +27,7 @@ import { startBackend, type E2EBackend } from './backend';
 import { multiPieceGlb } from './multi-piece-glb';
 import { decodePng, type Image } from './png';
 import { makePng } from './png-make';
-import { backendOf, editorUrlFor, expectRendererBackend, onlyInItsProject, RENDERER_VARIANTS, type RendererVariant } from './renderer-variants';
+import { backendOf, editorUrlFor, expectRendererBackend, onlyInItsProject, PRODUCT_RENDERER_VARIANTS, RENDERER_VARIANTS, type RendererVariant } from './renderer-variants';
 import { projectWindow } from './ui';
 
 let be: E2EBackend;
@@ -154,9 +154,10 @@ async function mcpClient(): Promise<Client> {
   return mcp;
 }
 
-for (const variant of RENDERER_VARIANTS) {
+// The size bound and the transport are the subject here; WebGL 2 readback is the test above's.
+for (const variant of PRODUCT_RENDERER_VARIANTS) {
   test(`a large, noisy scene's screenshot comes back whole over HTTP and MCP (${variant})`, async ({ page }) => {
-    onlyInItsProject(variant);
+    onlyInItsProject(variant, PRODUCT_RENDERER_VARIANTS);
     test.setTimeout(180_000);
     // A crate with a noise texture fills much of the view: its PNG cannot be small.
     // The noise stays inside the file as it is (a KTX2 encode would merge its colours).

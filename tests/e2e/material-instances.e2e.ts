@@ -14,8 +14,8 @@
  *   ships the used instances resolved (never an instance, never the unused
  *   parents).
  *
- * Runs per renderer variant (renderer-variants.ts): auto, WebGL 2 (TL_E2E_ALL_VARIANTS=1 on a GPU),
- * WebGPU in `webgpu`.
+ * Runs on the product's own renderer (renderer-variants.ts PRODUCT_RENDERER_VARIANTS):
+ * its subject is not a backend path; the parity sweeps compare the backends' shading.
  */
 import { randomBytes } from 'node:crypto';
 import { createReadStream, existsSync, statSync } from 'node:fs';
@@ -27,7 +27,7 @@ import { expect, test, type Locator, type Page } from '@playwright/test';
 import { exportedContent, publishBytes, startBackend, type E2EBackend } from './backend';
 import { multiPieceGlb } from './multi-piece-glb';
 import { decodePng, type Image } from './png';
-import { editorUrlFor, expectRendererBackend, exportQueryFor, onlyInItsProject, RENDERER_VARIANTS, type RendererVariant } from './renderer-variants';
+import { editorUrlFor, expectRendererBackend, exportQueryFor, onlyInItsProject, PRODUCT_RENDERER_VARIANTS, type RendererVariant } from './renderer-variants';
 import { openWindow, projectWindow, closeEditor, chooseItem, inspector } from './ui';
 
 let be: E2EBackend | null = null;
@@ -112,10 +112,10 @@ const GLOW_GRAPH = {
   edges: [{ id: 'e1', from: { node: 'tint', port: 'value' }, to: { node: 'out', port: 'color' } }],
 };
 
-const VARIANTS: readonly RendererVariant[] = RENDERER_VARIANTS;
+const VARIANTS: readonly RendererVariant[] = PRODUCT_RENDERER_VARIANTS;
 
 for (const variant of VARIANTS) test(`material instances on an object, a model asset's default mapping and by command: Scene view, Play and the export (${variant})`, async ({ page }) => {
-  onlyInItsProject(variant);
+  onlyInItsProject(variant, VARIANTS);
   test.setTimeout(300_000);
   be = await startBackend('material-instances-e2e');
 

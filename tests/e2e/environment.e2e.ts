@@ -5,10 +5,9 @@
  * with height) — and Play and
  * the export render the same environment.
  *
- * Runs once per renderer variant (renderer-variants.ts):
- * WebGPURenderer with the TSL sky, fog volumes and post stack — auto (the
- * default) and forced WebGL 2 in the default project, WebGPU in the webgpu
- * project.
+ * WebGPURenderer with the TSL sky, fog volumes and post stack, on the
+ * product's own renderer (renderer-variants.ts PRODUCT_RENDERER_VARIANTS):
+ * env-parity compares the sky, grading, bloom and fog volume on both backends.
  */
 import { createReadStream, existsSync, statSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
@@ -18,7 +17,7 @@ import { expect, test, type Locator, type Page } from '@playwright/test';
 
 import { startBackend, type E2EBackend } from './backend';
 import { decodePng, type Image } from './png';
-import { editorUrlFor, expectRendererBackend, exportQueryFor, onlyInItsProject, RENDERER_VARIANTS } from './renderer-variants';
+import { editorUrlFor, expectRendererBackend, exportQueryFor, onlyInItsProject, PRODUCT_RENDERER_VARIANTS } from './renderer-variants';
 import { menu, openWindow, toolWindowScene } from './ui';
 
 let be: E2EBackend;
@@ -77,8 +76,8 @@ function serveDir(root: string): Promise<{ url: string; close: () => Promise<voi
   return new Promise((ok) => server.listen(0, '127.0.0.1', () => ok({ url: `http://127.0.0.1:${(server.address() as { port: number }).port}/`, close: () => new Promise((d) => server.close(() => d())) })));
 }
 
-for (const variant of RENDERER_VARIANTS) test(`sky, vignette, bloom and a fog volume in the Scene view, in Play and in the export (${variant})`, async ({ page }) => {
-  onlyInItsProject(variant);
+for (const variant of PRODUCT_RENDERER_VARIANTS) test(`sky, vignette, bloom and a fog volume in the Scene view, in Play and in the export (${variant})`, async ({ page }) => {
+  onlyInItsProject(variant, PRODUCT_RENDERER_VARIANTS);
   test.setTimeout(240_000);
   await page.goto(editorUrlFor(be.editorUrl, variant));
   await expect(page.locator('.tl-statusbar')).toContainText('connected');

@@ -1,6 +1,7 @@
 /**
- * Smoothed block-layer tops against a real backend, per renderer variant
- * (renderer-variants.ts).
+ * Smoothed block-layer tops against a real backend, on the product's own
+ * renderer (renderer-variants.ts PRODUCT_RENDERER_VARIANTS: the normals are
+ * built on the CPU).
  *
  * A block layer (two chunks along x, the chunk edge at world x = 0) carries
  * rolling sloped ground — a cosine along x, its crest on the chunk edge —
@@ -28,7 +29,7 @@ import * as THREE from 'three';
 
 import { startBackend, type E2EBackend } from './backend';
 import { decodePng, type Image } from './png';
-import { editorUrlFor, expectRendererBackend, exportQueryFor, onlyInItsProject, RENDERER_VARIANTS, type RendererVariant } from './renderer-variants';
+import { editorUrlFor, expectRendererBackend, exportQueryFor, onlyInItsProject, PRODUCT_RENDERER_VARIANTS, type RendererVariant } from './renderer-variants';
 import { inspector, menu, openWindow, projectWindow } from './ui';
 
 let be: E2EBackend | null = null;
@@ -269,8 +270,8 @@ async function scenePicture(view: Locator, check: (j: Jumps) => string | null, n
   return last!;
 }
 
-for (const variant of RENDERER_VARIANTS) test(`smoothed block-layer tops: no seam at a chunk edge and a hard crease, set in the Inspector, in the Scene view, Play and the export (${variant})`, async ({ page }) => {
-  onlyInItsProject(variant);
+for (const variant of PRODUCT_RENDERER_VARIANTS) test(`smoothed block-layer tops: no seam at a chunk edge and a hard crease, set in the Inspector, in the Scene view, Play and the export (${variant})`, async ({ page }) => {
+  onlyInItsProject(variant, PRODUCT_RENDERER_VARIANTS);
   test.setTimeout(420_000);
   be = await startBackend(`smooth-tops-${randomUUID().slice(0, 8)}`);
   const errors: string[] = [];

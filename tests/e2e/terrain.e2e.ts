@@ -1,7 +1,6 @@
 /**
- * Sloped block-layer terrain against a real backend, per renderer variant
- * (renderer-variants.ts: auto; WebGL 2 with TL_E2E_ALL_VARIANTS=1 on a GPU;
- * WebGPU in `webgpu`).
+ * Sloped block-layer terrain against a real backend, on the product's own
+ * renderer (renderer-variants.ts PRODUCT_RENDERER_VARIANTS).
  *
  * A 3D project gets a block layer built with the bulk commands (the ones
  * MCP's tl_command sends): a lane rising along +x — a flat floor, a gentle
@@ -26,7 +25,7 @@ import { expect, test, type Page } from '@playwright/test';
 
 import { controls, startBackend, type E2EBackend } from './backend';
 import { decodePng, type Image } from './png';
-import { editorUrlFor, expectRendererBackend, exportQueryFor, onlyInItsProject, RENDERER_VARIANTS } from './renderer-variants';
+import { editorUrlFor, expectRendererBackend, exportQueryFor, onlyInItsProject, PRODUCT_RENDERER_VARIANTS } from './renderer-variants';
 
 let be: E2EBackend | null = null;
 test.afterEach(async () => {
@@ -168,8 +167,8 @@ async function startPlay(page: Page): Promise<string> {
   return psid;
 }
 
-for (const variant of RENDERER_VARIANTS) test(`sloped terrain: corner cells by command, the Scene view, Play (lands on and walks up a slope, stops at one steeper than maxSlope) and the export (${variant})`, async ({ page }) => {
-  onlyInItsProject(variant);
+for (const variant of PRODUCT_RENDERER_VARIANTS) test(`sloped terrain: corner cells by command, the Scene view, Play (lands on and walks up a slope, stops at one steeper than maxSlope) and the export (${variant})`, async ({ page }) => {
+  onlyInItsProject(variant, PRODUCT_RENDERER_VARIANTS);
   test.setTimeout(420_000);
   be = await startBackend('terrain-e2e');
   const { layer } = await buildTerrain();

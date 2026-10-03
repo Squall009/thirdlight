@@ -1,5 +1,7 @@
 /**
- * Light baking of block layers, per renderer variant (renderer-variants.ts).
+ * Light baking of block layers. The preview bake runs on the product's own
+ * renderer (renderer-variants.ts PRODUCT_RENDERER_VARIANTS): lightmaps.e2e
+ * bakes and shows a lightmap on both backends.
  *
  * The ground is a static block layer (a 12 × 8 floor of 1 m cells, top at
  * y = 0) with a static cube standing on it; the sun and the ambient light are
@@ -23,7 +25,7 @@ import * as THREE from 'three';
 
 import { startBackend, type E2EBackend } from './backend';
 import { decodePng, type Image } from './png';
-import { editorUrlFor, expectRendererBackend, exportQueryFor, onlyInItsProject, RENDERER_VARIANTS, type RendererVariant } from './renderer-variants';
+import { editorUrlFor, expectRendererBackend, exportQueryFor, onlyInItsProject, PRODUCT_RENDERER_VARIANTS, type RendererVariant } from './renderer-variants';
 import { openWindow } from './ui';
 
 let be: E2EBackend | null = null;
@@ -122,8 +124,8 @@ async function bakeEntries(): Promise<{ entityId: string; chunk?: number[]; layo
   return Object.values(config['lighting'] as Record<string, { entries: { entityId: string; chunk?: number[]; layout?: string }[] }>)[0]!.entries;
 }
 
-for (const variant of RENDERER_VARIANTS) test(`Bake preview bakes a static block layer's chunks: the cube's shadow on the blocks in Play and the export (${variant})`, async ({ page }) => {
-  onlyInItsProject(variant);
+for (const variant of PRODUCT_RENDERER_VARIANTS) test(`Bake preview bakes a static block layer's chunks: the cube's shadow on the blocks in Play and the export (${variant})`, async ({ page }) => {
+  onlyInItsProject(variant, PRODUCT_RENDERER_VARIANTS);
   test.setTimeout(300_000);
   const { layer, cube } = await openScene(page, variant);
 

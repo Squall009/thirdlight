@@ -6,8 +6,8 @@
  * two Play frames is the shadow: a patch of the floor clearly darker, and only
  * a patch (shadow acne or a self-shadowed floor would darken far more).
  *
- * Runs once per renderer variant (renderer-variants.ts): auto (the default)
- * and forced WebGL 2 in the default project, WebGPU in the webgpu project.
+ * Runs on the product's own renderer (renderer-variants.ts
+ * PRODUCT_RENDERER_VARIANTS): env-parity compares shadow maps on both backends.
  */
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -16,7 +16,7 @@ import { expect, test, type Page } from '@playwright/test';
 
 import { startBackend, type E2EBackend } from './backend';
 import { decodePng, type Image } from './png';
-import { editorUrlFor, expectRendererBackend, onlyInItsProject, RENDERER_VARIANTS } from './renderer-variants';
+import { editorUrlFor, expectRendererBackend, onlyInItsProject, PRODUCT_RENDERER_VARIANTS, type RendererVariant } from './renderer-variants';
 
 let be: E2EBackend;
 test.beforeEach(async () => {
@@ -50,7 +50,7 @@ function darkerPixels(a: Image, b: Image, delta = 40): number {
   return n;
 }
 
-async function playFrame(page: Page, variant: (typeof RENDERER_VARIANTS)[number], label: string): Promise<Image> {
+async function playFrame(page: Page, variant: RendererVariant, label: string): Promise<Image> {
   await page.getByTitle('Start an isolated play preview').click();
   const frame = page.locator('iframe.tl-app__preview-frame');
   await expect(frame).toBeVisible();
@@ -80,8 +80,8 @@ async function playFrame(page: Page, variant: (typeof RENDERER_VARIANTS)[number]
   return img!;
 }
 
-for (const variant of RENDERER_VARIANTS) test(`a box casts the sun's shadow on a floor box in Play; "Casts shadows" off removes it (${variant})`, async ({ page }) => {
-  onlyInItsProject(variant);
+for (const variant of PRODUCT_RENDERER_VARIANTS) test(`a box casts the sun's shadow on a floor box in Play; "Casts shadows" off removes it (${variant})`, async ({ page }) => {
+  onlyInItsProject(variant, PRODUCT_RENDERER_VARIANTS);
   test.setTimeout(240_000);
   // The new project's camera stands at (0, 0.5, 4) looking along −Z; its sun casts shadows.
   // The floor ends 2 m in front of the camera (a floor edge through the camera's own

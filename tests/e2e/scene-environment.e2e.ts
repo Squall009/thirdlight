@@ -26,7 +26,7 @@ import { expect, test, type Locator, type Page } from '@playwright/test';
 
 import { startBackend, type E2EBackend } from './backend';
 import { decodePng, type Image } from './png';
-import { editorUrlFor, expectRendererBackend, exportQueryFor, onlyInItsProject, RENDERER_VARIANTS } from './renderer-variants';
+import { editorUrlFor, expectRendererBackend, exportQueryFor, onlyInItsProject, PRODUCT_RENDERER_VARIANTS } from './renderer-variants';
 import { openWindow, toolWindowScene } from './ui';
 
 let be: E2EBackend | null = null;
@@ -73,8 +73,8 @@ const header = (page: Page, name: string): Locator => page.locator('.tl-scene-he
 const RED_SKY = { sky: { mode: 'color', color: '#d02020' } };
 const BLUE_SKY = { sky: { mode: 'color', color: '#2040d0' } };
 
-for (const variant of RENDERER_VARIANTS) test(`each scene's look in the Scene view; the Environment window edits the active scene's (${variant})`, async ({ page }) => {
-  onlyInItsProject(variant);
+for (const variant of PRODUCT_RENDERER_VARIANTS) test(`each scene's look in the Scene view; the Environment window edits the active scene's (${variant})`, async ({ page }) => {
+  onlyInItsProject(variant, PRODUCT_RENDERER_VARIANTS);
   test.setTimeout(180_000);
   be = await startBackend('scene-environment-e2e');
   await cmd('createScene', { sceneId: 'scene-two', name: 'Two' });
@@ -229,8 +229,8 @@ async function checkScenes(read: () => Promise<SceneView>, target: Locator | Pag
   await expect.poll(async () => { const [r, , b] = await sky(); return r > b + 80; }, { timeout: 30_000, message: `${label}: back to the red sky` }).toBe(true);
 }
 
-for (const variant of RENDERER_VARIANTS) test(`two scenes in Play and the export: the active scene's sky, blended over setActive's blend (${variant})`, async ({ page }) => {
-  onlyInItsProject(variant);
+for (const variant of PRODUCT_RENDERER_VARIANTS) test(`two scenes in Play and the export: the active scene's sky, blended over setActive's blend (${variant})`, async ({ page }) => {
+  onlyInItsProject(variant, PRODUCT_RENDERER_VARIANTS);
   test.setTimeout(300_000);
   be = await startBackend('scene-environment-play-e2e');
   await cmd('createScene', { sceneId: 'scene-two', name: 'Two' });

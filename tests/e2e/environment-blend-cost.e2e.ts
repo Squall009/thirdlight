@@ -15,15 +15,15 @@
  * with the result. The pixels of a blend (sky, fog, lit panel) are checked by
  * `environment-presets.e2e.ts`.
  *
- * Runs per renderer: `auto` (WebGPU on the GPU host) and forced WebGL 2 in
- * `default` (the latter with TL_E2E_ALL_VARIANTS=1), WebGPU in `webgpu`.
+ * Runs on the product's own renderer (renderer-variants.ts PRODUCT_RENDERER_VARIANTS):
+ * its subject is not a backend path; the parity sweeps compare the backends' shading.
  */
 import { createHash, randomBytes } from 'node:crypto';
 
 import { expect, test, type Frame } from '@playwright/test';
 
 import { startBackend, type E2EBackend } from './backend';
-import { editorUrlFor, expectRendererBackend, onlyInItsProject, type RendererVariant } from './renderer-variants';
+import { editorUrlFor, expectRendererBackend, onlyInItsProject, PRODUCT_RENDERER_VARIANTS, type RendererVariant } from './renderer-variants';
 
 let be: E2EBackend | null = null;
 test.afterEach(async () => {
@@ -124,10 +124,10 @@ interface Sample {
   bakes: number;
 }
 
-const VARIANTS: readonly RendererVariant[] = ['auto', 'webgl2', 'webgpu'];
+const VARIANTS: readonly RendererVariant[] = PRODUCT_RENDERER_VARIANTS;
 
 for (const variant of VARIANTS) test(`environment blend: a new t every step at 120 Hz drops no steps; the lighting re-bakes only when the sky changes (${variant})`, async ({ page }) => {
-  onlyInItsProject(variant);
+  onlyInItsProject(variant, VARIANTS);
   test.setTimeout(240_000);
   be = await startBackend('environment-blend-cost-e2e');
 

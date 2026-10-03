@@ -20,7 +20,7 @@ import { expect, test, type Locator, type Page } from '@playwright/test';
 
 import { startBackend, type E2EBackend } from './backend';
 import { decodePng, type Image } from './png';
-import { backendOf, editorUrlFor, expectRendererBackend, onlyInItsProject, type RendererVariant } from './renderer-variants';
+import { backendOf, editorUrlFor, expectRendererBackend, onlyInItsProject, PRODUCT_RENDERER_VARIANTS, type RendererVariant } from './renderer-variants';
 import { menu, expectEditorOpen, closeEditor, openEditor, previewCanvas, previewPane } from './ui';
 
 let be: E2EBackend;
@@ -118,10 +118,10 @@ const spawned = async (page: Page): Promise<number> => (await state(page)).syste
 interface Ledger { open: number; opened: number; closed: number; shown: number; released: number; idle: Record<string, number> | null }
 const ledger = async (page: Page): Promise<Ledger> => JSON.parse((await page.locator('html').getAttribute('data-tl-previews')) ?? '{"open":0,"opened":0,"closed":0,"shown":0,"released":0,"idle":null}') as Ledger;
 
-const VARIANTS: readonly RendererVariant[] = ['auto', 'webgl2', 'webgpu'];
+const VARIANTS: readonly RendererVariant[] = PRODUCT_RENDERER_VARIANTS;
 
 for (const variant of VARIANTS) test(`the Effect tab previews an effect: particles, pause, deterministic scrub, restart, parameter slider, live edit, no leaks (${variant})`, async ({ page }) => {
-  onlyInItsProject(variant);
+  onlyInItsProject(variant, VARIANTS);
   test.setTimeout(300_000);
   be = await startBackend('effect-editor-e2e');
   // The executor Play would use: WebGPU compute wherever the renderer is WebGPU (`auto` takes it on a GPU host).

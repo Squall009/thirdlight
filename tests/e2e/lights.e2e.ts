@@ -4,7 +4,8 @@
  * edited in the Inspector; the Scene view toggles between the editor rig and
  * the scene's own lights.
  *
- * Runs once per renderer variant (renderer-variants.ts).
+ * Runs on the product's own renderer (renderer-variants.ts
+ * PRODUCT_RENDERER_VARIANTS): scene-lights covers lights and cookies on both.
  */
 import { randomBytes } from 'node:crypto';
 
@@ -13,7 +14,7 @@ import { expect, test } from '@playwright/test';
 import { publishBytes, startBackend, type E2EBackend } from './backend';
 import { decodePng, type Image } from './png';
 import { makePng } from './png-make';
-import { editorUrlFor, expectRendererBackend, onlyInItsProject, RENDERER_VARIANTS } from './renderer-variants';
+import { editorUrlFor, expectRendererBackend, onlyInItsProject, PRODUCT_RENDERER_VARIANTS } from './renderer-variants';
 import { menu } from './ui';
 
 let be: E2EBackend;
@@ -33,8 +34,8 @@ function reddish(img: Image): number {
   return n;
 }
 
-for (const variant of RENDERER_VARIANTS) test(`a red point light tints a box in the Scene view and in Play; lights are edited in the Inspector (${variant})`, async ({ page }) => {
-  onlyInItsProject(variant);
+for (const variant of PRODUCT_RENDERER_VARIANTS) test(`a red point light tints a box in the Scene view and in Play; lights are edited in the Inspector (${variant})`, async ({ page }) => {
+  onlyInItsProject(variant, PRODUCT_RENDERER_VARIANTS);
   test.setTimeout(120_000);
   await page.goto(editorUrlFor(be.editorUrl, variant));
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
@@ -110,8 +111,8 @@ function mostBrightRuns(img: Image): number {
  * view: the spot's patch on a dark floor is one bright disc before and
  * striped after. Play draws it too (scene-lights.e2e.ts checks its pixels).
  */
-for (const variant of RENDERER_VARIANTS) test(`a spot light's cookie is set in the Inspector and shows in the Scene view (${variant})`, async ({ page }) => {
-  onlyInItsProject(variant);
+for (const variant of PRODUCT_RENDERER_VARIANTS) test(`a spot light's cookie is set in the Inspector and shows in the Scene view (${variant})`, async ({ page }) => {
+  onlyInItsProject(variant, PRODUCT_RENDERER_VARIANTS);
   test.setTimeout(120_000);
   await publishBytes(be, makePng(64, 64, (x) => (Math.floor(x / 8) % 2 === 0 ? [255, 255, 255, 255] : [0, 0, 0, 255])), 'texture', 'tex-stripes');
   await page.goto(editorUrlFor(be.editorUrl, variant));

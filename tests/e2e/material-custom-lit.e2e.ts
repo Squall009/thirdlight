@@ -20,7 +20,7 @@ import { expect, test, type Locator, type Page } from '@playwright/test';
 
 import { exportedContent, startBackend, type E2EBackend } from './backend';
 import { decodePng, type Image } from './png';
-import { editorUrlFor, expectRendererBackend, exportQueryFor, onlyInItsProject, type RendererVariant } from './renderer-variants';
+import { backendOf, editorUrlFor, expectRendererBackend, exportQueryFor, onlyInItsProject, PRODUCT_RENDERER_VARIANTS, type RendererVariant } from './renderer-variants';
 import { menu, closeEditor, openEditor, previewCanvas } from './ui';
 
 let be: E2EBackend;
@@ -87,10 +87,10 @@ const BANDS = {
   edges: [e('w0', 'zero', 'value', 'step', 'edge'), e('w1', 'main', 'ndotl', 'step', 'x'), e('w2', 'away', 'rgb', 'pick', 'a'), e('w3', 'towards', 'rgb', 'pick', 'b'), e('w4', 'step', 'out', 'pick', 't'), e('w5', 'pick', 'out', 'output', 'color')],
 };
 
-const VARIANTS: readonly RendererVariant[] = ['webgl2', 'webgpu'];
+const VARIANTS: readonly RendererVariant[] = PRODUCT_RENDERER_VARIANTS;
 
 for (const variant of VARIANTS) test(`a Custom-lit graph (two N·L bands) shades from the lights in the Material preview, the Scene view, Play and the export (${variant})`, async ({ page }) => {
-  onlyInItsProject(variant);
+  onlyInItsProject(variant, VARIANTS);
   test.setTimeout(300_000);
   await cmd('setMaterial', { material: { materialId: 'mat-cel', name: 'Cel', shader: 'standard', params: {}, textures: {}, graph: BANDS } });
   // The same inputs under a PBR output read no light: a compile error.
@@ -112,9 +112,9 @@ for (const variant of VARIANTS) test(`a Custom-lit graph (two N·L bands) shades
   for (const label of ['Main light', 'Shadow', 'Diffuse light', 'Ambient light']) await expect(popup.getByRole('option', { name: label, exact: true })).toBeVisible();
   await page.keyboard.press('Escape');
   const preview = previewCanvas(page);
-  await expect.poll(() => preview.getAttribute('data-tl-renderer'), { timeout: 30_000 }).toBe(variant);
+  await expect.poll(() => preview.getAttribute('data-tl-renderer'), { timeout: 30_000 }).toBe(backendOf(variant));
   const status = page.locator('.tl-material-preview__status');
-  await expect(status).toContainText(variant);
+  await expect(status).toContainText(backendOf(variant));
   await expect.poll(async () => Number(await preview.getAttribute('data-frames')), { timeout: 30_000 }).toBeGreaterThan(5);
   await expect.poll(async () => count(await shot(preview), yellow), { timeout: 30_000 }).toBeGreaterThan(150);
   await expect.poll(async () => count(await shot(preview), blue), { timeout: 30_000 }).toBeGreaterThan(40);

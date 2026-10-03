@@ -16,7 +16,7 @@ import { expect, test, type Locator } from '@playwright/test';
 
 import { startBackend, type E2EBackend } from './backend';
 import { decodePng, type Image } from './png';
-import { editorUrlFor, expectRendererBackend, onlyInItsProject, type RendererVariant } from './renderer-variants';
+import { editorUrlFor, expectRendererBackend, onlyInItsProject, PRODUCT_RENDERER_VARIANTS, type RendererVariant } from './renderer-variants';
 
 let be: E2EBackend | null = null;
 test.afterEach(async () => {
@@ -88,10 +88,10 @@ function reds(img: Image): number {
   return n;
 }
 
-const VARIANTS: readonly RendererVariant[] = ['auto', 'webgl2', 'webgpu'];
+const VARIANTS: readonly RendererVariant[] = PRODUCT_RENDERER_VARIANTS;
 
 for (const variant of VARIANTS) test(`a script's look override glows an object red and clears it, seen in Play pixels (${variant})`, async ({ page }) => {
-  onlyInItsProject(variant);
+  onlyInItsProject(variant, VARIANTS);
   test.setTimeout(240_000);
   be = await startBackend('look-override-e2e', 'starter');
   // A grey block in the middle of the starter camera's view (the camera at [4, 3, 12] looks along −Z).

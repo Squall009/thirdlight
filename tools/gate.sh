@@ -127,13 +127,13 @@ case "$mode" in
     if e2e e2e.log "${PROJECTS[@]}"; then done_ GREEN; fi
     grep -qE '^\s+[0-9]+ failed' "$L/e2e.log" || done_ "RED e2e (no summary)"
     say "rerunning the failed tests alone"
-    TL_E2E_WORKERS=1 e2e e2e-rerun.log --last-failed && done_ "GREEN (failed once, passed alone: see e2e.log)"
+    TL_E2E_WORKERS=1 e2e e2e-rerun.log --last-failed --trace=retain-on-failure && done_ "GREEN (failed once, passed alone: see e2e.log)"
     done_ "RED e2e (fix, then: tools/gate.sh rerun)" ;;
   rerun)
     npm run build > "$L/build.log" 2>&1
     grep -q '^build: done' "$L/build.log" || done_ "RED build"
     export TL_MEMORY=1
-    e2e e2e.log --last-failed && done_ GREEN
+    e2e e2e.log --last-failed --trace=retain-on-failure && done_ GREEN
     done_ "RED e2e" ;;
   *) echo "usage: tools/gate.sh fast [e2e files…] | full [--both-renderers] | rerun | start <mode> [args…] | wait"; exit 2 ;;
 esac

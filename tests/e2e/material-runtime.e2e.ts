@@ -27,7 +27,7 @@ import { expect, test, type Locator, type Page } from '@playwright/test';
 
 import { startBackend, type E2EBackend } from './backend';
 import { decodePng, type Image } from './png';
-import { editorUrlFor, expectRendererBackend, exportQueryFor, onlyInItsProject, type RendererVariant } from './renderer-variants';
+import { editorUrlFor, expectRendererBackend, exportQueryFor, onlyInItsProject, PRODUCT_RENDERER_VARIANTS, type RendererVariant } from './renderer-variants';
 import { closeEditor, openEditor } from './ui';
 
 let be: E2EBackend | null = null;
@@ -185,10 +185,10 @@ function serveDir(dir: string): Promise<{ url: string; close: () => Promise<void
 
 type RendererDiag = { gpu?: { programs: number }; frame?: { drawCalls: number }; materials?: { graphMaterials: number; objects: number; dataTextures: number } };
 
-const VARIANTS: readonly RendererVariant[] = ['webgl2', 'webgpu'];
+const VARIANTS: readonly RendererVariant[] = PRODUCT_RENDERER_VARIANTS;
 
 for (const variant of VARIANTS) test(`a script sets one object's colour and writes a data grid on another sharing the material: Play and the export (${variant})`, async ({ page }) => {
-  onlyInItsProject(variant);
+  onlyInItsProject(variant, VARIANTS);
   test.setTimeout(300_000);
   be = await startBackend('material-runtime-e2e');
 

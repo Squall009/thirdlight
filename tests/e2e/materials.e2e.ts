@@ -4,9 +4,9 @@
  * the Scene view, in Play and in the export; a standard material with a
  * texture shows the texture on a box.
  *
- * Runs once per renderer variant (renderer-variants.ts):
- * node materials on WebGPURenderer — auto (the default) and forced WebGL 2 in
- * the default project, WebGPU in the webgpu project.
+ * Node materials on WebGPURenderer, on the product's own renderer
+ * (renderer-variants.ts PRODUCT_RENDERER_VARIANTS): shader-parity compares
+ * the foliage shader on both backends.
  */
 import { createReadStream, existsSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
@@ -19,7 +19,7 @@ import { startBackend, type E2EBackend } from './backend';
 import { KIT_PIECES, multiPieceGlb } from './multi-piece-glb';
 import { decodePng, type Image } from './png';
 import { makePng } from './png-make';
-import { editorUrlFor, expectRendererBackend, exportQueryFor, onlyInItsProject, RENDERER_VARIANTS } from './renderer-variants';
+import { editorUrlFor, expectRendererBackend, exportQueryFor, onlyInItsProject, PRODUCT_RENDERER_VARIANTS } from './renderer-variants';
 import { menu, projectWindow, openWindow, createItem, inspector } from './ui';
 
 let be: E2EBackend;
@@ -83,8 +83,8 @@ function serveDir(root: string): Promise<{ url: string; close: () => Promise<voi
   return new Promise((ok) => server.listen(0, '127.0.0.1', () => ok({ url: `http://127.0.0.1:${(server.address() as { port: number }).port}/`, close: () => new Promise((d) => server.close(() => d())) })));
 }
 
-for (const variant of RENDERER_VARIANTS) test(`a foliage material moves in the wind (editor, Play, export); a texture shows on a box (${variant})`, async ({ page }) => {
-  onlyInItsProject(variant);
+for (const variant of PRODUCT_RENDERER_VARIANTS) test(`a foliage material moves in the wind (editor, Play, export); a texture shows on a box (${variant})`, async ({ page }) => {
+  onlyInItsProject(variant, PRODUCT_RENDERER_VARIANTS);
   test.setTimeout(240_000);
   const kit = join(dir, 'kit.glb');
   writeFileSync(kit, multiPieceGlb(KIT_PIECES));

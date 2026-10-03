@@ -27,7 +27,7 @@ import { expect, test, type Locator, type Page } from '@playwright/test';
 
 import { startBackend, type E2EBackend } from './backend';
 import { decodePng, type Image } from './png';
-import { editorUrlFor, expectRendererBackend, exportQueryFor, onlyInItsProject, type RendererVariant } from './renderer-variants';
+import { editorUrlFor, expectRendererBackend, exportQueryFor, onlyInItsProject, PRODUCT_RENDERER_VARIANTS, type RendererVariant } from './renderer-variants';
 import { openWindow } from './ui';
 
 let be: E2EBackend | null = null;
@@ -217,10 +217,10 @@ async function checkBlend(read: () => Promise<Env>, target: Locator | Page, pres
   }
 }
 
-const VARIANTS: readonly RendererVariant[] = ['webgl2', 'webgpu'];
+const VARIANTS: readonly RendererVariant[] = PRODUCT_RENDERER_VARIANTS;
 
 for (const variant of VARIANTS) test(`environment presets: capture and preview in the editor; a script blends day to night in Play and the export (${variant})`, async ({ page }) => {
-  onlyInItsProject(variant);
+  onlyInItsProject(variant, VARIANTS);
   test.setTimeout(420_000);
   be = await startBackend('environment-presets-e2e');
 

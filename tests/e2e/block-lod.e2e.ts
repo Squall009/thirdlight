@@ -21,7 +21,7 @@ import { expect, test } from '@playwright/test';
 import { publishBytes, startBackend, type E2EBackend } from './backend';
 import { multiPieceGlb } from './multi-piece-glb';
 import { decodePng, type Image } from './png';
-import { editorUrlFor, expectRendererBackend, exportQueryFor, onlyInItsProject, RENDERER_VARIANTS } from './renderer-variants';
+import { editorUrlFor, expectRendererBackend, exportQueryFor, onlyInItsProject, PRODUCT_RENDERER_VARIANTS } from './renderer-variants';
 
 let be: E2EBackend | null = null;
 test.afterEach(async () => {
@@ -76,8 +76,8 @@ function serveDir(dir: string): Promise<{ url: string; close: () => Promise<void
   });
 }
 
-for (const variant of RENDERER_VARIANTS) test(`block-layer chunks switch to the model's coarser level with distance: Play and the export (${variant})`, async ({ page }) => {
-  onlyInItsProject(variant);
+for (const variant of PRODUCT_RENDERER_VARIANTS) test(`block-layer chunks switch to the model's coarser level with distance: Play and the export (${variant})`, async ({ page }) => {
+  onlyInItsProject(variant, PRODUCT_RENDERER_VARIANTS);
   test.setTimeout(300_000);
   be = await startBackend('block-lod-e2e');
   await cmd('setEnvironment', { sceneId: 'scene-main', environment: { sky: { mode: 'color', color: '#303030' } } });

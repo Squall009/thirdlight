@@ -129,7 +129,10 @@ export default defineConfig({
   use: {
     viewport: { width: 1920, height: 1080 },
     screenshot: 'only-on-failure',
-    trace: 'retain-on-failure',
+    // The trace keeps the action log, screencast and sources of a failed test; DOM snapshots
+    // at every action and poll made each passing run ~20% slower, so they are off here. The
+    // gate's rerun of failed tests turns them on (`--trace=retain-on-failure`).
+    trace: { mode: 'retain-on-failure', snapshots: false, screenshots: true, sources: true },
   },
   projects: [
     {

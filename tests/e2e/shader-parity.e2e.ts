@@ -84,6 +84,8 @@ const project = (): string => test.info().project.name;
 
 for (const name of CASES) {
   test(`${name}: node materials match the WebGL reference`, async ({ page }) => {
+    // On a GPU the default project's `auto` render below is already the WebGPU one.
+    test.skip(project() === 'webgpu' && gpuAvailable(), 'the default project compares WebGPU (auto) on a GPU');
     test.setTimeout(120_000);
     if (project() === 'webgpu') {
       const got = await render(page, 'webgpu', name);

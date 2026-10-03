@@ -1,7 +1,8 @@
 /**
  * "Extract textures": a model's images become texture assets it draws with,
- * against a real backend in a real browser, per renderer variant
- * (renderer-variants.ts).
+ * against a real backend in a real browser, on the product's own renderer
+ * (renderer-variants.ts PRODUCT_RENDERER_VARIANTS; KTX2 drawing and streaming
+ * on both backends: ktx2-textures, texture-streaming).
  *
  * A quad model drawn unlit carries a 2048² PNG of four coloured quarters
  * (red top left, green top right, blue bottom left, yellow bottom right).
@@ -32,7 +33,7 @@ import { texturedQuadGlb } from '../../tools/perf/assets';
 import { publishBytes, startBackend, type E2EBackend } from './backend';
 import { decodePng, type Image } from './png';
 import { makePng } from './png-make';
-import { editorUrlFor, exportQueryFor, expectRendererBackend, onlyInItsProject, RENDERER_VARIANTS } from './renderer-variants';
+import { editorUrlFor, expectRendererBackend, exportQueryFor, onlyInItsProject, PRODUCT_RENDERER_VARIANTS } from './renderer-variants';
 import { textureStreamerSettled } from './texture-settle';
 import { projectWindow, closeEditor } from './ui';
 
@@ -164,8 +165,8 @@ async function startPlay(page: Page): Promise<() => Promise<Resources | null>> {
   };
 }
 
-for (const variant of RENDERER_VARIANTS) test(`a model's extracted images are texture assets it draws with, streamed under the budget (${variant})`, async ({ page }) => {
-  onlyInItsProject(variant);
+for (const variant of PRODUCT_RENDERER_VARIANTS) test(`a model's extracted images are texture assets it draws with, streamed under the budget (${variant})`, async ({ page }) => {
+  onlyInItsProject(variant, PRODUCT_RENDERER_VARIANTS);
   test.setTimeout(480_000);
   be = await startBackend(`extract-tex-${randomUUID().slice(0, 8)}`);
   const errors: string[] = [];

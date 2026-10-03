@@ -22,10 +22,23 @@ import { gpuAvailable } from './browser-env.mjs';
 const GPU = gpuAvailable();
 
 export type RendererVariant = 'auto' | 'webgl2' | 'webgpu';
+/**
+ * Every backend: for tests whose subject is a backend-specific path — shader and material builds,
+ * texture formats, uploads and transcodes, GPU readback, light, shadow and lightmap shading,
+ * program and pipeline caches.
+ */
 export const RENDERER_VARIANTS: readonly RendererVariant[] = ['auto', 'webgl2', 'webgpu'];
+/**
+ * The product's own renderer once (WebGPU on a GPU, WebGL 2 without one; the `webgpu` project
+ * repeats it where it runs the spec): for tests that draw through the renderer but whose subject
+ * is not a backend path — scene logic, streaming decisions, budgets, timing, editor UI. The
+ * forced WebGL 2 pass would repeat them step for step; the parity sweeps (env-parity,
+ * shader-parity) compare the two backends' shading pixel for pixel.
+ */
+export const PRODUCT_RENDERER_VARIANTS: readonly RendererVariant[] = ['auto', 'webgpu'];
 
-/** Skip the running test unless `variant` belongs to the current project. */
-export function onlyInItsProject(variant: RendererVariant): void {
+/** Skip the running test unless `variant` belongs to the current project (`variants`: the test's own list). */
+export function onlyInItsProject(variant: RendererVariant, variants: readonly RendererVariant[] = RENDERER_VARIANTS): void {
   const webgpuProject = test.info().project.name === 'webgpu';
   test.skip(webgpuProject ? variant !== 'webgpu' : variant === 'webgpu', `the ${variant} variant runs in the ${variant === 'webgpu' ? 'webgpu' : 'default'} project`);
   const all = process.env['TL_E2E_ALL_VARIANTS'] === '1';
@@ -38,7 +51,8 @@ export function onlyInItsProject(variant: RendererVariant): void {
     // Gate speed: on a host without a WebGPU adapter `auto` takes the same WebGL 2
     // path as the `webgl2` variant, so it would repeat it step for step (~6 min per full run).
     // `renderer.e2e.ts` still covers the `auto` default itself; TL_E2E_ALL_VARIANTS=1 runs it here too.
-    test.skip(!webgpuProject && variant === 'auto' && !all, 'auto = webgl2 on this host (TL_E2E_ALL_VARIANTS=1 runs it)');
+    // A test without a webgl2 variant keeps `auto`: it is that test's WebGL 2 run here.
+    test.skip(!webgpuProject && variant === 'auto' && variants.includes('webgl2') && !all, 'auto = webgl2 on this host (TL_E2E_ALL_VARIANTS=1 runs it)');
   }
 }
 

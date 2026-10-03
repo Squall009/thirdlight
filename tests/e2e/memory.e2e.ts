@@ -9,19 +9,21 @@
  * `data-memory`, Play's diagnostics). See memory-probe.ts.
  *
  * - every centre document tab kind (Animator, Script, Graph, Material,
- *   Visual script, Effect) opened and closed 50× — the material and effect
+ *   Visual script, Effect) opened and closed — the material and effect
  *   show in the editor window's preview pane (its renderer goes with the
  *   window);
- * - the preview panes 50×: the asset browser's model preview, the editor
+ * - the preview panes: the asset browser's model preview, the editor
  *   window's preview pane switched between an animator, a material, an
  *   effect and a timeline (on the lent Scene view), and the material
  *   preview's shapes;
- * - the Scene view: an editor scene closed/opened 50× (its objects leave and
- *   come back), instancing groups formed and dissolved 50×, the renderer
- *   backend swapped 10× (a new canvas each time);
- * - Play started and stopped 20× (iframe, simulation worker, renderer);
- * - in one Play session: an additive scene loaded/unloaded 50×, a level
- *   restarted 20× (`replay`), and scripts spawning and destroying copies.
+ * - the Scene view: an editor scene closed/opened (its objects leave and
+ *   come back), instancing groups formed and dissolved, the renderer
+ *   backend swapped (a new canvas each time);
+ * - Play started and stopped (iframe, simulation worker, renderer);
+ * - in one Play session: an additive scene loaded/unloaded, a level
+ *   restarted (`replay`), and scripts spawning and destroying copies.
+ *
+ * How many cycles each loop takes: HEAP_CYCLES / COUNTED_CYCLES below.
  *
  * Renderer-specific tests run in both projects (`default`: WebGL 2,
  * `webgpu`: WebGPU); the rest only in `default`. Numbers go to the log
@@ -39,6 +41,16 @@ import { type E2EBackend, startBackend } from './backend';
 import { cycles, describe as summary, expectBack, installProbe, MemoryProbe, TOLERANCE, type MemorySample, type Tolerance } from './memory-probe';
 import { skinnedGlb } from './skinned-glb';
 import { projectWindow, editorPane, editorTab, closeEditor, createItem, expectEditorOpen, openEditor as openEditorTab, openWindow, previewCanvas, previewPane, type EditorKind } from './ui';
+
+/**
+ * Cycles per loop. A loop whose leak would keep a GPU object, a context, a worker or a renderer
+ * count (exact, two objects of slack) shows it after a few cycles: one kept per cycle is +10
+ * over 10. The JS heap is the only signal for the renderer-free surfaces (tabs without a
+ * preview), and a real editor leak there is 55–110 KiB per cycle against up to ~2 MiB of
+ * warm-up growth: those loops keep 50 cycles so it stands out.
+ */
+const HEAP_CYCLES = 50;
+const COUNTED_CYCLES = 10;
 
 // Small scenes, a smaller page: the CPU renderer draws each frame faster (the counts do not depend on the size).
 test.use({ viewport: { width: 1280, height: 720 } });
@@ -148,7 +160,7 @@ const GRAPH_MATERIAL = {
   },
 };
 
-test('document tabs: every kind opened and closed 50× returns heap and GPU counts to the baseline', async ({ page }) => {
+test('document tabs: every kind opened and closed returns heap and GPU counts to the baseline', async ({ page }) => {
   test.setTimeout(900_000);
   be = await startBackend('memory-tabs');
   await cmd('publishBehavior', { behaviorId: 'mover', displayName: 'Mover', mode: 'declaration-create', declaration: { properties: [{ key: 'speed', label: 'Speed', type: 'number', default: 2 }] } });
@@ -177,20 +189,20 @@ test('document tabs: every kind opened and closed 50× returns heap and GPU coun
   await expectEditorOpen(page, 'Graph', 'Gift giver');
   await closeEditor(page, 'Graph', 'Gift giver');
 
-  const n = cycles(50);
   // An item of the project window, found once by its search and double-clicked each cycle.
   const item = (kind: string, id: string): { dock: string; search: string; open: () => Promise<void> } => ({
     dock: 'Assets',
     search: `t:${kind} ${id}`,
     open: () => page.locator(`.tl-assets li[data-item-id="${id}"]`).dblclick(),
   });
-  const kinds: { label: string; dock: string; search?: string; open: () => Promise<void>; kind: EditorKind; name: string; ready: (view: Locator) => Promise<void> }[] = [
+  const kinds: { label: string; dock: string; search?: string; open: () => Promise<void>; kind: EditorKind; name: string; ready: (view: Locator) => Promise<void>; n: number }[] = [
     {
       label: 'Animator tab',
       ...item('animator', 'animator-01'),
       kind: 'Animator',
       name: 'Walker',
       ready: (v) => expect(v.getByLabel('animator graph').getByRole('group', { name: 'State Idle node state-01' })).toBeVisible(),
+      n: HEAP_CYCLES,
     },
     {
       label: 'Script tab',
@@ -203,6 +215,7 @@ test('document tabs: every kind opened and closed 50× returns heap and GPU coun
         await page.locator('.tl-behaviors__list .tl-tile', { hasText: 'Mover' }).dblclick();
       },
       ready: (v) => expect(v.locator('.cm-editor')).toBeVisible(),
+      n: HEAP_CYCLES,
     },
     {
       label: 'Graph tab',
@@ -210,6 +223,7 @@ test('document tabs: every kind opened and closed 50× returns heap and GPU coun
       kind: 'Graph',
       name: 'Maths',
       ready: (v) => expect(v.locator('.tl-graph__stage')).toBeVisible(),
+      n: HEAP_CYCLES,
     },
     {
       label: 'Material tab (with its preview)',
@@ -217,6 +231,7 @@ test('document tabs: every kind opened and closed 50× returns heap and GPU coun
       kind: 'Material',
       name: 'Graph',
       ready: async () => expect.poll(async () => Number((await previewCanvas(page).getAttribute('data-frames')) ?? 0), { timeout: 30_000 }).toBeGreaterThan(0),
+      n: COUNTED_CYCLES,
     },
     {
       label: 'Visual script tab',
@@ -228,6 +243,7 @@ test('document tabs: every kind opened and closed 50× returns heap and GPU coun
         await page.locator('.tl-behaviors__list .tl-tile', { hasText: 'Gift giver' }).dblclick();
       },
       ready: (v) => expect(v.getByLabel('visual script', { exact: true })).toBeVisible(),
+      n: HEAP_CYCLES,
     },
     {
       label: 'Effect tab (with its preview)',
@@ -235,6 +251,7 @@ test('document tabs: every kind opened and closed 50× returns heap and GPU coun
       kind: 'Effect',
       name: 'Stream',
       ready: async () => expect.poll(async () => JSON.parse((await previewPane(page).getByLabel('effect preview', { exact: true }).getAttribute('data-tl-effect-preview')) ?? '{}').executor ?? null, { timeout: 30_000 }).not.toBeNull(),
+      n: COUNTED_CYCLES,
     },
   ];
   for (const k of kinds) {
@@ -242,7 +259,7 @@ test('document tabs: every kind opened and closed 50× returns heap and GPU coun
     if (webgpuProject() && !k.label.includes('preview')) continue;
     await openWindow(page, k.dock);
     if (k.search !== undefined) await page.locator('.tl-assets').getByLabel('search the project').fill(k.search);
-    await leakCheck(page, probe, k.label, n, async () => {
+    await leakCheck(page, probe, k.label, cycles(k.n), async () => {
       await k.open();
       await expectEditorOpen(page, k.kind, k.name);
       await k.ready(editorPane(page, k.kind, k.name));
@@ -253,7 +270,7 @@ test('document tabs: every kind opened and closed 50× returns heap and GPU coun
   await probe.detach();
 });
 
-test('preview panes: the asset preview, switching the editor window\'s preview between kinds, and the material preview shapes, 50× each', async ({ page }) => {
+test('preview panes: the asset preview, switching the editor window\'s preview between kinds, and the material preview shapes', async ({ page }) => {
   test.setTimeout(600_000);
   be = await startBackend('memory-previews');
   await cmd('setMaterial', { material: GRAPH_MATERIAL });
@@ -270,7 +287,7 @@ test('preview panes: the asset preview, switching the editor window\'s preview b
       events: [],
     },
   });
-  const n = cycles(50);
+  const n = cycles(COUNTED_CYCLES);
 
   // The asset preview: a new canvas and renderer each time the Inspector shows the chosen model (an object
   // selected in the Hierarchy takes the Inspector back).
@@ -324,7 +341,7 @@ test('preview panes: the asset preview, switching the editor window\'s preview b
   await probe.detach();
 });
 
-test('Scene view: an editor scene closed and opened 50×, instancing groups re-formed 50×, the backend swapped 10×', async ({ page }) => {
+test('Scene view: an editor scene closed and opened, instancing groups re-formed, the backend swapped', async ({ page }) => {
   test.setTimeout(600_000);
   be = await startBackend('memory-scene-view');
   // A second scene with boxes of two colours and a light (neutral fixture).
@@ -340,7 +357,7 @@ test('Scene view: an editor scene closed and opened 50×, instancing groups re-f
   const header = page.locator('.tl-scene-header').filter({ has: page.locator('.tl-scene-header__name', { hasText: /^Side$/ }) });
   if ((await header.count()) === 0) await page.getByLabel('open scene').selectOption({ label: 'Side' });
   await expect(header).toHaveCount(1);
-  const n = cycles(50);
+  const n = cycles(COUNTED_CYCLES);
 
   if (!webgpuProject()) {
     await leakCheck(page, probe, 'Editor scene closed/opened', n, async () => {
@@ -385,7 +402,7 @@ test('Scene view: an editor scene closed and opened 50×, instancing groups re-f
     }, { timeout: 30_000 }).toBeGreaterThan(f);
   };
   await setting(3, 'webgl2');
-  await leakCheck(page, probe, 'Renderer backend swapped (setting webgpu ↔ webgl2)', cycles(10), async () => {
+  await leakCheck(page, probe, 'Renderer backend swapped (setting webgpu ↔ webgl2)', cycles(COUNTED_CYCLES), async () => {
     // The webgpu setting draws with WebGPU where there is an adapter (the webgpu project, or a GPU host).
     await setting(2, webgpuProject() || gpuAvailable() ? 'webgpu' : 'webgl2');
     await setting(3, 'webgl2');
@@ -413,11 +430,11 @@ async function stopPlay(page: Page): Promise<void> {
   await expect(page.locator('iframe')).toHaveCount(0, { timeout: 30_000 });
 }
 
-test('Play started and stopped 20× returns the editor page to its baseline (iframe, worker, renderer)', async ({ page }) => {
+test('Play started and stopped returns the editor page to its baseline (iframe, worker, renderer)', async ({ page }) => {
   test.setTimeout(600_000);
   be = await startBackend('memory-play', 'starter');
   const probe = await openEditor(page);
-  await leakCheck(page, probe, 'Play start/stop', cycles(20), async () => {
+  await leakCheck(page, probe, 'Play start/stop', cycles(COUNTED_CYCLES), async () => {
     await startPlay(page);
     await stopPlay(page);
   });
@@ -470,7 +487,7 @@ const SPAWNER = [
 ].join('\n');
 
 for (const threads of ['off', 'worker'] as const) {
-  test(`one Play session (${threads === 'off' ? 'simulation in the page' : 'simulation worker'}): an additive scene loaded/unloaded 50×, the level restarted 20×, copies spawned and destroyed`, async ({ page }) => {
+  test(`one Play session (${threads === 'off' ? 'simulation in the page' : 'simulation worker'}): an additive scene loaded/unloaded, the level restarted, copies spawned and destroyed`, async ({ page }) => {
     test.setTimeout(900_000);
     // The webgpu project runs the default mode (the worker) only: the page-thread composition is the same adapter.
     test.skip(webgpuProject() && threads === 'off', 'the webgpu project runs the worker mode');
@@ -532,8 +549,12 @@ for (const threads of ['off', 'worker'] as const) {
     // objects (three's node caches). The heap bound here is 4 MiB; objects leaking per cycle show in the
     // GPU counts and in the renderer's own counts, which stay exact.
     const playTol: Tolerance = { ...TOLERANCE, heapMiB: 4 };
+    // The simulation's heap is the page's only with threads off: that run takes the heap-sized loops.
+    // With the worker the page holds the same renderer and the worker's heap is not sampled, so its
+    // loops are sized for the counts.
+    const loops = threads === 'off' ? { scenes: HEAP_CYCLES, restarts: 20, pairs: 100 } : { scenes: COUNTED_CYCLES, restarts: COUNTED_CYCLES, pairs: 30 };
     let base = await pausedGpu();
-    const scenes = await leakCheck(page, probe, `Play: additive scene loaded/unloaded (threads ${threads})`, cycles(50), async () => {
+    const scenes = await leakCheck(page, probe, `Play: additive scene loaded/unloaded (threads ${threads})`, cycles(loops.scenes), async () => {
       const lr = await relay('control', { command: 'loadScene', sceneId: 'scene-side' });
       expect(lr.status).toBe(200);
       await expect.poll(loaded, { timeout: 30_000 }).toContain('scene-side');
@@ -544,7 +565,7 @@ for (const threads of ['off', 'worker'] as const) {
 
     base = await pausedGpu();
     // A restart (`replay`: the start scenes only again) with the side scene loaded each time.
-    await leakCheck(page, probe, `Play: level restarted with a scene loaded (threads ${threads})`, cycles(20), async () => {
+    await leakCheck(page, probe, `Play: level restarted with a scene loaded (threads ${threads})`, cycles(loops.restarts), async () => {
       expect((await relay('control', { command: 'loadScene', sceneId: 'scene-side' })).status).toBe(200);
       await expect.poll(loaded, { timeout: 30_000 }).toContain('scene-side');
       const r = await relay('control', { command: 'replay' });
@@ -555,14 +576,14 @@ for (const threads of ['off', 'worker'] as const) {
     await checkGpu('Play: level restarted with a scene loaded', base);
 
     // Spawn/destroy: the spawner's scene loaded; after a warm-up (three pairs alive from then on), over
-    // 100 more pairs (one per 12 steps at 120 Hz) the counts stay where they were.
+    // `loops.pairs` more pairs (one per 12 steps at 120 Hz) the counts stay where they were.
     expect((await relay('control', { command: 'loadScene', sceneId: 'scene-spawn' })).status).toBe(200);
     await expect.poll(loaded, { timeout: 30_000 }).toContain('scene-spawn');
     await expect.poll(async () => (await observe()).counters?.['shots'] ?? 0, { timeout: 60_000 }).toBeGreaterThan(5);
     base = await pausedGpu();
     const heapBase = await probe.sample(frame());
     const shots0 = (await observe()).counters?.['shots'] ?? 0;
-    await expect.poll(async () => (await observe()).counters?.['shots'] ?? 0, { timeout: 300_000, intervals: [2000] }).toBeGreaterThan(shots0 + cycles(100));
+    await expect.poll(async () => (await observe()).counters?.['shots'] ?? 0, { timeout: 300_000, intervals: [2000] }).toBeGreaterThan(shots0 + cycles(loops.pairs));
     // Held still while the page settles (the spawner would keep adding garbage).
     expect((await relay('control', { command: 'debugPause' })).status).toBe(200);
     const pairs = ((await observe()).counters?.['shots'] ?? 0) - shots0;

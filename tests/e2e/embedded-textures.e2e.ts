@@ -1,6 +1,7 @@
 /**
  * Images inside model files count against the texture budget, against a real
- * backend in a real browser, per renderer variant (renderer-variants.ts).
+ * backend in a real browser, on the product's own renderer
+ * (renderer-variants.ts PRODUCT_RENDERER_VARIANTS).
  *
  * Two of the scale bench's model files (UV spheres) carry their base colour
  * inside the GLB: a 1024² WebP and a 512² Basis Universal KTX2 with mips. A
@@ -28,7 +29,7 @@ import { encodeKtx2 } from '../../packages/backend/src/texture-encode';
 import { sphereGlbWith } from '../../tools/perf/assets';
 import { publishBytes, startBackend, type E2EBackend } from './backend';
 import { makePng } from './png-make';
-import { editorUrlFor, expectRendererBackend, onlyInItsProject, RENDERER_VARIANTS } from './renderer-variants';
+import { editorUrlFor, expectRendererBackend, onlyInItsProject, PRODUCT_RENDERER_VARIANTS } from './renderer-variants';
 import { textureStreamerSettled } from './texture-settle';
 import { makeTwoColourWebp } from './webp-make';
 
@@ -93,8 +94,8 @@ async function startPlay(page: Page): Promise<{ psid: string; resources: () => P
   return { psid, resources, diagnostics };
 }
 
-for (const variant of RENDERER_VARIANTS) test(`images inside model files count against the texture budget, in the Scene view and in Play (${variant})`, async ({ page }) => {
-  onlyInItsProject(variant);
+for (const variant of PRODUCT_RENDERER_VARIANTS) test(`images inside model files count against the texture budget, in the Scene view and in Play (${variant})`, async ({ page }) => {
+  onlyInItsProject(variant, PRODUCT_RENDERER_VARIANTS);
   test.setTimeout(420_000);
   be = await startBackend(`embedded-tex-${randomUUID().slice(0, 8)}`);
   const errors: string[] = [];
