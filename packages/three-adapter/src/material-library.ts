@@ -244,20 +244,40 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
    */
   const builtRefs = new Map<string, number>();
   const heldKeys = new WeakMap<THREE.Object3D, readonly string[]>();
-  /** The texture copies each built material owns (released with it). */
-  const ownTextures = new WeakMap<THREE.Material, THREE.Texture[]>();
+  /** The prepared textures each built material draws with (keys of `shared`, released with it). */
+  const ownTextures = new WeakMap<THREE.Material, string[]>();
+  /**
+   * Prepared copies of decoded textures, one per (texture, colour space,
+   * wrap, tiling, offset, UV channel), shared by every built material that
+   * asks for the same: a material is built per model file (the file's
+   * material is its base), and WebGPU keeps one GPU texture per texture
+   * object, so a copy per built material held one GPU copy per model file.
+   */
+  const shared = new Map<string, { texture: THREE.Texture; refs: number }>();
   /** Built materials already released (a texture arriving later is not put on them). */
   const retired = new WeakSet<THREE.Material>();
-  const ownTexture = (m: THREE.Material, t: THREE.Texture): THREE.Texture => {
+  /** The shared copy for `key` (made by `make` the first time), held by built material `m`. */
+  const sharedTexture = (m: THREE.Material, key: string, make: () => THREE.Texture): THREE.Texture => {
+    let entry = shared.get(key);
+    if (entry === undefined) shared.set(key, (entry = { texture: make(), refs: 0 }));
+    entry.refs += 1;
     const list = ownTextures.get(m);
-    if (list === undefined) ownTextures.set(m, [t]);
-    else list.push(t);
-    return t;
+    if (list === undefined) ownTextures.set(m, [key]);
+    else list.push(key);
+    return entry.texture;
+  };
+  const releaseShared = (key: string): void => {
+    const entry = shared.get(key);
+    if (entry === undefined) return;
+    entry.refs -= 1;
+    if (entry.refs > 0) return;
+    shared.delete(key);
+    entry.texture.dispose();
   };
   const disposeBuilt = (m: THREE.Material): void => {
     retired.add(m);
     m.dispose();
-    for (const t of ownTextures.get(m) ?? []) t.dispose();
+    for (const key of ownTextures.get(m) ?? []) releaseShared(key);
     ownTextures.delete(m);
     // The decoded textures it drew with are no longer held by it.
     const holder = textureHolders.get(m);
@@ -312,16 +332,20 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
   const texture = (assetId: string, holder: THREE.Material | string): Promise<THREE.Texture | null> =>
     holds.get(assetId, typeof holder === 'string' ? holder : holderOf(holder));
 
-  /** Give a (loaded) texture its role: colour space, wrapping, the material's tiling. */
-  const prepared = (t: THREE.Texture, colour: boolean, def: MaterialDefLike, channel = 0): THREE.Texture => {
+  /** A (loaded) texture in its role — colour space, wrapping, the material's tiling — shared by every built material asking for the same, held by `m`. */
+  const prepared = (m: THREE.Material, t: THREE.Texture, colour: boolean, def: MaterialDefLike, channel = 0): THREE.Texture => {
+    const [rx, ry] = vec2(def.params['tiling'], [1, 1]);
+    const [ox, oy] = vec2(def.params['offset'], [0, 0]);
+    const key = `${t.uuid}|${colour ? 'srgb' : 'linear'}|repeat|${channel}|${channel === 0 ? `${rx},${ry},${ox},${oy}` : ''}`;
+    return sharedTexture(m, key, () => preparedCopy(t, colour, [rx, ry], [ox, oy], channel));
+  };
+  const preparedCopy = (t: THREE.Texture, colour: boolean, [rx, ry]: [number, number], [ox, oy]: [number, number], channel: number): THREE.Texture => {
     const c = t.clone();
     c.colorSpace = colour ? THREE.SRGBColorSpace : THREE.NoColorSpace;
     c.wrapS = THREE.RepeatWrapping;
     c.wrapT = THREE.RepeatWrapping;
     c.flipY = false;
     c.channel = channel;
-    const [rx, ry] = vec2(def.params['tiling'], [1, 1]);
-    const [ox, oy] = vec2(def.params['offset'], [0, 0]);
     if (channel === 0) {
       c.repeat.set(rx, ry);
       c.offset.set(ox, oy);
@@ -363,7 +387,7 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
     if (p['tiling'] !== undefined || p['offset'] !== undefined) {
       for (const slot of ['map', 'normalMap', 'roughnessMap', 'metalnessMap', 'emissiveMap'] as const) {
         const t = m[slot];
-        if (t !== null && t.channel === 0) m[slot] = ownTexture(m, prepared(t, slot === 'map' || slot === 'emissiveMap', def, 0));
+        if (t !== null && t.channel === 0) m[slot] = prepared(m, t, slot === 'map' || slot === 'emissiveMap', def, 0);
       }
     }
     loadSlot(def, m, 'map', 'map', true);
@@ -372,7 +396,7 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
     if (def.textures['ormMap'] !== undefined) {
       void texture(def.textures['ormMap'], m).then((t) => {
         if (t === null || disposed || retired.has(m)) return;
-        const orm = ownTexture(m, prepared(t, false, def, 0));
+        const orm = prepared(m, t, false, def, 0);
         m.roughnessMap = orm;
         m.metalnessMap = orm;
         m.aoMap = orm;
@@ -407,7 +431,7 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
     if (id === undefined) return;
     void texture(id, m).then((t) => {
       if (t === null || disposed || retired.has(m)) return;
-      (m as unknown as Record<string, THREE.Texture | null>)[key] = ownTexture(m, prepared(t, colour, def, 0));
+      (m as unknown as Record<string, THREE.Texture | null>)[key] = prepared(m, t, colour, def, 0);
       refreshNodes(m);
       m.needsUpdate = true;
       options.onChange?.();
@@ -509,11 +533,13 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
     if (macroId !== undefined) {
       void texture(macroId, m).then((t) => {
         if (t === null || disposed || retired.has(m)) return;
-        const c = ownTexture(m, t.clone());
-        c.colorSpace = THREE.NoColorSpace;
-        c.flipY = false;
-        c.needsUpdate = true;
-        macro = c;
+        macro = sharedTexture(m, `${t.uuid}|macro`, () => {
+          const c = t.clone();
+          c.colorSpace = THREE.NoColorSpace;
+          c.flipY = false;
+          c.needsUpdate = true;
+          return c;
+        });
         refresh();
         m.needsUpdate = true;
         options.onChange?.();

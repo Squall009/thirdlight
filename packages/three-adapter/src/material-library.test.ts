@@ -72,4 +72,37 @@ describe('material library', () => {
     expect(m.map!.colorSpace).toBe(THREE.SRGBColorSpace);
     expect(loads).toBe(1);
   });
+  it('shares one prepared texture per (texture, colour space, wrap, tiling) across model files, freed with its last material', async () => {
+    const tex = new THREE.Texture();
+    const lib = createMaterialLibrary({ loadTexture: async () => tex });
+    lib.setMaterials([
+      { ...RED, textures: { map: 'tex-1', normalMap: 'tex-1' } },
+      { ...RED, materialId: 'mat-tiled', name: 'Tiled', params: { color: '#ff0000', tiling: [4, 4] }, textures: { map: 'tex-1' } },
+    ]);
+    const files = [model(), model(), model()];
+    const undo = files.map((g) => lib.apply(g, { '*': 'mat-red' }));
+    const tiled = model();
+    lib.apply(tiled, { '*': 'mat-tiled' });
+    for (let i = 0; i < 3; i++) await new Promise((r) => setTimeout(r, 0));
+    const meshes = files.flatMap((g) => mats(g)) as THREE.MeshStandardMaterial[];
+    // Six built materials (two per file), one colour copy and one data copy of the texture.
+    expect(new Set(meshes).size).toBe(6);
+    expect(new Set(meshes.map((m) => m.map)).size).toBe(1);
+    expect(new Set(meshes.map((m) => m.normalMap)).size).toBe(1);
+    const map = meshes[0]!.map!;
+    expect(map).not.toBe(tex);
+    expect(map.colorSpace).toBe(THREE.SRGBColorSpace);
+    expect(meshes[0]!.normalMap!.colorSpace).toBe(THREE.NoColorSpace);
+    // Another tiling is another copy.
+    const tiledMap = (mats(tiled)[0] as THREE.MeshStandardMaterial).map!;
+    expect(tiledMap).not.toBe(map);
+    expect(tiledMap.repeat.x).toBe(4);
+    let disposed = 0;
+    map.addEventListener('dispose', () => (disposed += 1));
+    undo[0]!();
+    undo[1]!();
+    expect(disposed).toBe(0);
+    undo[2]!();
+    expect(disposed).toBe(1);
+  });
 });

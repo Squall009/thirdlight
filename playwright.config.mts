@@ -73,6 +73,8 @@ export default defineConfig({
         '**/shadows.e2e.ts',
         // Phase 18.3: material graphs on WebGPU.
         '**/material-graph-render.e2e.ts',
+        // Standard materials share one texture object across model files on WebGPU too.
+        '**/shared-textures.e2e.ts',
         '**/material-graph-play.e2e.ts',
         '**/material-preview.e2e.ts',
         // Phase 20.2: effects on the WebGPU compute executor.
