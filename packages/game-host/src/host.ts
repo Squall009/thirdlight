@@ -873,10 +873,10 @@ export function createGameHost(config: GameHostConfig): GameHost {
     const r = rt?.queueUiEvent?.({ kind: 'restart', doc: '', widget: '', name: cause });
     if (r !== undefined && r.ok === false) console.warn('[game-host] restart refused:', r.error.message);
   };
-  /** A scene's objects as authored again (absent: the active scene): an input-frame entry, so recordings replay it. */
-  const queueReload = (rt: Runtime | null, sceneId: string | undefined): void => {
-    const r = rt?.queueUiEvent?.({ kind: 'reload', doc: '', widget: '', name: '', ...(sceneId !== undefined ? { value: sceneId } : {}) });
-    if (r !== undefined && r.ok === false) console.warn('[game-host] scene reload refused:', r.error.message);
+  /** A scene engine action — reload (absent: the active scene), load, unload: an input-frame entry, so recordings replay it. */
+  const queueSceneOp = (rt: Runtime | null, op: 'reload' | 'load' | 'unload', sceneId: string | undefined): void => {
+    const r = rt?.queueUiEvent?.({ kind: op, doc: '', widget: '', name: '', ...(sceneId !== undefined ? { value: sceneId } : {}) });
+    if (r !== undefined && r.ok === false) console.warn(`[game-host] scene ${op} refused:`, r.error.message);
   };
   const sceneRestart = (cause: string): void => {
     queueRestart(runtime, cause);
@@ -929,7 +929,7 @@ export function createGameHost(config: GameHostConfig): GameHost {
         if (r !== undefined && r.ok === false) console.warn('[game-host] screen hold refused:', r.error.message);
       },
       restart: (cause) => queueRestart(rt, cause),
-      reloadScene: (sceneId) => queueReload(rt, sceneId),
+      sceneOp: (op, sceneId) => queueSceneOp(rt, op, sceneId),
       goToScene: (index) => {
         const r = rt.queueUiEvent?.({ kind: 'scene', doc: '', widget: '', name: '', value: index });
         if (r !== undefined && r.ok === false) console.warn('[game-host] scene move refused:', r.error.message);
@@ -956,7 +956,7 @@ export function createGameHost(config: GameHostConfig): GameHost {
       log: (message) => console.warn(`[game-host] ${message}`),
     });
 
-  /** A project UI document's engine action in a game without a shell (with modes: pause, resume; a scene reload; the deprecated restart). */
+  /** A project UI document's engine action in a game without a shell (with modes: pause, resume; scene load, unload and reload; the deprecated restarts). */
   const sceneEngineAction = (a: { readonly action: string; readonly scene?: string }): void => {
     switch (a.action) {
       case 'resume':
@@ -972,7 +972,13 @@ export function createGameHost(config: GameHostConfig): GameHost {
         sceneRestart(a.action);
         break;
       case 'reloadScene':
-        queueReload(runtime, a.scene);
+        queueSceneOp(runtime, 'reload', a.scene);
+        break;
+      case 'loadScene':
+        queueSceneOp(runtime, 'load', a.scene);
+        break;
+      case 'unloadScene':
+        queueSceneOp(runtime, 'unload', a.scene);
         break;
       default:
         break; // settings and saves belong to the game shell

@@ -57,8 +57,8 @@ export interface ShellDeps {
   readonly setHold?: (on: boolean) => void;
   /** A fresh run (a restart UI event on the next input frame), named by the action that asked for it. */
   readonly restart: (cause: 'restartLevel' | 'newGame' | 'quitToTitle') => void;
-  /** A scene's objects as authored again (a reload UI event; absent: the active scene). */
-  readonly reloadScene: (sceneId: string | undefined) => void;
+  /** A scene operation of the scene API (a UI event on the next input frame): reload (absent: the active scene), load, unload. */
+  readonly sceneOp: (op: 'reload' | 'load' | 'unload', sceneId: string | undefined) => void;
   /** Move to an entry of the scene list (a scene UI event on the next input frame). */
   readonly goToScene: (index: number) => void;
   /** The scene list entry the run is at (-1: none). */
@@ -289,7 +289,13 @@ export function createShellController(deps: ShellDeps): ShellController {
           return;
         case 'reloadScene':
           // A primitive: it leaves the screen as it is (a button that also resumes lists resume too).
-          deps.reloadScene(a.scene);
+          deps.sceneOp('reload', a.scene);
+          return;
+        case 'loadScene':
+          deps.sceneOp('load', a.scene);
+          return;
+        case 'unloadScene':
+          deps.sceneOp('unload', a.scene);
           return;
         case 'quitToTitle':
           toTitle();

@@ -208,6 +208,23 @@ describe('scene reload', () => {
     expect(g.errors()).toEqual([]);
   });
 
+  it('the loadScene and unloadScene UI events load and unload a scene at the boundary without a run restart; a refusal logs why', () => {
+    const g = game();
+    expect(g.rt.queueUiEvent!({ kind: 'load', doc: '', widget: '', name: '', value: 'level' }).ok).toBe(true);
+    g.tick(4);
+    expect(g.rt.sceneSet!().status['level']).toBe('loaded');
+    expect(g.rt.queueUiEvent!({ kind: 'unload', doc: '', widget: '', name: '', value: 'level' }).ok).toBe(true);
+    g.tick(2);
+    expect(g.rt.sceneSet!().status['level']).not.toBe('loaded');
+    expect(g.ids()).not.toContain('crate-level');
+    // The run went on: the director was made once.
+    expect(g.log.made.filter((x) => x === 'director')).toHaveLength(1);
+    expect(g.errors()).toEqual([]);
+    g.rt.queueUiEvent!({ kind: 'load', doc: '', widget: '', name: '', value: 'no-such-scene' });
+    g.tick(1);
+    expect(g.errors().map((e) => e.message)).toEqual(['loadScene: unknown scene "no-such-scene"']);
+  });
+
   it("a start scene's kept objects stay through its reload and an unload and load, then a run restart", () => {
     const g = game();
     g.rt.queueUiEvent!({ kind: 'reload', doc: '', widget: '', name: '', value: 'scene-main' });
@@ -240,7 +257,7 @@ describe('scene reload', () => {
     expect(g.log.made).toEqual(['director']);
   });
 
-  it('the deprecated run restarts work and write one problem per kind; quitToTitle and a tool restart write none', () => {
+  it('the deprecated run restarts work and write one problem per kind; a tool restart writes none', () => {
     let calls = 0;
     const g = game({
       director: (s, ctx) => {
@@ -258,7 +275,8 @@ describe('scene reload', () => {
       g.tick(1);
     }
     const problems = g.rt.takeProblems!();
-    expect(problems.map((p) => p.code).sort()).toEqual(['deprecated_lifecycle_restart', 'deprecated_new_game', 'deprecated_restart_level']);
+    expect(problems.map((p) => p.code).sort()).toEqual(['deprecated_lifecycle_restart', 'deprecated_new_game', 'deprecated_quit_to_title', 'deprecated_restart_level']);
+    expect(problems.find((p) => p.code === 'deprecated_quit_to_title')!.message).toContain('loadScene');
     expect(problems.find((p) => p.code === 'deprecated_restart_level')!.message).toContain('reloadScene');
     expect(problems.find((p) => p.code === 'deprecated_lifecycle_restart')!.message).toContain('ctx.scenes.reload');
     g.rt.queueUiEvent!({ kind: 'restart', doc: '', widget: '', name: 'newGame' });

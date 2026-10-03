@@ -10,9 +10,12 @@
  * crate where it was authored, its copy gone, its sound stopped, its script
  * started over (its start counted again); the director's copy, the kept lamp
  * where the director put it, the counter, the save value and the start scene
- * stay. The built-in pause panel has only Resume. `restartLevel`, `newGame`
- * and `ctx.lifecycle.restart()` still restart the run, and each writes one
- * Problems line per Play naming what replaces it, however often it is used.
+ * stay. The built-in pause panel has only Resume. A button with the
+ * `loadScene` and `unloadScene` engine actions goes to a title scene (the
+ * pattern that replaces `quitToTitle`) without restarting the run.
+ * `restartLevel`, `newGame`, `quitToTitle` and `ctx.lifecycle.restart()`
+ * still restart the run, and each writes one Problems line per Play naming
+ * what replaces it, however often it is used.
  * State is read through the play relay (observe, diagnostics, the Problems
  * route); the sound is the Web Audio graph's state, not heard.
  */
@@ -93,7 +96,7 @@ type Voice = { handle: number; assetId: string; state: string };
 type Obs = { state?: string; scenes?: { loaded?: string[] }; spawned?: { count: number; ids: string[] }; counters?: Record<string, number>; audio?: { voices?: Voice[] }; sound?: { unlocked?: boolean } };
 type Report = { seq: number; crate: number[] | null; lamp: number[] | null; starts: number; note: string | null; n: number };
 
-test('reloadScene puts a scene back as authored and leaves the rest; the pause panel has only Resume; the deprecated restarts work with one Problems line each', async ({ page }) => {
+test('reloadScene puts a scene back as authored and leaves the rest; the pause panel has only Resume; a scene-load button reaches a title scene; the deprecated restarts work with one Problems line each', async ({ page }) => {
   test.setTimeout(240_000);
   be = await startBackend('scene-reload-e2e', 'starter');
   await publishWav(be, 'cue-max.wav', 'amb', 'Ambience');
@@ -103,6 +106,8 @@ test('reloadScene puts a scene back as authored and leaves the rest; the pause p
   const src = String((await cmd('createEntity', { sceneId: 'scene-src', kind: 'box', name: 'Chip', transform: { position: [0, 0, 0], scale: [0.3, 0.3, 0.3] } }))['createdId']);
   await cmd('createPrefab', { prefabId: 'chip', displayName: 'Chip', sourceEntityId: src });
   await cmd('createScene', { sceneId: 'level', name: 'Level' });
+  await cmd('createScene', { sceneId: 'title', name: 'Title' });
+  await cmd('createEntity', { sceneId: 'title', kind: 'box', name: 'Title card', transform: { position: [0, 2, -4] } });
   const crate = String((await cmd('createEntity', { sceneId: 'level', kind: 'box', name: 'Crate', transform: { position: [2, 0.5, -2] } }))['createdId']);
   const lamp = String((await cmd('createEntity', { sceneId: 'scene-main', kind: 'box', name: 'Lamp', keepLoaded: true, transform: { position: [-3, 0.5, 0] } }))['createdId']);
   const director = String((await cmd('createEntity', { sceneId: 'scene-main', kind: 'group', name: 'Director', transform: { position: [0, -10, 0] } }))['createdId']);
@@ -113,6 +118,8 @@ test('reloadScene puts a scene back as authored and leaves the rest; the pause p
     button('reload', 'Reload level', { do: 'engine', action: 'reloadScene', scene: 'level' }, 12),
     button('restart', 'Restart (old)', { do: 'engine', action: 'restartLevel' }, 56),
     button('fresh', 'New game (old)', { do: 'engine', action: 'newGame' }, 100),
+    button('quit', 'Quit (old)', { do: 'engine', action: 'quitToTitle' }, 144),
+    button('title', 'To title', [{ do: 'engine', action: 'loadScene', scene: 'title' }, { do: 'engine', action: 'unloadScene', scene: 'level' }], 188),
   ] } } });
   // A shell without a pause screen: the pause key opens the engine's pause panel.
   await cmd('setShell', { shell: { pause: true } });
@@ -199,6 +206,16 @@ test('reloadScene puts a scene back as authored and leaves the rest; the pause p
   await expect(panel).toBeHidden();
   await expect.poll(async () => (await observe()).state).toBe('running');
 
+  // The replacement for quitToTitle: a button loads the title scene and unloads the level, and the run goes on.
+  const atLevel = await report();
+  await ui.locator('[data-widget="title"]').click();
+  await expect.poll(async () => (await observe()).scenes?.loaded ?? [], { timeout: 30_000 }).toEqual(['scene-main', 'title']);
+  const atTitle = await report();
+  expect(atTitle.n, 'no run restart').toBeGreaterThan(atLevel.n);
+  expect(atTitle.starts).toBe(atLevel.starts);
+  expect((await observe()).counters).toEqual({ tally: 2 });
+  expect((await problems()).filter((p) => p.code.startsWith('deprecated_'))).toEqual([]);
+
   // The deprecated run restarts still restart the run; each writes one Problems line per Play.
   const restarted = async (use: () => Promise<void>): Promise<void> => {
     // The director's step count grows first (it ran a while), then drops when the run starts over.
@@ -210,13 +227,16 @@ test('reloadScene puts a scene back as authored and leaves the rest; the pause p
   await restarted(() => ui.locator('[data-widget="restart"]').click());
   await restarted(() => ui.locator('[data-widget="restart"]').click());
   await restarted(() => ui.locator('[data-widget="fresh"]').click());
+  await restarted(() => ui.locator('[data-widget="quit"]').click());
+  await restarted(() => ui.locator('[data-widget="quit"]').click());
   await restarted(() => debug('restart'));
   await restarted(() => debug('restart'));
   const codes = async (): Promise<string[]> => (await problems()).filter((p) => p.code.startsWith('deprecated_')).map((p) => p.code).sort();
-  await expect.poll(codes, { timeout: 30_000 }).toEqual(['deprecated_lifecycle_restart', 'deprecated_new_game', 'deprecated_restart_level']);
+  await expect.poll(codes, { timeout: 30_000 }).toEqual(['deprecated_lifecycle_restart', 'deprecated_new_game', 'deprecated_quit_to_title', 'deprecated_restart_level']);
   const lines = (await problems()).filter((p) => p.code.startsWith('deprecated_'));
   expect(lines.find((p) => p.code === 'deprecated_restart_level')!.message).toMatch(/restartLevel engine action is deprecated.*reloadScene engine action/);
   expect(lines.find((p) => p.code === 'deprecated_new_game')!.message).toMatch(/newGame engine action is deprecated.*builds in a script/);
+  expect(lines.find((p) => p.code === 'deprecated_quit_to_title')!.message).toMatch(/quitToTitle engine action is deprecated.*loadScene engine action/);
   expect(lines.find((p) => p.code === 'deprecated_lifecycle_restart')!.message).toMatch(/ctx\.lifecycle\.restart\(\) is deprecated.*ctx\.scenes\.reload/);
   await openWindow(page, 'Problems');
   await expect(page.locator('.tl-panel.tl-problems .tl-problem').filter({ hasText: 'restartLevel engine action is deprecated' })).toHaveCount(1, { timeout: 15_000 });

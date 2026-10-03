@@ -27,8 +27,8 @@ import type { RuntimeUiDocumentRow } from '@thirdlight/project-model';
 // `scene` (the shell's move to an entry of its scene list: `value` is the entry's index),
 // applied by the runtime at the next step boundary.
 // `hold` (a game shell screen whose scripts run: `value` true while it shows, false after) holds physics and the grouped scripts from that step.
-export type UiEventKind = 'click' | 'submit' | 'focus' | 'custom' | 'show' | 'hide' | 'toggle' | 'mode' | 'restart' | 'scene' | 'reload' | 'hold';
-export const UI_EVENT_KINDS: readonly UiEventKind[] = ['click', 'submit', 'focus', 'custom', 'show', 'hide', 'toggle', 'mode', 'restart', 'scene', 'reload', 'hold'];
+export type UiEventKind = 'click' | 'submit' | 'focus' | 'custom' | 'show' | 'hide' | 'toggle' | 'mode' | 'restart' | 'scene' | 'reload' | 'load' | 'unload' | 'hold';
+export const UI_EVENT_KINDS: readonly UiEventKind[] = ['click', 'submit', 'focus', 'custom', 'show', 'hide', 'toggle', 'mode', 'restart', 'scene', 'reload', 'load', 'unload', 'hold'];
 
 /** One UI event carried by an input frame (and read by scripts). */
 export interface UiEventRecord {
@@ -140,7 +140,7 @@ export function validateUiEvent(raw: unknown): { ok: true; event: UiEventRecord 
   const kind = raw['kind'];
   if (typeof kind !== 'string' || !(UI_EVENT_KINDS as readonly string[]).includes(kind)) return { ok: false, field: 'kind', message: `kind is one of ${UI_EVENT_KINDS.join(', ')}` };
   const doc = raw['doc'];
-  const engine = kind === 'mode' || kind === 'restart' || kind === 'scene' || kind === 'reload' || kind === 'hold';
+  const engine = kind === 'mode' || kind === 'restart' || kind === 'scene' || kind === 'reload' || kind === 'load' || kind === 'unload' || kind === 'hold';
   if (typeof doc !== 'string' || !(DOC_RE.test(doc) || (engine && doc === ''))) return { ok: false, field: 'doc', message: 'doc is a UI document id' };
   const widget = raw['widget'] ?? '';
   if (typeof widget !== 'string' || (widget !== '' && !NAME_RE.test(widget))) return { ok: false, field: 'widget', message: "widget is a widget id or ''" };

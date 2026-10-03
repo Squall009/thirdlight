@@ -342,8 +342,8 @@ export function StyleMapEditor(p: {
 // Actions
 // ---------------------------------------------------------------------------
 
-// + open (a game shell screen), nextScene (the shell's scene list) and reloadScene (a scene as authored again).
-const ENGINE_ACTIONS: readonly UiEngineAction[] = ['resume', 'pause', 'reloadScene', 'restartLevel', 'newGame', 'continue', 'quitToTitle', 'settings', 'load', 'save', 'back', 'setSetting', 'mute', 'unmute', 'open', 'nextScene'];
+// + open (a game shell screen), nextScene (the shell's scene list), reloadScene (a scene as authored again), loadScene and unloadScene.
+const ENGINE_ACTIONS: readonly UiEngineAction[] = ['resume', 'pause', 'reloadScene', 'loadScene', 'unloadScene', 'restartLevel', 'newGame', 'continue', 'quitToTitle', 'settings', 'load', 'save', 'back', 'setSetting', 'mute', 'unmute', 'open', 'nextScene'];
 const SHELL_SCREENS = ['title', 'pause', 'settings', 'controls', 'save', 'load'] as const;
 // + dialogue (advance, choose, skip, auto, backlog — a dialogue document's buttons).
 const DO_KINDS = ['event', 'engine', 'show', 'hide', 'toggle', 'play', 'dialogue'] as const;
@@ -374,7 +374,7 @@ export function ActionsField(p: {
   docs: readonly string[];
   tweens: readonly string[];
   widgets: readonly string[];
-  /** The project's scenes (a reloadScene action names one; none: the active scene). */
+  /** The project's scenes (a reloadScene action names one, none: the active scene; loadScene and unloadScene name one). */
   scenes?: readonly { sceneId: string; name: string }[];
   onChange: (v: UiAction | UiAction[] | undefined) => void;
   onFail: (msg: string) => void;
@@ -409,7 +409,7 @@ export function ActionsField(p: {
           )}
           {a.do === 'engine' && (
             <>
-              <select className="tl-input" aria-label={`${p.aria} ${i + 1} engine action`} value={a.action} onChange={(e) => setAtI(i, { do: 'engine', action: e.target.value as UiEngineAction, ...(e.target.value === 'setSetting' ? { setting: 'music', step: 1 } : {}), ...(e.target.value === 'open' ? { screen: 'settings' } : {}) })}>
+              <select className="tl-input" aria-label={`${p.aria} ${i + 1} engine action`} value={a.action} onChange={(e) => setAtI(i, { do: 'engine', action: e.target.value as UiEngineAction, ...(e.target.value === 'setSetting' ? { setting: 'music', step: 1 } : {}), ...(e.target.value === 'open' ? { screen: 'settings' } : {}), ...((e.target.value === 'loadScene' || e.target.value === 'unloadScene') && p.scenes?.[0] !== undefined ? { scene: a.scene ?? p.scenes[0].sceneId } : {}) })}>
                 {ENGINE_ACTIONS.map((x) => (
                   <option key={x} value={x} title={UI_DEPRECATED_ENGINE_ACTIONS[x] !== undefined ? `Deprecated: use ${UI_DEPRECATED_ENGINE_ACTIONS[x].replacement}` : undefined}>
                     {UI_DEPRECATED_ENGINE_ACTIONS[x] !== undefined ? `${x} (deprecated)` : x}
@@ -419,6 +419,16 @@ export function ActionsField(p: {
               {a.action === 'reloadScene' && (
                 <select className="tl-input" aria-label={`${p.aria} ${i + 1} scene`} value={a.scene ?? ''} onChange={(e) => setAtI(i, e.target.value === '' ? (({ scene: _s, ...r }) => r)(a) : { ...a, scene: e.target.value })}>
                   <option value="">active scene</option>
+                  {(p.scenes ?? []).map((sc) => (
+                    <option key={sc.sceneId} value={sc.sceneId}>
+                      {sc.name}
+                    </option>
+                  ))}
+                  {a.scene !== undefined && !(p.scenes ?? []).some((sc) => sc.sceneId === a.scene) && <option value={a.scene}>{a.scene}</option>}
+                </select>
+              )}
+              {(a.action === 'loadScene' || a.action === 'unloadScene') && (
+                <select className="tl-input" aria-label={`${p.aria} ${i + 1} scene`} value={a.scene ?? ''} onChange={(e) => setAtI(i, { ...a, scene: e.target.value })}>
                   {(p.scenes ?? []).map((sc) => (
                     <option key={sc.sceneId} value={sc.sceneId}>
                       {sc.name}

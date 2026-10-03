@@ -129,7 +129,10 @@ export type UiEngineAction =
   | 'open'
   | 'nextScene'
   // A scene's objects as authored again (`scene`; absent: the active scene) — `ctx.scenes.reload`.
-  | 'reloadScene';
+  | 'reloadScene'
+  // Load or unload the scene named by `scene` — `ctx.scenes.load` / `ctx.scenes.unload` for a button.
+  | 'loadScene'
+  | 'unloadScene';
 
 /** What a button click (or an input submit, a cancel, a focus) does. */
 export type UiAction =
@@ -323,7 +326,7 @@ export const UI_LIMITS = Object.freeze({
 });
 
 export const UI_WIDGET_TYPES: readonly UiWidgetType[] = ['panel', 'stack', 'grid', 'text', 'image', 'bar', 'button', 'list', 'input'];
-export const UI_ENGINE_ACTIONS: readonly UiEngineAction[] = ['resume', 'pause', 'restartLevel', 'newGame', 'continue', 'quitToTitle', 'settings', 'load', 'save', 'back', 'setSetting', 'mute', 'unmute', 'rebind', 'cancelRebind', 'resetBindings', 'open', 'nextScene', 'reloadScene'];
+export const UI_ENGINE_ACTIONS: readonly UiEngineAction[] = ['resume', 'pause', 'restartLevel', 'newGame', 'continue', 'quitToTitle', 'settings', 'load', 'save', 'back', 'setSetting', 'mute', 'unmute', 'rebind', 'cancelRebind', 'resetBindings', 'open', 'nextScene', 'reloadScene', 'loadScene', 'unloadScene'];
 /**
  * Engine actions that decide a game's flow — the engine does not know what a
  * level restart or a new game is. They keep working (a run restart) and each
@@ -333,6 +336,7 @@ export const UI_ENGINE_ACTIONS: readonly UiEngineAction[] = ['resume', 'pause', 
 export const UI_DEPRECATED_ENGINE_ACTIONS: Readonly<Partial<Record<UiEngineAction, { readonly code: string; readonly replacement: string }>>> = Object.freeze({
   restartLevel: Object.freeze({ code: 'deprecated_restart_level', replacement: 'the reloadScene engine action (or ctx.scenes.reload in a script), with the game resetting what it keeps itself' }),
   newGame: Object.freeze({ code: 'deprecated_new_game', replacement: 'a new game the game builds in a script: load its first scene, unload the others, reset the counters and ctx.save values it uses' }),
+  quitToTitle: Object.freeze({ code: 'deprecated_quit_to_title', replacement: "the game's own title: the loadScene engine action (or ctx.scenes.load in a script) for its title scene and unloadScene (ctx.scenes.unload) for the scenes it leaves, shown with its own title screen" }),
 });
 export const UI_TWEEN_KINDS: readonly UiTweenKind[] = ['fade', 'slide', 'scale', 'stamp'];
 export const UI_EASINGS: readonly UiEasing[] = ['linear', 'easeIn', 'easeOut', 'easeInOut', 'back'];
@@ -528,8 +532,9 @@ function validateActions(errors: ModelErrorV2[], v: unknown, path: string, refs:
         break;
       case 'engine': {
         only(a, ['do', 'action', 'screen', 'scene', 'slot', 'setting', 'value', 'step', 'input', 'device', 'index', 'part', 'policy'], p, errors, 'engine action');
-        // reloadScene names the scene it reloads (absent: the active scene).
+        // reloadScene names the scene it reloads (absent: the active scene); loadScene and unloadScene always name theirs.
         if (a['scene'] !== undefined && !(typeof a['scene'] === 'string' && ID_RE.test(a['scene']))) err(errors, 'field_value', `${p}/scene`, 'scene names a scene', a['scene'], 'a sceneId');
+        if ((a['action'] === 'loadScene' || a['action'] === 'unloadScene') && a['scene'] === undefined) err(errors, 'field_missing', `${p}/scene`, `${String(a['action'])} names the scene it ${a['action'] === 'loadScene' ? 'loads' : 'unloads'}`, undefined, 'a sceneId');
         // Open names the shell screen it opens.
         oneOf(errors, a['screen'], `${p}/screen`, UI_SHELL_SCREENS, 'screen');
         if (a['action'] === 'open' && a['screen'] === undefined) err(errors, 'field_missing', `${p}/screen`, 'open names the shell screen it opens', undefined, UI_SHELL_SCREENS.join(' | '));

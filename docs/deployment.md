@@ -714,7 +714,9 @@ unique across the whole project. One command edits one scene.
     left to arrive. Like `unload`, it is refused for a scene holding a
     player that is not kept loaded. A UI button does the same with the
     engine action `{do: "engine", action: "reloadScene", scene?}` (absent
-    scene: the active one).
+    scene: the active one); `{do: "engine", action: "loadScene", scene}` and
+    `{do: "engine", action: "unloadScene", scene}` are `load` and `unload`
+    for a button (refusals are logged like a script's).
   - `status(sceneId)` returns `unloaded`, `loading` or `loaded`.
   - `loaded()` lists the loaded scenes.
   - A loaded scene brings its colliders, script instances, tags and triggers.
@@ -2390,7 +2392,9 @@ tab):
   **Settings**, **Controls** (rebinding), **Save** and **Load**. Their buttons
   use engine actions: `resume` (from the title too: it starts play), `reloadScene`, `continue` (the newest save),
   `back`, `open` (a screen), `save` / `load` (slot 1–3, the project saves of
-  Project Settings → Saves), `setSetting`, `rebind`, `nextScene`, `quitToTitle`.
+  Project Settings → Saves), `setSetting`, `rebind`, `nextScene`,
+  `loadScene` / `unloadScene` (a scene), and the deprecated `quitToTitle`
+  (see "Migration notes").
 - **HUD**: documents shown while the game plays. Bindings read
   `$flow.counters.<name>` (named counters: collectibles, scripts),
   `$flow.health.<objectId>.current|max`, `$flow.prompts` (made from the
@@ -4536,7 +4540,8 @@ Each is one line per Play in Problems (the start checks are also the
 export's `warnings` or its refusal):
 
 - `deprecated_restart_level`, `deprecated_new_game`,
-  `deprecated_lifecycle_restart`: the run restart, below;
+  `deprecated_quit_to_title`, `deprecated_lifecycle_restart`: the run
+  restart, below;
 - `deprecated_save_world`: the always-on `world` in saves, below;
 - at the start of Play and the export (see "The view, cameras and kept
   objects"): `view_missing` (no camera live: the default pose is drawn),
@@ -4561,6 +4566,13 @@ them; each use writes one Problems line per Play naming its replacement:
   a kept player's place: `ctx.lifecycle.respawn` or the scene list's spawn).
 - **`newGame`** (UI engine action; also a title without a focusable button
   on submit) restarts the run and goes to the scene list's first entry.
+- **`quitToTitle`** (UI engine action) restarts the run and shows the
+  shell's title screen. A game's title is its own: a title scene (and its
+  own title document) it goes to with the scene API — a button with
+  `[{do: "engine", action: "loadScene", scene: "title"}, {do: "engine",
+  action: "unloadScene", scene: "level-1"}]`, or `ctx.scenes.load("title",
+  {unload: [...]})` from its director answering a UI event — plus whatever
+  it resets of its own. The run goes on; nothing restarts.
 - **`ctx.lifecycle.restart()`** restarts the run like `restartLevel`.
 - The engine's pause panel no longer offers Restart (Resume only); a game
   that wants one shows its own pause document.

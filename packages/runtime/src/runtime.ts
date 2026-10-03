@@ -3530,7 +3530,7 @@ class RuntimeInstance implements Runtime {
         // The run restart is a deprecated way to restart a level or start a new game: said once per Play.
         const deprecated = UI_DEPRECATED_ENGINE_ACTIONS[e.name as UiEngineAction];
         if (deprecated !== undefined) this.problem(deprecated.code, `the ${e.name} engine action is deprecated and will be removed (it restarts the whole run); use ${deprecated.replacement} — see the migration notes`);
-      } else if (e.kind === 'reload') this.reloadFromUi(typeof e.value === 'string' && e.value !== '' ? e.value : undefined);
+      } else if (e.kind === 'reload' || e.kind === 'load' || e.kind === 'unload') this.sceneOpFromUi(e.kind, e.value);
       else if (e.kind === 'hold') this.modes.setScreenHold(e.value === true);
     }
     // The scene list move comes after a restart of the same frame.
@@ -4049,15 +4049,12 @@ class RuntimeInstance implements Runtime {
     this.sceneRevision += 1;
   }
 
-  /** The reloadScene engine action (its scene, else the active one), at the next boundary; a refusal is logged. */
-  private reloadFromUi(sceneId: string | undefined): void {
-    const id = sceneId ?? this.environment.activeScene();
-    const problem = id === null ? 'no scene is active' : this.sceneOpProblem('reload', id);
-    if (problem !== null) {
-      this.recordError({ code: 'scene_invalid', message: clipMessage(`reloadScene: ${problem}`), stepIndex: this.stepIndex, reason: 'reload' });
-      return;
-    }
-    this.enqueueSceneOp({ op: 'reload', sceneId: id! });
+  /** The scene engine actions (reloadScene without a scene: the active one), checked like `ctx.scenes`, at the next boundary; a refusal is logged. */
+  private sceneOpFromUi(op: 'load' | 'unload' | 'reload', value: unknown): void {
+    const id = op === 'reload' && (value === undefined || value === '') ? this.environment.activeScene() : value;
+    const problem = id === null ? 'no scene is active' : this.sceneOpProblem(op, id);
+    if (problem !== null) return void this.recordError({ code: 'scene_invalid', message: clipMessage(`${op}Scene: ${problem}`), stepIndex: this.stepIndex, reason: op });
+    this.enqueueSceneOp({ op, sceneId: id as string });
   }
 
   /**

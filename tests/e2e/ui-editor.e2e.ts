@@ -346,5 +346,12 @@ test("a button's engine action reloads the scene it names or the active one; the
   await expect.poll(onClick).toEqual({ do: 'engine', action: 'reloadScene', scene: 'level-two' });
   await scene.selectOption('');
   await expect.poll(onClick).toEqual({ do: 'engine', action: 'reloadScene' });
+  // quitToTitle is deprecated too; loadScene always names its scene (the first one until another is picked).
+  await expect(action.locator('option[value="quitToTitle"]')).toHaveText('quitToTitle (deprecated)');
+  await action.selectOption('loadScene');
+  await expect.poll(async () => ((await onClick()) as { action?: string; scene?: string } | undefined)?.scene ?? '').not.toBe('');
+  await expect(scene.locator('option[value=""]')).toHaveCount(0);
+  await scene.selectOption('level-two');
+  await expect.poll(onClick).toEqual({ do: 'engine', action: 'loadScene', scene: 'level-two' });
   expect(errors).toEqual([]);
 });

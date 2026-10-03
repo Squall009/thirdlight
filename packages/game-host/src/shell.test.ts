@@ -22,7 +22,7 @@ function harness(shell: ShellConfigLike, over: Partial<ShellDeps> = {}) {
     setPaused: (on) => (state.paused = on),
     setHold: (on) => (state.held = on),
     restart: (cause) => log.push(`restart ${cause}`),
-    reloadScene: (sceneId) => log.push(`reload ${sceneId ?? '(active)'}`),
+    sceneOp: (op, sceneId) => log.push(`${op} ${sceneId ?? '(active)'}`),
     goToScene: (i) => {
       log.push(`scene ${i}`);
       state.listed = i;
@@ -93,18 +93,20 @@ describe('the game shell controller', () => {
     expect(log).toEqual([]);
   });
 
-  it('reloadScene reloads a scene (absent: the active one) and leaves the screen as it is; the run restarts name their action', () => {
+  it('the scene actions reload (absent: the active scene), load and unload a scene and leave the screen as it is; the run restarts name their action', () => {
     const { ctl, state, log } = harness({});
     ctl.start();
     ctl.handleEdges({ ...NONE, pause: true });
     expect([ctl.screen, state.panel]).toEqual(['pause', true]);
     ctl.engine({ do: 'engine', action: 'reloadScene', scene: 'level-2' });
     ctl.engine({ do: 'engine', action: 'reloadScene' });
+    ctl.engine({ do: 'engine', action: 'loadScene', scene: 'title' });
+    ctl.engine({ do: 'engine', action: 'unloadScene', scene: 'level-2' });
     expect([ctl.screen, state.paused]).toEqual(['pause', true]);
     ctl.engine({ do: 'engine', action: 'restartLevel' });
     expect(ctl.screen).toBe('playing');
     ctl.engine({ do: 'engine', action: 'quitToTitle' });
-    expect(log).toEqual(['reload level-2', 'reload (active)', 'restart restartLevel', 'restart quitToTitle']);
+    expect(log).toEqual(['reload level-2', 'reload (active)', 'load title', 'unload level-2', 'restart restartLevel', 'restart quitToTitle']);
   });
 
   it('without a title plays at once; the pause input opens the pause panel, sub-screens return where they were opened', () => {
