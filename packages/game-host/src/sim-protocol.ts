@@ -176,6 +176,8 @@ export interface FrameState {
   readonly inactive?: readonly string[];
   /** The light values scripts wrote when they changed (the whole list; [] when cleared). */
   readonly lights?: readonly (readonly [string, import('@thirdlight/runtime').LightOverride])[];
+  /** The material swaps (objects, then block types) when they changed (the whole lists). */
+  readonly swaps?: { readonly entities: readonly (readonly [string, Readonly<Record<string, string>>])[]; readonly blocks: readonly (readonly [string, Readonly<Record<string, string>>])[] };
   /** The look overrides when they changed (the whole list; [] when the last one was cleared). */
   readonly looks?: readonly (readonly [string, { readonly emissive?: string; readonly emissiveIntensity?: number; readonly tint?: string }])[];
   readonly poses?: readonly (readonly [string, AnimatorPose])[];

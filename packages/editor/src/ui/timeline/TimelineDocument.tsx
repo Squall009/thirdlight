@@ -21,7 +21,7 @@
 import { useEffect, useMemo, useRef, useState, type JSX, type PointerEvent as ReactPointerEvent } from 'react';
 import type { AnimatorController, TimelineAsset, TimelineKey, TimelineTrack, TimelineTrackType } from '@thirdlight/project-model';
 import { AnimatorMachine, evaluateTimelineAt, TIMELINE_EASINGS, TIMELINE_TARGET_TRACKS, TIMELINE_TRACK_TYPES, type AnimatorControllerLike } from '@thirdlight/runtime';
-import { AUDIO_KINDS, RefPicker, useFirstEntry } from '../catalog/RefPicker';
+import { AUDIO_KINDS, MATERIAL_KINDS, RefPicker, useFirstEntry } from '../catalog/RefPicker';
 import { usePreview } from '../preview/preview-request';
 import { EditorToolbar, EmptyState, ToolButton, ToolbarSeparator, ToolbarSpacer } from '../chrome/EditorChrome';
 
@@ -73,6 +73,7 @@ const TYPE_LABEL: Record<TimelineTrackType, string> = {
   letterbox: 'Letterbox',
   wait: 'Wait for input',
   material: 'Material',
+  materialSwap: 'Material swap',
   environment: 'Environment',
   mode: 'Game mode',
 };
@@ -100,6 +101,8 @@ function keyLabel(t: TimelineTrack, k: TimelineKey): string {
       return k.dialogue ?? '';
     case 'activation':
       return k.active === true ? 'on' : 'off';
+    case 'materialSwap':
+      return Object.entries(k.materials ?? {}).map(([slot, id]) => `${slot}: ${id ?? 'own'}`).join(', ');
     case 'environment':
       return k.preset ?? '';
     case 'mode':
@@ -230,6 +233,9 @@ export function TimelineDocument(props: TimelineDocumentProps): JSX.Element {
         return { time, action: props.actions[0] ?? 'confirm' };
       case 'material':
         return { time, value: 0 };
+      case 'materialSwap':
+        // Every slot back to the object's own material until one is picked.
+        return { time, materials: { '*': null } };
       case 'environment':
         return { time, preset: 'preset' };
       case 'mode':
@@ -488,6 +494,33 @@ export function TimelineDocument(props: TimelineDocumentProps): JSX.Element {
           choice('easing', k.easing, TIMELINE_EASINGS, (v) => setKey({ easing: v as TimelineKey['easing'] })),
         );
         break;
+      case 'materialSwap': {
+        const slotsOf = Object.entries(k.materials ?? {});
+        const put = (next: [string, string | null][]): void => {
+          if (next.length > 0) setKey({ materials: Object.fromEntries(next) });
+        };
+        slotsOf.forEach(([slot, id], i) => {
+          f.push(
+            <span key={`swap-${i}`} className="tl-timeline__field" data-swap-slot={slot}>
+              {text('slot (material name or *)', slot, (v) => v !== undefined && v !== '' && put(slotsOf.map((e, j) => (j === i ? [v, e[1]] : e))))}
+              <RefPicker aria={`Swap material ${slot}`} kinds={MATERIAL_KINDS} value={id ?? ''} none="(its own)" onPick={(v) => put(slotsOf.map((e, j) => (j === i ? [e[0], v === '' ? null : v] : e)))} />
+              <button className="tl-btn tl-btn--small" disabled={slotsOf.length < 2} onClick={() => put(slotsOf.filter((_, j) => j !== i))}>
+                Remove slot
+              </button>
+            </span>,
+          );
+        });
+        f.push(
+          <button key="swap-add" className="tl-btn tl-btn--small" onClick={() => {
+            let n = 1;
+            while (slotsOf.some(([slot]) => slot === `slot${n}`)) n += 1;
+            put([...slotsOf, [`slot${n}`, null]]);
+          }}>
+            Add slot
+          </button>,
+        );
+        break;
+      }
       case 'mode':
         f.push(choice('mode', k.mode, props.modes, (v) => setKey({ mode: v })), choice('blend', k.blend, ['cut', 'linear', 'eased'], (v) => setKey({ blend: v as TimelineKey['blend'] })), num('blendTime', k.blendTime, (v) => setKey({ blendTime: v })));
         break;

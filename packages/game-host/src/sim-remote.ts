@@ -314,6 +314,8 @@ export function startRemoteSimulation(opts: RemoteSimulationOptions): Promise<Re
     // The switched-off objects and the light values scripts wrote.
     inactiveEntities: () => mirror.inactive,
     lightOverrides: () => mirror.lights,
+    materialSwaps: () => mirror.swapEntities,
+    blockMaterialSwaps: () => mirror.swapBlocks,
     // The look overrides (ctx.look).
     entityLooks: () => mirror.looks,
     animatorPoses: (): ReadonlyMap<string, AnimatorPose> => mirror.poses,

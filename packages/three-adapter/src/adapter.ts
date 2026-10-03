@@ -38,6 +38,7 @@ import { createEnvironmentRenderer, environmentHasLook, layerEnvironment, render
 import * as THREE from 'three';
 import { BlockLayerView, blockLookFromObject, type BlockLayerViewDiagnostics, type BlockModelLook } from './block-layers';
 import { RuntimeMaterialView, type MaterialRenderChangeLike, type RuntimeMaterialsDiagnostics } from './runtime-materials';
+import { MaterialSwapView, type MaterialMappingLike } from './material-swaps';
 import type { BlockLayerComponent, BlockLayerData, BlockType, GridRenderChange } from '@thirdlight/runtime';
 import type { Runtime, RuntimeSnapshot } from '@thirdlight/runtime';
 import { blendEnvironment, blendEnvironmentOver, blendLight, blendTouchesLights, type EnvironmentBlendView, type EnvironmentLightValues } from '@thirdlight/runtime';
@@ -213,6 +214,13 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     materialLibrary.setWind(opts.materials.wind);
   }
   const materialUndo = new Map<string, () => void>();
+  /** The material swaps the running game made, put on once their materials have loaded (created with the scene below). */
+  let materialSwaps: MaterialSwapView | null = null;
+  /** An object's own mapping with the swap it wears over it (undefined: none of either). */
+  const effectiveMaterials = (entityId: string, own: Readonly<Record<string, string>> | undefined): Readonly<Record<string, string>> | undefined => {
+    const swap = materialSwaps?.swapOf(entityId) ?? null;
+    return swap === null ? own : { ...(own ?? {}), ...swap };
+  };
   /** The values scripts set per object (the simulation's material changes). */
   let runtimeMaterials: RuntimeMaterialView | null = null;
   /** Lightmaps of the baked static objects; the lights a bake holds are not realtime. */
@@ -587,7 +595,8 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     chunkBuilt: (id, cx, cz, group, layout) => lightmaps?.applyChunk(id, cx, cz, layout, group),
     chunkDropped: (id, cx, cz) => lightmaps?.releaseChunk(id, cx, cz),
   });
-  blockView.setTypes(((opts.snapshot as { blockTypes?: readonly BlockType[] }).blockTypes ?? []) as BlockType[]);
+  const authoredBlockTypes = ((opts.snapshot as { blockTypes?: readonly BlockType[] }).blockTypes ?? []) as BlockType[];
+  blockView.setTypes(authoredBlockTypes);
   scene.add(blockView.root);
   const realizeEntity = (e: (typeof opts.snapshot.scene.entities)[number]): void => {
     const t = e.components.transform;
@@ -671,7 +680,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     const layer = (e.components as { blockLayer?: BlockLayerComponent & { data?: BlockLayerData } }).blockLayer;
     if (layer !== undefined) blockView.setLayer(e.id, layer, t.position, layer.data ?? null);
     if ((e.components as { fogVolume?: unknown }).fogVolume !== undefined) fogVolumeIds.add(e.id);
-    const boxMaterials = (e.components as { materials?: Record<string, string> }).materials;
+    const boxMaterials = effectiveMaterials(e.id, (e.components as { materials?: Record<string, string> }).materials);
     // With the object's values for its graph materials' public parameters.
     if (box && materialLibrary !== null && boxMaterials !== undefined) materialUndo.set(e.id, materialLibrary.apply(obj, boxMaterials, materialParamsOf(e.components)));
     if (box) lightmaps?.apply(e.id, obj);
@@ -721,6 +730,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     }
     materialUndo.get(id)?.();
     materialUndo.delete(id);
+    materialSwaps?.removed(id);
     obj?.removeFromParent();
     if (obj !== undefined) {
       obj.traverse((o) => {
@@ -807,7 +817,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       modelPieces,
       materialLibrary,
       resources,
-      entityMaterials: (entityId: string) => (entityDocs.get(entityId)?.components as { materials?: Record<string, string> } | undefined)?.materials ?? null,
+      entityMaterials: (entityId: string) => effectiveMaterials(entityId, (entityDocs.get(entityId)?.components as { materials?: Record<string, string> } | undefined)?.materials) ?? null,
       entityMaterialParams: (entityId: string) => materialParamsOf(entityDocs.get(entityId)?.components),
       ...(opts.snapshot.scenes !== undefined ? { allowAbsent: true } : {}),
       holderFor: (entityId: string) => objects.get(entityId) ?? null,
@@ -831,6 +841,49 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     } else {
       modelsConfigError = result.error;
     }
+  }
+
+  if (materialLibrary !== null) {
+    const textureRefs = opts.materials?.textureRefs;
+    const assetMaterials = (assetId: string | undefined): Readonly<Record<string, string>> | undefined => (assetId === undefined ? undefined : opts.models?.assets.find((a) => a.assetId === assetId)?.materials);
+    materialSwaps = new MaterialSwapView({
+      entityMapping: (entityId, swap) => {
+        const c = entityDocs.get(entityId)?.components as { materials?: Record<string, string>; model?: { asset?: { assetId?: string } }; instances?: { asset?: { assetId?: string } } } | undefined;
+        if (c === undefined) return null;
+        const mapping = { ...(assetMaterials(c.model?.asset?.assetId ?? c.instances?.asset?.assetId) ?? {}), ...(c.materials ?? {}), ...(swap ?? {}) };
+        return Object.keys(mapping).length === 0 ? null : mapping;
+      },
+      blockMapping: (blockId, swap) => {
+        const own = authoredBlockTypes.find((t) => t.blockId === blockId)?.materials;
+        const mapping = { ...(own ?? {}), ...(swap ?? {}) };
+        return Object.keys(mapping).length === 0 ? null : mapping;
+      },
+      textureRefs: (materialId) => textureRefs?.(materialId) ?? [],
+      ...(materialLibrary.preloadTextures !== undefined ? { preload: (ids: readonly string[]) => materialLibrary.preloadTextures!(ids) } : {}),
+      applyEntity: (entityId) => {
+        const e = entityDocs.get(entityId);
+        const obj = objects.get(entityId);
+        if (e === undefined || obj === undefined || disposed) return;
+        // The lightmapped copies are of the materials worn before: taken off, then made again over the new ones.
+        lightmaps?.release(entityId);
+        let root: THREE.Object3D | null = null;
+        if ((e.components as { box?: unknown }).box !== undefined) {
+          const mapping = effectiveMaterials(entityId, (e.components as { materials?: Record<string, string> }).materials);
+          materialUndo.set(entityId, materialLibrary.apply(obj, mapping ?? null, materialParamsOf(e.components)));
+          root = obj;
+        } else root = realization?.reapplyMaterials(entityId) ?? null;
+        if (root !== null) lightmaps?.apply(entityId, root);
+        // Values a script set on its graph materials go on the new ones.
+        runtimeMaterials?.reapply(entityId);
+      },
+      applyBlockTypes: () => {
+        const swaps = materialSwaps?.appliedBlocks() ?? new Map<string, MaterialMappingLike>();
+        blockView.setTypes(authoredBlockTypes.map((t) => {
+          const swap = swaps.get(t.blockId);
+          return swap === undefined ? t : { ...t, materials: { ...(t.materials ?? {}), ...swap } };
+        }));
+      },
+    });
   }
 
   // --- renderer state (lazy: created on the first successful render) ---
@@ -1489,6 +1542,11 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     // (the running game's, or the editor's preview) before the draw.
     applyLightOverrides();
     applyEnvironmentBlend();
+    // Material swaps whose materials have loaded go on before the draw (and before regrouping).
+    if (materialSwaps !== null) {
+      const rt = opts.runtime as { materialSwaps?: () => ReadonlyMap<string, MaterialMappingLike>; blockMaterialSwaps?: () => ReadonlyMap<string, MaterialMappingLike> };
+      materialSwaps.update(rt.materialSwaps?.(), rt.blockMaterialSwaps?.());
+    }
     // Material parameters scripts changed, on the objects before the draw (and before regrouping).
     const materialChanges = (opts.runtime as { takeMaterialChanges?: () => MaterialRenderChangeLike[] }).takeMaterialChanges?.() ?? [];
     if (materialChanges.length > 0) runtimeMaterials?.apply(materialChanges);
@@ -1671,7 +1729,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       }
     }
     if (!disposed && blockView.layerIds().length > 0) d.blocks = blockView.diagnostics();
-    if (!disposed && materialLibrary !== null && runtimeMaterials !== null) d.materials = { graphMaterials: materialLibrary.graphMaterialCount(), ...runtimeMaterials.diagnostics() };
+    if (!disposed && materialLibrary !== null && runtimeMaterials !== null) d.materials = { graphMaterials: materialLibrary.graphMaterialCount(), ...(materialSwaps !== null && (materialSwaps.applied > 0 || materialSwaps.pending() > 0) ? { swapsApplied: materialSwaps.applied, swapsPending: materialSwaps.pending() } : {}), ...runtimeMaterials.diagnostics() };
     if (environmentRenderer !== null && !disposed) d.environment = { iblRebakes: environmentRenderer.diagnostics().iblRebakes };
     if (opts.textureStreamer !== undefined && !disposed) d.textures = opts.textureStreamer.observe();
     if (liveRenderer !== null && lastFrameDrawn) d.frame = { drawCalls: lastFrameCounts.drawCalls, triangles: lastFrameCounts.triangles };
@@ -1693,6 +1751,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     animatorPlayers.clear();
     lightmaps?.dispose();
     runtimeMaterials?.dispose();
+    materialSwaps?.dispose();
     sceneHolds.clear();
     materialLibrary?.dispose();
     environmentRenderer?.dispose();

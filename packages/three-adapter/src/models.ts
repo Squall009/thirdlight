@@ -282,6 +282,12 @@ export interface ModelsRealization {
   /** The entity's attached model instance (its asset id and root), or null. */
   instanceOf(entityId: string): { assetId: string; instance: ModelInstance } | null;
   /**
+   * Put an attached model's (or instance set's) materials on again from its
+   * mapping now (a material swap); returns its root, or null when nothing is
+   * attached for it.
+   */
+  reapplyMaterials(entityId: string): THREE.Object3D | null;
+  /**
    * A model instance a block look is built from (one per asset and
    * piece, kept while the realization exists) — null while the asset loads
    * (`onReady` runs once when it is ready) or when it is not a model row.
@@ -970,6 +976,21 @@ export function createModelsRealization(ctx: ModelsRealizationContext): {
       if (!made.ok) return null;
       blockInstances.set(key, made.instance);
       return made.instance;
+    },
+    reapplyMaterials(entityId: string) {
+      const rec = attached.get(entityId);
+      if (rec !== undefined && !rec.disposed) {
+        const assetId = modelEntities.get(entityId);
+        if (assetId === undefined) return null;
+        // A new apply of the same root replaces the old one (what stays the same keeps its built material).
+        rec.undoMaterials = applyMaterials(entityId, assetId, rec.instance.root);
+        return rec.instance.root;
+      }
+      const set = attachedSets.get(entityId);
+      const ref = instanceEntities.get(entityId);
+      if (set === undefined || ref === undefined) return null;
+      set.undoMaterials = applyMaterials(entityId, ref.assetId, set.built.group);
+      return set.built.group;
     },
     instanceOf(entityId: string) {
       const rec = attached.get(entityId);

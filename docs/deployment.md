@@ -2580,6 +2580,19 @@ and Assets error nodes.
     mover that is off holds where it is, still solid).
   - `materialParams`: `{ materialId: { parameter: value } }` for the graph
     materials the object wears (`null`: back to the authored value).
+  - `materials`: `{ slot: materialId }` swaps which project material a slot
+    wears (a model's source material name, or `*` for every slot; `null`:
+    back to the authored one) on a model, a box or an instance set, static
+    objects included. Any material the game ships may be named: one an
+    object or a timeline uses, or one with an address or a label. The
+    simulation has the swap at the end of the step; the picture keeps what
+    the object wore until the new material's textures are loaded (decoded
+    and held in the resource manager), then puts it on — never a half-loaded
+    material. `get('materials')` reads the mapping with the swaps over it.
+    Block types swap with `ctx.grid.setTypeMaterials(blockId, { slot:
+    materialId | null })` (every layer's cells; `typeMaterials(blockId)`
+    reads it; a save's `grid` section keeps it), and a timeline with a
+    **Material swap** key.
   Any other field is refused: the answer `{ok, field, code, message}` names
   it, nothing of the patch is written, and the refusal shows in the Console
   and `tl_diagnostics` (`entity_write`). A field two scripts write in one
@@ -3658,6 +3671,11 @@ nothing), so one timeline serves any actors.
   is pressed (optional timeout).
 - **Material** — a public graph-material parameter of the target (number,
   vector or colour, eased).
+- **Material swap** — from the key on, the target's slots wear other
+  project materials (`materials: { slot: materialId | null }`, `null` the
+  authored one), as `set('materials', …)`; the material ships because the
+  key names it, and shows once it has loaded. Skip applies the remaining
+  keys in order.
 - **Game mode** — switch the game mode (as `ctx.modes.switch`, with an optional camera blend); skip applies the last remaining mode key.
 - **Environment** — switch to an environment preset (needs phase 23.18;
   skipped with a warning until it is in the engine).
@@ -3760,7 +3778,9 @@ brushes, overlays and stamp UI are below (23.6).
   `worldToCell`, `cellToWorld`, `meta`, `setMeta`, `pick` (a ray → cell and
   entered face; a deterministic walk over cells, independent of physics),
   `neighbours`, `regions` / `region` / `inRegion`, `changes` (last step's
-  writes), `diff` / `applyDiff` (plain data for a save). Writes are refused
+  writes), `setTypeMaterials` / `typeMaterials` (a block type's material
+  swap, shown once the material has loaded), `diff` / `applyDiff` (plain
+  data for a save, the type swaps included). Writes are refused
   (`false`) when they do not fit; at most 4,096 per step. Visual-script nodes
   exist for the calls.
 - **Lightmaps** (25.20): a block layer object marked **Static** is baked

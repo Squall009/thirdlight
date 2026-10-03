@@ -302,6 +302,8 @@ export const BEHAVIOR_API_SKIPPED: readonly { path: string; reason: string }[] =
   {"path":"random.pick","reason":"a list's random item is Seeded random integer with the list's Get item"},
   {"path":"audio.events","reason":"a list of records; the Sound finished node checks one handle"},
   {"path":"debug.command","reason":"a debug command is declared in code (typed arguments, an optional handler)"},
+  {"path":"grid.setTypeMaterials","reason":"a slot map is written by scripts and timelines"},
+  {"path":"grid.typeMaterials","reason":"a slot map is read by scripts"},
   {"path":"grid.changes","reason":"scripts read the list with a loop"},
   {"path":"grid.diff","reason":"saves store it as data"},
   {"path":"grid.applyDiff","reason":"saves store it as data"},

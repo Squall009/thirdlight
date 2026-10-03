@@ -1,7 +1,7 @@
 /**
  * `EntityAccess` on its own — the switched-off set with
  * children, a new run, the save record, a conflict with an owned transform
- * intent, the per-step limit, objects that leave.
+ * intent, the per-step limit, objects that leave, material swaps.
  */
 import { describe, expect, it } from 'vitest';
 import type { EntityV3 } from '@thirdlight/project-model';
@@ -27,6 +27,7 @@ function harness(entities: EntityV3[]) {
   const changes: { off: string[]; on: string[] }[] = [];
   let step = 0;
   let intentWrote = new Set<string>();
+  const swapped: [string, Readonly<Record<string, string>> | null][] = [];
   const host: EntityAccessHost = {
     doc: (id) => docs.get(id),
     stepStartTransform: (id) => curr.get(id),
@@ -44,6 +45,8 @@ function harness(entities: EntityV3[]) {
     moverState: (id) => movers.get(id) ?? null,
     setMover: (id, p) => void Object.assign(movers.get(id)!, p),
     materials: new RuntimeMaterials(undefined),
+    materialIds: () => new Set(['mat-day', 'mat-burnt', 'mat-night']),
+    materialsSwapped: (id, swap) => void swapped.push([id, swap]),
     inactiveChanged: (off, on) => void changes.push({ off: [...off], on: [...on] }),
     record: (e) => void records.push(e),
     stepIndex: () => step,
@@ -59,6 +62,7 @@ function harness(entities: EntityV3[]) {
     records,
     changes,
     docs,
+    swapped,
     next(): void {
       access.applyQueued();
       step += 1;
@@ -151,5 +155,42 @@ describe('EntityAccess', () => {
     t.access.removed(new Set(['lamp', 'box']));
     expect(t.access.lightOverrides().size).toBe(0);
     expect(t.access.inactive().size).toBe(0);
+  });
+
+  it('materials: a swap per slot over the authored mapping, applied with the step; null puts a slot back; a new run, a save and a leaving object', () => {
+    const t = harness([ent('house', { model: { asset: { assetId: 'model-house' } }, materials: { roof: 'mat-day' } }), ent('crate', { box: { size: [1, 1, 1] } }), ent('marker', {})]);
+    expect(t.h('house').get('materials')).toEqual({ roof: 'mat-day' });
+    expect(t.h('house').set('materials', { roof: 'mat-burnt', walls: 'mat-night' }).ok).toBe(true);
+    // Applied at the end of the step, as every write.
+    expect(t.access.materialSwaps().size).toBe(0);
+    t.next();
+    expect(t.access.materialSwaps().get('house')).toEqual({ roof: 'mat-burnt', walls: 'mat-night' });
+    expect(t.h('house').get('materials')).toEqual({ roof: 'mat-burnt', walls: 'mat-night' });
+    expect(t.swapped.at(-1)).toEqual(['house', { roof: 'mat-burnt', walls: 'mat-night' }]);
+    // A box without a materials component may swap ("*" is its one slot); an object wearing nothing may not.
+    expect(t.h('crate').set('materials', { '*': 'mat-night' }).ok).toBe(true);
+    expect(t.h('marker').set('materials', { '*': 'mat-night' })).toMatchObject({ ok: false, code: 'component_missing' });
+    // A material the game does not ship, a bad value, an empty patch.
+    expect(t.h('house').set('materials', { roof: 'mat-missing' })).toMatchObject({ ok: false, code: 'material_unknown', field: 'materials.roof' });
+    expect(t.h('house').set('materials', { roof: 3 } as never)).toMatchObject({ ok: false, field: 'materials.roof' });
+    expect(t.h('house').set('materials', {})).toMatchObject({ ok: false, code: 'patch_invalid' });
+    t.next();
+    // null: the slot back to the authored material.
+    t.h('house').set('materials', { walls: null });
+    t.next();
+    expect(t.access.materialSwaps().get('house')).toEqual({ roof: 'mat-burnt' });
+    // The save record keeps the swaps and restores them; a new run puts every material back.
+    const saved = t.access.saveState();
+    expect(saved['house']).toEqual({ materials: { roof: 'mat-burnt' } });
+    expect(t.access.checkState(saved)).toBeNull();
+    expect(t.access.checkState({ house: { materials: { roof: 'mat-missing' } } })).toContain('not a material this game ships');
+    t.access.reset();
+    expect(t.access.materialSwaps().size).toBe(0);
+    expect(t.swapped.filter(([id, m]) => m === null).map(([id]) => id).sort()).toEqual(['crate', 'house']);
+    t.access.restoreState(saved);
+    expect(t.access.materialSwaps().get('house')).toEqual({ roof: 'mat-burnt' });
+    expect(t.access.digestText()).toContain('mat-burnt');
+    t.access.removed(new Set(['house']));
+    expect([...t.access.materialSwaps().keys()]).toEqual(['crate']);
   });
 });

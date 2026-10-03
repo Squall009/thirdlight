@@ -22,7 +22,7 @@
  *      pause/resume;
  *   2. a new play fires the keys at step 0; a playing one advances one step
  *      and fires the discrete keys it crossed (camera cuts, animator
- *      set/trigger/play, audio, dialogue, effects, activation, signals,
+ *      set/trigger/play, audio, dialogue, effects, activation, material swaps, signals,
  *      environment presets); a wait key stops it until its action is pressed
  *      (or its timeout); a dialogue key with `wait` stops it until the
  *      dialogue ends;
@@ -243,6 +243,8 @@ export interface TimelineHost {
   emitSignal(name: string): void;
   signaled(name: string): boolean;
   setMaterial(id: string, param: string, value: number | readonly number[] | string, materialId?: string): boolean;
+  /** Swap which material the object's slots wear (null: the authored one); the problem when refused, null when swapped. */
+  swapMaterials(id: string, materials: Readonly<Record<string, string | null>>): string | null;
   /** The dialogue runner (optional): run a dialogue node, poll it, stop it. */
   dialogue?: TimelineDialoguePort;
   /** Switch the game mode (the path of `ctx.modes.switch`; false: no such mode). */
@@ -673,6 +675,13 @@ export class TimelineSystem {
           if (id !== null && k.active !== undefined) this.host.setVisible(id, k.active);
           break;
         }
+        case 'materialSwap': {
+          const id = this.bound(inst, t.target, 'material swap');
+          if (id === null || k.materials === undefined) break;
+          const problem = this.host.swapMaterials(id, k.materials);
+          if (problem !== null) this.warnOnce(`swap:${id}:${t.trackId}`, `timeline "${inst.tl.timelineId}": material swap on "${id}" refused: ${problem}`);
+          break;
+        }
         case 'signal':
           if (k.name !== undefined && (!skipping || k.onSkip !== 'drop')) this.host.emitSignal(k.name);
           break;
@@ -785,7 +794,7 @@ export class TimelineSystem {
    *   the timeline started stop (0.1 s fade);
    * - dialogue: not run; the running one stops. effect: not started; the
    *   ones it started stop;
-   * - activation: remaining keys applied in order (the last wins);
+   * - activation, material swaps: remaining keys applied in order (the last wins);
    * - signal: remaining keys fire now unless `onSkip: "drop"`;
    * - wait: passed; environment: the last preset without a blend;
    * - markers after the skip point are not reported.

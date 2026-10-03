@@ -61,6 +61,8 @@ export interface SceneAdapterOptions {
     readonly functions?: readonly MaterialFunctionLike[];
     readonly wind: WindLike | null;
     readonly loadTexture: (assetId: string) => Promise<THREE.Texture | null>;
+    /** The texture assets a material draws with (a swapped material is loaded before it shows; absent: none waited for). */
+    readonly textureRefs?: (materialId: string) => readonly string[];
   };
   /**
    * Sky, fog, fog volumes and post-processing (the manifest's
@@ -228,7 +230,8 @@ export interface SceneAdapterDiagnostics {
    * different parameter values share one) and the objects carrying values
    * scripts set, with their data textures; ABSENT without project materials.
    */
-  materials?: { graphMaterials: number } & RuntimeMaterialsDiagnostics;
+  /** `swapsApplied` / `swapsPending`: material swaps put on and waiting for their materials (only once a game made one). */
+  materials?: { graphMaterials: number; swapsApplied?: number; swapsPending?: number } & RuntimeMaterialsDiagnostics;
   /** Texture streaming: resident texture bytes against the budget and each streamed texture's levels; ABSENT without a streamer. */
   textures?: TextureStreamingObservation;
   /** Draw calls and triangles of the last frame (three's renderer info); ABSENT until a frame was drawn. */

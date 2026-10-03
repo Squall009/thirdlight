@@ -459,6 +459,9 @@ describe('the visual-script catalogue (every node type compiles and runs)', () =
       'grid.applyDiff',
       'grid.changes',
       'grid.diff',
+      // A block type's slot map is written and read in code.
+      'grid.setTypeMaterials',
+      'grid.typeMaterials',
       'input.bindings',
       'input.device',
       'input.glyph',

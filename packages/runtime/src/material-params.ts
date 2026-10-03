@@ -13,8 +13,8 @@
  * what the cells mean.
  *
  * - An object's materials are its material mapping (the `materials`
- *   component over its model asset's default mapping), as the renderer
- *   resolves them; a call names a parameter key and applies it to every graph
+ *   component over its model asset's default mapping, a material swap over
+ *   both), as the renderer resolves them; a call names a parameter key and applies it to every graph
  *   material the object wears that declares it as public (or to one material
  *   when `materialId` is given). Private parameters stay the material's own.
  * - Values are simulation state: writes apply in call order, reads see them at
@@ -282,17 +282,26 @@ export class RuntimeMaterials {
   /** Objects entered the game (the start scenes, a loaded scene, a spawned copy). */
   addEntities(entities: readonly EntityV3[]): void {
     if (this.params.size === 0) return;
-    for (const e of entities) {
-      const c = e.components as { materials?: Record<string, string>; model?: { asset?: { assetId?: string } }; instances?: { asset?: { assetId?: string } }; materialParams?: Record<string, Record<string, unknown>> };
-      const assetId = c.model?.asset?.assetId ?? c.instances?.asset?.assetId;
-      const base = assetId !== undefined ? this.assetMaterials[assetId] : undefined;
-      if (base === undefined && c.materials === undefined) continue;
-      const mapping = { ...(base ?? {}), ...(c.materials ?? {}) };
-      const materials: string[] = [];
-      for (const id of Object.values(mapping)) if (this.params.has(id) && !materials.includes(id)) materials.push(id);
-      if (materials.length === 0) continue;
-      this.worn.set(e.id, { materials, authored: c.materialParams ?? {} });
-    }
+    for (const e of entities) this.wear(e, null);
+  }
+
+  /** An object's material swap changed: the graph materials it wears are its mapping with the swap over it. */
+  remap(entity: EntityV3, swap: Readonly<Record<string, string>> | null): void {
+    if (this.params.size === 0) return;
+    this.worn.delete(entity.id);
+    this.wear(entity, swap);
+  }
+
+  private wear(e: EntityV3, swap: Readonly<Record<string, string>> | null): void {
+    const c = e.components as { materials?: Record<string, string>; model?: { asset?: { assetId?: string } }; instances?: { asset?: { assetId?: string } }; materialParams?: Record<string, Record<string, unknown>> };
+    const assetId = c.model?.asset?.assetId ?? c.instances?.asset?.assetId;
+    const base = assetId !== undefined ? this.assetMaterials[assetId] : undefined;
+    if (base === undefined && c.materials === undefined && swap === null) return;
+    const mapping = { ...(base ?? {}), ...(c.materials ?? {}), ...(swap ?? {}) };
+    const materials: string[] = [];
+    for (const id of Object.values(mapping)) if (this.params.has(id) && !materials.includes(id)) materials.push(id);
+    if (materials.length === 0) return;
+    this.worn.set(e.id, { materials, authored: c.materialParams ?? {} });
   }
 
   /** Objects left the game: their values go with them (the renderer drops their objects). */

@@ -34,11 +34,14 @@
  *   mover stays where it is, solid).
  * - `materialParams` — parameter values of the graph materials the object
  *   wears (`null`: back to the authored value), as `ctx.materials.set`.
+ * - `materials` — which project material a slot wears (`{slot: materialId}`,
+ *   `null`: back to the authored one), on a model, a box or an instance set;
+ *   any material the game ships. The renderer puts it on once it has loaded.
  *
  * A new run puts every written field back as authored. Pure simulation
  * state: no I/O, no three.js.
  */
-import { SCRIPT_OBJECT_COMPONENT, checkScriptPatch, scriptComponentAccess, scriptSnapshot, type EntityV3, type ScriptWriteCode } from '@thirdlight/project-model';
+import { MAX_MATERIAL_SLOTS, SCRIPT_OBJECT_COMPONENT, checkScriptPatch, scriptComponentAccess, scriptSnapshot, validateMaterialMapping, type EntityV3, type ModelErrorV2, type ScriptWriteCode } from '@thirdlight/project-model';
 import { clipMessage } from './errors';
 import type { MaterialParamValue, RuntimeMaterials } from './material-params';
 import type { DiagnosticErrorEntry, TransformState } from './types';
@@ -61,6 +64,7 @@ export type EntityWriteCode =
   | 'entity_static'
   | 'entity_driven'
   | 'material_parameter'
+  | 'material_unknown'
   | 'write_limit';
 
 /** What `set` answers: queued (`ok`), or refused with the field and why. */
@@ -91,7 +95,8 @@ export interface BehaviorEntityHandle {
    * Write fields of a component, applied at the end of the step (in script order; a later write of the
    * same field wins and the conflict is reported in diagnostics). Writable now: object `active` and `visible`,
    * transform `position`/`rotation`/`scale` (not a physics body, the camera or a static object), light
-   * `color`/`intensity`/`range`, mover `speed`/`active`, `materialParams` ({ material: { parameter: value } }).
+   * `color`/`intensity`/`range`, mover `speed`/`active`, `materialParams` ({ material: { parameter: value } }),
+   * `materials` ({ slot: materialId | null } on a model, box or instance set: shown once the material has loaded).
    * Any other field is refused: the result names it (nothing of a refused patch is written).
    * @graphNode Set component
    */
@@ -125,6 +130,7 @@ export type EntityFieldsSave = Readonly<Record<string, {
   readonly visible?: boolean;
   readonly light?: LightOverride;
   readonly mover?: { readonly speed?: number; readonly active?: boolean };
+  readonly materials?: Readonly<Record<string, string>>;
 }>>;
 
 /** What the runtime gives the access (read at the moment of use). */
@@ -154,6 +160,10 @@ export interface EntityAccessHost {
   moverState(id: string): { speed: number; active: boolean } | null;
   setMover(id: string, patch: { speed?: number; active?: boolean }): void;
   readonly materials: RuntimeMaterials;
+  /** Every project material the game ships (null: the host does not say; a swap is then refused). */
+  materialIds(): ReadonlySet<string> | null;
+  /** An object's material swap changed (its slots over its authored mapping; null: none). */
+  materialsSwapped(id: string, swap: Readonly<Record<string, string>> | null): void;
   /** The effective switched-off set changed: `off` newly off, `on` newly on (the runtime updates physics, blocks, rendering). */
   inactiveChanged(off: readonly string[], on: readonly string[]): void;
   record(entry: DiagnosticErrorEntry): void;
@@ -183,6 +193,8 @@ export class EntityAccess {
   private readonly lights = new Map<string, LightOverride>();
   private readonly visibleWrites = new Map<string, boolean>();
   private readonly moverWrites = new Map<string, { speed?: number; active?: boolean }>();
+  /** The material swaps scripts and timelines made (slot → material, over the authored mapping). */
+  private readonly swaps = new Map<string, Readonly<Record<string, string>>>();
   /** The handles made (see `control.handle`). */
   private readonly handles = new Map<string, BehaviorEntityHandle>();
   applied = 0;
@@ -220,6 +232,25 @@ export class EntityAccess {
     return this.inactiveSet;
   }
 
+  /** The material swaps made, by object (slot → material over the authored mapping). */
+  materialSwaps(): ReadonlyMap<string, Readonly<Record<string, string>>> {
+    return this.swaps;
+  }
+
+  /**
+   * A swap applied now (a timeline key): checked as a script's write, then
+   * put on at once. The problem when refused (null: swapped).
+   */
+  swapNow(id: string, patch: unknown): string | null {
+    const doc = this.host.doc(id);
+    if (doc === undefined) return `object "${id}" is not loaded`;
+    if (!wearsMaterials(doc)) return `object "${id}" has no model, box or instance set to wear materials`;
+    const problem = this.swapProblem(id, doc, patch);
+    if (problem !== null) return problem.message;
+    this.applySwap(id, patch as Readonly<Record<string, string | null>>);
+    return null;
+  }
+
   /** The light values scripts wrote, by object. */
   lightOverrides(): ReadonlyMap<string, LightOverride> {
     return this.lights;
@@ -241,6 +272,12 @@ export class EntityAccess {
       }
       case 'materialParams':
         return this.host.materials.scriptSnapshot(id);
+      case 'materials': {
+        const authored = c['materials'] as Readonly<Record<string, string>> | undefined;
+        const swap = this.swaps.get(id);
+        if (authored === undefined && swap === undefined) return null;
+        return scriptSnapshot(component, { ...(authored ?? {}), ...(swap ?? {}) });
+      }
       case 'light': {
         const l = c['light'] as Readonly<Record<string, unknown>> | undefined;
         return l === undefined ? null : scriptSnapshot(component, { ...l, ...(this.lights.get(id) ?? {}) });
@@ -298,7 +335,10 @@ export class EntityAccess {
     let current: Readonly<Record<string, unknown>>;
     if (name === SCRIPT_OBJECT_COMPONENT) current = this.objectValue(doc);
     else if (name === 'materialParams') current = {};
-    else {
+    else if (name === 'materials') {
+      if (!wearsMaterials(doc)) return this.refuse(writer, name, 'component_missing', `object "${id}" has no model, box or instance set to wear materials`);
+      current = {};
+    } else {
       const v = c[name] as Readonly<Record<string, unknown>> | undefined;
       if (v === undefined) return this.refuse(writer, name, 'component_missing', `object "${id}" has no ${name}`);
       current = name === 'light' ? { ...v, ...(this.lights.get(id) ?? {}) } : v;
@@ -365,7 +405,41 @@ export class EntityAccess {
       if (!any) return { field: 'materialParams', code: 'patch_invalid', message: 'set("materialParams", patch) names no parameter' };
       return null;
     }
+    if (component === 'materials') return this.swapProblem(id, doc, fields[0]![1]);
     return null;
+  }
+
+  /** Why a swap patch ({ slot: materialId | null }) cannot be put on this object (null: it can). */
+  private swapProblem(id: string, doc: EntityV3, patch: unknown): { field: string; code: EntityWriteCode; message: string } | null {
+    if (typeof patch !== 'object' || patch === null || Array.isArray(patch)) return { field: 'materials', code: 'patch_invalid', message: 'set("materials", patch) takes { slot: materialId | null }' };
+    const entries = Object.entries(patch as Record<string, unknown>);
+    if (entries.length === 0) return { field: 'materials', code: 'patch_invalid', message: 'set("materials", patch) names no slot' };
+    const known = this.host.materialIds();
+    const merged: Record<string, string> = { ...(((doc.components as unknown as Record<string, unknown>)['materials'] as Record<string, string> | undefined) ?? {}), ...(this.swaps.get(id) ?? {}) };
+    for (const [slot, value] of entries) {
+      const field = `materials.${slot}`;
+      if (value === null) continue;
+      if (typeof value !== 'string') return { field, code: 'field_value', message: `${field} must be a material id or null` };
+      if (known === null || !known.has(value)) return { field, code: 'material_unknown', message: `${field}: "${value.slice(0, 64)}" is not a material this game ships (give it an address or a label, or use it on an object or a timeline)` };
+      merged[slot] = value;
+    }
+    const errors: ModelErrorV2[] = [];
+    if (Object.keys(merged).length > 0) validateMaterialMapping(merged, 'materials', errors);
+    if (errors.length > 0) return { field: errors[0]!.path.replace(/\//g, '.'), code: 'field_value', message: errors[0]!.message };
+    if (Object.keys(merged).length > MAX_MATERIAL_SLOTS) return { field: 'materials', code: 'field_value', message: `an object wears at most ${MAX_MATERIAL_SLOTS} slots` };
+    return null;
+  }
+
+  /** Put a checked swap patch on (null slots go back to the authored material). */
+  private applySwap(id: string, patch: Readonly<Record<string, string | null>>): void {
+    const next: Record<string, string> = { ...(this.swaps.get(id) ?? {}) };
+    for (const [slot, value] of Object.entries(patch)) {
+      if (value === null) delete next[slot];
+      else next[slot] = value;
+    }
+    if (Object.keys(next).length === 0) this.swaps.delete(id);
+    else this.swaps.set(id, Object.freeze(next));
+    this.host.materialsSwapped(id, this.swaps.get(id) ?? null);
   }
 
   /** Whether the object or one below it is the character (it stays active). */
@@ -392,7 +466,7 @@ export class EntityAccess {
     for (const w of queue) {
       if (this.host.doc(w.id) === undefined) continue; // gone in the step (a destroyed copy)
       for (const [key, value] of w.fields) {
-        const leaves = w.component === 'materialParams' ? Object.entries(value as Record<string, Record<string, unknown>>).flatMap(([m, ps]) => Object.keys(ps).map((p) => `materialParams.${m}.${p}`)) : [`${w.component}.${key}`];
+        const leaves = w.component === 'materialParams' ? Object.entries(value as Record<string, Record<string, unknown>>).flatMap(([m, ps]) => Object.keys(ps).map((p) => `materialParams.${m}.${p}`)) : w.component === 'materials' ? Object.keys(value as Record<string, unknown>).map((slot) => `materials.${slot}`) : [`${w.component}.${key}`];
         for (const field of leaves) {
           const slot = `${w.id}\u0000${field}`;
           const before = writers.get(slot) ?? (w.component === 'transform' && this.host.transformIntentWrote(w.id) ? 'an owned transform intent' : undefined);
@@ -454,6 +528,9 @@ export class EntityAccess {
         this.moverWrites.set(w.id, { ...(this.moverWrites.get(w.id) ?? {}), ...patch });
         return false;
       }
+      case 'materials':
+        this.applySwap(w.id, w.fields[0]![1] as Readonly<Record<string, string | null>>);
+        return false;
       case 'materialParams': {
         const map = w.fields[0]![1] as Readonly<Record<string, Readonly<Record<string, unknown>>>>;
         for (const [materialId, params] of Object.entries(map)) for (const [param, value] of Object.entries(params)) this.host.materials.scriptApply(w.id, materialId, param, value as MaterialParamValue | null);
@@ -502,6 +579,7 @@ export class EntityAccess {
       this.lights.delete(id);
       this.visibleWrites.delete(id);
       this.moverWrites.delete(id);
+      this.swaps.delete(id);
     }
     if (this.inactiveSet.size > 0) {
       const next = new Set([...this.inactiveSet].filter((id) => !ids.has(id)));
@@ -520,29 +598,39 @@ export class EntityAccess {
     this.lights.clear();
     this.visibleWrites.clear();
     this.moverWrites.clear();
+    this.clearSwaps();
+  }
+
+  /** Every swap goes (the objects wear their authored materials again). */
+  private clearSwaps(): void {
+    const ids = [...this.swaps.keys()];
+    this.swaps.clear();
+    for (const id of ids) this.host.materialsSwapped(id, null);
   }
 
   // ---- digest and saves ----------------------------------------------------------------------
 
   /** The written fields as digest text (null while none is written: every other digest is unchanged). */
   digestText(): string | null {
-    if (this.selfInactive.size === 0 && this.lights.size === 0 && this.moverWrites.size === 0 && this.visibleWrites.size === 0) return null;
+    if (this.selfInactive.size === 0 && this.lights.size === 0 && this.moverWrites.size === 0 && this.visibleWrites.size === 0 && this.swaps.size === 0) return null;
     return JSON.stringify(this.saveState());
   }
 
   /** The written fields for a save document (components section, `fields`), sorted by object. */
   saveState(): EntityFieldsSave {
-    const ids = new Set([...this.selfInactive, ...this.lights.keys(), ...this.visibleWrites.keys(), ...this.moverWrites.keys()]);
-    const out: Record<string, { active?: false; visible?: boolean; light?: LightOverride; mover?: { speed?: number; active?: boolean } }> = {};
+    const ids = new Set([...this.selfInactive, ...this.lights.keys(), ...this.visibleWrites.keys(), ...this.moverWrites.keys(), ...this.swaps.keys()]);
+    const out: Record<string, { active?: false; visible?: boolean; light?: LightOverride; mover?: { speed?: number; active?: boolean }; materials?: Readonly<Record<string, string>> }> = {};
     for (const id of [...ids].sort()) {
       const light = this.lights.get(id);
       const mover = this.moverWrites.get(id);
       const visible = this.visibleWrites.get(id);
+      const swap = this.swaps.get(id);
       out[id] = {
         ...(this.selfInactive.has(id) ? { active: false as const } : {}),
         ...(visible !== undefined ? { visible } : {}),
         ...(light !== undefined ? { light: { ...light } } : {}),
         ...(mover !== undefined ? { mover: { ...mover } } : {}),
+        ...(swap !== undefined ? { materials: { ...swap } } : {}),
       };
     }
     return out;
@@ -555,11 +643,16 @@ export class EntityAccess {
       const doc = this.host.doc(id);
       if (typeof rec !== 'object' || rec === null || Array.isArray(rec)) return `fields of "${id.slice(0, 64)}" is not an object`;
       const r = rec as Record<string, unknown>;
-      for (const k of Object.keys(r)) if (k !== 'active' && k !== 'visible' && k !== 'light' && k !== 'mover') return `fields of "${id.slice(0, 64)}": unknown "${k.slice(0, 32)}"`;
+      for (const k of Object.keys(r)) if (k !== 'active' && k !== 'visible' && k !== 'light' && k !== 'mover' && k !== 'materials') return `fields of "${id.slice(0, 64)}": unknown "${k.slice(0, 32)}"`;
       if (doc === undefined) return `the save writes fields of "${id.slice(0, 64)}", which is not in this game`;
       const c = doc.components as unknown as Record<string, Record<string, unknown> | undefined>;
       if (r['active'] !== undefined && r['active'] !== false) return `fields of "${id.slice(0, 64)}": active is false or absent`;
       if (r['visible'] !== undefined && typeof r['visible'] !== 'boolean') return `fields of "${id.slice(0, 64)}": visible is true or false`;
+      if (r['materials'] !== undefined) {
+        if (!wearsMaterials(doc)) return `the save swaps the materials of "${id.slice(0, 64)}", which wears none`;
+        const problem = this.swapProblem(id, doc, r['materials']);
+        if (problem !== null) return `fields of "${id.slice(0, 64)}": ${problem.message}`;
+      }
       for (const comp of ['light', 'mover'] as const) {
         if (r[comp] === undefined) continue;
         const cur = c[comp];
@@ -586,9 +679,16 @@ export class EntityAccess {
         this.host.setMover(id, r.mover);
         this.moverWrites.set(id, { ...r.mover });
       }
+      if (r.materials !== undefined) this.applySwap(id, r.materials);
     }
     this.refreshInactive();
   }
 }
 
 const OK: EntityWriteResult = Object.freeze({ ok: true, field: '', code: '', message: '' });
+
+/** Whether the object has something that wears materials (a model, a box or an instance set). */
+function wearsMaterials(doc: EntityV3): boolean {
+  const c = doc.components as unknown as Record<string, unknown>;
+  return c['model'] !== undefined || c['box'] !== undefined || c['instances'] !== undefined;
+}

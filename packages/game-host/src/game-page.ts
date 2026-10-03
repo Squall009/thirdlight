@@ -30,7 +30,7 @@
  *
  * Browser-only (DOM, WebGL/WebGPU, Web Audio, Web Crypto).
  */
-import { audioSpatialOf, dependencyTables, depthBufferOf, instanceChunkSizeOf, physicsDimensionOf, scanDependencies, sha256HexAsync, textureBudgetBytesOf, type SaveSchema } from '@thirdlight/project-model';
+import { audioSpatialOf, dependencyTables, depthBufferOf, instanceChunkSizeOf, materialTextureRefs, physicsDimensionOf, scanDependencies, sha256HexAsync, textureBudgetBytesOf, type MaterialDef, type SaveSchema } from '@thirdlight/project-model';
 import { assetVersionKey, createResourceManager, EMBEDDED_TEXTURES_LISTED, embeddedTextureBytes, type ResourceManager, type ResourceObservation } from '@thirdlight/runtime';
 import { attachBrowserInput, DEFAULT_INPUT_CONFIG, DEFAULT_INPUT_CONFIG_3D, focusGameSurface, type InputConfigLike } from '@thirdlight/input';
 import { createPhysicsPort, type RapierPhysicsInitConfig, type RapierPhysicsPort, type RapierStaticColliderSpec } from '@thirdlight/physics-rapier';
@@ -477,6 +477,21 @@ function pageTextureLoader(reader: VerifiedAssetReader, catalog: RuntimeCatalog,
     );
 }
 
+/** Each shipped material's texture assets (what a material swap loads before it shows). */
+function materialTexturesOf(manifest: GamePageManifest): (materialId: string) => readonly string[] {
+  const byId = new Map((manifest.materials ?? []).map((m) => [m.materialId, m]));
+  const memo = new Map<string, readonly string[]>();
+  return (materialId) => {
+    let refs = memo.get(materialId);
+    if (refs === undefined) {
+      const def = byId.get(materialId);
+      refs = def === undefined ? [] : materialTextureRefs(def as unknown as MaterialDef);
+      memo.set(materialId, refs);
+    }
+    return refs;
+  };
+}
+
 /** The adapter's materials, environment, lighting and light options (textures from the verified bytes). */
 function materialsOptionOf(manifest: GamePageManifest, env: GamePageManifest['environment'], scenes: { start: string | null; look(sceneId: string): SceneLookLike | null } | null, loadTexture: NonNullable<SceneAdapterOptions['materials']>['loadTexture'], streamer: TextureStreamer): { materials?: SceneAdapterOptions['materials']; environment?: SceneAdapterOptions['environment']; lighting?: SceneAdapterOptions['lighting']; lights: NonNullable<SceneAdapterOptions['lights']> } {
   // A sky, a cookie or a lightmap is not a mesh's surface whose size on screen says what it needs: a streamed texture they draw is kept at full size.
@@ -497,7 +512,7 @@ function materialsOptionOf(manifest: GamePageManifest, env: GamePageManifest['en
         ? { environment: { value: env ?? {}, loadTexture: loadWhole } }
         : {}),
     ...(manifest.lighting !== undefined ? { lighting: { bakes: manifest.lighting, loadTexture: loadWhole } } : {}),
-    materials: { defs: manifest.materials ?? [], functions: manifest.materialFunctions ?? [], wind: env?.wind ?? null, loadTexture },
+    materials: { defs: manifest.materials ?? [], functions: manifest.materialFunctions ?? [], wind: env?.wind ?? null, loadTexture, textureRefs: materialTexturesOf(manifest) },
   };
 }
 
@@ -526,6 +541,8 @@ function runtimeSnapshotOf(authored: RuntimeSnapshot, content: RuntimeContent<Ga
     ...(manifest.rigs !== undefined ? { rigs: manifest.rigs } : {}),
     // The graph materials' parameters scripts set per object (ctx.materials).
     ...(materialCatalog !== undefined ? { materialCatalog } : {}),
+    // The materials a swap may name (every material the game ships).
+    ...(manifest.materials !== undefined ? { materialIds: manifest.materials.map((m) => m.materialId) } : {}),
     ...(manifest.saveSchema !== undefined ? { saveSchema: manifest.saveSchema } : {}),
     ...(uiRows !== undefined ? { uiDocuments: uiRows } : {}),
     ...(manifest.dialogue !== undefined ? { dialogue: manifest.dialogue } : {}),

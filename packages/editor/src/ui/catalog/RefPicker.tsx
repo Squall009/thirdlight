@@ -28,6 +28,7 @@ export const TEXTURE_KINDS: readonly string[] = ['texture'];
 export const MODEL_KINDS: readonly string[] = ['model'];
 export const AUDIO_KINDS: readonly string[] = ['audio'];
 export const FONT_KINDS: readonly string[] = ['font'];
+export const MATERIAL_KINDS: readonly string[] = ['material'];
 
 const FIELD_KINDS = new Map<string, readonly string[]>([
   ['texture', TEXTURE_KINDS],

@@ -936,6 +936,7 @@ export function instantiateRuntime(
     blockTypes: snap.blockTypes,
     cellFields: snap.cellFields,
     ...(snap.materialCatalog !== undefined ? { materialCatalog: snap.materialCatalog } : {}),
+    ...(snap.materialIds !== undefined ? { materialIds: snap.materialIds } : {}),
     ...(snap.saveSchema !== undefined ? { saveSchema: snap.saveSchema } : {}),
     ...(projectSettings !== undefined ? { projectSettings } : {}),
     environmentPresets: snap.environmentPresets ?? [],
@@ -1027,6 +1028,8 @@ interface RuntimeArgs {
   cellFields: readonly CellField[];
   /** The graph materials' parameters (ctx.materials). */
   materialCatalog?: RuntimeMaterialCatalog;
+  /** Every project material the game ships (what a material swap may name). */
+  materialIds?: readonly string[];
   /** The project save schema and the stored project settings document. */
   saveSchema?: SaveSchema;
   projectSettings?: Readonly<Record<string, unknown>>;
@@ -1310,6 +1313,8 @@ class RuntimeInstance implements Runtime {
   private readonly grid: RuntimeGrid;
   /** Graph-material parameters scripts set per object (`ctx.materials`). */
   private readonly materials: RuntimeMaterials;
+  /** Every project material the game ships (null: not given — a material swap is refused). */
+  private readonly materialIds: ReadonlySet<string> | null;
   /** `ctx.entity(ref).get/set` — the written fields, the switched-off objects and the end-of-step writes. */
   private readonly entityAccess: EntityAccess;
   /** The step's pre-step transforms (what `get('transform')` reads during the step). */
@@ -1586,11 +1591,12 @@ class RuntimeInstance implements Runtime {
     });
     this.spawnControl = this.spawnRequests.control();
     // The start scenes' block layers; in 3D their chunks collide (a 2D plane draws them only).
-    this.grid = new RuntimeGrid(args.blockTypes, args.cellFields, args.physics3d !== undefined, args.settings.max_slope_climb_deg);
+    this.grid = new RuntimeGrid(args.blockTypes, args.cellFields, args.physics3d !== undefined, args.settings.max_slope_climb_deg, args.materialIds);
     this.grid.addLayers(args.initialEntities);
     this.grid.flushCollision(args.physics3d);
     // The start set's graph materials (the values scripts set per object).
     this.materials = new RuntimeMaterials(args.materialCatalog);
+    this.materialIds = args.materialIds !== undefined ? new Set(args.materialIds) : null;
     this.entityAccess = this.buildEntityAccess();
     this.shellControl = this.buildShellControl();
     this.materials.addEntities(args.initialEntities);
@@ -2111,6 +2117,16 @@ class RuntimeInstance implements Runtime {
     return this.entityAccess.inactive();
   }
 
+  /** The material swaps made (`ctx.entity(id).set('materials', …)`, timeline keys), by object; the renderer puts them on once loaded. */
+  materialSwaps(): ReadonlyMap<string, Readonly<Record<string, string>>> {
+    return this.entityAccess.materialSwaps();
+  }
+
+  /** The block types' material swaps (`ctx.grid.setTypeMaterials`), by block id; the renderer puts them on once loaded. */
+  blockMaterialSwaps(): ReadonlyMap<string, Readonly<Record<string, string>>> {
+    return this.grid.typeMaterialSwaps();
+  }
+
   /** The light values scripts wrote (`ctx.entity(id).set('light', …)`), by object; the renderer applies them. */
   lightOverrides(): ReadonlyMap<string, LightOverride> {
     return this.entityAccess.lightOverrides();
@@ -2150,6 +2166,11 @@ class RuntimeInstance implements Runtime {
       setMover: (id, patch) => rt.blocks?.setMover(id, patch),
       get materials() {
         return rt.materials;
+      },
+      materialIds: () => rt.materialIds,
+      materialsSwapped: (id, swap) => {
+        const doc = rt.entityDocument(id);
+        if (doc !== undefined) rt.materials.remap(doc, swap);
       },
       inactiveChanged: (off, on) => rt.onInactiveChanged(off, on),
       record: (entry) => rt.recordError(entry),
@@ -3680,6 +3701,7 @@ class RuntimeInstance implements Runtime {
       emitSignal: (name) => rt.signalControl.emit(name),
       signaled: (name) => rt.signalControl.on(name),
       setMaterial: (id, param, value, materialId) => rt.materials.api.set(id, param, value, materialId),
+      swapMaterials: (id, materials) => rt.entityAccess.swapNow(id, materials),
       // The same path as ctx.modes.switch (applies at the next step boundary).
       switchMode: (modeId, transition) => rt.modes.request(modeId, transition),
       // The environment track switches presets through ctx.environment's own path.

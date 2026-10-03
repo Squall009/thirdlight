@@ -99,13 +99,16 @@ const SCRIPT_OBJECT_READ: ReadonlySet<string> = new Set(['id', 'name', 'parentId
  * The fields scripts may write while the game runs, each with its runtime
  * behavior (runtime `entity-access.ts`). `*`: the component's value itself (a
  * map). Everything the engine builds once — static batching, baked lighting,
- * static colliders, instancing, assets that need loading — stays fixed.
+ * static colliders, instancing, model and texture assets — stays fixed (a
+ * swapped material is loaded by the renderer before it shows).
  */
 const SCRIPT_WRITABLE: Readonly<Record<string, readonly string[]>> = {
   entity: ['active', 'visible', 'keepLoaded'],
   transform: ['position', 'rotation', 'scale'],
   light: ['color', 'intensity', 'range'],
   mover: ['speed', 'active'],
+  // Which project material a slot wears: swapped once the material has loaded (the renderer waits for it).
+  materials: ['*'],
   materialParams: ['*'],
 };
 

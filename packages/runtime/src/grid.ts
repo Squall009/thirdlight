@@ -16,6 +16,7 @@
  * its next frame; other scripts see the change events one step later.
  */
 import {
+  validateMaterialMapping,
   BlockGrid,
   CHUNK_SIZE,
   autoVariant,
@@ -143,6 +144,8 @@ export interface GridPick {
 export interface GridDiff {
   readonly version: 1;
   readonly layers: readonly { readonly layer: string; readonly cells: readonly (readonly [number, number, number, BlockCell | null])[] }[];
+  /** The block types' material swaps (block id → slot → material over the type's own mapping); absent: none. */
+  readonly types?: Readonly<Record<string, Readonly<Record<string, string>>>>;
 }
 
 /**
@@ -250,6 +253,16 @@ export interface BehaviorGrid {
    */
   inRegion(layer: string, regionId: string, x: number, y: number, z: number): boolean;
   /**
+   * Swap the materials a block type wears in every layer (`{slot: materialId}`, a slot of its look or "*"; `null` puts a slot back to the type's own). It is part of the simulation at once; the cells show it once the material has loaded. False when refused (an unknown block type or a material this game does not ship).
+   * @graphNode skip a slot map is written by scripts and timelines
+   */
+  setTypeMaterials(blockId: string, materials: Readonly<Record<string, string | null>>): boolean;
+  /**
+   * The materials a block type wears now (its own mapping with the swaps over it), or null (an unknown type, or no project materials).
+   * @graphNode skip a slot map is read by scripts
+   */
+  typeMaterials(blockId: string): Readonly<Record<string, string>> | null;
+  /**
    * The cells scripts wrote in the previous step, in write order.
    * @graphNode skip scripts read the list with a loop
    */
@@ -303,6 +316,9 @@ export class RuntimeGrid {
   private readonly fields: readonly CellField[];
   private readonly fieldByKey: Map<string, CellField>;
   private readonly layerMap = new Map<string, Layer>();
+  /** The block types' material swaps (block id → slot → material). */
+  private readonly typeSwaps = new Map<string, Readonly<Record<string, string>>>();
+  private readonly materialIds: ReadonlySet<string> | null;
   private readonly collide: boolean;
   private collisionDirty = new Map<string, Set<string>>();
   private renderDirty = new Map<string, Set<string>>();
@@ -317,13 +333,46 @@ export class RuntimeGrid {
   /** Degrees: what surface queries call walkable on a layer without its own maxSlope (the project's steepest walkable slope). */
   private readonly defaultMaxSlope: number;
 
-  constructor(types: readonly BlockType[], fields: readonly CellField[], collide: boolean, defaultMaxSlope = 45) {
+  constructor(types: readonly BlockType[], fields: readonly CellField[], collide: boolean, defaultMaxSlope = 45, materialIds?: readonly string[]) {
+    this.materialIds = materialIds !== undefined ? new Set(materialIds) : null;
     this.types = new Map(types.map((t) => [t.blockId, t]));
     this.fields = fields;
     this.fieldByKey = new Map(fields.map((f) => [f.key, f]));
     this.collide = collide;
     this.defaultMaxSlope = defaultMaxSlope;
     this.api = this.buildApi();
+  }
+
+  /** The block types' material swaps (the renderer puts them on once loaded). */
+  typeMaterialSwaps(): ReadonlyMap<string, Readonly<Record<string, string>>> {
+    return this.typeSwaps;
+  }
+
+  /** Why a block type's swap patch cannot be made (null: it can). */
+  private typeSwapProblem(blockId: unknown, patch: unknown, base: ReadonlyMap<string, Readonly<Record<string, string>>> = this.typeSwaps): string | null {
+    const type = typeof blockId === 'string' ? this.types.get(blockId) : undefined;
+    if (type === undefined) return `unknown block type ${JSON.stringify(String(blockId)).slice(0, 64)}`;
+    if (typeof patch !== 'object' || patch === null || Array.isArray(patch) || Object.keys(patch).length === 0) return 'materials is { slot: materialId | null } with at least one slot';
+    const merged: Record<string, string> = { ...(type.materials ?? {}), ...(base.get(type.blockId) ?? {}) };
+    for (const [slot, value] of Object.entries(patch as Record<string, unknown>)) {
+      if (value === null) continue;
+      if (typeof value !== 'string' || this.materialIds === null || !this.materialIds.has(value)) return `slot "${slot.slice(0, 64)}": ${JSON.stringify(String(value)).slice(0, 64)} is not a material this game ships`;
+      merged[slot] = value;
+    }
+    const errors: ModelErrorV2[] = [];
+    if (Object.keys(merged).length > 0) validateMaterialMapping(merged, 'materials', errors);
+    return errors.length > 0 ? errors[0]!.message : null;
+  }
+
+  /** Put a checked swap patch on a block type (null slots go back to the type's own). */
+  private swapType(blockId: string, patch: Readonly<Record<string, string | null>>): void {
+    const next: Record<string, string> = { ...(this.typeSwaps.get(blockId) ?? {}) };
+    for (const [slot, value] of Object.entries(patch)) {
+      if (value === null) delete next[slot];
+      else next[slot] = value;
+    }
+    if (Object.keys(next).length === 0) this.typeSwaps.delete(blockId);
+    else this.typeSwaps.set(blockId, Object.freeze(next));
   }
 
   /** Whether any layer is loaded. */
@@ -374,6 +423,25 @@ export class RuntimeGrid {
     this.current = [];
     this.previous = Object.freeze([]);
     this.writes = 0;
+    this.typeSwaps.clear();
+  }
+
+  /** A save's block type swaps (the grid diff's `types`): why they cannot be restored, or null. */
+  private typesProblem(types: unknown): string | null {
+    if (types === undefined) return null;
+    if (typeof types !== 'object' || types === null || Array.isArray(types)) return 'the grid diff\'s types map block ids to material swaps';
+    const empty = new Map<string, Readonly<Record<string, string>>>();
+    for (const [blockId, swap] of Object.entries(types)) {
+      const problem = this.typeSwapProblem(blockId, swap, empty);
+      if (problem !== null) return `block type "${blockId.slice(0, 64)}": ${problem}`;
+    }
+    return null;
+  }
+
+  /** The block type swaps become exactly these (checked with `typesProblem`). */
+  private setTypeSwaps(types: Readonly<Record<string, Readonly<Record<string, string>>>> | undefined): void {
+    this.typeSwaps.clear();
+    for (const [blockId, swap] of Object.entries(types ?? {})) this.swapType(blockId, swap);
   }
 
   /**
@@ -386,6 +454,8 @@ export class RuntimeGrid {
   restoreDiff(diff: unknown): string | null {
     const d = (diff ?? { version: 1, layers: [] }) as GridDiff;
     if (typeof d !== 'object' || d === null || d.version !== 1 || !Array.isArray(d.layers)) return 'the grid section is not a grid diff (version 1)';
+    const typesProblem = this.typesProblem(d.types);
+    if (typesProblem !== null) return typesProblem;
     for (const entry of d.layers) {
       if (typeof entry !== 'object' || entry === null || typeof entry.layer !== 'string' || !Array.isArray(entry.cells)) return 'a grid diff layer is { layer, cells }';
       if (!this.layerMap.has(entry.layer)) return `block layer "${entry.layer.slice(0, 64)}" is not loaded`;
@@ -435,6 +505,7 @@ export class RuntimeGrid {
       return problem;
     }
     for (const id of involved) this.markAll(this.layerMap.get(id)!);
+    this.setTypeSwaps(d.types);
     return null;
   }
 
@@ -795,10 +866,25 @@ export class RuntimeGrid {
           }
           if (cells.length > 0) layers.push({ layer: l.entityId, cells });
         }
-        return Object.freeze({ version: 1 as const, layers: Object.freeze(layers) });
+        const types = g.typeSwaps.size === 0 ? undefined : Object.freeze(Object.fromEntries([...g.typeSwaps].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))));
+        return Object.freeze({ version: 1 as const, layers: Object.freeze(layers), ...(types !== undefined ? { types } : {}) });
+      },
+      setTypeMaterials(blockId, materials) {
+        if (g.typeSwapProblem(blockId, materials) !== null) return false;
+        if (!g.unlimited && g.writes >= GRID_WRITES_PER_STEP) return false;
+        g.writes += 1;
+        g.swapType(blockId, materials);
+        return true;
+      },
+      typeMaterials(blockId) {
+        const type = typeof blockId === 'string' ? g.types.get(blockId) : undefined;
+        if (type === undefined) return null;
+        const merged = { ...(type.materials ?? {}), ...(g.typeSwaps.get(blockId) ?? {}) };
+        return Object.keys(merged).length === 0 ? null : Object.freeze(merged);
       },
       applyDiff(diff) {
         if (typeof diff !== 'object' || diff === null || diff.version !== 1 || !Array.isArray(diff.layers)) return false;
+        if (g.typesProblem(diff.types) !== null) return false;
         for (const entry of diff.layers) {
           if (!layerOf(entry?.layer) || !Array.isArray(entry.cells)) return false;
           for (const c of entry.cells) {
@@ -814,6 +900,7 @@ export class RuntimeGrid {
           if (JSON.stringify(now) === JSON.stringify(c[3] === null ? null : canonicalBlockCell(c[3] as BlockCell))) continue;
           ok = g.write(entry.layer, c[0], c[1], c[2], c[3] as BlockCell | null) && ok;
         }
+        g.setTypeSwaps(diff.types);
         return ok;
       },
     };

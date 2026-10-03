@@ -232,4 +232,34 @@ describe('sloped terrain in ctx.grid', () => {
     plain.flushCollision(p2);
     expect(p2.added.every((c) => c.maxSlope === undefined)).toBe(true);
   });
+
+  it('block type material swaps: checked, part of the diff a save keeps, restored, cleared by a new run', () => {
+    const grid = new RuntimeGrid(TYPES, FIELDS, true, 45, ['mat-ash', 'mat-moss']);
+    const api = grid.api;
+    expect(api.typeMaterials('stone')).toBeNull();
+    expect(api.setTypeMaterials('stone', { '*': 'mat-ash' })).toBe(true);
+    expect(api.typeMaterials('stone')).toEqual({ '*': 'mat-ash' });
+    expect(grid.typeMaterialSwaps().get('stone')).toEqual({ '*': 'mat-ash' });
+    // Unknown types and materials, empty patches.
+    expect(api.setTypeMaterials('nope', { '*': 'mat-ash' })).toBe(false);
+    expect(api.setTypeMaterials('grass', { '*': 'mat-missing' })).toBe(false);
+    expect(api.setTypeMaterials('grass', {})).toBe(false);
+    const diff = api.diff();
+    expect(diff.types).toEqual({ stone: { '*': 'mat-ash' } });
+    // null: the type's own again.
+    expect(api.setTypeMaterials('stone', { '*': null })).toBe(true);
+    expect(grid.typeMaterialSwaps().size).toBe(0);
+    expect(grid.restoreDiff(diff)).toBeNull();
+    expect(grid.typeMaterialSwaps().get('stone')).toEqual({ '*': 'mat-ash' });
+    expect(grid.restoreDiff({ version: 1, layers: [], types: { stone: { '*': 'mat-missing' } } })).toContain('not a material this game ships');
+    // A diff without types (an older save) clears them.
+    expect(grid.restoreDiff({ version: 1, layers: [] })).toBeNull();
+    expect(grid.typeMaterialSwaps().size).toBe(0);
+    api.setTypeMaterials('grass', { '*': 'mat-moss' });
+    grid.reset();
+    expect(grid.typeMaterialSwaps().size).toBe(0);
+    // Without the game's material list, nothing can be swapped.
+    expect(new RuntimeGrid(TYPES, FIELDS, true).api.setTypeMaterials('stone', { '*': 'mat-ash' })).toBe(false);
+  });
 });
+

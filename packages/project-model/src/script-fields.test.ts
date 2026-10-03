@@ -24,15 +24,17 @@ describe('script access marks', () => {
   it('writable fields are exactly the listed first set, all of them readable', () => {
     const t = scriptAccessTable();
     const writable = Object.entries(t.components).filter(([, a]) => a.write.length > 0).map(([c, a]) => `${c}:${a.write.join(',')}`);
-    expect(writable).toEqual(['object:active,visible,keepLoaded', 'transform:position,rotation,scale', 'materialParams:*', 'light:color,intensity,range', 'mover:speed,active']);
+    expect(writable).toEqual(['object:active,visible,keepLoaded', 'transform:position,rotation,scale', 'materials:*', 'materialParams:*', 'light:color,intensity,range', 'mover:speed,active']);
     for (const a of Object.values(t.components)) for (const w of a.write) expect(a.read).toContain(w);
   });
 
   it('the fixed-at-run-time data is not writable, and bulk data is not readable', () => {
     for (const c of ['instances', 'blockLayer', 'folder']) expect(scriptComponentAccess(c)).toBeNull();
-    for (const [c, key] of [['collider', 'shape'], ['model', 'asset'], ['materials', '*'], ['light', 'type'], ['light', 'castShadow'], ['object', 'static']] as const) {
+    for (const [c, key] of [['collider', 'shape'], ['model', 'asset'], ['light', 'type'], ['light', 'castShadow'], ['object', 'static']] as const) {
       expect(scriptComponentAccess(c)?.write ?? []).not.toContain(key);
     }
+    // A material swap is written (the renderer loads the material before it shows); the model it dresses is fixed.
+    expect(scriptComponentAccess('materials')?.write).toEqual(['*']);
     // `visible` is stored (how the object starts) and scripts write it while the game runs.
     const visible = DESCRIPTORS.entity.fields.find((f) => f.key === 'visible');
     expect(visible?.runtimeOnly).toBeUndefined();
@@ -80,7 +82,7 @@ describe('script access marks', () => {
   });
 });
 
-const PINNED_V7 = 'c3b878ae7ebc3b1b';
+const PINNED_V7 = '9a3fd546865b3aac';
 
 /** 64-bit FNV-1a (two 32-bit lanes) of a text (project-model tests use no Node builtins). */
 function fnv(text: string): string {

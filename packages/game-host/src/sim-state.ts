@@ -41,6 +41,8 @@ export class FrameEncoder {
   /** The switched-off objects and the light overrides last sent. */
   private inactive: string[] | null = null;
   private lightsRef: unknown = null;
+  /** The material swaps last sent ('': none). */
+  private swapsKey = '';
   /** The look overrides last sent ('': none). */
   private looksKey = '';
   private posesKey = '';
@@ -221,6 +223,17 @@ export class FrameEncoder {
       if (key !== this.lightsRef) {
         this.lightsRef = key;
         out.lights = [...lights].map(([id, l]) => [id, { ...l }] as const);
+      }
+    }
+    // The material swaps (only when they changed; never for a game that made none).
+    const swapEntities = rt.materialSwaps?.();
+    const swapBlocks = rt.blockMaterialSwaps?.();
+    if ((swapEntities !== undefined && swapEntities.size > 0) || (swapBlocks !== undefined && swapBlocks.size > 0) || this.swapsKey !== '') {
+      const swaps = { entities: [...(swapEntities ?? [])].map(([id, m]) => [id, { ...m }] as const), blocks: [...(swapBlocks ?? [])].map(([id, m]) => [id, { ...m }] as const) };
+      const key = swaps.entities.length === 0 && swaps.blocks.length === 0 ? '' : JSON.stringify(swaps);
+      if (key !== this.swapsKey) {
+        this.swapsKey = key;
+        out.swaps = swaps;
       }
     }
     // The look overrides (only when they changed; never for a game that set none).
@@ -437,6 +450,9 @@ export class FrameMirror {
   /** The switched-off objects and the light values scripts wrote. */
   inactive: ReadonlySet<string> = new Set();
   lights: ReadonlyMap<string, import('@thirdlight/runtime').LightOverride> = new Map();
+  /** The material swaps of objects and of block types. */
+  swapEntities: ReadonlyMap<string, Readonly<Record<string, string>>> = new Map();
+  swapBlocks: ReadonlyMap<string, Readonly<Record<string, string>>> = new Map();
   /** The look overrides. */
   looks: ReadonlyMap<string, { readonly emissive?: string; readonly emissiveIntensity?: number; readonly tint?: string }> = new Map();
   poses: ReadonlyMap<string, AnimatorPose> = new Map();
@@ -517,6 +533,10 @@ export class FrameMirror {
     if (s.hidden !== undefined) this.hidden = new Set(s.hidden);
     if (s.inactive !== undefined) this.inactive = new Set(s.inactive);
     if (s.lights !== undefined) this.lights = new Map(s.lights);
+    if (s.swaps !== undefined) {
+      this.swapEntities = new Map(s.swaps.entities);
+      this.swapBlocks = new Map(s.swaps.blocks);
+    }
     if (s.looks !== undefined) this.looks = new Map(s.looks);
     if (s.poses !== undefined) this.poses = new Map(s.poses);
     if (s.counters !== undefined) this.counters = s.counters;

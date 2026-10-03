@@ -31,6 +31,9 @@
  *                pressed [action, timeout];
  * - `material`   a graph-material parameter of the target (track `param`,
  *                `material`) [value, easing];
+ * - `materialSwap` which project material the target's slots wear from the
+ *                key on [materials: slot → materialId, or null for the
+ *                authored one]; the swap shows once the material has loaded;
  * - `environment` switch to an environment preset [preset, blendTime];
  * - `mode` switch the game mode (as `ctx.modes.switch`)
  *                [mode, blend, blendTime].
@@ -40,6 +43,7 @@
  * Pure: no I/O.
  */
 import { AUDIO_MAX_LATE_MS_LIMIT } from './content-limits';
+import { MAX_MATERIAL_SLOTS } from './materials';
 import { ID_RE } from './validate';
 import type { ModelErrorV2 } from './errors';
 import { isPlainObject } from './validate';
@@ -66,7 +70,7 @@ export const TIMELINE_LIMITS = Object.freeze({
   params: 16,
 });
 
-export const TIMELINE_TRACK_TYPES = ['camera', 'transform', 'animator', 'audio', 'dialogue', 'effect', 'activation', 'signal', 'fade', 'letterbox', 'wait', 'material', 'environment', 'mode'] as const;
+export const TIMELINE_TRACK_TYPES = ['camera', 'transform', 'animator', 'audio', 'dialogue', 'effect', 'activation', 'signal', 'fade', 'letterbox', 'wait', 'material', 'materialSwap', 'environment', 'mode'] as const;
 export type TimelineTrackType = (typeof TIMELINE_TRACK_TYPES)[number];
 
 /** How a value moves from the previous key to this one (`step`: holds the previous value, then jumps). */
@@ -74,7 +78,7 @@ export const TIMELINE_EASINGS = ['linear', 'step', 'easeIn', 'easeOut', 'easeInO
 export type TimelineEasing = (typeof TIMELINE_EASINGS)[number];
 
 /** Tracks that act on one bound object (`target` is required). */
-export const TIMELINE_TARGET_TRACKS: readonly TimelineTrackType[] = ['transform', 'animator', 'activation', 'material'];
+export const TIMELINE_TARGET_TRACKS: readonly TimelineTrackType[] = ['transform', 'animator', 'activation', 'material', 'materialSwap'];
 
 export type TimelineValue = number | number[] | string;
 
@@ -115,6 +119,8 @@ export interface TimelineKey {
   params?: Record<string, number | number[] | string>;
   // activation
   active?: boolean;
+  // materialSwap: slot (a model's material name, or "*") → materialId; null: the authored material again
+  materials?: Record<string, string | null>;
   // signal
   onSkip?: 'fire' | 'drop';
   // fade
@@ -199,6 +205,7 @@ const TRACK_EXTRA: Record<TimelineTrackType, readonly string[]> = {
   letterbox: ['hold'],
   wait: [],
   material: ['target', 'param', 'material'],
+  materialSwap: ['target'],
   environment: [],
   mode: [],
 };
@@ -215,6 +222,7 @@ const KEY_FIELDS: Record<TimelineTrackType, readonly string[]> = {
   letterbox: ['time', 'value', 'easing'],
   wait: ['time', 'action', 'timeout'],
   material: ['time', 'value', 'easing'],
+  materialSwap: ['time', 'materials'],
   environment: ['time', 'preset', 'blendTime'],
   mode: ['time', 'mode', 'blend', 'blendTime'],
 };
@@ -373,6 +381,18 @@ function validateKey(type: TimelineTrackType, k: unknown, path: string, duration
     case 'material':
       if (!materialValueOk(k['value'])) err(errors, 'field_value', `${path}/value`, 'value is a number, 2–4 numbers or "#rrggbb"', k['value'], 'number | [2-4] | color');
       break;
+    case 'materialSwap': {
+      const m = k['materials'];
+      if (!isPlainObject(m) || Object.keys(m).length < 1 || Object.keys(m).length > MAX_MATERIAL_SLOTS) {
+        err(errors, 'field_value', `${path}/materials`, `materials maps 1–${MAX_MATERIAL_SLOTS} slots to a materialId (or null)`, m, 'object');
+        break;
+      }
+      for (const [slot, id] of Object.entries(m)) {
+        if (!isName(slot, 128)) err(errors, 'field_value', `${path}/materials/${slot}`, 'a slot is a material name (1–128 characters) or "*"', slot, 'name');
+        if (id !== null && !(typeof id === 'string' && ID_RE.test(id))) err(errors, 'id_invalid', `${path}/materials/${slot}`, 'a slot names a materialId or null (the authored material)', id, 'materialId | null');
+      }
+      break;
+    }
     case 'mode':
       re(errors, k['mode'], `${path}/mode`, ID_RE, 'mode', true);
       oneOf(errors, k['blend'], `${path}/blend`, ['cut', 'linear', 'eased'], 'blend');
@@ -517,6 +537,7 @@ export function timelineRefs(list: readonly TimelineAsset[] | undefined): { asse
         if (t.type === 'effect' && k.effect !== undefined) effects.add(k.effect);
         if (t.type === 'dialogue' && k.dialogue !== undefined) dialogues.add(k.dialogue);
         if (t.type === 'environment' && k.preset !== undefined) presets.add(k.preset);
+        if (t.type === 'materialSwap') for (const id of Object.values(k.materials ?? {})) if (typeof id === 'string') materials.add(id);
       }
     }
   }
@@ -526,7 +547,7 @@ export function timelineRefs(list: readonly TimelineAsset[] | undefined): { asse
 
 /**
  * The timelines' references against the project: audio keys name an audio
- * asset, effect keys an effect, material tracks a material. Dialogue
+ * asset, effect keys an effect, material tracks and swap keys a material. Dialogue
  * and environment-preset ids are checked when the project holds those
  * collections — `dialogueIds` / `presetIds` null skip it.
  */
@@ -546,6 +567,7 @@ export function validateTimelineReferences(
           const kind = ctx.assetKind(k.asset);
           if (kind !== 'audio') err(errors, 'reference_missing', `${kp}/asset`, 'asset names an audio asset', k.asset, 'an audio assetId');
         }
+        if (t.type === 'materialSwap') for (const [slot, id] of Object.entries(k.materials ?? {})) if (typeof id === 'string' && !ctx.materialIds.has(id)) err(errors, 'reference_missing', `${kp}/materials/${slot}`, 'a slot names a project material', id, 'a materialId');
         if (t.type === 'effect' && k.effect !== undefined && !ctx.effectIds.has(k.effect)) err(errors, 'reference_missing', `${kp}/effect`, 'effect names a project effect', k.effect, 'an effectId');
         if (t.type === 'dialogue' && k.dialogue !== undefined && ctx.dialogueIds != null && !ctx.dialogueIds.has(k.dialogue)) err(errors, 'reference_missing', `${kp}/dialogue`, 'dialogue names a project dialogue', k.dialogue, 'a dialogue id');
         if (t.type === 'mode' && k.mode !== undefined && !(ctx.modeIds?.has(k.mode) ?? false)) err(errors, 'reference_missing', `${kp}/mode`, 'mode names a game mode of the project (content.modes)', k.mode, 'a modeId');

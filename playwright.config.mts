@@ -99,6 +99,8 @@ export default defineConfig({
         '**/material-custom-lit.e2e.ts',
         // Phase 23.12: material parameters set per object by scripts (the per-object data texture) on WebGPU.
         '**/material-runtime.e2e.ts',
+        // A material swapped while the game runs shows only once loaded, on WebGPU.
+        '**/material-swap.e2e.ts',
         // Phase 23.18: environment preset blends (sky, fog, lights in place) on WebGPU.
         '**/environment-presets.e2e.ts',
         // Phase 25.3: a new blend t every step drops no steps; re-bakes only when the sky changes, on WebGPU.

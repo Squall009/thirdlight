@@ -24,7 +24,7 @@ import { canonicalTimelines, validateTimelines, type TimelineAsset } from '@thir
 import { canonicalEventCues, validateEventCues, type EventCue } from '@thirdlight/project-model';
 import { materialCatalogProblem, type RuntimeMaterialCatalog } from './material-params';
 
-const WRAPPER_FIELDS = new Set(['snapshotId', 'projectId', 'revision', 'scene', 'tags', 'scenes', 'animators', 'prefabs', 'modelBounds', 'blockTypes', 'cellFields', 'rigs', 'materialCatalog', 'uiDocuments', 'modes', 'saveSchema', 'audioDurations', 'timelines', 'eventCues', 'sceneList', 'environmentPresets', 'dialogue']);
+const WRAPPER_FIELDS = new Set(['snapshotId', 'projectId', 'revision', 'scene', 'tags', 'scenes', 'animators', 'prefabs', 'modelBounds', 'blockTypes', 'cellFields', 'rigs', 'materialCatalog', 'materialIds', 'uiDocuments', 'modes', 'saveSchema', 'audioDurations', 'timelines', 'eventCues', 'sceneList', 'environmentPresets', 'dialogue']);
 const SCENE_ID_RE = ID_RE;
 
 /**
@@ -69,6 +69,7 @@ export function validateRuntimeSnapshot(
       blockTypes: readonly BlockType[];
       cellFields: readonly CellField[];
       materialCatalog?: RuntimeMaterialCatalog;
+      materialIds?: readonly string[];
       saveSchema?: SaveSchema;
       uiDocuments: readonly RuntimeUiDocumentRow[];
       dialogue?: RuntimeDialogueData;
@@ -308,6 +309,13 @@ export function validateRuntimeSnapshot(
     if (problem !== null) return { error: { code: 'snapshot_invalid', reason: 'shape', path: '/materialCatalog', message: problem } };
     materialCatalog = (snap as { materialCatalog: RuntimeMaterialCatalog }).materialCatalog;
   }
+  // The optional list of the game's materials (what a material swap may name).
+  let materialIds: readonly string[] | undefined;
+  const rawIds = (snap as { materialIds?: unknown }).materialIds;
+  if (rawIds !== undefined) {
+    if (!Array.isArray(rawIds) || !rawIds.every((x) => typeof x === 'string' && ID_RE.test(x))) return { error: { code: 'snapshot_invalid', reason: 'shape', path: '/materialIds', message: 'materialIds must be an array of material ids' } };
+    materialIds = Object.freeze([...(rawIds as string[])]);
+  }
   // The optional project save schema (ctx.saves).
   let saveSchema: SaveSchema | undefined;
   if ((snap as { saveSchema?: unknown }).saveSchema !== undefined) {
@@ -435,7 +443,7 @@ export function validateRuntimeSnapshot(
     if (starts === 0) return bad('at least one scene must be a start scene');
     scenes = snap.scenes as RuntimeSceneRow[];
   }
-  return { scene, sceneVersion, snapshotId, projectId, revision, tags, scenes, animators, prefabs, modelBounds, audioDurations, blockTypes, cellFields, ...(rigs !== undefined ? { rigs } : {}), ...(materialCatalog !== undefined ? { materialCatalog } : {}), uiDocuments, ...(saveSchema !== undefined ? { saveSchema } : {}), ...(timelines !== undefined ? { timelines } : {}), ...(eventCues !== undefined ? { eventCues } : {}), ...(sceneList !== undefined ? { sceneList } : {}), ...(modes !== undefined ? { modes } : {}), ...(environmentPresets !== undefined ? { environmentPresets } : {}), ...(dialogue !== undefined ? { dialogue } : {}) };
+  return { scene, sceneVersion, snapshotId, projectId, revision, tags, scenes, animators, prefabs, modelBounds, audioDurations, blockTypes, cellFields, ...(rigs !== undefined ? { rigs } : {}), ...(materialCatalog !== undefined ? { materialCatalog } : {}), ...(materialIds !== undefined ? { materialIds } : {}), uiDocuments, ...(saveSchema !== undefined ? { saveSchema } : {}), ...(timelines !== undefined ? { timelines } : {}), ...(eventCues !== undefined ? { eventCues } : {}), ...(sceneList !== undefined ? { sceneList } : {}), ...(modes !== undefined ? { modes } : {}), ...(environmentPresets !== undefined ? { environmentPresets } : {}), ...(dialogue !== undefined ? { dialogue } : {}) };
 }
 
 function clipSceneMessage(errors: readonly (ModelErrorV2 | ModelErrorV3)[]): string {

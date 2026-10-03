@@ -83,6 +83,8 @@ export interface RuntimeSnapshot {
    * values against them; built from the manifest by `materialCatalogOf`).
    */
   materialCatalog?: import('./material-params').RuntimeMaterialCatalog;
+  /** Optional: every project material the game ships (a material swap may name only these). */
+  materialIds?: readonly string[];
   /** Optional: the project save schema (`content.saveSchema`; `ctx.saves`). */
   saveSchema?: import('@thirdlight/project-model').SaveSchema;
   /** Optional: the ids of the environment presets (`environment.presets`; `ctx.environment`). */

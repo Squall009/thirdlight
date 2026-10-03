@@ -4,7 +4,7 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { canonicalTimeline, validateTimeline, type ModelErrorV2, type TimelineAsset } from '@thirdlight/project-model';
+import { canonicalTimeline, timelineRefs, validateTimeline, type ModelErrorV2, type TimelineAsset } from '@thirdlight/project-model';
 
 import type { ActionFrame } from './actions';
 import { dialogueForRuntime } from '@thirdlight/project-model';
@@ -60,6 +60,7 @@ function fakeHost(): { host: TimelineHost; log: string[]; poses: Map<string, Tim
     emitSignal: (n) => void log.push(`signal ${n}`),
     signaled: (n) => signals.has(n),
     setMaterial: (id, p, v) => (materials.set(`${id}.${p}`, v), true),
+    swapMaterials: (id, m) => (id === 'actor' ? (log.push(`swap ${id} ${JSON.stringify(m)}`), null) : 'it wears no materials'),
     switchMode: (m, t) => (log.push(`mode ${m} ${t.blend ?? ''}`), m !== 'nope'),
     warn: (m) => void log.push(`warn ${m}`),
   };
@@ -281,6 +282,30 @@ describe('the system', () => {
     sys.skip(h);
     sys.step(33, frame(33));
     expect(f.log.slice(1)).toEqual(['mode explore cut', 'mode battle cut']);
+  });
+
+  it('material swap keys swap the bound object\'s materials in order; skip applies the remaining ones; a refusal warns once', () => {
+    const f = fakeHost();
+    const tl = canonicalTimeline({ timelineId: 's', name: 'S', duration: 2, slots: [{ name: 'house', entity: 'actor' }, { name: 'post', entity: 'post' }], tracks: [
+      { trackId: 'burn', type: 'materialSwap', target: 'house', keys: [{ time: 0.5, materials: { roof: 'mat-burnt' } }, { time: 1, materials: { '*': 'mat-ash' } }, { time: 1.5, materials: { roof: null } }] },
+      { trackId: 'other', type: 'materialSwap', target: 'post', keys: [{ time: 0.25, materials: { '*': 'mat-ash' } }, { time: 0.75, materials: { '*': 'mat-ash' } }] },
+    ] });
+    const errors: unknown[] = [];
+    validateTimeline(tl, '', errors as never);
+    expect(errors).toEqual([]);
+    const sys = new TimelineSystem([tl], HZ, f.host);
+    const h = sys.play('s');
+    for (let s = 1; s <= 50; s += 1) sys.step(s, frame(s));
+    expect(f.log.filter((l) => l.startsWith('swap'))).toEqual(['swap actor {"roof":"mat-burnt"}']);
+    expect(f.log.filter((l) => l.startsWith('warn'))).toHaveLength(1);
+    sys.skip(h);
+    sys.step(51, frame(51));
+    expect(f.log.filter((l) => l.startsWith('swap')).slice(1)).toEqual(['swap actor {"*":"mat-ash"}', 'swap actor {"roof":null}']);
+    // The data rules: a slot maps to a material id or null; at least one slot.
+    const bad: unknown[] = [];
+    validateTimeline({ ...tl, tracks: [{ trackId: 'x', type: 'materialSwap', target: 'house', keys: [{ time: 0, materials: {} }, { time: 1, materials: { roof: 'Not An Id!' } }] }] }, '', bad as never);
+    expect(bad.map((e) => (e as { path: string }).path)).toEqual(['/tracks/0/keys/0/materials', '/tracks/0/keys/1/materials/roof']);
+    expect(timelineRefs([tl]).materials).toEqual(['mat-ash', 'mat-burnt']);
   });
 
   it('environment keys switch presets through the port; skip applies them at once', () => {
