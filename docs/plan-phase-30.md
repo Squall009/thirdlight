@@ -1,101 +1,226 @@
-# Phase 30 — Documentation and AI onboarding
+# Phase 30 — Level building: blocks completed, terrain, and the handoff
 
-Goal: a person can learn Thirdlight and build a game from the documentation
-alone, in the editor or through the API. An AI agent in a game's folder learns
-what the running engine offers from the engine itself, not from reading the
-engine repo. Phase 30 starts after phase 29.
+Goal: a game builds its whole level in the engine. Block layers carry the
+detailed area the player moves through (exteriors, dungeons, interiors) with
+live blocks, edge pieces and auto-connecting kits. Around it, a separate,
+fast, chunked terrain reaches the horizon, so a level feels large at little
+cost. One rule system paints materials and places detail on both, baked
+offline so the runtime only reads results. Splines cut roads, paths and
+rivers into the ground. All of it holds 60 fps at 1080p on an integrated GPU.
 
-## 1. Where things stand (checked 2026-09-28)
+Read `docs/roadmap.md` (principles 1, 1b and 7) first. Phase 30 starts after
+phase 29 (scalable lighting): it uses 29's probes, cached shadows, LOD
+settings, density falloff and static batching. Requests: Skyforge Tactics
+E81, E82, and the leftovers of E8, E37, E39, E40, E54 and E61
+(`~/projects/skyforge-tactics/docs/engine-gaps.md`; mapping in §7), and the
+owner. The engine never reads the game repo; the ids only trace a request
+back. Nothing here is fitted to one game: the block-area size, cell size and
+view distance are each game's own data.
 
-- **Editor reach.** The editor sends all 62 command ops, so no op is API-only.
-  The remaining gaps are elsewhere:
-  - The API has no ops to delete prefabs, behaviors or assets. Phase 25
-    covers assets and prefabs (25.7c); behaviors are covered in 30.1.
-  - No panel shows or revokes script trust.
-  - No one has built a level, prefab or material graph by hand yet. Only
-    the Playwright tests have driven those panels.
-- **User documentation.** `docs/deployment.md` is 3,473 lines in one file.
-  Sections were appended phase by phase, and it mixes server setup, feature
-  references and change history. It says what each feature is, not how to
-  build a game or which way is recommended.
-- **How an AI learns the engine today:**
-  - MCP tool descriptions. The `tl_command` description alone is about
-    40 KB of hand-written text, loaded into every session and prone to
-    drifting from the code.
-  - `tl_content_query target="game" includeDescriptors`, about 120 KB.
-  - Game agents reading the engine repo's source and `docs/STATUS.md`
-    directly. This leaks the engine/game boundary and only works on this
-    machine.
+## 1. Owner decisions (2026-10-02 / 2026-10-03)
 
-  The MCP server sends no instructions, and it has no documentation lookup
-  or resources.
+- **Terrain is its own component, used closely with blocks.** Block layers
+  stay the tool for authored structure. Terrain is a heightfield for
+  landscape. A typical scene puts a block area where the player moves on top
+  of terrain that reaches the horizon.
+- **Rules and scatter apply to both.** Material rules and detail placement
+  read surface samples, not "terrain" or "blocks", so the same rules paint and
+  dress block layers and terrain.
+- **Rules are baked offline.** Rules are evaluated in a worker or a compute
+  pass when the inputs change, into weight maps and instance sets. The runtime
+  never evaluates a rule per frame.
+- **No triplanar by default.** It triples texture reads. Steep ground uses
+  cliff layers and scattered rock meshes; biplanar is an opt-in per layer.
+- **Splines are a must:** roads, paths, rivers, and the other modern tools
+  (edit layers, stamps, erosion).
+- **Floating origin is out of this phase.** None of the planned games is
+  large enough to need it.
+- **Performance comes first in every item, with soft targets** (roadmap
+  principle 7): each item is measured on this host's Iris Xe at 1080p and
+  records its numbers; a missed target becomes a follow-up note, never a
+  reason to throw away an item.
+- **Target:** 60 fps at 1080p on an integrated GPU (as phase 29).
 
-## 2. Owner decisions (2026-09-28)
+## 2. Where things stand (checked at `62999a04`, 2026-10-03)
 
-- The manual has one source. People read it as pages. Agents read the same
-  pages through MCP and through a short skill that points into them.
-- **MCP answers "what exists".** It always matches the running build. The
-  reference comes from the code, so it can't drift.
-- **The skill answers "how to work".** It holds the workflow, the
-  recommended patterns and the pitfalls. It lists no ops or fields; for
-  those it points at MCP. The engine ships it, and the project tool installs
-  it into each game folder.
-- **The dogfood project is the acceptance test.** A small game is built by
-  hand in the editor, following only the manual. Every place it gets stuck
-  is a documentation gap or an editor gap, and is fixed or listed.
+- **Block layers** (`project-model/src/block-layers.ts`, `block-grid.ts`,
+  `block-mesh.ts`; editor `viewport/block-editor.ts`, `session/block-brush.ts`):
+  16 × 16-column chunks in XZ, run-length columns with a per-chunk palette,
+  one JSON file per chunk; types with shapes, ≤ 8 weighted variants (model,
+  prefab look or colour), footprints ≤ 8 cells, rotations, materials,
+  metadata; corner heights on single-cell `full` tops (0–4 cells, 1/64
+  steps); 14 edit kinds through one `editBlocks` command; per-chunk merged
+  meshes with hidden-face removal, chunk LOD from the models' own levels,
+  per-chunk lightmaps; per-chunk trimesh colliders.
+- **Block limits that are sample-sized caps:** `layerCells` 262,144 and
+  `sceneCells` 1,048,576 (`block-layers.ts:201-222`); Skyforge measured one
+  layer at about 200 × 200 m of hills (E37).
+- **Block undo** stores the layer's whole `BlockLayerData` before and after
+  (`commands/src/types.ts:567`), so its cost grows with the layer, not the
+  edit. Exports write scenes as pretty-printed JSON with blocks inline
+  (`exporter/src/content-closure.ts:815-823`); Skyforge's content.json is 6 MB
+  for one village.
+- **A prefab variant** contributes only its model's geometry to the merged
+  mesh; there are no live entities per cell, no edge pieces, and variants are
+  random by weight only (E81).
+- **Paint** is one 17 × 17 lattice per chunk (`block-paint.ts`), sampled at
+  every vertex, walls included: walls show their column's top paint, with no
+  wall default and no paint of their own (E40).
+- **No terrain, no heightfield collider** (Rapier is `0.20.0`; the JS API has
+  `ColliderDesc.heightfield(nrows, ncols, heights, scale)` with no hole
+  flags; `0.21.0` is out), **no mesh simplifier** (`asset-pipeline/src/meshopt.ts`
+  only decodes), **no rule placement** (scatter is a uniform rectangle or the
+  instance brush), **no splines**, **no world streaming** (phase 26 streams
+  assets, textures and whole scenes, not world cells).
+- **What exists to build on:** texture arrays, `heightBlend`, `triplanar`,
+  `noise`, `worldUV`, `cameraDistance` nodes; KTX2 with mip streaming
+  (`three-adapter/src/texture-streaming.ts`); the instance brush's
+  deterministic hashed cells (`project-model/src/instance-brush.ts`); the
+  sculpt falloff (`block-sculpt.ts`); attribute-instanced chunks with
+  per-chunk LOD (`three-adapter/src/instancing.ts`); the refcounted resource
+  manager; batched static collider add/remove (`runtime/src/grid.ts:446-480`);
+  scene fog (linear/exp2, no height) and fog volumes with `heightFalloff`
+  (`descriptor-components.ts:687`); GPU compute (effects).
+- **After 28b:** square cells, world-aligned block UVs in metres, per-layer
+  material settings, KTX2-built arrays, bulk meshing in a worker.
+- **After 29:** probe grids over static bounds, cached static shadows over a
+  fixed extent, light layers, LOD bias and hysteresis, instance density
+  falloff, static batching.
 
-## 3. Items
+## 3. How other engines do it (from their documentation; 30.0 re-reads the current pages before design)
+
+| Topic | Unity | Unreal | Godot 4 | Thirdlight after phase 30 |
+|---|---|---|---|---|
+| Terrain data | Terrain: heightmap + splat (alpha) maps per terrain tile, terrain layers, holes [1] | Landscape: components and sections, heightmap and weight maps, edit layers, holes [2] | None built in; the Terrain3D addon uses clipmaps over region textures [3] | Heightfield tiles (R16 heights, weight maps, holes) stored as binary blobs |
+| Terrain LOD | Quadtree patches with pixel-error LOD | Per-component LOD with morphing | Clipmap (Terrain3D) | CDLOD: quadtree, one shared grid mesh, vertex morphing [4] |
+| Materials | Terrain layers, up to 4 per pass | Landscape layer blend, runtime virtual texturing | Terrain3D: texture arrays, auto-shading by slope | Texture arrays, height blend, rule-baked weights, macro texture far away |
+| Detail | Trees and detail meshes painted, density settings | Procedural foliage spawners; grass by layer | MultiMesh | Rule-baked instance sets plus GPU ground cover by distance |
+| Splines | Splines package; terrain tools via add-ons | Landscape splines deform and paint, place meshes | Path3D, CSG | One spline component: carve, paint, clear, mesh |
+| Streaming | Manual (tiles as scenes) | World Partition cells | Manual | Tile rings around the camera |
+
+[1] https://docs.unity3d.com/Manual/script-Terrain.html
+[2] https://dev.epicgames.com/documentation/en-us/unreal-engine/landscape-outdoor-terrain-in-unreal-engine
+[3] https://github.com/TokisanGames/Terrain3D
+[4] F. Strugar, "Continuous Distance-Dependent Level of Detail for Rendering Heightmaps" (2010), https://github.com/fstrugar/CDLOD
+
+## 4. Items
+
+Three parts in order: **A** completes block layers (the handoff depends on
+them), **B** builds terrain, **C** joins the two. Within each part the order
+is data and commands → runtime and adapter → editor → export → tests. A file
+over 2,000 lines is split before it grows. Format changes take one schema
+version with an upgrade on open. Every item records its numbers against the
+soft targets (§5) in its progress row. Every editor change has a Playwright
+test against a real backend; drawing changes check pixels on both renderers.
+
+### Part A — blocks completed
 
 | Item | What |
 |---|---|
-| 30.0 | This plan, and its rows in `docs/STATUS.md` and `docs/roadmap.md`. |
-| 30.1 | **Editor reach, the rest.**<br>• A `deleteBehavior` op, refused while anything references the behavior.<br>• A trust panel that lists acknowledged sources and can revoke them.<br>• A test that fails when a new op has no editor sender, and names it. It reads the op list from the validator and the editor's `client.command` call sites. |
-| 30.2 | **Generated reference** (`docs/manual/reference/`, built by a tool and kept current by a test that regenerates it and diffs):<br>• components and their fields: type, unit, range, default, tooltip and Scene handle, from the descriptors<br>• the content documents (shell, eventCues, save schema, block types), with the descriptors extended where they are missing today<br>• every command op with its request shape, from the validator<br>• the script API: `ctx.*` with its doc comments, reusing `tools/gen-behavior-api.mjs`<br>• visual-script and material-graph nodes, from their catalogues<br>• engine limits and defaults |
-| 30.3 | **Manual: getting started and concepts** (`docs/manual/`):<br>• install, the first project from the starter template, the first Play, the first export<br>• concepts: projects and scenes, objects and components, prefabs, assets, scripts and the step model (intents, determinism, replays), the game shell, 2D vs 3D |
-| 30.4 | **Manual: how-to guides**, one per task. Each guide gives the editor path and the API path, and says which is recommended and why:<br>• build a level with block layers<br>• dress a scene with instance sets<br>• make and spawn a prefab<br>• write a script and a shared library<br>• visual scripts<br>• material graphs<br>• effects<br>• the animator<br>• cameras<br>• a HUD and menus with UI documents<br>• dialogue<br>• a cutscene with a timeline<br>• game modes<br>• saves<br>• input and rebinding<br>• audio<br>• lighting and baking<br>• play-testing with the headless runner (25.17)<br>• export<br>Also a "which tool for which job" page (block layers vs instance sets vs entities; scripts vs visual scripts) and a limits page. |
-| 30.5 | **`deployment.md` goes back to running the server**: requirements, service, proxy, token, backup, the MCP connection. Feature sections move to the manual. Phase notes and change history stay in the plans. |
-| 30.6 | **MCP onboarding:**<br>• server instructions: start with the getting-started topic, and look up an op or component before using it<br>• a `tl_docs {topic?}` tool (or MCP resources) that returns the manual and the generated reference from the running build<br>• tool descriptions shortened to a summary plus a pointer into `tl_docs`<br>• `tl_inspect target="engine"`: version and build (from 25.18), so an agent knows which manual it is reading |
-| 30.7 | **The skill:**<br>• `skills/thirdlight/SKILL.md` in the engine repo, stamped with the engine version.<br>• Its content: the workflow (build scripts vs editor), the recommended patterns, game rules living in project scripts (principle 1b), play-testing, and common traps.<br>• `tools/project.mjs` installs or updates it into `<game>/.claude/skills/thirdlight/`.<br>• `check` warns when the installed copy is older than the pinned engine.<br>• The starter template ships with it. |
-| 30.8 | **Dogfood.** A new project from the starter template is built **by hand in the editor, following only the manual**: a small 3D level made with block layers, a prefab, a material graph, a script with a shared library, a HUD, a title screen, a save and an export. No API calls, and no reading of engine source. Every stuck point is logged in the decision log and fixed in the manual or the editor, or listed as a follow-up. The owner does this pass, or watches it. |
+| 30.0 | This plan and its rows in `docs/STATUS.md` and `docs/roadmap.md`. The three.js release check (a patch is taken here after reading its notes; a minor is its own item). Rapier `0.21` release notes read for heightfield changes (holes, flags) before 30.11 picks a collision shape. Re-read §3's sources. |
+| 30.1 | **Measure first.** Two neutral perf classes in `tools/perf`, 1080p uncapped, GPU pass timings, p50/p95/p99, both renderers, on the Iris Xe (and the owner's Ryzen APU laptop recorded): (a) **block area**: a ~100 × 100 m block layer with props, foliage instances and a few local lights; (b) **landscape**: the same block area on terrain reaching a few kilometres, with scatter and fog (filled in once 30.11 lands). The before numbers for (a) go in §6. The soft targets of §5 are checked against these classes. |
+| 30.2 | **Groundwork.**<br>• **Binary chunk data:** block chunks (and later terrain tiles) are stored and exported as compact binary (typed arrays, zstd), not pretty-printed JSON; the editor still reads and diffs them through `queryBlocks`.<br>• **Undo per chunk:** the `editBlocks` inverse stores only the chunks it changed.<br>• **No cell caps:** `layerCells` and `sceneCells` go (no per-project count caps). What bounds a layer is memory: a block-memory figure in diagnostics and the streaming budget of 30.16. Per-command bounds (`BLOCK_EDIT_MAX_CELLS`, the 64 KiB command cap) stay; they protect a single request.<br>• **Mesh simplifier:** the asset pipeline gains meshoptimizer's simplifier (pinned), so generated meshes (spline meshes, HLOD, impostor proxies) and models without authored levels can get LODs. |
+| 30.3 | **Live blocks** (E81.1). A block type can spawn its prefab as a real entity per cell (scripts, movers, doors, triggers, lights, animators, sounds). The layer places, removes and pools these entities with the cell, saves their state with the cell (the save diff of E8), and hands their static parts to the chunk mesh so they still merge. Spawned entities get runtime ids and are not written into the scene file, so a layer's live blocks never use up the scene's id space (E37). Runtime `ctx.grid` set/clear of such a cell spawns or despawns the entity in the same step. |
+| 30.4 | **Edge pieces** (E81.2). A block type can be `placement: 'edge'`: it sits on the edge between two cells (walls, doors, windows, fences, railings), stored per cell edge in the chunk. Each edge piece declares whether it blocks passage; an open/closed state (a live door) can change it at run time. `ctx.grid` reads an edge's piece and blocked state, so grid movement and pathfinding respect walls. Editor: an edge brush that snaps to the nearest cell edge; line and rectangle draw edges along their outline. |
+| 30.5 | **Auto-connect** (E81.3, E8 autotiling). A block type (cell or edge) can carry connection rules: which neighbours count as connected, and which variant (straight, corner, T, cross, end, cap, base) and rotation each neighbour mask picks. Painting "wall" resolves to the right pieces; a neighbour change re-resolves only the affected cells. Resolution is a pure function of the cell and its neighbours, so meshing stays deterministic and replays hold. |
+| 30.6 | **Side-face paint and wetness** (E81.5, E40 leftovers). Paint gets wall points of its own (0.5 m points on exposed wall faces, stored with the chunk), so walls carry dirt, moss and soot up their faces and blend two wall materials across block borders. Unpainted walls show slot 1, tops slot 0. The top edge's paint wraps over the lip onto the wall's top row and fades one row down. Wetness gains normal flattening and pooling by height, plus a scene-wide wetness parameter for rain (E17's environment). Paint survives height edits, as now. |
+| 30.7 | **Interiors** (E81.4). Regions or height planes can be marked as cut-away: roofs and upper floors above the camera's target, or around a room the player is in, are hidden (with a fade) when the camera or player is inside or below them. A cut-away affects drawing only (collision and queries unchanged). Interior lighting per room uses phase 29's probes and light layers. |
+| 30.8 | **Kit swaps** (E81.6). A block layer, or a region of it, can swap its kit: a map from block types (or looks) to other types, applied without changing the layout, in the editor and at run time (on top of 28.7's runtime material swap). A dungeon and its burnt or ruined state share one layout. |
+| 30.9 | **Block extras** (E8 should-haves; each dropped if 30.1 shows no need): Problems-panel checks (floating blocks, regions with no cells, walkable cells not reachable from a named region); per-vertex block ambient occlusion as a cheap alternative to baking; generic grid-graph helpers (neighbours with a height-step limit, an A* over cells and edges that respects edge pieces). |
+
+### Part B — terrain
+
+| Item | What |
+|---|---|
+| 30.10 | **Terrain data and editing.**<br>• A `terrain` component: a grid of tiles of 2ⁿ+1 samples, a sample spacing in metres, a height range. Each tile stores R16 heights, layer weight maps (top-4 layer index + weight per texel, so the number of layers isn't capped by channels), a hole mask, and a separate painted-override map so rules can be re-baked without losing hand paint. Tiles are content-addressed binary blobs (like instance buffers); undo points back at the old tile digests.<br>• One `editTerrain` command: sculpt (raise, lower, smooth, flatten, ramp, noise), paint, holes, using the existing brush cores and falloff, deterministic dabs, one undo per stroke.<br>• 16-bit PNG and RAW heightmap import; a converter from a block layer whose surface is corner heights to terrain tiles.<br>• Editor: a Terrain tool set beside the Blocks tools, stroke previews on the GPU, the 28b-style local preview then one commit. |
+| 30.11 | **Rendering and collision.**<br>• **CDLOD:** a quadtree over the tiles, one shared grid mesh drawn instanced per LOD level, heights read in the vertex shader from a height texture array, morphing between levels so there are no seams or pops; normals from the heights (baked per tile for far levels). A sculpt re-uploads a texture region; nothing is re-meshed on the CPU.<br>• Draw calls about one per LOD level per material; frustum culling per node.<br>• **Collision:** a Rapier heightfield per tile in the collision ring (30.16), added and removed through the batched static collider path. Tiles with holes use trimesh patches unless 30.0 finds heightfield hole support in Rapier. Terrain collision is optional per terrain (scenery-only terrain needs none). |
+| 30.12 | **One rule system for blocks and terrain.**<br>• A surface model both sources provide: height, normal and slope, curvature or cavity, current layer weights, and for blocks the block type, top or wall, and cell metadata.<br>• **Material rules** per layer: height range, slope range, cavity, noise mask, "where layer X is below a value", top or wall, each with a smooth falloff; evaluated offline into terrain weight maps and block paint, with painted overrides kept on top.<br>• **No triplanar by default:** steep layers use world-XZ or side projection; biplanar (2 samples) is an opt-in per layer, near tiles only, with its cost shown on the material.<br>• **Macro texture:** past a set distance, terrain samples one pre-baked albedo and normal per tile instead of the layer stack. |
+| 30.13 | **Rule scatter on both.**<br>• **Stored** (trees, rocks, anything with collision or identity): rules (layer weight, slope, height, noise, Poisson spacing, exclusion by region or spline) bake instance sets per tile or chunk, deterministic from a seed; the existing brush edits the result. Copies become addressable (an index scripts can use) and can carry per-copy colliders from the model's `_COL` (28.10's compounds) (E37 part 3).<br>• **Runtime ground cover** (grass, pebbles, small flowers): generated per nearby tile by a compute pass from the same rules, never stored, density falling off by distance (29.6), no colliders; a WebGL 2 path generates on the CPU in a worker.<br>• **Far trees:** octahedral impostors baked at import beyond a set distance, and optional merged HLOD per tile for distant rings (30.2's simplifier). |
+| 30.14 | **Splines.** One generic `spline` component (points, tangents, per-point width and roll), editable with Scene handles, readable by scripts (later reused for camera rails and movers). A spline can:<br>• carve or flatten terrain along its width with a falloff (block layers are authored and never changed by a spline; a spline entering a block area stops carving at its border);<br>• paint a material layer along it;<br>• clear scatter in a band;<br>• generate a mesh along it from a profile or repeated kit pieces (road surfaces, fences, walls), with LODs and colliders;<br>• for rivers, a water surface with a flow map along the spline and a foam mask from its banks (two-phase flow, E61), plus a **scene-depth material input** for soft shorelines (E54; brought forward from the decals phase, which reuses it). |
+| 30.15 | **Edit layers, stamps and erosion.** A terrain's heights are a stack of layers combined offline into the final heights: hand sculpt (base), stamps (heightmap brushes with rotation and scale), splines (30.14), erosion (hydraulic and thermal, run in a worker or compute pass on demand). Moving a spline recomputes its layer without destroying sculpting. The runtime only ever sees the combined heights. |
+| 30.16 | **Streaming.** Terrain tiles and block-layer chunks load and unload in rings around the camera (render, collision and scatter rings at their own radii, with hysteresis), through phase 26's resource manager and under a memory budget (a project setting like `texture_budget_mb`, default from 30.1's measurement). Decoding and scatter generation run off the main thread; a tile appears at a coarse level first. No floating origin. |
+
+### Part C — the handoff
+
+| Item | What |
+|---|---|
+| 30.17 | **Blocks on terrain** (E82.1–E82.4).<br>• The terrain's edge follows the block layer's border corner heights; under the block footprint the terrain is flattened to the layer or cut away (hole mask), so there is no step, crack, z-fighting or hidden geometry.<br>• One material across the seam: both sides use the same material layers, world UVs in metres (28b) and paint that blends across the border.<br>• One lighting across the seam: phase 29's probes cover the block area; far terrain gets sparser probes and baked per-tile horizon and AO terms; cached shadows cover the near area.<br>• Terrain can be scenery only: simple collision or none, no grid; gameplay queries stay on the block layer. |
+| 30.18 | **One surface query** (E39, E40 should-haves). `ctx.surface` (and a backend query for tools) returns height, normal, slope and material layer weights at a world XZ point, from whichever block layer or terrain is there, for footsteps, effects and placement tools. `ctx.grid` keeps its cell queries. |
+| 30.19 | **Height and distance fog** (E82.6). Exponential height fog (density, height falloff, colour, start distance, optional sun inscatter) as part of the scene look, blended like the other environment settings, so fog hides LOD steps and the horizon. Replaces the need for a separate vista ring: the far distance is terrain at its coarsest level under fog. |
+| 30.20 | **Acceptance.** 30.1's classes after the phase, split in §6; each item's contribution shown by switching it off. The limits and settings in `docs/deployment.md` (the manual moves them in phase 31). Each request's acceptance as a test at its boundary. |
 
 **Done when:**
-- The reference regenerates with no diff, and the op-reach test passes.
-- Every how-to guide has been followed once, start to finish, on the
-  starter template.
-- An agent in a fresh game folder builds and play-tests a small scene using
-  only `tl_docs` and the installed skill, without reading any engine repo
-  file.
-- The dogfood project is done, with its findings resolved or listed.
+- A block area with live doors, edge walls and auto-connected kits stands on
+  terrain that reaches a few kilometres, with rule-painted materials,
+  rule-placed trees and ground cover on both, a spline road and a river, and
+  fog at the horizon, in Play and the export, on both renderers.
+- The seam between blocks and terrain shows no step, crack or change in
+  material or lighting (pixels; owner look pending).
+- 30.1's classes are measured after the phase on the Iris Xe and recorded
+  against §5's targets, with the split saying where any miss comes from.
 - `tools/gate.sh full` is green.
 
-## 4. Progress
+## 5. Soft performance targets
+
+Measured at 1920 × 1080 uncapped on this host's Iris Xe in 30.1's classes,
+WebGPU, WebGL 2 recorded. They guide design; a miss is recorded with its
+cause and a follow-up, never a reason to throw an item away (owner,
+2026-10-03).
+
+| Measure | Target |
+|---|---|
+| Whole frame (landscape class) | p95 ≤ 16.7 ms GPU and CPU |
+| Terrain GPU time | ≤ 2.0 ms |
+| Scatter and ground cover GPU time | ≤ 3.0 ms |
+| Terrain and scatter draw calls | ≤ 60 |
+| Main-thread work for terrain, scatter and streaming | ≤ 2 ms per frame |
+| Frames over 16.7 ms while streaming, re-meshing or re-baking | none in a 60 s flight |
+| Far landscape cost | about the vista ring it replaces |
+
+## 6. Progress and measurements
 
 | Item | Status |
 |---|---|
-| 30.0 | done 2026-09-28 |
-| 30.1–30.8 | — |
+| 30.0 | done 2026-10-03 (plan only; the release checks run when the phase starts) |
+| 30.1–30.20 | — |
 
-## 5. Decision log
+(30.1's before numbers and 30.20's after numbers.)
 
-- 2026-09-28: the skill carries no op or field lists. Only the running
-  engine's MCP answers "what exists", so a game folder pinned to an older or
-  newer engine never reads a stale catalogue.
-- 2026-09-28: documentation comes after phase 25 (owner). Phase 25 items
-  still update `deployment.md` as they land. 29.5 then moves those sections
-  into the manual.
-- 2026-09-28: this plan was phase 26; it became phase 27 when the owner put
-  asset scale and streaming (`docs/plan-phase-26.md`) ahead of it, so the
-  manual documents the engine without per-project asset caps. The limits page
-  (29.4) describes the per-file sizes and runtime memory budgets phase 26
-  leaves.
-- 2026-09-29: renumbered again, 27 → 28: scalable lighting (Skyforge E45,
-  owner) is phase 27, so the manual also describes the lighting after it.
-- 2026-09-30: renumbered again, 28 → 29: the editor layout (owner) is phase
-  27 and lighting 28, so the manual describes the new editor layout and the
-  lighting after both.
-- 2026-10-02: renumbered again, 29 → 30: the second batch of game requests
-  (`docs/plan-phase-28.md`, owner) is phase 28 and lighting 29. The manual
-  documents keep-loaded objects, `ctx.scenes.reload` and the game-built new
-  game and restart (no engine run restart), and lists the deprecated
-  `restartLevel` / `newGame` actions only in the migration notes. 30.1 also
-  shows a model's triangles per LOD in the Inspector (Skyforge E18).
+## 7. Decision log
+
+- 2026-10-03: planned with the owner. Terrain takes phase 30; documentation
+  moves to 31, decals to 32, occlusion culling to 33. Immediate block and
+  texture fixes are phase 28b (`docs/plan-phase-28b.md`).
+- 2026-10-03: terrain is a heightfield component, not more block cells.
+  Corner heights on cells suit level building but not landscapes: cell caps,
+  4-cell slopes, JSON chunks, whole-layer undo and CPU meshing per chunk don't
+  scale to kilometres. A block layer made only of corner heights can be
+  converted (30.10).
+- 2026-10-03: CDLOD over geometry clipmaps. Clipmaps draw more simply, but
+  CDLOD's quadtree maps directly onto streamed tiles and needs no CPU meshing.
+- 2026-10-03: rules are baked, not evaluated in the shader. Per-pixel rules
+  cost ALU every frame and are hard to override by hand; baked weights cost
+  one texture read and keep painted overrides.
+- 2026-10-03: floating origin, virtual texturing and Cycles bakes for
+  terrain are left for later; none is needed by a planned game.
+- 2026-10-03: Skyforge's requests mapped (the engine never reads the game
+  repo; the ids only trace them back):
+
+| Request | Where |
+|---|---|
+| E79, E80, E40 normal check and per-layer settings, D52 | 28b |
+| E81.1 live blocks | 30.3 |
+| E81.2 edge pieces | 30.4 |
+| E81.3 auto-connect, E8 autotiling | 30.5 |
+| E81.4 interiors | 30.7 (lighting from 29) |
+| E81.5 side-face paint, E40 wall default, lip wrap, wetness | 30.6 |
+| E81.6 kit swaps | 30.8 |
+| E8 should-haves (Problems checks, block AO, grid graph) | 30.9 |
+| E37 cell caps, block streaming, addressable instances | 30.2, 30.16, 30.13 |
+| E39 surface queries, E40 weights at a point | 30.18 |
+| E40 auto-paint rules | 30.12 |
+| E61 river flow and foam, E54 scene depth | 30.14 |
+| E82.1–E82.4 heights, material, lighting, gameplay bounds | 30.17 |
+| E82.5 foliage across both | 30.13 |
+| E82.6 LOD and fog | 30.11, 30.19 |
+| E82.7 static batching, E82.8 probes | 29.10, 29.5 |

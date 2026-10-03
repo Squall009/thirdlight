@@ -43,17 +43,18 @@ be traced back to the game that raised it.
 |---|---|
 | E46–E52, E55 | Done in phase 27 (27.1–27.5, 27.18, 27.19). Skyforge's doc still lists some as open; Skyforge re-checks them, and can drop `physics: 'run'` (E51). |
 | E62 | Skyforge's own builder, resolved there. |
-| E61 (river flow on `water`) | Skyforge built a river graph; a flow-map option on `water` waits for a request from a second game. |
+| E61 (river flow on `water`) | Phase 30 (30.14, river splines; owner 2026-10-03, rivers are an engine tool). |
 | E63 part 2 | Done by 27.7 (extract textures). |
-| E63 part 3 (`specular` on the graph `pbr` output) | Phase 31 (materials). |
-| E54 (scene depth as a material input) | Phase 31, with projected decals. |
+| E63 part 3 (`specular` on the graph `pbr` output) | Phase 32 (materials). |
+| E54 (scene depth as a material input) | Phase 30 (30.14, river shorelines), reused by projected decals in phase 32. |
 | E43, E45, E53 | Phase 29 (29.7, the whole phase, 29.6). |
 | E70 (sky rotation), E71 (project quality levels) | Phase 29 (29.11, 29.8). |
-| E18 (triangles per LOD in the Inspector) | Phase 30 (30.1). |
+| E18 (triangles per LOD in the Inspector) | Phase 31 (31.1). |
 | Sprout question 1 (static kit pieces) | Instancing at 4+ copies exists; static batching is 29.10. |
 | Sprout question 2 (movers on polygon colliders) | They carry the player (`docs/deployment.md`). Sideways push is unverified. |
 | Sprout's unfiled notes: `modes.switch` / `camera.activate` in the transform phase, a mover hook for a door-grind sound | Not taken until Sprout files them. |
-| E21, E37, E40 leftovers | Not requested again; they stay on the list for a later batch. |
+| E21 | Not requested again; it stays on the list for a later batch. |
+| E37, E40 leftovers | Phases 28b and 30 (2026-10-03). |
 
 ## 3. Scene model (item 28.4)
 

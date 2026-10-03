@@ -5,8 +5,8 @@ holds 60 fps at 1080p on an integrated GPU. Indirect light comes from probes
 baked from the scene's static objects and lights every 3D object; static
 shadows are rendered once and cached; only moving objects cast shadows each
 frame. The design follows Unity HDRP, Unity's probe volumes and Unreal (§3).
-Read `docs/roadmap.md` (principles 1 and 1b) first. Phase 29 starts after
-phase 28 (the second batch of game requests). Requests: Skyforge Tactics E45 and E43 (effect lights;
+Read `docs/roadmap.md` (principles 1, 1b and 7) first. Phase 29 starts after
+phase 28b (immediate block and texture fixes, after phase 28's second batch of game requests). Requests: Skyforge Tactics E45 and E43 (effect lights;
 `~/projects/skyforge-tactics/docs/engine-gaps.md`), and the owner.
 
 ## 1. Owner decisions (2026-09-29)
@@ -222,3 +222,9 @@ half is 29.4, 29.9 and 29.10.
   29.8, sky rotation (E70) as 29.11, acceptance moved to 29.12. E72's frame
   time and Sprout's TL-REQ-25 (a fixed effect-light pool) moved earlier, to
   28.11 and 28.3.
+- 2026-10-03: phase 28b (immediate block and texture fixes) goes between 28
+  and 29, and level building with terrain is phase 30 (owner). Terrain uses
+  this phase's probes, cached shadows, LOD settings, density falloff and
+  static batching; its far tiles need sparser probes and baked horizon terms
+  rather than 29.5's 2 m grid, which 30.17 adds. Targets are soft from now on
+  (roadmap principle 7).
