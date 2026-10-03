@@ -19,10 +19,14 @@ import {
   MAX_SHAPE_VALUE,
   MIN_POLYGON_AREA,
 } from './constants';
-import type { RapierColliderShape } from './types';
+import type { ColliderPart2D, RapierColliderPrimitive, RapierColliderShape } from './types';
 
 export type ShapeValidation =
   | { ok: true; shape: RapierColliderShape }
+  | { ok: false; detail: string };
+
+type PrimitiveValidation =
+  | { ok: true; shape: RapierColliderPrimitive }
   | { ok: false; detail: string };
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
@@ -33,7 +37,31 @@ function finiteInRange(value: unknown, absMax: number): value is number {
   return typeof value === 'number' && Number.isFinite(value) && Math.abs(value) <= absMax;
 }
 
+/**
+ * A box or polygon, or a compound of at least one placed box or polygon
+ * (finite `x`, `y` and `angle` each, in the body's frame).
+ */
 export function validateColliderShape(value: unknown): ShapeValidation {
+  if (isPlainObject(value) && value['type'] === 'compound') {
+    for (const key of Object.keys(value)) if (key !== 'type' && key !== 'parts') return { ok: false, detail: `compound shape has an unexpected field '${key}'` };
+    const parts = value['parts'];
+    if (!Array.isArray(parts) || parts.length === 0) return { ok: false, detail: 'a compound shape has at least one part' };
+    const out: ColliderPart2D[] = [];
+    for (let i = 0; i < parts.length; i += 1) {
+      const part = parts[i] as unknown;
+      if (!isPlainObject(part)) return { ok: false, detail: `compound part ${i} must be an object` };
+      const { x, y, angle } = part;
+      if (!finiteInRange(x, MAX_SHAPE_VALUE) || !finiteInRange(y, MAX_SHAPE_VALUE) || !finiteInRange(angle, MAX_SHAPE_VALUE)) return { ok: false, detail: `compound part ${i}: x, y and angle must be finite` };
+      const shape = validatePrimitive(part['shape']);
+      if (!shape.ok) return { ok: false, detail: `compound part ${i}: ${shape.detail}` };
+      out.push({ shape: shape.shape, x, y, angle });
+    }
+    return { ok: true, shape: { type: 'compound', parts: out } };
+  }
+  return validatePrimitive(value);
+}
+
+function validatePrimitive(value: unknown): PrimitiveValidation {
   if (!isPlainObject(value)) return { ok: false, detail: 'shape must be an object' };
   const type = value['type'];
   if (type === 'box') {
@@ -121,11 +149,11 @@ export function validateColliderShape(value: unknown): ShapeValidation {
     }
     return { ok: true, shape: { type: 'polygon', vertices: pts } };
   }
-  return { ok: false, detail: 'collider shape type must be "box" or "polygon"' };
+  return { ok: false, detail: 'collider shape type must be "box", "polygon" or "compound"' };
 }
 
 /** Row-major `Float32Array` vertex buffer for `ColliderDesc.convexHull`. */
-export function polygonVertexBuffer(shape: RapierColliderShape): Float32Array | null {
+export function polygonVertexBuffer(shape: RapierColliderPrimitive): Float32Array | null {
   if (shape.type !== 'polygon') return null;
   const out = new Float32Array(shape.vertices.length * 2);
   for (let i = 0; i < shape.vertices.length; i += 1) {

@@ -1,4 +1,7 @@
 /**
+ * The host's parts of the commands that read project files: an
+ * instance-brush stroke, and a collider made from a model.
+ *
  * The host's part of an instance-brush stroke (`paintInstances`): read the
  * set's buffer, plan the stroke against the scene (the command package's
  * pure planner) and hand the new buffer's digest to the command, which
@@ -9,9 +12,9 @@
  */
 
 import { INSTANCE_FLOATS } from '@thirdlight/project-model';
-import { planInstanceStroke, validatePaintInstancesArgs, type CommandError, type ContentDocument, type PreparedInstanceStroke, type SceneDocument } from '@thirdlight/commands';
+import { planInstanceStroke, planModelCollider, validateColliderFromModelArgs, validatePaintInstancesArgs, type CommandError, type ContentDocument, type PreparedInstanceStroke, type PreparedModelCollider, type SceneDocument } from '@thirdlight/commands';
 
-import { publishBlob, readSourceBlob } from './content-store';
+import { publishBlob, readBlob, readSourceBlob } from './content-store';
 import { sha256Hex } from './digest';
 import { contentCtx } from './service-content';
 import type { Core, ProjectSession } from './session';
@@ -36,4 +39,19 @@ export function prepareInstanceStroke(core: Core, s: ProjectSession, scene: Scen
 export function publishStrokeBuffer(core: Core, s: ProjectSession, buffer: StrokeBuffer): CommandError | null {
   const put = publishBlob(core, contentCtx(s), { digest: buffer.digest, byteLength: buffer.bytes.byteLength, source: { kind: 'bytes', bytes: buffer.bytes } });
   return put.ok ? null : put.error;
+}
+
+/**
+ * The host's part of `colliderFromModel`: the object's model file read
+ * (verified) and made into the asked shape by the command package's pure
+ * planner; the command stores it.
+ */
+export function prepareModelCollider(core: Core, s: ProjectSession, scene: SceneDocument, content: ContentDocument | undefined, args: Record<string, unknown>): { ok: true; prepared: PreparedModelCollider } | { ok: false; error: CommandError } {
+  const v = validateColliderFromModelArgs(args);
+  if (!v.ok) return v;
+  const plan = planModelCollider(scene, content, v.args, (assetId, version) => {
+    const r = readBlob(core, contentCtx(s), { assetId, version });
+    return r.ok ? { ok: true, bytes: r.bytes } : { ok: false, error: r.error };
+  });
+  return plan.ok ? { ok: true, prepared: plan.prepared } : plan;
 }

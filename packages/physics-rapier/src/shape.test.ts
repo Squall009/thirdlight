@@ -101,11 +101,11 @@ describe('polygon shapes', () => {
   it('builds a row-major Float32Array hull buffer only for polygons', () => {
     const r = validateColliderShape(quad);
     expect(r.ok).toBe(true);
-    if (!r.ok) return;
+    if (!r.ok || r.shape.type === 'compound') return;
     expect(Array.from(polygonVertexBuffer(r.shape) ?? [])).toEqual([0, 0, 3, 0, 3, 1, 0, 2]);
     const box = validateColliderShape({ type: 'box', hx: 1, hy: 1 });
     expect(box.ok).toBe(true);
-    if (box.ok) expect(polygonVertexBuffer(box.shape)).toBeNull();
+    if (box.ok && box.shape.type !== 'compound') expect(polygonVertexBuffer(box.shape)).toBeNull();
   });
 
   it('rejects an unknown shape type', () => {

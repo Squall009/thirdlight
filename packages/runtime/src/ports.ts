@@ -385,12 +385,21 @@ export interface PhysicsQueryFilter3D {
  * points and `mesh` a triangle mesh (a static collider only), both flat
  * `[x, y, z, ...]` lists.
  */
-export type ColliderShape3D =
+export type ColliderPrimitive3D =
   | { type: 'box'; hx: number; hy: number; hz: number }
   | { type: 'sphere'; radius: number }
   | { type: 'capsule'; radius: number; halfHeight: number }
   | { type: 'convex'; points: readonly number[] }
   | { type: 'mesh'; vertices: readonly number[]; indices: readonly number[] };
+
+/**
+ * A primitive, or several placed on one body (`compound`: each part at its
+ * position and rotation in the body's frame; a shape off its object's origin
+ * is a compound of one part).
+ */
+export type ColliderShape3D =
+  | ColliderPrimitive3D
+  | { type: 'compound'; parts: readonly { shape: ColliderPrimitive3D; position: PhysicsVec3; rotation: PhysicsQuat }[] };
 
 /** A shape for 3D overlap queries (half extents / radius / capsule half height, metres). */
 export type OverlapShape3D =

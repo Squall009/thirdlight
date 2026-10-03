@@ -249,6 +249,7 @@ export type {
 // Block-layer commands and the helpers queries and projections share.
 export { blockStampsOf, blockTypesOf, cellFieldsOf, layerDataOf, layerDelta, withLayerData } from './block-ops';
 export { instanceFloatsOf, planInstanceStroke, validatePaintInstancesArgs, type PaintInstancesArgs, type PreparedInstanceStroke } from './instance-stroke-ops';
+export { planModelCollider, validateColliderFromModelArgs, type ColliderFromModelArgs, type PreparedModelCollider } from './collider-model-ops';
 // Graph commands (owner kinds and the shared apply used by undo/redo).
 export { GRAPH_OWNER_KINDS, GRAPH_OWNERS, editOwnerGraph, parseBehaviorOwnerId, type GraphOwnerAdapter } from './graph-ops';
 

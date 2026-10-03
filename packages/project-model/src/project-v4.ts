@@ -26,7 +26,7 @@ import { composeContentChecks, composeV3 } from './project-v3';
 import { derivedOf } from './content-helpers';
 import { validateContentV4, physicsDimensionOf, arrayTextureIds, TEXTURE_ARRAY_KIND } from './content';
 import { validateSceneV4 } from './scene-v3';
-import { ID_RE_V2, physicsRotationErrors, physicsScaleErrors } from './components';
+import { ID_RE_V2, colliderShapeParts, physicsRotationErrors, physicsScaleErrors } from './components';
 import { fail, fieldMissing, fieldType, fieldValue, isPlainObject, isValidName, pointerSegment, unexpectedField, withFound } from './validate';
 import type { ModelErrorV3, ModelResultV3 } from './errors';
 import type { Manifest as M1Manifest } from './types';
@@ -451,8 +451,11 @@ export function physicsDimensionErrors(comps: Record<string, unknown>, path: str
   physicsScaleErrors(comps, rotationBase, hasController, dimension, errors);
   physicsRotationErrors(comps, rotationBase, hasController, dimension, errors);
   if (collider === undefined) return;
-  const shape = collider.shape;
-  const type = shape?.type;
+  const shape = collider.shape as { type?: string } | undefined;
+  // Each primitive of a compound follows the rules a collider of that shape does.
+  const parts = colliderShapeParts(shape);
+  const shapePath = `${path}/components/collider/shape`;
+  const partPath = (i: number): string => (shape?.type === 'compound' ? `${shapePath}/shapes/${i}` : shapePath);
   // Collision layers are 3D physics (the 2D plane is unchanged); each must be the implicit
   // "default" or one the project names.
   const layers = (collider as { layers?: unknown }).layers;
@@ -463,20 +466,31 @@ export function physicsDimensionErrors(comps: Record<string, unknown>, path: str
     });
   }
   if (dimension !== 3) {
-    // The 3D shapes need a 3D project.
-    if (type === 'sphere' || type === 'capsule' || type === 'convex' || type === 'mesh') {
-      errors.push(withFound({ code: 'collider_shape_invalid', path: `${path}/components/collider/shape/type`, message: `a ${type} collider is a 3D shape; a 2D-plane project uses box or polygon colliders (or set physics_dimension to 3)`, expected: '"box" | "polygon"' } as ModelErrorV3, type));
-    }
+    parts.forEach((p, i) => {
+      const type = p['type'];
+      // The 3D shapes need a 3D project.
+      if (type === 'sphere' || type === 'capsule' || type === 'convex' || type === 'mesh') {
+        errors.push(withFound({ code: 'collider_shape_invalid', path: `${partPath(i)}/type`, message: `a ${type} collider is a 3D shape; a 2D-plane project uses box or polygon colliders (or set physics_dimension to 3)`, expected: '"box" | "polygon"' } as ModelErrorV3, type));
+      }
+      // A shape on the plane turns about Z, as its object does.
+      const q = p['rotation'];
+      if (Array.isArray(q) && (Math.abs(Number(q[0])) > 1e-6 || Math.abs(Number(q[1])) > 1e-6)) {
+        errors.push(withFound({ code: 'collider_shape_invalid', path: `${partPath(i)}/rotation`, message: 'a shape on the 2D plane turns about the Z axis only', expected: '[0, 0, z, w]' } as ModelErrorV3, q));
+      }
+    });
     return;
   }
-  if (type === 'box' && shape?.hz === undefined) {
-    errors.push({ code: 'collider_shape_invalid', path: `${path}/components/collider/shape/hz`, message: 'a box collider in a 3D project needs its half depth hz (m)', expected: 'hz > 0' } as ModelErrorV3);
-  } else if (type === 'polygon') {
-    errors.push(withFound({ code: 'collider_shape_invalid', path: `${path}/components/collider/shape/type`, message: 'a polygon collider is a 2D-plane shape; a 3D project uses box (with hz), sphere, capsule, convex or mesh colliders', expected: '"box" | "sphere" | "capsule" | "convex" | "mesh"' } as ModelErrorV3, 'polygon'));
-  } else if (type === 'mesh' && (comps['mover'] !== undefined || comps['controller'] !== undefined)) {
-    // A triangle mesh has no inside: it is level geometry that never moves.
-    errors.push(withFound({ code: 'collider_shape_invalid', path: `${path}/components/collider/shape/type`, message: 'a mesh collider is static level geometry; a moving collider (a mover) uses box, sphere, capsule or convex', expected: '"box" | "sphere" | "capsule" | "convex"' } as ModelErrorV3, 'mesh'));
-  }
+  parts.forEach((p, i) => {
+    const type = p['type'];
+    if (type === 'box' && p['hz'] === undefined) {
+      errors.push({ code: 'collider_shape_invalid', path: `${partPath(i)}/hz`, message: 'a box collider in a 3D project needs its half depth hz (m)', expected: 'hz > 0' } as ModelErrorV3);
+    } else if (type === 'polygon') {
+      errors.push(withFound({ code: 'collider_shape_invalid', path: `${partPath(i)}/type`, message: 'a polygon collider is a 2D-plane shape; a 3D project uses box (with hz), sphere, capsule, convex or mesh colliders', expected: '"box" | "sphere" | "capsule" | "convex" | "mesh"' } as ModelErrorV3, 'polygon'));
+    } else if (type === 'mesh' && (comps['mover'] !== undefined || comps['controller'] !== undefined)) {
+      // A triangle mesh has no inside: it is level geometry that never moves.
+      errors.push(withFound({ code: 'collider_shape_invalid', path: `${partPath(i)}/type`, message: 'a mesh collider is static level geometry; a moving collider (a mover) uses box, sphere, capsule or convex', expected: '"box" | "sphere" | "capsule" | "convex"' } as ModelErrorV3, 'mesh'));
+    }
+  });
   if ((collider as { oneWay?: unknown }).oneWay === true) {
     errors.push(withFound({ code: 'collider_shape_invalid', path: `${path}/components/collider/oneWay`, message: 'a one-way collider is a 2D-plane platform (passed from below); a 3D project has none', expected: 'absent' } as ModelErrorV3, true));
   }

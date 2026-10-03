@@ -326,6 +326,7 @@ function EntityInspector(props: InspectorDockProps): JSX.Element {
                 { id: 'collider-box-model', label: 'Collider: Box from model', category: 'Physics' as const, enabled, reason, run: () => void colliderFromModel3D(selected.id, 'box') },
                 { id: 'collider-convex-model', label: 'Collider: Convex hull from model', category: 'Physics' as const, enabled, reason, run: () => void colliderFromModel3D(selected.id, 'convex') },
                 { id: 'collider-mesh-model', label: 'Collider: Mesh from model', category: 'Physics' as const, enabled, reason, run: () => void colliderFromModel3D(selected.id, 'mesh') },
+                { id: 'collider-compound-model', label: 'Collider: Compound of the _COL parts', category: 'Physics' as const, enabled, reason, run: () => void colliderFromModel3D(selected.id, 'compound') },
               ]
             : [
                 { id: 'collider-box-model', label: 'Collider: Box from model', category: 'Physics' as const, enabled, reason, run: () => void colliderFromModel(selected.id, 'box') },
@@ -451,6 +452,9 @@ function EntityInspector(props: InspectorDockProps): JSX.Element {
                       </button>
                       <button className="tl-btn" onClick={() => void colliderFromModel3D(selected.id, 'mesh')}>
                         Mesh from model
+                      </button>
+                      <button className="tl-btn" onClick={() => void colliderFromModel3D(selected.id, 'compound')}>
+                        Compound of _COL parts
                       </button>
                     </div>
                   ) : (

@@ -338,7 +338,8 @@ export interface ComponentDescriptor {
   readonly add: ComponentAdd;
   /** Ready-made values (a light per type, a zone per role). */
   /** `dimension` — the project physics dimension a preset fits (absent: both; the "+ Add component" list shows the project's). */
-  readonly presets?: readonly { readonly label: string; readonly value: DescriptorJson; readonly dimension?: 2 | 3 }[];
+  /** Starting values; `requires`: components the object needs for this one (a model collider needs a model). */
+  readonly presets?: readonly { readonly label: string; readonly value: DescriptorJson; readonly dimension?: 2 | 3; readonly requires?: readonly string[] }[];
   readonly handles: readonly HandleDescriptor[];
   /** Needs one of these on the same entity. */
   readonly requiresAnyOf?: { readonly components: readonly string[]; readonly reason: string };

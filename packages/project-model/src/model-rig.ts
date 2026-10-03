@@ -125,9 +125,9 @@ export function quatFromRotation(m11: number, m12: number, m13: number, m21: num
   return [(m13 + m31) / s, (m23 + m32) / s, 0.25 * s, (m21 - m12) / s];
 }
 
-const COMPONENTS: Record<string, number> = { SCALAR: 1, VEC2: 2, VEC3: 3, VEC4: 4 };
+export const COMPONENTS: Record<string, number> = { SCALAR: 1, VEC2: 2, VEC3: 3, VEC4: 4 };
 /** Bytes per component and the normalized scale three.js applies (`getNormalizedComponentScale`). */
-const COMPONENT_TYPES: Record<number, { bytes: number; read: (v: DataView, o: number) => number; norm: number }> = {
+export const COMPONENT_TYPES: Record<number, { bytes: number; read: (v: DataView, o: number) => number; norm: number }> = {
   5120: { bytes: 1, read: (v, o) => v.getInt8(o), norm: 1 / 127 },
   5121: { bytes: 1, read: (v, o) => v.getUint8(o), norm: 1 / 255 },
   5122: { bytes: 2, read: (v, o) => v.getInt16(o, true), norm: 1 / 32767 },
@@ -136,8 +136,8 @@ const COMPONENT_TYPES: Record<number, { bytes: number; read: (v: DataView, o: nu
   5126: { bytes: 4, read: (v, o) => v.getFloat32(o, true), norm: 1 },
 };
 
-/** Split a GLB into its JSON and BIN chunks (null: not a GLB 2.0). */
-function glbChunks(bytes: Uint8Array): { json: Json; bin: DataView | null } | string {
+/** Split a GLB into its JSON and BIN chunks (a string: why it is not a GLB 2.0). */
+export function glbChunks(bytes: Uint8Array): { json: Json; bin: DataView | null } | string {
   if (bytes.byteLength < 20) return 'the file is too short to be a GLB';
   const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   if (dv.getUint32(0, true) !== 0x46546c67) return 'the file is not a GLB (magic)';

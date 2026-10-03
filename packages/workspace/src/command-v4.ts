@@ -24,7 +24,7 @@ import { changedFiles, detectExternalChangeV4, gameRootOf, publishV4, setPending
 import { pendingInfo, type Core, type ProjectSession } from './session';
 import { envelopeRequestId, failRequest } from './request-envelope';
 import { scriptsNaming } from './script-names';
-import { prepareInstanceStroke, publishStrokeBuffer, type StrokeBuffer } from './instance-strokes';
+import { prepareInstanceStroke, prepareModelCollider, publishStrokeBuffer, type StrokeBuffer } from './instance-strokes';
 import { catalogV4Of, commandContentOf, crossSceneEntities, projectRuleError, sceneMissing, sceneNotEmpty, sceneRequired, sceneV4Of } from './content-shapes';
 
 /**
@@ -195,6 +195,12 @@ export function runCommandV4(core: Core, s: ProjectSession, sent: unknown, D: st
     if (!prepared.ok) return failRequest(request, prepared.error);
     commandState.preparedInstanceStroke = prepared.prepared;
     strokeBuffer = prepared.buffer;
+  }
+  // A collider from the object's model: the host reads the model file and makes the shape.
+  if (op === 'colliderFromModel') {
+    const prepared = prepareModelCollider(core, s, carrier, commandState.content, args);
+    if (!prepared.ok) return failRequest(request, prepared.error);
+    commandState.preparedModelCollider = prepared.prepared;
   }
   const outcome = applyMutation(commandState, pureRequest);
   if (!outcome.ok) return outcome.result;

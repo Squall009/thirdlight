@@ -445,7 +445,9 @@ const PARTNERS: Record<string, Obj> = {
   modelAnimation: { model: { asset: { assetId: 'model-a' } } },
 };
 function entityScene(name: string, value: J, extra: Obj = {}): J {
-  const comps: Obj = name === 'folder' ? { folder: value } : { transform: T, ...(PARTNERS[name] ?? {}), ...extra, [name]: value };
+  // A model collider shape is made from the object's own model.
+  const modelShape = name === 'collider' && ((value as Obj | null)?.['shape'] as Obj | undefined)?.['type'] === 'model';
+  const comps: Obj = name === 'folder' ? { folder: value } : { transform: T, ...(PARTNERS[name] ?? {}), ...(modelShape ? { model: { asset: { assetId: 'model-a' } } } : {}), ...extra, [name]: value };
   if (name === 'transform') comps['transform'] = value;
   return { schemaVersion: 4, sceneId: 'main', revision: 1, entities: [SPAWN, { id: 'subject-0001', components: comps }] };
 }
@@ -457,6 +459,15 @@ const LIGHTS = [
   { type: 'spot', color: '#ffffff', intensity: 80, range: 12, decay: 2, angle: 30, penumbra: 0.3, direction: [0, -1, 0], castShadow: false, cookie: 'tex-a' },
   { type: 'hemisphere', color: '#bcd7ff', groundColor: '#5a4a38', intensity: 0.8, mode: 'baked' },
 ];
+
+/** One placed primitive collider shape of each type (compound bases list them). */
+const COMPONENT_BASES_PLACED: Record<string, J> = {
+  polygon: { type: 'polygon', vertices: [[-1, -1], [1, -1], [1, 1], [-1, 1]], center: [1, 2, 0], rotation: [0, 0, 0, 1] },
+  sphere: { type: 'sphere', radius: 0.5, center: [0, 1, 0], rotation: [0, 0, 0, 1] },
+  capsule: { type: 'capsule', radius: 0.5, height: 2, center: [0, 1, 0], rotation: [0, 0, 0, 1] },
+  convex: { type: 'convex', points: [[-1, -1, -1], [1, -1, -1], [0, 1, -1], [0, 0, 1]], center: [0, 1, 0], rotation: [0, 0, 0, 1] },
+  mesh: { type: 'mesh', vertices: [[-1, 0, -1], [1, 0, -1], [1, 0, 1], [-1, 0, 1]], triangles: [[0, 2, 1], [0, 3, 2]], center: [0, 1, 0], rotation: [0, 0, 0, 1] },
+};
 
 /** Every component's variant bases (each fills every field that applies). */
 const COMPONENT_BASES: Record<string, J[]> = {
@@ -478,6 +489,24 @@ const COMPONENT_BASES: Record<string, J[]> = {
     { shape: { type: 'capsule', radius: 0.5, height: 100 } },
     { shape: { type: 'convex', points: [[-1, -1, -1], [1, -1, -1], [0, 1, -1], [0, 0, 1]] } },
     { shape: { type: 'mesh', vertices: [[-1, 0, -1], [1, 0, -1], [1, 0, 1], [-1, 0, 1]], triangles: [[0, 2, 1], [0, 3, 2]] } },
+    // Placed shapes, a compound of every primitive and the model's _COL parts.
+    { shape: { type: 'box', hx: 0.5, hy: 0.25, hz: 1, center: [0, 0.25, 0], rotation: [0, 0, 0.7071067811865476, 0.7071067811865476] } },
+    { shape: { type: 'polygon', vertices: [[-1, -1], [1, -1], [1, 1], [-1, 1]], center: [1, 2, 0], rotation: [0, 0, 0, 1] } },
+    { shape: { type: 'sphere', radius: 0.5, center: [0, 1, 0], rotation: [0, 0, 0, 1] } },
+    { shape: { type: 'capsule', radius: 0.5, height: 2, center: [0, 1, 0], rotation: [0, 0, 0, 1] } },
+    { shape: { type: 'convex', points: [[-1, -1, -1], [1, -1, -1], [0, 1, -1], [0, 0, 1]], center: [0, 1, 0], rotation: [0, 0, 0, 1] } },
+    { shape: { type: 'mesh', vertices: [[-1, 0, -1], [1, 0, -1], [1, 0, 1], [-1, 0, 1]], triangles: [[0, 2, 1], [0, 3, 2]], center: [0, 1, 0], rotation: [0, 0, 0, 1] } },
+    { shape: { type: 'compound', shapes: [
+      { type: 'box', hx: 0.5, hy: 0.25, hz: 1, center: [0, 0.25, 0], rotation: [0, 0, 0, 1] },
+      { type: 'polygon', vertices: [[-1, -1], [1, -1], [1, 1], [-1, 1]], center: [1, 2, 0], rotation: [0, 0, 0, 1] },
+      { type: 'sphere', radius: 0.5, center: [0, 1, 0], rotation: [0, 0, 0, 1] },
+      { type: 'capsule', radius: 0.5, height: 2, center: [0, 1, 0], rotation: [0, 0, 0, 1] },
+      { type: 'convex', points: [[-1, -1, -1], [1, -1, -1], [0, 1, -1], [0, 0, 1]], center: [0, 1, 0], rotation: [0, 0, 0, 1] },
+      { type: 'mesh', vertices: [[-1, 0, -1], [1, 0, -1], [1, 0, 1], [-1, 0, 1]], triangles: [[0, 2, 1], [0, 3, 2]], center: [0, 1, 0], rotation: [0, 0, 0, 1] },
+    ] } },
+    // The list probe reads a compound's first shape: one compound per primitive type.
+    ...['polygon', 'sphere', 'capsule', 'convex', 'mesh'].map((type) => ({ shape: { type: 'compound', shapes: [COMPONENT_BASES_PLACED[type]!] } })),
+    { shape: { type: 'model' } },
   ],
   controller: [{ capsule: { radius: 0.3, height: 1.8, offset: [0, 0.1] }, acceleration: 30, deceleration: 50, coyoteTime: 0.1, jumpBuffer: 0.1, jumpRelease: 0.4, groundSnap: 0.2, skin: 0.02, autostep: true, autostepHeight: 0.3, walkSpeed: 2.5, runSpeed: 6, airControl: 0.3, gravityScale: 1.5, turnSpeed: 360, faceMovement: false, moveFrame: 'world', jump: true, jumpSpeed: 5, slopeLimit: 40, stepHeight: 0.5, ledgeClimb: true, ledgeHeight: 1, ledgeClimbTime: 0.4, moveAction: 'walk', jumpAction: 'hop', climbSpeed: 1.5, climbAction: 'climb', wallSlide: true, wallSlideSpeed: 1, wallJump: true, wallJumpAway: 5, wallJumpUp: 6, wallJumpLock: 0.2 }],
   camera: [{ type: 'perspective', fovY: 60, near: 0.1, far: 100 }],
@@ -940,8 +969,8 @@ describe('descriptor registry', () => {
     expect(JSON.parse(JSON.stringify(DESCRIPTORS))).toEqual(DESCRIPTORS);
     // it travels in every queryGameConfig: keep it small
     // (the UI document vocabulary is about 20 KB; environment presets, which repeat
-    // the sky/fog/post descriptors, about 9 KB)
-    expect(JSON.stringify(DESCRIPTORS).length).toBeLessThan(250_000);
+    // the sky/fog/post descriptors, about 9 KB; a compound repeats the collider shapes, about 6 KB)
+    expect(JSON.stringify(DESCRIPTORS).length).toBeLessThan(260_000);
     for (const c of DESCRIPTORS.components) expect(c.value.key).toBe(c.name);
   });
 

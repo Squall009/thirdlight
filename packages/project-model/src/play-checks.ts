@@ -16,7 +16,7 @@ import { isFolderEntity } from './types-v3';
 
 export interface PlayCheck {
   /** Stable code (Problems line kind). */
-  code: 'view_missing' | 'player_count' | 'player_scene' | 'kept_twice' | 'kept_ignored';
+  code: 'view_missing' | 'player_count' | 'player_scene' | 'kept_twice' | 'kept_ignored' | 'collider_model';
   /** True: the start is refused; false: a warning (the game starts). */
   refuse: boolean;
   message: string;

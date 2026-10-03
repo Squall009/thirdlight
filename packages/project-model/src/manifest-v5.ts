@@ -149,6 +149,7 @@ export const CATALOG_BLOCK_KEYS = [
   'lighting',
   'animators',
   'rigs',
+  'modelColliders',
   'prefabs',
   'blockTypes',
   'cellFields',
@@ -174,7 +175,7 @@ export const CATALOG_BLOCK_KEYS = [
 export type CatalogBlockKey = (typeof CATALOG_BLOCK_KEYS)[number];
 
 /** The blocks that are maps (their parts merge); the other split blocks are lists (their parts concatenate). */
-const MAP_BLOCKS: ReadonlySet<string> = new Set(['rigs', 'lighting']);
+const MAP_BLOCKS: ReadonlySet<string> = new Set(['rigs', 'modelColliders', 'lighting']);
 
 /** One block file of the root (a block in several parts has one row per part, in order). */
 export interface CatalogBlockRow extends CatalogFileRef {

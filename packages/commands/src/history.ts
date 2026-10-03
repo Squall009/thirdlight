@@ -23,7 +23,7 @@
  */
 
 import { replaySceneMove } from './move-scene-ops';
-import { CONTROLLER_FIELDS } from '@thirdlight/project-model';
+import { COMPONENT_FIELD_ORDER } from './v3';
 import type { AnimatorController, EnvironmentConfig, InputConfig, LightingBake, MaterialDef, SceneEnvironment } from '@thirdlight/project-model';
 import { withAnimator, withEnvironment, withInput, withLighting, withMaterial, withSceneEnvironment } from './material-ops';
 import { withCollisionLayers } from './layer-ops';
@@ -88,18 +88,6 @@ import type {
   MovedEntity,
 } from './types';
 
-const COMPONENT_FIELD_ORDER: Record<string, readonly string[]> = {
-  box: ['size', 'material', 'castShadow', 'receiveShadow'],
-  camera: ['type', 'fovY', 'near', 'far'],
-  model: ['asset', 'piece', 'castShadow', 'receiveShadow'],
-  collider: ['shape'],
-  controller: CONTROLLER_FIELDS,
-  playerSpawn: ['yaw'],
-  light: ['type', 'color', 'intensity', 'direction', 'castShadow', 'shadowMapSize', 'shadowBias', 'shadowNormalBias', 'shadowExtent'],
-  surface: ['color', 'roughness', 'metalness', 'emissive', 'emissiveIntensity'],
-  modelAnimation: ['assetId', 'version', 'roles'],
-  effect: ['effectId', 'playOnStart', 'params', 'signal', 'stopSignal'],
-};
 
 /** Read a component value as `null` when absent. */
 function componentOrNull(components: Record<string, unknown>, component: string): unknown | null {
@@ -123,7 +111,7 @@ function componentChangedFields(
 ): string[] {
   const b = (before ?? {}) as Record<string, unknown>;
   const a = (after ?? {}) as Record<string, unknown>;
-  return (COMPONENT_FIELD_ORDER[component] ?? Object.keys(a ?? {})).filter(
+  return ((COMPONENT_FIELD_ORDER as Record<string, readonly string[] | undefined>)[component] ?? Object.keys(a ?? {})).filter(
     (f) => !deepEqual(b[f], a[f]),
   );
 }

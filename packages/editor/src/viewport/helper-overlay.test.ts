@@ -82,7 +82,7 @@ describe('helper overlay gameplay helpers', () => {
     expect([pos.getX(1), pos.getY(1)]).toEqual([2, 4]);
     expect(h.count).toBe(1 + 3 + 1 + 1 + 1 + 1); // path + a dot per stop (3), switch, collectible, hitbox and patrol areas
     overlay.sync([entity('plate', { switch: { mode: 'stand', signal: 'open', size: [1, 1] } })]);
-    expect(overlay.blockHelpers()).toEqual({ moverPaths: [], count: 1, colliders: 0, capsules: 0, sizeHandles: 0 });
+    expect(overlay.blockHelpers()).toEqual({ moverPaths: [], count: 1, colliders: 0, capsules: 0, sizeHandles: 0, collidersShown: [] });
     overlay.dispose();
   });
 
@@ -124,6 +124,10 @@ describe('helper overlay gameplay helpers', () => {
     overlay.sync([player, plate]);
     expect(overlay.blockHelpers()).toMatchObject({ capsules: 1, sizeHandles: 0 });
     expect(scene.getObjectByName('capsule-outline:player')).toBeDefined();
+    // Collider outlines are off until asked for: no capsule to pick (unless the player is selected).
+    expect(overlay.capsuleAt(...screen(0.3, 0, 0.03))).toBeNull();
+    overlay.setGizmos({ colliders: true, gameplay: true });
+    expect(overlay.blockHelpers().collidersShown).toEqual(['player']);
     expect(overlay.capsuleAt(...screen(0.3, 0, 0.03))).toEqual({ entityId: 'player', onOutline: true });
     expect(overlay.capsuleAt(...screen(0, 0, 0.03))).toEqual({ entityId: 'player', onOutline: false });
     expect(overlay.capsuleAt(...screen(2, 2, 0.03))).toBeNull();
@@ -141,6 +145,11 @@ describe('helper overlay gameplay helpers', () => {
     expect(overlay.sizeHandleClientPoints().map((h) => `${h.component}:${h.handle}`)).toEqual(['trigger:top', 'trigger:side']);
     overlay.setGizmos({ colliders: false, gameplay: true });
     expect(overlay.capsuleAt(...screen(0.3, 0, 0.03))).toBeNull();
+    // The selected player's own outline is drawn and picked with the outlines off.
+    overlay.setSelected('player');
+    expect(overlay.blockHelpers().collidersShown).toEqual(['player']);
+    expect(scene.getObjectByName('collider-outlines:selection')).toBeDefined();
+    expect(overlay.capsuleAt(...screen(0.3, 0, 0.03))).toEqual({ entityId: 'player', onOutline: true });
     overlay.dispose();
   });
 

@@ -63,7 +63,8 @@ import { MAX_FRAME_UI_EVENTS, UiState, validateUiEvent, type UiEventRecord, type
 import { createUiControl } from './ui-control';
 import { ModeState, type ModeView } from './modes';
 import { BehaviorHostError, BehaviorHostIntentLimit, compiledFramesOf, createTagQuery, graphNodeIdOf, type BehaviorDebugView, type BehaviorPropertyView, type CompiledFrame } from './behavior';
-import { character3DPhysicsOf, offsetEntities, playerCapsuleOf, sceneContribution, staticColliderOf, staticColliderOf3D, type LiveTagIndex, type SceneContribution } from './scene-set';
+import { character3DPhysicsOf, offsetEntities, playerCapsuleOf, type LiveTagIndex } from './scene-set';
+import { ColliderSystem } from './collider-system';
 import {
   BehaviorIntentError,
   INTENT_LIMITS,
@@ -347,17 +348,6 @@ function isPhysicsPort(v: unknown): v is PhysicsPort {
     typeof v['step'] === 'function' &&
     typeof v['dispose'] === 'function'
   );
-}
-
-/**
- * Whether a script may drive this entity's collider (a 3D
- * project): it has a collider, and neither a controller (the character is
- * the controller's) nor a mover (which moves it itself). The runtime turns
- * such a collider into a kinematic body posed from the entity's transform.
- */
-function scriptDrivableCollider(components: unknown): boolean {
-  if (!isPlainObject(components)) return false;
-  return components['collider'] !== undefined && components['controller'] === undefined && components['mover'] === undefined;
 }
 
 /** A 3D port carries `dimension: 3` (the 2D port has no such field). */
@@ -867,8 +857,8 @@ export function instantiateRuntime(
       const isController = entry.phases.includes('controller');
       for (const entityId of entry.owners) {
         // In a 3D project a transform-phase module (a script) may drive a collider
-        // that no mover moves — the runtime poses it as a kinematic body (scriptDrivableCollider).
-        const drivable = physics3d !== undefined && scriptDrivableCollider(scene.entities.find((x) => x.id === entityId)?.components);
+        // that no mover moves — the runtime poses it as a kinematic body (ColliderSystem).
+        const drivable = physics3d !== undefined && ColliderSystem.drivable(scene.entities.find((x) => x.id === entityId)?.components);
         if ((colliderEntityIds.has(entityId) || controllerEntityIds.includes(entityId)) && !isController && !drivable) {
           disposeCreated();
           return {
@@ -932,6 +922,7 @@ export function instantiateRuntime(
     modelBounds: snap.modelBounds,
     audioDurations: snap.audioDurations,
     ...(snap.rigs !== undefined ? { rigs: snap.rigs } : {}),
+    ...(snap.modelColliders !== undefined ? { modelColliders: snap.modelColliders } : {}),
     ...(variables !== undefined ? { variables } : {}),
     blockTypes: snap.blockTypes,
     cellFields: snap.cellFields,
@@ -1021,6 +1012,8 @@ interface RuntimeArgs {
   audioDurations: Readonly<Record<string, number>>;
   /** Model rigs (sockets are resolved on them). */
   rigs?: Readonly<Record<string, import('@thirdlight/project-model').ModelRig>>;
+  /** The models' `_COL` parts (colliders `{type: 'model'}` are made of them). */
+  modelColliders?: import('@thirdlight/project-model').ModelColliderTable;
   /** Injected script variables (validated; ctx.save from step 0). */
   variables?: Readonly<Record<string, unknown>>;
   /** The block types and cell fields of the project's block layers. */
@@ -1056,7 +1049,13 @@ interface SceneBatchState {
   start: boolean;
   entities: readonly EntityV3[];
   ids: ReadonlySet<string>;
-  contribution: SceneContribution;
+  /** Its objects that put a collider in the physics world (the player's excluded). */
+  colliderIds: readonly string[];
+}
+
+/** The objects of a list that put a collider in the physics world (the player's excluded). */
+function colliderIdsOf(entities: readonly EntityV3[]): string[] {
+  return entities.filter((e) => (e.components as unknown as Record<string, unknown>)['collider'] !== undefined && (e.components as unknown as Record<string, unknown>)['controller'] === undefined).map((e) => e.id);
 }
 
 /**
@@ -1102,15 +1101,8 @@ class RuntimeInstance implements Runtime {
   private character3DClimb?: { stepHeight: number; groundSnap: number };
   /** Where the active camera's yaw comes from (the camera framework sets it; null: world axes). */
   private cameraYawSource: (() => number | undefined) | null = null;
-  /**
-   * The collider-bearing entities of a 3D world (their authored
-   * components, to re-add a collider as kinematic), the colliders scripts
-   * drive (posed each step from their transforms), and whether that set must
-   * be brought up to date with the modules' owners before the next step.
-   */
-  private readonly colliderComponents3D = new Map<string, Readonly<Record<string, unknown>>>();
-  private readonly scriptColliders3D = new Set<string>();
-  private scriptCollidersDirty = true;
+  /** The colliders in the physics world: placed where their objects are, and those that follow a moving object. */
+  private readonly colliders: ColliderSystem;
   private readonly settings: GameplaySettings;
   private readonly controllerEntityId?: string;
   /** The input actions the character's controller reads (its moveAction / jumpAction). */
@@ -1522,11 +1514,26 @@ class RuntimeInstance implements Runtime {
     this.startVariables = args.variables;
     this.applyStartVariables();
     this.physics = args.physics;
+    const rt = this;
+    this.colliders = new ColliderSystem({
+      get physics() {
+        return rt.physics;
+      },
+      get physics3d() {
+        return rt.physics3d;
+      },
+      curr: () => rt.curr,
+      parentOf: (id) => rt.entities.get(id)?.parentId ?? (rt.entities.has(id) ? null : undefined),
+      inactive: () => rt.entityAccess.inactive(),
+      ownedIds: () => rt.entries.flatMap((entry) => entry.owners),
+      componentsOf: (id) => rt.entityDocument(id)?.components as unknown as Readonly<Record<string, unknown>> | undefined,
+      warn: (message) => rt.recordBehaviorLog('thirdlight.runtime:colliders', 'warn', message),
+    }, args.modelColliders);
     if (args.physics3d !== undefined) {
       this.physics3d = args.physics3d;
+      this.colliders.track(args.initialEntities);
       for (const e of args.initialEntities) {
         const c = e.components as unknown as Record<string, unknown>;
-        if (c['collider'] !== undefined && c['controller'] === undefined) this.colliderComponents3D.set(e.id, c);
         // The character's step-up height and ground snap.
         if (c['controller'] !== undefined) {
           const climb = character3DPhysicsOf(c['controller'], args.settings.max_slope_climb_deg);
@@ -1558,7 +1565,7 @@ class RuntimeInstance implements Runtime {
     if (args.sceneRows !== null) {
       for (const row of args.sceneRows) this.sceneStatus.set(row.sceneId, 'unloaded');
       for (const b of args.startBatches) {
-        this.batches.set(b.sceneId, { sceneId: b.sceneId, start: true, entities: Object.freeze(b.entities), ids: new Set(b.entities.map((e) => e.id)), contribution: sceneContribution(b.entities) });
+        this.batches.set(b.sceneId, { sceneId: b.sceneId, start: true, entities: Object.freeze(b.entities), ids: new Set(b.entities.map((e) => e.id)), colliderIds: colliderIdsOf(b.entities) });
         this.sceneStatus.set(b.sceneId, 'loaded');
       }
     }
@@ -1663,7 +1670,6 @@ class RuntimeInstance implements Runtime {
     this.sceneList = args.sceneList ?? [];
     // Movers, triggers, switches, one-way colliders and the generic primitives
     // (the character is the controller's object in both dimensions).
-    const rt = this;
     const characterComponents = args.initialEntities.find((e) => e.id === args.controllerEntityId)?.components.controller;
     this.characterActions = controllerActionsOf(characterComponents);
     // And its climb action (a game mode that switches gameplay off holds it too).
@@ -1696,7 +1702,7 @@ class RuntimeInstance implements Runtime {
                 const t = rt.controllerEntityId !== undefined ? rt.curr.get(rt.controllerEntityId) : undefined;
                 return t === undefined ? null : [t.position[0], t.position[1], t.position[2]];
               },
-              scriptColliders3D: () => rt.scriptColliderPoses3D(),
+              scriptColliders3D: () => rt.colliders.poses(),
             }
           : {}),
         // A trigger's scene transition.
@@ -2090,31 +2096,8 @@ class RuntimeInstance implements Runtime {
     const leaving = off.filter(colliderOf);
     const coming = on.filter(colliderOf);
     if (leaving.length === 0 && coming.length === 0) return;
-    try {
-      if (leaving.length > 0) {
-        this.physics3d?.removeStaticColliders?.(leaving);
-        this.physics?.removeStaticColliders?.(leaving);
-        for (const id of leaving) this.scriptColliders3D.delete(id);
-      }
-      if (coming.length > 0) {
-        const at = (id: string): Record<string, unknown> => {
-          const c = (this.entityDocument(id)?.components ?? {}) as unknown as Record<string, unknown>;
-          const t = this.curr.get(id);
-          return t === undefined ? c : { ...c, transform: { position: [...t.position], rotation: [...t.rotation], scale: [...t.scale] } };
-        };
-        if (this.physics3d !== undefined) {
-          const specs = coming.map((id) => staticColliderOf3D(id, at(id))).filter((x): x is StaticColliderSpec3D => x !== null);
-          if (specs.length > 0) this.physics3d.addStaticColliders?.(specs);
-          // A collider a script owns becomes kinematic again at the next boundary.
-          this.scriptCollidersDirty = true;
-        } else if (this.physics !== undefined) {
-          const specs = coming.map((id) => staticColliderOf(id, at(id))).filter((x): x is NonNullable<typeof x> => x !== null);
-          if (specs.length > 0) this.physics.addStaticColliders?.(specs);
-        }
-      }
-    } catch (e) {
-      this.failStop('physics_port_error', 'entity_active', `switching the colliders of ${[...leaving, ...coming].slice(0, 4).join(', ')} failed: ${messageOf(e)}`, this.stepIndex);
-    }
+    const failed = this.colliders.activeChanged(leaving, coming);
+    if (failed !== null) this.failStop('physics_port_error', 'entity_active', failed, this.stepIndex);
   }
 
   /**
@@ -2789,7 +2772,7 @@ class RuntimeInstance implements Runtime {
       // physics step.
       // Movers advance and are posed (script-driven colliders too), then after physics
       // the triggers test the player (a scene has no run state: always "playing").
-      if (this.scriptCollidersDirty && !this.syncScriptColliders3D()) {
+      if (this.colliders.needsSync && !this.syncColliders()) {
         this.curr = cloneCurr(backup);
         return false;
       }
@@ -2880,7 +2863,7 @@ class RuntimeInstance implements Runtime {
     // reaches the controller; down + jump on a one-way platform drops through.
     this.raycastsThisStep = 0;
     // The colliders scripts drive become kinematic bodies before they are first posed.
-    if (this.physics3d !== undefined && this.scriptCollidersDirty && !this.syncScriptColliders3D()) return false;
+    if (this.physics3d !== undefined && this.colliders.needsSync && !this.syncColliders()) return false;
     // A game mode may hold physics (the controller, physics, movers and triggers stand still);
     // signals, trigger events and script messages turn over all the same.
     const held = this.modes.physicsHeld;
@@ -3568,6 +3551,8 @@ class RuntimeInstance implements Runtime {
           warn(`timeline: the 2D player "${id}" is moved by its physics body; a transform track does not move it`);
           return true;
         }
+        // Its colliders (and its children's) follow it from the next step.
+        rt.colliders.timelineMove(id);
         if (pose.position !== undefined) for (let k = 0; k < 3; k += 1) t.position[k] = pose.position[k]!;
         if (pose.rotation !== undefined) for (let k = 0; k < 4; k += 1) t.rotation[k] = pose.rotation[k]!;
         if (pose.scale !== undefined) for (let k = 0; k < 3; k += 1) t.scale[k] = pose.scale[k]!;
@@ -3948,16 +3933,11 @@ class RuntimeInstance implements Runtime {
     }
     // A loaded scene's entities arrive copied and frozen (prepared over the steps before).
     const frozen = prepared ? Object.freeze([...entities]) : deepFreeze(entities.map((e) => structuredClone(e)));
-    const contribution = sceneContribution(frozen);
-    if (this.physics3d !== undefined && !this.addColliders3D(frozen, (why) => refuse(why), `scene "${sceneId}"`)) return false;
-    if (contribution.colliders.length > 0 && this.physics !== undefined) {
-      if (typeof this.physics.addStaticColliders !== 'function') return refuse('the physics port cannot add colliders');
-      try {
-        this.physics.addStaticColliders(contribution.colliders);
-      } catch (e) {
-        this.failStop('physics_port_error', 'scene_colliders', `adding the colliders of scene "${sceneId}" failed: ${messageOf(e)}`, this.stepIndex);
-        return false;
-      }
+    const added = this.colliders.add(frozen, `scene "${sceneId}"`);
+    if (!added.ok && 'refused' in added) return refuse(added.refused);
+    if (!added.ok && 'failed' in added) {
+      this.failStop('physics_port_error', 'scene_colliders', added.failed, this.stepIndex);
+      return false;
     }
     const ids = new Set(frozen.map((e) => e.id));
     this.kept.add(frozen);
@@ -3974,7 +3954,7 @@ class RuntimeInstance implements Runtime {
     // Its kept objects that waited scene-less belong to it again (a restart keeping the scene keeps them).
     const adopted = skipped.length > 0 ? this.kept.adopt(skipped) : [];
     for (const e of adopted) ids.add(e.id);
-    this.batches.set(sceneId, { sceneId, start, entities: adopted.length > 0 ? Object.freeze([...frozen, ...adopted]) : frozen, ids, contribution });
+    this.batches.set(sceneId, { sceneId, start, entities: adopted.length > 0 ? Object.freeze([...frozen, ...adopted]) : frozen, ids, colliderIds: colliderIdsOf(frozen) });
     this.setSceneStatus(sceneId, 'loaded');
     this.sceneRevision += 1;
     if (!start) this.arriveAtListedSpawn(sceneId);
@@ -4041,13 +4021,13 @@ class RuntimeInstance implements Runtime {
       const box = e.components.box;
       if (box) data.box = { size: [box.size[0], box.size[1], box.size[2]], material: { color: box.material.color } };
       if ((e.components as { collider?: unknown }).collider !== undefined) data.hasCollider = true;
-      if (this.physics3d !== undefined && data.hasCollider === true && (e.components as { controller?: unknown }).controller === undefined) this.colliderComponents3D.set(e.id, e.components as unknown as Record<string, unknown>);
       this.entities.set(e.id, data);
       this.prev.set(e.id, cloneTransform(t));
       this.curr.set(e.id, cloneTransform(t));
       this.currShape += 1;
       this.committed?.set(e.id, cloneTransform(t));
     }
+    this.colliders.track(frozen);
     this.order = [...this.order, ...frozen.map((e) => e.id)];
     this.entityCount = this.order.length;
     // Their behavior groups (game modes tick groups).
@@ -4101,7 +4081,7 @@ class RuntimeInstance implements Runtime {
       }
       const data = this.entities.get(id);
       // In 3D a script may drive a collider no mover moves (posed as a kinematic body).
-      const drivable = this.physics3d !== undefined && scriptDrivableCollider(this.colliderComponents3D.get(id));
+      const drivable = this.physics3d !== undefined && this.colliders.drivableId(id);
       const physicsBody = (data?.hasCollider === true && !drivable) || id === this.controllerEntityId;
       if (physicsBody && !entry.phases.includes('controller')) {
         const what = 'physics_entity';
@@ -4110,7 +4090,7 @@ class RuntimeInstance implements Runtime {
       }
     }
     entry.owners = [...next];
-    this.scriptCollidersDirty = true;
+    this.colliders.markDirty();
     return true;
   }
 
@@ -4122,10 +4102,9 @@ class RuntimeInstance implements Runtime {
     this.materials.removeEntities(ids);
     for (const id of ids) {
       this.spawnControls.delete(id);
-      this.colliderComponents3D.delete(id);
-      this.scriptColliders3D.delete(id);
       this.behaviorGroupOf.delete(id);
     }
+    this.colliders.forget(ids);
     for (const entry of this.entries) {
       const instance = entry.instance as SimulationPhaseModule;
       if (!entry.phased || typeof instance.sceneUnloaded !== 'function') continue;
@@ -4195,7 +4174,7 @@ class RuntimeInstance implements Runtime {
     if (batch === undefined) return;
     // Its kept objects stay (scene-less); the rest goes.
     const ids = this.kept.leave(batch.entities);
-    this.detachEntities(ids, batch.contribution.colliders.map((c) => c.entityId).filter((id) => ids.has(id)), `scene "${sceneId}"`, reloading ? 'reload' : 'unload');
+    this.detachEntities(ids, batch.colliderIds.filter((id) => ids.has(id)), `scene "${sceneId}"`, reloading ? 'reload' : 'unload');
     // What a kept object named in the scene now reads as empty: said once (a reload brings it straight back).
     const refs = reloading ? [] : this.kept.referencesTo(ids, (id) => this.entityDocument(id));
     if (refs.length > 0) {
@@ -4282,22 +4261,14 @@ class RuntimeInstance implements Runtime {
       return true;
     }
     const frozen = deepFreeze(entities.map((e) => structuredClone(e)));
-    const colliders = sceneContribution(frozen).colliders;
-    if (this.physics3d !== undefined && !this.addColliders3D(frozen, (why) => {
-      this.recordError({ code: 'spawn_refused', message: clipMessage(`spawn "${root.id}" was not added: ${why}`), stepIndex: this.stepIndex });
+    const added = this.colliders.add(frozen, `spawn "${root.id}"`);
+    if (!added.ok && 'refused' in added) {
+      this.recordError({ code: 'spawn_refused', message: clipMessage(`spawn "${root.id}" was not added: ${added.refused}`), stepIndex: this.stepIndex });
       return true;
-    }, `spawn "${root.id}"`)) return false;
-    if (colliders.length > 0 && this.physics !== undefined) {
-      if (typeof this.physics.addStaticColliders !== 'function') {
-        this.recordError({ code: 'spawn_refused', message: clipMessage(`spawn "${root.id}" was not added: the physics port cannot add colliders`), stepIndex: this.stepIndex });
-        return true;
-      }
-      try {
-        this.physics.addStaticColliders(colliders);
-      } catch (e) {
-        this.failStop('physics_port_error', 'spawn_colliders', `adding the colliders of spawn "${root.id}" failed: ${messageOf(e)}`, this.stepIndex);
-        return false;
-      }
+    }
+    if (!added.ok && 'failed' in added) {
+      this.failStop('physics_port_error', 'spawn_colliders', added.failed, this.stepIndex);
+      return false;
     }
     this.kept.add(frozen);
     this.attachEntities(frozen);
@@ -4344,7 +4315,7 @@ class RuntimeInstance implements Runtime {
     // The kept objects whose scene went go too: their start scenes bring them back.
     const orphans = this.kept.takeOrphans();
     if (orphans.size > 0) {
-      const colliders = [...orphans].filter((id) => this.colliderComponents3D.has(id) || this.entities.get(id)?.hasCollider === true);
+      const colliders = [...orphans].filter((id) => this.colliders.has(id) || this.entities.get(id)?.hasCollider === true);
       this.detachEntities(orphans, colliders, 'kept objects');
       this.sceneRevision += 1;
       this.sceneSetCache = null;
@@ -5083,77 +5054,12 @@ class RuntimeInstance implements Runtime {
     });
   }
 
-  /**
-   * Bring the colliders scripts drive up to date with the
-   * modules' transform owners (at a step boundary): an owned collider that is
-   * still a fixed body is re-added to the 3D port as a kinematic one at its
-   * current transform (posed from then on with the movers). False after a
-   * fail-stop.
-   */
-  private syncScriptColliders3D(): boolean {
-    this.scriptCollidersDirty = false;
-    const port = this.physics3d;
-    if (port === undefined) return true;
-    const owned = new Set<string>();
-    const off = this.entityAccess.inactive();
-    for (const entry of this.entries) for (const id of entry.owners) if (!off.has(id) && scriptDrivableCollider(this.colliderComponents3D.get(id))) owned.add(id);
-    const add: StaticColliderSpec3D[] = [];
-    for (const id of [...owned].sort()) {
-      if (this.scriptColliders3D.has(id)) continue;
-      const comps = this.colliderComponents3D.get(id)!;
-      const t = this.curr.get(id);
-      const spec = staticColliderOf3D(id, t !== undefined ? { ...comps, transform: { position: [...t.position], rotation: [...t.rotation], scale: [...t.scale] } } : comps, true);
-      if (spec !== null) add.push(spec);
-    }
-    if (add.length === 0) return true;
-    if (typeof port.addStaticColliders !== 'function' || typeof port.removeStaticColliders !== 'function' || typeof port.setKinematicPoses !== 'function') {
-      this.failStop('physics_port_error', 'script_colliders', 'the 3D physics port cannot pose colliders scripts drive', this.stepIndex);
-      return false;
-    }
-    try {
-      port.removeStaticColliders(add.map((sp) => sp.entityId));
-      port.addStaticColliders(add);
-    } catch (e) {
-      this.failStop('physics_port_error', 'script_colliders', `making the colliders scripts drive kinematic failed: ${messageOf(e)}`, this.stepIndex);
-      return false;
-    }
-    for (const sp of add) this.scriptColliders3D.add(sp.entityId);
-    return true;
-  }
-
-  /** Where the colliders scripts drive are now (their committed transforms), in id order. */
-  private scriptColliderPoses3D(): { entityId: string; position: [number, number, number]; rotation: readonly number[] }[] {
-    if (this.scriptColliders3D.size === 0) return [];
-    const out: { entityId: string; position: [number, number, number]; rotation: readonly number[] }[] = [];
-    for (const id of [...this.scriptColliders3D].sort()) {
-      const t = this.curr.get(id);
-      if (t !== undefined) out.push({ entityId: id, position: [t.position[0], t.position[1], t.position[2]], rotation: t.rotation });
-    }
-    return out;
-  }
-
-  /** Add the 3D colliders of loaded / spawned entities (false after a fail-stop). */
-  private addColliders3D(entities: readonly EntityV3[], refuse: (why: string) => boolean, what: string): boolean {
-    const port = this.physics3d!;
-    const specs: StaticColliderSpec3D[] = [];
-    for (const e of entities) {
-      const c = e.components as unknown as Record<string, unknown>;
-      if (c['controller'] !== undefined) continue;
-      const spec = staticColliderOf3D(e.id, c);
-      if (spec !== null) specs.push(spec);
-    }
-    if (specs.length === 0) return true;
-    if (typeof port.addStaticColliders !== 'function') {
-      refuse('the physics port cannot add colliders');
-      return false;
-    }
-    try {
-      port.addStaticColliders(specs);
-    } catch (e) {
-      this.failStop('physics_port_error', 'scene_colliders', `adding the colliders of ${what} failed: ${messageOf(e)}`, this.stepIndex);
-      return false;
-    }
-    return true;
+  /** Bring the moving colliders up to date at a step boundary (false after a fail-stop). */
+  private syncColliders(): boolean {
+    const failed = this.colliders.sync();
+    if (failed === null) return true;
+    this.failStop('physics_port_error', 'script_colliders', failed, this.stepIndex);
+    return false;
   }
 
   private failStopFromError(e: unknown, stepIndex: number): void {

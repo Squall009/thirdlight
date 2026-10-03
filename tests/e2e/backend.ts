@@ -243,9 +243,9 @@ export function exportedContent(outDir: string): ExpandedRuntimeContent {
 /**
  * Publish a TypeScript behavior (no properties) through the real content
  * route (stage, upload, declaration, trust, source) and attach it to
- * `entityId`.
+ * `entityId` (`ownedTransforms`: what it moves, e.g. '@self').
  */
-export async function publishScript(be: E2EBackend, behaviorId: string, source: string, entityId: string): Promise<void> {
+export async function publishScript(be: E2EBackend, behaviorId: string, source: string, entityId: string, ownedTransforms: readonly string[] = []): Promise<void> {
   const headers = { authorization: `Bearer ${be.token}`, origin: be.origin };
   const base = `${be.origin}/api/v1/projects/${be.projectId}`;
   const run = async (op: string, args: Record<string, unknown>): Promise<void> => {
@@ -253,7 +253,7 @@ export async function publishScript(be: E2EBackend, behaviorId: string, source: 
     const r = await be.command({ op, projectId: be.projectId, expectedRevision: Number(q['revision']), requestId: `req-${randomUUID().replace(/-/g, '')}`, origin: { kind: 'mcp', clientId: 'e2e-script' }, args });
     if (r['ok'] !== true) throw new Error(`publishScript ${op}: ${JSON.stringify(r).slice(0, 400)}`);
   };
-  const bytes = Buffer.from(`${JSON.stringify({ graphVersion: 1, entryPath: 'src/index.ts', requiredModules: ['@thirdlight/runtime'], ownedTransforms: [], files: [{ path: 'src/index.ts', text: source }] }, null, 2)}\n`);
+  const bytes = Buffer.from(`${JSON.stringify({ graphVersion: 1, entryPath: 'src/index.ts', requiredModules: ['@thirdlight/runtime'], ownedTransforms, files: [{ path: 'src/index.ts', text: source }] }, null, 2)}\n`);
   const stage = (await (await fetch(`${base}/content/stages`, { method: 'POST', headers: { ...headers, 'content-type': 'application/json' }, body: '{}' })).json()) as { stageId: string };
   const put = await fetch(`${base}/content/stages/${stage.stageId}/bytes`, { method: 'PUT', headers: { ...headers, 'content-type': 'application/octet-stream', 'x-thirdlight-offset': '0', 'x-thirdlight-total': String(bytes.length) }, body: bytes });
   if (!put.ok) throw new Error(`publishScript ${behaviorId} upload: ${put.status}`);

@@ -68,6 +68,7 @@ import { validateImportAssetsArgs, type ImportAssetsArgs } from './import-assets
 import { validateSetAddressArgs, validateSetLabelsArgs, type SetAddressArgs, type SetLabelsArgs } from './loadable-ops';
 import { validateImportResourcesArgs, type ImportResourcesArgs } from './import-resources';
 import { validatePaintInstancesArgs, type PaintInstancesArgs } from './instance-stroke-ops';
+import { validateColliderFromModelArgs, type ColliderFromModelArgs } from './collider-model-ops';
 import { validateCreateFolderArgs, validateMoveResourcesArgs, validateRenameFolderArgs, type CreateFolderArgs, type MoveResourcesArgs, type RenameFolderArgs } from './move-ops';
 import {
   validateCreatePrefabArgs,
@@ -206,6 +207,7 @@ export const MUTATION_OPS: readonly MutationOp[] = [
   'createFolder',
   // The instance brush (one stroke)
   'paintInstances',
+  'colliderFromModel',
 ];
 
 const ORIGIN_KINDS = ['browser', 'mcp', 'admin'] as const;
@@ -231,7 +233,7 @@ export const CREATE_COMPONENTS: readonly string[] = SET_COMPONENT_NAMES.filter((
 
 /** Expected-text constants (the `expected` strings are log-safe, stable). */
 const EXPECT = {
-  op: 'one of: createEntity, setTransform, deleteEntity, undo, redo, publishAsset, publishBehavior, setBehaviorProperties, setComponent, setSettings, acknowledgeBehaviorTrust, createPrefab, instantiatePrefab, applySurfacePreset, updateEntity, moveEntities, setTags, setAssetOptions, pasteEntities, setMaterial, deleteMaterial, setEnvironment, setLighting, setAnimator, deleteAnimator, setInput, setCollisionLayers, setSaveSchema, createScene, renameScene, deleteScene, setStartScenes, setGraph, deleteGraph, graphEdit, setEffect, deleteEffect, renameEffect, setScriptLibrary, deleteScriptLibrary, editBlocks, setBlockType, deleteBlockType, setCellFields, setBlockStamp, deleteBlockStamp, setUiDocument, deleteUiDocument, setUiTheme, deleteUiTheme, setTimeline, deleteTimeline, setModes, setBehaviorGroups, setEventCues, setShell, setDialogue, deleteDialogue, setSpeaker, deleteSpeaker, setDialogueSettings, deleteAsset, deletePrefab, importAssets, importResources, createEntities, commitScriptLibraryStage, setLabels, setAddress, moveResources, renameFolder, createFolder, paintInstances',
+  op: 'one of: createEntity, setTransform, deleteEntity, undo, redo, publishAsset, publishBehavior, setBehaviorProperties, setComponent, setSettings, acknowledgeBehaviorTrust, createPrefab, instantiatePrefab, applySurfacePreset, updateEntity, moveEntities, setTags, setAssetOptions, pasteEntities, setMaterial, deleteMaterial, setEnvironment, setLighting, setAnimator, deleteAnimator, setInput, setCollisionLayers, setSaveSchema, createScene, renameScene, deleteScene, setStartScenes, setGraph, deleteGraph, graphEdit, setEffect, deleteEffect, renameEffect, setScriptLibrary, deleteScriptLibrary, editBlocks, setBlockType, deleteBlockType, setCellFields, setBlockStamp, deleteBlockStamp, setUiDocument, deleteUiDocument, setUiTheme, deleteUiTheme, setTimeline, deleteTimeline, setModes, setBehaviorGroups, setEventCues, setShell, setDialogue, deleteDialogue, setSpeaker, deleteSpeaker, setDialogueSettings, deleteAsset, deletePrefab, importAssets, importResources, createEntities, commitScriptLibraryStage, setLabels, setAddress, moveResources, renameFolder, createFolder, paintInstances, colliderFromModel',
   projectId: 'project-model ID syntax: [a-z0-9][a-z0-9_-]{0,63}',
   expectedRevision: 'integer, 0 <= v <= 2^53-1',
   requestId: 'req- + 32 lowercase hex chars: ^req-[0-9a-f]{32}$',
@@ -1318,7 +1320,8 @@ export type ValidatedOpArgs =
   | { op: 'moveResources'; args: MoveResourcesArgs }
   | { op: 'renameFolder'; args: RenameFolderArgs }
   | { op: 'createFolder'; args: CreateFolderArgs }
-  | { op: 'paintInstances'; args: PaintInstancesArgs };
+  | { op: 'paintInstances'; args: PaintInstancesArgs }
+  | { op: 'colliderFromModel'; args: ColliderFromModelArgs };
 
 /** The argument shapes of the block-layer ops (null: valid). */
 function blockArgsError(op: string, args: Record<string, unknown>): CommandError | null {
@@ -1465,6 +1468,11 @@ export function validateOpArgs(
       const r = validatePaintInstancesArgs(args);
       if (!r.ok) return r;
       return { ok: true, validated: { op: 'paintInstances', args: r.args } };
+    }
+    case 'colliderFromModel': {
+      const r = validateColliderFromModelArgs(args);
+      if (!r.ok) return r;
+      return { ok: true, validated: { op: 'colliderFromModel', args: r.args } };
     }
     case 'importAssets': {
       const r = validateImportAssetsArgs(args);

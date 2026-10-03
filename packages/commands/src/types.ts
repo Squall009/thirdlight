@@ -189,7 +189,9 @@ export type V3MutationOp =
   | 'renameFolder'
   | 'createFolder'
   // An instance set painted or erased with the brush (one stroke, one undo)
-  | 'paintInstances';
+  | 'paintInstances'
+  // An object's collider made from its model file (one undo)
+  | 'colliderFromModel';
 
 /** Every implemented mutation op. */
 export type MutationOp = M1MutationOp | ContentMutationOp | PrefabMutationOp | V3MutationOp;
@@ -1446,6 +1448,8 @@ export interface CommandState<S extends SceneDocument = SceneDocument> {
   preparedMoves?: PreparedMoves;
   /** The host's planned and published stroke (`paintInstances` reads only this). */
   preparedInstanceStroke?: import('./instance-stroke-ops').PreparedInstanceStroke;
+  /** The host's collider shape made from the object's model (`colliderFromModel` reads only this). */
+  preparedModelCollider?: import('./collider-model-ops').PreparedModelCollider;
   /** The looks of the scenes a scene-index op names besides the edited one (a deleted scene, the scene a new one copies). */
   sceneEnvironments?: ReadonlyMap<string, SceneEnvironment>;
   /**

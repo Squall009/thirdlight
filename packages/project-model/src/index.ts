@@ -63,6 +63,10 @@ export type {
   ColliderConvexShape,
   ColliderMeshShape,
   ColliderShape,
+  ColliderShapePose,
+  ColliderPrimitiveShape,
+  ColliderCompoundShape,
+  ColliderModelShape,
   ContentCatalog,
   ControllerCapsule,
   ControllerComponent,
@@ -1162,3 +1166,7 @@ export type { TimelineAsset, TimelineTrack, TimelineKey, TimelineSlot, TimelineM
 export { SIGNAL_DEBUG_COMMAND_NAME, type SignalDebugCommandName } from './debug-command-names';
 // The scene rules checked before Play and the export (not per command).
 export { playChecks, type PlayCheck } from './play-checks';
+export { COLLIDER_PRIMITIVE_TYPES, COLLIDER_SHAPE_TYPES, canonicalShape, colliderShapeParts, colliderShapePoints, spansVolume } from './collider-shapes';
+// Collider shapes made from geometry, and a model's collision parts read from its file.
+export { boxFromBounds, colliderFromTriangles, convexFromPoints, convexHull2, hullPoints, polygonFromPoints, roundMm, type GeometryCollider } from './collider-geometry';
+export { MODEL_COLLIDER_KINDS, collisionPartPolygons, validateModelColliderTable, modelColliderShape, modelCollisionParts, readModelGeometry, type ModelColliderKind, type ModelColliderTable, type ModelCollisionPart, type ModelGeometry, type ModelGeometryPrimitive } from './model-collision';

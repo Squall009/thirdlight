@@ -74,6 +74,7 @@ export function everyOptionalKey(): Record<string, unknown> {
     lighting: { 'scene-a': { bakeId: 'bake-a', createdAt: '2026-09-19T10:00:00Z', source: 'browser', range: 1, texelsPerMeter: 4, samples: 16, bounces: 1, atlases: ['tex-a'], entries: [], bakedLights: [], lightsHash: '0'.repeat(16), staticsHash: '1'.repeat(16) } },
     animators: [{ controllerId: 'anim-a', name: 'Anim', parameters: [], states: [{ id: 'idle', name: 'Idle', motion: { kind: 'clip', clip: { assetId: 'asset-1', clip: 'Idle', duration: 1 } }, speed: 1, loop: true }], transitions: [], entry: 'idle', events: [] }],
     rigs: { 'asset-1': { nodes: [{ name: 'root', parent: -1, t: [0, 0, 0], r: [0, 0, 0, 1], s: [1, 1, 1] }], clips: [] } },
+    modelColliders: { 'asset-1': { '': [[[0, 0, 0], [1, 0, 0], [0, 1, 0], [0, 0, 1]]] } },
     prefabs: [{ prefabId: 'pf-a', displayName: 'Pf', createdRevision: 1, entityCount: 1, depth: 1, entities: [{ localId: 'root', name: 'Root', parentLocalId: null, components: { transform: { position: [0, 0, 0], rotation: [0, 0, 0, 1], scale: [1, 1, 1] } } }] }],
     blockTypes: [{ blockId: 'bt-a', name: 'Bt', shape: 'full', variants: [{ color: '#808080' }] }],
     cellFields: [{ key: 'depth', type: 'int' }],

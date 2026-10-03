@@ -46,6 +46,7 @@ import { canonicalBlockTypes, canonicalCellFields, validateBlockTypes, validateC
 import { canonicalEnvironment, canonicalMaterialMapping, canonicalMaterials, validateEnvironment, validateMaterials, type EnvironmentConfig, type MaterialDef, type SceneEnvironment } from './materials';
 import { canonicalAnimators, validateAnimators, type AnimatorController } from './animator';
 import { validateModelRig, type ModelRig } from './model-rig';
+import { validateModelColliderTable, type ModelColliderTable } from './model-collision';
 import { canonicalInput, projectInputMaps, validateInput, type InputConfig } from './input';
 import { validateCollisionLayers } from './components';
 import { canonicalLighting, validateLighting, type LightingMap } from './lighting';
@@ -138,7 +139,7 @@ export interface ManifestSceneRow {
 }
 
 /** Keys present only when they apply: tags, scenes, buffers. */
-const OPTIONAL_MANIFEST_KEYS = new Set(['tags', 'effects', 'environment', 'lighting', 'animators', 'rigs', 'prefabs', 'blockTypes', 'cellFields', 'input', 'collisionLayers', 'saveSchema', 'uiThemes', 'timelines', 'eventCues', 'shell', 'modes', 'scenes', 'contentFiles', 'libraries', 'loadable']);
+const OPTIONAL_MANIFEST_KEYS = new Set(['tags', 'effects', 'environment', 'lighting', 'animators', 'rigs', 'modelColliders', 'prefabs', 'blockTypes', 'cellFields', 'input', 'collisionLayers', 'saveSchema', 'uiThemes', 'timelines', 'eventCues', 'shell', 'modes', 'scenes', 'contentFiles', 'libraries', 'loadable']);
 
 /** The v2 manifest keys in their exact canonical order (`buildId` last). */
 export const MANIFEST_KEYS_V2 = [
@@ -162,6 +163,8 @@ export const MANIFEST_KEYS_V2 = [
   'animators',
   // Model rigs (nodes and node animation channels) sockets are resolved on — only in a project that uses sockets.
   'rigs',
+  // The models' `_COL` parts colliders `{type: 'model'}` are made of — only when a collider names its model.
+  'modelColliders',
   'prefabs',
   // The block types and the cell metadata schema block layers use.
   'blockTypes',
@@ -745,6 +748,8 @@ export interface CaptureManifestV2Input {
   animators?: readonly AnimatorController[];
   /** Model assetId -> its rig (only when the project uses sockets). */
   rigs?: Readonly<Record<string, ModelRig>>;
+  /** Model assetId -> piece -> its `_COL` parts (only when a collider is `{type: 'model'}`). */
+  modelColliders?: ModelColliderTable;
   /** The prefab definitions scripts spawn (only when there are some). */
   prefabs?: readonly PrefabDefinition[];
   /** The block types and cell fields (only when there are some). */
@@ -865,6 +870,7 @@ export function canonicalManifestBlocks(input: Omit<CaptureManifestV2Input, 'ass
     ...(input.lighting !== undefined && Object.keys(input.lighting).length > 0 ? { lighting: canonicalLighting(input.lighting) } : {}),
     ...(input.animators !== undefined && input.animators.length > 0 ? { animators: canonicalAnimators(input.animators) } : {}),
     ...(input.rigs !== undefined && Object.keys(input.rigs).length > 0 ? { rigs: Object.fromEntries(Object.keys(input.rigs).sort().map((k) => [k, input.rigs![k]!])) } : {}),
+    ...(input.modelColliders !== undefined && Object.keys(input.modelColliders).length > 0 ? { modelColliders: Object.fromEntries(Object.keys(input.modelColliders).sort().map((k) => [k, Object.fromEntries(Object.keys(input.modelColliders![k]!).sort().map((piece) => [piece, input.modelColliders![k]![piece]!]))])) } : {}),
     ...(input.prefabs !== undefined && input.prefabs.length > 0 ? { prefabs: canonicalPrefabs(input.prefabs) } : {}),
     ...(input.blockTypes !== undefined && input.blockTypes.length > 0 ? { blockTypes: canonicalBlockTypes(input.blockTypes) } : {}),
     ...(input.cellFields !== undefined && input.cellFields.length > 0 ? { cellFields: canonicalCellFields(input.cellFields) } : {}),
@@ -1191,6 +1197,10 @@ export function manifestBlocksProblem(d: Readonly<Record<string, unknown>>): Man
       const why = validateModelRig(v);
       if (why !== null) return manifestError('manifest_invalid', `rigs["${k}"]: ${why}`.slice(0, 256), 'field_value');
     }
+  }
+  if (d['modelColliders'] !== undefined) {
+    const why = validateModelColliderTable(d['modelColliders']);
+    if (why !== null) return manifestError('manifest_invalid', `modelColliders: ${why}`.slice(0, 256), 'field_value');
   }
   if (d['tags'] !== undefined) {
     const tagErrors: ModelErrorV2[] = [];

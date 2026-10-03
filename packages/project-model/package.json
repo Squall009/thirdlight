@@ -7,6 +7,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./png": "./src/png-decode.ts",
-    "./limits": "./src/limits.ts"
+    "./limits": "./src/limits.ts",
+    "./meshopt": "./src/meshopt.ts"
   }
 }

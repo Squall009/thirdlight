@@ -179,41 +179,19 @@ export function useEntityEditing(deps: EntityEditingDeps) {
   );
 
   /**
-   * A 3D project: a collider from the object's own model — a
-   * box from its bounds (a convex hull of the corners when off-centre), a
-   * convex hull or a triangle mesh from its `_COL` node(s), else its LOD0
-   * geometry — in the object's frame (its scale applies in physics).
+   * A 3D project: a collider from the object's own model, made by the
+   * backend from the model file (`colliderFromModel`, the same command MCP
+   * sends) — a box around it (centred where it is), a convex hull or a
+   * triangle mesh from its `_COL` node(s), else its LOD0 geometry, or a
+   * compound of the `_COL` node's convex parts — in the object's frame (its
+   * scale applies in physics).
    */
   const colliderFromModel3D = useCallback(
-    async (entityId: string, kind: 'box' | 'convex' | 'mesh') => {
-      const model = clientRef.current?.projection.getEntity(entityId)?.components['model'] as { asset?: { assetId?: string }; piece?: string } | undefined;
-      const assetId = model?.asset?.assetId;
-      const resource = assetId !== undefined ? await modelInstancesRef.current?.prepared(assetId) : null;
-      if (resource === null || resource === undefined) {
-        setComponentError({ code: 'no_model', message: 'A 3D collider from the model needs a loaded model on this object.' });
-        return;
-      }
-      const piece = model?.piece ?? null;
-      let shape: Record<string, unknown>;
-      let note: string | undefined;
-      if (kind === 'box') {
-        const b = resource.bounds(piece);
-        const made = boxFromBounds3D(b.isEmpty() ? null : { min: [b.min.x, b.min.y, b.min.z], max: [b.max.x, b.max.y, b.max.z] });
-        if (!made.ok) return setComponentError({ code: 'no_outline', message: made.message });
-        shape = made.shape;
-        note = made.note;
-      } else {
-        const made = resource.collider3D(piece, kind);
-        if (!made.ok) return setComponentError({ code: 'no_outline', message: made.message });
-        shape = made.shape;
-        note = made.source === 'collision' ? `${kind === 'mesh' ? 'mesh' : 'convex hull'} from the model's collision node` : `${kind === 'mesh' ? 'mesh' : 'convex hull'} from the model's geometry (no _COL node)`;
-      }
-      if (note !== undefined) setNotice(`Collider: ${note}`);
-      const has = clientRef.current?.projection.getEntity(entityId)?.components['collider'] !== undefined;
-      if (has) await editComponent(entityId, 'collider', { shape });
-      else await addComponentTo(entityId, 'collider', { shape });
+    async (entityId: string, kind: 'box' | 'convex' | 'mesh' | 'compound') => {
+      const ok = await runTypedCommand('colliderFromModel', { entityId, kind }, setComponentError, true);
+      if (ok) setNotice(`Collider: ${kind === 'box' ? 'box around the model' : kind === 'compound' ? "one hull per part of the model's _COL node" : `${kind === 'mesh' ? 'mesh' : 'convex hull'} from the model's _COL node (else its geometry)`}`);
     },
-    [clientRef, modelInstancesRef, setNotice, editComponent, addComponentTo],
+    [runTypedCommand, setNotice],
   );
 
   /** A collider from the model's outline on the play plane (a box, or a polygon of at most 8 corners). */

@@ -134,7 +134,8 @@ surfaces). Format changes share one bump: `project.json` schemaVersion 7
 | 28.7 | done 2026-10-03 — `ctx.world.worldTransform` / `{space: 'world'}` (`transform` documented as local, D134); `ctx.input.anyPressed()` (`{device, code}` of any key, mouse or pad button, bound or not); `ctx.spawn` per-copy `properties` (saved with spawned copies); runtime material swaps (entity handle `set('materials', …)` on models, boxes, instance sets; `ctx.grid.setTypeMaterials`; timeline `materialSwap` key) shown only once their textures are loaded; `character_place` `facing` and `world.character.facing`; slot `meta` (≤ 8 short texts) from `slots()`; UI image `saveSlot` shows a slot's picture |
 | 28.8 | done 2026-10-03 — UI sounds `{click, hover, focus}` per widget, per style and as the document's default, on the `ui` bus (engine actions click too); scale modes `cover` and `expand`; `ctx.ui.view()` / `$flow.view`; bindable `offset`, `opacity`, `rotation`; bound lists keep their item widgets and focus (by index or `itemKey`), `ctx.ui.focus(doc, widget, index)` (D131); shell `simulate: {screen: 'scripts'}`; Play screenshots draw the UI and overlays over the frame (`ui: false` for the frame alone) |
 | 28.9 | done 2026-10-03 — blend clips carry their authored ground speed and a tree with one on every clip plays at the rate that covers its parameter (Unity's homogeneous speed); `animator.startTime` and `randomStart` (from `random_seed` and the object id), `play(state, fade, layer, time)` for scripts; a look-at constraint on the animator (head, optional neck and chest with yaw/pitch limits, target object or point, weight × float parameter, turn speed, after the clip pose; `setLookTarget`/`setLookPoint`/`setLookWeight`); measured in Play: blended ground rate, random starts and their replay, the drawn head bone's turn, limit and return |
-| 28.10–28.13 | — |
+| 28.10 | done 2026-10-03 — every collider shape takes a `center` and a `rotation`; `compound` (a list of shapes on one body) and `model` (each mesh of the object's model's `_COL` node a convex hull, read when the game is built: manifest `modelColliders`); colliders on child objects where their parents put them, kinematic once a parent is moved by a script, a timeline or a mover; `colliderFromModel` (box, convex, mesh, polygon, compound) is the editor's button over HTTP/MCP; Scene view: no collider outlines until asked for, the selection's (and its children's) always; D138 logged |
+| 28.11–28.13 | — |
 
 ## 6. Decision log
 
@@ -384,3 +385,40 @@ surfaces). Format changes share one bump: `project.json` schemaVersion 7
   needs one type per argument, so target and point are two calls). Play's
   observation with an `entityId` gives the pose (`look`) and the drawn bones
   (`renderedBones`), which the e2e measures.
+- 2026-10-03 (28.10): shapes — every primitive takes `center` [x, y, z] (a
+  plane reads x, y) and `rotation` [x, y, z, w] (about Z only on a plane);
+  `{type: 'compound', shapes}` lists primitives (no nesting, no count of its
+  own: its hull and mesh points count toward the scene's 3D point budget, the
+  request size bounds one edit); `{type: 'model'}` needs a model on the same
+  object. A turned shape under an uneven scale is built from its moved points
+  (a box becomes its 8 corners' hull), Unity's approximation of a sheared
+  collider. A model's parts: each mesh primitive under its piece's `<piece>_COL`
+  node (every `_COL` node of a model shown whole) is one convex hull of at most
+  64 points (Unreal's UCX_, Godot's -convcolonly), read from the file when the
+  game is built into the manifest's `modelColliders` (like rigs: the runtime
+  never reads a model); Draco or flat parts are left out and Play/export warn
+  `collider_model`. The meshopt decoder moved to project-model (`./meshopt`)
+  so the build and the importer decode with one.
+- 2026-10-03 (28.10): colliders on children are allowed (not the controller,
+  not a mover's own collider: their systems pose them in world space). They are
+  placed where their parents put them and follow once the object or a parent is
+  moved by something other than physics — a script owning its transform, a
+  timeline's transform track, a mover — as kinematic bodies posed every step
+  (Unity's moving collider on a kinematic body, Godot's AnimatableBody); a mesh
+  collider stays static (one log line). They push the player as a mover does
+  (D138: in 3D with the character controller the push leaves the player about
+  0.1 m inside, movers too). On the 2D plane children's colliders are placed at
+  load and stay (its scripts drive no collider).
+- 2026-10-03 (28.10): `colliderFromModel {entityId, kind}` — box (around the
+  LOD0 render geometry, now centred where it is with `center`, where the
+  editor made an 8-corner hull), convex or mesh (the `_COL` node, else the
+  geometry; 3D), polygon (the plane), compound (the `_COL` parts). The host
+  reads the model's latest version; one setComponent change (one undo). The 3D
+  editor buttons send it (plus "Compound of _COL parts"); the plane's outline
+  buttons stay in the editor: they measure the drawn model with its children.
+- 2026-10-03 (28.10): outlines — the Scene view's toggle is the Gizmos menu's
+  "Collider outlines" (the editor has no View menu; Gizmos is the Scene view's),
+  off by default; the selected object's outlines and its children's are always
+  drawn (a player's capsule too, and clickable then). The component field orders
+  are one list (`commands` v3.ts `COMPONENT_FIELD_ORDER`; the history's copy had
+  lost five light fields).

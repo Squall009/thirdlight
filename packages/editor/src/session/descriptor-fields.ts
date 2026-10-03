@@ -512,7 +512,11 @@ export function addEntries(reg: DescriptorRegistry, present: ReadonlySet<string>
     const base = c.add.kind === 'menu' || c.add.kind === 'pick' ? c.add.value : null;
     const fitting = (c.presets ?? []).map((p, i) => ({ p, i })).filter(({ p }) => p.dimension === undefined || p.dimension === dimension);
     if (fitting.length > 0 && c.add.kind === 'menu') {
-      fitting.forEach(({ p, i }) => out.push({ id: `${c.name}:${i}`, component: c.name, label: `${c.label}: ${p.label}`, category: c.category, value: p.value, pick: [], enabled: reason === null, reason }));
+      fitting.forEach(({ p, i }) => {
+        const lacking = reason === null ? (p.requires ?? []).find((n) => !present.has(n)) : undefined;
+        const why = reason ?? (lacking !== undefined ? `needs ${labelOf(lacking)} on this object` : null);
+        out.push({ id: `${c.name}:${i}`, component: c.name, label: `${c.label}: ${p.label}`, category: c.category, value: p.value, pick: [], enabled: why === null, reason: why });
+      });
     } else {
       out.push({ id: c.name, component: c.name, label: c.label, category: c.category, value: base, pick, enabled: reason === null, reason });
     }

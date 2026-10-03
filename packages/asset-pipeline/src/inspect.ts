@@ -24,7 +24,7 @@ import type { AssetMetrics, ImportRecipe } from '@thirdlight/project-model';
 import type { AudioImportProposal, AudioRecipe } from './inspect-audio';
 
 import { decodedImageBytes, detectImageMime, imageDimensions, type ImportImageMime } from './images';
-import { decodeMeshopt, MeshoptError, type MeshoptFilter, type MeshoptMode } from './meshopt';
+import { decodeMeshopt, MeshoptError, type MeshoptFilter, type MeshoptMode } from '@thirdlight/project-model/meshopt';
 import { escapePointer, strictJsonParse } from './json';
 import {
   ANIMATION_PROFILE_MAX_CLIPS,

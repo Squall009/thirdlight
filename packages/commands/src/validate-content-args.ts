@@ -27,8 +27,8 @@ import {
   limitsExceeded,
   settingUnknown,
 } from './errors';
-import { BLOCK_LAYER_FIELDS, CAMERA_PATH_FIELDS, CONTROLLER_FIELDS, CAMERA_REGION_FIELDS, MAX_BEHAVIOR_SOURCE_BYTES, SOCKET_ATTACH_FIELDS, VIRTUAL_CAMERA_FIELDS, isValidSourcePath, type PropertyValue, type SettingsKeySpec } from '@thirdlight/project-model';
-import { SURFACE_PRESET_NAMES } from './v3';
+import { COLLIDER_SHAPE_TYPES, MAX_BEHAVIOR_SOURCE_BYTES, isValidSourcePath, type PropertyValue, type SettingsKeySpec } from '@thirdlight/project-model';
+import { COMPONENT_FIELD_ORDER, SURFACE_PRESET_NAMES } from './v3';
 import type {
   AcknowledgeBehaviorTrustArgs,
   ApplySurfacePresetArgs,
@@ -458,51 +458,6 @@ export function validateSetBehaviorPropertiesArgs(
   return { ok: true, args: out };
 }
 
-/** Component field sets. */
-const COMPONENT_FIELDS: Record<string, readonly string[]> = {
-  box: ['size', 'material', 'castShadow', 'receiveShadow'],
-  camera: ['type', 'fovY', 'near', 'far'],
-  // The piece of a multi-piece file is an Inspector field too.
-  model: ['asset', 'piece', 'castShadow', 'receiveShadow'],
-  collider: ['shape', 'oneWay', 'layers'],
-  controller: CONTROLLER_FIELDS,
-  // An exit zone's scenes and arrival spawn are edited like every other field.
-  // Which way the character faces at this spawn (v4; yaw only).
-  playerSpawn: ['yaw'],
-  light: ['type', 'color', 'intensity', 'direction', 'castShadow', 'range', 'decay', 'angle', 'penumbra', 'groundColor', 'mode', 'shadowMapSize', 'shadowBias', 'shadowNormalBias', 'shadowExtent', 'cookie'],
-  surface: ['color', 'roughness', 'metalness', 'emissive', 'emissiveIntensity'],
-  modelAnimation: ['assetId', 'version', 'roles'],
-  // v4 scenes only.
-  instances: ['asset', 'buffer', 'count', 'castShadow', 'receiveShadow', 'chunkSize'],
-  fogVolume: ['size', 'density', 'color', 'falloff', 'heightFalloff'],
-  animator: ['controller', 'parameters', 'startTime', 'randomStart', 'lookAt'],
-  mover: ['waypoints', 'speed', 'mode', 'wait', 'easing', 'startOn', 'maxPush', 'active', 'stopOn', 'toggleOn', 'reverseOn'],
-  audioSource: ['assetId', 'volume', 'range', 'distanceModel', 'refDistance', 'rolloff'],
-  faceMovement: ['yawRight', 'yawLeft', 'turnSeconds', 'mode', 'yawOffset'],
-  trigger: ['size', 'signal', 'once', 'exitSignal', 'shape', 'radius', 'mode', 'height', 'sceneTransition'],
-  switch: ['mode', 'signal', 'size', 'once', 'action'],
-  health: ['max', 'start'],
-  // The effect played from the entity.
-  effect: ['effectId', 'playOnStart', 'params', 'signal', 'stopSignal'],
-  // The camera framework.
-  virtualCamera: VIRTUAL_CAMERA_FIELDS,
-  cameraPath: CAMERA_PATH_FIELDS,
-  // sockets.
-  socketAttach: SOCKET_ATTACH_FIELDS,
-  // A block layer's settings (its cells are editBlocks' data).
-  blockLayer: BLOCK_LAYER_FIELDS,
-  // A prop's block footprint.
-  blockFootprint: ['layer', 'size', 'set'],
-  // The behavior group (game modes tick groups).
-  behaviorGroup: ['group'],
-  // The generic primitives (project-model blocks.ts field order).
-  collectible: ['counter', 'amount', 'respawn', 'onCollect', 'size'],
-  patrol: ['mode', 'waypoints', 'loop', 'speed', 'wait', 'direction', 'size', 'wallProbe', 'ledgeProbe'],
-  hitbox: ['shape', 'size', 'radius', 'damage'],
-  climbVolume: ['size'],
-  gravity: ['scale', 'size'],
-  cameraRegion: CAMERA_REGION_FIELDS,
-};
 
 const OWNED: readonly OwnedComponent[] = [
   'box',
@@ -657,7 +612,7 @@ export function validateSetComponentArgs(
   if (!isPlainObject(value)) {
     return { ok: false, error: fieldType('/args/value', value, 'object (non-empty partial component)') };
   }
-  const fields = COMPONENT_FIELDS[component] ?? [];
+  const fields = (COMPONENT_FIELD_ORDER as Record<string, readonly string[] | undefined>)[component] ?? [];
   const keys = Object.keys(value);
   // The `controller`/`playerSpawn` markers have no fields, so their ADD value
   // is exactly `{}`; every other component requires a non-empty partial object.
@@ -712,17 +667,17 @@ export function validateSetComponentArgs(
     // `layers` alone edits the collision layers (the shape stays).
     if (shape === undefined && (value['oneWay'] !== undefined || value['layers'] !== undefined)) return { ok: true, args: { entityId: args['entityId'], component: component as OwnedComponent, value } };
     if (!isPlainObject(shape)) {
-      return { ok: false, error: fieldType('/args/value/shape', shape, 'object ({ type: "box"|"polygon"|"sphere"|"capsule"|"convex"|"mesh", ... })') };
+      return { ok: false, error: fieldType('/args/value/shape', shape, 'object ({ type: "box"|"polygon"|"sphere"|"capsule"|"convex"|"mesh"|"compound"|"model", ... })') };
     }
     // The 3D shapes (the project's physics dimension is the model's rule).
-    if (!['box', 'polygon', 'sphere', 'capsule', 'convex', 'mesh'].includes(shape['type'] as string)) {
+    if (!(COLLIDER_SHAPE_TYPES as readonly unknown[]).includes(shape['type'])) {
       return {
         ok: false,
         error: fieldValue(
           '/args/value/shape/type',
           shape['type'],
-          '"box", "polygon", "sphere", "capsule", "convex" or "mesh"',
-          'collider.shape.type must be "box" or "polygon" (a 3D project also "sphere", "capsule", "convex" or "mesh")',
+          '"box", "polygon", "sphere", "capsule", "convex", "mesh", "compound" or "model"',
+          'collider.shape.type must be "box", "polygon", "compound" or "model" (a 3D project also "sphere", "capsule", "convex" or "mesh")',
         ),
       };
     }

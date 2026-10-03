@@ -185,6 +185,7 @@
     {
       "id": "ctrl-0001",
       "name": "Character",
+      "parentId": "group-0001",
       "components": {
         "transform": {
           "position": [

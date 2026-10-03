@@ -10,7 +10,7 @@
  * workspace: `publishAsset` takes digest-addressed facts only, and behavior
  * **source** publication is refused before any stage/digest work.
  */
-import { CONTROLLER_FIELDS, ID_RE } from '@thirdlight/project-model';
+import { ID_RE } from '@thirdlight/project-model';
 
 import {
   BEHAVIOR_ENTRY_PATH,
@@ -65,6 +65,7 @@ import {
   type ValueContext,
 } from './properties';
 import {
+  COMPONENT_FIELD_ORDER,
   COMPONENT_FIELD_ORDER_V3,
   REMOVABLE_COMPONENTS,
   animationVersionOf,
@@ -716,16 +717,6 @@ export function applySetBehaviorProperties(
 
 // ---- setComponent ----------------------------------------------------------
 
-const COMPONENT_FIELD_ORDER: Record<OwnedComponent, readonly string[]> = {
-  // The shadow flags (optional; `null` goes back to the default, true).
-  box: ['size', 'material', 'castShadow', 'receiveShadow'],
-  camera: ['type', 'fovY', 'near', 'far'],
-  model: ['asset', 'piece', 'castShadow', 'receiveShadow'],
-  collider: ['shape'],
-  // The capsule, then the movement tuning (all optional; `null` goes back to the default).
-  controller: CONTROLLER_FIELDS,
-  ...COMPONENT_FIELD_ORDER_V3,
-};
 
 /** Whether the component supports `add`/`remove`. */
 function componentIsRemovable(component: OwnedComponent): boolean {
@@ -777,7 +768,8 @@ export function applySetComponent(input: OpInput, args: SetComponentArgs): OpOut
       component: args.component,
       previous,
       next: null,
-      changedFields: [...COMPONENT_FIELD_ORDER[args.component].filter((f) => (args.component !== 'controller' && args.component !== 'playerSpawn') || (previous as Record<string, unknown> | null)?.[f] !== undefined), ...(args.component === 'collider' && (previous as { oneWay?: unknown } | null)?.oneWay !== undefined ? ['oneWay'] : []), ...(args.component === 'collider' && (previous as { layers?: unknown } | null)?.layers !== undefined ? ['layers'] : [])],
+      // Optional fields count only when the removed value had them (a collider's flag and layers, every controller and spawn field).
+      changedFields: COMPONENT_FIELD_ORDER[args.component].filter((f) => (args.component !== 'controller' && args.component !== 'playerSpawn' && !(args.component === 'collider' && f !== 'shape')) || (previous as Record<string, unknown> | null)?.[f] !== undefined),
     };
     return {
       ok: true,
@@ -810,9 +802,7 @@ export function applySetComponent(input: OpInput, args: SetComponentArgs): OpOut
       if (before[k] !== (args.value as Record<string, unknown>)[k]) changedFields.push(k);
     }
   }
-  // v4: a collider's `oneWay` flag and its collision layers (not in the
-  // base field order).
-  const fieldOrder = args.component === 'collider' ? [...COMPONENT_FIELD_ORDER.collider, 'oneWay', 'layers'] : COMPONENT_FIELD_ORDER[args.component];
+  const fieldOrder = COMPONENT_FIELD_ORDER[args.component];
   for (const f of fieldOrder) {
     if (Object.prototype.hasOwnProperty.call(args.value, f)) {
       // `null` removes an optional field (e.g. v4 camera bounds);

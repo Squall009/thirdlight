@@ -9,7 +9,7 @@
  * project-model error objects + the total count.
  */
 import { ID_RE } from '@thirdlight/project-model';
-import { validateModelRig, type ModelRig } from '@thirdlight/project-model';
+import { validateModelColliderTable, validateModelRig, type ModelColliderTable, type ModelRig } from '@thirdlight/project-model';
 import { validateModes, type RuntimeModes } from '@thirdlight/project-model';
 import { validateBlockTypes, validateCellFields, type BlockType, type CellField } from '@thirdlight/project-model';
 import { resolveSceneHierarchy, sceneCamerasAsShots, validateMergedSceneV4, validateSceneV3, validateTagRegistry, validateAnimators, validatePrefabDefinitions, type AnimatorController, type PrefabDefinition, type TagDefinition, type ModelErrorV2, type ModelErrorV3, type SceneV3, type RuntimeUiDocumentRow } from '@thirdlight/project-model';
@@ -24,7 +24,7 @@ import { canonicalTimelines, validateTimelines, type TimelineAsset } from '@thir
 import { canonicalEventCues, validateEventCues, type EventCue } from '@thirdlight/project-model';
 import { materialCatalogProblem, type RuntimeMaterialCatalog } from './material-params';
 
-const WRAPPER_FIELDS = new Set(['snapshotId', 'projectId', 'revision', 'scene', 'tags', 'scenes', 'animators', 'prefabs', 'modelBounds', 'blockTypes', 'cellFields', 'rigs', 'materialCatalog', 'materialIds', 'uiDocuments', 'modes', 'saveSchema', 'audioDurations', 'timelines', 'eventCues', 'sceneList', 'environmentPresets', 'dialogue']);
+const WRAPPER_FIELDS = new Set(['snapshotId', 'projectId', 'revision', 'scene', 'tags', 'scenes', 'animators', 'prefabs', 'modelBounds', 'blockTypes', 'cellFields', 'rigs', 'modelColliders', 'materialCatalog', 'materialIds', 'uiDocuments', 'modes', 'saveSchema', 'audioDurations', 'timelines', 'eventCues', 'sceneList', 'environmentPresets', 'dialogue']);
 const SCENE_ID_RE = ID_RE;
 
 /**
@@ -66,6 +66,7 @@ export function validateRuntimeSnapshot(
       modelBounds: Readonly<Record<string, ModelBounds>>;
       audioDurations: Readonly<Record<string, number>>;
       rigs?: Readonly<Record<string, ModelRig>>;
+      modelColliders?: ModelColliderTable;
       blockTypes: readonly BlockType[];
       cellFields: readonly CellField[];
       materialCatalog?: RuntimeMaterialCatalog;
@@ -288,6 +289,13 @@ export function validateRuntimeSnapshot(
     }
     rigs = r as Record<string, ModelRig>;
   }
+  // The optional v4 model `_COL` parts (colliders `{type: 'model'}` are resolved on them).
+  let modelColliders: ModelColliderTable | undefined;
+  if (snap.modelColliders !== undefined) {
+    const why = sceneVersion !== 4 ? 'snapshot field "modelColliders" is v4-only' : validateModelColliderTable(snap.modelColliders);
+    if (why !== null) return { error: { code: 'snapshot_invalid', reason: 'shape', path: '/modelColliders', message: why } };
+    modelColliders = snap.modelColliders as ModelColliderTable;
+  }
   // The optional v4 block types and cell fields (block layers).
   let blockTypes: readonly BlockType[] = [];
   let cellFields: readonly CellField[] = [];
@@ -443,7 +451,7 @@ export function validateRuntimeSnapshot(
     if (starts === 0) return bad('at least one scene must be a start scene');
     scenes = snap.scenes as RuntimeSceneRow[];
   }
-  return { scene, sceneVersion, snapshotId, projectId, revision, tags, scenes, animators, prefabs, modelBounds, audioDurations, blockTypes, cellFields, ...(rigs !== undefined ? { rigs } : {}), ...(materialCatalog !== undefined ? { materialCatalog } : {}), ...(materialIds !== undefined ? { materialIds } : {}), uiDocuments, ...(saveSchema !== undefined ? { saveSchema } : {}), ...(timelines !== undefined ? { timelines } : {}), ...(eventCues !== undefined ? { eventCues } : {}), ...(sceneList !== undefined ? { sceneList } : {}), ...(modes !== undefined ? { modes } : {}), ...(environmentPresets !== undefined ? { environmentPresets } : {}), ...(dialogue !== undefined ? { dialogue } : {}) };
+  return { scene, sceneVersion, snapshotId, projectId, revision, tags, scenes, animators, prefabs, modelBounds, audioDurations, blockTypes, cellFields, ...(rigs !== undefined ? { rigs } : {}), ...(modelColliders !== undefined ? { modelColliders } : {}), ...(materialCatalog !== undefined ? { materialCatalog } : {}), ...(materialIds !== undefined ? { materialIds } : {}), uiDocuments, ...(saveSchema !== undefined ? { saveSchema } : {}), ...(timelines !== undefined ? { timelines } : {}), ...(eventCues !== undefined ? { eventCues } : {}), ...(sceneList !== undefined ? { sceneList } : {}), ...(modes !== undefined ? { modes } : {}), ...(environmentPresets !== undefined ? { environmentPresets } : {}), ...(dialogue !== undefined ? { dialogue } : {}) };
 }
 
 function clipSceneMessage(errors: readonly (ModelErrorV2 | ModelErrorV3)[]): string {

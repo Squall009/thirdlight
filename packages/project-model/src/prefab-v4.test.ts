@@ -41,13 +41,16 @@ describe('v4 prefab components', () => {
     expect(codes([good[0]], 3)).toContain('component_unknown');
   });
 
-  it('keeps the scene rules: scene-only components, a parented collider, a patrol with a collider, bad values', () => {
+  it('keeps the scene rules: scene-only components, a parented mover collider, a patrol with a collider, bad values', () => {
     expect(codes([def({ controller: {} })])).toContain('component_unknown');
     // The removed game components are unknown in a prefab too.
     for (const name of Object.keys(REMOVED_COMPONENTS)) expect(codes([def({ [name]: { size: [1, 1] } })]), name).toContain('component_unknown');
     expect(codes([def({ camera: { type: 'perspective', fovY: 45, near: 0.1, far: 100 } })])).toContain('prefab_component_forbidden');
+    // A collider on a child follows it; a mover's collider stays a root (its system poses it in world space).
     const child = { localId: 'box-0002', parentLocalId: 'box-0001', components: { transform: T, collider: { shape: { type: 'box', hx: 0.5, hy: 0.5 } } } };
-    expect(codes([def({}, [child])])).toContain('physics_transform_unsupported');
+    expect(codes([def({}, [child])])).not.toContain('physics_transform_unsupported');
+    const moving = { ...child, components: { ...child.components, mover: { waypoints: [[0, 0, 0], [1, 0, 0]], speed: 1 } } };
+    expect(codes([def({}, [moving])])).toContain('physics_transform_unsupported');
     expect(codes([def({ collider: { shape: { type: 'box', hx: 1, hy: 1 } }, patrol: { mode: 'edges', speed: 1, size: [1, 1] } })])).toContain('component_conflict');
     expect(errorsOf([def({ collectible: { counter: '9 items' } })]).length).toBeGreaterThan(0);
     expect(codes([def({ animator: { controller: 'anim' } })])).toContain('component_missing'); // an animator needs a model

@@ -27,7 +27,18 @@ export interface ColliderShapePolygon {
   vertices: readonly (readonly [number, number])[];
 }
 
-export type RapierColliderShape = ColliderShapeBox | ColliderShapePolygon;
+export type RapierColliderPrimitive = ColliderShapeBox | ColliderShapePolygon;
+
+/** One shape of a 2D compound, placed in its body's frame (metres, radians about Z). */
+export interface ColliderPart2D {
+  shape: RapierColliderPrimitive;
+  x: number;
+  y: number;
+  angle: number;
+}
+
+/** A box or polygon, or several placed on one body (`compound`; a shape off its object's origin is a compound of one). */
+export type RapierColliderShape = RapierColliderPrimitive | { type: 'compound'; parts: readonly ColliderPart2D[] };
 
 /**
  * One static collider: the accepted runtime.md `StaticColliderSpec`

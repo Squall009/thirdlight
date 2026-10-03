@@ -14,6 +14,7 @@
 import { expect, test, type Page } from '@playwright/test';
 
 import { startBackend, type E2EBackend, controls } from './backend';
+import { menu } from './ui';
 
 let be: E2EBackend;
 test.beforeEach(async () => {
@@ -107,7 +108,9 @@ test('the player capsule: Inspector, outline, top-handle drag with one undo, the
   expect(perMetre).toBeGreaterThan(30);
 
   // Clicking the capsule outline (away from the handles) selects the player
-  // (the far-away pillar is selected first, so its gizmo is not in the way).
+  // (the far-away pillar is selected first, so its gizmo is not in the way;
+  // every collider outline is drawn, so the player's is there to click).
+  await menu(page, 'Gizmos', 'Collider outlines: off');
   await page.locator(`.tl-hierarchy__list li[data-entity-id="model-0002"]`).click();
   await expect(page.locator('.tl-inspector__name')).toHaveValue('Pillar');
   await page.mouse.click(side.x, side.y - Math.round(0.4 * perMetre));

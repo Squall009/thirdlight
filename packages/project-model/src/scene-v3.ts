@@ -55,6 +55,7 @@ import {
 import {
   canonicalCollider,
   colliderCore,
+  colliderShapePoints,
   validateColliderLayers,
   ID_RE_V2,
   MAX_ENTITIES_V2,
@@ -716,6 +717,10 @@ function validateEntityComponentsV3(
       else validateColliderLayers(layers, `${path}/collider/layers`, errors);
     }
     validateColliderComponent(colliderCore(col), `${path}/collider`, errors);
+    // The model's `_COL` parts are the object's own model's.
+    if (isPlainObject(col) && isPlainObject(col['shape']) && col['shape']['type'] === 'model' && comps['model'] === undefined) {
+      errors.push(componentMissing(`${path}/collider/shape`, 'model', "a model collider is made from the object's own model: it needs a model component"));
+    }
   }
   if (comps['controller'] !== undefined) validateControllerComponent(comps['controller'], `${path}/controller`, errors, version);
 
@@ -885,9 +890,8 @@ function validateEntityComponentsV3(
   let points3d = 0;
   if (comps['collider'] !== undefined) {
     const shape = isPlainObject(comps['collider']) ? comps['collider']['shape'] : undefined;
-    // A hull's points and a mesh's vertices count toward the scene's 3D point budget.
-    if (isPlainObject(shape) && shape['type'] === 'convex' && Array.isArray(shape['points'])) points3d = shape['points'].length;
-    if (isPlainObject(shape) && shape['type'] === 'mesh' && Array.isArray(shape['vertices'])) points3d = shape['vertices'].length;
+    // A hull's points and a mesh's vertices (a compound's too) count toward the scene's 3D point budget.
+    points3d = colliderShapePoints(shape);
   }
   const light = comps['light'];
   const lightType = isPlainObject(light) ? light['type'] : undefined;

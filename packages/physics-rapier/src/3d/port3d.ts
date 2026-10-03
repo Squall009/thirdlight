@@ -45,12 +45,22 @@ export interface ColliderShapeBox3D {
  * length, Rapier's convention), the convex hull of points, or a triangle
  * mesh (a static collider only). Point lists are flat `[x, y, z, ...]`.
  */
-export type ColliderShape3D =
+export type ColliderPrimitive3D =
   | ColliderShapeBox3D
   | { type: 'sphere'; radius: number }
   | { type: 'capsule'; radius: number; halfHeight: number }
   | { type: 'convex'; points: readonly number[] }
   | { type: 'mesh'; vertices: readonly number[]; indices: readonly number[] };
+
+/** One shape of a compound, placed in its body's frame. */
+export interface ColliderPart3D {
+  shape: ColliderPrimitive3D;
+  position: PhysicsVec3;
+  rotation: PhysicsQuat;
+}
+
+/** A primitive, or several placed on one body (`compound`: one collider each, all the entity's). */
+export type ColliderShape3D = ColliderPrimitive3D | { type: 'compound'; parts: readonly ColliderPart3D[] };
 
 /** The port's limits for a hull and a mesh: the model's (which also keeps a scene's total). */
 export const MAX_CONVEX_POINTS_3D = COLLIDER_3D_LIMITS.convexPoints;
@@ -143,7 +153,7 @@ function spansVolume(p: readonly number[]): boolean {
  * (4–64 points) and triangle mesh (3–1,024 vertices, 1–2,048 triangles of
  * three distinct in-range indices). Nothing is defaulted.
  */
-export function validateColliderShape3D(value: unknown): { ok: true; shape: ColliderShape3D } | { ok: false; detail: string } {
+function validatePrimitive3D(value: unknown): { ok: true; shape: ColliderPrimitive3D } | { ok: false; detail: string } {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return { ok: false, detail: 'shape must be an object' };
   const v = value as Record<string, unknown>;
   const type = v['type'];
@@ -201,6 +211,37 @@ export function validateColliderShape3D(value: unknown): { ok: true; shape: Coll
   return { ok: false, detail: 'a 3D collider is a box, sphere, capsule, convex hull or mesh (polygons are 2D-plane shapes)' };
 }
 
+/**
+ * The 3D shape vocabulary: a primitive, or a compound of at least one placed
+ * primitive (a finite position and a unit rotation each, in the body's frame).
+ */
+export function validateColliderShape3D(value: unknown): { ok: true; shape: ColliderShape3D } | { ok: false; detail: string } {
+  if (typeof value === 'object' && value !== null && (value as { type?: unknown }).type === 'compound') {
+    const v = value as Record<string, unknown>;
+    const extra = onlyKeys(v, ['type', 'parts'], 'compound');
+    if (extra !== null) return { ok: false, detail: extra };
+    const parts = v['parts'];
+    if (!Array.isArray(parts) || parts.length === 0) return { ok: false, detail: 'a compound shape has at least one part' };
+    const out: ColliderPart3D[] = [];
+    for (let i = 0; i < parts.length; i += 1) {
+      const part = parts[i] as Record<string, unknown> | null;
+      if (typeof part !== 'object' || part === null) return { ok: false, detail: `compound part ${i} must be an object` };
+      if (!isVec3(part['position'])) return { ok: false, detail: `compound part ${i}: position must be a finite { x, y, z }` };
+      if (!isQuat(part['rotation'])) return { ok: false, detail: `compound part ${i}: rotation must be a finite unit quaternion { x, y, z, w }` };
+      const shape = validatePrimitive3D(part['shape']);
+      if (!shape.ok) return { ok: false, detail: `compound part ${i}: ${shape.detail}` };
+      out.push({ shape: shape.shape, position: part['position'], rotation: part['rotation'] });
+    }
+    return { ok: true, shape: { type: 'compound', parts: out } };
+  }
+  return validatePrimitive3D(value);
+}
+
+/** The placed primitives of a shape (a primitive alone sits at its body's origin). */
+function partsOf(shape: ColliderShape3D): readonly ColliderPart3D[] {
+  return shape.type === 'compound' ? shape.parts : [{ shape, position: { x: 0, y: 0, z: 0 }, rotation: { x: 0, y: 0, z: 0, w: 1 } }];
+}
+
 function validateSpec(spec: StaticColliderSpec3D, label: string): { reason: 'invalid_config' | 'invalid_shape' | 'invalid_transform'; message: string } | null {
   if (typeof spec !== 'object' || spec === null) return { reason: 'invalid_config', message: `${label} must be an object` };
   if (typeof spec.entityId !== 'string' || spec.entityId.length === 0) return { reason: 'invalid_config', message: `${label}: entityId must be a non-empty string` };
@@ -210,7 +251,7 @@ function validateSpec(spec: StaticColliderSpec3D, label: string): { reason: 'inv
   if (!shape.ok) return { reason: 'invalid_shape', message: `${label}: ${shape.detail}` };
   if (spec.kinematic !== undefined && typeof spec.kinematic !== 'boolean') return { reason: 'invalid_config', message: `${label}: kinematic must be true, false or absent` };
   if (spec.layers !== undefined && !(Array.isArray(spec.layers) && spec.layers.length >= 1 && spec.layers.length <= 16 && spec.layers.every((n) => typeof n === 'string'))) return { reason: 'invalid_config', message: `${label}: layers must be 1-16 layer names or absent` };
-  if (spec.kinematic === true && shape.shape.type === 'mesh') return { reason: 'invalid_shape', message: `${label}: a mesh collider is static (a moving collider uses box, sphere, capsule or convex)` };
+  if (spec.kinematic === true && partsOf(shape.shape).some((p) => p.shape.type === 'mesh')) return { reason: 'invalid_shape', message: `${label}: a mesh collider is static (a moving collider uses box, sphere, capsule or convex)` };
   if (spec.maxSlope !== undefined && (!finite(spec.maxSlope) || spec.maxSlope <= 0 || spec.maxSlope >= Math.PI / 2)) return { reason: 'invalid_config', message: `${label}: maxSlope must be a finite angle in (0, pi/2) or absent` };
   return null;
 }
@@ -336,7 +377,7 @@ function rotate(q: PhysicsQuat, p: readonly [number, number, number]): [number, 
 }
 
 /** The collider description of a validated shape (null: the points span no hull). */
-function colliderDescOf(shape: ColliderShape3D): RAPIER.ColliderDesc | null {
+function colliderDescOf(shape: ColliderPrimitive3D): RAPIER.ColliderDesc | null {
   switch (shape.type) {
     case 'box':
       return RAPIER.ColliderDesc.cuboid(shape.hx, shape.hy, shape.hz);
@@ -353,7 +394,7 @@ function colliderDescOf(shape: ColliderShape3D): RAPIER.ColliderDesc | null {
 }
 
 /** The shape's highest point above its body origin with the body's rotation. */
-function topOf(shape: ColliderShape3D, q: PhysicsQuat): number {
+function topOf(shape: ColliderPrimitive3D, q: PhysicsQuat): number {
   switch (shape.type) {
     case 'box': {
       let top = -Infinity;
@@ -406,17 +447,41 @@ export function queryGroups(bits: LayerBits, layers: readonly string[]): number 
   return ((0xffff << 16) | layerMask(bits, layers, 0)) >>> 0;
 }
 
-function addStaticBody(world: RAPIER.World, spec: StaticColliderSpec3D, bits: LayerBits): { body: RAPIER.RigidBody; collider: RAPIER.Collider; info: Collider3DInfo } {
+/** `a · b` of unit quaternions. */
+function mulQuat(a: PhysicsQuat, b: PhysicsQuat): PhysicsQuat {
+  return {
+    x: a.w * b.x + a.x * b.w + a.y * b.z - a.z * b.y,
+    y: a.w * b.y - a.x * b.z + a.y * b.w + a.z * b.x,
+    z: a.w * b.z + a.x * b.y - a.y * b.x + a.z * b.w,
+    w: a.w * b.w - a.x * b.x - a.y * b.y - a.z * b.z,
+  };
+}
+
+/**
+ * One fixed (or kinematic) body for a collider spec with a collider per
+ * placed shape (a compound's parts, each at its position and rotation in the
+ * body's frame); every collider answers for the spec's entity.
+ */
+function addStaticBody(world: RAPIER.World, spec: StaticColliderSpec3D, bits: LayerBits): { body: RAPIER.RigidBody; colliders: { collider: RAPIER.Collider; info: Collider3DInfo }[] } {
   const shape = validateColliderShape3D(spec.shape);
   if (!shape.ok) throw new Error(`statics(${spec.entityId}): ${shape.detail}`);
-  const desc = colliderDescOf(shape.shape);
-  if (desc === null) throw new Error(`statics(${spec.entityId}): the convex points span no hull (they lie on one plane)`);
+  const parts = partsOf(shape.shape);
+  const descs = parts.map((p) => colliderDescOf(p.shape));
+  if (descs.some((d) => d === null)) throw new Error(`statics(${spec.entityId}): the convex points span no hull (they lie on one plane)`);
   const kinematic = spec.kinematic === true;
   const rotation = { x: spec.rotation.x, y: spec.rotation.y, z: spec.rotation.z, w: spec.rotation.w };
   const bodyDesc = kinematic ? RAPIER.RigidBodyDesc.kinematicPositionBased() : RAPIER.RigidBodyDesc.fixed();
   const body = world.createRigidBody(bodyDesc.setTranslation(spec.position.x, spec.position.y, spec.position.z).setRotation(rotation));
-  const collider = world.createCollider(desc.setCollisionGroups(colliderGroups(bits, spec.layers)), body);
-  return { body, collider, info: { entityId: spec.entityId, body, kinematic, top: topOf(shape.shape, rotation), ...(spec.maxSlope !== undefined ? { climbCos: Math.cos(spec.maxSlope) } : {}) } };
+  const groups = colliderGroups(bits, spec.layers);
+  // The body's highest point over all its shapes (the kinematic-drag rule reads it).
+  let top = -Infinity;
+  for (const p of parts) top = Math.max(top, rotate(rotation, [p.position.x, p.position.y, p.position.z])[1] + topOf(p.shape, mulQuat(rotation, p.rotation)));
+  const colliders = parts.map((p, i) => {
+    const desc = descs[i]!.setTranslation(p.position.x, p.position.y, p.position.z).setRotation({ x: p.rotation.x, y: p.rotation.y, z: p.rotation.z, w: p.rotation.w });
+    const collider = world.createCollider(desc.setCollisionGroups(groups), body);
+    return { collider, info: { entityId: spec.entityId, body, kinematic, top, ...(spec.maxSlope !== undefined ? { climbCos: Math.cos(spec.maxSlope) } : {}) } };
+  });
+  return { body, colliders };
 }
 
 function createAdapter(world: RAPIER.World, characterCollider: RAPIER.Collider, controller: RAPIER.KinematicCharacterController, config: PhysicsInitConfig3D, bodies: Map<string, RAPIER.RigidBody>, infoByHandle: Map<number, Collider3DInfo>, bits: LayerBits): RapierPhysicsPort3D {
@@ -910,7 +975,7 @@ function createAdapter(world: RAPIER.World, characterCollider: RAPIER.Collider, 
         for (const spec of specs) {
           const a = addStaticBody(world, spec, bits);
           bodies.set(spec.entityId, a.body);
-          infoByHandle.set(a.collider.handle, a.info);
+          for (const c of a.colliders) infoByHandle.set(c.collider.handle, c.info);
           added.push({ id: spec.entityId, body: a.body });
         }
       } catch (e) {
@@ -981,7 +1046,7 @@ export async function createPhysicsPort3D(config: PhysicsInitConfig3D, signal?: 
     for (const spec of config.statics) {
       const added = addStaticBody(world, spec, bits);
       bodies.set(spec.entityId, added.body);
-      infoByHandle.set(added.collider.handle, added.info);
+      for (const c of added.colliders) infoByHandle.set(c.collider.handle, c.info);
     }
     // PARENTLESS character collider (the 2D port's normative pattern): moved with setTranslation only.
     const ch = config.character;

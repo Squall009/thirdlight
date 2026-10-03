@@ -96,8 +96,11 @@ function validatePrefabExtras(comps: Record<string, unknown>, parentLocalId: unk
     // The collision layers the collider is in.
     if (isPlainObject(col) && col['layers'] !== undefined) validateColliderLayers(col['layers'], `${path}/collider/layers`, errors);
     validateColliderComponent(colliderCore(col), `${path}/collider`, errors);
-    // A collider sits on the definition root at unit scale (as on a scene entity);
-    // Its rotation rule follows the project's physics dimension (composeV4).
+    if (isPlainObject(col) && isPlainObject(col['shape']) && col['shape']['type'] === 'model' && comps['model'] === undefined) {
+      errors.push({ code: 'component_missing', path: `${path}/collider/shape`, message: "a model collider is made from the object's own model: it needs a model component", expected: 'model' });
+    }
+    // A collider may sit on a child of the definition (it follows it); its scale and
+    // rotation rules follow the project's physics dimension (composeV4).
     validatePhysicsTransform(comps, typeof parentLocalId === 'string' ? parentLocalId : undefined, path, false, errors, false);
   }
   if (comps['surface'] !== undefined) {

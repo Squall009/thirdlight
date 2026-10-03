@@ -32,7 +32,8 @@ import type { ActionFrame } from './actions';
 import type { ColliderShape3D, KinematicPose3D, PhysicsPort, PhysicsPort3D, Vec2 } from './ports';
 import { BLOCK_DEFAULTS, isCounterName, SWITCH_DEFAULT_ACTION, type EntityV3 } from '@thirdlight/project-model';
 import type { BehaviorMessage, PlayerCapsule, PrimitiveEventRecord, TransformState, TriggerEventRecord } from './types';
-import { capsuleHalfTotal, colliderRotationZ, colliderShape3DOf } from './scene-set';
+import { colliderRotationZ, colliderShape3DOf, shapeAabb3 } from './collider-specs';
+import { capsuleHalfTotal } from './scene-set';
 import { rotate3, segmentBoxDistance2, segmentPointDistance2, segmentSegmentDistance2, sub3, type V3 } from './geometry3';
 import { advancePath, Primitives, reversePath, type PathState } from './primitives';
 
@@ -185,8 +186,12 @@ export interface BlocksHost {
   character3?(): Vec3 | null;
   /** 3D: the character's capsule centre offset along Z. */
   readonly characterOffsetZ?: number;
-  /** 3D: the colliders scripts drive, where they are now (posed as kinematic bodies with the movers). */
-  scriptColliders3D?(): readonly { entityId: string; position: Vec3; rotation: readonly number[] }[];
+  /**
+   * 3D: the colliders that follow a moving object (a script's, a timeline's,
+   * a mover's child), where they are now — posed as kinematic bodies with the
+   * movers, pushing the player out of their box (relative to `position`) as a mover does.
+   */
+  scriptColliders3D?(): readonly { entityId: string; position: Vec3; rotation: readonly number[]; aabb?: { min: Vec3; max: Vec3 } | null }[];
   /** The character entered a trigger with a scene transition (the runtime loads, unloads and moves it). */
   sceneTransition?(triggerId: string, transition: SceneTransitionRequest): void;
 }
@@ -194,39 +199,6 @@ export interface BlocksHost {
 // ---- 3D geometry (in geometry3.ts) ---------------------
 
 export { segmentBoxDistance2, segmentPointDistance2, segmentSegmentDistance2 } from './geometry3';
-
-/** The box around a resolved 3D collider shape turned by `q` (offsets from the body origin). */
-function shapeAabb3(shape: ColliderShape3D, q: readonly number[]): { min: Vec3; max: Vec3 } {
-  const pts: V3[] = [];
-  switch (shape.type) {
-    case 'box':
-      for (const sx of [-1, 1]) for (const sy of [-1, 1]) for (const sz of [-1, 1]) pts.push([sx * shape.hx, sy * shape.hy, sz * shape.hz]);
-      break;
-    case 'sphere':
-      return { min: [-shape.radius, -shape.radius, -shape.radius], max: [shape.radius, shape.radius, shape.radius] };
-    case 'capsule': {
-      const e = rotate3(q, [0, shape.halfHeight, 0]);
-      const r = shape.radius;
-      return { min: [-Math.abs(e[0]) - r, -Math.abs(e[1]) - r, -Math.abs(e[2]) - r], max: [Math.abs(e[0]) + r, Math.abs(e[1]) + r, Math.abs(e[2]) + r] };
-    }
-    case 'convex':
-    case 'mesh': {
-      const list = shape.type === 'convex' ? shape.points : shape.vertices;
-      for (let i = 0; i + 2 < list.length; i += 3) pts.push([list[i]!, list[i + 1]!, list[i + 2]!]);
-      break;
-    }
-  }
-  const min: Vec3 = [Infinity, Infinity, Infinity];
-  const max: Vec3 = [-Infinity, -Infinity, -Infinity];
-  for (const p of pts) {
-    const r = rotate3(q, p);
-    for (let i = 0; i < 3; i += 1) {
-      min[i] = Math.min(min[i]!, r[i]!);
-      max[i] = Math.max(max[i]!, r[i]!);
-    }
-  }
-  return { min, max };
-}
 
 /** A box collider's half extents, or null for another shape. */
 function boxHalf(col: Record<string, unknown> | undefined): Vec2 | null {
@@ -933,7 +905,7 @@ export class GameplayBlocks {
    * beside or under it sideways, never up).
    */
   private beforeStep3D(port: PhysicsPort3D): void {
-    const extras = this.host.scriptColliders3D?.() ?? [];
+    let extras = this.host.scriptColliders3D?.() ?? [];
     if (this.movers.size === 0 && extras.length === 0) {
       this.carry3 = NO_CARRY3;
       return;
@@ -946,14 +918,15 @@ export class GameplayBlocks {
     const player = this.host.character3?.() ?? null;
     const oz = this.host.characterOffsetZ ?? 0;
     const capHalf: Vec3 = [this.pc.hw, this.pc.hh, this.pc.hw];
-    const push = (m: Mover, before: Vec3): void => {
+    const push = (m: { pos: Vec3; aabb: { min: Vec3; max: Vec3 } | null; pushStep: number }, before: Vec3): void => {
       if (player === null || m.aabb === null) return;
+      const box = m.aabb;
       const pc: Vec3 = [player[0] + this.pc.ox + pushed[0], player[1] + this.pc.oy + pushed[1], player[2] + oz + pushed[2]];
-      const centre: Vec3 = [0, 1, 2].map((i) => m.pos[i]! + (m.aabb!.min[i]! + m.aabb!.max[i]!) / 2) as Vec3;
-      const over: Vec3 = [0, 1, 2].map((i) => (m.aabb!.max[i]! - m.aabb!.min[i]!) / 2 + capHalf[i]! + this.pushSkin - Math.abs(pc[i]! - centre[i]!)) as Vec3;
+      const centre: Vec3 = [0, 1, 2].map((i) => m.pos[i]! + (box.min[i]! + box.max[i]!) / 2) as Vec3;
+      const over: Vec3 = [0, 1, 2].map((i) => (box.max[i]! - box.min[i]!) / 2 + capHalf[i]! + this.pushSkin - Math.abs(pc[i]! - centre[i]!)) as Vec3;
       if (over[0] <= 0 || over[1] <= 0 || over[2] <= 0) return;
       const d = sub3(m.pos, before);
-      const sideways = d[1] > 0 && d[1] >= Math.hypot(d[0], d[2]) && pc[1] < m.pos[1] + m.aabb.max[1];
+      const sideways = d[1] > 0 && d[1] >= Math.hypot(d[0], d[2]) && pc[1] < m.pos[1] + box.max[1];
       const axis: 0 | 1 | 2 = over[1] <= over[0] && over[1] <= over[2] && !sideways ? 1 : over[0] <= over[2] ? 0 : 2;
       pushed[axis] = pushed[axis] + Math.min(m.pushStep, over[axis]) * (pc[axis] >= centre[axis] ? 1 : -1);
     };
@@ -970,6 +943,10 @@ export class GameplayBlocks {
         carry[2] = m.pos[2] - before[2];
       } else if (m.pos[0] !== before[0] || m.pos[1] !== before[1] || m.pos[2] !== before[2]) push(m, before);
     }
+    // Read again after the movers moved: a collider on a mover's child is where the mover took it.
+    if (this.movers.size > 0) extras = this.host.scriptColliders3D?.() ?? [];
+    // A collider that follows a moving object pushes the player as a mover at its default push speed does.
+    const extraPush = D.maxPush / this.host.hz;
     for (const x of extras) {
       const q = x.rotation;
       poses.push({ entityId: x.entityId, position: { x: x.position[0], y: x.position[1], z: x.position[2] }, rotation: { x: q[0] ?? 0, y: q[1] ?? 0, z: q[2] ?? 0, w: q[3] ?? 1 } });
@@ -978,6 +955,8 @@ export class GameplayBlocks {
         carry[0] = x.position[0] - was[0];
         carry[1] = x.position[1] - was[1];
         carry[2] = x.position[2] - was[2];
+      } else if (was !== undefined && (x.position[0] !== was[0] || x.position[1] !== was[1] || x.position[2] !== was[2])) {
+        push({ pos: [x.position[0], x.position[1], x.position[2]], aabb: x.aabb ?? null, pushStep: extraPush }, was);
       }
       this.scriptPosed.set(x.entityId, [x.position[0], x.position[1], x.position[2]]);
     }

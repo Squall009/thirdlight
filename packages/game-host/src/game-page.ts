@@ -30,7 +30,7 @@
  *
  * Browser-only (DOM, WebGL/WebGPU, Web Audio, Web Crypto).
  */
-import { audioSpatialOf, dependencyTables, depthBufferOf, instanceChunkSizeOf, materialTextureRefs, physicsDimensionOf, scanDependencies, sha256HexAsync, textureBudgetBytesOf, type MaterialDef, type SaveSchema } from '@thirdlight/project-model';
+import { audioSpatialOf, dependencyTables, depthBufferOf, instanceChunkSizeOf, materialTextureRefs, physicsDimensionOf, scanDependencies, sha256HexAsync, textureBudgetBytesOf, type MaterialDef, type ModelColliderTable, type SaveSchema } from '@thirdlight/project-model';
 import { assetVersionKey, createResourceManager, EMBEDDED_TEXTURES_LISTED, embeddedTextureBytes, type ResourceManager, type ResourceObservation } from '@thirdlight/runtime';
 import { attachBrowserInput, DEFAULT_INPUT_CONFIG, DEFAULT_INPUT_CONFIG_3D, focusGameSurface, type InputConfigLike } from '@thirdlight/input';
 import { createPhysicsPort, type RapierPhysicsInitConfig, type RapierPhysicsPort, type RapierStaticColliderSpec } from '@thirdlight/physics-rapier';
@@ -48,7 +48,7 @@ import {
   playerCapsuleOf,
   playerPhysicsOf,
   resolveSnapshotHierarchy,
-  staticColliderOf,
+  colliderSpecs2D,
   type GameMode,
   type GameplaySettings,
   type PhysicsPort3D,
@@ -143,6 +143,8 @@ export interface GamePageManifest {
   animators?: unknown[];
   /** Model rigs (sockets are resolved on them). */
   rigs?: Record<string, unknown>;
+  /** The models' `_COL` parts (colliders `{type: 'model'}` are made of them). */
+  modelColliders?: ModelColliderTable;
   /** The prefab definitions scripts spawn. */
   prefabs?: unknown[];
   /** The block types and cell fields block layers use. */
@@ -422,13 +424,12 @@ function physicsConfigFromSnapshot(snapshot: RuntimeSnapshot, settings: Gameplay
   const statics: RapierStaticColliderSpec[] = [];
   let character: RapierPhysicsInitConfig['character'] | null = null;
   let tuning = playerPhysicsOf(undefined);
+  // The shared rule (each where it is in the world, turned about Z with it; movers kinematic; one-way platforms).
+  statics.push(...(colliderSpecs2D(snapshot.scene.entities as never, snapshot.modelColliders !== undefined ? { modelColliders: snapshot.modelColliders } : undefined) as RapierStaticColliderSpec[]));
   for (const entity of snapshot.scene.entities) {
     const components = (entity.components ?? {}) as unknown as Record<string, unknown>;
     const transform = components['transform'] as { position?: number[]; rotation?: number[]; scale?: number[] } | undefined;
     const position = transform?.position ?? [0, 0, 0];
-    // The shared rule (world XY, the entity's rotation about Z; movers kinematic; one-way platforms).
-    const collider = staticColliderOf(entity.id, components);
-    if (collider !== null) statics.push(collider as RapierStaticColliderSpec);
     if (components['controller'] !== undefined) {
       // The player's own capsule, skin, ground snap and autostep (else the defaults).
       const capsule = playerCapsuleOf(components['controller']);
@@ -542,6 +543,8 @@ function runtimeSnapshotOf(authored: RuntimeSnapshot, content: RuntimeContent<Ga
     ...(modelBounds !== undefined ? { modelBounds } : {}),
     // The model rigs sockets are resolved on.
     ...(manifest.rigs !== undefined ? { rigs: manifest.rigs } : {}),
+    // The models' collision parts colliders `{type: 'model'}` are made of.
+    ...(manifest.modelColliders !== undefined ? { modelColliders: manifest.modelColliders } : {}),
     // The graph materials' parameters scripts set per object (ctx.materials).
     ...(materialCatalog !== undefined ? { materialCatalog } : {}),
     // The materials a swap may name (every material the game ships).
@@ -626,7 +629,7 @@ export async function startGamePage(o: GamePageOptions): Promise<GamePageHandle>
     onResize: (id, texture, bytes) => resources.resize('texture', id, texture, bytes),
   });
   // A 3D project's physics is the 3D backend; a plain scene (no player controller) plays without physics.
-  const physicsConfig: RapierPhysicsInitConfig | PhysicsInitConfig3D | null = physicsDimensionOf(settings) === 3 ? physics3DConfigOf(snapshot.scene.entities as never, settings, { layers: manifest.collisionLayers ?? [] }) : physicsConfigFromSnapshot(snapshot, settings);
+  const physicsConfig: RapierPhysicsInitConfig | PhysicsInitConfig3D | null = physicsDimensionOf(settings) === 3 ? physics3DConfigOf(snapshot.scene.entities as never, settings, { layers: manifest.collisionLayers ?? [], ...(snapshot.modelColliders !== undefined ? { modelColliders: snapshot.modelColliders } : {}) }) : physicsConfigFromSnapshot(snapshot, settings);
   // The bindings in effect (a player's rebinding changes them): the project's actions, else the defaults.
   let inputConfigNow: InputConfigLike = manifest.input ?? (physicsDimensionOf(settings) === 3 ? DEFAULT_INPUT_CONFIG_3D : DEFAULT_INPUT_CONFIG);
   const browserInput = attachBrowserInput(o.canvas, { inputConfig: inputConfigNow });

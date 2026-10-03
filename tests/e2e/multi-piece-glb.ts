@@ -1,7 +1,7 @@
 /**
  * A small multi-piece GLB built in the test (the naming rule of game kits):
- * each piece is `<name>_LOD0..n` boxes plus an optional `<name>_COL` box, all
- * top-level nodes at the origin, one shared material, and a COLOR_0 on every
+ * each piece is `<name>_LOD0..n` boxes plus an optional `<name>_COL` box (or a
+ * `_COL` node holding several box parts), all top-level nodes at the origin, one shared material, and a COLOR_0 on every
  * render mesh. The vertex colour is pure red, so a render shows whether it is
  * used as data (the white material stays white/grey) or as a tint (red).
  * With `{ lightmapUv: true }` every render mesh also gets TEXCOORD_0/1 (UV1)
@@ -17,6 +17,8 @@ export interface PieceSpec {
   lods: [number, number, number][];
   /** Collision box size (absent: no `_COL`). */
   col?: [number, number, number];
+  /** Collision parts instead: the `_COL` node holds one child node per box, moved to `at` (each a convex part). */
+  colParts?: { size: [number, number, number]; at: [number, number, number] }[];
   /** Per LOD: its own material of this base colour (linear RGB 0-1); absent: the shared material. */
   colors?: [number, number, number][];
   /** The COLOR_0 of its render meshes (RGBA 0-1; absent: pure red). */
@@ -110,13 +112,21 @@ export function multiPieceGlb(pieces: readonly PieceSpec[], options: { lightmapU
       nodes.push({ name, mesh: addMesh(name, size, true, p.colors?.[i], p.vertexColor) });
     });
     if (p.col !== undefined) nodes.push({ name: `${p.name}_COL`, mesh: addMesh(`${p.name}_COL`, p.col, false) });
+    if (p.colParts !== undefined) {
+      const parts = p.colParts.map((part, i) => {
+        nodes.push({ name: `${p.name}_part${i}`, mesh: addMesh(`${p.name}_part${i}`, part.size, false), translation: part.at });
+        return nodes.length - 1;
+      });
+      nodes.push({ name: `${p.name}_COL`, children: parts });
+    }
   }
   const image = options.texturePng !== undefined ? addView(options.texturePng) : null;
   const bin = Buffer.concat(chunks);
   const json = {
     asset: { version: '2.0', generator: 'thirdlight e2e multi-piece fixture' },
     scene: 0,
-    scenes: [{ name: 'Scene', nodes: nodes.map((_, i) => i) }],
+    // The top level: every node no other node holds.
+    scenes: [{ name: 'Scene', nodes: nodes.map((_, i) => i).filter((i) => !nodes.some((n) => (n['children'] as number[] | undefined)?.includes(i))) }],
     nodes,
     meshes,
     materials: [{ name: 'mat_kit', pbrMetallicRoughness: { baseColorFactor: [1, 1, 1, 1], metallicFactor: 0, roughnessFactor: 0.8, ...(image !== null ? { baseColorTexture: { index: 0 } } : {}) } }, ...extraMaterials],

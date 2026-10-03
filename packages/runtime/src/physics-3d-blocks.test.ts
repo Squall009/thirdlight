@@ -256,3 +256,39 @@ describe('the behavior ownership rule, lifted for 3D colliders', () => {
     res.runtime.dispose();
   });
 });
+
+describe('a collider on a child of a script-moved object', () => {
+  it('follows its parent as a kinematic body and pushes the player out of its way', () => {
+    const port = scriptedPort({ x: 0, y: 0.9, z: 0 });
+    const mover = artifact('pusher', ['@self']);
+    (mover.namespace as { default: unknown }).default = {
+      instantiate: () => ({}),
+      step: (_s: unknown, ctx: { phase: string; stepIndex: number; entityId: string; emit: (i: unknown) => void }) => {
+        if (ctx.phase !== 'transform') return;
+        ctx.emit({ kind: 'transform', entityId: ctx.entityId, position: { x: Math.min(2, -3 + ctx.stepIndex / 120), y: 0, z: 0 }, quaternion: [0, 0, 0, 1] });
+      },
+    };
+    const spec = createBehaviorModuleSpec({ declaration: { properties: [] }, artifact: mover });
+    const registry = createSimulationRegistry();
+    registerSimulationModule(registry, spec.id, spec);
+    const ents = [
+      CAM,
+      { id: 'player-0001', components: { transform: T([0, 0.9, 0]), controller: {} } },
+      { id: 'pusher-0001', components: { transform: T([-3, 0, 0]), behavior: { behaviorId: 'pusher', values: {} } } },
+      { id: 'plate-0001', parentId: 'pusher-0001', components: { transform: T([0, 0, 0]), collider: { shape: { type: 'box', hx: 0.1, hy: 1, hz: 1, center: [0, 1, 0] } } } },
+    ];
+    const res = instantiateRuntime({ snapshot: snap(ents), registry, modules: [spec.id], driver: { kind: 'manual' }, clock: () => 0, settings: SETTINGS, physics: port });
+    if (!res.ok) throw new Error(JSON.stringify(res.error));
+    res.runtime.start();
+    for (let i = 0; i <= 700; i += 1) res.runtime.tick(i * DT);
+    expect(port.added).toEqual(['plate-0001:kinematic']);
+    const tr = res.runtime.getInterpolatedState();
+    if (!tr.ok) throw new Error('state');
+    const player = tr.state.transforms.find((t) => t.id === 'player-0001')!.position;
+    // The plate's face ends at x = 2.1; the player is pushed ahead of it (its 0.3 m radius and the skin).
+    expect(player[0]).toBeGreaterThan(2.4);
+    expect(player[0]).toBeLessThan(2.45);
+    expect(port.poses.at(-1)).toEqual([{ entityId: 'plate-0001', position: { x: 2, y: 0, z: 0 }, rotation: { x: 0, y: 0, z: 0, w: 1 } }]);
+    res.runtime.dispose();
+  });
+});

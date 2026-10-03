@@ -151,6 +151,7 @@ export {
   pieceBounds,
   pieceCollider2D,
   pieceCollider3D,
+  pieceCollisionParts,
   COLLIDER_3D_FROM_MODEL,
   type ModelCollider3D,
   type ModelPiece,

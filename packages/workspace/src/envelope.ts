@@ -858,6 +858,7 @@ const M2_CHANGE_TYPE_BY_OP: Record<string, string> = {
   renameFolder: 'moveResources',
   createFolder: 'moveResources',
   paintInstances: 'setComponent',
+  colliderFromModel: 'setComponent',
 };
 
 /**

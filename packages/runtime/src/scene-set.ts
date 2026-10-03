@@ -5,7 +5,12 @@
  */
 import { character3DSettingsOf, controllerCapsuleOf, controllerCapsuleOffsetZ, controllerTuningOf, resolveSceneHierarchy, sceneCamerasAsShots, validateSceneV4, type EntityV3, type TagDefinition } from '@thirdlight/project-model';
 
-import type { ColliderShape3D, PhysicsInitConfig3D, StaticColliderSpec, StaticColliderSpec3D, Vec2 } from './ports';
+import type { ModelColliderTable } from '@thirdlight/project-model';
+
+import { colliderSpecs2D, colliderSpecs3D, type ColliderContext } from './collider-specs';
+import type { PhysicsInitConfig3D, StaticColliderSpec, Vec2 } from './ports';
+
+export { colliderRotationZ, colliderShape3DOf, colliderShape2DOf, colliderSpecs2D, colliderSpecs3D, staticColliderOf, staticColliderOf3D, worldTransformsOf, type ColliderContext } from './collider-specs';
 import type { BehaviorTagQuery, ModelBounds, PlayerCapsule } from './types';
 
 /** What one scene adds to the running game (its static colliders). */
@@ -13,54 +18,9 @@ export interface SceneContribution {
   colliders: StaticColliderSpec[];
 }
 
-/** The static colliders of a list of (resolved) entities. */
-export function sceneContribution(entities: readonly EntityV3[]): SceneContribution {
-  const out: SceneContribution = { colliders: [] };
-  for (const e of entities) {
-    const c = e.components as unknown as Record<string, unknown>;
-    if (c['controller'] === undefined) {
-      const spec = staticColliderOf(e.id, c);
-      if (spec !== null) out.colliders.push(spec);
-    }
-  }
-  return out;
-}
-
-/**
- * The angle about Z (radians) of a transform's `[x, y, z, w]`
- * quaternion — the one rotation a 2D-plane collider takes (the project model
- * keeps a physics entity's rotation about Z only). Exactly 0 for the
- * identity (either sign of `w`), so an unrotated collider gets rotationZ 0.
- */
-export function colliderRotationZ(rotation: readonly number[] | undefined): number {
-  if (rotation === undefined) return 0;
-  const z = rotation[2] ?? 0;
-  const w = rotation[3] ?? 1;
-  return z === 0 ? 0 : 2 * Math.atan2(z, w);
-}
-
-/**
- * The static collider spec of one entity's `collider` component
- * (null without one) — its world XY, the entity's rotation about Z (the
- * editor draws the collider rotated with the entity, so physics must too),
- * kinematic for a mover, one-way when set. The single place the
- * runtime, the Play preview, the export and the perf harness derive it.
- */
-export function staticColliderOf(entityId: string, components: Readonly<Record<string, unknown>>): StaticColliderSpec | null {
-  const collider = components['collider'] as { shape?: unknown; oneWay?: boolean } | undefined;
-  if (collider === undefined) return null;
-  const t = components['transform'] as { position?: readonly number[]; rotation?: readonly number[] } | undefined;
-  const position = t?.position ?? [0, 0, 0];
-  // A box's depth (`hz`, for a 3D project) is not part of a 2D-plane shape.
-  const shape = collider.shape as { type?: unknown; hx?: unknown; hy?: unknown; hz?: unknown } | undefined;
-  return {
-    entityId,
-    shape: shape !== undefined && shape !== null && shape.type === 'box' && shape.hz !== undefined ? { type: 'box', hx: shape.hx, hy: shape.hy } : collider.shape,
-    position: { x: position[0] ?? 0, y: position[1] ?? 0 },
-    rotationZ: colliderRotationZ(t?.rotation),
-    ...(components['mover'] !== undefined ? { kinematic: true } : {}),
-    ...(collider.oneWay === true ? { oneWay: true } : {}),
-  };
+/** The static colliders of a list of (resolved) entities (on the 2D plane, each where it is in the world). */
+export function sceneContribution(entities: readonly EntityV3[], ctx?: ColliderContext): SceneContribution {
+  return { colliders: colliderSpecs2D(entities, ctx) };
 }
 
 /** The entities with `at` added to every root entity's position (children follow their parent). */
@@ -108,74 +68,6 @@ export function playerPhysicsOf(controller: unknown): { offsetSkin: number; grou
 }
 
 /**
- * The shape a 3D port builds from an authored collider shape and
- * the entity's scale (the project model allows a positive scale per axis for
- * a box, hull or mesh and a uniform one for a sphere or capsule): a box's
- * half extents and a hull's or mesh's points scale along the entity's axes;
- * a capsule's authored total `height` (end caps included) becomes the port's
- * centre-segment `halfHeight`; point lists are flattened. Null for a shape a
- * 3D port does not take (a polygon — the model refuses it in 3D).
- */
-export function colliderShape3DOf(shape: unknown, scale: readonly number[] = [1, 1, 1]): ColliderShape3D | null {
-  if (typeof shape !== 'object' || shape === null) return null;
-  const s = shape as Record<string, unknown>;
-  const sx = scale[0] ?? 1;
-  const sy = scale[1] ?? 1;
-  const sz = scale[2] ?? 1;
-  const n = (v: unknown): number => (typeof v === 'number' ? v : Number.NaN);
-  const flat = (list: unknown): number[] => {
-    const out: number[] = [];
-    if (Array.isArray(list)) for (const q of list as unknown[][]) out.push(n(q[0]) * sx, n(q[1]) * sy, n(q[2]) * sz);
-    return out;
-  };
-  switch (s['type']) {
-    case 'box':
-      return { type: 'box', hx: n(s['hx']) * sx, hy: n(s['hy']) * sy, hz: n(s['hz']) * sz };
-    case 'sphere':
-      return { type: 'sphere', radius: n(s['radius']) * sx };
-    case 'capsule': {
-      const r = n(s['radius']);
-      return { type: 'capsule', radius: r * sx, halfHeight: Math.max(0, n(s['height']) / 2 - r) * sx };
-    }
-    case 'convex':
-      return { type: 'convex', points: flat(s['points']) };
-    case 'mesh': {
-      const indices: number[] = [];
-      if (Array.isArray(s['triangles'])) for (const t of s['triangles'] as unknown[][]) indices.push(n(t[0]), n(t[1]), n(t[2]));
-      return { type: 'mesh', vertices: flat(s['vertices']), indices };
-    }
-    default:
-      return null;
-  }
-}
-
-/**
- * The 3D static collider spec of one entity's `collider` (null
- * without one): its world position and full rotation (a 3D collider turns on
- * any axis; the project model keeps it a root), the shape resolved for the
- * port (the entity's scale applied, `colliderShape3DOf`); a
- * mover's collider is kinematic, as is a collider a script
- * drives (`kinematic`).
- */
-export function staticColliderOf3D(entityId: string, components: Readonly<Record<string, unknown>>, kinematic = false): StaticColliderSpec3D | null {
-  const collider = components['collider'] as { shape?: unknown; layers?: unknown } | undefined;
-  if (collider === undefined) return null;
-  const t = components['transform'] as { position?: readonly number[]; rotation?: readonly number[]; scale?: readonly number[] } | undefined;
-  const p = t?.position ?? [0, 0, 0];
-  const q = t?.rotation ?? [0, 0, 0, 1];
-  const resolved = colliderShape3DOf(collider.shape, t?.scale ?? [1, 1, 1]);
-  return {
-    entityId,
-    shape: resolved ?? collider.shape,
-    position: { x: p[0] ?? 0, y: p[1] ?? 0, z: p[2] ?? 0 },
-    rotation: { x: q[0] ?? 0, y: q[1] ?? 0, z: q[2] ?? 0, w: q[3] ?? 1 },
-    ...(kinematic || components['mover'] !== undefined ? { kinematic: true } : {}),
-    // The collision layers it is in (absent: "default").
-    ...(Array.isArray(collider.layers) ? { layers: [...(collider.layers as string[])] } : {}),
-  };
-}
-
-/**
  * The 3D physics init config of a scene's (resolved) entities —
  * every collider but the player's as a static, the controller entity as the
  * character with its capsule (the offset's z included) and its tuning, the
@@ -191,9 +83,9 @@ export function staticColliderOf3D(entityId: string, components: Readonly<Record
 export function physics3DConfigOf(
   entities: readonly { id: string; components?: unknown }[],
   settings: { gravity_y: number; max_slope_climb_deg: number; min_slope_slide_deg: number; fixed_step_hz?: number },
-  options: { layers?: readonly string[] } = {},
+  options: { layers?: readonly string[]; modelColliders?: ModelColliderTable } = {},
 ): PhysicsInitConfig3D | null {
-  const statics: StaticColliderSpec3D[] = [];
+  const statics = colliderSpecs3D(entities as readonly { id: string; parentId?: string | null; components?: unknown }[], options.modelColliders !== undefined ? { modelColliders: options.modelColliders } : undefined);
   let character: PhysicsInitConfig3D['character'] | null = null;
   let controller: unknown = undefined;
   for (const e of entities) {
@@ -209,10 +101,7 @@ export function physics3DConfigOf(
         halfHeight: capsule.halfHeight,
         offset: { x: capsule.offset.x, y: capsule.offset.y, z: controllerCapsuleOffsetZ(c['controller']) },
       };
-      continue;
     }
-    const spec = staticColliderOf3D(e.id, c);
-    if (spec !== null) statics.push(spec);
   }
   const noCharacter = character === null;
   // Nothing to simulate or query: no physics (the module resolution then needs no 3D backend either).

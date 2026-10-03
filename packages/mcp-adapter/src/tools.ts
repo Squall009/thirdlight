@@ -191,7 +191,7 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       'the published source record has kind "graph". A script error in a graph behavior names its node (nodeId in tl_diagnostics errors). ' +
       'Prefabs: ' +
       'instantiatePrefab (a prefab keeps the source\'s components that may sit on a prefab (the descriptors\' prefab flag: collider, surface, materials, animator, mover, trigger, switch, ' +
-      'audioSource, faceMovement, health, collectible, patrol, hitbox…); a collider only on its root; never the player controller or scene wiring). ' +
+      'audioSource, faceMovement, health, collectible, patrol, hitbox…); a collider on any of its objects; never the player controller or scene wiring). ' +
       'Component fields, defaults, the GameObject menu\'s create entries (label, size, value) and icons: tl_content_query target="game" includeDescriptors. ' +
       'Generic primitives (both physics dimensions; fields in queryGameConfig {descriptors}): collectible {counter, amount?, size?, onCollect?, respawn?}, ' +
       'health {max, start?} on any object (scripts: ctx.health.get/damage/heal, damaged/healed/died events), patrol {mode: waypoints|edges, speed, ...}, ' +
@@ -298,6 +298,10 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       '3D queries (physics_dimension 3): ctx.physics.raycast3d/overlapSphere/overlapBox3d/overlapCapsule/pickAt/pickAtPointer with a filter ' +
       `{tags?, layers?, exclude?}; setCollisionLayers {layers: [name...]} names up to ${MAX_COLLISION_LAYERS} collision layers ("default" is implicit) that ` +
       'collider {layers: [...]} lists. ' +
+      'Collider shapes: every primitive takes center? [x,y,z] m and rotation? [x,y,z,w] (its place in the object\'s frame; a 2D plane turns about Z only); ' +
+      '{type: "compound", shapes: [primitives]} puts several on one body; {type: "model"} is every convex part (each mesh) of the object\'s own model\'s <piece>_COL node, read when the game is built (Play/export warn collider_model when a model has none). ' +
+      'A collider may sit on a child object: it follows its parents (kinematic once one of them is moved by a script, a timeline or a mover; a mesh collider stays static). ' +
+      'colliderFromModel {entityId, kind: box|convex|mesh|polygon|compound} makes the object\'s collider from its model file, as the editor\'s button does (box around the render geometry, centred; convex/mesh from the _COL node, else the geometry, 3D; polygon on the 2D plane; compound: one hull per _COL part) — one undo. ' +
       `Project saves (v4): setSaveSchema {schema: {version (1+), slots (1-${SAVE_LIMITS.slots}), migrations?: [{from, name}], sections?: [grid|materials|spawned|storage|dialogue], ` +
       `thumbnail?: {width, height (16-${SAVE_LIMITS.thumbnailSide} px), format: jpeg|webp, quality?}, settings?: [{key, type: bool|number|string|enum, default, label?, min?, max?, values?, ` +
       'engine?: music|sfx|ui|quality}]} | null}; scripts use ctx.saves.write(doc)/read()/save(slot, {title?, chapter?, location?, thumbnail?})/load(slot)/' +

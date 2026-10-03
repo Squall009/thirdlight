@@ -28,7 +28,7 @@ import type { EventCue, GameShell, TimelineAsset } from '@thirdlight/project-mod
 import type { AnimatorController, EnvironmentConfig, PrefabDefinition, InputConfig, LightingMap, MaterialDef, UiDocument, UiTheme } from '@thirdlight/project-model';
 import { animatorsForRuntime, effectsForRuntime, type EffectDef, materialFunctionsForRuntime, materialsForRuntime, type GraphDocument, captureContentViewV3, captureManifestV5, restampManifestV5, type CatalogFile, dependencyTables, scanDependencies, M3_ENGINE_PINS, resolveMediaIdentityV3, sha256Hex, type GameplaySettings, type ManifestAssetInputV2, type ManifestAssetInputV5, type ManifestBehaviorInput, type MediaBlock, type RuntimeContentManifestV5, type ManifestSceneRow, physicsDimensionOf, resolveRequiredModules, materialsInUse, resolveMaterialInstances, loadableAssetIds, loadableResourceIds, loadableRows, scriptLibraryContainerText, scriptLibraryDigest, type ScriptLibrary } from '@thirdlight/project-model';
 import { playChecks, projectWideRoots, startDrawSet, type MissingPlayFile, type PlayCheck, type SceneV4 } from '@thirdlight/project-model';
-import { ASSET_QUERY_PAGE_MAX, audioLoadOf, MODEL_RIG_LIMITS, readModelRig, textureStreamingOf, type AudioLoadType, type ManifestMipPart, type ModelRig } from '@thirdlight/project-model';
+import { ASSET_QUERY_PAGE_MAX, audioLoadOf, MODEL_RIG_LIMITS, modelCollisionParts, readModelGeometry, readModelRig, textureStreamingOf, type AudioLoadType, type ManifestMipPart, type ModelRig } from '@thirdlight/project-model';
 import type { BlobFile, WorkspaceService } from '@thirdlight/workspace';
 
 /** The injected compiler port (structural; no behavior-build edge). */
@@ -603,7 +603,7 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
 
   const hash = input.sha256 ?? sha256Hex;
   // The scene rules a start needs (checked here, for Play and the export alike, not per command).
-  const checks = input.scenes !== undefined ? playChecks(input.content as Record<string, unknown>, input.scenes as readonly SceneV4[], input.drawnScenes ?? input.startScenes ?? []) : [];
+  const checks: PlayCheck[] = input.scenes !== undefined ? playChecks(input.content as Record<string, unknown>, input.scenes as readonly SceneV4[], input.drawnScenes ?? input.startScenes ?? []) : [];
   const refused = checks.filter((c) => c.refuse);
   if (refused.length > 0) {
     return { ok: false, error: { code: 'play_check_refused', cls: 'validation', reason: refused[0]!.code, message: refused.map((c) => c.message).join('; ') } };
@@ -869,6 +869,31 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
     rigs = modelRigs(view.assets, modelBytes);
   }
 
+  // 5d. The models' `_COL` parts, only when a collider in a scene or prefab is `{type: 'model'}`
+  //     (resolved here, so the runtime never reads a model; a model without readable parts is a warning).
+  let modelColliders: Record<string, Record<string, number[][][]>> | undefined;
+  const uses = modelColliderUses(input.scenes, prefabDefs);
+  for (const [assetId, pieces] of [...uses.entries()].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) {
+    const a = view.assets.find((x) => x.assetId === assetId && x.kind === 'model');
+    if (a === undefined || placeholders.some((p) => p.assetId === assetId)) continue;
+    let bytes = modelBytes.get(assetId);
+    if (bytes === undefined) {
+      const read = service.readBlob(projectId, { assetId: a.assetId, version: a.version });
+      if (!read.ok) return { ok: false, error: readError(read.error) };
+      bytes = read.bytes;
+    }
+    const geometry = readModelGeometry(bytes);
+    for (const piece of [...pieces].sort()) {
+      const made = geometry.ok ? modelCollisionParts(geometry.geometry, piece === '' ? null : piece) : null;
+      if (made !== null && made.parts.length > 0) {
+        modelColliders ??= {};
+        (modelColliders[assetId] ??= {})[piece] = made.parts.map((p) => p.points);
+      }
+      const why = !geometry.ok ? geometry.message : made!.parts.length === 0 ? (made!.skipped[0] ?? 'it has no _COL node') : made!.skipped.length > 0 ? `some parts were left out: ${made!.skipped.slice(0, 2).join('; ')}` : null;
+      if (why !== null) checks.push({ code: 'collider_model', refuse: false, message: `the model collider of ${assetId}${piece !== '' ? ` (${piece})` : ''}: ${why}`.slice(0, 256) });
+    }
+  }
+
   stage('rigs');
   // 6. The emitted scene bytes + sceneDigest (the manifest's sceneDigest input).
   const sceneBytes = derived !== null ? derived.sceneBytes : new TextEncoder().encode(`${JSON.stringify(input.scene, null, 2)}\n`);
@@ -881,7 +906,7 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
 
   // The catalog of the same capture made from the same files, scripts and modules is made once: re-stamped here.
   const memo = derived ?? remember;
-  const catalogKey = [locate ? 'located' : 'read', shippedKey.join(' '), JSON.stringify(behaviorInputs), JSON.stringify(libraryRows), moduleIds.join(' '), rigs !== undefined ? 'rigs' : ''].join('\n');
+  const catalogKey = [locate ? 'located' : 'read', shippedKey.join(' '), JSON.stringify(behaviorInputs), JSON.stringify(libraryRows), moduleIds.join(' '), rigs !== undefined ? 'rigs' : '', modelColliders !== undefined ? JSON.stringify(modelColliders) : ''].join('\n');
   let captured: { manifest: RuntimeContentManifestV5; bytes: Uint8Array; buildId: string; files: readonly CatalogFile[] };
   if (memo?.catalog !== undefined && memo.catalog.key === catalogKey) {
     captured = { ...restampManifestV5(memo.catalog.manifest, input.capturedAt, hash), files: memo.catalog.files };
@@ -1000,6 +1025,8 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
       ...(runtimeAnimators !== undefined ? { animators: runtimeAnimators } : {}),
       // The rigs sockets are resolved on (the runtime never loads a model).
       ...(rigs !== undefined ? { rigs } : {}),
+      // The models' `_COL` parts colliders `{type: 'model'}` are made of (the runtime never loads a model).
+      ...(modelColliders !== undefined ? { modelColliders } : {}),
       // A v4 game's prefabs (scripts spawn them at run time).
       ...(prefabDefs.length > 0 ? { prefabs: prefabDefs } : {}),
       // The block types and the cell metadata schema (the runtime and the renderer read them).
@@ -1079,6 +1106,29 @@ function usesSockets(scenes: readonly unknown[] | undefined, prefabs: readonly P
   if (prefabs.some((d) => has(d.entities))) return true;
   const decoder = new TextDecoder();
   return behaviorArtifacts.some((b) => /\bsockets\b/.test(decoder.decode(b.bytes)));
+}
+
+/**
+ * The models (and pieces, '' for a model shown whole) whose `_COL` parts a
+ * collider `{type: 'model'}` of a scene or a prefab is made of.
+ */
+function modelColliderUses(scenes: readonly unknown[] | undefined, prefabs: readonly PrefabDefinition[]): Map<string, Set<string>> {
+  const out = new Map<string, Set<string>>();
+  const visit = (entities: unknown): void => {
+    if (!Array.isArray(entities)) return;
+    for (const e of entities) {
+      const c = (e as { components?: Record<string, unknown> } | null)?.components;
+      const shape = (c?.['collider'] as { shape?: { type?: unknown } } | undefined)?.shape;
+      const model = c?.['model'] as { asset?: { assetId?: unknown }; piece?: unknown } | undefined;
+      if (shape?.type !== 'model' || typeof model?.asset?.assetId !== 'string') continue;
+      const pieces = out.get(model.asset.assetId) ?? new Set<string>();
+      pieces.add(typeof model.piece === 'string' ? model.piece : '');
+      out.set(model.asset.assetId, pieces);
+    }
+  };
+  for (const sc of scenes ?? []) visit((sc as { entities?: unknown }).entities);
+  for (const d of prefabs) visit(d.entities);
+  return out;
 }
 
 /**

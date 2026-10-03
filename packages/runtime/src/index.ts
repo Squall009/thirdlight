@@ -232,7 +232,7 @@ export { effectiveEntityFlags, resolveSceneHierarchy, type EffectiveEntityFlags 
 // The character capsule's default and ranges (the editor draws and edits it).
 export { CAPSULE_LIMITS, DEFAULT_CONTROLLER_CAPSULE, controllerCapsuleOf } from '@thirdlight/project-model';
 export { createTagQuery } from './behavior';
-export { audioDurationsFromAssetRows, capsuleHalfTotal, colliderRotationZ, modelBoundsFromAssetRows, physics3DConfigOf, playerCapsuleOf, playerPhysicsOf, sceneEntitiesFromDocument, staticColliderOf, staticColliderOf3D, colliderShape3DOf } from './scene-set';
+export { audioDurationsFromAssetRows, capsuleHalfTotal, colliderRotationZ, colliderShape2DOf, colliderSpecs2D, colliderSpecs3D, modelBoundsFromAssetRows, physics3DConfigOf, playerCapsuleOf, playerPhysicsOf, sceneEntitiesFromDocument, staticColliderOf, staticColliderOf3D, colliderShape3DOf, worldTransformsOf, type ColliderContext } from './scene-set';
 // The tuning defaults hosts and editors read (the values are project-model's).
 export { BLOCK_DEFAULTS, DEFAULT_CONTROLLER_TUNING, ENGINE_TIMING_DEFAULTS, controllerTuningOf } from '@thirdlight/project-model';
 export type { ModelBounds } from './types';
@@ -449,3 +449,5 @@ export {
   type ResourceObservation,
 } from './resources';
 export { DIALOGUE_VOICE_LOOKAHEAD_LINES, dialogueVoicesAhead, type DialogueVoiceAhead } from './dialogue-ahead';
+// Collider shapes made from geometry (the editor's model colliders and the build's `_COL` parts make the same).
+export { COLLIDER_3D_LIMITS, MAX_COLLIDER_EXTENT, colliderFromTriangles, convexFromPoints, convexHull2, polygonFromPoints, roundMm } from '@thirdlight/project-model';

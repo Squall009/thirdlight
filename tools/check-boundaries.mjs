@@ -233,8 +233,10 @@ export const NODE_SIDE_ALLOWED = {
     external: [],
     node: [],
     typesOnly: { 'project-model': true },
-    // The importer checks the model's own limits (plain constants).
-    valueSubpaths: { 'project-model': ['limits'] },
+    // The importer checks the model's own limits (plain constants) and decodes
+    // EXT_meshopt_compression with the model's decoder (pure; the build reads
+    // a model's collision parts with the same one).
+    valueSubpaths: { 'project-model': ['limits', 'meshopt'] },
   },
   // "input | runtime (types)" — the pure mapping plus one browser
   // attachment entry; it knows runtime types only (no value edge, so the

@@ -156,7 +156,7 @@ export class Viewport {
   /** The helper overlay: collider outlines, component areas, the selection's handles. */
   private readonly helpers: HelperOverlay;
   /** Which helpers the Scene view draws (the Gizmos menu). */
-  private gizmos = { icons: true, lights: true, colliders: true, gameplay: true };
+  private gizmos = { icons: true, lights: true, colliders: false, gameplay: true };
   private readonly orbit: OrbitControls;
   private readonly gizmo: TransformControls;
   private readonly snapping: () => boolean;
@@ -318,6 +318,8 @@ export class Viewport {
   /** Install the model realization path. */
   setModelInstances(models: ModelInstances | null): void {
     this.models = models;
+    // A `{type: 'model'}` collider is outlined as its model's `_COL` parts once they are read.
+    this.helpers.setModelSource(models === null ? null : (assetId) => models.prepared(assetId), () => (this.stampGizmoCounts(), this.requestRender()));
   }
 
   // ---- Block layers --------------------------------------------------
@@ -1285,6 +1287,7 @@ export class Viewport {
   private stampGizmoCounts(): void {
     const c = this.helpers.blockHelpers();
     this.root.setAttribute('data-collider-outlines', String(c.colliders));
+    this.root.setAttribute('data-collider-outlines-shown', c.collidersShown.join(' '));
     this.root.setAttribute('data-mover-paths', String(c.moverPaths.length));
     this.root.setAttribute('data-capsule-outlines', String(c.capsules));
     this.root.setAttribute('data-gizmos', (Object.keys(this.gizmos) as (keyof typeof this.gizmos)[]).filter((k) => this.gizmos[k]).join(' '));
@@ -1416,6 +1419,7 @@ export class Viewport {
       this.gizmoTargetId = null;
     }
     this.helpers.setSelected(id);
+    this.stampGizmoCounts();
     this.render();
   }
 

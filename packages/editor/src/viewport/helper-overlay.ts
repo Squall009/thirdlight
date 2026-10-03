@@ -9,6 +9,7 @@
  */
 
 import * as THREE from 'three';
+import { convexHull2 } from '@thirdlight/runtime';
 import type { ProjectedEntity } from '../session/projection';
 import type { DescriptorRegistry } from '@thirdlight/project-model';
 import { capsuleDistance, capsuleShapeOf, outlinePoints, type SizeShape } from '../session/size-handles';
@@ -49,6 +50,21 @@ export class HelperOverlay {
   private readonly colliders = new THREE.Group();
   /** Collider outlines drawn (their merged line objects hold every one). */
   private colliderOutlines = 0;
+  /**
+   * The selection's colliders while the Gizmos menu's outlines are off: the
+   * selected object's own (every shape of a compound) and its children's.
+   */
+  private readonly selectedColliders = new THREE.Group();
+  /** Each collider's outline segments (world points), by object, kept for the selection's outlines. */
+  private outlineOf = new Map<string, { points: number[]; oneWay: boolean }>();
+  /** Whether every collider outline is shown (the Gizmos menu; off by default, the selection's still are). */
+  private allColliders = false;
+  /** The objects whose collider outlines the selection shows now. */
+  private selectionOutlined: string[] = [];
+  /** A model's `_COL` parts by asset and piece (null: none; absent: not read yet), for `{type: 'model'}` colliders. */
+  private readonly modelParts = new Map<string, number[][][] | null>();
+  private modelSource: ((assetId: string) => Promise<{ collisionParts(piece: string | null): number[][][] } | null>) | null = null;
+  private onModelParts: () => void = () => undefined;
   /** The entities of the last sync (the handles read the selected one). */
   private entities: readonly ProjectedEntity[] = [];
   /** Each player's capsule (drawn with the collider outlines, clickable). */
@@ -78,7 +94,10 @@ export class HelperOverlay {
     this.blocks.name = 'block-overlay';
     this.root.add(this.blocks);
     this.colliders.name = 'collider-outlines';
+    this.colliders.visible = false;
     this.root.add(this.colliders);
+    this.selectedColliders.name = 'collider-outlines-selected';
+    this.root.add(this.selectedColliders);
     this.sizeHandles.name = 'size-handles';
     this.root.add(this.sizeHandles);
     this.handleOutlines.name = 'handle-outlines';
@@ -90,6 +109,75 @@ export class HelperOverlay {
   setSelected(id: string | null): void {
     this.selectedId = id;
     this.updateSizeHandles();
+    this.updateSelectedColliders();
+  }
+
+  /**
+   * Where a model's `_COL` parts are read from (a `{type: 'model'}` collider
+   * is drawn as them once read; `changed` redraws the view then).
+   */
+  setModelSource(source: ((assetId: string) => Promise<{ collisionParts(piece: string | null): number[][][] } | null>) | null, changed: () => void): void {
+    this.modelSource = source;
+    this.onModelParts = changed;
+  }
+
+  /** A model collider's parts (null: none or not read yet — a read is started then). */
+  private partsOf(e: ProjectedEntity): number[][][] | null {
+    const model = e.components['model'] as { asset?: { assetId?: string }; piece?: string } | undefined;
+    const assetId = model?.asset?.assetId;
+    if (assetId === undefined) return null;
+    const piece = model?.piece ?? null;
+    const key = `${assetId}|${piece ?? ''}`;
+    if (this.modelParts.has(key)) return this.modelParts.get(key) ?? null;
+    if (this.modelSource === null) return null;
+    this.modelParts.set(key, null);
+    void this.modelSource(assetId).then((res) => {
+      const parts = res?.collisionParts(piece) ?? [];
+      if (parts.length === 0) return;
+      this.modelParts.set(key, parts);
+      this.sync(this.entities);
+      this.onModelParts();
+    }, () => undefined);
+    return null;
+  }
+
+  /** The selection's collider outlines (the selected object's and its children's), drawn while the Gizmos menu's are off. */
+  private updateSelectedColliders(): void {
+    for (const c of [...this.selectedColliders.children]) {
+      this.selectedColliders.remove(c);
+      this.disposeGroup(c as THREE.Group);
+    }
+    this.selectionOutlined = [];
+    if (this.selectedId === null) return;
+    const children = new Map<string, string[]>();
+    for (const e of this.entities) if (e.parentId !== null) children.set(e.parentId, [...(children.get(e.parentId) ?? []), e.id]);
+    const ids: string[] = [];
+    const visit = (id: string, depth: number): void => {
+      if (depth > 64) return;
+      ids.push(id);
+      for (const c of children.get(id) ?? []) visit(c, depth + 1);
+    };
+    visit(this.selectedId, 0);
+    const points: number[] = [];
+    for (const id of ids) {
+      const o = this.outlineOf.get(id);
+      if (o === undefined) continue;
+      points.push(...o.points);
+      this.selectionOutlined.push(id);
+    }
+    if (points.length === 0) return;
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.Float32BufferAttribute(points, 3));
+    const outline = new THREE.LineSegments(geometry, new THREE.LineBasicMaterial({ color: COLLIDER_COLOR, depthTest: false, transparent: true, opacity: 0.95 }));
+    outline.name = 'collider-outlines:selection';
+    outline.renderOrder = 9;
+    this.selectedColliders.add(outline);
+    this.selectedColliders.visible = !this.allColliders;
+  }
+
+  /** The objects whose collider outlines are shown now (all of them with the Gizmos menu's on, else the selection's). */
+  shownColliderOutlines(): string[] {
+    return this.allColliders ? [...this.outlineOf.keys()] : [...this.selectionOutlined];
   }
 
   /** Sync the overlay from the projection (rebuilds the helpers and the selection's handles). */
@@ -97,6 +185,7 @@ export class HelperOverlay {
     this.syncBlocks(entities);
     this.entities = entities;
     this.updateSizeHandles();
+    this.updateSelectedColliders();
   }
 
   /**
@@ -125,32 +214,45 @@ export class HelperOverlay {
     // All outlines of one colour are one line-segment object (one draw call, not one per
     // collider); `userData.outlines` keeps each entity's range of vertices.
     this.colliderOutlines = 0;
+    this.outlineOf = new Map();
+    // World matrices: a collider on a child is where its parents put it (projected transforms are parent-relative).
+    const byId = new Map(entities.map((x) => [x.id, x]));
+    const worlds = new Map<string, THREE.Matrix4>();
+    const worldOf = (x: ProjectedEntity, depth = 0): THREE.Matrix4 => {
+      const hit = worlds.get(x.id);
+      if (hit !== undefined) return hit;
+      const own = new THREE.Matrix4().compose(new THREE.Vector3(N(x.position[0]), N(x.position[1]), N(x.position[2])), new THREE.Quaternion(N(x.rotation[0]), N(x.rotation[1]), N(x.rotation[2]), x.rotation[3] ?? 1), new THREE.Vector3(x.scale[0] ?? 1, x.scale[1] ?? 1, x.scale[2] ?? 1));
+      const parent = x.parentId !== null ? byId.get(x.parentId) : undefined;
+      const m = parent !== undefined && depth < 64 ? new THREE.Matrix4().multiplyMatrices(worldOf(parent, depth + 1), own) : own;
+      worlds.set(x.id, m);
+      return m;
+    };
     const merged = { solid: { points: [] as number[], ranges: {} as Record<string, { start: number; count: number }> }, oneWay: { points: [] as number[], ranges: {} as Record<string, { start: number; count: number }> } };
     for (const e of entities) {
       const shape = (e.collider as { shape?: { type: string; hx?: number; hy?: number; vertices?: number[][] } } | undefined)?.shape;
       if (shape === undefined) continue;
       // A 3D shape (a box with its depth, a sphere, a capsule, a hull, a mesh) as a wire outline
       // with the object's whole transform (a 3D collider turns and scales with it), in the same merged lines.
-      const local = colliderSegments3D(shape);
-      if (local !== null) {
-        const target = (e.collider as { oneWay?: boolean }).oneWay === true ? merged.oneWay : merged.solid;
-        const start = target.points.length / 3;
-        pushTransformed(target.points, local, e.position, e.rotation, e.scale);
-        target.ranges[e.id] = { start, count: target.points.length / 3 - start };
-        this.colliderOutlines += 1;
-        continue;
-      }
-      const corners = shape.type === 'box' ? [[-N(shape.hx), -N(shape.hy)], [N(shape.hx), -N(shape.hy)], [N(shape.hx), N(shape.hy)], [-N(shape.hx), N(shape.hy)]] : (shape.vertices ?? []);
-      if (corners.length < 2) continue;
-      const q = e.rotation;
-      const angle = 2 * Math.atan2(N(q[2]), N(q[3]));
-      const cos = Math.cos(angle);
-      const sin = Math.sin(angle);
-      const at = ([a, b]: number[]): [number, number, number] => [N(e.position[0]) + N(a) * cos - N(b) * sin, N(e.position[1]) + N(a) * sin + N(b) * cos, 0.03];
-      const target = (e.collider as { oneWay?: boolean }).oneWay === true ? merged.oneWay : merged.solid;
+      // A model shape is drawn as its `_COL` parts once they are read.
+      const parts = shape.type === 'model' ? this.partsOf(e) : undefined;
+      const oneWay = (e.collider as { oneWay?: boolean }).oneWay === true;
+      const target = oneWay ? merged.oneWay : merged.solid;
       const start = target.points.length / 3;
-      for (let i = 0; i < corners.length; i += 1) target.points.push(...at(corners[i]!), ...at(corners[(i + 1) % corners.length]!));
+      const world = worldOf(e);
+      const local = shape.type === 'model' && this.physicsDimension !== 3 ? null : colliderSegments3D(shape, parts);
+      if (local !== null) {
+        pushMatrix(target.points, local, world);
+      } else {
+        // The 2D plane: the outline on the game plane (z at the plane, turned about Z with its object).
+        const segments = colliderSegments2D(shape, parts);
+        if (segments.length < 2) continue;
+        const flat: number[] = [];
+        for (const p of segments) flat.push(N(p[0]), N(p[1]), 0);
+        pushMatrix(target.points, flat, world);
+        for (let i = start * 3 + 2; i < target.points.length; i += 3) target.points[i] = 0.03;
+      }
       target.ranges[e.id] = { start, count: target.points.length / 3 - start };
+      this.outlineOf.set(e.id, { points: target.points.slice(start * 3), oneWay });
       this.colliderOutlines += 1;
     }
     for (const [kind, m] of Object.entries(merged)) {
@@ -170,8 +272,13 @@ export class HelperOverlay {
       const shape = capsuleShapeOf(e);
       if (shape === null) continue;
       const z = N(e.position[2]) + 0.03;
+      const ring = outlinePoints(shape, 16);
+      // The selection's outlines show it too (as segments).
+      const segs: number[] = [];
+      for (let i = 0; i + 1 < ring.length; i += 1) segs.push(ring[i]!.x, ring[i]!.y, z, ring[i + 1]!.x, ring[i + 1]!.y, z);
+      this.outlineOf.set(e.id, { points: segs, oneWay: false });
       const outline = new THREE.Line(
-        new THREE.BufferGeometry().setFromPoints(outlinePoints(shape, 16).map((p) => new THREE.Vector3(p.x, p.y, z))),
+        new THREE.BufferGeometry().setFromPoints(ring.map((p) => new THREE.Vector3(p.x, p.y, z))),
         new THREE.LineBasicMaterial({ color: COLLIDER_COLOR, depthTest: false, transparent: true, opacity: 0.95 }),
       );
       outline.name = `capsule-outline:${e.id}`;
@@ -264,8 +371,9 @@ export class HelperOverlay {
   }
 
   /** The drawn gameplay helpers (names of the mover paths), for tests. */
-  blockHelpers(): { moverPaths: string[]; count: number; colliders: number; capsules: number; sizeHandles: number } {
+  blockHelpers(): { moverPaths: string[]; count: number; colliders: number; capsules: number; sizeHandles: number; collidersShown: string[] } {
     return {
+      collidersShown: this.shownColliderOutlines(),
       moverPaths: this.blocks.children.filter((c) => c.name.startsWith('mover-path:')).map((c) => c.name.slice(11)),
       count: this.blocks.children.length,
       colliders: this.colliderOutlines + this.capsules.size,
@@ -274,9 +382,11 @@ export class HelperOverlay {
     };
   }
 
-  /** The Gizmos menu's collider outlines and gameplay helpers. */
+  /** The Gizmos menu's collider outlines (off: only the selection's) and gameplay helpers. */
   setGizmos(g: { colliders: boolean; gameplay: boolean }): void {
+    this.allColliders = g.colliders;
     this.colliders.visible = g.colliders;
+    this.selectedColliders.visible = !g.colliders;
     this.blocks.visible = g.gameplay;
   }
 
@@ -510,15 +620,17 @@ export class HelperOverlay {
   }
 
   /**
-   * The player whose capsule is under the pointer (drawn only with the
-   * collider outlines on): `onOutline` when the pointer is on the outline
-   * itself (within a few pixels), else inside it.
+   * The player whose capsule is under the pointer (where its outline is
+   * drawn: every one with the collider outlines on, else the selection's):
+   * `onOutline` when the pointer is on the outline itself (within a few
+   * pixels), else inside it.
    */
   capsuleAt(clientX: number, clientY: number): { entityId: string; onOutline: boolean } | null {
-    if (!this.colliders.visible || this.capsules.size === 0 || !this.aim(clientX, clientY)) return null;
+    if (this.capsules.size === 0 || !this.aim(clientX, clientY)) return null;
     let best: { entityId: string; onOutline: boolean; d: number } | null = null;
     const rect = this.canvas.getBoundingClientRect();
     for (const [entityId, { shape, z }] of this.capsules) {
+      if (!this.colliders.visible && !this.selectionOutlined.includes(entityId)) continue;
       const hit = new THREE.Vector3();
       if (!this.raycaster.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0, 0, 1), -z), hit)) continue;
       // About 6 pixels at the capsule's distance.
@@ -638,8 +750,62 @@ function hullSegments(points: readonly (readonly number[])[]): number[] {
   return out;
 }
 
-/** A 3D collider shape's wire outline in its object's frame, or null for a 2D-plane shape. */
-export function colliderSegments3D(shape: { type: string; [k: string]: unknown }): number[] | null {
+/**
+ * A 3D collider shape's wire outline in its object's frame (each shape at
+ * its center and rotation, every shape of a compound, a model shape's
+ * `_COL` hulls from `modelParts`), or null for a 2D-plane shape.
+ */
+export function colliderSegments3D(shape: { type: string; [k: string]: unknown }, modelParts?: readonly (readonly (readonly number[])[])[] | null): number[] | null {
+  if (shape.type === 'model') {
+    if (modelParts === undefined || modelParts === null) return null;
+    return modelParts.flatMap((points) => hullSegments(points));
+  }
+  if (shape.type === 'compound') {
+    const out: number[] = [];
+    for (const part of (shape['shapes'] as { type: string; [k: string]: unknown }[] | undefined) ?? []) {
+      const segs = colliderSegments3D(part);
+      if (segs !== null) out.push(...segs);
+    }
+    return out.length > 0 ? out : null;
+  }
+  const local = primitiveSegments3D(shape);
+  if (local === null) return null;
+  const c = shape['center'] as number[] | undefined;
+  const q = shape['rotation'] as number[] | undefined;
+  if (c === undefined && q === undefined) return local;
+  const out: number[] = [];
+  pushTransformed(out, local, c ?? [0, 0, 0], q ?? [0, 0, 0, 1], [1, 1, 1]);
+  return out;
+}
+
+/**
+ * A 2D-plane collider shape's outline in its object's XY plane as segment
+ * pairs [x, y] (each box or polygon at its center and turn about Z, every
+ * shape of a compound, a model shape's parts as their XY hulls).
+ */
+export function colliderSegments2D(shape: { type: string; [k: string]: unknown }, modelParts?: readonly (readonly (readonly number[])[])[] | null): [number, number][] {
+  const out: [number, number][] = [];
+  const loop = (corners: readonly (readonly number[])[], c: readonly number[], q: readonly number[]): void => {
+    const angle = 2 * Math.atan2(N(q[2]), N(q[3] ?? 1));
+    const cos = Math.cos(angle);
+    const sin = Math.sin(angle);
+    const at = (p: readonly number[]): [number, number] => [N(c[0]) + N(p[0]) * cos - N(p[1]) * sin, N(c[1]) + N(p[0]) * sin + N(p[1]) * cos];
+    for (let i = 0; i < corners.length; i += 1) out.push(at(corners[i]!), at(corners[(i + 1) % corners.length]!));
+  };
+  const one = (s: { type: string; [k: string]: unknown }): void => {
+    const c = (s['center'] as number[] | undefined) ?? [0, 0, 0];
+    const q = (s['rotation'] as number[] | undefined) ?? [0, 0, 0, 1];
+    if (s.type === 'box') loop([[-N(s['hx'] as number), -N(s['hy'] as number)], [N(s['hx'] as number), -N(s['hy'] as number)], [N(s['hx'] as number), N(s['hy'] as number)], [-N(s['hx'] as number), N(s['hy'] as number)]], c, q);
+    else if (s.type === 'polygon') loop((s['vertices'] as number[][] | undefined) ?? [], c, q);
+  };
+  if (shape.type === 'model') for (const points of modelParts ?? []) loop(convexHull2(points.map((p) => [N(p[0]), N(p[1])] as [number, number])), [0, 0, 0], [0, 0, 0, 1]);
+  else if (shape.type === 'compound') for (const part of (shape['shapes'] as { type: string; [k: string]: unknown }[] | undefined) ?? []) one(part);
+  else one(shape);
+  return out;
+}
+
+/** One primitive 3D shape's wire outline about its own centre, or null for a 2D-plane shape. */
+function primitiveSegments3D(shape: { type: string; [k: string]: unknown }): number[] | null {
   const out: number[] = [];
   switch (shape.type) {
     case 'box':
@@ -696,6 +862,15 @@ function triggerSegments3D(trigger: unknown): number[] | null {
     return out;
   }
   return null;
+}
+
+/** Append local segments moved into the world by a matrix. */
+function pushMatrix(out: number[], local: readonly number[], m: THREE.Matrix4): void {
+  const v = new THREE.Vector3();
+  for (let i = 0; i + 2 < local.length; i += 3) {
+    v.set(local[i]!, local[i + 1]!, local[i + 2]!).applyMatrix4(m);
+    out.push(v.x, v.y, v.z);
+  }
 }
 
 /** Append local segments moved into the world by a position, rotation and scale. */

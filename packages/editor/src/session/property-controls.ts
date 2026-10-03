@@ -641,6 +641,8 @@ function colliderFields(collider: ColliderComponent): ComponentFieldView[] {
       { path: 'collider.shape.triangles', label: 'triangles', type: '1–2048 [a, b, c]', value: String(shape.triangles.length) },
     ];
   }
+  if (shape.type === 'compound') return [{ path: 'collider.shape.type', label: 'shape', type: '"compound"', value: 'compound' }, { path: 'collider.shape.shapes', label: 'shapes', type: 'shapes', value: String(shape.shapes.length) }];
+  if (shape.type === 'model') return [{ path: 'collider.shape.type', label: 'shape', type: '"model"', value: "the model's _COL parts" }];
   const fields: ComponentFieldView[] = [
     { path: 'collider.shape.type', label: 'shape', type: '"polygon"', value: 'polygon' },
     { path: 'collider.shape.vertices', label: 'vertices', type: '3–8 strict-convex', value: String(shape.vertices.length) },

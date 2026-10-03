@@ -38,7 +38,7 @@ import { asset, bool, color, enm, entity, ID, int, json, list, map, NAME, num, o
 const POSITION_LIMIT = MAX_LEN;
 const V3_LIMIT = MAX_ABS_V3;
 
-const PHYSICS_RULES = ['A physics body (collider or controller) is a root object at unit scale [1, 1, 1], rotated about Z only in a 2D-plane project (any axis in a 3D one); the player controller stands upright.'];
+const PHYSICS_RULES = ['A physics body (collider or controller) is at unit scale [1, 1, 1] on a 2D plane and rotated about Z only there (any axis and scale in a 3D one); the player controller and a mover are root objects and the controller stands upright; a collider on a child follows its parent.'];
 const MARKER_RULES = ['A zone or player spawn is a root object at unit scale with no rotation.'];
 
 export const transform: ComponentDescriptor = {
@@ -131,52 +131,71 @@ export const prefab: ComponentDescriptor = {
   prefab: false,
 };
 
+/**
+ * The fields of one primitive collider shape (by its type) and where it sits
+ * in its object's frame; a collider's shape and every shape of a compound
+ * use them.
+ */
+function colliderPrimitiveFields(): FieldDescriptor[] {
+  const primitives = ['box', 'polygon', 'sphere', 'capsule', 'convex', 'mesh'] as const;
+  return [
+    num('hx', 'Half width', 'Half the box width.', { required: true, when: when('type', 'box'), min: 0, minExclusive: true, max: POSITION_LIMIT, step: 0.05, unit: 'm', default: 0.5, handle: 'box2' }),
+    num('hy', 'Half height', 'Half the box height.', { required: true, when: when('type', 'box'), min: 0, minExclusive: true, max: POSITION_LIMIT, step: 0.05, unit: 'm', default: 0.5, handle: 'box2' }),
+    // The depth. Absent in a 2D plane (which ignores it); required by a 3D project (no guessed depth).
+    num('hz', 'Half depth', 'Half the box depth along Z (needed in a 3D project; a 2D plane ignores it).', { when: when('type', 'box'), min: 0, minExclusive: true, max: POSITION_LIMIT, step: 0.05, unit: 'm', handle: 'box2' }),
+    list('vertices', 'Vertices', `3–${MAX_POLYGON_VERTICES} corners [x, y], counter-clockwise, convex.`, vec2('*', 'Vertex', 'A corner [x, y] from the object origin.', { min: -POSITION_LIMIT, max: POSITION_LIMIT, step: 0.05, unit: 'm' }), {
+      required: true,
+      when: when('type', 'polygon'),
+      minItems: 3,
+      maxItems: MAX_POLYGON_VERTICES,
+      handle: 'polygon',
+    }),
+    // The 3D shapes (a 3D project). A capsule stands along the object's Y, its height the controller's convention (end caps included).
+    num('radius', 'Radius', 'The sphere\'s radius.', { required: true, when: when('type', 'sphere'), min: 0, minExclusive: true, max: MAX_COLLIDER_EXTENT, step: 0.05, unit: 'm', default: 0.5, handle: 'radius' }),
+    num('radius', 'Radius', 'The capsule\'s radius.', { required: true, when: when('type', 'capsule'), min: 0, minExclusive: true, max: MAX_COLLIDER_EXTENT, step: 0.05, unit: 'm', default: 0.5, handle: 'capsule' }),
+    num('height', 'Height', 'The capsule\'s total height along the object\'s Y (end caps included; at least twice the radius).', { required: true, when: when('type', 'capsule'), min: 0, minExclusive: true, max: 2 * MAX_COLLIDER_EXTENT, step: 0.05, unit: 'm', default: 2, handle: 'capsule' }),
+    // Generated from a model (its _COL node, else its geometry) and stored as data; shown read-only.
+    list('points', 'Hull points', `4–${COLLIDER_3D_LIMITS.convexPoints} points [x, y, z] whose convex hull is the shape (made from a model).`, vec3('*', 'Point', 'A point [x, y, z] from the object origin.', { min: -MAX_COLLIDER_EXTENT, max: MAX_COLLIDER_EXTENT, unit: 'm' }), {
+      required: true,
+      when: when('type', 'convex'),
+      minItems: 4,
+      maxItems: COLLIDER_3D_LIMITS.convexPoints,
+      readOnly: true,
+    }),
+    list('vertices', 'Mesh vertices', `3–${COLLIDER_3D_LIMITS.meshVertices} vertices [x, y, z] (made from a model).`, vec3('*', 'Vertex', 'A vertex [x, y, z] from the object origin.', { min: -MAX_COLLIDER_EXTENT, max: MAX_COLLIDER_EXTENT, unit: 'm' }), {
+      required: true,
+      when: when('type', 'mesh'),
+      minItems: 3,
+      maxItems: COLLIDER_3D_LIMITS.meshVertices,
+      readOnly: true,
+    }),
+    list('triangles', 'Mesh triangles', `1–${COLLIDER_3D_LIMITS.meshTriangles} triangles [a, b, c] (vertex indices; made from a model).`, vec3('*', 'Triangle', 'Three different vertex indices [a, b, c].'), {
+      required: true,
+      when: when('type', 'mesh'),
+      minItems: 1,
+      maxItems: COLLIDER_3D_LIMITS.meshTriangles,
+      readOnly: true,
+    }),
+    // Where the shape sits in the object's frame (absent: centred, unrotated).
+    vec3('center', 'Center', 'The shape\'s centre from the object origin (metres; a 2D plane reads x and y).', { when: when('type', ...primitives), min: -MAX_COLLIDER_EXTENT, max: MAX_COLLIDER_EXTENT, step: 0.05, unit: 'm' }),
+    { type: 'quat', key: 'rotation', label: 'Rotation', tooltip: 'The shape\'s rotation in the object\'s frame (a unit quaternion; about Z only on a 2D plane; the Inspector shows degrees).', when: when('type', ...primitives) },
+  ];
+}
+
 export const collider: ComponentDescriptor = {
   name: 'collider',
   label: 'Collider',
-  tooltip: 'A solid shape the player stands on and bumps into (a box or a convex polygon in the X/Y plane; in a 3D project a box with a depth, a sphere, a capsule, a convex hull or a triangle mesh).',
+  tooltip: 'A solid shape the player stands on and bumps into (a box or a convex polygon in the X/Y plane; in a 3D project a box with a depth, a sphere, a capsule, a convex hull or a triangle mesh), placed anywhere in the object\'s frame; several shapes as a compound, or the convex parts of its model\'s _COL node.',
   category: 'Physics',
   value: obj('collider', 'Collider', 'The collision shape.', [
-    obj('shape', 'Shape', 'A box (half extents) or a convex polygon; in a 3D project also a sphere, a capsule, a convex hull or a triangle mesh.', [
-      enm('type', 'Shape', 'Box or convex polygon (2D plane); box, sphere, capsule, convex hull or mesh (3D project).', ['box', 'polygon', 'sphere', 'capsule', 'convex', 'mesh'], { required: true, default: 'box' }),
-      num('hx', 'Half width', 'Half the box width.', { required: true, when: when('type', 'box'), min: 0, minExclusive: true, max: POSITION_LIMIT, step: 0.05, unit: 'm', default: 0.5, handle: 'box2' }),
-      num('hy', 'Half height', 'Half the box height.', { required: true, when: when('type', 'box'), min: 0, minExclusive: true, max: POSITION_LIMIT, step: 0.05, unit: 'm', default: 0.5, handle: 'box2' }),
-      // The depth. Absent in a 2D plane (which ignores it); required by a 3D project (no guessed depth).
-      num('hz', 'Half depth', 'Half the box depth along Z (needed in a 3D project; a 2D plane ignores it).', { when: when('type', 'box'), min: 0, minExclusive: true, max: POSITION_LIMIT, step: 0.05, unit: 'm', handle: 'box2' }),
-      list('vertices', 'Vertices', `3–${MAX_POLYGON_VERTICES} corners [x, y], counter-clockwise, convex.`, vec2('*', 'Vertex', 'A corner [x, y] from the object origin.', { min: -POSITION_LIMIT, max: POSITION_LIMIT, step: 0.05, unit: 'm' }), {
-        required: true,
-        when: when('type', 'polygon'),
-        minItems: 3,
-        maxItems: MAX_POLYGON_VERTICES,
-        handle: 'polygon',
-      }),
-      // The 3D shapes (a 3D project). A capsule stands along the object's Y, its height the controller's convention (end caps included).
-      num('radius', 'Radius', 'The sphere\'s radius.', { required: true, when: when('type', 'sphere'), min: 0, minExclusive: true, max: MAX_COLLIDER_EXTENT, step: 0.05, unit: 'm', default: 0.5, handle: 'radius' }),
-      num('radius', 'Radius', 'The capsule\'s radius.', { required: true, when: when('type', 'capsule'), min: 0, minExclusive: true, max: MAX_COLLIDER_EXTENT, step: 0.05, unit: 'm', default: 0.5, handle: 'capsule' }),
-      num('height', 'Height', 'The capsule\'s total height along the object\'s Y (end caps included; at least twice the radius).', { required: true, when: when('type', 'capsule'), min: 0, minExclusive: true, max: 2 * MAX_COLLIDER_EXTENT, step: 0.05, unit: 'm', default: 2, handle: 'capsule' }),
-      // Generated from a model (its _COL node, else its geometry) and stored as data; shown read-only.
-      list('points', 'Hull points', `4–${COLLIDER_3D_LIMITS.convexPoints} points [x, y, z] whose convex hull is the shape (made from a model).`, vec3('*', 'Point', 'A point [x, y, z] from the object origin.', { min: -MAX_COLLIDER_EXTENT, max: MAX_COLLIDER_EXTENT, unit: 'm' }), {
-        required: true,
-        when: when('type', 'convex'),
-        minItems: 4,
-        maxItems: COLLIDER_3D_LIMITS.convexPoints,
-        readOnly: true,
-      }),
-      list('vertices', 'Mesh vertices', `3–${COLLIDER_3D_LIMITS.meshVertices} vertices [x, y, z] (made from a model).`, vec3('*', 'Vertex', 'A vertex [x, y, z] from the object origin.', { min: -MAX_COLLIDER_EXTENT, max: MAX_COLLIDER_EXTENT, unit: 'm' }), {
-        required: true,
-        when: when('type', 'mesh'),
-        minItems: 3,
-        maxItems: COLLIDER_3D_LIMITS.meshVertices,
-        readOnly: true,
-      }),
-      list('triangles', 'Mesh triangles', `1–${COLLIDER_3D_LIMITS.meshTriangles} triangles [a, b, c] (vertex indices; made from a model).`, vec3('*', 'Triangle', 'Three different vertex indices [a, b, c].'), {
-        required: true,
-        when: when('type', 'mesh'),
-        minItems: 1,
-        maxItems: COLLIDER_3D_LIMITS.meshTriangles,
-        readOnly: true,
-      }),
-    ], { required: true, rules: ['A polygon is convex, counter-clockwise, has no repeated corner, an area of at least 1e-6 m² and stays within 64 m of the origin.', 'Sphere, capsule, convex hull and mesh are 3D shapes (physics_dimension 3); a mesh is static level geometry (not on a mover).'] }),
+    obj('shape', 'Shape', 'A box (half extents) or a convex polygon; in a 3D project also a sphere, a capsule, a convex hull or a triangle mesh; a compound of several; or the model\'s _COL parts.', [
+      enm('type', 'Shape', 'Box or convex polygon (2D plane); box, sphere, capsule, convex hull or mesh (3D project); a compound of shapes; or the convex parts of the model\'s _COL node (read when the game is built).', ['box', 'polygon', 'sphere', 'capsule', 'convex', 'mesh', 'compound', 'model'], { required: true, default: 'box' }),
+      ...colliderPrimitiveFields(),
+      list('shapes', 'Shapes', 'The compound\'s shapes (one body), each with its own centre and rotation.', obj('*', 'Shape', 'One shape of the compound.', [
+        enm('type', 'Shape', 'Box or convex polygon (2D plane); box, sphere, capsule, convex hull or mesh (3D project).', ['box', 'polygon', 'sphere', 'capsule', 'convex', 'mesh'], { required: true, default: 'box' }),
+        ...colliderPrimitiveFields(),
+      ]), { required: true, when: when('type', 'compound'), minItems: 1 }),
+    ], { required: true, rules: ['A polygon is convex, counter-clockwise, has no repeated corner, an area of at least 1e-6 m² and stays within 64 m of the origin.', 'Sphere, capsule, convex hull and mesh are 3D shapes (physics_dimension 3); a mesh is static level geometry (not on a mover).', 'A model shape needs a model on the same object; a build makes one convex hull of each mesh part of its _COL node.'] }),
     bool('oneWay', 'One-way', 'The player can jump up through it and land on top (a platform).', { default: false, omitDefault: true }),
     // Absent = the implicit "default" layer (every collider is in one layer; none has to be named).
     list('layers', 'Collision layers', `The collision layers it is in (3D; absent: "default"). Script queries filter by layer; name layers in the project's collision layers.`, str('*', 'Layer', 'A collision layer: "default" or one the project names.', { format: 'identifier', minLength: 1, maxLength: 32 }), { minItems: 1, maxItems: 16, unique: true }),
@@ -193,6 +212,8 @@ export const collider: ComponentDescriptor = {
     { label: 'Capsule', value: { shape: { type: 'capsule', radius: 0.5, height: 2 } }, dimension: 3 },
     { label: 'Convex hull', value: { shape: { type: 'convex', points: [[-0.5, -0.5, -0.5], [0.5, -0.5, -0.5], [0.5, 0.5, -0.5], [-0.5, 0.5, -0.5], [-0.5, -0.5, 0.5], [0.5, -0.5, 0.5], [0.5, 0.5, 0.5], [-0.5, 0.5, 0.5]] } }, dimension: 3 },
     { label: 'Mesh', value: { shape: { type: 'mesh', vertices: [[-0.5, 0, -0.5], [0.5, 0, -0.5], [0.5, 0, 0.5], [-0.5, 0, 0.5]], triangles: [[0, 2, 1], [0, 3, 2]] } }, dimension: 3 },
+    // The model's own _COL parts, read when the game is built (an object with a model).
+    { label: "Model's _COL parts", value: { shape: { type: 'model' } }, requires: ['model'] },
   ],
   handles: [
     { kind: 'box2', label: 'Box size', bind: { halfX: 'shape/hx', halfY: 'shape/hy', halfZ: 'shape/hz' }, space: 'local', when: when('shape/type', 'box'), follows: 'rotationZ' },

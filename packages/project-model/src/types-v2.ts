@@ -110,8 +110,36 @@ export interface ColliderMeshShape {
   triangles: [number, number, number][];
 }
 
-/** The collider shape vocabulary (sphere, capsule, convex and mesh in 3D projects). */
-export type ColliderShape = ColliderBoxShape | ColliderPolygonShape | ColliderSphereShape | ColliderCapsuleShape | ColliderConvexShape | ColliderMeshShape;
+/**
+ * Where a shape sits in its object's frame: `center` [x, y, z] in metres (a
+ * 2D plane reads x and y) and `rotation` a unit quaternion [x, y, z, w]
+ * (about Z only on a 2D plane). Absent: centred, unrotated.
+ */
+export interface ColliderShapePose {
+  center?: [number, number, number];
+  rotation?: [number, number, number, number];
+}
+
+/** One primitive shape (sphere, capsule, convex and mesh in 3D projects), placed by its pose. */
+export type ColliderPrimitiveShape = (ColliderBoxShape | ColliderPolygonShape | ColliderSphereShape | ColliderCapsuleShape | ColliderConvexShape | ColliderMeshShape) & ColliderShapePose;
+
+/** Several primitive shapes on one object (one body), each with its own pose. */
+export interface ColliderCompoundShape {
+  type: 'compound';
+  shapes: ColliderPrimitiveShape[];
+}
+
+/**
+ * Every convex part of the object's model's `_COL` node (its piece's, or
+ * every `_COL` node of a single-piece file), read from the model file when
+ * the game is built, so a changed model needs no edit.
+ */
+export interface ColliderModelShape {
+  type: 'model';
+}
+
+/** The collider shape vocabulary. */
+export type ColliderShape = ColliderPrimitiveShape | ColliderCompoundShape | ColliderModelShape;
 
 export interface ColliderComponent {
   shape: ColliderShape;

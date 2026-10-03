@@ -7,7 +7,9 @@
 import { describe, expect, it } from 'vitest';
 
 import { decodeMeshopt, MeshoptError, type MeshoptFilter, type MeshoptMode } from './meshopt';
-import { base64ToBytes } from './test-fixtures';
+
+/** The vectors' base64 bytes. */
+const base64ToBytes = (text: string): Uint8Array => Uint8Array.from(atob(text.replace(/\s/g, '')), (c) => c.charCodeAt(0));
 
 const RAW = import.meta.glob('../../../fixtures/import-ext/meshopt-vectors.json', { eager: true, query: '?raw', import: 'default' }) as Record<string, string>;
 const doc = JSON.parse(Object.values(RAW)[0] as string) as {

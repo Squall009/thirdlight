@@ -13,6 +13,7 @@
  * No I/O, no transport, no renderer: values in, values out.
  */
 
+import { CONTROLLER_FIELDS } from '@thirdlight/project-model';
 import { CAMERA_PATH_FIELDS, CAMERA_REGION_FIELDS, VIRTUAL_CAMERA_FIELDS, validateCameraPathComponent, validateCameraRegionComponent, validateVirtualCameraComponent } from '@thirdlight/project-model';
 import { BLOCK_LAYER_FIELDS, validateBlockLayerComponent, validateBlockFootprintComponent } from '@thirdlight/project-model';
 import { validateBehaviorGroupComponent } from '@thirdlight/project-model';
@@ -32,6 +33,7 @@ import type {
   CommandAssetRecord,
   CommandError,
   ContentDocument,
+  OwnedComponent,
   SurfacePresetName,
   V3OwnedComponent,
 } from './types';
@@ -78,6 +80,23 @@ export const COMPONENT_FIELD_ORDER_V3: Record<V3OwnedComponent, readonly string[
   gravity: ['scale', 'size'],
   // A camera region (project-model cameras.ts field order).
   cameraRegion: CAMERA_REGION_FIELDS,
+};
+
+/**
+ * The field order of every component `setComponent` edits — the one list the
+ * argument check, the forward op and the history's changed fields read.
+ */
+export const COMPONENT_FIELD_ORDER: Record<OwnedComponent, readonly string[]> = {
+  // The shadow flags (optional; `null` goes back to the default, true).
+  box: ['size', 'material', 'castShadow', 'receiveShadow'],
+  camera: ['type', 'fovY', 'near', 'far'],
+  // The piece of a multi-piece file is an Inspector field too.
+  model: ['asset', 'piece', 'castShadow', 'receiveShadow'],
+  // The shape, the one-way flag and the collision layers (both optional).
+  collider: ['shape', 'oneWay', 'layers'],
+  // The capsule, then the movement tuning (all optional; `null` goes back to the default).
+  controller: CONTROLLER_FIELDS,
+  ...COMPONENT_FIELD_ORDER_V3,
 };
 
 /** `applySurfacePreset`'s `changedFields` (the surface field order). */

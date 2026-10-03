@@ -44,6 +44,7 @@ import type {
   RapierPhysicsDiagnostics,
   RapierPhysicsInitConfig,
   RapierPhysicsPort,
+  RapierColliderPrimitive,
   RapierStaticColliderSpec,
 } from './types';
 
@@ -296,36 +297,57 @@ interface ColliderInfo {
   reach: number;
 }
 
-/** One fixed (or, for a mover, kinematic) body + collider for a collider spec (the body is what removal frees). */
+/** One primitive's collider description, its top above and reach from the body origin, for the body's turn `rotationZ`. */
+function primitiveDesc(shape: RapierColliderPrimitive, rotationZ: number): { desc: RAPIER.ColliderDesc; top: number; reach: number } | null {
+  const sin = Math.sin(rotationZ);
+  const cos = Math.cos(rotationZ);
+  if (shape.type === 'box') {
+    return { desc: RAPIER.ColliderDesc.cuboid(shape.hx, shape.hy), top: Math.abs(shape.hx * sin) + Math.abs(shape.hy * cos), reach: Math.hypot(shape.hx, shape.hy) };
+  }
+  const buffer = polygonVertexBuffer(shape);
+  const desc = buffer ? RAPIER.ColliderDesc.convexHull(buffer) : null;
+  if (!desc) return null;
+  let top = -Infinity;
+  let reach = 0;
+  for (const v of shape.vertices) {
+    reach = Math.max(reach, Math.hypot(v[0] ?? 0, v[1] ?? 0));
+    top = Math.max(top, (v[0] ?? 0) * sin + (v[1] ?? 0) * cos);
+  }
+  return { desc, top, reach };
+}
+
+/**
+ * One fixed (or, for a mover, kinematic) body for a collider spec with a
+ * collider per placed shape (a compound's parts at their offsets and turns,
+ * all turned with the spec's rotation about Z); the body is what removal frees.
+ */
 function addStaticBody(
   world: RAPIER.World,
   spec: RapierStaticColliderSpec,
-): { ok: true; body: RAPIER.RigidBody; collider: RAPIER.Collider; top: number; reach: number } | { ok: false; detail: string } {
+): { ok: true; body: RAPIER.RigidBody; colliders: RAPIER.Collider[]; top: number; reach: number } | { ok: false; detail: string } {
   const shape = validateColliderShape(spec.shape);
   if (!shape.ok) return { ok: false, detail: shape.detail };
-  let desc: RAPIER.ColliderDesc | null;
+  const parts = shape.shape.type === 'compound' ? shape.shape.parts : [{ shape: shape.shape, x: 0, y: 0, angle: 0 }];
   const sin = Math.sin(spec.rotationZ);
   const cos = Math.cos(spec.rotationZ);
-  let top: number;
-  // The farthest point of the shape from the body origin.
-  let reach: number;
-  if (shape.shape.type === 'box') {
-    desc = RAPIER.ColliderDesc.cuboid(shape.shape.hx, shape.shape.hy);
-    top = Math.abs(shape.shape.hx * sin) + Math.abs(shape.shape.hy * cos);
-    reach = Math.hypot(shape.shape.hx, shape.shape.hy);
-  } else {
-    const buffer = polygonVertexBuffer(shape.shape);
-    desc = buffer ? RAPIER.ColliderDesc.convexHull(buffer) : null;
-    if (!desc) return { ok: false, detail: 'polygon vertices do not form a convex hull' };
-    top = -Infinity;
-    reach = 0;
-    for (const v of (shape.shape as { vertices: readonly (readonly number[])[] }).vertices) reach = Math.max(reach, Math.hypot(v[0] ?? 0, v[1] ?? 0));
-    for (const v of (shape.shape as { vertices: readonly (readonly number[])[] }).vertices) top = Math.max(top, (v[0] ?? 0) * sin + (v[1] ?? 0) * cos);
+  const made: { desc: RAPIER.ColliderDesc; x: number; y: number; angle: number }[] = [];
+  // The body's top and reach over all its shapes (one-way landing and the sweep's nearby test read them).
+  let top = -Infinity;
+  let reach = 0;
+  for (const p of parts) {
+    const angle = spec.rotationZ + p.angle;
+    const d = primitiveDesc(p.shape, angle);
+    if (d === null) return { ok: false, detail: 'polygon vertices do not form a convex hull' };
+    const x = p.x * cos - p.y * sin;
+    const y = p.x * sin + p.y * cos;
+    top = Math.max(top, y + d.top);
+    reach = Math.max(reach, Math.hypot(x, y) + d.reach);
+    made.push({ desc: d.desc, x, y, angle });
   }
   const bodyDesc = spec.kinematic === true ? RAPIER.RigidBodyDesc.kinematicPositionBased() : RAPIER.RigidBodyDesc.fixed();
   const body = world.createRigidBody(bodyDesc.setTranslation(spec.position.x, spec.position.y));
-  const collider = world.createCollider(desc.setRotation(spec.rotationZ), body);
-  return { ok: true, body, collider, top, reach };
+  const colliders = made.map((m) => world.createCollider(m.desc.setTranslation(m.x, m.y).setRotation(m.angle), body));
+  return { ok: true, body, colliders, top, reach };
 }
 
 function createAdapter(
@@ -1010,7 +1032,7 @@ function createAdapter(
         const added = addStaticBody(world, spec as RapierStaticColliderSpec);
         if (!added.ok) throw new Error(`statics(${spec.entityId}): ${added.detail}`);
         staticBodies.set(spec.entityId, added.body);
-        colliderInfo.set(added.collider.handle, { entityId: spec.entityId, oneWay: (spec as RapierStaticColliderSpec).oneWay === true, body: added.body, top: added.top, reach: added.reach, kinematic: spec.kinematic === true, topNow: 0, xNow: 0, yNow: 0 });
+        for (const c of added.colliders) colliderInfo.set(c.handle, { entityId: spec.entityId, oneWay: (spec as RapierStaticColliderSpec).oneWay === true, body: added.body, top: added.top, reach: added.reach, kinematic: spec.kinematic === true, topNow: 0, xNow: 0, yNow: 0 });
       }
       relist();
     },
@@ -1083,7 +1105,7 @@ export async function createPhysicsPort(
         return failedResult('invalid_shape', `statics(${spec.entityId}): ${added.detail}`);
       }
       staticBodies.set(spec.entityId, added.body);
-      colliderInfo.set(added.collider.handle, { entityId: spec.entityId, oneWay: spec.oneWay === true, body: added.body, top: added.top, reach: added.reach, kinematic: spec.kinematic === true, topNow: 0, xNow: 0, yNow: 0 });
+      for (const c of added.colliders) colliderInfo.set(c.handle, { entityId: spec.entityId, oneWay: spec.oneWay === true, body: added.body, top: added.top, reach: added.reach, kinematic: spec.kinematic === true, topNow: 0, xNow: 0, yNow: 0 });
     }
     if (signal?.aborted) {
       world.free();
