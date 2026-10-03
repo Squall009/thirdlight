@@ -128,8 +128,8 @@ games (phase 24.7): games live in their own repositories.
 
 A project directory holds:
 
-- `project.json`: id, name, engine version (schemaVersion 5; a 4 or older
-  is upgraded on open);
+- `project.json`: id, name, engine version (schemaVersion 7; an older one
+  is upgraded on open, see "Migration notes");
 - `content.json`: the project-wide settings: settings, tags, the scene list
   and the start scenes, the environment (its presets' order), input, the game
   shell, event sounds, modes, the save schema, speakers and dialogue
@@ -654,7 +654,7 @@ own save data.
 
 ## Scenes
 
-A project has one or more scenes (up to 64), one file each. Entity ids are
+A project has one or more scenes, one file each. Entity ids are
 unique across the whole project. One command edits one scene.
 
 - **Start scenes.** The game starts with the scenes in the start set,
@@ -768,7 +768,9 @@ unique across the whole project. One command edits one scene.
 - **MCP.**
   - `tl_command createScene {name, sceneId?}`, `renameScene`,
     `deleteScene` (only an empty scene), `setStartScenes {sceneIds}`.
-  - `createEntity`/`instantiatePrefab` take `sceneId`.
+  - `createEntity`/`instantiatePrefab` take `sceneId` (or a parent: a
+    create with neither is refused). `createEntity` takes every component
+    `setComponent` adds, except those its `kind` makes (box, model).
   - `tl_inspect target="entities"` takes `sceneId` and names every entity's
     scene; `target="project"` lists the scenes.
   - `tl_game_control` takes `loadScene`/`unloadScene` with `sceneId`.
@@ -930,7 +932,9 @@ run from the command line only (the MCP process runs no project code). With
 no editor open the backend plays in its headless editor; the game runs at its
 step rate. The exit status is 0 when every run finished and they agreed.
 
-`tl_screenshot` always answers: a capture the preview cannot make comes back
+`tl_screenshot` draws the game's UI (documents, fades, the pause panel,
+overlays) over the frame; `ui: false` (also on the HTTP route) gives the
+frame alone. It always answers: a capture the preview cannot make comes back
 as `relay_failed` with the preview's code in `cause` (`screenshot_failed`,
 `render_failed`, `not_ready`) and its reason in the message. A PNG over the
 1 MiB bound is captured again at a smaller width; the reply's `width` says
@@ -1112,7 +1116,10 @@ no count limit on either.
 - **Uploads** (the project window's file picker or drop, MCP
   `tl_content_upload` + `publishAsset`) are written into the folder chosen
   in the project window, or `assets/` (MCP: `publishAsset {folder}`); a name
-  already taken gets `-2`, `-3`, …
+  already taken gets `-2`, `-3`, … An upload named as a hidden file (a
+  leading dot), a `.tlasset` sidecar, a `*.scene.json` or a resource file
+  (`<name>.<kind>.json`) is refused: the file check would take it in as
+  project data.
 - **A file already in the game folder** is imported where it is: project
   window → "from project folder…" (a picker limited to the game folder; hidden
   entries, `.git` and `thirdlight/` are not offered, a symlink out of the
@@ -1244,7 +1251,8 @@ emissive art, *KTX2 normal map (UASTC)* for normal maps (MCP:
 `tl_content_upload {kind: "texture", ktx2: "color" | "normal"}`, then publish
 with the returned `convertedFrom`). Encoding takes seconds (a 2048² normal map
 about 40 s on the GPU host) in a worker thread; up to 12 Mpix; WebP sources
-and data maps (ORM, masks) stay images. The selected asset shows
+and data maps (ORM, masks) stay images (a WebP is decoded with libwebp,
+`@jsquash/webp`, pinned, and encoded like a PNG). The selected asset shows
 `KTX2 · ETC1S · n mip levels` and the original it was encoded from. UI
 images, portraits and input glyphs are drawn by the page and need a PNG,
 JPEG or WebP. The encoder is the pinned `ktx2-encoder` package
@@ -1278,6 +1286,31 @@ any other. The Scene view reads textures whole. Resident texture bytes against
 the budget, and each streamed texture's resident and wanted level, are in
 `tl_game_observe` and Play diagnostics (`resources.textures`). Streaming is
 presentation only: it never touches the simulation.
+
+### Textures inside models: extraction and sharing
+
+**Extract model textures** (the model import setting, on for new models)
+turns every image a GLB holds — PNG, JPEG or WebP (`EXT_texture_webp`) —
+into a KTX2 texture asset in `<model>_textures/`, encoded by its use (colour,
+normal map, data), and the stored model keeps none of them. When a lossless
+PNG of the image's name and size lies beside the model (in its folder or
+its `textures/`, Blender's export layout), the KTX2 is encoded from that PNG
+instead of the lossy copy inside; a PNG of another size is not taken.
+
+The project setting **Import → Extract model textures**
+(`import_extract_textures`: 0 *New models*, the default; 1 *Every model*)
+extracts older imports too: each GLB model still holding images is
+extracted where its file is, once per file version, as one undoable
+`publishAsset` re-import. While it is 1, Problems lists the models still
+holding images and why (`models_hold_images`: no file in the game folder,
+converted from FBX, the extraction's own reason). With 0 a model may keep
+its images on purpose (`extractTextures: false`).
+
+Standard-shader project materials share one prepared texture per (texture,
+colour space, wrap, UV channel, tiling and offset) across every model file
+that uses them, freed with the last: one material on 14 model files holds
+one copy of its texture on the GPU (the streamed texture's `copies` in
+`resources.textures`).
 
 ### Packed textures and texture arrays (phase 25.21)
 
@@ -3017,6 +3050,19 @@ Run one from:
   settings → Engine → Debug console in export** (`debug_console`) is on —
   off by default, so a release build never ships a console by accident.
 
+**Frame statistics.** `ctx.stats` (read-only; also `$flow.stats` for UI
+bindings) gives `fps`, the frame time, the page thread's CPU time and the
+GPU time (each `{avg, worst}` over the last 500 ms; GPU `null` where the
+browser has no timestamp queries — never estimated), the last frame's draw
+calls and triangles, resident texture bytes against the texture budget,
+the loaded models' geometry bytes, the object count and the quality level.
+It is presentation like `ctx.ui.view()`: not in the digest or a save. The
+project setting **Engine → Stats overlay** (`stats_overlay`: 0 off and no
+key, 1 shown with **F3** hiding it, 2 hidden until F3) draws them top right in Play
+and the export. Play diagnostics carry the same `frameTimes` and the
+environment renderer's post passes, quality, samples and fallback
+(`renderer.environment`).
+
 ## Grading and fog volumes
 
 In the Environment window, post-processing grading has **lift**
@@ -3111,9 +3157,10 @@ The Scene view and the hierarchy show what an object is: its light type
 components' descriptors name (phase 24.5: a spawn, an audio source, a fog
 volume, a patrol, a mover, a switch, a collectible, a trigger, a hitbox or
 health; the most specific wins). The **Gizmos** menu turns the helpers on and off: icons,
-light ranges (point spheres, spot cones), **collider outlines** (every box
-and polygon collider on the game plane — a kit piece's `_COL` shape too;
-one-way platforms in a softer green), and gameplay paths and areas (a patrol's waypoints, hitboxes, collect areas). A
+light ranges (point spheres, spot cones), **collider outlines** (off until
+turned on: every collider — a kit piece's `_COL` shape too; one-way
+platforms in a softer green; the selected object's own colliders, every
+shape of a compound and its children's, are always drawn), and gameplay paths and areas (a patrol's waypoints, hitboxes, collect areas). A
 selected camera shows its frustum where its rig puts it (its field of view,
 near and far — its own lens or the project's — at the game view's aspect:
 the Game preview while it plays, else the window).
@@ -3530,6 +3577,25 @@ In a 3D project:
   it into a moving body; the player standing on it rides along);
 - colliders may be rotated about any axis; the player controller stays
   upright; the capsule's **Offset** may have a z component;
+- every collider shape takes a `center` ([x, y, z]; a plane reads x and y)
+  and a `rotation` (a quaternion [x, y, z, w]; about Z only on a plane),
+  placed in the object's space; `{type: "compound", shapes: […]}` is a list
+  of primitives on one body (no nesting); `{type: "model"}` is every mesh
+  under the object's model's `<piece>_COL` node(s) as a convex hull of up to
+  64 points, read from the file when the game is built (the manifest's
+  `modelColliders`; Draco or flat parts are left out and Play/export warn
+  `collider_model`). A turned shape under an uneven scale is built from its
+  moved points (a box becomes its corners' hull);
+- colliders on child objects (not on the controller, not a mover's own
+  collider) sit where their parents put them: static, or kinematic and
+  posed every step once the object or a parent is moved by a script owning
+  its transform, a timeline's transform track or a mover — they then push
+  the player as a mover does (a mesh collider stays static, one log line).
+  In 3D with the controller a push can leave the player about 0.1 m inside
+  (a known defect). On the 2D plane children's colliders are placed at load;
+- `colliderFromModel {entityId, kind: box | convex | mesh | polygon |
+  compound}` (MCP/HTTP) is what the Inspector's model collider buttons do
+  (**Compound of _COL parts** included): one `setComponent`, one undo;
 - in Play and the export the player is a kinematic **3D character**
   (phase 23.2, below; cameras: see *Cameras* below);
 - `tl_game_observe` reports such a play with `state: "running"`, its
@@ -4433,6 +4499,50 @@ Projects in an older layout are upgraded the first time they are opened
 
 ## Migration notes
 
+### Opening a project with this engine (schemaVersion 7)
+
+Opening a project of schemaVersion 6 or older upgrades it on open and writes
+it back as 7 (Problems notes it once, `project_upgraded`, naming what
+changed). Commit what it wrote. The upgrade:
+
+- turns each scene `camera` entity into a fixed `virtualCamera` shot at the
+  lowest priority (−1000), where it was placed: the view whenever no other
+  camera is live, as before. A lens that was not the default becomes the
+  project's camera settings (`camera_fov_deg`, `camera_near_m`,
+  `camera_far_m`); a camera's own lens wins over them;
+- marks the camera and each start scene's player (the object at the top of
+  each one's hierarchy) **Keep loaded** (`keepLoaded`): the engine never
+  unloaded them before. A title scene holding the camera and the player, or
+  a camera in a start scene, plays as it did; clear the flag to let them go
+  with their scene;
+- writes `moveFrame: "world"` on every controller (scenes and prefabs) of a
+  3D project without any virtual camera, which moved along the world axes; a
+  project with virtual cameras keeps `view` (input relative to the live
+  shot). Only where its old scene camera, turned about Y, is the one live
+  shot does the input change; the upgrade note names that camera.
+
+Nothing else changes: ids, recorded commands and replays stay valid. New in
+the format and additive (no upgrade step): `keepLoaded` on any object,
+`ctx.scenes.reload`, the `reloadScene` UI action, a save schema's `world`
+section and `legacyWorld`, and the rest of this phase's fields.
+
+### Problems lines a game may see after the upgrade
+
+Each is one line per Play in Problems (the start checks are also the
+export's `warnings` or its refusal):
+
+- `deprecated_restart_level`, `deprecated_new_game`,
+  `deprecated_lifecycle_restart`: the run restart, below;
+- `deprecated_save_world`: the always-on `world` in saves, below;
+- at the start of Play and the export (see "The view, cameras and kept
+  objects"): `view_missing` (no camera live: the default pose is drawn),
+  `player_count` (more than one player controller in the start scenes:
+  refused), `player_scene` (a player in a scene the game does not start
+  with), `kept_ignored` (Keep loaded under an object that is not kept),
+  `kept_twice` (one id kept in two scenes: refused);
+- while it runs: `kept_reference_unloaded` (a kept object names an object of
+  a scene that unloaded: the reference reads as empty).
+
 ### The run restart and the engine's new game (deprecated)
 
 The engine does not know what a level restart or a new game is: that is the
@@ -4553,6 +4663,28 @@ exported games.
   else sizes that axis to its content; a stretched axis keeps its stretch) —
   and a radial bar's `startAngle` may be bound the same way. In the UI editor,
   type a path into the size field's w or h box, or tick "bind" by Start angle.
+- Bindable placement: each axis of `offset`, `opacity` (0–1, multiplied
+  with the style's and a fade, like Unity's CanvasGroup alpha) and
+  `rotation` (degrees about the pivot, ±3,600) may be a number or
+  `{ "bind": "path" }`.
+- Scale with the view (`scale {reference: [w, h], mode}`): `fit`, `width`,
+  `height`, `cover` (fills the view, cropping the reference) or `expand`
+  (fits the reference and grows the box to the view's shape, Unity's
+  CanvasScaler expand). `ctx.ui.view()` and `$flow.view` read the view the
+  UI is drawn over, `{width, height, aspect, pixelRatio}` (presentation: not
+  in the digest or a save; 1280 × 720 at 1 until the host reports one).
+- Lists keep their item widgets (and the focus) when only the items' values
+  change: by index, or by one field of each item named in `itemKey`; a
+  focused item that goes passes the focus to the item now at its index.
+  `ctx.ui.focus(doc, widget, index)` focuses a list's item.
+- Sounds: `sounds {click, hover, focus}` (audio assets) on a widget, a style
+  (its base) and the document (the default for every widget that takes the
+  pointer or the focus), played on the `ui` bus. Click plays on any use
+  (engine actions too), hover when the pointer comes over an enabled widget,
+  focus when the keyboard, a gamepad or a script moves the focus.
+- A shell screen may let scripts run under it: `shell.simulate {title:
+  "scripts"}` (Game shell → *While shown*) steps the scripts outside behavior
+  groups while physics and grouped scripts hold (default `pause`).
 - Engine limits: 48 KiB and 512 widgets per document (a document is saved
   in one 64 KiB command), a 64 KiB view model; as many documents and themes
   as the project needs.

@@ -9,6 +9,7 @@
  * export, served with the backend stopped, ships the separate 3D backend
  * script (the 2D worker does not carry it) and lands the capsule the same way,
  * read through the export's observation (`window.__thirdlightObserve`).
+ * Resting on the box counts no penetration in Play diagnostics.
  * A 2D scene-mode play would leave the capsule where it was placed.
  */
 import { randomBytes } from 'node:crypto';
@@ -149,6 +150,13 @@ test('a 3D project: the capsule lands on the box in Play (worker and main thread
     };
     const o = await expectLanded(read, `Play (${mode})`);
     expect(o.simulation?.mode).toBe(mode);
+    // Standing on the box is no penetration: a grounded step the floor stops is not counted, and no overlap is named.
+    type Rt = { physicsSteps?: number; physicsPenetrationCorrectedCount?: number; physicsDeepestOverlap?: unknown };
+    const runtime = async (): Promise<Rt> => (((await relay(`${psid}/diagnostics`, {})).json as { diagnostics?: { runtime?: Rt } }).diagnostics?.runtime ?? {});
+    await expect.poll(async () => (await runtime()).physicsSteps ?? 0, { timeout: 30_000 }).toBeGreaterThan(600);
+    const rt = await runtime();
+    expect(rt.physicsPenetrationCorrectedCount ?? 0, `Play (${mode})`).toBe(0);
+    expect(rt.physicsDeepestOverlap, `Play (${mode})`).toBeUndefined();
   }
   expect(logs.filter((l) => /physics init failed|could not be loaded/.test(l))).toEqual([]);
 

@@ -8,29 +8,25 @@
  * sound was dropped for the voice cap. Then a burst of loops past the
  * project's voices drops sounds: the Problems log gets one line for it, and
  * a second burst adds none. `ctx.audio.stopAll()` silences every script
- * sound. Checked through the host's audio observation (the Web Audio
- * graph's state), not heard sound: how it sounds is owner listen pending.
+ * sound. On the starter, a level object's loop it owns fades out over its
+ * `fadeOut` when the level unloads, while a loop owned by nothing plays on
+ * until the run restart stops it. Checked through the host's audio
+ * observation (the Web Audio graph's state), not heard sound: how it sounds
+ * is owner listen pending.
  */
 import { createHash, randomBytes } from 'node:crypto';
 import { rmSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 
 import { PERF_ROOT, startPerfBackend, type PerfBackend } from '../../tools/perf/backend';
 import { pcmWav } from '../../tools/perf/scale-media';
+import { publishScript, publishWav, startBackend, type E2EBackend } from './backend';
 import { openWindow } from './ui';
 
 let be: PerfBackend;
 let root: string;
-test.beforeEach(async () => {
-  root = join(PERF_ROOT, 'e2e', `script-sound-owners-${process.pid}-${Date.now()}`);
-  be = await startPerfBackend(join(root, 'data'), join(root, 'exports'));
-});
-test.afterEach(async () => {
-  await be.stop();
-  rmSync(root, { recursive: true, force: true });
-});
 
 const LEVELS = 20;
 
@@ -70,6 +66,17 @@ type Obs = { state?: string; scenes?: { loaded?: string[] }; sound?: { unlocked?
 
 test('loops started by twenty scenes stop with their scenes; a voice-cap drop is one Problems line per Play; stopAll silences every script sound', async ({ page }) => {
   test.setTimeout(300_000);
+  root = join(PERF_ROOT, 'e2e', `script-sound-owners-${process.pid}-${Date.now()}`);
+  be = await startPerfBackend(join(root, 'data'), join(root, 'exports'));
+  try {
+    await walkTwentyScenes(page);
+  } finally {
+    await be.stop();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+async function walkTwentyScenes(page: Page): Promise<void> {
   const pid = 'sound-owners';
   const created = await be.post('/api/v1/admin/projects', { projectId: pid, name: pid });
   expect([200, 201]).toContain(created.status);
@@ -169,4 +176,90 @@ test('loops started by twenty scenes stop with their scenes; a voice-cap drop is
   await expect.poll(async () => (await scriptVoices()).length, { timeout: 30_000, message: 'every script sound stopped' }).toBe(0);
   expect(errors).toEqual([]);
   await page.getByTitle('Stop the play preview').click().catch(() => undefined);
+}
+
+/** A level object's sounds: a loop it owns (fading out over 2 s) and a loop owned by nothing. */
+const SPEAKER = [
+  'export default {',
+  '  instantiate() { return { started: false }; },',
+  '  step(state: any, ctx: any) {',
+  "    if (ctx.phase !== 'intent' || state.started) return;",
+  '    state.started = true;',
+  "    ctx.audio.play('amb', { loop: true, volume: 0.3, fadeOut: 2 });",
+  "    ctx.audio.play('free', { loop: true, volume: 0.3, owner: 'none' });",
+  '  },',
+  '};',
+].join('\n');
+
+/** The start scene's director: debug commands load and unload the level and restart the run. */
+const DIRECTOR = [
+  'export default {',
+  '  step(_state: any, ctx: any) {',
+  "    if (ctx.phase !== 'intent') return;",
+  "    for (const _ of ctx.debug.command('load', { description: 'Load the level', args: [] })) ctx.scenes.load('level');",
+  "    for (const _ of ctx.debug.command('unload', { description: 'Unload the level', args: [] })) ctx.scenes.unload('level');",
+  "    for (const _ of ctx.debug.command('restart', { description: 'The deprecated run restart', args: [] })) ctx.lifecycle.restart();",
+  '  },',
+  '};',
+].join('\n');
+
+test('an owned loop fades out over its fadeOut when its scene unloads, one owned by nothing plays on until the run restart stops it', async ({ page }) => {
+  test.setTimeout(240_000);
+  const sb: E2EBackend = await startBackend('sound-owner-kinds-e2e', 'starter');
+  try {
+    const cmd = async (op: string, args: Record<string, unknown>): Promise<Record<string, unknown>> => {
+      const q = await sb.command({ op: 'queryProject', projectId: sb.projectId, args: {} });
+      const res = await sb.command({ op, projectId: sb.projectId, expectedRevision: Number(q['revision']), requestId: `req-${randomBytes(16).toString('hex')}`, origin: { kind: 'mcp', clientId: 'e2e-sound-owners' }, args });
+      expect(res['ok'], JSON.stringify(res).slice(0, 600)).toBe(true);
+      return res;
+    };
+    await publishWav(sb, 'cue-max.wav', 'amb', 'Ambience');
+    await publishWav(sb, 'cue-max.wav', 'free', 'Free loop');
+    await cmd('setLabels', { items: [{ kind: 'asset', id: 'amb' }, { kind: 'asset', id: 'free' }], add: ['played'] });
+    await cmd('createScene', { sceneId: 'level', name: 'Level' });
+    const speaker = String((await cmd('createEntity', { sceneId: 'level', kind: 'group', name: 'Speaker', transform: { position: [0, -10, 0] } }))['createdId']);
+    const director = String((await cmd('createEntity', { sceneId: 'scene-main', kind: 'group', name: 'Director', transform: { position: [0, -10, 0] } }))['createdId']);
+    await publishScript(sb, 'speaker', SPEAKER, speaker);
+    await publishScript(sb, 'director', DIRECTOR, director);
+
+    const errors: string[] = [];
+    page.on('pageerror', (e) => errors.push(e.message));
+    await page.goto(sb.editorUrl);
+    await expect(page.locator('.tl-statusbar')).toContainText('connected');
+    const started = page.waitForResponse((r) => r.request().method() === 'POST' && r.url().endsWith('/play'));
+    await page.getByTitle('Start an isolated play preview').click();
+    const psid = String(((await (await started).json()) as { playSessionId: string }).playSessionId);
+    const relay = async (path: string, body: unknown = {}): Promise<{ status: number; json: unknown }> => {
+      const r = await fetch(`${sb.origin}/api/v1/projects/${sb.projectId}/play/${psid}/${path}`, { method: 'POST', headers: { authorization: `Bearer ${sb.token}`, 'content-type': 'application/json', origin: sb.origin }, body: JSON.stringify(body) });
+      return { status: r.status, json: await r.json() };
+    };
+    const observe = async (): Promise<Obs> => {
+      const r = await relay('observe');
+      return r.status === 200 ? (r.json as Obs) : {};
+    };
+    const states = async (assetId: string): Promise<string[]> => ((await observe()).audio?.voices ?? []).filter((v) => v.handle > 0 && v.assetId === assetId).map((v) => v.state);
+    const debug = async (name: string): Promise<void> => {
+      const r = await relay('control', { command: 'debugCommand', name, args: {} });
+      expect(r.status, JSON.stringify(r.json)).toBe(200);
+    };
+    await expect.poll(async () => (await observe()).state, { timeout: 60_000 }).toBe('running');
+    const box = (await page.locator('iframe.tl-app__preview-frame').boundingBox())!;
+    await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+    await expect.poll(async () => (await observe()).sound?.unlocked ?? false, { timeout: 30_000 }).toBe(true);
+
+    await debug('load');
+    await expect.poll(async () => [...(await states('amb')), ...(await states('free'))], { timeout: 30_000 }).toEqual(['playing', 'playing']);
+    // The level goes: its object's loop fades out (a voice still stopping, then none); the free loop plays on.
+    await debug('unload');
+    await expect.poll(async () => await states('amb'), { timeout: 30_000, message: 'the owned loop is fading out' }).toEqual(['stopping']);
+    await expect.poll(async () => await states('amb'), { timeout: 30_000, message: 'the owned loop is gone after its fade' }).toEqual([]);
+    expect(await states('free')).toEqual(['playing']);
+    // The deprecated run restart stops every script sound, whoever owns it.
+    await debug('restart');
+    await expect.poll(async () => await states('free'), { timeout: 30_000, message: 'the run restart stops the free loop' }).toEqual([]);
+    expect(errors).toEqual([]);
+    await page.getByTitle('Stop the play preview').click().catch(() => undefined);
+  } finally {
+    await sb.stop();
+  }
 });

@@ -137,7 +137,7 @@ surfaces). Format changes share one bump: `project.json` schemaVersion 7
 | 28.10 | done 2026-10-03 — every collider shape takes a `center` and a `rotation`; `compound` (a list of shapes on one body) and `model` (each mesh of the object's model's `_COL` node a convex hull, read when the game is built: manifest `modelColliders`); colliders on child objects where their parents put them, kinematic once a parent is moved by a script, a timeline or a mover; `colliderFromModel` (box, convex, mesh, polygon, compound) is the editor's button over HTTP/MCP; Scene view: no collider outlines until asked for, the selection's (and its children's) always; D138 logged |
 | 28.11 | done 2026-10-03 — extract textures decodes WebP (libwebp, pinned) and encodes every non-KTX2 image to KTX2 by its use, from the lossless PNG of the image's name and size beside the model (or in its `textures/`) when one is there; setting `import_extract_textures` extracts every model, older imports included (where their GLB file is), and Problems lists models still holding images (`models_hold_images`); standard-shader project materials share one prepared texture per (texture, colour space, wrap, tiling, offset): one material on 14 model files holds one copy (14 before); `ctx.stats` / `$flow.stats` (fps, frame/CPU/GPU ms average and worst over 500 ms, GPU null where not measured, draw calls, triangles, texture bytes against the budget, geometry bytes, objects, quality); setting `stats_overlay` (F3) shows a built-in overlay in Play and the export; Play diagnostics carry `frameTimes` and the environment renderer's passes, quality, samples and fallback |
 | 28.12 | done 2026-10-03 — saves in the player's browser: a slot's metadata, body and picture in one IndexedDB transaction (a write refused for quota or cut off leaves the earlier save loadable, D135); refusals answer `{ok: false, code: storage_full, storage_unavailable or storage_failed, reason}` (the browser's text), a settings document localStorage refuses too (`op: 'settings'`); persistent storage asked at the first save, `ctx.saves.storage()` / observation / Play diagnostics carry `persisted`, `usage`, `quota`; `world` is a save section (listed, or `legacyWorld: false` to restore scenes in the game; neither keeps the always-on world with one `deprecated_save_world` Problems line per Play), never destroys a kept object; a game without it loads any save without a scene change; migration notes |
-| 28.13 | — |
+| 28.13 | acceptance tests done 2026-10-03 (fast gate); full gate and review next — map of every acceptance to its boundary test; new: kept objects in Play (unload/load/reload as one object, references read empty with one Problems line, listed spawn), a repeated kept id taken in with new ids, `createEntity` components over HTTP, sound owners' fade-out / `none` / run restart, no penetration counted at rest; `docs/deployment.md`: UI, colliders, model textures, stats, v7 upgrade and Problems lines in the migration notes |
 
 ## 6. Decision log
 
@@ -490,3 +490,18 @@ surfaces). Format changes share one bump: `project.json` schemaVersion 7
   does not keep it neither writes nor applies one (a format 2 save without
   `world` now loads). The deprecation line is `deprecated_save_world`, written
   where the world is saved or applied.
+- 2026-10-03 (28.13): "Play refuses one id kept in two scenes" cannot be
+  reached through the API or the file check — ids are unique across scenes
+  and a scene file repeating one is taken in with new ids — so its boundary
+  test checks that; the play check stays as the guard for builds made
+  otherwise. Acceptances left unverified at a boundary (unit-tested only, or
+  needing ears/eyes) are listed in the acceptance map handed to the review:
+  a second view, swaps on instance sets and block types, `owner: 'scene'`
+  and music ownership, run-time keep writes, the deepest-overlap pair.
+- 2026-10-03 (28.13): `docs/deployment.md` had nothing for 28.8, 28.10 and
+  28.11; added once each (UI placement/scale/lists/sounds/simulate,
+  screenshots' `ui: false`, collider shapes/children/`colliderFromModel`/
+  outlines, model texture extraction and sharing, `ctx.stats` and the
+  overlay), and the migration notes gained the v7 upgrade and the Problems
+  lines a game sees. Stale lines fixed: schemaVersion 5 in the project
+  layout, a 64-scene limit that no longer exists.

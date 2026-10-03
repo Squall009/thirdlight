@@ -4,9 +4,11 @@
  * needs to start are checked when it starts (two players: every edit goes
  * through, the export is refused naming the rule), and `moveEntities` with a
  * `sceneId` moves objects into another scene keeping their ids and what names
- * them, as one undoable edit of both scene files.
+ * them, as one undoable edit of both scene files. A kept object cannot become
+ * two: a scene file added outside the editor that repeats its id is taken in
+ * with new ids. `createEntity` takes what `setComponent` adds.
  */
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
@@ -98,5 +100,38 @@ describe('the scene model over HTTP', () => {
     expect((await send('moveEntities', { entityIds: [lid.id], parentId: null, sceneId: 'scene-main' }))).toMatchObject({ ok: true, change: { type: 'moveEntities' } });
     // An unknown scene is refused.
     expect((await send('moveEntities', { entityIds: [lid.id], parentId: null, sceneId: 'nope' }))['ok']).toBe(false);
+  });
+
+  it('a scene file added beside the project that repeats a kept object\'s id is taken in with new ids: a kept object stays one object, the start goes through', async () => {
+    // Written outside the editor: a scene holding a copy of the kept camera under its own id.
+    const dir = join(tb.root, 'data', 'projects', ID);
+    const level = JSON.parse(readFileSync(join(dir, 'scenes', 'level.json'), 'utf8')) as { scene: { sceneId: string; entities: Ent[] } };
+    const cam = sceneFile('scene-main').find((e) => e.id === 'cam-main')!;
+    expect(cam.keepLoaded).toBe(true);
+    mkdirSync(join(dir, 'extra'), { recursive: true });
+    writeFileSync(join(dir, 'extra', 'kept-copy.scene.json'), JSON.stringify({ ...level, scene: { ...level.scene, sceneId: 'kept-copy', entities: [cam] } }));
+    const check = await api(`${tb.authUrl}/api/v1/projects/${ID}/content/files/check`, { body: {}, token: tb.adminToken, origin: null });
+    expect(check.status, JSON.stringify(check.json)).toBe(200);
+    expect((check.json as { check: { resources: { adopted: unknown[] } } }).check.resources.adopted).toEqual([{ kind: 'scene', id: 'kept-copy', path: 'extra/kept-copy.scene.json' }]);
+    const q = await api(`${tb.authUrl}/api/v1/projects/${ID}/commands`, { body: { op: 'queryEntities', projectId: ID, args: { sceneId: 'kept-copy', limit: 10, offset: 0 } }, token: tb.adminToken, origin: null });
+    const copy = (q.json as { entities: Ent[] }).entities;
+    expect(copy).toHaveLength(1);
+    expect(copy[0]!.id).not.toBe('cam-main');
+    expect(copy[0]!.keepLoaded).toBe(true);
+    // Two kept objects now, each one object: the export is not refused for a kept id in two scenes.
+    const exported = await api(`${tb.authUrl}/api/v1/admin/projects/${ID}/export`, { body: {}, token: tb.adminToken, origin: null });
+    expect(exported.status, JSON.stringify(exported.json)).toBe(200);
+    expect(JSON.stringify(exported.json)).not.toContain('kept_twice');
+  });
+
+  it('createEntity over HTTP takes a component only setComponent used to add, stored as setComponent stores it', async () => {
+    const path = { points: [[0, 0, 0], [4, 0, 0]] };
+    const made = await send('createEntity', { kind: 'group', name: 'Rail', sceneId: 'level', components: { cameraPath: path } });
+    expect(made['ok'], JSON.stringify(made)).toBe(true);
+    const bare = await send('createEntity', { kind: 'group', name: 'Rail 2', sceneId: 'level' });
+    expect((await send('setComponent', { entityId: String(bare['createdId']), component: 'cameraPath', value: path }))['ok']).toBe(true);
+    const stored = (id: unknown): unknown => sceneFile('level').find((e) => e.id === String(id))!.components['cameraPath'];
+    expect(stored(made['createdId'])).toEqual(stored(bare['createdId']));
+    expect(stored(made['createdId'])).toBeDefined();
   });
 });
