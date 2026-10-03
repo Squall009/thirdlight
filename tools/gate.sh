@@ -11,23 +11,73 @@
 #                                             the webgpu project
 #   tools/gate.sh rerun                       the fix loop: only the tests that failed last time
 #                                             (Playwright --last-failed), nothing else
+#   tools/gate.sh start <mode> [args…]        the same, detached as the systemd unit thirdlight-gate
+#                                             under a memory cap (TL_GATE_MEM, default 7G): a caller
+#                                             that ends (an agent session) no longer kills the gate
+#                                             halfway. Prints its log folder.
+#   tools/gate.sh wait                        blocks until the detached gate ends; prints its summary
+#
+# One gate at a time (a lock in the log folder): two gates on this host starve each other into
+# timeouts. The summary ends with the run's memory peak.
 #
 # Every run writes its logs to its own folder (TL_GATE_LOGS, default
 # ~/.cache/thirdlight-logs/gate-<mode>-<time>/) and prints the last line GREEN or RED.
 # A failed full run reruns its failed tests once alone (load flakes on the
 # CPU-rendered host) before it says RED. TL_E2E_WORKERS sets Playwright's
-# worker count (default here: 3; the config's own default is 1).
+# worker count (default here: 2 — three workers peaked at 8.2 GB beside the
+# service and turned load into timeouts; the config's own default is 1).
 set -u
 mode=${1:-}
 shift || true
 cd "$(dirname "$0")/.."
 SMOKE=(tests/e2e/start.e2e.ts tests/e2e/play-export.e2e.ts tests/e2e/menus.e2e.ts tests/e2e/scenes.e2e.ts tests/e2e/rendering.e2e.ts tests/e2e/inspector.e2e.ts tests/e2e/scale-bench.e2e.ts tests/e2e/count-caps.e2e.ts)
-export TL_E2E_WORKERS=${TL_E2E_WORKERS:-3}
+export TL_E2E_WORKERS=${TL_E2E_WORKERS:-2}
+LOGS=$HOME/.cache/thirdlight-logs
+UNIT=thirdlight-gate
+mkdir -p "$LOGS"
+
+case "$mode" in
+  start)
+    sub=${1:-}; [ -n "$sub" ] || { echo "usage: tools/gate.sh start fast|full|rerun [args…]"; exit 2; }
+    shift
+    if systemctl is-active --quiet "$UNIT"; then echo "a gate is already running ($UNIT); tools/gate.sh wait"; exit 1; fi
+    # A gate started short of memory gets its browsers killed by the cap halfway; wait for room.
+    need=${TL_GATE_MEM:-7G}; need_gb=${need%G}
+    for _ in $(seq 1 15); do
+      avail=$(awk '/MemAvailable/ {print int($2 / 1048576)}' /proc/meminfo)
+      [ "$avail" -ge "$need_gb" ] && break
+      echo "only ${avail} GB available (need ${need_gb}); waiting"; sleep 60
+    done
+    [ "$avail" -ge "$need_gb" ] || { echo "not started: only ${avail} GB available"; exit 1; }
+    L=$LOGS/gate-$sub-$(date +%Y%m%d-%H%M%S)
+    mkdir -p "$L"
+    echo "$L" > "$LOGS/last-detached"
+    sudo -n systemctl reset-failed "$UNIT" 2> /dev/null || true
+    sudo -n systemd-run --unit="$UNIT" --quiet --collect -p MemoryMax="$need" -p MemorySwapMax=0 \
+      --working-directory="$PWD" -- sudo -n -u "$(id -un)" -- env HOME="$HOME" PATH="$PATH" \
+      NODE_OPTIONS=--max-old-space-size=4096 TL_GATE_LOGS="$L" TL_E2E_WORKERS="$TL_E2E_WORKERS" \
+      tools/gate.sh "$sub" "$@" || exit 1
+    echo "started $UNIT ($sub), logs $L"
+    exit 0 ;;
+  wait)
+    L=$(cat "$LOGS/last-detached" 2> /dev/null)
+    while systemctl is-active --quiet "$UNIT"; do sleep 30; done
+    [ -n "$L" ] && cat "$L/summary.txt"
+    tail -1 "$L/summary.txt" 2> /dev/null | grep -q '^GREEN' ;
+    exit $? ;;
+esac
+
+exec 9> "$LOGS/gate.lock"
+flock -n 9 || { echo "another gate is running (lock $LOGS/gate.lock)"; exit 1; }
 L=${TL_GATE_LOGS:-$HOME/.cache/thirdlight-logs/gate-$mode-$(date +%Y%m%d-%H%M%S)}
 mkdir -p "$L"
 t0=$(date +%s)
 say() { echo "$*" | tee -a "$L/summary.txt"; }
-done_() { say "$1 ($(( ($(date +%s) - t0) / 60 )) min, logs $L)"; case "$1" in GREEN*) exit 0 ;; *) exit 1 ;; esac; }
+peak() { # the memory peak of this run's cgroup (the detached unit's, or the caller's scope)
+  local f=/sys/fs/cgroup$(cut -d: -f3 /proc/self/cgroup)/memory.peak
+  [ -r "$f" ] && awk '{printf "memory peak %.1f GB", $1 / 1073741824}' "$f"
+}
+done_() { say "$1 ($(( ($(date +%s) - t0) / 60 )) min, $(peak), logs $L)"; case "$1" in GREEN*) exit 0 ;; *) exit 1 ;; esac; }
 
 build_and_unit() {
   npm run build > "$L/build.log" 2>&1
@@ -85,5 +135,5 @@ case "$mode" in
     export TL_MEMORY=1
     e2e e2e.log --last-failed && done_ GREEN
     done_ "RED e2e" ;;
-  *) echo "usage: tools/gate.sh fast [e2e files…] | full [--both-renderers] | rerun"; exit 2 ;;
+  *) echo "usage: tools/gate.sh fast [e2e files…] | full [--both-renderers] | rerun | start <mode> [args…] | wait"; exit 2 ;;
 esac
