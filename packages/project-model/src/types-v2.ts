@@ -304,8 +304,8 @@ export type ConvertedFrom =
       converter: { name: 'texture-extract'; version: string };
     }
   | {
-      /** A PNG/JPEG texture encoded to KTX2 at import. */
-      format: 'png' | 'jpeg';
+      /** A PNG, JPEG or WebP texture encoded to KTX2 at import. */
+      format: 'png' | 'jpeg' | 'webp';
       sourceDigest: string;
       sourceByteLength: number;
       sourcePath?: string;

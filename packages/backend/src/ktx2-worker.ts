@@ -15,7 +15,7 @@ let queue: Promise<void> = Promise.resolve();
 parentPort?.on('message', (m: { id: number; bytes?: Uint8Array; pack?: { sources: Uint8Array[]; layers: PackLayer[] }; thumbnail?: Uint8Array; mode: Ktx2Mode }) => {
   queue = queue.then(async () => {
     if (m.thumbnail !== undefined) {
-      const png = makeImageThumbnail(m.thumbnail);
+      const png = await makeImageThumbnail(m.thumbnail);
       parentPort!.postMessage({ id: m.id, result: { thumbnail: png } }, png !== null ? [png.buffer as ArrayBuffer] : []);
       return;
     }

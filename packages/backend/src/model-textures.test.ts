@@ -20,12 +20,18 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { readGlbImages, stripGlbImages } from './glb-images';
 import { encodeRgbaPng } from './image-thumbnail';
-import { api, mkRequestId, startBackend, type TestBackend } from './test-helpers';
+import { api, mkRequestId, startBackend, webp, type TestBackend } from './test-helpers';
 
 const PID = 'demo-0001';
 
 /** A `size`² PNG, two colours in 8 px checks. */
 function checker(size: number, a: [number, number, number], b: [number, number, number]): Uint8Array {
+  return encodeRgbaPng(checkerRgba(size, a, b), size, size);
+}
+
+
+/** A `size`² image's RGBA, two colours in 8 px checks. */
+function checkerRgba(size: number, a: [number, number, number], b: [number, number, number]): Uint8Array {
   const rgba = new Uint8Array(size * size * 4);
   for (let y = 0; y < size; y++) {
     for (let x = 0; x < size; x++) {
@@ -33,14 +39,15 @@ function checker(size: number, a: [number, number, number], b: [number, number, 
       rgba.set([c[0], c[1], c[2], 255], (y * size + x) * 4);
     }
   }
-  return encodeRgbaPng(rgba, size, size);
+  return rgba;
 }
 
 /**
  * A quad GLB whose material samples `images` (base colour, normal, metal/roughness
  * in that order; a missing one is not sampled); `tag` makes files with the same images differ.
+ * A WebP image is a texture's EXT_texture_webp source; `names` renames the images.
  */
-function quadGlb(images: { base?: Uint8Array; normal?: Uint8Array; orm?: Uint8Array }, tag: string): Uint8Array {
+function quadGlb(images: { base?: Uint8Array; normal?: Uint8Array; orm?: Uint8Array }, tag: string, names: { base?: string; normal?: string; orm?: string } = {}): Uint8Array {
   const parts: Uint8Array[] = [];
   const views: Record<string, unknown>[] = [];
   let offset = 0;
@@ -58,15 +65,18 @@ function quadGlb(images: { base?: Uint8Array; normal?: Uint8Array; orm?: Uint8Ar
   const vIdx = view(new Uint8Array(new Uint16Array([0, 2, 1, 0, 3, 2]).buffer), 34963);
   const jsonImages: Record<string, unknown>[] = [];
   const textures: Record<string, unknown>[] = [];
+  let usesWebp = false;
   const slot = (bytes: Uint8Array | undefined, name: string): { index: number } | undefined => {
     if (bytes === undefined) return undefined;
-    jsonImages.push({ name, bufferView: view(bytes), mimeType: 'image/png' });
-    textures.push({ source: jsonImages.length - 1, sampler: 0 });
+    const isWebp = bytes[8] === 0x57 && bytes[9] === 0x45 && bytes[10] === 0x42 && bytes[11] === 0x50;
+    jsonImages.push({ name, bufferView: view(bytes), mimeType: isWebp ? 'image/webp' : 'image/png' });
+    if (isWebp) usesWebp = true;
+    textures.push(isWebp ? { sampler: 0, extensions: { EXT_texture_webp: { source: jsonImages.length - 1 } } } : { source: jsonImages.length - 1, sampler: 0 });
     return { index: textures.length - 1 };
   };
-  const base = slot(images.base, 'albedo');
-  const normal = slot(images.normal, 'normal');
-  const orm = slot(images.orm, 'orm');
+  const base = slot(images.base, names.base ?? 'albedo');
+  const normal = slot(images.normal, names.normal ?? 'normal');
+  const orm = slot(images.orm, names.orm ?? 'orm');
   const total = parts.reduce((n, p) => n + p.length, 0);
   const bin = new Uint8Array(total);
   let at = 0;
@@ -76,6 +86,7 @@ function quadGlb(images: { base?: Uint8Array; normal?: Uint8Array; orm?: Uint8Ar
   }
   const json = {
     asset: { version: '2.0', extras: { tag } },
+    ...(usesWebp ? { extensionsUsed: ['EXT_texture_webp'], extensionsRequired: ['EXT_texture_webp'] } : {}),
     scene: 0,
     scenes: [{ nodes: [0] }],
     nodes: [{ name: 'quad', mesh: 0 }],
@@ -165,6 +176,7 @@ describe('extract textures over HTTP (a project in the data root)', () => {
     return r.read.content as { assets: AssetRow[] };
   };
   const asset = (id: string): AssetRow | undefined => content().assets.find((a) => a.assetId === id);
+  const settings = (): Record<string, unknown> => (content() as unknown as { settings: Record<string, unknown> }).settings;
   const revision = (): number => {
     const r = tb.backend._test.service.readCapturedV3(PID);
     if (!r.ok) throw new Error(r.error.code);
@@ -301,6 +313,71 @@ describe('extract textures over HTTP (a project in the data root)', () => {
     expect(added.some((a) => a.assetId === door.textures!['0'] && a.kind === 'texture')).toBe(true);
     expect(added.length).toBe(2);
   });
+
+  it('encodes a WebP image to KTX2 by its use, as a PNG', async () => {
+    const lossy = await webp(checkerRgba(64, [30, 140, 60], [220, 200, 40]), 64, 64, { quality: 70 });
+    const r = await publish('leaf', quadGlb({ base: lossy, orm: ORM }, 'leaf', { base: 'leaf_albedo' }));
+    expect(r.status, JSON.stringify(r.json)).toBe(200);
+    const report = (r.json as { textureExtraction: { images: { image: number; file?: string; encoding?: string; note?: string }[] } }).textureExtraction;
+    expect(report.images[0]).toMatchObject({ image: 0, file: 'assets/props/leaf_textures/leaf_albedo.webp', encoding: 'color' });
+    expect(report.images[0]!.note).toBeUndefined();
+    const t = asset(asset('leaf')!.textures!['0']!)!;
+    expect(t.versions[0]!.metrics.format).toBe('ktx2');
+    expect(t.versions[0]!.metrics.levels).toBe(7);
+    expect(t.versions[0]!.convertedFrom).toMatchObject({ format: 'webp', encoding: 'color', sourcePath: 'assets/props/leaf_textures/leaf_albedo.webp' });
+  });
+
+  it('encodes a lossy image from the lossless PNG of its name and size beside the model', async () => {
+    const pixels = checkerRgba(64, [120, 60, 30], [60, 30, 15]);
+    put('assets/props/textures/bark.png', encodeRgbaPng(pixels, 64, 64));
+    // A PNG of another size is not the image's original.
+    put('assets/props/moss.png', encodeRgbaPng(checkerRgba(32, [0, 90, 0], [0, 60, 0]), 32, 32));
+    const glb = quadGlb({ base: await webp(pixels, 64, 64, { quality: 60 }), normal: await webp(checkerRgba(64, [128, 128, 255], [140, 120, 250]), 64, 64, { quality: 60 }) }, 'trunk', { base: 'bark.webp', normal: 'moss' });
+    const r = await publish('trunk', glb);
+    expect(r.status, JSON.stringify(r.json)).toBe(200);
+    const report = (r.json as { textureExtraction: { images: { image: number; file?: string; from?: string; encoding?: string }[] } }).textureExtraction;
+    expect(report.images[0]).toMatchObject({ file: 'assets/props/textures/bark.png', from: 'assets/props/textures/bark.png', encoding: 'color' });
+    expect(report.images[1]).toMatchObject({ file: 'assets/props/trunk_textures/moss.webp', encoding: 'normal' });
+    expect(report.images[1]!.from).toBeUndefined();
+    const bark = asset(asset('trunk')!.textures!['0']!)!;
+    expect(bark.versions[0]!.convertedFrom).toMatchObject({ format: 'png', sourcePath: 'assets/props/textures/bark.png', encoding: 'color' });
+    // The lossy image was not written out: the PNG is the texture's file.
+    expect(existsSync(join(dir(), 'assets', 'props', 'trunk_textures', 'bark.webp'))).toBe(false);
+  });
+
+  it('extracts older imports when the project extracts every model, and lists the models left in Problems', async () => {
+    const pine = quadGlb({ base: await webp(checkerRgba(64, [20, 80, 40], [10, 40, 20]), 64, 64, { quality: 80 }), normal: NORMAL }, 'pine');
+    const kept = await publish('pine', pine, { extractTextures: false });
+    expect(kept.status, JSON.stringify(kept.json)).toBe(200);
+    const lost = await publish('stump', quadGlb({ base: checker(64, [90, 60, 30], [45, 30, 15]) }, 'stump'), { extractTextures: false });
+    expect(lost.status, JSON.stringify(lost.json)).toBe(200);
+    expect(asset('pine')!.textures).toBeUndefined();
+    // The stump's file goes: its images cannot be taken out of it.
+    rmSync(join(dir(), ...asset('stump')!.versions[0]!.sourcePath!.split('/')));
+    const on = await command('setSettings', { settings: { ...settings(), import_extract_textures: 1 } });
+    expect(on.status, JSON.stringify(on.json)).toBe(200);
+    const deadline = Date.now() + 30_000;
+    while (asset('pine')!.textures === undefined && Date.now() < deadline) await new Promise((r) => setTimeout(r, 100));
+    const pineNow = asset('pine')!;
+    expect(pineNow.extractTextures).toBe(true);
+    expect(Object.keys(pineNow.textures!)).toEqual(['0', '1']);
+    expect(asset(pineNow.textures!['0']!)!.versions.at(-1)!.convertedFrom).toMatchObject({ format: 'webp', encoding: 'color' });
+    // The normal map is the texture the crate's file already brought in.
+    expect(pineNow.textures!['1']).toBe(asset('crate')!.textures!['1']);
+    const line = async (): Promise<string | undefined> => {
+      const p = (await api(`${tb.authUrl}/api/v1/projects/${PID}/problems`, { method: 'GET', token: tb.adminToken, origin: null })).json as { problems: { code: string; message: string }[] };
+      return p.problems.filter((x) => x.code === 'models_hold_images').at(-1)?.message;
+    };
+    let message = await line();
+    while ((message === undefined || !message.includes('stump')) && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 100));
+      message = await line();
+    }
+    expect(message).toMatch(/^A model still holds images inside its file: "stump" \(1 image: not extracted: /);
+    // The model kept with extractTextures: false earlier has its file: it was extracted too.
+    expect(asset('keg')!.extractTextures).toBe(true);
+    expect(asset('keg')!.textures).toBeDefined();
+  }, 60_000);
 
   it('lists an extracted model whose file went missing as drawn from the import cache in Play and refused by an export', async () => {
     const glb = readFileSync(join(dir(), 'assets', 'kit', 'door.glb'));

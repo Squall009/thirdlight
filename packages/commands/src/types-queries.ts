@@ -17,7 +17,7 @@ export interface AssetSummary {
   /** The current version's file in the game folder, when it is referenced in place. */
   sourcePath?: string;
   /** The current version's original when it was converted at import (FBX; a PNG/JPEG encoded to KTX2). */
-  convertedFrom?: { format: 'fbx' | 'glb' | 'png' | 'jpeg'; sourcePath?: string; encoding?: 'color' | 'normal' | 'data' };
+  convertedFrom?: { format: 'fbx' | 'glb' | 'png' | 'jpeg' | 'webp'; sourcePath?: string; encoding?: 'color' | 'normal' | 'data' };
   /** The current version was packed from texture assets: its encoding and the source assets. */
   packedFrom?: { encoding: 'color' | 'normal' | 'data'; sources: string[] };
   /** Texture only: the current version's image facts (a KTX2's codec and mip levels; a texture array's layers). */

@@ -258,7 +258,7 @@ export function queryAssets(
       versionCount: a.versions.length,
     };
     const current = a.versions.find((v) => v.version === a.currentVersion) as
-      | { sourcePath?: string; convertedFrom?: { format: 'fbx' | 'glb' | 'png' | 'jpeg'; sourcePath?: string; encoding?: 'color' | 'normal' | 'data' }; packedFrom?: { encoding: 'color' | 'normal' | 'data'; layers: ({ assetId?: string } | { value: number })[][] }; metrics?: unknown }
+      | { sourcePath?: string; convertedFrom?: { format: 'fbx' | 'glb' | 'png' | 'jpeg' | 'webp'; sourcePath?: string; encoding?: 'color' | 'normal' | 'data' }; packedFrom?: { encoding: 'color' | 'normal' | 'data'; layers: ({ assetId?: string } | { value: number })[][] }; metrics?: unknown }
       | undefined;
     if (current?.sourcePath !== undefined) summary.sourcePath = current.sourcePath;
     if ((a as { vertexColors?: string }).vertexColors === 'tint') summary.vertexColors = 'tint';

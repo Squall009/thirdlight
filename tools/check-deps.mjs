@@ -70,6 +70,9 @@ export const PINS = {
   // encoder (its bundled WASM build) and a JPEG decoder for JPEG sources.
   'ktx2-encoder': '0.6.0',
   'jpeg-js': '0.4.4',
+  // libwebp's decoder (WASM) for WebP sources: a WebP texture or a model's
+  // WebP image is encoded to KTX2 like a PNG.
+  '@jsquash/webp': '1.5.0',
   // `npm run lint` (root dev only): ESLint's flat config, typescript-eslint for
   // the typed rules, and the React hooks rules for the editor.
   eslint: '10.11.0',
@@ -107,6 +110,7 @@ const PIN_CONSUMERS = {
   'playwright-core': 'backend (phase 11: the headless editor for MCP play; same version as @playwright/test)',
   'ktx2-encoder': 'backend (phase 25.19: KTX2 encoding on import, in a worker thread; never in a browser bundle; decision 0006)',
   'jpeg-js': 'backend (phase 25.19: decodes JPEG sources for KTX2 encoding; decision 0006)',
+  '@jsquash/webp': 'backend (decodes WebP sources for KTX2 encoding, in the encoder worker; never in a browser bundle; decision 0006)',
   eslint: 'workspace lint (root dev; never in a bundle)',
   'typescript-eslint': 'workspace lint (root dev; never in a bundle)',
   'eslint-plugin-react-hooks': 'workspace lint (root dev; never in a bundle)',

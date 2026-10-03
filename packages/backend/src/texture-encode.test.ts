@@ -12,6 +12,7 @@ import { ktx2Info } from '@thirdlight/asset-pipeline';
 import { decodePngRgba } from '@thirdlight/project-model/png';
 
 import { createWorkerTextureEncoder, encodeKtx2, KTX2_ENCODER, packKtx2 } from './texture-encode';
+import { webp } from './test-helpers';
 
 function crc32(bytes: Uint8Array): number {
   let c = ~0;
@@ -183,9 +184,21 @@ describe('encodeKtx2', () => {
     expect(transfer(r.ktx2)).toBe(1);
   }, 60_000);
 
-  it('refuses WebP, KTX2 and garbage with a reason; names the pinned encoder', async () => {
-    const webp = new Uint8Array([0x52, 0x49, 0x46, 0x46, 4, 0, 0, 0, 0x57, 0x45, 0x42, 0x50]);
-    expect(await encodeKtx2(webp, 'color')).toMatchObject({ ok: false, code: 'texture_encode_unsupported', message: expect.stringMatching(/PNG/) });
+  it('encodes a WebP (lossy or lossless) from the pixels libwebp decodes', async () => {
+    const rgba = new Uint8Array(48 * 32 * 4);
+    for (let i = 0; i < 48 * 32; i++) rgba.set([i % 256, 90, 200, 255], i * 4);
+    for (const options of [{ quality: 80 }, { lossless: true }]) {
+      const r = await encodeKtx2(await webp(rgba, 48, 32, options), 'color');
+      expect(r.ok, JSON.stringify(options)).toBe(true);
+      if (!r.ok) return;
+      expect(r.source).toEqual({ format: 'webp', width: 48, height: 32 });
+      expect(ktx2Info(r.ktx2)).toEqual({ width: 48, height: 32, levels: 6, codec: 'etc1s' });
+    }
+  }, 60_000);
+
+  it('refuses a broken WebP, KTX2 and garbage with a reason; names the pinned encoder', async () => {
+    const broken = new Uint8Array([0x52, 0x49, 0x46, 0x46, 4, 0, 0, 0, 0x57, 0x45, 0x42, 0x50]);
+    expect(await encodeKtx2(broken, 'color')).toMatchObject({ ok: false, code: 'texture_encode_failed', message: expect.stringMatching(/WEBP could not be decoded/) });
     expect(await encodeKtx2(new Uint8Array([0xab, 0x4b, 0x54, 0x58, 0x20, 0x32, 0x30, 0xbb, 0x0d, 0x0a, 0x1a, 0x0a]), 'color')).toMatchObject({ ok: false, message: expect.stringMatching(/already KTX2/) });
     expect((await encodeKtx2(new Uint8Array([1, 2, 3]), 'color')).ok).toBe(false);
     // The recorded version is the installed pin's.

@@ -1,7 +1,7 @@
 /**
  * KTX2 encoding on import.
  *
- * A PNG or JPEG texture imported with `ktx2: "color"` or `"normal"` is
+ * A PNG, JPEG or WebP texture imported with `ktx2: "color"` or `"normal"` is
  * encoded to a Basis Universal KTX2 with a full mip chain, and the KTX2 is
  * the asset version's stored bytes (the source is recorded as its original,
  * `convertedFrom`, like an FBX converted to GLB):
@@ -16,22 +16,23 @@
  *   filtered in linear space, channels kept apart (ETC1S would mix them).
  *
  * Packing — a KTX2 texture (a texture array with several
- * layers) made from texture assets' PNG/JPEG images channel by channel: each
+ * layers) made from texture assets' PNG/JPEG/WebP images channel by channel: each
  * layer's R, G, B and A come from a channel of a source image or a constant.
  * All sources are the same size; the encoder takes at most 12 Mpix across the
  * layers (4 layers of 1024², 2 of 2048²).
  *
  * The encoder is `ktx2-encoder` (pinned; its bundled Basis Universal WASM
  * build, non-threaded), run off the backend's event loop in a worker thread
- * (`ktx2-worker.ts`) in the deployment, in-process in tests. WebP sources are
- * refused (no WebP decoder on the server: export the source as PNG).
+ * (`ktx2-worker.ts`) in the deployment, in-process in tests. A WebP source
+ * is decoded with libwebp (`image-decode.ts`), so a lossy WebP is encoded from
+ * the pixels a browser would draw.
  */
 import { Worker } from 'node:worker_threads';
 
 import { MAX_TEXTURE_LAYERS } from '@thirdlight/project-model/limits';
 import * as ktx2Encoder from 'ktx2-encoder';
 
-import { decodeSource, sourceFormat, type DecodedImage } from './image-decode';
+import { decodeImage, sourceFormat, type DecodedImage } from './image-decode';
 import { makeImageThumbnail } from './image-thumbnail';
 
 export type Ktx2Mode = 'color' | 'normal' | 'data';
@@ -46,7 +47,7 @@ export const KTX2_ENCODER = { name: 'ktx2-encoder', version: '0.6.0' } as const;
 export const KTX2_SOURCE_PIXELS_MAX = 12 * 1024 * 1024;
 
 export type Ktx2EncodeResult =
-  | { ok: true; ktx2: Uint8Array; source: { format: 'png' | 'jpeg'; width: number; height: number } }
+  | { ok: true; ktx2: Uint8Array; source: { format: 'png' | 'jpeg' | 'webp'; width: number; height: number } }
   | { ok: false; code: 'texture_encode_unsupported' | 'texture_encode_failed'; message: string };
 
 /** One channel of a packed layer: a channel of source image `source`, or a constant 0–255. */
@@ -60,22 +61,21 @@ export type Ktx2PackResult =
 
 export interface TextureEncoder {
   encode(bytes: Uint8Array, mode: Ktx2Mode): Promise<Ktx2EncodeResult>;
-  /** A tile thumbnail (PNG) of a PNG/JPEG image; null when the image cannot be read. */
+  /** A tile thumbnail (PNG) of a PNG, JPEG or WebP image; null when the image cannot be read. */
   thumbnail(bytes: Uint8Array): Promise<Uint8Array | null>;
-  /** Pack the layers' channels from the source images (PNG/JPEG bytes) and encode one KTX2 (an array with several layers). */
+  /** Pack the layers' channels from the source images (PNG/JPEG/WebP bytes) and encode one KTX2 (an array with several layers). */
   pack(sources: readonly Uint8Array[], layers: readonly PackLayer[], mode: Ktx2Mode): Promise<Ktx2PackResult>;
   dispose?(): void;
 }
 
-/** Encode one PNG/JPEG to KTX2 in this thread (the worker runs this too). */
+/** Encode one PNG, JPEG or WebP to KTX2 in this thread (the worker runs this too). */
 export async function encodeKtx2(bytes: Uint8Array, mode: Ktx2Mode): Promise<Ktx2EncodeResult> {
   const format = sourceFormat(bytes);
   if (format === 'ktx2') return { ok: false, code: 'texture_encode_unsupported', message: 'the texture is already KTX2 (import it without ktx2 encoding)' };
-  if (format === 'webp') return { ok: false, code: 'texture_encode_unsupported', message: 'KTX2 encoding reads PNG or JPEG sources; export the WebP as PNG first (or import it as is)' };
-  if (format === null) return { ok: false, code: 'texture_encode_unsupported', message: 'not a PNG or JPEG image' };
+  if (format === null) return { ok: false, code: 'texture_encode_unsupported', message: 'not a PNG, JPEG or WebP image' };
   let img: DecodedImage;
   try {
-    img = decodeSource(bytes, format, KTX2_SOURCE_PIXELS_MAX);
+    img = await decodeImage(bytes, format, KTX2_SOURCE_PIXELS_MAX);
   } catch (e) {
     return { ok: false, code: 'texture_encode_failed', message: `the ${format.toUpperCase()} could not be decoded: ${e instanceof Error ? e.message : String(e)}` };
   }
@@ -130,7 +130,7 @@ const SOURCE_RAW = 0;
 
 /**
  * Pack and encode in this thread. Every source is decoded
- * (PNG/JPEG), all must share one size; each layer's four channels are read
+ * (PNG/JPEG/WebP), all must share one size; each layer's four channels are read
  * from them (or set to a constant), and the layers are encoded together as a
  * 2D array (one image: a plain 2D texture) with the mode's settings — the
  * same as `encodeKtx2`'s for colour and normal maps.
@@ -149,10 +149,10 @@ export async function packKtx2(sources: readonly Uint8Array[], layers: readonly 
     const bytes = sources[i];
     if (bytes === undefined) return { ok: false, code: 'texture_encode_unsupported', message: `a channel names source ${i + 1}, which is not given` };
     const format = sourceFormat(bytes);
-    if (format !== 'png' && format !== 'jpeg') return { ok: false, code: 'texture_encode_unsupported', message: `source ${i + 1} is not a PNG or JPEG image (packing reads PNG/JPEG texture assets; a KTX2 or WebP cannot be unpacked)` };
+    if (format === null || format === 'ktx2') return { ok: false, code: 'texture_encode_unsupported', message: `source ${i + 1} is not a PNG, JPEG or WebP image (packing reads PNG/JPEG/WebP texture assets; a KTX2 cannot be unpacked)` };
     let img: DecodedImage;
     try {
-      img = decodeSource(bytes, format, images.size === 0 ? KTX2_SOURCE_PIXELS_MAX : width * height);
+      img = await decodeImage(bytes, format, images.size === 0 ? KTX2_SOURCE_PIXELS_MAX : width * height);
     } catch (e) {
       const reason = e instanceof Error ? e.message : String(e);
       return { ok: false, code: 'texture_encode_failed', message: `source ${i + 1} could not be decoded: ${reason}${images.size > 0 ? ` (every source of a packed texture has one size, ${width}×${height})` : ''}` };
@@ -237,7 +237,7 @@ export const KTX2_WORKER_LIMITS = { maxOldGenerationSizeMb: 512, maxYoungGenerat
 
 /** In this thread (tests; a busy encode holds the event loop). */
 export function createInlineTextureEncoder(): TextureEncoder {
-  return { encode: encodeKtx2, pack: packKtx2, thumbnail: async (bytes) => makeImageThumbnail(bytes) };
+  return { encode: encodeKtx2, pack: packKtx2, thumbnail: (bytes) => makeImageThumbnail(bytes) };
 }
 
 /**

@@ -1,9 +1,14 @@
+/// <reference path="./emscripten-wasm.d.ts" />
 /**
- * PNG and JPEG images decoded to RGBA on the server (texture encoding and
- * tile thumbnails): the format by its signature, then the pinned decoders.
+ * PNG, JPEG and WebP images decoded to RGBA on the server (texture encoding
+ * and tile thumbnails): the format by its signature, then the pinned decoders.
+ * WebP is libwebp's own decoder (a WASM build, loaded on first use), so a
+ * lossy or lossless WebP decodes exactly as browsers draw it.
  */
+import { readFileSync } from 'node:fs';
 import { inflateSync } from 'node:zlib';
 
+import { imageDimensions } from '@thirdlight/asset-pipeline';
 import { decodePngRgba } from '@thirdlight/project-model/png';
 import jpeg from 'jpeg-js';
 
@@ -35,3 +40,35 @@ export function decodeSource(bytes: Uint8Array, format: 'png' | 'jpeg', maxPixel
   return { width: img.width, height: img.height, data: new Uint8Array(img.data.buffer, img.data.byteOffset, img.data.byteLength) };
 }
 
+
+/** The WebP decoder, instantiated once per thread from its WASM file in node_modules (the package's own loader fetches a URL, which Node cannot). */
+let webpDecoder: Promise<typeof import('@jsquash/webp/decode.js')> | null = null;
+function webpLoaded(): Promise<typeof import('@jsquash/webp/decode.js')> {
+  webpDecoder ??= (async () => {
+    const mod = await import('@jsquash/webp/decode.js');
+    const compiled = await WebAssembly.compile(readFileSync(new URL(import.meta.resolve('@jsquash/webp/codec/dec/webp_dec.wasm'))));
+    await mod.init({
+      instantiateWasm: (imports, done) => {
+        const instance = new WebAssembly.Instance(compiled, imports);
+        done(instance);
+        return instance.exports;
+      },
+    });
+    return mod;
+  })();
+  return webpDecoder;
+}
+
+/**
+ * Any image the importer reads except KTX2 (PNG, JPEG, WebP), decoded to
+ * RGBA. The declared size is checked against `maxPixels` before decoding.
+ */
+export async function decodeImage(bytes: Uint8Array, format: 'png' | 'jpeg' | 'webp', maxPixels: number): Promise<DecodedImage> {
+  if (format !== 'webp') return decodeSource(bytes, format, maxPixels);
+  const dims = imageDimensions(bytes, 'image/webp');
+  if (dims === null) throw new Error('the WebP header could not be read');
+  if (dims.width * dims.height > maxPixels) throw new Error(`the image is ${dims.width}×${dims.height}, over ${maxPixels} pixels`);
+  const decoder = await webpLoaded();
+  const img = await decoder.default(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer);
+  return { width: img.width, height: img.height, data: new Uint8Array(img.data.buffer, img.data.byteOffset, img.data.byteLength) };
+}

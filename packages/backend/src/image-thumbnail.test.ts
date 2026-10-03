@@ -20,10 +20,10 @@ function image(width: number, height: number, at: (x: number, y: number) => [num
 }
 
 describe('image thumbnails', () => {
-  it('scales a large image down to the thumbnail edge, keeping its aspect and its colours', () => {
+  it('scales a large image down to the thumbnail edge, keeping its aspect and its colours', async () => {
     // Left half red, right half blue, 512 × 256.
     const src = image(512, 256, (x) => (x < 256 ? [255, 0, 0, 255] : [0, 0, 255, 255]));
-    const png = makeImageThumbnail(src)!;
+    const png = (await makeImageThumbnail(src))!;
     const out = decodePngRgba(png, { inflate });
     expect(out.ok).toBe(true);
     if (!out.ok) return;
@@ -34,15 +34,15 @@ describe('image thumbnails', () => {
     expect(png.byteLength).toBeLessThan(src.byteLength);
   });
 
-  it('averages the pixels a thumbnail pixel covers (a fine checker becomes grey)', () => {
+  it('averages the pixels a thumbnail pixel covers (a fine checker becomes grey)', async () => {
     const src = image(256, 256, (x, y) => ((x + y) % 2 === 0 ? [255, 255, 255, 255] : [0, 0, 0, 255]));
-    const out = decodePngRgba(makeImageThumbnail(src)!, { inflate });
+    const out = decodePngRgba((await makeImageThumbnail(src))!, { inflate });
     expect(out.ok && [...out.png.rgba.subarray(0, 4)]).toEqual([128, 128, 128, 255]);
   });
 
-  it('keeps a small image at its size and refuses what is not a PNG or JPEG', () => {
-    const out = decodePngRgba(makeImageThumbnail(image(16, 8, () => [1, 2, 3, 4]))!, { inflate });
+  it('keeps a small image at its size and refuses what is not an image', async () => {
+    const out = decodePngRgba((await makeImageThumbnail(image(16, 8, () => [1, 2, 3, 4])))!, { inflate });
     expect(out.ok && [out.png.width, out.png.height]).toEqual([16, 8]);
-    expect(makeImageThumbnail(new TextEncoder().encode('glTF not an image'))).toBeNull();
+    expect(await makeImageThumbnail(new TextEncoder().encode('glTF not an image'))).toBeNull();
   });
 });

@@ -31,6 +31,7 @@ import { publishBehaviorSource } from './behavior';
 import { diagnosticsWithNodes, generateGraphSource, graphProblemsFailure } from '@thirdlight/behavior-build';
 import { ContentRoutes, createAssetInspector, createBehaviorCompilerPort } from './content';
 import { createAssetFileCheck, reimportProblemLines } from './asset-files';
+import { createHeldImagesChecker } from './held-images';
 import { createMissingFiles, makeMissingFilesRoute } from './missing-files';
 import { createFolderImport } from './folder-import';
 import { createFbxConverter } from './fbx';
@@ -419,6 +420,7 @@ export function createBackend(
     }
     reportUpgradeNotes(projectId);
     scriptNames.loaded(projectId);
+    heldImages.loaded(projectId);
     // An editor loading the project: its materials are checked (once; after that, after each change).
     if (materialChecker.last(projectId) === null) {
       try {
@@ -555,6 +557,8 @@ export function createBackend(
 
   // Scripts that name an asset that is not loadable (checked on load and after a change that can matter).
   const scriptNames = createScriptNameChecker({ service, recordProblem: (projectId, code, message) => recordProblem(projectId, 'compile', code, message), logStartup, closed: () => closed });
+  // Models still holding images when the project extracts every model's: extracted where their files are, the rest listed.
+  const heldImages = createHeldImagesChecker({ service, extract: assetFiles.extractModels, recordProblem: (projectId, code, message) => recordProblem(projectId, 'import', code, message), logStartup, closed: () => closed });
 
   // ---------- Graph materials' problems (checked on load and after every change) ----------
   const materialChecker = createMaterialProblemChecker();
@@ -635,6 +639,7 @@ export function createBackend(
       else missingFiles.scheduleUses(projectId);
     }
     scriptNames.changed(projectId, change);
+    heldImages.changed(projectId, change);
     for (const line of audioPlaybackProblems(change)) recordProblem(projectId, 'import', 'audio_browser_support', line);
     const s = sessions.sessionForProject(projectId);
     if (!s || !s.connected || !s.socket) return;
@@ -1627,6 +1632,7 @@ export function createBackend(
           const rows = materialRows(projectId);
           reportUpgradeNotes(projectId);
           scriptNames.loaded(projectId);
+          heldImages.loaded(projectId);
           // The missing asset files (the first page; the missing-files route pages them).
           const missing = missingFiles.firstPage(projectId);
           const list = problems.get(projectId) ?? [];

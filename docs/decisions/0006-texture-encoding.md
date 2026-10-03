@@ -16,6 +16,13 @@ review pending.** Binding for the backend's KTX2 encoding.
 - `jpeg-js` at exactly **`0.4.4`** (BSD-3-Clause, no dependencies): decodes
   JPEG sources to RGBA for the encoder. PNG sources are decoded in-house
   (`packages/backend/src/png-decode.ts`, node:zlib).
+- `@jsquash/webp` at exactly **`1.5.0`** (Apache-2.0; one dependency,
+  `wasm-feature-detect` ^1.2.11, Apache-2.0): libwebp's decoder as WASM
+  (Squoosh's build). Decodes WebP sources (a WebP texture, a model's WebP
+  image on "extract textures") to RGBA for the encoder, since 2026-10-03
+  (phase 28.11, Skyforge E78). Its WASM is read from the package in
+  node_modules and instantiated in the encoder's thread. Integrity
+  `sha512-KggLoj2MnRSfIqTeKe1EmbljTX2vuV7mh79k89PCL1pyqiDULcPM1L47twxXt0hkb68F70bXiL31MxsuoZtKFw==`.
 - Declared by `packages/backend` only; pinned in `tools/check-deps.mjs`,
   allowed for the backend in `tools/check-boundaries.mjs` (with the
   `worker_threads` and `zlib` builtins); installed with
@@ -35,8 +42,8 @@ in a worker thread of the backend (`dist/backend/ktx2-worker.mjs`).
 
 ## 3. Limits
 
-12 Mpix per source (the encoder's own cap), PNG and JPEG only (WebP is
-refused with the reason), no "data" (linear, uncompressed-channel) mode: the
+12 Mpix per source (the encoder's own cap), PNG, JPEG and (since 28.11)
+WebP sources, no "data" (linear, uncompressed-channel) mode: the
 wrapper exposes no linear-mip preset. Changing either pin changes encoded
 bytes: a new pin is a new decision.
 

@@ -36,8 +36,8 @@ export {
   type ImageRecipe,
   type TextureFormat,
 } from './inspect-image';
-// A Basis Universal KTX2's facts (size, mip levels, codec).
-export { ktx2Info } from './images';
+// A Basis Universal KTX2's facts (size, mip levels, codec); any accepted image's declared size.
+export { imageDimensions, ktx2Info } from './images';
 export {
   FONT_FAMILY_NAME_MAX,
   FONT_SOURCE_BYTES_MAX,

@@ -141,7 +141,7 @@ export class ContentProjection {
     const previous = this.assets.get(change.assetId);
     const pathOf = (v: unknown): string | undefined => (v as { sourcePath?: string } | undefined)?.sourcePath;
     const current = next.versions.find((v) => v.version === next.currentVersion) as
-      | { convertedFrom?: { format: 'fbx' | 'glb' | 'png' | 'jpeg'; sourcePath?: string; encoding?: 'color' | 'normal' | 'data' }; packedFrom?: { encoding: 'color' | 'normal' | 'data'; layers: ({ assetId?: string } | { value: number })[][] }; metrics?: unknown }
+      | { convertedFrom?: { format: 'fbx' | 'glb' | 'png' | 'jpeg' | 'webp'; sourcePath?: string; encoding?: 'color' | 'normal' | 'data' }; packedFrom?: { encoding: 'color' | 'normal' | 'data'; layers: ({ assetId?: string } | { value: number })[][] }; metrics?: unknown }
       | undefined;
     const image = next.kind === 'texture' ? (current?.metrics as { format: string; width: number; height: number; codec?: 'etc1s' | 'uastc'; levels?: number; layers?: number } | undefined) : undefined;
     // A packed texture's encoding and source assets.

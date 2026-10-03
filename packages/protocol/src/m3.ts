@@ -933,7 +933,7 @@ export interface StageInspectRequest {
   kind?: 'model' | 'audio' | 'texture' | 'font';
   animation?: { entityId?: string; roles: AnimationRolesValue };
   /**
-   * Textures only: encode a PNG/JPEG to KTX2 on import —
+   * Textures only: encode a PNG/JPEG/WebP to KTX2 on import —
    * "color" (ETC1S, sRGB) or "normal" (UASTC, linear, normal-map mips);
    * "data" (UASTC, linear, channels kept apart: masks, packed ORM).
    */
@@ -1087,7 +1087,7 @@ export type TexturePackChannel = { assetId: string; channel: 'r' | 'g' | 'b' | '
 
 /**
  * `POST /content/textures/pack` — a KTX2 texture packed from the
- * project's PNG/JPEG texture assets channel by channel; several layers make a
+ * project's PNG/JPEG/WebP texture assets channel by channel; several layers make a
  * texture array. `layers[i]` = the R, G, B and A sources of layer i.
  */
 export interface TexturePackRequest {

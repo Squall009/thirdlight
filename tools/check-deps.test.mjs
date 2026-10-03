@@ -156,6 +156,7 @@ describe('check 6 — dependency pinning', () => {
       // KTX2 encoding on import.
       'ktx2-encoder': '0.6.0',
       'jpeg-js': '0.4.4',
+      '@jsquash/webp': '1.5.0',
       // The lint toolchain (root dev only).
       eslint: '10.11.0',
       'typescript-eslint': '8.71.0',

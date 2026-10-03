@@ -116,7 +116,7 @@ describe('texture packing over MCP and the pack route', () => {
     expect(JSON.stringify(sized.body)).toMatch(/one size/);
     const ktx = await mcp.call('tl_content_upload', { pack: { layers: [[{ assetId: 'two-layers', channel: 'r' }, { value: 0 }, { value: 0 }, { value: 255 }]], encoding: 'data' } });
     expect(ktx.isError).toBe(true);
-    expect(JSON.stringify(ktx.body)).toMatch(/PNG or JPEG/);
+    expect(JSON.stringify(ktx.body)).toMatch(/PNG, JPEG or WebP/);
     const missing = await mcp.call('tl_content_upload', { pack: { layers: [[{ assetId: 'nope', channel: 'r' }, { value: 0 }, { value: 0 }, { value: 255 }]], encoding: 'color' } });
     expect(missing.isError).toBe(true);
     expect(JSON.stringify(missing.body)).toMatch(/no texture asset .{0,4}nope/);

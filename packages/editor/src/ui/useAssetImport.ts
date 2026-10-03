@@ -100,7 +100,7 @@ export function useAssetImport(deps: AssetImportDeps) {
         ? { mode: 'reimport', assetId: selectedAssetIdRef.current, displayName: null }
         : { mode: 'create', assetId: makeAssetId(), displayName: candidate.displayName };
     // A PNG/JPEG texture encoded to KTX2 when the Assets panel says so (a KTX2 or WebP is imported as is).
-    const ktx2 = candidate.kind === 'texture' && textureEncodingRef.current !== 'none' && /\.(png|jpe?g)$/i.test(file.name) ? textureEncodingRef.current : undefined;
+    const ktx2 = candidate.kind === 'texture' && textureEncodingRef.current !== 'none' && /\.(png|jpe?g|webp)$/i.test(file.name) ? textureEncodingRef.current : undefined;
     const res = await c.uploadAsset(bytes, { target, displayName: candidate.displayName, kind: candidate.kind, ...(ktx2 !== undefined ? { ktx2 } : {}), onState: setImportState });
     if (res.ok) {
       acceptProposal(res.proposal, target, candidate.kind);
@@ -122,7 +122,7 @@ export function useAssetImport(deps: AssetImportDeps) {
     }
     const target: ImportTarget =
       mode === 'reimport' ? { mode: 'reimport', assetId, displayName: null } : { mode: 'create', assetId: makeAssetId(), displayName: candidate.displayName };
-    const ktx2 = candidate.kind === 'texture' && textureEncodingRef.current !== 'none' && /\.(png|jpe?g)$/i.test(path) ? textureEncodingRef.current : undefined;
+    const ktx2 = candidate.kind === 'texture' && textureEncodingRef.current !== 'none' && /\.(png|jpe?g|webp)$/i.test(path) ? textureEncodingRef.current : undefined;
     const res = await c.importProjectFile(path, {
       target,
       kind: candidate.kind,

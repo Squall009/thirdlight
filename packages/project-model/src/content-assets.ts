@@ -370,14 +370,14 @@ function validateAssetVersion(v: unknown, path: string, errors: ModelErrorV2[], 
   const converted = v['convertedFrom'];
   if (converted !== undefined) {
     const cpath = `${path}/convertedFrom`;
-    // A texture version may be a KTX2 encoded from a PNG/JPEG at import.
+    // A texture version may be a KTX2 encoded from a PNG, JPEG or WebP at import.
     const texture = kind === 'texture';
     if (kind !== 'model' && !texture) errors.push(unexpectedField(cpath, 'convertedFrom', 'only a model or texture version can be converted'));
     else if (sourcePath !== undefined) errors.push(unexpectedField(cpath, 'convertedFrom', 'a converted version is stored; it cannot also have a sourcePath'));
     else if (!isPlainObject(converted)) errors.push(fieldType(cpath, converted, 'object'));
     else {
       if (!texture && converted['format'] !== 'fbx' && converted['format'] !== 'glb') errors.push(fieldValue(`${cpath}/format`, converted['format'], '"fbx" | "glb"', 'a model is converted from an FBX, or from a GLB whose images were extracted'));
-      if (texture && converted['format'] !== 'png' && converted['format'] !== 'jpeg') errors.push(fieldValue(`${cpath}/format`, converted['format'], '"png" | "jpeg"', 'a texture is encoded from a PNG or JPEG'));
+      if (texture && converted['format'] !== 'png' && converted['format'] !== 'jpeg' && converted['format'] !== 'webp') errors.push(fieldValue(`${cpath}/format`, converted['format'], '"png" | "jpeg" | "webp"', 'a texture is encoded from a PNG, JPEG or WebP'));
       if (texture && !(KTX2_ENCODINGS as readonly unknown[]).includes(converted['encoding'])) errors.push(fieldValue(`${cpath}/encoding`, converted['encoding'], '"color" | "normal" | "data"', 'the KTX2 encoding is "color" (ETC1S), "normal" or "data" (UASTC)'));
       if (texture && isPlainObject(v['metrics']) && v['metrics']['format'] !== 'ktx2') errors.push(fieldValue(`${cpath}/format`, v['metrics']['format'], 'metrics.format "ktx2"', 'an encoded texture version holds the KTX2'));
       const d = converted['sourceDigest'];

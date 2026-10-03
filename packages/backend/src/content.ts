@@ -1265,7 +1265,7 @@ export class ContentRoutes {
   }
 
   /**
-   * KTX2 encoding on import — an import setting of the PNG/JPEG, as Unity's
+   * KTX2 encoding on import — an import setting of the PNG/JPEG/WebP, as Unity's
    * texture compression is: encode the image (the worker thread), stage the
    * KTX2 and inspect it through the texture profile; the KTX2 goes into the
    * import cache, never into the game folder. As with an FBX, the response
@@ -1294,7 +1294,7 @@ export class ContentRoutes {
     }
     const encoded = await encoder.encode(bytes, mode);
     if (!encoded.ok) return failed('conversion_failed', 'validation', encoded.message, { path: '/ktx2' });
-    const name = displayName ?? (source.kind === 'file' ? (source.path.split('/').pop() ?? source.path).replace(/\.(png|jpe?g)$/i, '') : undefined);
+    const name = displayName ?? (source.kind === 'file' ? (source.path.split('/').pop() ?? source.path).replace(/\.(png|jpe?g|webp)$/i, '') : undefined);
     const begun = this.uploads.begin(projectId, name);
     if (!begun.ok) return this.deps.sendError(res, begun.error);
     this.uploads.discard(begun.stageId);
@@ -1347,7 +1347,7 @@ export class ContentRoutes {
   /**
    * Pack a KTX2 texture (a texture array with several layers)
    * from the project's texture assets, channel by channel. The sources are the
-   * named assets' current versions (PNG/JPEG, one size); the worker thread
+   * named assets' current versions (PNG/JPEG/WebP, one size); the worker thread
    * decodes, packs and encodes; the KTX2 is staged, inspected through the
    * texture profile and held: the publish files it into the game folder as
    * the packed texture's own file, its sidecar naming the sources. The
@@ -1379,7 +1379,7 @@ export class ContentRoutes {
         const a = q.assets?.[0];
         if (!q.ok || a === undefined) return failed('asset_not_found', 'validation', `no texture asset "${c.assetId}" in this project`, { path: '/layers' });
         if (a.kind !== 'texture') return failed('asset_not_found', 'validation', `"${c.assetId}" is a ${a.kind} asset, not a texture`, { path: '/layers' });
-        if (a.image !== undefined && a.image.format !== 'png' && a.image.format !== 'jpeg') return failed('conversion_failed', 'validation', `"${c.assetId}" is a ${a.image.format.toUpperCase()} texture: packing reads PNG or JPEG textures (import the source image)`, { path: '/layers' });
+        if (a.image !== undefined && a.image.format === 'ktx2') return failed('conversion_failed', 'validation', `"${c.assetId}" is a KTX2 texture: packing reads PNG, JPEG or WebP textures (import the source image)`, { path: '/layers' });
         const blob = this.deps.service.readBlob(projectId, { assetId: c.assetId, version: a.currentVersion });
         if (!blob.ok) return this.deps.sendError(res, commandErrorToSession(blob.error));
         sourceIndex.set(c.assetId, sources.length);
@@ -1681,7 +1681,7 @@ export class ContentRoutes {
   }
 
   /**
-   * A texture's thumbnail made from its image: the PNG/JPEG itself, or the
+   * A texture's thumbnail made from its image: the PNG/JPEG/WebP itself, or the
    * image a KTX2 was encoded from (its file in the game folder). Only for the
    * asset's current version (`digest`); null when there is no image to make
    * it from (a KTX2 imported as is, a packed texture): the tile keeps its icon.
@@ -1696,10 +1696,10 @@ export class ContentRoutes {
     const current = a.versions?.find((v) => v.version === a.currentVersion);
     if (current === undefined || current.sourceDigest !== digest) return null;
     let bytes: Uint8Array | null = null;
-    if (a.image?.format === 'png' || a.image?.format === 'jpeg') {
+    if (a.image?.format === 'png' || a.image?.format === 'jpeg' || a.image?.format === 'webp') {
       const r = this.deps.service.readBlob(projectId, { assetId, version: a.currentVersion });
       if (r.ok) bytes = r.bytes;
-    } else if (a.convertedFrom?.sourcePath !== undefined && (a.convertedFrom.format === 'png' || a.convertedFrom.format === 'jpeg')) {
+    } else if (a.convertedFrom?.sourcePath !== undefined && (a.convertedFrom.format === 'png' || a.convertedFrom.format === 'jpeg' || a.convertedFrom.format === 'webp')) {
       const src = this.deps.service.conversionSource(projectId, a.convertedFrom.sourcePath);
       if (src.ok) {
         try {

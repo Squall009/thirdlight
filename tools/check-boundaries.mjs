@@ -203,8 +203,8 @@ export const NODE_SIDE_ALLOWED = {
     // after each change, the same check as the editor's Problems tab.
     packages: ['protocol', 'workspace', 'exporter', 'project-model', 'asset-pipeline', 'behavior-build', 'three-adapter'],
     // playwright-core: the headless editor for MCP play (headless.ts).
-    // ktx2-encoder + jpeg-js — KTX2 encoding on import.
-    external: ['ws', 'playwright-core', 'ktx2-encoder', 'jpeg-js'],
+    // ktx2-encoder + jpeg-js + @jsquash/webp — KTX2 encoding on import.
+    external: ['ws', 'playwright-core', 'ktx2-encoder', 'jpeg-js', '@jsquash/webp'],
     // child_process: FBX import runs headless Blender (fbx.ts; owner go-ahead).
     // Nothing else in the backend starts processes.
     // worker_threads (the KTX2 encoder off the event loop) and

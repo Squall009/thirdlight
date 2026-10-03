@@ -12,11 +12,14 @@
  *    texture asset already made from the same bytes with the same encoding
  *    (another model's, or this model's before a re-import), or writes the
  *    image as a file of the game folder (`<model folder>/<model>_textures/`)
- *    and prepares its import: a PNG or JPEG is encoded to KTX2 with mips
- *    (colour, normal map or data, from what the materials sample it as; one
- *    image at a time on the encoder worker, so the backend holds at most one
- *    encode's pixels), a KTX2 or WebP file and an image over the encoder's
- *    pixel limit come in as they are;
+ *    and prepares its import: a PNG, JPEG or WebP is encoded to KTX2 with
+ *    mips (colour, normal map or data, from what the materials sample it as;
+ *    one image at a time on the encoder worker, so the backend holds at most
+ *    one encode's pixels), a KTX2 file and an image over the encoder's pixel
+ *    limit come in as they are. A JPEG or WebP whose lossless original sits
+ *    beside the model (a PNG of the image's name and size, in the model's
+ *    folder or its `textures/`) is encoded from that PNG instead, so a lossy
+ *    image is not compressed a second time;
  * 2. writes the GLB without those images (one-pixel stand-ins) into the
  *    import cache: the model version's stored bytes, converted from the GLB
  *    (`convertedFrom: {format: "glb", converter: texture-extract}`), so a
@@ -32,7 +35,8 @@ import { createHash, randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 
 import { DEFAULT_ASSET_FOLDER, assetNameOfFile, fileStem, importKeyOfConverted, type PreparedImportFile, type StageInspector, type WorkspaceService } from '@thirdlight/workspace';
-import type { ImportJobPort } from '@thirdlight/asset-pipeline';
+import { imageDimensions, type ImportJobPort } from '@thirdlight/asset-pipeline';
+import { extractTexturesEverywhere } from '@thirdlight/project-model/limits';
 
 import { readGlbImages, stripGlbImages, type GlbImage } from './glb-images';
 import { KTX2_ENCODER, type Ktx2Mode, type TextureEncoder } from './texture-encode';
@@ -56,6 +60,8 @@ export interface ExtractedImage {
   reused?: boolean;
   /** The KTX2 encoding the image got (absent: imported as it is). */
   encoding?: Ktx2Mode;
+  /** The lossless PNG beside the model the texture was encoded from, in place of the file's lossy image. */
+  from?: string;
   /** Why it stayed inside the file, or came in without a KTX2 encode. */
   note?: string;
 }
@@ -120,6 +126,9 @@ function imageStem(image: GlbImage): string {
   return s.length > 0 ? s : `image-${image.index}`;
 }
 
+/** Where a lossy image's lossless original may sit, relative to the model's folder (Blender's and most exporters' layouts). */
+const LOSSLESS_DIRS = ['', 'textures/'] as const;
+
 /** The KTX2 encoding of an image from what the materials sample it as (several: the most exact). */
 function encodingOf(image: GlbImage): Ktx2Mode {
   if (image.roles.has('data') || (image.roles.has('normal') && image.roles.has('color'))) return 'data';
@@ -177,6 +186,35 @@ export function createTextureExtraction(deps: TextureExtractionDeps) {
   };
 
   /**
+   * The lossless original of a lossy image: a PNG named as the image (its
+   * name as written, or the file name the extraction would give it) in the
+   * model's folder or its `textures/`, of the same size. Null: none there.
+   */
+  const losslessBeside = (projectId: string, modelFolder: string, image: GlbImage): { path: string; bytes: Uint8Array } | null => {
+    const dims = imageDimensions(image.bytes, image.mime);
+    if (dims === null) return null;
+    const raw = (image.name ?? '').replace(/\.(png|jpe?g|webp|ktx2)$/i, '');
+    const names = [...new Set([raw, imageStem(image)])].filter((n) => n.length > 0 && !n.includes('/') && !n.includes('\\'));
+    for (const dir of LOSSLESS_DIRS) {
+      for (const name of names) {
+        const path = `${modelFolder}/${dir}${name}.png`;
+        const src = service.conversionSource(projectId, path);
+        if (!src.ok) continue;
+        let bytes: Uint8Array;
+        try {
+          bytes = new Uint8Array(readFileSync(src.real));
+        } catch {
+          continue;
+        }
+        if (sha256(bytes) !== src.digest) continue;
+        const own = imageDimensions(bytes, 'image/png');
+        if (own !== null && own.width === dims.width && own.height === dims.height) return { path, bytes };
+      }
+    }
+    return null;
+  };
+
+  /**
    * Plan the extraction of `glb` (the model file's bytes): texture files
    * written, encoded and inspected, the stripped GLB in the import cache.
    * Nothing is imported yet.
@@ -204,11 +242,14 @@ export function createTextureExtraction(deps: TextureExtractionDeps) {
     /** An image whose bytes and encoding were seen earlier in this file: the same texture. */
     const madeHere = new Map<string, string>();
     for (const image of read.images) {
-      const digest = sha256(image.bytes);
-      const encodable = image.mime === 'image/png' || image.mime === 'image/jpeg';
-      let mode: Ktx2Mode | null = encodable ? encodingOf(image) : null;
       const entry: ExtractedImage = { image: image.index, name: image.name };
       report.images.push(entry);
+      // Only a KTX2 is already GPU-compressed; every other image is encoded.
+      let mode: Ktx2Mode | null = image.mime === 'image/ktx2' ? null : encodingOf(image);
+      const lossless = mode !== null && image.mime !== 'image/png' ? losslessBeside(projectId, input.folder, image) : null;
+      const source = lossless?.bytes ?? image.bytes;
+      const digest = sha256(source);
+      if (lossless !== null) entry.from = lossless.path;
       const known = madeHere.get(`${digest}|${mode ?? 'plain'}`) ?? byFile.get(`${digest}|${mode ?? 'plain'}`)?.path;
       if (known !== undefined) {
         imagePaths[String(image.index)] = known;
@@ -217,7 +258,8 @@ export function createTextureExtraction(deps: TextureExtractionDeps) {
         if (mode !== null) entry.encoding = mode;
         continue;
       }
-      const placed = place(projectId, folder, imageStem(image), EXT_OF[image.mime], image.bytes, taken);
+      // The PNG beside the model is the texture's file; else the image is written out of the model.
+      const placed = lossless !== null ? { path: lossless.path, written: false } : place(projectId, folder, imageStem(image), EXT_OF[image.mime], image.bytes, taken);
       if (placed === null) {
         entry.note = `the file could not be written into ${folder}`;
         continue;
@@ -237,9 +279,9 @@ export function createTextureExtraction(deps: TextureExtractionDeps) {
       let args: Record<string, unknown> | null = null;
       if (mode !== null) {
         const encoder = deps.textureEncoder;
-        const encoded = encoder === undefined ? null : await encoder.encode(image.bytes, mode);
+        const encoded = encoder === undefined ? null : await encoder.encode(source, mode);
         if (encoded !== null && encoded.ok) {
-          const convertedFrom = { format: encoded.source.format, sourceDigest: digest, sourceByteLength: image.bytes.length, sourcePath: placed.path, converter: { name: KTX2_ENCODER.name, version: KTX2_ENCODER.version }, encoding: mode };
+          const convertedFrom = { format: encoded.source.format, sourceDigest: digest, sourceByteLength: source.length, sourcePath: placed.path, converter: { name: KTX2_ENCODER.name, version: KTX2_ENCODER.version }, encoding: mode };
           const stored = service.writeImportedArtifact(projectId, importKeyOfConverted(convertedFrom), encoded.ktx2);
           const facts = stored.ok ? inspect(encoded.ktx2, 'texture') : { message: stored.error.message ?? stored.error.code };
           if ('sourceDigest' in facts) args = { convertedFrom, ...facts };
@@ -251,7 +293,7 @@ export function createTextureExtraction(deps: TextureExtractionDeps) {
         }
       }
       if (args === null && mode === null) {
-        const facts = inspect(image.bytes, 'texture');
+        const facts = inspect(source, 'texture');
         if ('sourceDigest' in facts) args = { sourcePath: placed.path, ...facts };
         else entry.note = `the image was not accepted as a texture: ${facts.message}`;
       }
@@ -352,12 +394,14 @@ export function createTextureExtraction(deps: TextureExtractionDeps) {
     if (typeof assetId !== 'string' || args['textures'] !== undefined) return null;
     const captured = service.readCapturedV3(projectId);
     if (!captured.ok) return null;
-    const assets = ((captured.read.content as { assets?: (TextureRecordLike & { displayName?: string; extractTextures?: true })[] } | null)?.assets ?? []);
+    const content = captured.read.content as { assets?: (TextureRecordLike & { displayName?: string; extractTextures?: true })[]; settings?: unknown } | null;
+    const assets = content?.assets ?? [];
     const record = assets.find((a) => a.assetId === assetId);
     const create = args['mode'] === 'create';
     const isModel = create ? (args['kind'] ?? 'model') === 'model' && record === undefined : record?.kind === 'model';
     if (!isModel) return null;
-    const on = typeof args['extractTextures'] === 'boolean' ? args['extractTextures'] : create ? EXTRACT_TEXTURES_ON_NEW_IMPORT : record?.extractTextures === true;
+    // An older model keeps its images on a re-import unless the project extracts every model's.
+    const on = typeof args['extractTextures'] === 'boolean' ? args['extractTextures'] : create ? EXTRACT_TEXTURES_ON_NEW_IMPORT : record?.extractTextures === true || extractTexturesEverywhere(content?.settings);
     if (!on) return null;
     // A model converted from another format (an FBX) keeps its images: its stored GLB is the converter's.
     if (args['convertedFrom'] !== undefined) {

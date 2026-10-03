@@ -10,6 +10,7 @@
     "./testing": "./src/testing.ts"
   },
   "dependencies": {
+    "@jsquash/webp": "1.5.0",
     "@thirdlight/asset-pipeline": "0.1.0",
     "@thirdlight/behavior-build": "0.1.0",
     "@thirdlight/project-model": "0.1.0",

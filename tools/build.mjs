@@ -254,8 +254,9 @@ if (existsSync(join(root, BACKEND_ENTRY))) {
     // playwright-core (the headless editor) resolves its browser
     // registry relative to its own files: loaded from node_modules at runtime.
     // ktx2-encoder loads its Basis WASM next to its own file
-    // (import.meta.url) and jpeg-js is CommonJS: both from node_modules.
-    external: ['esbuild', 'playwright-core', 'ktx2-encoder', 'jpeg-js'],
+    // (import.meta.url) and jpeg-js is CommonJS: both from node_modules; the
+    // WebP decoder's WASM file is read from its package there too.
+    external: ['esbuild', 'playwright-core', 'ktx2-encoder', 'jpeg-js', '@jsquash/webp'],
     banner: {
       js: 'import { createRequire as __tl_createRequire } from "node:module"; const require = __tl_createRequire(import.meta.url);',
     },
@@ -273,7 +274,7 @@ if (existsSync(join(root, BACKEND_ENTRY))) {
     treeShaking: true,
     sourcemap: false,
     minify: false,
-    external: ['ktx2-encoder', 'jpeg-js'],
+    external: ['ktx2-encoder', 'jpeg-js', '@jsquash/webp'],
   });
   console.log('build: backend (KTX2 encoder worker): packages/backend/src/ktx2-worker.ts -> dist/backend/ktx2-worker.mjs');
 } else {

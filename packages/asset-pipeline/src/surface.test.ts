@@ -60,6 +60,8 @@ describe('public surface', () => {
         'inspectImage',
         // A KTX2's facts (the backend's encoder tests read them)
         'ktx2Info',
+        // An image's declared size (the backend's decoder and model-texture extraction check it before decoding)
+        'imageDimensions',
         // fonts
         'FONT_FAMILY_NAME_MAX',
         'FONT_SOURCE_BYTES_MAX',

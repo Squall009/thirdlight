@@ -140,6 +140,14 @@ export const M2_SETTINGS_KEYS: readonly SettingsKeySpec[] = [
   { key: 'camera_fov_deg', type: 'number', default: VIEW_LENS_DEFAULTS.fovY, min: VIRTUAL_CAMERA_LIMITS.fovY.min, max: VIRTUAL_CAMERA_LIMITS.fovY.max, unit: 'deg', optional: true, group: 'Camera', label: 'Field of view', tooltip: 'The vertical field of view of every camera that does not set its own (and of the view while no camera is live).' },
   { key: 'camera_near_m', type: 'number', default: VIEW_LENS_DEFAULTS.near, min: VIRTUAL_CAMERA_LIMITS.near.min, max: VIRTUAL_CAMERA_LIMITS.near.max, unit: 'm', optional: true, group: 'Camera', label: 'Near plane', tooltip: 'Nothing closer than this is drawn, for every camera that does not set its own near plane.' },
   { key: 'camera_far_m', type: 'number', default: VIEW_LENS_DEFAULTS.far, min: VIRTUAL_CAMERA_LIMITS.far.min, max: VIRTUAL_CAMERA_LIMITS.far.max, unit: 'm', optional: true, group: 'Camera', label: 'Far plane', tooltip: 'Nothing farther than this is drawn, for every camera that does not set its own far plane (beyond the near plane).' },
+  // Which models' images are taken out into KTX2 texture assets ("extract
+  // textures"). 0: a new import extracts unless asked not to, an older model
+  // keeps its images until re-imported with the setting (no silent change to a
+  // project on open). 1: every model, older imports included — the backend
+  // extracts each GLB still holding images where its file is, and Problems
+  // lists what is left (Godot extracts on import; Unity reimports when an
+  // importer default changes).
+  { key: 'import_extract_textures', type: 'number', default: 0, values: [0, 1], valueLabels: ['New models', 'Every model (older imports too)'], integer: true, unit: '', optional: true, group: 'Import', label: 'Extract model textures', tooltip: 'Which models have the images inside their files taken out into compressed (KTX2) texture assets they share: new imports only, or every model — older imports are then extracted where their GLB file is, and Problems lists any model still holding images.' },
 ];
 
 /** The simulation's dimension (the `physics_dimension` setting's values). */
@@ -168,6 +176,11 @@ export function audioSpatialOf(settings: unknown): 'legacy' | 'panner' {
   if (v === 1) return 'legacy';
   if (v === 2) return 'panner';
   return physicsDimensionOf(settings) === 3 ? 'panner' : 'legacy';
+}
+
+/** Whether the project extracts every model's images, older imports included (`import_extract_textures` 1). */
+export function extractTexturesEverywhere(settings: unknown): boolean {
+  return typeof settings === 'object' && settings !== null && (settings as Record<string, unknown>)['import_extract_textures'] === 1;
 }
 
 /** The project's instance-set chunk size (m) when it sets `instance_chunk_m`, else undefined (the engine default, 32 m). */

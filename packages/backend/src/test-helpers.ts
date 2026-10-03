@@ -3,6 +3,7 @@
  * factory (disposable data root + static dirs), a `ws` client wrapper with
  * message queuing, and ID allocators matching the protocol's ID syntaxes.
  */
+/// <reference path="./emscripten-wasm.d.ts" />
 import { randomBytes } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -257,3 +258,24 @@ export function exportContentOf(outDir: string): ExpandedRuntimeContent {
     return existsSync(file) ? new Uint8Array(readFileSync(file)) : null;
   });
 }
+
+/** RGBA pixels as a WebP file (libwebp's encoder, from the decoder's package: lossy at `quality`, or lossless). */
+export async function webp(rgba: Uint8Array, width: number, height: number, options: { quality?: number; lossless?: boolean }): Promise<Uint8Array> {
+  webpEncoder ??= (async () => {
+    const mod = await import('@jsquash/webp/encode.js');
+    const compiled = await WebAssembly.compile(readFileSync(new URL(import.meta.resolve('@jsquash/webp/codec/enc/webp_enc_simd.wasm'))));
+    await mod.init({
+      instantiateWasm: (imports, done) => {
+        const instance = new WebAssembly.Instance(compiled, imports);
+        done(instance);
+        return instance.exports;
+      },
+    });
+    return mod;
+  })();
+  const enc = await webpEncoder;
+  // Node has no ImageData; the encoder reads only these fields.
+  const image = { data: new Uint8ClampedArray(rgba), width, height, colorSpace: 'srgb' } as ImageData;
+  return new Uint8Array(await enc.default(image, { quality: options.quality ?? 75, lossless: options.lossless === true ? 1 : 0 }));
+}
+let webpEncoder: Promise<typeof import('@jsquash/webp/encode.js')> | null = null;

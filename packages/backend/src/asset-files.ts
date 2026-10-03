@@ -10,6 +10,7 @@
  * - A file whose bytes changed is imported again (`publishAsset` reimport):
  *   inspected where it is, or converted first (FBX to GLB, PNG/JPEG to KTX2
  *   with its encoding), what the importer made going into the import cache.
+ *   A GLB whose images are extracted has them extracted again.
  * - What the import cache should hold but does not (a fresh clone, a cleared
  *   cache) is made again from the file. The same runs before Play and export.
  *
@@ -20,6 +21,7 @@ import { randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 
 import { AUDIO_TOOLCHAIN, FONT_TOOLCHAIN, IMAGE_TOOLCHAIN, M2_GLTF_TOOLCHAIN, type ImportJobPort } from '@thirdlight/asset-pipeline';
+import { extractTexturesEverywhere } from '@thirdlight/project-model/limits';
 import { DEFAULT_ASSET_FOLDER, importKeyOfConverted, type AssetFileEntry, type ImportHeader, type MutationSuccess, type ResourceCheckReport, type StageInspector, type WorkspaceService } from '@thirdlight/workspace';
 
 import type { FbxConverter } from './fbx';
@@ -219,14 +221,28 @@ export function createAssetFileCheck(deps: AssetFileCheckDeps) {
   };
 
   /**
-   * A changed model file whose "extract textures" setting is on: its images
-   * are extracted again (new textures come in with their own command, an
-   * image already a texture asset is that asset) and the model is published
-   * with them. Null: not such a model.
+   * A changed model file whose "extract textures" setting is on (or any GLB
+   * model's, when the project extracts every model's): its images are
+   * extracted again (new textures come in with their own command, an image
+   * already a texture asset is that asset) and the model is published with
+   * them. Null: not such a model.
    */
   const reextract = async (projectId: string, e: AssetFileEntry, file: string): Promise<{ args: Record<string, unknown>; newDigest: string } | { code: string; message: string } | null> => {
+    if (deps.textures === undefined || e.kind !== 'model' || (e.converted !== undefined && e.converted.format !== 'glb')) return null;
+    if (e.extract === undefined && !(e.converted === undefined && /\.glb$/i.test(file) && extractsEveryModel(projectId))) return null;
+    return await extractFromFile(projectId, file);
+  };
+
+  /** Whether the project's setting extracts every model's images, older imports included. */
+  const extractsEveryModel = (projectId: string): boolean => {
+    const captured = service.readCapturedV3(projectId);
+    return captured.ok && extractTexturesEverywhere((captured.read.content as { settings?: unknown } | null)?.settings);
+  };
+
+  /** Extract a GLB file's images: the publish args of its model with them taken out. */
+  const extractFromFile = async (projectId: string, file: string): Promise<{ args: Record<string, unknown>; newDigest: string } | { code: string; message: string }> => {
     const textures = deps.textures;
-    if (textures === undefined || e.extract === undefined || e.kind !== 'model' || (e.converted !== undefined && e.converted.format !== 'glb')) return null;
+    if (textures === undefined) return { code: 'converter_unavailable', message: 'texture extraction is not available here' };
     const src = service.conversionSource(projectId, file);
     if (!src.ok) return { code: src.error.code, message: src.error.message ?? src.error.code };
     const glb = textures.readModelFile(projectId, file, src.digest);
@@ -238,7 +254,7 @@ export function createAssetFileCheck(deps: AssetFileCheckDeps) {
     const p = planned.plan;
     if (p.model === null) {
       const f = inspectFile(projectId, file, 'model', src.digest);
-      return 'code' in f ? f : { args: { sourcePath: file, ...factsArgs(f) }, newDigest: f.sourceDigest };
+      return 'code' in f ? f : { args: { sourcePath: file, ...factsArgs(f), extractTextures: true }, newDigest: f.sourceDigest };
     }
     const committed = textures.commit(projectId, p, (op, a) => {
       const r = command(projectId, op, a);
@@ -246,8 +262,28 @@ export function createAssetFileCheck(deps: AssetFileCheckDeps) {
     });
     if (!committed.ok) return committed;
     const m = p.model;
-    return { args: { convertedFrom: m.convertedFrom, sourceDigest: m.sourceDigest, sourceByteLength: m.sourceByteLength, importRecipe: m.importRecipe, metrics: m.metrics, textures: committed.textures }, newDigest: src.digest };
+    return { args: { convertedFrom: m.convertedFrom, sourceDigest: m.sourceDigest, sourceByteLength: m.sourceByteLength, importRecipe: m.importRecipe, metrics: m.metrics, textures: committed.textures, extractTextures: true }, newDigest: src.digest };
   };
+
+  /**
+   * Models whose images are still inside their GLB files, extracted where
+   * the file is (the project extracts every model's images): one `publishAsset`
+   * reimport each, as a changed file's. What could not be done is answered.
+   */
+  async function extractModels(projectId: string, models: readonly { assetId: string; file: string }[]): Promise<{ extracted: string[]; failed: { assetId: string; message: string }[] }> {
+    const out: { extracted: string[]; failed: { assetId: string; message: string }[] } = { extracted: [], failed: [] };
+    for (const m of models) {
+      const made = await extractFromFile(projectId, m.file);
+      if ('code' in made) {
+        out.failed.push({ assetId: m.assetId, message: made.message });
+        continue;
+      }
+      const r = command(projectId, 'publishAsset', { mode: 'reimport', assetId: m.assetId, ...made.args, extractTextures: true, importedAt: utcSecond(deps.now()) });
+      if (r.ok) out.extracted.push(m.assetId);
+      else out.failed.push({ assetId: m.assetId, message: r.message });
+    }
+    return out;
+  }
 
   /** The model file without its extracted images again (the cache lost it; the file is unchanged). */
   const restrip = (projectId: string, e: AssetFileEntry): { convertedFrom: Record<string, unknown>; facts: Facts } | { code: string; message: string } => {
@@ -380,6 +416,11 @@ export function createAssetFileCheck(deps: AssetFileCheckDeps) {
     });
     return next;
   };
+  /** Older imports' extraction, after any check running (both run commands on the same files). */
+  const extractQueued = (projectId: string, models: readonly { assetId: string; file: string }[]): ReturnType<typeof extractModels> => {
+    const before = running.get(projectId) ?? Promise.resolve(null);
+    return before.then(() => extractModels(projectId, models), () => extractModels(projectId, models));
+  };
 
   /**
    * Import a new file where it is: the facts a `publishAsset` create (or a
@@ -392,8 +433,8 @@ export function createAssetFileCheck(deps: AssetFileCheckDeps) {
       const c = await convertFile(projectId, file, { format: 'fbx' }, 'model');
       return 'code' in c ? c : { kind, args: { convertedFrom: c.convertedFrom, ...factsArgs(c.facts) } };
     }
-    if (kind === 'texture' && options.ktx2 !== undefined && /\.(png|jpe?g)$/i.test(file)) {
-      const c = await convertFile(projectId, file, { format: /\.png$/i.test(file) ? 'png' : 'jpeg', encoding: options.ktx2 }, 'texture');
+    if (kind === 'texture' && options.ktx2 !== undefined && /\.(png|jpe?g|webp)$/i.test(file)) {
+      const c = await convertFile(projectId, file, { format: /\.png$/i.test(file) ? 'png' : /\.webp$/i.test(file) ? 'webp' : 'jpeg', encoding: options.ktx2 }, 'texture');
       return 'code' in c ? c : { kind, args: { convertedFrom: c.convertedFrom, ...factsArgs(c.facts) } };
     }
     const f = inspectFile(projectId, file, kind, null);
@@ -403,6 +444,8 @@ export function createAssetFileCheck(deps: AssetFileCheckDeps) {
 
   return {
     importFile,
+    /** Extract the images of models still holding them (their GLB files in the game folder), after any running check. */
+    extractModels: extractQueued,
     /** The whole check: resource files taken in, moved files found by their sidecars, changed files imported again, the import cache made whole. */
     check: (projectId: string): ReturnType<typeof runCheck> => {
       const done = serialized(projectId, { reimport: true, relocate: true });
