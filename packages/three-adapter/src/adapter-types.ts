@@ -107,6 +107,8 @@ export interface SceneAdapterOptions {
     readonly source: RendererPreferenceSource;
     /** The depth buffer (the project's `depth_buffer` setting; absent: standard). */
     readonly depthBuffer?: 'standard' | 'logarithmic' | 'reversed';
+    /** Record GPU timestamp queries for `takeGpuTime` (used where the device has them). */
+    readonly trackTimestamp?: boolean;
     /** Tests only: stubbed renderer constructors and WebGPU probe. */
     readonly deps?: Partial<RendererFactoryDeps>;
   };
@@ -237,8 +239,12 @@ export interface SceneAdapterDiagnostics {
   textures?: TextureStreamingObservation;
   /** Draw calls and triangles of the last frame (three's renderer info); ABSENT until a frame was drawn. */
   frame?: { drawCalls: number; triangles: number };
-  /** The environment renderer — image-based lighting re-bakes of a sky changed in place (a blend, a moved sun light) so far — only when it moved past a threshold; ABSENT without one. */
-  environment?: { iblRebakes: number };
+  /**
+   * The environment renderer — its post passes drawn (in order; `post` false: none), the quality level, the
+   * MSAA samples, why it fell back to the direct path (null: it did not), and the image-based lighting re-bakes
+   * of a sky changed in place (a blend, a moved sun light) so far — only when it moved past a threshold; ABSENT without one.
+   */
+  environment?: { iblRebakes: number; post: boolean; passes: string[]; quality: QualityLevel; samples: number; fallback: string | null };
   /**
    * The precompiles (`renderer.compileAsync` before the first
    * present and after each scene attach): settled, failed (the frame then
@@ -276,6 +282,10 @@ export interface SceneAdapter {
   modelsSettled?(): Promise<ModelsSettledResult>;
   /** A player's quality setting (low/medium/high) over the environment's. */
   setQuality?(level: QualityLevel): void;
+  /** The quality level drawn (the player's over the environment's; high without either). */
+  qualityLevel?(): QualityLevel;
+  /** The GPU time (ms) and frames measured since the last call; null where nothing is measured (no timestamp queries). */
+  takeGpuTime?(): { ms: number; frames: number; worst: number } | null;
   /**
    * Show an environment preset blend instead of the running
    * game's (an editor preview; null: the game's again).

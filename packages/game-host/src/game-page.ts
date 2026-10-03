@@ -108,6 +108,7 @@ import {
 import { pageAudio } from './page-audio';
 import { mipPartsOf } from './asset-reader';
 import { composeOverlay } from './overlay-capture';
+import { statsOverlayModeOf } from './stats-overlay';
 
 /** The runtime-content manifest as a game page reads it (the catalog's blocks already folded in by `openRuntimeContent`). */
 export interface GamePageManifest {
@@ -208,6 +209,8 @@ export interface GamePageOptions {
   /** Where this game's saves live in the player's browser (Play and exported games keep separate ones). */
   readonly saveNamespace: string;
   readonly debugConsole: boolean;
+  /** Measure the GPU's frame time (timestamp queries, where the device has them) — Play; an export only with the stats overlay. */
+  readonly measureGpu?: boolean;
   /**
    * The input exercise's relay (Play: tools drive the game through it and
    * read the simulation through `access`); absent, the physical input only.
@@ -836,7 +839,7 @@ export async function startGamePage(o: GamePageOptions): Promise<GamePageHandle>
           snapshot,
           resources,
           // The page's ?renderer= flag, else the project's render_backend setting.
-          renderer: { ...resolveRendererPreference({ url: pageSearch(), setting: settings.render_backend }), depthBuffer: depthBufferOf(settings) },
+          renderer: { ...resolveRendererPreference({ url: pageSearch(), setting: settings.render_backend }), depthBuffer: depthBufferOf(settings), trackTimestamp: o.measureGpu === true || statsOverlayModeOf(settings) !== 'off' },
           // Repeated objects drawn instanced unless the page says ?batching=off (a diagnostic comparison).
           batching: batchingFromUrl(pageSearch()),
           // The first frame, slow frames and scene attaches for the start timings.

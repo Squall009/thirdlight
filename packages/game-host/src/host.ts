@@ -39,6 +39,8 @@
  */
 import {
   BUILTIN_MODULES,
+  ENGINE_STATS_NONE,
+  type BehaviorStats,
   character3DSpec,
   behaviorModuleId,
   createBehaviorModuleSpec,
@@ -75,6 +77,8 @@ import type { Captured } from './input-bindings';
 import { createSettingsStore, type SaveStorage } from './storage';
 import { createProjectSaveService, memoryProjectSaveBackend, readProjectSettings, type ProjectSaveBackend, type ProjectSaveService, type ProjectSlotObservation } from './project-saves';
 import { createDebugConsole, type DebugConsole } from './debug-console';
+import { createHostStats } from './frame-stats';
+import { createStatsOverlay, statsOverlayModeOf, type StatsOverlay } from './stats-overlay';
 import { createUiLayer, pageUiView, type UiElementObservation, type UiLayer, type UiLayerObservation, type UiProjector } from './ui-layer';
 import { hitUiTargets, type UiHitTarget } from './ui-hit';
 import { createPausePanel, type PausePanel } from './pause-panel';
@@ -164,6 +168,12 @@ export interface HostRenderAdapter {
   projectToScreen?: UiProjector;
   /** The scene set revision the last presented frame drew (a transition fades in once it is on screen). */
   presentedSceneRevision?(): number;
+  /** The last frame's counts (the frame stats read draw calls and triangles). */
+  diagnostics?(): { ok: true; diagnostics: { frame?: { drawCalls: number; triangles: number } } } | { ok: false };
+  /** GPU time measured since the last call; null without timestamp queries. */
+  takeGpuTime?(): { ms: number; frames: number; worst: number } | null;
+  /** The quality level drawn. */
+  qualityLevel?(): string;
 }
 
 /** The project saves as observers see them (a project with a save schema). */
@@ -512,6 +522,10 @@ export interface GameHost {
   uiFontRules?(): Promise<string>;
   /** The play state now (running, or paused: the engine pause, a menu or the debugger hold the simulation). */
   playState?(): PlayState;
+  /** The last stats window (`ctx.stats`; null before the first ends) — Play diagnostics carry it. */
+  frameStats?(): BehaviorStats | null;
+  /** The built-in stats overlay (null: the project's stats_overlay setting is off). */
+  readonly statsOverlay?: StatsOverlay | null;
 }
 
 // --- the sound-status mapping (`sound.status`) ---------------------------
@@ -804,6 +818,22 @@ export function createGameHost(config: GameHostConfig): GameHost {
   let adapter: HostRenderAdapter | null = null;
   /** The debug console (config.debugConsole) and what became of config.start. */
   let debugConsole: DebugConsole | null = null;
+  /** The frame statistics (ctx.stats, $flow.stats, Play diagnostics) and the stats overlay a project opts into. */
+  let statsOverlay: StatsOverlay | null = null;
+  const hostStats = createHostStats({
+    adapter: () => adapter,
+    entities: () => {
+      const d = runtime?.getDiagnostics();
+      return d?.ok === true ? d.diagnostics.entityCount : 0;
+    },
+    ...(config.textureStreaming !== undefined ? { textureStreaming: config.textureStreaming } : {}),
+    ...(config.resources !== undefined ? { resources: config.resources } : {}),
+    worker: config.runtimeFactory !== undefined,
+    published: (s) => {
+      runtime?.setStats?.(s);
+      statsOverlay?.update(s);
+    },
+  });
   let startOutcome: GameStartOutcome | null = null;
   /** Project saves (a project with a save schema). */
   const saveSchema = config.snapshot.saveSchema;
@@ -1207,6 +1237,7 @@ export function createGameHost(config: GameHostConfig): GameHost {
 
   const hostFrame = (): void => {
     if (disposed || !mounted || runtime === null) return;
+    hostStats.begin();
     serviceSceneRequests(runtime);
     serviceReadAhead(runtime);
     debugConsole?.frame();
@@ -1260,6 +1291,7 @@ export function createGameHost(config: GameHostConfig): GameHost {
     // sources' loops, and the files the scenes and the running conversation have loaded ahead.
     hostAudio.frame(runtime);
     adapter?.renderFrame();
+    hostStats.end();
     serviceAnchors();
     // The frame drew the step's scene changes: what lost its last holder in them is freed now
     // (a model unloaded and loaded again in one transition was taken again before this).
@@ -1396,6 +1428,7 @@ export function createGameHost(config: GameHostConfig): GameHost {
     // The document the overlays (letterbox bars, fade, UI documents) are made in.
     hostDom = config.document ?? (globalThis as { document?: HostDom }).document ?? null;
     const dom: HostDom = hostDom ?? { createElement: () => { throw new Error('no document available for the overlays'); } };
+    if (statsOverlayModeOf(config.settings) !== 'off' && hostDom !== null) statsOverlay = createStatsOverlay({ dom: hostDom, container: config.container, shown: statsOverlayModeOf(config.settings) === 'shown' });
     if (config.debugConsole === true) {
       const rt0 = res.runtime;
       debugConsole = createDebugConsole({
@@ -1507,6 +1540,8 @@ export function createGameHost(config: GameHostConfig): GameHost {
             // Scene loading for a loading screen (`$flow.scenes.loading`, `.transition`).
             ...(rtNow?.sceneLoadingView !== undefined ? { scenes: sceneFlowValues(rtNow) } : {}),
             health: rtNow?.healthsView?.() ?? {},
+            // The engine's frame statistics (once per stats window).
+            stats: hostStats.snapshot() ?? ENGINE_STATS_NONE,
             prompts: promptsText(),
             promptList: currentActionPrompts(),
           };
@@ -1714,6 +1749,8 @@ export function createGameHost(config: GameHostConfig): GameHost {
     hostAudio.dispose();
     debugConsole?.dispose();
     debugConsole = null;
+    statsOverlay?.dispose();
+    statsOverlay = null;
     bindings?.dispose();
     // Scripts' handles still open when the play ends are let go and reported.
     const open = assets.dispose();
@@ -1780,6 +1817,10 @@ export function createGameHost(config: GameHostConfig): GameHost {
     playState,
     uiElements: (max?: number) => uiLayer?.elements(max) ?? [],
     uiFontRules: () => uiLayer?.fontRules() ?? Promise.resolve(''),
+    frameStats: () => hostStats.snapshot(),
+    get statsOverlay(): StatsOverlay | null {
+      return statsOverlay;
+    },
     get debugConsole(): DebugConsole | null {
       return debugConsole;
     },

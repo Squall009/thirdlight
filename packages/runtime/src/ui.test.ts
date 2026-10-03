@@ -192,6 +192,8 @@ function shopStep(state: { credits: number; log: string[] }, ctx: BehaviorContex
   }
   ui.set('hud.credits', state.credits);
   ui.set('hud.step', ctx.stepIndex);
+  ui.set('hud.fps', ctx.stats?.fps ?? -1);
+  ui.set('hud.gpu', ctx.stats === undefined ? 'none' : ctx.stats.gpuMs);
   const clicked = ui.event('buy');
   if (clicked !== null) ui.play('hud', 'pop');
 }
@@ -293,6 +295,24 @@ describe('ctx.ui in the runtime', () => {
     expect(out.shown?.map((s) => s.doc)).toEqual(['hud', 'menu']);
     expect(out.commands).toEqual([{ op: 'play', doc: 'hud', tween: 'pop', widget: '' }]);
     expect((rt.uiView!().model as { hud: { credits: number } }).hud.credits).toBe(before - 2);
+    rt.dispose();
+  });
+
+  it('ctx.stats reads the page\'s last reported frame statistics (zero until one arrives; malformed reports are refused)', () => {
+    const { rt, tick } = makeRuntime(null, []);
+    tick(2);
+    expect(rt.uiView!().model).toMatchObject({ hud: { fps: 0, gpu: null } });
+    const stats = { fps: 58.5, frameMs: { avg: 17.1, worst: 33.4 }, cpuMs: { avg: 4.2, worst: 9 }, gpuMs: { avg: 6, worst: 6.5 }, drawCalls: 40, triangles: 1200, textureBytes: 1e6, textureBudgetBytes: 512 * 1024 * 1024, geometryBytes: 3e5, entities: 7, quality: 'medium', windowMs: 501 };
+    expect(rt.setStats!(stats)).toBe(true);
+    expect(rt.setStats!({ ...stats, fps: -1 })).toBe(false);
+    expect(rt.setStats!({ ...stats, quality: 'ultra' })).toBe(false);
+    expect(rt.setStats!({ ...stats, gpuMs: { avg: 1 } })).toBe(false);
+    tick(1);
+    expect(rt.uiView!().model).toMatchObject({ hud: { fps: 58.5, gpu: { avg: 6, worst: 6.5 } } });
+    // Not measured: null, as reported.
+    expect(rt.setStats!({ ...stats, gpuMs: null })).toBe(true);
+    tick(1);
+    expect(rt.uiView!().model).toMatchObject({ hud: { gpu: null } });
     rt.dispose();
   });
 

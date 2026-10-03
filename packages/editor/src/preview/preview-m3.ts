@@ -217,6 +217,8 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
     saveNamespace: `thirdlight-play:${String(manifest.projectId ?? 'game')}`,
     // Play always has the debug console (the backquote key).
     debugConsole: true,
+    // Play measures the GPU's frame time where timestamp queries exist (its diagnostics carry it).
+    measureGpu: true,
     // Tools drive and read the game through the input exercise relay.
     relay: true,
     ...(startBlock !== undefined ? { start: { ...(startOptions !== undefined ? { options: startOptions } : {}), ...(startBlock.variables !== undefined ? { variables: startBlock.variables } : {}), ...(startBlock.threads !== undefined ? { threads: startBlock.threads } : {}) } } : {}),
@@ -464,6 +466,8 @@ export function bootstrapPreviewM3(): void {
           resources: h.resources(),
           // The sound: unlocked or why not, what plays, what did not play and why.
           audio: h.audio(),
+          // The frame times (fps, frame, CPU, GPU or null where not measured; average and worst over the window), as ctx.stats reads them.
+          frameTimes: h.host.frameStats?.() ?? null,
         }),
       });
     });

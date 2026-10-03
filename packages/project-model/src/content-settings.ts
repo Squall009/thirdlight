@@ -148,6 +148,10 @@ export const M2_SETTINGS_KEYS: readonly SettingsKeySpec[] = [
   // lists what is left (Godot extracts on import; Unity reimports when an
   // importer default changes).
   { key: 'import_extract_textures', type: 'number', default: 0, values: [0, 1], valueLabels: ['New models', 'Every model (older imports too)'], integer: true, unit: '', optional: true, group: 'Import', label: 'Extract model textures', tooltip: 'Which models have the images inside their files taken out into compressed (KTX2) texture assets they share: new imports only, or every model — older imports are then extracted where their GLB file is, and Problems lists any model still holding images.' },
+  // The built-in stats overlay (game-host stats-overlay.ts): engine UI a game
+  // opts into, so 0 (none, and no key) is the default; 1 shows it from the
+  // start, 2 keeps it hidden until F3, in Play and the export alike.
+  { key: 'stats_overlay', type: 'number', default: 0, values: [0, 1, 2], valueLabels: ['Off', 'Shown (F3 hides it)', 'Hidden until F3'], integer: true, unit: '', optional: true, group: 'Engine', label: 'Stats overlay', tooltip: 'A small box over the game with fps, frame, CPU and GPU times (average and worst), draw calls, triangles, texture memory against the budget, geometry, objects and the quality level, in Play and the export. F3 shows and hides it when on. Scripts read the same numbers in ctx.stats, UI documents in $flow.stats.' },
 ];
 
 /** The simulation's dimension (the `physics_dimension` setting's values). */

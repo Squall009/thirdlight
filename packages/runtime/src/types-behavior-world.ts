@@ -121,6 +121,45 @@ export interface BehaviorUiView {
   readonly pixelRatio: number;
 }
 
+/** A frame time over the stats window: the mean and the slowest frame, in ms. */
+export interface BehaviorStatsTime {
+  readonly avg: number;
+  readonly worst: number;
+}
+
+/**
+ * `ctx.stats` (and `$flow.stats` in UI documents): how the game runs on this
+ * device, measured by the page over its last stats window. Presentation, not
+ * simulation state: not in the digest or a save; a replay on another device
+ * reads that device's. All zero until the first window ends.
+ */
+export interface BehaviorStats {
+  /** Frames drawn per second over the window. */
+  readonly fps: number;
+  /** The time from one frame to the next (ms). */
+  readonly frameMs: BehaviorStatsTime;
+  /** The page thread's work per frame (ms): the simulation's steps when it runs on the page, the frame's host work and the draw calls' submission. */
+  readonly cpuMs: BehaviorStatsTime;
+  /** The GPU's time per frame (ms) from timestamp queries; null where the browser or GPU has none (not measured). */
+  readonly gpuMs: BehaviorStatsTime | null;
+  /** Draw calls of the last frame. */
+  readonly drawCalls: number;
+  /** Triangles of the last frame. */
+  readonly triangles: number;
+  /** Texture bytes resident on the GPU (streamed and fixed, images inside models included). */
+  readonly textureBytes: number;
+  /** The texture budget (bytes; the setting texture_budget_mb). */
+  readonly textureBudgetBytes: number;
+  /** Geometry bytes of the loaded models. */
+  readonly geometryBytes: number;
+  /** Objects in the simulation. */
+  readonly entities: number;
+  /** The quality level drawn: "low", "medium" or "high". */
+  readonly quality: string;
+  /** The window the times are measured over (ms). */
+  readonly windowMs: number;
+}
+
 export interface BehaviorUi {
   /**
    * Publish a value at a view-model path ("hud.hp", "party.0.name"): a number, text (≤ 1024), true/false, null, a list (≤ 256) or an object (≤ 64 keys). `false` for a bad path or value, or past the view model's 64 KiB.

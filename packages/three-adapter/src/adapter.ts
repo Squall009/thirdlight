@@ -35,6 +35,7 @@ import { BATCH_KEY, createAutoBatcher, markBatchable, unitBoxGeometry, type Auto
 import { compileIntoTarget, type Precompile } from './environment-nodes';
 import { INSTANCE_MATRIX_ATTRIBUTE } from './attribute-instancing';
 import { createEnvironmentRenderer, environmentHasLook, layerEnvironment, renderPixelRatio, type EnvironmentLayerLike, type EnvironmentLike, type EnvironmentRenderer, type FogVolumeLike, type QualityLevel } from './environment';
+import { createGpuTiming } from './gpu-timing';
 import * as THREE from 'three';
 import { BlockLayerView, blockLookFromObject, type BlockLayerViewDiagnostics, type BlockModelLook } from './block-layers';
 import { RuntimeMaterialView, type MaterialRenderChangeLike, type RuntimeMaterialsDiagnostics } from './runtime-materials';
@@ -433,6 +434,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   let drawsMark = -1;
   /** The last drawn frame's counts. */
   const lastFrameCounts = { drawCalls: 0, triangles: 0 };
+  const gpuTiming = createGpuTiming();
   /** The transform sync for `forEachInterpolated` (one function for the adapter's life). */
   const applyInterpolated = (id: string, position: readonly number[], rotation: readonly number[], scale: readonly number[]): void => {
     const obj = objects.get(id);
@@ -965,6 +967,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
         // The game canvas is not drawn to again after dispose: free its WebGL context.
         loseContextOnDispose: true,
         ...(opts.renderer?.depthBuffer !== undefined ? { depthBuffer: opts.renderer.depthBuffer } : {}),
+        ...(opts.renderer?.trackTimestamp === true ? { trackTimestamp: true } : {}),
         ...(opts.renderer?.deps !== undefined ? { deps: opts.renderer.deps } : {}),
       });
       owned.renderer = handle;
@@ -1658,6 +1661,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       return { ok: false, error: adapterError('render_failed', `render failed: ${String(e)}`) };
     }
     lastFrameDrawn = true;
+    gpuTiming.afterFrame(renderer);
     presentedRevision = realizedRevision;
     if (opts.onFrameDrawn !== undefined) {
       const realized = frameRealized.splice(0);
@@ -1730,7 +1734,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     }
     if (!disposed && blockView.layerIds().length > 0) d.blocks = blockView.diagnostics();
     if (!disposed && materialLibrary !== null && runtimeMaterials !== null) d.materials = { graphMaterials: materialLibrary.graphMaterialCount(), ...(materialSwaps !== null && (materialSwaps.applied > 0 || materialSwaps.pending() > 0) ? { swapsApplied: materialSwaps.applied, swapsPending: materialSwaps.pending() } : {}), ...runtimeMaterials.diagnostics() };
-    if (environmentRenderer !== null && !disposed) d.environment = { iblRebakes: environmentRenderer.diagnostics().iblRebakes };
+    if (environmentRenderer !== null && !disposed) d.environment = environmentRenderer.diagnostics();
     if (opts.textureStreamer !== undefined && !disposed) d.textures = opts.textureStreamer.observe();
     if (liveRenderer !== null && lastFrameDrawn) d.frame = { drawCalls: lastFrameCounts.drawCalls, triangles: lastFrameCounts.triangles };
     return {
@@ -1836,6 +1840,8 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       playerQuality = level;
       environmentRenderer?.setQuality(level);
     },
+    qualityLevel: (): QualityLevel => environmentRenderer?.diagnostics().quality ?? playerQuality ?? 'high',
+    takeGpuTime: () => gpuTiming.take(),
     projectToScreen(target, out): boolean {
       if (disposed || camera === null) return false;
       const p = projectScratch;

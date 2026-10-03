@@ -19,7 +19,7 @@
  * `driver: 'manual'` (Node, tests) `tick(now)` resolves once the frame is in.
  */
 import { debugCallRefusal, ENGINE_DEBUG_COMMANDS, validateAssetAnswers, validateDebugCommandCall, validateSaveEvents, type AssetHandleAnswer, type SaveEvent } from '@thirdlight/runtime';
-import { uiViewOf, validateDialogueInput, validateUiEvent, type DialogueInputRecord } from '@thirdlight/runtime';
+import { engineStatsOf, uiViewOf, validateDialogueInput, validateUiEvent, type DialogueInputRecord } from '@thirdlight/runtime';
 import type {
   UiEventRecord,
   UiOutput,
@@ -446,6 +446,12 @@ export function startRemoteSimulation(opts: RemoteSimulationOptions): Promise<Re
     setUiView: (width: number, height: number, pixelRatio: number): boolean => {
       if (gone() || uiViewOf(width, height, pixelRatio) === null) return false;
       command({ op: 'setUiView', width, height, pixelRatio });
+      return true;
+    },
+    setStats: (stats: unknown): boolean => {
+      const s = engineStatsOf(stats);
+      if (gone() || s === null) return false;
+      command({ op: 'setStats', stats: s });
       return true;
     },
     tick: () => ({ ok: false, error: rtError('tick_not_allowed', 'the simulation runs in a worker: drive it with the remote simulation (tick is asynchronous there)') }),

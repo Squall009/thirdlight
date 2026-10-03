@@ -10,6 +10,7 @@
  * worker_threads Worker carry the same messages (`SimEndpoint`).
  */
 import type {
+  BehaviorStats,
   ActionFrame,
   AudioCommand,
   AnimatorPose,
@@ -102,6 +103,8 @@ export type SimCommand =
   | { readonly op: 'setCameraViewport'; readonly width: number; readonly height: number }
   /** The view the UI is drawn over (`ctx.ui.view()`). */
   | { readonly op: 'setUiView'; readonly width: number; readonly height: number; readonly pixelRatio: number }
+  /** The page's frame statistics (`ctx.stats`), once per stats window. */
+  | { readonly op: 'setStats'; readonly stats: BehaviorStats }
   // A debug command call, queued in the worker's runtime for its next step.
   | { readonly op: 'debugCommand'; readonly call: DebugCommandCall }
   // A storage answer (slot list, outcome, loaded save), queued in the worker's runtime for its next step.

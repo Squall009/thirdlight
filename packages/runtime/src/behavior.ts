@@ -72,6 +72,7 @@ import type {
   BehaviorSockets,
   BehaviorDebug,
   BehaviorUi,
+  BehaviorStats,
   BehaviorDialogue,
   BehaviorModes,
   BehaviorLifecycle,
@@ -282,6 +283,12 @@ export interface BehaviorContext {
   readonly assets?: BehaviorAssets;
   /** The project UI — publish view-model values, show and hide UI documents, read the step's UI events. */
   readonly ui?: BehaviorUi;
+  /**
+   * How the game runs on this device (read-only): fps, frame, CPU and GPU times (average and worst over the
+   * last window; GPU null where not measured), draw calls, triangles, resident texture bytes against the budget,
+   * geometry bytes, objects, the quality level. Measured by the page, not simulation state.
+   */
+  readonly stats?: BehaviorStats;
   /**
    * Conversations — start a dialogue, advance, choose, skip seen lines, auto-advance,
    * dialogue variables, the backlog and the events of lines, choices and signals.
@@ -1138,6 +1145,7 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
         if (src.assets !== undefined) fields['assets'] = { value: src.assets, enumerable: true };
         // The project UI (the view model and shown documents are simulation state).
         if (src.ui !== undefined) fields['ui'] = { value: src.ui, enumerable: true };
+        if ('stats' in src) fields['stats'] = { get: () => src.stats, enumerable: true };
         // Conversations (run by the engine at the end of the step).
         if (src.dialogue !== undefined) fields['dialogue'] = { value: src.dialogue, enumerable: true };
         // The game modes and the run lifecycle.

@@ -362,7 +362,8 @@ export { AUDIO_BUS_NAMES, AUDIO_MAX_HANDLES, AUDIO_MAX_PLAYS_PER_STEP, AUDIO_PIT
 // Graph-material parameters per object — ctx.materials, the catalogue and the renderer's changes.
 export { MATERIAL_WRITES_PER_STEP, RuntimeMaterials, materialCatalogOf, materialCatalogProblem, materialChangeKey, type BehaviorMaterials, type MaterialSaveEntry, type MaterialParamValue, type MaterialRenderChange, type RuntimeMaterialCatalog, type RuntimeMaterialParameter, type RuntimeMaterialParameterType } from './material-params';
 // The project UI — ctx.ui, the UI events of an input frame, the view-model diff the host draws from.
-export type { BehaviorUi, BehaviorUiEvent, BehaviorUiView } from './types';
+export type { BehaviorUi, BehaviorUiEvent, BehaviorUiView, BehaviorStats, BehaviorStatsTime } from './types';
+export { ENGINE_STATS_NONE, STATS_WINDOW_MS, engineStatsOf } from './engine-stats';
 export {
   MAX_FRAME_UI_EVENTS,
   UI_EVENT_KINDS,

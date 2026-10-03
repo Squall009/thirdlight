@@ -295,6 +295,8 @@ describe('gameplay settings resolution', () => {
       'camera_far_m',
       // Which models' images are extracted (0 new imports, 1 every model).
       'import_extract_textures',
+      // The built-in stats overlay (0 off, 1 shown, 2 hidden until F3).
+      'stats_overlay',
     ]);
     // Every optional key the registry has may follow the six in a manifest, in registry order.
     expect([...M3_OPTIONAL_SETTINGS_KEYS]).toEqual(M2_SETTINGS_KEYS.filter((k) => k.optional === true).map((k) => k.key));

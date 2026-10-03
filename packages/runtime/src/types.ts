@@ -20,7 +20,7 @@ export type { RuntimeSnapshotEntity, RuntimeScene, RuntimeSnapshot, RuntimeEvent
 export { SIMULATION_PHASE_ORDER } from './types-simulation';
 export type { InstantiateConfig, TransformState, SimEntityData, SimState, ModuleConfig, Character3DQueries, SimulationModule, SimulationPhase, PlayerCapsule, ModuleResetContext, SimulationPhaseModule, StepContext, ClimbQuery, BehaviorShell, SimulationModuleSpec, SimulationRegistry } from './types-simulation';
 export type { BehaviorMessage, BehaviorMessages, BehaviorMessageControl, TriggerEventRecord, HealthEventRecord, ContactEventRecord, PatrolEventRecord, CollectEventRecord, PrimitiveEventRecord, BehaviorTimers, BehaviorSpawnControl, BehaviorSave, DebugCommandArgType, DebugCommandArgSpec, DebugCommandOptions, DebugCommandSpec, DebugCommandArgs, DebugCommandState, BehaviorDebug, AudioFinishedEvent, AudioPlayOptions, AudioStingerOptions, AudioMusicOptions, AudioMusicState, BehaviorAudio, EffectRequest, BehaviorEffects } from './types-behavior';
-export type { CameraBlendOptions, BehaviorCameraState, BehaviorUiEvent, BehaviorUiView, EnvironmentChangeOptions, BehaviorEnvironment, BehaviorUi, DialogueVariableValue, BehaviorDialogueEvent, BehaviorDialogueState, BehaviorDialogueHistoryEntry, BehaviorDialogue, BehaviorModeEvent, BehaviorModeTransition, BehaviorModes, BehaviorLifecycle, BehaviorTimelineEvent, BehaviorTimeline, BehaviorCamera, BehaviorSockets, BehaviorSignals, BehaviorGameState, BehaviorHealth, BehaviorPatrol, BehaviorHitbox, BehaviorCollectible, BehaviorCharacter, BehaviorLookValue, BehaviorLook, BehaviorAnimatorHandle, BehaviorAnimatorControl, AnimatorEventRecord, BehaviorTagQuery } from './types-behavior-world';
+export type { CameraBlendOptions, BehaviorCameraState, BehaviorUiEvent, BehaviorUiView, BehaviorStats, BehaviorStatsTime, EnvironmentChangeOptions, BehaviorEnvironment, BehaviorUi, DialogueVariableValue, BehaviorDialogueEvent, BehaviorDialogueState, BehaviorDialogueHistoryEntry, BehaviorDialogue, BehaviorModeEvent, BehaviorModeTransition, BehaviorModes, BehaviorLifecycle, BehaviorTimelineEvent, BehaviorTimeline, BehaviorCamera, BehaviorSockets, BehaviorSignals, BehaviorGameState, BehaviorHealth, BehaviorPatrol, BehaviorHitbox, BehaviorCollectible, BehaviorCharacter, BehaviorLookValue, BehaviorLook, BehaviorAnimatorHandle, BehaviorAnimatorControl, AnimatorEventRecord, BehaviorTagQuery } from './types-behavior-world';
 export { registryBrand as SIM_REGISTRY_BRAND };
 
 /** Lifecycle states. */
@@ -121,6 +121,8 @@ export interface Runtime {
   setCameraViewport?(width: number, height: number, view?: string): boolean;
   /** The view the UI is drawn over (CSS px, device pixels per CSS px) — what `ctx.ui.view()` reads. */
   setUiView?(width: number, height: number, pixelRatio: number): boolean;
+  /** The page's frame statistics, once per stats window — what `ctx.stats` reads (false: not stats). */
+  setStats?(stats: unknown): boolean;
   /** The objects riding on sockets now (entity, target, node; a stable array while nothing changes). */
   socketAttachments?(): readonly { readonly entityId: string; readonly target: string; readonly node: string }[];
   /**

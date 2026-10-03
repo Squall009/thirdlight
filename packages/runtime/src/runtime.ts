@@ -59,8 +59,9 @@ import {
 
 import { clipMessage, type ErrorCode, type RuntimeError } from './errors';
 import { DebugCommands } from './debug-commands';
-import { MAX_FRAME_UI_EVENTS, UiState, validateUiEvent, type UiEventRecord, type UiOutput, type UiStateView } from './ui';
-import { createUiControl } from './ui-control';
+import { MAX_FRAME_UI_EVENTS, UiState, type UiEventRecord, type UiOutput, type UiStateView } from './ui';
+import { queueUiEventChecked, uiControlOf } from './ui-control';
+import { EngineStatsHolder } from './engine-stats';
 import { ModeState, type ModeView } from './modes';
 import { BehaviorHostError, BehaviorHostIntentLimit, compiledFramesOf, createTagQuery, graphNodeIdOf, type BehaviorDebugView, type BehaviorPropertyView, type CompiledFrame } from './behavior';
 import { character3DPhysicsOf, offsetEntities, playerCapsuleOf, type LiveTagIndex } from './scene-set';
@@ -1260,6 +1261,7 @@ class RuntimeInstance implements Runtime {
   private readonly dialogue: DialogueRunner;
   private dialogueQueue: DialogueInputRecord[] = [];
   private readonly uiControls = new Map<SimulationPhase, BehaviorUi>();
+  private readonly engineStats = new EngineStatsHolder();
   // ---- Game modes and the run lifecycle ----
   private readonly modes: ModeState;
   private readonly modeControls = new Map<SimulationPhase, import('./types').BehaviorModes>();
@@ -2992,32 +2994,21 @@ class RuntimeInstance implements Runtime {
     return true;
   }
 
-  /** `ctx.ui` for one phase (made once per phase). */
-  private uiControlFor(phase: SimulationPhase): BehaviorUi {
-    let c = this.uiControls.get(phase);
-    if (c === undefined) {
-      c = createUiControl(this.ui, phase);
-      this.uiControls.set(phase, c);
-    }
-    return c;
-  }
-
   /** The view the host draws the UI over (`ctx.ui.view()`; false: not a view). */
   setUiView(width: number, height: number, pixelRatio: number): boolean {
     return this.stateName !== 'disposed' && this.ui.setScreenView(width, height, pixelRatio);
   }
 
+  /** The page's frame statistics (`ctx.stats`; false: not stats). */
+  setStats(stats: unknown): boolean {
+    return this.stateName !== 'disposed' && this.engineStats.set(stats);
+  }
+
   /** Queue a UI event for the next sampled step (see `Runtime.queueUiEvent`). */
   queueUiEvent(event: UiEventRecord): { ok: true } | { ok: false; error: RuntimeError } {
     if (this.stateName === 'disposed') return { ok: false, error: fail('runtime_disposed', 'runtime is disposed') };
-    const checked = validateUiEvent(event);
-    if (!checked.ok) return { ok: false, error: fail('game_command_invalid', `UI event: ${checked.message}`, { reason: 'ui_event', path: `/${checked.field}` }) };
-    if ((checked.event.kind === 'show' || checked.event.kind === 'hide' || checked.event.kind === 'toggle') && !this.ui.hasDocument(checked.event.doc)) {
-      return { ok: false, error: fail('game_command_invalid', `no UI document "${checked.event.doc}"`, { reason: 'ui_event' }) };
-    }
-    if (this.uiQueue.length >= MAX_FRAME_UI_EVENTS * 4) return { ok: false, error: fail('game_command_invalid', `at most ${MAX_FRAME_UI_EVENTS * 4} UI events may wait for the next step`, { reason: 'pending' }) };
-    this.uiQueue.push(checked.event);
-    return { ok: true };
+    const queued = queueUiEventChecked(this.ui, this.uiQueue, event);
+    return queued.ok ? queued : { ok: false, error: fail('game_command_invalid', queued.message, { reason: queued.reason, ...(queued.path !== undefined ? { path: queued.path } : {}) }) };
   }
 
   /**
@@ -4461,7 +4452,8 @@ class RuntimeInstance implements Runtime {
       fields['saves'] = { value: this.saves.api, enumerable: true };
       fields['assets'] = { value: this.assetHandles.api, enumerable: true };
       // The project UI (the step's UI events in the intent phase).
-      fields['ui'] = { value: this.uiControlFor(phase), enumerable: true };
+      fields['ui'] = { value: uiControlOf(this.uiControls, this.ui, phase), enumerable: true };
+      fields['stats'] = { get: () => rt.engineStats.now(), enumerable: true };
       // Conversations (ctx.dialogue; calls apply at the end of the step).
       fields['dialogue'] = { value: this.dialogue.api, enumerable: true };
       // The game modes, the run lifecycle, and which behaviors tick in the current mode.

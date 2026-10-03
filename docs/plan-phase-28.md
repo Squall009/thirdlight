@@ -135,7 +135,8 @@ surfaces). Format changes share one bump: `project.json` schemaVersion 7
 | 28.8 | done 2026-10-03 — UI sounds `{click, hover, focus}` per widget, per style and as the document's default, on the `ui` bus (engine actions click too); scale modes `cover` and `expand`; `ctx.ui.view()` / `$flow.view`; bindable `offset`, `opacity`, `rotation`; bound lists keep their item widgets and focus (by index or `itemKey`), `ctx.ui.focus(doc, widget, index)` (D131); shell `simulate: {screen: 'scripts'}`; Play screenshots draw the UI and overlays over the frame (`ui: false` for the frame alone) |
 | 28.9 | done 2026-10-03 — blend clips carry their authored ground speed and a tree with one on every clip plays at the rate that covers its parameter (Unity's homogeneous speed); `animator.startTime` and `randomStart` (from `random_seed` and the object id), `play(state, fade, layer, time)` for scripts; a look-at constraint on the animator (head, optional neck and chest with yaw/pitch limits, target object or point, weight × float parameter, turn speed, after the clip pose; `setLookTarget`/`setLookPoint`/`setLookWeight`); measured in Play: blended ground rate, random starts and their replay, the drawn head bone's turn, limit and return |
 | 28.10 | done 2026-10-03 — every collider shape takes a `center` and a `rotation`; `compound` (a list of shapes on one body) and `model` (each mesh of the object's model's `_COL` node a convex hull, read when the game is built: manifest `modelColliders`); colliders on child objects where their parents put them, kinematic once a parent is moved by a script, a timeline or a mover; `colliderFromModel` (box, convex, mesh, polygon, compound) is the editor's button over HTTP/MCP; Scene view: no collider outlines until asked for, the selection's (and its children's) always; D138 logged |
-| 28.11–28.13 | — |
+| 28.11 | done 2026-10-03 — extract textures decodes WebP (libwebp, pinned) and encodes every non-KTX2 image to KTX2 by its use, from the lossless PNG of the image's name and size beside the model (or in its `textures/`) when one is there; setting `import_extract_textures` extracts every model, older imports included (where their GLB file is), and Problems lists models still holding images (`models_hold_images`); standard-shader project materials share one prepared texture per (texture, colour space, wrap, tiling, offset): one material on 14 model files holds one copy (14 before); `ctx.stats` / `$flow.stats` (fps, frame/CPU/GPU ms average and worst over 500 ms, GPU null where not measured, draw calls, triangles, texture bytes against the budget, geometry bytes, objects, quality); setting `stats_overlay` (F3) shows a built-in overlay in Play and the export; Play diagnostics carry `frameTimes` and the environment renderer's passes, quality, samples and fallback |
+| 28.12–28.13 | — |
 
 ## 6. Decision log
 
@@ -422,3 +423,49 @@ surfaces). Format changes share one bump: `project.json` schemaVersion 7
   drawn (a player's capsule too, and clickable then). The component field orders
   are one list (`commands` v3.ts `COMPONENT_FIELD_ORDER`; the history's copy had
   lost five light fields).
+- 2026-10-03 (28.11): WebP — decoded with libwebp's own decoder
+  (`@jsquash/webp` 1.5.0, WASM, decision 0006), so a lossy WebP is encoded
+  from the pixels a browser draws; texture imports, packing and thumbnails
+  take WebP too. "Every other non-KTX2 image the importer reads" is PNG,
+  JPEG and WebP (the importer reads no other). The lossless original is a
+  PNG named as the image (its name as written, or the file name extraction
+  gives it) of the same size, in the model's folder or its `textures/`
+  (Blender's export layout); a PNG of another size is not the image's source
+  (it would change the texture's memory) and is not taken. A PNG inside the
+  model is already lossless and is used as it is.
+- 2026-10-03 (28.11): `import_extract_textures` (0 new models, the default;
+  1 every model) — with 1 the backend extracts each GLB model still holding
+  images where its file is, once per file version (one `publishAsset`
+  reimport each, on the change feed and undoable; Unity reimports when an
+  importer default changes), at the project's load and after a change that
+  can matter; a re-import or a changed file extracts too. Problems lists the
+  models left and why (no file in the game folder, converted from FBX, the
+  extraction's reason) only while the setting is 1: with 0 a project may keep
+  images inside on purpose (`extractTextures: false`).
+- 2026-10-03 (28.11): shared textures — the prepared copy (colour space,
+  repeat wrap, the material's tiling and offset, UV channel) is keyed by the
+  decoded texture and shared by every built material that asks for the same,
+  freed with the last; a material is still built per model file (the file's
+  material stays its base, so slots it fills keep working). Unity and Godot
+  share a texture between materials the same way. Measured in Play (both
+  renderers): the streamed texture's `copies` 1 with 14 files (14 before);
+  GPU textures 7 with 14 files and with 1.
+- 2026-10-03 (28.11): stats — measured by the page over a 500 ms window
+  (`STATS_WINDOW_MS`, runtime): frame interval, the page thread's work (from
+  the animation frame's start to the draw's submission when the simulation
+  runs on the page; the host's frame work in worker mode) and the GPU's time
+  from three's timestamp queries (WebGPU `timestamp-query`, WebGL 2
+  `EXT_disjoint_timer_query_webgl2`; Play always asks for them, an export
+  only with the overlay on); null where the device has none, never
+  estimated. A resolve covers several frames, so the GPU "worst" is the
+  worst resolve's mean. `ctx.stats` is presentation like `ctx.ui.view()`
+  (not in the digest or a save). Draw calls and triangles are the last
+  frame's; geometry bytes are the loaded models' resident bytes without their
+  images. On this host (Iris Xe, headless Chrome, WebGPU) the GPU time is
+  measured.
+- 2026-10-03 (28.11): the overlay is engine UI a game opts into:
+  `stats_overlay` 0 (default: no overlay and no key), 1 shown from the start,
+  2 hidden until F3 (the usual PC performance-overlay key; the browser's
+  find-again is prevented while the game has the page); top-right, so it
+  does not cover a game's top-left HUD or the export's status line. No URL
+  flag (not asked for).
