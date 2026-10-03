@@ -1609,6 +1609,10 @@ class RuntimeInstance implements Runtime {
       grounded: () => (this.physics3d !== undefined ? (this.lastCharacterResult3D?.grounded ?? true) : (this.lastCharacterResult?.grounded ?? true)),
       inactive: () => this.entityAccess.inactive(),
       stepIndex: () => this.stepIndex,
+      // The look-at reads the models' rigs and world matrices the sockets keep.
+      rigOf: (id) => this.sockets.rigOf(id),
+      worldMatrix: (id, out) => this.sockets.worldMatrix(id, out),
+      warn: (message) => this.recordBehaviorLog('thirdlight.runtime:animator', 'warn', message),
     });
     this.animators.add(args.initialEntities);
     // The audio intent log (clip lengths from the snapshot's recorded durations).

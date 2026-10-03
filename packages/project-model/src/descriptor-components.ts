@@ -3,7 +3,7 @@
  * handles, rules and create-menu entries, and the object's own fields.
  */
 
-import { MAX_ANIMATOR_PARAMETERS } from './animator';
+import { LOOK_AT_LIMITS, MAX_ANIMATOR_PARAMETERS } from './animator';
 import { BLOCK_DEFAULTS, BLOCK_TUNING_LIMITS, HITBOX_SHAPES, GRAVITY_SCALE, MOVER_EASINGS, MOVER_MODES, PATROL_MODES, PRIMITIVE_DEFAULTS, PRIMITIVE_LIMITS, SWITCH_MODES, SWITCH_DEFAULT_ACTION, FACE_MOVEMENT_MODES, MAX_TRANSITION_FADE, MAX_TRANSITION_UNLOADS, TRIGGER_HEIGHT, TRIGGER_MODES, TRIGGER_RADIUS, TRIGGER_SHAPES } from './blocks';
 import {
   CAPSULE_LIMITS,
@@ -735,6 +735,14 @@ export const MODE_ITEM: FieldDescriptor = obj('*', 'Game mode', 'One game mode.'
   obj('enter', 'Transition in', 'How entering this mode looks (a script\'s switch may pass its own).', MODE_TRANSITION_FIELDS),
 ]);
 
+/** One bone of the look-at chain: its name (picked from this object's model) and its turn limits. */
+const LOOK_BONE = (key: string, label: string, tooltip: string, required: boolean) =>
+  obj(key, label, tooltip, [
+    str('bone', 'Bone', 'A bone (node) of this object\'s model (the list shows its nodes).', { required: true, ...NAME, format: 'ownBone' }),
+    num('yaw', 'Yaw limit', 'How far it turns left or right.', { required: true, min: 0, max: LOOK_AT_LIMITS.yawMax, step: 5, unit: 'deg', default: 45 }),
+    num('pitch', 'Pitch limit', 'How far it tilts up or down.', { required: true, min: 0, max: LOOK_AT_LIMITS.pitchMax, step: 5, unit: 'deg', default: 30 }),
+  ], required ? { required: true } : {});
+
 export const animator: ComponentDescriptor = {
   name: 'animator',
   label: 'Animator',
@@ -745,6 +753,16 @@ export const animator: ComponentDescriptor = {
     map('parameters', 'Parameters', 'Starting values for the controller\'s parameters (absent: the controller\'s defaults).', 'Parameter', json('*', 'Value', 'A number or true/false.', { typedBy: 'animatorParameter' }), { keyRef: 'animatorParameter', maxEntries: MAX_ANIMATOR_PARAMETERS }),
     num('startTime', 'Start time', 'Where the entry states start, in normalized time (0–1 of their length).', { min: 0, max: 1, step: 0.05, when: when('randomStart', false) }),
     bool('randomStart', 'Random start', 'Start at a random time from the game\'s seeded random numbers (the project\'s random seed and this object\'s id), so copies do not move in step and a replay starts them alike.', { default: false }),
+    obj('lookAt', 'Look at', 'Turns the head (and the neck and chest) toward a target after the clips pose them; scripts set the target and the weight (ctx.animator(id)?.setLookTarget / setLookWeight).', [
+      LOOK_BONE('head', 'Head', 'The head bone: it ends facing the target (within the limits).', true),
+      LOOK_BONE('neck', 'Neck', 'An optional neck bone that takes part of the turn.', false),
+      LOOK_BONE('chest', 'Chest', 'An optional chest bone that takes part of the turn.', false),
+      entity('target', 'Target', 'The object looked at (its origin; none: the point, or nothing).', { anyScene: true }),
+      vec3('point', 'Point', 'A world position looked at when there is no target object.', { min: -LOOK_AT_LIMITS.pointMax, max: LOOK_AT_LIMITS.pointMax, step: 0.1, unit: 'm' }),
+      num('weight', 'Weight', 'How much of the turn applies (0: the clip pose alone).', { min: 0, max: 1, step: 0.05, default: 1 }),
+      ref('weightParameter', 'Weight parameter', 'A float parameter of the controller (0–1) the weight is multiplied by.', 'animatorParameter', { paramTypes: ['float'] }),
+      num('turnSpeed', 'Turn speed', 'How fast the head turns to a new target and back.', { min: LOOK_AT_LIMITS.turnSpeedMin, max: LOOK_AT_LIMITS.turnSpeedMax, step: 10, unit: 'deg/s', default: LOOK_AT_LIMITS.turnSpeedDefault }),
+    ]),
   ]),
   add: { kind: 'pick', value: {}, pick: ['controller'] },
   handles: [],

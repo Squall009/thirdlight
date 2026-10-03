@@ -56,6 +56,8 @@ export interface FieldContext extends PickerData {
    * undefined when the object has no model.
    */
   readonly modelNodes?: (entityId: string) => readonly string[] | null | undefined;
+  /** The object being inspected (its own model's bones are offered for a bone of it). */
+  readonly selfId?: string;
 }
 
 export type Edit = (path: FieldPath, next: unknown) => void;
@@ -325,6 +327,19 @@ export function FieldRow(p: RowProps): JSX.Element | null {
           </Row>
         );
       }
+      // A controller parameter: picked from the parameters of the controller this component names.
+      if (target === 'animatorParameter') {
+        let controller: unknown;
+        for (let l: Level | undefined = p.level; l !== undefined && controller === undefined; l = l.parent) controller = l.value['controller'];
+        const types = f.type === 'ref' ? f.paramTypes : undefined;
+        const params = typeof controller === 'string' ? p.ctx.animatorParameters?.[controller]?.filter((x) => types === undefined || (types as readonly string[]).includes(x.type)) : undefined;
+        if (params !== undefined)
+          return (
+            <Row f={f} label={p.label} isDefault={isDefault}>
+              <SelectWidget aria={aria} value={typeof shown === 'string' ? shown : ''} options={params.map((x) => ({ value: x.name, label: x.name }))} none={optional ? 'none' : null} onPick={(v) => (v === '' ? clear() : p.onEdit(p.path, v))} />
+            </Row>
+          );
+      }
       const list = p.ctx.refs[target as 'material'];
       if (list === undefined) {
         return (
@@ -345,9 +360,10 @@ export function FieldRow(p: RowProps): JSX.Element | null {
     case 'signal':
     case 'text':
     case 'multiline': {
-      // A socket's node is picked from its target's model nodes (typed while they load or without a model).
-      if (f.type === 'string' && f.format === 'socketNode') {
-        const target = p.level?.value['target'];
+      // A socket's node is picked from its target's model nodes, a bone of this object from its own model's
+      // (typed while they load or without a model).
+      if (f.type === 'string' && (f.format === 'socketNode' || f.format === 'ownBone')) {
+        const target = f.format === 'ownBone' ? p.ctx.selfId : p.level?.value['target'];
         const nodes = typeof target === 'string' ? p.ctx.modelNodes?.(target) : undefined;
         if (Array.isArray(nodes) && nodes.length > 0) {
           return (

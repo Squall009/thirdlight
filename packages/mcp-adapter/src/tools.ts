@@ -283,7 +283,7 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       'bone), weight 0-1, weightParameter? (a float param it is multiplied by), states (motion may also be {kind: "empty"}: the layers ' +
       'under show through), transitions, entry}] (up to 3 override layers over the base layer, e.g. an upper-body attack while running; ' +
       'state ids are unique across layers), morphs?: [{target (a morph target name), parameter (a float param: its 0-1 value is the weight)}]}}; deleteAnimator {controllerId}; a model entity plays one ' +
-      'with setComponent "animator" {controller, parameters?, startTime? (normalized 0-1), randomStart? (a start drawn from the random_seed and the object id)}. An animation-only GLB (clips, no mesh needed) is marked with ' +
+      'with setComponent "animator" {controller, parameters?, startTime? (normalized 0-1), randomStart? (a start drawn from the random_seed and the object id), lookAt? {head: {bone, yaw, pitch (limits each way, degrees)}, neck?, chest?, target? (entity id) | point? [x,y,z], weight? 0-1, weightParameter? (float param), turnSpeed? deg/s (360)} (turns the head chain toward the target after the clips; scripts setLookTarget(id|null)/setLookPoint([x,y,z])/setLookWeight(w))}. An animation-only GLB (clips, no mesh needed) is marked with ' +
       'setAssetOptions {assetId, clipsFor: rigModelAssetId | null}; its clips then play on that model (matched by bone names) and ' +
       'controllers may name them. The old modelAnimation idle/run/airborne component becomes an animator controller when the project ' +
       'is opened. The player\'s animators get speed, grounded, velocityY and a landed trigger ' +
@@ -742,7 +742,7 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       properties: {
         playSessionId: { type: 'string' },
         timeoutMs: { type: 'integer', minimum: GAME_OBSERVE_TIMEOUT_MIN_MS, maximum: GAME_OBSERVE_TIMEOUT_MAX_MS },
-        entityId: { type: 'string', description: 'also return this entity\'s running script property values (public and private) as `behaviors`, and with an animator its pose as `animator` {state, clips [{assetId, clip, time (s), weight}], layers?}' },
+        entityId: { type: 'string', description: 'also return this entity\'s running script property values (public and private) as `behaviors`, and with an animator its pose as `animator` {state, clips [{assetId, clip, time (s), weight}], layers?, look? {yaw, pitch (degrees), bones}} and its model\'s bones as drawn as `renderedBones` {name: {position, rotation}}' },
       },
       required: ['playSessionId'],
       additionalProperties: false,

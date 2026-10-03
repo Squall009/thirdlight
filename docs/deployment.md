@@ -3960,7 +3960,26 @@ export starts each copy at the same place. Scripts start a state part-way
 with `ctx.animator(id)?.play(state, fade?, layer?, time?)` (Unity's
 `Animator.Play(state, layer, normalizedTime)`; layer 0 is the base layer).
 `tl_game_observe` with an `entityId` returns that object's animator pose
-(`animator: {state, clips: [{clip, time, weight}], layers?}`).
+(`animator: {state, clips: [{clip, time, weight}], layers?, look?}`) and
+its model's bones as drawn (`renderedBones: {name: {position, rotation}}`).
+
+**Look-at.** The `animator` component's **Look at** turns the head
+(optionally the neck and the chest) toward a **target** object or a world
+**point** after the clips pose them (Unity's Animation Rigging multi-aim).
+Each bone of the chain has a yaw and a pitch limit (degrees each way;
+picked from the object's own model in the Inspector); the turn is split
+over the chain in proportion to the limits, so the head ends facing the
+target when it is within their sum and stops at it otherwise. Angles are
+measured in the model's space from its front (+Z, the glTF front) at the
+head bone as the clips pose it. The **weight** (0–1, optionally times a
+float controller parameter) scales the turn, and the head moves at the
+**turn speed** (degrees a second, 360 by default) toward a new target and
+back when the weight drops to 0 or the target goes. Scripts:
+`ctx.animator(id)?.setLookTarget(entityId | null)`,
+`.setLookPoint([x, y, z])`, `.setLookWeight(w)`. The constraint is
+simulation state (a replay turns the head the same way; sockets on the head
+follow it); a project using it ships its models' rigs in the build, as one
+with sockets does.
 
 **Observing.** `tl_game_observe` (and `window.__thirdlightObserve()` in an
 export) reports `sockets: [{ entityId, target, node, position }]` (the

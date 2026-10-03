@@ -17,6 +17,13 @@
  *   model's asset) come from `clipsOf`; they bind to this model's bones by
  *   name. Until they are loaded the pose skips them.
  * A pose without layers plays exactly as before (the whole clip, one action).
+ * - The look-at turn (the runtime's look-at constraint) rotates its bones
+ *   after the mixer posed them: bone i's local rotation becomes
+ *   P⁻¹·D·P·local, D its model-space turn and P its parent's rotation in the
+ *   model's space, so it turns about its own pivot on top of its parents'
+ *   turns (the simulation's rig poser does the same for sockets). A bone the
+ *   clips do not animate gets its local rotation back before the next pose,
+ *   so turns never pile up.
  */
 import * as THREE from 'three';
 
@@ -33,10 +40,23 @@ export interface AnimatorPoseLike {
   readonly layers?: readonly { readonly mask: readonly string[]; readonly weight: number; readonly clips: readonly AnimatorPoseClipLike[] }[];
   /** Morph target weights by target name (the model's meshes that have that target). */
   readonly morphs?: Readonly<Record<string, number>>;
+  /** The look-at turn: model-space rotations applied about each bone's pivot after the clips, root first. */
+  readonly look?: { readonly bones: readonly { readonly node: string; readonly rotation: readonly number[] }[] };
+}
+
+/** A node of the drawn model in the world: position and rotation [x, y, z, w]. */
+export interface RenderedNodePose {
+  readonly position: readonly [number, number, number];
+  readonly rotation: readonly [number, number, number, number];
 }
 
 export interface AnimatorPlayer {
   apply(pose: AnimatorPoseLike): void;
+  /**
+   * Named nodes of the model as drawn now (after the clips and the look-at
+   * turn); absent names are left out. Without names: its bones (the first 64).
+   */
+  nodePoses(names?: readonly string[]): Record<string, RenderedNodePose>;
   dispose(): void;
 }
 
@@ -193,53 +213,121 @@ export function createAnimatorPlayer(root: THREE.Object3D, clips: readonly THREE
     morphNames = next;
   };
 
+  // ---- The look-at turn ----------------------------------------------------
+  /** The bones the last pose turned and their local rotations before the turn. */
+  const turned = new Map<THREE.Object3D, THREE.Quaternion>();
+  const boneByName = new Map<string, THREE.Object3D | null>();
+  const qRoot = new THREE.Quaternion();
+  const qParent = new THREE.Quaternion();
+  const qTurn = new THREE.Quaternion();
+  const restoreLook = (): void => {
+    for (const [bone, q] of turned) bone.quaternion.copy(q);
+    turned.clear();
+  };
+  const applyLook = (look: AnimatorPoseLike['look']): void => {
+    if (look === undefined || look.bones.length === 0) return;
+    root.updateWorldMatrix(true, false);
+    root.getWorldQuaternion(qRoot);
+    for (const b of look.bones) {
+      let bone = boneByName.get(b.node);
+      if (bone === undefined) {
+        bone = root.getObjectByName(b.node) ?? null;
+        boneByName.set(b.node, bone);
+      }
+      if (bone === null) continue;
+      turned.set(bone, bone.quaternion.clone());
+      // P: the parent's rotation in the model's space (its earlier turns included).
+      if (bone.parent !== null) {
+        bone.parent.updateWorldMatrix(true, false);
+        bone.parent.getWorldQuaternion(qParent);
+        qParent.premultiply(qRoot.clone().invert());
+      } else qParent.identity();
+      qTurn.set(b.rotation[0]!, b.rotation[1]!, b.rotation[2]!, b.rotation[3]!);
+      // local' = P⁻¹ · D · P · local
+      bone.quaternion.premultiply(qParent).premultiply(qTurn).premultiply(qParent.clone().invert());
+    }
+    root.updateMatrixWorld(true);
+  };
+
   return {
     apply(pose) {
-      applyMorphsAfter = pose.morphs;
-      if (pose.layers !== undefined && pose.layers.length > 0) {
-        applyLayered(pose as AnimatorPoseLike & { layers: NonNullable<AnimatorPoseLike['layers']> });
-        applyMorphs(applyMorphsAfter);
-        return;
+      restoreLook();
+      try {
+        applyPose(pose);
+      } finally {
+        applyLook(pose.look);
       }
-      if (layoutKey !== null) {
-        // Back from a layered pose: its per-layer parts go.
-        clearParts();
-        layoutKey = null;
+    },
+    nodePoses(names) {
+      const out: Record<string, RenderedNodePose> = {};
+      root.updateMatrixWorld(true);
+      const p = new THREE.Vector3();
+      const q = new THREE.Quaternion();
+      let list = names;
+      if (list === undefined) {
+        const bones: string[] = [];
+        root.traverse((o) => {
+          if ((o as THREE.Bone).isBone === true && o.name !== '' && bones.length < 64) bones.push(o.name);
+        });
+        list = bones;
       }
-      const weights = new Map<string, { time: number; weight: number }>();
-      /** Clips of an animation-only asset (no layers): whole-clip actions. */
-      const foreign = new Map<THREE.AnimationAction, { time: number; weight: number }>();
-      for (const c of pose.clips) {
-        if (c.assetId !== assetId) {
-          const clip = sourceClip(c.assetId, c.clip);
-          if (clip === null) continue;
-          const action = partAction(-1, c.assetId, clip, -1, clip.tracks);
-          const have = foreign.get(action);
-          foreign.set(action, have === undefined ? { time: c.time, weight: c.weight } : { time: c.weight > have.weight ? c.time : have.time, weight: have.weight + c.weight });
-          continue;
-        }
-        if (!actions.has(c.clip)) continue;
-        const have = weights.get(c.clip);
-        // The same clip twice (a crossfade into itself): the heavier one sets the time.
-        if (have === undefined) weights.set(c.clip, { time: c.time, weight: c.weight });
-        else weights.set(c.clip, { time: c.weight > have.weight ? c.time : have.time, weight: have.weight + c.weight });
+      for (const name of list) {
+        const o = root.getObjectByName(name);
+        if (o === undefined) continue;
+        o.getWorldPosition(p);
+        o.getWorldQuaternion(q);
+        out[name] = { position: [p.x, p.y, p.z], rotation: [q.x, q.y, q.z, q.w] };
       }
-      for (const [name, action] of actions) {
-        const w = weights.get(name);
-        action.setEffectiveWeight(w?.weight ?? 0);
-        if (w !== undefined) action.time = Math.min(w.time, action.getClip().duration);
-      }
-      for (const a of parts.values()) {
-        const w = foreign.get(a);
-        a.setEffectiveWeight(w?.weight ?? 0);
-        if (w !== undefined) a.time = Math.min(w.time, a.getClip().duration);
-      }
-      mixer.update(0);
-      applyMorphs(applyMorphsAfter);
+      return out;
     },
     dispose() {
+      restoreLook();
       mixer.stopAllAction();
       mixer.uncacheRoot(root);
     },
   };
+
+  function applyPose(pose: AnimatorPoseLike): void {
+    applyMorphsAfter = pose.morphs;
+    if (pose.layers !== undefined && pose.layers.length > 0) {
+      applyLayered(pose as AnimatorPoseLike & { layers: NonNullable<AnimatorPoseLike['layers']> });
+      applyMorphs(applyMorphsAfter);
+      return;
+    }
+    if (layoutKey !== null) {
+      // Back from a layered pose: its per-layer parts go.
+      clearParts();
+      layoutKey = null;
+    }
+    const weights = new Map<string, { time: number; weight: number }>();
+    /** Clips of an animation-only asset (no layers): whole-clip actions. */
+    const foreign = new Map<THREE.AnimationAction, { time: number; weight: number }>();
+    for (const c of pose.clips) {
+      if (c.assetId !== assetId) {
+        const clip = sourceClip(c.assetId, c.clip);
+        if (clip === null) continue;
+        const action = partAction(-1, c.assetId, clip, -1, clip.tracks);
+        const have = foreign.get(action);
+        foreign.set(action, have === undefined ? { time: c.time, weight: c.weight } : { time: c.weight > have.weight ? c.time : have.time, weight: have.weight + c.weight });
+        continue;
+      }
+      if (!actions.has(c.clip)) continue;
+      const have = weights.get(c.clip);
+      // The same clip twice (a crossfade into itself): the heavier one sets the time.
+      if (have === undefined) weights.set(c.clip, { time: c.time, weight: c.weight });
+      else weights.set(c.clip, { time: c.weight > have.weight ? c.time : have.time, weight: have.weight + c.weight });
+    }
+    for (const [name, action] of actions) {
+      const w = weights.get(name);
+      action.setEffectiveWeight(w?.weight ?? 0);
+      if (w !== undefined) action.time = Math.min(w.time, action.getClip().duration);
+    }
+    for (const a of parts.values()) {
+      const w = foreign.get(a);
+      a.setEffectiveWeight(w?.weight ?? 0);
+      if (w !== undefined) a.time = Math.min(w.time, a.getClip().duration);
+    }
+    mixer.update(0);
+    applyMorphs(applyMorphsAfter);
+  }
 }

@@ -233,6 +233,8 @@ export function Inspector({ entity, gizmoMode, onGizmoMode, registry, fieldConte
     if (c.name === 'transform') onEditTransform(entity.id, patch as { position?: number[]; rotation?: number[]; scale?: number[] });
     else onComponentEdit(entity.id, c.name, patch);
   };
+  // The inspected object's own model offers its bones (an animator's look-at chain).
+  const selfContext: FieldContext = entity === null ? fieldContext : { ...fieldContext, selfId: entity.id };
   return (
     <div className="tl-panel tl-inspector">
       <div className="tl-panel__title">Inspector</div>
@@ -274,7 +276,7 @@ export function Inspector({ entity, gizmoMode, onGizmoMode, registry, fieldConte
             const common = {
               desc: c,
               value,
-              ctx: fieldContext,
+              ctx: selfContext,
               onEdit: edit(c, value),
               ...(op === null ? { readOnly: true } : {}),
               ...(present.has(c.name) && removable(c.name) ? { onRemove: () => onComponentEdit(entity.id, c.name, null) } : {}),

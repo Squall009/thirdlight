@@ -530,7 +530,7 @@ const COMPONENT_BASES: Record<string, J[]> = {
   climbVolume: [{ size: [1, 4, 1] }, { size: [2, 3, 0.5] }],
   gravity: [{ scale: 0.5, size: [1, 2, 1] }, {}],
   audioSource: [{ assetId: 'cue-a', volume: 0.8, range: 12 }, { assetId: 'cue-a', volume: 0.8, range: 12, distanceModel: 'inverse', refDistance: 2, rolloff: 1.5 }],
-  animator: [{ controller: 'ctl-a', parameters: { speed: 1, grounded: true }, startTime: 0.25 }, { controller: 'ctl-a', randomStart: true }],
+  animator: [{ controller: 'ctl-a', parameters: { speed: 1, grounded: true }, startTime: 0.25 }, { controller: 'ctl-a', randomStart: true, lookAt: { head: { bone: 'Head', yaw: 60, pitch: 30 }, neck: { bone: 'Neck', yaw: 30, pitch: 20 }, chest: { bone: 'Spine', yaw: 15, pitch: 10 }, target: 'spawn-0001', weight: 0.5, weightParameter: 'speed', turnSpeed: 180 } }, { controller: 'ctl-a', lookAt: { head: { bone: 'Head', yaw: 60, pitch: 30 }, point: [1, 2, 3] } }],
   faceMovement: [{ yawRight: 90, yawLeft: -90, turnSeconds: 0.12 }, { mode: 'velocity', yawOffset: -90, turnSeconds: 0.2 }],
   modelAnimation: [{ assetId: 'model-a', version: 1, roles: { idle: { clipIndex: 0 }, run: { clipIndex: 1 }, airborne: { clipIndex: 2 } } }],
   behavior: [{ behaviorId: 'beh-a', values: { speed: 3 } }],

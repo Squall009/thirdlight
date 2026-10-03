@@ -264,7 +264,7 @@ export {
 export { textureHolds, type TextureHolds } from './texture-holds';
 export { bakeLightmapsInBrowser, type BakedAtlas, type BakeLightInput, type BakeMeshInput, type BakeTargetInput, type BrowserBakeInput, type BrowserBakeResult } from './lightmap-baker';
 // Poses a model from an animator pose (the Animator window's live preview).
-export { createAnimatorPlayer, type AnimatorPlayer, type AnimatorPlayerOptions, type AnimatorPoseLike } from './animator-player';
+export { createAnimatorPlayer, type AnimatorPlayer, type AnimatorPlayerOptions, type AnimatorPoseLike, type RenderedNodePose } from './animator-player';
 // Visual effects — the player (Play, exports, the Scene view's edit-mode preview) and its executors.
 export {
   createEffectsPlayer,

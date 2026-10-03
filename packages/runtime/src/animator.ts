@@ -35,6 +35,8 @@
  * poses exactly as before.
  */
 
+import type { LookPose } from './look-at';
+
 export type AnimatorValue = number | boolean;
 
 export interface AnimatorClipLike {
@@ -113,6 +115,8 @@ export interface AnimatorPoseLayer {
 export interface AnimatorPose {
   /** The current state's name (the target's once a crossfade is over). */
   readonly state: string;
+  /** The look-at constraint's turn of the head chain, applied after the clips (only while it turns it). */
+  readonly look?: LookPose;
   readonly clips: readonly AnimatorPoseClip[];
   /** The override layers (only when the controller has them). */
   readonly layers?: readonly AnimatorPoseLayer[];

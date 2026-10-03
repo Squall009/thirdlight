@@ -852,8 +852,9 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
 
   stage('scenes');
   if (input.background === true) await new Promise<void>((resolve) => setTimeout(resolve, 0));
-  // 5c. The model rigs, only when the project uses sockets (a socketAttach component in a scene
-  //     or prefab, or a script that names ctx.sockets) — every other project's manifest stays byte-identical.
+  // 5c. The model rigs, only when the project uses sockets or a look-at (a socketAttach component or an
+  //     animator lookAt in a scene or prefab, or a script that names ctx.sockets) — every other project's
+  //     manifest stays byte-identical.
   let rigs: Record<string, ModelRig> | undefined;
   if (usesSockets(input.scenes, prefabDefs, [...behaviorArtifacts, ...libraryArtifacts])) {
     // A located build reads the models now (only a project with sockets needs their rigs).
@@ -1061,12 +1062,19 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
 }
 
 /**
- * Whether a game uses sockets — an entity of a scene or a prefab
- * carries `socketAttach`, or a compiled script names `sockets` (the
- * `ctx.sockets` API; a false positive only ships the rigs).
+ * Whether a game poses its models in the simulation — an entity of a scene
+ * or a prefab carries `socketAttach` or an animator with a look-at, or a
+ * compiled script names `sockets` (the `ctx.sockets` API; a false positive
+ * only ships the rigs).
  */
 function usesSockets(scenes: readonly unknown[] | undefined, prefabs: readonly PrefabDefinition[], behaviorArtifacts: readonly ClosureArtifact[]): boolean {
-  const has = (entities: unknown): boolean => Array.isArray(entities) && entities.some((e) => (e as { components?: Record<string, unknown> } | null)?.components?.['socketAttach'] !== undefined);
+  // An animator's look-at turns bones the runtime poses on the rig too.
+  const has = (entities: unknown): boolean =>
+    Array.isArray(entities) &&
+    entities.some((e) => {
+      const c = (e as { components?: Record<string, unknown> } | null)?.components;
+      return c?.['socketAttach'] !== undefined || (c?.['animator'] as { lookAt?: unknown } | undefined)?.lookAt !== undefined;
+    });
   if ((scenes ?? []).some((sc) => has((sc as { entities?: unknown }).entities))) return true;
   if (prefabs.some((d) => has(d.entities))) return true;
   const decoder = new TextDecoder();

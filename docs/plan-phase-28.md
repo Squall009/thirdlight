@@ -133,7 +133,8 @@ surfaces). Format changes share one bump: `project.json` schemaVersion 7
 | 28.6 | done 2026-10-02 — no count cap on a behavior's properties (model, commands, compiler, code-declaration reader, runtime, visual-script variables, editor, schema); `MAX_DECLARATION_BYTES` (32 KiB, measured once by `declarationBytes`) refuses with the size; e2e: 100 properties, one edited in the Inspector, a 101st added in the declaration editor, both survive a backend restart |
 | 28.7 | done 2026-10-03 — `ctx.world.worldTransform` / `{space: 'world'}` (`transform` documented as local, D134); `ctx.input.anyPressed()` (`{device, code}` of any key, mouse or pad button, bound or not); `ctx.spawn` per-copy `properties` (saved with spawned copies); runtime material swaps (entity handle `set('materials', …)` on models, boxes, instance sets; `ctx.grid.setTypeMaterials`; timeline `materialSwap` key) shown only once their textures are loaded; `character_place` `facing` and `world.character.facing`; slot `meta` (≤ 8 short texts) from `slots()`; UI image `saveSlot` shows a slot's picture |
 | 28.8 | done 2026-10-03 — UI sounds `{click, hover, focus}` per widget, per style and as the document's default, on the `ui` bus (engine actions click too); scale modes `cover` and `expand`; `ctx.ui.view()` / `$flow.view`; bindable `offset`, `opacity`, `rotation`; bound lists keep their item widgets and focus (by index or `itemKey`), `ctx.ui.focus(doc, widget, index)` (D131); shell `simulate: {screen: 'scripts'}`; Play screenshots draw the UI and overlays over the frame (`ui: false` for the frame alone) |
-| 28.9–28.13 | — |
+| 28.9 | done 2026-10-03 — blend clips carry their authored ground speed and a tree with one on every clip plays at the rate that covers its parameter (Unity's homogeneous speed); `animator.startTime` and `randomStart` (from `random_seed` and the object id), `play(state, fade, layer, time)` for scripts; a look-at constraint on the animator (head, optional neck and chest with yaw/pitch limits, target object or point, weight × float parameter, turn speed, after the clip pose; `setLookTarget`/`setLookPoint`/`setLookWeight`); measured in Play: blended ground rate, random starts and their replay, the drawn head bone's turn, limit and return |
+| 28.10–28.13 | — |
 
 ## 6. Decision log
 
@@ -355,3 +356,31 @@ surfaces). Format changes share one bump: `project.json` schemaVersion 7
   their end styles. The Play toolbar's renderer label 28.7 saw as
   "pending (initialising)" is a 2 s poll of Play diagnostics: it reads
   "(ready)" within one poll of the first frame (e2e), so no defect.
+- 2026-10-03 (28.9): ground speed — clip i plays `rate·dᵢ/L` of its own
+  seconds a second, so the blend covers rate·Σwᵢsᵢdᵢ/L; the tree scales its
+  rate so that equals the parameter (exact for clips of different lengths,
+  not only at the thresholds). It applies only when every clip of the tree has
+  a speed (a tree being filled in clip by clip plays as authored: no
+  all-or-none refusal mid-edit); where the blended speed is 0 the tree plays as
+  authored. State speed, speed parameter and the animator's speed multiply on
+  top. A transition `cycleOffset` (asked "optionally") is not taken.
+- 2026-10-03 (28.9): start time — normalized, the same for every layer's entry
+  state; `randomStart` is the first draw of an engine stream seeded by
+  `random_seed`, the purpose and the object id (not a shared stream: a copy's
+  start never depends on load order, and scripts' streams never shift); a
+  reload and a run restart start a copy at the same place. Setting both is
+  refused (the Inspector hides the start time under a random start).
+  `play(..., time)` takes a normalized time ≥ 0 (Unity's normalizedTime).
+- 2026-10-03 (28.9): look-at — simulation state, stepped after the animator
+  with the fixed step (replays and sockets agree), on the model's rig (rigs
+  now ship for projects with a look-at, as for sockets). Angles in the model's
+  space from its +Z at the head bone as the clips pose it (the chest's own
+  turn moving the head is not iterated); the turn is split over the chain in
+  proportion to the limits (every bone within its own; the sum is the reach)
+  and composed so the head ends at exactly yaw·pitch; the current angles move
+  as one step in yaw–pitch space at the turn speed (default 360°/s), toward 0
+  at weight 0 or with no target. Scripts get `setLookTarget(id | null)`,
+  `setLookPoint([x,y,z])` and `setLookWeight(w)` (the visual-script generator
+  needs one type per argument, so target and point are two calls). Play's
+  observation with an `entityId` gives the pose (`look`) and the drawn bones
+  (`renderedBones`), which the e2e measures.

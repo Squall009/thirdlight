@@ -10,12 +10,21 @@
  * game's seed and the object's id, so a replay, a reload and an export start
  * every copy at the same place.
  *
+ * A look-at constraint (`lookAt` on the component) steps after its machine:
+ * the target's world position is brought into the model's space and
+ * compared with the head bone as the clips pose it (the model's rig, read
+ * from its file into the build), and the head chain turns toward it at the
+ * turn speed (`look-at.ts`). Its turn is part of the pose, so the renderer
+ * and the sockets apply it after the clips.
+ *
  * Pure and deterministic (no clock, no `Math.random`).
  */
 import type { EntityV3 } from '@thirdlight/project-model';
 
 import { AnimatorMachine, type AnimatorControllerLike, type AnimatorPose } from './animator';
+import { LookAtState, anglesToward, transformPoint, type LookAtLike } from './look-at';
 import { seededUnit } from './random';
+import { invertMat4, mat4, type Mat4, type RigPoser } from './rig-pose';
 import type { TransformState } from './types';
 import type { AnimatorEventRecord, BehaviorAnimatorControl, BehaviorAnimatorHandle } from './types-behavior-world';
 
@@ -34,6 +43,11 @@ export interface AnimatorSystemHost {
   /** Switched-off objects (their animators hold their pose). */
   inactive(): ReadonlySet<string>;
   stepIndex(): number;
+  /** The rig of an entity's model (null: no model, or its rig was not read). */
+  rigOf(entityId: string): RigPoser | null;
+  /** An entity's world matrix (its transform composed up its parents); false when it is not loaded. */
+  worldMatrix(entityId: string, out: Mat4): boolean;
+  warn(message: string): void;
 }
 
 interface AnimatorComponentLike {
@@ -41,11 +55,19 @@ interface AnimatorComponentLike {
   parameters?: Record<string, number | boolean>;
   startTime?: number;
   randomStart?: boolean;
+  lookAt?: LookAtLike;
+}
+
+interface Animated {
+  machine: AnimatorMachine;
+  entity: EntityV3;
+  /** The look-at constraint's state (when the component has one). */
+  look: LookAtState | null;
 }
 
 export class AnimatorSystem {
   private readonly controllers = new Map<string, AnimatorControllerLike>();
-  private readonly machines = new Map<string, { machine: AnimatorMachine; entity: EntityV3 }>();
+  private readonly machines = new Map<string, Animated>();
   /** Parent ids of the loaded entities (the player's model may be a child of the player). */
   private readonly parentOf = new Map<string, string>();
   private fired: readonly AnimatorEventRecord[] = Object.freeze([]);
@@ -66,7 +88,23 @@ export class AnimatorSystem {
         if (rec === undefined) return null;
         const m = rec.machine;
         const num = (v: unknown, d: number): number => (typeof v === 'number' ? v : d);
+        const look = rec.look;
         return Object.freeze({
+          setLookTarget: (entityId: string | null) => {
+            if (look === null || (entityId !== null && (typeof entityId !== 'string' || entityId.length === 0))) return false;
+            look.target = entityId;
+            return true;
+          },
+          setLookPoint: (point: readonly [number, number, number]) => {
+            if (look === null || !Array.isArray(point) || point.length !== 3 || !point.every((x) => typeof x === 'number' && Number.isFinite(x))) return false;
+            look.target = [point[0], point[1], point[2]] as const;
+            return true;
+          },
+          setLookWeight: (weight: number) => {
+            if (look === null || typeof weight !== 'number' || !Number.isFinite(weight) || weight < 0 || weight > 1) return false;
+            look.weight = weight;
+            return true;
+          },
           set: (name: string, value: number | boolean) => m.set(String(name), value),
           trigger: (name: string) => m.trigger(String(name)),
           get: (name: string) => m.get(String(name)),
@@ -98,14 +136,21 @@ export class AnimatorSystem {
 
   /** An entity's pose now, or null without an animator. */
   poseOf(id: string): AnimatorPose | null {
-    return this.machines.get(id)?.machine.pose() ?? null;
+    const rec = this.machines.get(id);
+    return rec === undefined ? null : this.poseOfRec(rec);
   }
 
   /** Every loaded animator's pose (the renderer plays these). */
   poses(): ReadonlyMap<string, AnimatorPose> {
     const out = new Map<string, AnimatorPose>();
-    for (const [id, { machine }] of this.machines) out.set(id, machine.pose());
+    for (const [id, rec] of this.machines) out.set(id, this.poseOfRec(rec));
     return out;
+  }
+
+  private poseOfRec(rec: Animated): AnimatorPose {
+    const pose = rec.machine.pose();
+    const look = rec.look?.pose() ?? null;
+    return look === null ? pose : { ...pose, look };
   }
 
   /** Start an animator for every entity of these that has one (and whose controller exists). */
@@ -118,7 +163,7 @@ export class AnimatorSystem {
       if (controller === undefined) continue;
       // A random start comes from the game's seed and the object's id: a replay (or a reload) starts it alike.
       const start = a.randomStart === true ? seededUnit(this.host.seed, 'animator-start', e.id) : (a.startTime ?? 0);
-      this.machines.set(e.id, { machine: new AnimatorMachine(controller, a.parameters ?? {}, start), entity: e });
+      this.machines.set(e.id, { machine: new AnimatorMachine(controller, a.parameters ?? {}, start), entity: e, look: a.lookAt !== undefined ? new LookAtState(a.lookAt) : null });
     }
   }
 
@@ -177,7 +222,8 @@ export class AnimatorSystem {
     const dt = 1 / this.host.hz;
     const off = this.host.inactive();
     const stepIndex = this.host.stepIndex();
-    for (const [id, { machine }] of this.machines) {
+    for (const [id, rec] of this.machines) {
+      const machine = rec.machine;
       // A switched-off object's animator holds its pose.
       if (off.size > 0 && off.has(id)) continue;
       if (this.isCharacterOrChild(id)) {
@@ -187,7 +233,49 @@ export class AnimatorSystem {
         if (landed) machine.trigger('landed');
       }
       for (const e of machine.step(dt)) fired.push(Object.freeze({ entityId: id, name: e.name, clip: e.clip, stepIndex }));
+      if (rec.look !== null) this.stepLook(id, rec.machine, rec.look, dt);
     }
     this.fired = Object.freeze(fired);
+  }
+
+  private readonly mWorld = mat4();
+  private readonly mInv = mat4();
+  private readonly mNode = mat4();
+  private readonly warned = new Set<string>();
+
+  private warnOnce(key: string, message: string): void {
+    if (this.warned.has(key) || this.warned.size > 256) return;
+    this.warned.add(key);
+    this.host.warn(message);
+  }
+
+  /** One look-at step: the angles toward the target from the head as the clips pose it. */
+  private stepLook(id: string, machine: AnimatorMachine, look: LookAtState, dt: number): void {
+    const c = look.config;
+    let weight = look.weight ?? c.weight ?? 1;
+    if (c.weightParameter !== undefined) {
+      const v = machine.get(c.weightParameter);
+      if (v === undefined) this.warnOnce(`param:${id}`, `animator look-at on "${id}": the controller has no parameter "${c.weightParameter}" (its weight reads 0)`);
+      weight *= typeof v === 'number' && Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : 0;
+    }
+    const target = look.target !== undefined ? look.target : (c.target ?? (c.point !== undefined ? ([c.point[0]!, c.point[1]!, c.point[2]!] as const) : null));
+    let wanted: { yaw: number; pitch: number } | null = null;
+    let world: readonly number[] | null = null;
+    if (typeof target === 'string') {
+      // A target that is not loaded (yet, or any more) reads as no target: the head turns back.
+      if (this.host.worldMatrix(target, this.mWorld)) world = [this.mWorld[12]!, this.mWorld[13]!, this.mWorld[14]!];
+    } else if (target !== null) world = target;
+    if (world !== null && weight > 0) {
+      const rig = this.host.rigOf(id);
+      const head = rig?.nodeIndex(c.head.bone) ?? -1;
+      if (rig === null || rig === undefined) this.warnOnce(`rig:${id}`, `animator look-at on "${id}": its model's rig is not in the build; the head does not turn`);
+      else if (head < 0) this.warnOnce(`bone:${id}`, `animator look-at on "${id}": its model has no bone "${c.head.bone}"; the head does not turn`);
+      else if (this.host.worldMatrix(id, this.mWorld)) {
+        rig.nodeMatrix(head, machine.pose(), this.mNode);
+        invertMat4(this.mInv, this.mWorld);
+        wanted = anglesToward([this.mNode[12]!, this.mNode[13]!, this.mNode[14]!], transformPoint(this.mInv, world));
+      }
+    }
+    look.step(wanted, weight, dt);
   }
 }

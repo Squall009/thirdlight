@@ -933,6 +933,23 @@ export interface BehaviorAnimatorHandle {
    */
   play(state: string, fade?: number, layer?: number, time?: number): boolean;
   /**
+   * The object the look-at constraint turns the head toward (its origin), or null for nothing (the head turns back at its turn speed). False when the animator has no look-at.
+   * @graphNode Set look target
+   * @graphLabel targetId target
+   */
+  setLookTarget(targetId: string | null): boolean;
+  /**
+   * A world point [x, y, z] the look-at constraint turns the head toward (in place of a target object). False when the animator has no look-at or the point is not three finite numbers.
+   * @graphNode Set look point
+   */
+  setLookPoint(point: readonly [number, number, number]): boolean;
+  /**
+   * The look-at constraint's weight (0–1; 0: the clip pose alone — the head turns back at its turn speed). False when the animator has no look-at or the weight is outside 0–1.
+   * @graphNode Set look weight
+   * @graphDefault weight 1
+   */
+  setLookWeight(weight: number): boolean;
+  /**
    * Set this animator's playback speed (× every clip and crossfade; 1 as authored, 0.5 half speed, 0 holds the pose; 0–10). False for a value outside 0–10.
    * @graphNode Set animation speed
    * @graphDefault speed 1

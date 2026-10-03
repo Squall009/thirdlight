@@ -475,7 +475,7 @@ const COMPONENT_FIELDS: Record<string, readonly string[]> = {
   // v4 scenes only.
   instances: ['asset', 'buffer', 'count', 'castShadow', 'receiveShadow', 'chunkSize'],
   fogVolume: ['size', 'density', 'color', 'falloff', 'heightFalloff'],
-  animator: ['controller', 'parameters', 'startTime', 'randomStart'],
+  animator: ['controller', 'parameters', 'startTime', 'randomStart', 'lookAt'],
   mover: ['waypoints', 'speed', 'mode', 'wait', 'easing', 'startOn', 'maxPush', 'active', 'stopOn', 'toggleOn', 'reverseOn'],
   audioSource: ['assetId', 'volume', 'range', 'distanceModel', 'refDistance', 'rolloff'],
   faceMovement: ['yawRight', 'yawLeft', 'turnSeconds', 'mode', 'yawOffset'],

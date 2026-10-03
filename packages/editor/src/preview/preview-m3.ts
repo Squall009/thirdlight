@@ -530,6 +530,8 @@ export function bootstrapPreviewM3(): void {
       ...effectsObservation(h),
       ...(behaviors !== null ? { behaviors } : {}),
       ...(entityId !== undefined ? animatorPoseOf(h.host.runtime, entityId) : {}),
+      // Its model's bones as drawn (after the clips and the look-at turn).
+      ...(entityId !== undefined && h.adapter !== null ? renderedBonesOf(h.adapter, entityId) : {}),
       ...(debug !== null && debug !== undefined ? { debug } : {}),
       ...debugCommandsObservation(h),
       ...savesObservationOf(h.host),
@@ -777,6 +779,11 @@ function spawnedObservation(runtime: unknown): { spawned?: { count: number; ids:
 function animatorPoseOf(runtime: unknown, entityId: string): { animator?: unknown } {
   const pose = (runtime as { animatorPoses?: () => ReadonlyMap<string, unknown> }).animatorPoses?.().get(entityId);
   return pose !== undefined ? { animator: structuredClone(pose) } : {};
+}
+
+function renderedBonesOf(adapter: SceneAdapter, entityId: string): { renderedBones?: unknown } {
+  const nodes = adapter.renderedNodes(entityId);
+  return nodes !== null ? { renderedBones: nodes } : {};
 }
 
 function animatorStates(runtime: unknown): { animators?: Record<string, string> } {

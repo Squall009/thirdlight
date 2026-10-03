@@ -12,6 +12,7 @@ import type { BlockLayerViewDiagnostics } from './block-layers';
 import type { RuntimeMaterialsDiagnostics } from './runtime-materials';
 import type { AdapterError } from './errors';
 import type { ScreenshotResult } from './capture';
+import type { RenderedNodePose } from './animator-player';
 import type { ModelsSettledResult, SceneAdapterModels, SceneAdapterModelsDiagnostics } from './models';
 import type { GlbLoaderPort } from './visual';
 import type { ShadowReason } from './lighting';
@@ -257,6 +258,12 @@ export interface SceneAdapter {
   captureThumbnail(width: number, height: number, type: 'image/jpeg' | 'image/webp', quality: number): { dataUrl: string; width: number; height: number } | null;
   /** The renderer is still starting (it initialises asynchronously): a capture now draws nothing. False once it can draw or has failed. */
   rendererStarting(): boolean;
+  /**
+   * Named nodes (bones) of an animated object's model as drawn: world
+   * position and rotation after the clips and the look-at turn (null: the
+   * object has no animated model drawn). For observation and tests.
+   */
+  renderedNodes(entityId: string, names?: readonly string[]): Record<string, RenderedNodePose> | null;
   diagnostics(): { ok: true; diagnostics: SceneAdapterDiagnostics } | { ok: false; error: AdapterError };
   /** Idempotent (mirrors the runtime's dispose): second call ⇒
    *  `{ ok: true, alreadyDisposed: true }`. */

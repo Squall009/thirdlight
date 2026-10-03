@@ -1831,6 +1831,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     },
     diagnostics,
     dispose,
+    renderedNodes: (entityId, names) => (disposed ? null : (animatorPlayers.get(entityId)?.player.nodePoses(names) ?? null)),
     setQuality(level: QualityLevel): void {
       playerQuality = level;
       environmentRenderer?.setQuality(level);

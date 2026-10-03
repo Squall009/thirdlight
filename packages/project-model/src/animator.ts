@@ -190,7 +190,44 @@ export interface AnimatorComponent {
    * one character do not move in step and a replay starts them alike.
    */
   randomStart?: boolean;
+  /** A look-at constraint turning the head (and neck, chest) toward a target after the clip pose. */
+  lookAt?: AnimatorLookAt;
 }
+
+/** One bone of a look-at chain and how far it may turn each way (degrees). */
+export interface AnimatorLookAtBone {
+  /** The bone (node) name in the model. */
+  bone: string;
+  yaw: number;
+  pitch: number;
+}
+
+/**
+ * A look-at (aim) constraint on an animator: the head, optionally the neck
+ * and the chest, turned toward a target entity or a world point after the
+ * clips pose them (Unity's Animation Rigging multi-aim). The angles split
+ * over the chain by each bone's limit; they move at `turnSpeed`, so the head
+ * turns to a new target and back (weight 0, no target) smoothly. Scripts set
+ * the target and the weight (`ctx.animator(id)?.setLookTarget/setLookWeight`).
+ */
+export interface AnimatorLookAt {
+  head: AnimatorLookAtBone;
+  neck?: AnimatorLookAtBone;
+  chest?: AnimatorLookAtBone;
+  /** The entity looked at (its origin). */
+  target?: string;
+  /** A world point looked at when there is no target entity. */
+  point?: [number, number, number];
+  /** 0–1 (default 1). */
+  weight?: number;
+  /** A float parameter (clamped to 0–1) the weight is multiplied by. */
+  weightParameter?: string;
+  /** Degrees a second (default {@link LOOK_AT_LIMITS}.turnSpeedDefault). */
+  turnSpeed?: number;
+}
+
+/** Look-at bounds: per-bone turn limits (degrees each way) and the turn speed (degrees a second). */
+export const LOOK_AT_LIMITS = Object.freeze({ yawMax: 180, pitchMax: 90, turnSpeedMin: 1, turnSpeedMax: 7200, turnSpeedDefault: 360, pointMax: 1e6 });
 
 export const MAX_ANIMATOR_PARAMETERS = 32;
 export const MAX_ANIMATOR_STATES = 64;
@@ -485,10 +522,53 @@ export function validateAnimators(value: unknown, path: string, errors: ModelErr
   });
 }
 
+function checkLookAt(v: unknown, path: string, errors: ModelErrorV2[]): void {
+  if (!isPlainObject(v)) return err(errors, 'field_type', path, 'lookAt is { head, neck?, chest?, target?, point?, weight?, weightParameter?, turnSpeed? }', v);
+  onlyKeys(v, ['head', 'neck', 'chest', 'target', 'point', 'weight', 'weightParameter', 'turnSpeed'], path, errors);
+  if (v['head'] === undefined) err(errors, 'field_missing', `${path}/head`, 'a look-at turns at least the head bone');
+  const bones = new Set<string>();
+  for (const k of ['head', 'neck', 'chest'] as const) {
+    const b = v[k];
+    if (b === undefined) continue;
+    const bp = `${path}/${k}`;
+    if (!isPlainObject(b)) {
+      err(errors, 'field_type', bp, 'a look-at bone is { bone, yaw, pitch }', b);
+      continue;
+    }
+    onlyKeys(b, ['bone', 'yaw', 'pitch'], bp, errors);
+    if (!isName(b['bone'])) err(errors, 'field_value', `${bp}/bone`, 'bone is a bone (node) name of the model (1–128 characters)', b['bone']);
+    else if (bones.has(b['bone'] as string)) err(errors, 'field_value', `${bp}/bone`, 'each bone of the chain is a different bone', b['bone']);
+    else bones.add(b['bone'] as string);
+    if (!num(b['yaw'], 0, LOOK_AT_LIMITS.yawMax)) err(errors, 'field_value', `${bp}/yaw`, `yaw is the turn limit each way in degrees [0, ${LOOK_AT_LIMITS.yawMax}]`, b['yaw']);
+    if (!num(b['pitch'], 0, LOOK_AT_LIMITS.pitchMax)) err(errors, 'field_value', `${bp}/pitch`, `pitch is the tilt limit each way in degrees [0, ${LOOK_AT_LIMITS.pitchMax}]`, b['pitch']);
+  }
+  if (v['target'] !== undefined && (typeof v['target'] !== 'string' || !ID_RE.test(v['target']))) err(errors, 'field_value', `${path}/target`, 'target is an entity id', v['target']);
+  const pt = v['point'];
+  if (pt !== undefined && (!Array.isArray(pt) || pt.length !== 3 || !pt.every((x) => num(x, -LOOK_AT_LIMITS.pointMax, LOOK_AT_LIMITS.pointMax)))) err(errors, 'field_value', `${path}/point`, 'point is a world position [x, y, z]', pt);
+  if (v['weight'] !== undefined && !num(v['weight'], 0, 1)) err(errors, 'field_value', `${path}/weight`, 'weight is a number in [0, 1]', v['weight']);
+  if (v['weightParameter'] !== undefined && (typeof v['weightParameter'] !== 'string' || !PARAM_RE.test(v['weightParameter']))) err(errors, 'field_value', `${path}/weightParameter`, 'weightParameter names a float parameter of the controller', v['weightParameter']);
+  if (v['turnSpeed'] !== undefined && !num(v['turnSpeed'], LOOK_AT_LIMITS.turnSpeedMin, LOOK_AT_LIMITS.turnSpeedMax)) err(errors, 'field_value', `${path}/turnSpeed`, `turnSpeed is degrees a second [${LOOK_AT_LIMITS.turnSpeedMin}, ${LOOK_AT_LIMITS.turnSpeedMax}]`, v['turnSpeed']);
+}
+
+const lookBone = (b: AnimatorLookAtBone): AnimatorLookAtBone => ({ bone: b.bone, yaw: b.yaw, pitch: b.pitch });
+function canonicalLookAt(l: AnimatorLookAt): AnimatorLookAt {
+  return {
+    head: lookBone(l.head),
+    ...(l.neck !== undefined ? { neck: lookBone(l.neck) } : {}),
+    ...(l.chest !== undefined ? { chest: lookBone(l.chest) } : {}),
+    ...(l.target !== undefined ? { target: l.target } : {}),
+    ...(l.point !== undefined ? { point: [l.point[0], l.point[1], l.point[2]] as [number, number, number] } : {}),
+    ...(l.weight !== undefined ? { weight: l.weight } : {}),
+    ...(l.weightParameter !== undefined ? { weightParameter: l.weightParameter } : {}),
+    ...(l.turnSpeed !== undefined ? { turnSpeed: l.turnSpeed } : {}),
+  };
+}
+
 /** The `animator` component (its controller is checked against the content). */
 export function validateAnimatorComponent(value: unknown, path: string, errors: ModelErrorV2[]): void {
-  if (!isPlainObject(value)) return err(errors, 'field_type', path, 'animator is { controller, parameters?, startTime?, randomStart? }', value);
-  onlyKeys(value, ['controller', 'parameters', 'startTime', 'randomStart'], path, errors);
+  if (!isPlainObject(value)) return err(errors, 'field_type', path, 'animator is { controller, parameters?, startTime?, randomStart?, lookAt? }', value);
+  onlyKeys(value, ['controller', 'parameters', 'startTime', 'randomStart', 'lookAt'], path, errors);
+  if (value['lookAt'] !== undefined) checkLookAt(value['lookAt'], `${path}/lookAt`, errors);
   if (typeof value['controller'] !== 'string' || !ID_RE.test(value['controller'])) err(errors, 'field_value', `${path}/controller`, 'controller is a controller id', value['controller']);
   if (value['startTime'] !== undefined && !num(value['startTime'], 0, 1)) err(errors, 'field_value', `${path}/startTime`, 'startTime is a normalized time [0, 1]', value['startTime']);
   if (value['randomStart'] !== undefined && typeof value['randomStart'] !== 'boolean') err(errors, 'field_type', `${path}/randomStart`, 'randomStart is true or false', value['randomStart']);
@@ -615,6 +695,7 @@ export function canonicalAnimatorComponent(c: AnimatorComponent): AnimatorCompon
     ...(c.parameters !== undefined ? { parameters: Object.fromEntries(Object.keys(c.parameters).sort().map((k) => [k, c.parameters![k]!])) } : {}),
     ...(c.startTime !== undefined ? { startTime: c.startTime } : {}),
     ...(c.randomStart !== undefined ? { randomStart: c.randomStart } : {}),
+    ...(c.lookAt !== undefined ? { lookAt: canonicalLookAt(c.lookAt) } : {}),
   };
 }
 

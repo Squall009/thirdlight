@@ -18,6 +18,8 @@
  *   layers j covering the node, L_j = layer weight × min(1, its clip
  *   weights) — the same factors the renderer's layered actions get.
  * - Node matrices compose parent-first (column-major 4×4, like three.js).
+ * - A pose's look-at turn (`look`) rotates its bones about their pivots in
+ *   the model's space after the clips, as the renderer does.
  *
  * Pure and deterministic (plain doubles, fixed order): page, worker and
  * export compute the same pose.
@@ -25,6 +27,7 @@
 import type { ModelRig, ModelRigChannel } from '@thirdlight/project-model';
 
 import type { AnimatorPose } from './animator';
+import { quatConj, quatMul } from './look-at';
 
 /** A column-major 4×4 matrix. */
 export type Mat4 = Float64Array;
@@ -341,11 +344,21 @@ export class RigPoser {
     out[10] = 1;
     out[15] = 1;
     const t: number[] = [0, 0, 0];
-    const r: number[] = [0, 0, 0, 1];
+    let r: number[] = [0, 0, 0, 1];
     const s: number[] = [1, 1, 1];
+    const look = pose?.look;
     for (let k = chain.length - 1; k >= 0; k -= 1) {
       const i = chain[k]!;
       this.localTRS(i, pose, t, r, s);
+      const turn = look === undefined ? undefined : look.bones.find((b) => b.node === this.rig.nodes[i]!.name);
+      if (turn !== undefined) {
+        // The look-at's model-space turn about the bone's pivot: local' = P⁻¹·D·P·local (P: the parent's model rotation).
+        const pt: number[] = [0, 0, 0];
+        const pr: number[] = [0, 0, 0, 1];
+        const ps: number[] = [1, 1, 1];
+        decomposeMat4(out, pt, pr, ps);
+        r = quatMul(quatConj(pr), quatMul(turn.rotation, quatMul(pr, r)));
+      }
       composeMat4(this.scratchLocal, t, r, s);
       mulMat4(this.scratchOut, out, this.scratchLocal);
       out.set(this.scratchOut);

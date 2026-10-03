@@ -302,8 +302,14 @@ export class SocketSystem {
     return true;
   }
 
+  /** The rig of an entity's model (null: no model, or no rig for it in the build). The animators' look-at reads it too. */
+  rigOf(entityId: string): RigPoser | null {
+    const asset = this.models.get(entityId);
+    return asset === undefined ? null : this.poserOf(asset);
+  }
+
   /** An entity's world matrix (its transform composed up its parents) into `out`. */
-  private worldMatrix(id: string, out: Mat4): boolean {
+  worldMatrix(id: string, out: Mat4): boolean {
     const chain: TransformState[] = [];
     for (let cur: string | null | undefined = id, guard = 0; cur !== null && cur !== undefined && guard < 64; cur = this.host.parentOf(cur), guard += 1) {
       const t = this.host.curr.get(cur);

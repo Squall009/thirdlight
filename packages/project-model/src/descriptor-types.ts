@@ -47,7 +47,7 @@ export type DescriptorAssetKind = (typeof ASSET_KINDS)[number];
 export type DescriptorRefTarget = 'material' | 'animator' | 'behavior' | 'prefab' | 'animatorParameter' | 'animatorState' | 'clip' | 'effect' | 'uiDocument' | 'uiTheme' | 'uiTween' | 'uiWidget' | 'behaviorGroup' | 'inputMap' | 'mode';
 
 /** String formats (validation hints and widget choices). */
-export type DescriptorStringFormat = 'id' | 'name' | 'identifier' | 'keyCode' | 'counter' | 'multiline' | 'sha256' | 'materialSlot' | 'boneName' | 'socketNode';
+export type DescriptorStringFormat = 'id' | 'name' | 'identifier' | 'keyCode' | 'counter' | 'multiline' | 'sha256' | 'materialSlot' | 'boneName' | 'socketNode' | 'ownBone';
 
 /** A condition on a sibling field (`key`) or, with `../key`, on a field of the enclosing object. */
 export interface FieldCondition {
