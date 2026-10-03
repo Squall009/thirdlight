@@ -183,6 +183,18 @@ describe('edits → command values', () => {
     expect(fieldAt(mover, {}, ['waypoints', 0])?.type).toBe('vec3');
   });
 
+  it('an edit of one part of a value is applied to the value stored when the patch is made, keeping its other parts', () => {
+    const look = f<ObjectFieldDescriptor>({ type: 'object', key: 'look', fields: [f({ type: 'vec3', key: 'point', labels: ['x', 'y', 'z'] })] });
+    // The y box's edit, made from [0, 0, 0] on screen: applied to [5, 0, 0] (an x edit that landed meanwhile).
+    const setY = (stored: unknown): number[] => {
+      const v = [...(stored as number[])];
+      v[1] = 1;
+      return v;
+    };
+    expect(componentPatch(look, { point: [5, 0, 0] }, ['point'], setY)).toEqual({ point: [5, 1, 0] });
+    expect(setAt({ a: { point: [5, 0, 0] } }, ['a', 'point'], setY)).toEqual({ a: { point: [5, 1, 0] } });
+  });
+
   it('starting values: defaults, required fields of objects, first enum option', () => {
     expect(startValue(CONTROLLER.fields[0]!)).toEqual({ radius: 0.3, height: 1.8 });
     expect(startValue(f({ type: 'enum', key: 'e', options: [{ value: 'x', label: 'X' }] }))).toBe('x');

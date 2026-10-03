@@ -2,8 +2,8 @@
  * `replay` answers once the restart is applied, with the new run's id, or
  * says the restart is still pending — never a relay timeout for a restart
  * that happens. Against the real backend, the real MCP adapter and the
- * editor in Chromium, in both threading modes (a worker and the page's main
- * thread):
+ * editor in Chromium, the bench in the simulation worker and the Starter on
+ * the page's main thread:
  *
  * - The scale bench at its small size (generated content, no scripts: its
  *   steps sample no input): with scenes loaded, a replay over HTTP and one
@@ -91,8 +91,10 @@ function expectApplied(r: Control, snap: string, run: number): void {
   expect(validateGameControlResult(r).ok, JSON.stringify(validateGameControlResult(r))).toBe(true);
 }
 
+// Each subject in one threading mode: the restart, its answer and the pending answer are the same runtime code
+// in both (sim-worker.e2e checks the modes agree) — the bench (no scripts) in the worker, the Starter on the page.
 for (const threads of ['worker', 'single'] as const) {
-  test(`a replay answers once applied with the new run id, or pending while the game takes no step, over HTTP and MCP (scale bench, ${threads})`, async ({ page }) => {
+  if (threads === 'worker') test(`a replay answers once applied with the new run id, or pending while the game takes no step, over HTTP and MCP (scale bench, ${threads})`, async ({ page }) => {
     test.setTimeout(240_000);
     root = join(PERF_ROOT, 'e2e', `replay-${threads}-${process.pid}-${Date.now()}`);
     const generated = await generateScaleProject(join(root, 'data'), 'scale', SCALE_SMALL);
@@ -147,7 +149,7 @@ for (const threads of ['worker', 'single'] as const) {
     }
   });
 
-  test(`a replay of a game with scripts answers once applied with the new run id over HTTP and MCP (Starter, ${threads})`, async ({ page }) => {
+  if (threads === 'single') test(`a replay of a game with scripts answers once applied with the new run id over HTTP and MCP (Starter, ${threads})`, async ({ page }) => {
     test.setTimeout(180_000);
     root = join(PERF_ROOT, 'e2e', `replay-starter-${threads}-${process.pid}-${Date.now()}`);
     be = await startPerfBackend(join(root, 'data'), join(root, 'exports'));

@@ -10,7 +10,7 @@ import { presetValue } from '../../session/descriptor-fields';
 import { withCopy, withoutCopy, type CopyTransform } from '../../session/instance-copies';
 import type { DescriptorRegistry, InstanceStroke } from '@thirdlight/project-model';
 import type { SceneAction } from '../Hierarchy';
-import type { EntityFlag } from '../Inspector';
+import type { EntityFlag, PatchRebase } from '../Inspector';
 import { waitFor } from '../wait-for';
 import type { ClientRef, ModelsRef, ReportFailure, SetNotice, ViewportRef } from './commands';
 
@@ -292,10 +292,19 @@ export function useSceneEditing(deps: SceneEditingDeps) {
     if (res.ok && res.createdId !== undefined) select(res.createdId);
     else reportFailure('Create folder', res);
   }, [clientRef, reportFailure, selectedIdRef, selectLater]);
-  const editTransform = useCallback(async (entityId: string, patch: { position?: number[]; rotation?: number[]; scale?: number[] }) => {
+  // With `rebase` the patch is made when the command is sent, from the transform the editor's earlier edits left.
+  const editTransform = useCallback(async (entityId: string, patch: { position?: number[]; rotation?: number[]; scale?: number[] }, rebase?: PatchRebase) => {
     const c = clientRef.current;
     if (!c) return;
-    const res = await c.command('setTransform', { entityId, transform: patch }, c.projection.revision);
+    const args =
+      rebase === undefined
+        ? { entityId, transform: patch }
+        : () => {
+            const e = c.projection.getEntity(entityId);
+            const fresh = e === undefined ? null : rebase({ position: e.position, rotation: e.rotation, scale: e.scale });
+            return { entityId, transform: fresh ?? patch };
+          };
+    const res = await c.command('setTransform', args, c.projection.revision);
     if (!res.ok) refreshEntities();
     reportFailure('Transform edit', res);
   }, [clientRef, refreshEntities, reportFailure]);

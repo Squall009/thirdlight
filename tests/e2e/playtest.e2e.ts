@@ -149,7 +149,8 @@ const walk = (stepOffset: number, steps: number, v = 1) => ({ stepOffset, steps,
 const seen = (o: Observation): number => Number((o.fields['ui.values'] as { t?: { seen?: number } } | null)?.t?.seen);
 const x = (o: Observation): number => (o.fields['player'] as { x: number }).x;
 
-test('the CLI plays an input script twice in the worker and on a single thread: the same run digests; start variables at every run; each walk from rest covers the same distance', async () => {
+// The worker only: the CLI's `--threads both` (and the two modes agreeing) is the MCP test's below, and relay-input's.
+test('the CLI plays an input script twice: the same run digests; start variables at every run; each walk from rest covers the same distance', async () => {
   test.setTimeout(300_000);
   const folder = join(scratch, 'game');
   const created = await be.admin('projects', { projectId: 'playtest-folder', name: 'Playtest', folder, template: 'starter' });
@@ -163,12 +164,12 @@ test('the CLI plays an input script twice in the worker and on a single thread: 
   const script = [walk(60, 90), walk(400, 90), { stepOffset: 720, actions: { move: { v: 1, p: 'none' }, jump: { v: 1, p: 'pressed' } } }, walk(721, 29), { stepOffset: 899 }];
   writeFileSync(join(scratch, 'script.json'), JSON.stringify({ frames: script }));
   writeFileSync(join(scratch, 'vars.json'), JSON.stringify({ probe: 7 }));
-  const { status, result, stderr } = await cli([folder, '--input', join(scratch, 'script.json'), '--variables', join(scratch, 'vars.json'), '--threads', 'both', '--runs', '2', '--at', '60,400,700', '--fields', 'player,ui.values,state']);
+  const { status, result, stderr } = await cli([folder, '--input', join(scratch, 'script.json'), '--variables', join(scratch, 'vars.json'), '--threads', 'worker', '--runs', '2', '--at', '60,400,700', '--fields', 'player,ui.values,state']);
   expect(result.ok, `${stderr} ${JSON.stringify(result).slice(0, 2000)}`).toBe(true);
   expect(status).toBe(0);
   expect(result.input).toMatchObject({ kind: 'frames', steps: 900 });
-  expect(result.runs.map((r) => `${r.threads}/${r.simulation}/${r.run}`)).toEqual(['worker/worker/1', 'worker/worker/2', 'single/single/1', 'single/single/2']);
-  // The same input twice, in both threading modes: the same digests at the same run steps.
+  expect(result.runs.map((r) => `${r.threads}/${r.simulation}/${r.run}`)).toEqual(['worker/worker/1', 'worker/worker/2']);
+  // The same input twice: the same digests at the same run steps.
   expect(result.deterministic, JSON.stringify(result.mismatches)).toBe(true);
   for (const r of result.runs) {
     expect(r.observations.map((o) => o.runStep)).toEqual([60, 400, 700, 900]);
@@ -207,11 +208,11 @@ test('the CLI plays an input script twice in the worker and on a single thread: 
       '',
     ].join('\n'),
   );
-  const driven = await cli([folder, '--driver', 'walk-driver.mjs', '--threads', 'both', '--runs', '2']);
+  const driven = await cli([folder, '--driver', 'walk-driver.mjs', '--threads', 'worker', '--runs', '2']);
   expect(driven.result.ok, `${driven.stderr} ${JSON.stringify(driven.result).slice(0, 2000)}`).toBe(true);
   expect(driven.status).toBe(0);
   expect(driven.result.deterministic, JSON.stringify(driven.result.mismatches)).toBe(true);
-  expect(driven.result.runs).toHaveLength(4);
+  expect(driven.result.runs).toHaveLength(2);
   const r0 = driven.result.runs[0]!;
   expect(r0.result!.dx).toBeGreaterThanOrEqual(3);
   expect(r0.result!.steps).toBeGreaterThan(10);

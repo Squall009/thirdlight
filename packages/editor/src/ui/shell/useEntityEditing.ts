@@ -12,6 +12,7 @@ import { fitCapsule } from '../../session/size-handles';
 import { maxPolygonCorners } from '../../session/handles';
 import { boxFromBounds3D, boxFromOutline, polygonFromOutline } from '../../session/outline';
 import type { DescriptorRegistry } from '@thirdlight/project-model';
+import type { PatchRebase } from '../Inspector';
 import type { ClientRef, ModelsRef, ReportFailure, SetNotice, UiError, ViewportRef } from './commands';
 
 export interface EntityEditingDeps {
@@ -138,18 +139,30 @@ export function useEntityEditing(deps: EntityEditingDeps) {
    * One Inspector component edit — a partial top-level value, or
    * null to remove the component — as one typed command (one undo step): the
    * script through `setBehaviorProperties`, everything else `setComponent`.
+   * With `rebase` the patch is made when the command is sent, from the
+   * component as the editor's earlier edits left it: two fields of one value
+   * edited in quick succession both land.
    */
   const editComponent = useCallback(
-    async (entityId: string, component: string, patch: Record<string, unknown> | null) => {
+    async (entityId: string, component: string, patch: Record<string, unknown> | null, rebase?: PatchRebase) => {
       setComponentError(null);
       if (component === 'behavior') {
         if (patch !== null) return; // the script's values are edited property by property (editProperty)
         await runTypedCommand('setBehaviorProperties', { entityId, behaviorId: null }, setComponentError, true);
         return;
       }
-      await runTypedCommand('setComponent', { entityId, component, value: patch }, setComponentError, true);
+      const c = clientRef.current;
+      const args =
+        patch === null || rebase === undefined || c === null
+          ? { entityId, component, value: patch }
+          : () => {
+              const current = c.projection.getEntity(entityId)?.components[component];
+              const fresh = current !== null && typeof current === 'object' ? rebase(current as Record<string, unknown>) : null;
+              return { entityId, component, value: fresh ?? patch };
+            };
+      await runTypedCommand('setComponent', args, setComponentError, true);
     },
-    [runTypedCommand],
+    [clientRef, runTypedCommand],
   );
   /** "+ Add component" (the descriptor's value, a preset, or the picked value) — one command. */
   const addComponentTo = useCallback(

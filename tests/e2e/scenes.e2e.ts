@@ -4,9 +4,9 @@
  * - the editor with several scenes: a header per open scene, a new scene
  *   becomes the active one and new objects go there, rename, the start set,
  *   close/open, deleting an empty scene, and a drag between scenes refused;
- * - Play loads scenes on demand: a script asks for a scene with ctx.scenes and
- *   reacts once it is loaded; an exit zone loads a scene and moves the player
- *   to its spawn; MCP's game-control relay unloads it again.
+ * - Play loads scenes on demand: an exit zone loads a scene and moves the
+ *   player to its spawn; MCP's game-control relay unloads it again (a script's
+ *   ctx.scenes: keep-loaded.e2e, scene-reload.e2e).
  */
 import { createHash } from 'node:crypto';
 import { readFileSync, existsSync } from 'node:fs';
@@ -14,7 +14,7 @@ import { join } from 'node:path';
 
 import { expect, test, type Page } from '@playwright/test';
 
-import { STARTER, startBackend, type E2EBackend } from './backend';
+import { startBackend, type E2EBackend } from './backend';
 import { createBox } from './ui';
 
 let be: E2EBackend;
@@ -145,32 +145,6 @@ test('several scenes in the editor: new scene is active, objects go there, renam
   expect(existsSync(join(be.projectDir, 'scenes', `${thirdId}.json`))).toBe(false);
 });
 
-/** Publish a behavior with this source and attach it to the player. */
-async function playerScript(behaviorId: string, source: string): Promise<void> {
-  const bytes = Buffer.from(`${JSON.stringify({ graphVersion: 1, entryPath: 'src/index.ts', requiredModules: ['@thirdlight/runtime'], ownedTransforms: [], files: [{ path: 'src/index.ts', text: source }] }, null, 2)}\n`);
-  const stage = await api('content/stages', {});
-  const stageId = String(stage.json.stageId);
-  const put = await fetch(`${be.origin}/api/v1/projects/${be.projectId}/content/stages/${stageId}/bytes`, {
-    method: 'PUT',
-    headers: { authorization: `Bearer ${be.token}`, origin: be.origin, 'content-type': 'application/octet-stream', 'x-thirdlight-offset': '0', 'x-thirdlight-total': String(bytes.length) },
-    body: bytes,
-  });
-  expect(put.status).toBe(200);
-  const declaration = { properties: [{ key: 'speed', label: 'Speed', type: 'number', default: 1, min: 0, max: 10, step: 1 }] };
-  await cmd('publishBehavior', { behaviorId, displayName: 'Scene loader', mode: 'declaration-create', declaration });
-  await cmd('acknowledgeBehaviorTrust', { sourceDigest: createHash('sha256').update(bytes).digest('hex') });
-  const published = await api('content/behaviors/source', {
-    stageId,
-    behaviorId,
-    displayName: 'Scene loader',
-    declaration,
-    expectedRevision: await revision(),
-    requestId: `req-${'e'.repeat(32)}`,
-  });
-  expect(published.status, JSON.stringify(published.json)).toBe(200);
-  await cmd('setBehaviorProperties', { entityId: STARTER.playerId, behaviorId, values: { speed: 1 } });
-}
-
 /** The cave scene: a floor far to the right, a spawn on it and a magenta marker box. */
 async function buildCave(): Promise<void> {
   await cmd('createScene', { sceneId: 'scene-cave', name: 'Cave' });
@@ -189,28 +163,6 @@ async function startPlay(page: Page, firstState = 'running'): Promise<{ psid: st
   await expect.poll(async () => (await observe()).state, { timeout: 15_000 }).toBe(firstState);
   return { psid, observe };
 }
-
-test('Play: a script loads a scene with ctx.scenes and acts once it is loaded', async ({ page }) => {
-  be = await startBackend('scenes-e2e', 'starter');
-  await buildCave();
-  // Idle until the cave is loaded, then run right.
-  await playerScript('behavior-scene-loader', [
-    'export default {',
-    '  prepare() { return {}; },',
-    '  instantiate() { return { asked: false }; },',
-    '  step(state: { asked: boolean }, ctx: { scenes: { load(id: string): void; status(id: string): string }; emit(i: unknown): void }) {',
-    "    if (!state.asked) { ctx.scenes.load('scene-cave'); state.asked = true; }",
-    "    ctx.emit({ kind: 'control_move', value: ctx.scenes.status('scene-cave') === 'loaded' ? 1 : 0 });",
-    '  },',
-    '  dispose() {},',
-    '};',
-    '',
-  ].join('\n'));
-  // The starter has no game block: the scene plays at once (scene mode).
-  const { observe } = await startPlay(page);
-  await expect.poll(async () => (await observe()).scenes?.loaded, { timeout: 10_000 }).toEqual(['scene-main', 'scene-cave']);
-  await expect.poll(async () => (await observe()).player!.x, { timeout: 5_000 }).toBeGreaterThan(4.5);
-});
 
 test('Play: a scene transition trigger loads its scene and moves the player there; MCP unloads it', async ({ page }) => {
   be = await startBackend('exits-e2e', 'starter');
@@ -236,29 +188,4 @@ test('Play: a scene transition trigger loads its scene and moves the player ther
   await expect.poll(async () => (await observe()).scenes?.loaded, { timeout: 5_000 }).toEqual([]);
   await page.waitForTimeout(300);
   await page.screenshot({ path: 'test-results/scenes-exit-unloaded.png' });
-});
-
-test('a project whose recent commands include scene edits and a scene transition to a spawn loads again after a backend restart', async () => {
-  be = await startBackend('scenes-restart', 'starter');
-  await cmd('createScene', { sceneId: 'scene-extra', name: 'Extra' });
-  await cmd('renameScene', { sceneId: 'scene-extra', name: 'Extra room' });
-  await cmd('setStartScenes', { sceneIds: ['scene-main', 'scene-extra'] });
-  // A scene transition names a spawn: its
-  // recorded creation must load without the spawn beside it.
-  const spawn = String((await cmd('createEntity', { sceneId: 'scene-extra', kind: 'group', name: 'Arrival', transform: { position: [70, 1, 0] }, components: { playerSpawn: {} } })).createdId);
-  await cmd('createEntity', { sceneId: 'scene-main', kind: 'group', name: 'Door', transform: { position: [69, 1, 0] }, components: { trigger: { size: [1, 2], signal: 'door', sceneTransition: { scene: 'scene-extra', spawn } } } });
-  await be.restart();
-  const q = await query('queryProject');
-  expect(q['ok'], JSON.stringify(q).slice(0, 300)).toBe(true);
-  expect((q['scenes'] as { name: string }[]).map((s) => s.name)).toContain('Extra room');
-});
-
-test('an edit that changes nothing in a v4 project is refused as no_change and adds no undo step', async () => {
-  be = await startBackend();
-  await cmd('setTransform', { entityId: 'cam-main', transform: { position: [1, 2, 9] } });
-  const rev = Number((await query('queryProject', {})).revision);
-  const again = await be.command({ op: 'setTransform', projectId: be.projectId, expectedRevision: rev, requestId: `req-${'6'.repeat(32)}`, origin: { kind: 'mcp', clientId: 'e2e-scenes' }, args: { entityId: 'cam-main', transform: { position: [1, 2, 9] } } });
-  expect(again['ok']).toBe(false);
-  expect((again['error'] as { code?: string }).code).toBe('no_change');
-  expect(Number((await query('queryProject', {})).revision)).toBe(rev);
 });

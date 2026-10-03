@@ -9,7 +9,9 @@
  * saw, steps with the pointer over the UI) into the UI view model, which
  * tl_game_observe returns.
  *
- * Checked in each mode: a run-length frame applies its steps and walks the
+ * Checked in the worker (the replay test below runs the same kinds of frame —
+ * run length, a jump, gamepad buttons and axes, a pointer press — in both modes
+ * and compares their digests): a run-length frame applies its steps and walks the
  * character; tl_game_observe lists the widgets' rectangles;
  * a pointer click at a button's rectangle clicks it (the game reads overUi
  * and never sees the press) while a click on the game view reaches the
@@ -262,11 +264,6 @@ async function checks(page: Page, simThread: 1 | 2, mode: 'worker' | 'single'): 
 test('tl_input_exercise in the simulation worker: run length, UI hit test and clicks, UI edges, a virtual gamepad, pause', async ({ page }) => {
   test.setTimeout(240_000);
   await checks(page, 1, 'worker');
-});
-
-test('tl_input_exercise on a single thread: run length, UI hit test and clicks, UI edges, a virtual gamepad, pause', async ({ page }) => {
-  test.setTimeout(240_000);
-  await checks(page, 2, 'single');
 });
 
 // A run and its replay. An exercise with `restart` restarts the game and applies its frames from the new

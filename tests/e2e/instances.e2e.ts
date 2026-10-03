@@ -44,6 +44,9 @@ async function cmd(op: string, args: Record<string, unknown>): Promise<Record<st
   return res;
 }
 
+/** The Play preview's canvas (its renderer reports ready once it draws). */
+const playCanvas = (page: Page) => page.frameLocator('iframe.tl-app__preview-frame').locator('canvas').first();
+
 test('the scatter dialog makes one entity that draws many copies; the buffer route refuses bad buffers', async ({ page }) => {
   be = await startBackend('inst-e2e', 'starter');
   await page.goto(be.editorUrl);
@@ -71,7 +74,6 @@ test('the scatter dialog makes one entity that draws many copies; the buffer rou
   expect(createHash('sha256').update(buf).digest('hex')).toBe(entity.components.instances.buffer);
   await row.click();
   await expect(page.locator('[data-instances="60"]')).toContainText('60 copies');
-  await page.waitForTimeout(800);
   await page.screenshot({ path: 'test-results/instances-editor.png' });
 
   // Refused: a count that is not whole copies, a non-finite value, an unknown buffer.
@@ -89,8 +91,7 @@ test('the scatter dialog makes one entity that draws many copies; the buffer rou
 
   // In Play the set is drawn too (the camera starts near the pillars).
   await page.getByTitle('Start an isolated play preview').click();
-  await expect(page.locator('.tl-notice')).toHaveCount(0);
-  await page.waitForTimeout(3000);
+  await expect(playCanvas(page)).toHaveAttribute('data-tl-renderer-state', 'ready', { timeout: 30_000 });
   await expect(page.locator('.tl-notice')).toHaveCount(0);
   await page.screenshot({ path: 'test-results/instances-play.png' });
 });
@@ -115,11 +116,9 @@ test('an instance set in a scene loaded during Play is drawn once the scene load
   const psid = String(((await (await started).json()) as { playSessionId: string }).playSessionId);
   const observe = async () => (await api(`play/${psid}/observe`, {})).json as { state?: string; scenes?: { loaded: string[] } };
   await expect.poll(async () => (await observe()).state, { timeout: 15_000 }).toBe('running');
-  await page.waitForTimeout(500);
   await page.screenshot({ path: 'test-results/instances-before-load.png' });
   expect((await api(`play/${psid}/control`, { command: 'loadScene', sceneId: 'scene-grove' })).status).toBe(200);
   await expect.poll(async () => (await observe()).scenes?.loaded, { timeout: 10_000 }).toEqual(['scene-main', 'scene-grove']);
-  await page.waitForTimeout(1500);
   await page.screenshot({ path: 'test-results/instances-after-load.png' });
   await expect(page.locator('.tl-notice')).toHaveCount(0);
 });
@@ -161,7 +160,7 @@ test('a set is chunked by extent (the project default, overridden per set in the
 
   // Play draws the set (with the project's chunk size) without a notice.
   await page.getByTitle('Start an isolated play preview').click();
-  await page.waitForTimeout(2500);
+  await expect(playCanvas(page)).toHaveAttribute('data-tl-renderer-state', 'ready', { timeout: 30_000 });
   await expect(page.locator('.tl-notice')).toHaveCount(0);
   await page.screenshot({ path: 'test-results/instances-chunks-play.png' });
 });

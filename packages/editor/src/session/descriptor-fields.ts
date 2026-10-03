@@ -384,9 +384,12 @@ export function getAt(value: unknown, path: FieldPath): unknown {
   return v;
 }
 
-/** A copy with the value at `path` replaced (`undefined` removes an object key or a list item). */
+/**
+ * A copy with the value at `path` replaced (`undefined` removes an object key or a list item). `next` may be a
+ * function of the value stored there (see `resolveEdit`).
+ */
 export function setAt(value: unknown, path: FieldPath, next: unknown): unknown {
-  if (path.length === 0) return next;
+  if (path.length === 0) return resolveEdit(next, value);
   const [head, ...rest] = path;
   if (typeof head === 'number') {
     const arr = Array.isArray(value) ? [...(value as unknown[])] : [];
@@ -410,9 +413,18 @@ export function setAt(value: unknown, path: FieldPath, next: unknown): unknown {
  * edit changes nothing (an edit that changes nothing is refused as
  * `no_change`, so it is never sent).
  */
+/**
+ * A field edit's value: the value itself, or a function of the field's stored value giving it. A widget that edits
+ * one part of a value (one number of a vector) gives a function, so the edit made again from a newer value (the
+ * Inspector makes it when the command is sent) keeps the other parts as they are then.
+ */
+export function resolveEdit(next: unknown, stored: unknown): unknown {
+  return typeof next === 'function' ? (next as (s: unknown) => unknown)(stored) : next;
+}
+
 export function componentPatch(root: ObjectFieldDescriptor, current: Obj, path: FieldPath, next: unknown, fill: Fill = {}): Obj | null {
   const f = fieldAt(root, current, path);
-  let v = next;
+  let v = resolveEdit(next, getAt(current, path));
   // An optional field set to its default is removed (absent means the default).
   if (f !== null && f.required !== true && v !== undefined && f.default !== undefined && f.default !== null && deepEqual(v, f.default) && path.length > 0 && typeof path[path.length - 1] === 'string') {
     const parentDesc = fieldAt(root, current, path.slice(0, -1));

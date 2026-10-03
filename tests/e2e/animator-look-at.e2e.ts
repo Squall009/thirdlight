@@ -82,9 +82,13 @@ async function startPlay(page: Page): Promise<string> {
   return psid;
 }
 
-/** Restart the run, step exactly `steps` fixed steps, hold, and observe the column once the drawn frame has caught up. */
-async function at(psid: string, entityId: string, steps: number): Promise<Observed> {
-  const r = await relay(`${psid}/input`, { mode: 'exclusive-test', restart: true, hold: true, frames: [{ stepOffset: 0, steps }] });
+/**
+ * Step the held run on to run step `runStep` (from `from`; `from` 0 restarts the run first), hold, and observe the
+ * column once the drawn frame has caught up. One run serves every sample: held exercises continue step-exactly.
+ */
+async function at(psid: string, entityId: string, runStep: number, from: number): Promise<Observed> {
+  const steps = runStep - from;
+  const r = await relay(`${psid}/input`, { mode: 'exclusive-test', restart: from === 0, hold: true, frames: [{ stepOffset: 0, steps }] });
   expect(r.status, JSON.stringify(r.json)).toBe(200);
   let o: Observed = { stepIndex: 0, simTime: 0 };
   let last = '';
@@ -95,7 +99,7 @@ async function at(psid: string, entityId: string, steps: number): Promise<Observ
       const key = JSON.stringify([o.run?.runStep, o.animator?.look, o.renderedBones?.['upper']]);
       const same = key === last;
       last = key;
-      return o.run?.runStep === steps && o.renderedBones?.['upper'] !== undefined && same;
+      return o.run?.runStep === runStep && o.renderedBones?.['upper'] !== undefined && same;
     }, { timeout: 15_000, intervals: [100, 200, 300] })
     .toBe(true);
   return o;
@@ -171,10 +175,13 @@ test('the look-at turns the drawn head toward its target within its limits at it
     .toEqual({ head: { bone: 'upper', yaw: 50, pitch: 30 }, chest: { bone: 'root', yaw: 20, pitch: 10 }, target: friend, point: [0, 1, 5], weightParameter: 'attention', turnSpeed: 90 });
 
   const psid = await startPlay(page);
-  const first = await at(psid, npc, 1);
+  const first = await at(psid, npc, 1, 0);
   const hz = Math.round(first.stepIndex / first.simTime);
+  let held = 1;
   const sample = async (seconds: number): Promise<{ sim: number; drawn: number }> => {
-    const o = await at(psid, npc, Math.round(seconds * hz));
+    const runStep = Math.round(seconds * hz);
+    const o = await at(psid, npc, runStep, held);
+    held = runStep;
     const drawn = yawOf(o.renderedBones!['upper']!.rotation);
     const sim = o.animator?.look?.yaw ?? 0;
     console.log(`[look-at] ${seconds} s: simulation yaw ${sim.toFixed(2)}°, drawn upper bone yaw ${drawn.toFixed(2)}°`);

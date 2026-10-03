@@ -288,7 +288,7 @@ function EntityInspector(props: InspectorDockProps): JSX.Element {
       onEditProperty={(entityId, key, raw) => void editProperty(entityId, key, raw)}
       registry={registry}
       fieldContext={fieldContext}
-      onComponentEdit={(entityId, component, patch) => void editComponent(entityId, component, patch)}
+      onComponentEdit={(entityId, component, patch, rebase) => void editComponent(entityId, component, patch, rebase)}
       onAddComponent={(entityId, component, value) => void addComponentTo(entityId, component, value)}
       onFitCapsule={(entityId) => void fitCapsuleToModel(entityId)}
       capsuleOwner={(() => {
@@ -303,7 +303,7 @@ function EntityInspector(props: InspectorDockProps): JSX.Element {
         return null;
       })()}
       onRename={(entityId, name) => void rename(entityId, name)}
-      onEditTransform={(entityId, patch) => void editTransform(entityId, patch)}
+      onEditTransform={(entityId, patch, rebase) => void editTransform(entityId, patch, rebase)}
       flags={selected !== null ? (hierarchyFlags.get(selected.id) ?? null) : null}
       entityName={(id) => entities.find((e) => e.id === id)?.name ?? id}
       selectionCount={selection.ids.length}

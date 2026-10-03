@@ -27,6 +27,9 @@ import type { GizmoMode } from '../viewport/viewport';
 import { PropertyControlList, type ControlErrorView } from './PropertyControls';
 import { AddComponent, ComponentSection, type AddExtra, type FieldContext } from './DescriptorFields';
 
+/** A field edit's patch made again from a component value (null: nothing to change there). */
+export type PatchRebase = (current: Record<string, unknown>) => Record<string, unknown> | null;
+
 interface Props {
   entity: ProjectedEntity | null;
   gizmoMode: GizmoMode;
@@ -43,8 +46,12 @@ interface Props {
   propertyError: ControlErrorView | null;
   componentError: ControlErrorView | null;
   onEditProperty: (entityId: string, key: string, raw: string) => void;
-  /** One component edit (a partial top-level value) or, with null, its removal — one command. */
-  onComponentEdit: (entityId: string, component: string, patch: Record<string, unknown> | null) => void;
+  /**
+   * One component edit (a partial top-level value) or, with null, its removal — one command. `rebase` makes the
+   * same edit's patch from the component as it is when the command is sent: an edit made before the last one
+   * came back must not write the older value over it.
+   */
+  onComponentEdit: (entityId: string, component: string, patch: Record<string, unknown> | null, rebase?: PatchRebase) => void;
   /** "+ Add component" with the descriptor's value (or the picked one). */
   onAddComponent: (entityId: string, component: string, value: Record<string, unknown>) => void;
   /** Size the capsule to the entity's models. */
@@ -52,7 +59,7 @@ interface Props {
   /** The name of the player this entity hangs under (it collides with that capsule), else null. */
   capsuleOwner?: string | null;
   onRename: (entityId: string, name: string) => void;
-  onEditTransform: (entityId: string, patch: { position?: number[]; rotation?: number[]; scale?: number[] }) => void;
+  onEditTransform: (entityId: string, patch: { position?: number[]; rotation?: number[]; scale?: number[] }, rebase?: PatchRebase) => void;
   /** The entity's effective (inherited) flags. */
   flags: EffectiveEntityFlags | null;
   /** Display name of an entity id (for "inherited from …"). */
@@ -227,11 +234,14 @@ export function Inspector({ entity, gizmoMode, onGizmoMode, registry, fieldConte
   const present = new Set(Object.keys(components));
   const sections = registry === null || entity === null ? [] : registry.components.filter((c) => c.name !== 'folder' && (present.has(c.name) || (alwaysShow ?? []).includes(c.name)));
   const edit = (c: ComponentDescriptor, value: Record<string, unknown>) => (path: FieldPath, next: unknown): void => {
-    if (entity === null || c.value.type !== 'object') return;
-    const patch = componentPatch(c.value, value, path, next, { seeds: seedsOf(c), pick: (f) => firstReference(f, fieldContext) });
+    const root = c.value;
+    if (entity === null || root.type !== 'object') return;
+    const fill = { seeds: seedsOf(c), pick: (f: Parameters<typeof firstReference>[0]) => firstReference(f, fieldContext) };
+    const rebase: PatchRebase = (current) => componentPatch(root, current, path, next, fill);
+    const patch = rebase(value);
     if (patch === null) return;
-    if (c.name === 'transform') onEditTransform(entity.id, patch as { position?: number[]; rotation?: number[]; scale?: number[] });
-    else onComponentEdit(entity.id, c.name, patch);
+    if (c.name === 'transform') onEditTransform(entity.id, patch as { position?: number[]; rotation?: number[]; scale?: number[] }, rebase);
+    else onComponentEdit(entity.id, c.name, patch, rebase);
   };
   // The inspected object's own model offers its bones (an animator's look-at chain).
   const selfContext: FieldContext = entity === null ? fieldContext : { ...fieldContext, selfId: entity.id };

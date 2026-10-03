@@ -6,13 +6,17 @@
  * `sceneId` moves objects into another scene keeping their ids and what names
  * them, as one undoable edit of both scene files. A kept object cannot become
  * two: a scene file added outside the editor that repeats its id is taken in
- * with new ids. `createEntity` takes what `setComponent` adds.
+ * with new ids. `createEntity` takes what `setComponent` adds. An edit that
+ * changes nothing is refused as no_change. A project whose recent commands
+ * include scene edits and a scene transition to a spawn loads again in a new
+ * backend over the same data root.
  */
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-import { api, mkRequestId, mkSessionId, startBackend, type TestBackend } from './test-helpers';
+import { api, AUTHORING_ORIGIN, mkRequestId, mkSessionId, PREVIEW_ORIGIN, startBackend, type TestBackend } from './test-helpers';
+import { createTestBackend } from './testing';
 
 const REPO = resolve(import.meta.dirname, '..', '..', '..');
 const ID = 'scene-model';
@@ -133,5 +137,52 @@ describe('the scene model over HTTP', () => {
     const stored = (id: unknown): unknown => sceneFile('level').find((e) => e.id === String(id))!.components['cameraPath'];
     expect(stored(made['createdId'])).toEqual(stored(bare['createdId']));
     expect(stored(made['createdId'])).toBeDefined();
+  });
+
+  it('an edit that changes nothing is refused as no_change and moves no revision', async () => {
+    expect((await send('setTransform', { entityId: 'cam-main', transform: { position: [1, 2, 9] } }))['ok']).toBe(true);
+    const revision = async (): Promise<number> => Number(((await api(`${tb.authUrl}/api/v1/projects/${ID}/commands`, { body: { op: 'queryProject', projectId: ID }, token: tb.adminToken, origin: null })).json as { revision: number }).revision);
+    const rev = await revision();
+    const again = await send('setTransform', { entityId: 'cam-main', transform: { position: [1, 2, 9] } });
+    expect(again['ok']).toBe(false);
+    expect((again['error'] as { code?: string }).code).toBe('no_change');
+    expect(await revision()).toBe(rev);
+  });
+});
+
+describe('a project reopened by a new backend', () => {
+  it('loads again when its recent commands include scene edits and a scene transition to a spawn', async () => {
+    const P = 'scene-reopen';
+    const tb = await startBackend({ tokens: [], engineRoot: REPO });
+    let closed = false;
+    try {
+      expect((await api(`${tb.authUrl}/api/v1/admin/projects`, { body: { projectId: P, name: 'Reopen', template: 'starter' }, token: tb.adminToken, origin: null })).status).toBe(201);
+      const send = async (op: string, args: Record<string, unknown>): Promise<Record<string, unknown>> => {
+        const q = await api(`${tb.authUrl}/api/v1/projects/${P}/commands`, { body: { op: 'queryProject', projectId: P }, token: tb.adminToken, origin: null });
+        const r = await api(`${tb.authUrl}/api/v1/projects/${P}/commands`, { body: { op, projectId: P, requestId: mkRequestId(), expectedRevision: Number((q.json as { revision: number }).revision), args, origin: { kind: 'mcp', clientId: 'scene-reopen' } }, token: tb.adminToken, origin: null });
+        expect((r.json as { ok?: boolean }).ok, JSON.stringify(r.json)).toBe(true);
+        return r.json as Record<string, unknown>;
+      };
+      await send('createScene', { sceneId: 'scene-extra', name: 'Extra' });
+      await send('renameScene', { sceneId: 'scene-extra', name: 'Extra room' });
+      await send('setStartScenes', { sceneIds: ['scene-main', 'scene-extra'] });
+      // A scene transition names a spawn: its recorded creation must load without the spawn beside it.
+      const spawn = String((await send('createEntity', { sceneId: 'scene-extra', kind: 'group', name: 'Arrival', transform: { position: [70, 1, 0] }, components: { playerSpawn: {} } }))['createdId']);
+      await send('createEntity', { sceneId: 'scene-main', kind: 'group', name: 'Door', transform: { position: [69, 1, 0] }, components: { trigger: { size: [1, 2], signal: 'door', sceneTransition: { scene: 'scene-extra', spawn } } } });
+      // The same data root, a new backend (the first one closed): its first read of the project loads it.
+      await tb.backend.close();
+      closed = true;
+      const second = await createTestBackend({ authoringOrigin: AUTHORING_ORIGIN, previewOrigin: PREVIEW_ORIGIN, authoringOrigins: [AUTHORING_ORIGIN], tokens: [{ token: tb.adminToken, scope: 'admin' }], dataRoot: join(tb.root, 'data'), engineRoot: REPO });
+      try {
+        const q = await api(`http://127.0.0.1:${second.backend.portAuthoring}/api/v1/projects/${P}/commands`, { body: { op: 'queryProject', projectId: P }, token: tb.adminToken, origin: null });
+        expect((q.json as { ok?: boolean }).ok, JSON.stringify(q.json).slice(0, 300)).toBe(true);
+        expect((q.json as { scenes: { name: string }[] }).scenes.map((s) => s.name)).toContain('Extra room');
+      } finally {
+        await second.teardown();
+      }
+    } finally {
+      if (closed) rmSync(tb.root, { recursive: true, force: true });
+      else await tb.teardown();
+    }
   });
 });

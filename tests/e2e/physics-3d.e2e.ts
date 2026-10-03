@@ -153,7 +153,8 @@ test('a 3D project: the capsule lands on the box in Play (worker and main thread
     // Standing on the box is no penetration: a grounded step the floor stops is not counted, and no overlap is named.
     type Rt = { physicsSteps?: number; physicsPenetrationCorrectedCount?: number; physicsDeepestOverlap?: unknown };
     const runtime = async (): Promise<Rt> => (((await relay(`${psid}/diagnostics`, {})).json as { diagnostics?: { runtime?: Rt } }).diagnostics?.runtime ?? {});
-    await expect.poll(async () => (await runtime()).physicsSteps ?? 0, { timeout: 30_000 }).toBeGreaterThan(600);
+    // Two seconds at rest: a grounded step the floor stops was counted on every step while the count was wrong.
+    await expect.poll(async () => (await runtime()).physicsSteps ?? 0, { timeout: 30_000 }).toBeGreaterThan(240);
     const rt = await runtime();
     expect(rt.physicsPenetrationCorrectedCount ?? 0, `Play (${mode})`).toBe(0);
     expect(rt.physicsDeepestOverlap, `Play (${mode})`).toBeUndefined();

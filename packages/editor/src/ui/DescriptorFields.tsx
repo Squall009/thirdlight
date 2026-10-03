@@ -170,7 +170,11 @@ function NumberWidget(p: RowProps & { shown: number | undefined; aria: string })
   );
 }
 
-function VectorWidget(p: RowProps & { shown: readonly number[]; aria: string; labels: readonly string[]; euler?: boolean; leaveLast?: boolean }): JSX.Element {
+/**
+ * One number box per part. An edit is a function of the stored value (`valueOf` reads its parts), so the other
+ * parts are taken as stored when the edit is applied, not as last drawn.
+ */
+function VectorWidget(p: RowProps & { shown: readonly number[]; valueOf: (stored: unknown) => number[]; aria: string; labels: readonly string[]; euler?: boolean; leaveLastOf?: (stored: unknown) => boolean }): JSX.Element {
   const f = p.f as { min?: number; max?: number; label: string };
   return (
     <span className="tl-vec__nums">
@@ -185,12 +189,14 @@ function VectorWidget(p: RowProps & { shown: readonly number[]; aria: string; la
             const n = Number(raw);
             if (raw.trim() === '' || !Number.isFinite(n)) return p.onFail(`${p.f.label} ${l}: a number`);
             if (p.euler !== true && ((f.min !== undefined && n < f.min) || (f.max !== undefined && n > f.max))) return p.onFail(`${p.f.label} ${l}: ${f.min ?? '…'} to ${f.max ?? '…'}`);
-            const next = [...p.shown];
-            next[i] = n;
-            // An optional last component left out (a 2D value of a 3D-capable field) stays out
-            // unless it is the one edited, so editing x or y never writes a made-up z or depth.
-            const out = p.leaveLast === true && i < next.length - 1 ? next.slice(0, -1) : next;
-            p.onEdit(p.path, p.euler === true ? quatOf(out) : out);
+            p.onEdit(p.path, (stored: unknown) => {
+              const next = p.valueOf(stored);
+              next[i] = n;
+              // An optional last component left out (a 2D value of a 3D-capable field) stays out
+              // unless it is the one edited, so editing x or y never writes a made-up z or depth.
+              const out = p.leaveLastOf?.(stored) === true && i < next.length - 1 ? next.slice(0, -1) : next;
+              return p.euler === true ? quatOf(out) : out;
+            });
           }}
         />
       ))}
@@ -271,19 +277,23 @@ export function FieldRow(p: RowProps): JSX.Element | null {
     case 'vector': {
       const labels = f.type === 'vec2' || f.type === 'vec3' ? f.labels : [];
       // A left-out last component (an optional z) shows as 0; editing stores all of them.
-      const arr = Array.isArray(shown) ? labels.map((_, i) => (shown as number[])[i] ?? 0) : labels.map(() => 0);
-      const leaveLast = f.type === 'vec3' && f.optionalLast === true && Array.isArray(shown) && shown.length === 2;
+      const arrOf = (v: unknown): number[] => (Array.isArray(v) ? labels.map((_, i) => (v as number[])[i] ?? 0) : labels.map(() => 0));
+      const orDefault = (s: unknown): unknown => (s !== undefined ? s : f.default);
+      const leaveLastOf = (s: unknown): boolean => {
+        const v = orDefault(s);
+        return f.type === 'vec3' && f.optionalLast === true && Array.isArray(v) && v.length === 2;
+      };
       return (
         <Row f={f} label={p.label} isDefault={isDefault} className="tl-vec">
-          <VectorWidget {...p} aria={aria} shown={arr} labels={labels} leaveLast={leaveLast} />
+          <VectorWidget {...p} aria={aria} shown={arrOf(shown)} valueOf={(s) => arrOf(orDefault(s))} labels={labels} leaveLastOf={leaveLastOf} />
         </Row>
       );
     }
     case 'euler': {
-      const q = Array.isArray(shown) ? (shown as number[]) : [0, 0, 0, 1];
+      const eulerFrom = (v: unknown): number[] => eulerOf(Array.isArray(v) ? (v as number[]) : [0, 0, 0, 1]);
       return (
         <Row f={f} label={`${p.label ?? f.label} (deg)`} isDefault={isDefault} className="tl-vec">
-          <VectorWidget {...p} aria={aria} shown={eulerOf(q)} labels={['x', 'y', 'z']} euler />
+          <VectorWidget {...p} aria={aria} shown={eulerFrom(shown)} valueOf={(s) => eulerFrom(s !== undefined ? s : f.default)} labels={['x', 'y', 'z']} euler />
         </Row>
       );
     }

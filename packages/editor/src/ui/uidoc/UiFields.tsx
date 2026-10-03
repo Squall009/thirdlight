@@ -16,7 +16,7 @@ import { useEffect, useState, type JSX } from 'react';
 import type { FieldDescriptor, ObjectFieldDescriptor, UiAction, UiEngineAction, UiStyle } from '@thirdlight/project-model';
 
 import { ObjectFields, type FieldContext } from '../DescriptorFields';
-import { getAt, setAt, type FieldPath } from '../../session/descriptor-fields';
+import { getAt, resolveEdit, setAt, type FieldPath } from '../../session/descriptor-fields';
 import { setStyleValue, uniqueName } from '../../session/ui-edit';
 import { FONT_KINDS, RefPicker, TEXTURE_KINDS, useFirstEntry } from '../catalog/RefPicker';
 
@@ -259,7 +259,7 @@ export function StyleEditor(p: {
         onEdit={(path: FieldPath, next: unknown) => {
           const key = String(path[0]);
           const cur = values[key];
-          put(key, path.length === 1 ? next : setAt(cur, path.slice(1), next));
+          put(key, path.length === 1 ? resolveEdit(next, cur) : setAt(cur, path.slice(1), next));
         }}
         onFail={p.onFail}
       />
