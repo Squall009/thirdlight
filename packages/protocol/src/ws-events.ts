@@ -23,7 +23,7 @@ import {
 import { validateGameControlResult, validateGameObservation } from './m3';
 import type { SessionError } from './errors';
 import { SCREENSHOT_DATA_URL_MAX } from './http';
-import { PLAY_DIAGNOSTICS_MAX_BYTES } from './diagnostics-bound';
+import { PLAY_DIAGNOSTICS_MAX_BYTES, playDiagnosticsBytes } from './diagnostics-bound';
 import { PLAY_PROBLEM_MESSAGE_MAX, playProblemProblem } from './play-problems';
 
 // ---- catalog constants (the exhaustive allowlists) -----------
@@ -555,7 +555,7 @@ export function parseInboundEvent(value: unknown):
             },
           };
         }
-        if (JSON.stringify(s.value.diagnostics).length > PLAY_DIAGNOSTICS_MAX_BYTES) {
+        if (playDiagnosticsBytes(s.value.diagnostics) > PLAY_DIAGNOSTICS_MAX_BYTES) {
           return {
             ok: false,
             kind: 'protocol_error',

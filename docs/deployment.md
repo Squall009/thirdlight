@@ -2944,9 +2944,11 @@ restored at the end of the step storage's answer arrives, so every host (the
 page, the simulation worker, a replay) restores it at the same step —
 storage's answers are part of the recorded input. `meta` is the game's own
 small record for a slot card (a party leader, a portrait id, a difficulty):
-at most 8 fields, each a name (letters, digits, _; up to 32 characters) and
-a text of up to 128 characters; `slots()` gives `{}` for a slot saved
-without one. In a 3D project the save's `world.character` also keeps the
+names (letters, digits, _; up to 32 characters, so a load screen binds them
+as `$item.meta.<name>`) to texts, as many as fit in **4 KiB** for the whole
+record as JSON (UTF-8 bytes; `SAVE_LIMITS.metaBytes`, read for every slot
+when the slots are listed); a record over it is refused (`save()` answers
+false). `slots()` gives `{}` for a slot saved without one. In a 3D project the save's `world.character` also keeps the
 character's facing (degrees), and a load turns it back (older saves without
 it leave it as it is). A UI `image` widget shows a slot's picture with
 `saveSlot` (a slot number, or a binding to one such as `$item.slot` on a

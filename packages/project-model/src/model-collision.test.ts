@@ -6,7 +6,7 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { collisionPartPolygons, modelColliderShape, modelCollisionParts, readModelGeometry } from './model-collision';
+import { collisionPartPolygons, modelColliderShape, modelCollisionParts, readModelGeometry, sceneColliderPoints } from './model-collision';
 
 const RAW = import.meta.glob('../../../fixtures/import-ext/bytes.base64.json', { eager: true, query: '?raw', import: 'default' }) as Record<string, string>;
 
@@ -121,5 +121,23 @@ describe('model collision geometry', () => {
       expect(b.min[k]).toBeCloseTo(-0.5, 4);
       expect(b.max[k]).toBeCloseTo(0.5, 4);
     }
+  });
+});
+
+describe('a scene\'s collider point count', () => {
+  it('counts written hulls and meshes, and each model collider\'s resolved parts per object', () => {
+    const cube = [[0, 0, 0], [1, 0, 0], [0, 1, 0], [0, 0, 1], [1, 1, 0], [1, 0, 1], [0, 1, 1], [1, 1, 1]];
+    const table = { 'model-a': { '': [cube, cube.slice(0, 4)], door: [cube] } };
+    const ent = (components: Record<string, unknown>) => ({ id: 'e', components });
+    const entities = [
+      ent({ collider: { shape: { type: 'convex', points: cube } } }),
+      ent({ collider: { shape: { type: 'box', hx: 1, hy: 1, hz: 1 } } }),
+      ent({ model: { asset: { assetId: 'model-a' } }, collider: { shape: { type: 'model' } } }),
+      ent({ model: { asset: { assetId: 'model-a' } }, collider: { shape: { type: 'model' } } }),
+      ent({ model: { asset: { assetId: 'model-a' }, piece: 'door' }, collider: { shape: { type: 'model' } } }),
+      ent({ model: { asset: { assetId: 'model-missing' } }, collider: { shape: { type: 'model' } } }),
+    ];
+    expect(sceneColliderPoints(entities, table)).toBe(8 + 12 + 12 + 8);
+    expect(sceneColliderPoints(entities, undefined)).toBe(8);
   });
 });

@@ -109,7 +109,7 @@ export interface SaveSlotInfo {
   readonly bytes: number;
   /** Whether the slot has a picture of the view. */
   readonly thumbnail: boolean;
-  /** The game's own fields the save gave (`meta`: at most 8 short texts; {} when none). */
+  /** The game's own fields the save gave (`meta`: names → texts within `SAVE_LIMITS.metaBytes`; {} when none). */
   readonly meta: Readonly<Record<string, string>>;
   /** Set when the stored slot cannot be read (it is never loaded). */
   readonly damaged?: string;
@@ -234,7 +234,7 @@ export interface BehaviorSaves {
   read(): unknown;
   /**
    * Save to a slot at the end of this step (the document and the engine sections of the schema);
-   * the outcome arrives in `results()`. `meta.meta`: the game's own fields for the slot card (at most 8 names → short texts).
+   * the outcome arrives in `results()`. `meta.meta`: the game's own fields for the slot card (names → texts; the record at most 4 KiB as JSON).
    * False for a slot the game does not have or a meta that does not fit.
    * @graphNode Save to slot
    */

@@ -21,7 +21,7 @@
  * Pure: bytes in, data out; no I/O, no three.js.
  */
 import { boxFromBounds, colliderFromTriangles, convexFromPoints, polygonFromPoints, roundMm, type GeometryCollider, type Vec2Tuple, type Vec3Tuple } from './collider-geometry';
-import { COLLIDER_3D_LIMITS, MAX_COLLIDER_EXTENT } from './collider-shapes';
+import { COLLIDER_3D_LIMITS, MAX_COLLIDER_EXTENT, colliderShapePoints } from './collider-shapes';
 import { decodeMeshopt, MeshoptError, type MeshoptFilter, type MeshoptMode } from './meshopt';
 import { COMPONENTS as GLTF_COMPONENTS, COMPONENT_TYPES as GLTF_COMPONENT_TYPES, glbChunks, sanitizeRigNodeName } from './model-rig';
 
@@ -275,6 +275,31 @@ export function validateModelColliderTable(value: unknown): string | null {
     }
   }
   return null;
+}
+
+/**
+ * A scene's 3D collider points against `COLLIDER_3D_LIMITS.pointsTotal`:
+ * the hull points and mesh vertices its colliders write, and the hull points
+ * of each `{type: 'model'}` collider's `_COL` parts as the build resolved
+ * them (`table`; every object using a model counts its parts again, as
+ * each becomes its own bodies).
+ */
+export function sceneColliderPoints(entities: readonly unknown[], table: ModelColliderTable | undefined): number {
+  let n = 0;
+  for (const e of entities) {
+    const c = (e as { components?: Record<string, unknown> } | null)?.components;
+    const shape = (c?.['collider'] as { shape?: { type?: unknown } } | undefined)?.shape;
+    if (shape === undefined) continue;
+    if (shape.type !== 'model') {
+      n += colliderShapePoints(shape);
+      continue;
+    }
+    const model = c?.['model'] as { asset?: { assetId?: unknown }; piece?: unknown } | undefined;
+    if (typeof model?.asset?.assetId !== 'string') continue;
+    const parts = table?.[model.asset.assetId]?.[typeof model.piece === 'string' ? model.piece : ''] ?? [];
+    for (const part of parts) n += part.length;
+  }
+  return n;
 }
 
 /** One convex part of a model's collision geometry (points in the object's frame, 1 mm grid, at most 64). */

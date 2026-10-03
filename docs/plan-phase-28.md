@@ -138,7 +138,7 @@ surfaces). Format changes share one bump: `project.json` schemaVersion 7
 | 28.10 | done 2026-10-03 — every collider shape takes a `center` and a `rotation`; `compound` (a list of shapes on one body) and `model` (each mesh of the object's model's `_COL` node a convex hull, read when the game is built: manifest `modelColliders`); colliders on child objects where their parents put them, kinematic once a parent is moved by a script, a timeline or a mover; `colliderFromModel` (box, convex, mesh, polygon, compound) is the editor's button over HTTP/MCP; Scene view: no collider outlines until asked for, the selection's (and its children's) always; D138 logged |
 | 28.11 | done 2026-10-03 — extract textures decodes WebP (libwebp, pinned) and encodes every non-KTX2 image to KTX2 by its use, from the lossless PNG of the image's name and size beside the model (or in its `textures/`) when one is there; setting `import_extract_textures` extracts every model, older imports included (where their GLB file is), and Problems lists models still holding images (`models_hold_images`); standard-shader project materials share one prepared texture per (texture, colour space, wrap, tiling, offset): one material on 14 model files holds one copy (14 before); `ctx.stats` / `$flow.stats` (fps, frame/CPU/GPU ms average and worst over 500 ms, GPU null where not measured, draw calls, triangles, texture bytes against the budget, geometry bytes, objects, quality); setting `stats_overlay` (F3) shows a built-in overlay in Play and the export; Play diagnostics carry `frameTimes` and the environment renderer's passes, quality, samples and fallback |
 | 28.12 | done 2026-10-03 — saves in the player's browser: a slot's metadata, body and picture in one IndexedDB transaction (a write refused for quota or cut off leaves the earlier save loadable, D135); refusals answer `{ok: false, code: storage_full, storage_unavailable or storage_failed, reason}` (the browser's text), a settings document localStorage refuses too (`op: 'settings'`); persistent storage asked at the first save, `ctx.saves.storage()` / observation / Play diagnostics carry `persisted`, `usage`, `quota`; `world` is a save section (listed, or `legacyWorld: false` to restore scenes in the game; neither keeps the always-on world with one `deprecated_save_world` Problems line per Play), never destroys a kept object; a game without it loads any save without a scene change; migration notes |
-| 28.13 | acceptance tests done 2026-10-03 (fast gate); full gate and review next — map of every acceptance to its boundary test; new: kept objects in Play (unload/load/reload as one object, references read empty with one Problems line, listed spawn), a repeated kept id taken in with new ids, `createEntity` components over HTTP, sound owners' fade-out / `none` / run restart, no penetration counted at rest; `docs/deployment.md`: UI, colliders, model textures, stats, v7 upgrade and Problems lines in the migration notes |
+| 28.13 | acceptance tests done 2026-10-03 (fast gate); full gate and review next — map of every acceptance to its boundary test; new: kept objects in Play (unload/load/reload as one object, references read empty with one Problems line, listed spawn), a repeated kept id taken in with new ids, `createEntity` components over HTTP, sound owners' fade-out / `none` / run restart, no penetration counted at rest; `docs/deployment.md`: UI, colliders, model textures, stats, v7 upgrade and Problems lines in the migration notes. Unverified: sounds by ear (UI sounds, owner fade-outs, `stopAll`, the restart silence); by eye the default-pose framing, kept objects across unload/reload, block-type and instance-set swaps (unit tests only), look-at, blend foot sliding, collider outlines, screenshot and stats overlays; `moveFrame` feel after the upgrade in both games; the `persist()` prompt |
 
 ## 6. Decision log
 
@@ -506,3 +506,38 @@ surfaces). Format changes share one bump: `project.json` schemaVersion 7
   overlay), and the migration notes gained the v7 upgrade and the Problems
   lines a game sees. Stale lines fixed: schemaVersion 5 in the project
   layout, a 64-scene limit that no longer exists.
+- 2026-10-03: independent post-phase review (b8f2de26..62999a04, read-only,
+  by an agent that did not build the phase). Security: `play.problem` taken
+  from the play's owner only and bounded (32 kinds, 512 characters, code
+  pattern); upload names, `import_extract_textures` paths, WebP sizes,
+  `colliderFromModel` arguments and screenshot `ui` are checked; no
+  credentials in logs, diagnostics or tests. Defects, fixed the same day:
+  slot `meta` had a sample-sized count cap (8 fields) — now names to texts
+  within `SAVE_LIMITS.metaBytes` (4 KiB as JSON, UTF-8), names stay
+  identifiers because load screens bind them (D139); the 16 KiB diagnostics
+  bound was compared in UTF-16 units at the bridge and the WS validator —
+  now UTF-8 bytes (`playDiagnosticsBytes`, D140); `{type: 'model'}` parts
+  were outside the scene's 3D collider point budget — the build counts the
+  resolved `_COL` parts per object and refuses past it (D141); runtime.ts
+  grew in three commits without moving the area first — respawns, arrivals,
+  a save's placement, `character_place` and facing moved to
+  `character-placement.ts` (5,233 → 5,080 lines, D142); one history-style
+  test comment (D143); STATUS and §5 claimed swaps and sounds without an
+  "unverified" (D144). Open: `quitToTitle` still restarts the run (owner
+  decides whether to deprecate it like `newGame`, D145); one-player
+  assumptions to lift before multiplayer — the `player_count` check, a
+  later scene cannot bring a player, the single `controllerEntityId`, the
+  shell spawn placing "the" kept player, one view (D146). Acceptable as
+  they are: `resume` leaving the title (a primitive the game binds), the v7
+  upgrade writing `keepLoaded`/`moveFrame: 'world'` as editable data, F3
+  fixed for the stats overlay (off by default). Limits are each defined
+  once with a reason (16 effect lights, 64 hull points, 256 animations and
+  16,384 channels, 32 problem kinds); no copied constants or code paths.
+  Files near 2,000 lines: commands types.ts 1,990, viewport.ts 1,989,
+  adapter.ts 1,923, behavior.ts 1,916, host.ts 1,856 — move before growing.
+  Weak tests: material swaps on instance sets and block types record their
+  own callbacks; frame-stats passes stub values; per-view keys proven only
+  by an unknown view; collider outlines by the editor's own attribute. Needs
+  the owner: the unverified list in §5 28.13, D138 (push leaves ~0.1 m
+  overlap), deprecated lines in both games and both repos committing the
+  v7 upgrade; decisions: `quitToTitle`, a second view.

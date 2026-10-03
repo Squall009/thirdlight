@@ -143,6 +143,28 @@ test('3D: a model collider stops the player on each _COL part, a placed box wher
   expect(onBeam.y).toBeLessThan(3.17);
 });
 
+test('a scene\'s 3D collider point budget counts its model colliders\' _COL parts: the export is taken at the budget, refused past it', async () => {
+  test.setTimeout(240_000);
+  be = await startBackend('colliders-budget-e2e');
+  await cmd('setSettings', { settings: { physics_dimension: 3 } });
+  for (const e of await entities()) if (e.components['collider'] !== undefined) await cmd('deleteEntity', { entityId: e.id });
+  // 256 box parts of 8 hull points: 2,048 points an object, so 512 objects are the budget exactly.
+  const colParts = Array.from({ length: 256 }, (_, i) => ({ size: [0.5, 0.5, 0.5] as [number, number, number], at: [i % 16, Math.floor(i / 16), 0] as [number, number, number] }));
+  await publishBytes(be, new Uint8Array(multiPieceGlb([{ name: 'rack', lods: [[1, 1, 1]], colParts }])), 'model', 'model-rack', 'Rack');
+  const rack = (i: number) => ({ kind: 'model', name: `Rack ${i}`, model: { asset: { assetId: 'model-rack' } }, transform: { position: [(i % 32) * 20, 0, Math.floor(i / 32) * 20] }, components: { collider: { shape: { type: 'model' } } } });
+  // Two batches (a request is at most 64 KiB).
+  for (const from of [0, 256]) await cmd('createEntities', { sceneId: 'scene-main', entities: Array.from({ length: 256 }, (_, i) => rack(from + i)) });
+  const at = await be.admin(`projects/${be.projectId}/export`);
+  expect(at.status, JSON.stringify(at.json).slice(0, 600)).toBe(200);
+  // One more object: each edit goes through (it cannot see the parts), the build refuses naming the budget.
+  await cmd('createEntities', { sceneId: 'scene-main', entities: [rack(512)] });
+  const over = await be.admin(`projects/${be.projectId}/export`);
+  expect(over.status).not.toBe(200);
+  const text = JSON.stringify(over.json);
+  expect(text).toContain('collider_vertices_total');
+  expect(text).toContain(`has ${513 * 2048} 3D collider points`);
+});
+
 /**
  * A pusher: from step 60 the object owning it moves along +x at 1 m/s until
  * x = 2 (its own script, the transform phase). It has no collider itself;

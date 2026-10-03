@@ -31,6 +31,7 @@
  * Pure: no I/O.
  */
 import type { ModelErrorV2 } from './errors';
+import { utf8Encode } from './sha256';
 import { fieldType, unexpectedField, withFound } from './validate';
 
 /** A script's `ctx.save` store (and a play's injected variables, which fill it): keys, and a value's JSON characters. */
@@ -54,26 +55,37 @@ export const SAVE_LIMITS = Object.freeze({
   migrations: 256,
   /** The highest schema version. */
   version: 1_000_000,
-  /** A slot's title / chapter / location text, and each value of its own `meta` fields. */
+  /** A slot's title / chapter / location text. */
   metaText: 128,
-  /** Fields of a slot's own `meta` (what the game shows on a slot card: a leader, a portrait id, a difficulty). */
-  metaKeys: 8,
+  /**
+   * A slot's own `meta` record as JSON text (UTF-8): what the game shows on a
+   * slot card (a leader, a portrait id, a difficulty). Every slot's record is
+   * read to list the slots, so the record is bounded, not how many fields it has.
+   */
+  metaBytes: 4096,
   /** The longest `meta` field name. */
   metaKeyChars: 32,
 });
 
-/** A slot `meta` field name: an identifier (letters, digits, _; not a digit first). */
+/**
+ * A slot `meta` field name: an identifier (letters, digits, _; not a digit
+ * first), so a load screen binds it by name (`$item.meta.leader`).
+ */
 export const SAVE_META_KEY_RE = new RegExp(`^[A-Za-z_][A-Za-z0-9_]{0,${SAVE_LIMITS.metaKeyChars - 1}}$`);
 
-/** Why a slot's `meta` object does not fit (null: it does) — at most 8 identifier keys of short text values. */
+/**
+ * Why a slot's `meta` object does not fit (null: it does): names to text
+ * values (a slot card shows text), the whole record within
+ * `SAVE_LIMITS.metaBytes` as JSON.
+ */
 export function saveSlotMetaProblem(v: unknown): string | null {
   if (typeof v !== 'object' || v === null || Array.isArray(v)) return 'meta is an object of text values';
-  const entries = Object.entries(v as Record<string, unknown>);
-  if (entries.length > SAVE_LIMITS.metaKeys) return `meta has at most ${SAVE_LIMITS.metaKeys} fields`;
-  for (const [k, x] of entries) {
+  for (const [k, x] of Object.entries(v as Record<string, unknown>)) {
     if (!SAVE_META_KEY_RE.test(k)) return `meta field "${k.slice(0, 40)}" is not a name (letters, digits and _, at most ${SAVE_LIMITS.metaKeyChars} characters)`;
-    if (typeof x !== 'string' || x.length > SAVE_LIMITS.metaText) return `meta field "${k}" is text of at most ${SAVE_LIMITS.metaText} characters`;
+    if (typeof x !== 'string') return `meta field "${k}" is not text`;
   }
+  const bytes = utf8Encode(JSON.stringify(v)).length;
+  if (bytes > SAVE_LIMITS.metaBytes) return `meta is ${bytes} bytes as JSON, over the ${SAVE_LIMITS.metaBytes}-byte budget of a slot's own fields`;
   return null;
 }
 

@@ -108,6 +108,7 @@ import { createSceneControl, FADE_COLOR_RE, LIFECYCLE_RESTART_DEPRECATED, loadOp
 import { EntityAccess, type EntityFieldsSave, type LightOverride } from './entity-access';
 import { SpawnRequests } from './spawn-requests';
 import { TransformMirror } from './step-buffers';
+import { CHARACTER_IMPULSE_MAX, CharacterPlacement } from './character-placement';
 import { actionDiagnostics, behaviorLogTotals, physicsDiagnostics } from './diagnostics-reads';
 import {
   validateCharacterMoveResult,
@@ -1067,8 +1068,6 @@ function colliderIdsOf(entities: readonly EntityV3[]): string[] {
 const SCENE_PREP_BUDGET_MS = 4;
 const nowMs = (): number => (typeof performance !== 'undefined' ? performance.now() : Date.now());
 
-/** The largest impulse component a script may give the character (m/s; a safety limit, far above a jump). */
-export const CHARACTER_IMPULSE_MAX = 100;
 const NO_LOOKS: ReadonlyMap<string, import('./primitives').EntityLook> = new Map();
 const NO_IDS: ReadonlySet<string> = new Set();
 
@@ -1271,21 +1270,12 @@ class RuntimeInstance implements Runtime {
   private anchorScale = 1;
   /** The player spawn respawns use (null: the first one loaded, else where the player started). */
   private activeSpawn: string | null = null;
-  /** A respawn (or a restart's placement) waiting for the next intent phase: where the character goes. */
-  private pendingRespawn: [number, number, number] | null = null;
   /** A run restart waiting for the next step boundary (ctx.lifecycle.restart, a restart UI event). */
   private pendingRestart = false;
-  /** The yaw (radians) the character faces on its next placement (a spawn's yaw), and this step's one for the controller. */
-  private pendingFacing: number | null = null;
-  private stepFacing: number | null = null;
-  /** The facing (radians about +Y) a script's character_place of this step asked for. */
-  private placeFacing: number | null = null;
   /** Impulses scripts gave the character (m/s, summed) waiting for the next controller phase. */
   private impulseAcc: [number, number, number] | null = null;
-  /** A trigger's scene transition waiting for its scene (then the character moves to the spawn). */
-  private pendingArrival: { spawnId: string; waitFor: string } | null = null;
-  /** A loaded save's character placement, once the scenes it waits for are in. */
-  private pendingRestore: { position: readonly [number, number, number]; velocity: readonly [number, number, number]; facing?: number; waitFor: readonly string[] } | null = null;
+  /** Respawns, arrivals, a save's placement and script placements of the character, and the way it faces. */
+  private readonly placement: CharacterPlacement = this.buildCharacterPlacement();
   /** The shell's ordered scene list, the entry the run is at (-1: none; null: not worked out yet this run) and a move asked for by a `scene` UI event. */
   private readonly sceneList: readonly import('./types').ListedScene[];
   private listedScene: number | null = null;
@@ -2496,7 +2486,7 @@ class RuntimeInstance implements Runtime {
   requestArrival(sceneId: string, spawnId: string): { ok: true } | { ok: false; error: RuntimeError } {
     if (this.stateName === 'disposed') return { ok: false, error: fail('runtime_disposed', 'runtime is disposed') };
     if (!this.sceneStatus.has(sceneId)) return { ok: false, error: fail('scene_invalid', `unknown scene ${JSON.stringify(String(sceneId).slice(0, 64))}`, { reason: 'transfer' }) };
-    this.pendingArrival = { spawnId, waitFor: sceneId };
+    this.placement.arriveAt(spawnId, sceneId);
     return { ok: true };
   }
 
@@ -2685,10 +2675,8 @@ class RuntimeInstance implements Runtime {
   private stepOnce(): boolean {
     // Scene loads/unloads requested by the host apply here too.
     if (!this.applySceneOps()) return true;
-    // A scene transition's arrival once its scene is loaded.
-    if (this.pendingArrival !== null && !this.runArrival(this.stepIndex + 1)) return false;
-    // A loaded save's placement once its scenes are in.
-    if (this.pendingRestore !== null && !this.runRestorePlace(this.stepIndex + 1)) return false;
+    // A scene transition's arrival once its scene is loaded, a loaded save's placement once its scenes are in.
+    if (!this.placement.atBoundary(this.stepIndex + 1)) return false;
     // A restart asked for, then the game mode's step start.
     if (this.pendingRestart && !this.restartRun(this.stepIndex + 1)) return false;
     if (this.pendingListedScene !== null) this.goToListedScene();
@@ -2753,19 +2741,12 @@ class RuntimeInstance implements Runtime {
     if (this.physics3d === undefined || held) this.blocks?.turnover(stepOrdinal);
     if (this.physics3d === undefined && !held) this.blocks?.stepPrimitivesOnly();
     // A respawn places the character (a plain step has no intent phase).
-    if (this.physics3d !== undefined && this.pendingRespawn !== null) {
-      const [x, y, z] = this.pendingRespawn;
-      this.pendingRespawn = null;
-      try {
-        this.placeCharacter3D(x, y, z);
-        // A spawn's yaw turns the character as it is placed.
-        if (this.pendingFacing !== null) this.faceCharacter3D(this.pendingFacing);
-        this.pendingFacing = null;
-      } catch (e) {
-        this.curr = cloneCurr(backup);
-        this.failStopFromError(e, stepOrdinal);
-        return false;
-      }
+    try {
+      this.placement.respawn3DNow();
+    } catch (e) {
+      this.curr = cloneCurr(backup);
+      this.failStopFromError(e, stepOrdinal);
+      return false;
     }
     if (this.physics3d !== undefined && !held) {
       // A 3D game steps its physics in a plain (scene-mode) step
@@ -2822,10 +2803,8 @@ class RuntimeInstance implements Runtime {
     // Scene unloads/loads take effect at the step boundary,
     // before the arrivals (a spawn may be in a scene that just loaded).
     if (!this.applySceneOps()) return false;
-    // A scene transition's arrival once its scene is loaded.
-    if (this.pendingArrival !== null && !this.runArrival(ordinal)) return false;
-    // A loaded save's placement once its scenes are in.
-    if (this.pendingRestore !== null && !this.runRestorePlace(ordinal)) return false;
+    // A scene transition's arrival once its scene is loaded, a loaded save's placement once its scenes are in.
+    if (!this.placement.atBoundary(ordinal)) return false;
     // The spawns and destroys the last step requested, in order.
     if (!this.applySpawnOps()) return false;
     this.spawnRequests.stepBoundary();
@@ -2834,7 +2813,7 @@ class RuntimeInstance implements Runtime {
     if (this.pendingRestart && !this.restartRun(ordinal)) return false;
     if (this.pendingListedScene !== null) this.goToListedScene();
     // A 2D-plane respawn (ctx.lifecycle, a restart's placement) places the character at the boundary.
-    if (this.physics3d === undefined && this.pendingRespawn !== null && !this.runRespawn2D(ordinal)) return false;
+    if (!this.placement.respawn2DAtBoundary(ordinal)) return false;
     this.modes.beginStep(ordinal);
     if (this.stepSceneOps.length > 0) this.stepSceneOps = [];
     this.grid.beginStep(ordinal);
@@ -2871,7 +2850,7 @@ class RuntimeInstance implements Runtime {
     const held = this.modes.physicsHeld;
     if (held) this.blocks?.turnover(ordinal);
     else this.blocks?.beforeStep(ordinal);
-    this.stepFacing = null;
+    this.placement.beginStep();
     // The character's jump action (its controller's jumpAction; frame version 2 has no jump channel).
     const jumpName = this.characterActions.jump;
     if (
@@ -2898,38 +2877,8 @@ class RuntimeInstance implements Runtime {
     this.intentsVersion += 1;
     try {
       this.runPhase('intent', action);
-      // A respawn (ctx.lifecycle, a restart) places the character unless a script placed it this step.
-      if (this.physics3d !== undefined && this.pendingRespawn !== null) {
-        if (this.intents.characterPlace === null) {
-          const [x, y, z] = this.pendingRespawn;
-          this.intents.characterPlace = { x, y, z };
-          this.intentsVersion += 1;
-          // A spawn's yaw turns the character as it is placed.
-          if (this.pendingFacing !== null) {
-            this.stepFacing = this.pendingFacing;
-            this.faceCharacter3D(this.pendingFacing);
-          }
-        }
-        this.pendingRespawn = null;
-        this.pendingFacing = null;
-      }
-      // A script's character_place takes effect before the controller runs (turned to its facing, as a spawn's yaw).
-      if (this.physics3d !== undefined && this.intents.characterPlace !== null) {
-        if (this.placeFacing !== null) {
-          this.stepFacing = this.placeFacing;
-          this.faceCharacter3D(this.placeFacing);
-          this.intentsVersion += 1;
-        }
-        this.applyCharacterPlace3D();
-      }
-      this.placeFacing = null;
-      // On the 2D plane too — the 2D placement of arrivals and respawns (from rest, the controller reset),
-      // before the controller runs; a respawn asked for in this step gives way to it (as in 3D).
-      if (this.physics3d === undefined && this.intents.characterPlace !== null) {
-        this.pendingRespawn = null;
-        this.pendingFacing = null;
-        this.placeCharacter2D(this.intents.characterPlace.x, this.intents.characterPlace.y, ordinal);
-      }
+      // A respawn or a script's character_place places the character before the controller runs.
+      this.placement.afterIntentPhase(ordinal);
       if (!held) {
         this.runPhase('controller', action);
         // The impulses reached the controller (a held step keeps them for the next one).
@@ -3127,7 +3076,7 @@ class RuntimeInstance implements Runtime {
         if (spawnId !== undefined && spawnId !== '') this.activeSpawn = spawnId;
         const target = this.respawnTarget(null);
         if (target === null) return false;
-        this.pendingRespawn = target;
+        this.placement.requestRespawn(target);
         return true;
       },
       setSpawn: (spawnId: string): boolean => {
@@ -3167,10 +3116,9 @@ class RuntimeInstance implements Runtime {
     this.runStartStep = ordinal - 1;
     this.runNumber += 1;
     this.listedScene = null;
-    this.pendingRestore = null;
-    // scripts' impulses and a spawn facing do not outlive the run.
+    // A save's placement, scripts' impulses and a spawn facing do not outlive the run.
+    this.placement.restartRun();
     this.impulseAcc = null;
-    this.pendingFacing = null;
     this.clearSpawned();
     this.runSpawnBase = this.spawnRequests.serial;
     // Every sound scripts started stops: the new run's scripts hold no handle to them.
@@ -3218,14 +3166,12 @@ class RuntimeInstance implements Runtime {
     }
     // The character from rest where it started (its controller module sees the placement in the next intent phase).
     if (this.physics3d !== undefined && player !== undefined) {
-      const p = player.transform.position;
       try {
-        this.placeCharacter3D(p[0], p[1], p[2]);
+        this.placement.restartAt3D(player.transform.position);
       } catch (e) {
         this.failStopFromError(e, this.stepIndex);
         return false;
       }
-      this.pendingRespawn = [p[0], p[1], p[2]];
     } else if (player !== undefined && this.resetPort() !== null) {
       // The 2D-plane character too (else its port keeps the previous place and the next controller step fails its check).
       try {
@@ -3248,7 +3194,7 @@ class RuntimeInstance implements Runtime {
    * A trigger's scene transition (the character entered it): its unloads and
    * its load are queued like `ctx.scenes` calls, and the character moves to
    * the spawn once the scene is loaded, at the next step boundary after the
-   * load (`runArrival`).
+   * load (the character placement's arrival).
    */
   private beginSceneTransition(triggerId: string, t: SceneTransitionRequest): void {
     // The unloads wait for the scene (they leave in the step it arrives), so the view is never empty.
@@ -3272,7 +3218,7 @@ class RuntimeInstance implements Runtime {
     const color = t.fadeColor !== undefined && FADE_COLOR_RE.test(t.fadeColor) ? t.fadeColor : '#000000';
     this.enqueueSceneOp({ op: 'load', sceneId: t.scene, transition: Object.freeze({ unload: Object.freeze(unload), fade, color }) });
     if (t.spawn === null) return;
-    this.pendingArrival = { spawnId: t.spawn, waitFor: t.scene };
+    this.placement.arriveAt(t.spawn, t.scene);
   }
 
   /**
@@ -3303,7 +3249,7 @@ class RuntimeInstance implements Runtime {
       const problem = this.sceneOpProblem('unload', sceneId);
       if (problem === null) this.enqueueSceneOp({ op: 'unload', sceneId });
     }
-    if (entry.spawn !== undefined) this.pendingArrival = { spawnId: entry.spawn, waitFor: entry.scene };
+    if (entry.spawn !== undefined) this.placement.arriveAt(entry.spawn, entry.scene);
   }
 
   /** The shell's scene list entry the run is at (-1: none). */
@@ -3311,56 +3257,11 @@ class RuntimeInstance implements Runtime {
     return this.listedScene ?? this.sceneList.findIndex((x) => this.startBatchSource.has(x.scene));
   }
 
-  /** The arrival of a scene transition, at a step boundary once its scene is loaded. Returns false after a fail-stop. */
-  private runArrival(ordinal: number): boolean {
-    const a = this.pendingArrival;
-    if (a === null || this.sceneStatus.get(a.waitFor) === 'loading') return true;
-    this.pendingArrival = null;
-    const t = this.curr.get(a.spawnId);
-    const spawn = this.entityDocument(a.spawnId);
-    const marker = (spawn?.components as { playerSpawn?: { yaw?: unknown } } | undefined)?.playerSpawn;
-    if (t === undefined || marker === undefined) {
-      this.recordError({ code: 'scene_invalid', message: clipMessage(`scene transition spawn "${a.spawnId}" is not loaded; the character stays`), stepIndex: this.stepIndex, reason: 'transfer' });
-      return true;
-    }
-    // The spawn becomes the one respawns use (ctx.lifecycle).
-    this.activeSpawn = a.spawnId;
-    const yaw = typeof marker.yaw === 'number' && Number.isFinite(marker.yaw) ? (marker.yaw * Math.PI) / 180 : null;
-    const [x, y, z] = [t.position[0], t.position[1], t.position[2]];
-    if (this.physics3d !== undefined) {
-      this.pendingRespawn = [x, y, z];
-      this.pendingFacing = yaw;
-      return true;
-    }
-    try {
-      this.placeCharacter2D(x, y, ordinal);
-    } catch (e) {
-      this.failStopFromError(e, this.stepIndex);
-      return false;
-    }
-    if (yaw !== null && this.controllerEntityId !== undefined) this.blocks?.faceSpawn(this.controllerEntityId, yaw);
-    return true;
-  }
-
   // ---- Where the play stands in a save --------------------------------
 
   /** The loaded scenes, the active spawn, the scene list entry and the character with its velocity (m/s). */
   private captureWorld(): WorldSave {
-    const id = this.controllerEntityId;
-    const t = id !== undefined ? this.curr.get(id) : undefined;
-    let character: WorldSave['character'] = null;
-    if (t !== undefined) {
-      const r = this.physics3d !== undefined ? this.lastCharacterResult3D?.applied : this.lastCharacterResult?.applied;
-      const v = (n: number | undefined): number => {
-        const x = (n ?? 0) * this.hz;
-        return Number.isFinite(x) ? Math.max(-CHARACTER_IMPULSE_MAX, Math.min(CHARACTER_IMPULSE_MAX, x)) : 0;
-      };
-      const z = (r as { z?: number } | undefined)?.z;
-      // In 3D the way it faces too (the controller's yaw, as characterState().facing reads it).
-      const facing = this.physics3d !== undefined ? this.characterState3D()?.facing : undefined;
-      character = { position: [t.position[0], t.position[1], t.position[2]], velocity: [v(r?.x), v(r?.y), this.physics3d !== undefined ? v(z) : 0], ...(facing !== undefined && Number.isFinite(facing) ? { facing: normalizedDegrees(facing) } : {}) };
-    }
-    return { scenes: [...this.batches.keys()], activeSpawn: this.activeSpawn, listedScene: this.listedSceneIndex(), character };
+    return { scenes: [...this.batches.keys()], activeSpawn: this.activeSpawn, listedScene: this.listedSceneIndex(), character: this.placement.captureCharacter() };
   }
 
   /** Why a saved world cannot be restored in this game (null: it can). */
@@ -3375,8 +3276,8 @@ class RuntimeInstance implements Runtime {
    * Restore where the play stood: scenes not in the save are unloaded (the
    * start set's pinned ones stay), the saved ones loaded; the spawn and the
    * scene list entry are the saved ones; the character is placed at its saved
-   * position once the scenes are in (`runRestorePlace`) and gets its saved
-   * velocity back (as an impulse for its next controller phase).
+   * position once the scenes are in and gets its saved velocity back (as an
+   * impulse for its next controller phase).
    */
   private applyWorld(world: WorldSave): void {
     if (this.sceneRows !== null) {
@@ -3389,50 +3290,39 @@ class RuntimeInstance implements Runtime {
     }
     this.activeSpawn = world.activeSpawn;
     this.listedScene = world.listedScene >= 0 ? world.listedScene : null;
-    this.pendingArrival = null;
-    this.pendingRestore = world.character === null || this.controllerEntityId === undefined ? null : { position: world.character.position, velocity: world.character.velocity, ...(world.character.facing !== undefined ? { facing: world.character.facing } : {}), waitFor: [...world.scenes] };
+    this.placement.restoreFrom(world);
   }
 
-  /** A loaded save's placement at a step boundary once no scene it waits for is loading. Returns false after a fail-stop. */
-  private runRestorePlace(ordinal: number): boolean {
-    const r = this.pendingRestore;
-    if (r === null || r.waitFor.some((sceneId) => this.sceneStatus.get(sceneId) === 'loading')) return true;
-    this.pendingRestore = null;
-    const [x, y, z] = r.position;
-    if (this.physics3d !== undefined) {
-      this.pendingRespawn = [x, y, z];
-      // A saved facing turns the character as it is placed (an older save keeps it as it is).
-      this.pendingFacing = r.facing !== undefined ? (r.facing * Math.PI) / 180 : null;
-    } else {
-      try {
-        this.placeCharacter2D(x, y, ordinal);
-      } catch (e) {
-        this.failStopFromError(e, this.stepIndex);
-        return false;
-      }
-    }
-    const [vx, vy, vz] = r.velocity;
-    if (vx !== 0 || vy !== 0 || vz !== 0) this.impulseAcc = [vx, vy, this.physics3d !== undefined ? vz : 0];
-    return true;
-  }
-
-  /**
-   * A 2D-plane respawn (`ctx.lifecycle.respawn`, the respawn
-   * intent) at the step boundary: the character is placed at the target from
-   * rest (as an arrival). Returns false after a fail-stop.
-   */
-  private runRespawn2D(ordinal: number): boolean {
-    const target = this.pendingRespawn;
-    this.pendingRespawn = null;
-    this.pendingFacing = null;
-    if (target === null) return true;
-    try {
-      this.placeCharacter2D(target[0], target[1], ordinal);
-    } catch (e) {
-      this.failStopFromError(e, this.stepIndex);
-      return false;
-    }
-    return true;
+  /** The character placement's view of the runtime (placements go through the ports here, where a failure fail-stops). */
+  private buildCharacterPlacement(): CharacterPlacement {
+    const rt = this;
+    return new CharacterPlacement({
+      is3D: () => rt.physics3d !== undefined,
+      controllerId: () => rt.controllerEntityId,
+      transform: (id) => rt.curr.get(id),
+      entityDocument: (id) => rt.entityDocument(id),
+      sceneLoading: (sceneId) => rt.sceneStatus.get(sceneId) === 'loading',
+      setActiveSpawn: (spawnId) => {
+        rt.activeSpawn = spawnId;
+      },
+      arrivalMissed: (message) => rt.recordError({ code: 'scene_invalid', message: clipMessage(message), stepIndex: rt.stepIndex, reason: 'transfer' }),
+      isKept: (id) => rt.kept.has(id),
+      listedSpawnOf: (sceneId) => rt.sceneList.find((x) => x.scene === sceneId && x.spawn !== undefined)?.spawn,
+      place3D: (x, y, z) => rt.placeCharacter3D(x, y, z),
+      place2D: (x, y, ordinal) => rt.placeCharacter2D(x, y, ordinal),
+      faceSpawn2D: (id, yaw) => rt.blocks?.faceSpawn(id, yaw),
+      failStop: (e) => rt.failStopFromError(e, rt.stepIndex),
+      intents: () => rt.intents,
+      intentsChanged: () => {
+        rt.intentsVersion += 1;
+      },
+      setImpulse: (v) => {
+        rt.impulseAcc = v;
+      },
+      // In 3D the way it faces too (the controller's yaw, as characterState().facing reads it).
+      lastMotion: () => (rt.physics3d !== undefined ? { ...(rt.lastCharacterResult3D !== undefined ? { applied: rt.lastCharacterResult3D.applied } : {}), ...(rt.characterState3D() !== undefined ? { facing: rt.characterState3D()!.facing } : {}) } : rt.lastCharacterResult !== undefined ? { applied: rt.lastCharacterResult.applied } : {}),
+      hz: () => rt.hz,
+    });
   }
 
   /** A loaded entity's document (its components), or undefined. */
@@ -3474,17 +3364,6 @@ class RuntimeInstance implements Runtime {
       this.currentModuleId = entry.id;
       instance.reset(this.buildResetContext('transfer', ordinal, target, new Set(entry.owners)));
     }
-  }
-
-  /** Turn the 3D character to a yaw (radians about +Y) — its transform now, its controller with the placement. */
-  private faceCharacter3D(yaw: number): void {
-    const id = this.controllerEntityId;
-    const t = id !== undefined ? this.curr.get(id) : undefined;
-    if (t === undefined) return;
-    t.rotation[0] = 0;
-    t.rotation[1] = Math.sin(yaw / 2);
-    t.rotation[2] = 0;
-    t.rotation[3] = Math.cos(yaw / 2);
   }
 
   // ---- The event → cue table -----------------------------------------------
@@ -3948,20 +3827,8 @@ class RuntimeInstance implements Runtime {
     this.batches.set(sceneId, { sceneId, start, entities: adopted.length > 0 ? Object.freeze([...frozen, ...adopted]) : frozen, ids, colliderIds: colliderIdsOf(frozen) });
     this.setSceneStatus(sceneId, 'loaded');
     this.sceneRevision += 1;
-    if (!start) this.arriveAtListedSpawn(sceneId);
+    if (!start) this.placement.arriveAtListedSpawn(sceneId);
     return this.notifyLoaded(frozen);
-  }
-
-  /**
-   * A kept player arrives at a listed scene's spawn (`shell.scenes[].spawn`)
-   * when that scene loads, however it was loaded — unless the load already
-   * names an arrival (a transition, the scene list) or a save is placing it.
-   */
-  private arriveAtListedSpawn(sceneId: string): void {
-    const player = this.controllerEntityId;
-    if (player === undefined || !this.kept.has(player) || this.pendingArrival !== null || this.pendingRestore !== null) return;
-    const entry = this.sceneList.find((x) => x.scene === sceneId && x.spawn !== undefined);
-    if (entry?.spawn !== undefined) this.pendingArrival = { spawnId: entry.spawn, waitFor: sceneId };
   }
 
   /** Why a script cannot switch an object's keep flag now (null: it can). */
@@ -4176,7 +4043,7 @@ class RuntimeInstance implements Runtime {
     }
     this.audio.sceneGone(sceneId);
     // A pending arrival at a spawn of the unloaded scene is dropped.
-    if (this.pendingArrival !== null && ids.has(this.pendingArrival.spawnId)) this.pendingArrival = null;
+    this.placement.dropArrivalAt(ids);
     this.batches.delete(sceneId);
     this.setSceneStatus(sceneId, 'unloaded');
     this.sceneRevision += 1;
@@ -4214,7 +4081,7 @@ class RuntimeInstance implements Runtime {
     this.removeSpawnedIds(this.spawnScenes.copiesOf(sceneId, (id) => this.kept.has(id)));
     this.removeBatch(sceneId, true);
     if (!this.addBatch(sceneId, batch.entities, batch.start, true)) return false;
-    if (batch.start) this.arriveAtListedSpawn(sceneId);
+    if (batch.start) this.placement.arriveAtListedSpawn(sceneId);
     return true;
   }
 
@@ -4325,9 +4192,7 @@ class RuntimeInstance implements Runtime {
     this.lastSwap = null;
     this.loadingViewCache = null;
     // A scene transition's arrival, a spawn facing and scripts' impulses do not outlive the run.
-    this.pendingArrival = null;
-    this.pendingRestore = null;
-    this.pendingFacing = null;
+    this.placement.startSetRestored();
     this.impulseAcc = null;
     for (const [sceneId, entities] of this.startBatchSource) {
       if (this.batches.has(sceneId)) continue;
@@ -4502,7 +4367,7 @@ class RuntimeInstance implements Runtime {
       ...(s.characterEnabled !== null ? { characterEnabled: s.characterEnabled } : {}),
       // scripts' impulses for the controller, and the yaw a placement faces (present only when set).
       ...(this.impulseAcc !== null ? { impulse: Object.freeze({ x: this.impulseAcc[0], y: this.impulseAcc[1], z: this.impulseAcc[2] }) } : {}),
-      ...(this.stepFacing !== null ? { characterYaw: this.stepFacing } : {}),
+      ...(this.placement.stepFacing !== null ? { characterYaw: this.placement.stepFacing } : {}),
     });
     this.intentViewCache = view;
     this.intentViewVersion = this.intentsVersion;
@@ -4550,7 +4415,7 @@ class RuntimeInstance implements Runtime {
       if (intent.kind === 'character_move') this.intents.characterMove = { x: intent.x, z: intent.z, run: intent.run === true };
       else if (intent.kind === 'character_place') {
         this.intents.characterPlace = { x: intent.position[0], y: intent.position[1], z: intent.position[2] };
-        this.placeFacing = intent.facing !== undefined ? (intent.facing * Math.PI) / 180 : null;
+        this.placement.placeFacing(intent.facing);
       }
       else this.intents.characterEnabled = intent.enabled;
       return;
@@ -4985,18 +4850,6 @@ class RuntimeInstance implements Runtime {
     return this.views.yaw();
   }
 
-  /**
-   * Apply a committed `character_place` (after the intent phase,
-   * before the controller runs): the port re-places the capsule and clears
-   * its motion; the controller's transform takes the new origin (the
-   * controller module starts from rest there).
-   */
-  private applyCharacterPlace3D(): void {
-    const place = this.intents.characterPlace;
-    if (place === null) return;
-    this.placeCharacter3D(place.x, place.y, place.z);
-  }
-
   /** Put the 3D character at an origin (the port's clearance rules), from rest. */
   private placeCharacter3D(x: number, y: number, z: number): void {
     const place = { x, y, z };
@@ -5224,10 +5077,4 @@ class RuntimeInstance implements Runtime {
     if (this.failedStepIndex !== undefined) m2.failedStepIndex = this.failedStepIndex;
     return m2;
   }
-}
-
-/** Degrees in [-180, 180) (a facing as a save keeps it). */
-function normalizedDegrees(d: number): number {
-  const x = ((((d + 180) % 360) + 360) % 360) - 180;
-  return Object.is(x, -0) ? 0 : x;
 }

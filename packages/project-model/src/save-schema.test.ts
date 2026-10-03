@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { ModelErrorV2 } from './errors';
-import { SAVE_LIMITS, canonicalSaveSchema, settingsDocumentOf, validateSaveSchema, type SaveSchema } from './save-schema';
+import { SAVE_LIMITS, canonicalSaveSchema, saveSlotMetaProblem, settingsDocumentOf, validateSaveSchema, type SaveSchema } from './save-schema';
 
 const problems = (v: unknown): string[] => {
   const errors: ModelErrorV2[] = [];
@@ -53,5 +53,16 @@ describe('the project save schema', () => {
     ];
     expect(settingsDocumentOf(fields!, { volume: 3, difficulty: 'hard', name: 7, stray: 1 })).toEqual({ volume: 0.8, difficulty: 'hard', name: '' });
     expect(settingsDocumentOf(fields!, null)).toEqual({ volume: 0.8, difficulty: 'easy', name: '' });
+  });
+
+  it('a slot\'s own meta is bounded by its bytes, not by how many fields it has', () => {
+    expect(saveSlotMetaProblem(Object.fromEntries(Array.from({ length: 20 }, (_, i) => [`field_${i}`, `value ${i}`])))).toBeNull();
+    expect(saveSlotMetaProblem({ portrait: 'p'.repeat(SAVE_LIMITS.metaBytes - 20) })).toBeNull();
+    // Measured in UTF-8: 1,400 euro signs are 4,200 bytes.
+    const over = saveSlotMetaProblem({ motto: '\u20ac'.repeat(1400) });
+    expect(over).toContain(`over the ${SAVE_LIMITS.metaBytes}-byte budget`);
+    expect(over).toContain('4212 bytes');
+    expect(saveSlotMetaProblem({ '1st': 'x' })).toContain('is not a name');
+    expect(saveSlotMetaProblem({ hp: 3 })).toContain('is not text');
   });
 });

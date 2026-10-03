@@ -8,7 +8,9 @@
  *   `world.character`, and loading it turns the character back after a
  *   script turned it elsewhere.
  * - A slot's own `meta` fields (`ctx.saves.save(slot, {meta})`) come back
- *   from `ctx.saves.slots()` and are kept in the browser's storage.
+ *   from `ctx.saves.slots()` and are kept in the browser's storage: twenty
+ *   short fields fit; a record over the byte budget (counted in UTF-8) is
+ *   refused.
  * - A UI image widget with `saveSlot` shows that slot's picture: its
  *   background is the stored thumbnail, drawn on screen.
  * - Editor: the image widget's Save slot field is edited in the UI document
@@ -81,13 +83,16 @@ const DIRECTOR = [
   '      state.phase = 1; state.at = ctx.stepIndex;',
   '    } else if (state.phase === 1 && ctx.stepIndex > state.at + 30 && s.ready()) {',
   "      ctx.game.add('facing_placed', Math.round(st.facing));",
-  "      s.save(1, { title: 'Mill', meta: { leader: 'odessa', chapter_no: '3' }, thumbnail: true });",
+  "      const meta: any = { leader: 'odessa', chapter_no: '3' };",
+  "      for (let i = 0; i < 18; i += 1) meta['extra_' + i] = 'v' + i;",
+  "      if (!s.save(2, { meta: { motto: '\\u20ac'.repeat(1400) } })) ctx.game.add('meta_over_refused', 1);",
+  "      s.save(1, { title: 'Mill', meta, thumbnail: true });",
   '      state.phase = 2;',
   '    } else if (state.phase === 2) {',
   "      for (const r of s.results()) if (r.op === 'save' && r.ok) { state.phase = 3; state.at = ctx.stepIndex; ctx.game.add('saved', 1); }",
   '    } else if (state.phase === 3 && ctx.stepIndex > state.at + 10) {',
   '      const slot = s.slots().find((x: any) => x.slot === 1);',
-  "      if (slot !== undefined && slot.meta.leader === 'odessa' && slot.meta.chapter_no === '3' && slot.title === 'Mill') ctx.game.add('meta_ok', 1);",
+  "      if (slot !== undefined && slot.meta.leader === 'odessa' && slot.meta.chapter_no === '3' && slot.meta.extra_17 === 'v17' && Object.keys(slot.meta).length === 20 && slot.title === 'Mill') ctx.game.add('meta_ok', 1);",
   "      ctx.ui.show('slots');",
   "      ctx.emit({ kind: 'character_place', position: [1, 1.2, 0], facing: -45 });",
   '      state.phase = 4; state.at = ctx.stepIndex;',
@@ -134,7 +139,7 @@ test('character_place faces; a save keeps the facing and the slot meta; a UI ima
   await expect.poll(async () => (await observe()).state, { timeout: 60_000 }).toBe('running');
   await expect.poll(async () => (await observe()).counters?.['facing_loaded'] ?? null, { timeout: 60_000, message: 'the script reached the end' }).not.toBeNull();
   const c = (await observe()).counters!;
-  expect(c).toMatchObject({ facing_placed: 90, saved: 1, meta_ok: 1, facing_moved: -45, facing_loaded: 90, x_loaded: 0 });
+  expect(c).toMatchObject({ facing_placed: 90, saved: 1, meta_ok: 1, meta_over_refused: 1, facing_moved: -45, facing_loaded: 90, x_loaded: 0 });
 
   // The slot's picture is the image widget's background, drawn on screen.
   const frame = page.frameLocator('iframe.tl-app__preview-frame');

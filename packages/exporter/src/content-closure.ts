@@ -28,7 +28,7 @@ import type { EventCue, GameShell, TimelineAsset } from '@thirdlight/project-mod
 import type { AnimatorController, EnvironmentConfig, PrefabDefinition, InputConfig, LightingMap, MaterialDef, UiDocument, UiTheme } from '@thirdlight/project-model';
 import { animatorsForRuntime, effectsForRuntime, type EffectDef, materialFunctionsForRuntime, materialsForRuntime, type GraphDocument, captureContentViewV3, captureManifestV5, restampManifestV5, type CatalogFile, dependencyTables, scanDependencies, M3_ENGINE_PINS, resolveMediaIdentityV3, sha256Hex, type GameplaySettings, type ManifestAssetInputV2, type ManifestAssetInputV5, type ManifestBehaviorInput, type MediaBlock, type RuntimeContentManifestV5, type ManifestSceneRow, physicsDimensionOf, resolveRequiredModules, materialsInUse, resolveMaterialInstances, loadableAssetIds, loadableResourceIds, loadableRows, scriptLibraryContainerText, scriptLibraryDigest, type ScriptLibrary } from '@thirdlight/project-model';
 import { playChecks, projectWideRoots, startDrawSet, type MissingPlayFile, type PlayCheck, type SceneV4 } from '@thirdlight/project-model';
-import { ASSET_QUERY_PAGE_MAX, audioLoadOf, MODEL_RIG_LIMITS, modelCollisionParts, readModelGeometry, readModelRig, textureStreamingOf, type AudioLoadType, type ManifestMipPart, type ModelRig } from '@thirdlight/project-model';
+import { ASSET_QUERY_PAGE_MAX, audioLoadOf, COLLIDER_3D_LIMITS, MODEL_RIG_LIMITS, modelCollisionParts, sceneColliderPoints, readModelGeometry, readModelRig, textureStreamingOf, type AudioLoadType, type ManifestMipPart, type ModelRig } from '@thirdlight/project-model';
 import type { BlobFile, WorkspaceService } from '@thirdlight/workspace';
 
 /** The injected compiler port (structural; no behavior-build edge). */
@@ -891,6 +891,17 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
       }
       const why = !geometry.ok ? geometry.message : made!.parts.length === 0 ? (made!.skipped[0] ?? 'it has no _COL node') : made!.skipped.length > 0 ? `some parts were left out: ${made!.skipped.slice(0, 2).join('; ')}` : null;
       if (why !== null) checks.push({ code: 'collider_model', refuse: false, message: `the model collider of ${assetId}${piece !== '' ? ` (${piece})` : ''}: ${why}`.slice(0, 256) });
+    }
+  }
+  // A scene's 3D collider point budget counts its model colliders' parts too (an edit can only count the written shapes).
+  if (modelColliders !== undefined) {
+    for (const sc of input.scenes ?? []) {
+      const scene = sc as { sceneId?: unknown; entities?: unknown };
+      if (!Array.isArray(scene.entities)) continue;
+      const points = sceneColliderPoints(scene.entities, modelColliders);
+      if (points > COLLIDER_3D_LIMITS.pointsTotal) {
+        return { ok: false, error: { code: 'play_check_refused', cls: 'validation', reason: 'collider_vertices_total', message: `scene "${String(scene.sceneId)}" has ${points} 3D collider points (hull points and mesh vertices, its model colliders' _COL parts included), over the limit of ${COLLIDER_3D_LIMITS.pointsTotal}`.slice(0, 256) } };
+      }
     }
   }
 

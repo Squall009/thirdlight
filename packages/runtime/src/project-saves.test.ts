@@ -54,16 +54,19 @@ describe('runtime project saves', () => {
       expect(r.api.write({ level: 'b', hp: 3 })).toBe(true);
       expect(r.api.save(2, { title: 'T', chapter: 'C', location: 'L', thumbnail: true })).toBe(true);
       expect(r.api.save(4)).toBe(false); // the game has 3 slots
-      // The slot's own fields: at most 8 names → short texts.
+      // The slot's own fields: names → texts, as many as fit the record's byte budget.
       expect(r.api.save(1, { meta: { leader: 'odessa', chapter_no: '3' } })).toBe(true);
-      expect(r.api.save(1, { meta: Object.fromEntries(Array.from({ length: 9 }, (_, i) => [`k${i}`, 'v'])) })).toBe(false);
+      expect(r.api.save(1, { meta: Object.fromEntries(Array.from({ length: 20 }, (_, i) => [`k${i}`, 'v'])) })).toBe(true);
+      expect(r.api.save(1, { meta: { long: 'x'.repeat(1000) } })).toBe(true);
       expect(r.api.save(1, { meta: { 'not a name': 'v' } })).toBe(false);
-      expect(r.api.save(1, { meta: { long: 'x'.repeat(129) } })).toBe(false);
       expect(r.api.save(1, { meta: { n: 3 as never } })).toBe(false);
+      // Over the budget in UTF-8 bytes (1,400 three-byte characters are 4,200 bytes in 1,400 UTF-16 units).
+      expect(r.api.save(1, { meta: { long: '\u20ac'.repeat(1400) } })).toBe(false);
       port.storage = { k: 2 }; // later in the same step: the save sees it
     });
-    expect(reqs).toHaveLength(2);
+    expect(reqs).toHaveLength(4);
     expect((reqs[1] as Extract<SaveRequest, { op: 'save' }>).meta.meta).toEqual({ leader: 'odessa', chapter_no: '3' });
+    expect(Object.keys((reqs[2] as Extract<SaveRequest, { op: 'save' }>).meta.meta ?? {})).toHaveLength(20);
     const req = reqs[0] as Extract<SaveRequest, { op: 'save' }>;
     expect(req.meta).toEqual({ title: 'T', chapter: 'C', location: 'L', thumbnail: true, playSeconds: 1, version: 2 });
     // Format version 2 — every save carries where the play stands.

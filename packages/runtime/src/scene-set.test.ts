@@ -265,7 +265,7 @@ describe('runtime scene set', () => {
     h.tick();
     expect(h.rt.sceneSet!().status['scene-cave']).toBe('unloaded');
     expect(h.ids()).not.toContain('light-sun');
-    // The engine owns the view: an old scene camera no longer ties a scene to the start set.
+    // The engine owns the view, so a camera in a scene is just an object: it does not tie its scene to the start set.
     expect(h.rt.requestScene!('load', 'scene-cave').ok).toBe(true);
     h.serveWith([{ id: 'cam-two', components: { transform: at(0, 0), camera: { type: 'perspective', fovY: 45, near: 0.1, far: 100 } } }]);
     h.tick();

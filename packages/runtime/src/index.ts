@@ -256,7 +256,7 @@ export type { BehaviorMessage, BehaviorMessageControl, BehaviorMessages, Behavio
 // The generic primitives' script APIs and events.
 export type { BehaviorCharacter, BehaviorLook, BehaviorLookValue, RuntimeEventCue } from './types';
 export type { EntityLook } from './primitives';
-export { CHARACTER_IMPULSE_MAX } from './runtime';
+export { CHARACTER_IMPULSE_MAX } from './character-placement';
 export { LOOK_MAX_EMISSIVE_INTENSITY, MAX_LOOK_OVERRIDES } from './primitives';
 export type { BehaviorCollectible, BehaviorHealth, BehaviorHitbox, BehaviorPatrol, CollectEventRecord, ContactEventRecord, HealthEventRecord, PatrolEventRecord, PrimitiveEventRecord } from './types';
 // ctx.random (seeded, replay-safe) and ctx.world queries.

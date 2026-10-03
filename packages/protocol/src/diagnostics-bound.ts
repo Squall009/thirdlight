@@ -20,7 +20,9 @@ export interface PlayDiagnosticsTrim {
 }
 
 const encoder = new TextEncoder();
-const bytesOf = (v: unknown): number => encoder.encode(JSON.stringify(v)).length;
+/** A value's JSON text in UTF-8 bytes: what `PLAY_DIAGNOSTICS_MAX_BYTES` bounds (non-ASCII log text is several bytes a character). */
+export const playDiagnosticsBytes = (v: unknown): number => encoder.encode(JSON.stringify(v)).length;
+const bytesOf = playDiagnosticsBytes;
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 /** Room kept for the `trimmed` note itself. */
 const NOTE_ROOM = 512;

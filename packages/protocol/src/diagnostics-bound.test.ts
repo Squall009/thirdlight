@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { PLAY_DIAGNOSTICS_MAX_BYTES, fitPlayDiagnostics, validateBridgePreviewToEditor } from './index';
+import { PLAY_DIAGNOSTICS_MAX_BYTES, fitPlayDiagnostics, parseInboundEvent, validateBridgePreviewToEditor } from './index';
 
 const bytes = (v: unknown): number => new TextEncoder().encode(JSON.stringify(v)).length;
 const entry = (i: number) => ({ code: 'behavior_log', reason: 'warn', moduleId: 'thirdlight.behavior:talker', message: `line ${i} ${'—'.repeat(240)}`, stepIndex: i });
@@ -42,5 +42,22 @@ describe('Play diagnostics within the relay bound', () => {
     expect(bytes(huge)).toBeLessThanOrEqual(PLAY_DIAGNOSTICS_MAX_BYTES);
     expect(huge.trimmed.omitted).toEqual(['renderer']);
     expect(huge.runtime).toEqual({ state: 'running' });
+  });
+
+  it('measures the bound in UTF-8 bytes: non-ASCII log lines within 16 Ki characters are refused whole, taken trimmed', () => {
+    // 12 lines of 1,000 three-byte characters: about 12 Ki UTF-16 units, about 36 KiB of UTF-8.
+    const errors = Array.from({ length: 12 }, (_, i) => ({ code: 'behavior_log', reason: 'warn', moduleId: 'thirdlight.behavior:talker', message: `${'\u2014'.repeat(1000)}`, stepIndex: i }));
+    const d = { runtime: { state: 'running', errors, errorCount: 12 }, buildId: 'b' };
+    expect(JSON.stringify(d).length).toBeLessThan(PLAY_DIAGNOSTICS_MAX_BYTES);
+    expect(bytes(d)).toBeGreaterThan(PLAY_DIAGNOSTICS_MAX_BYTES);
+    const bridge = (diagnostics: unknown) => validateBridgePreviewToEditor({ v: 2, type: 'tl.diagnostics.result', playSessionId: `play-${'a'.repeat(32)}`, relayId: `relay-${'b'.repeat(32)}`, ok: true, diagnostics });
+    const ws = (diagnostics: unknown) => parseInboundEvent({ type: 'play.diagnostics.ack', relayId: `relay-${'b'.repeat(32)}`, ok: true, diagnostics });
+    expect(bridge(d).ok).toBe(false);
+    expect(ws(d).ok).toBe(false);
+    const fit = fitPlayDiagnostics(d) as { runtime: { errors: unknown[] }; trimmed: { logEntries: number } };
+    expect(fit.trimmed.logEntries).toBeGreaterThan(6);
+    expect(bytes(fit)).toBeLessThanOrEqual(PLAY_DIAGNOSTICS_MAX_BYTES);
+    expect(bridge(fit).ok).toBe(true);
+    expect(ws(fit).ok).toBe(true);
   });
 });
