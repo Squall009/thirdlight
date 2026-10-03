@@ -130,6 +130,8 @@ test('Paint mode: a drag paints a layer (one undo step), Ctrl erases, undo/redo,
   await drag(page, [ground(14, 16), ground(18, 16)]);
   await expect.poll(async () => vertex(await paint(layer), 16, 16), { timeout: 20_000 }).toEqual([0, 0, 255, 0, 0]);
   expect(await revision()).toBe(r0 + 1);
+  // The view writes the stroke's record once its command came back (the backend's data can be read first).
+  await expect(view(page)).toHaveAttribute('data-block-stroke', /"tool":"paint"/);
   const stroke = JSON.parse((await view(page).getAttribute('data-block-stroke'))!) as { tool: string; cells: number };
   expect(stroke.tool).toBe('paint');
   expect(stroke.cells).toBeGreaterThan(3);

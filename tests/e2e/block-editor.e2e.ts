@@ -133,6 +133,8 @@ test('the Blocks panel paints, fills, picks, replaces, selects, stamps and paint
   expect(await blockAt(layer, 8, 8, 8)).toBe('grass');
   expect(await blockAt(layer, 9, 8, 8)).toBe('grass');
   expect(Number((await query('queryProject')).revision)).toBe(revBefore + 1);
+  // The view writes the stroke's record once its command came back (the backend's data can be read first).
+  await expect(view(page)).toHaveAttribute('data-block-stroke', /"tool":"single"/);
   const timing = JSON.parse((await view(page).getAttribute('data-block-stroke'))!) as { tool: string; cells: number; previewMs: number; commitMs: number };
   expect(timing.tool).toBe('single');
   expect(timing.cells).toBe(3);

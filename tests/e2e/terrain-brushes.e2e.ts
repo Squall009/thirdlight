@@ -105,6 +105,8 @@ test('terrain brushes: Height raises and lowers, Smooth softens, Flatten levels;
   await drag(page, [ground(14, 16), ground(18, 16)]);
   await expect.poll(async () => (await heights(layer, 16, 16))?.[0] ?? 0, { timeout: 20_000 }).toBeGreaterThan(5);
   expect(await revision()).toBe(r0 + 1);
+  // The view writes the stroke's record once its command came back (the backend's data can be read first).
+  await expect(view(page)).toHaveAttribute('data-block-stroke', /"tool":"height"/);
   const stroke = JSON.parse((await view(page).getAttribute('data-block-stroke'))!) as { tool: string; cells: number };
   expect(stroke.tool).toBe('height');
   // Several dabs along the drag (a quarter radius apart), sent together.
