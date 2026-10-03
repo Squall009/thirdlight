@@ -60,6 +60,7 @@ import {
 import { clipMessage, type ErrorCode, type RuntimeError } from './errors';
 import { DebugCommands } from './debug-commands';
 import { MAX_FRAME_UI_EVENTS, UiState, validateUiEvent, type UiEventRecord, type UiOutput, type UiStateView } from './ui';
+import { createUiControl } from './ui-control';
 import { ModeState, type ModeView } from './modes';
 import { BehaviorHostError, BehaviorHostIntentLimit, compiledFramesOf, createTagQuery, graphNodeIdOf, type BehaviorDebugView, type BehaviorPropertyView, type CompiledFrame } from './behavior';
 import { character3DPhysicsOf, offsetEntities, playerCapsuleOf, sceneContribution, staticColliderOf, staticColliderOf3D, type LiveTagIndex, type SceneContribution } from './scene-set';
@@ -3116,27 +3117,19 @@ class RuntimeInstance implements Runtime {
     return true;
   }
 
-  /** `ctx.ui` for one phase (the UI events are read in the intent phase only, once per step). */
+  /** `ctx.ui` for one phase (made once per phase). */
   private uiControlFor(phase: SimulationPhase): BehaviorUi {
     let c = this.uiControls.get(phase);
-    if (c !== undefined) return c;
-    const ui = this.ui;
-    const none: readonly UiEventRecord[] = Object.freeze([]);
-    const events = (): readonly UiEventRecord[] => (phase === 'intent' ? ui.events() : none);
-    c = Object.freeze({
-      set: (path: string, value: unknown): boolean => ui.set(path, value),
-      get: (path: string): unknown => ui.get(path),
-      clear: (path: string): boolean => ui.clear(path),
-      show: (docId: string, options?: { layer?: number; modal?: boolean }): boolean => ui.show(docId, options),
-      hide: (docId: string): boolean => ui.hide(docId),
-      isShown: (docId: string): boolean => ui.isShown(docId),
-      play: (docId: string, tween: string, widgetId?: string): boolean => ui.command('play', docId, tween, widgetId),
-      focus: (docId: string, widgetId: string): boolean => ui.command('focus', docId, widgetId, undefined),
-      events,
-      event: (name: string): UiEventRecord | null => events().find((e) => e.name === name) ?? null,
-    });
-    this.uiControls.set(phase, c);
+    if (c === undefined) {
+      c = createUiControl(this.ui, phase);
+      this.uiControls.set(phase, c);
+    }
     return c;
+  }
+
+  /** The view the host draws the UI over (`ctx.ui.view()`; false: not a view). */
+  setUiView(width: number, height: number, pixelRatio: number): boolean {
+    return this.stateName !== 'disposed' && this.ui.setScreenView(width, height, pixelRatio);
   }
 
   /** Queue a UI event for the next sampled step (see `Runtime.queueUiEvent`). */

@@ -741,10 +741,11 @@ const comp = (name: string): ComponentDescriptor => DESCRIPTORS.components.find(
 // ---- UI documents -----------------------------------------------------------
 
 const UI_STYLE_VALUES = { color: '#ffffff', background: '#00000080', opacity: 0.5, backgroundImage: 'tex-a', slice: [2, 2, 2, 2], font: 'sans', fontSize: 16, bold: true, italic: false, align: 'center', lineHeight: 1.2, letterSpacing: 1, textShadow: '#000000', padding: 4, radius: 4, borderWidth: 1, borderColor: '#ffffff', shadow: '#000000' };
-const UI_STYLE = { ...UI_STYLE_VALUES, hover: { ...UI_STYLE_VALUES }, focus: { ...UI_STYLE_VALUES }, pressed: { ...UI_STYLE_VALUES }, disabled: { ...UI_STYLE_VALUES } };
+const UI_SOUNDS = { click: 'snd-a', hover: 'snd-a', focus: 'snd-a' };
+const UI_STYLE = { ...UI_STYLE_VALUES, sounds: UI_SOUNDS, hover: { ...UI_STYLE_VALUES }, focus: { ...UI_STYLE_VALUES }, pressed: { ...UI_STYLE_VALUES }, disabled: { ...UI_STYLE_VALUES } };
 const UI_WIDGET_BASES: Record<string, unknown>[] = [
   {
-    id: 'w', type: 'panel', anchor: [0.5, 0.5], pivot: [0.5, 0.5], offset: [1, 2], size: [100, 50], stretch: 'x', margin: [1, 2, 3, 4], grow: 1, style: 's1', css: UI_STYLE, visible: true, enabled: { bind: 'a.b' }, focusable: true,
+    id: 'w', type: 'panel', anchor: [0.5, 0.5], pivot: [0.5, 0.5], offset: [1, 2], size: [100, 50], stretch: 'x', margin: [1, 2, 3, 4], grow: 1, style: 's1', css: UI_STYLE, visible: true, enabled: { bind: 'a.b' }, opacity: 0.5, rotation: 10, focusable: true, sounds: UI_SOUNDS,
     nav: { up: 'x1', down: 'x1', left: 'x1', right: 'x1', next: 'x1', prev: 'x1' }, onFocus: { do: 'event', name: 'f' },
     worldAnchor: { point: [0, 0, 0], offset: [0, 1, 0], clamp: true, margin: 12 }, children: [{ id: 'ind', type: 'panel' }],
   },
@@ -756,7 +757,7 @@ const UI_WIDGET_BASES: Record<string, unknown>[] = [
   { type: 'image', saveSlot: 2, fit: 'cover' },
   { type: 'bar', value: 0.5, min: 0, max: { bind: 'm' }, shape: 'radial', direction: 'left', fillColor: '#00ff00', fillStyle: 's1', startAngle: 90 },
   { id: 'b', type: 'button', text: 'Go', direction: 'row', gap: 2, align: 'center', justify: 'center', onClick: { do: 'event', name: 'go' }, children: [] },
-  { type: 'list', items: { bind: 'rows' }, template: { type: 'text', text: '{$item}' }, direction: 'row', gap: 1, align: 'start', justify: 'start', columns: 2, wrap: true },
+  { type: 'list', items: { bind: 'rows' }, itemKey: 'id', template: { type: 'text', text: '{$item}' }, direction: 'row', gap: 1, align: 'start', justify: 'start', columns: 2, wrap: true },
   { type: 'input', value: 'x', placeholder: 'Name', maxLength: 20, onSubmit: { do: 'event', name: 's' } },
 ];
 
@@ -764,7 +765,7 @@ function runUiProbes(): void {
   const ui = DESCRIPTORS.ui!;
   const validate: Validate = (v) => errorsOf((e) => validateUiDocument(v, '', e));
   const doc = {
-    uiDocumentId: 'hud', name: 'HUD', theme: 'th-a', layer: 1, modal: true, focus: true, actionMap: 'ui', scale: { reference: [1280, 720], mode: 'fit' }, initialFocus: 'b1', onCancel: { do: 'hide', doc: 'hud' },
+    uiDocumentId: 'hud', name: 'HUD', theme: 'th-a', layer: 1, modal: true, focus: true, actionMap: 'ui', scale: { reference: [1280, 720], mode: 'fit' }, initialFocus: 'b1', onCancel: { do: 'hide', doc: 'hud' }, sounds: UI_SOUNDS,
     styles: { s1: UI_STYLE }, icons: { i1: { asset: 'tex-a', rect: [0, 0, 8, 8] } }, tweens: { in: { kind: 'slide', duration: 0.2, delay: 0, easing: 'easeOut', from: 1, to: 0, direction: 'left', distance: 40 } },
     root: { type: 'panel', children: [{ id: 'b1', type: 'button' }] },
   };
@@ -777,7 +778,7 @@ function runUiProbes(): void {
   );
   // A style (the document's own), and its states with the same value fields.
   probe('uiStyle', validate, doc, '/styles/s1', ui.style, 'uiStyle:');
-  const stateFields: ObjectFieldDescriptor = { ...ui.style, fields: ui.style.fields.filter((f) => !(f.type === 'json' && f.typedBy === 'uiStyleState')) };
+  const stateFields: ObjectFieldDescriptor = { ...ui.style, fields: ui.style.fields.filter((f) => !(f.type === 'json' && f.typedBy === 'uiStyleState') && f.key !== 'sounds') };
   for (const st of ['hover', 'focus', 'pressed', 'disabled']) probe(`uiStyle.${st}`, validate, doc, `/styles/s1/${st}`, stateFields, `uiStyle.${st}:`);
   probe('uiWidget.css', validate, { uiDocumentId: 'd', name: 'D', root: { type: 'panel', css: UI_STYLE } }, '/root/css', ui.style, 'uiWidget.css:');
   // The world anchor's indicator names a child (removing the children would leave it dangling: probed on its own).

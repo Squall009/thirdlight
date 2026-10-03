@@ -115,32 +115,62 @@ export function StyleRefField(p: { label: string; aria: string; value: unknown; 
   );
 }
 
-/** A size axis: px, null (the content) or a view-model binding. */
-type SizeAxis = number | null | { bind: string };
+/** An axis of a size or an offset: px, null (a size: the content) or a view-model binding. */
+type BoundAxis = number | null | { bind: string };
+
+const axisOf = (x: unknown): BoundAxis => (typeof x === 'number' ? x : isBinding(x) ? { bind: x.bind } : null);
+const shownAxis = (x: BoundAxis): string => (x === null ? '' : typeof x === 'number' ? String(x) : x.bind);
+/** What a typed axis becomes: a number in range, a view-model path, `empty` for nothing typed; else the old value. */
+function parseAxis(raw: string, min: number, max: number, empty: BoundAxis, old: BoundAxis): BoundAxis {
+  const t = raw.trim();
+  const n = Number(t);
+  if (t === '') return empty;
+  if (Number.isFinite(n)) return n >= min && n <= max ? n : old;
+  return /^[$A-Za-z0-9_-]+(\.[A-Za-z0-9_-]+)*$/.test(t) ? { bind: t } : old;
+}
 
 /**
  * A widget's size: each axis a number, empty for "fit the content", or
  *  a view-model path whose number is the px size (`hud.width`).
  */
-export function SizeField(p: { value: readonly unknown[] | undefined; aria: string; disabledAxes: readonly boolean[]; onChange: (v: [SizeAxis, SizeAxis] | undefined) => void }): JSX.Element {
-  const axisOf = (x: unknown): SizeAxis => (typeof x === 'number' ? x : isBinding(x) ? { bind: x.bind } : null);
-  const v: [SizeAxis, SizeAxis] = [axisOf(p.value?.[0]), axisOf(p.value?.[1])];
+export function SizeField(p: { value: readonly unknown[] | undefined; aria: string; disabledAxes: readonly boolean[]; onChange: (v: [BoundAxis, BoundAxis] | undefined) => void }): JSX.Element {
+  const v: [BoundAxis, BoundAxis] = [axisOf(p.value?.[0]), axisOf(p.value?.[1])];
   const commit = (i: 0 | 1, raw: string): void => {
-    const next: [SizeAxis, SizeAxis] = [v[0], v[1]];
-    const t = raw.trim();
-    const n = Number(t);
-    if (t === '') next[i] = null;
-    else if (Number.isFinite(n)) next[i] = n >= 0 && n <= 16_384 ? n : v[i];
-    else next[i] = /^[$A-Za-z0-9_-]+(\.[A-Za-z0-9_-]+)*$/.test(t) ? { bind: t } : v[i];
+    const next: [BoundAxis, BoundAxis] = [v[0], v[1]];
+    next[i] = parseAxis(raw, 0, 16_384, null, v[i]);
     p.onChange(next[0] === null && next[1] === null ? undefined : next);
   };
-  const shown = (x: SizeAxis): string => (x === null ? '' : typeof x === 'number' ? String(x) : x.bind);
   return (
     <div className="tl-desc__row tl-vec" data-field="size" title="Width and height in px; empty: sized to the content; a view-model path (e.g. hud.width): the number it holds.">
       <span className="tl-field__label">Size (px)</span>
       <span className="tl-vec__nums">
         {(['w', 'h'] as const).map((l, i) => (
-          <CommitText key={l} aria={`${p.aria} ${l}`} placeholder={p.disabledAxes[i] === true ? 'stretch' : 'auto'} value={shown(v[i]!)} onCommit={(raw) => commit(i as 0 | 1, raw)} />
+          <CommitText key={l} aria={`${p.aria} ${l}`} placeholder={p.disabledAxes[i] === true ? 'stretch' : 'auto'} value={shownAxis(v[i]!)} onCommit={(raw) => commit(i as 0 | 1, raw)} />
+        ))}
+      </span>
+    </div>
+  );
+}
+
+/**
+ * A widget's offset from its anchor: each axis px (empty: 0) or a
+ * view-model path whose number is the px offset (`hud.drift`).
+ */
+export function OffsetField(p: { value: readonly unknown[] | undefined; aria: string; disabledAxes: readonly boolean[]; onChange: (v: [number | { bind: string }, number | { bind: string }] | undefined) => void }): JSX.Element {
+  const v: [BoundAxis, BoundAxis] = [axisOf(p.value?.[0]) ?? 0, axisOf(p.value?.[1]) ?? 0];
+  const commit = (i: 0 | 1, raw: string): void => {
+    const next = [v[0], v[1]] as [BoundAxis, BoundAxis];
+    next[i] = parseAxis(raw, -16_384, 16_384, 0, v[i]);
+    const a = next[0] ?? 0;
+    const b = next[1] ?? 0;
+    p.onChange(a === 0 && b === 0 ? undefined : [a, b]);
+  };
+  return (
+    <div className="tl-desc__row tl-vec" data-field="offset" title="Distance from the anchor in px; a view-model path (e.g. hud.drift): the number it holds.">
+      <span className="tl-field__label">Offset (px)</span>
+      <span className="tl-vec__nums">
+        {(['x', 'y'] as const).map((l, i) => (
+          <CommitText key={l} aria={`${p.aria} ${l}`} placeholder={p.disabledAxes[i] === true ? 'stretch' : '0'} value={shownAxis(v[i]!)} onCommit={(raw) => commit(i as 0 | 1, raw)} />
         ))}
       </span>
     </div>

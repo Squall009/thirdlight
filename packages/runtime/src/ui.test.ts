@@ -108,6 +108,21 @@ describe('UiState: the view model, shown documents and the step diff (pure)', ()
     expect(mergeUiOutput(a, { reset: true, set: [], commands: [] })).toEqual({ reset: true, set: [], commands: [] });
   });
 
+  it('a focus command may name a list item; the view drawn over is reported, refused when it is not one', () => {
+    const ui = new UiState(ROWS);
+    expect(ui.command('focus', 'menu', 'slot', undefined, 3)).toBe(true);
+    expect(ui.command('focus', 'menu', 'slot', undefined, -1)).toBe(false);
+    expect(ui.command('focus', 'menu', 'slot', undefined, 1.5)).toBe(false);
+    expect(ui.command('focus', 'menu', 'slot', undefined)).toBe(true);
+    expect(ui.takeOutput()?.commands).toEqual([{ op: 'focus', doc: 'menu', widget: 'slot', index: 3 }, { op: 'focus', doc: 'menu', widget: 'slot' }]);
+    expect(ui.screenView()).toEqual({ width: 1280, height: 720, aspect: 16 / 9, pixelRatio: 1 });
+    expect(ui.setScreenView(2560, 1080, 1.5)).toBe(true);
+    expect(ui.screenView()).toEqual({ width: 2560, height: 1080, aspect: 2560 / 1080, pixelRatio: 1.5 });
+    expect(ui.setScreenView(0, 1080, 1)).toBe(false);
+    expect(ui.setScreenView(800, 600, Number.NaN)).toBe(false);
+    expect(ui.screenView().width).toBe(2560);
+  });
+
   it('shows by layer, then show order; a second show brings a document to the top of its layer; frame entries show/hide/toggle', () => {
     const ui = new UiState(ROWS);
     ui.show('menu');

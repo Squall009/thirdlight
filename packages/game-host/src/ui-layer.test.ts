@@ -10,7 +10,7 @@ import type { UiDocument, UiEventRecord, UiOutput } from '@thirdlight/runtime';
 import { createUiLayer } from './ui-layer';
 import { orderPick, spatialPick } from './ui-nav';
 import { parseRichText, uiValueText } from './ui-text';
-import { placementProps, tweenKeyframes } from './ui-css';
+import { placementProps, rotationOrigin, scaleBox, tweenKeyframes } from './ui-css';
 
 class El {
   children: El[] = [];
@@ -25,6 +25,13 @@ class El {
     c.parent?.children.splice(c.parent.children.indexOf(c), 1);
     c.parent = this;
     this.children.push(c);
+  }
+  insertBefore(c: El, ref: El | null): void {
+    c.parent?.children.splice(c.parent.children.indexOf(c), 1);
+    c.parent = this;
+    const at = ref === null ? -1 : this.children.indexOf(ref);
+    if (at < 0) this.children.push(c);
+    else this.children.splice(at, 0, c);
   }
   remove(): void {
     if (this.parent !== null) this.parent.children.splice(this.parent.children.indexOf(this), 1);
@@ -319,5 +326,101 @@ describe('a bindable size and start angle', () => {
     l.applyOutput({ set: [['hud.w', 'wide']], commands: [] });
     l.frame();
     expect(widget(container, 'box').style['width']).toBe('');
+  });
+});
+
+describe('bound lists keep their items; offset, opacity and rotation; scale modes; the view', () => {
+  const MENU: UiDocument = {
+    uiDocumentId: 'menu',
+    name: 'Menu',
+    modal: true,
+    root: {
+      type: 'stack',
+      children: [
+        { id: 'tab', type: 'button', text: 'Tab' },
+        { id: 'rows', type: 'list', items: { bind: 'rows' }, template: { id: 'row', type: 'button', text: '{$item.label} {$item.value}' } },
+        { id: 'slots', type: 'list', items: { bind: 'slots' }, itemKey: 'id', template: { id: 'slot', type: 'button', text: '{$item.id}' } },
+      ],
+    },
+  };
+  function menuLayer() {
+    const container = new El('div');
+    const events: UiEventRecord[] = [];
+    const l = createUiLayer({ dom: fakeDom as never, container: container as never, documents: [MENU], readArtifact: async () => new ArrayBuffer(0), queueEvent: (e) => events.push(e), engineAction: () => undefined, viewport: () => ({ width: 1000, height: 500 }) });
+    const apply = (o: Partial<UiOutput>) => l.applyOutput({ set: [], commands: [], ...o });
+    return { l, container, events, apply };
+  }
+  const rows = (v: number) => [{ label: 'Music', value: v }, { label: 'Sfx', value: 1 }];
+  const none = { up: false, down: false, left: false, right: false, submit: false, cancel: false, pause: false };
+
+  it('a value change keeps the item widgets and the focus (by index); the focus moves on from there', () => {
+    const { l, container, events, apply } = menuLayer();
+    apply({ set: [['rows', rows(0.8)]], shown: [{ doc: 'menu', layer: 0, modal: true }] });
+    l.frame();
+    l.handleEdges({ ...none, down: true });
+    expect(l.observe().focus).toEqual({ doc: 'menu', widget: 'row', index: 0 });
+    const before = find(container, (e) => e.attrs['data-widget'] === 'row');
+    apply({ set: [['rows', rows(0.9)]] });
+    l.frame();
+    const after = find(container, (e) => e.attrs['data-widget'] === 'row');
+    expect(after[0]).toBe(before[0]);
+    expect(after[1]).toBe(before[1]);
+    expect(after[0]!.text()).toBe('Music 0.9');
+    expect(l.observe().focus).toEqual({ doc: 'menu', widget: 'row', index: 0 });
+    l.handleEdges({ ...none, down: true });
+    expect(l.observe().focus).toEqual({ doc: 'menu', widget: 'row', index: 1 });
+    expect(events.at(-1)).toMatchObject({ kind: 'focus', widget: 'row', index: 1 });
+  });
+
+  it('an itemKey keeps an item through a reorder (its element moves, its index follows); a removed focused item passes the focus to the item at its place', () => {
+    const { l, container, apply } = menuLayer();
+    apply({ set: [['slots', [{ id: 'a' }, { id: 'b' }, { id: 'c' }]]], shown: [{ doc: 'menu', layer: 0, modal: true }] });
+    l.frame();
+    const els = () => find(container, (e) => e.attrs['data-widget'] === 'slot');
+    const [a, b, c] = els();
+    apply({ commands: [{ op: 'focus', doc: 'menu', widget: 'slot', index: 2 }] });
+    expect(l.observe().focus).toEqual({ doc: 'menu', widget: 'slot', index: 2 });
+    apply({ set: [['slots', [{ id: 'c' }, { id: 'a' }, { id: 'b' }]]] });
+    l.frame();
+    expect(els()).toEqual([c, a, b]);
+    expect(els().map((e) => e.attrs['data-index'])).toEqual(['0', '1', '2']);
+    expect(l.observe().focus).toEqual({ doc: 'menu', widget: 'slot', index: 0 });
+    // c (focused) goes: the focus goes to the item now first, not the document's first widget.
+    apply({ set: [['slots', [{ id: 'a' }, { id: 'b' }]]] });
+    l.frame();
+    expect(els()).toEqual([a, b]);
+    expect(l.observe().focus).toEqual({ doc: 'menu', widget: 'slot', index: 0 });
+  });
+
+  it('offset, opacity and rotation read the view model; a non-number puts them back', () => {
+    const container = new El('div');
+    const l = createUiLayer({
+      dom: fakeDom as never, container: container as never, readArtifact: async () => new ArrayBuffer(0), queueEvent: () => undefined, engineAction: () => undefined, viewport: () => ({ width: 1000, height: 500 }),
+      documents: [{ uiDocumentId: 'fx', name: 'Fx', root: { type: 'panel', children: [{ id: 'petal', type: 'panel', anchor: [0.5, 1], pivot: [0.5, 0.5], offset: [{ bind: 'p.x' }, -20], size: [10, 10], opacity: { bind: 'p.a' }, rotation: { bind: 'p.r' } }] } }],
+    });
+    l.applyOutput({ set: [['p', { x: 30, a: 0.25, r: 45 }]], shown: [{ doc: 'fx', layer: 0, modal: false }], commands: [] });
+    l.frame();
+    const petal = widget(container, 'petal');
+    expect([petal.style['left'], petal.style['top'], petal.style['filter'], petal.style['rotate'], petal.style['transform-origin']]).toEqual(['calc(50% + 30px)', 'calc(100% + -20px)', 'opacity(0.25)', '45deg', '0px 0px']);
+    l.applyOutput({ set: [['p', { x: 'far', a: 2 }]], commands: [] });
+    l.frame();
+    expect([petal.style['left'], petal.style['filter'], petal.style['rotate']]).toEqual(['calc(50% + 0px)', '', '']);
+    expect(rotationOrigin({ type: 'panel', rotation: 5 }, true)).toBe('50% 50%');
+  });
+
+  it('scale modes: fit, cover and expand; $flow.view is the view drawn over', () => {
+    expect(scaleBox('fit', [1920, 1080], 2560, 1080)).toEqual({ s: 1, width: 1920, height: 1080, ox: 320, oy: 0 });
+    expect(scaleBox('cover', [1920, 1080], 2560, 1080)).toEqual({ s: 2560 / 1920, width: 1920, height: 1080, ox: 0, oy: (1080 - 1080 * (2560 / 1920)) / 2 });
+    expect(scaleBox('expand', [1920, 1080], 2560, 1080)).toEqual({ s: 1, width: 2560, height: 1080, ox: 0, oy: 0 });
+    expect(scaleBox('expand', [1920, 1080], 960, 720)).toEqual({ s: 0.5, width: 1920, height: 1440, ox: 0, oy: 0 });
+    const container = new El('div');
+    const l = createUiLayer({
+      dom: fakeDom as never, container: container as never, readArtifact: async () => new ArrayBuffer(0), queueEvent: () => undefined, engineAction: () => undefined, viewport: () => ({ width: 800, height: 400 }),
+      documents: [{ uiDocumentId: 'v', name: 'V', root: { type: 'panel', children: [{ id: 'size', type: 'text', text: '{$flow.view.width}x{$flow.view.height} {$flow.view.aspect}' }] } }],
+    });
+    l.applyOutput({ set: [], shown: [{ doc: 'v', layer: 0, modal: false }], commands: [] });
+    l.frame();
+    expect(widget(container, 'size').text()).toBe('800x400 2');
+    expect(l.view()).toMatchObject({ width: 800, height: 400, aspect: 2 });
   });
 });

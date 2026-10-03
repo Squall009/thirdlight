@@ -100,6 +100,8 @@ export type SimCommand =
   | { readonly op: 'requestArrival'; readonly sceneId: string; readonly spawnId: string }
   /** The viewport the view is drawn in (screen↔world projection's aspect). */
   | { readonly op: 'setCameraViewport'; readonly width: number; readonly height: number }
+  /** The view the UI is drawn over (`ctx.ui.view()`). */
+  | { readonly op: 'setUiView'; readonly width: number; readonly height: number; readonly pixelRatio: number }
   // A debug command call, queued in the worker's runtime for its next step.
   | { readonly op: 'debugCommand'; readonly call: DebugCommandCall }
   // A storage answer (slot list, outcome, loaded save), queued in the worker's runtime for its next step.

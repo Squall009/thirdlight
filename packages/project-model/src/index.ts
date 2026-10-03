@@ -567,6 +567,8 @@ export {
   UI_GENERIC_FONTS,
   UI_LIMITS,
   UI_SAVE_SLOTS,
+  UI_SCALE_MODES,
+  UI_SOUND_EVENTS,
   UI_SHELL_SCREENS,
   UI_TWEEN_KINDS,
   UI_WIDGET_TYPES,
@@ -577,6 +579,7 @@ export {
   uiAssetRefs,
   uiBindPathProblem,
   uiDocumentsForRuntime,
+  uiItemKeyProblem,
   uiTextPlaceholders,
   validateUiDocument,
   validateUiDocuments,
@@ -585,7 +588,7 @@ export {
   validateUiTheme,
   validateUiThemes,
 } from './ui-documents';
-export type { RuntimeUiDocumentRow, UiAction, UiBindable, UiBinding, UiColor, UiDocument, UiDocumentRefs, UiEasing, UiEngineAction, UiIcon, UiScalar, UiStyle, UiStyleValues, UiTheme, UiTween, UiTweenKind, UiWidget, UiWidgetType, UiWorldAnchor } from './ui-documents';
+export type { RuntimeUiDocumentRow, UiAction, UiBindable, UiBinding, UiColor, UiDocument, UiDocumentRefs, UiEasing, UiEngineAction, UiIcon, UiScalar, UiScaleMode, UiSounds, UiStyle, UiStyleValues, UiTheme, UiTween, UiTweenKind, UiWidget, UiWidgetType, UiWorldAnchor } from './ui-documents';
 export { UI_DESCRIPTORS, type UiDescriptors } from './ui-descriptors';
 // Visual effects (content.effects, the effect component) and the effect graph kind.
 export {

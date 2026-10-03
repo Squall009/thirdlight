@@ -362,10 +362,11 @@ export { AUDIO_BUS_NAMES, AUDIO_MAX_HANDLES, AUDIO_MAX_PLAYS_PER_STEP, AUDIO_PIT
 // Graph-material parameters per object — ctx.materials, the catalogue and the renderer's changes.
 export { MATERIAL_WRITES_PER_STEP, RuntimeMaterials, materialCatalogOf, materialCatalogProblem, materialChangeKey, type BehaviorMaterials, type MaterialSaveEntry, type MaterialParamValue, type MaterialRenderChange, type RuntimeMaterialCatalog, type RuntimeMaterialParameter, type RuntimeMaterialParameterType } from './material-params';
 // The project UI — ctx.ui, the UI events of an input frame, the view-model diff the host draws from.
-export type { BehaviorUi, BehaviorUiEvent } from './types';
+export type { BehaviorUi, BehaviorUiEvent, BehaviorUiView } from './types';
 export {
   MAX_FRAME_UI_EVENTS,
   UI_EVENT_KINDS,
+  UI_DEFAULT_VIEW,
   UI_MAX_COMMANDS,
   UI_MAX_SHOWN,
   UI_MODEL_MAX_BYTES,
@@ -374,6 +375,7 @@ export {
   mergeUiOutput,
   readUiPath,
   uiPathSegments,
+  uiViewOf,
   validateUiEvent,
   validateUiEvents,
   type UiCommand,
@@ -382,10 +384,11 @@ export {
   type UiOutput,
   type UiShownDocument,
   type UiStateView,
+  type UiView,
 } from './ui';
 // The document types the game host draws (project-model's; the host reads them through the runtime).
 export { UI_LIMITS, uiDocumentsForRuntime, uiTextPlaceholders } from '@thirdlight/project-model';
-export type { RuntimeUiDocumentRow, UiAction, UiBinding, UiDocument, UiEngineAction, UiIcon, UiStyle, UiStyleValues, UiTheme, UiTween, UiWidget, UiWorldAnchor } from '@thirdlight/project-model';
+export type { RuntimeUiDocumentRow, UiAction, UiBinding, UiDocument, UiEngineAction, UiIcon, UiScaleMode, UiStyle, UiStyleValues, UiTheme, UiTween, UiWidget, UiWorldAnchor } from '@thirdlight/project-model';
 // Dialogue — ctx.dialogue, the runner, the dialogue inputs of an input frame, and the data/UI helpers hosts share.
 export { DIALOGUE_INPUT_KINDS, DialogueRunner, validateDialogueInput, validateDialogueInputs, type DialogueAudioPort, type DialogueInputKind, type DialogueInputRecord, type DialogueSaveState, type DialogueUiPort } from './dialogue';
 export type { BehaviorDialogue, BehaviorDialogueEvent, BehaviorDialogueHistoryEntry, BehaviorDialogueState, DialogueVariableValue } from './types';

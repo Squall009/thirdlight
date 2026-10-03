@@ -110,6 +110,17 @@ export interface BehaviorEnvironment {
   presets(): readonly string[];
 }
 
+/** `ctx.ui.view()`: the view the UI is drawn over. */
+export interface BehaviorUiView {
+  /** CSS px. */
+  readonly width: number;
+  readonly height: number;
+  /** width / height. */
+  readonly aspect: number;
+  /** Device pixels per CSS px. */
+  readonly pixelRatio: number;
+}
+
 export interface BehaviorUi {
   /**
    * Publish a value at a view-model path ("hud.hp", "party.0.name"): a number, text (≤ 1024), true/false, null, a list (≤ 256) or an object (≤ 64 keys). `false` for a bad path or value, or past the view model's 64 KiB.
@@ -153,12 +164,19 @@ export interface BehaviorUi {
    */
   play(docId: string, tween: string, widgetId?: string): boolean;
   /**
-   * Move the keyboard/gamepad focus to a widget of a shown document.
+   * Move the keyboard/gamepad focus to a widget of a shown document; `index` names the list item the widget is in (absent: the first such widget). `false` for an unknown document, a bad widget id or index.
    * @graphNode Focus UI widget
    * @graphLabel docId document
    * @graphLabel widgetId widget
+   * @graphLabel index list item
    */
-  focus(docId: string, widgetId: string): boolean;
+  focus(docId: string, widgetId: string, index?: number): boolean;
+  /**
+   * The view the UI is drawn over: its size in CSS px, its aspect (width / height) and the device pixels per CSS px. Read from the page each frame (not simulation state: a replay in another window reads that window's); 1280 × 720 at 1 until the page reported it.
+   * @graphPure
+   * @graphNode UI view
+   */
+  view(): BehaviorUiView;
   /**
    * The UI events of this step (clicks, submits, focus changes, shows and hides), in order.
    * @graphPure

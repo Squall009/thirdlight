@@ -22,10 +22,10 @@
  * widgets follow an entity or a point through the renderer's camera.
  */
 import { createResourceManager, type DialogueInputRecord, type ResourceManager } from '@thirdlight/runtime';
-import { UI_LIMITS, applyUiOutputToModel, readUiPath, uiPathSegments, type UiAction, type UiDocument, type UiEventRecord, type UiOutput, type UiShownDocument, type UiStyle, type UiTheme, type UiTween, type UiWidget } from '@thirdlight/runtime';
+import { UI_LIMITS, applyUiOutputToModel, readUiPath, uiPathSegments, uiViewOf, UI_DEFAULT_VIEW, type UiAction, type UiDocument, type UiEventRecord, type UiOutput, type UiShownDocument, type UiStyle, type UiTheme, type UiTween, type UiView, type UiWidget } from '@thirdlight/runtime';
 import type { UiEdges } from './dom';
 import type { HostDom, HostDomNode } from './dom';
-import { GENERIC_FONTS, UI_BASE_CSS, boundSizeAxes, childrenFlow, containerProps, fontFamilyOf, placementProps, styleRules, tweenKeyframes, type CssAssets, type CssProp } from './ui-css';
+import { GENERIC_FONTS, UI_BASE_CSS, anchorCalc, boundOffsetAxes, boundSizeAxes, childrenFlow, containerProps, fontFamilyOf, placementProps, rotationOrigin, scaleBox, styleRules, tweenKeyframes, type CssAssets, type CssProp } from './ui-css';
 import { orderPick, spatialPick, type NavDirection, type NavRect } from './ui-nav';
 import { parseRichText, uiValueText, type RichToken } from './ui-text';
 import type { UiHitTarget } from './ui-hit';
@@ -133,6 +133,8 @@ export interface UiLayer {
   setHud(docIds: readonly string[]): void;
   /** Once per frame: $flow values and the view size. */
   frame(): void;
+  /** The view the documents are drawn over (`$flow.view`, what the host reports for `ctx.ui.view()`). */
+  view(): UiView;
   /** Keyboard/gamepad edges: the focused document takes what it uses; the rest is returned. */
   handleEdges(edges: UiEdges): UiEdges;
   /** A document with the focus is shown (its edges go to the UI). */
@@ -149,9 +151,10 @@ export interface UiLayer {
   dispose(): void;
 }
 
+/** A list item's value and index (shared by the item's widgets; kept items take new values in place). */
 interface Scope {
-  readonly item?: unknown;
-  readonly index?: number;
+  item?: unknown;
+  index?: number;
 }
 
 interface Rec {
@@ -159,9 +162,11 @@ interface Rec {
   readonly el: UiNode;
   readonly scope: Scope;
   readonly kids: Rec[];
-  /** A list's item roots (rebuilt as the bound array changes). */
+  /** A list's item roots (kept while their index, or their `itemKey`, stays in the bound array). */
   items?: Rec[];
   itemsHost?: UiNode;
+  /** A list item root's key (`itemKey`; `#n` for an item without a usable one). */
+  itemKey?: string;
   visible: boolean;
   enabled: boolean;
   textKey?: string;
@@ -175,6 +180,11 @@ interface Rec {
   /** The size axes bound to the view model ([width, height]) and the last applied values. */
   sizeAxes?: [boolean, boolean];
   sizeKey?: string;
+  /** The offset axes bound to the view model ([x, y]) and the last applied offset, opacity and rotation. */
+  offsetAxes?: [boolean, boolean];
+  offsetKey?: string;
+  opacityKey?: string;
+  rotationKey?: string;
   imageKey?: string;
   anchorEntity?: string | null;
   indicator?: Rec;
@@ -365,6 +375,9 @@ class DocView {
     } else setProps(el, placementProps(w, parentFlows));
     const sizeAxes = boundSizeAxes(w, parentFlows);
     if (sizeAxes[0] || sizeAxes[1]) rec.sizeAxes = sizeAxes;
+    const offsetAxes = boundOffsetAxes(w, parentFlows);
+    if (offsetAxes[0] || offsetAxes[1]) rec.offsetAxes = offsetAxes;
+    if (w.rotation !== undefined) setProp(el, 'transform-origin', rotationOrigin(w, parentFlows));
     setProps(el, containerProps(w));
     // A world-anchored widget is placed in the document's own box (not its parent's), whatever its parent lays out.
     (anchored ? this.content : parent).appendChild(el);
@@ -453,9 +466,30 @@ class DocView {
 
   /** Apply the view model to every widget (only what changed touches the DOM). */
   refresh(): void {
+    this.lostInList = null;
     if (this.top !== null) this.refreshRec(this.top);
     if (this.focus !== null && (!this.focus.visible || !this.focus.enabled || !this.alive(this.focus))) this.focus = null;
+    // The focused item left its list: the focus goes to the item now at its place (or the last), not the document's first widget.
+    if (this.focus === null && this.lostInList !== null && this.wantsFocus) this.refocusList(this.lostInList);
     if (this.focus === null && this.wantsFocus) this.layer.initialFocus(this);
+  }
+
+  /** Where the focus was when its list item went (set by `syncList` during a refresh). */
+  private lostInList: { list: Rec; index: number; id: string | undefined } | null = null;
+
+  private refocusList(lost: { list: Rec; index: number; id: string | undefined }): void {
+    const items = lost.list.items ?? [];
+    if (items.length === 0) return;
+    const focusables = this.focusables();
+    for (let i = Math.min(lost.index, items.length - 1); i >= 0; i -= 1) {
+      const scope = items[i]!.scope;
+      const inItem = focusables.filter((r) => r.scope === scope);
+      const pick = inItem.find((r) => r.w.id === lost.id) ?? inItem[0];
+      if (pick !== undefined) {
+        this.layer.setFocus(this, pick, true);
+        return;
+      }
+    }
   }
 
   private alive(rec: Rec): boolean {
@@ -486,6 +520,7 @@ class DocView {
       }
     }
     if (rec.sizeAxes !== undefined) this.renderSize(rec);
+    if (rec.offsetAxes !== undefined || w.opacity !== undefined || w.rotation !== undefined) this.renderMotion(rec);
     if (rec.tokens !== undefined && rec.textEl !== undefined) this.renderText(rec);
     if (w.type === 'image') this.renderImage(rec);
     if (w.type === 'bar') this.renderBar(rec);
@@ -632,6 +667,45 @@ class DocView {
     if (axes[1]) setProp(rec.el, 'height', h);
   }
 
+  /** A bound offset, the opacity and the rotation (only a changed value touches the element). */
+  private renderMotion(rec: Rec): void {
+    const w = rec.w;
+    const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+    const axes = rec.offsetAxes;
+    if (axes !== undefined) {
+      const at = (i: 0 | 1): number => Math.max(-UI_LIMITS.px, Math.min(UI_LIMITS.px, num(this.resolve(w.offset![i], rec.scope)) ?? 0));
+      const x = axes[0] ? at(0) : 0;
+      const y = axes[1] ? at(1) : 0;
+      const key = `${x}|${y}`;
+      if (rec.offsetKey !== key) {
+        rec.offsetKey = key;
+        const anchor = w.anchor ?? [0, 0];
+        if (axes[0]) setProp(rec.el, 'left', anchorCalc(anchor[0], x));
+        if (axes[1]) setProp(rec.el, 'top', anchorCalc(anchor[1], y));
+      }
+    }
+    if (w.opacity !== undefined) {
+      // A filter multiplies with the style's opacity, its states and a fade tween (each sets `opacity`).
+      const o = num(this.resolve(w.opacity, rec.scope));
+      const v = o === null ? 1 : Math.max(0, Math.min(1, o));
+      const key = String(v);
+      if (rec.opacityKey !== key) {
+        rec.opacityKey = key;
+        setProp(rec.el, 'filter', v >= 1 ? null : `opacity(${v})`);
+      }
+    }
+    if (w.rotation !== undefined) {
+      // The individual `rotate` property composes with the layout transform and the tweens' scale/translate.
+      const r = num(this.resolve(w.rotation, rec.scope));
+      const deg = r === null ? 0 : Math.max(-UI_LIMITS.degrees, Math.min(UI_LIMITS.degrees, r));
+      const key = String(deg);
+      if (rec.rotationKey !== key) {
+        rec.rotationKey = key;
+        setProp(rec.el, 'rotate', deg === 0 ? null : `${Math.round(deg * 1000) / 1000}deg`);
+      }
+    }
+  }
+
   private renderBar(rec: Rec): void {
     const w = rec.w;
     const num = (v: unknown, d: number): number => (typeof v === 'number' && Number.isFinite(v) ? v : d);
@@ -670,26 +744,77 @@ class DocView {
     }
   }
 
+  /**
+   * A list's items follow the bound array. An item keeps its widgets (and
+   * the focus) while it stays: by its index, or by its `itemKey` wherever it
+   * moves; only its values are read again. Items gone are removed, new ones
+   * built, and kept ones put in the array's order.
+   */
   private syncList(rec: Rec): void {
     const w = rec.w;
     const arr = w.items !== undefined ? this.layer.resolvePath(w.items.bind, rec.scope) : undefined;
     const list = Array.isArray(arr) ? arr.slice(0, LIST_MAX) : [];
-    const items = rec.items!;
-    // Rebuild an item when its value changed identity (the view model replaces what it writes).
+    const before = rec.items!;
+    const keyPath = w.itemKey !== undefined ? uiPathSegments(w.itemKey) : null;
+    // Each item's key: its itemKey value (text or number; a repeated one counts once), else its place.
+    const seen = new Set<string>();
+    const keys = list.map((item, i) => {
+      const k = keyPath === null ? undefined : readUiPath(item, keyPath);
+      const key = typeof k === 'string' ? `s:${k}` : typeof k === 'number' && Number.isFinite(k) ? `n:${k}` : `#${i}`;
+      const unique = seen.has(key) ? `#${i}` : key;
+      seen.add(unique);
+      return unique;
+    });
+    const kept = new Map<string, Rec>();
+    for (const r of before) kept.set(r.itemKey ?? '', r);
+    const next: Rec[] = [];
     for (let i = 0; i < list.length; i += 1) {
-      const cur = items[i];
-      if (cur !== undefined && cur.scope.item === list[i]) continue;
-      if (cur !== undefined) this.removeRec(cur);
-      const built = this.build(w.template!, rec.itemsHost!, { item: list[i], index: i }, true);
-      if (cur !== undefined) {
-        // Keep document order: move the rebuilt item to its place.
-        const next = items[i + 1];
-        const host = rec.itemsHost as unknown as { insertBefore?(n: unknown, r: unknown): void };
-        if (next !== undefined && typeof host.insertBefore === 'function' && built.w.worldAnchor === undefined) host.insertBefore(built.el, next.el);
+      const key = keys[i]!;
+      const r = kept.get(key);
+      if (r !== undefined) {
+        kept.delete(key);
+        this.rescope(r, list[i], i);
+        next.push(r);
+      } else {
+        const built = this.build(w.template!, rec.itemsHost!, { item: list[i], index: i }, true);
+        built.itemKey = key;
+        next.push(built);
       }
-      items[i] = built;
     }
-    while (items.length > list.length) this.removeRec(items.pop()!);
+    for (const r of kept.values()) {
+      const index = r.scope.index ?? 0;
+      if (this.focus !== null && this.holds(r, this.focus)) this.lostInList = { list: rec, index, id: this.focus.w.id };
+      this.removeRec(r);
+    }
+    rec.items = next;
+    // Document order: each item's element at its place among the list's (a world-anchored item is placed in the document box).
+    const host = rec.itemsHost as unknown as { children?: ArrayLike<unknown>; insertBefore?(n: unknown, r: unknown): void };
+    if (typeof host.insertBefore === 'function' && host.children !== undefined) {
+      let at = 0;
+      for (const r of next) {
+        if (r.w.worldAnchor !== undefined) continue;
+        if (host.children[at] !== r.el) host.insertBefore(r.el, host.children[at] ?? null);
+        at += 1;
+      }
+    }
+  }
+
+  /** A kept list item takes its new value and index (its widgets share the scope; `data-index` follows). */
+  private rescope(r: Rec, item: unknown, index: number): void {
+    r.scope.item = item;
+    if (r.scope.index === index) return;
+    r.scope.index = index;
+    const mark = (x: Rec): void => {
+      if (x.scope === r.scope) x.el.setAttribute?.('data-index', String(index));
+      x.kids.forEach(mark);
+    };
+    mark(r);
+  }
+
+  /** `inner` is `outer` or inside it. */
+  private holds(outer: Rec, inner: Rec): boolean {
+    if (outer === inner) return true;
+    return outer.kids.some((k) => this.holds(k, inner)) || (outer.items ?? []).some((k) => this.holds(k, inner));
   }
 
   private removeRec(rec: Rec): void {
@@ -744,7 +869,7 @@ class DocView {
     return found;
   }
 
-  /** The document's view box (scale mode: a reference size fitted to the view). */
+  /** The document's view box (scale mode: a reference size fitted to, covering or expanded to the view). */
   layout(vw: number, vh: number): void {
     const sc = this.doc.scale;
     const key = `${vw}x${vh}`;
@@ -753,12 +878,9 @@ class DocView {
       this.scale = { s: 1, ox: 0, oy: 0, key };
       return;
     }
-    const [rw, rh] = sc.reference;
-    const s = sc.mode === 'width' ? vw / rw : sc.mode === 'height' ? vh / rh : Math.min(vw / rw, vh / rh);
-    const ox = (vw - rw * s) / 2;
-    const oy = (vh - rh * s) / 2;
-    this.scale = { s, ox, oy, key };
-    setProps(this.content, [['width', `${rw}px`], ['height', `${rh}px`], ['transform', `translate(${ox}px, ${oy}px) scale(${s})`]]);
+    const box = scaleBox(sc.mode, sc.reference, vw, vh);
+    this.scale = { s: box.s, ox: box.ox, oy: box.oy, key };
+    setProps(this.content, [['width', `${box.width}px`], ['height', `${box.height}px`], ['transform', `translate(${box.ox}px, ${box.oy}px) scale(${box.s})`]]);
   }
 
   play(tween: string, widget?: string): { finished?: Promise<unknown> } | null {
@@ -1060,7 +1182,7 @@ class LayerImpl implements UiLayer {
       if (c.op === 'play') v.play(c.tween, c.widget);
       else {
         if (this.dirty) this.refreshAll();
-        const r = v.findById(c.widget);
+        const r = v.findById(c.widget, c.index);
         if (r !== null) this.setFocus(v, r, true);
       }
     }
@@ -1121,10 +1243,15 @@ class LayerImpl implements UiLayer {
     return { width: g.innerWidth ?? 1280, height: g.innerHeight ?? 720 };
   }
 
+  view(): UiView {
+    return pageUiView(this.viewport());
+  }
+
   frame(): void {
     if (this.disposed) return;
     this.targetsCache = null;
-    const flow = this.deps.flowValues?.() ?? null;
+    // `$flow.view`: the view the documents are drawn over, with the host's values.
+    const flow = { ...(this.deps.flowValues?.() ?? {}), view: this.view() };
     // Glyphs follow the device used last and the bindings.
     const gk = this.deps.glyphKey?.() ?? '';
     if (gk !== this.glyphKeyNow) {
@@ -1137,7 +1264,7 @@ class LayerImpl implements UiLayer {
       this.slotPicturesKey = sk;
       this.assetsChanged();
     }
-    const key = flow === null ? '' : JSON.stringify(flow);
+    const key = JSON.stringify(flow);
     if (key !== this.flowKey) {
       this.flowKey = key;
       this.flow = flow;
@@ -1498,6 +1625,15 @@ class LayerImpl implements UiLayer {
 
 /** Names each layer's holder apart (a Play page and an editor preview may each have one). */
 let layerSerial = 0;
+
+/** A view of `viewport` CSS px (default: the window's) at the page's device pixel ratio. */
+export function pageUiView(viewport?: { width: number; height: number }): UiView {
+  const g = globalThis as { innerWidth?: number; innerHeight?: number; devicePixelRatio?: number };
+  const width = viewport?.width ?? g.innerWidth ?? UI_DEFAULT_VIEW.width;
+  const height = viewport?.height ?? g.innerHeight ?? UI_DEFAULT_VIEW.height;
+  const ratio = typeof g.devicePixelRatio === 'number' && g.devicePixelRatio > 0 ? g.devicePixelRatio : 1;
+  return uiViewOf(Math.max(1, width), Math.max(1, height), Math.max(0.25, Math.min(16, ratio))) ?? UI_DEFAULT_VIEW;
+}
 
 /** Create the project UI layer (see the module comment). */
 export function createUiLayer(deps: UiLayerDeps): UiLayer {

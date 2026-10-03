@@ -66,7 +66,17 @@ export interface UiStyleValues {
   /** A box shadow colour (4 px down, 12 px blur). */
   shadow?: UiColor;
 }
+/** Sounds a widget plays on the `ui` bus (audio assets): a click (any activation), the pointer coming over it, the focus moving to it. */
+export interface UiSounds {
+  click?: string;
+  hover?: string;
+  focus?: string;
+}
+export const UI_SOUND_EVENTS = ['click', 'hover', 'focus'] as const;
+
 export interface UiStyle extends UiStyleValues {
+  /** The sounds of the widgets in this style (under a widget's own). */
+  sounds?: UiSounds;
   hover?: UiStyleValues;
   focus?: UiStyleValues;
   pressed?: UiStyleValues;
@@ -166,7 +176,8 @@ export interface UiWidget {
   // Placement in a panel (a stack/grid/list parent flows its children; only `size` and `grow` apply there).
   anchor?: [number, number];
   pivot?: [number, number];
-  offset?: [number, number];
+  /** Px from the anchor; each axis a number or a view-model binding. */
+  offset?: [UiBindable<number>, UiBindable<number>];
   /** Each axis a number, null (sized to the content) or a view-model binding. */
   size?: [UiBindable<number> | null, UiBindable<number> | null];
   stretch?: 'x' | 'y' | 'both';
@@ -176,7 +187,13 @@ export interface UiWidget {
   css?: UiStyle;
   visible?: UiBindable<boolean>;
   enabled?: UiBindable<boolean>;
+  /** How opaque the widget and its children are (0–1), over its style's opacity; a number or a binding. */
+  opacity?: UiBindable<number>;
+  /** Degrees clockwise about the widget's pivot (its centre in a stack, grid or list); a number or a binding. */
+  rotation?: UiBindable<number>;
   focusable?: boolean;
+  /** This widget's sounds (over its styles' and the document's). */
+  sounds?: UiSounds;
   nav?: { up?: string; down?: string; left?: string; right?: string; next?: string; prev?: string };
   worldAnchor?: UiWorldAnchor;
   onFocus?: UiAction | UiAction[];
@@ -219,6 +236,12 @@ export interface UiWidget {
   // list
   items?: UiBinding;
   template?: UiWidget;
+  /**
+   * The field of each item naming it (`id`): an item keeps its widgets, and
+   * the focus, while its key stays in the array, wherever it moves. Absent:
+   * items are kept by their index.
+   */
+  itemKey?: string;
   // input
   placeholder?: string;
   maxLength?: number;
@@ -237,8 +260,13 @@ export interface UiDocument {
   /** The input action map active while it has the focus (absent: every map stays active). */
   actionMap?: string;
   theme?: string;
-  /** Scale with the view: `reference` [w, h] px drawn to fit the view (`fit`), its width or its height. */
-  scale?: { reference: [number, number]; mode: 'fit' | 'width' | 'height' };
+  /**
+   * Scale with the view: `reference` [w, h] px drawn to fit the view
+   * (`fit`), its width or its height, to cover it (`cover`: the box larger
+   * than the view, centred) or to fit and grow the box to the view's aspect
+   * (`expand`: anchors 0 and 1 are the view's edges).
+   */
+  scale?: { reference: [number, number]; mode: UiScaleMode };
   styles?: Record<string, UiStyle>;
   icons?: Record<string, UiIcon>;
   tweens?: Record<string, UiTween>;
@@ -247,8 +275,13 @@ export interface UiDocument {
   initialFocus?: string;
   /** What the cancel input (Back, pad B) does while it has the focus. */
   onCancel?: UiAction | UiAction[];
+  /** The sounds of every widget that takes the pointer or the focus, unless its style or itself names one. */
+  sounds?: UiSounds;
   root: UiWidget;
 }
+
+export type UiScaleMode = 'fit' | 'width' | 'height' | 'cover' | 'expand';
+export const UI_SCALE_MODES: readonly UiScaleMode[] = ['fit', 'width', 'height', 'cover', 'expand'];
 
 export interface UiTheme {
   uiThemeId: string;
@@ -285,6 +318,8 @@ export const UI_LIMITS = Object.freeze({
   listItems: 256,
   layer: 100,
   px: 16_384,
+  /** A widget's rotation either way (ten turns: a spin kept in range by its script). */
+  degrees: 3600,
 });
 
 export const UI_WIDGET_TYPES: readonly UiWidgetType[] = ['panel', 'stack', 'grid', 'text', 'image', 'bar', 'button', 'list', 'input'];
@@ -360,6 +395,11 @@ export function uiBindPathProblem(path: string): string | null {
   return null;
 }
 
+/** Why a list's `itemKey` is refused (null: fine): the name of a field of each item. */
+export function uiItemKeyProblem(key: string): string | null {
+  return PATH_SEGMENT_RE.test(key) ? null : 'itemKey names a field of each item: letters, digits, _ and - (1-32)';
+}
+
 function binding(errors: ModelErrorV2[], v: unknown, path: string): void {
   if (!isPlainObject(v)) return;
   only(v, ['bind'], path, errors, 'binding');
@@ -389,8 +429,22 @@ export function uiTextPlaceholders(text: string): string[] {
 const STYLE_VALUE_KEYS = ['color', 'background', 'backgroundImage', 'slice', 'opacity', 'font', 'fontSize', 'bold', 'italic', 'align', 'lineHeight', 'letterSpacing', 'padding', 'radius', 'borderWidth', 'borderColor', 'textShadow', 'shadow'] as const;
 const STYLE_STATE_KEYS = ['hover', 'focus', 'pressed', 'disabled'] as const;
 
+/** A sounds block: audio assets for click, hover and focus (collected for the project's checks). */
+function validateSounds(errors: ModelErrorV2[], v: unknown, path: string, refs?: DocRefs): void {
+  if (v === undefined) return;
+  if (!isPlainObject(v)) return err(errors, 'field_type', path, 'sounds is { click?, hover?, focus? } audio assets', v, 'object');
+  only(v, UI_SOUND_EVENTS, path, errors, 'sounds');
+  for (const k of UI_SOUND_EVENTS) {
+    const id = v[k];
+    if (id === undefined) continue;
+    if (typeof id !== 'string' || !ID_RE.test(id)) err(errors, 'field_value', `${path}/${k}`, `${k} names an audio asset`, id, 'an audio assetId');
+    else refs?.sounds.push({ id, path: `${path}/${k}` });
+  }
+}
+
 function validateStyleValues(errors: ModelErrorV2[], v: Record<string, unknown>, path: string, withStates: boolean): void {
-  only(v, withStates ? [...STYLE_VALUE_KEYS, ...STYLE_STATE_KEYS] : STYLE_VALUE_KEYS, path, errors, 'style');
+  only(v, withStates ? [...STYLE_VALUE_KEYS, 'sounds', ...STYLE_STATE_KEYS] : STYLE_VALUE_KEYS, path, errors, 'style');
+  if (withStates) validateSounds(errors, v['sounds'], `${path}/sounds`);
   color(errors, v['color'], `${path}/color`, 'color');
   color(errors, v['background'], `${path}/background`, 'background');
   if (v['backgroundImage'] !== undefined && (typeof v['backgroundImage'] !== 'string' || !ID_RE.test(v['backgroundImage']))) err(errors, 'field_value', `${path}/backgroundImage`, 'backgroundImage names a texture asset', v['backgroundImage'], 'a texture assetId');
@@ -542,11 +596,12 @@ interface DocRefs {
   modes: { id: string; path: string }[];
   images: { id: string; path: string }[];
   fonts: { id: string; path: string }[];
+  sounds: { id: string; path: string }[];
   icons: { name: string; path: string }[];
   count: number;
 }
 
-const COMMON_KEYS = ['id', 'type', 'anchor', 'pivot', 'offset', 'size', 'stretch', 'margin', 'grow', 'style', 'css', 'visible', 'enabled', 'focusable', 'nav', 'worldAnchor', 'onFocus'];
+const COMMON_KEYS = ['id', 'type', 'anchor', 'pivot', 'offset', 'size', 'stretch', 'margin', 'grow', 'style', 'css', 'visible', 'enabled', 'opacity', 'rotation', 'focusable', 'sounds', 'nav', 'worldAnchor', 'onFocus'];
 const TYPE_KEYS: Record<UiWidgetType, readonly string[]> = {
   panel: ['children'],
   stack: ['children', 'direction', 'gap', 'align', 'justify', 'wrap'],
@@ -555,7 +610,7 @@ const TYPE_KEYS: Record<UiWidgetType, readonly string[]> = {
   image: ['image', 'saveSlot', 'slice', 'fit', 'tint'],
   bar: ['value', 'min', 'max', 'direction', 'shape', 'fillColor', 'fillStyle', 'startAngle'],
   button: ['text', 'children', 'onClick', 'direction', 'gap', 'align', 'justify'],
-  list: ['items', 'template', 'direction', 'gap', 'align', 'justify', 'columns', 'wrap'],
+  list: ['items', 'itemKey', 'template', 'direction', 'gap', 'align', 'justify', 'columns', 'wrap'],
   input: ['value', 'placeholder', 'maxLength', 'onSubmit'],
 };
 
@@ -572,6 +627,7 @@ function styleRefs(errors: ModelErrorV2[], v: unknown, path: string, refs: DocRe
 
 function collectStyleAssets(v: unknown, path: string, refs: DocRefs): void {
   if (!isPlainObject(v)) return;
+  validateSounds([], v['sounds'], `${path}/sounds`, refs);
   const one = (s: Record<string, unknown>, p: string): void => {
     if (typeof s['backgroundImage'] === 'string') refs.images.push({ id: s['backgroundImage'], path: `${p}/backgroundImage` });
     if (typeof s['font'] === 'string' && !(UI_GENERIC_FONTS as readonly string[]).includes(s['font'])) refs.fonts.push({ id: s['font'], path: `${p}/font` });
@@ -610,8 +666,12 @@ function validateWidget(errors: ModelErrorV2[], v: unknown, path: string, refs: 
   const P = UI_LIMITS.px;
   tuple(errors, v['anchor'], `${path}/anchor`, 2, 0, 1, 'anchor');
   tuple(errors, v['pivot'], `${path}/pivot`, 2, 0, 1, 'pivot');
-  tuple(errors, v['offset'], `${path}/offset`, 2, -P, P, 'offset');
-  // An axis of the size may read the view model.
+  // An axis of the offset or the size may read the view model.
+  const offset = v['offset'];
+  if (offset !== undefined) {
+    if (!Array.isArray(offset) || offset.length !== 2) err(errors, 'field_value', `${path}/offset`, `offset is [2 numbers −${P}–${P} or { "bind": "path" }]`, offset, '2 numbers');
+    else offset.forEach((x, i) => bindable(errors, x, `${path}/offset/${i}`, (n) => isNum(n, -P, P), `an offset is a number −${P}–${P}`));
+  }
   const size = v['size'];
   if (size !== undefined) {
     if (!Array.isArray(size) || size.length !== 2) err(errors, 'field_value', `${path}/size`, `size is [2 numbers 0–${P}, null or { "bind": "path" }]`, size, '2 numbers');
@@ -629,7 +689,10 @@ function validateWidget(errors: ModelErrorV2[], v: unknown, path: string, refs: 
   }
   bindable(errors, v['visible'], `${path}/visible`, (x) => typeof x === 'boolean', 'visible is true/false');
   bindable(errors, v['enabled'], `${path}/enabled`, (x) => typeof x === 'boolean', 'enabled is true/false');
+  bindable(errors, v['opacity'], `${path}/opacity`, (x) => isNum(x, 0, 1), 'opacity is a number 0–1');
+  bindable(errors, v['rotation'], `${path}/rotation`, (x) => isNum(x, -UI_LIMITS.degrees, UI_LIMITS.degrees), `rotation is degrees −${UI_LIMITS.degrees}–${UI_LIMITS.degrees}`);
   bool(errors, v['focusable'], `${path}/focusable`, 'focusable');
+  validateSounds(errors, v['sounds'], `${path}/sounds`, refs);
   const nav = v['nav'];
   if (nav !== undefined) {
     if (!isPlainObject(nav)) err(errors, 'field_type', `${path}/nav`, 'nav is { up?, down?, left?, right?, next?, prev? } widget ids', nav, 'object');
@@ -733,6 +796,11 @@ function validateWidget(errors: ModelErrorV2[], v: unknown, path: string, refs: 
       oneOf(errors, v['direction'], `${path}/direction`, ['row', 'column', 'grid'], 'a list direction');
       if (v['direction'] === 'grid' && v['columns'] === undefined) err(errors, 'field_missing', `${path}/columns`, 'a grid list has columns', undefined, '1..32');
       if (inTemplate) err(errors, 'field_value', path, 'a list template cannot hold another list', undefined, 'no nested list');
+      const key = v['itemKey'];
+      if (key !== undefined) {
+        const problem = typeof key === 'string' ? uiItemKeyProblem(key) : 'itemKey is a path text';
+        if (problem !== null) err(errors, 'field_value', `${path}/itemKey`, problem, key, 'a path inside the item');
+      }
       if (v['template'] === undefined) err(errors, 'field_missing', `${path}/template`, 'a list has a template widget', undefined, 'template');
       else validateWidget(errors, v['template'], `${path}/template`, refs, depth + 1, true);
       break;
@@ -752,7 +820,7 @@ function validateWidget(errors: ModelErrorV2[], v: unknown, path: string, refs: 
 // Documents and themes
 // ---------------------------------------------------------------------------
 
-const DOC_KEYS = ['uiDocumentId', 'name', 'layer', 'modal', 'focus', 'actionMap', 'theme', 'scale', 'styles', 'icons', 'tweens', 'showTween', 'hideTween', 'initialFocus', 'onCancel', 'root'];
+const DOC_KEYS = ['uiDocumentId', 'name', 'layer', 'modal', 'focus', 'actionMap', 'theme', 'scale', 'styles', 'icons', 'tweens', 'showTween', 'hideTween', 'initialFocus', 'onCancel', 'sounds', 'root'];
 
 /** What a document references outside itself (checked against the project by `validateUiReferences`). */
 export interface UiDocumentRefs {
@@ -762,11 +830,13 @@ export interface UiDocumentRefs {
   readonly styles: readonly { name: string; path: string }[];
   readonly images: readonly { id: string; path: string }[];
   readonly fonts: readonly { id: string; path: string }[];
+  /** The audio assets the documents' sounds name. */
+  readonly sounds?: readonly { id: string; path: string }[];
   readonly icons: readonly { name: string; path: string }[];
 }
 
 function newRefs(): DocRefs {
-  return { ids: new Map(), widgets: [], tweens: [], styles: [], docs: [], modes: [], images: [], fonts: [], icons: [], count: 0 };
+  return { ids: new Map(), widgets: [], tweens: [], styles: [], docs: [], modes: [], images: [], fonts: [], sounds: [], icons: [], count: 0 };
 }
 
 function validateName(errors: ModelErrorV2[], v: unknown, path: string, what: string): void {
@@ -800,13 +870,13 @@ export function validateUiDocument(value: unknown, path: string, errors: ModelEr
   if (value['theme'] !== undefined && (typeof value['theme'] !== 'string' || !ID_RE.test(value['theme']))) err(errors, 'field_value', `${path}/theme`, 'theme names a UI theme', value['theme'], 'a uiThemeId');
   const scale = value['scale'];
   if (scale !== undefined) {
-    if (!isPlainObject(scale)) err(errors, 'field_type', `${path}/scale`, 'scale is { reference: [w, h], mode: fit | width | height }', scale, 'object');
+    if (!isPlainObject(scale)) err(errors, 'field_type', `${path}/scale`, `scale is { reference: [w, h], mode: ${UI_SCALE_MODES.join(' | ')} }`, scale, 'object');
     else {
       only(scale, ['reference', 'mode'], `${path}/scale`, errors, 'scale');
       tuple(errors, scale['reference'], `${path}/scale/reference`, 2, 16, UI_LIMITS.px, 'reference');
       if (scale['reference'] === undefined) err(errors, 'field_missing', `${path}/scale/reference`, 'scale has a reference size', undefined, '[w, h]');
-      oneOf(errors, scale['mode'], `${path}/scale/mode`, ['fit', 'width', 'height'], 'mode');
-      if (scale['mode'] === undefined) err(errors, 'field_missing', `${path}/scale/mode`, 'scale has a mode', undefined, 'fit | width | height');
+      oneOf(errors, scale['mode'], `${path}/scale/mode`, UI_SCALE_MODES, 'mode');
+      if (scale['mode'] === undefined) err(errors, 'field_missing', `${path}/scale/mode`, 'scale has a mode', undefined, UI_SCALE_MODES.join(' | '));
     }
   }
   const refs = newRefs();
@@ -830,6 +900,7 @@ export function validateUiDocument(value: unknown, path: string, errors: ModelEr
     else refs.widgets.push({ id: value['initialFocus'], path: `${path}/initialFocus` });
   }
   validateActions(errors, value['onCancel'], `${path}/onCancel`, refs);
+  validateSounds(errors, value['sounds'], `${path}/sounds`, refs);
   if (value['root'] === undefined) err(errors, 'field_missing', `${path}/root`, 'a UI document has a root widget', undefined, 'root');
   else validateWidget(errors, value['root'], `${path}/root`, refs, 1, false);
   // Document-local references: widget ids and tweens.
@@ -837,7 +908,7 @@ export function validateUiDocument(value: unknown, path: string, errors: ModelEr
   const tweens = isPlainObject(value['tweens']) ? value['tweens'] : {};
   for (const t of refs.tweens) if (!Object.prototype.hasOwnProperty.call(tweens, t.name)) err(errors, 'reference_missing', t.path, `no tween "${t.name}" in this document`, t.name, 'a tween name of this document');
   sizeCheck(errors, value, path, 'UI document');
-  return { docs: refs.docs, modes: refs.modes, styles: refs.styles, images: refs.images, fonts: refs.fonts, icons: refs.icons };
+  return { docs: refs.docs, modes: refs.modes, styles: refs.styles, images: refs.images, fonts: refs.fonts, sounds: refs.sounds, icons: refs.icons };
 }
 
 export function validateUiDocuments(value: unknown, path: string, errors: ModelErrorV2[], inputMaps?: readonly string[], trusted?: ReadonlySet<unknown>): void {
@@ -873,7 +944,7 @@ export function validateUiTheme(value: unknown, path: string, errors: ModelError
     if (isPlainObject(s) && typeof s['asset'] === 'string') refs.images.push({ id: s['asset'], path: `${p}/asset` });
   });
   sizeCheck(errors, value, path, 'UI theme');
-  return { docs: [], styles: [], images: refs.images, fonts: refs.fonts, icons: [] };
+  return { docs: [], styles: [], images: refs.images, fonts: refs.fonts, sounds: refs.sounds, icons: [] };
 }
 
 export function validateUiThemes(value: unknown, path: string, errors: ModelErrorV2[], trusted?: ReadonlySet<unknown>): void {
@@ -911,6 +982,7 @@ export function validateUiReferences(content: Record<string, unknown>, errors: M
       else if (k !== 'texture') err(errors, 'asset_reference_missing', `${at}${img.path}`, 'this image must name a texture asset of this project', img.id, 'a texture assetId');
     }
     for (const f of r.fonts) if (kindOf(f.id) !== 'font') err(errors, 'asset_reference_missing', `${at}${f.path}`, 'this font must name a font asset of this project (or sans, serif, mono, rounded)', f.id, 'a font assetId');
+    for (const a of r.sounds ?? []) if (kindOf(a.id) !== 'audio') err(errors, 'asset_reference_missing', `${at}${a.path}`, 'this sound must name an audio asset of this project', a.id, 'an audio assetId');
   };
   themes.forEach((t, i) => {
     const scratch: ModelErrorV2[] = [];
@@ -975,19 +1047,17 @@ export function uiDocumentsForRuntime(list: readonly UiDocument[] | undefined): 
   return canonicalUiDocuments(list).map((d) => ({ uiDocumentId: d.uiDocumentId, layer: d.layer ?? 0, modal: d.modal === true }));
 }
 
-/** Every texture and font asset the documents and themes use (for the export closure and asset checks). */
-export function uiAssetRefs(docs: readonly UiDocument[] | undefined, themes: readonly UiTheme[] | undefined): { textures: string[]; fonts: string[] } {
+/** Every texture, font and audio asset the documents and themes use (for the export closure and asset checks). */
+export function uiAssetRefs(docs: readonly UiDocument[] | undefined, themes: readonly UiTheme[] | undefined): { textures: string[]; fonts: string[]; sounds: string[] } {
   const textures = new Set<string>();
   const fonts = new Set<string>();
-  for (const d of docs ?? []) {
-    const r = validateUiDocument(d, '', []);
+  const sounds = new Set<string>();
+  const add = (r: UiDocumentRefs | null): void => {
     for (const x of r?.images ?? []) textures.add(x.id);
     for (const x of r?.fonts ?? []) fonts.add(x.id);
-  }
-  for (const t of themes ?? []) {
-    const r = validateUiTheme(t, '', []);
-    for (const x of r?.images ?? []) textures.add(x.id);
-    for (const x of r?.fonts ?? []) fonts.add(x.id);
-  }
-  return { textures: [...textures].sort(), fonts: [...fonts].sort() };
+    for (const x of r?.sounds ?? []) sounds.add(x.id);
+  };
+  for (const d of docs ?? []) add(validateUiDocument(d, '', []));
+  for (const t of themes ?? []) add(validateUiTheme(t, '', []));
+  return { textures: [...textures].sort(), fonts: [...fonts].sort(), sounds: [...sounds].sort() };
 }

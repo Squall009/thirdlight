@@ -295,9 +295,6 @@ export function newUiTheme(uiThemeId: string, name: string): UiTheme {
   return { uiThemeId, name: name.slice(0, 64), styles: { label: { color: '#ffffff', fontSize: 18 } } };
 }
 
-/** Change a widget's type: the fields the new type does not know are dropped; required ones get starting values. */
-const COMMON_KEYS = ['id', 'type', 'anchor', 'pivot', 'offset', 'size', 'stretch', 'margin', 'grow', 'style', 'css', 'visible', 'enabled', 'focusable', 'nav', 'worldAnchor', 'onFocus'];
-
 // ---------------------------------------------------------------------------
 // Layout and drag maths (document px; the preview converts from the screen)
 // ---------------------------------------------------------------------------
@@ -371,6 +368,20 @@ export type PlacementPatch = Pick<UiWidget, 'anchor' | 'pivot' | 'offset' | 'siz
 
 const stretchX = (w: UiWidget): boolean => w.stretch === 'x' || w.stretch === 'both';
 const stretchY = (w: UiWidget): boolean => w.stretch === 'y' || w.stretch === 'both';
+/** A widget's offset; an axis bound to the view model stays bound (a drag moves only numbers; the preview draws it at 0). */
+type Offset = [UiBindable<number>, UiBindable<number>];
+const offsetOf = (w: UiWidget): Offset => [w.offset?.[0] ?? 0, w.offset?.[1] ?? 0];
+const offsetPx = (o: Offset, a: 0 | 1): number => {
+  const v = o[a];
+  return typeof v === 'number' ? v : 0;
+};
+/** Move a numeric offset axis by `d` (false: it is bound, left as it is). */
+const shiftOffset = (o: Offset, a: 0 | 1, d: number): boolean => {
+  const v = o[a];
+  if (typeof v !== 'number') return false;
+  o[a] = round(v + d);
+  return true;
+};
 /** A size axis given as a number (null: sized to the content, or read from the view model — the preview measures it). */
 const fixedSize = (w: UiWidget, a: 0 | 1): number | null => {
   const v = w.size?.[a];
@@ -385,7 +396,7 @@ const fixedSize = (w: UiWidget, a: 0 | 1): number | null => {
 export function placedRect(w: UiWidget, parent: { w: number; h: number }, measured: { w: number; h: number }): Rect {
   const anchor = w.anchor ?? [0, 0];
   const pivot = w.pivot ?? anchor;
-  const offset = w.offset ?? [0, 0];
+  const offset = offsetOf(w);
   const margin = w.margin ?? [0, 0, 0, 0];
   let x: number;
   let width: number;
@@ -394,7 +405,7 @@ export function placedRect(w: UiWidget, parent: { w: number; h: number }, measur
     width = Math.max(0, parent.w - margin[0] - margin[2]);
   } else {
     width = fixedSize(w, 0) ?? measured.w;
-    x = anchor[0] * parent.w + offset[0] - pivot[0] * width;
+    x = anchor[0] * parent.w + offsetPx(offset, 0) - pivot[0] * width;
   }
   let y: number;
   let height: number;
@@ -403,7 +414,7 @@ export function placedRect(w: UiWidget, parent: { w: number; h: number }, measur
     height = Math.max(0, parent.h - margin[1] - margin[3]);
   } else {
     height = fixedSize(w, 1) ?? measured.h;
-    y = anchor[1] * parent.h + offset[1] - pivot[1] * height;
+    y = anchor[1] * parent.h + offsetPx(offset, 1) - pivot[1] * height;
   }
   return { x: round(x), y: round(y), w: round(width), h: round(height) };
 }
@@ -420,7 +431,7 @@ export function moveWidgetBy(w: UiWidget, rect: Rect, dx: number, dy: number, sn
   const ddx = sx.start - rect.x;
   const ddy = sy.start - rect.y;
   const patch: PlacementPatch = {};
-  const offset = [...(w.offset ?? [0, 0])] as [number, number];
+  const offset = offsetOf(w);
   const margin = [...(w.margin ?? [0, 0, 0, 0])] as [number, number, number, number];
   let offsetChanged = false;
   let marginChanged = false;
@@ -428,18 +439,12 @@ export function moveWidgetBy(w: UiWidget, rect: Rect, dx: number, dy: number, sn
     margin[0] = round(margin[0] + ddx);
     margin[2] = round(margin[2] - ddx);
     marginChanged = true;
-  } else {
-    offset[0] = round(offset[0] + ddx);
-    offsetChanged = true;
-  }
+  } else offsetChanged = shiftOffset(offset, 0, ddx) || offsetChanged;
   if (stretchY(w)) {
     margin[1] = round(margin[1] + ddy);
     margin[3] = round(margin[3] - ddy);
     marginChanged = true;
-  } else {
-    offset[1] = round(offset[1] + ddy);
-    offsetChanged = true;
-  }
+  } else offsetChanged = shiftOffset(offset, 1, ddy) || offsetChanged;
   if (offsetChanged) patch.offset = offset;
   if (marginChanged) patch.margin = margin;
   return { patch, guideX: sx.guide, guideY: sy.guide };
@@ -464,7 +469,7 @@ export function resizeWidgetBy(w: UiWidget, rect: Rect, handle: ResizeHandle, dx
   const pivot = w.pivot ?? anchor;
   const patch: PlacementPatch = {};
   const size: [UiBindable<number> | null, UiBindable<number> | null] = [w.size?.[0] ?? null, w.size?.[1] ?? null];
-  const offset = [...(w.offset ?? [0, 0])] as [number, number];
+  const offset = offsetOf(w);
   const margin = [...(w.margin ?? [0, 0, 0, 0])] as [number, number, number, number];
   let sizeChanged = false;
   let offsetChanged = false;
@@ -489,10 +494,7 @@ export function resizeWidgetBy(w: UiWidget, rect: Rect, handle: ResizeHandle, dx
       } else {
         size[a] = nextLen;
         sizeChanged = true;
-        if (!flow) {
-          offset[a] = round(offset[a] + (1 - pivot[a]) * moved);
-          offsetChanged = true;
-        }
+        if (!flow) offsetChanged = shiftOffset(offset, a, (1 - pivot[a]) * moved) || offsetChanged;
       }
     } else {
       const s = snapEdge(start + len + d, guides, snap.grid, snap.threshold);
@@ -507,10 +509,7 @@ export function resizeWidgetBy(w: UiWidget, rect: Rect, handle: ResizeHandle, dx
       } else {
         size[a] = nextLen;
         sizeChanged = true;
-        if (!flow) {
-          offset[a] = round(offset[a] + pivot[a] * grew);
-          offsetChanged = true;
-        }
+        if (!flow) offsetChanged = shiftOffset(offset, a, pivot[a] * grew) || offsetChanged;
       }
     }
   };
@@ -573,15 +572,16 @@ export function applyAnchorPreset(w: UiWidget, preset: AnchorPreset, rect: Rect,
   if (sx) size[0] = null;
   if (sy) size[1] = null;
   out.size = size[0] === null && size[1] === null ? undefined : size;
-  const offset: [number, number] = [0, 0];
+  // An offset axis bound to the view model keeps its binding.
+  const offset: Offset = [typeof w.offset?.[0] === 'object' ? w.offset[0] : 0, typeof w.offset?.[1] === 'object' ? w.offset[1] : 0];
   const margin: [number, number, number, number] = [0, 0, 0, 0];
   if (keep) {
-    if (!sx) offset[0] = round(rect.x - ax * parent.w + ax * rect.w);
+    if (!sx && typeof offset[0] === 'number') offset[0] = round(rect.x - ax * parent.w + ax * rect.w);
     else {
       margin[0] = round(rect.x);
       margin[2] = round(parent.w - rect.x - rect.w);
     }
-    if (!sy) offset[1] = round(rect.y - ay * parent.h + ay * rect.h);
+    if (!sy && typeof offset[1] === 'number') offset[1] = round(rect.y - ay * parent.h + ay * rect.h);
     else {
       margin[1] = round(rect.y);
       margin[3] = round(parent.h - rect.y - rect.h);
@@ -620,22 +620,6 @@ export function setWidgetField(w: UiWidget, key: string, value: unknown): UiWidg
   if (value === undefined) delete out[key];
   else out[key] = value;
   return out as unknown as UiWidget;
-}
-
-/** Keys a widget of this type may hold (the validator's closed sets). */
-export function allowedKeys(type: UiWidgetType): readonly string[] {
-  const T: Record<UiWidgetType, readonly string[]> = {
-    panel: ['children'],
-    stack: ['children', 'direction', 'gap', 'align', 'justify', 'wrap'],
-    grid: ['children', 'columns', 'gap', 'cellSize', 'align'],
-    text: ['text', 'wrap'],
-    image: ['image', 'slice', 'fit', 'tint'],
-    bar: ['value', 'min', 'max', 'direction', 'shape', 'fillColor', 'fillStyle', 'startAngle'],
-    button: ['text', 'children', 'onClick', 'direction', 'gap', 'align', 'justify'],
-    list: ['items', 'template', 'direction', 'gap', 'align', 'justify', 'columns', 'wrap'],
-    input: ['value', 'placeholder', 'maxLength', 'onSubmit'],
-  };
-  return [...COMMON_KEYS, ...T[type]];
 }
 
 // ---------------------------------------------------------------------------

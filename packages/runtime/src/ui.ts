@@ -17,7 +17,7 @@
  * Everything here is simulation state: two runs with the same input produce
  * the same view model and stack at every step (the step digest covers them).
  */
-import { ID_RE } from '@thirdlight/project-model';
+import { ID_RE, UI_LIMITS } from '@thirdlight/project-model';
 import type { RuntimeUiDocumentRow } from '@thirdlight/project-model';
 
 /** What a UI event is. */
@@ -172,7 +172,30 @@ export interface UiShownDocument {
 /** A presentation command for the host (tweens, focus): not simulation state, delivered once. */
 export type UiCommand =
   | { readonly op: 'play'; readonly doc: string; readonly tween: string; readonly widget: string }
-  | { readonly op: 'focus'; readonly doc: string; readonly widget: string };
+  | { readonly op: 'focus'; readonly doc: string; readonly widget: string; readonly index?: number };
+
+/**
+ * The view the game UI is drawn over, as the host reports it: CSS px, its
+ * aspect and the device pixels per CSS px. Presentation, not simulation
+ * state: it is not in the digest or a save, and a replay in another window
+ * reads that window's.
+ */
+export interface UiView {
+  readonly width: number;
+  readonly height: number;
+  readonly aspect: number;
+  readonly pixelRatio: number;
+}
+
+/** What `ctx.ui.view()` reads before the host reported one (the editor's default play size). */
+export const UI_DEFAULT_VIEW: UiView = Object.freeze({ width: 1280, height: 720, aspect: 16 / 9, pixelRatio: 1 });
+
+/** A reported view (null: not one — sides up to the UI's px bound, a pixel ratio 0.25–16). */
+export function uiViewOf(width: unknown, height: unknown, pixelRatio: unknown): UiView | null {
+  const ok = (v: unknown, min: number, max: number): v is number => typeof v === 'number' && Number.isFinite(v) && v >= min && v <= max;
+  if (!ok(width, 1, UI_LIMITS.px) || !ok(height, 1, UI_LIMITS.px) || !ok(pixelRatio, 0.25, 16)) return null;
+  return Object.freeze({ width, height, aspect: width / height, pixelRatio });
+}
 
 /**
  * What the host applies after a frame: the view-model writes in order
@@ -226,6 +249,7 @@ export class UiState {
   private stepEvents: readonly UiEventRecord[] = Object.freeze([]);
   private shownCache: readonly UiShownDocument[] | null = null;
   private viewCache: UiStateView | null = null;
+  private drawnOver: UiView = UI_DEFAULT_VIEW;
   /** Bumped on every change (the host and the digest read the view by it). */
   revision = 0;
 
@@ -346,8 +370,24 @@ export class UiState {
     return this.shownCache;
   }
 
-  /** `ctx.ui.play` / `ctx.ui.focus`: a presentation command for the host (false: an unknown document or a bad name). */
-  command(op: 'play' | 'focus', doc: unknown, name: unknown, widget: unknown): boolean {
+  /** The view the host draws the UI over (`ctx.ui.view()`; false: not a view). */
+  setScreenView(width: unknown, height: unknown, pixelRatio: unknown): boolean {
+    const v = uiViewOf(width, height, pixelRatio);
+    if (v === null) return false;
+    this.drawnOver = v;
+    return true;
+  }
+
+  screenView(): UiView {
+    return this.drawnOver;
+  }
+
+  /**
+   * `ctx.ui.play` / `ctx.ui.focus`: a presentation command for the host
+   * (false: an unknown document, a bad name or list index). A focus `index`
+   * names the list item the widget is in.
+   */
+  command(op: 'play' | 'focus', doc: unknown, name: unknown, widget: unknown, index?: unknown): boolean {
     if (typeof doc !== 'string' || !this.docs.has(doc)) return false;
     if (op === 'play') {
       if (typeof name !== 'string' || !NAME_RE.test(name)) return false;
@@ -356,7 +396,8 @@ export class UiState {
       this.pushCommand({ op: 'play', doc, tween: name, widget: w });
     } else {
       if (typeof name !== 'string' || !NAME_RE.test(name)) return false;
-      this.pushCommand({ op: 'focus', doc, widget: name });
+      if (index !== undefined && index !== null && !(typeof index === 'number' && Number.isInteger(index) && index >= 0 && index < UI_VALUE_MAX_ITEMS)) return false;
+      this.pushCommand({ op: 'focus', doc, widget: name, ...(typeof index === 'number' ? { index } : {}) });
     }
     return true;
   }

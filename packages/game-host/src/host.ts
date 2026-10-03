@@ -75,7 +75,7 @@ import type { Captured } from './input-bindings';
 import { createSettingsStore, type SaveStorage } from './storage';
 import { createProjectSaveService, memoryProjectSaveBackend, readProjectSettings, type ProjectSaveBackend, type ProjectSaveService, type ProjectSlotObservation } from './project-saves';
 import { createDebugConsole, type DebugConsole } from './debug-console';
-import { createUiLayer, type UiElementObservation, type UiLayer, type UiLayerObservation, type UiProjector } from './ui-layer';
+import { createUiLayer, pageUiView, type UiElementObservation, type UiLayer, type UiLayerObservation, type UiProjector } from './ui-layer';
 import { hitUiTargets, type UiHitTarget } from './ui-hit';
 import { createPausePanel, type PausePanel } from './pause-panel';
 import { createShellController, type ShellConfigLike, type ShellController, type ShellObservation } from './shell';
@@ -1174,8 +1174,16 @@ export function createGameHost(config: GameHostConfig): GameHost {
     return v === null ? {} : { timeline: v };
   };
 
+  /** The view the UI is drawn over, for `ctx.ui.view()` (told again when it changes). */
+  let reportedView = '';
+  const serviceView = (rt: Runtime): void => {
+    const v = uiLayer?.view() ?? pageUiView();
+    const key = `${v.width}x${v.height}@${v.pixelRatio}`;
+    if (key !== reportedView && rt.setUiView?.(v.width, v.height, v.pixelRatio) === true) reportedView = key;
+  };
   /** The simulation's UI diff, then the layer's frame (bindings, $flow values, the view size). */
   const serviceUi = (rt: Runtime): void => {
+    serviceView(rt);
     if (uiLayer === null) return;
     const out = rt.takeUiOutput?.() ?? null;
     if (out !== null) uiLayer.applyOutput(out);
@@ -1512,6 +1520,7 @@ export function createGameHost(config: GameHostConfig): GameHost {
           : {}),
       });
     }
+    serviceView(res.runtime);
     // The game shell (a title, pause, settings, controls, save/load screens and the HUD as UI documents).
     if (config.shell !== undefined) shellCtl = makeShell(res.runtime);
     mounted = true;

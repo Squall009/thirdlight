@@ -69,7 +69,7 @@ import {
   type TreeOutcome,
   type WidgetPath,
 } from '../../session/ui-edit';
-import { ActionsField, BindingField, CommitText, SizeField, StyleEditor, StyleMapEditor, StyleRefField } from './UiFields';
+import { ActionsField, BindingField, CommitText, OffsetField, SizeField, StyleEditor, StyleMapEditor, StyleRefField } from './UiFields';
 import { EditorToolbar, EmptyState, ToolButton } from '../chrome/EditorChrome';
 import { UiPreview, type Measured, type PreviewAssets, type PreviewHandle } from './UiPreview';
 import { usePreview } from '../preview/preview-request';
@@ -606,7 +606,7 @@ function Hierarchy(p: { doc: UiDocument; selKey: string; onSelect: (k: string) =
 // ---------------------------------------------------------------------------
 
 /** Widget fields with their own control (or edited elsewhere): not drawn by the descriptor rows. */
-const WIDGET_CUSTOM = ['type', 'children', 'template', 'size', 'style', 'css', 'visible', 'enabled', 'image', 'saveSlot', 'value', 'min', 'max', 'startAngle', 'items', 'fillStyle', 'onClick', 'onSubmit', 'onFocus', 'worldAnchor'];
+const WIDGET_CUSTOM = ['type', 'children', 'template', 'size', 'offset', 'opacity', 'rotation', 'style', 'css', 'visible', 'enabled', 'image', 'saveSlot', 'value', 'min', 'max', 'startAngle', 'items', 'fillStyle', 'onClick', 'onSubmit', 'onFocus', 'worldAnchor'];
 
 function WidgetInspector(p: {
   doc: UiDocument;
@@ -629,7 +629,7 @@ function WidgetInspector(p: {
   const field = (key: string): FieldDescriptor | undefined => desc.fields.find((f) => f.key === key && appliesTo(f, w));
   const put = (key: string, v: unknown): void => p.onEdit((cur) => setAt(cur, [key], v) as UiWidget);
   const cur = currentPreset(w);
-  const bindings = ['value', 'min', 'max', 'startAngle', 'image', 'saveSlot', 'items', 'visible', 'enabled'].map(field).filter((f): f is FieldDescriptor => f !== undefined);
+  const bindings = ['value', 'min', 'max', 'startAngle', 'image', 'saveSlot', 'items', 'visible', 'enabled', 'opacity', 'rotation'].map(field).filter((f): f is FieldDescriptor => f !== undefined);
   const wa = desc.fields.find((f) => f.key === 'worldAnchor') as ObjectFieldDescriptor;
   const names = styleNames(p.doc, p.theme);
   const [ownStyle, setOwnStyle] = useState(w.css !== undefined);
@@ -657,6 +657,7 @@ function WidgetInspector(p: {
       )}
       {!p.anchored && p.path.length > 0 && w.worldAnchor === undefined && <p className="tl-hint">Its parent lays it out (a stack, grid, list or button): order it in the hierarchy; size and grow apply.</p>}
       <SizeField value={w.size} aria="widget size" disabledAxes={[w.stretch === 'x' || w.stretch === 'both', w.stretch === 'y' || w.stretch === 'both']} onChange={(v) => put('size', v)} />
+      {p.anchored && w.worldAnchor === undefined && <OffsetField value={w.offset} aria="widget offset" disabledAxes={[w.stretch === 'x' || w.stretch === 'both', w.stretch === 'y' || w.stretch === 'both']} onChange={(v) => put('offset', v)} />}
       <ObjectFields
         desc={desc}
         value={w as unknown as Record<string, unknown>}

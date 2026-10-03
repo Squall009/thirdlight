@@ -5,7 +5,7 @@
  * validated colours, generated font-family names and blob: URLs the host
  * made), never raw CSS from the project.
  */
-import type { UiStyle, UiStyleValues, UiTween, UiWidget } from '@thirdlight/runtime';
+import type { UiScaleMode, UiStyle, UiStyleValues, UiTween, UiWidget } from '@thirdlight/runtime';
 
 /** The generic font families (the same stacks as the built-in menus). */
 export const GENERIC_FONTS: Readonly<Record<string, string>> = {
@@ -121,7 +121,8 @@ export function placementProps(w: UiWidget, parentFlows: boolean): CssProp[] {
   out.push(['position', 'absolute']);
   const anchor = w.anchor ?? [0, 0];
   const pivot = w.pivot ?? anchor;
-  const offset = w.offset ?? [0, 0];
+  // A bound axis is placed at its anchor here; the layer moves it by the view model's value.
+  const offset = (w.offset ?? [0, 0]).map((x) => (typeof x === 'number' ? x : 0));
   const margin = w.margin ?? [0, 0, 0, 0];
   const stretchX = w.stretch === 'x' || w.stretch === 'both';
   const stretchY = w.stretch === 'y' || w.stretch === 'both';
@@ -129,18 +130,61 @@ export function placementProps(w: UiWidget, parentFlows: boolean): CssProp[] {
   let ty = '0px';
   if (stretchX) out.push(['left', px(margin[0])], ['right', px(margin[2])]);
   else {
-    out.push(['left', `calc(${anchor[0] * 100}% + ${px(offset[0])})`]);
+    out.push(['left', anchorCalc(anchor[0], offset[0]!)]);
     if (typeof size[0] === 'number') out.push(['width', px(size[0])]);
     tx = `${-pivot[0] * 100}%`;
   }
   if (stretchY) out.push(['top', px(margin[1])], ['bottom', px(margin[3])]);
   else {
-    out.push(['top', `calc(${anchor[1] * 100}% + ${px(offset[1])})`]);
+    out.push(['top', anchorCalc(anchor[1], offset[1]!)]);
     if (typeof size[1] === 'number') out.push(['height', px(size[1])]);
     ty = `${-pivot[1] * 100}%`;
   }
   if (tx !== '0px' || ty !== '0px') out.push(['transform', `translate(${tx}, ${ty})`]);
   return out;
+}
+
+/** A panel child's edge along one axis: its anchor in the parent plus its offset in px. */
+export function anchorCalc(anchor: number, offset: number): string {
+  return `calc(${anchor * 100}% + ${px(offset)})`;
+}
+
+/** The axes of a panel child's offset that read the view model ([x, y]; a stretched axis has margins instead). */
+export function boundOffsetAxes(w: UiWidget, parentFlows: boolean): [boolean, boolean] {
+  const offset = w.offset;
+  if (offset === undefined || parentFlows || w.worldAnchor !== undefined) return [false, false];
+  const bound = (v: unknown): boolean => typeof v === 'object' && v !== null && typeof (v as { bind?: unknown }).bind === 'string';
+  return [bound(offset[0]) && w.stretch !== 'x' && w.stretch !== 'both', bound(offset[1]) && w.stretch !== 'y' && w.stretch !== 'both'];
+}
+
+/**
+ * Where a widget turns (`transform-origin`): a panel child or a
+ * world-anchored widget about its pivot — its layout transform moved the
+ * pivot onto the box's top-left corner, so 0 there (a stretched axis: the
+ * middle); a flowed child about its centre.
+ */
+export function rotationOrigin(w: UiWidget, parentFlows: boolean): string {
+  if (parentFlows && w.worldAnchor === undefined) return '50% 50%';
+  const x = w.worldAnchor === undefined && (w.stretch === 'x' || w.stretch === 'both') ? '50%' : '0px';
+  const y = w.worldAnchor === undefined && (w.stretch === 'y' || w.stretch === 'both') ? '50%' : '0px';
+  return `${x} ${y}`;
+}
+
+/**
+ * The view box of a scaled document: the reference size `ref` [w, h] in a
+ * view of `vw` × `vh` CSS px — the scale, the box's size in reference px and
+ * where its top-left corner is in the view. `fit` shows all of it, `width` /
+ * `height` match one side, `cover` fills the view (the box larger than it,
+ * centred), `expand` fits and grows the box to the view's shape.
+ */
+export function scaleBox(mode: UiScaleMode, ref: readonly [number, number], vw: number, vh: number): { s: number; width: number; height: number; ox: number; oy: number } {
+  const [rw, rh] = ref;
+  const sx = vw / rw;
+  const sy = vh / rh;
+  const s = mode === 'width' ? sx : mode === 'height' ? sy : mode === 'cover' ? Math.max(sx, sy) : Math.min(sx, sy);
+  const width = mode === 'expand' ? vw / s : rw;
+  const height = mode === 'expand' ? vh / s : rh;
+  return { s, width, height, ox: (vw - width * s) / 2, oy: (vh - height * s) / 2 };
 }
 
 /**

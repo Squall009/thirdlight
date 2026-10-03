@@ -111,7 +111,7 @@ describe('UI documents: project references', () => {
     expect(check({ uiDocuments: [wrongKind] }).some((e) => e.code === 'asset_reference_missing')).toBe(true);
     const badShow = doc({ root: { type: 'button', onClick: { do: 'show', doc: 'ghost' } } });
     expect(check({ uiDocuments: [badShow] }).some((e) => e.message.includes('ghost'))).toBe(true);
-    expect(uiAssetRefs([d], [theme])).toEqual({ textures: ['tex-star'], fonts: ['font-a'] });
+    expect(uiAssetRefs([d], [theme])).toEqual({ textures: ['tex-star'], fonts: ['font-a'], sounds: [] });
   });
 
   it('canonical form sorts keys and drops nothing; runtime rows carry id, layer and modal', () => {
@@ -135,5 +135,37 @@ describe('rebinding engine actions', () => {
     expect(errs(docWith([{ do: 'engine', action: 'cancelRebind' }, { do: 'engine', action: 'resetBindings' }, { do: 'engine', action: 'resetBindings', input: 'jump' }]))).toEqual([]);
     expect(errs(docWith({ do: 'engine', action: 'rebind' })).map((e) => e.path)).toEqual(['/root/onClick/input']);
     expect(errs(docWith({ do: 'engine', action: 'rebind', input: 'jump', device: 'mouse', index: 9, part: 'in', policy: 'maybe' })).map((e) => e.path).sort()).toEqual(['/root/onClick/device', '/root/onClick/index', '/root/onClick/part', '/root/onClick/policy']);
+  });
+});
+
+describe('bindable offset, opacity and rotation; list keys; scale modes', () => {
+  const docWith = (root: unknown, scale?: unknown): unknown => ({ uiDocumentId: 'fx', name: 'Fx', ...(scale !== undefined ? { scale } : {}), root });
+  it('an offset axis, the opacity and the rotation are numbers or bindings in range', () => {
+    expect(errs(docWith({ type: 'panel', offset: [{ bind: 'p.x' }, 4], opacity: { bind: 'p.a' }, rotation: -720 }))).toEqual([]);
+    expect(errs(docWith({ type: 'panel', offset: [1, 2, 3], opacity: 1.5, rotation: UI_LIMITS.degrees + 1 })).map((e) => e.path).sort()).toEqual(['/root/offset', '/root/opacity', '/root/rotation']);
+    expect(errs(docWith({ type: 'panel', offset: [{ bind: 'bad path!' }, 0] })).map((e) => e.path)).toEqual(['/root/offset/0/bind']);
+  });
+  it('a list keys its items by a path inside them; scale modes cover and expand', () => {
+    expect(errs(docWith({ type: 'list', items: { bind: 'slots' }, itemKey: 'id', template: { type: 'text', text: 'x' } }, { reference: [1920, 1080], mode: 'cover' }))).toEqual([]);
+    expect(errs(docWith({ type: 'panel' }, { reference: [1920, 1080], mode: 'expand' }))).toEqual([]);
+    expect(errs(docWith({ type: 'list', items: { bind: 'slots' }, itemKey: '$item.id', template: { type: 'text', text: 'x' } }, { reference: [1920, 1080], mode: 'stretch' })).map((e) => e.path).sort()).toEqual(['/root/itemKey', '/scale/mode']);
+    expect(errs(docWith({ type: 'text', text: 'x', itemKey: 'id' })).map((e) => e.path)).toEqual(['/root/itemKey']);
+  });
+});
+
+describe('UI sounds', () => {
+  it('a widget, a style (not its states) and the document name click, hover and focus sounds; each is an audio asset', () => {
+    const d = {
+      uiDocumentId: 'menu', name: 'Menu', sounds: { click: 'snd-click', focus: 'snd-move' },
+      styles: { btn: { background: '#000000', sounds: { hover: 'snd-hover' }, hover: { background: '#111111' } } },
+      root: { type: 'button', text: 'Go', style: 'btn', sounds: { click: 'snd-go' } },
+    };
+    expect(errs(d)).toEqual([]);
+    expect(errs({ ...d, root: { type: 'button', sounds: { tap: 'x', click: 'Bad Id' } } }).map((e) => e.path).sort()).toEqual(['/root/sounds/click', '/root/sounds/tap']);
+    expect(errs({ ...d, styles: { btn: { hover: { sounds: { click: 'snd-click' } } } } }).map((e) => e.path)).toEqual(['/styles/btn/hover/sounds']);
+    expect(uiAssetRefs([d as UiDocument], []).sounds).toEqual(['snd-click', 'snd-go', 'snd-hover', 'snd-move']);
+    const e: ModelErrorV2[] = [];
+    validateUiReferences({ uiDocuments: [d] }, e, (id) => (id === 'snd-go' ? 'texture' : 'audio'));
+    expect(e.map((x) => x.path)).toEqual(['/uiDocuments/0/root/sounds/click']);
   });
 });

@@ -14,7 +14,7 @@
  */
 import type { DescriptorScalar, EnumOption, FieldCondition, FieldDescriptor, JsonFieldDescriptor, ObjectFieldDescriptor } from './descriptors';
 import { INPUT_MAPS } from './input';
-import { UI_EASINGS, UI_LIMITS, UI_TWEEN_KINDS, UI_WIDGET_TYPES } from './ui-documents';
+import { UI_EASINGS, UI_LIMITS, UI_SCALE_MODES, UI_TWEEN_KINDS, UI_WIDGET_TYPES } from './ui-documents';
 
 export interface UiDescriptors {
   /** A UI document's own fields (not its widgets). */
@@ -43,11 +43,20 @@ const color = (key: string, label: string, tooltip: string, o: Base = {}): Field
 const str = (key: string, label: string, tooltip: string, o: Base & { minLength?: number; maxLength?: number; format?: 'id' | 'name' | 'identifier' | 'multiline' } = {}): FieldDescriptor => ({ type: 'string', key, label, tooltip, ...o }) as FieldDescriptor;
 const ref = (key: string, label: string, tooltip: string, target: 'uiDocument' | 'uiTheme' | 'uiTween' | 'uiWidget', o: Base = {}): FieldDescriptor => ({ type: 'ref', key, label, tooltip, target, ...o }) as FieldDescriptor;
 const texture = (key: string, label: string, tooltip: string, o: Base = {}): FieldDescriptor => ({ type: 'assetRef', key, label, tooltip, kinds: ['texture'], ...o }) as FieldDescriptor;
+const audio = (key: string, label: string, tooltip: string): FieldDescriptor => ({ type: 'assetRef', key, label, tooltip, kinds: ['audio'] }) as FieldDescriptor;
 const json = (key: string, label: string, tooltip: string, o: Omit<JsonFieldDescriptor, 'type' | 'key' | 'label' | 'tooltip'> = {}): FieldDescriptor => ({ type: 'json', key, label, tooltip, ...o }) as FieldDescriptor;
 const four = (key: string, label: string, tooltip: string, min: number, max: number, o: Base = {}): FieldDescriptor =>
   ({ type: 'list', key, label, tooltip, item: { type: 'number', key: '*', label: 'Side', tooltip: 'One of the four values.', min, max }, length: 4, ...o }) as FieldDescriptor;
 const obj = (key: string, label: string, tooltip: string, fields: readonly FieldDescriptor[], o: Base & { rules?: readonly string[] } = {}): ObjectFieldDescriptor => ({ type: 'object', key, label, tooltip, fields, ...o }) as ObjectFieldDescriptor;
 const map = (key: string, label: string, tooltip: string, keyLabel: string, value: FieldDescriptor, o: Base & { maxEntries?: number } = {}): FieldDescriptor => ({ type: 'map', key, label, tooltip, keyLabel, keyFormat: 'identifier', value, ...o }) as FieldDescriptor;
+
+/** Click, hover and focus sounds (played on the ui bus); `whose` says where they apply. */
+const sounds = (whose: string): ObjectFieldDescriptor =>
+  obj('sounds', 'Sounds', `Sounds played on the UI bus (the player's UI volume) ${whose}.`, [
+    audio('click', 'Click', 'When it is used: a click, Enter or pad A — whatever its action (an event, an engine action, a show or a dialogue input).'),
+    audio('hover', 'Hover', 'When the pointer comes over it.'),
+    audio('focus', 'Focus', 'When the keyboard, a gamepad or a script moves the focus to it.'),
+  ], { group: 'Sounds' });
 
 // ---- styles ------------------------------------------------------------------------------
 
@@ -84,6 +93,7 @@ const STYLE_STATE_TIPS: Readonly<Record<string, string>> = {
 
 const STYLE: ObjectFieldDescriptor = obj('style', 'Style', 'A named look: colours, font, box and background; states override it.', [
   ...styleValues(),
+  sounds('for the widgets in this style (a widget\'s own sounds win)'),
   // A state holds the same values (no states of its own); `json` keeps the registry small — the editor edits it with these fields.
   ...(['hover', 'focus', 'pressed', 'disabled'] as const).map((s) => json(s, s.charAt(0).toUpperCase() + s.slice(1), STYLE_STATE_TIPS[s]!, { group: 'States', typedBy: 'uiStyleState' })),
 ]);
@@ -125,7 +135,7 @@ const WIDGET: ObjectFieldDescriptor = obj('widget', 'Widget', 'One element of a 
   // Layout (in a panel: anchors; in a stack/grid/list: the flow places it, only size and grow apply).
   vec2('anchor', 'Anchor', 'Where in its parent the widget is pinned (0,0 top left – 1,1 bottom right).', { group: 'Layout', min: 0, max: 1, step: 0.05, default: [0, 0] }),
   vec2('pivot', 'Pivot', 'The point of the widget placed at the anchor (absent: the anchor).', { group: 'Layout', min: 0, max: 1, step: 0.05 }),
-  vec2('offset', 'Offset', 'Distance from the anchor.', { group: 'Layout', min: -P, max: P, step: 1, unit: 'px', default: [0, 0] }),
+  vec2('offset', 'Offset', 'Distance from the anchor (an axis may be { "bind": "path" }, a number the view model holds).', { group: 'Layout', min: -P, max: P, step: 1, unit: 'px', default: [0, 0] }),
   vec2('size', 'Size', 'Width and height (a missing value sizes to the content; an axis may be { "bind": "path" }, a number the view model holds).', { group: 'Layout', min: 0, max: P, step: 1, unit: 'px', labels: ['w', 'h'] }),
   enm('stretch', 'Stretch', 'Fill the parent along an axis (between the margins) instead of a size.', ['x', 'y', 'both'], { group: 'Layout', labels: { x: 'Width', y: 'Height', both: 'Both' } }),
   four('margin', 'Margin', 'Insets from the parent\'s edges while stretched: left, top, right, bottom (px).', -P, P, { group: 'Layout' }),
@@ -166,6 +176,7 @@ const WIDGET: ObjectFieldDescriptor = obj('widget', 'Widget', 'One element of a 
   // List.
   binding('items', 'Items', 'The view-model array the template repeats for ($item and $index inside it).', undefined, { group: 'List', when: when('type', 'list'), required: true }),
   json('template', 'Template', 'The widget repeated for each item (edited in the hierarchy).', { when: when('type', 'list'), required: true, typedBy: 'uiWidget' }),
+  str('itemKey', 'Item key', 'The field of each item that names it (e.g. id): an item keeps its widgets and the focus while its key stays in the array, wherever it moves (absent: items are kept by index).', { group: 'List', when: when('type', 'list'), minLength: 1, maxLength: 32 }),
   // Input.
   binding('value', 'Value', 'The starting text (or a view-model path).', 'text', { group: 'Input', when: when('type', 'input') }),
   str('placeholder', 'Placeholder', 'Hint shown while empty.', { group: 'Input', when: when('type', 'input'), maxLength: 256 }),
@@ -175,8 +186,11 @@ const WIDGET: ObjectFieldDescriptor = obj('widget', 'Widget', 'One element of a 
   json('css', 'Own style', 'Style values of this widget only (over its named styles); the fields of `ui.style`.', { group: 'Style', typedBy: 'uiStyle' }),
   binding('visible', 'Visible', 'Shown (true/false or a view-model path; "!path" negates).', 'bool', { group: 'State' }),
   binding('enabled', 'Enabled', 'Can be used (true/false or a view-model path).', 'bool', { group: 'State' }),
+  binding('opacity', 'Opacity', 'How opaque the widget and its children are, 0–1, over its style\'s opacity — a number or a view-model path.', 'number', { group: 'State' }),
+  binding('rotation', 'Rotation', `Degrees clockwise about the pivot (the centre in a stack, grid or list), −${UI_LIMITS.degrees}–${UI_LIMITS.degrees} — a number or a view-model path.`, 'number', { group: 'State' }),
   // Focus and events.
   bool('focusable', 'Focusable', 'Keyboard/gamepad focus can land here (buttons and inputs are focusable unless off).', { group: 'Focus' }),
+  sounds('for this widget (over its styles\' and the document\'s)'),
   NAV,
   actions('onClick', 'On click', 'What a click (or Enter / pad A) does: raise an event, an engine action, show/hide a document, play a tween, a dialogue input.', { when: when('type', 'button') }),
   actions('onSubmit', 'On submit', 'What Enter in the input does (an event carries the text).', { when: when('type', 'input') }),
@@ -201,10 +215,11 @@ const DOCUMENT: ObjectFieldDescriptor = obj('document', 'UI document', 'A HUD, m
   enm('actionMap', 'Action map', 'The input map active while it has the focus (absent: every map).', INPUT_MAPS, { labels: { ui: 'UI' } }),
   obj('scale', 'Scale', 'Draw at a reference size scaled to the view (absent: 1 CSS px per unit).', [
     vec2('reference', 'Reference size', 'The size the document is laid out at.', { required: true, min: 16, max: P, step: 1, unit: 'px', labels: ['w', 'h'], default: [1280, 720] }),
-    enm('mode', 'Mode', 'Fit the whole reference in the view, or match its width or its height.', ['fit', 'width', 'height'], { required: true, default: 'fit' }),
+    enm('mode', 'Mode', 'Fit the whole reference in the view, match its width or its height, cover the view (the box larger than the view, centred) or expand (fit, the box grown to the view\'s shape so anchors 0 and 1 are the view\'s edges).', UI_SCALE_MODES, { required: true, default: 'fit' }),
   ]),
   ref('initialFocus', 'First focus', 'The widget focused first.', 'uiWidget', { group: 'Focus' }),
   actions('onCancel', 'On cancel', 'What Back / pad B does while it has the focus.', { group: 'Focus' }),
+  sounds('for every widget of the document that names none itself or in its styles'),
   ref('showTween', 'Show tween', 'Played when shown.', 'uiTween', { group: 'Tweens' }),
   ref('hideTween', 'Hide tween', 'Played when hidden (it leaves after it).', 'uiTween', { group: 'Tweens' }),
   map('styles', 'Styles', 'The document\'s own named styles (over its theme\'s); each has the fields of `ui.style`.', 'Style', json('*', 'Style', 'A named style.', { typedBy: 'uiStyle' }), { group: 'Styles', maxEntries: UI_LIMITS.styles }),

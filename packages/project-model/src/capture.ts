@@ -144,9 +144,9 @@ export function collectAssetRefsV3(
   for (const fx of (content as { effects?: EffectDef[] }).effects ?? []) for (const r of effectAssetRefs(fx)) setRef(r.id);
   // The project's glyph images (input.glyphs).
   for (const id of Object.values((content as { input?: { glyphs?: Record<string, string> } }).input?.glyphs ?? {})) setRef(id);
-  // The textures (images, 9-slices, icons) and fonts the UI documents and themes use.
+  // The textures (images, 9-slices, icons), fonts and sounds the UI documents and themes use.
   const ui = uiAssetRefs((content as { uiDocuments?: UiDocument[] }).uiDocuments, (content as { uiThemes?: UiTheme[] }).uiThemes);
-  for (const id of [...ui.textures, ...ui.fonts]) setRef(id);
+  for (const id of [...ui.textures, ...ui.fonts, ...ui.sounds]) setRef(id);
   // Voice clips, speaker portraits and text blips.
   for (const id of dialogueAssetRefs(content as { dialogues?: DialogueDocument[]; speakers?: DialogueSpeaker[] })) setRef(id);
   // The sounds the timelines play.
