@@ -152,7 +152,39 @@ describe('runtime project saves', () => {
     expect(reqs).toEqual([{ op: 'settings', values: { volume: 0.9, hints: true } }]);
   });
 
+  it('a refused write reaches scripts with its storage code next to the browser\'s text; the storage facts arrive as input', () => {
+    const r = new RuntimeSaves(SCHEMA, 60, fakePort(), undefined, () => undefined);
+    expect(r.api.storage()).toEqual({ persisted: null, usage: null, quota: null });
+    const before = r.digestText();
+    step(
+      r,
+      [
+        { kind: 'saved', slot: 2, ok: false, reason: 'The quota has been exceeded.', code: 'storage_full' },
+        { kind: 'settings', ok: false, reason: 'Setting the value exceeded the quota.', code: 'storage_full' },
+        { kind: 'storage', persisted: true, usage: 2048, quota: 1_000_000 },
+      ],
+      () => {
+        expect(r.api.results()).toEqual([
+          { op: 'save', slot: 2, ok: false, reason: 'The quota has been exceeded.', code: 'storage_full' },
+          { op: 'settings', slot: 0, ok: false, reason: 'Setting the value exceeded the quota.', code: 'storage_full' },
+        ]);
+        expect(r.api.storage()).toEqual({ persisted: true, usage: 2048, quota: 1_000_000 });
+      },
+    );
+    // Scripts may branch on the facts: they are in the digest once known.
+    expect(r.digestText()).not.toBe(before);
+    expect(r.digestText()).toContain('"usage":2048');
+    // A load storage could not read carries the code too.
+    step(r, [{ kind: 'loaded', slot: 1, ok: false, reason: 'no storage', code: 'storage_unavailable' }]);
+    step(r, [], () => expect(r.api.results()).toEqual([{ op: 'load', slot: 1, ok: false, reason: 'no storage', code: 'storage_unavailable' }]));
+  });
+
   it('frame entries are validated (a recording carries them)', () => {
+    expect(validateSaveEvents([{ kind: 'saved', slot: 1, ok: false, code: 'disk_on_fire' }]).ok).toBe(false);
+    expect(validateSaveEvents([{ kind: 'settings', ok: false, reason: 'r' }]).ok).toBe(false);
+    expect(validateSaveEvents([{ kind: 'storage', persisted: 'yes', usage: 1, quota: 2 }]).ok).toBe(false);
+    expect(validateSaveEvents([{ kind: 'storage', persisted: null, usage: -1, quota: 2 }]).ok).toBe(false);
+    expect(validateSaveEvents([{ kind: 'storage', persisted: false, usage: null, quota: null }]).ok).toBe(true);
     expect(validateSaveEvents([{ kind: 'loaded', slot: 1, ok: true }]).ok).toBe(false);
     expect(validateSaveEvents([{ kind: 'saved', slot: 100, ok: true }]).ok).toBe(false);
     expect(validateSaveEvents([{ kind: 'loaded', slot: 1, ok: true, save: { format: 'thirdlight.save', version: 1, doc: 'x'.repeat(1_048_577) } }]).ok).toBe(false);

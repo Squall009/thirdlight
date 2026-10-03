@@ -468,6 +468,8 @@ export function bootstrapPreviewM3(): void {
           audio: h.audio(),
           // The frame times (fps, frame, CPU, GPU or null where not measured; average and worst over the window), as ctx.stats reads them.
           frameTimes: h.host.frameStats?.() ?? null,
+          // Where the project saves go, whether the browser keeps them under disk pressure (asked at the first save), usage and quota.
+          saves: savesStorageOf(h.host.projectSaves ?? null),
         }),
       });
     });
@@ -799,12 +801,18 @@ function animatorStates(runtime: unknown): { animators?: Record<string, string> 
 }
 
 /**
- * `saves` {slotCount, storage, slots (the first 32 used: title,
- * chapter, location, play time, when, version, bytes, picture facts), settings}
- * for tl_game_observe (a project with a save schema).
+ * `saves` {slotCount, storage, persisted, usage, quota, persistAsked, slots
+ * (the first 32 used: title, chapter, location, play time, when, version,
+ * bytes, picture facts), settings} for tl_game_observe (a project with a save
+ * schema).
  */
 function savesObservationOf(host: { observe(): unknown }): { saves?: unknown } {
   const o = host.observe() as { ok: boolean; observation?: { saves?: unknown } };
   const saves = o.ok ? o.observation?.saves : undefined;
   return saves !== undefined ? { saves: structuredClone(saves) } : {};
+}
+
+/** Play diagnostics' `saves`: where the slots go and the browser's storage facts (null without a save schema). */
+function savesStorageOf(saves: { readonly storage: string; persistAsked(): boolean; storageInfo(): { persisted: boolean | null; usage: number | null; quota: number | null } } | null): Record<string, unknown> | null {
+  return saves === null ? null : { storage: saves.storage, persistAsked: saves.persistAsked(), ...saves.storageInfo() };
 }

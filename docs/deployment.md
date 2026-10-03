@@ -2910,12 +2910,38 @@ it leave it as it is). A UI `image` widget shows a slot's picture with
 load screen's list) in place of `image`; nothing while the slot has none, a
 new picture as soon as the slot is saved again.
 
-Slots live in the browser's IndexedDB (localStorage's ~5 MB per site could
-not hold 99 slots of 1 MiB); Play and exported games, and each project, keep
-separate ones, and an export needs no backend. `tl_game_observe` (and an
-export's `__thirdlightObserve()`) report `saves {slotCount, storage, slots
-(the first 32 used, with their picture's type and size), settings}`; the page
-exposes a slot's picture as `__thirdlightSaveThumbnail(slot)` (a data URL).
+Slots live in the browser's IndexedDB for the game's site (localStorage's
+~5 MB per site could not hold 99 slots of 1 MiB): database
+`thirdlight-saves`, keys `<ns>:slot:<n>:meta`, `:body` and `:thumb`, where
+`<ns>` is `thirdlight:<projectId>` in an export and
+`thirdlight-play:<projectId>` in Play, so Play, exported games and each
+project keep separate ones; the settings document is in localStorage under
+`<ns>:project-settings`. An export needs no backend. A slot's metadata,
+body and picture are written (and deleted) in **one transaction**: a save
+the browser refuses or a page closed while it writes leaves the slot's
+previous save whole, never a slot the checksum calls damaged.
+
+A refused write is a clear result for the game's own message: the outcome
+in `results()` is `{ok: false, code, reason}`, `reason` the browser's text
+and `code` one of `storage_full` (the disk or the site's quota is full),
+`storage_unavailable` (the page has no IndexedDB — storage turned off, some
+private windows — so nothing can be saved; reads find no slots) or
+`storage_failed` (anything else, such as a write cut off). A settings
+document localStorage refuses is reported the same way, as a result
+`{op: 'settings', slot: 0, ok: false, code, reason}`; the value still applies
+for the session (the game shell's own volumes and the player's key
+bindings are logged instead). At the first save the host asks the browser to
+keep the site's data under disk pressure (`navigator.storage.persist()`;
+some browsers ask the player, others decide silently); `ctx.saves.storage()`
+gives `{persisted, usage, quota}` (bytes from `navigator.storage.estimate()`,
+refreshed after each save; null where the browser does not say).
+
+`tl_game_observe` (and an export's `__thirdlightObserve()`) report `saves
+{slotCount, storage (indexeddb, memory or unavailable), persisted, usage,
+quota, persistAsked, slots (the first 32 used, with their picture's type and
+size), settings}`, and Play diagnostics `saves {storage, persistAsked,
+persisted, usage, quota}`; the page exposes a slot's picture as
+`__thirdlightSaveThumbnail(slot)` (a data URL).
 `tl_play_start` also takes a project save document (`{format:
 "thirdlight.save", version, playSeconds?, doc, sections?}`, loaded at the
 first step and migrated) or `saveSlot` 1–99 (a project slot of the Play page).

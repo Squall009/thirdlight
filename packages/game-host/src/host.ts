@@ -75,7 +75,8 @@ import { actionPrompts, resolveCursorMode, type InputConfigLike } from './bindin
 import { createInputBindings, type InputBindingsController } from './rebind';
 import type { Captured } from './input-bindings';
 import { createSettingsStore, type SaveStorage } from './storage';
-import { createProjectSaveService, memoryProjectSaveBackend, readProjectSettings, type ProjectSaveBackend, type ProjectSaveService, type ProjectSlotObservation } from './project-saves';
+import { readProjectSettings, type DeviceStorage, type ProjectSaveBackend, type ProjectSaveService } from './project-saves';
+import { savesObservation as savesObservationOf, shellSaves, slotPictures, startHostSaves, type ProjectSavesObservation } from './host-saves';
 import { createDebugConsole, type DebugConsole } from './debug-console';
 import { createHostStats } from './frame-stats';
 import { createStatsOverlay, statsOverlayModeOf, type StatsOverlay } from './stats-overlay';
@@ -176,14 +177,7 @@ export interface HostRenderAdapter {
   qualityLevel?(): string;
 }
 
-/** The project saves as observers see them (a project with a save schema). */
-export interface ProjectSavesObservation {
-  readonly slotCount: number;
-  readonly storage: 'indexeddb' | 'memory';
-  /** The first 32 used slots. */
-  readonly slots: readonly ProjectSlotObservation[];
-  readonly settings: Readonly<Record<string, boolean | number | string>>;
-}
+export type { ProjectSavesObservation } from './host-saves';
 
 /** `GameHostObservation.sound`. */
 export interface GameHostSound {
@@ -432,6 +426,8 @@ export interface GameHostConfig {
    * schema: slots last for this page only (a memory store).
    */
   readonly projectSaveBackend?: ProjectSaveBackend;
+  /** The browser's storage manager (`navigator.storage`): persistence asked at the first save, usage and quota. */
+  readonly deviceStorage?: DeviceStorage;
   /** Apply a player's quality setting (the wrapper forwards it to the renderer). */
   readonly setQuality?: (level: 'low' | 'medium' | 'high') => void;
   /**
@@ -839,10 +835,7 @@ export function createGameHost(config: GameHostConfig): GameHost {
   const saveSchema = config.snapshot.saveSchema;
   const saveNamespace = config.saveNamespace ?? `thirdlight:${String((config.snapshot as { projectId?: string }).projectId ?? 'game')}`;
   let projectSaves: ProjectSaveService | null = null;
-  const savesObservation = (): { saves?: ProjectSavesObservation } =>
-    projectSaves === null || saveSchema === undefined
-      ? {}
-      : { saves: { slotCount: saveSchema.slots, storage: projectSaves.storage, slots: projectSaves.slots().slice(0, 32), settings: { ...(runtime?.projectSettings?.() ?? projectSaves.settings()) } } };
+  const savesObservation = (): { saves?: ProjectSavesObservation } => savesObservationOf(projectSaves, saveSchema, runtime?.projectSettings?.());
   /** The project UI layer (null without UI documents). */
   let uiLayer: UiLayer | null = null;
   /**
@@ -942,18 +935,7 @@ export function createGameHost(config: GameHostConfig): GameHost {
         if (r !== undefined && r.ok === false) console.warn('[game-host] scene move refused:', r.error.message);
       },
       listedScene: () => rt.listedSceneIndex?.() ?? -1,
-      saves:
-        projectSaves !== null && saveSchema !== undefined
-          ? {
-              slotCount: saveSchema.slots,
-              slots: () => projectSaves?.slots() ?? [],
-              save: (slot, meta) => {
-                const r = rt.requestSave?.(slot, meta);
-                return r === undefined ? 'this runtime cannot save' : r.ok ? null : r.error.message;
-              },
-              load: (slot) => void projectSaves?.loadSlot(slot),
-            }
-          : null,
+      saves: shellSaves(() => projectSaves, saveSchema, rt),
       pauseAllowed: () => {
         const mv = rt.modeView?.() ?? null;
         return mv === null || mv.pause;
@@ -1445,27 +1427,19 @@ export function createGameHost(config: GameHostConfig): GameHost {
 
     // Project saves — the page owns the slots; the simulation gets the list and answers as input.
     if (saveSchema !== undefined) {
-      const rtS = res.runtime;
-      projectSaves = createProjectSaveService({
+      projectSaves = startHostSaves({
         schema: saveSchema,
-        backend: config.projectSaveBackend ?? memoryProjectSaveBackend(),
+        runtime: res.runtime,
         namespace: saveNamespace,
-        queue: (event) => {
-          if (disposed) return;
-          const r = rtS.queueSaveEvent?.(event);
-          if (r !== undefined && !r.ok) console.warn('[game-host] save answer refused:', r.error.message);
-        },
+        ...(config.projectSaveBackend !== undefined ? { backend: config.projectSaveBackend } : {}),
+        ...(config.deviceStorage !== undefined ? { device: config.deviceStorage } : {}),
         ...(config.saveStorage !== undefined ? { settingsStorage: config.saveStorage } : {}),
         captureThumbnail: (w, h, type, q) => adapter?.captureThumbnail?.(w, h, type, q) ?? null,
         pictureWaits: () => adapter?.rendererStarting?.() === true,
-        applyEngine: (binding, value) => {
-          if (binding === 'quality') {
-            if (value === 'low' || value === 'medium' || value === 'high') config.setQuality?.(value);
-          } else if (typeof value === 'number') config.audio.setVolume?.(binding, value);
-        },
-        log: (message) => console.warn(`[game-host] ${message}`),
+        ...(config.setQuality !== undefined ? { setQuality: config.setQuality } : {}),
+        ...(config.audio.setVolume !== undefined ? { setVolume: (bus: 'music' | 'sfx' | 'ui', v: number) => config.audio.setVolume?.(bus, v) } : {}),
+        disposed: () => disposed,
       });
-      void projectSaves.start();
     }
     // The player's bindings (saved per profile).
     if (config.inputConfig !== undefined) {
@@ -1488,13 +1462,7 @@ export function createGameHost(config: GameHostConfig): GameHost {
         container: config.container,
         documents: config.ui.documents,
         // Image widgets may show a save slot's picture (a load screen's slot cards).
-        saveThumbnail: (slot: number) => {
-          const known = projectSaves?.slots().find((s) => s.slot === slot);
-          if (projectSaves === null || known?.thumbnail === undefined) return null;
-          const saves = projectSaves;
-          return { stamp: `${known.savedAt}|${known.bytes}|${known.thumbnail.bytes}`, picture: () => saves.thumbnail(slot) };
-        },
-        saveThumbnailsKey: () => (projectSaves === null ? '' : projectSaves.slots().map((s) => `${s.slot}:${s.savedAt}:${s.thumbnail?.bytes ?? 0}`).join(',')),
+        ...slotPictures(() => projectSaves),
         ...(config.ui.themes !== undefined ? { themes: config.ui.themes } : {}),
         ...(config.assetPaths !== undefined ? { assetPaths: config.assetPaths } : {}),
         ...(config.lookupAsset !== undefined ? { lookupPath: (assetId: string) => config.lookupAsset!(assetId).then((r) => r?.path) } : {}),

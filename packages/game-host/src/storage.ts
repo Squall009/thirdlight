@@ -7,6 +7,41 @@
  * Project save slots live elsewhere (IndexedDB, see `project-saves.ts`).
  */
 
+import type { SaveStorageCode } from '@thirdlight/runtime';
+
+/** The page has no storage the game's data can go to (IndexedDB off or refused, a sandboxed frame). */
+export class StorageUnavailableError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'StorageUnavailableError';
+  }
+}
+
+/**
+ * The storage code of a refused write: a full disk or quota (`QuotaExceededError`,
+ * Firefox's older `NS_ERROR_DOM_QUOTA_REACHED`, the legacy code 22), no storage,
+ * or anything else.
+ */
+export function storageErrorCode(e: unknown): SaveStorageCode {
+  if (e instanceof StorageUnavailableError) return 'storage_unavailable';
+  const name = typeof e === 'object' && e !== null ? (e as { name?: unknown }).name : undefined;
+  const code = typeof e === 'object' && e !== null ? (e as { code?: unknown }).code : undefined;
+  if (name === 'QuotaExceededError' || name === 'NS_ERROR_DOM_QUOTA_REACHED' || code === 22) return 'storage_full';
+  if (name === 'SecurityError' || name === 'InvalidStateError') return 'storage_unavailable';
+  return 'storage_failed';
+}
+
+/** Write one key of the synchronous storage; null when kept, else why not (the browser's text and the code). Never throws. */
+export function writeStored(storage: SaveStorage, key: string, value: string): { reason: string; code: SaveStorageCode } | null {
+  try {
+    storage.set(key, value);
+    return null;
+  } catch (e) {
+    const text = typeof e === 'object' && e !== null && typeof (e as { message?: unknown }).message === 'string' ? (e as { message: string }).message : '';
+    return { reason: (text !== '' ? text : 'the browser refused to keep it').slice(0, 200), code: storageErrorCode(e) };
+  }
+}
+
 /** The storage the wrapper injects (a `localStorage` adapter; a Map in tests). */
 export interface SaveStorage {
   get(key: string): string | null;
@@ -34,7 +69,8 @@ export interface SettingsStore {
    * null when the profile saved none or the entry is unreadable).
    */
   readBindings(profile: string): Record<string, unknown[]> | null;
-  writeBindings(profile: string, actions: Record<string, unknown[]>): void;
+  /** Null when kept; else why not (the bindings still apply for this session). */
+  writeBindings(profile: string, actions: Record<string, unknown[]>): { reason: string; code: SaveStorageCode } | null;
   /** Forget this game's stored settings (the default profile's bindings, the shell's and the project's settings). */
   clear(): void;
 }
@@ -64,11 +100,7 @@ export function createSettingsStore(storage: SaveStorage, namespace: string): Se
       }
     },
     writeBindings(profile, actions) {
-      try {
-        storage.set(key(`bindings:${profile}`), JSON.stringify({ version: 1, actions }));
-      } catch {
-        // storage full or refused: the bindings still apply for this session
-      }
+      return writeStored(storage, key(`bindings:${profile}`), JSON.stringify({ version: 1, actions }));
     },
     clear() {
       for (const k of CLEARED_KEYS) {

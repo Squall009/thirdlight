@@ -185,12 +185,11 @@ export async function startHarness(mode: Mode, cfg: HarnessConfig): Promise<Harn
   const innerBackend: ProjectSaveBackend = ((cfg.host ?? {}) as Any).projectSaveBackend ?? memoryProjectSaveBackend();
   const saveBackend: ProjectSaveBackend = {
     kind: innerBackend.kind,
-    get: (k) => innerBackend.get(k),
-    set: async (k, v) => {
-      if (k.endsWith(':body')) bodies.set(k, v);
-      await innerBackend.set(k, v);
+    read: (keys) => innerBackend.read(keys),
+    write: async (puts, removes) => {
+      for (const [k, v] of Object.entries(puts)) if (k.endsWith(':body')) bodies.set(k, v);
+      await innerBackend.write(puts, removes);
     },
-    remove: (k) => innerBackend.remove(k),
   };
   const baseConfig: Any = {
     snapshot,

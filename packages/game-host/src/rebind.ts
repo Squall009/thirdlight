@@ -138,7 +138,11 @@ export function createInputBindings(deps: BindingsControllerDeps): InputBindings
     rev += 1;
     deps.input.configure?.(next as never);
     deps.onChange?.(next);
-    if (save) deps.store?.writeBindings(profile, overridesOf(next, defaults));
+    if (save) {
+      // Refused (full, or no storage): the bindings still apply for this session.
+      const refused = deps.store?.writeBindings(profile, overridesOf(next, defaults)) ?? null;
+      if (refused !== null) console.warn(`[game-host] the input bindings were not kept (${refused.code}): ${refused.reason}`);
+    }
     pending.actions = true;
   };
   const event = (e: InputRebindEvent): void => {

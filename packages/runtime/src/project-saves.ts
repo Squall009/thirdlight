@@ -103,14 +103,37 @@ export interface SaveSlotInfo {
   readonly damaged?: string;
 }
 
-/** The outcome of one save, load or delete (`ctx.saves.results()`). */
+/**
+ * Why the player's storage refused a write, for the game's own message
+ * (the browser's text is the result's `reason`): the disk or the site's
+ * quota is full, the page has no storage (IndexedDB off, a private window
+ * that refuses it), or any other refusal.
+ */
+export const SAVE_STORAGE_CODES = ['storage_full', 'storage_unavailable', 'storage_failed'] as const;
+export type SaveStorageCode = (typeof SAVE_STORAGE_CODES)[number];
+
+/** The outcome of one save, load or delete, or a settings document storage refused (`ctx.saves.results()`). */
 export interface SaveResult {
-  readonly op: 'save' | 'load' | 'delete';
-  /** The slot (0: a document given at the start, e.g. by `tl_play_start`). */
+  readonly op: 'save' | 'load' | 'delete' | 'settings';
+  /** The slot (0: a document given at the start, e.g. by `tl_play_start`, and the settings document). */
   readonly slot: number;
   readonly ok: boolean;
   /** Why it failed. */
   readonly reason?: string;
+  /** Set when the player's storage refused it. */
+  readonly code?: SaveStorageCode;
+}
+
+/**
+ * The player's storage as the browser reports it (`ctx.saves.storage()`):
+ * whether it keeps the game's data under disk pressure (asked for at the
+ * first save), and the site's usage and quota in bytes. Null where unknown
+ * (no storage manager, or not answered yet).
+ */
+export interface SaveStorageInfo {
+  readonly persisted: boolean | null;
+  readonly usage: number | null;
+  readonly quota: number | null;
 }
 
 /** What a save shows in the slot list (`ctx.saves.save(slot, meta)`). */
@@ -148,9 +171,12 @@ export interface ProjectSaveFile {
  */
 export type SaveEvent =
   | { readonly kind: 'slots'; readonly slots: readonly SaveSlotInfo[] }
-  | { readonly kind: 'saved'; readonly slot: number; readonly ok: boolean; readonly reason?: string }
-  | { readonly kind: 'deleted'; readonly slot: number; readonly ok: boolean; readonly reason?: string }
-  | { readonly kind: 'loaded'; readonly slot: number; readonly ok: boolean; readonly reason?: string; readonly save?: ProjectSaveFile };
+  | { readonly kind: 'saved'; readonly slot: number; readonly ok: boolean; readonly reason?: string; readonly code?: SaveStorageCode }
+  | { readonly kind: 'deleted'; readonly slot: number; readonly ok: boolean; readonly reason?: string; readonly code?: SaveStorageCode }
+  | { readonly kind: 'loaded'; readonly slot: number; readonly ok: boolean; readonly reason?: string; readonly save?: ProjectSaveFile; readonly code?: SaveStorageCode }
+  /** The settings document was not kept (it still applies for this session). */
+  | { readonly kind: 'settings'; readonly ok: false; readonly reason: string; readonly code: SaveStorageCode }
+  | ({ readonly kind: 'storage' } & SaveStorageInfo);
 
 /** A request for the host (the storage owner), in the order scripts made them. */
 export type SaveRequest =
@@ -231,6 +257,13 @@ export interface BehaviorSaves {
    */
   results(): readonly SaveResult[];
   /**
+   * The player's storage: whether the browser keeps the game's saves under disk pressure (`persisted`, asked for
+   * at the first save) and the site's `usage` and `quota` in bytes; null where the browser does not say.
+   * @graphPure
+   * @graphNode Save storage
+   */
+  storage(): SaveStorageInfo;
+  /**
    * Play time in seconds (restored with a loaded save).
    * @graphPure
    * @graphNode Play time
@@ -282,6 +315,8 @@ export interface SaveSectionsPort {
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const intIn = (v: unknown, lo: number, hi: number): v is number => typeof v === 'number' && Number.isInteger(v) && v >= lo && v <= hi;
 const text = (v: unknown, max: number): v is string => typeof v === 'string' && v.length <= max;
+const storageCode = (v: unknown): v is SaveStorageCode => (SAVE_STORAGE_CODES as readonly unknown[]).includes(v);
+const bytesOrNull = (v: unknown): v is number | null => v === null || (typeof v === 'number' && Number.isFinite(v) && v >= 0);
 
 /** Bytes of a string as UTF-8. */
 export function utf8Length(s: string): number {
@@ -365,6 +400,9 @@ export function validateSaveEvents(value: unknown): { ok: true; events: readonly
     if (!isObj(e)) return fail('a saves entry is an object');
     const reason = e['reason'];
     if (reason !== undefined && !text(reason, 256)) return fail('reason is text of at most 256 characters');
+    const code = e['code'];
+    if (code !== undefined && !storageCode(code)) return fail(`code is one of ${SAVE_STORAGE_CODES.join(', ')}`);
+    const withCode = code !== undefined ? { code } : {};
     switch (e['kind']) {
       case 'slots': {
         const slots = e['slots'];
@@ -379,7 +417,17 @@ export function validateSaveEvents(value: unknown): { ok: true; events: readonly
       case 'saved':
       case 'deleted': {
         if (!intIn(e['slot'], 1, SAVE_LIMITS.slots) || typeof e['ok'] !== 'boolean') return fail(`a ${e['kind']} entry is { slot 1-99, ok, reason? }`);
-        out.push(Object.freeze({ kind: e['kind'], slot: e['slot'], ok: e['ok'], ...(reason !== undefined ? { reason: reason as string } : {}) }));
+        out.push(Object.freeze({ kind: e['kind'], slot: e['slot'], ok: e['ok'], ...(reason !== undefined ? { reason: reason as string } : {}), ...withCode }));
+        break;
+      }
+      case 'settings': {
+        if (e['ok'] !== false || reason === undefined || code === undefined) return fail('a settings entry is { ok: false, reason, code }');
+        out.push(Object.freeze({ kind: 'settings' as const, ok: false as const, reason: reason as string, code }));
+        break;
+      }
+      case 'storage': {
+        if (!(e['persisted'] === null || typeof e['persisted'] === 'boolean') || !bytesOrNull(e['usage']) || !bytesOrNull(e['quota'])) return fail('a storage entry is { persisted: boolean | null, usage, quota: bytes or null }');
+        out.push(Object.freeze({ kind: 'storage' as const, persisted: e['persisted'], usage: e['usage'], quota: e['quota'] }));
         break;
       }
       case 'loaded': {
@@ -392,13 +440,13 @@ export function validateSaveEvents(value: unknown): { ok: true; events: readonly
           if (p !== null) return fail(p);
           save = deepFreeze(JSON.parse(t) as ProjectSaveFile);
         } else if (e['ok'] === true) return fail('a loaded entry that is ok carries the save');
-        out.push(Object.freeze({ kind: 'loaded' as const, slot: e['slot'], ok: e['ok'], ...(reason !== undefined ? { reason: reason as string } : {}), ...(save !== undefined ? { save } : {}) }));
+        out.push(Object.freeze({ kind: 'loaded' as const, slot: e['slot'], ok: e['ok'], ...(reason !== undefined ? { reason: reason as string } : {}), ...(save !== undefined ? { save } : {}), ...withCode }));
         break;
       }
       default:
-        return fail('kind is slots, saved, deleted or loaded');
+        return fail('kind is slots, saved, deleted, loaded, settings or storage');
     }
-    for (const k of Object.keys(e)) if (!['kind', 'slots', 'slot', 'ok', 'reason', 'save'].includes(k)) return fail(`unknown saves entry field "${k}"`);
+    for (const k of Object.keys(e)) if (!['kind', 'slots', 'slot', 'ok', 'reason', 'save', 'code', 'persisted', 'usage', 'quota'].includes(k)) return fail(`unknown saves entry field "${k}"`);
   }
   return { ok: true, events: Object.freeze(out) };
 }
@@ -414,6 +462,7 @@ function deepFreeze<T>(v: T): T {
 const MIGRATION_NAME_RE = /^[A-Za-z_][A-Za-z0-9_.:-]{0,63}$/;
 const NO_RESULTS: readonly SaveResult[] = Object.freeze([]);
 const NO_SLOTS: readonly SaveSlotInfo[] = Object.freeze([]);
+const STORAGE_UNKNOWN: SaveStorageInfo = Object.freeze({ persisted: null, usage: null, quota: null });
 
 interface PendingSave {
   readonly slot: number;
@@ -436,6 +485,7 @@ export class RuntimeSaves {
   private settingsDirty = false;
   private slotList: readonly SaveSlotInfo[] = NO_SLOTS;
   private slotsReady = false;
+  private storageInfo: SaveStorageInfo = STORAGE_UNKNOWN;
   private visible: readonly SaveResult[] = NO_RESULTS;
   private carried: SaveResult[] = [];
   /** Requests in call order; a save's text is filled at the end of its step. */
@@ -475,7 +525,11 @@ export class RuntimeSaves {
         this.slotList = Object.freeze([...e.slots].filter((s) => s.slot <= this.schema!.slots).sort((a, b) => a.slot - b.slot).map(freezeSlot));
         this.slotsReady = true;
       } else if (e.kind === 'saved' || e.kind === 'deleted') {
-        now.push(Object.freeze({ op: e.kind === 'saved' ? ('save' as const) : ('delete' as const), slot: e.slot, ok: e.ok, ...(e.reason !== undefined ? { reason: e.reason } : {}) }));
+        now.push(Object.freeze({ op: e.kind === 'saved' ? ('save' as const) : ('delete' as const), slot: e.slot, ok: e.ok, ...(e.reason !== undefined ? { reason: e.reason } : {}), ...(e.code !== undefined ? { code: e.code } : {}) }));
+      } else if (e.kind === 'settings') {
+        now.push(Object.freeze({ op: 'settings' as const, slot: 0, ok: false, reason: e.reason, code: e.code }));
+      } else if (e.kind === 'storage') {
+        this.storageInfo = Object.freeze({ persisted: e.persisted, usage: e.usage, quota: e.quota });
       } else this.loads.push(e);
     }
     this.visible = Object.freeze(now);
@@ -504,7 +558,7 @@ export class RuntimeSaves {
       for (const e of loads) {
         const reason = e.ok ? this.restore(e.save!) : (e.reason ?? 'the slot could not be read');
         if (reason !== null) this.log(`save slot ${e.slot} was not loaded: ${reason}`);
-        this.carried.push(Object.freeze({ op: 'load' as const, slot: e.slot, ok: reason === null, ...(reason !== null ? { reason } : {}) }));
+        this.carried.push(Object.freeze({ op: 'load' as const, slot: e.slot, ok: reason === null, ...(reason !== null ? { reason } : {}), ...(!e.ok && e.code !== undefined ? { code: e.code } : {}) }));
       }
     }
     if (this.settingsDirty) {
@@ -562,7 +616,9 @@ export class RuntimeSaves {
   digestText(): string | null {
     if (this.schema === null || !this.active) return null;
     const grid = this.schema.sections?.includes('grid') === true ? JSON.stringify(this.port.capture('grid')) : '';
-    return `${this.docText}|${this.playSeconds()}|${JSON.stringify(this.settingsDoc)}|${JSON.stringify(this.slotList)}|${JSON.stringify(this.visible)}|${grid}`;
+    // The player's storage facts are input scripts may read; a game that never got them digests as before.
+    const storage = this.storageInfo === STORAGE_UNKNOWN ? '' : `|${JSON.stringify(this.storageInfo)}`;
+    return `${this.docText}|${this.playSeconds()}|${JSON.stringify(this.settingsDoc)}|${JSON.stringify(this.slotList)}|${JSON.stringify(this.visible)}|${grid}${storage}`;
   }
 
   private playSeconds(): number {
@@ -700,6 +756,7 @@ export class RuntimeSaves {
       },
       slots: (): readonly SaveSlotInfo[] => r.slotList,
       ready: (): boolean => r.slotsReady,
+      storage: (): SaveStorageInfo => r.storageInfo,
       results: (): readonly SaveResult[] => r.visible,
       playSeconds: (): number => r.playSeconds(),
       migration(name: string, migrate: (doc: unknown, fromVersion: number) => unknown): boolean {

@@ -161,7 +161,7 @@ export { hitUiTargets, type UiHitTarget } from './ui-hit';
 export type { UiElementObservation } from './ui-layer';
 export { actionPrompts, actionWords, keyBindingLabel, keyLabel, padButtonLabel, resolveCursorMode, type ActionPrompt, type InputConfigLike } from './bindings';
 // Project save documents (the page owns the slots: IndexedDB; the settings document: localStorage).
-export { browserProjectSaveBackend, createProjectSaveService, memoryProjectSaveBackend, readProjectSettings, type ProjectSaveBackend, type ProjectSaveService, type ProjectSlotObservation, type SaveThumbnailInfo, type ThumbnailCapture } from './project-saves';
+export { browserDeviceStorage, browserProjectSaveBackend, createProjectSaveService, memoryProjectSaveBackend, unavailableProjectSaveBackend, type DeviceStorage, readProjectSettings, type ProjectSaveBackend, type ProjectSaveService, type ProjectSlotObservation, type SaveThumbnailInfo, type ThumbnailCapture } from './project-saves';
 export type { ProjectSavesObservation } from './host';
 // The rebinding API (list, listen, conflicts, reset, profiles), device detection and glyphs.
 export { createInputBindings, REBIND_DEFAULT_CANCEL, REBIND_DEFAULT_POLICY, REBIND_DEFAULT_TIMEOUT_S, type BindingsControllerDeps, type BindingsInputOwner, type InputBindingsController, type ListenOptions } from './rebind';

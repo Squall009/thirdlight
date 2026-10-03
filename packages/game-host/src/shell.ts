@@ -21,7 +21,7 @@ import type { UiAction } from '@thirdlight/runtime';
 
 import type { UiEdges } from './dom';
 import type { HostDom, HostDomNode } from './dom';
-import type { SaveStorage } from './storage';
+import { writeStored, type SaveStorage } from './storage';
 
 export type ShellScreenKey = 'title' | 'pause' | 'settings' | 'controls' | 'save' | 'load';
 export type ShellState = ShellScreenKey | 'playing';
@@ -145,11 +145,10 @@ export function createShellController(deps: ShellDeps): ShellController {
     // a damaged record: the defaults
   }
   const keepSettings = (): void => {
-    try {
-      deps.storage?.set(settingsKey, JSON.stringify({ volumes, quality }));
-    } catch {
-      // storage full or refused: the settings still apply for this session
-    }
+    if (deps.storage === undefined) return;
+    // Refused (full, or no storage): the settings still apply for this session.
+    const refused = writeStored(deps.storage, settingsKey, JSON.stringify({ volumes, quality }));
+    if (refused !== null) deps.log(`the shell settings were not kept (${refused.code}): ${refused.reason}`);
   };
 
   // The debug status line (shell.status).

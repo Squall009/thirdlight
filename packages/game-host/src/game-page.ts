@@ -66,6 +66,8 @@ import {
   browserContextFactory,
   browserMediaElementFactory,
   browserProjectSaveBackend,
+  browserDeviceStorage,
+  unavailableProjectSaveBackend,
   browserSaveStorage,
   browserWorkerAvailable,
   bufferResolver,
@@ -882,7 +884,9 @@ export async function startGamePage(o: GamePageOptions): Promise<GamePageHandle>
       setQuality: (level) => adapterRef.current?.setQuality?.(level),
       // The player's settings in this browser's localStorage, and project save slots in its IndexedDB.
       ...(browserSaveStorage() !== null ? { saveStorage: browserSaveStorage()!, saveNamespace: o.saveNamespace } : {}),
-      ...(browserProjectSaveBackend() !== null ? { projectSaveBackend: browserProjectSaveBackend()! } : {}),
+      // Without IndexedDB every save is refused as storage_unavailable (the game can say so) rather than kept for the page's life.
+      projectSaveBackend: browserProjectSaveBackend() ?? unavailableProjectSaveBackend('this browser gives the page no IndexedDB'),
+      ...(browserDeviceStorage() !== undefined ? { deviceStorage: browserDeviceStorage()! } : {}),
       assetKinds: Object.fromEntries(manifest.assets.map((r) => [r.assetId, r.kind])),
       // An asset the rows above do not name (a portrait, say): its catalog shard, read when it is asked for.
       lookupAsset: (assetId) => content.catalog.lookup(assetId).then((r) => (r === undefined ? undefined : { path: r.path, kind: r.kind })),

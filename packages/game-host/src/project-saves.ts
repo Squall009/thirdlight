@@ -8,23 +8,41 @@
  * Storage: slots in IndexedDB (a slot holds up to 1 MiB and a game up to 99 of
  * them — past localStorage's ~5 MB per origin), one key per slot for the
  * metadata (the slot list reads only these), one for the body and one for the
- * thumbnail. The project settings document is small and must be known before
+ * thumbnail. A slot's three keys are written (and deleted) in one transaction:
+ * the metadata holds the body's checksum, so a write refused or cut off
+ * between them would leave a slot that is neither the old save nor the new
+ * one. A refused write answers with a storage code (`storage_full`,
+ * `storage_unavailable`, `storage_failed`) next to the browser's text. At the
+ * first save the host asks the browser to keep the site's data under disk
+ * pressure (`navigator.storage.persist()`); the answer and the usage and quota
+ * go to the simulation (`ctx.saves.storage()`) and observers.
+ * The project settings document is small and must be known before
  * the first step (the runtime starts with it), so it is in the synchronous
  * key/value storage (`localStorage`, see `storage.ts`) next to the player's
  * other settings. Play and an export use different namespaces. No backend is
  * involved: an exported game keeps its saves in the player's browser.
  */
-import { SAVE_LIMITS, SAVE_THUMBNAIL_DEFAULT, saveSlotMetaProblem, settingsDocumentOf, type SaveSchema, type SettingsFieldValue, projectSaveFileProblem, utf8Length, type ProjectSaveFile, type SaveEvent, type SaveRequest, type SaveSlotInfo } from '@thirdlight/runtime';
+import { SAVE_LIMITS, SAVE_THUMBNAIL_DEFAULT, saveSlotMetaProblem, settingsDocumentOf, type SaveSchema, type SettingsFieldValue, projectSaveFileProblem, utf8Length, type ProjectSaveFile, type SaveEvent, type SaveRequest, type SaveSlotInfo, type SaveStorageCode, type SaveStorageInfo } from '@thirdlight/runtime';
 
-import { saveChecksum, type SaveStorage } from './storage';
+import { saveChecksum, storageErrorCode, StorageUnavailableError, writeStored, type SaveStorage } from './storage';
 
 /** An asynchronous key/value store (IndexedDB in the browser; a Map in tests). */
 export interface ProjectSaveBackend {
-  get(key: string): Promise<string | null>;
-  set(key: string, value: string): Promise<void>;
-  remove(key: string): Promise<void>;
-  /** Where the slots live (reported by observers). */
-  readonly kind: 'indexeddb' | 'memory';
+  /** Several keys read together (null: absent). */
+  read(keys: readonly string[]): Promise<(string | null)[]>;
+  /** Puts and removes as one transaction: all of them are stored, or none (the promise rejects with the refusal). */
+  write(puts: Readonly<Record<string, string>>, removes: readonly string[]): Promise<void>;
+  /** Where the slots live (reported by observers); `unavailable`: the page has no storage and every write is refused. */
+  readonly kind: 'indexeddb' | 'memory' | 'unavailable';
+}
+
+/** The browser's storage manager as the save service uses it (`navigator.storage`). */
+export interface DeviceStorage {
+  /** Whether the site's data is kept under disk pressure (asks nothing of the player). */
+  persisted(): Promise<boolean>;
+  /** Ask for that (the browser may grant it silently, ask the player or refuse). */
+  persist(): Promise<boolean>;
+  estimate(): Promise<{ usage?: number; quota?: number }>;
 }
 
 /** A slot's thumbnail as observers see it (the image itself via `thumbnail(slot)`). */
@@ -70,6 +88,8 @@ export interface ProjectSaveServiceConfig {
   readonly captureThumbnail?: ThumbnailCapture;
   /** True while no picture can be drawn yet (the renderer is still starting): requests wait for it. */
   readonly pictureWaits?: () => boolean;
+  /** The browser's storage manager (absent: persistence, usage and quota stay unknown). */
+  readonly device?: DeviceStorage;
   /** Apply an engine setting a settings field drives. */
   readonly applyEngine?: (binding: 'music' | 'sfx' | 'ui' | 'quality', value: SettingsFieldValue) => void;
   /** The player's clock (ISO text) for `savedAt`. */
@@ -103,7 +123,11 @@ export interface ProjectSaveService {
    * before); the simulation gets the empty slot list.
    */
   clear(): Promise<void>;
-  readonly storage: 'indexeddb' | 'memory';
+  readonly storage: 'indexeddb' | 'memory' | 'unavailable';
+  /** Whether the browser keeps the saves under disk pressure, and the site's usage and quota (null: unknown). */
+  storageInfo(): SaveStorageInfo;
+  /** Whether persistent storage was asked for (at the first save). */
+  persistAsked(): boolean;
 }
 
 const metaKey = (ns: string, slot: number): string => `${ns}:slot:${slot}:meta`;
@@ -138,6 +162,12 @@ function metaProblem(m: unknown, slot: number): string | null {
 
 const clip = (s: string, n: number): string => (s.length > n ? s.slice(0, n) : s);
 
+/** A refusal as a result carries it: the browser's text and the storage code. */
+function refusal(e: unknown, fallback: string): { reason: string; code: SaveStorageCode } {
+  const text = e instanceof Error || (typeof e === 'object' && e !== null && typeof (e as { message?: unknown }).message === 'string') ? (e as { message: string }).message : '';
+  return { reason: clip(text !== '' ? text : fallback, 200), code: storageErrorCode(e) };
+}
+
 export function createProjectSaveService(cfg: ProjectSaveServiceConfig): ProjectSaveService {
   const { schema, backend, namespace: ns } = cfg;
   const log = cfg.log ?? (() => undefined);
@@ -146,6 +176,30 @@ export function createProjectSaveService(cfg: ProjectSaveServiceConfig): Project
   const damaged = new Map<number, string>();
   let chain: Promise<void> = Promise.resolve();
   let settingsDoc = readProjectSettings(schema, cfg.settingsStorage, ns);
+  let info: SaveStorageInfo = { persisted: null, usage: null, quota: null };
+  let asked = false;
+  /** Ask the browser how much the site uses (and whether it keeps it), then tell the simulation. Never in the save chain: a browser that asks the player must not hold the saves up. */
+  const refreshStorage = async (persist: boolean): Promise<void> => {
+    const device = cfg.device;
+    if (device === undefined) return;
+    let persisted = info.persisted;
+    try {
+      persisted = persist ? await device.persist() : await device.persisted();
+    } catch {
+      // the browser refused to answer: what was known stays
+    }
+    let usage = info.usage;
+    let quota = info.quota;
+    try {
+      const e = await device.estimate();
+      usage = typeof e.usage === 'number' && Number.isFinite(e.usage) ? e.usage : null;
+      quota = typeof e.quota === 'number' && Number.isFinite(e.quota) ? e.quota : null;
+    } catch {
+      // as above
+    }
+    info = { persisted: typeof persisted === 'boolean' ? persisted : null, usage, quota };
+    cfg.queue({ kind: 'storage', ...info });
+  };
   const thumb = { ...SAVE_THUMBNAIL_DEFAULT, ...(schema.thumbnail ?? {}) };
 
   const held: SaveRequest[] = [];
@@ -164,10 +218,10 @@ export function createProjectSaveService(cfg: ProjectSaveServiceConfig): Project
   const sendSlots = (): void => cfg.queue({ kind: 'slots', slots: slotList() });
 
   const readSlot = async (s: number): Promise<void> => {
-    const raw = await backend.get(metaKey(ns, s));
+    const [raw] = await backend.read([metaKey(ns, s)]);
     known.delete(s);
     damaged.delete(s);
-    if (raw === null) return;
+    if (raw === null || raw === undefined) return;
     try {
       const m = JSON.parse(raw) as StoredMeta;
       const p = metaProblem(m, s);
@@ -199,6 +253,11 @@ export function createProjectSaveService(cfg: ProjectSaveServiceConfig): Project
       }
     }
     const savedAt = now();
+    // The first save asks the browser to keep the site's data (a prompt in some browsers: not awaited).
+    if (!asked) {
+      asked = true;
+      void refreshStorage(true);
+    }
     enqueue(async () => {
       const bytes = utf8Length(r.text);
       if (bytes > SAVE_LIMITS.documentBytes) {
@@ -220,19 +279,23 @@ export function createProjectSaveService(cfg: ProjectSaveServiceConfig): Project
         ...(r.meta.meta !== undefined && Object.keys(r.meta.meta).length > 0 ? { meta: { ...r.meta.meta } } : {}),
         ...(picture !== null ? { thumbnail: { type, width: picture.width, height: picture.height, bytes: picture.dataUrl.length } } : {}),
       };
+      // Body, picture and metadata in one transaction (the metadata last): all of the new save or none of it.
+      const puts: Record<string, string> = { [bodyKey(ns, r.slot)]: r.text };
+      if (picture !== null) puts[thumbKey(ns, r.slot)] = picture.dataUrl;
+      puts[metaKey(ns, r.slot)] = JSON.stringify(meta);
       try {
-        await backend.set(bodyKey(ns, r.slot), r.text);
-        if (picture !== null) await backend.set(thumbKey(ns, r.slot), picture.dataUrl);
-        else await backend.remove(thumbKey(ns, r.slot));
-        await backend.set(metaKey(ns, r.slot), JSON.stringify(meta));
+        await backend.write(puts, picture !== null ? [] : [thumbKey(ns, r.slot)]);
       } catch (e) {
-        cfg.queue({ kind: 'saved', slot: r.slot, ok: false, reason: clip(e instanceof Error ? e.message : 'storage refused the save', 200) });
+        const why = refusal(e, 'storage refused the save');
+        log(`save slot ${r.slot} was not stored (${why.code}): ${why.reason}`);
+        cfg.queue({ kind: 'saved', slot: r.slot, ok: false, ...why });
         return;
       }
       known.set(r.slot, slotOf(meta));
       damaged.delete(r.slot);
       cfg.queue({ kind: 'saved', slot: r.slot, ok: true });
       sendSlots();
+      void refreshStorage(false);
     });
   };
 
@@ -241,9 +304,17 @@ export function createProjectSaveService(cfg: ProjectSaveServiceConfig): Project
     const settled = new Promise<void>((resolve) => (done = resolve));
     enqueue(async () => {
       try {
-        const [rawMeta, body] = await Promise.all([backend.get(metaKey(ns, slot)), backend.get(bodyKey(ns, slot))]);
-        const fail = (reason: string): void => cfg.queue({ kind: 'loaded', slot, ok: false, reason });
-        if (rawMeta === null || body === null) return fail(`save slot ${slot} is empty`);
+        const fail = (reason: string, code?: SaveStorageCode): void => cfg.queue({ kind: 'loaded', slot, ok: false, reason, ...(code !== undefined ? { code } : {}) });
+        let rawMeta: string | null | undefined;
+        let body: string | null | undefined;
+        try {
+          // One read: the metadata and the body of the same write.
+          [rawMeta, body] = await backend.read([metaKey(ns, slot), bodyKey(ns, slot)]);
+        } catch (e) {
+          const why = refusal(e, 'storage refused the read');
+          return fail(why.reason, why.code);
+        }
+        if (rawMeta === null || rawMeta === undefined || body === null || body === undefined) return fail(`save slot ${slot} is empty`);
         let meta: StoredMeta;
         try {
           meta = JSON.parse(rawMeta) as StoredMeta;
@@ -272,11 +343,9 @@ export function createProjectSaveService(cfg: ProjectSaveServiceConfig): Project
   const remove = (slot: number): void => {
     enqueue(async () => {
       try {
-        await backend.remove(metaKey(ns, slot));
-        await backend.remove(bodyKey(ns, slot));
-        await backend.remove(thumbKey(ns, slot));
+        await backend.write({}, [metaKey(ns, slot), bodyKey(ns, slot), thumbKey(ns, slot)]);
       } catch (e) {
-        cfg.queue({ kind: 'deleted', slot, ok: false, reason: clip(e instanceof Error ? e.message : 'storage refused', 200) });
+        cfg.queue({ kind: 'deleted', slot, ok: false, ...refusal(e, 'storage refused the delete') });
         return;
       }
       known.delete(slot);
@@ -288,11 +357,14 @@ export function createProjectSaveService(cfg: ProjectSaveServiceConfig): Project
 
   return {
     storage: backend.kind,
+    storageInfo: () => info,
+    persistAsked: () => asked,
     async start() {
       enqueue(async () => {
         for (let s = 1; s <= schema.slots; s += 1) await readSlot(s);
         sendSlots();
       });
+      void refreshStorage(false);
       await chain;
     },
     handle(requests) {
@@ -313,10 +385,13 @@ export function createProjectSaveService(cfg: ProjectSaveServiceConfig): Project
             break;
           case 'settings':
             settingsDoc = settingsDocumentOf(schema.settings ?? [], r.values);
-            try {
-              cfg.settingsStorage?.set(settingsKey(ns), JSON.stringify(settingsDoc));
-            } catch {
-              // storage full or refused: the settings still apply for this session
+            if (cfg.settingsStorage !== undefined) {
+              // Refused (full, or no storage): the settings still apply for this session; the game is told.
+              const refused = writeStored(cfg.settingsStorage, settingsKey(ns), JSON.stringify(settingsDoc));
+              if (refused !== null) {
+                log(`the settings document was not kept (${refused.code}): ${refused.reason}`);
+                cfg.queue({ kind: 'settings', ok: false, ...refused });
+              }
             }
             applyEngineSettings(settingsDoc);
             break;
@@ -335,7 +410,8 @@ export function createProjectSaveService(cfg: ProjectSaveServiceConfig): Project
     },
     async thumbnail(slot) {
       if (known.get(slot)?.thumbnail === undefined) return null;
-      return backend.get(thumbKey(ns, slot));
+      const [url] = await backend.read([thumbKey(ns, slot)]);
+      return url ?? null;
     },
     settings: () => settingsDoc,
     clear: async () => {
@@ -352,19 +428,31 @@ export function createProjectSaveService(cfg: ProjectSaveServiceConfig): Project
   };
 }
 
-/** A Map-backed store (tests; a page without IndexedDB keeps saves for the session only). */
+/** A Map-backed store (tests). A write applies all of its keys or, when it throws, none. */
 export function memoryProjectSaveBackend(map: Map<string, string> = new Map()): ProjectSaveBackend {
   return {
     kind: 'memory',
-    get: async (k) => map.get(k) ?? null,
-    set: async (k, v) => void map.set(k, v),
-    remove: async (k) => void map.delete(k),
+    read: async (keys) => keys.map((k) => map.get(k) ?? null),
+    write: async (puts, removes) => {
+      for (const [k, v] of Object.entries(puts)) map.set(k, v);
+      for (const k of removes) map.delete(k);
+    },
+  };
+}
+
+/** The page has no storage the saves can use: reads find nothing, every write is refused as `storage_unavailable`. */
+export function unavailableProjectSaveBackend(reason: string): ProjectSaveBackend {
+  return {
+    kind: 'unavailable',
+    read: async (keys) => keys.map(() => null),
+    write: () => Promise.reject(new StorageUnavailableError(reason)),
   };
 }
 
 /**
  * IndexedDB (database `thirdlight-saves`, store `kv`), or null when the page
- * has none (a sandboxed frame, a browser with storage off).
+ * has none (a sandboxed frame, a browser with storage off). A database that
+ * cannot be opened refuses as `storage_unavailable`.
  */
 export function browserProjectSaveBackend(): ProjectSaveBackend | null {
   let idb: IDBFactory | null = null;
@@ -382,38 +470,78 @@ export function browserProjectSaveBackend(): ProjectSaveBackend | null {
       try {
         req = factory.open('thirdlight-saves', 1);
       } catch (e) {
-        reject(e instanceof Error ? e : new Error('IndexedDB refused'));
+        reject(new StorageUnavailableError(e instanceof Error ? e.message : 'IndexedDB refused'));
         return;
       }
       req.onupgradeneeded = () => {
         if (!req.result.objectStoreNames.contains('kv')) req.result.createObjectStore('kv');
       };
       req.onsuccess = () => resolve(req.result);
-      req.onerror = () => reject(req.error ?? new Error('IndexedDB could not open'));
+      req.onerror = () => reject(new StorageUnavailableError(req.error?.message ?? 'IndexedDB could not open'));
     });
+    // A database that could not open is tried again at the next request (the player may have freed it).
+    db.catch(() => (db = null));
     return db;
   };
-  const run = async <T>(mode: IDBTransactionMode, body: (store: IDBObjectStore) => IDBRequest): Promise<T> => {
+  /** One transaction: resolves when it commits, rejects with its error when it aborts (a refused request, the quota, a closed page). */
+  const transact = async <T>(mode: IDBTransactionMode, body: (store: IDBObjectStore) => () => T): Promise<T> => {
     const d = await open();
     return new Promise<T>((resolve, reject) => {
-      const tx = d.transaction('kv', mode);
-      const req = body(tx.objectStore('kv'));
-      tx.oncomplete = () => resolve(req.result as T);
-      tx.onerror = () => reject(tx.error ?? new Error('IndexedDB transaction failed'));
-      tx.onabort = () => reject(tx.error ?? new Error('IndexedDB transaction aborted'));
+      let tx: IDBTransaction;
+      try {
+        tx = d.transaction('kv', mode);
+      } catch (e) {
+        reject(e instanceof Error ? e : new Error('IndexedDB refused the transaction'));
+        return;
+      }
+      let result: () => T = () => undefined as T;
+      let thrown: unknown = null;
+      tx.oncomplete = () => resolve(result());
+      // The transaction's own error first (the quota, a refused request); else what a request threw as it was made.
+      tx.onabort = () => reject(tx.error ?? thrown ?? new DOMException('the save storage transaction was aborted', 'AbortError'));
+      try {
+        result = body(tx.objectStore('kv'));
+      } catch (e) {
+        // A request refused as it was made (a full disk can refuse a put at once): nothing of the transaction stays.
+        thrown = e;
+        try {
+          tx.abort();
+        } catch {
+          // already finished
+        }
+      }
     });
   };
   return {
     kind: 'indexeddb',
-    get: async (k) => {
-      const v = await run<unknown>('readonly', (s) => s.get(k));
-      return typeof v === 'string' ? v : null;
-    },
-    set: async (k, v) => {
-      await run('readwrite', (s) => s.put(v, k));
-    },
-    remove: async (k) => {
-      await run('readwrite', (s) => s.delete(k));
-    },
+    read: (keys) =>
+      transact('readonly', (store) => {
+        const reqs = keys.map((k) => store.get(k));
+        return () => reqs.map((r) => (typeof r.result === 'string' ? r.result : null));
+      }),
+    write: (puts, removes) =>
+      transact('readwrite', (store) => {
+        // Removes first, the puts in their order: the slot's metadata is the last request of its save.
+        for (const k of removes) store.delete(k);
+        for (const [k, v] of Object.entries(puts)) store.put(v, k);
+        return () => undefined;
+      }),
+  };
+}
+
+/** The browser's storage manager (`navigator.storage`), or undefined where the page has none (an insecure origin, an older browser). */
+export function browserDeviceStorage(): DeviceStorage | undefined {
+  let m: StorageManager | undefined;
+  try {
+    m = (globalThis as { navigator?: { storage?: StorageManager } }).navigator?.storage;
+  } catch {
+    m = undefined;
+  }
+  if (m === undefined || typeof m.estimate !== 'function') return undefined;
+  const manager = m;
+  return {
+    persisted: () => (typeof manager.persisted === 'function' ? manager.persisted() : Promise.resolve(false)),
+    persist: () => (typeof manager.persist === 'function' ? manager.persist() : Promise.resolve(false)),
+    estimate: () => manager.estimate(),
   };
 }
