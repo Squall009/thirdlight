@@ -29,12 +29,10 @@ function harness(entities: EntityV3[], o: { character?: { x: number; y: number }
     hz: HZ,
     physics: undefined,
     curr,
-    characterId: 'player-0001',
-    characterCapsule: { radius: 0.3, halfHeight: 0.6, offset: { x: 0, y: 0 } },
-    character: () => h.character,
+    characters: [{ id: 'player-0001', capsule: { radius: 0.3, halfHeight: 0.6, offset: { x: 0, y: 0 } }, skin: o.skin ?? 0.01, offsetZ: 0 }],
     groundEntityId: () => null,
-    ...(o.skin !== undefined ? { characterSkin: o.skin } : {}),
   };
+  curr.set('player-0001', { position: [h.character.x, h.character.y, 0], rotation: [0, 0, 0, 1], scale: [1, 1, 1] });
   h.blocks = new GameplayBlocks(host, entities);
   return h;
 }
@@ -45,7 +43,7 @@ describe('mover push tuning', () => {
     const mover = ent('block-0001', { collider: { shape: { type: 'box', hx: 2, hy: 0.5 } }, mover: { waypoints: [[0, 2, 0]], speed: 2.4, mode: 'once', ...(maxPush !== undefined ? { maxPush } : {}) } });
     const h = harness([mover], { character: { x: -1, y: 0.2 }, ...(skin !== undefined ? { skin } : {}) });
     h.blocks.beforeStep(1);
-    return h.blocks.carryDelta();
+    return h.blocks.carryDelta('player-0001');
   };
   it('the push per step is maxPush over the step rate (default 60 m/s: 0.5 m at 120 Hz)', () => {
     expect(push(undefined).x).toBeCloseTo(-0.5, 12);
@@ -57,7 +55,7 @@ describe('mover push tuning', () => {
       const mover = ent('block-0001', { collider: { shape: { type: 'box', hx: 2, hy: 0.5 } }, mover: { waypoints: [[0, 2, 0]], speed: 2.4, mode: 'once' } });
       const h = harness([mover], { character: { x: -2 - 0.3 - 0.02, y: 0.2 }, ...(skin !== undefined ? { skin } : {}) });
       h.blocks.beforeStep(1);
-      return h.blocks.carryDelta().x;
+      return h.blocks.carryDelta('player-0001').x;
     };
     expect(edge()).toBe(0);
     expect(edge(0.05)).toBeLessThan(0);

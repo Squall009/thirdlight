@@ -22,10 +22,11 @@ describe('play checks', () => {
     expect(codes([scene('a', [{ ...shot('c1'), active: false }])], ['a'])).toEqual([['view_missing', false]]);
   });
 
-  it('one player controller in the scenes the game starts with; a player elsewhere is a warning', () => {
-    expect(codes([scene('a', [shot('c1'), player('p1'), player('p2')])], ['a'])).toEqual([['player_count', true]]);
-    expect(codes([scene('a', [shot('c1'), player('p1')]), scene('b', [player('p2')])], ['a', 'b'])).toEqual([['player_count', true]]);
-    expect(codes([scene('a', [shot('c1')]), scene('b', [player('p2')])], ['a'])).toEqual([['player_scene', false]]);
+  it('any number of player controllers in the scenes the game starts with (they share the view); a player elsewhere is a warning', () => {
+    expect(codes([scene('a', [shot('c1'), player('p1'), player('p2')])], ['a'])).toEqual([]);
+    expect(codes([scene('a', [shot('c1'), player('p1')]), scene('b', [player('p2')])], ['a', 'b'])).toEqual([]);
+    expect(codes([scene('a', [shot('c1')]), scene('b', [player('p2'), player('p3')])], ['a'])).toEqual([['player_scene', false]]);
+    expect(playChecks({}, [scene('a', [shot('c1')]), scene('b', [player('p2'), player('p3')])], ['a'])[0]!.message).toMatch(/player controllers "p2", "p3"/);
   });
 
   it('a kept object is one object; a kept flag under an object that is not kept has no effect', () => {

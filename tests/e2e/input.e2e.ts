@@ -105,6 +105,9 @@ test('a hold time on a binding and a project glyph image, edited in the Input wi
   await hold.blur();
   const stored = async (): Promise<{ actions: { name: string; bindings: unknown[] }[]; glyphs?: Record<string, string> }> => (await be.command({ op: 'queryGameConfig', projectId: be.projectId }))['input'] as never;
   await expect.poll(async () => (await stored())?.actions.find((a) => a.name === 'jump')?.bindings[0]).toEqual({ kind: 'key', code: 'Space', hold: 0.5 });
+  // A gamepad binding names one pad (a co-op player's own); "any pad" clears it.
+  await page.getByLabel('pad for Pad 0 of jump', { exact: true }).selectOption('1');
+  await expect.poll(async () => (await stored())?.actions.find((a) => a.name === 'jump')?.bindings[1]).toEqual({ kind: 'gamepadButton', button: 0, pad: 1 });
   await page.getByLabel('new glyph key', { exact: true }).fill('xbox:pad-south');
   await page.getByLabel('new glyph texture', { exact: true }).selectOption(texture!.assetId);
   await page.getByRole('button', { name: 'Add glyph' }).click();
@@ -115,6 +118,9 @@ test('a hold time on a binding and a project glyph image, edited in the Input wi
   await page.getByLabel('hold seconds for Space of jump', { exact: true }).fill('');
   await page.getByLabel('hold seconds for Space of jump', { exact: true }).blur();
   await expect.poll(async () => (await stored())?.actions.find((a) => a.name === 'jump')?.bindings[0]).toEqual({ kind: 'key', code: 'Space' });
+  await expect(page.getByLabel('pad for Pad 0 of jump', { exact: true })).toHaveValue('1');
+  await page.getByLabel('pad for Pad 0 of jump', { exact: true }).selectOption('');
+  await expect.poll(async () => (await stored())?.actions.find((a) => a.name === 'jump')?.bindings[1]).toEqual({ kind: 'gamepadButton', button: 0 });
 });
 
 test('a project map\'s cursor, set in the Input window, applies in Play while a game mode activates the map', async ({ page }) => {

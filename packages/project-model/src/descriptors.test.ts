@@ -508,7 +508,7 @@ const COMPONENT_BASES: Record<string, J[]> = {
     ...['polygon', 'sphere', 'capsule', 'convex', 'mesh'].map((type) => ({ shape: { type: 'compound', shapes: [COMPONENT_BASES_PLACED[type]!] } })),
     { shape: { type: 'model' } },
   ],
-  controller: [{ capsule: { radius: 0.3, height: 1.8, offset: [0, 0.1] }, acceleration: 30, deceleration: 50, coyoteTime: 0.1, jumpBuffer: 0.1, jumpRelease: 0.4, groundSnap: 0.2, skin: 0.02, autostep: true, autostepHeight: 0.3, walkSpeed: 2.5, runSpeed: 6, airControl: 0.3, gravityScale: 1.5, turnSpeed: 360, faceMovement: false, moveFrame: 'world', jump: true, jumpSpeed: 5, slopeLimit: 40, stepHeight: 0.5, ledgeClimb: true, ledgeHeight: 1, ledgeClimbTime: 0.4, moveAction: 'walk', jumpAction: 'hop', climbSpeed: 1.5, climbAction: 'climb', wallSlide: true, wallSlideSpeed: 1, wallJump: true, wallJumpAway: 5, wallJumpUp: 6, wallJumpLock: 0.2 }],
+  controller: [{ capsule: { radius: 0.3, height: 1.8, offset: [0, 0.1] }, acceleration: 30, deceleration: 50, coyoteTime: 0.1, jumpBuffer: 0.1, jumpRelease: 0.4, groundSnap: 0.2, skin: 0.02, autostep: true, autostepHeight: 0.3, walkSpeed: 2.5, runSpeed: 6, airControl: 0.3, gravityScale: 1.5, turnSpeed: 360, faceMovement: false, moveFrame: 'world', jump: true, jumpSpeed: 5, slopeLimit: 40, stepHeight: 0.5, ledgeClimb: true, ledgeHeight: 1, ledgeClimbTime: 0.4, moveAction: 'walk', jumpAction: 'hop', runAction: 'dash', climbSpeed: 1.5, climbAction: 'climb', wallSlide: true, wallSlideSpeed: 1, wallJump: true, wallJumpAway: 5, wallJumpUp: 6, wallJumpLock: 0.2 }],
   camera: [{ type: 'perspective', fovY: 60, near: 0.1, far: 100 }],
   // The behavior group an object's script belongs to.
   behaviorGroup: [{ group: 'field' }],
@@ -618,7 +618,7 @@ const ENV_BASES: J[] = [
 const BINDINGS: { type: string; binding: Obj }[] = [
   // A hold binding.
   { type: 'button', binding: { kind: 'key', code: 'Space', hold: 0.5 } },
-  { type: 'button', binding: { kind: 'gamepadButton', button: 0 } },
+  { type: 'button', binding: { kind: 'gamepadButton', button: 0, pad: 1 } },
   { type: 'axis1d', binding: { kind: 'gamepadAxis', axis: 0 } },
   { type: 'axis1d', binding: { kind: 'keys1d', negative: 'KeyA', positive: 'KeyD' } },
   { type: 'axis1d', binding: { kind: 'gamepadButtons1d', negative: 14, positive: 15 } },

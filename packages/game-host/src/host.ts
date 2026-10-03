@@ -238,6 +238,8 @@ export interface GameHostObservation {
   readonly sound: GameHostSound;
   readonly inputMode: 'physical' | 'test';
   readonly player?: { readonly x: number; readonly y: number; readonly z: number };
+  /** A game with several player controllers (local co-op): each one's object and position, in controller order (`player` is the first's). */
+  readonly players?: readonly { readonly id: string; readonly x: number; readonly y: number; readonly z: number }[];
   /** The loaded scenes and the ones being loaded. */
   readonly scenes?: {
     readonly loaded: readonly string[];
@@ -1645,9 +1647,13 @@ export function createGameHost(config: GameHostConfig): GameHost {
     if (!mounted || runtime === null) return { ok: false, error: { code: 'host_not_mounted', message: 'the host is not mounted' } };
     const snap = config.snapshot;
     const d = runtime.getDiagnostics();
-    const player = snap.scene.entities.find((e) => ((e.components ?? {}) as unknown as Record<string, unknown>)['controller'] !== undefined);
-    const st = player !== undefined ? runtime.getInterpolatedState() : null;
-    const tr = st !== null && st.ok ? st.state.transforms.find((t) => t.id === player!.id) : undefined;
+    const controllers = snap.scene.entities.filter((e) => ((e.components ?? {}) as unknown as Record<string, unknown>)['controller'] !== undefined).map((e) => e.id);
+    const st = controllers.length > 0 ? runtime.getInterpolatedState() : null;
+    const placed = controllers.flatMap((id) => {
+      const t = st !== null && st.ok ? st.state.transforms.find((x) => x.id === id) : undefined;
+      return t !== undefined ? [{ id, x: t.position[0], y: t.position[1], z: t.position[2] }] : [];
+    });
+    const tr = placed[0]?.id === controllers[0] ? placed[0] : undefined;
     return {
       ok: true,
       observation: {
@@ -1658,7 +1664,8 @@ export function createGameHost(config: GameHostConfig): GameHost {
         state: playState(),
         sound: mapSoundStatus(config.audio),
         inputMode: 'physical',
-        ...(tr !== undefined ? { player: { x: tr.position[0], y: tr.position[1], z: tr.position[2] } } : {}),
+        ...(tr !== undefined ? { player: { x: tr.x, y: tr.y, z: tr.z } } : {}),
+        ...(controllers.length > 1 ? { players: placed } : {}),
         ...scenesObservation(runtime, config.scenes),
         ...(hostAudio.hasLoops() && config.audio.loops !== undefined ? { loops: config.audio.loops() } : {}),
         ...cameraObservation(runtime),

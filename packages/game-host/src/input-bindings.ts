@@ -13,7 +13,7 @@
  *
  * No DOM, no input owner.
  */
-import { MAX_INPUT_BINDINGS, type InputBindingConflict, type InputBindingPart, type InputDeviceKind, type RebindConflictPolicy } from '@thirdlight/runtime';
+import { MAX_INPUT_BINDINGS, PAD_BINDING_KINDS, type InputBindingConflict, type InputBindingPart, type InputDeviceKind, type RebindConflictPolicy } from '@thirdlight/runtime';
 
 import { bindingDevice } from './glyphs';
 
@@ -55,6 +55,7 @@ const COMPOSITE_PARTS: Readonly<Record<string, readonly InputBindingPart[]>> = {
   keys2d: ['up', 'down', 'left', 'right'],
 };
 const HOLDABLE = new Set(['key', 'gamepadButton', 'pointerButton']);
+const PADDED = new Set<string>(PAD_BINDING_KINDS);
 /** Which bindings fit which action type (project-model's rule). */
 const FITS: Readonly<Record<string, readonly string[]>> = {
   button: ['key', 'gamepadButton', 'pointerButton'],
@@ -157,6 +158,8 @@ function slotId(config: ConfigData, target: RebindTarget): string | null {
 }
 
 const keepHold = (old: BindingData | null, next: Record<string, unknown>): Record<string, unknown> => (old !== null && HOLDABLE.has(old.kind) && HOLDABLE.has(next['kind'] as string) && typeof old['hold'] === 'number' ? { ...next, hold: old['hold'] } : next);
+/** A rebound pad binding stays on the pad it named (a co-op player's own pad). */
+const keepPad = (old: BindingData | null, next: Record<string, unknown>): Record<string, unknown> => (old !== null && PADDED.has(old.kind) && PADDED.has(next['kind'] as string) && typeof old['pad'] === 'number' ? { ...next, pad: old['pad'] } : next);
 
 /**
  * The binding a captured input makes at a target: a part of a composite, or
@@ -182,7 +185,7 @@ export function bindingFrom(config: ConfigData, target: RebindTarget, c: Capture
   else if ('button' in c) next = { kind: 'pointerButton', button: c.button };
   else next = { kind: 'pointerAxis', axis: 'wheel' };
   if (next === null || !fits.includes(next['kind'] as string)) return { ok: false, reason: `a ${String(next?.['kind'] ?? 'this')} binding does not fit a ${a.type} action` };
-  return { ok: true, binding: keepHold(old, next) as BindingData };
+  return { ok: true, binding: keepPad(old, keepHold(old, next)) as BindingData };
 }
 
 /** Other actions of the target's map whose bindings use the captured input. */

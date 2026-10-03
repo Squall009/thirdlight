@@ -328,6 +328,8 @@ export function attachBrowserInput(
   const isMappedCode = (code: unknown): code is string =>
     typeof code === 'string' && (LEFT_CODES.has(code) || RIGHT_CODES.has(code) || JUMP_CODES.has(code));
   let lastPad: { buttons: boolean[]; axes: number[] } | null = null;
+  /** Every standard-mapped pad by its slot this sample (a binding naming its `pad` reads its own: local co-op). */
+  let lastPads: ({ buttons: boolean[]; axes: number[] } | null)[] = [];
   /** The first key or pad button that went down since the last sample (`ActionFrame.press`, for `ctx.input.anyPressed`). */
   let firstPress: { device: 'keyboard' | 'gamepad'; code: string } | null = null;
   /** The device used last (keyboard until a pad button or stick moves). */
@@ -1002,6 +1004,8 @@ export function attachBrowserInput(
     let gamepad: NonNullable<RawInputSnapshot['gamepad']> | null = null;
     let keyboardJumpSuppressed = false;
     let active: Gamepad | null = null;
+    /** The pad the character channel reads: the one its move/jump bindings name, else the active pad. */
+    let characterGamepad: Gamepad | null = null;
     if (gamepadEnabled && pollGamepads) {
       try {
         const list = pollGamepads();
@@ -1009,6 +1013,9 @@ export function attachBrowserInput(
         active = pickActiveGamepad(list);
         notePadPresses(list);
         lastPad = active ? { buttons: padButtons(active), axes: padAxes(active) } : null;
+        lastPads = Array.from(list, (gp) => (gp && gp.connected !== false && gp.mapping === 'standard' ? { buttons: padButtons(gp), axes: padAxes(gp) } : null));
+        const named = PAD.slot !== null ? (list[PAD.slot] ?? null) : null;
+        characterGamepad = PAD.slot === null ? active : named !== null && named.connected !== false && named.mapping === 'standard' ? named : null;
         if (active !== null && (active.buttons.some((b) => b?.pressed === true) || active.axes.some((v) => Math.abs(v ?? 0) > 0.5))) {
           lastDevice = 'gamepad';
           lastPadId = clipDeviceId(active.id);
@@ -1016,6 +1023,7 @@ export function attachBrowserInput(
       } catch (error) {
         markUnavailable('gamepad', `getGamepads failed: ${messageOf(error)}; keyboard-only`);
         active = null;
+        lastPads = [];
       }
     }
     // The menu channel sees the primary button (a fresh press confirms; the
@@ -1024,7 +1032,7 @@ export function attachBrowserInput(
     const suppressed = menu.suppress();
     // A consumed confirm press still held: the SAME physical button must
     // not also drive the pad jump until it is released (only when button 0 is one of the jump buttons; a rebound jump is another button).
-    gamepad = active !== null ? toSnapshot(active, suppressed.gamepad ? new Set([0]) : undefined) : null;
+    gamepad = characterGamepad !== null ? toSnapshot(characterGamepad, suppressed.gamepad && characterGamepad === active ? new Set([0]) : undefined) : null;
     if (suppressed.keyboard) {
       // A consumed confirm press still held: the same physical key must not
       // contribute to the jump at all — the mapping derives the jump
@@ -1066,7 +1074,7 @@ export function attachBrowserInput(
       clearPointerEdges();
       return toActionFrame(frame, pointer === null ? {} : { pointer });
     }
-    const actions = evaluator.sample({ keys: actionHeld, pressedKeys: actionPressed, gamepad: gamepadEnabled ? lastPad : null, pointer: rawPointer, now: clock() }, activeMaps === null ? undefined : actionActive);
+    const actions = evaluator.sample({ keys: actionHeld, pressedKeys: actionPressed, gamepad: gamepadEnabled ? lastPad : null, pads: gamepadEnabled ? lastPads : [], pointer: rawPointer, now: clock() }, activeMaps === null ? undefined : actionActive);
     actionPressed.clear();
     clearPointerEdges();
     // A 2D `move` action gives the move vector (x right, y forward/up); a 1D one keeps the 1D frame exactly.

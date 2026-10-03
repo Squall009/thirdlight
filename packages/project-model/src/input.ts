@@ -17,12 +17,12 @@ export const INPUT_MAPS = ['gameplay', 'ui'] as const;
 
 export type InputBinding =
   | { kind: 'key'; code: string; hold?: number }
-  | { kind: 'gamepadButton'; button: number; hold?: number }
-  | { kind: 'gamepadAxis'; axis: number }
+  | { kind: 'gamepadButton'; button: number; hold?: number; pad?: number }
+  | { kind: 'gamepadAxis'; axis: number; pad?: number }
   | { kind: 'keys1d'; negative: string; positive: string }
   | { kind: 'keys2d'; up: string; down: string; left: string; right: string }
-  | { kind: 'gamepadButtons1d'; negative: number; positive: number }
-  | { kind: 'gamepadStick'; x: number; y: number }
+  | { kind: 'gamepadButtons1d'; negative: number; positive: number; pad?: number }
+  | { kind: 'gamepadStick'; x: number; y: number; pad?: number }
   // The pointer (mouse, pen or touch). A button, the position in
   // the view (x, y 0–1 from the top left), the movement this step (a 2D axis,
   // up positive like a stick) or one axis of it (x, y up positive, or the wheel).
@@ -105,6 +105,14 @@ export const INPUT_HOLD_MIN = 0.05;
 export const INPUT_HOLD_MAX = 10;
 /** The binding kinds that take the hold modifier (the single on/off ones). */
 export const HOLD_BINDING_KINDS = ['key', 'gamepadButton', 'pointerButton'] as const;
+/** The binding kinds that may name one pad (`pad`) instead of the one used last. */
+export const PAD_BINDING_KINDS = ['gamepadButton', 'gamepadAxis', 'gamepadButtons1d', 'gamepadStick'] as const;
+/**
+ * The pad slots a binding may name — `navigator.getGamepads()` indexes
+ * (the browsers keep four slots: the standard's four players), so each
+ * player of a local co-op game can be bound to a pad of their own.
+ */
+export const INPUT_PAD_SLOTS = 4;
 /** The gamepad families glyphs distinguish (detected from the pad's id). */
 export const GAMEPAD_FAMILIES = ['xbox', 'playstation', 'switch', 'generic'] as const;
 /** A glyph key — `[family:]icon[:code]` (see `InputConfig.glyphs`). */
@@ -239,7 +247,9 @@ export function validateInput(value: unknown, path: string, errors: ModelErrorV2
       if (keys === undefined) return err(errors, 'field_value', `${bp}/kind`, 'kind is key, gamepadButton, gamepadAxis, keys1d, keys2d, gamepadButtons1d, gamepadStick, pointerButton, pointerPosition, pointerDelta or pointerAxis', kind);
       if (!FITS[type].includes(kind)) return err(errors, 'field_value', `${bp}/kind`, `a ${kind} binding does not fit a ${type} action`, kind);
       const holdable = (HOLD_BINDING_KINDS as readonly string[]).includes(kind);
-      for (const k of Object.keys(b)) if (k !== 'kind' && !keys.includes(k) && !(holdable && k === 'hold')) err(errors, 'field_unexpected', `${bp}/${k}`, `unknown field "${k}"`, k, ['kind', ...keys, ...(holdable ? ['hold'] : [])].join(', '));
+      const padded = (PAD_BINDING_KINDS as readonly string[]).includes(kind);
+      for (const k of Object.keys(b)) if (k !== 'kind' && !keys.includes(k) && !(holdable && k === 'hold') && !(padded && k === 'pad')) err(errors, 'field_unexpected', `${bp}/${k}`, `unknown field "${k}"`, k, ['kind', ...keys, ...(holdable ? ['hold'] : []), ...(padded ? ['pad'] : [])].join(', '));
+      if (b['pad'] !== undefined && padded && !(Number.isInteger(b['pad']) && (b['pad'] as number) >= 0 && (b['pad'] as number) < INPUT_PAD_SLOTS)) err(errors, 'field_value', `${bp}/pad`, `pad is a gamepad slot 0–${INPUT_PAD_SLOTS - 1}`, b['pad']);
       if (b['hold'] !== undefined && holdable && !(typeof b['hold'] === 'number' && Number.isFinite(b['hold']) && b['hold'] >= INPUT_HOLD_MIN && b['hold'] <= INPUT_HOLD_MAX)) err(errors, 'field_value', `${bp}/hold`, `hold is the seconds to hold, in [${INPUT_HOLD_MIN}, ${INPUT_HOLD_MAX}]`, b['hold']);
       if (kind === 'pointerButton' || kind === 'pointerAxis') {
         const v = b[keys[0]!];

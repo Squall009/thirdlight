@@ -64,14 +64,14 @@ describe('the scene model over HTTP', () => {
     expect(child).toMatchObject({ ok: true, sceneId: 'level' });
   });
 
-  it('two players: each edit goes through, the start is refused naming the rule; a player in a later scene is a warning', async () => {
+  it('two players share the view: both edits go through and the game starts; a player in a later scene is a warning', async () => {
     const a = await send('createEntity', { kind: 'box', name: 'Player A', sceneId: 'scene-main', components: { controller: {} } });
     const b = await send('createEntity', { kind: 'box', name: 'Player B', sceneId: 'scene-main', components: { controller: {} } });
     expect(a['ok'], JSON.stringify(a)).toBe(true);
     expect(b['ok'], JSON.stringify(b)).toBe(true);
-    const refused = await api(`${tb.authUrl}/api/v1/admin/projects/${ID}/export`, { body: {}, token: tb.adminToken, origin: null });
-    expect(refused.status).not.toBe(200);
-    expect(JSON.stringify(refused.json)).toContain('one player controller per view');
+    const both = await api(`${tb.authUrl}/api/v1/admin/projects/${ID}/export`, { body: {}, token: tb.adminToken, origin: null });
+    expect(both.status, JSON.stringify(both.json)).toBe(200);
+    expect((both.json as { warnings?: { code: string }[] }).warnings ?? []).toEqual([]);
     // One player, in a scene the game does not start with: the export goes through with a warning.
     expect((await send('deleteEntity', { entityId: String(b['createdId']) }))['ok']).toBe(true);
     expect((await send('moveEntities', { entityIds: [String(a['createdId'])], parentId: null, sceneId: 'level' }))['ok']).toBe(true);

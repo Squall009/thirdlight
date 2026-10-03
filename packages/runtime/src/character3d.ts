@@ -22,17 +22,18 @@
  * (frame, intents, the previous result), so a recorded input run replays the
  * same positions in the page, the simulation worker and the export.
  */
-import { character3DSettingsOf, controllerActionsOf, controllerCapsuleOf, controllerCapsuleOffsetZ, controllerMovementOf } from '@thirdlight/project-model';
+import { CONTROLLER_ACTION_DEFAULTS, character3DSettingsOf, controllerActionsOf, controllerCapsuleOf, controllerCapsuleOffsetZ, controllerMovementOf } from '@thirdlight/project-model';
 import { actionAxis, actionPhase } from './actions';
 
+import type { ControllerIntents } from './intents';
 import type { CharacterMoveResult3D, PhysicsVec3 } from './ports';
 import type { ModuleConfig, RuntimeSnapshot, SimulationModuleSpec, SimulationPhaseModule, StepContext } from './types';
 
 /** The module id (project-model's engine module table names it too). */
 export const CHARACTER_3D_MODULE_ID = 'thirdlight.character3d:controller';
 
-/** The name of the input action that switches walking to running while held. */
-export const RUN_ACTION = 'run';
+/** The name of the input action that switches walking to running while held (a controller's `runAction` default). */
+export const RUN_ACTION = CONTROLLER_ACTION_DEFAULTS.runAction;
 
 /** What the controller reports about itself (the runtime's `characterState` reads it). */
 export interface Character3DStatus {
@@ -83,20 +84,56 @@ function yawOf(q: readonly number[]): number {
   return 2 * Math.atan2(y, w);
 }
 
-function findController(snapshot: RuntimeSnapshot): { id: string; controller: unknown; rotation: readonly number[] } {
+/** Every player controller of the snapshot, in its order (several share a view in local co-op). */
+function findControllers(snapshot: RuntimeSnapshot): { id: string; controller: unknown; rotation: readonly number[] }[] {
   const found = snapshot.scene.entities.filter((e) => (e.components as { controller?: unknown }).controller !== undefined);
-  if (found.length !== 1) throw new Error(`${CHARACTER_3D_MODULE_ID} requires exactly one components.controller entity (found ${found.length})`);
-  const e = found[0]!;
-  const t = e.components.transform;
-  if (t === undefined) throw new Error(`${CHARACTER_3D_MODULE_ID} entity "${e.id}" has no transform component`);
-  return { id: e.id, controller: (e.components as { controller?: unknown }).controller, rotation: t.rotation };
+  if (found.length === 0) throw new Error(`${CHARACTER_3D_MODULE_ID} requires a components.controller entity (found 0)`);
+  return found.map((e) => {
+    const t = e.components.transform;
+    if (t === undefined) throw new Error(`${CHARACTER_3D_MODULE_ID} entity "${e.id}" has no transform component`);
+    return { id: e.id, controller: (e.components as { controller?: unknown }).controller, rotation: t.rotation };
+  });
 }
 
-/** Build a 3D character controller instance. */
-export function createCharacter3DModule(snapshot: RuntimeSnapshot, cfg: ModuleConfig): SimulationPhaseModule & { character3DStatus(): Character3DStatus } {
+/** One controller's channels when nothing was asked of it this step. */
+const NO_INTENTS: ControllerIntents = Object.freeze({ move: null, jump: null });
+
+/**
+ * Build a 3D character controller instance: one controller per player
+ * controller of the snapshot, each with its own state, tuning and input
+ * actions; a further controller reads its intents under `intents.controllers`.
+ */
+export function createCharacter3DModule(snapshot: RuntimeSnapshot, cfg: ModuleConfig): SimulationPhaseModule & { character3DStatus(id?: string): Character3DStatus | null } {
   if (cfg.physicsDimension !== 3) throw new Error(`${CHARACTER_3D_MODULE_ID} runs in a 3D project (physics_dimension 3)`);
   if (!(cfg.fixedStepHz > 0) || !Number.isFinite(cfg.fixedStepHz)) throw new Error(`${CHARACTER_3D_MODULE_ID} requires a positive fixedStepHz`);
-  const { id: charId, controller, rotation } = findController(snapshot);
+  const all = findControllers(snapshot).map((found) => createOne(found, cfg));
+  return {
+    transformOwners: all.map((one) => one.id),
+    step(phase, ctx): void {
+      all.forEach((one, i) => {
+        // A further controller whose object is not in the game (its scene is not loaded) does not move.
+        if (i > 0 && !ctx.state.curr.has(one.id)) return;
+        const intents = i === 0 ? ctx.intents : (ctx.intents.controllers?.[one.id] ?? NO_INTENTS);
+        if (phase === 'controller') one.controllerStep(ctx, intents);
+        else if (phase === 'transform') one.transformStep(ctx);
+      });
+    },
+    character3DStatus(id?: string): Character3DStatus | null {
+      const one = id === undefined ? all[0] : all.find((x) => x.id === id);
+      return one?.status() ?? null;
+    },
+    dispose(): void {
+      /* plain data only */
+    },
+  };
+}
+
+/** One player controller of the module: its state between steps, and its controller and transform phases. */
+function createOne(
+  found: { id: string; controller: unknown; rotation: readonly number[] },
+  cfg: ModuleConfig,
+): { id: string; controllerStep(ctx: StepContext, intents: ControllerIntents): void; transformStep(ctx: StepContext): void; status(): Character3DStatus } {
+  const { id: charId, controller, rotation } = found;
   const hz = cfg.fixedStepHz;
   const dt = 1 / hz;
   const S = character3DSettingsOf(controller, cfg.settings);
@@ -182,14 +219,13 @@ export function createCharacter3DModule(snapshot: RuntimeSnapshot, cfg: ModuleCo
   };
 
   /** The climb input — the climb action's value (or y), else the move action's y (a script's control_move: its y). */
-  const climbInputOf = (ctx: StepContext): number => {
-    if (M.climbAction === null) return ctx.intents.move !== null ? (ctx.intents.moveY ?? 0) : actionAxis(ctx.action, names.move)[1];
+  const climbInputOf = (ctx: StepContext, intents: ControllerIntents): number => {
+    if (M.climbAction === null) return intents.move !== null ? (intents.moveY ?? 0) : actionAxis(ctx.action, names.move)[1];
     const a = ctx.action.actions?.[M.climbAction];
     return a === undefined ? 0 : (a.y ?? a.v);
   };
 
-  const controllerStep = (ctx: StepContext): void => {
-    const intents = ctx.intents;
+  const controllerStep = (ctx: StepContext, intents: ControllerIntents): void => {
     if (intents.characterEnabled !== undefined && intents.characterEnabled !== null) enabled = intents.characterEnabled;
     if (intents.characterPlace !== undefined && intents.characterPlace !== null) {
       // The runtime has placed the character: it starts from rest there.
@@ -249,14 +285,14 @@ export function createCharacter3DModule(snapshot: RuntimeSnapshot, cfg: ModuleCo
       // right = (cos, 0, −sin), forward = (−sin, 0, −cos): at yaw 0, x → +X and y → −Z.
       dx = mx * c - my * s;
       dz = -mx * s - my * c;
-      const r = action.actions?.[RUN_ACTION]?.p;
+      const r = action.actions?.[names.run]?.p;
       run = r === 'pressed' || r === 'held';
     }
     // Climbing — inside a climb volume the climb input moves it along the volume's up axis and the
     // move input across it (its part along the volume's across axis), at the climb speed, without gravity; a
     // jump press leaves (with a jump when it can jump), and so does moving out of the volume.
-    const vol = ctx.climb?.volume() ?? null;
-    const climbY = climbInputOf(ctx);
+    const vol = ctx.climb?.volume(charId) ?? null;
+    const climbY = climbInputOf(ctx, intents);
     const jumpPhase = intents.jump ?? actionPhase(action, names.jump);
     let leapt = false;
     if (climbing !== null && vol === null) climbing = null;
@@ -439,21 +475,14 @@ export function createCharacter3DModule(snapshot: RuntimeSnapshot, cfg: ModuleCo
   };
 
   return {
-    transformOwners: [charId],
-    step(phase, ctx): void {
-      if (phase === 'controller') controllerStep(ctx);
-      else if (phase === 'transform') transformStep(ctx);
-    },
-    character3DStatus(): Character3DStatus {
-      return { enabled, climbing: climb !== null, climbVolume: climbing, yaw };
-    },
-    dispose(): void {
-      /* plain data only */
-    },
+    id: charId,
+    controllerStep,
+    transformStep,
+    status: (): Character3DStatus => ({ enabled, climbing: climb !== null, climbVolume: climbing, yaw }),
   };
 }
 
-/** The registered spec: phases controller and transform, the controller entity as its transform owner. */
+/** The registered spec: phases controller and transform, every controller entity as its transform owner. */
 export const character3DSpec: SimulationModuleSpec = {
   id: CHARACTER_3D_MODULE_ID,
   phases: ['controller', 'transform'],

@@ -10,8 +10,8 @@
  * - the generic primitives (health, collectibles, patrols, hitboxes) run in
  *   `primitives.ts`.
  *
- * The blocks test the character (the controller's object) in both
- * dimensions.
+ * The blocks test the player characters (the controllers' objects; several
+ * in local co-op, each with its own capsule) in both dimensions.
  *
  * Boxes (triggers, switches) are centred on their entity.
  *
@@ -95,6 +95,8 @@ interface Trigger extends Box {
   /** Emit the signal every step while inside. */
   stay: boolean;
   inside: boolean;
+  /** The player characters inside now (`inside`: any is). */
+  by: Set<string>;
   spent: boolean;
   /** 3D: the volume — a box's half extents with depth, a sphere, or a capsule (its centre-segment half length). */
   volume: { kind: 'box'; half: Vec3 } | { kind: 'sphere'; radius: number } | { kind: 'capsule'; radius: number; halfSegment: number };
@@ -157,35 +159,35 @@ export interface BlocksEffectRequest {
   source: 'component';
 }
 
+/** A player character the blocks test (a player controller's object). */
+export interface BlocksCharacter {
+  readonly id: string;
+  /**
+   * Its capsule. The blocks test its bounding box: half width `radius`,
+   * half height `halfHeight + radius`, centred at its position plus `offset`.
+   */
+  readonly capsule: PlayerCapsule;
+  /** The gap its controller keeps from the world (its `skin`; a pushing mover keeps it). */
+  readonly skin: number;
+  /** 3D: its capsule centre offset along Z. */
+  readonly offsetZ: number;
+}
+
 export interface BlocksHost {
   readonly hz: number;
   readonly physics: PhysicsPort | undefined;
   readonly curr: Map<string, TransformState>;
-  /** The character the blocks test — the controller's object ('' without one). */
-  readonly characterId: string;
-  /**
-   * The character's capsule. The blocks test its bounding box:
-   * half width `radius`, half height `halfHeight + radius`, centred at the
-   * character's position plus `offset`.
-   */
-  readonly characterCapsule: PlayerCapsule;
-  /** The character's committed position on the 2D plane (the entity origin), or null. */
-  character(): Vec2 | null;
-  /** The collider entity the character stands on, or null. */
-  groundEntityId(): string | null;
+  /** The player characters the blocks test, in controller order (none: a game without a player). */
+  readonly characters: readonly BlocksCharacter[];
+  /** The collider entity a player character stands on, or null. */
+  groundEntityId(characterId: string): string | null;
   /** Play or stop a visual effect (presentation only; the simulation never reads it back). */
   effect?(request: BlocksEffectRequest): void;
-  /** The gap the character's controller keeps from the world (its `skin`; default 0.01 m). */
-  readonly characterSkin?: number;
   /** The 3D port (a 3D project) — movers are posed on it and the blocks work in 3D. */
   readonly physics3d?: PhysicsPort3D;
   /** The project's gravity (m/s² along Y) and fall speed cap (m/s) for gravity bodies (absent: −19.62, −30). */
   readonly gravityY?: number;
   readonly maxFallSpeed?: number;
-  /** 3D: the character's committed position (the entity origin), or null. */
-  character3?(): Vec3 | null;
-  /** 3D: the character's capsule centre offset along Z. */
-  readonly characterOffsetZ?: number;
   /**
    * 3D: the colliders that follow a moving object (a script's, a timeline's,
    * a mover's child), where they are now — posed as kinematic bodies with the
@@ -257,6 +259,19 @@ const NO_TRIGGER_EVENTS: readonly TriggerEventRecord[] = Object.freeze([]);
 const NO_QUEUED_MESSAGES: readonly { message: BehaviorMessage; to: string | null }[] = Object.freeze([]);
 const NO_MESSAGES: readonly BehaviorMessage[] = Object.freeze([]);
 const NO_CARRY: Vec2 = Object.freeze({ x: 0, y: 0 });
+const NO_CARRIES: ReadonlyMap<string, Vec2> = new Map();
+const NO_CARRIES3: ReadonlyMap<string, Readonly<Vec3>> = new Map();
+
+/** A character's capsule box: its centre's offset from the character's position, half width and half height, and a pushing mover's gap. */
+interface CharacterBoxSpec {
+  readonly id: string;
+  readonly ox: number;
+  readonly oy: number;
+  readonly oz: number;
+  readonly hw: number;
+  readonly hh: number;
+  readonly pushSkin: number;
+}
 const NO_CARRY3: Readonly<Vec3> = Object.freeze([0, 0, 0]) as unknown as Readonly<Vec3>;
 
 /**
@@ -294,8 +309,6 @@ export class GameplayBlocks {
   private readonly counters = new Map<string, number>();
   /** Entities whose `effect` component (re)starts or stops on a signal. */
   private readonly effectTriggers = new Map<string, { effectId: string; signal: string | null; stop: string | null }>();
-  /** The gap a pushing mover keeps from the character (the controller's skin plus a margin). */
-  private readonly pushSkin: number;
   private signalsNow = new Set<string>();
   private signalsPrev = new Set<string>();
   /** Triggers entered/left in this step, and in the previous one (what scripts see). */
@@ -306,13 +319,14 @@ export class GameplayBlocks {
   private messagesPrev: readonly { message: BehaviorMessage; to: string | null }[] = Object.freeze([]);
   /** Sends refused at the per-step limit over the whole play (a run's restart keeps them: they are diagnostics). */
   private refused: { count: number; firstStep: number; lastStep: number } | null = null;
-  private carry: Vec2 = { x: 0, y: 0 };
-  /** 3D: the carried platform's motion (and pushes) this step, and where each script-driven collider was posed last. */
-  private carry3: Readonly<Vec3> = NO_CARRY3;
+  /** Each player character's carried platform motion (and pushes) this step. */
+  private carry: ReadonlyMap<string, Vec2> = NO_CARRIES;
+  /** 3D: each player character's carried platform motion (and pushes) this step, and where each script-driven collider was posed last. */
+  private carry3: ReadonlyMap<string, Readonly<Vec3>> = NO_CARRIES3;
   private readonly scriptPosed = new Map<string, Vec3>();
   private step = 0;
-  /** The character capsule's box — centre offset from the character's position, half width, half height. */
-  private readonly pc: { ox: number; oy: number; hw: number; hh: number };
+  /** Each player character's capsule box (its own capsule and skin), in controller order. */
+  private readonly chars: readonly CharacterBoxSpec[];
   /** The generic primitives (health on any object, collectibles, patrols, hitbox contacts). */
   readonly primitives: Primitives;
 
@@ -320,9 +334,7 @@ export class GameplayBlocks {
     private readonly host: BlocksHost,
     entities: readonly EntityV3[],
   ) {
-    const c = host.characterCapsule;
-    this.pc = { ox: c.offset.x, oy: c.offset.y, hw: c.radius, hh: capsuleHalfTotal(c) };
-    this.pushSkin = (host.characterSkin ?? 0.01) + PUSH_MARGIN;
+    this.chars = host.characters.map((c) => ({ id: c.id, ox: c.capsule.offset.x, oy: c.capsule.offset.y, oz: host.physics3d !== undefined ? c.offsetZ : 0, hw: c.capsule.radius, hh: capsuleHalfTotal(c.capsule), pushSkin: c.skin + PUSH_MARGIN }));
     const blocks = this;
     this.primitives = new Primitives({
       hz: host.hz,
@@ -332,7 +344,7 @@ export class GameplayBlocks {
       },
       physics: host.physics,
       physics3d: host.physics3d,
-      character: () => blocks.characterBox(),
+      characters: () => blocks.characterBoxes(),
       worldOf: (id) => blocks.worldOf(id),
       parentOf: (id) => blocks.parents.get(id),
       setHidden: (id, hidden) => blocks.setVisible(id, !hidden),
@@ -345,13 +357,26 @@ export class GameplayBlocks {
     this.add(entities);
   }
 
-  /** The character's capsule box (centre and half extents), or null without a character. */
-  private characterBox(): { id: string; centre: Vec3; half: Vec3 } | null {
-    const id = this.host.characterId;
-    const t = id !== '' ? this.host.curr.get(id) : undefined;
+  /** A player character's capsule box (centre and half extents), or null when it is not in the game. */
+  private characterBox(c: CharacterBoxSpec): { id: string; centre: Vec3; half: Vec3 } | null {
+    const t = this.host.curr.get(c.id);
     if (t === undefined) return null;
-    const oz = this.host.physics3d !== undefined ? (this.host.characterOffsetZ ?? 0) : 0;
-    return { id, centre: [t.position[0] + this.pc.ox, t.position[1] + this.pc.oy, t.position[2] + oz], half: [this.pc.hw, this.pc.hh, this.pc.hw] };
+    return { id: c.id, centre: [t.position[0] + c.ox, t.position[1] + c.oy, t.position[2] + c.oz], half: [c.hw, c.hh, c.hw] };
+  }
+
+  /** Every player character's capsule box (those in the game, in controller order). */
+  private characterBoxes(): { id: string; centre: Vec3; half: Vec3 }[] {
+    const out: { id: string; centre: Vec3; half: Vec3 }[] = [];
+    for (const c of this.chars) {
+      const b = this.characterBox(c);
+      if (b !== null) out.push(b);
+    }
+    return out;
+  }
+
+  /** A player character's box spec (absent id: the first). */
+  private charSpec(id: string | undefined): CharacterBoxSpec | undefined {
+    return id === undefined || id === '' ? this.chars[0] : this.chars.find((c) => c.id === id);
   }
 
   /** Entities of a loaded scene. */
@@ -443,6 +468,7 @@ export class GameplayBlocks {
           exitSignal: typeof t['exitSignal'] === 'string' ? (t['exitSignal'] as string) : null,
           once: t['once'] === true,
           inside: false,
+          by: new Set(),
           spent: false,
           transition: transitionOf(t['sceneTransition']),
         });
@@ -503,7 +529,10 @@ export class GameplayBlocks {
       Object.assign(m, { started: m.startOn === null, segment: 0, along: 0, dir: 1, waiting: 0, done: false, pos: [...m.points[0]!], speed: m.authoredSpeed, active: m.authoredActive });
       this.writeTransform(m.id, m.pos);
     }
-    for (const t of this.triggers.values()) Object.assign(t, { inside: false, spent: false });
+    for (const t of this.triggers.values()) {
+      Object.assign(t, { inside: false, spent: false });
+      t.by.clear();
+    }
     for (const s of this.switches.values()) Object.assign(s, { inside: false, spent: false });
     this.hidden.clear();
     for (const id of this.startHidden) this.hidden.add(id);
@@ -515,8 +544,8 @@ export class GameplayBlocks {
     this.triggerEventsPrev = Object.freeze([]);
     this.messagesNow = [];
     this.messagesPrev = Object.freeze([]);
-    this.carry = { x: 0, y: 0 };
-    this.carry3 = NO_CARRY3;
+    this.carry = NO_CARRIES;
+    this.carry3 = NO_CARRIES3;
     this.scriptPosed.clear();
     // Health back to its start, collectibles back, patrols at their start.
     this.primitives.resetRun();
@@ -563,14 +592,16 @@ export class GameplayBlocks {
   // ---- queries ------------------------------------------------------------------
 
   /**
-   * The climb volume the character's capsule centre is in now
-   * (the first in load order; null: none, or no character): its object, and
-   * its up and across axes in the world (its object's +Y and +X, turned with
-   * the object's rotation — about Z only on the 2D plane).
+   * The climb volume a player character's capsule centre is in now
+   * (absent id: the first; the first volume in load order; null: none, or no
+   * such character): its object, and its up and across axes in the world
+   * (its object's +Y and +X, turned with the object's rotation — about Z
+   * only on the 2D plane).
    */
-  climbVolume(): ClimbVolumeView | null {
+  climbVolume(characterId?: string): ClimbVolumeView | null {
     if (this.climbVolumes.size === 0) return null;
-    const ch = this.characterBox();
+    const spec = this.charSpec(characterId);
+    const ch = spec !== undefined ? this.characterBox(spec) : null;
     if (ch === null) return null;
     const flat = this.host.physics3d === undefined;
     for (const [id, v] of this.climbVolumes) {
@@ -630,7 +661,10 @@ export class GameplayBlocks {
     this.inactive = ids;
     for (const id of ids) {
       const t = this.triggers.get(id);
-      if (t !== undefined) t.inside = false;
+      if (t !== undefined) {
+        t.inside = false;
+        t.by.clear();
+      }
       const sw = this.switches.get(id);
       if (sw !== undefined) sw.inside = false;
     }
@@ -671,10 +705,10 @@ export class GameplayBlocks {
     return skipped;
   }
 
-  /** The character's health (ctx.game.health), or null when it has none. */
-  healthView(): { current: number; max: number } | null {
-    const id = this.host.characterId;
-    return id !== '' ? this.primitives.healthOf(id) : null;
+  /** A player character's health (ctx.game.health; absent id: the first), or null when it has none. */
+  healthView(characterId?: string): { current: number; max: number } | null {
+    const spec = this.charSpec(characterId);
+    return spec !== undefined ? this.primitives.healthOf(spec.id) : null;
   }
 
   /** A signal emitted in the previous step (what consumers see this step). */
@@ -759,14 +793,14 @@ export class GameplayBlocks {
     return out.length === 0 ? NO_MESSAGES : Object.freeze(out);
   }
 
-  /** The carried platform's motion this step (added to the player's staged move). */
-  carryDelta(): Vec2 {
-    return this.carry;
+  /** A player character's carried platform motion this step (added to its staged move). */
+  carryDelta(characterId: string): Vec2 {
+    return this.carry.get(characterId) ?? NO_CARRY;
   }
 
-  /** 3D: the carried platform's motion (and a mover's push) this step, added to the player's move. */
-  carryDelta3(): Readonly<Vec3> {
-    return this.carry3;
+  /** 3D: a player character's carried platform motion (and a mover's push) this step, added to its move. */
+  carryDelta3(characterId: string): Readonly<Vec3> {
+    return this.carry3.get(characterId) ?? NO_CARRY3;
   }
 
   isOneWay(entityId: string | null): boolean {
@@ -821,20 +855,42 @@ export class GameplayBlocks {
       return;
     }
     if (this.movers.size === 0) {
-      // Nothing moves the character this step: no carry, no poses.
-      this.carry = NO_CARRY;
+      // Nothing moves a character this step: no carry, no poses.
+      this.carry = NO_CARRIES;
       return;
     }
     const dt = 1 / this.host.hz;
-    const ground = this.host.groundEntityId();
-    this.carry = { x: 0, y: 0 };
     const poses: { entityId: string; position: Vec2; rotationZ: number }[] = [];
+    const moved: { m: Mover; before: Vec3 }[] = [];
+    for (const m of this.movers.values()) {
+      if (this.inactive.has(m.id)) continue;
+      const before: Vec3 = [...m.pos];
+      this.moverSignals(m);
+      if (m.started && m.active && !m.done) this.advance(m, dt);
+      this.writeTransform(m.id, m.pos);
+      poses.push({ entityId: m.id, position: { x: m.pos[0], y: m.pos[1] }, rotationZ: m.rotationZ });
+      moved.push({ m, before });
+    }
+    const carry = new Map<string, Vec2>();
+    for (const c of this.chars) carry.set(c.id, this.carry2D(c, moved));
+    this.carry = carry;
+    if (poses.length > 0) this.host.physics?.setKinematicPositions?.(poses);
+  }
+
+  /**
+   * One player character's carry on the 2D plane: the motion of the mover it
+   * stands on, plus the pushes of movers moving into it.
+   */
+  private carry2D(c: CharacterBoxSpec, moved: readonly { m: Mover; before: Vec3 }[]): Vec2 {
+    const ground = this.host.groundEntityId(c.id);
+    let carry: Vec2 = { x: 0, y: 0 };
     // A mover that moves into the player (one it is not carrying) pushes the
     // player out along the shallower axis this step — a rising lift scoops up
     // a player at its edge, a sliding block shoves — so the character never
     // ends up inside a kinematic body (the controller would then have to
     // correct beyond its contracted bound).
-    const player = this.host.character();
+    const t = this.host.curr.get(c.id);
+    const player = t === undefined ? null : { x: t.position[0], y: t.position[1] };
     const pushed = { x: 0, y: 0 };
     // A mover moving mostly upward pushes a player beside or
     // under it (the capsule's centre below the mover's top) out sideways, away
@@ -846,10 +902,10 @@ export class GameplayBlocks {
         if (m.poly !== null) pushPolygon(m, before);
         return;
       }
-      const px = player.x + this.pc.ox + pushed.x;
-      const py = player.y + this.pc.oy + pushed.y;
-      const ox = m.half.x + this.pc.hw + this.pushSkin - Math.abs(px - m.pos[0]);
-      const oy = m.half.y + this.pc.hh + this.pushSkin - Math.abs(py - m.pos[1]);
+      const px = player.x + c.ox + pushed.x;
+      const py = player.y + c.oy + pushed.y;
+      const ox = m.half.x + c.hw + c.pushSkin - Math.abs(px - m.pos[0]);
+      const oy = m.half.y + c.hh + c.pushSkin - Math.abs(py - m.pos[1]);
       if (ox <= 0 || oy <= 0) return;
       const dx = m.pos[0] - before[0];
       const dy = m.pos[1] - before[1];
@@ -863,10 +919,10 @@ export class GameplayBlocks {
     // instead of a box's half extents. A box keeps the rule above unchanged.
     const pushPolygon = (m: Mover, before: Vec3): void => {
       if (player === null || m.poly === null) return;
-      const px = player.x + this.pc.ox + pushed.x;
-      const py = player.y + this.pc.oy + pushed.y;
-      const hw = this.pc.hw + this.pushSkin;
-      const hh = this.pc.hh + this.pushSkin;
+      const px = player.x + c.ox + pushed.x;
+      const py = player.y + c.oy + pushed.y;
+      const hw = c.hw + c.pushSkin;
+      const hh = c.hh + c.pushSkin;
       const xs = slabExtent(m.poly, 'x', py - hh - m.pos[1], py + hh - m.pos[1]);
       const ys = slabExtent(m.poly, 'y', px - hw - m.pos[0], px + hw - m.pos[0]);
       if (xs === null || ys === null) return;
@@ -881,18 +937,11 @@ export class GameplayBlocks {
       if (oy <= ox && !sideways) pushed.y += Math.min(m.pushStep, oy) * (up ? 1 : -1);
       else pushed.x += Math.min(m.pushStep, ox) * (right ? 1 : -1);
     };
-    for (const m of this.movers.values()) {
-      if (this.inactive.has(m.id)) continue;
-      const before: Vec3 = [...m.pos];
-      this.moverSignals(m);
-      if (m.started && m.active && !m.done) this.advance(m, dt);
-      this.writeTransform(m.id, m.pos);
-      poses.push({ entityId: m.id, position: { x: m.pos[0], y: m.pos[1] }, rotationZ: m.rotationZ });
-      if (ground === m.id) this.carry = { x: m.pos[0] - before[0], y: m.pos[1] - before[1] };
+    for (const { m, before } of moved) {
+      if (ground === m.id) carry = { x: m.pos[0] - before[0], y: m.pos[1] - before[1] };
       else if (m.pos[0] !== before[0] || m.pos[1] !== before[1]) push(m, before);
     }
-    this.carry = { x: this.carry.x + pushed.x, y: this.carry.y + pushed.y };
-    if (poses.length > 0) this.host.physics?.setKinematicPositions?.(poses);
+    return { x: carry.x + pushed.x, y: carry.y + pushed.y };
   }
 
   /**
@@ -907,29 +956,12 @@ export class GameplayBlocks {
   private beforeStep3D(port: PhysicsPort3D): void {
     let extras = this.host.scriptColliders3D?.() ?? [];
     if (this.movers.size === 0 && extras.length === 0) {
-      this.carry3 = NO_CARRY3;
+      this.carry3 = NO_CARRIES3;
       return;
     }
     const dt = 1 / this.host.hz;
-    const ground = this.host.groundEntityId();
-    const carry: Vec3 = [0, 0, 0];
-    const pushed: Vec3 = [0, 0, 0];
     const poses: KinematicPose3D[] = [];
-    const player = this.host.character3?.() ?? null;
-    const oz = this.host.characterOffsetZ ?? 0;
-    const capHalf: Vec3 = [this.pc.hw, this.pc.hh, this.pc.hw];
-    const push = (m: { pos: Vec3; aabb: { min: Vec3; max: Vec3 } | null; pushStep: number }, before: Vec3): void => {
-      if (player === null || m.aabb === null) return;
-      const box = m.aabb;
-      const pc: Vec3 = [player[0] + this.pc.ox + pushed[0], player[1] + this.pc.oy + pushed[1], player[2] + oz + pushed[2]];
-      const centre: Vec3 = [0, 1, 2].map((i) => m.pos[i]! + (box.min[i]! + box.max[i]!) / 2) as Vec3;
-      const over: Vec3 = [0, 1, 2].map((i) => (box.max[i]! - box.min[i]!) / 2 + capHalf[i]! + this.pushSkin - Math.abs(pc[i]! - centre[i]!)) as Vec3;
-      if (over[0] <= 0 || over[1] <= 0 || over[2] <= 0) return;
-      const d = sub3(m.pos, before);
-      const sideways = d[1] > 0 && d[1] >= Math.hypot(d[0], d[2]) && pc[1] < m.pos[1] + box.max[1];
-      const axis: 0 | 1 | 2 = over[1] <= over[0] && over[1] <= over[2] && !sideways ? 1 : over[0] <= over[2] ? 0 : 2;
-      pushed[axis] = pushed[axis] + Math.min(m.pushStep, over[axis]) * (pc[axis] >= centre[axis] ? 1 : -1);
-    };
+    const moved: { pos: Vec3; before: Vec3; id: string; aabb: { min: Vec3; max: Vec3 } | null; pushStep: number }[] = [];
     for (const m of this.movers.values()) {
       if (this.inactive.has(m.id)) continue;
       const before: Vec3 = [...m.pos];
@@ -937,11 +969,7 @@ export class GameplayBlocks {
       if (m.started && m.active && !m.done) this.advance(m, dt);
       this.writeTransform(m.id, m.pos);
       poses.push({ entityId: m.id, position: { x: m.pos[0], y: m.pos[1], z: m.pos[2] }, rotation: { x: m.rotation[0], y: m.rotation[1], z: m.rotation[2], w: m.rotation[3] } });
-      if (ground === m.id) {
-        carry[0] = m.pos[0] - before[0];
-        carry[1] = m.pos[1] - before[1];
-        carry[2] = m.pos[2] - before[2];
-      } else if (m.pos[0] !== before[0] || m.pos[1] !== before[1] || m.pos[2] !== before[2]) push(m, before);
+      moved.push({ pos: m.pos, before, id: m.id, aabb: m.aabb, pushStep: m.pushStep });
     }
     // Read again after the movers moved: a collider on a mover's child is where the mover took it.
     if (this.movers.size > 0) extras = this.host.scriptColliders3D?.() ?? [];
@@ -951,17 +979,48 @@ export class GameplayBlocks {
       const q = x.rotation;
       poses.push({ entityId: x.entityId, position: { x: x.position[0], y: x.position[1], z: x.position[2] }, rotation: { x: q[0] ?? 0, y: q[1] ?? 0, z: q[2] ?? 0, w: q[3] ?? 1 } });
       const was = this.scriptPosed.get(x.entityId);
-      if (was !== undefined && ground === x.entityId) {
-        carry[0] = x.position[0] - was[0];
-        carry[1] = x.position[1] - was[1];
-        carry[2] = x.position[2] - was[2];
-      } else if (was !== undefined && (x.position[0] !== was[0] || x.position[1] !== was[1] || x.position[2] !== was[2])) {
-        push({ pos: [x.position[0], x.position[1], x.position[2]], aabb: x.aabb ?? null, pushStep: extraPush }, was);
-      }
+      if (was !== undefined) moved.push({ pos: [x.position[0], x.position[1], x.position[2]], before: was, id: x.entityId, aabb: x.aabb ?? null, pushStep: extraPush });
       this.scriptPosed.set(x.entityId, [x.position[0], x.position[1], x.position[2]]);
     }
-    this.carry3 = [carry[0] + pushed[0], carry[1] + pushed[1], carry[2] + pushed[2]];
+    const carry3 = new Map<string, Readonly<Vec3>>();
+    for (const c of this.chars) carry3.set(c.id, this.carry3D(c, moved));
+    this.carry3 = carry3;
     if (poses.length > 0) port.setKinematicPoses?.(poses);
+  }
+
+  /**
+   * One player character's 3D carry: the motion of what it stands on (a
+   * mover, a collider a script drives), plus the pushes of those moving into
+   * it — out along the axis of least overlap (a mover moving mostly upward
+   * pushes a player beside or under it sideways, never up).
+   */
+  private carry3D(c: CharacterBoxSpec, moved: readonly { pos: Vec3; before: Vec3; id: string; aabb: { min: Vec3; max: Vec3 } | null; pushStep: number }[]): Readonly<Vec3> {
+    const ground = this.host.groundEntityId(c.id);
+    const carry: Vec3 = [0, 0, 0];
+    const pushed: Vec3 = [0, 0, 0];
+    const t = this.host.curr.get(c.id);
+    const player: Vec3 | null = t === undefined ? null : [t.position[0], t.position[1], t.position[2]];
+    const capHalf: Vec3 = [c.hw, c.hh, c.hw];
+    const push = (m: { pos: Vec3; aabb: { min: Vec3; max: Vec3 } | null; pushStep: number }, before: Vec3): void => {
+      if (player === null || m.aabb === null) return;
+      const box = m.aabb;
+      const pc: Vec3 = [player[0] + c.ox + pushed[0], player[1] + c.oy + pushed[1], player[2] + c.oz + pushed[2]];
+      const centre: Vec3 = [0, 1, 2].map((i) => m.pos[i]! + (box.min[i]! + box.max[i]!) / 2) as Vec3;
+      const over: Vec3 = [0, 1, 2].map((i) => (box.max[i]! - box.min[i]!) / 2 + capHalf[i]! + c.pushSkin - Math.abs(pc[i]! - centre[i]!)) as Vec3;
+      if (over[0] <= 0 || over[1] <= 0 || over[2] <= 0) return;
+      const d = sub3(m.pos, before);
+      const sideways = d[1] > 0 && d[1] >= Math.hypot(d[0], d[2]) && pc[1] < m.pos[1] + box.max[1];
+      const axis: 0 | 1 | 2 = over[1] <= over[0] && over[1] <= over[2] && !sideways ? 1 : over[0] <= over[2] ? 0 : 2;
+      pushed[axis] = pushed[axis] + Math.min(m.pushStep, over[axis]) * (pc[axis] >= centre[axis] ? 1 : -1);
+    };
+    for (const m of moved) {
+      if (ground === m.id) {
+        carry[0] = m.pos[0] - m.before[0];
+        carry[1] = m.pos[1] - m.before[1];
+        carry[2] = m.pos[2] - m.before[2];
+      } else if (m.pos[0] !== m.before[0] || m.pos[1] !== m.before[1] || m.pos[2] !== m.before[2]) push(m, m.before);
+    }
+    return [carry[0] + pushed[0], carry[1] + pushed[1], carry[2] + pushed[2]];
   }
 
   private advance(m: Mover, dt: number): void {
@@ -1008,13 +1067,18 @@ export class GameplayBlocks {
       this.triggers3D();
       return;
     }
-    const player = this.host.character();
-    if (player === null) return;
-    this.triggers2D(player);
+    const players: { c: CharacterBoxSpec; x: number; y: number }[] = [];
+    for (const c of this.chars) {
+      const t = this.host.curr.get(c.id);
+      if (t !== undefined) players.push({ c, x: t.position[0], y: t.position[1] });
+    }
+    if (players.length === 0) return;
+    this.triggers2D(players);
     for (const s of this.switches.values()) {
       if (this.inactive.has(s.id)) continue;
       const at = this.worldOf(s.id);
-      const inside = at !== null && Math.abs(player.x + this.pc.ox - at[0]) < s.half.x + this.pc.hw && Math.abs(player.y + this.pc.oy - at[1]) < s.half.y + this.pc.hh;
+      // Any player character on it counts.
+      const inside = at !== null && players.some(({ c, x, y }) => Math.abs(x + c.ox - at[0]) < s.half.x + c.hw && Math.abs(y + c.oy - at[1]) < s.half.y + c.hh);
       // An interact switch reads its own action (absent: interact).
       const fire = s.mode === 'stand' ? inside && !s.inside : inside && frame.actions?.[s.action]?.p === 'pressed';
       if (fire && !s.spent) {
@@ -1033,27 +1097,31 @@ export class GameplayBlocks {
   }
 
   /**
-   * The 2D-plane triggers against the character at `player` (its origin): a
+   * The 2D-plane triggers against each player character at its origin: a
    * box against the capsule's box; A circle against the capsule
    * itself (a segment of half length halfHeight − radius, swept by the
    * radius) — the distance from the circle's centre to the segment is under
    * the two radii.
    */
-  private triggers2D(player: Vec2): void {
-    const segHalf = Math.max(0, this.pc.hh - this.pc.hw);
-    const cx = player.x + this.pc.ox;
-    const cy = player.y + this.pc.oy;
+  private triggers2D(players: readonly { c: CharacterBoxSpec; x: number; y: number }[]): void {
     for (const t of this.triggers.values()) {
       if (this.inactive.has(t.id)) continue;
       const at = this.worldOf(t.id);
-      let inside = false;
+      const now = new Set<string>();
       if (at !== null) {
-        if (t.radius !== null) {
-          const ny = Math.min(cy + segHalf, Math.max(cy - segHalf, at[1]));
-          inside = Math.hypot(at[0] - cx, at[1] - ny) < t.radius + this.pc.hw;
-        } else inside = Math.abs(cx - at[0]) < t.half.x + this.pc.hw && Math.abs(cy - at[1]) < t.half.y + this.pc.hh;
+        for (const { c, x, y } of players) {
+          const segHalf = Math.max(0, c.hh - c.hw);
+          const cx = x + c.ox;
+          const cy = y + c.oy;
+          let inside: boolean;
+          if (t.radius !== null) {
+            const ny = Math.min(cy + segHalf, Math.max(cy - segHalf, at[1]));
+            inside = Math.hypot(at[0] - cx, at[1] - ny) < t.radius + c.hw;
+          } else inside = Math.abs(cx - at[0]) < t.half.x + c.hw && Math.abs(cy - at[1]) < t.half.y + c.hh;
+          if (inside) now.add(c.id);
+        }
       }
-      this.updateTrigger(t, inside);
+      this.updateTrigger(t, now);
     }
   }
 
@@ -1062,8 +1130,15 @@ export class GameplayBlocks {
     return this.primitives.events();
   }
 
-  /** A trigger's signals and events for this step's inside test (the 2D plane's and 3D's shared rules). */
-  private updateTrigger(t: Trigger, inside: boolean): void {
+  /**
+   * A trigger's signals and events for this step's inside test (the 2D
+   * plane's and 3D's shared rules; `now`: the player characters inside). The
+   * signals, the scene transition and the cue follow the trigger as a whole —
+   * the first character in enters it, the last one out leaves it — and each
+   * character's own entry and exit is an event naming it.
+   */
+  private updateTrigger(t: Trigger, now: ReadonlySet<string>): void {
+    const inside = now.size > 0;
     // An entry starts the trigger's scene transition (as its signal, only once with `once`).
     if (inside && !t.inside && t.transition !== null && !t.spent) this.host.sceneTransition?.(t.id, t.transition);
     if (inside && (!t.inside || t.stay) && !t.spent) {
@@ -1071,12 +1146,16 @@ export class GameplayBlocks {
       if (t.once) t.spent = true;
     }
     if (!inside && t.inside && t.exitSignal !== null) this.emit(t.exitSignal);
-    // Every real entry and exit (whatever `once` says about the signal).
+    // Every real entry and exit (whatever `once` says about the signal), in controller order.
     // `stepIndex` counts as scripts' `ctx.stepIndex` does (this.step is the 1-based ordinal).
-    if (inside !== t.inside) {
-      this.triggerEventsNow.push(Object.freeze({ type: inside ? 'enter' : 'exit', trigger: t.id, stepIndex: this.step - 1 }));
-      this.cueLog?.events.push({ name: inside ? 'enter' : 'exit', entity: t.id });
+    for (const c of this.chars) {
+      const was = t.by.has(c.id);
+      if (now.has(c.id) === was) continue;
+      this.triggerEventsNow.push(Object.freeze({ type: was ? 'exit' : 'enter', trigger: t.id, by: c.id, stepIndex: this.step - 1 }));
     }
+    if (inside !== t.inside) this.cueLog?.events.push({ name: inside ? 'enter' : 'exit', entity: t.id });
+    t.by.clear();
+    for (const id of now) t.by.add(id);
     t.inside = inside;
   }
 
@@ -1091,28 +1170,36 @@ export class GameplayBlocks {
    * closer than the radii (a touch is outside, as in 2D).
    */
   private triggers3D(): void {
-    const p = this.host.character3?.() ?? null;
-    if (p === null) return;
-    const seg = Math.max(0, this.pc.hh - this.pc.hw);
-    const c: Vec3 = [p[0] + this.pc.ox, p[1] + this.pc.oy, p[2] + (this.host.characterOffsetZ ?? 0)];
-    const a: Vec3 = [c[0], c[1] - seg, c[2]];
-    const b: Vec3 = [c[0], c[1] + seg, c[2]];
-    const r = this.pc.hw;
+    // Each player character's capsule segment (its centre segment's ends) and radius.
+    const caps: { id: string; a: Vec3; b: Vec3; r: number }[] = [];
+    for (const ch of this.chars) {
+      const t = this.host.curr.get(ch.id);
+      if (t === undefined) continue;
+      const p = t.position;
+      const seg = Math.max(0, ch.hh - ch.hw);
+      const c: Vec3 = [p[0] + ch.ox, p[1] + ch.oy, p[2] + ch.oz];
+      caps.push({ id: ch.id, a: [c[0], c[1] - seg, c[2]], b: [c[0], c[1] + seg, c[2]], r: ch.hw });
+    }
+    if (caps.length === 0) return;
     for (const t of this.triggers.values()) {
       if (this.inactive.has(t.id)) continue;
       const at = this.worldOf(t.id);
       if (at === null) continue;
       const q = this.host.curr.get(t.id)?.rotation ?? [0, 0, 0, 1];
       const v = t.volume;
-      let inside: boolean;
-      if (v.kind === 'sphere') inside = segmentPointDistance2(a, b, at) < (v.radius + r) * (v.radius + r);
-      else if (v.kind === 'capsule') {
-        const e = rotate3(q, [0, v.halfSegment, 0]);
-        inside = segmentSegmentDistance2(a, b, [at[0] - e[0], at[1] - e[1], at[2] - e[2]], [at[0] + e[0], at[1] + e[1], at[2] + e[2]]) < (v.radius + r) * (v.radius + r);
-      } else {
-        inside = segmentBoxDistance2(rotate3(q, sub3(a, at), true), rotate3(q, sub3(b, at), true), v.half) < r * r;
+      const now = new Set<string>();
+      for (const { id, a, b, r } of caps) {
+        let inside: boolean;
+        if (v.kind === 'sphere') inside = segmentPointDistance2(a, b, at) < (v.radius + r) * (v.radius + r);
+        else if (v.kind === 'capsule') {
+          const e = rotate3(q, [0, v.halfSegment, 0]);
+          inside = segmentSegmentDistance2(a, b, [at[0] - e[0], at[1] - e[1], at[2] - e[2]], [at[0] + e[0], at[1] + e[1], at[2] + e[2]]) < (v.radius + r) * (v.radius + r);
+        } else {
+          inside = segmentBoxDistance2(rotate3(q, sub3(a, at), true), rotate3(q, sub3(b, at), true), v.half) < r * r;
+        }
+        if (inside) now.add(id);
       }
-      this.updateTrigger(t, inside);
+      this.updateTrigger(t, now);
     }
   }
 

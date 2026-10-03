@@ -16,7 +16,7 @@ import { isFolderEntity } from './types-v3';
 
 export interface PlayCheck {
   /** Stable code (Problems line kind). */
-  code: 'view_missing' | 'player_count' | 'player_scene' | 'kept_twice' | 'kept_ignored' | 'collider_model';
+  code: 'view_missing' | 'player_scene' | 'kept_twice' | 'kept_ignored' | 'collider_model';
   /** True: the start is refused; false: a warning (the game starts). */
   refuse: boolean;
   message: string;
@@ -50,16 +50,12 @@ export function playChecks(_content: ContentCatalogV4 | Record<string, unknown>,
     const vc = (e.components as { virtualCamera?: { enabled?: boolean } }).virtualCamera;
     return vc !== undefined && vc.enabled !== false;
   }));
-  // One player controller per view (the game has one view): the scenes it starts with hold at most one.
-  const players = started.flatMap((s) => inGame(s.entities).filter((e) => (e.components as { controller?: unknown }).controller !== undefined).map((e) => `"${e.id}" (scene "${s.sceneId}")`));
-  if (players.length > 1) {
-    checks.push({ code: 'player_count', refuse: true, message: `the game starts with ${players.length} player controllers (${players.slice(0, 4).join(', ')}): one player controller per view` });
-  }
-  // A player body is made when the game starts: a scene loaded later cannot bring one.
+  // Any number of player controllers share the view (local co-op). A player's
+  // physics body is made when the game starts: a scene loaded later cannot bring one.
   for (const s of scenes) {
     if (start.has(s.sceneId)) continue;
-    const p = inGame(s.entities).find((e) => (e.components as { controller?: unknown }).controller !== undefined);
-    if (p !== undefined) checks.push({ code: 'player_scene', refuse: false, message: `scene "${s.sceneId}" holds the player controller "${p.id}", but the game does not start with it: loading it while the game runs is refused (put the player in a start scene and keep it loaded)` });
+    const ps = inGame(s.entities).filter((e) => (e.components as { controller?: unknown }).controller !== undefined).map((e) => `"${e.id}"`);
+    if (ps.length > 0) checks.push({ code: 'player_scene', refuse: false, message: `scene "${s.sceneId}" holds the player controller${ps.length > 1 ? 's' : ''} ${ps.slice(0, 4).join(', ')}, but the game does not start with it: loading it while the game runs is refused (put the players in a start scene and keep them loaded)` });
   }
   // A kept object is one object: its id in two scenes would be two copies.
   const keptIn = new Map<string, string>();

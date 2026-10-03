@@ -61,6 +61,8 @@ export interface TriggerEventRecord {
   readonly type: 'enter' | 'exit';
   /** The trigger's entity id. */
   readonly trigger: string;
+  /** The player character that entered or left (a player controller's object; one event each, as a collect event's `by`). */
+  readonly by: string;
   readonly stepIndex: number;
 }
 

@@ -35,6 +35,9 @@ type Vec3 = [number, number, number];
 
 // ---- the waypoint path (shared with the mover) -----------------------------------
 
+
+/** No player character takes part (a game without one, or not playing). */
+const NO_CHARACTERS: readonly { id: string; centre: Vec3; half: Vec3 }[] = Object.freeze([]);
 /** A position along a waypoint path (a mover's or a waypoint patrol's). */
 export interface PathState {
   points: Vec3[];
@@ -229,8 +232,8 @@ export interface PrimitivesHost {
   readonly curr: Map<string, TransformState>;
   readonly physics: PhysicsPort | undefined;
   readonly physics3d: PhysicsPort3D | undefined;
-  /** The character (the controller's object): its id, its capsule's bounding box centre and half extents; null when there is none. */
-  character(): { id: string; centre: Vec3; half: Vec3 } | null;
+  /** The player characters (the controllers' objects, in controller order): each one's id, its capsule's bounding box centre and half extents. */
+  characters(): readonly { id: string; centre: Vec3; half: Vec3 }[];
   worldOf(id: string): Vec3 | null;
   parentOf(id: string): string | undefined;
   setHidden(id: string, hidden: boolean): void;
@@ -502,9 +505,9 @@ export class Primitives {
     for (const p of this.patrols.values()) if (off.size === 0 || !off.has(p.id)) this.walk(p, dt);
     // Gravity bodies fall (after a walker's step: it walks, then falls or lands).
     for (const f of this.falls.values()) if (off.size === 0 || !off.has(f.id)) this.fall(f, dt);
-    const character = playing ? this.host.character() : null;
-    for (const k of this.collectibles.values()) if (off.size === 0 || !off.has(k.id)) this.collect(k, character);
-    if (this.hitboxes.size > 0) this.touch(character);
+    const characters = playing ? this.host.characters() : NO_CHARACTERS;
+    for (const k of this.collectibles.values()) if (off.size === 0 || !off.has(k.id)) this.collect(k, characters);
+    if (this.hitboxes.size > 0) this.touch(characters);
   }
 
   private push(e: PrimitiveEventRecord): void {
@@ -515,16 +518,18 @@ export class Primitives {
 
   // ---- collectibles ----------------------------------------------------------------
 
-  private collect(k: Collectible, character: { id: string; centre: Vec3; half: Vec3 } | null): void {
+  private collect(k: Collectible, characters: readonly { id: string; centre: Vec3; half: Vec3 }[]): void {
     if (k.collected) {
       if (k.timer > 0 && --k.timer === 0) this.restoreCollectible(k);
       return;
     }
-    if (character === null) return;
+    if (characters.length === 0) return;
     const at = this.host.worldOf(k.id);
     if (at === null) return;
     const q = this.host.curr.get(k.id)?.rotation ?? [0, 0, 0, 1];
-    if (!boxesOverlap(at, k.half, q, character.centre, character.half, this.host.dimension)) return;
+    // The first player character (in controller order) touching it collects it.
+    const character = characters.find((c) => boxesOverlap(at, k.half, q, c.centre, c.half, this.host.dimension));
+    if (character === undefined) return;
     k.collected = true;
     k.timer = k.respawnSteps > 0 ? k.respawnSteps : -1;
     this.host.setHidden(k.id, true);
@@ -655,14 +660,14 @@ export class Primitives {
 
   // ---- hitbox contacts ---------------------------------------------------------------
 
-  private touch(character: { id: string; centre: Vec3; half: Vec3 } | null): void {
+  private touch(characters: readonly { id: string; centre: Vec3; half: Vec3 }[]): void {
     const bodies: Body[] = [];
     for (const b of this.hitboxes.values()) {
       if (!b.active || this.inactive.has(b.id)) continue;
       const c = this.host.worldOf(b.id);
       if (c !== null) bodies.push({ id: b.id, c, half: b.half, r: b.radius, damage: b.damage });
     }
-    if (character !== null && !this.hitboxes.has(character.id)) bodies.push({ id: character.id, c: character.centre, half: character.half, r: 0, damage: 0 });
+    for (const character of characters) if (!this.hitboxes.has(character.id)) bodies.push({ id: character.id, c: character.centre, half: character.half, r: 0, damage: 0 });
     const dims = this.host.dimension;
     // Sweep along x (sorted by the left edge, then id: deterministic).
     const ext = (b: Body): number => (b.half !== null ? b.half[0] : b.r);

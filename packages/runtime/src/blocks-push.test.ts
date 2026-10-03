@@ -28,14 +28,13 @@ function pushOf(move: [number, number], player: { x: number; y: number }, shape:
     hz: HZ,
     physics: undefined,
     curr,
-    characterId: 'player-0001',
-    characterCapsule: { radius: 0.3, halfHeight: 0.6, offset: { x: 0, y: 0 } },
-    character: () => player,
+    characters: [{ id: 'player-0001', capsule: { radius: 0.3, halfHeight: 0.6, offset: { x: 0, y: 0 } }, skin: 0.01, offsetZ: 0 }],
     groundEntityId: () => null,
   };
+  curr.set('player-0001', { position: [player.x, player.y, 0], rotation: [0, 0, 0, 1], scale: [1, 1, 1] });
   const blocks = new GameplayBlocks(host, [entity]);
   blocks.beforeStep(1);
-  return blocks.carryDelta();
+  return blocks.carryDelta('player-0001');
 }
 
 describe('a moving block pushes the player out of it', () => {

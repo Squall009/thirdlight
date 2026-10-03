@@ -506,6 +506,7 @@ export function bootstrapPreviewM3(): void {
       sound: o.sound,
       simulation: { mode: h.threading.mode, transport: h.threading.transport, isolated: h.threading.isolated },
       ...(o.player !== undefined ? { player: { x: o.player.x, y: o.player.y, z: o.player.z } } : {}),
+      ...(o.players !== undefined ? { players: o.players.map((p) => ({ id: p.id, x: p.x, y: p.y, z: p.z })) } : {}),
       ...(o.scenes !== undefined ? { scenes: { loaded: [...o.scenes.loaded], loading: [...o.scenes.loading] } } : {}),
       // The audio sources' live loops (entity id → gain).
     ...(o.loops !== undefined ? { loops: { ...o.loops } } : {}),

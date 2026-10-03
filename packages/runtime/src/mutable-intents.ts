@@ -5,8 +5,30 @@
 import type { JumpPhase } from './actions';
 import type { IntentTransformWrite } from './intents';
 
-/** The runtime-owned mutable per-step intent set. */
-export interface MutableIntentSet {
+/** One player controller's channels of a step, with who wrote each (null: none this step). */
+export interface MutableControllerChannels {
+  move: number | null;
+  jump: JumpPhase | null;
+  moveWriter: string | null;
+  jumpWriter: string | null;
+  moveY: number | null;
+  characterMove: { x: number; z: number; run: boolean } | null;
+  characterPlace: { x: number; y: number; z: number } | null;
+  characterEnabled: boolean | null;
+  characterWriters: Map<string, string>;
+}
+
+/** A further controller's empty channels. */
+export function emptyControllerChannels(): MutableControllerChannels {
+  return { move: null, jump: null, moveWriter: null, jumpWriter: null, moveY: null, characterMove: null, characterPlace: null, characterEnabled: null, characterWriters: new Map() };
+}
+
+/**
+ * The runtime-owned mutable per-step intent set. Its own channels are the
+ * first player controller's; `further` holds the other controllers' (made
+ * when an intent names one, dropped at the next step).
+ */
+export interface MutableIntentSet extends MutableControllerChannels {
   stepIndex: number;
   move: number | null;
   jump: JumpPhase | null;
@@ -28,6 +50,7 @@ export interface MutableIntentSet {
   characterPlace: { x: number; y: number; z: number } | null;
   characterEnabled: boolean | null;
   characterWriters: Map<string, string>;
+  further: Map<string, MutableControllerChannels>;
 }
 
 export function emptyMutableIntents(stepIndex: number): MutableIntentSet {
@@ -46,6 +69,7 @@ export function emptyMutableIntents(stepIndex: number): MutableIntentSet {
     characterPlace: null,
     characterEnabled: null,
     characterWriters: new Map(),
+    further: new Map(),
   };
 }
 
@@ -63,4 +87,5 @@ export function resetMutableIntents(s: MutableIntentSet, stepIndex: number): voi
   s.characterPlace = null;
   s.characterEnabled = null;
   if (s.characterWriters.size > 0) s.characterWriters.clear();
+  if (s.further.size > 0) s.further.clear();
 }

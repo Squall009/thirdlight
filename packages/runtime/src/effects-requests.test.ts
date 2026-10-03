@@ -26,12 +26,11 @@ function blocksWith(entities: EntityV3[], character: { x: number; y: number }): 
     hz: HZ,
     physics: undefined,
     curr,
-    characterId: 'player-0001',
-    characterCapsule: { radius: 0.3, halfHeight: 0.6, offset: { x: 0, y: 0 } },
-    character: () => out.character,
+    characters: [{ id: 'player-0001', capsule: { radius: 0.3, halfHeight: 0.6, offset: { x: 0, y: 0 } }, skin: 0.01, offsetZ: 0 }],
     groundEntityId: () => null,
     effect: (r) => out.requests.push(r),
   };
+  curr.set('player-0001', { position: [character.x, character.y, 0], rotation: [0, 0, 0, 1], scale: [1, 1, 1] });
   out.blocks = new GameplayBlocks(host, entities);
   return out;
 }

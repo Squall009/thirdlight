@@ -94,7 +94,8 @@ import type { CameraViewInfo } from './camera-brain';
 import { RuntimeViews } from './views';
 import { KeptObjects } from './kept';
 import { EnvironmentDirector, type EnvironmentSaveState } from './environment-director';
-import { emptyMutableIntents, resetMutableIntents, type MutableIntentSet } from './mutable-intents';
+import type { ControllerIntents } from './intents';
+import { emptyControllerChannels, emptyMutableIntents, resetMutableIntents, type MutableControllerChannels, type MutableIntentSet } from './mutable-intents';
 import { colliderEntityOf, PHYSICS_QUERY_LIMIT, queryDistance, queryPositive, queryQuat, queryVec3 } from './physics-query-args';
 import { type EnvironmentBlendView } from './environment-blend';
 import type { ClimbQuery } from './types';
@@ -108,7 +109,8 @@ import { createSceneControl, FADE_COLOR_RE, LIFECYCLE_RESTART_DEPRECATED, loadOp
 import { EntityAccess, type EntityFieldsSave, type LightOverride } from './entity-access';
 import { SpawnRequests } from './spawn-requests';
 import { TransformMirror } from './step-buffers';
-import { CHARACTER_IMPULSE_MAX, CharacterPlacement } from './character-placement';
+import { CHARACTER_IMPULSE_MAX, CharacterPlacement, ControllerPlacements } from './character-placement';
+import { PhysicsPortFailure, PlayerControllers } from './player-controllers';
 import { actionDiagnostics, behaviorLogTotals, physicsDiagnostics } from './diagnostics-reads';
 import {
   validateCharacterMoveResult,
@@ -273,16 +275,6 @@ interface PhaseViews {
 /** An `ActionSource.sample()` throw (module_error, reason `input_source_threw`). */
 class InputSourceError extends Error {
   readonly reason = 'input_source_threw';
-}
-
-/** A `PhysicsPort` throw/validation failure (fail-stop `physics_port_error`). */
-class PhysicsPortFailure extends Error {
-  readonly reason: string;
-  constructor(reason: string, message: string) {
-    super(clipMessage(message));
-    this.name = 'PhysicsPortFailure';
-    this.reason = reason;
-  }
 }
 
 function isPlainObject(v: unknown): v is Record<string, unknown> {
@@ -665,12 +657,12 @@ export function instantiateRuntime(
         }
       }
     }
-    if (controllerSpecs.length > 0 && controllerIds.length !== 1) {
+    if (controllerSpecs.length > 0 && controllerIds.length === 0) {
       return {
         ok: false,
         error: fail(
           'config_invalid',
-          `a controller module requires exactly one components.controller entity (found ${controllerIds.length})`,
+          'a controller module requires a components.controller entity (found 0)',
           { reason: 'controller_target', path: '/modules' },
         ),
       };
@@ -906,7 +898,7 @@ export function instantiateRuntime(
     physics,
     ...(physics3d !== undefined ? { physics3d } : {}),
     settings: resolvedSettings,
-    controllerEntityId: controllerEntityIds[0],
+    controllerEntityIds,
     order,
     entities,
     viewLens,
@@ -991,7 +983,8 @@ interface RuntimeArgs {
   /** The 3D port (a project with physics_dimension 3), instead of `physics`. */
   physics3d?: PhysicsPort3D;
   settings: GameplaySettings;
-  controllerEntityId?: string;
+  /** The player controllers' objects, in snapshot order. */
+  controllerEntityIds: readonly string[];
   order: string[];
   entities: Map<string, SimEntityData>;
   /** The project's lens (its camera settings): the view's while no camera sets its own. */
@@ -1088,26 +1081,17 @@ class RuntimeInstance implements Runtime {
   private readonly physics?: PhysicsPort;
   /**
    * The 3D port. With it the runtime runs the 3D character phase
-   * (`runPhysicsPhase3D`) and commits the full position; `physics` is then
+   * (`PlayerControllers.runPhysics3D`) and commits the full position; `physics` is then
    * absent, so every 2D path (movers, drop-through, queries, respawn) is inert.
    */
   private readonly physics3d?: PhysicsPort3D;
-  /** The 3D moves staged in this step's controller phase. */
-  private staged3d = new Map<string, PhysicsVec3>();
-  /** The character's vertical speed under gravity (m/s; 3D, no movement input yet). */
-  private fallSpeed3d = 0;
-  private lastCharacterResult3D?: CharacterMoveResult3D;
-  /** The character's step-up height and ground snap (the 3D result check allows them). */
-  private character3DClimb?: { stepHeight: number; groundSnap: number };
   /** Where the active camera's yaw comes from (the camera framework sets it; null: world axes). */
   private cameraYawSource: (() => number | undefined) | null = null;
   /** The colliders in the physics world: placed where their objects are, and those that follow a moving object. */
   private readonly colliders: ColliderSystem;
   private readonly settings: GameplaySettings;
-  private readonly controllerEntityId?: string;
-  /** The input actions the character's controller reads (its moveAction / jumpAction). */
-  private readonly characterActions: { move: string; jump: string };
-  private readonly characterActionNames: readonly string[];
+  /** The player controllers (several share the view in local co-op; the first is what a call naming none means). */
+  private readonly controllers: PlayerControllers;
   private order: readonly string[];
   private entities: Map<string, SimEntityData>;
   private entityCount: number;
@@ -1152,8 +1136,6 @@ class RuntimeInstance implements Runtime {
   private needsPreroll = false;
   private currentPhase?: SimulationPhase;
   private currentModuleId?: string;
-  private staged = new Map<string, Vec2>();
-  private lastCharacterResult?: CharacterMoveResult;
   /** The runtime's per-step intent set. */
   private intents: MutableIntentSet = emptyMutableIntents(-1);
   /** Bumped at every commit and step start; the intents view is remade only when it moved. */
@@ -1272,10 +1254,8 @@ class RuntimeInstance implements Runtime {
   private activeSpawn: string | null = null;
   /** A run restart waiting for the next step boundary (ctx.lifecycle.restart, a restart UI event). */
   private pendingRestart = false;
-  /** Impulses scripts gave the character (m/s, summed) waiting for the next controller phase. */
-  private impulseAcc: [number, number, number] | null = null;
-  /** Respawns, arrivals, a save's placement and script placements of the character, and the way it faces. */
-  private readonly placement: CharacterPlacement = this.buildCharacterPlacement();
+  /** Respawns, arrivals, a save's placement and script placements of each player controller, and the way it faces. */
+  private readonly placement: ControllerPlacements;
   /** The shell's ordered scene list, the entry the run is at (-1: none; null: not worked out yet this run) and a move asked for by a `scene` UI event. */
   private readonly sceneList: readonly import('./types').ListedScene[];
   private listedScene: number | null = null;
@@ -1363,16 +1343,16 @@ class RuntimeInstance implements Runtime {
     collected: (entityId: string): boolean => (typeof entityId === 'string' ? (this.blocks?.primitives.isCollected(entityId) ?? false) : false),
     restore: (entityId: string): boolean => (typeof entityId === 'string' ? (this.blocks?.primitives.restore(entityId) ?? false) : false),
   });
-  /** The climb volume the character's capsule centre is in (read by the character controllers in the controller phase). */
-  private readonly climbQuery: ClimbQuery = Object.freeze({ volume: () => this.blocks?.climbVolume() ?? null });
-  /** The character (`ctx.character`): an impulse (m/s added to its velocity) for its next controller phase. */
+  /** The climb volume a player controller's capsule centre is in (read by the character controllers in the controller phase). */
+  private readonly climbQuery: ClimbQuery = Object.freeze({ volume: (entityId?: string) => this.blocks?.climbVolume(entityId) ?? null });
+  /** The player controllers (`ctx.character`): an impulse (m/s added to its velocity) for its next controller phase. */
   private readonly characterControl = Object.freeze({
-    impulse: (v: unknown): boolean => {
-      if (this.controllerEntityId === undefined) return false;
+    impulse: (v: unknown, entityId?: unknown): boolean => {
+      const id = typeof entityId === 'string' || entityId === undefined ? this.controllers.resolve(entityId) : undefined;
+      if (id === undefined) return false;
       if (!Array.isArray(v) || v.length !== 3 || !v.every((x) => typeof x === 'number' && Number.isFinite(x) && Math.abs(x) <= CHARACTER_IMPULSE_MAX)) return false;
-      const a = this.impulseAcc ?? [0, 0, 0];
       // The 2D plane has no depth: its z is dropped.
-      this.impulseAcc = [a[0] + (v[0] as number), a[1] + (v[1] as number), this.physics3d !== undefined ? a[2] + (v[2] as number) : 0];
+      this.controllers.addImpulse(id, [v[0] as number, v[1] as number, v[2] as number]);
       this.intentsVersion += 1;
       return true;
     },
@@ -1524,17 +1504,10 @@ class RuntimeInstance implements Runtime {
     if (args.physics3d !== undefined) {
       this.physics3d = args.physics3d;
       this.colliders.track(args.initialEntities);
-      for (const e of args.initialEntities) {
-        const c = e.components as unknown as Record<string, unknown>;
-        // The character's step-up height and ground snap.
-        if (c['controller'] !== undefined) {
-          const climb = character3DPhysicsOf(c['controller'], args.settings.max_slope_climb_deg);
-          this.character3DClimb = { stepHeight: climb.stepHeight, groundSnap: climb.groundSnap };
-        }
-      }
     }
     this.settings = args.settings;
-    this.controllerEntityId = args.controllerEntityId;
+    this.controllers = this.buildPlayerControllers(args.controllerEntityIds, args.initialEntities);
+    this.placement = new ControllerPlacements(this.controllers.ids, (id) => this.buildCharacterPlacement(id));
     this.order = args.order;
     this.entities = args.entities;
     this.entityCount = args.order.length;
@@ -1565,8 +1538,8 @@ class RuntimeInstance implements Runtime {
       hasCatalog: () => this.sceneRows !== null,
       status: (sceneId) => this.sceneStatus.get(sceneId),
       unkeptPlayerIn: (sceneId) => {
-        const player = this.controllerEntityId;
-        return player !== undefined && this.batches.get(sceneId)?.ids.has(player) === true && !this.kept.has(player) ? player : null;
+        const ids = this.batches.get(sceneId)?.ids;
+        return this.controllers.ids.find((player) => ids?.has(player) === true && !this.kept.has(player)) ?? null;
       },
       loaded: () => [...this.batches.keys()],
       loadingView: () => this.sceneLoadingView(),
@@ -1603,9 +1576,9 @@ class RuntimeInstance implements Runtime {
     this.animators = new AnimatorSystem(args.animatorControllers, {
       hz: this.hz,
       seed: randomSeedOf(this.settings),
-      characterId: () => this.controllerEntityId ?? '',
+      characterIds: () => this.controllers.ids,
       transformOf: (id) => this.curr.get(id),
-      grounded: () => (this.physics3d !== undefined ? (this.lastCharacterResult3D?.grounded ?? true) : (this.lastCharacterResult?.grounded ?? true)),
+      grounded: (id) => this.controllers.grounded(id),
       inactive: () => this.entityAccess.inactive(),
       stepIndex: () => this.stepIndex,
       // The look-at reads the models' rigs and world matrices the sockets keep.
@@ -1661,42 +1634,23 @@ class RuntimeInstance implements Runtime {
     this.eventCues = args.eventCues ?? [];
     this.sceneList = args.sceneList ?? [];
     // Movers, triggers, switches, one-way colliders and the generic primitives
-    // (the character is the controller's object in both dimensions).
-    const characterComponents = args.initialEntities.find((e) => e.id === args.controllerEntityId)?.components.controller;
-    this.characterActions = controllerActionsOf(characterComponents);
-    // And its climb action (a game mode that switches gameplay off holds it too).
-    const climbAction = controllerMovementOf(characterComponents).climbAction;
-    this.characterActionNames = Object.freeze([this.characterActions.move, this.characterActions.jump, ...(climbAction !== null ? [climbAction] : [])]);
+    // (the characters are the player controllers' objects in both dimensions).
     this.blocks = new GameplayBlocks(
       {
         hz: this.hz,
         physics: this.physics,
         curr: this.curr,
-        characterId: args.controllerEntityId ?? '',
-        // The character's own capsule (its controller's, else the default).
-        characterCapsule: playerCapsuleOf(characterComponents),
-        // The character's skin (a pushing mover keeps it).
-        characterSkin: controllerTuningOf(characterComponents).skin,
+        // Each character's own capsule (its controller's, else the default), its skin (a pushing mover keeps it) and capsule depth offset.
+        characters: this.controllers.ids.map((id) => {
+          const controller = args.initialEntities.find((e) => e.id === id)?.components.controller;
+          return { id, capsule: playerCapsuleOf(controller), skin: controllerTuningOf(controller).skin, offsetZ: args.physics3d !== undefined ? controllerCapsuleOffsetZ(controller) : 0 };
+        }),
         // Gravity bodies fall under the project's gravity, capped at its fall speed.
         gravityY: this.settings.gravity_y,
         maxFallSpeed: this.settings.max_fall_speed,
-        character: () => {
-          const t = rt.controllerEntityId !== undefined ? rt.curr.get(rt.controllerEntityId) : undefined;
-          return t === undefined ? null : { x: t.position[0], y: t.position[1] };
-        },
-        groundEntityId: () => (rt.physics3d !== undefined ? (rt.lastCharacterResult3D?.groundEntityId ?? null) : (rt.lastCharacterResult?.groundEntityId ?? null)),
+        groundEntityId: (id) => rt.controllers.groundEntityId(id),
         // The 3D world (movers posed on it, triggers in 3D).
-        ...(args.physics3d !== undefined
-          ? {
-              physics3d: args.physics3d,
-              characterOffsetZ: controllerCapsuleOffsetZ(args.initialEntities.find((e) => e.id === args.controllerEntityId)?.components.controller),
-              character3: () => {
-                const t = rt.controllerEntityId !== undefined ? rt.curr.get(rt.controllerEntityId) : undefined;
-                return t === undefined ? null : [t.position[0], t.position[1], t.position[2]];
-              },
-              scriptColliders3D: () => rt.colliders.poses(),
-            }
-          : {}),
+        ...(args.physics3d !== undefined ? { physics3d: args.physics3d, scriptColliders3D: () => rt.colliders.poses() } : {}),
         // A trigger's scene transition.
         sceneTransition: (triggerId, t) => rt.beginSceneTransition(triggerId, t),
         effect: (r) => void rt.pushEffect({ op: r.op, effectId: r.effectId, entityId: r.entityId, position: r.position, params: null, source: r.source }),
@@ -2043,10 +1997,10 @@ class RuntimeInstance implements Runtime {
       },
       order: () => rt.order,
       parentOf: (id) => rt.entities.get(id)?.parentId ?? undefined,
-      get controllerId() {
-        return rt.controllerEntityId;
+      get controllerIds() {
+        return rt.controllers.ids;
       },
-      isPhysicsBody: (id) => id === rt.controllerEntityId || rt.entities.get(id)?.hasCollider === true,
+      isPhysicsBody: (id) => rt.controllers.has(id) || rt.entities.get(id)?.hasCollider === true,
       isKept: (id) => rt.kept.has(id),
       keepProblem: (id, keep) => rt.keepProblem(id, keep),
       setKept: (id, keep) => rt.setKept(id, keep),
@@ -2084,7 +2038,7 @@ class RuntimeInstance implements Runtime {
     this.blocks?.setInactive(set);
     this.behaviorTicksFn = undefined;
     this.behaviorTicksOff = null;
-    const colliderOf = (id: string): boolean => id !== this.controllerEntityId && this.entities.get(id)?.hasCollider === true;
+    const colliderOf = (id: string): boolean => !this.controllers.has(id) && this.entities.get(id)?.hasCollider === true;
     const leaving = off.filter(colliderOf);
     const coming = on.filter(colliderOf);
     if (leaving.length === 0 && coming.length === 0) return;
@@ -2533,7 +2487,7 @@ class RuntimeInstance implements Runtime {
     this.committed = null;
     this.entities = new Map();
     this.order = [];
-    if (this.staged.size > 0) this.staged.clear();
+    this.controllers.clearStaged();
     this.onFrame = undefined;
     this.anchor = null;
     return { ok: true };
@@ -2762,7 +2716,7 @@ class RuntimeInstance implements Runtime {
       try {
         this.raycastsThisStep = 0;
         this.blocks?.beforeStep(stepOrdinal);
-        this.runPhysicsPhase3D(this.physics3d);
+        this.controllers.runPhysics3D(this.physics3d);
         this.blocks?.afterPhysics(neutralFrame(stepOrdinal - 1));
       } catch (e) {
         this.curr = cloneCurr(backup);
@@ -2839,7 +2793,7 @@ class RuntimeInstance implements Runtime {
     }
     // The actions of input maps the game mode does not activate read as released
     // (the sampled frame stays the recorded input).
-    if (this.modes.active) action = this.modes.mask(action, this.characterActionNames);
+    if (this.modes.active) action = this.modes.mask(action, this.controllers.actionNames);
     // Movers advance (and are posed for physics), a pending bounce
     // reaches the controller; down + jump on a one-way platform drops through.
     this.raycastsThisStep = 0;
@@ -2851,16 +2805,7 @@ class RuntimeInstance implements Runtime {
     if (held) this.blocks?.turnover(ordinal);
     else this.blocks?.beforeStep(ordinal);
     this.placement.beginStep();
-    // The character's jump action (its controller's jumpAction; frame version 2 has no jump channel).
-    const jumpName = this.characterActions.jump;
-    if (
-      actionPhase(action, jumpName) === 'pressed' &&
-      (action.actions?.['navigate']?.y ?? 0) < -0.5 &&
-      this.blocks?.isOneWay(this.lastCharacterResult?.groundEntityId ?? null) === true
-    ) {
-      this.physics?.dropThrough?.(this.timing.dropThroughSteps);
-      action = { ...action, actions: { ...action.actions, [jumpName]: { v: 0, p: 'none' } } };
-    }
+    action = this.dropThrough(action);
     // The pre-step copy goes into the reused buffer `prev` does not hold.
     const backupMirror = this.stepMirrors[this.stepMirrors[0].map === this.prev ? 1 : 0];
     backupMirror.copyFrom(this.curr, this.currShape);
@@ -2868,7 +2813,7 @@ class RuntimeInstance implements Runtime {
     // `ctx.entity(id).get('transform')` reads the step-start transforms; the hidden set's step-start copy starts over.
     this.stepStart = backup;
     this.blocks?.beginScriptStep();
-    if (this.staged.size > 0) this.staged.clear();
+    this.controllers.clearStaged();
     this.currentPhase = undefined;
     this.currentModuleId = undefined;
     // The intent set is cleared at the start of every fixed step.
@@ -2881,12 +2826,9 @@ class RuntimeInstance implements Runtime {
       this.placement.afterIntentPhase(ordinal);
       if (!held) {
         this.runPhase('controller', action);
-        // The impulses reached the controller (a held step keeps them for the next one).
-        if (this.impulseAcc !== null) {
-          this.impulseAcc = null;
-          this.intentsVersion += 1;
-        }
-        this.runPhysicsPhase();
+        // The impulses reached the controllers (a held step keeps them for the next one).
+        if (this.controllers.clearImpulses()) this.intentsVersion += 1;
+        this.controllers.runPhysics();
       }
       this.runPhase('transform', action);
       // After the transform phase the blocks test the character (triggers,
@@ -3057,26 +2999,27 @@ class RuntimeInstance implements Runtime {
     return out;
   }
 
-  /** Where a respawn puts the character: the spawn's position, else where the player started (null: no character). */
-  private respawnTarget(spawnId: string | null): [number, number, number] | null {
+  /** Where a respawn puts a player controller: the spawn's position, else where it started (null: no such controller). */
+  private respawnTarget(spawnId: string | null, player: string): [number, number, number] | null {
     const id = spawnId ?? this.activeSpawn ?? this.playerSpawnIds()[0] ?? null;
     const t = id !== null ? this.curr.get(id) : undefined;
     if (t !== undefined) return [t.position[0], t.position[1], t.position[2]];
-    const player = this.controllerEntityId !== undefined ? this.entities.get(this.controllerEntityId) : undefined;
-    return player === undefined ? null : [player.transform.position[0], player.transform.position[1], player.transform.position[2]];
+    const data = this.entities.get(player);
+    return data === undefined ? null : [data.transform.position[0], data.transform.position[1], data.transform.position[2]];
   }
 
   /** `ctx.lifecycle`: respawn (both dimensions), the spawn point and the restart. */
   private buildLifecycleControl(): import('./types').BehaviorLifecycle {
     const spawnOk = (id: unknown): id is string => typeof id === 'string' && this.entities.get(id)?.componentKinds?.includes('playerSpawn') === true;
     return Object.freeze({
-      respawn: (spawnId?: string): boolean => {
-        if (this.controllerEntityId === undefined) return false;
+      respawn: (spawnId?: string, entityId?: string): boolean => {
+        const player = typeof entityId === 'string' || entityId === undefined ? this.controllers.resolve(entityId) : undefined;
+        if (player === undefined) return false;
         if (spawnId !== undefined && spawnId !== '' && !spawnOk(spawnId)) return false;
         if (spawnId !== undefined && spawnId !== '') this.activeSpawn = spawnId;
-        const target = this.respawnTarget(null);
+        const target = this.respawnTarget(null, player);
         if (target === null) return false;
-        this.placement.requestRespawn(target);
+        this.placement.of(player)?.requestRespawn(target);
         return true;
       },
       setSpawn: (spawnId: string): boolean => {
@@ -3118,7 +3061,7 @@ class RuntimeInstance implements Runtime {
     this.listedScene = null;
     // A save's placement, scripts' impulses and a spawn facing do not outlive the run.
     this.placement.restartRun();
-    this.impulseAcc = null;
+    this.controllers.clearImpulses();
     this.clearSpawned();
     this.runSpawnBase = this.spawnRequests.serial;
     // Every sound scripts started stops: the new run's scripts hold no handle to them.
@@ -3150,8 +3093,8 @@ class RuntimeInstance implements Runtime {
     this.ui.resetRun();
     this.modes.beginRun(ordinal);
     this.activeSpawn = null;
-    const player = this.controllerEntityId !== undefined ? this.entities.get(this.controllerEntityId) : undefined;
-    const start: Vec2 = player === undefined ? { x: 0, y: 0 } : { x: player.transform.position[0], y: player.transform.position[1] };
+    const first = this.controllers.first !== undefined ? this.entities.get(this.controllers.first) : undefined;
+    const start: Vec2 = first === undefined ? { x: 0, y: 0 } : { x: first.transform.position[0], y: first.transform.position[1] };
     for (const entry of this.entries) {
       if (!entry.phased) continue;
       const instance = entry.instance as SimulationPhaseModule;
@@ -3164,18 +3107,14 @@ class RuntimeInstance implements Runtime {
         return false;
       }
     }
-    // The character from rest where it started (its controller module sees the placement in the next intent phase).
-    if (this.physics3d !== undefined && player !== undefined) {
+    // Each player controller from rest where it started (its controller module sees the placement in the next intent phase);
+    // on the 2D plane too (else its port keeps the previous place and the next controller step fails its check).
+    for (const id of this.controllers.ids) {
+      const player = this.entities.get(id);
+      if (player === undefined || (this.physics3d === undefined && this.resetPort() === null)) continue;
       try {
-        this.placement.restartAt3D(player.transform.position);
-      } catch (e) {
-        this.failStopFromError(e, this.stepIndex);
-        return false;
-      }
-    } else if (player !== undefined && this.resetPort() !== null) {
-      // The 2D-plane character too (else its port keeps the previous place and the next controller step fails its check).
-      try {
-        this.placeCharacter2D(start.x, start.y, ordinal);
+        if (this.physics3d !== undefined) this.placement.of(id)?.restartAt3D(player.transform.position);
+        else this.placeCharacter2D(id, player.transform.position[0], player.transform.position[1], ordinal);
       } catch (e) {
         this.failStopFromError(e, this.stepIndex);
         return false;
@@ -3261,7 +3200,7 @@ class RuntimeInstance implements Runtime {
 
   /** The loaded scenes, the active spawn, the scene list entry and the character with its velocity (m/s). */
   private captureWorld(): WorldSave {
-    return { scenes: [...this.batches.keys()], activeSpawn: this.activeSpawn, listedScene: this.listedSceneIndex(), character: this.placement.captureCharacter() };
+    return { scenes: [...this.batches.keys()], activeSpawn: this.activeSpawn, listedScene: this.listedSceneIndex(), ...this.placement.capture() };
   }
 
   /** Why a saved world cannot be restored in this game (null: it can). */
@@ -3293,12 +3232,57 @@ class RuntimeInstance implements Runtime {
     this.placement.restoreFrom(world);
   }
 
-  /** The character placement's view of the runtime (placements go through the ports here, where a failure fail-stops). */
-  private buildCharacterPlacement(): CharacterPlacement {
+  /** The player controllers, the physics phase's view of the runtime. */
+  private buildPlayerControllers(ids: readonly string[], entities: readonly EntityV3[]): PlayerControllers {
+    const rt = this;
+    return new PlayerControllers({
+      hz: rt.hz,
+      settings: rt.settings,
+      physics: rt.physics,
+      physics3d: rt.physics3d,
+      curr: () => rt.curr,
+      currentPhase: () => rt.currentPhase,
+      carry2D: (id) => rt.blocks?.carryDelta(id) ?? { x: 0, y: 0 },
+      carry3D: (id) => rt.blocks?.carryDelta3(id) ?? [0, 0, 0],
+      flushCollision3D: (port) => rt.grid.flushCollision(port),
+      countStep: () => {
+        rt.physicsSteps += 1;
+      },
+      status3D: (id) => {
+        for (const entry of rt.entries) {
+          const probe = entry.instance as { character3DStatus?: (id?: string) => { enabled: boolean; climbing: boolean; yaw: number } | null };
+          if (typeof probe.character3DStatus === 'function') return probe.character3DStatus(id);
+        }
+        return null;
+      },
+      placed: (id) => rt.blocks?.placed(id),
+    }, ids, entities);
+  }
+
+  /**
+   * On the 2D plane, a player controller whose jump is pressed with down
+   * held while it stands on a one-way platform drops through it (its jump
+   * reads as released this step). Down is its climb action's (else the
+   * `navigate` action's) y below −0.5.
+   */
+  private dropThrough(action: ActionFrame): ActionFrame {
+    let out = action;
+    for (const id of this.controllers.ids) {
+      const a = this.controllers.actionsOf(id)!;
+      if (actionPhase(action, a.jump) !== 'pressed' || (action.actions?.[a.climb ?? 'navigate']?.y ?? 0) >= -0.5) continue;
+      if (this.blocks?.isOneWay(this.controllers.groundEntityId(id)) !== true) continue;
+      this.physics?.dropThrough?.(this.timing.dropThroughSteps, this.controllers.portId(id));
+      out = { ...out, actions: { ...out.actions, [a.jump]: { v: 0, p: 'none' } } };
+    }
+    return out;
+  }
+
+  /** A player controller's placement view of the runtime (placements go through the ports here, where a failure fail-stops). */
+  private buildCharacterPlacement(controllerId: string): CharacterPlacement {
     const rt = this;
     return new CharacterPlacement({
       is3D: () => rt.physics3d !== undefined,
-      controllerId: () => rt.controllerEntityId,
+      controllerId: () => controllerId,
       transform: (id) => rt.curr.get(id),
       entityDocument: (id) => rt.entityDocument(id),
       sceneLoading: (sceneId) => rt.sceneStatus.get(sceneId) === 'loading',
@@ -3308,19 +3292,17 @@ class RuntimeInstance implements Runtime {
       arrivalMissed: (message) => rt.recordError({ code: 'scene_invalid', message: clipMessage(message), stepIndex: rt.stepIndex, reason: 'transfer' }),
       isKept: (id) => rt.kept.has(id),
       listedSpawnOf: (sceneId) => rt.sceneList.find((x) => x.scene === sceneId && x.spawn !== undefined)?.spawn,
-      place3D: (x, y, z) => rt.placeCharacter3D(x, y, z),
-      place2D: (x, y, ordinal) => rt.placeCharacter2D(x, y, ordinal),
+      place3D: (x, y, z) => rt.controllers.place3D(controllerId, x, y, z),
+      place2D: (x, y, ordinal) => rt.placeCharacter2D(controllerId, x, y, ordinal),
       faceSpawn2D: (id, yaw) => rt.blocks?.faceSpawn(id, yaw),
       failStop: (e) => rt.failStopFromError(e, rt.stepIndex),
-      intents: () => rt.intents,
+      intents: () => rt.channelsOf(controllerId),
       intentsChanged: () => {
         rt.intentsVersion += 1;
       },
-      setImpulse: (v) => {
-        rt.impulseAcc = v;
-      },
+      setImpulse: (v) => rt.controllers.setImpulse(controllerId, v),
       // In 3D the way it faces too (the controller's yaw, as characterState().facing reads it).
-      lastMotion: () => (rt.physics3d !== undefined ? { ...(rt.lastCharacterResult3D !== undefined ? { applied: rt.lastCharacterResult3D.applied } : {}), ...(rt.characterState3D() !== undefined ? { facing: rt.characterState3D()!.facing } : {}) } : rt.lastCharacterResult !== undefined ? { applied: rt.lastCharacterResult.applied } : {}),
+      lastMotion: () => rt.controllers.lastMotion(controllerId),
       hz: () => rt.hz,
     });
   }
@@ -3335,34 +3317,20 @@ class RuntimeInstance implements Runtime {
   }
 
   /**
-   * Put the 2D-plane character at an origin, from rest: the
-   * port's character is cleared and
-   * placed, its transform set, and the controller module's windows and
-   * velocity reset (its reset hook, as a transfer).
+   * Put a 2D-plane player controller at an origin, from rest: the
+   * port's character is cleared and placed, its transform set, and its
+   * controller module's windows and velocity reset (its reset hook, as a
+   * transfer naming the controller).
    */
-  private placeCharacter2D(x: number, y: number, ordinal: number): void {
-    const id = this.controllerEntityId;
-    const port = this.resetPort();
-    if (id === undefined || port === null) return;
-    try {
-      port.clearCharacterMotion();
-      port.placeCharacter({ x, y });
-    } catch (e) {
-      throw new PhysicsPortFailure('threw', `physics port placeCharacter() threw: ${messageOf(e)}`);
-    }
-    this.blocks?.placed(id);
-    const t = this.curr.get(id);
-    if (t !== undefined) {
-      t.position[0] = x;
-      t.position[1] = y;
-    }
+  private placeCharacter2D(id: string, x: number, y: number, ordinal: number): void {
+    if (!this.controllers.place2D(id, this.resetPort(), x, y)) return;
     const target: Vec2 = { x, y };
     for (const entry of this.entries) {
       if (!entry.phased || !entry.owners.includes(id)) continue;
       const instance = entry.instance as SimulationPhaseModule;
       if (typeof instance.reset !== 'function') continue;
       this.currentModuleId = entry.id;
-      instance.reset(this.buildResetContext('transfer', ordinal, target, new Set(entry.owners)));
+      instance.reset(this.buildResetContext('transfer', ordinal, target, new Set(entry.owners), id));
     }
   }
 
@@ -3412,12 +3380,9 @@ class RuntimeInstance implements Runtime {
       writeTransform: (id, pose) => {
         const t = rt.curr.get(id);
         if (t === undefined) return false;
-        if (rt.physics3d !== undefined && id === rt.controllerEntityId && pose.position !== undefined && typeof rt.physics3d.placeCharacter === 'function') {
-          // The 3D character's body moves with it (as a script's character_place does).
-          rt.physics3d.placeCharacter({ x: pose.position[0], y: pose.position[1], z: pose.position[2] });
-          rt.lastCharacterResult3D = undefined;
-          rt.fallSpeed3d = 0;
-        } else if (rt.physics3d === undefined && id === rt.controllerEntityId && pose.position !== undefined) {
+        if (rt.physics3d !== undefined && pose.position !== undefined && rt.controllers.moveWithTimeline3D(id, pose.position)) {
+          // A 3D player controller's body moves with it (as a script's character_place does).
+        } else if (rt.physics3d === undefined && rt.controllers.has(id) && pose.position !== undefined) {
           warn(`timeline: the 2D player "${id}" is moved by its physics body; a transform track does not move it`);
           return true;
         }
@@ -3631,11 +3596,13 @@ class RuntimeInstance implements Runtime {
     ordinal: number,
     target: Vec2,
     writableOwners: ReadonlySet<string>,
+    characterId?: string,
   ): ModuleResetContext {
     return Object.freeze({
       reason: reset,
       stepIndex: ordinal,
       playerCenter: Object.freeze({ ...target }),
+      ...(characterId !== undefined ? { characterId } : {}),
       state: phaseScopedState({
         order: this.order,
         entities: this.entities,
@@ -3940,7 +3907,7 @@ class RuntimeInstance implements Runtime {
       const data = this.entities.get(id);
       // In 3D a script may drive a collider no mover moves (posed as a kinematic body).
       const drivable = this.physics3d !== undefined && this.colliders.drivableId(id);
-      const physicsBody = (data?.hasCollider === true && !drivable) || id === this.controllerEntityId;
+      const physicsBody = (data?.hasCollider === true && !drivable) || this.controllers.has(id);
       if (physicsBody && !entry.phases.includes('controller')) {
         const what = 'physics_entity';
         this.failStop('transform_owner_forbidden', what, `module "${entry.id}" claims physics entity "${id}"`, this.stepIndex, entry.id, undefined, what);
@@ -4190,7 +4157,7 @@ class RuntimeInstance implements Runtime {
     this.loadingViewCache = null;
     // A scene transition's arrival, a spawn facing and scripts' impulses do not outlive the run.
     this.placement.startSetRestored();
-    this.impulseAcc = null;
+    this.controllers.clearImpulses();
     for (const [sceneId, entities] of this.startBatchSource) {
       if (this.batches.has(sceneId)) continue;
       if (!this.addBatch(sceneId, entities, true)) return false;
@@ -4363,12 +4330,52 @@ class RuntimeInstance implements Runtime {
       ...(s.characterPlace !== null ? { characterPlace: Object.freeze({ ...s.characterPlace }) } : {}),
       ...(s.characterEnabled !== null ? { characterEnabled: s.characterEnabled } : {}),
       // scripts' impulses for the controller, and the yaw a placement faces (present only when set).
-      ...(this.impulseAcc !== null ? { impulse: Object.freeze({ x: this.impulseAcc[0], y: this.impulseAcc[1], z: this.impulseAcc[2] }) } : {}),
-      ...(this.placement.stepFacing !== null ? { characterYaw: this.placement.stepFacing } : {}),
+      ...this.controllerExtras(this.controllers.first),
+      ...this.furtherControllerIntents(),
     });
     this.intentViewCache = view;
     this.intentViewVersion = this.intentsVersion;
     return view;
+  }
+
+  /** A controller's impulse and placement yaw this step, as intent fields (present only when set). */
+  private controllerExtras(id: string | undefined): { impulse?: { x: number; y: number; z: number }; characterYaw?: number } {
+    if (id === undefined) return {};
+    const i = this.controllers.impulseOf(id);
+    const yaw = this.placement.of(id)?.stepFacing ?? null;
+    return { ...(i !== null ? { impulse: Object.freeze({ x: i[0], y: i[1], z: i[2] }) } : {}), ...(yaw !== null ? { characterYaw: yaw } : {}) };
+  }
+
+  /** The further player controllers' channels this step (`IntentSet.controllers`; absent when none was named). */
+  private furtherControllerIntents(): { controllers?: Readonly<Record<string, ControllerIntents>> } {
+    const out: Record<string, ControllerIntents> = {};
+    for (let i = 1; i < this.controllers.ids.length; i += 1) {
+      const id = this.controllers.ids[i]!;
+      const c = this.intents.further.get(id);
+      const extras = this.controllerExtras(id);
+      if (c === undefined && extras.impulse === undefined && extras.characterYaw === undefined) continue;
+      out[id] = Object.freeze({
+        move: c?.move ?? null,
+        jump: c?.jump ?? null,
+        ...(c !== undefined && c.moveY !== null ? { moveY: c.moveY } : {}),
+        ...(c?.characterMove != null ? { characterMove: Object.freeze({ ...c.characterMove }) } : {}),
+        ...(c?.characterPlace != null ? { characterPlace: Object.freeze({ ...c.characterPlace }) } : {}),
+        ...(c !== undefined && c.characterEnabled !== null ? { characterEnabled: c.characterEnabled } : {}),
+        ...extras,
+      });
+    }
+    return Object.keys(out).length > 0 ? { controllers: Object.freeze(out) } : {};
+  }
+
+  /** A player controller's intent channels this step (the first's are the set's own; a further one's are made when named). */
+  private channelsOf(id: string): MutableControllerChannels {
+    if (id === this.controllers.first) return this.intents;
+    let c = this.intents.further.get(id);
+    if (c === undefined) {
+      c = emptyControllerChannels();
+      this.intents.further.set(id, c);
+    }
+    return c;
   }
 
   /**
@@ -4386,50 +4393,63 @@ class RuntimeInstance implements Runtime {
     const valueError = validateIntentValue(intent);
     if (valueError !== null) throw valueError;
 
+    // A player controller's intents name their controller (absent: the first).
+    let channels: MutableControllerChannels | null = null;
+    let player: string | undefined;
+    if (intent.kind !== 'transform' && intent.kind !== 'pose') {
+      player = this.controllers.resolve(intent.entityId);
+      if (intent.entityId !== undefined && player === undefined) {
+        throw new BehaviorIntentError('behavior_intent_invalid', 'value', `${intent.kind}.entityId "${intent.entityId}" is not a player controller`);
+      }
+      channels = player !== undefined ? this.channelsOf(player) : this.intents;
+    }
     if (intent.kind === 'control_move') {
-      if (this.intents.move !== null) {
-        throw new BehaviorIntentError('behavior_intent_conflict', 'duplicate_writer', `control_move already committed by "${this.intents.moveWriter}" and "${entry.id}"`);
+      const c = channels!;
+      if (c.move !== null) {
+        throw new BehaviorIntentError('behavior_intent_conflict', 'duplicate_writer', `control_move already committed by "${c.moveWriter}" and "${entry.id}"`);
       }
       this.bumpIntentCount();
-      this.intents.move = quantizeIntentMove(intent.value);
-      this.intents.moveWriter = entry.id;
+      c.move = quantizeIntentMove(intent.value);
+      c.moveWriter = entry.id;
       // The second axis (a 3D character's forward input).
-      if (intent.y !== undefined) this.intents.moveY = quantizeIntentMove(intent.y);
+      if (intent.y !== undefined) c.moveY = quantizeIntentMove(intent.y);
       return;
     }
     if (intent.kind === 'character_move' || intent.kind === 'character_place' || intent.kind === 'character_enable') {
-      // The 3D character controller's channels (one writer each per step).
+      // The 3D character controller's channels (one writer each per controller and step).
       // character_place on the 2D plane too (a character with a physics port).
-      if (this.physics3d === undefined && (intent.kind !== 'character_place' || this.controllerEntityId === undefined || this.resetPort() === null)) {
+      if (this.physics3d === undefined && (intent.kind !== 'character_place' || player === undefined || this.resetPort() === null)) {
         throw new BehaviorIntentError('behavior_intent_invalid', 'value', intent.kind === 'character_place' ? 'a character_place intent needs a character (a controller) with physics' : `a ${intent.kind} intent needs a 3D project (physics_dimension 3)`);
       }
-      const writer = this.intents.characterWriters.get(intent.kind);
+      const c = channels!;
+      const writer = c.characterWriters.get(intent.kind);
       if (writer !== undefined) {
         throw new BehaviorIntentError('behavior_intent_conflict', 'duplicate_writer', `${intent.kind} already committed by "${writer}" and "${entry.id}"`);
       }
       this.bumpIntentCount();
-      this.intents.characterWriters.set(intent.kind, entry.id);
-      if (intent.kind === 'character_move') this.intents.characterMove = { x: intent.x, z: intent.z, run: intent.run === true };
+      c.characterWriters.set(intent.kind, entry.id);
+      if (intent.kind === 'character_move') c.characterMove = { x: intent.x, z: intent.z, run: intent.run === true };
       else if (intent.kind === 'character_place') {
-        this.intents.characterPlace = { x: intent.position[0], y: intent.position[1], z: intent.position[2] };
-        this.placement.placeFacing(intent.facing);
+        c.characterPlace = { x: intent.position[0], y: intent.position[1], z: intent.position[2] };
+        if (player !== undefined) this.placement.of(player)?.placeFacing(intent.facing);
       }
-      else this.intents.characterEnabled = intent.enabled;
+      else c.characterEnabled = intent.enabled;
       return;
     }
     if (intent.kind === 'respawn') {
       // The respawn intent is ctx.lifecycle's respawn (at the active spawn, else where the character started).
       this.bumpIntentCount();
-      this.lifecycleControl.respawn();
+      this.lifecycleControl.respawn(undefined, player);
       return;
     }
     if (intent.kind === 'control_jump') {
-      if (this.intents.jump !== null) {
-        throw new BehaviorIntentError('behavior_intent_conflict', 'duplicate_writer', `control_jump already committed by "${this.intents.jumpWriter}" and "${entry.id}"`);
+      const c = channels!;
+      if (c.jump !== null) {
+        throw new BehaviorIntentError('behavior_intent_conflict', 'duplicate_writer', `control_jump already committed by "${c.jumpWriter}" and "${entry.id}"`);
       }
       this.bumpIntentCount();
-      this.intents.jump = intent.value;
-      this.intents.jumpWriter = entry.id;
+      c.jump = intent.value;
+      c.jumpWriter = entry.id;
       return;
     }
     if (!ownerSetOf(entry).has(intent.entityId)) {
@@ -4585,10 +4605,16 @@ class RuntimeInstance implements Runtime {
   }
 
   private readonly physicsClient: PhysicsStepClient = {
-    stageCharacterMove: (entityId: string, delta: Vec2): void => this.stageMove(entityId, delta),
-    // In 3D the 3D result (its vectors carry z too).
-    characterResult: (): CharacterMoveResult | undefined => (this.physics3d !== undefined ? (this.lastCharacterResult3D as unknown as CharacterMoveResult | undefined) : this.lastCharacterResult),
-    characterState: (): CharacterState3D | undefined => this.characterState3D(),
+    stageCharacterMove: (entityId: string, delta: Vec2): void => this.controllers.stage(entityId, delta),
+    // In 3D the 3D result (its vectors carry z too); a call naming no controller means the first.
+    characterResult: (entityId?: string): CharacterMoveResult | undefined => {
+      const id = this.controllers.resolve(entityId);
+      return id !== undefined ? this.controllers.result(id) : undefined;
+    },
+    characterState: (entityId?: string): CharacterState3D | undefined => {
+      const id = this.controllers.resolve(entityId);
+      return id !== undefined ? this.controllers.characterState(id) : undefined;
+    },
     // 3D: rays, overlaps and picks with filters; at most PHYSICS_QUERY_LIMIT a step.
     raycast3d: (origin: readonly number[], direction: readonly number[], maxDistance?: number, filter?: unknown) => {
       const o = queryVec3(origin, 'raycast3d origin');
@@ -4709,128 +4735,6 @@ class RuntimeInstance implements Runtime {
     return [...new Set(port.overlap(shape, { x: center[0]!, y: center[1]!, z: center[2]! }, rotation, f).map(colliderEntityOf))].sort();
   }
 
-  private stageMove(entityId: string, delta: unknown): void {
-    if (this.currentPhase !== 'controller') {
-      throw new PhaseViolationError('stageCharacterMove is callable only in the controller phase');
-    }
-    if (typeof entityId !== 'string' || !this.curr.has(entityId)) {
-      throw new Error(`unknown character entity ${JSON.stringify(String(entityId))}`);
-    }
-    if (this.staged.has(entityId)) {
-      throw new DuplicateMoveError(`entity "${entityId}" already staged a move in this step`);
-    }
-    if (!isFiniteVec2(delta)) {
-      throw new Error('a staged character move must be a finite { x, y }');
-    }
-    if (this.physics3d !== undefined) {
-      // A 3D move (z optional: a module written for the plane moves in it).
-      const z = (delta as { z?: unknown }).z;
-      // The player moves with what it stands on (and a mover's push).
-      const c3 = entityId === this.controllerEntityId ? (this.blocks?.carryDelta3() ?? [0, 0, 0]) : [0, 0, 0];
-      // Lifted by what it stands on, its own fall is cancelled — the port poses the
-      // movers after the sweep, so a grounded character's small fall would end inside the risen platform.
-      const ownY = c3[1]! > 0 && delta.y < 0 ? 0 : delta.y;
-      const moved3 = { x: delta.x + c3[0]!, y: ownY + c3[1]!, z: (typeof z === 'number' && Number.isFinite(z) ? z : 0) + c3[2]! };
-      this.staged.set(entityId, { x: moved3.x, y: moved3.y });
-      this.staged3d.set(entityId, moved3);
-      this.physics3d.stageCharacterMove(moved3);
-      return;
-    }
-    // The player moves with the platform it stands on.
-    const carry = entityId === this.controllerEntityId ? (this.blocks?.carryDelta() ?? { x: 0, y: 0 }) : { x: 0, y: 0 };
-    const moved = { x: delta.x + carry.x, y: delta.y + carry.y };
-    this.staged.set(entityId, moved);
-    this.physics?.stageCharacterMove(moved);
-  }
-
-  /** The physics phase (runtime, not a module): one validated `port.step()`. */
-  private runPhysicsPhase(): void {
-    if (this.physics3d !== undefined) {
-      this.runPhysicsPhase3D(this.physics3d);
-      return;
-    }
-    const port = this.physics;
-    if (!port) return;
-    const controllerId = this.controllerEntityId;
-    const controllerTransform = controllerId !== undefined ? this.curr.get(controllerId) : undefined;
-    const previousPosition: Vec2 = controllerTransform
-      ? { x: controllerTransform.position[0], y: controllerTransform.position[1] }
-      : { x: 0, y: 0 };
-    const requested: Vec2 = (controllerId !== undefined ? this.staged.get(controllerId) : undefined) ?? { x: 0, y: 0 };
-    let raw: unknown;
-    this.physicsSteps += 1;
-    try {
-      raw = port.step();
-    } catch (e) {
-
-      throw new PhysicsPortFailure('threw', `physics port step() threw: ${messageOf(e)}`);
-    }
-    const check = validateCharacterMoveResult(raw, previousPosition, requested);
-    if (!check.ok) {
-      throw new PhysicsPortFailure('result', `physics port returned an invalid result: ${check.failure.detail}`);
-    }
-    this.lastCharacterResult = check.result;
-    if (controllerId !== undefined) {
-      const t = this.curr.get(controllerId);
-      if (t) {
-        // Authoritative commit: position.x/position.y only, before any
-        // phase-transform module runs.
-        t.position[0] = check.result.position.x;
-        t.position[1] = check.result.position.y;
-      }
-    }
-    if (this.staged.size > 0) this.staged.clear();
-  }
-
-  /**
-   * The 3D physics phase — one validated `port.step()`. The
-   * character falls under the project's gravity (`gravity_y` along Y, capped
-   * at `max_fall_speed`) and rests on what it lands on (its fall speed is
-   * zeroed while grounded); a move a module staged in the controller phase
-   * replaces the fall. Walking, jumping and turning are the controller's.
-   * The full position (x, y and z) is committed to the controller's transform.
-   */
-  private runPhysicsPhase3D(port: PhysicsPort3D): void {
-    // Cells written this step collide in this step's sweep.
-    this.grid.flushCollision(port);
-    const controllerId = this.controllerEntityId;
-    const t = controllerId !== undefined ? this.curr.get(controllerId) : undefined;
-    const previous: PhysicsVec3 = t ? { x: t.position[0], y: t.position[1], z: t.position[2] } : { x: 0, y: 0, z: 0 };
-    const dt = 1 / this.hz;
-    let requested = controllerId !== undefined ? this.staged3d.get(controllerId) : undefined;
-    if (requested === undefined && controllerId === undefined) {
-      // A world without a character (colliders for queries and movers): nothing falls.
-      requested = { x: 0, y: 0, z: 0 };
-      port.stageCharacterMove(requested);
-    } else if (requested === undefined) {
-      const grounded = this.lastCharacterResult3D?.grounded === true;
-      this.fallSpeed3d = grounded ? 0 : Math.max(this.settings.max_fall_speed, this.fallSpeed3d + this.settings.gravity_y * dt);
-      // Plus the platform it stands on (a mover's or script-driven collider's motion) and a mover's push.
-      const c3 = this.blocks?.carryDelta3() ?? [0, 0, 0];
-      requested = { x: c3[0]!, y: this.fallSpeed3d * dt + c3[1]!, z: c3[2]! };
-      port.stageCharacterMove(requested);
-    }
-    let raw: unknown;
-    this.physicsSteps += 1;
-    try {
-      raw = port.step();
-    } catch (e) {
-      throw new PhysicsPortFailure('threw', `physics port step() threw: ${messageOf(e)}`);
-    }
-    const check = validateCharacterMoveResult3D(raw, previous, requested, this.character3DClimb);
-    if (!check.ok) throw new PhysicsPortFailure('result', `physics port returned an invalid result: ${check.failure.detail}`);
-    this.lastCharacterResult3D = check.result;
-    // A landing (or a head bump) ends the fall; the next step starts from rest.
-    if (check.result.grounded || check.result.contacts.head) this.fallSpeed3d = 0;
-    if (t) {
-      t.position[0] = check.result.position.x;
-      t.position[1] = check.result.position.y;
-      t.position[2] = check.result.position.z;
-    }
-    if (this.staged.size > 0) this.staged.clear();
-    if (this.staged3d.size > 0) this.staged3d.clear();
-  }
-
   /**
    * The active camera's yaw for the 3D character's move input —
    * radians about +Y (0 looking along −Z) — or undefined (world axes). It is
@@ -4845,55 +4749,6 @@ class RuntimeInstance implements Runtime {
       return typeof v === 'number' && Number.isFinite(v) ? v : undefined;
     }
     return this.views.yaw();
-  }
-
-  /** Put the 3D character at an origin (the port's clearance rules), from rest. */
-  private placeCharacter3D(x: number, y: number, z: number): void {
-    const place = { x, y, z };
-    const port = this.physics3d;
-    const id = this.controllerEntityId;
-    if (port === undefined || id === undefined) return;
-    if (typeof port.placeCharacter !== 'function') throw new PhysicsPortFailure('threw', 'the 3D physics port cannot place the character');
-    try {
-      port.placeCharacter({ x: place.x, y: place.y, z: place.z });
-    } catch (e) {
-      throw new PhysicsPortFailure('threw', `physics port placeCharacter() threw: ${messageOf(e)}`);
-    }
-    this.blocks?.placed(id);
-    const t = this.curr.get(id);
-    if (t !== undefined) {
-      t.position[0] = place.x;
-      t.position[1] = place.y;
-      t.position[2] = place.z;
-    }
-    this.lastCharacterResult3D = undefined;
-    this.fallSpeed3d = 0;
-  }
-
-  /** `ctx.physics.characterState` — the 3D character after the last step (undefined in 2D or before it). */
-  private characterState3D(): CharacterState3D | undefined {
-    const r = this.lastCharacterResult3D;
-    if (this.physics3d === undefined || r === undefined) return undefined;
-    let status: { enabled?: unknown; climbing?: unknown; yaw?: unknown } | null = null;
-    for (const entry of this.entries) {
-      const probe = entry.instance as { character3DStatus?: () => { enabled: boolean; climbing: boolean; yaw: number } };
-      if (typeof probe.character3DStatus === 'function') {
-        status = probe.character3DStatus();
-        break;
-      }
-    }
-    const yaw = typeof status?.yaw === 'number' ? status.yaw : 0;
-    return Object.freeze({
-      position: Object.freeze({ x: r.position.x, y: r.position.y, z: r.position.z }),
-      velocity: Object.freeze({ x: r.applied.x * this.hz, y: r.applied.y * this.hz, z: r.applied.z * this.hz }),
-      grounded: r.grounded,
-      contacts: Object.freeze({ ...r.contacts }),
-      supportNormal: Object.freeze({ x: r.supportNormal.x, y: r.supportNormal.y, z: r.supportNormal.z }),
-      groundEntityId: r.groundEntityId ?? null,
-      enabled: status?.enabled !== false,
-      climbing: status?.climbing === true,
-      facing: (yaw * 180) / Math.PI,
-    });
   }
 
   /** Bring the moving colliders up to date at a step boundary (false after a fail-stop). */
@@ -5043,7 +4898,7 @@ class RuntimeInstance implements Runtime {
     };
     if (!this.isM2) return base;
     const actions = actionDiagnostics(this.actions);
-    const physics = physicsDiagnostics(this.physics ?? this.physics3d, this.controllerEntityId);
+    const physics = physicsDiagnostics(this.physics ?? this.physics3d, this.controllers.first);
     const logs = this.behaviorLogDiagnostics();
     const m2: RuntimeDiagnostics = {
       ...base,

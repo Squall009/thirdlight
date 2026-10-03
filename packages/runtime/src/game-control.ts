@@ -34,7 +34,7 @@ export function createGameControl(host: GameControlHost): BehaviorGameState {
       }
       return host.blocks()?.addCounter(name, Number(amount)) ?? false;
     },
-    health: (): { current: number; max: number } | null => host.blocks()?.healthView() ?? null,
+    health: (entityId?: string): { current: number; max: number } | null => (entityId === undefined || typeof entityId === 'string' ? (host.blocks()?.healthView(entityId) ?? null) : null),
     setVisible: (entityId: string, visible: boolean): void => {
       if (typeof entityId === 'string' && host.has(entityId)) host.blocks()?.setVisible(entityId, visible === true);
     },

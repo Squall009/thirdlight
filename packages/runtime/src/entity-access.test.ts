@@ -34,7 +34,7 @@ function harness(entities: EntityV3[]) {
     curr,
     order: () => [...docs.keys()],
     parentOf: (id) => docs.get(id)?.parentId,
-    controllerId: 'player',
+    controllerIds: ['player'],
     isKept: () => false,
     keepProblem: () => null,
     setKept: () => undefined,

@@ -23,7 +23,7 @@ const CONTROLLER: AnimatorControllerLike = {
 const entity = (id: string, animator: Record<string, unknown>): EntityV3 => ({ id, name: id, components: { transform: { position: [0, 0, 0] }, animator: { controller: 'npc', ...animator } } }) as unknown as EntityV3;
 
 function system(seed: number, entities: EntityV3[]): AnimatorSystem {
-  const s = new AnimatorSystem([CONTROLLER], { hz: 60, seed, characterId: () => '', transformOf: () => undefined, grounded: () => true, inactive: () => new Set(), stepIndex: () => 0, rigOf: () => null, worldMatrix: () => false, warn: () => undefined });
+  const s = new AnimatorSystem([CONTROLLER], { hz: 60, seed, characterIds: () => [], transformOf: () => undefined, grounded: () => true, inactive: () => new Set(), stepIndex: () => 0, rigOf: () => null, worldMatrix: () => false, warn: () => undefined });
   s.add(entities);
   return s;
 }

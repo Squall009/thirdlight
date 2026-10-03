@@ -480,11 +480,12 @@ export interface BehaviorModes {
  */
 export interface BehaviorLifecycle {
   /**
-   * Move the character (the controller's object) to a player spawn and stop it — the active spawn, or the one named (which becomes the active one). In 3D applied after this step's intent phase (a later phase: the next step); on the 2D plane at the next step boundary. `false` without a character or for an unknown spawn.
+   * Move a player character (a controller's object: `entityId`, absent: the first player controller) to a player spawn and stop it — the active spawn, or the one named (which becomes the active one). In 3D applied after this step's intent phase (a later phase: the next step); on the 2D plane at the next step boundary. `false` without that character or for an unknown spawn.
    * @graphNode Respawn player
    * @graphLabel spawnId spawn
+   * @graphLabel entityId player
    */
-  respawn(spawnId?: string): boolean;
+  respawn(spawnId?: string, entityId?: string): boolean;
   /**
    * Make a player spawn (an object with the Player spawn component) the one respawn uses.
    * @graphNode Set spawn point
@@ -782,11 +783,12 @@ export interface BehaviorGameState {
    */
   add(name: string, amount: number): boolean;
   /**
-   * The character's health (the controller's object), or null when it has none.
+   * A player character's health (a controller's object: `entityId`, absent: the first player controller), or null when it has none.
    * @graphPure
    * @graphNode Player health
+   * @graphLabel entityId player
    */
-  health(): { current: number; max: number } | null;
+  health(entityId?: string): { current: number; max: number } | null;
   /**
    * Show or hide an entity (and its children) until the next run; it still collides and triggers.
    * @graphNode Set visible
@@ -892,14 +894,15 @@ export interface BehaviorCollectible {
   restore(entityId: string): boolean;
 }
 
-/** `ctx.character` — the character (the object with the Character controller). */
+/** `ctx.character` — the player characters (the objects with a Character controller; several in local co-op). */
 export interface BehaviorCharacter {
   /**
-   * Add `velocity` [x, y, z] (m/s, each at most 100 either way) to the character's velocity at its next move — a push, a launch, a knock back or a bounce; its own acceleration then brings it back to what the input asks. A positive y lifts it off the ground. The 2D plane ignores z. Impulses in one step add up. False without a character or for a bad vector.
+   * Add `velocity` [x, y, z] (m/s, each at most 100 either way) to a player character's velocity at its next move (`entityId`, absent: the first player controller) — a push, a launch, a knock back or a bounce; its own acceleration then brings it back to what the input asks. A positive y lifts it off the ground. The 2D plane ignores z. Impulses in one step add up. False without that character or for a bad vector.
    * @graphNode Character impulse
    * @graphLabel velocity velocity
+   * @graphLabel entityId player
    */
-  impulse(velocity: readonly [number, number, number]): boolean;
+  impulse(velocity: readonly [number, number, number], entityId?: string): boolean;
 }
 
 /**

@@ -68,7 +68,7 @@ function withJumpButton(button: number): InputConfigLike {
 
 describe('characterPad', () => {
   it('reads the standard layout from the default actions', () => {
-    expect(characterPad(DEFAULT_INPUT_CONFIG)).toEqual({ jump: [0], left: [14], right: [15], axes: [0] });
+    expect(characterPad(DEFAULT_INPUT_CONFIG)).toEqual({ jump: [0], left: [14], right: [15], axes: [0], slot: null });
   });
 
   it('keeps the standard layout for a config without pad bindings (projects made before pad rebinding)', () => {
@@ -84,11 +84,21 @@ describe('characterPad', () => {
         { name: 'jump', type: 'button', map: 'gameplay', bindings: [{ kind: 'key', code: 'Space' }, { kind: 'gamepadButton', button: 3 }, { kind: 'gamepadButton', button: 7 }] },
       ],
     };
-    expect(characterPad(cfg)).toEqual({ jump: [3, 7], left: [4], right: [5], axes: [2] });
+    expect(characterPad(cfg)).toEqual({ jump: [3, 7], left: [4], right: [5], axes: [2], slot: null });
+  });
+
+  it('reads the pad its move/jump bindings name (a co-op player on their own pad); another pad\'s bindings are not its', () => {
+    const cfg: InputConfigLike = {
+      actions: [
+        { name: 'move', type: 'axis1d', map: 'gameplay', bindings: [{ kind: 'keys1d', negative: 'KeyA', positive: 'KeyD' }, { kind: 'gamepadAxis', axis: 0, pad: 0 }, { kind: 'gamepadAxis', axis: 2, pad: 1 }] },
+        { name: 'jump', type: 'button', map: 'gameplay', bindings: [{ kind: 'gamepadButton', button: 0, pad: 0 }] },
+      ],
+    };
+    expect(characterPad(cfg)).toEqual({ jump: [0], left: [14], right: [15], axes: [0], slot: 0 });
   });
 
   it('reads a fake pad through the bindings (the furthest axis wins; ignored buttons do not count)', () => {
-    const map = { jump: [3], left: [4], right: [5], axes: [0, 2] };
+    const map = { jump: [3], left: [4], right: [5], axes: [0, 2], slot: null };
     const buttons = Array.from({ length: 17 }, (_, i) => i === 3 || i === 5);
     expect(readCharacterPad(map, buttons, [0.3, 0, -0.9, 0])).toEqual({ jump: true, left: false, right: true, axis: -0.9 });
     expect(readCharacterPad(map, buttons, [0, 0, 0, 0], new Set([3])).jump).toBe(false);

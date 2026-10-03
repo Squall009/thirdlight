@@ -53,31 +53,57 @@ export const PROJECT_SAVE_FORMAT_VERSION = 2;
  * none) and the character (the controller's object) with its velocity (m/s;
  * z is 0 on the 2D plane) and, in 3D, the way it faces (degrees about +Y, as
  * `characterState().facing` reads it; older saves have none), or null
- * without a character.
+ * without a character. With several player controllers `character` is the
+ * first's and `characters` holds the others by their object (absent: a save
+ * of one player, or an older one — the others stay where they are).
  */
 export interface WorldSave {
   readonly scenes: readonly string[];
   readonly activeSpawn: string | null;
   readonly listedScene: number;
-  readonly character: { readonly position: readonly [number, number, number]; readonly velocity: readonly [number, number, number]; readonly facing?: number } | null;
+  readonly character: SavedCharacter | null;
+  readonly characters?: Readonly<Record<string, SavedCharacter>>;
+}
+
+/** A player controller's place in a save: position, velocity (m/s) and, in 3D, its facing (degrees). */
+export interface SavedCharacter {
+  readonly position: readonly [number, number, number];
+  readonly velocity: readonly [number, number, number];
+  readonly facing?: number;
 }
 
 const SCENE_ID_RE = ID_RE;
 
 /** A saved `world` block's shape (null: fine). */
 export function worldSaveProblem(v: unknown): string | null {
-  if (!isObj(v)) return 'world is an object { scenes, activeSpawn, listedScene, character }';
-  for (const k of Object.keys(v)) if (!['scenes', 'activeSpawn', 'listedScene', 'character'].includes(k)) return `unknown world field "${k.slice(0, 32)}"`;
+  if (!isObj(v)) return 'world is an object { scenes, activeSpawn, listedScene, character, characters? }';
+  for (const k of Object.keys(v)) if (!['scenes', 'activeSpawn', 'listedScene', 'character', 'characters'].includes(k)) return `unknown world field "${k.slice(0, 32)}"`;
   const scenes = v['scenes'];
   if (!Array.isArray(scenes) || !scenes.every((x) => typeof x === 'string' && SCENE_ID_RE.test(x))) return 'world.scenes lists scene ids';
   const spawn = v['activeSpawn'];
   if (spawn !== null && !(typeof spawn === 'string' && SCENE_ID_RE.test(spawn))) return 'world.activeSpawn is an entity id or null';
   if (!intIn(v['listedScene'], -1, Number.MAX_SAFE_INTEGER)) return 'world.listedScene is an integer from -1 (an index in the shell\'s scene list)';
   const c = v['character'];
-  if (c === null) return null;
+  if (c !== null) {
+    const problem = savedCharacterProblem(c, 'world.character', ' or null');
+    if (problem !== null) return problem;
+  }
+  const more = v['characters'];
+  if (more === undefined) return null;
+  if (!isObj(more)) return 'world.characters is an object of player controllers by their object id';
+  for (const [id, x] of Object.entries(more)) {
+    if (!SCENE_ID_RE.test(id)) return 'world.characters is keyed by object ids';
+    const problem = savedCharacterProblem(x, `world.characters.${id}`);
+    if (problem !== null) return problem;
+  }
+  return null;
+}
+
+/** A saved player controller's shape (null: fine). */
+function savedCharacterProblem(c: unknown, label: string, orElse = ''): string | null {
   const vec = (x: unknown, lim: number): boolean => Array.isArray(x) && x.length === 3 && x.every((n) => typeof n === 'number' && Number.isFinite(n) && Math.abs(n) <= lim);
-  if (!isObj(c) || Object.keys(c).some((k) => k !== 'position' && k !== 'velocity' && k !== 'facing') || !vec(c['position'], 1e6) || !vec(c['velocity'], 1e4)) return 'world.character is { position: [x, y, z], velocity: [x, y, z], facing? } or null';
-  if (c['facing'] !== undefined && !(typeof c['facing'] === 'number' && Number.isFinite(c['facing']) && Math.abs(c['facing']) <= 360)) return 'world.character.facing is degrees (-360 to 360)';
+  if (!isObj(c) || Object.keys(c).some((k) => k !== 'position' && k !== 'velocity' && k !== 'facing') || !vec(c['position'], 1e6) || !vec(c['velocity'], 1e4)) return `${label} is { position: [x, y, z], velocity: [x, y, z], facing? }${orElse}`;
+  if (c['facing'] !== undefined && !(typeof c['facing'] === 'number' && Number.isFinite(c['facing']) && Math.abs(c['facing']) <= 360)) return `${label}.facing is degrees (-360 to 360)`;
   return null;
 }
 /** The always-on `world` of a schema that does not opt in or out (one Problems line per Play). */

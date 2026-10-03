@@ -45,6 +45,31 @@ describe('input actions', () => {
     expect(e.sample(raw([], [], pad([], [0, 0, 0.6, 0])))['look']!.v).toBe(-1);
   });
 
+  it('a binding naming a pad reads that pad only (each co-op player on their own pad); without one, the pad used last', () => {
+    const cfg: InputConfigLike = {
+      actions: [
+        { name: 'move', type: 'axis2d', map: 'gameplay', bindings: [{ kind: 'gamepadStick', x: 0, y: 1, pad: 0 }] },
+        { name: 'jump', type: 'button', map: 'gameplay', bindings: [{ kind: 'gamepadButton', button: 0, pad: 0 }] },
+        { name: 'move_p2', type: 'axis2d', map: 'gameplay', bindings: [{ kind: 'gamepadStick', x: 0, y: 1, pad: 1 }] },
+        { name: 'jump_p2', type: 'button', map: 'gameplay', bindings: [{ kind: 'gamepadButton', button: 0, pad: 1 }] },
+        { name: 'menu', type: 'button', map: 'ui', bindings: [{ kind: 'gamepadButton', button: 0 }] },
+      ],
+    };
+    const e = createActionEvaluator(cfg);
+    const first = pad([], [1, 0, 0, 0]);
+    const second = pad([0], [-1, 0, 0, 0]);
+    // The second pad is the one used last (the active pad); its stick and button drive only the second player.
+    const a = e.sample({ ...raw([], [], second), pads: [first, second] });
+    expect(a['move']!.x).toBe(1);
+    expect(a['jump']!.p).toBe('none');
+    expect(a['move_p2']!.x).toBe(-1);
+    expect(a['jump_p2']!.p).toBe('pressed');
+    // A binding without a pad reads the active pad.
+    expect(a['menu']!.p).toBe('pressed');
+    // A slot with no pad reads as released.
+    expect(e.sample({ ...raw(), pads: [first, null] })['move_p2']!.x).toBe(0);
+  });
+
   it('derives the character controller keys from move/jump', () => {
     expect(characterKeys(DEFAULT_INPUT_CONFIG)).toEqual({ left: ['KeyA', 'ArrowLeft'], right: ['KeyD', 'ArrowRight'], jump: ['Space'] });
   });

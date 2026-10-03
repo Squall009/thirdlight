@@ -33,6 +33,7 @@
 import type {
   ActionFrame,
   ClimbVolumeView,
+  ControllerIntents,
   JumpPhase,
   CharacterMoveResult,
   GameplaySettings,
@@ -332,9 +333,9 @@ function moveOf(frame: ActionFrame, name: string): number {
  * axis) when the controller names one, else the move action's y; a script's
  * `control_move` intent gives its y instead.
  */
-function climbInput(ctx: { readonly action: ActionFrame; readonly intents: { readonly move: number | null; readonly moveY?: number | null } }, move: string, climbAction: string | null): number {
-  if (ctx.intents.move !== null && climbAction === null) return ctx.intents.moveY ?? 0;
-  const a = ctx.action.actions?.[climbAction ?? move];
+function climbInput(action: ActionFrame, intents: { readonly move: number | null; readonly moveY?: number | null }, move: string, climbAction: string | null): number {
+  if (intents.move !== null && climbAction === null) return intents.moveY ?? 0;
+  const a = action.actions?.[climbAction ?? move];
   if (a === undefined) return 0;
   return climbAction !== null ? (a.y ?? a.v) : (a.y ?? 0);
 }
@@ -510,32 +511,41 @@ function climbStep(state: ControllerState, charId: string, moveX: number, climbY
   physics.stageCharacterMove(charId, { x: state.vx * dt, y: state.vy * dt });
 }
 
-/** The single `components.controller` entity id of a v2 snapshot. */
-export function findControllerEntity(snapshot: RuntimeSnapshot): string {
+/**
+ * The `components.controller` entity ids of a v2 snapshot, in its order —
+ * every player controller (several share a view in local co-op; the first
+ * is the one a call naming none means).
+ */
+export function findControllerEntities(snapshot: RuntimeSnapshot): string[] {
   const ids = snapshot.scene.entities
     .filter((entity) => (entity.components as { controller?: unknown }).controller !== undefined)
     .map((entity) => entity.id);
-  if (ids.length !== 1) {
+  if (ids.length === 0) {
     // The runtime validates `controller_target` before `create`; this is the
-    // defensive path so a direct caller cannot build an ambiguous controller.
-    throw new Error(
-      `thirdlight.character:controller requires exactly one components.controller entity (found ${ids.length})`,
-    );
+    // defensive path so a direct caller cannot build a controller of nothing.
+    throw new Error('thirdlight.character:controller requires a components.controller entity (found 0)');
   }
-  return ids[0] as string;
+  return ids;
 }
 
-/** Build a controller module instance. */
+/** A controller's channels when nothing was asked of it this step. */
+const NO_INTENTS: ControllerIntents = Object.freeze({ move: null, jump: null });
+
+/** One player controller of the module: its object, step state, tuning and the actions it reads. */
+interface Controlled {
+  readonly id: string;
+  readonly state: ControllerState;
+  readonly tuning: ControllerStepTuning;
+  readonly names: { move: string; jump: string };
+  readonly movement: ControllerMovementTuning;
+}
+
+/** Build a controller module instance (one for every player controller of the snapshot). */
 export function createControllerModule(
   snapshot: RuntimeSnapshot,
   cfg: ModuleConfig,
 ): SimulationPhaseModule {
-  const charId = findControllerEntity(snapshot);
-  const entity = snapshot.scene.entities.find((e) => e.id === charId);
-  const transform = entity?.components.transform;
-  if (!transform) {
-    throw new Error(`thirdlight.character:controller entity "${charId}" has no transform component`);
-  }
+  const ids = findControllerEntities(snapshot);
   if (cfg.fixedStepHz <= 0 || !Number.isFinite(cfg.fixedStepHz)) {
     throw new Error('thirdlight.character:controller requires a positive fixedStepHz');
   }
@@ -543,79 +553,115 @@ export function createControllerModule(
   const cosMaxSlopeClimb = Math.cos((cfg.settings.max_slope_climb_deg * Math.PI) / 180);
   const cosMinSlopeSlide = Math.cos((cfg.settings.min_slope_slide_deg * Math.PI) / 180);
   const tanMinSlopeSlide = Math.tan((cfg.settings.min_slope_slide_deg * Math.PI) / 180);
-  // The player's tuning (its controller data, else the defaults).
-  const tuning = controllerStepTuning((entity?.components as { controller?: unknown } | undefined)?.controller, cfg.fixedStepHz);
-  const state = createControllerState(transform.position[0], transform.position[1], tuning.coyoteSteps);
-  // The input actions it reads.
-  const names = controllerActionNames((entity?.components as { controller?: unknown } | undefined)?.controller);
-  // Climbing and walls.
-  const movementTuning = controllerMovementTuning((entity?.components as { controller?: unknown } | undefined)?.controller);
+  const controlled: Controlled[] = ids.map((charId) => {
+    const entity = snapshot.scene.entities.find((e) => e.id === charId);
+    const transform = entity?.components.transform;
+    if (!transform) {
+      throw new Error(`thirdlight.character:controller entity "${charId}" has no transform component`);
+    }
+    const controller = (entity?.components as { controller?: unknown } | undefined)?.controller;
+    // Each player's tuning (its controller data, else the defaults) and the input actions it reads.
+    const tuning = controllerStepTuning(controller, cfg.fixedStepHz);
+    return {
+      id: charId,
+      state: createControllerState(transform.position[0], transform.position[1], tuning.coyoteSteps),
+      tuning,
+      names: controllerActionNames(controller),
+      // Climbing and walls.
+      movement: controllerMovementTuning(controller),
+    };
+  });
+  const byId = new Map(controlled.map((c) => [c.id, c]));
+
+  /**
+   * Zero every window and velocity the step-indexed state can carry, so
+   * nothing an earlier step left behind (a buffered or held jump, the coyote
+   * window, the last result's grounding/support normal) survives the
+   * placement. The next physics phase re-derives grounding from the placed
+   * capsule. `slideSteps` is a bounded diagnostic counter, not a window, so
+   * it is preserved.
+   */
+  const resetState = (state: ControllerState, center: { readonly x: number; readonly y: number }): void => {
+    state.vx = 0;
+    state.vy = 0;
+    state.airborne = false; // the jump-release (variable-height) flag
+    state.coyote = 0;
+    state.buffer = 0;
+    state.jumpStarted = false;
+    state.prevResult = undefined; // clears grounding/groundedPrev/support normal
+    state.charX = center.x;
+    state.charY = center.y;
+    state.climbing = null;
+    state.wallSide = 0;
+    state.wallCoyote = 0;
+    state.wallJumped = false;
+    state.wallLockSteps = 0;
+  };
 
   return {
-    transformOwners: [charId],
+    transformOwners: ids,
     /**
-     * The reset hook (the character was placed: a restart, an arrival, a
-     * respawn): zero every window and velocity the step-indexed state can
-     * carry, so nothing an earlier step left behind (a buffered or held jump,
-     * the coyote window, the last result's grounding/support normal) survives
-     * the placement. The next physics phase re-derives grounding from the
-     * placed capsule. `slideSteps` is a bounded diagnostic counter, not a
-     * window, so it is preserved.
+     * The reset hook (a character was placed: a restart, an arrival, a
+     * respawn). A placement names its controller; a run restart resets
+     * every controller — the first at the reset centre, the others where
+     * they start (the restored transforms).
      */
     reset(ctx: ModuleResetContext): void {
-      state.vx = 0;
-      state.vy = 0;
-      state.airborne = false; // the jump-release (variable-height) flag
-      state.coyote = 0;
-      state.buffer = 0;
-      state.jumpStarted = false;
-      state.prevResult = undefined; // clears grounding/groundedPrev/support normal
-      state.charX = ctx.playerCenter.x;
-      state.charY = ctx.playerCenter.y;
-      state.climbing = null;
-      state.wallSide = 0;
-      state.wallCoyote = 0;
-      state.wallJumped = false;
-      state.wallLockSteps = 0;
+      if (ctx.characterId !== undefined) {
+        const c = byId.get(ctx.characterId);
+        if (c !== undefined) resetState(c.state, ctx.playerCenter);
+        return;
+      }
+      controlled.forEach((c, i) => {
+        const t = i === 0 ? undefined : ctx.state.curr.get(c.id);
+        resetState(c.state, i === 0 || t === undefined ? (i === 0 ? ctx.playerCenter : { x: c.state.charX, y: c.state.charY }) : { x: t.position[0], y: t.position[1] });
+      });
     },
     step(phase, ctx): void {
       if (phase === 'controller') {
-        // Effective input: a committed intent for a channel
-        // replaces the sampled channel for this phase only (`ctx.action`
-        // itself stays the sampled frame).
-        const effective: ControllerInput = {
-          stepIndex: ctx.action.stepIndex,
-          moveX: ctx.intents.move ?? moveOf(ctx.action, names.move),
-          jump: ctx.intents.jump ?? phaseOf(ctx.action, names.jump),
-        };
-        controllerStep(
-          state,
-          charId,
-          effective,
-          ctx.settings,
-          dt,
-          cosMaxSlopeClimb,
-          cosMinSlopeSlide,
-          tanMinSlopeSlide,
-          ctx.physics,
-          tuning,
-          ctx.intents.impulse,
-          {
-            climbY: climbInput(ctx, names.move, movementTuning.climbAction),
-            climb: ctx.climb?.volume() ?? null,
-            tuning: movementTuning,
-          },
-        );
+        controlled.forEach((c, i) => {
+          // A further controller whose object is not in the game (its scene is not loaded) does not move.
+          if (i > 0 && !ctx.state.curr.has(c.id)) return;
+          const intents: ControllerIntents = i === 0 ? ctx.intents : (ctx.intents.controllers?.[c.id] ?? NO_INTENTS);
+          // Effective input: a committed intent for a channel
+          // replaces the sampled channel for this phase only (`ctx.action`
+          // itself stays the sampled frame).
+          const effective: ControllerInput = {
+            stepIndex: ctx.action.stepIndex,
+            moveX: intents.move ?? moveOf(ctx.action, c.names.move),
+            jump: intents.jump ?? phaseOf(ctx.action, c.names.jump),
+          };
+          controllerStep(
+            c.state,
+            c.id,
+            effective,
+            ctx.settings,
+            dt,
+            cosMaxSlopeClimb,
+            cosMinSlopeSlide,
+            tanMinSlopeSlide,
+            ctx.physics,
+            c.tuning,
+            intents.impulse,
+            {
+              climbY: climbInput(ctx.action, intents, c.names.move, c.movement.climbAction),
+              climb: ctx.climb?.volume(c.id) ?? null,
+              tuning: c.movement,
+            },
+          );
+        });
         return;
       }
       // transform phase: the runtime has already committed the port result
       // (see `runtime.md`); record it as the next step's
       // `prevResult`. The module writes no transform of its own.
-      const result = ctx.physics.characterResult(charId);
-      if (result !== undefined) {
-        state.prevResult = result;
-        state.charX = result.position.x;
-        state.charY = result.position.y;
+      for (const c of controlled) {
+        const result = ctx.physics.characterResult(c.id);
+        if (result !== undefined) {
+          c.state.prevResult = result;
+          c.state.charX = result.position.x;
+          c.state.charY = result.position.y;
+        }
       }
     },
     dispose(): void {
@@ -626,7 +672,7 @@ export function createControllerModule(
 
 /**
  * The registered controller module spec:
- * phases `["controller", "transform"]`, the single `components.controller`
+ * phases `["controller", "transform"]`, every `components.controller`
  * entity as its transform owner, mutually exclusive with the demo box module
  * and requiring the injected physics port.
  */

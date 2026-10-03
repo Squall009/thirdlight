@@ -46,7 +46,7 @@ function setup(lookAt: Record<string, unknown>) {
     ['friend', { position: [5 * Math.sin(60 * DEG), 1.5, 5 * Math.cos(60 * DEG)], rotation: [0, 0, 0, 1], scale: [1, 1, 1] }],
   ]);
   const poser = new RigPoser(RIG, 'asset-0001');
-  const sys = new AnimatorSystem([CONTROLLER], { hz: HZ, seed: 0, characterId: () => '', transformOf: (id) => transforms.get(id), grounded: () => true, inactive: () => new Set(), stepIndex: () => 0, rigOf: (id) => (id === 'npc' ? poser : null), worldMatrix: world(transforms), warn: () => undefined });
+  const sys = new AnimatorSystem([CONTROLLER], { hz: HZ, seed: 0, characterIds: () => [], transformOf: (id) => transforms.get(id), grounded: () => true, inactive: () => new Set(), stepIndex: () => 0, rigOf: (id) => (id === 'npc' ? poser : null), worldMatrix: world(transforms), warn: () => undefined });
   sys.add([{ id: 'npc', name: 'npc', components: { transform: { position: [0, 0, 0] }, model: { asset: { assetId: 'asset-0001' } }, animator: { controller: 'npc', lookAt } } } as unknown as EntityV3]);
   /** The head's forward (+Z) as drawn by the rig poser: its yaw in degrees. */
   const headYaw = (): number => {

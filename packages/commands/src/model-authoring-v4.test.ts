@@ -194,13 +194,12 @@ describe('fixtures/m2/commands/model-authoring.messages.json replay (C27-1/C28-1
       mutation(s2.state, 'setComponent', { entityId: 'model-000001', component: 'controller', value: {} }),
     );
     expect(add.result.change).toMatchObject({ component: 'controller', previous: null, next: {}, changedFields: [] });
-    // Two players in one scene is a state an author passes through (moving the player to another
-    // object): the edit is taken, and the game's start refuses it.
+    // Two players in one scene (local co-op) is a game the start takes: they share the view.
     const second = ok(
       mutation(add.state, 'setComponent', { entityId: 'model-000002', component: 'controller', value: {} }),
     );
     const sceneId = second.state.scene.sceneId;
-    expect(playChecks({}, [second.state.scene], [sceneId]).find((c) => c.code === 'player_count')?.refuse).toBe(true);
+    expect(playChecks({}, [second.state.scene], [sceneId]).some((c) => c.refuse)).toBe(false);
     const remove = ok(
       mutation(add.state, 'setComponent', { entityId: 'model-000001', component: 'controller', value: null }),
     );

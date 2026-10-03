@@ -29,6 +29,12 @@ export type IntentKind = 'control_move' | 'control_jump' | 'transform' | 'pose' 
  */
 export interface ControlMoveIntent {
   kind: 'control_move';
+  /**
+   * The player controller it drives — its object's id (a game with several
+   * player controllers; absent: the first, so a one-player game never names it).
+   * @graphNode skip the node drives the first player controller (scripts may name another)
+   */
+  entityId?: string;
   value: number;
   /**
    * The move vector's second axis (forward, like a stick pushed up;
@@ -46,6 +52,12 @@ export interface ControlMoveIntent {
  */
 export interface ControlJumpIntent {
   kind: 'control_jump';
+  /**
+   * The player controller it drives — its object's id (a game with several
+   * player controllers; absent: the first, so a one-player game never names it).
+   * @graphNode skip the node drives the first player controller (scripts may name another)
+   */
+  entityId?: string;
   value: JumpPhase;
 }
 
@@ -124,6 +136,12 @@ export interface PoseIntent {
  */
 export interface RespawnIntent {
   kind: 'respawn';
+  /**
+   * The player controller it drives — its object's id (a game with several
+   * player controllers; absent: the first, so a one-player game never names it).
+   * @graphNode skip the node drives the first player controller (scripts may name another)
+   */
+  entityId?: string;
 }
 
 /**
@@ -136,6 +154,12 @@ export interface RespawnIntent {
  */
 export interface CharacterMoveIntent {
   kind: 'character_move';
+  /**
+   * The player controller it drives — its object's id (a game with several
+   * player controllers; absent: the first, so a one-player game never names it).
+   * @graphNode skip the node drives the first player controller (scripts may name another)
+   */
+  entityId?: string;
   x: number;
   z: number;
   run?: boolean;
@@ -152,6 +176,12 @@ export interface CharacterMoveIntent {
  */
 export interface CharacterPlaceIntent {
   kind: 'character_place';
+  /**
+   * The player controller it drives — its object's id (a game with several
+   * player controllers; absent: the first, so a one-player game never names it).
+   * @graphNode skip the node drives the first player controller (scripts may name another)
+   */
+  entityId?: string;
   /** Where its origin goes, [x, y, z] (m; on the 2D plane z is ignored). */
   position: readonly [number, number, number];
   /**
@@ -171,6 +201,12 @@ export interface CharacterPlaceIntent {
  */
 export interface CharacterEnableIntent {
   kind: 'character_enable';
+  /**
+   * The player controller it drives — its object's id (a game with several
+   * player controllers; absent: the first, so a one-player game never names it).
+   * @graphNode skip the node drives the first player controller (scripts may name another)
+   */
+  entityId?: string;
   enabled: boolean;
 }
 
@@ -207,6 +243,36 @@ export interface IntentSet {
   readonly impulse?: { readonly x: number; readonly y: number; readonly z: number };
   /** The yaw (radians about +Y, 0 facing +Z) a placement this step faces (a spawn's yaw; absent: as it was). */
   readonly characterYaw?: number;
+  /**
+   * The further player controllers' channels this step, by their object's id
+   * (present only when an intent, an impulse or a placement named one; the
+   * fields above are the first controller's). Read them with `controllerIntents`.
+   */
+  readonly controllers?: Readonly<Record<string, ControllerIntents>>;
+}
+
+/** One player controller's channels of a step (the `IntentSet` fields a controller reads). */
+export interface ControllerIntents {
+  readonly move: number | null;
+  readonly jump: JumpPhase | null;
+  readonly moveY?: number | null;
+  readonly characterMove?: { readonly x: number; readonly z: number; readonly run: boolean } | null;
+  readonly characterPlace?: { readonly x: number; readonly y: number; readonly z: number } | null;
+  readonly characterEnabled?: boolean | null;
+  readonly impulse?: { readonly x: number; readonly y: number; readonly z: number };
+  readonly characterYaw?: number;
+}
+
+const NO_CONTROLLER_INTENTS: ControllerIntents = Object.freeze({ move: null, jump: null });
+
+/**
+ * A player controller's channels of a step: the first controller's are the
+ * set's own fields, a further one's are under `controllers` (none: nothing
+ * asked of it this step).
+ */
+export function controllerIntents(intents: IntentSet, entityId: string, first: boolean): ControllerIntents {
+  if (first) return intents;
+  return intents.controllers?.[entityId] ?? NO_CONTROLLER_INTENTS;
 }
 
 /**
@@ -360,6 +426,8 @@ export function validateIntentShape(value: unknown): IntentShapeResult {
   if (kind !== 'control_move' && kind !== 'control_jump' && kind !== 'transform' && kind !== 'pose' && kind !== 'respawn' && kind !== 'character_move' && kind !== 'character_place' && kind !== 'character_enable') {
     return { ok: false, error: invalid('shape', `unknown intent kind ${JSON.stringify(String(kind))}`) };
   }
+  // A player controller intent may name its controller, right after its kind.
+  if (kind !== 'transform' && kind !== 'pose' && hasOwn.call(value, 'entityId')) return controllerNamedShape(kind, value);
   if (kind === 'pose') return poseShape(value);
   // A control_move with its second axis; the character intents.
   if (kind === 'control_move' && hasOwn.call(value, 'y')) return controlMoveYShape(value);
@@ -392,6 +460,28 @@ export function validateIntentShape(value: unknown): IntentShapeResult {
   const parsed = transformBase(value);
   if (!('entityId' in parsed)) return parsed;
   return accepted(kind, parsed);
+}
+
+/**
+ * A player controller intent that names its controller: `entityId` (a
+ * non-empty string) is its second field, the rest is the intent's own shape.
+ */
+function controllerNamedShape(kind: IntentKind, value: Record<string, unknown>): IntentShapeResult {
+  let i = 0;
+  for (const key in value) {
+    if (!hasOwn.call(value, key)) continue;
+    if (i === 1 && key !== 'entityId') return { ok: false, error: invalid('shape', `${kind}.entityId must come right after kind (canonical order)`) };
+    if (i === 1) break;
+    i += 1;
+  }
+  const entityId = value['entityId'];
+  if (typeof entityId !== 'string' || entityId === '') return { ok: false, error: invalid('shape', `${kind}.entityId must be a player controller's object id`) };
+  const rest: Record<string, unknown> = {};
+  for (const key in value) if (hasOwn.call(value, key) && key !== 'entityId') rest[key] = value[key];
+  const inner = validateIntentShape(rest);
+  if (!inner.ok) return inner;
+  const { kind: _kind, ...fields } = inner.intent as unknown as Record<string, unknown>;
+  return accepted(kind, { kind, entityId, ...fields } as unknown as BehaviorIntent);
 }
 
 /** `{kind, value, y}` (both numbers, in that order). */

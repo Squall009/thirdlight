@@ -19,9 +19,7 @@ function blocksWith(mover: Record<string, unknown>): { blocks: GameplayBlocks; x
     hz: HZ,
     physics: undefined,
     curr,
-    characterId: '',
-    characterCapsule: { radius: 0.3, halfHeight: 0.6, offset: { x: 0, y: 0 } },
-    character: () => null,
+    characters: [],
     groundEntityId: () => null,
   };
   const blocks = new GameplayBlocks(host, [e]);

@@ -15,8 +15,8 @@
  */
 import type { EntityV3 } from '@thirdlight/project-model';
 
-import type { WorldSave } from './project-saves';
-import type { MutableIntentSet } from './mutable-intents';
+import type { SavedCharacter, WorldSave } from './project-saves';
+import type { MutableControllerChannels } from './mutable-intents';
 import type { TransformState } from './types-simulation';
 
 /** The largest impulse component a script may give the character (m/s; a safety limit, far above a jump). */
@@ -28,7 +28,7 @@ type Vec3 = [number, number, number];
 export interface CharacterPlacementHost {
   /** A 3D project (the 3D port is present). */
   is3D(): boolean;
-  /** The player character (the controller's entity), if the game has one. */
+  /** The player character this placement moves (a controller's entity), if the game has one. */
   controllerId(): string | undefined;
   /** An object's transform this step (written in place). */
   transform(id: string): TransformState | undefined;
@@ -51,8 +51,8 @@ export interface CharacterPlacementHost {
   faceSpawn2D(id: string, yaw: number): void;
   /** Fail-stop the run (a placement threw). */
   failStop(e: unknown): void;
-  /** The intent set of this step (a placement is its `characterPlace`). */
-  intents(): MutableIntentSet;
+  /** The character's intent channels of this step (a placement is its `characterPlace`). */
+  intents(): MutableControllerChannels;
   /** The intent view changed. */
   intentsChanged(): void;
   /** Replace the impulse waiting for the character's next controller phase (a save's velocity). */
@@ -219,7 +219,7 @@ export class CharacterPlacement {
   }
 
   /** Where the character is in a save: its position, velocity (m/s) and, in 3D, the way it faces (degrees). */
-  captureCharacter(): WorldSave['character'] {
+  captureCharacter(): SavedCharacter | null {
     const id = this.host.controllerId();
     const t = id !== undefined ? this.host.transform(id) : undefined;
     if (t === undefined) return null;
@@ -233,10 +233,9 @@ export class CharacterPlacement {
     return { position: [t.position[0], t.position[1], t.position[2]], velocity: [v(r?.x), v(r?.y), is3D ? v(r?.z) : 0], ...(is3D && facing !== undefined && Number.isFinite(facing) ? { facing: normalizedDegrees(facing) } : {}) };
   }
 
-  /** A loaded save: the character goes where it was once the saved scenes are in (`atBoundary`); no arrival is left waiting. */
-  restoreFrom(world: WorldSave): void {
+  /** A loaded save: the character goes where it was (`c`; null: it stays) once the saved scenes are in (`atBoundary`); no arrival is left waiting. */
+  restoreFrom(world: WorldSave, c: SavedCharacter | null): void {
     this.arrival = null;
-    const c = world.character;
     this.restore = c === null || this.host.controllerId() === undefined ? null : { position: c.position, velocity: c.velocity, ...(c.facing !== undefined ? { facing: c.facing } : {}), waitFor: [...world.scenes] };
   }
 
@@ -317,4 +316,91 @@ export class CharacterPlacement {
 function normalizedDegrees(d: number): number {
   const x = ((((d + 180) % 360) + 360) % 360) - 180;
   return Object.is(x, -0) ? 0 : x;
+}
+
+/**
+ * Every player controller's placement — one `CharacterPlacement` each, in
+ * controller order (the first is index 0). A respawn or a script's placement
+ * names its controller; a scene transition's arrival, a listed scene's spawn
+ * (each kept controller) and a run restart place them all; a save keeps the
+ * first under `character` and the others under `characters`.
+ */
+export class ControllerPlacements {
+  private readonly list: readonly { readonly id: string; readonly placement: CharacterPlacement }[];
+
+  constructor(ids: readonly string[], make: (id: string) => CharacterPlacement) {
+    this.list = ids.map((id) => ({ id, placement: make(id) }));
+  }
+
+  /** A controller's placement (undefined: not a controller). */
+  of(id: string): CharacterPlacement | undefined {
+    return this.list.find((x) => x.id === id)?.placement;
+  }
+
+  /** Whether a save's placement is waiting for any controller. */
+  get restoring(): boolean {
+    return this.list.some((x) => x.placement.restoring);
+  }
+
+  /** At a step boundary, every controller's waiting arrival and save placement. Returns false after a fail-stop. */
+  atBoundary(ordinal: number): boolean {
+    return this.list.every((x) => x.placement.atBoundary(ordinal));
+  }
+
+  /** On the 2D plane every waiting respawn places its controller at the boundary. Returns false after a fail-stop. */
+  respawn2DAtBoundary(ordinal: number): boolean {
+    return this.list.every((x) => x.placement.respawn2DAtBoundary(ordinal));
+  }
+
+  beginStep(): void {
+    for (const x of this.list) x.placement.beginStep();
+  }
+
+  /** After the intent phase: each controller's respawn or script placement (throws a port failure). */
+  afterIntentPhase(ordinal: number): void {
+    for (const x of this.list) x.placement.afterIntentPhase(ordinal);
+  }
+
+  /** A step without an intent phase places each waiting 3D respawn now (throws a port failure). */
+  respawn3DNow(): void {
+    for (const x of this.list) x.placement.respawn3DNow();
+  }
+
+  restartRun(): void {
+    for (const x of this.list) x.placement.restartRun();
+  }
+
+  startSetRestored(): void {
+    for (const x of this.list) x.placement.startSetRestored();
+  }
+
+  dropArrivalAt(ids: ReadonlySet<string>): void {
+    for (const x of this.list) x.placement.dropArrivalAt(ids);
+  }
+
+  /** Every controller arrives at a spawn once a scene is loaded (a transition, the scene list). */
+  arriveAt(spawnId: string, waitFor: string): void {
+    for (const x of this.list) x.placement.arriveAt(spawnId, waitFor);
+  }
+
+  /** Every kept controller arrives at a listed scene's spawn when it loads. */
+  arriveAtListedSpawn(sceneId: string): void {
+    for (const x of this.list) x.placement.arriveAtListedSpawn(sceneId);
+  }
+
+  /** A loaded save: the first controller from `character`, the others from `characters` (absent: they stay). */
+  restoreFrom(world: WorldSave): void {
+    this.list.forEach((x, i) => x.placement.restoreFrom(world, i === 0 ? world.character : (world.characters?.[x.id] ?? null)));
+  }
+
+  /** The controllers in a save: the first as `character`, the others as `characters` (absent with one). */
+  capture(): Pick<WorldSave, 'character' | 'characters'> {
+    const first = this.list[0]?.placement.captureCharacter() ?? null;
+    const more: Record<string, SavedCharacter> = {};
+    for (let i = 1; i < this.list.length; i += 1) {
+      const c = this.list[i]!.placement.captureCharacter();
+      if (c !== null) more[this.list[i]!.id] = c;
+    }
+    return Object.keys(more).length > 0 ? { character: first, characters: more } : { character: first };
+  }
 }

@@ -106,11 +106,12 @@ export interface PhysicsStepClient {
    */
   stageCharacterMove(entityId: string, delta: Vec2): void;
   /**
-   * The last completed step's result, or `undefined` before the first step.
+   * A player controller's result of the last completed step (`entityId`, absent: the first player controller), or `undefined` before the first step.
    * @graphPure
    * @graphNode Character result
+   * @graphLabel entityId player
    */
-  characterResult(entityId: string): CharacterMoveResult | undefined;
+  characterResult(entityId?: string): CharacterMoveResult | undefined;
   /**
    * A ray against the level's colliders (bounded per step; null when nothing is hit).
    * @graphNode Raycast
@@ -131,14 +132,16 @@ export interface PhysicsStepClient {
    */
   overlapCircle?(center: Vec2, radius: number): string[];
   /**
-   * 3D projects: the player character's state after the last
-   * completed step — position, velocity, grounding, contacts, whether its
-   * controller is on and whether it is climbing a ledge — or undefined (a 2D
-   * plane, or before the first step).
+   * 3D projects: a player character's state after the last
+   * completed step (`entityId`, absent: the first player controller) —
+   * position, velocity, grounding, contacts, whether its controller is on
+   * and whether it is climbing a ledge — or undefined (a 2D plane, before the
+   * first step, or not a player controller).
    * @graphPure
    * @graphNode Character state
+   * @graphLabel entityId player
    */
-  characterState?(entityId: string): CharacterState3D | undefined;
+  characterState?(entityId?: string): CharacterState3D | undefined;
   /**
    * 3D projects: the nearest collider a ray from `origin` along `direction` hits within `maxDistance` metres (default 100), or null — its object, the point, the surface normal and the distance. Counted with the other queries (at most 64 a step).
    * @graphNode Raycast 3D

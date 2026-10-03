@@ -30,15 +30,10 @@ function harness(entities: EntityV3[], o: { dim3?: boolean } = {}) {
     hz: HZ,
     physics: undefined,
     curr,
-    characterId: 'actor',
-    characterCapsule: { radius: 0.3, halfHeight: 0.6, offset: { x: 0, y: 0 } },
-    character: () => {
-      const t = curr.get('actor');
-      return t === undefined ? null : { x: t.position[0], y: t.position[1] };
-    },
+    characters: [{ id: 'actor', capsule: { radius: 0.3, halfHeight: 0.6, offset: { x: 0, y: 0 } }, skin: 0.01, offsetZ: 0 }],
     groundEntityId: () => null,
     sceneTransition: (trigger, t) => void transitions.push({ trigger, t }),
-    ...(o.dim3 === true ? { physics3d: {} as never, character3: () => [...curr.get('actor')!.position] as [number, number, number] } : {}),
+    ...(o.dim3 === true ? { physics3d: {} as never } : {}),
   };
   const blocks = new GameplayBlocks(host, entities);
   let i = 0;

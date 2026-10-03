@@ -424,22 +424,27 @@ function pageAssetLoader(o: {
   };
 }
 
-/** The scene-derived Rapier init config (statics + the player controller) with the resolved `gravity_y`. */
+/**
+ * The scene-derived Rapier init config (statics + the player controllers:
+ * the first as the port's character, the others as its further characters)
+ * with the resolved `gravity_y`.
+ */
 function physicsConfigFromSnapshot(snapshot: RuntimeSnapshot, settings: GameplaySettings): RapierPhysicsInitConfig | null {
   const statics: RapierStaticColliderSpec[] = [];
-  let character: RapierPhysicsInitConfig['character'] | null = null;
-  let tuning = playerPhysicsOf(undefined);
+  const players: { id: string; character: RapierPhysicsInitConfig['character']; controller: RapierPhysicsInitConfig['controller'] }[] = [];
   // The shared rule (each where it is in the world, turned about Z with it; movers kinematic; one-way platforms).
   statics.push(...(colliderSpecs2D(snapshot.scene.entities as never, snapshot.modelColliders !== undefined ? { modelColliders: snapshot.modelColliders } : undefined) as RapierStaticColliderSpec[]));
   for (const entity of snapshot.scene.entities) {
     const components = (entity.components ?? {}) as unknown as Record<string, unknown>;
     const transform = components['transform'] as { position?: number[]; rotation?: number[]; scale?: number[] } | undefined;
     const position = transform?.position ?? [0, 0, 0];
-    if (components['controller'] !== undefined) {
-      // The player's own capsule, skin, ground snap and autostep (else the defaults).
-      const capsule = playerCapsuleOf(components['controller']);
-      tuning = playerPhysicsOf(components['controller']);
-      character = {
+    if (components['controller'] === undefined) continue;
+    // Each player's own capsule, skin, ground snap and autostep (else the defaults).
+    const capsule = playerCapsuleOf(components['controller']);
+    const tuning = playerPhysicsOf(components['controller']);
+    players.push({
+      id: entity.id,
+      character: {
         x: position[0] ?? 0,
         y: position[1] ?? 0,
         radius: capsule.radius,
@@ -448,22 +453,25 @@ function physicsConfigFromSnapshot(snapshot: RuntimeSnapshot, settings: Gameplay
         parentId: (entity as { parentId?: string | null }).parentId ?? null,
         rotation: (transform?.rotation ?? [0, 0, 0, 1]) as [number, number, number, number],
         scale: (transform?.scale ?? [1, 1, 1]) as [number, number, number],
-      };
-    }
+      },
+      controller: {
+        offsetSkin: tuning.offsetSkin,
+        groundSnap: tuning.groundSnap,
+        maxSlopeClimbRad: (settings.max_slope_climb_deg * Math.PI) / 180,
+        minSlopeSlideRad: (settings.min_slope_slide_deg * Math.PI) / 180,
+        autostep: tuning.autostep,
+        ...(tuning.autostep ? { autostepHeight: tuning.autostepHeight } : {}),
+      },
+    });
   }
-  if (character === null) return null;
+  const first = players[0];
+  if (first === undefined) return null;
   return {
-    character,
+    character: first.character,
+    ...(players.length > 1 ? { characters: players.slice(1).map((p) => ({ ...p.character, id: p.id, controller: p.controller })) } : {}),
     statics,
     solver: { hz: settings.fixed_step_hz ?? 120, gravityY: settings.gravity_y },
-    controller: {
-      offsetSkin: tuning.offsetSkin,
-      groundSnap: tuning.groundSnap,
-      maxSlopeClimbRad: (settings.max_slope_climb_deg * Math.PI) / 180,
-      minSlopeSlideRad: (settings.min_slope_slide_deg * Math.PI) / 180,
-      autostep: tuning.autostep,
-      ...(tuning.autostep ? { autostepHeight: tuning.autostepHeight } : {}),
-    },
+    controller: first.controller,
   };
 }
 

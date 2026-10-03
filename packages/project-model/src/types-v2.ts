@@ -219,6 +219,8 @@ export interface ControllerComponent {
   moveAction?: string;
   /** The input action that makes it jump (absent: `jump`). */
   jumpAction?: string;
+  /** 3D: the input action (a button) that makes it run while held (absent: `run`). */
+  runAction?: string;
   /** m/s it moves inside a climb volume (absent: 2). */
   climbSpeed?: number;
   /** The input action (an axis) that climbs: its value, or a 2D axis' y (absent: the move action's y). */

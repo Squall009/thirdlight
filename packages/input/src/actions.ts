@@ -25,6 +25,12 @@ export interface InputBindingLike {
   readonly y?: number;
   /** Hold instead of tap — seconds a key/button binding must be held before it counts. */
   readonly hold?: number;
+  /**
+   * A gamepad binding of one pad — its slot in `navigator.getGamepads()`
+   * (each player of a local co-op game on their own pad). Absent: the pad
+   * the player used last.
+   */
+  readonly pad?: number;
 }
 
 export interface InputActionLike {
@@ -68,6 +74,8 @@ export interface RawDeviceState {
   readonly pressedKeys: ReadonlySet<string>;
   /** The active standard-mapped pad, or null. */
   readonly gamepad: { readonly buttons: readonly boolean[]; readonly axes: readonly number[] } | null;
+  /** Every standard-mapped pad by its slot (`navigator.getGamepads()` index; null: none there) — what a binding naming a `pad` reads. */
+  readonly pads?: readonly ({ readonly buttons: readonly boolean[]; readonly axes: readonly number[] } | null)[];
   /** The pointer (absent/null: none seen yet). */
   readonly pointer?: RawPointerState | null;
   /**
@@ -139,9 +147,11 @@ export function createActionEvaluator(config: InputConfigLike): {
     }
     return raw.now - since >= hold * 1000 - 1e-6 ? 1 : 0;
   };
+  /** The pad a gamepad binding reads: its own slot's, else the active pad. */
+  const padOf = (raw: RawDeviceState, b: InputBindingLike): RawDeviceState['gamepad'] => (typeof b.pad === 'number' ? (raw.pads?.[b.pad] ?? null) : raw.gamepad);
   const heldOnly = (raw: RawDeviceState, b: InputBindingLike): boolean => {
     if (b.kind === 'key') return typeof b.code === 'string' && raw.keys.has(b.code);
-    if (b.kind === 'gamepadButton') return typeof b.button === 'number' && raw.gamepad?.buttons[b.button] === true;
+    if (b.kind === 'gamepadButton') return typeof b.button === 'number' && padOf(raw, b)?.buttons[b.button] === true;
     if (b.kind === 'pointerButton') {
       const bit = POINTER_BUTTON_BIT[String(b.button)] ?? 0;
       return raw.pointer !== undefined && raw.pointer !== null && (raw.pointer.buttons & bit) !== 0;
@@ -151,9 +161,9 @@ export function createActionEvaluator(config: InputConfigLike): {
   let holdNext = false;
   const held = new Set<string>();
   const key = (raw: RawDeviceState, code: string | number | undefined): number => (typeof code === 'string' && (raw.keys.has(code) || raw.pressedKeys.has(code)) ? 1 : 0);
-  const pad = (raw: RawDeviceState, button: number | string | undefined): number => (typeof button === 'number' && raw.gamepad?.buttons[button] === true ? 1 : 0);
-  const axisOf = (raw: RawDeviceState, axis: number | undefined): number => {
-    const v = typeof axis === 'number' ? raw.gamepad?.axes[axis] : undefined;
+  const pad = (gp: RawDeviceState['gamepad'], button: number | string | undefined): number => (typeof button === 'number' && gp?.buttons[button] === true ? 1 : 0);
+  const axisOf = (gp: RawDeviceState['gamepad'], axis: number | undefined): number => {
+    const v = typeof axis === 'number' ? gp?.axes[axis] : undefined;
     return typeof v === 'number' && Number.isFinite(v) ? v : 0;
   };
 
@@ -191,8 +201,8 @@ export function createActionEvaluator(config: InputConfigLike): {
           x = key(raw, b.right) - key(raw, b.left);
           y = key(raw, b.up) - key(raw, b.down);
         } else if (b.kind === 'gamepadStick') {
-          x = axisOf(raw, b.x);
-          y = -axisOf(raw, b.y); // a stick's y axis is down-positive
+          x = axisOf(padOf(raw, b), b.x);
+          y = -axisOf(padOf(raw, b), b.y); // a stick's y axis is down-positive
           const len = Math.hypot(x, y);
           const dz = a.deadZone ?? DEFAULT_STICK_DEAD_ZONE;
           const scaled = deadZone(len, dz);
@@ -230,10 +240,10 @@ export function createActionEvaluator(config: InputConfigLike): {
         }
         continue;
       } else if (b.kind === 'key') v = key(raw, b.code);
-      else if (b.kind === 'gamepadButton') v = pad(raw, b.button);
+      else if (b.kind === 'gamepadButton') v = pad(padOf(raw, b), b.button);
       else if (b.kind === 'keys1d') v = key(raw, b.positive) - key(raw, b.negative);
-      else if (b.kind === 'gamepadButtons1d') v = pad(raw, b.positive) - pad(raw, b.negative);
-      else if (b.kind === 'gamepadAxis') v = deadZone(axisOf(raw, typeof b.axis === 'number' ? b.axis : undefined), a.deadZone ?? DEFAULT_STICK_DEAD_ZONE);
+      else if (b.kind === 'gamepadButtons1d') v = pad(padOf(raw, b), b.positive) - pad(padOf(raw, b), b.negative);
+      else if (b.kind === 'gamepadAxis') v = deadZone(axisOf(padOf(raw, b), typeof b.axis === 'number' ? b.axis : undefined), a.deadZone ?? DEFAULT_STICK_DEAD_ZONE);
       if (Math.abs(v) > Math.abs(best)) {
         best = v;
         impulse = false;
@@ -322,10 +332,15 @@ export interface CharacterPad {
   readonly right: readonly number[];
   /** Stick axes that move (the one pushed furthest wins). */
   readonly axes: readonly number[];
+  /**
+   * The pad they are read from: the slot the `move`/`jump` pad bindings
+   * name (a co-op player's own pad), or null — the pad used last.
+   */
+  readonly slot: number | null;
 }
 
 /** The standard layout the character controller used before pad rebinding: A jumps, D-pad left/right and the left stick move. */
-export const STANDARD_CHARACTER_PAD: CharacterPad = Object.freeze({ jump: Object.freeze([0]), left: Object.freeze([14]), right: Object.freeze([15]), axes: Object.freeze([0]) });
+export const STANDARD_CHARACTER_PAD: CharacterPad = Object.freeze({ jump: Object.freeze([0]), left: Object.freeze([14]), right: Object.freeze([15]), axes: Object.freeze([0]), slot: null });
 
 const PAD_BUTTON_MAX = 31;
 const padIndex = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v) && v >= 0 && v <= PAD_BUTTON_MAX;
@@ -340,11 +355,15 @@ const padIndex = (v: unknown): v is number => typeof v === 'number' && Number.is
 export function characterPad(config: InputConfigLike): CharacterPad {
   const move = config.actions.find((a) => a.name === 'move');
   const jump = config.actions.find((a) => a.name === 'jump');
-  const jumpButtons = (jump?.bindings ?? []).filter((b) => b.kind === 'gamepadButton' && padIndex(b.button) && b.hold === undefined).map((b) => b.button as number);
+  // The pad the first binding naming one names; a binding naming another pad is not this channel's.
+  const slot = [...(move?.bindings ?? []), ...(jump?.bindings ?? [])].find((b) => typeof b.pad === 'number')?.pad ?? null;
+  const mine = (b: InputBindingLike): boolean => (typeof b.pad === 'number' ? b.pad === slot : true);
+  const jumpButtons = (jump?.bindings ?? []).filter((b) => b.kind === 'gamepadButton' && padIndex(b.button) && b.hold === undefined && mine(b)).map((b) => b.button as number);
   const left: number[] = [];
   const right: number[] = [];
   const axes: number[] = [];
   for (const b of move?.bindings ?? []) {
+    if (!mine(b)) continue;
     if (b.kind === 'gamepadButtons1d') {
       if (padIndex(b.negative)) left.push(b.negative);
       if (padIndex(b.positive)) right.push(b.positive);
@@ -356,6 +375,7 @@ export function characterPad(config: InputConfigLike): CharacterPad {
     left: hasButtons ? left : STANDARD_CHARACTER_PAD.left,
     right: hasButtons ? right : STANDARD_CHARACTER_PAD.right,
     axes: axes.length > 0 ? axes : STANDARD_CHARACTER_PAD.axes,
+    slot,
   };
 }
 

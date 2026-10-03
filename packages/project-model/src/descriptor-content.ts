@@ -19,6 +19,7 @@ import {
   INPUT_ACTION_TYPES,
   INPUT_HOLD_MAX,
   INPUT_HOLD_MIN,
+  INPUT_PAD_SLOTS,
   MAX_INPUT_ACTIONS,
   MAX_INPUT_BINDINGS,
   MAX_INPUT_MAPS,
@@ -181,6 +182,8 @@ const INPUT: FieldDescriptor = obj('input', 'Input', 'The game\'s actions and th
       enm('axis', 'Pointer axis', 'The pointer\'s movement along x or y (up positive; percent of the view per step), or the wheel (notches, positive towards the user).', POINTER_AXES, { required: true, when: when('kind', 'pointerAxis'), default: 'x' }),
       // Absent = a tap counts at once; 0.5 s is a deliberate hold most players read as "hold" (a starting value the designer tunes).
       num('hold', 'Hold', 'Hold instead of tap: the binding counts only after it has been held this long.', { when: when('kind', 'key', 'gamepadButton', 'pointerButton'), min: INPUT_HOLD_MIN, max: INPUT_HOLD_MAX, step: 0.05, unit: 's', default: 0.5 }),
+      // Absent = the pad the player used last (a one-player game); a co-op game binds each player's actions to their own pad.
+      int('pad', 'Pad', 'Only this gamepad (its slot, 0 for the first connected): each player of a local co-op game on a pad of their own. Absent: the pad used last.', { when: when('kind', 'gamepadButton', 'gamepadAxis', 'gamepadButtons1d', 'gamepadStick'), min: 0, max: INPUT_PAD_SLOTS - 1 }),
     ], { rules: ['A button takes keys, buttons and pointer buttons; a 1D axis also two-key, two-button, axis and pointer-axis bindings; a 2D axis four keys, a stick, the pointer position or the pointer movement.'] }), { required: true, maxItems: MAX_INPUT_BINDINGS }),
     num('deadZone', 'Dead zone', 'Axis values within this count as 0 (then rescaled).', { min: 0, max: 1, maxExclusive: true, step: 0.05, default: 0.2 }),
     bool('invert', 'Invert', 'Flip the axis.', { default: false }),

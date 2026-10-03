@@ -47,7 +47,7 @@ export { TIMELINE_LIMITS } from './timelines';
 export { UI_LIMITS } from './ui-documents';
 export { MAX_LIGHTMAP_ATLASES, MAX_LIGHTMAP_ENTRIES } from './lighting';
 export { DIALOGUE_LIMITS } from './dialogue';
-export { MAX_INPUT_MAPS } from './input';
+export { INPUT_PAD_SLOTS, MAX_INPUT_MAPS, PAD_BINDING_KINDS } from './input';
 export { GRAPH_CURVE_LIMITS } from './graph';
 export { INSTANCE_BRUSH_LIMITS, INSTANCE_BRUSH_REACH } from './instance-brush';
 // The deprecated UI engine actions and what replaces them (the editor marks them).

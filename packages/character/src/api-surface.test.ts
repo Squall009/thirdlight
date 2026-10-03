@@ -95,7 +95,7 @@ describe('module behaviour through the contracted StepContext only', () => {
     expect(module.transformOwners).toEqual(['char-0001']);
   });
 
-  it('refuses an ambiguous controller target (defensive; the runtime validates first)', () => {
+  it('refuses a snapshot without a controller target (defensive; the runtime validates first)', () => {
     expect(() =>
       characterControllerSpec.create(
         snapshotWith([
@@ -104,7 +104,38 @@ describe('module behaviour through the contracted StepContext only', () => {
         ]),
         { fixedStepHz: 120, settings, sceneVersion: 4 },
       ),
-    ).toThrow(/exactly one components\.controller/);
+    ).toThrow(/requires a components\.controller entity \(found 0\)/);
+  });
+
+  it('drives every player controller with its own actions and intents, and resets the one placed', () => {
+    const staged: { id: string; x: number }[] = [];
+    const physics: PhysicsStepClient = { stageCharacterMove: (id, delta) => staged.push({ id, x: delta.x }), characterResult: () => undefined };
+    const module = characterControllerSpec.create(
+      snapshotWith([
+        { id: 'char-0001', components: { ...TRANSFORM, controller: {} } },
+        { id: 'char-0002', components: { ...TRANSFORM, controller: { moveAction: 'move_p2', jumpAction: 'jump_p2' } } },
+      ]),
+      { fixedStepHz: 120, settings, sceneVersion: 4 },
+    ) as { transformOwners: readonly string[]; step: (p: 'controller' | 'transform', c: StepContext) => void; reset: (c: unknown) => void };
+    expect(module.transformOwners).toEqual(['char-0001', 'char-0002']);
+    const curr = new Map([['char-0001', TRANSFORM.transform], ['char-0002', TRANSFORM.transform]]);
+    const ctx = (actions: Record<string, { v: number; p: string }>, controllers?: Record<string, unknown>): StepContext =>
+      ({ ...(makeContext(physics, 'controller', 0) as object), state: { curr }, action: { stepIndex: 12, actions }, intents: { ...(makeContext(physics, 'controller', 0) as { intents: object }).intents, ...(controllers !== undefined ? { controllers } : {}) } }) as unknown as StepContext;
+    // Each reads its own move action: the first walks right, the second left.
+    module.step('controller', ctx({ move: { v: 1, p: 'none' }, move_p2: { v: -1, p: 'none' } }));
+    expect(staged.map((m) => m.id)).toEqual(['char-0001', 'char-0002']);
+    expect(staged[0]!.x).toBeGreaterThan(0);
+    expect(staged[1]!.x).toBeLessThan(0);
+    // A script's intent naming the second controller drives only it.
+    module.step('controller', ctx({ move: { v: 1, p: 'none' } }, { 'char-0002': { move: 1, jump: null } }));
+    expect(staged[2]).toMatchObject({ id: 'char-0001' });
+    expect(staged[2]!.x).toBeGreaterThan(0);
+    expect(staged[3]!.x).toBeGreaterThan(staged[1]!.x);
+    // A placement of the second resets only its velocity; the first keeps going.
+    module.reset({ reason: 'transfer', stepIndex: 13, playerCenter: { x: 5, y: 1 }, characterId: 'char-0002', state: { curr } });
+    module.step('controller', ctx({ move: { v: 1, p: 'none' } }));
+    expect(staged[4]!.x).toBeGreaterThan(staged[2]!.x);
+    expect(staged[5]!.x).toBe(0);
   });
 
   it('stages one move in the controller phase and records the result in the transform phase', () => {

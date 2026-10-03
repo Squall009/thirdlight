@@ -2,10 +2,11 @@
  * The loaded objects' animators — one `AnimatorMachine` per entity with an
  * `animator` component — and the script API over them (`ctx.animators`).
  *
- * Stepped once per fixed step by the runtime. The character's animators
- * (the controller's object and its children) get `speed` (horizontal, m/s),
- * `grounded`, `velocityY` and the `landed` trigger from the committed motion
- * when their controller has those parameters. An animator's start time is
+ * Stepped once per fixed step by the runtime. A player character's
+ * animators (a controller's object and its children; each player its own)
+ * get `speed` (horizontal, m/s), `grounded`, `velocityY` and the `landed`
+ * trigger from that character's committed motion when their controller has
+ * those parameters. An animator's start time is
  * its component's `startTime`, or with `randomStart` a number drawn from the
  * game's seed and the object's id, so a replay, a reload and an export start
  * every copy at the same place.
@@ -34,12 +35,12 @@ export interface AnimatorSystemHost {
   readonly hz: number;
   /** The run seed (the project's `random_seed`). */
   readonly seed: number;
-  /** The character the locomotion parameters describe (the controller's object; '' without one). */
-  characterId(): string;
+  /** The player characters the locomotion parameters describe (the controllers' objects). */
+  characterIds(): readonly string[];
   /** An entity's committed transform now. */
   transformOf(id: string): TransformState | undefined;
-  /** Whether the character stands on the ground (its controller's last move). */
-  grounded(): boolean;
+  /** Whether a player character stands on the ground (its controller's last move). */
+  grounded(id: string): boolean;
   /** Switched-off objects (their animators hold their pose). */
   inactive(): ReadonlySet<string>;
   stepIndex(): number;
@@ -71,9 +72,8 @@ export class AnimatorSystem {
   /** Parent ids of the loaded entities (the player's model may be a child of the player). */
   private readonly parentOf = new Map<string, string>();
   private fired: readonly AnimatorEventRecord[] = Object.freeze([]);
-  private wasGrounded = true;
-  /** The character's position a step ago (null after a reset). */
-  private lastPos: [number, number, number] | null = null;
+  /** Each player character's grounding and position a step ago (none after a reset). */
+  private readonly motion = new Map<string, { wasGrounded: boolean; lastPos: [number, number, number] | null }>();
   /** `ctx.animators`. */
   readonly control: BehaviorAnimatorControl;
 
@@ -180,44 +180,50 @@ export class AnimatorSystem {
     this.machines.clear();
     this.add(entities);
     this.fired = Object.freeze([]);
-    this.wasGrounded = true;
-    this.lastPos = null;
+    this.motion.clear();
   }
 
-  private isCharacterOrChild(id: string): boolean {
-    const character = this.host.characterId();
-    if (character === '') return false;
+  /** The player character an object is (or is under), or null. */
+  private characterOf(id: string, characters: ReadonlySet<string>): string | null {
+    if (characters.size === 0) return null;
     let cur: string | undefined = id;
     for (let depth = 0; cur !== undefined && depth < 64; depth++) {
-      if (cur === character) return true;
+      if (characters.has(cur)) return cur;
       cur = this.parentOf.get(cur);
     }
-    return false;
+    return null;
   }
 
   /**
-   * The character's motion over the last step: horizontal speed (x and z),
-   * vertical velocity and the controller's grounding.
+   * A player character's motion over the last step: horizontal speed (x and
+   * z), vertical velocity, its controller's grounding and whether it landed.
    */
-  private characterMotion(): { speed: number; vy: number; grounded: boolean } {
-    const id = this.host.characterId();
-    const t = id !== '' ? this.host.transformOf(id) : undefined;
-    const grounded = this.host.grounded();
-    if (t === undefined) return { speed: 0, vy: 0, grounded };
+  private characterMotion(id: string): { speed: number; vy: number; grounded: boolean; landed: boolean } {
+    let m = this.motion.get(id);
+    if (m === undefined) {
+      m = { wasGrounded: true, lastPos: null };
+      this.motion.set(id, m);
+    }
+    const t = this.host.transformOf(id);
+    const grounded = this.host.grounded(id);
+    const landed = grounded && !m.wasGrounded;
+    m.wasGrounded = grounded;
+    if (t === undefined) return { speed: 0, vy: 0, grounded, landed };
     const p = t.position;
-    const last = this.lastPos;
-    this.lastPos = [p[0], p[1], p[2]];
-    if (last === null) return { speed: 0, vy: 0, grounded };
+    const last = m.lastPos;
+    m.lastPos = [p[0], p[1], p[2]];
+    if (last === null) return { speed: 0, vy: 0, grounded, landed };
     const hz = this.host.hz;
-    return { speed: Math.hypot(p[0] - last[0], p[2] - last[2]) * hz, vy: (p[1] - last[1]) * hz, grounded };
+    return { speed: Math.hypot(p[0] - last[0], p[2] - last[2]) * hz, vy: (p[1] - last[1]) * hz, grounded, landed };
   }
 
   /** Advance every animator by one fixed step. */
   step(): void {
     if (this.machines.size === 0) return;
-    const { speed, vy, grounded } = this.characterMotion();
-    const landed = grounded && !this.wasGrounded;
-    this.wasGrounded = grounded;
+    // Every player character's motion once a step (whether or not one of its animators steps).
+    const ids = this.host.characterIds();
+    const motions = new Map(ids.map((id) => [id, this.characterMotion(id)]));
+    const characters = new Set(ids);
     const fired: AnimatorEventRecord[] = [];
     const dt = 1 / this.host.hz;
     const off = this.host.inactive();
@@ -226,7 +232,9 @@ export class AnimatorSystem {
       const machine = rec.machine;
       // A switched-off object's animator holds its pose.
       if (off.size > 0 && off.has(id)) continue;
-      if (this.isCharacterOrChild(id)) {
+      const character = this.characterOf(id, characters);
+      if (character !== null) {
+        const { speed, vy, grounded, landed } = motions.get(character)!;
         machine.set('speed', speed);
         machine.set('grounded', grounded);
         machine.set('velocityY', vy);

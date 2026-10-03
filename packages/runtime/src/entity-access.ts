@@ -144,7 +144,7 @@ export interface EntityAccessHost {
   /** The loaded objects in document order (children after parents). */
   order(): readonly string[];
   parentOf(id: string): string | undefined;
-  readonly controllerId: string | undefined;
+  readonly controllerIds: readonly string[];
   /** A collider or controller (a physics body; transform writes are refused). */
   isPhysicsBody(id: string): boolean;
   /** An owned transform intent wrote this object's transform this step. */
@@ -442,12 +442,14 @@ export class EntityAccess {
     this.host.materialsSwapped(id, this.swaps.get(id) ?? null);
   }
 
-  /** Whether the object or one below it is the character (it stays active). */
+  /** Whether the object or one below it is a player character (it stays active). */
   private subtreeHolds(id: string): 'character' | null {
-    let cur = this.host.controllerId;
-    for (let guard = 0; cur !== undefined && guard < 64; guard++) {
-      if (cur === id) return 'character';
-      cur = this.host.parentOf(cur);
+    for (const player of this.host.controllerIds) {
+      let cur: string | undefined = player;
+      for (let guard = 0; cur !== undefined && guard < 64; guard++) {
+        if (cur === id) return 'character';
+        cur = this.host.parentOf(cur);
+      }
     }
     return null;
   }

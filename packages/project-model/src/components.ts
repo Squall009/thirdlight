@@ -420,17 +420,19 @@ const CONTROLLER_3D_BOOLEANS: readonly string[] = ['jump', 'ledgeClimb', 'faceMo
  * fixed move/jump channels). Defaults `move` and `jump`: the names of the
  * default input actions every new project has (any genre's walking
  * character moves and jumps with them); a project may point its character at
- * other actions.
+ * other actions. Several player controllers (local co-op) each name their
+ * own (`move_p2`, …), bound to that player's keys or gamepad (a binding's
+ * `pad`). `runAction` (3D: held, it runs) defaults to `run`.
  */
-export const CONTROLLER_ACTION_FIELDS = ['moveAction', 'jumpAction'] as const;
-export const CONTROLLER_ACTION_DEFAULTS = Object.freeze({ moveAction: 'move', jumpAction: 'jump' });
+export const CONTROLLER_ACTION_FIELDS = ['moveAction', 'jumpAction', 'runAction'] as const;
+export const CONTROLLER_ACTION_DEFAULTS = Object.freeze({ moveAction: 'move', jumpAction: 'jump', runAction: 'run' });
 const CONTROLLER_ACTION_RE = /^[A-Za-z_][A-Za-z0-9_]{0,31}$/;
 
 /** The action names a controller reads (each absent field at its default). */
-export function controllerActionsOf(controller: unknown): { move: string; jump: string } {
+export function controllerActionsOf(controller: unknown): { move: string; jump: string; run: string } {
   const c = isPlainObject(controller) ? controller : {};
-  const name = (k: 'moveAction' | 'jumpAction'): string => (typeof c[k] === 'string' && CONTROLLER_ACTION_RE.test(c[k] as string) ? (c[k] as string) : CONTROLLER_ACTION_DEFAULTS[k]);
-  return { move: name('moveAction'), jump: name('jumpAction') };
+  const name = (k: (typeof CONTROLLER_ACTION_FIELDS)[number]): string => (typeof c[k] === 'string' && CONTROLLER_ACTION_RE.test(c[k] as string) ? (c[k] as string) : CONTROLLER_ACTION_DEFAULTS[k]);
+  return { move: name('moveAction'), jump: name('jumpAction'), run: name('runAction') };
 }
 
 /**

@@ -12,13 +12,14 @@
  * map chooses its cursor (free or locked).
  *
  * A key, pad button or mouse button binding takes "hold" seconds
- * (hold instead of tap); the Glyphs list maps a glyph key (an icon id of the
+ * (hold instead of tap); a gamepad binding may name one pad (each player of
+ * a local co-op game on a pad of their own); the Glyphs list maps a glyph key (an icon id of the
  * engine's generic set, optionally per pad family or key) to a project
  * texture shown instead of the generic icon.
  *
  * Browser-only (React).
  */
-import { MAX_INPUT_ACTIONS, MAX_INPUT_BINDINGS, MAX_INPUT_MAPS } from '@thirdlight/project-model/limits';
+import { INPUT_PAD_SLOTS, MAX_INPUT_ACTIONS, MAX_INPUT_BINDINGS, MAX_INPUT_MAPS, PAD_BINDING_KINDS } from '@thirdlight/project-model/limits';
 import { useEffect, useRef, useState, type JSX } from 'react';
 import type { CursorMode, InputAction, InputActionType, InputBinding, InputConfig } from '@thirdlight/project-model';
 import { EntryName, RefPicker, TEXTURE_KINDS } from './catalog/RefPicker';
@@ -32,6 +33,8 @@ interface Props {
 
 /** The binding kinds that take the hold modifier. */
 const HOLDABLE = new Set(['key', 'gamepadButton', 'pointerButton']);
+/** The binding kinds that may name one pad (a co-op player's own). */
+const PADDED = new Set<string>(PAD_BINDING_KINDS);
 const GLYPH_KEY_RE = /^(?:(?:xbox|playstation|switch|generic):)?[a-z][a-z0-9-]{0,31}(?::[A-Za-z0-9]{1,32})?$/;
 
 export function bindingLabel(b: InputBinding): string {
@@ -118,6 +121,15 @@ export function InputPanel(p: Props): JSX.Element {
       if (j !== i) return b;
       const { hold: _old, ...rest } = b as InputBinding & { hold?: number };
       return (hold === null ? rest : { ...rest, hold }) as InputBinding;
+    });
+    put(a.name, { ...a, bindings });
+  };
+  /** A gamepad binding's pad slot (null: the pad used last). */
+  const setPadSlot = (a: InputAction, i: number, slot: number | null): void => {
+    const bindings = a.bindings.map((b, j) => {
+      if (j !== i) return b;
+      const { pad: _old, ...rest } = b as InputBinding & { pad?: number };
+      return (slot === null ? rest : { ...rest, pad: slot }) as InputBinding;
     });
     put(a.name, { ...a, bindings });
   };
@@ -239,6 +251,22 @@ export function InputPanel(p: Props): JSX.Element {
                         } else if (Number.isFinite(n) && n >= 0.05 && n <= 10 && n !== now) setHold(a, i, n);
                       }}
                     />
+                  )}
+                  {PADDED.has(b.kind) && (
+                    <select
+                      className="tl-input tl-input--tiny"
+                      title="Only this gamepad (a co-op player's own pad; any: the pad used last)"
+                      aria-label={`pad for ${bindingLabel(b)} of ${a.name}`}
+                      value={String((b as { pad?: number }).pad ?? '')}
+                      onChange={(e) => setPadSlot(a, i, e.target.value === '' ? null : Number(e.target.value))}
+                    >
+                      <option value="">any pad</option>
+                      {Array.from({ length: INPUT_PAD_SLOTS }, (_, n) => (
+                        <option key={n} value={String(n)}>
+                          pad {n + 1}
+                        </option>
+                      ))}
+                    </select>
                   )}
                   <button type="button" aria-label={`remove binding ${bindingLabel(b)} from ${a.name}`} onClick={() => put(a.name, { ...a, bindings: a.bindings.filter((_, j) => j !== i) })}>
                     ×

@@ -69,8 +69,8 @@ export async function runScene(mode: Mode, scene: { snapshot: Any; physics: Any 
     // Keep the digest watcher and record the path too.
     rt.setStepWatcher?.(() => {
       digests.push(stepDigest(rt));
-      // The committed result (the runtime's last 3D character result): x, y, z and grounded (1/0).
-      const c = rt.lastCharacterResult3D;
+      // The committed result (the runtime's last 3D result of the player controller): x, y, z and grounded (1/0).
+      const c = rt.controllers.result('player-0001');
       if (c !== undefined) path.push([c.position.x, c.position.y, c.position.z, c.grounded ? 1 : 0]);
       return false;
     });

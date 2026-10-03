@@ -448,11 +448,18 @@ describe('the visual-script catalogue (every node type compiles and runs)', () =
       'debug.command',
       'dialogue.history',
       'dialogue.variables',
+      // A player controller intent's object is script-only (a node drives the first player controller).
+      'emit(character_enable).entityId',
+      'emit(character_move).entityId',
+      'emit(character_place).entityId',
+      'emit(control_jump).entityId',
       // control_move's second axis is script-only (the node keeps its one input).
+      'emit(control_move).entityId',
       'emit(control_move).y',
       'emit(pose).facing',
       'emit(pose).quaternion',
       'emit(pose).up',
+      'emit(respawn).entityId',
       'emit(transform).facing',
       'emit(transform).quaternion',
       'emit(transform).up',

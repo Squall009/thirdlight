@@ -24,7 +24,7 @@ function fakeHost(dimension: 2 | 3, opts: { character?: V | null; parents?: Reco
     curr,
     physics: opts.physics,
     physics3d: undefined,
-    character: () => (character === null ? null : { id: 'actor', centre: [...character] as V, half: [0.3, 0.9, 0.3] }),
+    characters: () => (character === null ? [] : [{ id: 'actor', centre: [...character] as V, half: [0.3, 0.9, 0.3] }]),
     worldOf: (id) => {
       const t = curr.get(id);
       if (t === undefined) return null;

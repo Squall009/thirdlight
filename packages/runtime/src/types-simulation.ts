@@ -168,8 +168,14 @@ export interface ModuleResetContext {
   readonly reason: 'replay' | 'transfer';
   /** The upcoming step index. */
   readonly stepIndex: number;
-  /** The reset character centre. */
+  /** The reset character centre (the placed controller's; at a restart, the first controller's). */
   readonly playerCenter: Readonly<Vec2>;
+  /**
+   * The player controller that was placed (a transfer: a respawn, an
+   * arrival, a script's placement). Absent: a run restart, which resets
+   * every controller (each from where it starts, `state.curr`).
+   */
+  readonly characterId?: string;
   readonly state: SimState;
 }
 
@@ -329,10 +335,10 @@ export interface StepContext {
   readonly climb?: ClimbQuery;
 }
 
-/** Where the character may climb. */
+/** Where a player character may climb. */
 export interface ClimbQuery {
-  /** The climb volume the character's capsule centre is in now (its object, world up and across axes), or null. */
-  volume(): import('./blocks').ClimbVolumeView | null;
+  /** The climb volume a player controller's capsule centre is in now (its object, world up and across axes), or null; absent id: the first. */
+  volume(entityId?: string): import('./blocks').ClimbVolumeView | null;
 }
 
 /**

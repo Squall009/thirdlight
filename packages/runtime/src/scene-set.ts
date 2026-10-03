@@ -69,8 +69,9 @@ export function playerPhysicsOf(controller: unknown): { offsetSkin: number; grou
 
 /**
  * The 3D physics init config of a scene's (resolved) entities —
- * every collider but the player's as a static, the controller entity as the
- * character with its capsule (the offset's z included) and its tuning, the
+ * every collider but the players' as a static, the controller entities as
+ * the characters (the first as `character`, the others as `characters`, by
+ * object) each with its capsule (the offset's z included) and tuning, the
  * project's step rate and gravity along −Y, the slope angles. The one
  * builder the Play preview, the export, the simulation worker's host and the
  * tests use. `options.layers` — the project's named collision
@@ -86,23 +87,27 @@ export function physics3DConfigOf(
   options: { layers?: readonly string[]; modelColliders?: ModelColliderTable } = {},
 ): PhysicsInitConfig3D | null {
   const statics = colliderSpecs3D(entities as readonly { id: string; parentId?: string | null; components?: unknown }[], options.modelColliders !== undefined ? { modelColliders: options.modelColliders } : undefined);
-  let character: PhysicsInitConfig3D['character'] | null = null;
-  let controller: unknown = undefined;
+  // Every player controller: the first is the port's character, the others its further characters.
+  const players: { id: string; character: PhysicsInitConfig3D['character']; controller: unknown }[] = [];
   for (const e of entities) {
     const c = (e.components ?? {}) as Record<string, unknown>;
-    if (c['controller'] !== undefined) {
-      const t = c['transform'] as { position?: readonly number[] } | undefined;
-      const p = t?.position ?? [0, 0, 0];
-      const capsule = playerCapsuleOf(c['controller']);
-      controller = c['controller'];
-      character = {
+    if (c['controller'] === undefined) continue;
+    const t = c['transform'] as { position?: readonly number[] } | undefined;
+    const p = t?.position ?? [0, 0, 0];
+    const capsule = playerCapsuleOf(c['controller']);
+    players.push({
+      id: e.id,
+      controller: c['controller'],
+      character: {
         position: { x: p[0] ?? 0, y: p[1] ?? 0, z: p[2] ?? 0 },
         radius: capsule.radius,
         halfHeight: capsule.halfHeight,
         offset: { x: capsule.offset.x, y: capsule.offset.y, z: controllerCapsuleOffsetZ(c['controller']) },
-      };
-    }
+      },
+    });
   }
+  let character: PhysicsInitConfig3D['character'] | null = players[0]?.character ?? null;
+  const controller: unknown = players[0]?.controller;
   const noCharacter = character === null;
   // Nothing to simulate or query: no physics (the module resolution then needs no 3D backend either).
   // A block layer's chunks become colliders at run time, so it needs a world too.
@@ -112,25 +117,29 @@ export function physics3DConfigOf(
     const capsule = playerCapsuleOf(undefined);
     character = { position: { x: 0, y: 0, z: 0 }, radius: capsule.radius, halfHeight: capsule.halfHeight, offset: { x: 0, y: 0, z: 0 } };
   }
-  // The 3D character's settings — its step-up height (0: off) is
+  // A 3D character's settings — its step-up height (0: off) is
   // the port's autostep, its ground snap at least that height, its slope limit
   // (else the project's) the steepest climb.
-  const c3 = character3DPhysicsOf(controller, settings.max_slope_climb_deg);
-  return {
-    dimension: 3,
-    character,
-    statics,
-    ...(options.layers !== undefined && options.layers.length > 0 ? { layers: [...options.layers] } : {}),
-    ...(noCharacter ? { noCharacter: true as const } : {}),
-    solver: { hz: settings.fixed_step_hz ?? 120, gravityY: settings.gravity_y },
-    controller: {
+  const tuningOf = (controller: unknown): PhysicsInitConfig3D['controller'] => {
+    const c3 = character3DPhysicsOf(controller, settings.max_slope_climb_deg);
+    return {
       offsetSkin: c3.skin,
       groundSnap: c3.groundSnap,
       maxSlopeClimbRad: (c3.slopeLimit * Math.PI) / 180,
       minSlopeSlideRad: (Math.min(settings.min_slope_slide_deg, c3.slopeLimit) * Math.PI) / 180,
       autostep: c3.stepHeight > 0,
       ...(c3.stepHeight > 0 ? { autostepHeight: c3.stepHeight } : {}),
-    },
+    };
+  };
+  return {
+    dimension: 3,
+    character,
+    ...(players.length > 1 ? { characters: players.slice(1).map((p) => ({ ...p.character, id: p.id, controller: tuningOf(p.controller) })) } : {}),
+    statics,
+    ...(options.layers !== undefined && options.layers.length > 0 ? { layers: [...options.layers] } : {}),
+    ...(noCharacter ? { noCharacter: true as const } : {}),
+    solver: { hz: settings.fixed_step_hz ?? 120, gravityY: settings.gravity_y },
+    controller: tuningOf(controller),
   };
 }
 

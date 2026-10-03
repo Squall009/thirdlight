@@ -285,6 +285,7 @@ export const controller: ComponentDescriptor = {
     // The input actions it reads (the input frame has no fixed move/jump channels).
     str('moveAction', 'Move action', 'The input action (an axis) that moves it.', { format: 'identifier', minLength: 1, maxLength: 32, group: 'Input', default: CONTROLLER_ACTION_DEFAULTS.moveAction }),
     str('jumpAction', 'Jump action', 'The input action (a button) that makes it jump.', { format: 'identifier', minLength: 1, maxLength: 32, group: 'Input', default: CONTROLLER_ACTION_DEFAULTS.jumpAction }),
+    str('runAction', 'Run action', 'The input action (a button) that makes it run while held.', { format: 'identifier', minLength: 1, maxLength: 32, group: 'Input', default: CONTROLLER_ACTION_DEFAULTS.runAction, dimension: 3 }),
     // Climbing (inside a climb volume) and walls (both off by default), both dimensions.
     num('climbSpeed', 'Climb speed', 'How fast it moves inside a climb volume (up/down along it, sideways across it; jump leaves).', { group: 'Climbing and walls', ...CML.climbSpeed, step: 0.1, unit: 'm/s', default: CMD.climbSpeed }),
     str('climbAction', 'Climb action', 'The input action (an axis) that climbs: its value, or a 2D axis\' up/down (absent: the move action\'s up/down — a 2D project whose move is left/right only names another action here).', { format: 'identifier', minLength: 1, maxLength: 32, group: 'Climbing and walls' }),

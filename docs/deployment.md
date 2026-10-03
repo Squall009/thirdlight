@@ -282,8 +282,10 @@ project scripts (in its own repository when it has one).
 - **Saves**: project save slots, save format version 2 (the save carries
   the loaded scenes, the spawn and where the character stands).
 - **Input**: named actions only (input frame version 2); the character
-  controller reads the actions it names (`moveAction`, `jumpAction`;
-  defaults `move`, `jump`).
+  controller reads the actions it names (`moveAction`, `jumpAction`,
+  `runAction` in 3D; defaults `move`, `jump`, `run`).
+- **Local co-op**: any number of player controllers share the view (see
+  "Several player controllers (local co-op)").
 - **Older projects**: a schemaVersion 2 project is upgraded on open (a
   pickup becomes a collectible and its counter, a spawn's left/right facing
   a yaw, a pickup's sound an event sound) and written back once. Game data
@@ -623,11 +625,53 @@ Every view read is keyed by a view (`readCameraView(…, view)`): there is one
 view today, so a second one (a split screen) is a new key.
 
 Checked when the game starts (Play and the export), not per edit — each a
-Problems line: no camera live (warning), more than one player controller in
-the start scenes (refused: one player controller per view), a player in a
-scene the game does not start with (warning: loading it is refused while
-the game runs), one id kept loaded in two scenes (refused), Keep loaded under
-an object that is not kept (warning).
+Problems line: no camera live (warning), a player in a scene the game does
+not start with (warning: loading it is refused while the game runs), one id
+kept loaded in two scenes (refused), Keep loaded under an object that is not
+kept (warning). Any number of player controllers may start together; they
+share the view (see "Several player controllers (local co-op)").
+
+### Several player controllers (local co-op)
+
+A scene may hold several objects with a Character controller. They share the
+one view and each is a player: its own physics body (players pass through
+each other and are never in the way of a ray or an overlap query), its own
+input and its own state.
+
+- **Input.** Each controller names the actions it reads — `moveAction`,
+  `jumpAction`, `runAction` (3D), `climbAction` — so the second player reads
+  `move_p2` and `jump_p2` (any names) bound to its own keys. A gamepad
+  binding may name one pad: `pad` is the pad's slot (0 for the first pad the
+  browser lists, up to 3; Project Settings → Input, "pad 1"…"pad 4"), so each
+  player plays on a pad of their own; without `pad` a binding reads the pad
+  used last, as a one-player game does.
+- **Scripts.** Every call about "the player" names the controller's object
+  and defaults to the first controller (the first in the scene's order), so
+  a one-player game never names it: the intents `control_move`,
+  `control_jump`, `character_move`, `character_place`, `character_enable`
+  and `respawn` take `entityId` right after `kind`;
+  `ctx.character.impulse(v, entityId?)`, `ctx.lifecycle.respawn(spawnId?,
+  entityId?)`, `ctx.physics.characterState(entityId?)`,
+  `ctx.physics.characterResult(entityId?)`, `ctx.game.health(entityId?)`.
+  Visual-script nodes drive the first controller (their player input picks
+  another where they have one).
+- **Triggers, switches, pickups.** Every player takes part: a trigger's
+  `enter`/`exit` events name the player (`by`), its signal fires when the
+  first player enters and its exit signal when the last one leaves; a
+  switch or a collectible reacts to any player (a collect event's `by` names
+  who).
+- **Placement.** A scene transition's arrival, a listed scene's spawn (each
+  kept player) and a run restart place every player; a respawn or a
+  `character_place` places the one it names.
+- **Saves.** The save's `world.character` is the first player's place;
+  `world.characters` keeps the others by their object (an older save has
+  none: they stay where they are).
+- **Observation.** `tl_game_observe` (and the export's
+  `window.__thirdlightObserve`) add `players` [{id, x, y, z}] when there are
+  several; `player` stays the first one's.
+- A player's physics body is made when the game starts, so a scene loaded
+  later or a spawned copy cannot bring one (the `player_scene` warning):
+  put every player in a start scene and keep it loaded.
 
 **Upgrade (schemaVersion 7, on open).** A project's scene `camera` entity
 becomes a fixed virtual camera at the lowest priority, where it was placed
@@ -2204,7 +2248,8 @@ listens for the next key (an axis asks for two or four keys), "+ pad" for
 the next gamepad button; × removes a binding; new actions can be added. The
 first edit makes the controls the project's own; "Reset to defaults" goes
 back. The character controller moves and jumps with the actions it names
-(`moveAction`, `jumpAction`; defaults the `move` and `jump` bindings):
+(`moveAction`, `jumpAction`; defaults the `move` and `jump` bindings; each
+player of a co-op game names its own):
 their keys, and their pad buttons and stick axis (`jump`'s pad buttons,
 `move`'s button pair and axis; a part with no pad binding of its kind keeps
 the standard layout — A jumps, D-pad and left stick move). Players rebind
@@ -2342,10 +2387,10 @@ Generic again: both dimensions.
   scene is loaded moves the character to **Arrive at** (a player spawn in
   that scene or the trigger's own; it becomes the spawn `ctx.lifecycle`
   respawns at). A trigger's `enter`/`exit` events reach the scripts that own
-  it (`ctx.events`).
-- **Character impulse**: `ctx.character.impulse([x, y, z])` adds a velocity
-  (m/s) at the character's next move (a push, a launch, a bounce; up lifts it
-  off the ground; the 2D plane ignores z).
+  it (`ctx.events`; `by` names the player that entered or left).
+- **Character impulse**: `ctx.character.impulse([x, y, z], entityId?)` adds a velocity
+  (m/s) at a player's next move (a push, a launch, a bounce; up lifts it
+  off the ground; the 2D plane ignores z; absent id: the first player).
 - **Facing**: Face movement **Face velocity** turns a model toward its
   motion in any direction (3D too; **Yaw offset** for a model authored facing
   another way; at the top of the hierarchy it follows its own motion). A
@@ -4176,6 +4221,8 @@ the browser granted it.
   sees action values and the binding information travels in the recorded input.
 - **Hold instead of tap**: a key, pad button or mouse button binding takes a
   `hold` time (seconds) in Project Settings → Input.
+- **One pad**: a gamepad binding may name a pad (`pad`, its slot 0–3) — each
+  player of a local co-op game on a pad of their own; absent: the pad used last.
 - **Glyphs**: the engine has a neutral SVG icon set (key caps, face buttons by
   position, bumpers/triggers, D-pad, sticks, mouse buttons); pad labels follow
   the pad family (Xbox, PlayStation, Switch, generic) detected from the pad.
@@ -4545,9 +4592,8 @@ export's `warnings` or its refusal):
 - `deprecated_save_world`: the always-on `world` in saves, below;
 - at the start of Play and the export (see "The view, cameras and kept
   objects"): `view_missing` (no camera live: the default pose is drawn),
-  `player_count` (more than one player controller in the start scenes:
-  refused), `player_scene` (a player in a scene the game does not start
-  with), `kept_ignored` (Keep loaded under an object that is not kept),
+  `player_scene` (a player in a scene the game does not start with; the
+  one-player-per-view `player_count` refusal is gone: players share the view), `kept_ignored` (Keep loaded under an object that is not kept),
   `kept_twice` (one id kept in two scenes: refused);
 - while it runs: `kept_reference_unloaded` (a kept object names an object of
   a scene that unloaded: the reference reads as empty).
