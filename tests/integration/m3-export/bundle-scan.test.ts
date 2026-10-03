@@ -170,7 +170,9 @@ describe('M3 export bundle re-measurement + production parity', () => {
     //    Game-host's generic glyph set adds +1 — the SVG
     //    namespace (`xmlns="http://www.w3.org/2000/svg"`, like three's XHTML
     //    namespace in the table), an identifier in data: URL images, never fetched.
-    expect(c.h).toBe(ref.h + 12 + 1 + 1);
+    //    The screenshot overlay adds +2: the SVG and XHTML namespaces of the
+    //    foreignObject image it draws the page's UI into (identifiers, never fetched).
+    expect(c.h).toBe(ref.h + 12 + 1 + 1 + 2);
     expect(count(text, 'GLTFLoader')).toBe(37);
 
     // The graph rows: the export graph reaches the `./gltf-loader`

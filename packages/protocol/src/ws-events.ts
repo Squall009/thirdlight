@@ -204,9 +204,11 @@ export function makePlayStopped(payload: {
   return emit(obj);
 }
 
-export function makeScreenshotRequest(relayId: string, maxWidth?: number, answerWithinMs?: number): string {
+export function makeScreenshotRequest(relayId: string, maxWidth?: number, answerWithinMs?: number, ui?: boolean): string {
   const obj: Record<string, unknown> = { type: 'screenshot.request', relayId };
   if (maxWidth !== undefined) obj.maxWidth = maxWidth;
+  // The UI layer is drawn over the frame unless asked not to.
+  if (ui === false) obj.ui = false;
   if (answerWithinMs !== undefined) obj.answerWithinMs = answerWithinMs;
   return emit(obj);
 }

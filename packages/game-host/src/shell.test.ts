@@ -12,7 +12,7 @@ const NONE = { up: false, down: false, left: false, right: false, submit: false,
 
 function harness(shell: ShellConfigLike, over: Partial<ShellDeps> = {}) {
   const log: string[] = [];
-  const state = { screen: null as string | null, hud: [] as readonly string[], paused: false, listed: 0, panel: false, allowed: true };
+  const state = { screen: null as string | null, hud: [] as readonly string[], paused: false, held: false, listed: 0, panel: false, allowed: true };
   const kv = new Map<string, string>();
   const slots: { slot: number; title: string; location: string; playSeconds: number; savedAt: string }[] = [];
   const deps: ShellDeps = {
@@ -20,6 +20,7 @@ function harness(shell: ShellConfigLike, over: Partial<ShellDeps> = {}) {
     showScreen: (d) => (state.screen = d),
     setHud: (ids) => (state.hud = ids),
     setPaused: (on) => (state.paused = on),
+    setHold: (on) => (state.held = on),
     restart: (cause) => log.push(`restart ${cause}`),
     reloadScene: (sceneId) => log.push(`reload ${sceneId ?? '(active)'}`),
     goToScene: (i) => {
@@ -57,6 +58,18 @@ function harness(shell: ShellConfigLike, over: Partial<ShellDeps> = {}) {
 }
 
 describe('the game shell controller', () => {
+  it('a screen whose scripts run holds the game instead of pausing it; play lets it go', () => {
+    const { ctl, state } = harness({ screens: { title: 'title', settings: 'set' }, simulate: { title: 'scripts' } });
+    ctl.start();
+    expect([ctl.screen, state.paused, state.held]).toEqual(['title', false, true]);
+    ctl.engine({ do: 'engine', action: 'open', screen: 'settings' });
+    expect([ctl.screen, state.paused, state.held]).toEqual(['settings', true, false]);
+    ctl.engine({ do: 'engine', action: 'back' });
+    expect([ctl.screen, state.paused, state.held]).toEqual(['title', false, true]);
+    ctl.engine({ do: 'engine', action: 'resume' });
+    expect([ctl.screen, state.paused, state.held]).toEqual(['playing', false, false]);
+  });
+
   it('starts at the title (held), New game restarts at the first listed scene and shows the HUD', () => {
     const { ctl, state, log } = harness({ screens: { title: 'title' }, hud: ['hud'], scenes: [{ scene: 'a' }, { scene: 'b' }] });
     ctl.start();

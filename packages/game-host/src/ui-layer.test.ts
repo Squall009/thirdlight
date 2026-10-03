@@ -424,3 +424,45 @@ describe('bound lists keep their items; offset, opacity and rotation; scale mode
     expect(l.view()).toMatchObject({ width: 800, height: 400, aspect: 2 });
   });
 });
+
+describe('UI sounds', () => {
+  it('a click (an event or an engine action), the pointer coming over and a keyboard or script focus move play the widget\'s, its style\'s or the document\'s sound', () => {
+    const container = new El('div');
+    const played: string[] = [];
+    const engine: string[] = [];
+    const l = createUiLayer({
+      dom: fakeDom as never, container: container as never, readArtifact: async () => new ArrayBuffer(0), queueEvent: () => undefined, engineAction: (a) => engine.push(a.action), viewport: () => ({ width: 800, height: 400 }),
+      playSound: (id) => played.push(id),
+      documents: [{
+        uiDocumentId: 'menu', name: 'Menu', modal: true, sounds: { click: 'doc-click', hover: 'doc-hover', focus: 'doc-focus' },
+        styles: { loud: { sounds: { click: 'style-click' } }, soft: { sounds: { click: 'soft-click', hover: 'soft-hover' } } },
+        root: { type: 'stack', children: [
+          { id: 'a', type: 'button', text: 'A', onClick: { do: 'event', name: 'a' } },
+          { id: 'b', type: 'button', text: 'B', style: ['soft', 'loud'], onClick: { do: 'engine', action: 'resume' } },
+          { id: 'c', type: 'button', text: 'C', style: 'soft', sounds: { focus: 'own-focus' } },
+          { id: 'txt', type: 'text', text: 'no sound' },
+        ] },
+      }],
+    });
+    l.applyOutput({ set: [], shown: [{ doc: 'menu', layer: 0, modal: true }], commands: [] });
+    l.frame();
+    // The first focus when shown is silent.
+    expect(played).toEqual([]);
+    widget(container, 'a').fire('click');
+    widget(container, 'b').fire('click');
+    expect(engine).toEqual(['resume']);
+    expect(played).toEqual(['doc-click', 'style-click']);
+    played.length = 0;
+    widget(container, 'c').fire('pointerenter');
+    expect(played).toEqual(['soft-hover']);
+    played.length = 0;
+    const none = { up: false, down: false, left: false, right: false, submit: false, cancel: false, pause: false };
+    l.handleEdges({ ...none, up: true });
+    expect(l.observe().focus?.widget).toBe('b');
+    expect(played).toEqual(['doc-focus']);
+    l.applyOutput({ set: [], commands: [{ op: 'focus', doc: 'menu', widget: 'c' }] });
+    expect(played).toEqual(['doc-focus', 'own-focus']);
+    l.handleEdges({ ...none, submit: true });
+    expect(played.at(-1)).toBe('soft-click');
+  });
+});

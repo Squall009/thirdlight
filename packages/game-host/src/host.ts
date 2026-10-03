@@ -508,6 +508,8 @@ export interface GameHost {
   clickUi?(key: string): boolean;
   /** The shown UI widgets with their rectangles (tl_game_observe). */
   uiElements?(max?: number): UiElementObservation[];
+  /** `@font-face` rules of the UI's project fonts (a screenshot draws the UI outside the page). */
+  uiFontRules?(): Promise<string>;
   /** The play state now (running, or paused: the engine pause, a menu or the debugger hold the simulation). */
   playState?(): PlayState;
 }
@@ -820,6 +822,8 @@ export function createGameHost(config: GameHostConfig): GameHost {
    * map, else the current mode's maps, else every map.
    */
   let scenePaused = false;
+  /** A shell screen whose scripts run holds the game (told to the simulation once per change). */
+  let screenHeld = false;
   let pausePanel: PausePanel | null = null;
   let modeMaps: readonly string[] | null = null;
   let uiMaps: readonly string[] | null = null;
@@ -894,6 +898,12 @@ export function createGameHost(config: GameHostConfig): GameHost {
       setPaused: (on) => {
         scenePaused = on;
         rt.setPaused?.(on);
+      },
+      setHold: (on) => {
+        if (on === screenHeld) return;
+        screenHeld = on;
+        const r = rt.queueUiEvent?.({ kind: 'hold', doc: '', widget: '', name: '', value: on });
+        if (r !== undefined && r.ok === false) console.warn('[game-host] screen hold refused:', r.error.message);
       },
       restart: (cause) => queueRestart(rt, cause),
       reloadScene: (sceneId) => queueReload(rt, sceneId),
@@ -1466,6 +1476,8 @@ export function createGameHost(config: GameHostConfig): GameHost {
           const r = rt.queueDialogueInput?.(input);
           if (r !== undefined && r.ok === false) console.warn('[game-host] dialogue input refused:', r.error.message);
         },
+        // Widgets' click, hover and focus sounds, on the menu-sound bus (the player's UI volume).
+        playSound: (assetId) => void config.audio.playSound?.(assetId, 1, 'ui'),
         engineAction: (a) => {
           // Rebinding from project UI (the same bindings API as scripts and the settings screen).
           if (a.action === 'rebind' || a.action === 'cancelRebind' || a.action === 'resetBindings') {
@@ -1767,6 +1779,7 @@ export function createGameHost(config: GameHostConfig): GameHost {
     clickUi,
     playState,
     uiElements: (max?: number) => uiLayer?.elements(max) ?? [],
+    uiFontRules: () => uiLayer?.fontRules() ?? Promise.resolve(''),
     get debugConsole(): DebugConsole | null {
       return debugConsole;
     },

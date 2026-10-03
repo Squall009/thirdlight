@@ -153,6 +153,19 @@ describe('ModeState (pure)', () => {
     expect(all.ticksAll).toBe(true);
   });
 
+  it('a shell screen\'s hold: only scripts outside groups tick, physics held, with or without modes; a run restart keeps it', () => {
+    for (const m of [new ModeState(undefined, HZ, effects()), new ModeState({ modes: MODES, actionMaps: ACTION_MAPS }, HZ, effects())]) {
+      m.beginRun(1);
+      const before = [m.ticks(undefined), m.physicsHeld];
+      m.setScreenHold(true);
+      expect([m.ticksAll, m.ticks(undefined), m.ticks('field'), m.ticks('board'), m.physicsHeld]).toEqual([false, true, false, false, true]);
+      m.beginRun(2);
+      expect(m.physicsHeld).toBe(true);
+      m.setScreenHold(false);
+      expect([m.ticks(undefined), m.physicsHeld]).toEqual(before);
+    }
+  });
+
   it('without modes nothing runs', () => {
     const m = new ModeState(undefined, HZ, effects());
     m.beginRun(1);

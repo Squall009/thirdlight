@@ -3204,7 +3204,7 @@ class RuntimeInstance implements Runtime {
   private behaviorTicks(): ((entityId: string) => boolean) | undefined {
     // A switched-off object's scripts do not tick.
     const off = this.entityAccess.inactive();
-    if (!this.modes.active || this.modes.ticksAll) {
+    if (this.modes.ticksAll) {
       if (off.size === 0) return undefined;
       if (this.behaviorTicksOff === null || this.behaviorTicksOff.set !== off) this.behaviorTicksOff = { set: off, fn: (entityId: string): boolean => !off.has(entityId) };
       return this.behaviorTicksOff.fn;
@@ -3784,6 +3784,7 @@ class RuntimeInstance implements Runtime {
         const deprecated = UI_DEPRECATED_ENGINE_ACTIONS[e.name as UiEngineAction];
         if (deprecated !== undefined) this.problem(deprecated.code, `the ${e.name} engine action is deprecated and will be removed (it restarts the whole run); use ${deprecated.replacement} — see the migration notes`);
       } else if (e.kind === 'reload') this.reloadFromUi(typeof e.value === 'string' && e.value !== '' ? e.value : undefined);
+      else if (e.kind === 'hold') this.modes.setScreenHold(e.value === true);
     }
     // The scene list move comes after a restart of the same frame.
     for (const e of events) if (e.kind === 'scene' && typeof e.value === 'number') this.pendingListedScene = e.value;

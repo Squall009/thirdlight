@@ -107,6 +107,7 @@ import {
 } from './index';
 import { pageAudio } from './page-audio';
 import { mipPartsOf } from './asset-reader';
+import { composeOverlay } from './overlay-capture';
 
 /** The runtime-content manifest as a game page reads it (the catalog's blocks already folded in by `openRuntimeContent`). */
 export interface GamePageManifest {
@@ -243,6 +244,8 @@ export interface GamePageHandle {
   resources(): ResourceObservation;
   /** The sound: unlock state, what plays, what did not play and why (Play diagnostics' audio block). */
   audio(): AudioReport | null;
+  /** A captured frame (PNG data URL) with the page's UI and overlays drawn over it, as the player sees it. */
+  withOverlay(frame: { readonly dataUrl: string; readonly width: number; readonly height: number }): Promise<string>;
   dispose(): void;
 }
 
@@ -999,6 +1002,7 @@ export async function startGamePage(o: GamePageOptions): Promise<GamePageHandle>
         return o.ok && o.observation.resources !== undefined ? o.observation.resources : resources.observe();
       },
       audio: () => audio.report?.() ?? null,
+      withOverlay: (frame) => composeOverlay({ container: o.container as unknown as HTMLElement, canvas: o.canvas, frame, fontCss: () => host.uiFontRules?.() ?? Promise.resolve('') }),
       // The host disposes its runtime (in worker mode the mirror, which ends the worker);
       // then the physics port, the audio owner, the input and the page listeners; the resources last.
       dispose: () => releaseAll(),

@@ -5,7 +5,7 @@
 
 import { EVENT_CUE_BUSES, EVENT_CUE_LIMITS, EVENT_CUE_SOURCES } from './event-cues';
 import { ASSET_METRIC_CAPS, AUDIO_MAX_LATE_MS_DEFAULT, AUDIO_MAX_LATE_MS_LIMIT } from './content-limits';
-import { SHELL_LIMITS } from './shell';
+import { SHELL_LIMITS, SHELL_SCREENS, SHELL_SIMULATE } from './shell';
 import { SAVE_LIMITS, SAVE_SECTIONS } from './save-schema';
 import { MAX_ANIMATOR_MORPHS } from './animator';
 import { ANIMATOR_CONDITION_OPS, ANIMATOR_PARAMETER_TYPES, MAX_ANIMATOR_CONDITIONS, MAX_ANIMATOR_EVENTS, MAX_ANIMATOR_LAYERS, MAX_ANIMATOR_PARAMETERS, MAX_ANIMATOR_STATES, MAX_ANIMATOR_TRANSITIONS, MAX_BLEND_CHILDREN, MAX_LAYER_MASK } from './animator';
@@ -469,6 +469,7 @@ export const CONTENT: readonly ContentBlockDescriptor[] = [
         ref('save', 'Save', 'Save slots (project saves; $flow.saves lists them).', 'uiDocument'),
         ref('load', 'Load', 'Load slots (project saves).', 'uiDocument'),
       ]),
+      obj('simulate', 'While shown', 'What runs under each screen: the engine pause (no steps), or the scripts outside behavior groups (physics and grouped scripts held) — a title or menu its scripts animate.', SHELL_SCREENS.map((k) => enm(k, k.charAt(0).toUpperCase() + k.slice(1), `What runs while the ${k} screen shows.`, SHELL_SIMULATE, { default: 'pause', labels: { pause: 'Pause', scripts: 'Scripts run' } }))),
       list('hud', 'HUD', `UI documents shown while the game plays (hidden behind the menus); bind to $flow.counters, $flow.health, $flow.prompts or script values. Up to ${SHELL_LIMITS.hud}.`, ref('*', 'Document', 'A UI document.', 'uiDocument'), { maxItems: SHELL_LIMITS.hud, unique: true }),
       list('scenes', 'Scene list', `The game's scenes in order: New game begins a fresh run at the first, Next scene moves on to the next.`, obj('*', 'Listed scene', 'A scene and where the character starts in it.', [
         scene('scene', 'Scene', 'A scene of the project.', { required: true }),

@@ -37,7 +37,7 @@ export interface BehaviorCameraState {
 /** One UI event of this step (from the input frame). */
 export interface BehaviorUiEvent {
   /** click (a button's event action), submit (an input), focus (the focus moved to `widget`), custom, show, hide, toggle; mode (a mode action: `value` is the mode), restart (the engine's restart), scene (the game shell's move along its scene list: `value` is the entry). */
-  readonly kind: 'click' | 'submit' | 'focus' | 'custom' | 'show' | 'hide' | 'toggle' | 'mode' | 'restart' | 'scene' | 'reload';
+  readonly kind: 'click' | 'submit' | 'focus' | 'custom' | 'show' | 'hide' | 'toggle' | 'mode' | 'restart' | 'scene' | 'reload' | 'hold';
   /** The UI document it happened in. */
   readonly doc: string;
   /** The widget ('' for none). */

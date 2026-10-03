@@ -225,17 +225,22 @@ export const SCREENSHOT_DATA_URL_MAX = 1024 * 1024;
 
 export interface ScreenshotRequest {
   maxWidth: number;
+  /** The game's UI and overlays drawn over the frame (absent: true); false: the rendered frame alone. */
+  ui?: boolean;
 }
 
-const SCREENSHOT_FIELDS = new Map([['maxWidth', `integer ${SCREENSHOT_MAX_WIDTH_MIN}–${SCREENSHOT_MAX_WIDTH_MAX}`]]);
+const SCREENSHOT_FIELDS = new Map([['maxWidth', `integer ${SCREENSHOT_MAX_WIDTH_MIN}–${SCREENSHOT_MAX_WIDTH_MAX}`], ['ui', 'boolean']]);
 
 export function parseScreenshotRequest(value: unknown):
   | { ok: true; request: ScreenshotRequest }
   | { ok: false; error: import('./errors').SessionError } {
   const shape = checkShape(value ?? {}, '', SCREENSHOT_FIELDS, []);
   if (!shape.ok) return { ok: false, error: shape.error };
+  const ui = shape.value.ui;
+  if (ui !== undefined && typeof ui !== 'boolean') return { ok: false, error: sessionError('invalid_request', 'validation', 'ui must be true or false', { path: '/ui' }) };
+  const withUi = ui === false ? { ui: false } : {};
   if (shape.value.maxWidth === undefined) {
-    return { ok: true, request: { maxWidth: SCREENSHOT_MAX_WIDTH_DEFAULT } };
+    return { ok: true, request: { maxWidth: SCREENSHOT_MAX_WIDTH_DEFAULT, ...withUi } };
   }
   const mw = checkField(shape.value, 'maxWidth', '', `integer ${SCREENSHOT_MAX_WIDTH_MIN}–${SCREENSHOT_MAX_WIDTH_MAX}`, (v) => {
     if (typeof v !== 'number' || !Number.isInteger(v)) return { problem: 'maxWidth must be an integer', kind: 'type' };
@@ -245,7 +250,7 @@ export function parseScreenshotRequest(value: unknown):
     return null;
   });
   if (!mw.ok) return { ok: false, error: mw.error };
-  return { ok: true, request: { maxWidth: mw.value as number } };
+  return { ok: true, request: { maxWidth: mw.value as number, ...withUi } };
 }
 
 // ---- POST /api/v1/admin/projects ---------------------------

@@ -80,3 +80,28 @@ export async function answerScreenshotWhenDrawn(capture: ((maxWidth: number) => 
     await new Promise((r) => setTimeout(r, Math.min(DRAWN_POLL_MS, Math.max(0, end - performance.now()))));
   }
 }
+
+/** Draw the page's UI over a captured frame (a PNG data URL of the same size). */
+export type OverlayDrawer = (frame: { readonly dataUrl: string; readonly width: number; readonly height: number }) => Promise<string>;
+
+/**
+ * `answerScreenshotWhenDrawn`, with the page's UI and overlays drawn over
+ * the frame by `overlay`. A picture over the bound is captured again
+ * smaller, as a frame alone is; a drawing that fails says why.
+ */
+export async function answerScreenshotWithOverlay(capture: ((maxWidth: number) => CaptureOutcome) | null, overlay: OverlayDrawer, maxWidth: number, withinMs: number, alive: () => boolean, dataUrlMax = SCREENSHOT_DATA_URL_MAX): Promise<ScreenshotAnswer> {
+  let frame = await answerScreenshotWhenDrawn(capture, maxWidth, withinMs, alive, dataUrlMax);
+  for (;;) {
+    if (!frame.ok) return frame;
+    let dataUrl: string;
+    try {
+      dataUrl = await overlay(frame);
+    } catch (e) {
+      return failed('screenshot_failed', `the UI over the frame could not be drawn: ${e instanceof Error ? `${e.name}: ${e.message}` : String(e)}`);
+    }
+    if (dataUrl.length <= dataUrlMax) return { ok: true, dataUrl, width: frame.width, height: frame.height };
+    if (frame.width <= SCREENSHOT_MAX_WIDTH_MIN) return failed('screenshot_failed', `the PNG with its UI is ${dataUrl.length} characters at ${frame.width} pixels wide, over the ${dataUrlMax}-character bound`);
+    const next = Math.max(SCREENSHOT_MAX_WIDTH_MIN, Math.floor(frame.width * Math.sqrt(dataUrlMax / dataUrl.length) * 0.9));
+    frame = answerScreenshot(capture, Math.min(next, frame.width - 1), dataUrlMax);
+  }
+}

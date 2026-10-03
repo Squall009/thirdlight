@@ -6,7 +6,8 @@
  * the HUD documents shown while the game plays.
  *
  * The shell changes the game only through the host's seams: the engine pause
- * (no steps while a menu is open), a scene reload, the deprecated run restart
+ * (no steps while a menu is open; a screen may instead hold physics and the
+ * grouped scripts while the other scripts run), a scene reload, the deprecated run restart
  * and a move along the scene list (UI events on the next input frame, so
  * replays hold), and project saves
  * (a save made by the simulation, a slot loaded by the save service).
@@ -28,6 +29,8 @@ export type ShellState = ShellScreenKey | 'playing';
 /** The shell block as the host reads it (structurally; validated by the model). */
 export interface ShellConfigLike {
   readonly screens?: Readonly<Partial<Record<ShellScreenKey, string>>>;
+  /** What runs under a screen: the engine pause (absent) or the scripts outside behavior groups. */
+  readonly simulate?: Readonly<Partial<Record<ShellScreenKey, 'pause' | 'scripts'>>>;
   readonly hud?: readonly string[];
   readonly scenes?: readonly { readonly scene: string; readonly spawn?: string }[];
   readonly pause?: boolean;
@@ -50,6 +53,8 @@ export interface ShellDeps {
   readonly setHud: (docIds: readonly string[]) => void;
   /** The engine pause (no steps while true). */
   readonly setPaused: (on: boolean) => void;
+  /** A screen whose scripts run holds physics and the grouped scripts (a UI event on the next input frame, so replays hold). */
+  readonly setHold?: (on: boolean) => void;
   /** A fresh run (a restart UI event on the next input frame), named by the action that asked for it. */
   readonly restart: (cause: 'restartLevel' | 'newGame' | 'quitToTitle') => void;
   /** A scene's objects as authored again (a reload UI event; absent: the active scene). */
@@ -172,7 +177,9 @@ export function createShellController(deps: ShellDeps): ShellController {
   const docFor = (s: ShellState): string | undefined => (s === 'playing' ? undefined : s === 'pause' ? (deps.modePauseScreen() ?? screens.pause) : screens[s]);
   const go = (s: ShellState): void => {
     screen = s;
-    deps.setPaused(s !== 'playing');
+    const scripts = s !== 'playing' && shell.simulate?.[s] === 'scripts';
+    deps.setPaused(s !== 'playing' && !scripts);
+    deps.setHold?.(scripts);
     const doc = docFor(s);
     deps.showScreen(doc ?? null);
     if (s === 'pause' && doc === undefined) {

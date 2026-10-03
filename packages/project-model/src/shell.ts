@@ -20,6 +20,10 @@
  * - `pause`: whether the pause input opens the pause screen (absent: true).
  * - `status`: a small debug line with the shell's screen, the listed scene
  *   and the input prompts (absent: off).
+ * - `simulate`: per screen, what runs under it — `pause` (absent: the engine
+ *   pause, no steps) or `scripts` (steps go on with the scripts outside
+ *   behavior groups; physics and grouped scripts held, as a game mode with
+ *   no groups and physics held), for a title or menu its scripts animate.
  *
  * The shell never changes what the simulation does by itself: new game,
  * next scene and restart ride on the input frame as UI events (so replays
@@ -46,15 +50,20 @@ export interface ShellScene {
   fadeColor?: string;
 }
 
+/** What runs while a shell screen shows. */
+export type ShellSimulate = 'pause' | 'scripts';
+export const SHELL_SIMULATE: readonly ShellSimulate[] = ['pause', 'scripts'];
+
 export interface GameShell {
   screens?: Partial<Record<ShellScreen, string>>;
+  simulate?: Partial<Record<ShellScreen, ShellSimulate>>;
   hud?: string[];
   scenes?: ShellScene[];
   pause?: boolean;
   status?: boolean;
 }
 
-export const SHELL_FIELDS = ['screens', 'hud', 'scenes', 'pause', 'status'] as const;
+export const SHELL_FIELDS = ['screens', 'simulate', 'hud', 'scenes', 'pause', 'status'] as const;
 
 const DOC_RE = ID_RE;
 
@@ -67,7 +76,7 @@ function err(errors: ModelErrorV2[], code: string, path: string, message: string
 
 /** The shape of a shell block (the documents, scenes and spawns it names are checked against the project). */
 export function validateShell(v: unknown, path: string, errors: ModelErrorV2[]): void {
-  if (!isPlainObject(v)) return err(errors, 'field_type', path, 'shell is an object { screens?, hud?, scenes?, pause?, status? }', v, 'object');
+  if (!isPlainObject(v)) return err(errors, 'field_type', path, 'shell is an object { screens?, simulate?, hud?, scenes?, pause?, status? }', v, 'object');
   for (const k of Object.keys(v)) if (!(SHELL_FIELDS as readonly string[]).includes(k)) err(errors, 'field_unexpected', `${path}/${k}`, `unknown shell field "${k}"`, k, SHELL_FIELDS.join(', '));
   const screens = v['screens'];
   if (screens !== undefined) {
@@ -76,6 +85,16 @@ export function validateShell(v: unknown, path: string, errors: ModelErrorV2[]):
       for (const [k, id] of Object.entries(screens)) {
         if (!(SHELL_SCREENS as readonly string[]).includes(k)) err(errors, 'field_unexpected', `${path}/screens/${k}`, `unknown shell screen "${k}"`, k, SHELL_SCREENS.join(', '));
         else if (typeof id !== 'string' || !DOC_RE.test(id)) err(errors, 'field_value', `${path}/screens/${k}`, 'a shell screen names a UI document', id, 'a uiDocumentId');
+      }
+    }
+  }
+  const simulate = v['simulate'];
+  if (simulate !== undefined) {
+    if (!isPlainObject(simulate)) err(errors, 'field_type', `${path}/simulate`, 'simulate maps shell screens to pause or scripts', simulate, 'object');
+    else {
+      for (const [k, mode] of Object.entries(simulate)) {
+        if (!(SHELL_SCREENS as readonly string[]).includes(k)) err(errors, 'field_unexpected', `${path}/simulate/${k}`, `unknown shell screen "${k}"`, k, SHELL_SCREENS.join(', '));
+        else if (typeof mode !== 'string' || !(SHELL_SIMULATE as readonly string[]).includes(mode)) err(errors, 'field_value', `${path}/simulate/${k}`, 'a screen simulates pause or scripts', mode, SHELL_SIMULATE.join(' | '));
       }
     }
   }
@@ -122,6 +141,7 @@ export function validateShellReferences(content: Record<string, unknown>, errors
 export function canonicalShell(s: GameShell): GameShell {
   return {
     ...(s.screens !== undefined ? { screens: Object.fromEntries(SHELL_SCREENS.filter((k) => s.screens![k] !== undefined).map((k) => [k, s.screens![k]!])) } : {}),
+    ...(s.simulate !== undefined ? { simulate: Object.fromEntries(SHELL_SCREENS.filter((k) => s.simulate![k] !== undefined).map((k) => [k, s.simulate![k]!])) } : {}),
     ...(s.hud !== undefined ? { hud: [...s.hud] } : {}),
     ...(s.scenes !== undefined ? { scenes: s.scenes.map((x) => ({ scene: x.scene, ...(x.spawn !== undefined ? { spawn: x.spawn } : {}), ...(x.fade !== undefined ? { fade: x.fade } : {}), ...(x.fadeColor !== undefined ? { fadeColor: x.fadeColor } : {}) })) } : {}),
     ...(s.pause !== undefined ? { pause: s.pause } : {}),

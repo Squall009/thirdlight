@@ -39,7 +39,7 @@ import { GamePageError, startGamePage, type GamePageHandle, type GamePageManifes
 import type { SceneAdapter } from '@thirdlight/three-adapter';
 import type { InputConfigLike } from '@thirdlight/input';
 import { Bridge } from './bridge';
-import { answerScreenshotWhenDrawn } from './screenshot-answer';
+import { answerScreenshotWhenDrawn, answerScreenshotWithOverlay } from './screenshot-answer';
 import { awaitRestart } from './replay-answer';
 import { resolveRelayFrames, type IncomingRelayFrame } from './relay-frames';
 import { fitPlayDiagnostics } from '@thirdlight/protocol';
@@ -409,7 +409,7 @@ export function bootstrapPreviewM3(): void {
   });
 
   bridge.on('tl.screenshot.request', (m) => {
-    const body = m as { relayId: string; maxWidth?: number; answerWithinMs?: number };
+    const body = m as { relayId: string; maxWidth?: number; answerWithinMs?: number; ui?: boolean };
     if (handle === null) {
       bridge.sendScreenshotResult(playId, body.relayId, notReady);
       return;
@@ -418,7 +418,13 @@ export function bootstrapPreviewM3(): void {
     // still starting is waited for within the relay's allowance, so a capture right after Play starts gets the first frame.
     const current = handle;
     const adapter = current.adapter;
-    void answerScreenshotWhenDrawn(adapter === null ? null : (w) => adapter.captureScreenshot(w), body.maxWidth ?? 1024, body.answerWithinMs ?? 0, () => handle === current).then((answer) => bridge.sendScreenshotResult(playId, body.relayId, answer));
+    const capture = adapter === null ? null : (w: number) => adapter.captureScreenshot(w);
+    // The game's UI and overlays over the frame, as the player sees it (unless asked for the frame alone).
+    const answered =
+      body.ui === false
+        ? answerScreenshotWhenDrawn(capture, body.maxWidth ?? 1024, body.answerWithinMs ?? 0, () => handle === current)
+        : answerScreenshotWithOverlay(capture, (frame) => current.withOverlay(frame), body.maxWidth ?? 1024, body.answerWithinMs ?? 0, () => handle === current);
+    void answered.then((answer) => bridge.sendScreenshotResult(playId, body.relayId, answer));
   });
 
   bridge.on('tl.diagnostics.request', (m) => {

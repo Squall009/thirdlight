@@ -153,9 +153,10 @@ export class BackendClient {
   }
 
   /** POST capture a bounded screenshot from the play session's connected preview. */
-  screenshot(projectId: string, playSessionId: string, maxWidth?: number): Promise<BackendResponse> {
+  screenshot(projectId: string, playSessionId: string, maxWidth?: number, ui?: boolean): Promise<BackendResponse> {
     return this.request('POST', `/api/v1/projects/${encodeURIComponent(projectId)}/play/${encodeURIComponent(playSessionId)}/screenshot`, {
       ...(maxWidth !== undefined ? { maxWidth } : {}),
+      ...(ui === false ? { ui: false } : {}),
     });
   }
 

@@ -385,13 +385,13 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       'tweens? {name: {kind: fade|slide|scale|stamp, duration 0.01-10 s, delay?, easing?: linear|easeIn|easeOut|easeInOut|back, from?, to?, direction?: left|right|up|down, distance?}}, showTween?, hideTween?, initialFocus? (widget id), onCancel? (action), root: widget}} ' +
       `creates or replaces one (whole JSON, ≤ ${UI_LIMITS.documentBytes / 1024} KiB, ≤ ${UI_LIMITS.widgets} widgets, depth ≤ ${UI_LIMITS.depth}); deleteUiDocument {uiDocumentId}; setUiTheme {theme: {uiThemeId, name, styles, icons?}}; deleteUiTheme {uiThemeId}. ` +
       'A widget: {type: panel|stack|grid|text|image|bar|button|list|input, id?, anchor? [0-1, 0-1], pivot?, offset? [x|{bind}, y|{bind}] (px), opacity? 0-1|{bind} (with its children, over the style), rotation? degrees|{bind} (about the pivot; a flowed child its centre), size? [w|null|{bind}, h|null|{bind}] (a bound axis is the px number the view model holds), stretch?: x|y|both, margin? [l, t, r, b], grow?, style?: name|[names], css?: style, ' +
-      'visible?/enabled?: bool|{bind}, focusable?, nav? {up, down, left, right, next, prev: widget ids}, worldAnchor? {entity: id|{bind} | point: [x, y, z], offset?, clamp?, margin?, indicator?: child id}, onFocus?, children? (panel anchors them; stack direction row|column, gap, align, justify, wrap; grid columns, cellSize), ' +
+      'visible?/enabled?: bool|{bind}, focusable?, sounds? {click?, hover?, focus?: audio assets played on the ui bus; also on a style (base) and the document (the default)}, nav? {up, down, left, right, next, prev: widget ids}, worldAnchor? {entity: id|{bind} | point: [x, y, z], offset?, clamp?, margin?, indicator?: child id}, onFocus?, children? (panel anchors them; stack direction row|column, gap, align, justify, wrap; grid columns, cellSize), ' +
       'text (rich: [b] [i] [color=#hex] [size=N] [icon=name], {path} values, {action:name} the glyph of an input action), image {image: texture|{bind}, slice? [t, r, b, l], fit?, tint?}, bar {value, min?, max? (numbers or {bind}), direction?: right|left|up|down, shape?: linear|radial, fillColor?, fillStyle?, startAngle? (radial, degrees, 0 = up: a number or {bind})}, ' +
       'button {text?, children?, onClick}, list {items: {bind}, template: widget ($item.x, $index in its bindings), itemKey? (a field of each item: the item keeps its widgets and focus wherever it moves; absent: kept by index), direction?: row|column|grid}, input {value?, placeholder?, maxLength?, onSubmit}}. ' +
       'A style (never raw CSS): color, background, backgroundImage (texture) + slice, opacity, font (a font asset or sans|serif|mono|rounded), fontSize, bold, italic, align, lineHeight, letterSpacing, padding, radius, borderWidth, borderColor, textShadow, shadow, and hover|focus|pressed|disabled variants. ' +
       'An action: {do: "event", name, value?} (a UI event for scripts on the next input frame), {do: "engine", action: resume|pause|reloadScene|continue|quitToTitle|settings|load|save|back|setSetting|mute|unmute|rebind|cancelRebind|resetBindings|open|nextScene (restartLevel and newGame are deprecated: they restart the whole run and write a Problems line; a game reloads scenes and builds its own new game), screen? (open: title|pause|settings|controls|save|load), scene? (reloadScene: the scene to reload; absent: the active scene), slot?, setting?, value?, step?, input? (rebind/resetBindings: the input action), device?, index?, part?, policy? swap|refuse|allow}, ' +
       '{do: "show"|"hide"|"toggle", doc}, {do: "play", tween, widget?}. Bindings read the scripts\' view model (ctx.ui.set(path, value)); $flow.* reads the host values (the shell screen, volumes, slots, counters, health, prompts). ' +
-      'The game shell: setShell {shell: {screens?: {title|pause|settings|controls|save|load: uiDocumentId}, hud?: [uiDocumentId], scenes?: [{scene, spawn?}], pause?, status?} | null} draws its menus and HUD with UI documents (save/load use the project saves); HUD bindings read $flow.counters.<name>, $flow.health.<objectId>.current|max, $flow.prompts (generated from the input actions) and $flow.shell (screen, scene, canContinue, saves.<n>.label, note); tl_game_observe reports shell {screen, scene, hud}. Scripts: ctx.ui.set/get/clear, show/hide/isShown, play, focus(doc, widget, index? (the list item)), view() {width, height, aspect, pixelRatio} (also $flow.view), events()/event(name). ' +
+      'The game shell: setShell {shell: {screens?: {title|pause|settings|controls|save|load: uiDocumentId}, simulate?: {screen: pause (default: no steps) | scripts (the scripts outside behavior groups keep stepping, physics and grouped scripts held)}, hud?: [uiDocumentId], scenes?: [{scene, spawn?}], pause?, status?} | null} draws its menus and HUD with UI documents (save/load use the project saves); HUD bindings read $flow.counters.<name>, $flow.health.<objectId>.current|max, $flow.prompts (generated from the input actions) and $flow.shell (screen, scene, canContinue, saves.<n>.label, note); tl_game_observe reports shell {screen, scene, hud}. Scripts: ctx.ui.set/get/clear, show/hide/isShown, play, focus(doc, widget, index? (the list item)), view() {width, height, aspect, pixelRatio} (also $flow.view), events()/event(name). ' +
       'They are in tl_content_query target="game" (uiDocuments, uiThemes); tl_game_observe reports ui {shown, screen, focus, actionMap}. ' +
       'Text widgets may also take content: {bind} (rich text from the view model) and reveal: number|{bind} (a typewriter); an action {do: "dialogue", input: advance|choose|skip|auto|backlog, value?} is a dialogue input. ' +
       'Dialogue: setDialogue {dialogue: {dialogueId, name, graph?}} creates (graph absent: a Start node) or renames a conversation; its graph is owner kind "dialogue" (owner id = dialogueId, graph kind dialogue) edited with graphEdit: ' +
@@ -869,12 +869,14 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       'selected connected browser preview. Fails structurally if the play is not presented or the ' +
       'editor browser is not connected; a capture the preview cannot make says why (error.cause and ' +
       'message: e.g. screenshot_failed, bridge_message_refused, render_not_ready). A PNG over the bound comes back smaller (see width). ' +
-      'A capture asked before the play\'s renderer drew its first frame (right after the start) waits for that frame within half the relay timeout; past it the answer is render_not_ready.',
+      'A capture asked before the play\'s renderer drew its first frame (right after the start) waits for that frame within half the relay timeout; past it the answer is render_not_ready. ' +
+      'The game\'s UI documents and overlays (fades, letterbox, menus) are drawn over the frame as the player sees them; ui: false captures the rendered frame alone.',
     inputSchema: {
       type: 'object',
       properties: {
         playSessionId: { type: 'string' },
         maxWidth: { type: 'integer', minimum: SCREENSHOT_MAX_WIDTH_MIN, maximum: SCREENSHOT_MAX_WIDTH_MAX },
+        ui: { type: 'boolean' },
       },
       required: ['playSessionId'],
       additionalProperties: false,
@@ -1101,7 +1103,8 @@ async function screenshot(ctx: McpContext, a: Record<string, unknown>): Promise<
     if (!isInt(a.maxWidth) || a.maxWidth < SCREENSHOT_MAX_WIDTH_MIN || a.maxWidth > SCREENSHOT_MAX_WIDTH_MAX) return toolError(`maxWidth must be an integer ${SCREENSHOT_MAX_WIDTH_MIN}–${SCREENSHOT_MAX_WIDTH_MAX}`);
     maxWidth = a.maxWidth;
   }
-  const res = await ctx.client.screenshot(ctx.projectId, a.playSessionId, maxWidth);
+  if (a.ui !== undefined && typeof a.ui !== 'boolean') return toolError('ui must be true or false');
+  const res = await ctx.client.screenshot(ctx.projectId, a.playSessionId, maxWidth, a.ui === false ? false : undefined);
   return isObj(res.body) && res.body.ok === true ? toolOk(res.body) : surfaceBackendError(res);
 }
 

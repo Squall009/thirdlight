@@ -7,7 +7,7 @@
 import { validateBridgePreviewToEditor } from '@thirdlight/protocol';
 import { describe, expect, it } from 'vitest';
 
-import { answerScreenshot, answerScreenshotWhenDrawn, type CaptureOutcome } from './screenshot-answer';
+import { answerScreenshot, answerScreenshotWhenDrawn, answerScreenshotWithOverlay, type CaptureOutcome } from './screenshot-answer';
 
 const PLAY = `play-${'a'.repeat(32)}`;
 const RELAY = `relay-${'b'.repeat(32)}`;
@@ -107,5 +107,27 @@ describe('answerScreenshotWhenDrawn', () => {
     expect(calls).toBe(1);
     const failed = await answerScreenshotWhenDrawn(() => ({ ok: false, error: { code: 'render_failed', message: 'render failed: x' } }), 512, 5_000, () => true);
     expect(failed).toEqual({ ok: false, error: { code: 'render_failed', message: 'render failed: x' } });
+  });
+});
+
+describe('answerScreenshotWithOverlay', () => {
+  it('draws the UI over the frame; a picture over the bound is captured again smaller; a drawing that fails says why', async () => {
+    const widths: number[] = [];
+    const capture = (w: number): CaptureOutcome => {
+      widths.push(w);
+      return { ok: true, result: { dataUrl: png(w), width: w, height: Math.round(w / 2) } };
+    };
+    const ok = await answerScreenshotWithOverlay(capture, async (f) => `${f.dataUrl}UI`, 512, 0, () => true);
+    expect(ok).toEqual({ ok: true, dataUrl: `${png(512)}UI`, width: 512, height: 256 });
+    widths.length = 0;
+    const shrunk = await answerScreenshotWithOverlay(capture, async (f) => png(f.width * 4), 2048, 0, () => true, 4_000);
+    expect(shrunk.ok).toBe(true);
+    expect(widths.length).toBeGreaterThan(1);
+    expect(widths.at(-1)!).toBeLessThan(1000);
+    const bad = await answerScreenshotWithOverlay(capture, async () => {
+      throw new Error('tainted');
+    }, 512, 0, () => true);
+    expect(bad).toMatchObject({ ok: false, error: { code: 'screenshot_failed' } });
+    expect(bridged(bad).ok).toBe(true);
   });
 });

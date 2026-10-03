@@ -544,6 +544,7 @@ export function makePlayRoutes(ctx: PlayRoutesContext) {
       return;
     }
     let maxWidth: number | undefined;
+    let ui: boolean | undefined;
     if (kind === 'screenshot') {
       const parsedReq = parseScreenshotRequest(strict.value);
       if (!parsedReq.ok) {
@@ -551,6 +552,7 @@ export function makePlayRoutes(ctx: PlayRoutesContext) {
         return;
       }
       maxWidth = parsedReq.request.maxWidth;
+      ui = parsedReq.request.ui;
     } else {
       const noArgs = parseAdminNoArgsBody(strict.value);
       if (!noArgs.ok) {
@@ -573,7 +575,7 @@ export function makePlayRoutes(ctx: PlayRoutesContext) {
     }
     const relayId = newRelayId();
     const payload =
-      kind === 'screenshot' ? makeScreenshotRequest(relayId, maxWidth, relayAnswerWithinMs(relayTimeoutMs())) : makeDiagnosticsRequest(relayId);
+      kind === 'screenshot' ? makeScreenshotRequest(relayId, maxWidth, relayAnswerWithinMs(relayTimeoutMs()), ui) : makeDiagnosticsRequest(relayId);
     const outcome: RelayOutcome = await plays.relay(rec.playSessionId, kind, relayId, payload);
     sessions.record(owner, kind, relayId, rec.revision, nowMs(), outcome.ok ? 'ok' : (outcome.ok ? undefined : outcome.code));
     if (outcome.ok && outcome.kind === 'screenshot') {

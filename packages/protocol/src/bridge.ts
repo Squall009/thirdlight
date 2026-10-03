@@ -221,13 +221,14 @@ export function validateBridgeEditorToPreview(value: unknown): Verdict {
       return { ok: true };
     }
     case 'tl.screenshot.request': {
-      const bad = rejectUnknown(m, ['v', 'type', 'playSessionId', 'relayId', 'maxWidth', 'answerWithinMs']);
+      const bad = rejectUnknown(m, ['v', 'type', 'playSessionId', 'relayId', 'maxWidth', 'answerWithinMs', 'ui']);
       if (bad) return { ok: false, reason: bad.reason, path: bad.path };
       if (!isPlaySessionId(m['playSessionId'])) return { ok: false, reason: 'playSessionId must be play- + 32 hex', path: '/playSessionId' };
       if (!isRelayId(m['relayId'])) return { ok: false, reason: 'relayId must be relay- + 32 hex', path: '/relayId' };
       if (m['maxWidth'] !== undefined && !int(m['maxWidth'], SCREENSHOT_MAX_WIDTH_MIN, SCREENSHOT_MAX_WIDTH_MAX)) {
         return { ok: false, reason: `maxWidth must be an integer ${SCREENSHOT_MAX_WIDTH_MIN}–${SCREENSHOT_MAX_WIDTH_MAX}`, path: '/maxWidth' };
       }
+      if (m['ui'] !== undefined && typeof m['ui'] !== 'boolean') return { ok: false, reason: 'ui must be true or false', path: '/ui' };
       return answerWithinProblem(m['answerWithinMs']) ?? { ok: true };
     }
     case 'tl.diagnostics.request': {

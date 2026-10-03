@@ -748,7 +748,7 @@ export {
 export type { BehaviorGroupComponent, GameMode, ModeBlend, ModePhysics, ModeTransition, ModeUngrouped, RuntimeModes } from './modes';
 // The event → cue table.
 export { ENGINE_EVENT_TYPES, EVENT_CUE_BUSES, EVENT_CUE_FIELDS, EVENT_CUE_LIMITS, EVENT_CUE_SOURCES, canonicalEventCue, canonicalEventCues, validateEventCue, validateEventCueReferences, validateEventCues, type EventCue } from './event-cues';
-export { SHELL_FIELDS, SHELL_LIMITS, SHELL_SCREENS, canonicalShell, validateShell, validateShellReferences, type GameShell, type ShellScene, type ShellScreen } from './shell';
+export { SHELL_FIELDS, SHELL_LIMITS, SHELL_SCREENS, SHELL_SIMULATE, canonicalShell, validateShell, validateShellReferences, type GameShell, type ShellScene, type ShellScreen, type ShellSimulate } from './shell';
 // The old modelAnimation profile becomes an animator controller on open.
 export { glbClipDurations, LEGACY_CROSSFADE_SECONDS, LEGACY_RUN_SPEED_EPS, migrateModelAnimations, type ClipDurationOf, type ModelAnimationMigration } from './animator-migrate';
 // Animator controllers.

@@ -95,6 +95,13 @@ export class ModeState {
   /** The fade document shown by the last switch and the step ordinal it leaves at. */
   private overlay: { doc: string; until: number } | null = null;
   private viewCache: ModeView | null = null;
+  /**
+   * A game shell screen whose scripts run is showing: physics and every
+   * grouped script are held, the scripts outside groups step (as a mode with
+   * no groups and physics held), whatever the mode says. It is the host's
+   * screen, not the run's: a run restart keeps it.
+   */
+  private screenHold = false;
   /** Per mode: the action names to neutralize (null: none) and whether gameplay is off. */
   private readonly masks = new Map<string, { names: ReadonlySet<string>; gameplayOff: boolean } | null>();
 
@@ -273,8 +280,19 @@ export class ModeState {
     return this.currentId === null ? 0 : Math.max(0, ordinal - 1 - this.sinceStep) / this.hz;
   }
 
+  /** A shell screen holds the game (see `screenHold`); false lets it go. */
+  setScreenHold(on: boolean): void {
+    this.screenHold = on;
+    this.touched();
+  }
+
+  get screenHeld(): boolean {
+    return this.screenHold;
+  }
+
   /** A behavior of this group (undefined: ungrouped) runs in the current mode. */
   ticks(group: string | undefined): boolean {
+    if (this.screenHold) return group === undefined;
     const m = this.currentId === null ? undefined : this.byId.get(this.currentId);
     if (m === undefined) return true;
     if (group === undefined) return m.ungrouped !== 'pause';
@@ -283,6 +301,7 @@ export class ModeState {
 
   /** Every group and ungrouped behavior ticks in the current mode (the fast path). */
   get ticksAll(): boolean {
+    if (this.screenHold) return false;
     const m = this.currentId === null ? undefined : this.byId.get(this.currentId);
     return m === undefined || (m.groups === undefined && m.ungrouped !== 'pause');
   }
@@ -321,6 +340,7 @@ export class ModeState {
 
   /** Physics, the controller, movers and triggers stand still in the current mode. */
   get physicsHeld(): boolean {
+    if (this.screenHold) return true;
     const m = this.currentId === null ? undefined : this.byId.get(this.currentId);
     return m?.physics === 'hold';
   }

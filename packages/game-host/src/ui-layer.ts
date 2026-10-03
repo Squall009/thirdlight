@@ -26,6 +26,7 @@ import { UI_LIMITS, applyUiOutputToModel, readUiPath, uiPathSegments, uiViewOf, 
 import type { UiEdges } from './dom';
 import type { HostDom, HostDomNode } from './dom';
 import { GENERIC_FONTS, UI_BASE_CSS, anchorCalc, boundOffsetAxes, boundSizeAxes, childrenFlow, containerProps, fontFamilyOf, placementProps, rotationOrigin, scaleBox, styleRules, tweenKeyframes, type CssAssets, type CssProp } from './ui-css';
+import { base64Of } from './overlay-capture';
 import { orderPick, spatialPick, type NavDirection, type NavRect } from './ui-nav';
 import { parseRichText, uiValueText, type RichToken } from './ui-text';
 import type { UiHitTarget } from './ui-hit';
@@ -64,6 +65,8 @@ export interface UiLayerDeps {
   readonly dialogueInput?: (input: DialogueInputRecord) => void;
   /** An engine action (the host's shell or engine pause: resume, quit to title, save, load, a setting, mute). */
   readonly engineAction: (action: Extract<UiAction, { do: 'engine' }>) => void;
+  /** Play a widget's sound (an audio asset) on the `ui` bus (absent: silent, as in the editor's preview). */
+  readonly playSound?: (assetId: string) => void;
   /** The host values `$flow.*` bindings read (null: none). */
   readonly flowValues?: () => Readonly<Record<string, unknown>> | null;
   /** Make only these input action maps active (null: every map). */
@@ -148,6 +151,8 @@ export interface UiLayer {
   hitTargets(): readonly UiHitTarget[];
   /** A click on the target with this key (a button runs its click, an input takes the focus); false when it is gone. */
   click(key: string): boolean;
+  /** `@font-face` rules for the project fonts loaded now, their bytes as data URLs (a screenshot draws the UI outside the page). */
+  fontRules(): Promise<string>;
   dispose(): void;
 }
 
@@ -352,6 +357,19 @@ class DocView {
     else if (this.styleEl !== null) this.styleEl.textContent = css;
   }
 
+  /** A widget's sound for `kind`: its own (or its own style's), its named styles' (the last first), the document's. */
+  soundOf(rec: Rec, kind: 'click' | 'hover' | 'focus'): string | undefined {
+    const w = rec.w;
+    const own = w.sounds?.[kind] ?? w.css?.sounds?.[kind];
+    if (own !== undefined) return own;
+    const names = w.style === undefined ? [] : Array.isArray(w.style) ? w.style : [w.style];
+    for (let i = names.length - 1; i >= 0; i -= 1) {
+      const s = this.styleNamed(names[i]!)?.sounds?.[kind];
+      if (s !== undefined) return s;
+    }
+    return this.doc.sounds?.[kind];
+  }
+
   // --- building -------------------------------------------------------------
 
   private build(w: UiWidget, parent: UiNode, scope: Scope, parentFlows: boolean): Rec {
@@ -405,6 +423,7 @@ class DocView {
         const key = (e as { key?: string } | undefined)?.key;
         if (key === 'Enter') {
           (e as { preventDefault?: () => void }).preventDefault?.();
+          this.layer.sound(this, rec, 'click');
           this.layer.runActions(this, rec, actionsOf(w.onSubmit), 'submit', String(el.value ?? '').slice(0, w.maxLength ?? 256));
           el.blur?.();
         } else if (key === 'Escape') el.blur?.();
@@ -432,6 +451,7 @@ class DocView {
     listen(rec, 'pointerenter', () => {
       if (this.leaving) return;
       toggleClass(el, 'is-hover', true);
+      if (rec.enabled) this.layer.sound(this, rec, 'hover');
       if (this.wantsFocus && rec.enabled) this.layer.setFocus(this, rec, true);
     });
     listen(rec, 'pointerleave', () => {
@@ -1183,7 +1203,7 @@ class LayerImpl implements UiLayer {
       else {
         if (this.dirty) this.refreshAll();
         const r = v.findById(c.widget, c.index);
-        if (r !== null) this.setFocus(v, r, true);
+        if (r !== null) this.setFocus(v, r, true, true);
       }
     }
     this.updateMaps();
@@ -1304,8 +1324,20 @@ class LayerImpl implements UiLayer {
     this.setFocus(v, wanted ?? list[0]!, false);
   }
 
-  setFocus(v: DocView, rec: Rec, emit: boolean): void {
+  /** Play a widget's sound (see `DocView.soundOf`). */
+  sound(v: DocView, rec: Rec, kind: 'click' | 'hover' | 'focus'): void {
+    const id = v.soundOf(rec, kind);
+    if (id !== undefined) this.deps.playSound?.(id);
+  }
+
+  /**
+   * Move a document's focus. `emit`: scripts hear it (a focus event) and its
+   * onFocus runs; `sound`: the focus sound plays (a move by the keyboard, a
+   * gamepad or a script — the pointer plays the hover sound instead).
+   */
+  setFocus(v: DocView, rec: Rec, emit: boolean, sound = false): void {
     if (v.focus === rec) return;
+    if (sound) this.sound(v, rec, 'focus');
     if (v.focus !== null) toggleClass(v.focus.el, 'is-focused', false);
     v.focus = rec;
     toggleClass(rec.el, 'is-focused', true);
@@ -1318,6 +1350,8 @@ class LayerImpl implements UiLayer {
   }
 
   activate(v: DocView, rec: Rec): void {
+    // Every use clicks, whatever the action does (an event, an engine action, a dialogue input).
+    this.sound(v, rec, 'click');
     if (rec.w.type === 'input') {
       rec.el.focus?.();
       return;
@@ -1389,13 +1423,13 @@ class LayerImpl implements UiLayer {
     if (list.length === 0) return;
     const cur = v.focus !== null ? list.indexOf(v.focus) : -1;
     if (cur < 0) {
-      this.setFocus(v, list[0]!, true);
+      this.setFocus(v, list[0]!, true, true);
       return;
     }
     const explicit = v.focus!.w.nav?.[dir];
     if (explicit !== undefined) {
       const target = v.findById(explicit, v.focus!.scope.index) ?? v.findById(explicit);
-      if (target !== null && list.includes(target)) this.setFocus(v, target, true);
+      if (target !== null && list.includes(target)) this.setFocus(v, target, true, true);
       return;
     }
     const rects = list.map((r) => {
@@ -1404,7 +1438,7 @@ class LayerImpl implements UiLayer {
     });
     const here = rects[cur];
     const pick = here !== null && here !== undefined ? spatialPick(here, rects, dir, cur) : orderPick(list.length, cur, dir);
-    if (pick >= 0) this.setFocus(v, list[pick]!, true);
+    if (pick >= 0) this.setFocus(v, list[pick]!, true, true);
   }
 
   /** The focused document's action map becomes the input's active map. */
@@ -1590,6 +1624,16 @@ class LayerImpl implements UiLayer {
     if (v.wantsFocus) this.setFocus(v, rec, true);
     this.activate(v, rec);
     return true;
+  }
+
+  async fontRules(): Promise<string> {
+    const rules = await Promise.all(
+      [...this.fonts].filter(([, f]) => f.loaded).map(async ([id]) => {
+        const bytes = await this.bytesOf(id).catch(() => undefined);
+        return bytes === undefined ? '' : `@font-face{font-family:"${fontFamilyOf(id)}";src:url(data:application/octet-stream;base64,${base64Of(bytes)})}`;
+      }),
+    );
+    return rules.filter((r) => r !== '').join('\n');
   }
 
   observe(): UiLayerObservation {

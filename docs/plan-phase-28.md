@@ -132,7 +132,8 @@ surfaces). Format changes share one bump: `project.json` schemaVersion 7
 | 28.5 | done 2026-10-02 — `ctx.scenes.reload(sceneId)` and the `reloadScene` UI engine action (`scene`, default the active scene) at the step boundary: objects as authored, copies spawned in the scene gone, its scripts made again, its sounds stopped, kept objects/`ctx.save`/counters/other scenes untouched; the engine pause panel has only Resume; `restartLevel`, `newGame`, `ctx.lifecycle.restart()` work with one Problems line per Play; migration notes; `resume` leaves the shell title (D137) |
 | 28.6 | done 2026-10-02 — no count cap on a behavior's properties (model, commands, compiler, code-declaration reader, runtime, visual-script variables, editor, schema); `MAX_DECLARATION_BYTES` (32 KiB, measured once by `declarationBytes`) refuses with the size; e2e: 100 properties, one edited in the Inspector, a 101st added in the declaration editor, both survive a backend restart |
 | 28.7 | done 2026-10-03 — `ctx.world.worldTransform` / `{space: 'world'}` (`transform` documented as local, D134); `ctx.input.anyPressed()` (`{device, code}` of any key, mouse or pad button, bound or not); `ctx.spawn` per-copy `properties` (saved with spawned copies); runtime material swaps (entity handle `set('materials', …)` on models, boxes, instance sets; `ctx.grid.setTypeMaterials`; timeline `materialSwap` key) shown only once their textures are loaded; `character_place` `facing` and `world.character.facing`; slot `meta` (≤ 8 short texts) from `slots()`; UI image `saveSlot` shows a slot's picture |
-| 28.8–28.13 | — |
+| 28.8 | done 2026-10-03 — UI sounds `{click, hover, focus}` per widget, per style and as the document's default, on the `ui` bus (engine actions click too); scale modes `cover` and `expand`; `ctx.ui.view()` / `$flow.view`; bindable `offset`, `opacity`, `rotation`; bound lists keep their item widgets and focus (by index or `itemKey`), `ctx.ui.focus(doc, widget, index)` (D131); shell `simulate: {screen: 'scripts'}`; Play screenshots draw the UI and overlays over the frame (`ui: false` for the frame alone) |
+| 28.9–28.13 | — |
 
 ## 6. Decision log
 
@@ -316,4 +317,41 @@ surfaces). Format changes share one bump: `project.json` schemaVersion 7
   transaction). A UI image shows a slot's picture through `saveSlot` (a
   number or binding) in place of `image`; it refreshes when the slot is
   saved again.
-
+- 2026-10-03 (28.8): lists — items are kept by index unless `itemKey` names
+  one field of each item (React's `key`; a nested path was not needed); a
+  kept item only reads its values again; a focused item that goes passes the
+  focus to the item now at its index (else the last), not the document's
+  first widget. Widget `opacity` multiplies with the style's and a fade (a
+  CSS filter, Unity's CanvasGroup alpha); `rotation` turns about the pivot (a
+  flowed child about its centre). A bound offset applies to panel children,
+  as a numeric one does. `expand` fits the reference and grows the box to
+  the view's shape (Unity's CanvasScaler expand); `cover` fills it.
+- 2026-10-03 (28.8): `ctx.ui.view()` is presentation, not simulation state
+  (like the camera's aspect, which a script already read): the host reports
+  the view it draws over each frame; it is not in the digest or a save, and
+  a replay in another window reads that window's. 1280 × 720 at 1 until
+  reported.
+- 2026-10-03 (28.8): UI sounds — a widget's own (or its own style's), then
+  its named styles' (the last first), then the document's. Click plays on
+  any use (button, Enter, pad A, an input's submit, whatever the action);
+  hover when the pointer comes over an enabled widget that takes it; focus
+  when the keyboard, a gamepad or a script moves the focus (not the pointer,
+  which plays hover; not a document's first focus when shown). No cancel
+  sound (no field asked for). The sounds are project-wide assets (preloaded
+  by their own setting).
+- 2026-10-03 (28.8): `simulate` is a map beside `screens`
+  (`shell.simulate: {title: 'scripts'}`, default `pause`) rather than an
+  object per screen entry, so `screens` keeps its shape and the descriptor
+  editor shows it as one select per screen. A held screen rides on the input
+  frame as a `hold` UI event (replays hold); it holds whatever the mode says
+  and survives a run restart (it is the host's screen). Format additive (no
+  upgrade step); the page's settle steps before the shell opens run as they
+  did under a paused title.
+- 2026-10-03 (28.8): screenshots — the page draws its container (the UI
+  documents, fades, letterbox, pause panel; not the canvas) into an SVG
+  `foreignObject` with its style rules, its `blob:` images as `data:` URLs
+  and the project fonts as `@font-face` rules, over the frame; on by
+  default, `ui: false` (HTTP, MCP) for the frame alone. Tween animations show
+  their end styles. The Play toolbar's renderer label 28.7 saw as
+  "pending (initialising)" is a 2 s poll of Play diagnostics: it reads
+  "(ready)" within one poll of the first frame (e2e), so no defect.
