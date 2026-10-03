@@ -15,7 +15,14 @@
  *   `storage` (the scripts' `ctx.save` values), `environment` (the
  *   environment preset blend scripts set), `dialogue`, `components`
  *   (objects' current health, collected collectibles, where
- *   patrollers are and which primitives scripts switched off);
+ *   patrollers are and which primitives scripts switched off), `world`
+ *   (where the play stands: the loaded scenes, the active spawn, the scene
+ *   list entry and the character's place — a load moves the game there);
+ * - `legacyWorld`: `world` decides where a game stands after a load, so it is
+ *   opt-in. A schema that neither lists it nor sets `legacyWorld: false`
+ *   still gets it, as every save did before (deprecated, with a Problems
+ *   line per Play); `false` means the game restores scenes and its player
+ *   from its own document;
  * - `thumbnail`: the size and format of a slot's optional picture of the view;
  * - `settings`: the fields of the project settings document the game's own
  *   settings screen writes (with defaults); a field may be bound to an engine
@@ -72,7 +79,8 @@ export function saveSlotMetaProblem(v: unknown): string | null {
 
 // + dialogue (the dialogue variables and the seen-lines set).
 // + components (the state of objects' health, collectibles, patrols and hitboxes).
-export const SAVE_SECTIONS = ['grid', 'materials', 'spawned', 'storage', 'environment', 'dialogue', 'components'] as const;
+// + world (where the play stands; saved and loaded outside `sections` in the save document, as `world`).
+export const SAVE_SECTIONS = ['grid', 'materials', 'spawned', 'storage', 'environment', 'dialogue', 'components', 'world'] as const;
 export type SaveSection = (typeof SAVE_SECTIONS)[number];
 
 /** Engine settings a settings field may drive (the host applies them). */
@@ -114,6 +122,8 @@ export interface SaveSchema {
   slots: number;
   migrations?: SaveMigration[];
   sections?: SaveSection[];
+  /** `false`: without `world` in `sections` a save keeps no world (absent: the deprecated always-on world). */
+  legacyWorld?: boolean;
   thumbnail?: SaveThumbnail;
   settings?: SettingsField[];
 }
@@ -123,7 +133,7 @@ export const SAVE_THUMBNAIL_DEFAULT: Readonly<SaveThumbnail> = Object.freeze({ w
 
 const KEY_RE = /^[A-Za-z_][A-Za-z0-9_]{0,31}$/;
 const MIGRATION_NAME_RE = /^[A-Za-z_][A-Za-z0-9_.:-]{0,63}$/;
-const SCHEMA_KEYS = new Set(['version', 'slots', 'migrations', 'sections', 'thumbnail', 'settings']);
+const SCHEMA_KEYS = new Set(['version', 'slots', 'migrations', 'sections', 'legacyWorld', 'thumbnail', 'settings']);
 const FIELD_KEYS = new Set(['key', 'type', 'default', 'label', 'min', 'max', 'values', 'engine']);
 const QUALITY = ['low', 'medium', 'high'];
 
@@ -218,6 +228,7 @@ export function validateSaveSchema(v: unknown, path: string, errors: ModelErrorV
       if (!(SAVE_SECTIONS as readonly unknown[]).includes(x)) errors.push(bad(`${path}/sections/${i}`, x, `a section is one of ${SAVE_SECTIONS.join(', ')}`, SAVE_SECTIONS.join(' | ')));
     });
   }
+  if (v['legacyWorld'] !== undefined && typeof v['legacyWorld'] !== 'boolean') errors.push(fieldType(`${path}/legacyWorld`, v['legacyWorld'], 'boolean'));
   if (v['thumbnail'] !== undefined) {
     const t = v['thumbnail'];
     const p = `${path}/thumbnail`;
@@ -258,6 +269,8 @@ export function canonicalSaveSchema(s: SaveSchema): SaveSchema {
     slots: s.slots,
     ...(s.migrations !== undefined && s.migrations.length > 0 ? { migrations: [...s.migrations].sort((a, b) => a.from - b.from).map((m) => ({ from: m.from, name: m.name })) } : {}),
     ...(s.sections !== undefined && s.sections.length > 0 ? { sections: SAVE_SECTIONS.filter((x) => s.sections!.includes(x)) } : {}),
+    // true is the default (absent).
+    ...(s.legacyWorld === false ? { legacyWorld: false } : {}),
     ...(s.thumbnail !== undefined ? { thumbnail: { width: s.thumbnail.width, height: s.thumbnail.height, format: s.thumbnail.format, ...(s.thumbnail.quality !== undefined ? { quality: s.thumbnail.quality } : {}) } } : {}),
     ...(s.settings !== undefined && s.settings.length > 0
       ? {
@@ -290,4 +303,14 @@ export function settingsDocumentOf(fields: readonly SettingsField[], stored: unk
 /** A field with the implied 0–1 range of a volume binding. */
 export function effectiveField(f: SettingsField): SettingsField {
   return f.engine !== undefined && f.engine !== 'quality' ? { ...f, min: f.min ?? 0, max: f.max ?? 1 } : f;
+}
+
+/**
+ * How a save treats `world` under a schema: `section` (listed), `legacy`
+ * (neither listed nor `legacyWorld: false`: the deprecated always-on world)
+ * or `off` (the game restores scenes and its player itself).
+ */
+export function saveWorldMode(s: Pick<SaveSchema, 'sections' | 'legacyWorld'>): 'section' | 'legacy' | 'off' {
+  if (s.sections?.includes('world') === true) return 'section';
+  return s.legacyWorld === false ? 'off' : 'legacy';
 }

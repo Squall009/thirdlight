@@ -648,8 +648,9 @@ Scripts: `ctx.spawn(prefab, {position, keepLoaded: true})` spawns a kept
 copy; `ctx.entity(id).set('object', {keepLoaded})` keeps an object (and its
 children) or lets it go (refused for an object under a kept parent, and for
 a kept object whose scene is not loaded); `get('object').keepLoaded` reads
-it. A save's world block never destroys a kept object; the engine saves
-nothing for them — a game fills them in from its own save data.
+it. A save's world (an opt-in section, see "Saves") never destroys a kept
+object; the engine saves nothing for them — a game fills them in from its
+own save data.
 
 ## Scenes
 
@@ -2853,14 +2854,22 @@ the flow in phase 24.7. Play keeps its saves apart from exported games (and
 each project apart from the others); **Saves → Clear Play save** forgets
 Play's (MCP: `tl_game_control` `clearSave`).
 
-**Save format version 2** (phase 24.8): every save also carries where the
-play stands (`world`): the loaded scenes, the active spawn, the scene-list
-entry and the character's position and velocity. Loading unloads the scenes
-the save did not have, loads the ones it had, and puts the character back
-where it stood (from rest, its velocity given back at its next move). A
-version 1 save (no `world`) still loads and leaves the play where it is; a
-version 2 save without `world`, or naming a scene the game does not have, is
-refused.
+**Where the play stands (`world`).** A save can also carry the loaded
+scenes, the active spawn, the scene-list entry and the character's position,
+velocity and facing (`world`, save format version 2). Loading such a save
+unloads the scenes it did not have (never a kept object: those stay), loads
+the ones it had, and puts the character back where it stood (from rest, its
+velocity given back at its next move). Because that decides where a game
+stands after Continue, `world` is an **opt-in section**: list it in the
+schema's sections (**Where the play stands**), or set `legacyWorld: false`
+(the Saves tab's *restore scenes in the game*) and restore scenes and the
+player from the game's own document (`ctx.scenes.load`, `character_place`
+with `facing`). A schema that does neither keeps the always-on world of
+before, with one Problems line per Play (see "Migration notes"); a new save
+schema starts with `legacyWorld: false`. A game that does not keep `world`
+writes none and loads any save — one with a world too — without a scene
+change. A version 1 save (no `world`) still loads; a save whose world names
+a scene the game does not have is refused.
 
 ### Project save documents (phase 23.19)
 
@@ -2879,8 +2888,9 @@ Project Settings → **Saves** (MCP: `setSaveSchema {schema | null}`):
   `ctx.grid`), *material values* (`ctx.materials`), *spawned objects*
   (prefab copies with their placement and ids; their scripts start fresh),
   *script storage* (`ctx.save`), *environment* (the preset blend,
-  `ctx.environment`; phase 23.18). A section the schema includes but a save
-  lacks is reset to the run's start on load.
+  `ctx.environment`; phase 23.18), *where the play stands* (`world`, above).
+  A section the schema includes but a save lacks is reset to the run's start
+  on load (a missing world leaves the scenes as they are).
 - **Slot picture**: size and format (default 256 × 144 JPEG; at most
   512 px a side and 64 KiB).
 - **Settings document**: fields (bool, number, string, choice) with
@@ -4454,6 +4464,27 @@ music (`ctx.audio.stopAll`) and switches to the play mode
 (`ctx.modes.switch`). Quit to title is the same in reverse. A level restart is
 a `reloadScene` button (or `ctx.scenes.reload` from the director) plus
 whatever the game resets of its own.
+
+### The always-on `world` in saves (deprecated)
+
+Every save used to carry where the play stands and every load moved the game
+there. It is now the save section `world`. A save schema that neither lists
+it nor sets `legacyWorld: false` keeps the old behaviour for now, and its
+first save or load in a Play writes one Problems line
+(`deprecated_save_world`). To move on, either:
+
+- list `world` in the schema's sections (Saves tab: **Where the play
+  stands**) — the same behaviour, without the line; or
+- set `legacyWorld: false` (Saves tab: *restore scenes in the game*) and
+  restore the game's place yourself: keep the scenes and the player's place
+  in the save document (`ctx.saves.write`), and after a load
+  (`ctx.saves.results()` has the load) call `ctx.scenes.load` /
+  `ctx.scenes.unload` for the scenes and `character_place` with `facing`
+  for the player. Kept objects are the game's to fill in either way.
+
+Saves written before load in both cases: a game without `world` ignores a
+save's world. The default changes (no `world` unless listed) once no game
+relies on it.
 
 ## Verification
 

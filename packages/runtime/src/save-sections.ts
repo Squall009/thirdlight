@@ -81,6 +81,8 @@ export function saveSectionsPort(o: SaveSectionOwners): SaveSectionsPort {
           return o.dialogue.saveState();
         case 'environment':
           return o.environment.saveState();
+        case 'world':
+          return o.captureWorld();
         case 'components': {
           const blocks = o.blocks();
           // The named counters travel with the objects' state (a collectible's total with it being collected).
@@ -96,6 +98,8 @@ export function saveSectionsPort(o: SaveSectionOwners): SaveSectionsPort {
       switch (section) {
         case 'grid':
           return null;
+        case 'world':
+          return o.worldProblem(value as WorldSave);
         case 'materials':
           return o.materials.checkState(value);
         case 'storage': {
@@ -134,6 +138,9 @@ export function saveSectionsPort(o: SaveSectionOwners): SaveSectionsPort {
       switch (section) {
         case 'grid':
           return o.grid.restoreDiff(value);
+        case 'world':
+          if (value !== undefined) o.applyWorld(value as WorldSave);
+          return null;
         case 'materials':
           o.materials.restoreState(value as MaterialSaveEntry[] | undefined);
           return null;

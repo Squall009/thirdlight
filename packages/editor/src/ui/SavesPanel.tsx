@@ -40,9 +40,12 @@ const SECTIONS: readonly { id: SaveSection; label: string; hint: string }[] = [
   // The dialogue variables and the lines seen (skip-if-seen).
   { id: 'dialogue', label: 'Dialogue', hint: 'the dialogue variables and the lines already seen' },
   { id: 'environment', label: 'Environment', hint: 'the environment preset blend scripts set (ctx.environment)' },
+  // Where the play stands: a load moves the game to the saved scenes and the player's place.
+  { id: 'world', label: 'Where the play stands', hint: 'the loaded scenes, the active spawn and the player\'s place; a load moves the game there' },
 ];
 const ENGINE = ['', 'music', 'sfx', 'ui', 'quality'] as const;
-const DEFAULT_SCHEMA: SaveSchema = { version: 1, slots: 3 };
+// A new schema keeps no world unless the game lists it (the always-on world is only kept for older projects).
+const DEFAULT_SCHEMA: SaveSchema = { version: 1, slots: 3, legacyWorld: false };
 
 function defaultFor(type: SettingsField['type'], values?: string[]): SettingsField['default'] {
   return type === 'bool' ? false : type === 'number' ? 0 : type === 'enum' ? (values?.[0] ?? 'a') : '';
@@ -101,6 +104,14 @@ export function SavesPanel({ schema, error, onSave, onClearPlaySave, note }: Pro
             {s.label}
           </label>
         ))}
+        {!sections.includes('world') && draft.legacyWorld !== false && (
+          <p className="tl-hint" data-legacy-world="">
+            Saves still keep where the play stands, as before (deprecated): tick it above to keep it, or{' '}
+            <button type="button" className="tl-btn" aria-label="restore scenes in the game" onClick={() => set({ legacyWorld: false })}>
+              restore scenes in the game
+            </button>
+          </p>
+        )}
       </fieldset>
       <fieldset>
         <legend>Migrations (a script registers each with ctx.saves.migration(name, fn))</legend>

@@ -192,7 +192,7 @@ test('a script saves to slot 2 with metadata and a thumbnail; a reload lists it 
   const panel = page.getByLabel('project saves');
   await panel.getByRole('button', { name: 'add save schema' }).click();
   const schemaNow = async (): Promise<unknown> => (await query('queryGameConfig'))['saveSchema'];
-  await expect.poll(schemaNow).toEqual({ version: 1, slots: 3 });
+  await expect.poll(schemaNow).toEqual({ version: 1, slots: 3, legacyWorld: false });
   await panel.getByLabel('save slots').fill('5');
   await panel.getByLabel('save section grid').check();
   await panel.getByLabel('save section storage').check();
@@ -200,7 +200,7 @@ test('a script saves to slot 2 with metadata and a thumbnail; a reload lists it 
   await panel.getByLabel('setting 0 key').fill('hints');
   await panel.getByLabel('setting 0 default').check();
   await panel.getByRole('button', { name: 'apply save schema' }).click();
-  await expect.poll(schemaNow).toEqual({ version: 1, slots: 5, sections: ['grid', 'storage'], settings: [{ key: 'hints', type: 'bool', default: true }] });
+  await expect.poll(schemaNow).toEqual({ version: 1, slots: 5, sections: ['grid', 'storage'], legacyWorld: false, settings: [{ key: 'hints', type: 'bool', default: true }] });
 
   // Play, first session: the script saves to slot 2; tl_game_observe lists it with its metadata and picture.
   const startPlay = async (): Promise<{ psid: string; frame: Frame }> => {

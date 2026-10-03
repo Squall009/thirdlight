@@ -99,7 +99,7 @@ test('Project Settings: every sub-tab shows its panel and its edits round-trip t
   // Saves: add the schema.
   await openProjectSettings(page, 'Saves');
   await panel('Saves').getByLabel('project saves').getByRole('button', { name: 'add save schema' }).click();
-  await expect.poll(async () => (await gameConfig())['saveSchema']).toEqual({ version: 1, slots: 3 });
+  await expect.poll(async () => (await gameConfig())['saveSchema']).toEqual({ version: 1, slots: 3, legacyWorld: false });
 
   // Game modes: add a behavior group.
   await openProjectSettings(page, 'Game modes');

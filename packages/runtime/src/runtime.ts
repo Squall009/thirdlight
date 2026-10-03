@@ -1609,7 +1609,7 @@ class RuntimeInstance implements Runtime {
     // The first start scene is the active one (its look is the base look).
     this.environment = new EnvironmentDirector(this.hz, args.environmentPresets, (message) => this.recordBehaviorLog('thirdlight.runtime:environment', 'warn', message), args.sceneRows !== null ? (args.startBatches[0]?.sceneId ?? null) : null);
     // Project saves (the document, slots, settings; inert without a save schema).
-    this.saves = new RuntimeSaves(args.saveSchema, this.hz, this.buildSaveSections(), args.projectSettings, (message) => this.recordBehaviorLog('thirdlight.runtime:saves', 'warn', message));
+    this.saves = new RuntimeSaves(args.saveSchema, this.hz, this.buildSaveSections(), args.projectSettings, (message) => this.recordBehaviorLog('thirdlight.runtime:saves', 'warn', message), (code, message) => this.problem(code, message));
     this.animators = new AnimatorSystem(args.animatorControllers, {
       hz: this.hz,
       seed: randomSeedOf(this.settings),

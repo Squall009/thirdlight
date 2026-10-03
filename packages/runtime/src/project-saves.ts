@@ -14,10 +14,15 @@
  * A save is assembled at the end of the step it was asked for: the project
  * document plus the engine sections the schema opts into (block-layer cells,
  * material parameters, spawned copies, `ctx.save` storage) and the play time.
- * Format version 2: every save also carries where the play
- * stands (`world`: the loaded scenes, the active spawn, the scene list entry
- * and the character's position and velocity), so a load puts the character
- * back where it was saved; a version 1 save (without it) still loads.
+ * Format version 2 may also carry where the play stands (`world`: the loaded
+ * scenes, the active spawn, the scene list entry and the character's place),
+ * so a load puts the game back there. It is a section like the others,
+ * because it decides where a game stands after a load: a schema lists it, or
+ * sets `legacyWorld: false` and restores scenes and its player from its own
+ * document; a schema that does neither keeps the always-on world of before
+ * (deprecated, one Problems line per Play). A save's world is applied only
+ * when the game takes it, so a game without it loads any save without a
+ * scene change. A version 1 save (without it) still loads.
  * A loaded document is migrated (the project's registered migration
  * functions, one version at a time) and restored at the end of the step whose
  * frame brought it — a step boundary: the next step starts from the restored
@@ -29,6 +34,7 @@ import { ID_RE } from '@thirdlight/project-model';
 import {
   SAVE_LIMITS,
   saveSlotMetaProblem,
+  saveWorldMode,
   effectiveField,
   settingsDocumentOf,
   settingsValueFits,
@@ -37,7 +43,7 @@ import {
   type SettingsFieldValue,
 } from '@thirdlight/project-model';
 
-/** The save document's format marker (and its engine format version; 2, with `world`). */
+/** The save document's format marker (and its engine format version; 2, with `world` when the game keeps it). */
 export const PROJECT_SAVE_FORMAT = 'thirdlight.save';
 export const PROJECT_SAVE_FORMAT_VERSION = 2;
 
@@ -74,6 +80,12 @@ export function worldSaveProblem(v: unknown): string | null {
   if (c['facing'] !== undefined && !(typeof c['facing'] === 'number' && Number.isFinite(c['facing']) && Math.abs(c['facing']) <= 360)) return 'world.character.facing is degrees (-360 to 360)';
   return null;
 }
+/** The always-on `world` of a schema that does not opt in or out (one Problems line per Play). */
+export const SAVE_WORLD_DEPRECATED = Object.freeze({
+  code: 'deprecated_save_world',
+  message: "the always-on world in saves is deprecated (a load moves the game to the saved scenes and the player's place): list 'world' in the save schema's sections to keep it, or set legacyWorld: false and restore scenes and the player from the game's own save document — see the migration notes",
+});
+
 /** Engine limit: save/load/delete requests one step may make (every script together). */
 export const SAVE_REQUESTS_PER_STEP = 8;
 /** Engine limit: save entries one input frame may carry. */
@@ -161,7 +173,7 @@ export interface ProjectSaveFile {
   readonly doc: unknown;
   /** Engine state the schema opts into. */
   readonly sections?: Readonly<Partial<Record<SaveSection, unknown>>>;
-  /** Format version 2: where the play stands. */
+  /** Format version 2: where the play stands (absent when the game that saved it does not keep it). */
   readonly world?: WorldSave;
 }
 
@@ -302,7 +314,7 @@ export interface SaveSectionsPort {
   check(section: SaveSection, value: unknown): string | null;
   /** Restore (value undefined: back to the run's start); the grid may refuse (null: done). */
   apply(section: SaveSection, value: unknown): string | null;
-  /** Where the play stands now (every save carries it). */
+  /** Where the play stands now (saved when the game keeps `world`). */
   captureWorld(): WorldSave;
   /** Why a saved world cannot be restored now (null: it can). */
   checkWorld(world: WorldSave): string | null;
@@ -351,7 +363,7 @@ export function projectSaveFileProblem(v: unknown, maxVersion: number): string |
   const fv = v['formatVersion'] ?? 1;
   if (fv !== 1 && fv !== PROJECT_SAVE_FORMAT_VERSION) return `save format version ${String(v['formatVersion']).slice(0, 16)} is not supported`;
   if (fv === 1 && v['world'] !== undefined) return 'a format version 1 save has no world';
-  if (fv === PROJECT_SAVE_FORMAT_VERSION) {
+  if (fv === PROJECT_SAVE_FORMAT_VERSION && v['world'] !== undefined) {
     const w = worldSaveProblem(v['world']);
     if (w !== null) return w;
   }
@@ -479,6 +491,8 @@ export class RuntimeSaves {
   private readonly hz: number;
   private readonly port: SaveSectionsPort;
   private readonly log: (message: string) => void;
+  private readonly problem: (code: string, message: string) => void;
+  private readonly worldMode: 'section' | 'legacy' | 'off';
   private doc: unknown = null;
   private docText = 'null';
   private settingsDoc: Record<string, SettingsFieldValue>;
@@ -499,11 +513,13 @@ export class RuntimeSaves {
   /** Anything happened (the digest includes the saves state from then on). */
   private active = false;
 
-  constructor(schema: SaveSchema | undefined, hz: number, port: SaveSectionsPort, initialSettings: unknown, log: (message: string) => void) {
+  constructor(schema: SaveSchema | undefined, hz: number, port: SaveSectionsPort, initialSettings: unknown, log: (message: string) => void, problem: (code: string, message: string) => void = () => undefined) {
     this.schema = schema ?? null;
     this.hz = hz;
     this.port = port;
     this.log = log;
+    this.problem = problem;
+    this.worldMode = this.schema === null ? 'off' : saveWorldMode(this.schema);
     this.settingsDoc = settingsDocumentOf(this.schema?.settings ?? [], initialSettings);
     this.api = this.buildApi();
   }
@@ -621,6 +637,12 @@ export class RuntimeSaves {
     return `${this.docText}|${this.playSeconds()}|${JSON.stringify(this.settingsDoc)}|${JSON.stringify(this.slotList)}|${JSON.stringify(this.visible)}|${grid}${storage}`;
   }
 
+  /** Whether saves keep `world` (the deprecated default says so once per run where it is used). */
+  private keepsWorld(): boolean {
+    if (this.worldMode === 'legacy') this.problem(SAVE_WORLD_DEPRECATED.code, SAVE_WORLD_DEPRECATED.message);
+    return this.worldMode !== 'off';
+  }
+
   private playSeconds(): number {
     return this.playBase + this.playSteps / this.hz;
   }
@@ -642,7 +664,8 @@ export class RuntimeSaves {
   private assemble(p: PendingSave): SaveRequest | string {
     const schema = this.schema!;
     const sections: Partial<Record<SaveSection, unknown>> = {};
-    for (const s of schema.sections ?? []) sections[s] = this.port.capture(s);
+    for (const s of schema.sections ?? []) if (s !== 'world') sections[s] = this.port.capture(s);
+    const world = this.keepsWorld() ? this.port.captureWorld() : undefined;
     const playSeconds = this.playSeconds();
     const file: ProjectSaveFile = {
       format: PROJECT_SAVE_FORMAT,
@@ -651,7 +674,7 @@ export class RuntimeSaves {
       playSeconds,
       doc: this.doc,
       ...(Object.keys(sections).length > 0 ? { sections } : {}),
-      world: this.port.captureWorld(),
+      ...(world !== undefined ? { world } : {}),
     };
     const t = JSON.stringify(file);
     const bytes = utf8Length(t);
@@ -681,15 +704,17 @@ export class RuntimeSaves {
       if (utf8Length(t) > SAVE_LIMITS.documentBytes) return `migration "${m.name}" made the document larger than ${SAVE_LIMITS.documentBytes} bytes`;
       doc = JSON.parse(t) as unknown;
     }
-    const opted = schema.sections ?? [];
+    // `world` travels outside `sections`; a game that does not keep it never applies a save's.
+    const opted = (schema.sections ?? []).filter((s) => s !== 'world');
     const saved = file.sections ?? {};
     for (const s of opted) {
       if (s === 'grid' || saved[s] === undefined) continue;
       const p = this.port.check(s, saved[s]);
       if (p !== null) return `section ${s}: ${p}`;
     }
-    if (file.world !== undefined) {
-      const p = this.port.checkWorld(file.world);
+    const world = file.world !== undefined && this.keepsWorld() ? file.world : undefined;
+    if (world !== undefined) {
+      const p = this.port.checkWorld(world);
       if (p !== null) return `world: ${p}`;
     }
     // The grid checks while it restores (atomically): first, so a refusal leaves everything as it was.
@@ -704,7 +729,7 @@ export class RuntimeSaves {
       if (note !== null) this.log(`section ${s}: ${note}`);
     }
     // Where the play stood (after the sections: a spawned copy's scene state is in).
-    if (file.world !== undefined) this.port.applyWorld(file.world);
+    if (world !== undefined) this.port.applyWorld(world);
     this.doc = doc;
     this.docText = JSON.stringify(doc);
     this.playBase = file.playSeconds ?? 0;

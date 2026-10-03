@@ -136,7 +136,8 @@ surfaces). Format changes share one bump: `project.json` schemaVersion 7
 | 28.9 | done 2026-10-03 — blend clips carry their authored ground speed and a tree with one on every clip plays at the rate that covers its parameter (Unity's homogeneous speed); `animator.startTime` and `randomStart` (from `random_seed` and the object id), `play(state, fade, layer, time)` for scripts; a look-at constraint on the animator (head, optional neck and chest with yaw/pitch limits, target object or point, weight × float parameter, turn speed, after the clip pose; `setLookTarget`/`setLookPoint`/`setLookWeight`); measured in Play: blended ground rate, random starts and their replay, the drawn head bone's turn, limit and return |
 | 28.10 | done 2026-10-03 — every collider shape takes a `center` and a `rotation`; `compound` (a list of shapes on one body) and `model` (each mesh of the object's model's `_COL` node a convex hull, read when the game is built: manifest `modelColliders`); colliders on child objects where their parents put them, kinematic once a parent is moved by a script, a timeline or a mover; `colliderFromModel` (box, convex, mesh, polygon, compound) is the editor's button over HTTP/MCP; Scene view: no collider outlines until asked for, the selection's (and its children's) always; D138 logged |
 | 28.11 | done 2026-10-03 — extract textures decodes WebP (libwebp, pinned) and encodes every non-KTX2 image to KTX2 by its use, from the lossless PNG of the image's name and size beside the model (or in its `textures/`) when one is there; setting `import_extract_textures` extracts every model, older imports included (where their GLB file is), and Problems lists models still holding images (`models_hold_images`); standard-shader project materials share one prepared texture per (texture, colour space, wrap, tiling, offset): one material on 14 model files holds one copy (14 before); `ctx.stats` / `$flow.stats` (fps, frame/CPU/GPU ms average and worst over 500 ms, GPU null where not measured, draw calls, triangles, texture bytes against the budget, geometry bytes, objects, quality); setting `stats_overlay` (F3) shows a built-in overlay in Play and the export; Play diagnostics carry `frameTimes` and the environment renderer's passes, quality, samples and fallback |
-| 28.12–28.13 | — |
+| 28.12 | done 2026-10-03 — saves in the player's browser: a slot's metadata, body and picture in one IndexedDB transaction (a write refused for quota or cut off leaves the earlier save loadable, D135); refusals answer `{ok: false, code: storage_full, storage_unavailable or storage_failed, reason}` (the browser's text), a settings document localStorage refuses too (`op: 'settings'`); persistent storage asked at the first save, `ctx.saves.storage()` / observation / Play diagnostics carry `persisted`, `usage`, `quota`; `world` is a save section (listed, or `legacyWorld: false` to restore scenes in the game; neither keeps the always-on world with one `deprecated_save_world` Problems line per Play), never destroys a kept object; a game without it loads any save without a scene change; migration notes |
+| 28.13 | — |
 
 ## 6. Decision log
 
@@ -469,3 +470,23 @@ surfaces). Format changes share one bump: `project.json` schemaVersion 7
   find-again is prevented while the game has the page); top-right, so it
   does not cover a game's top-left HUD or the export's status line. No URL
   flag (not asked for).
+- 2026-10-03 (28.12): saves — the storage layout was already the planned
+  one; a slot write is one IndexedDB transaction (removes first, the
+  metadata last) and a delete too. Refusals carry a code next to the
+  browser's text: `storage_full` (QuotaExceededError), `storage_unavailable`
+  (no IndexedDB, or it cannot open: a page without it now refuses saves
+  rather than keeping them for the page's life) and `storage_failed`
+  (anything else, a cut-off write included). A refused settings document is
+  reported as a result `{op: 'settings', slot: 0}` (failures only); the shell's
+  own settings and key bindings are logged. `persist()` is asked at the first
+  save, never awaited in the save chain (a browser may prompt); `persisted()`
+  and `estimate()` at start and after each save go to scripts as input
+  (`storage` frame entries; in the digest once known).
+- 2026-10-03 (28.12): `world` — a section in `SAVE_SECTIONS`, still stored as
+  the save document's top-level `world` (old saves load unchanged); the
+  opt-out is `legacyWorld: false` (the always-on default stays for schemas
+  that set neither, as both games rely on it; additive, no upgrade step). A new
+  schema made in the Saves tab starts with `legacyWorld: false`. A game that
+  does not keep it neither writes nor applies one (a format 2 save without
+  `world` now loads). The deprecation line is `deprecated_save_world`, written
+  where the world is saved or applied.

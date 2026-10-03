@@ -1087,6 +1087,7 @@ export {
   SAVE_META_KEY_RE,
   saveSlotMetaProblem,
   SAVE_SECTIONS,
+  saveWorldMode,
   SAVE_THUMBNAIL_DEFAULT,
   SETTINGS_ENGINE_BINDINGS,
   canonicalSaveSchema,

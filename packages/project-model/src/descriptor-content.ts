@@ -540,7 +540,8 @@ export const CONTENT: readonly ContentBlockDescriptor[] = [
         int('from', 'From version', 'The version it upgrades from (to from + 1; below the schema version).', { required: true, min: 1 }),
         str('name', 'Function', 'The name a script registers with ctx.saves.migration.', { required: true, minLength: 1, maxLength: 64 }),
       ], { rules: ['one migration per version; from < version'] }), { maxItems: SAVE_LIMITS.migrations }),
-      list('sections', 'Included state', 'Engine state every save includes: block cells, material values, spawned objects, script storage, the environment blend, dialogue variables and seen lines, and objects\' health, collectibles, patrols and hitboxes.', enm('*', 'Section', 'One kind of engine state.', [...SAVE_SECTIONS]), { maxItems: SAVE_SECTIONS.length }),
+      list('sections', 'Included state', 'Engine state every save includes: block cells, material values, spawned objects, script storage, the environment blend, dialogue variables and seen lines, objects\' health, collectibles, patrols and hitboxes, and where the play stands (world: the loaded scenes and the player\'s place, which a load moves the game to).', enm('*', 'Section', 'One kind of engine state.', [...SAVE_SECTIONS]), { maxItems: SAVE_SECTIONS.length }),
+      bool('legacyWorld', 'Always save the world', 'Without world in the sections, false keeps no world in a save (the game restores scenes and its player itself); absent or true keeps the deprecated always-on world.', { default: true }),
       obj('thumbnail', 'Slot picture', 'The size and format of a slot\'s picture of the view (absent: 256 × 144 JPEG).', [
         int('width', 'Width', 'Pixels.', { required: true, min: 16, max: SAVE_LIMITS.thumbnailSide }),
         int('height', 'Height', 'Pixels.', { required: true, min: 16, max: SAVE_LIMITS.thumbnailSide }),

@@ -90,10 +90,37 @@ describe('runtime project saves', () => {
     expect(r.api.results()).toEqual([{ op: 'load', slot: 1, ok: false, reason: 'world: unknown scene' }]);
     r.endStep();
     expect(port.world).toBe(before);
-    // A format 2 save without its world is not a save document.
+    // A format 2 save without a world (a game that keeps none saved it) loads and leaves the world as it is.
     step(r, [{ kind: 'loaded', slot: 1, ok: true, save: { format: 'thirdlight.save', formatVersion: 2, version: 2, doc: {} } }]);
     r.beginStep();
-    expect(r.api.results()[0]).toMatchObject({ ok: false });
+    expect(r.api.results()[0]).toMatchObject({ ok: true });
+    r.endStep();
+    expect(port.world).toBe(before);
+  });
+
+  it('world is a section: listed, it is saved and restored; with legacyWorld false a save keeps none and a load never applies one; neither keeps it with one Problems line', () => {
+    const world = { scenes: ['scene-main', 'scene-far'], activeSpawn: null, listedScene: -1, character: null } as const;
+    const run = (schema: SaveSchema): { saved: Record<string, unknown>; applied: boolean; problems: string[] } => {
+      const port = fakePort();
+      const problems: string[] = [];
+      const r = new RuntimeSaves(schema, 60, port, undefined, () => undefined, (code) => problems.push(code));
+      const [req] = step(r, [], () => r.api.save(1));
+      const before = port.world;
+      step(r, [{ kind: 'loaded', slot: 1, ok: true, save: { format: 'thirdlight.save', formatVersion: 2, version: 1, doc: {}, world } }]);
+      return { saved: JSON.parse((req as Extract<SaveRequest, { op: 'save' }>).text) as Record<string, unknown>, applied: port.world !== before, problems };
+    };
+    const listed = run({ version: 1, slots: 2, sections: ['world', 'storage'] });
+    expect(listed.saved['world']).toEqual({ scenes: ['scene-main'], activeSpawn: null, listedScene: -1, character: null });
+    expect(listed.saved['sections']).toEqual({ storage: { k: 1 } });
+    expect(listed).toMatchObject({ applied: true, problems: [] });
+    const off = run({ version: 1, slots: 2, sections: ['storage'], legacyWorld: false });
+    expect('world' in off.saved).toBe(false);
+    expect(off).toMatchObject({ applied: false, problems: [] });
+    const legacy = run({ version: 1, slots: 2, sections: ['storage'] });
+    expect(legacy.saved['world']).toBeDefined();
+    expect(legacy.applied).toBe(true);
+    // Each use is reported; the runtime keeps one line per code, the host one per Play.
+    expect(legacy.problems).toEqual(['deprecated_save_world', 'deprecated_save_world']);
   });
 
   it('caps: a document over 1 MiB is refused; 8 requests per step', () => {
