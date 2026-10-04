@@ -91,7 +91,8 @@ Beyond parity, two structural costs remain that bare three.js has too:
 
 Order: measure → the render path, with the Scene view on it (28c.2–28c.4) →
 the rest of the overhead (28c.5–28c.7) → beyond parity (28c.8–28c.9) →
-hitches and download (28c.10–28c.11) → acceptance. Each item records its before/after on 28c.1's class in §6, keeps
+hitches and download (28c.10–28c.11) → the frame-rate cap (28c.12) →
+acceptance. Each item records its before/after on 28c.1's class in §6, keeps
 the gate green, and checks pixels on both renderers where it changes drawing.
 
 | Item | What |
@@ -108,7 +109,8 @@ the gate green, and checks pixels on both renderers where it changes drawing.
 | 28c.9 | **Cached static shadows, dynamic on top** (29.4, moved here unchanged). Also D152: the sun's shadow region follows the camera on X and Z (Y up), with a test that walks along Z. |
 | 28c.10 | **Meshing off the frame** (28b.5, moved here unchanged). |
 | 28c.11 | **A small export** (D157): the export bundle is minified and tree-shaken, the `.wasm` is external, and only the physics the project uses is linked. Exports still run with the backend stopped (existing e2e). Record the gzip size for a 2D and a 3D game. |
-| 28c.12 | **Acceptance.** 28c.1's class and the Skyforge copy before and after, split per item in §6, each item's share shown by switching it off. Limits and switches in `docs/deployment.md`. Owner look: the village on the owner's laptop, in Play and in the Scene view. |
+| 28c.12 | **A frame-rate cap games control** (owner, 2026-10-04: a phone shouldn't burn power drawing 155 fps).<br>• **Values:** the cap is `30`, `60`, `120` or none. None means the display's refresh rate, as now.<br>• **Pacing:** the page skips drawing on animation frames that come early for the cap. Game time is unaffected: the simulation keeps its fixed step and catches up on the next drawn frame.<br>• **How a game sets it:**<br>&nbsp;&nbsp;– a project setting `frame_rate_cap` (the default, absent = none);<br>&nbsp;&nbsp;– a player setting, through a settings field bound to the engine like `quality` and the volumes (`binding: 'frameRateCap'`), saved with the player's settings;<br>&nbsp;&nbsp;– the UI engine action `setting: 'frameRateCap'`;<br>&nbsp;&nbsp;– from scripts, `ctx.display.frameRateCap` (read) and `ctx.display.setFrameRateCap(fps \| null)`.<br>• **Reported:** `ctx.stats` and Play diagnostics report the cap. The perf harness always runs uncapped.<br>• **No schema change:** additive optional fields only.<br>• **Test:** e2e on an uncapped browser shows ~30 drawn fps at cap 30 and ~60 at cap 60, and the game's step count over 5 s is unchanged. |
+| 28c.13 | **Acceptance.** 28c.1's class and the Skyforge copy before and after, split per item in §6, each item's share shown by switching it off. Limits and switches in `docs/deployment.md`. Owner look: the village on the owner's laptop, in Play and in the Scene view. |
 
 **Done when:**
 - **Thirdlight beats plain three.js.**
@@ -148,7 +150,7 @@ will show it if they do).
 |---|---|
 | 28c.0 | done 2026-10-04 — three.js `0.186.1` is pinned and is the latest on npm (no update) |
 | 28c.1 | done 2026-10-04 — `tools/perf/run.mjs village` (class, export vs plain page, GPU passes, package split, `--ablation`), `tools/perf/games.sh`; the fast gate checks the class's frame time (+10 %, ~40 s, GPU hosts only). Before numbers below. |
-| 28c.2–28c.12 | — |
+| 28c.2–28c.13 | — |
 
 Before (2026-10-04, `1c24eb23`, Skyforge village copy, Iris Xe, 1080p, DPR 1):
 
@@ -203,3 +205,6 @@ nothing measurable, and uniform buffers are the same in both pages. The rest of 
   - **Goal:** beat plain three.js, not reach 100 fps.
   - **Scene view:** the Scene view comes along (29.2 → 28c.4), so the render
     path is rewritten once for both.
+  - **Frame-rate cap:** games get one they can expose in their settings
+    (28c.12), so a fast engine doesn't drain a phone's battery.
+  - **Start the phase:** implement it.
