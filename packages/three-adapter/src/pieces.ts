@@ -121,7 +121,6 @@ export function applyLodGroups(root: THREE.Object3D): number {
     list.push({ level, object: o });
     byBase.set(base, list);
   });
-  const tanHalf = Math.tan(THREE.MathUtils.degToRad(LOD_REFERENCE_FOV) / 2);
   let made = 0;
   for (const [parent, byBase] of sets) {
     for (const [base, list] of byBase) {
@@ -133,15 +132,25 @@ export function applyLodGroups(root: THREE.Object3D): number {
       for (let i = 0; i < list.length; i += 1) {
         const level = list[i]!.object;
         parent.remove(level);
-        const fraction = i === 0 ? null : LOD_SCREEN_FRACTIONS[Math.min(i - 1, LOD_SCREEN_FRACTIONS.length - 1)]!;
-        const distance = fraction === null || radius <= 0 ? (i === 0 ? 0 : i * 10) : radius / (tanHalf * fraction);
-        lod.addLevel(level, distance);
+        lod.addLevel(level, lodSwitchDistance(radius, i));
       }
       parent.add(lod);
       made += 1;
     }
   }
   return made;
+}
+
+/**
+ * Where level `level` of a model's LOD group takes over: the distance at
+ * which LOD0's bounding sphere (`radius`) covers the level's screen fraction
+ * of a {@link LOD_REFERENCE_FOV}° view (level 0: from the start).
+ */
+export function lodSwitchDistance(radius: number, level: number): number {
+  if (level === 0) return 0;
+  if (radius <= 0) return level * 10;
+  const fraction = LOD_SCREEN_FRACTIONS[Math.min(level - 1, LOD_SCREEN_FRACTIONS.length - 1)]!;
+  return radius / (Math.tan(THREE.MathUtils.degToRad(LOD_REFERENCE_FOV) / 2) * fraction);
 }
 
 function boundingRadius(object: THREE.Object3D): number {

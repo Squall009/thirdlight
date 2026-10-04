@@ -151,7 +151,8 @@ will show it if they do).
 | 28c.0 | done 2026-10-04 — three.js `0.186.1` is pinned and is the latest on npm (no update) |
 | 28c.1 | done 2026-10-04 — `tools/perf/run.mjs village` (class, export vs plain page, GPU passes, package split, `--ablation`), `tools/perf/games.sh`; the fast gate checks the class's frame time (+10 %, ~40 s, GPU hosts only). Before numbers below. |
 | 28c.2 | done 2026-10-04 — only drawables in the scene (`render-graph.ts`, world matrices in the runtime's `WorldMatrices`); class 9,725 → 5,066 Object3Ds (groups 2,605 → 166, bones 440 → 0; the rest is LOD, 28c.3), main thread 14.5 → 10.2 ms, mean 58 → 62 fps (p50 still 17.9 ms: the worker wait, 28c.6); Skyforge copy 8,629 → 5,311, main thread 13.8 → 12.3 ms, Sprout opens; pixels vs before: WebGPU mean 0.01, WebGL 2 mean 0.35 (0.44 % > 32, near the fires, unverified why). Baseline re-recorded. |
-| 28c.3–28c.13 | — |
+| 28c.3 | done 2026-10-04 — only moved entities are composed and placed (the worker's frame carries the moved indices); an idle scene writes 0 matrices (`sceneGraph.matrixWrites`, e2e); LODs are data, our switch (`lod-switch.ts`, three's rule) attaches one level; a static mesh's child nodes hang beside it; hidden entities leave the scene. Class 5,066 → 1,382 Object3Ds (LOD 1,178 → 0, hidden 2,370 → 14, groups 166 → 16 = effect groups), main thread 10.2 → 7.5–8.2 ms, draws 1,016 → 904, frame mean unchanged (worker wait, 28c.6; baseline kept); Skyforge copy 5,311 → 897, main thread 12.3 → 10.0 ms, Sprout opens; pixels: mean ≤ 0.5 both renderers (fire flicker). |
+| 28c.4–28c.13 | — |
 
 Before (2026-10-04, `1c24eb23`, Skyforge village copy, Iris Xe, 1080p, DPR 1):
 

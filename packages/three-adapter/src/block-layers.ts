@@ -55,6 +55,8 @@ import {
   type GridRenderChange,
 } from '@thirdlight/runtime';
 
+import { currentLodLevel } from './lod-switch';
+
 /** A model look: its LOD0 geometry in the block frame and its materials (by the source's material index). */
 export interface BlockModelLook {
   readonly source: BlockMeshSource;
@@ -362,7 +364,7 @@ export class BlockLayerView {
           const lod = c as THREE.LOD;
           if (lod.isLOD !== true) continue;
           lodChunks += 1;
-          const level = lod.getCurrentLevel();
+          const level = currentLodLevel(lod);
           while (shown.length <= level) shown.push(0);
           shown[level] = shown[level]! + 1;
         }

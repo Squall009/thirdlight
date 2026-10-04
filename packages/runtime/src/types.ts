@@ -102,6 +102,14 @@ export interface Runtime {
    */
   forEachInterpolated?(visit: InterpolatedVisitor): boolean;
   /**
+   * Only the entities whose interpolated transform changed since the last
+   * call (every entity at the first call and when the entity order changed),
+   * handed out like `forEachInterpolated` — a presenter that keeps the last
+   * transforms needs no others. One presenter reads it (a call takes what
+   * changed). False when disposed.
+   */
+  forEachMoved?(visit: InterpolatedVisitor): boolean;
+  /**
    * Visit every entity's committed transform — the state
    * after the last step, not blended with the step before by the last frame's
    * interpolation alpha (which depends on when frames came). What digests of

@@ -41,4 +41,32 @@ describe('WorldMatrices', () => {
     expect(w.add('c', null)).not.toBe(b);
     expect(w.indexOf('a')).toBeUndefined();
   });
+
+  it('composes only what moved: an idle table composes nothing, a moved parent its subtree', () => {
+    const w = new WorldMatrices();
+    w.add('root', null);
+    w.add('kid', 'root');
+    w.add('other', null);
+    w.update();
+    expect(w.changedCount).toBe(3);
+    // The same values again: nothing to compose.
+    for (const id of ['root', 'kid', 'other']) w.setLocal(id, [0, 0, 0], [0, 0, 0, 1], [1, 1, 1]);
+    w.update();
+    expect(w.changedCount).toBe(0);
+    w.setLocal('root', [1, 0, 0], [0, 0, 0, 1], [1, 1, 1]);
+    w.update();
+    const changed = Array.from({ length: w.changedCount }, (_, k) => w.changedId(k)).sort();
+    expect(changed).toEqual(['kid', 'root']);
+    const p: number[] = [];
+    w.position('kid', p);
+    near(p, [1, 0, 0]);
+    // Re-parenting moves the row's world too.
+    w.add('kid', 'other');
+    w.update();
+    expect(Array.from({ length: w.changedCount }, (_, k) => w.changedId(k))).toEqual(['kid']);
+    w.position('kid', p);
+    near(p, [0, 0, 0]);
+    w.update();
+    expect(w.changedCount).toBe(0);
+  });
 });

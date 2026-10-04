@@ -176,6 +176,12 @@ export interface FrameState {
   readonly xfVal?: Float64Array;
   /** Shared memory: the slot the transforms are in (and the buffer when it was (re)allocated). */
   readonly xfShared?: { readonly slot: number; readonly count: number; readonly slotFloats: number; readonly buffer?: SharedArrayBuffer };
+  /**
+   * With every transform (`xf` or `xfShared`): the indices whose transform
+   * changed since the last frame. Absent there: every one may have (the
+   * entity order changed, or the first frame). `xfIdx` is its own list.
+   */
+  readonly xfMoved?: Uint32Array;
   readonly hidden?: readonly string[];
   /** The objects scripts switched off (with their children) when that changed. */
   readonly inactive?: readonly string[];

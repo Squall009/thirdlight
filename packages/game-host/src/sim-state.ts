@@ -35,6 +35,8 @@ export class FrameEncoder {
   private count = 0;
   private cur = new Float64Array(0);
   private last = new Float64Array(0);
+  /** Scratch: the indices that moved this frame. */
+  private readonly moved: number[] = [];
   private idsDirty = true;
   private readonly pool: ArrayBuffer[] = [];
   private hidden: string[] | null = null;
@@ -166,30 +168,42 @@ export class FrameEncoder {
       new Float64Array(sh.sab, sh.slot * sh.slotFloats * 8, floats).set(this.cur.subarray(0, floats));
       out.xfShared = { slot: sh.slot, count: n, slotFloats: sh.slotFloats, ...(sh.fresh ? { buffer: sh.sab } : {}) };
       sh.fresh = false;
-    } else {
-      let changed = 0;
-      const moved: number[] = [];
-      if (!this.idsDirty && this.last.length >= floats) {
-        const c = this.cur;
-        const l = this.last;
-        for (let i = 0; i < n; i += 1) {
-          const o = i * TRANSFORM_STRIDE;
-          for (let k = 0; k < TRANSFORM_STRIDE; k += 1) {
-            if (!Object.is(c[o + k], l[o + k])) {
-              moved.push(i);
-              changed += 1;
-              break;
-            }
+    }
+    // Which entities moved since the last frame (the page places only those): known unless the order changed.
+    const known = !this.idsDirty && this.last.length >= floats;
+    const moved = this.moved;
+    let changed = 0;
+    if (known) {
+      const c = this.cur;
+      const l = this.last;
+      for (let i = 0; i < n; i += 1) {
+        const o = i * TRANSFORM_STRIDE;
+        for (let k = 0; k < TRANSFORM_STRIDE; k += 1) {
+          if (!Object.is(c[o + k], l[o + k])) {
+            if (moved.length <= changed) moved.push(i);
+            else moved[changed] = i;
+            changed += 1;
+            break;
           }
-          if (changed > n * FULL_SHARE) break;
         }
       }
-      if (this.idsDirty || this.last.length < floats || changed > n * FULL_SHARE) {
+    }
+    const movedList = (): Uint32Array => {
+      const idx = new Uint32Array(changed);
+      for (let j = 0; j < changed; j += 1) idx[j] = moved[j]!;
+      transfer.push(idx.buffer as ArrayBuffer);
+      return idx;
+    };
+    if (this.useShared) {
+      if (known) out.xfMoved = movedList();
+    } else {
+      if (!known || changed > n * FULL_SHARE) {
         const buf = this.takeBuffer(floats * 8);
         const arr = new Float64Array(buf, 0, floats);
         arr.set(this.cur.subarray(0, floats));
         out.xf = arr;
         transfer.push(buf);
+        if (known) out.xfMoved = movedList();
       } else if (changed > 0) {
         const idx = new Uint32Array(changed);
         const val = new Float64Array(changed * TRANSFORM_STRIDE);
@@ -202,9 +216,9 @@ export class FrameEncoder {
         out.xfVal = val;
         transfer.push(idx.buffer as ArrayBuffer, val.buffer as ArrayBuffer);
       }
-      if (this.last.length < floats) this.last = new Float64Array(Math.max(floats, this.cur.length));
-      this.last.set(this.cur.subarray(0, floats));
     }
+    if (this.last.length < floats) this.last = new Float64Array(Math.max(floats, this.cur.length));
+    this.last.set(this.cur.subarray(0, floats));
     // Hidden entities.
     const hidden = rt.hiddenEntities?.();
     if (hidden !== undefined && !sameSet(hidden, this.hidden)) {
@@ -505,6 +519,46 @@ export class FrameMirror {
   private sharedSab: SharedArrayBuffer | null = null;
   /** The previous full transform buffer (returned to the worker for reuse). */
   spare: ArrayBuffer | null = null;
+  /** The transform indices that changed since the presenter last read them (or every one). */
+  private movedRows = new Uint8Array(0);
+  private movedList: number[] = [];
+  private allMoved = true;
+
+  /**
+   * Visit the indices whose transform changed since the last call (every
+   * index after the entity order changed), then forget them.
+   */
+  takeMoved(visit: (index: number) => void, count: number): void {
+    if (this.allMoved) {
+      this.allMoved = false;
+      for (const i of this.movedList) this.movedRows[i] = 0;
+      this.movedList.length = 0;
+      for (let i = 0; i < count; i += 1) visit(i);
+      return;
+    }
+    const list = this.movedList;
+    for (let k = 0; k < list.length; k += 1) {
+      const i = list[k]!;
+      this.movedRows[i] = 0;
+      if (i < count) visit(i);
+    }
+    list.length = 0;
+  }
+
+  private noteMoved(indices: Uint32Array): void {
+    if (this.allMoved) return;
+    for (let k = 0; k < indices.length; k += 1) {
+      const i = indices[k]!;
+      if (i >= this.movedRows.length) {
+        const grown = new Uint8Array(Math.max(i + 1, this.movedRows.length * 2, 64));
+        grown.set(this.movedRows);
+        this.movedRows = grown;
+      }
+      if (this.movedRows[i] === 1) continue;
+      this.movedRows[i] = 1;
+      this.movedList.push(i);
+    }
+  }
 
   apply(s: FrameState): void {
     this.seq = s.seq;
@@ -518,6 +572,12 @@ export class FrameMirror {
     if (s.ids !== undefined) {
       this.ids = s.ids;
       this.index = new Map(s.ids.map((id, i) => [id, i]));
+    }
+    // What moved since the presenter last read it (`takeMoved`).
+    if (s.xfIdx !== undefined) this.noteMoved(s.xfIdx);
+    else if (s.xf !== undefined || s.xfShared !== undefined) {
+      if (s.xfMoved !== undefined && s.ids === undefined) this.noteMoved(s.xfMoved);
+      else this.allMoved = true;
     }
     if (s.xf !== undefined) {
       // The replaced buffer goes back to the worker with the next tick (no garbage per frame).

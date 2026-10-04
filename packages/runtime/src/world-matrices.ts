@@ -8,10 +8,18 @@
  * Rows are reused after removal, so an index is only stable while its
  * entity is in the table. Matrices are column-major (three.js
  * `Matrix4.elements` order), 16 floats per row.
+ *
+ * Only what moved is composed: a local transform equal to the one the row
+ * has marks nothing, and `update` composes the rows whose local transform
+ * changed and their descendants — an idle scene composes none. The rows
+ * composed by the last `update` are listed for the presenter
+ * ({@link changedCount}, {@link changedId}), so it places only their drawables.
  */
 import { composeMat4 } from './rig-pose';
 
 const STRIDE = 16;
+/** Floats of a local transform as it was given (position, rotation, scale). */
+const TRS = 10;
 /** Parent chains deeper than this are cut (a cycle cannot hang a frame). */
 const MAX_DEPTH = 64;
 
@@ -20,13 +28,24 @@ export class WorldMatrices {
   private ids: (string | null)[] = [];
   private parents: (string | null)[] = [];
   private free: number[] = [];
+  /** Each row's local transform as last given (compared, so an unchanged one marks nothing). */
+  private trs = new Float64Array(0);
+  /** Rows whose local transform (or parent) changed since the last `update`. */
+  private dirty = new Uint8Array(0);
+  private anyDirty = false;
+  /** Rows were added, removed or re-parented: the parent rows are resolved again. */
+  private structure = false;
+  /** Per row in the running `update`: 1 composed this frame, 2 unchanged. */
+  private state = new Uint8Array(0);
+  /** The rows the last `update` composed. */
+  private changed = new Int32Array(0);
+  private changedN = 0;
+  /** World matrices composed since the table was made. */
+  private composedTotal = 0;
   /** The parent's row, resolved per frame (-1: a root, or its parent is not in the table). */
   private parentRow = new Int32Array(0);
   private local = new Float64Array(0);
   private worldM = new Float64Array(0);
-  /** The frame each row's world was last composed in (parents-first without sorting). */
-  private stamp = new Uint32Array(0);
-  private frame = 0;
 
   /** The world matrices, 16 per row (read with {@link indexOf}). */
   get world(): Float64Array {
@@ -47,6 +66,16 @@ export class WorldMatrices {
       this.ids[i] = id;
       identity(this.local, i * STRIDE);
       identity(this.worldM, i * STRIDE);
+      this.trs.fill(0, i * TRS, i * TRS + TRS);
+      this.trs[i * TRS + 6] = 1;
+      this.trs[i * TRS + 7] = 1;
+      this.trs[i * TRS + 8] = 1;
+      this.trs[i * TRS + 9] = 1;
+      this.mark(i);
+      this.structure = true;
+    } else if (this.parents[i] !== parentId) {
+      this.mark(i);
+      this.structure = true;
     }
     this.parents[i] = parentId;
     return i;
@@ -58,7 +87,9 @@ export class WorldMatrices {
     this.rows.delete(id);
     this.ids[i] = null;
     this.parents[i] = null;
+    this.dirty[i] = 0;
     this.free.push(i);
+    this.structure = true;
   }
 
   has(id: string): boolean {
@@ -74,23 +105,72 @@ export class WorldMatrices {
     return i === undefined ? undefined : this.parents[i];
   }
 
-  /** Set an entity's local transform (relative to its parent); false when it is not in the table. */
+  /**
+   * Set an entity's local transform (relative to its parent); false when it
+   * is not in the table. The same values as the row has change nothing.
+   */
   setLocal(id: string, p: ArrayLike<number>, r: ArrayLike<number>, s: ArrayLike<number>): boolean {
     const i = this.rows.get(id);
     if (i === undefined) return false;
+    const t = this.trs;
+    const o = i * TRS;
+    if (
+      t[o] === p[0] && t[o + 1] === p[1] && t[o + 2] === p[2] &&
+      t[o + 3] === r[0] && t[o + 4] === r[1] && t[o + 5] === r[2] && t[o + 6] === r[3] &&
+      t[o + 7] === s[0] && t[o + 8] === s[1] && t[o + 9] === s[2]
+    ) return true;
+    t[o] = p[0]!;
+    t[o + 1] = p[1]!;
+    t[o + 2] = p[2]!;
+    t[o + 3] = r[0]!;
+    t[o + 4] = r[1]!;
+    t[o + 5] = r[2]!;
+    t[o + 6] = r[3]!;
+    t[o + 7] = s[0]!;
+    t[o + 8] = s[1]!;
+    t[o + 9] = s[2]!;
     composeMat4(this.local.subarray(i * STRIDE, i * STRIDE + STRIDE), p, r, s);
+    this.mark(i);
     return true;
   }
 
-  /** Compose every row's world matrix from the local transforms (parents first). */
+  /**
+   * Compose the world matrices of the rows that changed and their
+   * descendants (parents first); nothing when nothing changed.
+   */
   update(): void {
-    this.frame = (this.frame + 1) >>> 0 || 1;
+    this.changedN = 0;
+    if (!this.anyDirty && !this.structure) return;
     const n = this.ids.length;
-    for (let i = 0; i < n; i += 1) {
-      const parent = this.parents[i];
-      this.parentRow[i] = parent === null || parent === undefined ? -1 : (this.rows.get(parent) ?? -1);
+    if (this.structure) {
+      this.structure = false;
+      for (let i = 0; i < n; i += 1) {
+        const parent = this.parents[i];
+        const row = parent === null || parent === undefined ? -1 : (this.rows.get(parent) ?? -1);
+        // A parent that came or went changes the row's world.
+        if (row !== this.parentRow[i] && this.ids[i] !== null) this.dirty[i] = 1;
+        this.parentRow[i] = row;
+      }
     }
-    for (let i = 0; i < n; i += 1) if (this.ids[i] !== null) this.compose(i, 0);
+    this.anyDirty = false;
+    this.state.fill(0, 0, n);
+    for (let i = 0; i < n; i += 1) if (this.ids[i] !== null) this.resolve(i, 0);
+    this.dirty.fill(0, 0, n);
+  }
+
+  /** How many rows the last `update` composed. */
+  get changedCount(): number {
+    return this.changedN;
+  }
+
+  /** The entity of the k-th row the last `update` composed. */
+  changedId(k: number): string {
+    return this.ids[this.changed[k]!]!;
+  }
+
+  /** World matrices composed since the table was made (diagnostics). */
+  get composed(): number {
+    return this.composedTotal;
   }
 
   /** Copy a row's world position into `out` (false: not in the table). */
@@ -104,17 +184,30 @@ export class WorldMatrices {
     return true;
   }
 
-  private compose(i: number, depth: number): void {
-    if (this.stamp[i] === this.frame) return;
-    this.stamp[i] = this.frame;
-    const o = i * STRIDE;
+  private mark(i: number): void {
+    this.dirty[i] = 1;
+    this.anyDirty = true;
+  }
+
+  /** Whether row i's world changes this update (composed then, its parent first). */
+  private resolve(i: number, depth: number): boolean {
+    const known = this.state[i]!;
+    if (known !== 0) return known === 1;
     const p = this.parentRow[i]!;
-    if (p < 0 || depth >= MAX_DEPTH) {
-      for (let k = 0; k < STRIDE; k += 1) this.worldM[o + k] = this.local[o + k]!;
-      return;
+    const root = p < 0 || depth >= MAX_DEPTH;
+    const parentChanged = !root && this.resolve(p, depth + 1);
+    if (this.dirty[i] === 0 && !parentChanged) {
+      this.state[i] = 2;
+      return false;
     }
-    this.compose(p, depth + 1);
-    multiplyInto(this.worldM, o, this.worldM, p * STRIDE, this.local, o);
+    this.state[i] = 1;
+    const o = i * STRIDE;
+    if (root) for (let k = 0; k < STRIDE; k += 1) this.worldM[o + k] = this.local[o + k]!;
+    else multiplyInto(this.worldM, o, this.worldM, p * STRIDE, this.local, o);
+    this.changed[this.changedN] = i;
+    this.changedN += 1;
+    this.composedTotal += 1;
+    return true;
   }
 
   private grow(rows: number): void {
@@ -122,10 +215,18 @@ export class WorldMatrices {
     const cap = Math.max(rows, this.parentRow.length * 2, 64);
     const pr = new Int32Array(cap);
     pr.set(this.parentRow);
+    pr.fill(-1, this.parentRow.length);
     this.parentRow = pr;
-    const st = new Uint32Array(cap);
-    st.set(this.stamp);
-    this.stamp = st;
+    const ch = new Int32Array(cap);
+    ch.set(this.changed);
+    this.changed = ch;
+    const di = new Uint8Array(cap);
+    di.set(this.dirty);
+    this.dirty = di;
+    this.state = new Uint8Array(cap);
+    const tr = new Float64Array(cap * TRS);
+    tr.set(this.trs);
+    this.trs = tr;
     const lo = new Float64Array(cap * STRIDE);
     lo.set(this.local);
     this.local = lo;

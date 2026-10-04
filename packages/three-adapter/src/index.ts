@@ -146,6 +146,7 @@ export {
   COLLIDER_POLYGON_MAX,
   convexHull,
   LOD_SCREEN_FRACTIONS,
+  lodSwitchDistance,
   modelPieces,
   pieceBaseName,
   pieceBounds,

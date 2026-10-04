@@ -441,6 +441,8 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   const applyInterpolated = (id: string, position: readonly number[], rotation: readonly number[], scale: readonly number[]): void => {
     graph.world.setLocal(id, position, rotation, scale);
   };
+  /** The graph's revision at the last transform sync (a change: every transform is read again). */
+  let syncedRevision = -1;
   const owned: OwnedResources = { geometries: [], materials: [], renderer: null };
   const reportedViewport: [number, number] = [0, 0];
   let camera: THREE.PerspectiveCamera | null = null;
@@ -1424,7 +1426,12 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     // reused arrays is read without a per-frame copy of every transform.
     if (opts.runtime.forEachInterpolated !== undefined) {
       syncSceneSet();
-      if (!opts.runtime.forEachInterpolated(applyInterpolated)) {
+      // Only the entities that moved (a runtime that tracks them); every one when entities came or went,
+      // as a newly realized entity starts from its authored transform. Unchanged values change nothing.
+      const moved = opts.runtime.forEachMoved?.(applyInterpolated);
+      const all = moved === undefined || graph.revision !== syncedRevision;
+      syncedRevision = graph.revision;
+      if (moved === false || (all && !opts.runtime.forEachInterpolated(applyInterpolated))) {
         return { ok: false, error: adapterError('render_failed', 'runtime state unavailable: runtime is disposed') };
       }
     } else {
@@ -1552,6 +1559,8 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     // Material parameters scripts changed, on the objects before the draw (and before regrouping).
     const materialChanges = (opts.runtime as { takeMaterialChanges?: () => MaterialRenderChangeLike[] }).takeMaterialChanges?.() ?? [];
     if (materialChanges.length > 0) runtimeMaterials?.apply(materialChanges);
+    // The level of detail each LOD draws attached (the batcher and the draw see only that one).
+    graph.updateLods(camera!);
     // Regroup the repeated objects and copy their matrices (after every transform and look change).
     batcher?.update(camera!);
     const disableShadows = (): void => {

@@ -474,6 +474,14 @@ export function startRemoteSimulation(opts: RemoteSimulationOptions): Promise<Re
       }
       return true;
     },
+    forEachMoved: (visit: InterpolatedVisitor): boolean => {
+      if (gone()) return false;
+      mirror.takeMoved((i) => {
+        readAt(i);
+        visit(mirror.ids[i]!, position, rotation, scale);
+      }, Math.min(mirror.ids.length, Math.floor(mirror.xf.length / TRANSFORM_STRIDE)));
+      return true;
+    },
     readInterpolated: (id: string, p: number[], r: number[], s: number[]): boolean => {
       if (gone()) return false;
       const i = mirror.index.get(id);

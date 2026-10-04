@@ -8,7 +8,8 @@
  *    are compared pixel by pixel. Picking and selection still work on a
  *    batched box (a click on the canvas selects it).
  *  - Only what is drawn is in three.js: Play's scene holds the drawables and
- *    lights (no entity holders, empty markers or groups); a third of the field
+ *    lights (no entity holders, empty markers or groups), and while nothing
+ *    moves no matrix is written; a third of the field
  *    moved under a turned, scaled logic-only parent (keeping their places) is
  *    drawn exactly where it was, so world transforms compose without three.js.
  *  - Render on demand: the idle Scene view draws no frames; a change (a
@@ -152,7 +153,7 @@ test('repeated boxes are drawn instanced in the Scene view and Play; picking wor
   type Diag = {
     batching?: { groups: number; batched: number; single: number };
     frame?: { drawCalls: number };
-    sceneGraph?: { objects: number; drawables: number; lights: number; bones: number; lods: number; containers: number; entities: number; listed: number };
+    sceneGraph?: { objects: number; drawables: number; lights: number; bones: number; lods: number; containers: number; entities: number; listed: number; matrixWrites: { entities: number; drawables: number; posed: number }; matrixWritesTotal: number };
   };
   const diag = async (): Promise<Diag | undefined> => ((await relay(`${psid}/diagnostics`)).json['diagnostics'] as { renderer?: Diag } | undefined)?.renderer;
   await expect.poll(async () => (await diag())?.batching?.batched ?? 0, { timeout: 60_000 }).toBeGreaterThanOrEqual(BOXES - 2);
@@ -168,6 +169,11 @@ test('repeated boxes are drawn instanced in the Scene view and Play; picking wor
   expect(g.objects).toBe(g.drawables + g.lights + g.bones);
   expect(g.entities).toBeGreaterThanOrEqual(BOXES + 1);
   expect(g.listed).toBeGreaterThanOrEqual(BOXES + 1);
+  // Nothing moves in this scene: no entity or drawable gets a new matrix, frame after frame.
+  await expect.poll(async () => JSON.stringify((await diag())?.sceneGraph?.matrixWrites), { timeout: 15_000 }).toBe(JSON.stringify({ entities: 0, drawables: 0, posed: 0 }));
+  const written = (await diag())!.sceneGraph!.matrixWritesTotal;
+  await page.waitForTimeout(1500);
+  expect((await diag())!.sceneGraph!.matrixWritesTotal).toBe(written);
   await page.getByTitle('Stop the play preview').click();
 });
 
