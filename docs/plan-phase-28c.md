@@ -36,7 +36,7 @@ pointer in their old plan.
   past parity.
 - No format change: this phase adds no schema bump and no deprecation. It uses
   the `static` flag entities already have (`project-model/src/types-v3.ts:210`).
-- Open, for the owner (§5): whether the Scene view (29.2) comes along.
+- The Scene view comes along (28c.4).
 
 ## 2. Why Thirdlight is slower than plain three.js (measured 2026-10-04)
 
@@ -71,11 +71,16 @@ hand it:
 4. **The batcher re-derives its groups every frame (~1.2 ms).** It walks the
    whole graph again, builds a string key per mesh and refills its maps,
    though nothing changed (`three-adapter/src/batching.ts:322-411`).
-5. **Each draw costs more (~3 ms, inferred, not yet isolated).** 11 µs per
-   draw against 6.5 µs in the bare page. Suspects:
-   - 16 dark effect-pool point lights evaluated in every lit shader.
-   - Per-object material copies (1,279 uniform buffers).
-   - The node-material variants.
+5. **Each draw costs more, and it is the dark lights (isolated by 28c.1's
+   ablation).**
+   - Adding the effect pool's 16 zero-intensity point lights to the plain
+     page costs +4.3 ms on both renderers, all on the GPU: the scene pass
+     goes from 1.9 to 6.1 ms.
+   - Per-object material copies and our node materials cost about nothing.
+   - This corrects "the GPU is not the limit" above: on WebGPU the class
+     spends 11.2 ms of GPU time per frame against 6.0 ms on the plain page.
+     The CPU and the GPU are both near the frame time, so both halves must be
+     fixed.
 
 Beyond parity, two structural costs remain that bare three.js has too:
 - 640 unique meshes drawn one by one (no static merging).
