@@ -2,7 +2,8 @@
 # Thirdlight green gate. Three modes:
 #
 #   tools/gate.sh fast [e2e files or dirs…]   per commit: build + lint + vitest + the smoke set + the
-#                                             e2e files named (the ones for the area you changed)
+#                                             e2e files named (the ones for the area you changed) + on a
+#                                             GPU host the village perf class against its frame baseline
 #   tools/gate.sh full [--both-renderers]     per phase item / before STATUS says done: build +
 #                                             lint + vitest + every e2e spec, the leak test included
 #                                             (TL_MEMORY=1). On a GPU one pass in the
@@ -122,10 +123,26 @@ e2e() { # e2e <log> [playwright args…]
   grep -qE '^\s+[0-9]+ passed' "$L/$log" && ! grep -qE '^\s+[0-9]+ failed' "$L/$log"
 }
 
+# The village perf class's export frame time against its recorded baseline (tests/perf/village-baseline.json),
+# both renderers, alone after the e2e step (a loaded host measures nothing). Only on a GPU host: SwiftShader
+# frame times say nothing about the product. Re-record: docs/deployment.md "Performance".
+perf_check() {
+  if ! node -e "import('./tests/e2e/browser-env.mjs').then((m) => process.exit(m.gpuAvailable() ? 0 : 1))"; then
+    say "perf: skipped (no usable GPU)"; return 0
+  fi
+  local t=$(date +%s) rc
+  node tools/perf/run.mjs village --gate --check tests/perf/village-baseline.json > "$L/perf.log" 2>&1
+  rc=$?
+  say "perf: $(grep -E '^village: (REGRESSION|webgpu|webgl2|the baseline)' "$L/perf.log" | sed 's/^village: //' | tr '\n' ';') ($(( $(date +%s) - t )) s)"
+  return $rc
+}
+
 case "$mode" in
   fast)
     build_and_unit
     e2e e2e.log --project=default "${SMOKE[@]}" "$@" || done_ "RED e2e (fix, then: tools/gate.sh rerun)"
+    rm -f "$LOGS/perf-failed"
+    perf_check || { touch "$LOGS/perf-failed"; done_ "RED perf (the village class's frame time; fix, then: tools/gate.sh rerun)"; }
     done_ GREEN ;;
   full)
     build_and_unit
@@ -141,6 +158,11 @@ case "$mode" in
   rerun)
     npm run build > "$L/build.log" 2>&1
     grep -q '^build: done' "$L/build.log" || done_ "RED build"
+    # A fast gate that failed on its perf check reruns that check alone.
+    if [ -e "$LOGS/perf-failed" ]; then
+      perf_check || done_ "RED perf"
+      rm -f "$LOGS/perf-failed"; done_ GREEN
+    fi
     export TL_MEMORY=1
     e2e e2e.log --last-failed --trace=retain-on-failure && done_ GREEN
     done_ "RED e2e" ;;

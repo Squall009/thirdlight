@@ -142,7 +142,8 @@ will show it if they do).
 | Item | Status |
 |---|---|
 | 28c.0 | done 2026-10-04 — three.js `0.186.1` is pinned and is the latest on npm (no update) |
-| 28c.1–28c.12 | — |
+| 28c.1 | done 2026-10-04 — `tools/perf/run.mjs village` (class, export vs plain page, GPU passes, package split, `--ablation`), `tools/perf/games.sh`; the fast gate checks the class's frame time (+10 %, ~40 s, GPU hosts only). Before numbers below. |
+| 28c.2–28c.12 | — |
 
 Before (2026-10-04, `1c24eb23`, Skyforge village copy, Iris Xe, 1080p, DPR 1):
 
@@ -153,6 +154,31 @@ Before (2026-10-04, `1c24eb23`, Skyforge village copy, Iris Xe, 1080p, DPR 1):
 | `?threads=off` | 61.7 fps (15.1 ms) | — |
 | +200 animated characters | 38 fps (24.8 ms) | 72 fps (13.7 ms) |
 | Object3Ds | 8,629 | ~800 drawn |
+
+Before, measured by 28c.1's harness (2026-10-04, `dbeaf6a8`, Iris Xe, 1080p, DPR 1, uncapped; mean fps, frame
+p50/p95/p99 ms; main thread = renderer-process task time per frame; GPU = timestamp queries, WebGPU only):
+
+| | Thirdlight export | Plain three.js (same dump) |
+|---|---|---|
+| Class, WebGPU | 57.3 fps, 18.0/31.7/33.9; 1,016 draws, 423k tris; main thread 14.8 ms (three 73 %, three-adapter 15 %, native 11 %, game-host 1 %); GPU 11.2 ms (scene pass 6.4, GTAO 1.7, shadow 0.5) | 149.5 fps, 6.0/11.4/13.9; 889 draws; main thread 6.7 ms; GPU 6.0 ms (scene pass 1.9) |
+| Class, WebGL2 | 57.7 fps, 17.8/31.1/32.4; main thread 14.1 ms | 154.8 fps, 6.3/7.1/11.1 |
+| Class, graph | 9,725 Object3Ds: 2,605 groups, 1,178 LOD, 3,703 meshes (2,370 hidden), 440 bones, 16 point lights; 1,307 uniform buffers | 693 Object3Ds; 1,352 uniform buffers |
+| Skyforge copy, WebGPU | 55.1 fps, 18.0/19.0/22.5; 598 draws, 384k tris; 8,629 Object3Ds; main thread 13.8 ms (three 71 %, three-adapter 11 %, native 15 %); GPU 13.6 ms (scene pass 8.4) | 144.4 fps, 5.4/12.8/13.1; 509 draws; GPU 6.5 ms (scene pass 1.8) |
+| Skyforge copy, WebGL2 | 54.7 fps, 17.9/20.5/23.2; main thread 14.9 ms | 141.8 fps, 4.9/14.3/73.2 |
+| Sprout copy (title only) | 268 fps both renderers, 40 draws, 121 Object3Ds | 285–290 fps |
+
+Per-draw ablation (class, plain page + one addition, frame mean vs the plain page's 6.69 ms WebGPU / 6.46 ms
+WebGL2 over its 889 draws):
+
+| Added to the plain page | WebGPU | WebGL2 | Where |
+|---|---|---|---|
+| Dark point lights up to the pool's 16 (14 at intensity 0 beside the 2 lit fires) | +4.28 ms (+4.8 µs/draw) | +4.23 ms (+4.8 µs/draw) | GPU: scene pass 1.9 → 6.1 ms; not CPU |
+| Per-object material copies (one per draw) | −0.08 ms (0) | +0.25 ms (+0.3 µs/draw) | noise |
+| The engine's node materials (`toNodeMaterial`) | −0.02 ms (0) | +0.16 ms (+0.2 µs/draw) | noise |
+
+So 28c.7 is the dark effect-pool lights (a GPU cost in every lit pixel); material copies and node materials cost
+nothing measurable, and uniform buffers are the same in both pages. The rest of the gap is main-thread work
+(28c.2–28c.6). Unverified: the plain page draws skinned meshes in their rest pose and textures as 512² noise.
 
 ## 7. Decision log
 

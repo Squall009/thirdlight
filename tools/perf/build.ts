@@ -8,8 +8,8 @@ import { createHash } from 'node:crypto';
 
 import { multiPieceGlb } from '../../tests/e2e/multi-piece-glb';
 import { noisePng, sphereGlb } from './assets';
-import type { BenchPlan, EntityValue } from './generate';
-import type { PerfBackend } from './backend';
+import type { BehaviorPlan, BenchPlan, EntityValue } from './generate';
+import type { PerfBackend, ProjectClient } from './backend';
 
 export interface BuildResult {
   projectId: string;
@@ -49,6 +49,56 @@ export function splitBySize(batch: readonly EntityValue[]): EntityValue[][] {
   return parts;
 }
 
+/** One mutation through the command endpoint (counted by the caller). */
+export type CommandFn = (op: string, args: Record<string, unknown>) => Promise<Record<string, unknown>>;
+
+/** A file staged, inspected and published like an imported file. */
+export async function publishFileVia(be: PerfBackend, projectId: string, cmd: CommandFn, f: { assetId: string; kind: 'model' | 'texture'; displayName: string; bytes: Uint8Array }): Promise<void> {
+  const stageId = await be.stage(projectId, f.bytes);
+  const inspected = await be.post(`/api/v1/projects/${projectId}/content/stages/${stageId}/inspect`, { kind: f.kind });
+  const proposal = inspected.json['proposal'] as Record<string, unknown> | undefined;
+  if (proposal === undefined) throw new Error(`${f.kind} inspect failed: ${JSON.stringify(inspected.json).slice(0, 400)}`);
+  await cmd('publishAsset', {
+    mode: 'create',
+    assetId: f.assetId,
+    kind: f.kind,
+    displayName: f.displayName,
+    sourceDigest: proposal['sourceDigest'],
+    sourceByteLength: proposal['sourceByteLength'],
+    importRecipe: proposal['importRecipe'],
+    metrics: proposal['metrics'],
+    importedAt: importedAt(),
+  });
+  await be.discardStage(projectId, stageId);
+}
+
+/** A script: declaration, trust for the source digest, then the published source (one extra request besides the commands). */
+export async function publishBehaviorVia(be: PerfBackend, p: ProjectClient, cmd: CommandFn, b: BehaviorPlan): Promise<void> {
+  const projectId = p.projectId;
+  const bytes = Buffer.from(`${JSON.stringify({ graphVersion: 1, entryPath: 'src/index.ts', requiredModules: ['@thirdlight/runtime'], ownedTransforms: b.ownedTransforms, files: [{ path: 'src/index.ts', text: b.source }] }, null, 2)}\n`);
+  const stageId = await be.stage(projectId, bytes);
+  await cmd('publishBehavior', { behaviorId: b.behaviorId, displayName: b.displayName, mode: 'declaration-create', declaration: b.declaration });
+  await cmd('acknowledgeBehaviorTrust', { sourceDigest: createHash('sha256').update(bytes).digest('hex') });
+  const published = await be.post(`/api/v1/projects/${projectId}/content/behaviors/source`, {
+    stageId,
+    behaviorId: b.behaviorId,
+    displayName: b.displayName,
+    declaration: b.declaration,
+    expectedRevision: await p.revision(),
+    requestId: `req-${createHash('sha256').update(`${projectId}:${b.behaviorId}`).digest('hex').slice(0, 32)}`,
+  });
+  if (published.status !== 200) throw new Error(`publish ${b.behaviorId} failed: ${JSON.stringify(published.json).slice(0, 400)}`);
+  await p.revision();
+}
+
+/** An instance buffer (float32 copies) published through the content route; returns its digest. */
+export async function publishBufferVia(be: PerfBackend, projectId: string, floats: Float32Array): Promise<string> {
+  const stageId = await be.stage(projectId, new Uint8Array(floats.buffer, floats.byteOffset, floats.byteLength));
+  const res = await be.post(`/api/v1/projects/${projectId}/content/buffers`, { stageId });
+  if (res.status !== 200 || typeof res.json['digest'] !== 'string') throw new Error(`buffer publish failed: ${JSON.stringify(res.json).slice(0, 400)}`);
+  return res.json['digest'];
+}
+
 export async function buildBenchmark(be: PerfBackend, plan: BenchPlan, projectId: string, log: (s: string) => void = () => undefined): Promise<BuildResult> {
   const t0 = performance.now();
   const created = await be.post('/api/v1/admin/projects', { projectId, name: `Benchmark ${plan.className}` });
@@ -60,25 +110,7 @@ export async function buildBenchmark(be: PerfBackend, plan: BenchPlan, projectId
     return p.command(op, args);
   };
 
-  // A file: staged, inspected and published like an imported file.
-  const publishFile = async (assetId: string, kind: 'model' | 'texture', displayName: string, bytes: Uint8Array): Promise<void> => {
-    const stageId = await be.stage(projectId, bytes);
-    const inspected = await be.post(`/api/v1/projects/${projectId}/content/stages/${stageId}/inspect`, { kind });
-    const proposal = inspected.json['proposal'] as Record<string, unknown> | undefined;
-    if (proposal === undefined) throw new Error(`${kind} inspect failed: ${JSON.stringify(inspected.json).slice(0, 400)}`);
-    await cmd('publishAsset', {
-      mode: 'create',
-      assetId,
-      kind,
-      displayName,
-      sourceDigest: proposal['sourceDigest'],
-      sourceByteLength: proposal['sourceByteLength'],
-      importRecipe: proposal['importRecipe'],
-      metrics: proposal['metrics'],
-      importedAt: importedAt(),
-    });
-    await be.discardStage(projectId, stageId);
-  };
+  const publishFile = (assetId: string, kind: 'model' | 'texture', displayName: string, bytes: Uint8Array): Promise<void> => publishFileVia(be, projectId, cmd, { assetId, kind, displayName, bytes });
   // The class's own texture and model files (before the materials that use them).
   for (const f of plan.files.textures) await publishFile(f.assetId, 'texture', f.displayName, noisePng(f.seed, f.size));
   for (const f of plan.files.models) await publishFile(f.assetId, 'model', f.displayName, sphereGlb(f.seed, f.segments, f.size));
@@ -90,23 +122,9 @@ export async function buildBenchmark(be: PerfBackend, plan: BenchPlan, projectId
   // The model kit.
   await publishFile(plan.model.assetId, 'model', plan.model.displayName, multiPieceGlb(plan.model.pieces));
 
-  // Scripts: declaration, trust for the source digest, then the published source.
   for (const b of plan.behaviors) {
-    const bytes = Buffer.from(`${JSON.stringify({ graphVersion: 1, entryPath: 'src/index.ts', requiredModules: ['@thirdlight/runtime'], ownedTransforms: b.ownedTransforms, files: [{ path: 'src/index.ts', text: b.source }] }, null, 2)}\n`);
-    const stageId = await be.stage(projectId, bytes);
-    await cmd('publishBehavior', { behaviorId: b.behaviorId, displayName: b.displayName, mode: 'declaration-create', declaration: b.declaration });
-    await cmd('acknowledgeBehaviorTrust', { sourceDigest: createHash('sha256').update(bytes).digest('hex') });
+    await publishBehaviorVia(be, p, cmd, b);
     commands += 1;
-    const published = await be.post(`/api/v1/projects/${projectId}/content/behaviors/source`, {
-      stageId,
-      behaviorId: b.behaviorId,
-      displayName: b.displayName,
-      declaration: b.declaration,
-      expectedRevision: await p.revision(),
-      requestId: `req-${createHash('sha256').update(`${projectId}:${b.behaviorId}`).digest('hex').slice(0, 32)}`,
-    });
-    if (published.status !== 200) throw new Error(`publish ${b.behaviorId} failed: ${JSON.stringify(published.json).slice(0, 400)}`);
-    await p.revision();
   }
   log(`${plan.className}: ${plan.behaviors.length} scripts`);
 
@@ -114,11 +132,7 @@ export async function buildBenchmark(be: PerfBackend, plan: BenchPlan, projectId
 
   const digests = new Map<string, string>();
   for (const buf of plan.buffers) {
-    const bytes = new Uint8Array(buf.floats.buffer, buf.floats.byteOffset, buf.floats.byteLength);
-    const stageId = await be.stage(projectId, bytes);
-    const res = await be.post(`/api/v1/projects/${projectId}/content/buffers`, { stageId });
-    if (res.status !== 200 || typeof res.json['digest'] !== 'string') throw new Error(`buffer publish failed: ${JSON.stringify(res.json).slice(0, 400)}`);
-    digests.set(buf.key, res.json['digest']);
+    digests.set(buf.key, await publishBufferVia(be, projectId, buf.floats));
   }
 
   for (const scene of plan.scenes.slice(1)) await cmd('createScene', { sceneId: scene.sceneId, name: scene.name });

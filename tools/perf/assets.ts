@@ -164,7 +164,7 @@ export function texturedQuadGlb(image: EmbeddedImage, name = 'quad'): Buffer {
 }
 
 /** A GLB container of a glTF JSON and its binary chunk. */
-function packGlb(json: unknown, bin: Buffer): Buffer {
+export function packGlb(json: unknown, bin: Buffer): Buffer {
   let jsonBuf = Buffer.from(JSON.stringify(json), 'utf8');
   jsonBuf = Buffer.concat([jsonBuf, Buffer.alloc((4 - (jsonBuf.length % 4)) % 4, 0x20)]);
   const header = Buffer.alloc(12);

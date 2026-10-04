@@ -4321,6 +4321,44 @@ out the calibrated times (the noisiest here). The always-on check is
 harness on the small benchmark (run it when `tools/perf` changes).
 Frame and load times on a real GPU: owner look pending.
 
+**The village class against plain three.js.** `node tools/perf/run.mjs
+village` builds the village class (`tools/perf/village.ts`: ~1,000 entities,
+650 placed models with `_LOD` levels, 50 instance sets, 20 animated skinned
+figures, a block ground, 16 effect lights, the shadowed sun and the full post
+stack; generated, no game content) through a private backend, exports it and
+measures the export on the host's GPU at 1920×1080, DPR 1, uncapped, on WebGPU
+and WebGL 2: fps and frame p50/p95/p99, the main thread's time per frame and
+its split by package (a CPU profile), the Object3Ds three walks, draws,
+triangles, uniform buffers and GPU time per render pass (three's timestamp
+queries; WebGPU only — on WebGL 2 three times just the outermost pass). It
+then dumps the drawn frame and measures the same content as a plain three.js
+page (`tools/perf/bare/`) the same way. `--ablation` adds the per-draw
+ablation on the plain page (+16 dark point lights, +per-object material
+copies, +the engine's node materials, each alone); `--no-bare`,
+`--renderers webgpu`, `--keep` (keep the run folder with screenshots and the
+dump). Reports go to `~/.cache/thirdlight-perf/reports/village-<time>.json`.
+`tools/perf/games.sh [game-folder …]` (local, not in the gate) measures copies
+of game projects the same way (default Skyforge and Sprout; the copy is what
+gets registered, never the game's folder).
+
+**The frame-time gate.** On a host with a usable GPU (`gpuAvailable()` in
+`tests/e2e/browser-env.mjs`), `tools/gate.sh fast` ends with
+`node tools/perf/run.mjs village --gate --check tests/perf/village-baseline.json`
+(about 40 s): it fails when the export's mean frame time on either renderer
+is more than 10 % (`FRAME_REGRESSION` in `tools/perf/village-run.ts`) above
+the baseline, or when a renderer was not measured; `tools/gate.sh rerun`
+repeats a failed check alone. Without a GPU it is skipped. The baseline holds
+absolute times for this host's GPU, so it is re-recorded when the class
+changes (`VILLAGE_VERSION`), on another machine, or when a change makes the
+village faster on purpose:
+
+```sh
+npm run build
+node tools/perf/run.mjs village --gate --write-baseline tests/perf/village-baseline.json
+```
+
+and the new file is committed with the change that moved it.
+
 **Runtime and simulation (21.2).** The fixed step no longer allocates per
 entity: the step's backup and the committed state are reused copies that are
 overwritten in place (one pass over index-aligned arrays), the motion segments

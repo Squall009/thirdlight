@@ -15,6 +15,7 @@
  *
  *   scale [options]                the scale bench instead (tools/perf/scale-run.ts lists its options)
  *   ports [options]                parallel backend starts (tools/perf/port-stress.ts lists its options)
+ *   village [options]              the village class's export against plain three.js (tools/perf/village-run.ts lists its options)
  */
 import { readFileSync, writeFileSync } from 'node:fs';
 
@@ -26,6 +27,11 @@ if (argv[0] === 'scale') {
   const { runScaleCli } = await import('./scale-run');
   await runScaleCli(argv.slice(1));
   process.exit(0);
+}
+if (argv[0] === 'village') {
+  const { runVillageCli } = await import('./village-run');
+  await runVillageCli(argv.slice(1));
+  process.exit(process.exitCode ?? 0);
 }
 if (argv[0] === 'ports') {
   const { runPortStress } = await import('./port-stress');

@@ -137,7 +137,7 @@ describe('harness plumbing', () => {
           calibration: {},
           build: { projectId: 'bench', ms: 1000, commands: 10, revision: 10, entities: 100 },
           counts: {},
-          surfaces: [{ surface: 'play', renderer: 'legacy', rendererChoice: null, apis: ['webgl2'], load: { firstFrameMs: 500 }, frameMs: frame, drawCalls: summarize([40]), triangles: summarize([1000]), live: { programs: 4, pipelines: 0, textures: 3, buffers: 50, vaos: 10 }, gpuMiBEstimate: 2, heapMiB: 30, heapSource: 'x', uasm: 'x', notes: [], loadavg: [1] }],
+          surfaces: [{ surface: 'play', renderer: 'legacy', rendererChoice: null, apis: ['webgl2'], load: { firstFrameMs: 500 }, frameMs: frame, drawCalls: summarize([40]), triangles: summarize([1000]), live: { programs: 4, pipelines: 0, textures: 3, buffers: 50, vaos: 10, uniformBuffers: 0 }, gpuMiBEstimate: 2, heapMiB: 30, heapSource: 'x', uasm: 'x', notes: [], loadavg: [1] }],
           commandMs: summarize([5, 6, 7]),
           sim: { ok: true, entities: 100, colliders: 20, scriptInstances: 4, bootMs: 100, stepMs: { p50: 1, p95: 2, p99: 3, max: 4, mean: 1 }, steps: 10, bytesPerStep: { median: 2048, min: 1024, windows: 5, windowSteps: 60, discarded: 0 }, calibrationMs: 10, heapUsedMiB: 12, state: 'playing', counters: null },
           errors: [],

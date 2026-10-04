@@ -24,7 +24,8 @@ export interface PerfPageState {
   frameTris: number[];
   firstDrawAt: number | null;
   firstDrawEpoch: number | null;
-  live: { programs: number; pipelines: number; textures: number; buffers: number; vaos: number };
+  /** `uniformBuffers`: live buffers used as uniform buffers (WebGPU UNIFORM usage; WebGL 2 bound to UNIFORM_BUFFER). */
+  live: { programs: number; pipelines: number; textures: number; buffers: number; vaos: number; uniformBuffers: number };
   bytes: { buffers: number; textures: number };
   apis: string[];
   /** WebSocket messages the page received (by `type`), and when each `mutation.applied` arrived. */
@@ -68,7 +69,7 @@ export function installPerfInstrumentation(): void {
     frameTris: [],
     firstDrawAt: null,
     firstDrawEpoch: null,
-    live: { programs: 0, pipelines: 0, textures: 0, buffers: 0, vaos: 0 },
+    live: { programs: 0, pipelines: 0, textures: 0, buffers: 0, vaos: 0, uniformBuffers: 0 },
     bytes: { buffers: 0, textures: 0 },
     apis: [],
     ws: { byType: {}, applied: [], appliedFrame: [] },
@@ -225,6 +226,15 @@ export function installPerfInstrumentation(): void {
     deletedGl.add(o);
     return true;
   };
+  // A buffer counts as a uniform buffer once it is bound to UNIFORM_BUFFER (WebGL 2) or made with UNIFORM usage (WebGPU).
+  const UNIFORM_BUFFER = 0x8a11;
+  const GPU_UNIFORM_USAGE = 0x40;
+  const uniformBuffers = new WeakSet<object>();
+  const markUniform = (target: unknown, buf: unknown): void => {
+    if (target !== UNIFORM_BUFFER || buf === null || typeof buf !== 'object' || uniformBuffers.has(buf)) return;
+    uniformBuffers.add(buf);
+    P.live.uniformBuffers += 1;
+  };
   const glProtos: object[] = [];
   if (typeof WebGL2RenderingContext !== 'undefined') glProtos.push(WebGL2RenderingContext.prototype);
   if (typeof WebGLRenderingContext !== 'undefined') glProtos.push(WebGLRenderingContext.prototype);
@@ -251,12 +261,18 @@ export function installPerfInstrumentation(): void {
       if (!firstDelete(a[0])) return;
       P.live.buffers -= 1;
       ctxAdd(gl, 'webgl', 'buffers', -1);
+      if (uniformBuffers.delete(a[0] as object)) P.live.uniformBuffers -= 1;
       P.bytes.buffers -= bufferBytes.get(a[0] as object) ?? 0;
       bufferBytes.delete(a[0] as object);
     });
     wrap(proto, 'createVertexArray', (gl) => { P.live.vaos += 1; ctxAdd(gl, 'webgl', 'vaos', 1); });
     wrap(proto, 'deleteVertexArray', (gl, a) => { if (firstDelete(a[0])) { P.live.vaos -= 1; ctxAdd(gl, 'webgl', 'vaos', -1); } });
-    wrap(proto, 'bindBuffer', (g, a) => { state(g as object).buffers.set(a[0] as number, (a[1] as object | null) ?? null); });
+    wrap(proto, 'bindBuffer', (g, a) => {
+      state(g as object).buffers.set(a[0] as number, (a[1] as object | null) ?? null);
+      markUniform(a[0], a[1]);
+    });
+    wrap(proto, 'bindBufferBase', (_g, a) => markUniform(a[0], a[2]));
+    wrap(proto, 'bindBufferRange', (_g, a) => markUniform(a[0], a[2]));
     wrap(proto, 'bufferData', (g, a) => {
       const buf = state(g as object).buffers.get(a[0] as number) ?? null;
       if (buf === null) return;
@@ -314,7 +330,14 @@ export function installPerfInstrumentation(): void {
   };
   const device = g['GPUDevice']?.prototype;
   if (device !== undefined) {
-    wrap(device, 'createBuffer', () => undefined, (d, a, r) => track(r, 'buffers', Number((a[0] as { size?: number } | undefined)?.size ?? 0), d));
+    wrap(device, 'createBuffer', () => undefined, (d, a, r) => {
+      const desc = a[0] as { size?: number; usage?: number } | undefined;
+      track(r, 'buffers', Number(desc?.size ?? 0), d);
+      if (r !== null && typeof r === 'object' && ((desc?.usage ?? 0) & GPU_UNIFORM_USAGE) !== 0) {
+        uniformBuffers.add(r);
+        P.live.uniformBuffers += 1;
+      }
+    });
     wrap(device, 'destroy', (d) => {
       const r = ctxRecord(d, 'webgpu');
       if (r !== null) r.destroyed = true;
@@ -330,7 +353,10 @@ export function installPerfInstrumentation(): void {
     wrap(device, 'createRenderPipelineAsync', () => { P.live.pipelines += 1; });
     wrap(device, 'createComputePipelineAsync', () => { P.live.pipelines += 1; });
   }
-  wrap(g['GPUBuffer']?.prototype, 'destroy', (b) => untrack(b));
+  wrap(g['GPUBuffer']?.prototype, 'destroy', (b) => {
+    untrack(b);
+    if (b !== null && typeof b === 'object' && uniformBuffers.delete(b)) P.live.uniformBuffers -= 1;
+  });
   wrap(g['GPUTexture']?.prototype, 'destroy', (t) => untrack(t));
   for (const enc of ['GPURenderPassEncoder', 'GPURenderBundleEncoder']) {
     const proto = g[enc]?.prototype;
