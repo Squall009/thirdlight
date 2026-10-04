@@ -208,3 +208,29 @@ nothing measurable, and uniform buffers are the same in both pages. The rest of 
   - **Frame-rate cap:** games get one they can expose in their settings
     (28c.12), so a fast engine doesn't drain a phone's battery.
   - **Start the phase:** implement it.
+- 2026-10-04, 28c.2 design (render only what is drawn), after reading the adapter, models, pieces,
+  batching, block layers, the animator player, effects and the worker mirror:
+  - **World transforms:** a `WorldMatrices` table in `@thirdlight/runtime` (no three.js): one row per
+    realized entity (index by id, parent id, local TRS, a column-major world matrix in one
+    `Float64Array`), worlds composed parents-first once per frame from the interpolated local
+    transforms. The page's adapter owns one; scripts, sockets and physics already compose worlds in the
+    runtime (`world-transform.ts`, `sockets.ts`), so nothing else reads three.js for a transform.
+  - **Who reads it:** fog volumes, UI anchoring (`projectToScreen`), effects attached to entities and
+    every drawable's placement. Picking, bounds and camera follow in Play are physics/runtime queries
+    already; sockets resolve in the runtime; audio panners read the runtime's transforms.
+  - **Entities without anything to draw** (logic-only, empty markers, triggers) get a table row only,
+    no Object3D. An entity that draws (box, model, instance set, light) or anchors an effect gets one
+    detached node (`EntityNode`, never in the scene): its matrix is the table's world, and what it holds
+    (a box mesh, a light, a model's file hierarchy, an instance set) stays below it as bookkeeping, so
+    material, look, lightmap and animation code keeps walking the same subtrees.
+  - **The scene** (`render-graph.ts`): only drawables are its children — the top-most meshes, instanced
+    meshes, LODs and local lights of each subtree, listed directly (their `.parent` stays the logical
+    one). A static subtree's drawables get `matrixAutoUpdate`/`matrixWorldAutoUpdate` off and a baked
+    offset (the file hierarchy's product up to the entity); their world matrix is entity world × offset.
+    An animated subtree (animator, `modelAnimation` or skinned) is posed in its detached hierarchy after
+    the mixer (bones live there, so they are not in the scene at all); its listed meshes follow it.
+    Block chunks are listed the same way; batches and effects add their meshes as before.
+  - **Hiding** propagates down the entity hierarchy from the table's parents (three's visibility no
+    longer inherits through holders). The drawable→entity map is the node's part list.
+  - **Diagnostics:** Play's renderer block reports the scene's Object3Ds by kind; the target is that
+    containers (groups that are none of drawable, light, bone) are zero outside LOD levels (28c.3).
