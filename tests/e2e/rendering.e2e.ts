@@ -7,6 +7,10 @@
  *    instancing off (`?batching=off`, one draw per object): the export's frames
  *    are compared pixel by pixel. Picking and selection still work on a
  *    batched box (a click on the canvas selects it).
+ *  - Only what is drawn is in three.js: Play's scene holds the drawables and
+ *    lights (no entity holders, empty markers or groups); a third of the field
+ *    moved under a turned, scaled logic-only parent (keeping their places) is
+ *    drawn exactly where it was, so world transforms compose without three.js.
  *  - Render on demand: the idle Scene view draws no frames; a change (a
  *    command from outside) draws again, and the sync touches only the changed
  *    object (`data-sync`: processed 1 of 121+).
@@ -136,19 +140,46 @@ test('repeated boxes are drawn instanced in the Scene view and Play; picking wor
   // The selected box wears the highlighted twin of its material: it leaves its group, the rest stay instanced.
   await expect.poll(async () => (await attr(page, 'data-batches')).split(' ').map(Number)[2] ?? 0, { timeout: 15_000 }).toBeGreaterThanOrEqual(1);
 
+  // A logic-only parent with a box below it, and an empty marker: only the box is drawn in Play.
+  const parent = String((await command('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'holder', transform: { position: [0, 3, 0] } }))['createdId']);
+  await command('createEntity', { sceneId: 'scene-main', parentId: parent, kind: 'box', name: 'held', transform: { position: [0, 1, 0] }, box: { size: [0.5, 0.5, 0.5], material: { color: '#3060c0' } } });
+  await command('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'marker', transform: { position: [5, 0, 5] } });
   // Play: the adapter's diagnostics report the groups and this frame's draw calls.
   const started = page.waitForResponse((r) => r.request().method() === 'POST' && r.url().endsWith('/play'));
   await page.getByTitle('Start an isolated play preview').click();
   const psid = String(((await (await started).json()) as { playSessionId: string }).playSessionId);
   // (A scene without a game block runs without the game relay: the diagnostics relay answers.)
-  type Diag = { batching?: { groups: number; batched: number; single: number }; frame?: { drawCalls: number } };
+  type Diag = {
+    batching?: { groups: number; batched: number; single: number };
+    frame?: { drawCalls: number };
+    sceneGraph?: { objects: number; drawables: number; lights: number; bones: number; lods: number; containers: number; entities: number; listed: number };
+  };
   const diag = async (): Promise<Diag | undefined> => ((await relay(`${psid}/diagnostics`)).json['diagnostics'] as { renderer?: Diag } | undefined)?.renderer;
   await expect.poll(async () => (await diag())?.batching?.batched ?? 0, { timeout: 60_000 }).toBeGreaterThanOrEqual(BOXES - 2);
   const d = (await diag())!;
   console.log(`[rendering] Play: ${JSON.stringify(d.batching)}, ${d.frame?.drawCalls} draw calls`);
   expect(d.frame!.drawCalls).toBeLessThan(BOXES / 3);
+  // The three.js scene holds drawables and lights only: the boxes, the batches, the lights. The empty marker
+  // and the logic-only parent have no Object3D; the boxes' nodes stay outside the scene.
+  const g = d.sceneGraph!;
+  console.log(`[rendering] Play scene graph: ${JSON.stringify(g)}`);
+  expect(g.containers).toBe(0);
+  expect(g.lods).toBe(0);
+  expect(g.objects).toBe(g.drawables + g.lights + g.bones);
+  expect(g.entities).toBeGreaterThanOrEqual(BOXES + 1);
+  expect(g.listed).toBeGreaterThanOrEqual(BOXES + 1);
   await page.getByTitle('Stop the play preview').click();
 });
+
+/** Move every third box of the field under a turned, scaled, logic-only parent (each keeps its place in the world). */
+async function boxesUnderRig(): Promise<void> {
+  const rig = String((await command('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'rig', transform: { position: [3, 1, -2], rotation: [0, Math.SQRT1_2, 0, Math.SQRT1_2], scale: [1.5, 1.5, 1.5] } }))['createdId']);
+  // Pasted entities get new ids: found by name.
+  const listed = (await be.command({ op: 'queryEntities', projectId: be.projectId, args: { limit: 400, offset: 0 } }))['entities'] as { id: string; name: string }[];
+  const ids = listed.filter((e) => /^field \d+$/.test(e.name) && Number(e.name.slice(6)) % 3 === 0).map((e) => e.id);
+  expect(ids.length).toBeGreaterThan(30);
+  await command('moveEntities', { entityIds: ids, parentId: rig });
+}
 
 const MIME: Record<string, string> = { '.html': 'text/html', '.js': 'text/javascript', '.json': 'application/json', '.wasm': 'application/wasm', '.css': 'text/css', '.png': 'image/png' };
 
@@ -179,16 +210,22 @@ test('the export draws the box field instanced and looks the same as without ins
   await command('setComponent', { entityId: 'light-0001', component: 'light', value: { type: 'directional', color: '#ffffff', intensity: 1.2, direction: [0.5, -1, 0.6], castShadow: true } });
   const res = await be.admin(`projects/${be.projectId}/export`);
   expect(res.status, JSON.stringify(res.json)).toBe(200);
+  // The same field with a third of it below a parent: a second export.
+  await boxesUnderRig();
+  const rigged = await be.admin(`projects/${be.projectId}/export`);
+  expect(rigged.status, JSON.stringify(rigged.json)).toBe(200);
+  expect(rigged.json.outputDir).not.toBe(res.json.outputDir);
   await page.close();
   await be.halt();
   const site = await serveDir(join(be.exportRoot, String(res.json.outputDir)));
+  const siteRigged = await serveDir(join(be.exportRoot, String(rigged.json.outputDir)));
   const out = test.info().outputPath();
   mkdirSync(out, { recursive: true });
   try {
-    const frameOf = async (query: string, label: string): Promise<{ png: Buffer; draws: number }> => {
+    const frameOf = async (path: string, label: string): Promise<{ png: Buffer; draws: number }> => {
       const game = await page.context().newPage();
       await game.setViewportSize({ width: 800, height: 450 });
-      await game.goto(`${site.url}${query}`);
+      await game.goto(path);
       const canvas = game.locator('canvas').first();
       await expect.poll(async () => Number((await canvas.getAttribute('data-tl-draws')) ?? 0), { timeout: 60_000 }).toBeGreaterThan(0);
       // Two equal frames in a row: shaders compiled, the shadow map drawn.
@@ -209,8 +246,8 @@ test('the export draws the box field instanced and looks the same as without ins
       await game.close();
       return { png: Buffer.from(last, 'base64'), draws };
     };
-    const batched = await frameOf('', 'batched');
-    const single = await frameOf('?batching=off', 'single');
+    const batched = await frameOf(site.url, 'batched');
+    const single = await frameOf(`${site.url}?batching=off`, 'single');
     console.log(`[rendering] export draw calls: ${batched.draws} instanced, ${single.draws} one per object`);
     expect(single.draws).toBeGreaterThan(BOXES);
     expect(batched.draws * 5).toBeLessThan(single.draws);
@@ -220,8 +257,16 @@ test('the export draws the box field instanced and looks the same as without ins
     if (!within(d, STRICT)) writeFileSync(join(out, 'diff.png'), diffPng(a, b));
     console.log(`[rendering] export instanced vs single: ${show(d, STRICT)}`);
     expect(within(d, STRICT), show(d, STRICT)).toBe(true);
+    // Parents compose in the engine's world table: the parented boxes are drawn where the flat ones were.
+    const parented = await frameOf(siteRigged.url, 'parented');
+    const c = decodePng(parented.png);
+    const dp = diff(a, c, STRICT);
+    if (!within(dp, STRICT)) writeFileSync(join(out, 'diff-parented.png'), diffPng(a, c));
+    console.log(`[rendering] export flat vs parented: ${show(dp, STRICT)}`);
+    expect(within(dp, STRICT), show(dp, STRICT)).toBe(true);
   } finally {
     await site.close();
+    await siteRigged.close();
   }
 });
 

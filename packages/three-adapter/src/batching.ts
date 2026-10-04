@@ -234,10 +234,6 @@ export function createAutoBatcher(scene: THREE.Scene, options: AutoBatcherOption
   const minGroup = Math.max(2, options.minGroup ?? 4);
   const cellSize = options.cellSize ?? 64;
   const detailed = options.detailedTriangles ?? 256;
-  const root = new THREE.Group();
-  root.name = 'tl-batches';
-  root.matrixAutoUpdate = false;
-  scene.add(root);
   const groups = new Map<string, Group>();
   /** Members batched in the last frame (their layers are moved). */
   let batchedNow = new Set<THREE.Mesh>();
@@ -272,7 +268,8 @@ export function createAutoBatcher(scene: THREE.Scene, options: AutoBatcherOption
   };
 
   const visit = (o: THREE.Object3D, camera: THREE.Camera): void => {
-    if (!o.visible || o === root) return;
+    // A batch draws (its members are what is grouped): no container of its own, so the scene holds only drawables.
+    if (!o.visible || o.userData['tlBatch'] === true) return;
     const lod = o as THREE.LOD;
     // The level shown this frame (the renderer would pick the same one later in the frame).
     if (lod.isLOD === true && lod.autoUpdate) lod.update(camera);
@@ -370,7 +367,7 @@ export function createAutoBatcher(scene: THREE.Scene, options: AutoBatcherOption
           created.unlisten = () => material.removeEventListener('dispose', onMaterialDispose);
           g = created;
           groups.set(key, g);
-          root.add(mesh);
+          scene.add(mesh);
           membershipChanged = true;
         }
         g.seen = frame;
@@ -421,7 +418,6 @@ export function createAutoBatcher(scene: THREE.Scene, options: AutoBatcherOption
       if (disposed) return;
       api.setEnabled(false);
       disposed = true;
-      root.removeFromParent();
     },
   };
   return api;

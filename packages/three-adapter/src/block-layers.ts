@@ -84,6 +84,12 @@ export interface BlockLayerViewDeps {
   chunkBuilt?(entityId: string, cx: number, cz: number, group: THREE.Group, layout: string): void;
   /** A chunk with lightmap UVs goes away (rebuilt or removed). */
   chunkDropped?(entityId: string, cx: number, cz: number): void;
+  /**
+   * A chunk was built (`shown`) or is going: a host that draws a flat scene
+   * lists its drawables (the chunk's children, world matrices current) itself
+   * and leaves {@link BlockLayerView.root} out of its scene.
+   */
+  place?(chunk: THREE.Group, shown: boolean): void;
 }
 
 /** A chunk's lightmap target: its meshes with UV1 and the layout they follow. */
@@ -575,6 +581,7 @@ export class BlockLayerView {
     layer.group.add(group);
     group.updateMatrixWorld(true);
     layer.chunks.set(ck, group);
+    this.deps.place?.(group, true);
     if (lightmap !== null) {
       layer.lightmapLayouts.set(ck, lightmap);
       this.deps.chunkBuilt?.(entityId, cx, cz, group, lightmap.layout);
@@ -586,6 +593,7 @@ export class BlockLayerView {
       const [cx, cz] = ck.split(',').map(Number) as [number, number];
       this.deps.chunkDropped?.(entityId, cx, cz);
     }
+    this.deps.place?.(group, false);
     group.traverse((o) => ((o as THREE.Mesh).isMesh === true ? (o as THREE.Mesh).geometry.dispose() : undefined));
     group.removeFromParent();
     layer.chunks.delete(ck);

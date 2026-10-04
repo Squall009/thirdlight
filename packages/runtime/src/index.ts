@@ -244,6 +244,8 @@ export { AnimatorMachine, ANIMATOR_SPEED_LIMITS, MAX_SCRIPT_MORPHS, type Animato
 // Sockets and the rig poser (model nodes posed by an animator pose, as three.js poses them).
 export { MAX_SOCKET_ATTACHMENTS, SocketSystem, type SocketAttachment, type SocketHost } from './sockets';
 export { RigPoser, composeMat4, decomposeMat4, invertMat4, mat4, mulMat4, sampleChannel, type Mat4 } from './rig-pose';
+// Every realized entity's world matrix in flat arrays (the renderer places its drawables from them).
+export { WorldMatrices } from './world-matrices';
 export type { BehaviorSockets } from './types';
 // The rig reader (hosts and the editor read the node names the game resolves sockets on).
 export { readModelRig, rigNodeNames, type ModelRig } from '@thirdlight/project-model';

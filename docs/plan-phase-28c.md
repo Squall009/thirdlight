@@ -150,7 +150,8 @@ will show it if they do).
 |---|---|
 | 28c.0 | done 2026-10-04 — three.js `0.186.1` is pinned and is the latest on npm (no update) |
 | 28c.1 | done 2026-10-04 — `tools/perf/run.mjs village` (class, export vs plain page, GPU passes, package split, `--ablation`), `tools/perf/games.sh`; the fast gate checks the class's frame time (+10 %, ~40 s, GPU hosts only). Before numbers below. |
-| 28c.2–28c.13 | — |
+| 28c.2 | done 2026-10-04 — only drawables in the scene (`render-graph.ts`, world matrices in the runtime's `WorldMatrices`); class 9,725 → 5,066 Object3Ds (groups 2,605 → 166, bones 440 → 0; the rest is LOD, 28c.3), main thread 14.5 → 10.2 ms, mean 58 → 62 fps (p50 still 17.9 ms: the worker wait, 28c.6); Skyforge copy 8,629 → 5,311, main thread 13.8 → 12.3 ms, Sprout opens; pixels vs before: WebGPU mean 0.01, WebGL 2 mean 0.35 (0.44 % > 32, near the fires, unverified why). Baseline re-recorded. |
+| 28c.3–28c.13 | — |
 
 Before (2026-10-04, `1c24eb23`, Skyforge village copy, Iris Xe, 1080p, DPR 1):
 
@@ -211,26 +212,19 @@ nothing measurable, and uniform buffers are the same in both pages. The rest of 
 - 2026-10-04, 28c.2 design (render only what is drawn), after reading the adapter, models, pieces,
   batching, block layers, the animator player, effects and the worker mirror:
   - **World transforms:** a `WorldMatrices` table in `@thirdlight/runtime` (no three.js): one row per
-    realized entity (index by id, parent id, local TRS, a column-major world matrix in one
-    `Float64Array`), worlds composed parents-first once per frame from the interpolated local
-    transforms. The page's adapter owns one; scripts, sockets and physics already compose worlds in the
-    runtime (`world-transform.ts`, `sockets.ts`), so nothing else reads three.js for a transform.
-  - **Who reads it:** fog volumes, UI anchoring (`projectToScreen`), effects attached to entities and
-    every drawable's placement. Picking, bounds and camera follow in Play are physics/runtime queries
-    already; sockets resolve in the runtime; audio panners read the runtime's transforms.
-  - **Entities without anything to draw** (logic-only, empty markers, triggers) get a table row only,
-    no Object3D. An entity that draws (box, model, instance set, light) or anchors an effect gets one
-    detached node (`EntityNode`, never in the scene): its matrix is the table's world, and what it holds
-    (a box mesh, a light, a model's file hierarchy, an instance set) stays below it as bookkeeping, so
-    material, look, lightmap and animation code keeps walking the same subtrees.
-  - **The scene** (`render-graph.ts`): only drawables are its children — the top-most meshes, instanced
-    meshes, LODs and local lights of each subtree, listed directly (their `.parent` stays the logical
-    one). A static subtree's drawables get `matrixAutoUpdate`/`matrixWorldAutoUpdate` off and a baked
-    offset (the file hierarchy's product up to the entity); their world matrix is entity world × offset.
-    An animated subtree (animator, `modelAnimation` or skinned) is posed in its detached hierarchy after
-    the mixer (bones live there, so they are not in the scene at all); its listed meshes follow it.
-    Block chunks are listed the same way; batches and effects add their meshes as before.
-  - **Hiding** propagates down the entity hierarchy from the table's parents (three's visibility no
-    longer inherits through holders). The drawable→entity map is the node's part list.
-  - **Diagnostics:** Play's renderer block reports the scene's Object3Ds by kind; the target is that
-    containers (groups that are none of drawable, light, bone) are zero outside LOD levels (28c.3).
+    realized entity (parent id, local TRS, a column-major world matrix in one `Float64Array`), composed
+    parents-first once per frame from the interpolated transforms. Scripts, sockets and physics already
+    compose worlds in the runtime (`world-transform.ts`, `sockets.ts`); picking, bounds and camera
+    follow in Play are runtime queries; fog volumes, UI anchoring and effect anchors read the table.
+  - **Entities that draw nothing** (logic-only, markers, triggers) get a table row and no Object3D. One
+    that draws (box, model, instance set, light) or anchors an effect gets a detached `EntityNode`
+    (never in the scene, matrix = its world); what it shows hangs below it as bookkeeping, so material,
+    look, lightmap and animation code keeps walking the same subtrees.
+  - **The scene** (`render-graph.ts`) lists only the top-most drawables of those subtrees (meshes,
+    instanced meshes, LODs, local lights; their `.parent` stays the logical one). Static subtrees: matrix
+    updates off, the file hierarchy baked into an offset, world = entity world × offset. Animated ones
+    (animator, `modelAnimation`, skinned): posed in their detached hierarchy after the mixer, so bones
+    are not in the scene at all. Block chunks, batches and effects add their meshes directly.
+  - **Hiding** propagates down the table's parents; the drawable→entity map is the node's part list.
+  - **Diagnostics:** Play's renderer block reports the scene's Object3Ds by kind (`sceneGraph`);
+    `containers` (none of drawable, light, bone, LOD level) is the number that must be zero.

@@ -18,6 +18,7 @@ import type { GlbLoaderPort } from './visual';
 import type { ShadowReason } from './lighting';
 import type { EffectDefLike, EffectsDiagnostics, EffectsPlayerOptions } from './effects-player';
 import type { AutoBatcherDiagnostics } from './batching';
+import type { SceneGraphCounts } from './render-graph';
 import type { TextureStreamer, TextureStreamingObservation } from './texture-streaming';
 import type { RendererFactoryDeps, RendererInfo, RendererMemoryCounts, RendererPreference, RendererPreferenceSource } from './renderer-factory';
 
@@ -239,6 +240,11 @@ export interface SceneAdapterDiagnostics {
   textures?: TextureStreamingObservation;
   /** Draw calls and triangles of the last frame (three's renderer info); ABSENT until a frame was drawn. */
   frame?: { drawCalls: number; triangles: number };
+  /**
+   * The three.js scene's Object3Ds by kind (only drawables, lights and their targets belong there; `containers`
+   * counts the rest) and the entity nodes kept outside it; ABSENT after dispose.
+   */
+  sceneGraph?: SceneGraphCounts;
   /**
    * The environment renderer — its post passes drawn (in order; `post` false: none), the quality level, the
    * MSAA samples, why it fell back to the direct path (null: it did not), and the image-based lighting re-bakes

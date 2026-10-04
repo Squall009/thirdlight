@@ -46,7 +46,7 @@ import { blendEnvironment, blendEnvironmentOver, blendLight, blendTouchesLights,
 import { adapterError, type AdapterError } from './errors';
 import { createFrameCapture, type ScreenshotResult } from './capture';
 export type { ScreenshotResult } from './capture';
-import { applyTransformToObject3D, type AdapterQuat, type AdapterVec3 } from './sync';
+import { EntityNode, RenderGraph } from './render-graph';
 import {
   createModelsRealization,
   type InstanceSetRef,
@@ -184,6 +184,8 @@ function modelRefsOf(entities: readonly { id: string; components: unknown }[]): 
   return { models, pieces, animations, instances };
 }
 
+const NO_HIDDEN: ReadonlySet<string> = new Set();
+
 /** What a particle material holder wears until the project material library dresses it. */
 const EFFECT_MATERIAL_PLACEHOLDER = new THREE.MeshBasicMaterial();
 /** The effect models' holder in the resource manager (one effect player per page). */
@@ -235,8 +237,10 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
         )
       : null;
   lightmapsLive = lightmaps;
-  /** Entities the runtime hides (`ctx.game.setVisible`, a collected collectible). */
-  const hiddenIds = new Set<string>();
+  /** Entities the runtime hides (`ctx.game.setVisible`, a collected collectible), with their children. */
+  let hiddenIds: ReadonlySet<string> = NO_HIDDEN;
+  /** The hidden set last derived from (the runtime hands out the same set while nothing changes). */
+  let hiddenSeen: { set: ReadonlySet<string> | null; size: number; revision: number } = { set: null, size: 0, revision: -1 };
   /** The animator poses the runtime committed, played on the models. */
   const animatorPlayers = new Map<string, { instance: unknown; player: AnimatorPlayer }>();
   const applyAnimatorPoses = (): void => {
@@ -300,18 +304,16 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     return environmentHasLook(v) ? v : null;
   };
   const fogVolumeIds = new Set<string>();
-  const tmpWorld = new THREE.Vector3();
+  const tmpWorld: number[] = [0, 0, 0];
   const tmpSize = new THREE.Vector2();
   /** The fog volumes of the loaded scenes, in world space (entities may move). */
   const fogVolumesNow = (): FogVolumeLike[] => {
     const out: FogVolumeLike[] = [];
     for (const id of fogVolumeIds) {
-      const obj = objects.get(id);
       const doc = entityDocs.get(id) as { components: { fogVolume?: { size: [number, number, number]; density: number; color: string; falloff?: number; heightFalloff?: number } } } | undefined;
       const fv = doc?.components.fogVolume;
-      if (obj === undefined || fv === undefined || !obj.visible) continue;
-      obj.getWorldPosition(tmpWorld);
-      out.push({ center: [tmpWorld.x, tmpWorld.y, tmpWorld.z], size: fv.size, density: fv.density, color: fv.color, ...(fv.falloff !== undefined ? { falloff: fv.falloff } : {}), ...(fv.heightFalloff !== undefined ? { heightFalloff: fv.heightFalloff } : {}) });
+      if (fv === undefined || graph.isHidden(id) || !graph.world.position(id, tmpWorld)) continue;
+      out.push({ center: [tmpWorld[0]!, tmpWorld[1]!, tmpWorld[2]!], size: fv.size, density: fv.density, color: fv.color, ...(fv.falloff !== undefined ? { falloff: fv.falloff } : {}), ...(fv.heightFalloff !== undefined ? { heightFalloff: fv.heightFalloff } : {}) });
     }
     return out;
   };
@@ -371,19 +373,19 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     return null;
   };
   const clockStart = typeof performance !== 'undefined' ? performance.now() : 0;
-  const objects = new Map<string, THREE.Object3D>();
-  /** Which entity an object is (a release stops at other entities' objects parented below). */
-  const ownerOf = new WeakMap<THREE.Object3D, string>();
-  /** One object's own meshes (its child objects' are theirs). */
+  /**
+   * The entities' world matrices, and the scene as a flat list of drawables
+   * (render-graph.ts): an entity that shows something has a node outside the
+   * scene that holds what it shows; one that shows nothing has no Object3D.
+   */
+  const graph = new RenderGraph(scene, (entityId) => {
+    const c = entityDocs.get(entityId)?.components as { animator?: unknown; modelAnimation?: unknown } | undefined;
+    return c?.animator !== undefined || c?.modelAnimation !== undefined;
+  });
+  /** One object's own meshes (its child objects have nodes of their own). */
   const ownMeshes = (entityId: string): THREE.Object3D[] => {
-    const root = objects.get(entityId);
     const out: THREE.Object3D[] = [];
-    const visit = (o: THREE.Object3D): void => {
-      if (o !== root && ownerOf.get(o) !== undefined) return;
-      if ((o as THREE.Mesh).isMesh === true) out.push(o);
-      for (const c of o.children) visit(c);
-    };
-    if (root !== undefined) visit(root);
+    graph.node(entityId)?.traverse((o) => void ((o as THREE.Mesh).isMesh === true && out.push(o)));
     return out;
   };
   if (materialLibrary !== null) runtimeMaterials = new RuntimeMaterialView(materialLibrary, ownMeshes);
@@ -435,10 +437,9 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   /** The last drawn frame's counts. */
   const lastFrameCounts = { drawCalls: 0, triangles: 0 };
   const gpuTiming = createGpuTiming();
-  /** The transform sync for `forEachInterpolated` (one function for the adapter's life). */
+  /** The transform sync for `forEachInterpolated` (one function for the adapter's life): into the world table. */
   const applyInterpolated = (id: string, position: readonly number[], rotation: readonly number[], scale: readonly number[]): void => {
-    const obj = objects.get(id);
-    if (obj) applyTransformToObject3D(obj, position as AdapterVec3, rotation as AdapterQuat, scale as AdapterVec3);
+    graph.world.setLocal(id, position, rotation, scale);
   };
   const owned: OwnedResources = { geometries: [], materials: [], renderer: null };
   const reportedViewport: [number, number] = [0, 0];
@@ -496,6 +497,8 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       light.position.set(planned.position[0], planned.position[1], planned.position[2]);
       light.target.position.set(planned.target[0], planned.target[1], planned.target[2]);
     }
+    // The target is not in the scene (it draws nothing): its world matrix is kept here and by the shadow follow.
+    light.target.updateMatrixWorld();
     if (outcome.ok && outcome.shadows === 'on' && !shadowsUnsupported) {
       // The shadow-camera parameters are set now; the shadow map is
       // allocated only by the first-render probe (rule 5).
@@ -596,13 +599,23 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     lightmapped: (id) => lightmaps?.hasChunks(id) === true,
     chunkBuilt: (id, cx, cz, group, layout) => lightmaps?.applyChunk(id, cx, cz, layout, group),
     chunkDropped: (id, cx, cz) => lightmaps?.releaseChunk(id, cx, cz),
+    // The chunks' drawables join the scene on their own (the view's layer and chunk groups stay outside it).
+    place: (chunk, shown) => {
+      for (const o of chunk.children) {
+        if (shown) graph.listStatic(o);
+        else graph.unlistStatic(o);
+      }
+    },
   });
   const authoredBlockTypes = ((opts.snapshot as { blockTypes?: readonly BlockType[] }).blockTypes ?? []) as BlockType[];
   blockView.setTypes(authoredBlockTypes);
-  scene.add(blockView.root);
   const realizeEntity = (e: (typeof opts.snapshot.scene.entities)[number]): void => {
     const t = e.components.transform;
-    let obj: THREE.Object3D;
+    graph.addEntity(e.id, e.parentId ?? null);
+    graph.world.setLocal(e.id, t.position, t.rotation, t.scale);
+    entityDocs.set(e.id, e);
+    // Only an entity that shows something (or anchors an effect) gets a node, when it does; the rest is the table row.
+    let boxMesh: THREE.Mesh | null = null;
     const own: { geometries: THREE.BufferGeometry[]; materials: THREE.Material[]; shared?: THREE.Material } = { geometries: [], materials: [] };
     const box = e.components.box;
     if (box) {
@@ -623,13 +636,13 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       const material = sharedBoxMaterial(surface, box.material.color);
       own.geometries.push(geometry);
       own.shared = material;
-      obj = new THREE.Mesh(geometry, material);
+      boxMesh = new THREE.Mesh(geometry, material);
       // Drawn through the one unit box scaled by the size when batched.
-      obj.userData[BATCH_KEY] = { geometry: unitBox, scale: [box.size[0], box.size[1], box.size[2]] };
+      boxMesh.userData[BATCH_KEY] = { geometry: unitBox, scale: [box.size[0], box.size[1], box.size[2]] };
       // Boxes cast and receive the key light's shadow (data: box.castShadow / receiveShadow).
-      applyShadowFlags(obj, shadowFlagsOf(e.components));
+      applyShadowFlags(boxMesh, shadowFlagsOf(e.components));
+      graph.nodeFor(e.id)!.add(boxMesh);
     } else {
-      obj = new THREE.Group();
       const local = localLightOf(e);
       if (local !== null) {
         // Environment presets may set its colour, intensity, direction and ground colour.
@@ -645,8 +658,11 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
         envLightsRevision += 1;
         // A hemisphere light's sky is up (+Y) whatever its entity's transform (as the Scene view and the bake take it): it hangs off the scene.
         if (l.type === 'hemisphere') scene.add(local);
-        else obj.add(local);
-        if (local instanceof THREE.SpotLight) obj.add(local.target);
+        else {
+          // The cone's target rides on the light (both at the entity's origin and turn), so it is placed with it.
+          if (local instanceof THREE.SpotLight) local.add(local.target);
+          graph.nodeFor(e.id)!.add(local);
+        }
         if ((local as THREE.PointLight).castShadow === true) localShadowLights += 1;
         switchable.set(e.id, { kind: l.type as SceneLightKind, light: local });
       } else if (isV3) {
@@ -665,7 +681,6 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
           } else {
             const rec = directionalLightOf(e.id, l);
             scene.add(rec.light);
-            scene.add(rec.light.target);
             directionals.set(e.id, rec);
             switchable.set(e.id, { kind: 'directional', light: rec.light });
             // Environment presets may set its colour, intensity and direction.
@@ -676,26 +691,21 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
         }
       }
     }
-    objects.set(e.id, obj);
-    ownerOf.set(obj, e.id);
     // A block layer (its cells ride on the resolved component).
     const layer = (e.components as { blockLayer?: BlockLayerComponent & { data?: BlockLayerData } }).blockLayer;
     if (layer !== undefined) blockView.setLayer(e.id, layer, t.position, layer.data ?? null);
     if ((e.components as { fogVolume?: unknown }).fogVolume !== undefined) fogVolumeIds.add(e.id);
+    const node = graph.node(e.id);
     const boxMaterials = effectiveMaterials(e.id, (e.components as { materials?: Record<string, string> }).materials);
     // With the object's values for its graph materials' public parameters.
-    if (box && materialLibrary !== null && boxMaterials !== undefined) materialUndo.set(e.id, materialLibrary.apply(obj, boxMaterials, materialParamsOf(e.components)));
-    if (box) lightmaps?.apply(e.id, obj);
-    entityDocs.set(e.id, e);
+    if (boxMesh !== null && node !== undefined && materialLibrary !== null && boxMaterials !== undefined) materialUndo.set(e.id, materialLibrary.apply(node, boxMaterials, materialParamsOf(e.components)));
+    if (boxMesh !== null && node !== undefined) lightmaps?.apply(e.id, node);
     if (own.geometries.length > 0) entityResources.set(e.id, own);
-    const parent = e.parentId ? objects.get(e.parentId) : undefined;
-    (parent ?? scene).add(obj);
-    applyTransformToObject3D(obj, t.position, t.rotation, t.scale);
     // An effect component plays from the object (on start unless it waits for a signal or a script).
     const fx = (e.components as { effect?: EffectComponentLike }).effect;
     if (effects !== null && fx !== undefined) {
       effectEntities.add(e.id);
-      effects.attach(e.id, obj, fx, fx.playOnStart !== false);
+      effects.attach(e.id, graph.nodeFor(e.id)!, fx, fx.playOnStart !== false);
     }
   };
   const releaseEntity = (id: string): void => {
@@ -705,7 +715,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       effects.detach(id);
       effectEntities.delete(id);
     }
-    const obj = objects.get(id);
+    const obj = graph.node(id);
     // Per-object looks first (a look override's own copies), then the shared paths undo.
     if (obj !== undefined) releaseEmissiveLooks(obj);
     lightmaps?.release(id);
@@ -733,17 +743,16 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     materialUndo.get(id)?.();
     materialUndo.delete(id);
     materialSwaps?.removed(id);
-    obj?.removeFromParent();
+    // Its drawables leave the scene first (the node's tree is all its own: children have nodes of their own).
+    graph.removeEntity(id);
     if (obj !== undefined) {
       obj.traverse((o) => {
         if ((o instanceof THREE.PointLight || o instanceof THREE.SpotLight) && o.castShadow) localShadowLights = Math.max(0, localShadowLights - 1);
       });
       // Its render objects (a material that outlives it — a project material, a shared box
-      // material — would keep them), a light's shadow map; other entities' objects below it are theirs.
-      disposeObjectTree(obj, { skip: (o) => o !== obj && ownerOf.get(o) !== undefined });
+      // material — would keep them) and a light's shadow map.
+      disposeObjectTree(obj);
     }
-    objects.delete(id);
-    if (obj !== undefined) ownerOf.delete(obj);
     entityDocs.delete(id);
     const own = entityResources.get(id);
     if (own !== undefined) {
@@ -758,7 +767,6 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   // property, updated per frame from the canvas size.
   camera = new THREE.PerspectiveCamera(60, 1, 0.1, 100);
   camera.position.set(startCamera[0], startCamera[1], startCamera[2]);
-  scene.add(camera);
   // Realized lights. v1/v2 scenes: the accepted fixed pair. v3/v4 scenes:
   // the light entities' own lights (realizeEntity), switched on and off per
   // loaded scene (`selectLights` below).
@@ -773,7 +781,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   }
 
   // --- The model realization ------------
-  // The holders (the `objects` map entries) exist now; the prepared
+  // The entity nodes are made on demand (`holderFor`); the prepared
   // ModelInstance roots attach as their children. The realization is
   // created lazily when `models` is present (absent ⇒ no model path at
   // all, byte-stable). Fail-fast config
@@ -822,7 +830,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       entityMaterials: (entityId: string) => effectiveMaterials(entityId, (entityDocs.get(entityId)?.components as { materials?: Record<string, string> } | undefined)?.materials) ?? null,
       entityMaterialParams: (entityId: string) => materialParamsOf(entityDocs.get(entityId)?.components),
       ...(opts.snapshot.scenes !== undefined ? { allowAbsent: true } : {}),
-      holderFor: (entityId: string) => objects.get(entityId) ?? null,
+      holderFor: (entityId: string) => graph.nodeFor(entityId) ?? null,
       viewFor,
       onAttached: (entityId: string, root: THREE.Object3D) => {
         // Models and instance sets cast and receive the key light's shadow (their data).
@@ -864,7 +872,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       ...(materialLibrary.preloadTextures !== undefined ? { preload: (ids: readonly string[]) => materialLibrary.preloadTextures!(ids) } : {}),
       applyEntity: (entityId) => {
         const e = entityDocs.get(entityId);
-        const obj = objects.get(entityId);
+        const obj = graph.node(entityId);
         if (e === undefined || obj === undefined || disposed) return;
         // The lightmapped copies are of the materials worn before: taken off, then made again over the new ones.
         lightmaps?.release(entityId);
@@ -1028,12 +1036,12 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     if (looks === undefined || (looks.size === 0 && shownLooks.size === 0)) return;
     for (const id of [...shownLooks.keys()]) {
       if (looks.has(id)) continue;
-      const obj = objects.get(id);
+      const obj = graph.node(id);
       if (obj !== undefined) setEntityLook(obj, null);
       shownLooks.delete(id);
     }
     for (const [id, look] of looks) {
-      const obj = objects.get(id);
+      const obj = graph.node(id);
       if (obj === undefined) continue;
       const shown = shownLooks.get(id);
       const meshes = meshCount(obj);
@@ -1155,7 +1163,6 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       for (const id of gone.reverse()) {
         releaseEntity(id);
         realizedSpawned.delete(id);
-        hiddenIds.delete(id);
         shownLooks.delete(id);
       }
     }
@@ -1429,33 +1436,23 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
         };
       }
       syncSceneSet();
-      // Transform synchronization: copy the interpolated values into the
-      // Object3Ds (no other transform math).
-      for (const tr of st.state.transforms) {
-        const obj = objects.get(tr.id);
-        if (obj) applyTransformToObject3D(obj, tr.position as AdapterVec3, tr.rotation as AdapterQuat, tr.scale as AdapterVec3);
-      }
+      // Transform synchronization: the interpolated values into the world table.
+      for (const tr of st.state.transforms) graph.world.setLocal(tr.id, tr.position, tr.rotation, tr.scale);
     }
+    // The world matrices, and every static drawable placed by its entity's.
+    graph.update();
     applyResolvedCamera();
     syncEntityLooks();
     // The objects the simulation hides disappear (and come back on a restart).
     const hiddenNow = (opts.runtime as { hiddenEntities?: () => ReadonlySet<string> }).hiddenEntities?.();
-    if (hiddenNow !== undefined) {
+    // Hidden with its children: derived again when the set or the entities change.
+    const hiddenOwn = hiddenNow ?? NO_HIDDEN;
+    if (hiddenOwn !== hiddenSeen.set || hiddenOwn.size !== hiddenSeen.size || graph.revision !== hiddenSeen.revision) {
+      hiddenSeen = { set: hiddenOwn, size: hiddenOwn.size, revision: graph.revision };
+      const before = hiddenIds;
+      hiddenIds = graph.setHidden(hiddenOwn);
       let lightsTouched = false;
-      for (const id of hiddenIds) {
-        if (hiddenNow.has(id)) continue;
-        const obj = objects.get(id);
-        if (obj !== undefined) obj.visible = true;
-        hiddenIds.delete(id);
-        if (switchable.has(id)) lightsTouched = true;
-      }
-      for (const id of hiddenNow) {
-        if (hiddenIds.has(id)) continue;
-        const obj = objects.get(id);
-        if (obj !== undefined) obj.visible = false;
-        hiddenIds.add(id);
-        if (switchable.has(id)) lightsTouched = true;
-      }
+      for (const id of switchable.keys()) if (before.has(id) !== hiddenIds.has(id)) lightsTouched = true;
       // A light object hidden or switched off (or back) changes which lights are on.
       if (lightsTouched) {
         selectLights();
@@ -1464,7 +1461,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     }
     // The effect requests of the steps since the last frame (presentation only), then the effects step.
     if (effects !== null) {
-      for (const req of (opts.runtime as { takeEffectRequests?: () => EffectRequestLike[] }).takeEffectRequests?.() ?? []) effects.request(req, (id) => objects.get(id));
+      for (const req of (opts.runtime as { takeEffectRequests?: () => EffectRequestLike[] }).takeEffectRequests?.() ?? []) effects.request(req, (id) => graph.nodeFor(id));
       for (const id of effectEntities) effects.setAttachedActive(id, !hiddenIds.has(id));
       const perf = globalThis.performance;
       const now = perf !== undefined ? perf.now() : 0;
@@ -1516,6 +1513,8 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       realization.update(delta);
       applyAnimatorPoses();
     }
+    // The animated hierarchies posed as the mixers left them (their bones and drawables follow).
+    graph.poseAnimated();
     const renderer = live;
     if (followShadow) followCameraShadow();
     // The follow shadow and the size first — the shadow probe below is a
@@ -1737,6 +1736,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     if (environmentRenderer !== null && !disposed) d.environment = environmentRenderer.diagnostics();
     if (opts.textureStreamer !== undefined && !disposed) d.textures = opts.textureStreamer.observe();
     if (liveRenderer !== null && lastFrameDrawn) d.frame = { drawCalls: lastFrameCounts.drawCalls, triangles: lastFrameCounts.triangles };
+    if (!disposed) d.sceneGraph = graph.counts();
     return {
       ok: true,
       diagnostics: d,
@@ -1813,13 +1813,14 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     owned.geometries = [];
     owned.materials = [];
     owned.renderer = null;
+    graph.dispose();
     scene.clear();
-    objects.clear();
     camera = null;
     return { ok: true };
   }
 
   const projectScratch = new THREE.Vector3();
+  const projectWorld: number[] = [0, 0, 0];
   const projectScratch2 = new THREE.Vector3();
   const api: SceneAdapter = {
     renderFrame,
@@ -1846,9 +1847,8 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       if (disposed || camera === null) return false;
       const p = projectScratch;
       if (typeof target.entityId === 'string') {
-        const obj = objects.get(target.entityId);
-        if (obj === undefined) return false;
-        obj.getWorldPosition(p);
+        if (!graph.world.position(target.entityId, projectWorld)) return false;
+        p.set(projectWorld[0]!, projectWorld[1]!, projectWorld[2]!);
       } else if (target.point !== undefined && target.point.length === 3) p.set(target.point[0]!, target.point[1]!, target.point[2]!);
       else return false;
       if (target.offset !== undefined && target.offset.length === 3) p.set(p.x + target.offset[0]!, p.y + target.offset[1]!, p.z + target.offset[2]!);

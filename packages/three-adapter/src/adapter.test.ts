@@ -84,9 +84,13 @@ describe('scene adapter surface (Node unit/mock-level)', () => {
       'pixelRatio',
       'renderBackend',
       'rendererInfo',
+      // The scene's Object3Ds by kind: only drawables and lights are in it.
+      'sceneGraph',
       'shadowReason',
       'shadows',
     ]);
+    expect(d.sceneGraph!.containers).toBe(0);
+    expect(d.sceneGraph!.objects).toBe(d.sceneGraph!.drawables + d.sceneGraph!.lights + d.sceneGraph!.bones);
     expect(d.renderBackend).toBeNull(); // no successful render yet (non-browser absent value)
     expect(d.rendererInfo).toBeNull();
     expect(d.canvasSize).toEqual([640, 480]);
