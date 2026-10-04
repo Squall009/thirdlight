@@ -49,6 +49,7 @@ has looked at it where it is visual/audible.
 | 33 | Occlusion culling: GPU Hi-Z culling with indirect draws on WebGPU, occlusion queries on WebGL 2, occluders from static objects, terrain and optional `_OCC` nodes | — | on the roadmap 2026-09-29; plan not written |
 | — | Found in the owner's first real run | D32 | fixed 2026-09-23 — digests fall back to pure SHA-256 outside secure contexts; the editor no longer hashes uploads (the backend's digest is used). `tests/e2e/insecure-context.e2e.ts` plays without WebCrypto and runs an export served on the LAN address |
 | — | Debt, only when touching the files anyway | D21 | ongoing |
+| — | Engine audit and keep-or-leave verdict (owner request) | D151–D159 | 2026-10-04 — `docs/verdict-2026-10-04.md`: keep, but a stabilization month first (formats frozen, games in CI, render overhead: 55 vs 110–150 fps in bare three.js, owner builds a level by hand), then a go/no-go; phases 28b onward wait for the owner's decision |
 
 ## Notes
 
