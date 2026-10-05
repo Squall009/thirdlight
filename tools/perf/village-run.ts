@@ -22,7 +22,8 @@
  *                                run (one optimization switched off at a time: each one's share of the frame)
  *   --vsync                      draw at the display's rate (a player's browser) instead of uncapped: frame drops
  *                                show as intervals of two refreshes or more
- *   --gate                       the fast gate's check: frames only (no GPU passes, profile or plain page)
+ *   --gate                       the fast gate's check: frames only (no GPU passes or profile); the plain page is
+ *                                measured too and the class's frame reported against it (`plainPageRows`), not gated
  *   --check FILE                 compare the export's frame time with a recorded baseline: exit 1 when the median (the
  *                                mean, for a baseline without one) is worse than FRAME_REGRESSION or the p95 than
  *                                FRAME_P95_REGRESSION (fractions) on any renderer
@@ -140,6 +141,33 @@ export interface AblationRow {
   usPerDraw: number;
 }
 
+/** The class against the plain page of the same content, per renderer (median frame time; lower is faster). */
+export interface PlainPageRow {
+  readonly renderer: FrameRenderer;
+  readonly classP50Ms: number;
+  readonly plainP50Ms: number;
+  readonly classFps: number;
+  readonly plainFps: number;
+  /** Percent the class's median frame is shorter than the plain page's (negative: the plain page is faster). */
+  readonly aheadPercent: number;
+}
+
+/**
+ * The done-bar of the performance phase as a number: the class's export
+ * against the plain three.js page drawing the same content, measured the
+ * same way. Reported by the fast gate's perf check, never failing it
+ * (whether it should is the owner's call).
+ */
+export function plainPageRows(report: Pick<VillageReport, 'export' | 'bare'>): PlainPageRow[] {
+  const out: PlainPageRow[] = [];
+  for (const [renderer, c] of Object.entries(report.export) as [FrameRenderer, FrameRunResult | undefined][]) {
+    const p = report.bare.bare?.[renderer];
+    if (c === undefined || p === undefined) continue;
+    out.push({ renderer, classP50Ms: c.frames.p50, plainP50Ms: p.frames.p50, classFps: c.frames.fps, plainFps: p.frames.fps, aheadPercent: Math.round(((p.frames.p50 - c.frames.p50) / p.frames.p50) * 1000) / 10 });
+  }
+  return out;
+}
+
 /** Each ablation step's cost against the plain page: frame time added, and per draw. */
 export function ablationRows(report: Pick<VillageReport, 'bare'>): AblationRow[] {
   const rows: AblationRow[] = [];
@@ -190,7 +218,7 @@ export async function runVillageCli(argv: readonly string[]): Promise<void> {
   const steps = JSON.parse(get('steps') ?? '[]') as PageStep[];
   const sceneView = !gate && has('scene-view');
   const exporting = !has('no-export');
-  const bare = !gate && exporting && !has('no-bare');
+  const bare = exporting && !has('no-bare');
   const ablation = !gate && has('ablation');
   const query = get('query') !== undefined ? `&${get('query')}` : '';
   const switches = gate ? [] : (get('switches') ?? '').split(',').filter((x) => x !== '');
@@ -345,6 +373,7 @@ export async function runVillageCli(argv: readonly string[]): Promise<void> {
     }
     if (bad.length > 0 || base.version !== VILLAGE_VERSION) process.exitCode = 1;
   }
+  for (const row of plainPageRows(report)) log(`village: plain page ${row.renderer}: class p50 ${row.classP50Ms} ms (${row.classFps} fps) vs plain three.js ${row.plainP50Ms} ms (${row.plainFps} fps): class ${row.aheadPercent >= 0 ? `${row.aheadPercent} % ahead` : `${-row.aheadPercent} % behind`} (reported, not gated)`);
   for (const e of report.errors) log(`village: error: ${e}`);
 }
 

@@ -264,6 +264,8 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
         rec = { instance: found.instance, player: createAnimatorPlayer(found.instance.root, found.instance.animationClips(), rig, { clipsOf: (clipAssetId) => r.clipsOf(clipAssetId, rig, id) }) };
         animatorPlayers.set(id, rec);
       }
+      // Poses for an object taken in as static (its animator came later): posed from now on, not baked.
+      graph.ensureAnimated(id);
       rec.player.apply(pose);
     }
   };

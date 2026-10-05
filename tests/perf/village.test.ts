@@ -13,11 +13,23 @@ import { build } from 'esbuild';
 import { moduleIndex, packageOf, sourceAt, sourceMapIndex } from '../../tools/perf/profile';
 import { propGlb, figureGlb } from '../../tools/perf/village-assets';
 import { villagePlan, VILLAGE_SPEC } from '../../tools/perf/village';
-import { ablationRows, frameRegressions, FRAME_P95_REGRESSION, FRAME_REGRESSION, type FrameBaseline, type VillageReport } from '../../tools/perf/village-run';
+import { ablationRows, frameRegressions, FRAME_P95_REGRESSION, FRAME_REGRESSION, plainPageRows, type FrameBaseline, type VillageReport } from '../../tools/perf/village-run';
 import type { FrameRunResult } from '../../tools/perf/frame-run';
 
 const run = (mean: number, draws = 500, p95 = mean): FrameRunResult =>
   ({ frames: { n: 100, fps: 1000 / mean, p50: mean, p95, p99: p95, mean }, draws: { n: 100, p50: draws, p95: draws, p99: draws, max: draws, mean: draws }, gpu: null }) as unknown as FrameRunResult;
+
+describe('the class against the plain three.js page (reported by the perf check, not gated)', () => {
+  it('reports per renderer how far the class is ahead of (or behind) the plain page by median frame time', () => {
+    const rows = plainPageRows({ export: { webgpu: run(6), webgl2: run(5) }, bare: { bare: { webgpu: run(6.5), webgl2: run(4) } } } as unknown as Pick<VillageReport, 'export' | 'bare'>);
+    expect(rows).toEqual([
+      expect.objectContaining({ renderer: 'webgpu', classP50Ms: 6, plainP50Ms: 6.5, aheadPercent: 7.7 }),
+      expect.objectContaining({ renderer: 'webgl2', classP50Ms: 5, plainP50Ms: 4, aheadPercent: -25 }),
+    ]);
+    // No plain page measured (no dump): nothing to report.
+    expect(plainPageRows({ export: { webgpu: run(6) }, bare: {} } as unknown as Pick<VillageReport, 'export' | 'bare'>)).toEqual([]);
+  });
+});
 
 describe('the village class', () => {
   it('is the same plan every time, with the class shape', () => {

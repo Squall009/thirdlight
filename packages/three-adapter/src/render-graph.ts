@@ -81,8 +81,10 @@ function setAuto(o: THREE.Object3D, matrix: boolean, world: boolean): void {
 
 interface Part {
   readonly object: THREE.Object3D;
-  /** The subtree it came from (the object added to the node, or listed loose). */
+  /** The subtree it came from (the object added to the node, or listed loose; or added later below one). */
   readonly owner: THREE.Object3D;
+  /** The subtree added to the node (or listed loose) it belongs to: released with it. */
+  readonly root: THREE.Object3D;
   /** Its offset from the entity (null: animated, it follows its logical parent; or loose, placed by its owner). */
   readonly offset: THREE.Matrix4 | null;
   /** The LOD levels it belongs to: it is in the scene only while each of them is the one drawn. */
@@ -91,6 +93,12 @@ interface Part {
   listed: boolean;
   /** Its entity (or an ancestor) is hidden by the simulation: out of the scene. */
   hidden: boolean;
+  /**
+   * A node between it and its entity is invisible (`visible = false`, a model
+   * file's hidden node): three would not draw it below that node, and the
+   * flat list does not either.
+   */
+  readonly hiddenAbove: boolean;
   /** What it had before it was listed (restored when it leaves). */
   readonly matrixAutoUpdate: boolean;
   readonly matrixWorldAutoUpdate: boolean;
@@ -102,6 +110,7 @@ interface Part {
 interface LodSwitch {
   readonly lod: THREE.LOD;
   readonly owner: THREE.Object3D;
+  readonly root: THREE.Object3D;
   /** The LOD's offset from the entity (null: its matrixWorld is kept right by the hierarchy or its owner). */
   readonly offset: THREE.Matrix4 | null;
   /** The level drawn (-1: none picked yet). */
@@ -114,15 +123,29 @@ interface Hoist {
   readonly object: THREE.Object3D;
   readonly from: THREE.Object3D;
   readonly owner: THREE.Object3D;
+  readonly root: THREE.Object3D;
   readonly matrix: THREE.Matrix4;
   readonly matrixAutoUpdate: boolean;
 }
 
-/** The parts, switches and moved nodes of one entity node (or one loose object). */
+/**
+ * A node of a shown subtree that draws nothing itself (a group, a model's
+ * node): a child added below it later is taken in, one removed is let go.
+ */
+interface Watch {
+  readonly object: THREE.Object3D;
+  readonly owner: THREE.Object3D;
+  readonly root: THREE.Object3D;
+  readonly added: (e: { child: THREE.Object3D }) => void;
+  readonly removed: (e: { child: THREE.Object3D }) => void;
+}
+
+/** The parts, switches, moved and watched nodes of one entity node (or one loose object). */
 interface Holding {
   parts: Part[];
   switches: LodSwitch[];
   hoists: Hoist[];
+  watches: Watch[];
 }
 
 /** Matrices written in the last frame. */
@@ -184,7 +207,7 @@ export class EntityNode extends THREE.Object3D {
   }
 }
 
-const emptyHolding = (): Holding => ({ parts: [], switches: [], hoists: [] });
+const emptyHolding = (): Holding => ({ parts: [], switches: [], hoists: [], watches: [] });
 
 export class RenderGraph {
   /** Every realized entity's world matrix. */
@@ -223,6 +246,8 @@ export class RenderGraph {
   private staticChanged: ((where: THREE.Object3D | null) => void) | null = null;
   /** Told what enters and leaves the scene and whose matrix was written (the batcher regroups only on those). */
   private membership: BatchMembership | null = null;
+  /** Nodes this graph moves itself (hoisting a static mesh's children and back): no watch reacts to them. */
+  private moving = 0;
 
   constructor(scene: THREE.Scene, animated: (entityId: string) => boolean) {
     this.scene = scene;
@@ -309,15 +334,32 @@ export class RenderGraph {
 
   /** Take in `sub` (it was just added to `node`): its drawables, its LODs, the nodes below its meshes. */
   show(node: EntityNode, sub: THREE.Object3D): void {
-    let animated = this.animated(node.entityId);
+    let animated = this.posed.has(node) || this.animated(node.entityId);
     if (!animated) sub.traverse((o) => void ((o as THREE.SkinnedMesh).isSkinnedMesh === true && (animated = true)));
     let h = this.held.get(node);
     if (h === undefined) {
       h = emptyHolding();
       this.held.set(node, h);
     }
-    this.collect(h, sub, node, animated);
+    this.collect(h, sub, node, animated, sub, []);
     if (animated) this.posed.add(node);
+    this.place(node);
+    this.revision += 1;
+  }
+
+  /**
+   * The entity is animated now (its animator's poses arrive) though its
+   * drawables were taken in as static, their offsets baked: they are taken in
+   * again as an animated hierarchy, posed after each animation step.
+   */
+  ensureAnimated(entityId: string): void {
+    const node = this.nodes.get(entityId);
+    if (node === undefined || this.posed.has(node)) return;
+    const h = this.held.get(node);
+    if (h === undefined) return;
+    this.release(h, null);
+    for (const sub of [...node.children]) this.collect(h, sub, node, true, sub, []);
+    this.posed.add(node);
     this.place(node);
     this.revision += 1;
   }
@@ -336,7 +378,7 @@ export class RenderGraph {
     if (this.loose.has(o)) return;
     const h = emptyHolding();
     this.loose.set(o, h);
-    this.collect(h, o, null, false);
+    this.collect(h, o, null, false, o, []);
   }
 
   unlistStatic(o: THREE.Object3D): void {
@@ -502,8 +544,11 @@ export class RenderGraph {
    * levels gate the parts below them. `node` null: a loose object, whose
    * matrices are already right.
    */
-  private collect(h: Holding, sub: THREE.Object3D, node: EntityNode | null, animated: boolean): void {
+  private collect(h: Holding, sub: THREE.Object3D, node: EntityNode | null, animated: boolean, root: THREE.Object3D, outerGates: readonly Gate[]): void {
     const baked = node !== null && !animated;
+    // Whether a node above `sub` (below the entity) is invisible: what it holds stays out of the scene.
+    let hiddenAbove = false;
+    for (let n: THREE.Object3D | null = sub.parent; n !== null && n !== node && node !== null; n = n.parent) if (!n.visible) hiddenAbove = true;
     const offsetOf = (o: THREE.Object3D): THREE.Matrix4 => {
       const offset = new THREE.Matrix4();
       for (let n: THREE.Object3D | null = o; n !== null && n !== node; n = n.parent) {
@@ -515,7 +560,7 @@ export class RenderGraph {
     const visit = (o: THREE.Object3D, gates: readonly Gate[]): void => {
       const lod = o as THREE.LOD;
       if (lod.isLOD === true) {
-        const sw: LodSwitch = { lod, owner: sub, offset: baked ? offsetOf(lod) : null, active: -1, parts: [] };
+        const sw: LodSwitch = { lod, owner: sub, root, offset: baked ? offsetOf(lod) : null, active: -1, parts: [] };
         h.switches.push(sw);
         this.switches.add(sw);
         this.lodsDirty = true;
@@ -527,12 +572,16 @@ export class RenderGraph {
         return;
       }
       if (!isDrawable(o)) {
+        this.watch(h, o, node, animated, sub, root, gates);
         for (const c of [...o.children]) visit(c, gates);
         return;
       }
       const offset = baked ? offsetOf(o) : null;
       const posed = node !== null && offset === null;
-      const part: Part = { object: o, owner: sub, offset, gates, listed: false, hidden: false, matrixAutoUpdate: o.matrixAutoUpdate, matrixWorldAutoUpdate: o.matrixWorldAutoUpdate, posed };
+      // (A loose object's own parents are its owner's to show and hide.)
+      let above = hiddenAbove;
+      if (node !== null) for (let n: THREE.Object3D | null = o.parent; n !== null && n !== sub.parent && n !== node; n = n.parent) if (!n.visible) above = true;
+      const part: Part = { object: o, owner: sub, root, offset, gates, listed: false, hidden: false, hiddenAbove: above, matrixAutoUpdate: o.matrixAutoUpdate, matrixWorldAutoUpdate: o.matrixWorldAutoUpdate, posed };
       // Placed (static, loose) or posed by its hierarchy (animated): either way the scene's own matrix walks
       // (the renderer's, the batcher's, the texture streamer's) have nothing to compose for it. A posed part
       // left to them was composed again on every walk (Skyforge's village: ~170 character parts, 1–2 walks a frame).
@@ -551,21 +600,57 @@ export class RenderGraph {
         const parent = o.parent;
         for (const c of [...o.children]) {
           if (c.matrixAutoUpdate) c.updateMatrix();
-          h.hoists.push({ object: c, from: o, owner: sub, matrix: c.matrix.clone(), matrixAutoUpdate: c.matrixAutoUpdate });
+          h.hoists.push({ object: c, from: o, owner: sub, root, matrix: c.matrix.clone(), matrixAutoUpdate: c.matrixAutoUpdate });
+          this.moving += 1;
           o.remove(c);
           c.matrix.premultiply(o.matrix);
           c.matrixAutoUpdate = false;
           parent.add(c);
+          this.moving -= 1;
           visit(c, gates);
         }
       }
     };
-    visit(sub, []);
+    visit(sub, outerGates);
+  }
+
+  /**
+   * Watch a node of a shown subtree that draws nothing itself: a child added
+   * below it later is taken in like the rest (drawn, gated by the same LOD
+   * levels), one removed is let go. Without it, a mesh added deeper into a
+   * shown model would never be drawn (only what is added to the entity's
+   * node itself announces itself).
+   */
+  private watch(h: Holding, o: THREE.Object3D, node: EntityNode | null, animated: boolean, owner: THREE.Object3D, root: THREE.Object3D, gates: readonly Gate[]): void {
+    if (o === node) return;
+    const added = (e: { child: THREE.Object3D }): void => {
+      if (this.moving > 0 || e.child.parent !== o) return;
+      this.collect(h, e.child, node, animated, root, gates);
+      if (node !== null) this.place(node);
+      this.revision += 1;
+    };
+    const removed = (e: { child: THREE.Object3D }): void => {
+      if (this.moving > 0) return;
+      const gone = e.child;
+      const within = (x: THREE.Object3D): boolean => {
+        for (let n: THREE.Object3D | null = x; n !== null; n = n.parent) if (n === gone) return true;
+        return false;
+      };
+      this.releaseWhere(h, (x) => x.owner === gone || within('lod' in x ? x.lod : x.object));
+      this.revision += 1;
+    };
+    o.addEventListener('childadded', added as never);
+    o.addEventListener('childremoved', removed as never);
+    h.watches.push({ object: o, owner, root, added, removed });
   }
 
   /** Let go of what came from `owner` (null: everything): parts leave the scene, moved nodes go back. */
   private release(h: Holding, owner: THREE.Object3D | null): void {
-    const mine = (x: { owner: THREE.Object3D }): boolean => owner === null || x.owner === owner;
+    this.releaseWhere(h, (x) => owner === null || x.owner === owner || x.root === owner);
+  }
+
+  /** Let go of the parts, switches, moved and watched nodes `mine` picks. */
+  private releaseWhere(h: Holding, mine: (x: Part | LodSwitch | Hoist | Watch) => boolean): void {
     const keepParts: Part[] = [];
     for (const p of h.parts) {
       if (!mine(p)) {
@@ -599,19 +684,31 @@ export class RenderGraph {
         keepHoists.push(m);
         continue;
       }
+      this.moving += 1;
       m.object.removeFromParent();
       m.object.matrix.copy(m.matrix);
       m.object.matrixAutoUpdate = m.matrixAutoUpdate;
       m.from.add(m.object);
+      this.moving -= 1;
     }
     h.hoists = keepHoists;
+    const keepWatches: Watch[] = [];
+    for (const w of h.watches) {
+      if (!mine(w)) {
+        keepWatches.push(w);
+        continue;
+      }
+      w.object.removeEventListener('childadded', w.added as never);
+      w.object.removeEventListener('childremoved', w.removed as never);
+    }
+    h.watches = keepWatches;
     // A new part list may show it hidden or not: visibility is set again at the next `setHidden`.
     this.dirtyVisibility = true;
   }
 
   /** In the scene or not, as its LOD levels and the hidden entities say. */
   private gate(p: Part): void {
-    let on = !p.hidden;
+    let on = !p.hidden && !p.hiddenAbove;
     for (const g of p.gates) {
       if (g.sw.active !== g.level) {
         on = false;

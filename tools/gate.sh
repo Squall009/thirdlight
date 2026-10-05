@@ -123,7 +123,8 @@ e2e() { # e2e <log> [playwright args…]
   grep -qE '^\s+[0-9]+ passed' "$L/$log" && ! grep -qE '^\s+[0-9]+ failed' "$L/$log"
 }
 
-# The village perf class's export frame time against its recorded baseline (tests/perf/village-baseline.json),
+# The village perf class's export frame time against its recorded baseline (tests/perf/village-baseline.json;
+# against the plain three.js page of the same content too, reported only),
 # both renderers, alone after the e2e step (a loaded host measures nothing). Only on a GPU host: SwiftShader
 # frame times say nothing about the product. Re-record: docs/deployment.md "Performance".
 perf_check() {
@@ -133,7 +134,7 @@ perf_check() {
   local t=$(date +%s) rc
   node tools/perf/run.mjs village --gate --check tests/perf/village-baseline.json > "$L/perf.log" 2>&1
   rc=$?
-  say "perf: $(grep -E '^village: (REGRESSION|webgpu|webgl2|the baseline)' "$L/perf.log" | sed 's/^village: //' | tr '\n' ';') ($(( $(date +%s) - t )) s)"
+  say "perf: $(grep -E '^village: (REGRESSION|webgpu|webgl2|the baseline|plain page)' "$L/perf.log" | sed 's/^village: //' | tr '\n' ';') ($(( $(date +%s) - t )) s)"
   return $rc
 }
 

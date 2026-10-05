@@ -88,6 +88,72 @@ describe('RenderGraph', () => {
   });
 });
 
+describe('RenderGraph: a flat list that keeps what the hierarchy meant', () => {
+  it('a node hidden in the file (visible = false) keeps the meshes below it out of the scene', () => {
+    const scene = new THREE.Scene();
+    const graph = new RenderGraph(scene, () => false);
+    graph.addEntity('prop', null);
+    const { root, mesh } = fileTree();
+    mesh.parent!.visible = false;
+    const shown = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshBasicMaterial());
+    root.add(shown);
+    graph.nodeFor('prop')!.add(root);
+    graph.update();
+    expect(scene.children).toEqual([shown]);
+    // And as an animated hierarchy.
+    const g2 = new RenderGraph(new THREE.Scene(), () => true);
+    g2.addEntity('walker', null);
+    const t = fileTree();
+    t.mesh.parent!.visible = false;
+    g2.nodeFor('walker')!.add(t.root);
+    expect(g2.counts().listed).toBe(0);
+  });
+
+  it('a mesh added later deeper into a shown model is drawn, and leaves with what it was added to', () => {
+    const scene = new THREE.Scene();
+    const graph = new RenderGraph(scene, () => false);
+    graph.addEntity('prop', null);
+    graph.world.setLocal('prop', [5, 0, 0], [0, 0, 0, 1], [1, 1, 1]);
+    const { root, mesh } = fileTree();
+    graph.nodeFor('prop')!.add(root);
+    graph.update();
+    expect(scene.children).toEqual([mesh]);
+    // A late attachment inside the file's group (a socketed prop, a part loaded on demand).
+    const late = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshBasicMaterial());
+    late.position.set(0, 0, 2);
+    const holder = new THREE.Group();
+    holder.add(late);
+    mesh.parent!.add(holder);
+    expect(scene.children).toContain(late);
+    // Placed by the entity and the file's offsets: prop (5,0,0) ∘ inner (0,1,0) ∘ late (0,0,2).
+    near(new THREE.Vector3().setFromMatrixPosition(late.matrixWorld), [5, 1, 2]);
+    // Removed again: out of the scene; the rest stays.
+    holder.removeFromParent();
+    expect(scene.children).toEqual([mesh]);
+    // A mesh of the original file removed from its group leaves too.
+    mesh.removeFromParent();
+    expect(scene.children).toEqual([]);
+  });
+
+  it('an entity whose animator starts after it was shown is posed from then on (its offsets are not baked)', () => {
+    const scene = new THREE.Scene();
+    let animated = false;
+    const graph = new RenderGraph(scene, () => animated);
+    graph.addEntity('door', null);
+    graph.world.setLocal('door', [0, 0, 3], [0, 0, 0, 1], [1, 1, 1]);
+    const { root, mesh } = fileTree();
+    graph.nodeFor('door')!.add(root);
+    graph.update();
+    // Its animator's poses arrive: the mixer moves a node inside the file.
+    animated = true;
+    graph.ensureAnimated('door');
+    mesh.position.set(0, 0, 1);
+    graph.poseAnimated();
+    expect(scene.children).toEqual([mesh]);
+    near(new THREE.Vector3().setFromMatrixPosition(mesh.matrixWorld), [0, 1, 4]);
+  });
+});
+
 describe('RenderGraph: only what moved, one LOD level, flat model files', () => {
   it('writes no matrix while nothing moves, and only the moved entity and its children when one does', () => {
     const scene = new THREE.Scene();

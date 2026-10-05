@@ -24,7 +24,10 @@
  *      (game-host) the preview uses (production parity), and
  *      that the page and worker bundles link only the module specs the
  *      manifest names — a project without platformer content ships none;
- *   4. the negative authoring-token/capability/Node/URL scans.
+ *   4. the negative authoring-token/capability/Node/URL scans, over every
+ *      script an export ships (the page, the simulation and mesh workers, the
+ *      2D and 3D physics backends) and each one's source map, whose sources
+ *      name engine-relative paths only (never the building host's folders).
  *
  * The real-browser standalone playthrough (independent static server under a
  * non-root prefix, backend stopped/unreachable, keyboard/gamepad/audio +
@@ -32,17 +35,24 @@
  * (tests/browser/m3-export).
  */
 import { build } from 'esbuild';
+import { readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { buildContentClosureM3, checkBundleGraphM3 } from '@thirdlight/exporter';
-import { buildM3Bundle, buildSimWorkerBundle, MODULES_MODULE, modulesModuleSource, THREE_WEBGPU_ONLY_PLUGIN } from '../../../packages/exporter/src/export-bundle';
+import { buildM3Bundle, buildSimWorkerBundle, engineRelativeSource, MODULES_MODULE, modulesModuleSource, THREE_WEBGPU_ONLY_PLUGIN } from '../../../packages/exporter/src/export-bundle';
 import type { WorkspaceService } from '@thirdlight/workspace';
 import { fakeService, syntheticV3 } from '../m3-builds/helpers';
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 const BOOTSTRAP = join(REPO_ROOT, 'packages/exporter', 'src', 'export-bootstrap-m3.ts');
 const WORKER = join(REPO_ROOT, 'packages/exporter', 'src', 'export-sim-worker.ts');
+/** The other scripts an export may ship, by their path in the export. */
+const SHIPPED = [
+  { name: 'js/mesh-worker.js', entry: join(REPO_ROOT, 'packages/exporter', 'src', 'export-mesh-worker.ts'), wasm: false },
+  { name: 'js/physics-2d.js', entry: join(REPO_ROOT, 'packages/exporter', 'src', 'export-physics-2d.ts'), wasm: true },
+  { name: 'js/physics-3d.js', entry: join(REPO_ROOT, 'packages/exporter', 'src', 'export-physics-3d.ts'), wasm: true },
+] as const;
 
 /** The readable build: every occurrence of a pattern kept, to count it exactly. */
 const PINNED_OPTIONS = {
@@ -232,6 +242,40 @@ describe('M3 export bundle re-measurement + production parity', () => {
     expect(text).not.toContain("fetch('http");
     expect(text).not.toContain('fetch("https');
   }, 120_000);
+
+  it('every shipped script and its source map scan clean, and a map names engine-relative sources only', async () => {
+    const closure = await closureOf('demo-0006-scripts', false);
+    const page = await buildM3Bundle({ bootstrapEntry: BOOTSTRAP, closure });
+    const worker = await buildSimWorkerBundle(WORKER, closure.moduleIds);
+    const others = await Promise.all(SHIPPED.map((s) => buildSimWorkerBundle(s.entry, undefined, { name: s.name, ...(s.wasm ? { read: (p: string) => readFileSync(p) } : {}) })));
+    const built = [['js/main.js', page], ['js/sim-worker.js', worker], ...SHIPPED.map((s, i) => [s.name, others[i]!] as const)] as const;
+    for (const [name, b] of built) {
+      expect(b.ok, name).toBe(true);
+      if (!b.ok) continue;
+      if (SHIPPED.some((s) => s.name === name && s.wasm)) expect(b.wasm, `${name} links its WASM as a file`).not.toBeNull();
+      for (const [file, bytes] of [[name, b.bytes], [`${name}.map`, b.map]] as const) {
+        const text = new TextDecoder().decode(bytes);
+        const c = scanText(text, [CANARY_TOKEN]);
+        expect(c.a + c.b + c.c + c.e + c.g + c.i, `${file}: ${JSON.stringify(c)}`).toBe(0);
+        // Nothing of the host that built it: not the engine's folder, not a home directory.
+        expect(text.includes(REPO_ROOT), `${file} names the building host's folder`).toBe(false);
+        expect(/["'`(]\/home\//.test(text), `${file} names a home directory`).toBe(false);
+      }
+      const sources = (JSON.parse(new TextDecoder().decode(b.map)) as { sources: string[] }).sources;
+      expect(sources.length, name).toBeGreaterThan(0);
+      // Engine-relative files, or a build plugin's generated module (`namespace:name`).
+      for (const src of sources) expect((/^(packages|node_modules|external)\//.test(src) && !src.includes('../')) || /^[a-z0-9-]+:[a-z0-9-]+$/.test(src), `${name}: source ${src}`).toBe(true);
+    }
+  }, 240_000);
+
+  it('a source outside the engine root keeps no host folder in the map', () => {
+    expect(engineRelativeSource('../packages/runtime/src/runtime.ts')).toBe('packages/runtime/src/runtime.ts');
+    expect(engineRelativeSource('../node_modules/three/build/three.core.js')).toBe('node_modules/three/build/three.core.js');
+    expect(engineRelativeSource('../../../usr/lib/node_modules/three/build/three.core.js')).toBe('external/node_modules/three/build/three.core.js');
+    expect(engineRelativeSource('/home/someone/src/thing.ts')).toBe('external/thing.ts');
+    expect(engineRelativeSource('C:\\Users\\someone\\x\\node_modules\\y\\index.js')).toBe('external/node_modules/y/index.js');
+    expect(engineRelativeSource('../packages/../../elsewhere/z.ts')).toBe('external/z.ts');
+  });
 
   /** The real closure of a synthetic project (`strip`: no controller — the starter's shape). */
   async function closureOf(projectId: string, strip: boolean) {

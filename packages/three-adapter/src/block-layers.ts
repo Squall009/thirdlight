@@ -80,6 +80,13 @@ import { currentLodLevel } from './lod-switch';
 export const SYNC_MESH_BUDGET_MS = 8;
 /** Finished worker results are turned into meshes for at most this long a frame (at least one a frame). */
 export const MESH_APPLY_BUDGET_MS = 4;
+/**
+ * Chunks wait for the workers and none has answered for this long: the
+ * workers are taken as hung and every chunk meshes on the page from then on.
+ * Far above a busy queue's wait (a load of 64 sloped chunks on two workers:
+ * ~2.5 s).
+ */
+export const MESH_WORKER_STALL_MS = 10_000;
 
 /** A model look: its LOD0 geometry in the block frame and its materials (by the source's material index). */
 export interface BlockModelLook {
@@ -122,6 +129,8 @@ export interface BlockLayerViewDeps {
   meshed?(): void;
   /** Logical cores (sizes the worker pool; default `navigator.hardwareConcurrency`). */
   cores?: number;
+  /** The clock a stalled worker is measured on (ms; default `performance.now`; tests). */
+  now?: () => number;
 }
 
 /** A chunk's lightmap target: its meshes with UV1 and the layout they follow. */
@@ -322,6 +331,10 @@ export class BlockLayerView {
   private poolUnavailable: boolean;
   /** Worker results waiting to be swapped in. */
   private readonly results: MeshWorkerReply[] = [];
+  /** When the workers last showed life (an answer, or the first request after none was waiting). */
+  private workersHeardAt = 0;
+  /** `flush`: every changed chunk meshes on the page this update, the workers told to drop theirs. */
+  private meshAllHere = false;
   private serials = 0;
   private readonly stats = { meshedHere: 0, meshedInWorkers: 0, lastUpdate: { here: 0, applied: 0, ms: 0 }, longestUpdateMs: 0 };
   private disposed = false;
@@ -408,6 +421,8 @@ export class BlockLayerView {
     for (const k of layer.grid.takeDirty().mesh) {
       layer.dirty.add(k);
       layer.edited.add(k);
+      // A worker's answer for the cells before this edit is not wanted (it would show before the edit's own).
+      this.cancelPending(entityId, layer, k);
     }
     // The first paint (or the last one gone) changes every chunk's colours.
     if (layer.grid.hasPaint() !== painted) for (const k of layer.chunks.keys()) layer.dirty.add(k);
@@ -441,6 +456,7 @@ export class BlockLayerView {
   update(): boolean {
     if (this.disposed) return false;
     const t0 = performance.now();
+    this.checkStall();
     let applied = 0;
     while (this.results.length > 0 && (applied === 0 || performance.now() - t0 < MESH_APPLY_BUDGET_MS)) {
       if (this.applyResult(this.results.shift()!)) applied += 1;
@@ -454,7 +470,7 @@ export class BlockLayerView {
       for (const ck of keys) {
         const edited = layer.edited.has(ck);
         const estimate = Math.max(0, layer.meshMs);
-        if (this.pool === null || layer.component.metadataOnly === true || (edited && syncMs + estimate <= SYNC_MESH_BUDGET_MS)) {
+        if (this.pool === null || this.meshAllHere || layer.component.metadataOnly === true || (edited && syncMs + estimate <= SYNC_MESH_BUDGET_MS)) {
           const t = performance.now();
           this.meshHere(entityId, layer, ck);
           syncMs += performance.now() - t;
@@ -479,12 +495,11 @@ export class BlockLayerView {
    */
   flush(): void {
     for (const layer of this.layers.values()) for (const ck of layer.pending.keys()) layer.dirty.add(ck);
-    const pool = this.pool;
-    this.pool = null;
+    this.meshAllHere = true;
     try {
       this.update();
     } finally {
-      this.pool = pool;
+      this.meshAllHere = false;
     }
   }
 
@@ -595,6 +610,7 @@ export class BlockLayerView {
       create,
       meshWorkerCount(cores),
       (reply) => {
+        this.workersHeardAt = this.now();
         this.results.push(reply);
         if (this.results.length === 1) this.deps.meshed?.();
       },
@@ -676,9 +692,37 @@ export class BlockLayerView {
     }
   }
 
+  private now(): number {
+    return this.deps.now?.() ?? performance.now();
+  }
+
+  private waitingChunks(): number {
+    let n = 0;
+    for (const layer of this.layers.values()) n += layer.pending.size;
+    return n;
+  }
+
+  /** Chunks wait and no worker has answered for `MESH_WORKER_STALL_MS`: the workers are hung, the page meshes. */
+  private checkStall(): void {
+    const pool = this.pool;
+    if (pool === null || this.now() - this.workersHeardAt < MESH_WORKER_STALL_MS || this.waitingChunks() === 0) return;
+    console.warn(`[thirdlight] the block mesh workers have not answered for ${MESH_WORKER_STALL_MS / 1000} s: chunks mesh on the page from now on`);
+    pool.dispose();
+    this.workersFailed();
+  }
+
+  /** Whatever a worker is meshing for this chunk is no longer wanted. */
+  private cancelPending(entityId: string, layer: LayerState, ck: string): void {
+    if (!layer.pending.delete(ck)) return;
+    const gen = this.nextGen(layer, ck);
+    const [cx, cz] = ck.split(',').map(Number) as [number, number];
+    this.pool?.send({ t: 'cancel', entityId, cx, cz, gen });
+  }
+
   /** Ask a worker for a chunk; its old meshes stay until the result comes. */
   private request(entityId: string, layer: LayerState, ck: string): void {
     this.askLooks(entityId, layer);
+    if (this.waitingChunks() === 0) this.workersHeardAt = this.now();
     const gen = this.nextGen(layer, ck);
     layer.pending.set(ck, gen);
     const [cx, cz] = ck.split(',').map(Number) as [number, number];

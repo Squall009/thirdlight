@@ -4,14 +4,15 @@
  * global) draws the very same meshes as the view meshing on the page; a
  * chunk keeps its old meshes until its new ones arrive; a result for a chunk
  * changed since is dropped; an edit within the budget meshes at once; a
- * worker that fails hands its chunks back to the page; a model the worker did
- * not have is sent to it and the chunk meshed again.
+ * worker that fails hands its chunks back to the page, and so does one that
+ * stops answering; a model the worker did not have is sent to it and the
+ * chunk meshed again; a layer dropped leaves nothing behind in the worker.
  */
 import * as THREE from 'three';
 import { afterEach, describe, expect, it } from 'vitest';
 import { BlockGrid, type BlockLayerComponent, type BlockType } from '@thirdlight/runtime';
 
-import { BlockLayerView, blockLookFromObject, SYNC_MESH_BUDGET_MS, type BlockLayerViewDeps } from './block-layers';
+import { BlockLayerView, blockLookFromObject, MESH_WORKER_STALL_MS, SYNC_MESH_BUDGET_MS, type BlockLayerViewDeps } from './block-layers';
 import type { MeshWorkerPort } from './block-mesh-pool';
 import { runBlockMeshWorker } from './block-mesh-worker';
 
@@ -206,6 +207,96 @@ describe('block view: meshing in workers', () => {
     expect(d.meshing).toMatchObject({ workers: 0, queued: 0, meshedHere: 4 });
     expect(d.chunks).toBe(4);
     v.dispose();
+  });
+
+  it("an edit made while a worker meshes the old cells: that answer is dropped (the old meshes stay until the edit's own)", async () => {
+    // The workers' answers are held back until released: the first round is in flight when the edit lands.
+    const held: { deliver: (m: unknown) => void; m: unknown }[] = [];
+    let holding = true;
+    const v = makeView({
+      meshWorkers: () => {
+        const w = portWorker();
+        return {
+          ...w,
+          listen: (cb) =>
+            w.listen((m) => {
+              if (holding) held.push({ deliver: cb, m });
+              else cb(m);
+            }),
+        };
+      },
+    });
+    v.setTypes(TYPES);
+    const g = BlockGrid.from(LAYER, groundData() as never);
+    v.setLayer('ground', LAYER, [0, 0, 0], groundData() as never);
+    v.update();
+    for (let i = 0; i < 2000 && held.length < 4; i++) await tick();
+    expect(held.length).toBe(4);
+    // Every chunk edited: what the workers meshed is for the cells before.
+    for (const [x, z] of [[4, 4], [20, 4], [4, 20], [20, 20]] as const) g.set(x, 22, z, { block: 'stone' });
+    v.replaceChunks('ground', g.takeDirty().chunks.map((k) => {
+      const [cx, cz] = k.split(',').map(Number) as [number, number];
+      return { cx, cz, chunk: g.encodeChunk(k) };
+    }));
+    holding = false;
+    for (const h of held.splice(0)) h.deliver(h.m);
+    v.update();
+    expect(v.diagnostics().meshing.meshedInWorkers, 'answers for the old cells dropped').toBe(0);
+    await settle(v);
+    const page = makeView();
+    page.setTypes(TYPES);
+    page.setLayer('ground', LAYER, [0, 0, 0], { entityId: 'ground', chunks: g.chunkKeys().map((k) => g.encodeChunk(k)) } as never);
+    page.update();
+    expect(drawn(v)).toEqual(drawn(page));
+    v.dispose();
+    page.dispose();
+  });
+
+  it('workers that stop answering hand their chunks back to the page; a flush tells them to drop theirs', async () => {
+    let clock = 0;
+    const silent = (): MeshWorkerPort => ({ post: () => undefined, listen: () => undefined, onError: () => undefined, terminate: () => undefined });
+    const v = makeView({ meshWorkers: silent, now: () => clock });
+    v.setTypes(TYPES);
+    v.setLayer('ground', LAYER, [0, 0, 0], groundData() as never);
+    v.update();
+    expect(v.diagnostics().meshing).toMatchObject({ workers: 2, queued: 4 });
+    clock += MESH_WORKER_STALL_MS - 1;
+    v.update();
+    expect(v.diagnostics().meshing.queued).toBe(4);
+    clock += 2;
+    v.update();
+    expect(v.diagnostics().meshing).toMatchObject({ workers: 0, queued: 0, meshedHere: 4 });
+    expect(v.diagnostics().chunks).toBe(4);
+    v.dispose();
+
+    // A flush (a bake) meshes on the page and cancels what the workers were asked for.
+    const sent: { t: string }[] = [];
+    const listening = (): MeshWorkerPort => ({ post: (m) => void sent.push(m as { t: string }), listen: () => undefined, onError: () => undefined, terminate: () => undefined });
+    const f = makeView({ meshWorkers: listening, cores: 3 });
+    f.setTypes(TYPES);
+    f.setLayer('ground', LAYER, [0, 0, 0], groundData() as never);
+    f.update();
+    f.flush();
+    expect(f.diagnostics().meshing).toMatchObject({ queued: 0, meshedHere: 4 });
+    expect(sent.filter((m) => m.t === 'cancel').length).toBe(4);
+    f.dispose();
+  });
+
+  it('a layer dropped leaves no chunk generations or requests behind in the worker', async () => {
+    const ch = new MessageChannel();
+    const core = runBlockMeshWorker({ post: () => undefined, listen: (cb) => ((ch.port2.onmessage = (e) => cb(e.data)), undefined) });
+    stops.push(() => {
+      core.stop();
+      ch.port1.close();
+      ch.port2.close();
+    });
+    for (let i = 0; i < 50; i++) ch.port1.postMessage({ t: 'mesh', entityId: 'gone', serial: 1, cx: i, cz: 0, gen: 1, uv: false });
+    ch.port1.postMessage({ t: 'cancel', entityId: 'gone', cx: 99, cz: 0, gen: 3 });
+    for (let i = 0; i < 50 && core.tracked() < 51; i++) await tick();
+    expect(core.tracked()).toBe(51);
+    ch.port1.postMessage({ t: 'drop', entityId: 'gone' });
+    for (let i = 0; i < 50 && core.tracked() > 0; i++) await tick();
+    expect(core.tracked()).toBe(0);
   });
 
   it('a model still loading is meshed in when it arrives: the worker gets its geometry and the chunk is asked again', async () => {

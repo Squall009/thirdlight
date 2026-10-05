@@ -141,12 +141,24 @@ function engineRootOf(entry: string): string {
 }
 
 /**
- * The source map with engine-relative sources (`packages/…`, `node_modules/…`):
- * esbuild writes them relative to the file's folder (`js/`), one level below the root.
+ * A source map's source as the export names it: relative to the engine root
+ * (`packages/…`, `node_modules/…`). esbuild writes sources relative to the
+ * script's folder (`js/`, one level below the root); one that lies outside
+ * the root (a dependency installed elsewhere, an absolute path) would name
+ * the building host's folders, so it keeps only its path from the last
+ * `node_modules/` on, or its file name, under `external/`.
  */
+export function engineRelativeSource(src: string): string {
+  const s = src.replace(/\\/g, '/').replace(/^\.\.\//, '');
+  if (!s.startsWith('../') && !s.startsWith('/') && !/^[A-Za-z]:/.test(s) && !s.includes('/../')) return s;
+  const nm = s.lastIndexOf('node_modules/');
+  return `external/${nm >= 0 ? s.slice(nm) : s.replace(/^.*\//, '')}`;
+}
+
+/** The source map with engine-relative sources (`engineRelativeSource`). */
 function rootRelativeMap(text: string): Uint8Array {
   const map = JSON.parse(text) as { sources: string[] };
-  map.sources = map.sources.map((src) => src.replace(/^\.\.\//, ''));
+  map.sources = map.sources.map(engineRelativeSource);
   return new TextEncoder().encode(JSON.stringify(map));
 }
 

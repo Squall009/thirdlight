@@ -59,7 +59,7 @@ interface WorkerLayer {
 }
 
 /** Run the mesh worker on an endpoint (the worker's global scope); `stop` ends it (a worker on the page, in tests). */
-export function runBlockMeshWorker(endpoint: MeshEndpoint): { stop(): void } {
+export function runBlockMeshWorker(endpoint: MeshEndpoint): { stop(): void; tracked(): number } {
   let types = new Map<string, BlockType>();
   let variantModels = new Map<string, (ChunkModelRef | null)[]>();
   const models = new Map<string, ChunkModelGeometry>();
@@ -125,9 +125,14 @@ export function runBlockMeshWorker(endpoint: MeshEndpoint): { stop(): void } {
         layer.grid.takeDirty();
         break;
       }
-      case 'drop':
+      case 'drop': {
         layers.delete(m.entityId);
+        // Its chunks' generations and queued requests go with it (a layer dropped is never asked for again).
+        const prefix = `${m.entityId}\u0000`;
+        for (const k of [...latest.keys()]) if (k.startsWith(prefix)) latest.delete(k);
+        for (let i = queue.length - 1; i >= 0; i--) if (queue[i]!.entityId === m.entityId) queue.splice(i, 1);
         break;
+      }
       case 'mesh':
         latest.set(chunkId(m.entityId, m.cx, m.cz), m.gen);
         queue.push(m);
@@ -146,5 +151,7 @@ export function runBlockMeshWorker(endpoint: MeshEndpoint): { stop(): void } {
       tick.port1.close();
       tick.port2.close();
     },
+    // The chunks whose newest generation it keeps (bounded by the layers it holds).
+    tracked: () => latest.size,
   };
 }
