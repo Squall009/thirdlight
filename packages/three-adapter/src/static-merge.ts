@@ -46,6 +46,38 @@ export const STATIC_KEY = '__tlStatic';
 /** `material.userData[OBJECT_FRAME_KEY]`: the material reads the object's own frame (its origin, object-space position), so it is never merged. */
 export const OBJECT_FRAME_KEY = '__tlObjectFrame';
 
+/** `mesh.userData[OCCLUDER_KEY]`: a merged static cell, drawn before the other opaque objects (`occludersFirst`). */
+export const OCCLUDER_KEY = '__tlOccluder';
+
+/** What three's render list sorts (the fields the opaque order reads). */
+export interface RenderItemLike {
+  readonly groupOrder: number;
+  readonly renderOrder: number;
+  readonly z: number;
+  readonly id: number;
+  readonly object: THREE.Object3D;
+}
+
+/**
+ * The opaque order: three's own (group order, render order, nearest centre
+ * first) with merged static cells ahead of everything else of the same render
+ * order, nearest first among themselves. A merged cell is up to a cell wide,
+ * so its centre says little about its nearest walls: by centre it was drawn
+ * after the props in front of its far side, and every pixel of those that its
+ * walls cover was shaded for nothing (the village class: 142 → 152 fps on
+ * WebGPU, GPU-bound). The level's dense static geometry is the occluder; what
+ * stands in front of it still passes the depth test.
+ */
+export function occludersFirst(a: RenderItemLike, b: RenderItemLike): number {
+  if (a.groupOrder !== b.groupOrder) return a.groupOrder - b.groupOrder;
+  if (a.renderOrder !== b.renderOrder) return a.renderOrder - b.renderOrder;
+  const oa = a.object.userData[OCCLUDER_KEY] === true ? 0 : 1;
+  const ob = b.object.userData[OCCLUDER_KEY] === true ? 0 : 1;
+  if (oa !== ob) return oa - ob;
+  if (a.z !== b.z) return a.z - b.z;
+  return a.id - b.id;
+}
+
 /** How long a static member must stay put after a move before it rejoins its merged draw (ms). */
 export const MERGE_QUIET_MS = 500;
 
@@ -465,6 +497,7 @@ export function createStaticMerger(options: StaticMergerOptions): StaticMerger {
     // changes no shadow: a member is drawn through it or alone at the same place, and entering or leaving the
     // scene, or moving, is reported by the host.
     mesh.userData[STATIC_CASTER_KEY] = true;
+    mesh.userData[OCCLUDER_KEY] = true;
     mesh.raycast = () => undefined;
     if (cell.built !== null) releaseBuilt(cell.built);
     cell.built = { mesh, geometry, template, index, vertices, vertexBytes };

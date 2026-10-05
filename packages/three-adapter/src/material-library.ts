@@ -230,14 +230,20 @@ function vec2(v: unknown, d: [number, number]): [number, number] {
 }
 
 export function createMaterialLibrary(options: MaterialLibraryOptions): MaterialLibrary {
-  /** The shared wind and clock block (TSL uniforms). */
+  /**
+   * The shared wind and clock block (TSL uniforms). In the render group, not
+   * each object's: a uniform of the default (object) group is copied into
+   * every drawn object's own buffer, so the clock changing each frame rewrote
+   * one buffer per wind-swayed object per pass (Skyforge's village: 126
+   * writes a frame); in the render group it is one write per pass.
+   */
   const nodeGlobals = {
-    time: TSL.uniform(0),
-    windDir: TSL.uniform(new THREE.Vector2(1, 0)),
-    strength: TSL.uniform(DEFAULT_WIND_LIKE.strength),
-    gust: TSL.uniform(DEFAULT_WIND_LIKE.gust),
-    gustFreq: TSL.uniform(DEFAULT_WIND_LIKE.gustFrequency),
-    turb: TSL.uniform(DEFAULT_WIND_LIKE.turbulence),
+    time: TSL.uniform(0).setGroup(TSL.renderGroup),
+    windDir: TSL.uniform(new THREE.Vector2(1, 0)).setGroup(TSL.renderGroup),
+    strength: TSL.uniform(DEFAULT_WIND_LIKE.strength).setGroup(TSL.renderGroup),
+    gust: TSL.uniform(DEFAULT_WIND_LIKE.gust).setGroup(TSL.renderGroup),
+    gustFreq: TSL.uniform(DEFAULT_WIND_LIKE.gustFrequency).setGroup(TSL.renderGroup),
+    turb: TSL.uniform(DEFAULT_WIND_LIKE.turbulence).setGroup(TSL.renderGroup),
   };
   let defs = new Map<string, MaterialDefLike>();
   const reassigned = new Set<(root: THREE.Object3D) => void>();

@@ -384,7 +384,11 @@ export class RenderGraph {
     this.lodZoom = zoom;
     for (const sw of this.switches) {
       const e = sw.lod.matrixWorld.elements;
-      const distance = Math.hypot(cam.x - e[12]!, cam.y - e[13]!, cam.z - e[14]!) / zoom;
+      // sqrt of the sum, not Math.hypot (several times slower in V8, over every LOD each frame the camera moves).
+      const dx = cam.x - e[12]!;
+      const dy = cam.y - e[13]!;
+      const dz = cam.z - e[14]!;
+      const distance = Math.sqrt(dx * dx + dy * dy + dz * dz) / zoom;
       const level = pickLodLevel(sw.lod.levels, distance, sw.active);
       if (level === sw.active) continue;
       sw.active = level;

@@ -115,8 +115,9 @@ export function createAttributeInstancedMesh(source: THREE.BufferGeometry, mater
   for (const g of source.groups) geometry.addGroup(g.start, g.count, g.materialIndex);
   geometry.setDrawRange(source.drawRange.start, source.drawRange.count);
   const array = new Float32Array(capacity * 16);
+  // Static usage: three's WebGPURenderer uploads a dynamic-usage buffer on every draw whatever its version
+  // (Skyforge's village: ~100 instance buffers a frame); this one is uploaded when `markChanged` bumps it.
   const buffer = new THREE.InstancedInterleavedBuffer(array, 16, 1);
-  buffer.setUsage(THREE.DynamicDrawUsage);
   const columns = COLUMNS.map((name, i) => {
     const column = new THREE.InterleavedBufferAttribute(buffer, 4, i * 4);
     geometry.setAttribute(name, column);

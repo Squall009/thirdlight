@@ -10,9 +10,12 @@
  *   only when what it shows changed (a change anywhere, or one within its
  *   reach), its region stepped, the light turned past
  *   {@link STATIC_SHADOW_TURN_DEGREES}, or a new renderer draws it;
- * - the **dynamic map** draws every other caster, every frame;
- * - the receiver takes the darker of the two (`min`, as three's
- *   `TileShadowNode` combines its tiles).
+ * - the **dynamic map** is drawn every frame: first the static map's depths
+ *   copied in (one full-map quad, `ShadowUnderlay`), then every other caster
+ *   on top, so the map holds the nearer of the two at each texel;
+ * - the receiver samples the dynamic map only, as it would the single map:
+ *   the same filter taps per pixel as an uncached shadow (sampling both maps
+ *   and taking the darker cost the village class 0.35 ms a frame of GPU time).
  *
  * Regions: the dynamic map follows the camera square by square of texels, as
  * the single map did. The static map cannot follow that closely without being
@@ -25,7 +28,11 @@
  * Each map is a three `ShadowNode` of a stand-in light (an `Object3D` with a
  * target and its own shadow), whose pass draws only its own casters (a filter
  * on three's per-object shadow render function). The stand-ins are never in
- * the scene: their matrices are written here.
+ * the scene: their matrices are written here. The static map is never sampled
+ * by a receiver, only read texel by texel into the dynamic one: its texels
+ * line up with the dynamic map's (same texel size, whole-texel grids), and
+ * its depth is moved into the dynamic map's range (both are orthographic:
+ * depth is linear in the distance along the light).
  */
 import * as THREE from 'three/webgpu';
 import * as TSLTyped from 'three/tsl';
@@ -35,7 +42,7 @@ import { isStaticCaster, type StaticShadowRevision } from './shadow-casters';
 
 /** TSL untyped: three's typings lag the node API used here. */
 const TSL: N = TSLTyped;
-const { Fn, min, NodeUpdateType } = TSL;
+const { Fn, If, Discard, float, int, ivec2, positionGeometry, screenCoordinate, textureLoad, uniform, vec4, NodeUpdateType } = TSL;
 
 /** The static map's centre moves in steps of this fraction of the shadow square's half side (it is drawn again at each step). */
 export const STATIC_SHADOW_STEP = 0.5;
@@ -109,6 +116,11 @@ const ShadowNodeBase = THREE.ShadowNode as unknown as new (light: THREE.Object3D
 class PassShadowNode extends ShadowNodeBase {
   private base: RenderObjectFn | null = null;
   private filtered: RenderObjectFn | null = null;
+  /** Casters drawn into the map by its last pass. */
+  drawn = 0;
+  /** Drawn before the first caster of each pass (the dynamic map's copy of the static one); null: none. */
+  underlay: THREE.Mesh | null = null;
+  private underlaid = false;
   constructor(
     light: THREE.Object3D,
     shadow: THREE.LightShadow,
@@ -124,10 +136,89 @@ class PassShadowNode extends ShadowNodeBase {
       const want = this.staticPass;
       this.base = base;
       this.filtered = (object, ...rest) => {
-        if (isStaticCaster(object) === want) base(object, ...rest);
+        // The pass's render objects come in draw order: the underlay goes in before the first of them.
+        const u = this.underlay;
+        if (!this.underlaid && u !== null) {
+          this.underlaid = true;
+          base(u, rest[0], rest[1], u.geometry, u.material, null, ...rest.slice(5));
+        }
+        if (isStaticCaster(object) !== want) return;
+        this.drawn += 1;
+        base(object, ...rest);
       };
     }
     return this.filtered!;
+  }
+  /** Draw the map now (its casters, after the underlay if one is set). */
+  draw(frame: unknown): void {
+    this.drawn = 0;
+    this.underlaid = false;
+    this.updateShadow(frame);
+  }
+  /**
+   * The map's render target, for a map no receiver samples (a receiver's
+   * shadow setup makes it otherwise). Its depth is read texel by texel, never
+   * compared: no compare function (a WebGL 2 texel fetch of a texture with a
+   * compare mode is undefined) and nearest filtering.
+   */
+  ensureTarget(builder: N): THREE.RenderTarget {
+    if (this.shadowMap === null) {
+      const self = this as unknown as { setupRenderTarget(shadow: THREE.LightShadow, builder: unknown): { shadowMap: THREE.RenderTarget; depthTexture: THREE.DepthTexture } };
+      const { shadowMap, depthTexture } = self.setupRenderTarget(this.shadow, builder);
+      depthTexture.compareFunction = null;
+      depthTexture.minFilter = THREE.NearestFilter;
+      depthTexture.magFilter = THREE.NearestFilter;
+      this.shadow.camera.coordinateSystem = builder.camera.coordinateSystem;
+      this.shadow.camera.updateProjectionMatrix();
+      this.shadowMap = shadowMap;
+    }
+    return this.shadowMap;
+  }
+}
+
+/**
+ * The static map's depths drawn into the dynamic map: a quad over the whole
+ * map, each texel reading the static texel at the same place (`offset`
+ * texels away) and writing its depth moved into the dynamic range
+ * (`depth × scale + shift`). Texels where the static map holds nothing, or a
+ * caster outside the dynamic map's depth range (the single map would have
+ * clipped it), are left as they are.
+ */
+class ShadowUnderlay {
+  readonly mesh: THREE.Mesh;
+  readonly offset = uniform(new THREE.Vector2());
+  readonly scale = uniform(1);
+  readonly shift = uniform(0);
+  constructor(staticDepth: THREE.DepthTexture, staticSize: number, reversed: boolean) {
+    const m = new THREE.MeshBasicNodeMaterial();
+    m.name = 'static shadow underlay';
+    // Drawn with this material in the shadow pass, not the pass's depth material.
+    (m as unknown as { allowOverride: boolean }).allowOverride = false;
+    m.colorWrite = false;
+    m.side = THREE.DoubleSide;
+    m.fog = false;
+    m.lights = false;
+    m.vertexNode = vec4(positionGeometry.xy, 0, 1);
+    const last = int(staticSize - 1);
+    const texel = ivec2(screenCoordinate.xy.floor().add(this.offset)).clamp(ivec2(0, 0), ivec2(last, last));
+    // A reversed depth buffer stores 1 − depth (far at 0): moved in the forward sense, written back reversed.
+    const stored = textureLoad(staticDepth, texel);
+    const forward = reversed ? float(1).sub(stored) : stored;
+    const moved = forward.mul(this.scale).add(this.shift);
+    m.depthNode = Fn(() => {
+      If(forward.greaterThanEqual(1).or(moved.lessThan(0)).or(moved.greaterThanEqual(1)), () => {
+        Discard();
+      });
+      return reversed ? float(1).sub(moved) : moved;
+    })();
+    this.mesh = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), m);
+    this.mesh.name = 'static shadow underlay';
+    this.mesh.castShadow = true;
+    this.mesh.frustumCulled = false;
+  }
+  dispose(): void {
+    this.mesh.geometry.dispose();
+    (this.mesh.material as THREE.Material).dispose();
   }
 }
 
@@ -195,6 +286,7 @@ export class CachedShadowNode extends ShadowBaseNodeBase {
   private readonly dynamicLight: ShadowStandIn;
   private staticNode: PassShadowNode | null = null;
   private dynamicNode: PassShadowNode | null = null;
+  private underlay: ShadowUnderlay | null = null;
   /** Where and along what the static map was last placed, and whether it must be drawn again. */
   private readonly staticCentre = new THREE.Vector3(Number.NaN, 0, 0);
   private readonly staticDir = new THREE.Vector3(Number.NaN, 0, 0);
@@ -217,11 +309,9 @@ export class CachedShadowNode extends ShadowBaseNodeBase {
     this.updateBeforeType = NodeUpdateType.RENDER;
     this.dynamicLight = new ShadowStandIn('dynamic shadow', params.mapSize, params.halfExtent, params.near, params.far);
     this.staticLight = new ShadowStandIn('static shadow', this.staticSize.mapSize, this.staticSize.halfExtent, params.near, params.far + 2 * this.depthPad);
+    // Receivers compare against the dynamic map only (the static depths are copied into it): its bias is the light's.
     this.dynamicLight.shadow.bias = params.bias;
-    // The bias is in the map's depth units: the same distance in metres over the static map's longer depth range.
-    this.staticLight.shadow.bias = (params.bias * (params.far - params.near)) / (params.far + 2 * this.depthPad - params.near);
     this.dynamicLight.shadow.normalBias = params.normalBias;
-    this.staticLight.shadow.normalBias = params.normalBias;
   }
 
   /**
@@ -270,12 +360,33 @@ export class CachedShadowNode extends ShadowBaseNodeBase {
       this.dynamicNode = new PassShadowNode(this.dynamicLight, this.dynamicLight.shadow, false);
       this.staticDirty = true;
     }
-    const s = this.staticNode;
+    if (this.underlay === null) {
+      const target = this.staticNode.ensureTarget(builder);
+      this.underlay = new ShadowUnderlay(target.depthTexture as THREE.DepthTexture, this.staticSize.mapSize, builder.renderer.reversedDepthBuffer === true);
+    }
     const d = this.dynamicNode;
     return Fn((b: N) => {
       this.setupShadowPosition(b);
-      return min(s, d).toVar('cachedShadow');
+      return d;
     })();
+  }
+
+  /** Line the underlay up for this frame: the static texel under each dynamic one, and the depth moved between their ranges. */
+  private alignUnderlay(u: ShadowUnderlay): void {
+    const dc = this.dynamicLight.shadow.camera;
+    const sc = this.staticLight.shadow.camera;
+    // The dynamic map's centre is its target; where it falls in the static map, in texels from the top-left
+    // (both maps as three draws them: screen and texel coordinates from the top-left on either backend).
+    const p = this.tmp.copy(this.dynamicLight.target.position).project(sc);
+    const size = this.staticSize.mapSize;
+    const half = this.params.mapSize / 2;
+    u.offset.value.set(Math.round(((p.x + 1) / 2) * size - half), Math.round(((1 - p.y) / 2) * size - half));
+    // Depth is (distance along the light − near) / (far − near) in each map; the distance differs by how far
+    // apart the two cameras sit along the light.
+    const dir = this.staticDir;
+    const k = this.staticLight.position.dot(dir) - this.dynamicLight.position.dot(dir);
+    u.scale.value = (sc.far - sc.near) / (dc.far - dc.near);
+    u.shift.value = (sc.near - dc.near + k) / (dc.far - dc.near);
   }
 
   updateBefore(frame: N): void {
@@ -292,14 +403,20 @@ export class CachedShadowNode extends ShadowBaseNodeBase {
     this.dynamicLight.shadow.intensity = intensity;
     if (renderer !== this.drawnBy || this.revision.value !== this.drawnRevision) this.staticDirty = true;
     if (this.staticDirty) {
-      s.updateShadow(frame);
+      s.draw(frame);
       this.staticDirty = false;
       this.drawnRevision = this.revision.value;
       this.drawnBy = renderer;
       this.counts.static += 1;
       this.totals.static += 1;
     }
-    d.updateShadow(frame);
+    // An empty static map has nothing to copy (a scene with no static casters draws the dynamic map alone).
+    const u = this.underlay;
+    if (u !== null && s.drawn > 0) {
+      this.alignUnderlay(u);
+      d.underlay = u.mesh;
+    } else d.underlay = null;
+    d.draw(frame);
     this.counts.dynamic += 1;
     this.totals.dynamic += 1;
   }
@@ -309,6 +426,8 @@ export class CachedShadowNode extends ShadowBaseNodeBase {
     this.dynamicNode?.dispose();
     this.staticNode = null;
     this.dynamicNode = null;
+    this.underlay?.dispose();
+    this.underlay = null;
     this.staticDirty = true;
     super.dispose();
   }
