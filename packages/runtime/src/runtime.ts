@@ -81,7 +81,6 @@ import {
   type IntentTransformWrite,
 } from './intents';
 import { DuplicateMoveError, PhaseViolationError, frozenContext, liveScopedState, phaseScopedState } from './guard';
-import { interpolateTransformInto, lerpVec3, quatEqual, slerpQuat, vec3Equal } from './interp';
 import { isSimulationRegistry, validatePhaseList } from './registry';
 import { deepFreeze, validateRuntimeSnapshot } from './snapshot';
 import { type AnimatorControllerLike, type AnimatorPose } from './animator';
@@ -110,6 +109,7 @@ import { EntityAccess, type EntityFieldsSave, type LightOverride } from './entit
 import { SpawnRequests } from './spawn-requests';
 import { TransformMirror } from './step-buffers';
 import { FrameClock } from './frame-clock';
+import { StepReads, type DrawnSteps } from './step-reads';
 import { CHARACTER_IMPULSE_MAX, CharacterPlacement, ControllerPlacements } from './character-placement';
 import { PhysicsPortFailure, PlayerControllers } from './player-controllers';
 import { actionDiagnostics, behaviorLogTotals, physicsDiagnostics } from './diagnostics-reads';
@@ -150,7 +150,6 @@ import {
   type EffectRequest,
   type GameplaySettings,
   type InterpolatedState,
-  type InterpolatedTransform,
   type InterpolatedVisitor,
   type StepPairVisitor,
   type ModuleConfig,
@@ -2135,40 +2134,23 @@ class RuntimeInstance implements Runtime {
     return { ok: true, diagnostics: this.buildDiagnostics() };
   }
 
+  /** The two steps a draw reads now (a failed runtime draws its last committed step). */
+  private drawnSteps(): DrawnSteps {
+    const failed = this.stateName === 'failed' && this.committed !== null;
+    return {
+      order: this.order,
+      prev: failed ? this.committed! : this.prev,
+      curr: failed ? this.committed! : this.curr,
+      alpha: this.stateName === 'failed' ? 0 : this.frameClock.alpha,
+    };
+  }
+
   getInterpolatedState(): { ok: true; state: InterpolatedState } | { ok: false; error: RuntimeError } {
     if (this.stateName === 'disposed') {
       return { ok: false, error: fail('runtime_disposed', 'runtime is disposed') };
     }
-    const failed = this.stateName === 'failed' && this.committed !== null;
-    const prev = failed ? this.committed! : this.prev;
-    const curr = failed ? this.committed! : this.curr;
-    const alpha = this.stateName === 'failed' ? 0 : this.frameClock.alpha;
-    const transforms: InterpolatedTransform[] = [];
-    for (const id of this.order) {
-      const p = prev.get(id);
-      const c = curr.get(id);
-      if (!p || !c) continue;
-      if (
-        alpha === 0 ||
-        (vec3Equal(p.position, c.position) && vec3Equal(p.scale, c.scale) && quatEqual(p.rotation, c.rotation))
-      ) {
-        // Alpha == 0 or prev == curr ⇒ the result is curr exactly.
-        transforms.push({
-          id,
-          position: [c.position[0], c.position[1], c.position[2]],
-          rotation: [c.rotation[0], c.rotation[1], c.rotation[2], c.rotation[3]],
-          scale: [c.scale[0], c.scale[1], c.scale[2]],
-        });
-      } else {
-        transforms.push({
-          id,
-          position: lerpVec3(p.position, c.position, alpha),
-          rotation: slerpQuat(p.rotation, c.rotation, alpha),
-          scale: lerpVec3(p.scale, c.scale, alpha),
-        });
-      }
-    }
-    return { ok: true, state: { stepIndex: this.stepIndex, simTime: this.simTime, alpha, transforms } };
+    const s = this.drawnSteps();
+    return { ok: true, state: { stepIndex: this.stepIndex, simTime: this.simTime, alpha: s.alpha, transforms: this.stepReads.transforms(s) } };
   }
 
   /**
@@ -2179,28 +2161,16 @@ class RuntimeInstance implements Runtime {
    */
   forEachInterpolated(visit: InterpolatedVisitor): boolean {
     if (this.stateName === 'disposed') return false;
-    const failed = this.stateName === 'failed' && this.committed !== null;
-    const prev = failed ? this.committed! : this.prev;
-    const curr = failed ? this.committed! : this.curr;
-    const alpha = this.stateName === 'failed' ? 0 : this.frameClock.alpha;
-    const order = this.order;
-    for (let i = 0; i < order.length; i += 1) {
-      const id = order[i]!;
-      if (this.interpolateInto(id, prev, curr, alpha)) visit(id, this.interpPosition, this.interpRotation, this.interpScale);
-    }
+    this.stepReads.forEach(this.drawnSteps(), visit);
     return true;
   }
 
   /** Every entity's committed transform (the last step's state; no interpolation). */
   forEachCommitted(visit: InterpolatedVisitor): boolean {
     if (this.stateName === 'disposed') return false;
-    const curr = this.stateName === 'failed' && this.committed !== null ? this.committed : this.curr;
-    const order = this.order;
-    for (let i = 0; i < order.length; i += 1) {
-      const id = order[i]!;
-      // alpha 0 reads the committed transform as it is.
-      if (this.interpolateInto(id, curr, curr, 0)) visit(id, this.interpPosition, this.interpRotation, this.interpScale);
-    }
+    const curr = this.drawnSteps().curr;
+    // alpha 0 reads the committed transform as it is.
+    this.stepReads.forEach({ order: this.order, prev: curr, curr, alpha: 0 }, visit);
     return true;
   }
 
@@ -2209,21 +2179,11 @@ class RuntimeInstance implements Runtime {
    * before the last step and after it, the pair `forEachInterpolated` blends
    * by the frame's alpha. A presenter that draws later than the frame that
    * stepped (the page, a frame behind the simulation worker) blends them by
-   * its own clock. Arrays reused as in `forEachInterpolated`.
+   * its own clock.
    */
   forEachStepPair(visit: StepPairVisitor): boolean {
     if (this.stateName === 'disposed') return false;
-    const failed = this.stateName === 'failed' && this.committed !== null;
-    const prev = failed ? this.committed! : this.prev;
-    const curr = failed ? this.committed! : this.curr;
-    const order = this.order;
-    for (let i = 0; i < order.length; i += 1) {
-      const id = order[i]!;
-      const p = prev.get(id);
-      const c = curr.get(id);
-      if (!p || !c) continue;
-      visit(id, p, c);
-    }
+    this.stepReads.forEachPair(this.drawnSteps(), visit);
     return true;
   }
 
@@ -2243,19 +2203,10 @@ class RuntimeInstance implements Runtime {
    */
   readInterpolated(id: string, position: number[], rotation: number[], scale: number[]): boolean {
     if (this.stateName === 'disposed') return false;
-    const failed = this.stateName === 'failed' && this.committed !== null;
-    const prev = failed ? this.committed! : this.prev;
-    const curr = failed ? this.committed! : this.curr;
-    if (!this.interpolateInto(id, prev, curr, this.stateName === 'failed' ? 0 : this.frameClock.alpha)) return false;
-    for (let k = 0; k < 3; k += 1) position[k] = this.interpPosition[k]!;
-    for (let k = 0; k < 4; k += 1) rotation[k] = this.interpRotation[k]!;
-    for (let k = 0; k < 3; k += 1) scale[k] = this.interpScale[k]!;
-    return true;
+    return this.stepReads.read(this.drawnSteps(), id, position, rotation, scale);
   }
 
-  private readonly interpPosition: number[] = [0, 0, 0];
-  private readonly interpRotation: number[] = [0, 0, 0, 1];
-  private readonly interpScale: number[] = [1, 1, 1];
+  private readonly stepReads = new StepReads();
 
   // ---- The resolved view (views.ts) ------------------------
 
@@ -2329,15 +2280,6 @@ class RuntimeInstance implements Runtime {
   private sceneOfEntity(entityId: string): string | undefined {
     for (const b of this.batches.values()) if (b.ids.has(entityId)) return b.sceneId;
     return undefined;
-  }
-
-  /** The interpolation rule for one entity into the reused arrays (see `getInterpolatedState`). */
-  private interpolateInto(id: string, prev: ReadonlyMap<string, TransformState>, curr: ReadonlyMap<string, TransformState>, alpha: number): boolean {
-    const p = prev.get(id);
-    const c = curr.get(id);
-    if (!p || !c) return false;
-    interpolateTransformInto(this.interpPosition, this.interpRotation, this.interpScale, p, c, alpha);
-    return true;
   }
 
   getCamera(): { ok: true; camera: CameraInfo } | { ok: false; error: RuntimeError } {
