@@ -18,6 +18,8 @@
  *   --first-bare                 also measure the first plain page (`fair=0`: noise textures, no environment
  *                                lighting or grading, skinned meshes at rest) beside the plain page of the same content
  *   --query 'a=b&c=d'            add to the export's and the Scene view's page query (e.g. merging=off to compare)
+ *   --switches 'a=off,b=off&c=d' measure the export again with each of these queries in the same browser after its own
+ *                                run (one optimization switched off at a time: each one's share of the frame)
  *   --vsync                      draw at the display's rate (a player's browser) instead of uncapped: frame drops
  *                                show as intervals of two refreshes or more
  *   --gate                       the fast gate's check: frames only (no GPU passes, profile or plain page)
@@ -79,6 +81,8 @@ export interface VillageReport {
   bare: Partial<Record<BareVariant, Partial<Record<FrameRenderer, FrameRunResult>>>>;
   /** The editor's Scene view on the same content (`--scene-view`). */
   sceneView?: Partial<Record<FrameRenderer, SceneViewResult>>;
+  /** The export with each `--switches` query added, per query. */
+  switches?: Record<string, Partial<Record<FrameRenderer, FrameRunResult>>>;
   errors: string[];
 }
 
@@ -189,6 +193,7 @@ export async function runVillageCli(argv: readonly string[]): Promise<void> {
   const bare = !gate && exporting && !has('no-bare');
   const ablation = !gate && has('ablation');
   const query = get('query') !== undefined ? `&${get('query')}` : '';
+  const switches = gate ? [] : (get('switches') ?? '').split(',').filter((x) => x !== '');
 
   const startedAt = new Date().toISOString();
   const stamp = startedAt.replace(/[:.]/g, '-');
@@ -260,6 +265,12 @@ export async function runVillageCli(argv: readonly string[]): Promise<void> {
         const res = await measurePage(browser, { url: `${site!.url}?renderer=${r}${query}`, warmupMs, recordMs, gpuMs, profileMs, steps, sourceOf: sourcesOf(site!), dump: bare && i === 0, shot: join(runDir, `export-${r}.png`) });
         report.export[r] = res;
         log(frameLine(`export ${r}`, res));
+        for (const sw of switches) {
+          const off = await measurePage(browser, { url: `${site!.url}?renderer=${r}${query}&${sw}`, warmupMs, recordMs, gpuMs, profileMs: 0, steps, sourceOf: sourcesOf(site!), shot: join(runDir, `export-${r}-${sw.replace(/[^a-z0-9]+/gi, '_')}.png`) });
+          ((report.switches ??= {})[sw] ??= {})[r] = off;
+          log(frameLine(`export ${r} ${sw}`, off));
+          log(`switch ${r} ${sw}: ${off.frames.fps} fps (on ${res.frames.fps}), p50 ${off.frames.p50} ms (on ${res.frames.p50}), main thread ${off.mainThread.taskMsPerFrame} ms (on ${res.mainThread.taskMsPerFrame}), draws ${off.draws.p50} (on ${res.draws.p50})`);
+        }
       }
     } finally {
       await site?.close();

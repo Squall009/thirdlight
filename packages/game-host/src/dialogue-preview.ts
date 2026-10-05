@@ -15,7 +15,7 @@
  * given), so conditions can be tried out; input comes from the dialogue
  * document's buttons and the keyboard (arrows, Enter/Space, Backspace/Escape).
  */
-import { AudioMixer, DialogueRunner, dialogueVoicesAhead, UiState, uiDocumentsForRuntime, withDialogueUiDocument, type DialogueInputRecord, type RuntimeDialogueData, type UiDocument, type UiTheme } from '@thirdlight/runtime';
+import { AudioMixer, catchUpSteps, DialogueRunner, dialogueVoicesAhead, UiState, uiDocumentsForRuntime, withDialogueUiDocument, type DialogueInputRecord, type RuntimeDialogueData, type UiDocument, type UiTheme } from '@thirdlight/runtime';
 
 import type { GameAudioOwner, AudioObservation } from './audio';
 import type { UiEdges } from './dom';
@@ -69,16 +69,16 @@ export interface DialoguePreview {
   input(input: DialogueInputRecord): void;
   /** Keyboard edges (arrows, submit, cancel) for the focused dialogue document. */
   edges(e: Partial<UiEdges>): void;
-  /** Advance by the real time since the last frame (fixed steps, at most 10 per frame). */
+  /** Advance by the real time since the last frame (fixed steps, at most the runtime's catch-up per frame). */
   frame(dtSeconds: number): void;
   observe(): DialoguePreviewObservation;
   dispose(): void;
 }
 
-const MAX_STEPS_PER_FRAME = 10;
-
 export function createDialoguePreview(deps: DialoguePreviewDeps): DialoguePreview {
   const hz = deps.hz ?? 60;
+  // The game's own catch-up rule, so the preview keeps the pace a game would at the same step rate.
+  const maxSteps = catchUpSteps(1 / hz);
   const docs = withDialogueUiDocument(deps.documents, deps.data) ?? [];
   const ui = new UiState(uiDocumentsForRuntime(docs));
   let step = 0;
@@ -207,12 +207,12 @@ export function createDialoguePreview(deps: DialoguePreviewDeps): DialoguePrevie
       if (disposed) return;
       acc += Math.max(0, Math.min(0.5, Number.isFinite(dt) ? dt : 0));
       let n = 0;
-      while (acc >= 1 / hz && n < MAX_STEPS_PER_FRAME) {
+      while (acc >= 1 / hz && n < maxSteps) {
         acc -= 1 / hz;
         oneStep();
         n += 1;
       }
-      if (n === MAX_STEPS_PER_FRAME) acc = 0;
+      if (n === maxSteps) acc = 0;
       service();
     },
     observe() {

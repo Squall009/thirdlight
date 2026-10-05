@@ -163,7 +163,7 @@ will show it if they do).
 | 28c.10 | done 2026-10-05 — block chunks mesh in a pool of mesh workers (`block-mesh-worker.ts`, ≤ 2, three-free bundle `mesh-worker.js` in the editor, Play and an export with block layers; no worker: the page, as before): layer load, a type change, a model arriving and lightmap changes go to the workers, the old meshes drawn until the new ones arrive, results transferred and swapped in ≤ 4 ms a frame, stale ones dropped (generation per chunk). Rule: an edit's chunks mesh on the page while their measured cost fits 8 ms a frame (a flat chunk ~6 ms, a smoothed sloped one 20–80 ms: terrain edits show when the worker answers); bakes `flush`. Numeric weld/vertex keys (sloped smoothed chunk 31 → 22 ms in Node). Output byte-identical (pinned digests, worker vs page test); export pixels before/after max 0 outside the stats text. `run.mjs blocks` (64 smoothed sloped chunks + kit blocks), worst frame before → after, WebGPU / WebGL 2: export load 4,961–5,422 → 35–53 / 5,236 → 767–992 ms (WebGL 2's uncapped GPU stalls; at the display rate 16.8 / 33.3 ms), grid write stream 361–380 → 13–14 / 348–367 → 227 ms (p95 176–181 → 5.5–6 / 238–243 → 7.5–8.4 ms; the WebGL 2 worst is the same stall); Scene view type change 5,320 → 17.8 / 5,150 → 17.8 ms, kit model arrival 5,391 → 17.8 / 5,137 → 17.9 ms. Unverified: edit-to-screen latency of a terrain edit in the editor. |
 | 28c.11 | done 2026-10-05 — export scripts minified and tree-shaken with a linked source map each (`js/*.js.map`, engine-relative sources; `tools/perf` reads the split through it); rapier's WASM is its own file (`js/physics-2d.wasm` / `physics-3d.wasm`, fetched by the backend script) and only the project's engine ships, loaded on use (page and worker carry none); engine packages marked side-effect free. Engine code (`run.mjs export-size`), raw / gzip / brotli KiB before → after: minimal 2D 14,320 / 3,767 / 2,840 → 5,130 / 1,659 / 1,325; minimal 3D 18,347 / 5,085 / 3,820 → 5,664 / 1,860 / 1,465; village class 21,361 / 5,904 / 4,468 → 6,268 / 2,126 / 1,689 (mesh worker 2,442 → 32); Skyforge copy the same as the class (its 253 MiB of content unchanged). Village export first frame (localhost) 1,492 / 1,509 → 1,246 / 1,235 ms (WebGPU / WebGL 2), frame unchanged (153.3 / 150.2 → 154.6 / 155.6 fps); Skyforge copy plays (105.4 / 97.5 fps). Play is untouched (its own build). Left: project-model's descriptors and validators (~470 KiB minified) stay in the page, the runtime validates its snapshot (§7). |
 | 28c.12 | done 2026-10-05 — `FramePacer` (`runtime/frame-pacing.ts`): early animation frames skipped on a fixed grid of the cap (a frame < ½ refresh early draws; a cap ≥ 0.9× the display's median rate draws every frame), set by `frame_rate_cap` (0/30/60/120), a settings field `engine: 'frameRateCap'` (its value applies from the start and is kept with the player's settings), `setSetting frameRateCap` (shell keeps it) and `ctx.display` (graph nodes); `ctx.stats.frameRateCap`, Play diagnostics `framePacing`, overlay; `?frameRateCap=` pins it, the perf harness pins `none`. Worker ticks: one per drawn frame, sent on the animation frame before the draw (else on the draw), so input is a refresh old, not a cap interval. Uncapped Chrome e2e: cap 30 → 30.1 drawn fps, 60 → 61.7, none → 1,615, player setting 30 → 29.9, kept 60 → 61.5, 119.7–120.0 steps/s and 0 dropped at every cap; inputToDrawMs 16–18 ms capped. Perf check unchanged (WebGPU p50 6.5 / WebGL 2 4.1 ms). Unverified on a real vsync display or phone (fake-clock unit tests cover 60/144/120/240 Hz). |
-| 28c.13 | — |
+| 28c.13 | implementation done 2026-10-05 — runtime's frame loop out of `runtime.ts` (`frame-loop.ts`; 4,864 → 4,826 lines, was 4,835 before 28c.12); `run.mjs village --switches` measures each switch in one session; the dialogue preview's own 10-step catch-up replaced by the runtime's `catchUpSteps`; limits and switches in `docs/deployment.md` (Performance). After, shares and verdicts below. Full gate, review and the owner's look pending. |
 
 Before (2026-10-04, `1c24eb23`, Skyforge village copy, Iris Xe, 1080p, DPR 1):
 
@@ -199,6 +199,63 @@ WebGL2 over its 889 draws):
 So 28c.7 is the dark effect-pool lights (a GPU cost in every lit pixel); material copies and node materials cost
 nothing measurable, and uniform buffers are the same in both pages. The rest of the gap is main-thread work
 (28c.2–28c.6). Unverified: the plain page draws skinned meshes in their rest pose and textures as 512² noise.
+
+After (28c.13, 2026-10-05, `5cc6b490` + the frame-loop move, same host and conditions as the tables above; uncapped,
+mean fps, frame p50/p95/p99 ms, main thread ms/frame, draws scene/shadow, Object3Ds):
+
+| | Before (28c.1) | After, Thirdlight | Plain three.js, fair (28c.9b) |
+|---|---|---|---|
+| Class export, WebGPU | 57.3, 18.0/31.7/33.9, 14.8 ms, 1,016 draws, 9,725 | **155.0**, 6.7/7.9/15.5, 6.5 ms, 236 (197/21), 533 (2nd run 154.3) | 148.9, 6.3/10.1/11.4, 6.7 ms, 788 (255/515), 1,096 |
+| Class export, WebGL 2 | 57.7, 17.8/31.1/32.4, 14.1 ms | **157.1**, 4.0/8.1/90.9 (uncapped stalls, §7), 6.4 ms (2nd run 156.8) | 144.1, 6.5/7.5/11.8, 6.9 ms |
+| Class Scene view, WebGPU / WebGL 2 | 83.8 fps (11.5 ms p50) / 12.7 ms p50, 10,135 | 148.3, 6.5/8.3/9.5 / 148.7, 6.6/7.7/10.1; 6.7 / 6.5 ms; 873 draws, 964 | — |
+| Skyforge copy, WebGPU | 55.1, 18.0/19.0/22.5, 13.8 ms, 598 draws, 8,629 | 107.5, 9.2/10.3/11.0, 9.4 ms, 506 (273/215), 572 | **114.7**, 6.6/14.0/14.5, 8.8 ms, 508 (250/240), 827 |
+| Skyforge copy, WebGL 2 | 54.7, 17.9/20.5/23.2, 14.9 ms | 95.4, 10.3/11.7/12.7, 10.5 ms | **108.1**, 7.0/11.0/59.4, 9.2 ms |
+| Skyforge marked static, WebGPU / WebGL 2 | — | 97.1, 10.2/12.0/27.9 / 91.4, 9.4/11.3/14.7; 397 draws (260/119), 555 | **104.3** / **98.7**; 572 draws (282/272), 860 |
+| At the display's rate (`--vsync`, 60 Hz, 601 frames) | — | class export, class Scene view and Skyforge copy, both renderers: 0 frames ≥ 25 ms (max 16.8 ms) | — |
+| Sprout copy (title) | 268 fps, 40 draws, 121 | 256.7 / 261.4 fps, 30 draws | — |
+| Blocks class worst frame, WebGPU / WebGL 2 (28c.10) | load 4,961 / 5,236 ms | export load 34.9 / 697.8 ms (WebGL 2 uncapped stall), grid writes 17.5 / 230.1, Scene view type change 18.3 / 17.9, kit model arrival 17.8 / 17.8 | — |
+| Export engine code, gzip (28c.11) | 2D 3,767, 3D 5,085, class 5,904 KiB | 1,661 / 1,863 / 2,129 KiB | — |
+
+Each item's share, switched off in the same session as the "after" export (fps on → off; two runs for the class
+agreed within 1–4 fps). Items with no switch keep the before/after of their own row above.
+
+| Switch (items) | Class WebGPU | Class WebGL 2 | Skyforge WebGPU | Skyforge WebGL 2 | Skyforge static, WebGPU / WebGL 2 |
+|---|---|---|---|---|---|
+| `?batching=off` (28c.5, and 28c.8 with it) | 155 → 162 (**faster**: 122k tris against 204k, instanced groups and cells are culled per 64 m cell, not per object; the class is GPU-bound) | 157 → 152–161 | 107.5 → 98.4 | 95.4 → 84.1 | 97.1 → 94.0 / 91.4 → 77.8 |
+| `?merging=off` (28c.8) | 155 → 143 | 157 → 140–145 | no static objects: 106.4 | 93.7 | 97.8 / 95.1 (**faster** on WebGL 2) |
+| `?shadowcache=off` (28c.9, 28c.9b's one map) | 155 → 150.5; shadow draws 21 → 388 | 157 → 147 | 103.8; 215 → 270 | 94.7 | 95.8 / 90.7; 119 → 251 |
+| `?threads=off` (28c.6: the main-thread simulation instead of the worker one frame behind) | 155 → 162 (**faster**: the village's simulation costs less than applying the worker's frame) | 157 → 153–156 | 101.5 | 88.3 | 95.9 / 89.9 |
+| No switch: 28c.2 / 28c.3 (render only what is drawn, one LOD level) | Object3Ds 9,725 → 1,382, main thread 14.5 → 7.5–8.2 ms (fps hidden by the worker wait) | | 8,629 → 897 | | |
+| No switch: 28c.6 (worker overlapped) | 57.5 → 79.8 fps | 59.9 → 81.8 | 55.8 → 60.5 | 55.4 → 61.8 | |
+| No switch: 28c.7 (effect lights) | 81 → 118 fps | 86 → 128 | 60.5 → 83.7 | 61.8 → 92.1 | |
+| No switch: 28c.9b (fixes after the fair page) | 138.4 → 154.5 | 133.9 → 149.9 | 95.5 → 105.8 | 86.1 → 96.0 | 96.4 / 91.4 (marked) |
+
+**Done when**, verdicts:
+- **Beats plain three.js — class: met.** Export 155.0 / 157.1 fps against the fair plain page's 148.9 / 144.1
+  (+4 % / +9 %; WebGPU's median is 0.4 ms behind, its p95/p99 ahead: the plain page is bimodal). Scene view 148 fps.
+  **Skyforge copy: not met.** 107.5 / 95.4 fps against 114.7 / 108.1 (−6 % / −12 %); marked static 97.1 / 91.4
+  against 104.3 / 98.7. Why (28c.9b, §7): it is CPU-bound on WebGL 2 and near both limits on WebGPU; ~1.3 ms of
+  main-thread work the plain page has not (the game's animators and posing ~0.8 ms, effects, the batcher, texture
+  streaming, the worker frame), ~1.1 ms inside three's render of the same passes not attributed, and its graph
+  materials shade more per pixel than the plain page's one texture per slot. Merging gains nothing there
+  (WebGL 2 is faster with it off). Both are now 1.7–2× the 2026-10-04 export.
+- **Idle static scene: met** (28c.3/28c.5 e2e: 0 matrix writes, 0 regroups, 0 matrix copies per idle frame;
+  `updateLods` skipped while nothing moves, 28c.9).
+- **Object3D count = drawables + lights + bones: met up to 17 containers.** Class export 533 = 513 meshes (499
+  drawn, 14 effect draws with no live particle this frame) + 3 lights + 0 bones (skinned meshes are posed in their
+  detached hierarchy, so no bone is in the scene) + 16 effect groups (one per playing effect, holding its particle
+  draws) + the scene. Skyforge 572 = 552 + 3 + 0 + 16 + 1. The effect groups are the one container left.
+- **Never waits on the worker: met by construction, with a caveat on the number.** The frame has no wait on the
+  worker (apply the newest frame, send, draw); `simulation.pipeline.blockedMaxMs` counts the page's own time from
+  the frame's start to its draw (applying the worker's frame included), 0.9 ms max, asserted < 5 ms in
+  `sim-worker.e2e.ts`; a worker slowed to 40 ms still draws 60.7 fps. It is not a literal 0.
+- **Perf class in the fast gate, fails on a regression: met** (median +10 %, p95 +50 %, `tests/perf/village.test.ts`).
+- **Both game copies open and play as before: met.** Skyforge plays (village after title → Enter → Enter), Sprout
+  opens to its title; their repos are untouched by this phase (their uncommitted edits date from 2026-10-03).
+- **Full gate `--both-renderers` once: pending** (the main session).
+
+Unverified: anything on a real vsync display or the owner's laptop (the `--vsync` runs are headless Chrome at
+60 Hz); the owner look (village in Play and in the Scene view) is pending.
 
 ## 7. Decision log
 

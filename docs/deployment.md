@@ -3612,9 +3612,12 @@ same in the worker.
 scene load, run start/replay) reach the worker in order and apply at its next
 step boundary, as in the page; a level switch the worker refuses is logged
 (`simulation worker refused startLevel …`) instead of being refused
-synchronously. Frames are rendered as soon as the worker's frame arrives
-(at most one frame in flight), so a key press moves the player within the
-same few frames as in single-thread mode (an e2e test measures it).
+synchronously. The page never waits for the worker: each frame it applies
+the newest finished worker frame, sends the next tick (with this frame's
+input) and draws at once, every object blended between its last two finished
+steps, so the picture is one frame behind the simulation and a key press
+reaches the screen one frame later than in single-thread mode (Play's
+`inputToDrawMs`, about 17 ms at 60 fps; an e2e test measures it).
 
 **Measuring.** `node tools/perf/run.mjs --surfaces play,export --threads
 worker,off` measures Play and the export in both modes; the report adds the
@@ -4411,6 +4414,44 @@ node tools/perf/run.mjs village --gate --write-baseline tests/perf/village-basel
 ```
 
 and the new file is committed with the change that moved it.
+
+**The frame path: limits, constants and switches.** Each number below is
+defined once, in the package named, and imported wherever else it is used:
+
+| What | Value | Defined in | Why |
+|---|---|---|---|
+| Catch-up per frame (`MAX_CATCHUP_SECONDS`, `catchUpSteps`) | 100 ms of game time (12 steps at 120 Hz, 24 at 240 Hz; the rest dropped) | `runtime/src/frame-clock.ts`; the page's runtime, the simulation worker and the editor's dialogue preview | A slow frame must not make the next one slower; a time, so a 240 Hz game keeps real-time speed at 30 fps |
+| Worker pipeline | One tick per drawn frame, sent on the animation frame before the draw; the page never blocks on it (Play diagnostics `simulation.pipeline`) | `game-host/src/sim-remote.ts` | Simulation and drawing overlap; one frame of latency accepted |
+| Frame-rate cap (`FRAME_RATE_CAPS`, `FRAME_RATE_CAP_CHOICES`) | 30, 60, 120 or none | `project-model/src/frame-rate-cap.ts` | The values a game, a player setting and the UI action may set |
+| Frame pacing (`EARLY_SHARE`, `DISPLAY_MATCH`, `DISPLAY_SAMPLES`, `DISPLAY_MIN_SAMPLES`) | A frame up to a quarter of the cap's interval and at most half a refresh early draws; a cap at ≥ 0.9× the display's rate draws every frame; the display's rate is the median of the last 15 intervals, pacing starts after 5 | `runtime/src/frame-pacing.ts` (the loop that uses it: `runtime/src/frame-loop.ts`) | vsync jitter must not move a draw to the neighbouring refresh |
+| Block mesh workers (`MESH_WORKERS_MAX`, `meshWorkerCount`) | The host's cores − 2, at least 1, at most 2 | `three-adapter/src/block-mesh-pool.ts` | Leave the page and the simulation worker their cores |
+| Edit meshing on the page (`SYNC_MESH_BUDGET_MS`) | An edit's chunks mesh on the page while their measured cost fits 8 ms a frame; the rest go to the workers | `three-adapter/src/block-layers.ts` | A small edit shows in the same frame, a large one never hitches |
+| Worker meshes swapped in (`MESH_APPLY_BUDGET_MS`) | 4 ms a frame | `three-adapter/src/block-layers.ts` | Uploading many chunks at once would be the hitch the workers removed |
+| Instancing and merge cell (`createAutoBatcher` options) | 64 m cells; an instanced group needs 4 members; geometry from 256 triangles is split per cell | `three-adapter/src/batching.ts` (static merging gets the cell size from the batcher) | Off-screen cells are culled while a cell still holds many objects |
+| Merged cells (`MIN_MERGE`, `MERGE_QUIET_MS`, `MERGE_BACKGROUND_BUDGET_MS`, `MERGED_RENDER_ORDER`) | At least 2 members; a moved static member rejoins after 500 ms still; the editor builds 4 ms of cells a frame (Play and the export at load); cells draw first (render order −1) | `three-adapter/src/static-merge.ts` | Cells are the level's occluders; a cell's centre would otherwise sort it behind what stands in front of it |
+| Cached sun shadow (`STATIC_SHADOW_STEP`, `STATIC_SHADOW_TURN_DEGREES`) | The static map follows the camera in steps of half the shadow square's half side (1,288² texels at the default 1,024² map); drawn again at a step, a turn of more than 0.05°, or a change within its reach | `three-adapter/src/cached-shadow.ts` | Static casters are drawn once, not every frame; texels line up with the dynamic map |
+| Effect lights (`EFFECT_LIGHT_LIMIT`) | 16 slots in one light node | `project-model/src/effect-graph-kinds.ts` | A fixed shader: a new effect light never recompiles, a dark slot costs nothing |
+| Perf check (`FRAME_REGRESSION`, `FRAME_P95_REGRESSION`) | Export median frame time +10 %, p95 +50 % over `tests/perf/village-baseline.json`, either renderer | `tools/perf/village-run.ts` | See "The frame-time gate" above; re-record with the command there |
+
+Switches, for comparisons (on the editor's URL they are passed on to Play;
+on an export's URL they apply directly):
+
+- `?batching=off` — no automatic instancing and no static merging: one draw
+  per object;
+- `?merging=off` — instancing kept, static merging off;
+- `?shadowcache=off` — the sun's whole shadow map drawn every frame;
+- `?threads=off` — the simulation on the page's main thread (a debug
+  switch; also a play's `threads` and the `sim_thread` setting);
+- `?frameRateCap=none|30|60|120` — pins the frame-rate cap;
+- `?simDelayMs=N` — slows the simulation worker by N ms a frame (tests of the
+  pipeline);
+- `?workers=off` (editor only) — the editor's jobs inline (block meshing
+  in Play and the export has no switch: without `Worker` it meshes on the
+  page).
+
+`node tools/perf/run.mjs village --switches 'batching=off,merging=off,shadowcache=off,threads=off'`
+measures the export again with each switch in the same browser after its own
+run (each one's share; the numbers are in `docs/plan-phase-28c.md` §6).
 
 **Runtime and simulation (21.2).** The fixed step no longer allocates per
 entity: the step's backup and the committed state are reused copies that are

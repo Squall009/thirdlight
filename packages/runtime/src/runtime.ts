@@ -62,7 +62,8 @@ import { DebugCommands } from './debug-commands';
 import { MAX_FRAME_UI_EVENTS, UiState, type UiEventRecord, type UiOutput, type UiStateView } from './ui';
 import { queueUiEventChecked, uiControlOf } from './ui-control';
 import { EngineStatsHolder } from './engine-stats';
-import { displayControlOf, FramePacer, type FramePacingStats } from './frame-pacing';
+import type { FramePacingStats } from './frame-pacing';
+import { defaultClock, FrameLoop, hasRaf } from './frame-loop';
 import { ModeState, type ModeView } from './modes';
 import { BehaviorHostError, BehaviorHostIntentLimit, compiledFramesOf, createTagQuery, graphNodeIdOf, type BehaviorDebugView, type BehaviorPropertyView, type CompiledFrame } from './behavior';
 import { character3DPhysicsOf, offsetEntities, playerCapsuleOf, type LiveTagIndex } from './scene-set';
@@ -173,7 +174,6 @@ import {
   type DebugCommandOptions,
   type DebugCommandState,
   type BehaviorUi,
-  type BehaviorDisplay,
 } from './types';
 
 /** The pointer state the runtime keeps — a pointer sample plus this step's enter/leave edges. */
@@ -262,16 +262,6 @@ class InputSourceError extends Error {
 
 function isPlainObject(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);
-}
-
-function hasRaf(): boolean {
-  return typeof globalThis.requestAnimationFrame === 'function';
-}
-
-function defaultClock(): (() => number) | null {
-  const p = globalThis.performance;
-  if (p && typeof p.now === 'function') return () => p.now() / 1000;
-  return null;
 }
 
 function messageOf(e: unknown): string {
@@ -1100,7 +1090,6 @@ class RuntimeInstance implements Runtime {
   /** The failing error's compiled script frames (consumed by the fail-stop entry). */
   private failFrames: CompiledFrame[] = [];
   private errorCount = 0;
-  private rafId: number | null = null;
   /** The settle pre-roll is initialization: cancellable before the first frame. */
   private prerollDone = false;
   private needsPreroll = false;
@@ -1213,9 +1202,8 @@ class RuntimeInstance implements Runtime {
   private dialogueQueue: DialogueInputRecord[] = [];
   private readonly uiControls = new Map<SimulationPhase, BehaviorUi>();
   private readonly engineStats = new EngineStatsHolder();
-  /** Which animation frames draw under the game's frame-rate cap (the raf driver's), and `ctx.display` over it. */
-  private readonly pacer: FramePacer;
-  private readonly displayControl: BehaviorDisplay;
+  /** The rAF driver's loop, paced by the game's frame-rate cap, and `ctx.display` over it. */
+  private readonly loop: FrameLoop;
   // ---- Game modes and the run lifecycle ----
   private readonly modes: ModeState;
   private readonly modeControls = new Map<SimulationPhase, import('./types').BehaviorModes>();
@@ -1477,8 +1465,8 @@ class RuntimeInstance implements Runtime {
       this.colliders.track(args.initialEntities);
     }
     this.settings = args.settings;
-    this.pacer = new FramePacer(projectFrameRateCap(args.settings));
-    this.displayControl = displayControlOf(this.pacer);
+    const loopHost = { running: () => this.stateName === 'running', clock: () => this.clock(), runFrame: (t: number) => this.runFrame(t) };
+    this.loop = new FrameLoop(projectFrameRateCap(args.settings), loopHost);
     this.controllers = this.buildPlayerControllers(args.controllerEntityIds, args.initialEntities);
     this.placement = new ControllerPlacements(this.controllers.ids, (id) => this.buildCharacterPlacement(id));
     this.order = args.order;
@@ -2081,12 +2069,8 @@ class RuntimeInstance implements Runtime {
     // after start, cancellable by stop()/dispose() before that frame.
     if (this.isM2 && !this.prerollDone) this.needsPreroll = true;
     this.stateName = 'running';
-    if (this.driverKind === 'raf') {
-      // Exactly one driver at any time (normative): one rAF loop,
-      // installed here, cancelled on stop/dispose. The wall anchor is set
-      // on the FIRST frame, not here.
-      this.rafId = globalThis.requestAnimationFrame(this.onRafFrame);
-    }
+    // Exactly one driver at any time (normative): one rAF loop, installed here, cancelled on stop/dispose.
+    if (this.driverKind === 'raf') this.loop.start();
     // Manual driver: no auto-loop; the host calls tick(), and the first
     // tick installs the anchor.
     return { ok: true };
@@ -2106,7 +2090,7 @@ class RuntimeInstance implements Runtime {
     // Cancel the driver (the owned listener is removed); the mutable
     // state is RETAINED — a restart continues (simTime/stepIndex keep
     // counting; M1 defines no reset).
-    this.cancelDriver();
+    this.loop.cancel();
     // A stop before the pre-roll frame cancels the pending initialization.
     this.needsPreroll = false;
     this.stateName = 'stopped';
@@ -2385,7 +2369,7 @@ class RuntimeInstance implements Runtime {
     if (this.stateName === 'disposed') {
       return { ok: true, alreadyDisposed: true };
     }
-    this.cancelDriver();
+    this.loop.cancel();
     this.stateName = 'disposed';
     // Capture the behavior log totals before the instances are released so
     // `logCount`/`logDropped` stay observable after disposal.
@@ -2429,28 +2413,6 @@ class RuntimeInstance implements Runtime {
     this.frameClock.clear();
     return { ok: true };
   }
-
-  /** Cancel the owned driver (rAF callback removed). */
-  private cancelDriver(): void {
-    if (this.rafId !== null) {
-      const caf = globalThis.cancelAnimationFrame;
-      if (typeof caf === 'function') caf(this.rafId);
-      this.rafId = null;
-    }
-  }
-
-  /** The single rAF loop callback (manual driver never runs this). */
-  private readonly onRafFrame = (ts?: number): void => {
-    if (this.stateName !== 'running' || this.driverKind !== 'raf') return; // cancelled
-    // A frame early for the frame-rate cap runs nothing: its steps run in the next drawn frame (game time is the clock's).
-    const t = this.clock();
-    if (this.pacer.frame(typeof ts === 'number' ? ts : t * 1000)) this.runFrame(t);
-    // The loop reschedules itself: exactly ONE live rAF callback while
-    // running; stop/dispose cancel it (no duplicate loops).
-    if (this.stateName === 'running') {
-      this.rafId = globalThis.requestAnimationFrame(this.onRafFrame);
-    }
-  };
 
   /** One frame update + onFrame (frame ordering: step → onFrame). */
   private runFrame(t: number): void {
@@ -2809,21 +2771,21 @@ class RuntimeInstance implements Runtime {
 
   /** The game's frame-rate cap (`ctx.display.frameRateCap`). */
   frameRateCap(): number | null {
-    return this.pacer.frameRateCap;
+    return this.loop.pacer.frameRateCap;
   }
 
   /** Set the game's frame-rate cap (false: not a cap). */
   setFrameRateCap(fps: unknown): boolean {
-    return this.stateName !== 'disposed' && this.pacer.setCap(fps);
+    return this.stateName !== 'disposed' && this.loop.pacer.setCap(fps);
   }
 
   /** Pace at this cap whatever the game sets (undefined: the game's again). */
   pinFrameRateCap(fps: unknown): boolean {
-    return this.stateName !== 'disposed' && this.pacer.pinCap(fps);
+    return this.stateName !== 'disposed' && this.loop.pacer.pinCap(fps);
   }
 
   framePacing(): FramePacingStats {
-    return this.pacer.stats();
+    return this.loop.pacer.stats();
   }
 
   /** Queue a UI event for the next sampled step (see `Runtime.queueUiEvent`). */
@@ -4214,7 +4176,7 @@ class RuntimeInstance implements Runtime {
       // The project UI (the step's UI events in the intent phase).
       fields['ui'] = { value: uiControlOf(this.uiControls, this.ui, phase), enumerable: true };
       fields['stats'] = { get: () => rt.engineStats.now(), enumerable: true };
-      fields['display'] = { value: this.displayControl, enumerable: true };
+      fields['display'] = { value: this.loop.display, enumerable: true };
       // Conversations (ctx.dialogue; calls apply at the end of the step).
       fields['dialogue'] = { value: this.dialogue.api, enumerable: true };
       // The game modes, the run lifecycle, and which behaviors tick in the current mode.
@@ -4746,7 +4708,7 @@ class RuntimeInstance implements Runtime {
     phase?: SimulationPhase,
     detail?: string,
   ): void {
-    this.cancelDriver();
+    this.loop.cancel();
     this.needsPreroll = false;
     this.stateName = 'failed';
     this.frameClock.alpha = 0;
