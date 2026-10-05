@@ -87,7 +87,6 @@ import {
   readProjectSettings,
   RelayActionSource,
   resolveThreadingMode,
-  simDelayFromUrl,
   resolveTransport,
   startRemoteSimulation,
   startSceneAssets,
@@ -231,6 +230,12 @@ export interface GamePageOptions {
    * read the simulation through `access`); absent, the physical input only.
    */
   readonly relay?: boolean;
+  /**
+   * Debugging and tests only (editor Play's `?simDelayMs=`): the simulation
+   * worker busies itself this long per frame, a slow simulation. An exported
+   * game never sets it, whatever its page's address says.
+   */
+  readonly simDelayMs?: number;
   /** A test or debug start: host options, script variables, the thread mode. */
   readonly start?: { readonly options?: GameStartOptions; readonly variables?: Record<string, unknown>; readonly threads?: 'worker' | 'single' };
   /** Resolve only after the models settle, and fail the start on a hard failure; else watched in the background. */
@@ -713,8 +718,8 @@ export async function startGamePage(o: GamePageOptions): Promise<GamePageHandle>
           input: { sample: (stepIndex) => browserInput.sample(stepIndex), reset: (reason) => browserInput.reset?.(reason) },
           ...(catalog !== null ? { loadScene: catalog.loadScene } : {}),
           driver: 'raf',
-          // A slowed simulation for debugging and tests (?simDelayMs=).
-          ...(simDelayFromUrl(pageSearch()) > 0 ? { workerDelayMs: simDelayFromUrl(pageSearch()) } : {}),
+          // A slowed simulation for debugging and tests (editor Play only).
+          ...(o.simDelayMs !== undefined && o.simDelayMs > 0 ? { workerDelayMs: o.simDelayMs } : {}),
         });
         remoteStart.then(
           () => {

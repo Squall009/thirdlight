@@ -14,22 +14,26 @@
  * camera on X and Z: a caster 80 m down Z still casts) draw it again. The
  * pictures match the same scene drawn with one map of every caster
  * (`?shadowcache=off`), in Play after those steps and in the Scene view after a
- * static box is moved by an edit.
+ * static box is moved by an edit and a static cutout fence's alpha texture
+ * arrived late (held back until the map was drawn with the fence solid: its
+ * material changes in place, which reports nothing else).
  *
  * The first test runs on the product's own renderer (renderer-variants.ts
  * PRODUCT_RENDERER_VARIANTS): env-parity compares shadow maps on both
  * backends; the cache's pixel comparison runs on both.
  */
+import { createHash } from 'node:crypto';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { expect, test, type Locator, type Page } from '@playwright/test';
 
-import { publishScript, startBackend, type E2EBackend } from './backend';
+import { publishBytes, publishScript, startBackend, type E2EBackend } from './backend';
 import { diff, diffPng, show, STRICT, within } from './parity';
 import { decodePng, type Image } from './png';
+import { makePng } from './png-make';
 import { editorUrlFor, expectRendererBackend, onlyInItsProject, PRODUCT_RENDERER_VARIANTS, RENDERER_VARIANTS, type RendererVariant } from './renderer-variants';
-import { showView } from './ui';
+import { menu, showView } from './ui';
 
 let be: E2EBackend;
 test.beforeEach(async () => {
@@ -196,11 +200,17 @@ function floorShadowPixels(img: Image): number {
   return grey.filter((l) => l < lit * 0.6).length;
 }
 
+/**
+ * Cached and single maps draw the same texels: no pixel may differ by more than the strict delta (a stale
+ * static map shows as a few shadow pixels in the wrong place, a fraction STRICT's share would let through).
+ */
+const SAME_SHADOWS = { ...STRICT, bad: 0 };
+
 function compare(a: { img: Image; png: Buffer }, b: { img: Image; png: Buffer }, label: string): void {
-  const d = diff(a.img, b.img, STRICT);
-  console.log(`[shadows] ${label}, cached vs one map of every caster: ${show(d, STRICT)}`);
-  if (!within(d, STRICT)) writeFileSync(join(test.info().outputPath(), `diff-${label}.png`), diffPng(a.img, b.img));
-  expect(within(d, STRICT), `${label}: ${show(d, STRICT)}`).toBe(true);
+  const d = diff(a.img, b.img, SAME_SHADOWS);
+  console.log(`[shadows] ${label}, cached vs one map of every caster: ${show(d, SAME_SHADOWS)}`);
+  if (!within(d, SAME_SHADOWS)) writeFileSync(join(test.info().outputPath(), `diff-${label}.png`), diffPng(a.img, b.img));
+  expect(within(d, SAME_SHADOWS), `${label}: ${show(d, SAME_SHADOWS)}`).toBe(true);
 }
 
 for (const variant of RENDERER_VARIANTS) test(`static casters cast from a cached map, the rest every frame; the square follows the camera along Z; pictures match one map of every caster (${variant})`, async ({ page }) => {
@@ -216,6 +226,13 @@ for (const variant of RENDERER_VARIANTS) test(`static casters cast from a cached
   const mover = await make({ kind: 'box', name: 'mover', transform: { position: [0, 0.9, -4] }, box: { size: [0.8, 1.8, 0.8], material: { color: '#c05030' } } });
   await command('setComponent', { entityId: 'light-0001', component: 'light', value: { type: 'directional', color: '#ffffff', intensity: 1.2, direction: [0.5, -1, 0.4], castShadow: true } });
   await command('setTransform', { entityId: 'cam-main', transform: { position: [0, 3, 4], rotation: [-0.130526, 0, 0, 0.991445], scale: [1, 1, 1] } });
+  // A static cutout fence: vertical slats (every other 8 texels of its alpha map transparent).
+  const slats = makePng(64, 64, (x) => [235, 235, 235, x % 16 < 8 ? 255 : 0]);
+  const slatsDigest = createHash('sha256').update(slats).digest('hex');
+  await publishBytes(be, slats, 'texture', 'tex-slats');
+  await command('setMaterial', { material: { materialId: 'mat-fence', name: 'Fence', shader: 'standard', params: { color: '#ffffff', alphaMode: 'cutout', alphaCutoff: 0.5 }, textures: { map: 'tex-slats' } } });
+  const fence = await make({ kind: 'box', name: 'fence', static: true, transform: { position: [-1.5, 1.2, -9] }, box: { size: [2.5, 2.4, 0.1], material: { color: '#ffffff' } } });
+  await command('setComponent', { entityId: fence, component: 'materials', value: { '*': 'mat-fence' } });
   const driver = await make({ parentId: null, kind: 'group', name: 'Driver', transform: { position: [0, 0, 2] } });
   await publishScript(be, 'driver', DRIVER, driver);
 
@@ -227,16 +244,33 @@ for (const variant of RENDERER_VARIANTS) test(`static casters cast from a cached
 
   // ---- The Scene view: a static box moved by an edit after the static map was drawn ----
   const sceneView = async (cached: boolean): Promise<{ img: Image; png: Buffer }> => {
+    // The cached view gets the fence's texture only after the edit redrew its static map with the fence solid.
+    let release: () => void = () => undefined;
+    const released = new Promise<void>((r) => (release = r));
+    if (cached) {
+      await page.context().route((url) => url.href.includes(slatsDigest) || url.href.includes('tex-slats'), async (route) => {
+        await released;
+        await route.continue();
+      });
+    }
     await page.goto(urlOf(cached));
     await expect(page.locator('.tl-statusbar')).toContainText('connected');
     const view = page.locator('canvas.tl-viewport');
     await expectRendererBackend(view, variant);
     await showView(page, 'Scene');
+    // The scene's own lights (the scene has a sun), and no grid over the floor: its shadows show.
+    await expect(page.getByText('light: game')).toBeVisible();
+    await menu(page, 'Gizmos', 'Grid: on');
+    await expect(view).toHaveAttribute('data-grid', 'false');
     if (cached) {
       await settledShot(view, `scene-view-before-${variant}`);
       await command('setTransform', { entityId: pillar, transform: { position: [-2, 1.5, -4], rotation: [0, 0, 0, 1], scale: [1, 1, 1] } });
+      await settledShot(view, `scene-view-fence-solid-${variant}`);
+      release();
     }
-    return settledShot(view, `scene-view-${cached ? 'cached' : 'single'}-${variant}`);
+    const shot = await settledShot(view, `scene-view-${cached ? 'cached' : 'single'}-${variant}`);
+    await page.context().unrouteAll({ behavior: 'ignoreErrors' });
+    return shot;
   };
   const viewCached = await sceneView(true);
   const viewSingle = await sceneView(false);

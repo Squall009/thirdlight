@@ -421,19 +421,21 @@ export class RenderGraph {
     const out = new Set<string>();
     if (own.size > 0) {
       const memo = new Map<string, boolean>();
-      const hiddenUp = (id: string, depth: number): boolean => {
+      // Any depth; a parent cycle (reported by the world table) ends where it closes.
+      const hiddenUp = (id: string): boolean => {
         const known = memo.get(id);
         if (known !== undefined) return known;
         let h = own.has(id);
-        if (!h && depth < 64) {
+        memo.set(id, h);
+        if (!h) {
           const parent = this.world.parentOf(id);
-          if (parent !== null && parent !== undefined) h = hiddenUp(parent, depth + 1);
+          if (parent !== null && parent !== undefined) h = hiddenUp(parent);
         }
         memo.set(id, h);
         return h;
       };
       for (const id of own) out.add(id);
-      for (const id of this.nodes.keys()) if (hiddenUp(id, 0)) out.add(id);
+      for (const id of this.nodes.keys()) if (hiddenUp(id)) out.add(id);
     }
     const before = this.hidden;
     this.hidden = out;

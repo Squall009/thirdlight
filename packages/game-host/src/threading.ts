@@ -27,18 +27,8 @@ export const THREADS_URL_PARAM = 'threads';
 /** The `sim_thread` setting's values: its index here (1 worker, 2 main thread). */
 export const SIM_THREAD_SETTING_VALUES: readonly (ThreadingMode | null)[] = [null, 'worker', 'single'];
 
-/**
- * Debugging and tests: a page URL flag that slows the simulation worker by
- * this many milliseconds per frame (`?simDelayMs=40`), to see the page keep
- * drawing at the display's rate while the simulation lags.
- */
-export const SIM_DELAY_URL_PARAM = 'simDelayMs';
-
-/** The worker delay the page URL asks for (ms; 0 when absent or not understood). */
-export function simDelayFromUrl(search: string): number {
-  const m = new RegExp(`[?&]${SIM_DELAY_URL_PARAM}=([0-9]{1,4})(?:[&#]|$)`).exec(search);
-  return m === null ? 0 : Math.min(1000, Number(m[1]));
-}
+/** The slowed-worker debug flag (the runtime's, where the editor's UI can read it too). */
+export { SIM_DELAY_URL_PARAM, simDelayFromUrl } from '@thirdlight/runtime';
 
 /** The URL flag's mode (null: absent or not understood). */
 export function threadingFromUrl(search: string): ThreadingMode | null {

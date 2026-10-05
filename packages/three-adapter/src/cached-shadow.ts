@@ -8,7 +8,8 @@
  *
  * - the **static map** draws only static casters (`shadow-casters.ts`), and
  *   only when what it shows changed (a change anywhere, or one within its
- *   reach), its region stepped, the light turned past
+ *   reach; a caster's material changed in place or swapped, or a caster no
+ *   longer static), its region stepped, the light turned past
  *   {@link STATIC_SHADOW_TURN_DEGREES}, or a new renderer draws it;
  * - the **dynamic map** is drawn every frame: first the static map's depths
  *   copied in (one full-map quad, `ShadowUnderlay`), then every other caster
@@ -38,7 +39,7 @@ import * as THREE from 'three/webgpu';
 import * as TSLTyped from 'three/tsl';
 
 import type { N } from './effects-tsl';
-import { isStaticCaster, type StaticShadowRevision } from './shadow-casters';
+import { DrawnCasters, isStaticCaster, type StaticShadowRevision } from './shadow-casters';
 
 /** TSL untyped: three's typings lag the node API used here. */
 const TSL: N = TSLTyped;
@@ -121,6 +122,15 @@ class PassShadowNode extends ShadowNodeBase {
   /** Drawn before the first caster of each pass (the dynamic map's copy of the static one); null: none. */
   underlay: THREE.Mesh | null = null;
   private underlaid = false;
+  /** The static pass: what each caster was drawn with (a change made in place draws the map again). */
+  readonly drawnWith = new DrawnCasters();
+  /**
+   * The dynamic pass: whether the static map holds a static caster. One it
+   * does not (it turned static since the map was drawn) is drawn here this
+   * frame, and `missed` asks for the static map again.
+   */
+  staticHolds: ((o: THREE.Object3D) => boolean) | null = null;
+  missed = false;
   constructor(
     light: THREE.Object3D,
     shadow: THREE.LightShadow,
@@ -142,7 +152,12 @@ class PassShadowNode extends ShadowNodeBase {
           this.underlaid = true;
           base(u, rest[0], rest[1], u.geometry, u.material, null, ...rest.slice(5));
         }
-        if (isStaticCaster(object) !== want) return;
+        const isStatic = isStaticCaster(object);
+        if (isStatic !== want) {
+          if (!isStatic || this.staticHolds === null || this.staticHolds(object)) return;
+          this.missed = true;
+        }
+        if (want) this.drawnWith.add(object);
         this.drawn += 1;
         base(object, ...rest);
       };
@@ -153,8 +168,11 @@ class PassShadowNode extends ShadowNodeBase {
   draw(frame: unknown): void {
     this.drawn = 0;
     this.underlaid = false;
+    this.drawnWith.clear();
     this.updateShadow(frame);
   }
+
+
   /**
    * The map's render target, for a map no receiver samples (a receiver's
    * shadow setup makes it otherwise). Its depth is read texel by texel, never
@@ -356,8 +374,10 @@ export class CachedShadowNode extends ShadowBaseNodeBase {
   setup(builder: N): N {
     if (builder.renderer.shadowMap.enabled === false) return undefined;
     if (this.staticNode === null || this.dynamicNode === null) {
-      this.staticNode = new PassShadowNode(this.staticLight, this.staticLight.shadow, true);
+      const s = new PassShadowNode(this.staticLight, this.staticLight.shadow, true);
+      this.staticNode = s;
       this.dynamicNode = new PassShadowNode(this.dynamicLight, this.dynamicLight.shadow, false);
+      this.dynamicNode.staticHolds = (o) => s.drawnWith.has(o);
       this.staticDirty = true;
     }
     if (this.underlay === null) {
@@ -401,7 +421,8 @@ export class CachedShadowNode extends ShadowBaseNodeBase {
     const intensity = this.light.shadow.intensity;
     this.staticLight.shadow.intensity = intensity;
     this.dynamicLight.shadow.intensity = intensity;
-    if (renderer !== this.drawnBy || this.revision.value !== this.drawnRevision) this.staticDirty = true;
+    if (renderer !== this.drawnBy || this.revision.value !== this.drawnRevision || d.missed || s.drawnWith.changed()) this.staticDirty = true;
+    d.missed = false;
     if (this.staticDirty) {
       s.draw(frame);
       this.staticDirty = false;

@@ -45,6 +45,13 @@ interface LightLike {
 }
 
 /** A realized entity as the lights read it. */
+/**
+ * Shadow map sides of local lights, texels: a point light draws six faces
+ * (512² each costs about what one 1,024² spot map does), a spot light one.
+ */
+export const POINT_SHADOW_MAP_SIZE = 512;
+export const SPOT_SHADOW_MAP_SIZE = 1024;
+
 export interface LightEntityLike {
   readonly id: string;
   readonly components: unknown;
@@ -182,7 +189,7 @@ export function createSceneLights(o: SceneLightsOptions): SceneLights {
     if (l.type === 'point') {
       const p = new THREE.PointLight(colour, l.intensity, l.range ?? 0, l.decay ?? 2);
       p.castShadow = l.castShadow === true;
-      if (p.castShadow) p.shadow.mapSize.set(512, 512);
+      if (p.castShadow) p.shadow.mapSize.set(POINT_SHADOW_MAP_SIZE, POINT_SHADOW_MAP_SIZE);
       return p;
     }
     if (l.type === 'spot') {
@@ -192,7 +199,7 @@ export function createSceneLights(o: SceneLightsOptions): SceneLights {
       const d = l.direction ?? [0, -1, 0];
       s.target.position.set(d[0] ?? 0, d[1] ?? -1, d[2] ?? 0);
       s.castShadow = l.castShadow === true;
-      if (s.castShadow) s.shadow.mapSize.set(1024, 1024);
+      if (s.castShadow) s.shadow.mapSize.set(SPOT_SHADOW_MAP_SIZE, SPOT_SHADOW_MAP_SIZE);
       // A cookie (three's SpotLight.map; the node lighting projects it through the cone on both backends).
       if (typeof l.cookie === 'string') attachCookie(s, l.cookie);
       return s;
@@ -382,6 +389,9 @@ export function createSceneLights(o: SceneLightsOptions): SceneLights {
       const next = selection.directional !== null ? (directionals.get(selection.directional) ?? null) : null;
       if (next !== keyRec || keyRec === null) {
         keyRec = next;
+        // A sun that was key before saw none of the changes made while another was (only the key light's
+        // map drains them): its cached map is drawn again.
+        keyRec?.cached?.invalidate();
         applyKeyShadow();
       }
     },

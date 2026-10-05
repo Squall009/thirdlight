@@ -68,6 +68,7 @@ import { decodeKtx2, isKtx2 } from './ktx2';
 import { textureHolds, type TextureHolds } from './texture-holds';
 import { SAMPLED_TEXTURES_KEY } from './texture-streaming';
 import { OBJECT_FRAME_KEY } from './static-merge';
+import { CHANGING_ALPHA_KEY } from './shadow-casters';
 import type { ResourceManager } from '@thirdlight/runtime';
 
 export type MaterialShaderName = 'standard' | 'foliage' | 'kit' | 'unlit' | 'water';
@@ -676,6 +677,10 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
     // A graph that reads the object's own frame draws wrong merged into world space.
     if (e.compiled.objectFrame) e.material.userData[OBJECT_FRAME_KEY] = true;
     else delete e.material.userData[OBJECT_FRAME_KEY];
+    // A clock-driven graph with an alpha (opacity or clip) cuts its shadow differently every frame: never cached.
+    const sl = e.compiled.slots;
+    if (e.compiled.animated && (sl.opacity !== null || sl.alphaTest !== null || sl.litOpacity !== null || sl.litAlphaTest !== null)) e.material.userData[CHANGING_ALPHA_KEY] = true;
+    else delete e.material.userData[CHANGING_ALPHA_KEY];
   };
   /** A compiled graph holds what it samples. */
   const holdGraphTextures = (e: GraphEntry): void => {

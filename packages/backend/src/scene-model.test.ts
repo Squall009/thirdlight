@@ -19,6 +19,8 @@ import { api, AUTHORING_ORIGIN, mkRequestId, mkSessionId, PREVIEW_ORIGIN, startB
 import { createTestBackend } from './testing';
 
 const REPO = resolve(import.meta.dirname, '..', '..', '..');
+/** A test that exports builds the game (minified and tree-shaken): seconds alone, more on a loaded host, as in the export tests. */
+const EXPORT_TIMEOUT_MS = 60_000;
 const ID = 'scene-model';
 
 describe('the scene model over HTTP', () => {
@@ -79,7 +81,7 @@ describe('the scene model over HTTP', () => {
     expect(warned.status, JSON.stringify(warned.json)).toBe(200);
     expect((warned.json as { warnings?: { code: string }[] }).warnings?.map((w) => w.code)).toEqual(['player_scene']);
     expect((await send('deleteEntity', { entityId: String(a['createdId']) }))['ok']).toBe(true);
-  });
+  }, EXPORT_TIMEOUT_MS);
 
   it('moveEntities with a sceneId moves objects (with their children) into another scene, ids and references kept, one undo', async () => {
     const crate = sceneFile('level').find((e) => e.name === 'Crate')!;
@@ -126,7 +128,7 @@ describe('the scene model over HTTP', () => {
     const exported = await api(`${tb.authUrl}/api/v1/admin/projects/${ID}/export`, { body: {}, token: tb.adminToken, origin: null });
     expect(exported.status, JSON.stringify(exported.json)).toBe(200);
     expect(JSON.stringify(exported.json)).not.toContain('kept_twice');
-  });
+  }, EXPORT_TIMEOUT_MS);
 
   it('createEntity over HTTP takes a component only setComponent used to add, stored as setComponent stores it', async () => {
     const path = { points: [[0, 0, 0], [4, 0, 0]] };

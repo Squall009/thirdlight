@@ -372,7 +372,7 @@ export { AUDIO_BUS_NAMES, AUDIO_MAX_HANDLES, AUDIO_MAX_QUEUED_COMMANDS, AUDIO_MA
 export { MATERIAL_WRITES_PER_STEP, RuntimeMaterials, materialCatalogOf, materialCatalogProblem, materialChangeKey, type BehaviorMaterials, type MaterialSaveEntry, type MaterialParamValue, type MaterialRenderChange, type RuntimeMaterialCatalog, type RuntimeMaterialParameter, type RuntimeMaterialParameterType } from './material-params';
 // The project UI — ctx.ui, the UI events of an input frame, the view-model diff the host draws from.
 export type { BehaviorUi, BehaviorUiEvent, BehaviorUiView, BehaviorStats, BehaviorStatsTime, BehaviorDisplay } from './types';
-export { FRAME_RATE_CAP_URL_PARAM, FramePacer, frameRateCapFromUrl, type FramePacingStats } from './frame-pacing';
+export { FRAME_RATE_CAP_URL_PARAM, FramePacer, frameRateCapFromUrl, SIM_DELAY_URL_PARAM, simDelayFromUrl, type FramePacingStats } from './frame-pacing';
 // The frame-rate cap's values (project-model owns them), for the page's pacing and the shell.
 export { FRAME_RATE_CAPS, frameRateCapOf, projectFrameRateCap, type FrameRateCap } from '@thirdlight/project-model';
 // The simulation's step rate when a project sets none (project-model's).

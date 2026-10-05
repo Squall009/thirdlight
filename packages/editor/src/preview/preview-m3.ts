@@ -34,6 +34,7 @@ import {
   type SimAccess,
   type StartTimings,
   createStartTimings,
+  simDelayFromUrl,
 } from '@thirdlight/game-host';
 import { createPhysicsPort, physicsMemoryBytes, type RapierPhysicsInitConfig } from '@thirdlight/physics-rapier';
 import { GamePageError, startGamePage, type GamePageHandle, type GamePageManifest } from '@thirdlight/game-host/game-page';
@@ -228,6 +229,8 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
     measureGpu: true,
     // Tools drive and read the game through the input exercise relay.
     relay: true,
+    // A slowed simulation worker for debugging (the editor page's ?simDelayMs=, passed on to Play's page).
+    ...(simDelayFromUrl(location.search) > 0 ? { simDelayMs: simDelayFromUrl(location.search) } : {}),
     ...(startBlock !== undefined ? { start: { ...(startOptions !== undefined ? { options: startOptions } : {}), ...(startBlock.variables !== undefined ? { variables: startBlock.variables } : {}), ...(startBlock.threads !== undefined ? { threads: startBlock.threads } : {}) } } : {}),
     // Ready only after the models settle; a hard failure fails the start.
     waitForModels: true,

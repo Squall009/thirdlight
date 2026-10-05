@@ -8,9 +8,6 @@
 import { composeMat4, decomposeMat4, mat4, mulMat4 } from './rig-pose';
 import type { TransformState } from './types';
 
-/** Parent chains deeper than this are cut (a cycle cannot hang a step). */
-const MAX_DEPTH = 64;
-
 export interface WorldTransform {
   readonly position: readonly [number, number, number];
   readonly rotation: readonly [number, number, number, number];
@@ -32,7 +29,9 @@ export function worldTransformOf(entityId: string, curr: ReadonlyMap<string, Tra
   composeMat4(acc, own.position, own.rotation, own.scale);
   let parent = parentOf(entityId);
   let rooted = true;
-  for (let depth = 0; parent !== null && parent !== undefined && depth < MAX_DEPTH; depth += 1) {
+  // Any depth composes in full; a chain longer than the objects loaded loops (no valid scene has one): an error.
+  for (let depth = 0; parent !== null && parent !== undefined; depth += 1) {
+    if (depth >= curr.size) throw new Error(`the parent chain of ${entityId} loops back on itself`);
     const t = curr.get(parent);
     if (t === undefined) break;
     rooted = false;

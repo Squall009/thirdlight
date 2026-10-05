@@ -57,7 +57,7 @@ import * as THREE from 'three';
 import { createAttributeInstancedMesh, type AttributeInstancedMesh } from './attribute-instancing';
 import { OVERRIDES_KEY, RUNTIME_VALUES_KEY } from './material-graph';
 import { isStaticCaster, STATIC_CASTER_KEY } from './shadow-casters';
-import { createStaticMerger, MERGE_QUIET_MS, staticScopeOf, type StaticMergeDiagnostics, type StaticMerger } from './static-merge';
+import { createStaticMerger, MERGE_BACKGROUND_BUDGET_MS, MERGE_QUIET_MS, staticScopeOf, type StaticMergeDiagnostics, type StaticMerger } from './static-merge';
 
 /** The layer batched members move to (cameras draw layer 0 only; pickers enable this one). */
 export const BATCHED_LAYER = 30;
@@ -193,20 +193,27 @@ export function batchCapacity(n: number): number {
   return c;
 }
 
+/**
+ * Fewest members a group needs to be drawn instanced: every instanced mesh
+ * costs three a node build once, so a pair or a triple saves too few draws to
+ * be worth it.
+ */
+export const BATCH_MIN_GROUP = 4;
+/**
+ * Side of a world cell for detailed geometry and merged static cells, m: a
+ * scene is cut into a few cells a view usually sees one or two of, so the
+ * rest is culled, while a group still holds many objects.
+ */
+export const BATCH_CELL_SIZE_M = 64;
+/** Triangles from which a geometry is split by cell: below that, off-screen vertices cost less than extra draws. */
+export const BATCH_DETAILED_TRIANGLES = 256;
+
 export interface AutoBatcherOptions {
-  /**
-   * Fewest members a group needs to be drawn instanced (default 4: every
-   * instanced mesh costs three a node build once, so a pair or a triple
-   * saves too few draws to be worth it).
-   */
+  /** Fewest members a group needs to be drawn instanced (default `BATCH_MIN_GROUP`). */
   readonly minGroup?: number;
-  /**
-   * Side of a world cell for detailed geometry, m (default 64: a scene is
-   * cut into a few cells a view usually sees one or two of, so the rest is
-   * culled, while a group still holds many objects).
-   */
+  /** Side of a world cell for detailed geometry, m (default `BATCH_CELL_SIZE_M`). */
   readonly cellSize?: number;
-  /** Triangles from which a geometry is split by cell (default 256: below that, off-screen vertices cost less than extra draws). */
+  /** Triangles from which a geometry is split by cell (default `BATCH_DETAILED_TRIANGLES`). */
   readonly detailedTriangles?: number;
   /**
    * Static batching (`static-merge.ts`): the meshes of static objects drawn
@@ -216,7 +223,7 @@ export interface AutoBatcherOptions {
    * editor); `off` merges nothing.
    */
   readonly merging?: 'load' | 'background' | 'off';
-  /** Build time per frame in the background (ms). */
+  /** Build time per frame in the background (ms; default `MERGE_BACKGROUND_BUDGET_MS`). */
   readonly mergeBudgetMs?: number;
   /** The clock a moved member's quiet time is measured on (tests). */
   readonly now?: () => number;
@@ -342,9 +349,9 @@ interface Group {
 }
 
 export function createAutoBatcher(scene: THREE.Scene, options: AutoBatcherOptions = {}): AutoBatcher {
-  const minGroup = Math.max(2, options.minGroup ?? 4);
-  const cellSize = options.cellSize ?? 64;
-  const detailedTriangles = options.detailedTriangles ?? 256;
+  const minGroup = Math.max(2, options.minGroup ?? BATCH_MIN_GROUP);
+  const cellSize = options.cellSize ?? BATCH_CELL_SIZE_M;
+  const detailedTriangles = options.detailedTriangles ?? BATCH_DETAILED_TRIANGLES;
   const members = new Map<THREE.Mesh, Member>();
   const byRoot = new Map<THREE.Object3D, Member[]>();
   const groups = new Map<string, Group>();
@@ -387,7 +394,7 @@ export function createAutoBatcher(scene: THREE.Scene, options: AutoBatcherOption
       : createStaticMerger({
           scene,
           cellSize,
-          budgetMs: mergeMode === 'load' ? Infinity : (options.mergeBudgetMs ?? 4),
+          budgetMs: mergeMode === 'load' ? Infinity : (options.mergeBudgetMs ?? MERGE_BACKGROUND_BUDGET_MS),
           now,
           partsOf: batchKeyParts,
           onMerged: (mesh, on) => {

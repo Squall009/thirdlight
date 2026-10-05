@@ -14,7 +14,8 @@
  *   chunk meshes;
  * - never skinned meshes, the parts of an animated hierarchy
  *   (`MOVING_CASTER_KEY`, set by the render graph), or a material that moves
- *   its vertices (wind, a graph's vertex offset: `positionNode`).
+ *   its vertices (wind, a graph's vertex offset: `positionNode`) or whose
+ *   alpha changes with time (`CHANGING_ALPHA_KEY`).
  *
  * Whatever changes what the static map shows is reported here, and the map is
  * drawn again on the next frame:
@@ -37,11 +38,22 @@ export const STATIC_CASTER_KEY = '__tlStaticCaster';
 /** `object.userData[MOVING_CASTER_KEY]`: posed every frame (an animated hierarchy's part): never in the static map. */
 export const MOVING_CASTER_KEY = '__tlMovingCaster';
 
-/** A material that moves its vertices in its own shader (wind, a vertex offset): its shadow can change every frame. */
-function movesVertices(m: THREE.Material | null | undefined): boolean {
+/**
+ * `material.userData[CHANGING_ALPHA_KEY]`: its opacity or alpha clip reads the
+ * clock (set by the material library from the compiled graph): what it cuts
+ * out of its shadow changes with time.
+ */
+export const CHANGING_ALPHA_KEY = '__tlChangingAlpha';
+
+/**
+ * A material whose shadow can change every frame on its own: it moves its
+ * vertices in its own shader (wind, a vertex offset) or its alpha changes with
+ * time.
+ */
+function changesOwnShadow(m: THREE.Material | null | undefined): boolean {
   if (m === null || m === undefined) return false;
   const n = m as { positionNode?: unknown; castShadowPositionNode?: unknown };
-  return (n.positionNode !== null && n.positionNode !== undefined) || (n.castShadowPositionNode !== null && n.castShadowPositionNode !== undefined);
+  return (n.positionNode !== null && n.positionNode !== undefined) || (n.castShadowPositionNode !== null && n.castShadowPositionNode !== undefined) || m.userData[CHANGING_ALPHA_KEY] === true;
 }
 
 /** Whether `o` is drawn into the cached static shadow map (else into the dynamic one). */
@@ -52,10 +64,53 @@ export function isStaticCaster(o: THREE.Object3D): boolean {
   if ((o as THREE.SkinnedMesh).isSkinnedMesh === true) return false;
   const m = (o as THREE.Mesh).material as THREE.Material | THREE.Material[] | undefined;
   if (Array.isArray(m)) {
-    for (const x of m) if (movesVertices(x)) return false;
+    for (const x of m) if (changesOwnShadow(x)) return false;
     return true;
   }
-  return !movesVertices(m);
+  return !changesOwnShadow(m);
+}
+
+/** A signature of what `o` draws its shadow with: its material(s) and their versions (a change in place bumps a version). */
+function shadowLookOf(o: THREE.Object3D): number {
+  const m = (o as THREE.Mesh).material as THREE.Material | THREE.Material[] | undefined;
+  if (m === undefined || m === null) return 0;
+  if (!Array.isArray(m)) return m.version;
+  let v = m.length;
+  for (const x of m) v = (v * 31 + x.version) | 0;
+  return v;
+}
+
+/**
+ * The casters a static map was drawn with and what each wore (its material
+ * and their versions). A change made in place, which reports nothing (a
+ * texture arriving, a graph compiled again, a material swapped, wind or a
+ * clock-driven alpha gained), shows as a different material or version, or a
+ * caster no longer static, and the map is drawn again.
+ */
+export class DrawnCasters {
+  private readonly drawn = new Map<THREE.Object3D, { material: unknown; look: number }>();
+
+  /** The map is being drawn again: forget the last drawing. */
+  clear(): void {
+    this.drawn.clear();
+  }
+
+  /** `o` was drawn into the map now. */
+  add(o: THREE.Object3D): void {
+    this.drawn.set(o, { material: (o as THREE.Mesh).material, look: shadowLookOf(o) });
+  }
+
+  has(o: THREE.Object3D): boolean {
+    return this.drawn.has(o);
+  }
+
+  /** Whether a caster drawn has since changed what its shadow looks like, or stopped being static. */
+  changed(): boolean {
+    for (const [o, w] of this.drawn) {
+      if ((o as THREE.Mesh).material !== w.material || shadowLookOf(o) !== w.look || !isStaticCaster(o)) return true;
+    }
+    return false;
+  }
 }
 
 /** What changed among the static shadow casters since the map last looked. */

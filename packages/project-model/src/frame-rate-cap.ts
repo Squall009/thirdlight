@@ -20,8 +20,8 @@
 export const FRAME_RATE_CAPS = [30, 60, 120] as const;
 export type FrameRateCap = (typeof FRAME_RATE_CAPS)[number];
 
-/** What a settings field bound to the cap may choose ('none': no cap). */
-export const FRAME_RATE_CAP_CHOICES = ['30', '60', '120', 'none'] as const;
+/** What a settings field bound to the cap may choose: each cap as text, and 'none' (no cap). */
+export const FRAME_RATE_CAP_CHOICES: readonly string[] = Object.freeze([...FRAME_RATE_CAPS.map(String), 'none']);
 
 /**
  * A cap from a setting, a script, a settings field or a UI action: 30, 60 or

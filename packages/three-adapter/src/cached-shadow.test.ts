@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { BATCH_KEY, createAutoBatcher } from './batching';
 import { snapToLightGrid, staticShadowSize, STATIC_SHADOW_STEP } from './cached-shadow';
 import { RenderGraph } from './render-graph';
-import { isStaticCaster, MOVING_CASTER_KEY, STATIC_CASTER_KEY, StaticShadowRevision } from './shadow-casters';
+import { CHANGING_ALPHA_KEY, DrawnCasters, isStaticCaster, MOVING_CASTER_KEY, STATIC_CASTER_KEY, StaticShadowRevision } from './shadow-casters';
 import { STATIC_KEY } from './static-merge';
 
 const box = (mat: THREE.Material = new THREE.MeshBasicMaterial()): THREE.Mesh => new THREE.Mesh(new THREE.BoxGeometry(), mat);
@@ -31,6 +31,52 @@ describe('the cached static shadow map', () => {
     const skinned = new THREE.SkinnedMesh(new THREE.BoxGeometry(), new THREE.MeshBasicMaterial());
     skinned.userData[STATIC_KEY] = 'scene-main';
     expect(isStaticCaster(skinned)).toBe(false);
+  });
+
+  it('a clock-driven alpha (opacity or clip) casts every frame, not from the cached map', () => {
+    const m = new THREE.MeshStandardNodeMaterial();
+    const fence = box(m);
+    fence.userData[STATIC_KEY] = 'scene-main';
+    expect(isStaticCaster(fence)).toBe(true);
+    m.userData[CHANGING_ALPHA_KEY] = true;
+    expect(isStaticCaster(fence)).toBe(false);
+  });
+
+  it('draws the static map again for a change made in place: a texture arriving, a recompile, a swap, wind gained, a caster no longer static', () => {
+    const drawn = new DrawnCasters();
+    const m = new THREE.MeshStandardNodeMaterial();
+    const fence = box(m);
+    fence.userData[STATIC_KEY] = 'scene-main';
+    const wall = box();
+    wall.userData[STATIC_KEY] = 'scene-main';
+    const record = (): void => {
+      drawn.clear();
+      drawn.add(fence);
+      drawn.add(wall);
+    };
+    record();
+    expect(drawn.has(fence)).toBe(true);
+    expect(drawn.changed()).toBe(false);
+    // The cutout's alpha map arrives on the material it already wears (needsUpdate bumps its version).
+    m.alphaMap = new THREE.Texture();
+    m.needsUpdate = true;
+    expect(drawn.changed()).toBe(true);
+    record();
+    expect(drawn.changed()).toBe(false);
+    // A swap to a material that sways: the old shadow must leave the static map.
+    const swaying = new THREE.MeshStandardNodeMaterial();
+    swaying.positionNode = THREE.TSL.positionLocal;
+    fence.material = swaying;
+    expect(drawn.changed()).toBe(true);
+    record();
+    // Its graph compiled again without the wind: in place, and static again.
+    swaying.positionNode = null;
+    swaying.needsUpdate = true;
+    expect(drawn.changed()).toBe(true);
+    record();
+    // Posed from now on (an animator gained).
+    wall.userData[MOVING_CASTER_KEY] = true;
+    expect(drawn.changed()).toBe(true);
   });
 
   it('snaps the square to whole steps of the light frame; the static map is larger by the step at the same texel size', () => {

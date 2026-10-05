@@ -1582,7 +1582,12 @@ export function createGameHost(config: GameHostConfig): GameHost {
     const worldOf = (id: string): [number, number, number] | null => {
       if (rt.readInterpolated === undefined || !rt.readInterpolated(id, p, r, s)) return null;
       let x = p[0]!, y = p[1]!, z = p[2]!;
-      for (let cur = parents.get(id), guard = 0; cur !== undefined && guard < 64; cur = parents.get(cur), guard += 1) {
+      // Any depth (the snapshot's chains are acyclic: validated); one longer than the objects can only loop.
+      for (let cur = parents.get(id), depth = 0; cur !== undefined; cur = parents.get(cur), depth += 1) {
+        if (depth > parents.size) {
+          console.error(`[game-host] the parent chain of ${id} loops back on itself`);
+          break;
+        }
         if (!rt.readInterpolated(cur, p, r, s)) break;
         // x := parentPos + parentRot · (parentScale ⊙ x)
         const sx = x * s[0]!, sy = y * s[1]!, sz = z * s[2]!;

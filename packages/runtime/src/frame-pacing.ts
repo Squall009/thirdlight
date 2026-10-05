@@ -195,3 +195,17 @@ export function displayControlOf(pacer: FramePacer): BehaviorDisplay {
     setFrameRateCap: (fps: number | null): boolean => pacer.setCap(fps),
   });
 }
+
+/**
+ * Debugging and tests: an editor page URL flag that slows Play's simulation
+ * worker by this many milliseconds per frame (`?simDelayMs=40`), to see the
+ * page keep drawing at the display's rate while the simulation lags. Only
+ * editor Play reads it (an exported game's address is the player's).
+ */
+export const SIM_DELAY_URL_PARAM = 'simDelayMs';
+
+/** The worker delay the page URL asks for (ms; 0 when absent or not understood). */
+export function simDelayFromUrl(search: string): number {
+  const m = new RegExp(`[?&]${SIM_DELAY_URL_PARAM}=([0-9]{1,4})(?:[&#]|$)`).exec(search);
+  return m === null ? 0 : Math.min(1000, Number(m[1]));
+}

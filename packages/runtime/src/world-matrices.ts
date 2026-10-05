@@ -20,8 +20,8 @@ import { composeMat4 } from './rig-pose';
 const STRIDE = 16;
 /** Floats of a local transform as it was given (position, rotation, scale). */
 const TRS = 10;
-/** Parent chains deeper than this are cut (a cycle cannot hang a frame). */
-const MAX_DEPTH = 64;
+/** `state` of a row whose parents are being resolved (meeting it again up the chain is a cycle). */
+const RESOLVING = 3;
 
 export class WorldMatrices {
   private readonly rows = new Map<string, number>();
@@ -35,13 +35,15 @@ export class WorldMatrices {
   private anyDirty = false;
   /** Rows were added, removed or re-parented: the parent rows are resolved again. */
   private structure = false;
-  /** Per row in the running `update`: 1 composed this frame, 2 unchanged. */
+  /** Per row in the running `update`: 1 composed this frame, 2 unchanged, `RESOLVING` its parents being resolved. */
   private state = new Uint8Array(0);
   /** The rows the last `update` composed. */
   private changed = new Int32Array(0);
   private changedN = 0;
   /** World matrices composed since the table was made. */
   private composedTotal = 0;
+  /** Rows found on a parent cycle (each composed from the cycle's cut; reported once). */
+  private cyclesFound = 0;
   /** The parent's row, resolved per frame (-1: a root, or its parent is not in the table). */
   private parentRow = new Int32Array(0);
   private local = new Float64Array(0);
@@ -154,7 +156,7 @@ export class WorldMatrices {
     }
     this.anyDirty = false;
     this.state.fill(0, 0, n);
-    for (let i = 0; i < n; i += 1) if (this.ids[i] !== null) this.resolve(i, 0);
+    for (let i = 0; i < n; i += 1) if (this.ids[i] !== null) this.resolve(i);
     this.dirty.fill(0, 0, n);
   }
 
@@ -189,13 +191,28 @@ export class WorldMatrices {
     this.anyDirty = true;
   }
 
-  /** Whether row i's world changes this update (composed then, its parent first). */
-  private resolve(i: number, depth: number): boolean {
+  /** Parent cycles met so far (diagnostics; the data the runtime is given has none). */
+  get cycles(): number {
+    return this.cyclesFound;
+  }
+
+  /**
+   * Whether row i's world changes this update (composed then, its parent
+   * first). Any depth composes in full; a parent cycle (which no valid scene
+   * has) is cut where it closes, and reported.
+   */
+  private resolve(i: number): boolean {
     const known = this.state[i]!;
-    if (known !== 0) return known === 1;
+    if (known === 1 || known === 2) return known === 1;
     const p = this.parentRow[i]!;
-    const root = p < 0 || depth >= MAX_DEPTH;
-    const parentChanged = !root && this.resolve(p, depth + 1);
+    this.state[i] = RESOLVING;
+    let root = p < 0;
+    if (!root && this.state[p] === RESOLVING) {
+      root = true;
+      this.cyclesFound += 1;
+      if (this.cyclesFound === 1) console.error(`[thirdlight] the parent chain of ${String(this.ids[i])} loops back to it; its world is drawn as if it had no parent`);
+    }
+    const parentChanged = !root && this.resolve(p);
     if (this.dirty[i] === 0 && !parentChanged) {
       this.state[i] = 2;
       return false;

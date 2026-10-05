@@ -282,7 +282,8 @@ test('the export: the worker by default (messages; shared memory under COOP/COEP
   expect(existsSync(join(dir, 'js', 'physics-2d.wasm'))).toBe(true);
   expect(existsSync(join(dir, 'js', 'physics-3d.js'))).toBe(false);
   const cases: { isolated: boolean; query: string; want: { mode: string; transport: string | null; isolated: boolean } }[] = [
-    { isolated: false, query: '', want: { mode: 'worker', transport: 'message', isolated: false } },
+    // `?simDelayMs=` slows the worker in editor Play only: an export ignores it.
+    { isolated: false, query: '?simDelayMs=40', want: { mode: 'worker', transport: 'message', isolated: false } },
     { isolated: false, query: '?threads=off', want: { mode: 'single', transport: null, isolated: false } },
     { isolated: true, query: '', want: { mode: 'worker', transport: 'shared', isolated: true } },
   ];
@@ -327,6 +328,11 @@ test('the export: the worker by default (messages; shared memory under COOP/COEP
       const moved = await game.screenshot();
       const idle = diff(still0, still1);
       const moving = diff(still1, moved);
+      if (c.query.includes('simDelayMs')) {
+        const trip = await game.evaluate(() => (window as unknown as { __thirdlightThreading?: { pipeline?: { workerRoundTripMs: { avg: number } } | null } }).__thirdlightThreading?.pipeline?.workerRoundTripMs.avg ?? -1);
+        expect(trip, 'the export does not slow its worker for ?simDelayMs').toBeGreaterThanOrEqual(0);
+        expect(trip, 'the export does not slow its worker for ?simDelayMs').toBeLessThan(30);
+      }
       expect(moving, `${c.query || 'default'}${c.isolated ? ' (isolated)' : ''}: pixels changed while moving (${moving}) vs standing (${idle})`).toBeGreaterThan(Math.max(3 * idle, 100));
       expect(errors).toEqual([]);
       expect(requests.every((u) => u.startsWith(site.url))).toBe(true);
