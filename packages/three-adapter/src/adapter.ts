@@ -67,6 +67,7 @@ import {
 } from './animation';
 import type { AuthoredSurface } from './lighting';
 import { createSceneLights, type SceneLights } from './lights-shadows';
+import { STATIC_CASTER_KEY, StaticShadowRevision } from './shadow-casters';
 import { createEffectsPlayer, type EffectComponentLike, type EffectDefLike, type EffectRequestLike, type EffectsDiagnostics, type EffectsPlayer, type EffectsPlayerOptions } from './effects-player';
 import {
   createRenderer,
@@ -403,9 +404,13 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
    * The loaded scenes' lights and the key light's shadow (lights-shadows.ts):
    * a point or spot light hangs on its entity's node; the others off the scene.
    */
+  /** What the cached static shadow map shows changed (null: every caster drawn into one map every frame). */
+  const staticShadows = opts.shadowCache === false ? null : new StaticShadowRevision();
+  graph.onStaticChange(staticShadows === null ? null : (where) => (where === null ? staticShadows.bump() : staticShadows.touched(where)));
   const lights: SceneLights = createSceneLights({
     scene,
     v3: isV3,
+    staticShadows,
     startView,
     resources,
     loadCookie: opts.lights?.loadTexture ?? opts.materials?.loadTexture ?? opts.environment?.loadTexture ?? null,
@@ -459,7 +464,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     material.dispose();
   };
   /** Repeated objects drawn instanced (absent when the option turns it off). */
-  const batcher: AutoBatcher | null = opts.batching === false ? null : createAutoBatcher(scene, { merging: opts.merging ?? 'load', park: (o, on) => graph.park(o, on) });
+  const batcher: AutoBatcher | null = opts.batching === false ? null : createAutoBatcher(scene, { merging: opts.merging ?? 'load', park: (o, on) => graph.park(o, on), ...(staticShadows !== null ? { staticChanged: (where) => (where === null ? staticShadows.bump() : staticShadows.touched(where)) } : {}) });
   // A scene dump (the perf harness's plain page) reads the parked drawables with the scene.
   scene.userData['tlParked'] = graph.parkedObjects();
   // Its update walks the graph for the world matrices right before every render: the renderer's own pass is left out.
@@ -509,6 +514,8 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     chunkDropped: (id, cx, cz) => lightmaps?.releaseChunk(id, cx, cz),
     // The chunks' drawables join the scene on their own (the view's layer and chunk groups stay outside it).
     place: (chunk, shown) => {
+      // Chunks change only by being meshed again (new meshes listed): they cast into the static shadow map.
+      if (shown) chunk.traverse((o) => void ((o as THREE.Mesh).isMesh === true && (o.userData[STATIC_CASTER_KEY] = true)));
       for (const o of chunk.children) {
         if (shown) graph.listStatic(o);
         else graph.unlistStatic(o);
@@ -698,7 +705,11 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
         // A model's meshes may be drawn together with other placements' (instance sets already are), or merged when static.
         markBatchable(root);
         const scope = staticScopes.get(entityId);
-        if (scope !== undefined) markStatic(root, scope);
+        if (scope !== undefined) {
+          markStatic(root, scope);
+          // Marked after its meshes came into the scene: the static shadow map takes them now.
+          staticShadows?.bump();
+        }
         lightmaps?.apply(entityId, root);
         opts.onChange?.();
       },
@@ -1539,6 +1550,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     if (choice !== null) d.renderer = choice;
     // `shadowReason` is present iff `shadows === 'off'`; the lights that are on.
     if (lit.shadowReason !== undefined) d.shadowReason = lit.shadowReason;
+    if (lit.shadowMaps !== undefined && !disposed) d.shadowMaps = lit.shadowMaps;
     if (lit.lights !== undefined && !disposed) d.lights = lit.lights;
     // The `models` counters block — present iff the `models`
     // option was given and the adapter is not disposed (absent when

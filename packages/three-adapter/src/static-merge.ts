@@ -38,6 +38,7 @@ import * as THREE from 'three';
 
 import type { BatchKeyParts } from './batching';
 import { LOD_OWNER_KEY } from './lod-switch';
+import { STATIC_CASTER_KEY } from './shadow-casters';
 
 /** `mesh.userData[STATIC_KEY]`: the scope (a scene id) of a mesh whose object never moves; absent: not static. */
 export const STATIC_KEY = '__tlStatic';
@@ -54,11 +55,13 @@ export const MIN_MERGE = 2;
 /** The editor's time budget for building cells per frame (ms; at least one cell is built). */
 export const MERGE_BACKGROUND_BUDGET_MS = 4;
 
-/** Mark every plain mesh under `root` as static within `scope` (the host's scene). */
+/** Mark every plain mesh under `root` as static within `scope` (the host's scene); its instanced meshes cast into the static shadow map. */
 export function markStatic(root: THREE.Object3D, scope: string): void {
   root.traverse((o) => {
     const m = o as THREE.Mesh;
-    if (m.isMesh === true && (m as THREE.InstancedMesh).isInstancedMesh !== true) m.userData[STATIC_KEY] = scope;
+    if (m.isMesh !== true) return;
+    if ((m as THREE.InstancedMesh).isInstancedMesh !== true) m.userData[STATIC_KEY] = scope;
+    else m.userData[STATIC_CASTER_KEY] = true;
   });
 }
 
@@ -458,6 +461,10 @@ export function createStaticMerger(options: StaticMergerOptions): StaticMerger {
     mesh.matrixWorldAutoUpdate = false;
     // Drawn only: picking goes to the members (they keep their entities); the batcher and the scene dump skip it.
     mesh.userData['tlBatch'] = true;
+    // Its members never move while they are drawn through it. A cell built, dropped or drawing other members
+    // changes no shadow: a member is drawn through it or alone at the same place, and entering or leaving the
+    // scene, or moving, is reported by the host.
+    mesh.userData[STATIC_CASTER_KEY] = true;
     mesh.raycast = () => undefined;
     if (cell.built !== null) releaseBuilt(cell.built);
     cell.built = { mesh, geometry, template, index, vertices, vertexBytes };

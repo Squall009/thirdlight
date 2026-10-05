@@ -44,6 +44,10 @@
  * Entities with nothing to draw (logic-only objects, empty markers) have a
  * table row and no Object3D at all.
  *
+ * The cached static shadow map (`cached-shadow.ts`) hears from here when a
+ * static caster enters or leaves the scene or is moved (`onStaticChange`),
+ * and the parts of animated hierarchies are marked as moving casters.
+ *
  * A listed drawable the batcher draws through an instanced batch or a merged
  * static cell is parked: it stays listed (the batcher keeps it as a member,
  * picking still finds it through `pickables`) but leaves the scene's
@@ -55,6 +59,7 @@ import { WorldMatrices } from '@thirdlight/runtime';
 
 import type { BatchMembership } from './batching';
 import { LOD_LEVEL_KEY, LOD_OWNER_KEY, pickLodLevel } from './lod-switch';
+import { isStaticCaster, MOVING_CASTER_KEY } from './shadow-casters';
 
 /** Whether three draws an object itself (a mesh, line, points, sprite or a light). */
 export function isDrawable(o: THREE.Object3D): boolean {
@@ -201,12 +206,26 @@ export class RenderGraph {
   private writesTotal = 0;
   private placedNow = 0;
   private readonly camPos = new THREE.Vector3();
+  /** The camera position and zoom the LOD levels were last picked at, and whether a LOD moved or came since. */
+  private readonly lodCam = new THREE.Vector3(Number.NaN, 0, 0);
+  private lodZoom = Number.NaN;
+  private lodsDirty = true;
+  /** Told when a static shadow caster enters or leaves the scene (with it: where it stands) or moves (null: anywhere). */
+  private staticChanged: ((where: THREE.Object3D | null) => void) | null = null;
   /** Told what enters and leaves the scene and whose matrix was written (the batcher regroups only on those). */
   private membership: BatchMembership | null = null;
 
   constructor(scene: THREE.Scene, animated: (entityId: string) => boolean) {
     this.scene = scene;
     this.animated = animated;
+  }
+
+  /**
+   * Call `fn` whenever a static shadow caster enters or leaves the scene (with the object: its world matrix is
+   * where it stands) or its matrix is written (null: it may have been anywhere before).
+   */
+  onStaticChange(fn: ((where: THREE.Object3D | null) => void) | null): void {
+    this.staticChanged = fn;
   }
 
   /** Tell `m` about every listed drawable from now on (and the ones listed already). */
@@ -336,8 +355,10 @@ export class RenderGraph {
     let posed = 0;
     for (const node of this.posed) {
       node.updateMatrixWorld(true);
-      const parts = this.held.get(node)?.parts;
-      if (parts === undefined) continue;
+      const h = this.held.get(node);
+      if (h === undefined) continue;
+      if (h.switches.length > 0) this.lodsDirty = true;
+      const parts = h.parts;
       posed += parts.length;
       if (this.membership !== null) for (const p of parts) if (p.listed) this.membership.moved(p.object);
     }
@@ -356,6 +377,11 @@ export class RenderGraph {
     camera.updateMatrixWorld();
     const cam = this.camPos.setFromMatrixPosition(camera.matrixWorld);
     const zoom = (camera as THREE.PerspectiveCamera).zoom ?? 1;
+    // Nothing that picks a level changed (a still camera over LODs that did not move): every level stays.
+    if (!this.lodsDirty && cam.equals(this.lodCam) && zoom === this.lodZoom) return;
+    this.lodsDirty = false;
+    this.lodCam.copy(cam);
+    this.lodZoom = zoom;
     for (const sw of this.switches) {
       const e = sw.lod.matrixWorld.elements;
       const distance = Math.hypot(cam.x - e[12]!, cam.y - e[13]!, cam.z - e[14]!) / zoom;
@@ -471,6 +497,7 @@ export class RenderGraph {
         const sw: LodSwitch = { lod, owner: sub, offset: baked ? offsetOf(lod) : null, active: -1, parts: [] };
         h.switches.push(sw);
         this.switches.add(sw);
+        this.lodsDirty = true;
         // Children that are not levels are drawn always (three draws every child of a LOD it shows).
         const levelObjects = new Set(lod.levels.map((l) => l.object));
         const others = lod.children.filter((c) => !levelObjects.has(c));
@@ -488,6 +515,8 @@ export class RenderGraph {
         o.matrixAutoUpdate = false;
         o.matrixWorldAutoUpdate = false;
       }
+      // Posed by its hierarchy every frame: its shadow is drawn every frame, never cached.
+      if (node !== null && animated) o.userData[MOVING_CASTER_KEY] = true;
       h.parts.push(part);
       for (const g of gates) g.sw.parts.push(part);
       const nearest = gates[gates.length - 1];
@@ -525,6 +554,7 @@ export class RenderGraph {
       // Gone for good from what this graph holds (a merged copy of it goes too).
       this.membership?.dropped(p.object);
       if (p.gates.length > 0) p.object.traverse((x) => void delete x.userData[LOD_OWNER_KEY]);
+      delete p.object.userData[MOVING_CASTER_KEY];
       p.object.matrixAutoUpdate = p.matrixAutoUpdate;
       p.object.matrixWorldAutoUpdate = p.matrixWorldAutoUpdate;
     }
@@ -581,9 +611,16 @@ export class RenderGraph {
       if (p.offset === null) continue;
       p.object.matrixWorld.multiplyMatrices(node.matrixWorld, p.offset);
       this.placedNow += 1;
-      if (p.listed) this.membership?.moved(p.object);
+      if (p.listed) {
+        this.membership?.moved(p.object);
+        this.noteStatic(p.object, true);
+      }
     }
-    for (const sw of h.switches) if (sw.offset !== null) sw.lod.matrixWorld.multiplyMatrices(node.matrixWorld, sw.offset);
+    for (const sw of h.switches) {
+      if (sw.offset === null) continue;
+      sw.lod.matrixWorld.multiplyMatrices(node.matrixWorld, sw.offset);
+      this.lodsDirty = true;
+    }
   }
 
   /**
@@ -596,16 +633,24 @@ export class RenderGraph {
     this.inScene.set(o, this.scene.children.length);
     this.scene.children.push(o);
     this.membership?.listed(o);
+    this.noteStatic(o);
   }
 
   private unlistObject(o: THREE.Object3D): void {
     if (this.parked.delete(o)) {
       this.membership?.unlisted(o);
+      this.noteStatic(o);
       return;
     }
     if (!this.inScene.has(o)) return;
     this.detach(o);
     this.membership?.unlisted(o);
+    this.noteStatic(o);
+  }
+
+  /** A static shadow caster changed what the static shadow map shows: where it stands, or (`moved`) anywhere. */
+  private noteStatic(o: THREE.Object3D, moved = false): void {
+    if (this.staticChanged !== null && isStaticCaster(o)) this.staticChanged(moved ? null : o);
   }
 
   /** Out of the scene's children (no longer in `inScene`). */

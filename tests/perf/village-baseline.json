@@ -1,7 +1,7 @@
 {
  "note": "export frame time of the village class (tools/perf/village.ts) on this host's GPU: re-record with tools/perf/run.mjs village --gate --write-baseline <this file>",
- "recordedAt": "2026-10-05T04:55:22.975Z",
- "commit": "7c9f8452",
+ "recordedAt": "2026-10-05T06:01:57.881Z",
+ "commit": "783f1472",
  "machine": {
   "cpu": "12th Gen Intel(R) Core(TM) i5-12600H",
   "cores": 10,
@@ -10,11 +10,15 @@
  "subject": "village",
  "version": 2,
  "frameMeanMs": {
-  "webgpu": 7.419,
-  "webgl2": 7.111
+  "webgpu": 7.143,
+  "webgl2": 7.327
+ },
+ "frameP50Ms": {
+  "webgpu": 7.4,
+  "webgl2": 4.1
  },
  "frameP95Ms": {
-  "webgpu": 9.7,
-  "webgl2": 7.4
+  "webgpu": 9.5,
+  "webgl2": 8
  }
 }

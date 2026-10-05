@@ -22,8 +22,10 @@
 import * as THREE from 'three';
 import { blendLight, type EnvironmentBlendView, type EnvironmentLightValues, type ResourceManager } from '@thirdlight/runtime';
 
+import { CachedShadowNode, snapToLightGrid, type CachedShadowCounts } from './cached-shadow';
 import { decideShadows, deriveShadowCamera, directionalShadowSettings, planSceneLights, SHADOW_PROFILE, type AuthoredLight, type ShadowOutcome, type ShadowPlan, type ShadowReason, type ShadowRegion } from './lighting';
 import { selectSceneLights, type SceneLightEntry, type SceneLightKind, type SceneLightSelection } from './scene-lights';
+import type { StaticShadowRevision } from './shadow-casters';
 import { textureHolds } from './texture-holds';
 
 /** The authored light component as the realization reads it. */
@@ -66,6 +68,11 @@ export interface SceneLightsOptions {
   readonly shadingChanged: () => void;
   /** The project's tag registry (name → bit) presets name lights by. */
   readonly tagBits: ReadonlyMap<string, number>;
+  /**
+   * The static casters' revision: the key light's shadow is a cached static map with a dynamic one on top
+   * (`cached-shadow.ts`). Null: one map of every caster, drawn every frame.
+   */
+  readonly staticShadows: StaticShadowRevision | null;
 }
 
 type KeyRec = {
@@ -77,6 +84,8 @@ type KeyRec = {
   readonly outcome: ShadowOutcome;
   /** The direction an environment preset gives (null: the authored one). */
   directionNow: [number, number, number] | null;
+  /** Its shadow as a cached static map and a dynamic one (null: three's single map, or no shadow). */
+  readonly cached: CachedShadowNode | null;
 };
 
 /** A light environment presets and scripts may change, with its authored values. */
@@ -85,6 +94,8 @@ type EnvLight = { light: THREE.Light; id: string; tags: number; type: string; au
 export interface LightsDiagnostics {
   shadows: 'on' | 'off';
   shadowReason?: ShadowReason;
+  /** The key light's static and dynamic shadow-map draws (absent: not cached, or no key light shadow). */
+  shadowMaps?: CachedShadowCounts;
   lights?: { directional: string | null; ambient: string | null; hemisphere: string | null; local: number; localOn: number; cookies: number };
 }
 
@@ -99,7 +110,10 @@ export interface SceneLights {
   select(rankOf: (entityId: string) => number, hidden: ReadonlySet<string>): void;
   /** The key light's direction now (a preset's or the authored one). */
   keyDirection(): readonly [number, number, number] | undefined;
-  /** The key light's shadow square follows the camera, snapped to whole shadow texels (no shimmer). */
+  /**
+   * The key light's shadow square follows the camera on the ground (its X and Z; Y is up), snapped to whole
+   * shadow texels in the light's frame (no shimmer).
+   */
   followCamera(camera: THREE.Camera): void;
   /**
    * Before a frame: the shadow map on when a light casts one, and the key
@@ -212,6 +226,7 @@ export function createSceneLights(o: SceneLightsOptions): SceneLights {
     }
     // The target is not in the scene (it draws nothing): its world matrix is kept here and by the shadow follow.
     light.target.updateMatrixWorld();
+    let cached: CachedShadowNode | null = null;
     if (outcome.ok && outcome.shadows === 'on' && !shadowsUnsupported) {
       // The shadow-camera parameters are set now; the shadow map is allocated only by the first-frame probe.
       light.castShadow = true;
@@ -225,8 +240,12 @@ export function createSceneLights(o: SceneLightsOptions): SceneLights {
       light.shadow.camera.near = plan.camera.near;
       light.shadow.camera.far = plan.camera.far;
       light.shadow.camera.updateProjectionMatrix();
+      if (o.staticShadows !== null) {
+        cached = new CachedShadowNode(light, o.staticShadows, { mapSize: settings.mapSize, halfExtent: plan.halfExtent, near: plan.camera.near, far: plan.camera.far, distance: SHADOW_PROFILE.distance, bias: settings.bias, normalBias: settings.normalBias });
+        (light.shadow as { shadowNode?: unknown }).shadowNode = cached;
+      }
     }
-    return { id, light, authored: l, settings, plan, outcome, directionNow: null };
+    return { id, light, authored: l, settings, plan, outcome, directionNow: null, cached };
   };
   /** The shadow state follows the key light (a scene with a shadow-casting sun turns shadows on; the probe runs for it). */
   const applyKeyShadow = (): void => {
@@ -245,6 +264,9 @@ export function createSceneLights(o: SceneLightsOptions): SceneLights {
   }
 
   let selection: SceneLightSelection | null = null;
+  const followDir = new THREE.Vector3();
+  const followPoint = new THREE.Vector3();
+  const followCentre = new THREE.Vector3();
 
   function setLightValues(rec: { light: THREE.Light; id: string; type: string }, v: EnvironmentLightValues): void {
     rec.light.color.set(v.color);
@@ -334,6 +356,7 @@ export function createSceneLights(o: SceneLightsOptions): SceneLights {
         lit.light.removeFromParent();
         if (lit.kind === 'directional') (lit.light as THREE.DirectionalLight).target.removeFromParent();
         lit.light.dispose();
+        directionals.get(entityId)?.cached?.dispose();
         directionals.delete(entityId);
         if (keyRec?.id === entityId) keyRec = null;
       }
@@ -368,17 +391,24 @@ export function createSceneLights(o: SceneLightsOptions): SceneLights {
     followCamera(camera: THREE.Camera): void {
       if (keyRec === null) return;
       const texel = (2 * keyRec.plan.halfExtent) / keyRec.settings.mapSize;
-      const cx = Math.round(camera.position.x / texel) * texel;
-      const cy = Math.round(camera.position.y / texel) * texel;
-      const dir = keyDirectionOf(keyRec) ?? [0, -1, 0];
-      const n = Math.hypot(dir[0], dir[1], dir[2]) || 1;
+      const d = keyDirectionOf(keyRec) ?? [0, -1, 0];
+      followDir.set(d[0], d[1], d[2]);
+      if (followDir.lengthSq() < 1e-12) followDir.set(0, -1, 0);
+      followDir.normalize();
+      // The ground under the camera: walking moves the square, the camera's height does not.
+      followPoint.set(camera.position.x, 0, camera.position.z);
+      snapToLightGrid(followPoint, followDir, texel, followCentre);
       const light = keyRec.light;
-      light.target.position.set(cx, cy, 0);
-      light.position.set(cx - (dir[0] / n) * SHADOW_PROFILE.distance, cy - (dir[1] / n) * SHADOW_PROFILE.distance, -(dir[2] / n) * SHADOW_PROFILE.distance);
+      light.target.position.copy(followCentre);
+      light.position.copy(followCentre).addScaledVector(followDir, -SHADOW_PROFILE.distance);
       light.target.updateMatrixWorld();
+      keyRec.cached?.follow(followPoint, followCentre, followDir);
     },
 
     beforeFrame(renderer): boolean {
+      // The static casters' changes this frame go to the key light's cached map (none: they are forgotten).
+      if (keyRec?.cached != null) keyRec.cached.roll();
+      else o.staticShadows?.drain(null);
       if (localShadowLights > 0 && !renderer.shadowMap.enabled) {
         renderer.shadowMap.enabled = true;
         renderer.shadowMap.type = THREE.PCFShadowMap;
@@ -407,6 +437,7 @@ export function createSceneLights(o: SceneLightsOptions): SceneLights {
 
     rendererReplaced(): void {
       if (shadowState.shadows === 'on') shadowProbeDone = false;
+      keyRec?.cached?.invalidate();
     },
 
     get revision(): number {
@@ -444,6 +475,7 @@ export function createSceneLights(o: SceneLightsOptions): SceneLights {
       const d: LightsDiagnostics = { shadows: shadowState.shadows };
       // `shadowReason` is present iff `shadows === 'off'`.
       if (shadowState.shadows === 'off' && shadowState.reason !== undefined) d.shadowReason = shadowState.reason;
+      if (shadowState.shadows === 'on' && keyRec?.cached != null && keyRec.light.castShadow) d.shadowMaps = keyRec.cached.diagnostics();
       if (selection !== null && !disposed) d.lights = { directional: selection.directional, ambient: selection.ambient, hemisphere: selection.hemisphere, local: selection.localTotal, localOn: selection.localOn, cookies: cookies.size };
       return d;
     },

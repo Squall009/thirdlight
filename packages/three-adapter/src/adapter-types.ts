@@ -17,6 +17,7 @@ import type { RenderedNodePose } from './animator-player';
 import type { ModelsSettledResult, SceneAdapterModels, SceneAdapterModelsDiagnostics } from './models';
 import type { GlbLoaderPort } from './visual';
 import type { ShadowReason } from './lighting';
+import type { CachedShadowCounts } from './cached-shadow';
 import type { EffectDefLike, EffectsDiagnostics, EffectsPlayerOptions } from './effects-player';
 import type { AutoBatcherDiagnostics } from './batching';
 import type { SceneGraphCounts } from './render-graph';
@@ -155,6 +156,13 @@ export interface SceneAdapterOptions {
    */
   merging?: 'load' | 'background' | 'off';
   /**
+   * The key light's shadow as a cached static map (static casters, drawn
+   * only when they change) with a dynamic map on top (`cached-shadow.ts`;
+   * default true). False: every caster drawn into one map every frame (tests
+   * compare the two).
+   */
+  shadowCache?: boolean;
+  /**
    * Called after each drawn frame, with the scenes that frame
    * attached (loaded scenes realized in it). The page's start and scene-load
    * timings read it; absent: nothing is called.
@@ -225,6 +233,11 @@ export interface SceneAdapterDiagnostics {
   /** Present iff `shadows === 'off'`; carries no path, token or
    *  device string. Recorded once per realized scene, never per frame. */
   shadowReason?: ShadowReason;
+  /**
+   * The key light's cached shadow: static and dynamic map draws in the last frame and in total (an idle scene
+   * draws the static map 0 times a frame); ABSENT when the shadow is not cached or off.
+   */
+  shadowMaps?: CachedShadowCounts;
   /**
    * v3/v4 scenes: the lights that are on — the directional,
    * ambient and hemisphere light's entity (the most recently loaded scene's

@@ -37,6 +37,8 @@ export interface SceneCounts {
   info: { calls: number; triangles: number; geometries: number; textures: number } | null;
   /** Draw calls of the last frame by pass: the view's scene, shadow maps (a scene drawn from an orthographic light camera), post quads. */
   passDraws: { scene: number; shadow: number; post: number };
+  /** Shadow-map draws per drawn frame over the last 1,500 frames (a cached map drawn again shows in the mean and the tail). */
+  shadowDraws: { frames: number; mean: number; p50: number; p95: number; max: number };
   /** The engine's merged static cells (meshes named `tl-merged:`): how many, how many drawn now, their GPU bytes. */
   merged: { meshes: number; shown: number; vertexBytes: number; indexBytes: number };
 }
@@ -80,13 +82,15 @@ interface ProbeState {
   /** Draw calls by pass in the current and the last frame (three's `info.render.drawCalls`, nested renders apart). */
   framePasses: { scene: number; shadow: number; post: number };
   lastPasses: { scene: number; shadow: number; post: number };
+  /** The last frames' shadow-map draws. */
+  shadowFrames: number[];
 }
 
 /** Install with `addInitScript(installFrameProbe, { timestamps })` before the page's scripts. */
 export function installFrameProbe(opts: { timestamps: boolean }): void {
   const w = window as unknown as { __tlProbe?: ProbeState; __THREE_DEVTOOLS__?: EventTarget };
   if (w.__tlProbe !== undefined) return;
-  const P: ProbeState = { renderers: [], frameScenes: new Map(), lastScenes: new Map(), timestamps: opts.timestamps, labels: new Map(), framePasses: { scene: 0, shadow: 0, post: 0 }, lastPasses: { scene: 0, shadow: 0, post: 0 } };
+  const P: ProbeState = { renderers: [], frameScenes: new Map(), lastScenes: new Map(), timestamps: opts.timestamps, labels: new Map(), framePasses: { scene: 0, shadow: 0, post: 0 }, lastPasses: { scene: 0, shadow: 0, post: 0 }, shadowFrames: [] };
   w.__tlProbe = P;
   const roll = (): void => {
     if (P.frameScenes.size > 0) {
@@ -94,6 +98,9 @@ export function installFrameProbe(opts: { timestamps: boolean }): void {
       P.frameScenes = new Map();
       P.lastPasses = P.framePasses;
       P.framePasses = { scene: 0, shadow: 0, post: 0 };
+      P.shadowFrames.push(P.lastPasses.shadow);
+      // About the measured window at 100–150 fps.
+      if (P.shadowFrames.length > 1500) P.shadowFrames.shift();
     }
     requestAnimationFrame(roll);
   };
@@ -164,9 +171,14 @@ export function probeSetGpuTiming(on: boolean): boolean {
 /** In the page: what the scenes drawn last frame hold. */
 export function probeSceneCounts(): SceneCounts {
   const P = (window as unknown as { __tlProbe?: ProbeState }).__tlProbe;
-  const out: SceneCounts = { objects: 0, groups: 0, lods: 0, meshes: 0, hiddenMeshes: 0, instancedMeshes: 0, batchedMeshes: 0, skinnedMeshes: 0, bones: 0, lights: 0, pointLights: 0, materials: 0, info: null, passDraws: { scene: 0, shadow: 0, post: 0 }, merged: { meshes: 0, shown: 0, vertexBytes: 0, indexBytes: 0 } };
+  const out: SceneCounts = { objects: 0, groups: 0, lods: 0, meshes: 0, hiddenMeshes: 0, instancedMeshes: 0, batchedMeshes: 0, skinnedMeshes: 0, bones: 0, lights: 0, pointLights: 0, materials: 0, info: null, passDraws: { scene: 0, shadow: 0, post: 0 }, shadowDraws: { frames: 0, mean: 0, p50: 0, p95: 0, max: 0 }, merged: { meshes: 0, shown: 0, vertexBytes: 0, indexBytes: 0 } };
   if (P === undefined) return out;
   out.passDraws = { ...P.lastPasses };
+  if (P.shadowFrames.length > 0) {
+    const s = [...P.shadowFrames].sort((a, b) => a - b);
+    const at = (q: number): number => s[Math.min(s.length - 1, Math.ceil(q * s.length) - 1)]!;
+    out.shadowDraws = { frames: s.length, mean: Math.round((s.reduce((a, b) => a + b, 0) / s.length) * 10) / 10, p50: at(0.5), p95: at(0.95), max: s[s.length - 1]! };
+  }
   type O = { isScene?: boolean; isGroup?: boolean; isLOD?: boolean; isMesh?: boolean; isInstancedMesh?: boolean; isBatchedMesh?: boolean; isSkinnedMesh?: boolean; isBone?: boolean; isLight?: boolean; isPointLight?: boolean; visible: boolean; children: O[]; material?: unknown; name?: string; geometry?: { attributes: Record<string, { array: { byteLength: number } }>; index: { array: { byteLength: number } } | null } };
   const mats = new Set<unknown>();
   const walk = (o: O, shown: boolean): void => {

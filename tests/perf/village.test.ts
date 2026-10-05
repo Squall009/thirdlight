@@ -60,6 +60,13 @@ describe('the frame-time check', () => {
     const bad = frameRegressions(withTail, { export: { webgpu: run(18, 1000, 31), webgl2: run(17) } });
     expect(bad.map((b) => [b.renderer, b.metric, b.limit])).toEqual([['webgpu', 'p95', 30]]);
   });
+  it('checks the median instead of the mean when the baseline has one (stalls move the mean run to run)', () => {
+    const withMedian: FrameBaseline = { ...base, frameP50Ms: { webgpu: 7, webgl2: 4 } };
+    const stalled = { ...run(7.2), frames: { n: 100, fps: 139, p50: 4, p95: 7.8, p99: 120, mean: 7.2 } } as FrameRunResult;
+    expect(frameRegressions(withMedian, { export: { webgpu: run(7.6), webgl2: stalled } })).toEqual([]);
+    const bad = frameRegressions(withMedian, { export: { webgpu: run(7.8), webgl2: stalled } });
+    expect(bad.map((b) => [b.renderer, b.metric, b.limit])).toEqual([['webgpu', 'p50', 7.7]]);
+  });
   it('fails a renderer the run did not measure', () => {
     expect(frameRegressions(base, { export: { webgpu: run(18) } }).map((b) => b.renderer)).toEqual(['webgl2']);
   });

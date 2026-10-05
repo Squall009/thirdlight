@@ -56,6 +56,7 @@ import * as THREE from 'three';
 
 import { createAttributeInstancedMesh, type AttributeInstancedMesh } from './attribute-instancing';
 import { OVERRIDES_KEY, RUNTIME_VALUES_KEY } from './material-graph';
+import { isStaticCaster, STATIC_CASTER_KEY } from './shadow-casters';
 import { createStaticMerger, MERGE_QUIET_MS, staticScopeOf, type StaticMergeDiagnostics, type StaticMerger } from './static-merge';
 
 /** The layer batched members move to (cameras draw layer 0 only; pickers enable this one). */
@@ -226,6 +227,13 @@ export interface AutoBatcherOptions {
    * too.
    */
   readonly park?: (o: THREE.Object3D, on: boolean) => void;
+  /**
+   * What the static shadow casters draw changed here (the cached static shadow map is drawn again): static
+   * members of a batch drawn into the dynamic map coming back to the static one, a static member touched (its
+   * material or marks: `where` is the member). Entering, leaving and moving are the host's to report; a member
+   * drawn through a batch or a merged cell instead of alone changes no shadow.
+   */
+  readonly staticChanged?: (where: THREE.Object3D | null) => void;
 }
 
 export interface AutoBatcherDiagnostics {
@@ -329,6 +337,8 @@ interface Group {
   unlisten: () => void;
   /** The material's `version` when the members were last grouped (a change may make them unbatchable). */
   materialVersion: number;
+  /** Every member casts into the static shadow map, so the batch does too. */
+  staticCaster: boolean;
 }
 
 export function createAutoBatcher(scene: THREE.Scene, options: AutoBatcherOptions = {}): AutoBatcher {
@@ -553,7 +563,7 @@ export function createAutoBatcher(scene: THREE.Scene, options: AutoBatcherOption
     leave(m);
     let g = groups.get(key);
     if (g === undefined) {
-      g = { key, parts, detailed, members: [], inst: null, unlisten: () => undefined, materialVersion: parts.material.version };
+      g = { key, parts, detailed, members: [], inst: null, unlisten: () => undefined, materialVersion: parts.material.version, staticCaster: false };
       groups.set(key, g);
     }
     join(g, m, parts.scale);
@@ -563,6 +573,12 @@ export function createAutoBatcher(scene: THREE.Scene, options: AutoBatcherOption
   const settle = (g: Group): void => {
     regroups += 1;
     const n = g.members.length;
+    const dynamicBefore = g.inst !== null && !g.staticCaster;
+    g.staticCaster = n > 0 && g.members.every((m) => isStaticCaster(m.mesh));
+    // Static members of a batch that cast into the dynamic map cast into the static one once it no longer does
+    // (it turned static, or went and they are drawn alone): the static map lacks them. The other way round the
+    // static map still holds their shadow where they are; members joining or leaving are reported where they stand.
+    if (dynamicBefore && (g.staticCaster || n < minGroup) && g.members.some((m) => isStaticCaster(m.mesh))) options.staticChanged?.(null);
     if (n < minGroup) {
       release(g);
       if (n === 0) groups.delete(g.key);
@@ -607,6 +623,8 @@ export function createAutoBatcher(scene: THREE.Scene, options: AutoBatcherOption
         batch(m);
       }
     }
+    if (g.staticCaster) g.inst!.mesh.userData[STATIC_CASTER_KEY] = true;
+    else delete g.inst!.mesh.userData[STATIC_CASTER_KEY];
     writtenGroups.add(g);
   };
 
@@ -679,11 +697,13 @@ export function createAutoBatcher(scene: THREE.Scene, options: AutoBatcherOption
       o.traverse((x) => {
         const m = members.get(x as THREE.Mesh);
         if (m !== undefined) dirty.add(m);
+        if ((x as THREE.Mesh).isMesh === true && isStaticCaster(x)) options.staticChanged?.(x);
       });
     },
     touchAll() {
       if (disposed) return;
       for (const m of members.values()) dirty.add(m);
+      options.staticChanged?.(null);
     },
     update(camera) {
       if (disposed) return;
@@ -792,6 +812,8 @@ export function createAutoBatcher(scene: THREE.Scene, options: AutoBatcherOption
         merger?.dispose();
         merger = null;
         waiting.clear();
+        // The static batches are gone: their members cast on their own again.
+        options.staticChanged?.(null);
         mergeCheck.clear();
         counts = { groups: 0, batched: 0, single: 0 };
       } else {

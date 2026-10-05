@@ -26,6 +26,7 @@ import {
   BATCHED_LAYER,
   batchingFromUrl,
   mergingFromUrl,
+  shadowCacheFromUrl,
   createEffectsPlayer,
   createSceneAdapter,
   DEFAULT_RENDERER_PREFERENCE,
@@ -340,6 +341,8 @@ export class Viewport {
       batching: batchingFromUrl(pageSearch()),
       // Static objects merged in the background (drawn alone until their cell is built); `?merging=off` compares.
       merging: mergingFromUrl(pageSearch()) ? 'background' : 'off',
+      // The sun's static casters cached in their own shadow map; `?shadowcache=off` compares.
+      shadowCache: shadowCacheFromUrl(pageSearch()),
       models: assets.models,
       // Draco/Basis decoder files are served next to the editor page (dist/editor/decoders/).
       modelsLoader: createGltfLoaderPort({ decoderBase: './decoders/' }),

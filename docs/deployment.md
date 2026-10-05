@@ -4347,9 +4347,12 @@ gets registered, never the game's folder).
 **The frame-time gate.** On a host with a usable GPU (`gpuAvailable()` in
 `tests/e2e/browser-env.mjs`), `tools/gate.sh fast` ends with
 `node tools/perf/run.mjs village --gate --check tests/perf/village-baseline.json`
-(about 40 s): it fails when the export's mean frame time on either renderer
+(about 40 s): it fails when the export's median frame time on either renderer
 is more than 10 % (`FRAME_REGRESSION` in `tools/perf/village-run.ts`) above
-the baseline, when its 95th-percentile frame time is more than 50 %
+the baseline's (the median, not the mean: uncapped on WebGL 2 the GPU process
+stalls for 100–300 ms every ~2 s once frames are fast, so the mean counts the
+stalls that fell in the window; a baseline without a median is checked on its
+mean), when its 95th-percentile frame time is more than 50 %
 (`FRAME_P95_REGRESSION`) above the baseline's (generous: uncapped, WebGPU's
 GPU-bound frames are bimodal, a few % of them near twice the median, on the
 plain three.js page too), or when a renderer was not measured; `tools/gate.sh rerun`

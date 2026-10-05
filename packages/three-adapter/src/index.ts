@@ -234,6 +234,8 @@ export {
   type AutoBatcherOptions,
   type BatchHint,
 } from './batching';
+export { isStaticCaster, SHADOW_CACHE_URL_PARAM, shadowCacheFromUrl, STATIC_CASTER_KEY } from './shadow-casters';
+export { snapToLightGrid, staticShadowSize, STATIC_SHADOW_STEP, STATIC_SHADOW_TURN_DEGREES, type CachedShadowCounts } from './cached-shadow';
 // Static batching: static objects' meshes merged per material and world cell.
 export { markStatic, MERGE_QUIET_MS, mergeRefusal, OBJECT_FRAME_KEY, STATIC_KEY, type StaticMergeDiagnostics } from './static-merge';
 // Sky, fog, fog volumes, tone mapping and the post stack.

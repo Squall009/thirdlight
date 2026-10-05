@@ -10,15 +10,18 @@
  *                                the backend writes into what it registers); --steps '<json>' reaches its view
  *   --no-bare                    skip the plain three.js page
  *   --scene-view                 also measure the editor's Scene view on the same content (scene-view-run.ts),
- *                                orbiting the editor's opening view; --no-export skips the export
+ *                                orbiting the editor's opening view; --no-export skips the export; --orbit F sizes the
+ *                                orbit's pointer circle as a fraction of the view's width (default 0.04: a slow look
+ *                                round; 0.4 swings the camera across the level)
  *   --ablation                   the per-draw ablation on the plain page: + 16 dark point lights, + per-object
  *                                material copies, + the engine's node materials (each alone)
  *   --query 'a=b&c=d'            add to the export's and the Scene view's page query (e.g. merging=off to compare)
  *   --vsync                      draw at the display's rate (a player's browser) instead of uncapped: frame drops
  *                                show as intervals of two refreshes or more
  *   --gate                       the fast gate's check: frames only (no GPU passes, profile or plain page)
- *   --check FILE                 compare the export's frame time with a recorded baseline: exit 1 when the mean is worse
- *                                than FRAME_REGRESSION or the p95 than FRAME_P95_REGRESSION (fractions) on any renderer
+ *   --check FILE                 compare the export's frame time with a recorded baseline: exit 1 when the median (the
+ *                                mean, for a baseline without one) is worse than FRAME_REGRESSION or the p95 than
+ *                                FRAME_P95_REGRESSION (fractions) on any renderer
  *   --write-baseline FILE        record this run's frame times as the baseline
  *   --record-ms N --warmup-ms N --gpu-ms N --profile-ms N --out FILE --keep
  *
@@ -38,7 +41,12 @@ import { measureSceneView, sceneViewLine, type SceneViewResult } from './scene-v
 import { FRAME_HISTOGRAM_EDGES_MS } from './stats';
 import { buildVillage, VILLAGE_SEED, VILLAGE_VERSION, type VillageBuild } from './village';
 
-/** A frame time worse than the baseline by more than this fraction fails the check. */
+/**
+ * A median frame time worse than the baseline by more than this fraction fails the check. The median, not the
+ * mean: uncapped on WebGL 2 the GPU process stalls 100–300 ms every ~2 s once the frame is fast (about 2 % of
+ * the frames, at the display's rate none), so the mean measures how many stalls fell in the window (WebGL 2:
+ * mean 7.0–7.2 ms over a 4.0 ms median, run to run) rather than the frame the code costs.
+ */
 export const FRAME_REGRESSION = 0.1;
 /**
  * A 95th-percentile frame time worse than the baseline by more than this fraction fails the check too: the
@@ -78,15 +86,17 @@ export interface FrameBaseline {
   machine: VillageReport['machine'];
   subject: string;
   version: number;
-  /** Export frame time (mean interval, ms) per renderer. */
+  /** Export frame time (mean interval, ms) per renderer: checked only when the baseline has no median. */
   frameMeanMs: Partial<Record<FrameRenderer, number>>;
+  /** Export median frame time (ms) per renderer (absent in older baselines: the mean is checked). */
+  frameP50Ms?: Partial<Record<FrameRenderer, number>>;
   /** Export 95th-percentile frame time (ms) per renderer (absent in older baselines: not checked). */
   frameP95Ms?: Partial<Record<FrameRenderer, number>>;
 }
 
 export interface FrameRegression {
   renderer: FrameRenderer;
-  metric: 'mean' | 'p95';
+  metric: 'mean' | 'p50' | 'p95';
   baseline: number;
   value: number;
   limit: number;
@@ -103,7 +113,8 @@ export function frameRegressions(base: FrameBaseline, report: Pick<VillageReport
       if (got === undefined || got <= 0 || got > limit) out.push({ renderer: r, metric, baseline: b, value: got ?? -1, limit });
     }
   };
-  check('mean', base.frameMeanMs, tolerance);
+  if (base.frameP50Ms !== undefined) check('p50', base.frameP50Ms, tolerance);
+  else check('mean', base.frameMeanMs, tolerance);
   if (base.frameP95Ms !== undefined) check('p95', base.frameP95Ms, p95Tolerance);
   return out;
 }
@@ -154,7 +165,7 @@ const hist = (h: readonly number[] | undefined): string => {
 export function frameLine(what: string, r: FrameRunResult): string {
   const gpu = r.gpu === null ? '' : r.gpu.available ? `, gpu ${r.gpu.msPerFrame} ms (${r.gpu.passes.slice(0, 4).map((p) => `${p.label} ${p.msPerFrame}`).join(', ')})` : `, gpu not measured (${r.gpu.note ?? 'no timestamp queries'})`;
   const pk = r.profile === null ? '' : `, main thread: ${r.profile.packages.slice(0, 5).map((p) => `${p.name} ${p.share}%`).join(', ')}`;
-  return `${what}: ${r.frames.fps} fps, frame p50/p95/p99/max ${r.frames.p50}/${r.frames.p95}/${r.frames.p99}/${r.frames.max ?? '-'} ms${hist(r.frames.histogram)}, ${r.draws.p50} draws (scene ${r.scene.passDraws?.scene ?? '-'}, shadow ${r.scene.passDraws?.shadow ?? '-'}, post ${r.scene.passDraws?.post ?? '-'}), ${Math.round(r.tris.p50 / 1000)}k tris, ${r.scene.objects} Object3Ds (${r.scene.groups} groups, ${r.scene.lods} LOD, ${r.scene.meshes} meshes of which ${r.scene.hiddenMeshes} hidden, ${r.scene.bones} bones, ${r.scene.pointLights} point lights)${r.scene.merged !== undefined && r.scene.merged.meshes > 0 ? `, ${r.scene.merged.shown}/${r.scene.merged.meshes} merged cells drawn (${Math.round((r.scene.merged.vertexBytes + r.scene.merged.indexBytes) / 1024)} KiB)` : ''}, ${r.live.uniformBuffers} uniform buffers, main thread ${r.mainThread.taskMsPerFrame} ms/frame (${Math.round(r.mainThread.busyShare * 100)}%)${gpu}${pk}${r.errors.length > 0 ? `; ${r.errors.length} page errors: ${r.errors[0]}` : ''}`;
+  return `${what}: ${r.frames.fps} fps, frame p50/p95/p99/max ${r.frames.p50}/${r.frames.p95}/${r.frames.p99}/${r.frames.max ?? '-'} ms${hist(r.frames.histogram)}, ${r.draws.p50} draws (scene ${r.scene.passDraws?.scene ?? '-'}, shadow ${r.scene.passDraws?.shadow ?? '-'}, post ${r.scene.passDraws?.post ?? '-'}; shadow per frame mean/p95/max ${r.scene.shadowDraws?.mean ?? '-'}/${r.scene.shadowDraws?.p95 ?? '-'}/${r.scene.shadowDraws?.max ?? '-'}), ${Math.round(r.tris.p50 / 1000)}k tris, ${r.scene.objects} Object3Ds (${r.scene.groups} groups, ${r.scene.lods} LOD, ${r.scene.meshes} meshes of which ${r.scene.hiddenMeshes} hidden, ${r.scene.bones} bones, ${r.scene.pointLights} point lights)${r.scene.merged !== undefined && r.scene.merged.meshes > 0 ? `, ${r.scene.merged.shown}/${r.scene.merged.meshes} merged cells drawn (${Math.round((r.scene.merged.vertexBytes + r.scene.merged.indexBytes) / 1024)} KiB)` : ''}, ${r.live.uniformBuffers} uniform buffers, main thread ${r.mainThread.taskMsPerFrame} ms/frame (${Math.round(r.mainThread.busyShare * 100)}%)${gpu}${pk}${r.errors.length > 0 ? `; ${r.errors.length} page errors: ${r.errors[0]}` : ''}`;
 }
 
 export async function runVillageCli(argv: readonly string[]): Promise<void> {
@@ -217,7 +228,7 @@ export async function runVillageCli(argv: readonly string[]): Promise<void> {
       const browser = await launchGpuBrowser({ vsync: has('vsync') });
       try {
         for (const r of renderers) {
-          const res = await measureSceneView(browser, be, projectId, r, { warmupMs, recordMs, query, shot: join(runDir, `scene-view-${r}.png`) });
+          const res = await measureSceneView(browser, be, projectId, r, { warmupMs, recordMs, query, shot: join(runDir, `scene-view-${r}.png`), ...(get('orbit') !== undefined ? { orbit: Number(get('orbit')) } : {}) });
           (report.sceneView ??= {})[r] = res;
           log(sceneViewLine(`scene view ${r}`, res));
         }
@@ -287,13 +298,15 @@ export async function runVillageCli(argv: readonly string[]): Promise<void> {
   const write = get('write-baseline');
   if (write !== undefined) {
     const frameMeanMs: FrameBaseline['frameMeanMs'] = {};
+    const frameP50Ms: NonNullable<FrameBaseline['frameP50Ms']> = {};
     const frameP95Ms: NonNullable<FrameBaseline['frameP95Ms']> = {};
     for (const r of renderers) {
       if (report.export[r] === undefined) continue;
       frameMeanMs[r] = report.export[r]!.frames.mean;
+      frameP50Ms[r] = report.export[r]!.frames.p50;
       frameP95Ms[r] = report.export[r]!.frames.p95;
     }
-    const base: FrameBaseline = { note: 'export frame time of the village class (tools/perf/village.ts) on this host\'s GPU: re-record with tools/perf/run.mjs village --gate --write-baseline <this file>', recordedAt: new Date().toISOString(), commit, machine: report.machine, subject: report.subject.name, version: VILLAGE_VERSION, frameMeanMs, frameP95Ms };
+    const base: FrameBaseline = { note: 'export frame time of the village class (tools/perf/village.ts) on this host\'s GPU: re-record with tools/perf/run.mjs village --gate --write-baseline <this file>', recordedAt: new Date().toISOString(), commit, machine: report.machine, subject: report.subject.name, version: VILLAGE_VERSION, frameMeanMs, frameP50Ms, frameP95Ms };
     writeFileSync(write, `${JSON.stringify(base, null, 1)}\n`);
     log(`village: baseline written to ${write}`);
   }
@@ -303,11 +316,14 @@ export async function runVillageCli(argv: readonly string[]): Promise<void> {
     if (base.version !== VILLAGE_VERSION) log(`village: the baseline is for village version ${base.version}, this is ${VILLAGE_VERSION}: re-record it`);
     if (base.machine.gpu !== report.machine.gpu) log(`village: the baseline was recorded on ${base.machine.gpu}, this host has ${report.machine.gpu}`);
     const bad = frameRegressions(base, report);
-    for (const b of bad) log(`village: REGRESSION ${b.renderer} frame ${b.metric} ${b.value} ms > ${b.limit} ms (baseline ${b.baseline} ms + ${(b.metric === 'mean' ? FRAME_REGRESSION : FRAME_P95_REGRESSION) * 100} %)`);
+    for (const b of bad) log(`village: REGRESSION ${b.renderer} frame ${b.metric} ${b.value} ms > ${b.limit} ms (baseline ${b.baseline} ms + ${(b.metric === 'p95' ? FRAME_P95_REGRESSION : FRAME_REGRESSION) * 100} %)`);
+    const median = base.frameP50Ms !== undefined;
     for (const r of renderers) {
-      if (bad.some((b) => b.renderer === r) || base.frameMeanMs[r] === undefined) continue;
+      const b = median ? base.frameP50Ms![r] : base.frameMeanMs[r];
+      if (bad.some((x) => x.renderer === r) || b === undefined) continue;
       const p95 = base.frameP95Ms?.[r];
-      log(`village: ${r} frame ${report.export[r]?.frames.mean} ms (baseline ${base.frameMeanMs[r]} ms, limit ${frameLimit(base.frameMeanMs[r]!, FRAME_REGRESSION)} ms)${p95 !== undefined ? `, p95 ${report.export[r]?.frames.p95} ms (baseline ${p95} ms, limit ${frameLimit(p95, FRAME_P95_REGRESSION)} ms)` : ''}`);
+      const f = report.export[r]?.frames;
+      log(`village: ${r} frame ${median ? 'p50' : 'mean'} ${median ? f?.p50 : f?.mean} ms (baseline ${b} ms, limit ${frameLimit(b, FRAME_REGRESSION)} ms; mean ${f?.mean} ms)${p95 !== undefined ? `, p95 ${f?.p95} ms (baseline ${p95} ms, limit ${frameLimit(p95, FRAME_P95_REGRESSION)} ms)` : ''}`);
     }
     if (bad.length > 0 || base.version !== VILLAGE_VERSION) process.exitCode = 1;
   }
