@@ -10,16 +10,22 @@
  * commands (pause, scene loads, UI events, the camera viewport) go to
  * the worker in order and apply at its next step boundary, as in the page.
  *
- * The frame driver stays on the page: with `driver: 'raf'` every animation
- * frame samples the input owner once and sends a tick (the page's clock);
- * the worker's answer is applied and the host's frame (`onFrame`: menus, HUD,
- * audio, render) runs as soon as it arrives. At most one tick is in flight —
- * a slow step never queues frames up, the next tick simply covers more time
- * (the runtime's bounded catch-up applies as in the page). With
- * `driver: 'manual'` (Node, tests) `tick(now)` resolves once the frame is in.
+ * The frame driver stays on the page and never waits for the worker. With
+ * `driver: 'raf'` every animation frame (1) applies the worker's newest
+ * finished frame if one arrived, (2) sends the next tick with this frame's
+ * input sample (the page's clock) unless one is still in flight, and (3) runs
+ * the host's frame (`onFrame`: menus, HUD, audio, render) straight away,
+ * drawing each entity between its last two finished steps by the page's clock
+ * (`FrameMirror.present`). The worker steps in parallel and its answer is drawn
+ * from the next animation frame on: the page draws one frame behind the
+ * simulation. At most one tick is in flight — a slow worker never queues
+ * ticks up, the next tick simply covers more time (the runtime's bounded
+ * catch-up applies as in the page), and the page keeps drawing at the
+ * display's rate meanwhile. With `driver: 'manual'` (Node, tests) `tick(now)`
+ * resolves once the frame is applied and `onFrame` ran.
  */
 import { debugCallRefusal, ENGINE_DEBUG_COMMANDS, validateAssetAnswers, validateDebugCommandCall, validateSaveEvents, type AssetHandleAnswer, type SaveEvent } from '@thirdlight/runtime';
-import { engineStatsOf, uiViewOf, validateDialogueInput, validateUiEvent, type DialogueInputRecord } from '@thirdlight/runtime';
+import { engineStatsOf, interpolateCameraPose, uiViewOf, validateDialogueInput, validateUiEvent, type DialogueInputRecord } from '@thirdlight/runtime';
 import type {
   UiEventRecord,
   UiOutput,
@@ -40,7 +46,7 @@ import type {
 } from '@thirdlight/runtime';
 import type { GameControlError } from './host';
 import { FrameMirror } from './sim-state';
-import { TRANSFORM_STRIDE, type FrameState, type MainToWorker, type SceneEntities, type SimCommand, type SimInitMessage, type SimQuery, type SimWorkerHandle, type WorkerToMain } from './sim-protocol';
+import { CAMERA_POSE_FLOATS, type FrameState, type MainToWorker, type SceneEntities, type SimCommand, type SimInitMessage, type SimQuery, type SimWorkerHandle, type WorkerToMain } from './sim-protocol';
 import type { RelayPage, SimAccess } from './sim-access';
 import type { UiHitTarget } from './ui-hit';
 import type { RunDigests, RunNow } from './run-probe';
@@ -56,6 +62,37 @@ export interface RemoteSimulationOptions {
   readonly log?: (level: 'info' | 'warn' | 'error', message: string) => void;
   /** How long the worker may take to compose the simulation (default 60 s). */
   readonly readyTimeoutMs?: number;
+  /** Debugging and tests only: the worker busies itself this long per frame (a slow simulation). */
+  readonly workerDelayMs?: number;
+}
+
+/** How the page's frames met the worker's (Play diagnostics). */
+export interface SimPipelineStats {
+  /** Frames the page drew. */
+  readonly frames: number;
+  /**
+   * Time from an animation frame to its draw (ms, all frames): what the draw
+   * was held back by the worker. Applying the worker's frame and sending the
+   * tick are all that run there (hundredths of a millisecond); the draw never
+   * waits for the worker's answer.
+   */
+  readonly blockedMs: number;
+  /** The longest such delay in one frame (ms). */
+  readonly blockedMaxMs: number;
+  /** Frames drawn with no new step since the frame before (blended by the clock, or standing still). */
+  readonly framesWithoutStep: number;
+  /** Frames drawn with no new worker frame (the worker was still computing). */
+  readonly framesWithoutWorkerFrame: number;
+  /** Ticks not sent because the last one was still in flight (the worker slower than the display). */
+  readonly ticksSkipped: number;
+  /** From sending a tick to its frame arriving (ms): the average and the longest. */
+  readonly workerRoundTripMs: { readonly avg: number; readonly max: number };
+  /**
+   * From sampling a frame's input (its tick sent) to the first draw that
+   * shows the steps it drove (ms): the input-to-screen time the pipeline
+   * adds over drawing in the same frame, about one display frame.
+   */
+  readonly inputToDrawMs: { readonly avg: number; readonly max: number };
 }
 
 export interface RemoteSimulation {
@@ -72,6 +109,8 @@ export interface RemoteSimulation {
   readonly digests: string[];
   /** The fatal error of the worker, if one happened after it was ready. */
   readonly failure: { code: string; message: string } | null;
+  /** How the page's frames met the worker's. */
+  pipeline(): SimPipelineStats;
   dispose(): Promise<void>;
 }
 
@@ -92,7 +131,11 @@ export function startRemoteSimulation(opts: RemoteSimulationOptions): Promise<Re
   let disposed = false;
   let failure: { code: string; message: string } | null = null;
   let seq = 0;
-  let inFlight: { seq: number; resolve: (s: FrameState) => void; reject: (e: Error) => void } | null = null;
+  let inFlight: { seq: number; sentAt: number; resolve: (s: FrameState) => void; reject: (e: Error) => void } | null = null;
+  /** Frames of the worker that arrived since the last animation frame (applied, in order, at the next one). */
+  const arrived: { state: FrameState; sentAt: number | null }[] = [];
+  const stats = { frames: 0, blockedMs: 0, blockedMaxMs: 0, framesWithoutStep: 0, framesWithoutWorkerFrame: 0, ticksSkipped: 0, trips: 0, tripSum: 0, tripMax: 0, draws: 0, drawSum: 0, drawMax: 0 };
+  let drawnStep = -1;
   let manualChain: Promise<unknown> = Promise.resolve();
   let rafId: number | null = null;
   let running = false;
@@ -102,6 +145,21 @@ export function startRemoteSimulation(opts: RemoteSimulationOptions): Promise<Re
   /** Run commands submitted since the last boundary (the runtime's one-pending rule, mirrored). */
   let relayDone: ((from: number, to: number) => void) | null = null;
   let relayActive = false;
+  /**
+   * A finished input exercise waits for the worker's frame that followed it
+   * (`seq`, null until it arrived) to be drawn, so its answer comes after the
+   * frame that contains its last step (a screenshot asked next shows it).
+   */
+  let relayFinished: { from: number; to: number; seq: number | null } | null = null;
+  const answerRelayWhenDrawn = (): void => {
+    const f = relayFinished;
+    if (f === null || f.seq === null || mirror.seq < f.seq) return;
+    relayFinished = null;
+    relayActive = false;
+    const cb = relayDone;
+    relayDone = null;
+    cb?.(f.from, f.to);
+  };
   /** The page's UI for the input exercise, and the targets last sent to the worker. */
   let relayPage: RelayPage | null = null;
   let sentTargets = '';
@@ -137,20 +195,45 @@ export function startRemoteSimulation(opts: RemoteSimulationOptions): Promise<Re
     const give = mirror.spare;
     mirror.spare = null;
     const uiTargets = relayActive ? targetsNow() : undefined;
-    post({ t: 'tick', seq: s, now, frame, ...(give !== null ? { give } : {}), ...(uiTargets !== undefined ? { uiTargets } : {}) }, give !== null ? [give] : undefined);
+    const delay = opts.workerDelayMs !== undefined && opts.workerDelayMs > 0 ? { delayMs: opts.workerDelayMs } : {};
+    post({ t: 'tick', seq: s, now, frame, ...(give !== null ? { give } : {}), ...(uiTargets !== undefined ? { uiTargets } : {}), ...delay }, give !== null ? [give] : undefined);
     return s;
   };
 
   const rafLoop = (): void => {
     if (!running || disposed) return;
     rafId = requestAnimationFrame(rafLoop);
-    if (inFlight !== null) return; // one frame in flight: this frame renders when it arrives
-    const s = sendTick(performance.now() / 1000);
-    inFlight = { seq: s, resolve: () => undefined, reject: () => undefined };
+    const startMs = performance.now();
+    const now = startMs / 1000;
+    // (1) The newest finished frame of the worker, if one arrived.
+    const fresh = arrived.length > 0;
+    for (const a of arrived.splice(0)) {
+      applyFrame(a.state, now);
+      if (a.sentAt !== null) {
+        const ms = (now - a.sentAt) * 1000;
+        stats.draws += 1;
+        stats.drawSum += ms;
+        stats.drawMax = Math.max(stats.drawMax, ms);
+      }
+    }
+    // (2) The next tick, with this frame's input, unless the last one is still being computed.
+    if (inFlight === null) inFlight = { seq: sendTick(now), sentAt: now, resolve: () => undefined, reject: () => undefined };
+    else stats.ticksSkipped += 1;
+    // (3) Draw now, between the last two finished steps by the page's clock: nothing here waits for the worker.
+    mirror.present(now);
+    stats.frames += 1;
+    if (!fresh) stats.framesWithoutWorkerFrame += 1;
+    if (mirror.stepIndex === drawnStep) stats.framesWithoutStep += 1;
+    drawnStep = mirror.stepIndex;
+    const held = performance.now() - startMs;
+    stats.blockedMs += held;
+    stats.blockedMaxMs = Math.max(stats.blockedMaxMs, held);
+    if (!disposed) onFrame?.();
+    answerRelayWhenDrawn();
   };
 
-  const applyFrame = (state: FrameState): void => {
-    mirror.apply(state);
+  const applyFrame = (state: FrameState, now: number): void => {
+    mirror.apply(state, now);
     if (state.digests !== undefined) for (const d of state.digests) digests.push(d);
     if (state.tickError !== undefined && failure === null) {
       failure = state.tickError;
@@ -163,11 +246,27 @@ export function startRemoteSimulation(opts: RemoteSimulationOptions): Promise<Re
     if (typeof m !== 'object' || m === null) return;
     switch (m.t) {
       case 'frame': {
-        applyFrame(m.state);
+        if (relayFinished !== null && relayFinished.seq === null) relayFinished.seq = m.state.seq;
         const f = inFlight;
-        if (f !== null && f.seq === m.state.seq) {
+        const answers = f !== null && f.seq === m.state.seq;
+        if (answers) {
           inFlight = null;
+          const trip = (performance.now() / 1000 - f.sentAt) * 1000;
+          stats.trips += 1;
+          stats.tripSum += trip;
+          stats.tripMax = Math.max(stats.tripMax, trip);
+        }
+        if (opts.driver === 'raf') {
+          // Drawn from the next animation frame on (the frame driver applies it there).
+          arrived.push({ state: m.state, sentAt: answers ? f.sentAt : null });
+          return;
+        }
+        const now = performance.now() / 1000;
+        applyFrame(m.state, now);
+        if (answers) {
+          mirror.present(now);
           if (!disposed) onFrame?.();
+          answerRelayWhenDrawn();
           f.resolve(m.state);
         }
         return;
@@ -185,10 +284,14 @@ export function startRemoteSimulation(opts: RemoteSimulationOptions): Promise<Re
         return;
       }
       case 'relay.done': {
-        relayActive = false;
-        const cb = relayDone;
-        relayDone = null;
-        cb?.(m.from, m.to);
+        if (m.from < 0) {
+          relayActive = false;
+          const cb = relayDone;
+          relayDone = null;
+          cb?.(m.from, m.to);
+          return;
+        }
+        relayFinished = { from: m.from, to: m.to, seq: null };
         return;
       }
       case 'relay.effect':
@@ -250,19 +353,17 @@ export function startRemoteSimulation(opts: RemoteSimulationOptions): Promise<Re
   const camLens = { fovY: 60, near: 0.1, far: 100, letterbox: 0 };
   const rotation: number[] = [0, 0, 0, 1];
   const scale: number[] = [1, 1, 1];
-  const readAt = (i: number): void => {
-    const o = i * TRANSFORM_STRIDE;
-    const x = mirror.xf;
-    position[0] = x[o]!;
-    position[1] = x[o + 1]!;
-    position[2] = x[o + 2]!;
-    rotation[0] = x[o + 3]!;
-    rotation[1] = x[o + 4]!;
-    rotation[2] = x[o + 5]!;
-    rotation[3] = x[o + 6]!;
-    scale[0] = x[o + 7]!;
-    scale[1] = x[o + 8]!;
-    scale[2] = x[o + 9]!;
+  const readAt = (i: number): void => mirror.readRow(i, position, rotation, scale);
+  /** The camera's two step poses (scratch, filled from the frame's pose array). */
+  const camA = { position: [0, 0, 0], rotation: [0, 0, 0, 1], fovY: 60, near: 0.1, far: 100, letterbox: 0 };
+  const camB = { position: [0, 0, 0], rotation: [0, 0, 0, 1], fovY: 60, near: 0.1, far: 100, letterbox: 0 };
+  const camPose = (out: typeof camA, pose: readonly number[], o: number): void => {
+    for (let k = 0; k < 3; k += 1) out.position[k] = pose[o + k]!;
+    for (let k = 0; k < 4; k += 1) out.rotation[k] = pose[o + 3 + k]!;
+    out.fovY = pose[o + 7]!;
+    out.near = pose[o + 8]!;
+    out.far = pose[o + 9]!;
+    out.letterbox = pose[o + 10]!;
   };
   const gone = (): boolean => disposed || mirror.state === 'disposed';
   const NO_LOADING: import('@thirdlight/runtime').SceneLoadingView = Object.freeze({ loading: Object.freeze([]), transition: null, swap: null });
@@ -387,13 +488,10 @@ export function startRemoteSimulation(opts: RemoteSimulationOptions): Promise<Re
     readCameraView: (p: number[], r: number[]) => {
       const c = mirror.cam;
       if (gone() || c === null) return null;
-      for (let k = 0; k < 3; k += 1) p[k] = c.pose[k]!;
-      for (let k = 0; k < 4; k += 1) r[k] = c.pose[3 + k]!;
-      camLens.fovY = c.pose[7]!;
-      camLens.near = c.pose[8]!;
-      camLens.far = c.pose[9]!;
-      camLens.letterbox = c.pose[10]!;
-      return camLens;
+      // Between the two steps by the page's clock, as the transforms.
+      camPose(camA, c.pose, 0);
+      camPose(camB, c.pose, CAMERA_POSE_FLOATS);
+      return interpolateCameraPose(camA, camB, mirror.alpha, p, r, camLens);
     },
     cameraView: () => (gone() ? null : (mirror.cam?.view ?? null)),
     // The objects riding on sockets (the worker's list).
@@ -459,7 +557,7 @@ export function startRemoteSimulation(opts: RemoteSimulationOptions): Promise<Re
     getInterpolatedState: (): { ok: true; state: InterpolatedState } | { ok: false; error: RuntimeError } => {
       if (gone()) return { ok: false, error: rtError('runtime_disposed', 'runtime is disposed') };
       const transforms: InterpolatedTransform[] = [];
-      for (let i = 0; i < mirror.ids.length; i += 1) {
+      for (let i = 0; i < mirror.rowCount(); i += 1) {
         readAt(i);
         transforms.push({ id: mirror.ids[i]!, position: [position[0]!, position[1]!, position[2]!], rotation: [rotation[0]!, rotation[1]!, rotation[2]!, rotation[3]!], scale: [scale[0]!, scale[1]!, scale[2]!] });
       }
@@ -467,9 +565,19 @@ export function startRemoteSimulation(opts: RemoteSimulationOptions): Promise<Re
     },
     forEachInterpolated: (visit: InterpolatedVisitor): boolean => {
       if (gone()) return false;
-      const n = Math.min(mirror.ids.length, Math.floor(mirror.xf.length / TRANSFORM_STRIDE));
+      const n = mirror.rowCount();
       for (let i = 0; i < n; i += 1) {
         readAt(i);
+        visit(mirror.ids[i]!, position, rotation, scale);
+      }
+      return true;
+    },
+    // The last finished step, not blended (what digests and observers compare).
+    forEachCommitted: (visit: InterpolatedVisitor): boolean => {
+      if (gone()) return false;
+      const n = mirror.rowCount();
+      for (let i = 0; i < n; i += 1) {
+        mirror.readCommittedRow(i, position, rotation, scale);
         visit(mirror.ids[i]!, position, rotation, scale);
       }
       return true;
@@ -479,13 +587,13 @@ export function startRemoteSimulation(opts: RemoteSimulationOptions): Promise<Re
       mirror.takeMoved((i) => {
         readAt(i);
         visit(mirror.ids[i]!, position, rotation, scale);
-      }, Math.min(mirror.ids.length, Math.floor(mirror.xf.length / TRANSFORM_STRIDE)));
+      }, mirror.rowCount());
       return true;
     },
     readInterpolated: (id: string, p: number[], r: number[], s: number[]): boolean => {
       if (gone()) return false;
       const i = mirror.index.get(id);
-      if (i === undefined || (i + 1) * TRANSFORM_STRIDE > mirror.xf.length) return false;
+      if (i === undefined || i >= mirror.rowCount()) return false;
       readAt(i);
       for (let k = 0; k < 3; k += 1) p[k] = position[k]!;
       for (let k = 0; k < 4; k += 1) r[k] = rotation[k]!;
@@ -546,7 +654,7 @@ export function startRemoteSimulation(opts: RemoteSimulationOptions): Promise<Re
       if (disposed) return Promise.reject(new Error('the simulation was disposed'));
       return new Promise<FrameState>((resolve, reject) => {
         const s = sendTick(now);
-        inFlight = { seq: s, resolve, reject };
+        inFlight = { seq: s, sentAt: performance.now() / 1000, resolve, reject };
       });
     };
     const next = manualChain.then(run, run);
@@ -624,7 +732,8 @@ export function startRemoteSimulation(opts: RemoteSimulationOptions): Promise<Re
           clearTimeout(timer);
           camera = m.camera;
           hasScenes = m.hasScenes;
-          applyFrame(m.state);
+          mirror.stepSeconds = 1 / (opts.init.settings.fixed_step_hz ?? 120);
+          applyFrame(m.state, performance.now() / 1000);
           if (m.state.xfShared === undefined && opts.init.shared === true) transport = 'message';
           resolve({
             runtime: mirrorRuntime,
@@ -642,6 +751,16 @@ export function startRemoteSimulation(opts: RemoteSimulationOptions): Promise<Re
             get failure() {
               return failure;
             },
+            pipeline: () => ({
+              frames: stats.frames,
+              blockedMs: Math.round(stats.blockedMs * 100) / 100,
+              blockedMaxMs: Math.round(stats.blockedMaxMs * 100) / 100,
+              framesWithoutStep: stats.framesWithoutStep,
+              framesWithoutWorkerFrame: stats.framesWithoutWorkerFrame,
+              ticksSkipped: stats.ticksSkipped,
+              workerRoundTripMs: { avg: stats.trips > 0 ? Math.round((stats.tripSum / stats.trips) * 100) / 100 : 0, max: Math.round(stats.tripMax * 100) / 100 },
+              inputToDrawMs: { avg: stats.draws > 0 ? Math.round((stats.drawSum / stats.draws) * 100) / 100 : 0, max: Math.round(stats.drawMax * 100) / 100 },
+            }),
             dispose,
           });
           return;

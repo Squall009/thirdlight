@@ -13,7 +13,10 @@
  *   worker's transforms go through shared memory;
  * - the export, served by a plain static server, runs in the worker (and in
  *   the page with ?threads=off; with COOP/COEP headers through shared
- *   memory): the run starts from the keyboard and a held key scrolls the view.
+ *   memory): the run starts from the keyboard and a held key scrolls the view;
+ * - Play never waits on the worker: with the worker slowed to 40 ms a frame it
+ *   still draws every animation frame (nothing between a frame and its draw
+ *   waits), and a 240 Hz game at 30 fps keeps real time without dropped steps.
  */
 import { randomBytes } from 'node:crypto';
 import { createReadStream, existsSync, statSync } from 'node:fs';
@@ -136,6 +139,104 @@ test('Play with cross-origin isolation: the worker shares memory with the page',
   expect(await page.evaluate(() => crossOriginIsolated)).toBe(true);
   await playChecks(page, psid, { mode: 'worker', transport: 'shared', isolated: true }, logs);
   expect(logs.some((l) => l.includes('transforms by shared memory'))).toBe(true);
+});
+
+type Pipeline = { frames: number; blockedMs: number; blockedMaxMs: number; framesWithoutStep: number; framesWithoutWorkerFrame: number; ticksSkipped: number; workerRoundTripMs: { avg: number; max: number }; inputToDrawMs: { avg: number; max: number } };
+type Diagnostics = { runtime: { stepIndex: number; droppedSteps: number }; simulation: { mode: string; pipeline: Pipeline | null } };
+
+/** Start the title's game in a started Play (a click focuses it, Enter starts it). */
+async function startGame(page: Page, psid: string): Promise<void> {
+  const state = async (): Promise<string> => ((await relay(`${psid}/observe`, {})).json as unknown as Observation).state;
+  await page.locator('iframe.tl-app__preview-frame').click({ position: { x: 400, y: 300 } });
+  await expect.poll(state).toBe('paused');
+  await page.keyboard.press('Enter');
+  await expect.poll(state).toBe('running');
+}
+
+test('Play never waits on the simulation: it draws at the display rate with a slowed worker, and a 240 Hz game keeps real time at 30 fps', async ({ browser }) => {
+  test.setTimeout(240_000);
+  await setup(false);
+  await cmd('setSettings', { settings: { fixed_step_hz: 240 } });
+  const diagnostics = async (psid: string): Promise<Diagnostics> => (await relay(`${psid}/diagnostics`, {})).json['diagnostics'] as Diagnostics;
+
+  // A worker slowed to 40 ms a frame (?simDelayMs=40): the page still draws every animation frame.
+  {
+    const context = await browser.newContext({ viewport: { width: 1920, height: 1080 } });
+    // Count the play page's animation frames (the display's rate as the browser runs it).
+    await context.addInitScript(() => {
+      const w = window as unknown as { __rafs: number };
+      w.__rafs = 0;
+      const count = (): void => {
+        w.__rafs += 1;
+        requestAnimationFrame(count);
+      };
+      requestAnimationFrame(count);
+    });
+    const page = await context.newPage();
+    const psid = await startPlay(page, 'simDelayMs=40');
+    await startGame(page, psid);
+    const frame = page.frameLocator('iframe.tl-app__preview-frame');
+    const rafs = async (): Promise<number> => frame.locator('body').evaluate(() => (window as unknown as { __rafs: number }).__rafs);
+    await page.waitForTimeout(500);
+    const d0 = await diagnostics(psid);
+    const r0 = await rafs();
+    const t0 = Date.now();
+    await page.waitForTimeout(3000);
+    const d1 = await diagnostics(psid);
+    const r1 = await rafs();
+    const seconds = (Date.now() - t0) / 1000;
+    const p0 = d0.simulation.pipeline!;
+    const p1 = d1.simulation.pipeline!;
+    expect(d1.simulation.mode).toBe('worker');
+    const drawn = (p1.frames - p0.frames) / seconds;
+    const display = (r1 - r0) / seconds;
+    const workerFrames = (p1.frames - p1.framesWithoutWorkerFrame - (p0.frames - p0.framesWithoutWorkerFrame)) / seconds;
+    process.stderr.write(`sim-worker e2e: slowed worker (40 ms): drawn ${drawn.toFixed(1)} fps, display ${display.toFixed(1)} fps, worker frames ${workerFrames.toFixed(1)}/s, blocked max ${p1.blockedMaxMs} ms, round trip ${JSON.stringify(p1.workerRoundTripMs)}, input to draw ${JSON.stringify(p1.inputToDrawMs)}\n`);
+    // Every animation frame draws, though the worker answers at most every 40 ms.
+    expect(drawn).toBeGreaterThan(0.85 * display);
+    expect(workerFrames).toBeLessThan(26);
+    expect(drawn).toBeGreaterThan(1.5 * workerFrames);
+    expect(p1.ticksSkipped).toBeGreaterThan(p0.ticksSkipped);
+    // Nothing between an animation frame and its draw waits for the worker.
+    expect(p1.blockedMaxMs).toBeLessThan(5);
+    expect(p1.workerRoundTripMs.avg).toBeGreaterThanOrEqual(40);
+    await context.close();
+  }
+
+  // The display at 30 fps (every animation frame held to 33 ms): a 240 Hz game runs 8 steps a frame and keeps real time.
+  {
+    const context = await browser.newContext({ viewport: { width: 1920, height: 1080 } });
+    await context.addInitScript(() => {
+      const raf = window.requestAnimationFrame.bind(window);
+      let last = 0;
+      window.requestAnimationFrame = (cb: FrameRequestCallback): number =>
+        raf(function held(t: number): void {
+          if (t - last >= 1000 / 30 - 1) {
+            last = t;
+            cb(t);
+          } else raf(held);
+        });
+    });
+    const page = await context.newPage();
+    const psid = await startPlay(page);
+    await startGame(page, psid);
+    await page.waitForTimeout(500);
+    const d0 = await diagnostics(psid);
+    const t0 = Date.now();
+    await page.waitForTimeout(4000);
+    const d1 = await diagnostics(psid);
+    const seconds = (Date.now() - t0) / 1000;
+    const p0 = d0.simulation.pipeline!;
+    const p1 = d1.simulation.pipeline!;
+    const fps = (p1.frames - p0.frames) / seconds;
+    const stepsPerSecond = (d1.runtime.stepIndex - d0.runtime.stepIndex) / seconds;
+    process.stderr.write(`sim-worker e2e: 240 Hz at ${fps.toFixed(1)} fps: ${stepsPerSecond.toFixed(1)} steps/s, dropped ${d1.runtime.droppedSteps - d0.runtime.droppedSteps}\n`);
+    expect(fps).toBeLessThan(33);
+    expect(stepsPerSecond).toBeGreaterThan(240 * 0.93);
+    expect(stepsPerSecond).toBeLessThan(240 * 1.07);
+    expect(d1.runtime.droppedSteps - d0.runtime.droppedSteps).toBe(0);
+    await context.close();
+  }
 });
 
 /** A plain static file server (optionally with COOP/COEP headers). */

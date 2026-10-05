@@ -262,6 +262,41 @@ export interface BaseLens {
   far: number;
 }
 
+/** A resolved camera pose as the interpolation reads it. */
+export interface CameraPoseLike {
+  readonly position: readonly number[];
+  readonly rotation: readonly number[];
+  readonly fovY: number;
+  readonly near: number;
+  readonly far: number;
+  readonly letterbox: number;
+}
+
+/**
+ * A view between two steps' poses (`alpha` 0–1) into `position`/`rotation`
+ * and `lens` (returned). The camera brain and the page's mirror of the
+ * simulation worker both draw with it.
+ */
+export function interpolateCameraPose(
+  a: CameraPoseLike,
+  b: CameraPoseLike,
+  alpha: number,
+  position: number[],
+  rotation: number[],
+  lens: { fovY: number; near: number; far: number; letterbox: number },
+  scratch: Q4 = [0, 0, 0, 1],
+): { fovY: number; near: number; far: number; letterbox: number } {
+  const t = clampNum(alpha, 0, 1);
+  for (let k = 0; k < 3; k += 1) position[k] = a.position[k]! + (b.position[k]! - a.position[k]!) * t;
+  slerp(a.rotation, b.rotation, t, scratch);
+  for (let k = 0; k < 4; k += 1) rotation[k] = scratch[k]!;
+  lens.fovY = a.fovY + (b.fovY - a.fovY) * t;
+  lens.near = a.near + (b.near - a.near) * t;
+  lens.far = a.far + (b.far - a.far) * t;
+  lens.letterbox = a.letterbox + (b.letterbox - a.letterbox) * t;
+  return lens;
+}
+
 export class CameraBrain {
   private readonly dt: number;
   private readonly hz: number;
@@ -1156,18 +1191,7 @@ export class CameraBrain {
 
   /** The resolved view between the last two steps (`alpha` 0–1) into `position`/`rotation`; its lens. */
   readInterpolated(alpha: number, position: number[], rotation: number[]): { fovY: number; near: number; far: number; letterbox: number } {
-    const a = this.prev;
-    const b = this.curr;
-    const t = clampNum(alpha, 0, 1);
-    for (let k = 0; k < 3; k += 1) position[k] = a.position[k]! + (b.position[k]! - a.position[k]!) * t;
-    slerp(a.rotation, b.rotation, t, this.tmpQ);
-    for (let k = 0; k < 4; k += 1) rotation[k] = this.tmpQ[k]!;
-    const l = this.lensOut;
-    l.fovY = a.fovY + (b.fovY - a.fovY) * t;
-    l.near = a.near + (b.near - a.near) * t;
-    l.far = a.far + (b.far - a.far) * t;
-    l.letterbox = a.letterbox + (b.letterbox - a.letterbox) * t;
-    return l;
+    return interpolateCameraPose(this.prev, this.curr, alpha, position, rotation, this.lensOut, this.tmpQ);
   }
 
   /** Whether the brain has resolved a view yet (it has stepped once). */

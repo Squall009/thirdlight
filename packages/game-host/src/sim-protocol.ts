@@ -47,8 +47,16 @@ export interface SimWorkerHandle extends SimEndpoint {
   onError?(handler: (message: string) => void): void;
 }
 
-/** Floats per entity in the transform arrays: position 3, rotation 4, scale 3. */
+/** Floats per transform: position 3, rotation 4, scale 3. */
 export const TRANSFORM_STRIDE = 10;
+/**
+ * Floats per entity in the frame's transform arrays: its last two finished
+ * steps, the transform before the last step then after it. The page blends
+ * them by its own clock while the worker computes the next frame.
+ */
+export const STEP_PAIR_STRIDE = 2 * TRANSFORM_STRIDE;
+/** Floats per camera pose: position 3, rotation 4, fovY, near, far, letterbox. */
+export const CAMERA_POSE_FLOATS = 11;
 
 /**
  * Engine limit: the physics engine's WebAssembly memory may grow to
@@ -91,6 +99,8 @@ export interface SimTickMessage {
   readonly frame: ActionFrame | null;
   /** A transform buffer the page has finished with (reused by the worker). */
   readonly give?: ArrayBuffer;
+  /** Debugging and tests only: the worker busies itself this long before the frame (a slow simulation). */
+  readonly delayMs?: number;
   /** The page's UI hit targets when they changed while an input exercise runs. */
   readonly uiTargets?: readonly UiHitTarget[];
 }
@@ -162,14 +172,17 @@ export interface FrameState {
   readonly seq: number;
   readonly stepIndex: number;
   readonly simTime: number;
+  /** Where the tick's clock fell between the last two steps (the runtime's interpolation alpha). */
   readonly alpha: number;
+  /** Sim seconds per wall second from that tick on (0 while paused, held or stopped): a later draw's alpha. */
+  readonly rate: number;
   readonly frameCount: number;
   readonly state: RuntimeDiagnostics['state'];
   readonly paused: boolean;
   readonly debugHeld: boolean;
   /** The entity order of the transform arrays (when it changed). */
   readonly ids?: readonly string[];
-  /** Every entity's interpolated transform (stride 10). */
+  /** Every entity's last two finished steps (`STEP_PAIR_STRIDE` floats each). */
   readonly xf?: Float64Array;
   /** Only the entities that moved: their indices and values. */
   readonly xfIdx?: Uint32Array;
@@ -203,8 +216,9 @@ export interface FrameState {
   readonly effects?: readonly EffectRequest[];
   /**
    * The resolved camera (virtual cameras), every frame while the game has one:
-   * the interpolated view [px, py, pz, qx, qy, qz, qw, fovY, near, far, letterbox] and the
-   * committed view (null: no virtual camera).
+   * the view at the two steps the transforms are between (`CAMERA_POSE_FLOATS` each:
+   * [px, py, pz, qx, qy, qz, qw, fovY, near, far, letterbox], before then after the
+   * last step) and the committed view (null: no virtual camera).
    */
   readonly cam?: { readonly pose: readonly number[]; readonly view: CameraViewInfo } | null;
   /** Block-layer chunks to re-mesh (their cells now). */

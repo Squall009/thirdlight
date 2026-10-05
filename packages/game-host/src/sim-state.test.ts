@@ -6,6 +6,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { FrameEncoder, FrameMirror, MIRROR_AUDIO_LIMIT, MIRROR_EFFECT_LIMIT } from './sim-state';
+import { STEP_PAIR_STRIDE, TRANSFORM_STRIDE } from './sim-protocol';
 
 const frame = (seq: number, audio: number, effects: number) => ({
   seq,
@@ -82,13 +83,109 @@ describe('FrameEncoder → FrameMirror: what moved', () => {
       s.t = 2;
       m.apply(enc.encode(rt as never, 4, {}).state);
       expect(taken(m, 40).sort((a, b) => a - b)).toEqual([3, 17]);
-      expect(m.xf[17 * 10]).toBe(19);
+      expect(m.xf[17 * STEP_PAIR_STRIDE + TRANSFORM_STRIDE]).toBe(19);
       // Most of them move (a full transform buffer goes): still only those.
       s.moving = new Set(Array.from({ length: 30 }, (_, i) => i));
       s.t = 3;
       m.apply(enc.encode(rt as never, 5, {}).state);
       expect(taken(m, 40)).toHaveLength(30);
-      expect(m.xf[29 * 10]).toBe(32);
+      expect(m.xf[29 * STEP_PAIR_STRIDE + TRANSFORM_STRIDE]).toBe(32);
     });
   }
+});
+
+describe('FrameMirror draws between the last two steps by the page clock', () => {
+  const DT = 1 / 120;
+  /** A runtime of 3 entities: e0 stands, e1 moves +1 per step along x, e2 moved only at the step before. */
+  const runtime = () => {
+    const s = { step: 0, alpha: 0.25, rate: 1 };
+    const t = (x: number) => ({ position: [x, 0, 0] as [number, number, number], rotation: [0, 0, 0, 1] as [number, number, number, number], scale: [1, 1, 1] as [number, number, number] });
+    const rt = {
+      getDiagnostics: () => ({ ok: false }),
+      get interpolationAlpha() {
+        return s.alpha;
+      },
+      get interpolationRate() {
+        return s.rate;
+      },
+      forEachStepPair: (visit: (id: string, p: unknown, c: unknown) => void) => {
+        visit('e0', t(5), t(5));
+        visit('e1', t(s.step - 1), t(s.step));
+        visit('e2', t(s.step === 1 ? 0 : 7), t(7));
+        return true;
+      },
+    };
+    return { s, rt };
+  };
+  const xAt = (m: FrameMirror, i: number): number => {
+    const p = [0, 0, 0];
+    m.readRow(i, p, [0, 0, 0, 1], [1, 1, 1]);
+    return p[0]!;
+  };
+
+  it("draws the worker's own alpha at the frame's time, then moves on by the clock and stops at the last step", () => {
+    const { s, rt } = runtime();
+    const enc = new FrameEncoder({ shared: false });
+    const m = new FrameMirror();
+    m.stepSeconds = DT;
+    s.step = 4;
+    const state = enc.encode(rt as never, 1, {}).state;
+    expect(state.rate).toBe(1);
+    m.apply(state, 10);
+    m.present(10);
+    expect(m.alpha).toBe(0.25);
+    expect(xAt(m, 1)).toBeCloseTo(3.25, 12);
+    // Half a step later (no new frame from the worker): half a step further.
+    m.present(10 + DT / 2);
+    expect(m.alpha).toBeCloseTo(0.75, 12);
+    expect(xAt(m, 1)).toBeCloseTo(3.75, 12);
+    // Past the last finished step it waits there (never ahead of the simulation).
+    m.present(10 + DT * 3);
+    expect(m.alpha).toBe(1);
+    expect(xAt(m, 1)).toBe(4);
+    expect(xAt(m, 0)).toBe(5);
+  });
+
+  it('a paused or held simulation (rate 0) draws its frame as it is', () => {
+    const { s, rt } = runtime();
+    const enc = new FrameEncoder({ shared: false });
+    const m = new FrameMirror();
+    m.stepSeconds = DT;
+    s.step = 2;
+    s.alpha = 0;
+    s.rate = 0;
+    m.apply(enc.encode(rt as never, 1, {}).state, 10);
+    m.present(11);
+    expect(m.alpha).toBe(0);
+    expect(xAt(m, 1)).toBe(2);
+  });
+
+  it('hands the presenter the rows between two different steps on every draw the alpha moved, the others once', () => {
+    const { s, rt } = runtime();
+    const enc = new FrameEncoder({ shared: false });
+    const m = new FrameMirror();
+    m.stepSeconds = DT;
+    const taken = (): number[] => {
+      const out: number[] = [];
+      m.takeMoved((i) => out.push(i), m.rowCount());
+      return out.sort((a, b) => a - b);
+    };
+    s.step = 1;
+    m.apply(enc.encode(rt as never, 1, {}).state, 10);
+    m.present(10);
+    expect(taken()).toEqual([0, 1, 2]);
+    // Next draw, no new frame: the moving rows again (e2's steps differ at step 1), the standing one not.
+    m.present(10 + DT / 4);
+    expect(taken()).toEqual([1, 2]);
+    // The same alpha again: nothing.
+    m.present(10 + DT / 4);
+    expect(taken()).toEqual([]);
+    // A new step where e2's two steps are equal: e2 is placed once more, then left alone.
+    s.step = 2;
+    m.apply(enc.encode(rt as never, 2, {}).state, 11);
+    m.present(11);
+    expect(taken()).toEqual([1, 2]);
+    m.present(11 + DT / 4);
+    expect(taken()).toEqual([1]);
+  });
 });

@@ -38,6 +38,8 @@ export function usePlaySession(
   const urlRenderer = useRef(rendererPreferenceFromUrl(pageSearch()));
   /** The page's ?threads= flag (where Play runs its simulation), passed on to the play page. */
   const urlThreads = useRef(/[?&]threads=([A-Za-z0-9]{1,16})(?:[&#]|$)/.exec(pageSearch())?.[1] ?? null);
+  /** The page's ?simDelayMs= flag (a slowed simulation worker, for debugging; the game page reads it), passed on likewise. */
+  const urlSimDelay = useRef(/[?&]simDelayMs=([0-9]{1,4})(?:[&#]|$)/.exec(pageSearch())?.[1] ?? null);
   const [playRenderer, setPlayRenderer] = useState<Record<string, unknown> | null>(null);
   const bridgeRef = useRef<Bridge | null>(null);
   const playIframeRef = useRef<HTMLIFrameElement | null>(null);
@@ -345,10 +347,10 @@ export function usePlaySession(
     await c.playStop(playInfo.playSessionId);
   }, [clientRef, playInfo]);
   // The play loads from its own content locator on the preview origin.
-  // The editor page's ?renderer= flag is passed on to the play page (and ?batching=off; and ?threads=).
+  // The editor page's ?renderer= flag is passed on to the play page (and ?batching=off, ?threads= and ?simDelayMs=).
   const previewSrc =
     playInfo?.playBase && playInfo.contentId !== null && playInfo.contentPath !== null
-      ? `${playInfo.playBase.replace(/\/$/, '')}${playInfo.contentPath}?play=${playInfo.playSessionId}&content=${playInfo.contentId}${urlRenderer.current !== null ? `&${RENDERER_URL_PARAM}=${urlRenderer.current}` : ''}${batchingFromUrl(pageSearch()) ? '' : `&${BATCHING_URL_PARAM}=off`}${urlThreads.current !== null ? `&threads=${urlThreads.current}` : ''}`
+      ? `${playInfo.playBase.replace(/\/$/, '')}${playInfo.contentPath}?play=${playInfo.playSessionId}&content=${playInfo.contentId}${urlRenderer.current !== null ? `&${RENDERER_URL_PARAM}=${urlRenderer.current}` : ''}${batchingFromUrl(pageSearch()) ? '' : `&${BATCHING_URL_PARAM}=off`}${urlThreads.current !== null ? `&threads=${urlThreads.current}` : ''}${urlSimDelay.current !== null ? `&simDelayMs=${urlSimDelay.current}` : ''}`
       : null;
   /** Clears the running Play's save (the Saves panel), or null when nothing is running. */
   const clearPlaySave =

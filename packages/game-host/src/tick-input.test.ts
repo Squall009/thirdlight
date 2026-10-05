@@ -6,7 +6,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { continueFrame, mergePhase, TickInputSource } from './tick-input';
-import { threadingFromUrl, resolveThreadingMode, resolveTransport, threadingLogLine } from './threading';
+import { simDelayFromUrl, threadingFromUrl, resolveThreadingMode, resolveTransport, threadingLogLine } from './threading';
 
 describe('TickInputSource', () => {
   it('the first step of a tick sees the sample, later steps its continuation (no new device events)', () => {
@@ -85,6 +85,14 @@ describe('threading mode', () => {
     const fallback = resolveThreadingMode({ url: '', workerAvailable: false });
     expect(fallback.mode).toBe('single');
     expect(fallback.reason).toContain('cannot start one');
+  });
+
+  it('the debugging delay of the worker: a whole number of milliseconds, at most a second, else none', () => {
+    expect(simDelayFromUrl('')).toBe(0);
+    expect(simDelayFromUrl('?simDelayMs=40')).toBe(40);
+    expect(simDelayFromUrl('?renderer=webgl2&simDelayMs=7&threads=on')).toBe(7);
+    expect(simDelayFromUrl('?simDelayMs=5000')).toBe(1000);
+    expect(simDelayFromUrl('?simDelayMs=-3')).toBe(0);
   });
 
   it('shared memory only when cross-origin isolated', () => {

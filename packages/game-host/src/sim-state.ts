@@ -2,9 +2,9 @@
  * The per-frame state of the simulation worker, encoded in the
  * worker (`FrameEncoder`) and mirrored in the page (`FrameMirror`).
  *
- * The encoder sends only what changed since the last frame: transforms as one
- * transferred `Float64Array` (all entities, or only the ones that moved when
- * few did), the committed game view when a step committed a new one, the
+ * The encoder sends only what changed since the last frame: each entity's
+ * last two finished steps as one transferred `Float64Array` (all entities, or
+ * only the ones that changed when few did), the committed game view when a step committed a new one, the
  * hidden/fading entities, animator poses, counters and the save state when
  * they differ, the scene set when the runtime rebuilt it (entities only for a
  * batch the page does not have yet), and the queued audio and effect requests.
@@ -12,12 +12,16 @@
  * a two-slot SharedArrayBuffer instead: the page has at most one frame in
  * flight, so it reads one slot while the worker writes the other.
  *
+ * The page draws a frame behind the worker: it blends each entity's two
+ * steps by its own clock (`FrameMirror.present`), from the alpha and rate
+ * the worker's tick had, so it never waits for the next frame to draw.
+ *
  * Float64 throughout: the page reads exactly the values the simulation has
  * (the MCP observation, bots and the determinism tests compare them).
  */
-import { materialChangeKey } from '@thirdlight/runtime';
+import { interpolateTransformInto, materialChangeKey, type TransformState } from '@thirdlight/runtime';
 import { applyUiOutputToModel, mergeUiOutput, type DebugCommandState, type AnimatorPose, type AudioCommand, type CameraViewInfo, type Runtime, type RuntimeDiagnostics, type SceneSetView, type PointerSample, type UiOutput, type UiShownDocument, type ModeView } from '@thirdlight/runtime';
-import { TRANSFORM_STRIDE, type FrameState, type SceneEntities, type SceneSetWire } from './sim-protocol';
+import { CAMERA_POSE_FLOATS, STEP_PAIR_STRIDE, TRANSFORM_STRIDE, type FrameState, type SceneEntities, type SceneSetWire } from './sim-protocol';
 
 /** Send every transform when more than this share of the entities moved (the index list would cost more). */
 const FULL_SHARE = 0.25;
@@ -82,34 +86,35 @@ export class FrameEncoder {
   private loadingRef: unknown = null;
   private shared: { sab: SharedArrayBuffer; slotFloats: number; slot: number; fresh: boolean } | null = null;
   private readonly useShared: boolean;
-  private readonly visit: (id: string, p: readonly number[], r: readonly number[], s: readonly number[]) => void;
+  private readonly visit: (id: string, prev: TransformState, curr: TransformState) => void;
+  /** Runtimes without step pairs: the interpolated transform as both steps. */
+  private readonly visitOne: (id: string, p: readonly number[], r: readonly number[], s: readonly number[]) => void;
 
   constructor(opts: { shared: boolean }) {
     this.useShared = opts.shared && typeof (globalThis as SharedGlobal).SharedArrayBuffer === 'function';
-    this.visit = (id, p, r, s) => {
+    const row = (id: string): number => {
       const i = this.count;
       if (this.scratchIds.length <= i) this.scratchIds.push(id);
       else this.scratchIds[i] = id;
       if (!this.idsDirty && this.ids[i] !== id) this.idsDirty = true;
-      const need = (i + 1) * TRANSFORM_STRIDE;
+      const need = (i + 1) * STEP_PAIR_STRIDE;
       if (this.cur.length < need) {
-        const grown = new Float64Array(Math.max(need, this.cur.length * 2, 64 * TRANSFORM_STRIDE));
+        const grown = new Float64Array(Math.max(need, this.cur.length * 2, 64 * STEP_PAIR_STRIDE));
         grown.set(this.cur);
         this.cur = grown;
       }
-      const o = i * TRANSFORM_STRIDE;
-      const c = this.cur;
-      c[o] = p[0]!;
-      c[o + 1] = p[1]!;
-      c[o + 2] = p[2]!;
-      c[o + 3] = r[0]!;
-      c[o + 4] = r[1]!;
-      c[o + 5] = r[2]!;
-      c[o + 6] = r[3]!;
-      c[o + 7] = s[0]!;
-      c[o + 8] = s[1]!;
-      c[o + 9] = s[2]!;
       this.count = i + 1;
+      return i * STEP_PAIR_STRIDE;
+    };
+    this.visit = (id, prev, curr) => {
+      const o = row(id);
+      writeTransform(this.cur, o, prev.position, prev.rotation, prev.scale);
+      writeTransform(this.cur, o + TRANSFORM_STRIDE, curr.position, curr.rotation, curr.scale);
+    };
+    this.visitOne = (id, p, r, s) => {
+      const o = row(id);
+      writeTransform(this.cur, o, p, r, s);
+      writeTransform(this.cur, o + TRANSFORM_STRIDE, p, r, s);
     };
   }
 
@@ -136,6 +141,7 @@ export class FrameEncoder {
       stepIndex: diag?.stepIndex ?? 0,
       simTime: diag?.simTime ?? 0,
       alpha: 0,
+      rate: 0,
       frameCount: diag?.frameCount ?? 0,
       state: diag?.state ?? 'disposed',
       paused: rt.isPaused === true,
@@ -144,22 +150,24 @@ export class FrameEncoder {
     // Transforms.
     this.count = 0;
     this.idsDirty = false;
-    if (rt.forEachInterpolated !== undefined) rt.forEachInterpolated(this.visit);
+    if (rt.forEachStepPair !== undefined) rt.forEachStepPair(this.visit);
+    else if (rt.forEachInterpolated !== undefined) rt.forEachInterpolated(this.visitOne);
     else {
       const s = rt.getInterpolatedState();
-      if (s.ok) for (const t of s.state.transforms) this.visit(t.id, t.position, t.rotation, t.scale);
+      if (s.ok) for (const t of s.state.transforms) this.visitOne(t.id, t.position, t.rotation, t.scale);
     }
     const n = this.count;
     if (n !== this.ids.length) this.idsDirty = true;
     out.alpha = rt.interpolationAlpha ?? alphaOf(rt);
+    out.rate = rt.forEachStepPair !== undefined ? (rt.interpolationRate ?? 0) : 0;
     if (this.idsDirty) {
       this.ids = this.scratchIds.slice(0, n);
       out.ids = this.ids;
     }
-    const floats = n * TRANSFORM_STRIDE;
+    const floats = n * STEP_PAIR_STRIDE;
     if (this.useShared) {
       if (this.shared === null || this.shared.slotFloats < floats) {
-        const slotFloats = Math.max(floats, 64 * TRANSFORM_STRIDE) * 2;
+        const slotFloats = Math.max(floats, 64 * STEP_PAIR_STRIDE) * 2;
         const Sab = (globalThis as SharedGlobal).SharedArrayBuffer!;
         this.shared = { sab: new Sab(slotFloats * 2 * 8), slotFloats, slot: 1, fresh: true };
       }
@@ -177,8 +185,8 @@ export class FrameEncoder {
       const c = this.cur;
       const l = this.last;
       for (let i = 0; i < n; i += 1) {
-        const o = i * TRANSFORM_STRIDE;
-        for (let k = 0; k < TRANSFORM_STRIDE; k += 1) {
+        const o = i * STEP_PAIR_STRIDE;
+        for (let k = 0; k < STEP_PAIR_STRIDE; k += 1) {
           if (!Object.is(c[o + k], l[o + k])) {
             if (moved.length <= changed) moved.push(i);
             else moved[changed] = i;
@@ -206,11 +214,11 @@ export class FrameEncoder {
         if (known) out.xfMoved = movedList();
       } else if (changed > 0) {
         const idx = new Uint32Array(changed);
-        const val = new Float64Array(changed * TRANSFORM_STRIDE);
+        const val = new Float64Array(changed * STEP_PAIR_STRIDE);
         for (let j = 0; j < changed; j += 1) {
           const i = moved[j]!;
           idx[j] = i;
-          val.set(this.cur.subarray(i * TRANSFORM_STRIDE, (i + 1) * TRANSFORM_STRIDE), j * TRANSFORM_STRIDE);
+          val.set(this.cur.subarray(i * STEP_PAIR_STRIDE, (i + 1) * STEP_PAIR_STRIDE), j * STEP_PAIR_STRIDE);
         }
         out.xfIdx = idx;
         out.xfVal = val;
@@ -325,8 +333,14 @@ export class FrameEncoder {
     // The main view as the camera brain resolved it (from the first step on).
     const camView = rt.cameraView?.() ?? null;
     if (camView !== null) {
-      const lens = rt.readCameraView?.(this.camPos, this.camRot) ?? null;
-      if (lens !== null) out.cam = { pose: [...this.camPos, ...this.camRot, lens.fovY, lens.near, lens.far, lens.letterbox], view: camView };
+      // The view at both steps (a runtime without them: its interpolated view twice).
+      const pose: number[] = [];
+      for (const alpha of [0, 1]) {
+        const lens = rt.readCameraViewAt !== undefined ? rt.readCameraViewAt(alpha, this.camPos, this.camRot) : (rt.readCameraView?.(this.camPos, this.camRot) ?? null);
+        if (lens === null) break;
+        pose.push(...this.camPos, ...this.camRot, lens.fovY, lens.near, lens.far, lens.letterbox);
+      }
+      if (pose.length === 2 * CAMERA_POSE_FLOATS) out.cam = { pose, view: camView };
     } else if (this.camSent) out.cam = null;
     this.camSent = camView !== null;
     // Project save requests (the page carries them out).
@@ -434,6 +448,19 @@ export class FrameEncoder {
   }
 }
 
+function writeTransform(out: Float64Array, o: number, p: readonly number[], r: readonly number[], s: readonly number[]): void {
+  out[o] = p[0]!;
+  out[o + 1] = p[1]!;
+  out[o + 2] = p[2]!;
+  out[o + 3] = r[0]!;
+  out[o + 4] = r[1]!;
+  out[o + 5] = r[2]!;
+  out[o + 6] = r[3]!;
+  out[o + 7] = s[0]!;
+  out[o + 8] = s[1]!;
+  out[o + 9] = s[2]!;
+}
+
 function sameSet(set: ReadonlySet<string>, arr: readonly string[] | null): boolean {
   if (arr === null) return false;
   if (set.size !== arr.length) return false;
@@ -452,7 +479,14 @@ export class FrameMirror {
   seq = 0;
   stepIndex = 0;
   simTime = 0;
+  /** The alpha the page draws with now (`present`): where its clock falls between the last two steps. */
   alpha = 0;
+  /** The fixed step's length (seconds): how far a wall second moves the alpha. */
+  stepSeconds = 1 / 120;
+  /** The applied frame's tick alpha and rate, and the page time (seconds) it was applied at. */
+  private tickAlpha = 0;
+  private rate = 0;
+  private appliedAt = 0;
   frameCount = 0;
   state: RuntimeDiagnostics['state'] = 'running';
   paused = false;
@@ -523,12 +557,55 @@ export class FrameMirror {
   private movedRows = new Uint8Array(0);
   private movedList: number[] = [];
   private allMoved = true;
+  /** The rows whose two steps differ: they move between draws as the alpha moves. */
+  private motionRows = new Uint8Array(0);
+  private motionList: number[] = [];
+  /** The alpha the presenter last read the moving rows at. */
+  private alphaTaken = Number.NaN;
+  /** Per-row marks of the rows one `takeMoved` call visited (no row twice). */
+  private visitedAt = new Uint32Array(0);
+  private visitRound = 0;
+  private readonly scratchPrev = { position: [0, 0, 0] as [number, number, number], rotation: [0, 0, 0, 1] as [number, number, number, number], scale: [1, 1, 1] as [number, number, number] };
+  private readonly scratchCurr = { position: [0, 0, 0] as [number, number, number], rotation: [0, 0, 0, 1] as [number, number, number, number], scale: [1, 1, 1] as [number, number, number] };
+
+  /**
+   * Draw at page time `now` (seconds): the alpha moves on from the applied
+   * frame's by the wall time since it was applied, at its rate, and stops at
+   * the last finished step (the page never draws a step the worker has not
+   * finished). At the frame's own time it is the worker's alpha exactly.
+   */
+  present(now: number): void {
+    const moved = this.rate > 0 && now > this.appliedAt ? ((now - this.appliedAt) * this.rate) / this.stepSeconds : 0;
+    this.alpha = Math.min(1, this.tickAlpha + moved);
+  }
+
+  /** The number of rows the transform array holds. */
+  rowCount(): number {
+    return Math.min(this.ids.length, Math.floor(this.xf.length / STEP_PAIR_STRIDE));
+  }
+
+  /** Row `i` at the draw alpha into the caller's arrays (the runtime's interpolation rule). */
+  readRow(i: number, position: number[], rotation: number[], scale: number[]): void {
+    const o = i * STEP_PAIR_STRIDE;
+    readTransform(this.xf, o, this.scratchPrev);
+    readTransform(this.xf, o + TRANSFORM_STRIDE, this.scratchCurr);
+    // Alpha 1 is the last step itself (the rule's alpha 0 reads it exactly).
+    interpolateTransformInto(position, rotation, scale, this.scratchPrev, this.scratchCurr, this.alpha >= 1 ? 0 : this.alpha);
+  }
+
+  /** Row `i`'s last finished step (not blended). */
+  readCommittedRow(i: number, position: number[], rotation: number[], scale: number[]): void {
+    readTransform(this.xf, i * STEP_PAIR_STRIDE + TRANSFORM_STRIDE, this.scratchCurr);
+    interpolateTransformInto(position, rotation, scale, this.scratchCurr, this.scratchCurr, 0);
+  }
 
   /**
    * Visit the indices whose transform changed since the last call (every
    * index after the entity order changed), then forget them.
    */
   takeMoved(visit: (index: number) => void, count: number): void {
+    const alphaMoved = !Object.is(this.alpha, this.alphaTaken);
+    this.alphaTaken = this.alpha;
     if (this.allMoved) {
       this.allMoved = false;
       for (const i of this.movedList) this.movedRows[i] = 0;
@@ -536,13 +613,48 @@ export class FrameMirror {
       for (let i = 0; i < count; i += 1) visit(i);
       return;
     }
+    if (this.visitedAt.length < count) this.visitedAt = new Uint32Array(Math.max(count, this.visitedAt.length * 2, 64));
+    const round = (this.visitRound = (this.visitRound + 1) >>> 0 || 1);
     const list = this.movedList;
     for (let k = 0; k < list.length; k += 1) {
       const i = list[k]!;
       this.movedRows[i] = 0;
-      if (i < count) visit(i);
+      if (i < count) {
+        this.visitedAt[i] = round;
+        visit(i);
+      }
     }
     list.length = 0;
+    // The rows between two different steps move with the alpha; the others stand still.
+    const motion = this.motionList;
+    let kept = 0;
+    for (let k = 0; k < motion.length; k += 1) {
+      const i = motion[k]!;
+      if (this.motionRows[i] !== 1) continue;
+      motion[kept++] = i;
+      if (alphaMoved && i < count && this.visitedAt[i] !== round) visit(i);
+    }
+    motion.length = kept;
+  }
+
+  /** Note whether row `i`'s two steps differ (it moves between draws). */
+  private noteMotion(i: number): void {
+    if (i >= this.motionRows.length) {
+      const grown = new Uint8Array(Math.max(i + 1, this.motionRows.length * 2, 64));
+      grown.set(this.motionRows);
+      this.motionRows = grown;
+    }
+    const o = i * STEP_PAIR_STRIDE;
+    const x = this.xf;
+    let differs = false;
+    for (let k = 0; k < TRANSFORM_STRIDE; k += 1) {
+      if (!Object.is(x[o + k], x[o + TRANSFORM_STRIDE + k])) {
+        differs = true;
+        break;
+      }
+    }
+    if (differs && this.motionRows[i] !== 1) this.motionList.push(i);
+    this.motionRows[i] = differs ? 1 : 0;
   }
 
   private noteMoved(indices: Uint32Array): void {
@@ -560,10 +672,14 @@ export class FrameMirror {
     }
   }
 
-  apply(s: FrameState): void {
+  /** Apply one frame of the worker at page time `now` (seconds; the draw clock starts there). */
+  apply(s: FrameState, now = 0): void {
     this.seq = s.seq;
     this.stepIndex = s.stepIndex;
     this.simTime = s.simTime;
+    this.tickAlpha = s.alpha;
+    this.rate = s.rate;
+    this.appliedAt = now;
     this.alpha = s.alpha;
     this.frameCount = s.frameCount;
     this.state = s.state;
@@ -585,10 +701,20 @@ export class FrameMirror {
       this.xf = s.xf;
     } else if (s.xfIdx !== undefined && s.xfVal !== undefined) {
       const xf = this.xf;
-      for (let j = 0; j < s.xfIdx.length; j += 1) xf.set(s.xfVal.subarray(j * TRANSFORM_STRIDE, (j + 1) * TRANSFORM_STRIDE), s.xfIdx[j]! * TRANSFORM_STRIDE);
+      for (let j = 0; j < s.xfIdx.length; j += 1) xf.set(s.xfVal.subarray(j * STEP_PAIR_STRIDE, (j + 1) * STEP_PAIR_STRIDE), s.xfIdx[j]! * STEP_PAIR_STRIDE);
     } else if (s.xfShared !== undefined) {
       if (s.xfShared.buffer !== undefined) this.sharedSab = s.xfShared.buffer;
-      if (this.sharedSab !== null) this.xf = new Float64Array(this.sharedSab, s.xfShared.slot * s.xfShared.slotFloats * 8, s.xfShared.count * TRANSFORM_STRIDE);
+      if (this.sharedSab !== null) this.xf = new Float64Array(this.sharedSab, s.xfShared.slot * s.xfShared.slotFloats * 8, s.xfShared.count * STEP_PAIR_STRIDE);
+    }
+    // Which rows move between draws: the changed ones again, every one when the order or all of them changed.
+    const rows = this.rowCount();
+    const changed = s.xfIdx ?? (s.ids === undefined ? s.xfMoved : undefined);
+    if (changed !== undefined) {
+      for (let k = 0; k < changed.length; k += 1) if (changed[k]! < rows) this.noteMotion(changed[k]!);
+    } else if (s.xf !== undefined || s.xfShared !== undefined || s.ids !== undefined) {
+      this.motionRows.fill(0);
+      this.motionList.length = 0;
+      for (let i = 0; i < rows; i += 1) this.noteMotion(i);
     }
     if (s.hidden !== undefined) this.hidden = new Set(s.hidden);
     if (s.inactive !== undefined) this.inactive = new Set(s.inactive);
@@ -673,6 +799,19 @@ export class FrameMirror {
 /** The runtime's own bounds for queued sound and effect requests (runtime.ts). */
 export const MIRROR_AUDIO_LIMIT = 256;
 export const MIRROR_EFFECT_LIMIT = 256;
+
+function readTransform(x: ArrayLike<number>, o: number, out: { position: number[]; rotation: number[]; scale: number[] }): void {
+  out.position[0] = x[o]!;
+  out.position[1] = x[o + 1]!;
+  out.position[2] = x[o + 2]!;
+  out.rotation[0] = x[o + 3]!;
+  out.rotation[1] = x[o + 4]!;
+  out.rotation[2] = x[o + 5]!;
+  out.rotation[3] = x[o + 6]!;
+  out.scale[0] = x[o + 7]!;
+  out.scale[1] = x[o + 8]!;
+  out.scale[2] = x[o + 9]!;
+}
 
 function isShared(b: ArrayBufferLike): boolean {
   const Sab = (globalThis as SharedGlobal).SharedArrayBuffer;

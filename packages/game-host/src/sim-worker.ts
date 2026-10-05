@@ -29,6 +29,17 @@ import { PHYSICS_MEMORY_CAP_BYTES, type MainToWorker, type SimCommand, type SimE
 import { stepDigest } from './step-digest';
 import { TickInputSource } from './tick-input';
 
+/** The longest a tick may be slowed by a debugging delay. */
+const MAX_TICK_DELAY_MS = 1000;
+
+/** Keep the worker's thread busy (a slow step, not a sleep: the worker answers nothing meanwhile). */
+function busyFor(ms: number): void {
+  const end = performance.now() + ms;
+  while (performance.now() < end) {
+    // spin
+  }
+}
+
 /** The platform pieces a worker entry injects. */
 export interface SimWorkerDeps {
   /** physics-rapier's `createPhysicsPort` (the entry imports it; the WASM is in its bundle). */
@@ -348,6 +359,8 @@ export function runSimWorker(endpoint: SimEndpoint, deps: SimWorkerDeps): void {
           if (!r.ok && r.error.code !== 'runtime_not_running') tickError = { code: r.error.code, message: r.error.message };
         }
         for (const req of rt.takeSceneRequests?.() ?? []) post({ t: 'scene.request', sceneId: req.sceneId });
+        // A slowed simulation (debugging, tests): the worker is busy this long before it answers.
+        if (m.delayMs !== undefined && m.delayMs > 0) busyFor(Math.min(m.delayMs, MAX_TICK_DELAY_MS));
         sendFrame(m.seq, tickError);
         return;
       }

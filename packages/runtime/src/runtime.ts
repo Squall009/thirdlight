@@ -81,7 +81,7 @@ import {
   type IntentTransformWrite,
 } from './intents';
 import { DuplicateMoveError, PhaseViolationError, frozenContext, liveScopedState, phaseScopedState } from './guard';
-import { lerpVec3, lerpVec3Into, quatEqual, slerpQuat, slerpQuatInto, vec3Equal } from './interp';
+import { interpolateTransformInto, lerpVec3, quatEqual, slerpQuat, vec3Equal } from './interp';
 import { isSimulationRegistry, validatePhaseList } from './registry';
 import { deepFreeze, validateRuntimeSnapshot } from './snapshot';
 import { type AnimatorControllerLike, type AnimatorPose } from './animator';
@@ -152,6 +152,7 @@ import {
   type InterpolatedState,
   type InterpolatedTransform,
   type InterpolatedVisitor,
+  type StepPairVisitor,
   type ModuleConfig,
   type ModelBounds,
   type ModuleResetContext,
@@ -2204,6 +2205,39 @@ class RuntimeInstance implements Runtime {
   }
 
   /**
+   * Every entity's last two finished steps (draw order): the transform
+   * before the last step and after it, the pair `forEachInterpolated` blends
+   * by the frame's alpha. A presenter that draws later than the frame that
+   * stepped (the page, a frame behind the simulation worker) blends them by
+   * its own clock. Arrays reused as in `forEachInterpolated`.
+   */
+  forEachStepPair(visit: StepPairVisitor): boolean {
+    if (this.stateName === 'disposed') return false;
+    const failed = this.stateName === 'failed' && this.committed !== null;
+    const prev = failed ? this.committed! : this.prev;
+    const curr = failed ? this.committed! : this.curr;
+    const order = this.order;
+    for (let i = 0; i < order.length; i += 1) {
+      const id = order[i]!;
+      const p = prev.get(id);
+      const c = curr.get(id);
+      if (!p || !c) continue;
+      visit(id, p, c);
+    }
+    return true;
+  }
+
+  /**
+   * Sim seconds the drawn state advances per wall second from the last
+   * frame on (the game mode's time scale; 0 while paused, held, stopped or
+   * failed): with `interpolationAlpha`, where a later draw falls between the
+   * last two steps.
+   */
+  get interpolationRate(): number {
+    return this.stateName === 'running' && !this.paused && !this.debugHold && this.frameClock.anchored ? this.frameClock.scale : 0;
+  }
+
+  /**
    * One entity's interpolated transform into the caller's arrays
    * (no allocation). False when the runtime is disposed or has no such entity.
    */
@@ -2233,6 +2267,12 @@ class RuntimeInstance implements Runtime {
   readCameraView(position: number[], rotation: number[], view?: string): { fovY: number; near: number; far: number; letterbox: number } | null {
     if (this.stateName === 'disposed') return null;
     return this.views.readInterpolated(this.stateName === 'failed' ? 1 : this.frameClock.alpha, position, rotation, view);
+  }
+
+  /** `readCameraView` at a given alpha between the last two steps (0 the step before, 1 the last; a failed runtime reads its last step). */
+  readCameraViewAt(alpha: number, position: number[], rotation: number[], view?: string): { fovY: number; near: number; far: number; letterbox: number } | null {
+    if (this.stateName === 'disposed') return null;
+    return this.views.readInterpolated(this.stateName === 'failed' ? 1 : alpha, position, rotation, view);
   }
 
   /** A view's committed state (the live camera, a blend in progress, the pose and lens), or null before its first step. */
@@ -2296,25 +2336,7 @@ class RuntimeInstance implements Runtime {
     const p = prev.get(id);
     const c = curr.get(id);
     if (!p || !c) return false;
-    const pos = this.interpPosition;
-    const rot = this.interpRotation;
-    const scl = this.interpScale;
-    if (alpha === 0 || (vec3Equal(p.position, c.position) && vec3Equal(p.scale, c.scale) && quatEqual(p.rotation, c.rotation))) {
-      pos[0] = c.position[0];
-      pos[1] = c.position[1];
-      pos[2] = c.position[2];
-      rot[0] = c.rotation[0];
-      rot[1] = c.rotation[1];
-      rot[2] = c.rotation[2];
-      rot[3] = c.rotation[3];
-      scl[0] = c.scale[0];
-      scl[1] = c.scale[1];
-      scl[2] = c.scale[2];
-    } else {
-      lerpVec3Into(pos, p.position, c.position, alpha);
-      slerpQuatInto(rot, p.rotation, c.rotation, alpha);
-      lerpVec3Into(scl, p.scale, c.scale, alpha);
-    }
+    interpolateTransformInto(this.interpPosition, this.interpRotation, this.interpScale, p, c, alpha);
     return true;
   }
 

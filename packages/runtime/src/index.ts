@@ -148,6 +148,7 @@ export {
   type InterpolatedState,
   type InterpolatedTransform,
   type InterpolatedVisitor,
+  type StepPairVisitor,
   type ModuleConfig,
   type Character3DQueries,
   type ModuleResetContext,
@@ -175,6 +176,8 @@ export {
   registerSimulationModule,
   validatePhaseList,
 } from './registry';
+export { interpolateTransformInto } from './interp';
+export { interpolateCameraPose, type CameraPoseLike } from './camera-brain';
 export { catchUpSteps, DROP_THROUGH_STEPS, MAX_CATCHUP_SECONDS, SETTLE_PREROLL_STEPS, engineTimingSteps, instantiateRuntime } from './runtime';
 // The per-step budget of 3D script queries; the pointer state the runtime keeps.
 export { PHYSICS_QUERY_LIMIT, type HeldPointer } from './runtime';

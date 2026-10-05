@@ -85,6 +85,7 @@ import {
   readProjectSettings,
   RelayActionSource,
   resolveThreadingMode,
+  simDelayFromUrl,
   resolveTransport,
   startRemoteSimulation,
   startSceneAssets,
@@ -100,6 +101,7 @@ import {
   type ManifestSceneRow,
   type RelayUiEdgeName,
   type RemoteSimulation,
+  type SimPipelineStats,
   type RuntimeCatalog,
   type RuntimeContent,
   type ShellConfigLike,
@@ -236,7 +238,8 @@ export interface GamePageHandle {
   readonly host: GameHost;
   /** The simulation's async surface with the relay (null without `relay`). */
   readonly access: SimAccess | null;
-  readonly threading: { readonly mode: 'worker' | 'single'; readonly reason: string; readonly transport: 'shared' | 'message' | null; readonly isolated: boolean };
+  /** Where the simulation runs; `pipeline`: how the page's frames met the worker's (null on a single thread). */
+  readonly threading: { readonly mode: 'worker' | 'single'; readonly reason: string; readonly transport: 'shared' | 'message' | null; readonly isolated: boolean; readonly pipeline: SimPipelineStats | null };
   readonly adapter: SceneAdapter | null;
   /** The verified identity: the snapshot's id and revision, the build and its content digest, the step after the settle. */
   readonly identity: { snapshotId: string; revision: number; buildId: string; contentDigest: string; stepIndex: number };
@@ -697,6 +700,8 @@ export async function startGamePage(o: GamePageOptions): Promise<GamePageHandle>
           input: { sample: (stepIndex) => browserInput.sample(stepIndex), reset: (reason) => browserInput.reset?.(reason) },
           ...(catalog !== null ? { loadScene: catalog.loadScene } : {}),
           driver: 'raf',
+          // A slowed simulation for debugging and tests (?simDelayMs=).
+          ...(simDelayFromUrl(pageSearch()) > 0 ? { workerDelayMs: simDelayFromUrl(pageSearch()) } : {}),
         });
         remoteStart.then(
           () => {
@@ -1008,7 +1013,15 @@ export async function startGamePage(o: GamePageOptions): Promise<GamePageHandle>
       host,
       access,
       inputConfig: () => inputConfigNow,
-      threading: { mode: threadMode, reason: threadReason, transport: remote?.transport ?? null, isolated },
+      threading: {
+        mode: threadMode,
+        reason: threadReason,
+        transport: remote?.transport ?? null,
+        isolated,
+        get pipeline() {
+          return remote?.pipeline() ?? null;
+        },
+      },
       adapter: adapterRef.current,
       identity,
       stepHz,

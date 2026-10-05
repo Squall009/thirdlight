@@ -139,13 +139,13 @@ export { openRuntimeContent, type CatalogRow, type RuntimeCatalog, type RuntimeC
 export { createScenePreloader, pageScenePreparation, SCENES_READ_AHEAD, SCENE_PREPARE_WAIT_MS, type ScenePreloader, type ScenePreparation, type ScenePreparingAdapter, type ScenePreloadHooks } from './scene-preload';
 // The simulation worker (runs the deterministic simulation off the page) and its page-side mirror.
 export { runSimWorker, type SimWorkerDeps } from './sim-worker';
-export { startRemoteSimulation, remoteStartError, type RemoteSimulation, type RemoteSimulationOptions } from './sim-remote';
+export { startRemoteSimulation, remoteStartError, type RemoteSimulation, type RemoteSimulationOptions, type SimPipelineStats } from './sim-remote';
 export { createLocalSimAccess, type RelayPage, type SimAccess, type SimRay } from './sim-access';
 export { browserWorkerAvailable, createBrowserSimWorker, loadPhysics3D, workerGlobalEndpoint } from './sim-browser';
 // The 3D physics backend's hand-over (a separate script; see physics-3d-global.ts).
 export { PHYSICS_3D_GLOBAL, registerPhysics3D, type Physics3DModule } from './physics-3d-global';
-export { PHYSICS_MEMORY_CAP_BYTES, TRANSFORM_STRIDE, type FrameState, type SimEndpoint, type SimInitMessage, type SimWorkerHandle, type SceneEntities } from './sim-protocol';
-export { resolveThreadingMode, resolveTransport, threadingFromUrl, threadingLogLine, SIM_THREAD_SETTING_VALUES, THREADS_URL_PARAM, type SimTransport, type ThreadingMode } from './threading';
+export { PHYSICS_MEMORY_CAP_BYTES, STEP_PAIR_STRIDE, TRANSFORM_STRIDE, type FrameState, type SimEndpoint, type SimInitMessage, type SimWorkerHandle, type SceneEntities } from './sim-protocol';
+export { resolveThreadingMode, resolveTransport, simDelayFromUrl, threadingFromUrl, threadingLogLine, SIM_DELAY_URL_PARAM, SIM_THREAD_SETTING_VALUES, THREADS_URL_PARAM, type SimTransport, type ThreadingMode } from './threading';
 export { TickInputSource, continueFrame, mergePhase } from './tick-input';
 export { runDigest, stepDigest } from './step-digest';
 export { RunProbe, runNowOf, type InputRunDigest, type RunDigestNow, type RunDigests, type RunNow } from './run-probe';

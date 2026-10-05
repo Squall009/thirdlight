@@ -13,7 +13,7 @@ import type { EntityV3, Quat, Vec3 } from '@thirdlight/project-model';
 import type { ActionFrame, ActionSource, DebugCommandCall } from './actions';
 import type { ErrorCode, RuntimeError } from './errors';
 import type { PhysicsPort, PhysicsStepClient } from './ports';
-import { registryBrand, type SimulationPhase } from './types-simulation';
+import { registryBrand, type SimulationPhase, type TransformState } from './types-simulation';
 import { type DebugCommandState, type EffectRequest } from './types-behavior';
 import { type SceneLoadingView, type SceneLoadOptions, type SceneLoadRequest, type SceneSetView } from './types-scene';
 export type { RuntimeSnapshotEntity, RuntimeScene, RuntimeSnapshot, RuntimeEventCue, ModelBounds, RuntimeSceneRow, ListedScene, SceneStatus, SceneLoadOptions, SceneActivateOptions, SceneTransitionView, SceneLoadingView, BehaviorSceneControl, BehaviorWorldView, WorldTransformOptions, BehaviorRandomStream, BehaviorRandom, LoadedSceneBatch, SceneSetView, SceneLoadRequest, GameplaySettings } from './types-scene';
@@ -35,6 +35,8 @@ export interface Runtime {
   readonly isPaused?: boolean;
   /** The last frame's interpolation alpha (as `getInterpolatedState().state.alpha`), without building the state. */
   readonly interpolationAlpha?: number;
+  /** Sim seconds the drawn state advances per wall second after the last frame (0 while paused, held or stopped). */
+  readonly interpolationRate?: number;
   /**
    * Play debugging: hold the simulation at a step boundary or
    * release it; while held, `debugStep` runs exactly one more step; a step
@@ -116,6 +118,8 @@ export interface Runtime {
    * the simulation hash.
    */
   forEachCommitted?(visit: InterpolatedVisitor): boolean;
+  /** Every entity's last two finished steps (before and after the last step), the pair the interpolation blends. */
+  forEachStepPair?(visit: StepPairVisitor): boolean;
   /** One entity's interpolated transform into the caller's arrays; false when disposed or unknown. */
   readInterpolated?(id: string, position: number[], rotation: number[], scale: number[]): boolean;
   /**
@@ -123,6 +127,8 @@ export interface Runtime {
    * `position`/`rotation` written, its lens returned (the default pose before the first step); null for an unknown view. `view`: the view's key (absent: the main view).
    */
   readCameraView?(position: number[], rotation: number[], view?: string): { fovY: number; near: number; far: number; letterbox: number } | null;
+  /** `readCameraView` at a given alpha between the last two steps. */
+  readCameraViewAt?(alpha: number, position: number[], rotation: number[], view?: string): { fovY: number; near: number; far: number; letterbox: number } | null;
   /** A view's committed state (live camera, blend, pose, lens), or null before the first step. */
   cameraView?(view?: string): import('./camera-brain').CameraViewInfo | null;
   /** The viewport a view is drawn in (screen↔world projection uses its aspect). */
@@ -251,6 +257,8 @@ export interface InterpolatedState {
  * during the call; they hold the next entity after it).
  */
 export type InterpolatedVisitor = (id: string, position: readonly number[], rotation: readonly number[], scale: readonly number[]) => void;
+/** One entity's transform before and after the last step (`forEachStepPair`). */
+export type StepPairVisitor = (id: string, prev: TransformState, curr: TransformState) => void;
 
 /** The main view's key and the project's lens, the view's while no camera sets its own (`getCamera`). */
 export interface CameraInfo {

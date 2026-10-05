@@ -116,3 +116,38 @@ export function slerpQuat(prev: Quat, curr: Quat, alpha: number): Quat {
   slerpQuatInto(out, prev, curr, alpha);
   return out;
 }
+
+/**
+ * The render interpolation rule for one transform into the caller's arrays:
+ * the step's (`curr`) transform exactly at alpha 0 or when nothing changed
+ * between the two steps, else position and scale lerped and rotation
+ * slerped. The runtime and the page's mirror of the worker both draw with it,
+ * so a transform reads the same in either.
+ */
+export function interpolateTransformInto(
+  position: number[],
+  rotation: number[],
+  scale: number[],
+  prev: { readonly position: Vec3; readonly rotation: Quat; readonly scale: Vec3 },
+  curr: { readonly position: Vec3; readonly rotation: Quat; readonly scale: Vec3 },
+  alpha: number,
+): void {
+  const p = prev;
+  const c = curr;
+  if (alpha === 0 || (vec3Equal(p.position, c.position) && vec3Equal(p.scale, c.scale) && quatEqual(p.rotation, c.rotation))) {
+    position[0] = c.position[0];
+    position[1] = c.position[1];
+    position[2] = c.position[2];
+    rotation[0] = c.rotation[0];
+    rotation[1] = c.rotation[1];
+    rotation[2] = c.rotation[2];
+    rotation[3] = c.rotation[3];
+    scale[0] = c.scale[0];
+    scale[1] = c.scale[1];
+    scale[2] = c.scale[2];
+  } else {
+    lerpVec3Into(position, p.position, c.position, alpha);
+    slerpQuatInto(rotation, p.rotation, c.rotation, alpha);
+    lerpVec3Into(scale, p.scale, c.scale, alpha);
+  }
+}
