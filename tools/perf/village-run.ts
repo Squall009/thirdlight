@@ -13,9 +13,11 @@
  *                                orbiting the editor's opening view; --no-export skips the export
  *   --ablation                   the per-draw ablation on the plain page: + 16 dark point lights, + per-object
  *                                material copies, + the engine's node materials (each alone)
+ *   --vsync                      draw at the display's rate (a player's browser) instead of uncapped: frame drops
+ *                                show as intervals of two refreshes or more
  *   --gate                       the fast gate's check: frames only (no GPU passes, profile or plain page)
- *   --check FILE                 compare the export's frame time with a recorded baseline: exit 1 when worse than
- *                                FRAME_REGRESSION (a fraction) on any renderer
+ *   --check FILE                 compare the export's frame time with a recorded baseline: exit 1 when the mean is worse
+ *                                than FRAME_REGRESSION or the p95 than FRAME_P95_REGRESSION (fractions) on any renderer
  *   --write-baseline FILE        record this run's frame times as the baseline
  *   --record-ms N --warmup-ms N --gpu-ms N --profile-ms N --out FILE --keep
  *
@@ -32,10 +34,18 @@ import * as esbuild from 'esbuild';
 import { PERF_ROOT, REPO, startPerfBackend } from './backend';
 import { launchGpuBrowser, measurePage, serveStatic, sourcesOf, type FrameRenderer, type FrameRunResult, type PageStep } from './frame-run';
 import { measureSceneView, sceneViewLine, type SceneViewResult } from './scene-view-run';
+import { FRAME_HISTOGRAM_EDGES_MS } from './stats';
 import { buildVillage, VILLAGE_SEED, VILLAGE_VERSION, type VillageBuild } from './village';
 
 /** A frame time worse than the baseline by more than this fraction fails the check. */
 export const FRAME_REGRESSION = 0.1;
+/**
+ * A 95th-percentile frame time worse than the baseline by more than this fraction fails the check too: the
+ * tail catches hitches the mean hides (a compile, a stall every few frames). Generous because, uncapped, the
+ * GPU-bound frames on WebGPU are bimodal (a slow mode of a few % around twice the median, on the plain page
+ * too), so the p95 moves more between runs than the mean.
+ */
+export const FRAME_P95_REGRESSION = 0.5;
 
 /** The plain page's variants: the default, and the ablation's additions one at a time. */
 export const BARE_VARIANTS = {
@@ -69,19 +79,35 @@ export interface FrameBaseline {
   version: number;
   /** Export frame time (mean interval, ms) per renderer. */
   frameMeanMs: Partial<Record<FrameRenderer, number>>;
+  /** Export 95th-percentile frame time (ms) per renderer (absent in older baselines: not checked). */
+  frameP95Ms?: Partial<Record<FrameRenderer, number>>;
 }
 
-/** The comparison the gate makes: renderers whose mean frame time is worse than the baseline by more than `tolerance`. */
-export function frameRegressions(base: FrameBaseline, report: Pick<VillageReport, 'export'>, tolerance = FRAME_REGRESSION): { renderer: FrameRenderer; baseline: number; value: number; limit: number }[] {
-  const out: { renderer: FrameRenderer; baseline: number; value: number; limit: number }[] = [];
-  for (const [r, b] of Object.entries(base.frameMeanMs) as [FrameRenderer, number][]) {
-    const got = report.export[r]?.frames.mean;
-    const limit = Math.round(b * (1 + tolerance) * 1000) / 1000;
-    // A renderer the run did not measure (or that drew nothing) is a failure too: the check proves nothing then.
-    if (got === undefined || got <= 0 || got > limit) out.push({ renderer: r, baseline: b, value: got ?? -1, limit });
-  }
+export interface FrameRegression {
+  renderer: FrameRenderer;
+  metric: 'mean' | 'p95';
+  baseline: number;
+  value: number;
+  limit: number;
+}
+
+/** The comparison the gate makes: renderers whose mean (or p95) frame time is worse than the baseline by more than the tolerance. */
+export function frameRegressions(base: FrameBaseline, report: Pick<VillageReport, 'export'>, tolerance = FRAME_REGRESSION, p95Tolerance = FRAME_P95_REGRESSION): FrameRegression[] {
+  const out: FrameRegression[] = [];
+  const check = (metric: FrameRegression['metric'], values: FrameBaseline['frameMeanMs'], tol: number): void => {
+    for (const [r, b] of Object.entries(values) as [FrameRenderer, number][]) {
+      const got = report.export[r]?.frames[metric];
+      const limit = frameLimit(b, tol);
+      // A renderer the run did not measure (or that drew nothing) is a failure too: the check proves nothing then.
+      if (got === undefined || got <= 0 || got > limit) out.push({ renderer: r, metric, baseline: b, value: got ?? -1, limit });
+    }
+  };
+  check('mean', base.frameMeanMs, tolerance);
+  if (base.frameP95Ms !== undefined) check('p95', base.frameP95Ms, p95Tolerance);
   return out;
 }
+
+const frameLimit = (baseline: number, tolerance: number): number => Math.round(baseline * (1 + tolerance) * 1000) / 1000;
 
 export interface AblationRow {
   renderer: FrameRenderer;
@@ -115,11 +141,19 @@ const flagOf = (argv: readonly string[]) => (name: string): string | undefined =
   return i >= 0 ? argv[i + 1] : undefined;
 };
 
+/** The frame histogram for the log: share of frames per bucket, in percent. */
+const hist = (h: readonly number[] | undefined): string => {
+  if (h === undefined) return '';
+  const e = FRAME_HISTOGRAM_EDGES_MS;
+  const names = h.map((_, i) => (i === 0 ? `<${e[0]}` : i === e.length ? `≥${e[e.length - 1]}` : `${e[i - 1]}–${e[i]}`));
+  return ` (${h.map((v, i) => `${names[i]}: ${Math.round(v * 1000) / 10}%`).join(', ')})`;
+};
+
 /** One line per measured page for the log. */
 export function frameLine(what: string, r: FrameRunResult): string {
   const gpu = r.gpu === null ? '' : r.gpu.available ? `, gpu ${r.gpu.msPerFrame} ms (${r.gpu.passes.slice(0, 4).map((p) => `${p.label} ${p.msPerFrame}`).join(', ')})` : `, gpu not measured (${r.gpu.note ?? 'no timestamp queries'})`;
   const pk = r.profile === null ? '' : `, main thread: ${r.profile.packages.slice(0, 5).map((p) => `${p.name} ${p.share}%`).join(', ')}`;
-  return `${what}: ${r.frames.fps} fps, frame p50/p95/p99 ${r.frames.p50}/${r.frames.p95}/${r.frames.p99} ms, ${r.draws.p50} draws, ${Math.round(r.tris.p50 / 1000)}k tris, ${r.scene.objects} Object3Ds (${r.scene.groups} groups, ${r.scene.lods} LOD, ${r.scene.meshes} meshes of which ${r.scene.hiddenMeshes} hidden, ${r.scene.bones} bones, ${r.scene.pointLights} point lights), ${r.live.uniformBuffers} uniform buffers, main thread ${r.mainThread.taskMsPerFrame} ms/frame (${Math.round(r.mainThread.busyShare * 100)}%)${gpu}${pk}${r.errors.length > 0 ? `; ${r.errors.length} page errors: ${r.errors[0]}` : ''}`;
+  return `${what}: ${r.frames.fps} fps, frame p50/p95/p99/max ${r.frames.p50}/${r.frames.p95}/${r.frames.p99}/${r.frames.max ?? '-'} ms${hist(r.frames.histogram)}, ${r.draws.p50} draws, ${Math.round(r.tris.p50 / 1000)}k tris, ${r.scene.objects} Object3Ds (${r.scene.groups} groups, ${r.scene.lods} LOD, ${r.scene.meshes} meshes of which ${r.scene.hiddenMeshes} hidden, ${r.scene.bones} bones, ${r.scene.pointLights} point lights), ${r.live.uniformBuffers} uniform buffers, main thread ${r.mainThread.taskMsPerFrame} ms/frame (${Math.round(r.mainThread.busyShare * 100)}%)${gpu}${pk}${r.errors.length > 0 ? `; ${r.errors.length} page errors: ${r.errors[0]}` : ''}`;
 }
 
 export async function runVillageCli(argv: readonly string[]): Promise<void> {
@@ -178,7 +212,7 @@ export async function runVillageCli(argv: readonly string[]): Promise<void> {
       projectId = reg.json['projectId'];
     }
     if (sceneView) {
-      const browser = await launchGpuBrowser();
+      const browser = await launchGpuBrowser({ vsync: has('vsync') });
       try {
         for (const r of renderers) {
           const res = await measureSceneView(browser, be, projectId, r, { warmupMs, recordMs, shot: join(runDir, `scene-view-${r}.png`) });
@@ -200,7 +234,7 @@ export async function runVillageCli(argv: readonly string[]): Promise<void> {
     await be.stop();
   }
 
-  const browser = await launchGpuBrowser();
+  const browser = await launchGpuBrowser({ vsync: has('vsync') });
   const dumpDir = join(runDir, 'dump');
   try {
     report.machine.gpu = await gpuName(browser);
@@ -251,8 +285,13 @@ export async function runVillageCli(argv: readonly string[]): Promise<void> {
   const write = get('write-baseline');
   if (write !== undefined) {
     const frameMeanMs: FrameBaseline['frameMeanMs'] = {};
-    for (const r of renderers) if (report.export[r] !== undefined) frameMeanMs[r] = report.export[r]!.frames.mean;
-    const base: FrameBaseline = { note: 'export frame time of the village class (tools/perf/village.ts) on this host\'s GPU: re-record with tools/perf/run.mjs village --gate --write-baseline <this file>', recordedAt: new Date().toISOString(), commit, machine: report.machine, subject: report.subject.name, version: VILLAGE_VERSION, frameMeanMs };
+    const frameP95Ms: NonNullable<FrameBaseline['frameP95Ms']> = {};
+    for (const r of renderers) {
+      if (report.export[r] === undefined) continue;
+      frameMeanMs[r] = report.export[r]!.frames.mean;
+      frameP95Ms[r] = report.export[r]!.frames.p95;
+    }
+    const base: FrameBaseline = { note: 'export frame time of the village class (tools/perf/village.ts) on this host\'s GPU: re-record with tools/perf/run.mjs village --gate --write-baseline <this file>', recordedAt: new Date().toISOString(), commit, machine: report.machine, subject: report.subject.name, version: VILLAGE_VERSION, frameMeanMs, frameP95Ms };
     writeFileSync(write, `${JSON.stringify(base, null, 1)}\n`);
     log(`village: baseline written to ${write}`);
   }
@@ -262,8 +301,12 @@ export async function runVillageCli(argv: readonly string[]): Promise<void> {
     if (base.version !== VILLAGE_VERSION) log(`village: the baseline is for village version ${base.version}, this is ${VILLAGE_VERSION}: re-record it`);
     if (base.machine.gpu !== report.machine.gpu) log(`village: the baseline was recorded on ${base.machine.gpu}, this host has ${report.machine.gpu}`);
     const bad = frameRegressions(base, report);
-    for (const b of bad) log(`village: REGRESSION ${b.renderer} frame ${b.value} ms > ${b.limit} ms (baseline ${b.baseline} ms + ${FRAME_REGRESSION * 100} %)`);
-    for (const r of renderers) if (!bad.some((b) => b.renderer === r) && base.frameMeanMs[r] !== undefined) log(`village: ${r} frame ${report.export[r]?.frames.mean} ms (baseline ${base.frameMeanMs[r]} ms, limit ${Math.round(base.frameMeanMs[r]! * (1 + FRAME_REGRESSION) * 1000) / 1000} ms)`);
+    for (const b of bad) log(`village: REGRESSION ${b.renderer} frame ${b.metric} ${b.value} ms > ${b.limit} ms (baseline ${b.baseline} ms + ${(b.metric === 'mean' ? FRAME_REGRESSION : FRAME_P95_REGRESSION) * 100} %)`);
+    for (const r of renderers) {
+      if (bad.some((b) => b.renderer === r) || base.frameMeanMs[r] === undefined) continue;
+      const p95 = base.frameP95Ms?.[r];
+      log(`village: ${r} frame ${report.export[r]?.frames.mean} ms (baseline ${base.frameMeanMs[r]} ms, limit ${frameLimit(base.frameMeanMs[r]!, FRAME_REGRESSION)} ms)${p95 !== undefined ? `, p95 ${report.export[r]?.frames.p95} ms (baseline ${p95} ms, limit ${frameLimit(p95, FRAME_P95_REGRESSION)} ms)` : ''}`);
+    }
     if (bad.length > 0 || base.version !== VILLAGE_VERSION) process.exitCode = 1;
   }
   for (const e of report.errors) log(`village: error: ${e}`);

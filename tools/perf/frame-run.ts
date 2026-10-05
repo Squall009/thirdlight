@@ -23,7 +23,7 @@ import { installFrameProbe, probeGpuPasses, probeSceneCounts, probeSetGpuTiming,
 import { installPerfInstrumentation, readSample, startRecording, type PageSample } from './instrument';
 import { profileSplit, type ProfileSplit } from './profile';
 import { dumpScene, type DumpSummary } from './scene-dump';
-import { summarize, type Summary } from './stats';
+import { histogram, summarize, type Summary } from './stats';
 
 export const FRAME_VIEWPORT = { width: 1920, height: 1080 } as const;
 /** No vsync and no frame-rate cap: the frame costs what it costs. */
@@ -57,7 +57,7 @@ export interface FrameRunResult {
   apis: string[];
   firstFrameMs: number | null;
   settledMs: number;
-  frames: { n: number; fps: number; p50: number; p95: number; p99: number; mean: number };
+  frames: { n: number; fps: number; p50: number; p95: number; p99: number; mean: number; max?: number; /** Share of frames per `FRAME_HISTOGRAM_EDGES_MS` bucket. */ histogram?: number[] };
   draws: Summary;
   tris: Summary;
   mainThread: { taskMsPerFrame: number; busyShare: number };
@@ -69,8 +69,9 @@ export interface FrameRunResult {
   errors: string[];
 }
 
-export async function launchGpuBrowser(): Promise<Browser> {
-  return chromium.launch({ env: browserLaunchEnv() as Record<string, string>, args: [...GPU_ARGS, '--enable-precise-memory-info', '--js-flags=--expose-gc', '--autoplay-policy=no-user-gesture-required', ...UNCAPPED_ARGS] });
+/** `vsync`: draw at the display's rate as a player's browser does (frame drops show as long intervals) instead of uncapped. */
+export async function launchGpuBrowser(o: { vsync?: boolean } = {}): Promise<Browser> {
+  return chromium.launch({ env: browserLaunchEnv() as Record<string, string>, args: [...GPU_ARGS, '--enable-precise-memory-info', '--js-flags=--expose-gc', '--autoplay-policy=no-user-gesture-required', ...(o.vsync === true ? [] : UNCAPPED_ARGS)] });
 }
 
 const MIME: Record<string, string> = { '.html': 'text/html', '.js': 'text/javascript', '.mjs': 'text/javascript', '.json': 'application/json', '.wasm': 'application/wasm', '.ktx2': 'image/ktx2', '.glb': 'model/gltf-binary', '.png': 'image/png', '.webp': 'image/webp', '.jpg': 'image/jpeg', '.ogg': 'audio/ogg', '.ttf': 'font/ttf', '.bin': 'application/octet-stream' };
@@ -208,7 +209,7 @@ export async function measurePage(browser: Browser, opts: FrameRunOptions): Prom
       apis: sample.apis,
       firstFrameMs: first === null ? null : Math.round(first),
       settledMs,
-      frames: { n: s.n, fps: s.mean > 0 ? Math.round((1000 / s.mean) * 10) / 10 : 0, p50: s.p50, p95: s.p95, p99: s.p99, mean: s.mean },
+      frames: { n: s.n, fps: s.mean > 0 ? Math.round((1000 / s.mean) * 10) / 10 : 0, p50: s.p50, p95: s.p95, p99: s.p99, mean: s.mean, max: s.max, histogram: histogram(sample.frames) },
       draws: summarize(sample.frameDraws),
       tris: summarize(sample.frameTris),
       mainThread: { taskMsPerFrame: Math.round((taskMs / nFrames) * 100) / 100, busyShare: Math.round((taskMs / Math.max(1, wall)) * 1000) / 1000 },

@@ -11,11 +11,11 @@ import { describe, expect, it } from 'vitest';
 import { moduleIndex, packageOf } from '../../tools/perf/profile';
 import { propGlb, figureGlb } from '../../tools/perf/village-assets';
 import { villagePlan, VILLAGE_SPEC } from '../../tools/perf/village';
-import { ablationRows, frameRegressions, FRAME_REGRESSION, type FrameBaseline, type VillageReport } from '../../tools/perf/village-run';
+import { ablationRows, frameRegressions, FRAME_P95_REGRESSION, FRAME_REGRESSION, type FrameBaseline, type VillageReport } from '../../tools/perf/village-run';
 import type { FrameRunResult } from '../../tools/perf/frame-run';
 
-const run = (mean: number, draws = 500): FrameRunResult =>
-  ({ frames: { n: 100, fps: 1000 / mean, p50: mean, p95: mean, p99: mean, mean }, draws: { n: 100, p50: draws, p95: draws, p99: draws, max: draws, mean: draws }, gpu: null }) as unknown as FrameRunResult;
+const run = (mean: number, draws = 500, p95 = mean): FrameRunResult =>
+  ({ frames: { n: 100, fps: 1000 / mean, p50: mean, p95, p99: p95, mean }, draws: { n: 100, p50: draws, p95: draws, p99: draws, max: draws, mean: draws }, gpu: null }) as unknown as FrameRunResult;
 
 describe('the village class', () => {
   it('is the same plan every time, with the class shape', () => {
@@ -53,6 +53,12 @@ describe('the frame-time check', () => {
     const bad = frameRegressions(base, { export: { webgpu: run(20), webgl2: run(17) } });
     expect(bad.map((b) => b.renderer)).toEqual(['webgpu']);
     expect(bad[0]!.limit).toBe(19.8);
+  });
+  it('checks the p95 with its own tolerance when the baseline has one', () => {
+    const withTail: FrameBaseline = { ...base, frameP95Ms: { webgpu: 20 } };
+    expect(frameRegressions(withTail, { export: { webgpu: run(18, 1000, 20 * (1 + FRAME_P95_REGRESSION) - 0.01), webgl2: run(17) } })).toEqual([]);
+    const bad = frameRegressions(withTail, { export: { webgpu: run(18, 1000, 31), webgl2: run(17) } });
+    expect(bad.map((b) => [b.renderer, b.metric, b.limit])).toEqual([['webgpu', 'p95', 30]]);
   });
   it('fails a renderer the run did not measure', () => {
     expect(frameRegressions(base, { export: { webgpu: run(18) } }).map((b) => b.renderer)).toEqual(['webgl2']);

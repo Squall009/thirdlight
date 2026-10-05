@@ -30,6 +30,20 @@ export function summarize(values: readonly number[]): Summary {
   return { n: s.length, p50: r3(at(0.5)), p95: r3(at(0.95)), p99: r3(at(0.99)), max: r3(s[s.length - 1]!), mean: r3(s.reduce((a, b) => a + b, 0) / s.length) };
 }
 
+/** Frame-time histogram edges (ms): 120, 90, 60, 40, 30 and 20 fps. */
+export const FRAME_HISTOGRAM_EDGES_MS = [8.3, 11.1, 16.7, 25, 33.3, 50] as const;
+
+/** Share of the values (0–1, 3 decimals) in each bucket: below the first edge, between edges, at or above the last. */
+export function histogram(values: readonly number[], edges: readonly number[] = FRAME_HISTOGRAM_EDGES_MS): number[] {
+  const counts = new Array<number>(edges.length + 1).fill(0);
+  for (const v of values) {
+    let i = 0;
+    while (i < edges.length && v >= edges[i]!) i++;
+    counts[i]! += 1;
+  }
+  return counts.map((c) => (values.length === 0 ? 0 : Math.round((c / values.length) * 1000) / 1000));
+}
+
 /** How a metric is compared: counts and memory absolutely, times relative to a calibration. */
 export type MetricKind = 'count' | 'memory' | 'ratio';
 

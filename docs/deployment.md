@@ -4336,7 +4336,10 @@ page (`tools/perf/bare/`) the same way. `--ablation` adds the per-draw
 ablation on the plain page (+16 dark point lights, +per-object material
 copies, +the engine's node materials, each alone); `--no-bare`,
 `--renderers webgpu`, `--keep` (keep the run folder with screenshots and the
-dump). Reports go to `~/.cache/thirdlight-perf/reports/village-<time>.json`.
+dump), `--vsync` (draw at the display's rate, as a player's browser does,
+instead of uncapped: dropped frames show as intervals of two refreshes). Each
+page's line also gives the frame max and a histogram (share of frames below
+8.3, 11.1, 16.7, 25, 33.3, 50 ms and above). Reports go to `~/.cache/thirdlight-perf/reports/village-<time>.json`.
 `tools/perf/games.sh [game-folder …]` (local, not in the gate) measures copies
 of game projects the same way (default Skyforge and Sprout; the copy is what
 gets registered, never the game's folder).
@@ -4346,7 +4349,10 @@ gets registered, never the game's folder).
 `node tools/perf/run.mjs village --gate --check tests/perf/village-baseline.json`
 (about 40 s): it fails when the export's mean frame time on either renderer
 is more than 10 % (`FRAME_REGRESSION` in `tools/perf/village-run.ts`) above
-the baseline, or when a renderer was not measured; `tools/gate.sh rerun`
+the baseline, when its 95th-percentile frame time is more than 50 %
+(`FRAME_P95_REGRESSION`) above the baseline's (generous: uncapped, WebGPU's
+GPU-bound frames are bimodal, a few % of them near twice the median, on the
+plain three.js page too), or when a renderer was not measured; `tools/gate.sh rerun`
 repeats a failed check alone. Without a GPU it is skipped. The baseline holds
 absolute times for this host's GPU, so it is re-recorded when the class
 changes (`VILLAGE_VERSION`), on another machine, or when a change makes the
