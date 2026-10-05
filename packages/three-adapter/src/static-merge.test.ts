@@ -10,7 +10,7 @@ import { describe, expect, it } from 'vitest';
 
 import { BATCH_KEY, BATCHED_LAYER, createAutoBatcher, type AutoBatcherOptions } from './batching';
 import { LOD_OWNER_KEY } from './lod-switch';
-import { mergeLayout, OBJECT_FRAME_KEY, OCCLUDER_KEY, occludersFirst, STATIC_KEY, type RenderItemLike } from './static-merge';
+import { MERGED_RENDER_ORDER, mergeLayout, OBJECT_FRAME_KEY, STATIC_KEY } from './static-merge';
 
 const camera = (): THREE.PerspectiveCamera => new THREE.PerspectiveCamera(50, 1, 0.1, 1000);
 
@@ -61,6 +61,9 @@ describe('static batching', () => {
     expect(cell!.geometry.boundingBox!.max.x).toBeCloseTo(4);
     // Picking goes to the members, and the merged mesh stays out of the batcher's own listing.
     expect(cell!.userData['tlBatch']).toBe(true);
+    // Drawn ahead of the other opaque objects (the level's occluder), whose own order is 0.
+    expect(cell!.renderOrder).toBe(MERGED_RENDER_ORDER);
+    expect(MERGED_RENDER_ORDER).toBeLessThan(0);
     const d = b.diagnostics();
     expect([d.single, d.merging?.cells, d.merging?.merged]).toEqual([0, 1, 2]);
     expect(d.merging!.vertexBytes).toBe(48 * (3 + 3 + 2) * 4);
@@ -209,12 +212,5 @@ describe('static batching', () => {
     off.b.update(camera());
     expect(merged(off.scene)).toEqual([]);
     expect(off.b.diagnostics().merging).toBeUndefined();
-  });
-
-  it('draws merged cells before the other opaque objects of the same render order, nearest first among each', () => {
-    const cell = (z: number, id: number): RenderItemLike => ({ groupOrder: 0, renderOrder: 0, z, id, object: Object.assign(new THREE.Mesh(), { userData: { [OCCLUDER_KEY]: true } }) });
-    const mesh = (z: number, id: number, renderOrder = 0): RenderItemLike => ({ groupOrder: 0, renderOrder, z, id, object: new THREE.Mesh() });
-    const items = [mesh(1, 1), cell(30, 2), mesh(5, 3), cell(10, 4), mesh(0.5, 5, -1)];
-    expect([...items].sort(occludersFirst).map((i) => i.id)).toEqual([5, 4, 2, 1, 3]);
   });
 });

@@ -74,6 +74,11 @@ interface Gate {
 }
 
 /** One drawable of an entity (or of a loose object). */
+function setAuto(o: THREE.Object3D, matrix: boolean, world: boolean): void {
+  o.matrixAutoUpdate = matrix;
+  o.matrixWorldAutoUpdate = world;
+}
+
 interface Part {
   readonly object: THREE.Object3D;
   /** The subtree it came from (the object added to the node, or listed loose). */
@@ -89,6 +94,8 @@ interface Part {
   /** What it had before it was listed (restored when it leaves). */
   readonly matrixAutoUpdate: boolean;
   readonly matrixWorldAutoUpdate: boolean;
+  /** Posed with its animated hierarchy: its matrices update only inside `poseAnimated`. */
+  readonly posed: boolean;
 }
 
 /** A LOD kept as data: the level it draws, and the parts below it. */
@@ -210,6 +217,8 @@ export class RenderGraph {
   private readonly lodCam = new THREE.Vector3(Number.NaN, 0, 0);
   private lodZoom = Number.NaN;
   private lodsDirty = true;
+  /** LODs of animated hierarchies posed since the last pick (the camera still: only they can change level). */
+  private readonly movedSwitches = new Set<LodSwitch>();
   /** Told when a static shadow caster enters or leaves the scene (with it: where it stands) or moves (null: anywhere). */
   private staticChanged: ((where: THREE.Object3D | null) => void) | null = null;
   /** Told what enters and leaves the scene and whose matrix was written (the batcher regroups only on those). */
@@ -354,10 +363,14 @@ export class RenderGraph {
   poseAnimated(): void {
     let posed = 0;
     for (const node of this.posed) {
-      node.updateMatrixWorld(true);
       const h = this.held.get(node);
+      // Its parts compose here only (see `collect`): on for this walk, off again after it.
+      if (h !== undefined) for (const p of h.parts) if (p.posed) setAuto(p.object, p.matrixAutoUpdate, p.matrixWorldAutoUpdate);
+      node.updateMatrixWorld(true);
+      if (h !== undefined) for (const p of h.parts) if (p.posed) setAuto(p.object, false, false);
       if (h === undefined) continue;
-      if (h.switches.length > 0) this.lodsDirty = true;
+      // Only these LODs moved: the next pick looks at them alone while the camera stays.
+      for (const sw of h.switches) this.movedSwitches.add(sw);
       const parts = h.parts;
       posed += parts.length;
       if (this.membership !== null) for (const p of parts) if (p.listed) this.membership.moved(p.object);
@@ -377,12 +390,13 @@ export class RenderGraph {
     camera.updateMatrixWorld();
     const cam = this.camPos.setFromMatrixPosition(camera.matrixWorld);
     const zoom = (camera as THREE.PerspectiveCamera).zoom ?? 1;
-    // Nothing that picks a level changed (a still camera over LODs that did not move): every level stays.
-    if (!this.lodsDirty && cam.equals(this.lodCam) && zoom === this.lodZoom) return;
+    // A still camera: only the LODs that moved (posed this frame) can change level; the others stay.
+    const still = !this.lodsDirty && cam.equals(this.lodCam) && zoom === this.lodZoom;
+    const which: Iterable<LodSwitch> = still ? this.movedSwitches : this.switches;
     this.lodsDirty = false;
     this.lodCam.copy(cam);
     this.lodZoom = zoom;
-    for (const sw of this.switches) {
+    for (const sw of which) {
       const e = sw.lod.matrixWorld.elements;
       // sqrt of the sum, not Math.hypot (several times slower in V8, over every LOD each frame the camera moves).
       const dx = cam.x - e[12]!;
@@ -395,6 +409,7 @@ export class RenderGraph {
       sw.lod.userData[LOD_LEVEL_KEY] = level;
       for (const p of sw.parts) this.gate(p);
     }
+    this.movedSwitches.clear();
   }
 
   /**
@@ -514,11 +529,13 @@ export class RenderGraph {
         return;
       }
       const offset = baked ? offsetOf(o) : null;
-      const part: Part = { object: o, owner: sub, offset, gates, listed: false, hidden: false, matrixAutoUpdate: o.matrixAutoUpdate, matrixWorldAutoUpdate: o.matrixWorldAutoUpdate };
-      if (node === null || offset !== null) {
-        o.matrixAutoUpdate = false;
-        o.matrixWorldAutoUpdate = false;
-      }
+      const posed = node !== null && offset === null;
+      const part: Part = { object: o, owner: sub, offset, gates, listed: false, hidden: false, matrixAutoUpdate: o.matrixAutoUpdate, matrixWorldAutoUpdate: o.matrixWorldAutoUpdate, posed };
+      // Placed (static, loose) or posed by its hierarchy (animated): either way the scene's own matrix walks
+      // (the renderer's, the batcher's, the texture streamer's) have nothing to compose for it. A posed part
+      // left to them was composed again on every walk (Skyforge's village: ~170 character parts, 1–2 walks a frame).
+      o.matrixAutoUpdate = false;
+      o.matrixWorldAutoUpdate = false;
       // Posed by its hierarchy every frame: its shadow is drawn every frame, never cached.
       if (node !== null && animated) o.userData[MOVING_CASTER_KEY] = true;
       h.parts.push(part);
@@ -570,6 +587,7 @@ export class RenderGraph {
         continue;
       }
       this.switches.delete(sw);
+      this.movedSwitches.delete(sw);
       delete sw.lod.userData[LOD_LEVEL_KEY];
     }
     h.switches = keepSwitches;

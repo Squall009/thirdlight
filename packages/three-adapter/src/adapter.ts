@@ -32,7 +32,7 @@ import { addBoxLightmapUv, createLightmapSet, type LightingBakeLike, type Lightm
 import { releaseEmissiveLooks, setEntityLook, SHARED_MATERIAL_KEY } from './node-materials';
 import { disposeObjectTree } from './dispose';
 import { BATCH_KEY, createAutoBatcher, markBatchable, unitBoxGeometry, type AutoBatcher, type AutoBatcherDiagnostics } from './batching';
-import { markStatic, occludersFirst, STATIC_KEY } from './static-merge';
+import { markStatic, STATIC_KEY } from './static-merge';
 import { compileIntoTarget, type Precompile } from './environment-nodes';
 import { INSTANCE_MATRIX_ATTRIBUTE } from './attribute-instancing';
 import { createEnvironmentRenderer, environmentHasLook, environmentTextureIds, layerEnvironment, renderPixelRatio, type EnvironmentLayerLike, type EnvironmentLike, type EnvironmentRenderer, type FogVolumeLike, type QualityLevel } from './environment';
@@ -877,8 +877,6 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     environmentRenderer = null;
     environmentSize = null;
     r.setPixelRatio(pixelRatio);
-    // Merged static cells (the level's occluders) draw before the other opaque objects.
-    r.setOpaqueSort(occludersFirst as unknown as Parameters<AnyRenderer['setOpaqueSort']>[0]);
     const inf = handle.info();
     renderBackend = inf.api;
     // The effect executors follow the renderer (compute on WebGPU, the CPU on WebGL 2).
