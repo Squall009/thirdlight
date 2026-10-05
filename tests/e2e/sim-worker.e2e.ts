@@ -34,6 +34,7 @@ test.afterEach(async () => {
   be = null;
 });
 
+type Pipeline = { frames: number; blockedMs: number; blockedMaxMs: number; framesWithoutStep: number; framesWithoutWorkerFrame: number; ticksSkipped: number; workerRoundTripMs: { avg: number; max: number }; inputToDrawMs: { avg: number; max: number } };
 type Observation = { state: string; player?: { x: number; y: number }; counters?: Record<string, number>; sound?: { unlocked: boolean; played?: { sfx: number; ui: number } }; simulation?: { mode: string; transport: string | null; isolated: boolean } };
 
 async function relay(path: string, body: unknown): Promise<{ status: number; json: Record<string, unknown> }> {
@@ -109,6 +110,12 @@ async function playChecks(page: Page, psid: string, expectMode: { mode: string; 
     await page.keyboard.up('d');
   }
   await expect.poll(async () => (await observe()).sound?.played?.sfx ?? 0, { timeout: 10_000 }).toBeGreaterThanOrEqual(1);
+  // The worker's pipeline as Play reports it: a draw never waits, and input reaches the screen about a frame later.
+  const pipeline = ((await relay(`${psid}/diagnostics`, {})).json['diagnostics'] as { simulation: { pipeline: Pipeline | null } }).simulation.pipeline;
+  if (expectMode.mode === 'worker') {
+    process.stderr.write(`sim-worker e2e: pipeline (${expectMode.transport}): ${JSON.stringify(pipeline)}\n`);
+    expect(pipeline!.blockedMaxMs).toBeLessThan(5);
+  } else expect(pipeline).toBeNull();
   await page.getByTitle('Stop the play preview').click();
   // Stop is a backend round trip plus the preview's teardown: seconds on a loaded CPU-rendered host.
   await expect(page.locator('iframe.tl-app__preview-frame')).toHaveCount(0, { timeout: 30_000 });
@@ -141,7 +148,6 @@ test('Play with cross-origin isolation: the worker shares memory with the page',
   expect(logs.some((l) => l.includes('transforms by shared memory'))).toBe(true);
 });
 
-type Pipeline = { frames: number; blockedMs: number; blockedMaxMs: number; framesWithoutStep: number; framesWithoutWorkerFrame: number; ticksSkipped: number; workerRoundTripMs: { avg: number; max: number }; inputToDrawMs: { avg: number; max: number } };
 type Diagnostics = { runtime: { stepIndex: number; droppedSteps: number }; simulation: { mode: string; pipeline: Pipeline | null } };
 
 /** Start the title's game in a started Play (a click focuses it, Enter starts it). */
