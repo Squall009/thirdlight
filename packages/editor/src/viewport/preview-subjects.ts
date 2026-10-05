@@ -11,6 +11,7 @@
  *
  * Browser-only.
  */
+import { previewFrameSeconds } from '@thirdlight/runtime';
 import { disposeObjectTree, type GraphProblem, type MaterialDefLike, type MaterialFunctionLike } from '@thirdlight/three-adapter';
 import * as THREE from 'three';
 
@@ -160,7 +161,7 @@ export class ModelSubject implements PreviewSubject {
   }
 
   update(_stage: PreviewStage, now: number): void {
-    const dt = this.last === null ? 0 : Math.min(0.1, Math.max(0, (now - this.last) / 1000));
+    const dt = this.last === null ? 0 : previewFrameSeconds(now, this.last);
     this.last = now;
     this.object?.step?.(dt);
   }

@@ -173,8 +173,9 @@ test('a track camera\'s look-ahead, bounds and dead zone and a camera region set
   const observe = async (): Promise<Obs> => (await relay(`${psid}/observe`, {})).json as unknown as Obs;
   await expect.poll(async () => (await relay(`${psid}/observe`, {})).status, { timeout: 30_000 }).toBe(200);
   await expect.poll(async () => (await observe()).state).toBe('running');
-  const drive = async (frames: ReturnType<typeof controls>[]): Promise<void> => {
-    const r = await relay(`${psid}/input`, { mode: 'exclusive-test', frames: frames.map((f, i) => ({ stepOffset: i, ...f })) });
+  // `hold`: the game waits at the exercise's last step, so the next one continues at the very next step.
+  const drive = async (frames: ReturnType<typeof controls>[], hold = false): Promise<void> => {
+    const r = await relay(`${psid}/input`, { mode: 'exclusive-test', frames: frames.map((f, i) => ({ stepOffset: i, ...f })), ...(hold ? { hold: true } : {}) });
     expect(r.status, JSON.stringify(r.json)).toBe(200);
   };
   const frame = page.locator('iframe.tl-app__preview-frame');
@@ -187,7 +188,8 @@ test('a track camera\'s look-ahead, bounds and dead zone and a camera region set
   expect(outside, 'the green board is in view').toBeGreaterThan(300);
 
   // Into the region: the camera goes back to 24 m along its offset (z ≈ 23.6) once the blend is over.
-  for (let i = 0; i < 40 && (await observe()).player!.x < 4.9; i++) await drive(Array.from({ length: 4 }, () => controls(1)));
+  // Walked in 4-step exercises held in between: one continuous walk, however long each answer takes to come back.
+  for (let i = 0; i < 40 && (await observe()).player!.x < 4.9; i++) await drive(Array.from({ length: 4 }, () => controls(1)), true);
   await drive(Array.from({ length: 20 }, () => controls(0)));
   await expect.poll(async () => (await observe()).camera?.region, { timeout: 5_000 }).toBe(region);
   const at = (await observe()).player!.x;

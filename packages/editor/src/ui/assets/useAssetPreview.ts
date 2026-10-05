@@ -9,6 +9,8 @@
  */
 import { useCallback, useEffect, useRef, useState, type RefObject } from 'react';
 
+import { previewFrameSeconds } from '@thirdlight/runtime';
+
 import type { SessionClient } from '../../session/client';
 import type { AssetPreviewSession, ModelFiles } from '../../viewport/model-files';
 import { PreviewRenderer } from '../../viewport/preview-renderer';
@@ -134,7 +136,7 @@ export function useAssetPreview(deps: {
     let raf = 0;
     let last = performance.now();
     const tick = (now: number): void => {
-      const dt = Math.min(0.1, (now - last) / 1000);
+      const dt = previewFrameSeconds(now, last);
       last = now;
       modelFilesRef.current?.updatePreview(dt);
       publish();

@@ -109,6 +109,8 @@ test('a climb volume, climb and wall fields and gravity set up in the editor; th
 
   // Gravity on a box up in the air.
   await menu(page, 'GameObject', 'Box');
+  // The create is answered by the backend: edit the box only once the Inspector shows it (not the player still selected).
+  await expect(page.locator('.tl-inspector__name')).toHaveValue(/^box-/);
   await field(page, 'position x', '-3');
   await field(page, 'position y', '4');
   const boxName = await page.locator('.tl-inspector__name').inputValue();
@@ -125,12 +127,14 @@ test('a climb volume, climb and wall fields and gravity set up in the editor; th
   const observe = async (): Promise<Obs> => (await relay(`${psid}/observe`, {})).json as unknown as Obs;
   await expect.poll(async () => (await relay(`${psid}/observe`, {})).status, { timeout: 30_000 }).toBe(200);
   await expect.poll(async () => (await observe()).state).toBe('running');
-  const drive = async (frames: ReturnType<typeof controls>[]): Promise<void> => {
-    const r = await relay(`${psid}/input`, { mode: 'exclusive-test', frames: frames.map((f, i) => ({ stepOffset: i, ...f })) });
+  // `hold`: the game waits at the exercise's last step, so the next one continues at the very next step.
+  const drive = async (frames: ReturnType<typeof controls>[], hold = false): Promise<void> => {
+    const r = await relay(`${psid}/input`, { mode: 'exclusive-test', frames: frames.map((f, i) => ({ stepOffset: i, ...f })), ...(hold ? { hold: true } : {}) });
     expect(r.status, JSON.stringify(r.json)).toBe(200);
   };
   const ground = (await observe()).player!.y;
-  for (let i = 0; i < 40 && (await observe()).player!.x < 4.8; i++) await drive(Array.from({ length: 4 }, () => controls(1)));
+  // Walked in 4-step exercises held in between: one continuous walk, however long each answer takes to come back.
+  for (let i = 0; i < 40 && (await observe()).player!.x < 4.8; i++) await drive(Array.from({ length: 4 }, () => controls(1)), true);
   await drive(Array.from({ length: 20 }, () => controls(0)));
   await expect.poll(async () => (await observe()).player!.x, { timeout: 5_000 }).toBeGreaterThan(4.55);
   expect((await observe()).player!.x).toBeLessThan(5.45);

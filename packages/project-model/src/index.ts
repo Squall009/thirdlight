@@ -104,6 +104,7 @@ export * from './limits';
 export {
   M2_SETTINGS_KEYS,
   RENDERING_SETTINGS_GROUP,
+  fixedStepHzOf,
   AUDIO_VOICE_CAP,
   PHYSICS_DIMENSIONS,
   audioSpatialOf,

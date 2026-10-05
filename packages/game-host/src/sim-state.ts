@@ -19,7 +19,7 @@
  * Float64 throughout: the page reads exactly the values the simulation has
  * (the MCP observation, bots and the determinism tests compare them).
  */
-import { interpolateTransformInto, materialChangeKey, type TransformState } from '@thirdlight/runtime';
+import { AUDIO_MAX_QUEUED_COMMANDS, clampAlpha, DEFAULT_FIXED_STEP_HZ, EFFECT_MAX_QUEUED_REQUESTS, interpolateTransformInto, materialChangeKey, type TransformState } from '@thirdlight/runtime';
 import { applyUiOutputToModel, mergeUiOutput, type DebugCommandState, type AnimatorPose, type AudioCommand, type CameraViewInfo, type Runtime, type RuntimeDiagnostics, type SceneSetView, type PointerSample, type UiOutput, type UiShownDocument, type ModeView } from '@thirdlight/runtime';
 import { CAMERA_POSE_FLOATS, STEP_PAIR_STRIDE, TRANSFORM_STRIDE, type FrameState, type SceneEntities, type SceneSetWire } from './sim-protocol';
 
@@ -489,7 +489,7 @@ export class FrameMirror {
   /** The alpha the page draws with now (`present`): where its clock falls between the last two steps. */
   alpha = 0;
   /** The fixed step's length (seconds): how far a wall second moves the alpha. */
-  stepSeconds = 1 / 120;
+  stepSeconds = 1 / DEFAULT_FIXED_STEP_HZ;
   /** The applied frame's tick alpha and rate, and the page time (seconds) it was applied at. */
   private tickAlpha = 0;
   private rate = 0;
@@ -498,6 +498,14 @@ export class FrameMirror {
   state: RuntimeDiagnostics['state'] = 'running';
   paused = false;
   debugHeld = false;
+  /**
+   * A pause or hold the page set that frames already computed cannot show:
+   * the worker takes the command after the ticks sent before it, so frames
+   * answering those ticks (seq ≤ `untilSeq`) still carry the old value and
+   * must not overwrite the page's.
+   */
+  private pausedSet: { value: boolean; untilSeq: number } | null = null;
+  private heldSet: { value: boolean; untilSeq: number } | null = null;
   ids: readonly string[] = [];
   index = new Map<string, number>();
   xf: Float64Array<ArrayBufferLike> = new Float64Array(0);
@@ -579,11 +587,24 @@ export class FrameMirror {
    * Draw at page time `now` (seconds): the alpha moves on from the applied
    * frame's by the wall time since it was applied, at its rate, and stops at
    * the last finished step (the page never draws a step the worker has not
-   * finished). At the frame's own time it is the worker's alpha exactly.
+   * finished: the alpha stays below 1, the runtime's invariant). At the
+   * frame's own time it is the worker's alpha exactly.
    */
   present(now: number): void {
     const moved = this.rate > 0 && now > this.appliedAt ? ((now - this.appliedAt) * this.rate) / this.stepSeconds : 0;
-    this.alpha = Math.min(1, this.tickAlpha + moved);
+    this.alpha = clampAlpha(this.tickAlpha + moved);
+  }
+
+  /** The page paused or resumed the game; `lastTickSeq` is the newest tick sent before the command. */
+  setPaused(paused: boolean, lastTickSeq: number): void {
+    this.paused = paused;
+    this.pausedSet = { value: paused, untilSeq: lastTickSeq };
+  }
+
+  /** The page held or released the game for the debugger (as `setPaused`). */
+  setDebugHeld(held: boolean, lastTickSeq: number): void {
+    this.debugHeld = held;
+    this.heldSet = { value: held, untilSeq: lastTickSeq };
   }
 
   /** The number of rows the transform array holds. */
@@ -596,8 +617,7 @@ export class FrameMirror {
     const o = i * STEP_PAIR_STRIDE;
     readTransform(this.xf, o, this.scratchPrev);
     readTransform(this.xf, o + TRANSFORM_STRIDE, this.scratchCurr);
-    // Alpha 1 is the last step itself (the rule's alpha 0 reads it exactly).
-    interpolateTransformInto(position, rotation, scale, this.scratchPrev, this.scratchCurr, this.alpha >= 1 ? 0 : this.alpha);
+    interpolateTransformInto(position, rotation, scale, this.scratchPrev, this.scratchCurr, this.alpha);
   }
 
   /** Row `i`'s last finished step (not blended). */
@@ -690,8 +710,16 @@ export class FrameMirror {
     this.alpha = s.alpha;
     this.frameCount = s.frameCount;
     this.state = s.state;
-    this.paused = s.paused;
-    this.debugHeld = s.debugHeld;
+    if (this.pausedSet !== null && s.seq <= this.pausedSet.untilSeq) this.paused = this.pausedSet.value;
+    else {
+      this.pausedSet = null;
+      this.paused = s.paused;
+    }
+    if (this.heldSet !== null && s.seq <= this.heldSet.untilSeq) this.debugHeld = this.heldSet.value;
+    else {
+      this.heldSet = null;
+      this.debugHeld = s.debugHeld;
+    }
     if (s.ids !== undefined) {
       this.ids = s.ids;
       this.index = new Map(s.ids.map((id, i) => [id, i]));
@@ -803,9 +831,9 @@ export class FrameMirror {
   }
 }
 
-/** The runtime's own bounds for queued sound and effect requests (runtime.ts). */
-export const MIRROR_AUDIO_LIMIT = 256;
-export const MIRROR_EFFECT_LIMIT = 256;
+/** The runtime's own bounds for queued sound and effect requests. */
+export const MIRROR_AUDIO_LIMIT = AUDIO_MAX_QUEUED_COMMANDS;
+export const MIRROR_EFFECT_LIMIT = EFFECT_MAX_QUEUED_REQUESTS;
 
 function readTransform(x: ArrayLike<number>, o: number, out: { position: number[]; rotation: number[]; scale: number[] }): void {
   out.position[0] = x[o]!;

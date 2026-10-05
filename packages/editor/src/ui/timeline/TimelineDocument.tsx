@@ -20,7 +20,7 @@
  */
 import { useEffect, useMemo, useRef, useState, type JSX, type PointerEvent as ReactPointerEvent } from 'react';
 import type { AnimatorController, TimelineAsset, TimelineKey, TimelineTrack, TimelineTrackType } from '@thirdlight/project-model';
-import { AnimatorMachine, evaluateTimelineAt, TIMELINE_EASINGS, TIMELINE_TARGET_TRACKS, TIMELINE_TRACK_TYPES, type AnimatorControllerLike } from '@thirdlight/runtime';
+import { AnimatorMachine, evaluateTimelineAt, previewFrameSeconds, TIMELINE_EASINGS, TIMELINE_TARGET_TRACKS, TIMELINE_TRACK_TYPES, type AnimatorControllerLike } from '@thirdlight/runtime';
 import { AUDIO_KINDS, MATERIAL_KINDS, RefPicker, useFirstEntry } from '../catalog/RefPicker';
 import { usePreview } from '../preview/preview-request';
 import { EditorToolbar, EmptyState, ToolButton, ToolbarSeparator, ToolbarSpacer } from '../chrome/EditorChrome';
@@ -166,7 +166,7 @@ export function TimelineDocument(props: TimelineDocumentProps): JSX.Element {
     let raf = 0;
     let last = performance.now();
     const tick = (now: number): void => {
-      const dt = Math.min(0.1, Math.max(0, (now - last) / 1000));
+      const dt = previewFrameSeconds(now, last);
       last = now;
       const next = timeRef.current + dt;
       if (next >= tl.duration) {

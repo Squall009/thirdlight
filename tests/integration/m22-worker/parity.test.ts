@@ -16,7 +16,12 @@
  * - replay: a recorded input (per step) with frames of 0–3 steps each;
  * - live input: a per-step input function, one step per frame (the bot path);
  * - the worker frees the simulation on dispose (acknowledged), and a
- *   physics memory past the limit stops the simulation instead of growing.
+ *   physics memory past the limit stops the simulation instead of growing;
+ * - the page's frame driver one frame behind (animation frames driven by
+ *   hand): a pause set on the page holds while frames computed before it
+ *   land, the frame of the last tick before a stop is applied (its steps and
+ *   digests are not lost), and the drawn alpha stays below 1 while the
+ *   worker is late.
  */
 import { describe, expect, it } from 'vitest';
 
@@ -219,5 +224,110 @@ describe('physics in the worker', () => {
     expect(d1.ok && d2.ok && d2.diagnostics.stepIndex).toBe(d1.ok ? d1.diagnostics.stepIndex : -1);
     expect(logs.some((l) => l.includes('physics_memory_limit') || l.includes('past the'))).toBe(true);
     await remote.dispose();
+  }, 60_000);
+});
+
+describe('the page draws one frame behind the worker (animation frames by hand)', () => {
+  /** A hand-driven requestAnimationFrame: `frame()` runs the queued callback once. */
+  const rafByHand = () => {
+    const g = globalThis as Any;
+    const saved = { raf: g.requestAnimationFrame, caf: g.cancelAnimationFrame };
+    let queued: ((t: number) => void) | null = null;
+    g.requestAnimationFrame = (cb: (t: number) => void) => {
+      queued = cb;
+      return 1;
+    };
+    g.cancelAnimationFrame = () => {
+      queued = null;
+    };
+    return {
+      frame: () => {
+        const cb = queued;
+        queued = null;
+        cb?.(performance.now());
+      },
+      restore: () => {
+        g.requestAnimationFrame = saved.raf;
+        g.cancelAnimationFrame = saved.caf;
+      },
+    };
+  };
+  const settle = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+  const start = async () => {
+    const { snapshot, physics } = level();
+    const worker = await startNodeSimWorker();
+    const remote = await startRemoteSimulation({ worker, init: { snapshot, settings: SETTINGS, physics, behaviors: { rows: [], urls: {}, enginePins: [] }, digestSteps: true }, input: null, driver: 'raf' });
+    return remote;
+  };
+
+  it('a pause set on the page holds while frames computed before it land; the alpha stays below 1 while the worker is late', async () => {
+    const raf = rafByHand();
+    const remote = await start();
+    try {
+      remote.runtimeFactory(() => undefined);
+      for (let i = 0; i < 8; i += 1) {
+        raf.frame();
+        await settle(20);
+      }
+      expect(remote.runtime.isPaused).toBe(false);
+      // A tick is in flight (sent by the last animation frame); its frame was computed unpaused.
+      raf.frame();
+      remote.runtime.setPaused!(true);
+      for (let i = 0; i < 6; i += 1) {
+        await settle(20);
+        raf.frame();
+        expect(remote.runtime.isPaused, `animation frame ${i} after the pause`).toBe(true);
+      }
+      remote.runtime.setPaused!(false);
+      for (let i = 0; i < 6; i += 1) {
+        await settle(20);
+        raf.frame();
+        expect(remote.runtime.isPaused, `animation frame ${i} after the resume`).toBe(false);
+      }
+      // 20 ms between animation frames is more than two steps: the drawn alpha stops short of the last step.
+      for (let i = 0; i < 4; i += 1) {
+        await settle(25);
+        raf.frame();
+        const a = remote.runtime.interpolationAlpha!;
+        expect(a).toBeGreaterThanOrEqual(0);
+        expect(a).toBeLessThan(1);
+        const s = remote.runtime.getInterpolatedState();
+        expect(s.ok && s.state.alpha < 1).toBe(true);
+      }
+    } finally {
+      raf.restore();
+      await remote.dispose();
+    }
+  }, 60_000);
+
+  it('the frame of the last tick before a stop is applied: its steps and digests are not lost', async () => {
+    const raf = rafByHand();
+    const remote = await start();
+    try {
+      remote.runtimeFactory(() => undefined);
+      for (let i = 0; i < 10; i += 1) {
+        raf.frame();
+        await settle(20);
+      }
+      // The last animation frame sends a tick; the stop comes before its frame does.
+      raf.frame();
+      expect(remote.runtime.stop().ok).toBe(true);
+      await remote.runtime.settled!();
+      const worker = await remote.access.diagnostics();
+      const page = remote.runtime.getDiagnostics();
+      expect(worker.ok && page.ok).toBe(true);
+      const steps = worker.ok ? worker.diagnostics.stepIndex : -1;
+      expect(steps).toBeGreaterThan(12);
+      // The page has every step the worker ran, and a digest for each digested one.
+      expect(page.ok ? page.diagnostics.stepIndex : -1).toBe(steps);
+      expect(remote.digests.length).toBe(steps);
+      const before = remote.digests.length;
+      await settle(50);
+      expect(remote.digests.length).toBe(before);
+    } finally {
+      raf.restore();
+      await remote.dispose();
+    }
   }, 60_000);
 });

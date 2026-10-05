@@ -24,7 +24,7 @@ import { MAX_FRAME_ASSET_ANSWERS, RuntimeAssetHandles, validateAssetAnswers, typ
 import { rideOnFrame } from './frame-queues';
 import { SAVE_KEY_RE, SAVE_MAX_KEYS, SAVE_MAX_VALUE_CHARS, saveSectionsPort, saveValueText } from './save-sections';
 import { MAX_FRAME_SAVE_EVENTS, RuntimeSaves, validateSaveEvents, type SaveEvent, type SaveRequest, type SaveSectionsPort, type WorldSave } from './project-saves';
-import { projectFrameRateCap, type SaveSchema } from '@thirdlight/project-model';
+import { DEFAULT_FIXED_STEP_HZ, projectFrameRateCap, type SaveSchema } from '@thirdlight/project-model';
 
 import { RuntimeInputStatus, type InputBindingRequest } from './input-status';
 import type { BlockType, CellField } from '@thirdlight/project-model';
@@ -91,7 +91,7 @@ import { randomSeedOf } from './random';
 import { AudioMixer, type AudioCommand } from './audio-mixer';
 import { createScriptAudio, type ScriptAudioControl } from './script-audio';
 import { DialogueRunner, validateDialogueInput, type DialogueInputRecord } from './dialogue';
-import type { CameraViewInfo } from './camera-brain';
+import { cameraBlendOf, type CameraViewInfo } from './camera-brain';
 import { RuntimeViews } from './views';
 import { KeptObjects } from './kept';
 import { EnvironmentDirector, type EnvironmentSaveState } from './environment-director';
@@ -185,11 +185,11 @@ export interface HeldPointer extends PointerSample {
 
 export { PHYSICS_QUERY_LIMIT } from './physics-query-args';
 
-/** The default step rate. */
-const DEFAULT_FIXED_STEP_HZ = 120;
 /** A script message name (the timer-name syntax). */
 const MESSAGE_NAME_RE = /^[A-Za-z0-9_.:-]{1,64}$/;
 const MIN_FIXED_STEP_HZ = 1;
+/** Effect requests kept for a renderer that does not take them (headless): the newest this many. */
+export const EFFECT_MAX_QUEUED_REQUESTS = 256;
 const MAX_FIXED_STEP_HZ = 1000;
 export { catchUpSteps, MAX_CATCHUP_SECONDS } from './frame-clock';
 /**
@@ -1356,7 +1356,7 @@ class RuntimeInstance implements Runtime {
   private assetAnswerQueue: AssetHandleAnswer[] = [];
   private readonly audioControl: ScriptAudioControl;
   // ---- Visual effect requests (presentation only) ----
-  /** Requests since the adapter last took them (bounded: the oldest are dropped beyond 256). */
+  /** Requests since the adapter last took them (bounded: the oldest are dropped beyond `EFFECT_MAX_QUEUED_REQUESTS`). */
   private effectQueue: EffectRequest[] = [];
   /** The last play handle handed out (never reset while the game runs: handles stay unique). */
   private effectHandle = 0;
@@ -1368,7 +1368,7 @@ class RuntimeInstance implements Runtime {
     const req: EffectRequest = Object.freeze({ ...r, handle, stepIndex: this.stepIndex + 1, position: Object.freeze([r.position[0], r.position[1], r.position[2]]) as unknown as readonly [number, number, number] });
     this.effectQueue.push(req);
     // Nobody takes them (no renderer, e.g. a headless run): keep only the newest.
-    if (this.effectQueue.length > 256) this.effectQueue.splice(0, this.effectQueue.length - 256);
+    if (this.effectQueue.length > EFFECT_MAX_QUEUED_REQUESTS) this.effectQueue.splice(0, this.effectQueue.length - EFFECT_MAX_QUEUED_REQUESTS);
     return handle;
   }
   private readonly effectsControl = Object.freeze({
@@ -2208,7 +2208,7 @@ class RuntimeInstance implements Runtime {
    */
   readCameraView(position: number[], rotation: number[], view?: string): { fovY: number; near: number; far: number; letterbox: number } | null {
     if (this.stateName === 'disposed') return null;
-    return this.views.readInterpolated(this.stateName === 'failed' ? 1 : this.frameClock.alpha, position, rotation, view);
+    return this.views.readInterpolated(this.stateName === 'failed' ? 1 : cameraBlendOf(this.frameClock.alpha), position, rotation, view);
   }
 
   /** `readCameraView` at a given alpha between the last two steps (0 the step before, 1 the last; a failed runtime reads its last step). */

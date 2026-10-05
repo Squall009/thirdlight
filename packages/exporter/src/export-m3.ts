@@ -32,6 +32,7 @@ import {
   canonicalJsonText,
   digestBytes,
   digestEmittedClosure,
+  fixedStepHzOf,
   manifestBuildIdInputV5,
   physicsDimensionOf,
   type RuntimeContentManifestV5,
@@ -557,8 +558,8 @@ async function writeOutput(
       three: readJsonStringField(ctx, ctx.threePackageJson, 'version'),
       typescript: readJsonStringField(ctx, ctx.typescriptPackageJson, 'version'),
       esbuild: esbuildVersion,
-      // The project's step rate (the fixed_step_hz setting; absent: 120).
-      runtime: { fixedStepHz: parsedManifest.settings.fixed_step_hz ?? 120, modules: [...closure.moduleIds] },
+      // The project's step rate (the fixed_step_hz setting, else the default).
+      runtime: { fixedStepHz: fixedStepHzOf(parsedManifest.settings), modules: [...closure.moduleIds] },
     },
     scene: {
       entityCount: sceneEntities.length,

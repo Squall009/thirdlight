@@ -177,8 +177,8 @@ export {
   validatePhaseList,
 } from './registry';
 export { interpolateTransformInto } from './interp';
-export { interpolateCameraPose, type CameraPoseLike } from './camera-brain';
-export { catchUpSteps, DROP_THROUGH_STEPS, MAX_CATCHUP_SECONDS, SETTLE_PREROLL_STEPS, engineTimingSteps, instantiateRuntime } from './runtime';
+export { cameraBlendOf, interpolateCameraPose, type CameraPoseLike } from './camera-brain';
+export { catchUpSteps, DROP_THROUGH_STEPS, EFFECT_MAX_QUEUED_REQUESTS, MAX_CATCHUP_SECONDS, SETTLE_PREROLL_STEPS, engineTimingSteps, instantiateRuntime } from './runtime';
 // The per-step budget of 3D script queries; the pointer state the runtime keeps.
 export { PHYSICS_QUERY_LIMIT, type HeldPointer } from './runtime';
 export {
@@ -367,7 +367,7 @@ export { INSTANCE_BRUSH_DEFAULTS, INSTANCE_BRUSH_LIMITS, StrokeCandidates, candi
 export { BRUSH_FALLOFFS, PAINT_BRUSH_LIMITS, PAINT_CHANNELS, chunkPaintColors, type BrushFalloff, type PaintBrush } from '@thirdlight/project-model';
 export { BlockGrid, CHUNK_SIZE, autoVariant, blockTopOptions, blockTypeSolid, chunkKeyOf, collisionMeshChunk, compareChunkKeys, meshBlockChunk, rotatedFootprint, shapeSource, type BlockCell, type BlockChunk, type BlockLayerComponent, type BlockLayerData, type BlockLookResolver, type BlockMeshSource, type BlockTopOptions, type BlockType, type BlockVariant, type CellField, type ChunkMeshPart } from '@thirdlight/project-model';
 // The audio intent log (script sound handles, music, duck) and the positional maths the host shares.
-export { AUDIO_BUS_NAMES, AUDIO_MAX_HANDLES, AUDIO_MAX_PLAYS_PER_STEP, AUDIO_PITCH_MAX, AUDIO_PITCH_MIN, AUDIO_SPATIAL_DEFAULTS, AudioMixer, STINGER_DEFAULTS, distanceGain, lateBoundOf, listenerRelative, ownerModeOf, spatialOf, type AudioOwner, type AudioOwnerMode, type AudioBusName, type AudioCommand, type AudioDistanceModel, type AudioSpatial } from './audio-mixer';
+export { AUDIO_BUS_NAMES, AUDIO_MAX_HANDLES, AUDIO_MAX_QUEUED_COMMANDS, AUDIO_MAX_PLAYS_PER_STEP, AUDIO_PITCH_MAX, AUDIO_PITCH_MIN, AUDIO_SPATIAL_DEFAULTS, AudioMixer, STINGER_DEFAULTS, distanceGain, lateBoundOf, listenerRelative, ownerModeOf, spatialOf, type AudioOwner, type AudioOwnerMode, type AudioBusName, type AudioCommand, type AudioDistanceModel, type AudioSpatial } from './audio-mixer';
 // Graph-material parameters per object — ctx.materials, the catalogue and the renderer's changes.
 export { MATERIAL_WRITES_PER_STEP, RuntimeMaterials, materialCatalogOf, materialCatalogProblem, materialChangeKey, type BehaviorMaterials, type MaterialSaveEntry, type MaterialParamValue, type MaterialRenderChange, type RuntimeMaterialCatalog, type RuntimeMaterialParameter, type RuntimeMaterialParameterType } from './material-params';
 // The project UI — ctx.ui, the UI events of an input frame, the view-model diff the host draws from.
@@ -375,6 +375,9 @@ export type { BehaviorUi, BehaviorUiEvent, BehaviorUiView, BehaviorStats, Behavi
 export { FRAME_RATE_CAP_URL_PARAM, FramePacer, frameRateCapFromUrl, type FramePacingStats } from './frame-pacing';
 // The frame-rate cap's values (project-model owns them), for the page's pacing and the shell.
 export { FRAME_RATE_CAPS, frameRateCapOf, projectFrameRateCap, type FrameRateCap } from '@thirdlight/project-model';
+// The simulation's step rate when a project sets none (project-model's).
+export { DEFAULT_FIXED_STEP_HZ, fixedStepHzOf } from '@thirdlight/project-model';
+export { clampAlpha, previewFrameSeconds } from './frame-clock';
 export { ENGINE_STATS_NONE, STATS_WINDOW_MS, engineStatsOf } from './engine-stats';
 export {
   MAX_FRAME_UI_EVENTS,

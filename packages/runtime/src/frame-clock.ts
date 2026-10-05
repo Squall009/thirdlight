@@ -33,6 +33,16 @@ export const MAX_CATCHUP_SECONDS = 0.1;
  */
 const STEP_COUNT_EPS = 1e-9;
 
+/**
+ * The wall time a free-running preview (an animation, a particle or timeline
+ * preview: no fixed steps) advances by in one frame, from two animation-frame
+ * times in milliseconds: never negative, and a stall (a hidden tab, a
+ * breakpoint) moves it on by no more than a catch-up's worth, not a jump.
+ */
+export function previewFrameSeconds(nowMs: number, lastMs: number): number {
+  return Math.min(MAX_CATCHUP_SECONDS, Math.max(0, (nowMs - lastMs) / 1000));
+}
+
 /** The steps one frame may catch up at steps of `dt` seconds (at least one). */
 export function catchUpSteps(dt: number): number {
   return Math.max(1, Math.floor(MAX_CATCHUP_SECONDS / dt + STEP_COUNT_EPS));
@@ -55,11 +65,15 @@ export interface DueSteps {
   readonly n: number;
 }
 
-function clamp01(v: number): number {
+/**
+ * An interpolation alpha held to 0 ≤ alpha < 1 (the invariant every reader
+ * relies on). Here the v ≥ 1 edge is defensive; a presenter that moves the
+ * alpha on by its own clock (the worker's mirror) reaches it whenever the
+ * next step is late, and stops just short of the last step.
+ */
+export function clampAlpha(v: number): number {
   if (Number.isNaN(v)) return 0;
   if (v < 0) return 0;
-  // The interpolation invariant is 0 ≤ alpha < 1; a defensive clamp for the
-  // (mathematically impossible) v ≥ 1 edge.
   if (v >= 1) return 1 - 1e-9;
   return v;
 }
@@ -126,7 +140,7 @@ export class FrameClock {
       if (inputSteps) this.droppedInputSteps += dropped;
       this.anchorAt(t, simTime);
     } else {
-      this.alpha = clamp01((due.targetSim - simTime) / dt);
+      this.alpha = clampAlpha((due.targetSim - simTime) / dt);
     }
   }
 

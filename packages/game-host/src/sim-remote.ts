@@ -29,7 +29,7 @@
  * tests) `tick(now)` resolves once the frame is applied and `onFrame` ran.
  */
 import { debugCallRefusal, ENGINE_DEBUG_COMMANDS, FramePacer, frameRateCapOf, projectFrameRateCap, validateAssetAnswers, validateDebugCommandCall, validateSaveEvents, type AssetHandleAnswer, type SaveEvent } from '@thirdlight/runtime';
-import { engineStatsOf, interpolateCameraPose, uiViewOf, validateDialogueInput, validateUiEvent, type DialogueInputRecord } from '@thirdlight/runtime';
+import { cameraBlendOf, engineStatsOf, fixedStepHzOf, interpolateCameraPose, uiViewOf, validateDialogueInput, validateUiEvent, type DialogueInputRecord } from '@thirdlight/runtime';
 import type {
   UiEventRecord,
   UiOutput,
@@ -151,6 +151,13 @@ export function startRemoteSimulation(opts: RemoteSimulationOptions): Promise<Re
   let manualChain: Promise<unknown> = Promise.resolve();
   let rafId: number | null = null;
   let running = false;
+  /** Stopped (or disposed): a frame that lands now is applied at once, there is no next animation frame. */
+  let stopped = false;
+  /** Waiting for the frame of the last tick sent (`settled`). */
+  const settleWaiters: (() => void)[] = [];
+  const settleNow = (): void => {
+    for (const w of settleWaiters.splice(0)) w();
+  };
   let queryId = 0;
   const queries = new Map<number, (v: unknown) => void>();
   const digests: string[] = [];
@@ -159,13 +166,17 @@ export function startRemoteSimulation(opts: RemoteSimulationOptions): Promise<Re
   let relayActive = false;
   /**
    * A finished input exercise waits for the worker's frame that followed it
-   * (`seq`, null until it arrived) to be drawn, so its answer comes after the
-   * frame that contains its last step (a screenshot asked next shows it).
+   * (`seq`, null until it arrived) to be drawn, and for a draw that shows its
+   * last step whole: after step `to` the step count is `to + 1`, drawn exactly
+   * at alpha 0 (a held game) and blended towards it before, so a running game
+   * answers once a later step is drawn. A screenshot asked next shows the
+   * last step, not a blend of it with the one before.
    */
   let relayFinished: { from: number; to: number; seq: number | null } | null = null;
   const answerRelayWhenDrawn = (): void => {
     const f = relayFinished;
     if (f === null || f.seq === null || mirror.seq < f.seq) return;
+    if (!(mirror.stepIndex >= f.to + 2 || (mirror.stepIndex >= f.to + 1 && mirror.alpha === 0))) return;
     relayFinished = null;
     relayActive = false;
     const cb = relayDone;
@@ -287,6 +298,12 @@ export function startRemoteSimulation(opts: RemoteSimulationOptions): Promise<Re
           stats.tripMax = Math.max(stats.tripMax, trip);
         }
         if (opts.driver === 'raf') {
+          if (stopped) {
+            // No animation frame comes after a stop: the last steps' saves, problems, digests and errors land now.
+            applyFrame(m.state, performance.now() / 1000);
+            if (m.state.seq >= seq) settleNow();
+            return;
+          }
           // Drawn from the next animation frame on (the frame driver applies it there).
           arrived.push({ state: m.state, sentAt: answers ? f.sentAt : null });
           return;
@@ -355,11 +372,20 @@ export function startRemoteSimulation(opts: RemoteSimulationOptions): Promise<Re
   };
 
   let disposing: Promise<void> | null = null;
-  const dispose = (): Promise<void> => {
-    if (disposing !== null) return disposing;
+  /** Stop the frame driver; frames that arrived and were not drawn yet are applied (nothing they carry is lost). */
+  const halt = (): void => {
     running = false;
+    stopped = true;
     if (rafId !== null && typeof cancelAnimationFrame === 'function') cancelAnimationFrame(rafId);
     rafId = null;
+    const now = performance.now() / 1000;
+    for (const a of arrived.splice(0)) applyFrame(a.state, now);
+    if (inFlight === null || mirror.seq >= seq) settleNow();
+  };
+
+  const dispose = (): Promise<void> => {
+    if (disposing !== null) return disposing;
+    halt();
     const done = new Promise<void>((resolve) => {
       const timer = setTimeout(resolve, 2000);
       disposedAck = () => {
@@ -367,6 +393,8 @@ export function startRemoteSimulation(opts: RemoteSimulationOptions): Promise<Re
         resolve();
       };
     });
+    // The worker answers `disposed` after the frame of its last tick: whatever happens, waiting ends here.
+    void done.then(settleNow);
     post({ t: 'dispose' });
     disposed = true;
     for (const r of queries.values()) r(null);
@@ -403,7 +431,7 @@ export function startRemoteSimulation(opts: RemoteSimulationOptions): Promise<Re
     const base = mirror.diag;
     const fields = { state: disposed ? ('disposed' as const) : mirror.state, stepIndex: mirror.stepIndex, simTime: mirror.simTime, frameCount: mirror.frameCount };
     if (base !== null) return { ...base, ...fields, errors: [...base.errors, ...(failure !== null && !base.errors.some((e) => e.code === failure!.code) ? [{ code: failure.code as never, message: failure.message }] : [])] };
-    return { ...fields, snapshotId: '', revision: 0, fixedStepHz: opts.init.settings.fixed_step_hz ?? 120, droppedSteps: 0, entityCount: mirror.ids.length, modules: [], clock: 'injected', clockWarningCount: 0, errors: [], errorCount: 0 };
+    return { ...fields, snapshotId: '', revision: 0, fixedStepHz: fixedStepHzOf(opts.init.settings), droppedSteps: 0, entityCount: mirror.ids.length, modules: [], clock: 'injected', clockWarningCount: 0, errors: [], errorCount: 0 };
   };
 
   const mirrorRuntime: Runtime & { behaviorProperties?: (id: string) => unknown[]; animatorPoses(): ReadonlyMap<string, AnimatorPose> } = {
@@ -414,14 +442,17 @@ export function startRemoteSimulation(opts: RemoteSimulationOptions): Promise<Re
     },
     stop: () => {
       if (gone()) return { ok: false, error: rtError('runtime_disposed', 'runtime is disposed') };
-      running = false;
-      if (rafId !== null && typeof cancelAnimationFrame === 'function') cancelAnimationFrame(rafId);
-      rafId = null;
+      halt();
       command({ op: 'stop' });
       return { ok: true };
     },
+    // The frame of the last tick sent before the stop (a worker's steps the page has not seen yet).
+    settled: (): Promise<void> => {
+      if (!stopped || inFlight === null || mirror.seq >= seq) return Promise.resolve();
+      return new Promise<void>((resolve) => settleWaiters.push(resolve));
+    },
     setPaused: (paused: boolean) => {
-      mirror.paused = paused === true;
+      mirror.setPaused(paused === true, seq);
       command({ op: 'setPaused', paused: paused === true });
     },
     get isPaused() {
@@ -431,7 +462,7 @@ export function startRemoteSimulation(opts: RemoteSimulationOptions): Promise<Re
       return mirror.alpha;
     },
     setDebugHold: (hold: boolean) => {
-      mirror.debugHeld = hold === true;
+      mirror.setDebugHeld(hold === true, seq);
       void ask({ op: 'debug.control', command: hold ? 'debugPause' : 'debugResume' });
     },
     get debugHeld() {
@@ -521,7 +552,7 @@ export function startRemoteSimulation(opts: RemoteSimulationOptions): Promise<Re
       // Between the two steps by the page's clock, as the transforms.
       camPose(camA, c.pose, 0);
       camPose(camB, c.pose, CAMERA_POSE_FLOATS);
-      return interpolateCameraPose(camA, camB, mirror.alpha, p, r, camLens);
+      return interpolateCameraPose(camA, camB, cameraBlendOf(mirror.alpha), p, r, camLens);
     },
     cameraView: () => (gone() ? null : (mirror.cam?.view ?? null)),
     // The objects riding on sockets (the worker's list).
@@ -773,7 +804,7 @@ export function startRemoteSimulation(opts: RemoteSimulationOptions): Promise<Re
           clearTimeout(timer);
           camera = m.camera;
           hasScenes = m.hasScenes;
-          mirror.stepSeconds = 1 / (opts.init.settings.fixed_step_hz ?? 120);
+          mirror.stepSeconds = 1 / fixedStepHzOf(opts.init.settings);
           applyFrame(m.state, performance.now() / 1000);
           if (m.state.xfShared === undefined && opts.init.shared === true) transport = 'message';
           resolve({

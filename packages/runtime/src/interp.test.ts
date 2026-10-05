@@ -8,7 +8,9 @@
  */
 import { describe, expect, it } from 'vitest';
 import { BUILTIN_MODULES, createSimulationRegistry, instantiateRuntime, registerSimulationModule } from './index';
-import { lerpVec3, quatEqual, slerpQuat, vec3Equal } from './interp';
+import { interpolateTransformInto, lerpVec3, quatEqual, slerpQuat, vec3Equal } from './interp';
+import { cameraBlendOf, interpolateCameraPose } from './camera-brain';
+import { clampAlpha } from './frame-clock';
 import type { Quat } from '@thirdlight/project-model';
 import { baseScene, BOX_ID, BOX_X0, cloneJson, snapshotOf } from './test-helpers';
 
@@ -154,3 +156,43 @@ function makeDemo() {
   const rt = makeRuntime();
   return rt;
 }
+describe('the camera and the objects read the same step at the same alpha', () => {
+  const a = { position: [0, 0, 0] as [number, number, number], rotation: [0, 0, 0, 1] as [number, number, number, number], scale: [1, 1, 1] as [number, number, number], fovY: 50, near: 0.1, far: 100, letterbox: 0 };
+  const b = { position: [1, 2, 3] as [number, number, number], rotation: [0, 0.7071067811865476, 0, 0.7071067811865476] as [number, number, number, number], scale: [1, 1, 1] as [number, number, number], fovY: 60, near: 0.1, far: 100, letterbox: 0.1 };
+  const camAt = (alpha: number) => {
+    const p = [0, 0, 0];
+    const r = [0, 0, 0, 1];
+    const lens = interpolateCameraPose(a, b, cameraBlendOf(alpha), p, r, { fovY: 0, near: 0, far: 0, letterbox: 0 });
+    return { p, r, fovY: lens.fovY };
+  };
+  const objectAt = (alpha: number) => {
+    const p = [0, 0, 0];
+    const r = [0, 0, 0, 1];
+    interpolateTransformInto(p, r, [1, 1, 1], a, b, alpha);
+    return { p, r };
+  };
+
+  it('alpha 0 (a paused or held frame) is the step itself for both', () => {
+    expect(camAt(0).p).toEqual(objectAt(0).p);
+    expect(camAt(0).p).toEqual([1, 2, 3]);
+    for (let k = 0; k < 4; k += 1) expect(camAt(0).r[k]).toBeCloseTo(objectAt(0).r[k]!, 12);
+    expect(camAt(0).fovY).toBe(60);
+  });
+
+  it('between the steps both blend alike', () => {
+    for (const alpha of [0.25, 0.5, 0.75]) {
+      const c = camAt(alpha);
+      const o = objectAt(alpha);
+      for (let k = 0; k < 3; k += 1) expect(c.p[k]).toBeCloseTo(o.p[k]!, 12);
+      for (let k = 0; k < 4; k += 1) expect(c.r[k]).toBeCloseTo(o.r[k]!, 9);
+    }
+  });
+
+  it('a presenter alpha never reaches 1 (0 ≤ alpha < 1)', () => {
+    expect(clampAlpha(1)).toBeLessThan(1);
+    expect(clampAlpha(7)).toBeLessThan(1);
+    expect(clampAlpha(-1)).toBe(0);
+    expect(clampAlpha(Number.NaN)).toBe(0);
+    expect(clampAlpha(0.5)).toBe(0.5);
+  });
+});

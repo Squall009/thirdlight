@@ -275,8 +275,19 @@ export interface CameraPoseLike {
 /**
  * A view between two steps' poses (`alpha` 0–1) into `position`/`rotation`
  * and `lens` (returned). The camera brain and the page's mirror of the
- * simulation worker both draw with it.
+ * simulation worker both draw with it; a drawn frame passes its alpha through
+ * `cameraBlendOf` first.
  */
+/**
+ * The camera's blend between its two step poses for a frame drawn at
+ * `drawnAlpha`. The objects' rule (`interpolateTransformInto`) reads the step
+ * itself at alpha 0 (a paused, held or re-anchored frame), so the camera does
+ * too: both show the same step.
+ */
+export function cameraBlendOf(drawnAlpha: number): number {
+  return drawnAlpha === 0 ? 1 : drawnAlpha;
+}
+
 export function interpolateCameraPose(
   a: CameraPoseLike,
   b: CameraPoseLike,

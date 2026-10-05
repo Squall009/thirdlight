@@ -15,10 +15,8 @@ export const RAPIER_PIN = '0.20.0' as const;
 /** The value of `PhysicsPort.implementation` for this adapter. */
 export const PHYSICS_IMPLEMENTATION = 'rapier2d-compat@0.20.0' as const;
 
-/** Fixed solver timestep (120 Hz): the default of the project's `fixed_step_hz`. */
-export const FIXED_HZ = 120 as const;
-/** The step rates a project may choose (`fixed_step_hz`). */
-export const FIXED_HZ_CHOICES: readonly number[] = [60, 120, 240];
+/** The solver's step rate when a project sets none, and the rates it may choose (`fixed_step_hz`; project-model's). */
+export { DEFAULT_FIXED_STEP_HZ as FIXED_HZ, FIXED_STEP_HZ_CHOICES as FIXED_HZ_CHOICES } from '@thirdlight/project-model/limits';
 
 /**
  * The character capsule is the player's data (`controller.capsule`,

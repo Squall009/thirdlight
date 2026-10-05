@@ -18,7 +18,7 @@
  * between frames, in order, and apply at the next step boundary — the same
  * boundary they reach in single-thread mode.
  */
-import { createRecordedActionSource, type ActionSource, type PhysicsPort, type PhysicsPort3D, type Runtime, type SimulationModuleSpec } from '@thirdlight/runtime';
+import { createRecordedActionSource, DEFAULT_FIXED_STEP_HZ, fixedStepHzOf, type ActionSource, type PhysicsPort, type PhysicsPort3D, type Runtime, type SimulationModuleSpec } from '@thirdlight/runtime';
 import { composeGameRuntime, linkBehaviorModules } from './host';
 import { PlayDebugger, type DebugRequest, type DebugRuntime } from './play-debug';
 import { RelayActionSource } from './relay-input';
@@ -90,7 +90,7 @@ export function runSimWorker(endpoint: SimEndpoint, deps: SimWorkerDeps): void {
   let uiTargets: readonly UiHitTarget[] = [];
   let encoder: FrameEncoder | null = null;
   let debug: PlayDebugger | null = null;
-  let stepHz = 120;
+  let stepHz = DEFAULT_FIXED_STEP_HZ;
   let memoryCap = PHYSICS_MEMORY_CAP_BYTES;
   /** The loaded 3D backend's memory probe (a 3D game), else the 2D one's. */
   let memoryProbe: (() => number | null) | undefined = deps.physicsMemoryBytes;
@@ -164,7 +164,7 @@ export function runSimWorker(endpoint: SimEndpoint, deps: SimWorkerDeps): void {
 
   const init = async (m: SimInitMessage): Promise<void> => {
     phase = 'starting';
-    stepHz = m.settings.fixed_step_hz ?? 120;
+    stepHz = fixedStepHzOf(m.settings);
     memoryCap = typeof m.memoryCapBytes === 'number' && m.memoryCapBytes > 0 ? m.memoryCapBytes : PHYSICS_MEMORY_CAP_BYTES;
     try {
       let port: PhysicsPort | PhysicsPort3D | undefined;

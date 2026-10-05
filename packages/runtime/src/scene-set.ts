@@ -3,7 +3,7 @@
  * scene contributes (its static colliders), the root offset of a load and the
  * live tag index that follows loads and unloads. No I/O, no three.js.
  */
-import { character3DSettingsOf, controllerCapsuleOf, controllerCapsuleOffsetZ, controllerTuningOf, resolveSceneHierarchy, sceneCamerasAsShots, validateSceneV4, type EntityV3, type TagDefinition } from '@thirdlight/project-model';
+import { character3DSettingsOf, controllerCapsuleOf, fixedStepHzOf, controllerCapsuleOffsetZ, controllerTuningOf, resolveSceneHierarchy, sceneCamerasAsShots, validateSceneV4, type EntityV3, type TagDefinition } from '@thirdlight/project-model';
 
 import type { ModelColliderTable } from '@thirdlight/project-model';
 
@@ -138,7 +138,7 @@ export function physics3DConfigOf(
     statics,
     ...(options.layers !== undefined && options.layers.length > 0 ? { layers: [...options.layers] } : {}),
     ...(noCharacter ? { noCharacter: true as const } : {}),
-    solver: { hz: settings.fixed_step_hz ?? 120, gravityY: settings.gravity_y },
+    solver: { hz: fixedStepHzOf(settings), gravityY: settings.gravity_y },
     controller: tuningOf(controller),
   };
 }

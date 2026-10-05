@@ -21,6 +21,22 @@ import { FRAME_RATE_CAPS } from './frame-rate-cap';
 
 // ---- settings registry ------------------------------------------
 
+
+/**
+ * The simulation's step rate when a project sets none (`fixed_step_hz`), and
+ * the rates it may choose. 120 Hz: two steps per 60 Hz display frame (smooth
+ * on common displays, cheap for any 2D scene); 60 halves the cost, 240 halves
+ * the step for fast motion. The runtime, the physics ports, the game page,
+ * the worker and the exporter all read these.
+ */
+export const DEFAULT_FIXED_STEP_HZ = 120;
+export const FIXED_STEP_HZ_CHOICES: readonly number[] = Object.freeze([60, 120, 240]);
+
+/** A project's step rate: its `fixed_step_hz`, else the default. */
+export function fixedStepHzOf(settings: { readonly fixed_step_hz?: number } | undefined): number {
+  return settings?.fixed_step_hz ?? DEFAULT_FIXED_STEP_HZ;
+}
+
 export interface SettingsKeySpec {
   key: string;
   type: 'number';
@@ -75,10 +91,7 @@ export const M2_SETTINGS_KEYS: readonly SettingsKeySpec[] = [
   { key: 'min_slope_slide_deg', type: 'number', default: 30, min: 0, max: 89.9, unit: 'degrees' },
   // Engine settings (optional: resolved only when set). Defaults
   // are the values every project ran with before they became data.
-  // 120 Hz: two simulation steps per 60 Hz display frame (smooth on common
-  // displays, cheap for any 2D scene); 60 halves the cost, 240 halves the
-  // step for fast motion.
-  { key: 'fixed_step_hz', type: 'number', default: 120, values: [60, 120, 240], integer: true, unit: 'Hz', optional: true, group: 'Engine', label: 'Fixed step', tooltip: 'Simulation steps per second (60, 120 or 240). Timings in seconds keep their length; replays are recorded at one rate.' },
+  { key: 'fixed_step_hz', type: 'number', default: DEFAULT_FIXED_STEP_HZ, values: FIXED_STEP_HZ_CHOICES, integer: true, unit: 'Hz', optional: true, group: 'Engine', label: 'Fixed step', tooltip: 'Simulation steps per second (60, 120 or 240). Timings in seconds keep their length; replays are recorded at one rate.' },
   { key: 'audio_voices', type: 'number', default: AUDIO_VOICES_DEFAULT, min: 1, max: AUDIO_VOICE_CAP, integer: true, unit: 'voices', optional: true, group: 'Audio', label: 'Sound voices', tooltip: `How many sound effects play at once (a new one is dropped while all are busy; at most ${AUDIO_VOICE_CAP}).` },
   // 1 s: a gentle crossfade between two music tracks.
   { key: 'music_fade_s', type: 'number', default: 1, min: 0, max: 10, unit: 's', optional: true, group: 'Audio', label: 'Music fade', tooltip: 'Seconds a music change crossfades (0: cut).' },

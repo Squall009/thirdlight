@@ -11,6 +11,8 @@
 
 export { ID_RE, MAX_ENTITY_DEPTH, MAX_LEN, MAX_REVISION, NAME_MAX, NAME_MIN } from './validate';
 export * from './content-limits';
+// The simulation's step rate (default and choices).
+export { DEFAULT_FIXED_STEP_HZ, FIXED_STEP_HZ_CHOICES } from './content-settings';
 // The asset kinds (the editor's asset lists and pickers name them).
 export { ASSET_KINDS } from './descriptor-types';
 // The resource kinds (the project window's search and kind menu name them).

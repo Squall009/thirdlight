@@ -1726,9 +1726,20 @@ export function createGameHost(config: GameHostConfig): GameHost {
     // Both are no-ops/errors (never throws) when the driver is already
     // cancelled or the runtime failed.
     if (runtime !== null) {
+      const rt = runtime;
+      // The last steps' save requests and problems are carried out, not dropped: those the host has not
+      // taken yet now, and a simulation worker's last frame (it can land after the stop) when it lands
+      // (its saves then go without a picture: the view is gone).
+      const saves = projectSaves;
+      const finish = (): void => {
+        saves?.handle(rt.takeSaveRequests?.() ?? []);
+        for (const p of rt.takeProblems?.() ?? []) config.onProblem?.(p.code, p.message);
+      };
       try {
-        runtime.stop();
-        runtime.dispose();
+        rt.stop();
+        finish();
+        void rt.settled?.().then(finish, () => undefined);
+        rt.dispose();
       } catch {
         // The runtime is fail-stopped either way; the host drops its seam.
       }

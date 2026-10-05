@@ -31,7 +31,7 @@
  * Browser-only (DOM, WebGL/WebGPU, Web Audio, Web Crypto).
  */
 import { audioSpatialOf, dependencyTables, depthBufferOf, instanceChunkSizeOf, materialTextureRefs, physicsDimensionOf, scanDependencies, sha256HexAsync, textureBudgetBytesOf, type MaterialDef, type ModelColliderTable, type SaveSchema } from '@thirdlight/project-model';
-import { assetVersionKey, createResourceManager, EMBEDDED_TEXTURES_LISTED, embeddedTextureBytes, type ResourceManager, type ResourceObservation } from '@thirdlight/runtime';
+import { assetVersionKey, createResourceManager, fixedStepHzOf, EMBEDDED_TEXTURES_LISTED, embeddedTextureBytes, type ResourceManager, type ResourceObservation } from '@thirdlight/runtime';
 import { attachBrowserInput, DEFAULT_INPUT_CONFIG, DEFAULT_INPUT_CONFIG_3D, focusGameSurface, type InputConfigLike } from '@thirdlight/input';
 import type { RapierPhysicsInitConfig, RapierPhysicsPort, RapierStaticColliderSpec } from '@thirdlight/physics-rapier';
 import { batchingFromUrl, createSceneAdapter, createTextureStreamer, decodeTexture, effectsOptionFrom, environmentHasLook, mergingFromUrl, pageSearch, resolveRendererPreference, setKtx2DecoderBase, shadowCacheFromUrl } from '@thirdlight/three-adapter';
@@ -486,7 +486,7 @@ function physicsConfigFromSnapshot(snapshot: RuntimeSnapshot, settings: Gameplay
     character: first.character,
     ...(players.length > 1 ? { characters: players.slice(1).map((p) => ({ ...p.character, id: p.id, controller: p.controller })) } : {}),
     statics,
-    solver: { hz: settings.fixed_step_hz ?? 120, gravityY: settings.gravity_y },
+    solver: { hz: fixedStepHzOf(settings), gravityY: settings.gravity_y },
     controller: first.controller,
   };
 }
@@ -1016,7 +1016,7 @@ export async function startGamePage(o: GamePageOptions): Promise<GamePageHandle>
       contentDigest: manifest.contentDigest,
       stepIndex: obs.ok ? obs.observation.stepIndex : 0,
     };
-    const stepHz = settings.fixed_step_hz ?? 120;
+    const stepHz = fixedStepHzOf(settings);
     let access: SimAccess | null = null;
     if (relay !== null) {
       access = remote !== null ? remote.access : createLocalSimAccess({ runtime: host.runtime, relay, ...(physics !== undefined ? { physics: physics as never } : {}), stepHz });

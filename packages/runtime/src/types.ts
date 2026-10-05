@@ -30,6 +30,12 @@ export type RuntimeStateName = 'instantiated' | 'running' | 'stopped' | 'failed'
 export interface Runtime {
   start(): { ok: true } | { ok: false; error: RuntimeError };
   stop(): { ok: true } | { ok: false; error: RuntimeError };
+  /**
+   * Resolves once every step run before `stop` is readable here (its save
+   * requests, problems and digests): at once for a runtime in the page; a
+   * simulation worker's last frame can still be on its way when it stops.
+   */
+  settled?(): Promise<void>;
   /** Pause or resume the simulation (frames still render). */
   setPaused?(paused: boolean): void;
   readonly isPaused?: boolean;

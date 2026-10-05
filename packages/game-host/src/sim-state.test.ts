@@ -139,10 +139,11 @@ describe('FrameMirror draws between the last two steps by the page clock', () =>
     m.present(10 + DT / 2);
     expect(m.alpha).toBeCloseTo(0.75, 12);
     expect(xAt(m, 1)).toBeCloseTo(3.75, 12);
-    // Past the last finished step it waits there (never ahead of the simulation).
+    // Past the last finished step it waits there (never ahead of the simulation), the alpha just below 1.
     m.present(10 + DT * 3);
-    expect(m.alpha).toBe(1);
-    expect(xAt(m, 1)).toBe(4);
+    expect(m.alpha).toBeLessThan(1);
+    expect(m.alpha).toBeGreaterThan(0.999999);
+    expect(xAt(m, 1)).toBeCloseTo(4, 6);
     expect(xAt(m, 0)).toBe(5);
   });
 
