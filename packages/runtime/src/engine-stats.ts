@@ -5,6 +5,8 @@
  * window, outside the input frame, so they are never in the digest or a
  * save.
  */
+import { frameRateCapOf } from '@thirdlight/project-model';
+
 import type { BehaviorStats, BehaviorStatsTime } from './types-behavior-world';
 
 /**
@@ -28,6 +30,7 @@ export const ENGINE_STATS_NONE: BehaviorStats = Object.freeze({
   geometryBytes: 0,
   entities: 0,
   quality: 'high',
+  frameRateCap: null,
   windowMs: 0,
 });
 
@@ -50,6 +53,10 @@ export function engineStatsOf(v: unknown): BehaviorStats | null {
   const n = ['fps', 'drawCalls', 'triangles', 'textureBytes', 'textureBudgetBytes', 'geometryBytes', 'entities', 'windowMs'] as const;
   for (const k of n) if (!count(s[k])) return null;
   if (typeof s['quality'] !== 'string' || !QUALITY.has(s['quality'])) return null;
+  // The cap: 30, 60 or 120, or null or absent (none).
+  const cap = s['frameRateCap'];
+  const frameRateCap = cap === null || cap === undefined ? null : typeof cap === 'number' && cap > 0 ? frameRateCapOf(cap) : undefined;
+  if (frameRateCap === undefined) return null;
   return Object.freeze({
     fps: s['fps'] as number,
     frameMs,
@@ -62,6 +69,7 @@ export function engineStatsOf(v: unknown): BehaviorStats | null {
     geometryBytes: s['geometryBytes'] as number,
     entities: s['entities'] as number,
     quality: s['quality'],
+    frameRateCap,
     windowMs: s['windowMs'] as number,
   });
 }

@@ -43,6 +43,10 @@ describe('the project save schema', () => {
     expect(problems({ version: 1, slots: 1, settings: [{ key: 'v', type: 'bool', default: true, engine: 'sfx' }] })).toEqual(['/saveSchema/settings/0/engine']);
     expect(problems({ version: 1, slots: 1, settings: [{ key: 'v', type: 'number', default: 2, engine: 'sfx' }] })).toEqual(['/saveSchema/settings/0/default']);
     expect(problems({ version: 1, slots: 1, settings: [{ key: 'a', type: 'bool', default: true }, { key: 'a', type: 'bool', default: false }] })).toEqual(['/saveSchema/settings/1/key']);
+    // The frame-rate cap is an enum of 30, 60, 120 and none (any of them), never a number field.
+    expect(problems({ version: 1, slots: 1, settings: [{ key: 'fps', type: 'enum', values: ['30', '60', 'none'], default: 'none', engine: 'frameRateCap' }] })).toEqual([]);
+    expect(problems({ version: 1, slots: 1, settings: [{ key: 'fps', type: 'enum', values: ['30', '45'], default: '30', engine: 'frameRateCap' }] })).toEqual(['/saveSchema/settings/0/engine']);
+    expect(problems({ version: 1, slots: 1, settings: [{ key: 'fps', type: 'number', default: 60, engine: 'frameRateCap' }] })).toEqual(['/saveSchema/settings/0/engine']);
   });
 
   it('a settings document keeps stored values that still fit, defaults for the rest', () => {

@@ -166,4 +166,27 @@ describe('the game shell controller', () => {
     off.ctl.engine({ do: 'engine', action: 'pause' });
     expect(off.ctl.screen).toBe('playing');
   });
+
+  it('sets the frame-rate cap a player picks (a value or a step from the game\'s), keeps it, and applies it again next time', () => {
+    let cap: number | null = 60;
+    const applied: (number | null)[] = [];
+    const deps = { frameRateCap: () => cap, setFrameRateCap: (fps: number | null) => void applied.push((cap = fps)) };
+    const first = harness({}, deps);
+    // A player who never chose leaves the game's cap alone.
+    expect(applied).toEqual([]);
+    expect(first.ctl.values()['frameRateCap']).toBe(60);
+    // A step moves from the cap in effect along 30 → 60 → 120 → none.
+    first.ctl.engine({ do: 'engine', action: 'setSetting', setting: 'frameRateCap' });
+    first.ctl.engine({ do: 'engine', action: 'setSetting', setting: 'frameRateCap', step: 1 });
+    first.ctl.engine({ do: 'engine', action: 'setSetting', setting: 'frameRateCap', step: 1 });
+    first.ctl.engine({ do: 'engine', action: 'setSetting', setting: 'frameRateCap', value: 'none' });
+    first.ctl.engine({ do: 'engine', action: 'setSetting', setting: 'frameRateCap', value: 30 });
+    first.ctl.engine({ do: 'engine', action: 'setSetting', setting: 'frameRateCap', value: 45 });
+    expect(applied).toEqual([120, null, 30, null, 30]);
+    expect(first.ctl.values()['frameRateCap']).toBe(30);
+    cap = null;
+    const again = harness({}, { ...deps, storage: { get: (k) => first.kv.get(k) ?? null, set: () => undefined, remove: () => undefined } });
+    expect(applied.at(-1)).toBe(30);
+    expect(again.ctl.values()['frameRateCap']).toBe(30);
+  });
 });

@@ -10,6 +10,7 @@
 import { useEffect, useState, type JSX } from 'react';
 
 import type { SaveSchema, SaveSection, SettingsField } from '@thirdlight/project-model';
+import { FRAME_RATE_CAP_CHOICES, SETTINGS_ENGINE_BINDINGS } from '@thirdlight/project-model/limits';
 
 interface Props {
   schema: SaveSchema | null;
@@ -43,7 +44,7 @@ const SECTIONS: readonly { id: SaveSection; label: string; hint: string }[] = [
   // Where the play stands: a load moves the game to the saved scenes and the player's place.
   { id: 'world', label: 'Where the play stands', hint: 'the loaded scenes, the active spawn and the player\'s place; a load moves the game there' },
 ];
-const ENGINE = ['', 'music', 'sfx', 'ui', 'quality'] as const;
+const ENGINE = ['', ...SETTINGS_ENGINE_BINDINGS] as const;
 // A new schema keeps no world unless the game lists it (the always-on world is only kept for older projects).
 const DEFAULT_SCHEMA: SaveSchema = { version: 1, slots: 3, legacyWorld: false };
 
@@ -198,7 +199,9 @@ export function SavesPanel({ schema, error, onSave, onClearPlaySave, note }: Pro
               onChange={(e) => {
                 const { engine: _e, ...rest } = f;
                 const v = e.target.value;
-                set({ settings: fields.map((x, k) => (k === i ? (v === '' ? rest : { ...rest, engine: v as NonNullable<SettingsField['engine']> }) : x)) });
+                // A field driving the frame-rate cap is an enum of its choices (none: the display's rate).
+                const capField = v === 'frameRateCap' ? { type: 'enum' as const, values: [...FRAME_RATE_CAP_CHOICES], default: 'none' } : {};
+                set({ settings: fields.map((x, k) => (k === i ? (v === '' ? rest : { ...rest, ...capField, engine: v as NonNullable<SettingsField['engine']> }) : x)) });
               }}
             >
               {ENGINE.map((e) => (

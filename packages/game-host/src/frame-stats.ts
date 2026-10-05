@@ -4,8 +4,8 @@
  * timestamp queries exist (null otherwise: "not measured", never estimated),
  * each as the average and the worst frame over a window (`STATS_WINDOW_MS`),
  * with the last frame's draw calls and triangles, the resident texture and
- * geometry bytes against the texture budget, the objects and the quality
- * level. One snapshot per window feeds `ctx.stats`, `$flow.stats`, the stats
+ * geometry bytes against the texture budget, the objects, the quality
+ * level and the frame-rate cap. One snapshot per window feeds `ctx.stats`, `$flow.stats`, the stats
  * overlay and Play diagnostics, so they all read the same numbers.
  */
 import { STATS_WINDOW_MS, type BehaviorStats, type BehaviorStatsTime } from '@thirdlight/runtime';
@@ -22,6 +22,8 @@ export interface FrameStatsSources {
   readonly geometryBytes: () => number;
   readonly entities: () => number;
   readonly quality: () => string;
+  /** The frame-rate cap the page draws under (null: none). */
+  readonly frameRateCap: () => number | null;
 }
 
 export interface FrameStats {
@@ -77,6 +79,7 @@ export function createFrameStats(sources: FrameStatsSources, windowMs: number = 
         geometryBytes: Math.max(0, sources.geometryBytes()),
         entities: sources.entities(),
         quality: sources.quality(),
+        frameRateCap: sources.frameRateCap(),
         windowMs: round(elapsed),
       };
       windowStart = now;
@@ -102,6 +105,8 @@ export interface HostStatsDeps {
   readonly resources?: { observe(): { resident: Readonly<Record<string, { bytes: number; textures?: { bytes: number } } | undefined>> } };
   /** The simulation is in a worker: the page's work for a frame starts when its frame arrives. */
   readonly worker: boolean;
+  /** The frame-rate cap the page draws under (null: none). */
+  readonly frameRateCap: () => number | null;
   /** A new window's stats (to the simulation, the overlay). */
   readonly published: (stats: BehaviorStats) => void;
 }
@@ -138,6 +143,7 @@ export function createHostStats(deps: HostStatsDeps): HostStats {
     geometryBytes: () => (deps.resources !== undefined ? geometryBytesOf(deps.resources.observe().resident) : 0),
     entities: deps.entities,
     quality: () => deps.adapter()?.qualityLevel?.() ?? 'high',
+    frameRateCap: deps.frameRateCap,
   });
   let start = 0;
   return {

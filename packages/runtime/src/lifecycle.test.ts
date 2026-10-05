@@ -15,8 +15,8 @@ import { baseScene, cloneJson, snapshotOf } from './test-helpers';
 interface RafFake {
   /** Live (scheduled, not cancelled) rAF callback IDs. */
   live: Set<number>;
-  /** Invoke the oldest live callback once (one frame). */
-  pump: () => void;
+  /** Invoke the oldest live callback once (one frame; `time`: its timestamp, ms). */
+  pump: (time?: number) => void;
 }
 
 const restorers: Array<() => void> = [];
@@ -48,7 +48,7 @@ function installRafFake(): RafFake {
   });
   return {
     live,
-    pump: () => {
+    pump: (time = 0) => {
       const ids = [...live];
       const first = ids[0];
       const cb = first !== undefined ? cbs.get(first) : undefined;
@@ -58,7 +58,7 @@ function installRafFake(): RafFake {
       // runtime reschedules a FRESH handle inside the callback).
       cbs.delete(first);
       live.delete(first);
-      cb(0); // the runtime ignores the rAF timestamp (it uses clock())
+      cb(time); // steps follow clock(); the timestamp only paces frames under a frame-rate cap
     },
   };
 }
@@ -67,7 +67,7 @@ afterEach(() => {
   while (restorers.length > 0) restorers.pop()!();
 });
 
-function makeRuntime(driver?: { kind: 'raf' } | { kind: 'manual' }, clock?: () => number) {
+function makeRuntime(driver?: { kind: 'raf' } | { kind: 'manual' }, clock?: () => number, settings?: Record<string, number>) {
   const r = createSimulationRegistry();
   for (const spec of BUILTIN_MODULES) registerSimulationModule(r, spec.id, spec);
   const res = instantiateRuntime({
@@ -75,6 +75,7 @@ function makeRuntime(driver?: { kind: 'raf' } | { kind: 'manual' }, clock?: () =
     registry: r,
     driver,
     ...(clock ? { clock } : {}),
+    ...(settings ? { settings } : {}),
   });
   if (!res.ok) throw new Error(`instantiate failed: ${JSON.stringify(res.error)}`);
   return res.runtime;
@@ -396,5 +397,87 @@ describe('ctx.lifecycle.respawn on the 2D plane', () => {
     h.tick(2);
     expect(h.placed.length).toBe(before);
     expect(h.rt.getDiagnostics().ok && (h.rt.getDiagnostics() as { diagnostics: { state: string } }).diagnostics.state).toBe('running');
+  });
+});
+
+describe('the raf driver under a frame-rate cap', () => {
+  it('a 240 Hz display at the project cap 60 runs 60 frames a second and every step; the cap changes live', () => {
+    const fake = installRafFake();
+    let now = 0;
+    const rt = makeRuntime(undefined, () => now, { frame_rate_cap: 60 });
+    expect(rt.frameRateCap?.()).toBe(60);
+    expect(rt.start().ok).toBe(true);
+    const second = (): { frames: number; steps: number } => {
+      const d0 = rt.getDiagnostics();
+      for (let i = 0; i < 240; i += 1) {
+        now += 1 / 240;
+        fake.pump(now * 1000);
+      }
+      const d1 = rt.getDiagnostics();
+      if (!d0.ok || !d1.ok) throw new Error('diagnostics');
+      return { frames: d1.diagnostics.frameCount - d0.diagnostics.frameCount, steps: d1.diagnostics.stepIndex - d0.diagnostics.stepIndex };
+    };
+    second(); // the display's rate is learnt
+    const capped = second();
+    expect(capped.frames).toBe(60);
+    // Game time is the clock's: 120 steps a second at 60 frames as at 240.
+    expect(capped.steps).toBeGreaterThanOrEqual(119);
+    expect(capped.steps).toBeLessThanOrEqual(121);
+    expect(rt.framePacing?.()).toMatchObject({ frameRateCap: 60 });
+    expect(rt.setFrameRateCap?.(null)).toBe(true);
+    const free = second();
+    expect(free.frames).toBe(240);
+    expect(free.steps).toBeGreaterThanOrEqual(119);
+    expect(free.steps).toBeLessThanOrEqual(121);
+    // A pinned cap (the page's measurement flag) wins over the game's.
+    expect(rt.setFrameRateCap?.(30)).toBe(true);
+    expect(rt.pinFrameRateCap?.(null)).toBe(true);
+    expect(second().frames).toBe(240);
+    expect(rt.pinFrameRateCap?.(undefined)).toBe(true);
+    second();
+    expect(second().frames).toBe(30);
+    expect(rt.setFrameRateCap?.(90)).toBe(false);
+    rt.dispose();
+  });
+
+  it('scripts read and set the cap through ctx.display', () => {
+    const seen: (number | null)[] = [];
+    const artifact = {
+      behaviorId: 'capper',
+      sourceDigest: 'a'.repeat(64),
+      manifestDigest: 'b'.repeat(64),
+      outputDigest: 'c'.repeat(64),
+      ownedTransforms: [],
+      requiredModules: [],
+      enginePins: [],
+      namespace: {
+        default: {
+          step: (_s: unknown, ctx: { phase: string; stepIndex: number; display: { frameRateCap: number | null; setFrameRateCap(fps: number | null): boolean } }) => {
+            if (ctx.phase !== 'intent') return;
+            seen.push(ctx.display.frameRateCap);
+            if (ctx.stepIndex === 2) expect(ctx.display.setFrameRateCap(30)).toBe(true);
+            if (ctx.stepIndex === 3) expect(ctx.display.setFrameRateCap(25)).toBe(false);
+          },
+        },
+      },
+    } as never;
+    const spec = createBehaviorModuleSpec({ declaration: { properties: [] } as never, artifact });
+    const registry = createSimulationRegistry();
+    registerSimulationModule(registry, spec.id, spec);
+    const scene = cloneJson(baseScene()) as { entities: unknown[] };
+    scene.entities.push({ id: 'capper-0001', components: { transform: { position: [0, 0, 0], rotation: [0, 0, 0, 1], scale: [1, 1, 1] }, behavior: { behaviorId: 'capper', values: {} } } });
+    let now = 0;
+    const res = instantiateRuntime({ snapshot: snapshotOf(scene as never), registry, modules: [spec.id], settings: { frame_rate_cap: 120 }, driver: { kind: 'manual' }, clock: () => now } as never);
+    if (!res.ok) throw new Error(`instantiate failed: ${JSON.stringify(res.error)}`);
+    const rt = res.runtime;
+    expect(rt.start().ok).toBe(true);
+    for (let i = 0; i < 6; i += 1) {
+      expect(rt.tick(now).ok).toBe(true);
+      now += 1 / 120;
+    }
+    expect(seen.slice(0, 2)).toEqual([120, 120]);
+    expect(seen.at(-1)).toBe(30);
+    expect(rt.frameRateCap?.()).toBe(30);
+    rt.dispose();
   });
 });

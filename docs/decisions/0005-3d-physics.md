@@ -82,9 +82,11 @@ and 3D is not bent around a plane.
 The play and export bundles are IIFE scripts (the pinned esbuild option set
 of export.md §5.3: no code splitting), so the 3D backend is **its own
 script**, `physics-3d.js` (`dist/preview/physics-3d.js` on the preview
-origin; `js/physics-3d.js` in a 3D project's export only). It registers
+origin; `js/physics-3d.js` in a 3D project's export only, with rapier's
+WebAssembly beside it as `js/physics-3d.wasm` since 28c.11; a 2D export ships
+`js/physics-2d.js` and `js/physics-2d.wasm` the same way). It registers
 itself on the global object through game-host's dependency-free
-`physics-3d-global` module and the host picks it up with `loadPhysics3D`: a
+`physics-global` module and the host picks it up with `loadPhysics3D`: a
 script element in the page (single thread), `importScripts` in the
 simulation worker (the file next to the worker's script). A 2D project never
 fetches it; `preview-m3.js`, `sim-worker.js` and the export's `js/main.js` /
@@ -105,7 +107,8 @@ Bundle sizes (`npm run build`, pinned options, unminified):
 The 2D bundles grew ~20 KB (the runtime's 3D phase, the scene-mode
 observation, the loader); a 3D project downloads the extra ~2.9 MB
 (~1.1 MB gzip) once. For comparison the inlined WASM is 2,021,200 bytes in
-3D and 1,486,188 in 2D.
+3D and 1,486,188 in 2D. (Since 28c.11 an export ships minified scripts and
+the WASM as its own file, 1,440,651 bytes for 3D; Play's own build keeps it inline.)
 
 Step cost, phase 21 harness (`tools/perf/sim.ts`, the production host
 headless, 2,400 timed steps after 240 warm-up steps, `--expose-gc`):

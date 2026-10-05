@@ -56,6 +56,8 @@ export class FrameEncoder {
   /** The objects' health and the listed scene last sent. */
   private healthsKey = '';
   private listedSent = -2;
+  /** The frame-rate cap last sent (undefined: none yet, so the first frame carries it). */
+  private capSent: number | null | undefined = undefined;
   /** The camera pose scratch and whether a camera went out last frame. */
   private readonly camPos: number[] = [0, 0, 0];
   private readonly camRot: number[] = [0, 0, 0, 1];
@@ -297,6 +299,11 @@ export class FrameEncoder {
     if (listed !== undefined && listed !== this.listedSent) {
       this.listedSent = listed;
       out.listed = listed;
+    }
+    const cap = rt.frameRateCap?.();
+    if (cap !== undefined && cap !== this.capSent) {
+      this.capSent = cap;
+      out.frameRateCap = cap;
     }
     // The scene set (loaded batches, statuses, spawned entities).
     const set = rt.sceneSet?.();

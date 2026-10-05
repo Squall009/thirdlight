@@ -8,6 +8,7 @@
  */
 import { useCallback, useEffect, useRef, useState, type Dispatch, type MutableRefObject, type SetStateAction } from 'react';
 import { BATCHING_URL_PARAM, batchingFromUrl, MERGING_URL_PARAM, mergingFromUrl, pageSearch, rendererPreferenceFromUrl, RENDERER_URL_PARAM, SHADOW_CACHE_URL_PARAM, shadowCacheFromUrl } from '@thirdlight/three-adapter';
+import { FRAME_RATE_CAP_URL_PARAM, frameRateCapFromUrl } from '@thirdlight/runtime';
 import type { readEditorConfig } from '../../config';
 import type { SessionClient } from '../../session/client';
 import { Bridge } from '../../preview/bridge';
@@ -40,6 +41,8 @@ export function usePlaySession(
   const urlThreads = useRef(/[?&]threads=([A-Za-z0-9]{1,16})(?:[&#]|$)/.exec(pageSearch())?.[1] ?? null);
   /** The page's ?simDelayMs= flag (a slowed simulation worker, for debugging; the game page reads it), passed on likewise. */
   const urlSimDelay = useRef(/[?&]simDelayMs=([0-9]{1,4})(?:[&#]|$)/.exec(pageSearch())?.[1] ?? null);
+  /** The page's ?frameRateCap= flag (pins the play's frame-rate cap: a measurement runs uncapped), passed on likewise. */
+  const urlFrameRateCap = useRef(frameRateCapFromUrl(pageSearch()));
   const [playRenderer, setPlayRenderer] = useState<Record<string, unknown> | null>(null);
   const bridgeRef = useRef<Bridge | null>(null);
   const playIframeRef = useRef<HTMLIFrameElement | null>(null);
@@ -347,10 +350,10 @@ export function usePlaySession(
     await c.playStop(playInfo.playSessionId);
   }, [clientRef, playInfo]);
   // The play loads from its own content locator on the preview origin.
-  // The editor page's ?renderer= flag is passed on to the play page (and ?batching=off, ?threads= and ?simDelayMs=).
+  // The editor page's ?renderer= flag is passed on to the play page (and ?batching=off, ?threads=, ?simDelayMs= and ?frameRateCap=).
   const previewSrc =
     playInfo?.playBase && playInfo.contentId !== null && playInfo.contentPath !== null
-      ? `${playInfo.playBase.replace(/\/$/, '')}${playInfo.contentPath}?play=${playInfo.playSessionId}&content=${playInfo.contentId}${urlRenderer.current !== null ? `&${RENDERER_URL_PARAM}=${urlRenderer.current}` : ''}${batchingFromUrl(pageSearch()) ? '' : `&${BATCHING_URL_PARAM}=off`}${mergingFromUrl(pageSearch()) ? '' : `&${MERGING_URL_PARAM}=off`}${shadowCacheFromUrl(pageSearch()) ? '' : `&${SHADOW_CACHE_URL_PARAM}=off`}${urlThreads.current !== null ? `&threads=${urlThreads.current}` : ''}${urlSimDelay.current !== null ? `&simDelayMs=${urlSimDelay.current}` : ''}`
+      ? `${playInfo.playBase.replace(/\/$/, '')}${playInfo.contentPath}?play=${playInfo.playSessionId}&content=${playInfo.contentId}${urlRenderer.current !== null ? `&${RENDERER_URL_PARAM}=${urlRenderer.current}` : ''}${batchingFromUrl(pageSearch()) ? '' : `&${BATCHING_URL_PARAM}=off`}${mergingFromUrl(pageSearch()) ? '' : `&${MERGING_URL_PARAM}=off`}${shadowCacheFromUrl(pageSearch()) ? '' : `&${SHADOW_CACHE_URL_PARAM}=off`}${urlThreads.current !== null ? `&threads=${urlThreads.current}` : ''}${urlSimDelay.current !== null ? `&simDelayMs=${urlSimDelay.current}` : ''}${urlFrameRateCap.current !== undefined ? `&${FRAME_RATE_CAP_URL_PARAM}=${urlFrameRateCap.current ?? 'none'}` : ''}`
       : null;
   /** Clears the running Play's save (the Saves panel), or null when nothing is running. */
   const clearPlaySave =

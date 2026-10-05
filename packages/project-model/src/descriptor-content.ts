@@ -551,7 +551,7 @@ export const CONTENT: readonly ContentBlockDescriptor[] = [
         enm('format', 'Format', 'JPEG or WebP.', ['jpeg', 'webp'], { required: true }),
         num('quality', 'Quality', 'Encoder quality.', { min: 0.1, max: 1, step: 0.05 }),
       ]),
-      list('settings', 'Settings document', `Up to ${SAVE_LIMITS.settingsFields} fields the game's settings screen writes (ctx.saves.setSetting): { key, type: bool|number|string|enum, default, label?, min?, max?, values?, engine?: music|sfx|ui|quality }.`, json('*', 'Setting', 'One settings field.'), { maxItems: SAVE_LIMITS.settingsFields }),
+      list('settings', 'Settings document', `Up to ${SAVE_LIMITS.settingsFields} fields the game's settings screen writes (ctx.saves.setSetting): { key, type: bool|number|string|enum, default, label?, min?, max?, values?, engine?: music|sfx|ui|quality|frameRateCap }.`, json('*', 'Setting', 'One settings field.'), { maxItems: SAVE_LIMITS.settingsFields }),
     ], { rules: ['a default fits its field; a volume binding is a 0–1 number, a quality binding an enum of low/medium/high'] }),
     ops: ['setSaveSchema'],
   },

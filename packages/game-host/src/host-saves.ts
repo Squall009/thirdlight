@@ -33,6 +33,8 @@ export interface HostSavesConfig {
   readonly pictureWaits: () => boolean;
   readonly setQuality?: (level: 'low' | 'medium' | 'high') => void;
   readonly setVolume?: (bus: 'music' | 'sfx' | 'ui', value: number) => void;
+  /** Apply a player's frame-rate cap (30, 60, 120 or 'none'). */
+  readonly setFrameRateCap?: (fps: string) => void;
   /** True once the host is gone (answers are dropped). */
   readonly disposed: () => boolean;
 }
@@ -55,6 +57,8 @@ export function startHostSaves(c: HostSavesConfig): ProjectSaveService {
     applyEngine: (binding, value) => {
       if (binding === 'quality') {
         if (value === 'low' || value === 'medium' || value === 'high') c.setQuality?.(value);
+      } else if (binding === 'frameRateCap') {
+        if (typeof value === 'string') c.setFrameRateCap?.(value);
       } else if (typeof value === 'number') c.setVolume?.(binding, value);
     },
     log: (message) => console.warn(`[game-host] ${message}`),

@@ -566,6 +566,8 @@ export interface GameplaySettings {
   sim_thread?: number;
   /** The texture budget of Play and the export in MiB (absent: `TEXTURE_BUDGET_DEFAULT_MB`). */
   texture_budget_mb?: number;
+  /** The most frames per second Play and the export draw (30, 60, 120; absent or 0: none, the display's rate). */
+  frame_rate_cap?: number;
 }
 
 // ---- content block and captured view ---------------------------------

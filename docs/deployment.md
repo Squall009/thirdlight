@@ -3106,13 +3106,52 @@ bindings) gives `fps`, the frame time, the page thread's CPU time and the
 GPU time (each `{avg, worst}` over the last 500 ms; GPU `null` where the
 browser has no timestamp queries — never estimated), the last frame's draw
 calls and triangles, resident texture bytes against the texture budget,
-the loaded models' geometry bytes, the object count and the quality level.
+the loaded models' geometry bytes, the object count, the quality level and
+the frame-rate cap the page draws under (`frameRateCap`, null: none).
 It is presentation like `ctx.ui.view()`: not in the digest or a save. The
 project setting **Engine → Stats overlay** (`stats_overlay`: 0 off and no
 key, 1 shown with **F3** hiding it, 2 hidden until F3) draws them top right in Play
 and the export. Play diagnostics carry the same `frameTimes` and the
 environment renderer's post passes, quality, samples and fallback
 (`renderer.environment`).
+
+**Frame-rate cap.** A game caps how many frames a second Play and the export
+draw, so a phone with a 120 Hz display does not burn its battery drawing a
+game that needs 30 or 60. The cap is **30, 60 or 120 fps, or none** (the
+display's own rate, the default). Game time does not change with it: the
+simulation keeps its fixed step and a frame that is not drawn runs its steps
+in the next drawn one, so a recorded replay plays the same at any cap. Four
+ways set it, all live:
+
+- the project setting **Rendering → Frame-rate cap** (`frame_rate_cap`: 0
+  none, 30, 60, 120; Project Settings → Quality) — the start value;
+- a player's setting: a field of the save schema's settings document bound to
+  the engine with `engine: 'frameRateCap'` — an enum of `30`, `60`, `120`
+  and/or `none` — applies its value from the start (its default until the
+  player changes it), again whenever the document is written, and is kept with
+  the player's settings in the browser;
+- the UI action `{ do: 'engine', action: 'setSetting', setting:
+  'frameRateCap', value: 30 | 60 | 120 | 'none' }` (no value: `step` ±1 moves
+  along 30 → 60 → 120 → none); the game shell keeps the player's choice with
+  its volumes and quality and shows it as `$flow.shell.frameRateCap`;
+- scripts: `ctx.display.frameRateCap` (30, 60, 120 or null) and
+  `ctx.display.setFrameRateCap(fps | null)` (false for another value; in a
+  visual script the **Frame-rate cap** and **Set frame-rate cap** nodes, 0 for
+  none). Presentation like `ctx.stats`: not in the digest or a save.
+
+How it paces: the page skips the animation frames that come early for the
+cap and keeps the drawn ones on a fixed grid, so the average is the cap on
+any faster display (144 Hz at 60 alternates two and three refreshes); a frame
+less than half a refresh early still draws, so vsync jitter never halves a
+60 Hz display at 30. A cap at (or within 10 % above) the display's rate draws
+every frame, as does a cap above it. With the simulation in its worker the
+tick for a drawn frame goes out on the animation frame just before it, so the
+worker computes one frame per drawn frame and the input it samples reaches the
+screen a display refresh later. Play diagnostics report `framePacing`
+(`frameRateCap`, `drawnFrames`, `skippedFrames`, `displayMs`, and `pinned`),
+the stats overlay shows the cap. The page URL flag `?frameRateCap=none|30|60|120`
+pins the pacing whatever the game sets (Play takes the editor's); the
+performance harness always runs with `none`.
 
 ## Grading and fog volumes
 
@@ -3714,11 +3753,16 @@ its facing. These intents are refused in a 2D-plane project. A recorded
 input replays the same positions in the page, the simulation worker and the
 export.
 
-**Files.** The 3D backend is a separate script so 2D games never download
-it: Play loads `/physics-3d.js` from the preview origin, a 3D export ships
-`js/physics-3d.js` (about 2.9 MB, 1.1 MB gzipped, the WebAssembly inside —
-no fetch, no URL) and lists the `@dimforge/rapier3d-compat` license. It loads
-in the simulation worker or, single-threaded, in the page.
+**Files.** Each physics backend is a separate script, so a game downloads
+only the one of its dimension: Play loads `/physics-3d.js` from the preview
+origin for a 3D project; an export ships only its own, `js/physics-2d.js` or
+`js/physics-3d.js`, with rapier's WebAssembly beside it as its own file
+(`js/physics-2d.wasm` / `js/physics-3d.wasm`; the 3D one 1.4 MB, 0.5 MB
+gzipped), fetched when the physics starts, and lists the
+`@dimforge/rapier2d-compat` or `rapier3d-compat` license. The backend loads in
+the simulation worker or, single-threaded, in the page, and registers itself
+through game-host's dependency-free `physics-global` module; an export's page
+and worker scripts carry no physics of their own.
 
 ## Cameras (virtual cameras)
 

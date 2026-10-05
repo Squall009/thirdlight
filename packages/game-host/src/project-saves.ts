@@ -22,7 +22,7 @@
  * other settings. Play and an export use different namespaces. No backend is
  * involved: an exported game keeps its saves in the player's browser.
  */
-import { SAVE_LIMITS, SAVE_THUMBNAIL_DEFAULT, saveSlotMetaProblem, settingsDocumentOf, type SaveSchema, type SettingsFieldValue, projectSaveFileProblem, utf8Length, type ProjectSaveFile, type SaveEvent, type SaveRequest, type SaveSlotInfo, type SaveStorageCode, type SaveStorageInfo } from '@thirdlight/runtime';
+import { SAVE_LIMITS, SAVE_THUMBNAIL_DEFAULT, saveSlotMetaProblem, settingsDocumentOf, type SaveSchema, type SettingsEngineBinding, type SettingsFieldValue, projectSaveFileProblem, utf8Length, type ProjectSaveFile, type SaveEvent, type SaveRequest, type SaveSlotInfo, type SaveStorageCode, type SaveStorageInfo } from '@thirdlight/runtime';
 
 import { saveChecksum, storageErrorCode, StorageUnavailableError, writeStored, type SaveStorage } from './storage';
 
@@ -91,7 +91,7 @@ export interface ProjectSaveServiceConfig {
   /** The browser's storage manager (absent: persistence, usage and quota stay unknown). */
   readonly device?: DeviceStorage;
   /** Apply an engine setting a settings field drives. */
-  readonly applyEngine?: (binding: 'music' | 'sfx' | 'ui' | 'quality', value: SettingsFieldValue) => void;
+  readonly applyEngine?: (binding: SettingsEngineBinding, value: SettingsFieldValue) => void;
   /** The player's clock (ISO text) for `savedAt`. */
   readonly now?: () => string;
   readonly log?: (message: string) => void;

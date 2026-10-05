@@ -73,6 +73,7 @@ import type {
   BehaviorDebug,
   BehaviorUi,
   BehaviorStats,
+  BehaviorDisplay,
   BehaviorDialogue,
   BehaviorModes,
   BehaviorLifecycle,
@@ -289,6 +290,11 @@ export interface BehaviorContext {
    * geometry bytes, objects, the quality level. Measured by the page, not simulation state.
    */
   readonly stats?: BehaviorStats;
+  /**
+   * The frame-rate cap: the most frames per second the page draws (30, 60, 120 or none) — read it and set it.
+   * Presentation: game time keeps its fixed step.
+   */
+  readonly display?: BehaviorDisplay;
   /**
    * Conversations — start a dialogue, advance, choose, skip seen lines, auto-advance,
    * dialogue variables, the backlog and the events of lines, choices and signals.
@@ -1146,6 +1152,8 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
         // The project UI (the view model and shown documents are simulation state).
         if (src.ui !== undefined) fields['ui'] = { value: src.ui, enumerable: true };
         if ('stats' in src) fields['stats'] = { get: () => src.stats, enumerable: true };
+        // The frame-rate cap (presentation: the page paces its frames by it).
+        if (src.display !== undefined) fields['display'] = { value: src.display, enumerable: true };
         // Conversations (run by the engine at the end of the step).
         if (src.dialogue !== undefined) fields['dialogue'] = { value: src.dialogue, enumerable: true };
         // The game modes and the run lifecycle.

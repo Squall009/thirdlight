@@ -60,6 +60,8 @@ import {
   type UiDocument,
   type UiTheme,
   type PhysicsInitConfig3D,
+  type FramePacingStats,
+  frameRateCapFromUrl,
 } from '@thirdlight/runtime';
 import {
   AssetReadError,
@@ -249,6 +251,8 @@ export interface GamePageHandle {
   readonly access: SimAccess | null;
   /** Where the simulation runs; `pipeline`: how the page's frames met the worker's (null on a single thread). */
   readonly threading: { readonly mode: 'worker' | 'single'; readonly reason: string; readonly transport: 'shared' | 'message' | null; readonly isolated: boolean; readonly pipeline: SimPipelineStats | null };
+  /** How the animation frames were paced under the frame-rate cap (drawn, skipped, the cap and a pinned one). */
+  framePacing(): FramePacingStats | null;
   readonly adapter: SceneAdapter | null;
   /** The verified identity: the snapshot's id and revision, the build and its content digest, the step after the settle. */
   readonly identity: { snapshotId: string; revision: number; buildId: string; contentDigest: string; stepIndex: number };
@@ -947,6 +951,9 @@ export async function startGamePage(o: GamePageOptions): Promise<GamePageHandle>
     timings?.end('mount');
     onProgress('runtime', 0, 0);
     if (!mount.ok) throw new GamePageError('play_content_not_ready', 'manifest', `host mount failed: ${JSON.stringify(mount.error)}`);
+    // The page's ?frameRateCap= flag pins the pacing whatever the game sets (measurements run uncapped).
+    const pinnedCap = frameRateCapFromUrl(pageSearch());
+    if (pinnedCap !== undefined) host.runtime?.pinFrameRateCap?.(pinnedCap);
     // A scene is prepared (assets read, models parsed, textures decoded) before the simulation gets it.
     scenes?.setPrepare(
       pageScenePreparation({
@@ -1037,6 +1044,7 @@ export async function startGamePage(o: GamePageOptions): Promise<GamePageHandle>
           return remote?.pipeline() ?? null;
         },
       },
+      framePacing: () => host.runtime?.framePacing?.() ?? null,
       adapter: adapterRef.current,
       identity,
       stepHz,

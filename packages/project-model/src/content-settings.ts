@@ -17,6 +17,7 @@ import { AUDIO_VOICE_CAP, AUDIO_VOICES_DEFAULT, MAX_SETTINGS_KEYS } from './cont
 import { limitsError, sortedKeys } from './content-helpers';
 import { TEXTURE_BUDGET_DEFAULT_MB, TEXTURE_BUDGET_MAX_MB, TEXTURE_BUDGET_MIN_MB } from './texture-streaming';
 import { VIEW_LENS_DEFAULTS, VIRTUAL_CAMERA_LIMITS } from './cameras';
+import { FRAME_RATE_CAPS } from './frame-rate-cap';
 
 // ---- settings registry ------------------------------------------
 
@@ -152,6 +153,10 @@ export const M2_SETTINGS_KEYS: readonly SettingsKeySpec[] = [
   // opts into, so 0 (none, and no key) is the default; 1 shows it from the
   // start, 2 keeps it hidden until F3, in Play and the export alike.
   { key: 'stats_overlay', type: 'number', default: 0, values: [0, 1, 2], valueLabels: ['Off', 'Shown (F3 hides it)', 'Hidden until F3'], integer: true, unit: '', optional: true, group: 'Engine', label: 'Stats overlay', tooltip: 'A small box over the game with fps, frame, CPU and GPU times (average and worst), draw calls, triangles, texture memory against the budget, geometry, objects and the quality level, in Play and the export. F3 shows and hides it when on. Scripts read the same numbers in ctx.stats, UI documents in $flow.stats.' },
+  // The most frames per second Play and the export draw (frame-rate-cap.ts): 0, none — the display's
+  // rate, what every game drew at before; a game caps it to save a phone's battery (game time keeps its
+  // fixed step either way), and a player's settings field or a script may change it while it runs.
+  { key: 'frame_rate_cap', type: 'number', default: 0, values: [0, ...FRAME_RATE_CAPS], valueLabels: ['None (the display\'s rate)', ...FRAME_RATE_CAPS.map((fps) => `${fps} fps`)], integer: true, unit: '', optional: true, group: RENDERING_SETTINGS_GROUP, label: 'Frame-rate cap', tooltip: 'The most frames per second Play and the export draw (none: the display\'s rate). Game time is unaffected: the simulation keeps its fixed step. A player\'s settings field bound to frameRateCap, the UI action setSetting frameRateCap and scripts (ctx.display.setFrameRateCap) change it while the game runs; a page URL flag ?frameRateCap=30|60|120|none overrides it.' },
 ];
 
 /** The simulation's dimension (the `physics_dimension` setting's values). */

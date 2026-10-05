@@ -115,6 +115,8 @@ export type SimCommand =
   | { readonly op: 'setUiView'; readonly width: number; readonly height: number; readonly pixelRatio: number }
   /** The page's frame statistics (`ctx.stats`), once per stats window. */
   | { readonly op: 'setStats'; readonly stats: BehaviorStats }
+  /** The game's frame-rate cap set on the page (a player's setting, the UI): what `ctx.display` reads. */
+  | { readonly op: 'setFrameRateCap'; readonly fps: number | null }
   // A debug command call, queued in the worker's runtime for its next step.
   | { readonly op: 'debugCommand'; readonly call: DebugCommandCall }
   // A storage answer (slot list, outcome, loaded save), queued in the worker's runtime for its next step.
@@ -210,6 +212,8 @@ export interface FrameState {
   readonly healths?: Readonly<Record<string, { readonly current: number; readonly max: number }>>;
   /** The shell's scene list entry the run is at (when it changed). */
   readonly listed?: number;
+  /** The game's frame-rate cap (when it changed: a script set it; null: none): the page paces its frames by it. */
+  readonly frameRateCap?: number | null;
   readonly sceneSet?: SceneSetWire;
   /** The audio intent log's commands (script sound requests). */
   readonly audio?: readonly AudioCommand[];

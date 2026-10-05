@@ -307,6 +307,9 @@ describe('ctx.ui in the runtime', () => {
     expect(rt.setStats!({ ...stats, fps: -1 })).toBe(false);
     expect(rt.setStats!({ ...stats, quality: 'ultra' })).toBe(false);
     expect(rt.setStats!({ ...stats, gpuMs: { avg: 1 } })).toBe(false);
+    // The frame-rate cap: 30, 60 or 120, null or absent for none.
+    expect(rt.setStats!({ ...stats, frameRateCap: 45 })).toBe(false);
+    expect(rt.setStats!({ ...stats, frameRateCap: 30 })).toBe(true);
     tick(1);
     expect(rt.uiView!().model).toMatchObject({ hud: { fps: 58.5, gpu: { avg: 6, worst: 6.5 } } });
     // Not measured: null, as reported.

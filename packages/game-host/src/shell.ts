@@ -14,10 +14,10 @@
  * It knows no game rules.
  *
  * The values it gives UI documents (`$flow.shell`): the screen, the listed
- * scene, whether Continue has a save, each slot's state, the last note and
- * the volumes.
+ * scene, whether Continue has a save, each slot's state, the last note, the
+ * volumes, the quality and the frame-rate cap.
  */
-import type { UiAction } from '@thirdlight/runtime';
+import { FRAME_RATE_CAPS, frameRateCapOf, type UiAction } from '@thirdlight/runtime';
 
 import type { UiEdges } from './dom';
 import type { HostDom, HostDomNode } from './dom';
@@ -79,7 +79,10 @@ export interface ShellDeps {
   readonly pausePanel: () => { show(): void; hide(): void; readonly shown: boolean; handleEdges(e: { up: boolean; down: boolean; submit: boolean; cancel: boolean }): void } | null;
   readonly setVolume?: (bus: 'music' | 'sfx' | 'ui', value: number) => void;
   readonly setQuality?: (q: 'low' | 'medium' | 'high') => void;
-  /** Where the volumes and quality the player set are kept (absent: this session only). */
+  /** The frame-rate cap in effect (the game's: its setting, a script) and setting the player's (null: none). */
+  readonly frameRateCap?: () => number | null;
+  readonly setFrameRateCap?: (fps: number | null) => void;
+  /** Where the volumes, quality and frame-rate cap the player set are kept (absent: this session only). */
   readonly storage?: SaveStorage;
   readonly namespace: string;
   /** The generated input prompts (the debug status line). */
@@ -125,10 +128,12 @@ export function createShellController(deps: ShellDeps): ShellController {
   const settingsKey = `${deps.namespace}:shell-settings`;
   let volumes = { music: 1, sfx: 1, ui: 1 };
   let quality: (typeof QUALITIES)[number] = 'high';
+  /** The frame-rate cap the player chose (undefined: none chosen, the game's applies; null: no cap). */
+  let frameRateCap: number | null | undefined = undefined;
   try {
     const raw = deps.storage?.get(settingsKey) ?? null;
     if (raw !== null && raw.length < 4096) {
-      const v = JSON.parse(raw) as { volumes?: Record<string, unknown>; quality?: unknown };
+      const v = JSON.parse(raw) as { volumes?: Record<string, unknown>; quality?: unknown; frameRateCap?: unknown };
       for (const k of ['music', 'sfx', 'ui'] as const) {
         const x = v.volumes?.[k];
         if (typeof x === 'number' && x >= 0 && x <= 1) {
@@ -140,6 +145,11 @@ export function createShellController(deps: ShellDeps): ShellController {
         quality = v.quality as (typeof QUALITIES)[number];
         deps.setQuality?.(quality);
       }
+      const cap = v.frameRateCap === undefined ? undefined : frameRateCapOf(v.frameRateCap);
+      if (cap !== undefined) {
+        frameRateCap = cap;
+        deps.setFrameRateCap?.(cap);
+      }
     }
   } catch {
     // a damaged record: the defaults
@@ -147,7 +157,7 @@ export function createShellController(deps: ShellDeps): ShellController {
   const keepSettings = (): void => {
     if (deps.storage === undefined) return;
     // Refused (full, or no storage): the settings still apply for this session.
-    const refused = writeStored(deps.storage, settingsKey, JSON.stringify({ volumes, quality }));
+    const refused = writeStored(deps.storage, settingsKey, JSON.stringify({ volumes, quality, ...(frameRateCap !== undefined ? { frameRateCap } : {}) }));
     if (refused !== null) deps.log(`the shell settings were not kept (${refused.code}): ${refused.reason}`);
   };
 
@@ -336,6 +346,22 @@ export function createShellController(deps: ShellDeps): ShellController {
             else quality = QUALITIES[(QUALITIES.indexOf(quality) + ((a.step ?? 1) < 0 ? 2 : 1)) % 3]!;
             deps.setQuality?.(quality);
             keepSettings();
+          } else if (k === 'frameRateCap') {
+            // A value sets it; a step moves along 30 → 60 → 120 → none (and back).
+            let next: number | null;
+            if (a.value !== undefined) {
+              const given = frameRateCapOf(a.value);
+              if (given === undefined) return;
+              next = given;
+            } else {
+              const order: (number | null)[] = [...FRAME_RATE_CAPS, null];
+              const current = frameRateCap !== undefined ? frameRateCap : (deps.frameRateCap?.() ?? null);
+              const at = Math.max(0, order.indexOf(current));
+              next = order[(at + ((a.step ?? 1) < 0 ? order.length - 1 : 1)) % order.length]!;
+            }
+            frameRateCap = next;
+            deps.setFrameRateCap?.(next);
+            keepSettings();
           }
           return;
         }
@@ -378,6 +404,8 @@ export function createShellController(deps: ShellDeps): ShellController {
         note,
         volumes: { ...volumes },
         quality,
+        // The cap in effect (the player's, else the game's): 30, 60, 120 or none.
+        frameRateCap: (deps.frameRateCap !== undefined ? deps.frameRateCap() : (frameRateCap ?? null)) ?? 'none',
       };
     },
     observe(): ShellObservation {

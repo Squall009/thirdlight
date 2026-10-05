@@ -310,7 +310,7 @@ export { ASSET_KEY_MAX_LENGTH, MAX_FRAME_ASSET_ANSWERS, RuntimeAssetHandles, val
 // Project save documents (ctx.saves).
 export { MAX_FRAME_SAVE_EVENTS, PROJECT_SAVE_FORMAT, PROJECT_SAVE_FORMAT_VERSION, SAVE_REQUESTS_PER_STEP, SAVE_STORAGE_CODES, SAVE_WORLD_DEPRECATED, type SaveStorageCode, type SaveStorageInfo, projectSaveFileProblem, worldSaveProblem, utf8Length, validateSaveEvents, type BehaviorSaves, type ProjectSaveFile, type WorldSave, type SaveEvent, type SaveMeta, type SaveRequest, type SaveResult, type SaveSlotInfo } from './project-saves';
 // (the save schema's limits and settings rules, for hosts that do not depend on project-model)
-export { SAVE_LIMITS, SAVE_THUMBNAIL_DEFAULT, saveSlotMetaProblem, settingsDocumentOf, type SaveSchema, type SettingsField, type SettingsFieldValue } from '@thirdlight/project-model';
+export { SAVE_LIMITS, SAVE_THUMBNAIL_DEFAULT, saveSlotMetaProblem, settingsDocumentOf, type SaveSchema, type SettingsEngineBinding, type SettingsField, type SettingsFieldValue } from '@thirdlight/project-model';
 // The runtime content a game page reads: the manifest's versions and buildId inputs, the catalog's shape and parts (v5).
 export {
   catalogRootProblem,
@@ -371,7 +371,10 @@ export { AUDIO_BUS_NAMES, AUDIO_MAX_HANDLES, AUDIO_MAX_PLAYS_PER_STEP, AUDIO_PIT
 // Graph-material parameters per object — ctx.materials, the catalogue and the renderer's changes.
 export { MATERIAL_WRITES_PER_STEP, RuntimeMaterials, materialCatalogOf, materialCatalogProblem, materialChangeKey, type BehaviorMaterials, type MaterialSaveEntry, type MaterialParamValue, type MaterialRenderChange, type RuntimeMaterialCatalog, type RuntimeMaterialParameter, type RuntimeMaterialParameterType } from './material-params';
 // The project UI — ctx.ui, the UI events of an input frame, the view-model diff the host draws from.
-export type { BehaviorUi, BehaviorUiEvent, BehaviorUiView, BehaviorStats, BehaviorStatsTime } from './types';
+export type { BehaviorUi, BehaviorUiEvent, BehaviorUiView, BehaviorStats, BehaviorStatsTime, BehaviorDisplay } from './types';
+export { FRAME_RATE_CAP_URL_PARAM, FramePacer, frameRateCapFromUrl, type FramePacingStats } from './frame-pacing';
+// The frame-rate cap's values (project-model owns them), for the page's pacing and the shell.
+export { FRAME_RATE_CAPS, frameRateCapOf, projectFrameRateCap, type FrameRateCap } from '@thirdlight/project-model';
 export { ENGINE_STATS_NONE, STATS_WINDOW_MS, engineStatsOf } from './engine-stats';
 export {
   MAX_FRAME_UI_EVENTS,

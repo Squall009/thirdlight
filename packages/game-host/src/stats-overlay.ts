@@ -3,7 +3,7 @@
  * in a small box in the top-right corner of the game — fps, frame, CPU and
  * GPU times (average / worst over the window; "not measured" without GPU
  * timestamp queries), draw calls, triangles, texture memory against the
- * budget, geometry, objects and the quality level.
+ * budget, geometry, objects, the quality level and the frame-rate cap.
  *
  * Engine UI a game opts into: it exists only when the project's
  * `stats_overlay` setting is on (1: shown from the start, 2: hidden until the
@@ -58,7 +58,7 @@ export function statsOverlayLines(s: BehaviorStats): string[] {
     `draws ${count(s.drawCalls)}  tris ${count(s.triangles)}`,
     `tex   ${mib(s.textureBytes)} / ${mib(s.textureBudgetBytes)}`,
     `geo   ${mib(s.geometryBytes)}`,
-    `objects ${count(s.entities)}  quality ${s.quality}`,
+    `objects ${count(s.entities)}  quality ${s.quality}${s.frameRateCap !== null ? `  cap ${s.frameRateCap} fps` : ''}`,
   ];
 }
 

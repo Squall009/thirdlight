@@ -11,7 +11,7 @@
  *
  * Browser-only (React).
  */
-import { UI_DEPRECATED_ENGINE_ACTIONS, UI_LIMITS } from '@thirdlight/project-model/limits';
+import { SETTINGS_ENGINE_BINDINGS, UI_DEPRECATED_ENGINE_ACTIONS, UI_LIMITS } from '@thirdlight/project-model/limits';
 import { useEffect, useState, type JSX } from 'react';
 import type { FieldDescriptor, ObjectFieldDescriptor, UiAction, UiEngineAction, UiStyle } from '@thirdlight/project-model';
 
@@ -459,7 +459,7 @@ export function ActionsField(p: {
               {a.action === 'setSetting' && (
                 <>
                   <select className="tl-input" aria-label={`${p.aria} ${i + 1} setting`} value={a.setting ?? 'music'} onChange={(e) => setAtI(i, { ...a, setting: e.target.value as 'music' })}>
-                    {['music', 'sfx', 'ui', 'quality'].map((s) => (
+                    {SETTINGS_ENGINE_BINDINGS.map((s) => (
                       <option key={s} value={s}>
                         {s}
                       </option>

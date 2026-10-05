@@ -303,6 +303,8 @@ export function recordingContext(calls: string[], phase: 'intent' | 'transform',
       return id === '' ? null : { get: rec('entity.get', () => ({ intensity: 2 })), set: rec('entity.set', () => ({ ok: true, field: '', code: '', message: '' })) };
     },
     shell: { nextScene: rec('shell.nextScene', true), sceneIndex: rec('shell.sceneIndex', 0), sceneCount: rec('shell.sceneCount', 2) },
+    // The frame-rate cap.
+    display: { frameRateCap: 60, setFrameRateCap: rec('display.setFrameRateCap', true) },
   };
 }
 

@@ -15,6 +15,7 @@ const sources = (gpu: { ms: number; frames: number; worst: number } | null) => (
   geometryBytes: () => 2048,
   entities: () => 9,
   quality: () => 'low',
+  frameRateCap: () => 60,
 });
 
 describe('frame stats', () => {
@@ -37,7 +38,7 @@ describe('frame stats', () => {
     expect(snap.fps).toBeCloseTo(1000 / snap.frameMs.avg, 0);
     expect(snap.cpuMs.worst).toBe(12);
     expect(snap.gpuMs).toEqual({ avg: 6, worst: 9 });
-    expect(snap).toMatchObject({ drawCalls: 12, triangles: 3400, textureBytes: 64 * 1024 * 1024, textureBudgetBytes: 512 * 1024 * 1024, geometryBytes: 2048, entities: 9, quality: 'low' });
+    expect(snap).toMatchObject({ drawCalls: 12, triangles: 3400, textureBytes: 64 * 1024 * 1024, textureBudgetBytes: 512 * 1024 * 1024, geometryBytes: 2048, entities: 9, quality: 'low', frameRateCap: 60 });
     expect(snap.windowMs).toBeGreaterThanOrEqual(500);
   });
 

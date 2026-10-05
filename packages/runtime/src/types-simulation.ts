@@ -8,7 +8,7 @@ import type { ActionFrame, ActionSource } from './actions';
 import type { BehaviorIntent, BehaviorLogLevel, IntentSet } from './intents';
 import type { CharacterClearanceResult3D, PhysicsPort, PhysicsPort3D, PhysicsStepClient, PhysicsVec3, RaycastHit3D, Vec2 } from './ports';
 import { type BehaviorSceneControl, type GameplaySettings, type RuntimeSnapshot } from './types-scene';
-import { type AnimatorEventRecord, type BehaviorAnimatorControl, type BehaviorCamera, type BehaviorCharacter, type BehaviorCollectible, type BehaviorDialogue, type BehaviorEnvironment, type BehaviorGameState, type BehaviorHealth, type BehaviorHitbox, type BehaviorLifecycle, type BehaviorLook, type BehaviorModes, type BehaviorPatrol, type BehaviorSignals, type BehaviorSockets, type BehaviorTagQuery, type BehaviorTimeline, type BehaviorUi, type BehaviorStats } from './types-behavior-world';
+import { type AnimatorEventRecord, type BehaviorAnimatorControl, type BehaviorCamera, type BehaviorCharacter, type BehaviorCollectible, type BehaviorDialogue, type BehaviorEnvironment, type BehaviorGameState, type BehaviorHealth, type BehaviorHitbox, type BehaviorLifecycle, type BehaviorLook, type BehaviorModes, type BehaviorPatrol, type BehaviorSignals, type BehaviorSockets, type BehaviorTagQuery, type BehaviorTimeline, type BehaviorUi, type BehaviorStats, type BehaviorDisplay } from './types-behavior-world';
 import { type BehaviorAudio, type BehaviorEffects, type BehaviorMessageControl, type BehaviorSave, type BehaviorSpawnControl, type DebugCommandArgs, type DebugCommandOptions, type PrimitiveEventRecord, type TriggerEventRecord } from './types-behavior';
 
 /** Config accepted by `instantiateRuntime` (strict shape). */
@@ -311,6 +311,8 @@ export interface StepContext {
   readonly ui?: BehaviorUi;
   /** The page's frame statistics (`ctx.stats`). */
   readonly stats?: BehaviorStats;
+  /** The frame-rate cap (`ctx.display`). */
+  readonly display?: BehaviorDisplay;
   /** Conversations (`ctx.dialogue`). */
   readonly dialogue?: BehaviorDialogue;
   /** The game modes (`ctx.modes`; present while the project has modes). */

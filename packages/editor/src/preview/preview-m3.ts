@@ -461,6 +461,8 @@ export function bootstrapPreviewM3(): void {
           frameDrops: bridge.drops,
           // Where the simulation runs.
           simulation: { ...h.threading },
+          // The frame-rate cap and how the animation frames were paced under it.
+          framePacing: h.framePacing(),
           // The current game mode (the Play toolbar shows it).
           ...modeDiagnostics(h),
           // Where this play's start went (stages, first frame, slow frames, scene loads).

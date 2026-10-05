@@ -1105,6 +1105,8 @@ export {
   type SettingsField,
   type SettingsFieldValue,
 } from './save-schema';
+// The frame-rate cap a game sets (project setting, settings field, UI action, scripts).
+export { FRAME_RATE_CAP_CHOICES, FRAME_RATE_CAPS, frameRateCapOf, projectFrameRateCap, type FrameRateCap } from './frame-rate-cap';
 // Dialogue (content.dialogues / speakers / dialogueSettings), its graph kind, expressions and the runtime form.
 export {
   DIALOGUE_DEFAULTS,

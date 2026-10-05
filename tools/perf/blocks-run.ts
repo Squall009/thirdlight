@@ -28,7 +28,7 @@ import type { Browser, Page } from '@playwright/test';
 
 import { PERF_ROOT, REPO, startPerfBackend, type PerfBackend } from './backend';
 import { buildBlocks, changeBlocksType, setBlocksStream, switchBlocksKit, BLOCKS_VERSION, type BlocksBuild } from './blocks';
-import { FRAME_VIEWPORT, launchGpuBrowser, serveStatic, type FrameRenderer } from './frame-run';
+import { FRAME_VIEWPORT, launchGpuBrowser, serveStatic, uncappedUrl, type FrameRenderer } from './frame-run';
 import { installFrameProbe } from './frame-probe';
 import { installPerfInstrumentation } from './instrument';
 import { summarize } from './stats';
@@ -122,7 +122,7 @@ async function exportWindows(browser: Browser, url: string, loadMs: number, reco
     if (m.type() === 'error' || m.type() === 'warning') errors.push(`console ${m.type()}: ${m.text()}`.slice(0, 300));
   });
   try {
-    await page.goto(url);
+    await page.goto(uncappedUrl(url));
     const first = await page.waitForFunction(() => (window as unknown as { __tlPerf?: { firstDrawAt: number | null } }).__tlPerf?.firstDrawAt ?? null, null, { timeout: 180_000 }).then((h) => h.jsonValue() as Promise<number>);
     if (!stream) {
       const end = first + loadMs;
@@ -159,7 +159,7 @@ async function sceneViewWindows(browser: Browser, be: PerfBackend, b: BlocksBuil
     }
   };
   try {
-    await page.goto(`${be.origin}/?project=${b.projectId}&renderer=${renderer}${query}#token=${be.token}`);
+    await page.goto(uncappedUrl(`${be.origin}/?project=${b.projectId}&renderer=${renderer}${query}#token=${be.token}`));
     await page.locator('.tl-statusbar').filter({ hasText: 'connected' }).waitFor({ timeout: 180_000 });
     await settled();
     const windowAround = async (act: () => Promise<void>): Promise<HitchWindow> => {

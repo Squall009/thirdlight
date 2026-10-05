@@ -33,6 +33,7 @@ import { summarize, type Summary } from './stats';
 import { measureEditorAtScale, type EditorScaleReport } from './scale-editor';
 import { measureProjectWindowAtScale, type ProjectWindowScaleReport } from './scale-project';
 import { measureInstanceBrush, type BrushScaleReport } from './scale-brush';
+import { uncappedUrl } from './frame-run';
 
 export type ScaleStep = 'files' | 'open' | 'commands' | 'editor' | 'import' | 'extract' | 'brush' | 'play' | 'walk' | 'handles' | 'dialogue' | 'stream' | 'replay' | 'export';
 /**
@@ -419,7 +420,7 @@ export class ScaleBench {
       () => undefined,
     );
     const t1 = Date.now();
-    await this.page.goto(`${this.backend.origin}/?project=${this.opts.projectId}&renderer=${this.opts.renderer}#token=${this.backend.token}`);
+    await this.page.goto(uncappedUrl(`${this.backend.origin}/?project=${this.opts.projectId}&renderer=${this.opts.renderer}#token=${this.backend.token}`));
     await this.page.locator('.tl-statusbar').filter({ hasText: 'connected' }).waitFor({ timeout: 600_000 });
     const editorConnectedMs = Date.now() - t1;
     const first = await poll(() => this.page!.evaluate(() => (window as unknown as { __tlPerf?: { firstDrawEpoch: number | null } }).__tlPerf?.firstDrawEpoch ?? null), (v) => v !== null, 120_000, 'the Scene view first frame').catch(() => null);
@@ -1009,7 +1010,7 @@ export class ScaleBench {
     game.on('pageerror', (e) => pageErrors.push(e.message.slice(0, 200)));
     try {
       const t0 = Date.now();
-      await game.goto(site.url);
+      await game.goto(uncappedUrl(site.url));
       const first = await poll(() => game.evaluate(() => (window as unknown as { __tlPerf?: { firstDrawEpoch: number | null } }).__tlPerf?.firstDrawEpoch ?? null), (v) => v !== null, 300_000, 'the exported game first frame').catch(() => null);
       const state = await game.evaluate(() => ((window as unknown as { __thirdlightObserve?: () => { state?: string } }).__thirdlightObserve?.()?.state ?? null)).catch(() => null);
       this.report.export = { ms, files: size.files, bytes: size.bytes, backendRssBeforeMiB: rssBefore, backendRssPeakMiB: rssPeak, firstFrameMs: first === null ? null : first - t0, state, pageErrors };

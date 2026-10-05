@@ -138,6 +138,16 @@ describe('rebinding engine actions', () => {
   });
 });
 
+describe('the setSetting engine action', () => {
+  const docWith = (onClick: unknown): unknown => ({ uiDocumentId: 'opts', name: 'Options', root: { type: 'button', text: 'x', onClick } });
+  it('sets the frame-rate cap to 30, 60, 120 or none, or steps through them', () => {
+    expect(errs(docWith([{ do: 'engine', action: 'setSetting', setting: 'frameRateCap', value: 30 }, { do: 'engine', action: 'setSetting', setting: 'frameRateCap', value: 'none' }, { do: 'engine', action: 'setSetting', setting: 'frameRateCap', step: -1 }]))).toEqual([]);
+    expect(errs(docWith({ do: 'engine', action: 'setSetting', setting: 'frameRateCap', value: 0.5 })).map((e) => e.path)).toEqual(['/root/onClick/value']);
+    expect(errs(docWith({ do: 'engine', action: 'setSetting', setting: 'music', value: 60 })).map((e) => e.path)).toEqual(['/root/onClick/value']);
+    expect(errs(docWith({ do: 'engine', action: 'setSetting', setting: 'fps' })).map((e) => e.path)).toEqual(['/root/onClick/setting']);
+  });
+});
+
 describe('bindable offset, opacity and rotation; list keys; scale modes', () => {
   const docWith = (root: unknown, scale?: unknown): unknown => ({ uiDocumentId: 'fx', name: 'Fx', ...(scale !== undefined ? { scale } : {}), root });
   it('an offset axis, the opacity and the rotation are numbers or bindings in range', () => {

@@ -20,7 +20,7 @@ export type { RuntimeSnapshotEntity, RuntimeScene, RuntimeSnapshot, RuntimeEvent
 export { SIMULATION_PHASE_ORDER } from './types-simulation';
 export type { InstantiateConfig, TransformState, SimEntityData, SimState, ModuleConfig, Character3DQueries, SimulationModule, SimulationPhase, PlayerCapsule, ModuleResetContext, SimulationPhaseModule, StepContext, ClimbQuery, BehaviorShell, SimulationModuleSpec, SimulationRegistry } from './types-simulation';
 export type { BehaviorMessage, BehaviorMessages, BehaviorMessageControl, TriggerEventRecord, HealthEventRecord, ContactEventRecord, PatrolEventRecord, CollectEventRecord, PrimitiveEventRecord, BehaviorTimers, BehaviorSpawnControl, BehaviorSave, DebugCommandArgType, DebugCommandArgSpec, DebugCommandOptions, DebugCommandSpec, DebugCommandArgs, DebugCommandState, BehaviorDebug, AudioFinishedEvent, AudioPlayOptions, AudioStingerOptions, AudioMusicOptions, AudioMusicState, BehaviorAudio, EffectRequest, BehaviorEffects } from './types-behavior';
-export type { CameraBlendOptions, BehaviorCameraState, BehaviorUiEvent, BehaviorUiView, BehaviorStats, BehaviorStatsTime, EnvironmentChangeOptions, BehaviorEnvironment, BehaviorUi, DialogueVariableValue, BehaviorDialogueEvent, BehaviorDialogueState, BehaviorDialogueHistoryEntry, BehaviorDialogue, BehaviorModeEvent, BehaviorModeTransition, BehaviorModes, BehaviorLifecycle, BehaviorTimelineEvent, BehaviorTimeline, BehaviorCamera, BehaviorSockets, BehaviorSignals, BehaviorGameState, BehaviorHealth, BehaviorPatrol, BehaviorHitbox, BehaviorCollectible, BehaviorCharacter, BehaviorLookValue, BehaviorLook, BehaviorAnimatorHandle, BehaviorAnimatorControl, AnimatorEventRecord, BehaviorTagQuery } from './types-behavior-world';
+export type { CameraBlendOptions, BehaviorCameraState, BehaviorUiEvent, BehaviorUiView, BehaviorStats, BehaviorStatsTime, BehaviorDisplay, EnvironmentChangeOptions, BehaviorEnvironment, BehaviorUi, DialogueVariableValue, BehaviorDialogueEvent, BehaviorDialogueState, BehaviorDialogueHistoryEntry, BehaviorDialogue, BehaviorModeEvent, BehaviorModeTransition, BehaviorModes, BehaviorLifecycle, BehaviorTimelineEvent, BehaviorTimeline, BehaviorCamera, BehaviorSockets, BehaviorSignals, BehaviorGameState, BehaviorHealth, BehaviorPatrol, BehaviorHitbox, BehaviorCollectible, BehaviorCharacter, BehaviorLookValue, BehaviorLook, BehaviorAnimatorHandle, BehaviorAnimatorControl, AnimatorEventRecord, BehaviorTagQuery } from './types-behavior-world';
 export { registryBrand as SIM_REGISTRY_BRAND };
 
 /** Lifecycle states. */
@@ -137,6 +137,17 @@ export interface Runtime {
   setUiView?(width: number, height: number, pixelRatio: number): boolean;
   /** The page's frame statistics, once per stats window — what `ctx.stats` reads (false: not stats). */
   setStats?(stats: unknown): boolean;
+  /** The game's frame-rate cap (`ctx.display.frameRateCap`): 30, 60 or 120 fps, null for none. */
+  frameRateCap?(): number | null;
+  /** Set the game's frame-rate cap (30, 60, 120, or null for none; a player's setting, the UI); false for another value. */
+  setFrameRateCap?(fps: unknown): boolean;
+  /**
+   * Pace the frames at this cap whatever the game sets (null: uncapped — a
+   * measurement), or follow the game's again (undefined); false for another value.
+   */
+  pinFrameRateCap?(fps: unknown): boolean;
+  /** How the animation frames were paced under the cap. */
+  framePacing?(): import('./frame-pacing').FramePacingStats;
   /** The objects riding on sockets now (entity, target, node; a stable array while nothing changes). */
   socketAttachments?(): readonly { readonly entityId: string; readonly target: string; readonly node: string }[];
   /**

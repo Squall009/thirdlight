@@ -21,10 +21,14 @@
  * simulation. At most one tick is in flight — a slow worker never queues
  * ticks up, the next tick simply covers more time (the runtime's bounded
  * catch-up applies as in the page), and the page keeps drawing at the
- * display's rate meanwhile. With `driver: 'manual'` (Node, tests) `tick(now)`
- * resolves once the frame is applied and `onFrame` ran.
+ * display's rate meanwhile. Under the game's frame-rate cap an animation
+ * frame that comes early for it draws nothing; the tick for the next drawn
+ * frame goes out on the animation frame just before it, so the input it
+ * samples is a display refresh old when drawn (not a cap's interval), and the
+ * worker computes one frame per drawn frame. With `driver: 'manual'` (Node,
+ * tests) `tick(now)` resolves once the frame is applied and `onFrame` ran.
  */
-import { debugCallRefusal, ENGINE_DEBUG_COMMANDS, validateAssetAnswers, validateDebugCommandCall, validateSaveEvents, type AssetHandleAnswer, type SaveEvent } from '@thirdlight/runtime';
+import { debugCallRefusal, ENGINE_DEBUG_COMMANDS, FramePacer, frameRateCapOf, projectFrameRateCap, validateAssetAnswers, validateDebugCommandCall, validateSaveEvents, type AssetHandleAnswer, type SaveEvent } from '@thirdlight/runtime';
 import { engineStatsOf, interpolateCameraPose, uiViewOf, validateDialogueInput, validateUiEvent, type DialogueInputRecord } from '@thirdlight/runtime';
 import type {
   UiEventRecord,
@@ -68,7 +72,7 @@ export interface RemoteSimulationOptions {
 
 /** How the page's frames met the worker's (Play diagnostics). */
 export interface SimPipelineStats {
-  /** Frames the page drew. */
+  /** Frames the page drew (animation frames early for the frame-rate cap are not drawn: `framePacing`). */
   readonly frames: number;
   /**
    * Time from an animation frame to its draw (ms, all frames): what the draw
@@ -136,6 +140,14 @@ export function startRemoteSimulation(opts: RemoteSimulationOptions): Promise<Re
   const arrived: { state: FrameState; sentAt: number | null }[] = [];
   const stats = { frames: 0, blockedMs: 0, blockedMaxMs: 0, framesWithoutStep: 0, framesWithoutWorkerFrame: 0, ticksSkipped: 0, trips: 0, tripSum: 0, tripMax: 0, draws: 0, drawSum: 0, drawMax: 0 };
   let drawnStep = -1;
+  /** The page's pacing under the game's frame-rate cap (the worker's runtime holds the cap scripts read). */
+  const pacer = new FramePacer(projectFrameRateCap(opts.init.settings));
+  /** When the oldest tick whose frame was applied but not yet drawn was sent (seconds; null: none). */
+  let undrawnSentAt: number | null = null;
+  /** A worker frame was applied since the last draw. */
+  let freshSinceDraw = false;
+  /** A tick went out after the last draw's frame was applied (the next draw has an answer coming). */
+  let tickedSinceDraw = false;
   let manualChain: Promise<unknown> = Promise.resolve();
   let rafId: number | null = null;
   let running = false;
@@ -200,29 +212,45 @@ export function startRemoteSimulation(opts: RemoteSimulationOptions): Promise<Re
     return s;
   };
 
-  const rafLoop = (): void => {
+  const rafLoop = (frameTime?: number): void => {
     if (!running || disposed) return;
     rafId = requestAnimationFrame(rafLoop);
     const startMs = performance.now();
     const now = startMs / 1000;
+    // Whether this animation frame draws (not early for the frame-rate cap), and whether the next one will.
+    const t = typeof frameTime === 'number' ? frameTime : startMs;
+    const draws = pacer.frame(t);
     // (1) The newest finished frame of the worker, if one arrived.
-    const fresh = arrived.length > 0;
+    if (arrived.length > 0) freshSinceDraw = true;
     for (const a of arrived.splice(0)) {
       applyFrame(a.state, now);
-      if (a.sentAt !== null) {
-        const ms = (now - a.sentAt) * 1000;
-        stats.draws += 1;
-        stats.drawSum += ms;
-        stats.drawMax = Math.max(stats.drawMax, ms);
-      }
+      if (a.sentAt !== null && undrawnSentAt === null) undrawnSentAt = a.sentAt;
     }
-    // (2) The next tick, with this frame's input, unless the last one is still being computed.
-    if (inFlight === null) inFlight = { seq: sendTick(now), sentAt: now, resolve: () => undefined, reject: () => undefined };
-    else stats.ticksSkipped += 1;
+    // (2) The next tick, with this frame's input, unless the last one is still being computed. Under a cap
+    // only on the frame before a draw (its answer is that draw's: input a refresh old, one worker frame per
+    // draw), and on a draw no frame before it ticked for (irregular callbacks): game time never waits on it.
+    let ticked = false;
+    if (pacer.drawsNext(t) || (draws && !tickedSinceDraw)) {
+      if (inFlight === null) {
+        inFlight = { seq: sendTick(now), sentAt: now, resolve: () => undefined, reject: () => undefined };
+        ticked = true;
+        tickedSinceDraw = true;
+      } else stats.ticksSkipped += 1;
+    }
+    if (!draws) return;
+    tickedSinceDraw = ticked;
+    if (undrawnSentAt !== null) {
+      const ms = (now - undrawnSentAt) * 1000;
+      undrawnSentAt = null;
+      stats.draws += 1;
+      stats.drawSum += ms;
+      stats.drawMax = Math.max(stats.drawMax, ms);
+    }
     // (3) Draw now, between the last two finished steps by the page's clock: nothing here waits for the worker.
     mirror.present(now);
     stats.frames += 1;
-    if (!fresh) stats.framesWithoutWorkerFrame += 1;
+    if (!freshSinceDraw) stats.framesWithoutWorkerFrame += 1;
+    freshSinceDraw = false;
     if (mirror.stepIndex === drawnStep) stats.framesWithoutStep += 1;
     drawnStep = mirror.stepIndex;
     const held = performance.now() - startMs;
@@ -234,6 +262,8 @@ export function startRemoteSimulation(opts: RemoteSimulationOptions): Promise<Re
 
   const applyFrame = (state: FrameState, now: number): void => {
     mirror.apply(state, now);
+    // A cap a script set (or the page's own, echoed back once the worker took it).
+    if (state.frameRateCap !== undefined) pacer.setCap(state.frameRateCap);
     if (state.digests !== undefined) for (const d of state.digests) digests.push(d);
     if (state.tickError !== undefined && failure === null) {
       failure = state.tickError;
@@ -546,6 +576,17 @@ export function startRemoteSimulation(opts: RemoteSimulationOptions): Promise<Re
       command({ op: 'setUiView', width, height, pixelRatio });
       return true;
     },
+    // The frame-rate cap: paced here, held for scripts by the worker's runtime (a change on the page goes there too).
+    frameRateCap: () => pacer.frameRateCap,
+    setFrameRateCap: (fps: unknown): boolean => {
+      const cap = frameRateCapOf(fps);
+      if (gone() || cap === undefined) return false;
+      pacer.setCap(cap);
+      command({ op: 'setFrameRateCap', fps: cap });
+      return true;
+    },
+    pinFrameRateCap: (fps: unknown): boolean => !gone() && pacer.pinCap(fps),
+    framePacing: () => pacer.stats(),
     setStats: (stats: unknown): boolean => {
       const s = engineStatsOf(stats);
       if (gone() || s === null) return false;

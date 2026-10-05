@@ -95,6 +95,12 @@ test('Project Settings: every sub-tab shows its panel and its edits round-trip t
   await budget.fill('96');
   await budget.press('Enter');
   await expect.poll(async () => (await settings())['texture_budget_mb']).toBe(96);
+  // The frame-rate cap: none (the display's rate) until the project picks one.
+  const cap = quality.getByLabel('settings frame_rate_cap', { exact: true });
+  await expect(cap).toHaveValue('0');
+  await expect(cap.locator('option')).toHaveText(["None (the display's rate)", '30 fps', '60 fps', '120 fps']);
+  await cap.selectOption('30');
+  await expect.poll(async () => (await settings())['frame_rate_cap']).toBe(30);
 
   // Saves: add the schema.
   await openProjectSettings(page, 'Saves');

@@ -24,7 +24,8 @@
 import { ID_RE } from './validate';
 import type { ModelErrorV2 } from './errors';
 import { projectInputMaps } from './input';
-import { SAVE_LIMITS } from './save-schema';
+import { frameRateCapOf } from './frame-rate-cap';
+import { SAVE_LIMITS, SETTINGS_ENGINE_BINDINGS, type SettingsEngineBinding } from './save-schema';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -139,7 +140,7 @@ export type UiAction =
   /** Raise a UI event to scripts (on the next input frame). */
   | { do: 'event'; name: string; value?: UiScalar | UiBinding }
   /** An engine action of the game shell (resume, quit to title, save, load, set a setting, …). */
-  | { do: 'engine'; action: UiEngineAction; screen?: 'title' | 'pause' | 'settings' | 'controls' | 'save' | 'load'; scene?: string; slot?: string; setting?: 'music' | 'sfx' | 'ui' | 'quality'; value?: number | string; step?: number; input?: string; device?: 'keyboardMouse' | 'gamepad'; index?: number; part?: 'negative' | 'positive' | 'up' | 'down' | 'left' | 'right'; policy?: 'swap' | 'refuse' | 'allow' }
+  | { do: 'engine'; action: UiEngineAction; screen?: 'title' | 'pause' | 'settings' | 'controls' | 'save' | 'load'; scene?: string; slot?: string; setting?: SettingsEngineBinding; value?: number | string; step?: number; input?: string; device?: 'keyboardMouse' | 'gamepad'; index?: number; part?: 'negative' | 'positive' | 'up' | 'down' | 'left' | 'right'; policy?: 'swap' | 'refuse' | 'allow' }
   /** Show / hide / toggle a UI document (through the input frame, so replays hold). */
   | { do: 'show' | 'hide' | 'toggle'; doc: string }
   /** Play a tween of this document (presentation only). */
@@ -548,9 +549,13 @@ function validateActions(errors: ModelErrorV2[], v: unknown, path: string, refs:
         oneOf(errors, a['action'], `${p}/action`, UI_ENGINE_ACTIONS, 'an engine action');
         if (a['action'] === undefined) err(errors, 'field_missing', `${p}/action`, 'an engine action names its action', undefined, UI_ENGINE_ACTIONS.join(' | '));
         oneOf(errors, a['slot'], `${p}/slot`, UI_SAVE_SLOTS, 'slot');
-        oneOf(errors, a['setting'], `${p}/setting`, ['music', 'sfx', 'ui', 'quality'], 'setting');
-        if (a['action'] === 'setSetting' && a['setting'] === undefined) err(errors, 'field_missing', `${p}/setting`, 'setSetting names its setting', undefined, 'music | sfx | ui | quality');
-        if (a['value'] !== undefined && !isNum(a['value'], 0, 1) && !(typeof a['value'] === 'string' && ['low', 'medium', 'high'].includes(a['value']))) err(errors, 'field_value', `${p}/value`, 'a setting value is 0–1 (a volume) or low, medium, high (quality)', a['value'], '0..1 | low | medium | high');
+        oneOf(errors, a['setting'], `${p}/setting`, SETTINGS_ENGINE_BINDINGS, 'setting');
+        if (a['action'] === 'setSetting' && a['setting'] === undefined) err(errors, 'field_missing', `${p}/setting`, 'setSetting names its setting', undefined, SETTINGS_ENGINE_BINDINGS.join(' | '));
+        if (a['value'] !== undefined) {
+          if (a['setting'] === 'frameRateCap') {
+            if (frameRateCapOf(a['value']) === undefined) err(errors, 'field_value', `${p}/value`, 'a frame-rate cap is 30, 60, 120 or none', a['value'], '30 | 60 | 120 | none');
+          } else if (!isNum(a['value'], 0, 1) && !(typeof a['value'] === 'string' && ['low', 'medium', 'high'].includes(a['value']))) err(errors, 'field_value', `${p}/value`, 'a setting value is 0–1 (a volume) or low, medium, high (quality)', a['value'], '0..1 | low | medium | high');
+        }
         if (a['step'] !== undefined && a['step'] !== 1 && a['step'] !== -1) err(errors, 'field_value', `${p}/step`, 'step is 1 or -1', a['step'], '1 | -1');
         break;
       }

@@ -26,11 +26,12 @@
  * - `thumbnail`: the size and format of a slot's optional picture of the view;
  * - `settings`: the fields of the project settings document the game's own
  *   settings screen writes (with defaults); a field may be bound to an engine
- *   setting (music/sfx/ui volume, quality) the host applies.
+ *   setting (music/sfx/ui volume, quality, the frame-rate cap) the host applies.
  *
  * Pure: no I/O.
  */
 import type { ModelErrorV2 } from './errors';
+import { FRAME_RATE_CAP_CHOICES } from './frame-rate-cap';
 import { utf8Encode } from './sha256';
 import { fieldType, unexpectedField, withFound } from './validate';
 
@@ -96,7 +97,7 @@ export const SAVE_SECTIONS = ['grid', 'materials', 'spawned', 'storage', 'enviro
 export type SaveSection = (typeof SAVE_SECTIONS)[number];
 
 /** Engine settings a settings field may drive (the host applies them). */
-export const SETTINGS_ENGINE_BINDINGS = ['music', 'sfx', 'ui', 'quality'] as const;
+export const SETTINGS_ENGINE_BINDINGS = ['music', 'sfx', 'ui', 'quality', 'frameRateCap'] as const;
 export type SettingsEngineBinding = (typeof SETTINGS_ENGINE_BINDINGS)[number];
 
 export interface SaveMigration {
@@ -125,7 +126,7 @@ export interface SettingsField {
   max?: number;
   /** enum: the choices. */
   values?: string[];
-  /** An engine setting this field drives (music/sfx/ui: a number 0–1; quality: an enum of low/medium/high). */
+  /** An engine setting this field drives (music/sfx/ui: a number 0–1; quality: an enum of low/medium/high; frameRateCap: an enum of 30/60/120/none). */
   engine?: SettingsEngineBinding;
 }
 
@@ -194,8 +195,10 @@ function validateField(f: unknown, path: string, errors: ModelErrorV2[]): void {
   } else if (f['values'] !== undefined) errors.push(bad(`${path}/values`, f['values'], 'values belong to an enum field', 'absent'));
   const engine = f['engine'];
   if (engine !== undefined) {
-    if (!(SETTINGS_ENGINE_BINDINGS as readonly unknown[]).includes(engine)) errors.push(bad(`${path}/engine`, engine, 'engine is one of music, sfx, ui, quality', SETTINGS_ENGINE_BINDINGS.join(' | ')));
-    else if (engine === 'quality') {
+    if (!(SETTINGS_ENGINE_BINDINGS as readonly unknown[]).includes(engine)) errors.push(bad(`${path}/engine`, engine, `engine is one of ${SETTINGS_ENGINE_BINDINGS.join(', ')}`, SETTINGS_ENGINE_BINDINGS.join(' | ')));
+    else if (engine === 'frameRateCap') {
+      if (type !== 'enum' || !Array.isArray(f['values']) || !f['values'].every((v) => (FRAME_RATE_CAP_CHOICES as readonly unknown[]).includes(v))) errors.push(bad(`${path}/engine`, engine, `a field driving the frame-rate cap is an enum of ${FRAME_RATE_CAP_CHOICES.join(', ')}`, `an enum of ${FRAME_RATE_CAP_CHOICES.join(' | ')}`));
+    } else if (engine === 'quality') {
       if (type !== 'enum' || !Array.isArray(f['values']) || !f['values'].every((v) => QUALITY.includes(v as string))) errors.push(bad(`${path}/engine`, engine, 'a field driving the quality is an enum of low, medium and/or high', 'an enum of low | medium | high'));
     } else if (type !== 'number' || (f['min'] !== undefined && (f['min'] as number) < 0) || (f['max'] !== undefined && (f['max'] as number) > 1)) {
       errors.push(bad(`${path}/engine`, engine, 'a field driving a volume is a number within 0–1', 'a number field (min ≥ 0, max ≤ 1)'));
@@ -314,7 +317,7 @@ export function settingsDocumentOf(fields: readonly SettingsField[], stored: unk
 
 /** A field with the implied 0–1 range of a volume binding. */
 export function effectiveField(f: SettingsField): SettingsField {
-  return f.engine !== undefined && f.engine !== 'quality' ? { ...f, min: f.min ?? 0, max: f.max ?? 1 } : f;
+  return f.engine === 'music' || f.engine === 'sfx' || f.engine === 'ui' ? { ...f, min: f.min ?? 0, max: f.max ?? 1 } : f;
 }
 
 /**

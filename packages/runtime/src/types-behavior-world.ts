@@ -156,8 +156,32 @@ export interface BehaviorStats {
   readonly entities: number;
   /** The quality level drawn: "low", "medium" or "high". */
   readonly quality: string;
+  /** The frame-rate cap the page draws under (30, 60 or 120 fps), or null for none (the display's rate). */
+  readonly frameRateCap: number | null;
   /** The window the times are measured over (ms). */
   readonly windowMs: number;
+}
+
+/**
+ * `ctx.display`: the frame-rate cap — the most frames per second the page
+ * draws, so a game that needs no more than 30 or 60 does not drain a phone's
+ * battery at the display's 120 Hz. Game time is unaffected (the simulation
+ * keeps its fixed step). Presentation, not simulation state: not in the
+ * digest or a save; a game keeps a player's choice in its settings document
+ * (a settings field bound to `frameRateCap`). Starts at the project's
+ * `frame_rate_cap` setting.
+ */
+export interface BehaviorDisplay {
+  /**
+   * The cap in frames per second (30, 60 or 120), or null for none (the display's rate).
+   * @graphNode Frame-rate cap
+   */
+  readonly frameRateCap: number | null;
+  /**
+   * Cap the frame rate at 30, 60 or 120 fps, or null (or 0) for none (the display's rate); false for any other value (nothing changes).
+   * @graphNode Set frame-rate cap
+   */
+  setFrameRateCap(fps: number | null): boolean;
 }
 
 export interface BehaviorUi {

@@ -278,6 +278,9 @@ export function runSimWorker(endpoint: SimEndpoint, deps: SimWorkerDeps): void {
       case 'setStats':
         rt.setStats?.(c.stats);
         break;
+      case 'setFrameRateCap':
+        rt.setFrameRateCap?.(c.fps);
+        break;
       case 'debugCommand':
         r = rt.queueDebugCommand?.(c.call) ?? { ok: false, error: { code: 'game_command_invalid', message: 'this runtime has no debug commands' } };
         break;

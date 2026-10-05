@@ -827,6 +827,11 @@ export function createGameHost(config: GameHostConfig): GameHost {
     ...(config.textureStreaming !== undefined ? { textureStreaming: config.textureStreaming } : {}),
     ...(config.resources !== undefined ? { resources: config.resources } : {}),
     worker: config.runtimeFactory !== undefined,
+    frameRateCap: () => {
+      const p = runtime?.framePacing?.();
+      if (p === undefined) return null;
+      return p.pinned !== undefined ? (p.pinned === 'none' ? null : p.pinned) : p.frameRateCap;
+    },
     published: (s) => {
       runtime?.setStats?.(s);
       statsOverlay?.update(s);
@@ -950,6 +955,8 @@ export function createGameHost(config: GameHostConfig): GameHost {
       },
       setVolume: (bus, value) => config.audio.setVolume?.(bus, value),
       setQuality: (q) => config.setQuality?.(q),
+      frameRateCap: () => rt.frameRateCap?.() ?? null,
+      setFrameRateCap: (fps) => void rt.setFrameRateCap?.(fps),
       ...(config.saveStorage !== undefined ? { storage: config.saveStorage } : {}),
       namespace: saveNamespace,
       prompts: promptsText,
@@ -1446,6 +1453,7 @@ export function createGameHost(config: GameHostConfig): GameHost {
         pictureWaits: () => adapter?.rendererStarting?.() === true,
         ...(config.setQuality !== undefined ? { setQuality: config.setQuality } : {}),
         ...(config.audio.setVolume !== undefined ? { setVolume: (bus: 'music' | 'sfx' | 'ui', v: number) => config.audio.setVolume?.(bus, v) } : {}),
+        setFrameRateCap: (fps) => void res.runtime.setFrameRateCap?.(fps),
         disposed: () => disposed,
       });
     }

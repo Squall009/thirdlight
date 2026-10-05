@@ -18,6 +18,8 @@ import { extname, join, normalize } from 'node:path';
 
 import { chromium, type Browser } from '@playwright/test';
 
+import { FRAME_RATE_CAP_URL_PARAM } from '@thirdlight/runtime';
+
 import { browserLaunchEnv, GPU_ARGS } from '../../tests/e2e/browser-env.mjs';
 import { installFrameProbe, probeGpuPasses, probeSceneCounts, probeSetGpuTiming, type GpuTimings, type SceneCounts } from './frame-probe';
 import { installPerfInstrumentation, readSample, startRecording, type PageSample } from './instrument';
@@ -28,6 +30,18 @@ import { histogram, summarize, type Summary } from './stats';
 export const FRAME_VIEWPORT = { width: 1920, height: 1080 } as const;
 /** No vsync and no frame-rate cap: the frame costs what it costs. */
 export const UNCAPPED_ARGS = ['--disable-gpu-vsync', '--disable-frame-rate-limit'];
+
+/**
+ * A measured page's URL with the game's own frame-rate cap pinned off
+ * (`?frameRateCap=none`; Play takes it from the editor's URL): the browser
+ * flags above lift the browser's cap, this one a game's. Pages without a
+ * game ignore it.
+ */
+export function uncappedUrl(url: string): string {
+  const hash = url.indexOf('#');
+  const [base, frag] = hash < 0 ? [url, ''] : [url.slice(0, hash), url.slice(hash)];
+  return `${base}${base.includes('?') ? '&' : '?'}${FRAME_RATE_CAP_URL_PARAM}=none${frag}`;
+}
 
 export type FrameRenderer = 'webgpu' | 'webgl2';
 
@@ -173,7 +187,7 @@ export async function measurePage(browser: Browser, opts: FrameRunOptions): Prom
     if (m.type() === 'error') errors.push(`console: ${m.text()}`.slice(0, 300));
   });
   try {
-    await page.goto(opts.url);
+    await page.goto(uncappedUrl(opts.url));
     const first = await page.waitForFunction(() => (window as unknown as { __tlPerf?: { firstDrawAt: number | null } }).__tlPerf?.firstDrawAt ?? null, null, { timeout: 180_000 }).then((h) => h.jsonValue() as Promise<number>);
     for (const st of opts.steps ?? []) {
       if ('wait' in st) await new Promise((r) => setTimeout(r, st.wait));

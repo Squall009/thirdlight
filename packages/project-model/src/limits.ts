@@ -22,7 +22,9 @@ export { EVENT_CUE_LIMITS } from './event-cues';
 export { MODE_LIMITS } from './modes';
 export { MAX_ANIMATOR_LAYERS } from './animator';
 export { MATERIAL_DATA_MAX } from './material-graph-kinds';
-export { SAVE_LIMITS, SCRIPT_SAVE_LIMITS } from './save-schema';
+export { SAVE_LIMITS, SCRIPT_SAVE_LIMITS, SETTINGS_ENGINE_BINDINGS } from './save-schema';
+// The frame-rate caps (the Saves panel's settings field and the UI action's choices).
+export { FRAME_RATE_CAP_CHOICES } from './frame-rate-cap';
 export { ENVIRONMENT_PRESET_LIMITS } from './environment-presets';
 export { MAX_TRANSITION_FADE, MAX_TRANSITION_UNLOADS } from './blocks';
 export { MAX_INPUT_ACTIONS, MAX_INPUT_BINDINGS } from './input';

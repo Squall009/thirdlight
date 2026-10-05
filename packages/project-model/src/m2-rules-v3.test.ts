@@ -297,6 +297,8 @@ describe('gameplay settings resolution', () => {
       'import_extract_textures',
       // The built-in stats overlay (0 off, 1 shown, 2 hidden until F3).
       'stats_overlay',
+      // The frame-rate cap (0 none, 30, 60, 120).
+      'frame_rate_cap',
     ]);
     // Every optional key the registry has may follow the six in a manifest, in registry order.
     expect([...M3_OPTIONAL_SETTINGS_KEYS]).toEqual(M2_SETTINGS_KEYS.filter((k) => k.optional === true).map((k) => k.key));

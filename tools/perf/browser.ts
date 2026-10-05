@@ -20,6 +20,7 @@ import type { PerfBackend } from './backend';
 import { installPerfInstrumentation, readSample, startRecording, type PageSample } from './instrument';
 import { measureEditorOps, type EditorOpsResult } from './editor-ops';
 import { summarize, type Summary } from './stats';
+import { uncappedUrl } from './frame-run';
 
 export type RendererName = 'legacy' | 'webgl2' | 'webgpu' | 'auto';
 
@@ -231,7 +232,7 @@ export async function measurePlay(browser: Browser, be: PerfBackend, projectId: 
   const notes: string[] = ['heap: the editor and the preview share one renderer process (same site), so the heap is editor + game'];
   const relay = async (path: string, body: unknown = {}) => be.post(`/api/v1/projects/${projectId}/play/${path}`, body);
   try {
-    await page.goto(`${be.origin}/?project=${projectId}&renderer=${renderer}${threads === 'off' ? '&threads=off' : ''}#token=${be.token}`);
+    await page.goto(uncappedUrl(`${be.origin}/?project=${projectId}&renderer=${renderer}${threads === 'off' ? '&threads=off' : ''}#token=${be.token}`));
     await page.locator('.tl-statusbar').filter({ hasText: 'connected' }).waitFor({ timeout: 120_000 });
     type Diag = { diagnostics?: { renderer?: { gpu?: { geometries: number; textures: number; programs: number } }; startTimings?: StartTimingsReport }; buildTimings?: Record<string, number> };
     /** Start a Play and wait for its first frame (the preview frame, its id, when it was clicked and answered). */
@@ -315,7 +316,7 @@ export async function measureExport(browser: Browser, exportDir: string, rendere
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
   try {
-    await page.goto(`${site.url}?renderer=${renderer}${threads === 'off' ? '&threads=off' : ''}`);
+    await page.goto(uncappedUrl(`${site.url}?renderer=${renderer}${threads === 'off' ? '&threads=off' : ''}`));
     const first = await poll(async () => page.evaluate(() => (window as unknown as { __tlPerf?: { firstDrawAt: number | null } }).__tlPerf?.firstDrawAt ?? null), (v) => v !== null, 180_000, 'the first export frame');
     // Start the run like a player (the fixed menu overlay: click by coordinates).
     const notes: string[] = [];
@@ -357,7 +358,7 @@ export async function measureEditor(
   const page = await context.newPage();
   try {
     const t0 = Date.now();
-    await page.goto(`${be.origin}/?project=${projectId}&renderer=${renderer}#token=${be.token}`);
+    await page.goto(uncappedUrl(`${be.origin}/?project=${projectId}&renderer=${renderer}#token=${be.token}`));
     await page.locator('.tl-statusbar').filter({ hasText: 'connected' }).waitFor({ timeout: 180_000 });
     const connectedMs = Date.now() - t0;
     const firstEpoch = await poll(async () => page.evaluate(() => (window as unknown as { __tlPerf?: { firstDrawEpoch: number | null } }).__tlPerf?.firstDrawEpoch ?? null), (v) => v !== null, 120_000, 'the first Scene view frame');
