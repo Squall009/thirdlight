@@ -13,9 +13,8 @@ import type { BakeLightInput, BakeMeshInput, BlockLayerView } from '@thirdlight/
 import type { ProjectedEntity } from '../session/projection';
 
 export interface BakeInputHost {
-  readonly scene: THREE.Scene;
   readonly projected: readonly ProjectedEntity[];
-  /** A box's or model's drawn object (its most detailed level when it has levels), null otherwise. */
+  /** A box's or model's drawn object (its most detailed level when it has levels), null otherwise; its meshes' world matrices are current. */
   rootOf(e: ProjectedEntity): THREE.Object3D | null;
   /** The node an entity is drawn at (a light's position and turn). */
   nodeOf(entityId: string): THREE.Object3D | undefined;
@@ -39,8 +38,8 @@ export interface BakeInputs {
   lights: (BakeLightInput & { entityId: string; mode: 'baked' | 'mixed' })[];
 }
 
+/** The objects' world matrices are current when this runs (the Scene view's adapter placed them). */
 export function gatherBakeInputs(host: BakeInputHost, entityIds: ReadonlySet<string>): BakeInputs {
-  host.scene.updateMatrixWorld(true);
   const targets: BakeTarget[] = [];
   const occluders: BakeMeshInput[] = [];
   const missingUv: string[] = [];
@@ -103,7 +102,6 @@ export function gatherBakeInputs(host: BakeInputHost, entityIds: ReadonlySet<str
   if (view !== null) {
     for (const id of layers) view.setLightmapUv(id, true);
     view.update();
-    host.scene.updateMatrixWorld(true);
     for (const id of layers) {
       for (const t of view.lightmapTargets(id)) {
         targets.push({ entityId: `${id}#${t.cx},${t.cz}`, meshes: t.meshes.map((m) => ({ geometry: m.geometry, matrixWorld: m.matrixWorld.clone() })), area: t.area, box: null, chunk: { entityId: id, cx: t.cx, cz: t.cz, layout: t.layout, side: t.side } });

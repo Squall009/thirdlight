@@ -267,12 +267,9 @@ export function createAutoBatcher(scene: THREE.Scene, options: AutoBatcherOption
     g.inst.dispose();
   };
 
-  const visit = (o: THREE.Object3D, camera: THREE.Camera): void => {
+  const visit = (o: THREE.Object3D): void => {
     // A batch draws (its members are what is grouped): no container of its own, so the scene holds only drawables.
     if (!o.visible || o.userData['tlBatch'] === true) return;
-    const lod = o as THREE.LOD;
-    // The level shown this frame (the renderer would pick the same one later in the frame).
-    if (lod.isLOD === true && lod.autoUpdate) lod.update(camera);
     const mesh = o as THREE.Mesh;
     if (mesh.isMesh === true && mesh.userData[BATCH_KEY] !== undefined) {
       const parts = batchKeyParts(mesh);
@@ -293,7 +290,7 @@ export function createAutoBatcher(scene: THREE.Scene, options: AutoBatcherOption
       }
     }
     const children = o.children;
-    for (let i = 0; i < children.length; i += 1) visit(children[i]!, camera);
+    for (let i = 0; i < children.length; i += 1) visit(children[i]!);
   };
 
   /** Copy member i's draw matrix into the instance array; true when it changed. */
@@ -323,12 +320,12 @@ export function createAutoBatcher(scene: THREE.Scene, options: AutoBatcherOption
       // The world matrices of this frame (also when off: a host may leave the renderer's own pass out,
       // `scene.matrixWorldAutoUpdate = false`, so the graph is not walked twice per frame).
       scene.updateMatrixWorld();
-      // A camera outside the scene (the editor's) is updated the way the renderer does it.
+      // A camera outside the scene (the view's) is updated the way the renderer does it.
       if (camera.parent === null && camera.matrixWorldAutoUpdate) camera.updateMatrixWorld();
       if (!enabled) return;
       pending.clear();
       single = 0;
-      visit(scene, camera);
+      visit(scene);
       const next = new Set<THREE.Mesh>();
       let batched = 0;
       for (const [key, p] of pending) {

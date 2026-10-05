@@ -152,7 +152,8 @@ will show it if they do).
 | 28c.1 | done 2026-10-04 — `tools/perf/run.mjs village` (class, export vs plain page, GPU passes, package split, `--ablation`), `tools/perf/games.sh`; the fast gate checks the class's frame time (+10 %, ~40 s, GPU hosts only). Before numbers below. |
 | 28c.2 | done 2026-10-04 — only drawables in the scene (`render-graph.ts`, world matrices in the runtime's `WorldMatrices`); class 9,725 → 5,066 Object3Ds (groups 2,605 → 166, bones 440 → 0; the rest is LOD, 28c.3), main thread 14.5 → 10.2 ms, mean 58 → 62 fps (p50 still 17.9 ms: the worker wait, 28c.6); Skyforge copy 8,629 → 5,311, main thread 13.8 → 12.3 ms, Sprout opens; pixels vs before: WebGPU mean 0.01, WebGL 2 mean 0.35 (0.44 % > 32, near the fires, unverified why). Baseline re-recorded. |
 | 28c.3 | done 2026-10-04 — only moved entities are composed and placed (the worker's frame carries the moved indices); an idle scene writes 0 matrices (`sceneGraph.matrixWrites`, e2e); LODs are data, our switch (`lod-switch.ts`, three's rule) attaches one level; a static mesh's child nodes hang beside it; hidden entities leave the scene. Class 5,066 → 1,382 Object3Ds (LOD 1,178 → 0, hidden 2,370 → 14, groups 166 → 16 = effect groups), main thread 10.2 → 7.5–8.2 ms, draws 1,016 → 904, frame mean unchanged (worker wait, 28c.6; baseline kept); Skyforge copy 5,311 → 897, main thread 12.3 → 10.0 ms, Sprout opens; pixels: mean ≤ 0.5 both renderers (fire flicker). |
-| 28c.4–28c.13 | — |
+| 28c.4 | done 2026-10-05 — the Scene view draws through `createSceneAdapter` (authoring source `scene-source.ts`; lights and shadows in `lights-shadows.ts`; the viewport's lighting, lightmap and placement code deleted; selection is an outline). Village class, Scene view (orbit, `run.mjs village --scene-view`): WebGPU 11.5 → 8.2 ms p50 (83.8 → 117.2 fps), WebGL 2 12.7 → 8.9 ms, 10,135 → 1,763 Object3Ds, main thread 11.9 → 8.4 ms; Play/export unchanged (WebGPU 62.7 → 64.4 fps, WebGL 2 63.1 → 66.6). Pixels Scene view vs Play (`scene-view-parity.e2e.ts`): mean 0.13, 0.19 % > 32, both renderers. |
+| 28c.5–28c.13 | — |
 
 Before (2026-10-04, `1c24eb23`, Skyforge village copy, Iris Xe, 1080p, DPR 1):
 
@@ -229,3 +230,23 @@ nothing measurable, and uniform buffers are the same in both pages. The rest of 
   - **Hiding** propagates down the table's parents; the drawable→entity map is the node's part list.
   - **Diagnostics:** Play's renderer block reports the scene's Object3Ds by kind (`sceneGraph`);
     `containers` (none of drawable, light, bone, LOD level) is the number that must be zero.
+- 2026-10-04, 28c.4 design (one render path), after reading the viewport's lighting, lightmap and model
+  code, the adapter and the runtime surface it reads:
+  - **The Scene view hosts `createSceneAdapter`**, driven by an authoring source (editor) answering what the
+    adapter reads: `sceneSet()` (each open scene a batch of entity documents, the stored components; block
+    cells keep the editor's incremental path), `forEachMoved`/`forEachInterpolated` (authored local
+    transforms), `readCameraView` (the orbit camera), `hiddenEntities` (inactive objects). The adapter's
+    `WorldMatrices` composes the worlds as in Play.
+  - **Edits mark rows:** a transform (a command landing, each gizmo frame, a timeline scrub) comes out of
+    `forEachMoved` for that entity only; a component edit hands over a new document object, and the adapter
+    re-realizes the changed entities of a batch whose list was replaced (Play's never are: no cost there).
+    Environment, bakes and quality are setters.
+  - **Lighting:** game = the scene's lights through the lights-and-shadows module (`lights-shadows.ts`, out
+    of `createSceneAdapter`; the Scene view gets realtime shadows); editor = a key/fill rig fed as documents
+    of its own instead of the scene's lights, no look, no lightmaps.
+  - **Picking, gizmo, bounds:** a ray against the listed drawables walks a hit's logical parents to its
+    `EntityNode` (the drawable→entity map); the gizmo moves a stand-in whose parent frame is the parent's
+    world matrix (its pose is the local transform); bounds, outlines and bake inputs read the entity node.
+  - **The viewport owns only overlays:** grid, gizmo, handles, icons, light ranges and arrows, fog boxes,
+    camera frustums, collider/trigger outlines, brush previews and a selection outline (no material tint).
+    Per-entity ones ride on the entity's node (`attachOverlay`: they move and hide with it).

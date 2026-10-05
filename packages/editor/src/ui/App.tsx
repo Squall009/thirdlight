@@ -34,7 +34,7 @@ import type { FieldContext } from './DescriptorFields';
 import { Gesture } from '../session/gesture';
 import { Viewport, type GizmoMode } from '../viewport/viewport';
 import { iconTableOf } from '../viewport/icons';
-import { ModelInstances } from '../viewport/model-instances';
+import { ModelFiles } from '../viewport/model-files';
 import { createSceneViewAssets } from '../viewport/scene-assets';
 import { extractedImagePictures, TileThumbnails } from '../viewport/thumbnails';
 import { setKtx2DecoderBase, pageSearch, resolveRendererPreference, type EnvironmentLike, type LightingBakeLike, type MaterialDefLike, type MaterialFunctionLike, type MaterialLibrary, type RendererInfo, type WindLike } from '@thirdlight/three-adapter';
@@ -192,7 +192,7 @@ function EditorApp(): JSX.Element {
   const instanceBrush = useInstanceBrush(selectedId);
   // The Scene view's helpers (Gizmos menu).
   // Collider outlines are off until asked for; the selection's are always drawn.
-  const [gizmos, setGizmos] = useState({ icons: true, lights: true, colliders: false, gameplay: true });
+  const [gizmos, setGizmos] = useState({ icons: true, lights: true, colliders: false, gameplay: true, grid: true });
   useEffect(() => viewportRef.current?.setGizmos(gizmos), [gizmos]);
   // Behind the Game view the Scene view draws nothing (Play is not paid for twice).
   useEffect(() => viewportRef.current?.setHidden(centerTab === 'game'), [centerTab]);
@@ -205,7 +205,7 @@ function EditorApp(): JSX.Element {
   const [snapSettings, setSnapSettingsState] = useState<SnapSettings>({ ...DEFAULT_SNAP_SETTINGS });
   const blocks = useBlockLayers({ clientRef, viewportRef, registry, cellTops: snapSettings.cellTops, reportFailure, setNotice, selectedId, select: setSelectedId });
   const { setBlockEditor, blockHandlersRef, writeFootprintRef, receive: receiveBlocks } = blocks;
-  const modelInstancesRef = useRef<ModelInstances | null>(null);
+  const modelFilesRef = useRef<ModelFiles | null>(null);
   const shiftRef = useRef(false);
   const snappingRef = useRef(true);
   useEffect(() => {
@@ -321,6 +321,24 @@ function EditorApp(): JSX.Element {
     viewportHostRef.current!.replaceChildren(canvas);
     const initialRenderer = resolveRendererPreference({ url: pageSearch() });
     setEditorRendererChoice(initialRenderer);
+    // What the Scene view loads from assets (models, textures, project materials), in one resource manager:
+    // its adapter draws the placements from it, the editor's panels read the same files through it.
+    // The resolver is the editor's authenticated byte read; the renderer never receives the token.
+    // A placement's file that failed and the editor's own reads that failed, together in Problems.
+    let viewFailed: ReadonlyMap<string, { code: string; message: string }> = new Map();
+    let filesFailed: ReadonlyMap<string, { code: string; message: string }> = new Map();
+    const showFailures = (): void => setViewFailures([...new Map([...filesFailed, ...viewFailed])].map(([id, f]) => ({ id, name: client.content.getAsset(id)?.displayName ?? id, code: f.code, message: f.message })));
+    const sceneAssets = createSceneViewAssets({
+      client,
+      changed: () => viewportRef.current?.materialsChanged(),
+      // What the Scene view holds from assets now (tests read it).
+      onResources: (r) => viewportHostRef.current?.setAttribute('data-resources', JSON.stringify(r.resident)),
+      onSetBuilt: (entityId, chunks) => setInstanceChunks((prev) => (prev[entityId] === chunks ? prev : { ...prev, [entityId]: chunks })),
+      onFailuresChanged: (failures) => {
+        filesFailed = new Map(failures);
+        showFailures();
+      },
+    });
     const viewport = new Viewport(canvas, {
       onPick: (id) => {
         setSelectedId(id);
@@ -392,7 +410,11 @@ function EditorApp(): JSX.Element {
       onCopyTransform: (entityId, index, t) => void editCopiesRef.current.transform(entityId, index, t),
       onBrushStroke: (entityId, stroke) => editCopiesRef.current.paint(entityId, stroke),
       onRendererChange: (info) => setSceneRenderer(info),
-    }, { snapping: () => snappingRef.current && !shiftRef.current, renderer: initialRenderer });
+      onModelFailures: (failures) => {
+        viewFailed = failures;
+        showFailures();
+      },
+    }, { assets: sceneAssets, snapping: () => snappingRef.current && !shiftRef.current, renderer: initialRenderer });
     setSceneRenderer(viewport.rendererInfo());
     viewportRef.current = viewport;
     viewport.setHidden(workspaceRef.current.view === 'game');
@@ -412,27 +434,10 @@ function EditorApp(): JSX.Element {
     });
     setBlockEditor(blockEd);
     setSnapSettingsState(loadSnapSettings(typeof window !== 'undefined' ? window.localStorage : null, config.projectId));
-    // One shared GLB realization path for placements + preview. The
-    // resolver is the editor's authenticated byte read; the renderer never
-    // receives the token.
-    // Project materials (shared by boxes, models and instance sets).
-    const sceneAssets = createSceneViewAssets({
-      client,
-      viewport,
-      // What the Scene view holds from assets now (tests read it).
-      onResources: (r) => viewportHostRef.current?.setAttribute('data-resources', JSON.stringify(r.resident)),
-      onSetBuilt: (entityId, chunks) => setInstanceChunks((prev) => (prev[entityId] === chunks ? prev : { ...prev, [entityId]: chunks })),
-      onFailuresChanged: (failures) =>
-        setViewFailures([...failures].map(([id, f]) => ({ id, name: client.content.getAsset(id)?.displayName ?? id, code: f.code, message: f.message }))),
-    });
-    const { loadTexture: loadTextureAsset, materialLibrary, models } = sceneAssets;
+    const { loadTexture: loadTextureAsset, materialLibrary, files } = sceneAssets;
     loadTextureRef.current = loadTextureAsset;
-    // Spot light cookies, the environment and lightmaps: held in the Scene view's manager with its models and materials.
-    viewport.setTextureSource(loadTextureAsset, sceneAssets.resources);
     materialLibraryRef.current = materialLibrary;
-    viewport.setMaterialLibrary(materialLibrary);
-    viewport.setModelInstances(models);
-    modelInstancesRef.current = models;
+    modelFilesRef.current = files;
     const thumbnails = new TileThumbnails({
       read: (digest, piece, make) => client.thumbnail(digest, piece, make),
       store: (digest, piece, png) => client.storeThumbnail(digest, piece, png),
@@ -452,6 +457,8 @@ function EditorApp(): JSX.Element {
         // Conversations read by id (a tab opened, a preview's jumps).
         content.setDialogues(client.getDialogues());
       }
+      // An asset's facts changed (a reimport, its vertex colours or default materials): its placements are drawn again.
+      viewport.assetsChanged();
     });
     viewport.resize();
     void client.connect();
@@ -466,10 +473,11 @@ function EditorApp(): JSX.Element {
       client.dispose();
       thumbnails.dispose();
       setTileThumbnails(null);
+      // The view first: its adapter lets go of what it holds in the assets' manager.
+      viewport.dispose();
       sceneAssets.dispose();
       materialLibraryRef.current = null;
-      viewport.dispose();
-      modelInstancesRef.current = null;
+      modelFilesRef.current = null;
       assets.assetPreview.forget();
       clientRef.current = null;
       viewportRef.current = null;
@@ -480,7 +488,7 @@ function EditorApp(): JSX.Element {
   // A changed project chunk size rebuilds the instance sets that use it.
   const instanceChunkSetting = settings?.['instance_chunk_m'];
   useEffect(() => {
-    modelInstancesRef.current?.refreshSets();
+    viewportRef.current?.setInstanceChunkSize(typeof instanceChunkSetting === 'number' && instanceChunkSetting > 0 ? instanceChunkSetting : undefined);
   }, [instanceChunkSetting]);
 
   // The project's render_backend setting (under the page's ?renderer= flag) picks the
@@ -598,7 +606,7 @@ function EditorApp(): JSX.Element {
   }, []);
 
   const sceneView = useSceneViewLending(viewportHostRef, viewportRef);
-  const sceneEditing = useSceneEditing({ clientRef, viewportRef, modelInstancesRef, selectedIdRef, selectionRef, setSelectedId, selectLater, setSelectedCopy, setNotice, reportFailure, registry, refreshEntities });
+  const sceneEditing = useSceneEditing({ clientRef, viewportRef, modelFilesRef, selectedIdRef, selectionRef, setSelectedId, selectLater, setSelectedCopy, setNotice, reportFailure, registry, refreshEntities });
   const { editCopiesRef, rename, move, sceneAction } = sceneEditing;
   useEditorShortcuts({ viewportRef, gestureRef, shiftRef, workspaceRef, blockHandlersRef, selectedIdRef, setSelectedId, setGizmoMode, scene: sceneEditing });
 
@@ -610,7 +618,7 @@ function EditorApp(): JSX.Element {
   }, [refreshEntities]);
 
   const cue = useCuePreview(clientRef);
-  const entityEditing = useEntityEditing({ clientRef, viewportRef, modelInstancesRef, refreshEntities, reportFailure, setNotice, registry, entities, selectedId });
+  const entityEditing = useEntityEditing({ clientRef, viewportRef, modelFilesRef, refreshEntities, reportFailure, setNotice, registry, entities, selectedId });
   const prefab = usePrefabAuthoring({ clientRef, selectedIdRef, declarations: content.declarations, runTypedCommand: entityEditing.runTypedCommand, setNotice });
   /** An item chosen in the project window since the last selection: the Inspector shows it. */
   const [inspectedItem, setInspectedItem] = useState<ProjectItem | null>(null);
@@ -641,7 +649,7 @@ function EditorApp(): JSX.Element {
 
   const assets = useAssetsWindow({
     clientRef,
-    modelInstancesRef,
+    modelFilesRef,
     refreshEntities,
     reportFailure,
     checkFiles: fileCheck.checkFiles,
@@ -663,7 +671,7 @@ function EditorApp(): JSX.Element {
   const assetActions = useAssetActions({
     clientRef,
     viewportRef,
-    modelInstancesRef,
+    modelFilesRef,
     selectedAssetId: assets.selectedAssetId,
     selectedAssetIdRef: assets.selectedAssetIdRef,
     setSelectedAssetId: assets.setSelectedAssetId,
@@ -692,7 +700,7 @@ function EditorApp(): JSX.Element {
     }
   }, [ui.connection, ui.error]);
 
-  const animatorTools = useAnimatorTools({ clientRef, modelInstancesRef, reportFailure, animators, openDocument, sendGraphEdit: docCmds.sendGraphEdit });
+  const animatorTools = useAnimatorTools({ clientRef, modelFilesRef, reportFailure, animators, openDocument, sendGraphEdit: docCmds.sendGraphEdit });
   const { modelNodesOf } = animatorTools;
   // New items, renames and deletes in the project window and the Inspector.
   const items = useItemActions({
@@ -839,7 +847,7 @@ function EditorApp(): JSX.Element {
   const { sceneId: _selectedScene, ...gameFieldContext } = fieldContext;
   const workspaceHost = workspaceHostOf({
     clientRef,
-    modelInstancesRef,
+    modelFilesRef,
     loadTextureRef,
     projectId: cfg.current.config.projectId,
     content,

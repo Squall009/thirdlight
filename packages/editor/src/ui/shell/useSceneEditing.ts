@@ -17,7 +17,7 @@ import type { ClientRef, ModelsRef, ReportFailure, SetNotice, ViewportRef } from
 export interface SceneEditingDeps {
   clientRef: ClientRef;
   viewportRef: ViewportRef;
-  modelInstancesRef: ModelsRef;
+  modelFilesRef: ModelsRef;
   selectedIdRef: MutableRefObject<string | null>;
   selectionRef: MutableRefObject<string[]>;
   setSelectedId: (id: string | null) => void;
@@ -31,7 +31,7 @@ export interface SceneEditingDeps {
 }
 
 export function useSceneEditing(deps: SceneEditingDeps) {
-  const { clientRef, viewportRef, modelInstancesRef, selectedIdRef, selectionRef, setSelectedId, selectLater, setSelectedCopy, setNotice, reportFailure, registry, refreshEntities } = deps;
+  const { clientRef, viewportRef, modelFilesRef, selectedIdRef, selectionRef, setSelectedId, selectLater, setSelectedCopy, setNotice, reportFailure, registry, refreshEntities } = deps;
   // ---- toolbar actions (all delegated to the backend) ---------------------
   const newBox = useCallback(async () => {
     const c = clientRef.current;
@@ -163,7 +163,7 @@ export function useSceneEditing(deps: SceneEditingDeps) {
     const c = clientRef.current;
     const inst = c?.projection.getEntity(entityId)?.instances;
     if (!c || inst === undefined) return false;
-    const floats = modelInstancesRef.current?.instanceBuffer(inst.buffer) ?? (await c.instanceBufferBytes(inst.buffer).catch(() => null));
+    const floats = viewportRef.current?.instanceBuffer(inst.buffer) ?? (await c.instanceBufferBytes(inst.buffer).catch(() => null));
     if (floats === null) {
       setNotice(`${what} failed: the copies are not loaded yet`);
       return false;

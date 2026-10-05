@@ -10,7 +10,7 @@ import { useEffect, useState, type RefObject } from 'react';
 
 import type { AssetView } from '../../session/content-projection';
 import type { SessionClient } from '../../session/client';
-import type { ModelInstances } from '../../viewport/model-instances';
+import type { ModelFiles } from '../../viewport/model-files';
 
 export interface SelectedAsset {
   readonly summary: AssetView | null;
@@ -20,7 +20,7 @@ export interface SelectedAsset {
   readonly sourceMaterials: string[];
 }
 
-export function useSelectedAsset(clientRef: RefObject<SessionClient | null>, modelsRef: RefObject<ModelInstances | null>, assetId: string | null, catalogTick: number): SelectedAsset {
+export function useSelectedAsset(clientRef: RefObject<SessionClient | null>, modelsRef: RefObject<ModelFiles | null>, assetId: string | null, catalogTick: number): SelectedAsset {
   const [pieces, setPieces] = useState<SelectedAsset['pieces']>(null);
   const [sourceMaterials, setSourceMaterials] = useState<string[]>([]);
   const c = clientRef.current;

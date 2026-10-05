@@ -97,7 +97,8 @@ export interface BlockEditorCallbacks {
 }
 
 export interface BlockEditorHost {
-  readonly scene: THREE.Scene;
+  /** Where the tools add their previews (the Scene view's overlay group). */
+  readonly scene: THREE.Object3D;
   readonly camera: THREE.Camera;
   readonly canvas: HTMLCanvasElement;
   requestRender(): void;

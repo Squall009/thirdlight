@@ -14,7 +14,7 @@ import { refusal, type ClientRef, type ModelsRef, type ReportFailure } from './c
 
 export interface AnimatorToolsDeps {
   clientRef: ClientRef;
-  modelInstancesRef: ModelsRef;
+  modelFilesRef: ModelsRef;
   reportFailure: ReportFailure;
   animators: AnimatorController[];
   openDocument: (kind: string, id: string) => void;
@@ -22,13 +22,13 @@ export interface AnimatorToolsDeps {
 }
 
 export function useAnimatorTools(deps: AnimatorToolsDeps) {
-  const { clientRef, modelInstancesRef, reportFailure, animators, openDocument, sendGraphEdit } = deps;
+  const { clientRef, modelFilesRef, reportFailure, animators, openDocument, sendGraphEdit } = deps;
   const [animatorError, setAnimatorError] = useState<string | null>(null);
   // The Animator's live preview — the controller's model realized under the
   // preview pane's stage, posed every pane frame by the runtime's state machine.
   const previewAnimator = useCallback(async (controller: AnimatorController, parent: THREE.Object3D): Promise<AnimatorPreview | string> => {
     const c = clientRef.current;
-    const m = modelInstancesRef.current;
+    const m = modelFilesRef.current;
     if (!c || !m) return 'the editor is not ready';
     // The model the clips are for: the first clip's asset, or the rig of an animation-only asset.
     const clipAssets = new Set<string>();
@@ -85,7 +85,7 @@ export function useAnimatorTools(deps: AnimatorToolsDeps) {
         if (m.previewSession() === res.session) m.clearPreview();
       },
     };
-  }, [clientRef, modelInstancesRef]);
+  }, [clientRef, modelFilesRef]);
   const saveAnimator = useCallback(async (controller: AnimatorController) => {
     const c = clientRef.current;
     if (!c) return;
@@ -97,9 +97,9 @@ export function useAnimatorTools(deps: AnimatorToolsDeps) {
     setAnimatorError(refusal(await c.command('deleteAnimator', { controllerId }, c.projection.revision)));
   }, [clientRef]);
   const clipsOf = useCallback(async (assetId: string) => {
-    const r = await modelInstancesRef.current?.prepared(assetId);
+    const r = await modelFilesRef.current?.prepared(assetId);
     return (r?.clips ?? []).map((x) => ({ name: x.name, duration: x.durationSeconds }));
-  }, [modelInstancesRef]);
+  }, [modelFilesRef]);
   // A model's skeleton (the Animator's bone mask picker).
   // The node names of the models socket targets carry (the Inspector's node list), read once per version.
   const [modelNodeNames, setModelNodeNames] = useState<Readonly<Record<string, readonly string[] | 'failed'>>>({});
@@ -114,16 +114,16 @@ export function useAnimatorTools(deps: AnimatorToolsDeps) {
       if (have !== undefined) return have;
       if (!modelNodeLoads.current.has(key)) {
         modelNodeLoads.current.add(key);
-        void (modelInstancesRef.current?.nodeNames(assetId) ?? Promise.resolve(null)).then((names) => setModelNodeNames((m) => ({ ...m, [key]: names ?? 'failed' })));
+        void (modelFilesRef.current?.nodeNames(assetId) ?? Promise.resolve(null)).then((names) => setModelNodeNames((m) => ({ ...m, [key]: names ?? 'failed' })));
       }
       return null;
     },
-    [clientRef, modelInstancesRef, modelNodeNames],
+    [clientRef, modelFilesRef, modelNodeNames],
   );
   const skeletonOf = useCallback(async (assetId: string) => {
-    const r = await modelInstancesRef.current?.prepared(assetId);
+    const r = await modelFilesRef.current?.prepared(assetId);
     return r === null || r === undefined ? [] : r.skeleton().map((b) => ({ name: b.name, parent: b.parent, depth: b.depth }));
-  }, [modelInstancesRef]);
+  }, [modelFilesRef]);
   // Mark an animation-only file as clips for another model's rig (null clears it).
   const setAssetClipsFor = useCallback(async (assetId: string, rig: string | null) => {
     const c = clientRef.current;
@@ -132,7 +132,7 @@ export function useAnimatorTools(deps: AnimatorToolsDeps) {
   }, [clientRef, reportFailure]);
   /** The animated bones of `clipAssetId`'s clips that the rig `rigAssetId` does not have. */
   const missingBones = useCallback(async (clipAssetId: string, rigAssetId: string): Promise<string[] | null> => {
-    const m = modelInstancesRef.current;
+    const m = modelFilesRef.current;
     if (!m) return null;
     const [clipsRes, rigRes] = await Promise.all([m.prepared(clipAssetId), m.prepared(rigAssetId)]);
     if (clipsRes === null || rigRes === null) return null;
@@ -148,7 +148,7 @@ export function useAnimatorTools(deps: AnimatorToolsDeps) {
       }
     }
     return [...wanted].filter((n) => n !== '' && !have.has(n)).sort();
-  }, [modelInstancesRef]);
+  }, [modelFilesRef]);
   const animatorProps: AnimatorControllersProps = {
     controllers: animators,
     clipsOf,

@@ -3,41 +3,53 @@
  * same manager a game page holds its resources in (`@thirdlight/runtime`).
  *
  * The model files the placements show are held by the objects that show them
- * and the decoded textures by the materials that draw with them; when the
- * editor opens another scene, the objects of the one before let go and what
- * no object of the new scene holds is freed (a model both scenes use stays).
- * The frees run in a task after the change, once the view's objects for the
- * new scene took their holds.
+ * (the scene adapter's realization, as in Play) and the decoded textures by
+ * the materials that draw with them; when the editor opens another scene, the
+ * objects of the one before let go and what no object of the new scene holds
+ * is freed (a model both scenes use stays). The frees run in a task after the
+ * change, once the view's objects for the new scene took their holds. The
+ * editor's own reads (a file's pieces, a thumbnail, a preview) go through
+ * the same manager, so a file is parsed once whoever asks.
  *
  * The authoring token never reaches the renderer: the bytes come through the
  * session client's authenticated reads.
  */
 import * as THREE from 'three';
 import { createResourceManager, type ResourceManager, type ResourceObservation } from '@thirdlight/runtime';
-import { createMaterialLibrary, decodeTexture, isKtx2, type MaterialLibrary } from '@thirdlight/three-adapter';
+import { createMaterialLibrary, decodeTexture, isKtx2, type MaterialLibrary, type SceneAdapterModelAsset, type SceneAdapterModels } from '@thirdlight/three-adapter';
 
 import type { SessionClient } from '../session/client';
-import { ModelInstances } from './model-instances';
-import type { Viewport } from './viewport';
+import { ModelFiles } from './model-files';
 
 export interface SceneViewAssets {
   readonly resources: ResourceManager;
   /** A texture asset's current version, decoded (lights' cookies, the environment, lightmaps). */
   readonly loadTexture: (assetId: string) => Promise<THREE.Texture | null>;
   readonly materialLibrary: MaterialLibrary;
-  readonly models: ModelInstances;
+  /** The model rows and bytes the scene adapter realizes placements from (rows follow reimports). */
+  readonly models: SceneAdapterModels;
+  /** The editor's own reads of model files (pieces, colliders, thumbnails, previews). */
+  readonly files: ModelFiles;
+  /** What decides how an asset's placements are drawn (its version, vertex colours, default materials, images). */
+  assetKey(assetId: string): string;
+  /** Report what is resident now (a model or texture arrived). */
+  report(): void;
   dispose(): void;
 }
 
+/** A copy of exactly these bytes (the adapter keeps what it is handed). */
+const ownBuffer = (b: ArrayBufferView): ArrayBuffer => b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength) as ArrayBuffer;
+
 export function createSceneViewAssets(o: {
   readonly client: SessionClient;
-  readonly viewport: Viewport;
+  /** Something the Scene view draws changed (a material's texture arrived, a preview attached). */
+  readonly changed: () => void;
   /** What is resident after each settle, load or change (the view shows it as `data-resources`). */
   readonly onResources?: (observation: ResourceObservation) => void;
   readonly onSetBuilt?: (entityId: string, chunks: number) => void;
   readonly onFailuresChanged?: (failures: ReadonlyMap<string, { code: string; message: string }>) => void;
 }): SceneViewAssets {
-  const { client, viewport } = o;
+  const { client } = o;
   const report = (): void => o.onResources?.(resources.observe());
   const resources = createResourceManager({
     schedule: (settle) =>
@@ -64,11 +76,46 @@ export function createSceneViewAssets(o: {
     loadTexture,
     resources,
     onChange: () => {
-      viewport.requestRender();
+      o.changed();
       report();
     },
   });
-  const models = new ModelInstances(viewport.scene, {
+  /** A model asset's row as the adapter reads it (one object per version, so it compares equal while nothing changed). */
+  const rows = new Map<string, SceneAdapterModelAsset>();
+  const rowOf = (assetId: string): SceneAdapterModelAsset | undefined => {
+    const v = client.content.resolveVersion(assetId);
+    if (v === null || !/^[0-9a-f]{64}$/.test(v.sourceDigest)) return undefined;
+    const a = client.content.getAsset(assetId);
+    const key = `${assetId}@${v.version}`;
+    const hit = rows.get(key);
+    if (hit !== undefined && hit.materials === a?.materials && hit.textures === a?.textures && hit.vertexColors === (a?.vertexColors === 'tint' ? 'tint' : undefined) && hit.clipsFor === a?.clipsFor) return hit;
+    const row: SceneAdapterModelAsset = {
+      assetId,
+      version: v.version,
+      sourceDigest: v.sourceDigest,
+      ...(a?.vertexColors === 'tint' ? { vertexColors: 'tint' as const } : {}),
+      ...(a?.materials !== undefined ? { materials: a.materials } : {}),
+      ...(a?.clipsFor !== undefined ? { clipsFor: a.clipsFor } : {}),
+      ...(a?.textures !== undefined ? { textures: a.textures } : {}),
+    };
+    rows.set(key, row);
+    return row;
+  };
+  const models: SceneAdapterModels = {
+    assets: [],
+    animation: [],
+    liveRows: true,
+    rowOf,
+    findRow: async (assetId) => {
+      await client.catalog.ensureAssets([assetId]);
+      return rowOf(assetId);
+    },
+    resolveBytes: async (assetId, version) => ownBuffer(await client.assetBytes(assetId, version)),
+    resolveBuffer: async (digest) => ownBuffer(await client.instanceBufferBytes(digest)),
+    loadTexture,
+    ...(o.onSetBuilt !== undefined ? { onInstanceSetBuilt: o.onSetBuilt } : {}),
+  };
+  const files = new ModelFiles({
     resolve: client.assetByteResolver(),
     resources,
     descriptorFor: (assetId) => {
@@ -78,23 +125,11 @@ export function createSceneViewAssets(o: {
     },
     ensureDescriptor: (assetId) => client.catalog.ensureAssets([assetId]),
     onChanged: () => {
-      viewport.refreshLightmaps();
-      viewport.requestRender();
+      o.changed();
       report();
     },
-    parentFor: (entityId) => viewport.objectFor(entityId),
-    resolveBuffer: (digest) => client.instanceBufferBytes(digest),
-    vertexColorsFor: (assetId) => (client.content.getAsset(assetId)?.vertexColors === 'tint' ? 'tint' : 'data'),
-    materialLibrary,
-    assetMaterialsFor: (assetId) => client.content.getAsset(assetId)?.materials ?? null,
     loadTexture,
     assetTexturesFor: (assetId) => client.content.getAsset(assetId)?.textures ?? null,
-    // The project's instance chunk size; the Inspector shows each set's chunk count.
-    instanceChunkSize: () => {
-      const v = client.getSettings()?.['instance_chunk_m'];
-      return typeof v === 'number' && v > 0 ? v : undefined;
-    },
-    ...(o.onSetBuilt !== undefined ? { onSetBuilt: o.onSetBuilt } : {}),
     ...(o.onFailuresChanged !== undefined ? { onFailuresChanged: o.onFailuresChanged } : {}),
   });
   return {
@@ -102,9 +137,15 @@ export function createSceneViewAssets(o: {
     loadTexture,
     materialLibrary,
     models,
+    files,
+    assetKey: (assetId) => {
+      const row = rowOf(assetId);
+      return row === undefined ? '' : JSON.stringify([row.version, row.vertexColors ?? null, row.materials ?? null, row.textures ?? null, row.clipsFor ?? null]);
+    },
+    report,
     dispose() {
       materialLibrary.dispose();
-      models.dispose();
+      files.dispose();
       resources.dispose();
     },
   };

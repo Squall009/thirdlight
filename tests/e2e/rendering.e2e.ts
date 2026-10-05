@@ -135,11 +135,14 @@ test('repeated boxes are drawn instanced in the Scene view and Play; picking wor
   expect(sync.entities).toBeGreaterThan(BOXES);
 
   // Picking a batched box: a click on the view's middle (the field is framed around the centre box).
+  const batchedBefore = (await attr(page, 'data-batches')).split(' ').map(Number)[1] ?? 0;
   const box = (await view.boundingBox())!;
   await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
   await expect(page.locator('.tl-hierarchy__list li.tl-row[aria-selected="true"]').first()).toContainText('centre', { timeout: 15_000 });
-  // The selected box wears the highlighted twin of its material: it leaves its group, the rest stay instanced.
-  await expect.poll(async () => (await attr(page, 'data-batches')).split(' ').map(Number)[2] ?? 0, { timeout: 15_000 }).toBeGreaterThanOrEqual(1);
+  // The selection is an outline drawn over it (no material copy): the selected box stays in its batch.
+  const centre = listed.find((e) => e.name === 'centre')!.id;
+  await expect(view).toHaveAttribute('data-selection-outline', centre, { timeout: 15_000 });
+  await expect.poll(async () => (await attr(page, 'data-batches')).split(' ').map(Number)[1] ?? 0, { timeout: 15_000 }).toBe(batchedBefore);
 
   // A logic-only parent with a box below it, and an empty marker: only the box is drawn in Play.
   const parent = String((await command('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'holder', transform: { position: [0, 3, 0] } }))['createdId']);

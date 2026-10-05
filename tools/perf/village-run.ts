@@ -9,6 +9,8 @@
  *   --project <folder>           measure a copy of a game project instead of the village (never the game's own folder:
  *                                the backend writes into what it registers); --steps '<json>' reaches its view
  *   --no-bare                    skip the plain three.js page
+ *   --scene-view                 also measure the editor's Scene view on the same content (scene-view-run.ts),
+ *                                orbiting the editor's opening view; --no-export skips the export
  *   --ablation                   the per-draw ablation on the plain page: + 16 dark point lights, + per-object
  *                                material copies, + the engine's node materials (each alone)
  *   --gate                       the fast gate's check: frames only (no GPU passes, profile or plain page)
@@ -29,6 +31,7 @@ import * as esbuild from 'esbuild';
 
 import { PERF_ROOT, REPO, startPerfBackend } from './backend';
 import { launchGpuBrowser, measurePage, serveStatic, sourcesOf, type FrameRenderer, type FrameRunResult, type PageStep } from './frame-run';
+import { measureSceneView, sceneViewLine, type SceneViewResult } from './scene-view-run';
 import { buildVillage, VILLAGE_SEED, VILLAGE_VERSION, type VillageBuild } from './village';
 
 /** A frame time worse than the baseline by more than this fraction fails the check. */
@@ -52,6 +55,8 @@ export interface VillageReport {
   subject: { name: string; version?: number; seed?: number; build?: VillageBuild; exportMs?: number };
   export: Partial<Record<FrameRenderer, FrameRunResult>>;
   bare: Partial<Record<BareVariant, Partial<Record<FrameRenderer, FrameRunResult>>>>;
+  /** The editor's Scene view on the same content (`--scene-view`). */
+  sceneView?: Partial<Record<FrameRenderer, SceneViewResult>>;
   errors: string[];
 }
 
@@ -130,7 +135,9 @@ export async function runVillageCli(argv: readonly string[]): Promise<void> {
   const profileMs = gate ? 0 : Number(get('profile-ms') ?? 5000);
   const projectFolder = get('project');
   const steps = JSON.parse(get('steps') ?? '[]') as PageStep[];
-  const bare = !gate && !has('no-bare');
+  const sceneView = !gate && has('scene-view');
+  const exporting = !has('no-export');
+  const bare = !gate && exporting && !has('no-bare');
   const ablation = !gate && has('ablation');
 
   const startedAt = new Date().toISOString();
@@ -159,7 +166,7 @@ export async function runVillageCli(argv: readonly string[]): Promise<void> {
 
   // ---- the export -------------------------------------------------------------------
   const be = await startPerfBackend(join(runDir, 'data'), join(runDir, 'exports'));
-  let exportDir: string;
+  let exportDir: string | null = null;
   try {
     let projectId = 'village';
     if (projectFolder === undefined) {
@@ -170,11 +177,25 @@ export async function runVillageCli(argv: readonly string[]): Promise<void> {
       if (typeof reg.json['projectId'] !== 'string') throw new Error(`register failed: ${JSON.stringify(reg.json).slice(0, 400)}`);
       projectId = reg.json['projectId'];
     }
-    const t = performance.now();
-    const res = await be.post(`/api/v1/admin/projects/${projectId}/export`, {});
-    if (res.status !== 200) throw new Error(`export failed: ${JSON.stringify(res.json).slice(0, 400)}`);
-    report.subject.exportMs = Math.round(performance.now() - t);
-    exportDir = join(be.exportRoot, String(res.json['outputDir']));
+    if (sceneView) {
+      const browser = await launchGpuBrowser();
+      try {
+        for (const r of renderers) {
+          const res = await measureSceneView(browser, be, projectId, r, { warmupMs, recordMs, shot: join(runDir, `scene-view-${r}.png`) });
+          (report.sceneView ??= {})[r] = res;
+          log(sceneViewLine(`scene view ${r}`, res));
+        }
+      } finally {
+        await browser.close();
+      }
+    }
+    if (exporting) {
+      const t = performance.now();
+      const res = await be.post(`/api/v1/admin/projects/${projectId}/export`, {});
+      if (res.status !== 200) throw new Error(`export failed: ${JSON.stringify(res.json).slice(0, 400)}`);
+      report.subject.exportMs = Math.round(performance.now() - t);
+      exportDir = join(be.exportRoot, String(res.json['outputDir']));
+    }
   } finally {
     await be.stop();
   }
@@ -183,15 +204,15 @@ export async function runVillageCli(argv: readonly string[]): Promise<void> {
   const dumpDir = join(runDir, 'dump');
   try {
     report.machine.gpu = await gpuName(browser);
-    const site = await serveStatic(exportDir, {}, dumpDir);
+    const site = exportDir === null ? null : await serveStatic(exportDir, {}, dumpDir);
     try {
-      for (const [i, r] of renderers.entries()) {
-        const res = await measurePage(browser, { url: `${site.url}?renderer=${r}`, warmupMs, recordMs, gpuMs, profileMs, steps, sourceOf: sourcesOf(site), dump: bare && i === 0, shot: join(runDir, `export-${r}.png`) });
+      for (const [i, r] of (site === null ? [] : renderers).entries()) {
+        const res = await measurePage(browser, { url: `${site!.url}?renderer=${r}`, warmupMs, recordMs, gpuMs, profileMs, steps, sourceOf: sourcesOf(site!), dump: bare && i === 0, shot: join(runDir, `export-${r}.png`) });
         report.export[r] = res;
         log(frameLine(`export ${r}`, res));
       }
     } finally {
-      await site.close();
+      await site?.close();
     }
     if (bare) {
       const dumped = report.export[renderers[0]!]?.dump;

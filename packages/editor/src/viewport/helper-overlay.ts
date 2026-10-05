@@ -86,7 +86,7 @@ export class HelperOverlay {
     this.canvas = canvas;
   }
 
-  constructor(scene: THREE.Scene, camera: THREE.PerspectiveCamera, canvas: HTMLCanvasElement) {
+  constructor(scene: THREE.Object3D, camera: THREE.PerspectiveCamera, canvas: HTMLCanvasElement) {
     this.camera = camera;
     this.canvas = canvas;
     this.root = new THREE.Group();

@@ -115,6 +115,26 @@ export function layerEnvironment<T extends EnvironmentLike & { readonly wind?: u
 export function environmentHasLook(env: { readonly sky?: unknown; readonly fog?: unknown; readonly post?: unknown; readonly quality?: unknown; readonly wind?: unknown } | null | undefined): boolean {
   return env !== null && env !== undefined && (env.sky !== undefined || env.fog !== undefined || env.post !== undefined || env.quality !== undefined);
 }
+/**
+ * The texture assets an environment may name (a sky, its faces, the grading
+ * LUT: any string there but a colour could be one), sorted — a host that replaces the
+ * environment compares them to know when the textures it holds change.
+ */
+export function environmentTextureIds(value: { readonly sky?: unknown; readonly post?: unknown } | null): string[] {
+  const out = new Set<string>();
+  const walk = (v: unknown): void => {
+    // A colour is never an asset id (a colour edit keeps the textures held).
+    if (typeof v === 'string') {
+      if (!v.startsWith('#')) out.add(v);
+    }
+    else if (Array.isArray(v)) for (const x of v) walk(x);
+    else if (v !== null && typeof v === 'object') for (const x of Object.values(v)) walk(x);
+  };
+  walk(value?.sky);
+  walk((value?.post as { grading?: unknown } | undefined)?.grading);
+  return [...out].sort();
+}
+
 export interface FogVolumeLike {
   /** World-space centre and full size. */
   readonly center: readonly [number, number, number];

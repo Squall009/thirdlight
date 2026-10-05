@@ -215,32 +215,34 @@ describe('auto batcher', () => {
     expect([s.x, s.y, s.z].map((v) => Number(v.toFixed(5)))).toEqual([2, 2, 3]);
   });
 
-  it('LOD levels: only the level shown is batched', () => {
+  it('LOD levels: the level the render graph attaches is the one batched (the others are not in the scene)', () => {
     const scene = new THREE.Scene();
     const mat = new THREE.MeshBasicMaterial();
     const near = new THREE.BoxGeometry();
     const far = new THREE.BoxGeometry(0.9, 0.9, 0.9);
-    const lods: THREE.Mesh[][] = [];
+    const levels: THREE.Mesh[][] = [];
     for (let i = 0; i < 3; i += 1) {
-      const lod = new THREE.LOD();
       const a = new THREE.Mesh(near, mat);
       const f = new THREE.Mesh(far, mat);
       a.userData[BATCH_KEY] = true;
       f.userData[BATCH_KEY] = true;
-      lod.addLevel(a, 0);
-      lod.addLevel(f, 50);
-      lod.position.x = i;
-      scene.add(lod);
-      lods.push([a, f]);
+      a.position.x = i;
+      f.position.x = i;
+      scene.add(a);
+      levels.push([a, f]);
     }
     const cam = camera();
     const b = createAutoBatcher(scene, { minGroup: 2 });
     b.update(cam);
     expect(batchesOf(scene).map((x) => x.draws(near))).toEqual([true]);
-    cam.position.z = 500;
+    // The switch picks the far level: it is attached, the near one leaves the scene.
+    for (const [a, f] of levels) {
+      scene.remove(a!);
+      scene.add(f!);
+    }
     b.update(cam);
     expect(batchesOf(scene).map((x) => x.draws(far))).toEqual([true]);
-    expect(lods.every(([a]) => drawnAlone(a!))).toBe(true);
+    expect(levels.every(([a]) => drawnAlone(a!))).toBe(true);
   });
 
   it('detailed geometry is split by world cell; cheap geometry is not', () => {

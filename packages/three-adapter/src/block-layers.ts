@@ -117,6 +117,8 @@ interface LayerState {
   readonly dirty: Set<string>;
   /** Chunks built with lightmap UVs: their layout digest, area and slots per side. */
   readonly lightmapLayouts: Map<string, { layout: string; area: number; side: number }>;
+  /** Its object is hidden (inactive): its chunks are built but not placed in the scene. */
+  hidden: boolean;
 }
 
 export interface BlockLayerViewDiagnostics {
@@ -272,7 +274,7 @@ export class BlockLayerView {
       const group = new THREE.Group();
       group.name = `block-layer:${entityId}`;
       this.root.add(group);
-      layer = { group, component, grid: BlockGrid.from(component, data), chunks: new Map(), dirty: new Set(), lightmapLayouts: new Map() };
+      layer = { group, component, grid: BlockGrid.from(component, data), chunks: new Map(), dirty: new Set(), lightmapLayouts: new Map(), hidden: false };
       this.layers.set(entityId, layer);
     } else {
       layer.component = component;
@@ -288,8 +290,22 @@ export class BlockLayerView {
   setOrigin(entityId: string, origin: readonly number[]): void {
     const layer = this.layers.get(entityId);
     if (layer === undefined) return;
-    layer.group.position.set(origin[0] ?? 0, origin[1] ?? 0, origin[2] ?? 0);
+    const g = layer.group.position;
+    if (g.x === (origin[0] ?? 0) && g.y === (origin[1] ?? 0) && g.z === (origin[2] ?? 0)) return;
+    // A placed chunk's world matrices are taken as they are when it is placed: it is placed again where it is now.
+    for (const chunk of layer.chunks.values()) this.deps.place?.(chunk, false);
+    g.set(origin[0] ?? 0, origin[1] ?? 0, origin[2] ?? 0);
     layer.group.updateMatrixWorld(true);
+    if (!layer.hidden) for (const chunk of layer.chunks.values()) this.deps.place?.(chunk, true);
+  }
+
+  /** Hide or show a layer (its object is inactive or hidden): its chunks leave the scene or come back. */
+  setHidden(entityId: string, hidden: boolean): void {
+    const layer = this.layers.get(entityId);
+    if (layer === undefined || layer.hidden === hidden) return;
+    layer.hidden = hidden;
+    layer.group.visible = !hidden;
+    for (const chunk of layer.chunks.values()) this.deps.place?.(chunk, !hidden);
   }
 
   hasLayer(entityId: string): boolean {
@@ -384,6 +400,11 @@ export class BlockLayerView {
     else this.forcedUv.delete(entityId);
     const layer = this.layers.get(entityId);
     if (layer !== undefined) for (const ck of layer.chunks.keys()) layer.dirty.add(ck);
+  }
+
+  /** Re-mesh every chunk at the next `update` (the bakes changed: each chunk takes its lightmap again). */
+  remeshAll(): void {
+    for (const layer of this.layers.values()) for (const ck of layer.chunks.keys()) layer.dirty.add(ck);
   }
 
   /** A layer's chunks with lightmap UVs (their meshes, layout digest and area), in chunk order. */
@@ -583,7 +604,7 @@ export class BlockLayerView {
     layer.group.add(group);
     group.updateMatrixWorld(true);
     layer.chunks.set(ck, group);
-    this.deps.place?.(group, true);
+    if (!layer.hidden) this.deps.place?.(group, true);
     if (lightmap !== null) {
       layer.lightmapLayouts.set(ck, lightmap);
       this.deps.chunkBuilt?.(entityId, cx, cz, group, lightmap.layout);

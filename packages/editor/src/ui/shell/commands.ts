@@ -5,7 +5,7 @@
 import type { MutableRefObject } from 'react';
 import type { SessionClient } from '../../session/client';
 import type { Viewport } from '../../viewport/viewport';
-import type { ModelInstances } from '../../viewport/model-instances';
+import type { ModelFiles } from '../../viewport/model-files';
 import type { MutationResponse } from '../../session/envelope';
 import type { GameplayBackendError } from '../GameplayPanel';
 
@@ -21,7 +21,7 @@ export type CommandResult = Awaited<ReturnType<SessionClient['command']>>;
 /** The editor's session client, Scene view and model instances (made once per mount). */
 export type ClientRef = MutableRefObject<SessionClient | null>;
 export type ViewportRef = MutableRefObject<Viewport | null>;
-export type ModelsRef = MutableRefObject<ModelInstances | null>;
+export type ModelsRef = MutableRefObject<ModelFiles | null>;
 
 /** Shows a dismissible message over the Scene view (null clears it). */
 export type SetNotice = (message: string | null) => void;

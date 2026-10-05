@@ -23,7 +23,7 @@ import type { AnimatorTools } from '../shell/useAnimatorTools';
 
 export interface WorkspaceHostInput {
   clientRef: ClientRef;
-  modelInstancesRef: ModelsRef;
+  modelFilesRef: ModelsRef;
   loadTextureRef: MutableRefObject<((assetId: string) => Promise<THREE.Texture | null>) | null>;
   /** The project (it keys the UI previewer's mock values in this browser). */
   projectId: string;
@@ -47,7 +47,7 @@ export interface WorkspaceHostInput {
 }
 
 export function workspaceHostOf(input: WorkspaceHostInput): WorkspaceHost {
-  const { clientRef, modelInstancesRef, loadTextureRef, entities, selectedId, gameFieldContext, uiPreviewAssets, openDocument, workspaceDispatch, debugPlay } = input;
+  const { clientRef, modelFilesRef, loadTextureRef, entities, selectedId, gameFieldContext, uiPreviewAssets, openDocument, workspaceDispatch, debugPlay } = input;
   const { animators, dialogueSettings, dialogues, effects, shownEnvironment, graphKinds, graphs, materials, projectUiDocs, projectUiThemes, registry, scriptLibraries, speakers, timelines, uiDocuments, uiThemes } = input.content;
   const { inputConfig, inputDefaults, modes } = input.settings;
   const { activeVisualId, animatorFocus, animatorTargets, dialogueFocus, dialogueSelection, effectFocus, effectSystems, graphFocus, graphsContext, materialFocus, onVisualProblems, onVisualTarget } = input.docState;
@@ -137,13 +137,13 @@ export function workspaceHostOf(input: WorkspaceHostInput): WorkspaceHost {
       environment: shownEnvironment as unknown as PreviewDeps['environment'],
       loadTexture: (assetId) => loadTextureRef.current?.(assetId) ?? Promise.resolve(null),
       loadModel: async (assetId) => {
-        const r = await modelInstancesRef.current?.prepared(assetId);
+        const r = await modelFilesRef.current?.prepared(assetId);
         const made = r?.createInstance();
         if (made === undefined || !made.ok) return null;
         return { root: made.instance.root, dispose: () => void made.instance.dispose() };
       },
       loadEffectModel: async (assetId) => {
-        const r = await modelInstancesRef.current?.prepared(assetId);
+        const r = await modelFilesRef.current?.prepared(assetId);
         const made = r?.createInstance();
         return made !== undefined && made.ok ? made.instance.root : null;
       },

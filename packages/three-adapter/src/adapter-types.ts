@@ -5,10 +5,11 @@
 import type * as THREE from 'three';
 import type { Runtime, RuntimeSnapshot, EnvironmentBlendView, ResourceManager } from '@thirdlight/runtime';
 import type { MaterialFunctionLike } from './material-graph';
-import type { MaterialDefLike, WindLike } from './material-library';
+import type { MaterialDefLike, MaterialLibrary, WindLike } from './material-library';
 import type { LightingBakeLike } from './lightmaps';
 import type { EnvironmentLayerLike, EnvironmentLike, QualityLevel } from './environment';
-import type { BlockLayerViewDiagnostics } from './block-layers';
+import type { BlockLayerView, BlockLayerViewDiagnostics } from './block-layers';
+import type { BuiltInstanceSet } from './instancing';
 import type { RuntimeMaterialsDiagnostics } from './runtime-materials';
 import type { AdapterError } from './errors';
 import type { ScreenshotResult } from './capture';
@@ -20,11 +21,26 @@ import type { EffectDefLike, EffectsDiagnostics, EffectsPlayerOptions } from './
 import type { AutoBatcherDiagnostics } from './batching';
 import type { SceneGraphCounts } from './render-graph';
 import type { TextureStreamer, TextureStreamingObservation } from './texture-streaming';
-import type { RendererFactoryDeps, RendererInfo, RendererMemoryCounts, RendererPreference, RendererPreferenceSource } from './renderer-factory';
+import type { AnyRenderer, RendererFactoryDeps, RendererInfo, RendererMemoryCounts, RendererPreference, RendererPreferenceSource } from './renderer-factory';
+
+/**
+ * What the adapter reads from whatever drives the world: a running game's
+ * runtime, or an editing host's authored scene (the editor's Scene view),
+ * which answers the same calls without a simulation. Everything the adapter
+ * reads beyond these is optional (cast where read).
+ */
+export type SceneRuntime = Pick<Runtime, 'getInterpolatedState'> & Partial<Pick<Runtime, 'getDiagnostics' | 'forEachInterpolated' | 'forEachMoved' | 'sceneSet' | 'hiddenEntities' | 'entityLooks' | 'readCameraView'>>;
 
 /** The runtime instance driving this scene (frame source + camera). */
 export interface SceneAdapterOptions {
-  runtime: Runtime;
+  runtime: SceneRuntime;
+  /**
+   * Something the next frame would draw differently arrived on its own (a
+   * model, an instance set, a cookie): a host that draws on demand draws again.
+   */
+  onChange?: () => void;
+  /** The scene's background where no sky is drawn (absent: the clear colour, black). */
+  background?: number;
   /** The runtime snapshot the runtime was instantiated from (read-only scene source). */
   snapshot: RuntimeSnapshot;
   /** Renderer antialiasing (default true). */
@@ -58,6 +74,8 @@ export interface SceneAdapterOptions {
    * and boxes keep their own materials.
    */
   materials?: {
+    /** A library the host owns and keeps current (the editor's, which its panels share): used instead of one made from `defs`, never disposed here. */
+    readonly library?: MaterialLibrary;
     readonly defs: readonly MaterialDefLike[];
     /** The material functions graph materials call (the manifest's). */
     readonly functions?: readonly MaterialFunctionLike[];
@@ -112,6 +130,8 @@ export interface SceneAdapterOptions {
     readonly trackTimestamp?: boolean;
     /** Tests only: stubbed renderer constructors and WebGPU probe. */
     readonly deps?: Partial<RendererFactoryDeps>;
+    /** Told on every renderer state change (initialising, ready, lost, rebuilt, failed): a host showing it. */
+    readonly onChange?: (info: RendererInfo) => void;
   };
   /**
    * The game's visual effects (the manifest's `effects`). The
@@ -296,7 +316,7 @@ export interface SceneAdapter {
    * Show an environment preset blend instead of the running
    * game's (an editor preview; null: the game's again).
    */
-  previewEnvironmentBlend?(view: EnvironmentBlendView | null): void;
+  previewEnvironmentBlend?(view: EnvironmentBlendView | null, tagBits?: ReadonlyMap<string, number>): void;
   /**
    * Project an entity's world position (or a world point), plus
    * a world offset, through the camera of the last rendered frame: `out` =
@@ -322,4 +342,39 @@ export interface SceneAdapter {
   holdAssets?(models: readonly string[], textures: readonly string[]): { readonly ready: Promise<void>; release(): void };
   /** The runtime's scene set revision the last presented frame drew (-1: none drawn yet). */
   presentedSceneRevision?(): number;
+
+  // ---- An editing host (the editor's Scene view draws through this adapter) ----
+  /** Replace the project environment (sky, fog, fog volumes, post, presets, quality; null: none). */
+  setEnvironment?(value: EnvironmentLike | null): void;
+  /** Replace the bakes (lightmaps, and the lights they hold leave realtime): the scenes are realized again. Needs the `lighting` option. */
+  setBakes?(bakes: Readonly<Record<string, LightingBakeLike>> | null): void;
+  /** The host's material library changed a material in place: the lightmapped copies follow it. */
+  materialsChanged?(): void;
+  /** Bring the scene set, transforms, world matrices and hidden objects up to date now, without drawing. */
+  sync?(): void;
+  /** An entity's world matrix as last composed (false: not realized). */
+  worldMatrix?(entityId: string, out: THREE.Matrix4): boolean;
+  /** What an entity shows (its node: box, light, model, instance set, overlays), or null when it shows nothing (`create`: made then, for something to follow it). */
+  entityObject?(entityId: string, create?: boolean): THREE.Object3D | null;
+  /** The entity a drawn object belongs to (up its logical parents to the entity's node), or null. */
+  entityOf?(object: THREE.Object3D): string | null;
+  /** The three.js scene drawn: the listed drawables, the lights, and what a host adds (its overlay group). */
+  threeScene?(): THREE.Scene;
+  /** Hang an object on an entity: it moves and hides with it, and stays on when the entity is realized again. */
+  attachOverlay?(entityId: string, object: THREE.Object3D): void;
+  detachOverlay?(entityId: string, object: THREE.Object3D): void;
+  /** An entity's built instance set (picking one copy, previewing a moved copy), or null. */
+  instanceSet?(entityId: string): BuiltInstanceSet | null;
+  /** A loaded instance buffer (the copies' transforms), when here. */
+  instanceBuffer?(digest: string): Float32Array | undefined;
+  /** The model files that failed to load or build, with why (by asset id). */
+  modelFailures?(): ReadonlyMap<string, { readonly code: string; readonly message: string }>;
+  /** The block layers drawn (a host drives layers of its own through it: the editor's block tools). */
+  blockLayers?(): BlockLayerView;
+  /** The renderer drawing now (null before it is ready). */
+  currentRenderer?(): AnyRenderer | null;
+  /** The last frame was not drawn (the renderer starting, a precompile running): a host drawing on demand asks again. */
+  frameSkipped?(): boolean;
+  /** The last drawn frame's draw calls, triangles, MSAA samples and batches, without the whole diagnostics walk. */
+  lastFrame?(): { drawCalls: number; triangles: number; samples: number; batching: AutoBatcherDiagnostics | null };
 }

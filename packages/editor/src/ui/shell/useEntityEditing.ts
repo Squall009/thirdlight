@@ -18,7 +18,7 @@ import type { ClientRef, ModelsRef, ReportFailure, SetNotice, UiError, ViewportR
 export interface EntityEditingDeps {
   clientRef: ClientRef;
   viewportRef: ViewportRef;
-  modelInstancesRef: ModelsRef;
+  modelFilesRef: ModelsRef;
   refreshEntities: () => void;
   reportFailure: ReportFailure;
   setNotice: SetNotice;
@@ -28,7 +28,7 @@ export interface EntityEditingDeps {
 }
 
 export function useEntityEditing(deps: EntityEditingDeps) {
-  const { clientRef, viewportRef, modelInstancesRef, refreshEntities, reportFailure, setNotice, registry, entities, selectedId } = deps;
+  const { clientRef, viewportRef, modelFilesRef, refreshEntities, reportFailure, setNotice, registry, entities, selectedId } = deps;
   /** The material names of the selected object's model file (for the mapping editor). */
   const [selectedSourceMaterials, setSelectedSourceMaterials] = useState<string[]>([]);
   const [propertyError, setPropertyError] = useState<UiError | null>(null);
@@ -232,7 +232,7 @@ export function useEntityEditing(deps: EntityEditingDeps) {
   const selectedModelKey = selectedForMaterials !== null ? `${selectedForMaterials.assetId ?? selectedForMaterials.instances?.assetId ?? ''}|${selectedForMaterials.piece ?? selectedForMaterials.instances?.piece ?? ''}` : '';
   useEffect(() => {
     const [assetId, piece] = selectedModelKey.split('|') as [string, string];
-    const models = modelInstancesRef.current;
+    const models = modelFilesRef.current;
     if (assetId === '' || models === null) {
       setSelectedSourceMaterials([]);
       return;
@@ -244,7 +244,7 @@ export function useEntityEditing(deps: EntityEditingDeps) {
     return () => {
       live = false;
     };
-  }, [modelInstancesRef, selectedModelKey]);
+  }, [modelFilesRef, selectedModelKey]);
 
   return {
     selectedSourceMaterials, propertyError, componentError, applyPreset, runTypedCommand, setEntityMaterials, setEntityMaterialParams,

@@ -28,7 +28,8 @@ const DAB_STEP = 0.25;
 const round3 = (v: number): number => Math.round(v * 1000) / 1000;
 
 export interface InstanceBrushDeps {
-  scene: THREE.Scene;
+  /** Where the brush adds its ring and marks (the Scene view's overlay group). */
+  scene: THREE.Object3D;
   camera: THREE.Camera;
   canvas: HTMLCanvasElement;
   requestRender: () => void;

@@ -15,6 +15,7 @@
  * @thirdlight/runtime, three.
  */
 export { createSceneAdapter, type SceneAdapter, type SceneAdapterDiagnostics, type SceneAdapterOptions, type ScreenshotResult, type FrameDrawnInfo } from './adapter';
+export type { SceneRuntime } from './adapter-types';
 export { ERROR_CODES, RENDER_NOT_READY, type AdapterError, type AdapterErrorCode } from './errors';
 // The one renderer factory (Play/export, the Scene view, previews).
 export {
@@ -81,7 +82,7 @@ export {
   type ShadowPlan,
   type ShadowReason,
 } from './lighting';
-// Which lights of the loaded scenes are on (the Scene view applies the same rule to its open scenes).
+// Which lights of the loaded scenes are on (lights-shadows.ts switches them; exported for tests and tools).
 export { LOCAL_LIGHT_BUDGET, selectSceneLights, type SceneLightEntry, type SceneLightKind, type SceneLightSelection } from './scene-lights';
 // The runtime role selector and the bounded crossfade
 // (root subpath):

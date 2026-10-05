@@ -10,7 +10,7 @@ import { refusal, type ClientRef, type ModelsRef, type ReportFailure, type UiErr
 export interface AssetActionsDeps {
   clientRef: ClientRef;
   viewportRef: ViewportRef;
-  modelInstancesRef: ModelsRef;
+  modelFilesRef: ModelsRef;
   selectedAssetId: string | null;
   selectedAssetIdRef: MutableRefObject<string | null>;
   setSelectedAssetId: Dispatch<SetStateAction<string | null>>;
@@ -20,7 +20,7 @@ export interface AssetActionsDeps {
 }
 
 export function useAssetActions(deps: AssetActionsDeps) {
-  const { clientRef, viewportRef, modelInstancesRef, selectedAssetId, selectedAssetIdRef, setSelectedAssetId, setSelectedId, runTypedCommand, reportFailure } = deps;
+  const { clientRef, viewportRef, modelFilesRef, selectedAssetId, selectedAssetIdRef, setSelectedAssetId, setSelectedId, runTypedCommand, reportFailure } = deps;
   // Why the last asset delete was refused.
   const [assetDeleteError, setAssetDeleteError] = useState<string | null>(null);
   const [placementError, setPlacementError] = useState<UiError | null>(null);
@@ -49,7 +49,7 @@ export function useAssetActions(deps: AssetActionsDeps) {
   const dropAsset = useCallback(
     async (payload: AssetDragPayload, position: [number, number, number], parentId: string | null) => {
       const c = clientRef.current;
-      const models = modelInstancesRef.current;
+      const models = modelFilesRef.current;
       if (!c || !models) return;
       const asset = c.content.getAsset(payload.assetId);
       if (asset === undefined || asset.kind !== 'model') return;
@@ -90,7 +90,7 @@ export function useAssetActions(deps: AssetActionsDeps) {
       else if (!res.ok) setPlacementError({ code: (res.response as { code?: string }).code ?? 'command_failed', message: (res.response as { message?: string }).message ?? 'the model could not be placed' });
       reportFailure(`Place ${asset.displayName}`, res);
     },
-    [clientRef, modelInstancesRef, reportFailure, setSelectedAssetId, setSelectedId],
+    [clientRef, modelFilesRef, reportFailure, setSelectedAssetId, setSelectedId],
   );
 
   // Delete an asset (the backend refuses while anything uses it; one undo restores).

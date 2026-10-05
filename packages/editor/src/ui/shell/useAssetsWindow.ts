@@ -22,7 +22,7 @@ export type ProjectWindowOpeners = Omit<Parameters<typeof useProjectWindow>[2], 
 
 export interface AssetsWindowDeps {
   clientRef: ClientRef;
-  modelInstancesRef: ModelsRef;
+  modelFilesRef: ModelsRef;
   refreshEntities: () => void;
   reportFailure: ReportFailure;
   checkFiles: ReturnType<typeof useAssetFileCheck>['checkFiles'];
@@ -33,7 +33,7 @@ export interface AssetsWindowDeps {
 }
 
 export function useAssetsWindow(deps: AssetsWindowDeps) {
-  const { clientRef, modelInstancesRef, refreshEntities, reportFailure, checkFiles, catalogTick, showAssets, openers } = deps;
+  const { clientRef, modelFilesRef, refreshEntities, reportFailure, checkFiles, catalogTick, showAssets, openers } = deps;
   const [importState, setImportState] = useState<AssetImportState>(initialImportState);
   const [selectedAssetId, setSelectedAssetId] = useState<string | null>(null);
   const pendingProposalRef = useRef<{ proposal: Parameters<typeof publishArgsFromProposal>[0]; target: ImportTarget } | null>(null);
@@ -60,7 +60,7 @@ export function useAssetsWindow(deps: AssetsWindowDeps) {
     },
     [inspect],
   );
-  const assetPreview = useAssetPreview({ clientRef, modelInstancesRef, selectedAssetId, onFailure: (e) => setImportState(importFailed(importStateRef.current, e)) });
+  const assetPreview = useAssetPreview({ clientRef, modelFilesRef, selectedAssetId, onFailure: (e) => setImportState(importFailed(importStateRef.current, e)) });
   const [filePicker, setFilePicker] = useState<'create' | 'reimport' | null>(null);
   const loadProjectFiles = useCallback(
     (dir: string) =>
@@ -101,7 +101,7 @@ export function useAssetsWindow(deps: AssetsWindowDeps) {
   const assetOptions = useAssetOptions(clientRef, reportFailure);
   const loadingNames = useLoadingNames(clientRef);
   // The chosen asset (its summary, and a model's pieces and material names, loaded when it is chosen).
-  const selectedAsset = useSelectedAsset(clientRef, modelInstancesRef, selectedAssetId, catalogTick);
+  const selectedAsset = useSelectedAsset(clientRef, modelFilesRef, selectedAssetId, catalogTick);
   const assetSourceMaterials = selectedAsset.sourceMaterials;
 
   return {

@@ -142,6 +142,14 @@ export interface SceneAdapterModels {
   /** The same, reading what it takes to find the row (undefined: not a model of this build). */
   readonly findRow?: (assetId: string) => Promise<SceneAdapterModelAsset | undefined>;
   /**
+   * Rows can change while the scene is drawn (an editing host: a reimport
+   * publishes a new version): `rowOf` is asked first every time, so an entity
+   * realized again after a reimport shows the new version.
+   */
+  readonly liveRows?: boolean;
+  /** An instance set was built with this many chunks (the editor's Inspector shows it). */
+  readonly onInstanceSetBuilt?: (entityId: string, chunks: number) => void;
+  /**
    * A texture asset's decoded texture (streamed when it streams), for the
    * images a model's file had extracted. Absent: those draw their stand-ins.
    */
@@ -300,6 +308,12 @@ export interface ModelsRealization {
    * neither).
    */
   clipsOf(clipAssetId: string, rigAssetId: string, entityId?: string): readonly THREE.AnimationClip[] | null;
+  /** An entity's built instance set (its chunks map a picked instance back to a copy), or null. */
+  instanceSet(entityId: string): BuiltInstanceSet | null;
+  /** A decoded instance buffer (the copies' transforms), when loaded. */
+  instanceBuffer(digest: string): Float32Array | undefined;
+  /** The model files that failed to load or build, with why (by asset id). */
+  failures(): ReadonlyMap<string, { readonly code: string; readonly message: string }>;
   /** Dispose: cancel in-flight prepares, dispose the attached instances
    * (cloned materials + controllers + instances) and the store.
    *  Idempotent. */
@@ -584,6 +598,7 @@ export function createModelsRealization(ctx: ModelsRealizationContext): {
   let initial = true;
   const initialAssets = new Set<string>();
   const failedCodes = new Map<string, string>(); // assetId → first hard code
+  const failedMessages = new Map<string, string>(); // assetId → why (for the editor's Problems)
   let disposed = false;
 
   // --- settle promise -------------------------------------------------------
@@ -648,6 +663,10 @@ export function createModelsRealization(ctx: ModelsRealizationContext): {
   /** A model's row: given at creation, else one the page has read since (kept once found). */
   const rowsByAsset = {
     get(assetId: string): SceneAdapterModelAsset | undefined {
+      if (ctx.models.liveRows === true) {
+        const live = ctx.models.rowOf?.(assetId);
+        if (live !== undefined) return live;
+      }
       const hit = givenRows.get(assetId);
       if (hit !== undefined) return hit;
       const found = ctx.models.rowOf?.(assetId);
@@ -757,6 +776,11 @@ export function createModelsRealization(ctx: ModelsRealizationContext): {
       (resource) => {
         done();
         if (disposed) return;
+        // Rows that change (an editing host's reimport): a version that loads clears the failure of one before.
+        if (ctx.models.liveRows === true) {
+          failedCodes.delete(assetId);
+          failedMessages.delete(assetId);
+        }
         attachForAsset(assetId, resource);
         // Block looks waiting for this model.
         const waiting = blockWaiters.get(assetId);
@@ -770,7 +794,10 @@ export function createModelsRealization(ctx: ModelsRealizationContext): {
         if (disposed) return;
         const code = e instanceof ModelFileError ? e.code : 'asset_corrupt';
         // Cancellation/stale are not errors.
-        if (code !== 'asset_load_cancelled' && code !== 'asset_load_stale' && !failedCodes.has(assetId)) failedCodes.set(assetId, code);
+        if (code !== 'asset_load_cancelled' && code !== 'asset_load_stale' && !failedCodes.has(assetId)) {
+          failedCodes.set(assetId, code);
+          failedMessages.set(assetId, e instanceof Error ? e.message : String(e));
+        }
         notifyHolds();
         // The wrapper's resolver rejected for a declared row: a hard assets-phase failure.
         if (code === 'asset_missing') settle({ ok: false, code, message: e instanceof Error ? e.message : String(e) });
@@ -791,7 +818,10 @@ export function createModelsRealization(ctx: ModelsRealizationContext): {
       if (created.ok === false) {
         // Defensive residual (the loader already validated the hierarchy):
         // count as a hard failure of this entity's realization, keep going.
-        if (!failedCodes.has(assetId)) failedCodes.set(assetId, created.error.code);
+        if (!failedCodes.has(assetId)) {
+          failedCodes.set(assetId, created.error.code);
+          failedMessages.set(assetId, created.error.message);
+        }
         continue;
       }
       const instance = created.instance;
@@ -870,6 +900,7 @@ export function createModelsRealization(ctx: ModelsRealizationContext): {
     holder.add(built.group);
     attachedSets.set(entityId, { entityId, template, built, undoMaterials: applyMaterials(entityId, ref.assetId, built.group) });
     ctx.onAttached?.(entityId, built.group);
+    ctx.models.onInstanceSetBuilt?.(entityId, built.chunks);
   }
 
   function disposeInstanceSet(set: AttachedInstanceSet): void {
@@ -959,7 +990,24 @@ export function createModelsRealization(ctx: ModelsRealizationContext): {
 
   const realization: ModelsRealization = {
     blockInstance(assetId: string, piece: string | undefined, onReady: () => void): ModelInstance | null {
-      if (disposed || !rowsByAsset.has(assetId)) return null;
+      if (disposed) return null;
+      if (!rowsByAsset.has(assetId)) {
+        // A model no row read so far names: found, then the look is asked for again.
+        const find = ctx.models.findRow;
+        if (find !== undefined && !finding.has(assetId)) {
+          finding.add(assetId);
+          void find(assetId).then(
+            (found) => {
+              finding.delete(assetId);
+              if (found === undefined || disposed) return;
+              givenRows.set(assetId, found);
+              onReady();
+            },
+            () => finding.delete(assetId),
+          );
+        }
+        return null;
+      }
       const key = `${assetId}|${piece ?? ''}`;
       const hit = blockInstances.get(key);
       if (hit !== undefined) return hit;
@@ -1014,6 +1062,13 @@ export function createModelsRealization(ctx: ModelsRealizationContext): {
       holdAsset(clipAssetId, holder, wanted);
       initial = wasInitial;
       return readyResource(clipAssetId)?.animationClips() ?? null;
+    },
+    instanceSet: (entityId) => attachedSets.get(entityId)?.built ?? null,
+    instanceBuffer: (digest) => buffers.get(digest),
+    failures(): ReadonlyMap<string, { readonly code: string; readonly message: string }> {
+      const out = new Map<string, { code: string; message: string }>();
+      for (const [assetId, code] of failedCodes) out.set(assetId, { code, message: failedMessages.get(assetId) ?? code });
+      return out;
     },
     update(deltaSeconds: number): boolean {
       if (disposed) return false;

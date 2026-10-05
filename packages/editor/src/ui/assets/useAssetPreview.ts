@@ -10,7 +10,7 @@
 import { useCallback, useEffect, useRef, useState, type RefObject } from 'react';
 
 import type { SessionClient } from '../../session/client';
-import type { AssetPreviewSession, ModelInstances } from '../../viewport/model-instances';
+import type { AssetPreviewSession, ModelFiles } from '../../viewport/model-files';
 import { PreviewRenderer } from '../../viewport/preview-renderer';
 import { ModelSubject } from '../../viewport/preview-subjects';
 
@@ -38,11 +38,11 @@ export interface AssetPreview {
 
 export function useAssetPreview(deps: {
   clientRef: RefObject<SessionClient | null>;
-  modelInstancesRef: RefObject<ModelInstances | null>;
+  modelFilesRef: RefObject<ModelFiles | null>;
   selectedAssetId: string | null;
   onFailure: (error: { code: string; message: string }) => void;
 }): AssetPreview {
-  const { clientRef, modelInstancesRef } = deps;
+  const { clientRef, modelFilesRef } = deps;
   const [view, setView] = useState<AssetPreviewView | null>(null);
   const sessionRef = useRef<AssetPreviewSession | null>(null);
   const stageRef = useRef<PreviewRenderer | null>(null);
@@ -55,7 +55,7 @@ export function useAssetPreview(deps: {
       stageRef.current?.dispose();
       stageRef.current = null;
       if (canvas === null) {
-        modelInstancesRef.current?.clearPreview();
+        modelFilesRef.current?.clearPreview();
         sessionRef.current = null;
         setView(null);
         return;
@@ -63,7 +63,7 @@ export function useAssetPreview(deps: {
       // A model's own materials and textures: the stage needs no texture assets of its own.
       stageRef.current = new PreviewRenderer(canvas, { loadTexture: () => Promise.resolve(null) });
     },
-    [modelInstancesRef],
+    [modelFilesRef],
   );
 
   // Another asset chosen: the preview of the last one goes.
@@ -74,7 +74,7 @@ export function useAssetPreview(deps: {
   const load = useCallback(
     async (assetId: string) => {
       const c = clientRef.current;
-      const m = modelInstancesRef.current;
+      const m = modelFilesRef.current;
       if (!c || !m) return;
       const v = c.content.resolveVersion(assetId);
       if (!v || !/^[0-9a-f]{64}$/.test(v.sourceDigest)) {
@@ -102,7 +102,7 @@ export function useAssetPreview(deps: {
       sessionRef.current = res.session;
       setView({ assetId, clips: res.session.clips, clipIndex: null, playing: false, timeSeconds: 0, durationSeconds: 0 });
     },
-    [clientRef, modelInstancesRef],
+    [clientRef, modelFilesRef],
   );
 
   const publish = useCallback(() => {
@@ -136,13 +136,13 @@ export function useAssetPreview(deps: {
     const tick = (now: number): void => {
       const dt = Math.min(0.1, (now - last) / 1000);
       last = now;
-      modelInstancesRef.current?.updatePreview(dt);
+      modelFilesRef.current?.updatePreview(dt);
       publish();
       raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [view?.playing, publish, modelInstancesRef]);
+  }, [view?.playing, publish, modelFilesRef]);
 
   return { view, canvasRef, load, play, pause, scrub, forget };
 }
