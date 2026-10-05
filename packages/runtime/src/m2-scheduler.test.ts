@@ -100,7 +100,7 @@ describe('M2 scheduling', () => {
     h.rt.dispose();
   });
 
-  it('a long stall executes at most 8 steps, drops the remainder and executes/samples no dropped step', () => {
+  it('a long stall executes at most 100 ms of steps, drops the remainder and executes/samples no dropped step', () => {
     const seen: Array<{ stepIndex: number; frame: ActionFrame }> = [];
     const frames = recordingSource();
     const h = makeM2Runtime({
@@ -112,17 +112,18 @@ describe('M2 scheduling', () => {
     seen.length = 0;
     h.tick(1.0); // 120 raw steps of wall time
     const d = h.diag();
-    expect(d.stepIndex).toBe(20); // 12 + 8
-    expect(d.droppedSteps).toBe(112);
-    expect(d.droppedInputSteps).toBe(112);
-    expect(frames.sampled).toEqual([12, 13, 14, 15, 16, 17, 18, 19]);
-    expect(seen.map((s) => s.stepIndex)).toEqual([12, 13, 14, 15, 16, 17, 18, 19]);
-    // The next frame resumes contiguously from 20 (no phantom replay).
+    const ran = [12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23];
+    expect(d.stepIndex).toBe(24); // 12 + 12
+    expect(d.droppedSteps).toBe(108);
+    expect(d.droppedInputSteps).toBe(108);
+    expect(frames.sampled).toEqual(ran);
+    expect(seen.map((s) => s.stepIndex)).toEqual(ran);
+    // The next frame resumes contiguously from 24 (no phantom replay).
     seen.length = 0;
     h.tick(1.0 + 0.0167);
-    expect(frames.sampled).toEqual([12, 13, 14, 15, 16, 17, 18, 19, 20, 21]);
-    expect(seen.map((s) => s.stepIndex)).toEqual([20, 21]);
-    expect(h.diag().droppedSteps).toBe(112);
+    expect(frames.sampled).toEqual([...ran, 24, 25]);
+    expect(seen.map((s) => s.stepIndex)).toEqual([24, 25]);
+    expect(h.diag().droppedSteps).toBe(108);
     h.rt.dispose();
   });
 

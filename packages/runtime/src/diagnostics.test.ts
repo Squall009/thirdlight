@@ -78,20 +78,20 @@ describe('structured diagnostics', () => {
     rt.tick(0); // frame 1: anchor (zero steps)
     setNow(DT * 2);
     rt.tick(DT * 2); // frame 2: 2 steps
-    setNow(DT * 2 + 0.1);
-    rt.tick(DT * 2 + 0.1); // frame 3: 12 raw ⇒ 8 executed, 4 dropped
-    setNow(DT * 2 + 0.1 + 1e-4);
-    rt.tick(DT * 2 + 0.1 + 1e-4); // frame 4: zero-step frame
-    setNow(DT * 2 + 0.1 - 0.05);
-    rt.tick(DT * 2 + 0.1 - 0.05); // frame 5: non-monotonic (warning)
+    setNow(DT * 2 + 0.15);
+    rt.tick(DT * 2 + 0.15); // frame 3: 18 raw ⇒ 12 executed, 6 dropped
+    setNow(DT * 2 + 0.15 + 1e-4);
+    rt.tick(DT * 2 + 0.15 + 1e-4); // frame 4: zero-step frame
+    setNow(DT * 2 + 0.15 - 0.05);
+    rt.tick(DT * 2 + 0.15 - 0.05); // frame 5: non-monotonic (warning)
     const d = diag();
     expect(d.state).toBe('running');
-    expect(d.stepIndex).toBe(10); // 2 + 8
-    expect(d.simTime).toBe(10 / 120);
-    expect(d.droppedSteps).toBe(4);
+    expect(d.stepIndex).toBe(14); // 2 + 12
+    expect(d.simTime).toBe(14 / 120);
+    expect(d.droppedSteps).toBe(6);
     expect(d.frameCount).toBe(5);
     expect(d.clockWarningCount).toBe(1);
-    expect(d.droppedSteps).toBe(4);
+    expect(d.droppedSteps).toBe(6);
     expect(d.errors).toEqual([]);
     expect(d.errorCount).toBe(0);
     rt.stop();
@@ -100,7 +100,7 @@ describe('structured diagnostics', () => {
     const dFinal = diag();
     expect(dFinal.state).toBe('disposed');
     // Diagnostics survive disposal with the final counters.
-    expect(dFinal.stepIndex).toBe(10);
+    expect(dFinal.stepIndex).toBe(14);
     expect(dFinal.frameCount).toBe(5);
   });
 
@@ -132,14 +132,9 @@ describe('structured diagnostics', () => {
     const rt = res.runtime;
     rt.start();
     rt.tick(0); // anchor
-    // 239 steps in wall chunks of ≤ 8 (the catch-up cap): 29 × 8 + 7.
-    let t = 0;
-    for (let i = 0; i < 29; i += 1) {
-      t += 8 / 60;
-      rt.tick(t);
-    }
-    t += 7 / 60;
-    rt.tick(t);
+    // 239 steps in wall chunks of ≤ 6 (the catch-up cap: 100 ms at 60 Hz): 39 × 6 + 5.
+    for (let i = 1; i <= 39; i += 1) rt.tick((i * 6) / 60);
+    rt.tick(239 / 60);
     const d = rt.getDiagnostics();
     if (!d.ok) throw new Error('diagnostics failed');
     expect(d.diagnostics.fixedStepHz).toBe(60);

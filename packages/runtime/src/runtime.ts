@@ -189,7 +189,7 @@ const DEFAULT_FIXED_STEP_HZ = 120;
 const MESSAGE_NAME_RE = /^[A-Za-z0-9_.:-]{1,64}$/;
 const MIN_FIXED_STEP_HZ = 1;
 const MAX_FIXED_STEP_HZ = 1000;
-export { MAX_CATCHUP_STEPS } from './frame-clock';
+export { catchUpSteps, MAX_CATCHUP_SECONDS } from './frame-clock';
 /**
  * The M2 settle pre-roll at 120 Hz — the engine's settle time
  * (0.1 s, `ENGINE_TIMING_DEFAULTS.settleTime`) converted at the step rate.

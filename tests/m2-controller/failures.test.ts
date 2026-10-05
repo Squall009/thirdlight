@@ -10,6 +10,7 @@
 import { describe, expect, it } from 'vitest';
 import { createStepInputSource, type StepInputStep } from '@thirdlight/input';
 import {
+  catchUpSteps,
   createSimulationRegistry,
   instantiateRuntime,
   registerSimulationModule,
@@ -45,7 +46,10 @@ function stepsOf(id: string): StepInputStep[] {
 }
 
 describe('long tab stall and dropped wall time (A13)', () => {
-  it('executes at most 8 steps, drops the remaining wall time and produces no phantom steps', async () => {
+  /** The catch-up bound at 120 Hz (100 ms of game time). */
+  const CAP = catchUpSteps(DT);
+
+  it('executes at most 100 ms of steps, drops the remaining wall time and produces no phantom steps', async () => {
     const run = await startRun(course, { x: -10, y: 0.9 }, { actions: createStepInputSource(stepsOf('run-right-240')) });
     try {
       run.steps(20);
@@ -59,19 +63,19 @@ describe('long tab stall and dropped wall time (A13)', () => {
       expect(run.stall(5.0)).toBe(true);
       const after = run.diagnostics();
       if (!after.ok) throw new Error('diagnostics failed');
-      // 5 s at 120 Hz = 600 steps requested; the 8-step cap executes 8.
-      expect(after.diagnostics.stepIndex - before.diagnostics.stepIndex).toBe(8);
-      expect(after.diagnostics.droppedSteps).toBe(600 - 8);
-      expect(after.diagnostics.droppedInputSteps).toBe(600 - 8);
-      expect((after.diagnostics.inputSamples ?? 0) - samplesBefore).toBe(8);
+      // 5 s at 120 Hz = 600 steps requested; the 100 ms cap executes 12.
+      expect(after.diagnostics.stepIndex - before.diagnostics.stepIndex).toBe(CAP);
+      expect(after.diagnostics.droppedSteps).toBe(600 - CAP);
+      expect(after.diagnostics.droppedInputSteps).toBe(600 - CAP);
+      expect((after.diagnostics.inputSamples ?? 0) - samplesBefore).toBe(CAP);
       // Exactly one port.step() per executed step — no phantom physics step.
       expect(after.diagnostics.physicsSteps).toBe(after.diagnostics.stepIndex);
-      expect((after.diagnostics.physicsSteps ?? 0) - physicsBefore).toBe(8);
+      expect((after.diagnostics.physicsSteps ?? 0) - physicsBefore).toBe(CAP);
       // No phantom displacement beyond the executed steps.
       const xAfter = run.position().x;
-      expect(xAfter - xBefore).toBeLessThanOrEqual(8 * 4 * DT + 1e-6);
+      expect(xAfter - xBefore).toBeLessThanOrEqual(CAP * 4 * DT + 1e-6);
       console.log(
-        `[stall] executed=8 dropped=${after.diagnostics.droppedSteps} inputSamples=${after.diagnostics.inputSamples} physicsSteps=${after.diagnostics.physicsSteps} stepIndex=${after.diagnostics.stepIndex} dx=${xAfter - xBefore}`,
+        `[stall] executed=${CAP} dropped=${after.diagnostics.droppedSteps} inputSamples=${after.diagnostics.inputSamples} physicsSteps=${after.diagnostics.physicsSteps} stepIndex=${after.diagnostics.stepIndex} dx=${xAfter - xBefore}`,
       );
     } finally {
       run.dispose();
@@ -79,7 +83,7 @@ describe('long tab stall and dropped wall time (A13)', () => {
   });
 
   it('consumes one jump edge exactly once across the catch-up burst', async () => {
-    // A press latch at step 32 only; the 8 caught-up steps sample it once.
+    // A press latch at step 32 only; the 12 caught-up steps sample it once.
     const actions: StepInputStep[] = [];
     for (let i = 12; i <= 60; i += 1) {
       actions.push({
@@ -97,10 +101,10 @@ describe('long tab stall and dropped wall time (A13)', () => {
       expect(run.stall(5.0)).toBe(true);
       const d = run.diagnostics();
       if (!d.ok) throw new Error('diagnostics failed');
-      // Steps 32..39 executed (20 gameplay steps + the 8 caught-up); the
-      // pre-roll samples nothing, so 28 samples total. Only step 32 carried
+      // Steps 32..43 executed (20 gameplay steps + the 12 caught-up); the
+      // pre-roll samples nothing, so 32 samples total. Only step 32 carried
       // the press edge.
-      expect(d.diagnostics.inputSamples).toBe(28);
+      expect(d.diagnostics.inputSamples).toBe(20 + CAP);
       // One jump: vy is positive and no second lift occurred.
       const steps = run.records.slice(SETTLE_STEPS);
       let starts = 0;

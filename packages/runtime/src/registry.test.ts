@@ -176,7 +176,7 @@ describe('module step isolation', () => {
     // and each further failed step attempt records a module_error (the
     // stateless thrower throws on every attempt — this is what makes the
     // 33-error ring check below drive 33 recorded failures;
-    // the per-frame attempt count is bounded by MAX_CATCHUP_STEPS because
+    // the per-frame attempt count is bounded by MAX_CATCHUP_SECONDS because
     // the frozen simTime makes rawN grow with wall time, and capped frames
     // drop the remainder and resync).
     rt.tick(2 * DT);
@@ -219,11 +219,11 @@ describe('module step isolation', () => {
     // Drive EXACTLY 33 recorded failures. With the frozen simTime the
     // per-frame attempt count is rawN = floor(elapsed/dt) since the last
     // anchor resync, so the ticks below are chosen so the
-    // attempts sum to exactly 33: 4 + 5 + 6 + 7 (cumulative rawN 4..7 from
-    // the t=0 anchor) + 8 (rawN 9 ⇒ capped at 8, anchor resyncs) + 3
-    // (rawN 3 from the resynced anchor). The CONTRACT observables are the
+    // attempts sum to exactly 33: 4 + 5 (cumulative rawN 4..5 from the t=0
+    // anchor) + 12 (rawN 13 ⇒ capped at 100 ms = 12, anchor resyncs) + 12
+    // (rawN 12 from the resynced anchor). The CONTRACT observables are the
     // ring bound and the cumulative count.
-    for (const k of [4.5, 5.5, 6.5, 7.5, 9.5, 13]) {
+    for (const k of [4.5, 5.5, 13.5, 26]) {
       rt.tick(k * DT);
     }
     const d = diag();

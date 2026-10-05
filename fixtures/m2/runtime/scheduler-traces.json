@@ -23,7 +23,7 @@
   "constants": {
     "fixedStepHz": 120,
     "dt": 0.008333333333333333,
-    "maxCatchupSteps": 8,
+    "maxCatchupSteps": 12,
     "settlePreRollSteps": 12
   },
   "cases": [
@@ -64,9 +64,9 @@
         }
       ],
       "expect": {
-        "stepIndex": 22,
-        "droppedSteps": 112,
-        "droppedInputSteps": 112,
+        "stepIndex": 26,
+        "droppedSteps": 108,
+        "droppedInputSteps": 108,
         "sampledStepIndices": [
           12,
           13,
@@ -77,7 +77,11 @@
           18,
           19,
           20,
-          21
+          21,
+          22,
+          23,
+          24,
+          25
         ],
         "droppedWindowOmittedFromSamples": true
       }
@@ -130,8 +134,8 @@
         }
       ],
       "expect": {
-        "stepIndex": 22,
-        "droppedSteps": 52,
+        "stepIndex": 26,
+        "droppedSteps": 48,
         "sampledStepIndices": [
           12,
           13,
@@ -142,10 +146,14 @@
           18,
           19,
           20,
-          21
+          21,
+          22,
+          23,
+          24,
+          25
         ],
         "droppedWindowOmittedFromSamples": true,
-        "droppedInputSteps": 52
+        "droppedInputSteps": 48
       }
     },
     {

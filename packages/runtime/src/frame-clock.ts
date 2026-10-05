@@ -13,8 +13,13 @@
  * counters.
  */
 
-/** Steps a frame may catch up before the rest is dropped (a slow frame must not make the next one slower). */
-export const MAX_CATCHUP_STEPS = 8;
+/**
+ * Game time one frame may catch up before the rest is dropped: a slow frame
+ * must not make the next one slower. A time, not a step count, so a game
+ * with a fast fixed step (240 Hz) still keeps real-time speed at 30 fps
+ * instead of falling into slow motion.
+ */
+export const MAX_CATCHUP_SECONDS = 0.1;
 
 /**
  * Floating-point guard for the floor-based step count. When the
@@ -27,6 +32,11 @@ export const MAX_CATCHUP_STEPS = 8;
  *  — the guard is a fixed part of the computation.
  */
 const STEP_COUNT_EPS = 1e-9;
+
+/** The steps one frame may catch up at steps of `dt` seconds (at least one). */
+export function catchUpSteps(dt: number): number {
+  return Math.max(1, Math.floor(MAX_CATCHUP_SECONDS / dt + STEP_COUNT_EPS));
+}
 
 interface WallAnchor {
   /** Wall seconds of the anchor frame. */
@@ -41,7 +51,7 @@ export interface DueSteps {
   readonly targetSim: number;
   /** Every step the clock asks for. */
   readonly rawN: number;
-  /** The steps this frame runs (at most the catch-up bound). */
+  /** The steps this frame runs (at most `MAX_CATCHUP_SECONDS` of them). */
   readonly n: number;
 }
 
@@ -99,7 +109,7 @@ export class FrameClock {
   due(elapsed: number, simTime: number, dt: number): DueSteps {
     const targetSim = this.anchor!.simTime + elapsed * this.scale;
     const rawN = Math.floor((targetSim - simTime) / dt + STEP_COUNT_EPS);
-    return { targetSim, rawN, n: Math.min(rawN, MAX_CATCHUP_STEPS) };
+    return { targetSim, rawN, n: Math.min(rawN, catchUpSteps(dt)) };
   }
 
   /**
@@ -109,10 +119,11 @@ export class FrameClock {
    * `inputSteps`: the dropped steps also count as dropped input steps.
    */
   settle(t: number, simTime: number, dt: number, due: DueSteps, inputSteps: boolean): void {
-    if (due.rawN > MAX_CATCHUP_STEPS) {
+    const dropped = due.rawN - due.n;
+    if (dropped > 0) {
       // The resync makes targetSim == simTime for the display, so alpha = 0.
-      this.droppedSteps += due.rawN - MAX_CATCHUP_STEPS;
-      if (inputSteps) this.droppedInputSteps += due.rawN - MAX_CATCHUP_STEPS;
+      this.droppedSteps += dropped;
+      if (inputSteps) this.droppedInputSteps += dropped;
       this.anchorAt(t, simTime);
     } else {
       this.alpha = clamp01((due.targetSim - simTime) / dt);

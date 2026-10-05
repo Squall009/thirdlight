@@ -15,8 +15,8 @@
  * - the instantiate/start/stop/dispose lifecycle with a single frame-driver
  *   owner, the `failed` state and fail-stop (no rollback, fresh restart only);
  * - the separate mutable simulation state and the phase-scoped write guard;
- * - fixed-step scheduling with bounded catch-up (120 Hz, MAX_CATCHUP_STEPS 8,
- *   drop-and-resync) and the 12-step settle pre-roll of phase-declaring sets;
+ * - fixed-step scheduling with bounded catch-up (120 Hz, MAX_CATCHUP_SECONDS
+ *   0.1 of game time per frame, drop-and-resync) and the 12-step settle pre-roll of phase-declaring sets;
  * - the canonical phase order `intent → controller → physics → transform`,
  *   module phase registration, transform-ownership validation, injected
  *   action/physics ports and one action sample per executed step;
@@ -175,7 +175,7 @@ export {
   registerSimulationModule,
   validatePhaseList,
 } from './registry';
-export { DROP_THROUGH_STEPS, MAX_CATCHUP_STEPS, SETTLE_PREROLL_STEPS, engineTimingSteps, instantiateRuntime } from './runtime';
+export { catchUpSteps, DROP_THROUGH_STEPS, MAX_CATCHUP_SECONDS, SETTLE_PREROLL_STEPS, engineTimingSteps, instantiateRuntime } from './runtime';
 // The per-step budget of 3D script queries; the pointer state the runtime keeps.
 export { PHYSICS_QUERY_LIMIT, type HeldPointer } from './runtime';
 export {

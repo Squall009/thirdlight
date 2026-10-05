@@ -3343,7 +3343,7 @@ its reason (the same line is next to its constant in the code):
 | Disk | An import or upload is refused only when the disk the game folder is on would keep less than 64 MiB free; the message gives the free space | No project quota |
 | Runtime content manifest | `manifest.json` of a Play build or an export (version 5): the build's identity, settings, start scenes and the catalog's location, about 2 KB at any project size. The catalog's files (`content/sha256/<digest>`: its root, each block — prefabs, materials, UI documents, dialogue, behaviors, … — in parts of about 1 MiB, the entry shards, each scene's dependency file) are 32 MiB each, the content file cap | One file of the build |
 | Play build in memory | 32 MiB per file the build generates (the manifest's content files, scene files, compiled scripts); no cap on the whole build. The project's files (assets, instance buffers) are not held: Play serves them from disk at their digest URLs, verified while sent | One file the backend holds; what the page reads of the project is read from disk per request |
-| Fixed-step catch-up per frame | 8 steps (the rest are dropped) | A slow frame must not make the next one slower |
+| Fixed-step catch-up per frame | 100 ms of game time (12 steps at 120 Hz, 24 at 240 Hz; the rest are dropped) | A slow frame must not make the next one slower; a time, so a fast step rate keeps real-time speed at 30 fps |
 | Script physics queries | 1,024 per step, 2D and 3D together (1,024 rays cost Rapier about 1.6 ms with 16,384 colliders) | Runtime budget against a runaway loop |
 | Game-view events kept | 32 | A display ring |
 | Sound voices | 32 at most (the `audio_voices` setting's range; default 8) | Mixing cost; as Unity's real-voice default |
