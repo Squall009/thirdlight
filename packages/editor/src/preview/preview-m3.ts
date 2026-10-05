@@ -55,6 +55,9 @@ const PREVIEW_DECODER_BASE = '/decoders/';
  */
 const PREVIEW_SIM_WORKER_FILE = 'sim-worker.js';
 
+/** The block mesh worker's script, next to the simulation worker's (built from `../workers/mesh-worker.ts`). */
+const PREVIEW_MESH_WORKER_FILE = 'mesh-worker.js';
+
 /**
  * The 3D physics backend's script on the preview origin (built
  * from `./physics-3d.ts`), loaded only by a project whose physics_dimension
@@ -208,6 +211,7 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
     // A streamed audio file plays from its locator URL (same origin: Web Audio hears it).
     assetUrl: (path) => new URL(urlOf(path), location.href).href,
     workerUrl: new URL(`${cfg.buildRoot ?? '/'}${PREVIEW_SIM_WORKER_FILE}`, location.href).href,
+    meshWorkerUrl: new URL(`${cfg.buildRoot ?? '/'}${PREVIEW_MESH_WORKER_FILE}`, location.href).href,
     physics3dUrl: new URL(`${cfg.buildRoot ?? '/'}${PREVIEW_PHYSICS_3D_FILE}`, location.href).href,
     decoderBase: PREVIEW_DECODER_BASE,
     moduleSpecs: PREVIEW_MODULE_SPECS,

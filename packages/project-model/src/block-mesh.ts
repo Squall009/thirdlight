@@ -189,7 +189,7 @@ function classify(src: BlockMeshSource, rot: number, w: number, h: number, d: nu
   const eps = 1e-4 * Math.max(w, h, d);
   // A side's profile: the set of its boundary points projected onto the side
   // plane plus the area they cover (independent of how a face is triangulated).
-  const points: Set<string>[] = [new Set(), new Set(), new Set(), new Set(), new Set(), new Set()];
+  const points: number[][] = [[], [], [], [], [], []];
   const area = [0, 0, 0, 0, 0, 0];
   for (let t = 0; t < tris; t++) {
     const a = src.indices[t * 3]!;
@@ -201,7 +201,8 @@ function classify(src: BlockMeshSource, rot: number, w: number, h: number, d: nu
       if (Math.abs(positions[a * 3 + axis]! - plane) < eps && Math.abs(positions[b * 3 + axis]! - plane) < eps && Math.abs(positions[c * 3 + axis]! - plane) < eps) {
         side[t] = s;
         const [u, v] = [0, 1, 2].filter((x) => x !== axis) as [number, number];
-        for (const p of [a, b, c]) points[s]!.add(`${Math.round(positions[p * 3 + u]! * 1e4)}:${Math.round(positions[p * 3 + v]! * 1e4)}`);
+        const pts = points[s]!;
+        pts.push(Math.round(positions[a * 3 + u]! * 1e4), Math.round(positions[a * 3 + v]! * 1e4), Math.round(positions[b * 3 + u]! * 1e4), Math.round(positions[b * 3 + v]! * 1e4), Math.round(positions[c * 3 + u]! * 1e4), Math.round(positions[c * 3 + v]! * 1e4));
         const e1u = positions[b * 3 + u]! - positions[a * 3 + u]!;
         const e1v = positions[b * 3 + v]! - positions[a * 3 + v]!;
         const e2u = positions[c * 3 + u]! - positions[a * 3 + u]!;
@@ -211,9 +212,33 @@ function classify(src: BlockMeshSource, rot: number, w: number, h: number, d: nu
       }
     }
   }
-  const profile = points.map((set, s) => (set.size === 0 ? '' : `${[...set].sort().join('/')}#${Math.round(area[s]! * 1e4)}`));
+  const profile = points.map((pts, s) => (pts.length === 0 ? '' : `${profilePoints(pts)}#${Math.round(area[s]! * 1e4)}`));
   const out = { positions, normals, side, profile };
   byKey.set(key, out);
+  return out;
+}
+
+/**
+ * A side's boundary points (integer pairs, 0.1 mm) as one string: sorted and
+ * without repeats, so two sides compare equal exactly when they have the same
+ * set of points. Only equality is ever asked of it, so the order is numeric
+ * (no per-point strings to build and sort).
+ */
+function profilePoints(pts: readonly number[]): string {
+  const order: number[] = [];
+  for (let i = 0; i < pts.length; i += 2) order.push(i);
+  order.sort((i, j) => pts[i]! - pts[j]! || pts[i + 1]! - pts[j + 1]!);
+  let out = '';
+  let pu = NaN;
+  let pv = NaN;
+  for (const i of order) {
+    const u = pts[i]!;
+    const v = pts[i + 1]!;
+    if (u === pu && v === pv) continue;
+    out += out === '' ? `${u}:${v}` : `/${u}:${v}`;
+    pu = u;
+    pv = v;
+  }
   return out;
 }
 
@@ -472,16 +497,78 @@ interface PlacedCell {
 
 /** One top triangle of the chunk waiting for its smoothed normals. */
 interface PendingTop {
-  part: { acc: Accumulator; seen: Map<string, number> };
-  /** Layer-local positions and uvs of its three corners, its unit face normal and its corners' weld keys. */
+  part: { acc: Accumulator; seen: SeenVertices };
+  /** Layer-local positions and uvs of its three corners, its unit face normal and its corners' weld points. */
   p: number[];
   uv: number[];
   n: [number, number, number];
-  keys: [string, string, string];
+  keys: [WeldPoint, WeldPoint, WeldPoint];
 }
 
-/** A weld key: a position on a 0.1 mm grid (layer-local metres). */
-const weldKey = (x: number, y: number, z: number): string => `${Math.round(x * 1e4)},${Math.round(y * 1e4)},${Math.round(z * 1e4)}`;
+/** A point of the weld: a position on a 0.1 mm grid (layer-local metres) and the tops meeting there. */
+interface WeldPoint {
+  readonly id: number;
+  readonly x: number;
+  readonly y: number;
+  readonly z: number;
+  /** [nx, ny, nz, corner angle] per top. */
+  readonly list: number[];
+  sorted: boolean;
+  next: WeldPoint | null;
+}
+
+/** Mixes integers into a 32-bit hash bucket (collisions are told apart by the exact values kept beside it). */
+const mix = (a: number, b: number, c: number): number => (Math.imul(a | 0, 0x9e3779b1) ^ Math.imul(b | 0, 0x85ebca77) ^ Math.imul(c | 0, 0xc2b2ae3d)) | 0;
+
+/**
+ * The weld, keyed by numbers: meshing a sloped chunk welds every top corner,
+ * and building a string per corner was a large share of the meshing time.
+ */
+class WeldTable {
+  private readonly buckets = new Map<number, WeldPoint>();
+  private count = 0;
+
+  at(px: number, py: number, pz: number): WeldPoint {
+    const x = Math.round(px * 1e4);
+    const y = Math.round(py * 1e4);
+    const z = Math.round(pz * 1e4);
+    const h = mix(x, y, z);
+    const first = this.buckets.get(h);
+    for (let w = first ?? null; w !== null; w = w.next) if (w.x === x && w.y === y && w.z === z) return w;
+    const w: WeldPoint = { id: this.count++, x, y, z, list: [], sorted: false, next: first ?? null };
+    this.buckets.set(h, w);
+    return w;
+  }
+}
+
+interface SeenVertex {
+  readonly point: WeldPoint;
+  readonly key: readonly number[];
+  readonly out: number;
+  readonly next: SeenVertex | null;
+}
+
+/** A part's smoothed top vertices: a corner landing on the same weld point with the same normal and uv reuses one. */
+class SeenVertices {
+  private readonly buckets = new Map<number, SeenVertex>();
+
+  /** The vertex for a weld point and rounded normal + uv (`key`), or -1. */
+  get(point: WeldPoint, key: readonly number[]): number {
+    for (let v = this.buckets.get(this.hash(point, key)) ?? null; v !== null; v = v.next) {
+      if (v.point === point && v.key[0] === key[0] && v.key[1] === key[1] && v.key[2] === key[2] && v.key[3] === key[3] && v.key[4] === key[4]) return v.out;
+    }
+    return -1;
+  }
+
+  set(point: WeldPoint, key: readonly number[], out: number): void {
+    const h = this.hash(point, key);
+    this.buckets.set(h, { point, key, out, next: this.buckets.get(h) ?? null });
+  }
+
+  private hash(point: WeldPoint, key: readonly number[]): number {
+    return mix(point.id, mix(key[0]!, key[1]!, key[2]!), mix(key[3]!, key[4]!, 0));
+  }
+}
 
 /**
  * The merged geometry of one chunk: for each block cell of the chunk its
@@ -549,7 +636,7 @@ export function meshBlockChunk(grid: BlockGrid, cx: number, cz: number, types: R
     return { look, source: look.source, rotated: look.classified ?? classifyUnculled(look.source, look.rot), cell, ox: (x + f[0] / 2) * cs[0]!, oy: y * cs[1]!, oz: (z + f[2] / 2) * cs[2]!, hidden };
   };
   // Tops (with a crease angle): each top corner's weld key → its tops' face normals and corner angles, [nx, ny, nz, weight] each.
-  const weld = new Map<string, number[]>();
+  const weld = new WeldTable();
   const tops: PendingTop[] = [];
   const topEps = 1e-4 * Math.max(cs[0]!, cs[1]!, cs[2]!);
   /** A visible triangle of a placed cell when it is a top (its corners in layer-local metres and its unit face normal), else null. */
@@ -577,8 +664,8 @@ export function meshBlockChunk(grid: BlockGrid, cx: number, cz: number, types: R
     return Math.abs(my - top) < topEps ? { p, n: [nx / len, ny / len, nz / len] } : null;
   };
   /** Count a top's corners in the weld (their angles weight its normal). */
-  const weldTop = (p: readonly number[], n: readonly number[]): [string, string, string] => {
-    const keys: string[] = [];
+  const weldTop = (p: readonly number[], n: readonly number[]): [WeldPoint, WeldPoint, WeldPoint] => {
+    const keys: WeldPoint[] = [];
     for (let k = 0; k < 3; k++) {
       const o = k * 3;
       const a = ((k + 1) % 3) * 3;
@@ -586,15 +673,13 @@ export function meshBlockChunk(grid: BlockGrid, cx: number, cz: number, types: R
       const ux = p[a]! - p[o]!, uy = p[a + 1]! - p[o + 1]!, uz = p[a + 2]! - p[o + 2]!;
       const vx = p[b]! - p[o]!, vy = p[b + 1]! - p[o + 1]!, vz = p[b + 2]! - p[o + 2]!;
       const cos = (ux * vx + uy * vy + uz * vz) / (Math.hypot(ux, uy, uz) * Math.hypot(vx, vy, vz) || 1);
-      const key = weldKey(p[o]!, p[o + 1]!, p[o + 2]!);
-      let list = weld.get(key);
-      if (list === undefined) weld.set(key, (list = []));
-      list.push(n[0]!, n[1]!, n[2]!, Math.acos(Math.min(1, Math.max(-1, cos))));
+      const key = weld.at(p[o]!, p[o + 1]!, p[o + 2]!);
+      key.list.push(n[0]!, n[1]!, n[2]!, Math.acos(Math.min(1, Math.max(-1, cos))));
       keys.push(key);
     }
-    return keys as [string, string, string];
+    return keys as [WeldPoint, WeldPoint, WeldPoint];
   };
-  const parts = new Map<string, { acc: Accumulator; seen: Map<string, number>; blockId: string; variant: number; material: number }>();
+  const parts = new Map<string, { acc: Accumulator; seen: SeenVertices; blockId: string; variant: number; material: number }>();
   grid.forEachInChunk(chunkKeyOf(cx, cz), (x, y, z, idx) => {
     const cell: BlockCell = grid.valueOf(idx);
     if (cell.block === undefined) return;
@@ -605,7 +690,7 @@ export function meshBlockChunk(grid: BlockGrid, cx: number, cz: number, types: R
       const key = `${look.key}#${g.material}`;
       let part = parts.get(key);
       if (part === undefined) {
-        part = { acc: new Accumulator(), seen: new Map(), blockId: look.type.blockId, variant: look.variant, material: g.material };
+        part = { acc: new Accumulator(), seen: new SeenVertices(), blockId: look.type.blockId, variant: look.variant, material: g.material };
         parts.set(key, part);
       }
       const acc = part.acc;
@@ -674,16 +759,15 @@ export function meshBlockChunk(grid: BlockGrid, cx: number, cz: number, types: R
     }
     const cosAngle = Math.cos((Math.min(180, smoothAngle) * Math.PI) / 180) - 1e-9;
     // Each point's tops in one order (whichever chunk sums them), so both chunks of an edge get the very same normal.
-    const sorted = new Set<string>();
-    const contributions = (key: string): number[] => {
-      const list = weld.get(key)!;
-      if (!sorted.has(key)) {
+    const contributions = (point: WeldPoint): number[] => {
+      const list = point.list;
+      if (!point.sorted) {
         const entries: number[][] = [];
         for (let i = 0; i < list.length; i += 4) entries.push(list.slice(i, i + 4));
         entries.sort((a, b) => a[0]! - b[0]! || a[1]! - b[1]! || a[2]! - b[2]! || a[3]! - b[3]!);
         list.length = 0;
         for (const e of entries) list.push(...e);
-        sorted.add(key);
+        point.sorted = true;
       }
       return list;
     };
@@ -705,11 +789,11 @@ export function meshBlockChunk(grid: BlockGrid, cx: number, cz: number, types: R
         const u = t.uv[k * 2]!;
         const v = t.uv[k * 2 + 1]!;
         // Corners that land on the same point with the same normal and uv share one vertex.
-        const id = `${t.keys[k]}|${Math.round(n[0]! * 1e6)},${Math.round(n[1]! * 1e6)},${Math.round(n[2]! * 1e6)}|${Math.round(u * 1e5)},${Math.round(v * 1e5)}`;
-        let out = seen.get(id);
-        if (out === undefined) {
+        const id = [Math.round(n[0]! * 1e6), Math.round(n[1]! * 1e6), Math.round(n[2]! * 1e6), Math.round(u * 1e5), Math.round(v * 1e5)];
+        let out = seen.get(t.keys[k]!, id);
+        if (out < 0) {
           out = acc.positions.length / 3;
-          seen.set(id, out);
+          seen.set(t.keys[k]!, id, out);
           acc.positions.push(t.p[k * 3]!, t.p[k * 3 + 1]!, t.p[k * 3 + 2]!);
           acc.normals.push(n[0]!, n[1]!, n[2]!);
           acc.uvs.push(u, v);

@@ -156,6 +156,11 @@ export class BlockGrid {
     return this.palette[index] as BlockCell;
   }
 
+  /** Every distinct cell value the layer has held (what a renderer may need looks for before meshing). */
+  paletteCells(): readonly BlockCell[] {
+    return this.palette;
+  }
+
   private column(x: number, z: number, create: boolean): Column | undefined {
     const ck = chunkKeyOf(chunkIndex(x), chunkIndex(z));
     let chunk = this.chunks.get(ck);

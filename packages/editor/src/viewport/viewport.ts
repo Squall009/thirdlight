@@ -323,6 +323,8 @@ export class Viewport {
     const assets = this.assets;
     const adapter = createSceneAdapter(canvas, {
       runtime: this.source,
+      // Block chunks mesh off the frame in workers next to the editor page (`mesh-worker.js`).
+      meshWorkerUrl: new URL('mesh-worker.js', document.baseURI).href,
       // The authored scene comes in through the source's scene set; a v4 snapshot with scenes lets rows arrive as they are read.
       snapshot: { scene: { schemaVersion: 4, entities: [] }, scenes: [] } as never,
       resources: assets.resources,

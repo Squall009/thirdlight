@@ -80,7 +80,7 @@ export function readBuildStamp(distDir: string): BuildStamp | null {
 }
 
 /** The bundles a backend serves or runs (their newest modification time stands in for a missing stamp). */
-const DIST_BUNDLES = ['backend/backend.mjs', 'editor/main.js', 'preview/preview-m3.js', 'preview/sim-worker.js', 'mcp-adapter/mcp.mjs'];
+const DIST_BUNDLES = ['backend/backend.mjs', 'editor/main.js', 'preview/preview-m3.js', 'preview/sim-worker.js', 'preview/mesh-worker.js', 'mcp-adapter/mcp.mjs'];
 
 function newestBundleMs(distDir: string): number | null {
   let newest: number | null = null;

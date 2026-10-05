@@ -101,7 +101,8 @@ export function gatherBakeInputs(host: BakeInputHost, entityIds: ReadonlySet<str
   const layers = new Set(view?.layerIds().filter((id) => entityIds.has(id)) ?? []);
   if (view !== null) {
     for (const id of layers) view.setLightmapUv(id, true);
-    view.update();
+    // The bake reads the chunks right away: meshed here, not in the workers.
+    view.flush();
     for (const id of layers) {
       for (const t of view.lightmapTargets(id)) {
         targets.push({ entityId: `${id}#${t.cx},${t.cz}`, meshes: t.meshes.map((m) => ({ geometry: m.geometry, matrixWorld: m.matrixWorld.clone() })), area: t.area, box: null, chunk: { entityId: id, cx: t.cx, cz: t.cz, layout: t.layout, side: t.side } });

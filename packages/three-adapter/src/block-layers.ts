@@ -12,6 +12,16 @@
  * per cell, with its own materials (a material mapping applied by the host).
  * Model geometry arrives asynchronously: chunks re-mesh when it is ready.
  *
+ * Meshing off the frame: with mesh workers (`meshWorkers`), loading a layer,
+ * a block-type change, a model arriving, a lightmap layout change and edits
+ * beyond the page's budget are meshed in the workers; a chunk keeps drawing
+ * its old meshes until its new ones arrive, results are swapped in under a
+ * time slice per frame, and a result for a chunk changed since is dropped. An
+ * edit's chunks (an editor stroke, a script's grid write) mesh on the page
+ * while their measured cost fits {@link SYNC_MESH_BUDGET_MS} in the frame, so
+ * a small edit shows in the same frame. Without workers everything meshes on
+ * the page, as `update` is called.
+ *
  * Levels of detail: when a model look has coarser levels (`<piece>_LOD1..n`),
  * the chunk is meshed once per level and its model meshes go into one
  * `THREE.LOD` at the chunk's centre (each level shows every model at that
@@ -41,11 +51,7 @@ import * as THREE from 'three';
 import {
   BlockGrid,
   CHUNK_SIZE,
-  blockTopOptions,
-  chunkLightmapLayout,
   chunkPaintColors,
-  meshBlockChunk,
-  shapeSource,
   type BlockChunk,
   type BlockLayerComponent,
   type BlockLayerData,
@@ -55,7 +61,25 @@ import {
   type GridRenderChange,
 } from '@thirdlight/runtime';
 
+import { chunkModelKey, meshChunkForDrawing, StandInShapes, variantModelOf, type ChunkLooks, type ChunkMeshResult, type ChunkModelRef } from './block-chunk-mesh';
+import { MeshWorkerPool, meshWorkerCount, type MeshWorkerFactory } from './block-mesh-pool';
+import type { MeshWorkerReply } from './block-mesh-worker';
 import { currentLodLevel } from './lod-switch';
+
+/**
+ * An edit's chunks mesh on the page while their estimated cost (the layer's
+ * measured time per chunk) fits in this many milliseconds a frame; beyond it
+ * they go to the mesh workers. Chosen so a frame with an edit stays under a
+ * 60 Hz frame on a laptop (the class frame is ~7 ms). Measured: a flat 16 × 16
+ * chunk a few rows deep meshes in ~6 ms, a sloped one with smoothed,
+ * subdivided tops in 20–80 ms; so a sparse chunk's edit shows in the same
+ * frame, and an edit of terrain chunks shows when the worker answers (the
+ * old meshes drawn until then; collision and grid queries are the
+ * simulation's and update in the step either way).
+ */
+export const SYNC_MESH_BUDGET_MS = 8;
+/** Finished worker results are turned into meshes for at most this long a frame (at least one a frame). */
+export const MESH_APPLY_BUDGET_MS = 4;
 
 /** A model look: its LOD0 geometry in the block frame and its materials (by the source's material index). */
 export interface BlockModelLook {
@@ -92,6 +116,12 @@ export interface BlockLayerViewDeps {
    * and leaves {@link BlockLayerView.root} out of its scene.
    */
   place?(chunk: THREE.Group, shown: boolean): void;
+  /** Makes a mesh worker (absent, or null from it: chunks mesh on the page). */
+  meshWorkers?: MeshWorkerFactory;
+  /** Worker results wait to be swapped in: a host that draws on demand draws again (the next `update` takes them). */
+  meshed?(): void;
+  /** Logical cores (sizes the worker pool; default `navigator.hardwareConcurrency`). */
+  cores?: number;
 }
 
 /** A chunk's lightmap target: its meshes with UV1 and the layout they follow. */
@@ -113,8 +143,20 @@ interface LayerState {
   readonly group: THREE.Group;
   component: BlockLayerComponent;
   grid: BlockGrid;
+  /** This version of the layer's cells (a worker's result for an older one is dropped). */
+  serial: number;
   readonly chunks: Map<string, THREE.Group>;
   readonly dirty: Set<string>;
+  /** Dirty chunks whose change was an edit (they may mesh on the page within the budget). */
+  readonly edited: Set<string>;
+  /** Each chunk's generation: bumped whenever it is meshed or sent to be meshed. */
+  readonly gens: Map<string, number>;
+  /** Chunks a worker is meshing, by the generation asked for. */
+  readonly pending: Map<string, number>;
+  /** The measured cost of meshing one of its chunks (ms, a running average; -1: not measured yet). */
+  meshMs: number;
+  /** How many of its palette's cells have had their models asked for (a worker gets a model before its chunks). */
+  looksAsked: number;
   /** Chunks built with lightmap UVs: their layout digest, area and slots per side. */
   readonly lightmapLayouts: Map<string, { layout: string; area: number; side: number }>;
   /** Its object is hidden (inactive): its chunks are built but not placed in the scene. */
@@ -129,6 +171,22 @@ export interface BlockLayerViewDiagnostics {
   triangles: number;
   /** Chunks with levels of detail, and how many show each level now (index = level). */
   lods?: { chunks: number; shown: number[] };
+  /** Meshing: where chunks were meshed, what waits, and the page's time spent on it. */
+  meshing: {
+    /** Mesh workers running (0: everything meshes on the page). */
+    workers: number;
+    /** Chunks sent to the workers and not back yet (the queue). */
+    queued: number;
+    /** Chunks meshed on the page, and in the workers (applied), since the view was made. */
+    meshedHere: number;
+    meshedInWorkers: number;
+    /** Chunks meshed on the page or swapped in from the workers in the last update. */
+    lastUpdate: { here: number; applied: number; ms: number };
+    /** The longest the page spent meshing and building chunks in one update (ms). */
+    longestUpdateMs: number;
+    /** The slowest layer's measured time to mesh one chunk (ms; -1 before any). */
+    chunkMs: number;
+  };
 }
 
 /**
@@ -247,15 +305,31 @@ export class BlockLayerView {
   private readonly deps: BlockLayerViewDeps;
   private types = new Map<string, BlockType>();
   private readonly layers = new Map<string, LayerState>();
-  private readonly standIns = new Map<string, BlockMeshSource>();
+  private readonly standIns = new StandInShapes();
   private readonly colorMaterials = new Map<string, THREE.MeshLambertMaterial>();
   /** Layers whose chunks get lightmap UVs whatever the host says (a bake in progress). */
   private readonly forcedUv = new Set<string>();
+  /** The model looks found so far (their geometry is in the workers too). */
+  private readonly modelLooks = new Map<string, BlockModelLook>();
+  /** The layer being meshed on the page (a model it asks for re-meshes it when the model is ready). */
+  private meshingLayer: string | null = null;
+  private readonly pageLooks: ChunkLooks = {
+    variantModel: (type, variant) => variantModelOf(type, variant, (id) => this.deps.prefabModel?.(id) ?? null),
+    model: (ref) => this.modelLook(ref, this.meshingLayer),
+  };
+  private pool: MeshWorkerPool | null = null;
+  /** No workers here (none given, or they failed): everything meshes on the page. */
+  private poolUnavailable: boolean;
+  /** Worker results waiting to be swapped in. */
+  private readonly results: MeshWorkerReply[] = [];
+  private serials = 0;
+  private readonly stats = { meshedHere: 0, meshedInWorkers: 0, lastUpdate: { here: 0, applied: 0, ms: 0 }, longestUpdateMs: 0 };
   private disposed = false;
 
   constructor(deps: BlockLayerViewDeps = {}) {
     this.deps = deps;
     this.root.name = 'block-layers';
+    this.poolUnavailable = deps.meshWorkers === undefined;
   }
 
   /** The block types (every chunk re-meshes when they change). */
@@ -263,6 +337,8 @@ export class BlockLayerView {
     const next = new Map(types.map((t) => [t.blockId, t]));
     if (JSON.stringify([...next.entries()]) === JSON.stringify([...this.types.entries()])) return;
     this.types = next;
+    this.sendTypes();
+    for (const layer of this.layers.values()) layer.looksAsked = 0;
     for (const layer of this.layers.values()) for (const ck of layer.grid.chunkKeys()) layer.dirty.add(ck);
     for (const layer of this.layers.values()) for (const ck of layer.chunks.keys()) layer.dirty.add(ck);
   }
@@ -274,16 +350,22 @@ export class BlockLayerView {
       const group = new THREE.Group();
       group.name = `block-layer:${entityId}`;
       this.root.add(group);
-      layer = { group, component, grid: BlockGrid.from(component, data), chunks: new Map(), dirty: new Set(), lightmapLayouts: new Map(), hidden: false };
+      layer = { group, component, grid: BlockGrid.from(component, data), serial: ++this.serials, chunks: new Map(), dirty: new Set(), edited: new Set(), gens: new Map(), pending: new Map(), meshMs: -1, looksAsked: 0, lightmapLayouts: new Map(), hidden: false };
       this.layers.set(entityId, layer);
     } else {
       layer.component = component;
       layer.grid = BlockGrid.from(component, data);
+      layer.serial = ++this.serials;
+      layer.looksAsked = 0;
+      // Whatever a worker was meshing was for the cells replaced here: it is asked again.
+      for (const ck of layer.pending.keys()) layer.dirty.add(ck);
+      layer.pending.clear();
     }
     layer.group.position.set(origin[0] ?? 0, origin[1] ?? 0, origin[2] ?? 0);
     layer.group.updateMatrixWorld(true);
     for (const ck of layer.grid.chunkKeys()) layer.dirty.add(ck);
     for (const ck of layer.chunks.keys()) layer.dirty.add(ck);
+    if (component.metadataOnly !== true && this.startPool()) this.pool!.broadcast({ t: 'layer', entityId, serial: layer.serial, component, data });
   }
 
   /** Move a layer (its entity moved in the editor). */
@@ -316,13 +398,17 @@ export class BlockLayerView {
     return [...this.layers.keys()];
   }
 
-  /** Replace some chunks of a layer (stored form; null empties one) and re-mesh them and their neighbours. */
+  /** Replace some chunks of a layer (stored form; null empties one) and re-mesh them and their neighbours (an edit). */
   replaceChunks(entityId: string, chunks: readonly { cx: number; cz: number; chunk: BlockChunk | null }[]): void {
     const layer = this.layers.get(entityId);
     if (layer === undefined) return;
     const painted = layer.grid.hasPaint();
     for (const c of chunks) layer.grid.replaceChunk(c.cx, c.cz, c.chunk);
-    for (const k of layer.grid.takeDirty().mesh) layer.dirty.add(k);
+    if (this.pool !== null && layer.component.metadataOnly !== true) this.pool.broadcast({ t: 'chunks', entityId, chunks: chunks.map((c) => ({ cx: c.cx, cz: c.cz, chunk: c.chunk })) });
+    for (const k of layer.grid.takeDirty().mesh) {
+      layer.dirty.add(k);
+      layer.edited.add(k);
+    }
     // The first paint (or the last one gone) changes every chunk's colours.
     if (layer.grid.hasPaint() !== painted) for (const k of layer.chunks.keys()) layer.dirty.add(k);
   }
@@ -344,22 +430,62 @@ export class BlockLayerView {
     for (const [ck, g] of layer.chunks) this.dropChunk(entityId, layer, ck, g);
     layer.group.removeFromParent();
     this.layers.delete(entityId);
+    this.pool?.broadcast({ t: 'drop', entityId });
   }
 
-  /** Re-mesh the chunks that changed. Returns whether anything was rebuilt. */
+  /**
+   * Re-mesh the chunks that changed: swap in what the workers finished (within
+   * a time slice), mesh an edit's chunks here while they fit the budget, and
+   * send the rest to the workers. Returns whether any chunk was rebuilt.
+   */
   update(): boolean {
     if (this.disposed) return false;
-    let changed = false;
+    const t0 = performance.now();
+    let applied = 0;
+    while (this.results.length > 0 && (applied === 0 || performance.now() - t0 < MESH_APPLY_BUDGET_MS)) {
+      if (this.applyResult(this.results.shift()!)) applied += 1;
+    }
+    let here = 0;
+    let syncMs = 0;
     for (const [entityId, layer] of this.layers) {
       if (layer.dirty.size === 0) continue;
       const keys = [...layer.dirty];
       layer.dirty.clear();
       for (const ck of keys) {
-        this.rebuildChunk(entityId, layer, ck);
-        changed = true;
+        const edited = layer.edited.has(ck);
+        const estimate = Math.max(0, layer.meshMs);
+        if (this.pool === null || layer.component.metadataOnly === true || (edited && syncMs + estimate <= SYNC_MESH_BUDGET_MS)) {
+          const t = performance.now();
+          this.meshHere(entityId, layer, ck);
+          syncMs += performance.now() - t;
+          here += 1;
+        } else this.request(entityId, layer, ck);
       }
+      layer.edited.clear();
     }
-    return changed;
+    // More results than one frame's slice: the host draws again for the rest.
+    if (this.results.length > 0) this.deps.meshed?.();
+    const ms = performance.now() - t0;
+    this.stats.lastUpdate = { here, applied, ms };
+    this.stats.meshedHere += here;
+    this.stats.meshedInWorkers += applied;
+    if (here + applied > 0) this.stats.longestUpdateMs = Math.max(this.stats.longestUpdateMs, ms);
+    return here + applied > 0;
+  }
+
+  /**
+   * Mesh every changed chunk now, on the page, including those a worker is
+   * still meshing (a bake reads the chunks right after).
+   */
+  flush(): void {
+    for (const layer of this.layers.values()) for (const ck of layer.pending.keys()) layer.dirty.add(ck);
+    const pool = this.pool;
+    this.pool = null;
+    try {
+      this.update();
+    } finally {
+      this.pool = pool;
+    }
   }
 
   diagnostics(): BlockLayerViewDiagnostics {
@@ -367,9 +493,13 @@ export class BlockLayerView {
     let meshes = 0;
     let triangles = 0;
     let lodChunks = 0;
+    let queued = 0;
+    let chunkMs = -1;
     const shown: number[] = [];
     for (const layer of this.layers.values()) {
       chunks += layer.chunks.size;
+      queued += layer.pending.size;
+      chunkMs = Math.max(chunkMs, layer.meshMs);
       for (const g of layer.chunks.values()) {
         for (const mesh of detailedMeshes(g)) {
           meshes += 1;
@@ -386,13 +516,15 @@ export class BlockLayerView {
         }
       }
     }
-    return { layers: this.layers.size, chunks, meshes, triangles, ...(lodChunks > 0 ? { lods: { chunks: lodChunks, shown } } : {}) };
+    const round = (v: number): number => Math.round(v * 100) / 100;
+    const meshing = { workers: this.pool?.size ?? 0, queued, meshedHere: this.stats.meshedHere, meshedInWorkers: this.stats.meshedInWorkers, lastUpdate: { ...this.stats.lastUpdate, ms: round(this.stats.lastUpdate.ms) }, longestUpdateMs: round(this.stats.longestUpdateMs), chunkMs: chunkMs < 0 ? -1 : round(chunkMs) };
+    return { layers: this.layers.size, chunks, meshes, triangles, ...(lodChunks > 0 ? { lods: { chunks: lodChunks, shown } } : {}), meshing };
   }
 
   /**
    * Build lightmap UVs for a layer's chunks (for a bake) — also where the
    * host does not want them otherwise — until turned off again. The chunks
-   * re-mesh at the next `update`.
+   * re-mesh at the next `update` (`flush` to have them at once).
    */
   setLightmapUv(entityId: string, on: boolean): void {
     if (on === this.forcedUv.has(entityId)) return;
@@ -442,6 +574,9 @@ export class BlockLayerView {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
+    this.pool?.dispose();
+    this.pool = null;
+    this.results.length = 0;
     for (const id of [...this.layers.keys()]) this.removeLayer(id);
     for (const m of this.colorMaterials.values()) m.dispose();
     this.colorMaterials.clear();
@@ -449,6 +584,148 @@ export class BlockLayerView {
   }
 
   // ---- internals ---------------------------------------------------------------------
+
+  /** Start the workers on first use; whether there are any. */
+  private startPool(): boolean {
+    if (this.pool !== null) return true;
+    if (this.poolUnavailable || this.disposed) return false;
+    const create = this.deps.meshWorkers!;
+    const cores = this.deps.cores ?? (globalThis as { navigator?: { hardwareConcurrency?: number } }).navigator?.hardwareConcurrency;
+    this.pool = MeshWorkerPool.start(
+      create,
+      meshWorkerCount(cores),
+      (reply) => {
+        this.results.push(reply);
+        if (this.results.length === 1) this.deps.meshed?.();
+      },
+      () => {
+        this.workersFailed();
+        this.deps.meshed?.();
+      },
+    );
+    if (this.pool === null) {
+      this.poolUnavailable = true;
+      return false;
+    }
+    this.sendTypes();
+    for (const [key, look] of this.modelLooks) this.pool.broadcast({ t: 'model', key, geometry: { source: look.source, ...(look.levels !== undefined ? { levels: look.levels } : {}) } });
+    return true;
+  }
+
+  /** The workers could not start or failed: what they had is meshed here from now on. */
+  private workersFailed(): void {
+    this.pool = null;
+    this.poolUnavailable = true;
+    this.results.length = 0;
+    for (const layer of this.layers.values()) {
+      for (const ck of layer.pending.keys()) layer.dirty.add(ck);
+      layer.pending.clear();
+    }
+  }
+
+  private sendTypes(): void {
+    if (this.pool === null) return;
+    const types = [...this.types.values()];
+    const variantModels: [string, (ChunkModelRef | null)[]][] = types.map((t) => [t.blockId, t.variants.map((_, i) => this.pageLooks.variantModel(t, i))]);
+    this.pool.broadcast({ t: 'types', types, variantModels });
+  }
+
+  /** A model's look, asking the host for it (a layer waiting for it re-meshes when it is ready); null while it loads. */
+  private modelLook(ref: ChunkModelRef, entityId: string | null): BlockModelLook | null {
+    const key = chunkModelKey(ref);
+    const known = this.modelLooks.get(key);
+    const look =
+      this.deps.modelLook?.(ref.assetId, ref.piece, () => {
+        if (this.disposed || entityId === null) return;
+        const l = this.layers.get(entityId);
+        if (l === undefined) return;
+        for (const k of l.grid.chunkKeys()) l.dirty.add(k);
+      }) ?? null;
+    if (look !== null && look !== known) {
+      this.modelLooks.set(key, look);
+      this.pool?.broadcast({ t: 'model', key, geometry: { source: look.source, ...(look.levels !== undefined ? { levels: look.levels } : {}) } });
+    }
+    return look;
+  }
+
+  private nextGen(layer: LayerState, ck: string): number {
+    const gen = (layer.gens.get(ck) ?? 0) + 1;
+    layer.gens.set(ck, gen);
+    return gen;
+  }
+
+  private uvFor(entityId: string): boolean {
+    return this.forcedUv.has(entityId) || this.deps.lightmapped?.(entityId) === true;
+  }
+
+  /**
+   * Ask for the models of the layer's cells not asked for yet, so a worker has
+   * every loaded one before it meshes (and a chunk is not meshed twice).
+   */
+  private askLooks(entityId: string, layer: LayerState): void {
+    const cells = layer.grid.paletteCells();
+    for (; layer.looksAsked < cells.length; layer.looksAsked++) {
+      const cell = cells[layer.looksAsked]!;
+      const type = cell.block === undefined ? undefined : this.types.get(cell.block);
+      if (type === undefined) continue;
+      const variants = cell.variant !== undefined ? [cell.variant] : type.variants.map((_, i) => i);
+      for (const v of variants) {
+        const model = this.pageLooks.variantModel(type, v);
+        if (model !== null) this.modelLook(model, entityId);
+      }
+    }
+  }
+
+  /** Ask a worker for a chunk; its old meshes stay until the result comes. */
+  private request(entityId: string, layer: LayerState, ck: string): void {
+    this.askLooks(entityId, layer);
+    const gen = this.nextGen(layer, ck);
+    layer.pending.set(ck, gen);
+    const [cx, cz] = ck.split(',').map(Number) as [number, number];
+    this.pool!.send({ t: 'mesh', entityId, serial: layer.serial, cx, cz, gen, uv: this.uvFor(entityId) });
+  }
+
+  /** Mesh a chunk here and now. */
+  private meshHere(entityId: string, layer: LayerState, ck: string): void {
+    const gen = this.nextGen(layer, ck);
+    const [cx, cz] = ck.split(',').map(Number) as [number, number];
+    if (layer.pending.delete(ck)) this.pool?.send({ t: 'cancel', entityId, cx, cz, gen });
+    if (layer.component.metadataOnly === true) {
+      const old = layer.chunks.get(ck);
+      if (old !== undefined) this.dropChunk(entityId, layer, ck, old);
+      return;
+    }
+    const t0 = performance.now();
+    this.meshingLayer = entityId;
+    let result: ChunkMeshResult;
+    try {
+      result = meshChunkForDrawing(layer.grid, layer.component, this.types, this.pageLooks, this.standIns, { cx, cz, uv: this.uvFor(entityId) });
+    } finally {
+      this.meshingLayer = null;
+    }
+    this.measured(layer, performance.now() - t0);
+    this.buildChunk(entityId, layer, ck, cx, cz, result);
+  }
+
+  private measured(layer: LayerState, ms: number): void {
+    layer.meshMs = layer.meshMs < 0 ? ms : layer.meshMs * 0.75 + ms * 0.25;
+  }
+
+  /** Swap in a worker's chunk if it is still the one wanted. */
+  private applyResult(r: MeshWorkerReply): boolean {
+    const layer = this.layers.get(r.entityId);
+    if (layer === undefined || layer.serial !== r.serial) return false;
+    const ck = `${r.cx},${r.cz}`;
+    if (layer.pending.get(ck) !== r.gen) return false;
+    layer.pending.delete(ck);
+    this.measured(layer, r.ms);
+    // Models the worker did not have: found now (sent to it), the chunk is asked again; still loading, it re-meshes when ready.
+    let again = false;
+    for (const ref of r.result.missing) if (this.modelLook(ref, r.entityId) !== null) again = true;
+    if (again) layer.dirty.add(ck);
+    this.buildChunk(r.entityId, layer, ck, r.cx, r.cz, r.result);
+    return true;
+  }
 
   private colorMaterial(color: string): THREE.MeshLambertMaterial {
     let m = this.colorMaterials.get(color);
@@ -460,75 +737,19 @@ export class BlockLayerView {
     return m;
   }
 
-  private standIn(type: BlockType, fm: [number, number, number]): BlockMeshSource {
-    const key = `${type.shape}|${fm.join(',')}|${JSON.stringify(type.boxes ?? null)}`;
-    let s = this.standIns.get(key);
-    if (s === undefined) {
-      s = shapeSource(type.shape === 'none' ? 'full' : type.shape, fm[0], fm[1], fm[2], type.boxes);
-      this.standIns.set(key, s);
-    }
-    return s;
-  }
-
-  private modelOf(type: BlockType, variant: number): { assetId: string; piece?: string } | null {
-    const v = type.variants[variant] ?? type.variants[0];
-    if (v === undefined) return null;
-    if (v.model !== undefined) return v.model;
-    if (v.prefab !== undefined) return this.deps.prefabModel?.(v.prefab) ?? null;
-    return null;
-  }
-
-  private rebuildChunk(entityId: string, layer: LayerState, ck: string): void {
+  /** Replace a chunk's meshes with a meshing result (nothing to draw: the chunk goes). */
+  private buildChunk(entityId: string, layer: LayerState, ck: string, cx: number, cz: number, result: ChunkMeshResult): void {
     const old = layer.chunks.get(ck);
     if (old !== undefined) this.dropChunk(entityId, layer, ck, old);
-    if (layer.component.metadataOnly === true) return;
-    const [cx, cz] = ck.split(',').map(Number) as [number, number];
-    const looks = new Map<string, { materials: readonly THREE.Material[]; type: BlockType; assetId: string | null; color: string | null; levels: BlockModelLook['levels'] }>();
-    const tops = blockTopOptions(layer.component);
-    /** The chunk meshed at one level of detail: model looks at that level (or their last), stand-ins as they are. */
-    const mesh = (level: number): ChunkMeshPart[] =>
-      meshBlockChunk(layer.grid, cx, cz, this.types, {
-        source: (type, variant, fm) => {
-          const model = this.modelOf(type, variant);
-          if (model !== null) {
-            const look = this.deps.modelLook?.(model.assetId, model.piece, () => {
-              if (this.disposed) return;
-              const l = this.layers.get(entityId);
-              if (l === undefined) return;
-              for (const k of l.grid.chunkKeys()) l.dirty.add(k);
-            });
-            if (look === null || look === undefined) return null;
-            const key = `m:${model.assetId}:${model.piece ?? ''}:${type.blockId}`;
-            looks.set(key, { materials: look.materials, type, assetId: model.assetId, color: null, levels: look.levels });
-            const levels = look.levels ?? [];
-            return { key, source: level === 0 || levels.length === 0 ? look.source : levels[Math.min(level, levels.length) - 1]!.source };
-          }
-          const color = type.variants[variant]?.color ?? type.variants[0]?.color ?? '#b0b0b0';
-          const key = `c:${type.blockId}:${variant}`;
-          looks.set(key, { materials: [], type, assetId: null, color, levels: undefined });
-          return { key, source: this.standIn(type, fm) };
-        },
-      }, tops);
-    let parts = mesh(0);
+    const { parts, coarse, lightmap } = result;
     if (parts.length === 0) return;
-    // Chunk levels of detail from the model looks' own levels: level L shows each model at its level L (or
-    // its last), switching where the farthest of those models would, plus the chunk's radius (no cell switches
-    // earlier than it would alone). Stand-ins have one level and stay out of the switch.
-    const levelCount = Math.max(0, ...[...looks.values()].map((l) => l.levels?.length ?? 0));
-    const coarse: { parts: ChunkMeshPart[]; distance: number }[] = [];
-    for (let level = 1; level <= levelCount; level++) {
-      const distance = Math.max(...[...looks.values()].filter((l) => (l.levels?.length ?? 0) >= level).map((l) => l.levels![level - 1]!.distance));
-      coarse.push({ parts: mesh(level).filter((p) => p.key.startsWith('m:')), distance });
-    }
-    // Lightmap UVs where a bake has (or is making) this layer's lightmaps: one square per chunk; coarser levels map into it.
-    let lightmap: { layout: string; area: number; side: number } | null = null;
-    if (this.forcedUv.has(entityId) || this.deps.lightmapped?.(entityId) === true) {
-      // Smoothed or subdivided tops light differently: a bake made without them no longer matches the chunk.
-      const shading = tops.smoothAngle !== undefined || tops.topSubdivision !== undefined ? `tops:${tops.smoothAngle ?? 0}:${tops.topSubdivision ?? 1}` : undefined;
-      const lm = chunkLightmapLayout(parts, layer.grid.cellSize, undefined, shading);
-      parts = lm.parts;
-      for (const c of coarse) c.parts = chunkLightmapLayout(c.parts, layer.grid.cellSize, lm).parts;
-      lightmap = { layout: lm.layout, area: lm.area, side: lm.side };
+    const looks = new Map<string, { materials: readonly THREE.Material[]; type: BlockType; assetId: string | null; color: string | null }>();
+    for (const use of result.looks) {
+      const type = this.types.get(use.blockId);
+      if (type === undefined) continue;
+      const model = use.model === null ? undefined : this.modelLooks.get(chunkModelKey(use.model));
+      if (use.model !== null && model === undefined) continue;
+      looks.set(use.key, { materials: model?.materials ?? [], type, assetId: use.model?.assetId ?? null, color: use.color });
     }
     const group = new THREE.Group();
     group.name = `block-chunk:${entityId}:${ck}`;

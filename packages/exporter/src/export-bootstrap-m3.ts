@@ -33,6 +33,8 @@ import { moduleSpecs } from 'thirdlight:export-modules';
 
 /** The simulation worker's bundle, next to this one (relative to the page). */
 const EXPORT_SIM_WORKER_PATH = './js/sim-worker.js';
+/** The block mesh worker (`js/mesh-worker.js`, only in an export with block layers; without it chunks mesh on the page). */
+const EXPORT_MESH_WORKER_PATH = './js/mesh-worker.js';
 /** The 3D physics backend (`js/physics-3d.js`, only in a 3D project's export). */
 const EXPORT_PHYSICS_3D_PATH = './js/physics-3d.js';
 /** Three's Draco and Basis decoders next to index.html (shipped when a file needs them). */
@@ -85,6 +87,7 @@ async function main(): Promise<void> {
       // A streamed audio file plays from its path next to index.html.
       assetUrl: (path) => new URL(path, document.baseURI).href,
       workerUrl: new URL(EXPORT_SIM_WORKER_PATH, document.baseURI).href,
+      meshWorkerUrl: new URL(EXPORT_MESH_WORKER_PATH, document.baseURI).href,
       physics3dUrl: new URL(EXPORT_PHYSICS_3D_PATH, location.href).href,
       decoderBase: EXPORT_DECODER_BASE,
       moduleSpecs: moduleSpecs as readonly SimulationModuleSpec[],

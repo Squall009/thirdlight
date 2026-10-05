@@ -51,6 +51,8 @@ const ENGINE_VERSION = '0.1.0';
 const BUNDLE_NAME = 'js/main.js';
 /** The simulation worker (runtime + physics + scripts off the page's main thread). */
 const WORKER_BUNDLE_NAME = 'js/sim-worker.js';
+/** The block mesh worker (block chunks meshed off the frame), shipped when the game has block layers. */
+const MESH_WORKER_BUNDLE_NAME = 'js/mesh-worker.js';
 /** The 3D physics backend (rapier3d), emitted only for a project whose physics_dimension is 3. */
 const PHYSICS_3D_BUNDLE_NAME = 'js/physics-3d.js';
 /** The module that marks a 3D project's physics. */
@@ -225,6 +227,15 @@ export async function exportProjectM3(
     });
   }
 
+  // The block mesh worker, for a game with block layers (a scene or a prefab names one); without it chunks mesh on the page.
+  const decoder = new TextDecoder();
+  const hasBlockLayers = [closure.sceneBytes, ...closure.sceneArtifacts.map((a) => a.bytes), ...closure.contentFileArtifacts.map((a) => a.bytes)].some((b) => decoder.decode(b).includes('"blockLayer"'));
+  const meshWorkerEntry = ctx.fs.join(ctx.fs.join(m3BootstrapEntry, '..'), 'export-mesh-worker.ts');
+  const meshWorker = hasBlockLayers ? await buildSimWorkerBundle(meshWorkerEntry) : null;
+  if (meshWorker !== null && !meshWorker.ok) {
+    return fail('export_bundle_graph_forbidden', 'internal', 'the block mesh worker bundle build failed (resolution/boundary defect)', { modules: meshWorker.modules.slice(0, 8) });
+  }
+
   // A 3D project's physics backend (next to the bootstrap: same directory, same rules).
   const threeD = closure.moduleIds.includes(PHYSICS_3D_MODULE);
   const physics3dEntry = ctx.fs.join(ctx.fs.join(m3BootstrapEntry, '..'), 'export-physics-3d.ts');
@@ -287,6 +298,10 @@ export async function exportProjectM3(
     return fail('export_bundle_graph_forbidden', 'internal', 'forbidden modules in the simulation worker bundle graph', {
       modules: workerGraph.forbidden.slice(0, 8),
     });
+  }
+  if (meshWorker !== null && meshWorker.ok) {
+    const gm = checkBundleGraphM3(meshWorker.metafile, meshWorkerEntry, []);
+    if (!gm.ok) return fail('export_bundle_graph_forbidden', 'internal', 'forbidden modules in the block mesh worker bundle graph', { modules: gm.forbidden.slice(0, 8) });
   }
   if (physics3d !== null && physics3d.ok) {
     const g3 = checkBundleGraphM3(physics3d.metafile, physics3dEntry, []);
@@ -354,6 +369,13 @@ export async function exportProjectM3(
       { reason: `counts=${JSON.stringify(workerCounts)}` },
     );
   }
+  // The block mesh worker carries the same gate.
+  if (meshWorker !== null && meshWorker.ok) {
+    const cm = textPatternCounts(new TextDecoder().decode(meshWorker.bytes), patterns);
+    if (cm.a + cm.b + cm.c + cm.e + cm.g + cm.i !== 0) {
+      return fail('export_bundle_forbidden_content', 'internal', `forbidden content in the block mesh worker bundle (a=${cm.a} b=${cm.b} c=${cm.c} e=${cm.e} g=${cm.g} i=${cm.i})`, { reason: `counts=${JSON.stringify(cm)}` });
+    }
+  }
   // The 3D physics bundle carries the same gate (its WASM is inlined: no URL).
   if (physics3d !== null && physics3d.ok) {
     const c3 = textPatternCounts(new TextDecoder().decode(physics3d.bytes), patterns);
@@ -383,6 +405,7 @@ export async function exportProjectM3(
       index: new TextEncoder().encode(INDEX_HTML),
       bundle: built.bytes,
       worker: worker.bytes,
+      meshWorker: meshWorker !== null && meshWorker.ok ? meshWorker.bytes : null,
       physics3d: physics3d !== null && physics3d.ok ? physics3d.bytes : null,
       physics3dVersion: physics3d !== null && physics3d.ok ? rapier3dVersion(ctx, physics3d.metafile) : null,
       manifestBytes,
@@ -438,6 +461,7 @@ async function writeOutput(
     index: Uint8Array;
     bundle: Uint8Array;
     worker: Uint8Array;
+    meshWorker: Uint8Array | null;
     physics3d: Uint8Array | null;
     physics3dVersion: string | null;
     manifestBytes: Uint8Array;
@@ -454,6 +478,7 @@ async function writeOutput(
   put('index.html', parts.index);
   put(BUNDLE_NAME, parts.bundle);
   put(WORKER_BUNDLE_NAME, parts.worker);
+  if (parts.meshWorker !== null) put(MESH_WORKER_BUNDLE_NAME, parts.meshWorker);
   if (parts.physics3d !== null) put(PHYSICS_3D_BUNDLE_NAME, parts.physics3d);
   put(MANIFEST_NAME, parts.manifestBytes);
   put(SCENE_NAME, closure.sceneBytes, closure.sceneDigest);

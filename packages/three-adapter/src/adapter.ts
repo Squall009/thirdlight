@@ -39,6 +39,7 @@ import { createEnvironmentRenderer, environmentHasLook, environmentTextureIds, l
 import { createGpuTiming } from './gpu-timing';
 import * as THREE from 'three';
 import { BlockLayerView, blockLookFromObject, type BlockLayerViewDiagnostics, type BlockModelLook } from './block-layers';
+import { createBrowserMeshWorker } from './block-mesh-pool';
 import { RuntimeMaterialView, type MaterialRenderChangeLike, type RuntimeMaterialsDiagnostics } from './runtime-materials';
 import { MaterialSwapView, type MaterialMappingLike } from './material-swaps';
 import type { BlockLayerComponent, BlockLayerData, BlockType, GridRenderChange } from '@thirdlight/runtime';
@@ -508,6 +509,8 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       const mapping = { ...(base ?? {}), ...(type.materials ?? {}) };
       if (Object.keys(mapping).length > 0) materialLibrary.apply(mesh, mapping, null);
     },
+    ...(opts.meshWorkerUrl !== undefined ? { meshWorkers: () => createBrowserMeshWorker(opts.meshWorkerUrl!) } : {}),
+    meshed: () => opts.onChange?.(),
     // Baked block-layer chunks: lightmap UVs, and the chunk's lightmap when its layout is the baked one.
     lightmapped: (id) => lightmaps?.hasChunks(id) === true,
     chunkBuilt: (id, cx, cz, group, layout) => lightmaps?.applyChunk(id, cx, cz, layout, group),

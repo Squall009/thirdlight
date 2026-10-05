@@ -109,6 +109,18 @@ const BUNDLES = [
     entry: 'packages/editor/src/workers/editor-worker.ts',
     out: 'dist/editor/editor-worker.js',
   },
+  // The block mesh worker (block chunks meshed off the page's frame), next
+  // to the editor page and on the preview origin next to the simulation worker.
+  {
+    name: 'mesh-worker',
+    entry: 'packages/editor/src/workers/mesh-worker.ts',
+    out: 'dist/editor/mesh-worker.js',
+  },
+  {
+    name: 'mesh-worker (preview)',
+    entry: 'packages/editor/src/workers/mesh-worker.ts',
+    out: 'dist/preview/mesh-worker.js',
+  },
   // The `preview-m3` wrapper entry — the v3 play
   // bundle (served as `game.js` at the v3 locator). The `preview.js`
   // entry above stays byte-stable (its bundle scan depends on it).

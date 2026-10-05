@@ -33,6 +33,7 @@ const PLAY_BUILD_FILE_MAX_BYTES = 33_554_432;
 const FILES: readonly { readonly name: string; readonly file: string; readonly required: boolean }[] = [
   { name: 'game.js', file: 'preview-m3.js', required: true },
   { name: 'sim-worker.js', file: 'sim-worker.js', required: false },
+  { name: 'mesh-worker.js', file: 'mesh-worker.js', required: false },
   { name: 'physics-3d.js', file: 'physics-3d.js', required: false },
 ];
 

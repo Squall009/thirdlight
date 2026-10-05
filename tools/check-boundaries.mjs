@@ -420,6 +420,21 @@ const BUNDLE_ENTRY_EDGES = {
     node: [],
     computedDynamicImport: 'locator',
   },
+  // The block mesh worker entries (`js/mesh-worker.js` of an export with
+  // block layers; `dist/editor/mesh-worker.js` and `dist/preview/mesh-worker.js`):
+  // three-adapter's `./block-mesh-worker` subpath only (no three.js).
+  'packages/exporter/src/export-mesh-worker.ts': {
+    packages: ['three-adapter'],
+    external: [],
+    node: [],
+    subpaths: { 'three-adapter': ['block-mesh-worker'] },
+  },
+  'packages/editor/src/workers/mesh-worker.ts': {
+    packages: ['three-adapter'],
+    external: [],
+    node: [],
+    subpaths: { 'three-adapter': ['block-mesh-worker'] },
+  },
   // The host's unit test composes like an entry (it injects the
   // platformer specs its game snapshot's modules name).
   'packages/game-host/src/host.test.ts': {

@@ -203,6 +203,8 @@ export interface GamePageOptions {
   /** The simulation worker's script and the 3D physics backend's script. */
   readonly workerUrl: string;
   readonly physics3dUrl: string;
+  /** The block mesh worker's script (absent: block chunks mesh on the page). */
+  readonly meshWorkerUrl?: string;
   /** Where three's Draco and Basis decoders are served (ends in `/`). */
   readonly decoderBase: string;
   /** The simulation module specs this page links. */
@@ -852,6 +854,7 @@ export async function startGamePage(o: GamePageOptions): Promise<GamePageHandle>
         const a = createSceneAdapter(o.canvas, {
           runtime,
           snapshot,
+          ...(o.meshWorkerUrl !== undefined ? { meshWorkerUrl: o.meshWorkerUrl } : {}),
           resources,
           // The page's ?renderer= flag, else the project's render_backend setting.
           renderer: { ...resolveRendererPreference({ url: pageSearch(), setting: settings.render_backend }), depthBuffer: depthBufferOf(settings), trackTimestamp: o.measureGpu === true || statsOverlayModeOf(settings) !== 'off' },

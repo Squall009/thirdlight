@@ -36,6 +36,12 @@ export type SceneRuntime = Pick<Runtime, 'getInterpolatedState'> & Partial<Pick<
 export interface SceneAdapterOptions {
   runtime: SceneRuntime;
   /**
+   * The block mesh worker's script (`block-mesh-worker.ts` bundled): block
+   * chunks are meshed off the frame. Absent (or it fails to load): they mesh
+   * on the page.
+   */
+  meshWorkerUrl?: string;
+  /**
    * Something the next frame would draw differently arrived on its own (a
    * model, an instance set, a cookie): a host that draws on demand draws again.
    */

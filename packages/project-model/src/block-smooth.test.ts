@@ -125,6 +125,13 @@ describe('block-layer tops: smoothing and subdivision', () => {
     expect(digestOf(mixedLayer(), blockTopOptions({ smoothAngle: 0, topSubdivision: 1 }))).toBe("da04a3689035c78f");
   });
 
+  it('smoothed and subdivided tops are byte for byte the same whichever way the mesher computes them', () => {
+    // Pinned so a faster mesher (or one running in a worker) cannot change a single vertex.
+    expect(digestOf(mixedLayer(), { smoothAngle: 40 })).toBe('8e463b2dc0b505de');
+    expect(digestOf(mixedLayer(), { topSubdivision: 2 })).toBe('9132e446c464db2f');
+    expect(digestOf(mixedLayer(), { smoothAngle: 40, topSubdivision: 2 })).toBe('63bea83d5048ffca');
+  });
+
   it('smoothAngle and topSubdivision are validated, stored only when they change something, and read as top options', () => {
     const layer = { ...BLOCK_LAYER_DEFAULT };
     expect(errs((e) => validateBlockLayerComponent({ ...layer, smoothAngle: 45, topSubdivision: 2 }, '', e))).toEqual([]);
