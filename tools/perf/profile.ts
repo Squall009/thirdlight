@@ -1,10 +1,12 @@
 /**
  * The page's main thread split by package: a CDP CPU profile's self time,
- * attributed to the source module each sample's line belongs to. An
- * unminified esbuild bundle marks every module with a `// <path>` line
- * (`// packages/three-adapter/src/batching.ts`,
- * `// node_modules/three/build/three.webgpu.js`); a page that loads its
- * files one by one (the plain three.js page) is attributed by its URL path.
+ * attributed to the source module each sample's position belongs to. A
+ * bundle with a linked source map (an export's minified scripts) is read
+ * through the map, whose sources are engine-relative paths
+ * (`packages/three-adapter/src/batching.ts`,
+ * `node_modules/three/build/three.webgpu.js`); an unminified esbuild bundle
+ * without one marks every module with a `// <path>` line; a page that loads
+ * its files one by one (the plain three.js page) is attributed by its URL path.
  */
 import type { CDPSession } from '@playwright/test';
 
@@ -20,7 +22,7 @@ export interface ProfileSplit {
 
 interface ProfileNode {
   id: number;
-  callFrame: { functionName: string; url: string; lineNumber: number };
+  callFrame: { functionName: string; url: string; lineNumber: number; columnNumber: number };
 }
 
 /** Lines that start a module in an unminified esbuild bundle. */
@@ -38,6 +40,76 @@ export function moduleIndex(source: string): { lines: number[]; paths: string[] 
     }
   });
   return { lines, paths };
+}
+
+const BASE64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+
+/**
+ * A source map's lookup: per generated line, its segments' start columns and
+ * source indexes (a v3 map's `mappings`, base64 VLQ; only the first two fields
+ * of each segment are kept).
+ */
+export function sourceMapIndex(map: { sources: string[]; mappings: string }): { sources: string[]; lines: { cols: number[]; srcs: number[] }[] } {
+  const digit = new Int8Array(128).fill(-1);
+  for (let i = 0; i < BASE64.length; i += 1) digit[BASE64.charCodeAt(i)] = i;
+  const lines: { cols: number[]; srcs: number[] }[] = [];
+  let line = { cols: [] as number[], srcs: [] as number[] };
+  let src = 0;
+  let col = 0;
+  const m = map.mappings;
+  let i = 0;
+  const vlq = (): number => {
+    let result = 0;
+    let shift = 0;
+    for (;;) {
+      const d = digit[m.charCodeAt(i++)]!;
+      result += (d & 31) << shift;
+      if ((d & 32) === 0) break;
+      shift += 5;
+    }
+    return result & 1 ? -(result >>> 1) : result >>> 1;
+  };
+  while (i <= m.length) {
+    const c = m[i];
+    if (c === undefined || c === ';') {
+      lines.push(line);
+      line = { cols: [], srcs: [] };
+      col = 0;
+      i += 1;
+      if (c === undefined) break;
+      continue;
+    }
+    if (c === ',') {
+      i += 1;
+      continue;
+    }
+    col += vlq();
+    const fields: number[] = [];
+    while (i < m.length && m[i] !== ',' && m[i] !== ';') fields.push(vlq());
+    if (fields.length > 0) {
+      src += fields[0]!;
+      line.cols.push(col);
+      line.srcs.push(src);
+    }
+  }
+  return { sources: map.sources, lines };
+}
+
+/** The source at a generated position (0-based line and column), or null. */
+export function sourceAt(index: ReturnType<typeof sourceMapIndex>, line: number, column: number): string | null {
+  const l = index.lines[line];
+  if (l === undefined || l.cols.length === 0) return null;
+  let lo = 0;
+  let hi = l.cols.length - 1;
+  let k = -1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    if (l.cols[mid]! <= column) {
+      k = mid;
+      lo = mid + 1;
+    } else hi = mid - 1;
+  }
+  return index.sources[l.srcs[k < 0 ? 0 : k]!] ?? null;
 }
 
 /** The package a module path or a file belongs to. */
@@ -64,9 +136,21 @@ export async function profileSplit(cdp: CDPSession, ms: number, sourceOf: (url: 
   const { profile } = (await cdp.send('Profiler.stop')) as unknown as { profile: { nodes: ProfileNode[]; samples: number[]; timeDeltas: number[] } };
   await cdp.send('Profiler.disable');
   const byId = new Map(profile.nodes.map((n) => [n.id, n]));
+  const maps = new Map<string, ReturnType<typeof sourceMapIndex> | null>();
+  const mapOf = (url: string): ReturnType<typeof sourceMapIndex> | null => {
+    if (!maps.has(url)) {
+      const src = sourceOf(url);
+      const linked = src === null ? null : /\/\/# sourceMappingURL=(\S+)\s*$/.exec(src);
+      const text = linked === null ? null : sourceOf(new URL(linked[1]!, url).href);
+      maps.set(url, text === null ? null : sourceMapIndex(JSON.parse(text) as { sources: string[]; mappings: string }));
+    }
+    return maps.get(url)!;
+  };
   const indexes = new Map<string, ReturnType<typeof moduleIndex> | null>();
-  const moduleAt = (url: string, line: number): string => {
+  const moduleAt = (url: string, line: number, column: number): string => {
     if (url === '') return '(native)';
+    const map = mapOf(url);
+    if (map !== null) return sourceAt(map, line - 1, column) ?? url.split('/').pop()!;
     let idx = indexes.get(url);
     if (idx === undefined) {
       const src = sourceOf(url);
@@ -103,7 +187,7 @@ export async function profileSplit(cdp: CDPSession, ms: number, sourceOf: (url: 
       idle += dt;
       continue;
     }
-    const module = moduleAt(n.callFrame.url, n.callFrame.lineNumber + 1);
+    const module = moduleAt(n.callFrame.url, n.callFrame.lineNumber + 1, n.callFrame.columnNumber);
     const key = `${name} ${module}`;
     const f = fns.get(key) ?? { module, ms: 0 };
     f.ms += dt;

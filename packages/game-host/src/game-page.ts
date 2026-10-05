@@ -33,7 +33,7 @@
 import { audioSpatialOf, dependencyTables, depthBufferOf, instanceChunkSizeOf, materialTextureRefs, physicsDimensionOf, scanDependencies, sha256HexAsync, textureBudgetBytesOf, type MaterialDef, type ModelColliderTable, type SaveSchema } from '@thirdlight/project-model';
 import { assetVersionKey, createResourceManager, EMBEDDED_TEXTURES_LISTED, embeddedTextureBytes, type ResourceManager, type ResourceObservation } from '@thirdlight/runtime';
 import { attachBrowserInput, DEFAULT_INPUT_CONFIG, DEFAULT_INPUT_CONFIG_3D, focusGameSurface, type InputConfigLike } from '@thirdlight/input';
-import { createPhysicsPort, type RapierPhysicsInitConfig, type RapierPhysicsPort, type RapierStaticColliderSpec } from '@thirdlight/physics-rapier';
+import type { RapierPhysicsInitConfig, RapierPhysicsPort, RapierStaticColliderSpec } from '@thirdlight/physics-rapier';
 import { batchingFromUrl, createSceneAdapter, createTextureStreamer, decodeTexture, effectsOptionFrom, environmentHasLook, mergingFromUrl, pageSearch, resolveRendererPreference, setKtx2DecoderBase, shadowCacheFromUrl } from '@thirdlight/three-adapter';
 import { createGltfLoaderPort } from '@thirdlight/three-adapter/gltf-loader';
 import type { EffectDefLike, EnvironmentLike, FrameDrawnInfo, TextureStreamer, LightingBakeLike, MaterialDefLike, MaterialFunctionLike, SceneAdapter, SceneAdapterModels, SceneAdapterOptions, WindLike } from '@thirdlight/three-adapter';
@@ -109,6 +109,7 @@ import {
   type StartTimings,
   type VerifiedAssetReader,
 } from './index';
+import type { Physics2DModule } from './physics-global';
 import { pageAudio } from './page-audio';
 import { mipPartsOf } from './asset-reader';
 import { composeOverlay } from './overlay-capture';
@@ -203,6 +204,12 @@ export interface GamePageOptions {
   /** The simulation worker's script and the 3D physics backend's script. */
   readonly workerUrl: string;
   readonly physics3dUrl: string;
+  /**
+   * The 2D physics backend, for the simulation on this page (a worker loads its
+   * own). Injected so the page bundle links the 2D engine only where its entry
+   * chooses to: Play links it, an export loads its separate `physics-2d.js`.
+   */
+  readonly physics2d: () => Promise<Physics2DModule>;
   /** The block mesh worker's script (absent: block chunks mesh on the page). */
   readonly meshWorkerUrl?: string;
   /** Where three's Draco and Basis decoders are served (ends in `/`). */
@@ -769,9 +776,10 @@ export async function startGamePage(o: GamePageOptions): Promise<GamePageHandle>
       physics = p;
       releases.push(() => p.dispose());
     } else if (remote === null && physicsConfig !== null) {
-      const init = await createPhysicsPort(physicsConfig as RapierPhysicsInitConfig);
+      const backend = await o.physics2d();
+      const init = await backend.createPhysicsPort(physicsConfig as never);
       if (!init.ok) throw new GamePageError('play_content_not_ready', 'manifest', `physics init failed: ${init.error.code}`);
-      const p = init.port;
+      const p = init.port as RapierPhysicsPort;
       physics = p;
       releases.push(() => p.dispose());
     }

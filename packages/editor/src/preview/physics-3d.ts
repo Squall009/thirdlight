@@ -7,6 +7,6 @@
  * in the page (single thread) or in the simulation worker.
  */
 import { createPhysicsPort3D, physicsMemoryBytes3D } from '@thirdlight/physics-rapier/3d';
-import { registerPhysics3D } from '@thirdlight/game-host/physics-3d-global';
+import { registerPhysics3D } from '@thirdlight/game-host/physics-global';
 
 registerPhysics3D({ createPhysicsPort3D: (config, signal) => createPhysicsPort3D(config, signal), physicsMemoryBytes3D });

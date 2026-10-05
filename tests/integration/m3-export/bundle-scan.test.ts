@@ -13,11 +13,13 @@
  * production `buildM3Bundle`):
  *   1. re-verifies the reference full-core three counts against the
  *      current install;
- *   2. builds the REAL M3 export bundle (entry `export-bootstrap-m3.ts`, the
- *      single shared `createGameHost` composition) and asserts the exact counts
- *      = the recorded baseline + the applicable exception rows + the counted
- *      engine call sites — i.e. `game-host` contributes 0 to d/f/h/j and
- *      a/b/c/e/g/i stay 0;
+ *   2. builds the M3 export bundle's entry (`export-bootstrap-m3.ts`, the
+ *      single shared `createGameHost` composition) readable — unminified and
+ *      unshaken, so every occurrence is there to count — and asserts the exact
+ *      counts = the recorded baseline + the applicable exception rows + the
+ *      counted engine call sites — i.e. `game-host` contributes 0 to d/f/h/j
+ *      and a/b/c/e/g/i stay 0; the shipped bundle (minified, tree-shaken) is
+ *      the same code with less: a/b/c/e/g/i stay 0 and no count grows;
  *   3. proves the export bundle's graph contains the SAME shared composition
  *      (game-host) the preview uses (production parity), and
  *      that the page and worker bundles link only the module specs the
@@ -34,7 +36,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { buildContentClosureM3, checkBundleGraphM3 } from '@thirdlight/exporter';
-import { buildM3Bundle, buildSimWorkerBundle, THREE_WEBGPU_ONLY_PLUGIN } from '../../../packages/exporter/src/export-bundle';
+import { buildM3Bundle, buildSimWorkerBundle, MODULES_MODULE, modulesModuleSource, THREE_WEBGPU_ONLY_PLUGIN } from '../../../packages/exporter/src/export-bundle';
 import type { WorkspaceService } from '@thirdlight/workspace';
 import { fakeService, syntheticV3 } from '../m3-builds/helpers';
 
@@ -42,7 +44,7 @@ const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '
 const BOOTSTRAP = join(REPO_ROOT, 'packages/exporter', 'src', 'export-bootstrap-m3.ts');
 const WORKER = join(REPO_ROOT, 'packages/exporter', 'src', 'export-sim-worker.ts');
 
-/** The pinned esbuild 0.28.2 option set (normative). */
+/** The readable build: every occurrence of a pattern kept, to count it exactly. */
 const PINNED_OPTIONS = {
   bundle: true,
   platform: 'browser',
@@ -130,8 +132,27 @@ describe('M3 export bundle re-measurement + production parity', () => {
     const bundle = await buildM3Bundle({ bootstrapEntry: BOOTSTRAP, closure: closure.closure });
     expect(bundle.ok).toBe(true);
     if (!bundle.ok) return;
-    const text = new TextDecoder().decode(bundle.bytes);
+    // The same entry and generated module, readable.
+    const moduleIds = closure.closure.moduleIds;
+    const readable = await build({
+      ...PINNED_OPTIONS,
+      define: { 'import.meta.url': 'location.href' },
+      entryPoints: [BOOTSTRAP],
+      write: false,
+      plugins: [
+        { name: 'modules', setup: (b) => {
+          b.onResolve({ filter: new RegExp(`^${MODULES_MODULE}$`) }, () => ({ path: 'm', namespace: 'modules' }));
+          b.onLoad({ filter: /.*/, namespace: 'modules' }, () => ({ contents: modulesModuleSource(moduleIds), loader: 'js', resolveDir: dirname(BOOTSTRAP) }));
+        } },
+        THREE_WEBGPU_ONLY_PLUGIN as never,
+      ],
+    });
+    const text = new TextDecoder().decode(readable.outputFiles[0]!.contents);
     const c = scanText(text, [CANARY_TOKEN]);
+    // The shipped bytes: nothing forbidden, and minifying and shaking only take away.
+    const shipped = scanText(new TextDecoder().decode(bundle.bytes), [CANARY_TOKEN]);
+    expect(shipped.a + shipped.b + shipped.c + shipped.e + shipped.g + shipped.i).toBe(0);
+    for (const k of ['d', 'f', 'h', 'j'] as const) expect(shipped[k], k).toBeLessThanOrEqual(c[k]);
 
     // Absolute patterns: a/b/c/e/g/i = 0 (no authoring URL/API/Node/MCP/token).
     expect(c.a).toBe(0);
@@ -142,14 +163,14 @@ describe('M3 export bundle re-measurement + production parity', () => {
     expect(c.g).toBe(0);
     expect(c.i).toBe(0);
 
-    // d = the recorded baseline (three core) + the Rapier row (+1) + the
-    //    page's one relative reader (the manifest, the scene, the catalog's
-    //    files and the assets all go through it, by the paths their rows give;
-    //    the bundle names no artifact). game-host adds 0. The
-    //    compressed-GLB loaders add 1: three's zstddec, pulled in
-    //    by KTX2Loader, fetches its own embedded `data:application/wasm` URL
-    //    (no network).
-    expect(c.d).toBe(ref.d + 1 + 1 + 1);
+    // d = the recorded baseline (three core) + the page's one relative reader
+    //    (the manifest, the scene, the catalog's files and the assets all go
+    //    through it, by the paths their rows give; the bundle names no
+    //    artifact). game-host adds 0. The compressed-GLB loaders add 1: three's
+    //    zstddec, pulled in by KTX2Loader, fetches its own embedded
+    //    `data:application/wasm` URL (no network). The physics engine is not in
+    //    the page bundle (it loads from its own file).
+    expect(c.d).toBe(ref.d + 1 + 1);
     // No artifact path is baked into the code: not an asset's, not a catalog file's.
     for (const a of [...closure.closure.assetArtifacts, ...closure.closure.contentFileArtifacts]) expect(text).not.toContain(a.path);
 
@@ -238,7 +259,8 @@ describe('M3 export bundle re-measurement + production parity', () => {
     if (!page.ok || !worker.ok) throw new Error('bundle build failed');
     expect(checkBundleGraphM3(page.metafile, BOOTSTRAP, closure.moduleIds).ok).toBe(true);
     expect(checkBundleGraphM3(worker.metafile, WORKER, closure.moduleIds).ok).toBe(true);
-    return [page, worker].map((b) => ({ inputs: Object.keys(b.metafile.inputs), text: new TextDecoder().decode(b.bytes) }));
+    // What each bundle links: its source map names every module with code in the output.
+    return [page, worker].map((b) => ({ inputs: Object.keys(b.metafile.inputs), sources: (JSON.parse(new TextDecoder().decode(b.map)) as { sources: string[] }).sources }));
   }
 
   it('the page bundle is the same bytes for a project with more assets (its code does not grow with the project)', async () => {
@@ -269,7 +291,7 @@ describe('M3 export bundle re-measurement + production parity', () => {
       // The single shared production composition (the SAME host the preview wraps).
       expect(b.inputs.some((p) => p.includes('packages/game-host/src/'))).toBe(true);
       expect(b.inputs.some((p) => p.includes('packages/character/src/'))).toBe(true);
-      expect(b.text).toContain('controllerStepTuning');
+      expect(b.sources).toContain('packages/character/src/controller.ts');
       // No editor/exporter-internal/behavior source in the runtime bundle.
       expect(b.inputs.some((p) => p.includes('packages/editor/src/'))).toBe(false);
       expect(b.inputs.some((p) => p.includes('packages/backend/src/'))).toBe(false);
@@ -282,7 +304,7 @@ describe('M3 export bundle re-measurement + production parity', () => {
     for (const b of await bundlesOf(closure)) {
       expect(b.inputs.some((p) => p.includes('packages/game-host/src/'))).toBe(true);
       expect(b.inputs.some((p) => p.includes('packages/character/src/'))).toBe(false);
-      expect(b.text).not.toContain('controllerStepTuning');
+      expect(b.sources.some((p) => p.startsWith('packages/character/'))).toBe(false);
     }
     // The graph check refuses platformer code the manifest does not name.
     const withController = await closureOf('demo-0006-parity', false);

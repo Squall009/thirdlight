@@ -33,14 +33,15 @@ import {
   digestBytes,
   digestEmittedClosure,
   manifestBuildIdInputV5,
+  physicsDimensionOf,
   type RuntimeContentManifestV5,
 } from '@thirdlight/project-model';
 
 import { canonicalDocument } from './canonical';
 import type { ContentClosureCompilerPort } from './content-closure';
 import { buildContentClosureM3, type ContentClosureM3 } from './content-closure';
-import { buildM3Bundle, buildSimWorkerBundle, PINNED_OPTIONS, THREE_WEBGPU_ONLY_PLUGIN } from './export-bundle';
-import { assertRelativeClosure, scanAssetContainer, textPatternCounts, type ScanPatterns } from './export-content-scan';
+import { buildM3Bundle, buildSimWorkerBundle, EXPORT_BUILD_OPTIONS, THREE_WEBGPU_ONLY_PLUGIN, type M2BundleResult } from './export-bundle';
+import { assertRelativeClosure, scanAssetContainer, scanWasmContainer, textPatternCounts, type ScanPatterns } from './export-content-scan';
 import { openStaging, resolveExportTarget, type ExportStaging } from './export-io';
 import type { ExportContext } from './export-types';
 import { clip, type ExportError, type ExportResult } from './errors';
@@ -53,6 +54,8 @@ const BUNDLE_NAME = 'js/main.js';
 const WORKER_BUNDLE_NAME = 'js/sim-worker.js';
 /** The block mesh worker (block chunks meshed off the frame), shipped when the game has block layers. */
 const MESH_WORKER_BUNDLE_NAME = 'js/mesh-worker.js';
+/** The 2D physics backend (rapier2d), emitted only for a project on the 2D plane. */
+const PHYSICS_2D_BUNDLE_NAME = 'js/physics-2d.js';
 /** The 3D physics backend (rapier3d), emitted only for a project whose physics_dimension is 3. */
 const PHYSICS_3D_BUNDLE_NAME = 'js/physics-3d.js';
 /** The module that marks a 3D project's physics. */
@@ -60,6 +63,15 @@ const PHYSICS_3D_MODULE = 'thirdlight.physics-rapier:3d';
 const SCENE_NAME = 'scene.json';
 const MANIFEST_NAME = 'manifest.json';
 const META_NAME = 'meta.json';
+
+/** One script of the export: its path, entry, the module ids its graph may name, and what its build gave. */
+interface ExportScript {
+  name: string;
+  entry: string;
+  what: string;
+  moduleIds?: readonly string[];
+  built: M2BundleResult;
+}
 
 /** The minimal export page: `<canvas id="game">` + the HUD
  * root + the relative module script. The HUD is the host-owned DOM. */
@@ -141,7 +153,7 @@ const RAPIER_PROBE_ENTRY = "import { createPhysicsPort } from '@thirdlight/physi
 /** The pinned Rapier 3D compat probe entry (a 3D project's physics row). */
 const RAPIER_3D_PROBE_ENTRY = "import { createPhysicsPort3D } from '@thirdlight/physics-rapier/3d'; console.log(typeof createPhysicsPort3D);";
 
-/** The installed rapier3d-compat package.json the 3D bundle linked (from its metafile: the physics-rapier package's own pin). */
+/** The installed package.json of a package a bundle linked (from its metafile). */
 function linkedPackageJson(metafile: { inputs: Record<string, unknown> }, pkg: string): string | null {
   for (const key of Object.keys(metafile.inputs ?? {})) {
     const p = key.replace(/\\/g, '/');
@@ -151,11 +163,12 @@ function linkedPackageJson(metafile: { inputs: Record<string, unknown> }, pkg: s
   return null;
 }
 
-/** Build one probe bundle (stdin entry, pinned options). */
+/** Build one probe bundle (stdin entry, the export's options without a map: a probe has no file). */
 async function probeBundle(ctx: ExportContext, contents: string, sourcefile: string): Promise<Uint8Array | null> {
   try {
     const r = await build({
-      ...PINNED_OPTIONS,
+      ...EXPORT_BUILD_OPTIONS,
+      sourcemap: false,
       stdin: { contents, resolveDir: ctx.repoRoot, sourcefile },
       write: false,
       plugins: [THREE_WEBGPU_ONLY_PLUGIN as never],
@@ -218,32 +231,27 @@ export async function exportProjectM3(
       modules: built.modules.slice(0, 8),
     });
   }
-  // The simulation worker bundle (next to the bootstrap: same directory, same rules).
-  const workerEntry = ctx.fs.join(ctx.fs.join(m3BootstrapEntry, '..'), 'export-sim-worker.ts');
-  const worker = await buildSimWorkerBundle(workerEntry, closure.moduleIds);
-  if (!worker.ok) {
-    return fail('export_bundle_graph_forbidden', 'internal', 'the simulation worker bundle build failed (resolution/boundary defect)', {
-      modules: worker.modules.slice(0, 8),
-    });
-  }
-
+  // The workers and the physics backend, each its own script next to the bootstrap's (same directory, same rules).
+  const here = ctx.fs.join(m3BootstrapEntry, '..');
+  const read = (path: string): Uint8Array => ctx.fs.read(path);
   // The block mesh worker, for a game with block layers (a scene or a prefab names one); without it chunks mesh on the page.
   const decoder = new TextDecoder();
   const hasBlockLayers = [closure.sceneBytes, ...closure.sceneArtifacts.map((a) => a.bytes), ...closure.contentFileArtifacts.map((a) => a.bytes)].some((b) => decoder.decode(b).includes('"blockLayer"'));
-  const meshWorkerEntry = ctx.fs.join(ctx.fs.join(m3BootstrapEntry, '..'), 'export-mesh-worker.ts');
-  const meshWorker = hasBlockLayers ? await buildSimWorkerBundle(meshWorkerEntry) : null;
-  if (meshWorker !== null && !meshWorker.ok) {
-    return fail('export_bundle_graph_forbidden', 'internal', 'the block mesh worker bundle build failed (resolution/boundary defect)', { modules: meshWorker.modules.slice(0, 8) });
-  }
-
-  // A 3D project's physics backend (next to the bootstrap: same directory, same rules).
+  // Only the physics engine the project's dimension uses: a game on the 2D plane ships rapier2d, a 3D game with physics rapier3d.
   const threeD = closure.moduleIds.includes(PHYSICS_3D_MODULE);
-  const physics3dEntry = ctx.fs.join(ctx.fs.join(m3BootstrapEntry, '..'), 'export-physics-3d.ts');
-  const physics3d = threeD ? await buildSimWorkerBundle(physics3dEntry) : null;
-  if (physics3d !== null && !physics3d.ok) {
-    return fail('export_bundle_graph_forbidden', 'internal', 'the 3D physics bundle build failed (resolution/boundary defect)', {
-      modules: physics3d.modules.slice(0, 8),
-    });
+  const twoD = physicsDimensionOf(closure.manifest.settings) === 2;
+  const planned: { name: string; entry: string; what: string; moduleIds?: readonly string[]; wasm?: true }[] = [
+    { name: WORKER_BUNDLE_NAME, entry: ctx.fs.join(here, 'export-sim-worker.ts'), what: 'simulation worker', moduleIds: closure.moduleIds },
+    ...(hasBlockLayers ? [{ name: MESH_WORKER_BUNDLE_NAME, entry: ctx.fs.join(here, 'export-mesh-worker.ts'), what: 'block mesh worker' }] : []),
+    ...(twoD ? [{ name: PHYSICS_2D_BUNDLE_NAME, entry: ctx.fs.join(here, 'export-physics-2d.ts'), what: '2D physics', wasm: true as const }] : []),
+    ...(threeD ? [{ name: PHYSICS_3D_BUNDLE_NAME, entry: ctx.fs.join(here, 'export-physics-3d.ts'), what: '3D physics', wasm: true as const }] : []),
+  ];
+  const scripts: ExportScript[] = [{ name: BUNDLE_NAME, entry: m3BootstrapEntry, what: 'M3 export', moduleIds: closure.moduleIds, built }];
+  for (const s of planned) {
+    const r = await buildSimWorkerBundle(s.entry, s.moduleIds, { name: s.name, ...(s.wasm === true ? { read } : {}) });
+    if (!r.ok) return fail('export_bundle_graph_forbidden', 'internal', `the ${s.what} bundle build failed (resolution/boundary defect)`, { modules: r.modules.slice(0, 8) });
+    if (s.wasm === true && r.wasm === null) return fail('export_bundle_graph_forbidden', 'internal', `the ${s.what} bundle linked no physics WASM`);
+    scripts.push({ ...s, built: r });
   }
   const rapier3dBytes = threeD ? await probeBundle(ctx, RAPIER_3D_PROBE_ENTRY, 'rapier3d-compat-probe.ts') : null;
   if (threeD && rapier3dBytes === null) {
@@ -287,25 +295,9 @@ export async function exportProjectM3(
 
   // ---- step 4: the exact bundle import graph -----------------------------------
 
-  const graph = checkBundleGraphM3(built.metafile, m3BootstrapEntry, closure.moduleIds);
-  if (!graph.ok) {
-    return fail('export_bundle_graph_forbidden', 'internal', 'forbidden modules in the M3 export bundle graph', {
-      modules: graph.forbidden.slice(0, 8),
-    });
-  }
-  const workerGraph = checkBundleGraphM3(worker.metafile, workerEntry, closure.moduleIds);
-  if (!workerGraph.ok) {
-    return fail('export_bundle_graph_forbidden', 'internal', 'forbidden modules in the simulation worker bundle graph', {
-      modules: workerGraph.forbidden.slice(0, 8),
-    });
-  }
-  if (meshWorker !== null && meshWorker.ok) {
-    const gm = checkBundleGraphM3(meshWorker.metafile, meshWorkerEntry, []);
-    if (!gm.ok) return fail('export_bundle_graph_forbidden', 'internal', 'forbidden modules in the block mesh worker bundle graph', { modules: gm.forbidden.slice(0, 8) });
-  }
-  if (physics3d !== null && physics3d.ok) {
-    const g3 = checkBundleGraphM3(physics3d.metafile, physics3dEntry, []);
-    if (!g3.ok) return fail('export_bundle_graph_forbidden', 'internal', 'forbidden modules in the 3D physics bundle graph', { modules: g3.forbidden.slice(0, 8) });
+  for (const sc of scripts) {
+    const graph = checkBundleGraphM3(sc.built.metafile, sc.entry, sc.moduleIds ?? []);
+    if (!graph.ok) return fail('export_bundle_graph_forbidden', 'internal', `forbidden modules in the ${sc.what} bundle graph`, { modules: graph.forbidden.slice(0, 8) });
   }
 
   // ---- step 5a: the manifest self-identity + the closure rule ------------------
@@ -346,41 +338,19 @@ export async function exportProjectM3(
       return fail('export_bundle_forbidden_content', 'internal', `forbidden content in scene file ${sc.path}`);
     }
   }
-  const bundleText = new TextDecoder().decode(built.bytes);
-  const counts = textPatternCounts(bundleText, patterns);
-  // The forbidden patterns must be zero in the bundle: this gate, not an exact
-  // re-measurement of the recorded-exception counts, is the binding security
-  // check here.
-  if (counts.a + counts.b + counts.c + counts.e + counts.g + counts.i !== 0) {
-    return fail(
-      'export_bundle_forbidden_content',
-      'internal',
-      `forbidden content in the M3 export bundle (a=${counts.a} b=${counts.b} c=${counts.c} e=${counts.e} g=${counts.g} i=${counts.i})`,
-      { reason: `counts=${JSON.stringify(counts)}` },
-    );
-  }
-  // The worker bundle carries the same forbidden-pattern gate (the Rapier WASM is inlined: no URL).
-  const workerCounts = textPatternCounts(new TextDecoder().decode(worker.bytes), patterns);
-  if (workerCounts.a + workerCounts.b + workerCounts.c + workerCounts.e + workerCounts.g + workerCounts.i !== 0) {
-    return fail(
-      'export_bundle_forbidden_content',
-      'internal',
-      `forbidden content in the simulation worker bundle (a=${workerCounts.a} b=${workerCounts.b} c=${workerCounts.c} e=${workerCounts.e} g=${workerCounts.g} i=${workerCounts.i})`,
-      { reason: `counts=${JSON.stringify(workerCounts)}` },
-    );
-  }
-  // The block mesh worker carries the same gate.
-  if (meshWorker !== null && meshWorker.ok) {
-    const cm = textPatternCounts(new TextDecoder().decode(meshWorker.bytes), patterns);
-    if (cm.a + cm.b + cm.c + cm.e + cm.g + cm.i !== 0) {
-      return fail('export_bundle_forbidden_content', 'internal', `forbidden content in the block mesh worker bundle (a=${cm.a} b=${cm.b} c=${cm.c} e=${cm.e} g=${cm.g} i=${cm.i})`, { reason: `counts=${JSON.stringify(cm)}` });
+  // Every script and its source map: the forbidden patterns must be zero. This
+  // gate, not an exact re-measurement of the recorded-exception counts, is the
+  // binding security check here (minified code keeps every string and call).
+  for (const sc of scripts) {
+    for (const [file, bytes] of [[sc.name, sc.built.bytes], [`${sc.name}.map`, sc.built.map]] as const) {
+      const c = textPatternCounts(new TextDecoder().decode(bytes), patterns);
+      if (c.a + c.b + c.c + c.e + c.g + c.i !== 0) {
+        return fail('export_bundle_forbidden_content', 'internal', `forbidden content in ${file} (a=${c.a} b=${c.b} c=${c.c} e=${c.e} g=${c.g} i=${c.i})`, { reason: `counts=${JSON.stringify(c)}` });
+      }
     }
-  }
-  // The 3D physics bundle carries the same gate (its WASM is inlined: no URL).
-  if (physics3d !== null && physics3d.ok) {
-    const c3 = textPatternCounts(new TextDecoder().decode(physics3d.bytes), patterns);
-    if (c3.a + c3.b + c3.c + c3.e + c3.g + c3.i !== 0) {
-      return fail('export_bundle_forbidden_content', 'internal', `forbidden content in the 3D physics bundle (a=${c3.a} b=${c3.b} c=${c3.c} e=${c3.e} g=${c3.g} i=${c3.i})`, { reason: `counts=${JSON.stringify(c3)}` });
+    if (sc.built.wasm !== null) {
+      const w = scanWasmContainer(sc.built.wasm, digestBytes(sc.built.wasm));
+      if (!w.ok) return fail('scan_forbidden_content', 'internal', `the ${sc.what} WASM fails container validation (${w.code})`);
     }
   }
   const textFiles = [
@@ -403,11 +373,7 @@ export async function exportProjectM3(
   try {
     const written = await writeOutput(ctx, staging, closure, patterns, {
       index: new TextEncoder().encode(INDEX_HTML),
-      bundle: built.bytes,
-      worker: worker.bytes,
-      meshWorker: meshWorker !== null && meshWorker.ok ? meshWorker.bytes : null,
-      physics3d: physics3d !== null && physics3d.ok ? physics3d.bytes : null,
-      physics3dVersion: physics3d !== null && physics3d.ok ? rapier3dVersion(ctx, physics3d.metafile) : null,
+      scripts,
       manifestBytes,
       parsedManifest,
       captured,
@@ -459,11 +425,7 @@ async function writeOutput(
   patterns: ScanPatterns,
   parts: {
     index: Uint8Array;
-    bundle: Uint8Array;
-    worker: Uint8Array;
-    meshWorker: Uint8Array | null;
-    physics3d: Uint8Array | null;
-    physics3dVersion: string | null;
+    scripts: readonly ExportScript[];
     manifestBytes: Uint8Array;
     parsedManifest: RuntimeContentManifestV5;
     captured: { scene: unknown; revision: number };
@@ -476,10 +438,12 @@ async function writeOutput(
     entries.push({ path: name, digest: digest ?? digestBytes(bytes), byteLength: bytes.length });
   };
   put('index.html', parts.index);
-  put(BUNDLE_NAME, parts.bundle);
-  put(WORKER_BUNDLE_NAME, parts.worker);
-  if (parts.meshWorker !== null) put(MESH_WORKER_BUNDLE_NAME, parts.meshWorker);
-  if (parts.physics3d !== null) put(PHYSICS_3D_BUNDLE_NAME, parts.physics3d);
+  // Each script, its source map and the WASM it fetches, side by side.
+  for (const sc of parts.scripts) {
+    put(sc.name, sc.built.bytes);
+    put(`${sc.name}.map`, sc.built.map);
+    if (sc.built.wasm !== null) put(sc.name.replace(/\.js$/, '.wasm'), sc.built.wasm);
+  }
   put(MANIFEST_NAME, parts.manifestBytes);
   put(SCENE_NAME, closure.sceneBytes, closure.sceneDigest);
   for (const a of [...closure.behaviorArtifacts, ...closure.libraryArtifacts, ...closure.sceneArtifacts]) put(a.path, a.bytes, a.digest);
@@ -575,9 +539,8 @@ async function writeOutput(
     installedPackage(ctx, ctx.threePackageJson, 'three'),
     installedPackage(ctx, ctx.typescriptPackageJson, 'typescript'),
     { id: 'esbuild', version: esbuildVersion, license: 'MIT', source: 'npm' },
-    { id: '@dimforge/rapier2d-compat', version: readJsonStringField(ctx, ctx.fs.join(ctx.repoRoot, 'node_modules/@dimforge/rapier2d-compat/package.json'), 'version'), license: 'Apache-2.0', source: 'npm' },
-    // A 3D project's backend (the version the 3D bundle linked).
-    ...(parts.physics3dVersion !== null ? [{ id: '@dimforge/rapier3d-compat', version: parts.physics3dVersion, license: 'Apache-2.0', source: 'npm' }] : []),
+    // The physics engine shipped (the version its bundle linked).
+    ...parts.scripts.flatMap((sc) => RAPIER_PACKAGES.filter((pkg) => linkedPackageJson(sc.built.metafile, pkg) !== null).map((pkg) => ({ id: pkg, version: linkedVersion(ctx, sc.built.metafile, pkg), license: 'Apache-2.0', source: 'npm' }))),
     ...needed.map((d) => ({ id: DECODER_LICENSES[d].id, version: readJsonStringField(ctx, ctx.threePackageJson, 'version'), license: DECODER_LICENSES[d].license, source: 'npm' })),
   ].sort((x, y) => (x.id < y.id ? -1 : x.id > y.id ? 1 : 0));
 
@@ -637,14 +600,16 @@ function concat(parts: readonly Uint8Array[], n: number): Uint8Array {
   return out;
 }
 
-/** The rapier3d-compat version the 3D bundle linked ('' when unknown). */
-function rapier3dVersion(ctx: ExportContext, metafile: { inputs: Record<string, unknown> }): string {
-  const rel = linkedPackageJson(metafile, '@dimforge/rapier3d-compat');
+/** The physics engines a bundle may link (each one's license row ships with it). */
+const RAPIER_PACKAGES = ['@dimforge/rapier2d-compat', '@dimforge/rapier3d-compat'] as const;
+
+/** The version of a package a bundle linked ('' when unknown): the physics-rapier package's own pin. */
+function linkedVersion(ctx: ExportContext, metafile: { inputs: Record<string, unknown> }, pkg: string): string {
+  const rel = linkedPackageJson(metafile, pkg);
   if (rel === null) return '';
   const path = rel.startsWith('/') ? rel : ctx.fs.join(ctx.repoRoot, rel);
   return readJsonStringField(ctx, path, 'version');
 }
-
 
 /** Read a blob's chunks without writing them (a part two textures share, already staged). */
 async function drain(chunks: AsyncIterable<Uint8Array>, onChunk: (chunk: Uint8Array) => void): Promise<number> {

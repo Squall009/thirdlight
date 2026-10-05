@@ -8,7 +8,9 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { moduleIndex, packageOf } from '../../tools/perf/profile';
+import { build } from 'esbuild';
+
+import { moduleIndex, packageOf, sourceAt, sourceMapIndex } from '../../tools/perf/profile';
 import { propGlb, figureGlb } from '../../tools/perf/village-assets';
 import { villagePlan, VILLAGE_SPEC } from '../../tools/perf/village';
 import { ablationRows, frameRegressions, FRAME_P95_REGRESSION, FRAME_REGRESSION, type FrameBaseline, type VillageReport } from '../../tools/perf/village-run';
@@ -90,5 +92,37 @@ describe('the main-thread split', () => {
     expect(packageOf(idx.paths[1]!)).toBe('@thirdlight/three-adapter');
     expect(packageOf('http://127.0.0.1:1/three/build/three.webgpu.js')).toBe('three');
     expect(packageOf('(native)')).toBe('native');
+  });
+
+  it('attributes a minified bundle position to its module through the source map', async () => {
+    // Two modules in one minified bundle with a linked map, as an export builds them.
+    const files: Record<string, string> = {
+      'entry.ts': "import { a } from './packages/one/src/a';\nimport { b } from './packages/two/src/b';\nconsole.log(a(), b());\n",
+      'packages/one/src/a.ts': "export function a(): string {\n  return 'marker-in-a';\n}\n",
+      'packages/two/src/b.ts': "export function b(): string {\n  return 'marker-in-b';\n}\n",
+    };
+    const r = await build({
+      entryPoints: ['entry.ts'],
+      bundle: true,
+      minify: true,
+      format: 'iife',
+      sourcemap: 'linked',
+      sourcesContent: false,
+      outfile: '/virtual/main.js',
+      write: false,
+      plugins: [{ name: 'virtual', setup: (b) => {
+        b.onResolve({ filter: /.*/ }, (a) => ({ path: a.path.replace(/^\.\//, '').replace(/(\.ts)?$/, '.ts'), namespace: 'v' }));
+        b.onLoad({ filter: /.*/, namespace: 'v' }, (a) => ({ contents: files[a.path]!, loader: 'ts' }));
+      } }],
+    });
+    const js = r.outputFiles.find((f) => f.path.endsWith('.js'))!.text;
+    const map = sourceMapIndex(JSON.parse(r.outputFiles.find((f) => f.path.endsWith('.map'))!.text) as { sources: string[]; mappings: string });
+    const at = (needle: string): string | null => {
+      const offset = js.indexOf(needle);
+      const before = js.slice(0, offset).split('\n');
+      return sourceAt(map, before.length - 1, before[before.length - 1]!.length);
+    };
+    expect(at('"marker-in-a"')).toBe('v:packages/one/src/a.ts');
+    expect(at('"marker-in-b"')).toBe('v:packages/two/src/b.ts');
   });
 });

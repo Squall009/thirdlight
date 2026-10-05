@@ -1,21 +1,22 @@
 /**
  * The exported game's simulation worker entry (`js/sim-worker.js`
  * next to `js/main.js`). The game host's worker core with the platform
- * pieces: physics-rapier (its WASM is inside this bundle — no fetch, no URL)
- * and the importer for the compiled scripts (`behaviors/<digest>.js`, the
- * absolute URLs the page resolves from its own location). No DOM, no audio,
- * no storage: those stay in the page.
+ * pieces: the physics backend the project uses, loaded on first use from its
+ * own file next to this one (`physics-2d.js` or `physics-3d.js`, so the
+ * worker carries neither engine), and the importer for the compiled scripts
+ * (`behaviors/<digest>.js`, the absolute URLs the page resolves from its own
+ * location). No DOM, no audio, no storage: those stay in the page.
  */
-import { createPhysicsPort, physicsMemoryBytes, type RapierPhysicsInitConfig } from '@thirdlight/physics-rapier';
-import { loadPhysics3D, runSimWorker, workerGlobalEndpoint } from '@thirdlight/game-host';
+import { loadPhysics2D, loadPhysics3D, runSimWorker, workerGlobalEndpoint } from '@thirdlight/game-host';
 // The simulation module specs the manifest names (generated per export).
 import { moduleSpecs } from 'thirdlight:export-modules';
 
+/** A file next to this worker's script. */
+const besideWorker = (name: string): string => new URL(name, (globalThis as unknown as { location: { href: string } }).location.href).href;
+
 runSimWorker(workerGlobalEndpoint(), {
-  createPhysicsPort: (config) => createPhysicsPort(config as RapierPhysicsInitConfig),
   importModule: (url) => import(/* @vite-ignore */ url),
   moduleSpecs: moduleSpecs as never,
-  physicsMemoryBytes,
-  // A 3D project's backend — the separate physics-3d.js next to this worker's script, loaded only then.
-  loadPhysics3D: () => loadPhysics3D(new URL('physics-3d.js', (globalThis as unknown as { location: { href: string } }).location.href).href),
+  loadPhysics2D: () => loadPhysics2D(besideWorker('physics-2d.js')),
+  loadPhysics3D: () => loadPhysics3D(besideWorker('physics-3d.js')),
 });

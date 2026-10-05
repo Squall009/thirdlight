@@ -1,11 +1,10 @@
 /**
- * The export bundle build.
+ * The export bundle builds: the page bundle (`js/main.js`), the simulation
+ * worker, the block mesh worker and the physics backends, each one IIFE script.
  *
- * The bundle is built with the SAME pinned esbuild 0.28.2 option set as the
- * play-preview bundle; only the entry file and the allowed graph differ. One
- * in-memory virtual module feeds the per-build facts:
+ * One in-memory virtual module feeds the per-build facts:
  * `thirdlight:export-modules`, the simulation module specs the manifest
- * names. The bundle names no artifact: the page reads each file by the path
+ * names. The bundles name no artifact: the page reads each file by the path
  * its manifest or catalog row gives, relative to index.html, so the bundle's
  * code does not grow with the project.
  *
@@ -16,14 +15,24 @@ import { ENGINE_MODULES } from '@thirdlight/project-model';
 
 import type { ContentClosureM3 } from './content-closure';
 
-/** The pinned esbuild 0.28.2 option set (normative). */
-export const PINNED_OPTIONS = {
+/**
+ * The export's build options: minified and tree-shaken, what a player
+ * downloads. Correct under tree shaking because esbuild keeps every top-level
+ * statement it cannot prove pure, and a package may drop a whole unused
+ * module only where its package.json says it has no side effects (three
+ * keeps its node registrations marked; the engine packages register nothing
+ * at load). Each bundle has a linked source map next to it (`<file>.map`,
+ * sources as engine-relative paths, no source text), so a stack or a CPU
+ * profile of a shipped game still names the engine module and line.
+ */
+export const EXPORT_BUILD_OPTIONS = {
   bundle: true,
   platform: 'browser',
   format: 'iife',
-  treeShaking: false,
-  sourcemap: false,
-  minify: false,
+  treeShaking: true,
+  minify: true,
+  sourcemap: 'linked',
+  sourcesContent: false,
   // three's DRACOLoader computes default decoder URLs from import.meta.url at
   // module load, which an IIFE does not have; the page URL stands in (the
   // loader port always sets ./decoders/).
@@ -83,10 +92,72 @@ function modulesPlugin(entry: string, moduleIds: readonly string[]): unknown {
   };
 }
 
+/**
+ * rapier's compat builds carry their WASM inline, as one base64 string handed
+ * to wasm-bindgen's init (~2 MB of JavaScript to download and decode). The
+ * export ships the WASM as its own file instead: the string is replaced by
+ * the file's URL next to the script (wasm-bindgen's init fetches a URL and
+ * compiles it while it streams) and its bytes come back with the build. A
+ * compat build of another shape fails the build rather than ship the
+ * string again.
+ */
+const RAPIER_COMPAT_BUILD = /[\\/]@dimforge[\\/]rapier[23]d-compat[\\/]dist[\\/]rapier\.mjs$/;
+const INLINED_WASM = /[A-Za-z_$][\w$]*\.toByteArray\("(AGFzbQ[A-Za-z0-9+/=]*)"\)\.buffer/;
+
+/**
+ * Where the script that holds this code was loaded from, read once while it
+ * runs: a page's script element, or a worker's own script (a backend loaded
+ * with importScripts sits next to it).
+ */
+const SCRIPT_BASE = 'var __tlScriptBase = typeof document !== "undefined" && document.currentScript && document.currentScript.src ? document.currentScript.src : self.location.href;\n';
+
+function externalWasmPlugin(wasmFile: string, read: (path: string) => Uint8Array, out: { wasm: Uint8Array | null }): unknown {
+  return {
+    name: 'thirdlight-external-wasm',
+    setup(b: { onLoad: (o: { filter: RegExp }, cb: (a: { path: string }) => { contents: string; loader: 'js' }) => void }): void {
+      b.onLoad({ filter: RAPIER_COMPAT_BUILD }, (a) => {
+        const text = new TextDecoder().decode(read(a.path));
+        const m = INLINED_WASM.exec(text);
+        if (m === null) throw new Error(`${a.path}: no inlined WASM of the known shape (a rapier update changed its build)`);
+        out.wasm = base64Bytes(m[1] as string);
+        return { contents: SCRIPT_BASE + text.replace(m[0], `new URL(${JSON.stringify(wasmFile)}, __tlScriptBase)`), loader: 'js' };
+      });
+    },
+  };
+}
+
+function base64Bytes(text: string): Uint8Array {
+  const bin = atob(text);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i += 1) out[i] = bin.charCodeAt(i);
+  return out;
+}
+
+/** The engine root an entry under `packages/exporter/src/` belongs to. */
+function engineRootOf(entry: string): string {
+  const p = entry.replace(/\\/g, '/');
+  const i = p.lastIndexOf('/packages/');
+  return i >= 0 ? p.slice(0, i) : p.replace(/\/[^/]*$/, '');
+}
+
+/**
+ * The source map with engine-relative sources (`packages/…`, `node_modules/…`):
+ * esbuild writes them relative to the file's folder (`js/`), one level below the root.
+ */
+function rootRelativeMap(text: string): Uint8Array {
+  const map = JSON.parse(text) as { sources: string[] };
+  map.sources = map.sources.map((src) => src.replace(/^\.\.\//, ''));
+  return new TextEncoder().encode(JSON.stringify(map));
+}
+
 export interface M2BundleResult {
   ok: true;
   bytes: Uint8Array;
+  /** The linked source map (`<name>.map`). */
+  map: Uint8Array;
   metafile: { inputs: Record<string, unknown> };
+  /** The WASM a physics backend fetches (`<name>` with `.wasm`), when the build linked one. */
+  wasm: Uint8Array | null;
 }
 
 export interface M2BundleFailure {
@@ -95,27 +166,36 @@ export interface M2BundleFailure {
   message: string;
 }
 
+/** One export script: `name` is its path in the export (`js/sim-worker.js`), next to its map and WASM. */
+async function buildExportScript(entry: string, name: string, plugins: unknown[], read?: (path: string) => Uint8Array): Promise<M2BundleResult | M2BundleFailure> {
+  const sink: { wasm: Uint8Array | null } = { wasm: null };
+  const wasmFile = name.replace(/^.*\//, '').replace(/\.js$/, '.wasm');
+  const r = await build({
+    ...EXPORT_BUILD_OPTIONS,
+    entryPoints: [entry],
+    // Never written (write: false): the path names the map and places its sources.
+    outfile: `${engineRootOf(entry)}/${name}`,
+    write: false,
+    metafile: true,
+    plugins: [...plugins, ...(read !== undefined ? [externalWasmPlugin(wasmFile, read, sink)] : []), THREE_WEBGPU_ONLY_PLUGIN] as never[],
+  });
+  const js = r.outputFiles?.find((f) => f.path.endsWith('.js'))?.contents;
+  const map = r.outputFiles?.find((f) => f.path.endsWith('.map'))?.text;
+  const metafile = r.metafile as { inputs: Record<string, unknown> } | undefined;
+  if (js === undefined || js.length === 0 || map === undefined || metafile === undefined) return { ok: false, modules: ['(no bundle output)'], message: `the ${name} build produced no output` };
+  return { ok: true, bytes: js, map: rootRelativeMap(map), metafile, wasm: sink.wasm };
+}
+
 /**
- * The simulation worker bundle (`js/sim-worker.js`): the same
- * pinned option set, entry `export-sim-worker.ts` (the game host's worker
- * core + physics-rapier with its inlined WASM). The worker reads nothing
- * itself (the page sends it the scenes and script URLs); given
- * the manifest's module ids it links `thirdlight:export-modules` (the
- * simulation module specs those ids name) — the 3D physics entry needs none.
+ * A worker or backend script of the export (`js/sim-worker.js`,
+ * `js/mesh-worker.js`, `js/physics-2d.js`, `js/physics-3d.js`): the export's
+ * options. Given the manifest's module ids it links `thirdlight:export-modules`
+ * (the simulation module specs those ids name); given `read`, a physics
+ * backend's WASM comes back as its own file.
  */
-export async function buildSimWorkerBundle(entry: string, moduleIds?: readonly string[]): Promise<M2BundleResult | M2BundleFailure> {
+export async function buildSimWorkerBundle(entry: string, moduleIds?: readonly string[], opts: { name?: string; read?: (path: string) => Uint8Array } = {}): Promise<M2BundleResult | M2BundleFailure> {
   try {
-    const r = await build({
-      ...PINNED_OPTIONS,
-      entryPoints: [entry],
-      write: false,
-      metafile: true,
-      plugins: [...(moduleIds !== undefined ? [modulesPlugin(entry, moduleIds) as never] : []), THREE_WEBGPU_ONLY_PLUGIN as never],
-    });
-    const out = r.outputFiles?.[0]?.contents;
-    const metafile = r.metafile as { inputs: Record<string, unknown> } | undefined;
-    if (out === undefined || out.length === 0 || metafile === undefined) return { ok: false, modules: ['(no bundle output)'], message: 'the simulation worker bundle build produced no output' };
-    return { ok: true, bytes: out, metafile };
+    return await buildExportScript(entry, opts.name ?? 'js/sim-worker.js', moduleIds !== undefined ? [modulesPlugin(entry, moduleIds)] : [], opts.read);
   } catch (e) {
     return { ok: false, modules: [e instanceof Error ? e.message.slice(0, 200) : String(e)], message: e instanceof Error ? e.message : String(e) };
   }
@@ -132,19 +212,7 @@ export async function buildM3Bundle(input: {
   closure: Pick<ContentClosureM3, 'moduleIds'>;
 }): Promise<M2BundleResult | M2BundleFailure> {
   try {
-    const r = await build({
-      ...PINNED_OPTIONS,
-      entryPoints: [input.bootstrapEntry],
-      write: false,
-      metafile: true,
-      plugins: [modulesPlugin(input.bootstrapEntry, input.closure.moduleIds) as never, THREE_WEBGPU_ONLY_PLUGIN as never],
-    });
-    const out = r.outputFiles?.[0]?.contents;
-    const metafile = r.metafile as { inputs: Record<string, unknown> } | undefined;
-    if (out === undefined || out.length === 0 || metafile === undefined) {
-      return { ok: false, modules: ['(no bundle output)'], message: 'the M3 export bundle build produced no output' };
-    }
-    return { ok: true, bytes: out, metafile };
+    return await buildExportScript(input.bootstrapEntry, 'js/main.js', [modulesPlugin(input.bootstrapEntry, input.closure.moduleIds)]);
   } catch (e) {
     const names: string[] = [];
     const failure = e as { errors?: Array<{ id?: string; location?: { file?: string }; text?: string }> };

@@ -42,8 +42,16 @@ function busyFor(ms: number): void {
 
 /** The platform pieces a worker entry injects. */
 export interface SimWorkerDeps {
-  /** physics-rapier's `createPhysicsPort` (the entry imports it; the WASM is in its bundle). */
-  createPhysicsPort(config: never): Promise<{ ok: true; port: PhysicsPort } | { ok: false; error: { code: string; message?: string } }>;
+  /** physics-rapier's `createPhysicsPort` when the entry links it (else `loadPhysics2D` loads it). */
+  createPhysicsPort?(config: never): Promise<{ ok: true; port: PhysicsPort } | { ok: false; error: { code: string; message?: string } }>;
+  /**
+   * The 2D backend loaded on first use, for an entry that does not link it
+   * (an export's worker loads the separate `physics-2d.js`, so a 3D game never carries it).
+   */
+  loadPhysics2D?(): Promise<{
+    createPhysicsPort(config: never): Promise<{ ok: true; port: unknown } | { ok: false; error: { code: string; message?: string } }>;
+    physicsMemoryBytes?(): number | null;
+  }>;
   /** Import one compiled script module by URL. */
   importModule(url: string): Promise<unknown>;
   /**
@@ -178,7 +186,18 @@ export function runSimWorker(endpoint: SimEndpoint, deps: SimWorkerDeps): void {
         port = made.port as PhysicsPort3D;
         physics = made.port as PhysicsPort & PhysicsQueries;
       } else if (m.physics !== null && m.physics !== undefined) {
-        const made = await deps.createPhysicsPort(m.physics as never);
+        let create: SimWorkerDeps['createPhysicsPort'] = deps.createPhysicsPort;
+        if (create === undefined && deps.loadPhysics2D !== undefined) {
+          const backend = await deps.loadPhysics2D();
+          memoryProbe = backend.physicsMemoryBytes;
+          create = backend.createPhysicsPort as SimWorkerDeps['createPhysicsPort'];
+        }
+        if (create === undefined) {
+          post({ t: 'failed', error: { code: 'physics_init_failed', message: 'physics init failed: this worker has no 2D physics backend' } });
+          phase = 'idle';
+          return;
+        }
+        const made = await create(m.physics as never);
         if (!made.ok) {
           post({ t: 'failed', error: { code: 'physics_init_failed', message: `physics init failed: ${made.error.code}${made.error.message !== undefined ? ` (${made.error.message})` : ''}` } });
           phase = 'idle';

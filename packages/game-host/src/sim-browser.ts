@@ -3,7 +3,7 @@
  * `Worker` on the page side, the worker's own global on the other. (Node uses
  * worker_threads with the same `SimEndpoint` shape; see the integration tests.)
  */
-import { PHYSICS_3D_GLOBAL, type Physics3DModule } from './physics-3d-global';
+import { PHYSICS_2D_GLOBAL, PHYSICS_3D_GLOBAL, type Physics2DModule, type Physics3DModule } from './physics-global';
 import type { SimEndpoint, SimWorkerHandle } from './sim-protocol';
 
 interface WorkerLike {
@@ -51,30 +51,44 @@ export function workerGlobalEndpoint(): SimEndpoint {
 }
 
 /**
- * Load the 3D physics backend script (`physics-3d.js`, registered
- * on the global object — see `physics-3d-global.ts`) once: inside a worker
- * with `importScripts`, on a page with a script element. Only a project whose
- * `physics_dimension` is 3 calls it, so a 2D game never fetches the 3D WASM.
+ * Load a physics backend script (registered on the global object under
+ * `name` — see `physics-global.ts`) once: inside a worker with
+ * `importScripts`, on a page with a script element.
  */
-export async function loadPhysics3D(url: string): Promise<Physics3DModule> {
+async function loadBackendScript<T>(url: string, name: string, what: string): Promise<T> {
   const g = globalThis as Record<string, unknown>;
-  const registered = (): Physics3DModule | undefined => g[PHYSICS_3D_GLOBAL] as Physics3DModule | undefined;
-  if (registered() !== undefined) return registered()!;
+  if (g[name] !== undefined) return g[name] as T;
   const importScripts = (globalThis as { importScripts?: (u: string) => void }).importScripts;
   if (typeof importScripts === 'function') {
     importScripts(url);
   } else {
     const doc = (globalThis as { document?: { createElement(tag: string): Record<string, unknown>; head: { appendChild(n: unknown): void } } }).document;
-    if (doc === undefined) throw new Error('the 3D physics backend needs a page or a worker to load in');
+    if (doc === undefined) throw new Error(`${what} needs a page or a worker to load in`);
     await new Promise<void>((resolve, reject) => {
       const el = doc.createElement('script');
       el['src'] = url;
       el['onload'] = () => resolve();
-      el['onerror'] = () => reject(new Error(`the 3D physics backend (${url}) could not be loaded`));
+      el['onerror'] = () => reject(new Error(`${what} (${url}) could not be loaded`));
       doc.head.appendChild(el);
     });
   }
-  const m = registered();
-  if (m === undefined) throw new Error(`the 3D physics backend (${url}) did not register itself`);
-  return m;
+  if (g[name] === undefined) throw new Error(`${what} (${url}) did not register itself`);
+  return g[name] as T;
+}
+
+/**
+ * Load the 2D physics backend script (`physics-2d.js`) once. Only an export
+ * ships it as its own file (a project on the 2D plane), so a 3D game never
+ * carries the 2D engine.
+ */
+export function loadPhysics2D(url: string): Promise<Physics2DModule> {
+  return loadBackendScript<Physics2DModule>(url, PHYSICS_2D_GLOBAL, 'the 2D physics backend');
+}
+
+/**
+ * Load the 3D physics backend script (`physics-3d.js`) once. Only a project
+ * whose `physics_dimension` is 3 calls it, so a 2D game never fetches the 3D WASM.
+ */
+export function loadPhysics3D(url: string): Promise<Physics3DModule> {
+  return loadBackendScript<Physics3DModule>(url, PHYSICS_3D_GLOBAL, 'the 3D physics backend');
 }

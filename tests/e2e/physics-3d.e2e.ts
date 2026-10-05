@@ -161,16 +161,23 @@ test('a 3D project: the capsule lands on the box in Play (worker and main thread
   }
   expect(logs.filter((l) => /physics init failed|could not be loaded/.test(l))).toEqual([]);
 
-  // The static export with the backend stopped: the 3D backend ships as its own script, the 2D worker does not carry it.
+  // The static export with the backend stopped: only the 3D engine ships, as its own script with its WASM
+  // beside it; the page and the worker carry no physics engine (their source maps name every linked module).
   const res = await be.admin(`projects/${be.projectId}/export`);
   expect(res.status, JSON.stringify(res.json)).toBe(200);
   await be.halt();
   const dir = join(be.exportRoot, String(res.json.outputDir));
   expect(existsSync(join(dir, 'js', 'physics-3d.js'))).toBe(true);
-  expect(readFileSync(join(dir, 'js', 'sim-worker.js'), 'utf8').includes('rapier3d-compat')).toBe(false);
-  expect(readFileSync(join(dir, 'js', 'main.js'), 'utf8').includes('rapier3d-compat')).toBe(false);
+  expect(readFileSync(join(dir, 'js', 'physics-3d.wasm')).subarray(0, 4)).toEqual(Buffer.from([0, 0x61, 0x73, 0x6d]));
+  expect(existsSync(join(dir, 'js', 'physics-2d.js'))).toBe(false);
+  for (const script of ['main.js', 'sim-worker.js']) {
+    const sources = (JSON.parse(readFileSync(join(dir, 'js', `${script}.map`), 'utf8')) as { sources: string[] }).sources;
+    expect(sources.filter((s) => s.includes('@dimforge/') || s.includes('physics-rapier/')), script).toEqual([]);
+  }
+  expect((JSON.parse(readFileSync(join(dir, 'js', 'physics-3d.js.map'), 'utf8')) as { sources: string[] }).sources.some((s) => s.includes('@dimforge/rapier3d-compat/'))).toBe(true);
   const meta = JSON.parse(readFileSync(join(dir, 'meta.json'), 'utf8')) as { licenses: { id: string; version: string }[]; dependencies: { runtime: { modules: string[] } } };
   expect(meta.licenses).toContainEqual(expect.objectContaining({ id: '@dimforge/rapier3d-compat', version: '0.20.0' }));
+  expect(meta.licenses.map((l) => l.id)).not.toContain('@dimforge/rapier2d-compat');
   expect(meta.dependencies.runtime.modules).toContain('thirdlight.physics-rapier:3d');
   const site = await serveDir(dir);
   try {
@@ -187,6 +194,7 @@ test('a 3D project: the capsule lands on the box in Play (worker and main thread
         expect(errors).toEqual([]);
         expect(requests.every((u) => u.startsWith(site.url))).toBe(true);
         expect(requests.some((u) => u.endsWith('/js/physics-3d.js'))).toBe(true);
+        expect(requests.some((u) => u.endsWith('/js/physics-3d.wasm'))).toBe(true);
       } finally {
         await game.close();
       }

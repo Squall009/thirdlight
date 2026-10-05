@@ -25,7 +25,7 @@
  * Browser-only: DOM + WebGL/WebGPU.
  */
 import { sha256HexAsync } from '@thirdlight/project-model';
-import { openRuntimeContent, type HostDomNode } from '@thirdlight/game-host';
+import { loadPhysics2D, openRuntimeContent, type HostDomNode } from '@thirdlight/game-host';
 import { startGamePage, type GamePageManifest } from '@thirdlight/game-host/game-page';
 import type { RuntimeSnapshot, SimulationModuleSpec } from '@thirdlight/runtime';
 // The simulation module specs this manifest names (generated per export; nothing else is linked).
@@ -37,6 +37,8 @@ const EXPORT_SIM_WORKER_PATH = './js/sim-worker.js';
 const EXPORT_MESH_WORKER_PATH = './js/mesh-worker.js';
 /** The 3D physics backend (`js/physics-3d.js`, only in a 3D project's export). */
 const EXPORT_PHYSICS_3D_PATH = './js/physics-3d.js';
+/** The 2D physics backend (`js/physics-2d.js`, only in an export on the 2D plane). */
+const EXPORT_PHYSICS_2D_PATH = './js/physics-2d.js';
 /** Three's Draco and Basis decoders next to index.html (shipped when a file needs them). */
 const EXPORT_DECODER_BASE = './decoders/';
 
@@ -89,6 +91,7 @@ async function main(): Promise<void> {
       workerUrl: new URL(EXPORT_SIM_WORKER_PATH, document.baseURI).href,
       meshWorkerUrl: new URL(EXPORT_MESH_WORKER_PATH, document.baseURI).href,
       physics3dUrl: new URL(EXPORT_PHYSICS_3D_PATH, location.href).href,
+      physics2d: () => loadPhysics2D(new URL(EXPORT_PHYSICS_2D_PATH, location.href).href),
       decoderBase: EXPORT_DECODER_BASE,
       moduleSpecs: moduleSpecs as readonly SimulationModuleSpec[],
       canvas,

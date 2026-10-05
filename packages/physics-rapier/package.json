@@ -15,5 +15,6 @@
   },
   "scripts": {
     "test": "vitest run"
-  }
+  },
+  "sideEffects": false
 }

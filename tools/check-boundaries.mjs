@@ -392,8 +392,8 @@ const BUNDLE_ENTRY_EDGES = {
   // The game page (`game-host/game-page`): the composition Play's page and an
   // exported game's page share. It is browser bundle code, linked only into
   // those two bundles (the game-host root stays free of three and physics):
-  // the scene adapter and its GLTFLoader port, the physics port, the browser
-  // input, the model's pure helpers. Behavior outputs load from the URLs the
+  // the scene adapter and its GLTFLoader port, the physics port's types (the
+  // 2D backend is injected by the entry), the browser input, the model's pure helpers. Behavior outputs load from the URLs the
   // page gives it (manifest-declared paths).
   'packages/game-host/src/game-page.ts': {
     packages: ['runtime', 'three-adapter', 'project-model', 'input', 'physics-rapier'],
@@ -402,11 +402,12 @@ const BUNDLE_ENTRY_EDGES = {
     computedDynamicImport: 'locator',
   },
   // The exported game's simulation worker entry (`js/sim-worker.js`):
-  // the game host's worker core + physics-rapier (its WASM inlined). It
-  // imports the project's compiled scripts by the absolute URLs the page
-  // resolves from manifest-declared `behaviors/<digest>.js` paths.
+  // the game host's worker core; the physics backend loads from its own file
+  // (`js/physics-2d.js` / `js/physics-3d.js`). It imports the project's
+  // compiled scripts by the absolute URLs the page resolves from
+  // manifest-declared `behaviors/<digest>.js` paths.
   'packages/exporter/src/export-sim-worker.ts': {
-    packages: ['physics-rapier', 'game-host'],
+    packages: ['game-host'],
     // The generated module specs the manifest names.
     external: ['thirdlight:export-modules'],
     node: [],
@@ -450,10 +451,15 @@ const BUNDLE_ENTRY_EDGES = {
     external: [],
     node: [],
   },
-  // The 3D physics backend entries (`js/physics-3d.js` of a 3D
-  // project's export; `dist/preview/physics-3d.js` on the preview origin):
-  // physics-rapier's `./3d` port and the dependency-free hand-over module of
-  // game-host (`./physics-3d-global`) only.
+  // The physics backend entries (`js/physics-2d.js` / `js/physics-3d.js` of
+  // an export; `dist/preview/physics-3d.js` on the preview origin):
+  // physics-rapier's port and the dependency-free hand-over module of
+  // game-host (`./physics-global`) only.
+  'packages/exporter/src/export-physics-2d.ts': {
+    packages: ['physics-rapier', 'game-host'],
+    external: [],
+    node: [],
+  },
   'packages/exporter/src/export-physics-3d.ts': {
     packages: ['physics-rapier', 'game-host'],
     external: [],

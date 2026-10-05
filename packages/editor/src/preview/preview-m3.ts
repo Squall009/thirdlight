@@ -35,6 +35,7 @@ import {
   type StartTimings,
   createStartTimings,
 } from '@thirdlight/game-host';
+import { createPhysicsPort, physicsMemoryBytes, type RapierPhysicsInitConfig } from '@thirdlight/physics-rapier';
 import { GamePageError, startGamePage, type GamePageHandle, type GamePageManifest } from '@thirdlight/game-host/game-page';
 import type { SceneAdapter } from '@thirdlight/three-adapter';
 import type { InputConfigLike } from '@thirdlight/input';
@@ -213,6 +214,8 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
     workerUrl: new URL(`${cfg.buildRoot ?? '/'}${PREVIEW_SIM_WORKER_FILE}`, location.href).href,
     meshWorkerUrl: new URL(`${cfg.buildRoot ?? '/'}${PREVIEW_MESH_WORKER_FILE}`, location.href).href,
     physics3dUrl: new URL(`${cfg.buildRoot ?? '/'}${PREVIEW_PHYSICS_3D_FILE}`, location.href).href,
+    // Play's bundle links the 2D engine (one build for every project); only an export ships it on its own.
+    physics2d: () => Promise.resolve({ createPhysicsPort: (config) => createPhysicsPort(config as RapierPhysicsInitConfig), physicsMemoryBytes }),
     decoderBase: PREVIEW_DECODER_BASE,
     moduleSpecs: PREVIEW_MODULE_SPECS,
     canvas: cfg.canvas,

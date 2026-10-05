@@ -279,6 +279,8 @@ test('the export: the worker by default (messages; shared memory under COOP/COEP
   await be!.halt();
   const dir = join(be!.exportRoot, String(res.json.outputDir));
   expect(existsSync(join(dir, 'js', 'sim-worker.js'))).toBe(true);
+  expect(existsSync(join(dir, 'js', 'physics-2d.wasm'))).toBe(true);
+  expect(existsSync(join(dir, 'js', 'physics-3d.js'))).toBe(false);
   const cases: { isolated: boolean; query: string; want: { mode: string; transport: string | null; isolated: boolean } }[] = [
     { isolated: false, query: '', want: { mode: 'worker', transport: 'message', isolated: false } },
     { isolated: false, query: '?threads=off', want: { mode: 'single', transport: null, isolated: false } },
@@ -328,6 +330,8 @@ test('the export: the worker by default (messages; shared memory under COOP/COEP
       expect(moving, `${c.query || 'default'}${c.isolated ? ' (isolated)' : ''}: pixels changed while moving (${moving}) vs standing (${idle})`).toBeGreaterThan(Math.max(3 * idle, 100));
       expect(errors).toEqual([]);
       expect(requests.every((u) => u.startsWith(site.url))).toBe(true);
+      // The 2D engine loads from its own script and WASM file where the simulation runs; the 3D one is not shipped.
+      expect(requests.filter((u) => /\/js\/physics-2d\.(js|wasm)$/.test(u)).length, c.query).toBe(2);
     } finally {
       await game.close();
       await site.close();

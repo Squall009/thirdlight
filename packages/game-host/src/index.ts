@@ -141,9 +141,9 @@ export { createScenePreloader, pageScenePreparation, SCENES_READ_AHEAD, SCENE_PR
 export { runSimWorker, type SimWorkerDeps } from './sim-worker';
 export { startRemoteSimulation, remoteStartError, type RemoteSimulation, type RemoteSimulationOptions, type SimPipelineStats } from './sim-remote';
 export { createLocalSimAccess, type RelayPage, type SimAccess, type SimRay } from './sim-access';
-export { browserWorkerAvailable, createBrowserSimWorker, loadPhysics3D, workerGlobalEndpoint } from './sim-browser';
-// The 3D physics backend's hand-over (a separate script; see physics-3d-global.ts).
-export { PHYSICS_3D_GLOBAL, registerPhysics3D, type Physics3DModule } from './physics-3d-global';
+export { browserWorkerAvailable, createBrowserSimWorker, loadPhysics2D, loadPhysics3D, workerGlobalEndpoint } from './sim-browser';
+// The physics backends' hand-over (separate scripts; see physics-global.ts).
+export { PHYSICS_2D_GLOBAL, PHYSICS_3D_GLOBAL, registerPhysics2D, registerPhysics3D, type Physics2DModule, type Physics3DModule } from './physics-global';
 export { PHYSICS_MEMORY_CAP_BYTES, STEP_PAIR_STRIDE, TRANSFORM_STRIDE, type FrameState, type SimEndpoint, type SimInitMessage, type SimWorkerHandle, type SceneEntities } from './sim-protocol';
 export { resolveThreadingMode, resolveTransport, simDelayFromUrl, threadingFromUrl, threadingLogLine, SIM_DELAY_URL_PARAM, SIM_THREAD_SETTING_VALUES, THREADS_URL_PARAM, type SimTransport, type ThreadingMode } from './threading';
 export { TickInputSource, continueFrame, mergePhase } from './tick-input';
