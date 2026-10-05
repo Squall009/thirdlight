@@ -327,6 +327,7 @@ describe('fixes built on the helpers', () => {
       return m;
     });
     const batcher = createAutoBatcher(scene);
+    for (const m of members) batcher.listed(m);
     const camera = new THREE.PerspectiveCamera();
     const batchMesh = (): THREE.Mesh | null => {
       let found: THREE.Mesh | null = null;
@@ -351,6 +352,7 @@ describe('fixes built on the helpers', () => {
     const w1 = watch(first);
     // One member hidden: the group falls under four and is released.
     members[0]!.visible = false;
+    batcher.touch(members[0]!);
     batcher.update(camera);
     expect(batcher.diagnostics().groups).toBe(0);
     expect(w1).toEqual({ object: 1, geometry: 1 });
@@ -358,6 +360,7 @@ describe('fixes built on the helpers', () => {
     // The group forms again; its material disposed before the next frame (the last box went) takes it out at
     // once and disposes it after the material's own listeners ran (the renderer's render objects go by those).
     members[0]!.visible = true;
+    batcher.touch(members[0]!);
     batcher.update(camera);
     expect(batcher.diagnostics().groups).toBe(1);
     const again = batchMesh()!;

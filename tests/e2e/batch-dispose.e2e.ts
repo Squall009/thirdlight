@@ -9,14 +9,29 @@
  * Here two groups of equal boxes and a single box share the unit box; one
  * group is dissolved and formed again, and every colour must stay on screen
  * with no WebGPU validation error.
+ *
+ * Then the batcher regroups only on a change, in Play: with a fifth box in
+ * each group and five model placements with two levels of detail (a graph
+ * material per level, so placements share it), an idle frame regroups
+ * nothing and copies no matrix; a project script then moves one red box,
+ * hides one blue box and brings the far placement within its switch
+ * distance, and each step regroups only the groups of that member (none for
+ * the move, one for the hide, two for the level switch: the level it leaves
+ * and the one it joins) and copies only its matrices. The picture after the
+ * three steps matches the same steps drawn without batching (`?batching=off`).
  */
 import { createHash } from 'node:crypto';
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page } from '@playwright/test';
 
-import { startBackend, type E2EBackend } from './backend';
+import { publishBytes, publishScript, startBackend, type E2EBackend } from './backend';
+import { multiPieceGlb } from './multi-piece-glb';
+import { diff, diffPng, show, STRICT, within } from './parity';
 import { decodePng, type Image } from './png';
 import { editorUrlFor, expectRendererBackend, onlyInItsProject, RENDERER_VARIANTS } from './renderer-variants';
+import { lodSwitchDistance } from '@thirdlight/three-adapter';
 
 let be: E2EBackend;
 test.afterEach(async () => {
@@ -56,6 +71,58 @@ function hueCount(img: Image, hue: Hue): number {
     }
   }
   return n;
+}
+
+/** The project script: `place {id, x, y, z}` moves an object, `hide {id}` hides it. */
+const DRIVER = [
+  'export default {',
+  '  instantiate() { return {}; },',
+  '  step(_state: any, ctx: any) {',
+  "    if (ctx.phase !== 'intent') return;",
+  "    for (const c of ctx.debug.command('place', { description: 'Move an object', args: [{ name: 'id', type: 'string' }, { name: 'x', type: 'number' }, { name: 'y', type: 'number' }, { name: 'z', type: 'number' }] })) {",
+  "      ctx.entity(String(c.id))?.set('transform', { position: [Number(c.x), Number(c.y), Number(c.z)] });",
+  '    }',
+  "    for (const c of ctx.debug.command('hide', { description: 'Hide an object', args: [{ name: 'id', type: 'string' }] })) ctx.game.setVisible(String(c.id), false);",
+  '  },',
+  '};',
+].join('\n');
+
+/** An unlit graph material whose colour is its `tint` parameter. */
+const TINT_GRAPH = {
+  nodes: [
+    { id: 'out', type: 'unlit', position: [400, 0], data: { castShadows: false } },
+    { id: 'tint', type: 'parameter', position: [0, 0], data: { key: 'tint' } },
+  ],
+  edges: [{ id: 'e1', from: { node: 'tint', port: 'value' }, to: { node: 'out', port: 'color' } }],
+};
+
+/** The batcher's counters in Play's diagnostics. */
+interface Batching {
+  groups: number;
+  batched: number;
+  single: number;
+  regroups: number;
+  matrixCopies: number;
+  regroupsTotal: number;
+  matrixCopiesTotal: number;
+}
+
+/** A canvas's picture once two shots in a row are the same. */
+async function settledShot(target: Locator): Promise<{ img: Image; png: Buffer }> {
+  let last = '';
+  await expect
+    .poll(
+      async () => {
+        const png = (await target.screenshot()).toString('base64');
+        const same = png === last;
+        last = png;
+        return same;
+      },
+      { timeout: 60_000, intervals: [1000] },
+    )
+    .toBe(true);
+  const png = Buffer.from(last, 'base64');
+  return { img: decodePng(png), png };
 }
 
 async function hues(page: Page): Promise<Record<Hue, number>> {
@@ -107,6 +174,97 @@ for (const variant of RENDERER_VARIANTS) {
       await expect.poll(frames).toBeGreaterThan(f);
       await expect.poll(seen, { message: 'every colour drawn after the group forms again' }).toBe('blue,green,red');
     }
+    expect(validation, 'no WebGPU validation errors').toEqual([]);
+
+    // ---- Play: only a change regroups, only a moved member is copied ----
+    blue.push(String((await cmd('createEntity', { sceneId: 'scene-main', kind: 'box', name: 'Blue 4', transform: { position: [3.5, 0.5, 1] }, box: { size: [1, 1, 1], material: { color: COLORS.blue } } }))['createdId']));
+    const red0 = String((await query('queryEntities', { limit: 100, offset: 0 }) as { entities: { id: string; name: string }[] }).entities.find((e) => e.name === 'Red 0')!.id);
+    await cmd('createEntity', { sceneId: 'scene-main', kind: 'box', name: 'Red 4', transform: { position: [3.5, 0.5, -1] }, box: { size: [1, 1, 1], material: { color: COLORS.red } } });
+    // Placements of a model with two levels (yellow near, cyan far): four within the switch distance, one beyond it.
+    await cmd('setMaterial', { material: { materialId: 'near', name: 'Near', shader: 'unlit', params: {}, textures: {}, parameters: [{ key: 'tint', type: 'color', default: '#e0e020' }], graph: TINT_GRAPH } });
+    await cmd('setMaterial', { material: { materialId: 'far', name: 'Far', shader: 'unlit', params: {}, textures: {}, parameters: [{ key: 'tint', type: 'color', default: '#20e0e0' }], graph: TINT_GRAPH } });
+    await publishBytes(be, multiPieceGlb([{ name: 'marker', lods: [[1, 1, 1], [1, 1, 1]], colors: [[1, 1, 0], [0, 1, 1]] }]), 'model', 'markers', 'Markers');
+    const levels = { mat_marker_LOD0: 'near', mat_marker_LOD1: 'far' };
+    const eye: [number, number, number] = [0, 2.5, 8];
+    const switchAt = lodSwitchDistance(Math.hypot(1, 1, 1) / 2, 1);
+    const marker = async (name: string, at: [number, number, number]): Promise<string> => {
+      const id = String((await cmd('createEntity', { sceneId: 'scene-main', kind: 'model', name, model: { asset: { assetId: 'markers' }, piece: 'marker' }, transform: { position: at } }))['createdId']);
+      await cmd('setComponent', { entityId: id, component: 'materials', value: levels });
+      return id;
+    };
+    for (const x of [-3, -1, 1, 3]) await marker(`Near ${x}`, [x, 0, eye[2] - switchAt + 3]);
+    const crossing = await marker('Crossing', [0, 0, eye[2] - switchAt - 15]);
+    const inside: [number, number, number] = [5, 0, eye[2] - switchAt + 3];
+    // The game camera looks along -z, 10 degrees down.
+    const cam = (await query('queryEntities', { limit: 100, offset: 0 }) as { entities: { id: string; components: Record<string, unknown> }[] }).entities.find((e) => e.components['virtualCamera'] !== undefined)!.id;
+    await cmd('setTransform', { entityId: cam, transform: { position: eye, rotation: [-0.0871557, 0, 0, 0.9961947] } });
+    const driver = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Driver', transform: { position: [0, -10, 0] } }))['createdId']);
+    await publishScript(be, 'driver', DRIVER, driver);
+
+    const api = async (path: string, body: unknown = {}): Promise<{ status: number; json: Record<string, unknown> }> => {
+      const r = await fetch(`${be.origin}/api/v1/projects/${be.projectId}/${path}`, { method: 'POST', headers: { authorization: `Bearer ${be.token}`, origin: be.origin, 'content-type': 'application/json' }, body: JSON.stringify(body) });
+      return { status: r.status, json: (await r.json()) as Record<string, unknown> };
+    };
+    /** Play from the editor (batched or not); the three steps; the settled picture. */
+    const play = async (batched: boolean): Promise<{ img: Image; png: Buffer }> => {
+      await page.goto(editorUrlFor(batched ? be.editorUrl : be.editorUrl.replace('#', '&batching=off#'), variant));
+      await expect(page.locator('.tl-statusbar')).toContainText('connected');
+      const started = page.waitForResponse((r) => r.request().method() === 'POST' && r.url().endsWith('/play'));
+      await page.getByTitle('Start an isolated play preview').click();
+      const psid = String(((await (await started).json()) as { playSessionId: string }).playSessionId);
+      const canvas = page.frameLocator('iframe.tl-app__preview-frame').locator('canvas').first();
+      await expectRendererBackend(canvas, variant);
+      await expect.poll(async () => (await api(`play/${psid}/observe`)).json['state'], { timeout: 60_000 }).toBe('running');
+      const batching = async (): Promise<Batching | undefined> => ((await api(`play/${psid}/diagnostics`)).json as { diagnostics?: { renderer?: { batching?: Batching } } }).diagnostics?.renderer?.batching;
+      const send = async (name: string, args: Record<string, unknown>): Promise<void> => {
+        const r = await api(`play/${psid}/control`, { command: 'debugCommand', name, args });
+        expect(r.status, JSON.stringify(r.json).slice(0, 300)).toBe(200);
+      };
+      const steps: [string, Record<string, unknown>, number][] = [
+        ['place', { id: red0, x: -3.5, y: 2.5, z: -1 }, 0],
+        ['hide', { id: blue[1]! }, 1],
+        ['place', { id: crossing, x: inside[0], y: inside[1], z: inside[2] }, 2],
+      ];
+      if (!batched) {
+        for (const [name, args] of steps) await send(name, args);
+        return settledShot(canvas);
+      }
+      // Red and blue batched (five each), the near level (four); the far placement drawn alone.
+      await expect.poll(async () => { const b = await batching(); return b === undefined ? '' : `${b.groups} ${b.batched}`; }, { timeout: 60_000 }).toBe('3 14');
+      // Idle: no regroup and no matrix copy, frame after frame.
+      await expect.poll(async () => { const b = await batching(); return `${b?.regroups} ${b?.matrixCopies}`; }, { timeout: 15_000 }).toBe('0 0');
+      const idle = (await batching())!;
+      await page.waitForTimeout(1500);
+      const still = (await batching())!;
+      expect([still.regroupsTotal, still.matrixCopiesTotal], 'an idle static scene regroups and copies nothing').toEqual([idle.regroupsTotal, idle.matrixCopiesTotal]);
+      let before = still;
+      for (const [name, args, regroups] of steps) {
+        await send(name, args);
+        await expect.poll(async () => { const b = (await batching())!; return b.regroupsTotal + b.matrixCopiesTotal; }, { timeout: 15_000, message: `${name} reaches the batcher` }).toBeGreaterThan(before.regroupsTotal + before.matrixCopiesTotal);
+        // Settled (the move is drawn over a frame or two between simulation steps).
+        await page.waitForTimeout(1000);
+        const after = (await batching())!;
+        console.log(`[batch-dispose] ${name} ${JSON.stringify(args)}: ${after.regroupsTotal - before.regroupsTotal} regroups, ${after.matrixCopiesTotal - before.matrixCopiesTotal} matrix copies`);
+        expect(after.regroupsTotal - before.regroupsTotal, `${name}: the regroups of its own groups only`).toBe(regroups);
+        expect(after.matrixCopiesTotal - before.matrixCopiesTotal, `${name}: its own matrices only`).toBeGreaterThanOrEqual(regroups === 2 ? 0 : 1);
+        expect(after.matrixCopiesTotal - before.matrixCopiesTotal, `${name}: its own matrices only`).toBeLessThanOrEqual(6);
+        before = after;
+      }
+      // Blue lost one; the near level gained the placement that crossed.
+      expect(`${before.groups} ${before.batched}`).toBe('3 14');
+      return settledShot(canvas);
+    };
+    const batchedShot = await play(true);
+    await page.getByTitle('Stop the play preview').click();
+    const singleShot = await play(false);
+    const d = diff(batchedShot.img, singleShot.img, STRICT);
+    const out = test.info().outputPath();
+    mkdirSync(out, { recursive: true });
+    writeFileSync(join(out, 'play-batched.png'), batchedShot.png);
+    if (!within(d, STRICT)) writeFileSync(join(out, 'diff.png'), diffPng(batchedShot.img, singleShot.img));
+    console.log(`[batch-dispose] Play after the steps, batched vs one draw per object: ${show(d, STRICT)}`);
+    expect(within(d, STRICT), show(d, STRICT)).toBe(true);
+    await page.getByTitle('Stop the play preview').click();
     expect(validation, 'no WebGPU validation errors').toEqual([]);
   });
 }

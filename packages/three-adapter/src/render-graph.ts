@@ -28,7 +28,9 @@
  *
  * Only what moved is placed again: the table composes only the rows whose
  * transform changed (and their descendants), and only those entities'
- * drawables get a new world matrix — an idle static scene writes none.
+ * drawables get a new world matrix — an idle static scene writes none. The
+ * batcher hears of those writes, and of what enters and leaves the scene,
+ * from here (`setMembership`), so it never walks the scene itself.
  *
  * Levels of detail: a `THREE.LOD` is data here, never in the scene. Each one
  * gets a switch that picks its level from the camera every frame (three's
@@ -45,6 +47,7 @@
 import * as THREE from 'three';
 import { WorldMatrices } from '@thirdlight/runtime';
 
+import type { BatchMembership } from './batching';
 import { LOD_LEVEL_KEY, pickLodLevel } from './lod-switch';
 
 /** Whether three draws an object itself (a mesh, line, points, sprite or a light). */
@@ -190,10 +193,18 @@ export class RenderGraph {
   private writesTotal = 0;
   private placedNow = 0;
   private readonly camPos = new THREE.Vector3();
+  /** Told what enters and leaves the scene and whose matrix was written (the batcher regroups only on those). */
+  private membership: BatchMembership | null = null;
 
   constructor(scene: THREE.Scene, animated: (entityId: string) => boolean) {
     this.scene = scene;
     this.animated = animated;
+  }
+
+  /** Tell `m` about every listed drawable from now on (and the ones listed already). */
+  setMembership(m: BatchMembership | null): void {
+    this.membership = m;
+    if (m !== null) for (const o of this.inScene.keys()) m.listed(o);
   }
 
   /** Add an entity's row (its local transform starts at identity). */
@@ -290,7 +301,10 @@ export class RenderGraph {
     let posed = 0;
     for (const node of this.posed) {
       node.updateMatrixWorld(true);
-      posed += this.held.get(node)?.parts.length ?? 0;
+      const parts = this.held.get(node)?.parts;
+      if (parts === undefined) continue;
+      posed += parts.length;
+      if (this.membership !== null) for (const p of parts) if (p.listed) this.membership.moved(p.object);
     }
     if (posed > 0) {
       this.writes = { ...this.writes, posed };
@@ -527,6 +541,7 @@ export class RenderGraph {
       if (p.offset === null) continue;
       p.object.matrixWorld.multiplyMatrices(node.matrixWorld, p.offset);
       this.placedNow += 1;
+      if (p.listed) this.membership?.moved(p.object);
     }
     for (const sw of h.switches) if (sw.offset !== null) sw.lod.matrixWorld.multiplyMatrices(node.matrixWorld, sw.offset);
   }
@@ -540,12 +555,14 @@ export class RenderGraph {
     if (this.inScene.has(o)) return;
     this.inScene.set(o, this.scene.children.length);
     this.scene.children.push(o);
+    this.membership?.listed(o);
   }
 
   private unlistObject(o: THREE.Object3D): void {
     const hint = this.inScene.get(o);
     if (hint === undefined) return;
     this.inScene.delete(o);
+    this.membership?.unlisted(o);
     const children = this.scene.children;
     const i = children[hint] === o ? hint : children.indexOf(o);
     if (i < 0) return;

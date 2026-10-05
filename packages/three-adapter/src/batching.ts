@@ -3,9 +3,9 @@
  * editor Scene view).
  *
  * Objects that draw the same geometry with the same material and the same
- * shadow flags are drawn together: one `THREE.InstancedMesh` per group, its
- * instance matrices copied from the members' world matrices before every
- * frame. The members stay in the scene graph as they are — hierarchy,
+ * shadow flags are drawn together: one instanced draw per group, its
+ * instance matrices copied from the members' world matrices. The members
+ * stay in the scene graph as they are — hierarchy,
  * transforms, picking, bounds, lightmap bakes and per-object overrides keep
  * working on them — they only move to {@link BATCHED_LAYER}, which cameras do
  * not draw (the shadow cameras take the main camera's layers, so the members
@@ -31,6 +31,14 @@
  * geometry (boxes) stays one draw for the whole scene. A host may give a
  * mesh a shared draw geometry and a scale (`{ geometry, scale }`): every box
  * draws the one unit box scaled by its size, so boxes of any size batch.
+ *
+ * Nothing is re-derived per frame. The host tells the batcher what entered
+ * or left the scene (a new object, a LOD level switched in or out, a hidden
+ * object), whose world matrix it wrote, and which objects had their
+ * material, shadow flags or marks changed (`touch`); groups are kept between
+ * frames, only those members are grouped again, and only the matrices of
+ * members that moved are copied. An idle frame of a static scene does
+ * neither (diagnostics count both per frame).
  *
  * A group is drawn through instance-matrix columns of its own
  * geometry (`attribute-instancing.ts`), not a `THREE.InstancedMesh`: three
@@ -203,16 +211,46 @@ export interface AutoBatcherDiagnostics {
   readonly batched: number;
   /** Marked meshes drawn on their own (not batchable or no partner). */
   readonly single: number;
+  /** Groups a member joined or left in the last frame. */
+  readonly regroups: number;
+  /** Member matrices copied into a batch in the last frame. */
+  readonly matrixCopies: number;
+  /** Both since the batcher was made. */
+  readonly regroupsTotal: number;
+  readonly matrixCopiesTotal: number;
 }
 
-export interface AutoBatcher {
+/**
+ * What the batcher is told about the scene. It never walks the scene: the
+ * host announces what enters and leaves it and whose world matrix it wrote,
+ * so an idle frame costs nothing.
+ */
+export interface BatchMembership {
+  /** `o` entered the scene: it and the meshes below it may be batched. */
+  listed(o: THREE.Object3D): void;
+  /** `o` left the scene: its meshes leave their groups. */
+  unlisted(o: THREE.Object3D): void;
+  /** `o`'s world matrix (and those below it) was written this frame. */
+  moved(o: THREE.Object3D): void;
+}
+
+export interface AutoBatcher extends BatchMembership {
   /**
-   * Update the scene's world matrices, regroup and copy the members'
-   * matrices; call right before rendering (after the transform sync). A host
-   * that calls it before every render may set `scene.matrixWorldAutoUpdate =
-   * false` (the renderer's own pass would repeat the work).
+   * Update the scene's world matrices, regroup what changed and copy the
+   * matrices of members that moved; call right before rendering (after the
+   * transform sync). A host that calls it before every render may set
+   * `scene.matrixWorldAutoUpdate = false` (the renderer's own pass would
+   * repeat the work).
    */
   update(camera: THREE.Camera): void;
+  /**
+   * Something that decides the group of the meshes under `o` may have
+   * changed — a material, the shadow flags, the layers, per-object material
+   * parameters, `visible`, the batch mark: they are grouped again next frame.
+   */
+  touch(o: THREE.Object3D): void;
+  /** Every member is grouped again next frame (a change that reaches every object: new bakes, materials redefined). */
+  touchAll(): void;
   diagnostics(): AutoBatcherDiagnostics;
   /** Off: every member goes back to drawing on its own. */
   setEnabled(on: boolean): void;
@@ -220,27 +258,62 @@ export interface AutoBatcher {
   dispose(): void;
 }
 
+/** A mesh in the scene the batcher knows of (batchable or not). */
+interface Member {
+  readonly mesh: THREE.Mesh;
+  /** The listed object it came in with. */
+  root: THREE.Object3D;
+  group: Group | null;
+  /** Its slot in the group's members (and instance array). */
+  slot: number;
+  scale: readonly number[] | null;
+  /** Its world cell (detailed geometry only). */
+  cx: number;
+  cy: number;
+  cz: number;
+  /** Carries the batch mark (counted as single while not batched). */
+  marked: boolean;
+  /** Drawn through its group's batch (its layers moved). */
+  batched: boolean;
+}
+
 interface Group {
   readonly key: string;
-  inst: AttributeInstancedMesh;
-  members: THREE.Mesh[];
-  scales: (readonly number[] | null)[];
-  seen: number;
+  readonly parts: BatchKeyParts;
+  readonly detailed: boolean;
+  readonly members: Member[];
+  /** The batch, while the group has enough members. */
+  inst: AttributeInstancedMesh | null;
   /** Stops listening to the batch material's `dispose`. */
   unlisten: () => void;
+  /** The material's `version` when the members were last grouped (a change may make them unbatchable). */
+  materialVersion: number;
 }
 
 export function createAutoBatcher(scene: THREE.Scene, options: AutoBatcherOptions = {}): AutoBatcher {
   const minGroup = Math.max(2, options.minGroup ?? 4);
   const cellSize = options.cellSize ?? 64;
-  const detailed = options.detailedTriangles ?? 256;
+  const detailedTriangles = options.detailedTriangles ?? 256;
+  const members = new Map<THREE.Mesh, Member>();
+  const byRoot = new Map<THREE.Object3D, Member[]>();
   const groups = new Map<string, Group>();
-  /** Members batched in the last frame (their layers are moved). */
-  let batchedNow = new Set<THREE.Mesh>();
+  /** Members to group again, members whose matrix was written, groups whose members changed. */
+  const dirty = new Set<Member>();
+  const movedNow = new Set<Member>();
+  const changedGroups = new Set<Group>();
+  /** Groups whose instance matrices changed this frame (uploaded once). */
+  const writtenGroups = new Set<Group>();
   let enabled = true;
   let disposed = false;
-  let frame = 0;
-  let stats: AutoBatcherDiagnostics = { groups: 0, batched: 0, single: 0 };
+  let marked = 0;
+  /** This frame's work so far (a member leaving between frames counts in the next one), and the last frame's. */
+  let regroups = 0;
+  let copies = 0;
+  let lastRegroups = 0;
+  let lastCopies = 0;
+  let regroupsTotal = 0;
+  let copiesTotal = 0;
+  let counts = { groups: 0, batched: 0, single: 0 };
   const triangles = new WeakMap<THREE.BufferGeometry, number>();
   const trianglesOf = (g: THREE.BufferGeometry): number => {
     let n = triangles.get(g);
@@ -250,56 +323,44 @@ export function createAutoBatcher(scene: THREE.Scene, options: AutoBatcherOption
     }
     return n;
   };
-  const pending = new Map<string, { parts: BatchKeyParts; members: THREE.Mesh[]; scales: (readonly number[] | null)[] }>();
-  let single = 0;
   const pos: [number, number, number] = [0, 0, 0];
 
-  const restore = (m: THREE.Mesh): void => {
-    const saved = m.userData[LAYERS_KEY] as number | undefined;
+  const batch = (m: Member): void => {
+    if (m.batched) return;
+    m.batched = true;
+    m.mesh.userData[LAYERS_KEY] = m.mesh.layers.mask;
+    m.mesh.layers.set(BATCHED_LAYER);
+  };
+  const unbatch = (m: Member): void => {
+    if (!m.batched) return;
+    m.batched = false;
+    const saved = m.mesh.userData[LAYERS_KEY] as number | undefined;
     if (saved !== undefined) {
-      m.layers.mask = saved;
-      delete m.userData[LAYERS_KEY];
+      m.mesh.layers.mask = saved;
+      delete m.mesh.userData[LAYERS_KEY];
     }
   };
+  /** The group draws its members on their own again; its batch goes. */
   const release = (g: Group): void => {
+    if (g.inst === null) return;
+    for (const m of g.members) unbatch(m);
     g.unlisten();
+    g.unlisten = () => undefined;
     // Its render objects and its instance buffer go too (the source geometry stays its owner's).
     g.inst.dispose();
+    g.inst = null;
   };
 
-  const visit = (o: THREE.Object3D): void => {
-    // A batch draws (its members are what is grouped): no container of its own, so the scene holds only drawables.
-    if (!o.visible || o.userData['tlBatch'] === true) return;
-    const mesh = o as THREE.Mesh;
-    if (mesh.isMesh === true && mesh.userData[BATCH_KEY] !== undefined) {
-      const parts = batchKeyParts(mesh);
-      if (parts === null) single += 1;
-      else {
-        const e = mesh.matrixWorld.elements;
-        pos[0] = e[12]!;
-        pos[1] = e[13]!;
-        pos[2] = e[14]!;
-        const key = batchKey(parts, trianglesOf(parts.geometry) >= detailed ? pos : null, cellSize);
-        let p = pending.get(key);
-        if (p === undefined) {
-          p = { parts, members: [], scales: [] };
-          pending.set(key, p);
-        }
-        p.members.push(mesh);
-        p.scales.push(parts.scale);
-      }
-    }
-    const children = o.children;
-    for (let i = 0; i < children.length; i += 1) visit(children[i]!);
-  };
-
-  /** Copy member i's draw matrix into the instance array; true when it changed. */
-  const writeMatrix = (array: Float32Array, i: number, m: THREE.Mesh, scale: readonly number[] | null): boolean => {
-    const e = m.matrixWorld.elements;
+  /** Copy member `m`'s draw matrix into its slot; true when it changed. */
+  const writeMatrix = (g: Group, m: Member): boolean => {
+    copies += 1;
+    const array = g.inst!.array;
+    const e = m.mesh.matrixWorld.elements;
+    const scale = m.scale;
     const sx = scale === null ? 1 : (scale[0] ?? 1);
     const sy = scale === null ? 1 : (scale[1] ?? 1);
     const sz = scale === null ? 1 : (scale[2] ?? 1);
-    const o = i * 16;
+    const o = m.slot * 16;
     let changed = false;
     for (let k = 0; k < 16; k += 1) {
       const s = k < 3 ? sx : k < 7 && k > 3 ? sy : k < 11 && k > 7 ? sz : 1;
@@ -313,107 +374,285 @@ export function createAutoBatcher(scene: THREE.Scene, options: AutoBatcherOption
     return changed;
   };
 
+  const join = (g: Group, m: Member, scale: readonly number[] | null): void => {
+    m.group = g;
+    m.slot = g.members.length;
+    m.scale = scale;
+    g.members.push(m);
+    changedGroups.add(g);
+    // A batch with room takes it now; a full one is made again larger when the frame's changes are in.
+    if (g.inst !== null && m.slot < g.inst.capacity) {
+      writeMatrix(g, m);
+      batch(m);
+    }
+  };
+  const leave = (m: Member): void => {
+    const g = m.group;
+    if (g === null) return;
+    const last = g.members.pop()!;
+    if (last !== m) {
+      // The last member takes its slot (its matrix moves along: no other slot changes).
+      g.members[m.slot] = last;
+      const from = last.slot;
+      last.slot = m.slot;
+      if (g.inst !== null && from < g.inst.capacity) {
+        g.inst.array.copyWithin(m.slot * 16, from * 16, from * 16 + 16);
+        copies += 1;
+      }
+    }
+    m.group = null;
+    m.slot = -1;
+    unbatch(m);
+    changedGroups.add(g);
+  };
+
+  /** Drawn as far as the scene is concerned: it and its parents up to what was listed are visible. */
+  const shown = (m: Member): boolean => {
+    for (let o: THREE.Object3D | null = m.mesh; o !== null; o = o.parent) {
+      if (!o.visible) return false;
+      if (o === m.root) break;
+    }
+    return true;
+  };
+  const cellOf = (m: Member): void => {
+    const e = m.mesh.matrixWorld.elements;
+    m.cx = Math.floor(e[12]! / cellSize);
+    m.cy = Math.floor(e[13]! / cellSize);
+    m.cz = Math.floor(e[14]! / cellSize);
+  };
+
+  /** Put a member in the group its key names now (or none). */
+  const regroup = (m: Member): void => {
+    const isMarked = m.mesh.userData[BATCH_KEY] !== undefined;
+    if (isMarked !== m.marked) {
+      m.marked = isMarked;
+      marked += isMarked ? 1 : -1;
+    }
+    const parts = isMarked && shown(m) ? batchKeyParts(m.mesh) : null;
+    if (parts === null) {
+      leave(m);
+      return;
+    }
+    const detailed = trianglesOf(parts.geometry) >= detailedTriangles;
+    if (detailed) {
+      cellOf(m);
+      pos[0] = m.mesh.matrixWorld.elements[12]!;
+      pos[1] = m.mesh.matrixWorld.elements[13]!;
+      pos[2] = m.mesh.matrixWorld.elements[14]!;
+    }
+    const key = batchKey(parts, detailed ? pos : null, cellSize);
+    const current = m.group;
+    if (current !== null && current.key === key) {
+      if (m.scale !== parts.scale) {
+        m.scale = parts.scale;
+        if (current.inst !== null && m.batched && writeMatrix(current, m)) writtenGroups.add(current);
+      }
+      return;
+    }
+    leave(m);
+    let g = groups.get(key);
+    if (g === undefined) {
+      g = { key, parts, detailed, members: [], inst: null, unlisten: () => undefined, materialVersion: parts.material.version };
+      groups.set(key, g);
+    }
+    join(g, m, parts.scale);
+  };
+
+  /** A group whose members changed: its batch made, grown, refilled or released. */
+  const settle = (g: Group): void => {
+    regroups += 1;
+    const n = g.members.length;
+    if (n < minGroup) {
+      release(g);
+      if (n === 0) groups.delete(g.key);
+      return;
+    }
+    if (g.inst === null || g.inst.capacity < n) {
+      release(g);
+      const inst = createAttributeInstancedMesh(g.parts.geometry, g.parts.material, batchCapacity(n));
+      const mesh = inst.mesh;
+      mesh.name = `tl-batch:${g.key}`;
+      mesh.castShadow = g.parts.castShadow;
+      mesh.receiveShadow = g.parts.receiveShadow;
+      mesh.userData['tlBatch'] = true;
+      // Picking goes to the members (they keep their entity ids); the batch is drawn only.
+      mesh.raycast = () => undefined;
+      g.inst = inst;
+      // A material disposed before the next frame (its last box went) takes the batch's
+      // render objects with it; the batch's own geometry and instance buffer go right after.
+      const material = g.parts.material;
+      const group = g;
+      const onMaterialDispose = (): void => {
+        if (group.inst !== inst) return;
+        // The batch goes with its material. Its render objects go by the material's own event, which
+        // is still being dispatched (three calls every listener, also one removed meanwhile): the
+        // object and its geometry are disposed after it, so no render object is released twice.
+        group.unlisten();
+        group.unlisten = () => undefined;
+        group.inst = null;
+        inst.mesh.removeFromParent();
+        queueMicrotask(() => inst.dispose());
+        for (const m of group.members) {
+          unbatch(m);
+          dirty.add(m);
+        }
+        changedGroups.add(group);
+      };
+      material.addEventListener('dispose', onMaterialDispose);
+      g.unlisten = () => material.removeEventListener('dispose', onMaterialDispose);
+      scene.add(mesh);
+      for (const m of g.members) {
+        writeMatrix(g, m);
+        batch(m);
+      }
+    }
+    writtenGroups.add(g);
+  };
+
+  const countNow = (): void => {
+    let n = 0;
+    let batched = 0;
+    for (const g of groups.values()) {
+      if (g.inst === null) continue;
+      n += 1;
+      batched += g.members.length;
+    }
+    counts = { groups: n, batched, single: Math.max(0, marked - batched) };
+  };
+
+  const forget = (m: Member): void => {
+    leave(m);
+    if (m.marked) marked -= 1;
+    members.delete(m.mesh);
+    dirty.delete(m);
+    movedNow.delete(m);
+  };
+
   const api: AutoBatcher = {
+    listed(o) {
+      if (disposed || byRoot.has(o)) return;
+      const list: Member[] = [];
+      o.traverse((x) => {
+        const mesh = x as THREE.Mesh;
+        if (mesh.isMesh !== true || mesh.userData['tlBatch'] === true) return;
+        let m = members.get(mesh);
+        if (m === undefined) {
+          m = { mesh, root: o, group: null, slot: -1, scale: null, cx: 0, cy: 0, cz: 0, marked: false, batched: false };
+          members.set(mesh, m);
+        } else {
+          // Listed again on its own (a node moved out from below a mesh): it belongs to the nearer listing.
+          const before = byRoot.get(m.root);
+          if (before !== undefined) before.splice(before.indexOf(m), 1);
+          m.root = o;
+        }
+        list.push(m);
+        dirty.add(m);
+      });
+      byRoot.set(o, list);
+    },
+    unlisted(o) {
+      const list = byRoot.get(o);
+      if (list === undefined) return;
+      byRoot.delete(o);
+      for (const m of list) forget(m);
+    },
+    moved(o) {
+      const list = byRoot.get(o);
+      if (list === undefined) return;
+      for (const m of list) if (m.group !== null) movedNow.add(m);
+    },
+    touch(o) {
+      if (disposed) return;
+      o.traverse((x) => {
+        const m = members.get(x as THREE.Mesh);
+        if (m !== undefined) dirty.add(m);
+      });
+    },
+    touchAll() {
+      if (disposed) return;
+      for (const m of members.values()) dirty.add(m);
+    },
     update(camera) {
       if (disposed) return;
-      frame += 1;
       // The world matrices of this frame (also when off: a host may leave the renderer's own pass out,
-      // `scene.matrixWorldAutoUpdate = false`, so the graph is not walked twice per frame).
+      // `scene.matrixWorldAutoUpdate = false`, so the scene is not walked twice per frame).
       scene.updateMatrixWorld();
       // A camera outside the scene (the view's) is updated the way the renderer does it.
       if (camera.parent === null && camera.matrixWorldAutoUpdate) camera.updateMatrixWorld();
-      if (!enabled) return;
-      pending.clear();
-      single = 0;
-      visit(scene);
-      const next = new Set<THREE.Mesh>();
-      let batched = 0;
-      for (const [key, p] of pending) {
-        if (p.members.length < minGroup) {
-          single += p.members.length;
-          continue;
-        }
-        let g = groups.get(key);
-        const n = p.members.length;
-        let membershipChanged = false;
-        if (g === undefined || g.inst.capacity < n) {
-          const inst = createAttributeInstancedMesh(p.parts.geometry, p.parts.material, batchCapacity(n));
-          const mesh = inst.mesh;
-          mesh.name = `tl-batch:${key}`;
-          mesh.castShadow = p.parts.castShadow;
-          mesh.receiveShadow = p.parts.receiveShadow;
-          mesh.userData['tlBatch'] = true;
-          // Picking goes to the members (they keep their entity ids); the batch is drawn only.
-          mesh.raycast = () => undefined;
-          if (g !== undefined) release(g);
-          // A material disposed before the next frame (its last box went) takes the batch's
-          // render objects with it; the batch's own geometry and instance buffer go right after.
-          const material = p.parts.material;
-          const created: Group = { key, inst, members: [], scales: [], seen: frame, unlisten: () => undefined };
-          const onMaterialDispose = (): void => {
-            if (groups.get(key) !== created) return;
-            // The batch goes with its material. Its render objects go by the material's own event, which
-            // is still being dispatched (three calls every listener, also one removed meanwhile): the
-            // object and its geometry are disposed after it, so no render object is released twice.
-            created.unlisten();
-            created.inst.mesh.removeFromParent();
-            groups.delete(key);
-            queueMicrotask(() => created.inst.dispose());
-          };
-          material.addEventListener('dispose', onMaterialDispose);
-          created.unlisten = () => material.removeEventListener('dispose', onMaterialDispose);
-          g = created;
-          groups.set(key, g);
-          scene.add(mesh);
-          membershipChanged = true;
-        }
-        g.seen = frame;
-        if (g.members.length !== n) membershipChanged = true;
-        else for (let i = 0; i < n && !membershipChanged; i += 1) if (g.members[i] !== p.members[i] || g.scales[i] !== p.scales[i]) membershipChanged = true;
-        g.members = p.members;
-        g.scales = p.scales;
-        const array = g.inst.array;
-        let changed = membershipChanged;
-        for (let i = 0; i < n; i += 1) {
-          const m = p.members[i]!;
-          if (writeMatrix(array, i, m, p.scales[i]!)) changed = true;
-          if (m.userData[LAYERS_KEY] === undefined) {
-            m.userData[LAYERS_KEY] = m.layers.mask;
-            m.layers.set(BATCHED_LAYER);
+      const finish = (): void => {
+        lastRegroups = regroups;
+        lastCopies = copies;
+        regroupsTotal += regroups;
+        copiesTotal += copies;
+        regroups = 0;
+        copies = 0;
+      };
+      if (!enabled) {
+        movedNow.clear();
+        dirty.clear();
+        finish();
+        return;
+      }
+      // A material changed in place (`needsUpdate`: transparency, visibility, maps): its members are grouped again.
+      for (const g of groups.values()) {
+        const v = g.parts.material.version;
+        if (v === g.materialVersion) continue;
+        g.materialVersion = v;
+        for (const m of g.members) dirty.add(m);
+      }
+      // Moved members: their matrix, or (detailed geometry leaving its cell) a new group.
+      for (const m of movedNow) {
+        const g = m.group;
+        if (g === null) continue;
+        if (g.detailed) {
+          const { cx, cy, cz } = m;
+          cellOf(m);
+          if (m.cx !== cx || m.cy !== cy || m.cz !== cz) {
+            dirty.add(m);
+            continue;
           }
-          next.add(m);
         }
-        if (changed) {
-          g.inst.count = n;
-          g.inst.markChanged();
-        }
-        batched += n;
+        if (g.inst !== null && m.batched && writeMatrix(g, m)) writtenGroups.add(g);
       }
-      for (const m of batchedNow) if (!next.has(m)) restore(m);
-      batchedNow = next;
-      for (const [key, g] of [...groups]) {
-        if (g.seen === frame) continue;
-        release(g);
-        groups.delete(key);
+      movedNow.clear();
+      for (const m of dirty) regroup(m);
+      dirty.clear();
+      for (const g of changedGroups) settle(g);
+      if (changedGroups.size > 0) countNow();
+      changedGroups.clear();
+      for (const g of writtenGroups) {
+        if (g.inst === null) continue;
+        g.inst.count = g.members.length;
+        g.inst.markChanged();
       }
-      pending.clear();
-      stats = { groups: groups.size, batched, single };
+      writtenGroups.clear();
+      finish();
     },
-    diagnostics: () => stats,
+    diagnostics: () => ({ ...counts, regroups: lastRegroups, matrixCopies: lastCopies, regroupsTotal, matrixCopiesTotal: copiesTotal }),
     setEnabled(on) {
-      if (on === enabled) return;
+      if (on === enabled || disposed) return;
       enabled = on;
       if (!on) {
-        for (const m of batchedNow) restore(m);
-        batchedNow = new Set();
-        for (const g of groups.values()) release(g);
+        for (const g of groups.values()) {
+          release(g);
+          for (const m of g.members) {
+            m.group = null;
+            m.slot = -1;
+          }
+        }
         groups.clear();
-        stats = { groups: 0, batched: 0, single: 0 };
-      }
+        changedGroups.clear();
+        writtenGroups.clear();
+        counts = { groups: 0, batched: 0, single: 0 };
+      } else api.touchAll();
     },
     dispose() {
       if (disposed) return;
       api.setEnabled(false);
+      members.clear();
+      byRoot.clear();
+      dirty.clear();
+      movedNow.clear();
       disposed = true;
     },
   };

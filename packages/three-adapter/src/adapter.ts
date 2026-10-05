@@ -228,6 +228,8 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
             const t = (entityDocs.get(id)?.components as { light?: { type?: string } } | undefined)?.light?.type;
             return t === 'ambient' || t === 'hemisphere';
           }),
+          // Its meshes wear lightmapped copies now: they leave their groups.
+          (root) => batcher?.touch(root),
         )
       : null;
   let lightmaps: LightmapSet | null = lightmapSetOf(opts.lighting?.bakes ?? null);
@@ -459,6 +461,15 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   const batcher: AutoBatcher | null = opts.batching === false ? null : createAutoBatcher(scene);
   // Its update walks the graph for the world matrices right before every render: the renderer's own pass is left out.
   if (batcher !== null) scene.matrixWorldAutoUpdate = false;
+  // It hears what enters and leaves the scene and what moved from the render graph (it never walks the scene).
+  graph.setMembership(batcher);
+  /** An entity's look, material or flags changed outside its realization: its meshes are grouped again. */
+  const regroupEntity = (id: string): void => {
+    const node = batcher === null ? undefined : graph.node(id);
+    if (node !== undefined) batcher!.touch(node);
+  };
+  // Project materials redefined (an editing host): the meshes wearing them are grouped again.
+  const stopReassigned = batcher === null ? undefined : materialLibrary?.onReassigned?.((root) => batcher.touch(root));
   /** The documents of every realized entity (the loaded scenes). */
   const entityDocs = new Map<string, (typeof opts.snapshot.scene.entities)[number]>();
   // Block layers — merged chunk meshes per block look (the same view as the editor's Scene view).
@@ -714,6 +725,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
         if (root !== null) lightmaps?.apply(entityId, root);
         // Values a script set on its graph materials go on the new ones.
         runtimeMaterials?.reapply(entityId);
+        regroupEntity(entityId);
       },
       applyBlockTypes: () => {
         const swaps = materialSwaps?.appliedBlocks() ?? new Map<string, MaterialMappingLike>();
@@ -870,6 +882,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       const obj = graph.node(id);
       if (obj !== undefined) setEntityLook(obj, null);
       shownLooks.delete(id);
+      regroupEntity(id);
     }
     for (const [id, look] of looks) {
       const obj = graph.node(id);
@@ -879,6 +892,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       if (shown !== undefined && sameLook(shown.look, look) && shown.meshes === meshes) continue;
       setEntityLook(obj, look);
       shownLooks.set(id, { look, meshes });
+      regroupEntity(id);
     }
   };
 
@@ -1377,7 +1391,10 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     }
     // Material parameters scripts changed, on the objects before the draw (and before regrouping).
     const materialChanges = (opts.runtime as { takeMaterialChanges?: () => MaterialRenderChangeLike[] }).takeMaterialChanges?.() ?? [];
-    if (materialChanges.length > 0) runtimeMaterials?.apply(materialChanges);
+    if (materialChanges.length > 0) {
+      runtimeMaterials?.apply(materialChanges);
+      for (const c of materialChanges) regroupEntity(c.entityId);
+    }
     // The level of detail each LOD draws attached (the batcher and the draw see only that one).
     graph.updateLods(camera!);
     // Regroup the repeated objects and copy their matrices (after every transform and look change).
@@ -1593,6 +1610,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       }
     }
     entityResources.clear();
+    stopReassigned?.();
     batcher?.dispose();
     blockView.dispose();
     for (const rec of boxMaterials.values()) rec.material.dispose();

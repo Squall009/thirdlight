@@ -53,6 +53,16 @@ function batchesOf(scene: THREE.Scene): BatchView[] {
 
 const drawnAlone = (m: THREE.Mesh): boolean => m.layers.mask === 1;
 
+/** A batcher told about every object already in the scene (the render graph tells it in the adapter). */
+function batcherOf(scene: THREE.Scene, options?: Parameters<typeof createAutoBatcher>[1]): ReturnType<typeof createAutoBatcher> {
+  const b = createAutoBatcher(scene, options);
+  for (const o of scene.children) b.listed(o);
+  return b;
+}
+
+/** What a frame did: its regroups and member matrix copies. */
+const work = (b: ReturnType<typeof createAutoBatcher>): [number, number] => [b.diagnostics().regroups, b.diagnostics().matrixCopies];
+
 describe('batch keys', () => {
   it('group by draw geometry, material and shadow flags', () => {
     const g = new THREE.BoxGeometry();
@@ -141,7 +151,7 @@ describe('auto batcher', () => {
 
   it('draws identical meshes as one instanced mesh with their world matrices', () => {
     const { scene, meshes } = scene3();
-    const b = createAutoBatcher(scene, { minGroup: 2 });
+    const b = batcherOf(scene, { minGroup: 2 });
     b.update(camera());
     let batches = batchesOf(scene);
     expect(batches).toHaveLength(1);
@@ -151,29 +161,80 @@ describe('auto batcher', () => {
     const m = new THREE.Matrix4();
     batches[0]!.getMatrixAt(2, m);
     expect(m.elements[12]).toBe(4);
-    expect(b.diagnostics()).toEqual({ groups: 1, batched: 3, single: 0 });
-    // Moving a member (a gizmo drag, the game's transform sync) moves its instance on the next frame.
-    meshes[1]!.position.y = 5;
+    expect(b.diagnostics()).toMatchObject({ groups: 1, batched: 3, single: 0, regroups: 1, matrixCopies: 3 });
+    // An idle frame: no regroup, no matrix copied, nothing uploaded.
+    const version = batchesOf(scene)[0]!.version;
     b.update(camera());
+    expect(work(b)).toEqual([0, 0]);
+    expect(batchesOf(scene)[0]!.version).toBe(version);
+    // Moving a member (a gizmo drag, the game's transform sync) moves its instance on the next frame: only its matrix.
+    meshes[1]!.position.y = 5;
+    meshes[1]!.updateMatrixWorld();
+    b.moved(meshes[1]!);
+    b.update(camera());
+    expect(work(b)).toEqual([0, 1]);
     batches = batchesOf(scene);
     batches[0]!.getMatrixAt(1, m);
     expect(m.elements[13]).toBe(5);
     // The same batch mesh is kept.
     expect(batchesOf(scene)[0]!.mesh).toBe(batches[0]!.mesh);
-    // Nothing moved: the matrices are not uploaded again (float32 compare, not float64).
+    // Written again unchanged: the matrices are not uploaded again (float32 compare, not float64).
     meshes[0]!.rotation.set(0.3, 0.7, 0.1);
+    meshes[0]!.updateMatrixWorld();
+    b.moved(meshes[0]!);
     b.update(camera());
-    const version = batchesOf(scene)[0]!.version;
+    const after = batchesOf(scene)[0]!.version;
+    b.moved(meshes[0]!);
     b.update(camera());
+    expect(batchesOf(scene)[0]!.version).toBe(after);
+    expect(b.diagnostics().regroupsTotal).toBe(1);
+  });
+
+  it('a member leaving or joining regroups only its group; the last member takes its slot', () => {
+    const scene = new THREE.Scene();
+    const geo = new THREE.BoxGeometry();
+    const red = new THREE.MeshLambertMaterial({ color: 0xff0000 });
+    const blue = new THREE.MeshLambertMaterial({ color: 0x0000ff });
+    const row = (mat: THREE.Material, y: number): THREE.Mesh[] =>
+      [0, 1, 2, 3, 4].map((i) => {
+        const m = new THREE.Mesh(geo, mat);
+        m.position.set(i, y, 0);
+        m.userData[BATCH_KEY] = true;
+        scene.add(m);
+        return m;
+      });
+    const reds = row(red, 0);
+    row(blue, 2);
+    const b = batcherOf(scene);
     b.update(camera());
-    expect(batchesOf(scene)[0]!.version).toBe(version);
+    expect(b.diagnostics()).toMatchObject({ groups: 2, batched: 10, regroups: 2, matrixCopies: 10 });
+    // The first red leaves the scene (hidden, a LOD level switched out): one group regroups; the last red moves into its slot.
+    scene.remove(reds[0]!);
+    b.unlisted(reds[0]!);
+    b.update(camera());
+    expect(work(b)).toEqual([1, 1]);
+    const redBatch = batchesOf(scene).find((x) => x.mesh.material === red)!;
+    expect(redBatch.count).toBe(4);
+    const m = new THREE.Matrix4();
+    redBatch.getMatrixAt(0, m);
+    expect(m.elements[12]).toBe(4);
+    expect(drawnAlone(reds[0]!)).toBe(true);
+    // It comes back: one group again, one matrix.
+    scene.add(reds[0]!);
+    b.listed(reds[0]!);
+    b.update(camera());
+    expect(work(b)).toEqual([1, 1]);
+    expect(batchesOf(scene).find((x) => x.mesh.material === red)!.count).toBe(5);
+    b.update(camera());
+    expect(work(b)).toEqual([0, 0]);
   });
 
   it('children of a hidden object and hidden objects leave the group', () => {
     const { scene, meshes } = scene3();
-    const b = createAutoBatcher(scene, { minGroup: 2 });
+    const b = batcherOf(scene, { minGroup: 2 });
     b.update(camera());
     meshes[0]!.visible = false;
+    b.touch(meshes[0]!);
     b.update(camera());
     expect(batchesOf(scene)[0]!.count).toBe(2);
     expect(drawnAlone(meshes[0]!)).toBe(true);
@@ -181,17 +242,30 @@ describe('auto batcher', () => {
 
   it('a per-object material copy (the selection highlight, a glow) takes the mesh out; a lone member draws alone', () => {
     const { scene, meshes, mat } = scene3();
-    const b = createAutoBatcher(scene, { minGroup: 2 });
+    const b = batcherOf(scene, { minGroup: 2 });
     b.update(camera());
     meshes[2]!.material = mat.clone();
+    b.touch(meshes[2]!);
     b.update(camera());
     expect(batchesOf(scene)[0]!.count).toBe(2);
     expect(drawnAlone(meshes[2]!)).toBe(true);
     meshes[1]!.material = mat.clone();
+    b.touch(meshes[1]!);
     b.update(camera());
     expect(batchesOf(scene)).toHaveLength(0);
     expect(meshes.every(drawnAlone)).toBe(true);
-    expect(b.diagnostics()).toEqual({ groups: 0, batched: 0, single: 3 });
+    expect(b.diagnostics()).toMatchObject({ groups: 0, batched: 0, single: 3 });
+  });
+
+  it('a shared material changed in place (made transparent) takes its members out without a touch', () => {
+    const { scene, meshes, mat } = scene3();
+    const b = batcherOf(scene, { minGroup: 2 });
+    b.update(camera());
+    mat.transparent = true;
+    mat.needsUpdate = true;
+    b.update(camera());
+    expect(batchesOf(scene)).toHaveLength(0);
+    expect(meshes.every(drawnAlone)).toBe(true);
   });
 
   it('box hints: one draw for boxes of every size, each instance scaled by its size', () => {
@@ -205,7 +279,7 @@ describe('auto batcher', () => {
       m.scale.set(2, 1, 1);
       scene.add(m);
     }
-    createAutoBatcher(scene, { minGroup: 2 }).update(camera());
+    batcherOf(scene, { minGroup: 2 }).update(camera());
     const [batch] = batchesOf(scene);
     expect(batch!.draws(unit)).toBe(true);
     const m = new THREE.Matrix4();
@@ -232,13 +306,15 @@ describe('auto batcher', () => {
       levels.push([a, f]);
     }
     const cam = camera();
-    const b = createAutoBatcher(scene, { minGroup: 2 });
+    const b = batcherOf(scene, { minGroup: 2 });
     b.update(cam);
     expect(batchesOf(scene).map((x) => x.draws(near))).toEqual([true]);
     // The switch picks the far level: it is attached, the near one leaves the scene.
     for (const [a, f] of levels) {
       scene.remove(a!);
+      b.unlisted(a!);
       scene.add(f!);
+      b.listed(f!);
     }
     b.update(cam);
     expect(batchesOf(scene).map((x) => x.draws(far))).toEqual([true]);
@@ -258,15 +334,31 @@ describe('auto batcher', () => {
         scene.add(m);
       }
     }
-    createAutoBatcher(scene, { minGroup: 2 }).update(camera());
+    const b = batcherOf(scene, { minGroup: 2 });
+    b.update(camera());
     const batches = batchesOf(scene);
     expect(batches.filter((x) => x.draws(detailed)).map((x) => x.count)).toEqual([2, 2]);
     expect(batches.filter((x) => x.draws(cheap)).map((x) => x.count)).toEqual([4]);
+    // A detailed member moved into the other cell changes group; one moved within its cell does not.
+    const sphereAt = (x: number): THREE.Mesh => scene.children.find((o) => (o as THREE.Mesh).geometry === detailed && o.position.x === x) as THREE.Mesh;
+    const far = sphereAt(201);
+    far.position.x = 2;
+    far.updateMatrixWorld();
+    b.moved(far);
+    b.update(camera());
+    expect(work(b)).toEqual([2, 1]);
+    expect(batchesOf(scene).filter((x) => x.draws(detailed)).map((x) => x.count)).toEqual([3]);
+    const near = sphereAt(1);
+    near.position.x = 1.5;
+    near.updateMatrixWorld();
+    b.moved(near);
+    b.update(camera());
+    expect(work(b)).toEqual([0, 1]);
   });
 
   it('disabling or disposing restores every member', () => {
     const { scene, meshes } = scene3();
-    const b = createAutoBatcher(scene, { minGroup: 2 });
+    const b = batcherOf(scene, { minGroup: 2 });
     b.update(camera());
     b.setEnabled(false);
     expect(meshes.every(drawnAlone)).toBe(true);
@@ -281,13 +373,14 @@ describe('auto batcher', () => {
 
   it('by default a group needs four members; slots double from 16 (instance sets: above the uniform-buffer limit)', () => {
     const { scene, meshes, mat, geo } = scene3();
-    const b = createAutoBatcher(scene);
+    const b = batcherOf(scene);
     b.update(camera());
     expect(batchesOf(scene)).toHaveLength(0);
     expect(meshes.every(drawnAlone)).toBe(true);
     const fourth = new THREE.Mesh(geo, mat);
     fourth.userData[BATCH_KEY] = true;
     scene.add(fourth);
+    b.listed(fourth);
     b.update(camera());
     const [batch] = batchesOf(scene);
     expect(batch!.count).toBe(4);
@@ -305,7 +398,7 @@ describe('auto batcher', () => {
 
   it('a raycaster that enables the batched layer still hits members', () => {
     const { scene, meshes } = scene3();
-    createAutoBatcher(scene, { minGroup: 2 }).update(camera());
+    batcherOf(scene, { minGroup: 2 }).update(camera());
     const rc = new THREE.Raycaster(new THREE.Vector3(4, 0, 10), new THREE.Vector3(0, 0, -1));
     expect(rc.intersectObjects(meshes, false)).toHaveLength(0);
     rc.layers.enable(BATCHED_LAYER);

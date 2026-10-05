@@ -207,6 +207,12 @@ export interface MaterialLibrary {
    * when each is decoded or unavailable.
    */
   preloadTextures?(textureAssetIds: Iterable<string>): { readonly ready: Promise<void>; release(): void };
+  /**
+   * Call `listener` with each root whose meshes were given their materials
+   * again because the definitions changed (`setMaterials`); returns the
+   * unsubscribe. A host that groups meshes by material regroups those.
+   */
+  onReassigned?(listener: (root: THREE.Object3D) => void): () => void;
   dispose(): void;
 }
 
@@ -233,6 +239,7 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
     turb: TSL.uniform(DEFAULT_WIND_LIKE.turbulence),
   };
   let defs = new Map<string, MaterialDefLike>();
+  const reassigned = new Set<(root: THREE.Object3D) => void>();
   /** Built materials by `${materialId}|${source uuid or "none"}`. */
   const built = new Map<string, { material: THREE.Material; defKey: string; animated: boolean }>();
   /**
@@ -864,10 +871,17 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
         } else if (def.shader === 'foliage' || def.shader === 'water') animatedCount += 1;
       }
       usedDigests = new Set();
-      for (const [root, a] of applied) assign(root, a.mapping, a.overrides);
+      for (const [root, a] of applied) {
+        assign(root, a.mapping, a.overrides);
+        for (const l of reassigned) l(root);
+      }
       // Compiled graphs no applied mesh uses any more (a later apply recompiles).
       for (const digest of [...graphEntries.keys()]) if (!usedDigests.has(digest)) dropGraph(digest);
       options.onChange?.();
+    },
+    onReassigned(listener) {
+      reassigned.add(listener);
+      return () => void reassigned.delete(listener);
     },
     setWind(wind) {
       const w = wind ?? DEFAULT_WIND_LIKE;

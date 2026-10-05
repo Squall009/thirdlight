@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
 
+import { BATCH_KEY, createAutoBatcher } from './batching';
 import { RenderGraph } from './render-graph';
 
 const near = (a: THREE.Vector3, b: [number, number, number]): void => {
@@ -181,5 +182,70 @@ describe('RenderGraph: only what moved, one LOD level, flat model files', () => 
     expect(door.matrixAutoUpdate).toBe(true);
     door.updateMatrix();
     near(new THREE.Vector3().setFromMatrixPosition(door.matrix), [0, 0, 1]);
+  });
+});
+
+describe('RenderGraph and the batcher: regroup only on a change', () => {
+  it('an idle frame regroups and copies nothing; a move, a hide and a LOD switch touch only that member', () => {
+    const scene = new THREE.Scene();
+    const graph = new RenderGraph(scene, () => false);
+    const batcher = createAutoBatcher(scene);
+    graph.setMembership(batcher);
+    const camera = new THREE.PerspectiveCamera();
+    camera.position.set(0, 0, 10);
+    const nearGeo = new THREE.BoxGeometry();
+    const farGeo = new THREE.BoxGeometry(0.9, 0.9, 0.9);
+    const mat = new THREE.MeshBasicMaterial();
+    const other = new THREE.MeshBasicMaterial();
+    const levels: THREE.Mesh[][] = [];
+    for (let i = 0; i < 5; i += 1) {
+      // A tree with two levels, and a plain box of another material beside it.
+      graph.addEntity(`tree${i}`, null);
+      graph.world.setLocal(`tree${i}`, [i * 2, 0, 0], [0, 0, 0, 1], [1, 1, 1]);
+      const lod = new THREE.LOD();
+      const a = new THREE.Mesh(nearGeo, mat);
+      const f = new THREE.Mesh(farGeo, mat);
+      a.userData[BATCH_KEY] = true;
+      f.userData[BATCH_KEY] = true;
+      lod.addLevel(a, 0);
+      lod.addLevel(f, 30);
+      graph.nodeFor(`tree${i}`)!.add(lod);
+      levels.push([a, f]);
+      graph.addEntity(`box${i}`, null);
+      graph.world.setLocal(`box${i}`, [i * 2, 3, 0], [0, 0, 0, 1], [1, 1, 1]);
+      const box = new THREE.Mesh(nearGeo, other);
+      box.userData[BATCH_KEY] = true;
+      graph.nodeFor(`box${i}`)!.add(box);
+    }
+    const frame = (): [number, number] => {
+      graph.update();
+      graph.updateLods(camera);
+      batcher.update(camera);
+      const d = batcher.diagnostics();
+      return [d.regroups, d.matrixCopies];
+    };
+    frame();
+    expect(batcher.diagnostics()).toMatchObject({ groups: 2, batched: 10 });
+    // Idle: nothing.
+    expect(frame()).toEqual([0, 0]);
+    expect(frame()).toEqual([0, 0]);
+    // One tree moves: its matrix only.
+    graph.world.setLocal('tree1', [2, 1, 0], [0, 0, 0, 1], [1, 1, 1]);
+    expect(frame()).toEqual([0, 1]);
+    expect(frame()).toEqual([0, 0]);
+    // One box hidden: its group regroups (the last box takes its slot), the trees' does not.
+    graph.setHidden(new Set(['box2']));
+    expect(frame()).toEqual([1, 1]);
+    expect(batcher.diagnostics()).toMatchObject({ groups: 2, batched: 9 });
+    // One tree goes far: its far level is attached, its near level leaves (two groups: near and far), nothing else.
+    graph.world.setLocal('tree3', [6, 0, -100], [0, 0, 0, 1], [1, 1, 1]);
+    const [regroups, copies] = frame();
+    expect(regroups).toBe(2);
+    expect(copies).toBeLessThanOrEqual(2);
+    expect(levels[3]![1]!.parent).not.toBeNull();
+    expect(scene.children).toContain(levels[3]![1]!);
+    expect(scene.children).not.toContain(levels[3]![0]!);
+    expect(batcher.diagnostics()).toMatchObject({ groups: 2, batched: 8, single: 1 });
+    expect(frame()).toEqual([0, 0]);
   });
 });

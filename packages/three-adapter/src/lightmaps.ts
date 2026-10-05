@@ -231,13 +231,15 @@ export interface LightmapSet {
 /**
  * The project's bakes. `ambientBaked(lightIds)` answers whether a bake's
  * baked lights include an ambient or hemisphere light (the caller knows the
- * light types).
+ * light types). `onApplied(root)`: an object's lightmap went on once its atlas
+ * arrived (its meshes wear new material copies).
  */
 export function createLightmapSet(
   bakes: Readonly<Record<string, LightingBakeLike>>,
   /** The atlases, held per lightmapped object (a loader alone: held in a manager of the set's own). */
   source: TextureHolds | ((assetId: string) => Promise<THREE.Texture | null>),
   ambientBaked: (lightIds: readonly string[]) => boolean,
+  onApplied?: (root: THREE.Object3D) => void,
 ): LightmapSet {
   const holds = typeof source === 'function' ? textureHolds(undefined, source) : source;
   // Entities by id; block-layer chunks by `<layer>#<cx>,<cz>` (never a valid entity id).
@@ -300,6 +302,7 @@ export function createLightmapSet(
         undo.set(entityId, applied.undo);
         refreshers.set(entityId, applied.refresh);
         copiesOf.set(entityId, applied.copies);
+        onApplied?.(root);
       });
     },
     release,
