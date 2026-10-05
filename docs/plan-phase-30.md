@@ -19,6 +19,14 @@ view distance are each game's own data.
 
 ## 1. Owner decisions (2026-10-02 / 2026-10-03)
 
+- **Foliage gets its own rules and best practice** (owner, 2026-10-05). Instanced foliage casts no shadow by default (phase 28c). Wind makes foliage dynamic for shadow casting, so terrain scatter needs a foliage policy that keeps it cheap, for example:
+  - no shadows past a short distance;
+  - contact or blob shadows instead of map shadows;
+  - wind only in the near rings;
+  - density falloff (29.6).
+  
+  Write the policy into this phase's design, measure it, and document it as best practice for games.
+
 - **Terrain is its own component, used closely with blocks.** Block layers
   stay the tool for authored structure. Terrain is a heightfield for
   landscape. A typical scene puts a block area where the player moves on top
