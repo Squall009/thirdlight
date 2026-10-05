@@ -11,14 +11,15 @@
  * iframe) and in the static export (backend stopped). Per renderer: `auto`
  * in `default`, `webgl2` with TL_E2E_ALL_VARIANTS=1, `webgpu` in `webgpu`.
  *
- * Whether the panel looks lit as it should is not judged here (the light
- * count and the builds are).
+ * The pool is shaded: the panel is brighter with 16 lights than with one
+ * (how it should look is not judged here).
  */
 import { randomBytes } from 'node:crypto';
 import { join } from 'node:path';
 
 import { expect, test, type Frame, type Locator, type Page } from '@playwright/test';
 
+import { decodePng, type Image } from './png';
 import { exportedContent, publishScript, serveDir, startBackend, type E2EBackend } from './backend';
 import { editorUrlFor, expectRendererBackend, exportQueryFor, onlyInItsProject, type RendererVariant } from './renderer-variants';
 
@@ -102,6 +103,15 @@ const GLOW = {
 };
 
 const PLAYS = 16;
+/** Mean of the RGB channels over the whole image. */
+const brightness = (img: Image): number => {
+  let sum = 0;
+  for (let y = 0; y < img.height; y += 2) for (let x = 0; x < img.width; x += 2) {
+    const p = img.pixel(x, y);
+    sum += (p[0] + p[1] + p[2]) / 3;
+  }
+  return sum / (Math.ceil(img.height / 2) * Math.ceil(img.width / 2));
+};
 /** One glow at the start, one more per press of the `more` action, in a row in front of the panel. */
 const DRIVER = [
   'export default {',
@@ -146,6 +156,7 @@ for (const variant of VARIANTS) test(`effect lights rising from 1 to 16 build no
     }
     expect(still, 'the start builds settle').toBe(4);
     const before = await readBuilds(frame);
+    const dim = brightness(decodePng(await canvas.screenshot()));
     expect(total(before), 'the counter sees the builds of the start').toBeGreaterThan(0);
     await focus();
     for (let k = 2; k <= PLAYS; k++) {
@@ -159,6 +170,9 @@ for (const variant of VARIANTS) test(`effect lights rising from 1 to 16 build no
     const after = await readBuilds(frame);
     console.log(`[effect-light-pool] ${variant} ${where}: builds at 1 light ${JSON.stringify(before)}, at ${PLAYS} lights ${JSON.stringify(after)}`);
     expect(after, `${where}: no program or pipeline built while the lights rose`).toEqual(before);
+    const lit = brightness(decodePng(await canvas.screenshot()));
+    console.log(`[effect-light-pool] ${variant} ${where}: mean brightness at 1 light ${dim.toFixed(1)}, at ${PLAYS} lights ${lit.toFixed(1)}`);
+    expect(lit, `${where}: the 16 lights light the panel`).toBeGreaterThan(dim + 5);
   };
 
   // Play: the preview iframe (the editor passes the renderer flag on).

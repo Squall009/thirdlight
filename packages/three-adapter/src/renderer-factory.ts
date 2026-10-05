@@ -29,6 +29,7 @@
  */
 import { WebGPURenderer } from 'three/webgpu';
 
+import { registerEffectLights } from './effect-lights';
 import { installProgramRelease, installVaoSweep, trackRenderer, trackTextureListeners } from './dispose';
 
 export type RendererPreference = 'auto' | 'webgpu' | 'webgl2';
@@ -314,8 +315,8 @@ export interface CreateRendererOptions {
 const BROWSER_DEPS: RendererFactoryDeps = {
   gpu: () => (globalThis as { navigator?: { gpu?: GpuLike } }).navigator?.gpu,
   secureContext: () => (globalThis as { isSecureContext?: boolean }).isSecureContext === true,
-  createNode: (p) =>
-    new WebGPURenderer({
+  createNode: (p) => {
+    const r = new WebGPURenderer({
       canvas: p.canvas as HTMLCanvasElement,
       antialias: p.antialias,
       alpha: p.alpha,
@@ -328,7 +329,11 @@ const BROWSER_DEPS: RendererFactoryDeps = {
       ...(p.device !== undefined ? { device: p.device } : {}),
       // The factory's WebGL 2 context (WebGLBackend takes it instead of asking the canvas).
       ...(p.context !== undefined ? { context: p.context } : {}),
-    } as unknown as ConstructorParameters<typeof WebGPURenderer>[0]) as unknown as NodeRendererLike,
+    } as unknown as ConstructorParameters<typeof WebGPURenderer>[0]);
+    // Every renderer can draw a scene holding the effect light pool.
+    registerEffectLights(r);
+    return r as unknown as NodeRendererLike;
+  },
   probe: (gpu, secure, timeoutMs) => probeWebGpu(gpu, secure, timeoutMs),
 };
 

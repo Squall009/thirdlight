@@ -9,6 +9,7 @@ import * as THREE from 'three/webgpu';
 
 import { compileEffect } from '@thirdlight/effects';
 
+import { EffectLights } from './effect-lights';
 import { EFFECT_LIGHT_LIMIT } from './effects-draw';
 import { createEffectsPlayer, EFFECT_CAPS, type EffectDefLike } from './effects-player';
 import { GpuEffectExecutor, gpuUnsupportedReason } from './effects-gpu';
@@ -62,38 +63,41 @@ const camera = (): THREE.PerspectiveCamera => {
 const play = (effectId: string, handle: number, position: [number, number, number] = [0, 0, 0]) => ({ op: 'play' as const, effectId, handle, entityId: null, position, params: null, source: 'script' });
 
 describe('effect player (CPU executor on WebGL 2)', () => {
-  it('adds the whole light pool dark before the first frame and never changes the scene\'s light count while lights rise', () => {
+  it('adds the light pool as one object before the first frame and never changes the scene\'s lights while lights rise', () => {
     const GLOW = fx('glow', { spawn: [{ type: 'spawn.rate', data: { rate: 30 } }], initialize: [{ type: 'init.lifetime', data: { min: 5, max: 5 } }], output: [{ type: 'output.light', data: { maxLights: 1 } }] }, { loop: true });
-    const pointLights = (scene: THREE.Scene): THREE.PointLight[] => scene.children.filter((o): o is THREE.PointLight => (o as THREE.PointLight).isPointLight === true);
-    // A game without light-emitting effects carries no pool lights.
+    const lightsOf = (scene: THREE.Scene): THREE.Light[] => scene.children.filter((o): o is THREE.Light => (o as THREE.Light).isLight === true);
+    const poolOf = (scene: THREE.Scene): EffectLights | undefined => scene.children.find((o): o is EffectLights => o instanceof EffectLights);
+    // A game without light-emitting effects carries no pool.
     const plain = new THREE.Scene();
     createEffectsPlayer({ scene: plain, defs: [FOUNTAIN], loadTexture: async () => null });
-    expect(pointLights(plain)).toHaveLength(0);
+    expect(lightsOf(plain)).toHaveLength(0);
     const scene = new THREE.Scene();
     const p = createEffectsPlayer({ scene, defs: [FOUNTAIN, GLOW], loadTexture: async () => null });
-    expect(pointLights(scene)).toHaveLength(EFFECT_LIGHT_LIMIT);
-    expect(pointLights(scene).every((l) => l.intensity === 0)).toBe(true);
+    const reserved = lightsOf(scene);
+    expect(reserved).toHaveLength(1);
+    expect(poolOf(scene)?.slots).toHaveLength(EFFECT_LIGHT_LIMIT);
+    expect(poolOf(scene)?.count).toBe(0);
     const { r } = stubRenderer();
     p.setRenderer(r, 'webgl2');
     const cam = camera();
-    const counts: number[] = [];
     for (let k = 1; k <= EFFECT_LIGHT_LIMIT + 2; k++) {
       p.request(play('glow', k, [k - 9, 0, 0]), () => undefined);
       for (let f = 0; f < 3; f++) p.update(1 / 30, cam);
-      counts.push(pointLights(scene).length);
+      expect(lightsOf(scene)).toEqual(reserved);
       expect(p.diagnostics().lights).toBe(Math.min(k, EFFECT_LIGHT_LIMIT));
+      // Only the slots in use are shaded.
+      expect(poolOf(scene)?.count).toBe(Math.min(k, EFFECT_LIGHT_LIMIT));
     }
-    expect(new Set(counts)).toEqual(new Set([EFFECT_LIGHT_LIMIT]));
     expect(p.diagnostics().lightPool).toBe(EFFECT_LIGHT_LIMIT);
-    expect(pointLights(scene).filter((l) => l.intensity > 0)).toHaveLength(EFFECT_LIGHT_LIMIT);
+    expect(poolOf(scene)!.slots.filter((l) => l.intensity > 0)).toHaveLength(EFFECT_LIGHT_LIMIT);
     // An effect that gains a light output in an edit reserves the pool then, once.
     const later = new THREE.Scene();
     const q = createEffectsPlayer({ scene: later, defs: [FOUNTAIN], loadTexture: async () => null });
     q.setDefs([FOUNTAIN, GLOW]);
     q.setDefs([GLOW]);
-    expect(pointLights(later)).toHaveLength(EFFECT_LIGHT_LIMIT);
+    expect(lightsOf(later)).toHaveLength(1);
     p.dispose();
-    expect(pointLights(scene)).toHaveLength(0);
+    expect(lightsOf(scene)).toHaveLength(0);
   });
 
   it('plays requests on the CPU executor, reports caps and unknown effects, stops by handle', () => {

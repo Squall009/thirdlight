@@ -25,6 +25,7 @@ import * as TSLTyped from 'three/tsl';
 
 import { billboardAxes, EFFECT_LIGHT_LIMIT, flipbookFrame, flipbookRect, lightParticles, ribbonOrder, type CompiledNode, type SystemState } from '@thirdlight/effects';
 
+import { EffectLights, type EffectLightSlot } from './effect-lights';
 import type { GpuSystem } from './effects-gpu';
 import type { N } from './effects-tsl';
 
@@ -626,54 +627,52 @@ class RibbonRenderer implements OutputRenderer {
 export { EFFECT_LIGHT_LIMIT };
 
 /**
- * The shared point lights. A change in the number of lights in the scene
- * rebuilds the program of every lit material (seconds of freeze on a big
- * scene), so the whole pool is added at once, dark, before the first frame
- * of a game whose effects emit light (`reserve`) and stays for the play;
- * each frame the lights are placed on the oldest particles of the light
- * renderers in play order and the unused ones are dark. A game without
- * light-emitting effects never pays their shading cost.
+ * The shared point lights: one `EffectLights` object holding the whole pool
+ * (`effect-lights.ts`), added before the first frame of a game whose effects
+ * emit light (`reserve`) and kept for the play, so the lit materials' shaders
+ * are built once with it and never again. Each frame the slots are filled from
+ * the oldest particles of the light renderers in play order; only the slots in
+ * use are shaded. A game without light-emitting effects carries no pool.
  */
 export class LightPool {
-  readonly lights: THREE.PointLight[] = [];
+  private group: EffectLights | null = null;
   private used = 0;
   constructor(private readonly scene: THREE.Object3D) {}
-  /** Add every light of the pool, dark (once; later calls do nothing). */
+  /** Add the pool to the scene (once; later calls do nothing). */
   reserve(): void {
-    if (this.lights.length > 0) return;
-    for (let i = 0; i < EFFECT_LIGHT_LIMIT; i++) {
-      const l = new THREE.PointLight(0xffffff, 0, 2, 2);
-      l.name = 'effect light';
-      this.lights.push(l);
-      this.scene.add(l);
-    }
+    if (this.group !== null) return;
+    this.group = new EffectLights(EFFECT_LIGHT_LIMIT);
+    this.scene.add(this.group);
+  }
+  /** The pool's object in the scene (null before `reserve`). */
+  get object(): EffectLights | null {
+    return this.group;
   }
   begin(): void {
     this.used = 0;
   }
-  /** The next free light (null when the pool is used up, or was never reserved: adding one now would recompile). */
-  take(): THREE.PointLight | null {
-    const l = this.lights[this.used];
+  /** The next free slot (null when the pool is used up, or was never reserved: adding it now would rebuild the shaders). */
+  take(): EffectLightSlot | null {
+    const l = this.group?.slots[this.used];
     if (l === undefined) return null;
     this.used += 1;
     return l;
   }
   end(): void {
-    for (let i = this.used; i < this.lights.length; i++) this.lights[i]!.intensity = 0;
+    if (this.group !== null) this.group.count = this.used;
   }
   get active(): number {
     return this.used;
   }
-  /** Lights the pool holds in the scene (0 or the whole pool). */
+  /** Lights the pool can shade (0 before `reserve`, else the whole pool). */
   get size(): number {
-    return this.lights.length;
+    return this.group?.slots.length ?? 0;
   }
   dispose(): void {
-    for (const l of this.lights) {
-      l.removeFromParent();
-      l.dispose();
-    }
-    this.lights.length = 0;
+    if (this.group === null) return;
+    this.group.removeFromParent();
+    this.group.dispose();
+    this.group = null;
   }
 }
 

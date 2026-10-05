@@ -125,6 +125,15 @@ export async function dumpScene(): Promise<DumpSummary | string> {
   const lights: Record<string, unknown>[] = [];
   const BATCH_LAYER = 1 << 30;
   scene.traverse((o) => {
+    // The effect light pool is one object: its slots in use are point lights to a plain page.
+    const pool = o as unknown as { isEffectLights?: boolean; count: number; slots: { position: V & { toArray(): number[] }; color: { getHex(): number }; intensity: number; distance: number; decay: number }[] };
+    if (pool.isEffectLights === true) {
+      for (const sl of pool.slots.slice(0, pool.count)) {
+        const pos = sl.position.toArray();
+        lights.push({ type: 'PointLight', color: sl.color.getHex(), intensity: sl.intensity, visible: visible(o), castShadow: false, distance: sl.distance, decay: sl.decay, pos, target: null, shadow: null });
+      }
+      return;
+    }
     if (o.isLight === true) {
       const wp = o.getWorldPosition(o.position.clone());
       const tp = o.target !== undefined ? o.target.getWorldPosition(o.position.clone()) : null;
