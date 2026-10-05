@@ -109,6 +109,7 @@ import { createSceneControl, FADE_COLOR_RE, LIFECYCLE_RESTART_DEPRECATED, loadOp
 import { EntityAccess, type EntityFieldsSave, type LightOverride } from './entity-access';
 import { SpawnRequests } from './spawn-requests';
 import { TransformMirror } from './step-buffers';
+import { FrameClock } from './frame-clock';
 import { CHARACTER_IMPULSE_MAX, CharacterPlacement, ControllerPlacements } from './character-placement';
 import { PhysicsPortFailure, PlayerControllers } from './player-controllers';
 import { actionDiagnostics, behaviorLogTotals, physicsDiagnostics } from './diagnostics-reads';
@@ -188,8 +189,7 @@ const DEFAULT_FIXED_STEP_HZ = 120;
 const MESSAGE_NAME_RE = /^[A-Za-z0-9_.:-]{1,64}$/;
 const MIN_FIXED_STEP_HZ = 1;
 const MAX_FIXED_STEP_HZ = 1000;
-/** Steps a frame may catch up before the rest is dropped (a slow frame must not make the next one slower). */
-export const MAX_CATCHUP_STEPS = 8;
+export { MAX_CATCHUP_STEPS } from './frame-clock';
 /**
  * The M2 settle pre-roll at 120 Hz — the engine's settle time
  * (0.1 s, `ENGINE_TIMING_DEFAULTS.settleTime`) converted at the step rate.
@@ -212,18 +212,6 @@ export function engineTimingSteps(hz: number): { settleSteps: number; dropThroug
 const MAX_ERROR_ENTRIES = 32;
 /** Dialogue inputs per input frame (DIALOGUE_LIMITS.frameInputs). */
 const DIALOGUE_FRAME_INPUTS = 8;
-/**
- * Floating-point guard for the floor-based step count. When the
- * wall-derived `elapsed` is a mathematical multiple of `dt`,
- * `(targetSim − simTime) / dt` can round to e.g. 11.999999999999998;
- * double-precision rounding at realistic elapsed values is ~1e-13 in step
- * units, so a 1e-9 guard corrects exact-multiple cases without ever
- * running a step early (at most ~1e-9 of a step ≈ 8e-12 s). Determinism
- * is preserved: the same floating-point inputs yield the same count
- *  — the guard is a fixed part of the computation.
- */
-const STEP_COUNT_EPS = 1e-9;
-
 /** The default module selection. */
 const DEFAULT_MODULES = ['thirdlight.demo:box-motion'];
 /** The `config_invalid` reason for a physics-bearing set. */
@@ -231,13 +219,6 @@ const PHYSICS_PORT_REASON = 'physics_port';
 
 interface BehaviorLogSink {
   handler: ((moduleId: string, level: BehaviorLogLevel, message: string, at?: { file: string; line: number; column: number }) => void) | null;
-}
-
-interface WallAnchor {
-  /** Wall seconds of the anchor frame. */
-  wall: number;
-  /** simTime at the anchor frame. */
-  simTime: number;
 }
 
 interface ModuleEntry {
@@ -289,15 +270,6 @@ function defaultClock(): (() => number) | null {
   const p = globalThis.performance;
   if (p && typeof p.now === 'function') return () => p.now() / 1000;
   return null;
-}
-
-function clamp01(v: number): number {
-  if (Number.isNaN(v)) return 0;
-  if (v < 0) return 0;
-  // The interpolation invariant is 0 ≤ alpha < 1; a defensive clamp for the
-  // (mathematically impossible) v ≥ 1 edge.
-  if (v >= 1) return 1 - 1e-9;
-  return v;
 }
 
 function messageOf(e: unknown): string {
@@ -1110,12 +1082,8 @@ class RuntimeInstance implements Runtime {
   private currShape = 0;
   private stepIndex = 0;
   private simTime = 0;
-  private anchor: WallAnchor | null = null;
-  private lastAlpha = 0;
-  private frameCount = 0;
-  private droppedSteps = 0;
-  private droppedInputSteps = 0;
-  private clockWarningCount = 0;
+  /** The frame clock: the steps a frame owes, the bounded catch-up and the interpolation alpha. */
+  private readonly frameClock = new FrameClock();
   private inputSamples = 0;
   private physicsSteps = 0;
   private settleSteps = 0;
@@ -1248,8 +1216,6 @@ class RuntimeInstance implements Runtime {
   private readonly modeControls = new Map<SimulationPhase, import('./types').BehaviorModes>();
   /** The behavior group of each loaded entity that carries one (`behaviorGroup` component). */
   private readonly behaviorGroupOf = new Map<string, string>();
-  /** The mode's time scale the frame clock was anchored with (a change re-anchors it). */
-  private anchorScale = 1;
   /** The player spawn respawns use (null: the first one loaded, else where the player started). */
   private activeSpawn: string | null = null;
   /** A run restart waiting for the next step boundary (ctx.lifecycle.restart, a restart UI event). */
@@ -1628,7 +1594,7 @@ class RuntimeInstance implements Runtime {
     });
     this.modes.setStartMode(args.startMode);
     this.modes.beginRun(1);
-    this.anchorScale = this.modes.active ? this.modes.timeScale() : 1;
+    this.frameClock.scale = this.modes.active ? this.modes.timeScale() : 1;
     this.noteBehaviorGroups(args.initialEntities);
     this.lifecycleControl = this.buildLifecycleControl();
     this.eventCues = args.eventCues ?? [];
@@ -1774,7 +1740,7 @@ class RuntimeInstance implements Runtime {
    */
   readEnvironmentBlend(): EnvironmentBlendView | null {
     if (this.stateName === 'disposed') return null;
-    return this.environment.view(this.stateName === 'failed' ? 1 : this.lastAlpha);
+    return this.environment.view(this.stateName === 'failed' ? 1 : this.frameClock.alpha);
   }
 
   /** The committed environment blend as digest text (null until a script changed it). */
@@ -1896,7 +1862,7 @@ class RuntimeInstance implements Runtime {
 
   /** The last frame's interpolation alpha (what `getInterpolatedState().state.alpha` reports), without building the state. */
   get interpolationAlpha(): number {
-    return this.stateName === 'failed' ? 0 : this.lastAlpha;
+    return this.stateName === 'failed' ? 0 : this.frameClock.alpha;
   }
 
   /**
@@ -2175,7 +2141,7 @@ class RuntimeInstance implements Runtime {
     const failed = this.stateName === 'failed' && this.committed !== null;
     const prev = failed ? this.committed! : this.prev;
     const curr = failed ? this.committed! : this.curr;
-    const alpha = this.stateName === 'failed' ? 0 : this.lastAlpha;
+    const alpha = this.stateName === 'failed' ? 0 : this.frameClock.alpha;
     const transforms: InterpolatedTransform[] = [];
     for (const id of this.order) {
       const p = prev.get(id);
@@ -2215,7 +2181,7 @@ class RuntimeInstance implements Runtime {
     const failed = this.stateName === 'failed' && this.committed !== null;
     const prev = failed ? this.committed! : this.prev;
     const curr = failed ? this.committed! : this.curr;
-    const alpha = this.stateName === 'failed' ? 0 : this.lastAlpha;
+    const alpha = this.stateName === 'failed' ? 0 : this.frameClock.alpha;
     const order = this.order;
     for (let i = 0; i < order.length; i += 1) {
       const id = order[i]!;
@@ -2246,7 +2212,7 @@ class RuntimeInstance implements Runtime {
     const failed = this.stateName === 'failed' && this.committed !== null;
     const prev = failed ? this.committed! : this.prev;
     const curr = failed ? this.committed! : this.curr;
-    if (!this.interpolateInto(id, prev, curr, this.stateName === 'failed' ? 0 : this.lastAlpha)) return false;
+    if (!this.interpolateInto(id, prev, curr, this.stateName === 'failed' ? 0 : this.frameClock.alpha)) return false;
     for (let k = 0; k < 3; k += 1) position[k] = this.interpPosition[k]!;
     for (let k = 0; k < 4; k += 1) rotation[k] = this.interpRotation[k]!;
     for (let k = 0; k < 3; k += 1) scale[k] = this.interpScale[k]!;
@@ -2266,7 +2232,7 @@ class RuntimeInstance implements Runtime {
    */
   readCameraView(position: number[], rotation: number[], view?: string): { fovY: number; near: number; far: number; letterbox: number } | null {
     if (this.stateName === 'disposed') return null;
-    return this.views.readInterpolated(this.stateName === 'failed' ? 1 : this.lastAlpha, position, rotation, view);
+    return this.views.readInterpolated(this.stateName === 'failed' ? 1 : this.frameClock.alpha, position, rotation, view);
   }
 
   /** A view's committed state (the live camera, a blend in progress, the pose and lens), or null before its first step. */
@@ -2489,7 +2455,7 @@ class RuntimeInstance implements Runtime {
     this.order = [];
     this.controllers.clearStaged();
     this.onFrame = undefined;
-    this.anchor = null;
+    this.frameClock.clear();
     return { ok: true };
   }
 
@@ -2515,7 +2481,8 @@ class RuntimeInstance implements Runtime {
 
   /** One frame update + onFrame (frame ordering: step → onFrame). */
   private runFrame(t: number): void {
-    this.frameCount += 1; // frame updates, including zero-step frames
+    const clock = this.frameClock;
+    clock.frameCount += 1; // frame updates, including zero-step frames
     if (this.needsPreroll) {
       // Settle pre-roll: exactly `settleTime` of steps (default
       // SETTLE_PREROLL_STEPS) with neutral frames, no input sampling, no wall
@@ -2526,25 +2493,19 @@ class RuntimeInstance implements Runtime {
       for (let i = 0; i < this.timing.settleSteps; i += 1) {
         if (!this.stepOnceM2(neutralFrame(this.stepIndex))) return; // failed
       }
-      this.anchor = { wall: t, simTime: this.simTime };
-      this.lastAlpha = 0;
+      clock.anchorAt(t, this.simTime);
       this.onFrame?.();
       return;
     }
-    if (!this.anchor) {
+    if (!clock.anchored) {
       // First frame after start: initialize the anchor at that frame
       //  — time before start is never simulated (zero steps).
-      this.anchor = { wall: t, simTime: this.simTime };
-      this.lastAlpha = 0;
+      clock.anchorAt(t, this.simTime);
       this.onFrame?.();
       return;
     }
-    const elapsed = t - this.anchor.wall;
-    if (elapsed < 0) {
-      // Non-monotonic clock: zero steps + one clock_warning diagnostic
-      // count, no error. The anchor is left in place.
-      this.clockWarningCount += 1;
-      this.lastAlpha = 0;
+    const elapsed = clock.sinceAnchor(t);
+    if (elapsed === null) {
       this.onFrame?.();
       return;
     }
@@ -2558,8 +2519,7 @@ class RuntimeInstance implements Runtime {
         } else if (!this.stepOnce()) return;
         this.stepObserver?.(this.stepIndex);
       }
-      this.anchor = { wall: t, simTime: this.simTime };
-      this.lastAlpha = 0;
+      clock.anchorAt(t, this.simTime);
       this.onFrame?.();
       return;
     }
@@ -2569,18 +2529,15 @@ class RuntimeInstance implements Runtime {
       // show another scene — the title background); this is the same step
       // boundary the next step would apply them at, so runs replay alike.
       if (!this.applySceneOps(false)) return;
-      this.anchor = { wall: t, simTime: this.simTime };
-      this.lastAlpha = 0;
+      clock.anchorAt(t, this.simTime);
       this.onFrame?.();
       return;
     }
     // The game mode's time scale — fewer or more fixed steps per wall second, each
     // step unchanged (1 without modes: exactly the arithmetic before).
-    const targetSim = this.anchor.simTime + elapsed * this.anchorScale;
-    const rawN = Math.floor((targetSim - this.simTime) / this.dt + STEP_COUNT_EPS);
-    const n = Math.min(rawN, MAX_CATCHUP_STEPS);
+    const due = clock.due(elapsed, this.simTime, this.dt);
     let held = false;
-    for (let i = 0; i < n; i += 1) {
+    for (let i = 0; i < due.n; i += 1) {
       if (this.isM2) {
         if (!this.stepOnceM2()) return; // fail-stop: no further frame/onFrame
       } else if (!this.stepOnce()) {
@@ -2601,27 +2558,9 @@ class RuntimeInstance implements Runtime {
         break;
       }
     }
-    if (held) {
-      this.anchor = { wall: t, simTime: this.simTime };
-      this.lastAlpha = 0;
-    } else if (rawN > MAX_CATCHUP_STEPS) {
-      // Bounded catch-up (normative): drop the remainder and
-      // resync the anchor — no unbounded burst after a stall. The
-      // resync makes targetSim == simTime for the display, so
-      // alpha = 0.
-      this.droppedSteps += rawN - MAX_CATCHUP_STEPS;
-      if (this.isM2) this.droppedInputSteps += rawN - MAX_CATCHUP_STEPS;
-      this.anchor = { wall: t, simTime: this.simTime };
-      this.lastAlpha = 0;
-    } else {
-      this.lastAlpha = clamp01((targetSim - this.simTime) / this.dt);
-    }
-    // A switch changed the time scale — the clock is re-anchored here (no jump).
-    if (this.modes.active && this.modes.timeScale() !== this.anchorScale) {
-      this.anchorScale = this.modes.timeScale();
-      this.anchor = { wall: t, simTime: this.simTime };
-      this.lastAlpha = 0;
-    }
+    if (held) clock.anchorAt(t, this.simTime);
+    else clock.settle(t, this.simTime, this.dt, due, this.isM2);
+    if (this.modes.active) clock.rescale(t, this.simTime, this.modes.timeScale());
     this.onFrame?.();
   }
 
@@ -4817,7 +4756,7 @@ class RuntimeInstance implements Runtime {
     this.cancelDriver();
     this.needsPreroll = false;
     this.stateName = 'failed';
-    this.lastAlpha = 0;
+    this.frameClock.alpha = 0;
     this.failedModuleId = moduleId;
     this.failedPhase = phase;
     this.failedStepIndex = stepIndex;
@@ -4887,12 +4826,12 @@ class RuntimeInstance implements Runtime {
       simTime: this.simTime,
       stepIndex: this.stepIndex,
       fixedStepHz: this.hz,
-      droppedSteps: this.droppedSteps,
-      frameCount: this.frameCount,
+      droppedSteps: this.frameClock.droppedSteps,
+      frameCount: this.frameClock.frameCount,
       entityCount: this.entityCount,
       modules: [...this.modules],
       clock: this.clockLabel,
-      clockWarningCount: this.clockWarningCount,
+      clockWarningCount: this.frameClock.clockWarningCount,
       errors: [...this.errorRing],
       errorCount: this.errorCount,
     };
@@ -4904,7 +4843,7 @@ class RuntimeInstance implements Runtime {
       ...base,
       failed: this.stateName === 'failed',
       inputSamples: this.inputSamples,
-      droppedInputSteps: this.droppedInputSteps,
+      droppedInputSteps: this.frameClock.droppedInputSteps,
       settleSteps: this.settleSteps,
       physicsSteps: this.physicsSteps,
       inputSuspendCount: actions.suspend,
