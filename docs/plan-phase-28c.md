@@ -146,6 +146,13 @@ will show it if they do).
    not objected to).
 2. **Scene view:** included (28c.4, owner 2026-10-04).
 
+Open, for the owner (from the review, 28c.14):
+
+3. **Gate "beats the plain page"?** The fast gate's perf check now measures the plain three.js page too and
+   prints the class against it (reported, not gated: the class's own baseline is what fails). Gating it would
+   make the done-bar a standing rule; the plain page's WebGPU frame is bimodal, so a gate would need a margin.
+4. **Batch cell size and culling (D160)** and **keeping `sim_thread` 2** (28c.6) stay the owner's calls.
+
 ## 6. Progress and measurements
 
 | Item | Status |
@@ -165,7 +172,7 @@ will show it if they do).
 | 28c.11 | done 2026-10-05 — export scripts minified and tree-shaken with a linked source map each (`js/*.js.map`, engine-relative sources; `tools/perf` reads the split through it); rapier's WASM is its own file (`js/physics-2d.wasm` / `physics-3d.wasm`, fetched by the backend script) and only the project's engine ships, loaded on use (page and worker carry none); engine packages marked side-effect free. Engine code (`run.mjs export-size`), raw / gzip / brotli KiB before → after: minimal 2D 14,320 / 3,767 / 2,840 → 5,130 / 1,659 / 1,325; minimal 3D 18,347 / 5,085 / 3,820 → 5,664 / 1,860 / 1,465; village class 21,361 / 5,904 / 4,468 → 6,268 / 2,126 / 1,689 (mesh worker 2,442 → 32); Skyforge copy the same as the class (its 253 MiB of content unchanged). Village export first frame (localhost) 1,492 / 1,509 → 1,246 / 1,235 ms (WebGPU / WebGL 2), frame unchanged (153.3 / 150.2 → 154.6 / 155.6 fps); Skyforge copy plays (105.4 / 97.5 fps). Play is untouched (its own build). Left: project-model's descriptors and validators (~470 KiB minified) stay in the page, the runtime validates its snapshot (§7). |
 | 28c.12 | done 2026-10-05 — `FramePacer` (`runtime/frame-pacing.ts`): early animation frames skipped on a fixed grid of the cap (a frame < ½ refresh early draws; a cap ≥ 0.9× the display's median rate draws every frame), set by `frame_rate_cap` (0/30/60/120), a settings field `engine: 'frameRateCap'` (its value applies from the start and is kept with the player's settings), `setSetting frameRateCap` (shell keeps it) and `ctx.display` (graph nodes); `ctx.stats.frameRateCap`, Play diagnostics `framePacing`, overlay; `?frameRateCap=` pins it, the perf harness pins `none`. Worker ticks: one per drawn frame, sent on the animation frame before the draw (else on the draw), so input is a refresh old, not a cap interval. Uncapped Chrome e2e: cap 30 → 30.1 drawn fps, 60 → 61.7, none → 1,615, player setting 30 → 29.9, kept 60 → 61.5, 119.7–120.0 steps/s and 0 dropped at every cap; inputToDrawMs 16–18 ms capped. Perf check unchanged (WebGPU p50 6.5 / WebGL 2 4.1 ms). Unverified on a real vsync display or phone (fake-clock unit tests cover 60/144/120/240 Hz). |
 | 28c.13 | implementation done 2026-10-05 — runtime's frame loop out of `runtime.ts` (`frame-loop.ts`; 4,864 → 4,826 lines, was 4,835 before 28c.12); `run.mjs village --switches` measures each switch in one session; the dialogue preview's own 10-step catch-up replaced by the runtime's `catchUpSteps`; limits and switches in `docs/deployment.md` (Performance). After, shares and verdicts below. Full gate, review and the owner's look pending. |
-| 28c.14 | in progress 2026-10-05 |
+| 28c.14 | done 2026-10-05 — the full gate's 4 regressions fixed (pause kept over in-flight frames; camera-regions/climb-walls walk with held exercises, §7), review A1–A4, P1–P7, P9, findings 1 (reported only), 4–8 fixed with tests that fail before; D160–D170 recorded. `tools/gate.sh rerun` of the full gate's failures: 4/4 green; fast gates (`bd37d95f`, `54797749`, `cb8f4a20`) green, perf p50 WebGPU 6.6 / WebGL 2 4.1 ms (baseline 6.6 / 4.1); class vs plain page (p50): WebGPU 6.6 vs 6.1 ms (154 vs 150 fps mean), WebGL 2 4.1 vs 6.5 ms. Full gate not rerun. |
 
 Before (2026-10-04, `1c24eb23`, Skyforge village copy, Iris Xe, 1080p, DPR 1):
 
@@ -395,3 +402,57 @@ Unverified: anything on a real vsync display or the owner's laptop (the `--vsync
   - **Not removed:** project-model's schema descriptors and validators in the page and the worker (the runtime
     re-validates the snapshot it is given); three's zstd decoder keeps its own small inline WASM.
 
+- 2026-10-05, independent review of the phase (a fresh agent that did not build it; full text with the
+  gate logs, summary here). **Verdict: accept with findings.**
+  - **Owner rules, checked in code: met.** Only drawables reach three.js (one container kind left: the 16 effect
+    groups); LOD attaches one level; the page draws one frame behind and never waits; the Scene view draws
+    through the same adapter; the frame-rate cap API is complete; no schema bump or deprecation.
+  - **Findings, ranked:** A1 (H) in-place material changes never redrew the cached static shadow map (late
+    textures, graph recompiles, block-chunk materials); 1 (M) the done-bar "beats the plain page" is not gated;
+    A2–A4 (M) wind gained by a swap left a ghost shadow, clock-driven alpha cast frozen, a sun becoming key
+    again reused a stale map; 2 (M) batch cells are a fixed 64 m and not culled inside (`?batching=off` faster
+    on WebGPU); 3 (M) Skyforge trails the plain page by 6–12 %, ~1.1 ms of it unexplained; P1–P6 (M/L) frames
+    after Stop dropped, camera and objects at different steps at alpha 0, the fixed-step default copied in
+    seven places, the bundle scan covering `main.js` only, the mirror's alpha reaching 1, the page's pause
+    overwritten by frames already in flight; 4–8 (L) the depth-64 parent cap copied four times and silently
+    rooting deeper rows, hidden file nodes drawn, late meshes never listed, a gained animator keeping baked
+    offsets, copied constants (cap choices, `simDelayMs` regex, `?simDelayMs` honoured by exports); P7 mesh
+    worker gaps; P8–P9, A5–A6, 9–10 smaller ones. Clean: no history comments, no new per-project caps.
+  - **Process slip (finding 10):** `5cc6b490` grew `runtime.ts` (+29, past 2,000 lines) before the frame loop
+    was split out in the next commit; `cb2b5586` added +22 after `2551cbe3` had split the area it touched.
+    Near the limit: `behavior.ts` 1,924, `host.ts` 1,893, `adapter.ts` 1,853 (after 28c.14; `runtime.ts` 4,826, unchanged by it).
+  - **Owner look:** the village in Play and the Scene view on the laptop; frame pacing on a real display at caps
+    30/60/120; the extra frame of input latency in Skyforge's character control; shadows while walking and
+    spinning (cached map steps, LOD switches), cutout shadows after load (cached vs `?shadowcache=off`), fire
+    flicker on WebGL 2; terrain edit-to-screen latency with mesh workers. All headless numbers are the Iris Xe host.
+- 2026-10-05, 28c.14 (the full gate's failures and the review's findings), decided while fixing:
+  - **The two "paused after the title's Start" failures (rebind, starter-game) and review P6 are one cause:**
+    the page set the pause, then a worker frame computed before the command landed and wrote the old value
+    back. The mirror keeps the page's pause and debugger hold until a frame answers a tick sent after it.
+  - **camera-regions and climb-walls asserted the old lockstep timing (tests changed, intent kept).** Both
+    walk the player in 4-step input exercises until it reaches a region. With lockstep, an exercise's answer
+    came back within ~2 steps, so the player kept its speed between exercises; one frame behind, the answer
+    waits for the frame that draws the exercise's last step (the owner's rule), the gap is ~4 steps, the
+    player stops between exercises and 40 exercises no longer cover the distance (measured: the same 0.0375 m
+    per exercise in page and worker mode). The walks now hold the game between exercises (`hold: true`, the
+    API for continuous stepping), so they no longer depend on how long an answer takes. climb-walls also
+    waited for the new box before editing it (it typed into the player's Inspector half the time).
+  - **Stop:** a frame landing after a stop is applied (saves, problems, digests, the tick error), and the host
+    carries out the last steps' save requests (`Runtime.settled`); saves that land after the view is gone go
+    without a picture.
+  - **Alpha 0:** the camera follows the objects' rule (the step itself), applied where a frame is drawn
+    (`cameraBlendOf`) — the worker's frame still encodes both step poses with the plain blend. The backward pop
+    on resume stays (D164). A non-held input exercise answers once its last step is drawn whole.
+  - **Cached shadows follow what casters wear, not only what is reported:** the static pass records each
+    caster's material and versions; a change in place, a swap, a caster that stops (or starts) being static
+    draws the map again, and a caster that turned static since the last drawing goes into the dynamic map
+    meanwhile. This covers batching off (A5's last point) and the editor's own material library, which report
+    nothing. An idle scene still draws the static map 0 times (shadows e2e). The shadows e2e's Scene view part
+    drew with the grid over the floor, so its shadow comparison saw almost nothing; it now turns the grid off,
+    adds a static cutout fence whose texture arrives late, and allows no pixel off (it failed before the fix:
+    worst 83, 0.03 %).
+  - **Parent chains:** no depth cap at all instead of one shared 64 — any depth composes in full, and a cycle
+    (which validated data cannot have) is cut where it closes and reported (`WorldMatrices.cycles`, an error
+    from `worldTransformOf`).
+  - **The plain-page comparison** runs in the fast gate's perf check, reported only (+~30 s: the check takes
+    ~70 s); whether to gate it is §5's open question 3.
