@@ -18,6 +18,13 @@ import type * as THREE from 'three';
 export const LOD_LEVEL_KEY = '__tlLodLevel';
 
 /**
+ * `mesh.userData[LOD_OWNER_KEY]`: the LOD a drawable is a level of (its
+ * nearest one), set by the render graph while it holds the LOD — static
+ * batching copies every level of it together.
+ */
+export const LOD_OWNER_KEY = '__tlLodOwner';
+
+/**
  * The level to draw at `distance` (camera to LOD, divided by the camera's
  * zoom). `current`: the level drawn last frame, or -1 before the first pick
  * (three starts with every level visible, so hysteresis then applies to all).

@@ -5,12 +5,16 @@
  * Objects that draw the same geometry with the same material and the same
  * shadow flags are drawn together: one instanced draw per group, its
  * instance matrices copied from the members' world matrices. The members
- * stay in the scene graph as they are — hierarchy,
- * transforms, picking, bounds, lightmap bakes and per-object overrides keep
- * working on them — they only move to {@link BATCHED_LAYER}, which cameras do
- * not draw (the shadow cameras take the main camera's layers, so the members
- * cast no second shadow). A picker that must still hit them enables that
- * layer on its raycaster.
+ * stay as they are — hierarchy, transforms, picking, bounds, lightmap bakes
+ * and per-object overrides keep working on them — they only move to
+ * {@link BATCHED_LAYER}, which cameras do not draw (the shadow cameras take
+ * the main camera's layers, so the members cast no second shadow), and a host
+ * that lists them may take them out of the scene's children meanwhile
+ * (`park`: three's per-pass walks skip them). A picker that must still hit
+ * them enables that layer on its raycaster and asks the host for them.
+ *
+ * Static members drawn alone merge into static cells (`static-merge.ts`):
+ * one world-space geometry per material and cell.
  *
  * Opt-in: only meshes a host marked with {@link BATCH_KEY} take part (a box,
  * the meshes of a placed model) — helpers, gizmos, sprites, effects and the
@@ -52,6 +56,7 @@ import * as THREE from 'three';
 
 import { createAttributeInstancedMesh, type AttributeInstancedMesh } from './attribute-instancing';
 import { OVERRIDES_KEY, RUNTIME_VALUES_KEY } from './material-graph';
+import { createStaticMerger, MERGE_QUIET_MS, staticScopeOf, type StaticMergeDiagnostics, type StaticMerger } from './static-merge';
 
 /** The layer batched members move to (cameras draw layer 0 only; pickers enable this one). */
 export const BATCHED_LAYER = 30;
@@ -202,6 +207,25 @@ export interface AutoBatcherOptions {
   readonly cellSize?: number;
   /** Triangles from which a geometry is split by cell (default 256: below that, off-screen vertices cost less than extra draws). */
   readonly detailedTriangles?: number;
+  /**
+   * Static batching (`static-merge.ts`): the meshes of static objects drawn
+   * alone are merged per material and cell. `load` (default) builds every
+   * cell before the frame is drawn (Play, the export); `background` within a
+   * time budget per frame, the members drawn alone until it is ready (the
+   * editor); `off` merges nothing.
+   */
+  readonly merging?: 'load' | 'background' | 'off';
+  /** Build time per frame in the background (ms). */
+  readonly mergeBudgetMs?: number;
+  /** The clock a moved member's quiet time is measured on (tests). */
+  readonly now?: () => number;
+  /**
+   * A listed object is drawn through a batch or a merged cell (`on`), or on
+   * its own again: the host takes it out of the scene's children (three's
+   * per-pass walks skip it) or puts it back. Members keep their layer change
+   * too.
+   */
+  readonly park?: (o: THREE.Object3D, on: boolean) => void;
 }
 
 export interface AutoBatcherDiagnostics {
@@ -209,7 +233,7 @@ export interface AutoBatcherDiagnostics {
   readonly groups: number;
   /** Meshes drawn through them. */
   readonly batched: number;
-  /** Marked meshes drawn on their own (not batchable or no partner). */
+  /** Marked meshes drawn on their own (not batchable, no partner, not merged). */
   readonly single: number;
   /** Groups a member joined or left in the last frame. */
   readonly regroups: number;
@@ -218,6 +242,8 @@ export interface AutoBatcherDiagnostics {
   /** Both since the batcher was made. */
   readonly regroupsTotal: number;
   readonly matrixCopiesTotal: number;
+  /** Static batching (absent when off). */
+  readonly merging?: StaticMergeDiagnostics;
 }
 
 /**
@@ -232,6 +258,8 @@ export interface BatchMembership {
   unlisted(o: THREE.Object3D): void;
   /** `o`'s world matrix (and those below it) was written this frame. */
   moved(o: THREE.Object3D): void;
+  /** `o` (listed or not now: a LOD level not drawn) is gone for good: what was copied of it goes. */
+  dropped(o: THREE.Object3D): void;
 }
 
 export interface AutoBatcher extends BatchMembership {
@@ -252,6 +280,8 @@ export interface AutoBatcher extends BatchMembership {
   /** Every member is grouped again next frame (a change that reaches every object: new bakes, materials redefined). */
   touchAll(): void;
   diagnostics(): AutoBatcherDiagnostics;
+  /** Work is left for later frames (static cells built in the background, members waiting to rejoin): a host drawing on demand draws again. */
+  pending(): boolean;
   /** Off: every member goes back to drawing on its own. */
   setEnabled(on: boolean): void;
   /** Restore every member and release the instanced meshes (geometry and materials stay the host's). */
@@ -273,8 +303,19 @@ interface Member {
   cz: number;
   /** Carries the batch mark (counted as single while not batched). */
   marked: boolean;
-  /** Drawn through its group's batch (its layers moved). */
+  /** Drawn through its group's batch. */
   batched: boolean;
+  /** Its static scope, and what it is grouped by (null: not batchable now), as of its last regroup. */
+  scope: string | null;
+  parts: BatchKeyParts | null;
+  /** Wants its merged cell, and is drawn through it. */
+  wanting: boolean;
+  merged: boolean;
+  /** Its layers moved (drawn through a batch or a merged cell). */
+  layered: boolean;
+  /** When it last moved (static members rejoin their cell after a quiet time), and whether it was listed this frame (its first placing is no move). */
+  movedAt: number;
+  fresh: boolean;
 }
 
 interface Group {
@@ -324,21 +365,78 @@ export function createAutoBatcher(scene: THREE.Scene, options: AutoBatcherOption
     return n;
   };
   const pos: [number, number, number] = [0, 0, 0];
+  const now = options.now ?? (() => performance.now());
+  const mergeMode = options.merging ?? 'load';
+  /** Members to check against their merged cell after this frame's regroups, and moved ones waiting to rejoin. */
+  const mergeCheck = new Set<Member>();
+  const waiting = new Set<Member>();
+  let mergedCount = 0;
+  const makeMerger = (): StaticMerger | null =>
+    mergeMode === 'off'
+      ? null
+      : createStaticMerger({
+          scene,
+          cellSize,
+          budgetMs: mergeMode === 'load' ? Infinity : (options.mergeBudgetMs ?? 4),
+          now,
+          partsOf: batchKeyParts,
+          onMerged: (mesh, on) => {
+            const m = members.get(mesh);
+            if (m !== undefined && (!on || m.wanting)) setMerged(m, on);
+          },
+        });
+  let merger = makeMerger();
 
-  const batch = (m: Member): void => {
-    if (m.batched) return;
-    m.batched = true;
-    m.mesh.userData[LAYERS_KEY] = m.mesh.layers.mask;
-    m.mesh.layers.set(BATCHED_LAYER);
-  };
-  const unbatch = (m: Member): void => {
-    if (!m.batched) return;
-    m.batched = false;
+  /** Drawn through a batch or a merged cell: its own draw moves to the batched layer. */
+  const relayer = (m: Member): void => {
+    const want = m.batched || m.merged;
+    if (want === m.layered) return;
+    m.layered = want;
+    if (m.mesh === m.root) options.park?.(m.mesh, want);
+    if (want) {
+      m.mesh.userData[LAYERS_KEY] = m.mesh.layers.mask;
+      m.mesh.layers.set(BATCHED_LAYER);
+      return;
+    }
     const saved = m.mesh.userData[LAYERS_KEY] as number | undefined;
     if (saved !== undefined) {
       m.mesh.layers.mask = saved;
       delete m.mesh.userData[LAYERS_KEY];
     }
+  };
+  const batch = (m: Member): void => {
+    if (m.batched) return;
+    m.batched = true;
+    relayer(m);
+    mergeCheck.add(m);
+  };
+  const unbatch = (m: Member): void => {
+    if (!m.batched) return;
+    m.batched = false;
+    relayer(m);
+    mergeCheck.add(m);
+  };
+  function setMerged(m: Member, on: boolean): void {
+    if (m.merged === on) return;
+    m.merged = on;
+    mergedCount += on ? 1 : -1;
+    relayer(m);
+  }
+  /** A static member drawn alone and still wants its merged cell; otherwise it leaves it. */
+  const checkMerge = (m: Member, t: number): void => {
+    if (merger === null || !members.has(m.mesh)) return;
+    const candidate = m.scope !== null && m.parts !== null && !m.batched;
+    if (candidate && t - m.movedAt < MERGE_QUIET_MS) waiting.add(m);
+    if (candidate && t - m.movedAt >= MERGE_QUIET_MS) {
+      m.wanting = true;
+      setMerged(m, merger.want(m.mesh, m.parts!, m.scope!));
+      return;
+    }
+    if (m.wanting) {
+      m.wanting = false;
+      merger.unwant(m.mesh);
+    }
+    setMerged(m, false);
   };
   /** The group draws its members on their own again; its batch goes. */
   const release = (g: Group): void => {
@@ -429,6 +527,9 @@ export function createAutoBatcher(scene: THREE.Scene, options: AutoBatcherOption
       marked += isMarked ? 1 : -1;
     }
     const parts = isMarked && shown(m) ? batchKeyParts(m.mesh) : null;
+    m.parts = parts;
+    m.scope = staticScopeOf(m.mesh);
+    mergeCheck.add(m);
     if (parts === null) {
       leave(m);
       return;
@@ -517,15 +618,20 @@ export function createAutoBatcher(scene: THREE.Scene, options: AutoBatcherOption
       n += 1;
       batched += g.members.length;
     }
-    counts = { groups: n, batched, single: Math.max(0, marked - batched) };
+    counts = { groups: n, batched, single: 0 };
   };
 
   const forget = (m: Member): void => {
     leave(m);
+    if (m.wanting) merger?.unwant(m.mesh);
+    m.wanting = false;
+    setMerged(m, false);
     if (m.marked) marked -= 1;
     members.delete(m.mesh);
     dirty.delete(m);
     movedNow.delete(m);
+    mergeCheck.delete(m);
+    waiting.delete(m);
   };
 
   const api: AutoBatcher = {
@@ -537,7 +643,7 @@ export function createAutoBatcher(scene: THREE.Scene, options: AutoBatcherOption
         if (mesh.isMesh !== true || mesh.userData['tlBatch'] === true) return;
         let m = members.get(mesh);
         if (m === undefined) {
-          m = { mesh, root: o, group: null, slot: -1, scale: null, cx: 0, cy: 0, cz: 0, marked: false, batched: false };
+          m = { mesh, root: o, group: null, slot: -1, scale: null, cx: 0, cy: 0, cz: 0, marked: false, batched: false, scope: null, parts: null, wanting: false, merged: false, layered: false, movedAt: -Infinity, fresh: true };
           members.set(mesh, m);
         } else {
           // Listed again on its own (a node moved out from below a mesh): it belongs to the nearer listing.
@@ -560,6 +666,13 @@ export function createAutoBatcher(scene: THREE.Scene, options: AutoBatcherOption
       const list = byRoot.get(o);
       if (list === undefined) return;
       for (const m of list) if (m.group !== null) movedNow.add(m);
+    },
+    dropped(o) {
+      if (merger === null) return;
+      const m = merger;
+      o.traverse((x) => {
+        if ((x as THREE.Mesh).isMesh === true) m.drop(x as THREE.Mesh);
+      });
     },
     touch(o) {
       if (disposed) return;
@@ -590,9 +703,11 @@ export function createAutoBatcher(scene: THREE.Scene, options: AutoBatcherOption
       if (!enabled) {
         movedNow.clear();
         dirty.clear();
+        mergeCheck.clear();
         finish();
         return;
       }
+      const t = now();
       // A material changed in place (`needsUpdate`: transparency, visibility, maps): its members are grouped again.
       for (const g of groups.values()) {
         const v = g.parts.material.version;
@@ -604,6 +719,11 @@ export function createAutoBatcher(scene: THREE.Scene, options: AutoBatcherOption
       for (const m of movedNow) {
         const g = m.group;
         if (g === null) continue;
+        // A static member that moves leaves its merged cell until it stays put (its first placing is no move).
+        if (m.scope !== null && !m.fresh) {
+          m.movedAt = t;
+          if (m.wanting || m.merged) mergeCheck.add(m);
+        }
         if (g.detailed) {
           const { cx, cy, cz } = m;
           cellOf(m);
@@ -620,6 +740,19 @@ export function createAutoBatcher(scene: THREE.Scene, options: AutoBatcherOption
       for (const g of changedGroups) settle(g);
       if (changedGroups.size > 0) countNow();
       changedGroups.clear();
+      if (merger !== null) {
+        for (const m of waiting) {
+          if (t - m.movedAt < MERGE_QUIET_MS) continue;
+          waiting.delete(m);
+          mergeCheck.add(m);
+        }
+        for (const m of mergeCheck) {
+          checkMerge(m, t);
+          m.fresh = false;
+        }
+        merger.update();
+      }
+      mergeCheck.clear();
       for (const g of writtenGroups) {
         if (g.inst === null) continue;
         g.inst.count = g.members.length;
@@ -628,7 +761,16 @@ export function createAutoBatcher(scene: THREE.Scene, options: AutoBatcherOption
       writtenGroups.clear();
       finish();
     },
-    diagnostics: () => ({ ...counts, regroups: lastRegroups, matrixCopies: lastCopies, regroupsTotal, matrixCopiesTotal: copiesTotal }),
+    diagnostics: () => ({
+      ...counts,
+      single: Math.max(0, marked - counts.batched - mergedCount),
+      regroups: lastRegroups,
+      matrixCopies: lastCopies,
+      regroupsTotal,
+      matrixCopiesTotal: copiesTotal,
+      ...(merger !== null ? { merging: merger.diagnostics() } : {}),
+    }),
+    pending: () => enabled && !disposed && (waiting.size > 0 || merger?.pending() === true),
     setEnabled(on) {
       if (on === enabled || disposed) return;
       enabled = on;
@@ -643,8 +785,19 @@ export function createAutoBatcher(scene: THREE.Scene, options: AutoBatcherOption
         groups.clear();
         changedGroups.clear();
         writtenGroups.clear();
+        for (const m of members.values()) {
+          m.wanting = false;
+          setMerged(m, false);
+        }
+        merger?.dispose();
+        merger = null;
+        waiting.clear();
+        mergeCheck.clear();
         counts = { groups: 0, batched: 0, single: 0 };
-      } else api.touchAll();
+      } else {
+        merger = makeMerger();
+        api.touchAll();
+      }
     },
     dispose() {
       if (disposed) return;
@@ -665,5 +818,14 @@ export const BATCHING_URL_PARAM = 'batching';
 /** Whether a page's query string leaves automatic instancing on (the default) — `batching=off` or `0` turns it off. */
 export function batchingFromUrl(search: string): boolean {
   const v = new URLSearchParams(search).get(BATCHING_URL_PARAM);
+  return v !== 'off' && v !== '0' && v !== 'false';
+}
+
+/** The page flag that turns static batching off (`?merging=off`: a diagnostic comparison; instancing stays on). */
+export const MERGING_URL_PARAM = 'merging';
+
+/** Whether a page's query string leaves static batching on (the default) — `merging=off` or `0` turns it off. */
+export function mergingFromUrl(search: string): boolean {
+  const v = new URLSearchParams(search).get(MERGING_URL_PARAM);
   return v !== 'off' && v !== '0' && v !== 'false';
 }

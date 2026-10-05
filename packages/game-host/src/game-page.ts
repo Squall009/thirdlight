@@ -34,7 +34,7 @@ import { audioSpatialOf, dependencyTables, depthBufferOf, instanceChunkSizeOf, m
 import { assetVersionKey, createResourceManager, EMBEDDED_TEXTURES_LISTED, embeddedTextureBytes, type ResourceManager, type ResourceObservation } from '@thirdlight/runtime';
 import { attachBrowserInput, DEFAULT_INPUT_CONFIG, DEFAULT_INPUT_CONFIG_3D, focusGameSurface, type InputConfigLike } from '@thirdlight/input';
 import { createPhysicsPort, type RapierPhysicsInitConfig, type RapierPhysicsPort, type RapierStaticColliderSpec } from '@thirdlight/physics-rapier';
-import { batchingFromUrl, createSceneAdapter, createTextureStreamer, decodeTexture, effectsOptionFrom, environmentHasLook, pageSearch, resolveRendererPreference, setKtx2DecoderBase } from '@thirdlight/three-adapter';
+import { batchingFromUrl, createSceneAdapter, createTextureStreamer, decodeTexture, effectsOptionFrom, environmentHasLook, mergingFromUrl, pageSearch, resolveRendererPreference, setKtx2DecoderBase } from '@thirdlight/three-adapter';
 import { createGltfLoaderPort } from '@thirdlight/three-adapter/gltf-loader';
 import type { EffectDefLike, EnvironmentLike, FrameDrawnInfo, TextureStreamer, LightingBakeLike, MaterialDefLike, MaterialFunctionLike, SceneAdapter, SceneAdapterModels, SceneAdapterOptions, WindLike } from '@thirdlight/three-adapter';
 import {
@@ -857,6 +857,8 @@ export async function startGamePage(o: GamePageOptions): Promise<GamePageHandle>
           renderer: { ...resolveRendererPreference({ url: pageSearch(), setting: settings.render_backend }), depthBuffer: depthBufferOf(settings), trackTimestamp: o.measureGpu === true || statsOverlayModeOf(settings) !== 'off' },
           // Repeated objects drawn instanced unless the page says ?batching=off (a diagnostic comparison).
           batching: batchingFromUrl(pageSearch()),
+          // Static objects merged at load unless the page says ?merging=off (a diagnostic comparison).
+          merging: mergingFromUrl(pageSearch()) ? 'load' : 'off',
           // The first frame, slow frames and scene attaches for the start timings.
           ...(timings !== undefined ? { onFrameDrawn: (f: FrameDrawnInfo) => timings.frame(f) } : {}),
           // A model's extracted images draw from their texture assets, streamed like a material's.

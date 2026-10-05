@@ -28,7 +28,7 @@ export interface SceneViewResult {
   errors: string[];
 }
 
-export async function measureSceneView(browser: Browser, be: PerfBackend, projectId: string, renderer: FrameRenderer, opts: { warmupMs: number; recordMs: number; shot?: string }): Promise<SceneViewResult> {
+export async function measureSceneView(browser: Browser, be: PerfBackend, projectId: string, renderer: FrameRenderer, opts: { warmupMs: number; recordMs: number; query?: string; shot?: string }): Promise<SceneViewResult> {
   const context = await browser.newContext({ viewport: { ...FRAME_VIEWPORT }, deviceScaleFactor: 1 });
   await context.addInitScript(installPerfInstrumentation);
   await context.addInitScript(installFrameProbe, { timestamps: false });
@@ -38,7 +38,7 @@ export async function measureSceneView(browser: Browser, be: PerfBackend, projec
   page.on('console', (m) => {
     if (m.type() === 'error') errors.push(`console: ${m.text()}`.slice(0, 300));
   });
-  const url = `${be.origin}/?project=${projectId}&renderer=${renderer}`;
+  const url = `${be.origin}/?project=${projectId}&renderer=${renderer}${opts.query ?? ''}`;
   try {
     await page.goto(`${url}#token=${be.token}`);
     await page.locator('.tl-statusbar').filter({ hasText: 'connected' }).waitFor({ timeout: 180_000 });
@@ -128,5 +128,5 @@ export async function measureSceneView(browser: Browser, be: PerfBackend, projec
 }
 
 export function sceneViewLine(what: string, r: SceneViewResult): string {
-  return `${what}: ${r.frames.fps} fps, frame p50/p95/p99 ${r.frames.p50}/${r.frames.p95}/${r.frames.p99} ms (${r.frames.n} frames), ${r.draws.p50} draws, ${Math.round(r.tris.p50 / 1000)}k tris, ${r.scene.objects} Object3Ds (${r.scene.groups} groups, ${r.scene.lods} LOD, ${r.scene.meshes} meshes of which ${r.scene.hiddenMeshes} hidden, ${r.scene.lights} lights), main thread ${r.mainThread.taskMsPerFrame} ms/frame (${Math.round(r.mainThread.busyShare * 100)}%), settled in ${r.settledMs} ms${r.errors.length > 0 ? `; ${r.errors.length} page errors: ${r.errors[0]}` : ''}`;
+  return `${what}: ${r.frames.fps} fps, frame p50/p95/p99 ${r.frames.p50}/${r.frames.p95}/${r.frames.p99} ms (${r.frames.n} frames), ${r.draws.p50} draws (scene ${r.scene.passDraws?.scene ?? "-"}, shadow ${r.scene.passDraws?.shadow ?? "-"}), ${Math.round(r.tris.p50 / 1000)}k tris, ${r.scene.objects} Object3Ds (${r.scene.groups} groups, ${r.scene.lods} LOD, ${r.scene.meshes} meshes of which ${r.scene.hiddenMeshes} hidden, ${r.scene.lights} lights)${r.scene.merged !== undefined && r.scene.merged.meshes > 0 ? `, ${r.scene.merged.shown}/${r.scene.merged.meshes} merged cells drawn` : ''}, main thread ${r.mainThread.taskMsPerFrame} ms/frame (${Math.round(r.mainThread.busyShare * 100)}%), settled in ${r.settledMs} ms${r.errors.length > 0 ? `; ${r.errors.length} page errors: ${r.errors[0]}` : ''}`;
 }

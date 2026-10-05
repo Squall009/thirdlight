@@ -13,6 +13,7 @@
  *                                orbiting the editor's opening view; --no-export skips the export
  *   --ablation                   the per-draw ablation on the plain page: + 16 dark point lights, + per-object
  *                                material copies, + the engine's node materials (each alone)
+ *   --query 'a=b&c=d'            add to the export's and the Scene view's page query (e.g. merging=off to compare)
  *   --vsync                      draw at the display's rate (a player's browser) instead of uncapped: frame drops
  *                                show as intervals of two refreshes or more
  *   --gate                       the fast gate's check: frames only (no GPU passes, profile or plain page)
@@ -153,7 +154,7 @@ const hist = (h: readonly number[] | undefined): string => {
 export function frameLine(what: string, r: FrameRunResult): string {
   const gpu = r.gpu === null ? '' : r.gpu.available ? `, gpu ${r.gpu.msPerFrame} ms (${r.gpu.passes.slice(0, 4).map((p) => `${p.label} ${p.msPerFrame}`).join(', ')})` : `, gpu not measured (${r.gpu.note ?? 'no timestamp queries'})`;
   const pk = r.profile === null ? '' : `, main thread: ${r.profile.packages.slice(0, 5).map((p) => `${p.name} ${p.share}%`).join(', ')}`;
-  return `${what}: ${r.frames.fps} fps, frame p50/p95/p99/max ${r.frames.p50}/${r.frames.p95}/${r.frames.p99}/${r.frames.max ?? '-'} ms${hist(r.frames.histogram)}, ${r.draws.p50} draws, ${Math.round(r.tris.p50 / 1000)}k tris, ${r.scene.objects} Object3Ds (${r.scene.groups} groups, ${r.scene.lods} LOD, ${r.scene.meshes} meshes of which ${r.scene.hiddenMeshes} hidden, ${r.scene.bones} bones, ${r.scene.pointLights} point lights), ${r.live.uniformBuffers} uniform buffers, main thread ${r.mainThread.taskMsPerFrame} ms/frame (${Math.round(r.mainThread.busyShare * 100)}%)${gpu}${pk}${r.errors.length > 0 ? `; ${r.errors.length} page errors: ${r.errors[0]}` : ''}`;
+  return `${what}: ${r.frames.fps} fps, frame p50/p95/p99/max ${r.frames.p50}/${r.frames.p95}/${r.frames.p99}/${r.frames.max ?? '-'} ms${hist(r.frames.histogram)}, ${r.draws.p50} draws (scene ${r.scene.passDraws?.scene ?? '-'}, shadow ${r.scene.passDraws?.shadow ?? '-'}, post ${r.scene.passDraws?.post ?? '-'}), ${Math.round(r.tris.p50 / 1000)}k tris, ${r.scene.objects} Object3Ds (${r.scene.groups} groups, ${r.scene.lods} LOD, ${r.scene.meshes} meshes of which ${r.scene.hiddenMeshes} hidden, ${r.scene.bones} bones, ${r.scene.pointLights} point lights)${r.scene.merged !== undefined && r.scene.merged.meshes > 0 ? `, ${r.scene.merged.shown}/${r.scene.merged.meshes} merged cells drawn (${Math.round((r.scene.merged.vertexBytes + r.scene.merged.indexBytes) / 1024)} KiB)` : ''}, ${r.live.uniformBuffers} uniform buffers, main thread ${r.mainThread.taskMsPerFrame} ms/frame (${Math.round(r.mainThread.busyShare * 100)}%)${gpu}${pk}${r.errors.length > 0 ? `; ${r.errors.length} page errors: ${r.errors[0]}` : ''}`;
 }
 
 export async function runVillageCli(argv: readonly string[]): Promise<void> {
@@ -173,6 +174,7 @@ export async function runVillageCli(argv: readonly string[]): Promise<void> {
   const exporting = !has('no-export');
   const bare = !gate && exporting && !has('no-bare');
   const ablation = !gate && has('ablation');
+  const query = get('query') !== undefined ? `&${get('query')}` : '';
 
   const startedAt = new Date().toISOString();
   const stamp = startedAt.replace(/[:.]/g, '-');
@@ -215,7 +217,7 @@ export async function runVillageCli(argv: readonly string[]): Promise<void> {
       const browser = await launchGpuBrowser({ vsync: has('vsync') });
       try {
         for (const r of renderers) {
-          const res = await measureSceneView(browser, be, projectId, r, { warmupMs, recordMs, shot: join(runDir, `scene-view-${r}.png`) });
+          const res = await measureSceneView(browser, be, projectId, r, { warmupMs, recordMs, query, shot: join(runDir, `scene-view-${r}.png`) });
           (report.sceneView ??= {})[r] = res;
           log(sceneViewLine(`scene view ${r}`, res));
         }
@@ -241,7 +243,7 @@ export async function runVillageCli(argv: readonly string[]): Promise<void> {
     const site = exportDir === null ? null : await serveStatic(exportDir, {}, dumpDir);
     try {
       for (const [i, r] of (site === null ? [] : renderers).entries()) {
-        const res = await measurePage(browser, { url: `${site!.url}?renderer=${r}`, warmupMs, recordMs, gpuMs, profileMs, steps, sourceOf: sourcesOf(site!), dump: bare && i === 0, shot: join(runDir, `export-${r}.png`) });
+        const res = await measurePage(browser, { url: `${site!.url}?renderer=${r}${query}`, warmupMs, recordMs, gpuMs, profileMs, steps, sourceOf: sourcesOf(site!), dump: bare && i === 0, shot: join(runDir, `export-${r}.png`) });
         report.export[r] = res;
         log(frameLine(`export ${r}`, res));
       }

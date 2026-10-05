@@ -25,6 +25,7 @@
 import {
   BATCHED_LAYER,
   batchingFromUrl,
+  mergingFromUrl,
   createEffectsPlayer,
   createSceneAdapter,
   DEFAULT_RENDERER_PREFERENCE,
@@ -337,6 +338,8 @@ export class Viewport {
       },
       // `?batching=off` on the editor page: every object drawn on its own (a diagnostic comparison).
       batching: batchingFromUrl(pageSearch()),
+      // Static objects merged in the background (drawn alone until their cell is built); `?merging=off` compares.
+      merging: mergingFromUrl(pageSearch()) ? 'background' : 'off',
       models: assets.models,
       // Draco/Basis decoder files are served next to the editor page (dist/editor/decoders/).
       modelsLoader: createGltfLoaderPort({ decoderBase: './decoders/' }),
@@ -756,8 +759,8 @@ export class Viewport {
     this.adapter.sync?.();
     const scene = this.adapter.threeScene?.();
     if (scene === undefined) return [];
-    // The drawables (the batches' own meshes stand for objects that are picked themselves) — not the view's overlay group.
-    const targets = scene.children.filter((o) => o !== this.overlay && o.userData['tlBatch'] !== true);
+    // The drawables (those drawn through batches too; the batches' own meshes stand for objects picked themselves) — not the view's overlay group.
+    const targets = (this.adapter.pickables?.() ?? scene.children).filter((o) => o !== this.overlay && o.userData['tlBatch'] !== true);
     return this.raycaster.intersectObjects(targets, true).filter((h) => h.object.visible);
   }
 
@@ -991,6 +994,9 @@ export class Viewport {
       this.root.setAttribute('data-triangles', String(f.triangles));
       const b = f.batching ?? { groups: 0, batched: 0, single: 0 };
       this.root.setAttribute('data-batches', `${b.groups} ${b.batched} ${b.single}`);
+      // Static batching: merged cells drawn, objects drawn through them, cells still building.
+      const m = f.batching?.merging;
+      this.root.setAttribute('data-merged', m === undefined ? '' : `${m.cells} ${m.merged} ${m.pending}`);
       this.root.setAttribute('data-msaa', String(f.samples));
     }
     const failures = adapter.modelFailures?.() ?? new Map();
@@ -1173,8 +1179,14 @@ export class Viewport {
     this.hierarchyFlags = effectiveFlagsOf(entities);
     this.folderIds = new Set(entities.filter((e) => e.kind === 'folder').map((e) => e.id));
     const hidden = new Set<string>();
-    for (const [id, f] of this.hierarchyFlags) if (!f.active) hidden.add(id);
+    const statics = new Set<string>();
+    for (const [id, f] of this.hierarchyFlags) {
+      if (!f.active) hidden.add(id);
+      // An object kept loaded across scenes is never merged into a scene's cells (as in Play).
+      else if (f.static && !f.keepLoaded) statics.add(id);
+    }
     this.source.setHidden(hidden);
+    this.source.setStatic(statics);
   }
 
   /** Show or hide the Scene view's helpers (icons, light ranges, collider outlines, gameplay paths and areas, the grid). */

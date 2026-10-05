@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 
 import { BATCH_KEY, createAutoBatcher } from './batching';
 import { RenderGraph } from './render-graph';
+import { STATIC_KEY } from './static-merge';
 
 const near = (a: THREE.Vector3, b: [number, number, number]): void => {
   expect(a.x).toBeCloseTo(b[0], 9);
@@ -247,5 +248,72 @@ describe('RenderGraph and the batcher: regroup only on a change', () => {
     expect(scene.children).not.toContain(levels[3]![0]!);
     expect(batcher.diagnostics()).toMatchObject({ groups: 2, batched: 8, single: 1 });
     expect(frame()).toEqual([0, 0]);
+  });
+});
+
+describe('RenderGraph and static batching', () => {
+  it('merges static placements per material with every LOD level; members drawn through batches leave the scene but stay pickable', () => {
+    const scene = new THREE.Scene();
+    const graph = new RenderGraph(scene, () => false);
+    const batcher = createAutoBatcher(scene, { park: (o, on) => graph.park(o, on) });
+    graph.setMembership(batcher);
+    const camera = new THREE.PerspectiveCamera();
+    camera.position.set(0, 0, 10);
+    const mat = new THREE.MeshBasicMaterial();
+    const nears: THREE.Mesh[] = [];
+    for (let i = 0; i < 3; i += 1) {
+      // Distinct models (no instancing partner) sharing one material, two levels each.
+      graph.addEntity(`prop${i}`, null);
+      graph.world.setLocal(`prop${i}`, [i * 2, 0, 0], [0, 0, 0, 1], [1, 1, 1]);
+      const lod = new THREE.LOD();
+      const a = new THREE.Mesh(new THREE.BoxGeometry(1, 1 + i * 0.1, 1), mat);
+      const f = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.9 + i * 0.1, 0.9), mat);
+      for (const m of [a, f]) {
+        m.userData[BATCH_KEY] = true;
+        m.userData[STATIC_KEY] = 'scene-main';
+      }
+      lod.addLevel(a, 0);
+      lod.addLevel(f, 30);
+      graph.nodeFor(`prop${i}`)!.add(lod);
+      nears.push(a);
+    }
+    const frame = (): void => {
+      graph.update();
+      graph.updateLods(camera);
+      batcher.update(camera);
+    };
+    frame();
+    const merged = scene.children.filter((o) => o.name.startsWith('tl-merged:')) as THREE.Mesh[];
+    expect(merged.length).toBe(1);
+    // Both levels of all three copied; the near ones drawn.
+    expect(batcher.diagnostics().merging).toMatchObject({ cells: 1, merged: 3, slots: 6 });
+    expect(merged[0]!.geometry.drawRange.count).toBe(3 * 36);
+    // The members are out of the scene's children, and still what a ray picks.
+    for (const a of nears) expect(scene.children).not.toContain(a);
+    const picks = graph.pickables();
+    for (const a of nears) expect(picks).toContain(a);
+    // A hidden prop leaves the draw (and comes back into nothing: it is not drawn at all).
+    graph.setHidden(new Set(['prop1']));
+    frame();
+    expect(merged[0]!.geometry.drawRange.count).toBe(2 * 36);
+    expect(graph.pickables()).not.toContain(nears[1]);
+    // The camera backs off: every prop draws its far level, from the same copy (the index only, no build).
+    const builds = batcher.diagnostics().merging!.buildsTotal;
+    camera.position.set(0, 0, 200);
+    frame();
+    expect(batcher.diagnostics().merging).toMatchObject({ buildsTotal: builds, merged: 2 });
+    expect(merged[0]!.geometry.drawRange.count).toBe(2 * 36);
+    // One that moves leaves the merged draw (drawn on its own until it stays put).
+    graph.world.setLocal('prop2', [4, 0, 1], [0, 0, 0, 1], [1, 1, 1]);
+    frame();
+    expect(merged[0]!.geometry.drawRange.count).toBe(36);
+    expect(scene.children.filter((o) => (o as THREE.Mesh).isMesh === true && !o.name.startsWith('tl-merged:')).length).toBe(1);
+    // Gone for good: the copies go.
+    graph.removeEntity('prop0');
+    graph.removeEntity('prop1');
+    graph.removeEntity('prop2');
+    frame();
+    expect(scene.children).toEqual([]);
+    expect(batcher.diagnostics().merging!.slots).toBe(0);
   });
 });

@@ -226,12 +226,16 @@ export {
   instanceCapacity,
   MIN_INSTANCE_CAPACITY,
   markBatchable,
+  MERGING_URL_PARAM,
+  mergingFromUrl,
   unitBoxGeometry,
   type AutoBatcher,
   type AutoBatcherDiagnostics,
   type AutoBatcherOptions,
   type BatchHint,
 } from './batching';
+// Static batching: static objects' meshes merged per material and world cell.
+export { markStatic, MERGE_QUIET_MS, mergeRefusal, OBJECT_FRAME_KEY, STATIC_KEY, type StaticMergeDiagnostics } from './static-merge';
 // Sky, fog, fog volumes, tone mapping and the post stack.
 export {
   createEnvironmentRenderer,

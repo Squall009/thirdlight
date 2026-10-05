@@ -166,6 +166,8 @@ export interface CompiledMaterialGraph {
   readonly flags: { readonly doubleSided: boolean; readonly transparent: boolean; readonly castShadows: boolean };
   /** Reads the clock or the wind (the host keeps rendering). */
   readonly animated: boolean;
+  /** Reads the object's own frame (object-space position or normal, its origin, an object-space offset): never merged with others (static batching). */
+  readonly objectFrame: boolean;
   /** Reads a Lighting input under a Custom-lit output. */
   readonly usesLight: boolean;
   /** Texture assets it samples (loaded or not). */
@@ -589,6 +591,7 @@ export function compileMaterialGraph(input: { graph: MaterialGraphLike; paramete
   const textures = new Set<string>();
   const pending = new Set<string>();
   let animated = false;
+  let objectFrame = false;
   let nodeCount = 0;
   /** The surface is Custom-lit (Lighting inputs read light), set before any slot compiles. */
   let litSurface = false;
@@ -672,10 +675,12 @@ export function compileMaterialGraph(input: { graph: MaterialGraphLike; paramete
       case 'positionWorld':
         return posWorld(stage);
       case 'positionObject':
+        objectFrame = true;
         return T.positionLocal;
       case 'normalWorld':
         return stage === 'vertex' ? T.normalize(T.modelWorldMatrix.mul(T.vec4(T.normalLocal, 0)).xyz) : T.normalWorldGeometry;
       case 'normalObject':
+        objectFrame = true;
         return T.normalLocal;
       case 'viewDirWorld':
         return T.normalize(T.cameraPosition.sub(posWorld(stage)));
@@ -891,13 +896,19 @@ export function compileMaterialGraph(input: { graph: MaterialGraphLike; paramete
       }
       case 'position': {
         const space = str(field(node, 'space'), 'world');
-        if (space === 'object') return one('position', T.positionLocal);
+        if (space === 'object') {
+          objectFrame = true;
+          return one('position', T.positionLocal);
+        }
         if (space === 'view') return one('position', stage === 'vertex' ? T.modelViewMatrix.mul(T.vec4(T.positionLocal, 1)).xyz : T.positionView);
         return one('position', posWorld(stage));
       }
       case 'normal': {
         const space = str(field(node, 'space'), 'world');
-        if (space === 'object') return one('normal', T.normalLocal);
+        if (space === 'object') {
+          objectFrame = true;
+          return one('normal', T.normalLocal);
+        }
         if (space === 'view') return one('normal', stage === 'vertex' ? T.transformNormalToView(T.normalLocal) : T.normalViewGeometry);
         return one('normal', builtin(scope, node.id, 'normalWorld', stage));
       }
@@ -908,6 +919,7 @@ export function compileMaterialGraph(input: { graph: MaterialGraphLike; paramete
         return one('direction', builtin(scope, node.id, 'viewDirWorld', stage));
       }
       case 'objectPosition': {
+        objectFrame = true;
         const origin = T.modelWorldMatrix.mul(T.vec4(instanceOrigin(), 1)).xyz;
         return one('position', stage === 'vertex' ? origin : T.varying(origin));
       }
@@ -1250,6 +1262,7 @@ export function compileMaterialGraph(input: { graph: MaterialGraphLike; paramete
   if (vertex !== undefined && connected(top, vertex.id, 'offset')) {
     const port = top.ports.get(vertex.id)!.inputs[0]!;
     const offset = v(inputOf(top, vertex, port, 'vertex'));
+    if (str(field(vertex, 'space'), 'object') !== 'world') objectFrame = true;
     position = str(field(vertex, 'space'), 'object') === 'world' ? T.positionLocal.add(T.modelWorldMatrixInverse.mul(T.vec4(offset, 0)).xyz) : T.positionLocal.add(offset);
   }
   const slots = {
@@ -1275,6 +1288,7 @@ export function compileMaterialGraph(input: { graph: MaterialGraphLike; paramete
     slots,
     flags: { doubleSided: flag('doubleSided', false), transparent: flag('transparent', false), castShadows: flag('castShadows', true) },
     animated,
+    objectFrame,
     usesLight,
     textures: [...textures].sort(),
     pending: [...pending].sort(),

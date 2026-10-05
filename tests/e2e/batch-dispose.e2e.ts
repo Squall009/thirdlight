@@ -19,6 +19,13 @@
  * the move, one for the hide, two for the level switch: the level it leaves
  * and the one it joins) and copies only its matrices. The picture after the
  * three steps matches the same steps drawn without batching (`?batching=off`).
+ *
+ * Static batching rides along: three static models of distinct shapes (two
+ * levels each) wearing one material merge into one draw. In the Scene view a
+ * click on one still selects it, and one moved by a command leaves the
+ * merged draw and rejoins it where it now is; in Play one hidden by a script
+ * leaves it, and the final picture (batched against `?batching=off`)
+ * includes them.
  */
 import { createHash } from 'node:crypto';
 import { mkdirSync, writeFileSync } from 'node:fs';
@@ -105,6 +112,19 @@ interface Batching {
   matrixCopies: number;
   regroupsTotal: number;
   matrixCopiesTotal: number;
+  merging?: { cells: number; merged: number; slots: number; vertexBytes: number; indexBytes: number; buildsTotal: number };
+}
+
+/** Pixels of the static models' magenta (red and blue both high, green low), as view coordinates. */
+function magentaPixels(img: Image): [number, number][] {
+  const out: [number, number][] = [];
+  for (let y = 0; y < img.height; y += 2) {
+    for (let x = 0; x < img.width; x += 2) {
+      const p = img.pixel(x, y);
+      if (p[0]! > 90 && p[2]! > 90 && p[1]! < 0.5 * Math.min(p[0]!, p[2]!)) out.push([x, y]);
+    }
+  }
+  return out;
 }
 
 /** A canvas's picture once two shots in a row are the same. */
@@ -176,6 +196,53 @@ for (const variant of RENDERER_VARIANTS) {
     }
     expect(validation, 'no WebGPU validation errors').toEqual([]);
 
+    // ---- Static batching in the Scene view ----
+    // Three static models of distinct shapes (two levels each), one magenta material: no instancing partner, one merged draw.
+    await cmd('setMaterial', { material: { materialId: 'mag', name: 'Magenta', shader: 'unlit', params: {}, textures: {}, parameters: [{ key: 'tint', type: 'color', default: '#e020e0' }], graph: TINT_GRAPH } });
+    await publishBytes(be, multiPieceGlb([0.7, 0.9, 1.1].map((k, i) => ({ name: `rock${i}`, lods: [[k, k, k], [k, k * 0.8, k]] }))), 'model', 'statics', 'Statics');
+    const statics: string[] = [];
+    for (let i = 0; i < 3; i++) {
+      const id = String((await cmd('createEntity', { sceneId: 'scene-main', kind: 'model', name: `Static ${i}`, static: true, model: { asset: { assetId: 'statics' }, piece: `rock${i}` }, transform: { position: [i * 2.5 + 0.5, 2.5, -2] } }))['createdId']);
+      await cmd('setComponent', { entityId: id, component: 'materials', value: { '*': 'mag' } });
+      statics.push(id);
+    }
+    /** The Scene view opened afresh (framing the level); every value `data-merged` takes is kept. */
+    const openView = async (): Promise<void> => {
+      await page.goto(editorUrlFor(be.editorUrl, variant));
+      await expectRendererBackend(view, variant);
+      await page.evaluate(() => {
+        const el = document.querySelector('canvas.tl-viewport')!;
+        const seen: string[] = [];
+        (window as unknown as { __merged: string[] }).__merged = seen;
+        new MutationObserver(() => {
+          const v = el.getAttribute('data-merged') ?? '';
+          if (seen[seen.length - 1] !== v) seen.push(v);
+        }).observe(el, { attributes: true, attributeFilter: ['data-merged'] });
+      });
+    };
+    const merged = async (): Promise<string> => (await view.getAttribute('data-merged')) ?? '';
+    await openView();
+    // Cells, objects drawn through them, cells still building (in the background: drawn alone until then).
+    await expect.poll(merged, { timeout: 60_000, message: 'the three static models drawn as one merged cell' }).toBe('1 3 0');
+    await expect.poll(async () => magentaPixels(decodePng(await view.screenshot())).length, { timeout: 30_000 }).toBeGreaterThan(40);
+    // A click on the leftmost magenta object selects it: members keep their entities for picking.
+    const pts = magentaPixels(decodePng(await view.screenshot())).sort((a, b) => a[0] - b[0]);
+    const left = pts.filter((p) => p[0] <= pts[0]![0] + 10);
+    const at = left.reduce((acc, p) => [acc[0] + p[0] / left.length, acc[1] + p[1] / left.length], [0, 0]);
+    const vb = (await view.boundingBox())!;
+    await page.mouse.click(vb.x + at[0] + 3, vb.y + at[1]);
+    await expect(page.locator('.tl-hierarchy__list li.tl-row[aria-selected="true"]').first()).toContainText(/Static \d/, { timeout: 15_000 });
+    // The selection is an outline: the selected object stays merged.
+    expect(await merged()).toBe('1 3 0');
+    // One moved by a command: out of the merged draw at once, back in where it is once it stays put.
+    await page.evaluate(() => void ((window as unknown as { __merged: string[] }).__merged.length = 0));
+    // (All three in one world cell: x > 0, z < 0.)
+    await cmd('setTransform', { entityId: statics[1]!, transform: { position: [3.5, 3.5, -2.5], rotation: [0, 0, 0, 1], scale: [1, 1, 1] } });
+    await expect.poll(async () => page.evaluate(() => (window as unknown as { __merged: string[] }).__merged.join(',')), { timeout: 15_000, message: 'the moved model leaves the merged draw and rejoins it' }).toMatch(/1 2 0.*1 3 0$/);
+    // Still drawn (the picture merged against unmerged is compared in Play below: the Scene view's framing on open
+    // depends on when the models arrive, so two opened views need not match).
+    expect(magentaPixels(decodePng(await view.screenshot())).length).toBeGreaterThan(40);
+
     // ---- Play: only a change regroups, only a moved member is copied ----
     blue.push(String((await cmd('createEntity', { sceneId: 'scene-main', kind: 'box', name: 'Blue 4', transform: { position: [3.5, 0.5, 1] }, box: { size: [1, 1, 1], material: { color: COLORS.blue } } }))['createdId']));
     const red0 = String((await query('queryEntities', { limit: 100, offset: 0 }) as { entities: { id: string; name: string }[] }).entities.find((e) => e.name === 'Red 0')!.id);
@@ -227,8 +294,11 @@ for (const variant of RENDERER_VARIANTS) {
       ];
       if (!batched) {
         for (const [name, args] of steps) await send(name, args);
+        await send('hide', { id: statics[0]! });
         return settledShot(canvas);
       }
+      // The static models: merged at load, every level copied.
+      await expect.poll(async () => { const m = (await batching())?.merging; return m === undefined ? '' : `${m.cells} ${m.merged} ${m.slots}`; }, { timeout: 30_000 }).toBe('1 3 6');
       // Red and blue batched (five each), the near level (four); the far placement drawn alone.
       await expect.poll(async () => { const b = await batching(); return b === undefined ? '' : `${b.groups} ${b.batched}`; }, { timeout: 60_000 }).toBe('3 14');
       // Idle: no regroup and no matrix copy, frame after frame.
@@ -252,6 +322,12 @@ for (const variant of RENDERER_VARIANTS) {
       }
       // Blue lost one; the near level gained the placement that crossed.
       expect(`${before.groups} ${before.batched}`).toBe('3 14');
+      // A static model a script hides leaves the merged draw (its copy stays for when it is shown again).
+      await send('hide', { id: statics[0]! });
+      await expect.poll(async () => { const m = (await batching())?.merging; return `${m?.cells} ${m?.merged} ${m?.slots}`; }, { timeout: 15_000 }).toBe('1 2 6');
+      const m = (await batching())!.merging!;
+      console.log(`[batch-dispose] Play merging: ${JSON.stringify(m)}`);
+      expect(m.buildsTotal, 'hiding rewrites the index only').toBe(1);
       return settledShot(canvas);
     };
     const batchedShot = await play(true);

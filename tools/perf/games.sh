@@ -12,6 +12,8 @@
 # The view to measure: TL_GAME_STEPS (JSON steps for every game: {"wait":ms}, {"key":"Enter"}, {"click":[x,y]})
 # or the default below per folder name — the keys that take each game from its title into its first scene.
 # Extra arguments for the run (e.g. --renderers webgpu --ablation) go in TL_GAME_ARGS.
+# TL_GAME_STATIC=1 marks the copy's placed models static first (tools/perf/mark-static.mjs): static batching
+# measured on a game whose scenes do not set the flag yet.
 set -eu
 cd "$(dirname "$0")/../.."
 [ -f dist/backend/backend.mjs ] || { echo "games: run npm run build first"; exit 2; }
@@ -29,6 +31,7 @@ for src in "$@"; do
   echo "games: copying $src to $copy"
   rm -rf "$copy"
   rsync -a --exclude .git --exclude node_modules "$src/" "$copy/"
+  [ "${TL_GAME_STATIC:-0}" = 1 ] && node tools/perf/mark-static.mjs "$copy"
   # shellcheck disable=SC2086
   node tools/perf/run.mjs village --project "$copy" --steps "$steps" ${TL_GAME_ARGS:-} || echo "games: $name failed"
   [ "${TL_GAMES_KEEP:-0}" = 1 ] || rm -rf "$copy"

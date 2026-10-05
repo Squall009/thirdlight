@@ -3,8 +3,8 @@
  * town — the shape the engine is measured on before and after the render
  * path work. Deterministic from a seed (generated files, no game content).
  *
- * - ~1,000 entities: ~650 placed props (model files with a root, parts and
- *   `_LOD0..2` levels; part of them recoloured by a project material, many
+ * - ~1,000 entities: ~650 placed props (static: a town's props never move;
+ *   model files with a root, parts and `_LOD0..2` levels; part of them recoloured by a project material, many
  *   with a box collider), ~50 instance sets of a scatter kit, 20 skinned
  *   figures playing an idle clip through an animator, 16 fire emitters whose
  *   effect lights (the effect light pool), a block-layer ground of 16 chunks,
@@ -23,7 +23,7 @@ import type { PerfBackend } from './backend';
 import { FIGURE_CLIP_SECONDS, figureGlb, propGlb, scatterKitGlb, type PropSpec } from './village-assets';
 
 /** Bump when the generated content changes (it keys the baseline). */
-export const VILLAGE_VERSION = 1;
+export const VILLAGE_VERSION = 2;
 export const VILLAGE_SEED = 28;
 
 /** The class's sizes (the plan below fills them exactly). */
@@ -167,7 +167,7 @@ export function villagePlan(seed = VILLAGE_SEED): VillagePlan {
       components['collider'] = { shape: { type: 'box', hx: r3(0.5 * s), hy: r3(1 * s), hz: r3(0.5 * s) } };
       counts.propColliders! += 1;
     }
-    into({ id: `prop-${i}`, name: `Prop ${i + 1}`, components });
+    into({ id: `prop-${i}`, name: `Prop ${i + 1}`, static: true, components });
     counts.props! += 1;
   }
   const buffers: VillagePlan['buffers'] = [];

@@ -16,6 +16,9 @@
  * - Editor lighting: the scenes' lights are left out of the documents and a
  *   two-light rig (a key, a fill) is a batch of its own.
  * - Inactive objects are hidden (`hiddenEntities`), with their children.
+ * - Objects that never move (their own or a folder's Static flag) say so in
+ *   their documents, as a game's resolved scene does: the adapter merges
+ *   them (static batching).
  *
  * Browser-safe and three.js-free except for the camera it reads.
  */
@@ -26,7 +29,7 @@ import type * as THREE from 'three';
 import type { ProjectedEntity } from '../session/projection';
 
 type Trs = { position: readonly number[]; rotation: readonly number[]; scale: readonly number[] };
-type Doc = { readonly id: string; readonly parentId?: string; readonly tags?: number; readonly components: Readonly<Record<string, unknown>> };
+type Doc = { readonly id: string; readonly parentId?: string; readonly tags?: number; readonly static?: true; readonly components: Readonly<Record<string, unknown>> };
 
 const IDENTITY: Trs = { position: [0, 0, 0], rotation: [0, 0, 0, 1], scale: [1, 1, 1] };
 /** The batch of entities in no scene (projects without scenes). */
@@ -67,6 +70,9 @@ export class SceneSource implements SceneRuntime {
   private revision = 0;
   private view: SceneSetView | null = null;
   private hidden: ReadonlySet<string> = new Set();
+  private statics: ReadonlySet<string> = new Set();
+  /** Entities whose static flag changed since the last sync (their documents are made again). */
+  private readonly flipped = new Set<string>();
   private rig = false;
   private camera: THREE.PerspectiveCamera | null = null;
 
@@ -100,7 +106,12 @@ export class SceneSource implements SceneRuntime {
    */
   sync(entities: readonly ProjectedEntity[], changed: readonly ProjectedEntity[] | null): void {
     let structure = false;
-    const list = changed ?? entities;
+    let list = changed ?? entities;
+    if (changed !== null && this.flipped.size > 0) {
+      const named = new Set(changed.map((e) => e.id));
+      list = [...changed, ...entities.filter((e) => this.flipped.has(e.id) && !named.has(e.id))];
+    }
+    this.flipped.clear();
     for (const e of list) {
       const t: Trs = e.kind === 'folder' ? IDENTITY : { position: e.position, rotation: e.rotation, scale: e.scale };
       const before = this.authored.get(e.id);
@@ -136,6 +147,14 @@ export class SceneSource implements SceneRuntime {
   setHidden(ids: ReadonlySet<string>): void {
     if (ids.size === this.hidden.size && [...ids].every((id) => this.hidden.has(id))) return;
     this.hidden = ids;
+  }
+
+  /** The objects that never move (a folder's Static flag passed down included); the same set object while it does not change. */
+  setStatic(ids: ReadonlySet<string>): void {
+    if (ids === this.statics) return;
+    for (const id of ids) if (!this.statics.has(id)) this.flipped.add(id);
+    for (const id of this.statics) if (!ids.has(id)) this.flipped.add(id);
+    this.statics = ids;
   }
 
   /** Draw an entity at this local transform for now (a gizmo drag, a timeline scrub); null: its authored one again. */
@@ -222,7 +241,7 @@ export class SceneSource implements SceneRuntime {
     const comps: Record<string, unknown> = rest;
     if (this.rig) delete comps['light'];
     const assets = [e.assetId, e.instances?.assetId].filter((a): a is string => a !== undefined).map((a) => [a, this.facts.assetKey(a)]);
-    return JSON.stringify([e.parentId, e.tags, comps, assets, e.instances !== undefined && e.instances.chunkSize === undefined ? (this.facts.instanceChunkSize() ?? null) : null]);
+    return JSON.stringify([e.parentId, e.tags, this.statics.has(e.id), comps, assets, e.instances !== undefined && e.instances.chunkSize === undefined ? (this.facts.instanceChunkSize() ?? null) : null]);
   }
 
   private docOf(e: ProjectedEntity, t: Trs): Doc {
@@ -234,7 +253,7 @@ export class SceneSource implements SceneRuntime {
     const inst = components['instances'] as { chunkSize?: number } | undefined;
     const chunk = this.facts.instanceChunkSize();
     if (inst !== undefined && inst.chunkSize === undefined && chunk !== undefined) components['instances'] = { ...inst, chunkSize: chunk };
-    return Object.freeze({ id: e.id, ...(e.parentId !== null ? { parentId: e.parentId } : {}), tags: e.tags, components: Object.freeze(components) });
+    return Object.freeze({ id: e.id, ...(e.parentId !== null ? { parentId: e.parentId } : {}), tags: e.tags, ...(this.statics.has(e.id) ? { static: true as const } : {}), components: Object.freeze(components) });
   }
 
   private publish(): void {

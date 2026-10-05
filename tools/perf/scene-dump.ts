@@ -124,7 +124,7 @@ export async function dumpScene(): Promise<DumpSummary | string> {
   const items: Record<string, unknown>[] = [];
   const lights: Record<string, unknown>[] = [];
   const BATCH_LAYER = 1 << 30;
-  scene.traverse((o) => {
+  const visit = (o: Obj): void => {
     // The effect light pool is one object: its slots in use are point lights to a plain page.
     const pool = o as unknown as { isEffectLights?: boolean; count: number; slots: { position: V & { toArray(): number[] }; color: { getHex(): number }; intensity: number; distance: number; decay: number }[] };
     if (pool.isEffectLights === true) {
@@ -170,7 +170,10 @@ export async function dumpScene(): Promise<DumpSummary | string> {
       it['inst'] = { at: put(arr), count: n };
     }
     items.push(it);
-  });
+  };
+  scene.traverse(visit);
+  // Drawables the engine draws through its batches are parked outside the scene's children: drawn too.
+  for (const p of (scene.userData['tlParked'] as Iterable<Obj> | undefined) ?? []) p.traverse(visit);
   const r = P.renderers[P.renderers.length - 1];
   const origin = location.origin;
   const bin = new Blob(chunks as BlobPart[]);

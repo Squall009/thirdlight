@@ -32,6 +32,7 @@ import { addBoxLightmapUv, createLightmapSet, type LightingBakeLike, type Lightm
 import { releaseEmissiveLooks, setEntityLook, SHARED_MATERIAL_KEY } from './node-materials';
 import { disposeObjectTree } from './dispose';
 import { BATCH_KEY, createAutoBatcher, markBatchable, unitBoxGeometry, type AutoBatcher, type AutoBatcherDiagnostics } from './batching';
+import { markStatic, STATIC_KEY } from './static-merge';
 import { compileIntoTarget, type Precompile } from './environment-nodes';
 import { INSTANCE_MATRIX_ATTRIBUTE } from './attribute-instancing';
 import { createEnvironmentRenderer, environmentHasLook, environmentTextureIds, layerEnvironment, renderPixelRatio, type EnvironmentLayerLike, type EnvironmentLike, type EnvironmentRenderer, type FogVolumeLike, type QualityLevel } from './environment';
@@ -458,7 +459,9 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     material.dispose();
   };
   /** Repeated objects drawn instanced (absent when the option turns it off). */
-  const batcher: AutoBatcher | null = opts.batching === false ? null : createAutoBatcher(scene);
+  const batcher: AutoBatcher | null = opts.batching === false ? null : createAutoBatcher(scene, { merging: opts.merging ?? 'load', park: (o, on) => graph.park(o, on) });
+  // A scene dump (the perf harness's plain page) reads the parked drawables with the scene.
+  scene.userData['tlParked'] = graph.parkedObjects();
   // Its update walks the graph for the world matrices right before every render: the renderer's own pass is left out.
   if (batcher !== null) scene.matrixWorldAutoUpdate = false;
   // It hears what enters and leaves the scene and what moved from the render graph (it never walks the scene).
@@ -518,9 +521,17 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   const overlays = new Map<string, Set<THREE.Object3D>>();
   const authoredBlockTypes = ((opts.snapshot as { blockTypes?: readonly BlockType[] }).blockTypes ?? []) as BlockType[];
   blockView.setTypes(authoredBlockTypes);
-  const realizeEntity = (e: (typeof opts.snapshot.scene.entities)[number]): void => {
+  /**
+   * The static scope of each realized entity that never moves: its scene (static batching merges per scene, so
+   * an unload drops only that scene's merged cells). None for an object kept loaded across scenes or spawned.
+   */
+  const staticScopes = new Map<string, string>();
+  const realizeEntity = (e: (typeof opts.snapshot.scene.entities)[number], sceneId: string | null = null): void => {
     const t = e.components.transform;
     graph.addEntity(e.id, e.parentId ?? null);
+    const flags = e as { static?: boolean; keepLoaded?: boolean };
+    const scope = sceneId !== null && flags.static === true && flags.keepLoaded !== true ? sceneId : null;
+    if (scope !== null) staticScopes.set(e.id, scope);
     graph.world.setLocal(e.id, t.position, t.rotation, t.scale);
     entityDocs.set(e.id, e);
     // Only an entity that shows something (or anchors an effect) gets a node, when it does; the rest is the table row.
@@ -548,6 +559,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       boxMesh = new THREE.Mesh(geometry, material);
       // Drawn through the one unit box scaled by the size when batched.
       boxMesh.userData[BATCH_KEY] = { geometry: unitBox, scale: [box.size[0], box.size[1], box.size[2]] };
+      if (scope !== null) boxMesh.userData[STATIC_KEY] = scope;
       // Boxes cast and receive the key light's shadow (data: box.castShadow / receiveShadow).
       applyShadowFlags(boxMesh, shadowFlagsOf(e.components));
       graph.nodeFor(e.id)!.add(boxMesh);
@@ -606,6 +618,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       disposeObjectTree(obj);
     }
     entityDocs.delete(id);
+    staticScopes.delete(id);
     const own = entityResources.get(id);
     if (own !== undefined) {
       for (const g of own.geometries) g.dispose();
@@ -614,7 +627,13 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       entityResources.delete(id);
     }
   };
-  for (const e of opts.snapshot.scene.entities) realizeEntity(e);
+  {
+    // The start scenes' entities, each with its scene (the snapshot's own scene when the runtime has no scene set).
+    const sceneOf = new Map<string, string>();
+    for (const b of opts.runtime.sceneSet?.()?.batches ?? []) for (const e of b.entities) sceneOf.set((e as { id: string }).id, b.sceneId);
+    const own = (opts.snapshot.scene as { sceneId?: string }).sceneId ?? null;
+    for (const e of opts.snapshot.scene.entities) realizeEntity(e, sceneOf.get(e.id) ?? own);
+  }
   // The view's camera, posed every frame from the camera brain (`applyResolvedCamera`). Aspect is a viewport
   // property, updated per frame from the canvas size.
   camera = new THREE.PerspectiveCamera(60, 1, 0.1, 100);
@@ -676,8 +695,10 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
         applyShadowFlags(root, shadowFlagsOf(entityDocs.get(entityId)?.components));
         // Values a script set before the model arrived.
         runtimeMaterials?.reapply(entityId);
-        // A model's meshes may be drawn together with other placements' (instance sets already are).
+        // A model's meshes may be drawn together with other placements' (instance sets already are), or merged when static.
         markBatchable(root);
+        const scope = staticScopes.get(entityId);
+        if (scope !== undefined) markStatic(root, scope);
         lightmaps?.apply(entityId, root);
         opts.onChange?.();
       },
@@ -963,7 +984,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     // A realized scene whose list was replaced in place (an editing host's scene): only the entities
     // whose document changed are realized again, and the ones gone released (all releases first: an
     // entity may move to another scene's list).
-    const edited: { rec: { ids: Set<string>; list: readonly unknown[] }; entities: readonly (typeof opts.snapshot.scene.entities)[number][] }[] = [];
+    const edited: { sceneId: string; rec: { ids: Set<string>; list: readonly unknown[] }; entities: readonly (typeof opts.snapshot.scene.entities)[number][] }[] = [];
     for (const b of set.batches) {
       const rec = realizedScenes.get(b.sceneId);
       if (rec === undefined || rec.list === b.entities) continue;
@@ -981,14 +1002,14 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
         removed = true;
       }
       rec.list = b.entities;
-      edited.push({ rec, entities });
+      edited.push({ sceneId: b.sceneId, rec, entities });
     }
     let added = false;
-    for (const { rec, entities } of edited) {
+    for (const { sceneId, rec, entities } of edited) {
       const fresh = entities.filter((e) => !rec.ids.has(e.id));
       if (fresh.length === 0) continue;
       for (const e of fresh) {
-        realizeEntity(e);
+        realizeEntity(e, sceneId);
         rec.ids.add(e.id);
       }
       realization?.addEntities(modelRefsOf(fresh));
@@ -997,7 +1018,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     for (const b of set.batches) {
       if (realizedScenes.has(b.sceneId)) continue;
       const entities = b.entities as unknown as (typeof opts.snapshot.scene.entities)[number][];
-      for (const e of entities) realizeEntity(e);
+      for (const e of entities) realizeEntity(e, b.sceneId);
       realizedScenes.set(b.sceneId, { ids: new Set(entities.map((e) => e.id)), list: b.entities });
       realization?.addEntities(modelRefsOf(entities));
       // Its entities hold what the preparation held.
@@ -1369,7 +1390,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     camera!.aspect = w / h;
     camera!.updateProjectionMatrix();
     // What the camera sees decides which texture mips stream in or out (presentation only).
-    opts.textureStreamer?.update(scene, camera!, h * renderer.getPixelRatio());
+    opts.textureStreamer?.update(scene, camera!, h * renderer.getPixelRatio(), false, graph.parkedObjects());
     // The viewport the view is drawn in (screen↔world projection in scripts uses its aspect).
     if (w !== reportedViewport[0] || h !== reportedViewport[1]) {
       reportedViewport[0] = w;
@@ -1399,6 +1420,8 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     graph.updateLods(camera!);
     // Regroup the repeated objects and copy their matrices (after every transform and look change).
     batcher?.update(camera!);
+    // Merged cells still building in the background, or a moved static object waiting to rejoin its cell: a host drawing on demand draws again.
+    if (batcher?.pending() === true) opts.onChange?.();
     // Shadows on before the draw (and before the precompile below, so the programs are built with
     // them); the first frame with the key light's shadow is its probe: if it throws, shadows go off
     // (soft degradation: the `shadows`/`shadowReason` pair is the diagnostic) and it is drawn again without.
@@ -1773,6 +1796,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       return null;
     },
     threeScene: () => scene,
+    pickables: () => graph.pickables(),
     attachOverlay(entityId, object): void {
       let hung = overlays.get(entityId);
       if (hung === undefined) overlays.set(entityId, (hung = new Set()));

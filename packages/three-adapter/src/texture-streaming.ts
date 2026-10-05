@@ -224,8 +224,13 @@ export interface TextureStreamer {
    * against the budget, first in line.
    */
   pin(texture: THREE.Texture): void;
-  /** Work out what the visible meshes need and move towards it (call before drawing a frame). */
-  update(scene: THREE.Object3D, camera: THREE.Camera, heightPx: number, force?: boolean): void;
+  /**
+   * Work out what the visible meshes need and move towards it (call before
+   * drawing a frame). `also`: meshes drawn through a batch outside the
+   * scene's children (each is measured where it is; the batch's own mesh,
+   * `userData.tlBatch`, is not).
+   */
+  update(scene: THREE.Object3D, camera: THREE.Camera, heightPx: number, force?: boolean, also?: Iterable<THREE.Object3D>): void;
   setBudget(bytes: number): void;
   observe(): TextureStreamingObservation;
   /** Levels loads in flight or waiting (tests wait for them). */
@@ -491,7 +496,7 @@ export function createTextureStreamer(options: TextureStreamerOptions): TextureS
       return root;
     },
 
-    update(scene, camera, heightPx, force = false) {
+    update(scene, camera, heightPx, force = false, also) {
       if (disposed) return;
       for (const s of [...streams]) if (s.closed) streams.delete(s);
       if (streams.size === 0) return;
@@ -514,9 +519,9 @@ export function createTextureStreamer(options: TextureStreamerOptions): TextureS
       const persp = (camera as THREE.PerspectiveCamera).isPerspectiveCamera === true ? (camera as THREE.PerspectiveCamera) : null;
       const ortho = (camera as THREE.OrthographicCamera).isOrthographicCamera === true ? (camera as THREE.OrthographicCamera) : null;
       const h = Math.max(1, heightPx);
-      scene.traverseVisible((o) => {
+      const measure = (o: THREE.Object3D): void => {
         const mesh = o as THREE.Mesh;
-        if (mesh.isMesh !== true || mesh.material === undefined) return;
+        if (mesh.isMesh !== true || mesh.material === undefined || mesh.userData['tlBatch'] === true) return;
         found.length = 0;
         for (const m of Array.isArray(mesh.material) ? mesh.material : [mesh.material]) streamedOf(m, found);
         if (found.length === 0) return;
@@ -541,7 +546,9 @@ export function createTextureStreamer(options: TextureStreamerOptions): TextureS
           s.weight = Math.max(s.weight, radiusPx);
           s.lastSeen = t;
         }
-      });
+      };
+      scene.traverseVisible(measure);
+      if (also !== undefined) for (const o of also) o.traverseVisible(measure);
       plan();
     },
 

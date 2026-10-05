@@ -35,6 +35,10 @@ export interface SceneCounts {
   materials: number;
   /** three's own counters (the last frame). */
   info: { calls: number; triangles: number; geometries: number; textures: number } | null;
+  /** Draw calls of the last frame by pass: the view's scene, shadow maps (a scene drawn from an orthographic light camera), post quads. */
+  passDraws: { scene: number; shadow: number; post: number };
+  /** The engine's merged static cells (meshes named `tl-merged:`): how many, how many drawn now, their GPU bytes. */
+  merged: { meshes: number; shown: number; vertexBytes: number; indexBytes: number };
 }
 
 export interface GpuPassTiming {
@@ -73,18 +77,23 @@ interface ProbeState {
   timestamps: boolean;
   /** Pass labels by render-context id (the timestamp uid's part before `:f<frame>`). */
   labels: Map<string, string>;
+  /** Draw calls by pass in the current and the last frame (three's `info.render.drawCalls`, nested renders apart). */
+  framePasses: { scene: number; shadow: number; post: number };
+  lastPasses: { scene: number; shadow: number; post: number };
 }
 
 /** Install with `addInitScript(installFrameProbe, { timestamps })` before the page's scripts. */
 export function installFrameProbe(opts: { timestamps: boolean }): void {
   const w = window as unknown as { __tlProbe?: ProbeState; __THREE_DEVTOOLS__?: EventTarget };
   if (w.__tlProbe !== undefined) return;
-  const P: ProbeState = { renderers: [], frameScenes: new Map(), lastScenes: new Map(), timestamps: opts.timestamps, labels: new Map() };
+  const P: ProbeState = { renderers: [], frameScenes: new Map(), lastScenes: new Map(), timestamps: opts.timestamps, labels: new Map(), framePasses: { scene: 0, shadow: 0, post: 0 }, lastPasses: { scene: 0, shadow: 0, post: 0 } };
   w.__tlProbe = P;
   const roll = (): void => {
     if (P.frameScenes.size > 0) {
       P.lastScenes = P.frameScenes;
       P.frameScenes = new Map();
+      P.lastPasses = P.framePasses;
+      P.framePasses = { scene: 0, shadow: 0, post: 0 };
     }
     requestAnimationFrame(roll);
   };
@@ -98,10 +107,25 @@ export function installFrameProbe(opts: { timestamps: boolean }): void {
     // Asked for at construction: WebGPU then requests the device feature; the frame window turns the queries off.
     if (P.timestamps && r.backend !== undefined) r.backend.trackTimestamp = true;
     const render = r.render;
-    r.render = function (this: ProbeRenderer, scene: unknown, camera: unknown) {
+    /** Draws of the renders running now (outermost first): a nested render's draws are not its parent's. */
+    const nested: number[] = [];
+    r.render = function (this: ProbeRenderer & { info?: { render?: { drawCalls?: number } } }, scene: unknown, camera: unknown) {
+      const ortho = (camera as { isOrthographicCamera?: boolean } | null)?.isOrthographicCamera === true;
       // The view camera, not a shadow map's (a scene is also rendered from its lights).
-      if (!P.frameScenes.has(scene) || (camera as { isOrthographicCamera?: boolean } | null)?.isOrthographicCamera !== true) P.frameScenes.set(scene, camera);
-      return render.call(this, scene, camera);
+      if (!P.frameScenes.has(scene) || !ortho) P.frameScenes.set(scene, camera);
+      const counter = (): number => this.info?.render?.drawCalls ?? 0;
+      const before = counter();
+      nested.push(0);
+      try {
+        return render.call(this, scene, camera);
+      } finally {
+        const inner = nested.pop()!;
+        const total = Math.max(0, counter() - before);
+        if (nested.length > 0) nested[nested.length - 1]! += total;
+        const s = scene as { isScene?: boolean; isQuadMesh?: boolean } | null;
+        const kind = s?.isScene === true ? (ortho ? 'shadow' : 'scene') : 'post';
+        P.framePasses[kind] += Math.max(0, total - inner);
+      }
     };
     const ins = r.inspector;
     if (ins !== undefined && typeof ins.beginRender === 'function') {
@@ -140,9 +164,10 @@ export function probeSetGpuTiming(on: boolean): boolean {
 /** In the page: what the scenes drawn last frame hold. */
 export function probeSceneCounts(): SceneCounts {
   const P = (window as unknown as { __tlProbe?: ProbeState }).__tlProbe;
-  const out: SceneCounts = { objects: 0, groups: 0, lods: 0, meshes: 0, hiddenMeshes: 0, instancedMeshes: 0, batchedMeshes: 0, skinnedMeshes: 0, bones: 0, lights: 0, pointLights: 0, materials: 0, info: null };
+  const out: SceneCounts = { objects: 0, groups: 0, lods: 0, meshes: 0, hiddenMeshes: 0, instancedMeshes: 0, batchedMeshes: 0, skinnedMeshes: 0, bones: 0, lights: 0, pointLights: 0, materials: 0, info: null, passDraws: { scene: 0, shadow: 0, post: 0 }, merged: { meshes: 0, shown: 0, vertexBytes: 0, indexBytes: 0 } };
   if (P === undefined) return out;
-  type O = { isScene?: boolean; isGroup?: boolean; isLOD?: boolean; isMesh?: boolean; isInstancedMesh?: boolean; isBatchedMesh?: boolean; isSkinnedMesh?: boolean; isBone?: boolean; isLight?: boolean; isPointLight?: boolean; visible: boolean; children: O[]; material?: unknown };
+  out.passDraws = { ...P.lastPasses };
+  type O = { isScene?: boolean; isGroup?: boolean; isLOD?: boolean; isMesh?: boolean; isInstancedMesh?: boolean; isBatchedMesh?: boolean; isSkinnedMesh?: boolean; isBone?: boolean; isLight?: boolean; isPointLight?: boolean; visible: boolean; children: O[]; material?: unknown; name?: string; geometry?: { attributes: Record<string, { array: { byteLength: number } }>; index: { array: { byteLength: number } } | null } };
   const mats = new Set<unknown>();
   const walk = (o: O, shown: boolean): void => {
     out.objects += 1;
@@ -153,6 +178,12 @@ export function probeSceneCounts(): SceneCounts {
       out.meshes += 1;
       if (!vis) out.hiddenMeshes += 1;
       else for (const m of Array.isArray(o.material) ? o.material : [o.material]) mats.add(m);
+    }
+    if (o.isMesh === true && o.name?.startsWith('tl-merged:') === true && o.geometry !== undefined) {
+      out.merged.meshes += 1;
+      if (vis) out.merged.shown += 1;
+      for (const a of Object.values(o.geometry.attributes)) out.merged.vertexBytes += a.array.byteLength;
+      out.merged.indexBytes += o.geometry.index?.array.byteLength ?? 0;
     }
     if (o.isInstancedMesh === true) out.instancedMeshes += 1;
     if (o.isBatchedMesh === true) out.batchedMeshes += 1;

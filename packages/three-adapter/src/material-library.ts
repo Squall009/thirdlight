@@ -67,6 +67,7 @@ import { instanceOrigin, standardNodeMaterialFrom } from './node-materials';
 import { decodeKtx2, isKtx2 } from './ktx2';
 import { textureHolds, type TextureHolds } from './texture-holds';
 import { SAMPLED_TEXTURES_KEY } from './texture-streaming';
+import { OBJECT_FRAME_KEY } from './static-merge';
 import type { ResourceManager } from '@thirdlight/runtime';
 
 export type MaterialShaderName = 'standard' | 'foliage' | 'kit' | 'unlit' | 'water';
@@ -501,6 +502,8 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
     const macroScale = TSL.uniform(num(p['macroNormalScale'], 1));
     let macro: THREE.Texture | null = null;
     const nm = m as unknown as MeshStandardNodeMaterial;
+    // It reads the object's origin: never merged into world space with others (static batching).
+    m.userData[OBJECT_FRAME_KEY] = true;
     // The object's (or instance's) world X over the period, per vertex.
     const shift = TSL.varying(TSL.modelWorldMatrix.mul(TSL.vec4(instanceOrigin(), 1)).x.div(period));
     // Colour, roughness and metalness maps sample at uv + shift, after their own transform (as the
@@ -664,6 +667,9 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
   };
   const markSampled = (e: { material: THREE.Material; compiled: CompiledMaterialGraph }): void => {
     e.material.userData[SAMPLED_TEXTURES_KEY] = sampledBy.get(e.compiled) ?? [];
+    // A graph that reads the object's own frame draws wrong merged into world space.
+    if (e.compiled.objectFrame) e.material.userData[OBJECT_FRAME_KEY] = true;
+    else delete e.material.userData[OBJECT_FRAME_KEY];
   };
   /** A compiled graph holds what it samples. */
   const holdGraphTextures = (e: GraphEntry): void => {

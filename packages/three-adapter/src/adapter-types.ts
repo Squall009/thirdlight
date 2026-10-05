@@ -147,6 +147,14 @@ export interface SceneAdapterOptions {
    */
   batching?: boolean;
   /**
+   * Static batching (with `batching` on): the meshes of static objects drawn
+   * alone merged per material and world cell (`static-merge.ts`). `load`
+   * (default: Play, the export) builds them before the frame is drawn;
+   * `background` (the editor) within a time budget per frame, the objects
+   * drawn alone until it is ready; `off` merges nothing (tests compare).
+   */
+  merging?: 'load' | 'background' | 'off';
+  /**
    * Called after each drawn frame, with the scenes that frame
    * attached (loaded scenes realized in it). The page's start and scene-load
    * timings read it; absent: nothing is called.
@@ -360,6 +368,8 @@ export interface SceneAdapter {
   entityOf?(object: THREE.Object3D): string | null;
   /** The three.js scene drawn: the listed drawables, the lights, and what a host adds (its overlay group). */
   threeScene?(): THREE.Scene;
+  /** What a ray picks among: the scene's drawables, those drawn through batches included (they are out of the scene's children). */
+  pickables?(): THREE.Object3D[];
   /** Hang an object on an entity: it moves and hides with it, and stays on when the entity is realized again. */
   attachOverlay?(entityId: string, object: THREE.Object3D): void;
   detachOverlay?(entityId: string, object: THREE.Object3D): void;

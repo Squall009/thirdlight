@@ -43,12 +43,18 @@
  *
  * Entities with nothing to draw (logic-only objects, empty markers) have a
  * table row and no Object3D at all.
+ *
+ * A listed drawable the batcher draws through an instanced batch or a merged
+ * static cell is parked: it stays listed (the batcher keeps it as a member,
+ * picking still finds it through `pickables`) but leaves the scene's
+ * children, so three's per-pass walks (matrices, the render list of the view
+ * and of every shadow map) skip it.
  */
 import * as THREE from 'three';
 import { WorldMatrices } from '@thirdlight/runtime';
 
 import type { BatchMembership } from './batching';
-import { LOD_LEVEL_KEY, pickLodLevel } from './lod-switch';
+import { LOD_LEVEL_KEY, LOD_OWNER_KEY, pickLodLevel } from './lod-switch';
 
 /** Whether three draws an object itself (a mesh, line, points, sprite or a light). */
 export function isDrawable(o: THREE.Object3D): boolean {
@@ -183,6 +189,8 @@ export class RenderGraph {
   private readonly posed = new Set<EntityNode>();
   /** What is in the scene's children through this graph (with a hint of where). */
   private readonly inScene = new Map<THREE.Object3D, number>();
+  /** Listed drawables drawn through a batch: out of the scene's children. */
+  private readonly parked = new Set<THREE.Object3D>();
   /** Entities hidden by themselves or an ancestor. */
   private hidden: ReadonlySet<string> = new Set();
   /** Bumped when entities or their parts change (the hidden set is derived again). */
@@ -205,6 +213,33 @@ export class RenderGraph {
   setMembership(m: BatchMembership | null): void {
     this.membership = m;
     if (m !== null) for (const o of this.inScene.keys()) m.listed(o);
+  }
+
+  /**
+   * A listed drawable is drawn through a batch (`on`) or on its own again:
+   * it leaves the scene's children or comes back. Nothing for an object not
+   * listed (or already there).
+   */
+  park(o: THREE.Object3D, on: boolean): void {
+    if (on) {
+      if (!this.inScene.has(o)) return;
+      this.detach(o);
+      this.parked.add(o);
+      return;
+    }
+    if (!this.parked.delete(o)) return;
+    this.inScene.set(o, this.scene.children.length);
+    this.scene.children.push(o);
+  }
+
+  /** What a ray picks among: the scene's children and the parked drawables (drawn through batches, picked themselves). */
+  pickables(): THREE.Object3D[] {
+    return this.parked.size === 0 ? [...this.scene.children] : [...this.scene.children, ...this.parked];
+  }
+
+  /** The parked drawables (a scene dump reads them with the scene). */
+  parkedObjects(): ReadonlySet<THREE.Object3D> {
+    return this.parked;
   }
 
   /** Add an entity's row (its local transform starts at identity). */
@@ -455,6 +490,8 @@ export class RenderGraph {
       }
       h.parts.push(part);
       for (const g of gates) g.sw.parts.push(part);
+      const nearest = gates[gates.length - 1];
+      if (nearest !== undefined) o.traverse((x) => void (x.userData[LOD_OWNER_KEY] = nearest.sw.lod));
       this.dirtyVisibility = true;
       this.gate(part);
       // A static mesh's child nodes would come into the scene with it: they hang beside it, their offset baked.
@@ -485,6 +522,9 @@ export class RenderGraph {
       }
       if (p.listed) this.unlistObject(p.object);
       p.listed = false;
+      // Gone for good from what this graph holds (a merged copy of it goes too).
+      this.membership?.dropped(p.object);
+      if (p.gates.length > 0) p.object.traverse((x) => void delete x.userData[LOD_OWNER_KEY]);
       p.object.matrixAutoUpdate = p.matrixAutoUpdate;
       p.object.matrixWorldAutoUpdate = p.matrixWorldAutoUpdate;
     }
@@ -552,17 +592,27 @@ export class RenderGraph {
    * world matrix is either written here or composed from that parent.
    */
   private listObject(o: THREE.Object3D): void {
-    if (this.inScene.has(o)) return;
+    if (this.inScene.has(o) || this.parked.has(o)) return;
     this.inScene.set(o, this.scene.children.length);
     this.scene.children.push(o);
     this.membership?.listed(o);
   }
 
   private unlistObject(o: THREE.Object3D): void {
+    if (this.parked.delete(o)) {
+      this.membership?.unlisted(o);
+      return;
+    }
+    if (!this.inScene.has(o)) return;
+    this.detach(o);
+    this.membership?.unlisted(o);
+  }
+
+  /** Out of the scene's children (no longer in `inScene`). */
+  private detach(o: THREE.Object3D): void {
     const hint = this.inScene.get(o);
     if (hint === undefined) return;
     this.inScene.delete(o);
-    this.membership?.unlisted(o);
     const children = this.scene.children;
     const i = children[hint] === o ? hint : children.indexOf(o);
     if (i < 0) return;

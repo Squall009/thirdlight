@@ -18,6 +18,8 @@ export interface EntityValue {
   id: string;
   name: string;
   parentId?: string;
+  /** The object never moves (static batching, bakes). */
+  static?: true;
   components: Record<string, unknown>;
 }
 

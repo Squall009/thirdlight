@@ -7,7 +7,7 @@
  * renderer and game mode, clearing the Play save).
  */
 import { useCallback, useEffect, useRef, useState, type Dispatch, type MutableRefObject, type SetStateAction } from 'react';
-import { BATCHING_URL_PARAM, batchingFromUrl, pageSearch, rendererPreferenceFromUrl, RENDERER_URL_PARAM } from '@thirdlight/three-adapter';
+import { BATCHING_URL_PARAM, batchingFromUrl, MERGING_URL_PARAM, mergingFromUrl, pageSearch, rendererPreferenceFromUrl, RENDERER_URL_PARAM } from '@thirdlight/three-adapter';
 import type { readEditorConfig } from '../../config';
 import type { SessionClient } from '../../session/client';
 import { Bridge } from '../../preview/bridge';
@@ -350,7 +350,7 @@ export function usePlaySession(
   // The editor page's ?renderer= flag is passed on to the play page (and ?batching=off, ?threads= and ?simDelayMs=).
   const previewSrc =
     playInfo?.playBase && playInfo.contentId !== null && playInfo.contentPath !== null
-      ? `${playInfo.playBase.replace(/\/$/, '')}${playInfo.contentPath}?play=${playInfo.playSessionId}&content=${playInfo.contentId}${urlRenderer.current !== null ? `&${RENDERER_URL_PARAM}=${urlRenderer.current}` : ''}${batchingFromUrl(pageSearch()) ? '' : `&${BATCHING_URL_PARAM}=off`}${urlThreads.current !== null ? `&threads=${urlThreads.current}` : ''}${urlSimDelay.current !== null ? `&simDelayMs=${urlSimDelay.current}` : ''}`
+      ? `${playInfo.playBase.replace(/\/$/, '')}${playInfo.contentPath}?play=${playInfo.playSessionId}&content=${playInfo.contentId}${urlRenderer.current !== null ? `&${RENDERER_URL_PARAM}=${urlRenderer.current}` : ''}${batchingFromUrl(pageSearch()) ? '' : `&${BATCHING_URL_PARAM}=off`}${mergingFromUrl(pageSearch()) ? '' : `&${MERGING_URL_PARAM}=off`}${urlThreads.current !== null ? `&threads=${urlThreads.current}` : ''}${urlSimDelay.current !== null ? `&simDelayMs=${urlSimDelay.current}` : ''}`
       : null;
   /** Clears the running Play's save (the Saves panel), or null when nothing is running. */
   const clearPlaySave =
