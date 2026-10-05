@@ -63,6 +63,10 @@ export interface FrameRunResult {
   mainThread: { taskMsPerFrame: number; busyShare: number };
   scene: SceneCounts;
   live: PageSample['live'];
+  /** WebGPU calls per frame (passes, pipeline and bind-group switches, buffer writes, texture uploads, submits). */
+  gpuCalls?: PageSample['gpuCallsPerFrame'];
+  /** The WebGPU shader modules the page made (distinct programs and their sizes). */
+  shaders?: PageSample['shaderModules'];
   gpu: GpuTimings | null;
   profile: ProfileSplit | null;
   dump?: DumpSummary | string;
@@ -215,6 +219,8 @@ export async function measurePage(browser: Browser, opts: FrameRunOptions): Prom
       mainThread: { taskMsPerFrame: Math.round((taskMs / nFrames) * 100) / 100, busyShare: Math.round((taskMs / Math.max(1, wall)) * 1000) / 1000 },
       scene,
       live: sample.live,
+      gpuCalls: sample.gpuCallsPerFrame,
+      shaders: sample.shaderModules,
       gpu,
       profile,
       errors,

@@ -15,6 +15,8 @@
  *                                round; 0.4 swings the camera across the level)
  *   --ablation                   the per-draw ablation on the plain page: + 16 dark point lights, + per-object
  *                                material copies, + the engine's node materials (each alone)
+ *   --first-bare                 also measure the first plain page (`fair=0`: noise textures, no environment
+ *                                lighting or grading, skinned meshes at rest) beside the plain page of the same content
  *   --query 'a=b&c=d'            add to the export's and the Scene view's page query (e.g. merging=off to compare)
  *   --vsync                      draw at the display's rate (a player's browser) instead of uncapped: frame drops
  *                                show as intervals of two refreshes or more
@@ -29,7 +31,7 @@
  * (latest-<name>.json too). tools/perf/games.sh runs it on copies of game projects.
  */
 import { execFileSync } from 'node:child_process';
-import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { cpus } from 'node:os';
 import { basename, join, resolve } from 'node:path';
 
@@ -59,6 +61,7 @@ export const FRAME_P95_REGRESSION = 0.5;
 /** The plain page's variants: the default, and the ablation's additions one at a time. */
 export const BARE_VARIANTS = {
   bare: '',
+  first: 'fair=0',
   'dark-lights': 'lights=16',
   'material-copies': 'copies=1',
   'node-materials': 'nodemat=1',
@@ -165,7 +168,7 @@ const hist = (h: readonly number[] | undefined): string => {
 export function frameLine(what: string, r: FrameRunResult): string {
   const gpu = r.gpu === null ? '' : r.gpu.available ? `, gpu ${r.gpu.msPerFrame} ms (${r.gpu.passes.slice(0, 4).map((p) => `${p.label} ${p.msPerFrame}`).join(', ')})` : `, gpu not measured (${r.gpu.note ?? 'no timestamp queries'})`;
   const pk = r.profile === null ? '' : `, main thread: ${r.profile.packages.slice(0, 5).map((p) => `${p.name} ${p.share}%`).join(', ')}`;
-  return `${what}: ${r.frames.fps} fps, frame p50/p95/p99/max ${r.frames.p50}/${r.frames.p95}/${r.frames.p99}/${r.frames.max ?? '-'} ms${hist(r.frames.histogram)}, ${r.draws.p50} draws (scene ${r.scene.passDraws?.scene ?? '-'}, shadow ${r.scene.passDraws?.shadow ?? '-'}, post ${r.scene.passDraws?.post ?? '-'}; shadow per frame mean/p95/max ${r.scene.shadowDraws?.mean ?? '-'}/${r.scene.shadowDraws?.p95 ?? '-'}/${r.scene.shadowDraws?.max ?? '-'}), ${Math.round(r.tris.p50 / 1000)}k tris, ${r.scene.objects} Object3Ds (${r.scene.groups} groups, ${r.scene.lods} LOD, ${r.scene.meshes} meshes of which ${r.scene.hiddenMeshes} hidden, ${r.scene.bones} bones, ${r.scene.pointLights} point lights)${r.scene.merged !== undefined && r.scene.merged.meshes > 0 ? `, ${r.scene.merged.shown}/${r.scene.merged.meshes} merged cells drawn (${Math.round((r.scene.merged.vertexBytes + r.scene.merged.indexBytes) / 1024)} KiB)` : ''}, ${r.live.uniformBuffers} uniform buffers, main thread ${r.mainThread.taskMsPerFrame} ms/frame (${Math.round(r.mainThread.busyShare * 100)}%)${gpu}${pk}${r.errors.length > 0 ? `; ${r.errors.length} page errors: ${r.errors[0]}` : ''}`;
+  return `${what}: ${r.frames.fps} fps, frame p50/p95/p99/max ${r.frames.p50}/${r.frames.p95}/${r.frames.p99}/${r.frames.max ?? '-'} ms${hist(r.frames.histogram)}, ${r.draws.p50} draws (scene ${r.scene.passDraws?.scene ?? '-'}, shadow ${r.scene.passDraws?.shadow ?? '-'}, post ${r.scene.passDraws?.post ?? '-'}; shadow per frame mean/p95/max ${r.scene.shadowDraws?.mean ?? '-'}/${r.scene.shadowDraws?.p95 ?? '-'}/${r.scene.shadowDraws?.max ?? '-'}), ${Math.round(r.tris.p50 / 1000)}k tris, ${r.scene.objects} Object3Ds (${r.scene.groups} groups, ${r.scene.lods} LOD, ${r.scene.meshes} meshes of which ${r.scene.hiddenMeshes} hidden, ${r.scene.bones} bones, ${r.scene.pointLights} point lights)${r.scene.merged !== undefined && r.scene.merged.meshes > 0 ? `, ${r.scene.merged.shown}/${r.scene.merged.meshes} merged cells drawn (${Math.round((r.scene.merged.vertexBytes + r.scene.merged.indexBytes) / 1024)} KiB)` : ''}, ${r.live.uniformBuffers} uniform buffers${r.gpuCalls ? `, per frame ${r.gpuCalls.renderPasses} render/${r.gpuCalls.computePasses} compute passes, ${r.gpuCalls.setPipeline} pipeline and ${r.gpuCalls.setBindGroup} bind-group sets, ${r.gpuCalls.createBindGroup} bind groups made, ${r.gpuCalls.writeBuffer} buffer writes (${Math.round(r.gpuCalls.writeBufferBytes / 1024)} KiB), ${r.gpuCalls.textureUploads} texture uploads, ${r.gpuCalls.submits} submits` : ''}${r.shaders ? `, ${r.shaders.distinct} shader modules (${Math.round(r.shaders.totalChars / 1024)} KiB WGSL, largest ${Math.round(r.shaders.maxChars / 1024)} KiB)` : ''}, ${r.live.pipelines} pipelines, main thread ${r.mainThread.taskMsPerFrame} ms/frame (${Math.round(r.mainThread.busyShare * 100)}%)${gpu}${pk}${r.errors.length > 0 ? `; ${r.errors.length} page errors: ${r.errors[0]}` : ''}`;
 }
 
 export async function runVillageCli(argv: readonly string[]): Promise<void> {
@@ -266,11 +269,15 @@ export async function runVillageCli(argv: readonly string[]): Promise<void> {
       if (typeof dumped === 'string' || dumped === undefined || !existsSync(join(dumpDir, 'scene.json'))) report.errors.push(`no scene dump: ${String(dumped)}`);
       else {
         log(`dump: ${dumped.items} drawn items (${dumped.instanced} instanced), ${dumped.geos} geometries, ${dumped.mats} materials, ${Math.round(dumped.bytes / 1048576)} MiB`);
+        const post = postSettingsOf(exportDir!);
+        if (post !== null) writeFileSync(join(dumpDir, 'post.json'), JSON.stringify(post));
+        log(`dump: ${dumped.textures} textures, ${dumped.skeletons} skeletons, environment ${dumped.environment ? 'yes' : 'no'}, post ${post === null ? 'none' : JSON.stringify(post)}`);
         const engineDir = join(runDir, 'engine');
         if (ablation) await bundleEngineMaterials(join(engineDir, 'materials.js'));
         const page = await serveStatic(join(REPO, 'tools', 'perf', 'bare'), { 'three/': join(REPO, 'node_modules', 'three'), 'scene/': dumpDir, 'engine/': engineDir });
         try {
-          const variants = (ablation ? Object.keys(BARE_VARIANTS) : ['bare']) as BareVariant[];
+          const variants = (ablation ? Object.keys(BARE_VARIANTS).filter((v) => v !== 'first') : ['bare']) as BareVariant[];
+          if (has('first-bare')) variants.push('first');
           for (const v of variants) {
             for (const r of renderers) {
               const q = [`renderer=${r}`, BARE_VARIANTS[v]].filter((x) => x !== '').join('&');
@@ -345,6 +352,23 @@ async function gpuName(browser: import('@playwright/test').Browser): Promise<str
     await page.close();
     await site.close();
   }
+}
+
+/**
+ * The post settings the plain page draws with: the exported scene's environment (`environment.post`). The scene
+ * with the most entities is the one measured (a game's title scene is small), which holds for the village and
+ * the game copies' default views.
+ */
+function postSettingsOf(exportDir: string): Record<string, unknown> | null {
+  const dir = join(exportDir, 'scenes');
+  if (!existsSync(dir)) return null;
+  let best: { n: number; post: Record<string, unknown> | null } = { n: -1, post: null };
+  for (const f of readdirSync(dir).filter((x) => x.endsWith('.json'))) {
+    const doc = JSON.parse(readFileSync(join(dir, f), 'utf8')) as { entities?: unknown[]; environment?: { post?: Record<string, unknown> } };
+    const n = doc.entities?.length ?? 0;
+    if (n > best.n) best = { n, post: doc.environment?.post ?? null };
+  }
+  return best.post;
 }
 
 /** The engine's node materials for the plain page (bare-engine-materials.ts), three left to the page's import map. */

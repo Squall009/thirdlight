@@ -47,6 +47,26 @@ export interface PerfPageState {
    * crossed the network and that the bodies held.
    */
   fetches: { n: number; cached: number; networkBytes: number; bodyBytes: number };
+  /** WebGPU calls while recording (the frame's GPU work as the API sees it: passes, binds, uploads). */
+  gpuCalls: GpuCalls;
+  /** WebGPU shader modules made, by their code (the programs' sizes; `__tlPerf.shaders` keeps the code for a look). */
+  shaders: Map<string, number>;
+}
+
+/** WebGPU calls counted over the recording window. */
+export interface GpuCalls {
+  renderPasses: number;
+  computePasses: number;
+  dispatches: number;
+  setPipeline: number;
+  setBindGroup: number;
+  createBindGroup: number;
+  writeBuffer: number;
+  writeBufferBytes: number;
+  /** Texture uploads (`writeTexture`, `copyExternalImageToTexture`) and their bytes. */
+  textureUploads: number;
+  textureUploadBytes: number;
+  submits: number;
 }
 
 /** One WebGL context or WebGPU device and what it holds now. */
@@ -64,6 +84,8 @@ export function installPerfInstrumentation(): void {
     draws: 0,
     tris: 0,
     recording: false,
+    gpuCalls: { renderPasses: 0, computePasses: 0, dispatches: 0, setPipeline: 0, setBindGroup: 0, createBindGroup: 0, writeBuffer: 0, writeBufferBytes: 0, textureUploads: 0, textureUploadBytes: 0, submits: 0 },
+    shaders: new Map(),
     frames: [],
     frameDraws: [],
     frameTris: [],
@@ -353,6 +375,40 @@ export function installPerfInstrumentation(): void {
     wrap(device, 'createRenderPipelineAsync', () => { P.live.pipelines += 1; });
     wrap(device, 'createComputePipelineAsync', () => { P.live.pipelines += 1; });
   }
+  // The frame's WebGPU work while recording.
+  const C = P.gpuCalls;
+  const on = (): boolean => P.recording;
+  const sizeOf = (d: unknown): number => (typeof d === 'number' ? d : d !== null && typeof d === 'object' && 'byteLength' in (d as object) ? Number((d as { byteLength: number }).byteLength) : 0);
+  if (device !== undefined) {
+    wrap(device, 'createBindGroup', () => { if (on()) C.createBindGroup += 1; });
+    wrap(device, 'createShaderModule', (_d, a) => {
+      const code = String((a[0] as { code?: string } | undefined)?.code ?? '');
+      P.shaders.set(code, (P.shaders.get(code) ?? 0) + 1);
+    });
+  }
+  const enc = g['GPUCommandEncoder']?.prototype;
+  wrap(enc, 'beginRenderPass', () => { if (on()) C.renderPasses += 1; });
+  wrap(enc, 'beginComputePass', () => { if (on()) C.computePasses += 1; });
+  for (const name of ['GPURenderPassEncoder', 'GPUComputePassEncoder', 'GPURenderBundleEncoder']) {
+    wrap(g[name]?.prototype, 'setPipeline', () => { if (on()) C.setPipeline += 1; });
+    wrap(g[name]?.prototype, 'setBindGroup', () => { if (on()) C.setBindGroup += 1; });
+  }
+  wrap(g['GPUComputePassEncoder']?.prototype, 'dispatchWorkgroups', () => { if (on()) C.dispatches += 1; });
+  wrap(g['GPUComputePassEncoder']?.prototype, 'dispatchWorkgroupsIndirect', () => { if (on()) C.dispatches += 1; });
+  const queue = g['GPUQueue']?.prototype;
+  wrap(queue, 'writeBuffer', (_q, a) => {
+    if (!on()) return;
+    C.writeBuffer += 1;
+    C.writeBufferBytes += a[4] !== undefined ? Number(a[4]) * (sizeOf(a[2]) > 0 && 'BYTES_PER_ELEMENT' in (a[2] as object) ? Number((a[2] as { BYTES_PER_ELEMENT: number }).BYTES_PER_ELEMENT) : 1) : sizeOf(a[2]) - Number(a[3] ?? 0);
+  });
+  wrap(queue, 'writeTexture', (_q, a) => { if (on()) { C.textureUploads += 1; C.textureUploadBytes += sizeOf(a[1]); } });
+  wrap(queue, 'copyExternalImageToTexture', (_q, a) => {
+    if (!on()) return;
+    const sz = a[2] as number[] | { width?: number; height?: number } | undefined;
+    C.textureUploads += 1;
+    C.textureUploadBytes += Array.isArray(sz) ? (sz[0] ?? 0) * (sz[1] ?? 1) * 4 : (sz?.width ?? 0) * (sz?.height ?? 1) * 4;
+  });
+  wrap(queue, 'submit', () => { if (on()) C.submits += 1; });
   wrap(g['GPUBuffer']?.prototype, 'destroy', (b) => {
     untrack(b);
     if (b !== null && typeof b === 'object' && uniformBuffers.delete(b)) P.live.uniformBuffers -= 1;
@@ -393,6 +449,7 @@ export function startRecording(): void {
   P.frames = [];
   P.frameDraws = [];
   P.frameTris = [];
+  for (const k of Object.keys(P.gpuCalls) as (keyof GpuCalls)[]) P.gpuCalls[k] = 0;
   P.recording = true;
 }
 
@@ -410,6 +467,10 @@ export interface PageSample {
   renderer: { requested?: string; backend?: string; state?: string; reason?: string } | null;
   nav: { domContentLoaded: number; load: number } | null;
   fetches: PerfPageState['fetches'];
+  /** WebGPU calls per drawn frame over the window (null: no WebGPU work seen). */
+  gpuCallsPerFrame: GpuCalls | null;
+  /** WebGPU shader modules made so far: how many distinct, and their WGSL sizes (characters). */
+  shaderModules: { distinct: number; made: number; totalChars: number; maxChars: number } | null;
 }
 
 /** In the page: stop recording and read everything (garbage-collected heap where `gc` is exposed). */
@@ -446,6 +507,8 @@ export async function readSample(stop: boolean): Promise<PageSample> {
     renderer,
     nav: navEntry !== undefined ? { domContentLoaded: navEntry.domContentLoadedEventEnd, load: navEntry.loadEventEnd } : null,
     fetches: { ...P.fetches },
+    gpuCallsPerFrame: P.gpuCalls.setPipeline === 0 ? null : (Object.fromEntries(Object.entries(P.gpuCalls).map(([k, v]) => [k, Math.round((v / Math.max(1, P.frameDraws.length)) * 10) / 10])) as unknown as GpuCalls),
+    shaderModules: P.shaders.size === 0 ? null : { distinct: P.shaders.size, made: [...P.shaders.values()].reduce((a, b) => a + b, 0), totalChars: [...P.shaders.keys()].reduce((a, c) => a + c.length, 0), maxChars: Math.max(...[...P.shaders.keys()].map((c) => c.length)) },
   };
 }
 

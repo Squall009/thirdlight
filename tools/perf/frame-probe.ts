@@ -224,12 +224,13 @@ export async function probeGpuPasses(ms: number): Promise<GpuTimings> {
   const byLabel = new Map<string, { ms: number; frames: Set<string> }>();
   const frames = new Set<string>();
   let total = 0;
-  const read = (): void => {
-    const pool = r.backend?.timestampQueryPool?.['render'];
+  // Compute passes (GPU particles, …) are timed in their own pool and count in the frame's GPU time too.
+  const read = (type: 'render' | 'compute'): void => {
+    const pool = r.backend?.timestampQueryPool?.[type];
     for (const [uid, d] of pool?.timestamps ?? []) {
       const m = /^(.*):f(\d+)$/.exec(uid);
       if (m === null || !Number.isFinite(d) || d < 0) continue;
-      const label = P.labels.get(m[1]!) ?? `context ${m[1]}`;
+      const label = type === 'compute' ? 'compute' : (P.labels.get(m[1]!) ?? `context ${m[1]}`);
       const row = byLabel.get(label) ?? { ms: 0, frames: new Set<string>() };
       row.ms += d;
       row.frames.add(m[2]!);
@@ -244,7 +245,11 @@ export async function probeGpuPasses(ms: number): Promise<GpuTimings> {
   while (performance.now() < end) {
     try {
       await r.resolveTimestampsAsync('render');
-      read();
+      read('render');
+      if (r.backend?.timestampQueryPool?.['compute'] !== undefined && r.backend.timestampQueryPool['compute'] !== null) {
+        await r.resolveTimestampsAsync('compute');
+        read('compute');
+      }
     } catch {
       break;
     }

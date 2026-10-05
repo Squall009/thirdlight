@@ -12,6 +12,18 @@
  * the node slots set, hooks of their own) so the per-draw ablation can
  * tell three's default materials from the engine's.
  *
+ * So the plain page draws the same content, not a stand-in for it:
+ * - every texture a material samples, as the GPU has it: a compressed
+ *   texture's mip levels in their GPU format (the KTX2 transcode), a data
+ *   texture's texels, an image as a PNG (`/__dump/tex-<id>.png`), with its
+ *   sampler and UV transform;
+ * - the background (a colour or a texture) and the environment lighting:
+ *   the PMREM texture the scene shades with, read back from the GPU, and its
+ *   intensity;
+ * - skinned meshes with their skeletons and the motion they played: each
+ *   bone's local pose sampled over `SKIN_SAMPLE_FRAMES` drawn frames, so the
+ *   page plays it back through three's own mixer.
+ *
  * Serialized into the page: it must not close over anything.
  */
 
@@ -22,6 +34,9 @@ export interface DumpSummary {
   instanced: number;
   bytes: number;
   lights: number;
+  textures: number;
+  skeletons: number;
+  environment: boolean;
 }
 
 export async function dumpScene(): Promise<DumpSummary | string> {
@@ -87,12 +102,84 @@ export async function dumpScene(): Promise<DumpSummary | string> {
     geos.set(g.uuid, e);
     return e.id;
   };
+  // Textures by uuid; images are encoded as PNG after the walk (async).
+  type Tex = Record<string, unknown> & { uuid: string; name: string; image: unknown; mipmaps?: { data: ArrayLike<number> & { buffer: ArrayBufferLike; byteOffset: number; byteLength: number; constructor: { name: string } }; width: number; height: number }[]; isCompressedTexture?: boolean; isDataTexture?: boolean; isRenderTargetTexture?: boolean; renderTarget?: unknown; offset: V & { toArray(): number[] }; repeat: { toArray(): number[] }; center: { toArray(): number[] }; rotation: number };
+  const texs = new Map<string, Record<string, unknown> & { id: number }>();
+  const images: { id: number; image: unknown }[] = [];
+  const texOf = (t: Tex | null | undefined): number | null => {
+    if (t === null || t === undefined || t.image === undefined || t.image === null) return null;
+    const known = texs.get(t.uuid);
+    if (known !== undefined) return known.id;
+    const e: Record<string, unknown> & { id: number } = {
+      id: texs.size,
+      name: t.name,
+      sampler: { wrapS: t['wrapS'], wrapT: t['wrapT'], magFilter: t['magFilter'], minFilter: t['minFilter'], anisotropy: t['anisotropy'], generateMipmaps: t['generateMipmaps'] },
+      colorSpace: t['colorSpace'],
+      flipY: t['flipY'],
+      premultiplyAlpha: t['premultiplyAlpha'],
+      mapping: t['mapping'],
+      channel: t['channel'],
+      format: t['format'],
+      type: t['type'],
+      uv: { offset: t.offset.toArray(), repeat: t.repeat.toArray(), center: t.center.toArray(), rotation: t.rotation },
+    };
+    const img = t.image as { data?: ArrayLike<number> & { buffer: ArrayBufferLike; byteOffset: number; byteLength: number; constructor: { name: string } }; width?: number; height?: number };
+    const putMips = (): unknown[] => (t.mipmaps ?? []).map((m) => ({ at: put(m.data), type: m.data.constructor.name, count: m.data.length, width: m.width, height: m.height }));
+    if (t.isRenderTargetTexture === true) e['kind'] = 'render-target';
+    else if (t.isCompressedTexture === true) {
+      e['kind'] = 'compressed';
+      e['width'] = img.width;
+      e['height'] = img.height;
+      e['mips'] = putMips();
+    } else if (img.data !== undefined) {
+      e['kind'] = 'data';
+      e['width'] = img.width;
+      e['height'] = img.height;
+      e['data'] = { at: put(img.data), type: img.data.constructor.name, count: img.data.length };
+      e['mips'] = putMips();
+    } else if ((img.width ?? 0) > 0) {
+      e['kind'] = 'image';
+      e['width'] = img.width;
+      e['height'] = img.height;
+      e['file'] = `tex-${e.id}.png`;
+      images.push({ id: e.id, image: img });
+    } else e['kind'] = 'none';
+    texs.set(t.uuid, e);
+    return e.id;
+  };
+  const MAP_SLOTS = ['map', 'normalMap', 'roughnessMap', 'metalnessMap', 'emissiveMap', 'aoMap', 'lightMap', 'alphaMap', 'bumpMap', 'displacementMap', 'envMap', 'specularMap'];
   const matOf = (m: Mat): number => {
     const known = mats.get(m.uuid);
     if (known !== undefined) return known.id;
     const nodes = Object.keys(m).filter((k) => k.endsWith('Node') && m[k] !== null && m[k] !== undefined);
     const hooks = Object.keys(m).filter((k) => typeof m[k] === 'function');
-    const maps = ['map', 'normalMap', 'roughnessMap', 'metalnessMap', 'emissiveMap', 'aoMap', 'lightMap', 'alphaMap', 'envMap'].filter((k) => m[k] !== null && m[k] !== undefined);
+    const maps = MAP_SLOTS.filter((k) => m[k] !== null && m[k] !== undefined);
+    const textures: Record<string, number> = {};
+    for (const k of maps) {
+      const id = texOf(m[k] as Tex);
+      if (id !== null) textures[k] = id;
+    }
+    // A node material's slots: the textures each one samples and its node count, so the plain page can draw
+    // the same textures through plain map slots (what a hand-written page has for a graph's look).
+    type Nd = { isTextureNode?: boolean; value?: Tex; getChildren?(): Iterable<Nd> };
+    const nodeMaps: Record<string, number[]> = {};
+    let nodeCount = 0;
+    for (const k of nodes) {
+      const seen = new Set<Nd>();
+      const ids: number[] = [];
+      const walk = (n: Nd): void => {
+        if (seen.has(n)) return;
+        seen.add(n);
+        if (n.isTextureNode === true && (n.value as { isTexture?: boolean } | undefined)?.isTexture === true) {
+          const id = texOf(n.value);
+          if (id !== null && !ids.includes(id)) ids.push(id);
+        }
+        for (const c of n.getChildren?.() ?? []) walk(c);
+      };
+      walk(m[k] as Nd);
+      nodeCount += seen.size;
+      if (ids.length > 0) nodeMaps[k] = ids;
+    }
     const e = {
       id: mats.size,
       type: m.type,
@@ -117,9 +204,36 @@ export async function dumpScene(): Promise<DumpSummary | string> {
       flatShading: m['flatShading'] === true,
       depthWrite: m['depthWrite'] !== false,
       blending: (m['blending'] as number | undefined) ?? 1,
+      textures,
+      nodeMaps,
+      nodeCount,
+      normalScale: (m['normalScale'] as { toArray(): number[] } | undefined)?.toArray() ?? null,
+      normalMapType: m['normalMapType'] ?? 0,
+      aoMapIntensity: m['aoMapIntensity'] ?? 1,
+      lightMapIntensity: m['lightMapIntensity'] ?? 1,
+      envMapIntensity: m['envMapIntensity'] ?? 1,
+      fog: m['fog'] !== false,
+      toneMapped: m['toneMapped'] !== false,
+      shadowSide: m['shadowSide'] ?? null,
     };
     mats.set(m.uuid, e);
     return e.id;
+  };
+  // Skeletons by uuid: the bones (a parent index among them, -1 for a root) and their bind inverses; the
+  // poses are sampled after the walk. A root bone's pose is its world matrix (what holds it is not drawn).
+  type M4 = { elements: number[]; copy(m: M4): M4; invert(): M4; multiply(m: M4): M4; clone(): M4 };
+  type Bone = { uuid: string; name: string; parent: Bone | null; matrixWorld: M4 };
+  type Skinned = { skeleton: { uuid: string; bones: Bone[]; boneInverses: M4[] }; bindMatrix: M4; bindMode: string };
+  const skels = new Map<string, Record<string, unknown> & { id: number; bones: Bone[] }>();
+  const skinOf = (o: Skinned): Record<string, unknown> => {
+    let sk = skels.get(o.skeleton.uuid);
+    if (sk === undefined) {
+      const bones = o.skeleton.bones;
+      const index = new Map(bones.map((b, i) => [b, i]));
+      sk = { id: skels.size, bones, parents: bones.map((b) => (b.parent !== null ? (index.get(b.parent) ?? -1) : -1)), names: bones.map((b) => b.name), inverses: o.skeleton.boneInverses.map((m) => Array.from(m.elements)) };
+      skels.set(o.skeleton.uuid, sk);
+    }
+    return { skeleton: sk.id, bindMatrix: Array.from(o.bindMatrix.elements), bindMode: o.bindMode };
   };
   const items: Record<string, unknown>[] = [];
   const lights: Record<string, unknown>[] = [];
@@ -157,6 +271,7 @@ export async function dumpScene(): Promise<DumpSummary | string> {
     if (!o.layers.test((camera as unknown as { layers: unknown }).layers) && !batched) return;
     const ms = Array.isArray(o.material) ? o.material : [o.material];
     const it: Record<string, unknown> = { g: geoOf(o.geometry), m: matOf(ms[0]!), multiMat: ms.length > 1 ? ms.length : 0, mw: Array.from(o.matrixWorld.elements), cast: o.castShadow, recv: o.receiveShadow, batched, skinned: o.isSkinnedMesh === true, name: o.name, frustumCulled: o.frustumCulled };
+    if (o.isSkinnedMesh === true) it['skin'] = skinOf(o as unknown as Skinned);
     const g = o.geometry;
     if (o.isInstancedMesh === true && o.instanceMatrix !== undefined) {
       const n = o.count ?? 0;
@@ -174,8 +289,73 @@ export async function dumpScene(): Promise<DumpSummary | string> {
   scene.traverse(visit);
   // Drawables the engine draws through its batches are parked outside the scene's children: drawn too.
   for (const p of (scene.userData['tlParked'] as Iterable<Obj> | undefined) ?? []) p.traverse(visit);
-  const r = P.renderers[P.renderers.length - 1];
+  const r = P.renderers[P.renderers.length - 1] as unknown as { readRenderTargetPixelsAsync?(rt: unknown, x: number, y: number, w: number, h: number): Promise<ArrayLike<number> & { buffer: ArrayBufferLike; byteOffset: number; byteLength: number; constructor: { name: string } }> } & (typeof P.renderers)[number] | undefined;
   const origin = location.origin;
+
+  // Bone poses over the next drawn frames: local to the parent bone (a root's is its world matrix).
+  const SKIN_SAMPLE_FRAMES = 60;
+  const t0 = performance.now();
+  const times: number[] = [];
+  const poses = new Map<number, number[][]>();
+  for (let f = 0; f < SKIN_SAMPLE_FRAMES && skels.size > 0; f += 1) {
+    await new Promise((res) => requestAnimationFrame(res));
+    times.push((performance.now() - t0) / 1000);
+    for (const sk of skels.values()) {
+      const frame: number[] = [];
+      for (const b of sk.bones) {
+        const parent = b.parent !== null && sk.bones.includes(b.parent) ? b.parent : null;
+        const local = parent === null ? b.matrixWorld.clone() : parent.matrixWorld.clone().invert().multiply(b.matrixWorld);
+        frame.push(...local.elements);
+      }
+      const list = poses.get(sk.id) ?? [];
+      list.push(frame);
+      poses.set(sk.id, list);
+    }
+  }
+  const skeletons = [...skels.values()].map((sk) => {
+    const list = poses.get(sk.id) ?? [];
+    const flat = new Float32Array(list.length * sk.bones.length * 16);
+    list.forEach((fr, i) => flat.set(fr, i * sk.bones.length * 16));
+    return { id: sk.id, parents: sk['parents'], names: sk['names'], inverses: sk['inverses'], frames: list.length, poses: { at: put(flat), count: flat.length } };
+  });
+
+  // The background, and the environment the scene shades with (a PMREM render target: read back).
+  type Sc = { background?: { isColor?: boolean; isTexture?: boolean; getHex?(): number } | null; environment?: Tex | null; environmentIntensity?: number; backgroundIntensity?: number; backgroundBlurriness?: number };
+  const sc = scene as unknown as Sc;
+  const bg = sc.background ?? null;
+  const background = bg === null ? null : bg.isColor === true ? { color: bg.getHex!() } : bg.isTexture === true ? { texture: texOf(bg as unknown as Tex) } : null;
+  let environment: Record<string, unknown> | null = null;
+  const env = sc.environment ?? null;
+  if (env !== null) {
+    const rt = env.renderTarget as { width: number; height: number } | null | undefined;
+    if (env.isRenderTargetTexture === true && rt !== null && rt !== undefined && r?.readRenderTargetPixelsAsync !== undefined) {
+      const px = await r.readRenderTargetPixelsAsync(rt, 0, 0, rt.width, rt.height);
+      // Rows come padded to 256 bytes (WebGPU's copy alignment): keep each row's texels only.
+      const texel = { Uint16Array: 8, Float32Array: 16, Uint8Array: 4 }[px.constructor.name] ?? 8;
+      const tight = new Uint8Array(rt.width * rt.height * texel);
+      const src = new Uint8Array(px.buffer, px.byteOffset, px.byteLength);
+      const stride = Math.ceil((rt.width * texel) / 256) * 256;
+      for (let y = 0; y < rt.height; y += 1) tight.set(src.subarray(y * stride, y * stride + rt.width * texel), y * rt.width * texel);
+      environment = { kind: 'pmrem', width: rt.width, height: rt.height, type: px.constructor.name, at: put(tight), bytes: tight.byteLength, intensity: sc.environmentIntensity ?? 1 };
+    } else environment = { kind: 'texture', texture: texOf(env), intensity: sc.environmentIntensity ?? 1 };
+  }
+
+  // Images as PNG files beside the dump.
+  const pngFailures: string[] = [];
+  for (const { id, image } of images) {
+    const im = image as { width: number; height: number };
+    try {
+      const c = new OffscreenCanvas(im.width, im.height);
+      const ctx = c.getContext('2d')!;
+      ctx.drawImage(image as CanvasImageSource, 0, 0);
+      const blob = await c.convertToBlob({ type: 'image/png' });
+      const ok = await fetch(`${origin}/__dump/tex-${id}.png`, { method: 'PUT', body: blob });
+      if (!ok.ok) pngFailures.push(`tex-${id}: ${ok.status}`);
+    } catch (e) {
+      pngFailures.push(`tex-${id}: ${String(e)}`);
+    }
+  }
+
   const bin = new Blob(chunks as BlobPart[]);
   const okBin = await fetch(`${origin}/__dump/scene.bin`, { method: 'PUT', body: bin });
   const fog = scene.fog ?? null;
@@ -189,11 +369,18 @@ export async function dumpScene(): Promise<DumpSummary | string> {
     exposure: r?.toneMappingExposure ?? 1,
     shadowType: r?.shadowMap?.type ?? null,
     pixelRatio: r?.getPixelRatio?.() ?? 1,
-    environment: scene.environment !== null && scene.environment !== undefined,
+    environment,
+    background,
+    backgroundIntensity: sc.backgroundIntensity ?? 1,
+    backgroundBlurriness: sc.backgroundBlurriness ?? 0,
+    textures: [...texs.values()],
+    skeletons,
+    skinTimes: times,
+    pngFailures,
     fog: fog === null ? null : { type: fog.constructor.name, color: fog.color.getHex(), density: fog.density ?? null, near: fog.near ?? null, far: fog.far ?? null },
     bytes: offset,
   };
   const okMeta = await fetch(`${origin}/__dump/scene.json`, { method: 'PUT', body: JSON.stringify(meta) });
   if (!okBin.ok || !okMeta.ok) return `dump upload failed (${okBin.status}/${okMeta.status})`;
-  return { geos: geos.size, mats: mats.size, items: items.length, instanced: items.filter((i) => i['inst'] !== undefined).length, bytes: offset, lights: lights.length };
+  return { geos: geos.size, mats: mats.size, items: items.length, instanced: items.filter((i) => i['inst'] !== undefined).length, bytes: offset, lights: lights.length, textures: texs.size, skeletons: skels.size, environment: environment !== null };
 }
