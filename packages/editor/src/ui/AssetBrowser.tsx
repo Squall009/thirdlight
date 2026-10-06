@@ -15,7 +15,7 @@ import type { AssetImportState } from '../session/asset-browser';
 import type { TileThumbnails } from '../viewport/thumbnails';
 import { useAssetSummaries, useCatalog } from './catalog/catalog-context';
 import type { AnimationRoleKey } from '../session/media';
-import { TexturePackForm, type PackRequest } from './TexturePackForm';
+import { TexturePackForm, type PackOutcome, type PackRequest } from './TexturePackForm';
 import type { LoadingNameActions } from './useLoadingNames';
 import { ProjectWindow } from './project/ProjectWindow';
 import type { ProjectCommands } from './project/useProjectCommands';
@@ -49,8 +49,8 @@ interface Props {
   pieces: { assetId: string; list: readonly { name: string }[] } | null;
   /** How new files are imported: a PNG/JPEG texture as is or encoded to KTX2; a model's images extracted into texture assets or kept inside. */
   importSettings?: ImportSettings;
-  /** Pack a KTX2 texture (array) from texture assets; resolves to an error message or null. */
-  onPackTexture?: (req: PackRequest) => Promise<string | null>;
+  /** Pack a KTX2 texture (array) from texture assets; resolves to an error or what was re-encoded. */
+  onPackTexture?: (req: PackRequest) => Promise<PackOutcome>;
   /** The folder controls (where uploads land, folder import) below the import buttons. */
   importExtra?: ReactNode;
   /** Labels on a multi-selection (one item's address and labels are in the Inspector). */

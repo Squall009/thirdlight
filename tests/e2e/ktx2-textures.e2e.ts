@@ -7,6 +7,12 @@
  *   PNG — the asset's facts line shows it).
  * - Content route (as MCP): a flat normal-map PNG imported with ktx2 "normal"
  *   (UASTC, linear) and published with its convertedFrom.
+ * - Packing from KTX2 textures in the Assets panel's "pack texture…" (once,
+ *   in the default project): two UASTC normal maps are joined into an array
+ *   as stored (each decoded mip level of a layer hashes as its source's); the
+ *   ETC1S checker (its PNG is the asset's file) and a copy of its KTX2
+ *   imported as is (no PNG beside it) make a colour array where only the
+ *   copy's layer is re-encoded, which the dialog and the sidecar say.
  * - Two unlit materials show them on two boxes (the checker's red and blue,
  *   the normal map's blue): the Scene view, Play (the preview's CSP lets the
  *   Basis transcoder run) and the static export with the backend stopped
@@ -15,15 +21,17 @@
  * Runs per renderer variant (renderer-variants.ts): auto, WebGL 2
  * (TL_E2E_ALL_VARIANTS=1 on a GPU), WebGPU in `webgpu`.
  */
-import { randomBytes, randomUUID } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { createReadStream, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import { tmpdir } from 'node:os';
 import { extname, join, normalize } from 'node:path';
+import { zstdDecompressSync } from 'node:zlib';
 
 import { expect, test, type Locator, type Page } from '@playwright/test';
 
 import { startBackend, type E2EBackend } from './backend';
+import { publishTexture } from './painted-layers';
 import { decodePng, type Image } from './png';
 import { makePng } from './png-make';
 import { editorUrlFor, expectRendererBackend, exportQueryFor, onlyInItsProject, RENDERER_VARIANTS } from './renderer-variants';
@@ -62,6 +70,78 @@ async function importEncoded(bytes: Uint8Array, mode: 'color' | 'normal', assetI
   expect(p['status'], JSON.stringify(inspected).slice(0, 300)).toBe('ok');
   await cmd('publishAsset', { mode: 'create', assetId, kind: 'texture', displayName: assetId, sourceDigest: p['sourceDigest'], sourceByteLength: p['sourceByteLength'], convertedFrom: inspected.convertedFrom, importRecipe: p['importRecipe'], metrics: p['metrics'], importedAt: new Date().toISOString().replace(/\.\d{3}Z$/, 'Z') });
   return inspected.convertedFrom!;
+}
+
+/** An asset's current bytes through the content route. */
+async function assetBytes(assetId: string): Promise<Uint8Array> {
+  const res = await fetch(`${be!.origin}/api/v1/projects/${be!.projectId}/content/assets/${assetId}/versions/1/bytes`, { headers: { authorization: `Bearer ${be!.token}`, origin: be!.origin } });
+  expect(res.status).toBe(200);
+  return new Uint8Array(await res.arrayBuffer());
+}
+
+/** Per mip level, per layer: the sha-256 of the decoded (Zstandard-decompressed) level data, read straight from the KTX2 container. */
+function levelDigests(ktx2: Uint8Array): string[][] {
+  const dv = new DataView(ktx2.buffer, ktx2.byteOffset, ktx2.byteLength);
+  const layers = Math.max(1, dv.getUint32(32, true));
+  const scheme = dv.getUint32(44, true);
+  const out: string[][] = [];
+  for (let l = 0; l < dv.getUint32(40, true); l++) {
+    const off = Number(dv.getBigUint64(80 + l * 24, true));
+    const len = Number(dv.getBigUint64(88 + l * 24, true));
+    const stored = ktx2.subarray(off, off + len);
+    const data = scheme === 2 ? new Uint8Array(zstdDecompressSync(stored)) : stored;
+    const n = data.length / layers;
+    out.push(Array.from({ length: layers }, (_, i) => createHash('sha256').update(data.subarray(i * n, (i + 1) * n)).digest('hex')));
+  }
+  return out;
+}
+
+/** Open "pack texture…", pack whole textures as layers; returns the dialog's result line. */
+async function packInDialog(page: Page, name: string, encoding: 'color' | 'normal' | 'data', layerAssets: readonly string[]): Promise<Locator> {
+  await page.getByRole('button', { name: 'pack texture…' }).click();
+  const form = page.getByLabel('pack texture');
+  await form.getByLabel('packed texture name').fill(name);
+  await form.getByLabel('packed texture encoding').selectOption(encoding);
+  for (let i = 0; i < layerAssets.length; i++) {
+    if (i > 0) await form.getByRole('button', { name: 'add layer' }).click();
+    await form.getByLabel(`layer ${i + 1} from`).selectOption(layerAssets[i]!);
+  }
+  await form.getByRole('button', { name: 'pack', exact: true }).click();
+  const result = form.getByTestId('pack-result');
+  await expect(result).toBeVisible({ timeout: 60_000 });
+  return result;
+}
+
+/** Packing from KTX2 texture assets (see the file comment). */
+async function packFromKtx2(page: Page, checkerId: string): Promise<void> {
+  await importEncoded(new Uint8Array(makePng(32, 32, (x) => [100 + x, 140, 240, 255])), 'normal', 'tilt-normal');
+  // The checker's KTX2 imported as is: a KTX2-only texture with no lossless PNG beside it.
+  await publishTexture(be!, await assetBytes(checkerId), 'lossy-checker', 'Lossy checker');
+  type Summary = { assetId: string; displayName: string; image?: unknown; versions?: { sourcePath?: string }[] };
+  const listed = async (): Promise<Summary[]> => (await query('queryAssets', { limit: 20, offset: 0, includeVersions: true }))['assets'] as Summary[];
+  expect((await listed()).find((a) => a.assetId === 'lossy-checker')!.image).toMatchObject({ format: 'ktx2', codec: 'etc1s' });
+
+  // Two UASTC normal maps: joined as stored.
+  const joined = await packInDialog(page, 'Joined normals', 'normal', ['flat-normal', 'tilt-normal']);
+  await expect(joined).toContainText('2 layers joined as stored (no re-encoding)');
+  await expect(joined).toHaveAttribute('data-reencoded', '');
+  const normals = (await listed()).find((a) => a.displayName === 'Joined normals')!;
+  expect(normals.image).toEqual({ format: 'ktx2', width: 32, height: 32, codec: 'uastc', levels: 6, layers: 2 });
+  const array = levelDigests(await assetBytes(normals.assetId));
+  const sources = [levelDigests(await assetBytes('flat-normal')), levelDigests(await assetBytes('tilt-normal'))];
+  expect(array.map((level) => level.length)).toEqual([2, 2, 2, 2, 2, 2]);
+  for (let l = 0; l < array.length; l++) expect(array[l]).toEqual([sources[0]![l]![0], sources[1]![l]![0]]);
+  await page.getByLabel('pack texture').getByRole('button', { name: 'close' }).click();
+
+  // ETC1S: the checker (its PNG read instead) and the KTX2-only copy (transcoded and re-encoded, flagged).
+  const mixed = await packInDialog(page, 'Mixed checkers', 'color', [checkerId, 'lossy-checker']);
+  await expect(mixed).toContainText('layer 2 re-encoded from lossy KTX2');
+  await expect(mixed).toHaveAttribute('data-reencoded', '2');
+  const packed = (await listed()).find((a) => a.displayName === 'Mixed checkers')!;
+  expect(packed.image).toEqual({ format: 'ktx2', width: 64, height: 64, codec: 'etc1s', levels: 7, layers: 2 });
+  const file = packed.versions![0]!.sourcePath!;
+  expect(JSON.parse(readFileSync(join(be!.projectDir, `${file}.tlasset`), 'utf8'))).toMatchObject({ importSettings: { packed: { encoding: 'color', reencodedLayers: [2] } } });
+  await page.getByLabel('pack texture').getByRole('button', { name: 'close' }).click();
 }
 
 type Pred = (r: number, g: number, b: number) => boolean;
@@ -145,6 +225,7 @@ for (const variant of RENDERER_VARIANTS) test(`KTX2 textures encoded on import (
   expect(normal).toMatchObject({ format: 'png', encoding: 'normal', converter: { name: 'ktx2-encoder', version: '0.6.0' } });
   const normalAsset = ((await query('queryAssets', { limit: 10, offset: 0 }))['assets'] as { assetId: string; image?: unknown }[]).find((a) => a.assetId === 'flat-normal')!;
   expect(normalAsset.image).toEqual({ format: 'ktx2', width: 32, height: 32, codec: 'uastc', levels: 6 });
+  if (variant === 'auto') await packFromKtx2(page, checkerAsset.assetId);
 
   // The scene: a dark sky, the camera looking along −Z at two boxes wearing unlit KTX2-textured materials.
   await cmd('setMaterial', { material: { materialId: 'mat-checker', name: 'Checker', shader: 'unlit', params: {}, textures: { map: checkerAsset.assetId } } });

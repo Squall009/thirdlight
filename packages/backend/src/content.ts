@@ -67,6 +67,7 @@ import type { BehaviorCompiler } from '@thirdlight/behavior-build';
 import { importKeyOfConverted, type CommandError, type IntegrityPage, type MutationSuccess, type StageInspector, type WorkspaceService } from '@thirdlight/workspace';
 import { isFbx, type FbxConverter } from './fbx';
 import { KTX2_ENCODER, type Ktx2Mode, type PackLayer, type PackSource, type TextureEncoder } from './texture-encode';
+import { losslessOriginal, textureVersionsOf } from './texture-originals';
 import type { AssetFileCheck } from './asset-files';
 import { THUMBNAIL_BYTES_MAX, type ThumbnailCache } from './thumbnails';
 import { BAKE_PACKAGE_BYTES_MAX, type BakeService } from './bake';
@@ -1347,12 +1348,14 @@ export class ContentRoutes {
   /**
    * Pack a KTX2 texture (a texture array with several layers)
    * from the project's texture assets, channel by channel. The sources are the
-   * named assets' current versions (PNG/JPEG/WebP, one size); the worker thread
-   * decodes, packs and encodes; the KTX2 is staged, inspected through the
-   * texture profile and held: the publish files it into the game folder as
-   * the packed texture's own file, its sidecar naming the sources. The
-   * response carries `packedFrom` (each channel's asset, version digest and
-   * channel) for the `publishAsset` args.
+   * named assets' current versions (PNG/JPEG/WebP/KTX2, one size); the worker
+   * thread joins whole UASTC layers as stored, or decodes (a KTX2 from its
+   * lossless PNG when there is one), packs and encodes; the KTX2 is staged,
+   * inspected through the texture profile and held: the publish files it into
+   * the game folder as the packed texture's own file, its sidecar naming the
+   * sources. The response carries `packedFrom` (each channel's asset, version
+   * digest and channel; which layers were re-encoded from a lossy KTX2) for
+   * the `publishAsset` args, and `lossless` (the PNG read for a KTX2 source).
    */
   private async packTexture(req: IncomingMessage, res: ServerResponse, projectId: string): Promise<void> {
     const auth = this.deps.requireAuth(req, projectId, false);
@@ -1372,24 +1375,35 @@ export class ContentRoutes {
     const sourceIndex = new Map<string, number>();
     const sources: Uint8Array[] = [];
     const digests: string[] = [];
+    const lossless: (Uint8Array | null)[] = [];
+    const losslessPaths: Record<string, string> = {};
+    let textures: Map<string, { version: number; sourcePath?: string; convertedFrom?: { format?: string; sourceDigest: string; sourcePath?: string } }> | null = null;
     for (const layer of layers) {
       for (const c of layer) {
         if (!('assetId' in c) || sourceIndex.has(c.assetId)) continue;
-        const q = this.deps.service.query({ op: 'queryAssets', projectId, args: { assetId: c.assetId, limit: 1, offset: 0 } }) as { ok: boolean; assets?: { kind: string; currentVersion: number; image?: { format: string } }[] };
+        const q = this.deps.service.query({ op: 'queryAssets', projectId, args: { assetId: c.assetId, limit: 1, offset: 0 } }) as { ok: boolean; assets?: { kind: string; currentVersion: number; image?: { format: string; width: number; height: number } }[] };
         const a = q.assets?.[0];
         if (!q.ok || a === undefined) return failed('asset_not_found', 'validation', `no texture asset "${c.assetId}" in this project`, { path: '/layers' });
         if (a.kind !== 'texture') return failed('asset_not_found', 'validation', `"${c.assetId}" is a ${a.kind} asset, not a texture`, { path: '/layers' });
-        if (a.image !== undefined && a.image.format === 'ktx2') return failed('conversion_failed', 'validation', `"${c.assetId}" is a KTX2 texture: packing reads PNG, JPEG or WebP textures (import the source image)`, { path: '/layers' });
         const blob = this.deps.service.readBlob(projectId, { assetId: c.assetId, version: a.currentVersion });
         if (!blob.ok) return this.deps.sendError(res, commandErrorToSession(blob.error));
+        // A KTX2's lossless PNG, read in its place should the layers need encoding.
+        let original: { path: string; bytes: Uint8Array } | null = null;
+        if (a.image?.format === 'ktx2') {
+          textures ??= textureVersionsOf(this.deps.service, projectId);
+          const v = textures.get(c.assetId);
+          if (v !== undefined) original = losslessOriginal(this.deps.service, projectId, v, a.image.width, a.image.height);
+        }
         sourceIndex.set(c.assetId, sources.length);
         sources.push(blob.bytes);
         digests.push(blob.digest);
+        lossless.push(original?.bytes ?? null);
+        if (original !== null) losslessPaths[c.assetId] = original.path;
       }
     }
     const channelIndex = { r: 0, g: 1, b: 2, a: 3 } as const;
     const packLayers: PackLayer[] = layers.map((l) => l.map((c): PackSource => ('value' in c ? { value: c.value } : { source: sourceIndex.get(c.assetId)!, channel: channelIndex[c.channel] })) as unknown as PackLayer);
-    const packed = await encoder.pack(sources, packLayers, encoding as Ktx2Mode);
+    const packed = await encoder.pack(sources, packLayers, encoding as Ktx2Mode, lossless);
     if (!packed.ok) return failed('conversion_failed', 'validation', packed.message, { path: '/layers' });
     const name = displayName ?? `packed-${layers.length > 1 ? 'array' : 'texture'}`;
     const begun = this.uploads.begin(projectId, name);
@@ -1426,8 +1440,11 @@ export class ContentRoutes {
         layers: layers.map((l) => l.map((c) => ('value' in c ? { value: c.value } : { assetId: c.assetId, digest: digests[sourceIndex.get(c.assetId)!]!, channel: c.channel }))),
         converter: { name: KTX2_ENCODER.name, version: KTX2_ENCODER.version },
         encoding,
+        reencoded: packed.reencoded,
       };
-      this.deps.sendJson(res, 200, { ok: true, proposal: p, packedFrom, truncated: false, jobId: job.jobId });
+      // `joined`: the UASTC layers were joined as stored; `lossless`: the PNG read for a KTX2 source (by asset).
+      const read = packed.joined ? {} : losslessPaths;
+      this.deps.sendJson(res, 200, { ok: true, proposal: p, packedFrom, joined: packed.joined, ...(Object.keys(read).length > 0 ? { lossless: read } : {}), truncated: false, jobId: job.jobId });
     } finally {
       this.deps.service.discardStage(projectId, stageId);
     }

@@ -328,6 +328,12 @@ export interface PackedFrom {
   layers: PackedChannel[][];
   converter: { name: 'ktx2-encoder'; version: string };
   encoding: 'color' | 'normal' | 'data';
+  /**
+   * Per layer: made from texels transcoded out of a lossy KTX2 and encoded
+   * again (false: joined as stored, or encoded from a lossless image).
+   * Absent on textures packed before KTX2 sources were taken.
+   */
+  reencoded?: boolean[];
 }
 
 export interface AssetVersion {

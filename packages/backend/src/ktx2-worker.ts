@@ -10,16 +10,16 @@ import { makeImageThumbnail } from './image-thumbnail';
 import { encodeKtx2, packKtx2, type Ktx2Mode, type PackLayer } from './texture-encode';
 
 let queue: Promise<void> = Promise.resolve();
-// `{id, pack: {sources, layers}, mode}` packs and encodes several images into one KTX2;
+// `{id, pack: {sources, layers, lossless}, mode}` packs several images into one KTX2;
 // `{id, thumbnail: bytes}` makes an image's tile thumbnail (a PNG).
-parentPort?.on('message', (m: { id: number; bytes?: Uint8Array; pack?: { sources: Uint8Array[]; layers: PackLayer[] }; thumbnail?: Uint8Array; mode: Ktx2Mode }) => {
+parentPort?.on('message', (m: { id: number; bytes?: Uint8Array; pack?: { sources: Uint8Array[]; layers: PackLayer[]; lossless?: (Uint8Array | null)[] }; thumbnail?: Uint8Array; mode: Ktx2Mode }) => {
   queue = queue.then(async () => {
     if (m.thumbnail !== undefined) {
       const png = await makeImageThumbnail(m.thumbnail);
       parentPort!.postMessage({ id: m.id, result: { thumbnail: png } }, png !== null ? [png.buffer as ArrayBuffer] : []);
       return;
     }
-    const result = m.pack !== undefined ? await packKtx2(m.pack.sources, m.pack.layers, m.mode) : await encodeKtx2(m.bytes!, m.mode);
+    const result = m.pack !== undefined ? await packKtx2(m.pack.sources, m.pack.layers, m.mode, m.pack.lossless ?? []) : await encodeKtx2(m.bytes!, m.mode);
     if (result.ok) parentPort!.postMessage({ id: m.id, result }, [result.ktx2.buffer as ArrayBuffer]);
     else parentPort!.postMessage({ id: m.id, result });
   });

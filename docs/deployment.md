@@ -1360,8 +1360,8 @@ one copy of its texture on the GPU (the streamed texture's `copies` in
 
 ### Packed textures and texture arrays (phase 25.21)
 
-The project window's **pack texture…** makes one KTX2 from PNG/JPEG texture assets
-already in the project, channel by channel: each layer's R, G, B and A come
+The project window's **pack texture…** makes one KTX2 from texture assets
+already in the project (PNG, JPEG, WebP or KTX2), channel by channel: each layer's R, G, B and A come
 from a channel of a texture (or a constant 0 / 128 / 255; "RGBA of…" fills a
 layer from one texture), all sources one size; the encoding is colour
 (ETC1S, sRGB — alpha stays linear, so a height map fits there), normal map
@@ -1373,6 +1373,18 @@ shows `KTX2 · … · n layers` and the textures it was packed from. MCP:
 `tl_content_upload {pack: {layers: [[{assetId, channel} | {value}, ×4], …],
 encoding}}`, then `publishAsset` with the returned `packedFrom`. The encoder
 takes at most 12 Mpix across the layers (four layers of 1024²).
+
+KTX2 sources (28b.2): when every layer is the whole of a UASTC KTX2 and all
+share size, mip count and the encoding's colour space (sRGB for colour,
+linear for normal map and data), the layers are **joined as stored** — no
+texel is decoded or encoded, and no encoder limit applies (up to 256 MiB in
+the largest mip level). Otherwise (ETC1S, whose codebook is per file; a size
+or mip mismatch; a channel repack such as height into albedo's alpha) a
+KTX2 is transcoded to RGBA and the layers are encoded once; where the KTX2
+has a lossless original — the PNG it was encoded from on import, or a PNG of
+the same name and size beside the KTX2 file — that PNG is read instead.
+`packedFrom.reencoded` says per layer whether it was encoded again from a
+lossy KTX2, and the dialog stays open after a pack to say so.
 
 ### Job exports from asset tools (phase 25.22)
 
@@ -3404,6 +3416,7 @@ its reason (the same line is next to its constant in the code):
 | Texture edge | 4,096 px | Kept after streaming: the KTX2 encoder makes at most about 3,500² (12 Mpix), WebGL 2 promises only 2,048 and many devices stop at 4,096, and a streamed texture close to the camera still needs its full-size level |
 | Texture budget | 512 MiB by default (`texture_budget_mb`, 1–65,536) | A runtime budget: streamed textures' mips fit it, the least needed dropped first; the mip tails and textures that do not stream are counted, never dropped |
 | KTX2 encoding | 12 Mpix per source (across a packed array's layers) | A known limit of the pinned encoder (Basis Universal 2.5), kept; a larger texture is imported as PNG/JPEG or encoded outside the editor |
+| Joined KTX2 array (UASTC layers packed as stored) | 256 MiB in the largest mip level, all layers (64 layers of 2048², 16 of 4096²) | The join holds that level twice while it compresses it |
 | Material instances | 8 parents deep | A chain resolved at build; deeper chains are an authoring smell |
 | Graphs | 4,096 nodes per graph (the kind may set fewer; 256 for a script or effect system graph, which compile into one bounded module) | The editor and the compiled output of one document |
 | UI documents / timelines | 512 widgets and 48 KiB per document; 256 keys per track and 48 KiB per timeline | Each is saved in one 64 KiB command |

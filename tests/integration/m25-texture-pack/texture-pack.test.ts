@@ -110,13 +110,13 @@ describe('texture packing over MCP and the pack route', () => {
     expect(JSON.stringify(slot.body)).toMatch(/texture array/);
   }, 120_000);
 
-  it('refuses sources of different sizes, a KTX2 source and an unknown texture, with the reason', async () => {
+  it('refuses sources of different sizes, a texture array as a source and an unknown texture, with the reason', async () => {
     const sized = await mcp.call('tl_content_upload', { pack: { layers: [[{ assetId: 'albedo-a', channel: 'r' }, { assetId: 'small', channel: 'r' }, { value: 0 }, { value: 255 }]], encoding: 'data' } });
     expect(sized.isError).toBe(true);
     expect(JSON.stringify(sized.body)).toMatch(/one size/);
     const ktx = await mcp.call('tl_content_upload', { pack: { layers: [[{ assetId: 'two-layers', channel: 'r' }, { value: 0 }, { value: 0 }, { value: 255 }]], encoding: 'data' } });
     expect(ktx.isError).toBe(true);
-    expect(JSON.stringify(ktx.body)).toMatch(/PNG, JPEG or WebP/);
+    expect(JSON.stringify(ktx.body)).toMatch(/a texture array or cube map cannot be a pack source/);
     const missing = await mcp.call('tl_content_upload', { pack: { layers: [[{ assetId: 'nope', channel: 'r' }, { value: 0 }, { value: 0 }, { value: 255 }]], encoding: 'color' } });
     expect(missing.isError).toBe(true);
     expect(JSON.stringify(missing.body)).toMatch(/no texture asset .{0,4}nope/);

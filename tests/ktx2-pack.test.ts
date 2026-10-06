@@ -122,10 +122,10 @@ describe('packKtx2', () => {
     [...t.layers[0]!.subarray(0, 4)].forEach((v, i) => expect(Math.abs(v - [10, 200, 90, 255][i]!)).toBeLessThanOrEqual(4));
   }, 60_000);
 
-  it('refuses sources of different sizes, KTX2 sources and too many pixels, with the reason', async () => {
+  it('refuses sources of different sizes, a broken KTX2 source and too many pixels, with the reason', async () => {
     const small = rgbaPng(8, 8, () => [0, 0, 0, 255]);
     expect(await packKtx2([albedo, small], [[{ source: 0, channel: 0 }, { source: 1, channel: 0 }, { value: 0 }, { value: 255 }]], 'data')).toMatchObject({ ok: false, message: expect.stringMatching(/one size/) });
-    expect(await packKtx2([new Uint8Array([0xab, 0x4b, 0x54, 0x58, 0x20, 0x32, 0x30, 0xbb, 0x0d, 0x0a, 0x1a, 0x0a])], [[{ source: 0, channel: 0 }, { value: 0 }, { value: 0 }, { value: 0 }]], 'data')).toMatchObject({ ok: false, message: expect.stringMatching(/a KTX2 cannot be unpacked/) });
+    expect(await packKtx2([new Uint8Array([0xab, 0x4b, 0x54, 0x58, 0x20, 0x32, 0x30, 0xbb, 0x0d, 0x0a, 0x1a, 0x0a])], [[{ source: 0, channel: 0 }, { value: 0 }, { value: 0 }, { value: 0 }]], 'data')).toMatchObject({ ok: false, message: expect.stringMatching(/source 1 could not be decoded: not a readable Basis Universal KTX2/) });
     expect(await packKtx2([albedo], [[{ value: 1 }, { value: 2 }, { value: 3 }, { value: 4 }]], 'data')).toMatchObject({ ok: false, message: expect.stringMatching(/at least one source/) });
   });
 });

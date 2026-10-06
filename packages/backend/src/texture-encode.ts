@@ -16,8 +16,14 @@
  *   filtered in linear space, channels kept apart (ETC1S would mix them).
  *
  * Packing — a KTX2 texture (a texture array with several
- * layers) made from texture assets' PNG/JPEG/WebP images channel by channel: each
+ * layers) made from texture assets' images channel by channel: each
  * layer's R, G, B and A come from a channel of a source image or a constant.
+ * When every layer is a whole UASTC KTX2 of one size, mip count and colour
+ * space (what a game's KTX2-only textures are), the layers are joined without
+ * re-encoding (`ktx2-container.ts`). Otherwise every source is decoded — a
+ * KTX2 is transcoded to RGBA, or its lossless original (a PNG the backend
+ * found) read in its place — and the layers are encoded once; a layer read
+ * from transcoded texels is reported re-encoded (a second lossy generation).
  * All sources are the same size; the encoder takes at most 12 Mpix across the
  * layers (4 layers of 1024², 2 of 2048²).
  *
@@ -34,6 +40,7 @@ import * as ktx2Encoder from 'ktx2-encoder';
 
 import { decodeImage, sourceFormat, type DecodedImage } from './image-decode';
 import { makeImageThumbnail } from './image-thumbnail';
+import { joinUastcLayers, KTX2_TRANSFER_LINEAR, KTX2_TRANSFER_SRGB, readKtx2 } from './ktx2-container';
 
 export type Ktx2Mode = 'color' | 'normal' | 'data';
 export const KTX2_MODES: readonly Ktx2Mode[] = ['color', 'normal', 'data'];
@@ -55,16 +62,26 @@ export type PackSource = { source: number; channel: 0 | 1 | 2 | 3 } | { value: n
 /** A packed layer's R, G, B and A sources. */
 export type PackLayer = readonly [PackSource, PackSource, PackSource, PackSource];
 
+/**
+ * A packed texture. `reencoded[i]`: layer i was made from texels transcoded
+ * out of a lossy KTX2 and encoded again; false where the layer was joined
+ * as stored or encoded from a lossless image. `joined`: the UASTC layers were
+ * joined without re-encoding.
+ */
 export type Ktx2PackResult =
-  | { ok: true; ktx2: Uint8Array; width: number; height: number; layers: number }
+  | { ok: true; ktx2: Uint8Array; width: number; height: number; layers: number; reencoded: boolean[]; joined: boolean }
   | { ok: false; code: 'texture_encode_unsupported' | 'texture_encode_failed'; message: string };
 
 export interface TextureEncoder {
   encode(bytes: Uint8Array, mode: Ktx2Mode): Promise<Ktx2EncodeResult>;
   /** A tile thumbnail (PNG) of a PNG, JPEG or WebP image; null when the image cannot be read. */
   thumbnail(bytes: Uint8Array): Promise<Uint8Array | null>;
-  /** Pack the layers' channels from the source images (PNG/JPEG/WebP bytes) and encode one KTX2 (an array with several layers). */
-  pack(sources: readonly Uint8Array[], layers: readonly PackLayer[], mode: Ktx2Mode): Promise<Ktx2PackResult>;
+  /**
+   * Pack the layers' channels from the source images (PNG/JPEG/WebP/KTX2 bytes) into one KTX2 (an
+   * array with several layers). `lossless[i]`: source i's lossless original (a PNG), read in place of
+   * a KTX2 source when the layers have to be encoded.
+   */
+  pack(sources: readonly Uint8Array[], layers: readonly PackLayer[], mode: Ktx2Mode, lossless?: readonly (Uint8Array | null)[]): Promise<Ktx2PackResult>;
   dispose?(): void;
 }
 
@@ -121,7 +138,66 @@ interface BasisEncoderLike {
   encode(out: Uint8Array): number;
   delete(): void;
 }
-let packModule: Promise<{ BasisEncoder: new () => BasisEncoderLike }> | null = null;
+/** The transcoder side of the same module (a KTX2 read back to RGBA). */
+interface Ktx2FileLike {
+  isValid(): boolean;
+  getWidth(): number;
+  getHeight(): number;
+  getLayers(): number;
+  getFaces(): number;
+  isHDR(): boolean;
+  startTranscoding(): boolean;
+  getImageTranscodedSizeInBytes(level: number, layer: number, face: number, format: number): number;
+  transcodeImage(dst: Uint8Array, level: number, layer: number, face: number, format: number, getAlphaForOpaqueFormats: number, channel0: number, channel1: number): number;
+  close(): void;
+  delete(): void;
+}
+interface BasisModuleLike {
+  BasisEncoder: new () => BasisEncoderLike;
+  KTX2File: new (bytes: Uint8Array) => Ktx2FileLike;
+  transcoder_texture_format: { cTFRGBA32: { value: number } };
+}
+let packModule: Promise<BasisModuleLike> | null = null;
+
+/** The pinned wrapper's Basis Universal module (encoder and transcoder), loaded once per thread. */
+async function basisModule(): Promise<BasisModuleLike | null> {
+  if (packModule === null) {
+    // The wrapper's Node entry exports its module loader (its typings name the browser entry's exports).
+    const Loader = (ktx2Encoder as unknown as { NodeBasisEncoder?: new () => { init(): Promise<unknown> } }).NodeBasisEncoder;
+    if (Loader === undefined) return null;
+    packModule = new Loader().init() as Promise<BasisModuleLike>;
+  }
+  return packModule;
+}
+
+/**
+ * A single-image KTX2's top mip level as RGBA bytes (the stored values: an
+ * sRGB texture's bytes stay sRGB-encoded, as a PNG's would be). Throws with
+ * the reason when it is not one LDR 2D image or exceeds `maxPixels`.
+ */
+async function transcodeKtx2Rgba(bytes: Uint8Array, maxPixels: number): Promise<DecodedImage> {
+  // The container is checked first: the transcoder takes a truncated header for a valid file.
+  if (readKtx2(bytes) === null) throw new Error('not a readable Basis Universal KTX2');
+  const mod = await basisModule();
+  if (mod === null) throw new Error('the KTX2 transcoder is not loaded');
+  const f = new mod.KTX2File(bytes);
+  try {
+    if (!f.isValid()) throw new Error('not a readable Basis Universal KTX2');
+    if (f.getLayers() > 1 || f.getFaces() !== 1) throw new Error('a texture array or cube map cannot be a pack source (pack single textures)');
+    if (f.isHDR()) throw new Error('an HDR KTX2 cannot be packed');
+    const width = f.getWidth();
+    const height = f.getHeight();
+    if (width * height > maxPixels) throw new Error(`${width}×${height} is more than the ${maxPixels} pixels a source may have here`);
+    if (!f.startTranscoding()) throw new Error('the transcoder refused it');
+    const format = mod.transcoder_texture_format.cTFRGBA32.value;
+    const data = new Uint8Array(f.getImageTranscodedSizeInBytes(0, 0, 0, format));
+    if (data.length !== width * height * 4 || !f.transcodeImage(data, 0, 0, 0, format, 0, -1, -1)) throw new Error('the transcoder could not decode it');
+    return { width, height, data };
+  } finally {
+    f.close();
+    f.delete();
+  }
+}
 /** Basis Universal's texture types (`basis_texture_type`): one 2D image, a 2D array. */
 const BASIS_TEX_2D = 0;
 const BASIS_TEX_2D_ARRAY = 1;
@@ -135,24 +211,44 @@ const SOURCE_RAW = 0;
  * 2D array (one image: a plain 2D texture) with the mode's settings — the
  * same as `encodeKtx2`'s for colour and normal maps.
  */
-export async function packKtx2(sources: readonly Uint8Array[], layers: readonly PackLayer[], mode: Ktx2Mode): Promise<Ktx2PackResult> {
+export async function packKtx2(sources: readonly Uint8Array[], layers: readonly PackLayer[], mode: Ktx2Mode, lossless: readonly (Uint8Array | null)[] = []): Promise<Ktx2PackResult> {
   if (layers.length < 1 || layers.length > MAX_TEXTURE_LAYERS) return { ok: false, code: 'texture_encode_unsupported', message: `a packed texture has 1-${MAX_TEXTURE_LAYERS} layers` };
   const used = new Set<number>();
   for (const l of layers) for (const c of l) if ('source' in c) used.add(c.source);
   if (used.size === 0) return { ok: false, code: 'texture_encode_unsupported', message: 'a packed texture needs at least one source image (its size)' };
+  // Every layer the whole RGBA of one KTX2: join them as stored when they are UASTC alike.
+  const whole = layers.map((l) => {
+    const s = l[0];
+    return s !== undefined && 'source' in s && l.every((c, k) => 'source' in c && c.source === s.source && c.channel === k) ? s.source : -1;
+  });
+  if (whole.every((i) => i >= 0 && sources[i] !== undefined && sourceFormat(sources[i]!) === 'ktx2')) {
+    const joined = joinUastcLayers(whole.map((i) => sources[i]!), mode === 'color' ? KTX2_TRANSFER_SRGB : KTX2_TRANSFER_LINEAR);
+    if (joined.ok) {
+      const head = readKtx2(joined.ktx2)!;
+      return { ok: true, ktx2: joined.ktx2, width: head.width, height: head.height, layers: layers.length, reencoded: layers.map(() => false), joined: true };
+    }
+  }
   // Only the sources a channel reads are decoded; the first fixes the size and
   // bounds the rest, so the decoded pixels never exceed the layers' budget.
   const images = new Map<number, DecodedImage>();
+  // The sources whose texels were transcoded out of a KTX2 (no lossless original given).
+  const transcoded = new Set<number>();
   let width = 0;
   let height = 0;
   for (const i of used) {
-    const bytes = sources[i];
-    if (bytes === undefined) return { ok: false, code: 'texture_encode_unsupported', message: `a channel names source ${i + 1}, which is not given` };
+    const given = sources[i];
+    if (given === undefined) return { ok: false, code: 'texture_encode_unsupported', message: `a channel names source ${i + 1}, which is not given` };
+    const original = lossless[i] ?? null;
+    const bytes = original !== null && sourceFormat(given) === 'ktx2' ? original : given;
     const format = sourceFormat(bytes);
-    if (format === null || format === 'ktx2') return { ok: false, code: 'texture_encode_unsupported', message: `source ${i + 1} is not a PNG, JPEG or WebP image (packing reads PNG/JPEG/WebP texture assets; a KTX2 cannot be unpacked)` };
+    if (format === null) return { ok: false, code: 'texture_encode_unsupported', message: `source ${i + 1} is not a PNG, JPEG, WebP or KTX2 image` };
     let img: DecodedImage;
     try {
-      img = await decodeImage(bytes, format, images.size === 0 ? KTX2_SOURCE_PIXELS_MAX : width * height);
+      const max = images.size === 0 ? KTX2_SOURCE_PIXELS_MAX : width * height;
+      if (format === 'ktx2') {
+        img = await transcodeKtx2Rgba(bytes, max);
+        transcoded.add(i);
+      } else img = await decodeImage(bytes, format, max);
     } catch (e) {
       const reason = e instanceof Error ? e.message : String(e);
       return { ok: false, code: 'texture_encode_failed', message: `source ${i + 1} could not be decoded: ${reason}${images.size > 0 ? ` (every source of a packed texture has one size, ${width}×${height})` : ''}` };
@@ -183,14 +279,10 @@ export async function packKtx2(sources: readonly Uint8Array[], layers: readonly 
     }
     return out;
   });
+  const reencoded = layers.map((l) => l.some((c) => 'source' in c && transcoded.has(c.source)));
   try {
-    if (packModule === null) {
-      // The wrapper's Node entry exports its module loader (its typings name the browser entry's exports).
-      const Loader = (ktx2Encoder as unknown as { NodeBasisEncoder?: new () => { init(): Promise<unknown> } }).NodeBasisEncoder;
-      if (Loader === undefined) return { ok: false, code: 'texture_encode_failed', message: 'the KTX2 encoder\'s Node entry is not loaded' };
-      packModule = new Loader().init() as Promise<{ BasisEncoder: new () => BasisEncoderLike }>;
-    }
-    const mod = await packModule;
+    const mod = await basisModule();
+    if (mod === null) return { ok: false, code: 'texture_encode_failed', message: 'the KTX2 encoder\'s Node entry is not loaded' };
     // The wrapper's module prints its progress unless this is off (encodeToKTX2 sets it per call).
     (globalThis as { __KTX2_DEBUG__?: boolean }).__KTX2_DEBUG__ = false;
     const enc = new mod.BasisEncoder();
@@ -220,7 +312,7 @@ export async function packKtx2(sources: readonly Uint8Array[], layers: readonly 
       for (let attempt = 0; attempt < 2; attempt++) {
         const out = new Uint8Array(capacity);
         const length = enc.encode(out);
-        if (length > 0) return { ok: true, ktx2: out.slice(0, length), width, height, layers: slices.length };
+        if (length > 0) return { ok: true, ktx2: out.slice(0, length), width, height, layers: slices.length, reencoded, joined: false };
         capacity *= 2;
       }
       return { ok: false, code: 'texture_encode_failed', message: 'KTX2 encoding failed (the encoder produced nothing)' };
@@ -237,7 +329,7 @@ export const KTX2_WORKER_LIMITS = { maxOldGenerationSizeMb: 512, maxYoungGenerat
 
 /** In this thread (tests; a busy encode holds the event loop). */
 export function createInlineTextureEncoder(): TextureEncoder {
-  return { encode: encodeKtx2, pack: packKtx2, thumbnail: (bytes) => makeImageThumbnail(bytes) };
+  return { encode: encodeKtx2, pack: (sources, layers, mode, lossless) => packKtx2(sources, layers, mode, lossless), thumbnail: (bytes) => makeImageThumbnail(bytes) };
 }
 
 /**
@@ -318,13 +410,15 @@ export function createWorkerTextureEncoder(workerUrl: URL, options: { idleMs?: n
         w.postMessage({ id, bytes: copy, mode }, [copy.buffer]);
       });
     },
-    pack(sources, layers, mode) {
+    pack(sources, layers, mode, lossless = []) {
       const w = start();
       const id = next++;
       return new Promise((resolve) => {
         pending.set(id, resolve as (r: Ktx2EncodeResult | Ktx2PackResult | { thumbnail: Uint8Array | null }) => void);
         const copies = sources.map((b) => b.slice());
-        w.postMessage({ id, pack: { sources: copies, layers }, mode }, copies.map((c) => c.buffer));
+        const originals = lossless.map((b) => (b === null ? null : b.slice()));
+        const moved = [...copies, ...originals.flatMap((b) => (b === null ? [] : [b]))].map((c) => c.buffer);
+        w.postMessage({ id, pack: { sources: copies, layers, lossless: originals }, mode }, moved);
       });
     },
     thumbnail(bytes) {

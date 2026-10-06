@@ -1,10 +1,13 @@
 /**
  * "Pack texture" — a KTX2 texture made from the project's
- * PNG/JPEG texture assets channel by channel; several layers make a texture
- * array (graph materials read a layer: Sample texture, Normal map and
- * Triplanar have a `layer` input). Typical packing for a painted terrain's
- * four layers: albedo RGB + height in A (colour), normal maps (normal map),
- * occlusion / roughness / metalness (data).
+ * texture assets (PNG, JPEG, WebP or KTX2) channel by channel; several layers
+ * make a texture array (graph materials read a layer: Sample texture, Normal
+ * map and Triplanar have a `layer` input). Typical packing for a painted
+ * terrain's four layers: albedo RGB + height in A (colour), normal maps
+ * (normal map), occlusion / roughness / metalness (data). After a pack the
+ * form stays open and says which layers were encoded again from a lossy
+ * KTX2 (whole UASTC layers are joined as stored), so a quality loss is seen
+ * where it was made.
  *
  * Display + intent only: the backend packs and encodes (the pack route), the
  * editor publishes the result with one `publishAsset` (the session client).
@@ -24,6 +27,18 @@ export interface PackRequest {
   encoding: 'color' | 'normal' | 'data';
   displayName: string;
 }
+/** A pack's outcome: its error, or per layer whether it was encoded again from a lossy KTX2. */
+export type PackOutcome = { error: string } | { reencoded: readonly boolean[]; joined: boolean };
+
+/** What a finished pack says about its layers. */
+export function packSummary(o: { reencoded: readonly boolean[]; joined: boolean }): string {
+  const n = o.reencoded.length;
+  const layers = n === 1 ? 'the layer' : `${n} layers`;
+  if (o.joined) return `Packed: ${layers} joined as stored (no re-encoding).`;
+  const again = o.reencoded.flatMap((r, i) => (r ? [i + 1] : []));
+  if (again.length === 0) return `Packed: ${layers} encoded from lossless images.`;
+  return `Packed: layer${again.length > 1 ? 's' : ''} ${again.join(', ')} re-encoded from lossy KTX2 (no lossless PNG found); the rest from lossless images.`;
+}
 
 const CHANNELS = ['r', 'g', 'b', 'a'] as const;
 /** A channel choice as a select value: `<assetId>:<channel>` or `=<value>`. */
@@ -32,10 +47,10 @@ const channelOf = (v: string): PackChannel => (v.startsWith('=') ? { value: Numb
 /** An empty layer: black, opaque. */
 const EMPTY: PackChannel[] = [{ value: 0 }, { value: 0 }, { value: 0 }, { value: 255 }];
 
-export function TexturePackForm(p: { onPack: (req: PackRequest) => Promise<string | null>; onClose: () => void }): JSX.Element {
+export function TexturePackForm(p: { onPack: (req: PackRequest) => Promise<PackOutcome>; onClose: () => void }): JSX.Element {
   // The channels offered: every texture when they all fit one picker list, else only those picked
   // with "add a source" or "RGBA of…" (searchable pickers) — never a silent first page. Plus any the
-  // form uses; KTX2 textures cannot be unpacked into channels.
+  // form uses.
   const page = useIndexList({ kinds: TEXTURE_KINDS });
   const listed: string[] = [];
   for (let i = 0; page.total !== null && page.total <= PICKER_SELECT_MAX && i < page.total; i++) {
@@ -49,11 +64,13 @@ export function TexturePackForm(p: { onPack: (req: PackRequest) => Promise<strin
   const [added, setAdded] = useState<readonly string[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [done, setDone] = useState<{ reencoded: readonly boolean[]; joined: boolean } | null>(null);
   const setLayer = (i: number, l: PackChannel[]): void => setLayers((ls) => ls.map((x, j) => (j === i ? l : x)));
   const used = layers.flatMap((l) => l.flatMap((c) => ('assetId' in c ? [c.assetId] : [])));
   const candidates = [...new Set([...listed, ...added, ...used])];
   const summaries = useAssetSummaries(candidates);
-  const sources = candidates.filter((_, i) => summaries[i] === undefined || summaries[i]!.image === undefined || summaries[i]!.image!.format === 'png' || summaries[i]!.image!.format === 'jpeg');
+  // A texture array is not a source (pack its own textures); every single image is.
+  const sources = candidates.filter((_, i) => summaries[i]?.image?.layers === undefined);
   const first = sources[0];
   const names = useEntryNames(sources, TEXTURE_KINDS);
   const options = (
@@ -73,16 +90,17 @@ export function TexturePackForm(p: { onPack: (req: PackRequest) => Promise<strin
   const pack = async (): Promise<void> => {
     setBusy(true);
     setError(null);
-    const err = await p.onPack({ layers, encoding, displayName: name.trim() === '' ? 'Packed texture' : name.trim() });
+    setDone(null);
+    const out = await p.onPack({ layers, encoding, displayName: name.trim() === '' ? 'Packed texture' : name.trim() });
     setBusy(false);
-    if (err !== null) setError(err);
-    else p.onClose();
+    if ('error' in out) setError(out.error);
+    else setDone(out);
   };
   return (
     <div className="tl-assets__pack" aria-label="pack texture">
       <div className="tl-subhead">Pack texture{layers.length > 1 ? ` array (${layers.length} layers)` : ''}</div>
       <p className="tl-note">
-        Channels of PNG/JPEG textures (one size) packed into one KTX2; each layer is one image of a texture array that graph materials sample by layer. The encoder takes at most 12 Mpix across the layers (4 layers of 1024²).
+        Channels of textures (one size) packed into one KTX2; each layer is one image of a texture array that graph materials sample by layer. Layers that are each the whole of a UASTC KTX2 of one size and mip count are joined as stored; otherwise the layers are encoded once (a KTX2 from its PNG when one is beside it), at most 12 Mpix across the layers (4 layers of 1024²).
       </p>
       <label className="tl-field">
         <span className="tl-field__label">name</span>
@@ -127,7 +145,12 @@ export function TexturePackForm(p: { onPack: (req: PackRequest) => Promise<strin
           close
         </button>
       </div>
-      {sources.length === 0 && <p className="tl-note">Import the PNG or JPEG images to pack first (keep the image, no KTX2 encoding).</p>}
+      {sources.length === 0 && <p className="tl-note">Import the textures to pack first.</p>}
+      {done !== null && (
+        <p className="tl-note" role="status" data-testid="pack-result" data-reencoded={done.reencoded.flatMap((r, i) => (r ? [i + 1] : [])).join(',')}>
+          {packSummary(done)}
+        </p>
+      )}
       {error !== null && (
         <div className="tl-assets__error" role="alert" data-testid="pack-error" title={error}>
           {error}

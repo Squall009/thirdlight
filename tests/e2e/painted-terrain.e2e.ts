@@ -130,7 +130,10 @@ for (const variant of RENDERER_VARIANTS) test(`painted terrain: height-blended l
     await form.getByLabel(`layer ${i + 1} A`).selectOption(`hgt-${i + 1}:r`);
   }
   await form.getByRole('button', { name: 'pack', exact: true }).click();
-  await expect(form).toHaveCount(0, { timeout: 60_000 });
+  // PNG sources: encoded once, nothing re-encoded; the form stays open with its result.
+  await expect(form.getByTestId('pack-result')).toContainText('4 layers encoded from lossless images', { timeout: 60_000 });
+  await form.getByRole('button', { name: 'close' }).click();
+  await expect(form).toHaveCount(0);
   const tile = page.locator('.tl-assets__list li[data-asset-id]').filter({ hasText: 'Terrain albedo' });
   await expect(tile).toHaveCount(1, { timeout: 10_000 });
   await tile.click();

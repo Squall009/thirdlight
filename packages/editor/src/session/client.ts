@@ -560,12 +560,14 @@ export class SessionClient extends SessionClientCore {
 
   /**
    * Pack a KTX2 texture (a texture array with several layers)
-   * from the project's PNG/JPEG texture assets, channel by channel, and
-   * publish it as a new texture asset (one `publishAsset`, one undo).
+   * from the project's texture assets, channel by channel, and
+   * publish it as a new texture asset (one `publishAsset`, one undo). The
+   * result says which layers were encoded again from a lossy KTX2 and
+   * whether the layers were joined as stored.
    */
-  async packTexture(req: { layers: ({ assetId: string; channel: 'r' | 'g' | 'b' | 'a' } | { value: number })[][]; encoding: 'color' | 'normal' | 'data'; displayName: string }): Promise<{ ok: true; assetId: string } | { ok: false; error: { code: string; message: string } }> {
+  async packTexture(req: { layers: ({ assetId: string; channel: 'r' | 'g' | 'b' | 'a' } | { value: number })[][]; encoding: 'color' | 'normal' | 'data'; displayName: string }): Promise<{ ok: true; assetId: string; reencoded: boolean[]; joined: boolean } | { ok: false; error: { code: string; message: string } }> {
     try {
-      const packed = await this.request<{ ok: true; packedFrom?: unknown; proposal: { status?: string; sourceDigest?: string; sourceByteLength?: number; importRecipe?: unknown; metrics?: unknown } }>(`/projects/${this.cfg.projectId}/content/textures/pack`, {
+      const packed = await this.request<{ ok: true; packedFrom?: { reencoded?: boolean[] }; joined?: boolean; proposal: { status?: string; sourceDigest?: string; sourceByteLength?: number; importRecipe?: unknown; metrics?: unknown } }>(`/projects/${this.cfg.projectId}/content/textures/pack`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify(req),
@@ -579,7 +581,7 @@ export class SessionClient extends SessionClientCore {
         const r = res.response;
         return { ok: false, error: r.ok === false ? { code: r.code, message: r.message ?? r.code } : { code: 'network', message: 'the command response was lost' } };
       }
-      return { ok: true, assetId };
+      return { ok: true, assetId, reencoded: packed.packedFrom.reencoded ?? req.layers.map(() => false), joined: packed.joined === true };
     } catch (e) {
       return { ok: false, error: this.describeError(e) };
     }

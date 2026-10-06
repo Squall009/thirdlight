@@ -101,7 +101,8 @@ both renderers where it changes drawing.
 |---|---|
 | 28b.0 | done 2026-10-03 |
 | 28b.1 | done 2026-10-06: validator refuses x ≠ z, Inspector ties x and z (`same` on vec descriptors), sloped stretch-back removed; D52 closed. `perf blocks` before → after (p95 / worst ms): scene block change webgpu 17.5/18.3 → 17.5/19.7, webgl2 17.6/19.6 → 17.6/18.2; export grid writes webgpu 6.0/13.4 → 6.0/15.6, webgl2 8.4/232 → 8.9/231 (noise). Fast gate's village perf check RED on webgpu p50 (7.5 ms vs limit 7.26) — clean HEAD 0c04d623 measures 7.7 ms too, so it predates this item (baseline recorded before 28c.15). |
-| 28b.2–28b.7 | — |
+| 28b.2 | part A done 2026-10-06: the pack route takes KTX2 sources; whole UASTC layers alike are joined as stored (level digests and transcoded texels equal the sources', vitest + e2e), else transcoded (or their PNG read) and encoded once with `packedFrom.reencoded` per layer, shown by the pack dialog. 4 × 1024² UASTC: joined in 14 ms (187 KB) vs 26.9 s encoding the same from PNG (187 KB); 4 × 1024² ETC1S re-encoded from KTX2 8.7 s (494 KB; from PNG 10.1 s, 474 KB). Part B (per-layer slots) open. |
+| 28b.3–28b.7 | — |
 
 ## 5. Decision log
 
@@ -122,4 +123,18 @@ both renderers where it changes drawing.
   7.6 / 7.3 ms; `08aaeab7` itself went 6.0–6.4 → 7.5–8.1 ms between runs at
   ~02:00 with no code change; plain three.js page unchanged (6.2–6.5 ms).
   Baseline WebGPU p50/p95 6.6/8.1 → 7.5/9.4 ms, WebGL 2 4.1/6.8 → 4.2/6.8 ms.
+  Default chosen, owner to confirm.
+- 2026-10-06 (28b.2 A): `packedFrom.reencoded` is one boolean per layer
+  beside `layers` (the plan's `layers[].reencoded` can't hold a field: a layer
+  is its [R, G, B, A] list). True only for a layer read from texels
+  transcoded out of a KTX2 with no lossless original; joined layers and
+  layers from PNG/JPEG/WebP or a found PNG are false. The pack dialog now
+  stays open after a pack to show this. Default chosen, owner to confirm.
+- 2026-10-06 (28b.2 A): a join needs the sources' colour space to be the
+  encoding's (sRGB for colour, linear for normal map / data); a joined colour
+  array stays UASTC (not ETC1S). Only a PNG counts as a lossless original:
+  the import's `convertedFrom` PNG with its recorded digest, or a PNG of the
+  same name and size beside the KTX2 file. A join holds at most 256 MiB in
+  its largest level (64 layers of 2048²); the encoder's 12 Mpix limit does
+  not apply to it. Texture arrays and cube maps are refused as sources.
   Default chosen, owner to confirm.

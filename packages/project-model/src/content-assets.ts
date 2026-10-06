@@ -294,7 +294,7 @@ function validatePackedFrom(v: Record<string, unknown>, path: string, errors: Mo
   if (kind !== 'texture') return void errors.push(unexpectedField(path, 'packedFrom', 'only a texture version can be packed'));
   if (v['convertedFrom'] !== undefined) return void errors.push(unexpectedField(path, 'packedFrom', 'a packed version is its own KTX2 file; it has no convertedFrom'));
   if (!isPlainObject(pf)) return void errors.push(fieldType(path, pf, 'object'));
-  for (const k of Object.keys(pf)) if (!['layers', 'converter', 'encoding'].includes(k)) errors.push(unexpectedField(`${path}/${pointerSegment(k)}`, k, 'layers, converter, encoding'));
+  for (const k of Object.keys(pf)) if (!['layers', 'converter', 'encoding', 'reencoded'].includes(k)) errors.push(unexpectedField(`${path}/${pointerSegment(k)}`, k, 'layers, converter, encoding, reencoded'));
   if (!(KTX2_ENCODINGS as readonly unknown[]).includes(pf['encoding'])) errors.push(fieldValue(`${path}/encoding`, pf['encoding'], '"color" | "normal" | "data"', 'the KTX2 encoding is "color" (ETC1S), "normal" or "data" (UASTC)'));
   const c = pf['converter'];
   if (!isPlainObject(c) || c['name'] !== 'ktx2-encoder' || typeof c['version'] !== 'string' || !/^\d+\.\d+(\.\d+)?$/.test(c['version']) || Object.keys(c).length !== 2) {
@@ -302,6 +302,10 @@ function validatePackedFrom(v: Record<string, unknown>, path: string, errors: Mo
   }
   const layers = pf['layers'];
   if (!Array.isArray(layers) || layers.length < 1 || layers.length > MAX_TEXTURE_LAYERS) return void errors.push(fieldValue(`${path}/layers`, layers, `1-${MAX_TEXTURE_LAYERS} layers`, 'packedFrom.layers lists each layer\'s four channel sources'));
+  const re = pf['reencoded'];
+  if (re !== undefined && (!Array.isArray(re) || re.length !== layers.length || !re.every((b) => typeof b === 'boolean'))) {
+    errors.push(fieldValue(`${path}/reencoded`, re, `${layers.length} booleans`, 'packedFrom.reencoded says per layer whether it was encoded again from a lossy KTX2'));
+  }
   layers.forEach((layer, i) => {
     const lp = `${path}/layers/${i}`;
     if (!Array.isArray(layer) || layer.length !== 4) return void errors.push(fieldValue(lp, layer, '[R, G, B, A] sources', 'a layer lists its R, G, B and A sources'));
@@ -610,6 +614,7 @@ function canonicalPackedFrom(p: PackedFrom): PackedFrom {
     layers: p.layers.map((l) => l.map((c) => ('value' in c ? { value: c.value } : { assetId: c.assetId, digest: c.digest, channel: c.channel }))),
     converter: { name: p.converter.name, version: p.converter.version },
     encoding: p.encoding,
+    ...(p.reencoded !== undefined ? { reencoded: [...p.reencoded] } : {}),
   };
 }
 

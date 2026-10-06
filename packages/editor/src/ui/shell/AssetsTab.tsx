@@ -48,12 +48,12 @@ export function AssetsTab(props: AssetsTabProps): JSX.Element {
       importSettings={importSettings}
       onPackTexture={async (req) => {
         const c = clientRef.current;
-        if (c === null) return 'not connected';
+        if (c === null) return { error: 'not connected' };
         const res = await c.packTexture(req);
-        if (!res.ok) return res.error.message;
+        if (!res.ok) return { error: res.error.message };
         await c.fullResync();
         setSelectedAssetId(res.assetId);
-        return null;
+        return { reencoded: res.reencoded, joined: res.joined };
       }}
       onReimport={(f) => void importFile(f, 'reimport')}
       folderImport={props.folderImport}

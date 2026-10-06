@@ -518,8 +518,9 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       'in the import cache (git-ignored, made again from the FBX when missing). ' +
       'kind "texture" takes a PNG, JPEG, WebP or a Basis Universal KTX2 (ETC1S/UASTC with its mips; a 2D array is a texture array); ktx2 "color"|"normal"|"data" is an ' +
       'import setting of a PNG/JPEG/WebP: the image is the file, the KTX2 encoded from it is kept in the import cache. ' +
-      'pack (instead of dataBase64/projectPath) makes a KTX2 texture from PNG/JPEG/WebP texture assets already in the project, channel by channel — ' +
-      'several layers make a texture array (graph materials sample a layer: Sample texture / Normal map / Triplanar "layer"); the result carries packedFrom, which the publishAsset args (kind "texture") must include. ' +
+      'pack (instead of dataBase64/projectPath) makes a KTX2 texture from texture assets already in the project (PNG/JPEG/WebP/KTX2), channel by channel — ' +
+      'several layers make a texture array (graph materials sample a layer: Sample texture / Normal map / Triplanar "layer"); layers that are each a whole UASTC KTX2 of one size and mip count are joined as stored (joined: true), ' +
+      'otherwise a KTX2 is transcoded (or its lossless PNG read) and the layers encoded once, packedFrom.reencoded[i] true where layer i was encoded again from a lossy KTX2; the result carries packedFrom, which the publishAsset args (kind "texture") must include. ' +
       `kind "font" inspects a TrueType (.ttf), OpenType (.otf), WOFF2 or WOFF font (<= 4 MiB) for the project UI; publish it with kind "font". ` +
       'jobExport imports an asset tool\'s job export: a folder or a .zip holding a GLB and manifest.json {name, files: [{path, role, digest (sha256 hex)}], triangles?, lods?} ' +
       '(exactly one file with role "model", a .glb; every listed file is checked against its digest; other roles are checked, not imported). jobExport {path} names a folder or .zip in the game folder; ' +

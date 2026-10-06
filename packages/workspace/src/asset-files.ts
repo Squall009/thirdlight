@@ -104,6 +104,7 @@ export interface VersionLike {
     readonly layers: readonly (readonly ({ readonly assetId: string; readonly digest: string; readonly channel: string } | { readonly value: number })[])[];
     readonly converter: { readonly name: string; readonly version: string };
     readonly encoding: string;
+    readonly reencoded?: readonly boolean[];
   };
   readonly metrics?: unknown;
 }
@@ -199,6 +200,8 @@ export function importSettingsOf(record: RecordLike): Record<string, unknown> {
       layers: p.layers.map((layer) =>
         layer.map((c) => ('value' in c ? { value: c.value } : { id: c.assetId, channel: c.channel })),
       ),
+      // The layers encoded again from a lossy KTX2 (numbered from 1), for a person reading the file.
+      ...(p.reencoded?.includes(true) === true ? { reencodedLayers: p.reencoded.flatMap((r, i) => (r ? [i + 1] : [])) } : {}),
     };
   }
   if (record.vertexColors !== undefined) out['vertexColors'] = record.vertexColors;
