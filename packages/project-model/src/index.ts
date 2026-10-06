@@ -1090,7 +1090,9 @@ export {
   type SurfaceHit,
 } from './block-surface';
 // A prop's block footprint: the cells beneath it and the meta edits that move it.
-export { footprintCells, footprintEdits, footprintMinCell, overLayer, turnedSize, yawQuarterTurns, type FootprintLayer } from './block-footprint';
+export { footprintCells, footprintEdits, footprintMinCell, footprintPlaces, overLayer, turnedSize, yawQuarterTurns, type FootprintLayer, type FootprintNode, type FootprintProp } from './block-footprint';
+// World matrices over a scene's hierarchy (the command layer and the editor read world places alike).
+export { compose, decompose, IDENTITY, invert, multiply, placeInWorld, pointInParent, worldMatrix, type HierarchyNode, type Mat4 } from './world-matrix';
 export { PNG_DECODE_MAX_PIXELS, decodeBase64, decodePngRgba, encodeBase64, inflateZlib, type DecodedPng, type PngDecodeOptions } from './png-decode';
 // The project save schema (save document, slots, sections, settings document).
 export {

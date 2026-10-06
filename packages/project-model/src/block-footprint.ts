@@ -5,11 +5,13 @@
  * edits that move the footprint's fields from one set of cells to another.
  *
  * The command layer writes footprints with the change that moves, places or
- * deletes the prop; the editor uses the same geometry to snap props onto
- * cell tops. Pure: no DOM, no three.js.
+ * deletes the prop; the editor uses the same geometry (world places included)
+ * to snap props onto cell tops and to write a footprint again, so both pick
+ * the same cells. Pure: no DOM, no three.js.
  */
 import type { BlockFootprintComponent, BlockLayerComponent, CellMetaValue } from './block-layers';
 import type { BlockEdit } from './block-grid';
+import { decompose, worldMatrix, type HierarchyNode } from './world-matrix';
 
 /** A layer as footprints see it: its component and the world position of its cell 0's min corner. */
 export interface FootprintLayer {
@@ -93,4 +95,36 @@ export function footprintEdits(before: readonly number[], after: readonly number
   if (kept.length > 0 && dropped.length > 0) edits.push({ kind: 'meta', set: Object.fromEntries(dropped.map((k) => [k, null])), at: kept });
   if (after.length > 0 && keys.length > 0) edits.push({ kind: 'meta', set: { ...set }, at: [...after] });
   return edits.length > 0 ? edits : null;
+}
+
+/** A prop with a footprint at its world position and rotation. */
+export interface FootprintProp {
+  fp: BlockFootprintComponent;
+  position: readonly number[];
+  rotation: readonly number[];
+}
+
+/** An entity as footprints read it: its place in the hierarchy and the two components that matter. */
+export type FootprintNode = HierarchyNode & { active?: boolean; components: HierarchyNode['components'] & { blockFootprint?: BlockFootprintComponent; blockLayer?: BlockLayerComponent } };
+
+/**
+ * The props with footprints (world position and rotation, the parents'
+ * transforms applied) and the active block layers (world origin) of one
+ * scene's entities.
+ */
+export function footprintPlaces(entities: Iterable<FootprintNode>): { props: Map<string, FootprintProp>; layers: Map<string, FootprintLayer> } {
+  const byId = new Map<string, FootprintNode>();
+  for (const e of entities) byId.set(e.id, e);
+  const props = new Map<string, FootprintProp>();
+  const layers = new Map<string, FootprintLayer>();
+  for (const e of byId.values()) {
+    const fp = e.components.blockFootprint;
+    const layer = e.components.blockLayer;
+    const isLayer = layer !== undefined && e.active !== false;
+    if (fp === undefined && !isLayer) continue;
+    const m = worldMatrix(byId, e.id);
+    if (fp !== undefined) props.set(e.id, { fp, position: [m[12]!, m[13]!, m[14]!], rotation: decompose(m).rotation });
+    if (isLayer) layers.set(e.id, { component: layer, origin: [m[12]!, m[13]!, m[14]!] });
+  }
+  return { props, layers };
 }

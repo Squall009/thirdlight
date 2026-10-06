@@ -42,7 +42,8 @@ export function snapToCellTop(layers: readonly PropLayer[], p: readonly number[]
   return best;
 }
 
-function round4(v: number): number {
+/** A coordinate rounded to 0.1 mm (no -0), as snapped positions are stored. */
+export function round4(v: number): number {
   const r = Math.round(v * 10_000) / 10_000;
   return r === 0 ? 0 : r;
 }

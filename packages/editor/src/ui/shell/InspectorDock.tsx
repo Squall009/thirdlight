@@ -18,9 +18,6 @@ import { indexKindsOfAssetField } from '../catalog/RefPicker';
 import { MaterialMappingEditor } from '../material/MaterialInspector';
 import { AnimatorInspector } from '../animator/AnimatorInspector';
 import { PlayDebugView } from '../PlayDebugView';
-import type { BlockFootprintComponent } from '@thirdlight/project-model';
-import { yawQuarterTurns } from '@thirdlight/runtime';
-import { snapToCellTop } from '../../session/block-footprint';
 import { GraphInspector } from '../../graph/GraphInspector';
 import { effectPortContext, shownSystem } from '../effect/EffectDocument';
 import { functionName as scriptFunctionName } from '../../session/visual-debug';
@@ -276,7 +273,7 @@ function EntityInspector(props: InspectorDockProps): JSX.Element {
   const { settings, tags } = props.settings;
   const { addComponentTo, applyPreset, colliderFromModel, colliderFromModel3D, componentError, editComponent, editProperty, fitCapsuleToModel, propertyError, selectedSourceMaterials, setEntityMaterialParams, setEntityMaterials } = props.entity;
   const { editCopiesRef, editTransform, rename, setEntityTags, setFlag } = props.scene;
-  const { propLayers, writeFootprint, blockEditor, blockRows, blockTypes, cellFields, blockStamps, blockHandlersRef, blockRun, blockEdit, createBlockLayer } = props.blocks;
+  const { writeFootprint, snapLocal, blockEditor, blockRows, blockTypes, cellFields, blockStamps, blockHandlersRef, blockRun, blockEdit, createBlockLayer } = props.blocks;
   return (
     <Inspector
       entity={selected}
@@ -386,7 +383,7 @@ function EntityInspector(props: InspectorDockProps): JSX.Element {
               // Write the footprint's metadata into the cells beneath, or land the object on the cell tops.
               blockFootprint: (
                 <div className="tl-inspector__modes">
-                  <button className="tl-btn tl-btn--small" title="Write the footprint's metadata into the block cells beneath the object" onClick={() => void writeFootprint(selected.id, { position: selected.position, rotation: selected.rotation })}>
+                  <button className="tl-btn tl-btn--small" title="Write the footprint's metadata into the block cells beneath the object" onClick={() => void writeFootprint(selected.id)}>
                     Write to cells
                   </button>
                   <button
@@ -395,8 +392,8 @@ function EntityInspector(props: InspectorDockProps): JSX.Element {
                     onClick={() => {
                       const c = clientRef.current;
                       if (!c) return;
-                      const fp = (selected.components as { blockFootprint?: BlockFootprintComponent }).blockFootprint;
-                      const at = snapToCellTop(propLayers(fp?.layer), selected.position, fp?.size, yawQuarterTurns(selected.rotation));
+                      // Under its parent: the cells beneath its world place, as a local position.
+                      const at = snapLocal(selected.id, selected.position, selected.rotation);
                       if (at === null) return setNotice('Not over a block layer.');
                       // The footprint moves with the object in the same command.
                       void c.command('setTransform', { entityId: selected.id, transform: { position: at } }, c.projection.revision).then((r) => {

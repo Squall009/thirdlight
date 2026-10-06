@@ -4178,7 +4178,11 @@ stroke or button is one undo step, and MCP can do the same.
   deletes it, or sets the component (clearing them where it stood), in the
   editor and over MCP alike: one undo step takes the object and its cells
   back together. The Inspector's "Write to cells" writes it again after the
-  cells were edited by hand. The runtime ignores the component (scripts read
+  cells were edited by hand. Cells are picked from the object's world place
+  (a parent's move counts). A prop that stays keeps its fields on cells it
+  shares with a moved or deleted one. Setting a footprint with a field the
+  cell schema lacks is refused (the message names the field and the layer);
+  a field dropped from the schema later is skipped when the prop moves. The runtime ignores the component (scripts read
   the cells). An `editBlocks` with surface or sculpt edits reports
   `rebased`, the columns whose top row moved.
 - **Measured**: a stroke on a 64 × 64 × 16 layer holding 32,768 cells

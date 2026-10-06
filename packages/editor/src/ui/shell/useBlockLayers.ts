@@ -4,6 +4,10 @@
  * and edit that layer), the Scene view's block tools, props' block
  * footprints and cell-top snapping. `receive` copies the layers from the
  * session client after every applied change and hands them to the Scene view.
+ *
+ * Footprints and snapping read world places (parents' transforms applied)
+ * through the model's helpers, as the command layer does: a prop or a layer
+ * under a moved group picks the cells the backend's next move clears.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { SessionClient, type BlockLayerView } from '../../session/client';
@@ -12,8 +16,8 @@ import { presetValue } from '../../session/descriptor-fields';
 import type { DescriptorRegistry, BlockEdit, BlockFootprintComponent, BlockLayerComponent, BlockStamp, BlockType, CellField } from '@thirdlight/project-model';
 import type { BlockLayerRow, BlockPanelHandlers } from '../BlocksPanel';
 import type { BlockEditor } from '../../viewport/block-editor';
-import { BlockGrid, footprintCells, footprintEdits, yawQuarterTurns } from '@thirdlight/runtime';
-import { snapToCellTop, type PropLayer } from '../../session/block-footprint';
+import { BlockGrid, footprintCells, footprintEdits, footprintPlaces, placeInWorld, pointInParent, yawQuarterTurns, type FootprintNode } from '@thirdlight/runtime';
+import { round4, snapToCellTop, type PropLayer } from '../../session/block-footprint';
 import type { Stable } from './useProjectContent';
 import type { ClientRef, ReportFailure, SetNotice, ViewportRef } from './commands';
 
@@ -46,9 +50,28 @@ export function useBlockLayers(deps: BlockLayersDeps) {
   /** Each layer's cells as a grid (props snap to them and footprints read them), by the client's block revision. */
   const propGridsRef = useRef<{ revision: number; grids: Map<string, BlockGrid> }>({ revision: -1, grids: new Map() });
   /** The block layers props sit on (their cells as grids, rebuilt when the client's cells change). */
+  /** The scene's hierarchy as the model's world-place helpers read it. */
+  const hierarchy = useCallback((c: SessionClient): Map<string, FootprintNode> => {
+    const byId = new Map<string, FootprintNode>();
+    for (const e of c.projection.listEntities()) {
+      const comps = e.components as FootprintNode['components'];
+      byId.set(e.id, {
+        id: e.id,
+        ...(e.parentId !== null ? { parentId: e.parentId } : {}),
+        active: e.active,
+        components: {
+          ...(e.kind !== 'folder' ? { transform: { position: [e.position[0]!, e.position[1]!, e.position[2]!], rotation: [e.rotation[0]!, e.rotation[1]!, e.rotation[2]!, e.rotation[3]!], scale: [e.scale[0]!, e.scale[1]!, e.scale[2]!] } } : {}),
+          ...(comps.blockFootprint !== undefined ? { blockFootprint: comps.blockFootprint } : {}),
+          ...(comps.blockLayer !== undefined ? { blockLayer: comps.blockLayer } : {}),
+        },
+      });
+    }
+    return byId;
+  }, []);
   const propLayers = useCallback((only?: string): PropLayer[] => {
     const c = clientRef.current;
     if (!c) return [];
+    const byId = hierarchy(c);
     const cache = propGridsRef.current;
     if (cache.revision !== c.getBlockRevision()) propGridsRef.current = { revision: c.getBlockRevision(), grids: new Map() };
     const grids = propGridsRef.current.grids;
@@ -60,43 +83,55 @@ export function useBlockLayers(deps: BlockLayersDeps) {
       let g = grids.get(id);
       if (g === undefined) grids.set(id, (g = BlockGrid.from(l.component, { entityId: id, chunks: [...l.chunks.values()] })));
       const grid = g;
-      out.push({ entityId: id, component: l.component, origin: e.position, columnTop: (x, z) => grid.columnTop(x, z) });
+      // The layer's world origin (a layer under a moved group sits where it is drawn).
+      const origin = placeInWorld(byId, e.parentId, e.position, [0, 0, 0, 1]).position;
+      out.push({ entityId: id, component: l.component, origin, columnTop: (x, z) => grid.columnTop(x, z) });
     }
     return out;
-  }, [clientRef]);
+  }, [clientRef, hierarchy]);
   /**
    * Write a prop's block footprint into the cells beneath it again (one
    * editBlocks per layer), after the cells were edited by hand. Moving,
    * placing and deleting the prop write it in the backend with that command.
    */
-  const writeFootprint = useCallback(async (entityId: string, at: { position: number[]; rotation: number[] }) => {
+  const writeFootprint = useCallback(async (entityId: string) => {
     const c = clientRef.current;
     if (!c) return;
-    const footprint = (c.projection.getEntity(entityId)?.components as { blockFootprint?: BlockFootprintComponent } | undefined)?.blockFootprint;
-    if (footprint === undefined) return;
-    for (const layer of propLayers(footprint.layer)) {
-      const edits = footprintEdits([], footprintCells(layer, at.position, at.rotation, footprint), footprint.set);
+    // The prop's world place, as the backend reads it.
+    const at = footprintPlaces(hierarchy(c).values()).props.get(entityId);
+    if (at === undefined) return;
+    for (const layer of propLayers(at.fp.layer)) {
+      const edits = footprintEdits([], footprintCells(layer, at.position, at.rotation, at.fp), at.fp.set);
       if (edits === null) continue;
       const r = await c.command('editBlocks', { entityId: layer.entityId, edits }, c.projection.revision);
       if (!r.ok && (r.response as { code?: string }).code !== 'no_change') reportFailure('Block footprint', r);
     }
-  }, [clientRef, propLayers, reportFailure]);
+  }, [clientRef, hierarchy, propLayers, reportFailure]);
+  /**
+   * Snap an object at a local position and rotation (under its parent; a dropped object, `entityId` null, at the
+   * root) onto the cell tops under its world place, as a local position again (null: over no layer).
+   */
+  const snapLocal = useCallback((entityId: string | null, position: readonly number[], rotation: readonly number[]): [number, number, number] | null => {
+    const c = clientRef.current;
+    if (!c) return null;
+    if (entityId !== null && c.getBlockLayers().has(entityId)) return null;
+    const e = entityId !== null ? c.projection.getEntity(entityId) : undefined;
+    const fp = (e?.components as { blockFootprint?: BlockFootprintComponent } | undefined)?.blockFootprint;
+    const parentId = e?.parentId ?? null;
+    const byId = hierarchy(c);
+    const world = placeInWorld(byId, parentId, position, rotation);
+    const at = snapToCellTop(propLayers(fp?.layer), world.position, fp?.size, yawQuarterTurns(world.rotation));
+    if (at === null) return null;
+    if (parentId === null) return at;
+    const local = pointInParent(byId, parentId, at);
+    return local === null ? null : [round4(local[0]), round4(local[1]), round4(local[2])];
+  }, [clientRef, hierarchy, propLayers]);
   // Cell-top snapping: moved and dropped objects land on the block cells under them.
   useEffect(() => {
     const v = viewportRef.current;
     if (!v) return;
-    v.setCellTopSnap(
-      cellTops
-        ? (entityId, position, rotation) => {
-            const c = clientRef.current;
-            if (!c) return null;
-            if (entityId !== null && c.getBlockLayers().has(entityId)) return null;
-            const fp = entityId !== null ? ((c.projection.getEntity(entityId)?.components as { blockFootprint?: BlockFootprintComponent } | undefined)?.blockFootprint) : undefined;
-            return snapToCellTop(propLayers(fp?.layer), position, fp?.size, yawQuarterTurns(rotation));
-          }
-        : null,
-    );
-  }, [cellTops, propLayers, blockEditor, viewportRef, clientRef]);
+    v.setCellTopSnap(cellTops ? snapLocal : null);
+  }, [cellTops, snapLocal, blockEditor, viewportRef]);
   const blockRun = useCallback(async (what: string, op: string, args: Record<string, unknown>): Promise<boolean> => {
     const c = clientRef.current;
     if (!c) return false;
@@ -165,7 +200,7 @@ export function useBlockLayers(deps: BlockLayersDeps) {
 
   return {
     blockEditor, setBlockEditor, blockRows, blockTypes, cellFields, blockStamps, blockLayerId, setBlockLayerId, blockLayerIdRef, blockHandlersRef,
-    propLayers, writeFootprint, blockRun, blockEdit, createBlockLayer, receive,
+    propLayers, writeFootprint, snapLocal, blockRun, blockEdit, createBlockLayer, receive,
   };
 }
 

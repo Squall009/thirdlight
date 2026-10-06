@@ -133,12 +133,57 @@ describe('prop footprints in the command layer', () => {
     expect(layerMoved.change.footprints).toBeUndefined();
   });
 
-  it('a footprint naming a field outside the cell schema refuses the command that would write it', () => {
-    const { s: s0 } = setup();
+  it('a footprint set with a field outside the cell schema is refused, naming the field and the layer', () => {
+    const { s: s0, layer } = setup();
     const p = prop(s0, [4.5, 1, 3.5]);
     const r = run(p.s, 'setComponent', { entityId: p.id, component: 'blockFootprint', value: { set: { nope: true } } });
     expect(r.result.ok).toBe(false);
+    const said = JSON.stringify(r.result);
+    expect(said).toContain(`on layer ${layer}`);
+    expect(said).toContain('is not a cell field');
+    expect(said).toContain('nope');
     expect(r.state).toBe(p.s);
+    // Off the layer too: the footprint itself is wrong wherever the prop stands.
+    const off = prop(s0, [-10, 1, -10]);
+    const r2 = run(off.s, 'setComponent', { entityId: off.id, component: 'blockFootprint', value: { set: { nope: true } } });
+    expect(r2.result.ok).toBe(false);
+    expect(JSON.stringify(r2.result)).toContain('over no block layer yet');
+  });
+
+  it('a footprint field the schema dropped later is skipped by moves of the prop and its parent', () => {
+    const { s: s0, layer } = setup();
+    const g = ok(s0, 'createEntity', { kind: 'group', name: 'Yard', transform: { position: [0, 0, 0] } });
+    // Off the layer, so the cells hold no `marked` when the field goes.
+    const p = prop(g.state, [-10.5, 1, 3.5], g.createdId!);
+    let s = ok(p.s, 'setComponent', { entityId: p.id, component: 'blockFootprint', value: { set: { marked: true, cost: 3 } } }).state;
+    s = ok(s, 'setCellFields', { fields: [{ key: 'cost', type: 'int', default: 1, min: 0, max: 9 }] }).state;
+    const meta = (st: State, x: number, z: number): Record<string, unknown> | undefined => BlockGrid.from(LAYER, st.scene.blocks?.find((b) => b.entityId === layer) ?? null).get(x, 1, z)?.meta;
+    // The prop moves onto the layer: `cost` lands, the stale `marked` is skipped.
+    const moved = ok(s, 'setTransform', { entityId: p.id, transform: { position: [4.5, 1, 3.5] } });
+    expect(meta(moved.state, 4, 3)).toEqual({ cost: 3 });
+    // Its parent's drag moves it along.
+    const dragged = ok(moved.state, 'setTransform', { entityId: g.createdId!, transform: { position: [2, 0, 0] } });
+    expect(meta(dragged.state, 4, 3)?.['cost']).toBeUndefined();
+    expect(meta(dragged.state, 6, 3)).toEqual({ cost: 3 });
+  });
+
+  it("deleting or moving one prop keeps another prop's fields on the cells they share", () => {
+    const { s: s0, layer } = setup();
+    const a = prop(s0, [4.5, 1, 3.5]);
+    let s = ok(a.s, 'setComponent', { entityId: a.id, component: 'blockFootprint', value: { set: { marked: true } } }).state;
+    const b = prop(s, [4, 1, 3.5]);
+    s = ok(b.s, 'setComponent', { entityId: b.id, component: 'blockFootprint', value: { size: [2, 1], set: { marked: true, cost: 7 } } }).state;
+    expect(markedCells(s, layer)).toEqual(['3,3', '4,3']);
+    const deleted = ok(s, 'deleteEntity', { entityId: b.id });
+    // A still stands on (4,3): its `marked` stays; B's other cell and its `cost` go.
+    expect(markedCells(deleted.state, layer)).toEqual(['4,3']);
+    const g = BlockGrid.from(LAYER, deleted.state.scene.blocks?.find((e) => e.entityId === layer) ?? null);
+    expect(g.get(4, 1, 3)?.meta).toEqual({ marked: true });
+    // One undo step brings B and every cell back.
+    expect(ok(deleted.state, 'undo').state.scene.blocks).toEqual(s.scene.blocks);
+    // Moving B away alike.
+    const moved = ok(s, 'setTransform', { entityId: b.id, transform: { position: [20, 1, 20.5] } });
+    expect(markedCells(moved.state, layer)).toEqual(['19,20', '20,20', '4,3']);
   });
 });
 

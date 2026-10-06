@@ -12,9 +12,10 @@
  * settings change the gizmo's step, and with cell-top snapping on a prop
  * dragged over the layer lands on the cells and its block footprint writes
  * its metadata beneath it, in the same undo step as the move (undo and redo
- * take both); deleting the prop clears the cells and undo restores them. The Inspector edits the layer's cell size with x
- * and z as one value (cells are square from above); a command with x ≠ z is
- * refused. Every result is read back from the backend
+ * take both); deleting the prop clears the cells and undo restores them; a prop
+ * under a moved group snaps and writes its footprint where it stands in the
+ * world. The Inspector edits the layer's cell size with x and z as one value
+ * (cells are square from above); a command with x ≠ z is refused. Every result is read back from the backend
  * (`queryBlocks`, `queryEntity`); the stroke latency is measured.
  */
 import { randomBytes } from 'node:crypto';
@@ -327,6 +328,25 @@ test('the Blocks panel paints, fills, picks, replaces, selects, stamps and paint
   await page.keyboard.press('Control+z');
   await expect.poll(() => lotAt(cx, 7, 2)).toBe(7);
   await expect(page.locator(`.tl-hierarchy__list li[data-entity-id="${hut}"]`)).toHaveCount(1);
+
+  // A prop under a moved group: the Inspector's snap and "Write to cells" pick the cells under its world place,
+  // the ones the backend's moves write and clear. Column (40, 40) is untouched: its top is row 7.
+  expect(await blockAt(layer, 40, 7, 40)).toBe('stone');
+  expect(await blockAt(layer, 40, 8, 40)).toBeNull();
+  const yard = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Yard', transform: { position: [0.25, 1, 3] } }))['createdId']);
+  // World (32.6, 4, 32.5): over cell (40, 40).
+  const shed = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: yard, kind: 'box', name: 'Shed', transform: { position: [32.35, 3, 29.5] }, box: { size: [1, 1, 1], material: { color: '#88dd44' } } }))['createdId']);
+  await cmd('setComponent', { entityId: shed, component: 'blockFootprint', value: { layer, set: { lot: 9 } } });
+  await page.locator(`.tl-hierarchy__list li[data-entity-id="${shed}"]`).click();
+  await page.locator('.tl-inspector').getByRole('button', { name: 'Snap to cell top' }).click();
+  // On the row-7 top at the cell's centre in the world (x 32.5, y 0.5, z 32.5), stored local to the group.
+  await expect.poll(async () => (await entity(shed)).components.transform.position).toEqual([32.25, -0.5, 29.5]);
+  await expect.poll(() => lotAt(40, 7, 40)).toBe(9);
+  // Cleared by hand, "Write to cells" writes it again on the same cell.
+  await cmd('editBlocks', { entityId: layer, edits: [{ kind: 'meta', set: { lot: null }, at: [40, 7, 40] }] });
+  expect(await lotAt(40, 7, 40)).toBe(0);
+  await page.locator('.tl-inspector').getByRole('button', { name: 'Write to cells' }).click();
+  await expect.poll(() => lotAt(40, 7, 40)).toBe(9);
 
   // ---- the Inspector's cell size: cells are square from above, so x and z are edited as one value.
   await page.locator(`.tl-hierarchy__list li[data-entity-id="${layer}"]`).click();

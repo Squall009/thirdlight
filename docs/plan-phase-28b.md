@@ -84,6 +84,7 @@ both renderers where it changes drawing.
 | 28b.5 | *Moved to 28c (`docs/plan-phase-28c.md`, owner 2026-10-04); kept here for reference.* **Meshing off the frame.** Bulk re-meshing (layer load, a block-type change, a kit model finishing loading, a stream of runtime writes over a few chunks) runs in a mesh worker; the view keeps drawing the old chunk meshes until the new ones arrive, and swaps them in under a per-frame time slice. A small edit (a script's `ctx.grid` write touching a few chunks, an editor stroke preview) stays synchronous, so rendering, collision and queries still update in the same step (E8). Collision is untouched (the simulation already batches it per step). Diagnostics: chunks meshed per frame, worker queue length, longest main-thread mesh time. Soft target: no frame over 16.7 ms from meshing in the 29.1-style block class. |
 | 28b.6 | **Block leftovers:**<br>• A prop's footprint write is part of the same undo step as the prop's move or placement.<br>• Deleting a prop clears the cells its footprint wrote.<br>• The `editBlocks` result carries a `rebased` count (columns whose top row moved under a `surface` or `sculpt` edit). |
 | 28b.7 | **Acceptance.** Each item's acceptance as a test at its boundary; `docs/deployment.md` describes square cells, world UVs, per-layer settings, KTX2 packing and per-slot layers. |
+| 28b.8 | **Full-gate and review fixes.** Part A: the full gate's red test (`replay-answer` scale bench) and watch row; the review's footprint findings M1–M3 (shared cells, a stale field, world places in the editor). |
 
 **Done when:**
 - A layered material built only from KTX2 texture assets (no PNG imported)
@@ -107,6 +108,7 @@ both renderers where it changes drawing.
 | 28b.5 | moved to 28c (28c.10) |
 | 28b.6 | done 2026-10-06: the command layer writes a prop's footprint with whatever entity command places, moves, turns, re-sizes or deletes it (one revision, one undo step; the change names `footprints` chunks, clients re-read them); the editor's follow-up `editBlocks` is gone. `editBlocks` reports `rebased` for surface/sculpt edits. vitest (commands) + block-editor e2e (Ctrl+Z/Ctrl+Y of a gizmo move, MCP delete + editor undo). Village p50/p95 webgpu 6.3/7.8, webgl2 4.4/6.5 ms (no drawing change). |
 | 28b.7 | done 2026-10-06: KTX2-only — `painted-terrain.e2e.ts` now builds the layered material's three roles from single-layer KTX2 files made outside the project (ETC1S albedo + height re-encoded, UASTC normal/ORM joined), deletes the prebuilt arrays and every PNG, and checks Scene view, Play and export pixels; seam — `block-world-uv.e2e.ts` (4 m ramp); normal maps — same file now lights the world-mapped kit's top, +Z and +X walls from each face's image top-right vs the mirror side (169 vs 10–11 brightness; one turned sign cancels), stand-in tops in `layered-material.e2e.ts`; all green on WebGPU and WebGL 2 (pixels; owner look pending). Meshing (`perf blocks` at c67faf4c, worst / p95 ms): Scene view type change webgpu 18.5/17.5, webgl2 18.2/17.6; kit arrival 17.8/17.6 both (display-rate jitter, 0 frames > 33 ms); export load worst webgpu 53.1 (1 frame), webgl2 685 (uncapped GPU stall noted in 28c.10, not re-attributed here) — soft-target miss left as a note. `docs/deployment.md`: square-cell rule added; world UVs, per-layer settings, KTX2 packing and slots were there. |
+| 28b.8 | part A done 2026-10-06: a worker-mode replay answered `applied` before the page had applied the restarted run's frame, so the next observation showed the new run id with the old scenes (fails ~40% alone since at least 3128b471, before 28b); it now waits until the page shows a step of the new run (12/12 alone, was 2–3/6). Footprints: an unmoved prop writes its fields again on cells another prop's clear emptied; a footprint the command sets with a field outside the schema is refused naming the field and layer, a moved one skips it; the editor's snap and "Write to cells" read world places through the model's `footprintPlaces`/`placeInWorld` (world-matrix code moved from commands to project-model). project-window flake → D171. |
 
 ## 5. Decision log
 
@@ -257,3 +259,20 @@ both renderers where it changes drawing.
   differs after the command from before its first surface/sculpt edit; it is
   present only when the command had such an edit (0 included). Default
   chosen, owner to confirm.
+- 2026-10-06 (28b.8 A): a footprint field outside the cell schema. When the
+  command sets or changes the footprint itself (setComponent, a paste), the
+  command is refused, naming the field, the prop and the layer it stands on
+  (or "over no block layer yet"); off a layer too. When the footprint only
+  moves (the prop, or a parent dragged), a field the schema no longer has (or
+  a value it no longer allows) is skipped and the rest is written, so a field
+  dropped later does not block every move of the prop and its parents. Where
+  props share cells, an unmoved prop's fields are written again after a
+  moved or deleted prop's clear, in the same step; the moved prop writes last
+  (its value wins on a cell both set). Default chosen, owner to confirm.
+- 2026-10-06 (28b.8 A): `replay-answer.e2e.ts` scale bench failed the full
+  gate and alone; not a 28b regression (the same rate at `0c04d623`,
+  `e117c750` and `3128b471`, the last full gate it passed). The test was
+  right: in worker mode the replay answer read the run from the worker while
+  the observation's scenes come from the page's copy, applied on the next
+  animation frame. `applied` now also needs the page to show a step after
+  the restart, so an answer and the observation after it agree.

@@ -612,7 +612,7 @@ export function bootstrapPreviewM3(): void {
       return;
     }
     // A replay answers once the new run began (or as pending, with the run it will be); the others with the run now.
-    const restart = body.command === 'replay' && before !== null ? await awaitRestart(handle.access, before.run, body.answerWithinMs ?? 0, () => handle === current()) : null;
+    const restart = body.command === 'replay' && before !== null ? await awaitRestart({ runNow: () => handle.access.runNow(), shownStep: () => shownStepOf(handle) }, before.run, body.answerWithinMs ?? 0, () => handle === current()) : null;
     const run = restart?.run ?? (await handle.access.runNow())?.run ?? 0;
     const snap = handle.identity.snapshotId;
     bridge.sendGameResult('control', playId, body.relayId, {
@@ -701,6 +701,12 @@ function modeDiagnostics(h: M3PreviewHandle): { mode?: { current: string; name: 
 function playStateOf(h: M3PreviewHandle): 'running' | 'paused' | 'stopped' | null {
   const o = h.host.observe();
   return o.ok ? o.observation.state : null;
+}
+
+/** The last step the page applied (the worker's frames arrive on the page's next animation frame); -1: it cannot say. */
+function shownStepOf(h: M3PreviewHandle): number {
+  const o = h.host.observe();
+  return o.ok ? o.observation.stepIndex : -1;
 }
 
 /** A relayed game control request (`debugCommand` with its name and arguments; a replay how long its answer may wait). */

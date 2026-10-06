@@ -17,23 +17,26 @@
 import {
   applyBlockEdits,
   BlockGrid,
+  cellFieldValueError,
   footprintCells,
   footprintEdits,
+  footprintPlaces,
   type BlockEdit,
-  type BlockFootprintComponent,
-  type BlockLayerComponent,
   type BlockLayerData,
+  type CellField,
+  type CellMetaValue,
   type FootprintLayer,
+  type FootprintNode,
+  type FootprintProp,
   type Manifest,
 } from '@thirdlight/project-model';
 
-import { blockStampsOf, blockTypesOf, layerDataOf, layerDelta, withLayerData } from './block-ops';
+import { blockStampsOf, blockTypesOf, cellFieldsOf, layerDataOf, layerDelta, withLayerData } from './block-ops';
 import { contentOf } from './content-ops';
 import { fieldValue, type CommandError } from './errors';
 import { gateResultState } from './ops';
 import { deepEqual } from './properties';
 import type { ChangeData, ContentDocument, SceneDocument } from './types';
-import { decompose, worldMatrix, type HierarchyNode } from './world-transform';
 
 /** One layer's entry before and after a command's footprint writes (null = none). */
 export interface FootprintLayerEntry {
@@ -49,35 +52,23 @@ export interface FootprintChunks {
   regions: string[];
 }
 
-interface PropAt {
-  fp: BlockFootprintComponent;
-  position: readonly number[];
-  rotation: readonly number[];
-}
-
-type Entity = HierarchyNode & { active?: boolean; components: HierarchyNode['components'] & { blockFootprint?: BlockFootprintComponent; blockLayer?: BlockLayerComponent } };
-
 function hasFootprint(scene: SceneDocument): boolean {
-  return scene.entities.some((e) => (e as unknown as Entity).components.blockFootprint !== undefined);
+  return scene.entities.some((e) => (e as unknown as FootprintNode).components.blockFootprint !== undefined);
 }
 
-/** The props with footprints (world position and rotation) and the active block layers (world origin). */
-function placesOf(scene: SceneDocument): { props: Map<string, PropAt>; layers: Map<string, FootprintLayer> } {
-  const byId = new Map(scene.entities.map((e) => [e.id, e as unknown as Entity]));
-  const props = new Map<string, PropAt>();
-  const layers = new Map<string, FootprintLayer>();
-  for (const e of byId.values()) {
-    const fp = e.components.blockFootprint;
-    const layer = e.components.blockLayer;
-    if (fp === undefined && (layer === undefined || e.active === false)) continue;
-    const m = worldMatrix(byId, e.id);
-    if (fp !== undefined) props.set(e.id, { fp, position: [m[12]!, m[13]!, m[14]!], rotation: decompose(m).rotation });
-    if (layer !== undefined && e.active !== false) layers.set(e.id, { component: layer, origin: [m[12]!, m[13]!, m[14]!] });
-  }
-  return { props, layers };
+function placesOf(scene: SceneDocument): ReturnType<typeof footprintPlaces> {
+  return footprintPlaces(scene.entities as unknown as FootprintNode[]);
 }
 
-function cellsOn(layerId: string, layer: FootprintLayer | undefined, p: PropAt | undefined): number[] {
+/** Why a footprint field cannot be written into cells (null: it can). */
+function fieldProblem(fields: ReadonlyMap<string, CellField>, key: string, value: CellMetaValue): string | null {
+  const f = fields.get(key);
+  if (f === undefined) return `"${key}" is not a cell field (content.cellFields)`;
+  const why = cellFieldValueError(f, value);
+  return why === null ? null : `"${key}": ${why}`;
+}
+
+function cellsOn(layerId: string, layer: FootprintLayer | undefined, p: FootprintProp | undefined): number[] {
   if (layer === undefined || p === undefined || (p.fp.layer !== undefined && p.fp.layer !== layerId)) return [];
   return footprintCells(layer, p.position, p.rotation, p.fp);
 }
@@ -95,21 +86,61 @@ export function writeFootprints(before: SceneDocument, after: SceneDocument, con
   if (before.entities === after.entities || (!hasFootprint(before) && !hasFootprint(after))) return { ok: true, scene: null };
   const was = placesOf(before);
   const now = placesOf(after);
+  const fields = new Map(cellFieldsOf(contentOf(content)).map((f) => [f.key, f]));
   // Clears first, then writes: a prop moving off cells another prop covers does not undo the other's write.
   const clears = new Map<string, BlockEdit[][]>();
   const writes = new Map<string, BlockEdit[][]>();
+  const cleared = new Map<string, Set<string>>();
+  const unchanged: string[] = [];
   for (const id of new Set([...was.props.keys(), ...now.props.keys()])) {
     const b = was.props.get(id);
     const a = now.props.get(id);
-    if (b !== undefined && a !== undefined && deepEqual(b, a)) continue;
+    if (b !== undefined && a !== undefined && deepEqual(b, a)) {
+      unchanged.push(id);
+      continue;
+    }
+    // A footprint the command sets or changes must name valid cell fields: refused, naming the field. A footprint
+    // that only moves (it, or an object above it) skips the fields the cell schema no longer has, so a field
+    // dropped from the schema later does not block every move of the prop and its parents.
+    let set = a?.fp.set ?? {};
+    const own = b === undefined || a === undefined || !deepEqual(b.fp.set ?? {}, a.fp.set ?? {});
+    for (const [k, v] of Object.entries(set)) {
+      const why = fieldProblem(fields, k, v);
+      if (why === null) continue;
+      if (own) {
+        const on = [...now.layers].filter(([layerId, layer]) => cellsOn(layerId, layer, a).length > 0).map(([layerId]) => layerId);
+        const where = on.length > 0 ? `on layer ${on.join(', ')}` : a?.fp.layer !== undefined ? `for layer ${a.fp.layer}` : 'over no block layer yet';
+        return { ok: false, error: fieldValue('/args', k, 'a block footprint field of the cell schema', `the block footprint of ${id} (${where}) cannot be written: ${why}`) };
+      }
+      set = Object.fromEntries(Object.entries(set).filter(([key, value]) => fieldProblem(fields, key, value) === null));
+      break;
+    }
     for (const [layerId, layer] of now.layers) {
-      const edits = footprintEdits(cellsOn(layerId, was.layers.get(layerId), b), cellsOn(layerId, layer, a), a?.fp.set ?? {}, b?.fp.set ?? {});
+      const edits = footprintEdits(cellsOn(layerId, was.layers.get(layerId), b), cellsOn(layerId, layer, a), set, b?.fp.set ?? {});
       if (edits === null) continue;
       const writing = (e: BlockEdit): boolean => e.kind === 'meta' && Object.values(e.set).some((v) => v !== null);
       const c = edits.filter((e) => !writing(e));
       const w = edits.filter(writing);
       if (c.length > 0) clears.set(layerId, [...(clears.get(layerId) ?? []), c]);
       if (w.length > 0) writes.set(layerId, [...(writes.get(layerId) ?? []), w]);
+      for (const e of c) if (e.kind === 'meta') for (let i = 0; i < (e.at ?? []).length; i += 3) addCell(cleared, layerId, e.at!, i);
+    }
+  }
+  // The props that stay where they were write their fields again on the cells a clear just emptied: deleting or
+  // moving one prop does not wipe another's metadata from cells they share. Before the moved props' writes, so the
+  // prop the command moved has the last word on a cell both cover.
+  const rewrites = new Map<string, BlockEdit[][]>();
+  for (const id of unchanged) {
+    const a = now.props.get(id)!;
+    const set = Object.fromEntries(Object.entries(a.fp.set ?? {}).filter(([k, v]) => fieldProblem(fields, k, v) === null));
+    if (Object.keys(set).length === 0) continue;
+    for (const [layerId, layer] of now.layers) {
+      const hit = cleared.get(layerId);
+      if (hit === undefined) continue;
+      const cells = cellsOn(layerId, layer, a);
+      const at: number[] = [];
+      for (let i = 0; i < cells.length; i += 3) if (hit.has(`${cells[i]},${cells[i + 1]},${cells[i + 2]}`)) at.push(cells[i]!, cells[i + 1]!, cells[i + 2]!);
+      if (at.length > 0) rewrites.set(layerId, [...(rewrites.get(layerId) ?? []), [{ kind: 'meta', set, at }]]);
     }
   }
   if (clears.size === 0 && writes.size === 0) return { ok: true, scene: null };
@@ -119,7 +150,7 @@ export function writeFootprints(before: SceneDocument, after: SceneDocument, con
   const touched: { entityId: string; restore: BlockLayerData | null }[] = [];
   for (const [layerId, layer] of now.layers) {
     // One prop's edits per call: the per-command cell budget holds for each footprint, not for all of them together.
-    const steps = [...(clears.get(layerId) ?? []), ...(writes.get(layerId) ?? [])];
+    const steps = [...(clears.get(layerId) ?? []), ...(rewrites.get(layerId) ?? []), ...(writes.get(layerId) ?? [])];
     if (steps.length === 0) continue;
     const previous = layerDataOf(scene, layerId);
     const grid = BlockGrid.from(layer.component, previous);
@@ -138,6 +169,12 @@ export function writeFootprints(before: SceneDocument, after: SceneDocument, con
   if (!gate.ok) return gate;
   const layers = touched.map((t) => ({ entityId: t.entityId, restore: t.restore, next: layerDataOf(gate.scene, t.entityId) }));
   return { ok: true, scene: gate.scene, layers, chunks: footprintChunks(layers) };
+}
+
+function addCell(cells: Map<string, Set<string>>, layerId: string, at: readonly number[], i: number): void {
+  let set = cells.get(layerId);
+  if (set === undefined) cells.set(layerId, (set = new Set()));
+  set.add(`${at[i]},${at[i + 1]},${at[i + 2]}`);
 }
 
 /** The chunks each layer entry changes (the same in both directions). */
