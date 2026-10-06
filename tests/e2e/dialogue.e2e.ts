@@ -27,11 +27,12 @@ import { createServer, type Server } from 'node:http';
 import { tmpdir } from 'node:os';
 import { extname, join, normalize, resolve } from 'node:path';
 
-import { expect, test, type Frame, type Locator, type Page } from '@playwright/test';
+import { expect, test, type Frame, type Locator, type Page } from './pw';
 
 import { startBackend, type E2EBackend } from './backend';
 import { decodePng } from './png';
 import { makePng } from './png-make';
+import { pcmWav } from '../../tools/perf/scale-media';
 import { projectWindow, openEditor, editorTab, previewPane } from './ui';
 
 const REPO = resolve(import.meta.dirname, '..', '..');
@@ -110,6 +111,9 @@ async function publishScript(entityId: string): Promise<void> {
   await cmd('setBehaviorProperties', { entityId, behaviorId, values: {} });
 }
 
+/** The voiced line's clip length. */
+const VOICE_MS = 800;
+
 type Ids = { voice: string; happy: string; neutral: string; guest: string };
 
 /** Everything the checks share: portraits, sounds, speakers, the conversation, settings, the script and its key. */
@@ -124,7 +128,11 @@ async function setUp(page: Page): Promise<Ids> {
   const happy = await importFile(page, png('host-happy', [230, 40, 40]), 'host-happy');
   const neutral = await importFile(page, png('host-neutral', [40, 60, 230]), 'host-neutral');
   const guest = await importFile(page, png('guest-neutral', [40, 200, 60]), 'guest-neutral');
-  const voice = await importFile(page, join(REPO, 'fixtures', 'm3', 'media', 'wav', 'cue-max.wav'), 'cue-max');
+  // The voice is short (every second it lasts is waited out three times: preview, Play, export) but long enough
+  // for the observation sampled every 30 ms to see it on its bus with the ducks down.
+  const voiceFile = join(dir, 'voice-line.wav');
+  writeFileSync(voiceFile, pcmWav(7, VOICE_MS));
+  const voice = await importFile(page, voiceFile, 'voice-line');
   const blip = await importFile(page, join(REPO, 'fixtures', 'm3', 'media', 'wav', 'cue-jump.wav'), 'cue-jump');
 
   await cmd('setSpeaker', { speaker: { speakerId: 'host', name: 'Host', color: '#ffcc66', portraits: { happy, neutral }, defaultExpression: 'neutral', voiceProfile: 'host-voice' } });
@@ -205,7 +213,7 @@ async function colourOf(loc: Locator): Promise<[number, number, number]> {
  * the game's DOM, `click` clicks an element (by coordinates: an export's
  * overlay may cover it), `observe` reads the host's observation.
  */
-/** What the audio observation showed while the voice played (sampled all along: the clip lasts 2 s). */
+/** What the audio observation showed while the voice played (sampled all along, for the clip's length). */
 export interface AudioSampler {
   start(): Promise<void>;
   result(): Promise<{ voiceBus: string | null; minDuck: number; minSfx: number; portraits: Record<string, string> }>;
@@ -305,7 +313,7 @@ async function drive(page: Page, root: Page | Frame, click: (l: Locator) => Prom
     .toMatch(/^(intro|ask)$/);
   // The host's neutral portrait (blue) — its pixels while the voiced line is still up (a slow host may be past it; the observation records it anyway).
   const neutralImage = (await line())?.id === 'intro' ? await colour(2, 'neutral', happyImage) : happyImage;
-  // Auto-advance after the 2 s clip and the delay; the ducks come back up.
+  // Auto-advance after the clip and the delay; the ducks come back up.
   await expect.poll(async () => (await line())?.id ?? null, { timeout: 30_000, message: 'auto-advance after the voice' }).toBe('ask');
   // While the voice played: on the voice bus, music and SFX ducked to the settings' 0.3.
   const heard = await sampler.result();

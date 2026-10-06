@@ -8,17 +8,16 @@
  *
  * Judged by pixels at the canvas centre: a red panel only the placed camera
  * sees (20 m to the side), a blue one only the default pose sees. Per
- * renderer: `auto` in `default`, `webgl2` with TL_E2E_ALL_VARIANTS=1,
- * `webgpu` in `webgpu`.
+ * renderer: the product's own (`auto` in `default`, `webgpu` in `webgpu`).
  */
 import { randomBytes } from 'node:crypto';
 import { join } from 'node:path';
 
-import { expect, test, type Locator, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page } from './pw';
 
 import { serveDir, startBackend, type E2EBackend } from './backend';
 import { decodePng } from './png';
-import { editorUrlFor, expectRendererBackend, exportQueryFor, onlyInItsProject, type RendererVariant } from './renderer-variants';
+import { editorUrlFor, expectRendererBackend, exportQueryFor, onlyInItsProject, PRODUCT_RENDERER_VARIANTS, type RendererVariant } from './renderer-variants';
 
 let be: E2EBackend | null = null;
 test.afterEach(async () => {
@@ -61,10 +60,10 @@ async function play(page: Page, variant: RendererVariant): Promise<Locator> {
   return canvas;
 }
 
-const VARIANTS: readonly RendererVariant[] = ['auto', 'webgl2', 'webgpu'];
-
-for (const variant of VARIANTS) test(`the view is the live camera's, else the default pose with a Problems line, in Play and the export (${variant})`, async ({ page }) => {
-  onlyInItsProject(variant);
+// Which camera draws is decided before the renderer: the product's renderer once (the parity sweeps
+// compare the backends' pixels).
+for (const variant of PRODUCT_RENDERER_VARIANTS) test(`the view is the live camera's, else the default pose with a Problems line, in Play and the export (${variant})`, async ({ page }) => {
+  onlyInItsProject(variant, PRODUCT_RENDERER_VARIANTS);
   test.setTimeout(300_000);
   be = await startBackend('engine-view-e2e');
   // The starter's camera, 20 m to the side, looking at a red panel nothing else sees; a blue panel in front of the default pose.

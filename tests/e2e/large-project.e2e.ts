@@ -14,7 +14,7 @@
 import { rmSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page } from './pw';
 
 import { PERF_ROOT, startPerfBackend, type PerfBackend } from '../../tools/perf/backend';
 import { buildBenchmark } from '../../tools/perf/build';

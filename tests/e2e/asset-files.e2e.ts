@@ -11,7 +11,7 @@ import { mkdirSync, readFileSync, renameSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { join, resolve } from 'node:path';
 
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page } from './pw';
 
 import { startBackend, type E2EBackend } from './backend';
 import { colorCount, decodePng } from './png';

@@ -30,7 +30,7 @@
  */
 import { randomBytes } from 'node:crypto';
 
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page } from './pw';
 
 import { PRECOMPILE_STALL_MS } from '../../packages/three-adapter/src/adapter-types';
 import { sphereGlb } from '../../tools/perf/assets';

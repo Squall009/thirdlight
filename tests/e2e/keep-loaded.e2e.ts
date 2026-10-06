@@ -18,7 +18,7 @@
  */
 import { randomBytes } from 'node:crypto';
 
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page } from './pw';
 
 import { publishScript, STARTER, startBackend, type E2EBackend } from './backend';
 import { createBox, inspector } from './ui';
@@ -38,10 +38,8 @@ const kept = async (id: string): Promise<boolean> => ((await be.command({ op: 'q
 const row = (page: Page, id: string) => page.locator(`.tl-hierarchy__list li[data-entity-id="${id}"]`);
 const marker = (page: Page, id: string) => row(page, id).locator('[data-flag="kept"]');
 
-test('the Keep loaded flag in the Inspector, kept objects marked in the hierarchy', async ({ page }) => {
-  be = await startBackend('keep-loaded-e2e', 'starter');
-  await page.goto(be.editorUrl);
-  await expect(page.locator('.tl-statusbar')).toContainText('connected');
+/** The Keep loaded flag in the Inspector, kept objects marked in the hierarchy (a fresh starter editor open). */
+async function keepLoadedFlag(page: Page): Promise<void> {
 
   // The starter's camera and player are kept; its spawn and ground are not.
   await expect(marker(page, STARTER.cameraId)).toHaveCount(1);
@@ -80,7 +78,7 @@ test('the Keep loaded flag in the Inspector, kept objects marked in the hierarch
   await expect.poll(() => kept(boxId)).toBe(false);
   await expect(marker(page, boxId)).toHaveCount(0);
   await expect(marker(page, child)).toHaveCount(0);
-});
+}
 
 /** The director: debug commands load, unload and reload the level and move the kept crate; `report` logs what it reads. */
 const directorScript = (beacon: string): string => [
@@ -103,9 +101,16 @@ const directorScript = (beacon: string): string => [
 
 type Report = { seq: number; level: string; crates: number; crate: number[] | null; beacon: unknown; player: number[] | null };
 
-test('in Play a kept object lives through unload, load and reload as one object; a kept reference into an unloaded scene reads empty with one Problems line; a kept player arrives at the listed spawn', async ({ page }) => {
-  test.setTimeout(240_000);
+// The editor part first, on the fresh starter; Play then runs in the same editor (the editor part's box is not kept and sits in the start scene).
+test('the Keep loaded flag in the Inspector, kept objects marked in the hierarchy; in Play a kept object lives through unload, load and reload as one object; a kept reference into an unloaded scene reads empty with one Problems line; a kept player arrives at the listed spawn', async ({ page }) => {
+  test.setTimeout(300_000);
   be = await startBackend('keep-loaded-play-e2e', 'starter');
+  await page.goto(be.editorUrl);
+  await expect(page.locator('.tl-statusbar')).toContainText('connected');
+  await test.step('the Keep loaded flag in the Inspector, kept objects marked in the hierarchy', () => keepLoadedFlag(page));
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+
   await cmd('createScene', { sceneId: 'level', name: 'Level' });
   await cmd('createEntity', { sceneId: 'level', kind: 'box', name: 'Far floor', transform: { position: [200, -0.2, 0] }, box: { size: [16, 0.4, 1], material: { color: '#6f6f6f' } }, components: { collider: { shape: { type: 'box', hx: 8, hy: 0.2 } } } });
   const arrival = String((await cmd('createEntity', { sceneId: 'level', kind: 'group', name: 'Arrival', transform: { position: [198, 0.91, 0] }, components: { playerSpawn: {} } }))['createdId']);
@@ -117,10 +122,6 @@ test('in Play a kept object lives through unload, load and reload as one object;
   await publishScript(be, 'director', directorScript(beacon), director);
   await cmd('setShell', { shell: { scenes: [{ scene: 'scene-main', spawn: STARTER.spawnId }, { scene: 'level', spawn: arrival }] } });
 
-  const errors: string[] = [];
-  page.on('pageerror', (e) => errors.push(e.message));
-  await page.goto(be.editorUrl);
-  await expect(page.locator('.tl-statusbar')).toContainText('connected');
   const started = page.waitForResponse((r) => r.request().method() === 'POST' && r.url().endsWith('/play'));
   await page.getByTitle('Start an isolated play preview').click();
   const psid = String(((await (await started).json()) as { playSessionId: string }).playSessionId);

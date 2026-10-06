@@ -3,7 +3,7 @@
  * creating lights/cameras/spawns/empties, duplicating, adding and removing
  * components, exporting the game and downloading it, switching windows.
  */
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page } from './pw';
 
 import { startBackend, type E2EBackend } from './backend';
 import { closeMenu, menu, menuItem, expectWindowOpen, viewTab } from './ui';
@@ -113,17 +113,6 @@ test('File → Export game… exports and downloads a zip holding the standalone
   expect(((await list.json()) as { exports: Array<{ dir: string }> }).exports.map((e) => e.dir)).toEqual(['menu-0001@r0']);
 });
 
-test('Window and Help menus: panels, views, shortcuts dialog', async ({ page }) => {
-  await open(page);
-  await menu(page, 'Window', 'Problems');
-  await expectWindowOpen(page, 'Problems');
-  await menu(page, 'Window', 'Game');
-  await expect(viewTab(page, 'Game')).toHaveAttribute('aria-selected', 'true');
-  await menu(page, 'Help', 'Keyboard shortcuts');
-  await expect(page.getByRole('dialog', { name: 'Keyboard shortcuts' })).toContainText('Undo / redo');
-  await page.keyboard.press('Escape');
-  await expect(page.getByRole('dialog')).toHaveCount(0);
-});
 
 /** File names from a stored zip's local headers. */
 function zipNames(b: Buffer): string[] {
@@ -139,8 +128,18 @@ function zipNames(b: Buffer): string[] {
   return names;
 }
 
-test('the full-screen button in the menu bar toggles the whole editor in and out of full screen', async ({ page }) => {
+// One editor load for the menu bar's own controls: the Window and Help menus, then the full-screen button.
+test('Window and Help menus: panels, views, shortcuts dialog; the full-screen button toggles the whole editor in and out of full screen', async ({ page }) => {
   await open(page);
+  await menu(page, 'Window', 'Problems');
+  await expectWindowOpen(page, 'Problems');
+  await menu(page, 'Window', 'Game');
+  await expect(viewTab(page, 'Game')).toHaveAttribute('aria-selected', 'true');
+  await menu(page, 'Help', 'Keyboard shortcuts');
+  await expect(page.getByRole('dialog', { name: 'Keyboard shortcuts' })).toContainText('Undo / redo');
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+
   const btn = page.getByRole('button', { name: 'Full screen', exact: true });
   await expect(btn).toBeVisible();
   // Top right of the menu bar.

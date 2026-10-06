@@ -1,5 +1,5 @@
 /** Shared helpers for driving the editor's menus in browser tests. */
-import { expect, type Locator, type Page } from '@playwright/test';
+import { expect, type Locator, type Page } from './pw';
 
 /** Open a top-level menu and return the item locator (still open). */
 export async function menuItem(page: Page, menu: string, item: string): Promise<Locator> {

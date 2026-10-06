@@ -9,7 +9,9 @@
  * shelf, walks onto the lift and rides it up. The 2D-plane switches work
  * without a game session.
  */
-import { expect, test, type Page } from '@playwright/test';
+import { INPUT_RELAY_MAX_FRAMES } from '@thirdlight/protocol';
+
+import { expect, test, type Page } from './pw';
 
 import { startBackend, type E2EBackend, controls } from './backend';
 import { menu } from './ui';
@@ -109,11 +111,21 @@ test('a level built from gameplay blocks plays: a collectible, plate and door, o
     expect(r.status, JSON.stringify(r.json)).toBe(200);
   };
   const run = (n: number, moveX = 1) => Array.from({ length: n }, () => ({ moveX, jump: 'none' as const }));
-  /** Walk right in chunks until x ≥ target. */
+  /** The farthest the character has gone in one step so far (m), from the chunks walked. */
+  let pace = 0;
+  /**
+   * Walk right in chunks until x ≥ target. Each relay round trip costs far more than the steps it drives, so a chunk
+   * covers about half the distance left at the fastest pace seen yet (never past the target), down to `chunk` steps
+   * near it: the last chunks, and so the overshoot, are as fine as a walk in `chunk`-step pieces.
+   */
   const walkTo = async (target: number, chunk = 12): Promise<Observation> => {
-    for (let i = 0; i < 120; i++) {
-      if ((await observe()).player!.x >= target) break;
-      await drive(run(chunk));
+    let x = (await observe()).player!.x;
+    for (let i = 0; i < 120 && x < target; i++) {
+      const steps = pace > 0 ? Math.min(INPUT_RELAY_MAX_FRAMES, Math.max(chunk, Math.floor((0.5 * (target - x)) / pace))) : chunk;
+      await drive(run(steps));
+      const now = (await observe()).player!.x;
+      pace = Math.max(pace, (now - x) / steps);
+      x = now;
     }
     return observe();
   };

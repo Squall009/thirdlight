@@ -3,7 +3,7 @@
  * billboards that render on screen and are pickable by a click.
  */
 import * as THREE from 'three';
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page } from './pw';
 
 import { startBackend, type E2EBackend } from './backend';
 import { colorCount, decodePng } from './png';
@@ -46,9 +46,7 @@ test('lights, spawns and empties show as icons that can be clicked to select', a
 
   // The icon is drawn there: the pixels around the point are not the background.
   const at = await screenPoint(page, [2, 0.5, 0]);
-  await page.waitForTimeout(400);
-  const shot = await page.screenshot({ clip: { x: at.x - 16, y: at.y - 16, width: 32, height: 32 } });
-  expect(colorCount(decodePng(shot))).toBeGreaterThan(3);
+  await expect.poll(async () => colorCount(decodePng(await page.screenshot({ clip: { x: at.x - 16, y: at.y - 16, width: 32, height: 32 } }))), { timeout: 10_000 }).toBeGreaterThan(3);
 
   // Clicking the icon selects the spawn.
   await page.mouse.click(at.x, at.y);

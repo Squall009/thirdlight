@@ -8,7 +8,7 @@
  *   press of P makes the director script play a neutral six-shot timeline
  *   (`ctx.timeline.play`, binding its `hero` slot to the player): black fading
  *   in, letterbox bars, the wide camera, an eased cut to the close camera at
- *   2 s, the rail at 4 s; the player is moved along; music starts. A press of
+ *   1.5 s, the rail at 2.5 s; the player is moved along; music starts. A press of
  *   K (the timeline's skip action) mid-way applies each track's end state: the
  *   camera kept at the last shot (track end "keep"), the player at the move's
  *   last key, the last music key's track (owner: script), the gate signal of
@@ -27,7 +27,7 @@ import { createReadStream, existsSync, statSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import { extname, join, normalize, resolve } from 'node:path';
 
-import { expect, test, type Locator, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page } from './pw';
 
 import { startBackend, type E2EBackend } from './backend';
 import { decodePng, type Image } from './png';
@@ -154,7 +154,7 @@ async function buildScene(page: Page): Promise<Ids> {
       slots: [{ name: 'hero' }, { name: 'wide', entity: wide }, { name: 'close', entity: close }, { name: 'rail', entity: rail }],
       markers: [{ name: 'gate', time: 8 }],
       tracks: [
-        { trackId: 'cams', type: 'camera', end: 'keep', keys: [{ time: 0, camera: 'wide' }, { time: 2, camera: 'close', blend: 'eased', blendTime: 0.5 }, { time: 4, camera: 'rail', progress: [0, 1] }, { time: 7, camera: 'close', blend: 'cut' }, { time: 10, camera: 'wide', blend: 'linear', blendTime: 0.5 }] },
+        { trackId: 'cams', type: 'camera', end: 'keep', keys: [{ time: 0, camera: 'wide' }, { time: 1.5, camera: 'close', blend: 'eased', blendTime: 0.5 }, { time: 2.5, camera: 'rail', progress: [0, 1] }, { time: 7, camera: 'close', blend: 'cut' }, { time: 10, camera: 'wide', blend: 'linear', blendTime: 0.5 }] },
         { trackId: 'move', type: 'transform', target: 'hero', keys: [{ time: 0, position: [0, 0.91, 0] }, { time: 6, position: [3, 0.91, -2], easing: 'easeInOut' }] },
         { trackId: 'music', type: 'audio', keys: [{ time: 0, kind: 'music', asset: calm, fade: 0.5 }, { time: 9, kind: 'music', asset: tense, fade: 1 }] },
         { trackId: 'gate', type: 'signal', keys: [{ time: 8, name: 'gate' }] },
@@ -214,7 +214,7 @@ async function drive(page: Page, read: () => Promise<Observation | null>, ids: I
   const first = (await read())!;
   expect(first.timeline!.playing[0]).toMatchObject({ timeline: 'shots', state: 'playing' });
   expect(first.timeline!.screen.letterbox).toBeCloseTo(0.1, 9);
-  // The eased cut to the close shot at 2 s, then the rail at 4 s.
+  // The eased cut to the close shot at 1.5 s, then the rail at 2.5 s (early: the run waits for it in real time).
   const blends: string[] = [];
   await expect
     .poll(async () => {
@@ -249,10 +249,9 @@ async function drive(page: Page, read: () => Promise<Observation | null>, ids: I
   expect(end.timeline!.screen.letterbox, 'the held bars').toBeCloseTo(0.1, 9);
   await expect.poll(async () => fadeOpacity(), { timeout: 10_000 }).toBe(0);
   // The held letterbox bars in pixels: the top tenth of the view is black, the middle is not.
-  await page.waitForTimeout(300);
-  const img = decodePng(await view.screenshot());
-  expect(dark(img, 0.01, 0.08), 'the top bar').toBeGreaterThan(0.9);
-  expect(dark(img, 0.4, 0.6), 'the view between the bars').toBeLessThan(0.5);
+  let img = null as Image | null;
+  await expect.poll(async () => dark((img = decodePng(await view.screenshot())), 0.01, 0.08), { timeout: 10_000, message: 'the top bar' }).toBeGreaterThan(0.9);
+  expect(dark(img!, 0.4, 0.6), 'the view between the bars').toBeLessThan(0.5);
 }
 
 function serveDir(dir: string): Promise<{ url: string; close: () => Promise<void> }> {

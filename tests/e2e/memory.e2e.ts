@@ -34,7 +34,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { loadavg, tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { expect, test, type Frame, type Locator, type Page } from '@playwright/test';
+import { expect, test, type Frame, type Locator, type Page } from './pw';
 
 import { gpuAvailable } from './browser-env.mjs';
 import { type E2EBackend, startBackend } from './backend';
@@ -442,6 +442,9 @@ test('Play started and stopped returns the editor page to its baseline (iframe, 
   await probe.detach();
 });
 
+/** Steps between the spawner's pairs in the leak loop. */
+const SPAWN_EVERY_STEPS = 4;
+
 /** Publish a behavior with this source and attach it to `entityId`. */
 async function script(behaviorId: string, source: string, entityId: string, ownedTransforms: string[] = []): Promise<void> {
   const bytes = Buffer.from(`${JSON.stringify({ graphVersion: 1, entryPath: 'src/index.ts', requiredModules: ['@thirdlight/runtime'], ownedTransforms, files: [{ path: 'src/index.ts', text: source }] }, null, 2)}\n`);
@@ -458,7 +461,8 @@ async function script(behaviorId: string, source: string, entityId: string, owne
   await cmd('acknowledgeBehaviorTrust', { sourceDigest: createHash('sha256').update(bytes).digest('hex') });
   const published = await api('content/behaviors/source', { stageId, behaviorId, displayName: behaviorId, declaration, expectedRevision: Number((await query('queryProject'))['revision']), requestId: `req-${createHash('sha256').update(behaviorId).digest('hex').slice(0, 32)}` });
   expect(published.status, JSON.stringify(published.json)).toBe(200);
-  await cmd('setBehaviorProperties', { entityId, behaviorId, values: { every: 12 } });
+  // A pair every 4 steps: the loop's pair count, not its game time, is what a leak shows over.
+  await cmd('setBehaviorProperties', { entityId, behaviorId, values: { every: SPAWN_EVERY_STEPS } });
 }
 
 /**
@@ -576,14 +580,14 @@ for (const threads of ['off', 'worker'] as const) {
     await checkGpu('Play: level restarted with a scene loaded', base);
 
     // Spawn/destroy: the spawner's scene loaded; after a warm-up (three pairs alive from then on), over
-    // `loops.pairs` more pairs (one per 12 steps at 120 Hz) the counts stay where they were.
+    // `loops.pairs` more pairs (one per SPAWN_EVERY_STEPS steps at 120 Hz) the counts stay where they were.
     expect((await relay('control', { command: 'loadScene', sceneId: 'scene-spawn' })).status).toBe(200);
     await expect.poll(loaded, { timeout: 30_000 }).toContain('scene-spawn');
     await expect.poll(async () => (await observe()).counters?.['shots'] ?? 0, { timeout: 60_000 }).toBeGreaterThan(5);
     base = await pausedGpu();
     const heapBase = await probe.sample(frame());
     const shots0 = (await observe()).counters?.['shots'] ?? 0;
-    await expect.poll(async () => (await observe()).counters?.['shots'] ?? 0, { timeout: 300_000, intervals: [2000] }).toBeGreaterThan(shots0 + cycles(loops.pairs));
+    await expect.poll(async () => (await observe()).counters?.['shots'] ?? 0, { timeout: 300_000, intervals: [250] }).toBeGreaterThan(shots0 + cycles(loops.pairs));
     // Held still while the page settles (the spawner would keep adding garbage).
     expect((await relay('control', { command: 'debugPause' })).status).toBe(200);
     const pairs = ((await observe()).counters?.['shots'] ?? 0) - shots0;

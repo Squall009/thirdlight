@@ -13,7 +13,7 @@
  */
 import { randomUUID } from 'node:crypto';
 
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page } from './pw';
 
 import { startBackend, type E2EBackend } from './backend';
 import { closeMenu, menu, menuItem } from './ui';

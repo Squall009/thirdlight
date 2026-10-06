@@ -129,6 +129,7 @@ has a Playwright test for any editor surface. Format changes ride on phase
 | 29.10 | *Moved to 28c (`docs/plan-phase-28c.md`, owner 2026-10-04); kept here for reference.* **Static batching** (owner, 2026-10-02; Unity static batching, Godot's `MeshInstance3D` merging, Unreal's merge actors). Automatic instancing needs four copies of one mesh, so a scene of unique placed models draws them one by one: Skyforge's village draws ~640 of its ~1,200 meshes singly (674 distinct geometries, 323 models mostly placed once), and each is drawn again into the shadow map. Meshes of `static` entities (models and boxes) that share a material, shadow flags, light layers (29.3) and a world cell are merged into one geometry per (material, cell) at load (Play, export) and when the static set changes (editor: rebuilt off the frame, with the singles drawn until it is ready). Members keep their entities for picking, colliders and scripts; a static object a script moves or hides leaves its batch (the batch is rebuilt without it), as Unity does. Cells keep frustum culling for large scenes; 29.4's static shadow map draws the merged batches. Memory is shown in diagnostics (merged vertex bytes) and has no count cap. Batches are built per scene, so a scene unload or `ctx.scenes.reload` (28.5) drops or rebuilds only its own; objects kept loaded (28.4) are never merged into a scene's batch. Pixel test: the same scene merged and unmerged on both renderers. |
 | 29.11 | **Sky rotation** (Skyforge E70). `sky.rotation` (degrees about +Y) for `texture` and `cube` skies, applied to the background and the environment lighting alike, with an Inspector field and an "align the sky's sun to the key light" action in the Environment window. |
 | 29.12 | **Acceptance.** 29.1's class after the phase, split in §6. The limits and settings in `docs/deployment.md`. Each item's contribution is shown by switching it off in the class. |
+| 29.13 | **Full gate back under its 15 min budget** (D181; run first in the phase). The phase-end `full --both-renderers` took 21–22 min in 28b/28c. Find where the e2e time goes and cut it without losing any behaviour's coverage: one backend per file where tests share a fixture, shorter authored game time, polls instead of fixed sleeps, one renderer pass where the subject is not a backend path. |
 
 **Done when:**
 - 29.1's class holds p95 ≤ 16.7 ms GPU and CPU frame time at 1080p uncapped
@@ -167,6 +168,7 @@ has a Playwright test for any editor surface. Format changes ride on phase
 |---|---|
 | 29.0 | done 2026-09-29 |
 | 29.1–29.12 | — |
+| 29.13 | done 2026-10-06, partly: e2e test time 2131 → ~1820 s (−15 %), so the projected full gate is ~19 min, not ≤ 14. Measured per file in fast gates on both renderers, logs gate-fast-2913a/b1/b2. Changes: `expect.poll` retries every 50/100/200 ms (`tests/e2e/pw.ts`), shorter authored game time, polls instead of sleeps, ~30 tests merged onto shared backends, block-lod and engine-view on the product renderer only. Not taken: lint beside vitest saves 30 s but its memory peak is 6.2 GB under the 7 GB cap; trace recording costs ~1.5 %; a minified editor bundle loads no faster. 3 workers would cut e2e wall time by 18 % at a 4.7 GB peak in a sample (owner to decide). The rest of the gap needs a coverage decision (§7). |
 
 (29.1's before split and 29.12's after split.)
 
@@ -183,6 +185,8 @@ an uncapped device pixel ratio), fixed by the hotfix in 29.8's note; the CPU
 half is 29.4, 29.9 and 29.10.
 
 ## 7. Decision log
+
+- 2026-10-06 (gate budget): the e2e trim kept every assertion, so it reached 15 %, not the 35 % needed. The time left is game time the tests watch in real time (walks, blends, Play and export legs) and ~1 s for each Play or export. Under 14 min needs one of these (owner to choose): 3 workers (−18 % e2e wall time, 4.7 GB peak in a sample; the memory rule says 2); fewer export legs where a feature's export path is the same runtime code as Play; or fewer forced WebGL 2 variants (182 s of test time). Default chosen: none of them; the full gate reports its time.
 
 - 2026-09-29: the lighting model is the owner's, checked against Unity HDRP,
   Unity probe volumes, Godot and Unreal (§3); it matches HDRP's mixed cached

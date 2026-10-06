@@ -4,7 +4,7 @@
  */
 import { join, resolve } from 'node:path';
 
-import { expect, test } from '@playwright/test';
+import { expect, test } from './pw';
 
 import { startBackend, type E2EBackend } from './backend';
 import { colorCount, decodePng } from './png';

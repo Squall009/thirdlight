@@ -26,7 +26,7 @@ import { extname, join, normalize, resolve } from 'node:path';
 
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page } from './pw';
 
 import { startBackend, type E2EBackend } from './backend';
 import { decodePng, type Image } from './png';
@@ -130,7 +130,28 @@ async function mcpClient(): Promise<{ mcp: Client; call: (name: string, args?: R
   return { mcp, call };
 }
 
-test('Visible off in the Inspector: hidden in Play until a tool signal shows it; the console signal hides it; a dialogue line shows a glyph', async ({ page }) => {
+function serve(dir: string): Promise<{ server: Server; url: string }> {
+  const server = createServer((req, reply) => {
+    const rel = normalize(decodeURIComponent((req.url ?? '/').split('?')[0]!)).replace(/^\/+/, '') || 'index.html';
+    const file = join(dir, rel);
+    if (!file.startsWith(dir) || !existsSync(file) || !statSync(file).isFile()) {
+      reply.statusCode = 404;
+      reply.end();
+      return;
+    }
+    const types: Record<string, string> = { '.html': 'text/html', '.js': 'text/javascript', '.json': 'application/json', '.wasm': 'application/wasm' };
+    reply.setHeader('content-type', types[extname(file)] ?? 'application/octet-stream');
+    createReadStream(file).pipe(reply);
+  });
+  return new Promise((ok) => server.listen(0, '127.0.0.1', () => ok({ server, url: `http://127.0.0.1:${(server.address() as { port: number }).port}/` })));
+}
+
+async function exportShot(game: Page): Promise<Image> {
+  return decodePng(await game.locator('canvas#game').screenshot());
+}
+
+// Play and the export share one set-up: the export is made from the project the Inspector part hid the wall in.
+test('Visible off in the Inspector: hidden in Play until a tool signal shows it; the console signal hides it; a dialogue line shows a glyph; an export starts the wall hidden and the console signal shows it, in pixels', async ({ page }) => {
   test.setTimeout(300_000);
   const wallId = await setUp('hidden-signals-e2e');
   await page.goto(be!.editorUrl);
@@ -217,35 +238,13 @@ test('Visible off in the Inspector: hidden in Play until a tool signal shows it;
     await mcp.close();
   }
   await page.getByTitle('Stop the play preview').click().catch(() => undefined);
-});
 
-function serve(dir: string): Promise<{ server: Server; url: string }> {
-  const server = createServer((req, reply) => {
-    const rel = normalize(decodeURIComponent((req.url ?? '/').split('?')[0]!)).replace(/^\/+/, '') || 'index.html';
-    const file = join(dir, rel);
-    if (!file.startsWith(dir) || !existsSync(file) || !statSync(file).isFile()) {
-      reply.statusCode = 404;
-      reply.end();
-      return;
-    }
-    const types: Record<string, string> = { '.html': 'text/html', '.js': 'text/javascript', '.json': 'application/json', '.wasm': 'application/wasm' };
-    reply.setHeader('content-type', types[extname(file)] ?? 'application/octet-stream');
-    createReadStream(file).pipe(reply);
-  });
-  return new Promise((ok) => server.listen(0, '127.0.0.1', () => ok({ server, url: `http://127.0.0.1:${(server.address() as { port: number }).port}/` })));
-}
-
-async function exportShot(game: Page): Promise<Image> {
-  return decodePng(await game.locator('canvas#game').screenshot());
-}
-
-test('an export starts the authored-hidden wall hidden and the console signal shows it, in pixels', async ({ page }) => {
-  test.setTimeout(240_000);
-  const wallId = await setUp('hidden-signals-export');
-  await cmd('updateEntity', { entityId: wallId, visible: false });
+  // The export of the same project: the wall is authored hidden (set in the Inspector above); the console is on.
+  expect((await entityOf(wallId))?.['visible']).toBe(false);
   await cmd('setSettings', { settings: { debug_console: 1 } });
   const exported = await be!.admin(`projects/${be!.projectId}/export`);
   expect(exported.status, JSON.stringify(exported.json)).toBe(200);
+  await page.goto('about:blank');
   await be!.halt();
   const served = await serve(join(be!.exportRoot, String(exported.json.outputDir)));
   const errors: string[] = [];

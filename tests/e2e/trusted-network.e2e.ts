@@ -4,7 +4,7 @@
  * anything else still needs it. Behind a listed proxy only the forwarded
  * client address counts, and the Origin allowlist still refuses other sites.
  */
-import { expect, test } from '@playwright/test';
+import { expect, test } from './pw';
 
 import { startBackend, type E2EBackend } from './backend';
 import { createBox } from './ui';

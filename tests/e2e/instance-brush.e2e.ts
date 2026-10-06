@@ -25,7 +25,7 @@ import { join, resolve } from 'node:path';
 
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
-import { expect, test, type Locator, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page } from './pw';
 import * as THREE from 'three';
 
 import { publishBytes, startBackend, type E2EBackend } from './backend';

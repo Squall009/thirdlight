@@ -12,7 +12,7 @@
  * at the turn speed, stops at the chain's limits when a script moves the
  * look point behind it, and turns back when the script sets the weight to 0.
  */
-import { expect, test, type Locator, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page } from './pw';
 
 import { publishBytes, publishScript, startBackend, type E2EBackend } from './backend';
 import { skinnedGlb } from './skinned-glb';
@@ -58,14 +58,14 @@ function yawOf(q: readonly number[]): number {
   return Math.atan2(2 * (x * z + w * y), 1 - 2 * (x * x + y * y)) / DEG;
 }
 
-// The script: 2 s in it moves the look to a point 120° to the right (behind the chain's 70° reach),
-// 4 s in it sets the weight to 0.
+// The script: 1 s in it moves the look to a point 120° to the right (behind the chain's 70° reach),
+// 2 s in it sets the weight to 0.
 const DIRECTOR = [
   'export default {',
   '  instantiate() { return { armed: false }; },',
   '  step(state: any, ctx: any) {',
   "    if (ctx.phase !== 'intent') return;",
-  "    if (!state.armed) { state.armed = true; ctx.timers.after('far', 2); ctx.timers.after('rest', 4); }",
+  "    if (!state.armed) { state.armed = true; ctx.timers.after('far', 1); ctx.timers.after('rest', 2); }",
   '    const a = ctx.animator(ctx.entityId);',
   `    if (ctx.timers.fired('far')) a?.setLookPoint([${(-5 * Math.sin(60 * DEG)).toFixed(6)}, 1, ${(-5 * Math.cos(60 * DEG)).toFixed(6)}]);`,
   "    if (ctx.timers.fired('rest')) a?.setLookWeight(0);",
@@ -169,10 +169,10 @@ test('the look-at turns the drawn head toward its target within its limits at it
   await fill(field('weight'), '1');
   await expect.poll(async () => (await lookAt())?.['weight']).toBeUndefined();
   await field('weightParameter').selectOption('attention');
-  await fill(field('turnSpeed'), '90');
+  await fill(field('turnSpeed'), '180');
   await expect
     .poll(lookAt)
-    .toEqual({ head: { bone: 'upper', yaw: 50, pitch: 30 }, chest: { bone: 'root', yaw: 20, pitch: 10 }, target: friend, point: [0, 1, 5], weightParameter: 'attention', turnSpeed: 90 });
+    .toEqual({ head: { bone: 'upper', yaw: 50, pitch: 30 }, chest: { bone: 'root', yaw: 20, pitch: 10 }, target: friend, point: [0, 1, 5], weightParameter: 'attention', turnSpeed: 180 });
 
   const psid = await startPlay(page);
   const first = await at(psid, npc, 1, 0);
@@ -187,22 +187,22 @@ test('the look-at turns the drawn head toward its target within its limits at it
     console.log(`[look-at] ${seconds} s: simulation yaw ${sim.toFixed(2)}°, drawn upper bone yaw ${drawn.toFixed(2)}°`);
     return { sim, drawn };
   };
-  // 90°/s toward 60°: 22.5° after a quarter second (one step either way), 60° once there.
-  const quarter = await sample(0.25);
-  expect(Math.abs(quarter.sim - 22.5)).toBeLessThanOrEqual(90 / hz + 1e-6);
+  // 180°/s toward 60°: 22.5° after an eighth of a second (one step either way), 60° once there (a third of a second).
+  const quarter = await sample(0.125);
+  expect(Math.abs(quarter.sim - 22.5)).toBeLessThanOrEqual(180 / hz + 1e-6);
   expect(quarter.drawn).toBeCloseTo(quarter.sim, 1);
-  const there = await sample(1.5);
+  const there = await sample(0.75);
   expect(there.sim).toBeCloseTo(60, 6);
   expect(there.drawn).toBeCloseTo(60, 1);
-  // 2 s: the look point moves 120° to the other side; the chain stops at its 70° (20 + 50).
-  const limited = await sample(3.8);
+  // 1 s: the look point moves 120° to the other side; the chain stops at its 70° (20 + 50), from 60° in 0.72 s.
+  const limited = await sample(1.9);
   expect(limited.sim).toBeCloseTo(-70, 6);
   expect(limited.drawn).toBeCloseTo(-70, 1);
-  // 4 s: weight 0 — back at 90°/s (−70 + 45 half a second later), straight again by 4.8 s.
-  const back = await sample(4.5);
-  expect(Math.abs(back.sim + 25)).toBeLessThanOrEqual(90 / hz + 1e-6);
+  // 2 s: weight 0 — back at 180°/s (−70 + 45 a quarter second later), straight again by 2.4 s.
+  const back = await sample(2.25);
+  expect(Math.abs(back.sim + 25)).toBeLessThanOrEqual(180 / hz + 1e-6);
   expect(back.drawn).toBeCloseTo(back.sim, 1);
-  const rest = await sample(5.5);
+  const rest = await sample(2.75);
   expect(rest.sim).toBe(0);
   expect(Math.abs(rest.drawn)).toBeLessThan(0.05);
 

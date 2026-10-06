@@ -22,7 +22,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { rmSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { expect, test } from '@playwright/test';
+import { expect, test } from './pw';
 
 import { PERF_ROOT, startPerfBackend, type PerfBackend } from '../../tools/perf/backend';
 import { sphereGlb } from '../../tools/perf/assets';
@@ -30,11 +30,12 @@ import { makePng } from './png-make';
 
 let be: PerfBackend;
 let root: string;
-test.beforeEach(async () => {
+// One backend for the file: every test makes its own project on it.
+test.beforeAll(async () => {
   root = join(PERF_ROOT, 'e2e', `resources-${process.pid}-${Date.now()}`);
   be = await startPerfBackend(join(root, 'data'), join(root, 'exports'));
 });
-test.afterEach(async () => {
+test.afterAll(async () => {
   await be.stop();
   rmSync(root, { recursive: true, force: true });
 });

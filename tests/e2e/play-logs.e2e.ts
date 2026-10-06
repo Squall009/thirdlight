@@ -14,7 +14,7 @@
  */
 import { createHash, randomBytes } from 'node:crypto';
 
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page } from './pw';
 
 import { startBackend, type E2EBackend } from './backend';
 import { openWindow } from './ui';
@@ -59,10 +59,15 @@ async function publishScript(behaviorId: string, text: string): Promise<void> {
   expect(published.status, JSON.stringify(published.json)).toBe(200);
 }
 
-/** Start Play from the editor; the play session id. */
+/** Open the editor and start Play; the play session id. */
 async function play(page: Page): Promise<string> {
   await page.goto(be!.editorUrl);
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
+  return playAgain(page);
+}
+
+/** Start Play from the editor already open; the play session id. */
+async function playAgain(page: Page): Promise<string> {
   const started = page.waitForResponse((r) => r.request().method() === 'POST' && r.url().endsWith('/play'));
   await page.getByTitle('Start an isolated play preview').click();
   const psid = String(((await (await started).json()) as { playSessionId: string }).playSessionId);
@@ -85,8 +90,9 @@ const REFUSER = [
   '',
 ].join('\n');
 
-test('refused script calls answer false and are logged once; a long run\'s diagnostics are trimmed, not refused', async ({ page }) => {
-  test.setTimeout(240_000);
+// Both plays run in one editor: the second starts once the first has stopped and its script's object is gone.
+test('refused script calls answer false and are logged once; a long run\'s diagnostics are trimmed, not refused; a project dialogue document gets the runner\'s focus', async ({ page }) => {
+  test.setTimeout(300_000);
   be = await startBackend('play-logs-refusals', 'starter');
   const holder = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Refuser' }))['createdId']);
   await publishScript('refuser', REFUSER);
@@ -131,6 +137,11 @@ test('refused script calls answer false and are logged once; a long run\'s diagn
   await expect(consolePanel.getByTestId('console-dropped')).toContainText(/\d+ older entr(y|ies) left out to fit the report/, { timeout: 30_000 });
   await expect(consolePanel.locator('li[data-level="info"]').filter({ hasText: /^.*flood \d+ \d/ }).first()).toBeVisible();
   await page.getByTitle('Stop the play preview').click().catch(() => undefined);
+  await expect(page.locator('iframe.tl-app__preview-frame')).toHaveCount(0, { timeout: 30_000 });
+
+  // The same editor, the refuser gone: a project dialogue document of its own id gets the runner's focus.
+  await cmd('deleteEntity', { entityId: holder });
+  await test.step('a project dialogue document of its own id gets the runner\'s focus: the first option at a choice (Enter picks it), the box after', () => dialogueFocus(page));
 });
 
 const TALKER = [
@@ -142,9 +153,8 @@ const TALKER = [
   '',
 ].join('\n');
 
-test('a project dialogue document of its own id gets the runner\'s focus: the first option at a choice (Enter picks it), the box after', async ({ page }) => {
-  test.setTimeout(240_000);
-  be = await startBackend('play-logs-dialogue', 'starter');
+/** A project dialogue document of its own id gets the runner's focus: the first option at a choice (Enter picks it), the box after (the editor open). */
+async function dialogueFocus(page: Page): Promise<void> {
   const node = (id: string, type: string, y: number, data?: Record<string, unknown>) => ({ id, type, position: [0, y], ...(data !== undefined ? { data } : {}) });
   const wire = (id: string, from: string, port: string, to: string) => ({ id, from: { node: from, port }, to: { node: to, port: 'in' } });
   await cmd('setDialogue', {
@@ -191,7 +201,7 @@ test('a project dialogue document of its own id gets the runner\'s focus: the fi
   await publishScript('talker', TALKER);
   await cmd('setBehaviorProperties', { entityId: holder, behaviorId: 'talker', values: {} });
 
-  const psid = await play(page);
+  const psid = await playAgain(page);
   type Obs = { dialogue?: { running: boolean; kind: string; line: { id: string } | null; choices: string[] } };
   const observe = async (): Promise<Obs> => (await api(`play/${psid}/observe`)).json as Obs;
   const frame = page.frameLocator('iframe.tl-app__preview-frame');
@@ -214,4 +224,4 @@ test('a project dialogue document of its own id gets the runner\'s focus: the fi
   await expect.poll(async () => (await observe()).dialogue?.line?.id ?? null, { timeout: 30_000 }).toBe('after');
   await expect(doc).toHaveAttribute('data-focus', 'box');
   await page.getByTitle('Stop the play preview').click().catch(() => undefined);
-});
+}

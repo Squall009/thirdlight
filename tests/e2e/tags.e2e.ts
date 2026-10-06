@@ -6,7 +6,7 @@
  */
 import { createHash } from 'node:crypto';
 
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page } from './pw';
 
 import { STARTER, type E2EBackend, startBackend } from './backend';
 import { closeProjectSettings, openProjectSettings } from './ui';

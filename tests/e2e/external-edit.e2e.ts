@@ -5,7 +5,7 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { expect, test } from '@playwright/test';
+import { expect, test } from './pw';
 
 import { startBackend, type E2EBackend } from './backend';
 import { createBox, openWindow, closeEditor, windowTab } from './ui';
@@ -21,7 +21,8 @@ test.afterEach(async () => {
 
 const envelope = (): string => join(be.projectDir, 'scenes', 'scene-main.json');
 
-test('a valid edit on disk is announced and can be loaded', async ({ page }) => {
+// Both edits run on one backend and page: the corrupt edit comes after the valid one was loaded, as a user would meet them.
+test('a valid edit on disk is announced and can be loaded; a corrupt edit cannot be loaded, keeping the editor version resumes editing', async ({ page }) => {
   await page.goto(be.editorUrl);
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
 
@@ -34,14 +35,9 @@ test('a valid edit on disk is announced and can be loaded', async ({ page }) => 
   await banner.getByRole('button', { name: 'load disk version' }).click();
   await expect(banner).toHaveCount(0);
   await expect(page.locator('.tl-hierarchy__list li.tl-row').filter({ hasText: 'Edited on disk' })).toHaveCount(1);
-});
 
-test('a corrupt edit cannot be loaded; keeping the editor version resumes editing', async ({ page }) => {
-  await page.goto(be.editorUrl);
-  await expect(page.locator('.tl-statusbar')).toContainText('connected');
-
+  // A corrupt edit after it.
   writeFileSync(envelope(), '{ not json');
-  const banner = page.locator('.tl-notice--external');
   await expect(banner).toBeVisible({ timeout: 10_000 });
   await expect(banner).toContainText('invalid');
   await expect(banner.getByRole('button', { name: 'load disk version' })).toBeDisabled();

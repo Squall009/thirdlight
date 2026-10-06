@@ -6,7 +6,7 @@
  * back down to the ground, never held at a seam (not "grounded" on the
  * first seam it reaches, and not creeping down a wall on its left).
  */
-import { expect, test } from '@playwright/test';
+import { expect, test } from './pw';
 
 import { startBackend, type E2EBackend, controls } from './backend';
 

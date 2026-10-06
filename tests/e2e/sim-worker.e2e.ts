@@ -23,7 +23,7 @@ import { createReadStream, existsSync, statSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import { extname, join, normalize } from 'node:path';
 
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page } from './pw';
 
 import { addTitleShell, publishWav, startBackend, type E2EBackend } from './backend';
 import { decodePng } from './png';
@@ -187,7 +187,8 @@ test('Play never waits on the simulation: it draws at the display rate with a sl
     const d0 = await diagnostics(psid);
     const r0 = await rafs();
     const t0 = Date.now();
-    await page.waitForTimeout(3000);
+    // Two seconds is 120 display frames and at most 50 worker answers: the ratios below hold with room to spare.
+    await page.waitForTimeout(2000);
     const d1 = await diagnostics(psid);
     const r1 = await rafs();
     const seconds = (Date.now() - t0) / 1000;
@@ -229,7 +230,8 @@ test('Play never waits on the simulation: it draws at the display rate with a sl
     await page.waitForTimeout(500);
     const d0 = await diagnostics(psid);
     const t0 = Date.now();
-    await page.waitForTimeout(4000);
+    // Three seconds: a frame (33 ms) and a diagnostics round trip at each end are under 3 % of it, inside the ±7 % below.
+    await page.waitForTimeout(3000);
     const d1 = await diagnostics(psid);
     const seconds = (Date.now() - t0) / 1000;
     const p0 = d0.simulation.pipeline!;
@@ -318,12 +320,13 @@ test('the export: the worker by default (messages; shared memory under COOP/COEP
         }
         return changed;
       };
+      // Equal windows standing and moving: walking scrolls the view well past what standing changes in the same time.
       await game.waitForTimeout(500);
       const still0 = await game.screenshot();
-      await game.waitForTimeout(1500);
+      await game.waitForTimeout(750);
       const still1 = await game.screenshot();
       await game.keyboard.down('d');
-      await game.waitForTimeout(1500);
+      await game.waitForTimeout(750);
       await game.keyboard.up('d');
       const moved = await game.screenshot();
       const idle = diff(still0, still1);

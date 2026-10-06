@@ -20,13 +20,14 @@
  */
 import { randomBytes } from 'node:crypto';
 
-import { expect, test, type Locator, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page } from './pw';
 
 import { publishWav, startBackend, type E2EBackend } from './backend';
 import { decodePng } from './png';
 import { inspector, menu, menuItem, openProjectSettings, projectWindow, settingsTab, settingsWindow, showView, toolWindow, toolWindowScene, windowTab } from './ui';
 
 let be: E2EBackend | null = null;
+const beOf = (): E2EBackend => be!;
 test.afterEach(async () => {
   await be?.stop();
   be = null;
@@ -69,8 +70,9 @@ const boxOf = async (l: Locator): Promise<{ x: number; y: number; width: number;
   return { x: Math.round(b.x), y: Math.round(b.y), width: Math.round(b.width), height: Math.round(b.height) };
 };
 
-test('Lighting and Environment float over the Scene view and edit the scene they name; two scenes', async ({ page }) => {
-  test.setTimeout(180_000);
+// One editor for both: the selection part runs in the project the tool windows part leaves (Main active, its objects new).
+test('Lighting and Environment float over the Scene view and edit the scene they name; two scenes; a block layer\'s tools, a prefab from the selection, an audio asset\'s Inspector, Project Settings → Audio', async ({ page }) => {
+  test.setTimeout(300_000);
   be = await startBackend('window-tools-scenes');
   await cmd('createScene', { sceneId: 'scene-two', name: 'Two' });
   await cmd('setEnvironment', { sceneId: 'scene-main', environment: { sky: { mode: 'color', color: '#d02020' } } });
@@ -160,18 +162,23 @@ test('Lighting and Environment float over the Scene view and edit the scene they
   await menu(page, 'Window', 'Lighting');
   await expect(lit).toBeVisible();
   await expect(toolWindowScene(page, 'Lighting')).toHaveAttribute('data-scene-id', 'scene-main');
+
+  // The same editor, the tool windows closed: the selection's tools, in the active scene (Main).
+  await lit.getByRole('button', { name: 'Close the Lighting window' }).click();
+  await env.getByRole('button', { name: 'Close the Environment window' }).click();
+  await expect(lit).toHaveCount(0);
+  await expect(env).toHaveCount(0);
+  await test.step("a block layer's tools in the Inspector; a prefab from the selection; an audio asset's Inspector; Project Settings → Audio", () => selectionTools(page));
 });
 
-test("a block layer's tools in the Inspector; a prefab from the selection; an audio asset's Inspector; Project Settings → Audio", async ({ page }) => {
-  test.setTimeout(180_000);
-  be = await startBackend('window-tools-selection');
+/** A block layer's tools in the Inspector; a prefab from the selection; an audio asset's Inspector; Project Settings → Audio (an editor open, Main active). */
+async function selectionTools(page: Page): Promise<void> {
+  const be = beOf();
   const layer = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Ground', transform: { position: [0, 0, 0] } }))['createdId']);
   await cmd('setComponent', { entityId: layer, component: 'blockLayer', value: { cellSize: [1, 1, 1], bounds: { min: [0, 0, 0], max: [16, 8, 16] } } });
   const crate = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'box', name: 'Crate', transform: { position: [3, 0.5, 0] }, box: { size: [1, 1, 1], material: { color: '#a07040' } } }))['createdId']);
   await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'box', name: 'Barrel', transform: { position: [-3, 0.5, 0] }, box: { size: [1, 1, 1], material: { color: '#4070a0' } } });
   const sound = await publishWav(be, 'cue-goal.wav', 'sfx-ping', 'ping');
-  await page.goto(be.editorUrl);
-  await expect(page.locator('.tl-statusbar')).toContainText('connected');
   const tools = inspector(page).getByLabel('blocks panel', { exact: true });
 
   // ---- Block tools: shown while a block layer is selected, with that layer.
@@ -260,4 +267,4 @@ test("a block layer's tools in the Inspector; a prefab from the selection; an au
   await settingsWindow(page).getByLabel('Search project settings').fill('event sounds');
   await expect(settingsTab(page, 'Audio')).toBeVisible();
   await expect(settingsWindow(page).getByRole('tab')).toHaveCount(1);
-});
+}

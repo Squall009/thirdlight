@@ -17,7 +17,7 @@
  */
 import { createHash } from 'node:crypto';
 
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page } from './pw';
 
 import { type E2EBackend, startBackend } from './backend';
 import { closeProjectSettings, openWindow } from './ui';
@@ -190,8 +190,8 @@ test('a public and a private script property: Inspector, per-object override and
   await expect(debug).toHaveCount(0, { timeout: 30_000 });
 });
 
-test('properties declared in the script source: the compiler derives the declaration and the Behaviors tab shows it read-only', async ({ page }) => {
-  test.setTimeout(120_000);
+/** Properties declared in the script source: the compiler derives the declaration (backend side). */
+async function declaredInCode(): Promise<void> {
   // A record to publish into (its placeholder declaration is replaced by the code's).
   await cmd('publishBehavior', { behaviorId: 'coded', displayName: 'Coded', mode: 'declaration-create', declaration: { properties: [{ key: 'placeholder', label: 'Placeholder', type: 'number', default: 0 }] } });
   const text = [
@@ -228,9 +228,10 @@ test('properties declared in the script source: the compiler derives the declara
   // A JSON declaration update cannot drift from the code.
   const update = await send('publishBehavior', { behaviorId: 'coded', displayName: 'Coded', mode: 'declaration-update', declaration: { properties: [{ key: 'speed', label: 'Speed', type: 'number', default: 4 }] } });
   expect(JSON.stringify(update)).toContain('declared_in_code');
+}
 
-  await page.goto(be.editorUrl);
-  await expect(page.locator('.tl-statusbar')).toContainText('connected');
+/** The Behaviors tab shows a declaration made in code read-only (an editor already open). */
+async function declaredInCodeShown(page: Page): Promise<void> {
   await openWindow(page, 'Behaviors');
   await page.locator('.tl-behaviors__list li').filter({ hasText: 'Coded' }).click();
   const editor = page.getByLabel('declaration editor');
@@ -238,15 +239,17 @@ test('properties declared in the script source: the compiler derives the declara
   await expect(page.getByLabel('property 2 visibility', { exact: true })).toHaveValue('private');
   await expect(page.getByLabel('property 2 visibility', { exact: true })).toBeDisabled();
   await expect(editor.getByRole('button', { name: 'Save declaration' })).toHaveCount(0);
-});
+}
 
 /** `n` public number properties `p0` … `p<n-1>` (default = index), labelled as given. */
 const numbers = (n: number, label: (i: number) => string = (i) => `P${i}`): { properties: Record<string, unknown>[] } => ({
   properties: Array.from({ length: n }, (_, i) => ({ key: `p${i}`, label: label(i), type: 'number', default: i })),
 });
 
-test('a script declaring 100 properties: the Inspector edits one, the declaration editor adds one more, both persist', async ({ page }) => {
+// Three checks on one backend and page: their behaviors and objects have distinct ids and names, and none plays.
+test('properties declared in the script source show read-only; a script declaring 100 properties: the Inspector edits one, the declaration editor adds one more, both persist; the declaration byte budget', async ({ page }) => {
   test.setTimeout(240_000);
+  await declaredInCode();
   // No count cap: only the declaration's bytes bound it.
   await cmd('publishBehavior', { behaviorId: 'many', displayName: 'Many', mode: 'declaration-create', declaration: numbers(100) });
   const made = await cmd('createEntity', { sceneId: 'scene-main', kind: 'box', name: 'Many box', transform: { position: [6, 1, 0] }, box: { size: [0.5, 0.5, 0.5], material: { color: '#808080' } } });
@@ -259,6 +262,9 @@ test('a script declaring 100 properties: the Inspector edits one, the declaratio
 
   await page.goto(be.editorUrl);
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
+  await test.step('properties declared in the script source: the Behaviors tab shows them read-only', () => declaredInCodeShown(page));
+  // The Hierarchy is under the settings window the Behaviors tab is in.
+  await closeProjectSettings(page);
   await page.locator(`.tl-hierarchy__list li[data-entity-id="${boxId}"]`).click();
   const inspector = page.locator('.tl-inspector');
   // Every property is listed; the last one is edited.
@@ -289,9 +295,12 @@ test('a script declaring 100 properties: the Inspector edits one, the declaratio
   await be.restart();
   expect(await declared()).toBe(101);
   expect((await values())?.['p99']).toBe(42);
+
+  await test.step('a declaration over the byte budget is refused with its size; 100 properties declared in code publish', () => byteBudget());
 });
 
-test('a declaration over the byte budget is refused with its size; 100 properties declared in code publish', async () => {
+/** A declaration over the byte budget is refused with its size; 100 properties declared in code publish (backend side). */
+async function byteBudget(): Promise<void> {
   // 400 long-labelled properties are well over 32 KiB.
   const big = await send('publishBehavior', { behaviorId: 'huge', displayName: 'Huge', mode: 'declaration-create', declaration: numbers(400, (i) => `Property number ${i} with a long label`) });
   expect(big.ok).toBe(false);
@@ -319,4 +328,4 @@ test('a declaration over the byte budget is refused with its size; 100 propertie
   expect(published.status, JSON.stringify(published.json)).toBe(200);
   const record = ((await query('queryBehaviors', { includeDeclaration: true, behaviorId: 'coded-many' }))['behaviors'] as { declaration: { properties: unknown[] } }[])[0]!;
   expect(record.declaration.properties).toHaveLength(100);
-});
+}

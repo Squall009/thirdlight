@@ -25,7 +25,7 @@ import { extname, join, normalize, resolve } from 'node:path';
 
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page } from './pw';
 
 import { STARTER, startBackend, type E2EBackend } from './backend';
 // @ts-expect-error — a plain .mjs helper shared with the Playwright config

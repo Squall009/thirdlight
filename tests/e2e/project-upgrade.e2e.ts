@@ -16,7 +16,7 @@ import { dirname, join, resolve } from 'node:path';
 
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
-import { expect, test } from '@playwright/test';
+import { expect, test } from './pw';
 
 import { startBackend, type E2EBackend } from './backend';
 import { openWindow, toolWindow, toolWindowScene } from './ui';

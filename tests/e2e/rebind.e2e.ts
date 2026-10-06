@@ -12,7 +12,7 @@
  */
 import { randomBytes } from 'node:crypto';
 
-import { expect, test, type Frame, type Page } from '@playwright/test';
+import { expect, test, type Frame, type Page } from './pw';
 
 import { type E2EBackend, startBackend } from './backend';
 
@@ -114,7 +114,21 @@ async function openControls(frame: Frame, observe: () => Promise<Observation>): 
   await expect.poll(async () => (await observe()).shell?.screen).toBe('controls');
 }
 
-async function peak(page: Page, observe: () => Promise<Observation>, key: string): Promise<number> {
+/** The player stands still: two readings in a row at the same height (at or below `ceiling`); that height. */
+async function standing(observe: () => Promise<Observation>, ceiling = Infinity): Promise<number> {
+  let last = NaN;
+  await expect
+    .poll(async () => {
+      const y = (await observe()).player!.y;
+      const still = y === last && y < ceiling;
+      last = y;
+      return still;
+    }, { timeout: 15_000, message: 'the player stands on the ground' })
+    .toBe(true);
+  return last;
+}
+
+async function peak(page: Page, observe: () => Promise<Observation>, key: string, ground: number): Promise<number> {
   let top = -Infinity;
   await page.keyboard.down(key);
   for (let i = 0; i < 8; i++) {
@@ -122,7 +136,7 @@ async function peak(page: Page, observe: () => Promise<Observation>, key: string
     await page.waitForTimeout(60);
   }
   await page.keyboard.up(key);
-  await page.waitForTimeout(1200); // land again
+  await standing(observe, ground + 0.05); // landed again
   return top;
 }
 
@@ -162,10 +176,9 @@ test('rebind jump to K on a controls screen: K jumps, it survives a reload, rese
   await expect.poll(async () => (await observe()).shell?.screen, { timeout: 20_000 }).toBe('playing');
   expect((await observe()).state).toBe('running');
   await page.locator('iframe.tl-app__preview-frame').click();
-  await page.waitForTimeout(700); // settle on the ground
-  const ground = (await observe()).player!.y;
-  expect(await peak(page, observe, 'Space')).toBeLessThan(ground + 0.1);
-  expect(await peak(page, observe, 'k')).toBeGreaterThan(ground + 0.6);
+  const ground = await standing(observe);
+  expect(await peak(page, observe, 'Space', ground)).toBeLessThan(ground + 0.1);
+  expect(await peak(page, observe, 'k', ground)).toBeGreaterThan(ground + 0.6);
 
   // A reload: the saved rebinding holds from the start.
   ({ frame, observe } = await startPlay(page));
@@ -213,8 +226,7 @@ test('rebind jump to a pad button on a controls screen: the pad button jumps, A 
   await expect.poll(async () => (await observe()).shell?.screen).toBe('title');
   await frame.locator('[data-tl-ui-doc="title"] [data-widget="start"]').click();
   await expect.poll(async () => (await observe()).shell?.screen, { timeout: 20_000 }).toBe('playing');
-  await page.waitForTimeout(700); // settle on the ground
-  const ground = (await observe()).player!.y;
+  const ground = await standing(observe);
   const padPeak = async (button: number): Promise<number> => {
     let top = -Infinity;
     await setButton(button, true);
@@ -223,7 +235,7 @@ test('rebind jump to a pad button on a controls screen: the pad button jumps, A 
       await page.waitForTimeout(60);
     }
     await setButton(button, false);
-    await page.waitForTimeout(1200); // land again
+    await standing(observe, ground + 0.05); // landed again
     return top;
   };
   expect(await padPeak(0)).toBeLessThan(ground + 0.1);

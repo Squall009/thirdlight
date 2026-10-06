@@ -4,8 +4,8 @@
  * pillars, a player capsule, a colour sky).
  *
  * - Play (the simulation worker): a follow camera on the player is live from
- *   the start; a script activates an orbit-a-point camera at step 360 with an
- *   eased 1 s blend (observed mid-blend: its progress matches the steps since
+ *   the start; a script activates an orbit-a-point camera at step 300 with an
+ *   eased 0.5 s blend (observed mid-blend: its progress matches the steps since
  *   the activation); a press of Q turns the orbit camera one snapped 90° step;
  *   a press of R starts a rail camera (letterbox bars drawn over the view),
  *   which the script deactivates at the end of its path — the view blends
@@ -23,7 +23,7 @@ import { createReadStream, existsSync, statSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import { extname, join, normalize } from 'node:path';
 
-import { expect, test, type Locator, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page } from './pw';
 
 import { startBackend, type E2EBackend } from './backend';
 import { decodePng, type Image } from './png';
@@ -83,7 +83,7 @@ async function script(behaviorId: string, source: string, entityId: string, prop
 }
 
 /**
- * The director: the orbit camera goes live at step 360 with an eased 1 s
+ * The director: the orbit camera goes live at step 300 with an eased 0.5 s
  * blend; the rail action starts the rail camera; at the rail's end the
  * script lets it go (the view blends back to the orbit camera).
  */
@@ -94,7 +94,7 @@ const DIRECTOR = [
   "    if (ctx.phase !== 'intent' || ctx.camera === undefined) return;",
   '    const cam = ctx.camera;',
   '    const p = ctx.properties;',
-  '    if (ctx.stepIndex === 360) cam.activate(p.orbit, { blend: "eased", time: 1 });',
+  '    if (ctx.stepIndex === 300) cam.activate(p.orbit, { blend: "eased", time: 0.5 });',
   "    if (ctx.action.actions?.rail?.p === 'pressed') { cam.activate(p.rail); state.railing = true; }",
   '    const r = cam.get(p.rail);',
   '    if (state.railing && cam.live() === p.rail && !cam.blending() && r !== null && r.progress >= 1) { cam.deactivate(p.rail); state.railing = false; }',
@@ -130,7 +130,7 @@ async function buildScene(): Promise<{ follow: string; orbit: string; rail: stri
   const track = await create('Rail track', [-6, 3, 8]);
   await cmd('setComponent', { entityId: track, component: 'cameraPath', value: { points: [[0, 0, 0], [12, 2, 0]], smooth: false } });
   const rail = await create('Rail camera', [0, 0, 0]);
-  await cmd('setComponent', { entityId: rail, component: 'virtualCamera', value: { rig: 'rail', enabled: false, path: track, target: player, railSpeed: 2, letterbox: 0.12, blend: 'eased', blendTime: 0.5 } });
+  await cmd('setComponent', { entityId: rail, component: 'virtualCamera', value: { rig: 'rail', enabled: false, path: track, target: player, railSpeed: 4, letterbox: 0.12, blend: 'eased', blendTime: 0.5 } });
   const director = await create('Director', [0, -3, 0]);
   await script('camera-director', DIRECTOR, director, ['orbit', 'rail'], { orbit, rail });
   return { follow, orbit, rail, player };
@@ -234,7 +234,7 @@ test('virtual cameras in Play: follow → eased orbit (script), a 90° snap on i
   await page.waitForTimeout(500);
   const followShot = await shot(frame, 'test-results/cameras-follow.png');
 
-  // The script's eased 1 s blend to the orbit camera (activated at step 360): caught under way.
+  // The script's eased 0.5 s blend to the orbit camera (activated at step 300): caught under way.
   const seen: Observation[] = [];
   await expect
     .poll(
@@ -250,8 +250,8 @@ test('virtual cameras in Play: follow → eased orbit (script), a 90° snap on i
   expect(mid.length, 'observed during the blend').toBeGreaterThan(0);
   for (const o of mid) {
     expect(o.camera!.blend).toMatchObject({ from: follow, style: 'eased' });
-    // 1 s at 120 Hz: the progress is the steps since the activation (step 360) over 120.
-    expect(Math.abs(o.camera!.blend!.progress - (o.stepIndex - 360) / 120)).toBeLessThan(3 / 120);
+    // 0.5 s at 120 Hz: the progress is the steps since the activation (step 300) over 60.
+    expect(Math.abs(o.camera!.blend!.progress - (o.stepIndex - 300) / 60)).toBeLessThan(3 / 60);
   }
   const d = 16 * Math.cos((45 * Math.PI) / 180);
   const o0 = (await observe())!.camera!;

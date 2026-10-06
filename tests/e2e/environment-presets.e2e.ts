@@ -9,11 +9,11 @@
  *   and captured again (each capture is one command: undo/redo). The Scene
  *   view previews the day preset over the night look, and the blend preview
  *   slider shows a mix between them.
- * - Play: a script (keys choose) shows day, blends to night over 2 s, and
+ * - Play: a script (keys choose) shows day, blends to night over 1.5 s, and
  *   holds mixes of 35 % and 70 % night. Pixels, each taken at a steady blend
  *   the game reports: the sky and the lit panel darken progressively (the
  *   mixes differ from both ends, in order) and the fog colour changes; the
- *   2 s blend is seen under way in the reported weights.
+ *   1.5 s blend is seen under way in the reported weights.
  * - The static export (backend stopped) does the same.
  *
  * Runs per renderer: WebGL 2 in `default`, WebGPU in `webgpu`.
@@ -23,7 +23,7 @@ import { createReadStream, existsSync, statSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import { extname, join, normalize } from 'node:path';
 
-import { expect, test, type Locator, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page } from './pw';
 
 import { startBackend, type E2EBackend } from './backend';
 import { decodePng, type Image } from './png';
@@ -73,14 +73,14 @@ async function script(behaviorId: string, source: string, entityId: string): Pro
   await cmd('setBehaviorProperties', { entityId, behaviorId, values: {} });
 }
 
-/** Keys pick the look: 1 day at once, 2 night over 2 s, 3 / 4 a held mix of 35 % / 70 % night. */
+/** Keys pick the look: 1 day at once, 2 night over 1.5 s, 3 / 4 a held mix of 35 % / 70 % night. */
 const DIRECTOR = [
   'export default {',
   '  instantiate() { return {}; },',
   '  step(state: unknown, ctx: any) {',
   "    if (ctx.phase !== 'intent' || ctx.environment === undefined) return;",
   "    if (ctx.input.pressed('lookDay')) ctx.environment.set('day');",
-  "    if (ctx.input.pressed('lookNight')) ctx.environment.set('night', { blend: 2 });",
+  "    if (ctx.input.pressed('lookNight')) ctx.environment.set('night', { blend: 1.5 });",
   "    if (ctx.input.pressed('mix35')) ctx.environment.blend('day', 'night', 0.35);",
   "    if (ctx.input.pressed('mix70')) ctx.environment.blend('day', 'night', 0.7);",
   '  },',
@@ -154,11 +154,11 @@ type Env = { target: string | null; progress: number; weights: Record<string, nu
 /**
  * Drive the director with keys and check the pictures, each taken while the
  * reported blend weights stay the same before and after it: day, held mixes
- * of 35 % and 70 % night, the 2 s blend to night under way (weights strictly
+ * of 35 % and 70 % night, the 1.5 s blend to night under way (weights strictly
  * between the ends, target night) and night. Sky and lit panel darken in
  * order day > 35 % > 70 % > night, the fog changes colour. A picture caught
- * during the 2 s blend itself (the host is often too loaded to take one
- * inside 2 s) is checked when it happens.
+ * during the 1.5 s blend itself (the host is often too loaded to take one
+ * inside 1.5 s) is checked when it happens.
  */
 async function checkBlend(read: () => Promise<Env>, target: Locator | Page, press: (key: string) => Promise<void>, label: string): Promise<void> {
   const night = (e: Env): number | null => (e === null ? null : Object.entries(e.weights).reduce((acc, [k, w]) => acc + (k.startsWith('night') ? w : 0), 0));
@@ -178,7 +178,7 @@ async function checkBlend(read: () => Promise<Env>, target: Locator | Page, pres
   const m35 = await steady('Digit3', 0.35);
   const m70 = await steady('Digit4', 0.7);
   await steady('Digit1', 0);
-  // The 2 s blend: weights between the ends while it runs (and a picture if one lands inside it).
+  // The 1.5 s blend: weights between the ends while it runs (and a picture if one lands inside it).
   await press('Digit2');
   const seen: number[] = [];
   let during: { t: number; look: Look } | null = null;

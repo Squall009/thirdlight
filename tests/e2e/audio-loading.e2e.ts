@@ -23,7 +23,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { rmSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { expect, test } from '@playwright/test';
+import { expect, test } from './pw';
 
 import { PERF_ROOT, startPerfBackend, type PerfBackend } from '../../tools/perf/backend';
 import { opusVoice, pcmWav } from '../../tools/perf/scale-media';

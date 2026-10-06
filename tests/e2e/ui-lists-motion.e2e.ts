@@ -19,10 +19,10 @@
  */
 import { randomUUID } from 'node:crypto';
 
-import { expect, test, type Frame, type Locator } from '@playwright/test';
+import { expect, test, type Frame, type Locator, type Page } from './pw';
 
 import { STARTER, type E2EBackend, publishScript, startBackend } from './backend';
-import { createItem } from './ui';
+import { closeEditor, createItem } from './ui';
 
 let be: E2EBackend;
 test.beforeEach(async () => {
@@ -98,15 +98,19 @@ const rectOf = (l: Locator): Promise<Rect> => l.evaluate((e) => {
 });
 const viewOf = (f: Frame): Promise<{ w: number; h: number; dpr: number }> => f.evaluate(() => ({ w: window.innerWidth, h: window.innerHeight, dpr: window.devicePixelRatio }));
 
-test('Play: a list keeps its items and focus through value changes; focus by index follows a keyed item; bound offset, opacity, rotation; cover, expand and the view at two sizes', async ({ page }) => {
-  test.setTimeout(240_000);
+// The editor part and Play share one backend and page: the editor part's document is never shown in Play.
+test('editor: an offset axis, the opacity and the rotation bound in the widget inspector, a list item key; Play: a list keeps its items and focus through value changes; focus by index follows a keyed item; bound offset, opacity, rotation; cover, expand and the view at two sizes', async ({ page }) => {
+  test.setTimeout(300_000);
+  await page.goto(be.editorUrl);
+  await expect(page.locator('.tl-statusbar')).toContainText('connected');
+  await test.step('editor: an offset axis, the opacity and the rotation bound in the widget inspector; a list item key', () => editorBindings(page));
+  await closeEditor(page);
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
+
   await page.setViewportSize({ width: 1400, height: 900 });
   for (const document of DOCS) await cmd('setUiDocument', { document });
   await publishScript(be, 'behavior-ui-lists', SCRIPT, STARTER.playerId);
-  await page.goto(be.editorUrl);
-  await expect(page.locator('.tl-statusbar')).toContainText('connected');
 
   const started = page.waitForResponse((r) => r.request().method() === 'POST' && r.url().endsWith('/play'));
   await page.getByTitle('Start an isolated play preview').click();
@@ -197,10 +201,8 @@ test('Play: a list keeps its items and focus through value changes; focus by ind
   expect(errors).toEqual([]);
 });
 
-test('editor: an offset axis, the opacity and the rotation bound in the widget inspector; a list item key', async ({ page }) => {
-  test.setTimeout(180_000);
-  await page.goto(be.editorUrl);
-  await expect(page.locator('.tl-statusbar')).toContainText('connected');
+/** The widget inspector's bound offset axis, opacity, rotation and a list item key (an editor already open). */
+async function editorBindings(page: Page): Promise<void> {
   await createItem(page, 'UI document', 'UI document 1');
   const DOC_ID = 'ui-document-1';
   const editor = page.locator(`[data-ui-document="${DOC_ID}"]`);
@@ -237,4 +239,4 @@ test('editor: an offset axis, the opacity and the rotation bound in the widget i
   await expect.poll(async () => (await stored('list'))?.type).toBe('list');
   await commit(editor.getByLabel('widget itemKey', { exact: true }), 'id');
   await expect.poll(async () => (await stored('list'))?.itemKey).toBe('id');
-});
+}

@@ -20,7 +20,7 @@ import { createReadStream, existsSync, statSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import { extname, join, normalize } from 'node:path';
 
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page } from './pw';
 import * as THREE from 'three';
 
 import { startBackend, type E2EBackend } from './backend';
@@ -88,15 +88,47 @@ function serveDir(dir: string): Promise<{ url: string; close: () => Promise<void
   });
 }
 
-async function play(page: Page, variant: RendererVariant): Promise<Image> {
+/** The cube's face toward the camera: the sun grazes it, so it is darker than the lit blocks once the scene is drawn. */
+const cubeFront: [number, number, number] = [0, 0.5, 0.5];
+
+/**
+ * Before a bake: the scene drawn (the blocks lit, the cube's face darker than
+ * them) and the same as the frame before (loaded and staying put). Whether
+ * the shadow is absent is asserted on that frame, not waited for.
+ */
+function steadyLit(): (img: Image) => boolean {
+  let last = -1;
+  return (img) => {
+    const lit = brightnessAt(img, litSpot);
+    const steady = Math.abs(lit - last) < 1;
+    last = lit;
+    return lit > 60 && lit - brightnessAt(img, cubeFront) > 10 && steady;
+  };
+}
+
+/** After a bake: the shadow and the lit blocks' brightness the step asserts (the lightmaps load after the first frames). */
+function bakedShadow(beforeLit: number, shadowShare: number, minRatio: number, maxRatio: number): (img: Image) => boolean {
+  return (img) => {
+    const lit = brightnessAt(img, litSpot);
+    return brightnessAt(img, shadowSpot) < lit * shadowShare && lit / beforeLit > minRatio && lit / beforeLit < maxRatio;
+  };
+}
+
+/** Play, the picture taken once it shows what the step waits for. */
+async function play(page: Page, variant: RendererVariant, shows: (img: Image) => boolean): Promise<Image> {
   const frame = page.locator('iframe.tl-app__preview-frame');
   await page.getByTitle('Start an isolated play preview').click();
   await expect(frame).toBeVisible();
   await expectRendererBackend(page.frameLocator('iframe.tl-app__preview-frame').locator('canvas').first(), variant);
-  await page.waitForTimeout(2500);
-  const img = decodePng(await frame.screenshot());
+  const shot: { img?: Image } = {};
+  await expect
+    .poll(async () => {
+      shot.img = decodePng(await frame.screenshot());
+      return shows(shot.img);
+    }, { timeout: 30_000, message: 'the Play frame the step waits for' })
+    .toBe(true);
   await page.getByTitle('Stop the play preview').click();
-  return img;
+  return shot.img!;
 }
 
 /** The scene: a static block-layer floor, a static cube on it, the sun and ambient "baked"; the editor open on it. */
@@ -130,7 +162,7 @@ for (const variant of PRODUCT_RENDERER_VARIANTS) test(`Bake preview bakes a stat
   const { layer, cube } = await openScene(page, variant);
 
   // Before the bake: the sun is realtime without a shadow.
-  const before = await play(page, variant);
+  const before = await play(page, variant, steadyLit());
   const beforeLit = brightnessAt(before, litSpot);
   expect(Math.abs(brightnessAt(before, shadowSpot) - beforeLit)).toBeLessThan(15);
 
@@ -143,7 +175,7 @@ for (const variant of PRODUCT_RENDERER_VARIANTS) test(`Bake preview bakes a stat
   expect(entries.find((e) => e.entityId === layer)!.layout).toMatch(/^[0-9a-f]{16}$/);
 
   // Play: the shadow is in the chunk's lightmap; the lit blocks stay about as bright.
-  const after = await play(page, variant);
+  const after = await play(page, variant, bakedShadow(beforeLit, 0.75, 0.6, 1.5));
   const afterShadow = brightnessAt(after, shadowSpot);
   const afterLit = brightnessAt(after, litSpot);
   console.log(`[block-lightmaps] ${variant}: before lit ${beforeLit.toFixed(1)}; after lit ${afterLit.toFixed(1)} shadow ${afterShadow.toFixed(1)}`);
@@ -193,7 +225,7 @@ test('Bake final (Blender Cycles) bakes the block layer\'s chunks too; Play show
   test.skip(test.info().project.name === 'webgpu', 'the renderer variants are covered by the preview bake');
   test.setTimeout(900_000);
   const { layer } = await openScene(page, 'auto', { THIRDLIGHT_BAKE_HOST: bakeHost, THIRDLIGHT_BAKE_BLENDER: bakeBlender, THIRDLIGHT_BAKE_TIMEOUT_MINUTES: '12' });
-  const beforeLit = brightnessAt(await play(page, 'auto'), litSpot);
+  const beforeLit = brightnessAt(await play(page, 'auto', steadyLit()), litSpot);
   await openWindow(page, 'Lighting');
   await page.getByRole('button', { name: /settings/ }).click();
   await page.getByRole('spinbutton', { name: 'bake finalSamples' }).fill(bakeHost === 'local' ? '32' : '256');
@@ -201,7 +233,7 @@ test('Bake final (Blender Cycles) bakes the block layer\'s chunks too; Play show
   await page.getByRole('button', { name: 'Bake final (Blender)' }).click();
   await expect(page.locator('[aria-label="bake status"]')).toContainText('Final (Blender) bake', { timeout: 840_000 });
   expect((await bakeEntries()).some((e) => e.entityId === layer && e.chunk !== undefined)).toBe(true);
-  const after = await play(page, 'auto');
+  const after = await play(page, 'auto', bakedShadow(beforeLit, 0.8, 0.7, 1.7));
   const afterShadow = brightnessAt(after, shadowSpot);
   const afterLit = brightnessAt(after, litSpot);
   console.log(`[block-lightmaps] final: before lit ${beforeLit.toFixed(1)}; after lit ${afterLit.toFixed(1)} shadow ${afterShadow.toFixed(1)}`);

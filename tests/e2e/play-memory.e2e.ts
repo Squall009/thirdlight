@@ -4,7 +4,7 @@
  * set of textures, geometries and programs while the game runs; a post stack rebuilt
  * every frame grows the counts until the browser runs out of memory.
  */
-import { expect, test } from '@playwright/test';
+import { expect, test } from './pw';
 
 import { type E2EBackend, startBackend } from './backend';
 
@@ -57,10 +57,10 @@ test('the play preview holds a fixed set of GPU resources while the game runs wi
   };
   // Warm-up: the first frames build the post stack and upload the scene.
   await expect.poll(async () => (await gpu())?.textures ?? 0, { timeout: 15_000 }).toBeGreaterThan(0);
-  await page.waitForTimeout(1_000);
+  await page.waitForTimeout(500);
   const first = (await gpu())!;
-  // Several hundred frames later (fewer under SwiftShader): the same counts.
-  await page.waitForTimeout(5_000);
+  // A hundred frames or more later (a leak grows the counts every frame): the same counts.
+  await page.waitForTimeout(2_000);
   const later = (await gpu())!;
   expect(later, `GPU resources grew while playing: ${JSON.stringify(first)} → ${JSON.stringify(later)}`).toEqual(first);
   await expect(page.locator('.tl-notice')).toHaveCount(0);

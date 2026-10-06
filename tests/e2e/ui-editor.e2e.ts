@@ -21,7 +21,7 @@
  */
 import { createHash } from 'node:crypto';
 
-import { expect, test, type Locator, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page } from './pw';
 
 import { type E2EBackend, startBackend } from './backend';
 import { decodePng } from './png';

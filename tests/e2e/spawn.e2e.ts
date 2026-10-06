@@ -3,7 +3,7 @@
  * real backend. On the starter template a neutral "Projectile"
  * prefab is made by command from a small magenta box carrying its own script
  * (it owns "@self", flies right and counts "flown" 3 m out), and a script on
- * the player spawns one every second
+ * the player spawns one every 0.4 s (short, so five shots take under two seconds)
  * beside the player, keeps the last three and destroys the older ones. In
  * Play the observation lists the live spawned entities (`spawn-<n>`), the
  * shot counter climbs while at most four are alive, and the projectiles are
@@ -15,7 +15,7 @@ import { createReadStream, existsSync, statSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { extname, join, normalize } from 'node:path';
 
-import { expect, test, type Locator, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page } from './pw';
 
 import { STARTER, type E2EBackend, startBackend } from './backend';
 import { decodePng } from './png';
@@ -70,7 +70,7 @@ async function script(behaviorId: string, source: string, ownedTransforms: strin
   await cmd('acknowledgeBehaviorTrust', { sourceDigest: createHash('sha256').update(bytes).digest('hex') });
   const published = await api('content/behaviors/source', { stageId, behaviorId, displayName: behaviorId, declaration, expectedRevision: Number((await query('queryProject')).revision), requestId: `req-${createHash('sha256').update(behaviorId).digest('hex').slice(0, 32)}` });
   expect(published.status, JSON.stringify(published.json)).toBe(200);
-  await cmd('setBehaviorProperties', { entityId: entityId ?? STARTER.playerId, behaviorId, values: { every: 1 } });
+  await cmd('setBehaviorProperties', { entityId: entityId ?? STARTER.playerId, behaviorId, values: { every: 0.4 } });
 }
 
 /** One projectile every `every` seconds (120 steps per second) beside the player; the last three stay. */
@@ -96,7 +96,7 @@ const SHOOTER = [
 
 /**
  * The projectile's own script: it owns its own transform ("@self") and flies
- * right at 4 m/s; once 3 m from where it appeared it counts "flown" (once).
+ * right at 8 m/s; once 3 m from where it appeared it counts "flown" (once).
  */
 const BOLT = [
   'export default {',
@@ -107,7 +107,7 @@ const BOLT = [
   '    const me = ctx.world.transform(ctx.entityId);',
   '    if (me === undefined) return;',
   '    if (state.x0 === null) state.x0 = me.position[0];',
-  "    ctx.emit({ kind: 'transform', entityId: ctx.entityId, position: { x: me.position[0] + 4 / 120 } });",
+  "    ctx.emit({ kind: 'transform', entityId: ctx.entityId, position: { x: me.position[0] + 8 / 120 } });",
   "    if (!state.done && me.position[0] - state.x0 > 3) { state.done = true; ctx.game.add('flown', 1); }",
   '  },',
   '  dispose() {},',
@@ -128,7 +128,7 @@ async function magenta(target: Page | Locator): Promise<number> {
   return n;
 }
 
-test('a script spawns a projectile every second in Play (and in the export); old ones are destroyed', async ({ page }) => {
+test('a script spawns a projectile on a timer in Play (and in the export); old ones are destroyed', async ({ page }) => {
   test.setTimeout(300_000);
   // The prefab: a small magenta box whose own script flies it to the right (made far below the level).
   const made = await cmd('createEntity', { sceneId: 'scene-main', kind: 'box', name: 'Projectile', transform: { position: [0, -40, 0] }, box: { size: [0.5, 0.5, 0.5], material: { color: '#ff00ff' } } });
@@ -152,7 +152,7 @@ test('a script spawns a projectile every second in Play (and in the export); old
   await expect.poll(async () => (await observe()).state, { timeout: 30_000 }).toBe('running');
   const frame = page.locator('iframe.tl-app__preview-frame');
 
-  // The shots come once a (simulated) second; at most three stay, plus one on its way out.
+  // The shots come every 0.4 (simulated) seconds; at most three stay, plus one on its way out.
   await expect.poll(async () => (await observe()).counters?.['shots'] ?? 0, { timeout: 90_000 }).toBeGreaterThanOrEqual(5);
   // Each projectile moved itself: its own script counted it 3 m away from where it appeared.
   expect((await observe()).counters?.['flown'] ?? 0).toBeGreaterThanOrEqual(3);

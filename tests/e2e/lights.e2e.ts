@@ -9,7 +9,7 @@
  */
 import { randomBytes } from 'node:crypto';
 
-import { expect, test } from '@playwright/test';
+import { expect, test } from './pw';
 
 import { publishBytes, startBackend, type E2EBackend } from './backend';
 import { decodePng, type Image } from './png';

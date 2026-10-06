@@ -26,7 +26,7 @@ import { createHash } from 'node:crypto';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { expect, test, type Locator, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page } from './pw';
 
 import { publishBytes, publishScript, startBackend, type E2EBackend } from './backend';
 import { diff, diffPng, show, STRICT, within } from './parity';
@@ -67,13 +67,16 @@ function darkerPixels(a: Image, b: Image, delta = 40): number {
   return n;
 }
 
+/** How far apart two equal shots must be for a picture to count as settled. */
+const SETTLE_MS = 500;
+
 async function playFrame(page: Page, variant: RendererVariant, label: string): Promise<Image> {
   await page.getByTitle('Start an isolated play preview').click();
   const frame = page.locator('iframe.tl-app__preview-frame');
   await expect(frame).toBeVisible();
   await expectRendererBackend(page.frameLocator('iframe.tl-app__preview-frame').locator('canvas').first(), variant);
   await expect(page.locator('.tl-notice')).toHaveCount(0);
-  // Two equal frames in a row: the scene has settled (shaders compiled, shadow map drawn).
+  // Two equal frames half a second apart: the scene has settled (shaders compiled, shadow map drawn).
   let last = '';
   let img: Image | null = null;
   await expect
@@ -85,7 +88,7 @@ async function playFrame(page: Page, variant: RendererVariant, label: string): P
         last = png.toString('base64');
         return same;
       },
-      { timeout: 60_000, intervals: [1000] },
+      { timeout: 60_000, intervals: [SETTLE_MS] },
     )
     .toBe(true);
   const out = test.info().outputPath();
@@ -173,7 +176,7 @@ async function settledShot(target: Locator, label: string): Promise<{ img: Image
         last = png;
         return same;
       },
-      { timeout: 90_000, intervals: [1000] },
+      { timeout: 90_000, intervals: [SETTLE_MS] },
     )
     .toBe(true);
   const png = Buffer.from(last, 'base64');
@@ -294,27 +297,32 @@ for (const variant of RENDERER_VARIANTS) test(`static casters cast from a cached
       expect(r.status, JSON.stringify(r.json).slice(0, 300)).toBe(200);
     };
     if (!cached) expect(await maps(), 'one map of every caster: no cache counts').toBeUndefined();
-    /** Static map draws during `what` (its effect drawn and settled). */
+    /** Wait until the dynamic map (drawn every frame) has been drawn `n` more times: a command sent before has been stepped and drawn. */
+    const frames = async (n: number): Promise<void> => {
+      const from = (await maps())!.dynamicTotal;
+      await expect.poll(async () => (await maps())!.dynamicTotal - from, { timeout: 30_000 }).toBeGreaterThanOrEqual(n);
+    };
+    /** Static map draws during `what` (its effect stepped and drawn over the next 30 frames). */
     const staticDraws = async (what: () => Promise<void>): Promise<number> => {
       const before = (await maps())!;
       await what();
-      await page.waitForTimeout(1000);
+      await frames(30);
       return (await maps())!.staticTotal - before.staticTotal;
     };
     if (cached) {
       await expect.poll(async () => (await maps())?.dynamicTotal ?? 0, { timeout: 30_000, message: 'the cached shadow draws' }).toBeGreaterThan(10);
       await settledShot(canvas, `play-start-${variant}`);
       const a = (await maps())!;
-      await page.waitForTimeout(1500);
+      await page.waitForTimeout(1000);
       const b = (await maps())!;
-      console.log(`[shadows] ${variant} idle 1.5 s: static ${b.staticTotal - a.staticTotal}, dynamic ${b.dynamicTotal - a.dynamicTotal} map draws (last frame ${b.static}/${b.dynamic})`);
+      console.log(`[shadows] ${variant} idle 1 s: static ${b.staticTotal - a.staticTotal}, dynamic ${b.dynamicTotal - a.dynamicTotal} map draws (last frame ${b.static}/${b.dynamic})`);
       expect(b.staticTotal - a.staticTotal, 'an idle scene draws the static map no more').toBe(0);
       expect(b.dynamicTotal - a.dynamicTotal, 'the dynamic map is drawn every frame').toBeGreaterThan(10);
       expect(b.static).toBe(0);
       expect(await staticDraws(() => send('place', { id: mover, x: 1, y: 0.9, z: -3 })), 'a moving box leaves the static map as it is').toBe(0);
       expect(await staticDraws(() => send('place', { id: rig, x: 4, y: 0, z: -6 })), "a script moving a static box's parent draws it again").toBeGreaterThan(0);
       expect(await staticDraws(() => send('hide', { id: pillar })), 'a script hiding a static box draws it again').toBeGreaterThan(0);
-      expect(await staticDraws(async () => { for (const z of [-15, -30, -45, -60, -70]) { await send('walk', { z }); await page.waitForTimeout(300); } }), 'the static square steps along with the camera').toBeGreaterThan(0);
+      expect(await staticDraws(async () => { for (const z of [-15, -30, -45, -60, -70]) { await send('walk', { z }); await frames(10); } }), 'the static square steps along with the camera').toBeGreaterThan(0);
     } else {
       await send('place', { id: mover, x: 1, y: 0.9, z: -3 });
       await send('place', { id: rig, x: 4, y: 0, z: -6 });

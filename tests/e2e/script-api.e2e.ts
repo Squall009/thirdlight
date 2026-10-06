@@ -17,7 +17,7 @@
  */
 import { createHash, randomBytes } from 'node:crypto';
 
-import { expect, test, type Locator, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page } from './pw';
 
 import { startBackend, STARTER, type E2EBackend } from './backend';
 import { decodePng } from './png';
@@ -129,35 +129,6 @@ async function greenCentre(canvas: Locator): Promise<{ x: number; y: number; n: 
   return n === 0 ? { x: -1, y: -1, n } : { x: sx / n / img.width, y: sy / n / img.height, n };
 }
 
-test('a child of a moved, turned and stretched parent: the world read is where it is drawn', async ({ page }) => {
-  test.setTimeout(300_000);
-  be = await startBackend('script-api-world', 'starter');
-  const parent = String((await cmd('createEntity', { sceneId: 'scene-main', kind: 'box', name: 'Holder', transform: { position: [2, 2, 0] }, box: { size: [0.2, 0.2, 0.2], material: { color: '#7d7d7d' } } })).createdId);
-  await cmd('createEntity', { sceneId: 'scene-main', parentId: parent, kind: 'box', name: 'Probe', transform: { position: [1, 0.5, 0] }, box: { size: [0.25, 0.25, 0.25], material: { color: '#00ff00' } } });
-  await script('holder', PARENT, parent, { owned: ['@self'] });
-
-  const observe = await play(page);
-  await expect.poll(async () => (await observe()).counters?.['ready'] ?? 0, { timeout: 60_000 }).toBe(1);
-  const canvas = page.frameLocator('iframe.tl-app__preview-frame').locator('canvas').first();
-  // The picture has caught up with the move (two reads in a row agree).
-  let seen = await greenCentre(canvas);
-  await expect.poll(async () => {
-    const next = await greenCentre(canvas);
-    const still = Math.abs(next.x - seen.x) < 0.002 && Math.abs(next.y - seen.y) < 0.002;
-    seen = next;
-    return still && next.n > 30;
-  }, { timeout: 30_000, message: 'the green child is drawn and still' }).toBe(true);
-  const c = (await observe()).counters!;
-  const world = { x: c['wx']! / 10000, y: c['wy']! / 10000 };
-  const local = { x: c['lx']! / 10000, y: c['ly']! / 10000 };
-  await page.screenshot({ path: 'test-results/script-api-world.png' });
-  // Drawn where the world read says (within 1 % of the view) …
-  expect(Math.abs(seen.x - world.x), JSON.stringify({ seen, world })).toBeLessThan(0.01);
-  expect(Math.abs(seen.y - world.y), JSON.stringify({ seen, world })).toBeLessThan(0.01);
-  // … and the local read would put it elsewhere (the test tells the two apart).
-  expect(Math.hypot(seen.x - local.x, seen.y - local.y)).toBeGreaterThan(0.08);
-});
-
 /** Counts what `anyPressed` saw by device and code. */
 const PRESSES = [
   'export default {',
@@ -199,9 +170,14 @@ const SPAWNER = [
   '',
 ].join('\n');
 
-test('anyPressed sees a click and a key no action uses; spawned copies take their own property values', async ({ page }) => {
+// One Play runs both checks: the parent and its child, the spawner, the copies and the press counter use distinct objects and counters.
+test('a child of a moved, turned and stretched parent: the world read is where it is drawn; anyPressed sees a click and a key no action uses; spawned copies take their own property values', async ({ page }) => {
   test.setTimeout(300_000);
-  be = await startBackend('script-api-input', 'starter');
+  be = await startBackend('script-api-world', 'starter');
+  const parent = String((await cmd('createEntity', { sceneId: 'scene-main', kind: 'box', name: 'Holder', transform: { position: [2, 2, 0] }, box: { size: [0.2, 0.2, 0.2], material: { color: '#7d7d7d' } } })).createdId);
+  await cmd('createEntity', { sceneId: 'scene-main', parentId: parent, kind: 'box', name: 'Probe', transform: { position: [1, 0.5, 0] }, box: { size: [0.25, 0.25, 0.25], material: { color: '#00ff00' } } });
+  await script('holder', PARENT, parent, { owned: ['@self'] });
+
   // The prefab: a box whose script adds its amount (default 1) to a counter.
   const source = String((await cmd('createEntity', { sceneId: 'scene-main', kind: 'box', name: 'Token', transform: { position: [0, -40, 0] }, box: { size: [0.3, 0.3, 0.3], material: { color: '#ffffff' } } })).createdId);
   await script('tally', TALLY, source, { properties: [{ key: 'amount', label: 'Amount', type: 'number', default: 1, min: 0, max: 1000, step: 1 }], values: { amount: 1 } });
@@ -212,10 +188,30 @@ test('anyPressed sees a click and a key no action uses; spawned copies take thei
   await script('presses', PRESSES, STARTER.playerId);
 
   const observe = await play(page);
+  await expect.poll(async () => (await observe()).counters?.['ready'] ?? 0, { timeout: 60_000 }).toBe(1);
+  const canvas = page.frameLocator('iframe.tl-app__preview-frame').locator('canvas').first();
+  // The picture has caught up with the move (two reads in a row agree).
+  let seen = await greenCentre(canvas);
+  await expect.poll(async () => {
+    const next = await greenCentre(canvas);
+    const still = Math.abs(next.x - seen.x) < 0.002 && Math.abs(next.y - seen.y) < 0.002;
+    seen = next;
+    return still && next.n > 30;
+  }, { timeout: 30_000, message: 'the green child is drawn and still' }).toBe(true);
+  const c = (await observe()).counters!;
+  const world = { x: c['wx']! / 10000, y: c['wy']! / 10000 };
+  const local = { x: c['lx']! / 10000, y: c['ly']! / 10000 };
+  await page.screenshot({ path: 'test-results/script-api-world.png' });
+  // Drawn where the world read says (within 1 % of the view) …
+  expect(Math.abs(seen.x - world.x), JSON.stringify({ seen, world })).toBeLessThan(0.01);
+  expect(Math.abs(seen.y - world.y), JSON.stringify({ seen, world })).toBeLessThan(0.01);
+  // … and the local read would put it elsewhere (the test tells the two apart).
+  expect(Math.hypot(seen.x - local.x, seen.y - local.y)).toBeGreaterThan(0.08);
+
+  // anyPressed and the spawned copies, in the same run.
   await expect.poll(async () => (await observe()).counters?.['spawned'] ?? 0, { timeout: 60_000 }).toBe(3);
   await expect.poll(async () => (await observe()).counters?.['tally'] ?? 0, { timeout: 30_000 }).toBe(111);
 
-  const canvas = page.frameLocator('iframe.tl-app__preview-frame').locator('canvas').first();
   const box = (await canvas.boundingBox())!;
   await page.mouse.click(box.x + box.width * 0.5, box.y + box.height * 0.3);
   await expect.poll(async () => (await observe()).counters?.['press_mouse_left'] ?? 0, { timeout: 30_000, message: 'the click is a press' }).toBeGreaterThanOrEqual(1);

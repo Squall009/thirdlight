@@ -19,11 +19,11 @@ import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page } from './pw';
 
 import { startBackend, STARTER, type E2EBackend } from './backend';
 import { skinnedGlb } from './skinned-glb';
-import { chooseItem, closeEditor, createItem, editorTab, expectEditorOpen, inspector, openProjectSettings, projectWindow, settingsWindow } from './ui';
+import { chooseItem, closeEditor, closeProjectSettings, createItem, editorTab, expectEditorOpen, inspector, openProjectSettings, projectWindow, settingsWindow } from './ui';
 
 let be: E2EBackend;
 test.afterEach(async () => {
@@ -78,12 +78,49 @@ async function showFolder(page: Page, folder: string): Promise<void> {
   await expect(panel.locator('.tl-project')).toHaveAttribute('data-folder', folder);
 }
 
-test('the Create menu makes every kind in the folder shown and opens it in its editor', async ({ page }) => {
-  test.setTimeout(240_000);
+/** The bottom dock holds the project window, Console and Problems only; the Window menu lists just those; speakers are a project setting (a fresh editor open). */
+async function dockAndWindowMenu(page: Page): Promise<void> {
+
+  // The dock's own tab strip: three tabs, in this order.
+  const tabs = page.locator('.tl-dock--bottom > [role="tablist"] > [role="tab"]');
+  await expect(tabs).toHaveCount(3);
+  expect((await tabs.allTextContents()).map((t) => t.replace(/\d+$/, ''))).toEqual(['Project', 'Console', 'Problems']);
+  await expect(tabs.first()).toHaveAttribute('aria-selected', 'true');
+
+  // The Window menu lists those three among its windows, and none of the tabs that went.
+  await page.getByRole('menubar').getByRole('menuitem', { name: 'Window', exact: true }).click();
+  const items = await page.getByRole('menu').getByRole('menuitem').allTextContents();
+  await page.keyboard.press('Escape');
+  for (const kept of ['Project', 'Console', 'Problems', 'Lighting', 'Environment']) expect(items.some((t) => t.startsWith(kept)), kept).toBe(true);
+  for (const gone of ['Assets', 'Materials', 'Animator', 'Prefabs', 'Graphs', 'Effects', 'Dialogue', 'Timelines', 'Libraries', 'UI', 'Behaviors', 'Gameplay', 'Media', 'Blocks']) expect(items.some((t) => t === gone), gone).toBe(false);
+
+  // GameObject → Prefab copy… lists the prefabs in the project window.
+  await cmd('createPrefab', { prefabId: 'crate', displayName: 'Crate', sourceEntityId: STARTER.groundId });
+  await page.getByRole('menubar').getByRole('menuitem', { name: 'GameObject', exact: true }).click();
+  await page.getByRole('menu').getByRole('menuitem', { name: 'Prefab copy…', exact: true }).click();
+  await expect(page.locator('.tl-assets').getByLabel('search the project')).toHaveValue('t:prefab');
+  await expect(page.locator('.tl-assets__list li[data-item-id="crate"]')).toBeVisible();
+
+  // Speakers and the dialogue settings: Project Settings → Dialogue (one command each).
+  await openProjectSettings(page, 'Dialogue');
+  const win = settingsWindow(page);
+  await win.getByLabel('speaker name', { exact: true }).fill('Guide');
+  await win.getByRole('button', { name: 'save speaker', exact: true }).click();
+  await expect.poll(async () => JSON.stringify((await be.command({ op: 'queryGameConfig', projectId: be.projectId }))['speakers'] ?? [])).toContain('"speakerId":"guide"');
+  await win.getByLabel('text speed', { exact: true }).fill('25');
+  await win.getByRole('button', { name: 'apply dialogue settings', exact: true }).click();
+  await expect.poll(async () => JSON.stringify((await be.command({ op: 'queryGameConfig', projectId: be.projectId }))['dialogueSettings'] ?? {})).toContain('"textSpeed":25');
+  await closeProjectSettings(page);
+}
+
+// The dock check first, on the fresh editor; the Create menu part then works in the same project (it makes no prefab or speaker).
+test('the bottom dock holds the project window, Console and Problems only; the Window menu lists just those; speakers are a project setting; the Create menu makes every kind in the folder shown and opens it in its editor', async ({ page }) => {
+  test.setTimeout(300_000);
   be = await startBackend('project-items-0001', 'starter');
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
   await open(page);
+  await test.step('the bottom dock holds the project window, Console and Problems only; the Window menu lists just those; speakers are a project setting', () => dockAndWindowMenu(page));
   const model = await importModel(page);
 
   // A new animator controller takes the clips of the model chosen in the project window.
@@ -191,44 +228,5 @@ test('a chosen item shows in the Inspector: assets, shader materials, prefabs an
   await inspector(page).getByRole('button', { name: 'delete prefab Crate', exact: true }).click();
   await expect(inspector(page).getByTestId('prefab-delete-error')).toBeVisible();
   expect(await entry('prefab', 'crate')).toBeDefined();
-  expect(errors).toEqual([]);
-});
-
-test('the bottom dock holds the project window, Console and Problems only; the Window menu lists just those; speakers are a project setting', async ({ page }) => {
-  test.setTimeout(120_000);
-  be = await startBackend('project-items-0003', 'starter');
-  const errors: string[] = [];
-  page.on('pageerror', (e) => errors.push(e.message));
-  await open(page);
-
-  // The dock's own tab strip: three tabs, in this order.
-  const tabs = page.locator('.tl-dock--bottom > [role="tablist"] > [role="tab"]');
-  await expect(tabs).toHaveCount(3);
-  expect((await tabs.allTextContents()).map((t) => t.replace(/\d+$/, ''))).toEqual(['Project', 'Console', 'Problems']);
-  await expect(tabs.first()).toHaveAttribute('aria-selected', 'true');
-
-  // The Window menu lists those three among its windows, and none of the tabs that went.
-  await page.getByRole('menubar').getByRole('menuitem', { name: 'Window', exact: true }).click();
-  const items = await page.getByRole('menu').getByRole('menuitem').allTextContents();
-  await page.keyboard.press('Escape');
-  for (const kept of ['Project', 'Console', 'Problems', 'Lighting', 'Environment']) expect(items.some((t) => t.startsWith(kept)), kept).toBe(true);
-  for (const gone of ['Assets', 'Materials', 'Animator', 'Prefabs', 'Graphs', 'Effects', 'Dialogue', 'Timelines', 'Libraries', 'UI', 'Behaviors', 'Gameplay', 'Media', 'Blocks']) expect(items.some((t) => t === gone), gone).toBe(false);
-
-  // GameObject → Prefab copy… lists the prefabs in the project window.
-  await cmd('createPrefab', { prefabId: 'crate', displayName: 'Crate', sourceEntityId: STARTER.groundId });
-  await page.getByRole('menubar').getByRole('menuitem', { name: 'GameObject', exact: true }).click();
-  await page.getByRole('menu').getByRole('menuitem', { name: 'Prefab copy…', exact: true }).click();
-  await expect(page.locator('.tl-assets').getByLabel('search the project')).toHaveValue('t:prefab');
-  await expect(page.locator('.tl-assets__list li[data-item-id="crate"]')).toBeVisible();
-
-  // Speakers and the dialogue settings: Project Settings → Dialogue (one command each).
-  await openProjectSettings(page, 'Dialogue');
-  const win = settingsWindow(page);
-  await win.getByLabel('speaker name', { exact: true }).fill('Guide');
-  await win.getByRole('button', { name: 'save speaker', exact: true }).click();
-  await expect.poll(async () => JSON.stringify((await be.command({ op: 'queryGameConfig', projectId: be.projectId }))['speakers'] ?? [])).toContain('"speakerId":"guide"');
-  await win.getByLabel('text speed', { exact: true }).fill('25');
-  await win.getByRole('button', { name: 'apply dialogue settings', exact: true }).click();
-  await expect.poll(async () => JSON.stringify((await be.command({ op: 'queryGameConfig', projectId: be.projectId }))['dialogueSettings'] ?? {})).toContain('"textSpeed":25');
   expect(errors).toEqual([]);
 });

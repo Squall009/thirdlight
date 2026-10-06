@@ -8,7 +8,7 @@ import { createServer, type Server } from 'node:http';
 import { networkInterfaces } from 'node:os';
 import { extname, join, normalize } from 'node:path';
 
-import { expect, test } from '@playwright/test';
+import { expect, test } from './pw';
 
 import { startBackend, type E2EBackend } from './backend';
 
@@ -47,7 +47,8 @@ function serveOnLan(dir: string): Promise<{ url: string; close: () => Promise<vo
   });
 }
 
-test('Play works in a page without WebCrypto (editor + preview frames)', async ({ context, page }) => {
+// One backend for both: the export is made from the project Play just ran, then served with the backend stopped.
+test('Play works in a page without WebCrypto (editor + preview frames); the exported game runs when served over plain http on a LAN address', async ({ context, page }) => {
   // Every frame of this context loses crypto.subtle, as on http://<lan-ip>.
   await context.addInitScript(() => {
     Object.defineProperty(globalThis.crypto, 'subtle', { value: undefined, configurable: true });
@@ -74,24 +75,27 @@ test('Play works in a page without WebCrypto (editor + preview frames)', async (
   await expect(page.locator('.tl-notice')).toHaveCount(0);
   const problems = await fetch(`${be.origin}/api/v1/projects/${be.projectId}/problems`, { headers: { authorization: `Bearer ${be.token}` } });
   expect(((await problems.json()) as { problems: unknown[] }).problems).toEqual([]);
-});
 
-test('the exported game runs when served over plain http on a LAN address', async ({ page }) => {
+  // The export over plain http on a LAN address (this context also has no crypto.subtle, as there).
   const res = await be.admin(`projects/${be.projectId}/export`);
   expect(res.status, JSON.stringify(res.json)).toBe(200);
+  await page.goto('about:blank');
   await be.halt();
   const site = await serveOnLan(join(be.exportRoot, String(res.json.outputDir)));
-  test.skip(site === null, 'this host has no non-loopback IPv4 address');
+  if (site === null) {
+    test.info().annotations.push({ type: 'skipped part', description: 'export over LAN: this host has no non-loopback IPv4 address' });
+    return;
+  }
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
   try {
-    await page.goto(site!.url);
+    await page.goto(site.url);
     expect(await page.evaluate(() => window.isSecureContext)).toBe(false);
     // The starter plays as a scene: the export's own observation says it runs.
     await expect.poll(() => page.evaluate(() => (window as unknown as { __thirdlightObserve?: () => { state?: string } | null }).__thirdlightObserve?.()?.state ?? null), { timeout: 15_000 }).toBe('running');
     await expect(page.getByText(/export error/i)).toHaveCount(0);
     expect(errors).toEqual([]);
   } finally {
-    await site!.close();
+    await site.close();
   }
 });

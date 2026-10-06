@@ -23,7 +23,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page } from './pw';
 
 import { encodeKtx2 } from '../../packages/backend/src/texture-encode';
 import { sphereGlbWith } from '../../tools/perf/assets';
@@ -178,8 +178,8 @@ for (const variant of PRODUCT_RENDERER_VARIANTS) test(`images inside model files
   await textureStreamerSettled(async () => (await pressed.resources())?.textures);
   const underPressure: Textures[] = [];
   for (let i = 0; i < 5; i++) {
+    if (i > 0) await page.waitForTimeout(300);
     underPressure.push((await pressed.resources())!.textures!);
-    await page.waitForTimeout(300);
   }
   for (const t of underPressure) {
     expect(t.budgetBytes).toBe(budget);

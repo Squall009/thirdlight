@@ -19,7 +19,7 @@ import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page } from './pw';
 
 import { startBackend, type E2EBackend } from './backend';
 import { decodePng, type Image } from './png';
@@ -138,11 +138,10 @@ test('an upper-body layer masked by bone plays clips of an animation-only file i
   // The live preview shows the upper-body layer: the upper half bends to the right.
   await expect(readout).toHaveAttribute('data-layer-states', 'Wave', { timeout: 20_000 });
   await expect(readout).toHaveAttribute('data-state', 'idle');
-  await page.waitForTimeout(500);
-  const bent = leanRight(decodePng(await preview.screenshot()));
+  let bent = 0;
+  await expect.poll(async () => (bent = leanRight(decodePng(await preview.screenshot()))), { timeout: 10_000 }).toBeGreaterThan(0.15);
   console.log(`[animator-layers] top of the column right of its base (width fraction): base only ${straight.toFixed(3)}, with the upper-body layer ${bent.toFixed(3)}`);
   expect(straight).toBeLessThan(0.08);
-  expect(bent).toBeGreaterThan(0.15);
 
   // Masked to `root` instead (a bone the clip does not animate): the column is straight again.
   await doc.getByLabel('mask bone upper').click();

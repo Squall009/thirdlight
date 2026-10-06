@@ -10,7 +10,7 @@
  * parameter values, and single copies of an instance set (select, delete,
  * move with the gizmo; the brush is instance-brush.e2e.ts) — each one undo step.
  */
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page } from './pw';
 
 import { startBackend, type E2EBackend } from './backend';
 
@@ -99,7 +99,8 @@ async function open(page: Page): Promise<void> {
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
 }
 
-test('sizes and radii: box3, box2, capsule, radius — drag, stored snapped, one undo', async ({ page }) => {
+// Instance copies are grips of the same Scene view: they share this test's backend and editor (each step undoes itself).
+test('sizes and radii: box3, box2, capsule, radius — drag, stored snapped, one undo; instance copies: select one copy, delete it, move it with the gizmo — each one undo step', async ({ page }) => {
   test.setTimeout(240_000);
   const crate = await create('Crate', [0, 30, 0], {}, 'box', { box: { size: [1, 1, 1], material: { color: '#777777' } } });
   const sensor = await create('Sensor', [10, 30, 0], { trigger: { size: [1, 1], signal: 'hello' } });
@@ -151,9 +152,59 @@ test('sizes and radii: box3, box2, capsule, radius — drag, stored snapped, one
   await expect.poll(async () => ((await comp('model-0001', 'controller'))!['capsule'] as { radius?: number } | undefined)?.radius ?? 0.3).toBeLessThan(0.3);
   await undo(page);
   await expect.poll(async () => JSON.stringify(await comp('model-0001', 'controller'))).toBe('{}');
+
+  // Three pillars 3 m apart behind the level, published through the buffer route MCP uses.
+  const transforms = [-3, 0, 3].flatMap((x) => [x, 0, 0, 0, 0, 0, 1, 0.3, 0.3, 0.3]);
+  const res = await fetch(`${be.origin}/api/v1/projects/${be.projectId}/content/buffers`, { method: 'POST', headers: { authorization: `Bearer ${be.token}`, 'content-type': 'application/json', origin: be.origin }, body: JSON.stringify({ transforms }) });
+  const published = (await res.json()) as { digest: string; count: number };
+  const assets = (await be.command({ op: 'queryAssets', projectId: be.projectId, args: { limit: 50, offset: 0 } }))['assets'] as { assetId: string; displayName: string }[];
+  const pillar = assets.find((a) => a.displayName === 'Pillar')!.assetId;
+  const set = await create('Grove', [0, 0, -10], { instances: { asset: { assetId: pillar }, buffer: published.digest, count: 3 } });
+  const copies = async (): Promise<number[][]> => {
+    const inst = (await comp(set, 'instances'))! as { buffer: string; count: number };
+    const bytes = await fetch(`${be.origin}/api/v1/projects/${be.projectId}/content/buffers/${inst.buffer}`, { headers: { authorization: `Bearer ${be.token}` } });
+    const f = new Float32Array(await bytes.arrayBuffer());
+    return Array.from({ length: inst.count }, (_, i) => Array.from(f.slice(i * 10, i * 10 + 3)).map((v) => Math.round(v * 1000) / 1000));
+  };
+  await select(page, set);
+  type Copy = { index: number; x: number; y: number };
+  const onScreen = async (): Promise<Copy[]> => JSON.parse((await view(page).getAttribute('data-instance-copies')) ?? '[]') as Copy[];
+  await expect.poll(async () => (await onScreen()).length, { timeout: 30_000 }).toBe(3);
+  await page.waitForTimeout(300);
+
+  // Click the third copy: it is selected (the Inspector says so).
+  const third = (await onScreen())[2]!;
+  await page.mouse.click(third.x, third.y);
+  await expect(view(page)).toHaveAttribute('data-instance-copy', '2');
+  await expect(page.locator('.tl-inspector')).toContainText('Copy 3 selected');
+  // Del deletes that copy only; one undo brings it back.
+  await view(page).hover();
+  await page.keyboard.press('Delete');
+  await expect.poll(copies).toEqual([[-3, 0, 0], [0, 0, 0]]);
+  await expect(page.locator(`.tl-hierarchy__list li[data-entity-id="${set}"]`)).toHaveCount(1);
+  await undo(page);
+  await expect.poll(copies).toEqual([[-3, 0, 0], [0, 0, 0], [3, 0, 0]]);
+
+  // Select the first copy and drag the gizmo's X arrow: only that copy moves.
+  await expect.poll(async () => (await onScreen()).length).toBe(3);
+  await page.waitForTimeout(300);
+  const first = (await onScreen())[0]!;
+  await page.mouse.click(first.x, first.y);
+  await expect(view(page)).toHaveAttribute('data-instance-copy', '0');
+  await page.waitForTimeout(200);
+  const g = JSON.parse((await view(page).getAttribute('data-gizmo-grab'))!) as { x: number; y: number; ax: number; ay: number };
+  await page.mouse.move(g.ax, g.ay);
+  await page.waitForTimeout(100);
+  await drag(page, { x: g.ax, y: g.ay }, (g.ax - g.x) * 3, (g.ay - g.y) * 3);
+  await expect.poll(async () => (await copies())[0]![0]!).toBeGreaterThan(-2.9);
+  const moved = await copies();
+  expect(moved.slice(1)).toEqual([[0, 0, 0], [3, 0, 0]]);
+  await undo(page);
+  await expect.poll(copies).toEqual([[-3, 0, 0], [0, 0, 0], [3, 0, 0]]);
 });
 
-test('lights: a direction, a spot cone (tip and angle) and a point light range — drag, stored, one undo', async ({ page }) => {
+// Inspector fields that draw in the Scene view share this test's backend and editor (each step undoes itself).
+test('lights: a direction, a spot cone (tip and angle) and a point light range — drag, stored, one undo; a spawn\'s yaw, the camera\'s real frustum, an animator\'s starting parameter values', async ({ page }) => {
   test.setTimeout(180_000);
   const spot = await create('Spot', [0, 30, 0], { light: { type: 'spot', color: '#ffffff', intensity: 80, range: 4, decay: 2, angle: 30, penumbra: 0.3, direction: [0, -1, 0] } });
   const lamp = await create('Lamp', [12, 30, 0], { light: { type: 'point', color: '#ffd9a0', intensity: 30, range: 2, decay: 2 } });
@@ -190,6 +241,51 @@ test('lights: a direction, a spot cone (tip and angle) and a point light range �
   expect(snapped((await comp(lamp, 'light'))!['range'] as number)).toBe(true);
   await undo(page);
   await expect.poll(async () => (await comp(lamp, 'light'))!['range']).toBe(2);
+
+  const inspector = page.locator('.tl-inspector');
+
+  // playerSpawn.yaw (the character's facing): a number field; undo removes it.
+  await select(page, 'spawn-0001', false);
+  const yaw = inspector.getByLabel('playerSpawn yaw', { exact: true });
+  await yaw.fill('-90');
+  await yaw.press('Enter');
+  await expect.poll(async () => comp('spawn-0001', 'playerSpawn')).toEqual({ yaw: -90 });
+  await undo(page);
+  await expect.poll(async () => comp('spawn-0001', 'playerSpawn')).toEqual({});
+
+  // The camera's frustum follows its lens (the project's when it sets none) and the game's aspect.
+  await select(page, 'cam-main', false);
+  const frustumNow = async (): Promise<Record<string, number>> => JSON.parse((await view(page).getAttribute('data-virtual-camera')) || '{}') as Record<string, number>;
+  // No lens of its own: the project's (the engine defaults until the project sets its camera settings).
+  await expect.poll(async () => (await frustumNow())['fovY']).toBe(60);
+  const frustum = await frustumNow();
+  expect([frustum['near'], frustum['far']]).toEqual([0.1, 100]);
+  expect(frustum['aspect']).toBeGreaterThan(0.5);
+  const fov = inspector.getByLabel('virtualCamera fovY', { exact: true });
+  await fov.fill('70');
+  await fov.press('Enter');
+  await expect.poll(async () => (await frustumNow())['fovY']).toBe(70);
+  await undo(page);
+  await expect.poll(async () => (await frustumNow())['fovY']).toBe(60);
+  // Another selection hides it.
+  await select(page, 'spawn-0001', false);
+  await expect(view(page)).toHaveAttribute('data-virtual-camera', '');
+
+  // animator.parameters: the player's controller parameters, each with its starting value.
+  await select(page, 'model-0001', false);
+  const animator = (await comp('model-0001', 'animator')) as { controller: string } | undefined;
+  expect(animator, 'the sample player moves to an animator when opened').toBeDefined();
+  const speed = inspector.getByLabel('animator parameters speed', { exact: true });
+  await expect(speed).toHaveValue('0');
+  await speed.fill('2.5');
+  await speed.press('Enter');
+  await expect.poll(async () => (await comp('model-0001', 'animator'))!['parameters']).toEqual({ speed: 2.5 });
+  await undo(page);
+  await expect.poll(async () => JSON.stringify((await comp('model-0001', 'animator'))!['parameters'] ?? {})).toBe('{}');
+  await expect(inspector.getByLabel('animator parameters speed', { exact: true })).toHaveValue('0');
+  const grounded = inspector.getByLabel('animator parameters grounded', { exact: true });
+  await grounded.click();
+  await expect.poll(async () => JSON.stringify((await comp('model-0001', 'animator'))!['parameters'])).toMatch(/"grounded":(true|false)/);
 });
 
 test('paths and polygons: drag a point, add one on an edge, Alt+click deletes; a concave polygon is refused; colliders from the model outline', async ({ page }) => {
@@ -261,106 +357,4 @@ test('paths and polygons: drag a point, add one on an edge, Alt+click deletes; a
   await expect.poll(async () => ((await comp('model-0002', 'collider'))?.['shape'] as { type?: string } | undefined)?.type).toMatch(/box|polygon/);
   await undo(page);
   await expect.poll(async () => comp('model-0002', 'collider')).toBeUndefined();
-});
-
-test('a spawn\'s yaw, the camera\'s real frustum, an animator\'s starting parameter values', async ({ page }) => {
-  test.setTimeout(180_000);
-  await open(page);
-  const inspector = page.locator('.tl-inspector');
-
-  // playerSpawn.yaw (the character's facing): a number field; undo removes it.
-  await select(page, 'spawn-0001', false);
-  const yaw = inspector.getByLabel('playerSpawn yaw', { exact: true });
-  await yaw.fill('-90');
-  await yaw.press('Enter');
-  await expect.poll(async () => comp('spawn-0001', 'playerSpawn')).toEqual({ yaw: -90 });
-  await undo(page);
-  await expect.poll(async () => comp('spawn-0001', 'playerSpawn')).toEqual({});
-
-  // The camera's frustum follows its lens (the project's when it sets none) and the game's aspect.
-  await select(page, 'cam-main', false);
-  const frustumNow = async (): Promise<Record<string, number>> => JSON.parse((await view(page).getAttribute('data-virtual-camera')) || '{}') as Record<string, number>;
-  // No lens of its own: the project's (the engine defaults until the project sets its camera settings).
-  await expect.poll(async () => (await frustumNow())['fovY']).toBe(60);
-  const frustum = await frustumNow();
-  expect([frustum['near'], frustum['far']]).toEqual([0.1, 100]);
-  expect(frustum['aspect']).toBeGreaterThan(0.5);
-  const fov = inspector.getByLabel('virtualCamera fovY', { exact: true });
-  await fov.fill('70');
-  await fov.press('Enter');
-  await expect.poll(async () => (await frustumNow())['fovY']).toBe(70);
-  await undo(page);
-  await expect.poll(async () => (await frustumNow())['fovY']).toBe(60);
-  // Another selection hides it.
-  await select(page, 'spawn-0001', false);
-  await expect(view(page)).toHaveAttribute('data-virtual-camera', '');
-
-  // animator.parameters: the player's controller parameters, each with its starting value.
-  await select(page, 'model-0001', false);
-  const animator = (await comp('model-0001', 'animator')) as { controller: string } | undefined;
-  expect(animator, 'the sample player moves to an animator when opened').toBeDefined();
-  const speed = inspector.getByLabel('animator parameters speed', { exact: true });
-  await expect(speed).toHaveValue('0');
-  await speed.fill('2.5');
-  await speed.press('Enter');
-  await expect.poll(async () => (await comp('model-0001', 'animator'))!['parameters']).toEqual({ speed: 2.5 });
-  await undo(page);
-  await expect.poll(async () => JSON.stringify((await comp('model-0001', 'animator'))!['parameters'] ?? {})).toBe('{}');
-  await expect(inspector.getByLabel('animator parameters speed', { exact: true })).toHaveValue('0');
-  const grounded = inspector.getByLabel('animator parameters grounded', { exact: true });
-  await grounded.click();
-  await expect.poll(async () => JSON.stringify((await comp('model-0001', 'animator'))!['parameters'])).toMatch(/"grounded":(true|false)/);
-});
-
-test('instance copies: select one copy, delete it, move it with the gizmo — each one undo step', async ({ page }) => {
-  test.setTimeout(240_000);
-  // Three pillars 3 m apart behind the level, published through the buffer route MCP uses.
-  const transforms = [-3, 0, 3].flatMap((x) => [x, 0, 0, 0, 0, 0, 1, 0.3, 0.3, 0.3]);
-  const res = await fetch(`${be.origin}/api/v1/projects/${be.projectId}/content/buffers`, { method: 'POST', headers: { authorization: `Bearer ${be.token}`, 'content-type': 'application/json', origin: be.origin }, body: JSON.stringify({ transforms }) });
-  const published = (await res.json()) as { digest: string; count: number };
-  const assets = (await be.command({ op: 'queryAssets', projectId: be.projectId, args: { limit: 50, offset: 0 } }))['assets'] as { assetId: string; displayName: string }[];
-  const pillar = assets.find((a) => a.displayName === 'Pillar')!.assetId;
-  const set = await create('Grove', [0, 0, -10], { instances: { asset: { assetId: pillar }, buffer: published.digest, count: 3 } });
-  const copies = async (): Promise<number[][]> => {
-    const inst = (await comp(set, 'instances'))! as { buffer: string; count: number };
-    const bytes = await fetch(`${be.origin}/api/v1/projects/${be.projectId}/content/buffers/${inst.buffer}`, { headers: { authorization: `Bearer ${be.token}` } });
-    const f = new Float32Array(await bytes.arrayBuffer());
-    return Array.from({ length: inst.count }, (_, i) => Array.from(f.slice(i * 10, i * 10 + 3)).map((v) => Math.round(v * 1000) / 1000));
-  };
-  await open(page);
-  await select(page, set);
-  type Copy = { index: number; x: number; y: number };
-  const onScreen = async (): Promise<Copy[]> => JSON.parse((await view(page).getAttribute('data-instance-copies')) ?? '[]') as Copy[];
-  await expect.poll(async () => (await onScreen()).length, { timeout: 30_000 }).toBe(3);
-  await page.waitForTimeout(300);
-
-  // Click the third copy: it is selected (the Inspector says so).
-  const third = (await onScreen())[2]!;
-  await page.mouse.click(third.x, third.y);
-  await expect(view(page)).toHaveAttribute('data-instance-copy', '2');
-  await expect(page.locator('.tl-inspector')).toContainText('Copy 3 selected');
-  // Del deletes that copy only; one undo brings it back.
-  await view(page).hover();
-  await page.keyboard.press('Delete');
-  await expect.poll(copies).toEqual([[-3, 0, 0], [0, 0, 0]]);
-  await expect(page.locator(`.tl-hierarchy__list li[data-entity-id="${set}"]`)).toHaveCount(1);
-  await undo(page);
-  await expect.poll(copies).toEqual([[-3, 0, 0], [0, 0, 0], [3, 0, 0]]);
-
-  // Select the first copy and drag the gizmo's X arrow: only that copy moves.
-  await expect.poll(async () => (await onScreen()).length).toBe(3);
-  await page.waitForTimeout(300);
-  const first = (await onScreen())[0]!;
-  await page.mouse.click(first.x, first.y);
-  await expect(view(page)).toHaveAttribute('data-instance-copy', '0');
-  await page.waitForTimeout(200);
-  const g = JSON.parse((await view(page).getAttribute('data-gizmo-grab'))!) as { x: number; y: number; ax: number; ay: number };
-  await page.mouse.move(g.ax, g.ay);
-  await page.waitForTimeout(100);
-  await drag(page, { x: g.ax, y: g.ay }, (g.ax - g.x) * 3, (g.ay - g.y) * 3);
-  await expect.poll(async () => (await copies())[0]![0]!).toBeGreaterThan(-2.9);
-  const moved = await copies();
-  expect(moved.slice(1)).toEqual([[0, 0, 0], [3, 0, 0]]);
-  await undo(page);
-  await expect.poll(copies).toEqual([[-3, 0, 0], [0, 0, 0], [3, 0, 0]]);
 });

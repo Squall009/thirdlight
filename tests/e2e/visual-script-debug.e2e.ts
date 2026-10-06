@@ -18,7 +18,7 @@
  */
 import { createHash } from 'node:crypto';
 
-import { expect, test, type Locator, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page } from './pw';
 
 import { type E2EBackend, startBackend } from './backend';
 import { openWindow, closeEditor, openEditor, expectEditorOpen, inspector as inspectorOf } from './ui';
@@ -223,8 +223,8 @@ test('visual script editor and debugging: problems, variables, functions, switch
   expect(paused.debug?.paused).toBe(true);
   expect(paused.debug?.hit).toEqual({ behaviorId: 'stepper', entityId: boxId, nodeId: 'add' });
   const heldAt = paused.stepIndex!;
-  await page.waitForTimeout(500);
-  expect((await observe()).stepIndex).toBe(heldAt);
+  // Held for at least half a second (60 steps at the game's rate) without a step; the checks below run inside that window.
+  const heldSince = Date.now();
   // The held step ran Add: its step (the script's step index, one below the steps completed) was a multiple of 30 — the watch list and the wire values say so.
   await expect(view.getByLabel('watch list').locator('[data-watch-value="count"]')).toHaveText(String(heldAt - 1), { timeout: 10_000 });
   const wire = page.locator('[data-edge-id="w3"]');
@@ -233,16 +233,20 @@ test('visual script editor and debugging: problems, variables, functions, switch
   await page.mouse.move(wb.x + wb.width / 2, wb.y + wb.height / 2);
   await expect(page.getByRole('tooltip', { name: 'Wire value' })).toHaveText('value: 0');
   await expect(page.locator('[data-edge-id="w4"]')).toHaveAttribute('data-value', 'value: true');
+  await page.waitForTimeout(Math.max(0, 500 - (Date.now() - heldSince)));
+  expect((await observe()).stepIndex).toBe(heldAt);
 
   // Step once: exactly one step, still paused (Add did not run in it).
   await debuggerPanel.getByRole('button', { name: 'Step once' }).click();
   await expect.poll(async () => (await observe()).stepIndex, { timeout: 10_000 }).toBe(heldAt + 1);
-  await page.waitForTimeout(400);
+  // Still exactly one step 400 ms later; the status and wire checks run inside that window.
+  const steppedAt = Date.now();
+  await expect(status).toContainText(`Paused at step ${heldAt + 1}`);
+  await expect(page.locator('[data-edge-id="w4"]')).toHaveAttribute('data-value', 'value: false');
+  await page.waitForTimeout(Math.max(0, 400 - (Date.now() - steppedAt)));
   const after = await observe();
   expect(after.stepIndex).toBe(heldAt + 1);
   expect(after.debug?.paused).toBe(true);
-  await expect(status).toContainText(`Paused at step ${heldAt + 1}`);
-  await expect(page.locator('[data-edge-id="w4"]')).toHaveAttribute('data-value', 'value: false');
 
   // Remove the breakpoint (F9 again) and resume: the game runs on.
   await node(page, 'add').click({ position: { x: 90, y: 12 } });

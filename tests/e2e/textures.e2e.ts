@@ -10,7 +10,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { expect, test, type Locator, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page } from './pw';
 
 import { startBackend, type E2EBackend } from './backend';
 import { decodePng, type Image } from './png';
@@ -29,27 +29,6 @@ test.afterEach(async () => {
   rmSync(dir, { recursive: true, force: true });
 });
 
-test('a PNG imports as a texture asset and its tile shows the image', async ({ page }) => {
-  test.skip(test.info().project.name === 'webgpu', 'no renderer involved (an <img> tile)');
-  const file = join(dir, 'checker.png');
-  writeFileSync(file, makePng(64, 64, (x, y) => ((x >> 3) + (y >> 3)) % 2 === 0 ? [240, 60, 60, 255] : [40, 40, 200, 255]));
-  await page.goto(be.editorUrl);
-  await expect(page.locator('.tl-statusbar')).toContainText('connected');
-  await projectWindow(page);
-  await page.locator('.tl-assets__file').first().setInputFiles(file);
-  const publish = page.getByRole('button', { name: 'publish' });
-  await expect(publish).toBeEnabled({ timeout: 15_000 });
-  await publish.click();
-  const tile = page.locator('.tl-assets__list li[data-asset-id]').filter({ hasText: 'checker' });
-  await expect(tile).toHaveCount(1, { timeout: 10_000 });
-  await expect(tile).toContainText('texture');
-  await expect(tile.locator('img.tl-tile__img--thumb')).toHaveAttribute('src', /^blob:/);
-  const listed = await be.command({ op: 'queryAssets', projectId: be.projectId, args: { limit: 10, offset: 0 } });
-  expect((listed['assets'] as { kind: string }[])[0]!.kind).toBe('texture');
-  // A texture tile drags onto a material's texture slot (not into the scene).
-  await expect(tile).toHaveAttribute('draggable', 'true');
-});
-
 /** The checker's red texels (240, 60, 60) as they come out lit (dim in Play's front light): clearly red, not the default box blue. */
 function redPixels(img: Image): number {
   let n = 0;
@@ -63,17 +42,25 @@ function redPixels(img: Image): number {
 }
 const reds = async (target: Locator): Promise<number> => redPixels(decodePng(await target.screenshot()));
 
+/** Import the PNG: it is a texture asset whose tile shows the image itself. */
 async function importTexture(page: Page, file: string): Promise<void> {
   await projectWindow(page);
   await page.locator('.tl-assets__file').first().setInputFiles(file);
   const publish = page.getByRole('button', { name: 'publish' });
   await expect(publish).toBeEnabled({ timeout: 15_000 });
   await publish.click();
-  await expect(page.locator('.tl-assets__list li[data-asset-id]').filter({ hasText: 'checker' })).toHaveCount(1, { timeout: 10_000 });
+  const tile = page.locator('.tl-assets__list li[data-asset-id]').filter({ hasText: 'checker' });
+  await expect(tile).toHaveCount(1, { timeout: 10_000 });
+  await expect(tile).toContainText('texture');
+  await expect(tile.locator('img.tl-tile__img--thumb')).toHaveAttribute('src', /^blob:/);
+  const listed = await be.command({ op: 'queryAssets', projectId: be.projectId, args: { limit: 10, offset: 0 } });
+  expect((listed['assets'] as { kind: string }[])[0]!.kind).toBe('texture');
+  // A texture tile drags onto a material's texture slot (not into the scene).
+  await expect(tile).toHaveAttribute('draggable', 'true');
 }
 
 for (const variant of RENDERER_VARIANTS) {
-  test(`a material's texture shows on a box in the Scene view and Play (${variant})`, async ({ page }) => {
+  test(`a PNG imports as a texture asset with its image on the tile; the material's texture shows on a box in the Scene view and Play (${variant})`, async ({ page }) => {
     onlyInItsProject(variant);
     test.setTimeout(150_000);
     const file = join(dir, 'checker.png');

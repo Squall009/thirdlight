@@ -13,7 +13,7 @@
  * up, sent as exclusive test input): it rises at the climb speed with no
  * gravity, and a jump press lets go (it falls back to the ground).
  */
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page } from './pw';
 
 import { STARTER, startBackend, type E2EBackend, controls } from './backend';
 import { menu } from './ui';

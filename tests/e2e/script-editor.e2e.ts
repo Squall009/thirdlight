@@ -17,10 +17,10 @@
  */
 import { createHash } from 'node:crypto';
 
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page } from './pw';
 
 import { type E2EBackend, startBackend } from './backend';
-import { openWindow, openEditor, editorPane } from './ui';
+import { closeEditor, openWindow, openEditor, editorPane } from './ui';
 
 let be: E2EBackend;
 test.beforeEach(async () => {
@@ -78,7 +78,7 @@ const BROKEN = [
 ].join('\n');
 const FIXED = BROKEN.replace('amountOf(ctx.properties.amount);', 'amountOf(ctx.properties.amount));');
 
-test('script tab: edit, see a compile error inline, fix it, publish, Play runs it', async ({ page }) => {
+test('script tab: edit, see a compile error inline, fix it, publish, Play runs it; an import-scan hit in a comment is marked on its line', async ({ page }) => {
   test.setTimeout(240_000);
   const made = await cmd('createEntity', { sceneId: 'scene-main', kind: 'box', name: 'Counter box', transform: { position: [6, 1, 0] }, box: { size: [0.5, 0.5, 0.5], material: { color: '#808080' } } });
   const boxId = String(made.createdId);
@@ -184,25 +184,22 @@ test('script tab: edit, see a compile error inline, fix it, publish, Play runs i
   await expect(view.locator('.cm-content')).toContainText('amountOf(ctx.properties.amount));');
   await expect(view.getByText('published', { exact: true })).toBeVisible();
   await expect(status).toHaveAttribute('data-status', 'ok', { timeout: 20_000 });
-});
 
-test('an import-scan hit in a comment is marked on its line and says it is in a comment', async ({ page }) => {
-  test.setTimeout(120_000);
-  const made = await cmd('createEntity', { sceneId: 'scene-main', kind: 'box', name: 'Scan box', transform: { position: [6, 1, 0] }, box: { size: [0.5, 0.5, 0.5], material: { color: '#808080' } } });
+  // In the same editor, a second script: an import-scan hit in a comment is marked on its line and says it is in a comment.
+  await closeEditor(page, 'Script', 'Counter');
+  const made2 = await cmd('createEntity', { sceneId: 'scene-main', kind: 'box', name: 'Scan box', transform: { position: [6, 1, 0] }, box: { size: [0.5, 0.5, 0.5], material: { color: '#808080' } } });
   await cmd('publishBehavior', { behaviorId: 'scanned', displayName: 'Scanned', mode: 'declaration-create', declaration: { properties: [] } });
-  await cmd('setBehaviorProperties', { entityId: String(made.createdId), behaviorId: 'scanned', values: {} });
-  await page.goto(be.editorUrl);
-  await expect(page.locator('.tl-statusbar')).toContainText('connected');
+  await cmd('setBehaviorProperties', { entityId: String(made2.createdId), behaviorId: 'scanned', values: {} });
   await openWindow(page, 'Behaviors');
   await page.locator('.tl-behaviors__list .tl-tile', { hasText: 'Scanned' }).dblclick();
-  const view = editorPane(page, 'Script', 'Scanned');
-  const status = view.getByLabel('compile status');
-  await expect(status).toHaveAttribute('data-status', 'ok', { timeout: 20_000 });
+  const scanView = editorPane(page, 'Script', 'Scanned');
+  const scanStatus = scanView.getByLabel('compile status');
+  await expect(scanStatus).toHaveAttribute('data-status', 'ok', { timeout: 20_000 });
   await replaceCode(page, ['export default {', '  step() {},', "  // never require('fs') here", '};', ''].join('\n'));
   await page.keyboard.press('ControlOrMeta+s');
-  await expect(status).toHaveAttribute('data-status', 'errors', { timeout: 20_000 });
-  const problems = view.getByLabel('script problems');
-  await expect(problems).toContainText('src/index.ts:3');
-  await expect(problems).toContainText('inside a comment');
-  await expect(view.locator('.cm-lint-marker-error').first()).toBeVisible();
+  await expect(scanStatus).toHaveAttribute('data-status', 'errors', { timeout: 20_000 });
+  const scanProblems = scanView.getByLabel('script problems');
+  await expect(scanProblems).toContainText('src/index.ts:3');
+  await expect(scanProblems).toContainText('inside a comment');
+  await expect(scanView.locator('.cm-lint-marker-error').first()).toBeVisible();
 });

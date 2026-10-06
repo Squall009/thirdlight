@@ -16,7 +16,7 @@
  */
 import { createHash, randomBytes } from 'node:crypto';
 
-import { expect, test } from '@playwright/test';
+import { expect, test } from './pw';
 
 import { startBackend, type E2EBackend } from './backend';
 
@@ -68,9 +68,9 @@ const WATCHER = [
   '  step(state: any, ctx: any) {',
   "    if (ctx.phase !== 'intent') return;",
   '    const tl = ctx.timeline;',
-  "    if (ctx.stepIndex === 60) state.h = tl.play('cut');",
-  "    if (ctx.stepIndex === 200) state.k = tl.play('cut');",
-  '    if (ctx.stepIndex === 210) tl.skip(state.k);',
+  "    if (ctx.stepIndex === 30) state.h = tl.play('cut');",
+  "    if (ctx.stepIndex === 100) state.k = tl.play('cut');",
+  '    if (ctx.stepIndex === 105) tl.skip(state.k);',
   "    if (state.h > 0 && tl.ended(state.h)) ctx.game.add('cutEnded', 1);",
   "    if (state.k > 0 && tl.ended(state.k)) ctx.game.add('skipEnded', 1);",
   "    if (state.h > 0 && state.seen === 0 && tl.state(state.h) === 'ended') { state.seen = 1; ctx.game.add('cutState', 1); }",
@@ -81,10 +81,11 @@ const WATCHER = [
   '',
 ].join('\n');
 
-test('a script sees a timeline ended event in Play (the simulation worker)', async ({ page }) => {
-  test.setTimeout(180_000);
-  await cmd('setTimeline', { timeline: { timelineId: 'intro', name: 'Intro', duration: 0.5, playOnStart: true, tracks: [{ trackId: 'bars', type: 'letterbox', keys: [{ time: 0, value: 0.1 }] }] } });
-  await cmd('setTimeline', { timeline: { timelineId: 'cut', name: 'Cut', duration: 0.5, tracks: [{ trackId: 'bars', type: 'letterbox', keys: [{ time: 0, value: 0.2 }] }] } });
+// One page for both plays: the second is a fresh play of the same project whose content is held back.
+test('a script sees a timeline ended event in Play (the simulation worker); a play that ends before it is presented says why in observe, diagnostics and the problems', async ({ page }) => {
+  test.setTimeout(240_000);
+  await cmd('setTimeline', { timeline: { timelineId: 'intro', name: 'Intro', duration: 0.25, playOnStart: true, tracks: [{ trackId: 'bars', type: 'letterbox', keys: [{ time: 0, value: 0.1 }] }] } });
+  await cmd('setTimeline', { timeline: { timelineId: 'cut', name: 'Cut', duration: 0.25, tracks: [{ trackId: 'bars', type: 'letterbox', keys: [{ time: 0, value: 0.2 }] }] } });
   const holder = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Watcher', transform: { position: [0, -5, 0] } }))['createdId']);
   await script('watcher', WATCHER, holder);
 
@@ -95,34 +96,32 @@ test('a script sees a timeline ended event in Play (the simulation worker)', asy
   const psid = String(((await (await started).json()) as { playSessionId: string }).playSessionId);
   const observe = async (): Promise<{ state?: string; stepIndex?: number; counters?: Record<string, number>; simulation?: { mode?: string } }> => (await api(`play/${psid}/observe`, {})).json as never;
   await expect.poll(async () => (await observe()).state, { timeout: 60_000 }).toBe('running');
-  await expect.poll(async () => (await observe()).stepIndex ?? 0, { timeout: 30_000 }).toBeGreaterThan(400);
+  // Well past the last timeline event (the skip at step 105; 120 steps a second).
+  await expect.poll(async () => (await observe()).stepIndex ?? 0, { timeout: 30_000 }).toBeGreaterThan(200);
   const o = await observe();
   expect(o.simulation?.mode).toBe('worker');
   expect(o.counters).toMatchObject({ intro_finished: 1, cut_finished: 1, cut_skipped: 1, cutEnded: 1, skipEnded: 1, cutState: 1 });
   await page.getByTitle('Stop the play preview').click();
-});
+  await expect(page.locator('iframe.tl-app__preview-frame')).toHaveCount(0, { timeout: 30_000 });
 
-test('a play that ends before it is presented says why in observe, diagnostics and the problems', async ({ page }) => {
-  test.setTimeout(180_000);
-  await page.goto(be.editorUrl);
-  await expect(page.locator('.tl-statusbar')).toContainText('connected');
+  // A second play on the same page that ends before it is presented says why in observe, diagnostics and the problems.
   // The preview's content is held back: the play is never presented.
   let held = 0;
   await page.route('**/play-content/**', async () => {
     held += 1;
     await new Promise(() => undefined);
   });
-  const started = page.waitForResponse((r) => r.request().method() === 'POST' && r.url().endsWith('/play'));
+  const started2 = page.waitForResponse((r) => r.request().method() === 'POST' && r.url().endsWith('/play'));
   await page.getByTitle('Start an isolated play preview').click();
-  const psid = String(((await (await started).json()) as { playSessionId: string }).playSessionId);
+  const psid2 = String(((await (await started2).json()) as { playSessionId: string }).playSessionId);
   await expect.poll(() => held, { timeout: 30_000 }).toBeGreaterThan(0);
-  const before = await api(`play/${psid}/observe`, {});
+  const before = await api(`play/${psid2}/observe`, {});
   expect(before.status, JSON.stringify(before.json)).toBe(503); // live, not yet presented
   await page.unrouteAll({ behavior: 'ignoreErrors' });
   await page.reload();
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
   for (const route of ['observe', 'diagnostics']) {
-    const res = await api(`play/${psid}/${route}`, {});
+    const res = await api(`play/${psid2}/${route}`, {});
     expect(res.status, route).toBe(404);
     const error = res.json.error as { code: string; message: string; ended?: { reason: string; presented: boolean; at: string } };
     expect(error.code).toBe('play_not_found');
@@ -131,5 +130,5 @@ test('a play that ends before it is presented says why in observe, diagnostics a
     expect(error.message).toContain('the editor page that ran it closed, reloaded or lost its connection');
   }
   const problems = (await api('problems', undefined, 'GET')).json.problems as Array<{ source: string; code: string; message: string }>;
-  expect(problems.some((p) => p.source === 'play' && p.code === 'play_session_lost' && p.message.includes(psid))).toBe(true);
+  expect(problems.some((p) => p.source === 'play' && p.code === 'play_session_lost' && p.message.includes(psid2))).toBe(true);
 });

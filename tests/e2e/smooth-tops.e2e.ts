@@ -24,7 +24,7 @@ import { createReadStream, existsSync, mkdirSync, statSync, writeFileSync } from
 import { createServer, type Server } from 'node:http';
 import { extname, join, normalize } from 'node:path';
 
-import { expect, test, type Locator, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page } from './pw';
 import * as THREE from 'three';
 
 import { startBackend, type E2EBackend } from './backend';

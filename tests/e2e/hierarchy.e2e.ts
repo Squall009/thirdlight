@@ -6,7 +6,7 @@
  * hidden in the Scene view and left out of Play. Every edit is a command
  * with undo.
  */
-import { expect, test, type Locator, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page } from './pw';
 import * as THREE from 'three';
 
 import { startBackend, type E2EBackend } from './backend';
@@ -107,8 +107,8 @@ async function screenPoint(page: Page, world: [number, number, number]): Promise
   return { x: box.x + ((p.x + 1) / 2) * box.width, y: box.y + ((1 - p.y) / 2) * box.height };
 }
 
-test('folders: drag to file and reorder keeps world positions, a selection moves in one undo step, collapse is per browser', async ({ page }) => {
-  await openEditor(page);
+/** Folders: drag to file and reorder keeps world positions, a selection moves in one undo step, collapse is per browser (an editor already open). */
+async function folders(page: Page): Promise<void> {
   await menu(page, 'GameObject', 'Folder');
   await expect(row(page, 'Folder')).toHaveCount(1);
   await expect(row(page, 'Folder').locator('.tl-row__kind')).toHaveText('folder');
@@ -170,9 +170,10 @@ test('folders: drag to file and reorder keeps world positions, a selection moves
   await row(page, 'alpha').dragTo(page.locator('.tl-hierarchy__list'), { targetPosition: { x: 60, y: (await page.locator('.tl-hierarchy__list').boundingBox())!.height - 10 } });
   await expect.poll(async () => (await order()).at(-1)).toBe(alpha);
   expect((await entity(alpha)).parentChain).toEqual([]);
-});
+}
 
-test('folder flags pass down: inherited values in the inspector, locked is not pickable, inactive is hidden and left out of Play', async ({ page }) => {
+// The flags part first, on the fresh scene its pixels and picks are measured in; the folders part then works in the same project.
+test('folder flags pass down: inherited values in the inspector, locked is not pickable, inactive is hidden and left out of Play; folders: drag to file and reorder keeps world positions, a selection moves in one undo step, collapse is per browser', async ({ page }) => {
   const folderId = String((await cmd('createEntity', { sceneId: 'scene-main', kind: 'folder', name: 'Hazards' })).createdId);
   const redId = String(
     (await cmd('createEntity', { kind: 'box', name: 'red', parentId: folderId, transform: { position: [0, 0.5, 0] }, box: { size: [1.5, 1.5, 1.5], material: { color: '#ff0000' } } })).createdId,
@@ -241,4 +242,9 @@ test('folder flags pass down: inherited values in the inspector, locked is not p
   await page.keyboard.press('Control+z');
   await expect.poll(async () => (await entity(folderId)).entity.locked).toBe(true);
   void redId;
+
+  // Nothing selected, so the folders part's new folder goes to the root.
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.tl-hierarchy__list li.tl-row.is-selected')).toHaveCount(0);
+  await test.step('folders: drag to file and reorder keeps world positions, a selection moves in one undo step, collapse is per browser', () => folders(page));
 });

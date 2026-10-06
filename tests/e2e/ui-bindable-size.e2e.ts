@@ -17,7 +17,7 @@
  */
 import { createHash, randomBytes } from 'node:crypto';
 
-import { expect, test, type Locator } from '@playwright/test';
+import { expect, test, type Locator } from './pw';
 
 import { STARTER, type E2EBackend, startBackend } from './backend';
 import { decodePng } from './png';

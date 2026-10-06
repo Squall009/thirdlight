@@ -9,14 +9,14 @@
  * - Play: the circle sits on the player's start (radius 0.5, stay, signal
  *   "here"); a magenta door beside the player carries a script whose
  *   entityRef property names the trigger. On the trigger's `enter` event
- *   (ctx.events) it starts a 1 s timer that hides the door, which comes back
- *   4 s later (ctx.timers.after/fired); an `every` timer counts ticks and the
+ *   (ctx.events) it starts a 0.5 s timer that hides the door, which comes back
+ *   2 s later (ctx.timers.after/fired); an `every` timer counts ticks and the
  *   stay signal counts every step inside. Observed through the game counters
  *   and as magenta pixels (door shown, gone, shown again).
  */
 import { createHash } from 'node:crypto';
 
-import { expect, test, type Locator, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page } from './pw';
 
 import { type E2EBackend, startBackend } from './backend';
 import { decodePng } from './png';
@@ -91,8 +91,9 @@ async function script(behaviorId: string, source: string, entityId: string, valu
 }
 
 /**
- * The timed door: the step after the player enters its sensor it waits one
- * second, hides itself, and shows itself again four seconds later.
+ * The timed door: the step after the player enters its sensor it waits half a
+ * second, hides itself, and shows itself again two seconds later (short, so the
+ * run is brief; long enough to see the open door in pixels).
  */
 const DOOR = [
   'export default {',
@@ -101,12 +102,12 @@ const DOOR = [
   '  step(_state: unknown, ctx: any) {',
   "    if (ctx.phase !== 'intent') return;",
   "    if (ctx.signals.on('here')) ctx.game.add('stayed', 1);",
-  "    ctx.timers.every('tick', 0.5);",
+  "    ctx.timers.every('tick', 0.1);",
   "    if (ctx.timers.fired('tick')) ctx.game.add('ticks', 1);",
   '    for (const e of ctx.events) {',
-  "      if (e.type === 'enter' && e.trigger === ctx.properties.sensor) { ctx.game.add('entered', 1); ctx.timers.after('open', 1); }",
+  "      if (e.type === 'enter' && e.trigger === ctx.properties.sensor) { ctx.game.add('entered', 1); ctx.timers.after('open', 0.5); }",
   '    }',
-  "    if (ctx.timers.fired('open')) { ctx.game.setVisible(ctx.entityId, false); ctx.game.add('opened', 1); ctx.timers.after('close', 4); }",
+  "    if (ctx.timers.fired('open')) { ctx.game.setVisible(ctx.entityId, false); ctx.game.add('opened', 1); ctx.timers.after('close', 2); }",
   "    if (ctx.timers.fired('close')) { ctx.game.setVisible(ctx.entityId, true); ctx.game.add('closed', 1); }",
   '  },',
   '  dispose() {},',
@@ -197,14 +198,14 @@ test('a circle trigger in the Inspector and the Scene view; a timed door script 
   // The player starts inside the circle: one enter event, the stay signal every step.
   await expect.poll(async () => counter('entered'), { timeout: 30_000 }).toBe(1);
   await expect.poll(async () => counter('stayed'), { timeout: 30_000 }).toBeGreaterThan(30);
-  // One second later the door opens (hidden: no magenta), four seconds after that it closes again.
+  // Half a second later the door opens (hidden: no magenta), two seconds after that it closes again.
   await expect.poll(async () => counter('opened'), { timeout: 30_000 }).toBe(1);
   expect(await counter('closed')).toBe(0);
   await expect.poll(async () => magenta(frame), { timeout: 10_000 }).toBeLessThan(4);
   await page.screenshot({ path: 'test-results/sensors-open.png' });
   await expect.poll(async () => counter('closed'), { timeout: 60_000 }).toBe(1);
   await expect.poll(async () => magenta(frame), { timeout: 20_000 }).toBeGreaterThan(40);
-  // The every-0.5 s timer ticked all along; the enter event came once (the player never left).
+  // The every-0.1 s timer ticked all along; the enter event came once (the player never left).
   const o = await observe();
   expect(o.counters?.['ticks'] ?? 0).toBeGreaterThanOrEqual(10);
   expect(o.counters?.['entered']).toBe(1);

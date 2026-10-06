@@ -14,7 +14,7 @@
  * `data-tl-renderer`, which the tests check so a variant cannot silently
  * fall back.
  */
-import { expect, test, type Locator } from '@playwright/test';
+import { expect, test, type Locator } from './pw';
 
 import { gpuAvailable } from './browser-env.mjs';
 

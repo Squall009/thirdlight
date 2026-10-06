@@ -27,7 +27,7 @@ import { createReadStream, existsSync, readFileSync, statSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import { extname, join, normalize } from 'node:path';
 
-import { expect, test, type FrameLocator, type Page } from '@playwright/test';
+import { expect, test, type FrameLocator, type Page } from './pw';
 
 import { CATALOG_BLOCK_KEYS, MANIFEST_KEYS_V5 } from '@thirdlight/project-model';
 

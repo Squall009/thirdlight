@@ -21,7 +21,7 @@
  */
 import { randomBytes } from 'node:crypto';
 
-import { expect, test, type FrameLocator } from '@playwright/test';
+import { expect, test, type FrameLocator } from './pw';
 
 import { publishScript, publishWav, startBackend, type E2EBackend } from './backend';
 import { openWindow } from './ui';

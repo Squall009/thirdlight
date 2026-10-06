@@ -8,7 +8,7 @@
  *   → 20, back to 1 s → 40 and the same picture); restart goes back to 0; a
  *   preview-only parameter slider (the particle size) changes the picture
  *   and saves nothing; an edit of the graph (the rate) shows at once.
- *   Leak check: opening and closing the tab 10× leaves no preview open and
+ *   Leak check: switching the tab between two effects 5× leaves no preview open and
  *   every close returned the preview renderer's geometry and attribute
  *   counts to their baseline.
  * - The Scene view's edit-mode preview (Gizmos → Play selected effects)
@@ -16,7 +16,7 @@
  */
 import { createHash } from 'node:crypto';
 
-import { expect, test, type Locator, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page } from './pw';
 
 import { startBackend, type E2EBackend } from './backend';
 import { decodePng, type Image } from './png';
@@ -119,6 +119,8 @@ interface Ledger { open: number; opened: number; closed: number; shown: number; 
 const ledger = async (page: Page): Promise<Ledger> => JSON.parse((await page.locator('html').getAttribute('data-tl-previews')) ?? '{"open":0,"opened":0,"closed":0,"shown":0,"released":0,"idle":null}') as Ledger;
 
 const VARIANTS: readonly RendererVariant[] = PRODUCT_RENDERER_VARIANTS;
+/** Rounds of the leak check (each opens both effects once). */
+const SWITCHES = 5;
 
 for (const variant of VARIANTS) test(`the Effect tab previews an effect: particles, pause, deterministic scrub, restart, parameter slider, live edit, no leaks (${variant})`, async ({ page }) => {
   onlyInItsProject(variant, VARIANTS);
@@ -202,7 +204,7 @@ for (const variant of VARIANTS) test(`the Effect tab previews an effect: particl
   await expect.poll(async () => spawned(page), { timeout: 30_000 }).toBe(120);
   expect((await state(page)).steps).toBe(60);
 
-  // Leak check: switching between two effects 10 times swaps the pane's subject on its one renderer (none is made
+  // Leak check: switching between two effects 5 times (a per-switch leak shows from the second) swaps the pane's subject on its one renderer (none is made
   // per switch) and every switch leaves the renderer's resource counts of the empty stage where they were.
   await cmd('setEffect', { effect: { ...streamEffect(40, '#00ff00'), effectId: 'fx-other', name: 'Other' } });
   await openEditor(page, 'Effect', 'Other');
@@ -210,7 +212,7 @@ for (const variant of VARIANTS) test(`the Effect tab previews an effect: particl
   const before = await ledger(page);
   expect(before.open).toBe(1);
   const idle: Record<string, number>[] = [];
-  for (let k = 0; k < 10; k++) {
+  for (let k = 0; k < SWITCHES; k++) {
     for (const name of ['Stream', 'Other']) {
       await openEditor(page, 'Effect', name);
       await expect(canvas).toHaveAttribute('data-subject', name === 'Stream' ? 'effect:fx-stream' : 'effect:fx-other');
@@ -222,7 +224,7 @@ for (const variant of VARIANTS) test(`the Effect tab previews an effect: particl
   const after = await ledger(page);
   console.log(`[effect-editor] ${variant}: ledger ${JSON.stringify(after)}`);
   expect(after.opened).toBe(before.opened);
-  expect(after.released - before.released).toBe(20);
+  expect(after.released - before.released).toBe(2 * SWITCHES);
   for (const k of Object.keys(idle[0]!)) expect(idle.map((x) => x[k]), k).toEqual(idle.map(() => idle[0]![k]));
   await closeEditor(page);
   await expect(canvas).toHaveCount(0);

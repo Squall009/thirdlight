@@ -21,7 +21,7 @@ import { createReadStream, existsSync, statSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import { extname, join, normalize } from 'node:path';
 
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page } from './pw';
 
 import { controls, startBackend, type E2EBackend } from './backend';
 import { decodePng, type Image } from './png';
@@ -139,7 +139,7 @@ async function expectLanded(read: () => Promise<Observation | null>, what: strin
     .poll(async () => {
       const o = await read();
       return o?.player !== undefined && Math.abs(o.player.x - 4.5) < 0.05 && o.player.y > want - 0.01 && o.player.y < want + 0.05;
-    }, { timeout: 60_000, intervals: [200], message: `${what}: the character rests on the gentle slope at ${want.toFixed(3)} m` })
+    }, { timeout: 60_000, message: `${what}: the character rests on the gentle slope at ${want.toFixed(3)} m` })
     .toBe(true);
 }
 
@@ -152,7 +152,7 @@ async function expectStoppedAtSteepFoot(read: () => Promise<Observation | null>,
       last = o;
       const p = o?.player;
       return p !== undefined && p.x > 9.4 && p.x < 10.05 && p.y > standY(10) - 0.01 && p.y < standY(10) + 0.2;
-    }, { timeout: 60_000, intervals: [250], message: `${what}: up the gentle slope, stopped at the foot of the steep one` })
+    }, { timeout: 60_000, message: `${what}: up the gentle slope, stopped at the foot of the steep one` })
     .toBe(true)
     .catch((e: Error) => {
       throw new Error(`${e.message}\nlast: ${JSON.stringify(last)}`);

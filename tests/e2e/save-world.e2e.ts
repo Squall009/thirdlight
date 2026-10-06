@@ -19,7 +19,7 @@
  */
 import { randomUUID } from 'node:crypto';
 
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page } from './pw';
 
 import { publishScript, startBackend, type E2EBackend } from './backend';
 import { openProjectSettings } from './ui';

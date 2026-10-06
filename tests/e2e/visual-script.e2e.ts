@@ -28,7 +28,7 @@ import { createReadStream, existsSync, statSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import { extname, join, normalize } from 'node:path';
 
-import { expect, test, type Locator, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page } from './pw';
 
 import { addTitleShell, publishWav, startBackend, type E2EBackend } from './backend';
 import { decodePng } from './png';
@@ -223,11 +223,12 @@ test('visual script from the catalogue search: on trigger enter → timer → hi
   // An entity variable "sensor": a public property (the trigger it names is one this script owns).
   const sensor = await add('entity variable', 'Entity variable', 'var.entity', 0.12, 0.12);
   await text(sensor, 'Name', 'sensor', { name: 'sensor' });
-  // On trigger (enter) → Start timer "open" (1 s).
+  // On trigger (enter) → Start timer "open" (1 s by default; a quarter second here, so Play and the export wait less).
   const enter = await add('trigger', 'On trigger', 'event.trigger', 0.12, 0.35);
   const timer = await add('start timer', 'Start timer', 'api.timers.after', 0.45, 0.35);
   await text(timer, 'timer', 'open', { name: 'open' });
   await expect(inspector.getByLabel('seconds', { exact: true })).toHaveValue('1');
+  await text(timer, 'seconds', '0.25', { name: 'open', seconds: 0.25 });
   // On timer "open" → Set visible (this object, false) → Add to counter "opened" → Play sound.
   const fired = await add('on timer', 'On timer', 'event.timer', 0.12, 0.62);
   await text(fired, 'Timer', 'open', { timer: 'open' });
@@ -261,8 +262,8 @@ test('visual script from the catalogue search: on trigger enter → timer → hi
   expect(published[0]!.declaration).toEqual({ properties: [{ key: 'sensor', label: 'Sensor', type: 'entityRef', default: null }] });
   await cmd('setBehaviorProperties', { entityId: door, behaviorId: 'timed-door', values: { sensor: trigger } });
 
-  // Play: a title holds the start (the game shell); after Start the player is in the sensor, a second
-  // later the door disappears and the opening is counted (the shell's HUD shows the counter).
+  // Play: a title holds the start (the game shell); after Start the player is in the sensor, a quarter
+  // second later the door disappears and the opening is counted (the shell's HUD shows the counter).
   await addTitleShell(be, 'Opened {$flow.counters.opened}');
   const started = page.waitForResponse((res) => res.request().method() === 'POST' && res.url().endsWith('/play'));
   await page.getByTitle('Start an isolated play preview').click();

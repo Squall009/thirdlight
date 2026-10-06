@@ -16,7 +16,7 @@
 import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 
-import { expect, test, type FrameLocator, type Page } from '@playwright/test';
+import { expect, test, type FrameLocator, type Page } from './pw';
 
 import { STARTER, publishScript, serveDir, startBackend, type E2EBackend } from './backend';
 
@@ -68,8 +68,8 @@ async function startPlay(page: Page): Promise<{ psid: string; frame: FrameLocato
   return { psid, frame: page.frameLocator('iframe.tl-app__preview-frame') };
 }
 
-test('ctx.stats, $flow.stats and Play diagnostics read the frame statistics; no overlay and no key without the setting', async ({ page }) => {
-  test.setTimeout(240_000);
+test('ctx.stats, $flow.stats and Play diagnostics read the frame statistics; no overlay and no key without the setting; with it, the overlay behind F3 in Play and from the start in the export', async ({ page }) => {
+  test.setTimeout(300_000);
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
   await cmd('setUiDocument', { document: HUD });
@@ -114,17 +114,13 @@ test('ctx.stats, $flow.stats and Play diagnostics read the frame statistics; no 
   await page.waitForTimeout(500);
   await expect(frame.locator('[data-tl-stats]')).toHaveCount(0);
   expect(errors).toEqual([]);
-});
+  await page.getByTitle('Stop the play preview').click();
+  await expect(page.locator('iframe.tl-app__preview-frame')).toHaveCount(0, { timeout: 30_000 });
 
-test('the stats overlay: hidden until F3 in Play (setting 2), shown from the start in the export (setting 1)', async ({ page }) => {
-  test.setTimeout(300_000);
-  const errors: string[] = [];
-  page.on('pageerror', (e) => errors.push(e.message));
+  // The same project with the setting: the stats overlay hidden until F3 in Play (setting 2), shown from the start in the export (setting 1).
   await settings({ stats_overlay: 2 });
-  await page.goto(be.editorUrl);
-  await expect(page.locator('.tl-statusbar')).toContainText('connected');
-  const { frame } = await startPlay(page);
-  const overlay = frame.locator('[data-tl-stats]');
+  const { frame: frame2 } = await startPlay(page);
+  const overlay = frame2.locator('[data-tl-stats]');
   await expect(overlay).toHaveCount(1, { timeout: 30_000 });
   await expect(overlay).toHaveAttribute('data-shown', 'false');
   await expect(overlay).toBeHidden();

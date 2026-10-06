@@ -3,7 +3,7 @@
  * centre, inspector right, a tabbed dock along the bottom, and splitters
  * that resize the docks and are remembered by the browser.
  */
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page } from './pw';
 
 import { startBackend, type E2EBackend } from './backend';
 import { projectWindow, openWindow, showView, viewTab } from './ui';
@@ -22,8 +22,15 @@ async function open(page: Page): Promise<void> {
 }
 const box = async (page: Page, sel: string) => (await page.locator(sel).boundingBox())!;
 
-test('docks sit where Unity puts them and the bottom dock hosts the panels', async ({ page }) => {
+// One page for the layout's checks: each part measures from where the last left it, so none needs a fresh editor.
+test('docks sit where Unity puts them; Play opens in the Game tab while Scene keeps it running; splitters resize the docks and survive a reload', async ({ page }) => {
   await open(page);
+  await test.step('docks sit where Unity puts them and the bottom dock hosts the panels', () => docks(page));
+  await test.step('Play opens in the Game tab; the Scene tab shows the viewport while the game keeps running', () => playTabs(page));
+  await test.step('splitters resize the docks, the viewport follows, and the sizes survive a reload', () => splitters(page));
+});
+
+async function docks(page: Page): Promise<void> {
   const hier = await box(page, '.tl-dock--left');
   const stage = await box(page, '.tl-app__stage');
   const insp = await box(page, '.tl-dock--right');
@@ -52,10 +59,9 @@ test('docks sit where Unity puts them and the bottom dock hosts the panels', asy
   await openWindow(page, 'Problems');
   await expect(page.locator('.tl-dock--bottom .tl-problems, .tl-dock--bottom .tl-panel').first()).toBeVisible();
   await expect(page.locator('.tl-dock--left .tl-hierarchy__list li.tl-row')).toHaveCount(10);
-});
+}
 
-test('Play opens in the Game tab; the Scene tab shows the viewport while the game keeps running', async ({ page }) => {
-  await open(page);
+async function playTabs(page: Page): Promise<void> {
   await expect(viewTab(page, 'Scene')).toHaveAttribute('aria-selected', 'true');
   await showView(page, 'Game');
   await expect(page.getByText('Press ▶ play to run the game here.')).toBeVisible();
@@ -94,10 +100,9 @@ test('Play opens in the Game tab; the Scene tab shows the viewport while the gam
   // Stop is a backend round trip plus the preview's teardown: seconds on a loaded CPU-rendered host.
   await expect(frame).toHaveCount(0, { timeout: 30_000 });
   await expect(viewTab(page, 'Scene')).toHaveAttribute('aria-selected', 'true');
-});
+}
 
-test('splitters resize the docks, the viewport follows, and the sizes survive a reload', async ({ page }) => {
-  await open(page);
+async function splitters(page: Page): Promise<void> {
   const before = await box(page, '.tl-dock--left');
   const canvasBefore = await box(page, 'canvas.tl-viewport');
   const handle = await box(page, '[aria-label="Resize the hierarchy"]');
@@ -125,4 +130,4 @@ test('splitters resize the docks, the viewport follows, and the sizes survive a 
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
   expect(Math.round((await box(page, '.tl-dock--left')).width)).toBe(Math.round(after.width));
   expect(Math.round((await box(page, '.tl-dock--bottom')).height)).toBe(Math.round(bottomBefore.height + 80));
-});
+}

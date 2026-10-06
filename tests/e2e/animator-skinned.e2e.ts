@@ -10,7 +10,7 @@ import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page } from './pw';
 
 import { STARTER, startBackend, type E2EBackend, controls } from './backend';
 import { LOCOMOTION_CLIPS, skinnedGlb } from './skinned-glb';

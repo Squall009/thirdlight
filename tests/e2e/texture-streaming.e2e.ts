@@ -24,7 +24,7 @@ import { createReadStream, existsSync, readdirSync, readFileSync, statSync } fro
 import { createServer, type Server } from 'node:http';
 import { extname, join, normalize } from 'node:path';
 
-import { expect, test, type Locator, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page } from './pw';
 
 import { startBackend, type E2EBackend } from './backend';
 import { decodePng, type Image } from './png';
@@ -133,24 +133,27 @@ function detail(img: Image): number {
 }
 const shot = async (t: Locator | Page): Promise<Image> => decodePng(await t.screenshot());
 
-/** The scene: a dark sky, the camera at z 6 looking along −Z, two unlit boxes (A, B) wearing the checkers; returns their ids. */
-async function buildScene(): Promise<{ a: string; b: string }> {
+/**
+ * The scene: a dark sky, the camera at z 6 looking along −Z, two unlit boxes (A, B) wearing the checkers; returns
+ * their ids. With `withB` false only A is made (and only checker-a need be imported).
+ */
+async function buildScene(withB = true): Promise<{ a: string; b: string | null }> {
   await cmd('setMaterial', { material: { materialId: 'mat-a', name: 'A', shader: 'unlit', params: { tiling: [0.25, 0.25] }, textures: { map: 'checker-a' } } });
-  await cmd('setMaterial', { material: { materialId: 'mat-b', name: 'B', shader: 'unlit', params: { tiling: [0.25, 0.25] }, textures: { map: 'checker-b' } } });
+  if (withB) await cmd('setMaterial', { material: { materialId: 'mat-b', name: 'B', shader: 'unlit', params: { tiling: [0.25, 0.25] }, textures: { map: 'checker-b' } } });
   await cmd('setEnvironment', { sceneId: 'scene-main', environment: { sky: { mode: 'color', color: '#303030' } } });
   const ents = ((await query('queryEntities', { limit: 100, offset: 0 })) as { entities: { id: string; components: Record<string, unknown> }[] }).entities;
   const cam = ents.find((e) => e.components['virtualCamera'] !== undefined)!.id;
   await cmd('setTransform', { entityId: cam, transform: { position: [0, 0, 6], rotation: [0, 0, 0, 1] } });
   for (const e of ents) if (e.components['box'] !== undefined) await cmd('setTransform', { entityId: e.id, transform: { position: [0, -50, 0] } });
   const ids: string[] = [];
-  for (const [name, mat, x] of [['Box A', 'mat-a', 0], ['Box B', 'mat-b', 0]] as const) {
+  for (const [name, mat, x] of ([['Box A', 'mat-a', 0], ['Box B', 'mat-b', 0]] as const).slice(0, withB ? 2 : 1)) {
     const id = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'box', name, transform: { position: [x, 0, -60] }, box: { size: [2, 2, 0.05], material: { color: '#ffffff' } } }))['createdId']);
     await cmd('setComponent', { entityId: id, component: 'materials', value: { '*': mat } });
     ids.push(id);
   }
   const driver = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Driver', transform: { position: [0, -10, 0] } }))['createdId']);
   await installMover(driver);
-  return { a: ids[0]!, b: ids[1]! };
+  return { a: ids[0]!, b: ids[1] ?? null };
 }
 
 async function startPlay(page: Page): Promise<{ psid: string; frame: Locator; observe: () => Promise<Textures | null>; place: (id: string, at: [number, number, number]) => Promise<void> }> {
@@ -205,7 +208,9 @@ for (const variant of RENDERER_VARIANTS) test(`a large KTX2 texture streams its 
   expect(a0.image?.levels).toBe(12);
   expect(a0.streaming).toEqual({ on: true, set: false, possible: true });
   expect(JSON.parse(readFileSync(join(be.projectDir, 'assets', 'checker-a.png.tlasset'), 'utf8'))).toMatchObject({ importSettings: { ktx2: 'color', streaming: true } });
-  const { a, b } = await buildScene();
+  const scene = await buildScene();
+  const a = scene.a;
+  const b = scene.b!;
 
   await page.goto(editorUrlFor(be.editorUrl, variant));
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
@@ -316,9 +321,9 @@ for (const variant of RENDERER_VARIANTS) test(`a large KTX2 transcoded to RGBA (
   page.on('pageerror', (e) => errors.push(e.message));
   // Every frame (the editor and Play) reports no compressed format: the transcoder writes plain RGBA.
   await page.context().addInitScript(hideCompressedFormats);
+  // One texture is enough here (the budget test above moves two): each 2048² KTX2 encode adds to the run.
   await importKtx2(checker([235, 235, 235], [15, 15, 15]), 'checker-a');
-  await importKtx2(checker([240, 220, 40], [20, 20, 120]), 'checker-b');
-  const { a } = await buildScene();
+  const { a } = await buildScene(false);
   await page.goto(editorUrlFor(be.editorUrl, variant));
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
   const play = await startPlay(page);

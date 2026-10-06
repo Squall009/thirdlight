@@ -13,7 +13,7 @@
 import { randomBytes } from 'node:crypto';
 import { join } from 'node:path';
 
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page } from './pw';
 
 import { serveDir, startBackend, type E2EBackend } from './backend';
 
@@ -88,7 +88,7 @@ async function rest(read: () => Promise<Observation | null>, what: string): Prom
         last = o;
         return same;
       },
-      { timeout: 60_000, intervals: [250], message: `${what}: both at rest` },
+      { timeout: 60_000, message: `${what}: both at rest` },
     )
     .toBe(true);
   return new Map(last!.players!.map((p) => [p.id, p]));

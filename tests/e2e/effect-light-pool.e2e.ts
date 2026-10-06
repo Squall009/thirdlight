@@ -17,7 +17,7 @@
 import { randomBytes } from 'node:crypto';
 import { join } from 'node:path';
 
-import { expect, test, type Frame, type Locator, type Page } from '@playwright/test';
+import { expect, test, type Frame, type Locator, type Page } from './pw';
 
 import { decodePng, type Image } from './png';
 import { exportedContent, publishScript, serveDir, startBackend, type E2EBackend } from './backend';

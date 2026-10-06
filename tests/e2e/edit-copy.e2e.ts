@@ -2,7 +2,7 @@
  * Duplicate a multi-selection with its children in one undo, and
  * Copy/Paste between scenes.
  */
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page } from './pw';
 
 import { startBackend, type E2EBackend } from './backend';
 import { createBox, menu } from './ui';

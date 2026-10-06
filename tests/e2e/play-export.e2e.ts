@@ -5,7 +5,7 @@ import { createReadStream, existsSync, statSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import { extname, join, normalize } from 'node:path';
 
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page } from './pw';
 
 import { startBackend, type E2EBackend } from './backend';
 import { menu } from './ui';
@@ -55,7 +55,8 @@ async function createBox(page: Page): Promise<void> {
   await expect(page.locator('.tl-hierarchy__list li.tl-row').filter({ hasText: 'box' })).toHaveCount(1);
 }
 
-test('Play renders a fresh project scene in the isolated preview, which fills the centre view and does not scroll', async ({ page }) => {
+// One backend and box for both: the export is made from the project Play just ran.
+test('Play renders a fresh project scene in the isolated preview, which fills the centre view and does not scroll; the exported game runs from a plain static server with the backend stopped', async ({ page }) => {
   await createBox(page);
   await page.getByTitle('Start an isolated play preview').click();
   const frame = page.locator('iframe.tl-app__preview-frame');
@@ -78,10 +79,8 @@ test('Play renders a fresh project scene in the isolated preview, which fills th
   await page.getByTitle('Stop the play preview').click();
   // Stop is a backend round trip plus the preview's teardown: seconds on a loaded CPU-rendered host.
   await expect(frame).toHaveCount(0, { timeout: 30_000 });
-});
 
-test('the exported game runs from a plain static server with the backend stopped', async ({ page }) => {
-  await createBox(page);
+  // The export of the same project.
   const res = await be.admin(`projects/${be.projectId}/export`);
   expect(res.status, JSON.stringify(res.json)).toBe(200);
   await page.close();

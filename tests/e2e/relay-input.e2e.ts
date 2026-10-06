@@ -27,7 +27,7 @@ import { join, resolve } from 'node:path';
 
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page } from './pw';
 
 import { STARTER, type E2EBackend, startBackend } from './backend';
 
@@ -272,13 +272,15 @@ test('tl_input_exercise in the simulation worker: run length, UI hit test and cl
 test('a run and its replay (tl_input_exercise restart) give the same run digest, in the worker and on a single thread', async ({ page }) => {
   test.setTimeout(240_000);
   await setUp(page);
+  // Every kind of input once (actions, a jump press and hold, a pad button, a click, a stick), kept short:
+  // each mode replays the run three times.
   const frames = [
-    { stepOffset: 0, steps: 40, actions: { move: { v: 1, p: 'none' } } },
-    { stepOffset: 40, actions: { move: { v: 1, p: 'none' }, jump: { v: 1, p: 'pressed' } } },
-    { stepOffset: 41, steps: 30, actions: { move: { v: 1, p: 'none' }, jump: { v: 1, p: 'held' } } },
-    { stepOffset: 80, steps: 3, gamepad: { buttons: [0, 0, 1] } },
-    { stepOffset: 90, pointer: { x: 0.3, y: 0.6, pressed: 1, released: 1 } },
-    { stepOffset: 100, steps: 20, gamepad: { axes: [-1, 0] } },
+    { stepOffset: 0, steps: 20, actions: { move: { v: 1, p: 'none' } } },
+    { stepOffset: 20, actions: { move: { v: 1, p: 'none' }, jump: { v: 1, p: 'pressed' } } },
+    { stepOffset: 21, steps: 15, actions: { move: { v: 1, p: 'none' }, jump: { v: 1, p: 'held' } } },
+    { stepOffset: 40, steps: 3, gamepad: { buttons: [0, 0, 1] } },
+    { stepOffset: 45, pointer: { x: 0.3, y: 0.6, pressed: 1, released: 1 } },
+    { stepOffset: 50, steps: 10, gamepad: { axes: [-1, 0] } },
   ];
   const digests: Record<string, string> = {};
   for (const [simThread, mode] of [[1, 'worker'], [2, 'single']] as const) {
@@ -306,7 +308,7 @@ test('a run and its replay (tl_input_exercise restart) give the same run digest,
     expect(now.runStep).toBeGreaterThanOrEqual(a.runStep);
     expect(now.stepIndex - now.runStep).toBe(a.toStep + 1 - a.runStep);
     expect(a.restarted).toBe(true);
-    expect(a.toStep - a.fromStep).toBe(119);
+    expect(a.toStep - a.fromStep).toBe(59);
     // What the probe script counted in that run (the pad press, the click on the game view).
     const t = (await observe()).ui?.values?.t ?? {};
     expect(t['attack']).toBe(1);

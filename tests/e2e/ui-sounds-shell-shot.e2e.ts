@@ -17,7 +17,7 @@
 import { randomUUID } from 'node:crypto';
 import { writeFileSync } from 'node:fs';
 
-import { expect, test, type Locator, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page } from './pw';
 
 import { STARTER, type E2EBackend, publishBytes, publishScript, publishWav, startBackend } from './backend';
 import { decodePng } from './png';

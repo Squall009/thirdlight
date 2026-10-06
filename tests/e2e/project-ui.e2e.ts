@@ -26,7 +26,7 @@ import { createServer, type Server } from 'node:http';
 import { tmpdir } from 'node:os';
 import { extname, join, normalize, resolve } from 'node:path';
 
-import { expect, test, type Frame, type Page } from '@playwright/test';
+import { expect, test, type Frame, type Page } from './pw';
 
 import { STARTER, type E2EBackend, startBackend } from './backend';
 import { makePng } from './png-make';
@@ -217,8 +217,25 @@ async function pauseAndResume(page: Page, root: Page | Frame): Promise<void> {
   await expect(root.locator('[data-tl-ui-doc="pause"]')).toHaveCount(0);
 }
 
-test('project UI in Play: bound bar, click to script, keyboard and gamepad focus, world label, a replaced pause screen', async ({ page, context }) => {
-  test.setTimeout(240_000);
+function serve(root: string): Promise<{ server: Server; url: string }> {
+  const server = createServer((req, reply) => {
+    const rel = normalize(decodeURIComponent((req.url ?? '/').split('?')[0]!)).replace(/^\/+/, '') || 'index.html';
+    const file = join(root, rel);
+    if (!file.startsWith(root) || !existsSync(file) || !statSync(file).isFile()) {
+      reply.statusCode = 404;
+      reply.end();
+      return;
+    }
+    const types: Record<string, string> = { '.html': 'text/html', '.js': 'text/javascript', '.json': 'application/json', '.wasm': 'application/wasm' };
+    reply.setHeader('content-type', types[extname(file)] ?? 'application/octet-stream');
+    createReadStream(file).pipe(reply);
+  });
+  return new Promise((ok) => server.listen(0, '127.0.0.1', () => ok({ server, url: `http://127.0.0.1:${(server.address() as { port: number }).port}/` })));
+}
+
+// Play and the export share one set-up: the export is made from the project Play just ran.
+test('project UI in Play: bound bar, click to script, keyboard and gamepad focus, world label, a replaced pause screen; the same in the static export', async ({ page, context }) => {
+  test.setTimeout(300_000);
   // A controllable standard gamepad in every frame (the Play frame polls navigator.getGamepads).
   await context.addInitScript(() => {
     const buttons = Array.from({ length: 17 }, () => ({ pressed: false, touched: false, value: 0 }));
@@ -297,29 +314,11 @@ test('project UI in Play: bound bar, click to script, keyboard and gamepad focus
 
   // Escape: the project's pause document replaces the built-in pause panel; Resume resumes.
   await pauseAndResume(page, playFrame);
-});
 
-function serve(root: string): Promise<{ server: Server; url: string }> {
-  const server = createServer((req, reply) => {
-    const rel = normalize(decodeURIComponent((req.url ?? '/').split('?')[0]!)).replace(/^\/+/, '') || 'index.html';
-    const file = join(root, rel);
-    if (!file.startsWith(root) || !existsSync(file) || !statSync(file).isFile()) {
-      reply.statusCode = 404;
-      reply.end();
-      return;
-    }
-    const types: Record<string, string> = { '.html': 'text/html', '.js': 'text/javascript', '.json': 'application/json', '.wasm': 'application/wasm' };
-    reply.setHeader('content-type', types[extname(file)] ?? 'application/octet-stream');
-    createReadStream(file).pipe(reply);
-  });
-  return new Promise((ok) => server.listen(0, '127.0.0.1', () => ok({ server, url: `http://127.0.0.1:${(server.address() as { port: number }).port}/` })));
-}
-
-test('project UI in the static export: bound bar, click to script, the project font, a replaced pause screen', async ({ page }) => {
-  test.setTimeout(240_000);
-  const { fontId } = await setUp(page);
+  // The same project in the static export: bound bar, click to script, the project font, a replaced pause screen.
   const res = await be.admin(`projects/${be.projectId}/export`);
   expect(res.status, JSON.stringify(res.json)).toBe(200);
+  await page.goto('about:blank');
   await be.halt();
   const s = await serve(join(be.exportRoot, String(res.json.outputDir)));
   const errors: string[] = [];

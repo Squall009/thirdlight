@@ -27,7 +27,7 @@ import { join, resolve } from 'node:path';
 
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
-import { expect, test } from '@playwright/test';
+import { expect, test } from './pw';
 
 import { STARTER, type E2EBackend, startBackend } from './backend';
 // @ts-expect-error — a plain .mjs helper shared with the Playwright config
@@ -160,35 +160,36 @@ test('the CLI plays an input script twice: the same run digests; start variables
   // Clear the way on the right (the starter's low step at x 6-7 would stop the second walk).
   await folderApi.cmd('deleteEntity', { entityId: 'box-0002' });
 
-  // Rest, walk 90 steps, rest, walk 90 steps, rest, a jump walking, rest; observed at 60, 400, 700 and the end (900).
-  const script = [walk(60, 90), walk(400, 90), { stepOffset: 720, actions: { move: { v: 1, p: 'none' }, jump: { v: 1, p: 'pressed' } } }, walk(721, 29), { stepOffset: 899 }];
+  // Rest, walk 90 steps, rest, walk 90 steps, rest, a jump walking, rest; observed at 60, 300, 540 and the end (660). Each rest
+  // is 150 steps: the character stops within a few steps of letting go (its deceleration), so each walk starts from rest.
+  const script = [walk(60, 90), walk(300, 90), { stepOffset: 560, actions: { move: { v: 1, p: 'none' }, jump: { v: 1, p: 'pressed' } } }, walk(561, 29), { stepOffset: 659 }];
   writeFileSync(join(scratch, 'script.json'), JSON.stringify({ frames: script }));
   writeFileSync(join(scratch, 'vars.json'), JSON.stringify({ probe: 7 }));
-  const { status, result, stderr } = await cli([folder, '--input', join(scratch, 'script.json'), '--variables', join(scratch, 'vars.json'), '--threads', 'worker', '--runs', '2', '--at', '60,400,700', '--fields', 'player,ui.values,state']);
+  const { status, result, stderr } = await cli([folder, '--input', join(scratch, 'script.json'), '--variables', join(scratch, 'vars.json'), '--threads', 'worker', '--runs', '2', '--at', '60,300,540', '--fields', 'player,ui.values,state']);
   expect(result.ok, `${stderr} ${JSON.stringify(result).slice(0, 2000)}`).toBe(true);
   expect(status).toBe(0);
-  expect(result.input).toMatchObject({ kind: 'frames', steps: 900 });
+  expect(result.input).toMatchObject({ kind: 'frames', steps: 660 });
   expect(result.runs.map((r) => `${r.threads}/${r.simulation}/${r.run}`)).toEqual(['worker/worker/1', 'worker/worker/2']);
   // The same input twice: the same digests at the same run steps.
   expect(result.deterministic, JSON.stringify(result.mismatches)).toBe(true);
   for (const r of result.runs) {
-    expect(r.observations.map((o) => o.runStep)).toEqual([60, 400, 700, 900]);
+    expect(r.observations.map((o) => o.runStep)).toEqual([60, 300, 540, 660]);
     expect(r.observations.map((o) => o.digest)).toEqual(result.runs[0]!.observations.map((o) => o.digest));
     expect(r.errorCount, JSON.stringify(r.errors)).toBe(0);
     // Every run began with the start's variables (the probe counts up from 7 each step): t.seen = 6 + run step.
     for (const o of r.observations) expect(seen(o), JSON.stringify(o.fields)).toBe(6 + o.runStep);
   }
-  const [at60, at400, at700, at900] = result.runs[0]!.observations as [Observation, Observation, Observation, Observation];
-  expect(x(at900)).toBeGreaterThan(x(at700));
+  const [at60, at300, at540, at660] = result.runs[0]!.observations as [Observation, Observation, Observation, Observation];
+  expect(x(at660)).toBeGreaterThan(x(at540));
   // Walk-distance question: two walks of one run, each from rest (a restart only before the first). The runs above agree to the
   // bit, so the simulation is deterministic; two walks from different rests are not the same start — the character's height on the
   // ground differs (measured y 0.90982 sixty steps after the restart's placement, 0.91000 after the first walk) and so does x — so
   // they cover the same distance only to within a millimetre (measured 0.6 mm in 2.9 m), not to the bit.
-  const first = x(at400) - x(at60);
-  const second = x(at700) - x(at400);
+  const first = x(at300) - x(at60);
+  const second = x(at540) - x(at300);
   const y = (o: Observation): number => (o.fields['player'] as { y: number }).y;
   expect(first).toBeGreaterThan(2);
-  expect(Math.abs(second - first), `first ${first} from y ${y(at60)}, second ${second} from y ${y(at400)}`).toBeLessThan(1e-3);
+  expect(Math.abs(second - first), `first ${first} from y ${y(at60)}, second ${second} from y ${y(at300)}`).toBeLessThan(1e-3);
 
   // A driver of the game folder: walks until three metres on, deciding every ten steps from the observation.
   writeFileSync(
@@ -245,14 +246,14 @@ test('tl_playtest through the MCP stdio adapter: a script whose run pauses and p
       const res = (await mcp.callTool({ name: 'tl_playtest', arguments: args })) as { isError?: boolean; content: Array<{ type: string; text: string }> };
       return { isError: res.isError === true, body: JSON.parse(res.content[0]!.text) as Result };
     };
-    // Walk 100 steps, pause (the shell's pause screen), New game (submit on its focused button), walk 120 more.
-    const frames = [walk(0, 100), { stepOffset: 110, ui: ['pause'] }, { stepOffset: 140, ui: ['submit'] }, walk(170, 120), { stepOffset: 399 }];
+    // Walk 100 steps, pause (the shell's pause screen), New game (submit on its focused button), walk 60 more.
+    const frames = [walk(0, 100), { stepOffset: 110, ui: ['pause'] }, { stepOffset: 140, ui: ['submit'] }, walk(170, 60), { stepOffset: 299 }];
     const r = await call({ frames, variables: { probe: 7 }, runs: 1, observe: { fields: ['ui.values', 'shell', 'state'] } });
     expect(r.isError, JSON.stringify(r.body).slice(0, 2000)).toBe(false);
     const end = r.body.runs[0]!.observations[0]!;
     // The New game restarted the run (its run steps count from there) and began it with the start variables again.
-    expect(end.runStep).toBeLessThan(400);
-    expect(end.runStep).toBeGreaterThan(200);
+    expect(end.runStep).toBeLessThan(300);
+    expect(end.runStep).toBeGreaterThan(100);
     expect(seen(end), JSON.stringify(end.fields)).toBe(6 + end.runStep);
     expect(end.fields['state']).toBe('running');
 

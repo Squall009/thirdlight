@@ -28,7 +28,7 @@ import { extname, join, normalize, resolve } from 'node:path';
 
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
-import { expect, test, type Frame, type Page } from '@playwright/test';
+import { expect, test, type Frame, type Page } from './pw';
 
 import { startBackend, type E2EBackend } from './backend';
 import { decodePng, type Image } from './png';
@@ -281,7 +281,7 @@ test('game modes in Play: one switch changes input map, camera, UI and ticking g
   const box = (await iframe.boundingBox())!;
   await page.mouse.click(box.x + box.width / 2, box.y + box.height * 0.8);
   const x0 = (await observe())!.player!.x;
-  await press(page, 'd', 900);
+  await press(page, 'd', 400);
   await expect.poll(async () => (await observe())!.player!.x, { timeout: 10_000 }).toBeGreaterThan(x0 + 0.1);
   await page.waitForTimeout(300);
   const exploreShot = decodePng(await iframe.screenshot({ path: 'test-results/game-modes-explore.png' }));
@@ -418,7 +418,7 @@ test('game modes in the static export: the switch, the Back button, pause only i
     await expect(root.locator('[data-tl-ui-doc="hud"]')).toHaveCount(1, { timeout: 20_000 });
     await game.mouse.click(20, 700);
     const x0 = (await read())!.player!.x;
-    await press(game, 'd', 900);
+    await press(game, 'd', 400);
     await expect.poll(async () => (await read())!.player!.x, { timeout: 10_000 }).toBeGreaterThan(x0 + 0.1);
     // T: tactical — top camera, the board document, the field counter stops.
     await press(game, 't');

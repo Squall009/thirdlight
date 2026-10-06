@@ -11,7 +11,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page } from './pw';
 
 import { type E2EBackend, startBackend } from './backend';
 import { closeProjectSettings, editorWindow, menu, openProjectSettings, settingsTab, settingsWindow, windowTab, type ProjectSettingsSection } from './ui';

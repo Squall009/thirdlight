@@ -3,7 +3,7 @@
  * the picker lists the backend's projects, and a new project is created
  * from a template (or empty) and opened in the editor.
  */
-import { expect, test } from '@playwright/test';
+import { expect, test } from './pw';
 
 import { startBackend, type E2EBackend } from './backend';
 
@@ -18,8 +18,13 @@ test.afterEach(async () => {
 const status = (page: import('@playwright/test').Page) => page.locator('.tl-statusbar');
 const rows = (page: import('@playwright/test').Page) => page.locator('.tl-hierarchy__list li.tl-row');
 
-test('token once, then pick a project or create one from a template', async ({ page }) => {
-  // No token yet: the token form, not the picker.
+test('a wrong token is rejected and asked for again; token once, then pick a project or create one from a template', async ({ page }) => {
+  // A wrong token is rejected by the picker and asked for again.
+  await page.goto(`${be.origin}/#token=not-the-owner-token-at-all`);
+  await expect(page.getByText('rejected the access token')).toBeVisible();
+  await expect(page.getByLabel('Access token')).toBeVisible();
+
+  // No (accepted) token yet: the token form, not the picker.
   await page.goto(`${be.origin}/`);
   await expect(page.getByLabel('Access token')).toBeVisible();
   await page.getByLabel('Access token').fill(be.token);
@@ -60,10 +65,4 @@ test('token once, then pick a project or create one from a template', async ({ p
   // is reused (no form).
   await page.locator('.tl-projects__open').filter({ hasText: 'picker-0001' }).click();
   await expect(status(page)).toContainText('connected');
-});
-
-test('a wrong token is rejected by the picker and asked for again', async ({ page }) => {
-  await page.goto(`${be.origin}/#token=not-the-owner-token-at-all`);
-  await expect(page.getByText('rejected the access token')).toBeVisible();
-  await expect(page.getByLabel('Access token')).toBeVisible();
 });

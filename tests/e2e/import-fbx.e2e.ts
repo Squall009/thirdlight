@@ -14,7 +14,7 @@ import { extname, join, normalize, resolve } from 'node:path';
 
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page } from './pw';
 
 import { startBackend, type E2EBackend } from './backend';
 import { decodePng, litBands, type Image } from './png';
@@ -111,20 +111,19 @@ test('an FBX in the game folder is converted, placed, played, exported; rebuilt 
   await page.getByRole('button', { name: 'place' }).click();
   await closeEditor(page);
   await expect(page.locator('.tl-hierarchy__list li.tl-row').filter({ hasText: 'crate' })).toHaveCount(1);
-  await page.waitForTimeout(1000);
   await page.locator('.tl-app__stage').screenshot({ path: join(SHOTS, '1-editor.png') });
 
-  const play = async (shot: string): Promise<'red' | 'blue' | 'none'> => {
+  // The crate's texture loads after its first frames: the colour is waited for, then the frame kept as evidence.
+  const play = async (shot: string, colour: 'red' | 'blue'): Promise<void> => {
     await page.getByTitle('Start an isolated play preview').click();
     const frame = page.locator('iframe.tl-app__preview-frame');
     await expect(frame).toBeVisible();
     await expect.poll(async () => litBands(decodePng(await frame.screenshot()), 1), { timeout: 20_000 }).toBe(1);
-    await page.waitForTimeout(800);
-    const png = await frame.screenshot({ path: join(SHOTS, shot) });
+    await expect.poll(async () => dominant(decodePng(await frame.screenshot())), { timeout: 20_000 }).toBe(colour);
+    await frame.screenshot({ path: join(SHOTS, shot) });
     await page.getByTitle('Stop the play preview').click();
-    return dominant(decodePng(png));
   };
-  expect(await play('2-play-red.png')).toBe('red');
+  await play('2-play-red.png', 'red');
 
   const exported = await be.admin('projects/game/export');
   expect(exported.status, JSON.stringify(exported.json)).toBe(200);
@@ -140,7 +139,7 @@ test('an FBX in the game folder is converted, placed, played, exported; rebuilt 
   await page.screenshot({ path: join(SHOTS, '3-problems.png') });
   await projectWindow(page);
   await expect(tile).toContainText('v2');
-  expect(await play('5-play-blue.png')).toBe('blue');
+  await play('5-play-blue.png', 'blue');
   expect(errors).toEqual([]);
 
   // The first export still runs on its own (backend stopped).
@@ -151,8 +150,8 @@ test('an FBX in the game folder is converted, placed, played, exported; rebuilt 
   try {
     await game2.goto(site.url);
     await expect.poll(async () => litBands(decodePng(await game2.screenshot()), 1), { timeout: 20_000 }).toBe(1);
-    await game2.waitForTimeout(800);
-    expect(dominant(decodePng(await game2.screenshot({ path: join(SHOTS, '6-export-red.png') })))).toBe('red');
+    await expect.poll(async () => dominant(decodePng(await game2.screenshot())), { timeout: 20_000 }).toBe('red');
+    await game2.screenshot({ path: join(SHOTS, '6-export-red.png') });
   } finally {
     await site.close();
   }

@@ -22,7 +22,7 @@
  */
 import { createHash, randomBytes } from 'node:crypto';
 
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page } from './pw';
 
 import { controls, STARTER, startBackend, type E2EBackend } from './backend';
 import { openProjectSettings, closeEditor } from './ui';

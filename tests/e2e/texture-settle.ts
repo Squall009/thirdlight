@@ -4,7 +4,7 @@
  * Under a budget the streamer stops where the budget lets it, so this is the
  * condition a test checks the budget's outcome after (not a fixed wait).
  */
-import { expect } from '@playwright/test';
+import { expect } from './pw';
 
 export interface StreamerReading {
   readonly loading?: number;

@@ -12,7 +12,7 @@ import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
-import { expect as baseExpect, test, type Page } from '@playwright/test';
+import { expect as baseExpect, test, type Page } from './pw';
 
 // Each edit is a backend round trip plus an Inspector redraw; on a loaded host 5 s is not always enough.
 const expect = baseExpect.configure({ timeout: 15_000 });

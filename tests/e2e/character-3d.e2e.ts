@@ -22,7 +22,7 @@ import { createReadStream, existsSync, statSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import { extname, join, normalize } from 'node:path';
 
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page } from './pw';
 
 import { startBackend, type E2EBackend, controls } from './backend';
 
@@ -64,11 +64,11 @@ async function player(): Promise<string> {
   return id;
 }
 
-/** Floor, a 0.3 m riser from x = 2, a wall whose face is at x = −3; the player at the origin; 3D. */
+/** Floor, a 0.3 m riser from x = 1, a wall whose face is at x = −1.5; the player at the origin; 3D. Close by: every metre walked is real time. */
 async function buildScene(): Promise<void> {
   await block('Floor', [0, -0.5, 0], [10, 0.5, 10]);
-  await block('Riser', [3, 0.15, 0], [1, 0.15, 4]);
-  await block('Wall', [-3.25, 1, 0], [0.25, 1, 4]);
+  await block('Riser', [2, 0.15, 0], [1, 0.15, 4]);
+  await block('Wall', [-1.75, 1, 0], [0.25, 1, 4]);
   await player();
   await cmd('setSettings', { settings: { physics_dimension: 3 } });
 }
@@ -149,15 +149,15 @@ test('3D character: keyboard walks it up a riser and into a wall in Play, tl_inp
   expect(start.y).toBeGreaterThan(STAND - 0.01);
   expect(start.y).toBeLessThan(STAND + 0.03);
 
-  // A click in the game focuses it; D walks right, up the 0.3 m riser (its face at x = 2).
+  // A click in the game focuses it; D walks right, up the 0.3 m riser (its face at x = 1).
   await page.locator('iframe.tl-app__preview-frame').click();
-  await holdUntil(page, 'd', read, (p) => p.x > 2.5, 'D walks onto the riser');
+  await holdUntil(page, 'd', read, (p) => p.x > 1.5, 'D walks onto the riser');
   const up = await rest(read, 'on the riser');
   expect(up.y, 'standing on the riser (0.3 m up)').toBeGreaterThan(0.3 + STAND - 0.01);
   expect(up.y).toBeLessThan(0.3 + STAND + 0.03);
   expect(Math.abs(up.z)).toBeLessThan(0.01);
 
-  // A walks back down and into the wall (its face at x = −3: the capsule's 0.3 m radius off it), which stops it.
+  // A walks back down and into the wall (its face at x = −1.5: the capsule's 0.3 m radius off it), which stops it.
   await page.keyboard.down('a');
   try {
     let lastX = Infinity;
@@ -167,7 +167,7 @@ test('3D character: keyboard walks it up a riser and into a wall in Play, tl_inp
       const p = o?.player;
       const step = o?.stepIndex ?? -1;
       // Stopped: steps ran since the last read (a loaded host may run none) and x did not change.
-      const stopped = p !== undefined && p.x < -2 && step > lastStep + 10 && Math.abs(p.x - lastX) < 1e-4;
+      const stopped = p !== undefined && p.x < -0.5 && step > lastStep + 10 && Math.abs(p.x - lastX) < 1e-4;
       lastX = p?.x ?? Infinity;
       lastStep = step;
       return stopped;
@@ -176,8 +176,8 @@ test('3D character: keyboard walks it up a riser and into a wall in Play, tl_inp
     await page.keyboard.up('a');
   }
   const wall = await rest(read, 'at the wall');
-  expect(wall.x).toBeGreaterThan(-2.75);
-  expect(wall.x).toBeLessThan(-2.6);
+  expect(wall.x).toBeGreaterThan(-1.25);
+  expect(wall.x).toBeLessThan(-1.1);
   expect(wall.y, 'back on the floor').toBeLessThan(STAND + 0.03);
 
   // tl_input_exercise: 120 steps of the move vector's forward axis (the move action's y) — along −Z at world axes (1 s at 2 m/s).
@@ -204,7 +204,7 @@ test('3D character: keyboard walks it up a riser and into a wall in Play, tl_inp
     expect(Math.abs(at.x)).toBeLessThan(1e-3);
     const vp = game.viewportSize()!;
     await game.mouse.click(vp.width / 2, vp.height / 2);
-    await holdUntil(game, 'd', observe, (p) => p.x > 2.5, 'export: D walks onto the riser');
+    await holdUntil(game, 'd', observe, (p) => p.x > 1.5, 'export: D walks onto the riser');
     const top = await rest(observe, 'export: on the riser');
     expect(top.y).toBeGreaterThan(0.3 + STAND - 0.01);
     expect(top.y).toBeLessThan(0.3 + STAND + 0.03);

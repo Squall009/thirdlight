@@ -18,7 +18,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { rmSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page } from './pw';
 
 import { PERF_ROOT, startPerfBackend, type PerfBackend } from '../../tools/perf/backend';
 import { pcmWav } from '../../tools/perf/scale-media';
@@ -53,7 +53,7 @@ const WALKER = [
   "      ctx.scenes.load('level-' + state.next);",
   "      if (state.next > 1) ctx.scenes.unload('level-' + (state.next - 1));",
   '      state.next += 1;',
-  '      state.wait = 30;',
+  '      state.wait = 15;',
   '    }',
   "    for (const _ of ctx.debug.command('burst', { description: 'Loops past the voices', args: [] })) for (let i = 0; i < 12; i += 1) ctx.audio.play('hum', { loop: true, volume: 0.1 });",
   "    for (const _ of ctx.debug.command('quiet', { description: 'Stop every sound', args: [] })) ctx.audio.stopAll();",
@@ -178,14 +178,14 @@ async function walkTwentyScenes(page: Page): Promise<void> {
   await page.getByTitle('Stop the play preview').click().catch(() => undefined);
 }
 
-/** A level object's sounds: a loop it owns (fading out over 2 s) and a loop owned by nothing. */
+/** A level object's sounds: a loop it owns (fading out over 1 s) and a loop owned by nothing. */
 const SPEAKER = [
   'export default {',
   '  instantiate() { return { started: false }; },',
   '  step(state: any, ctx: any) {',
   "    if (ctx.phase !== 'intent' || state.started) return;",
   '    state.started = true;',
-  "    ctx.audio.play('amb', { loop: true, volume: 0.3, fadeOut: 2 });",
+  "    ctx.audio.play('amb', { loop: true, volume: 0.3, fadeOut: 1 });",
   "    ctx.audio.play('free', { loop: true, volume: 0.3, owner: 'none' });",
   '  },',
   '};',

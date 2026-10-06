@@ -24,7 +24,7 @@ import { createReadStream, existsSync, statSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import { extname, join, normalize } from 'node:path';
 
-import { expect, test, type Frame, type Page } from '@playwright/test';
+import { expect, test, type Frame, type Page } from './pw';
 
 import { startBackend, type E2EBackend } from './backend';
 import { onlyInItsProject } from './renderer-variants';
@@ -75,8 +75,8 @@ async function script(behaviorId: string, source: string, entityId: string, laye
 
 /**
  * First session (no slot 2): change a cell, keep a value, write the document, turn "hints" off, save to
- * slot 2 (with a picture); a second later change the cell and the value again. A later session (slot 2
- * listed): load it, then write what the restored state holds into slot 3's title.
+ * slot 2 (with a picture); a second later change the cell and the value again (the counter `changed` says
+ * so). A later session (slot 2 listed): load it, then write what the restored state holds into slot 3's title.
  */
 const SAVER = [
   'export default {',
@@ -106,6 +106,7 @@ const SAVER = [
   "      ctx.grid.set(L, 1, 1, 1, { block: 'stone' });",
   "      ctx.save.set('coins', 99);",
   '      s.write({ chapter: 3 });',
+  "      ctx.game.add('changed', 1);",
   "      state.phase = 'changed';",
   '    }',
   "    if (state.phase === 'loaded' && !state.checked) {",
@@ -218,7 +219,8 @@ test('a script saves to slot 2 with metadata and a thumbnail; a reload lists it 
   expect((await savesOf(first.psid))!.storage).toBe('indexeddb');
   expect((await savesOf(first.psid))!.settings).toEqual({ hints: false });
   expect(await thumbnailOf(first.frame, 2)).toMatchObject({ type: 'image/jpeg', width: 256, height: 144 });
-  await page.waitForTimeout(2_500); // past the second change (120 steps later)
+  // Past the second change (120 steps later).
+  await expect.poll(async () => ((await api(`play/${first.psid}/observe`, {})).json as { counters?: Record<string, number> }).counters?.['changed'], { timeout: 30_000 }).toBe(1);
   await page.getByTitle('Stop the play preview').click();
 
   // Play again (the game page loads anew): slot 2 listed from storage with its picture; the load restores the state.
@@ -245,7 +247,7 @@ test('a script saves to slot 2 with metadata and a thumbnail; a reload lists it 
     await expect.poll(async () => (await observe())?.slots.some((s) => s.slot === 2) ?? false, { timeout: 60_000, message: 'slot 2 saved in the export' }).toBe(true);
     expectSlot2(await observe());
     expect(await thumbnailOf(game, 2)).toMatchObject({ type: 'image/jpeg', width: 256, height: 144 });
-    await game.waitForTimeout(2_500);
+    await expect.poll(async () => game.evaluate(() => ((window as unknown as { __thirdlightObserve?: () => { counters?: Record<string, number> } | null }).__thirdlightObserve?.()?.counters?.['changed'] ?? null)), { timeout: 30_000 }).toBe(1);
     await game.reload();
     await expect.poll(async () => (await observe())?.slots.find((s) => s.slot === 3)?.title, { timeout: 60_000, message: 'slot 3 written after the load in the export' }).toBe(EXPECTED_CHECK);
     expectSlot2(await observe());

@@ -2,7 +2,7 @@
  * The authoring loop in a real browser against the real backend:
  * open, create, undo/redo, gizmo drag, reload, restart, MCP-origin edits.
  */
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page } from './pw';
 import * as THREE from 'three';
 
 import { startBackend, type E2EBackend } from './backend';
@@ -39,7 +39,8 @@ async function screenPoint(page: Page, world: [number, number, number]): Promise
   return { x: box.x + ((p.x + 1) / 2) * box.width, y: box.y + ((1 - p.y) / 2) * box.height };
 }
 
-test('the viewport gets the space at 1920×1080 and an existing scene shows on open', async ({ page }) => {
+// One backend: the open checks run on the fresh project the undo checks then edit.
+test('the viewport gets the space at 1920×1080 and an existing scene shows on open; create, multi-level undo/redo, and the buttons follow the backend history', async ({ page }) => {
   await openEditor(page);
   const box = (await page.locator('canvas.tl-viewport').boundingBox())!;
   expect(box.width).toBeGreaterThan(1000);
@@ -47,10 +48,7 @@ test('the viewport gets the space at 1920×1080 and an existing scene shows on o
   // The default scene's camera is listed without any edit first.
   await expect(rows(page)).toHaveCount(BASE);
   await expect(rows(page).first()).toContainText(/camera/i);
-});
 
-test('create, multi-level undo/redo, and the buttons follow the backend history', async ({ page }) => {
-  await openEditor(page);
   // The Edit menu's Undo/Redo follow the backend history depth.
   const undoState = async (): Promise<boolean> => {
     const it = await menuItem(page, 'Edit', 'Undo');
@@ -193,8 +191,18 @@ test('a second tab takes over after the first is closed', async ({ browser }) =>
   await second.close();
 });
 
-test('an MCP-origin edit appears in the browser without a reload', async ({ page }) => {
-  await openEditor(page);
+// One backend: the MCP edit lands on the editor the token just opened (its history empty until then).
+test('without a stored token the editor asks for one; an MCP-origin edit appears in the browser without a reload', async ({ page }) => {
+  await page.goto(`${be.origin}/?project=${be.projectId}`);
+  await expect(page.getByLabel('Access token')).toBeVisible();
+  await page.getByLabel('Access token').fill('wrong-token-wrong-token');
+  await page.getByRole('button', { name: 'Open' }).click();
+  await expect(page.getByText('rejected the access token')).toBeVisible();
+
+  await page.getByLabel('Access token').fill(be.token);
+  await page.getByRole('button', { name: 'Open' }).click();
+  await expect(status(page)).toContainText('connected');
+
   const q = await be.command({ op: 'queryProject', projectId: be.projectId, args: {} });
   const res = await be.command({
     op: 'createEntity',
@@ -208,16 +216,4 @@ test('an MCP-origin edit appears in the browser without a reload', async ({ page
   await expect(rows(page).filter({ hasText: 'from-mcp' })).toHaveCount(1);
   await expect(await menuItem(page, 'Edit', 'Undo')).toBeEnabled();
   await closeMenu(page);
-});
-
-test('without a stored token the editor asks for one', async ({ page }) => {
-  await page.goto(`${be.origin}/?project=${be.projectId}`);
-  await expect(page.getByLabel('Access token')).toBeVisible();
-  await page.getByLabel('Access token').fill('wrong-token-wrong-token');
-  await page.getByRole('button', { name: 'Open' }).click();
-  await expect(page.getByText('rejected the access token')).toBeVisible();
-
-  await page.getByLabel('Access token').fill(be.token);
-  await page.getByRole('button', { name: 'Open' }).click();
-  await expect(status(page)).toContainText('connected');
 });

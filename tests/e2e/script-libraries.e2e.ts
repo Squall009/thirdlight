@@ -17,7 +17,7 @@
  */
 import { createHash } from 'node:crypto';
 
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page } from './pw';
 
 import { type E2EBackend, startBackend } from './backend';
 import { openWindow, openEditor, editorPane, createItem } from './ui';

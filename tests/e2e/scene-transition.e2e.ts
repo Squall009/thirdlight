@@ -20,7 +20,7 @@
  */
 import { createHash, randomBytes } from 'node:crypto';
 
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page } from './pw';
 
 import { publishWav, STARTER, startBackend, type E2EBackend } from './backend';
 import { openWindow, closeEditor } from './ui';
@@ -74,13 +74,13 @@ async function script(behaviorId: string, source: string, entityId: string): Pro
   await cmd('setBehaviorProperties', { entityId, behaviorId, values: {} });
 }
 
-/** The project's own metronome: the signal "tick" once a second. */
+/** The project's own metronome: the signal "tick" twice a second (two ticks are waited for). */
 const METRONOME = [
   'export default {',
   '  prepare() { return {}; },',
   '  instantiate() { return {}; },',
   '  step(_state: unknown, ctx: any) {',
-  "    if (ctx.phase === 'intent' && ctx.stepIndex > 0 && ctx.stepIndex % 120 === 0) ctx.signals.emit('tick');",
+  "    if (ctx.phase === 'intent' && ctx.stepIndex > 0 && ctx.stepIndex % 60 === 0) ctx.signals.emit('tick');",
   '  },',
   '  dispose() {},',
   '};',

@@ -23,7 +23,7 @@ import { createReadStream, existsSync, statSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import { extname, join, normalize } from 'node:path';
 
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page } from './pw';
 
 import { startBackend, type E2EBackend } from './backend';
 import { decodePng, type Image } from './png';
@@ -149,6 +149,24 @@ async function view(page: Page, canvasSelector: string, inFrame: boolean): Promi
   return { box, img };
 }
 
+/**
+ * The game view once the red box is drawn and holds still between two shots, so the
+ * pointer is aimed at where it stays.
+ */
+async function settledView(page: Page, canvasSelector: string, inFrame: boolean): Promise<{ box: { x: number; y: number; width: number; height: number }; img: Image }> {
+  let last: { box: { x: number; y: number; width: number; height: number }; red: { x: number; y: number; n: number } } | undefined;
+  let current: { box: { x: number; y: number; width: number; height: number }; img: Image } | undefined;
+  await expect.poll(async () => {
+    current = await view(page, canvasSelector, inFrame);
+    const red = redBlob(current.img);
+    const prev = last;
+    last = { box: current.box, red };
+    return prev !== undefined && red.n > 50 && Math.abs(red.n - prev.red.n) <= red.n * 0.02 && Math.abs(red.x - prev.red.x) < 0.005 && Math.abs(red.y - prev.red.y) < 0.005
+      && current.box.width === prev.box.width && current.box.height === prev.box.height && current.box.x === prev.box.x && current.box.y === prev.box.y;
+  }, { timeout: 30_000, message: 'the red box drawn and still' }).toBe(true);
+  return current!;
+}
+
 function serveDir(dir: string): Promise<{ url: string; close: () => Promise<void> }> {
   const types: Record<string, string> = { '.html': 'text/html', '.js': 'text/javascript', '.json': 'application/json', '.wasm': 'application/wasm' };
   const server: Server = createServer((req, res) => {
@@ -196,8 +214,7 @@ test('pointer: hover lights a box\'s lamp and a click hides it — the mouse in 
   // ---- Play: the real mouse ----
   const observe = await startPlay();
   expect((await observe())!.state).toBe('running');
-  await page.waitForTimeout(500);
-  const before = await view(page, 'canvas', true);
+  const before = await settledView(page, 'canvas', true);
   const red = redBlob(before.img);
   expect(red.n, 'the red box is in view').toBeGreaterThan(50);
   const at = { x: before.box.x + red.x * before.box.width, y: before.box.y + red.y * before.box.height };
@@ -247,8 +264,7 @@ test('pointer: hover lights a box\'s lamp and a click hides it — the mouse in 
     await game.goto(site.url);
     const read = (): Promise<Obs | null> => game.evaluate(() => ((window as unknown as { __thirdlightObserve?: () => unknown }).__thirdlightObserve?.() ?? null) as Obs | null);
     await expect.poll(async () => (await read())?.hidden?.slice().sort().join(',') ?? '', { timeout: 60_000 }).toBe(lampsOff(s).join(','));
-    await game.waitForTimeout(500);
-    const v = await view(game, 'canvas', false);
+    const v = await settledView(game, 'canvas', false);
     const r2 = redBlob(v.img);
     expect(r2.n).toBeGreaterThan(50);
     // Under the export's fixed menu overlay: move and click by coordinates.

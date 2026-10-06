@@ -2,7 +2,7 @@
  * A 3D project (physics_dimension 3) on the Rapier 3D backend,
  * against a real backend. A neutral scene built through the backend's
  * commands on a blank project — a floor box with a depth (`hz`) and a player
- * capsule 3 m above it, off the origin in x and z — is switched to 3D in the
+ * capsule 1.5 m above it, off the origin in x and z — is switched to 3D in the
  * project settings form. In Play (the simulation worker, and the page's main
  * thread with ?threads=off) the capsule falls and rests on the box, observed
  * through tl_game_observe's relay (a scene-mode play: no game block); the static
@@ -17,7 +17,7 @@ import { createReadStream, existsSync, readFileSync, statSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import { extname, join, normalize } from 'node:path';
 
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page } from './pw';
 
 import { startBackend, type E2EBackend } from './backend';
 import { openProjectSettings } from './ui';
@@ -28,7 +28,7 @@ test.afterEach(async () => {
   be = null;
 });
 
-const START: [number, number, number] = [0.5, 3, -1.5];
+const START: [number, number, number] = [0.5, 1.5, -1.5];
 /** Resting on the floor's top (y = 0): the default capsule's origin 0.9 m up (half of 1.8 m), plus the controller's 1 cm skin at most. */
 const REST = { min: 0.899, max: 0.92 };
 
@@ -153,8 +153,8 @@ test('a 3D project: the capsule lands on the box in Play (worker and main thread
     // Standing on the box is no penetration: a grounded step the floor stops is not counted, and no overlap is named.
     type Rt = { physicsSteps?: number; physicsPenetrationCorrectedCount?: number; physicsDeepestOverlap?: unknown };
     const runtime = async (): Promise<Rt> => (((await relay(`${psid}/diagnostics`, {})).json as { diagnostics?: { runtime?: Rt } }).diagnostics?.runtime ?? {});
-    // Two seconds at rest: a grounded step the floor stops was counted on every step while the count was wrong.
-    await expect.poll(async () => (await runtime()).physicsSteps ?? 0, { timeout: 30_000 }).toBeGreaterThan(240);
+    // A second of steps (most of them at rest): a grounded step the floor stops was counted on every step while the count was wrong.
+    await expect.poll(async () => (await runtime()).physicsSteps ?? 0, { timeout: 30_000 }).toBeGreaterThan(120);
     const rt = await runtime();
     expect(rt.physicsPenetrationCorrectedCount ?? 0, `Play (${mode})`).toBe(0);
     expect(rt.physicsDeepestOverlap, `Play (${mode})`).toBeUndefined();

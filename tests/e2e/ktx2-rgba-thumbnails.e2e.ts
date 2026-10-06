@@ -13,7 +13,7 @@
  */
 import { join, resolve } from 'node:path';
 
-import { expect, test, type Page, type Worker } from '@playwright/test';
+import { expect, test, type Page, type Worker } from './pw';
 
 import { startBackend, type E2EBackend } from './backend';
 import { decodePng } from './png';

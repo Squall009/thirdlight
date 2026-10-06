@@ -7,7 +7,7 @@
  */
 import { createServer, type Server } from 'node:http';
 
-import { expect } from '@playwright/test';
+import { expect } from './pw';
 import { build } from 'esbuild';
 
 import type { Image } from './png';

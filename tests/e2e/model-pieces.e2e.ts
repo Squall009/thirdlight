@@ -10,7 +10,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page } from './pw';
 
 import { startBackend, type E2EBackend } from './backend';
 import { KIT_PIECES, multiPieceGlb } from './multi-piece-glb';
@@ -70,7 +70,7 @@ async function importKit(page: Page): Promise<void> {
   await expect(page.locator('.tl-assets__list li[data-asset-id]').first()).toBeVisible({ timeout: 10_000 });
 }
 
-test('a multi-piece GLB: tile preview, piece tiles, drag into the scene and a folder, vertex colours as data', async ({ page }) => {
+test('a multi-piece GLB: tile preview, piece tiles, drag into the scene and a folder, vertex colours as data; Play draws the pieces with the asset vertex-colour mode', async ({ page }) => {
   // A thumbnail cache miss is expected, not an error (204, nothing in the console).
   const thumbnailFailures: string[] = [];
   page.on('response', (r) => {
@@ -165,6 +165,15 @@ test('a multi-piece GLB: tile preview, piece tiles, drag into the scene and a fo
 
   expect(thumbnailFailures).toEqual([]);
 
+  // Play draws the pieces with the asset vertex-colour mode (tint: red).
+  await page.getByTitle('Start an isolated play preview').click();
+  const frame = page.locator('iframe.tl-app__preview-frame');
+  await expect(frame).toBeVisible();
+  await expect.poll(async () => redPixels(decodePng(await frame.screenshot())), { timeout: 20_000 }).toBeGreaterThan(100);
+  await expect(page.locator('.tl-notice')).toHaveCount(0);
+  await page.getByTitle('Stop the play preview').click();
+  await expect(frame).toHaveCount(0, { timeout: 30_000 });
+
   // Everything survives a backend restart (the recorded changes reload).
   await be.restart();
   // The reopened editor reclaims the project while the backend loads it: wait until it answers.
@@ -178,19 +187,4 @@ test('a multi-piece GLB: tile preview, piece tiles, drag into the scene and a fo
   const after = last['entities'] as Ent[];
   expect(after.filter((e) => e.parentId === folder.id).map((e) => e.components.model?.piece)).toEqual(['rock', 'bush', 'flower', 'bush']);
   expect(JSON.stringify(await be.command({ op: 'queryAssets', projectId: be.projectId, args: { limit: 10, offset: 0 } }))).toContain('"vertexColors":"tint"');
-});
-
-test('Play draws the pieces with the asset vertex-colour mode', async ({ page }) => {
-  await importKit(page);
-  const tile = page.locator('.tl-assets__list li[data-asset-id]:not([data-piece])').first();
-  await tile.dragTo(page.locator('canvas.tl-viewport'));
-  await expect(page.locator('.tl-hierarchy__list li.tl-row').filter({ hasText: 'flower' })).toHaveCount(1, { timeout: 10_000 });
-  await tile.click();
-  await page.getByRole('combobox', { name: 'vertex colour' }).selectOption('tint');
-  await page.waitForTimeout(300);
-  await page.getByTitle('Start an isolated play preview').click();
-  const frame = page.locator('iframe.tl-app__preview-frame');
-  await expect(frame).toBeVisible();
-  await expect.poll(async () => redPixels(decodePng(await frame.screenshot())), { timeout: 20_000 }).toBeGreaterThan(100);
-  await expect(page.locator('.tl-notice')).toHaveCount(0);
 });

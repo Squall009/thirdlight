@@ -11,7 +11,7 @@ import { join, resolve } from 'node:path';
 
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
-import { expect, test } from '@playwright/test';
+import { expect, test } from './pw';
 
 import { publishWav, startBackend, STARTER, type E2EBackend } from './backend';
 import { projectWindow, chooseItem, closeEditor } from './ui';
@@ -48,7 +48,8 @@ async function command(op: string, args: Record<string, unknown>): Promise<{ isE
   return call('tl_command', { op, expectedRevision: await rev(), args });
 }
 
-test('assets: the editor refuses a used one and deletes an unused one; MCP gets the same command and undoes it', async ({ page }) => {
+// One backend, MCP client and editor for both kinds: the prefab part uses the ground, which the asset part leaves alone.
+test('assets: the editor refuses a used one and deletes an unused one; MCP gets the same command and undoes it; prefabs: refused while a copy is placed, deleted after; createEntities is one revision and one undo', async ({ page }) => {
   await publishWav(be, 'cue-goal.wav', 'sfx-ping', 'ping');
   await page.goto(be.editorUrl);
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
@@ -80,14 +81,11 @@ test('assets: the editor refuses a used one and deletes an unused one; MCP gets 
   await page.locator('.tl-assets__list li[data-asset-id="starter-pillar"]').click();
   await page.getByRole('button', { name: 'delete asset Pillar' }).click();
   await expect(page.locator('.tl-assets__list li[data-asset-id="starter-pillar"]')).toHaveCount(0);
-});
 
-test('prefabs: refused while a copy is placed, deleted after; createEntities is one revision and one undo', async ({ page }) => {
+  // Prefabs, in the same project and editor: refused while a copy is placed, deleted after; createEntities is one revision and one undo.
   expect((await command('createPrefab', { prefabId: 'crate', displayName: 'Crate', sourceEntityId: STARTER.groundId })).isError).toBe(false);
   const placed = await command('instantiatePrefab', { sceneId: 'scene-main', prefabId: 'crate', transform: { position: [0, 3, 0] } });
   expect(placed.isError, JSON.stringify(placed.body)).toBe(false);
-  await page.goto(be.editorUrl);
-  await expect(page.locator('.tl-statusbar')).toContainText('connected');
   // The prefab, chosen in the project window: its Inspector deletes it.
   await chooseItem(page, 'prefab', 'Crate');
   const tile = page.locator('.tl-assets__list li[data-item-id="crate"]');

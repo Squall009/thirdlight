@@ -10,7 +10,7 @@
  *
  * The editor's Scene view meshes the layer. In Play (the simulation worker)
  * a player capsule falls onto the blocks and rests on them; a script clears
- * the cells under it at 6 s and it falls through the hole onto a floor
+ * the cells under it at 3 s and it falls through the hole onto a floor
  * below. The blocks are seen in the Play screenshot (grass-green pixels).
  * The static export, served with the backend stopped, does the same.
  */
@@ -19,7 +19,7 @@ import { createReadStream, existsSync, readdirSync, readFileSync, statSync } fro
 import { createServer, type Server } from 'node:http';
 import { extname, join, normalize } from 'node:path';
 
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page } from './pw';
 
 import { startBackend, type E2EBackend } from './backend';
 import { decodePng, type Image } from './png';
@@ -75,8 +75,11 @@ async function script(behaviorId: string, source: string, entityId: string): Pro
   await cmd('setBehaviorProperties', { entityId, behaviorId, values: { at_step: DIG_STEP } });
 }
 
-/** 6 s into the run: time to see the player resting on the blocks first (Play renders slowly on a loaded host). */
-const DIG_STEP = 720;
+/**
+ * 3 s into the run: the player lands within its first second, which leaves two to see it resting on the blocks
+ * first (the observation polls the simulation, not the drawn frames, so a slowly rendering Play does not eat it).
+ */
+const DIG_STEP = 360;
 
 /** Clears the cells of the column under the player (every layer) at one step. */
 const DIGGER = [
@@ -268,9 +271,10 @@ test('a block map built with bulk commands renders in the Scene view, Play and t
   try {
     await game.goto(site.url);
     const canvas = game.locator('canvas').first();
-    await expect.poll(async () => Number((await canvas.getAttribute('data-tl-draws')) ?? 0), { timeout: 60_000 }).toBeGreaterThan(0);
     const observe = (): Promise<Observation | null> => game.evaluate(() => ((window as unknown as { __thirdlightObserve?: () => unknown }).__thirdlightObserve?.() ?? null) as Observation | null);
+    // The rest is read before the dig, from the simulation: it does not wait for the first drawn frame.
     await expectRestsOnBlocks(observe, 'export', topY);
+    await expect.poll(async () => Number((await canvas.getAttribute('data-tl-draws')) ?? 0), { timeout: 60_000 }).toBeGreaterThan(0);
     await expect.poll(async () => greenPixels(decodePng(await canvas.screenshot())), { timeout: 30_000, message: 'grass-green pixels in the export' }).toBeGreaterThan(500);
     await expectFallsThrough(observe, 'export').catch((e: Error) => {
       throw new Error(`${e.message}\nconsole: ${logs.slice(-20).join(' | ')}`);

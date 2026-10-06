@@ -11,7 +11,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { expect, test } from '@playwright/test';
+import { expect, test } from './pw';
 
 import { startBackend, type E2EBackend } from './backend';
 import { makePng } from './png-make';
@@ -63,8 +63,20 @@ test('jump rebound to W in the Input window: W jumps in Play, Space does not', a
   // The starter has no game block: the scene plays at once; a click focuses the game.
   await page.locator('iframe.tl-app__preview-frame').click();
   await expect.poll(async () => (await observe()).state).toBe('running');
-  await page.waitForTimeout(500); // settle on the ground
-  const ground = (await observe()).player!.y;
+  /** The player stands still: two readings in a row at the same height (at or below `ceiling`); that height. */
+  const standing = async (ceiling = Infinity): Promise<number> => {
+    let last = NaN;
+    await expect
+      .poll(async () => {
+        const y = (await observe()).player!.y;
+        const still = y === last && y < ceiling;
+        last = y;
+        return still;
+      }, { timeout: 15_000, message: 'the player stands on the ground' })
+      .toBe(true);
+    return last;
+  };
+  const ground = await standing();
 
   const peak = async (key: string): Promise<number> => {
     let top = -Infinity;
@@ -74,7 +86,7 @@ test('jump rebound to W in the Input window: W jumps in Play, Space does not', a
       await page.waitForTimeout(60);
     }
     await page.keyboard.up(key);
-    await page.waitForTimeout(1200); // land again
+    await standing(ground + 0.05); // landed again
     return top;
   };
   expect(await peak('Space')).toBeLessThan(ground + 0.1);

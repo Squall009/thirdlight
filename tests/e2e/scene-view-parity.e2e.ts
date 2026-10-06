@@ -12,7 +12,7 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { expect, test, type Locator, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page } from './pw';
 
 import { startBackend, type E2EBackend } from './backend';
 import { diff, diffPng, show, STRICT, within } from './parity';
@@ -48,7 +48,7 @@ async function settledShot(target: Locator, label: string): Promise<Image> {
         last = png;
         return same;
       },
-      { timeout: 90_000, intervals: [1500] },
+      { timeout: 90_000, intervals: [1000] },
     )
     .toBe(true);
   const out = test.info().outputPath();

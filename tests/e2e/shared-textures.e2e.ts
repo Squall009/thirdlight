@@ -15,7 +15,7 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { expect, test, type Locator, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page } from './pw';
 
 import { sphereGlbWith } from '../../tools/perf/assets';
 import { publishBytes, startBackend, type E2EBackend } from './backend';
@@ -118,8 +118,7 @@ for (const variant of RENDERER_VARIANTS) test(`one standard material on 14 model
   for (let i = 0; i < 14; i++) {
     const assetId = `ball-${String(i + 1).padStart(2, '0')}`;
     const at = [(i % 7) * 1.1 - 3.3, i < 7 ? 1 : -0.3, 0];
-    const id = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'model', name: assetId, model: { asset: { assetId } }, transform: { position: at } }))['createdId']);
-    await cmd('setComponent', { entityId: id, component: 'materials', value: { '*': 'trim-mat' } });
+    const id = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'model', name: assetId, model: { asset: { assetId } }, transform: { position: at }, components: { materials: { '*': 'trim-mat' } } }))['createdId']);
     balls.push(id);
   }
 

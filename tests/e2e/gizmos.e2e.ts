@@ -6,7 +6,7 @@
  * light ranges and gameplay helpers off and on. TL_GIZMO_SHOTS=<dir> saves
  * the Scene view with every helper on.
  */
-import { expect, test } from '@playwright/test';
+import { expect, test } from './pw';
 
 import { startBackend, type E2EBackend } from './backend';
 import { menu } from './ui';

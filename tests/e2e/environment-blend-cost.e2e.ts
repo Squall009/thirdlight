@@ -5,8 +5,8 @@
  *
  * - "noon" ↔ "dusk": a procedural sky whose numbers and sun (it follows the
  *   directional light, which the presets turn) change, with fog, exposure and
- *   light colour/intensity. Once loaded (one full cycle of t), a 10 s window
- *   drops no steps (the runtime's `droppedSteps`), and the image-based
+ *   light colour/intensity. Once loaded (one full cycle of t), a 6 s window
+ *   (two cycles) drops no steps (the runtime's `droppedSteps`), and the image-based
  *   lighting is re-baked, but at most every 30th frame.
  * - "noon" ↔ "dim": the same sky, only fog, exposure and lights change: no
  *   re-bake at all (the sky inputs stay under the threshold), no dropped steps.
@@ -20,7 +20,7 @@
  */
 import { createHash, randomBytes } from 'node:crypto';
 
-import { expect, test, type Frame } from '@playwright/test';
+import { expect, test, type Frame } from './pw';
 
 import { startBackend, type E2EBackend } from './backend';
 import { editorUrlFor, expectRendererBackend, onlyInItsProject, PRODUCT_RENDERER_VARIANTS, type RendererVariant } from './renderer-variants';
@@ -68,14 +68,14 @@ async function script(behaviorId: string, source: string, entityId: string): Pro
   await cmd('setBehaviorProperties', { entityId, behaviorId, values: {} });
 }
 
-/** A new t every step: a 5 s cosine cycle between "noon" and the second preset (Digit1 switches it between "dusk" and "dim"). */
+/** A new t every step: a 3 s cosine cycle between "noon" and the second preset (Digit1 switches it between "dusk" and "dim"). */
 const DRIVER = [
   'export default {',
   "  instantiate() { return { other: 'dusk' }; },",
   '  step(state: { other: string }, ctx: any) {',
   "    if (ctx.phase !== 'intent' || ctx.environment === undefined) return;",
   "    if (ctx.input.pressed('switchPair')) state.other = state.other === 'dusk' ? 'dim' : 'dusk';",
-  '    const t = 0.5 - 0.5 * Math.cos((ctx.stepIndex * Math.PI * 2) / 600);',
+  '    const t = 0.5 - 0.5 * Math.cos((ctx.stepIndex * Math.PI * 2) / 360);',
   "    ctx.environment.blend('noon', state.other, t);",
   '  },',
   '};',
@@ -186,27 +186,28 @@ for (const variant of VARIANTS) test(`environment blend: a new t every step at 1
     return { frames: g.length, max: Math.round(g.at(-1) ?? 0), p99: Math.round(g[Math.floor(g.length * 0.99)] ?? 0), over66: g.filter((x) => x > 1000 / 15).length };
   };
 
-  // Loaded: the blend runs (the dusk share moves), then one full cycle of t (5 s) so every shader has been built.
+  // Loaded: the blend runs (the dusk share moves), then one full cycle of t (3 s) so every shader has been built.
   const box = (await iframe.boundingBox())!;
   await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
   await expect.poll(duskShare, { timeout: 60_000, message: 'the blend runs' }).toBeGreaterThan(0.05);
-  await page.waitForTimeout(5_500);
+  await page.waitForTimeout(3_500);
 
   // noon ↔ dusk: the sky changes, so the lighting re-bakes, but at most every 30th frame; no step is dropped.
   await startGaps();
   const a0 = await sample();
   const shares = new Set<number>();
-  const until = Date.now() + 10_000;
+  // Two cycles, sampled every 400 ms (not a divisor of the 3 s cycle, so the samples fall at many different points of it).
+  const until = Date.now() + 6_000;
   while (Date.now() < until) {
     const s = await duskShare();
     if (s !== null) shares.add(Math.round(s * 100));
-    await page.waitForTimeout(500);
+    await page.waitForTimeout(400);
   }
   const a1 = await sample();
   const ga = await gaps();
   console.log(`[environment-blend-cost] ${variant} noon-dusk: ${a1.steps - a0.steps} steps, ${a1.dropped - a0.dropped} dropped, ${a1.bakes - a0.bakes} re-bakes; ${ga.frames} frames, gap max ${ga.max} ms p99 ${ga.p99} ms, ${ga.over66} over 66 ms; dusk shares seen ${[...shares].sort((x, y) => x - y).join(' ')}`);
   expect(shares.size, 'a new t every step: the blend moved through the window').toBeGreaterThan(5);
-  expect(a1.steps - a0.steps, 'the simulation ran at 120 Hz').toBeGreaterThan(1000);
+  expect(a1.steps - a0.steps, 'the simulation ran at 120 Hz').toBeGreaterThan(600);
   expect(a1.dropped - a0.dropped, 'no dropped steps while t changes every step').toBe(0);
   expect(a1.bakes - a0.bakes, 'the changing sky is re-baked').toBeGreaterThan(0);
   expect(a1.bakes - a0.bakes, 'at most every 30th frame').toBeLessThanOrEqual(Math.ceil(ga.frames / 30) + 1);
@@ -222,11 +223,11 @@ for (const variant of VARIANTS) test(`environment blend: a new t every step at 1
   await page.waitForTimeout(1_500); // a bake of the sky left mid-way through the dusk blend may still land
   await startGaps();
   const b0 = await sample();
-  await page.waitForTimeout(6_000);
+  await page.waitForTimeout(3_000);
   const b1 = await sample();
   const gb = await gaps();
   console.log(`[environment-blend-cost] ${variant} noon-dim: ${b1.steps - b0.steps} steps, ${b1.dropped - b0.dropped} dropped, ${b1.bakes - b0.bakes} re-bakes; ${gb.frames} frames, gap max ${gb.max} ms p99 ${gb.p99} ms, ${gb.over66} over 66 ms`);
-  expect(b1.steps - b0.steps).toBeGreaterThan(600);
+  expect(b1.steps - b0.steps).toBeGreaterThan(300);
   expect(b1.dropped - b0.dropped, 'no dropped steps').toBe(0);
   expect(b1.bakes - b0.bakes, 'the sky did not change: no re-bake').toBe(0);
   await expect(page.locator('.tl-notice')).toHaveCount(0);

@@ -11,7 +11,7 @@
  * default, redo brings it back, and in Play the player walks under the
  * ceiling.
  */
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page } from './pw';
 
 import { startBackend, type E2EBackend, controls } from './backend';
 import { menu } from './ui';

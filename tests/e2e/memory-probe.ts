@@ -18,7 +18,7 @@
  * destroy, the collector) and returns the last sample either way, so the
  * test's assertion prints the numbers.
  */
-import { expect, type BrowserContext, type CDPSession, type Frame, type Page } from '@playwright/test';
+import { expect, type BrowserContext, type CDPSession, type Frame, type Page } from './pw';
 
 import { installPerfInstrumentation, readGpuLive, type GpuLive } from '../../tools/perf/instrument';
 

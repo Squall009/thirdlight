@@ -31,7 +31,7 @@ import { createHash } from 'node:crypto';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { expect, test, type Locator, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page } from './pw';
 
 import { publishBytes, publishScript, startBackend, type E2EBackend } from './backend';
 import { multiPieceGlb } from './multi-piece-glb';
@@ -138,7 +138,7 @@ async function settledShot(target: Locator): Promise<{ img: Image; png: Buffer }
         last = png;
         return same;
       },
-      { timeout: 60_000, intervals: [1000] },
+      { timeout: 60_000, intervals: [500] },
     )
     .toBe(true);
   const png = Buffer.from(last, 'base64');
@@ -181,8 +181,9 @@ for (const variant of RENDERER_VARIANTS) {
     };
     await expect.poll(seen, { timeout: 30_000, message: 'every colour drawn before the group changes' }).toBe('blue,green,red');
 
-    // The view draws on demand: each change is followed by at least one frame drawn after it.
-    for (let i = 0; i < 3; i++) {
+    // The view draws on demand: each change is followed by at least one frame drawn after it. Twice: the second
+    // round dissolves a group that was itself formed again.
+    for (let i = 0; i < 2; i++) {
       let f = await frames();
       await cmd('updateEntity', { entityId: blue[0]!, active: false });
       await expect.poll(batches).not.toBe(grouped);
@@ -311,9 +312,16 @@ for (const variant of RENDERER_VARIANTS) {
       for (const [name, args, regroups] of steps) {
         await send(name, args);
         await expect.poll(async () => { const b = (await batching())!; return b.regroupsTotal + b.matrixCopiesTotal; }, { timeout: 15_000, message: `${name} reaches the batcher` }).toBeGreaterThan(before.regroupsTotal + before.matrixCopiesTotal);
-        // Settled (the move is drawn over a frame or two between simulation steps).
-        await page.waitForTimeout(1000);
-        const after = (await batching())!;
+        // Settled (the move is drawn over a frame or two between simulation steps): two reads 250 ms apart agree.
+        let lastRead = '';
+        let after = before;
+        await expect.poll(async () => {
+          after = (await batching())!;
+          const now = `${after.regroupsTotal} ${after.matrixCopiesTotal}`;
+          const same = now === lastRead;
+          lastRead = now;
+          return same;
+        }, { timeout: 15_000, intervals: [250], message: `${name} settles` }).toBe(true);
         console.log(`[batch-dispose] ${name} ${JSON.stringify(args)}: ${after.regroupsTotal - before.regroupsTotal} regroups, ${after.matrixCopiesTotal - before.matrixCopiesTotal} matrix copies`);
         expect(after.regroupsTotal - before.regroupsTotal, `${name}: the regroups of its own groups only`).toBe(regroups);
         expect(after.matrixCopiesTotal - before.matrixCopiesTotal, `${name}: its own matrices only`).toBeGreaterThanOrEqual(regroups === 2 ? 0 : 1);

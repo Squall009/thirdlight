@@ -1,6 +1,6 @@
 /**
- * Block-layer chunk levels of detail against a real backend, per renderer
- * variant (renderer-variants.ts).
+ * Block-layer chunk levels of detail against a real backend, on the product's
+ * own renderer (renderer-variants.ts).
  *
  * A kit model's piece has two levels (`crate_LOD0` red, `crate_LOD1` blue,
  * the same size, so the colour tells the level). A block type shows it; a
@@ -23,12 +23,12 @@ import { createReadStream, existsSync, statSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import { extname, join, normalize } from 'node:path';
 
-import { expect, test } from '@playwright/test';
+import { expect, test } from './pw';
 
 import { publishBytes, startBackend, type E2EBackend } from './backend';
 import { multiPieceGlb } from './multi-piece-glb';
 import { decodePng, type Image } from './png';
-import { editorUrlFor, expectRendererBackend, exportQueryFor, onlyInItsProject, RENDERER_VARIANTS } from './renderer-variants';
+import { editorUrlFor, expectRendererBackend, exportQueryFor, onlyInItsProject, PRODUCT_RENDERER_VARIANTS } from './renderer-variants';
 import { lodSwitchDistance } from '@thirdlight/three-adapter';
 
 let be: E2EBackend | null = null;
@@ -91,8 +91,10 @@ function serveDir(dir: string): Promise<{ url: string; close: () => Promise<void
   });
 }
 
-for (const variant of RENDERER_VARIANTS) test(`block-layer chunks switch to the model's coarser level with distance: Play and the export (${variant})`, async ({ page }) => {
-  onlyInItsProject(variant);
+// Which level a chunk or model draws is chosen on the CPU before the renderer: the product's renderer once (the
+// parity sweeps compare the backends' pixels).
+for (const variant of PRODUCT_RENDERER_VARIANTS) test(`block-layer chunks switch to the model's coarser level with distance: Play and the export (${variant})`, async ({ page }) => {
+  onlyInItsProject(variant, PRODUCT_RENDERER_VARIANTS);
   test.setTimeout(300_000);
   be = await startBackend('block-lod-e2e');
   await cmd('setEnvironment', { sceneId: 'scene-main', environment: { sky: { mode: 'color', color: '#303030' } } });
@@ -108,7 +110,8 @@ for (const variant of RENDERER_VARIANTS) test(`block-layer chunks switch to the 
   // A 3D project: its movers run (the 3D physics steps them).
   await cmd('setSettings', { settings: { physics_dimension: 3 } });
   // Marker models 2 m up, their LOD at the model's origin: 1 m inside and 1 m outside the switch distance, and one
-  // moving between 3 m outside and 3 m inside along its line of sight.
+  // moving between 1.5 m outside and 1.5 m inside along its line of sight (each level shows for 2 s of its 4 s round
+  // trip: long enough for several screenshots, short enough that the two crossings come quickly).
   await publishBytes(be, multiPieceGlb([{ name: 'marker', lods: [[1, 1, 1], [1, 1, 1]], colors: [[0.02, 1, 0.02], [1, 0.02, 1]] }]), 'model', 'markers', 'Markers');
   const switchAt = lodSwitchDistance(Math.hypot(1, 1, 1) / 2, 1);
   const eye = [8, 6, -8] as const;
@@ -117,8 +120,8 @@ for (const variant of RENDERER_VARIANTS) test(`block-layer chunks switch to the 
     String((await cmd('createEntity', { sceneId: 'scene-main', kind: 'model', name, model: { asset: { assetId: 'markers' }, piece: 'marker' }, transform: { position } }))['createdId']);
   await marker('inside', at(2, switchAt - 1));
   await marker('outside', at(13, switchAt + 1));
-  const from = at(eye[0] - 0.5, switchAt + 3);
-  const to = at(eye[0] - 0.5, switchAt - 3);
+  const from = at(eye[0] - 0.5, switchAt + 1.5);
+  const to = at(eye[0] - 0.5, switchAt - 1.5);
   const mover = await marker('crossing', from);
   await cmd('setComponent', { entityId: mover, component: 'mover', value: { waypoints: [[to[0] - from[0], to[1] - from[1], to[2] - from[2]]], speed: 1.5, mode: 'pingpong' } });
 

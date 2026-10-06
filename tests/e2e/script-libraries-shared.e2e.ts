@@ -23,7 +23,7 @@ import { createReadStream, existsSync, readFileSync, statSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import { extname, join, normalize } from 'node:path';
 
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page } from './pw';
 
 import { exportedContent, type E2EBackend, startBackend } from './backend';
 import { openWindow, editorPane, openEditor } from './ui';
@@ -129,7 +129,7 @@ const TALLY = [
   '}',
   '',
   'export function check(step: number): number {',
-  '  if (step >= 480) throw new Error(`the tally gave up at step ${step}`);',
+  '  if (step >= 240) throw new Error(`the tally gave up at step ${step}`);',
   '  return step;',
   '}',
   '',
@@ -192,7 +192,7 @@ test('libraries are shared modules in Play (worker and page) and the export; the
   const consolePanel = page.getByLabel('console', { exact: true });
   const log = consolePanel.locator('li[data-code="behavior_log"]').filter({ hasText: 'tally a 1' });
   await expect(log.getByLabel('source location')).toHaveText(new RegExp(`^user-a · src/index\\.ts:${LOG_LINE}:\\d+$`), { timeout: 30_000 });
-  const failure = consolePanel.locator('li[data-level="error"]').filter({ hasText: 'the tally gave up at step 480' });
+  const failure = consolePanel.locator('li[data-level="error"]').filter({ hasText: 'the tally gave up at step 240' });
   await expect(failure.getByLabel('source location')).toHaveText(new RegExp(`^@lib/tally · src/index\\.ts:${TALLY_THROW_LINE}:\\d+$`), { timeout: 30_000 });
   await expect(failure.getByLabel('frame location').first()).toHaveText(new RegExp(`^user-b · src/index\\.ts:${CHECK_LINE}:\\d+$`));
   // The diagnostics MCP reads carry the same mapped source.

@@ -17,7 +17,7 @@ import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { expect, test, type Locator, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page } from './pw';
 
 import { startBackend, type E2EBackend } from './backend';
 import { decodePng, type Image } from './png';
@@ -63,14 +63,32 @@ function bentPixels(img: Image): number {
   return n;
 }
 
-async function play(page: Page): Promise<Image> {
+/** Orange pixels anywhere in the frame: the column is drawn. */
+function orangePixels(img: Image): number {
+  let n = 0;
+  for (let y = 0; y < img.height; y += 2) {
+    for (let x = 0; x < img.width; x += 2) {
+      const [r, g, b] = img.pixel(x, y);
+      if (r > 60 && r > 1.25 * g && g > 1.8 * b) n += 1;
+    }
+  }
+  return n;
+}
+
+/** Play until a frame of the preview shows what `ready` looks for; that frame. */
+async function play(page: Page, ready: (img: Image) => boolean): Promise<Image> {
   const frame = page.locator('iframe.tl-app__preview-frame');
   await page.getByTitle('Start an isolated play preview').click();
   await expect(frame).toBeVisible();
-  await page.waitForTimeout(2500);
-  const img = decodePng(await frame.screenshot());
+  let img: Image | null = null;
+  await expect
+    .poll(async () => {
+      img = decodePng(await frame.screenshot());
+      return ready(img);
+    }, { timeout: 30_000 })
+    .toBe(true);
   await page.getByTitle('Stop the play preview').click();
-  return img;
+  return img!;
 }
 
 const node = (scope: Locator | Page, id: string): Locator => scope.locator(`[data-node-id="${id}"]`);
@@ -177,18 +195,18 @@ test('a controller built in the Animator tab poses a skinned model in Play by it
   const before = decodePng(await preview.screenshot());
   await pane.getByLabel('preview bent').check();
   await expect(readout).toHaveAttribute('data-state', 'Bent');
-  await page.waitForTimeout(500);
-  const after = decodePng(await preview.screenshot());
-  let changed = 0;
-  for (let y = 0; y < Math.min(before.height, after.height); y += 2) {
-    for (let x = 0; x < Math.min(before.width, after.width); x += 2) {
-      const a = before.pixel(x, y);
-      const b = after.pixel(x, y);
-      if (Math.abs(a[0] - b[0]) + Math.abs(a[1] - b[1]) + Math.abs(a[2] - b[2]) > 60) changed += 1;
+  const changedBy = (after: Image): number => {
+    let changed = 0;
+    for (let y = 0; y < Math.min(before.height, after.height); y += 2) {
+      for (let x = 0; x < Math.min(before.width, after.width); x += 2) {
+        const a = before.pixel(x, y);
+        const b = after.pixel(x, y);
+        if (Math.abs(a[0] - b[0]) + Math.abs(a[1] - b[1]) + Math.abs(a[2] - b[2]) > 60) changed += 1;
+      }
     }
-  }
-  console.log(`[animator] preview pixels changed by the pose: ${changed}`);
-  expect(changed).toBeGreaterThan(20);
+    return changed;
+  };
+  await expect.poll(async () => changedBy(decodePng(await preview.screenshot())), { message: 'preview pixels changed by the pose' }).toBeGreaterThan(20);
   // Nothing was saved by the preview.
   expect(JSON.stringify(await controllers())).not.toContain('"default":true');
 
@@ -202,11 +220,18 @@ test('a controller built in the Animator tab poses a skinned model in Play by it
   await expect.poll(async () => ((await be.command({ op: 'queryEntity', projectId: be.projectId, args: { entityId: column } }))['entity'] as { components: { animator?: unknown } }).components.animator).toEqual({ controller: stored[0]!.controllerId });
 
   // Play: bent = false → straight; bent = true → the upper half leans over.
-  const straight = bentPixels(await play(page));
+  // Straight is read half a second after the column is first drawn (a wrong pose would show by then); bent once it
+  // leans over.
+  let drawnAt = 0;
+  const straight = bentPixels(await play(page, (img) => {
+    if (orangePixels(img) <= 40) return false;
+    if (drawnAt === 0) drawnAt = Date.now();
+    return Date.now() - drawnAt >= 500;
+  }));
   await openEditor(page, 'Animator', 'New animator');
   await doc.getByLabel('parameter bent default').click();
   await expect.poll(async () => JSON.stringify(await controllers())).toContain('"default":true');
-  const bent = bentPixels(await play(page));
+  const bent = bentPixels(await play(page, (img) => bentPixels(img) > straight + 40));
   console.log(`[animator] orange pixels left of the column: straight ${straight}, bent ${bent}`);
   expect(bent).toBeGreaterThan(straight + 40);
 });

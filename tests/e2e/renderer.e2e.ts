@@ -20,7 +20,7 @@ import { extname, join, normalize, resolve } from 'node:path';
 
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
-import { expect as baseExpect, test, type Locator, type Page } from '@playwright/test';
+import { expect as baseExpect, test, type Locator, type Page } from './pw';
 
 import { startBackend, type E2EBackend } from './backend';
 import { KIT_PIECES, multiPieceGlb } from './multi-piece-glb';
@@ -100,10 +100,9 @@ async function openWithBox(page: Page, url: string): Promise<void> {
 /** The Scene view reports `backend` ready and draws the box. */
 async function expectSceneView(page: Page, backend: string, reasonPart: string): Promise<void> {
   const canvas = page.locator('canvas.tl-viewport');
-  // The view swaps its canvas when the backend changes: wait until the current one is ready with `backend`.
-  await expect.poll(async () => { const x = await rendererOf(canvas); return `${x.state}/${x.backend}`; }, { timeout: 20_000 }).toBe(`ready/${backend}`);
-  const r = await rendererOf(canvas);
-  expect(r.reason).toContain(reasonPart);
+  // The view swaps its canvas when the backend changes: wait until the current one is ready with `backend` for
+  // this reason (the old canvas can already be ready with the same backend, picked for another reason).
+  await expect.poll(async () => { const x = await rendererOf(canvas); return `${x.state}/${x.backend}/${(x.reason ?? '').includes(reasonPart)}`; }, { timeout: 20_000 }).toBe(`ready/${backend}/true`);
   await expect(page.locator('.tl-statusbar__renderer')).toHaveAttribute('data-render-backend', backend);
   await expect.poll(async () => brightPixels(decodePng(await canvas.screenshot()))).toBeGreaterThan(20);
 }
@@ -113,10 +112,9 @@ async function expectPlay(page: Page, backend: string, reasonPart: string): Prom
   const frame = page.locator('iframe.tl-app__preview-frame');
   await expect(frame).toBeVisible();
   const canvas = page.frameLocator('iframe.tl-app__preview-frame').locator('canvas').first();
-  // The view swaps its canvas when the backend changes: wait until the current one is ready with `backend`.
-  await expect.poll(async () => { const x = await rendererOf(canvas); return `${x.state}/${x.backend}`; }, { timeout: 20_000 }).toBe(`ready/${backend}`);
-  const r = await rendererOf(canvas);
-  expect(r.reason).toContain(reasonPart);
+  // The view swaps its canvas when the backend changes: wait until the current one is ready with `backend` for
+  // this reason (the old canvas can already be ready with the same backend, picked for another reason).
+  await expect.poll(async () => { const x = await rendererOf(canvas); return `${x.state}/${x.backend}/${(x.reason ?? '').includes(reasonPart)}`; }, { timeout: 20_000 }).toBe(`ready/${backend}/true`);
   // The Play label line (from the play's observation).
   await expect(page.locator('.tl-app__preview-renderer')).toHaveAttribute('data-render-backend', backend);
   await expect(page.locator('.tl-app__preview-renderer')).toContainText(reasonPart);
@@ -142,8 +140,10 @@ async function expectExport(page: Page, siteUrl: string, query: string, backend:
   }
 }
 
-test('by default everything draws with auto (WebGPU where it starts, else WebGL 2) and says so', async ({ page }) => {
-  test.setTimeout(240_000);
+// One backend and one export for the default, the editor's thumbnails and the URL flag: the flag is a page
+// URL choice over the same project, so the default legs run first and the flagged editor opens after them.
+test('by default everything draws with auto (WebGPU where it starts, else WebGL 2) and says so; asset thumbnails render with the editor\'s backend; the ?renderer= URL flag forces a backend in the Scene view, Play and the export', async ({ page }) => {
+  test.setTimeout(360_000);
   const be = await backend();
   await openWithBox(page, be.editorUrl);
   await expectSceneView(page, expected('auto'), 'default auto');
@@ -151,13 +151,50 @@ test('by default everything draws with auto (WebGPU where it starts, else WebGL 
   await page.getByTitle('Start an isolated play preview').click();
   await expectPlay(page, expected('auto'), 'default auto');
   await page.getByTitle('Stop the play preview').click();
-  // The standalone export too.
+  await expect(page.getByTitle('Start an isolated play preview')).toBeVisible();
+
+  // Asset thumbnails: the editor's backend (auto) renders them too.
+  const dir = mkdtempSync(join(tmpdir(), 'tl-thumb-'));
+  try {
+    const file = join(dir, 'kit.glb');
+    writeFileSync(file, multiPieceGlb(KIT_PIECES));
+    await expect(page.locator('.tl-statusbar__renderer')).toHaveAttribute('data-render-backend', expected('auto'));
+    await projectWindow(page);
+    await page.locator('.tl-assets__file').first().setInputFiles(file);
+    const publish = page.getByRole('button', { name: 'publish' });
+    await expect(publish).toBeEnabled({ timeout: 15_000 });
+    await publish.click();
+    const tile = page.locator('.tl-assets__list li[data-asset-id]:not([data-piece])').first();
+    await expect(tile.locator('img.tl-tile__img--thumb')).toBeVisible({ timeout: 30_000 });
+    // The cached PNG: transparent corners, an opaque model in the middle.
+    const src = (await tile.locator('img.tl-tile__img--thumb').getAttribute('src'))!;
+    const bytes = await page.evaluate(async (u) => Array.from(new Uint8Array(await (await fetch(u)).arrayBuffer())), src);
+    const png = decodePng(Buffer.from(bytes));
+    expect(png.width).toBe(128);
+    expect(png.pixel(0, 0)[3]).toBe(0);
+    expect(png.pixel(64, 64)[3]).toBeGreaterThan(200);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+
+  // The URL flag: the editor opened with ?renderer=webgl2 draws with it and passes it on to the play page.
+  await page.goto(withFlag(be.editorUrl, 'webgl2'));
+  await expect(page.locator('.tl-statusbar')).toContainText('connected');
+  await expectSceneView(page, 'webgl2', 'URL flag ?renderer=webgl2');
+  await page.getByTitle('Start an isolated play preview').click();
+  await expectPlay(page, 'webgl2', 'URL flag ?renderer=webgl2');
+  await page.getByTitle('Stop the play preview').click();
+
+  // The standalone export: auto by default, and each URL flag value.
   const res = await be.admin(`projects/${be.projectId}/export`);
   expect(res.status, JSON.stringify(res.json)).toBe(200);
   await be.halt();
   const site = await serveDir(join(be.exportRoot, String(res.json.outputDir)));
   try {
     await expectExport(page, site.url, '', expected('auto'), 'default auto');
+    await expectExport(page, site.url, '?renderer=webgl2', 'webgl2', 'URL flag ?renderer=webgl2');
+    await expectExport(page, site.url, '?renderer=webgpu', expected('webgpu'), 'URL flag ?renderer=webgpu');
+    await expectExport(page, site.url, '?renderer=auto', expected('auto'), hasWebGpu() ? 'WebGPU on' : 'WebGL 2 backend');
   } finally {
     await site.close();
   }
@@ -233,55 +270,3 @@ test('the project setting picks the backend of the Scene view, Play (tl_game_obs
   }
 });
 
-test('the ?renderer= URL flag forces a backend in the Scene view, Play and the export', async ({ page }) => {
-  test.setTimeout(300_000);
-  const be = await backend();
-  await openWithBox(page, withFlag(be.editorUrl, 'webgl2'));
-  await expectSceneView(page, 'webgl2', 'URL flag ?renderer=webgl2');
-  // The editor passes its flag on to the play page.
-  await page.getByTitle('Start an isolated play preview').click();
-  await expectPlay(page, 'webgl2', 'URL flag ?renderer=webgl2');
-  await page.getByTitle('Stop the play preview').click();
-
-  const res = await be.admin(`projects/${be.projectId}/export`);
-  expect(res.status, JSON.stringify(res.json)).toBe(200);
-  await be.halt();
-  const site = await serveDir(join(be.exportRoot, String(res.json.outputDir)));
-  try {
-    await expectExport(page, site.url, '?renderer=webgl2', 'webgl2', 'URL flag ?renderer=webgl2');
-    await expectExport(page, site.url, '?renderer=webgpu', expected('webgpu'), 'URL flag ?renderer=webgpu');
-    await expectExport(page, site.url, '?renderer=auto', expected('auto'), hasWebGpu() ? 'WebGPU on' : 'WebGL 2 backend');
-  } finally {
-    await site.close();
-  }
-});
-
-test('asset thumbnails render with the editor\'s backend (WebGPU where it starts, else WebGL 2)', async ({ page }) => {
-  test.setTimeout(180_000);
-  const be = await backend();
-  const dir = mkdtempSync(join(tmpdir(), 'tl-thumb-'));
-  try {
-    const file = join(dir, 'kit.glb');
-    writeFileSync(file, multiPieceGlb(KIT_PIECES));
-    await page.goto(be.editorUrl);
-    await expect(page.locator('.tl-statusbar')).toContainText('connected');
-    // The editor's backend (auto): the Scene view and the thumbnail renderer use it.
-    await expect(page.locator('.tl-statusbar__renderer')).toHaveAttribute('data-render-backend', expected('auto'));
-    await projectWindow(page);
-    await page.locator('.tl-assets__file').first().setInputFiles(file);
-    const publish = page.getByRole('button', { name: 'publish' });
-    await expect(publish).toBeEnabled({ timeout: 15_000 });
-    await publish.click();
-    const tile = page.locator('.tl-assets__list li[data-asset-id]:not([data-piece])').first();
-    await expect(tile.locator('img.tl-tile__img--thumb')).toBeVisible({ timeout: 30_000 });
-    // The cached PNG: transparent corners, an opaque model in the middle.
-    const src = (await tile.locator('img.tl-tile__img--thumb').getAttribute('src'))!;
-    const bytes = await page.evaluate(async (u) => Array.from(new Uint8Array(await (await fetch(u)).arrayBuffer())), src);
-    const png = decodePng(Buffer.from(bytes));
-    expect(png.width).toBe(128);
-    expect(png.pixel(0, 0)[3]).toBe(0);
-    expect(png.pixel(64, 64)[3]).toBeGreaterThan(200);
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
-});

@@ -28,7 +28,7 @@
  */
 import { writeFileSync } from 'node:fs';
 
-import { expect, test, type FrameLocator, type Locator, type Page } from '@playwright/test';
+import { expect, test, type FrameLocator, type Locator, type Page } from './pw';
 
 import { STARTER, startBackend, type E2EBackend } from './backend';
 import { decodePng, type Image } from './png';
@@ -361,7 +361,8 @@ test('a new Starter project: scene lights with a spot cookie, a script writing a
   await page.waitForTimeout(300);
   const held = (await observe()).player!.y;
   expect(held).toBeLessThan(start.y + 2);
-  await page.waitForTimeout(1000);
+  // Half a second: a platform still moving at 1 m/s would be 0.5 m away, far past the 2 cm allowed.
+  await page.waitForTimeout(500);
   expect(Math.abs((await observe()).player!.y - held)).toBeLessThan(0.02);
 
   const diag = (await api(`play/${psid}/diagnostics`)).json as { diagnostics?: { runtime?: { errors?: unknown[]; entityWrites?: Record<string, number> } } };

@@ -13,7 +13,7 @@
  */
 import { randomBytes } from 'node:crypto';
 
-import { expect, test } from '@playwright/test';
+import { expect, test } from './pw';
 
 import { publishScript, startBackend, type E2EBackend } from './backend';
 import { browserLaunchEnv, GPU_ARGS, gpuAvailable, SOFTWARE_GL_ARGS } from './browser-env.mjs';
@@ -56,6 +56,14 @@ const DRIVER = [
   '  },',
   '};',
 ].join('\n');
+
+/**
+ * Each rate is measured over 3 s (90 frames at 30, 360 steps): a frame or step either way, or the
+ * diagnostics round trips' jitter at the window's ends, stays well inside the bounds below.
+ */
+const WINDOW_S = 3;
+/** After the cap reads back, the frames already queued at the old rate are drawn before a window starts. */
+const SWITCH_MS = 250;
 
 type Diagnostics = { runtime: { stepIndex: number; droppedSteps: number; frameCount: number }; simulation: { pipeline: { frames: number; ticksSkipped: number; framesWithoutWorkerFrame: number; workerRoundTripMs: unknown; inputToDrawMs: unknown } | null }; framePacing: { frameRateCap: number | null; drawnFrames: number; skippedFrames: number; displayMs: number } | null };
 
@@ -106,8 +114,8 @@ test('the frame-rate cap: project setting, script and player setting change the 
 
   // The project setting: 30.
   await expect.poll(() => observeCap(psid), { timeout: 15_000 }).toBe(30);
-  await page.waitForTimeout(500);
-  const at30 = await measure(psid, 5, 'project setting 30');
+  await page.waitForTimeout(SWITCH_MS);
+  const at30 = await measure(psid, WINDOW_S, 'project setting 30');
   expect(at30.fps).toBeGreaterThan(27);
   expect(at30.fps).toBeLessThan(31.5);
   steady(at30.steps);
@@ -115,15 +123,15 @@ test('the frame-rate cap: project setting, script and player setting change the 
   // A script sets 60, then none.
   await run(psid, 'cap', { fps: 60 });
   await expect.poll(() => observeCap(psid), { timeout: 15_000 }).toBe(60);
-  await page.waitForTimeout(500);
-  const at60 = await measure(psid, 5, 'script 60');
+  await page.waitForTimeout(SWITCH_MS);
+  const at60 = await measure(psid, WINDOW_S, 'script 60');
   expect(at60.fps).toBeGreaterThan(55);
   expect(at60.fps).toBeLessThan(62.5);
   steady(at60.steps);
   await run(psid, 'cap', { fps: 0 });
   await expect.poll(() => observeCap(psid), { timeout: 15_000 }).toBe(0);
-  await page.waitForTimeout(500);
-  const free = await measure(psid, 5, 'none');
+  await page.waitForTimeout(SWITCH_MS);
+  const free = await measure(psid, WINDOW_S, 'none');
   // Uncapped: the display's (here the browser's unlimited) rate; on the GPU far above any cap.
   expect(free.fps).toBeGreaterThan(gpuAvailable() ? 90 : at60.fps * 0.8);
   steady(free.steps);
@@ -139,8 +147,8 @@ test('the frame-rate cap: project setting, script and player setting change the 
   // Written as a settings screen would: 30, live.
   await run(psid, 'setting', { value: '30' });
   await expect.poll(() => observeCap(psid), { timeout: 15_000 }).toBe(30);
-  await page.waitForTimeout(500);
-  const player30 = await measure(psid, 3, 'player setting 30');
+  await page.waitForTimeout(SWITCH_MS);
+  const player30 = await measure(psid, WINDOW_S, 'player setting 30');
   expect(player30.fps).toBeGreaterThan(27);
   expect(player30.fps).toBeLessThan(31.5);
   steady(player30.steps);
@@ -152,8 +160,8 @@ test('the frame-rate cap: project setting, script and player setting change the 
   psid = await startPlay();
   await expect.poll(() => observeCap(psid), { timeout: 15_000 }).toBe(60);
   expect((await diagnostics(psid)).framePacing!.frameRateCap).toBe(60);
-  await page.waitForTimeout(500);
-  const kept = await measure(psid, 3, 'kept player setting 60');
+  await page.waitForTimeout(SWITCH_MS);
+  const kept = await measure(psid, WINDOW_S, 'kept player setting 60');
   expect(kept.fps).toBeGreaterThan(55);
   expect(kept.fps).toBeLessThan(62.5);
   steady(kept.steps);

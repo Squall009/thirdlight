@@ -4,15 +4,16 @@
  * (a scene without any game session).
  *
  * A grey block in front of the camera; a project script on it sets a strong
- * red glow and a red tint (`ctx.look.set`) for two seconds out of every four
- * and clears it (`ctx.look.clear`) for the other two. The Play picture is
+ * red glow and a red tint (`ctx.look.set`) for 1.25 s out of every 2.5 s
+ * and clears it (`ctx.look.clear`) for the rest (short windows keep the run
+ * brief; each is still several pictures long). The Play picture is
  * observed in pixels: the block turns red, then grey again — the same object,
  * the same material, no other change — and the play observation reports the
  * running scene throughout.
  */
 import { createHash, randomBytes } from 'node:crypto';
 
-import { expect, test, type Locator } from '@playwright/test';
+import { expect, test, type Locator } from './pw';
 
 import { startBackend, type E2EBackend } from './backend';
 import { decodePng, type Image } from './png';
@@ -58,14 +59,14 @@ async function script(behaviorId: string, source: string, entityId: string): Pro
   await cmd('setBehaviorProperties', { entityId, behaviorId, values: {} });
 }
 
-/** Glow red for 240 steps (2 s at 120 Hz), then the object's own look for 240. */
+/** Glow red for 150 steps (1.25 s at 120 Hz), then the object's own look for 150. */
 const BLINK = [
   'export default {',
   '  prepare() { return {}; },',
   '  instantiate() { return {}; },',
   '  step(_state: unknown, ctx: any) {',
   "    if (ctx.phase !== 'intent') return;",
-  '    const on = Math.floor(ctx.stepIndex / 240) % 2 === 1;',
+  '    const on = Math.floor(ctx.stepIndex / 150) % 2 === 1;',
   "    if (on && ctx.look.get(ctx.entityId) === null) ctx.look.set(ctx.entityId, { emissive: '#ff0000', emissiveIntensity: 4, tint: '#ff2020' });",
   '    if (!on && ctx.look.get(ctx.entityId) !== null) ctx.look.clear(ctx.entityId);',
   "    ctx.game.add('lit', (on ? 1 : 0) - ctx.game.counter('lit'));",
@@ -110,12 +111,12 @@ for (const variant of VARIANTS) test(`a script's look override glows an object r
   const observe = async (): Promise<Obs> => (await api(`play/${psid}/observe`, {})).json as Obs;
   await expect.poll(async () => (await observe()).state, { timeout: 30_000 }).toBe('running');
 
-  // Its own look first (the override is off for the first two seconds), then red, then its own look again.
+  // Its own look first (the override is off for the first 1.25 s), then red, then its own look again.
   await expect.poll(async () => (await observe()).counters?.['lit'] ?? -1, { timeout: 20_000 }).toBe(0);
   const plain = reds(await shot(frame));
   let lit = 0;
   let sawLit = false;
-  // The counter is read beside each picture (the 2 s window may end between a picture and a later read on a loaded host).
+  // The counter is read beside each picture (the 1.25 s window may end between a picture and a later read on a loaded host).
   await expect.poll(async () => {
     lit = reds(await shot(frame));
     if ((await observe()).counters?.['lit'] === 1) sawLit = true;

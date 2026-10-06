@@ -19,7 +19,7 @@
  */
 import { randomBytes } from 'node:crypto';
 
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page } from './pw';
 
 import { publishBytes, publishScript, startBackend, type E2EBackend } from './backend';
 import { multiPieceGlb } from './multi-piece-glb';
@@ -120,7 +120,8 @@ test('3D: a model collider stops the player on each _COL part, a placed box wher
   await create('Stall', [0, 0, 0], { model: { asset: { assetId: 'model-stall' } }, collider: { shape: { type: 'model' } } });
   const s = Math.SQRT1_2;
   await create('Beam', [10, 0, 0], { collider: { shape: { type: 'box', hx: 2, hy: 0.25, hz: 0.2, center: [0, 2, 0], rotation: [0, s, 0, s] } } });
-  const player = await create('Player', [3.5, 6, 0], {});
+  // Each drop starts 4.5 m up: above every top it lands on (3 m the highest), a short fall.
+  const player = await create('Player', [3.5, 4.5, 0], {});
   await cmd('setComponent', { entityId: player, component: 'controller', value: {} });
   await page.reload();
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
@@ -131,12 +132,12 @@ test('3D: a model collider stops the player on each _COL part, a placed box wher
   expect(onB.y).toBeGreaterThan(3.9 - 1e-3);
   expect(onB.y).toBeLessThan(3.92);
   // On the low part (top at 1 m).
-  await cmd('setTransform', { entityId: player, transform: { position: [0.5, 6, 0] } });
+  await cmd('setTransform', { entityId: player, transform: { position: [0.5, 4.5, 0] } });
   const onA = await restingPlayer(page, 'low part');
   expect(onA.y).toBeGreaterThan(1.9 - 1e-3);
   expect(onA.y).toBeLessThan(1.92);
   // On the beam: 1.5 m along Z from its object, only there once the box is turned (its own depth is 0.2 m); top 2.25 m.
-  await cmd('setTransform', { entityId: player, transform: { position: [10, 6, 1.5] } });
+  await cmd('setTransform', { entityId: player, transform: { position: [10, 4.5, 1.5] } });
   const onBeam = await restingPlayer(page, 'beam');
   expect(onBeam.z).toBeCloseTo(1.5, 3);
   expect(onBeam.y).toBeGreaterThan(3.15 - 1e-3);
@@ -166,8 +167,8 @@ test('a scene\'s 3D collider point budget counts its model colliders\' _COL part
 });
 
 /**
- * A pusher: from step 60 the object owning it moves along +x at 1 m/s until
- * x = 2 (its own script, the transform phase). It has no collider itself;
+ * A pusher: from step 60 the object owning it moves along +x from x = -1 at
+ * 1 m/s until x = 2 (its own script, the transform phase). It has no collider itself;
  * its child "Plate" has.
  */
 const PUSHER = [
@@ -175,7 +176,7 @@ const PUSHER = [
   '  instantiate() { return {}; },',
   '  step(_state: any, ctx: any) {',
   "    if (ctx.phase !== 'transform' || ctx.stepIndex < 60) return;",
-  '    const x = Math.min(2, -3 + (ctx.stepIndex - 60) / 120);',
+  '    const x = Math.min(2, -1 + (ctx.stepIndex - 60) / 120);',
   "    ctx.emit({ kind: 'transform', entityId: ctx.entityId, position: { x, y: 0, z: 0 }, quaternion: [0, 0, 0, 1] });",
   '  },',
   '};',
@@ -188,7 +189,8 @@ test('3D: a collider on a child follows its script-moved parent and pushes the p
   await cmd('setSettings', { settings: { physics_dimension: 3 } });
   for (const e of await entities()) if (e.components['collider'] !== undefined || e.components['controller'] !== undefined) await cmd('deleteEntity', { entityId: e.id });
   await create('Floor', [0, -0.5, 0], { collider: { shape: { type: 'box', hx: 10, hy: 0.5, hz: 10 } } });
-  const pusher = await create('Pusher', [-3, 0, 0], {});
+  // Its plate starts 0.6 m from the player's capsule: the push, not the approach, is what is checked.
+  const pusher = await create('Pusher', [-1, 0, 0], {});
   await cmd('createEntity', { sceneId: 'scene-main', parentId: pusher, kind: 'group', name: 'Plate', transform: { position: [0, 0, 0] }, components: { collider: { shape: { type: 'box', hx: 0.1, hy: 1, hz: 1, center: [0, 1, 0] } } } });
   const player = await create('Player', [0, 0.92, 0], {});
   await cmd('setComponent', { entityId: player, component: 'controller', value: {} });

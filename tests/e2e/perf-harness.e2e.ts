@@ -15,7 +15,7 @@
 import { rmSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { expect, test } from '@playwright/test';
+import { expect, test } from './pw';
 
 import { PERF_ROOT, startPerfBackend, type PerfBackend } from '../../tools/perf/backend';
 import { measureEditor, measureExport, measurePlay, type SurfaceOptions } from '../../tools/perf/browser';

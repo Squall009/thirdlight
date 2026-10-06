@@ -8,7 +8,7 @@
  *   by Sample data at the UV from a 4 × 4 data parameter. Two flat boxes wear
  *   it; the Scene view shows both in the default tint (green).
  * - Play: a script changes the tint of box A only (two blues, alternating
- *   every 60 steps) and writes a 4 × 4 checker (red / transparent) into box
+ *   every 12 steps) and writes a 4 × 4 checker (red / transparent) into box
  *   B's grid. Pixels: A is blue without green, B keeps its green tint with
  *   red cells exactly where the checker puts them (cell [0, 0] at the bottom
  *   left, UV (0, 0)). The renderer counters: one compiled graph material for
@@ -23,7 +23,7 @@ import { createReadStream, existsSync, statSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import { extname, join, normalize } from 'node:path';
 
-import { expect, test, type Locator, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page } from './pw';
 
 import { startBackend, type E2EBackend } from './backend';
 import { decodePng, type Image } from './png';
@@ -82,9 +82,9 @@ const PAINTER = [
   'export default {',
   '  instantiate() { return {}; },',
   '  step(state: unknown, ctx: any) {',
-  "    if (ctx.phase !== 'intent' || ctx.materials === undefined || ctx.stepIndex % 60 !== 0) return;",
+  "    if (ctx.phase !== 'intent' || ctx.materials === undefined || ctx.stepIndex % 12 !== 0) return;",
   '    const p = ctx.properties;',
-  "    ctx.materials.set(p.tinted, 'tint', (ctx.stepIndex / 60) % 2 === 0 ? '#0000ff' : '#0000e0');",
+  "    ctx.materials.set(p.tinted, 'tint', (ctx.stepIndex / 12) % 2 === 0 ? '#0000ff' : '#0000e0');",
   '    const bytes: number[] = [];',
   '    for (let y = 0; y < 4; y++) for (let x = 0; x < 4; x++) bytes.push(...((x + y) % 2 === 0 ? [255, 0, 0, 255] : [0, 0, 0, 0]));',
   "    ctx.materials.setData(p.patterned, 'cells', 0, 0, 4, 4, bytes);",
@@ -252,7 +252,7 @@ for (const variant of VARIANTS) test(`a script sets one object's colour and writ
   let problem: string | null = 'not checked';
   await expect.poll(async () => (problem = checkPicture(await shot(frame))), { timeout: 60_000, message: 'Play picture' }).toBeNull();
   expect(problem).toBeNull();
-  // The counters: one compiled graph material serves both objects; values keep changing (every 60 steps) without a new program or draw.
+  // The counters: one compiled graph material serves both objects; values keep changing (every 12 steps) without a new program or draw.
   const diag = async (): Promise<RendererDiag | undefined> => {
     const d = await api(`play/${psid}/diagnostics`, {});
     return d.status === 200 ? ((d.json['diagnostics'] as { renderer?: RendererDiag } | undefined)?.renderer ?? undefined) : undefined;
@@ -261,7 +261,8 @@ for (const variant of VARIANTS) test(`a script sets one object's colour and writ
   const before = (await diag())!;
   expect(before.materials).toEqual({ graphMaterials: 1, objects: 2, dataTextures: 1 });
   expect(before.gpu!.programs).toBeGreaterThan(0);
-  await page.waitForTimeout(2_500);
+  // Six value changes at 120 steps per second: a recompile per value would show by now.
+  await page.waitForTimeout(600);
   const after = (await diag())!;
   console.log(`[material-runtime] ${variant} play: programs ${before.gpu!.programs} → ${after.gpu!.programs}, draw calls ${before.frame?.drawCalls} → ${after.frame?.drawCalls}`);
   expect(after.materials).toEqual({ graphMaterials: 1, objects: 2, dataTextures: 1 });

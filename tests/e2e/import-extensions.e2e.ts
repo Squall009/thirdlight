@@ -11,7 +11,7 @@ import { createServer, type Server } from 'node:http';
 import { tmpdir } from 'node:os';
 import { extname, join, normalize, resolve } from 'node:path';
 
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page } from './pw';
 
 import { startBackend, type E2EBackend } from './backend';
 import { colorCount, decodePng, litBands } from './png';
@@ -145,7 +145,8 @@ test('WebP, material extensions, unlit and quantized GLBs import, render in Play
   await expect(frame).toBeVisible();
   await expect.poll(async () => litBands(decodePng(await frame.screenshot())), { timeout: 15_000 }).toBe(3);
   expect(colorCount(decodePng(await frame.screenshot()))).toBeGreaterThan(8);
-  await page.waitForTimeout(1000);
+  // All three are drawn already (the poll above); a beat for a late notice before the picture is kept.
+  await page.waitForTimeout(250);
   await frame.screenshot({ path: join(SHOTS, '2-play.png') });
   await expect(page.locator('.tl-notice')).toHaveCount(0);
   await page.getByTitle('Stop the play preview').click();
@@ -167,7 +168,7 @@ test('WebP, material extensions, unlit and quantized GLBs import, render in Play
     await exported.goto(site.url);
     // The exported page loads, decodes three textures and compiles its shaders: tens of seconds on a loaded CPU-rendered host.
     await expect.poll(async () => litBands(decodePng(await exported.screenshot())), { timeout: 45_000 }).toBe(3);
-    await exported.waitForTimeout(1000);
+    await exported.waitForTimeout(250);
     await exported.screenshot({ path: join(SHOTS, '3-export.png') });
     expect(exportErrors).toEqual([]);
   } finally {
@@ -216,7 +217,8 @@ test('Draco (Blender), meshopt (animated) and KTX2/Basis GLBs render in the edit
   await expect(frame).toBeVisible();
   // All three cubes (left, centre, right) are drawn.
   await expect.poll(async () => litBands(decodePng(await frame.screenshot())), { timeout: 20_000 }).toBe(3);
-  await page.waitForTimeout(1500);
+  // All three are drawn already (the poll above): their decoders have been fetched.
+  await page.waitForTimeout(250);
   await frame.screenshot({ path: join(SHOTS, '5-compressed-play.png') });
   expect(decoderHits.some((u) => u.includes('/decoders/draco/'))).toBe(true);
   expect(decoderHits.some((u) => u.includes('/decoders/basis/'))).toBe(true);
@@ -239,7 +241,7 @@ test('Draco (Blender), meshopt (animated) and KTX2/Basis GLBs render in the edit
   try {
     await exported.goto(site.url);
     await expect.poll(async () => litBands(decodePng(await exported.screenshot())), { timeout: 20_000 }).toBe(3);
-    await exported.waitForTimeout(1500);
+    await exported.waitForTimeout(250);
     await exported.screenshot({ path: join(SHOTS, '6-compressed-export.png') });
     expect(exportErrors).toEqual([]);
   } finally {

@@ -20,7 +20,7 @@ import { join, resolve } from 'node:path';
 
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
-import { expect, test, type Frame, type Page } from '@playwright/test';
+import { expect, test, type Frame, type Page } from './pw';
 import { BRIDGE_MESSAGE_MAX_BYTES, SCREENSHOT_DATA_URL_MAX } from '@thirdlight/protocol';
 
 import { startBackend, type E2EBackend } from './backend';
@@ -191,26 +191,8 @@ for (const variant of PRODUCT_RENDERER_VARIANTS) {
   });
 }
 
-test('a capture too large even at the smallest width answers with a named reason', async ({ page }) => {
-  test.setTimeout(150_000);
-  test.skip(test.info().project.name === 'webgpu', 'renderer-independent (the default project runs it)');
-  const psid = await playTexturedCrate(page, 'auto');
-  await expect.poll(async () => (await screenshot(psid, 256)).status, { timeout: 20_000 }).toBe(200);
-  // Every read gives a PNG over the screenshot bound.
-  await previewFrame(page).evaluate((max) => {
-    const proto = HTMLCanvasElement.prototype as unknown as { toDataURL: unknown };
-    proto.toDataURL = () => `data:image/png;base64,${'A'.repeat(max + 16)}`;
-  }, SCREENSHOT_DATA_URL_MAX);
-  const t0 = Date.now();
-  const failed = await screenshot(psid, 1024);
-  expect(failed.status).toBe(503);
-  const error = failed.json['error'] as { code: string; cause?: string; message: string };
-  expect(error.cause).toBe('screenshot_failed');
-  expect(error.message).toContain(`over the ${SCREENSHOT_DATA_URL_MAX}-character bound`);
-  expect(Date.now() - t0).toBeLessThan(5_000);
-});
-
-test('a capture that fails answers with the reason, and the next one works', async ({ page }) => {
+// One Play for both failures: the refused read is put back before the oversized one replaces it.
+test('a capture that fails answers with the reason, and the next one works; one too large even at the smallest width answers with a named reason', async ({ page }) => {
   test.setTimeout(150_000);
   test.skip(test.info().project.name === 'webgpu', 'renderer-independent (the default project runs it)');
   const psid = await playTexturedCrate(page, 'auto');
@@ -242,6 +224,19 @@ test('a capture that fails answers with the reason, and the next one works', asy
   const again = await screenshot(psid, 256);
   expect(again.status, JSON.stringify(again.json).slice(0, 300)).toBe(200);
   expect(greenPixels(pngOf(again.json['dataUrl']))).toBeGreaterThan(10);
+
+  // Every read gives a PNG over the screenshot bound.
+  await frame.evaluate((max) => {
+    const proto = HTMLCanvasElement.prototype as unknown as { toDataURL: unknown };
+    proto.toDataURL = () => `data:image/png;base64,${'A'.repeat(max + 16)}`;
+  }, SCREENSHOT_DATA_URL_MAX);
+  const t1 = Date.now();
+  const tooLarge = await screenshot(psid, 1024);
+  expect(tooLarge.status).toBe(503);
+  const largeError = tooLarge.json['error'] as { code: string; cause?: string; message: string };
+  expect(largeError.cause).toBe('screenshot_failed');
+  expect(largeError.message).toContain(`over the ${SCREENSHOT_DATA_URL_MAX}-character bound`);
+  expect(Date.now() - t1).toBeLessThan(5_000);
 });
 
 for (const variant of PRODUCT_RENDERER_VARIANTS) {

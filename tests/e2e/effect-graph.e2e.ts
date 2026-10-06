@@ -10,7 +10,7 @@
  * effect's public parameter; a reload keeps it all; undo takes it back step
  * by step. (The preview pane is covered by effect-editor.e2e.ts.)
  */
-import { expect, test, type Locator, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page } from './pw';
 
 import { startBackend, type E2EBackend } from './backend';
 import { menu, createItem, closeEditor, openEditor, editorTab, inspector as inspectorOf } from './ui';

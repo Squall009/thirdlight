@@ -11,7 +11,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page } from './pw';
 
 import { startBackend, type E2EBackend } from './backend';
 import { skinnedGlb } from './skinned-glb';
@@ -224,35 +224,12 @@ test('items open in a window over the editor: editor left, the one Inspector rig
   expect(await centreTabs(page)).toEqual(['Scene', 'Game']);
 });
 
-test('"Open" beside an Inspector reference opens the item in the window; Esc returns with the selection', async ({ page }) => {
+// One backend for both: the default view's checks run on the same fresh editor before "Open" is used.
+test('the default view keeps the Scene and Game views and the maximize toggle; "Open" beside an Inspector reference opens the item in the window; Esc returns with the selection', async ({ page }) => {
   test.setTimeout(90_000);
   await cmd('setMaterial', { material: { materialId: 'mat-one', name: 'Mat One', shader: 'standard', params: { roughness: 0.5 }, textures: {}, graph: { nodes: [{ id: 'output', type: 'pbr', position: [400, 0] }], edges: [] } } });
   await cmd('setMaterial', { material: { materialId: 'mat-plain', name: 'Mat Plain', shader: 'standard', params: { roughness: 0.5 }, textures: {} } });
   const crate = String((await cmd('createEntity', { sceneId: 'scene-main', kind: 'box', name: 'Crate', box: { size: [1, 1, 1], material: { color: '#b0b0b0' } }, transform: { position: [0, 0.5, 0] }, components: { materials: { '*': 'mat-one' } } }))['createdId']);
-  await open(page);
-  await row(page, crate).click();
-  const openRef = inspector(page).getByRole('button', { name: 'Open material for all', exact: true });
-  await expect(openRef).toBeVisible();
-  // An asset reference (a texture, a model) has no editor: no "Open" beside it.
-  await expect(inspector(page).getByRole('button', { name: /^Open .*asset/ })).toHaveCount(0);
-  await openRef.click();
-  await expect(editorWindow(page)).toBeVisible();
-  await expect(editorTab(page, 'Material', 'Mat One')).toHaveAttribute('aria-selected', 'true');
-  await expect(inspector(page)).toHaveAttribute('data-tl-inspector', 'window');
-  await page.keyboard.press('Escape');
-  await expect(editorWindow(page)).toHaveCount(0);
-  await expect(row(page, crate)).toHaveAttribute('aria-selected', 'true');
-  await expect(inspector(page).getByRole('button', { name: 'Open material for all', exact: true })).toBeVisible();
-  // A shader material has no editor: "Open" shows it in the Inspector, as a double-click in the project window does.
-  await cmd('setComponent', { entityId: crate, component: 'materials', value: { '*': 'mat-plain' } });
-  await inspector(page).getByRole('button', { name: 'Open material for all', exact: true }).click();
-  await expect(inspector(page).getByLabel('material inspector')).toBeVisible();
-  await expect(inspector(page).getByRole('combobox', { name: 'shader', exact: true })).toHaveValue('standard');
-  await expect(editorWindow(page)).toHaveCount(0);
-});
-
-test('the default view keeps the Scene and Game views and the maximize toggle', async ({ page }) => {
-  test.setTimeout(60_000);
   await open(page);
   expect(await centreTabs(page)).toEqual(['Scene', 'Game']);
   // Ctrl+Tab with no window swaps the Scene and Game views.
@@ -274,6 +251,25 @@ test('the default view keeps the Scene and Game views and the maximize toggle', 
   await expect(maximize).toHaveAttribute('aria-pressed', 'false');
   await expect(page.locator('.tl-dock--left')).toBeVisible();
   await expect(page.locator('.tl-dock--bottom')).toBeVisible();
+  await row(page, crate).click();
+  const openRef = inspector(page).getByRole('button', { name: 'Open material for all', exact: true });
+  await expect(openRef).toBeVisible();
+  // An asset reference (a texture, a model) has no editor: no "Open" beside it.
+  await expect(inspector(page).getByRole('button', { name: /^Open .*asset/ })).toHaveCount(0);
+  await openRef.click();
+  await expect(editorWindow(page)).toBeVisible();
+  await expect(editorTab(page, 'Material', 'Mat One')).toHaveAttribute('aria-selected', 'true');
+  await expect(inspector(page)).toHaveAttribute('data-tl-inspector', 'window');
+  await page.keyboard.press('Escape');
+  await expect(editorWindow(page)).toHaveCount(0);
+  await expect(row(page, crate)).toHaveAttribute('aria-selected', 'true');
+  await expect(inspector(page).getByRole('button', { name: 'Open material for all', exact: true })).toBeVisible();
+  // A shader material has no editor: "Open" shows it in the Inspector, as a double-click in the project window does.
+  await cmd('setComponent', { entityId: crate, component: 'materials', value: { '*': 'mat-plain' } });
+  await inspector(page).getByRole('button', { name: 'Open material for all', exact: true }).click();
+  await expect(inspector(page).getByLabel('material inspector')).toBeVisible();
+  await expect(inspector(page).getByRole('combobox', { name: 'shader', exact: true })).toHaveValue('standard');
+  await expect(editorWindow(page)).toHaveCount(0);
 });
 
 test('an editor command right after MCP edits is applied once the change feed brings them, not refused', async ({ page }) => {
@@ -287,7 +283,7 @@ test('an editor command right after MCP edits is applied once the change feed br
     const server = ws.connectToServer();
     server.onMessage((m) => {
       if (typeof m !== 'string' || !m.includes('e2e-editor-window') || hold === 'none') return ws.send(m);
-      if (hold === 'late') setTimeout(() => ws.send(m), 1_500);
+      if (hold === 'late') setTimeout(() => ws.send(m), 800);
       else stalled.push(() => ws.send(m));
     });
     ws.onMessage((m) => server.send(m));

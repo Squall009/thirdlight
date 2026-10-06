@@ -27,7 +27,7 @@ import { homedir } from 'node:os';
 import { extname, join, normalize } from 'node:path';
 import { randomBytes, randomUUID } from 'node:crypto';
 
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page } from './pw';
 
 import { texturedQuadGlb } from '../../tools/perf/assets';
 import { publishBytes, startBackend, type E2EBackend } from './backend';

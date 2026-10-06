@@ -5,7 +5,7 @@
  * handles and "+ Add component" data. The same registry is on the command
  * route for any client, and a plain game query does not carry it.
  */
-import { expect, test } from '@playwright/test';
+import { expect, test } from './pw';
 
 import { startBackend, type E2EBackend } from './backend';
 

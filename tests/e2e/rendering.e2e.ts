@@ -29,7 +29,7 @@ import { existsSync, createReadStream, mkdirSync, statSync, writeFileSync } from
 import { createServer, type Server } from 'node:http';
 import { extname, join, normalize } from 'node:path';
 
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page } from './pw';
 
 import { startBackend, type E2EBackend } from './backend';
 import { diff, diffPng, show, STRICT, within } from './parity';
@@ -107,7 +107,7 @@ test('repeated boxes are drawn instanced in the Scene view and Play; picking wor
   expect(editorDraws).toBeGreaterThan(0);
   expect(editorDraws).toBeLessThan(BOXES / 3);
 
-  // Render on demand: once settled, no frames while nothing changes.
+  // Render on demand: once settled, no frames while nothing changes (settled: still over half a second, then 2 s).
   let frames = -1;
   await expect
     .poll(
@@ -117,7 +117,7 @@ test('repeated boxes are drawn instanced in the Scene view and Play; picking wor
         frames = now;
         return still;
       },
-      { timeout: 30_000, intervals: [1500] },
+      { timeout: 30_000, intervals: [500] },
     )
     .toBe(true);
   await page.waitForTimeout(2000);
@@ -306,30 +306,33 @@ test('the Scene view draws nothing behind the Game view during Play, and again w
   await page.goto(be.editorUrl);
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
   const frames = async (): Promise<number> => Number(await attr(page, 'data-frames'));
-  /** Frames the Scene view drew in `ms`. */
+  /**
+   * Frames the Scene view drew in `ms`. The animated water keeps a drawing view at the display rate (tens of frames a
+   * second), so half a second with over 5 frames shows it drawing and a second with none shows it stopped.
+   */
   const drawn = async (ms: number): Promise<number> => {
     const a = await frames();
     await page.waitForTimeout(ms);
     return (await frames()) - a;
   };
-  await expect.poll(async () => drawn(1000), { timeout: 60_000 }).toBeGreaterThan(10);
+  await expect.poll(async () => drawn(500), { timeout: 60_000 }).toBeGreaterThan(5);
 
   await page.getByTitle('Start an isolated play preview').click();
   await expect(page.frameLocator('iframe.tl-app__preview-frame').locator('canvas').first()).toHaveAttribute('data-tl-renderer-state', 'ready', { timeout: 90_000 });
   await expect(page.locator('canvas.tl-viewport')).toHaveAttribute('data-suspended', 'true');
-  expect(await drawn(2000)).toBe(0);
+  expect(await drawn(1000)).toBe(0);
 
   // The Scene view shown during Play draws again, and stops when the Game view is back in front.
   await showView(page, 'Scene');
   await expect(page.locator('canvas.tl-viewport')).toHaveAttribute('data-suspended', 'false');
-  await expect.poll(async () => drawn(1000), { timeout: 30_000 }).toBeGreaterThan(10);
+  await expect.poll(async () => drawn(500), { timeout: 30_000 }).toBeGreaterThan(5);
   await showView(page, 'Game');
   await expect(page.locator('canvas.tl-viewport')).toHaveAttribute('data-suspended', 'true');
-  expect(await drawn(2000)).toBe(0);
+  expect(await drawn(1000)).toBe(0);
 
   await page.getByTitle('Stop the play preview').click();
   await expect(page.locator('canvas.tl-viewport')).toHaveAttribute('data-suspended', 'false', { timeout: 30_000 });
-  await expect.poll(async () => drawn(1000), { timeout: 30_000 }).toBeGreaterThan(10);
+  await expect.poll(async () => drawn(500), { timeout: 30_000 }).toBeGreaterThan(5);
 });
 
 /**

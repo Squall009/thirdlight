@@ -6,7 +6,7 @@
  */
 import { createHash } from 'node:crypto';
 
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page } from './pw';
 
 import { startBackend, type E2EBackend } from './backend';
 import { menu } from './ui';
@@ -47,7 +47,7 @@ async function cmd(op: string, args: Record<string, unknown>): Promise<Record<st
 /** The Play preview's canvas (its renderer reports ready once it draws). */
 const playCanvas = (page: Page) => page.frameLocator('iframe.tl-app__preview-frame').locator('canvas').first();
 
-test('the scatter dialog makes one entity that draws many copies; the buffer route refuses bad buffers', async ({ page }) => {
+test('the scatter dialog makes one entity that draws many copies; the buffer route refuses bad buffers; a set in a scene loaded during Play is drawn once the scene loads', async ({ page }) => {
   be = await startBackend('inst-e2e', 'starter');
   await page.goto(be.editorUrl);
   await expect(status(page)).toContainText('connected');
@@ -89,16 +89,7 @@ test('the scatter dialog makes one entity that draws many copies; the buffer rou
   });
   expect(ghost.ok).toBe(false);
 
-  // In Play the set is drawn too (the camera starts near the pillars).
-  await page.getByTitle('Start an isolated play preview').click();
-  await expect(playCanvas(page)).toHaveAttribute('data-tl-renderer-state', 'ready', { timeout: 30_000 });
-  await expect(page.locator('.tl-notice')).toHaveCount(0);
-  await page.screenshot({ path: 'test-results/instances-play.png' });
-});
-
-test('an instance set in a scene loaded during Play is drawn once the scene loads', async ({ page }) => {
-  be = await startBackend('inst-load', 'starter');
-  // A row of pillars along the start ground (x 2..14), published through the route MCP uses.
+  // A second set, in a scene that is not loaded at the start: a row of pillars along the start ground (x 2..14), published through the route MCP uses.
   const transforms: number[] = [];
   for (let i = 0; i < 25; i += 1) transforms.push(2 + i * 0.5, 0, -2 - (i % 3), 0, 0, 0, 1, 0.3, 0.3, 0.3);
   const published = await api('content/buffers', { transforms });
@@ -109,11 +100,15 @@ test('an instance set in a scene loaded during Play is drawn once the scene load
   await cmd('createScene', { sceneId: 'scene-grove', name: 'Grove' });
   await cmd('createEntity', { sceneId: 'scene-grove', kind: 'group', name: 'Grove', components: { instances: { asset: { assetId: pillar }, buffer: published.json.digest, count: 25 } } });
 
-  await page.goto(be.editorUrl);
-  await expect(status(page)).toContainText('connected');
+  // In Play the set is drawn too (the camera starts near the pillars).
   const started = page.waitForResponse((r) => r.request().method() === 'POST' && r.url().endsWith('/play'));
   await page.getByTitle('Start an isolated play preview').click();
   const psid = String(((await (await started).json()) as { playSessionId: string }).playSessionId);
+  await expect(playCanvas(page)).toHaveAttribute('data-tl-renderer-state', 'ready', { timeout: 30_000 });
+  await expect(page.locator('.tl-notice')).toHaveCount(0);
+  await page.screenshot({ path: 'test-results/instances-play.png' });
+
+  // The set in the scene loaded during Play is drawn once the scene loads.
   const observe = async () => (await api(`play/${psid}/observe`, {})).json as { state?: string; scenes?: { loaded: string[] } };
   await expect.poll(async () => (await observe()).state, { timeout: 15_000 }).toBe('running');
   await page.screenshot({ path: 'test-results/instances-before-load.png' });

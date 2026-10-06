@@ -13,7 +13,7 @@
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { expect, test } from '@playwright/test';
+import { expect, test } from './pw';
 
 import { AUDIO_TOOLCHAIN, FONT_TOOLCHAIN, inspectAudio, inspectFont } from '@thirdlight/asset-pipeline';
 import { defaultResourcePath, RESOURCE_KINDS, resourceFileBytes } from '@thirdlight/workspace';
@@ -35,7 +35,9 @@ const over = (n: number): number => Math.ceil(n * 1.5);
 const SPEC: ScaleSpec = {
   ...SCALE_SMALL,
   voices: over(OLD.versionRecords) - over(OLD.sounds) - over(OLD.textures) - over(OLD.models) - over(OLD.fonts) + 1,
-  voiceMaxMs: 1_000,
+  // Short voices: they are here for their records' count, and each generated second is encoding and file time.
+  voiceMinMs: 400,
+  voiceMaxMs: 400,
   sounds: over(OLD.sounds),
   textures: over(OLD.textures),
   textureSize: 8,

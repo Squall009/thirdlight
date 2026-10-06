@@ -14,7 +14,7 @@
  * the play relays (exercises restart the run and hold it after a known number
  * of steps, then the observation reads that object's animator pose).
  */
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page } from './pw';
 
 import { publishBytes, publishScript, startBackend, type E2EBackend } from './backend';
 import { skinnedGlb } from './skinned-glb';

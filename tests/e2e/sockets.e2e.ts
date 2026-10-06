@@ -6,8 +6,8 @@
  * - Play (the simulation worker): a gem with a Socket component rides on
  *   `hand` (+0.25 m up) and follows the clip — its world position, read
  *   through tl_game_observe, is the table's plus the node's at the clip
- *   time; a script halves the table's playback speed at step 240 (the gem
- *   then moves at half the rate) and detaches the gem at step 760 (nothing
+ *   time; a script halves the table's playback speed at step 200 (the gem
+ *   then moves at half the rate) and detaches the gem at step 540 (nothing
  *   rides on a socket afterwards).
  * - The static export with the backend stopped does the same
  *   (`window.__thirdlightObserve`).
@@ -22,7 +22,7 @@ import { createServer, type Server } from 'node:http';
 import { tmpdir } from 'node:os';
 import { extname, join, normalize } from 'node:path';
 
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page } from './pw';
 
 import { startBackend, type E2EBackend } from './backend';
 import { socketGlb } from './socket-glb';
@@ -98,15 +98,15 @@ async function script(behaviorId: string, source: string, entityId: string, valu
   await cmd('setBehaviorProperties', { entityId, behaviorId, values });
 }
 
-/** Halves the table's playback speed at step 240 and lets the gem go at step 760 (keeping its world pose). */
+/** Halves the table's playback speed at step 200 and lets the gem go at step 540 (keeping its world pose). */
 const DIRECTOR = [
   'export default {',
   '  instantiate() { return {}; },',
   '  step(_state: unknown, ctx: any) {',
   "    if (ctx.phase !== 'intent' || ctx.sockets === undefined) return;",
   '    const p = ctx.properties;',
-  '    if (ctx.stepIndex === 240) ctx.animator(p.table).setSpeed(0.5);',
-  '    if (ctx.stepIndex === 760) ctx.sockets.detach(p.gem);',
+  '    if (ctx.stepIndex === 200) ctx.animator(p.table).setSpeed(0.5);',
+  '    if (ctx.stepIndex === 540) ctx.sockets.detach(p.gem);',
   '  },',
   '};',
   '',
@@ -122,9 +122,9 @@ const CONTROLLER = (assetId: string) => ({
   events: [],
 });
 
-/** The slide's clip time after `step` steps: 1× until step 240, then 0.5×; the clip loops every 4 s. */
+/** The slide's clip time after `step` steps: 1× until step 200, then 0.5×; the clip loops every 4 s. */
 function clipTime(step: number): number {
-  const t = step <= 240 ? step / HZ : 240 / HZ + (step - 240) / (2 * HZ);
+  const t = step <= 200 ? step / HZ : 200 / HZ + (step - 200) / (2 * HZ);
   return t % 4;
 }
 
@@ -159,11 +159,11 @@ async function sample(read: () => Promise<Observation | null>, gem: string, unti
   throw new Error(`the game did not reach step ${until} (last observed ${lastStep})`);
 }
 
-/** The gem follows the clip (x = −2 + clip time, y 0.75, z 0.5) at 1 m/s, then 0.5 m/s, and is let go after step 760. */
+/** The gem follows the clip (x = −2 + clip time, y 0.75, z 0.5) at 1 m/s, then 0.5 m/s, and is let go after step 540. */
 function checkSamples(samples: { step: number; p: [number, number, number] | null }[], what: string): void {
   let near = 0;
   for (const s of samples) {
-    if (s.step < 20 || s.step > 755) continue;
+    if (s.step < 20 || s.step > 535) continue;
     const t = clipTime(s.step);
     // Skip samples near the loop's wrap (the observed step and the drawn frame may straddle it).
     if (t < 0.05 || t > 3.95) continue;
@@ -182,14 +182,14 @@ function checkSamples(samples: { step: number; p: [number, number, number] | nul
     const last = list[list.length - 1]!;
     return ((last.p![0] - first.p![0]) / (last.step - first.step)) * HZ;
   };
-  const early = within(30, 230); // clip time 0.25–1.9 s
-  const late = within(260, 700); // clip time 2.1–3.9 s, at half speed
+  const early = within(30, 190); // clip time 0.25–1.6 s
+  const late = within(220, 520); // clip time 1.75–3.0 s, at half speed
   expect(early.length).toBeGreaterThan(3);
   expect(late.length).toBeGreaterThan(3);
   expect(Math.abs(rate(early) - 1), `${what}: 1 m/s before the speed change`).toBeLessThan(0.05);
   expect(Math.abs(rate(late) - 0.5), `${what}: 0.5 m/s after it`).toBeLessThan(0.03);
-  // Detached at step 760: no socket reported afterwards.
-  const after = samples.filter((s) => s.step > 765);
+  // Detached at step 540: no socket reported afterwards.
+  const after = samples.filter((s) => s.step > 545);
   expect(after.length).toBeGreaterThan(0);
   for (const s of after) expect(s.p, `${what}: let go at step ${s.step}`).toBeNull();
 }
@@ -233,7 +233,7 @@ test('a socket follows an animated node in Play and the export; a script halves 
   };
   const first = await read();
   expect(first?.sockets?.[0], JSON.stringify(first)).toMatchObject({ entityId: gem, target: table, node: 'hand' });
-  checkSamples(await sample(read, gem, 820), 'Play');
+  checkSamples(await sample(read, gem, 600), 'Play');
   await page.getByTitle('Stop the play preview').click();
 
   // The static export with the backend stopped.
@@ -248,7 +248,7 @@ test('a socket follows an animated node in Play and the export; a script halves 
     await game.goto(site.url);
     const observe = (): Promise<Observation | null> => game.evaluate(() => ((window as unknown as { __thirdlightObserve?: () => unknown }).__thirdlightObserve?.() ?? null) as Observation | null);
     await expect.poll(async () => (await observe())?.stepIndex ?? 0, { timeout: 60_000 }).toBeGreaterThan(0);
-    checkSamples(await sample(observe, gem, 820), 'export');
+    checkSamples(await sample(observe, gem, 600), 'export');
     expect(errors).toEqual([]);
   } finally {
     await game.close();

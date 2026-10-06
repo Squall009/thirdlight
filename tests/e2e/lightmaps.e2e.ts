@@ -14,7 +14,7 @@
  */
 import { spawnSync } from 'node:child_process';
 
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page } from './pw';
 import * as THREE from 'three';
 
 import { startBackend, type E2EBackend } from './backend';
@@ -72,7 +72,36 @@ function brightnessAt(img: Image, world: [number, number, number]): number {
 interface Scene {
   ground: string;
   cube: string;
-  play: () => Promise<Image>;
+  play: (shows: (img: Image) => boolean) => Promise<Image>;
+}
+
+const shadowSpot: [number, number, number] = [0.95, 0, -0.75];
+const litSpot: [number, number, number] = [-0.95, 0, -0.75];
+
+/** The cube's face toward the camera: the sun grazes it, so it is darker than the lit ground once the scene is drawn. */
+const cubeFront: [number, number, number] = [0, 0.5, 0.5];
+
+/**
+ * Before a bake: the scene drawn (the ground lit, the cube's face darker than
+ * it) and the same as the frame before (loaded and staying put). Whether the
+ * shadow is absent is asserted on that frame, not waited for.
+ */
+function steadyLit(): (img: Image) => boolean {
+  let last = -1;
+  return (img) => {
+    const lit = brightnessAt(img, litSpot);
+    const steady = Math.abs(lit - last) < 1;
+    last = lit;
+    return lit > 60 && lit - brightnessAt(img, cubeFront) > 10 && steady;
+  };
+}
+
+/** After a bake: the shadow and the lit ground's brightness the step asserts (the lightmaps load after the first frames). */
+function bakedShadow(beforeLit: number, shadowShare: number, minRatio: number, maxRatio: number): (img: Image) => boolean {
+  return (img) => {
+    const lit = brightnessAt(img, litSpot);
+    return brightnessAt(img, shadowSpot) < lit * shadowShare && lit / beforeLit > minRatio && lit / beforeLit < maxRatio;
+  };
 }
 
 async function openScene(page: Page, variant: RendererVariant = 'auto'): Promise<Scene> {
@@ -88,20 +117,22 @@ async function openScene(page: Page, variant: RendererVariant = 'auto'): Promise
   await cmd('setComponent', { entityId: 'light-0001', component: 'light', value: { type: 'directional', color: '#ffffff', intensity: 1.2, direction: [0.4, -1, -0.3], castShadow: false, mode: 'baked' } });
   await cmd('setComponent', { entityId: 'light-0002', component: 'light', value: { type: 'ambient', color: '#8090a8', intensity: 0.6, mode: 'baked' } });
   const frame = page.locator('iframe.tl-app__preview-frame');
-  const play = async (): Promise<Image> => {
+  const play = async (shows: (img: Image) => boolean): Promise<Image> => {
     await page.getByTitle('Start an isolated play preview').click();
     await expect(frame).toBeVisible();
     await expectRendererBackend(page.frameLocator('iframe.tl-app__preview-frame').locator('canvas').first(), variant);
-    await page.waitForTimeout(2500);
-    const img = decodePng(await frame.screenshot());
+    const shot: { img?: Image } = {};
+    await expect
+      .poll(async () => {
+        shot.img = decodePng(await frame.screenshot());
+        return shows(shot.img);
+      }, { timeout: 30_000, message: 'the Play frame the step waits for' })
+      .toBe(true);
     await page.getByTitle('Stop the play preview').click();
-    return img;
+    return shot.img!;
   };
   return { ground, cube, play };
 }
-
-const shadowSpot: [number, number, number] = [0.95, 0, -0.75];
-const litSpot: [number, number, number] = [-0.95, 0, -0.75];
 
 async function bakeOf(): Promise<{ atlases: string[]; entries: { entityId: string }[]; bakedLights: string[]; source: string; bounces: number }> {
   const config = await be.command({ op: 'queryGameConfig', projectId: be.projectId });
@@ -115,7 +146,7 @@ for (const variant of RENDERER_VARIANTS) test(`Bake preview puts the static cube
   const { ground, cube, play } = await openScene(page, variant);
 
   // Play before the bake: baked lights are realtime until a bake holds them — no shadow.
-  const before = await play();
+  const before = await play(steadyLit());
   const beforeShadow = brightnessAt(before, shadowSpot);
   const beforeLit = brightnessAt(before, litSpot);
   expect(Math.abs(beforeShadow - beforeLit)).toBeLessThan(15);
@@ -133,7 +164,7 @@ for (const variant of RENDERER_VARIANTS) test(`Bake preview puts the static cube
   expect(bake.atlases).toHaveLength(1);
 
   // Play after the bake: the shadow is in the lightmap; the lit ground stays about as bright.
-  const after = await play();
+  const after = await play(bakedShadow(beforeLit, 0.75, 0.6, 1.5));
   const afterShadow = brightnessAt(after, shadowSpot);
   const afterLit = brightnessAt(after, litSpot);
   console.log(`[lightmaps] ${variant} preview: before lit ${beforeLit.toFixed(1)} shadow ${beforeShadow.toFixed(1)}; after lit ${afterLit.toFixed(1)} shadow ${afterShadow.toFixed(1)}`);
@@ -156,7 +187,7 @@ test('Bake final runs Blender Cycles on the bake host; its lightmap shows the sh
   test.setTimeout(900_000);
   be = await startBackend('e2e-0001', undefined, { THIRDLIGHT_BAKE_HOST: bakeHost, THIRDLIGHT_BAKE_BLENDER: bakeBlender, THIRDLIGHT_BAKE_TIMEOUT_MINUTES: '12' });
   const { ground, cube, play } = await openScene(page);
-  const before = await play();
+  const before = await play(steadyLit());
   const beforeLit = brightnessAt(before, litSpot);
 
   await openWindow(page, 'Lighting');
@@ -174,7 +205,7 @@ test('Bake final runs Blender Cycles on the bake host; its lightmap shows the sh
   expect(bake.bounces).toBe(3);
   expect(bake.entries.map((e) => e.entityId).sort()).toEqual([cube, ground].sort());
 
-  const after = await play();
+  const after = await play(bakedShadow(beforeLit, 0.8, 0.7, 1.7));
   const afterShadow = brightnessAt(after, shadowSpot);
   const afterLit = brightnessAt(after, litSpot);
   console.log(`[lightmaps] final: before lit ${beforeLit.toFixed(1)}; after lit ${afterLit.toFixed(1)} shadow ${afterShadow.toFixed(1)}`);

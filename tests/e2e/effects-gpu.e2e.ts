@@ -12,7 +12,7 @@
  */
 import { join, resolve } from 'node:path';
 
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page } from './pw';
 
 import { serveHarness } from './parity';
 import { decodePng, type Image } from './png';

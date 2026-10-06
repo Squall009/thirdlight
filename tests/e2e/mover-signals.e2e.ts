@@ -13,7 +13,7 @@
  * character walks right into the trigger; its signal moves the held lift,
  * which carries the character up 2 m.
  */
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page } from './pw';
 
 import { STARTER, startBackend, type E2EBackend, controls } from './backend';
 import { menu } from './ui';
