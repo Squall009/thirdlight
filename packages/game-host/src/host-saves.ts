@@ -5,7 +5,7 @@
  * it, the game shell's save seam and the UI's slot pictures. Kept apart from
  * `host.ts` so the host only wires it in.
  */
-import type { Runtime, SaveSchema, SaveStorageInfo, SettingsFieldValue } from '@thirdlight/runtime';
+import { ambientOcclusionOf, renderScaleOf, type Runtime, type SaveSchema, type SaveStorageInfo, type SettingsFieldValue } from '@thirdlight/runtime';
 
 import type { ShellDeps } from './shell';
 import { createProjectSaveService, memoryProjectSaveBackend, type DeviceStorage, type ProjectSaveBackend, type ProjectSaveService, type ProjectSlotObservation, type ThumbnailCapture } from './project-saves';
@@ -35,6 +35,8 @@ export interface HostSavesConfig {
   readonly setVolume?: (bus: 'music' | 'sfx' | 'ui', value: number) => void;
   /** Apply a player's frame-rate cap (30, 60, 120 or 'none'). */
   readonly setFrameRateCap?: (fps: string) => void;
+  /** Apply a player's render settings (AO kind, render scale, dynamic resolution). */
+  readonly setRenderSettings?: (settings: { readonly ambientOcclusion?: 'off' | 'ssao' | 'gtao'; readonly renderScale?: number; readonly dynamicResolution?: boolean }) => void;
   /** True once the host is gone (answers are dropped). */
   readonly disposed: () => boolean;
 }
@@ -59,6 +61,14 @@ export function startHostSaves(c: HostSavesConfig): ProjectSaveService {
         if (value === 'low' || value === 'medium' || value === 'high') c.setQuality?.(value);
       } else if (binding === 'frameRateCap') {
         if (typeof value === 'string') c.setFrameRateCap?.(value);
+      } else if (binding === 'ambientOcclusion') {
+        const kind = ambientOcclusionOf(value);
+        if (kind !== undefined) c.setRenderSettings?.({ ambientOcclusion: kind });
+      } else if (binding === 'renderScale') {
+        const scale = renderScaleOf(value);
+        if (scale !== undefined) c.setRenderSettings?.({ renderScale: scale });
+      } else if (binding === 'dynamicResolution') {
+        if (typeof value === 'boolean') c.setRenderSettings?.({ dynamicResolution: value });
       } else if (typeof value === 'number') c.setVolume?.(binding, value);
     },
     log: (message) => console.warn(`[game-host] ${message}`),

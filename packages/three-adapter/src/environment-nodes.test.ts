@@ -15,7 +15,7 @@ import type { FogVolumeBox, PostPlan } from './environment-nodes';
 
 /** Each PMREM scene bake — into a new target or the one given. */
 const pmremBakes: ('new' | 'reused')[] = [];
-const built: { plan: PostPlan; updates: FogVolumeBox[][]; renders: number; disposed: boolean; luts: (THREE.Texture | null)[]; params: Pick<PostPlan, 'grading' | 'bloom'>[] }[] = [];
+const built: { plan: PostPlan; updates: FogVolumeBox[][]; renders: number; disposed: boolean; luts: (THREE.Texture | null)[]; params: Pick<PostPlan, 'grading' | 'bloom'>[]; scales: number[] }[] = [];
 
 vi.mock('three/webgpu', async (importOriginal) => {
   const real = await importOriginal<typeof import('three/webgpu')>();
@@ -39,14 +39,16 @@ vi.mock('./environment-nodes', async (importOriginal) => {
   return {
     ...real,
     buildPostPipeline: (_renderer: unknown, _scene: unknown, _camera: unknown, plan: PostPlan) => {
-      const rec = { plan, updates: [] as FogVolumeBox[][], renders: 0, disposed: false, luts: [] as (THREE.Texture | null)[], params: [] as Pick<PostPlan, 'grading' | 'bloom'>[] };
+      const rec = { plan, updates: [] as FogVolumeBox[][], renders: 0, disposed: false, luts: [] as (THREE.Texture | null)[], params: [] as Pick<PostPlan, 'grading' | 'bloom'>[], scales: [] as number[] };
       built.push(rec);
-      const passes = ['render', ...(plan.ssao ? ['ssao'] : []), ...(plan.fogVolumes ? ['fogVolumes'] : []), ...(plan.dof ? ['dof'] : []), ...(plan.bloom ? ['bloom'] : []), 'output', ...(plan.grading ? ['grading'] : []), ...(plan.aa !== 'none' ? [plan.aa] : [])];
+      const passes = ['render', ...(plan.ao ? [plan.ao.kind] : []), ...(plan.fogVolumes ? ['fogVolumes'] : []), ...(plan.dof ? ['dof'] : []), ...(plan.bloom ? ['bloom'] : []), 'output', ...(plan.grading ? ['grading'] : []), ...(plan.aa !== 'none' ? [plan.aa] : []), ...(plan.upscale ? [plan.upscale.filter] : [])];
       return {
         passes,
         update: (_c: unknown, v: FogVolumeBox[]) => rec.updates.push(v),
         setLut: (t: THREE.Texture | null) => rec.luts.push(t),
         setSize: () => undefined,
+        setScale: (s: number) => rec.scales.push(s),
+        internalSize: () => null,
         setParams: (p: Pick<PostPlan, 'grading' | 'bloom'>) => rec.params.push(p),
         render: () => (rec.renders += 1),
         dispose: () => (rec.disposed = true),
@@ -109,7 +111,8 @@ describe('environment renderer on WebGPURenderer', () => {
     expect(built).toHaveLength(1);
     const plan = built[0]!.plan;
     expect(plan.bloom).toEqual({ strength: 1.5, radius: 0.4, threshold: 0.85 });
-    expect(plan.ssao).toEqual({ radius: 0.3, intensity: 1 });
+    expect(plan.ao).toEqual({ kind: 'ssao', radius: 0.3, intensity: 1 });
+    expect(plan.upscale).toBeNull();
     expect(plan.dof).toEqual({ focus: 4, aperture: 0.002, maxBlur: 0.01 });
     expect(plan.grading).toMatchObject({ lift: 0.2, gamma: 1, gain: 1, vignette: 0.7 });
     expect(plan.aa).toBe('smaa');
@@ -125,8 +128,54 @@ describe('environment renderer on WebGPURenderer', () => {
     env.render(camera);
     expect(built).toHaveLength(2);
     expect(built[0]!.disposed).toBe(true);
-    expect(built[1]!.plan).toMatchObject({ bloom: null, ssao: null, dof: null, aa: 'none' });
+    expect(built[1]!.plan).toMatchObject({ bloom: null, ao: null, dof: null, aa: 'none' });
     expect(env.diagnostics().passes).toEqual(['render', 'output', 'grading']);
+    env.dispose();
+  });
+
+  it('render settings: the AO kind and a render scale rebuild the stack; under dynamic resolution a scale change only moves it', () => {
+    const renderer = nodeRenderer();
+    const env = createEnvironmentRenderer(renderer, new THREE.Scene(), { loadTexture: async () => null });
+    const camera = new THREE.PerspectiveCamera();
+    env.set({ quality: 'high', post: { ssao: { enabled: true } } });
+    env.render(camera);
+    expect(built.at(-1)!.plan.ao).toMatchObject({ kind: 'ssao' });
+    // GTAO: a new stack; off: no AO (and here no stack: nothing else is on).
+    env.setRender({ ao: 'gtao' });
+    env.render(camera);
+    expect(built.at(-1)!.plan.ao).toMatchObject({ kind: 'gtao' });
+    const n = built.length;
+    env.setRender({ ao: 'off' });
+    env.render(camera);
+    expect(built).toHaveLength(n);
+    expect(env.diagnostics().passes).toEqual([]);
+    // A render scale below 1 draws through a stack that upscales (no effects: not counted as post).
+    env.setRender({ scale: 0.75 });
+    env.render(camera);
+    expect(built.at(-1)!.plan.upscale).toEqual({ filter: 'fsr1', scale: 0.75 });
+    expect(env.diagnostics()).toMatchObject({ post: false, render: { scale: 0.75, upscale: 'fsr1' } });
+    // Another scale below 1 without dynamic resolution moves the built stack too (the key holds only "below 1").
+    const built1 = built.length;
+    env.setRender({ scale: 0.5 });
+    env.render(camera);
+    expect(built).toHaveLength(built1);
+    expect(built.at(-1)!.scales).toEqual([0.5]);
+    // Dynamic resolution keeps the upscale stage at scale 1 too: its changes rebuild nothing.
+    env.setRender({ scale: 1, dynamic: true });
+    env.setRender({ scale: 0.6 });
+    env.setRender({ scale: 0.9 });
+    env.render(camera);
+    expect(built).toHaveLength(built1);
+    expect(built.at(-1)!.scales).toEqual([0.5, 1, 0.6, 0.9]);
+    // Dynamic resolution off at scale 1: the stack goes (nothing else needs it).
+    env.setRender({ scale: 1, dynamic: false });
+    env.render(camera);
+    expect(built.at(-1)!.disposed).toBe(true);
+    expect(env.needsPipeline()).toBe(false);
+    env.setRender({ dynamic: true });
+    env.render(camera);
+    expect(built.at(-1)!.plan.upscale).toEqual({ filter: 'fsr1', scale: 1 });
+    expect(env.needsPipeline()).toBe(true);
     env.dispose();
     expect(built[1]!.disposed).toBe(true);
   });

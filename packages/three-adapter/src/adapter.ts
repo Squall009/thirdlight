@@ -40,6 +40,7 @@ import { compileIntoTarget, type Precompile } from './environment-nodes';
 import { INSTANCE_MATRIX_ATTRIBUTE } from './attribute-instancing';
 import { createEnvironmentRenderer, environmentHasLook, environmentTextureIds, layerEnvironment, renderPixelRatio, type EnvironmentLayerLike, type EnvironmentLike, type EnvironmentRenderer, type FogVolumeLike, type QualityLevel } from './environment';
 import { createGpuTiming } from './gpu-timing';
+import { createRenderControl } from './render-control';
 import * as THREE from 'three';
 import { syncCellUv } from './block-cell-uv';
 import { BlockLayerView, blockLookFromObject, type BlockLayerViewDiagnostics, type BlockModelLook } from './block-layers';
@@ -367,6 +368,8 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   /** The last drawn frame's counts. */
   const lastFrameCounts = { drawCalls: 0, triangles: 0 };
   const gpuTiming = createGpuTiming();
+  // AO kind, render scale and dynamic resolution, applied to the environment renderer.
+  const renderControl = createRenderControl(opts.render);
   /** The transform sync for `forEachInterpolated` (one function for the adapter's life): into the world table. */
   const applyInterpolated = (id: string, position: readonly number[], rotation: readonly number[], scale: readonly number[]): void => {
     graph.world.setLocal(id, position, rotation, scale);
@@ -1301,7 +1304,8 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   /** One frame; `force`: drawn even while a precompile runs (a capture needs this frame's picture). */
   function drawFrame(force: boolean): { ok: true } | { ok: false; error: AdapterError } {
     if (disposed) return { ok: false, error: adapterError('adapter_disposed', 'adapter is disposed') };
-    const renderStart = opts.onFrameDrawn !== undefined ? performance.now() : 0;
+    const frameStart = performance.now();
+    const renderStart = opts.onFrameDrawn !== undefined ? frameStart : 0;
     if (firstRenderCallAt === null) firstRenderCallAt = renderStart;
     if (contextLost) {
       // The context is currently lost: render nothing (three.js re-initializes
@@ -1456,7 +1460,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       // With the scenes' looks given, only once there is something to draw (a look, presets, a blend):
       // a game whose scenes set no look renders as one without an environment.
       const wanted = opts.environment !== undefined && (sceneLooks === null || effectiveEnvironment() !== null || envPresets.size > 0 || envBlendActive);
-      if ((wanted || playerQuality !== null) && environmentRenderer === null) {
+      if ((wanted || playerQuality !== null || renderControl.needsEnvironment()) && environmentRenderer === null) {
         // The sky, its faces and the grading LUT are held for the environment's life. They are the same
         // decoded textures materials draw with (the environment builds its cube, equirect copy and LUT
         // from their images and never changes them), so a texture used by both is decoded once.
@@ -1472,6 +1476,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
         applyEnvironmentBlend();
       }
       if (environmentRenderer !== null) {
+        renderControl.apply(environmentRenderer);
         const keyDir = lights.keyDirection();
         environmentRenderer.setKeyLightDirection(keyDir !== undefined ? [keyDir[0], keyDir[1], keyDir[2]] : null);
         environmentRenderer.setFogVolumes(fogVolumesNow());
@@ -1531,6 +1536,8 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     lastFrameDrawn = true;
     probes.frameDrawn();
     gpuTiming.afterFrame(renderer);
+    const drawnAt = performance.now();
+    renderControl.frameDrawn(environmentRenderer, drawnAt, drawnAt - frameStart, gpuTiming);
     presentedRevision = realizedRevision;
     if (opts.onFrameDrawn !== undefined) {
       const realized = frameRealized.splice(0);
@@ -1605,7 +1612,9 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     }
     if (!disposed && blockView.layerIds().length > 0) d.blocks = blockView.diagnostics();
     if (!disposed && materialLibrary !== null && runtimeMaterials !== null) d.materials = { graphMaterials: materialLibrary.graphMaterialCount(), ...(materialSwaps !== null && (materialSwaps.applied > 0 || materialSwaps.pending() > 0) ? { swapsApplied: materialSwaps.applied, swapsPending: materialSwaps.pending() } : {}), ...runtimeMaterials.diagnostics() };
-    if (environmentRenderer !== null && !disposed) d.environment = environmentRenderer.diagnostics();
+    const envDiagnostics = environmentRenderer !== null && !disposed ? environmentRenderer.diagnostics() : null;
+    if (envDiagnostics !== null) d.environment = envDiagnostics;
+    if (!disposed && lastFrameDrawn) d.render = { ...renderControl.diagnostics(), internal: envDiagnostics?.render.internal ?? null };
     const probeState = disposed ? null : probes.observe();
     if (probeState !== null) d.probes = probeState;
     if (opts.textureStreamer !== undefined && !disposed) d.textures = opts.textureStreamer.observe();
@@ -1717,6 +1726,10 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     renderedNodes: (entityId, names) => (disposed ? null : (animatorPlayers.get(entityId)?.player.nodePoses(names) ?? null)),
     setLodTuning(tuning: { readonly bias?: number; readonly hysteresis?: number }): void {
       if (graph.lodTuning.set(tuning)) opts.onChange?.();
+    },
+    setRenderSettings(settings) {
+      renderControl.set(settings);
+      opts.onChange?.();
     },
     setQuality(level: QualityLevel): void {
       playerQuality = level;

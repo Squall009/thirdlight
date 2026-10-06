@@ -101,11 +101,31 @@ test('Project Settings: every sub-tab shows its panel and its edits round-trip t
   await expect(cap.locator('option')).toHaveText(["None (the display's rate)", '30 fps', '60 fps', '120 fps']);
   await cap.selectOption('30');
   await expect.poll(async () => (await settings())['frame_rate_cap']).toBe(30);
+  // Ambient occlusion (SSAO by default), the render scale and dynamic resolution.
+  const ao = quality.getByLabel('settings ambient_occlusion', { exact: true });
+  await expect(ao).toHaveValue('1');
+  await expect(ao.locator('option')).toHaveText(['Off', 'SSAO (fast, half resolution)', 'GTAO (quality)']);
+  await ao.selectOption('2');
+  await expect.poll(async () => (await settings())['ambient_occlusion']).toBe(2);
+  const scale = quality.getByLabel('settings render_scale', { exact: true });
+  await scale.fill('0.75');
+  await scale.press('Enter');
+  await expect.poll(async () => (await settings())['render_scale']).toBe(0.75);
+  const drs = quality.getByLabel('settings dynamic_resolution', { exact: true });
+  await expect(drs).toHaveValue('0');
+  await drs.selectOption('1');
+  await expect.poll(async () => (await settings())['dynamic_resolution']).toBe(1);
 
   // Saves: add the schema.
   await openProjectSettings(page, 'Saves');
   await panel('Saves').getByLabel('project saves').getByRole('button', { name: 'add save schema' }).click();
   await expect.poll(async () => (await gameConfig())['saveSchema']).toEqual({ version: 1, slots: 3, legacyWorld: false });
+  // A player's settings field driving the render scale takes its shape (a 0.5–1 number).
+  const saves = panel('Saves').getByLabel('project saves');
+  await saves.getByRole('button', { name: 'add setting' }).click();
+  await saves.getByLabel('setting 0 engine', { exact: true }).selectOption('renderScale');
+  await saves.getByRole('button', { name: 'apply save schema' }).click();
+  await expect.poll(async () => ((await gameConfig())['saveSchema'] as { settings?: unknown[] }).settings).toEqual([{ key: 'setting1', type: 'number', min: 0.5, max: 1, default: 1, engine: 'renderScale' }]);
 
   // Game modes: add a behavior group.
   await openProjectSettings(page, 'Game modes');

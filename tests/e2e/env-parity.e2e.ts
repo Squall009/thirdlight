@@ -180,6 +180,58 @@ function notPlain(name: CaseName, label: string, got: Rendered): void {
 
 const project = (): string => test.info().project.name;
 
+/**
+ * Ambient occlusion darkens only the indirect light: under the sphere and at
+ * the boxes' feet the ambient-only scene darkens a lot with SSAO and GTAO,
+ * the sunlit scene only by the ambient light's share there; open ground does
+ * not change. (The `ssao` parity case above still matches the archived
+ * reference within its loose rule; this is what the rule cannot tell.)
+ */
+test('ambient occlusion darkens the indirect light, not the sun', async ({ page }) => {
+  test.setTimeout(150_000);
+  const backend = project() === 'webgpu' ? 'webgpu' : 'webgl2';
+  // The history the lit programs sample must stay a live texture (a destroyed one reads as no occlusion).
+  const gpuErrors: string[] = [];
+  page.on('console', (m) => {
+    if (/GPUValidationError|deleted object|Destroyed texture/i.test(m.text())) gpuErrors.push(m.text().slice(0, 200));
+  });
+  const shot = async (ao: string, light: string): Promise<Image> => {
+    await page.setViewportSize({ width: WIDTH, height: HEIGHT });
+    await page.goto(`${harness!.base}?backend=${backend}&case=ssao&ao=${ao}&light=${light}`);
+    await expect.poll(() => page.evaluate(() => (window as unknown as { __envCase?: unknown }).__envCase !== undefined), { timeout: 60_000 }).toBe(true);
+    const result = await page.evaluate(() => (window as unknown as { __envCase: { ok: boolean; error?: string; passes?: string[] } }).__envCase);
+    expect(result.ok, result.error).toBe(true);
+    if (ao !== 'off') expect(result.passes).toContain(ao);
+    return decodePng(await page.locator('canvas').screenshot());
+  };
+  // Under the sphere, at the grey box's foot, open ground (screen points of the 320 × 240 harness view).
+  const crease: [number, number][] = [
+    [165, 180],
+    [150, 180],
+    [95, 176],
+  ];
+  const open: [number, number] = [40, 200];
+  const lum = (img: Image, [x, y]: [number, number]): number => {
+    let s = 0;
+    for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) s += img.pixel(x + dx, y + dy).slice(0, 3).reduce((a, b) => a + b, 0) / 3;
+    return s / 25;
+  };
+  for (const light of ['ambient', 'sun']) {
+    const off = await shot('off', light);
+    for (const ao of ['ssao', 'gtao']) {
+      const on = await shot(ao, light);
+      const ratios = crease.map((p) => lum(on, p) / lum(off, p));
+      const darkest = Math.min(...ratios);
+      console.log(`[env-parity] ${backend} ${ao} ${light}: crease ratios ${ratios.map((r) => r.toFixed(2)).join(' ')}, open ${lum(off, open).toFixed(1)} → ${lum(on, open).toFixed(1)}`);
+      expect(Math.abs(lum(on, open) - lum(off, open))).toBeLessThan(2);
+      // Only indirect light: the creases darken clearly. With the sun: hardly (the sun is most of their light).
+      if (light === 'ambient') expect(darkest).toBeLessThan(0.85);
+      else expect(darkest).toBeGreaterThan(0.93);
+    }
+  }
+  expect(gpuErrors).toEqual([]);
+});
+
 for (const name of CASES) {
   test(`${name}: WebGPURenderer matches the WebGL environment reference`, async ({ page }) => {
     test.setTimeout(150_000);

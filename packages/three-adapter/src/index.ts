@@ -256,8 +256,15 @@ export {
   type FogVolumeLike,
   type PostLike,
   type QualityLevel,
+  RENDER_OPTIONS_DEFAULT,
+  type RenderOptions,
   type SkyLike,
 } from './environment';
+// Ambient occlusion on the indirect light, render scale with FSR 1 upscaling, dynamic resolution.
+export { AO_RESOLUTION_SCALE } from './post-ao';
+export { FSR_SHARPNESS, UPSCALE_URL_PARAM, upscaleFilterFromUrl, type UpscaleFilter } from './post-upscale';
+export { DynamicResolution, SLOW_FRAMES_URL_PARAM, slowFramesFromUrl, type DynamicResolutionFrame, type DynamicResolutionState } from './dynamic-resolution';
+export { createRenderControl, RENDER_URL_PARAMS, renderSettingsFromUrl, type RenderControl, type RenderControlDiagnostics, type RenderControlOptions, type RenderSettingsLike } from './render-control';
 // Lightmaps (runtime application; the editor's baker uses the same UV1 layout).
 export {
   addBoxLightmapUv,

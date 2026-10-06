@@ -40,7 +40,7 @@ import { extractedImagePictures, TileThumbnails } from '../viewport/thumbnails';
 import { setKtx2DecoderBase, pageSearch, resolveRendererPreference, type EnvironmentLike, type LightingBakeLike, type MaterialDefLike, type MaterialFunctionLike, type MaterialLibrary, type RendererInfo, type WindLike } from '@thirdlight/three-adapter';
 import { editorRendererChoice, setEditorRendererChoice } from '../viewport/renderer-choice';
 import type { EffectComponent, MaterialDef } from '@thirdlight/project-model';
-import { lodTuningOf } from '@thirdlight/project-model/limits';
+import { lodTuningOf, renderSettingsOf } from '@thirdlight/project-model/limits';
 import { withSlotTextureKeys } from '../session/texture-slots';
 import { viewLensOf } from '@thirdlight/runtime';
 import { Hierarchy, type SceneAction, type SceneHeaderView } from './Hierarchy';
@@ -496,6 +496,13 @@ function EditorApp(): JSX.Element {
   useEffect(() => {
     viewportRef.current?.setLodTuning(lodTuningOf({ lod_bias: lodBiasSetting, lod_hysteresis: lodHysteresisSetting }));
   }, [lodBiasSetting, lodHysteresisSetting]);
+
+  // The project's ambient occlusion kind: the Scene view draws a look's AO as Play does (render scale and dynamic
+  // resolution are Play's and the export's: the Scene view stays at full resolution).
+  const aoSetting = settings?.['ambient_occlusion'];
+  useEffect(() => {
+    viewportRef.current?.setAmbientOcclusion(renderSettingsOf({ ambient_occlusion: aoSetting }).ambientOcclusion);
+  }, [aoSetting]);
 
   // The project's render_backend setting (under the page's ?renderer= flag) picks the
   // Scene view's backend and the one previews and thumbnails create their renderer with.

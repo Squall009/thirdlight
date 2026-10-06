@@ -32,6 +32,7 @@
  */
 import type { ModelErrorV2 } from './errors';
 import { FRAME_RATE_CAP_CHOICES } from './frame-rate-cap';
+import { AMBIENT_OCCLUSION_KINDS, RENDER_SCALE_MAX, RENDER_SCALE_MIN } from './render-settings';
 import { utf8Encode } from './sha256';
 import { fieldType, unexpectedField, withFound } from './validate';
 
@@ -97,7 +98,7 @@ export const SAVE_SECTIONS = ['grid', 'materials', 'spawned', 'storage', 'enviro
 export type SaveSection = (typeof SAVE_SECTIONS)[number];
 
 /** Engine settings a settings field may drive (the host applies them). */
-export const SETTINGS_ENGINE_BINDINGS = ['music', 'sfx', 'ui', 'quality', 'frameRateCap'] as const;
+export const SETTINGS_ENGINE_BINDINGS = ['music', 'sfx', 'ui', 'quality', 'frameRateCap', 'ambientOcclusion', 'renderScale', 'dynamicResolution'] as const;
 export type SettingsEngineBinding = (typeof SETTINGS_ENGINE_BINDINGS)[number];
 
 export interface SaveMigration {
@@ -126,7 +127,10 @@ export interface SettingsField {
   max?: number;
   /** enum: the choices. */
   values?: string[];
-  /** An engine setting this field drives (music/sfx/ui: a number 0–1; quality: an enum of low/medium/high; frameRateCap: an enum of 30/60/120/none). */
+  /**
+   * An engine setting this field drives (music/sfx/ui: a number 0–1; quality: an enum of low/medium/high; frameRateCap: an enum of 30/60/120/none;
+   * ambientOcclusion: an enum of off/ssao/gtao; renderScale: a number within 0.5–1; dynamicResolution: a bool).
+   */
   engine?: SettingsEngineBinding;
 }
 
@@ -198,6 +202,12 @@ function validateField(f: unknown, path: string, errors: ModelErrorV2[]): void {
     if (!(SETTINGS_ENGINE_BINDINGS as readonly unknown[]).includes(engine)) errors.push(bad(`${path}/engine`, engine, `engine is one of ${SETTINGS_ENGINE_BINDINGS.join(', ')}`, SETTINGS_ENGINE_BINDINGS.join(' | ')));
     else if (engine === 'frameRateCap') {
       if (type !== 'enum' || !Array.isArray(f['values']) || !f['values'].every((v) => (FRAME_RATE_CAP_CHOICES as readonly unknown[]).includes(v))) errors.push(bad(`${path}/engine`, engine, `a field driving the frame-rate cap is an enum of ${FRAME_RATE_CAP_CHOICES.join(', ')}`, `an enum of ${FRAME_RATE_CAP_CHOICES.join(' | ')}`));
+    } else if (engine === 'ambientOcclusion') {
+      if (type !== 'enum' || !Array.isArray(f['values']) || !f['values'].every((v) => (AMBIENT_OCCLUSION_KINDS as readonly unknown[]).includes(v))) errors.push(bad(`${path}/engine`, engine, `a field driving the ambient occlusion is an enum of ${AMBIENT_OCCLUSION_KINDS.join(', ')}`, `an enum of ${AMBIENT_OCCLUSION_KINDS.join(' | ')}`));
+    } else if (engine === 'renderScale') {
+      if (type !== 'number' || typeof f['min'] !== 'number' || typeof f['max'] !== 'number' || f['min'] < RENDER_SCALE_MIN || f['max'] > RENDER_SCALE_MAX) errors.push(bad(`${path}/engine`, engine, `a field driving the render scale is a number with min ≥ ${RENDER_SCALE_MIN} and max ≤ ${RENDER_SCALE_MAX}`, `a number field (min ≥ ${RENDER_SCALE_MIN}, max ≤ ${RENDER_SCALE_MAX})`));
+    } else if (engine === 'dynamicResolution') {
+      if (type !== 'bool') errors.push(bad(`${path}/engine`, engine, 'a field driving dynamic resolution is a bool', 'a bool field'));
     } else if (engine === 'quality') {
       if (type !== 'enum' || !Array.isArray(f['values']) || !f['values'].every((v) => QUALITY.includes(v as string))) errors.push(bad(`${path}/engine`, engine, 'a field driving the quality is an enum of low, medium and/or high', 'an enum of low | medium | high'));
     } else if (type !== 'number' || (f['min'] !== undefined && (f['min'] as number) < 0) || (f['max'] !== undefined && (f['max'] as number) > 1)) {

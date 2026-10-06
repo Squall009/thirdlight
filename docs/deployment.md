@@ -3346,6 +3346,48 @@ the stats overlay shows the cap. The page URL flag `?frameRateCap=none|30|60|120
 pins the pacing whatever the game sets (Play takes the editor's); the
 performance harness always runs with `none`.
 
+**Ambient occlusion, render scale and dynamic resolution.** Three render
+settings a game sets in **Project Settings → Quality → Rendering** and a
+player may change:
+
+- **Ambient occlusion** (`ambient_occlusion`: 0 off, 1 SSAO — the default —,
+  2 GTAO) is the kind drawn where a scene's look turns AO on (Post →
+  Ambient occlusion, its radius and intensity). It darkens only the
+  *indirect* light — ambient, sky and probe light, and reflections — in
+  creases and corners; the sun and lamps are never dimmed (before, the AO
+  darkened the whole finished picture, sunlit walls included). SSAO is
+  three's fast screen-space AO at half resolution; GTAO is darker and more
+  exact, at about twice its cost. Each frame uses the occlusion computed from
+  the previous one, reprojected (a surface just uncovered gets none for one
+  frame; nothing is drawn twice). Transparent materials take none.
+- **Render scale** (`render_scale`, 0.5–1, default 1) draws the 3D view of
+  Play and the export at that share of the screen's resolution — 0.75 draws
+  about half the pixels, the post effects included — and upscales it with AMD
+  FidelityFX Super Resolution 1 (an edge-adaptive upscale, then sharpening).
+  The Scene view always draws at full resolution.
+- **Dynamic resolution** (`dynamic_resolution`, 0 off — the default — or 1)
+  lowers the render scale, down to 0.5, while the GPU takes longer than a
+  frame (the frame-rate cap's, else 60 fps) and raises it again, up to the
+  render scale, when it has room. It reads the GPU's time from timestamp
+  queries (turned on for it); where the browser has none it reads the time
+  between frames and only acts when the page's own work is well inside the
+  frame (fewer pixels do not help a frame slow on the CPU). Decisions are
+  made every 250 ms, a step down needs two slow windows in a row, a step up
+  six fast ones predicted to stay fast at the higher scale, and a step up
+  that does not hold doubles the wait for the next one, so the scale does not
+  flicker.
+
+A player's setting: a field of the save schema's settings document bound to
+the engine with `engine: 'ambientOcclusion'` (an enum of `off`, `ssao`,
+`gtao`), `'renderScale'` (a number field with `min` ≥ 0.5 and `max` ≤ 1) or
+`'dynamicResolution'` (a bool) applies its value from the start and whenever
+the document is written — the game's settings screen, or a script's
+`ctx.saves.setSetting`. The Saves panel gives a new binding its shape.
+Play diagnostics report `renderer.render` (`ambientOcclusion`, `renderScale`,
+`dynamicResolution`, the `scale` drawn now, `internal`: the scene's size in
+pixels, and dynamic resolution's state: its source `gpu` or `frame`, the last
+load, steps down and up).
+
 ## Grading and fog volumes
 
 In the Environment window, post-processing grading has **lift**
@@ -3773,7 +3815,9 @@ slightly different blur shape; the low quality level also turns MSAA off.
 A game view (Play, the export, the Scene view) renders one drawing-buffer
 pixel per CSS pixel on any display, so a HiDPI or scaled screen costs no more
 than a plain one. Under a post stack the scene is drawn without MSAA (the
-stack's SMAA or FXAA anti-aliases) and ambient occlusion at half resolution.
+stack's SMAA or FXAA anti-aliases) and ambient occlusion at half resolution
+(it darkens only the indirect light since phase 29: see the render settings
+under the frame-rate cap).
 
 **Shadows (phase 17.4).** Boxes, models and instance sets cast and receive
 the sun's (the directional light's) realtime shadow when the light has "Cast
@@ -4778,6 +4822,14 @@ on an export's URL they apply directly):
 - `?threads=off` — the simulation on the page's main thread (a debug
   switch; also a play's `threads` and the `sim_thread` setting);
 - `?frameRateCap=none|30|60|120` — pins the frame-rate cap;
+- `?ao=off|ssao|gtao`, `?renderScale=0.5…1`, `?dynamicResolution=on|off` —
+  pin the render settings over the project's (an export's URL; the perf
+  harness's `--switches`);
+- `?upscale=bilinear` — a render scale below 1 upscaled with plain bilinear
+  filtering instead of FSR 1;
+- `?slowFrames=N` — dynamic resolution counts the first N seconds' frames as
+  two frames slower than they were (a forced overload: the scale steps down,
+  and back up after);
 - `?simDelayMs=N` — slows the simulation worker by N ms a frame (tests of the
   pipeline);
 - `?workers=off` (editor only) — the editor's jobs inline (block meshing

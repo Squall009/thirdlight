@@ -8,10 +8,12 @@
  * - `gradientSkyMaterial`: the gradient dome, the archived (WebGL) shader line by line;
  * - `buildPostPipeline`: the post stack as a `RenderPipeline` (three's node
  *   post-processing, renamed from `PostProcessing` in r183) in the archived WebGL
- *   pass order: scene → ambient occlusion (GTAO) → fog volumes → depth of
+ *   pass order: scene (its lit materials taking the last frame's ambient
+ *   occlusion into their indirect light, `post-ao.ts`) → fog volumes → depth of
  *   field → bloom → output (tone mapping + sRGB) → grading / LUT / vignette →
- *   SMAA / FXAA. The fog volume and grading passes mirror the archived (WebGL) GLSL line
- *   by line; AO, DOF, bloom, SMAA and FXAA are three's TSL display nodes.
+ *   SMAA / FXAA → upscale (render scale below 1, `post-upscale.ts`). The fog
+ *   volume and grading passes mirror the archived (WebGL) GLSL line by line;
+ *   AO, DOF, bloom, SMAA, FXAA and FSR 1 are three's TSL display nodes.
  *
  * Pure three.js (`three/webgpu`, `three/tsl`, examples); nothing here needs a
  * GPU until a renderer builds the nodes.
@@ -56,12 +58,13 @@ import {
 } from 'three/tsl';
 import { MeshBasicNodeMaterial, RenderPipeline, type WebGPURenderer } from 'three/webgpu';
 import { SkyMesh } from 'three/examples/jsm/objects/SkyMesh.js';
-import { ao } from 'three/examples/jsm/tsl/display/GTAONode.js';
 import { dof } from 'three/examples/jsm/tsl/display/DepthOfFieldNode.js';
 import { bloom } from 'three/examples/jsm/tsl/display/BloomNode.js';
 import { smaa } from 'three/examples/jsm/tsl/display/SMAANode.js';
 import { fxaa } from 'three/examples/jsm/tsl/display/FXAANode.js';
 import { releaseMrtContexts } from './dispose';
+import { buildAmbientOcclusion, type AmbientOcclusionStage, type AoKind, type ScreenSpaceOcclusion } from './post-ao';
+import { atScale, buildUpscale, scaledTexture, type ScaledTexture, type UpscaleFilter, type UpscaleStage } from './post-upscale';
 
 /** TSL nodes are loosely typed here (three's node typings are generic-heavy); values stay three objects. */
 type N = any;
@@ -69,8 +72,7 @@ type N = any;
 /** The fog volumes drawn: the model's per-scene cap. */
 export { MAX_FOG_VOLUMES };
 
-/** Resolution of the ambient-occlusion pass relative to the scene pass. */
-export const AO_RESOLUTION_SCALE = 0.5;
+export { AO_RESOLUTION_SCALE } from './post-ao';
 
 /** The physical sky's parameters (the project's `sky` fields). */
 export interface SkyParams {
@@ -154,7 +156,8 @@ export function imageSkyMaterial(source: { color: THREE.Color } | { equirect: TH
 
 /** What the post stack does (already reduced by the quality level). */
 export interface PostPlan {
-  ssao: { radius: number; intensity: number } | null;
+  /** Ambient occlusion on the lit materials' indirect light (`post-ao.ts`). */
+  ao: { kind: AoKind; radius: number; intensity: number } | null;
   fogVolumes: boolean;
   dof: { focus: number; aperture: number; maxBlur: number } | null;
   bloom: { strength: number; radius: number; threshold: number } | null;
@@ -180,6 +183,8 @@ export interface PostPlan {
   displayBackground: boolean;
   /** MSAA samples of the scene pass (0: none). */
   samples: number;
+  /** Drawn at a share of the screen's resolution and upscaled (null: at the screen's; `scale` is the first frame's, `setScale` moves it). */
+  upscale: { filter: UpscaleFilter; scale: number } | null;
 }
 
 /** A fog volume in world space (min/max corners). */
@@ -201,6 +206,10 @@ export interface PostPipeline {
   setLut(lut: THREE.Texture | null): void;
   /** The canvas size in CSS pixels (the depth of field's blur is in pixels). */
   setSize(width: number, height: number, pixelRatio: number): void;
+  /** The render scale (a pipeline built with `upscale`; else ignored): every scaled target follows at the next frame. */
+  setScale(scale: number): void;
+  /** The scene pass's size in pixels as last drawn (null before the first frame). */
+  internalSize(): [number, number] | null;
   /** New grading / vignette / bloom numbers for the built passes (uniforms: no rebuild, no new program). */
   setParams(params: Pick<PostPlan, 'grading' | 'bloom'>): void;
   render(): void;
@@ -223,7 +232,8 @@ function blankLut(): THREE.DataTexture {
   return t;
 }
 
-export function buildPostPipeline(renderer: WebGPURenderer, scene: THREE.Scene, camera: THREE.Camera, plan: PostPlan): PostPipeline {
+/** `aoLight`: the scene's occlusion light, which a plan with `ao` feeds (null: none in the scene). */
+export function buildPostPipeline(renderer: WebGPURenderer, scene: THREE.Scene, camera: THREE.Camera, plan: PostPlan, aoLight: ScreenSpaceOcclusion | null = null): PostPipeline {
   const disposables: { dispose(): void }[] = [];
   const passes: string[] = ['render'];
   const perspective = camera instanceof THREE.PerspectiveCamera;
@@ -232,7 +242,16 @@ export function buildPostPipeline(renderer: WebGPURenderer, scene: THREE.Scene, 
   // texture GTAO cannot sample on WebGPU (the AO pipeline fails to build).
   const scenePass: N = pass(scene, camera, { samples: plan.samples });
   disposables.push(scenePass);
-  const wantsAo = plan.ssao !== null && perspective;
+  const upscaling = plan.upscale !== null;
+  let scale = plan.upscale?.scale ?? 1;
+  const scaled: ScaledTexture[] = [];
+  /** `color` drawn into its own target at the scale (the input of a node that samples a texture). */
+  const atRenderScale = (c: N): N => {
+    const t = scaledTexture(c, scale);
+    scaled.push(t);
+    return t.node;
+  };
+  const wantsAo = plan.ao !== null && perspective && aoLight !== null;
   // The MRT node is kept so the render contexts drawn with it can be released with the pipeline.
   const sceneMrt: unknown = wantsAo ? mrt({ output, normal: normalView }) : null;
   if (wantsAo) scenePass.setMRT(sceneMrt);
@@ -243,17 +262,11 @@ export function buildPostPipeline(renderer: WebGPURenderer, scene: THREE.Scene, 
   const invProjection = uniform(new THREE.Matrix4());
   const cameraWorld = uniform(new THREE.Matrix4());
 
+  let aoStage: AmbientOcclusionStage | null = null;
   if (wantsAo) {
-    const aoNode: N = ao(depth, scenePass.getTextureNode('normal'), camera);
-    aoNode.radius.value = plan.ssao!.radius;
-    // Occlusion is low-frequency: half resolution is a quarter of the pass's cost.
-    aoNode.resolutionScale = AO_RESOLUTION_SCALE;
-    disposables.push(aoNode);
-    const intensity = uniform(plan.ssao!.intensity);
-    const occlusion = aoNode.getTextureNode().r;
-    // The archived GLSL blend: colour × mix(1, ao, intensity).
-    color = vec4(color.rgb.mul(mix(float(1), occlusion, intensity)), color.a);
-    passes.push('ssao');
+    aoStage = buildAmbientOcclusion(renderer, plan.ao!.kind, scenePass, camera, aoLight!, { radius: plan.ao!.radius, intensity: plan.ao!.intensity });
+    disposables.push(aoStage);
+    passes.push(plan.ao!.kind);
   }
 
   // ---- fog volumes (the archived (WebGL) TlFogVolumeShader, line by line) -----------------------
@@ -330,7 +343,7 @@ export function buildPostPipeline(renderer: WebGPURenderer, scene: THREE.Scene, 
   if (plan.dof !== null && perspective) {
     dofPlan = plan.dof;
     const focalLength = dofPlan.maxBlur / Math.max(1e-6, dofPlan.aperture);
-    const dofNode: N = dof(color, scenePass.getViewZNode(), uniform(dofPlan.focus), uniform(focalLength), bokehScale);
+    const dofNode: N = dof(upscaling ? atRenderScale(color) : color, scenePass.getViewZNode(), uniform(dofPlan.focus), uniform(focalLength), bokehScale);
     disposables.push(dofNode);
     color = dofNode;
     passes.push('dof');
@@ -342,6 +355,7 @@ export function buildPostPipeline(renderer: WebGPURenderer, scene: THREE.Scene, 
     // alpha-based intensity"); BloomNode does not: the project's strength keeps its meaning.
     bloomNode = bloom(color, plan.bloom.strength * 3, plan.bloom.radius, plan.bloom.threshold);
     disposables.push(bloomNode);
+    if (upscaling) bloomNode.setResolutionScale(BLOOM_RESOLUTION_SCALE * scale);
     // UnrealBloom adds its glow onto the picture (alpha unchanged).
     color = vec4(color.rgb.add(bloomNode.rgb), color.a);
     passes.push('bloom');
@@ -352,8 +366,9 @@ export function buildPostPipeline(renderer: WebGPURenderer, scene: THREE.Scene, 
 
   // The background as a display colour under the picture (premultiplied "over").
   const bgScene = plan.displayBackground ? new THREE.Scene() : null;
+  let bgPass: N = null;
   if (bgScene !== null) {
-    const bgPass: N = pass(bgScene, camera, { depthBuffer: false });
+    bgPass = pass(bgScene, camera, { depthBuffer: false });
     disposables.push(bgPass);
     const bg: N = renderOutput(bgPass.getTextureNode('output'), THREE.NoToneMapping);
     const fg = color;
@@ -408,17 +423,46 @@ export function buildPostPipeline(renderer: WebGPURenderer, scene: THREE.Scene, 
     passes.push('grading');
   }
 
+  // Under a render scale the picture is drawn at the scale up to here (anti-aliasing included: FSR 1 wants an
+  // anti-aliased input), then upscaled.
   if (plan.aa === 'smaa') {
-    const n: N = smaa(color);
+    const n: N = upscaling ? atScale(smaa(atRenderScale(color)), () => scale) : smaa(color);
     disposables.push(n);
-    color = n;
+    color = upscaling ? n.getTextureNode() : n;
     passes.push('smaa');
   } else if (plan.aa === 'fxaa') {
-    const n: N = fxaa(color);
+    const n: N = fxaa(upscaling ? atRenderScale(color) : color);
     disposables.push(n);
-    color = n;
+    color = upscaling ? atRenderScale(n) : n;
     passes.push('fxaa');
+  } else if (upscaling) color = atRenderScale(color);
+
+  let upscale: UpscaleStage | null = null;
+  if (plan.upscale !== null) {
+    upscale = buildUpscale(color, plan.upscale.filter, scale);
+    disposables.push(upscale);
+    color = upscale.output;
+    passes.push(plan.upscale.filter);
   }
+  for (const t of scaled) disposables.push(t);
+  // The AO and its history run each frame after the scene pass: their node is built into the output (adding
+  // nothing: × 0) so the pipeline updates it. A bare statement would do, but WGSL has no expression statements.
+  if (aoStage !== null) {
+    const c = color;
+    color = vec4(c.rgb, c.a.add(aoStage.passes.x.mul(0)));
+  }
+
+  const applyScale = (): void => {
+    scenePass.setResolutionScale(scale);
+    bgPass?.setResolutionScale(scale);
+    aoStage?.setScale(scale);
+    for (const t of scaled) t.setScale(scale);
+    bloomNode?.setResolutionScale(BLOOM_RESOLUTION_SCALE * scale);
+    upscale?.setScale(scale);
+    bokehScale.value = bokehBase * scale;
+  };
+  let bokehBase = 1;
+  if (upscaling) applyScale();
 
   const pipeline = new RenderPipeline(renderer, color);
   // Tone mapping and sRGB happen at the output step above (grading and AA work on the display picture).
@@ -469,34 +513,29 @@ export function buildPostPipeline(renderer: WebGPURenderer, scene: THREE.Scene, 
     },
     setSize(width, height, pixelRatio) {
       void height;
-      if (dofPlan !== null) bokehScale.value = 0.4 * dofPlan.maxBlur * width * pixelRatio;
+      if (dofPlan !== null) {
+        bokehBase = 0.4 * dofPlan.maxBlur * width * pixelRatio;
+        bokehScale.value = bokehBase * scale;
+      }
+    },
+    setScale(next) {
+      if (!upscaling || next === scale) return;
+      scale = next;
+      applyScale();
+    },
+    internalSize() {
+      const t = (scenePass as { renderTarget: THREE.RenderTarget }).renderTarget;
+      return t.width > 1 || t.height > 1 ? [t.width, t.height] : null;
     },
     compileAsync(cam) {
       return compileIntoTarget(renderer, scene, cam, (scenePass as { renderTarget: THREE.RenderTarget }).renderTarget, (scenePass as { getMRT(): unknown }).getMRT());
     },
     render() {
-      if (bgScene === null) {
-        pipeline.render();
-        return;
-      }
-      // The scene pass draws on transparent black without the background; the background pass draws only it.
-      const s = scene as THREE.Scene & { backgroundIntensity: number; backgroundBlurriness: number };
-      const b = bgScene as THREE.Scene & { backgroundIntensity: number; backgroundBlurriness: number };
-      const background = s.background;
-      b.background = background;
-      b.backgroundIntensity = s.backgroundIntensity;
-      b.backgroundBlurriness = s.backgroundBlurriness;
-      b.backgroundRotation.copy(s.backgroundRotation);
-      const clear = renderer.getClearColor(new THREE.Color());
-      const alpha = renderer.getClearAlpha();
-      s.background = null;
-      renderer.setClearColor(0x000000, 0);
+      aoStage?.beforeFrame(camera);
       try {
-        pipeline.render();
+        drawFrame();
       } finally {
-        s.background = background;
-        b.background = null;
-        renderer.setClearColor(clear, alpha);
+        aoStage?.afterFrame(camera);
       }
     },
     dispose() {
@@ -506,7 +545,36 @@ export function buildPostPipeline(renderer: WebGPURenderer, scene: THREE.Scene, 
       releaseMrtContexts(renderer, sceneMrt);
     },
   };
+
+  function drawFrame(): void {
+    if (bgScene === null) {
+      pipeline.render();
+      return;
+    }
+    // The scene pass draws on transparent black without the background; the background pass draws only it.
+    const s = scene as THREE.Scene & { backgroundIntensity: number; backgroundBlurriness: number };
+    const b = bgScene as THREE.Scene & { backgroundIntensity: number; backgroundBlurriness: number };
+    const background = s.background;
+    b.background = background;
+    b.backgroundIntensity = s.backgroundIntensity;
+    b.backgroundBlurriness = s.backgroundBlurriness;
+    b.backgroundRotation.copy(s.backgroundRotation);
+    const clear = renderer.getClearColor(new THREE.Color());
+    const alpha = renderer.getClearAlpha();
+    s.background = null;
+    renderer.setClearColor(0x000000, 0);
+    try {
+      pipeline.render();
+    } finally {
+      s.background = background;
+      b.background = null;
+      renderer.setClearColor(clear, alpha);
+    }
+  }
 }
+
+/** Bloom's own share of the picture's resolution (three's default; under a render scale, of the scaled picture). */
+const BLOOM_RESOLUTION_SCALE = 0.5;
 
 /**
  * A precompile running: `done` settles once every collected object's

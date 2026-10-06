@@ -47,6 +47,12 @@ describe('the project save schema', () => {
     expect(problems({ version: 1, slots: 1, settings: [{ key: 'fps', type: 'enum', values: ['30', '60', 'none'], default: 'none', engine: 'frameRateCap' }] })).toEqual([]);
     expect(problems({ version: 1, slots: 1, settings: [{ key: 'fps', type: 'enum', values: ['30', '45'], default: '30', engine: 'frameRateCap' }] })).toEqual(['/saveSchema/settings/0/engine']);
     expect(problems({ version: 1, slots: 1, settings: [{ key: 'fps', type: 'number', default: 60, engine: 'frameRateCap' }] })).toEqual(['/saveSchema/settings/0/engine']);
+    // Render settings: AO an enum of off/ssao/gtao, the render scale a number inside 0.5–1, dynamic resolution a bool.
+    expect(problems({ version: 1, slots: 1, settings: [{ key: 'ao', type: 'enum', values: ['off', 'ssao', 'gtao'], default: 'ssao', engine: 'ambientOcclusion' }, { key: 'scale', type: 'number', min: 0.5, max: 1, default: 1, engine: 'renderScale' }, { key: 'drs', type: 'bool', default: false, engine: 'dynamicResolution' }] })).toEqual([]);
+    expect(problems({ version: 1, slots: 1, settings: [{ key: 'ao', type: 'enum', values: ['off', 'hbao'], default: 'off', engine: 'ambientOcclusion' }] })).toEqual(['/saveSchema/settings/0/engine']);
+    expect(problems({ version: 1, slots: 1, settings: [{ key: 'scale', type: 'number', min: 0.25, max: 1, default: 1, engine: 'renderScale' }] })).toEqual(['/saveSchema/settings/0/engine']);
+    expect(problems({ version: 1, slots: 1, settings: [{ key: 'scale', type: 'number', default: 1, engine: 'renderScale' }] })).toEqual(['/saveSchema/settings/0/engine']);
+    expect(problems({ version: 1, slots: 1, settings: [{ key: 'drs', type: 'number', default: 1, engine: 'dynamicResolution' }] })).toEqual(['/saveSchema/settings/0/engine']);
   });
 
   it('a settings document keeps stored values that still fit, defaults for the rest', () => {

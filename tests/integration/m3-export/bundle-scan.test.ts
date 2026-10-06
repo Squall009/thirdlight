@@ -214,7 +214,8 @@ describe('M3 export bundle re-measurement + production parity', () => {
     // GLTFLoader and its two utils, plus three's Draco/KTX2
     // loaders with their helpers and the meshopt decoder, plus
     // the TSL sky and node post passes of the WebGPURenderer path (the DOF
-    // node pulls in the Gaussian blur node) — nothing else (baked probes draw
+    // node pulls in the Gaussian blur node, SSAO its depth-aware blur; FSR 1
+    // upscales a render scale below 1) — nothing else (baked probes draw
     // through the engine's own probe lighting, not three's grid). The
     // WebGL sky, EffectComposer passes and shaders are gone with the
     // archived WebGL renderer path.
@@ -229,10 +230,13 @@ describe('M3 export bundle re-measurement + production parity', () => {
       'objects/SkyMesh.js',
       'tsl/display/BloomNode.js',
       'tsl/display/DepthOfFieldNode.js',
+      'tsl/display/FSR1Node.js',
       'tsl/display/FXAANode.js',
       'tsl/display/GTAONode.js',
       'tsl/display/GaussianBlurNode.js',
       'tsl/display/SMAANode.js',
+      'tsl/display/SSAONode.js',
+      'tsl/display/depthAwareBlur.js',
       'utils/BufferGeometryUtils.js',
       'utils/SkeletonUtils.js',
       'utils/WorkerPool.js',

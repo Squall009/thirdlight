@@ -248,6 +248,8 @@ export async function dumpScene(): Promise<DumpSummary | string> {
       }
       return;
     }
+    // The ambient occlusion's light is the post stack's (the plain page draws its own post from the export's settings).
+    if ((o as unknown as { isScreenSpaceOcclusion?: boolean }).isScreenSpaceOcclusion === true) return;
     if (o.isLight === true) {
       const wp = o.getWorldPosition(o.position.clone());
       const tp = o.target !== undefined ? o.target.getWorldPosition(o.position.clone()) : null;

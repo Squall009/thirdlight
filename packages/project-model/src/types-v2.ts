@@ -579,6 +579,12 @@ export interface GameplaySettings {
   texture_budget_mb?: number;
   /** The most frames per second Play and the export draw (30, 60, 120; absent or 0: none, the display's rate). */
   frame_rate_cap?: number;
+  /** The kind of ambient occlusion where a look turns it on (0 off, 1 SSAO, 2 GTAO; absent: SSAO). */
+  ambient_occlusion?: number;
+  /** The share of the screen's resolution Play and the export draw at (0.5–1; absent: 1). */
+  render_scale?: number;
+  /** Whether the render scale drops while the GPU runs over budget (0 off, 1 on; absent: off). */
+  dynamic_resolution?: number;
 }
 
 // ---- content block and captured view ---------------------------------

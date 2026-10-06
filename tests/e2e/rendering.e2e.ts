@@ -24,6 +24,11 @@
  *    pixel ratio 2, Play draws one drawing-buffer pixel per CSS pixel, a post
  *    stack with ambient occlusion and SMAA makes no multisampled target, and
  *    the ambient occlusion pass builds (no GPU validation error).
+ *  - Render scale (both renderers): at 0.5 Play draws the scene at half the
+ *    canvas's resolution and FSR 1 upscales it with sharper edges than
+ *    bilinear filtering (`?upscale=bilinear`); with dynamic resolution on, a
+ *    forced overload (`?slowFrames=`) steps the scale down and, once it ends,
+ *    back up.
  */
 import { existsSync, createReadStream, mkdirSync, statSync, writeFileSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
@@ -34,6 +39,9 @@ import { expect, test, type Page } from './pw';
 import { startBackend, type E2EBackend } from './backend';
 import { diff, diffPng, show, STRICT, within } from './parity';
 import { showView } from './ui';
+import { backendOf, editorUrlFor, expectRendererBackend } from './renderer-variants';
+import { settledShot } from './view-match';
+import type { Image } from './png';
 import { decodePng } from './png';
 
 let be: E2EBackend;
@@ -333,6 +341,81 @@ test('the Scene view draws nothing behind the Game view during Play, and again w
   await page.getByTitle('Stop the play preview').click();
   await expect(page.locator('canvas.tl-viewport')).toHaveAttribute('data-suspended', 'false', { timeout: 30_000 });
   await expect.poll(async () => drawn(500), { timeout: 30_000 }).toBeGreaterThan(5);
+});
+
+/** Edge energy: the summed squared steps between neighbouring pixels' brightness (sharper edges, more energy). */
+function edgeEnergy(img: Image): number {
+  const lum = (x: number, y: number): number => {
+    const [r, g, b] = img.pixel(x, y);
+    return (r + g + b) / 3;
+  };
+  let e = 0;
+  for (let y = 0; y + 1 < img.height; y++) {
+    for (let x = 0; x + 1 < img.width; x++) {
+      const c = lum(x, y);
+      e += (lum(x + 1, y) - c) ** 2 + (lum(x, y + 1) - c) ** 2;
+    }
+  }
+  return e;
+}
+
+test('render scale: 0.5 draws at half resolution, FSR 1 upscales sharper than bilinear; dynamic resolution steps down under slow frames and back up (both renderers)', async ({ page }) => {
+  test.skip(test.info().project.name === 'webgpu', 'both renderers run in the default project');
+  test.setTimeout(300_000);
+  // A white board turned 20° against a dark sky: long slanted edges in front of the camera.
+  await command('setEnvironment', { sceneId: 'scene-main', environment: { sky: { mode: 'color', color: '#101418' } } });
+  await command('createEntity', { sceneId: 'scene-main', kind: 'box', name: 'board', transform: { position: [0, 1, 0], rotation: [0, 0, 0.1736482, 0.9848078] }, box: { size: [2.4, 1.4, 0.1], material: { color: '#ffffff' } } });
+  await command('setTransform', { entityId: 'cam-main', transform: { position: [0, 1, 4], rotation: [0, 0, 0, 1], scale: [1, 1, 1] } });
+  type RenderDiag = { scale: number; renderScale: number; upscale: string; internal: [number, number] | null; dynamic: { stepsDown: number; stepsUp: number; source: string | null } | null };
+  const play = async (url: string, variant: 'auto' | 'webgl2'): Promise<{ psid: string }> => {
+    await page.goto(url);
+    await expect(page.locator('.tl-statusbar')).toContainText('connected');
+    const playing = page.waitForResponse((res) => res.request().method() === 'POST' && res.url().endsWith('/play'));
+    await page.getByTitle('Start an isolated play preview').click();
+    const psid = String(((await (await playing).json()) as { playSessionId: string }).playSessionId);
+    await expectRendererBackend(page.frameLocator('iframe.tl-app__preview-frame').locator('canvas').first(), variant);
+    return { psid };
+  };
+  const render = async (psid: string): Promise<RenderDiag | null> => {
+    const d = await relay(`${psid}/diagnostics`);
+    return ((d.json['diagnostics'] as { renderer?: { render?: RenderDiag } } | undefined)?.renderer?.render ?? null);
+  };
+  const stop = async (): Promise<void> => {
+    await page.getByTitle('Stop the play preview').click();
+    await expect(page.getByTitle('Start an isolated play preview')).toBeVisible({ timeout: 30_000 });
+  };
+  for (const variant of ['auto', 'webgl2'] as const) {
+    await command('setSettings', { settings: { render_scale: 0.5, dynamic_resolution: 0 } });
+    const shots: Record<string, number> = {};
+    for (const filter of ['fsr1', 'bilinear'] as const) {
+      const url = editorUrlFor(be.editorUrl, variant);
+      const { psid } = await play(filter === 'bilinear' ? url.replace('#', '&upscale=bilinear#') : url, variant);
+      const canvas = page.frameLocator('iframe.tl-app__preview-frame').locator('canvas').first();
+      const img = await settledShot(canvas, `${variant}-scale-0.5-${filter}`);
+      const size = await canvas.evaluate((c: HTMLCanvasElement) => [c.width, c.height]);
+      const r = (await render(psid))!;
+      console.log(`[render scale] ${backendOf(variant)} ${filter}: canvas ${size.join('×')}, drawn at ${JSON.stringify(r.internal)}, edge energy ${edgeEnergy(img).toExponential(3)}`);
+      expect(r).toMatchObject({ scale: 0.5, renderScale: 0.5, upscale: filter });
+      expect(r.internal).toEqual([Math.floor(size[0]! * 0.5), Math.floor(size[1]! * 0.5)]);
+      shots[filter] = edgeEnergy(img);
+      await stop();
+    }
+    // EASU keeps edges sharp and RCAS sharpens: more edge energy than a bilinear stretch of the same picture.
+    expect(shots['fsr1']!).toBeGreaterThan(shots['bilinear']! * 1.1);
+
+    // Dynamic resolution: three seconds of forced slow frames step the scale down; after them it comes back to 1.
+    await command('setSettings', { settings: { render_scale: 1, dynamic_resolution: 1 } });
+    const { psid } = await play(editorUrlFor(be.editorUrl, variant).replace('#', '&slowFrames=3#'), variant);
+    await expect.poll(async () => (await render(psid))?.dynamic?.stepsDown ?? 0, { timeout: 30_000, message: 'stepped down' }).toBeGreaterThan(0);
+    const down = (await render(psid))!;
+    expect(down.scale).toBeLessThan(1);
+    await expect.poll(async () => JSON.stringify(await render(psid)), { timeout: 60_000, message: 'back up to 1' }).toMatch(/"scale":1,/);
+    const up = (await render(psid))!;
+    console.log(`[render scale] ${backendOf(variant)} dynamic: down to ${down.scale} (${down.dynamic?.source}), back to ${up.scale}: ${JSON.stringify(up.dynamic)}`);
+    expect(up.dynamic!.stepsUp).toBeGreaterThan(0);
+    expect(up.internal?.[0]).toBeGreaterThan(down.internal?.[0] ?? 0);
+    await stop();
+  }
 });
 
 /**

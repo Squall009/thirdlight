@@ -12,6 +12,7 @@ import type { BlockLayerView, BlockLayerViewDiagnostics } from './block-layers';
 import type { BuiltInstanceSet, InstanceSetStats } from './instancing';
 import type { ViewCullDiagnostics } from './view-cull';
 import type { RuntimeMaterialsDiagnostics } from './runtime-materials';
+import type { RenderControlDiagnostics, RenderControlOptions, RenderSettingsLike } from './render-control';
 import type { AdapterError } from './errors';
 import type { ScreenshotResult } from './capture';
 import type { RenderedNodePose } from './animator-player';
@@ -155,6 +156,13 @@ export interface SceneAdapterOptions {
   /** The project's LOD bias and hysteresis (`lod_bias`, `lod_hysteresis`; absent: the defaults). */
   lod?: { readonly bias?: number; readonly hysteresis?: number };
   /**
+   * The render settings: ambient occlusion kind, render scale and dynamic
+   * resolution (the project's `ambient_occlusion`, `render_scale`,
+   * `dynamic_resolution`; absent: SSAO, scale 1, off) and their page
+   * diagnostics (`render-control.ts`). The editor's Scene view gives only the AO kind.
+   */
+  render?: RenderControlOptions;
+  /**
    * Draw repeated objects (boxes, model pieces with the same
    * geometry, material and shadow flags) instanced (default true). Off: one
    * draw per object, as before (tests compare the two).
@@ -289,6 +297,8 @@ export interface SceneAdapterDiagnostics {
    * each level, culled past their size, thinned by distance); ABSENT before the first drawn frame.
    */
   lod?: { bias: number; hysteresis: number; switches: number; copySwitches: number; instances: InstanceSetStats };
+  /** The render settings and dynamic resolution's state; `internal`: the scene pass's size in pixels (null: drawn without a post pipeline). */
+  render?: RenderControlDiagnostics & { internal: [number, number] | null };
   /** The block layers drawn (layers, chunk meshes, triangles). */
   blocks?: BlockLayerViewDiagnostics;
   /**
@@ -354,6 +364,8 @@ export interface SceneAdapter {
   setQuality?(level: QualityLevel): void;
   /** The project's LOD bias and hysteresis (`lod_bias`, `lod_hysteresis`); unset parts keep their value. */
   setLodTuning?(tuning: { readonly bias?: number; readonly hysteresis?: number }): void;
+  /** Render settings (AO kind, render scale, dynamic resolution: a player's or the project's); unset parts keep their value. */
+  setRenderSettings?(settings: RenderSettingsLike): void;
   /** The quality level drawn (the player's over the environment's; high without either). */
   qualityLevel?(): QualityLevel;
   /** The GPU time (ms) and frames measured since the last call; null where nothing is measured (no timestamp queries). */

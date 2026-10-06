@@ -18,6 +18,10 @@ export interface GpuTiming {
   afterFrame(renderer: unknown): void;
   /** The GPU time and frames resolved since the last take; null while the renderer measures nothing. */
   take(): { ms: number; frames: number; worst: number } | null;
+  /** GPU ms per frame resolved since the last call (a second reader beside `take`: dynamic resolution); null: none resolved. */
+  recent(): number | null;
+  /** Whether the last drawn frame's renderer measures GPU time. */
+  measuring(): boolean;
 }
 
 /** Whether this renderer records GPU timestamps (made with trackTimestamp, and the device has the queries). */
@@ -34,6 +38,8 @@ export function createGpuTiming(): GpuTiming {
   let ms = 0;
   let frames = 0;
   let worst = 0;
+  let recentMs = 0;
+  let recentFrames = 0;
   return {
     afterFrame(renderer) {
       measuring = measuresGpuTime(renderer);
@@ -51,6 +57,8 @@ export function createGpuTiming(): GpuTiming {
           if (!Number.isFinite(t) || t < 0) return;
           ms += t;
           frames += covered;
+          recentMs += t;
+          recentFrames += covered;
           // The slowest frame is not seen apart from the others it was resolved with: the resolve's mean stands for it.
           worst = Math.max(worst, t / covered);
         },
@@ -59,6 +67,14 @@ export function createGpuTiming(): GpuTiming {
         },
       );
     },
+    recent() {
+      if (recentFrames === 0) return null;
+      const v = recentMs / recentFrames;
+      recentMs = 0;
+      recentFrames = 0;
+      return v;
+    },
+    measuring: () => measuring,
     take() {
       if (!measuring) return null;
       const out = { ms, frames, worst };

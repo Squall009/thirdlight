@@ -19,6 +19,7 @@ import { TEXTURE_BUDGET_DEFAULT_MB, TEXTURE_BUDGET_MAX_MB, TEXTURE_BUDGET_MIN_MB
 import { LOD_BIAS_DEFAULT, LOD_BIAS_MAX, LOD_BIAS_MIN, LOD_HYSTERESIS_DEFAULT, LOD_HYSTERESIS_MAX } from './model-lod';
 import { VIEW_LENS_DEFAULTS, VIRTUAL_CAMERA_LIMITS } from './cameras';
 import { FRAME_RATE_CAPS } from './frame-rate-cap';
+import { AMBIENT_OCCLUSION_SETTING_VALUES, RENDER_SCALE_DEFAULT, RENDER_SCALE_MAX, RENDER_SCALE_MIN } from './render-settings';
 
 // ---- settings registry ------------------------------------------
 
@@ -174,6 +175,11 @@ export const M2_SETTINGS_KEYS: readonly SettingsKeySpec[] = [
   // point and cull size (2: each level kept to half the size), and the margin a level switches back by.
   { key: 'lod_bias', type: 'number', default: LOD_BIAS_DEFAULT, min: LOD_BIAS_MIN, max: LOD_BIAS_MAX, unit: '×', optional: true, group: RENDERING_SETTINGS_GROUP, label: 'LOD bias', tooltip: 'Scales where every model switches to its coarser levels and stops being drawn: 2 keeps each level twice as far, 0.5 switches at half the distance (cheaper). Each model sets its own switch points in its import settings.' },
   { key: 'lod_hysteresis', type: 'number', default: LOD_HYSTERESIS_DEFAULT, min: 0, max: LOD_HYSTERESIS_MAX, unit: '', optional: true, group: RENDERING_SETTINGS_GROUP, label: 'LOD hysteresis', tooltip: 'A model switches back to its finer level only this share of the switch distance closer than where it switched, so one standing at a switch point does not flicker.' },
+  // Ambient occlusion, render scale and dynamic resolution (render-settings.ts, where the reasons are). AO:
+  // SSAO by default (half resolution, the cheap kind), drawn only where a scene's look turns it on.
+  { key: 'ambient_occlusion', type: 'number', default: 1, values: [...AMBIENT_OCCLUSION_SETTING_VALUES], valueLabels: ['Off', 'SSAO (fast, half resolution)', 'GTAO (quality)'], integer: true, unit: '', optional: true, group: RENDERING_SETTINGS_GROUP, label: 'Ambient occlusion', tooltip: 'The kind of ambient occlusion drawn where a scene\'s look turns it on (Post → Ambient occlusion). It darkens only the indirect light (ambient, sky and probe light) in creases and corners, never the sun or lamps. SSAO is the fast default; GTAO is darker and more exact, at about twice the cost. A player\'s settings field bound to ambientOcclusion overrides it.' },
+  { key: 'render_scale', type: 'number', default: RENDER_SCALE_DEFAULT, min: RENDER_SCALE_MIN, max: RENDER_SCALE_MAX, unit: '×', optional: true, group: RENDERING_SETTINGS_GROUP, label: 'Render scale', tooltip: 'The share of the screen\'s resolution Play and the export draw the 3D view at (0.5–1), upscaled to the screen with AMD FSR 1 (edge-adaptive upscaling and sharpening). 0.75 draws about half the pixels. The Scene view always draws at full resolution. A player\'s settings field bound to renderScale overrides it.' },
+  { key: 'dynamic_resolution', type: 'number', default: 0, values: [0, 1], valueLabels: ['Off', 'On'], integer: true, unit: '', optional: true, group: RENDERING_SETTINGS_GROUP, label: 'Dynamic resolution', tooltip: 'Lowers the render scale (down to 0.5) while the GPU takes longer than a frame (the frame-rate cap, else 60 fps) and raises it again, up to the render scale, when it has room. It changes slowly and waits longer after a change that did not hold, so it does not flicker. A player\'s settings field bound to dynamicResolution overrides it.' },
 ];
 
 /** The simulation's dimension (the `physics_dimension` setting's values). */

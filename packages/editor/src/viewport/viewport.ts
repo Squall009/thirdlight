@@ -317,6 +317,7 @@ export class Viewport {
   private instanceChunk: number | undefined = undefined;
   /** The project's LOD bias and hysteresis (null: the defaults), kept for an adapter made again. */
   private lodTuning: { bias: number; hysteresis: number } | null = null;
+  private aoKind: 'off' | 'ssao' | 'gtao' = 'ssao';
 
   // ---- The scene adapter -------------------------------------------------
   /** The project environment, the bakes and the lighting mode as last set (a new adapter takes them). */
@@ -338,6 +339,7 @@ export class Viewport {
       resources: assets.resources,
       background: SCENE_BACKGROUND,
       ...(this.lodTuning !== null ? { lod: this.lodTuning } : {}),
+      render: { ambientOcclusion: this.aoKind },
       onChange: () => this.contentArrived(),
       renderer: {
         ...this.rendererChoice,
@@ -411,6 +413,14 @@ export class Viewport {
     if (this.lodTuning !== null && this.lodTuning.bias === tuning.bias && this.lodTuning.hysteresis === tuning.hysteresis) return;
     this.lodTuning = tuning;
     this.adapter.setLodTuning?.(tuning);
+    this.requestRender();
+  }
+
+  /** The project's ambient occlusion kind changed: a look's AO is drawn with it. */
+  setAmbientOcclusion(kind: 'off' | 'ssao' | 'gtao'): void {
+    if (kind === this.aoKind) return;
+    this.aoKind = kind;
+    this.adapter.setRenderSettings?.({ ambientOcclusion: kind });
     this.requestRender();
   }
 

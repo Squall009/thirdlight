@@ -10,7 +10,7 @@
 import { useEffect, useState, type JSX } from 'react';
 
 import type { SaveSchema, SaveSection, SettingsField } from '@thirdlight/project-model';
-import { FRAME_RATE_CAP_CHOICES, SETTINGS_ENGINE_BINDINGS } from '@thirdlight/project-model/limits';
+import { AMBIENT_OCCLUSION_KINDS, FRAME_RATE_CAP_CHOICES, RENDER_SCALE_MAX, RENDER_SCALE_MIN, SETTINGS_ENGINE_BINDINGS } from '@thirdlight/project-model/limits';
 
 interface Props {
   schema: SaveSchema | null;
@@ -200,7 +200,17 @@ export function SavesPanel({ schema, error, onSave, onClearPlaySave, note }: Pro
                 const { engine: _e, ...rest } = f;
                 const v = e.target.value;
                 // A field driving the frame-rate cap is an enum of its choices (none: the display's rate).
-                const capField = v === 'frameRateCap' ? { type: 'enum' as const, values: [...FRAME_RATE_CAP_CHOICES], default: 'none' } : {};
+                // The render settings' fields take their shapes too (AO an enum of its kinds, the scale a 0.5–1 number, dynamic resolution a bool).
+                const capField =
+                  v === 'frameRateCap'
+                    ? { type: 'enum' as const, values: [...FRAME_RATE_CAP_CHOICES], default: 'none' }
+                    : v === 'ambientOcclusion'
+                      ? { type: 'enum' as const, values: [...AMBIENT_OCCLUSION_KINDS], default: 'ssao' }
+                      : v === 'renderScale'
+                        ? { type: 'number' as const, min: RENDER_SCALE_MIN, max: RENDER_SCALE_MAX, default: RENDER_SCALE_MAX }
+                        : v === 'dynamicResolution'
+                          ? { type: 'bool' as const, default: false }
+                          : {};
                 set({ settings: fields.map((x, k) => (k === i ? (v === '' ? rest : { ...rest, ...capField, engine: v as NonNullable<SettingsField['engine']> }) : x)) });
               }}
             >

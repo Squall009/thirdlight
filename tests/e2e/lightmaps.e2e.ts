@@ -336,6 +336,9 @@ test('Bake final runs Blender Cycles on the bake host; its lightmap shows the sh
  *   moves).
  * - The Scene view and Play draw the probe-lit scene alike.
  * - The probe debug view (Gizmos → Light probes) draws a sphere per probe.
+ * - Ambient occlusion (the look's AO, SSAO by default) darkens the
+ *   probe-lit corner at the foot of the room's shaded east wall, and leaves
+ *   the sunlit north wall's foot as it was: it occludes only indirect light.
  */
 test('probe grids light every object in place of the flat ambient light: no leak through a closed wall, a moving object, the Scene view as Play (both renderers)', async ({ page }) => {
   onlyInItsProject('auto', ['auto']);
@@ -373,6 +376,18 @@ test('probe grids light every object in place of the flat ambient light: no leak
     [5, 0.02, -4.7],
   ];
   const moverFront = (z: number): [number, number, number] => [-4, 0.4, z + 0.4];
+  // Outside the room's north-east corner, looking at its sunlit north wall and its shaded east wall.
+  const cornerPose = { position: [11, 1.6, -9], rotation: new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().lookAt(new THREE.Vector3(11, 1.6, -9), new THREE.Vector3(6, 0.4, -4), new THREE.Vector3(0, 1, 0))).toArray() };
+  // The east wall's foot (wall and ground, in the wall's shadow: probe light only) and the north wall's (sunlit).
+  const shadedFoot: [number, number, number][] = [
+    [7.42, 0.08, -3.5],
+    [7.5, 0.01, -3.5],
+  ];
+  const sunlitFoot: [number, number, number][] = [
+    [6, 0.08, -5.42],
+    [6, 0.01, -5.5],
+  ];
+  const look = { sky: { mode: 'color', color: '#a0b8e0' } };
   const frame = page.locator('iframe.tl-app__preview-frame');
 
   /** One Play from `pose`, settled; brightness at the spots. */
@@ -438,6 +453,26 @@ test('probe grids light every object in place of the flat ambient light: no leak
     // The moving cube: alike in both places with flat light, darker under the canopy with the probes.
     expect(Math.abs(flatMover.covered / flatMover.open - 1)).toBeLessThan(0.1);
     expect(moved.covered).toBeLessThan(moved.open * 0.75);
+
+    // Ambient occlusion: the probe-lit foot darkens, the sunlit foot does not. (The default lens, which the spots are
+    // projected with: the Scene view comparison of an earlier variant gave the camera the view's.)
+    const camLens = ((await be.command({ op: 'queryEntity', projectId: be.projectId, args: { entityId: 'cam-main' } }))['entity'] as { components: { virtualCamera?: Record<string, unknown> } }).components.virtualCamera;
+    if (camLens !== undefined) await cmd('setComponent', { entityId: 'cam-main', component: 'virtualCamera', value: { ...camLens, fovY: 60, near: 0.1, far: 100 } }, true);
+    const noAo = await playAt(variant, cornerPose, `${variant}-corner-no-ao`);
+    await cmd('setEnvironment', { sceneId: 'scene-main', environment: { ...look, post: { ssao: { enabled: true } } } });
+    const withAo = await playAt(variant, cornerPose, `${variant}-corner-ao`);
+    await cmd('setEnvironment', { sceneId: 'scene-main', environment: look });
+    const ratio = (spots: [number, number, number][]): number[] => spots.map((w) => brightnessAt(withAo, w, cornerPose) / Math.max(1, brightnessAt(noAo, w, cornerPose)));
+    const shaded = ratio(shadedFoot);
+    const sunlit = ratio(sunlitFoot);
+    console.log(`[probe lighting] ${backendOf(variant)} AO: shaded foot ${shadedFoot.map((w) => brightnessAt(noAo, w, cornerPose).toFixed(1)).join(' ')} × ${shaded.map((r) => r.toFixed(2)).join(' ')}; sunlit foot ${sunlitFoot.map((w) => brightnessAt(noAo, w, cornerPose).toFixed(1)).join(' ')} × ${sunlit.map((r) => r.toFixed(2)).join(' ')}`);
+    // Both feet are the same crease: AO over the whole picture would darken them alike. On indirect light only, the
+    // sunlit foot loses only its indirect share (the sun is most of its light).
+    // (Spots: [0] on the wall, [1] on the ground; the sunlit wall faces the sun at a slant, its ground fully.)
+    const drop = (r: number): number => 1 - r;
+    expect(drop(shaded[1]!)).toBeGreaterThan(0.08);
+    expect(drop(sunlit[1]!)).toBeLessThan(drop(shaded[1]!) * 0.5);
+    expect(drop(sunlit[0]!)).toBeLessThan(drop(shaded[0]!));
 
     // The Scene view draws what Play draws (the default view of the yard, the room and the canopy).
     await menu(page, 'Gizmos', 'Icons: on');

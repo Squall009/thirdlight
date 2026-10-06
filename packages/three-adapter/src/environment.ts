@@ -4,11 +4,13 @@
  * view and Play/export. It replaces `renderer.render(scene, camera)`.
  *
  * Pass order (each only when enabled and allowed by the quality level):
- * render → ambient occlusion (GTAO) → fog volumes (from the scene pass's
+ * render (ambient occlusion — SSAO or GTAO, `setRender` — darkening the
+ * lit materials' indirect light) → fog volumes (from the scene pass's
  * depth) → depth of field → bloom → output (tone mapping + sRGB) → grading
  * (brightness/contrast/saturation/tint, LUT strip, vignette) → anti-aliasing
- * (SMAA/FXAA). With nothing enabled it renders directly (the renderer's own
- * tone mapping).
+ * (SMAA/FXAA) → upscale (FSR 1, when the render scale is below 1 or dynamic
+ * resolution may lower it). With nothing enabled it renders directly (the
+ * renderer's own tone mapping).
  *
  * Capability fallback: if the post pipeline cannot be built, rendering falls
  * back to the direct path and `diagnostics().fallback` says why; gameplay
@@ -30,6 +32,8 @@
 import * as THREE from 'three';
 import { PMREMGenerator as NodePMREMGenerator, type WebGPURenderer } from 'three/webgpu';
 
+import { ScreenSpaceOcclusion } from './post-ao';
+import type { UpscaleFilter } from './post-upscale';
 import { buildPostPipeline, compileIntoTarget, createSkyMesh, SETTLED_PRECOMPILE as settledPrecompile, type Precompile, gradientSkyMaterial, gradientSkyUniforms, imageSkyMaterial, MAX_FOG_VOLUMES, type FogVolumeBox, type PostPipeline, type PostPlan } from './environment-nodes';
 
 /** Structural copies of the project-model environment types. */
@@ -169,6 +173,21 @@ export function renderPixelRatio(devicePixelRatio: number | undefined): number {
   return Math.min(dpr, MAX_RENDER_PIXEL_RATIO);
 }
 
+/**
+ * The render settings the environment renderer draws with (the project's
+ * `ambient_occlusion`, `render_scale` and `dynamic_resolution`, or a
+ * player's): the kind of ambient occlusion where the look turns it on, the
+ * render scale, and whether the scale may change from frame to frame (then
+ * the upscaling stage is kept even at scale 1, so a change builds nothing).
+ */
+export interface RenderOptions {
+  readonly ao: 'off' | 'ssao' | 'gtao';
+  readonly scale: number;
+  readonly dynamic: boolean;
+  readonly upscale: UpscaleFilter;
+}
+export const RENDER_OPTIONS_DEFAULT: RenderOptions = Object.freeze({ ao: 'ssao', scale: 1, dynamic: false, upscale: 'fsr1' });
+
 export interface EnvironmentRendererOptions {
   loadTexture: (assetId: string) => Promise<THREE.Texture | null>;
   /** A texture arrived or the sky was rebuilt: the host should draw a new frame. */
@@ -191,6 +210,10 @@ export interface EnvironmentRenderer {
   setFogVolumes(volumes: readonly FogVolumeLike[]): void;
   /** Override the level (a player setting); null = the environment's. */
   setQuality(level: QualityLevel | null): void;
+  /** The render settings (unset parts keep their value). A scale change alone rebuilds nothing when `dynamic` is on. */
+  setRender(options: Partial<RenderOptions>): void;
+  /** Whether frames go through the post pipeline for the render scale alone (a host draws through this renderer then). */
+  needsPipeline(): boolean;
   render(camera: THREE.Camera): void;
   /**
    * Build the node programs and pipelines the next `render`
@@ -201,7 +224,7 @@ export interface EnvironmentRenderer {
   /** Canvas size in CSS pixels. */
   resize(width: number, height: number): void;
   /** `samples` = the MSAA samples the scene is drawn with (0: none — the low level, or a post stack with its own anti-aliasing). */
-  diagnostics(): { post: boolean; passes: string[]; fallback: string | null; quality: QualityLevel; samples: number; iblRebakes: number };
+  diagnostics(): { post: boolean; passes: string[]; fallback: string | null; quality: QualityLevel; samples: number; iblRebakes: number; render: { ao: RenderOptions['ao']; scale: number; dynamic: boolean; upscale: UpscaleFilter | null; internal: [number, number] | null } };
   /** The MSAA samples of the last frame path (allocation-free, for a per-frame read). */
   samples(): number;
   dispose(): void;
@@ -302,6 +325,13 @@ export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE
   /** The cross-fade layers by sky structure (a mesh per sky; null: the background). */
   const layers = new Map<string, SkyLayer>();
   let qualityOverride: QualityLevel | null = null;
+  let render: RenderOptions = RENDER_OPTIONS_DEFAULT;
+  /**
+   * The scene's occlusion light (post-ao.ts): added with the first stack that
+   * draws AO and kept (taking it out again would rebuild every lit program; a
+   * stack without AO leaves it inactive).
+   */
+  let aoLight: ScreenSpaceOcclusion | null = null;
   let keyLight: [number, number, number] | null = null;
   let volumes: readonly FogVolumeLike[] = [];
   let width = 1;
@@ -698,7 +728,7 @@ export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE
     const g = p?.grading;
     return {
       bloom: q.bloom && p?.bloom?.enabled === true,
-      ssao: q.ssao && p?.ssao?.enabled === true,
+      ssao: q.ssao && p?.ssao?.enabled === true && render.ao !== 'off',
       dof: q.dof && p?.dof?.enabled === true,
       fogVolumes: q.fogVolumes && volumes.length > 0,
       grading: (g !== undefined && (g.brightness !== undefined || g.contrast !== undefined || g.saturation !== undefined || g.tint !== undefined || g.lut !== undefined || g.lift !== undefined || g.gamma !== undefined || g.gain !== undefined)) || p?.vignette?.enabled === true,
@@ -720,6 +750,8 @@ export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE
     // through a plain scene pass (no samples) even without post effects.
     const noMsaa = !QUALITY_PROFILE[quality()].antialias;
     const isPost = anyPost(w);
+    // A render scale below 1 (or one dynamic resolution may lower) draws through the pipeline's upscale.
+    const upscaling = render.scale < 1 || render.dynamic;
     // Without a post stack a colour or sRGB image background is shown as it is (not tone mapped,
     // as the archived WebGL renderer drew it); WebGPURenderer tone maps the whole frame, so the
     // background gets its own pass.
@@ -730,16 +762,17 @@ export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE
     // the key (nor the exposure, a renderer setting): a blend or an edit of them updates the built stack
     // (postParams) instead of rebuilding it.
     const structure = [post?.toneMapping ?? null, post?.grading?.lut ?? null, post?.ssao ?? null, post?.dof ?? null, post?.antialias ?? null];
-    const key = JSON.stringify({ w, structure, q: quality(), cam: camera.uuid, noMsaa, displayBackground });
+    // The scale itself is not in the key: the built stack follows it in place.
+    const key = JSON.stringify({ w, structure, q: quality(), cam: camera.uuid, noMsaa, displayBackground, ao: w.ssao ? render.ao : null, upscale: upscaling ? render.upscale : null });
     if (key === composerKey) return;
     composerKey = key;
     disposePipeline();
     samplesNow = renderer.samples;
-    if (!isPost && !noMsaa && !displayBackground) return;
+    if (!isPost && !noMsaa && !displayBackground && !upscaling) return;
     const g = post?.grading;
     const perspective = camera instanceof THREE.PerspectiveCamera;
     const plan: PostPlan = {
-      ssao: w.ssao && perspective ? { radius: post?.ssao?.radius ?? 0.5, intensity: post?.ssao?.intensity ?? 1 } : null,
+      ao: w.ssao && perspective && render.ao !== 'off' ? { kind: render.ao, radius: post?.ssao?.radius ?? 0.5, intensity: post?.ssao?.intensity ?? 1 } : null,
       fogVolumes: w.fogVolumes,
       dof: w.dof && perspective ? { focus: post?.dof?.focus ?? 10, aperture: post?.dof?.aperture ?? 0.002, maxBlur: post?.dof?.maxBlur ?? 0.01 } : null,
       bloom: w.bloom ? { strength: post?.bloom?.strength ?? 0.6, radius: post?.bloom?.radius ?? 0.4, threshold: post?.bloom?.threshold ?? 0.85 } : null,
@@ -760,13 +793,18 @@ export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE
       displayBackground,
       // The post stack renders without MSAA (as the archived EffectComposer did); a plain frame keeps the renderer's.
       samples: isPost || noMsaa ? 0 : renderer.samples,
+      upscale: upscaling ? { filter: render.upscale, scale: render.scale } : null,
     };
+    if (plan.ao !== null && aoLight === null) {
+      aoLight = new ScreenSpaceOcclusion();
+      scene.add(aoLight);
+    }
     try {
-      const p = buildPostPipeline(renderer, scene, camera, plan);
+      const p = buildPostPipeline(renderer, scene, camera, plan, aoLight);
       p.setSize(width, height, renderer.getPixelRatio());
       pipeline = p;
       samplesNow = plan.samples;
-      // A plain frame (the background pass, or no MSAA at low quality) is not post-processing.
+      // A plain frame (the background pass, no MSAA at low quality, or only the upscale) is not post-processing.
       passNames = isPost ? [...p.passes] : [];
       fallback = null;
       if (plan.grading !== null && g?.lut !== undefined) {
@@ -877,6 +915,15 @@ export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE
       qualityOverride = level;
       composerKey = '';
     },
+    setRender(next) {
+      const was = render;
+      render = { ...render, ...next };
+      // What the stack is built with: the AO kind, the upscale stage (present below scale 1 or under dynamic resolution).
+      const upscaled = (o: RenderOptions): boolean => o.scale < 1 || o.dynamic;
+      if (render.ao !== was.ao || upscaled(render) !== upscaled(was) || render.upscale !== was.upscale) composerKey = '';
+      else if (render.scale !== was.scale) pipeline?.setScale(render.scale);
+    },
+    needsPipeline: () => render.scale < 1 || render.dynamic,
     render(camera) {
       if (disposed) return;
       // The lighting of a sky a blend changed, at most every 30th frame (a PMREM bake is not free: a cube render and blur passes);
@@ -911,11 +958,25 @@ export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE
     },
     samples: () => samplesNow,
     diagnostics() {
-      return { post: passNames.length > 0, passes: [...passNames], fallback, quality: quality(), samples: samplesNow, iblRebakes };
+      const upscaled = pipeline !== null && (render.scale < 1 || render.dynamic);
+      return {
+        post: passNames.length > 0,
+        passes: [...passNames],
+        fallback,
+        quality: quality(),
+        samples: samplesNow,
+        iblRebakes,
+        render: { ao: render.ao, scale: render.scale, dynamic: render.dynamic, upscale: upscaled ? render.upscale : null, internal: pipeline?.internalSize() ?? null },
+      };
     },
     dispose() {
       disposed = true;
       disposePipeline();
+      if (aoLight !== null) {
+        scene.remove(aoLight);
+        aoLight.dispose();
+        aoLight = null;
+      }
       disposeLayers();
       clearSky();
       pmrem.dispose();

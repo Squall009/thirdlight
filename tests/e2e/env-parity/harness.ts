@@ -2,7 +2,10 @@
  * The neutral environment/post test scene (browser code, bundled
  * by `env-parity.e2e.ts` with esbuild). One case per page load:
  *
- *   index.html?backend=webgl2|webgpu|auto&case=<name>
+ *   index.html?backend=webgl2|webgpu|auto&case=<name>[&ao=off|ssao|gtao][&light=ambient]
+ *
+ * (`ao`: the kind of ambient occlusion; `light=ambient`: no sun, only
+ * ambient light — the ambient-occlusion check in env-parity.e2e.ts.)
  *
  * Every case draws the same small scene (a ground, boxes near and far, a
  * rough and a mirror-like sphere, an emissive block) through the real
@@ -85,6 +88,11 @@ const sun = new THREE.DirectionalLight('#fff4e0', 2.2);
 sun.position.set(-SUN_DIR[0] * 12, -SUN_DIR[1] * 12, -SUN_DIR[2] * 12);
 sun.target.position.set(0, 0, 0);
 const ambient = new THREE.AmbientLight('#8090a8', 0.5);
+// ?light=ambient: no sun, a stronger ambient light (only indirect light: what ambient occlusion darkens).
+if (q.get('light') === 'ambient') {
+  sun.intensity = 0;
+  ambient.intensity = 3;
+}
 scene.add(sun, sun.target, ambient);
 
 const std = (color: string, roughness = 0.6, metalness = 0, extra: THREE.MeshStandardMaterialParameters = {}): THREE.MeshStandardMaterial => new THREE.MeshStandardMaterial({ color, roughness, metalness, ...extra });
@@ -198,6 +206,9 @@ async function main(): Promise<void> {
     },
   });
   env.resize(WIDTH, HEIGHT);
+  // ?ao=off|ssao|gtao: the kind of ambient occlusion (absent: the default, SSAO).
+  const ao = q.get('ao');
+  if (ao === 'off' || ao === 'ssao' || ao === 'gtao') env.setRender({ ao });
   env.setKeyLightDirection(SUN_DIR);
   env.set(c.env);
   env.setFogVolumes(c.volumes ?? []);

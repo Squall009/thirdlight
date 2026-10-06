@@ -1145,6 +1145,20 @@ export {
 } from './save-schema';
 // The frame-rate cap a game sets (project setting, settings field, UI action, scripts).
 export { FRAME_RATE_CAP_CHOICES, FRAME_RATE_CAPS, frameRateCapOf, projectFrameRateCap, type FrameRateCap } from './frame-rate-cap';
+export {
+  AMBIENT_OCCLUSION_DEFAULT,
+  AMBIENT_OCCLUSION_KINDS,
+  AMBIENT_OCCLUSION_SETTING_VALUES,
+  ambientOcclusionOf,
+  RENDER_SCALE_DEFAULT,
+  RENDER_SCALE_MAX,
+  RENDER_SCALE_MIN,
+  RENDER_SETTINGS_DEFAULT,
+  renderScaleOf,
+  renderSettingsOf,
+  type AmbientOcclusionKind,
+  type RenderSettings,
+} from './render-settings';
 // Dialogue (content.dialogues / speakers / dialogueSettings), its graph kind, expressions and the runtime form.
 export {
   DIALOGUE_DEFAULTS,

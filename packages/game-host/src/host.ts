@@ -175,6 +175,8 @@ export interface HostRenderAdapter {
   takeGpuTime?(): { ms: number; frames: number; worst: number } | null;
   /** The quality level drawn. */
   qualityLevel?(): string;
+  /** A player's render settings (AO kind, render scale, dynamic resolution; unset parts keep their value). */
+  setRenderSettings?(settings: { readonly ambientOcclusion?: 'off' | 'ssao' | 'gtao'; readonly renderScale?: number; readonly dynamicResolution?: boolean }): void;
 }
 
 export type { ProjectSavesObservation } from './host-saves';
@@ -1454,6 +1456,7 @@ export function createGameHost(config: GameHostConfig): GameHost {
         ...(config.setQuality !== undefined ? { setQuality: config.setQuality } : {}),
         ...(config.audio.setVolume !== undefined ? { setVolume: (bus: 'music' | 'sfx' | 'ui', v: number) => config.audio.setVolume?.(bus, v) } : {}),
         setFrameRateCap: (fps) => void res.runtime.setFrameRateCap?.(fps),
+        setRenderSettings: (s) => adapter?.setRenderSettings?.(s),
         disposed: () => disposed,
       });
     }

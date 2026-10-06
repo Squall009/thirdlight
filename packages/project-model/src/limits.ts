@@ -27,6 +27,7 @@ export { MATERIAL_DATA_MAX } from './material-graph-kinds';
 export { SAVE_LIMITS, SCRIPT_SAVE_LIMITS, SETTINGS_ENGINE_BINDINGS } from './save-schema';
 // The frame-rate caps (the Saves panel's settings field and the UI action's choices).
 export { FRAME_RATE_CAP_CHOICES } from './frame-rate-cap';
+export { AMBIENT_OCCLUSION_KINDS, RENDER_SCALE_MAX, RENDER_SCALE_MIN, renderSettingsOf } from './render-settings';
 export { ENVIRONMENT_PRESET_LIMITS } from './environment-presets';
 export { MAX_TRANSITION_FADE, MAX_TRANSITION_UNLOADS } from './blocks';
 export { MAX_INPUT_ACTIONS, MAX_INPUT_BINDINGS } from './input';

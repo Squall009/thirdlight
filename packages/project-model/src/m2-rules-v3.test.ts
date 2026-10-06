@@ -301,6 +301,10 @@ describe('gameplay settings resolution', () => {
       'frame_rate_cap',
       'lod_bias',
       'lod_hysteresis',
+      // Ambient occlusion (0 off, 1 SSAO, 2 GTAO), render scale (0.5–1), dynamic resolution (0 off, 1 on).
+      'ambient_occlusion',
+      'render_scale',
+      'dynamic_resolution',
     ]);
     // Every optional key the registry has may follow the six in a manifest, in registry order.
     expect([...M3_OPTIONAL_SETTINGS_KEYS]).toEqual(M2_SETTINGS_KEYS.filter((k) => k.optional === true).map((k) => k.key));

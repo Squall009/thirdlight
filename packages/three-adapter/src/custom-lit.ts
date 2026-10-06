@@ -117,7 +117,7 @@ interface BuilderLike {
   readonly lightsNode: { getLightNodes(builder: NodeBuilder): LightNodeLike[] };
   readonly object: THREE.Object3D;
   readonly renderer: { readonly shadowMap: { readonly enabled: boolean } };
-  readonly context: { irradiance: N; iblIrradiance: N; outgoingLight: N };
+  readonly context: { irradiance: N; iblIrradiance: N; outgoingLight: N; ambientOcclusion: N };
   readonly material: { lightMap?: THREE.Texture | null };
   isOpaque(): boolean;
 }
@@ -168,8 +168,10 @@ class GraphLightingModel extends LightingModel {
 
   override indirect(builder: NodeBuilder): void {
     const b = builder as unknown as BuilderLike;
-    LIT.ambient.assign(b.context.irradiance.mul(INV_PI));
-    LIT.environment.assign(b.context.iblIrradiance.mul(INV_PI));
+    // Ambient occlusion (the material's, the screen-space AO) darkens the indirect terms only, as three's own models do.
+    const ao = b.context.ambientOcclusion;
+    LIT.ambient.assign(b.context.irradiance.mul(INV_PI).mul(ao));
+    LIT.environment.assign(b.context.iblIrradiance.mul(INV_PI).mul(ao));
   }
 
   override finish(builder: NodeBuilder): void {

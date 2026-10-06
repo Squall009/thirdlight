@@ -166,6 +166,11 @@ export const NODE_SIDE_ALLOWED = {
         'examples/jsm/tsl/display/BloomNode.js',
         'examples/jsm/tsl/display/SMAANode.js',
         'examples/jsm/tsl/display/FXAANode.js',
+        // post-ao.ts, post-upscale.ts: the fast ambient occlusion (SSAO, the
+        // default kind; GTAO is the quality kind) and the render scale's
+        // upscaler (FSR 1: EASU + RCAS), three's TSL nodes of the pinned release.
+        'examples/jsm/tsl/display/SSAONode.js',
+        'examples/jsm/tsl/display/FSR1Node.js',
         // probe-artifact.ts: baked probe grids are three's LightProbeGrid
         // (its atlas and its light node; the engine bakes, stores and loads them).
         'examples/jsm/lighting/LightProbeGrid.js',
