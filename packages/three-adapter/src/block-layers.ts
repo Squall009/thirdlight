@@ -61,6 +61,7 @@ import {
   type GridRenderChange,
 } from '@thirdlight/runtime';
 
+import { keepMetreUv, syncCellUv } from './block-cell-uv';
 import { chunkModelKey, meshChunkForDrawing, StandInShapes, variantModelOf, type ChunkLooks, type ChunkMeshResult, type ChunkModelRef } from './block-chunk-mesh';
 import { MeshWorkerPool, meshWorkerCount, type MeshWorkerFactory } from './block-mesh-pool';
 import type { MeshWorkerReply } from './block-mesh-worker';
@@ -822,7 +823,12 @@ export class BlockLayerView {
       m.updateMatrix();
       if (level > 0) m.userData[COARSE_LEVEL] = level;
       if (look.assetId !== null) this.deps.applyMaterials?.(m, look.type, look.assetId);
-      else if (look.type.materials !== undefined && Object.keys(look.type.materials).length > 0) this.deps.applyMaterials?.(m, look.type, null);
+      else if (look.type.materials !== undefined && Object.keys(look.type.materials).length > 0) {
+        this.deps.applyMaterials?.(m, look.type, null);
+        // A stand-in's material may read its UVs in cells (made before they were metres).
+        keepMetreUv(m, layer.grid.cellSize);
+        syncCellUv(m);
+      }
       // A material that tints by vertex colours would be tinted by the paint: its chunks keep none.
       if (painted && (m.material as THREE.Material & { vertexColors?: boolean }).vertexColors !== true) {
         const colours = chunkPaintColors(lattice, cx, cz, layer.grid.cellSize, p.positions);

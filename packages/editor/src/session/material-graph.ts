@@ -113,8 +113,8 @@ class GraphBuilder {
    * the plain constant when the material already declares that key for
    * something else.
    */
-  param(key: string, type: 'float' | 'vec2' | 'color', value: number | number[] | string): Out {
-    if (this.taken.has(key)) return type === 'float' ? this.float(key, value as number) : type === 'color' ? this.color(key, value as string) : [this.add(key, 'vec2', { value: value as number[] }), 'value'];
+  param(key: string, type: 'float' | 'vec2' | 'vec4' | 'color', value: number | number[] | string): Out {
+    if (this.taken.has(key)) return type === 'float' ? this.float(key, value as number) : type === 'color' ? this.color(key, value as string) : [this.add(key, type, { value: value as number[] }), 'value'];
     this.taken.add(key);
     this.parameters.push({ key, type, default: value });
     return [this.add(key, 'parameter', { key }), 'value'];
@@ -291,12 +291,15 @@ export function convertToGraph(m: MaterialDef): { ok: true; material: MaterialDe
     const macro = shader === 'kit' ? m.textures['macroNormalMap'] : undefined;
     if (normal !== undefined && macro !== undefined) {
       // Whiteout blend of the macro normal (UV1) over the detail normal, then the normal scale on xy.
-      const decode = (id: string, s: string): Out => b.op('subtract', `${id}Decoded`, b.op('multiply', `${id}Scaled`, [s, 'rgb'], b.float(`${id}Two`, 2)), b.float(`${id}One`, 1));
-      const detail = decode('detail', sample('detailNormal', normal, 'linear', uvMain()));
-      const macroSample = sample('macroNormal', macro, 'linear', [b.add('uv1', 'uv', { set: 'uv1' }), 'uv']);
+      // Both decoded by Normal map nodes at strength 1 (their green follows the mesh's tangent frame).
+      const decode = (id: string, texture: string, uv: Out | null, data: Data = {}): Out => {
+        const n = b.add(id, 'normalMap', { texture, ...data });
+        if (uv !== null) b.wire(uv, n, 'uv');
+        return [n, 'normal'];
+      };
+      const detail = decode('detailNormal', normal, uvMain());
       // The kit shader samples the macro map on UV1 as loaded (clamped at the edges).
-      b.nodes.find((n) => n.id === macroSample)!.data!['wrap'] = 'clamp';
-      const big = decode('macro', macroSample);
+      const big = decode('macroNormal', macro, [b.add('uv1', 'uv', { set: 'uv1' }), 'uv'], { wrap: 'clamp' });
       const d = b.add('detailSplit', 'split');
       const g = b.add('macroSplit', 'split');
       b.wire(detail, d, 'in');
@@ -396,17 +399,36 @@ export function templateMaterial(shader: string, materialId: string, name: strin
 }
 
 /**
+ * The layered template's per-layer settings: a vec4 parameter each, one
+ * component per layer. `min` is the smallest value the editor's layer table
+ * takes (a tiling of 0 would repeat endlessly); null: any.
+ */
+export const LAYER_SETTINGS = [
+  { key: 'layerTiling', label: 'tiling (m)', title: 'Metres per repeat of the layer\'s textures', fill: 1, min: 0.01 },
+  { key: 'layerNormalStrength', label: 'normal strength', title: 'How strongly the layer\'s normal map bends the light (0: flat)', fill: 1, min: null },
+  { key: 'layerContrast', label: 'height contrast', title: 'Stretches the layer\'s height around its middle: above 1 its peaks and cracks stand further apart in the blend', fill: 1, min: null },
+  { key: 'layerOffset', label: 'height offset', title: 'Lifts the layer\'s height in the blend (it shows over the others sooner)', fill: 0, min: null },
+] as const;
+
+/** The number of layers of the layered template (the four components of its weights). */
+export const TEMPLATE_LAYERS = 4;
+
+/**
  * The height-blended layers template — a painted terrain (or a
  * trim-sheet mesh blended by its vertex colours): four PBR layers from three
  * texture arrays (public texture parameters `albedoHeight`: albedo RGB with
  * the height in A, colour; `normals`: normal maps; `orm`: occlusion,
- * roughness, metalness, data), layer i sampled at array layer i on UV0 ×
- * `tiling`; the weights are COLOR_0 (a painted block layer's paint, a mesh's
- * vertex colours; without them all first layer), shaped by the layers'
- * heights through a Height blend (`blendDepth`); every layer value is a
- * Weighted mix. Wetness — COLOR_1.r (painted) or the `wetness` parameter
- * (rain on everything), the larger — darkens the albedo and smooths the
- * surface (wet ground: the albedo × 0.55, roughness toward 0.1).
+ * roughness, metalness, data), layer i sampled at array layer i. Per layer
+ * (the components of {@link LAYER_SETTINGS}' vec4 parameters): UV0 ÷ its
+ * tiling (metres per repeat: block layers' UVs are metres), its normal
+ * strength, and its height's contrast and offset in the blend. The weights
+ * are COLOR_0 (a painted block layer's paint, a mesh's vertex colours;
+ * without them all first layer), shaped by the layers' heights through a
+ * Height blend (`blendDepth`); every layer value is a Weighted mix. Wetness —
+ * COLOR_1.r (painted) or the `wetness` parameter (rain on everything), the
+ * larger — darkens the albedo and smooths the surface (wet ground: the
+ * albedo × 0.55, roughness toward 0.1). Per-layer values change no texture
+ * reads: twelve samples, as with one shared value.
  */
 export function layeredMaterial(materialId: string, name: string): MaterialDef {
   const b = new GraphBuilder([]);
@@ -414,26 +436,39 @@ export function layeredMaterial(materialId: string, name: string): MaterialDef {
   const albedoArr = b.textureParam('albedoHeight');
   const normalArr = b.textureParam('normals');
   const ormArr = b.textureParam('orm');
-  const uv = b.op('multiply', 'uvTiled', [b.add('uv', 'uv'), 'uv'], b.param('tiling', 'float', 1));
+  const setting = (key: (typeof LAYER_SETTINGS)[number]['key']): Out => {
+    const s = LAYER_SETTINGS.find((x) => x.key === key)!;
+    return b.param(key, 'vec4', Array.from({ length: TEMPLATE_LAYERS }, () => s.fill));
+  };
+  const layers = [0, 1, 2, 3];
+  const comp = ['x', 'y', 'z', 'w'] as const;
+  // Per layer: UV0 ÷ its tiling, kept above the smallest tiling the editor takes (a 0 from a script stays finite).
+  const tiling = b.add('tilingSplit', 'split');
+  b.wire(b.op('max', 'tilingFloor', setting('layerTiling'), b.float('tilingMin', LAYER_SETTINGS[0].min)), tiling, 'in');
+  const uv0: Out = [b.add('uv', 'uv'), 'uv'];
+  const uvs = layers.map((i) => b.op('divide', `uv${i + 1}`, uv0, [tiling, comp[i]!]));
+  const strength = b.add('strengthSplit', 'split');
+  b.wire(setting('layerNormalStrength'), strength, 'in');
   const weights: Out = [b.add('paint', 'vertexColor', { absent: 'first' }), 'rgba'];
   const wetSplit = b.add('wetSplit', 'split');
   b.wire([b.add('paintWet', 'vertexColor', { set: 'COLOR_1', absent: 'zero' }), 'rgba'], wetSplit, 'in');
-  const layers = [0, 1, 2, 3];
   const layerNodes = layers.map((i) => b.float(`layer${i + 1}`, i));
   const layerIndex = (i: number): Out => layerNodes[i]!;
   const albedos = layers.map((i) => {
     const s = b.add(`albedo${i + 1}`, 'sampleTexture');
     b.wire(albedoArr, s, 'tex');
-    b.wire(uv, s, 'uv');
+    b.wire(uvs[i]!, s, 'uv');
     b.wire(layerIndex(i), s, 'layer');
     return s;
   });
   const heights = b.add('heights', 'combine');
-  ['x', 'y', 'z', 'w'].forEach((c, i) => b.wire([albedos[i]!, 'a'], heights, c));
+  comp.forEach((c, i) => b.wire([albedos[i]!, 'a'], heights, c));
   const blend = b.add('heightBlend', 'heightBlend');
   b.wire(weights, blend, 'weights');
   b.wire([heights, 'xyzw'], blend, 'heights');
   b.wire(b.param('blendDepth', 'float', 0.2), blend, 'depth');
+  b.wire(setting('layerContrast'), blend, 'contrast');
+  b.wire(setting('layerOffset'), blend, 'offset');
   const mix = (id: string, values: Out[]): Out => {
     const m = b.add(id, 'weightedMix');
     ['a', 'b', 'c', 'd'].forEach((port, i) => b.wire(values[i]!, m, port));
@@ -441,19 +476,18 @@ export function layeredMaterial(materialId: string, name: string): MaterialDef {
     return [m, 'out'];
   };
   const albedo = mix('albedoMix', albedos.map((s) => [s, 'rgb'] as Out));
-  const strength = b.param('normalStrength', 'float', 1);
   const normals = layers.map((i) => {
     const n = b.add(`normal${i + 1}`, 'normalMap');
     b.wire(normalArr, n, 'tex');
-    b.wire(uv, n, 'uv');
-    b.wire(strength, n, 'strength');
+    b.wire(uvs[i]!, n, 'uv');
+    b.wire([strength, comp[i]!], n, 'strength');
     b.wire(layerIndex(i), n, 'layer');
     return [n, 'normal'] as Out;
   });
   const orms = layers.map((i) => {
     const s = b.add(`orm${i + 1}`, 'sampleTexture', { colorSpace: 'linear' });
     b.wire(ormArr, s, 'tex');
-    b.wire(uv, s, 'uv');
+    b.wire(uvs[i]!, s, 'uv');
     b.wire(layerIndex(i), s, 'layer');
     return [s, 'rgb'] as Out;
   });

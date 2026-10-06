@@ -4039,8 +4039,9 @@ brushes, overlays and stamp UI are below (23.6).
   and takes its wall's past it; a vertex where two projections meet is split,
   so no triangle mixes them. One texture sample per layer (no triplanar
   blend). A material's **tiling** sets the repeats per metre (0.25: one
-  repeat per 4 m). World-mapped looks carry tangents along +u, so normal
-  maps light every face the same way. Coloured stand-ins are always
+  repeat per 4 m). World-mapped looks carry tangents along +u (their
+  bitangent up the image, as glTF's), so normal maps light every face the
+  same way. Coloured stand-ins are always
   world-mapped (in metres), and a model piece without texture coordinates
   takes world ones (it used to read the texture's corner).
 - **Collision** (3D projects): one triangle-mesh collider per chunk built from
@@ -4095,6 +4096,32 @@ brushes, overlays and stamp UI are below (23.6).
   script). Map it to a block type with **Materials** `*` → the material —
   since 25.21 a coloured stand-in takes the `*` material too. The paint is
   visual: scripts do not read it, replays do not depend on it.
+- **Per-layer settings** (28b.4): the template's four layers each have a
+  **tiling** (metres per repeat of the layer's textures, 1 by default), a
+  **normal strength** (0: flat), and a **height contrast** and **height
+  offset** for the blend (the layer's height becomes (height − 0.5) ×
+  contrast + 0.5 + offset: a contrast above 1 pushes its peaks and cracks
+  apart, an offset lifts it over the others). The Material editor shows them
+  as a **Layers** table above the exposed parameters; they are four vec4
+  parameters (`layerTiling`, `layerNormalStrength`, `layerContrast`,
+  `layerOffset`, one component per layer), so instances, objects and scripts
+  override them like any public parameter. They are uniforms: still twelve
+  texture reads. The Height blend node takes `contrast` and `offset` as
+  inputs of its own (unwired: the heights as they are). A layered material
+  made before them keeps its one `tiling`, `blendDepth` and
+  `normalStrength`, and its look: on a block layer its UVs stay in cells as
+  they were then (its `tiling` repeats per cell width on tops, per cell
+  width and height on walls); make a new one from the template to set the
+  layers apart.
+- **Normal maps** are read as OpenGL / glTF ones (green toward the top of
+  the image; the Texture Designer writes them so): a bump lights from the
+  same side on painted terrain, plain graph materials and the standard
+  shader, on block cells, boxes and models alike. Until 28b.4 project
+  materials read the green the other way round on boxes, primitives and
+  block cells, and graph materials also on models without tangents (a bump
+  lit from the wrong side; a model's own glTF materials, and a standard
+  material on a model, were right). A texture made to look right on those
+  then needs its green turned around now.
 
 ## Block layer editing (phase 23.6)
 

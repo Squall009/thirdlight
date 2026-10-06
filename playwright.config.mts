@@ -105,6 +105,8 @@ const WEBGPU_SPECS = [
   '**/smooth-tops.e2e.ts',
   // World-aligned texture coordinates on block looks (a texture across cells without a seam) on WebGPU.
   '**/block-world-uv.e2e.ts',
+  // Normal maps lit from the right side (painted terrain, plain materials) and per-layer settings on WebGPU.
+  '**/layered-material.e2e.ts',
   // Mip streaming of large KTX2 textures under the texture budget (Play, the export's files) on WebGPU.
   '**/texture-streaming.e2e.ts',
   // A model's images extracted into texture assets, drawn and streamed (Scene view, Play, export) on WebGPU.

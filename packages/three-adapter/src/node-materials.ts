@@ -20,7 +20,7 @@
  */
 import * as THREE from 'three';
 import { buildHasInstanceColumns, instanceOriginFromColumns } from './attribute-instancing';
-import { buffer, Fn, instancedBufferAttribute, instanceIndex, mat4, OnBeforeFrameUpdate, vec3, vec4 } from 'three/tsl';
+import { buffer, float, Fn, instancedBufferAttribute, instanceIndex, mat4, OnBeforeFrameUpdate, vec3, vec4 } from 'three/tsl';
 import {
   MeshBasicNodeMaterial,
   MeshLambertNodeMaterial,
@@ -172,6 +172,28 @@ export const instanceOrigin = Fn((builder: NodeBuilder) => {
   });
   return (instancedBufferAttribute(shared as unknown as THREE.InstancedBufferAttribute, 'vec4', 16, 12) as unknown as ReturnType<typeof vec4>).xyz;
 });
+
+// ---- the normal map's green (tangent frames) ---------------------------------------
+
+/**
+ * Whether three.js derives a mesh's tangent frame from its texture
+ * coordinates (it has no tangents). That frame's bitangent runs along +v; the
+ * engine loads textures with v = 0 the top row (flipY off, as glTF), so +v
+ * points down the image while a normal map's green points up it (OpenGL /
+ * glTF convention): the green is turned around there. A mesh with tangents
+ * (glTF's, the block mesher's) has its bitangent up the image already.
+ */
+export function derivesTangentFrame(geometry: { getAttribute(name: string): unknown } | null | undefined): boolean {
+  return geometry === null || geometry === undefined || geometry.getAttribute('tangent') === undefined;
+}
+
+/**
+ * The sign a tangent-space normal's y takes on the mesh being built: −1 where
+ * the frame is derived from the texture coordinates, else 1 (see
+ * {@link derivesTangentFrame}). three.js builds a program per vertex layout,
+ * so one material draws right on meshes with and without tangents.
+ */
+export const normalGreenSign = Fn((builder: NodeBuilder) => float(derivesTangentFrame((builder as unknown as { geometry?: THREE.BufferGeometry | null }).geometry) ? -1 : 1));
 
 // ---- per-mesh looks (never a shared material) ---------------------------------------
 

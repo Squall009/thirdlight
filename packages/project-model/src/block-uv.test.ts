@@ -3,7 +3,7 @@
  * normal (tops X/Z, walls facing ±X Z/Y, walls facing ±Z X/Y), in metres from
  * the layer origin, so a texture runs on across cells; vertices split where
  * the projection changes; slopes switch to their wall's projection past 45°;
- * tangents along +u with the handedness that puts +v on the bitangent; a model
+ * tangents along +u with the handedness that puts −v (the image's up, as glTF) on the bitangent; a model
  * piece without texture coordinates takes world ones; `uv` validated on block
  * types and variants.
  */
@@ -188,7 +188,7 @@ describe('block looks: world texture coordinates', () => {
     expect(part!.tangents).toBeUndefined();
   });
 
-  it('tangents run along +u over the surface, and cross(normal, tangent) × w along +v, on flat and sloped faces and smoothed tops', () => {
+  it('tangents run along +u over the surface, and cross(normal, tangent) × w along −v (glTF: up the image), on flat and sloped faces and smoothed tops', () => {
     const q = (v: number): number => Math.round(v * 16) / 16;
     const g = new BlockGrid({ cellSize: [1, 0.5, 1], bounds: { min: [0, 0, 0], max: [16, 24, 16] } });
     const h = (x: number, z: number): number => q(8 + 3 * Math.sin(x / 3) * Math.cos(z / 4));
@@ -210,10 +210,10 @@ describe('block looks: world texture coordinates', () => {
           const tan = v.t!;
           expect(Math.abs(Math.hypot(tan[0], tan[1], tan[2]) - 1)).toBeLessThan(1e-5);
           expect(Math.abs(tan[3])).toBe(1);
-          // Perpendicular to the vertex normal, the same way as +u, and its bitangent the same way as +v.
+          // Perpendicular to the vertex normal, the same way as +u, and its bitangent the same way as −v.
           expect(Math.abs(dot(tan, v.n))).toBeLessThan(1e-4);
           expect(dot(tan, du)).toBeGreaterThan(0.5);
-          expect(dot(cross(v.n, tan).map((x) => x * tan[3]), dv)).toBeGreaterThan(0.5);
+          expect(dot(cross(v.n, tan).map((x) => x * tan[3]), dv)).toBeLessThan(-0.5);
           // On a flat-shaded face it is exactly the face's own +u.
           if (close(v.n, faceNormal(t), 1e-6)) expect(close(tan.slice(0, 3), du, 1e-4)).toBe(true);
           checked++;

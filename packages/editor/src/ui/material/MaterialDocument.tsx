@@ -22,12 +22,13 @@ import { materialGraphProblems, type MaterialFunctionLike } from '@thirdlight/th
 
 import { GraphEditor } from '../../graph/GraphEditor';
 import type { GraphKindDef, GraphOp } from '../../graph/model';
-import { materialPortContext, parameterDefault } from '../../session/material-graph';
+import { materialPortContext, parameterDefault, TEMPLATE_LAYERS } from '../../session/material-graph';
 import { slotProblemInput } from '../../session/texture-slots';
 import { stringsIn, useTextureIds } from '../catalog/catalog-context';
 import { RefPicker, TEXTURE_KINDS } from '../catalog/RefPicker';
 import { usePreview } from '../preview/preview-request';
 import { EditorToolbar, ToolButton, ToolbarSpacer } from '../chrome/EditorChrome';
+import { LayerSettings } from './LayerSettings';
 
 export interface MaterialDocumentProps {
   materialId: string;
@@ -101,6 +102,7 @@ export function MaterialDocument(p: MaterialDocumentProps): JSX.Element {
       )}
       <div className="tl-animator-doc__main">
         <div className="tl-animator-doc__side">
+          <LayerSettings material={m} onSave={p.onSave} />
           <ParameterEditor material={m} onSave={p.onSave} />
         </div>
         <div className="tl-animator-doc__graph">
@@ -161,7 +163,8 @@ function ParameterEditor({ material, onSave }: { material: MaterialDef; onSave: 
               </option>
             ))}
           </select>
-          <ParameterValue param={x} slots onCommit={(v) => setAt(i, { default: v })} />
+          {/* A number keyed by its value: the layer table may change it under the field. */}
+          <ParameterValue key={x.type === 'texture' ? 'texture' : JSON.stringify(x.default)} param={x} slots onCommit={(v) => setAt(i, { default: v })} />
           {x.type === 'data' && <DataSize value={x.size ?? NEW_DATA_SIZE} name={`parameter ${x.key} size`} onCommit={(size) => setAt(i, { size })} />}
           <select className="tl-input" aria-label={`parameter ${x.key} visibility`} value={x.visibility ?? 'public'} onChange={(e) => setAt(i, { visibility: e.target.value as 'public' | 'private' })}>
             <option value="public">public</option>
@@ -201,8 +204,8 @@ export function ParameterValue({ param, onCommit, label, slots }: { param: Pick<
   return <input className="tl-input tl-input--num" aria-label={name} title={n === 1 ? 'a number' : `${n} numbers, comma separated`} value={draft} onChange={(e) => setDraft(e.target.value)} onBlur={commit} onKeyDown={(e) => e.key === 'Enter' && commit()} />;
 }
 
-/** The slots a texture parameter starts with when switched to per-layer slots (the layered template's four layers). */
-const NEW_SLOT_COUNT = 4;
+/** The slots a texture parameter starts with when switched to per-layer slots (the layered template's layers). */
+const NEW_SLOT_COUNT = TEMPLATE_LAYERS;
 
 /**
  * A texture value: one texture (a plain one or an array), or per-layer

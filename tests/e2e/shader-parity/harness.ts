@@ -64,9 +64,14 @@ function dataTexture(w: number, h: number, fill: (u: number, v: number) => [numb
   t.needsUpdate = true;
   return t;
 }
+/**
+ * A tangent-space normal as texels, green toward the image's top (v = 0, as the engine loads textures).
+ * The references were drawn when the renderers read the green the other way round on these meshes
+ * (boxes and planes, frames derived from their UVs), so y is stored negated: the same bumps light the same.
+ */
 const encodeNormal = (x: number, y: number, z: number): [number, number, number, number] => {
   const l = Math.hypot(x, y, z) || 1;
-  return [((x / l) * 0.5 + 0.5) * 255, ((y / l) * 0.5 + 0.5) * 255, ((z / l) * 0.5 + 0.5) * 255, 255];
+  return [((x / l) * 0.5 + 0.5) * 255, ((-y / l) * 0.5 + 0.5) * 255, ((z / l) * 0.5 + 0.5) * 255, 255];
 };
 const TEXTURES: Record<string, () => THREE.Texture> = {
   checker: () => dataTexture(64, 64, (u, v) => ((Math.floor(u * 8) + Math.floor(v * 8)) % 2 === 0 ? [235, 225, 205, 255] : [60, 90, 170, 255])),

@@ -39,6 +39,7 @@ import { INSTANCE_MATRIX_ATTRIBUTE } from './attribute-instancing';
 import { createEnvironmentRenderer, environmentHasLook, environmentTextureIds, layerEnvironment, renderPixelRatio, type EnvironmentLayerLike, type EnvironmentLike, type EnvironmentRenderer, type FogVolumeLike, type QualityLevel } from './environment';
 import { createGpuTiming } from './gpu-timing';
 import * as THREE from 'three';
+import { syncCellUv } from './block-cell-uv';
 import { BlockLayerView, blockLookFromObject, type BlockLayerViewDiagnostics, type BlockModelLook } from './block-layers';
 import { createBrowserMeshWorker } from './block-mesh-pool';
 import { RuntimeMaterialView, type MaterialRenderChangeLike, type RuntimeMaterialsDiagnostics } from './runtime-materials';
@@ -486,6 +487,8 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     const node = batcher === null ? undefined : graph.node(id);
     if (node !== undefined) batcher!.touch(node);
   };
+  // A block chunk's UVs follow the unit its (re)defined material reads (cells or metres), before it is grouped again.
+  const stopCellUv = materialLibrary?.onReassigned?.((root) => void ((root as THREE.Mesh).isMesh === true && syncCellUv(root as THREE.Mesh)));
   // Project materials redefined (an editing host): the meshes wearing them are grouped again.
   const stopReassigned = batcher === null ? undefined : materialLibrary?.onReassigned?.((root) => batcher.touch(root));
   /** The documents of every realized entity (the loaded scenes). */
@@ -1665,6 +1668,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     }
     entityResources.clear();
     stopReassigned?.();
+    stopCellUv?.();
     batcher?.dispose();
     viewCull.dispose();
     blockView.dispose();

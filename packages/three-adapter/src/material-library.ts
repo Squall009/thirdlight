@@ -49,6 +49,7 @@ import { MeshBasicNodeMaterial, type MeshStandardNodeMaterial, type NodeBuilder 
 import {
   applyGraphNodes,
   buildGraphMaterial,
+  CELL_UV_KEY,
   compileMaterialGraph,
   digestOf,
   MATERIAL_IDS_KEY,
@@ -63,7 +64,7 @@ import {
   type MaterialParameterLike,
   type SamplerLike,
 } from './material-graph';
-import { instanceOrigin, standardNodeMaterialFrom } from './node-materials';
+import { derivesTangentFrame, instanceOrigin, standardNodeMaterialFrom } from './node-materials';
 import { decodeKtx2, isKtx2 } from './ktx2';
 import { textureHolds, type TextureHolds } from './texture-holds';
 import { SAMPLED_TEXTURES_KEY } from './texture-streaming';
@@ -369,7 +370,8 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
     return c;
   };
 
-  const build = (def: MaterialDefLike, source: THREE.Material | null): THREE.Material => {
+  /** `derived`: the meshes it goes on have no tangents (their frame comes from the texture coordinates). */
+  const build = (def: MaterialDefLike, source: THREE.Material | null, derived: boolean): THREE.Material => {
     const p = def.params;
     if (def.shader === 'unlit') {
       const src = source as THREE.MeshStandardMaterial | null;
@@ -392,10 +394,10 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
     if (typeof p['emissive'] === 'string') m.emissive.set(p['emissive']);
     if (p['emissiveIntensity'] !== undefined) m.emissiveIntensity = num(p['emissiveIntensity'], m.emissiveIntensity);
     if (p['aoIntensity'] !== undefined) m.aoMapIntensity = num(p['aoIntensity'], 1);
-    if (p['normalScale'] !== undefined) {
-      const s = num(p['normalScale'], 1);
-      m.normalScale.set(s, Math.sign(m.normalScale.y || 1) * s);
-    }
+    // The green of a normal map turned around where the frame is derived from the texture coordinates
+    // (normalGreenSign; what three's glTF loader does to its own materials, kept for a model's).
+    const scale = p['normalScale'] !== undefined ? num(p['normalScale'], 1) : Math.abs(m.normalScale.x);
+    m.normalScale.set(scale, (derived ? -1 : 1) * scale);
     if (p['doubleSided'] !== undefined || def.shader === 'foliage') m.side = p['doubleSided'] === false ? THREE.FrontSide : p['doubleSided'] === true || def.shader === 'foliage' ? THREE.DoubleSide : m.side;
     applyAlpha(m, p);
     // The file's textures take the material's tiling too (clones: the file's stay as they are).
@@ -677,6 +679,8 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
     // A graph that reads the object's own frame draws wrong merged into world space.
     if (e.compiled.objectFrame) e.material.userData[OBJECT_FRAME_KEY] = true;
     else delete e.material.userData[OBJECT_FRAME_KEY];
+    if (e.compiled.cellUv) e.material.userData[CELL_UV_KEY] = true;
+    else delete e.material.userData[CELL_UV_KEY];
     // A clock-driven graph with an alpha (opacity or clip) cuts its shadow differently every frame: never cached.
     const sl = e.compiled.slots;
     if (e.compiled.animated && (sl.opacity !== null || sl.alphaTest !== null || sl.litOpacity !== null || sl.litAlphaTest !== null)) e.material.userData[CHANGING_ALPHA_KEY] = true;
@@ -761,10 +765,12 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
     return changed ? { ...def, parameters } : null;
   };
 
-  const materialFor = (materialId: string, source: THREE.Material | null): THREE.Material | null => {
+  /** The key of a built material: per source material and per tangent frame (a normal map's green differs). */
+  const builtKey = (materialId: string, source: THREE.Material | null, derived: boolean): string => `${materialId}|${source?.uuid ?? 'none'}|${derived ? 'uv' : 'tangent'}`;
+  const materialFor = (materialId: string, source: THREE.Material | null, derived: boolean): THREE.Material | null => {
     const def = defs.get(materialId);
     if (def === undefined) return null;
-    const key = `${materialId}|${source?.uuid ?? 'none'}`;
+    const key = builtKey(materialId, source, derived);
     const dk = defKeyOf(def);
     const have = built.get(key);
     if (have !== undefined && have.defKey === dk) return have.material;
@@ -772,7 +778,7 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
       if (have.animated) animatedCount = Math.max(0, animatedCount - 1);
       disposeBuilt(have.material);
     }
-    const m = build(def, source);
+    const m = build(def, source, derived);
     built.set(key, { material: m, defKey: dk, animated: def.shader === 'foliage' || def.shader === 'water' });
     return m;
   };
@@ -817,10 +823,11 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
           changed = true;
           return e.material;
         }
-        const m = id === undefined ? null : materialFor(id, src);
+        const derived = derivesTangentFrame(mesh.geometry);
+        const m = id === undefined ? null : materialFor(id, src, derived);
         if (m !== null) {
           changed = true;
-          keys.push(`${id}|${src.uuid}`);
+          keys.push(builtKey(id!, src, derived));
         }
         return m ?? src;
       });

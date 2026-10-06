@@ -103,7 +103,8 @@ both renderers where it changes drawing.
 | 28b.1 | done 2026-10-06: validator refuses x ≠ z, Inspector ties x and z (`same` on vec descriptors), sloped stretch-back removed; D52 closed. `perf blocks` before → after (p95 / worst ms): scene block change webgpu 17.5/18.3 → 17.5/19.7, webgl2 17.6/19.6 → 17.6/18.2; export grid writes webgpu 6.0/13.4 → 6.0/15.6, webgl2 8.4/232 → 8.9/231 (noise). Fast gate's village perf check RED on webgpu p50 (7.5 ms vs limit 7.26) — clean HEAD 0c04d623 measures 7.7 ms too, so it predates this item (baseline recorded before 28c.15). |
 | 28b.2 | part A done 2026-10-06: the pack route takes KTX2 sources; whole UASTC layers alike are joined as stored (level digests and transcoded texels equal the sources', vitest + e2e), else transcoded (or their PNG read) and encoded once with `packedFrom.reencoded` per layer, shown by the pack dialog. 4 × 1024² UASTC: joined in 14 ms (187 KB) vs 26.9 s encoding the same from PNG (187 KB); 4 × 1024² ETC1S re-encoded from KTX2 8.7 s (494 KB; from PNG 10.1 s, 474 KB). Part B done 2026-10-06: a texture parameter's default or an instance's value may be a list of single-layer textures; the Scene view, preview, Play and export draw one array assembled by the backend and cached in the import cache by the layers' digests (export ships `slots-…` arrays, not the slot textures). 4 × 1024²: UASTC joined 14 ms, ETC1S encoded 8.6 s, cache hit 0.2 ms; an A/B one-slot swap assembles one array (12 ms / 9.6 s) = +5.6 MB resident instead of a second three-array set (+16.8 MB; computed at 1 B/texel with mips, not measured in a browser). Pixel e2e (slot 3 = layer 4's texture) green on WebGPU and WebGL 2. |
 | 28b.3 | done 2026-10-06: `uv: 'model' \| 'world'` on block types and variants (Blocks panel form, MCP); box mapping per flat face in metres from the layer origin, vertices split per projection, 45° switch, tangents along +u; pieces without UVs take world ones. Pixel e2e (4 m ramp over 4 cells, no seam) green on WebGPU and WebGL 2. Mesh time per sloped smoothed chunk (blocks ground, Node) 22.0 → 21.2 ms stand-ins, 22.6 ms world + tangents; `perf blocks` p95/worst scene type change webgpu 17.5/18.2 → 17.6/20.6, webgl2 17.6/17.9 → 17.4/17.8; village p50 webgpu 6.3 → 6.2, webgl2 4.3 → 4.2 ms (noise). |
-| 28b.4–28b.7 | — |
+| 28b.4 | done 2026-10-06: per-layer tiling (m), normal strength, height contrast/offset as vec4 parameters of the template, a Layers table in the Material editor, Height blend `contrast`/`offset` inputs; old layered materials keep cell-unit repeat on non-1 m cells. Normal-map green was wrong on every engine surface (92 vs 169 brightness, both renderers): fixed in the decode and the mesher's tangents; pixel e2e green on WebGPU and WebGL 2. Village p50/p95 webgpu 6.3/7.8 → 6.3/7.9, webgl2 4.2/6.9 → 4.4/6.9 ms; `perf blocks` scene type change p95/worst webgpu 17.5/18.0 → 17.6/19.5, webgl2 17.6/17.9 → 17.4/18.3; export grid writes p95 webgpu 6.0 → 12.9, webgl2 8.2 → 11.3 ms (fewer frames sampled in that run; recheck). |
+| 28b.5–28b.7 | — |
 
 ## 5. Decision log
 
@@ -182,3 +183,54 @@ both renderers where it changes drawing.
   layers mesh to the same positions, normals and indices byte for byte (the
   pinned digests without UVs match); only UVs changed. Accepted: default
   chosen, owner to confirm.
+- 2026-10-06 (28b.4): per-layer settings are four vec4 parameters of the
+  layered template (`layerTiling` metres per repeat, `layerNormalStrength`,
+  `layerContrast`, `layerOffset`; one component per layer, every layer
+  filled alike), not separate fields: a material is a graph, so instances,
+  object overrides and scripts reach them like any parameter, and they are
+  uniforms (twelve texture reads, as before). The Height blend node gets
+  `contrast` and `offset` inputs (height' = (h − 0.5) × contrast + 0.5 +
+  offset); unwired they change nothing, so older graphs compile to the same
+  shader. The new template drops the shared `tiling` and `normalStrength`
+  (`blendDepth` and `wetness` stay shared). A layered material made before
+  keeps its stored graph (no rewrite): its shared values are what every
+  layer uses, as before; the editor's Layers table shows only for materials
+  with the vec4 parameters (no in-place upgrade; make a new one from the
+  template). Default chosen, owner to confirm.
+- 2026-10-06 (28b.4): old projects' repeat after 28b.3's metre UVs. A
+  material whose graph is the old template's shape (UV0 × the `tiling`
+  parameter, with a Height blend; `readsCellUv`) is flagged when compiled,
+  and on a block layer whose cells are not 1 × 1 its stand-in chunks get
+  their metre UVs divided back into cells (u by the cell width, v by the
+  width on tops and by the cell height on walls, tops told apart by the
+  vertex normal's main axis as the old mapping did); the metre UVs stay with
+  the mesh and come back if the material changes. So the old `tiling` repeats
+  per cell as before on 2 m cells and on 0.5 m-tall walls (vitest: one UV
+  unit per cell on a 2 × 0.5 × 2 m layer). Not restored: the wall image's
+  orientation (28b.3 turned it upright) and the 45° top/wall switch; any
+  other material reading stand-in UVs (a hand-made graph, a standard
+  material with a texture on stand-ins) repeats per metre now. On 1 m cells
+  nothing changes. Skyforge's terrain builds its UVs from the world position,
+  so it is unaffected. Default chosen, owner to confirm.
+- 2026-10-06 (28b.4): normal-map green (E40). Measured before the fix with a
+  normal map tilted toward the image's top (OpenGL / glTF convention, what
+  the Texture Designer writes): every engine-made surface lit it from the
+  wrong side on both renderers — painted terrain, a plain graph Normal map
+  node and the standard shader on block cells (mesher tangents) and on boxes
+  (frame derived from UVs): brightness from −Z/+Z 92/169 where 169/92 was
+  right. Cause: textures load with flipY off (v = 0 the top row, as glTF),
+  and three.js's derived frame has its bitangent along +v, down the image;
+  28b.3's tangents copied that handedness. three's glTF loader turns
+  normalScale.y around for meshes without tangents; the engine did not.
+  Fixed in the decode, not in textures: the Normal map node multiplies y by
+  a per-mesh sign (−1 where the mesh has no tangents; three builds a program
+  per vertex layout), the standard / foliage / kit / water shaders build a
+  material per tangent frame with normalScale.y negative where it is derived
+  (as the glTF loader does; a model's own sign is no longer inherited), the
+  mesher's tangents take glTF's handedness (bitangent up the image), and the
+  kit template decodes through Normal map nodes. glTF models' own materials
+  were and stay right. The shader-parity references stay as frozen: their
+  synthetic bump maps store y negated so the same bumps light the same.
+  Normal maps authored to look right under the old reading need their green
+  turned around; Skyforge's painted terrain (E40) should be looked at again.
+  Default chosen, owner to confirm.

@@ -934,6 +934,12 @@ input.tl-inspector__name:hover, input.tl-inspector__name:focus { border-color: v
 .tl-material-preview { display: flex; flex-direction: column; gap: 4px; }
 .tl-material-preview__status { font-size: 11px; }
 .tl-material-params { display: flex; flex-direction: column; gap: 6px; }
+.tl-material-layers { margin-bottom: 10px; }
+.tl-material-layers__table { border-collapse: collapse; }
+.tl-material-layers__table th { font-weight: normal; text-align: left; padding: 0 6px 2px 0; white-space: nowrap; }
+.tl-material-layers__table thead th { text-align: center; }
+.tl-material-layers__table td { padding: 1px 2px; }
+.tl-material-layers__table .tl-input--num { width: 4.5em; }
 .tl-material-params .tl-subhead { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
 .tl-material-param { display: grid; grid-template-columns: 1fr 70px; gap: 4px; padding: 4px; border: 1px solid var(--line); border-radius: var(--radius); }
 .tl-material-param .tl-input { min-width: 0; }

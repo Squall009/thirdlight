@@ -57,7 +57,7 @@ import * as TSL from 'three/tsl';
 import { MeshBasicNodeMaterial, MeshStandardNodeMaterial, TextureNode } from 'three/webgpu';
 
 import { LIT, litMainDirectionWorld, MeshCustomLitNodeMaterial } from './custom-lit';
-import { instanceOrigin } from './node-materials';
+import { instanceOrigin, normalGreenSign } from './node-materials';
 
 // TSL's typings do not follow values whose width is known only at run time.
 type N = any;
@@ -168,6 +168,8 @@ export interface CompiledMaterialGraph {
   readonly animated: boolean;
   /** Reads the object's own frame (object-space position or normal, its origin, an object-space offset): never merged with others (static batching). */
   readonly objectFrame: boolean;
+  /** Reads mesh UVs in block cells (see {@link readsCellUv}). */
+  readonly cellUv: boolean;
   /** Reads a Lighting input under a Custom-lit output. */
   readonly usesLight: boolean;
   /** Texture assets it samples (loaded or not). */
@@ -180,6 +182,32 @@ export interface CompiledMaterialGraph {
   /** Textures the compile made (data parameters' placeholders); released with the compile. */
   readonly ownedTextures: readonly THREE.Texture[];
 }
+
+/**
+ * Whether a graph is the height-blended layers template as it was made while
+ * block layers' generated UVs counted cells: UV0 × the `tiling` parameter
+ * feeding a Height blend's samples. Those UVs are metres now; on a block
+ * layer the renderer gives such a material cell units again (`CELL_UV_KEY`),
+ * so a project's painted terrain keeps its repeat on cells other than 1 m.
+ * The template made now has per-layer tilings in metres and no `tiling`.
+ */
+export function readsCellUv(graph: MaterialGraphLike): boolean {
+  if (!graph.nodes.some((n) => n.type === 'heightBlend')) return false;
+  const byId = new Map(graph.nodes.map((n) => [n.id, n]));
+  const into = (nodeId: string, port: string): MaterialGraphNodeLike | undefined => {
+    const e = graph.edges.find((x) => x.to.node === nodeId && x.to.port === port);
+    return e === undefined ? undefined : byId.get(e.from.node);
+  };
+  return graph.nodes.some((n) => {
+    if (n.type !== 'multiply') return false;
+    const a = into(n.id, 'a');
+    const b = into(n.id, 'b');
+    return a?.type === 'uv' && (a.data?.['set'] ?? 'uv0') === 'uv0' && b?.type === 'parameter' && b.data?.['key'] === 'tiling';
+  });
+}
+
+/** `material.userData[CELL_UV_KEY]`: the material reads block layers' UVs in cells, not metres ({@link readsCellUv}). */
+export const CELL_UV_KEY = '__tlCellUv';
 
 /** Where objects keep their parameter overrides for the graph materials they wear. */
 export const OVERRIDES_KEY = '__tlMaterialParams';
@@ -340,7 +368,7 @@ export const COMPILER_NODES: Readonly<Record<string, NodeSpec>> = {
   sampleData: { inputs: [P('data', 'data'), P('uv', 'vec2', 'uv0'), P('cell', 'vec2', [0, 0])], outputs: SAMPLE_OUT },
   normalMap: { inputs: [P('tex', 'texture'), P('uv', 'vec2', 'uv0'), P('strength', 'float', 1), P('layer', 'float', 0)], outputs: [P('normal', 'vec3')] },
   triplanar: { inputs: [P('tex', 'texture'), P('position', 'vec3', 'positionWorld'), P('normal', 'vec3', 'normalWorld'), P('scale', 'float', 1), P('sharpness', 'float', 4), P('layer', 'float', 0)], outputs: [P('rgba', 'vec4'), P('rgb', 'vec3')] },
-  heightBlend: { inputs: [P('weights', 'vec4', [1, 0, 0, 0]), P('heights', 'vec4', [0, 0, 0, 0]), P('depth', 'float', 0.2)], outputs: [P('weights', 'vec4')] },
+  heightBlend: { inputs: [P('weights', 'vec4', [1, 0, 0, 0]), P('heights', 'vec4', [0, 0, 0, 0]), P('depth', 'float', 0.2), P('contrast', 'vec4', [1, 1, 1, 1]), P('offset', 'vec4', [0, 0, 0, 0])], outputs: [P('weights', 'vec4')] },
   flipbook: { inputs: [P('uv', 'vec2', 'uv0'), P('frame', 'float', 0)], outputs: [P('uv', 'vec2')] },
   noise: { inputs: [P('uv', 'vec2', 'uv0'), P('scale', 'float', 10)], outputs: [P('value', 'float'), P('cell', 'float')] },
   gradient: { inputs: [P('uv', 'vec2', 'uv0')], outputs: [P('value', 'float')] },
@@ -1061,9 +1089,10 @@ export function compileMaterialGraph(input: { graph: MaterialGraphLike; paramete
       case 'normalMap': {
         const t = textureFor(scope, node, inp, false);
         if (t === null) return one('normal', T.vec3(0, 0, 1));
-        // As three's normal map: decode, scale xy by the strength (tangent space).
+        // As three's normal map: decode, scale xy by the strength (tangent space); the green turned
+        // around where the mesh's frame comes from its texture coordinates (normalGreenSign).
         const n = sample(t, v(inp['uv']), stage, v(inp['layer'])).xyz.mul(2).sub(1);
-        return one('normal', T.vec3(n.xy.mul(v(inp['strength'])), n.z));
+        return one('normal', T.vec3(n.xy.mul(v(inp['strength'])).mul(T.vec2(1, normalGreenSign())), n.z));
       }
       case 'triplanar': {
         const t = textureFor(scope, node, inp, true);
@@ -1116,7 +1145,11 @@ export function compileMaterialGraph(input: { graph: MaterialGraphLike; paramete
         const w0 = T.max(v(inp['weights']), T.vec4(0, 0, 0, 0));
         const sum = T.dot(w0, T.vec4(1, 1, 1, 1));
         const w = sum.greaterThan(1e-5).select(w0.div(sum), T.vec4(1, 0, 0, 0));
-        const h = v(inp['heights']).add(w);
+        // Each layer's height reshaped around its middle (unwired: as it is, so older graphs compile to the same shader).
+        let heights = v(inp['heights']);
+        if (connected(scope, node.id, 'contrast')) heights = heights.sub(0.5).mul(v(inp['contrast'])).add(0.5);
+        if (connected(scope, node.id, 'offset')) heights = heights.add(v(inp['offset']));
+        const h = heights.add(w);
         const top = T.max(T.max(h.x, h.y), T.max(h.z, h.w)).sub(T.max(v(inp['depth']), 1e-4));
         const b = T.max(h.sub(top), T.vec4(0, 0, 0, 0)).mul(w);
         const bs = T.dot(b, T.vec4(1, 1, 1, 1));
@@ -1289,6 +1322,7 @@ export function compileMaterialGraph(input: { graph: MaterialGraphLike; paramete
     flags: { doubleSided: flag('doubleSided', false), transparent: flag('transparent', false), castShadows: flag('castShadows', true) },
     animated,
     objectFrame,
+    cellUv: readsCellUv(input.graph),
     usesLight,
     textures: [...textures].sort(),
     pending: [...pending].sort(),

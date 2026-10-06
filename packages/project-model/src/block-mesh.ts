@@ -284,9 +284,11 @@ function worldUv(proj: number, px: number, py: number, pz: number, out: number[]
  * Pushes a vertex's tangent under a projection: the direction of +u along the
  * surface its normal describes (the projected-away axis follows the surface,
  * so a slope's tangent climbs with it), and in w the handedness that makes
- * cross(normal, tangent) × w run along +v — the frame three.js derives from
- * the texture coordinates when a mesh has no tangents, so a normal map lights
- * the same either way.
+ * cross(normal, tangent) × w run along −v: toward the top of the image, as
+ * glTF's tangents do (textures load with v = 0 the top row), so a normal map
+ * whose green points up the image lights the right way. Where a mesh has no
+ * tangents, the frame three.js derives from the texture coordinates runs
+ * along +v instead, and the renderer turns the green around there.
  */
 function worldTangent(proj: number, nx: number, ny: number, nz: number, out: number[]): void {
   const a = PROJ_U_AXIS[proj]!;
@@ -307,7 +309,7 @@ function worldTangent(proj: number, nx: number, ny: number, nz: number, out: num
   const cx = ny * t[2]! - nz * t[1]!;
   const cy = nz * t[0]! - nx * t[2]!;
   const cz = nx * t[1]! - ny * t[0]!;
-  out.push(t[0]! / len, t[1]! / len, t[2]! / len, cx * d[0]! + cy * d[1]! + cz * d[2]! >= 0 ? 1 : -1);
+  out.push(t[0]! / len, t[1]! / len, t[2]! / len, cx * d[0]! + cy * d[1]! + cz * d[2]! >= 0 ? -1 : 1);
 }
 
 /** Whether a source vertex has texture coordinates of its own. */

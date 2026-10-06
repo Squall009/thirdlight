@@ -330,8 +330,9 @@ const TEXTURE_NODES: readonly GraphNodeDef[] = [
     label: 'Height blend',
     category: 'Textures',
     description:
-      'Blend weights for up to four layers shaped by their height maps: where layers meet, the higher one shows through (stones poke out of sand, moss fills the cracks) instead of a soft cross-fade. Weights come from any input (vertex colours, painted layers, a mask, noise); heights are the layers\' height maps (0–1, one per component); depth is how far below the highest layer another still shows (0: a hard edge by height). A layer of weight 0 never shows. Feed the weights to Weighted mix nodes.',
-    inputs: [port('weights', 'weights', 'vec4', [1, 0, 0, 0]), port('heights', 'heights', 'vec4', [0, 0, 0, 0]), port('depth', 'depth', 'float', 0.2)],
+      'Blend weights for up to four layers shaped by their height maps: where layers meet, the higher one shows through (stones poke out of sand, moss fills the cracks) instead of a soft cross-fade. Weights come from any input (vertex colours, painted layers, a mask, noise); heights are the layers\' height maps (0–1, one per component); depth is how far below the highest layer another still shows (0: a hard edge by height). Contrast and offset reshape each layer\'s height first (height − 0.5) × contrast + 0.5 + offset, one component per layer: a contrast above 1 makes a layer\'s peaks and cracks stand further apart, an offset lifts the whole layer over the others. A layer of weight 0 never shows. Feed the weights to Weighted mix nodes.',
+    // Contrast and offset come last, so existing wires keep their ports; unwired, the heights are used as they are.
+    inputs: [port('weights', 'weights', 'vec4', [1, 0, 0, 0]), port('heights', 'heights', 'vec4', [0, 0, 0, 0]), port('depth', 'depth', 'float', 0.2), port('contrast', 'contrast', 'vec4', [1, 1, 1, 1]), port('offset', 'offset', 'vec4', [0, 0, 0, 0])],
     outputs: [port('weights', 'weights', 'vec4')],
   },
   {
