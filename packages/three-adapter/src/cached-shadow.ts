@@ -41,6 +41,7 @@ import * as TSLTyped from 'three/tsl';
 import type { N } from './effects-tsl';
 import { castsShadowFor, isLayeredLight } from './light-layers';
 import { DrawnCasters, isStaticCaster, type StaticShadowRevision } from './shadow-casters';
+import { withEmptyInstanceDraws } from './attribute-instancing';
 import { STATIC_SHADOW_CAMERA_KEY } from './view-cull';
 
 /** TSL untyped: three's typings lag the node API used here. */
@@ -176,7 +177,8 @@ class PassShadowNode extends ShadowNodeBase {
     this.drawn = 0;
     this.underlaid = false;
     this.drawnWith.clear();
-    this.updateShadow(frame);
+    if (this.staticPass) withEmptyInstanceDraws(() => this.updateShadow(frame));
+    else this.updateShadow(frame);
   }
 
 

@@ -42,6 +42,11 @@ export const VIEW_CULL_KEY = '__tlViewCull';
 export interface ViewCullable {
   /** Bring the draw's order and in-view count up to date for `view` (nothing to do when neither changed); true when it was put in order again. */
   cull(view: CullView): boolean;
+  /**
+   * Culled through this one instead of on its own (an instance-set chunk culls its draws: one check a frame for
+   * all of them while neither the view nor the chunk changed).
+   */
+  readonly group?: ViewCullable;
 }
 
 /** Where a sphere stands against the view: outside, crossing a plane, or wholly inside. */
@@ -163,6 +168,8 @@ export class ViewCuller implements BatchMembership {
   readonly view = new CullView();
   private readonly items = new Set<ViewCullable>();
   private readonly byRoot = new Map<THREE.Object3D, ViewCullable[]>();
+  /** How many listed objects hold each cullable found below them (a chunk's group: one per draw). */
+  private readonly listings = new Map<ViewCullable, number>();
   private reorders = 0;
   private lastReorders = 0;
 
@@ -178,10 +185,12 @@ export class ViewCuller implements BatchMembership {
     if (this.byRoot.has(o)) return;
     const list: ViewCullable[] = [];
     o.traverse((x) => {
-      const c = x.userData[VIEW_CULL_KEY] as ViewCullable | undefined;
-      if (c === undefined) return;
+      const found = x.userData[VIEW_CULL_KEY] as ViewCullable | undefined;
+      if (found === undefined) return;
+      const c = found.group ?? found;
       list.push(c);
       this.items.add(c);
+      this.listings.set(c, (this.listings.get(c) ?? 0) + 1);
     });
     if (list.length > 0) this.byRoot.set(o, list);
   }
@@ -190,7 +199,16 @@ export class ViewCuller implements BatchMembership {
     const list = this.byRoot.get(o);
     if (list === undefined) return;
     this.byRoot.delete(o);
-    for (const c of list) this.items.delete(c);
+    for (const c of list) {
+      // A group stays while any of its members is listed.
+      const left = (this.listings.get(c) ?? 1) - 1;
+      if (left > 0) {
+        this.listings.set(c, left);
+        continue;
+      }
+      this.listings.delete(c);
+      this.items.delete(c);
+    }
   }
 
   moved(): void {
@@ -216,6 +234,7 @@ export class ViewCuller implements BatchMembership {
   dispose(): void {
     this.items.clear();
     this.byRoot.clear();
+    this.listings.clear();
     this.view.clear();
   }
 }

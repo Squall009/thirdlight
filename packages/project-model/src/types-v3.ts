@@ -70,6 +70,11 @@ export interface InstancesComponent {
   densityStart?: number;
   densityEnd?: number;
   densityMin?: number;
+  /**
+   * Each copy picks its own level of detail (absent: false, the chunk's level for all its copies): truer where
+   * a chunk spans a switch point, at a draw per level in each such chunk.
+   */
+  lodPerCopy?: boolean;
 }
 
 /** Floats per instance in an instance buffer. */

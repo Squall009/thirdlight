@@ -247,7 +247,7 @@ function optionalColor(v: unknown, path: string, dflt: string, errors: ModelErro
 export const MAX_INSTANCE_CHUNK_SIZE = 4096;
 
 /** The keys of an `instances` component. */
-const INSTANCES_KEYS = new Set(['asset', 'buffer', 'count', 'castShadow', 'receiveShadow', 'chunkSize', 'lightLayers', 'densityStart', 'densityEnd', 'densityMin']);
+const INSTANCES_KEYS = new Set(['asset', 'buffer', 'count', 'castShadow', 'receiveShadow', 'chunkSize', 'lightLayers', 'densityStart', 'densityEnd', 'densityMin', 'lodPerCopy']);
 
 export function validateInstancesComponent(c: unknown, path: string, errors: ModelErrorV3[]): void {
   if (!isPlainObject(c)) {
@@ -289,6 +289,8 @@ export function validateInstancesComponent(c: unknown, path: string, errors: Mod
   if (densityMin !== undefined && (typeof densityMin !== 'number' || !Number.isFinite(densityMin) || densityMin < 0 || densityMin > 1)) {
     errors.push(fieldValue(`${path}/densityMin`, densityMin, 'a number 0-1', 'densityMin is the share of copies drawn where they are smallest (1: no thinning)'));
   }
+  const lodPerCopy = c['lodPerCopy'];
+  if (lodPerCopy !== undefined && typeof lodPerCopy !== 'boolean') errors.push(fieldValue(`${path}/lodPerCopy`, lodPerCopy, 'a boolean', 'lodPerCopy: each copy picks its own level of detail'));
   for (const k of Object.keys(c)) {
     if (!INSTANCES_KEYS.has(k)) errors.push(unexpectedField(`${path}/${pointerSegment(k)}`, k, [...INSTANCES_KEYS].join(', ')));
   }
@@ -1063,7 +1065,7 @@ function canonicalEntityV3(e: Record<string, unknown>): SceneEntityV3 {
   if (comps['cameraRegion'] !== undefined) (components as { cameraRegion?: CameraRegionComponent }).cameraRegion = canonicalCameraRegion(comps['cameraRegion'] as CameraRegionComponent);
   if (comps['probeVolume'] !== undefined) components.probeVolume = canonicalProbeVolume(comps['probeVolume'] as ProbeVolumeComponent);
   if (comps['instances'] !== undefined) {
-    const i = comps['instances'] as { asset: { assetId: string; piece?: string }; buffer: string; count: number; castShadow?: boolean; receiveShadow?: boolean; chunkSize?: number; lightLayers?: number; densityStart?: number; densityEnd?: number; densityMin?: number };
+    const i = comps['instances'] as { asset: { assetId: string; piece?: string }; buffer: string; count: number; castShadow?: boolean; receiveShadow?: boolean; chunkSize?: number; lightLayers?: number; densityStart?: number; densityEnd?: number; densityMin?: number; lodPerCopy?: boolean };
     components.instances = {
       asset: { assetId: i.asset.assetId, ...(i.asset.piece !== undefined ? { piece: i.asset.piece } : {}) },
       buffer: i.buffer,
@@ -1077,6 +1079,7 @@ function canonicalEntityV3(e: Record<string, unknown>): SceneEntityV3 {
       ...(typeof i.densityStart === 'number' ? { densityStart: i.densityStart } : {}),
       ...(typeof i.densityEnd === 'number' ? { densityEnd: i.densityEnd } : {}),
       ...(typeof i.densityMin === 'number' ? { densityMin: i.densityMin } : {}),
+      ...(typeof i.lodPerCopy === 'boolean' ? { lodPerCopy: i.lodPerCopy } : {}),
     };
   }
   const name = e['name'];

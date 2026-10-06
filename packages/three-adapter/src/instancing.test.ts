@@ -4,11 +4,12 @@
  * chunk's instance, bounds and the editor's per-copy preview.
  */
 import * as THREE from 'three';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
-import { INSTANCE_MATRIX_ATTRIBUTE, type AttributeInstancedMesh } from './attribute-instancing';
+import { INSTANCE_MATRIX_ATTRIBUTE, withEmptyInstanceDraws, type AttributeInstancedMesh } from './attribute-instancing';
+import { ChunkLodPicker, REPICK_MOVE_FRACTION } from './instance-lod';
 import { LOD_CULL_LEVEL_KEY, LodTuning } from './lod-switch';
-import { CullView, STATIC_SHADOW_CAMERA_KEY, VIEW_CULL_KEY } from './view-cull';
+import { CullView, STATIC_SHADOW_CAMERA_KEY, VIEW_CULL_KEY, ViewCuller } from './view-cull';
 import { buildInstanceSet, chunkCopies, INSTANCE_BUFFER_FLOATS, INSTANCE_CHUNK_COPIES, INSTANCE_MAX_CHUNKS, INSTANCE_MAX_SPATIAL_CHUNKS } from './instancing';
 import type { ModelInstance } from './visual';
 
@@ -145,7 +146,7 @@ describe('instance chunks', () => {
     const tuning = new LodTuning();
     tuning.set({ hysteresis: 0.1 });
     // 5000 copies 2 m apart: x 0..198, z 0..98, in several chunks.
-    const set = buildInstanceSet(template, copies(5000, 2), 5000, 'lod', { tuning, density: null });
+    const set = buildInstanceSet(template, copies(5000, 2), 5000, 'lod', { tuning, density: null, lodPerCopy: true });
     expect(set.count).toBe(5000);
     expect(set.chunks).toBeGreaterThan(1);
     const scene = new THREE.Scene();
@@ -191,7 +192,15 @@ describe('instance chunks', () => {
     expect(set.meshes.filter((m) => draws(m, near)).reduce((a, m) => a + countFor(m, staticCam), 0)).toBe(5000);
     expect(set.meshes.filter((m) => draws(m, far)).reduce((a, m) => a + countFor(m, staticCam), 0)).toBe(0);
     expect(set.meshes.filter((m) => draws(m, far) && (m.userData[VIEW_CULL_KEY] as AttributeInstancedMesh).included === 0).every((m) => !m.visible)).toBe(true);
-    expect(set.meshes.filter((m) => draws(m, near)).every((m) => m.visible)).toBe(true);
+    // Detailed-level draws holding no copy in the view's passes are hidden too, and shown while the static map is drawn.
+    const nearMeshes = set.meshes.filter((m) => draws(m, near));
+    const emptyNear = nearMeshes.filter((m) => (m.userData[VIEW_CULL_KEY] as AttributeInstancedMesh).included === 0);
+    expect(emptyNear.length).toBeGreaterThan(0);
+    expect(nearMeshes.every((m) => m.visible === !emptyNear.includes(m))).toBe(true);
+    let shownWhileStatic = false;
+    withEmptyInstanceDraws(() => (shownWhileStatic = set.meshes.every((m) => m.visible)));
+    expect(shownWhileStatic).toBe(true);
+    expect(emptyNear.every((m) => !m.visible)).toBe(true);
     // Hysteresis: 1 m closer, the copies just past 30 m stay far (they switch back only inside 27 m); bias 2 doubles every distance.
     tuning.copySwitches = 0;
     view(set, [1, 10, 1], [101, 0, 51]);
@@ -213,6 +222,75 @@ describe('instance chunks', () => {
       expect(box.containsPoint(new THREE.Vector3(f[copy * 10]!, f[copy * 10 + 1]!, f[copy * 10 + 2]!))).toBe(true);
     }
     expect(set.copyOf(new THREE.Object3D(), 0)).toBeNull();
+  });
+
+  it('by default a chunk draws one level for all its copies, picked at its centre for their mean size', () => {
+    const { template, near, far } = lodTemplate();
+    // 20 copies in a 2 m row (x 0..1.9) across the 30 m switch: the centre's side of it decides for all of them.
+    const levelsFrom = (eyeX: number, lodPerCopy: boolean): number[] => {
+      const set = buildInstanceSet(template, copies(20, 0.1), 20, 'chunked', { density: null, lodPerCopy });
+      set.group.updateMatrixWorld(true);
+      view(set, [eyeX, 0, 0], [10, 0, 0]);
+      const levels = [near, far].map((g) => set.meshes.filter((m) => draws(m, g)).reduce((a, m) => a + (m.userData[VIEW_CULL_KEY] as AttributeInstancedMesh).included, 0));
+      set.dispose();
+      return levels;
+    };
+    expect(levelsFrom(-29.2, false)).toEqual([0, 20]);
+    expect(levelsFrom(-28.5, false)).toEqual([20, 0]);
+    // Per copy the same set splits across the switch (a draw per level).
+    const split = levelsFrom(-29, true);
+    expect(split[0]).toBeGreaterThan(0);
+    expect(split[1]).toBeGreaterThan(0);
+  });
+
+  it('picks are made again only when the eye moved past a share of its distance, not when the view turned', () => {
+    const { template, far } = lodTemplate(400);
+    const set = buildInstanceSet(template, copies(5000, 2), 5000, 'repick', { density: null });
+    const scene = new THREE.Scene();
+    scene.add(set.group);
+    scene.updateMatrixWorld(true);
+    const pick = vi.spyOn(ChunkLodPicker.prototype as unknown as { pick: () => boolean }, 'pick');
+    // From 100 m off the set's edge every chunk's nearest copy is ≥ 100 m away: picks hold within 1 m.
+    view(set, [-100, 10, 50], [100, 0, 50]);
+    expect(pick.mock.calls.length).toBe(set.chunks);
+    const farDrawn = set.meshes.filter((m) => draws(m, far)).flatMap(drawnPositions).length;
+    expect(farDrawn).toBeGreaterThan(0);
+    pick.mockClear();
+    view(set, [-100, 10, 50], [100, 0, 0]);
+    view(set, [-100 + 100 * REPICK_MOVE_FRACTION * 0.5, 10, 50], [100, 0, 50]);
+    expect(pick.mock.calls.length).toBe(0);
+    view(set, [-100 + 100 * REPICK_MOVE_FRACTION * 3, 10, 50], [100, 0, 50]);
+    expect(pick.mock.calls.length).toBe(set.chunks);
+    pick.mockRestore();
+    set.dispose();
+  });
+
+  it('a chunk\'s draws listed one by one (as the render graph lists drawables) are culled through their chunk, once a frame', () => {
+    const { template, far } = lodTemplate();
+    const set = buildInstanceSet(template, copies(500, 1), 500, 'listed', { density: null });
+    set.group.updateMatrixWorld(true);
+    const culler = new ViewCuller();
+    for (const m of set.meshes) culler.listed(m);
+    expect(culler.diagnostics().draws).toBe(set.chunks);
+    const cam = new THREE.PerspectiveCamera(60, 1, 0.1, 5000);
+    cam.position.set(-40, 10, 2);
+    cam.lookAt(50, 0, 2);
+    cam.updateMatrixWorld();
+    culler.update(cam);
+    expect(set.meshes.filter((m) => draws(m, far)).flatMap(drawnPositions).length).toBeGreaterThan(0);
+    // A still view and chunk: nothing is culled again; a moved copy culls its chunk again.
+    const cull = vi.spyOn(set.meshes[0]!.userData[VIEW_CULL_KEY] as AttributeInstancedMesh, 'cull');
+    culler.update(cam);
+    expect(cull).not.toHaveBeenCalled();
+    set.setCopy(0, [-38, 0, 2, 0, 0, 0, 1, 1, 1, 1]);
+    culler.update(cam);
+    expect(cull).toHaveBeenCalledTimes(1);
+    // The chunk stays while any of its draws is listed.
+    for (const m of set.meshes.slice(1)) culler.unlisted(m);
+    expect(culler.diagnostics().draws).toBe(set.chunks);
+    culler.unlisted(set.meshes[0]!);
+    expect(culler.diagnostics().draws).toBe(0);
+    set.dispose();
   });
 
   it('copies thin out with distance down to the set\'s minimum share, each keeping its place in the order', () => {
@@ -239,7 +317,7 @@ describe('instance chunks', () => {
     expect([...kept].every((c) => mid.has(c))).toBe(true);
   });
 
-  it('setCopy moves one copy in every level of its chunk', () => {
+  it('setCopy moves one copy in every level of its chunk that draws it', () => {
     const { template } = lodTemplate();
     const set = buildInstanceSet(template, copies(10, 2), 10);
     set.setCopy(3, [50, 5, 0, 0, 0, 0, 1, 1, 1, 1]);
@@ -248,12 +326,16 @@ describe('instance chunks', () => {
     expect(box.containsPoint(new THREE.Vector3(50, 5, 0))).toBe(true);
     const m = new THREE.Matrix4();
     const p = new THREE.Vector3();
+    let found = 0;
     for (const mesh of set.meshes) {
-      const slot = [...Array(countOf(mesh)).keys()].find((s) => set.copyOf(mesh, s) === 3)!;
+      const slot = [...Array((mesh.userData[VIEW_CULL_KEY] as AttributeInstancedMesh).included).keys()].find((s) => set.copyOf(mesh, s) === 3);
+      if (slot === undefined) continue;
+      found += 1;
       matrixAt(mesh, slot, m);
       p.setFromMatrixPosition(m.premultiply(mesh.matrixWorld));
       expect([p.x, p.y].map((v) => Math.round(v))).toEqual([50, 5]);
     }
+    expect(found).toBeGreaterThan(0);
   });
 
   it('a model without LODs keeps one instanced mesh per mesh per chunk', () => {

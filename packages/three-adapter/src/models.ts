@@ -339,6 +339,8 @@ export interface InstanceSetRef {
   readonly chunkSize?: number;
   /** The set's density falloff (its component's, the defaults filled in). */
   readonly density?: InstanceDensity;
+  /** Each copy picks its own level (absent: its chunk's level). */
+  readonly lodPerCopy?: boolean;
 }
 
 
@@ -909,6 +911,7 @@ export function createModelsRealization(ctx: ModelsRealizationContext): {
     const built = buildInstanceSet(template, floats, ref.count, `instances:${entityId}`, {
       chunkSize: ref.chunkSize ?? ctx.models.instanceChunkSize ?? INSTANCE_CHUNK_METERS,
       density: ref.density ?? instanceDensityOf(undefined),
+      lodPerCopy: ref.lodPerCopy === true,
       ...(ctx.lodTuning !== undefined ? { tuning: ctx.lodTuning } : {}),
     });
     holder.add(built.group);

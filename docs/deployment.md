@@ -885,10 +885,15 @@ detail. Copies have no ids, colliders or scripts.
   gets larger chunks. The Inspector says how many chunks the selected set is
   drawn in. Smaller chunks cull more finely at the cost of more draw calls
   where many are in view. Play, the export and the Scene view chunk alike.
-- **Levels of detail and density** (29.6): every copy picks its own level of
-  the model (its own distance and size against the model's switch points,
-  below), and a copy past the model's cull size is not drawn; a chunk wholly
-  past it is skipped. Copies thin out where they are small on screen: from
+- **Levels of detail and density** (29.6): each chunk draws one level of the
+  model for all its copies, picked at its centre for the copies' mean size
+  (against the model's switch points, below); **Level per copy**
+  (`lodPerCopy`, default off) has every copy pick its own level by its own
+  distance and size instead — truer where a chunk spans a switch point, at
+  one more draw per level in each such chunk (off by default: on Skyforge's
+  farm it cost 23 draws and ~0.35 ms of main thread a frame on WebGL 2). A
+  copy past the model's cull size is not drawn; a chunk wholly past it is
+  skipped. Copies thin out where they are small on screen: from
   **Thinning starts at** (`densityStart`, a share of the screen height,
   default 0.02) to **Thinnest at** (`densityEnd`, default 0.005) the share
   drawn falls to **Thinnest density** (`densityMin`, default 0.25; 1 = no

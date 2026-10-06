@@ -29,6 +29,7 @@ import * as THREE from 'three';
 import type { InstanceDensity } from '@thirdlight/runtime';
 
 import { createAttributeInstancedMesh, type AttributeInstancedMesh } from './attribute-instancing';
+import type { CullView, ViewCullable } from './view-cull';
 import type { ModelInstance } from './visual';
 import { disposeObjectTree } from './dispose';
 import { ChunkLodPicker, copyRank, type CopyLodGroup } from './instance-lod';
@@ -96,11 +97,16 @@ export interface InstanceSetStats {
   readonly thinned: number;
 }
 
-/** How a set is built: its chunk size (m), the project's LOD tuning and its density falloff (null: none). */
+/**
+ * How a set is built: its chunk size (m), the project's LOD tuning, its
+ * density falloff (null: none) and whether each copy picks its own level
+ * (else each chunk one level for all its copies).
+ */
 export interface InstanceSetOptions {
   readonly chunkSize?: number;
   readonly tuning?: LodTuning;
   readonly density?: InstanceDensity | null;
+  readonly lodPerCopy?: boolean;
 }
 
 /** One mesh of the template: its offset in the model, and its LOD (index into `lods`, level) if it has one. */
@@ -234,9 +240,14 @@ export function buildInstanceSet(template: ModelInstance, floats: Float32Array, 
   const chunkOf = chunkCopies(positions, n, INSTANCE_CHUNK_COPIES, INSTANCE_MAX_CHUNKS, options.chunkSize);
   let chunkCount = 0;
   for (let i = 0; i < n; i += 1) if (chunkOf[i]! + 1 > chunkCount) chunkCount = chunkOf[i]! + 1;
-  interface Chunk { copies: number[]; center: THREE.Vector3; node: THREE.Group; meshes: AttributeInstancedMesh[]; picker: ChunkLodPicker | null }
+  /** `changed`: a copy moved since the chunk's draws were last culled. */
+  interface Chunk { copies: number[]; center: THREE.Vector3; node: THREE.Group; meshes: AttributeInstancedMesh[]; picker: ChunkLodPicker | null; changed: boolean; culler: ViewCullable }
   const chunks: Chunk[] = [];
-  for (let c = 0; c < chunkCount; c += 1) chunks.push({ copies: [], center: new THREE.Vector3(), node: new THREE.Group(), meshes: [], picker: null });
+  for (let c = 0; c < chunkCount; c += 1) {
+    const chunk: Omit<Chunk, 'culler'> & { culler?: ViewCullable } = { copies: [], center: new THREE.Vector3(), node: new THREE.Group(), meshes: [], picker: null, changed: true };
+    chunk.culler = chunkCuller(chunk, tuning);
+    chunks.push(chunk as Chunk);
+  }
   for (let i = 0; i < n; i += 1) chunks[chunkOf[i]!]!.copies.push(i);
   /** Copy → its chunk and slot. */
   const slotOf = new Int32Array(n);
@@ -275,11 +286,11 @@ export function buildInstanceSet(template: ModelInstance, floats: Float32Array, 
         scales[slot] = Math.max(Math.abs(floats[o + 7]!), Math.abs(floats[o + 8]!), Math.abs(floats[o + 9]!));
         ranks[slot] = copyRank(copy);
       });
-      chunk.picker = new ChunkLodPicker({ origins, scales, ranks, count: k }, groups, density !== null ? { radius, falloff: density } : null, tuning);
+      chunk.picker = new ChunkLodPicker({ origins, scales, ranks, count: k }, groups, density !== null ? { radius, falloff: density } : null, tuning, options.lodPerCopy === true);
     }
     const made = parts.map((part) => {
       const filter = chunk.picker?.filter(part.lod, part.level);
-      const inst = createAttributeInstancedMesh(part.mesh.geometry, part.mesh.material as THREE.Material, chunk.copies.length, { raycast: true, ...(filter !== undefined ? { filter } : {}) });
+      const inst = createAttributeInstancedMesh(part.mesh.geometry, part.mesh.material as THREE.Material, chunk.copies.length, { raycast: true, group: chunk.culler, ...(filter !== undefined ? { filter } : {}) });
       inst.count = chunk.copies.length;
       inst.mesh.name = part.mesh.name;
       // Tools counting instance-set copies (the perf harness's scene walk) find the chunk draws by it.
@@ -336,6 +347,8 @@ export function buildInstanceSet(template: ModelInstance, floats: Float32Array, 
       if (index < 0 || index >= n || t.length < INSTANCE_BUFFER_FLOATS) return;
       const chunk = chunks[chunkOf[index]!]!;
       placeCopy(chunk.center, t, 0);
+      chunk.picker?.moveCopy(slotOf[index]!, t[0]! - chunk.center.x, t[1]! - chunk.center.y, t[2]! - chunk.center.z, Math.max(Math.abs(t[7]!), Math.abs(t[8]!), Math.abs(t[9]!)));
+      chunk.changed = true;
       for (const inst of chunk.meshes) {
         const info = meta.get(inst.mesh)!;
         writeCopy(inst, slotOf[index]!, info.part);
@@ -369,6 +382,40 @@ export function buildInstanceSet(template: ModelInstance, floats: Float32Array, 
       // and instance buffer (never the model's geometry).
       for (const c of chunks) for (const inst of c.meshes) inst.dispose();
       disposeObjectTree(group);
+    },
+  };
+}
+
+/**
+ * Culls a chunk's draws (one per mesh and level) as one: while neither the
+ * view, the chunk's place, the project's LOD tuning nor a copy changed, one
+ * check stands for all of them (a still camera over many small sets with
+ * levels made every draw compare its own matrices each frame). The draws
+ * are listed in the scene on their own (the render graph writes their world
+ * matrices, not the chunk node's), all at the chunk's place: the first one's
+ * matrix stands for the chunk's.
+ */
+function chunkCuller(chunk: { readonly meshes: readonly AttributeInstancedMesh[]; changed: boolean }, tuning: LodTuning): ViewCullable {
+  const world = new Float64Array(16).fill(Number.NaN);
+  let view: CullView | null = null;
+  let stamp = -1;
+  let revision = -1;
+  return {
+    cull(v: CullView): boolean {
+      const first = chunk.meshes[0];
+      if (first === undefined) return false;
+      const w = first.mesh.matrixWorld.elements;
+      let same = !chunk.changed && v === view && v.stamp === stamp && tuning.revision === revision;
+      for (let k = 0; k < 16 && same; k += 1) if (world[k] !== w[k]) same = false;
+      if (same) return false;
+      view = v;
+      stamp = v.stamp;
+      revision = tuning.revision;
+      chunk.changed = false;
+      for (let k = 0; k < 16; k += 1) world[k] = w[k]!;
+      let reordered = false;
+      for (const m of chunk.meshes) if (m.cull(v)) reordered = true;
+      return reordered;
     },
   };
 }

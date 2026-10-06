@@ -84,12 +84,40 @@ export function installAttributeInstancing(): void {
  * `instance-lod.ts`): an instance it leaves out is drawn by no pass.
  */
 export interface InstanceFilter {
-  /** Bring the decisions up to date for `view` and the draw's world matrix; returns a number that changes whenever they did. */
-  prepare(view: CullView, world: ArrayLike<number>): number;
+  /**
+   * Bring the decisions up to date for `view` and the draw's world matrix; returns a number that changes whenever
+   * they did. `sameWorld`: the world matrix is the one the draw passed last time.
+   */
+  prepare(view: CullView, world: ArrayLike<number>, sameWorld: boolean): number;
   /** Whether instance `slot` is drawn. */
   includes(slot: number): boolean;
+  /** The slots drawn, ascending (the first `slotCount()`; valid until the decisions change). */
+  slots(): Uint32Array;
+  slotCount(): number;
   /** Whether the draw holds every instance in a pass that must not depend on the view (a cached static shadow map; else none there). */
   readonly full: boolean;
+}
+
+/** Filtered draws hidden because the frame's passes draw none of their instances. */
+const emptyDraws = new Set<THREE.Mesh>();
+
+/**
+ * Run `draw` (a pass whose draws must not depend on the view: a cached static
+ * shadow map) with the filtered draws the view left empty shown: such a pass
+ * draws a filtered group by `InstanceFilter.full`, not by what the view kept.
+ */
+export function withEmptyInstanceDraws(draw: () => void): void {
+  if (emptyDraws.size === 0) {
+    draw();
+    return;
+  }
+  const shown = [...emptyDraws];
+  for (const m of shown) m.visible = true;
+  try {
+    draw();
+  } finally {
+    for (const m of shown) m.visible = !emptyDraws.has(m);
+  }
 }
 
 /** One group drawn through instance-matrix columns (culled per instance in the view: `view-cull.ts`). */
@@ -125,7 +153,7 @@ const tmpSphere = new THREE.Sphere();
  * instance-matrix columns. The source geometry's attributes, index, groups
  * and draw range are shared, not copied.
  */
-export function createAttributeInstancedMesh(source: THREE.BufferGeometry, material: THREE.Material, capacity: number, options: { readonly raycast?: boolean; readonly filter?: InstanceFilter } = {}): AttributeInstancedMesh {
+export function createAttributeInstancedMesh(source: THREE.BufferGeometry, material: THREE.Material, capacity: number, options: { readonly raycast?: boolean; readonly filter?: InstanceFilter; readonly group?: ViewCullable } = {}): AttributeInstancedMesh {
   const filter = options.filter;
   installAttributeInstancing();
   const geometry = new THREE.InstancedBufferGeometry();
@@ -187,9 +215,13 @@ export function createAttributeInstancedMesh(source: THREE.BufferGeometry, mater
     sphere.center.copy(src.center).applyMatrix4(tmpMatrix.fromArray(array, slot * 16));
     sphere.radius = bounds.radius + sphere.center.distanceTo(bounds.center);
   };
-  /** Write the drawn buffer in `order` (its first `drawnCount` slots). */
+  /**
+   * Write the drawn buffer in `order`: its first `drawnCount` slots, or only those drawn at all where no pass
+   * draws the others (a filter not drawn whole in the cached static shadow map).
+   */
   const writeOrder = (): void => {
-    for (let at = 0; at < drawnCount; at += 1) {
+    const len = filter !== undefined && !filter.full ? includedCount : drawnCount;
+    for (let at = 0; at < len; at += 1) {
       const i = order[at]!;
       drawn.set(array.subarray(i * 16, i * 16 + 16), at * 16);
     }
@@ -203,10 +235,18 @@ export function createAttributeInstancedMesh(source: THREE.BufferGeometry, mater
       return;
     }
     // Not culled yet: the filter's last decisions, those it keeps first.
+    const slots = filter.slots();
+    const m = filter.slotCount();
+    seen.fill(0, 0, drawnCount);
     let k = 0;
-    for (let i = 0; i < drawnCount; i += 1) if (filter.includes(i)) order[k++] = i;
+    for (let j = 0; j < m; j += 1) {
+      const i = slots[j]!;
+      if (i >= drawnCount) continue;
+      order[k++] = i;
+      seen[i] = 2;
+    }
     includedCount = k;
-    for (let i = 0; i < drawnCount; i += 1) if (!filter.includes(i)) order[k++] = i;
+    if (filter.full) for (let i = 0; i < drawnCount; i += 1) if (seen[i] === 0) order[k++] = i;
     writeOrder();
     showIfDrawn();
   };
@@ -216,12 +256,21 @@ export function createAttributeInstancedMesh(source: THREE.BufferGeometry, mater
     else if (filter !== undefined && camera.userData[STATIC_SHADOW_CAMERA_KEY] === true) geometry.instanceCount = filter.full ? drawnCount : 0;
     else geometry.instanceCount = includedCount;
   };
-  /** A draw holding nothing in any pass leaves three's walks (as a merged cell with nothing to draw does). */
+  /**
+   * A draw holding nothing in the frame's passes leaves three's walks (as a merged cell with nothing to draw
+   * does): three sets up every visible object of a pass even when it draws no instance, and an instance set
+   * with levels keeps a draw per level in every chunk, most of them empty. A cached static shadow map shows
+   * them again while it is drawn ({@link withEmptyInstanceDraws}).
+   */
   const showIfDrawn = (): void => {
-    if (filter !== undefined) mesh.visible = filter.full || includedCount > 0;
+    if (filter === undefined) return;
+    mesh.visible = includedCount > 0;
+    if (mesh.visible) emptyDraws.delete(mesh);
+    else emptyDraws.add(mesh);
   };
   const handle: AttributeInstancedMesh = {
     mesh,
+    ...(options.group !== undefined ? { group: options.group } : {}),
     capacity,
     array,
     count: 0,
@@ -234,14 +283,20 @@ export function createAttributeInstancedMesh(source: THREE.BufferGeometry, mater
     cull(view) {
       const n = drawnCount;
       const w = mesh.matrixWorld.elements;
-      const fv = filter !== undefined ? filter.prepare(view, w) : 0;
       let sameWorld = true;
-      for (let k = 0; k < 16; k += 1) if (world[k] !== w[k]) sameWorld = false;
+      for (let k = 0; k < 16; k += 1) {
+        if (world[k] !== w[k]) {
+          sameWorld = false;
+          break;
+        }
+      }
+      const fv = filter !== undefined ? filter.prepare(view, w, sameWorld) : 0;
       if ((sameWorld && culledFor === view && culledStamp === view.stamp && fv === filterVersion) || n === 0) {
         culledFor = view;
         culledStamp = view.stamp;
         return false;
       }
+      const picksChanged = fv !== filterVersion;
       filterVersion = fv;
       if (!sameWorld) spheresStale = true;
       world.set(w);
@@ -282,8 +337,17 @@ export function createAttributeInstancedMesh(source: THREE.BufferGeometry, mater
       // Not culled since the matrices changed: the order is the slots', whatever was seen before.
       let changed = wasFor === null;
       let count = 0;
-      for (let i = 0; i < n; i += 1) {
-        const v = filter !== undefined && !filter.includes(i) ? 0 : side === SphereSide.Outside ? 2 : side === SphereSide.Inside || view.side(spheres[i * 4]!, spheres[i * 4 + 1]!, spheres[i * 4 + 2]!, spheres[i * 4 + 3]!) !== SphereSide.Outside ? 1 : 2;
+      // The slots drawn at all: every one, or the filter's list (a draw of one level loops over its own copies only).
+      const slots = filter !== undefined ? filter.slots() : null;
+      let m = filter !== undefined ? filter.slotCount() : n;
+      if (filter !== undefined && picksChanged) {
+        seen.fill(0, 0, n);
+        changed = true;
+      }
+      if (slots !== null) while (m > 0 && slots[m - 1]! >= n) m -= 1;
+      for (let j = 0; j < m; j += 1) {
+        const i = slots !== null ? slots[j]! : j;
+        const v = side === SphereSide.Outside ? 2 : side === SphereSide.Inside || view.side(spheres[i * 4]!, spheres[i * 4 + 1]!, spheres[i * 4 + 2]!, spheres[i * 4 + 3]!) !== SphereSide.Outside ? 1 : 2;
         if (seen[i] !== v) {
           seen[i] = v;
           changed = true;
@@ -293,18 +357,23 @@ export function createAttributeInstancedMesh(source: THREE.BufferGeometry, mater
       inView = count;
       if (!changed) return false;
       // Those in view first, nearest first (each pixel is shaded once where they overlap), then the rest drawn (the
-      // shadow passes draw them all), then those the filter leaves out (no pass draws them).
+      // shadow passes draw them all), then those the filter leaves out (no pass draws them; written only where the
+      // cached static shadow map draws the whole group).
       let k = 0;
-      for (let i = 0; i < n; i += 1) {
+      for (let j = 0; j < m; j += 1) {
+        const i = slots !== null ? slots[j]! : j;
         if (seen[i] !== 1) continue;
         order[k] = i;
         depths[i] = view.depth(spheres[i * 4]!, spheres[i * 4 + 1]!, spheres[i * 4 + 2]!);
         k += 1;
       }
       order.subarray(0, k).sort((a, b) => depths[a]! - depths[b]!);
-      for (let i = 0; i < n; i += 1) if (seen[i] === 2) order[k++] = i;
+      for (let j = 0; j < m; j += 1) {
+        const i = slots !== null ? slots[j]! : j;
+        if (seen[i] === 2) order[k++] = i;
+      }
       includedCount = k;
-      for (let i = 0; i < n; i += 1) if (seen[i] === 0) order[k++] = i;
+      if (filter === undefined || filter.full) for (let i = 0; i < n; i += 1) if (seen[i] === 0) order[k++] = i;
       writeOrder();
       showIfDrawn();
       sortAt(count > 0 ? order[0]! : -1);
@@ -337,6 +406,7 @@ export function createAttributeInstancedMesh(source: THREE.BufferGeometry, mater
       if (disposed) return;
       disposed = true;
       delete mesh.userData[VIEW_CULL_KEY];
+      emptyDraws.delete(mesh);
       mesh.removeFromParent();
       // The render objects go with the object. The geometry shares the source's attributes and index,
       // which a plain `dispose` would free on the GPU while the source and its other groups still draw them.

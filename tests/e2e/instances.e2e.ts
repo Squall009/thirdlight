@@ -236,7 +236,7 @@ for (const variant of RENDERER_VARIANTS) test(`a model's LOD switch point and cu
   const bearings = [-24, -12, 12, 24];
   const distances = [switchAt - 4, switchAt + 4, cullAt - 6, cullAt + 6];
   for (let i = 0; i < 4; i += 1) await cmd('createEntity', { sceneId: 'scene-main', kind: 'model', name: `m${i}`, model: { asset: { assetId: 'markers' }, piece: 'marker' }, transform: { position: ground(distances[i]!, bearings[i]!) } });
-  // A row of copies straight ahead, 22 m to 142 m away every 6 m (none within 2.5 m of either threshold).
+  // A row of copies straight ahead, each picking its own level, 22 m to 142 m away every 6 m (none within 2.5 m of either threshold).
   const transforms: number[] = [];
   const copyDistances: number[] = [];
   for (let d = 22; d <= 142; d += 6) {
@@ -245,7 +245,7 @@ for (const variant of RENDERER_VARIANTS) test(`a model's LOD switch point and cu
   }
   const published = await api('content/buffers', { transforms });
   expect(published.status, JSON.stringify(published.json)).toBe(200);
-  const row = String((await cmd('createEntity', { sceneId: 'scene-main', kind: 'group', name: 'Row', components: { instances: { asset: { assetId: 'markers', piece: 'marker' }, buffer: published.json.digest, count: copyDistances.length } } })).createdId);
+  const row = String((await cmd('createEntity', { sceneId: 'scene-main', kind: 'group', name: 'Row', components: { instances: { asset: { assetId: 'markers', piece: 'marker' }, buffer: published.json.digest, count: copyDistances.length, lodPerCopy: true } } })).createdId);
 
   await page.goto(editorUrlFor(be.editorUrl, variant));
   await expect(status(page)).toContainText('connected');

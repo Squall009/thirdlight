@@ -639,7 +639,9 @@ export const instances: ComponentDescriptor = {
     bool('receiveShadow', 'Receives shadows', 'Shows the realtime shadows falling on it.', { default: true, omitDefault: true }),
     lightLayerMask('lightLayers', 'Light layers', 'The light layers it is in: only lights whose light mask shares one of them light it, and it casts shadows only for lights whose shadow caster mask shares one.', 1),
     // Absent = the project's Instance chunk size (32 m unless set).
-    num('chunkSize', 'Chunk size', 'The copies are drawn in chunks about this wide, each hidden when out of view (absent: the project\'s Instance chunk size). Each copy picks its own level of detail.', { min: 1, max: 4096, step: 1, unit: 'm' }),
+    num('chunkSize', 'Chunk size', 'The copies are drawn in chunks about this wide, each hidden when out of view (absent: the project\'s Instance chunk size). Each chunk draws one level of detail for its copies unless "Level per copy" is on.', { min: 1, max: 4096, step: 1, unit: 'm' }),
+    // Off by default: a chunk straddling a switch point draws once per level when on (performance first).
+    bool('lodPerCopy', 'Level per copy', 'Each copy picks its own level of detail by its own distance and size, instead of the level its chunk picks at its centre: truer where a chunk spans a switch point, at one more draw per level in each such chunk.', { default: false, omitDefault: true }),
     // Absent = the engine's density falloff (model-lod.ts): far copies thin out where they are a few pixels across.
     num('densityStart', 'Thinning starts at', `Copies start thinning out where they cover less than this share of the screen height (absent: ${INSTANCE_DENSITY_START_DEFAULT}).`, { min: INSTANCE_DENSITY_SIZE_MIN, max: 1, step: 0.001 }),
     num('densityEnd', 'Thinnest at', `Below this share of the screen height only the "Thinnest density" share of copies is drawn (absent: ${INSTANCE_DENSITY_END_DEFAULT}).`, { min: INSTANCE_DENSITY_SIZE_MIN, max: 1, step: 0.001 }),
