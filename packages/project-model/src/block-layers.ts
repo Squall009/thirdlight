@@ -718,6 +718,9 @@ export function validateBlockLayerComponent(v: unknown, path: string, errors: Mo
   const cs = v['cellSize'];
   if (!Array.isArray(cs) || cs.length !== 3 || !cs.every((x) => finite(x) && x >= BLOCK_LIMITS.cellSizeMin && x <= BLOCK_LIMITS.cellSizeMax)) {
     err(errors, 'field_value', `${path}/cellSize`, `cellSize is [x, y, z] metres, each ${BLOCK_LIMITS.cellSizeMin}-${BLOCK_LIMITS.cellSizeMax}`, cs);
+  } else if (cs[0] !== cs[2]) {
+    // A quarter-turned look can't fill a cell that is not square from above without distorting it.
+    err(errors, 'field_value', `${path}/cellSize`, `cellSize x (${cs[0]}) and z (${cs[2]}) must be equal: cells are square from above (only the height y may differ)`, cs);
   }
   const b = v['bounds'];
   if (!isPlainObject(b)) err(errors, 'field_type', `${path}/bounds`, 'bounds is {min: [x, y, z], max: [x, y, z]} cells', b, 'object');

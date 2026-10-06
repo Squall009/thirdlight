@@ -79,12 +79,11 @@ function nudge(f: FieldDescriptor, current: unknown): unknown {
       const n = f.type === 'vec2' ? 2 : 3;
       const c = Array.isArray(current) ? (current as number[]) : Array.isArray(f.default) ? (f.default as number[]) : new Array(n).fill(0);
       const step = f.step ?? 0.1;
-      return c.map((v, i) => {
-        if (i !== 0) return v;
-        let x = v + step;
-        if (f.max !== undefined && x > f.max) x = v - step;
-        return Number(x.toFixed(6));
-      });
+      let x = (c[0] ?? 0) + step;
+      if (f.max !== undefined && x > f.max) x = (c[0] ?? 0) - step;
+      const edited = Number(x.toFixed(6));
+      // Tied components (a cell's x and z) move with the first one, as the Inspector edits them.
+      return c.map((v, i) => (i === 0 || (f.same?.includes(0) === true && f.same.includes(i)) ? edited : v));
     }
     case 'signal':
     case 'string':

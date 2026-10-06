@@ -274,11 +274,8 @@ function slopedLook(src: BlockMeshSource, rot: number, w: number, h: number, d: 
   if (byKey.size > 4096) byKey.clear();
   const heightAt = n > 1 ? (u: number, v: number): number => subdividedHeightAt(corners, n, u, v) : (u: number, v: number): number => cornerHeightAt(corners, u, v);
   const gradientAt = n > 1 ? (u: number, v: number): [number, number] => subdividedGradientAt(corners, n, u, v) : (u: number, v: number): [number, number] => cornerGradientAt(corners, u, v);
-  const base = classify(src, rot, w, h, d);
-  // A quarter turn swaps the look's x and z extents; stretched back to the cell's, so a sloped look fills its cell whatever its rotation.
-  const sx = rot === 90 || rot === 270 ? w / d : 1;
-  const sz = rot === 90 || rot === 270 ? d / w : 1;
-  const turned = { positions: base.positions.map((p, i) => (i % 3 === 0 ? p * sx : i % 3 === 2 ? p * sz : p)), normals: base.normals.map((n, i) => (i % 3 === 0 ? n / sx : i % 3 === 2 ? n / sz : n)) };
+  // Cells are square from above, so a quarter-turned look still fills its cell as it is.
+  const turned = classify(src, rot, w, h, d);
   const hasUv = src.uvs !== undefined;
   const positions: number[] = [];
   const normals: number[] = [];

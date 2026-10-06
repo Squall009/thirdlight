@@ -66,6 +66,16 @@ describe('block layers: data rules', () => {
     expect(errs((e) => validateBlockLayerComponent({ cellSize: [0, 1, 1], bounds: LAYER.bounds }, '', e)).map((x) => x.path)).toContain('/cellSize');
   });
 
+  it('cells are square from above: x = z, only the height may differ', () => {
+    expect(errs((e) => validateBlockLayerComponent({ cellSize: [2, 0.5, 2], bounds: LAYER.bounds }, '', e))).toEqual([]);
+    const bad = errs((e) => validateBlockLayerComponent({ cellSize: [2, 1, 1.5], bounds: LAYER.bounds }, '/layer', e));
+    expect(bad).toHaveLength(1);
+    expect(bad[0]).toEqual(expect.objectContaining({ code: 'field_value', path: '/layer/cellSize' }));
+    expect(bad[0]!.message).toContain('x (2)');
+    expect(bad[0]!.message).toContain('z (1.5)');
+    expect(bad[0]!.message).toContain('square from above');
+  });
+
   it('content keys are optional v4 blocks with canonical order and references checked', () => {
     const base = { assets: [], prefabs: [], behaviors: [], settings: {}, behaviorTrust: { entries: [] }, scenes: [{ sceneId: 'main', name: 'Main' }], startScenes: ['main'] };
     const ok = validateContentV4({ ...base, blockTypes: [...TYPES].reverse(), cellFields: FIELDS });

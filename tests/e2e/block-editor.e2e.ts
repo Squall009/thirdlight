@@ -11,7 +11,9 @@
  * stamp and place the stamp, lock and hide the layer. The Edit menu's snapping
  * settings change the gizmo's step, and with cell-top snapping on a prop
  * dragged over the layer lands on the cells and its block footprint writes
- * its metadata beneath it. Every result is read back from the backend
+ * its metadata beneath it. The Inspector edits the layer's cell size with x
+ * and z as one value (cells are square from above); a command with x ≠ z is
+ * refused. Every result is read back from the backend
  * (`queryBlocks`, `queryEntity`); the stroke latency is measured.
  */
 import { randomBytes } from 'node:crypto';
@@ -86,8 +88,9 @@ async function cells(layer: string, box: number[]): Promise<Map<string, { block?
 const blockAt = async (layer: string, x: number, y: number, z: number): Promise<string | null> => (await cells(layer, [x, y, z, x + 1, y + 1, z + 1])).get(`${x},${y},${z}`)?.block ?? null;
 const cellCount = async (layer: string): Promise<number> => ((await query('queryBlocks')) as { layers: { entityId: string; cells: number }[] }).layers.find((l) => l.entityId === layer)?.cells ?? 0;
 
-async function entity(id: string): Promise<{ active?: boolean; locked?: boolean; components: { transform: { position: number[] } } }> {
-  return ((await query('queryEntity', { entityId: id })) as { entity: { active?: boolean; locked?: boolean; components: { transform: { position: number[] } } } }).entity;
+type EntityView = { active?: boolean; locked?: boolean; components: { transform: { position: number[] }; blockLayer?: { cellSize: number[] } } };
+async function entity(id: string): Promise<EntityView> {
+  return ((await query('queryEntity', { entityId: id })) as { entity: EntityView }).entity;
 }
 
 function countPixels(img: Image, test: (r: number, g: number, b: number) => boolean): number {
@@ -304,6 +307,29 @@ test('the Blocks panel paints, fills, picks, replaces, selects, stamps and paint
   expect((((p[0]! - ORIGIN[0] - 0.5) % 1) + 1) % 1).toBe(0);
   const cx = p[0]! - ORIGIN[0] - 0.5;
   await expect.poll(async () => (await cells(layer, [cx, 7, 2, cx + 1, 8, 3])).get(`${cx},7,2`)?.meta['hazard']).toBe(true);
+
+  // ---- the Inspector's cell size: cells are square from above, so x and z are edited as one value.
+  await page.locator(`.tl-hierarchy__list li[data-entity-id="${layer}"]`).click();
+  const inspector = page.locator('.tl-inspector');
+  const cellSize = async (): Promise<number[] | undefined> => (await entity(layer)).components.blockLayer?.cellSize;
+  const cellField = (axis: string) => inspector.getByLabel(`blockLayer cellSize ${axis}`, { exact: true });
+  await cellField('x').fill('2');
+  await cellField('x').press('Enter');
+  await expect.poll(cellSize).toEqual([2, 1, 2]);
+  await expect(cellField('z')).toHaveValue('2');
+  await cellField('z').fill('0.5');
+  await cellField('z').press('Enter');
+  await expect.poll(cellSize).toEqual([0.5, 1, 0.5]);
+  await expect(cellField('x')).toHaveValue('0.5');
+  await cellField('y').fill('0.25');
+  await cellField('y').press('Enter');
+  await expect.poll(cellSize).toEqual([0.5, 0.25, 0.5]);
+  // A command (as MCP sends it) with x ≠ z is refused, naming both values and the rule.
+  const refused = await be!.command({ op: 'setComponent', projectId: be!.projectId, expectedRevision: Number((await query('queryProject')).revision), requestId: `req-${randomBytes(16).toString('hex')}`, origin: { kind: 'mcp', clientId: 'e2e-block-editor' }, args: { entityId: layer, component: 'blockLayer', value: { cellSize: [2, 1, 1], bounds: { min: [0, 0, 0], max: [64, 16, 64] } } } });
+  expect(refused['ok']).toBe(false);
+  expect(JSON.stringify(refused)).toContain('field_value');
+  expect(JSON.stringify(refused)).toMatch(/x \(2\) and z \(1\).*square from above/);
+  expect(await cellSize()).toEqual([0.5, 0.25, 0.5]);
 });
 
 /** Select an object in the Hierarchy and drag its gizmo's X arrow (one setTransform on release). */

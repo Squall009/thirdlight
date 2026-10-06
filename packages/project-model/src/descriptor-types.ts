@@ -145,6 +145,8 @@ export interface VecFieldDescriptor extends FieldBase {
   readonly nonZero?: boolean;
   /** A vec3 whose last component may be left out (`[x, y]` reads as `[x, y, 0]`). */
   readonly optionalLast?: boolean;
+  /** Components (by index) that always hold one value (a cell square from above: x and z); editing one sets them all. */
+  readonly same?: readonly number[];
 }
 export interface QuatFieldDescriptor extends FieldBase {
   readonly type: 'quat';

@@ -176,6 +176,7 @@ function NumberWidget(p: RowProps & { shown: number | undefined; aria: string })
  */
 function VectorWidget(p: RowProps & { shown: readonly number[]; valueOf: (stored: unknown) => number[]; aria: string; labels: readonly string[]; euler?: boolean; leaveLastOf?: (stored: unknown) => boolean }): JSX.Element {
   const f = p.f as { min?: number; max?: number; label: string };
+  const same = p.f.type === 'vec2' || p.f.type === 'vec3' ? p.f.same : undefined;
   return (
     <span className="tl-vec__nums">
       {p.labels.map((l, i) => (
@@ -192,6 +193,8 @@ function VectorWidget(p: RowProps & { shown: readonly number[]; valueOf: (stored
             p.onEdit(p.path, (stored: unknown) => {
               const next = p.valueOf(stored);
               next[i] = n;
+              // Tied components (a cell's x and z) only ever hold one value; editing one moves them together.
+              if (same?.includes(i) === true) for (const j of same) next[j] = n;
               // An optional last component left out (a 2D value of a 3D-capable field) stays out
               // unless it is the one edited, so editing x or y never writes a made-up z or depth.
               const out = p.leaveLastOf?.(stored) === true && i < next.length - 1 ? next.slice(0, -1) : next;

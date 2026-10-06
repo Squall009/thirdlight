@@ -309,9 +309,11 @@ function probeField(ctx: Ctx, root: J, objPtr: string, key: string, d: FieldDesc
       expectErr(ctx, set([...v, 0]), errAt, 'too many components');
       expectErr(ctx, set('x'), errAt, 'a string');
       for (let i = 0; i < n; i++) {
+        // Tied components move together, so a bound is probed on all of them at once.
         const comp = (x: number): J => {
           const copy = [...v];
           copy[i] = x;
+          if (d.same?.includes(i) === true) for (const j of d.same) copy[j] = x;
           return set(copy);
         };
         const skipMaxOk = d.ascending === true && i === 0;
@@ -325,6 +327,11 @@ function probeField(ctx: Ctx, root: J, objPtr: string, key: string, d: FieldDesc
           if (!skipMaxOk) expectOk(ctx, comp(d.max), errAt, `component ${i} at max ${d.max}`);
           expectErr(ctx, comp(d.max + eps(d.max) * 1000), errAt, `component ${i} above max`);
         }
+      }
+      if (d.same !== undefined && d.same.length > 1) {
+        const copy = [...v];
+        copy[d.same[0]!] = (copy[d.same[1]!] as number) + (d.step ?? 1);
+        expectErr(ctx, set(copy), errAt, 'tied components differ');
       }
       if (d.nonZero) expectErr(ctx, set(new Array(n).fill(0)), errAt, 'all zero');
       if (d.ascending) expectErr(ctx, set([v[1], v[0]]), errAt, 'descending');
@@ -935,6 +942,7 @@ function fits(d: FieldDescriptor, v: unknown): string | null {
       if (!Array.isArray(v) || !(v.length === n || (d.optionalLast === true && v.length === n - 1))) return 'wrong length';
       for (const x of v) if (typeof x !== 'number' || (d.min !== undefined && (d.minExclusive ? x <= d.min : x < d.min)) || (d.max !== undefined && x > d.max)) return 'component out of range';
       if (d.ascending && !((v[0] as number) < (v[1] as number))) return 'not ascending';
+      if (d.same !== undefined && d.same.some((j) => v[j] !== v[d.same![0]!])) return 'tied components differ';
       return null;
     }
     case 'string':

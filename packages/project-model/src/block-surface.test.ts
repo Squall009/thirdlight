@@ -91,7 +91,7 @@ describe('sloped cells: the mesh is the surface', () => {
     [0, 0, 1, 1],
     [1, 0, 1, 0],
   ];
-  for (const cellSize of [[1, 1, 1], [2, 0.5, 1.5]] as [number, number, number][]) {
+  for (const cellSize of [[1, 1, 1], [2, 0.5, 2]] as [number, number, number][]) {
     for (const rot of [0, 90, 180, 270] as const) {
       it(`render and collision triangles lie on the corner surface (cell ${cellSize.join('×')}, rotation ${rot})`, () => {
         for (const corners of CORNERS) {

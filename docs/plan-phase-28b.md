@@ -100,7 +100,8 @@ both renderers where it changes drawing.
 | Item | Status |
 |---|---|
 | 28b.0 | done 2026-10-03 |
-| 28b.1–28b.7 | — |
+| 28b.1 | done 2026-10-06: validator refuses x ≠ z, Inspector ties x and z (`same` on vec descriptors), sloped stretch-back removed; D52 closed. `perf blocks` before → after (p95 / worst ms): scene block change webgpu 17.5/18.3 → 17.5/19.7, webgl2 17.6/19.6 → 17.6/18.2; export grid writes webgpu 6.0/13.4 → 6.0/15.6, webgl2 8.4/232 → 8.9/231 (noise). Fast gate's village perf check RED on webgpu p50 (7.5 ms vs limit 7.26) — clean HEAD 0c04d623 measures 7.7 ms too, so it predates this item (baseline recorded before 28c.15). |
+| 28b.2–28b.7 | — |
 
 ## 5. Decision log
 
