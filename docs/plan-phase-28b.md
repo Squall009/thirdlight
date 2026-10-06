@@ -116,3 +116,10 @@ both renderers where it changes drawing.
 - 2026-10-03: small runtime grid writes stay synchronous. E8 requires a
   destroyed bridge cell to update rendering, collision and queries in the same
   step; only bulk re-meshing moves to the worker.
+- 2026-10-06: village perf baseline re-recorded at `9a314cf6` because the
+  host drifted, not the code: the baseline's own commit `d6197b3e` measures
+  WebGPU p50 7.7 / 7.9 ms today (6.5–6.6 ms when recorded 2026-10-05), HEAD
+  7.6 / 7.3 ms; `08aaeab7` itself went 6.0–6.4 → 7.5–8.1 ms between runs at
+  ~02:00 with no code change; plain three.js page unchanged (6.2–6.5 ms).
+  Baseline WebGPU p50/p95 6.6/8.1 → 7.5/9.4 ms, WebGL 2 4.1/6.8 → 4.2/6.8 ms.
+  Default chosen, owner to confirm.
