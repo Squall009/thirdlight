@@ -5,9 +5,14 @@
 import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
 
+import { LOD_REFERENCE_FOV_DEG } from '@thirdlight/runtime';
+
+import { LOD_CULL_LEVEL_KEY } from './lod-switch';
 import {
   applyLodGroups,
   applyVertexColorMode,
+  lodDistanceForSize,
+  lodSwitchDistance,
   convexHull,
   keepOnlyPiece,
   modelPieces,
@@ -84,6 +89,38 @@ describe('applyLodGroups', () => {
     expect(at(d[2]! * 2)).toBe('rock_LOD2');
     // Single-level pieces are left alone.
     expect(root.children.some((c) => c.name === 'bush_LOD0')).toBe(true);
+  });
+
+  it("takes the model's own screen sizes and cull size: an empty last level past it, coarser levels past it left out", () => {
+    const root = kit();
+    stripCollisionNodes(root);
+    const ref = Math.tan(THREE.MathUtils.degToRad(LOD_REFERENCE_FOV_DEG) / 2);
+    applyLodGroups(root, { screenSizes: [0.2, 0.1], cullSize: 0.05 });
+    const lod = root.children.find((c) => c.name === 'rock_LOD') as THREE.LOD;
+    const r = new THREE.Box3().setFromObject(lod.levels[0]!.object).getBoundingSphere(new THREE.Sphere()).radius;
+    expect(lod.levels.map((l) => l.distance)).toEqual([0, r / (ref * 0.2), r / (ref * 0.1), r / (ref * 0.05)].map((d, i) => (i === 0 ? 0 : expect.closeTo(d, 6))));
+    expect(lod.levels[3]!.object.userData[LOD_CULL_LEVEL_KEY]).toBe(true);
+    expect(lod.levels[3]!.object.children).toHaveLength(0);
+    // The default sizes are lodSwitchDistance's; a cull above the second switch drops LOD2.
+    const other = kit();
+    stripCollisionNodes(other);
+    applyLodGroups(other, { cullSize: 0.05 });
+    const two = other.children.find((c) => c.name === 'rock_LOD') as THREE.LOD;
+    expect(two.levels.map((l) => l.object.name)).toEqual(['rock_LOD0', 'rock_LOD1', 'LOD_cull']);
+    expect(two.levels[1]!.distance).toBeCloseTo(lodSwitchDistance(r, 1), 6);
+    // Single-level pieces get a LOD for the cull too.
+    expect(other.children.find((c) => c.name === 'bush_LOD') as THREE.LOD | undefined).toBeDefined();
+  });
+
+  it('a model without levels is culled below its cull size through one LOD around all of it', () => {
+    const root = new THREE.Group();
+    root.add(boxMesh('a', 1, 1), boxMesh('b', 1, 1));
+    expect(applyLodGroups(root)).toBe(0);
+    expect(applyLodGroups(root, { cullSize: 0.01 })).toBe(1);
+    expect(root.children).toHaveLength(1);
+    const lod = root.children[0] as THREE.LOD;
+    expect(lod.levels.map((l) => l.object.children.map((c) => c.name))).toEqual([['a', 'b'], []]);
+    expect(lodDistanceForSize(1, 0.01)).toBeCloseTo(1 / (Math.tan(THREE.MathUtils.degToRad(25)) * 0.01), 6);
   });
 });
 

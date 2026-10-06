@@ -14,6 +14,7 @@ import type { JSX, ReactNode } from 'react';
 import { useAssetSummaries } from '../catalog/catalog-context';
 import { EntryName, TEXTURE_KINDS } from '../catalog/RefPicker';
 import { LoadableFields } from '../LoadableFields';
+import { ModelLodOptions } from '../ModelLodOptions';
 import { TextureAssetOptions } from '../TextureAssetOptions';
 import type { AssetOptionActions } from '../useAssetOptions';
 import type { LoadingNameActions } from '../useLoadingNames';
@@ -107,6 +108,7 @@ export function AssetInspector(p: AssetInspectorProps): JSX.Element | null {
             </select>
           </label>
         )}
+        {a.kind === 'model' && <ModelLodOptions assetId={a.assetId} lod={a.lod} onLod={(id, lod) => void p.assetOptions.setModelLod(id, lod)} />}
         {a.kind === 'model' && p.modelExtra}
         {a.kind === 'model' && (
           <section className="tl-inspector__section" aria-label="model preview">

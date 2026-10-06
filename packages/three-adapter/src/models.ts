@@ -50,7 +50,7 @@
  * diagnostic, the run proceeds).
  */
 import * as THREE from 'three';
-import { assetVersionKey, createResourceManager, type LoadedResource, type ResourceManager } from '@thirdlight/runtime';
+import { assetVersionKey, createResourceManager, instanceDensityOf, type InstanceDensity, type LoadedResource, type ModelLodSettings, type ResourceManager } from '@thirdlight/runtime';
 import {
   adapterError,
   type AdapterError,
@@ -67,7 +67,8 @@ import {
   type VisualResourceStore,
   createVisualResourceStore,
 } from './visual';
-import { buildInstanceSet, INSTANCE_CHUNK_METERS, type BuiltInstanceSet } from './instancing';
+import { buildInstanceSet, INSTANCE_CHUNK_METERS, type BuiltInstanceSet, type InstanceSetStats } from './instancing';
+import type { LodTuning } from './lod-switch';
 import type { MaterialLibrary, MaterialOverridesLike } from './material-library';
 import { releaseEmissiveLooks, SHARED_MATERIAL_KEY } from './node-materials';
 import { textureHolds } from './texture-holds';
@@ -100,6 +101,8 @@ export interface SceneAdapterModelAsset {
   readonly clipsFor?: string;
   /** The file's images extracted into texture assets (image index → texture assetId). */
   readonly textures?: Readonly<Record<string, string>>;
+  /** The model's LOD group settings (switch points, cull size; absent: the defaults). */
+  readonly lod?: ModelLodSettings;
 }
 
 /** One committed `modelAnimation` entity mapping. */
@@ -253,6 +256,8 @@ export interface ModelsRealizationContext {
    * constant neutral motion — delivery.md). `null` when the
    * runtime has no committed view (pre-commit: the controller idles). */
   readonly viewFor: (entityId: string) => AnimationRoleView | null;
+  /** The project's LOD bias and hysteresis, read by every instance set's per-copy picks (absent: the defaults). */
+  readonly lodTuning?: LodTuning;
 }
 
 /** The live realization state (owned and disposed by the adapter). */
@@ -310,6 +315,8 @@ export interface ModelsRealization {
   clipsOf(clipAssetId: string, rigAssetId: string, entityId?: string): readonly THREE.AnimationClip[] | null;
   /** An entity's built instance set (its chunks map a picked instance back to a copy), or null. */
   instanceSet(entityId: string): BuiltInstanceSet | null;
+  /** Every built instance set's copies by what they draw now, summed (diagnostics). */
+  instanceStats(): InstanceSetStats;
   /** A decoded instance buffer (the copies' transforms), when loaded. */
   instanceBuffer(digest: string): Float32Array | undefined;
   /** The model files that failed to load or build, with why (by asset id). */
@@ -330,6 +337,8 @@ export interface InstanceSetRef {
   readonly count: number;
   /** The set's own chunk size (m); absent: the project's (`SceneAdapterModels.instanceChunkSize`). */
   readonly chunkSize?: number;
+  /** The set's density falloff (its component's, the defaults filled in). */
+  readonly density?: InstanceDensity;
 }
 
 
@@ -547,6 +556,7 @@ export function createModelsRealization(ctx: ModelsRealizationContext): {
   const instanceOptions = (assetId: string, piece: string | undefined): CreateInstanceOptions => ({
     ...(piece !== undefined ? { piece } : {}),
     vertexColors: rowsByAsset.get(assetId)?.vertexColors === 'tint' ? 'tint' : 'data',
+    ...(rowsByAsset.get(assetId)?.lod !== undefined ? { lod: rowsByAsset.get(assetId)!.lod! } : {}),
   });
   const attached = new Map<string, AttachedModel>(); // entityId → attached model
   const attachedSets = new Map<string, AttachedInstanceSet>(); // entityId → instanced meshes
@@ -896,7 +906,11 @@ export function createModelsRealization(ctx: ModelsRealizationContext): {
     const created = resource.createInstance(instanceOptions(ref.assetId, ref.piece));
     if (created.ok === false) return;
     const template = created.instance;
-    const built = buildInstanceSet(template, floats, ref.count, `instances:${entityId}`, { chunkSize: ref.chunkSize ?? ctx.models.instanceChunkSize ?? INSTANCE_CHUNK_METERS });
+    const built = buildInstanceSet(template, floats, ref.count, `instances:${entityId}`, {
+      chunkSize: ref.chunkSize ?? ctx.models.instanceChunkSize ?? INSTANCE_CHUNK_METERS,
+      density: ref.density ?? instanceDensityOf(undefined),
+      ...(ctx.lodTuning !== undefined ? { tuning: ctx.lodTuning } : {}),
+    });
     holder.add(built.group);
     attachedSets.set(entityId, { entityId, template, built, undoMaterials: applyMaterials(entityId, ref.assetId, built.group) });
     ctx.onAttached?.(entityId, built.group);
@@ -1064,6 +1078,22 @@ export function createModelsRealization(ctx: ModelsRealizationContext): {
       return readyResource(clipAssetId)?.animationClips() ?? null;
     },
     instanceSet: (entityId) => attachedSets.get(entityId)?.built ?? null,
+    instanceStats: () => {
+      let copies = 0;
+      let inView = 0;
+      let culled = 0;
+      let thinned = 0;
+      const byLevel: number[] = [];
+      for (const set of attachedSets.values()) {
+        const st = set.built.stats();
+        copies += st.copies;
+        inView += st.inView;
+        culled += st.culled;
+        thinned += st.thinned;
+        st.byLevel.forEach((v, l) => (byLevel[l] = (byLevel[l] ?? 0) + v));
+      }
+      return { copies, inView, byLevel, culled, thinned };
+    },
     instanceBuffer: (digest) => buffers.get(digest),
     failures(): ReadonlyMap<string, { readonly code: string; readonly message: string }> {
       const out = new Map<string, { code: string; message: string }>();

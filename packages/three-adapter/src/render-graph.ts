@@ -58,7 +58,8 @@ import * as THREE from 'three';
 import { WorldMatrices } from '@thirdlight/runtime';
 
 import type { BatchMembership } from './batching';
-import { LOD_LEVEL_KEY, LOD_OWNER_KEY, pickLodLevel } from './lod-switch';
+import { LOD_LEVEL_KEY, LOD_OWNER_KEY, LodTuning, pickLodLevel } from './lod-switch';
+import { maxScaleOf } from './view-cull';
 import { isStaticCaster, MOVING_CASTER_KEY } from './shadow-casters';
 
 /** Whether three draws an object itself (a mesh, line, points, sprite or a light). */
@@ -240,6 +241,9 @@ export class RenderGraph {
   private readonly lodCam = new THREE.Vector3(Number.NaN, 0, 0);
   private lodZoom = Number.NaN;
   private lodsDirty = true;
+  /** The project's LOD bias and hysteresis (the adapter's; the instance sets read the same), and the revision picked at. */
+  lodTuning = new LodTuning();
+  private lodRevision = -1;
   /** LODs of animated hierarchies posed since the last pick (the camera still: only they can change level). */
   private readonly movedSwitches = new Set<LodSwitch>();
   /** Told when a static shadow caster enters or leaves the scene (with it: where it stands) or moves (null: anywhere). */
@@ -433,20 +437,27 @@ export class RenderGraph {
     const cam = this.camPos.setFromMatrixPosition(camera.matrixWorld);
     const zoom = (camera as THREE.PerspectiveCamera).zoom ?? 1;
     // A still camera: only the LODs that moved (posed this frame) can change level; the others stay.
-    const still = !this.lodsDirty && cam.equals(this.lodCam) && zoom === this.lodZoom;
+    const tuning = this.lodTuning;
+    const still = !this.lodsDirty && cam.equals(this.lodCam) && zoom === this.lodZoom && tuning.revision === this.lodRevision;
     const which: Iterable<LodSwitch> = still ? this.movedSwitches : this.switches;
     this.lodsDirty = false;
     this.lodCam.copy(cam);
     this.lodZoom = zoom;
+    this.lodRevision = tuning.revision;
+    // The bias divides the distance (2: every level kept twice as far).
+    const scale = 1 / (zoom * tuning.bias);
     for (const sw of which) {
       const e = sw.lod.matrixWorld.elements;
       // sqrt of the sum, not Math.hypot (several times slower in V8, over every LOD each frame the camera moves).
       const dx = cam.x - e[12]!;
       const dy = cam.y - e[13]!;
       const dz = cam.z - e[14]!;
-      const distance = Math.sqrt(dx * dx + dy * dy + dz * dz) / zoom;
-      const level = pickLodLevel(sw.lod.levels, distance, sw.active);
+      // A scaled model covers more of the screen: its switch points move out with its scale (screen sizes, as
+      // instance-set copies pick them).
+      const distance = (Math.sqrt(dx * dx + dy * dy + dz * dz) * scale) / (maxScaleOf(e) || 1);
+      const level = pickLodLevel(sw.lod.levels, distance, sw.active, tuning.hysteresis);
       if (level === sw.active) continue;
+      if (sw.active >= 0) tuning.switches += 1;
       sw.active = level;
       sw.lod.userData[LOD_LEVEL_KEY] = level;
       for (const p of sw.parts) this.gate(p);

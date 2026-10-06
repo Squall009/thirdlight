@@ -801,6 +801,7 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
       ...(a.materials !== undefined ? { materials: { ...a.materials } } : {}),
       ...(a.textures !== undefined ? { textures: { ...a.textures } } : {}),
       ...(a.clipsFor !== undefined ? { clipsFor: a.clipsFor } : {}),
+      ...(a.lod !== undefined ? { lod: a.lod } : {}),
       ...(a.bounds !== undefined ? { bounds: a.bounds } : {}),
       ...(a.kind === 'audio' && durationOf(a.assetId, a.version) !== undefined ? { durationMs: durationOf(a.assetId, a.version)! } : {}),
       // How the game holds the file (the runtime's audio loading reads it).

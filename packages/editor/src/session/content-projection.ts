@@ -159,6 +159,7 @@ export class ContentProjection {
       ...(next.vertexColors === 'tint' ? { vertexColors: 'tint' as const } : {}),
       ...((next as { materials?: Record<string, string> }).materials !== undefined ? { materials: { ...(next as unknown as { materials: Record<string, string> }).materials } } : {}),
       ...(typeof (next as { clipsFor?: string }).clipsFor === 'string' ? { clipsFor: (next as unknown as { clipsFor: string }).clipsFor } : {}),
+      ...((next as { lod?: { screenSizes?: number[]; cullSize?: number } }).lod !== undefined ? { lod: lodCopy((next as { lod?: { screenSizes?: number[]; cullSize?: number } }).lod!) } : {}),
       ...(next.extractTextures === true ? { extractTextures: true as const } : {}),
       ...(next.textures !== undefined ? { textures: { ...next.textures } } : {}),
       ...(next.labels !== undefined ? { labels: [...next.labels] } : {}),
@@ -217,6 +218,11 @@ export class ContentProjection {
   }
 }
 
+/** A model's LOD settings, copied. */
+function lodCopy(lod: { readonly screenSizes?: readonly number[]; readonly cullSize?: number }): { screenSizes?: number[]; cullSize?: number } {
+  return { ...(lod.screenSizes !== undefined ? { screenSizes: [...lod.screenSizes] } : {}), ...(lod.cullSize !== undefined ? { cullSize: lod.cullSize } : {}) };
+}
+
 function cloneSummary(a: AssetSummary): AssetSummary {
   return {
     assetId: a.assetId,
@@ -227,6 +233,7 @@ function cloneSummary(a: AssetSummary): AssetSummary {
     ...(a.vertexColors === 'tint' ? { vertexColors: 'tint' as const } : {}),
     ...(a.materials !== undefined ? { materials: { ...a.materials } } : {}),
     ...(a.clipsFor !== undefined ? { clipsFor: a.clipsFor } : {}),
+    ...(a.lod !== undefined ? { lod: lodCopy(a.lod) } : {}),
     ...(a.extractTextures === true ? { extractTextures: true as const } : {}),
     ...(a.textures !== undefined ? { textures: { ...a.textures } } : {}),
     ...(a.labels !== undefined ? { labels: [...a.labels] } : {}),

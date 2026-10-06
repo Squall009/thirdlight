@@ -4,6 +4,7 @@
  */
 
 import { DEFAULT_PROBE_SPACING, PROBE_SPACING_MAX, PROBE_SPACING_MIN } from './probe-grids';
+import { INSTANCE_DENSITY_END_DEFAULT, INSTANCE_DENSITY_MIN_DEFAULT, INSTANCE_DENSITY_SIZE_MIN, INSTANCE_DENSITY_START_DEFAULT } from './model-lod';
 import { LOOK_AT_LIMITS, MAX_ANIMATOR_PARAMETERS } from './animator';
 import { BLOCK_DEFAULTS, BLOCK_TUNING_LIMITS, HITBOX_SHAPES, GRAVITY_SCALE, MOVER_EASINGS, MOVER_MODES, PATROL_MODES, PRIMITIVE_DEFAULTS, PRIMITIVE_LIMITS, SWITCH_MODES, SWITCH_DEFAULT_ACTION, FACE_MOVEMENT_MODES, MAX_TRANSITION_FADE, MAX_TRANSITION_UNLOADS, TRIGGER_HEIGHT, TRIGGER_MODES, TRIGGER_RADIUS, TRIGGER_SHAPES } from './blocks';
 import {
@@ -638,7 +639,11 @@ export const instances: ComponentDescriptor = {
     bool('receiveShadow', 'Receives shadows', 'Shows the realtime shadows falling on it.', { default: true, omitDefault: true }),
     lightLayerMask('lightLayers', 'Light layers', 'The light layers it is in: only lights whose light mask shares one of them light it, and it casts shadows only for lights whose shadow caster mask shares one.', 1),
     // Absent = the project's Instance chunk size (32 m unless set).
-    num('chunkSize', 'Chunk size', 'The copies are drawn in chunks about this wide, each hidden when out of view and given its level of detail on its own (absent: the project\'s Instance chunk size).', { min: 1, max: 4096, step: 1, unit: 'm' }),
+    num('chunkSize', 'Chunk size', 'The copies are drawn in chunks about this wide, each hidden when out of view (absent: the project\'s Instance chunk size). Each copy picks its own level of detail.', { min: 1, max: 4096, step: 1, unit: 'm' }),
+    // Absent = the engine's density falloff (model-lod.ts): far copies thin out where they are a few pixels across.
+    num('densityStart', 'Thinning starts at', `Copies start thinning out where they cover less than this share of the screen height (absent: ${INSTANCE_DENSITY_START_DEFAULT}).`, { min: INSTANCE_DENSITY_SIZE_MIN, max: 1, step: 0.001 }),
+    num('densityEnd', 'Thinnest at', `Below this share of the screen height only the "Thinnest density" share of copies is drawn (absent: ${INSTANCE_DENSITY_END_DEFAULT}).`, { min: INSTANCE_DENSITY_SIZE_MIN, max: 1, step: 0.001 }),
+    num('densityMin', 'Thinnest density', `The share of copies drawn where they are smallest (1: no thinning; absent: ${INSTANCE_DENSITY_MIN_DEFAULT}).`, { min: 0, max: 1, step: 0.05 }),
   ]),
   add: { kind: 'tool', tool: 'instance brush or instance import' },
   handles: [],

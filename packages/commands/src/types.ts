@@ -1523,6 +1523,8 @@ export interface SetAssetOptionsArgs {
   preload?: boolean;
   /** Texture only: stream its mips (null = the default: on for a KTX2 texture over 1024 px). */
   streaming?: boolean | null;
+  /** Model only: its LOD group settings — switch points and cull size (null = the defaults). */
+  lod?: import('@thirdlight/project-model').ModelLodSettings | null;
 }
 
 export interface SetTransformArgs {

@@ -66,6 +66,10 @@ export interface InstancesComponent {
   chunkSize?: number;
   /** The light layers the copies are in, a bit mask (light-layers.ts; absent: every layer). */
   lightLayers?: number;
+  /** Density falloff: the screen size where copies start thinning, where they reach `densityMin`, and that share (absent: `model-lod.ts` defaults). */
+  densityStart?: number;
+  densityEnd?: number;
+  densityMin?: number;
 }
 
 /** Floats per instance in an instance buffer. */
@@ -387,6 +391,8 @@ export interface AssetRecordV3 {
   preload?: false;
   /** Texture only: stream its mips (absent: on for a KTX2 chain over 1024 px; `texture-streaming.ts`). */
   streaming?: boolean;
+  /** Model only: its LOD group settings — switch points and cull size (absent: the defaults; `model-lod.ts`). */
+  lod?: import('./model-lod').ModelLodSettings;
 }
 
 /** The v3 content block: the accepted five keys plus the required `game`. */

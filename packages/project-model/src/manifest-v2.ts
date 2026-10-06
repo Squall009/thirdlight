@@ -256,6 +256,8 @@ export interface CapturedAssetV3 {
   textures?: Record<string, string>;
   /** Model only: an animation-only file whose clips play on this model asset's rig. */
   clipsFor?: string;
+  /** Model only: its LOD group settings (absent: the defaults). */
+  lod?: import('./model-lod').ModelLodSettings;
   /** Model only: the version's recorded bounds (absent for versions imported before). */
   bounds?: { min: [number, number, number]; max: [number, number, number] };
 }
@@ -310,6 +312,8 @@ export interface ManifestAssetInputV2 {
   textures?: Record<string, string>;
   /** Model only: an animation-only file whose clips play on this model asset's rig. */
   clipsFor?: string;
+  /** Model only: its LOD group settings (absent: the defaults). */
+  lod?: import('./model-lod').ModelLodSettings;
   /** Model only: the version's recorded bounds (the runtime's pickups without a size read them). */
   bounds?: { min: [number, number, number]; max: [number, number, number] };
   /** Audio: the version's recorded duration, ms (script sounds' ends are computed from it). */
@@ -494,7 +498,7 @@ export const M3_SETTINGS_KEYS = [
  * when the project sets them), in registry order — a project that never sets
  * one keeps its exact settings block and digests.
  */
-export const M3_OPTIONAL_SETTINGS_KEYS = ['fixed_step_hz', 'audio_voices', 'music_fade_s', 'animation_crossfade_s', 'render_backend', 'physics_dimension', 'sim_thread', 'debug_console', 'random_seed', 'depth_buffer', 'instance_chunk_m', 'audio_spatial', 'texture_budget_mb', 'camera_fov_deg', 'camera_near_m', 'camera_far_m', 'import_extract_textures', 'stats_overlay', 'frame_rate_cap'] as const;
+export const M3_OPTIONAL_SETTINGS_KEYS = ['fixed_step_hz', 'audio_voices', 'music_fade_s', 'animation_crossfade_s', 'render_backend', 'physics_dimension', 'sim_thread', 'debug_console', 'random_seed', 'depth_buffer', 'instance_chunk_m', 'audio_spatial', 'texture_budget_mb', 'camera_fov_deg', 'camera_near_m', 'camera_far_m', 'import_extract_textures', 'stats_overlay', 'frame_rate_cap', 'lod_bias', 'lod_hysteresis'] as const;
 
 // ---------------------------------------------------------------------------
 // Media identity (`media`)
@@ -679,6 +683,8 @@ export function captureContentViewV3(
       ...(record.materials !== undefined ? { materials: { ...record.materials } } : {}),
       ...(record.textures !== undefined ? { textures: { ...record.textures } } : {}),
       ...(record.clipsFor !== undefined ? { clipsFor: record.clipsFor } : {}),
+      // Set only (the digests of projects without LOD settings are unchanged).
+      ...(record.kind === 'model' && record.lod !== undefined ? { lod: lodCopy(record.lod) } : {}),
       // A model version's recorded bounds (absent before; the digests of older captures are unchanged).
       ...(record.kind === 'model' && (version.metrics as { bounds?: CapturedAssetV3['bounds'] }).bounds !== undefined ? { bounds: boundsCopy((version.metrics as { bounds: NonNullable<CapturedAssetV3['bounds']> }).bounds) } : {}),
     })));
@@ -786,6 +792,11 @@ const MODULE_PACKAGE_LOOKUP: Readonly<Record<string, string>> = {
   ...M3_MODULE_PACKAGES,
 };
 
+/** A model's LOD settings, copied (their keys in one order). */
+function lodCopy(lod: import('./model-lod').ModelLodSettings): import('./model-lod').ModelLodSettings {
+  return { ...(lod.screenSizes !== undefined ? { screenSizes: [...lod.screenSizes] } : {}), ...(lod.cullSize !== undefined ? { cullSize: lod.cullSize } : {}) };
+}
+
 /** One manifest asset row (v4 `assets`, v5 catalog entries) from its captured input. */
 export function manifestAssetRow(a: ManifestAssetInputV2): Record<string, unknown> & { assetId: string; version: number } {
   return {
@@ -801,6 +812,7 @@ export function manifestAssetRow(a: ManifestAssetInputV2): Record<string, unknow
     ...(a.materials !== undefined ? { materials: canonicalMaterialMapping(a.materials) } : {}),
     ...(a.textures !== undefined ? { textures: { ...a.textures } } : {}),
     ...(a.clipsFor !== undefined ? { clipsFor: a.clipsFor } : {}),
+    ...(a.lod !== undefined && a.kind === 'model' ? { lod: lodCopy(a.lod) } : {}),
     ...(a.bounds !== undefined ? { bounds: boundsCopy(a.bounds) } : {}),
     ...(a.durationMs !== undefined && a.kind === 'audio' ? { durationMs: a.durationMs } : {}),
     ...(a.loadType !== undefined && a.kind === 'audio' ? { loadType: a.loadType, preload: a.preload !== false } : {}),

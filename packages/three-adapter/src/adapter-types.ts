@@ -9,7 +9,7 @@ import type { MaterialDefLike, MaterialLibrary, WindLike } from './material-libr
 import type { LightingBakeLike } from './lightmaps';
 import type { EnvironmentLayerLike, EnvironmentLike, QualityLevel } from './environment';
 import type { BlockLayerView, BlockLayerViewDiagnostics } from './block-layers';
-import type { BuiltInstanceSet } from './instancing';
+import type { BuiltInstanceSet, InstanceSetStats } from './instancing';
 import type { ViewCullDiagnostics } from './view-cull';
 import type { RuntimeMaterialsDiagnostics } from './runtime-materials';
 import type { AdapterError } from './errors';
@@ -152,6 +152,8 @@ export interface SceneAdapterOptions {
    * compute executor when the renderer draws on WebGPU, else on the CPU
    * executor. Absent: effects are not drawn.
    */
+  /** The project's LOD bias and hysteresis (`lod_bias`, `lod_hysteresis`; absent: the defaults). */
+  lod?: { readonly bias?: number; readonly hysteresis?: number };
   /**
    * Draw repeated objects (boxes, model pieces with the same
    * geometry, material and shadow flags) instanced (default true). Off: one
@@ -281,6 +283,12 @@ export interface SceneAdapterDiagnostics {
   instanced?: { meshes: number; programs: number };
   /** Draws culled inside against the view (batches, instance-set chunks, merged cells) and those put in order again last frame; ABSENT before the first drawn frame. */
   viewCull?: ViewCullDiagnostics;
+  /**
+   * Levels of detail: the project's bias and hysteresis, the placed models' LODs and the instance-set copies that
+   * changed level in the last frame, and the copies by what they draw (`instances`: the view's copies, those at
+   * each level, culled past their size, thinned by distance); ABSENT before the first drawn frame.
+   */
+  lod?: { bias: number; hysteresis: number; switches: number; copySwitches: number; instances: InstanceSetStats };
   /** The block layers drawn (layers, chunk meshes, triangles). */
   blocks?: BlockLayerViewDiagnostics;
   /**
@@ -344,6 +352,8 @@ export interface SceneAdapter {
   modelsSettled?(): Promise<ModelsSettledResult>;
   /** A player's quality setting (low/medium/high) over the environment's. */
   setQuality?(level: QualityLevel): void;
+  /** The project's LOD bias and hysteresis (`lod_bias`, `lod_hysteresis`); unset parts keep their value. */
+  setLodTuning?(tuning: { readonly bias?: number; readonly hysteresis?: number }): void;
   /** The quality level drawn (the player's over the environment's; high without either). */
   qualityLevel?(): QualityLevel;
   /** The GPU time (ms) and frames measured since the last call; null where nothing is measured (no timestamp queries). */

@@ -33,7 +33,7 @@
  * stays the single authority for document value rules.
  */
 
-import { AUDIO_LOAD_TYPES, isValidSourcePath, validateGraphOps, blockEditsShapeError, validateBlockType, validateCellFields, validateBlockStamp, BLOCK_LIMITS, type GraphDocument, type GraphOp, type ModelErrorV2 } from '@thirdlight/project-model';
+import { AUDIO_LOAD_TYPES, isValidSourcePath, modelLodProblems, validateGraphOps, blockEditsShapeError, validateBlockType, validateCellFields, validateBlockStamp, BLOCK_LIMITS, type GraphDocument, type GraphOp, type ModelErrorV2 } from '@thirdlight/project-model';
 import { ENTITY_FLAGS, M2_SETTINGS_KEYS, MAX_TAGS, TAG_NAME_RE, type AnimatorController, type InputConfig, type EnvironmentConfig, type SceneEnvironment, type LightingBake, type MaterialDef, type EffectDef } from '@thirdlight/project-model';
 
 import {
@@ -927,14 +927,20 @@ function validateSetAssetOptionsArgs(args: Record<string, unknown>):
   | { ok: true; args: SetAssetOptionsArgs }
   | { ok: false; error: CommandError } {
   for (const key of Object.keys(args)) {
-    if (key !== 'assetId' && key !== 'vertexColors' && key !== 'materials' && key !== 'clipsFor' && key !== 'sourcePath' && key !== 'loadType' && key !== 'preload' && key !== 'streaming') {
-      return { ok: false, error: fieldUnexpected(`/args/${pointerSegment(key)}`, key, 'assetId, vertexColors, materials, clipsFor, sourcePath, loadType, preload, streaming') };
+    if (key !== 'assetId' && key !== 'vertexColors' && key !== 'materials' && key !== 'clipsFor' && key !== 'sourcePath' && key !== 'loadType' && key !== 'preload' && key !== 'streaming' && key !== 'lod') {
+      return { ok: false, error: fieldUnexpected(`/args/${pointerSegment(key)}`, key, 'assetId, vertexColors, materials, clipsFor, sourcePath, loadType, preload, streaming, lod') };
     }
   }
   if (args['assetId'] === undefined) return { ok: false, error: fieldMissing('/args/assetId', 'assetId') };
   if (typeof args['assetId'] !== 'string') return { ok: false, error: fieldType('/args/assetId', args['assetId'], 'string (asset ID)') };
-  if (args['vertexColors'] === undefined && args['materials'] === undefined && args['clipsFor'] === undefined && args['sourcePath'] === undefined && args['loadType'] === undefined && args['preload'] === undefined && args['streaming'] === undefined) {
-    return { ok: false, error: fieldMissing('/args/vertexColors', 'vertexColors, materials, clipsFor, sourcePath, loadType, preload or streaming') };
+  if (args['vertexColors'] === undefined && args['materials'] === undefined && args['clipsFor'] === undefined && args['sourcePath'] === undefined && args['loadType'] === undefined && args['preload'] === undefined && args['streaming'] === undefined && args['lod'] === undefined) {
+    return { ok: false, error: fieldMissing('/args/vertexColors', 'vertexColors, materials, clipsFor, sourcePath, loadType, preload, streaming or lod') };
+  }
+  // A model's LOD group settings (null: the defaults).
+  const lod = args['lod'];
+  if (lod !== undefined && lod !== null) {
+    const problem = modelLodProblems(lod, '/args/lod')[0];
+    if (problem !== undefined) return { ok: false, error: { ...(problem as unknown as CommandError), cls: 'validation' } };
   }
   // A texture's mip streaming (null: the default for its size).
   const streaming = args['streaming'];
@@ -979,6 +985,7 @@ function validateSetAssetOptionsArgs(args: Record<string, unknown>):
       ...(loadType !== undefined ? { loadType: loadType as SetAssetOptionsArgs['loadType'] } : {}),
       ...(preload !== undefined ? { preload } : {}),
       ...(streaming !== undefined ? { streaming: streaming as boolean | null } : {}),
+      ...(lod !== undefined ? { lod: lod as SetAssetOptionsArgs['lod'] } : {}),
     },
   };
 }

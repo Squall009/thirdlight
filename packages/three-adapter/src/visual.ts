@@ -31,7 +31,7 @@
  * project-model type. Every public call returns a result object and never
  * throws across the module edge.
  */
-import { ASSET_METRIC_CAPS, MAX_SOURCE_BYTES } from '@thirdlight/runtime';
+import { ASSET_METRIC_CAPS, MAX_SOURCE_BYTES, type ModelLodSettings } from '@thirdlight/runtime';
 import * as THREE from 'three';
 import { adapterError, type AdapterError, type AdapterErrorCode } from './errors';
 import { mergeOwnership, OwnershipLedger, type ResourceOwnership } from './ownership';
@@ -276,6 +276,8 @@ export interface CreateInstanceOptions {
   readonly piece?: string;
   /** COLOR_0 as shader data (default) or as a base-colour tint. */
   readonly vertexColors?: VertexColorMode;
+  /** The model's LOD group settings (switch points, cull size; absent: the defaults). */
+  readonly lod?: ModelLodSettings;
 }
 
 /** Preview-only material modes (local to one instance; never authored state). */
@@ -911,7 +913,7 @@ function createResource(descriptor: AssetVersionDescriptor, loaded: LoadedGlb, l
         };
       }
       stripCollisionNodes(glbRoot);
-      applyLodGroups(glbRoot);
+      applyLodGroups(glbRoot, options.lod);
       applyVertexColorMode(glbRoot, options.vertexColors ?? 'data');
       const holder = new THREE.Group();
       holder.name = `asset:${descriptor.assetId}@v${descriptor.version}`;

@@ -213,3 +213,30 @@ describe('texture mip streaming (setAssetOptions streaming)', () => {
     if (model !== undefined) expect(run(s, 'setAssetOptions', { assetId: model.assetId, streaming: true }).ok).toBe(false);
   });
 });
+
+describe('model LOD settings (setAssetOptions lod)', () => {
+  const recOf = (s: State, id: string) => (s.content as unknown as { assets: { assetId: string; lod?: unknown }[] }).assets.find((a) => a.assetId === id)!;
+  const model = (): string => (BEFORE.content as unknown as { assets: { assetId: string; kind?: string }[] }).assets.find((a) => a.kind === 'model' || a.kind === undefined)!.assetId;
+
+  it('stores switch points and a cull size on a model (one undo), shown by queryAssets; null and an empty set go back to the defaults', () => {
+    const id = model();
+    const set = run(fresh(), 'setAssetOptions', { assetId: id, lod: { screenSizes: [0.2, 0.05], cullSize: 0.01 } });
+    expect(set.ok, JSON.stringify(set.result)).toBe(true);
+    expect(recOf(set.state, id).lod).toEqual({ screenSizes: [0.2, 0.05], cullSize: 0.01 });
+    const r = queryAssets(set.state as never, { op: 'queryAssets', projectId: BEFORE.projectId, args: { limit: 100, offset: 0 } }) as unknown as { assets?: { assetId: string; lod?: unknown }[]; items?: { assetId: string; lod?: unknown }[] };
+    expect((r.assets ?? r.items ?? []).find((a) => a.assetId === id)?.lod).toEqual({ screenSizes: [0.2, 0.05], cullSize: 0.01 });
+    expect(recOf(run(set.state, 'undo', {}).state, id).lod).toBeUndefined();
+    expect('lod' in recOf(run(set.state, 'setAssetOptions', { assetId: id, lod: null }).state, id)).toBe(false);
+  });
+
+  it('refuses sizes that do not shrink, out of range, unknown keys and a non-model asset', () => {
+    const id = model();
+    expect(message(run(fresh(), 'setAssetOptions', { assetId: id, lod: { screenSizes: [0.1, 0.2] } }))).toMatch(/smaller size/);
+    expect(run(fresh(), 'setAssetOptions', { assetId: id, lod: { cullSize: 1.5 } }).ok).toBe(false);
+    expect(run(fresh(), 'setAssetOptions', { assetId: id, lod: { screenSizes: [] } }).ok).toBe(false);
+    expect(run(fresh(), 'setAssetOptions', { assetId: id, lod: { bias: 2 } }).ok).toBe(false);
+    expect(run(fresh(), 'setAssetOptions', { assetId: id, lod: {} }).ok).toBe(false);
+    const s = run(fresh(), 'publishAsset', publish()).state;
+    expect(run(s, 'setAssetOptions', { assetId: 'tex-k', lod: { cullSize: 0.01 } }).ok).toBe(false);
+  });
+});

@@ -22,6 +22,16 @@ describe('pickLodLevel', () => {
     }
   });
 
+  it("the project's hysteresis holds a shown level until that much closer, never on the first pick", () => {
+    const levels = [{ distance: 0, hysteresis: 0 }, { distance: 20, hysteresis: 0 }, { distance: 50, hysteresis: 0 }];
+    expect(pickLodLevel(levels, 19, -1, 0.1)).toBe(0);
+    expect(pickLodLevel(levels, 19, 1, 0.1)).toBe(1);
+    expect(pickLodLevel(levels, 17.9, 1, 0.1)).toBe(0);
+    expect(pickLodLevel(levels, 21, 0, 0.1)).toBe(1);
+    expect(pickLodLevel(levels, 46, 2, 0.1)).toBe(2);
+    expect(pickLodLevel(levels, 44, 2, 0.1)).toBe(1);
+  });
+
   it('draws the only level of a LOD with one', () => {
     expect(pickLodLevel([{ distance: 0, hysteresis: 0 }], 1000, -1)).toBe(0);
   });

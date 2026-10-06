@@ -30,7 +30,7 @@
  *
  * Browser-only (DOM, WebGL/WebGPU, Web Audio, Web Crypto).
  */
-import { audioSpatialOf, dependencyTables, depthBufferOf, instanceChunkSizeOf, materialTextureRefs, physicsDimensionOf, scanDependencies, sha256HexAsync, textureBudgetBytesOf, type MaterialDef, type ModelColliderTable, type SaveSchema } from '@thirdlight/project-model';
+import { audioSpatialOf, dependencyTables, depthBufferOf, instanceChunkSizeOf, lodTuningOf, type ModelLodSettings, materialTextureRefs, physicsDimensionOf, scanDependencies, sha256HexAsync, textureBudgetBytesOf, type MaterialDef, type ModelColliderTable, type SaveSchema } from '@thirdlight/project-model';
 import { assetVersionKey, createResourceManager, fixedStepHzOf, EMBEDDED_TEXTURES_LISTED, embeddedTextureBytes, type ResourceManager, type ResourceObservation } from '@thirdlight/runtime';
 import { attachBrowserInput, DEFAULT_INPUT_CONFIG, DEFAULT_INPUT_CONFIG_3D, focusGameSurface, type InputConfigLike } from '@thirdlight/input';
 import type { RapierPhysicsInitConfig, RapierPhysicsPort, RapierStaticColliderSpec } from '@thirdlight/physics-rapier';
@@ -315,8 +315,8 @@ function referencedModelAssetIds(snapshot: RuntimeSnapshot): Set<string> {
 
 /** The adapter's row of one model (id, version, digest; tint, material map, clips' rig). */
 function modelRowOf(r: { assetId: string; version: number; sourceDigest: string }): SceneAdapterModels['assets'][number] {
-  const x = r as { vertexColors?: unknown; materials?: unknown; clipsFor?: unknown; textures?: unknown };
-  return { assetId: r.assetId, version: r.version, sourceDigest: r.sourceDigest, ...(x.vertexColors === 'tint' ? { vertexColors: 'tint' as const } : {}), ...(x.materials !== undefined ? { materials: x.materials as Record<string, string> } : {}), ...(typeof x.clipsFor === 'string' ? { clipsFor: x.clipsFor } : {}), ...(x.textures !== undefined ? { textures: x.textures as Record<string, string> } : {}) };
+  const x = r as { vertexColors?: unknown; materials?: unknown; clipsFor?: unknown; textures?: unknown; lod?: unknown };
+  return { assetId: r.assetId, version: r.version, sourceDigest: r.sourceDigest, ...(x.vertexColors === 'tint' ? { vertexColors: 'tint' as const } : {}), ...(x.materials !== undefined ? { materials: x.materials as Record<string, string> } : {}), ...(typeof x.clipsFor === 'string' ? { clipsFor: x.clipsFor } : {}), ...(x.textures !== undefined ? { textures: x.textures as Record<string, string> } : {}), ...(typeof x.lod === 'object' && x.lod !== null ? { lod: x.lod as ModelLodSettings } : {}) };
 }
 
 /**
@@ -887,6 +887,8 @@ export async function startGamePage(o: GamePageOptions): Promise<GamePageHandle>
           renderer: { ...resolveRendererPreference({ url: pageSearch(), setting: settings.render_backend }), depthBuffer: depthBufferOf(settings), trackTimestamp: o.measureGpu === true || statsOverlayModeOf(settings) !== 'off' },
           // Repeated objects drawn instanced unless the page says ?batching=off (a diagnostic comparison).
           batching: batchingFromUrl(pageSearch()),
+          // The project's LOD bias and hysteresis.
+          lod: lodTuningOf(settings),
           // Static objects merged at load unless the page says ?merging=off (a diagnostic comparison).
           merging: mergingFromUrl(pageSearch()) ? 'load' : 'off',
           // The sun's static casters cached in their own shadow map unless the page says ?shadowcache=off (a diagnostic comparison).

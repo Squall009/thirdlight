@@ -876,16 +876,50 @@ detail. Copies have no ids, colliders or scripts.
   set's 65,536 copies. GameObject → **Instance set…** (the rectangle fill) still makes a
   new set.
 - **Chunks** (phase 25.7d): a set is drawn in chunks, each hidden when out of
-  view and given its level of detail at its own centre. The copies are split
+  view. The copies are split
   by count (about 2048 per chunk) and by extent: no chunk is wider than the
   chunk size, 32 m unless the project sets **Rendering → Instance chunk
   size** (`setSettings {instance_chunk_m}`, 1–4096 m) or the set its own
   (Inspector → Instance set → **Chunk size**, `instances.chunkSize`; `null`
   puts it back to the project's). A set needs at most 256 chunks; a wider one
   gets larger chunks. The Inspector says how many chunks the selected set is
-  drawn in. Smaller chunks cull and pick levels of detail more finely at the
-  cost of more draw calls where many are in view. Play, the export and the
-  Scene view chunk alike.
+  drawn in. Smaller chunks cull more finely at the cost of more draw calls
+  where many are in view. Play, the export and the Scene view chunk alike.
+- **Levels of detail and density** (29.6): every copy picks its own level of
+  the model (its own distance and size against the model's switch points,
+  below), and a copy past the model's cull size is not drawn; a chunk wholly
+  past it is skipped. Copies thin out where they are small on screen: from
+  **Thinning starts at** (`densityStart`, a share of the screen height,
+  default 0.02) to **Thinnest at** (`densityEnd`, default 0.005) the share
+  drawn falls to **Thinnest density** (`densityMin`, default 0.25; 1 = no
+  thinning), linearly with distance, each copy keeping its place in the
+  order (Inspector → Instance set). A 0.5 m tuft starts thinning at ~27 m, a
+  6 m tree at ~320 m. Play diagnostics (`renderer.lod`) count the copies
+  drawn, by level, culled and thinned, and the level switches of the last
+  frame.
+
+## Levels of detail (29.6)
+
+A model's levels are its `<piece>_LOD0..n` nodes. Where each coarser level
+takes over is a **screen size**: the share of the screen height the model's
+LOD0 bounding sphere covers, measured for a 50° view (so a camera's lens
+does not move it) and scaled with the object's (or copy's) size.
+
+- **Per model** (asset inspector → **LOD switch %**, **cull below %**; MCP
+  `setAssetOptions {assetId, lod: {screenSizes?: [...], cullSize?} | null}`,
+  stored in the asset record and shown in its `.tlasset` sidecar's import
+  settings): `screenSizes` lists where LOD1, LOD2, … take over, largest
+  first, each in (0, 1] (absent: 0.08, 0.03, 0.012, 0.005 — the engine's
+  sizes before); `cullSize` is the size below which the model is not drawn
+  (absent: never). A model without levels and a cull size is culled as one.
+  Block layers use the switch points but never cull (a chunk holds many models).
+- **Project** (Project Settings → Rendering): **LOD bias** (`lod_bias`,
+  0.25–4, default 1) divides every switch point and cull size — 2 keeps every
+  level twice as far, 0.5 halves the distances (cheaper); **LOD hysteresis**
+  (`lod_hysteresis`, 0–0.5, default 0.1) — a shown level switches back to the
+  finer one only that share of its switch distance closer, so a model
+  standing at a switch point does not flicker. Both apply in the Scene view,
+  Play and the export.
 
 ## Deleting assets and prefabs (phase 25.7c)
 

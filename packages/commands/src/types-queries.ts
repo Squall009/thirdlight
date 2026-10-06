@@ -37,6 +37,8 @@ export interface AssetSummary {
   vertexColors?: 'tint';
   /** Model only: the default material mapping of every placement. */
   materials?: Record<string, string>;
+  /** Model only: its LOD group settings (absent: the defaults). */
+  lod?: import('@thirdlight/project-model').ModelLodSettings;
   /** Model only: an animation-only file whose clips play on this model asset's rig. */
   clipsFor?: string;
   /** Model only: the "extract textures" import setting is on. */

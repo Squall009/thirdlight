@@ -16,6 +16,7 @@ import { PROPERTY_KEY_RE } from './components';
 import { AUDIO_VOICE_CAP, AUDIO_VOICES_DEFAULT, MAX_SETTINGS_KEYS } from './content-limits';
 import { limitsError, sortedKeys } from './content-helpers';
 import { TEXTURE_BUDGET_DEFAULT_MB, TEXTURE_BUDGET_MAX_MB, TEXTURE_BUDGET_MIN_MB } from './texture-streaming';
+import { LOD_BIAS_DEFAULT, LOD_BIAS_MAX, LOD_BIAS_MIN, LOD_HYSTERESIS_DEFAULT, LOD_HYSTERESIS_MAX } from './model-lod';
 import { VIEW_LENS_DEFAULTS, VIRTUAL_CAMERA_LIMITS } from './cameras';
 import { FRAME_RATE_CAPS } from './frame-rate-cap';
 
@@ -136,13 +137,12 @@ export const M2_SETTINGS_KEYS: readonly SettingsKeySpec[] = [
   // panning) so every existing project sounds exactly as before; a 3D project
   // gets a panner per source with the listener on the active camera. 1 and 2
   // force one or the other (a 2D game may want stereo panning).
-  // The size (m) of an instance set's spatial chunks, each culled and
-  // given its level of detail on its own (a set's own chunkSize overrides it).
-  // 32 m: a few seconds' walk for the default 1.8 m character and small next
-  // to a usual view distance, so chunks out of view are culled and a chunk's
-  // level of detail (picked at its centre) is off by at most ~23 m (three-adapter
-  // INSTANCE_CHUNK_METERS, the same value).
-  { key: 'instance_chunk_m', type: 'number', default: 32, min: 1, max: 4096, unit: 'm', optional: true, group: RENDERING_SETTINGS_GROUP, label: 'Instance chunk size', tooltip: 'Instance sets are drawn in square chunks of about this size (m), each hidden when out of view and given its level of detail on its own. Smaller: finer culling and LOD, more draw calls. A set can set its own.' },
+  // The size (m) of an instance set's spatial chunks, each culled on its own
+  // (a set's own chunkSize overrides it; each copy picks its own level of
+  // detail). 32 m: a few seconds' walk for the default 1.8 m character and
+  // small next to a usual view distance, so chunks out of view are culled
+  // (three-adapter INSTANCE_CHUNK_METERS, the same value).
+  { key: 'instance_chunk_m', type: 'number', default: 32, min: 1, max: 4096, unit: 'm', optional: true, group: RENDERING_SETTINGS_GROUP, label: 'Instance chunk size', tooltip: 'Instance sets are drawn in square chunks of about this size (m), each hidden when out of view. Smaller: finer culling, more draw calls. A set can set its own.' },
   { key: 'audio_spatial', type: 'number', default: 0, values: [0, 1, 2], valueLabels: ['Automatic (2D: by distance to the player, 3D: panned)', 'By distance to the player (X)', 'Panned (listener on the camera)'], integer: true, unit: '', optional: true, group: 'Engine', label: 'Audio sources', tooltip: 'How audio sources are heard: by their X distance to the player (the 2D default, no panning) or through a panner with the listener on the active camera (the 3D default: left/right panning and each source\'s distance model). Script sounds with a position are always panned.' },
   // The texture budget of Play and the export (MiB; project-model
   // TEXTURE_BUDGET_DEFAULT_MB, where the default's reason is): streamed
@@ -170,6 +170,10 @@ export const M2_SETTINGS_KEYS: readonly SettingsKeySpec[] = [
   // rate, what every game drew at before; a game caps it to save a phone's battery (game time keeps its
   // fixed step either way), and a player's settings field or a script may change it while it runs.
   { key: 'frame_rate_cap', type: 'number', default: 0, values: [0, ...FRAME_RATE_CAPS], valueLabels: ['None (the display\'s rate)', ...FRAME_RATE_CAPS.map((fps) => `${fps} fps`)], integer: true, unit: '', optional: true, group: RENDERING_SETTINGS_GROUP, label: 'Frame-rate cap', tooltip: 'The most frames per second Play and the export draw (none: the display\'s rate). Game time is unaffected: the simulation keeps its fixed step. A player\'s settings field bound to frameRateCap, the UI action setSetting frameRateCap and scripts (ctx.display.setFrameRateCap) change it while the game runs; a page URL flag ?frameRateCap=30|60|120|none overrides it.' },
+  // Levels of detail (model-lod.ts, where the defaults' reasons are): a quality setting dividing every switch
+  // point and cull size (2: each level kept to half the size), and the margin a level switches back by.
+  { key: 'lod_bias', type: 'number', default: LOD_BIAS_DEFAULT, min: LOD_BIAS_MIN, max: LOD_BIAS_MAX, unit: '×', optional: true, group: RENDERING_SETTINGS_GROUP, label: 'LOD bias', tooltip: 'Scales where every model switches to its coarser levels and stops being drawn: 2 keeps each level twice as far, 0.5 switches at half the distance (cheaper). Each model sets its own switch points in its import settings.' },
+  { key: 'lod_hysteresis', type: 'number', default: LOD_HYSTERESIS_DEFAULT, min: 0, max: LOD_HYSTERESIS_MAX, unit: '', optional: true, group: RENDERING_SETTINGS_GROUP, label: 'LOD hysteresis', tooltip: 'A model switches back to its finer level only this share of the switch distance closer than where it switched, so one standing at a switch point does not flicker.' },
 ];
 
 /** The simulation's dimension (the `physics_dimension` setting's values). */

@@ -31,6 +31,7 @@ import { ID_RE_V2 } from './components';
 import type { AssetRecordV3, AssetVersionV3 } from './types-v3';
 import { AUDIO_PIPELINE_NAME, AUDIO_PIPELINE_VERSION, canonicalAudioMetrics, validateAudioLoadFields, validateAudioMetrics, validateAudioRecipe, type AudioMetrics } from './audio-assets';
 import { validateTextureStreamingField } from './texture-streaming';
+import { canonicalModelLod, validateModelLodField } from './model-lod';
 import {
   ASSET_LABEL_RE,
   ADDRESS_RE,
@@ -78,7 +79,7 @@ const METRIC_ORDER: Exclude<keyof AssetMetrics, 'bounds'>[] = [
 
 /** A header-only recipe (font, texture) has no `extensions` key. */
 const AUDIO_RECIPE_FIELDS = new Set(['profile', 'recipeVersion', 'toolchain']);
-const KNOWN_ASSET_FIELDS = new Set(['assetId', 'kind', 'displayName', 'currentVersion', 'versions', 'vertexColors', 'materials', 'extractTextures', 'textures', 'clipsFor', 'labels', 'address', 'loadType', 'preload', 'streaming']);
+const KNOWN_ASSET_FIELDS = new Set(['assetId', 'kind', 'displayName', 'currentVersion', 'versions', 'vertexColors', 'materials', 'extractTextures', 'textures', 'clipsFor', 'labels', 'address', 'loadType', 'preload', 'streaming', 'lod']);
 const KNOWN_VERSION_FIELDS = new Set([
   'version',
   'sourceDigest',
@@ -567,6 +568,7 @@ export function validateAsset(a: unknown, path: string, errors: ModelErrorV2[], 
   }
   validateAudioLoadFields(a, path, errors, v3 && kind === 'audio');
   validateTextureStreamingField(a, path, errors, v3 && kind === 'texture');
+  validateModelLodField(a, path, errors, v3 && kind === 'model');
   const labels = a['labels'];
   if (labels !== undefined) {
     if (!v3) errors.push(unexpectedField(`${path}/labels`, 'labels', 'only a v3/v4 asset has labels'));
@@ -703,6 +705,7 @@ export function canonicalAssetV3(a: AssetRecordV3): AssetRecordV3 {
     ...(a.loadType !== undefined ? { loadType: a.loadType } : {}),
     ...(a.preload === false ? { preload: false as const } : {}),
     ...(typeof a.streaming === 'boolean' ? { streaming: a.streaming } : {}),
+    ...(canonicalModelLod(a.lod) !== undefined ? { lod: canonicalModelLod(a.lod)! } : {}),
     ...(a.labels !== undefined ? { labels: [...a.labels] } : {}),
     ...(a.address !== undefined ? { address: a.address } : {}),
   };

@@ -14,6 +14,7 @@
  * renumbered or reinterpreted). Pure and total: same input → same
  * result, never throws, never reads files.
  */
+import { INSTANCE_DENSITY_SIZE_MIN } from './model-lod';
 import { canonicalProbeVolume, validateProbeVolumeComponent, type ProbeVolumeComponent } from './probe-grids';
 import { ID_RE } from './validate';
 import { validateLightLayerMask } from './light-layers';
@@ -245,6 +246,9 @@ function optionalColor(v: unknown, path: string, dflt: string, errors: ModelErro
 /** The largest instance-set chunk size (m). */
 export const MAX_INSTANCE_CHUNK_SIZE = 4096;
 
+/** The keys of an `instances` component. */
+const INSTANCES_KEYS = new Set(['asset', 'buffer', 'count', 'castShadow', 'receiveShadow', 'chunkSize', 'lightLayers', 'densityStart', 'densityEnd', 'densityMin']);
+
 export function validateInstancesComponent(c: unknown, path: string, errors: ModelErrorV3[]): void {
   if (!isPlainObject(c)) {
     errors.push(fieldType(path, c, 'object'));
@@ -276,8 +280,17 @@ export function validateInstancesComponent(c: unknown, path: string, errors: Mod
   if (chunkSize !== undefined && (typeof chunkSize !== 'number' || !Number.isFinite(chunkSize) || chunkSize < 1 || chunkSize > MAX_INSTANCE_CHUNK_SIZE)) {
     errors.push(fieldValue(`${path}/chunkSize`, chunkSize, `a number 1-${MAX_INSTANCE_CHUNK_SIZE}`, 'chunkSize is the chunk width in metres'));
   }
+  // Density falloff: the screen sizes it runs between and the share of copies drawn at the far end (model-lod.ts).
+  for (const k of ['densityStart', 'densityEnd'] as const) {
+    const v = c[k];
+    if (v !== undefined && (typeof v !== 'number' || !Number.isFinite(v) || v < INSTANCE_DENSITY_SIZE_MIN || v > 1)) errors.push(fieldValue(`${path}/${k}`, v, `a number ${INSTANCE_DENSITY_SIZE_MIN}-1`, `${k} is a screen size (the fraction of the screen height a copy covers)`));
+  }
+  const densityMin = c['densityMin'];
+  if (densityMin !== undefined && (typeof densityMin !== 'number' || !Number.isFinite(densityMin) || densityMin < 0 || densityMin > 1)) {
+    errors.push(fieldValue(`${path}/densityMin`, densityMin, 'a number 0-1', 'densityMin is the share of copies drawn where they are smallest (1: no thinning)'));
+  }
   for (const k of Object.keys(c)) {
-    if (k !== 'asset' && k !== 'buffer' && k !== 'count' && k !== 'castShadow' && k !== 'receiveShadow' && k !== 'chunkSize' && k !== 'lightLayers') errors.push(unexpectedField(`${path}/${pointerSegment(k)}`, k, 'asset, buffer, count, castShadow, receiveShadow, chunkSize, lightLayers'));
+    if (!INSTANCES_KEYS.has(k)) errors.push(unexpectedField(`${path}/${pointerSegment(k)}`, k, [...INSTANCES_KEYS].join(', ')));
   }
 }
 
@@ -1050,7 +1063,7 @@ function canonicalEntityV3(e: Record<string, unknown>): SceneEntityV3 {
   if (comps['cameraRegion'] !== undefined) (components as { cameraRegion?: CameraRegionComponent }).cameraRegion = canonicalCameraRegion(comps['cameraRegion'] as CameraRegionComponent);
   if (comps['probeVolume'] !== undefined) components.probeVolume = canonicalProbeVolume(comps['probeVolume'] as ProbeVolumeComponent);
   if (comps['instances'] !== undefined) {
-    const i = comps['instances'] as { asset: { assetId: string; piece?: string }; buffer: string; count: number; castShadow?: boolean; receiveShadow?: boolean; chunkSize?: number; lightLayers?: number };
+    const i = comps['instances'] as { asset: { assetId: string; piece?: string }; buffer: string; count: number; castShadow?: boolean; receiveShadow?: boolean; chunkSize?: number; lightLayers?: number; densityStart?: number; densityEnd?: number; densityMin?: number };
     components.instances = {
       asset: { assetId: i.asset.assetId, ...(i.asset.piece !== undefined ? { piece: i.asset.piece } : {}) },
       buffer: i.buffer,
@@ -1061,6 +1074,9 @@ function canonicalEntityV3(e: Record<string, unknown>): SceneEntityV3 {
       // Kept only when set.
       ...(typeof i.chunkSize === 'number' ? { chunkSize: i.chunkSize } : {}),
       ...(typeof i.lightLayers === 'number' ? { lightLayers: i.lightLayers } : {}),
+      ...(typeof i.densityStart === 'number' ? { densityStart: i.densityStart } : {}),
+      ...(typeof i.densityEnd === 'number' ? { densityEnd: i.densityEnd } : {}),
+      ...(typeof i.densityMin === 'number' ? { densityMin: i.densityMin } : {}),
     };
   }
   const name = e['name'];

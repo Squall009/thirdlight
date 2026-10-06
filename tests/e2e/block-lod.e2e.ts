@@ -110,8 +110,8 @@ for (const variant of PRODUCT_RENDERER_VARIANTS) test(`block-layer chunks switch
   // A 3D project: its movers run (the 3D physics steps them).
   await cmd('setSettings', { settings: { physics_dimension: 3 } });
   // Marker models 2 m up, their LOD at the model's origin: 1 m inside and 1 m outside the switch distance, and one
-  // moving between 1.5 m outside and 1.5 m inside along its line of sight (each level shows for 2 s of its 4 s round
-  // trip: long enough for several screenshots, short enough that the two crossings come quickly).
+  // moving between 3 m outside and 3 m inside along its line of sight — past the project's default hysteresis (a
+  // tenth: it switches back to the detailed level 2.3 m inside), so each level shows for seconds of its 8 s round trip.
   await publishBytes(be, multiPieceGlb([{ name: 'marker', lods: [[1, 1, 1], [1, 1, 1]], colors: [[0.02, 1, 0.02], [1, 0.02, 1]] }]), 'model', 'markers', 'Markers');
   const switchAt = lodSwitchDistance(Math.hypot(1, 1, 1) / 2, 1);
   const eye = [8, 6, -8] as const;
@@ -120,8 +120,8 @@ for (const variant of PRODUCT_RENDERER_VARIANTS) test(`block-layer chunks switch
     String((await cmd('createEntity', { sceneId: 'scene-main', kind: 'model', name, model: { asset: { assetId: 'markers' }, piece: 'marker' }, transform: { position } }))['createdId']);
   await marker('inside', at(2, switchAt - 1));
   await marker('outside', at(13, switchAt + 1));
-  const from = at(eye[0] - 0.5, switchAt + 1.5);
-  const to = at(eye[0] - 0.5, switchAt - 1.5);
+  const from = at(eye[0] - 0.5, switchAt + 3);
+  const to = at(eye[0] - 0.5, switchAt - 3);
   const mover = await marker('crossing', from);
   await cmd('setComponent', { entityId: mover, component: 'mover', value: { waypoints: [[to[0] - from[0], to[1] - from[1], to[2] - from[2]]], speed: 1.5, mode: 'pingpong' } });
 

@@ -315,6 +315,8 @@ export class Viewport {
 
   /** The project's instance-set chunk size (sets without their own use it). */
   private instanceChunk: number | undefined = undefined;
+  /** The project's LOD bias and hysteresis (null: the defaults), kept for an adapter made again. */
+  private lodTuning: { bias: number; hysteresis: number } | null = null;
 
   // ---- The scene adapter -------------------------------------------------
   /** The project environment, the bakes and the lighting mode as last set (a new adapter takes them). */
@@ -335,6 +337,7 @@ export class Viewport {
       snapshot: { scene: { schemaVersion: 4, entities: [] }, scenes: [] } as never,
       resources: assets.resources,
       background: SCENE_BACKGROUND,
+      ...(this.lodTuning !== null ? { lod: this.lodTuning } : {}),
       onChange: () => this.contentArrived(),
       renderer: {
         ...this.rendererChoice,
@@ -400,6 +403,14 @@ export class Viewport {
     if (meters === this.instanceChunk) return;
     this.instanceChunk = meters;
     this.source.sync(this.projected, null);
+    this.requestRender();
+  }
+
+  /** The project's LOD bias and hysteresis changed: every level of detail is picked again with them. */
+  setLodTuning(tuning: { bias: number; hysteresis: number }): void {
+    if (this.lodTuning !== null && this.lodTuning.bias === tuning.bias && this.lodTuning.hysteresis === tuning.hysteresis) return;
+    this.lodTuning = tuning;
+    this.adapter.setLodTuning?.(tuning);
     this.requestRender();
   }
 

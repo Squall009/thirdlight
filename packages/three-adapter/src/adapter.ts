@@ -33,6 +33,7 @@ import { createProbeLightingHost } from './probe-grids';
 import { releaseEmissiveLooks, setEntityLook, SHARED_MATERIAL_KEY } from './node-materials';
 import { disposeObjectTree } from './dispose';
 import { bothMemberships, ViewCuller } from './view-cull';
+import { LOD_TUNING_KEY } from './lod-switch';
 import { BATCH_KEY, createAutoBatcher, markBatchable, unitBoxGeometry, type AutoBatcher, type AutoBatcherDiagnostics } from './batching';
 import { markStatic, STATIC_KEY } from './static-merge';
 import { compileIntoTarget, type Precompile } from './environment-nodes';
@@ -47,7 +48,7 @@ import { RuntimeMaterialView, type MaterialRenderChangeLike, type RuntimeMateria
 import { MaterialSwapView, type MaterialMappingLike } from './material-swaps';
 import type { BlockLayerComponent, BlockLayerData, BlockType, GridRenderChange } from '@thirdlight/runtime';
 import type { Runtime, RuntimeSnapshot } from '@thirdlight/runtime';
-import { blendEnvironment, blendEnvironmentOver, blendTouchesLights, type EnvironmentBlendView } from '@thirdlight/runtime';
+import { blendEnvironment, blendEnvironmentOver, blendTouchesLights, instanceDensityOf, type EnvironmentBlendView } from '@thirdlight/runtime';
 import { adapterError, type AdapterError } from './errors';
 import { createFrameCapture, type ScreenshotResult } from './capture';
 export type { ScreenshotResult } from './capture';
@@ -137,7 +138,7 @@ function modelRefsOf(entities: readonly { id: string; components: unknown }[]): 
     const comps = e.components as {
       model?: { asset?: { assetId?: unknown }; piece?: unknown };
       modelAnimation?: { assetId?: unknown; version?: unknown };
-      instances?: { asset?: { assetId?: unknown; piece?: unknown }; buffer?: unknown; count?: unknown; chunkSize?: unknown };
+      instances?: { asset?: { assetId?: unknown; piece?: unknown }; buffer?: unknown; count?: unknown; chunkSize?: unknown; densityStart?: unknown; densityEnd?: unknown; densityMin?: unknown };
     };
     if (comps.model !== undefined && typeof comps.model.asset?.assetId === 'string') {
       models.set(e.id, comps.model.asset.assetId);
@@ -149,7 +150,7 @@ function modelRefsOf(entities: readonly { id: string; components: unknown }[]): 
     const inst = comps.instances;
     if (inst !== undefined && typeof inst.asset?.assetId === 'string' && typeof inst.buffer === 'string' && Number.isInteger(inst.count)) {
       const piece = typeof inst.asset.piece === 'string' ? inst.asset.piece : undefined;
-      instances.set(e.id, { assetId: inst.asset.assetId, ...(piece !== undefined ? { piece } : {}), buffer: inst.buffer, count: inst.count as number, ...(typeof inst.chunkSize === 'number' ? { chunkSize: inst.chunkSize } : {}) });
+      instances.set(e.id, { assetId: inst.asset.assetId, ...(piece !== undefined ? { piece } : {}), buffer: inst.buffer, count: inst.count as number, ...(typeof inst.chunkSize === 'number' ? { chunkSize: inst.chunkSize } : {}), density: instanceDensityOf(inst) });
     }
   }
   return { models, pieces, animations, instances };
@@ -308,6 +309,9 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     const c = entityDocs.get(entityId)?.components as { animator?: unknown; modelAnimation?: unknown } | undefined;
     return c?.animator !== undefined || c?.modelAnimation !== undefined;
   });
+  if (opts.lod !== undefined) graph.lodTuning.set(opts.lod);
+  // Tools reading the scene (the perf harness) find the frame's LOD switches with it.
+  scene.userData[LOD_TUNING_KEY] = graph.lodTuning;
   /** One object's own meshes (its child objects have nodes of their own). */
   const ownMeshes = (entityId: string): THREE.Object3D[] => {
     const out: THREE.Object3D[] = [];
@@ -690,6 +694,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       ...(opts.snapshot.scenes !== undefined ? { allowAbsent: true } : {}),
       holderFor: (entityId: string) => graph.nodeFor(entityId) ?? null,
       viewFor,
+      lodTuning: graph.lodTuning,
       onAttached: (entityId: string, root: THREE.Object3D) => {
         // Models and instance sets cast and receive the key light's shadow (their data), in their light layers.
         applyEntityRenderFlags(root, entityDocs.get(entityId)?.components);
@@ -1429,6 +1434,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       for (const c of materialChanges) regroupEntity(c.entityId);
     }
     // The level of detail each LOD draws attached (the batcher and the draw see only that one).
+    graph.lodTuning.beginFrame();
     graph.updateLods(camera!);
     // Regroup the repeated objects and copy their matrices (after every transform and look change).
     if (batcher !== null) batcher.update(camera!);
@@ -1593,6 +1599,10 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       }
     }
     if (!disposed && lastFrameDrawn) d.viewCull = viewCull.diagnostics();
+    if (!disposed && lastFrameDrawn) {
+      const t = graph.lodTuning;
+      d.lod = { bias: t.bias, hysteresis: t.hysteresis, switches: t.switches, copySwitches: t.copySwitches, instances: realization?.instanceStats() ?? { copies: 0, inView: 0, byLevel: [], culled: 0, thinned: 0 } };
+    }
     if (!disposed && blockView.layerIds().length > 0) d.blocks = blockView.diagnostics();
     if (!disposed && materialLibrary !== null && runtimeMaterials !== null) d.materials = { graphMaterials: materialLibrary.graphMaterialCount(), ...(materialSwaps !== null && (materialSwaps.applied > 0 || materialSwaps.pending() > 0) ? { swapsApplied: materialSwaps.applied, swapsPending: materialSwaps.pending() } : {}), ...runtimeMaterials.diagnostics() };
     if (environmentRenderer !== null && !disposed) d.environment = environmentRenderer.diagnostics();
@@ -1705,6 +1715,9 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     diagnostics,
     dispose,
     renderedNodes: (entityId, names) => (disposed ? null : (animatorPlayers.get(entityId)?.player.nodePoses(names) ?? null)),
+    setLodTuning(tuning: { readonly bias?: number; readonly hysteresis?: number }): void {
+      if (graph.lodTuning.set(tuning)) opts.onChange?.();
+    },
     setQuality(level: QualityLevel): void {
       playerQuality = level;
       environmentRenderer?.setQuality(level);

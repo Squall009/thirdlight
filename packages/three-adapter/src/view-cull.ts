@@ -28,6 +28,13 @@ import * as THREE from 'three';
 
 import type { BatchMembership } from './batching';
 
+/**
+ * `camera.userData[STATIC_SHADOW_CAMERA_KEY]`: the camera of a cached static
+ * shadow map. It is drawn rarely and kept, so what it draws must not depend on
+ * the view: an instance set draws every copy at its most detailed level there.
+ */
+export const STATIC_SHADOW_CAMERA_KEY = '__tlStaticShadowCamera';
+
 /** `object.userData[VIEW_CULL_KEY]`: the drawable culls inside its draw ({@link ViewCullable}). */
 export const VIEW_CULL_KEY = '__tlViewCull';
 
@@ -56,6 +63,9 @@ export class CullView {
   private readonly planes = new Float64Array(24);
   /** The camera's matrices as culled (view and projection). */
   private readonly snap = new Float64Array(32);
+  /** The camera's world position and zoom as culled (levels of detail are picked from them). */
+  readonly eye = new Float64Array(3);
+  zoom = 1;
 
   /** The frame's view is `camera` as it is now; true when that changed what is in view. */
   set(camera: THREE.Camera): boolean {
@@ -63,6 +73,11 @@ export class CullView {
     this.camera = camera;
     this.snap.set(camera.matrixWorldInverse.elements, 0);
     this.snap.set(camera.projectionMatrix.elements, 16);
+    const w = camera.matrixWorld.elements;
+    this.eye[0] = w[12]!;
+    this.eye[1] = w[13]!;
+    this.eye[2] = w[14]!;
+    this.zoom = (camera as THREE.PerspectiveCamera).zoom ?? 1;
     _projScreen.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
     const c = camera as THREE.Camera & { reversedDepth?: boolean };
     _frustum.setFromProjectionMatrix(_projScreen, camera.coordinateSystem, c.reversedDepth === true);

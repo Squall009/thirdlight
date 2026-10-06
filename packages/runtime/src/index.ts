@@ -339,6 +339,20 @@ export {
   type Ktx2Range,
   type ManifestMipPart,
 } from '@thirdlight/project-model';
+// Levels of detail: the models' default switch points, the project's bias and hysteresis, instance density (defined once, in project-model).
+export {
+  instanceDensityOf,
+  LOD_BIAS_DEFAULT,
+  LOD_HYSTERESIS_DEFAULT,
+  LOD_REFERENCE_FOV_DEG,
+  LOD_SCREEN_SIZES_DEFAULT,
+  lodCullSizeOf,
+  lodScreenSizesFor,
+  lodTuningOf,
+  type InstanceDensity,
+  type LodTuningSettings,
+  type ModelLodSettings,
+} from '@thirdlight/project-model';
 // The model's limits the hosts and the renderer re-check (defined once, in project-model).
 export {
   ASSET_METRIC_CAPS,

@@ -1,7 +1,7 @@
 /**
  * The asset inspector's options (the Assets tab's side panel): a model's
  * vertex colours and default materials, an audio file's load type and
- * preload, a texture's mip streaming. Each change is one `setAssetOptions` command (one undo).
+ * preload, a texture's mip streaming, a model's LOD switch points and cull size. Each change is one `setAssetOptions` command (one undo).
  */
 import { useCallback, type MutableRefObject } from 'react';
 
@@ -25,7 +25,9 @@ export function useAssetOptions(clientRef: MutableRefObject<SessionClient | null
   const setAudioPreload = useCallback((assetId: string, preload: boolean) => setOptions('Audio preload', { assetId, preload }), [setOptions]);
   /** Null: the default for the texture's size. */
   const setTextureStreaming = useCallback((assetId: string, streaming: boolean | null) => setOptions('Texture streaming', { assetId, streaming }), [setOptions]);
-  return { setAssetMaterials, setVertexColors, setAudioLoadType, setAudioPreload, setTextureStreaming };
+  /** Null: the engine's default switch points, never culled. */
+  const setModelLod = useCallback((assetId: string, lod: { screenSizes?: number[]; cullSize?: number } | null) => setOptions('Levels of detail', { assetId, lod }), [setOptions]);
+  return { setAssetMaterials, setVertexColors, setAudioLoadType, setAudioPreload, setTextureStreaming, setModelLod };
 }
 
 export type AssetOptionActions = ReturnType<typeof useAssetOptions>;

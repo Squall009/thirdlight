@@ -41,6 +41,7 @@ import * as TSLTyped from 'three/tsl';
 import type { N } from './effects-tsl';
 import { castsShadowFor, isLayeredLight } from './light-layers';
 import { DrawnCasters, isStaticCaster, type StaticShadowRevision } from './shadow-casters';
+import { STATIC_SHADOW_CAMERA_KEY } from './view-cull';
 
 /** TSL untyped: three's typings lag the node API used here. */
 const TSL: N = TSLTyped;
@@ -140,6 +141,7 @@ class PassShadowNode extends ShadowNodeBase {
     private readonly staticPass: boolean,
   ) {
     super(light, shadow);
+    if (staticPass) shadow.camera.userData[STATIC_SHADOW_CAMERA_KEY] = true;
     // Drawn by the cached node (which decides when), never by the frame on its own.
     this.updateBeforeType = NodeUpdateType.NONE;
   }

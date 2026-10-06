@@ -262,7 +262,9 @@ for (const variant of RENDERER_VARIANTS) {
     };
     for (const x of [-3, -1, 1, 3]) await marker(`Near ${x}`, [x, 0, eye[2] - switchAt + 3]);
     const crossing = await marker('Crossing', [0, 0, eye[2] - switchAt - 15]);
-    const inside: [number, number, number] = [5, 0, eye[2] - switchAt + 3];
+    // Where the far one is moved to: well inside the switch distance (a shown level switches back only past the
+    // project's LOD hysteresis, a tenth of it).
+    const inside: [number, number, number] = [5, 0, eye[2] - switchAt + 4];
     // The game camera looks along -z, 10 degrees down.
     const cam = (await query('queryEntities', { limit: 100, offset: 0 }) as { entities: { id: string; components: Record<string, unknown> }[] }).entities.find((e) => e.components['virtualCamera'] !== undefined)!.id;
     await cmd('setTransform', { entityId: cam, transform: { position: eye, rotation: [-0.0871557, 0, 0, 0.9961947] } });

@@ -68,7 +68,7 @@ import { chunkModelKey, meshChunkForDrawing, StandInShapes, variantModelOf, type
 import { MeshWorkerPool, meshWorkerCount, type MeshWorkerFactory } from './block-mesh-pool';
 import type { MeshWorkerReply } from './block-mesh-worker';
 import { LIGHT_LAYERS_KEY } from './light-layers';
-import { currentLodLevel } from './lod-switch';
+import { currentLodLevel, LOD_CULL_LEVEL_KEY } from './lod-switch';
 
 /**
  * An edit's chunks mesh on the page while their estimated cost (the layer's
@@ -218,8 +218,9 @@ export function blockLookFromObject(root: THREE.Object3D): BlockModelLook | null
     const visit = (o: THREE.Object3D): void => {
       if ((o as THREE.LOD).isLOD === true) {
         const lod = o as THREE.LOD;
-        if (level === 0 && lod.levels.length > 1) lods.push(lod);
-        const pick = lod.levels[Math.min(level, lod.levels.length - 1)]?.object;
+        const shown = drawnLevels(lod);
+        if (level === 0 && shown.length > 1) lods.push(lod);
+        const pick = shown[Math.min(level, shown.length - 1)]?.object;
         if (pick !== undefined) visit(pick);
         return;
       }
@@ -231,18 +232,24 @@ export function blockLookFromObject(root: THREE.Object3D): BlockModelLook | null
   };
   const first = meshesAt(0);
   if (first.length === 0) return null;
-  const count = Math.max(1, ...lods.map((l) => l.levels.length));
+  const count = Math.max(1, ...lods.map((l) => drawnLevels(l).length));
   const materials: THREE.Material[] = [];
   const matIndex = new Map<THREE.Material, number>();
   const sources: BlockMeshSource[] = [mergeMeshes(first, inv, materials, matIndex)];
   const levels: { source: BlockMeshSource; distance: number }[] = [];
   for (let level = 1; level < count; level++) {
-    const distance = Math.max(...lods.filter((l) => l.levels.length > level).map((l) => l.levels[level]!.distance));
+    const distance = Math.max(...lods.filter((l) => drawnLevels(l).length > level).map((l) => l.levels[level]!.distance));
     const source = mergeMeshes(meshesAt(level), inv, materials, matIndex);
     sources.push(source);
     levels.push({ source, distance });
   }
   return { source: sources[0]!, materials, ...(levels.length > 0 ? { levels } : {}) };
+}
+
+/** A LOD's levels that draw something: a chunk holds many models, so a model's cull size never empties one. */
+function drawnLevels(lod: THREE.LOD): THREE.LOD['levels'] {
+  const last = lod.levels[lod.levels.length - 1];
+  return last !== undefined && last.object.userData[LOD_CULL_LEVEL_KEY] === true ? lod.levels.slice(0, -1) : lod.levels;
 }
 
 /** Merge meshes into one indexed source in `inv`'s frame, grouped by material (indices into `materials`, shared across calls). */

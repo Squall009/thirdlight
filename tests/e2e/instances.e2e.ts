@@ -2,18 +2,29 @@
  * Instance sets in a real browser against the real backend: the
  * scatter dialog publishes a buffer and creates one entity that draws many
  * copies of a model (editor viewport and Play), the buffer route refuses bad
- * buffers, and a set loaded with its scene is drawn in Play.
+ * buffers, and a set loaded with its scene is drawn in Play. Levels of
+ * detail: a model's switch point and cull size set in its import settings
+ * (the asset inspector) move where placed models and each instance copy
+ * switch and stop being drawn, on both renderers, in Play and the export
+ * (with the project's LOD bias); an instance set's density falloff is set in
+ * the Inspector.
  */
 import { createHash } from 'node:crypto';
+import { join } from 'node:path';
 
 import { expect, test, type Page } from './pw';
 
-import { startBackend, type E2EBackend } from './backend';
-import { menu } from './ui';
+import { exportedContent, publishBytes, serveDir, startBackend, type E2EBackend } from './backend';
+import { multiPieceGlb } from './multi-piece-glb';
+import { decodePng, type Image } from './png';
+import { editorUrlFor, expectRendererBackend, exportQueryFor, onlyInItsProject, RENDERER_VARIANTS } from './renderer-variants';
+import { chooseItem, menu } from './ui';
 
 let be: E2EBackend;
 test.afterEach(async () => {
-  await be.stop();
+  // (A renderer variant skipped in this project started none.)
+  await (be as E2EBackend | undefined)?.stop();
+  be = undefined as unknown as E2EBackend;
 });
 
 const status = (page: Page) => page.locator('.tl-statusbar');
@@ -181,4 +192,140 @@ test('a set is chunked by extent (the project default, overridden per set in the
   const withShadow = await playDraws('instances-chunks-play-casting');
   console.log(`[instances] draws a frame: ${without} casting none, ${withShadow} casting`);
   expect(withShadow).toBeGreaterThan(without);
+});
+
+const green = (r: number, g: number, b: number): boolean => g > 50 && g > 2 * r && g > 2 * b;
+const magenta = (r: number, g: number, b: number): boolean => r > 50 && b > 50 && r > 1.5 * g && b > 1.5 * g;
+/** Sampled pixels (every second one) of the columns `from`..`to` (fractions of the width) that pass `test`. */
+function countIn(img: Image, from: number, to: number, test: (r: number, g: number, b: number) => boolean): number {
+  let n = 0;
+  for (let y = 0; y < img.height; y += 2) for (let x = Math.floor(img.width * from); x < Math.floor(img.width * to); x += 2) {
+    const [r, g, b] = img.pixel(x, y);
+    if (test(r, g, b)) n += 1;
+  }
+  return n;
+}
+
+// Which level a model or copy draws is picked on the CPU, but each draw leaves out the copies at other levels per
+// pass (instance counts set right before each draw): a backend path, so both renderers.
+for (const variant of RENDERER_VARIANTS) test(`a model's LOD switch point and cull size from its import settings, per placed model and per instance copy; density in the Inspector; the bias in the export (${variant})`, async ({ page }) => {
+  onlyInItsProject(variant);
+  test.setTimeout(240_000);
+  be = await startBackend('inst-lod-e2e');
+  await cmd('setEnvironment', { sceneId: 'scene-main', environment: { sky: { mode: 'color', color: '#303030' } } });
+  // A 50° lens reaching 400 m (the bands below are worked out from it).
+  await cmd('setSettings', { settings: { physics_dimension: 3, camera_fov_deg: 50, camera_far_m: 400 } });
+  // A 3 m marker: LOD0 green, LOD1 magenta (the colour tells the level). Its LOD0 sphere (r 2.6 m) covers 10 % of a
+  // 50° view at 55.7 m and 4 % at 139.3 m: the switch point and cull size set below.
+  await publishBytes(be, multiPieceGlb([{ name: 'marker', lods: [[3, 3, 3], [3, 3, 3]], colors: [[0.02, 1, 0.02], [1, 0.02, 1]] }]), 'model', 'markers', 'Markers');
+  const r = Math.hypot(3, 3, 3) / 2;
+  const at = (size: number): number => r / (Math.tan((25 * Math.PI) / 180) * size);
+  const switchAt = at(0.1);
+  const cullAt = at(0.04);
+  // The camera 6 m up at z -10, looking along +z 5° down.
+  const eye = [0, 6, -10] as const;
+  const cam = ((await query('queryEntities', { limit: 100, offset: 0 })) as { entities: { id: string; components: Record<string, unknown> }[] }).entities.find((e) => e.components['virtualCamera'] !== undefined)!.id;
+  await cmd('setTransform', { entityId: cam, transform: { position: [...eye], rotation: [0, 0.9990482, 0.0436194, 0] } });
+  // On the ground at `distance` from the eye, `bearing` degrees right of the view.
+  const ground = (distance: number, bearing: number): [number, number, number] => {
+    const h = Math.sqrt(distance ** 2 - eye[1] ** 2);
+    return [h * Math.sin((bearing * Math.PI) / 180), 0, eye[2] + h * Math.cos((bearing * Math.PI) / 180)];
+  };
+  // Placed markers (right to left on +x, so left to right on the screen): inside the switch point, past it (inside the
+  // old default's 69.7 m), inside the cull size, past it.
+  const bearings = [-24, -12, 12, 24];
+  const distances = [switchAt - 4, switchAt + 4, cullAt - 6, cullAt + 6];
+  for (let i = 0; i < 4; i += 1) await cmd('createEntity', { sceneId: 'scene-main', kind: 'model', name: `m${i}`, model: { asset: { assetId: 'markers' }, piece: 'marker' }, transform: { position: ground(distances[i]!, bearings[i]!) } });
+  // A row of copies straight ahead, 22 m to 142 m away every 6 m (none within 2.5 m of either threshold).
+  const transforms: number[] = [];
+  const copyDistances: number[] = [];
+  for (let d = 22; d <= 142; d += 6) {
+    copyDistances.push(d);
+    transforms.push(...ground(d, 0), 0, 0, 0, 1, 1, 1, 1);
+  }
+  const published = await api('content/buffers', { transforms });
+  expect(published.status, JSON.stringify(published.json)).toBe(200);
+  const row = String((await cmd('createEntity', { sceneId: 'scene-main', kind: 'group', name: 'Row', components: { instances: { asset: { assetId: 'markers', piece: 'marker' }, buffer: published.json.digest, count: copyDistances.length } } })).createdId);
+
+  await page.goto(editorUrlFor(be.editorUrl, variant));
+  await expect(status(page)).toContainText('connected');
+  await expectRendererBackend(page.locator('canvas.tl-viewport'), variant);
+  // The model's import settings in the asset inspector: switch at 10 %, cull below 4 % (one command each).
+  await chooseItem(page, 'model', 'Markers');
+  const lodOf = async (): Promise<unknown> => ((await query('queryAssets', { limit: 50, offset: 0 })).assets as { assetId: string; lod?: unknown }[]).find((a) => a.assetId === 'markers')?.lod;
+  // Both fields, then Enter: one command.
+  await page.getByLabel('lod switch points').fill('10');
+  await page.getByLabel('lod cull size').fill('4');
+  await page.getByLabel('lod cull size').press('Enter');
+  await expect.poll(lodOf).toEqual({ screenSizes: [0.1], cullSize: 0.04 });
+  // The set's density falloff in the Inspector: thinning from 3 % down to half the copies at 1.5 % (from ~186 m, past the row).
+  await page.locator('.tl-hierarchy__list li.tl-row').filter({ hasText: 'Row' }).click();
+  for (const [key, value] of [['densityStart', '0.03'], ['densityEnd', '0.015'], ['densityMin', '0.5']] as const) {
+    const f = page.locator('.tl-inspector').getByLabel(`instances ${key}`, { exact: true });
+    await f.fill(value);
+    await f.press('Enter');
+  }
+  await expect.poll(async () => JSON.stringify(((await query('queryEntity', { entityId: row })).entity as { components: { instances: Record<string, unknown> } }).components.instances, ['densityStart', 'densityEnd', 'densityMin'])).toBe('{"densityStart":0.03,"densityEnd":0.015,"densityMin":0.5}');
+
+  // Play: green, magenta, magenta, nothing from left to right; the copies near green, then magenta, the farthest culled.
+  const started = page.waitForResponse((res) => res.request().method() === 'POST' && res.url().endsWith('/play'));
+  await page.getByTitle('Start an isolated play preview').click();
+  const psid = String(((await (await started).json()) as { playSessionId: string }).playSessionId);
+  type Lod = { switches: number; copySwitches: number; instances: { copies: number; inView: number; byLevel: number[]; culled: number; thinned: number } };
+  const lod = async (): Promise<Lod | undefined> => ((await api(`play/${psid}/diagnostics`, {})).json as { diagnostics?: { renderer?: { lod?: Lod } } }).diagnostics?.renderer?.lod;
+  const near = copyDistances.filter((d) => d < switchAt).length;
+  const mid = copyDistances.filter((d) => d >= switchAt && d < cullAt).length;
+  await expect.poll(async () => JSON.stringify((await lod())?.instances.byLevel.slice(0, 2) ?? null), { timeout: 60_000, message: 'Play diagnostics: the copies by level' }).toBe(JSON.stringify([near, mid]));
+  const l = (await lod())!;
+  console.log(`[instances-lod] ${variant} Play lod diagnostics: ${JSON.stringify(l)}`);
+  expect(l.instances.copies).toBe(copyDistances.length);
+  expect(l.instances.culled).toBe(copyDistances.length - near - mid);
+  expect(l.instances.thinned).toBe(0);
+  expect(l.instances.inView).toBe(near + mid);
+  // Bands of the picture where each placed marker stands (its bearing on the screen: looking along +z, +x is to the
+  // left) and the row in the middle.
+  const bandOf = (img: Image, bearing: number): [number, number] => {
+    const x = 0.5 - Math.tan((bearing * Math.PI) / 180) / (2 * Math.tan((25 * Math.PI) / 180) * (img.width / img.height));
+    return [x - 0.03, x + 0.03];
+  };
+  const look = (img: Image): string => {
+    const colour = (from: number, to: number): string => `${countIn(img, from, to, green) > 6 ? 'green' : ''}${countIn(img, from, to, magenta) > 6 ? 'magenta' : ''}` || 'none';
+    return [...bearings.map((b) => colour(...bandOf(img, b))), colour(0.47, 0.53)].join(' ');
+  };
+  let shot = '';
+  await expect
+    .poll(async () => {
+      const res = await api(`play/${psid}/screenshot`, {});
+      if (res.status !== 200) return 'no screenshot';
+      const buf = Buffer.from(String(res.json.dataUrl ?? '').split(',')[1] ?? '', 'base64');
+      shot = look(decodePng(buf));
+      return shot;
+    }, { timeout: 60_000, message: 'Play: the markers by their levels, the row both' })
+    .toBe('green magenta magenta none greenmagenta');
+  await page.screenshot({ path: `test-results/instances-lod-${variant}.png` });
+  await page.getByRole('button', { name: '■ stop' }).click();
+  await expect(page.getByTitle('Start an isolated play preview')).toBeVisible();
+
+  // The export carries the model's settings; with the project's LOD bias at 2 every switch point and cull size is
+  // twice as far: the marker past the switch is detailed again and the one past the cull is drawn (coarse).
+  await cmd('setSettings', { settings: { lod_bias: 2 } });
+  const res = await be.admin(`projects/${be.projectId}/export`);
+  expect(res.status, JSON.stringify(res.json)).toBe(200);
+  const outDir = join(be.exportRoot, String(res.json.outputDir));
+  expect(JSON.stringify(exportedContent(outDir))).toContain('"lod":{"screenSizes":[0.1],"cullSize":0.04}');
+  await be.halt();
+  const site = await serveDir(outDir);
+  const game = await page.context().newPage();
+  const errors: string[] = [];
+  game.on('pageerror', (e) => errors.push(e.message));
+  try {
+    await game.goto(`${site.url}${exportQueryFor(variant)}`);
+    const canvas = game.locator('canvas').first();
+    await expectRendererBackend(canvas, variant);
+    await expect.poll(async () => look(decodePng(await canvas.screenshot())), { timeout: 60_000, message: 'the export with LOD bias 2' }).toBe('green green magenta magenta greenmagenta');
+    expect(errors).toEqual([]);
+  } finally {
+    await game.close();
+    await site.close();
+  }
 });

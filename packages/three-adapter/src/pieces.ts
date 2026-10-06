@@ -10,19 +10,21 @@
  *
  * Pure three.js (no loader): safe on the adapter's root subpath.
  */
-import { COLLIDER_3D_LIMITS, MAX_COLLIDER_EXTENT, MAX_POLYGON_VERTICES, colliderFromTriangles, convexFromPoints, convexHull2, polygonFromPoints, roundMm } from '@thirdlight/runtime';
+import { COLLIDER_3D_LIMITS, LOD_REFERENCE_FOV_DEG, LOD_SCREEN_SIZES_DEFAULT, MAX_COLLIDER_EXTENT, MAX_POLYGON_VERTICES, colliderFromTriangles, convexFromPoints, convexHull2, lodCullSizeOf, lodScreenSizesFor, polygonFromPoints, roundMm, type ModelLodSettings } from '@thirdlight/runtime';
 import * as THREE from 'three';
+
+import { LOD_CULL_LEVEL_KEY } from './lod-switch';
 
 const LOD_RE = /^(.*)_LOD(\d+)$/i;
 const COL_RE = /^(.*)_COL$/i;
 
 /**
- * LOD switch points as a fraction of screen height covered by the LOD0
- * bounding sphere: below 8 % LOD1, below 3 % LOD2, and so on (never culled).
+ * The default LOD switch points as a fraction of screen height covered by the
+ * LOD0 bounding sphere (project-model's `LOD_SCREEN_SIZES_DEFAULT`): below 8 %
+ * LOD1, below 3 % LOD2, and so on. A model's import settings may set its own
+ * and a cull size.
  */
-export const LOD_SCREEN_FRACTIONS: readonly number[] = [0.08, 0.03, 0.012, 0.005];
-/** The vertical field of view the LOD distances assume (degrees). */
-const LOD_REFERENCE_FOV = 50;
+export const LOD_SCREEN_FRACTIONS: readonly number[] = LOD_SCREEN_SIZES_DEFAULT;
 
 /** The base name of a node (`rock_LOD1` → `rock`, `rock_COL` → `rock`, else the name). */
 export function pieceBaseName(name: string): string {
@@ -104,9 +106,12 @@ export function stripCollisionNodes(root: THREE.Object3D): void {
  * Turn every set of sibling `<base>_LOD<n>` nodes into one `THREE.LOD` at the
  * same place in the hierarchy (identity transform, so each level keeps its
  * own local transform and skinned levels keep their bind). Switch distances
- * come from the LOD0 bounding sphere and {@link LOD_SCREEN_FRACTIONS}.
+ * come from the LOD0 bounding sphere and the model's screen sizes (`lod`,
+ * else {@link LOD_SCREEN_FRACTIONS}). With a cull size, an empty last level
+ * takes over below it (levels that would only show past it are left out),
+ * and a model without levels gets one LOD around all of it for that.
  */
-export function applyLodGroups(root: THREE.Object3D): number {
+export function applyLodGroups(root: THREE.Object3D, lod?: ModelLodSettings): number {
   const sets = new Map<THREE.Object3D, Map<string, { level: number; object: THREE.Object3D }[]>>();
   root.traverse((o) => {
     const level = lodLevel(o.name);
@@ -121,36 +126,68 @@ export function applyLodGroups(root: THREE.Object3D): number {
     list.push({ level, object: o });
     byBase.set(base, list);
   });
+  const cullSize = lodCullSizeOf(lod);
   let made = 0;
   for (const [parent, byBase] of sets) {
     for (const [base, list] of byBase) {
-      if (list.length < 2) continue;
+      if (list.length < 2 && cullSize <= 0) continue;
       list.sort((a, b) => a.level - b.level);
       const radius = boundingRadius(list[0]!.object);
-      const lod = new THREE.LOD();
-      lod.name = `${base}_LOD`;
-      for (let i = 0; i < list.length; i += 1) {
-        const level = list[i]!.object;
-        parent.remove(level);
-        lod.addLevel(level, lodSwitchDistance(radius, i));
-      }
-      parent.add(lod);
+      const sizes = lodScreenSizesFor(lod, list.length);
+      const group = new THREE.LOD();
+      group.name = `${base}_LOD`;
+      for (const l of list) parent.remove(l.object);
+      addLevels(group, list.map((l) => l.object), radius, sizes, cullSize);
+      parent.add(group);
       made += 1;
     }
+  }
+  if (made === 0 && cullSize > 0 && root.children.length > 0) {
+    // No levels of its own: the whole model is level 0, culled below its cull size.
+    const all = new THREE.Group();
+    all.name = 'LOD0';
+    const radius = boundingRadius(root);
+    for (const c of [...root.children]) all.add(c);
+    const group = new THREE.LOD();
+    group.name = 'model_LOD';
+    addLevels(group, [all], radius, [], cullSize);
+    root.add(group);
+    made = 1;
   }
   return made;
 }
 
+/** The levels of one LOD group, then its empty cull level (when its cull size leaves room for one). */
+function addLevels(group: THREE.LOD, levels: readonly THREE.Object3D[], radius: number, sizes: readonly number[], cullSize: number): void {
+  const cullAt = cullSize > 0 ? lodDistanceForSize(radius, cullSize) : Number.POSITIVE_INFINITY;
+  levels.forEach((level, i) => {
+    const at = i === 0 ? 0 : lodDistanceForSize(radius, sizes[i - 1]!);
+    // A coarser level that would take over only past the cull distance is never drawn.
+    if (i === 0 || at < cullAt) group.addLevel(level, at);
+  });
+  if (Number.isFinite(cullAt)) {
+    const none = new THREE.Group();
+    none.name = 'LOD_cull';
+    none.userData[LOD_CULL_LEVEL_KEY] = true;
+    group.addLevel(none, cullAt);
+  }
+}
+
 /**
- * Where level `level` of a model's LOD group takes over: the distance at
- * which LOD0's bounding sphere (`radius`) covers the level's screen fraction
- * of a {@link LOD_REFERENCE_FOV}° view (level 0: from the start).
+ * Where level `level` of a model's LOD group takes over with the default
+ * screen sizes: the distance at which LOD0's bounding sphere (`radius`)
+ * covers the level's screen fraction of a {@link LOD_REFERENCE_FOV_DEG}° view
+ * (level 0: from the start).
  */
 export function lodSwitchDistance(radius: number, level: number): number {
   if (level === 0) return 0;
+  return lodDistanceForSize(radius, LOD_SCREEN_FRACTIONS[Math.min(level - 1, LOD_SCREEN_FRACTIONS.length - 1)]!, level);
+}
+
+/** The distance at which a sphere of `radius` covers `size` of the screen height (a {@link LOD_REFERENCE_FOV_DEG}° view). */
+export function lodDistanceForSize(radius: number, size: number, level = 1): number {
   if (radius <= 0) return level * 10;
-  const fraction = LOD_SCREEN_FRACTIONS[Math.min(level - 1, LOD_SCREEN_FRACTIONS.length - 1)]!;
-  return radius / (Math.tan(THREE.MathUtils.degToRad(LOD_REFERENCE_FOV) / 2) * fraction);
+  return radius / (Math.tan(THREE.MathUtils.degToRad(LOD_REFERENCE_FOV_DEG) / 2) * size);
 }
 
 function boundingRadius(object: THREE.Object3D): number {

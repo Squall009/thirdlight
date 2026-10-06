@@ -10,9 +10,9 @@
  * (a grid over the set's two widest axes, about {@link INSTANCE_CHUNK_COPIES}
  * copies per chunk, at most {@link INSTANCE_MAX_CHUNKS}), so the renderer's
  * frustum culling skips the chunks out of view. A model with levels of
- * detail (`<piece>_LOD<n>`, a `THREE.LOD` in the instance) gets one
- * `THREE.LOD` per chunk at the chunk's centre with the model's switch
- * distances: a chunk draws only the level its distance asks for. A copy is found again from a picked
+ * detail (`<piece>_LOD<n>`, a `THREE.LOD` in the instance) gets one draw per
+ * mesh and level in each chunk, and every copy is drawn at its own level and
+ * thinned out with distance (`instance-lod.ts`). A copy is found again from a picked
  * instanced mesh with `copyOf`, and its bounds with `copyBox`.
  *
  * The meshes own only their instance matrices; geometry, materials and
@@ -26,16 +26,23 @@
  */
 import * as THREE from 'three';
 
+import type { InstanceDensity } from '@thirdlight/runtime';
+
 import { createAttributeInstancedMesh, type AttributeInstancedMesh } from './attribute-instancing';
 import type { ModelInstance } from './visual';
 import { disposeObjectTree } from './dispose';
+import { ChunkLodPicker, copyRank, type CopyLodGroup } from './instance-lod';
+import { LOD_CULL_LEVEL_KEY, LodTuning } from './lod-switch';
+
+/** `mesh.userData[INSTANCE_SET_KEY]`: the mesh draws copies of an instance set (one chunk, one mesh and level). */
+export const INSTANCE_SET_KEY = 'tlInstanceSet';
 
 /** Floats per copy in an instance buffer. */
 export const INSTANCE_BUFFER_FLOATS = 10;
 /**
  * Copies per chunk the grid aims at (a chunk is one draw per mesh: large
  * enough to keep draws few and its matrices above three's uniform-buffer
- * limit, small enough to cull and pick its LOD locally).
+ * limit, small enough to cull locally).
  */
 export const INSTANCE_CHUNK_COPIES = 2048;
 /** Most chunks per set (bounds the draws of a very large set; 64 chunks × a few meshes stays well under any draw budget). */
@@ -52,8 +59,7 @@ export const INSTANCE_MAX_SPATIAL_CHUNKS = 256;
  * The engine default chunk size (m) of an instance set (the
  * project's `instance_chunk_m`, overridable per set). 32 m: a few seconds'
  * walk for the default 1.8 m character and small next to a typical view
- * distance, so a chunk out of view is culled, and a chunk's level of detail
- * (picked at its centre) is off by at most its half diagonal (~23 m).
+ * distance, so a chunk out of view is culled.
  */
 export const INSTANCE_CHUNK_METERS = 32;
 
@@ -70,10 +76,31 @@ export interface BuiltInstanceSet {
   copyBox(index: number): THREE.Box3 | null;
   /** Copies drawn (the buffer's count, bounded by its length). */
   readonly count: number;
-  /** How many chunks the copies were split into (each culled and LOD'd on its own). */
+  /** How many chunks the copies were split into (each culled on its own). */
   readonly chunks: number;
+  /** What the copies' levels of detail and density hold now (diagnostics). */
+  stats(): InstanceSetStats;
   /** Release the instance matrices and detach (the model resource is untouched). */
   dispose(): void;
+}
+
+/** An instance set's copies by what they draw now. */
+export interface InstanceSetStats {
+  readonly copies: number;
+  /** Copies the view drew in the last frame it culled. */
+  readonly inView: number;
+  /** Copies drawn (any pass) at each level (of the model's first LOD group). */
+  readonly byLevel: number[];
+  /** Copies past the model's cull size, and left out by the density falloff. */
+  readonly culled: number;
+  readonly thinned: number;
+}
+
+/** How a set is built: its chunk size (m), the project's LOD tuning and its density falloff (null: none). */
+export interface InstanceSetOptions {
+  readonly chunkSize?: number;
+  readonly tuning?: LodTuning;
+  readonly density?: InstanceDensity | null;
 }
 
 /** One mesh of the template: its offset in the model, and its LOD (index into `lods`, level) if it has one. */
@@ -151,7 +178,7 @@ export function chunkCopies(positions: Float32Array | readonly number[], count: 
  * attached anywhere; it stays alive while the set is shown) for the first
  * `count` copies of `floats`.
  */
-export function buildInstanceSet(template: ModelInstance, floats: Float32Array, count: number, name = 'instances', options: { readonly chunkSize?: number } = {}): BuiltInstanceSet {
+export function buildInstanceSet(template: ModelInstance, floats: Float32Array, count: number, name = 'instances', options: InstanceSetOptions = {}): BuiltInstanceSet {
   template.glbRoot.updateMatrixWorld(true);
   const rootInverse = new THREE.Matrix4().copy(template.glbRoot.matrixWorld).invert();
   const group = new THREE.Group();
@@ -173,6 +200,23 @@ export function buildInstanceSet(template: ModelInstance, floats: Float32Array, 
     for (const c of node.children) walk(c, lod, level);
   };
   walk(template.glbRoot, -1, 0);
+  // Picks per copy when the model has levels or the set thins out; else every copy is drawn (no filter).
+  const groups: CopyLodGroup[] = lods.map((l) => ({ distances: l.levels.map((v) => v.distance), culls: l.levels[l.levels.length - 1]?.object.userData[LOD_CULL_LEVEL_KEY] === true }));
+  const density = options.density !== undefined && options.density !== null && options.density.min < 1 ? options.density : null;
+  const perCopy = groups.length > 0 || density !== null;
+  const tuning = options.tuning ?? new LodTuning();
+  // The model's radius at its most detailed level (the density falloff's screen sizes are of it).
+  const radius = ((): number => {
+    const box = new THREE.Box3();
+    const b = new THREE.Box3();
+    for (const p of parts) {
+      if (p.level !== 0) continue;
+      const g = p.mesh.geometry;
+      if (g.boundingBox === null) g.computeBoundingBox();
+      box.union(b.copy(g.boundingBox!).applyMatrix4(p.local));
+    }
+    return box.isEmpty() ? 0 : box.getBoundingSphere(new THREE.Sphere()).radius;
+  })();
 
   // Where each copy is, and its chunk.
   const pos = new THREE.Vector3();
@@ -190,9 +234,9 @@ export function buildInstanceSet(template: ModelInstance, floats: Float32Array, 
   const chunkOf = chunkCopies(positions, n, INSTANCE_CHUNK_COPIES, INSTANCE_MAX_CHUNKS, options.chunkSize);
   let chunkCount = 0;
   for (let i = 0; i < n; i += 1) if (chunkOf[i]! + 1 > chunkCount) chunkCount = chunkOf[i]! + 1;
-  interface Chunk { copies: number[]; center: THREE.Vector3; node: THREE.Group; meshes: AttributeInstancedMesh[] }
+  interface Chunk { copies: number[]; center: THREE.Vector3; node: THREE.Group; meshes: AttributeInstancedMesh[]; picker: ChunkLodPicker | null }
   const chunks: Chunk[] = [];
-  for (let c = 0; c < chunkCount; c += 1) chunks.push({ copies: [], center: new THREE.Vector3(), node: new THREE.Group(), meshes: [] });
+  for (let c = 0; c < chunkCount; c += 1) chunks.push({ copies: [], center: new THREE.Vector3(), node: new THREE.Group(), meshes: [], picker: null });
   for (let i = 0; i < n; i += 1) chunks[chunkOf[i]!]!.copies.push(i);
   /** Copy → its chunk and slot. */
   const slotOf = new Int32Array(n);
@@ -218,21 +262,28 @@ export function buildInstanceSet(template: ModelInstance, floats: Float32Array, 
     });
     chunk.node.name = `${name}:chunk`;
     chunk.node.position.copy(chunk.center);
-    // One THREE.LOD per template LOD, at the chunk's centre, with the template's switch distances.
-    const chunkLods = lods.map((src) => {
-      const lod = new THREE.LOD();
-      lod.name = src.name;
-      for (const l of src.levels) {
-        const holder = new THREE.Group();
-        lod.addLevel(holder, l.distance, l.hysteresis);
-      }
-      chunk.node.add(lod);
-      return lod;
-    });
+    if (perCopy) {
+      const k = chunk.copies.length;
+      const origins = new Float32Array(k * 3);
+      const scales = new Float32Array(k);
+      const ranks = new Float32Array(k);
+      chunk.copies.forEach((copy, slot) => {
+        const o = copy * INSTANCE_BUFFER_FLOATS;
+        origins[slot * 3] = floats[o]! - chunk.center.x;
+        origins[slot * 3 + 1] = floats[o + 1]! - chunk.center.y;
+        origins[slot * 3 + 2] = floats[o + 2]! - chunk.center.z;
+        scales[slot] = Math.max(Math.abs(floats[o + 7]!), Math.abs(floats[o + 8]!), Math.abs(floats[o + 9]!));
+        ranks[slot] = copyRank(copy);
+      });
+      chunk.picker = new ChunkLodPicker({ origins, scales, ranks, count: k }, groups, density !== null ? { radius, falloff: density } : null, tuning);
+    }
     const made = parts.map((part) => {
-      const inst = createAttributeInstancedMesh(part.mesh.geometry, part.mesh.material as THREE.Material, chunk.copies.length, { raycast: true });
+      const filter = chunk.picker?.filter(part.lod, part.level);
+      const inst = createAttributeInstancedMesh(part.mesh.geometry, part.mesh.material as THREE.Material, chunk.copies.length, { raycast: true, ...(filter !== undefined ? { filter } : {}) });
       inst.count = chunk.copies.length;
       inst.mesh.name = part.mesh.name;
+      // Tools counting instance-set copies (the perf harness's scene walk) find the chunk draws by it.
+      inst.mesh.userData[INSTANCE_SET_KEY] = true;
       // The set's own flags go on when it is attached (an instance set casts only when it says so).
       inst.mesh.castShadow = false;
       inst.mesh.receiveShadow = true;
@@ -246,8 +297,7 @@ export function buildInstanceSet(template: ModelInstance, floats: Float32Array, 
     parts.forEach((part, k) => {
       const inst = made[k]!;
       inst.markChanged();
-      const parent = part.lod >= 0 ? chunkLods[part.lod]!.levels[part.level]!.object : chunk.node;
-      parent.add(inst.mesh);
+      chunk.node.add(inst.mesh);
       chunk.meshes.push(inst);
       meshes.push(inst.mesh);
       meta.set(inst.mesh, { chunk, part, copies: chunk.copies, inst });
@@ -256,11 +306,32 @@ export function buildInstanceSet(template: ModelInstance, floats: Float32Array, 
   }
   const box = new THREE.Box3();
   const m = new THREE.Matrix4();
+  // One mesh per level stands for its copies in the counts (of the first LOD group; the first mesh without one).
+  const counted = groups.length > 0 ? parts.flatMap((p, k) => (p.lod === 0 && parts.findIndex((q) => q.lod === 0 && q.level === p.level) === k ? [k] : [])) : parts.length > 0 ? [0] : [];
   return {
     group,
     meshes,
     count: n,
     chunks: chunks.filter((c) => c.copies.length > 0).length,
+    stats(): InstanceSetStats {
+      let inView = 0;
+      let culled = 0;
+      let thinned = 0;
+      const byLevel: number[] = [];
+      for (const c of chunks) {
+        if (c.copies.length === 0) continue;
+        for (const k of counted) inView += c.meshes[k]?.inView ?? 0;
+        if (c.picker === null) {
+          byLevel[0] = (byLevel[0] ?? 0) + c.copies.length;
+          continue;
+        }
+        const s = c.picker.stats();
+        s.byLevel.forEach((v, l) => (byLevel[l] = (byLevel[l] ?? 0) + v));
+        culled += s.culled;
+        thinned += s.thinned;
+      }
+      return { copies: n, inView, byLevel, culled, thinned };
+    },
     setCopy(index: number, t: readonly number[]): void {
       if (index < 0 || index >= n || t.length < INSTANCE_BUFFER_FLOATS) return;
       const chunk = chunks[chunkOf[index]!]!;

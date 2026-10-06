@@ -19,12 +19,18 @@
  * budget (null = the default: on for a KTX2 texture over 1024 px). Stored
  * as given; it takes effect only where a KTX2 mip chain exists.
  *
+ * `lod` (model only): its LOD group settings — the screen sizes where each
+ * coarser level takes over and the size below which it is not drawn (null
+ * = the defaults, stored as absence; `model-lod.ts`).
+ *
  * `sourcePath` (any kind): where the asset's file now is in the game folder.
  * The file is the asset and the id stays, so every reference keeps working;
  * the workspace moves the file and its `.tlasset` sidecar when they are still
  * at the old path, or records a move made outside the editor. A converted
  * version records the path of its original (FBX, PNG/JPEG).
  */
+
+import { canonicalModelLod, type ModelLodSettings } from '@thirdlight/project-model';
 
 import { assetKindMismatch, assetNotFound } from './errors';
 import { contentOf, type OpInput } from './content-ops';
@@ -36,7 +42,7 @@ export function applySetAssetOptions(input: OpInput, args: SetAssetOptionsArgs):
   const catalog = contentOf(input.content);
   const existing = (catalog.assets as unknown as CommandAssetRecord[]).find((a) => a.assetId === args.assetId);
   if (existing === undefined) return { ok: false, error: assetNotFound(args.assetId) };
-  const modelOnly = args.vertexColors !== undefined || args.materials !== undefined || args.clipsFor !== undefined;
+  const modelOnly = args.vertexColors !== undefined || args.materials !== undefined || args.clipsFor !== undefined || args.lod !== undefined;
   if (modelOnly && assetKindOf(existing) !== 'model') return { ok: false, error: assetKindMismatch(args.assetId, 'model', assetKindOf(existing)) };
   const audioOnly = args.loadType !== undefined || args.preload !== undefined;
   if (audioOnly && assetKindOf(existing) !== 'audio') return { ok: false, error: assetKindMismatch(args.assetId, 'audio', assetKindOf(existing)) };
@@ -66,6 +72,11 @@ export function applySetAssetOptions(input: OpInput, args: SetAssetOptionsArgs):
   if (args.streaming !== undefined) {
     const { streaming: _s, ...rest } = next as CommandAssetRecord & { streaming?: boolean };
     next = (args.streaming === null ? rest : { ...rest, streaming: args.streaming }) as CommandAssetRecord;
+  }
+  if (args.lod !== undefined) {
+    const { lod: _lod, ...rest } = next as CommandAssetRecord & { lod?: ModelLodSettings };
+    const lod = args.lod === null ? undefined : canonicalModelLod(args.lod);
+    next = (lod === undefined ? rest : { ...rest, lod }) as CommandAssetRecord;
   }
   if (args.sourcePath !== undefined) {
     const current = next.versions.find((v) => v.version === next.currentVersion);

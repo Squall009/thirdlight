@@ -41,6 +41,8 @@ export interface SceneCounts {
   shadowDraws: { frames: number; mean: number; p50: number; p95: number; max: number };
   /** The engine's merged static cells (meshes named `tl-merged:`): how many, how many drawn now, their GPU bytes. */
   merged: { meshes: number; shown: number; vertexBytes: number; indexBytes: number };
+  /** Levels of detail in the last frame: placed models' and instance-set copies' level switches, and the instance-set copies the view drew. */
+  lod: { switches: number; copySwitches: number; copiesInView: number };
 }
 
 export interface GpuPassTiming {
@@ -171,7 +173,7 @@ export function probeSetGpuTiming(on: boolean): boolean {
 /** In the page: what the scenes drawn last frame hold. */
 export function probeSceneCounts(): SceneCounts {
   const P = (window as unknown as { __tlProbe?: ProbeState }).__tlProbe;
-  const out: SceneCounts = { objects: 0, groups: 0, lods: 0, meshes: 0, hiddenMeshes: 0, instancedMeshes: 0, batchedMeshes: 0, skinnedMeshes: 0, bones: 0, lights: 0, pointLights: 0, materials: 0, info: null, passDraws: { scene: 0, shadow: 0, post: 0 }, shadowDraws: { frames: 0, mean: 0, p50: 0, p95: 0, max: 0 }, merged: { meshes: 0, shown: 0, vertexBytes: 0, indexBytes: 0 } };
+  const out: SceneCounts = { objects: 0, groups: 0, lods: 0, meshes: 0, hiddenMeshes: 0, instancedMeshes: 0, batchedMeshes: 0, skinnedMeshes: 0, bones: 0, lights: 0, pointLights: 0, materials: 0, info: null, passDraws: { scene: 0, shadow: 0, post: 0 }, shadowDraws: { frames: 0, mean: 0, p50: 0, p95: 0, max: 0 }, merged: { meshes: 0, shown: 0, vertexBytes: 0, indexBytes: 0 }, lod: { switches: 0, copySwitches: 0, copiesInView: 0 } };
   if (P === undefined) return out;
   out.passDraws = { ...P.lastPasses };
   if (P.shadowFrames.length > 0) {
@@ -196,6 +198,15 @@ export function probeSceneCounts(): SceneCounts {
       if (vis) out.merged.shown += 1;
       for (const a of Object.values(o.geometry.attributes)) out.merged.vertexBytes += a.array.byteLength;
       out.merged.indexBytes += o.geometry.index?.array.byteLength ?? 0;
+    }
+    // The engine's instance-set chunk draws (three-adapter INSTANCE_SET_KEY) and what the view drew of them.
+    const ud = (o as { userData?: Record<string, unknown> }).userData;
+    if (ud?.['tlInstanceSet'] === true) out.lod.copiesInView += (ud['__tlViewCull'] as { inView?: number } | undefined)?.inView ?? 0;
+    // The adapter's LOD tuning on its scene (three-adapter LOD_TUNING_KEY): the frame's switches.
+    const t = o.isScene === true ? (ud?.['tlLodTuning'] as { switches?: number; copySwitches?: number } | undefined) : undefined;
+    if (t !== undefined) {
+      out.lod.switches += t.switches ?? 0;
+      out.lod.copySwitches += t.copySwitches ?? 0;
     }
     if (o.isInstancedMesh === true) out.instancedMeshes += 1;
     if (o.isBatchedMesh === true) out.batchedMeshes += 1;
