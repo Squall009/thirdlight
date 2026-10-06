@@ -6,7 +6,10 @@ live blocks, edge pieces and auto-connecting kits. Around it, a separate,
 fast, chunked terrain reaches the horizon, so a level feels large at little
 cost. One rule system paints materials and places detail on both, baked
 offline so the runtime only reads results. Splines cut roads, paths and
-rivers into the ground. All of it holds 60 fps at 1080p on an integrated GPU.
+rivers into the ground. Rooms, buildings, pipes, rails and fences are drawn
+as outlines and generated from parameters with one trim-sheet material, so a
+level is restyled by swapping a sheet and a preset. All of it holds 60 fps at
+1080p on an integrated GPU.
 
 Read `docs/roadmap.md` (principles 1, 1b and 7) first. Phase 30 starts after
 phase 29 (scalable lighting): it uses 29's probes, cached shadows, LOD
@@ -48,6 +51,23 @@ view distance are each game's own data.
   records its numbers; a missed target becomes a follow-up note, never a
   reason to throw away an item.
 - **Target:** 60 fps at 1080p on an integrated GPU (as phase 29).
+- **Generated architecture** (owner, 2026-10-06; Part D). Fast, passable
+  art for a solo developer: draw outlines, the engine generates the
+  architecture, props are placed by hand.
+  - **One trim sheet, not a texture array.** One 2D sheet (albedo, normal,
+    ORM: 3 samples) tiling in both directions; each row is generated as its
+    own repeated strip of geometry. This costs a fraction of an array's
+    memory, gives the vertex density that vertex-painted grime and wetness
+    need, and lets rows have unequal heights.
+  - **No lightmaps.** Probes, vertex-colour AO from the generator, rooms as
+    light layers and portals, no shadows by default.
+  - **Parameters are exported, geometry is generated at load.** It must be
+    fast enough that the player never waits on it (§5).
+  - **Style graphs like Substance Designer:** operators with exposed
+    sliders, presets that derive from presets, sliders driven by painted
+    world masks.
+  - **Buildings:** one definition generates the exterior and its interior,
+    with door links between them.
 
 ## 2. Where things stand (checked at `62999a04`, 2026-10-03)
 
@@ -105,6 +125,7 @@ view distance are each game's own data.
 | Detail | Trees and detail meshes painted, density settings | Procedural foliage spawners; grass by layer | MultiMesh | Rule-baked instance sets plus GPU ground cover by distance |
 | Splines | Splines package; terrain tools via add-ons | Landscape splines deform and paint, place meshes | Path3D, CSG | One spline component: carve, paint, clear, mesh |
 | Streaming | Manual (tiles as scenes) | World Partition cells | Manual | Tile rings around the camera |
+| Generated architecture | ProBuilder shapes; theme-swappable layouts only as add-ons (Dungeon Architect) | BSP brushes (now a blockout tool), modeling tools, PCG graphs | CSG nodes (prototyping) | Path × profile sweeps and fills from style presets on one trim sheet, generated at load |
 
 [1] https://docs.unity3d.com/Manual/script-Terrain.html
 [2] https://dev.epicgames.com/documentation/en-us/unreal-engine/landscape-outdoor-terrain-in-unreal-engine
@@ -113,8 +134,9 @@ view distance are each game's own data.
 
 ## 4. Items
 
-Three parts in order: **A** completes block layers (the handoff depends on
-them), **B** builds terrain, **C** joins the two. Within each part the order
+Four parts in order: **A** completes block layers (the handoff depends on
+them), **B** builds terrain, **C** joins the two, **D** generates architecture
+from outlines. Within each part the order
 is data and commands → runtime and adapter → editor → export → tests. A file
 over 2,000 lines is split before it grows. Format changes take one schema
 version with an upgrade on open. Every item records its numbers against the
@@ -155,7 +177,25 @@ test against a real backend; drawing changes check pixels on both renderers.
 | 30.17 | **Blocks on terrain** (E82.1–E82.4).<br>• The terrain's edge follows the block layer's border corner heights; under the block footprint the terrain is flattened to the layer or cut away (hole mask), so there is no step, crack, z-fighting or hidden geometry.<br>• One material across the seam: both sides use the same material layers, world UVs in metres (28b) and paint that blends across the border.<br>• One lighting across the seam: phase 29's probes cover the block area; far terrain gets sparser probes and baked per-tile horizon and AO terms; cached shadows cover the near area.<br>• Terrain can be scenery only: simple collision or none, no grid; gameplay queries stay on the block layer. |
 | 30.18 | **One surface query** (E39, E40 should-haves). `ctx.surface` (and a backend query for tools) returns height, normal, slope and material layer weights at a world XZ point, from whichever block layer or terrain is there, for footsteps, effects and placement tools. `ctx.grid` keeps its cell queries. |
 | 30.19 | **Height and distance fog** (E82.6). Exponential height fog (density, height falloff, colour, start distance, optional sun inscatter) as part of the scene look, blended like the other environment settings, so fog hides LOD steps and the horizon. Replaces the need for a separate vista ring: the far distance is terrain at its coarsest level under fog. |
-| 30.20 | **Acceptance.** 30.1's classes after the phase, split in §6; each item's contribution shown by switching it off. The limits and settings in `docs/deployment.md` (the manual moves them in phase 31). Each request's acceptance as a test at its boundary. |
+### Part D — generated architecture
+
+Builds on edge pieces (30.4), interiors (30.7), kit swaps (30.8), rules
+(30.12), spline meshes (30.14) and streaming (30.16), and on phase 29's light
+layers, probes and cached shadows. Engine/game split: the engine provides
+operators, the generator and neutral starter presets. Room programs,
+furnishing sets and what happens when a door is used are each game's data
+and behaviour.
+
+| Item | What |
+|---|---|
+| 30.20 | **Trim sheets and row layouts.**<br>• A trim-sheet material: one 2D sheet (albedo, normal, ORM; 3 samples) and a row table in pixels. Rows are equal height by default and may differ (thin trims beside large panels).<br>• A row layout names semantic slots (floor, lower wall, upper wall, baseboard, crown, frame, column, bevel, emissive, …). Any sheet that conforms to a layout swaps in for another.<br>• Import checks row padding. The generator insets UVs by half a texel at band edges, so mips and anisotropy don't bleed between rows (floors at grazing angles).<br>• Vertex colours carry AO and the grime/wetness blend weights; side-face paint (30.6) is stored in world space and sampled onto generated vertices, so it survives regeneration. |
+| 30.21 | **The generator.**<br>• Operators: path (polyline, arcs, splines from 30.14; open or closed), offset, sweep a 2D profile along a path, repeat along a path (kit pieces or instances), fill (flat, coffered, barrel and groin vaults; flat, gable, hip and mansard roofs), cut an opening, chamfer, vertex AO.<br>• Mitred joints for mouldings at corners, T-junctions and frames.<br>• Writes flat typed arrays (no per-piece scene objects, no per-vertex allocation), stamps profiles precomputed once per style, one worker job per chunk, chunks near the spawn first through 30.16.<br>• Deterministic across browsers: its own trig for arcs and vaults; generated objects get stable ids (building/room id + seed + slot) so saves and replays hold.<br>• Content stores only parameters; meshes are cached by a hash of the parameters plus the generator version (the editor's cache and IndexedDB in the export). A per-project export option ships the generated meshes instead, from the same generator.<br>• Box colliders per wall segment, not trimeshes. Far LOD drops mouldings and bevels and keeps wall bodies.<br>• Any segment, corner or opening can be overridden by a kit model UV'd against the row layout. |
+| 30.22 | **Style graphs and presets.**<br>• A style is a graph of 30.21's operators with exposed parameters (ceiling height, moulding depth, column spacing, vault rise, wall jitter, decay, …).<br>• A preset is a style plus values. Presets derive from other presets and override some values, like prefab variants; a change to the base reaches every preset derived from it.<br>• Parameters can be driven by world masks painted or baked by 30.12's rules, so one slider varies across the level.<br>• Neutral starter presets ship with the engine.<br>• Editor: sliders in the preset's Inspector first, regenerating only the affected rooms while dragging. The graph editor reuses the editor's graph UI and comes after the sliders. |
+| 30.23 | **Rooms and paths.**<br>• A draw tool on a block layer: rectangle, polygon and arc segments, snapping to cells.<br>• A room is a closed path plus a style: wall thickness, inside and outside styles, a shared wall owned by one room with a style per side, storeys, floor slabs, stairs and holes in floors.<br>• Openings (doors, windows, arches) cut the row strips, add a frame sweep, and register as 30.4 edge pieces with a blocked state for `ctx.grid` and pathfinding.<br>• Open paths with their own styles make pipes, rails, banisters and fences with the same tool.<br>• One generated mesh per chunk per material. Glass and emissive surfaces are a second material. Hand-placed props are untouched by regeneration. |
+| 30.24 | **Rooms drive culling and lighting.**<br>• Rooms and their openings form a portal graph: meshes and lights in rooms that can't be seen are skipped (ahead of phase 33's general occlusion).<br>• Room membership is a light layer (29's light layers), so an unshadowed light stops at its room's walls.<br>• Each room gets its own probe volume (29's probes) so walls don't leak light.<br>• The cut-away regions of 30.7 come from rooms.<br>• Shadow rules: no shadow by default; a per-view budget of shadowed lights ranked by screen size and distance, with distance fade; spot preferred over point for shadows; cached static plus dynamic casters (29). Written down as best practice for games, like the foliage policy. |
+| 30.25 | **Buildings.**<br>• A building is a footprint path, storeys, a facade style and a roof fill.<br>• One definition generates the exterior and the interior, so windows, doors and storey heights match on both sides.<br>• The interior is in place (30.7's cut-away, for top-down and tactics games) or its own scene, chosen per building.<br>• Door links pair an exterior door with an interior spawn and travel with `loadScene`/`unloadScene` and the kept player (phase 28). The interaction is the game's.<br>• An interior scene is generated when its door is used, under the game's transition. |
+| 30.26 | **Floor plans and furnishing.**<br>• Room programs (game data) split a footprint into rooms, with a door graph and stairs.<br>• Furnishing rules place prop sets by room type: against walls or facing the room, clear of doorways, keeping a walkable path, one light per room inside the light budget; seeded per building.<br>• Hand edits are an override layer on top of the generated plan: lock a building and edit it, or detach it completely; regeneration never overwrites hand edits.<br>• Layouts and furnishing are judged by eye (owner look) before the item is called done. |
+| 30.27 | **Acceptance.** 30.1's classes after the phase, split in §6; each item's contribution shown by switching it off. The limits and settings in `docs/deployment.md` (the manual moves them in phase 31). Each request's acceptance as a test at its boundary. A generated-village class: buildings with interiors, generation timed against §5, the sheet and preset swapped, both renderers. |
 
 **Done when:**
 - A block area with live doors, edge walls and auto-connected kits stands on
@@ -164,6 +204,10 @@ test against a real backend; drawing changes check pixels on both renderers.
   fog at the horizon, in Play and the export, on both renderers.
 - The seam between blocks and terrain shows no step, crack or change in
   material or lighting (pixels; owner look pending).
+- Rooms, a building with a linked interior, pipes and a fence drawn as
+  outlines are generated at load from parameters. Swapping the trim sheet and
+  preset restyles them without touching the outlines or the props, in Play
+  and the export, on both renderers (look: owner look pending).
 - 30.1's classes are measured after the phase on the Iris Xe and recorded
   against §5's targets, with the split saying where any miss comes from.
 - `tools/gate.sh full` is green.
@@ -184,13 +228,17 @@ cause and a follow-up, never a reason to throw an item away (owner,
 | Main-thread work for terrain, scatter and streaming | ≤ 2 ms per frame |
 | Frames over 16.7 ms while streaming, re-meshing or re-baking | none in a 60 s flight |
 | Far landscape cost | about the vista ring it replaces |
+| Architecture generation | ≤ 5 ms per chunk on a worker; the spawn's chunks ready ≤ 100 ms after load |
+| An interior generated at a door | ≤ 100 ms (hidden by the game's transition) |
+| A room regenerated while a slider is dragged | ≤ 16 ms |
+| Generated architecture draw calls | one per chunk per material |
 
 ## 6. Progress and measurements
 
 | Item | Status |
 |---|---|
 | 30.0 | done 2026-10-03 (plan only; the release checks run when the phase starts) |
-| 30.1–30.20 | — |
+| 30.1–30.27 | — |
 
 (30.1's before numbers and 30.20's after numbers.)
 
@@ -211,6 +259,19 @@ cause and a follow-up, never a reason to throw an item away (owner,
   one texture read and keep painted overrides.
 - 2026-10-03: floating origin, virtual texturing and Cycles bakes for
   terrain are left for later; none is needed by a planned game.
+- 2026-10-06: Part D (generated architecture) added with the owner.
+  - One 2D trim sheet with per-row geometry rather than a texture array. The
+    sample count is the same (an array layer is one lookup); the sheet wins on
+    memory, vertex density for paint, unequal rows and off-the-shelf sheets.
+  - No lightmaps: block layers' per-chunk lightmaps (§2) are for the owner to
+    keep or drop.
+  - Two primitives (sweep a profile along a path, repeat along a path) plus
+    fills, not one special case per shape.
+  - Interior floor plans and furnishing are the riskiest part and are judged
+    by eye.
+  - With Part D the phase has 28 items. 30.0's re-check may split Part D
+    into its own phase if the gate budget or size calls for it (owner
+    decides).
 - 2026-10-03: Skyforge's requests mapped (the engine never reads the game
   repo; the ids only trace them back):
 
