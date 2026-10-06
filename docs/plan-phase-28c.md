@@ -468,3 +468,12 @@ Unverified: anything on a real vsync display or the owner's laptop (the `--vsync
     from `worldTransformOf`).
   - **The plain-page comparison** runs in the fast gate's perf check, reported only (+~30 s: the check takes
     ~70 s); whether to gate it is §5's open question 3.
+- 2026-10-06 (owner): 28c.15 closed and the phase closed.
+  - **What 28c.15 achieved:** batching wins wherever the frame is
+    CPU-bound (Skyforge on both renderers, WebGL 2), but loses 2–4 % on the
+    village class at full resolution on the GPU-bound Iris Xe.
+  - **The loss:** ~0.2 ms of GPU time that appears only with texture and
+    shadow sampling. Its cause is unknown after the order, cell-size,
+    pre-pass and sort experiments.
+  - **D160 stays open** with these findings. The owner chose to move on
+    rather than keep digging.
