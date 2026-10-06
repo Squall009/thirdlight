@@ -8,13 +8,13 @@
  * a lossless PNG given for a source is read instead and the layer is not.
  */
 import { createHash } from 'node:crypto';
-import { deflateSync } from 'node:zlib';
+import { deflateSync, zstdCompressSync } from 'node:zlib';
 
 import { ktx2Info } from '@thirdlight/asset-pipeline';
 import * as ktx2Encoder from 'ktx2-encoder';
 import { beforeAll, describe, expect, it } from 'vitest';
 
-import { joinUastcLayers, ktx2LevelData, ktx2LevelDigests, KTX2_TRANSFER_LINEAR, readKtx2 } from './ktx2-container';
+import { joinUastcLayers, ktx2KeyValues, ktx2LevelData, ktx2LevelDigests, KTX2_TRANSFER_LINEAR, readKtx2, writeKtx2, type Ktx2Container } from './ktx2-container';
 import { createWorkerTextureEncoder, encodeKtx2, packKtx2, type Ktx2Mode, type PackLayer } from './texture-encode';
 
 function crc32(bytes: Uint8Array): number {
@@ -181,5 +181,74 @@ describe('packing from KTX2 sources', () => {
     } finally {
       enc.dispose?.();
     }
+  }, 60_000);
+});
+
+/** A KTX2 key/value block of `entries` (string values, NUL-terminated, each entry padded to 4 bytes). */
+function kvdOf(entries: Record<string, string>): Uint8Array {
+  const parts: Buffer[] = [];
+  for (const [k, v] of Object.entries(entries)) {
+    const body = Buffer.from(`${k}\0${v}\0`, 'utf8');
+    const len = Buffer.alloc(4);
+    len.writeUInt32LE(body.length, 0);
+    parts.push(len, body, Buffer.alloc((4 - (body.length % 4)) % 4));
+  }
+  return new Uint8Array(Buffer.concat(parts));
+}
+/** `bytes` written again with `change` applied to its container (levels as stored unless given). */
+function rewritten(bytes: Uint8Array, change: (c: Ktx2Container) => Partial<Ktx2Container>, levels?: { data: Uint8Array; uncompressed: number }[]): Uint8Array {
+  const c = readKtx2(bytes)!;
+  return writeKtx2({ ...c, ...change(c) }, levels ?? c.levels.map((l) => ({ data: l.stored, uncompressed: l.uncompressedByteLength })));
+}
+
+describe('KTX2 container checks', () => {
+  it('a level declaring more bytes than its size is refused before inflating; inflation stops at the size', async () => {
+    const src = await encoded(IMAGES[0]!, 'data');
+    const c = readKtx2(src)!;
+    // 64×32 UASTC: 16×8 blocks of 16 bytes.
+    expect(ktx2LevelData(c, 0).length).toBe(16 * 8 * 16);
+    const declared = rewritten(src, () => ({}), c.levels.map((l, i) => ({ data: l.stored, uncompressed: i === 0 ? 1 << 30 : l.uncompressedByteLength })));
+    expect(() => ktx2LevelData(readKtx2(declared)!, 0)).toThrow(/declares 1073741824 bytes, not the 2048/);
+    // A level that inflates to 64 MiB while declaring its true size: refused at the bound, not inflated.
+    const bomb = zstdCompressSync(Buffer.alloc(64 * 1024 * 1024));
+    const inflating = rewritten(src, () => ({}), c.levels.map((l, i) => ({ data: i === 0 ? new Uint8Array(bomb) : l.stored, uncompressed: l.uncompressedByteLength })));
+    const before = process.memoryUsage().arrayBuffers;
+    expect(() => ktx2LevelData(readKtx2(inflating)!, 0)).toThrow();
+    expect(process.memoryUsage().arrayBuffers - before).toBeLessThan(16 * 1024 * 1024);
+    expect(joinUastcLayers([src, inflating], KTX2_TRANSFER_LINEAR)).toMatchObject({ ok: false, reason: expect.stringMatching(/could not be decompressed/) });
+  }, 60_000);
+
+  it('layers differing in premultiplied alpha or orientation are not joined but encoded again; mips left to the loader stay so', async () => {
+    const [a, b] = await Promise.all([encoded(IMAGES[0]!, 'data'), encoded(IMAGES[1]!, 'data')]);
+    expect(joinUastcLayers([a, b], KTX2_TRANSFER_LINEAR).ok).toBe(true);
+    const premultiplied = rewritten(b, (c) => {
+      const dfd = new Uint8Array(c.dfd);
+      dfd[15] = dfd[15]! | 1;
+      return { dfd };
+    });
+    expect(readKtx2(premultiplied)!.dfdFlags & 1).toBe(1);
+    expect(joinUastcLayers([a, premultiplied], KTX2_TRANSFER_LINEAR)).toMatchObject({ ok: false, reason: 'layer 2\'s alpha is premultiplied, layer 1\'s is not' });
+    const up = rewritten(b, () => ({ kvd: kvdOf({ KTXorientation: 'ru', KTXwriter: 'test' }) }));
+    expect(Buffer.from(ktx2KeyValues(readKtx2(up)!.kvd).get('KTXorientation')!).toString()).toBe('ru\0');
+    expect(joinUastcLayers([a, up], KTX2_TRANSFER_LINEAR)).toMatchObject({ ok: false, reason: expect.stringMatching(/layer 2's orientation \(KTXorientation "ru"\) is not layer 1's \(""\)/) });
+    // The same orientation written out ("rd", the default) on both joins.
+    const rdA = rewritten(a, () => ({ kvd: kvdOf({ KTXorientation: 'rd' }) }));
+    const rdB = rewritten(b, () => ({ kvd: kvdOf({ KTXorientation: 'rd' }) }));
+    expect(joinUastcLayers([rdA, rdB], KTX2_TRANSFER_LINEAR).ok).toBe(true);
+    // The pack falls back to transcoding and encoding, flagged.
+    expect(await packKtx2([a, up], whole([0, 1]), 'data')).toMatchObject({ ok: true, joined: false, reencoded: [true, true] });
+    // Level count 0 (one level stored, the loader makes the mips): kept by the join, not mixed with stored mips.
+    const topOnly = (bytes: Uint8Array, mipsAtLoad: boolean): Uint8Array => {
+      const c = readKtx2(bytes)!;
+      return rewritten(bytes, () => ({ mipsAtLoad }), [{ data: c.levels[0]!.stored, uncompressed: c.levels[0]!.uncompressedByteLength }]);
+    };
+    const atLoad = (bytes: Uint8Array): Uint8Array => topOnly(bytes, true);
+    const joined = joinUastcLayers([atLoad(a), atLoad(b)], KTX2_TRANSFER_LINEAR);
+    expect(joined.ok).toBe(true);
+    if (joined.ok) {
+      expect(new DataView(joined.ktx2.buffer, joined.ktx2.byteOffset).getUint32(40, true)).toBe(0);
+      expect(readKtx2(joined.ktx2)!.levels).toHaveLength(1);
+    }
+    expect(joinUastcLayers([topOnly(a, false), atLoad(b)], KTX2_TRANSFER_LINEAR)).toMatchObject({ ok: false, reason: expect.stringMatching(/layer 2 leaves its mips to the loader/) });
   }, 60_000);
 });

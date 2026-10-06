@@ -20,14 +20,16 @@
  *   every layer, and the first slot's texture keeps a join without
  *   re-encoding possible; a layer nothing paints never shows.
  * - The encoding of the array follows how the graph reads the parameter: a
- *   Normal map node makes it a normal map, a Sample texture node in linear
- *   colour space data, anything else colour (`textureSlotMode`).
+ *   Normal map node makes it a normal map, a Sample texture or Triplanar
+ *   node in linear colour space data, anything else colour
+ *   (`textureSlotMode`).
  * - An object's overrides cannot hold slots (they stay plain values).
  */
-import { MAX_TEXTURE_LAYERS } from './content-limits';
-import type { Ktx2Encoding } from './content-assets';
+import { KTX2_ENCODINGS, MAX_TEXTURE_LAYERS, type Ktx2Encoding } from './content-limits';
 import type { GraphData } from './graph';
 import { ID_RE } from './validate';
+
+export { KTX2_ENCODINGS };
 
 /** A parameter value that is per-layer slots (a list of ids or ""). */
 export function isTextureSlots(v: unknown): v is string[] {
@@ -57,7 +59,8 @@ export function textureSlotMode(graph: GraphData | undefined, key: string): Ktx2
     if (!params.has(e.from.node)) continue;
     const to = graph.nodes.find((n) => n.id === e.to.node);
     if (to?.type === 'normalMap') return 'normal';
-    if (to?.type === 'sampleTexture' && to.data?.['colorSpace'] === 'linear') mode = 'data';
+    // Both read the texture with their own colour space field.
+    if ((to?.type === 'sampleTexture' || to?.type === 'triplanar') && to.data?.['colorSpace'] === 'linear') mode = 'data';
   }
   return mode;
 }
@@ -71,6 +74,13 @@ export interface TextureSlotSet {
 /** The key one assembled array is known by (the same layers and encoding are one array). */
 export function textureSlotSetKey(s: TextureSlotSet): string {
   return `${s.mode}:${s.layers.join(',')}`;
+}
+
+/** The layers and encoding a `textureSlotSetKey` names (null: not such a key). */
+export function parseTextureSlotSetKey(key: string): TextureSlotSet | null {
+  const [mode, list] = key.split(':', 2) as [string, string | undefined];
+  if (!(KTX2_ENCODINGS as readonly string[]).includes(mode) || list === undefined || list === '') return null;
+  return { mode: mode as Ktx2Encoding, layers: list.split(',') };
 }
 
 interface SlottedMaterial {

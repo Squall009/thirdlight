@@ -108,7 +108,7 @@ both renderers where it changes drawing.
 | 28b.5 | moved to 28c (28c.10) |
 | 28b.6 | done 2026-10-06: the command layer writes a prop's footprint with whatever entity command places, moves, turns, re-sizes or deletes it (one revision, one undo step; the change names `footprints` chunks, clients re-read them); the editor's follow-up `editBlocks` is gone. `editBlocks` reports `rebased` for surface/sculpt edits. vitest (commands) + block-editor e2e (Ctrl+Z/Ctrl+Y of a gizmo move, MCP delete + editor undo). Village p50/p95 webgpu 6.3/7.8, webgl2 4.4/6.5 ms (no drawing change). |
 | 28b.7 | done 2026-10-06: KTX2-only — `painted-terrain.e2e.ts` now builds the layered material's three roles from single-layer KTX2 files made outside the project (ETC1S albedo + height re-encoded, UASTC normal/ORM joined), deletes the prebuilt arrays and every PNG, and checks Scene view, Play and export pixels; seam — `block-world-uv.e2e.ts` (4 m ramp); normal maps — same file now lights the world-mapped kit's top, +Z and +X walls from each face's image top-right vs the mirror side (169 vs 10–11 brightness; one turned sign cancels), stand-in tops in `layered-material.e2e.ts`; all green on WebGPU and WebGL 2 (pixels; owner look pending). Meshing (`perf blocks` at c67faf4c, worst / p95 ms): Scene view type change webgpu 18.5/17.5, webgl2 18.2/17.6; kit arrival 17.8/17.6 both (display-rate jitter, 0 frames > 33 ms); export load worst webgpu 53.1 (1 frame), webgl2 685 (uncapped GPU stall noted in 28c.10, not re-attributed here) — soft-target miss left as a note. `docs/deployment.md`: square-cell rule added; world UVs, per-layer settings, KTX2 packing and slots were there. |
-| 28b.8 | part A done 2026-10-06: a worker-mode replay answered `applied` before the page had applied the restarted run's frame, so the next observation showed the new run id with the old scenes (fails ~40% alone since at least 3128b471, before 28b); it now waits until the page shows a step of the new run (12/12 alone, was 2–3/6). Footprints: an unmoved prop writes its fields again on cells another prop's clear emptied; a footprint the command sets with a field outside the schema is refused naming the field and layer, a moved one skips it; the editor's snap and "Write to cells" read world places through the model's `footprintPlaces`/`placeInWorld` (world-matrix code moved from commands to project-model). project-window flake → D171. |
+| 28b.8 | part A done 2026-10-06: a worker-mode replay answered `applied` before the page had applied the restarted run's frame, so the next observation showed the new run id with the old scenes (fails ~40% alone since at least 3128b471, before 28b); it now waits until the page shows a step of the new run (12/12 alone, was 2–3/6). Footprints: an unmoved prop writes its fields again on cells another prop's clear emptied; a footprint the command sets with a field outside the schema is refused naming the field and layer, a moved one skips it; the editor's snap and "Write to cells" read world places through the model's `footprintPlaces`/`placeInWorld` (world-matrix code moved from commands to project-model). project-window flake → D171. | Part B done 2026-10-06: slot-array key names each layer's PNG original (or none), so a PNG appearing re-assembles and hosts agree (cache hit at 1024² ~1–4 ms, was 0.2 ms: the layer files are read and PNGs hashed first); a sibling PNG counts only when the KTX2 records its digest (`convertedFrom` or KVD `thirdlight.sourceSha256`), else re-encoded from the KTX2, flagged; zstd levels bounded by the image's size, refused before inflating; joins compare premultiplied alpha, `KTXorientation`, level count 0 (kept); editor imports slot keys/encodings from project-model; Triplanar in linear → data; `engines.node` ^22.15.0. Function-call slots → D172, shader-parity green → D173.
 
 ## 5. Decision log
 
@@ -276,3 +276,16 @@ both renderers where it changes drawing.
   the observation's scenes come from the page's copy, applied on the next
   animation frame. `applied` now also needs the page to show a step after
   the restart, so an answer and the observation after it agree.
+- 2026-10-06 (28b.8 B): which PNG beside a KTX2 counts as its lossless
+  original. Name and size alone matched a PNG left over from before the KTX2
+  was exported again, and packing encoded the old image reporting
+  `reencoded: false`. Now a same-name same-size PNG counts only when its
+  sha-256 is one the KTX2 records: the import's `convertedFrom.sourceDigest`
+  (a PNG conversion whose path moved), or a key/value entry
+  `thirdlight.sourceSha256` in the KTX2 (64 lowercase hex, NUL-terminated),
+  which an asset tool writes when it exports both files. Otherwise the KTX2
+  is the source (transcoded) and the layer is flagged re-encoded. No content
+  comparison (a decoded-texel match would also accept a slightly edited
+  PNG). Today no tool writes the entry, so KTX2s from asset tools are
+  re-encoded from themselves until one does. Default chosen, owner to
+  confirm.

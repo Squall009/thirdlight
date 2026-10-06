@@ -6,7 +6,7 @@ repository actually does today; the commands are the ones the tests run.
 
 ## Requirements
 
-- Node 22 (the LXC has v22.22.1), git.
+- Node 22.15 or later in 22 (`engines.node` `^22.15.0`: zstd in `node:zlib` arrived in 22.15; the LXC has v22.22.1), git.
 - This shell exports `NODE_ENV=production`, which makes npm skip dev
   dependencies. Install with:
 
@@ -1381,10 +1381,20 @@ texel is decoded or encoded, and no encoder limit applies (up to 256 MiB in
 the largest mip level). Otherwise (ETC1S, whose codebook is per file; a size
 or mip mismatch; a channel repack such as height into albedo's alpha) a
 KTX2 is transcoded to RGBA and the layers are encoded once; where the KTX2
-has a lossless original — the PNG it was encoded from on import, or a PNG of
-the same name and size beside the KTX2 file — that PNG is read instead.
-`packedFrom.reencoded` says per layer whether it was encoded again from a
-lossy KTX2, and the dialog stays open after a pack to say so.
+has a lossless original, that PNG is read instead: the PNG it was encoded
+from on import (still holding the recorded bytes), or a PNG of the same name
+and size beside the KTX2 file **whose sha-256 the KTX2 records** — the
+import's recorded digest, or a key/value entry `thirdlight.sourceSha256`
+in the KTX2 (the PNG's sha-256 as 64 lowercase hex characters, a
+NUL-terminated string) that an asset tool writes when it exports both. A PNG
+beside the file that the KTX2 does not tie to itself is not read (it may be
+left over from before the KTX2 was exported again): the KTX2 is the source
+and the layer counts as re-encoded. `packedFrom.reencoded` says per layer
+whether it was encoded again from a lossy KTX2, and the dialog stays open
+after a pack to say so. A join also needs the layers to agree on
+premultiplied alpha, `KTXorientation` and whether the loader makes the mips
+(level count 0); otherwise they are encoded again. A KTX2 level whose
+declared size is not its image's is refused before it is decompressed.
 
 ### Per-layer texture slots (28b.2)
 
@@ -1403,17 +1413,22 @@ The Scene view, the material preview, Play and the export draw the slots as
 one KTX2 array the backend assembles from them — the pack route's rules
 (UASTC layers alike joined as stored, others encoded once), each layer the
 whole RGBA of its texture, encoded by how the graph reads the parameter (a
-Normal map node: normal map; a Sample texture node in linear colour space:
-data; otherwise colour). An albedo + height slot texture holds its height in
-alpha. The array is made once and kept in the project's import cache, keyed
-by the layers' file digests and the encoding: later Plays and exports, a
-backend restart and every material naming the same list reuse it. An A/B
+Normal map node: normal map; a Sample texture or Triplanar node in linear
+colour space: data; otherwise colour). An albedo + height slot texture holds
+its height in alpha. The array is made once and kept in the project's import
+cache, keyed by the layers' file digests, the digest of the lossless PNG read
+in each layer's place (or none) and the encoding: later Plays and exports, a
+backend restart and every material naming the same list reuse it, a PNG
+that turns up beside a slot's KTX2 later makes the array again, and two hosts
+with the same files make the same array. An A/B
 trial is a material instance with one slot changed: only that role's array
 is assembled again, and the slots it shares with its parent stay one array.
 The export ships the assembled arrays (under ids `slots-…`, made from the
 array file's digest) and the materials name them; the slot textures ship
 only if something else uses them. 4 × 1024²: joined in about 14 ms (UASTC),
-encoded in about 9 s (ETC1S); a cached array is found in under 1 ms.
+encoded in about 9 s (ETC1S); a cached array is found in a few
+milliseconds (the layers' files are read and any PNG beside them hashed
+first, as both are part of the key).
 
 ### Job exports from asset tools (phase 25.22)
 

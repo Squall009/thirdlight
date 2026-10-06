@@ -8,24 +8,21 @@
  * the backend, which assembles it once and caches it like Play and the
  * export do (`POST …/content/textures/slots`).
  */
-import type { Ktx2Encoding, MaterialDef } from '@thirdlight/project-model';
-import { hasTextureSlots, withAssembledSlots, type TextureSlotSet } from '@thirdlight/project-model/texture-slots';
+import type { MaterialDef } from '@thirdlight/project-model';
+import { hasTextureSlots, parseTextureSlotSetKey, textureSlotSetKey, withAssembledSlots, type TextureSlotSet } from '@thirdlight/project-model/texture-slots';
 import { resolveMaterialInstancesLike } from '@thirdlight/three-adapter';
 
+/** Marks a view texture key as a slot list's, apart from asset ids (which hold no ':'). */
 const PREFIX = 'slots:';
-const MODES: readonly Ktx2Encoding[] = ['color', 'normal', 'data'];
 
 /** The texture key the views know a slot list's array by. */
 export function slotTextureKey(set: TextureSlotSet): string {
-  return `${PREFIX}${set.mode}:${set.layers.join(',')}`;
+  return PREFIX + textureSlotSetKey(set);
 }
 
 /** A slot list's layers and encoding from its key (null: an ordinary texture asset id). */
 export function parseSlotTextureKey(id: string): TextureSlotSet | null {
-  if (!id.startsWith(PREFIX)) return null;
-  const [mode, list] = id.slice(PREFIX.length).split(':', 2) as [string, string | undefined];
-  if (!(MODES as readonly string[]).includes(mode) || list === undefined || list === '') return null;
-  return { mode: mode as Ktx2Encoding, layers: list.split(',') };
+  return id.startsWith(PREFIX) ? parseTextureSlotSetKey(id.slice(PREFIX.length)) : null;
 }
 
 /**

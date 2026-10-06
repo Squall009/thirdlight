@@ -1401,7 +1401,7 @@ export class ContentRoutes {
         if (a.image?.format === 'ktx2') {
           textures ??= textureVersionsOf(this.deps.service, projectId);
           const v = textures.get(c.assetId);
-          if (v !== undefined) original = losslessOriginal(this.deps.service, projectId, v, a.image.width, a.image.height);
+          if (v !== undefined) original = losslessOriginal(this.deps.service, projectId, v, blob.bytes, a.image.width, a.image.height);
         }
         sourceIndex.set(c.assetId, sources.length);
         sources.push(blob.bytes);

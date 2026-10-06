@@ -865,7 +865,7 @@ export {
   type WindConfig,
 } from './materials';
 // Per-layer texture slots of graph materials (Play and the export assemble arrays from them).
-export { hasTextureSlots, isTextureSlots, materialSlotTextureRefs, materialTextureSlotSets, textureSlotLayers, textureSlotMode, textureSlotSetKey, textureSlotsError, withAssembledSlots, type TextureSlotSet } from './texture-slots';
+export { hasTextureSlots, isTextureSlots, materialSlotTextureRefs, materialTextureSlotSets, parseTextureSlotSetKey, textureSlotLayers, textureSlotMode, textureSlotSetKey, textureSlotsError, withAssembledSlots, type TextureSlotSet } from './texture-slots';
 
 // Environment presets (named looks scripts switch or blend to).
 export {

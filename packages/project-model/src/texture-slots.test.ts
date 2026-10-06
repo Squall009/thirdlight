@@ -7,7 +7,7 @@ import { describe, expect, it } from 'vitest';
 
 import type { GraphData } from './graph';
 import { materialParameterValueError } from './materials';
-import { materialSlotTextureRefs, materialTextureSlotSets, textureSlotLayers, textureSlotMode, textureSlotSetKey, withAssembledSlots } from './texture-slots';
+import { materialSlotTextureRefs, materialTextureSlotSets, parseTextureSlotSetKey, textureSlotLayers, textureSlotMode, textureSlotSetKey, withAssembledSlots } from './texture-slots';
 
 const graph = (target: { type: string; data?: Record<string, string> }, key = 'tex'): GraphData => ({
   nodes: [
@@ -33,6 +33,17 @@ describe('texture slots', () => {
     expect(textureSlotMode(graph({ type: 'normalMap' }), 'tex')).toBe('normal');
     expect(textureSlotMode(graph({ type: 'normalMap' }, 'other'), 'tex')).toBe('color');
     expect(textureSlotMode(undefined, 'tex')).toBe('color');
+    // Triplanar reads with its own colour space too.
+    expect(textureSlotMode(graph({ type: 'triplanar', data: { colorSpace: 'linear' } }), 'tex')).toBe('data');
+    expect(textureSlotMode(graph({ type: 'triplanar' }), 'tex')).toBe('color');
+  });
+
+  it('a set key reads back as its set; other strings are not keys', () => {
+    const set = { layers: ['rock', 'sand', 'rock'], mode: 'normal' as const };
+    expect(parseTextureSlotSetKey(textureSlotSetKey(set))).toEqual(set);
+    expect(parseTextureSlotSetKey('rock')).toBeNull();
+    expect(parseTextureSlotSetKey('srgb:rock')).toBeNull();
+    expect(parseTextureSlotSetKey('data:')).toBeNull();
   });
 
   it('one set per distinct layers and encoding; the runtime materials name the assembled ids only', () => {

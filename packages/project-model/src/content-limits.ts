@@ -196,3 +196,11 @@ export const RESOURCE_CREATING_OPS: readonly string[] = [
   'setDialogue',
   'setEnvironment',
 ];
+
+/**
+ * The KTX2 encodings (color: ETC1S sRGB; normal: UASTC normal map; data:
+ * UASTC linear). Here, in this import-free module, so the runtime's texture
+ * slot code reads them without pulling in the asset validators.
+ */
+export const KTX2_ENCODINGS = ['color', 'normal', 'data'] as const;
+export type Ktx2Encoding = (typeof KTX2_ENCODINGS)[number];

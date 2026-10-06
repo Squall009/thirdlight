@@ -7,7 +7,10 @@
  * the rest transcoded (or their lossless PNG read) and encoded once
  * (seconds) — the pack route's `packKtx2`, each layer the whole RGBA of its
  * texture. The result goes to the project's import cache keyed by the
- * layers' digests and the encoding, so it is made once: the next Play, the
+ * layers' digests, the digest of each lossless PNG read in a layer's place
+ * (or none) and the encoding — everything the bytes are made from, so a PNG
+ * appearing beside a KTX2 later makes the array again, and two hosts with
+ * the same files make the same key. It is made once: the next Play, the
  * export, a backend restart and every material naming the same list find it
  * there; a trial changing one slot assembles only that array. Two requests
  * for the same array while it is made share the one assembly.
@@ -52,11 +55,26 @@ export interface TextureSlotAssembler {
 export const SLOT_ARRAY_IMPORTER = 'texture-slots';
 export const SLOT_ARRAY_VERSION = '1';
 
-/** The cache key of one array: its layers' file digests in order, the encoding and the encoder. */
-export function slotArrayKey(layers: readonly SlotLayer[], mode: Ktx2Mode): ImportKey {
+/**
+ * The cache key of one array: its layers' file digests in order, the digest
+ * of the lossless original each layer's texture is read from instead
+ * (`originals`, one per layer, null where none is), the encoding and the
+ * encoder.
+ */
+export function slotArrayKey(layers: readonly SlotLayer[], mode: Ktx2Mode, originals: readonly (string | null)[]): ImportKey {
   const digests = layers.map((l) => l.sourceDigest);
-  const settings = { mode, layers: digests, encoder: `${KTX2_ENCODER.name}@${KTX2_ENCODER.version}` };
+  const settings = { mode, layers: digests, originals: layers.map((_, i) => originals[i] ?? 'none'), encoder: `${KTX2_ENCODER.name}@${KTX2_ENCODER.version}` };
   return { sourceDigest: createHash('sha256').update(JSON.stringify(settings)).digest('hex'), importer: SLOT_ARRAY_IMPORTER, importerVersion: SLOT_ARRAY_VERSION, settings };
+}
+
+/** The layers' distinct textures as read for an assembly: bytes, lossless originals, and each layer's index into them. */
+interface ResolvedLayers {
+  sources: Uint8Array[];
+  lossless: (Uint8Array | null)[];
+  /** Per layer: its texture's index in `sources`. */
+  index: number[];
+  /** Per layer: the digest of the original read in its place, null where none is. */
+  originals: (string | null)[];
 }
 
 export function createTextureSlotAssembler(deps: { service: WorkspaceService; encoder: TextureEncoder | undefined; now: () => number }): TextureSlotAssembler {
@@ -64,39 +82,45 @@ export function createTextureSlotAssembler(deps: { service: WorkspaceService; en
   /** The assemblies running now, by project and key: a second request waits for the first. */
   const running = new Map<string, Promise<SlotArrayResult>>();
 
-  const make = async (projectId: string, layers: readonly SlotLayer[], mode: Ktx2Mode, key: ImportKey): Promise<SlotArrayResult> => {
-    const encoder = deps.encoder;
-    if (encoder === undefined) return { ok: false, code: 'converter_unavailable', message: 'KTX2 encoding is not available on this server' };
-    const t0 = deps.now();
-    // Each distinct texture read and verified once.
-    const index = new Map<string, number>();
-    const sources: Uint8Array[] = [];
-    const lossless: (Uint8Array | null)[] = [];
+  /** Read each distinct texture once, verify it and find its lossless original. */
+  const resolve = (projectId: string, layers: readonly SlotLayer[]): ResolvedLayers | { ok: false; code: string; message: string } => {
+    const at = new Map<string, number>();
+    const out: ResolvedLayers = { sources: [], lossless: [], index: [], originals: [] };
+    const originalDigests: (string | null)[] = [];
     let versions: ReturnType<typeof textureVersionsOf> | null = null;
     for (const l of layers) {
-      if (index.has(l.assetId)) continue;
-      const read = deps.service.readBlob(projectId, { assetId: l.assetId, version: l.version });
-      if (!read.ok) return { ok: false, code: read.error.code, message: `texture slot "${l.assetId}": ${read.error.message}` };
-      if (read.digest !== l.sourceDigest) return { ok: false, code: 'asset_digest_mismatch', message: `texture slot "${l.assetId}" changed while the array was assembled` };
-      const head = readKtx2(read.bytes);
-      if (head !== null && head.layerCount >= 2) return { ok: false, code: 'field_value', message: `texture slot "${l.assetId}" is a texture array: a slot holds one layer` };
-      // A KTX2's lossless PNG, read in its place should the layers need encoding.
-      let original: Uint8Array | null = null;
-      if (head !== null) {
-        versions ??= textureVersionsOf(deps.service, projectId);
-        const v = versions.get(l.assetId);
-        if (v !== undefined && v.version === l.version) original = losslessOriginal(deps.service, projectId, v, head.width, head.height)?.bytes ?? null;
+      let i = at.get(l.assetId);
+      if (i === undefined) {
+        const read = deps.service.readBlob(projectId, { assetId: l.assetId, version: l.version });
+        if (!read.ok) return { ok: false, code: read.error.code, message: `texture slot "${l.assetId}": ${read.error.message}` };
+        if (read.digest !== l.sourceDigest) return { ok: false, code: 'asset_digest_mismatch', message: `texture slot "${l.assetId}" changed while the array was assembled` };
+        const head = readKtx2(read.bytes);
+        if (head !== null && head.layerCount >= 2) return { ok: false, code: 'field_value', message: `texture slot "${l.assetId}" is a texture array: a slot holds one layer` };
+        // A KTX2's lossless PNG, read in its place should the layers need encoding.
+        let original: { bytes: Uint8Array; digest: string } | null = null;
+        if (head !== null) {
+          versions ??= textureVersionsOf(deps.service, projectId);
+          const v = versions.get(l.assetId);
+          if (v !== undefined && v.version === l.version) original = losslessOriginal(deps.service, projectId, v, read.bytes, head.width, head.height);
+        }
+        i = out.sources.length;
+        at.set(l.assetId, i);
+        out.sources.push(read.bytes);
+        out.lossless.push(original?.bytes ?? null);
+        originalDigests.push(original?.digest ?? null);
       }
-      index.set(l.assetId, sources.length);
-      sources.push(read.bytes);
-      lossless.push(original);
+      out.index.push(i);
+      out.originals.push(originalDigests[i]!);
     }
+    return out;
+  };
+
+  const make = async (projectId: string, resolved: ResolvedLayers, mode: Ktx2Mode, key: ImportKey, t0: number): Promise<SlotArrayResult> => {
+    const encoder = deps.encoder;
+    if (encoder === undefined) return { ok: false, code: 'converter_unavailable', message: 'KTX2 encoding is not available on this server' };
     // Each layer is the whole RGBA of its texture.
-    const packLayers: PackLayer[] = layers.map((l) => {
-      const source = index.get(l.assetId)!;
-      return [0, 1, 2, 3].map((channel) => ({ source, channel })) as unknown as PackLayer;
-    });
-    const packed = await encoder.pack(sources, packLayers, mode, lossless);
+    const packLayers: PackLayer[] = resolved.index.map((source) => [0, 1, 2, 3].map((channel) => ({ source, channel })) as unknown as PackLayer);
+    const packed = await encoder.pack(resolved.sources, packLayers, mode, resolved.lossless);
     if (!packed.ok) return { ok: false, code: 'conversion_failed', message: packed.message };
     const stored = deps.service.writeImportedArtifact(projectId, key, packed.ktx2);
     if (!stored.ok) return { ok: false, code: stored.error.code, message: stored.error.message };
@@ -110,7 +134,11 @@ export function createTextureSlotAssembler(deps: { service: WorkspaceService; en
     stats,
     assemble(projectId, layers, mode) {
       if (layers.length < 1) return Promise.resolve({ ok: false, code: 'field_value', message: 'an array needs at least one layer' });
-      const key = slotArrayKey(layers, mode);
+      const t0 = deps.now();
+      // The originals are part of the key, so they are looked for before the cache.
+      const resolved = resolve(projectId, layers);
+      if ('ok' in resolved) return Promise.resolve(resolved);
+      const key = slotArrayKey(layers, mode, resolved.originals);
       const found = deps.service.locateImportedArtifact(projectId, key);
       if (found !== null) {
         stats.cached += 1;
@@ -119,7 +147,7 @@ export function createTextureSlotAssembler(deps: { service: WorkspaceService; en
       const id = `${projectId}\u0000${key.sourceDigest}`;
       const busy = running.get(id);
       if (busy !== undefined) return busy;
-      const run = make(projectId, layers, mode, key).finally(() => running.delete(id));
+      const run = make(projectId, resolved, mode, key, t0).finally(() => running.delete(id));
       running.set(id, run);
       return run;
     },

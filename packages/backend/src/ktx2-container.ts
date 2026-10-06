@@ -23,6 +23,8 @@ const DF_MODEL_UASTC = 166;
 /** UASTC's DFD channel ids: opaque RGB, RGBA (the blocks hold alpha either way; an opaque one reads 255). */
 const UASTC_CHANNEL_RGB = 0;
 const UASTC_CHANNEL_RGBA = 3;
+/** The DFD's flag of premultiplied alpha (KHR_DF_FLAG_ALPHA_PREMULTIPLIED). */
+const DF_FLAG_ALPHA_PREMULTIPLIED = 1;
 /** The DFD's transfer function: linear, sRGB. */
 export const KTX2_TRANSFER_LINEAR = 1;
 export const KTX2_TRANSFER_SRGB = 2;
@@ -47,10 +49,14 @@ export interface Ktx2Container {
   layerCount: number;
   faceCount: number;
   supercompression: number;
+  /** The header's level count was 0: one level stored, the loader makes the mips. */
+  mipsAtLoad: boolean;
   /** Basic DFD block fields. */
   colorModel: number;
   colorPrimaries: number;
   transfer: number;
+  /** The DFD's flags (bit 0: alpha premultiplied). */
+  dfdFlags: number;
   /** The first sample's channel id (UASTC: RGB, RGBA, RRR, …). */
   channelId: number;
   dfd: Uint8Array;
@@ -70,6 +76,7 @@ export function readKtx2(bytes: Uint8Array): Ktx2Container | null {
   };
   const inside = (off: number, len: number): boolean => off >= 0 && len >= 0 && off + len <= bytes.length;
   const levelCount = Math.max(1, u32(40));
+  const mipsAtLoad = u32(40) === 0;
   if (!inside(HEADER_BYTES, levelCount * LEVEL_ENTRY_BYTES)) return null;
   const dfdOffset = u32(48);
   const dfdLength = u32(52);
@@ -91,9 +98,11 @@ export function readKtx2(bytes: Uint8Array): Ktx2Container | null {
     layerCount: u32(32),
     faceCount: u32(36),
     supercompression: u32(44),
+    mipsAtLoad,
     colorModel: bytes[dfdOffset + 12]!,
     colorPrimaries: bytes[dfdOffset + 13]!,
     transfer: bytes[dfdOffset + 14]!,
+    dfdFlags: bytes[dfdOffset + 15]!,
     channelId: bytes[dfdOffset + 31]! & 0x0f,
     dfd: bytes.subarray(dfdOffset, dfdOffset + dfdLength),
     kvd: bytes.subarray(kvdOffset, kvdOffset + kvdLength),
@@ -101,13 +110,49 @@ export function readKtx2(bytes: Uint8Array): Ktx2Container | null {
   };
 }
 
-/** One mip level's data, decompressed (every layer, face and slice of it, in order). */
+/**
+ * The key/value data's entries (key → value bytes, a string value's
+ * terminating NUL included as stored). A malformed entry ends the list.
+ */
+export function ktx2KeyValues(kvd: Uint8Array): Map<string, Uint8Array> {
+  const out = new Map<string, Uint8Array>();
+  const dv = new DataView(kvd.buffer, kvd.byteOffset, kvd.byteLength);
+  let at = 0;
+  while (at + 4 <= kvd.length) {
+    const len = dv.getUint32(at, true);
+    const start = at + 4;
+    if (len === 0 || start + len > kvd.length) break;
+    const entry = kvd.subarray(start, start + len);
+    const nul = entry.indexOf(0);
+    if (nul <= 0) break;
+    out.set(Buffer.from(entry.subarray(0, nul)).toString('utf8'), entry.subarray(nul + 1));
+    at = start + len + ((4 - (len % 4)) % 4);
+  }
+  return out;
+}
+
+/** The bytes one UASTC mip level holds once decompressed: 16 per 4×4 block, for every layer, face and slice. */
+function uastcLevelBytes(c: Ktx2Container, level: number): number {
+  const blocks = Math.ceil(Math.max(1, c.width >> level) / 4) * Math.ceil(Math.max(1, c.height >> level) / 4);
+  return blocks * 16 * Math.max(1, c.layerCount) * Math.max(1, c.faceCount) * Math.max(1, c.depth >> level);
+}
+
+/**
+ * One mip level's data, decompressed (every layer, face and slice of it, in
+ * order). Only UASTC levels are decompressed: their size follows from the
+ * image's, so a level declaring another size is refused before any byte is
+ * inflated, and the inflation is bounded by that size (a corrupt upload
+ * cannot expand past what its image could hold).
+ */
 export function ktx2LevelData(c: Ktx2Container, level: number): Uint8Array {
   const l = c.levels[level];
   if (l === undefined) throw new Error(`no mip level ${level}`);
   if (c.supercompression === SUPERCOMPRESSION_NONE) return l.stored;
   if (c.supercompression !== SUPERCOMPRESSION_ZSTD) throw new Error(`supercompression ${c.supercompression} is not Zstandard`);
-  return new Uint8Array(zstdDecompressSync(l.stored, { maxOutputLength: Math.max(1, l.uncompressedByteLength) }));
+  if (c.colorModel !== DF_MODEL_UASTC) throw new Error('only UASTC levels are decompressed here');
+  const expected = uastcLevelBytes(c, level);
+  if (l.uncompressedByteLength !== expected) throw new Error(`mip level ${level} declares ${l.uncompressedByteLength} bytes, not the ${expected} of its size`);
+  return new Uint8Array(zstdDecompressSync(l.stored, { maxOutputLength: expected }));
 }
 
 /** A digest of every decoded mip level (sha-256 per level, in level order): equal for the same texels. */
@@ -115,13 +160,22 @@ export function ktx2LevelDigests(c: Ktx2Container): string[] {
   return c.levels.map((_, i) => createHash('sha256').update(ktx2LevelData(c, i)).digest('hex'));
 }
 
+/** A container's `KTXorientation` value ("" when it has none: the format's default, "rd"). */
+function orientationOf(c: Ktx2Container): string {
+  const v = ktx2KeyValues(c.kvd).get('KTXorientation');
+  return v === undefined ? '' : Buffer.from(v).toString('utf8').replace(/\0+$/, '');
+}
+
 /**
  * Join single-image UASTC textures into one array (one source: a plain 2D
  * texture), the texels unchanged. Every source must be UASTC LDR, one 2D
  * image (no array, no cube, no depth), stored plain or with Zstandard, and
- * all must share size, mip count, colour primaries and `transfer`. Opaque and
- * alpha sources mix (the array's DFD says RGBA). The reason names the first
- * source that cannot join.
+ * all must share size, mip count (a count of 0, mips made at load, too),
+ * colour primaries, `transfer`, the premultiplied-alpha flag and the
+ * `KTXorientation` value: the array takes one DFD and one key/value block,
+ * so a layer differing in any of them would be read as another image.
+ * Opaque and alpha sources mix (the array's DFD says RGBA). The reason names
+ * the first source that cannot join.
  */
 export function joinUastcLayers(sources: readonly Uint8Array[], transfer: number): { ok: true; ktx2: Uint8Array } | { ok: false; reason: string } {
   if (sources.length < 1) return { ok: false, reason: 'no sources' };
@@ -139,7 +193,10 @@ export function joinUastcLayers(sources: readonly Uint8Array[], transfer: number
     if (first !== undefined) {
       if (c.width !== first.width || c.height !== first.height) return { ok: false, reason: `${which} is ${c.width}×${c.height}, layer 1 ${first.width}×${first.height}` };
       if (c.levels.length !== first.levels.length) return { ok: false, reason: `${which} has ${c.levels.length} mip levels, layer 1 ${first.levels.length}` };
+      if (c.mipsAtLoad !== first.mipsAtLoad) return { ok: false, reason: `${which} ${c.mipsAtLoad ? 'leaves its mips to the loader' : 'stores its mips'}, layer 1 does not` };
       if (c.colorPrimaries !== first.colorPrimaries) return { ok: false, reason: `${which} has other colour primaries than layer 1` };
+      if ((c.dfdFlags & DF_FLAG_ALPHA_PREMULTIPLIED) !== (first.dfdFlags & DF_FLAG_ALPHA_PREMULTIPLIED)) return { ok: false, reason: `${which}'s alpha is ${c.dfdFlags & DF_FLAG_ALPHA_PREMULTIPLIED ? '' : 'not '}premultiplied, layer 1's is${first.dfdFlags & DF_FLAG_ALPHA_PREMULTIPLIED ? '' : ' not'}` };
+      if (orientationOf(c) !== orientationOf(first)) return { ok: false, reason: `${which}'s orientation (KTXorientation "${orientationOf(c)}") is not layer 1's ("${orientationOf(first)}")` };
     }
     parsed.push(c);
   }
@@ -169,7 +226,7 @@ export function joinUastcLayers(sources: readonly Uint8Array[], transfer: number
  * from the smallest to the largest (the order the format stores them in;
  * no padding between supercompressed levels, no global data).
  */
-function writeKtx2(c: Pick<Ktx2Container, 'width' | 'height' | 'depth' | 'layerCount' | 'faceCount' | 'supercompression' | 'dfd' | 'kvd'>, levels: readonly { data: Uint8Array; uncompressed: number }[]): Uint8Array {
+export function writeKtx2(c: Pick<Ktx2Container, 'width' | 'height' | 'depth' | 'layerCount' | 'faceCount' | 'supercompression' | 'mipsAtLoad' | 'dfd' | 'kvd'>, levels: readonly { data: Uint8Array; uncompressed: number }[]): Uint8Array {
   const indexEnd = HEADER_BYTES + levels.length * LEVEL_ENTRY_BYTES;
   const dfdOffset = indexEnd;
   const kvdOffset = dfdOffset + c.dfd.length;
@@ -190,7 +247,7 @@ function writeKtx2(c: Pick<Ktx2Container, 'width' | 'height' | 'depth' | 'layerC
   dv.setUint32(28, c.depth, true);
   dv.setUint32(32, c.layerCount, true);
   dv.setUint32(36, c.faceCount, true);
-  dv.setUint32(40, levels.length, true);
+  dv.setUint32(40, c.mipsAtLoad ? 0 : levels.length, true);
   dv.setUint32(44, c.supercompression, true);
   dv.setUint32(48, dfdOffset, true);
   dv.setUint32(52, c.dfd.length, true);

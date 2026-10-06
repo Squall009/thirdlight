@@ -35,6 +35,8 @@ import {
   ASSET_LABEL_RE,
   ADDRESS_RE,
   ASSET_METRIC_CAPS,
+  KTX2_ENCODINGS,
+  type Ktx2Encoding,
   M2_GLTF_EXTENSION_ALLOWLIST,
   MAX_ASSET_VERSIONS,
   MAX_AUDIO_VERSIONS,
@@ -279,9 +281,7 @@ function validateTextureMetrics(m: Record<string, unknown>, path: string, errors
   }
 }
 
-/** The KTX2 encodings (color: ETC1S sRGB; normal: UASTC normal map; data: UASTC linear). */
-export const KTX2_ENCODINGS = ['color', 'normal', 'data'] as const;
-export type Ktx2Encoding = (typeof KTX2_ENCODINGS)[number];
+export { KTX2_ENCODINGS, type Ktx2Encoding };
 
 /**
  * `packedFrom` — a KTX2 texture (a texture array when it has
