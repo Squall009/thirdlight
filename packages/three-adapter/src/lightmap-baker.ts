@@ -151,7 +151,7 @@ function random(seed: number): () => number {
  * WebGPURenderer has). WebGPU pads each row to 256 bytes; the rows are
  * taken apart by the stride the returned length implies.
  */
-async function readFloatTarget(renderer: BakeRenderer, target: BakeTarget): Promise<Float32Array> {
+export async function readFloatTarget(renderer: BakeRenderer, target: BakeTarget): Promise<Float32Array> {
   const { width, height } = target;
   const n = width * height * 4;
   const half = target.texture.type !== THREE.FloatType;
@@ -203,6 +203,55 @@ function dilate(rgb: Float32Array, covered: Uint8Array, w: number, h: number, pa
     }
     covered.set(next);
   }
+}
+
+/** A shadowed directional light whose shadow camera covers the bake's bounds (a sphere); the caller aims it. */
+export function fittedBakeDirectional(center: THREE.Vector3, radius: number): THREE.DirectionalLight {
+  const d = new THREE.DirectionalLight();
+  d.castShadow = true;
+  d.shadow.mapSize.set(2048, 2048);
+  const cam = d.shadow.camera;
+  cam.left = -radius;
+  cam.right = radius;
+  cam.top = radius;
+  cam.bottom = -radius;
+  cam.near = 0.01;
+  cam.far = radius * 4;
+  d.shadow.bias = -0.0005;
+  d.shadow.normalBias = Math.max(0.01, (radius * 2) / 2048);
+  d.target.position.copy(center);
+  d.layers.enableAll();
+  return d;
+}
+
+/** Aim a fitted directional light: `towards` is the direction the light travels. */
+export function aimBakeDirectional(d: THREE.DirectionalLight, center: THREE.Vector3, radius: number, towards: THREE.Vector3): void {
+  d.position.copy(center).addScaledVector(towards, -radius * 2);
+  d.target.position.copy(center);
+  d.updateMatrixWorld();
+  d.target.updateMatrixWorld();
+}
+
+/** A baked point or spot light as a shadowed three light at its place (the caller adds it, and a spot's target, to the scene). */
+export function bakeLocalLight(l: BakeLightInput): THREE.PointLight | THREE.SpotLight {
+  const colour = new THREE.Color(l.color);
+  const light =
+    l.type === 'spot'
+      ? new THREE.SpotLight(colour, l.intensity, l.range ?? 0, THREE.MathUtils.degToRad(l.angle ?? 30), l.penumbra ?? 0.2, l.decay ?? 2)
+      : new THREE.PointLight(colour, l.intensity, l.range ?? 0, l.decay ?? 2);
+  light.castShadow = true;
+  light.shadow.mapSize.set(1024, 1024);
+  light.shadow.bias = -0.001;
+  light.layers.enableAll();
+  const p = l.position ?? [0, 0, 0];
+  light.position.set(p[0], p[1], p[2]);
+  if (light instanceof THREE.SpotLight) {
+    const d = new THREE.Vector3(...(l.direction ?? [0, -1, 0])).normalize();
+    light.target.position.copy(light.position).add(d);
+    light.target.updateMatrixWorld();
+  }
+  light.updateMatrixWorld();
+  return light;
 }
 
 const srgb = (v: number): number => (v <= 0.0031308 ? v * 12.92 : 1.055 * Math.pow(v, 1 / 2.4) - 0.055);
@@ -329,30 +378,11 @@ export async function bakeLightmapsInBrowser(input: BrowserBakeInput): Promise<B
 
     /** A shadowed directional light covering the whole bake. */
     const directional = (): THREE.DirectionalLight => {
-      const d = new THREE.DirectionalLight();
-      d.castShadow = true;
-      d.shadow.mapSize.set(2048, 2048);
-      const cam = d.shadow.camera;
-      cam.left = -radius;
-      cam.right = radius;
-      cam.top = radius;
-      cam.bottom = -radius;
-      cam.near = 0.01;
-      cam.far = radius * 4;
-      d.shadow.bias = -0.0005;
-      d.shadow.normalBias = Math.max(0.01, (radius * 2) / 2048);
-      d.target.position.copy(center);
-      d.layers.enableAll();
+      const d = fittedBakeDirectional(center, radius);
       scene.add(d, d.target);
       return d;
     };
-    const aim = (d: THREE.DirectionalLight, towards: THREE.Vector3): void => {
-      // `towards`: the direction the light travels.
-      d.position.copy(center).addScaledVector(towards, -radius * 2);
-      d.target.position.copy(center);
-      d.updateMatrixWorld();
-      d.target.updateMatrixWorld();
-    };
+    const aim = (d: THREE.DirectionalLight, towards: THREE.Vector3): void => aimBakeDirectional(d, center, radius, towards);
 
     type Live = { input: BakeLightInput; object: THREE.Light };
     const live: Live[] = [];
@@ -364,22 +394,11 @@ export async function bakeLightmapsInBrowser(input: BrowserBakeInput): Promise<B
         d.color.copy(colour);
         d.intensity = l.intensity;
         live.push({ input: l, object: d });
-      } else if (l.type === 'point') {
-        const p = new THREE.PointLight(colour, l.intensity, l.range ?? 0, l.decay ?? 2);
-        p.castShadow = true;
-        p.shadow.mapSize.set(1024, 1024);
-        p.shadow.bias = -0.001;
-        p.layers.enableAll();
-        scene.add(p);
-        live.push({ input: l, object: p });
-      } else if (l.type === 'spot') {
-        const s = new THREE.SpotLight(colour, l.intensity, l.range ?? 0, THREE.MathUtils.degToRad(l.angle ?? 30), l.penumbra ?? 0.2, l.decay ?? 2);
-        s.castShadow = true;
-        s.shadow.mapSize.set(1024, 1024);
-        s.shadow.bias = -0.001;
-        s.layers.enableAll();
-        scene.add(s, s.target);
-        live.push({ input: l, object: s });
+      } else if (l.type === 'point' || l.type === 'spot') {
+        const local = bakeLocalLight(l);
+        scene.add(local);
+        if (local instanceof THREE.SpotLight) scene.add(local.target);
+        live.push({ input: l, object: local });
       } else {
         const d = directional();
         sky.push({ input: l, object: d });

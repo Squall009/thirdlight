@@ -372,7 +372,9 @@ export type V3OwnedComponent =
   | 'climbVolume'
   | 'gravity'
   /** v4 scenes only: a camera region. */
-  | 'cameraRegion';
+  | 'cameraRegion'
+  /** v4 scenes only: a box the probe bake fills with probes. */
+  | 'probeVolume';
 
 /** Every `setComponent`-owned component (the base five plus the six v3 ones). */
 export type OwnedComponent =

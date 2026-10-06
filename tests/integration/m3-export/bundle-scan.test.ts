@@ -214,13 +214,16 @@ describe('M3 export bundle re-measurement + production parity', () => {
     // GLTFLoader and its two utils, plus three's Draco/KTX2
     // loaders with their helpers and the meshopt decoder, plus
     // the TSL sky and node post passes of the WebGPURenderer path (the DOF
-    // node pulls in the Gaussian blur node) — nothing else. The
+    // node pulls in the Gaussian blur node), and three's probe grid (its
+    // light node and sun-light helper) for baked probes — nothing else. The
     // WebGL sky, EffectComposer passes and shaders are gone with the
     // archived WebGL renderer path.
     expect(addons).toEqual([
       'libs/ktx-parse.module.js',
       'libs/meshopt_decoder.module.js',
       'libs/zstddec.module.js',
+      'lighting/LightProbeGrid.js',
+      'lighting/LightProbeGridUtils.js',
       'loaders/DRACOLoader.js',
       'loaders/GLTFLoader.js',
       'loaders/KTX2Loader.js',
@@ -232,6 +235,7 @@ describe('M3 export bundle re-measurement + production parity', () => {
       'tsl/display/GTAONode.js',
       'tsl/display/GaussianBlurNode.js',
       'tsl/display/SMAANode.js',
+      'tsl/lighting/LightProbeGridNode.js',
       'utils/BufferGeometryUtils.js',
       'utils/SkeletonUtils.js',
       'utils/WorkerPool.js',

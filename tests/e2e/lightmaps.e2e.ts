@@ -11,6 +11,11 @@
  * (auto and forced WebGL 2 in the default project, WebGPU in the webgpu
  * project), the lightmaps as node materials including the no-ambient copies
  * (the bake holds the ambient light).
+ *
+ * The same scene's probes ("Bake probes", WebGPU only): baked next to the
+ * lightmaps, published as files and recorded in the scene's bake, read back
+ * (the probe inside the cube is filled from its neighbours, an open one is
+ * lit), loaded by Play; on WebGL 2 the window says the bake needs WebGPU.
  */
 import { spawnSync } from 'node:child_process';
 
@@ -19,7 +24,8 @@ import * as THREE from 'three';
 
 import { startBackend, type E2EBackend } from './backend';
 import { decodePng, type Image } from './png';
-import { editorUrlFor, expectRendererBackend, onlyInItsProject, RENDERER_VARIANTS, type RendererVariant } from './renderer-variants';
+import { backendOf, editorUrlFor, expectRendererBackend, onlyInItsProject, RENDERER_VARIANTS, type RendererVariant } from './renderer-variants';
+import { decodeProbeArtifact } from '@thirdlight/three-adapter';
 import { openWindow } from './ui';
 
 let be: E2EBackend;
@@ -134,9 +140,96 @@ async function openScene(page: Page, variant: RendererVariant = 'auto'): Promise
   return { ground, cube, play };
 }
 
-async function bakeOf(): Promise<{ atlases: string[]; entries: { entityId: string }[]; bakedLights: string[]; source: string; bounces: number }> {
+interface ProbesRecord {
+  grids: { min: number[]; max: number[]; resolution: [number, number, number]; asset: string }[];
+  probes: number;
+  moved: number;
+  filled: number;
+  gpuBytes: number;
+}
+
+async function bakeOf(): Promise<{ atlases: string[]; entries: { entityId: string }[]; bakedLights: string[]; source: string; bounces: number; probes?: ProbesRecord }> {
   const config = await be.command({ op: 'queryGameConfig', projectId: be.projectId });
-  return Object.values(config['lighting'] as Record<string, { atlases: string[]; entries: { entityId: string }[]; bakedLights: string[]; source: string; bounces: number }>)[0]!;
+  return Object.values((config['lighting'] ?? {}) as Record<string, { atlases: string[]; entries: { entityId: string }[]; bakedLights: string[]; source: string; bounces: number; probes?: ProbesRecord }>)[0]!;
+}
+
+async function api(path: string): Promise<{ status: number; json: Record<string, unknown> }> {
+  const r = await fetch(`${be.origin}/api/v1/projects/${be.projectId}/${path}`, { method: 'POST', headers: { authorization: `Bearer ${be.token}`, origin: be.origin, 'content-type': 'application/json' }, body: '{}' });
+  const text = await r.text();
+  return { status: r.status, json: text === '' ? {} : (JSON.parse(text) as Record<string, unknown>) };
+}
+
+/**
+ * Bake the scene's probes and read them back: the files decode to the grid
+ * the record names, the probe inside the cube was filled from its neighbours,
+ * an open probe sees light, and Play loads every tile. On WebGL 2 the button
+ * is off and the window says why.
+ */
+async function bakeProbes(page: Page, variant: RendererVariant): Promise<void> {
+  const status = page.locator('[aria-label="probe status"]');
+  await expect(status).toContainText('No probes for this scene');
+  const button = page.getByRole('button', { name: 'Bake probes' });
+  if (backendOf(variant) !== 'webgpu') {
+    await expect(button).toBeDisabled();
+    await expect(page.locator('[aria-label="probe bake unavailable"]')).toContainText('needs WebGPU');
+    return;
+  }
+  // Once without bounces, then with the default two: bounce light adds to an open probe's light.
+  await page.getByRole('button', { name: /settings/ }).click();
+  await expect(page.getByRole('spinbutton', { name: 'probe bounces' })).toHaveValue('2');
+  const bakeWith = async (bounces: number, version: number) => {
+    await page.getByRole('spinbutton', { name: 'probe bounces' }).fill(String(bounces));
+    const before = (await bakeOf())?.probes?.createdAt ?? null;
+    const started = Date.now();
+    await button.click();
+    await expect.poll(async () => (await bakeOf())?.probes?.createdAt ?? null, { timeout: 120_000, message: 'the probe bake recorded' }).not.toBe(before);
+    await expect(status).toContainText('Probes from');
+    const message = (await page.getByRole('status').textContent()) ?? '';
+    expect(message).toContain('Baked');
+    console.log(`[lightmaps] ${variant} probes, ${bounces} bounces: ${((Date.now() - started) / 1000).toFixed(1)} s — ${message}`);
+    const bake = await bakeOf();
+    // The lightmaps stay as they were.
+    expect(bake.atlases).toHaveLength(1);
+    const probes = bake.probes!;
+    expect(probes.grids).toHaveLength(1);
+    const grid = probes.grids[0]!;
+    // A re-bake publishes a new version of the same file.
+    const r = await fetch(`${be.origin}/api/v1/projects/${be.projectId}/content/assets/${grid.asset}/versions/${version}/bytes`, { headers: { authorization: `Bearer ${be.token}`, origin: be.origin } });
+    expect(r.status).toBe(200);
+    const decoded = decodeProbeArtifact(new Uint8Array(await r.arrayBuffer()), grid);
+    if (!decoded.ok) throw new Error(decoded.message);
+    return { probes, grid, decoded };
+  };
+  const direct = await bakeWith(0, 1);
+  const { probes, grid, decoded } = await bakeWith(2, 2);
+  // The static bounds (x ±6, z ±4, y −0.5…2 and a metre above): one tile, 2 m apart, 1 m layers near the ground.
+  expect(grid.resolution).toEqual([7, 5, 5]);
+  expect(probes.probes).toBe(175);
+  expect(probes.filled + probes.moved).toBeGreaterThan(0);
+  const [nx, ny] = grid.resolution;
+  const at = (ix: number, iy: number, iz: number): number => ix + iy * nx + iz * nx * ny;
+  const dc = (d: typeof decoded, ix: number, iy: number, iz: number): number => THREE.DataUtils.fromHalfFloat(d.atlas[(((1 + iz) * ny + iy) * nx + ix) * 4]!);
+  // (0, 0.5, 0) is inside the cube: filled from its neighbours (0); (−4, 0.5, −2) is in the open (1) and lit.
+  expect(decoded.validity[at(3, 1, 2)]).toBe(0);
+  expect(decoded.validity[at(1, 1, 1)]).toBe(1);
+  console.log(`[lightmaps] open probe's SH DC (red): direct ${dc(direct.decoded, 1, 1, 1).toFixed(3)}, with 2 bounces ${dc(decoded, 1, 1, 1).toFixed(3)}; under the cube's shadow side ${dc(decoded, 4, 1, 2).toFixed(3)}`);
+  expect(dc(direct.decoded, 1, 1, 1)).toBeGreaterThan(0.1);
+  expect(dc(decoded, 1, 1, 1)).toBeGreaterThan(dc(direct.decoded, 1, 1, 1) * 1.02);
+
+  // Play loads the tiles.
+  const playing = page.waitForResponse((res) => res.request().method() === 'POST' && res.url().endsWith('/play'));
+  await page.getByTitle('Start an isolated play preview').click();
+  const psid = String(((await (await playing).json()) as { playSessionId: string }).playSessionId);
+  const loaded = async (): Promise<{ tiles: number; loaded: number; probes: number; gpuBytes: number } | null> => {
+    const d = await api(`play/${psid}/diagnostics`);
+    return ((d.json['diagnostics'] as { renderer?: { probes?: { tiles: number; loaded: number; probes: number; gpuBytes: number } } } | undefined)?.renderer?.probes ?? null);
+  };
+  // `error` names why a tile failed to load.
+  await expect.poll(async () => JSON.stringify(await loaded()), { timeout: 30_000, message: 'the tiles Play loaded' }).toContain('"loaded":1');
+  const inPlay = (await loaded())!;
+  expect(inPlay.probes).toBe(probes.probes);
+  expect(inPlay.gpuBytes).toBe(probes.gpuBytes);
+  await page.getByTitle('Stop the play preview').click();
 }
 
 for (const variant of RENDERER_VARIANTS) test(`Bake preview puts the static cube's shadow into the ground's lightmap; Play shows it (${variant})`, async ({ page }) => {
@@ -172,13 +265,21 @@ for (const variant of RENDERER_VARIANTS) test(`Bake preview puts the static cube
   expect(afterLit / beforeLit).toBeGreaterThan(0.6);
   expect(afterLit / beforeLit).toBeLessThan(1.5);
 
+  await bakeProbes(page, variant);
+
   // Moving a static object makes the bake stale (it is still used).
   await cmd('setTransform', { entityId: cube, transform: { position: [1, 1, 0] } });
   await expect(page.locator('[aria-label="bake status"]')).toContainText('stale');
 
-  // Clear removes the bake (one undo step).
+  // Clear removes the bake (one undo step); the probes are cleared on their own.
   await page.getByRole('button', { name: 'Clear bake' }).click();
   await expect(page.locator('[aria-label="bake status"]')).toContainText('No bake for this scene');
+  if (backendOf(variant) === 'webgpu') {
+    await expect(page.locator('[aria-label="probe status"]')).toContainText('stale');
+    await page.getByRole('button', { name: 'Clear probes' }).click();
+  }
+  await expect(page.locator('[aria-label="probe status"]')).toContainText('No probes for this scene');
+  expect(await bakeOf()).toBeUndefined();
 });
 
 test('Bake final runs Blender Cycles on the bake host; its lightmap shows the shadow in Play', async ({ page }) => {

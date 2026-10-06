@@ -26,6 +26,7 @@ export interface SceneViewAssets {
   readonly resources: ResourceManager;
   /** A texture asset's current version, decoded (lights' cookies, the environment, lightmaps). */
   readonly loadTexture: (assetId: string) => Promise<THREE.Texture | null>;
+  readonly loadBytes: (assetId: string) => Promise<Uint8Array>;
   readonly materialLibrary: MaterialLibrary;
   /** The model rows and bytes the scene adapter realizes placements from (rows follow reimports). */
   readonly models: SceneAdapterModels;
@@ -136,9 +137,17 @@ export function createSceneViewAssets(o: {
     assetTexturesFor: (assetId) => client.content.getAsset(assetId)?.textures ?? null,
     ...(o.onFailuresChanged !== undefined ? { onFailuresChanged: o.onFailuresChanged } : {}),
   });
+  /** A texture asset's stored bytes (the probe tiles' files are data, never decoded as images). */
+  const loadBytes = async (assetId: string): Promise<Uint8Array> => {
+    await client.catalog.ensureAssets([assetId]);
+    const v = client.content.resolveVersion(assetId);
+    if (v === null) throw new Error(`${assetId} is not an asset of this project`);
+    return client.assetBytes(assetId, v.version);
+  };
   return {
     resources,
     loadTexture,
+    loadBytes,
     materialLibrary,
     models,
     files,

@@ -9,6 +9,7 @@
 import { useEffect, useState, type JSX, type RefObject } from 'react';
 import type { ProjectedEntity } from '../../session/projection';
 import { bakeIsStale } from '../../viewport/bake-run';
+import { probesAreStale } from '../../viewport/probe-bake-run';
 import { EnvironmentPanel } from '../EnvironmentPanel';
 import { LightingPanel } from '../LightingPanel';
 import type { SceneHeaderView } from '../Hierarchy';
@@ -102,6 +103,12 @@ export function SceneToolWindows(p: SceneToolWindowsProps): JSX.Element | null {
         onBakeFinal={() => void b.bakeFinal()}
         onCancel={() => b.bakeAbortRef.current?.abort()}
         onClear={() => void b.clearBake()}
+        probeSettings={b.probeSettings}
+        onProbeSettings={b.setProbeSettings}
+        probeUnavailable={b.probeUnavailable}
+        probesStale={lighting[active.sceneId]?.probes !== undefined && probesAreStale(lighting[active.sceneId]!.probes!, (p.clientRef.current?.projection.listEntities() ?? []).filter((e) => e.sceneId === active.sceneId), (id) => p.clientRef.current?.getBlockLayers().get(id)?.chunks)}
+        onBakeProbes={() => void b.bakeProbes()}
+        onClearProbes={() => void b.clearProbes()}
       />
     );
   return (

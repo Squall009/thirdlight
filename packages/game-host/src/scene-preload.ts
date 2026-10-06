@@ -218,7 +218,10 @@ export function pageScenePreparation(o: {
       o.resources !== undefined &&
       ((r.kind === 'model' && (o.resources.has('model', assetVersionKey(r.assetId, r.version)) || o.resources.has('clip', assetVersionKey(r.assetId, r.version)))) || (r.kind === 'texture' && o.resources.has('texture', r.assetId)));
     const read = o.reader.preload(rows.filter((r) => !resident(r)), undefined, holder).catch(() => undefined);
-    const textures = rows.filter((r) => r.kind === 'texture').map((r) => r.assetId);
+    // A probe tile's file is data the probe grids read as bytes: read ahead, never decoded as an image.
+    const grids = (bake as { probes?: { grids?: readonly { asset?: unknown }[] } } | undefined)?.probes?.grids ?? [];
+    const probeFiles = new Set(grids.map((g) => g.asset));
+    const textures = rows.filter((r) => r.kind === 'texture' && !probeFiles.has(r.assetId)).map((r) => r.assetId);
     const prepared = o.adapter()?.prepareScene?.(sceneId, entities as unknown as readonly { id: string; components: unknown }[], textures) ?? null;
     return {
       ready: Promise.all([read, prepared?.ready ?? Promise.resolve()]).then(() => undefined),

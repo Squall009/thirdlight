@@ -22,6 +22,7 @@ import { IrradianceNode } from 'three/webgpu';
 
 import { copyMaterialKeepingHooks, isNodeMaterial, toNodeMaterial, withoutAmbientLight } from './node-materials';
 import { textureHolds, type TextureHolds } from './texture-holds';
+import type { ProbeBakeLike } from './probe-grids';
 
 /** A bake as the manifest carries it (project-model `LightingBake`, structurally). */
 export interface LightingBakeLike {
@@ -29,6 +30,8 @@ export interface LightingBakeLike {
   readonly atlases: readonly string[];
   readonly entries: readonly { readonly entityId: string; readonly chunk?: readonly number[]; readonly layout?: string; readonly atlas: number; readonly scaleOffset: readonly [number, number, number, number] | readonly number[] }[];
   readonly bakedLights: readonly string[];
+  /** The scene's baked probe tiles (probe-grids.ts). */
+  readonly probes?: ProbeBakeLike;
 }
 
 const BOX_MARGIN = 0.04;

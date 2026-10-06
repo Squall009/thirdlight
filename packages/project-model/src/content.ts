@@ -811,6 +811,13 @@ function validateMaterialReferences(doc: Record<string, unknown>, errors: ModelE
       bake['atlases'].forEach((id, i) => {
         if (plainKindOf.get(id) !== 'texture') errors.push(withFound({ code: 'asset_reference_missing', path: `/lighting/${pointerSegment(sceneId)}/atlases/${i}`, message: 'a lightmap atlas must name a texture asset of this project', expected: 'a texture assetId' }, id));
       });
+      const grids = isPlainObject(bake['probes']) ? bake['probes']['grids'] : undefined;
+      if (Array.isArray(grids)) {
+        grids.forEach((g, i) => {
+          const id = isPlainObject(g) ? g['asset'] : undefined;
+          if (plainKindOf.get(id) !== 'texture') errors.push(withFound({ code: 'asset_reference_missing', path: `/lighting/${pointerSegment(sceneId)}/probes/grids/${i}/asset`, message: 'a probe tile must name a texture asset of this project', expected: 'a texture assetId' }, id));
+        });
+      }
     }
   }
   // The asset records' own references (their rig, their default materials) only when the assets or the material ids changed.

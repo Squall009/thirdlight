@@ -175,6 +175,24 @@ function prepare(deps: BakeDeps, lightModes: readonly ('baked' | 'mixed')[]): Pr
   return { sceneEntities, inputs, packing, placement: new Map(packing.placements.map((p) => [p.id, p])) };
 }
 
+/**
+ * Publish one baked file as a texture asset: a new version of `reuse` when
+ * that asset still exists (a re-bake), else a new asset. Its asset id, or why
+ * it failed (`what` names the file in the message).
+ */
+export async function publishBakeTexture(client: SessionClient, bytes: Uint8Array, displayName: string, reuse: string | undefined, what: string): Promise<string | { message: string }> {
+  // Whether the previous file still exists is read by id (the editor holds no whole catalog).
+  if (reuse !== undefined) await client.catalog.ensureAssets([reuse]);
+  const target: ImportTarget = reuse !== undefined && client.content.resolveVersion(reuse) !== null ? { mode: 'reimport', assetId: reuse, displayName } : { mode: 'create', assetId: makeAssetId(), displayName };
+  const up = await client.uploadAsset(bytes, { kind: 'texture', displayName, target });
+  if (!up.ok) return { message: `${what} upload failed: ${up.error.message}` };
+  const args = publishArgsFromProposal(up.proposal, target, utcSecondTimestamp(), 'texture');
+  if (!args.ok) return { message: `${what} publish failed: ${args.error.message}` };
+  const res = await client.command('publishAsset', args.args, client.projection.revision);
+  if (!res.ok) return { message: `${what} publish refused: ${(res.response as { message?: string }).message ?? 'unknown'}` };
+  return String((args.args as { assetId: string }).assetId);
+}
+
 /** Publish the atlases (a re-bake adds versions to the previous atlases) and record the bake. */
 async function publish(deps: BakeDeps, prepared: Prepared, pngs: readonly Uint8Array[], meta: { source: 'browser' | 'blender'; samples: number; bounces: number; bakedLights: string[] }): Promise<LightingBake | { message: string }> {
   const { client, sceneId, settings } = deps;
@@ -182,19 +200,9 @@ async function publish(deps: BakeDeps, prepared: Prepared, pngs: readonly Uint8A
   const atlasIds: string[] = [];
   for (let i = 0; i < pngs.length; i++) {
     deps.onProgress(`saving lightmap ${i + 1}/${pngs.length}`, 0.9 + (0.1 * i) / pngs.length);
-    const reuse = previous?.atlases[i];
-    // Whether the previous atlas still exists is read by id (the editor holds no whole catalog).
-    if (reuse !== undefined) await client.catalog.ensureAssets([reuse]);
-    const displayName = `lightmap ${deps.sceneName} ${i + 1}`;
-    const target: ImportTarget =
-      reuse !== undefined && client.content.resolveVersion(reuse) !== null ? { mode: 'reimport', assetId: reuse, displayName } : { mode: 'create', assetId: makeAssetId(), displayName };
-    const up = await client.uploadAsset(pngs[i]!, { kind: 'texture', displayName, target });
-    if (!up.ok) return { message: `lightmap upload failed: ${up.error.message}` };
-    const args = publishArgsFromProposal(up.proposal, target, utcSecondTimestamp(), 'texture');
-    if (!args.ok) return { message: `lightmap publish failed: ${args.error.message}` };
-    const res = await client.command('publishAsset', args.args, client.projection.revision);
-    if (!res.ok) return { message: `lightmap publish refused: ${(res.response as { message?: string }).message ?? 'unknown'}` };
-    atlasIds.push(String((args.args as { assetId: string }).assetId));
+    const id = await publishBakeTexture(client, pngs[i]!, `lightmap ${deps.sceneName} ${i + 1}`, previous?.atlases[i], 'lightmap');
+    if (typeof id !== 'string') return id;
+    atlasIds.push(id);
   }
   const hashes = bakeHashes(prepared.sceneEntities.map((e) => bakeHashEntity(e, (id) => client.getBlockLayers().get(id)?.chunks)));
   const bake: LightingBake = {
@@ -213,6 +221,8 @@ async function publish(deps: BakeDeps, prepared: Prepared, pngs: readonly Uint8A
     bakedLights: meta.bakedLights,
     lightsHash: hashes.lightsHash,
     staticsHash: hashes.staticsHash,
+    // The scene's probes are baked on their own: a lightmap bake keeps them.
+    ...(previous?.probes !== undefined ? { probes: previous.probes } : {}),
   };
   const res = await client.command('setLighting', { sceneId, lighting: bake }, client.projection.revision);
   if (!res.ok) return { message: `the bake was refused: ${(res.response as { message?: string }).message ?? 'unknown'}` };

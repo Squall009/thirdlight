@@ -110,7 +110,12 @@ export function gatherBakeInputs(host: BakeInputHost, entityIds: ReadonlySet<str
     }
     for (const id of view.layerIds()) if (!layers.has(id)) for (const mesh of view.layerMeshes(id)) occluders.push({ geometry: mesh.geometry, matrixWorld: mesh.matrixWorld.clone() });
   }
-  const lights: (BakeLightInput & { entityId: string; mode: 'baked' | 'mixed' })[] = [];
+  return { targets, occluders, missingUv, lights: gatherBakeLights(host) };
+}
+
+/** The baked and mixed lights in world space (a spot's direction turned with its object). */
+export function gatherBakeLights(host: Pick<BakeInputHost, 'projected' | 'nodeOf'>): BakeInputs['lights'] {
+  const lights: BakeInputs['lights'] = [];
   for (const e of host.projected) {
     const l = e.light;
     if (l === undefined || e.active === false || (l.mode !== 'baked' && l.mode !== 'mixed')) continue;
@@ -137,5 +142,5 @@ export function gatherBakeInputs(host: BakeInputHost, entityIds: ReadonlySet<str
       ...(l.groundColor !== undefined ? { groundColor: l.groundColor } : {}),
     });
   }
-  return { targets, occluders, missingUv, lights };
+  return lights;
 }

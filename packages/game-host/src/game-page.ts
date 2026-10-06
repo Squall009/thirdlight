@@ -515,6 +515,15 @@ function pageTextureLoader(reader: VerifiedAssetReader, catalog: RuntimeCatalog,
     );
 }
 
+/** A texture asset's verified bytes as stored (a probe tile's file is data: never decoded as an image). */
+function pageAssetBytes(reader: VerifiedAssetReader, catalog: RuntimeCatalog): (assetId: string) => Promise<Uint8Array> {
+  return async (assetId) => {
+    const row = await catalog.lookup(assetId);
+    if (row === undefined || row.kind !== 'texture') throw new Error(`${assetId} is not a texture asset of this build`);
+    return new Uint8Array(await reader.bytes(row.assetId, row.version));
+  };
+}
+
 /** Each shipped material's texture assets (what a material swap loads before it shows). */
 function materialTexturesOf(manifest: GamePageManifest): (materialId: string) => readonly string[] {
   const byId = new Map((manifest.materials ?? []).map((m) => [m.materialId, m]));
@@ -531,7 +540,7 @@ function materialTexturesOf(manifest: GamePageManifest): (materialId: string) =>
 }
 
 /** The adapter's materials, environment, lighting and light options (textures from the verified bytes). */
-function materialsOptionOf(manifest: GamePageManifest, env: GamePageManifest['environment'], scenes: { start: string | null; look(sceneId: string): SceneLookLike | null } | null, loadTexture: NonNullable<SceneAdapterOptions['materials']>['loadTexture'], streamer: TextureStreamer): { materials?: SceneAdapterOptions['materials']; environment?: SceneAdapterOptions['environment']; lighting?: SceneAdapterOptions['lighting']; lights: NonNullable<SceneAdapterOptions['lights']> } {
+function materialsOptionOf(manifest: GamePageManifest, env: GamePageManifest['environment'], scenes: { start: string | null; look(sceneId: string): SceneLookLike | null } | null, loadTexture: NonNullable<SceneAdapterOptions['materials']>['loadTexture'], streamer: TextureStreamer, loadBytes: (assetId: string) => Promise<Uint8Array>): { materials?: SceneAdapterOptions['materials']; environment?: SceneAdapterOptions['environment']; lighting?: SceneAdapterOptions['lighting']; lights: NonNullable<SceneAdapterOptions['lights']> } {
   // A sky, a cookie or a lightmap is not a mesh's surface whose size on screen says what it needs: a streamed texture they draw is kept at full size.
   const loadWhole: typeof loadTexture = (assetId) =>
     loadTexture(assetId).then((t) => {
@@ -549,7 +558,7 @@ function materialsOptionOf(manifest: GamePageManifest, env: GamePageManifest['en
         environmentHasLook(env) || (env?.presets?.length ?? 0) > 0
         ? { environment: { value: env ?? {}, loadTexture: loadWhole } }
         : {}),
-    ...(manifest.lighting !== undefined ? { lighting: { bakes: manifest.lighting, loadTexture: loadWhole } } : {}),
+    ...(manifest.lighting !== undefined ? { lighting: { bakes: manifest.lighting, loadTexture: loadWhole, loadBytes } } : {}),
     materials: { defs: manifest.materials ?? [], functions: manifest.materialFunctions ?? [], wind: env?.wind ?? null, loadTexture, textureRefs: materialTexturesOf(manifest) },
   };
 }
@@ -885,7 +894,7 @@ export async function startGamePage(o: GamePageOptions): Promise<GamePageHandle>
           ...(timings !== undefined ? { onFrameDrawn: (f: FrameDrawnInfo) => timings.frame(f) } : {}),
           // A model's extracted images draw from their texture assets, streamed like a material's.
           ...(models !== null ? { models: { ...models, loadTexture: pageTextures }, modelsLoader: loader() } : {}),
-          ...materialsOptionOf(manifest, environment, catalog0 !== null ? { start: firstStart ?? null, look: (sceneId) => sceneLooks.get(sceneId) ?? null } : null, pageTextures, textureStreamer),
+          ...materialsOptionOf(manifest, environment, catalog0 !== null ? { start: firstStart ?? null, look: (sceneId) => sceneLooks.get(sceneId) ?? null } : null, pageTextures, textureStreamer, pageAssetBytes(assetReader, content.catalog)),
           textureStreamer,
           // The visual effects (textures and models from the verified bytes).
           ...(manifest.effects !== undefined && manifest.effects.length > 0

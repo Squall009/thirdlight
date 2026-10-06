@@ -260,7 +260,7 @@ const tmpR = new THREE.Matrix3();
 const tmpV = new THREE.Vector3();
 
 /** Write a slot's vertices into the built attributes at its place, in world space. */
-function writeVertices(attrs: ReadonlyMap<string, THREE.BufferAttribute>, slot: Slot): void {
+function writeVertices(attrs: ReadonlyMap<string, THREE.BufferAttribute>, slot: Pick<Slot, 'geometry' | 'matrix' | 'vStart' | 'vCount' | 'sphere'>): void {
   const g = slot.geometry;
   tmpM.fromArray(slot.matrix);
   tmpN.getNormalMatrix(tmpM);
@@ -322,7 +322,7 @@ function writeVertices(attrs: ReadonlyMap<string, THREE.BufferAttribute>, slot: 
 }
 
 /** A slot's triangles into the template at its place (turned for a mirroring matrix, so the front faces stay front). */
-function writeTriangles(template: Uint32Array, slot: Slot): void {
+function writeTriangles(template: Uint32Array, slot: Pick<Slot, 'geometry' | 'vStart' | 'iStart' | 'flipped'>): void {
   const src = sourceIndices(slot.geometry);
   const o = slot.vStart;
   for (let t = 0; t < src.count; t += 3) {
@@ -334,6 +334,51 @@ function writeTriangles(template: Uint32Array, slot: Slot): void {
     template[at + 1] = slot.flipped ? c : b;
     template[at + 2] = slot.flipped ? b : c;
   }
+}
+
+/** New attributes for `vertices` vertices of `first`'s layout (the transformed ones as floats). */
+function layoutAttributes(first: THREE.BufferGeometry, vertices: number): Map<string, THREE.BufferAttribute> {
+  const attrs = new Map<string, THREE.BufferAttribute>();
+  for (const name of Object.keys(first.attributes)) {
+    const src = first.getAttribute(name) as THREE.BufferAttribute | THREE.InterleavedBufferAttribute;
+    const size = src.itemSize;
+    if (TRANSFORMED[name] !== undefined) attrs.set(name, new THREE.BufferAttribute(new Float32Array(vertices * size), size));
+    else {
+      const like = (src as THREE.InterleavedBufferAttribute).isInterleavedBufferAttribute === true ? (src as THREE.InterleavedBufferAttribute).data.array : (src as THREE.BufferAttribute).array;
+      const Ctor = like.constructor as new (n: number) => THREE.TypedArray;
+      attrs.set(name, new THREE.BufferAttribute(new Ctor(vertices * size), size, src.normalized));
+    }
+  }
+  return attrs;
+}
+
+/**
+ * One geometry in world space from meshes that share a vertex layout
+ * (`mergeLayout`): what a bake draws instead of the meshes one by one. All
+ * their triangles are in its index (mirrored ones turned, so front faces stay
+ * front); nothing of it is kept up to date.
+ */
+export function mergeWorldGeometry(parts: readonly { readonly geometry: THREE.BufferGeometry; readonly matrixWorld: THREE.Matrix4 }[]): THREE.BufferGeometry {
+  let vertices = 0;
+  let indices = 0;
+  const slots = parts.map((p) => {
+    const s = { geometry: p.geometry, vStart: vertices, vCount: p.geometry.getAttribute('position').count, iStart: indices, matrix: new Float64Array(p.matrixWorld.elements), flipped: p.matrixWorld.determinant() < 0, sphere: new Float64Array(4) };
+    vertices += s.vCount;
+    indices += sourceIndices(p.geometry).count;
+    return s;
+  });
+  const geometry = new THREE.BufferGeometry();
+  const attrs = layoutAttributes(parts[0]!.geometry, vertices);
+  for (const [name, attr] of attrs) geometry.setAttribute(name, attr);
+  const template = new Uint32Array(indices);
+  for (const s of slots) {
+    writeVertices(attrs, s);
+    writeTriangles(template, s);
+  }
+  geometry.setIndex(new THREE.BufferAttribute(template, 1));
+  geometry.computeBoundingBox();
+  geometry.computeBoundingSphere();
+  return geometry;
 }
 
 /**
@@ -568,7 +613,6 @@ export function createStaticMerger(options: StaticMergerOptions): StaticMerger {
   const build = (cell: Cell): void => {
     const list = [...cell.slots];
     const first = list[0]!.geometry;
-    const names = Object.keys(first.attributes);
     let vertices = 0;
     let indices = 0;
     for (const s of list) {
@@ -582,19 +626,9 @@ export function createStaticMerger(options: StaticMergerOptions): StaticMerger {
       indices += s.iCount;
     }
     const geometry = new THREE.BufferGeometry();
-    const attrs = new Map<string, THREE.BufferAttribute>();
+    const attrs = layoutAttributes(first, vertices);
     let vertexBytes = 0;
-    for (const name of names) {
-      const src = first.getAttribute(name) as THREE.BufferAttribute | THREE.InterleavedBufferAttribute;
-      const size = src.itemSize;
-      let attr: THREE.BufferAttribute;
-      if (TRANSFORMED[name] !== undefined) attr = new THREE.BufferAttribute(new Float32Array(vertices * size), size);
-      else {
-        const like = (src as THREE.InterleavedBufferAttribute).isInterleavedBufferAttribute === true ? (src as THREE.InterleavedBufferAttribute).data.array : (src as THREE.BufferAttribute).array;
-        const Ctor = like.constructor as new (n: number) => THREE.TypedArray;
-        attr = new THREE.BufferAttribute(new Ctor(vertices * size), size, src.normalized);
-      }
-      attrs.set(name, attr);
+    for (const [name, attr] of attrs) {
       geometry.setAttribute(name, attr);
       vertexBytes += attr.array.byteLength;
     }

@@ -1550,6 +1550,41 @@ scene with a bake cannot be deleted until the bake is cleared. MCP can clear
 a bake (`setLighting {sceneId, lighting: null}`); bakes are made in an
 editor (the headless one works too).
 
+### Probe grids
+
+**Bake probes** (Lighting window, next to the lightmap buttons) bakes the
+active scene's light probes: points on a grid that hold the indirect light
+(the sky, and the baked/mixed lights' light bounced off the static objects)
+for 3D objects to sample. Without a **Probe volume** component in the scene
+the probes cover its static objects' bounds (and half a spacing above);
+with probe volumes (GameObject → Light → Probe volume: a box, its size and
+an optional spacing of its own, axis-aligned in the world) they cover those
+boxes instead.
+
+- **Settings** (the window's settings): `probe spacing` — metres between
+  probes horizontally, default 2 (0.25–32); in the lowest 2 spacings of each
+  box (the ground band) probes are twice as dense vertically. `probe
+  bounces` — extra bounce passes, default 2 (0–8). The scene's next bake
+  starts from its last bake's settings.
+- Large boxes are split into tiles of at most 64 probe intervals per axis;
+  there is no cap on the number of probes or tiles. The window reports the
+  probes, tiles, GPU memory (8 bytes × 7 per probe and padding) and file
+  size of each bake; each tile is a texture asset named `probes <scene>
+  <n>` (a 16-bit PNG of half floats; a re-bake adds versions).
+- Probes inside geometry (seeing back faces in more than a quarter of their
+  directions) are moved out by a quarter or half a spacing, or filled from
+  their neighbours, so no light comes from inside walls.
+- The bake runs on the Scene view's renderer and needs **WebGPU**; on WebGL 2
+  the button is off and the window says so. Baked probes load on both
+  renderers (Play, export, the Scene view). Measured on this host (Iris Xe):
+  the village perf class (8,712 probes) bakes in ~110 s, a 128 × 128 m block
+  ground (38,025 probes) in ~135 s.
+
+**Clear probes** removes them (Clear bake removes only the lightmaps).
+Probes show stale like lightmaps. Until the probes are sampled by materials
+(the next part of this work), they are baked, stored and loaded but do not
+change the picture.
+
 ## Animation (Animator)
 
 Models with clips (skinned or not) play them through **animator

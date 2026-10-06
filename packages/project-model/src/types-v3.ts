@@ -166,6 +166,8 @@ export interface EntityComponentsV3 extends EntityComponentsV2 {
   cameraPath?: import('./cameras').CameraPathComponent;
   /** v4 only: a camera region (a track camera's dead zone, bounds and distance while its target is inside). */
   cameraRegion?: import('./cameras').CameraRegionComponent;
+  /** v4 only: a box the probe bake fills with probes (baked indirect light). */
+  probeVolume?: import('./probe-grids').ProbeVolumeComponent;
   /** v4 only: rides on a named node of another entity's model (with an offset). */
   socketAttach?: import('./sockets').SocketAttachComponent;
   /** v4 only: the animator controller that plays the model's clips. */

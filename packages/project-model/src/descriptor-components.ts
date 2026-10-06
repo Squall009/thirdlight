@@ -3,6 +3,7 @@
  * handles, rules and create-menu entries, and the object's own fields.
  */
 
+import { DEFAULT_PROBE_SPACING, PROBE_SPACING_MAX, PROBE_SPACING_MIN } from './probe-grids';
 import { LOOK_AT_LIMITS, MAX_ANIMATOR_PARAMETERS } from './animator';
 import { BLOCK_DEFAULTS, BLOCK_TUNING_LIMITS, HITBOX_SHAPES, GRAVITY_SCALE, MOVER_EASINGS, MOVER_MODES, PATROL_MODES, PRIMITIVE_DEFAULTS, PRIMITIVE_LIMITS, SWITCH_MODES, SWITCH_DEFAULT_ACTION, FACE_MOVEMENT_MODES, MAX_TRANSITION_FADE, MAX_TRANSITION_UNLOADS, TRIGGER_HEIGHT, TRIGGER_MODES, TRIGGER_RADIUS, TRIGGER_SHAPES } from './blocks';
 import {
@@ -723,6 +724,24 @@ export const fogVolume: ComponentDescriptor = {
   excludes: [],
   prefab: false,
   rules: ['At most 16 fog volumes per scene.'],
+};
+
+export const probeVolume: ComponentDescriptor = {
+  name: 'probeVolume',
+  label: 'Probe volume',
+  tooltip: 'A box the probe bake fills with light probes (Lighting window → Bake probes). Without any, the bake covers the static objects.',
+  category: 'Rendering',
+  value: obj('probeVolume', 'Probe volume', 'A box of light probes.', [
+    vec3('size', 'Size', 'Width, height and depth (axis-aligned in the world).', { required: true, min: 0, minExclusive: true, max: 100000, step: 1, unit: 'm', default: [16, 6, 16], labels: ['w', 'h', 'd'], handle: 'box3' }),
+    num('spacing', 'Spacing', 'Meters between probes horizontally (half that vertically near the bottom). Absent: the bake\'s spacing.', { min: PROBE_SPACING_MIN, max: PROBE_SPACING_MAX, step: 0.25, unit: 'm', default: DEFAULT_PROBE_SPACING }),
+  ]),
+  // A room-to-courtyard sized box: easy to see and resize over the part of a level that needs its own probes.
+  add: { kind: 'menu', value: { size: [16, 6, 16] } },
+  create: [{ label: 'Probe volume', menu: 'Light' }],
+  icon: 'fog',
+  handles: [{ kind: 'box3', label: 'Size', bind: { size: 'size' }, space: 'local' }],
+  excludes: [],
+  prefab: false,
 };
 
 // The behavior group an object's behavior belongs to (game modes tick groups).

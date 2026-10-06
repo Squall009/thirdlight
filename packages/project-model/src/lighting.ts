@@ -9,10 +9,15 @@
  *
  * Atlas texels store irradiance / `range`, sRGB-encoded (8-bit PNG); the
  * renderer multiplies by `range`.
+ *
+ * A scene's probe grids (`probes`, see probe-grids.ts) are baked separately and
+ * ride in the same record: a scene with probes and no lightmaps has no
+ * atlases and no entries.
  */
 import { ID_RE } from './validate';
 import { BLOCK_LIMITS, CHUNK_SIZE } from './block-layers';
 import type { ModelErrorV2 } from './errors';
+import { canonicalProbeBake, validateProbeBake, type ProbeBake } from './probe-grids';
 
 export interface LightingEntry {
   entityId: string;
@@ -55,6 +60,8 @@ export interface LightingBake {
   /** Hashes of the baked/mixed lights and of the static objects at bake time. */
   lightsHash: string;
   staticsHash: string;
+  /** The scene's baked probe grids (absent: none). */
+  probes?: ProbeBake;
 }
 
 export type LightingMap = Record<string, LightingBake>;
@@ -77,6 +84,7 @@ const num = (v: unknown, lo: number, hi: number): boolean => typeof v === 'numbe
 const int = (v: unknown, lo: number, hi: number): boolean => num(v, lo, hi) && Number.isInteger(v);
 
 const BAKE_FIELDS = ['bakeId', 'createdAt', 'source', 'range', 'texelsPerMeter', 'samples', 'bounces', 'atlases', 'entries', 'bakedLights', 'lightsHash', 'staticsHash'];
+const OPTIONAL_BAKE_FIELDS = ['probes'];
 
 /** One scene's bake (structure and ranges; asset kinds are checked with the content). */
 export function validateLightingBake(value: unknown, path: string, errors: ModelErrorV2[]): void {
@@ -84,7 +92,7 @@ export function validateLightingBake(value: unknown, path: string, errors: Model
     err(errors, 'field_type', path, 'a bake is an object', value);
     return;
   }
-  for (const k of Object.keys(value)) if (!BAKE_FIELDS.includes(k)) err(errors, 'field_unexpected', `${path}/${k}`, `unknown bake field "${k}"`, k, BAKE_FIELDS.join(', '));
+  for (const k of Object.keys(value)) if (!BAKE_FIELDS.includes(k) && !OPTIONAL_BAKE_FIELDS.includes(k)) err(errors, 'field_unexpected', `${path}/${k}`, `unknown bake field "${k}"`, k, [...BAKE_FIELDS, ...OPTIONAL_BAKE_FIELDS].join(', '));
   for (const k of BAKE_FIELDS) if (value[k] === undefined) err(errors, 'field_missing', `${path}/${k}`, `"${k}" is required`, undefined, k);
   const v = value;
   if (v['bakeId'] !== undefined && (typeof v['bakeId'] !== 'string' || !ID_RE.test(v['bakeId']))) err(errors, 'field_value', `${path}/bakeId`, 'bakeId is an id (a-z, 0-9, _ and -)', v['bakeId']);
@@ -97,11 +105,14 @@ export function validateLightingBake(value: unknown, path: string, errors: Model
   for (const k of ['lightsHash', 'staticsHash']) {
     if (v[k] !== undefined && (typeof v[k] !== 'string' || !HASH_RE.test(v[k] as string))) err(errors, 'field_value', `${path}/${k}`, `${k} is 16 lowercase hex digits`, v[k]);
   }
+  if (v['probes'] !== undefined) validateProbeBake(v['probes'], `${path}/probes`, errors);
   const atlases = v['atlases'];
   let atlasCount = 0;
+  // Without probes a bake is lightmaps, so it has at least one atlas.
+  const fewestAtlases = v['probes'] !== undefined ? 0 : 1;
   if (atlases !== undefined) {
-    if (!Array.isArray(atlases) || atlases.length < 1 || atlases.length > MAX_LIGHTMAP_ATLASES || !atlases.every((a) => typeof a === 'string' && ID_RE.test(a))) {
-      err(errors, 'field_value', `${path}/atlases`, `atlases is 1–${MAX_LIGHTMAP_ATLASES} texture asset ids`, atlases);
+    if (!Array.isArray(atlases) || atlases.length < fewestAtlases || atlases.length > MAX_LIGHTMAP_ATLASES || !atlases.every((a) => typeof a === 'string' && ID_RE.test(a))) {
+      err(errors, 'field_value', `${path}/atlases`, `atlases is ${fewestAtlases}–${MAX_LIGHTMAP_ATLASES} texture asset ids`, atlases);
     } else atlasCount = atlases.length;
   }
   const bakedLights = v['bakedLights'];
@@ -172,6 +183,7 @@ export function canonicalLightingBake(b: LightingBake): LightingBake {
     bakedLights: [...b.bakedLights].sort(),
     lightsHash: b.lightsHash,
     staticsHash: b.staticsHash,
+    ...(b.probes !== undefined ? { probes: canonicalProbeBake(b.probes) } : {}),
   };
 }
 

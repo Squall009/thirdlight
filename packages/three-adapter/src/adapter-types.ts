@@ -18,6 +18,7 @@ import type { RenderedNodePose } from './animator-player';
 import type { ModelsSettledResult, SceneAdapterModels, SceneAdapterModelsDiagnostics } from './models';
 import type { GlbLoaderPort } from './visual';
 import type { ShadowReason } from './lighting';
+import type { ProbeGridsObservation } from './probe-grids';
 import type { CachedShadowCounts } from './cached-shadow';
 import type { EffectDefLike, EffectsDiagnostics, EffectsPlayerOptions } from './effects-player';
 import type { AutoBatcherDiagnostics } from './batching';
@@ -122,6 +123,8 @@ export interface SceneAdapterOptions {
   lighting?: {
     readonly bakes: Readonly<Record<string, LightingBakeLike>>;
     readonly loadTexture: (assetId: string) => Promise<THREE.Texture | null>;
+    /** An asset's verified bytes, as stored (the probe tiles' files are data, not images to decode); rejects with why not. Absent: no probe grids. */
+    readonly loadBytes?: (assetId: string) => Promise<Uint8Array>;
   };
   /**
    * Which renderer backend to use and where that choice came
@@ -301,6 +304,8 @@ export interface SceneAdapterDiagnostics {
    * of a sky changed in place (a blend, a moved sun light) so far — only when it moved past a threshold; ABSENT without one.
    */
   environment?: { iblRebakes: number; post: boolean; passes: string[]; quality: QualityLevel; samples: number; fallback: string | null };
+  /** The loaded scenes' baked probe tiles: listed, loaded, their probes and GPU bytes, failed loads; ABSENT without any. */
+  probes?: ProbeGridsObservation;
   /**
    * The precompiles (`renderer.compileAsync` before the first
    * present and after each scene attach): settled, failed (the frame then

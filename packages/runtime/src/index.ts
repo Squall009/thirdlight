@@ -472,3 +472,28 @@ export {
 export { DIALOGUE_VOICE_LOOKAHEAD_LINES, dialogueVoicesAhead, type DialogueVoiceAhead } from './dialogue-ahead';
 // Collider shapes made from geometry (the editor's model colliders and the build's `_COL` parts make the same).
 export { COLLIDER_3D_LIMITS, MAX_COLLIDER_EXTENT, colliderFromTriangles, convexFromPoints, convexHull2, polygonFromPoints, roundMm } from '@thirdlight/project-model';
+// Probe grids (baked indirect light): placement, the record, and the artifact's PNG decoder (16-bit samples kept).
+export {
+  DEFAULT_PROBE_BOUNCES,
+  DEFAULT_PROBE_SPACING,
+  MAX_PROBE_BOUNCES,
+  MAX_TEXTURE_EDGE,
+  PROBE_ARTIFACT_ROW_PROBES,
+  PROBE_ATLAS_PADDING,
+  PROBE_FILLED,
+  PROBE_MOVED,
+  PROBE_SPACING_MAX,
+  PROBE_SPACING_MIN,
+  PROBE_TEXELS,
+  PROBE_VALID,
+  PROBE_VALIDITY_THRESHOLD,
+  decodePngRgba,
+  placeProbeGrids,
+  probeArtifactSize,
+  probeCount,
+  probeGridGpuBytes,
+  type ProbeBake,
+  type ProbeGridBox,
+  type ProbeGridRecord,
+  type ProbeVolumeBox,
+} from '@thirdlight/project-model';

@@ -23,15 +23,21 @@ import { fitSprite, iconKindFor, makeIconSprite, setSpriteSelected, type IconKin
 /** Marks an overlay group (bounds and outlines leave it out). */
 export const OVERLAY_KEY = 'tlOverlay';
 
+/** A probe volume's box size (null: the entity has none). */
+function probeVolumeSize(e: ProjectedEntity): number[] | null {
+  const size = (e.components['probeVolume'] as { size?: number[] } | undefined)?.size;
+  return Array.isArray(size) && size.length === 3 ? size : null;
+}
+
 /**
  * What an entity's overlays are built from — its kind, its light (type,
- * direction, range, cone, mode) and whether it has a fog volume or is a
- * spawn (with its facing). A change rebuilds them; sizes and colours update in place.
+ * direction, range, cone, mode), whether it has a fog volume or is a
+ * spawn (with its facing), and its probe volume's size. A change rebuilds them; sizes and colours update in place.
  */
 function buildKeyOf(e: ProjectedEntity): string {
   const l = e.light;
   const facing = e.playerSpawn === true ? ((e.components['playerSpawn'] as { yaw?: number } | undefined)?.yaw ?? null) : null;
-  return JSON.stringify([e.kind, l === undefined ? null : [l.type, l.direction ?? null, l.range ?? null, l.angle ?? null, l.mode ?? null], e.fogVolume !== undefined, e.playerSpawn === true, facing]);
+  return JSON.stringify([e.kind, l === undefined ? null : [l.type, l.direction ?? null, l.range ?? null, l.angle ?? null, l.mode ?? null], e.fogVolume !== undefined, e.playerSpawn === true, facing, probeVolumeSize(e)]);
 }
 
 interface Built {
@@ -204,6 +210,14 @@ export class EntityOverlays {
       box.userData = { fogVolumeSize: e.fogVolume.size.join(',') };
       group.add(box);
       b.fog = box;
+    }
+    // A probe volume shows the box the probe bake fills (dashed, so it reads apart from a fog box).
+    const probes = probeVolumeSize(e);
+    if (probes !== null) {
+      const box = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(probes[0], probes[1], probes[2])), new THREE.LineDashedMaterial({ color: 0x9be7a8, dashSize: 0.3, gapSize: 0.15, transparent: true, opacity: 0.8 }));
+      box.computeLineDistances();
+      box.name = `probe-volume:${e.id}`;
+      group.add(box);
     }
     return b;
   }

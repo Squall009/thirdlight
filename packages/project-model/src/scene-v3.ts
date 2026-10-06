@@ -14,6 +14,7 @@
  * renumbered or reinterpreted). Pure and total: same input → same
  * result, never throws, never reads files.
  */
+import { canonicalProbeVolume, validateProbeVolumeComponent, type ProbeVolumeComponent } from './probe-grids';
 import { ID_RE } from './validate';
 import { validateLightLayerMask } from './light-layers';
 
@@ -130,8 +131,9 @@ const KNOWN_ENTITY_FIELDS = new Set(['id', 'name', 'parentId', ...ENTITY_FLAGS, 
 // `materialParams` (per-object overrides of graph-material parameters) is appended last.
 // `effect` (plays a visual effect from the entity) is appended after it.
 // No `camera`: the engine owns the view and scenes hold shots (`virtualCamera`); an older project's scene camera is upgraded on open.
-export const V4_REGISTRY: readonly string[] = [...V3_REGISTRY.filter((c) => c !== 'camera'), 'instances', 'materials', 'fogVolume', 'animator', ...BLOCK_COMPONENT_NAMES, 'materialParams', 'effect', 'virtualCamera', 'cameraPath', 'blockLayer', 'blockFootprint', 'socketAttach', 'behaviorGroup', 'cameraRegion'];
-// `cameraRegion` (a track camera's dead zone, bounds and distance while its target is inside) last.
+export const V4_REGISTRY: readonly string[] = [...V3_REGISTRY.filter((c) => c !== 'camera'), 'instances', 'materials', 'fogVolume', 'animator', ...BLOCK_COMPONENT_NAMES, 'materialParams', 'effect', 'virtualCamera', 'cameraPath', 'blockLayer', 'blockFootprint', 'socketAttach', 'behaviorGroup', 'cameraRegion', 'probeVolume'];
+// `probeVolume` (a box the probe bake fills with probes) last.
+// `cameraRegion` (a track camera's dead zone, bounds and distance while its target is inside) before it.
 // `blockLayer` (a grid of blocks; its cells are the scene's `blocks`) is appended after it.
 // `blockFootprint` (the metadata a prop writes into the block cells beneath it) after that.
 // `socketAttach` (rides on a node of another entity's model) after that.
@@ -768,6 +770,7 @@ function validateEntityComponentsV3(
   if (comps['cameraPath'] !== undefined) validateCameraPathComponent(comps['cameraPath'], `${path}/cameraPath`, errors);
   // A camera region (any entity may carry one).
   if (comps['cameraRegion'] !== undefined) validateCameraRegionComponent(comps['cameraRegion'], `${path}/cameraRegion`, errors);
+  if (comps['probeVolume'] !== undefined) validateProbeVolumeComponent(comps['probeVolume'], `${path}/probeVolume`, errors);
   // The entity rides on a node of another entity's model.
   if (comps['socketAttach'] !== undefined) validateSocketAttachComponent(comps['socketAttach'], `${path}/socketAttach`, errors);
   // The behavior group (whether the group exists is the project composition's check).
@@ -1045,6 +1048,7 @@ function canonicalEntityV3(e: Record<string, unknown>): SceneEntityV3 {
   if (comps['behaviorGroup'] !== undefined) (components as { behaviorGroup?: BehaviorGroupComponent }).behaviorGroup = canonicalBehaviorGroup(comps['behaviorGroup'] as BehaviorGroupComponent);
   // After that (existing entities keep their bytes).
   if (comps['cameraRegion'] !== undefined) (components as { cameraRegion?: CameraRegionComponent }).cameraRegion = canonicalCameraRegion(comps['cameraRegion'] as CameraRegionComponent);
+  if (comps['probeVolume'] !== undefined) components.probeVolume = canonicalProbeVolume(comps['probeVolume'] as ProbeVolumeComponent);
   if (comps['instances'] !== undefined) {
     const i = comps['instances'] as { asset: { assetId: string; piece?: string }; buffer: string; count: number; castShadow?: boolean; receiveShadow?: boolean; chunkSize?: number; lightLayers?: number };
     components.instances = {

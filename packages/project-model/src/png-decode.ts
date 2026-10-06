@@ -14,6 +14,8 @@ export interface DecodedPng {
   height: number;
   /** 8-bit RGBA, row by row (top row first). */
   rgba: Uint8Array;
+  /** The samples as stored, for a 16-bit RGBA image decoded with `keep16` (data images: baked probes). */
+  rgba16?: Uint16Array;
 }
 
 /** At most this many pixels (a 1024 × 1024 map): an engine limit. */
@@ -233,6 +235,8 @@ export interface PngDecodeOptions {
    * may pass `node:zlib` with `maxOutputLength` for speed.
    */
   readonly inflate?: (data: Uint8Array, maxOut: number) => Uint8Array;
+  /** Also return a 16-bit RGBA image's samples unchanged (`rgba16`). */
+  readonly keep16?: boolean;
 }
 
 /** The scanlines' sizes: per pass, its width, height and row stride (bytes, without the filter byte). */
@@ -316,6 +320,7 @@ export function decodePngRgba(bytes: Uint8Array, options: PngDecodeOptions = {})
     const trnsKey = trns !== null && (colorType === 0 || colorType === 2) && trns.length >= (colorType === 0 ? 2 : 6) ? Array.from({ length: colorType === 0 ? 1 : 3 }, (_, i) => (trns![i * 2]! << 8) | trns![i * 2 + 1]!) : null;
     const to8 = (v: number): number => (depth === 16 ? v >> 8 : depth === 8 ? v : Math.round((v * 255) / maxSample));
     const rgba = new Uint8Array(width * height * 4);
+    const rgba16 = options.keep16 === true && depth === 16 && colorType === 6 ? new Uint16Array(width * height * 4) : null;
     let at = 0;
     for (const { x0, y0, dx, dy, w, h, stride } of passes) {
       let prev = new Uint8Array(stride);
@@ -371,6 +376,12 @@ export function decodePngRgba(bytes: Uint8Array, options: PngDecodeOptions = {})
             rgba[o + 1] = to8(g);
             rgba[o + 2] = to8(b);
             rgba[o + 3] = colorType === 6 ? to8(sample(s + 3)) : trnsKey !== null && r === trnsKey[0] && g === trnsKey[1] && b === trnsKey[2] ? 0 : 255;
+            if (rgba16 !== null) {
+              rgba16[o] = r;
+              rgba16[o + 1] = g;
+              rgba16[o + 2] = b;
+              rgba16[o + 3] = sample(s + 3);
+            }
           }
         }
         const t = prev;
@@ -378,7 +389,7 @@ export function decodePngRgba(bytes: Uint8Array, options: PngDecodeOptions = {})
         cur = t;
       }
     }
-    return { ok: true, png: { width, height, rgba } };
+    return { ok: true, png: { width, height, rgba, ...(rgba16 !== null ? { rgba16 } : {}) } };
   } catch (e) {
     if (e instanceof InflateError) return { ok: false, message: `the PNG data does not inflate (${e.message})` };
     return { ok: false, message: `the PNG could not be read${e instanceof Error ? ` (${e.message})` : ''}` };

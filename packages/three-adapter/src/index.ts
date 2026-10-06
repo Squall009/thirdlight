@@ -272,6 +272,10 @@ export {
 // Decoded textures held in a resource manager by who draws with them (the editor's Scene view holds its cookies, sky and lightmaps so).
 export { textureHolds, type TextureHolds } from './texture-holds';
 export { bakeLightmapsInBrowser, type BakedAtlas, type BakeLightInput, type BakeMeshInput, type BakeTargetInput, type BrowserBakeInput, type BrowserBakeResult } from './lightmap-baker';
+// Probe grids: the bake (the editor's Scene view), the tile files, and the loaded tiles (Play, export, the Scene view).
+export { bakeProbeGrids, type BakedProbeTile, type ProbeBakeInput, type ProbeBakeMesh, type ProbeBakeResult } from './probe-bake';
+export { atlasFromSamples, decodeProbeArtifact, encodePng16, packProbeTexels, probeAtlasTexture, probeGridLight } from './probe-artifact';
+export { createProbeGridSet, type LoadedProbeTile, type ProbeBakeLike, type ProbeGridSet, type ProbeGridsObservation } from './probe-grids';
 // Poses a model from an animator pose (the Animator window's live preview).
 export { createAnimatorPlayer, type AnimatorPlayer, type AnimatorPlayerOptions, type AnimatorPoseLike, type RenderedNodePose } from './animator-player';
 // Visual effects — the player (Play, exports, the Scene view's edit-mode preview) and its executors.

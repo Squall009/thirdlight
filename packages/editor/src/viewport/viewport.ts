@@ -62,7 +62,8 @@ import { iconTableOf } from './icons';
 import { planSync, removedIds, helperRelevant } from './sync-plan';
 import { BlockEditor, type BlockEditorCallbacks } from './block-editor';
 import { virtualCameraPreviews } from './camera-previews';
-import { gatherBakeInputs, type BakeInputs } from './bake-inputs';
+import { gatherBakeInputs, gatherBakeLights, type BakeInputs } from './bake-inputs';
+import type { ProbeBakeHost } from './probe-bake-inputs';
 import { SceneVisibility } from './scene-visibility';
 import { SceneSource } from './scene-source';
 import { EntityOverlays, OVERLAY_KEY } from './entity-overlays';
@@ -351,7 +352,7 @@ export class Viewport {
       materials: { library: assets.materialLibrary, defs: [], wind: null, loadTexture: assets.loadTexture },
       environment: { value: {}, loadTexture: assets.loadTexture },
       lights: { loadTexture: assets.loadTexture },
-      lighting: { bakes: {}, loadTexture: assets.loadTexture },
+      lighting: { bakes: {}, loadTexture: assets.loadTexture, loadBytes: assets.loadBytes },
     });
     adapter.threeScene?.().add(this.overlay);
     this.entityOverlays.attachAll(adapter);
@@ -531,6 +532,22 @@ export class Viewport {
       },
       entityIds,
     );
+  }
+
+  /**
+   * What the probe bake draws with: this view's renderer and its scene (the
+   * sky), the baked lights, and the hooks that gather the static objects and
+   * probe volumes (world matrices current).
+   */
+  probeBakeContext(): { host: ProbeBakeHost; lights: BakeInputs['lights']; renderer: unknown; scene: THREE.Scene | null } {
+    this.adapter.sync?.();
+    const host: ProbeBakeHost = {
+      projected: this.projected,
+      rootOf: (e) => (e.kind === 'model' || e.kind === 'box' ? (this.adapter.entityObject?.(e.id) ?? null) : null),
+      blockView: this.adapter.blockLayers?.() ?? null,
+      worldMatrix: (id, out) => this.adapter.worldMatrix?.(id, out) === true,
+    };
+    return { host, lights: gatherBakeLights({ projected: this.projected, nodeOf: (id) => this.frameOf(id) ?? undefined }), renderer: this.adapter.currentRenderer?.() ?? null, scene: this.adapter.threeScene?.() ?? null };
   }
 
   /**

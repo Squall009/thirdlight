@@ -14,7 +14,7 @@
  */
 
 import { CONTROLLER_FIELDS } from '@thirdlight/project-model';
-import { CAMERA_PATH_FIELDS, CAMERA_REGION_FIELDS, VIRTUAL_CAMERA_FIELDS, validateCameraPathComponent, validateCameraRegionComponent, validateVirtualCameraComponent } from '@thirdlight/project-model';
+import { CAMERA_PATH_FIELDS, CAMERA_REGION_FIELDS, VIRTUAL_CAMERA_FIELDS, validateCameraPathComponent, validateCameraRegionComponent, validateVirtualCameraComponent, validateProbeVolumeComponent } from '@thirdlight/project-model';
 import { BLOCK_LAYER_FIELDS, validateBlockLayerComponent, validateBlockFootprintComponent } from '@thirdlight/project-model';
 import { validateBehaviorGroupComponent } from '@thirdlight/project-model';
 import { SOCKET_ATTACH_FIELDS, validateSocketAttachComponent } from '@thirdlight/project-model';
@@ -80,6 +80,7 @@ export const COMPONENT_FIELD_ORDER_V3: Record<V3OwnedComponent, readonly string[
   gravity: ['scale', 'size'],
   // A camera region (project-model cameras.ts field order).
   cameraRegion: CAMERA_REGION_FIELDS,
+  probeVolume: ['size', 'spacing'],
 };
 
 /**
@@ -150,6 +151,7 @@ export const V3_COMPONENTS: readonly V3OwnedComponent[] = [
   'gravity',
   // v4 scenes only.
   'cameraRegion',
+  'probeVolume',
 ];
 
 /** Every component `setComponent` may address. */
@@ -235,6 +237,9 @@ export function validateV3ComponentValue(
       break;
     case 'cameraRegion':
       validateCameraRegionComponent(value, path, errors as unknown as Parameters<typeof validateCameraRegionComponent>[2]);
+      break;
+    case 'probeVolume':
+      validateProbeVolumeComponent(value, path, errors as unknown as Parameters<typeof validateProbeVolumeComponent>[2]);
       break;
     case 'socketAttach':
       validateSocketAttachComponent(value, path, errors as unknown as Parameters<typeof validateSocketAttachComponent>[2]);

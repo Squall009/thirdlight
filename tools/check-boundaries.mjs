@@ -166,6 +166,10 @@ export const NODE_SIDE_ALLOWED = {
         'examples/jsm/tsl/display/BloomNode.js',
         'examples/jsm/tsl/display/SMAANode.js',
         'examples/jsm/tsl/display/FXAANode.js',
+        // probe-artifact.ts: baked probe grids are three's LightProbeGrid
+        // (its atlas and its light node; the engine bakes, stores and loads them).
+        'examples/jsm/lighting/LightProbeGrid.js',
+        'examples/jsm/tsl/lighting/LightProbeGridNode.js',
       ],
     },
     node: [],

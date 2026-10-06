@@ -806,6 +806,8 @@ export {
   type LightingEntry,
   type LightingMap,
 } from './lighting';
+// Probe grids (baked indirect light).
+export * from './probe-grids';
 // Materials, material mappings and the environment (a scene's look, the project's quality and presets).
 export {
   canonicalEnvironment,
