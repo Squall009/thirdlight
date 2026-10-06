@@ -2357,12 +2357,26 @@ the effect (in its tab or over MCP) shows there at once.
   the GPU (bitonic sort, up to 65 536 slots per system; beyond that they
   draw unsorted). Caps: 262 144 particles per system, 1 048 576 over all
   playing effects, 64 playing effects.
-- **CPU** (the WebGL 2 backend; on WebGPU also the effects that use what
-  only the CPU runs: *From event* spawns, *Mesh surface* shapes,
-  ribbons/trails and lights — their data is used on the CPU): the reference
-  evaluator of `@thirdlight/effects` over typed arrays, drawn instanced,
-  sorted back to front on the CPU. Lower caps: 4 096 particles per system,
-  16 384 over all playing effects, 64 playing effects.
+- **CPU** (the WebGL 2 backend; on WebGPU also the effects with *From
+  event* spawns, which tie systems together): the reference evaluator of
+  `@thirdlight/effects` over typed arrays, drawn instanced, sorted back to
+  front on the CPU. Lower caps: 4 096 particles per system, 16 384 over all
+  playing effects, 64 playing effects.
+- **Per system on WebGPU.** A system whose particles are used on the CPU —
+  a *Lights* block, ribbons/trails, a *Mesh surface* shape, or more than
+  four spawn blocks — is simulated on the CPU beside the effect's GPU
+  systems, in the same step (same time, origin, parameters and random
+  stream: it moves exactly as on the CPU executor), at the CPU caps. So a
+  fire's flames and smoke stay on the GPU and only its light system runs on
+  the CPU; nothing is read back from the GPU and the light is not a frame
+  late. In such an effect, a system holding fewer than 512 particles
+  (`GPU_MIN_PARTICLES`, three-adapter `effects-gpu.ts`) joins the CPU ones:
+  measured on the Iris Xe, a GPU system costs 0.045–0.08 ms of main-thread
+  dispatch a frame whatever its size, the CPU step 0.01 ms plus ~0.17 µs a
+  particle. An effect left with no GPU system plays on the CPU executor
+  alone. Each new play of an effect with GPU systems builds their compute
+  passes (about 8 ms on its first frame; a finished play is pooled and
+  reused).
 
 A system's *max particles* is capped to its executor's cap; a play past the
 total or the instance cap is refused (counted in the diagnostics). Point
@@ -2372,7 +2386,15 @@ to the scene dark before the first frame, so the number of lights never
 changes while it plays and no lit material recompiles (a game without
 light-emitting effects carries none; an edit that adds the first *Lights*
 block in the Scene view adds them then, once). Past 16 lit particles the
-rest give no light. A frame longer than 1/30 s is split into up to four steps.
+rest give no light. A *Lights* block has **Light layers (mask)** (bit n is
+layer n + 1; 255, the default, every layer: its lights light only objects
+in those layers, as a scene light's mask; 0 lights nothing and takes no
+slot) and **Importance** (Auto, Per pixel or Per vertex, as a scene point
+light's — see *Local lights per pixel or per vertex*). A game whose effect
+lights all light every layer at auto importance draws exactly as before;
+one with a narrower mask or a forced importance builds the lit programs
+with the test or range once, before its first frame. A frame longer than
+1/30 s is split into up to four steps.
 *Collide with scene (depth)* is honoured on WebGPU only (the depth of the
 last frame the player drew); *Soft particles* fade against the scene depth
 on WebGPU only. Output block inputs (a billboard's axis, soft distance, a
@@ -2385,7 +2407,8 @@ keep simulating).
 (`webgpu` | `cpu`), its caps, what plays and how many particles (GPU counts
 are read back every half second), refused plays, effect ids no effect of
 the game has, and per playing effect its executor (and why an effect runs
-on the CPU on WebGPU), the pool lights in use (`lights`) and in the scene
+on the CPU on WebGPU) with each system's executor (`systems`: `webgpu` |
+`cpu`, and why a system of a GPU effect runs on the CPU), the pool lights in use (`lights`) and in the scene
 (`lightPool`: 16 or 0); `tl_game_observe` has a compact `effects` block. The
 game canvas carries `data-tl-effects` (the executor), `data-tl-effects-playing`,
 `data-tl-effects-particles` and `data-tl-effects-lights` (pool lights in use).
@@ -3459,6 +3482,7 @@ always per pixel.
 - **Lights** — a point or spot light has an **Importance**: **Auto** (as each
   object says), **Per pixel** (always, a hero light) or **Per vertex**
   (always, a cheap fill light). A spot light with a cookie stays per pixel.
+  An effect's *Lights* block has the same **Importance**.
 - Per-vertex light joins a surface's ambient light (Custom-lit graphs read it
   in their Ambient input); light layers and flicker (a script's or effect's
   changing intensity) work as per pixel.

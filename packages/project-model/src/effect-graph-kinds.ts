@@ -36,6 +36,8 @@
  * game simulation. Every default carries its genre-neutral reason.
  */
 import type { GraphFieldDef, GraphKindDef, GraphNodeDef, GraphPortDef, GraphValue } from './graph';
+import { LIGHT_LAYERS_ALL } from './light-layers';
+import { LIGHT_IMPORTANCES } from './local-lights';
 
 /** Engine limits of one system graph (not tuning values). */
 export const EFFECT_GRAPH_LIMITS = {
@@ -333,12 +335,16 @@ const OUTPUT_NODES: readonly GraphNodeDef[] = [
     SHADING,
     MATERIAL,
   ]),
-  block('output', 'output.light', 'Lights', 'Output', 'A point light at up to `max lights` particles (the oldest living ones), coloured by the particle.', [
+  block('output', 'output.light', 'Lights', 'Output', 'A point light at up to `max lights` particles (the oldest living ones), coloured by the particle. It lights the objects in its light layers (bit n: layer n + 1) and follows its importance like a scene point light.', [
     /** 4: point lights are costly; a few give the glow. */
     fixed(num('maxLights', 'Max lights', 4, 1, EFFECT_LIGHT_LIMIT)),
     /** 1 cd per particle, 2 m range: a small glow. */
     num('intensity', 'Intensity (cd)', 1, 0, 1000),
     num('range', 'Range (m)', 2, 0.01, 1000),
+    /** Every layer, as a scene light's absent mask: the lights light what any light would. */
+    fixed(num('lightMask', 'Light layers (mask)', LIGHT_LAYERS_ALL, 0, LIGHT_LAYERS_ALL)),
+    /** Auto: each object's local-light mode decides (per pixel unless it says otherwise), as for scene lights. */
+    enm('importance', 'Importance', LIGHT_IMPORTANCES, 'auto'),
   ]),
 ];
 

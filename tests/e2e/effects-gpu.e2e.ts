@@ -8,7 +8,11 @@
  *   float precision) — the GPU buffers are read back;
  * - both projects: the player draws billboards (additive magenta, alpha
  *   green) on the executor of its backend (`cpu` on WebGL 2, `webgpu` on
- *   WebGPU), reports the executor, caps and an unknown effect.
+ *   WebGPU), reports the executor, caps and an unknown effect;
+ * - both projects: an effect's light lights a wall while its other system
+ *   runs on the GPU (WebGPU; every system on the CPU on WebGL 2 — the
+ *   diagnostics name each system's executor); effect lights keep to their
+ *   light layers, and one forced per vertex is summed at the vertices.
  */
 import { join, resolve } from 'node:path';
 
@@ -114,4 +118,45 @@ test('the player draws additive and alpha billboards on its backend\'s executor'
   // Nothing of either on the other side.
   expect(count(img, W / 2, W, magenta)).toBeLessThan(20);
   expect(count(img, 0, W / 2, green)).toBeLessThan(20);
+});
+
+test('an effect\'s light lights a wall while its other systems run on the GPU; effect lights keep to their layers and importance', async ({ page }) => {
+  test.setTimeout(180_000);
+  const backend = isWebGPU() ? 'webgpu' : 'webgl2';
+  const { result, errors } = await run(page, 'light', backend);
+  expect(errors).toEqual([]);
+  expect(result['backend']).toBe(backend);
+  const d = result['diagnostics'] as { lights: number; particles: number; instances: { effectId: string; executor: string; reason?: string; systems: { systemId: string; executor: string; reason?: string }[] }[] };
+  console.log(`[effects-gpu] light ${backend} ${JSON.stringify(d.instances)} lights ${d.lights}`);
+  const fire = d.instances.find((i) => i.effectId === 'fire')!;
+  // The flames stay on the GPU; only the light system is simulated on the CPU (WebGL 2 has no compute: all on the CPU).
+  expect(fire.executor).toBe(isWebGPU() ? 'webgpu' : 'cpu');
+  expect(fire.systems.map((s) => s.executor)).toEqual(isWebGPU() ? ['webgpu', 'cpu'] : ['cpu', 'cpu']);
+  if (isWebGPU()) expect(fire.systems[1]!.reason).toMatch(/lights/);
+  expect(d.lights).toBe(3);
+  expect(d.particles).toBe(203);
+  const img = decodePng(await page.locator('canvas').screenshot());
+  const mean = ([cx, cy]: [number, number]): number => {
+    let sum = 0;
+    for (let y = cy - 2; y <= cy + 2; y++) for (let x = cx - 2; x <= cx + 2; x++) {
+      const p = img.pixel(x, y);
+      sum += (p[0] + p[1] + p[2]) / 3;
+    }
+    return sum / 25;
+  };
+  const probes = result['probes'] as { centre: [number, number][]; corner: [number, number][]; flames: [number, number] };
+  const centre = probes.centre.map(mean);
+  const corner = probes.corner.map(mean);
+  console.log(`[effects-gpu] light ${backend} centres ${centre.map((v) => v.toFixed(1))} corners ${corner.map((v) => v.toFixed(1))} flames ${mean(probes.flames).toFixed(1)}`);
+  // Left wall (layer 1): lit per pixel by the fire's light — a peak before the light, far less at the corner.
+  expect(centre[0]).toBeGreaterThan(60);
+  expect(centre[0]).toBeGreaterThan(2 * corner[0]!);
+  // Middle wall (layer 2): its light is for layer 1 only, and the others' lights are for layers 1 and 3.
+  expect(centre[1]).toBeLessThan(4);
+  expect(corner[1]).toBeLessThan(4);
+  // Right wall (layer 3): its per-vertex light is summed at the four corners only, so the quad is evenly lit (no peak).
+  expect(centre[2]).toBeGreaterThan(8);
+  expect(Math.abs(centre[2]! - corner[2]!)).toBeLessThan(0.25 * centre[2]! + 3);
+  // The GPU flames draw above the left wall.
+  expect(count(img, probes.flames[0] - 20, probes.flames[0] + 20, magenta)).toBeGreaterThan(100);
 });

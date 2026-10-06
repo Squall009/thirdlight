@@ -11,6 +11,11 @@
  * iframe) and in the static export (backend stopped). Per renderer: `auto`
  * in `default`, `webgl2` with TL_E2E_ALL_VARIANTS=1, `webgpu` in `webgpu`.
  *
+ * The glow's sparks are one system and its light another, so on WebGPU the
+ * sparks run on the GPU executor and only the light system on the CPU (a new
+ * play builds its sparks' compute passes, counted apart: they are not the lit
+ * materials).
+ *
  * The pool is shaded: the panel is brighter with 16 lights than with one
  * (how it should look is not judged here).
  */
@@ -40,27 +45,49 @@ async function cmd(op: string, args: Record<string, unknown>): Promise<Record<st
 function countBuilds(): void {
   const w = window as unknown as { __tlBuilds?: Record<string, number> };
   if (w.__tlBuilds !== undefined) return;
-  const n: Record<string, number> = { glPrograms: 0, gpuModules: 0, gpuPipelines: 0 };
+  const n: Record<string, number> = { glPrograms: 0, gpuModules: 0, gpuPipelines: 0, gpuComputeModules: 0, gpuComputePipelines: 0 };
   w.__tlBuilds = n;
-  const wrap = (proto: object | undefined, name: string, key: string): void => {
+  const wrap = (proto: object | undefined, name: string, key: string | ((a: unknown[]) => string)): void => {
     if (proto === undefined) return;
     const f = (proto as Record<string, unknown>)[name];
     if (typeof f !== 'function') return;
     (proto as Record<string, unknown>)[name] = function (this: unknown, ...a: unknown[]): unknown {
-      n[key] = (n[key] ?? 0) + 1;
+      const k = typeof key === 'string' ? key : key(a);
+      n[k] = (n[k] ?? 0) + 1;
       return (f as (...x: unknown[]) => unknown).apply(this, a);
     };
   };
+  const isCompute = (a: unknown[]): boolean => String((a[0] as { code?: unknown } | undefined)?.code ?? '').includes('@compute');
   const g = globalThis as unknown as Record<string, { prototype: object } | undefined>;
   wrap(g['WebGL2RenderingContext']?.prototype, 'linkProgram', 'glPrograms');
   wrap(g['WebGLRenderingContext']?.prototype, 'linkProgram', 'glPrograms');
-  wrap(g['GPUDevice']?.prototype, 'createShaderModule', 'gpuModules');
-  for (const m of ['createRenderPipeline', 'createRenderPipelineAsync', 'createComputePipeline', 'createComputePipelineAsync']) wrap(g['GPUDevice']?.prototype, m, 'gpuPipelines');
+  wrap(g['GPUDevice']?.prototype, 'createShaderModule', (a) => (isCompute(a) ? 'gpuComputeModules' : 'gpuModules'));
+  for (const m of ['createRenderPipeline', 'createRenderPipelineAsync']) wrap(g['GPUDevice']?.prototype, m, 'gpuPipelines');
+  for (const m of ['createComputePipeline', 'createComputePipelineAsync']) wrap(g['GPUDevice']?.prototype, m, 'gpuComputePipelines');
 }
 const readBuilds = (f: Frame): Promise<Record<string, number>> => f.evaluate(() => ({ ...((window as unknown as { __tlBuilds?: Record<string, number> }).__tlBuilds ?? {}) }));
 const total = (b: Record<string, number>): number => Object.values(b).reduce((a, x) => a + x, 0);
+/** The builds that draw: programs and render pipelines (a new play's GPU particle simulation builds its own compute passes). */
+const drawBuilds = (b: Record<string, number>): Record<string, number> => ({ glPrograms: b['glPrograms'] ?? 0, gpuModules: b['gpuModules'] ?? 0, gpuPipelines: b['gpuPipelines'] ?? 0 });
 
-/** One system: a few warm sparks that live for the whole play, each a point light (the oldest one). */
+/** A system graph from its chains. */
+function chainGraph(chains: Record<string, { type: string; data?: Record<string, unknown> }[]>): { nodes: unknown[]; edges: unknown[] } {
+  const nodes: { id: string; type: string; position: [number, number]; data?: Record<string, unknown> }[] = ['spawn', 'initialize', 'update', 'output'].map((c, i) => ({ id: c, type: c, position: [0, i * 200] }));
+  const edges: unknown[] = [];
+  let k = 0;
+  for (const [ctx, blocks] of Object.entries(chains)) {
+    let prev = ctx;
+    for (const b of blocks) {
+      const id = `b${k++}`;
+      nodes.push({ id, type: b.type, position: [250 * k, 0], ...(b.data !== undefined ? { data: b.data } : {}) });
+      edges.push({ id: `e${edges.length}`, from: { node: prev, port: 'then' }, to: { node: id, port: 'in' } });
+      prev = id;
+    }
+  }
+  return { nodes, edges };
+}
+
+/** A few warm sparks (one system) and one warm point light among them for the whole play (another). */
 const GLOW = {
   effectId: 'fx-glow',
   name: 'Glow',
@@ -72,32 +99,32 @@ const GLOW = {
     {
       systemId: 'sparks',
       name: 'Sparks',
-      maxParticles: 4,
+      // Room for more than live (4 at a time): a system this size runs on the GPU beside the light system (GPU_MIN_PARTICLES).
+      maxParticles: 512,
       space: 'world',
-      graph: (() => {
-        const chains: Record<string, { type: string; data?: Record<string, unknown> }[]> = {
-          spawn: [{ type: 'spawn.rate', data: { rate: 8 } }],
-          initialize: [
-            { type: 'init.lifetime', data: { min: 1000, max: 1000 } },
-            { type: 'init.color', data: { color: '#ffb040' } },
-            { type: 'init.size', data: { min: 0.12, max: 0.12 } },
-          ],
-          output: [{ type: 'output.billboard', data: { blend: 'additive' } }, { type: 'output.light', data: { maxLights: 1, intensity: 3, range: 3 } }],
-        };
-        const nodes: { id: string; type: string; position: [number, number]; data?: Record<string, unknown> }[] = ['spawn', 'initialize', 'update', 'output'].map((c, i) => ({ id: c, type: c, position: [0, i * 200] }));
-        const edges: unknown[] = [];
-        let k = 0;
-        for (const [ctx, blocks] of Object.entries(chains)) {
-          let prev = ctx;
-          for (const b of blocks) {
-            const id = `b${k++}`;
-            nodes.push({ id, type: b.type, position: [250 * k, 0], ...(b.data !== undefined ? { data: b.data } : {}) });
-            edges.push({ id: `e${edges.length}`, from: { node: prev, port: 'then' }, to: { node: id, port: 'in' } });
-            prev = id;
-          }
-        }
-        return { nodes, edges };
-      })(),
+      graph: chainGraph({
+        spawn: [{ type: 'spawn.rate', data: { rate: 8 } }],
+        initialize: [
+          { type: 'init.lifetime', data: { min: 0.5, max: 0.5 } },
+          { type: 'init.color', data: { color: '#ffb040' } },
+          { type: 'init.size', data: { min: 0.12, max: 0.12 } },
+        ],
+        output: [{ type: 'output.billboard', data: { blend: 'additive' } }],
+      }),
+    },
+    {
+      systemId: 'light',
+      name: 'Light',
+      maxParticles: 1,
+      space: 'world',
+      graph: chainGraph({
+        spawn: [{ type: 'spawn.burst', data: { count: 1 } }],
+        initialize: [
+          { type: 'init.lifetime', data: { min: 1000, max: 1000 } },
+          { type: 'init.color', data: { color: '#ffb040' } },
+        ],
+        output: [{ type: 'output.light', data: { maxLights: 1, intensity: 3, range: 3 } }],
+      }),
     },
   ],
 };
@@ -160,16 +187,18 @@ for (const variant of VARIANTS) test(`effect lights rising from 1 to 16 build no
     expect(total(before), 'the counter sees the builds of the start').toBeGreaterThan(0);
     await focus();
     for (let k = 2; k <= PLAYS; k++) {
+      // Held until the light shows, then released for a few frames: input is sampled once a frame, so a
+      // release and the next press within one frame would read as one held key.
       await keys.keyboard.down('KeyE');
-      await keys.waitForTimeout(60);
-      await keys.keyboard.up('KeyE');
       await expect(canvas).toHaveAttribute('data-tl-effects-lights', String(k), { timeout: 20_000 });
+      await keys.keyboard.up('KeyE');
+      await keys.waitForTimeout(150);
     }
     await expect(canvas).toHaveAttribute('data-tl-effects-playing', String(PLAYS));
     await keys.waitForTimeout(2_000);
     const after = await readBuilds(frame);
     console.log(`[effect-light-pool] ${variant} ${where}: builds at 1 light ${JSON.stringify(before)}, at ${PLAYS} lights ${JSON.stringify(after)}`);
-    expect(after, `${where}: no program or pipeline built while the lights rose`).toEqual(before);
+    expect(drawBuilds(after), `${where}: no program or render pipeline built while the lights rose`).toEqual(drawBuilds(before));
     const lit = brightness(decodePng(await canvas.screenshot()));
     console.log(`[effect-light-pool] ${variant} ${where}: mean brightness at 1 light ${dim.toFixed(1)}, at ${PLAYS} lights ${lit.toFixed(1)}`);
     expect(lit, `${where}: the 16 lights light the panel`).toBeGreaterThan(dim + 5);

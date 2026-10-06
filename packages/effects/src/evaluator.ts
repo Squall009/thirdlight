@@ -67,6 +67,16 @@ export interface EffectInstanceOptions extends CompileOptions {
    * the CPU (the GPU does). `plans()` returns the last step's plan.
    */
   planOnly?: boolean;
+  /**
+   * Plan-only instances: systems (by index) simulated here on the CPU all the
+   * same — the WebGPU executor runs an effect's other systems on the GPU and
+   * these (lights, ribbons, mesh-surface shapes: their particles are used on
+   * the CPU) beside them, with the same time, origin, parameters and random
+   * streams, so they move exactly as on the CPU executor.
+   */
+  simulate?: readonly number[];
+  /** The capacity cap of the `simulate` systems (the CPU executor's; absent: `capacityLimit`). */
+  simulateCapacityLimit?: number;
   /** Overrides of public parameters (private keys are ignored). */
   params?: Readonly<Record<string, number | number[] | string>>;
   /** The global wind the Wind block follows (absent: the engine default). */
@@ -139,8 +149,11 @@ export class SystemState {
   distanceCarry = 0;
   nextSerial = 0;
 
-  constructor(readonly program: SystemProgram) {
-    const c = program.capacity;
+  constructor(
+    readonly program: SystemProgram,
+    capacity: number = program.capacity,
+  ) {
+    const c = capacity;
     this.capacity = c;
     this.position = new Float32Array(c * 3);
     this.velocity = new Float32Array(c * 3);
@@ -254,6 +267,8 @@ export class EffectInstance {
   private readonly wind: WindConfig;
   private readonly meshCache = new Map<string, { pos: number[]; tris: number[]; cumulative: number[] } | null>();
   private lastPlans: SpawnPlan[] = [];
+  /** Plan-only: the systems simulated on the CPU all the same (`simulate`). */
+  private readonly simulated: ReadonlySet<number>;
   /** The origin before the last step (the path `spawn.distance` spreads births along). */
   private prevOrigin: EffectOrigin = IDENTITY_ORIGIN;
 
@@ -262,7 +277,10 @@ export class EffectInstance {
     private readonly options: EffectInstanceOptions = {},
   ) {
     this.program = compileEffect(effect, options);
-    this.systems = this.program.systems.map((s) => new SystemState(s));
+    const simulated = new Set(options.planOnly === true ? (options.simulate ?? []) : []);
+    this.simulated = simulated;
+    const simCap = options.simulateCapacityLimit;
+    this.systems = this.program.systems.map((s) => new SystemState(s, simulated.has(s.index) && simCap !== undefined ? Math.max(1, Math.min(s.capacity, simCap)) : s.capacity));
     this.noise = new GradientNoise(effect.seed);
     this.wind = options.wind ?? DEFAULT_WIND;
     for (const p of effect.parameters ?? []) {
@@ -321,6 +339,11 @@ export class EffectInstance {
     this.prevOrigin = prev;
     if (this.options.planOnly === true) {
       this.lastPlans = this.systems.map((s, i) => {
+        if (this.simulated.has(i)) {
+          this.update(s, dt);
+          this.spawn(s, i, t0, t1, dt, prev);
+          return { serialBase: s.nextSerial, count: 0, runs: [] };
+        }
         const births = this.planBirths(s, i, t0, t1, dt, prev);
         const runs: SpawnPlan['runs'] = [];
         for (const b of births) {

@@ -42,7 +42,7 @@ import { INSTANCES_LOCAL_LIGHTS_DEFAULT, lightImportanceOf, localLightModeOf, ty
 import type { N } from './effects-tsl';
 import { INSTANCE_SET_KEY } from './instancing';
 import { isLayeredLight, lightsObject } from './light-layers';
-import { effectLightsVertexIrradiance, type EffectLights } from './effect-lights';
+import { effectLightsVertexIrradiance, setEffectLightsPixelEnd, type EffectLights, type EffectLightsStart } from './effect-lights';
 
 /** TSL untyped: three's typings lag the node API used here. */
 const TSL: N = TSLTyped;
@@ -246,6 +246,22 @@ function shading(mode: LocalLightMode, light: THREE.Light): boolean | null {
   return (imp === 'auto' ? mode : imp) === 'vertex' && canShadePerVertex(light);
 }
 
+function isPool(l: THREE.Light | undefined): l is EffectLights {
+  return (l as (THREE.Light & LocalFlags) | undefined)?.isEffectLights === true;
+}
+
+/**
+ * Where a build's per-vertex part of the effect light pool starts (null: no
+ * slot per vertex): a per-vertex build shades the auto slots and the forced
+ * per-vertex ones per vertex, a per-pixel build only the forced ones — and
+ * only when the game has any (else its programs keep no vertex loop).
+ */
+function poolVertexStart(mode: LocalLightMode, pool: EffectLights): EffectLightsStart | null {
+  if (mode === 'vertex') return 'pixel';
+  if (mode === 'pixel' && pool.abilities.forcedVertex) return 'auto';
+  return null;
+}
+
 function splitOn(builder: { renderer?: unknown }): boolean {
   return builder.renderer !== undefined && enabledRenderers.has(builder.renderer as object);
 }
@@ -262,6 +278,15 @@ export function splitLocalLights<T extends LightNodeLike>(builder: { material?: 
   const pixel: T[] = [];
   const vertex: T[] = [];
   for (const n of nodes) {
+    if (isPool(n.light)) {
+      // The pool is split by slot ranges (effect-lights.ts): its node shades the per-pixel range, the vertex stage the rest.
+      if (mode === 'none') continue;
+      const from = vertexDone ? poolVertexStart(mode, n.light) : null;
+      if (from !== null) vertex.push(n);
+      setEffectLightsPixelEnd(builder, from ?? 'all');
+      if (from !== 'pixel' || n.light.abilities.forcedPixel) pixel.push(n);
+      continue;
+    }
     const how = n.light === undefined ? false : shading(mode, n.light);
     if (how === null) continue;
     if (how && vertexDone) vertex.push(n);
@@ -274,6 +299,13 @@ export function splitLocalLights<T extends LightNodeLike>(builder: { material?: 
 export function localLightsCacheKey(lights: readonly THREE.Light[]): number {
   let h = 0;
   for (const l of lights) {
+    if (isPool(l)) {
+      // What the pool's programs must do (layer tests, ranges per vertex or per pixel).
+      const a = l.abilities;
+      const bits = (a.layered ? 1 : 0) | (a.forcedPixel ? 2 : 0) | (a.forcedVertex ? 4 : 0);
+      if (bits !== 0) h = (Math.imul(h, 31) + l.id * 8 + bits) | 0;
+      continue;
+    }
     const imp = importanceOf(l);
     if (imp !== 'auto') h = (Math.imul(h, 31) + l.id * 4 + (imp === 'pixel' ? 1 : 2)) | 0;
   }
@@ -368,14 +400,14 @@ function sumVertexLights(builder: N): void {
   if (material === undefined || builder.lightsNode == null || !splitOn(builder) || !isLit(material)) return;
   const mode = buildMode(builder);
   // The scene's lights (their light nodes are set up with the fragment stage's lighting, later).
-  const lights = (builder.lightsNode.getLights() as THREE.Light[]).filter((l) => shading(mode, l) === true);
+  const lights = (builder.lightsNode.getLights() as THREE.Light[]).filter((l) => (isPool(l) ? mode !== 'none' && poolVertexStart(mode, l) !== null : shading(mode, l) === true));
   if (lights.length === 0) return;
   const twoSided = material.side === THREE.DoubleSide;
   const normal = transformNormalToView(normalLocal).normalize().toVar('tlVertexNormal');
   const position = positionView.toVar('tlVertexPosition');
   let total: N = vec3(0);
   for (const l of lights) {
-    total = total.add((l as THREE.Light & LocalFlags).isEffectLights === true ? effectLightsVertexIrradiance(l as EffectLights, normal, position, twoSided) : analyticVertexIrradiance(l, normal, position, twoSided));
+    total = total.add(isPool(l) ? effectLightsVertexIrradiance(l, normal, position, twoSided, poolVertexStart(mode, l)!) : analyticVertexIrradiance(l, normal, position, twoSided));
   }
   VERTEX_LIGHTS.assign(total);
   markVertexLightsSummed(builder);

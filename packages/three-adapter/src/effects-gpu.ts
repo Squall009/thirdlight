@@ -26,11 +26,12 @@
  * the slots by view distance (back to front; dead slots last), up to
  * `GPU_SORT_LIMIT` slots.
  *
- * What this executor does not run (an effect using it plays on the CPU
- * executor instead, with the reason in the diagnostics): events between
- * systems (they need particle data back on the CPU), mesh-surface shapes,
- * ribbons/trails and lights (their data is used on the CPU), more than
- * four origin spawn blocks in one system.
+ * What this executor does not run: events between systems (they need
+ * particle data back on the CPU: an effect using them plays wholly on the
+ * CPU executor, with the reason in the diagnostics). Systems whose particles
+ * are used on the CPU — lights, ribbons/trails, mesh-surface shapes — or with
+ * more than four origin spawn blocks are simulated on the CPU beside the
+ * effect's GPU systems, in the same step (`cpuSystemReason`).
  *
  * Scene-depth collision (`update.collide.depth`) is honoured here only: it
  * reads the previous frame's scene depth (a depth pre-pass the player
@@ -39,7 +40,7 @@
 import * as THREE from 'three/webgpu';
 import * as TSLTyped from 'three/tsl';
 
-import { EffectInstance, Rng, type CompiledNode, type EffectOrigin, type EffectProgram, type SystemProgram, type WireSource } from '@thirdlight/effects';
+import { compileEffect, EffectInstance, Rng, type CompiledNode, type EffectOrigin, type EffectProgram, type SystemProgram, type WireSource } from '@thirdlight/effects';
 
 import { curveNode, gradientNode, hash32, hashFloat, hexLinear, normalize0, permutationTable, rotate, toLocalPoint, toLocalVector, toWorldDirection, toWorldPoint, toWorldVector, TslNoise, TslRng, type N, type OriginNodes } from './effects-tsl';
 
@@ -52,20 +53,73 @@ export const GPU_SORT_LIMIT = 65536;
 /** Origin spawn blocks one system may have on the GPU (their runs are uniforms). */
 const MAX_RUNS = 4;
 
-/** Why an effect cannot run on the GPU executor (null: it can). */
+/**
+ * Why an effect cannot run on the GPU executor at all (null: it can, maybe
+ * with some systems beside it on the CPU — `cpuSystemReason`). Only events
+ * tie systems together: a system spawning from another's events needs that
+ * system's particles on the CPU, so such an effect runs wholly on the CPU.
+ */
 export function gpuUnsupportedReason(program: EffectProgram): string | null {
   for (const s of program.systems) {
-    const originSpawns = s.chains.spawn.filter((b) => b.type !== 'spawn.event').length;
     for (const b of s.chains.spawn) if (b.type === 'spawn.event') return `system "${s.name}" spawns from events (events between systems run on the CPU executor)`;
-    for (const b of s.chains.initialize) if (b.type === 'init.position.mesh') return `system "${s.name}" samples a mesh surface (runs on the CPU executor)`;
-    for (const b of s.chains.output) {
-      if (b.type === 'output.ribbon') return `system "${s.name}" draws ribbons/trails (their points are built on the CPU)`;
-      if (b.type === 'output.light') return `system "${s.name}" drives lights (they follow particles read on the CPU)`;
-    }
-    if (originSpawns > MAX_RUNS) return `system "${s.name}" has more than ${MAX_RUNS} spawn blocks`;
   }
-  // Another system's events: a system whose particles feed a spawn.event (covered above) — nothing else.
   return null;
+}
+
+/**
+ * Why one system of a GPU-run effect is simulated on the CPU beside the
+ * others (null: on the GPU). Its particles are used on the CPU — lights
+ * follow them, ribbons join them, mesh-surface shapes sample a mesh there —
+ * or it has more spawn blocks than the GPU's per-system uniforms hold.
+ * Reading such a system back from the GPU would cost a buffer map a frame
+ * and show it a frame late; these systems hold few particles, so the CPU
+ * simulates them in the same step instead (`EffectInstance`'s `simulate`).
+ */
+export function cpuSystemReason(s: SystemProgram): string | null {
+  for (const b of s.chains.output) {
+    if (b.type === 'output.light') return `system "${s.name}" drives lights (its particles are simulated on the CPU)`;
+    if (b.type === 'output.ribbon') return `system "${s.name}" draws ribbons/trails (their points are built on the CPU)`;
+  }
+  for (const b of s.chains.initialize) if (b.type === 'init.position.mesh') return `system "${s.name}" samples a mesh surface (on the CPU)`;
+  if (s.chains.spawn.length > MAX_RUNS) return `system "${s.name}" has more than ${MAX_RUNS} spawn blocks`;
+  return null;
+}
+
+/**
+ * Engine tuning: the particle capacity below which a system of an effect
+ * that already simulates systems on the CPU joins them there. Measured on
+ * this host's Iris Xe (WebGPU, main thread per system and frame): a GPU
+ * system costs 0.045–0.08 ms of dispatch whatever its size, the CPU step
+ * 0.01 ms + ~0.17 µs a particle — even at about 400 particles.
+ */
+export const GPU_MIN_PARTICLES = 512;
+
+/**
+ * Why a system that could run on the GPU is simulated on the CPU beside its
+ * effect's CPU systems (null: on the GPU): it is small enough that the CPU
+ * step costs less than the GPU's dispatch. Scene-depth collision is honoured
+ * on the GPU only, so such a system stays there.
+ */
+export function smallSystemReason(s: SystemProgram): string | null {
+  if (s.capacity >= GPU_MIN_PARTICLES) return null;
+  if (s.chains.update.some((b) => b.type === 'update.collide.depth')) return null;
+  return `system "${s.name}" holds at most ${s.capacity} particles (under ${GPU_MIN_PARTICLES}: cheaper on the CPU beside its effect's CPU systems)`;
+}
+
+/**
+ * Why each system of an effect run by this executor is simulated on the CPU
+ * (null: on the GPU): what must run there (`cpuSystemReason`) and, when
+ * something must, the small systems with it (`smallSystemReason`).
+ */
+export function cpuSystemReasons(program: EffectProgram): (string | null)[] {
+  const must = program.systems.map((s) => cpuSystemReason(s));
+  if (must.every((r) => r === null)) return must;
+  return program.systems.map((s, i) => must[i] ?? smallSystemReason(s));
+}
+
+/** The systems (by index) of a GPU-run effect simulated on the CPU. */
+export function cpuSystemsOf(program: EffectProgram): number[] {
+  return cpuSystemReasons(program).flatMap((r, i) => (r !== null ? [i] : []));
 }
 
 /** The per-instance uniforms every system of an effect shares. */
@@ -955,12 +1009,20 @@ export interface GpuExecutorOptions {
   sortedSystems: ReadonlySet<string>;
   /** The scene depth the player draws for scene-depth collision (null: none; such blocks then do nothing). */
   depthTexture?: THREE.Texture | null;
+  /** The particle cap of the systems simulated on the CPU (the CPU executor's; absent: `capacityLimit`). */
+  cpuCapacityLimit?: number;
+  /** A model asset's mesh (mesh-surface shapes of CPU-simulated systems). */
+  mesh?: (assetId: string) => import('@thirdlight/effects').EffectMesh | null;
 }
 
 /** A playing effect on the GPU (one per play; pooled by the player). */
 export class GpuEffectExecutor {
+  /** Plans the GPU systems' births and simulates the CPU systems (`cpuSystems`). */
   readonly planner: EffectInstance;
+  /** The systems run on the GPU (each knows its index: `program.index`). */
   readonly systems: GpuSystem[];
+  /** The systems (by index) simulated on the CPU beside them: `planner.systems[i]` holds their particles. */
+  readonly cpuSystems: ReadonlySet<number>;
   private readonly shared: SharedUniforms;
   private needsReset = false;
 
@@ -968,7 +1030,18 @@ export class GpuEffectExecutor {
     readonly effect: import('@thirdlight/effects').EffectInstance['effect'],
     options: GpuExecutorOptions,
   ) {
-    this.planner = new EffectInstance(effect, { planOnly: true, capacityLimit: options.capacityLimit, ...(options.params !== undefined ? { params: options.params } : {}), ...(options.wind !== undefined ? { wind: options.wind as never } : {}) });
+    // Compiled with the GPU cap, as the planner is: the small-system rule reads these capacities.
+    const cpuSystems = cpuSystemsOf(compileEffect(effect, { capacityLimit: options.capacityLimit }));
+    this.cpuSystems = new Set(cpuSystems);
+    this.planner = new EffectInstance(effect, {
+      planOnly: true,
+      capacityLimit: options.capacityLimit,
+      simulate: cpuSystems,
+      ...(options.cpuCapacityLimit !== undefined ? { simulateCapacityLimit: options.cpuCapacityLimit } : {}),
+      ...(options.params !== undefined ? { params: options.params } : {}),
+      ...(options.wind !== undefined ? { wind: options.wind as never } : {}),
+      ...(options.mesh !== undefined ? { mesh: options.mesh } : {}),
+    });
     const program = this.planner.program;
     const wind = this.planner.windConfig();
     const d = new THREE.Vector3(wind.direction[0], 0, wind.direction[1]);
@@ -997,7 +1070,7 @@ export class GpuEffectExecutor {
       depth: { viewProj: uniform(new THREE.Matrix4()), view: uniform(new THREE.Matrix4()), near: uniform(0.1), far: uniform(100), texture: usesDepth ? (options.depthTexture ?? null) : null, size: uniform(new THREE.Vector2(1, 1)), enabled: usesDepth },
       perm,
     };
-    this.systems = program.systems.map((s) => new GpuSystem(s, this.shared, effect.seed, options.sortedSystems.has(s.systemId)));
+    this.systems = program.systems.filter((s) => !this.cpuSystems.has(s.index)).map((s) => new GpuSystem(s, this.shared, effect.seed, options.sortedSystems.has(s.systemId)));
   }
 
   /** The camera the depth texture was drawn with (world → view → clip) and its size in pixels. */
@@ -1049,7 +1122,7 @@ export class GpuEffectExecutor {
     (sh.origin.scale.value as THREE.Vector3).set(current.scale[0], current.scale[1], current.scale[2]);
     (sh.prevPosition.value as THREE.Vector3).set(before.position[0], before.position[1], before.position[2]);
     const plans = this.planner.plans();
-    this.systems.forEach((s, i) => s.step(renderer, plans[i]));
+    for (const s of this.systems) s.step(renderer, plans[s.program.index]);
   }
 
   sort(renderer: THREE.WebGPURenderer, cameraPosition: THREE.Vector3): void {
@@ -1062,9 +1135,15 @@ export class GpuEffectExecutor {
   }
 
   async living(renderer: THREE.WebGPURenderer): Promise<number> {
-    let n = 0;
-    for (const s of this.systems) n += await s.living(renderer);
-    return n;
+    return (await this.livingBySystem(renderer)).reduce((a, n) => a + n, 0);
+  }
+
+  /** Living particles per system, by index (GPU systems read back; CPU systems counted now). */
+  async livingBySystem(renderer: THREE.WebGPURenderer): Promise<number[]> {
+    const read = await Promise.all(this.systems.map((s) => s.living(renderer)));
+    const out = this.planner.systems.map((s) => s.count);
+    this.systems.forEach((s, i) => (out[s.program.index] = read[i]!));
+    return out;
   }
 
   /** Release the passes and buffers (`renderer`: the one that ran them, so their GPU buffers are freed now; see `releaseStorage`). */

@@ -284,6 +284,7 @@ export {
   createEffectsPlayer,
   effectsOptionFrom,
   EFFECT_CAPS,
+  EFFECTS_CPU_KEY,
   POOL_PER_EFFECT,
   type EffectAssetRowLike,
   type EffectCaps,
@@ -293,8 +294,9 @@ export {
   type EffectsDiagnostics,
   type EffectsPlayer,
   type EffectsPlayerOptions,
+  type EffectSystemExecutor,
 } from './effects-player';
-export { GPU_SORT_LIMIT, GPU_STATE_FIELDS, GPU_STATE_STRIDE, GpuEffectExecutor, gpuUnsupportedReason } from './effects-gpu';
+export { cpuSystemReason, cpuSystemReasons, cpuSystemsOf, GPU_MIN_PARTICLES, GPU_SORT_LIMIT, GPU_STATE_FIELDS, GPU_STATE_STRIDE, GpuEffectExecutor, gpuUnsupportedReason } from './effects-gpu';
 export { EFFECT_LIGHT_LIMIT } from './effects-draw';
 // One effect on a controllable timeline (the Effect tab's preview; same executors as Play).
 export { EFFECT_TIMELINE_STEP, EffectTimeline, type EffectSystemCounter, type EffectTimelineOptions } from './effects-timeline';
@@ -308,4 +310,5 @@ export { MESH_WORKERS_MAX, createBrowserMeshWorker, meshWorkerCount, type MeshWo
 export { isProbeLighting, packProbeTiles, PROBES_URL_PARAM, probesFromUrl, PROBE_WEIGHT_FILLED, PROBE_WEIGHT_MOVED, PROBE_WEIGHT_VALID, ProbeLighting, probeWeight, type PackedProbes } from './probe-lighting';
 export { createProbeDebugView, type ProbeDebugView } from './probe-debug';
 // Local lights per vertex: an object's or material's mode, a light's importance.
+export { applyObjectLightLayers } from './light-layers';
 export { LIGHT_IMPORTANCE_KEY, LOCAL_LIGHTS_KEY, VERTEX_LIGHTS_URL_PARAM, localLightVariantCount, vertexLightsFromUrl } from './local-lights';

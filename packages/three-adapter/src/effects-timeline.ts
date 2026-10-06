@@ -76,7 +76,7 @@ export class EffectTimeline {
     this.executor = choice.executor;
     this.reason = choice.reason;
     this.lights = new LightPool(o.scene);
-    if (emitsLight(o.def)) this.lights.reserve();
+    if (emitsLight(o.def)) this.lights.reserve([o.def]);
     const ctx: DrawContext = {
       webgpu: o.api === 'webgpu',
       loadTexture: o.loadTexture,
@@ -106,7 +106,7 @@ export class EffectTimeline {
     }
     this.parts = buildEffectPlay(o.def, o.params ?? null, choice, ctx, { ...(o.wind ? { wind: o.wind } : {}), mesh: (id) => this.meshes.get(id) ?? null });
     o.scene.add(this.parts.group);
-    this.gpuLiving = this.parts.gpu?.systems.map(() => 0) ?? [];
+    this.gpuLiving = this.parts.gpu?.planner.systems.map(() => 0) ?? [];
   }
 
   /** The models its mesh-surface shapes need have arrived (always true without such shapes). */
@@ -200,7 +200,7 @@ export class EffectTimeline {
       systemId: s.program.systemId,
       name: this.o.def.systems[i]?.name ?? s.program.systemId,
       spawned: s.nextSerial,
-      living: this.parts.cpu !== null ? s.count : (this.gpuLiving[i] ?? null),
+      living: this.parts.cpu !== null || this.parts.gpu!.cpuSystems.has(i) ? s.count : (this.gpuLiving[i] ?? null),
     }));
   }
 
@@ -210,7 +210,7 @@ export class EffectTimeline {
     if (gpu === null || this.reading || this.disposed) return;
     this.reading = true;
     const epoch = this.epoch;
-    void Promise.all(gpu.systems.map((s) => s.living(this.renderer))).then(
+    void gpu.livingBySystem(this.renderer).then(
       (counts) => {
         this.reading = false;
         // A count read before a seek or restart belongs to another run.

@@ -7,12 +7,13 @@
 import { describe, expect, it } from 'vitest';
 import * as THREE from 'three/webgpu';
 
-import { compileEffect } from '@thirdlight/effects';
+import { compileEffect, EffectInstance } from '@thirdlight/effects';
 
 import { EffectLights } from './effect-lights';
+import { localLightsCacheKey } from './local-lights';
 import { EFFECT_LIGHT_LIMIT } from './effects-draw';
 import { createEffectsPlayer, EFFECT_CAPS, type EffectDefLike } from './effects-player';
-import { GpuEffectExecutor, gpuUnsupportedReason } from './effects-gpu';
+import { cpuSystemReason, cpuSystemReasons, cpuSystemsOf, GPU_MIN_PARTICLES, GpuEffectExecutor, gpuUnsupportedReason } from './effects-gpu';
 
 type Block = { type: string; data?: Record<string, unknown> };
 function graph(chains: Partial<Record<'spawn' | 'initialize' | 'update' | 'output', Block[]>>): EffectDefLike['systems'][number]['graph'] {
@@ -42,6 +43,14 @@ const fx = (effectId: string, chains: Parameters<typeof graph>[0], o: { loop?: b
 const BURST = fx('burst', { spawn: [{ type: 'spawn.burst', data: { count: 50 } }], initialize: [{ type: 'init.lifetime', data: { min: 0.2, max: 0.2 } }], output: [{ type: 'output.billboard' }] });
 const FOUNTAIN = fx('fountain', { spawn: [{ type: 'spawn.rate', data: { rate: 60 } }], output: [{ type: 'output.billboard', data: { blend: 'additive' } }] }, { loop: true });
 const BIG = fx('big', { spawn: [{ type: 'spawn.rate', data: { rate: 1 } }], output: [{ type: 'output.billboard' }] }, { loop: true, maxParticles: 100_000 });
+/** Flames on the GPU and a light system beside them (two systems; the flames above the small-system size). */
+const FIRE: EffectDefLike = {
+  ...fx('fire', {}, { loop: true }),
+  systems: [
+    { systemId: 'flames', name: 'Flames', maxParticles: 1000, space: 'world', graph: graph({ spawn: [{ type: 'spawn.rate', data: { rate: 30 } }], output: [{ type: 'output.billboard', data: { blend: 'additive' } }] }) },
+    { systemId: 'light', name: 'Light', maxParticles: 8_000, space: 'world', graph: graph({ spawn: [{ type: 'spawn.rate', data: { rate: 10 } }], initialize: [{ type: 'init.lifetime', data: { min: 2, max: 2 } }, { type: 'init.velocity', data: { min: [-1, 0, -1], max: [1, 2, 1] } }], output: [{ type: 'output.light', data: { maxLights: 2 } }] }) },
+  ],
+};
 const TRAIL = fx('trail', { spawn: [{ type: 'spawn.rate', data: { rate: 10 } }], output: [{ type: 'output.ribbon' }] }, { loop: true });
 
 /** A stub renderer: WebGL coordinates; records compute passes (the WebGPU executor's). */
@@ -115,7 +124,7 @@ describe('effect player (CPU executor on WebGL 2)', () => {
     expect(d.playing).toBe(1);
     expect(d.particles).toBe(60);
     expect(d.unknownEffects).toEqual(['nope']);
-    expect(d.instances).toEqual([{ effectId: 'fountain', executor: 'cpu', particles: 60 }]);
+    expect(d.instances).toEqual([{ effectId: 'fountain', executor: 'cpu', particles: 60, systems: [{ systemId: 's', executor: 'cpu' }] }]);
     // Drawn: one billboard mesh, 60 instances.
     const mesh = scene.getObjectByName('effect fountain')!.children[0] as THREE.Mesh & { count: number };
     expect(mesh.count).toBe(60);
@@ -184,26 +193,115 @@ describe('effect player (CPU executor on WebGL 2)', () => {
   });
 });
 
+describe('effect light pool: layers and importance', () => {
+  const glow = (id: string, data: Record<string, unknown>): EffectDefLike =>
+    fx(id, { spawn: [{ type: 'spawn.burst', data: { count: 1 } }], initialize: [{ type: 'init.lifetime', data: { min: 5, max: 5 } }], output: [{ type: 'output.light', data: { maxLights: 1, ...data } }] });
+  const poolOf = (scene: THREE.Scene): EffectLights => scene.children.find((o): o is EffectLights => o instanceof EffectLights)!;
+
+  it('keeps the pool\'s abilities off for default lights, so their programs carry no layer test or extra loop', () => {
+    const scene = new THREE.Scene();
+    createEffectsPlayer({ scene, defs: [glow('a', {})], loadTexture: async () => null });
+    expect(poolOf(scene).abilities).toEqual({ layered: false, forcedPixel: false, forcedVertex: false });
+    const key = localLightsCacheKey([poolOf(scene)]);
+    expect(key).toBe(0);
+  });
+
+  it('fills slots in importance order with each light\'s mask; a light in no layer takes no slot', () => {
+    const scene = new THREE.Scene();
+    const defs = [glow('v', { importance: 'vertex', lightMask: 2 }), glow('a', {}), glow('p', { importance: 'pixel' }), glow('none', { lightMask: 0 }), glow('a2', { lightMask: 5 })];
+    const p = createEffectsPlayer({ scene, defs, loadTexture: async () => null });
+    const pool = poolOf(scene);
+    expect(pool.abilities).toEqual({ layered: true, forcedPixel: true, forcedVertex: true });
+    expect(localLightsCacheKey([pool])).not.toBe(0);
+    p.setRenderer(stubRenderer().r, 'webgl2');
+    for (const [k, d] of defs.entries()) p.request(play(d.effectId, k + 1), () => undefined);
+    p.update(1 / 30, camera());
+    expect(pool.count).toBe(4);
+    expect(pool.pixelEnd).toBe(1);
+    expect(pool.autoEnd).toBe(3);
+    expect(pool.slots.slice(0, 4).map((s) => [s.importance, s.mask])).toEqual([
+      ['pixel', 255],
+      ['auto', 255],
+      ['auto', 5],
+      ['vertex', 2],
+    ]);
+    expect(p.diagnostics().lights).toBe(4);
+    p.dispose();
+  });
+});
+
 describe('WebGPU executor plumbing', () => {
-  it('runs on WebGPU unless the effect uses what only the CPU runs (the reason is reported)', () => {
+  it('runs on WebGPU unless systems share events; systems used on the CPU run there beside the GPU ones (reasons reported)', () => {
     expect(gpuUnsupportedReason(compileEffect(FOUNTAIN))).toBeNull();
-    expect(gpuUnsupportedReason(compileEffect(TRAIL))).toMatch(/ribbons/);
-    const lights = fx('lights', { spawn: [{ type: 'spawn.rate' }], output: [{ type: 'output.light' }] });
-    expect(gpuUnsupportedReason(compileEffect(lights))).toMatch(/lights/);
     const events = fx('events', { spawn: [{ type: 'spawn.event', data: { system: 's' } }], output: [{ type: 'output.billboard' }] });
     expect(gpuUnsupportedReason(compileEffect(events))).toMatch(/events/);
+    // Lights, ribbons and mesh-surface shapes no longer move the effect: only their system goes to the CPU.
+    expect(gpuUnsupportedReason(compileEffect(TRAIL))).toBeNull();
+    expect(gpuUnsupportedReason(compileEffect(FIRE))).toBeNull();
+    const reasons = (d: EffectDefLike): (string | null)[] => compileEffect(d).systems.map((s) => cpuSystemReason(s));
+    expect(reasons(TRAIL)[0]).toMatch(/ribbons/);
+    expect(reasons(FIRE)).toEqual([null, expect.stringMatching(/lights/)]);
     const mesh = fx('mesh', { spawn: [{ type: 'spawn.rate' }], initialize: [{ type: 'init.position.mesh', data: { model: 'm' } }], output: [{ type: 'output.billboard' }] });
-    expect(gpuUnsupportedReason(compileEffect(mesh))).toMatch(/mesh surface/);
+    expect(reasons(mesh)[0]).toMatch(/mesh surface/);
+    expect(cpuSystemsOf(compileEffect(FIRE))).toEqual([1]);
+    // Beside a CPU system, a small one joins it (its CPU step is cheaper than a GPU dispatch); alone it stays on the GPU.
+    const smallFire: EffectDefLike = { ...FIRE, effectId: 'small-fire', systems: [{ ...FIRE.systems[0]!, maxParticles: GPU_MIN_PARTICLES - 1 }, FIRE.systems[1]!] };
+    expect(reasons(smallFire)).toEqual([null, expect.stringMatching(/lights/)]);
+    expect(cpuSystemReasons(compileEffect(smallFire))).toEqual([expect.stringMatching(/holds at most 511 particles/), expect.stringMatching(/lights/)]);
+    expect(cpuSystemReasons(compileEffect(FOUNTAIN))).toEqual([null]);
 
-    const p = createEffectsPlayer({ scene: new THREE.Scene(), defs: [TRAIL], loadTexture: async () => null });
+    const p = createEffectsPlayer({ scene: new THREE.Scene(), defs: [TRAIL, FIRE], loadTexture: async () => null });
     p.setRenderer(stubRenderer().r, 'webgpu');
     p.request(play('trail', 1), () => undefined);
+    p.request(play('fire', 2), () => undefined);
     const d = p.diagnostics();
     expect(d.executor).toBe('webgpu');
     expect(d.caps.particlesPerSystem).toBe(EFFECT_CAPS.webgpu.particlesPerSystem);
-    expect(d.instances[0]).toMatchObject({ effectId: 'trail', executor: 'cpu' });
+    // An effect with nothing for the GPU plays on the CPU executor alone.
+    expect(d.instances[0]).toMatchObject({ effectId: 'trail', executor: 'cpu', systems: [{ systemId: 's', executor: 'cpu' }] });
     expect(d.instances[0]!.reason).toMatch(/ribbons/);
+    expect(d.instances[1]).toMatchObject({ effectId: 'fire', executor: 'webgpu', systems: [{ systemId: 'flames', executor: 'webgpu' }, { systemId: 'light', executor: 'cpu' }] });
+    expect(d.instances[1]!.reason).toBeUndefined();
     p.dispose();
+    // Every system small or needing the CPU: the CPU executor alone, with the reason that forced it.
+    const small = createEffectsPlayer({ scene: new THREE.Scene(), defs: [smallFire], loadTexture: async () => null });
+    small.setRenderer(stubRenderer().r, 'webgpu');
+    small.request(play('small-fire', 1), () => undefined);
+    expect(small.diagnostics().instances[0]).toMatchObject({ executor: 'cpu', reason: expect.stringMatching(/lights/) });
+    small.dispose();
+    // On WebGL 2 every system runs on the CPU executor (no compute).
+    const gl = createEffectsPlayer({ scene: new THREE.Scene(), defs: [FIRE], loadTexture: async () => null });
+    gl.setRenderer(stubRenderer().r, 'webgl2');
+    gl.request(play('fire', 1), () => undefined);
+    expect(gl.diagnostics().instances[0]).toMatchObject({ executor: 'cpu', systems: [{ executor: 'cpu' }, { executor: 'cpu' }] });
+    gl.dispose();
+  });
+
+  it('a light system beside GPU systems moves exactly as on the CPU executor; only the GPU systems compute', () => {
+    const { r, computes } = stubRenderer();
+    const gpu = new GpuEffectExecutor(FIRE, { capacityLimit: 100_000, cpuCapacityLimit: EFFECT_CAPS.cpu.particlesPerSystem, sortedSystems: new Set() });
+    expect(gpu.systems.map((s) => s.program.systemId)).toEqual(['flames']);
+    expect([...gpu.cpuSystems]).toEqual([1]);
+    const ref = new EffectInstance(FIRE, { capacityLimit: EFFECT_CAPS.cpu.particlesPerSystem });
+    const origin = { position: [1, 2, 3] as [number, number, number], rotation: [0, 0, 0, 1] as [number, number, number, number], scale: [1, 1, 1] as [number, number, number] };
+    for (let k = 0; k < 30; k++) {
+      gpu.step(r, 1 / 60, { origin });
+      ref.step(1 / 60, { origin });
+    }
+    const a = gpu.planner.systems[1]!;
+    const b = ref.systems[1]!;
+    expect(a.count).toBeGreaterThan(0);
+    expect(a.count).toBe(b.count);
+    expect([...a.position.subarray(0, a.count * 3)]).toEqual([...b.position.subarray(0, b.count * 3)]);
+    expect([...a.color.subarray(0, a.count * 4)]).toEqual([...b.color.subarray(0, b.count * 4)]);
+    // The flames are planned for the GPU (the planner holds none of their particles); one update + one spawn pass a step.
+    expect(gpu.planner.systems[0]!.count).toBe(0);
+    expect(gpu.planner.plans()[0]!.count).toBeGreaterThan(0);
+    expect(gpu.planner.plans()[1]!.count).toBe(0);
+    expect(computes.length).toBeLessThanOrEqual(60);
+    // The CPU-simulated system keeps the CPU executor's cap.
+    expect(a.capacity).toBe(Math.min(FIRE.systems[1]!.maxParticles, EFFECT_CAPS.cpu.particlesPerSystem));
+    gpu.dispose();
   });
 
   it('each step runs the update pass, then the spawn pass for exactly the planned births', () => {

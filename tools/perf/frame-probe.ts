@@ -43,6 +43,8 @@ export interface SceneCounts {
   merged: { meshes: number; shown: number; vertexBytes: number; indexBytes: number };
   /** Levels of detail in the last frame: placed models' and instance-set copies' level switches, and the instance-set copies the view drew. */
   lod: { switches: number; copySwitches: number; copiesInView: number };
+  /** Main-thread ms per frame of the effects' update (three-adapter EFFECTS_CPU_KEY on the scene; null: no effects player). */
+  effectsMs: number | null;
 }
 
 export interface GpuPassTiming {
@@ -173,7 +175,7 @@ export function probeSetGpuTiming(on: boolean): boolean {
 /** In the page: what the scenes drawn last frame hold. */
 export function probeSceneCounts(): SceneCounts {
   const P = (window as unknown as { __tlProbe?: ProbeState }).__tlProbe;
-  const out: SceneCounts = { objects: 0, groups: 0, lods: 0, meshes: 0, hiddenMeshes: 0, instancedMeshes: 0, batchedMeshes: 0, skinnedMeshes: 0, bones: 0, lights: 0, pointLights: 0, materials: 0, info: null, passDraws: { scene: 0, shadow: 0, post: 0 }, shadowDraws: { frames: 0, mean: 0, p50: 0, p95: 0, max: 0 }, merged: { meshes: 0, shown: 0, vertexBytes: 0, indexBytes: 0 }, lod: { switches: 0, copySwitches: 0, copiesInView: 0 } };
+  const out: SceneCounts = { objects: 0, groups: 0, lods: 0, meshes: 0, hiddenMeshes: 0, instancedMeshes: 0, batchedMeshes: 0, skinnedMeshes: 0, bones: 0, lights: 0, pointLights: 0, materials: 0, info: null, passDraws: { scene: 0, shadow: 0, post: 0 }, shadowDraws: { frames: 0, mean: 0, p50: 0, p95: 0, max: 0 }, merged: { meshes: 0, shown: 0, vertexBytes: 0, indexBytes: 0 }, lod: { switches: 0, copySwitches: 0, copiesInView: 0 }, effectsMs: null };
   if (P === undefined) return out;
   out.passDraws = { ...P.lastPasses };
   if (P.shadowFrames.length > 0) {
@@ -208,6 +210,8 @@ export function probeSceneCounts(): SceneCounts {
       out.lod.switches += t.switches ?? 0;
       out.lod.copySwitches += t.copySwitches ?? 0;
     }
+    const fx = o.isScene === true ? (ud?.['tlEffectsCpu'] as { ms?: number } | undefined) : undefined;
+    if (fx?.ms !== undefined) out.effectsMs = Math.round(((out.effectsMs ?? 0) + fx.ms) * 1000) / 1000;
     if (o.isInstancedMesh === true) out.instancedMeshes += 1;
     if (o.isBatchedMesh === true) out.batchedMeshes += 1;
     if (o.isSkinnedMesh === true) out.skinnedMeshes += 1;

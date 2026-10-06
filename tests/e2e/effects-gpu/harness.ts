@@ -2,7 +2,7 @@
  * The effect executors harness (browser code, bundled by
  * `effects-gpu.e2e.ts`). One case per page load:
  *
- *   index.html?backend=webgl2|webgpu&case=parity|render
+ *   index.html?backend=webgl2|webgpu&case=parity|render|light
  *
  * - `parity` (WebGPU): neutral effect graphs run on the CPU reference
  *   (`EffectInstance`) and on the WebGPU compute executor with the same steps
@@ -13,12 +13,18 @@
  *   of magenta additive billboards and a green alpha-blended cloud in front
  *   of a dark backdrop: `window.__fx = { ok, backend, diagnostics }` and the
  *   canvas shows them.
+ * - `light`: effect lights on three grey walls (coarse quads, one per light
+ *   layer 1, 2, 3): a fire (magenta flames above, a light system) before the
+ *   left wall, a light for layer 1 only before the middle wall (layer 2), and
+ *   a per-vertex (importance) light for layer 3 before the right wall:
+ *   `window.__fx = { ok, backend, diagnostics, probes }` (probes: screen
+ *   points of each wall's centre and corner region, and the flames).
  */
 import * as THREE from 'three/webgpu';
 
 import { EffectInstance } from '@thirdlight/effects';
 import { newEffectSystemGraph, type EffectDef, type GraphData, type GraphValue } from '@thirdlight/project-model';
-import { createEffectsPlayer, createRenderer, GPU_STATE_FIELDS, GPU_STATE_STRIDE, GpuEffectExecutor, type RendererPreference } from '@thirdlight/three-adapter';
+import { applyObjectLightLayers, createEffectsPlayer, createRenderer, GPU_STATE_FIELDS, GPU_STATE_STRIDE, GpuEffectExecutor, type RendererPreference } from '@thirdlight/three-adapter';
 
 const q = new URLSearchParams(location.search);
 const backend = (q.get('backend') ?? 'auto') as RendererPreference;
@@ -238,6 +244,34 @@ const RENDER_FX: EffectDef[] = [
   ], { loop: false, duration: 1 }),
 ];
 
+/** A light system: one particle at the effect's origin for the whole play, its light reaching 4 m. */
+function lightSystem(data: Record<string, GraphValue>): { graph: GraphData; maxParticles: number } {
+  return {
+    maxParticles: 4,
+    graph: graph({
+      spawn: [{ type: 'spawn.burst', data: { count: 1 } }],
+      initialize: [{ type: 'init.lifetime', data: { min: 1000, max: 1000 } }, { type: 'init.color', data: { color: '#ffffff' } }],
+      output: [{ type: 'output.light', data: { maxLights: 1, intensity: 2, range: 4, ...data } }],
+    }),
+  };
+}
+const LIGHT_FX: EffectDef[] = [
+  effect('fire', [
+    {
+      graph: graph({
+        spawn: [{ type: 'spawn.burst', data: { count: 200 } }],
+        initialize: [{ type: 'init.position.box', data: { center: [0, 1.6, 0.5], size: [1.6, 0.4, 0.2] } }, { type: 'init.lifetime', data: { min: 1000, max: 1000 } }, { type: 'init.color', data: { color: '#ff00ff' } }, { type: 'init.size', data: { min: 0.25, max: 0.25 } }],
+        output: [{ type: 'output.billboard', data: { blend: 'additive' } }],
+      }),
+    },
+    lightSystem({ lightMask: 1 }),
+  ]),
+  effect('masked', [lightSystem({ lightMask: 1 })]),
+  effect('vertex', [lightSystem({ lightMask: 4, importance: 'vertex' })]),
+];
+/** The walls' centres (x); each is 2.4 m × 2 m at z = -1, its light 0.5 m before its centre. */
+const WALLS = [-2.6, 0, 2.6];
+
 const canvas = document.querySelector('canvas') as HTMLCanvasElement;
 const result: Record<string, unknown> = {};
 (async () => {
@@ -260,6 +294,44 @@ const result: Record<string, unknown> = {};
       result.log = log;
     } else if (which === 'parity') {
       result.cases = await parity(r);
+    } else if (which === 'light') {
+      const scene = new THREE.Scene();
+      scene.background = new THREE.Color('#000000');
+      const camera = new THREE.PerspectiveCamera(50, canvas.width / canvas.height, 0.1, 100);
+      camera.position.set(0, 0, 9);
+      camera.lookAt(0, 0, 0);
+      camera.updateMatrixWorld();
+      const material = new THREE.MeshStandardNodeMaterial({ color: '#808080', roughness: 1, metalness: 0 });
+      WALLS.forEach((x, i) => {
+        // One segment: a per-vertex light is summed at the four corners only.
+        const wall = new THREE.Mesh(new THREE.PlaneGeometry(2.4, 2, 1, 1), material);
+        wall.position.set(x, 0, -1);
+        applyObjectLightLayers(wall, 1 << i);
+        scene.add(wall);
+      });
+      const player = createEffectsPlayer({ scene, defs: LIGHT_FX, loadTexture: async () => null });
+      player.setRenderer(r, handle.info().api === 'webgpu' ? 'webgpu' : 'webgl2');
+      const objectOf = (): undefined => undefined;
+      ['fire', 'masked', 'vertex'].forEach((id, i) => player.request({ op: 'play', effectId: id, handle: i + 1, entityId: null, position: [WALLS[i]!, 0, -0.5], params: null, source: 'script' }, objectOf));
+      for (let f = 0; f < 6; f++) {
+        player.update(1 / 30, camera);
+        r.render(scene, camera);
+      }
+      for (let tries = 0; tries < 40 && player.diagnostics().particles < 203; tries++) {
+        for (let f = 0; f < 5; f++) player.update(1 / 30, camera);
+        r.render(scene, camera);
+        await new Promise((ok) => setTimeout(ok, 250));
+      }
+      result.diagnostics = player.diagnostics();
+      const px = (x: number, y: number, z: number): [number, number] => {
+        const v = new THREE.Vector3(x, y, z).project(camera);
+        return [Math.round(((v.x + 1) / 2) * canvas.width), Math.round(((1 - v.y) / 2) * canvas.height)];
+      };
+      result.probes = {
+        centre: WALLS.map((x) => px(x, 0, -1)),
+        corner: WALLS.map((x) => px(x - 1.0, -0.8, -1)),
+        flames: px(WALLS[0]!, 1.6, -0.5),
+      };
     } else {
       const scene = new THREE.Scene();
       scene.background = new THREE.Color('#101418');

@@ -7,9 +7,14 @@
  *   buffers (`effects-gpu.ts`), instanced draws from the buffers, GPU
  *   back-to-front sort for alpha blending. Caps: `EFFECT_CAPS.webgpu`.
  * - `cpu` (the WebGL 2 backend, and on WebGPU the effects the GPU executor
- *   does not run — events, mesh-surface shapes, ribbons/trails, lights): the
- *   reference evaluator of `@thirdlight/effects` over typed arrays, drawn
- *   instanced (CPU back-to-front sort). Lower caps: `EFFECT_CAPS.cpu`.
+ *   does not run — events between systems): the reference evaluator of
+ *   `@thirdlight/effects` over typed arrays, drawn instanced (CPU
+ *   back-to-front sort). Lower caps: `EFFECT_CAPS.cpu`.
+ *
+ * On WebGPU an effect's systems whose particles are used on the CPU (lights,
+ * ribbons/trails, mesh-surface shapes) are simulated on the CPU beside its
+ * GPU systems, in the same step (`cpuSystemReason`), at the CPU caps; the
+ * diagnostics list each system's executor.
  *
  * Plays come from `effect` components (play on start; restart/stop on
  * signals), scripts (`ctx.effects.play/stop`) and gameplay hooks — the last
@@ -25,7 +30,7 @@ import * as THREE from 'three/webgpu';
 import { compileEffect, EffectInstance, type CompiledNode, type EffectMesh, type EffectOrigin, type EffectProgram } from '@thirdlight/effects';
 
 import { CpuParticleSource, createOutputRenderer, EFFECT_LIGHT_LIMIT, emitsLight, GpuParticleSource, LightPool, outputSorted, type DrawContext, type FrameInfo, type OutputRenderer } from './effects-draw';
-import { GPU_SORT_LIMIT, GpuEffectExecutor, gpuUnsupportedReason } from './effects-gpu';
+import { cpuSystemReason, cpuSystemReasons, GPU_SORT_LIMIT, GpuEffectExecutor, gpuUnsupportedReason } from './effects-gpu';
 import { decodeTexture } from './material-library';
 import type { GlbLoaderPort } from './visual';
 
@@ -68,6 +73,15 @@ export const EFFECT_CAPS: { readonly webgpu: EffectCaps; readonly cpu: EffectCap
   /** The CPU fallback: typed-array simulation on the main thread. */
   cpu: { particlesPerSystem: 4_096, particlesTotal: 16_384, instances: 64 },
 };
+/**
+ * `scene.userData[EFFECTS_CPU_KEY]`: the main-thread time of the effects'
+ * update (steps, CPU simulation, draw preparation), a running mean in ms per
+ * frame — for tools reading the scene (the perf harness).
+ */
+export const EFFECTS_CPU_KEY = 'tlEffectsCpu';
+/** Weight of the newest frame in that running mean (about the last 60 frames). */
+const CPU_MEAN_WEIGHT = 1 / 60;
+
 /** Finished plays kept per effect for reuse. */
 export const POOL_PER_EFFECT = 4;
 /** The longest simulation step (s): a slower frame is split into up to MAX_SUBSTEPS steps (then time slows). */
@@ -85,13 +99,20 @@ export interface EffectsDiagnostics {
   refused: number;
   unknownEffects: string[];
   /** Up to 16 playing effects: which executor runs each, and why an effect runs on the CPU on WebGPU. */
-  instances: { effectId: string; executor: 'webgpu' | 'cpu'; particles: number; reason?: string }[];
+  instances: { effectId: string; executor: 'webgpu' | 'cpu'; particles: number; reason?: string; systems: EffectSystemExecutor[] }[];
   /** Compile problems (errors and warnings) of the played effects, up to 16. */
   problems: string[];
   /** Point lights in use of the shared pool. */
   lights: number;
   /** Point lights the pool holds in the scene, dark when unused (the whole pool once an effect of the game emits light, else 0). */
   lightPool: number;
+}
+
+/** Which executor simulates one system of a playing effect, and why the CPU when its effect runs on the GPU. */
+export interface EffectSystemExecutor {
+  systemId: string;
+  executor: 'webgpu' | 'cpu';
+  reason?: string;
 }
 
 export interface EffectsPlayerOptions {
@@ -163,7 +184,7 @@ export function createEffectsPlayer(options: EffectsPlayerOptions): EffectsPlaye
   const attached = new Map<string, { object: THREE.Object3D; component: EffectComponentLike; play: Playing | null }>();
   const lights = new LightPool(scene);
   // Before the first frame: a light added mid-play would recompile every lit material.
-  if (options.defs.some(emitsLight)) lights.reserve();
+  if (options.defs.some(emitsLight)) lights.reserve(options.defs);
   let refused = 0;
   const unknown = new Set<string>();
   const problems = new Set<string>();
@@ -211,12 +232,10 @@ export function createEffectsPlayer(options: EffectsPlayerOptions): EffectsPlaye
       refused += 1;
       return null;
     }
-    let pending = false;
-    if (choice.executor === 'cpu') {
-      const needs = shapeModels(def);
-      for (const m of needs) void loadModel(m);
-      pending = needs.some((m) => !meshes.has(m));
-    }
+    // Mesh-surface shapes are sampled on the CPU on either executor.
+    const needs = shapeModels(def);
+    for (const m of needs) void loadModel(m);
+    const pending = needs.some((m) => !meshes.has(m));
     const parts = buildEffectPlay(def, params, choice, drawContext(), { ...(options.wind ? { wind: options.wind } : {}), mesh: (id) => meshes.get(id) ?? null });
     return {
       ...parts,
@@ -320,7 +339,20 @@ export function createEffectsPlayer(options: EffectsPlayerOptions): EffectsPlaye
   const tmpM = new THREE.Matrix4();
   const eye = new THREE.Vector3();
 
+  const cpuStat = { ms: 0 };
+  scene.userData[EFFECTS_CPU_KEY] = cpuStat;
+
   function update(frameSeconds: number, camera: THREE.Camera, worldTime?: number): void {
+    if (renderer === null) return;
+    const started = performance.now();
+    try {
+      updatePlays(frameSeconds, camera, worldTime);
+    } finally {
+      cpuStat.ms += (performance.now() - started - cpuStat.ms) * CPU_MEAN_WEIGHT;
+    }
+  }
+
+  function updatePlays(frameSeconds: number, camera: THREE.Camera, worldTime?: number): void {
     if (renderer === null) return;
     const dtAll = Math.max(0, Math.min(frameSeconds, MAX_STEP * MAX_SUBSTEPS));
     clock += dtAll;
@@ -402,7 +434,7 @@ export function createEffectsPlayer(options: EffectsPlayerOptions): EffectsPlaye
     },
     setDefs(list) {
       defs = new Map(list.map((d) => [d.effectId, d]));
-      if (list.some(emitsLight)) lights.reserve();
+      if (list.some(emitsLight)) lights.reserve(list);
       // Plays of a changed or removed effect end; attached components start again with the new definition.
       for (const rec of [...playing]) if (defs.get(rec.effectId) !== rec.def) release(rec, false);
       for (const [id, list2] of [...pool]) {
@@ -481,7 +513,7 @@ export function createEffectsPlayer(options: EffectsPlayerOptions): EffectsPlaye
       for (const rec of playing) {
         const n = rec.cpu !== null ? rec.cpu.systems.reduce((a, s) => a + s.count, 0) : rec.gpuLiving;
         particles += n;
-        if (instances.length < 16) instances.push({ effectId: rec.effectId, executor: rec.executor, particles: n, ...(rec.reason !== undefined ? { reason: rec.reason } : {}) });
+        if (instances.length < 16) instances.push({ effectId: rec.effectId, executor: rec.executor, particles: n, ...(rec.reason !== undefined ? { reason: rec.reason } : {}), systems: rec.systems });
       }
       return {
         executor: api === null ? null : api === 'webgpu' ? 'webgpu' : 'cpu',
@@ -502,6 +534,7 @@ export function createEffectsPlayer(options: EffectsPlayerOptions): EffectsPlaye
       pool.clear();
       attached.clear();
       lights.dispose();
+      if (scene.userData[EFFECTS_CPU_KEY] === cpuStat) delete scene.userData[EFFECTS_CPU_KEY];
     },
   };
   return api_;
@@ -513,21 +546,32 @@ export interface EffectExecutorChoice {
   readonly executor: 'webgpu' | 'cpu';
   readonly reason: string | null;
   readonly capacity: number;
+  /** Each system's executor (on WebGPU some systems of a GPU-run effect are simulated on the CPU). */
+  readonly systems: EffectSystemExecutor[];
 }
 
 export function chooseEffectExecutor(def: EffectDefLike, api: 'webgpu' | 'webgl2'): EffectExecutorChoice {
   const program = compileEffect(def);
-  const gpuReason = api === 'webgpu' ? gpuUnsupportedReason(program) : 'the WebGL 2 backend has no compute: the CPU executor';
+  // Uncapped capacities: below the GPU's cap (where the small-system rule looks) they are the capped ones.
+  const perSystem = cpuSystemReasons(program);
+  // An effect none of whose systems runs on the GPU plays on the CPU executor alone (no planner beside it, no read-back).
+  const allOnCpu = perSystem.length > 0 && perSystem.every((r) => r !== null) ? (program.systems.map((s) => cpuSystemReason(s)).find((r) => r !== null) ?? perSystem[0]!) : null;
+  const gpuReason = api === 'webgpu' ? (gpuUnsupportedReason(program) ?? allOnCpu) : 'the WebGL 2 backend has no compute: the CPU executor';
   const executor: 'webgpu' | 'cpu' = api === 'webgpu' && gpuReason === null ? 'webgpu' : 'cpu';
-  const cap = executor === 'webgpu' ? EFFECT_CAPS.webgpu : EFFECT_CAPS.cpu;
-  const capacity = def.systems.reduce((a, s) => a + Math.min(s.maxParticles, cap.particlesPerSystem), 0);
-  return { program, executor, reason: api === 'webgpu' ? gpuReason : null, capacity };
+  const systems = program.systems.map((s, i): EffectSystemExecutor => {
+    const why = executor === 'webgpu' ? perSystem[i]! : null;
+    return { systemId: s.systemId, executor: executor === 'webgpu' && why === null ? 'webgpu' : 'cpu', ...(why !== null ? { reason: why } : {}) };
+  });
+  const capacity = def.systems.reduce((a, s, i) => a + Math.min(s.maxParticles, (systems[i]?.executor === 'webgpu' ? EFFECT_CAPS.webgpu : EFFECT_CAPS.cpu).particlesPerSystem), 0);
+  return { program, executor, reason: api === 'webgpu' ? gpuReason : null, capacity, systems };
 }
 
 /** One play's executor and draw objects (the player's plays and the Effect tab's preview). */
 export interface EffectPlayParts {
   executor: 'webgpu' | 'cpu';
   reason?: string;
+  /** Each system's executor. */
+  systems: EffectSystemExecutor[];
   cpu: EffectInstance | null;
   gpu: GpuEffectExecutor | null;
   renderers: { system: number; renderer: OutputRenderer; source: CpuParticleSource | GpuParticleSource }[];
@@ -547,15 +591,25 @@ export function buildEffectPlay(
   const cap = choice.executor === 'webgpu' ? EFFECT_CAPS.webgpu : EFFECT_CAPS.cpu;
   const group = new THREE.Group();
   group.name = `effect ${def.effectId}`;
-  const parts: EffectPlayParts = { executor: choice.executor, ...(choice.reason !== null ? { reason: choice.reason } : {}), cpu: null, gpu: null, renderers: [], group, capacity: choice.capacity };
+  const parts: EffectPlayParts = { executor: choice.executor, ...(choice.reason !== null ? { reason: choice.reason } : {}), systems: choice.systems, cpu: null, gpu: null, renderers: [], group, capacity: choice.capacity };
   if (choice.executor === 'webgpu') {
     const sorted = new Set(choice.program.systems.filter((s) => s.chains.output.some((b) => outputSorted(b))).map((s) => s.systemId));
-    const gpu = new GpuEffectExecutor(def, { capacityLimit: cap.particlesPerSystem, sortedSystems: sorted, ...(p !== undefined ? { params: p } : {}), ...(o.wind ? { wind: o.wind } : {}) });
+    const gpu = new GpuEffectExecutor(def, {
+      capacityLimit: cap.particlesPerSystem,
+      cpuCapacityLimit: EFFECT_CAPS.cpu.particlesPerSystem,
+      sortedSystems: sorted,
+      ...(p !== undefined ? { params: p } : {}),
+      ...(o.wind ? { wind: o.wind } : {}),
+      mesh: (id) => o.mesh?.(id) ?? null,
+    });
     parts.gpu = gpu;
-    gpu.systems.forEach((sys, i) => {
-      const src = new GpuParticleSource(sys);
-      for (const b of sys.program.chains.output) {
-        const r = createOutputRenderer(b, src, null, ctx);
+    // In system order (draw order follows it): GPU systems draw from their buffers, CPU ones from the planner's particles.
+    const bySystem = new Map(gpu.systems.map((sys) => [sys.program.index, sys]));
+    gpu.planner.systems.forEach((state, i) => {
+      const onGpu = bySystem.get(i);
+      const src = onGpu !== undefined ? new GpuParticleSource(onGpu) : new CpuParticleSource(state);
+      for (const b of state.program.chains.output) {
+        const r = createOutputRenderer(b, src, onGpu !== undefined ? null : state, ctx);
         if (r !== null) {
           parts.renderers.push({ system: i, renderer: r, source: src });
           if (r.object !== null) group.add(r.object);
