@@ -12,6 +12,17 @@
  * HTTP), the tops show the ramp once across the four cells: red rises along
  * the row and does not jump back at any cell edge.
  *
+ * Normal maps on the world-mapped kit, tops and walls: the type's material
+ * is then the standard shader with a flat normal map tilted toward the
+ * image's top right (glTF convention). Each face read — a top, a wall facing
+ * +Z, a wall facing +X — is lit by one sun from its image's top-right side
+ * and then from the mirror side at the same angle to the face. Right
+ * (tangent) and up (bitangent) both lean the right way only if the face is
+ * clearly brighter under the first sun; one of them turned around cancels the
+ * other (no lean), both turned around reverse it. In world terms (the box
+ * mapping's signs): a top's image right is +X and its top −Z; a +Z wall's
+ * right is +X, a +X wall's right −Z, and every wall's top is up.
+ *
  * TL_WORLD_UV_DIR=<dir> keeps the pictures.
  */
 import { randomBytes, randomUUID } from 'node:crypto';
@@ -130,6 +141,46 @@ async function scenePicture(view: Locator, check: (red: number[]) => string | nu
   return red;
 }
 
+/**
+ * The faces whose bump is read: a point in a cell's middle (world), the
+ * face's normal, and the in-face direction of its image's top right.
+ */
+const BUMP_FACES = [
+  { name: 'top', at: [-0.5, 1, -0.5], normal: [0, 1, 0], upRight: [1, 0, -1] },
+  { name: 'wall +Z', at: [0.5, 0.5, 1], normal: [0, 0, 1], upRight: [1, 1, 0] },
+  { name: 'wall +X', at: [2, 0.5, 0.5], normal: [1, 0, 0], upRight: [0, 1, -1] },
+] as const;
+
+/** The mean brightness of a 5 × 5 patch around a world point. */
+function brightness(img: Image, project: (p: [number, number, number]) => { x: number; y: number } | null, at: readonly number[]): number {
+  const c = project([at[0]!, at[1]!, at[2]!]);
+  if (c === null) return NaN;
+  let sum = 0;
+  for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) {
+    const [r, g, b] = img.pixel(Math.round(c.x) + dx, Math.round(c.y) + dy);
+    sum += (r + g + b) / 3;
+  }
+  return sum / 25;
+}
+
+/** The Scene view's brightness at `at` once two pictures in a row agree (the view redraws after a change). */
+async function settledBrightness(view: Locator, at: readonly number[], name: string): Promise<number> {
+  const project = await sceneProjector(view);
+  let last = NaN;
+  let png: Buffer | null = null;
+  await expect
+    .poll(async () => {
+      png = await view.screenshot();
+      const now = brightness(decodePng(png), project, at);
+      const same = Math.abs(now - last) < 1;
+      last = now;
+      return same;
+    }, { timeout: 30_000, intervals: [400], message: `Scene view settles (${name})` })
+    .toBe(true);
+  if (png !== null) keep(name, png);
+  return last;
+}
+
 async function frameRow(page: Page, view: Locator): Promise<void> {
   const box = (await view.boundingBox())!;
   const inView = async (): Promise<boolean> => {
@@ -187,6 +238,29 @@ for (const variant of RENDERER_VARIANTS) test(`block looks with world texture co
   await panel.getByLabel('block type form').getByLabel('blockType uv', { exact: true }).selectOption('world');
   await expect.poll(async () => ((await query('queryGameConfig')) as { blockTypes?: { blockId: string; uv?: string }[] }).blockTypes?.find((t) => t.blockId === 'tile')?.uv).toBe('world');
   const world = await scenePicture(view, oneRampAcross, 'world-uv');
+
+  // ---- Normal maps on the world-mapped kit: the standard shader with a map tilted toward the image's top right.
+  await publishBytes(be, new Uint8Array(makePng(16, 16, () => [204, 204, 200, 255])), 'texture', 'tilt', 'tilt');
+  await cmd('setMaterial', { material: { materialId: 'mat-bump', name: 'Bump', shader: 'standard', params: { color: '#b4b4b4', roughness: 0.9 }, textures: { normalMap: 'tilt' } } });
+  await cmd('setBlockType', { block: { blockId: 'tile', name: 'Tile', uv: 'world', variants: [{ model: { assetId: 'kit', piece: 'tile' } }], shape: 'full', materials: { '*': 'mat-bump' } } });
+  // One sun, a faint ambient, no sky light.
+  await cmd('setEnvironment', { sceneId: 'scene-main', environment: { sky: { mode: 'color', color: '#000000', intensity: 1, environmentIntensity: 0 } } });
+  await cmd('setComponent', { entityId: 'light-0002', component: 'light', value: { type: 'ambient', color: '#ffffff', intensity: 0.05 } });
+  const lean: string[] = [];
+  const wrong: string[] = [];
+  for (const f of BUMP_FACES) {
+    // The sun travels toward the face from the top-right side, then from the mirror side.
+    const lit: number[] = [];
+    for (const side of [1, -1]) {
+      const direction = f.normal.map((n, i) => -(n + side * f.upRight[i]!));
+      await cmd('setComponent', { entityId: 'light-0001', component: 'light', value: { type: 'directional', color: '#ffffff', intensity: 3, direction, castShadow: false } });
+      lit.push(await settledBrightness(view, f.at, `bump-${f.name.replace(/\W+/g, '')}-${side > 0 ? 'top-right' : 'mirror'}`));
+    }
+    lean.push(`${f.name} ${lit[0]!.toFixed(1)} vs ${lit[1]!.toFixed(1)}`);
+    if (!(lit[0]! - lit[1]! >= 20)) wrong.push(`${f.name}: ${lit[0]!.toFixed(1)} from its image's top right, ${lit[1]!.toFixed(1)} from the mirror side`);
+  }
+  console.log(`world-mapped kit bump ${variant}: ${lean.join('; ')}`);
+  expect(wrong, 'faces whose normal map does not lean toward its top-right sun').toEqual([]);
 
   expect(errors).toEqual([]);
   console.log(`world uv ${variant}: model ${own.join(',')}; world ${world.join(',')}`);

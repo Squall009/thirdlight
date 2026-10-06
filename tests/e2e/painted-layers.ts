@@ -12,6 +12,7 @@
  */
 import { randomUUID } from 'node:crypto';
 
+import { encodeKtx2 } from '../../packages/backend/src/texture-encode';
 import type { E2EBackend } from './backend';
 import type { Image } from './png';
 import { makePng } from './png-make';
@@ -90,18 +91,28 @@ export async function packNormalAndOrm(be: E2EBackend): Promise<void> {
 }
 
 /**
- * Per-layer slot sources: each layer of the albedo + height array as a
- * single-layer KTX2 of its own (ids slot-alb-1…4; RGB of alb-i, A = hgt-i's
- * R; ETC1S colour, as the Texture Designer's colour export), for a material
- * that names them per slot instead of a prebuilt array.
+ * KTX2-only per-layer slot sources: each layer of the albedo + height array
+ * (ids ktx-alb-1…4; RGB of the layer's colour, A its height; ETC1S colour),
+ * the flat normal map (ktx-nrm; UASTC normal map) and the ORM (ktx-orm;
+ * UASTC data) as single-layer KTX2 files made outside the project, as the
+ * Texture Designer exports them, and published as they are: no PNG enters
+ * the project for them and none records a lossless original.
  */
-export async function packSlotSources(be: E2EBackend): Promise<string[]> {
-  const ids: string[] = [];
+export async function publishKtx2SlotSources(be: E2EBackend): Promise<{ albedoHeight: string[]; normal: string; orm: string }> {
+  const ktx2 = async (png: Uint8Array, mode: 'color' | 'normal' | 'data', assetId: string): Promise<string> => {
+    const encoded = await encodeKtx2(png, mode);
+    if (!encoded.ok) throw new Error(`${assetId}: ${encoded.message}`);
+    await publishTexture(be, encoded.ktx2, assetId, assetId);
+    return assetId;
+  };
+  const albedoHeight: string[] = [];
   for (let i = 0; i < 4; i++) {
-    await packTexture(be, [ALBEDO_HEIGHT_LAYERS[i]!], 'color', `slot-alb-${i + 1}`);
-    ids.push(`slot-alb-${i + 1}`);
+    const [r, g, b] = LAYER_ALBEDO[i]!;
+    albedoHeight.push(await ktx2(new Uint8Array(makePng(16, 16, () => [r, g, b, LAYER_HEIGHT[i]!])), 'color', `ktx-alb-${i + 1}`));
   }
-  return ids;
+  const normal = await ktx2(new Uint8Array(makePng(16, 16, () => [128, 128, 255, 255])), 'normal', 'ktx-nrm');
+  const orm = await ktx2(new Uint8Array(makePng(16, 16, () => [255, 204, 0, 255])), 'data', 'ktx-orm');
+  return { albedoHeight, normal, orm };
 }
 
 interface Mat {
@@ -116,8 +127,8 @@ export async function materials(be: E2EBackend): Promise<Mat[]> {
   return (r['materials'] ?? []) as Mat[];
 }
 
-/** Set a layered material's three texture parameters to the arrays. */
-export async function useArrays(be: E2EBackend, materialId: string, arrays: { albedoHeight: string; normals: string; orm: string }): Promise<void> {
+/** Set a layered material's three texture parameters to arrays (an id) or per-layer slots (a list of ids). */
+export async function useArrays(be: E2EBackend, materialId: string, arrays: { albedoHeight: string | string[]; normals: string | string[]; orm: string | string[] }): Promise<void> {
   const m = (await materials(be)).find((x) => x.materialId === materialId);
   if (m === undefined) throw new Error(`no material ${materialId}`);
   const parameters = (m.parameters ?? []).map((p) => (p.key === 'albedoHeight' ? { ...p, default: arrays.albedoHeight } : p.key === 'normals' ? { ...p, default: arrays.normals } : p.key === 'orm' ? { ...p, default: arrays.orm } : p));

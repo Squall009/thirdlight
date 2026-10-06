@@ -4001,7 +4001,9 @@ brushes, overlays and stamp UI are below (23.6).
   A cell's effective metadata is the schema default, then its block's
   default, then the cell's own value. Cells may hold metadata only.
 - **The `blockLayer` component** (Rendering): cell size per axis (e.g.
-  `[1, 0.5, 1]`), bounds in cells (at most 1024 × 256 × 1024), metadata-only,
+  `[1, 0.5, 1]`); cells are **square from above** — x must equal z (the
+  validator refuses x ≠ z, the Inspector edits both together), only the
+  height may differ, so a quarter-turned look always fits its cell; bounds in cells (at most 1024 × 256 × 1024), metadata-only,
   collision and shadow flags. The object's position is the min corner of cell
   `[0, 0, 0]`; a layer is a root (a folder may hold it) at identity rotation
   and unit scale. Deleting the layer object deletes its cells (undo restores

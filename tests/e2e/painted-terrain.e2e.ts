@@ -17,12 +17,14 @@
  *   the same material: magenta (the Height blend node takes any mesh's
  *   vertex colours as weights).
  *
- * - Then the albedo + height array is replaced by per-layer slots: four
- *   single-layer KTX2 textures picked one per slot in the material's
- *   parameters (Material editor), slot 3 holding layer 4's texture. The
- *   Scene view (the backend's assembly route), Play and the export (arrays
- *   assembled for the build) draw from them: the layer-3 patch turns
- *   magenta; the normal and ORM arrays stay prebuilt.
+ * - Then the material is built from KTX2 texture assets only: KTX2 files
+ *   made outside the project (as the Texture Designer exports them) and
+ *   published as they are. Four single-layer albedo + height textures are
+ *   picked one per slot in the material's parameters (Material editor), slot
+ *   3 holding layer 4's texture; the normal and ORM slots name one KTX2 each.
+ *   The prebuilt arrays and every PNG are deleted. The Scene view (the
+ *   backend's assembly route), Play and the export (arrays assembled for the
+ *   build) draw from the slots: the layer-3 patch turns magenta.
  *
  * Runs per renderer variant (renderer-variants.ts): auto, WebGL 2
  * (TL_E2E_ALL_VARIANTS=1 on a GPU), WebGPU in `webgpu`.
@@ -36,7 +38,7 @@ import { expect, test, type Locator, type Page } from '@playwright/test';
 
 import { publishBytes, startBackend, type E2EBackend } from './backend';
 import { multiPieceGlb } from './multi-piece-glb';
-import { count, isBlue, isGreenish, isMagenta, isRed, materials, packNormalAndOrm, packSlotSources, publishLayerSources, reds, useArrays } from './painted-layers';
+import { count, isBlue, isGreenish, isMagenta, isRed, materials, packNormalAndOrm, publishKtx2SlotSources, publishLayerSources, reds, useArrays } from './painted-layers';
 import { decodePng, type Image } from './png';
 import { menu, projectWindow, openWindow, closeEditor, createItem, editorPane, openEditor } from './ui';
 import { editorUrlFor, expectRendererBackend, exportQueryFor, onlyInItsProject, RENDERER_VARIANTS } from './renderer-variants';
@@ -253,17 +255,29 @@ for (const variant of RENDERER_VARIANTS) test(`painted terrain: height-blended l
   // The prebuilt array's picture is not the slots' (the check below tells them apart).
   expect(checkPicture(await shot(viewport), true, true)).toMatch(/blue pixels on the layer/);
 
-  // ---- Per-layer slots: the albedo + height layers as four single-layer KTX2 textures, picked per slot in the Material editor.
-  // Slot 3 takes layer 4's texture: the picture then shows the slots, not the prebuilt array.
-  const sources = await packSlotSources(be);
-  const slots = [sources[0]!, sources[1]!, sources[3]!, sources[3]!];
+  // ---- Per-layer slots from KTX2 files only: the albedo + height layers as four single-layer KTX2 textures,
+  // picked per slot in the Material editor (slot 3 takes layer 4's texture: the picture then shows the slots,
+  // not the prebuilt array); the normal and ORM slots name single-layer KTX2 textures too.
+  const sources = await publishKtx2SlotSources(be);
+  const slots = [sources.albedoHeight[0]!, sources.albedoHeight[1]!, sources.albedoHeight[3]!, sources.albedoHeight[3]!];
   await openEditor(page, 'Material', 'Graph material 1');
   const doc = editorPane(page, 'Material', 'Graph material 1');
   await doc.getByRole('button', { name: 'parameter albedoHeight default per-layer slots' }).click();
   for (let i = 0; i < 4; i++) await doc.getByLabel(`parameter albedoHeight default slot ${i + 1}`, { exact: true }).selectOption(slots[i]!);
   await expect.poll(async () => (await materials(be!)).find((m) => m.materialId === mat)!.parameters!.find((p) => p.key === 'albedoHeight')!.default, { timeout: 15_000 }).toEqual(slots);
   await closeEditor(page);
-  // The Scene view draws the array the backend assembled from the slots.
+  await useArrays(be, mat, { albedoHeight: slots, normals: Array(4).fill(sources.normal), orm: Array(4).fill(sources.orm) });
+  // Nothing but those KTX2 files is left: the prebuilt arrays and the PNG layer sources are deleted, so the
+  // Scene view, Play and the export can only draw the material from KTX2 texture assets.
+  for (const id of [albedo.assetId, 'terrain-normals', 'terrain-orm', 'alb-1', 'alb-2', 'alb-3', 'alb-4', 'hgt-1', 'hgt-2', 'hgt-3', 'hgt-4', 'nrm', 'orm-src']) await cmd('deleteAsset', { assetId: id });
+  const left = ((await query('queryAssets', { limit: 50, offset: 0 }))['assets'] as { assetId: string; kind: string; image?: { format?: string }; packedFrom?: unknown; convertedFrom?: unknown }[]).filter((a) => a.kind === 'texture');
+  expect(left.map((a) => a.assetId).sort()).toEqual(['ktx-alb-1', 'ktx-alb-2', 'ktx-alb-3', 'ktx-alb-4', 'ktx-nrm', 'ktx-orm']);
+  for (const a of left) {
+    expect(a.image?.format, a.assetId).toBe('ktx2');
+    expect(a.packedFrom, a.assetId).toBeUndefined();
+    expect(a.convertedFrom, a.assetId).toBeUndefined();
+  }
+  // The Scene view draws the arrays the backend assembled from the slots.
   await expect.poll(async () => (problem = checkPicture(await shot(viewport), true, true)), { timeout: 60_000, message: 'Scene view picture (per-layer slots)' }).toBeNull();
 
   // ---- Play.
