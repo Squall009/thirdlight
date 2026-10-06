@@ -53,6 +53,25 @@ describe('material library', () => {
     expect(mats(a)[0]!.name).toBe('bark');
   });
 
+  it('keeps a model file\'s normal scale with its sign, the green turned around where the frame comes from the UVs', () => {
+    const lib = createMaterialLibrary({ loadTexture: async () => null });
+    lib.setMaterials([RED]);
+    // As three's glTF loader leaves them on a mesh without tangents: scale on x, y turned around.
+    for (const [x, y] of [
+      [1.5, -1.5],
+      [-2, 2],
+    ] as const) {
+      const g = new THREE.Group();
+      const src = new THREE.MeshStandardMaterial({ name: 'bark' });
+      src.normalScale.set(x, y);
+      g.add(new THREE.Mesh(new THREE.BoxGeometry(), src));
+      lib.apply(g, { '*': 'mat-red' });
+      const m = mats(g)[0] as THREE.MeshStandardMaterial;
+      // BoxGeometry has no tangents: the frame is derived and y is −x.
+      expect([m.normalScale.x, m.normalScale.y]).toEqual([x, -x]);
+    }
+  });
+
   it('loads a texture once and puts it on the slot', async () => {
     let loads = 0;
     const tex = new THREE.Texture();

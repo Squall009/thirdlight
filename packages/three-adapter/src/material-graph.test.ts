@@ -7,7 +7,7 @@ import * as THREE from 'three';
 import * as TSL from 'three/tsl';
 import { describe, expect, it } from 'vitest';
 
-import { buildGraphMaterial, COMPILER_NODES, compileMaterialGraph, LIGHTING_TYPES, digestOf, materialGraphCanonical, materialGraphProblems, OVERRIDES_KEY, resolveMaterialGraphPorts, type GraphCompileEnv, type MaterialFunctionLike, type MaterialGraphLike } from './material-graph';
+import { buildGraphMaterial, COMPILER_NODES, compileMaterialGraph, handDecodedNormals, LIGHTING_TYPES, digestOf, materialGraphCanonical, materialGraphProblems, OVERRIDES_KEY, resolveMaterialGraphPorts, type GraphCompileEnv, type MaterialFunctionLike, type MaterialGraphLike } from './material-graph';
 import { createResourceManager } from '@thirdlight/runtime';
 
 import { createMaterialLibrary, MATERIAL_NO_SHADOW_KEY, type MaterialDefLike } from './material-library';
@@ -435,5 +435,38 @@ describe('material library: graph materials', () => {
     expect(m.material).toBe(first);
     lib.setMaterials([graphDef('g', TINT, [{ key: 'tint', type: 'color', default: '#0000ff' }, PARAMS[1]!])]);
     expect(m.material).not.toBe(first);
+  });
+});
+
+describe('material graph compiler: old kit graphs', () => {
+  /** The kit template's normal as made before it used Normal map nodes: texture rgb × 2 − 1 by hand. */
+  const oldKit = (): MaterialGraphLike => ({
+    nodes: [
+      { id: 'out', type: 'pbr', position: [600, 0] },
+      { id: 'detailNormal', type: 'sampleTexture', position: [0, 0], data: { texture: 'tex', colorSpace: 'linear' } },
+      { id: 'detailTwo', type: 'float', position: [0, 100], data: { value: 2 } },
+      { id: 'detailScaled', type: 'multiply', position: [200, 0] },
+      { id: 'detailOne', type: 'float', position: [200, 100], data: { value: 1 } },
+      { id: 'detailDecoded', type: 'subtract', position: [400, 0] },
+    ],
+    edges: [
+      { id: 'e1', from: { node: 'detailNormal', port: 'rgb' }, to: { node: 'detailScaled', port: 'a' } },
+      { id: 'e2', from: { node: 'detailTwo', port: 'value' }, to: { node: 'detailScaled', port: 'b' } },
+      { id: 'e3', from: { node: 'detailScaled', port: 'out' }, to: { node: 'detailDecoded', port: 'a' } },
+      { id: 'e4', from: { node: 'detailOne', port: 'value' }, to: { node: 'detailDecoded', port: 'b' } },
+      { id: 'e5', from: { node: 'detailDecoded', port: 'out' }, to: { node: 'out', port: 'normal' } },
+    ],
+  });
+
+  it('finds the hand decode of the old kit template only in its exact shape, and compiles it', () => {
+    const old = oldKit();
+    expect([...handDecodedNormals(old)].map((n) => n.id)).toEqual(['detailDecoded']);
+    // Another id, another constant, or a source that is not a texture's rgb: a graph wired by hand keeps what it says.
+    expect(handDecodedNormals({ ...old, nodes: old.nodes.map((n) => (n.id === 'detailDecoded' ? { ...n, id: 'mine' } : n)), edges: old.edges.map((e) => ({ ...e, to: { ...e.to, node: e.to.node === 'detailDecoded' ? 'mine' : e.to.node }, from: { ...e.from, node: e.from.node === 'detailDecoded' ? 'mine' : e.from.node } })) }).size).toBe(0);
+    expect(handDecodedNormals({ ...old, nodes: old.nodes.map((n) => (n.id === 'detailTwo' ? { ...n, data: { value: 3 } } : n)) }).size).toBe(0);
+    expect(handDecodedNormals({ ...old, edges: old.edges.map((e) => (e.id === 'e1' ? { ...e, from: { node: 'detailNormal', port: 'rgba' } } : e)) }).size).toBe(0);
+    const compiled = compileMaterialGraph({ graph: old }, env());
+    expect(compiled.problems.filter((p) => p.severity === 'error')).toEqual([]);
+    expect(isNode(compiled.slots.normal)).toBe(true);
   });
 });

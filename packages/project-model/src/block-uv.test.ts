@@ -11,7 +11,7 @@ import { describe, expect, it } from 'vitest';
 
 import { BlockGrid } from './block-grid';
 import { blockVariantUv, canonicalBlockType, validateBlockType, type BlockType } from './block-layers';
-import { meshBlockChunk, projectionOf, shapeSource, type BlockLookResolver, type BlockMeshSource, type ChunkMeshPart } from './block-mesh';
+import { meshBlockChunk, projectionOf, shapeSource, WORLD_UV_PERIOD_METRES, type BlockLookResolver, type BlockMeshSource, type ChunkMeshPart } from './block-mesh';
 import type { ModelErrorV2 } from './errors';
 
 const TYPES: BlockType[] = [
@@ -220,6 +220,83 @@ describe('block looks: world texture coordinates', () => {
         }
       }
       expect(checked).toBeGreaterThan(1000);
+    }
+  });
+});
+
+describe('block looks: world tangents on smooth models, and UVs far out', () => {
+  it('a smooth bevel\'s tangent is its face\'s +u made perpendicular to the vertex normal, never tipped toward the projected-away axis', () => {
+    // One quad at 60° facing +Z (a wall's projection: u along x), its vertex normals leaning far toward ±X as a rounded bevel's are.
+    const c60 = Math.cos((60 * Math.PI) / 180);
+    const s60 = Math.sin((60 * Math.PI) / 180);
+    const lean = (sx: number): number[] => {
+      const n = [sx * 0.7, 0.7, 0.05];
+      const l = Math.hypot(...n);
+      return n.map((x) => x / l);
+    };
+    const positions = new Float32Array([-0.5, 0, 0.5, 0.5, 0, 0.5, 0.5, c60 * 0.5 / s60 + 0.2, 0.2, -0.5, c60 * 0.5 / s60 + 0.2, 0.2]);
+    // The last vertex's normal runs along +x itself (the face's +u): the tangent falls back to cross(normal, +v).
+    const normals = new Float32Array([...lean(-1), ...lean(1), ...lean(1), 1, 0, 0]);
+    const src: BlockMeshSource = { positions, normals, indices: new Uint32Array([0, 1, 2, 0, 2, 3]), groups: [{ start: 0, count: 6, material: 0 }] };
+    const g = new BlockGrid({ cellSize: [1, 1, 1], bounds: { min: [0, 0, 0], max: [1, 1, 1] } });
+    g.set(0, 0, 0, { block: 'stone' });
+    const [part] = meshBlockChunk(g, 0, 0, types, { source: () => ({ key: 'bevel', source: src, uv: 'world', tangents: true }) });
+    const tris = triangles([part!]);
+    expect(tris.length).toBe(2);
+    let fallback = 0;
+    for (const t of tris) {
+      expect(projectionOf(...faceNormal(t))).toBe(4);
+      const { du, dv } = uvDirections(t);
+      for (const v of t) {
+        const tan = v.t!;
+        expect(tan.every(Number.isFinite)).toBe(true);
+        expect(Math.abs(Math.hypot(tan[0], tan[1], tan[2]) - 1)).toBeLessThan(1e-5);
+        expect(Math.abs(dot(tan, v.n))).toBeLessThan(1e-5);
+        expect(Math.abs(tan[3])).toBe(1);
+        // Along +u there is no +u on the surface: any unit tangent perpendicular to the normal (checked above).
+        if (Math.abs(dot(v.n, du)) > 0.999) {
+          fallback++;
+          continue;
+        }
+        // Gram-Schmidt of the face's +u against the vertex normal.
+        const k = dot(du, v.n);
+        const gs = du.map((x, i) => x - v.n[i]! * k);
+        const l = Math.hypot(...gs);
+        expect(close(tan.slice(0, 3), gs.map((x) => x / l), 1e-4)).toBe(true);
+        // Solving +u from the vertex normal alone tipped this one nearly onto z (|t.z| ≈ 0.99); along the face it stays mostly x.
+        expect(Math.abs(tan[0])).toBeGreaterThan(0.5);
+        // Its bitangent (cross(normal, tangent) × w) runs up the image (−v), as everywhere else.
+        expect(dot(cross(v.n, tan).map((x) => x * tan[3]), dv)).toBeLessThan(0);
+      }
+    }
+    expect(fallback).toBeGreaterThan(0);
+  });
+
+  it('wraps world UVs per chunk by whole periods: small far from the origin, continuous across chunks, unchanged near it', () => {
+    // 4 m cells: chunk 11 starts at 704 m (period 0), chunk 12 at 768 m (period 1, less 720 m).
+    const g = new BlockGrid({ cellSize: [4, 1, 4], bounds: { min: [170, 0, 0], max: [194, 1, 1] } });
+    for (let x = 170; x < 194; x++) g.set(x, 0, 0, { block: 'stone' });
+    const tops = (cx: number): Vertex[] => triangles(meshBlockChunk(g, cx, 0, types, world)).filter((t) => t.every((v) => v.n[1] > 0.99)).flat();
+    const near = tops(11);
+    const far = tops(12);
+    expect(near.length).toBeGreaterThan(0);
+    expect(far.length).toBeGreaterThan(0);
+    for (const v of near) expect(v.uv).toEqual([v.p[0], v.p[2]]);
+    for (const v of far) expect(v.uv).toEqual([Math.fround(v.p[0] - WORLD_UV_PERIOD_METRES), v.p[2]]);
+    // The shared edge at 768 m: u = 768 on one side, 48 on the other — a whole period apart, so any repeat dividing 720 m meets itself.
+    const edge = (vs: Vertex[]): number[] => [...new Set(vs.filter((v) => v.p[0] === 768).map((v) => v.uv[0]))];
+    expect(edge(near)).toEqual([768]);
+    expect(edge(far)).toEqual([48]);
+    expect((768 - 48) % WORLD_UV_PERIOD_METRES).toBe(0);
+    for (const tiling of [1, 2, 3, 4, 5, 8, 16, 0.5, 0.25, 1.5]) expect(Number.isInteger(WORLD_UV_PERIOD_METRES / tiling)).toBe(true);
+    // 40 km out (float32 steps 4 mm there), a chunk's UVs stay under a period plus a chunk.
+    const big = new BlockGrid({ cellSize: [4, 1, 4], bounds: { min: [10000, 0, 10000], max: [10016, 1, 10016] } });
+    big.set(10003, 0, 10005, { block: 'stone' });
+    const bt = triangles(meshBlockChunk(big, 625, 625, types, world)).flat();
+    expect(bt.length).toBeGreaterThan(0);
+    for (const v of bt) {
+      expect(Math.abs(v.uv[0])).toBeLessThan(WORLD_UV_PERIOD_METRES + 64);
+      expect(Math.abs(v.uv[1])).toBeLessThan(WORLD_UV_PERIOD_METRES + 64);
     }
   });
 });

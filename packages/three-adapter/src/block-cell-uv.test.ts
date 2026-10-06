@@ -3,8 +3,9 @@
  * cells: on a 2 m × 0.5 m layer the mesher's metre UVs, divided back, run one
  * unit per cell on tops (across the 2 m width) and on walls (across the width
  * and up the 0.5 m height) — one texture repeat per cell × the old `tiling`,
- * as before. A mesh keeps its metre UVs and swaps between the two as its
- * material changes.
+ * as before, whichever projection a triangle used (smoothed slopes either
+ * side of 45° included). A mesh keeps its metre UVs and swaps between the two
+ * as its material changes.
  */
 import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
@@ -28,7 +29,7 @@ describe('cell-unit UVs on block layers', () => {
     let tops = 0;
     let walls = 0;
     for (const p of parts) {
-      const cells = cellUnitUvs(p.uvs, p.normals, cell);
+      const cells = cellUnitUvs(p.uvs, p.positions, p.indices, cell);
       for (let i = 0; i < p.indices.length; i += 3) {
         const [a, b, c] = [p.indices[i]!, p.indices[i + 1]!, p.indices[i + 2]!];
         const pos = (j: number): number[] => [p.positions[j * 3]!, p.positions[j * 3 + 1]!, p.positions[j * 3 + 2]!];
@@ -51,19 +52,60 @@ describe('cell-unit UVs on block layers', () => {
     expect(walls).toBeGreaterThan(0);
   });
 
+  it('divides by the size along the projection a triangle used, not its vertex normal (smoothed slopes either side of 45°)', () => {
+    // Tall cells (0.5 m wide, 2 m rows): a sloped top rises up to 8 m over its 0.5 m, so slopes run from flat to steep.
+    const cell: [number, number, number] = [0.5, 2, 0.5];
+    const g = new BlockGrid({ cellSize: cell, bounds: { min: [0, 0, 0], max: [16, 40, 16] } });
+    const q = (v: number): number => Math.round(v * 8) / 8;
+    const h = (x: number, z: number): number => q(8 + 2 * Math.sin(x / 2.5) * Math.cos(z / 3));
+    for (let x = 0; x < 16; x++) for (let z = 0; z < 16; z++) {
+      const c = [h(x, z), h(x + 1, z), h(x + 1, z + 1), h(x, z + 1)];
+      const row = Math.floor(Math.min(...c) - 1e-9);
+      for (let y = 0; y < row; y++) g.set(x, y, z, { block: 'ground' });
+      const corners = c.map((v) => Math.min(4, v - row)) as [number, number, number, number];
+      g.set(x, row, z, { block: 'ground', ...(corners.every((v) => v === 1) ? {} : { corners }) });
+    }
+    let leaning = 0;
+    let checked = 0;
+    for (const p of meshBlockChunk(g, 0, 0, TYPES, world, { smoothAngle: 80 })) {
+      const cells = cellUnitUvs(p.uvs, p.positions, p.indices, cell);
+      for (let i = 0; i < p.indices.length; i += 3) {
+        const t = [p.indices[i]!, p.indices[i + 1]!, p.indices[i + 2]!];
+        const pos = (j: number): number[] => [p.positions[j * 3]!, p.positions[j * 3 + 1]!, p.positions[j * 3 + 2]!];
+        const [a, b, c] = t.map(pos) as [number[], number[], number[]];
+        const e = a.map((x, k) => b[k]! - x);
+        const f = a.map((x, k) => c[k]! - x);
+        const n = [e[1]! * f[2]! - e[2]! * f[1]!, e[2]! * f[0]! - e[0]! * f[2]!, e[0]! * f[1]! - e[1]! * f[0]!].map(Math.abs);
+        // The mesher's projection: a top's while the face's up is its largest component (45° stays a top).
+        const top = n[1]! * (1 + 1e-5) >= Math.max(n[0]!, n[2]!);
+        for (const j of t) {
+          const nv = [p.normals[j * 3]!, p.normals[j * 3 + 1]!, p.normals[j * 3 + 2]!].map(Math.abs);
+          if (nv[1]! >= nv[0]! && nv[1]! >= nv[2]! ? !top : top) leaning++;
+          expect(cells[j * 2]!).toBeCloseTo(p.uvs[j * 2]! / cell[0], 5);
+          expect(cells[j * 2 + 1]!).toBeCloseTo(p.uvs[j * 2 + 1]! / (top ? cell[0] : cell[1]), 5);
+          checked++;
+        }
+      }
+    }
+    // Vertices whose smoothed normal points the other way from their triangle's projection (the case the vertex normal got wrong).
+    expect(leaning).toBeGreaterThan(0);
+    expect(checked).toBeGreaterThan(1000);
+  });
+
   it('a mesh keeps its metre UVs and wears cells only under a material that reads them', () => {
     const geometry = new THREE.BufferGeometry();
-    const metres = new Float32Array([0, 0, 2, 0, 0, 0.5]);
+    // A top (uv = x, z) and a wall facing +Z (uv = x, −y), one triangle each.
+    const metres = new Float32Array([0, 0, 2, 0, 0, 2, 0, 0, 2, 0, 0, 0.5]);
     geometry.setAttribute('uv', new THREE.BufferAttribute(metres, 2));
-    // A top, a top, a wall.
-    geometry.setAttribute('normal', new THREE.BufferAttribute(new Float32Array([0, 1, 0, 0, 1, 0, 1, 0, 0]), 3));
+    geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array([0, 1, 0, 2, 1, 0, 0, 1, 2, 0, 0, 0, 2, 0, 0, 0, -0.5, 0]), 3));
+    geometry.setIndex([0, 2, 1, 3, 4, 5]);
     const plain = new THREE.MeshStandardMaterial();
     const legacy = new THREE.MeshStandardMaterial();
     legacy.userData[CELL_UV_KEY] = true;
     const mesh = new THREE.Mesh(geometry, legacy);
     keepMetreUv(mesh, [2, 0.5, 2]);
     syncCellUv(mesh);
-    expect([...(geometry.getAttribute('uv').array as Float32Array)]).toEqual([0, 0, 1, 0, 0, 1]);
+    expect([...(geometry.getAttribute('uv').array as Float32Array)]).toEqual([0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1]);
     mesh.material = plain;
     syncCellUv(mesh);
     expect(geometry.getAttribute('uv').array).toBe(metres);

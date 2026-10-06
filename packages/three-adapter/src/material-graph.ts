@@ -206,6 +206,35 @@ export function readsCellUv(graph: MaterialGraphLike): boolean {
   });
 }
 
+/**
+ * The normal decodes of the kit template as made before it used Normal map
+ * nodes: `detailDecoded` / `macroDecoded` = Sample texture's rgb × 2 − 1,
+ * by hand. Normal map nodes now turn the green around on meshes whose frame
+ * comes from their texture coordinates (no tangents); these decodes did not,
+ * so such a kit material lit its bumps from the other side there. The
+ * compile turns their green around the same way. Only that exact shape (ids
+ * included) counts: a graph a user wired by hand keeps what it says.
+ */
+export function handDecodedNormals(graph: MaterialGraphLike): Set<MaterialGraphNodeLike> {
+  const out = new Set<MaterialGraphNodeLike>();
+  const byId = new Map(graph.nodes.map((n) => [n.id, n]));
+  const into = (nodeId: string, port: string): { node: MaterialGraphNodeLike; port: string } | undefined => {
+    const e = graph.edges.find((x) => x.to.node === nodeId && x.to.port === port);
+    const node = e === undefined ? undefined : byId.get(e.from.node);
+    return node === undefined ? undefined : { node, port: e!.from.port };
+  };
+  const constant = (x: { node: MaterialGraphNodeLike } | undefined, value: number): boolean => x?.node.type === 'float' && x.node.data?.['value'] === value;
+  for (const id of ['detailDecoded', 'macroDecoded']) {
+    const n = byId.get(id);
+    if (n?.type !== 'subtract' || !constant(into(id, 'b'), 1)) continue;
+    const scaled = into(id, 'a');
+    if (scaled?.node.type !== 'multiply' || !constant(into(scaled.node.id, 'b'), 2)) continue;
+    const sampled = into(scaled.node.id, 'a');
+    if (sampled?.node.type === 'sampleTexture' && sampled.port === 'rgb') out.add(n);
+  }
+  return out;
+}
+
 /** `material.userData[CELL_UV_KEY]`: the material reads block layers' UVs in cells, not metres ({@link readsCellUv}). */
 export const CELL_UV_KEY = '__tlCellUv';
 
@@ -624,6 +653,7 @@ export function compileMaterialGraph(input: { graph: MaterialGraphLike; paramete
   /** The surface is Custom-lit (Lighting inputs read light), set before any slot compiles. */
   let litSurface = false;
   let usesLight = false;
+  const handDecoded = handDecodedNormals(input.graph);
   const problem = (scope: Scope, nodeId: string | undefined, severity: GraphProblem['severity'], message: string): void => {
     const at = scope.reportAt ?? nodeId;
     const text = scope.reportAt !== null ? `in the function: ${message}` : message;
@@ -984,6 +1014,8 @@ export function compileMaterialGraph(input: { graph: MaterialGraphLike; paramete
       case 'add':
         return one('out', v(inp['a']).add(v(inp['b'])));
       case 'subtract':
+        // An old kit graph's hand decode: its green follows the mesh's frame, as a Normal map node's does.
+        if (handDecoded.has(node)) return one('out', v(inp['a']).sub(v(inp['b'])).mul(T.vec3(1, normalGreenSign(), 1)));
         return one('out', v(inp['a']).sub(v(inp['b'])));
       case 'multiply':
         return one('out', v(inp['a']).mul(v(inp['b'])));

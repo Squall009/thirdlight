@@ -4058,9 +4058,17 @@ brushes, overlays and stamp UI are below (23.6).
   blend). A material's **tiling** sets the repeats per metre (0.25: one
   repeat per 4 m). World-mapped looks carry tangents along +u (their
   bitangent up the image, as glTF's), so normal maps light every face the
-  same way. Coloured stand-ins are always
+  same way; on a smooth model (rounded bevels) the tangent follows the
+  face's +u, made perpendicular to each vertex's normal. Coloured stand-ins are always
   world-mapped (in metres), and a model piece without texture coordinates
   takes world ones (it used to read the texture's corner).
+  On a large layer the UVs **wrap every 720 m** (per chunk, by whole
+  720 m periods along x and z), so they stay precise far from the origin.
+  A texture whose repeat divides 720 m — 1, 2, 3, 4, 5, 6, 8, 9, 10, 12,
+  16 m … and those over a whole number (0.5, 0.25, 1.5 m …) — runs on
+  without a seam; another repeat (7 m, 0.7 m, or an old layered material's
+  cell-unit repeat on cells whose width does not divide 720 m) shows a seam
+  every 720 m, where the period changes. Heights are not wrapped.
 - **Collision** (3D projects): one triangle-mesh collider per chunk built from
   the collision shapes, rebuilt when cells change, before the step's physics
   sweep. A 2D-plane project draws layers but they do not collide.
@@ -4138,7 +4146,14 @@ brushes, overlays and stamp UI are below (23.6).
   block cells, and graph materials also on models without tangents (a bump
   lit from the wrong side; a model's own glTF materials, and a standard
   material on a model, were right). A texture made to look right on those
-  then needs its green turned around now.
+  then needs its green turned around now. A kit material made from the
+  template before it used Normal map nodes (its normal decoded by hand as
+  texture × 2 − 1, nodes `detailDecoded` / `macroDecoded`) is read the same
+  way: its green is turned around where a Normal map node's would be. A
+  normal decoded by hand in a graph of your own is used as wired (its green
+  as stored, in the mesh's tangent frame); use a Normal map node instead.
+  A model's own normal scale keeps its sign (a glTF `normalTexture.scale`
+  below 0 inverts the bumps, as the file says).
 
 ## Block layer editing (phase 23.6)
 

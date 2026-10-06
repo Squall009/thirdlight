@@ -160,6 +160,8 @@ interface Classified {
   profile: string[];
   /** Per triangle: the projection its world texture coordinates use (`projectionOf` its flat face normal). */
   proj: Int8Array;
+  /** Per triangle: its flat face normal (x, y, z; unit, either way round; 0 for a degenerate one), which world tangents follow. */
+  face: Float64Array;
 }
 
 const classifiedCache = new WeakMap<BlockMeshSource, Map<string, Classified>>();
@@ -189,6 +191,7 @@ function classify(src: BlockMeshSource, rot: number, w: number, h: number, d: nu
   const tris = src.indices.length / 3;
   const side = new Int8Array(tris).fill(-1);
   const proj = new Int8Array(tris);
+  const face = new Float64Array(tris * 3);
   const planes = [w / 2, -w / 2, h, 0, d / 2, -d / 2];
   const eps = 1e-4 * Math.max(w, h, d);
   // A side's profile: the set of its boundary points projected onto the side
@@ -200,6 +203,7 @@ function classify(src: BlockMeshSource, rot: number, w: number, h: number, d: nu
     const b = src.indices[t * 3 + 1]!;
     const c = src.indices[t * 3 + 2]!;
     proj[t] = triangleProjection(positions, normals, a, b, c);
+    faceNormal(positions, a, b, c, face, t * 3);
     for (let s = 0; s < 6; s++) {
       const axis = s >> 1;
       const plane = planes[s]!;
@@ -218,7 +222,7 @@ function classify(src: BlockMeshSource, rot: number, w: number, h: number, d: nu
     }
   }
   const profile = points.map((pts, s) => (pts.length === 0 ? '' : `${profilePoints(pts)}#${Math.round(area[s]! * 1e4)}`));
-  const out = { positions, normals, side, profile, proj };
+  const out = { positions, normals, side, profile, proj, face };
   byKey.set(key, out);
   return out;
 }
@@ -272,44 +276,102 @@ function triangleProjection(p: Float32Array, n: Float32Array, a: number, b: numb
   return nx * sx + ny * sy + nz * sz < 0 ? projectionOf(-nx, -ny, -nz) : projectionOf(nx, ny, nz);
 }
 
-/** World texture coordinates (layer-local metres) of a point under a projection, written to `out` at `o`. */
-function worldUv(proj: number, px: number, py: number, pz: number, out: number[], o: number): void {
+/**
+ * World texture coordinates repeat every this many metres: each chunk takes
+ * its UVs from the layer origin less the whole periods below its min corner
+ * (x and z), so they stay small on a large layer (float32 UVs tens of
+ * kilometres out step by millimetres, several texels of a fine texture).
+ * Neighbouring chunks in different periods meet at a whole period, which is
+ * a whole number of repeats of any texture whose repeat divides it: 720 m =
+ * 2⁴ · 3² · 5, so 1, 2, 3, 4, 5, 6, 8, 9, 10, 12, 16 m … and any of those
+ * over a whole number (0.5, 0.25, 1.5, 2.5 m …). Other repeats (7 m, 0.7 m)
+ * show a seam where the period changes, every 720 m. Heights are not wrapped
+ * (a chunk is a whole column).
+ */
+export const WORLD_UV_PERIOD_METRES = 720;
+
+/** The whole periods a chunk's world UVs leave out along x or z: its min corner (layer-local metres) rounded down to a period. */
+export function worldUvWrap(chunkMin: number): number {
+  return Math.floor(chunkMin / WORLD_UV_PERIOD_METRES) * WORLD_UV_PERIOD_METRES;
+}
+
+/** World texture coordinates (layer-local metres, x and z less the chunk's whole periods `wx`, `wz`) of a point under a projection, written to `out` at `o`. */
+function worldUv(proj: number, px: number, py: number, pz: number, wx: number, wz: number, out: number[], o: number): void {
   const ua = PROJ_U_AXIS[proj]!;
   const va = PROJ_V_AXIS[proj]!;
-  out[o] = PROJ_U_SIGN[proj]! * (ua === 0 ? px : ua === 1 ? py : pz);
-  out[o + 1] = PROJ_V_SIGN[proj]! * (va === 0 ? px : va === 1 ? py : pz);
+  out[o] = PROJ_U_SIGN[proj]! * (ua === 0 ? px - wx : ua === 1 ? py : pz - wz);
+  out[o + 1] = PROJ_V_SIGN[proj]! * (va === 0 ? px - wx : va === 1 ? py : pz - wz);
 }
 
 /**
- * Pushes a vertex's tangent under a projection: the direction of +u along the
- * surface its normal describes (the projected-away axis follows the surface,
- * so a slope's tangent climbs with it), and in w the handedness that makes
- * cross(normal, tangent) × w run along −v: toward the top of the image, as
- * glTF's tangents do (textures load with v = 0 the top row), so a normal map
- * whose green points up the image lights the right way. Where a mesh has no
- * tangents, the frame three.js derives from the texture coordinates runs
- * along +v instead, and the renderer turns the green around there.
+ * Pushes a vertex's tangent under a projection: the direction of +u over its
+ * triangle's flat face (dP/du: the projected-away axis follows the face, so a
+ * slope's tangent climbs with it), made perpendicular to the vertex normal
+ * (Gram-Schmidt). Taken from the face, not the vertex normal: a smoothed
+ * vertex's normal can lean far from its face (a bevel's rounded edge), and
+ * solving +u on the plane that normal describes tips the tangent toward the
+ * projected-away axis, up to nearly vertical. Where the vertex normal runs
+ * along +u itself, the tangent is the normal crossed with the face's +v
+ * direction instead (there is no +u on the surface to follow). w is the handedness that makes cross(normal, tangent) × w
+ * run along −v: toward the top of the image, as glTF's tangents do (textures
+ * load with v = 0 the top row), so a normal map whose green points up the
+ * image lights the right way. Where a mesh has no tangents, the frame
+ * three.js derives from the texture coordinates runs along +v instead, and
+ * the renderer turns the green around there.
  */
-function worldTangent(proj: number, nx: number, ny: number, nz: number, out: number[]): void {
+function worldTangent(proj: number, fx: number, fy: number, fz: number, nx: number, ny: number, nz: number, out: number[]): void {
   const a = PROJ_U_AXIS[proj]!;
   const b = PROJ_V_AXIS[proj]!;
   const c = PROJ_N_AXIS[proj]!;
-  const n = [nx, ny, nz];
-  const nc = n[c]!;
-  const flat = Math.abs(nc) < 1e-6;
+  const f = [fx, fy, fz];
+  const fc = f[c]!;
+  // The projected-away axis is the face normal's largest component, so this is only 0 for a degenerate face.
+  const flat = Math.abs(fc) < 1e-9;
   const su = PROJ_U_SIGN[proj]!;
   const sv = PROJ_V_SIGN[proj]!;
   const t = [0, 0, 0];
   t[a] = su;
-  if (!flat) t[c] = (-n[a]! / nc) * su;
+  if (!flat) t[c] = (-f[a]! / fc) * su;
   const d = [0, 0, 0];
   d[b] = sv;
-  if (!flat) d[c] = (-n[b]! / nc) * sv;
-  const len = Math.hypot(t[0]!, t[1]!, t[2]!);
-  const cx = ny * t[2]! - nz * t[1]!;
-  const cy = nz * t[0]! - nx * t[2]!;
-  const cz = nx * t[1]! - ny * t[0]!;
-  out.push(t[0]! / len, t[1]! / len, t[2]! / len, cx * d[0]! + cy * d[1]! + cz * d[2]! >= 0 ? -1 : 1);
+  if (!flat) d[c] = (-f[b]! / fc) * sv;
+  const k = nx * t[0]! + ny * t[1]! + nz * t[2]!;
+  let gx = t[0]! - nx * k;
+  let gy = t[1]! - ny * k;
+  let gz = t[2]! - nz * k;
+  let len = Math.hypot(gx, gy, gz);
+  if (len < 1e-6 * Math.hypot(t[0]!, t[1]!, t[2]!)) {
+    // The normal along +u leaves no +u on the surface; any direction perpendicular to it will do, and
+    // cross(normal, +v) is one (+v is not along the normal, as +u is).
+    gx = ny * d[2]! - nz * d[1]!;
+    gy = nz * d[0]! - nx * d[2]!;
+    gz = nx * d[1]! - ny * d[0]!;
+    len = Math.hypot(gx, gy, gz);
+    if (!(len > 0)) [gx, gy, gz, len] = [t[0]!, t[1]!, t[2]!, Math.hypot(t[0]!, t[1]!, t[2]!)];
+  }
+  const cx = ny * gz - nz * gy;
+  const cy = nz * gx - nx * gz;
+  const cz = nx * gy - ny * gx;
+  out.push(gx / len, gy / len, gz / len, cx * d[0]! + cy * d[1]! + cz * d[2]! >= 0 ? -1 : 1);
+}
+
+/** A triangle's flat face normal (unit; 0 when it has no area), written to `out` at `o`. */
+function faceNormal(p: Float32Array, a: number, b: number, c: number, out: Float64Array, o: number): void {
+  const ex = p[b * 3]! - p[a * 3]!;
+  const ey = p[b * 3 + 1]! - p[a * 3 + 1]!;
+  const ez = p[b * 3 + 2]! - p[a * 3 + 2]!;
+  const fx = p[c * 3]! - p[a * 3]!;
+  const fy = p[c * 3 + 1]! - p[a * 3 + 1]!;
+  const fz = p[c * 3 + 2]! - p[a * 3 + 2]!;
+  const nx = ey * fz - ez * fy;
+  const ny = ez * fx - ex * fz;
+  const nz = ex * fy - ey * fx;
+  const len = Math.hypot(nx, ny, nz);
+  if (len > 0) {
+    out[o] = nx / len;
+    out[o + 1] = ny / len;
+    out[o + 2] = nz / len;
+  }
 }
 
 /** Whether a source vertex has texture coordinates of its own. */
@@ -792,6 +854,8 @@ export function meshBlockChunk(grid: BlockGrid, cx: number, cz: number, types: R
   };
   const parts = new Map<string, { acc: Accumulator; seen: SeenVertices; tangents: boolean; blockId: string; variant: number; material: number }>();
   const uv: number[] = [0, 0];
+  const wx = worldUvWrap(cx * CHUNK_SIZE * cs[0]!);
+  const wz = worldUvWrap(cz * CHUNK_SIZE * cs[2]!);
   grid.forEachInChunk(chunkKeyOf(cx, cz), (x, y, z, idx) => {
     const cell: BlockCell = grid.valueOf(idx);
     if (cell.block === undefined) return;
@@ -821,7 +885,7 @@ export function meshBlockChunk(grid: BlockGrid, cx: number, cz: number, types: R
             for (let k = 0; k < 3; k++) {
               const v = src.indices[i + k]!;
               world[k] = look.world || !hasOwnUv(src, v);
-              if (world[k]) worldUv(proj, top.p[k * 3]!, top.p[k * 3 + 1]!, top.p[k * 3 + 2]!, uvs, k * 2);
+              if (world[k]) worldUv(proj, top.p[k * 3]!, top.p[k * 3 + 1]!, top.p[k * 3 + 2]!, wx, wz, uvs, k * 2);
               else {
                 uvs[k * 2] = src.uvs![v * 2]!;
                 uvs[k * 2 + 1] = src.uvs![v * 2 + 1]!;
@@ -848,10 +912,10 @@ export function meshBlockChunk(grid: BlockGrid, cx: number, cz: number, types: R
             acc.positions.push(px, py, pz);
             acc.normals.push(nx, ny, nz);
             if (world) {
-              worldUv(proj, px, py, pz, uv, 0);
+              worldUv(proj, px, py, pz, wx, wz, uv, 0);
               acc.uvs.push(uv[0]!, uv[1]!);
             } else acc.uvs.push(src.uvs![v * 2]!, src.uvs![v * 2 + 1]!);
-            if (part.tangents) worldTangent(proj, nx, ny, nz, acc.tangents);
+            if (part.tangents) worldTangent(proj, rotated.face[t * 3]!, rotated.face[t * 3 + 1]!, rotated.face[t * 3 + 2]!, nx, ny, nz, acc.tangents);
           }
           acc.indices.push(out);
         }
@@ -926,7 +990,7 @@ export function meshBlockChunk(grid: BlockGrid, cx: number, cz: number, types: R
           acc.positions.push(t.p[k * 3]!, t.p[k * 3 + 1]!, t.p[k * 3 + 2]!);
           acc.normals.push(n[0]!, n[1]!, n[2]!);
           acc.uvs.push(u, v);
-          if (t.part.tangents) worldTangent(t.proj, n[0]!, n[1]!, n[2]!, acc.tangents);
+          if (t.part.tangents) worldTangent(t.proj, t.n[0], t.n[1], t.n[2], n[0]!, n[1]!, n[2]!, acc.tangents);
         }
         acc.indices.push(out);
       }

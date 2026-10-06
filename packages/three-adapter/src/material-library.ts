@@ -395,8 +395,10 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
     if (p['emissiveIntensity'] !== undefined) m.emissiveIntensity = num(p['emissiveIntensity'], m.emissiveIntensity);
     if (p['aoIntensity'] !== undefined) m.aoMapIntensity = num(p['aoIntensity'], 1);
     // The green of a normal map turned around where the frame is derived from the texture coordinates
-    // (normalGreenSign; what three's glTF loader does to its own materials, kept for a model's).
-    const scale = p['normalScale'] !== undefined ? num(p['normalScale'], 1) : Math.abs(m.normalScale.x);
+    // (normalGreenSign; what three's glTF loader does to its own materials, kept for a model's). A file's
+    // own scale is read from x, which the loader never turns around: a glTF normalTexture.scale below 0
+    // (a deliberately inverted map) keeps its sign on both axes.
+    const scale = p['normalScale'] !== undefined ? num(p['normalScale'], 1) : m.normalScale.x;
     m.normalScale.set(scale, (derived ? -1 : 1) * scale);
     if (p['doubleSided'] !== undefined || def.shader === 'foliage') m.side = p['doubleSided'] === false ? THREE.FrontSide : p['doubleSided'] === true || def.shader === 'foliage' ? THREE.DoubleSide : m.side;
     applyAlpha(m, p);
