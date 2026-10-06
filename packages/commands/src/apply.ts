@@ -49,7 +49,7 @@ import { applyApplySurfacePreset } from './v3-ops';
 import { applySetTags } from './tag-ops';
 import { applySetAssetOptions } from './asset-options-ops';
 import { applyPasteEntities } from './paste-ops';
-import { applySetCollisionLayers } from './layer-ops';
+import { applySetCollisionLayers, applySetLightLayers } from './layer-ops';
 import { applySetSaveSchema } from './save-schema-ops';
 import { applyDeleteAnimator, applyDeleteMaterial, applySetAnimator, applySetEnvironment, applySetInput, applySetLighting, applySetMaterial } from './material-ops';
 import type { AnimatorController, EffectDef, EnvironmentConfig, InputConfig, LightingBake, MaterialDef, SceneEnvironment } from '@thirdlight/project-model';
@@ -431,6 +431,11 @@ export function applyMutation<S extends SceneDocument>(
       if (!r.ok) return { ok: false, result: failure(request, r.error) };
       return completeForward(state, 'setCollisionLayers', envelope.projectId, envelope.requestId, revision, envelope.origin, r.op);
     }
+    case 'setLightLayers': {
+      const r = applySetLightLayers(input, va.validated.args as { layers: string[] });
+      if (!r.ok) return { ok: false, result: failure(request, r.error) };
+      return completeForward(state, 'setLightLayers', envelope.projectId, envelope.requestId, revision, envelope.origin, r.op);
+    }
     case 'setSaveSchema': {
       const r = applySetSaveSchema(input, va.validated.args as { schema: import('@thirdlight/project-model').SaveSchema | null });
       if (!r.ok) return { ok: false, result: failure(request, r.error) };
@@ -711,7 +716,7 @@ export function applyMutation<S extends SceneDocument>(
           path: '/op',
           message: 'op is not one of the implemented mutation ops',
           expected:
-            'one of: createEntity, setTransform, deleteEntity, undo, redo, publishAsset, publishBehavior, setBehaviorProperties, setComponent, setSettings, acknowledgeBehaviorTrust, createPrefab, instantiatePrefab, applySurfacePreset, updateEntity, moveEntities, setTags, setAssetOptions, pasteEntities, setMaterial, deleteMaterial, setEnvironment, setLighting, setAnimator, deleteAnimator, setInput, setCollisionLayers, setSaveSchema, createScene, renameScene, deleteScene, setStartScenes, setGraph, deleteGraph, graphEdit, setEffect, deleteEffect, renameEffect, setScriptLibrary, deleteScriptLibrary, editBlocks, setBlockType, deleteBlockType, setCellFields, setBlockStamp, deleteBlockStamp, setUiDocument, deleteUiDocument, setUiTheme, deleteUiTheme, setTimeline, deleteTimeline, setModes, setBehaviorGroups, setEventCues, setShell, setDialogue, deleteDialogue, setSpeaker, deleteSpeaker, setDialogueSettings, deleteAsset, deletePrefab, importAssets, importResources, createEntities, commitScriptLibraryStage, setLabels, setAddress, moveResources, renameFolder, createFolder, paintInstances, colliderFromModel',
+            'one of: createEntity, setTransform, deleteEntity, undo, redo, publishAsset, publishBehavior, setBehaviorProperties, setComponent, setSettings, acknowledgeBehaviorTrust, createPrefab, instantiatePrefab, applySurfacePreset, updateEntity, moveEntities, setTags, setAssetOptions, pasteEntities, setMaterial, deleteMaterial, setEnvironment, setLighting, setAnimator, deleteAnimator, setInput, setCollisionLayers, setLightLayers, setSaveSchema, createScene, renameScene, deleteScene, setStartScenes, setGraph, deleteGraph, graphEdit, setEffect, deleteEffect, renameEffect, setScriptLibrary, deleteScriptLibrary, editBlocks, setBlockType, deleteBlockType, setCellFields, setBlockStamp, deleteBlockStamp, setUiDocument, deleteUiDocument, setUiTheme, deleteUiTheme, setTimeline, deleteTimeline, setModes, setBehaviorGroups, setEventCues, setShell, setDialogue, deleteDialogue, setSpeaker, deleteSpeaker, setDialogueSettings, deleteAsset, deletePrefab, importAssets, importResources, createEntities, commitScriptLibraryStage, setLabels, setAddress, moveResources, renameFolder, createFolder, paintInstances, colliderFromModel',
         }),
       };
     }

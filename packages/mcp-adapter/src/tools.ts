@@ -58,7 +58,10 @@ import {
   GRAPH_LIMITS,
   INSTANCE_FLOATS,
   MATERIAL_DATA_MAX,
+  LIGHT_LAYER_COUNT,
+  LIGHT_LAYERS_ALL,
   MAX_COLLISION_LAYERS,
+  MAX_LIGHT_LAYER_NAME,
   MAX_LOCAL_LIGHTS,
   MAX_MATERIAL_INSTANCE_DEPTH,
   MAX_TAGS,
@@ -298,6 +301,9 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       '3D queries (physics_dimension 3): ctx.physics.raycast3d/overlapSphere/overlapBox3d/overlapCapsule/pickAt/pickAtPointer with a filter ' +
       `{tags?, layers?, exclude?}; setCollisionLayers {layers: [name...]} names up to ${MAX_COLLISION_LAYERS} collision layers ("default" is implicit) that ` +
       'collider {layers: [...]} lists. ' +
+      `Light layers (${LIGHT_LAYER_COUNT}; masks are integers, bit n = layer n+1, ${LIGHT_LAYERS_ALL} = all, absent = all): box, model, instances and blockLayer take lightLayers (1-${LIGHT_LAYERS_ALL}: the layers it is in); ` +
+      `a light takes lightMask (0-${LIGHT_LAYERS_ALL}: it lights only objects in one of these layers) and, directional/point/spot, shadowCasterMask (0-${LIGHT_LAYERS_ALL}: only objects in one of these cast its shadow); ` +
+      `scripts set them with ctx.entity(id).set("light", {lightMask, shadowCasterMask}); setLightLayers {layers: [name...]} names up to ${LIGHT_LAYER_COUNT} layers by number (index 0 = layer 1, "" unnamed, up to ${MAX_LIGHT_LAYER_NAME} chars; editor labels only). ` +
       'Collider shapes: every primitive takes center? [x,y,z] m and rotation? [x,y,z,w] (its place in the object\'s frame; a 2D plane turns about Z only); ' +
       '{type: "compound", shapes: [primitives]} puts several on one body; {type: "model"} is every convex part (each mesh) of the object\'s own model\'s <piece>_COL node, read when the game is built (Play/export warn collider_model when a model has none). ' +
       'A collider may sit on a child object: it follows its parents (kinematic once one of them is moved by a script, a timeline or a mover; a mesh collider stays static). ' +

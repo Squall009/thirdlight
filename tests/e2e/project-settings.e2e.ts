@@ -44,7 +44,7 @@ test('Project Settings: every sub-tab shows its panel and its edits round-trip t
   await menu(page, 'File', 'Project Settings…');
   const win = settingsWindow(page);
   await expect(win).toBeVisible();
-  expect(await listed(page)).toEqual(['Gameplay', 'Input', 'Tags', 'Collision layers', 'Quality', 'Audio', 'Dialogue', 'Saves', 'Game modes', 'Game shell', 'Scripts']);
+  expect(await listed(page)).toEqual(['Gameplay', 'Input', 'Tags', 'Collision layers', 'Light layers', 'Quality', 'Audio', 'Dialogue', 'Saves', 'Game modes', 'Game shell', 'Scripts']);
   // It covers the work area (the Hierarchy and the Scene view stay under it, taking no input).
   const area = (await page.locator('.tl-app__workarea').boundingBox())!;
   const box = (await win.boundingBox())!;
@@ -133,7 +133,7 @@ test('Project Settings: every sub-tab shows its panel and its edits round-trip t
   expect(await listed(page)).toEqual([]);
   await expect(win.getByText('No settings match')).toBeVisible();
   await search.fill('');
-  expect((await listed(page)).length).toBe(11);
+  expect((await listed(page)).length).toBe(12);
   await page.screenshot({ path: 'test-results/project-settings.png' });
 
   // Esc (outside a field) closes it; the editor takes input again; it reopens at the sub-tab last shown.

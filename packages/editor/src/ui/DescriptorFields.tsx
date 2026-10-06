@@ -14,6 +14,7 @@
 import { useEffect, useId, useState, type JSX, type KeyboardEvent, type ReactNode } from 'react';
 import * as THREE from 'three';
 import type { ComponentDescriptor, FieldDescriptor, ObjectFieldDescriptor } from '@thirdlight/project-model';
+import { lightLayerLabel } from '@thirdlight/project-model/limits';
 import { RefPicker } from './catalog/RefPicker';
 import { OpenItemButton } from './catalog/item-opener';
 import {
@@ -27,11 +28,13 @@ import {
   checkNumber,
   intChoiceLabel,
   intChoices,
+  maskBitCount,
   parseNumberInput,
   pickedValue,
   setAt,
   sliderRange,
   startValue,
+  toggledMask,
   visibleFields,
   widgetFor,
   type AddEntry,
@@ -58,6 +61,8 @@ export interface FieldContext extends PickerData {
   readonly modelNodes?: (entityId: string) => readonly string[] | null | undefined;
   /** The object being inspected (its own model's bones are offered for a bone of it). */
   readonly selfId?: string;
+  /** The project's light layer names by number (a light layer mask's checkboxes are labelled with them). */
+  readonly lightLayerNames?: readonly string[];
 }
 
 export type Edit = (path: FieldPath, next: unknown) => void;
@@ -259,6 +264,28 @@ export function FieldRow(p: RowProps): JSX.Element | null {
       return (
         <Row f={f} label={p.label} isDefault={isDefault}>
           <NumberWidget {...p} aria={aria} shown={typeof shown === 'number' ? shown : undefined} />
+        </Row>
+      );
+    }
+    case 'mask': {
+      // One checkbox per layer; a box whose removal the field's min refuses (an object's last layer) is disabled.
+      const mask = typeof shown === 'number' ? shown : 0;
+      const names = f.type === 'int' && f.mask === 'lightLayers' ? p.ctx.lightLayerNames : undefined;
+      return (
+        <Row f={f} label={p.label} isDefault={isDefault}>
+          <span className="tl-desc__mask" role="group" aria-label={aria}>
+            {Array.from({ length: maskBitCount(f) }, (_, bit) => {
+              const label = lightLayerLabel(names, bit);
+              const on = (mask & (1 << bit)) !== 0;
+              const next = toggledMask(f, mask, bit, !on);
+              return (
+                <label key={bit} className="tl-flag" title={`Layer ${bit + 1}`}>
+                  <input type="checkbox" aria-label={`${aria} ${label}`} checked={on} disabled={next === null} onChange={() => next !== null && p.onEdit(p.path, next)} />
+                  <span>{label}</span>
+                </label>
+              );
+            })}
+          </span>
         </Row>
       );
     }

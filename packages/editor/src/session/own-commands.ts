@@ -41,6 +41,7 @@ export const WHOLE_DOCUMENT_OPS: ReadonlySet<string> = new Set([
   'setAnimator',
   'setInput',
   'setCollisionLayers',
+  'setLightLayers',
   // Game modes and behavior groups (whole lists).
   'setModes',
   'setBehaviorGroups',

@@ -30,6 +30,8 @@
  * - `transform.position/rotation/scale` — the object's local transform.
  * - `light.color/intensity/range` — the realized light's values (range: point
  *   and spot lights; environment presets blend over the written values).
+ * - `light.lightMask/shadowCasterMask` — the light layers it lights and whose
+ *   objects cast its shadow.
  * - `mover.speed/active` — its travel speed, and whether it moves (a held
  *   mover stays where it is, solid).
  * - `materialParams` — parameter values of the graph materials the object
@@ -122,6 +124,9 @@ export interface LightOverride {
   readonly color?: string;
   readonly intensity?: number;
   readonly range?: number;
+  /** The light layers it lights and whose objects cast its shadow (bit masks, project-model light-layers.ts). */
+  readonly lightMask?: number;
+  readonly shadowCasterMask?: number;
 }
 
 /** A save document's record of the written fields (components section, `fields`). */

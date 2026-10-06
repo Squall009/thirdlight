@@ -64,6 +64,8 @@ export interface InstancesComponent {
   receiveShadow?: boolean;
   /** This set's chunk size (m), 1–4096 (absent: the project's `instance_chunk_m`, else 32). */
   chunkSize?: number;
+  /** The light layers the copies are in, a bit mask (light-layers.ts; absent: every layer). */
+  lightLayers?: number;
 }
 
 /** Floats per instance in an instance buffer. */
@@ -111,6 +113,10 @@ export interface LightComponent {
   mode?: 'baked' | 'mixed';
   /** Spot only: a texture asset projected through the cone (three's `SpotLight.map`). */
   cookie?: string;
+  /** v4: the light layers it lights, a bit mask (light-layers.ts; absent: every layer). */
+  lightMask?: number;
+  /** v4, directional, point and spot: only objects in these light layers cast its shadow (absent: every layer). */
+  shadowCasterMask?: number;
 }
 
 /** A copied surface value row (never a linked resource). */
@@ -455,6 +461,8 @@ export interface ContentCatalogV4 extends Omit<ContentCatalogV3, 'game'> {
   dialogueSettings?: import('./dialogue').DialogueSettings;
   /** The resources a script may load by address or label (their resource files hold them; absent = none). */
   loadable?: import('./loadable').LoadableEntry[];
+  /** The light layers' names by bit (light-layers.ts; editor labels only; absent = "Layer 1" … "Layer 8"). */
+  lightLayers?: string[];
 }
 
 /** One scene in the project's scene index. */

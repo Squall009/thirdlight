@@ -100,6 +100,7 @@ export { parseEnvelopeV3, parseManifest, parseSceneV3 } from './parse-api';
 
 export { validateManifest, normalizeManifest, boundedFound } from './validate';
 export * from './limits';
+export { lightLayerMaskOf, validateLightLayerMask, validateLightLayerNames } from './light-layers';
 
 export {
   M2_SETTINGS_KEYS,

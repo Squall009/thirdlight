@@ -169,6 +169,7 @@ export type {
   SetTagsArgs,
   SetTagsChange,
   SetCollisionLayersChange,
+  SetLightLayersChange,
   SetSaveSchemaChange,
   SetAssetOptionsArgs,
   SetAssetOptionsChange,

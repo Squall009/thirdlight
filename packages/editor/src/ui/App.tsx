@@ -164,7 +164,7 @@ function EditorApp(): JSX.Element {
   /** The editor's refresh, for the hooks made before it (a saved setting shows at once). */
   const refreshRef = useRef<() => void>(() => undefined);
   const projectSettings = useProjectSettings(clientRef, refreshRef);
-  const { settings, modes, behaviorGroups, saveSchema, setGameplayError, receive: receiveSettings } = projectSettings;
+  const { settings, modes, behaviorGroups, lightLayers, saveSchema, setGameplayError, receive: receiveSettings } = projectSettings;
   // The chunks each drawn instance set was split into (by entity id).
   const [instanceChunks, setInstanceChunks] = useState<Record<string, number>>({});
   /** The open scenes' headers and the closed scenes (a v4 project with scenes). */
@@ -790,6 +790,8 @@ function EditorApp(): JSX.Element {
       animatorParameters: Object.fromEntries(animators.map((a) => [a.controllerId, a.parameters])),
       // The "+ Add component" presets follow the project's physics dimension.
       physicsDimension: settings?.['physics_dimension'] === 3 ? (3 as const) : (2 as const),
+      // The light layer masks' checkboxes carry the project's layer names.
+      lightLayerNames: lightLayers,
       // A socket's node list comes from its target's model.
       modelNodes: (entityId: string) => {
         const e = allEntitiesMemo.find((x) => x.id === entityId);
@@ -797,7 +799,7 @@ function EditorApp(): JSX.Element {
         return typeof assetId === 'string' ? modelNodesOf(assetId) : undefined;
       },
     }),
-    [allEntitiesMemo, projectScenes, materials, animators, behaviorViews, prefabSummaries, effects, registry, settings, modelNodesOf, behaviorGroups, modes],
+    [allEntitiesMemo, projectScenes, materials, animators, behaviorViews, prefabSummaries, effects, registry, settings, modelNodesOf, behaviorGroups, modes, lightLayers],
   );
   /** How many objects carry each behavior group. */
   const groupUsageMemo = useMemo(() => {

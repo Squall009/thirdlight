@@ -1,6 +1,6 @@
 /**
  * The project's settings as their panels edit them: the settings registry
- * (Gameplay), input actions, tags, collision layers, the save schema, game
+ * (Gameplay), input actions, tags, collision and light layers, the save schema, game
  * modes and behavior groups, the game shell and the event → sound table.
  * Each save is one ordinary command; `receive` copies the values from the
  * session client after every applied change.
@@ -30,6 +30,9 @@ export function useProjectSettings(clientRef: MutableRefObject<SessionClient | n
   const [saveSchema, setSaveSchema] = useState<SaveSchema | null>(null);
   const [saveSchemaError, setSaveSchemaError] = useState<string | null>(null);
   const [layersError, setLayersError] = useState<string | null>(null);
+  /** The light layer names and the last setLightLayers error. */
+  const [lightLayers, setLightLayers] = useState<string[]>([]);
+  const [lightLayersError, setLightLayersError] = useState<string | null>(null);
   /** The game modes, the behavior groups and the last setModes / setBehaviorGroups error. */
   const [modes, setModes] = useState<GameMode[]>([]);
   const [behaviorGroups, setBehaviorGroups] = useState<string[]>([]);
@@ -59,6 +62,14 @@ export function useProjectSettings(clientRef: MutableRefObject<SessionClient | n
     const res = await c.command('setCollisionLayers', { layers: next }, c.projection.revision);
     if (res.ok) setLayersError(null);
     else setLayersError((res.response as { message?: string }).message ?? 'the collision layers could not be saved');
+  }, [clientRef]);
+  /** Replace the light layer names (one setLightLayers command). */
+  const saveLightLayers = useCallback(async (next: string[]) => {
+    const c = clientRef.current;
+    if (!c) return;
+    const res = await c.command('setLightLayers', { layers: next }, c.projection.revision);
+    if (res.ok) setLightLayersError(null);
+    else setLightLayersError((res.response as { message?: string }).message ?? 'the light layer names could not be saved');
   }, [clientRef]);
   /** Replace the game modes (one setModes command) or the behavior groups (one setBehaviorGroups). */
   const saveModes = useCallback(async (next: GameMode[]) => {
@@ -131,6 +142,7 @@ export function useProjectSettings(clientRef: MutableRefObject<SessionClient | n
     setSettings(stable('settings', c.getSettings()));
     setTags(stable('tags', c.getTags()));
     setCollisionLayers(stable('collisionLayers', c.getCollisionLayers()));
+    setLightLayers(stable('lightLayers', c.getLightLayers()));
     setModes(stable('modes', c.getModes()));
     setBehaviorGroups(stable('behaviorGroups', c.getBehaviorGroups()));
     setEventCues(stable('eventCues', c.getEventCues()));
@@ -142,6 +154,7 @@ export function useProjectSettings(clientRef: MutableRefObject<SessionClient | n
 
   return {
     settings, gameplayError, setGameplayError, saveSettings, tags, tagsError, saveTags, collisionLayers, layersError, saveCollisionLayers,
+    lightLayers, lightLayersError, saveLightLayers,
     saveSchema, saveSchemaError, saveSaveSchema, modes, behaviorGroups, modesError, saveModes, saveBehaviorGroups, shell, shellError, saveShell,
     eventCues, eventCuesError, saveEventCues, inputConfig, inputDefaults, inputError, saveInput, receive,
   };

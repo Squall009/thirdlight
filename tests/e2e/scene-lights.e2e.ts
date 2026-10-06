@@ -11,19 +11,21 @@
  * - "Level": its own wall in front of the start scene's, a directional light
  *   at intensity 0 (night) and a dim ambient light, 12 green point lights in
  *   a row just in front of the wall (short range: each lights its own patch)
- *   and a white spot light with a striped cookie above them.
+ *   and a white spot light with a striped cookie above them. The wall is in
+ *   light layer 2 only, and the first lamp's light mask holds layer 1 only:
+ *   that lamp lights nothing there (light layers).
  *
  * In Play the relay loads and unloads them (as a script's `ctx.scenes`):
  * the start picture is red; Dusk loaded, blue; Dusk unloaded, red again;
- * Level loaded, the row across the middle shows 12 separate green patches
- * (every one of its 12 point lights lights it) and the spot's patch is
+ * Level loaded, the row across the middle shows 11 separate green patches
+ * (every point light whose mask shares a layer with the wall lights it) and the spot's patch is
  * striped (the cookie, three's `SpotLight.map`); Dusk loaded over Level,
  * blue; Dusk unloaded, Level's night comes back (not the start scene's red
  * sun); Level unloaded, red. The renderer diagnostics name the directional
  * light that is on at each point and count the local lights and cookies.
  * Then the export (Level a second start scene, so its night sun wins over
- * the start scene's), served statically with the backend stopped: night, 12
- * lamps and the cookie in its own pixels.
+ * the start scene's), served statically with the backend stopped: night, 11
+ * lit patches and the cookie in its own pixels.
  */
 import { randomBytes } from 'node:crypto';
 import { createReadStream, existsSync, statSync } from 'node:fs';
@@ -120,7 +122,7 @@ function serveDir(dir: string): Promise<{ url: string; close: () => Promise<void
   });
 }
 
-for (const variant of RENDERER_VARIANTS) test(`lights belong to scenes: the most recently loaded scene's sun is on, 12 point lights of a loaded level light it, a spot cookie shows (${variant})`, async ({ page }) => {
+for (const variant of RENDERER_VARIANTS) test(`lights belong to scenes: the most recently loaded scene's sun is on, the point lights of a loaded level light it within their light layers, a spot cookie shows (${variant})`, async ({ page }) => {
   onlyInItsProject(variant);
   test.setTimeout(300_000);
   be = await startBackend('scene-lights-e2e', 'starter');
@@ -138,9 +140,11 @@ for (const variant of RENDERER_VARIANTS) test(`lights belong to scenes: the most
   await publishBytes(be, makePng(64, 64, (x) => (Math.floor(x / 8) % 2 === 0 ? [255, 255, 255, 255] : [0, 0, 0, 255])), 'texture', 'tex-stripes');
   await cmd('createScene', { sceneId: 'scene-level', name: 'Level' });
   const level = (entities: Record<string, unknown>[]) => cmd('createEntities', { sceneId: 'scene-level', entities });
-  const lamps = Array.from({ length: 12 }, (_, i) => ({ parentId: null, kind: 'group', name: `Lamp ${i + 1}`, transform: { position: [4 + (i - 5.5) * 1.8, 3, -2.7] }, components: { light: { type: 'point', color: '#00ff00', intensity: 3, range: 1.2, decay: 2 } } }));
+  // The first lamp lights light layer 1 only; the wall is in layer 2: it stays dark there.
+  const lamps = Array.from({ length: 12 }, (_, i) => ({ parentId: null, kind: 'group', name: `Lamp ${i + 1}`, transform: { position: [4 + (i - 5.5) * 1.8, 3, -2.7] }, components: { light: { type: 'point', color: '#00ff00', intensity: 3, range: 1.2, decay: 2, ...(i === 0 ? { lightMask: 1 } : {}) } } }));
+  const wall = String((await cmd('createEntity', { sceneId: 'scene-level', parentId: null, kind: 'box', name: 'Level wall', transform: { position: [4, 3, -3.5] }, box: { size: [60, 40, 1], material: { color: '#ffffff' } } }))['createdId']);
+  await cmd('setComponent', { entityId: wall, component: 'box', value: { size: [60, 40, 1], material: { color: '#ffffff' }, lightLayers: 2 } });
   await level([
-    { parentId: null, kind: 'box', name: 'Level wall', transform: { position: [4, 3, -3.5] }, box: { size: [60, 40, 1], material: { color: '#ffffff' } } },
     { parentId: null, kind: 'group', name: 'Night fill', transform: { position: [0, 0, 0] }, components: { light: { type: 'ambient', color: '#ffffff', intensity: 0.02 } } },
     ...lamps,
     { parentId: null, kind: 'group', name: 'Stripe spot', transform: { position: [4, 7.5, 4] }, components: { light: { type: 'spot', color: '#ffffff', intensity: 400, range: 0, decay: 2, angle: 22, penumbra: 0, direction: [0, 0, -1], cookie: 'tex-stripes' } } },
@@ -200,11 +204,12 @@ for (const variant of RENDERER_VARIANTS) test(`lights belong to scenes: the most
   await expect.poll(async () => share(await shot(), red), { timeout: 20_000 }).toBeGreaterThan(0.3);
   expect(share(await log('dusk unloaded'), blue)).toBeLessThan(0.01);
 
-  // Level loaded: night, its 12 lamps light its wall (12 separate green patches across the middle), the spot's cookie stripes.
+  // Level loaded: night, 11 of its 12 lamps light its wall (11 separate green patches across the middle: the first
+  // lamp's mask leaves the wall's layer out), the spot's cookie stripes.
   await control('loadScene', 'scene-level');
   await loaded(['scene-main', 'scene-level']);
   await expect.poll(async () => await lights(), { timeout: 30_000 }).toEqual({ directional: nightSun, ambient: expect.any(String), hemisphere: null, local: 13, localOn: 13, cookies: 1 });
-  await expect.poll(async () => mostRuns(await shot(), 0.35, 0.65, green), { timeout: 20_000 }).toBe(12);
+  await expect.poll(async () => mostRuns(await shot(), 0.35, 0.65, green), { timeout: 20_000 }).toBe(11);
   const night = await log('level');
 
   expect(share(night, red)).toBeLessThan(0.01);
@@ -232,7 +237,7 @@ for (const variant of RENDERER_VARIANTS) test(`lights belong to scenes: the most
   expect(share(await log('level unloaded'), green)).toBeLessThan(0.01);
   await expect(page.locator('.tl-notice')).toHaveCount(0);
 
-  // The export, with Level a start scene too (the later start scene's sun is on): night, 12 lamps, the cookie —
+  // The export, with Level a start scene too (the later start scene's sun is on): night, 11 lit patches, the cookie —
   // from a static server with the backend stopped.
   await page.getByTitle('Stop the play preview').click().catch(() => undefined);
   await cmd('setStartScenes', { sceneIds: ['scene-main', 'scene-level'] });
@@ -250,7 +255,7 @@ for (const variant of RENDERER_VARIANTS) test(`lights belong to scenes: the most
     const canvas = game.locator('canvas').first();
     await expectRendererBackend(canvas, variant);
     const exportShot = async (): Promise<Image> => decodePng(await canvas.screenshot());
-    await expect.poll(async () => mostRuns(await exportShot(), 0.35, 0.65, green), { timeout: 30_000 }).toBe(12);
+    await expect.poll(async () => mostRuns(await exportShot(), 0.35, 0.65, green), { timeout: 30_000 }).toBe(11);
     const img = await exportShot();
     console.log(`export (${variant}): red ${share(img, red).toFixed(3)} green ${share(img, green).toFixed(3)} stripes ${mostRuns(img, 0.02, 0.45, bright)}`);
     expect(share(img, red)).toBeLessThan(0.01);

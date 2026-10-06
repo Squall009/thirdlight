@@ -460,9 +460,9 @@ function entityScene(name: string, value: J, extra: Obj = {}): J {
 }
 
 const LIGHTS = [
-  { type: 'directional', color: '#fff4e0', intensity: 1.6, direction: [0.4, -1, -0.6], castShadow: true, mode: 'mixed', shadowMapSize: 2048, shadowBias: -0.001, shadowNormalBias: 0.05, shadowExtent: 30 },
+  { type: 'directional', color: '#fff4e0', intensity: 1.6, direction: [0.4, -1, -0.6], castShadow: true, mode: 'mixed', shadowMapSize: 2048, shadowBias: -0.001, shadowNormalBias: 0.05, shadowExtent: 30, lightMask: 5, shadowCasterMask: 3 },
   { type: 'ambient', color: '#8a94b0', intensity: 0.9, mode: 'baked' },
-  { type: 'point', color: '#ffd9a0', intensity: 30, range: 8, decay: 2, castShadow: true, mode: 'realtime' },
+  { type: 'point', color: '#ffd9a0', intensity: 30, range: 8, decay: 2, castShadow: true, mode: 'realtime', lightMask: 0, shadowCasterMask: 254 },
   { type: 'spot', color: '#ffffff', intensity: 80, range: 12, decay: 2, angle: 30, penumbra: 0.3, direction: [0, -1, 0], castShadow: false, cookie: 'tex-a' },
   { type: 'hemisphere', color: '#bcd7ff', groundColor: '#5a4a38', intensity: 0.8, mode: 'baked' },
 ];
@@ -479,13 +479,13 @@ const COMPONENT_BASES_PLACED: Record<string, J> = {
 /** Every component's variant bases (each fills every field that applies). */
 const COMPONENT_BASES: Record<string, J[]> = {
   transform: [{ position: [1, 2, 3], rotation: [0, 0, 0, 1], scale: [1, 2, 1] }],
-  model: [{ asset: { assetId: 'model-a' }, piece: 'Tree', castShadow: false, receiveShadow: true }],
-  box: [{ size: [1, 2, 3], material: { color: '#aabbcc' }, castShadow: true, receiveShadow: false }],
+  model: [{ asset: { assetId: 'model-a' }, piece: 'Tree', castShadow: false, receiveShadow: true, lightLayers: 2 }],
+  box: [{ size: [1, 2, 3], material: { color: '#aabbcc' }, castShadow: true, receiveShadow: false, lightLayers: 3 }],
   materials: [{ '*': 'mat-a', Bark: 'mat-b' }],
   materialParams: [{ 'mat-a': { tint: '#aabbcc', speed: 2, offset: [1, 2] } }],
   effect: [{ effectId: 'fx-a', playOnStart: false, params: { rate: 3, tint: '#aabbcc', offset: [1, 2, 3] }, signal: 'go', stopSignal: 'halt' }],
   surface: [{ color: '#aabbcc', roughness: 0.5, metalness: 0.2, emissive: '#112233', emissiveIntensity: 1 }],
-  instances: [{ asset: { assetId: 'model-a', piece: 'Rock' }, buffer: 'a'.repeat(64), count: 10, castShadow: false, receiveShadow: false, chunkSize: 24 }],
+  instances: [{ asset: { assetId: 'model-a', piece: 'Rock' }, buffer: 'a'.repeat(64), count: 10, castShadow: false, receiveShadow: false, chunkSize: 24, lightLayers: 4 }],
   fogVolume: [{ size: [6, 3, 4], density: 0.25, color: '#dfe7ef', falloff: 0.5, heightFalloff: 0.3 }],
   collider: [
     { shape: { type: 'box', hx: 0.5, hy: 0.25 }, oneWay: true },
@@ -573,7 +573,7 @@ const COMPONENT_BASES: Record<string, J[]> = {
   prefab: [{ prefabId: 'pre-a', localId: 'root' }],
   folder: [{}],
   // A block layer (every optional flag set to its non-default value).
-  blockLayer: [{ cellSize: [1, 0.5, 1], bounds: { min: [0, 0, 0], max: [8, 8, 8] }, metadataOnly: true, collision: false, castShadow: false, receiveShadow: false, maxSlope: 30, smoothAngle: 40, topSubdivision: 2 }],
+  blockLayer: [{ cellSize: [1, 0.5, 1], bounds: { min: [0, 0, 0], max: [8, 8, 8] }, metadataOnly: true, collision: false, castShadow: false, receiveShadow: false, maxSlope: 30, smoothAngle: 40, topSubdivision: 2, lightLayers: 128 }],
   // A prop's block footprint.
   blockFootprint: [{ layer: 'layer-a', size: [2, 3], set: { blocked: true, cost: 4 } }],
 };
@@ -884,6 +884,7 @@ function runAllProbes(): void {
   // The UI editor's descriptors (a document's own fields, each widget type, styles, tweens).
   runUiProbes();
   // The named collision layers.
+  probe('lightLayers', contentErrors, contentDoc({ lightLayers: ['world', '', 'characters'] }), '/lightLayers', block('lightLayers'), 'lightLayers:');
   probe('collisionLayers', contentErrors, contentDoc({ collisionLayers: ['props', 'units'] }), '/collisionLayers', block('collisionLayers'), 'collisionLayers:');
   // The project save schema.
   probe('saveSchema', contentErrors, contentDoc({ saveSchema: { version: 3, slots: 5, migrations: [{ from: 1, name: 'v1to2' }], sections: ['grid', 'storage'], legacyWorld: false, thumbnail: { width: 160, height: 90, format: 'webp', quality: 0.8 }, settings: [{ key: 'hints', type: 'bool', default: true }] } }), '/saveSchema', block('saveSchema'), 'saveSchema:');

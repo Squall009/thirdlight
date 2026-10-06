@@ -26,7 +26,7 @@
  * backend), never a throw.
  */
 import type { MaterialFunctionLike } from './material-graph';
-import { createMaterialLibrary, MATERIAL_NO_SHADOW_KEY, type MaterialDefLike, type MaterialLibrary, type MaterialOverridesLike, type WindLike } from './material-library';
+import { createMaterialLibrary, type MaterialDefLike, type MaterialLibrary, type MaterialOverridesLike, type WindLike } from './material-library';
 import { createAnimatorPlayer, type AnimatorPlayer, type AnimatorPoseLike } from './animator-player';
 import { addBoxLightmapUv, createLightmapSet, type LightingBakeLike, type LightmapSet } from './lightmaps';
 import { releaseEmissiveLooks, setEntityLook, SHARED_MATERIAL_KEY } from './node-materials';
@@ -69,7 +69,8 @@ import {
   type AnimationRoleView,
 } from './animation';
 import type { AuthoredSurface } from './lighting';
-import { createSceneLights, type SceneLights } from './lights-shadows';
+import { applyEntityRenderFlags } from './entity-render-flags';
+import { createSceneLights, type LightValueOverride, type SceneLights } from './lights-shadows';
 import { STATIC_CASTER_KEY, StaticShadowRevision } from './shadow-casters';
 import { createEffectsPlayer, type EffectComponentLike, type EffectDefLike, type EffectRequestLike, type EffectsDiagnostics, type EffectsPlayer, type EffectsPlayerOptions } from './effects-player';
 import {
@@ -111,21 +112,6 @@ interface OwnedResources {
   renderer: RendererHandle | null;
 }
 
-/**
- * Whether an entity's box, model or instance set casts and
- * receives the directional light's realtime shadow — its component's
- * `castShadow` / `receiveShadow`, true when absent (solid geometry blocks the
- * light and shows the shadows falling on it), except an instance set's
- * `castShadow`, false when absent (foliage and scatter; project-model's
- * descriptors).
- */
-function shadowFlagsOf(components: unknown): { cast: boolean; receive: boolean } {
-  const c = components as { box?: { castShadow?: unknown; receiveShadow?: unknown }; model?: { castShadow?: unknown; receiveShadow?: unknown }; instances?: { castShadow?: unknown; receiveShadow?: unknown } };
-  const part = c.box ?? c.model;
-  if (part === undefined && c.instances !== undefined) return { cast: c.instances.castShadow === true, receive: c.instances.receiveShadow !== false };
-  return { cast: part?.castShadow !== false, receive: part?.receiveShadow !== false };
-}
-
 /** An environment preset (project-model's, as the runtime's blend maths takes it). */
 type PresetOf = Parameters<typeof blendEnvironment>[1] extends ReadonlyMap<string, infer P> ? P : never;
 
@@ -133,18 +119,6 @@ type PresetOf = Parameters<typeof blendEnvironment>[1] extends ReadonlyMap<strin
 function materialParamsOf(components: unknown): MaterialOverridesLike | null {
   const v = (components as { materialParams?: unknown } | undefined)?.materialParams;
   return v !== null && typeof v === 'object' && !Array.isArray(v) ? (v as MaterialOverridesLike) : null;
-}
-
-/** Set the shadow flags on every mesh under `root` (a model's meshes, an instance set's instanced meshes). */
-function applyShadowFlags(root: THREE.Object3D, flags: { cast: boolean; receive: boolean }): void {
-  root.traverse((o) => {
-    if ((o as THREE.Mesh).isMesh === true) {
-      // A graph material whose output casts no shadow keeps it off (its flag is data too).
-      if (o.userData[MATERIAL_NO_SHADOW_KEY] !== undefined) o.userData[MATERIAL_NO_SHADOW_KEY] = flags.cast;
-      else o.castShadow = flags.cast;
-      o.receiveShadow = flags.receive;
-    }
-  });
 }
 
 /** The model, animation and instance-set references of some entities (structural reads). */
@@ -582,8 +556,8 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       // Drawn through the one unit box scaled by the size when batched.
       boxMesh.userData[BATCH_KEY] = { geometry: unitBox, scale: [box.size[0], box.size[1], box.size[2]] };
       if (scope !== null) boxMesh.userData[STATIC_KEY] = scope;
-      // Boxes cast and receive the key light's shadow (data: box.castShadow / receiveShadow).
-      applyShadowFlags(boxMesh, shadowFlagsOf(e.components));
+      // Boxes cast and receive the key light's shadow (data: box.castShadow / receiveShadow), in their light layers.
+      applyEntityRenderFlags(boxMesh, e.components);
       graph.nodeFor(e.id)!.add(boxMesh);
     } else lights.realize(e);
     // A block layer (its cells ride on the resolved component).
@@ -713,8 +687,8 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       holderFor: (entityId: string) => graph.nodeFor(entityId) ?? null,
       viewFor,
       onAttached: (entityId: string, root: THREE.Object3D) => {
-        // Models and instance sets cast and receive the key light's shadow (their data).
-        applyShadowFlags(root, shadowFlagsOf(entityDocs.get(entityId)?.components));
+        // Models and instance sets cast and receive the key light's shadow (their data), in their light layers.
+        applyEntityRenderFlags(root, entityDocs.get(entityId)?.components);
         // Values a script set before the model arrived.
         runtimeMaterials?.reapply(entityId);
         // A model's meshes may be drawn together with other placements' (instance sets already are), or merged when static.
@@ -1155,17 +1129,18 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
    * The light values scripts wrote (`ctx.entity(id).set('light',
    * …)`): colour and intensity become the light's authored values (presets
    * blend from them; a new run's empty list restores the document's), range
-   * is a point or spot light's distance. Applied when the list or the light
-   * set changed.
+   * is a point or spot light's distance, the masks its light layers. Applied
+   * when the list or the light set changed.
    */
   let lightOverridesKey = '';
   function applyLightOverrides(): void {
-    const ov = (opts.runtime as { lightOverrides?: () => ReadonlyMap<string, { color?: string; intensity?: number; range?: number }> }).lightOverrides?.();
+    const ov = (opts.runtime as { lightOverrides?: () => ReadonlyMap<string, LightValueOverride> }).lightOverrides?.();
     if (ov === undefined) return;
     const key = ov.size === 0 && lightOverridesKey === '' ? '' : `${lights.revision}|${JSON.stringify([...ov])}`;
     if (key === lightOverridesKey) return;
     lightOverridesKey = key;
-    lights.applyOverrides(ov, envBlendActive, (id) => (entityDocs.get(id)?.components as { light?: { range?: number } } | undefined)?.light?.range ?? 0);
+    // A light a mask turned plain or layered was realized again: the lights that are on are picked again.
+    if (lights.applyOverrides(ov, envBlendActive, (id) => (entityDocs.get(id)?.components as { light?: { range?: number } } | undefined)?.light?.range ?? 0)) selectLights();
     // A running blend blends from the written values.
     if (envBlendActive) envAppliedKey = '';
     if (ov.size === 0) lightOverridesKey = '';

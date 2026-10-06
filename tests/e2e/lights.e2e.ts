@@ -1,8 +1,9 @@
 /**
  * Point, spot and hemisphere lights. A red point light next to a
  * box tints it in the Scene view (game lighting) and in Play; the light is
- * edited in the Inspector; the Scene view toggles between the editor rig and
- * the scene's own lights.
+ * edited in the Inspector (its light mask and the box's light layers as
+ * checkboxes named in Project Settings); the Scene view toggles between the
+ * editor rig and the scene's own lights.
  *
  * Runs on the product's own renderer (renderer-variants.ts
  * PRODUCT_RENDERER_VARIANTS): scene-lights covers lights and cookies on both.
@@ -15,7 +16,7 @@ import { publishBytes, startBackend, type E2EBackend } from './backend';
 import { decodePng, type Image } from './png';
 import { makePng } from './png-make';
 import { editorUrlFor, expectRendererBackend, onlyInItsProject, PRODUCT_RENDERER_VARIANTS } from './renderer-variants';
-import { menu } from './ui';
+import { closeProjectSettings, inspector, menu, openProjectSettings, settingsWindow } from './ui';
 
 let be: E2EBackend;
 test.beforeEach(async () => {
@@ -75,6 +76,35 @@ for (const variant of PRODUCT_RENDERER_VARIANTS) test(`a red point light tints a
   await expect(page.getByRole('button', { name: 'light: editor' })).toBeVisible();
   await expect.poll(async () => reddish(decodePng(await viewport.screenshot())), { timeout: 20_000 }).toBeLessThan(100);
   await page.getByRole('button', { name: 'light: editor' }).click();
+
+  // Light layers: layer 2 named in Project Settings labels the masks' checkboxes in the Inspector.
+  await openProjectSettings(page, 'Light layers');
+  const layer2 = settingsWindow(page).getByLabel('Layer 2 name', { exact: true });
+  await layer2.fill('characters');
+  await layer2.press('Enter');
+  await expect.poll(async () => (await be.command({ op: 'queryGameConfig', projectId: be.projectId }))['lightLayers']).toEqual(['', 'characters']);
+  await closeProjectSettings(page);
+  const stored = async (id: string, component: string, key: string): Promise<unknown> => ((await be.command({ op: 'queryEntity', projectId: be.projectId, args: { entityId: id } }))['entity'] as { components: Record<string, Record<string, unknown>> }).components[component]![key];
+  await page.locator(`.tl-hierarchy__list li[data-entity-id="${lightId}"]`).click();
+  await expect(inspector(page).getByLabel('light lightMask characters', { exact: true })).toBeChecked();
+  // A click is one command; the checkbox shows the stored mask once it is applied.
+  await inspector(page).getByLabel('light lightMask Layer 1', { exact: true }).click();
+  await expect.poll(() => stored(lightId, 'light', 'lightMask')).toBe(254);
+  // The box leaves every layer but "characters" (its last layer cannot be unchecked), then joins them all again: stored as absent.
+  const boxId = box.find((e) => e.components.box !== undefined)!.id;
+  await page.locator(`.tl-hierarchy__list li[data-entity-id="${boxId}"]`).click();
+  const boxLayer = (bit: number) => inspector(page).getByLabel(`box lightLayers ${bit === 1 ? 'characters' : `Layer ${bit + 1}`}`, { exact: true });
+  for (const bit of [0, 2, 3, 4, 5, 6, 7]) {
+    await boxLayer(bit).click();
+    await expect(boxLayer(bit)).not.toBeChecked();
+  }
+  await expect.poll(() => stored(boxId, 'box', 'lightLayers')).toBe(2);
+  await expect(boxLayer(1)).toBeDisabled();
+  for (const bit of [0, 2, 3, 4, 5, 6, 7]) {
+    await boxLayer(bit).click();
+    await expect(boxLayer(bit)).toBeChecked();
+  }
+  await expect.poll(() => stored(boxId, 'box', 'lightLayers')).toBeUndefined();
 
   // Play shows the same light.
   await page.getByTitle('Start an isolated play preview').click();

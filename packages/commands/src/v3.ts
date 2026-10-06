@@ -42,10 +42,10 @@ import type {
 export const COMPONENT_FIELD_ORDER_V3: Record<V3OwnedComponent, readonly string[]> = {
   // A v4 spawn's yaw (optional; the left/right facing became it).
   playerSpawn: ['yaw'],
-  light: ['type', 'color', 'intensity', 'direction', 'castShadow', 'range', 'decay', 'angle', 'penumbra', 'groundColor', 'mode', 'shadowMapSize', 'shadowBias', 'shadowNormalBias', 'shadowExtent', 'cookie'],
+  light: ['type', 'color', 'intensity', 'direction', 'castShadow', 'range', 'decay', 'angle', 'penumbra', 'groundColor', 'mode', 'shadowMapSize', 'shadowBias', 'shadowNormalBias', 'shadowExtent', 'cookie', 'lightMask', 'shadowCasterMask'],
   surface: ['color', 'roughness', 'metalness', 'emissive', 'emissiveIntensity'],
   modelAnimation: ['assetId', 'version', 'roles'],
-  instances: ['asset', 'buffer', 'count', 'castShadow', 'receiveShadow', 'chunkSize'],
+  instances: ['asset', 'buffer', 'count', 'castShadow', 'receiveShadow', 'chunkSize', 'lightLayers'],
   // Free-form keys (material names); a setComponent replaces the whole mapping.
   materials: [],
   fogVolume: ['size', 'density', 'color', 'falloff', 'heightFalloff'],
@@ -87,11 +87,11 @@ export const COMPONENT_FIELD_ORDER_V3: Record<V3OwnedComponent, readonly string[
  * argument check, the forward op and the history's changed fields read.
  */
 export const COMPONENT_FIELD_ORDER: Record<OwnedComponent, readonly string[]> = {
-  // The shadow flags (optional; `null` goes back to the default, true).
-  box: ['size', 'material', 'castShadow', 'receiveShadow'],
+  // The shadow flags and light layers (optional; `null` goes back to the default: true, every layer).
+  box: ['size', 'material', 'castShadow', 'receiveShadow', 'lightLayers'],
   camera: ['type', 'fovY', 'near', 'far'],
   // The piece of a multi-piece file is an Inspector field too.
-  model: ['asset', 'piece', 'castShadow', 'receiveShadow'],
+  model: ['asset', 'piece', 'castShadow', 'receiveShadow', 'lightLayers'],
   // The shape, the one-way flag and the collision layers (both optional).
   collider: ['shape', 'oneWay', 'layers'],
   // The capsule, then the movement tuning (all optional; `null` goes back to the default).

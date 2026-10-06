@@ -11,7 +11,9 @@
  * every frame. An idle Play draws the static map no more; moving a moving box
  * leaves it as it is; a script moving a static box's parent, a script hiding a
  * static box and the camera walking along Z (the shadow square follows the
- * camera on X and Z: a caster 80 m down Z still casts) draw it again. The
+ * camera on X and Z: a caster 80 m down Z still casts) draw it again. A
+ * static slab outside the sun's shadow caster mask (light layers) casts no
+ * shadow, its twin inside the mask does (hiding each in turn). The
  * pictures match the same scene drawn with one map of every caster
  * (`?shadowcache=off`), in Play after those steps and in the Scene view after a
  * static box is moved by an edit and a static cutout fence's alpha texture
@@ -227,7 +229,8 @@ for (const variant of RENDERER_VARIANTS) test(`static casters cast from a cached
   const rig = await make({ kind: 'group', name: 'rig', transform: { position: [3, 0, -8] } });
   await make({ kind: 'box', name: 'post', static: true, parentId: rig, transform: { position: [0, 1.25, 0] }, box: { size: [0.6, 2.5, 0.6], material: { color: '#c0a030' } } });
   const mover = await make({ kind: 'box', name: 'mover', transform: { position: [0, 0.9, -4] }, box: { size: [0.8, 1.8, 0.8], material: { color: '#c05030' } } });
-  await command('setComponent', { entityId: 'light-0001', component: 'light', value: { type: 'directional', color: '#ffffff', intensity: 1.2, direction: [0.5, -1, 0.4], castShadow: true } });
+  // Only objects in light layer 1 cast the sun's shadow (every object here is, but the ghost below).
+  await command('setComponent', { entityId: 'light-0001', component: 'light', value: { type: 'directional', color: '#ffffff', intensity: 1.2, direction: [0.5, -1, 0.4], castShadow: true, shadowCasterMask: 1 } });
   await command('setTransform', { entityId: 'cam-main', transform: { position: [0, 3, 4], rotation: [-0.130526, 0, 0, 0.991445], scale: [1, 1, 1] } });
   // A static cutout fence: vertical slats (every other 8 texels of its alpha map transparent).
   const slats = makePng(64, 64, (x) => [235, 235, 235, x % 16 < 8 ? 255 : 0]);
@@ -280,6 +283,11 @@ for (const variant of RENDERER_VARIANTS) test(`static casters cast from a cached
   compare(viewCached, viewSingle, `Scene view after an edit (${variant})`);
   await make({ kind: 'box', name: 'far floor', static: true, transform: { position: [0, -0.12, -70] }, box: { size: [40, 0.2, 110], material: { color: '#c8c8c8' } } });
   await make({ kind: 'box', name: 'far', static: true, transform: { position: [0, 1.5, -80] }, box: { size: [1.5, 3, 1.5], material: { color: '#30a040' } } });
+  // Two slabs above the view whose shadows would fall on the floor in it: the ghost is in light layer 2 only, which
+  // the sun's shadow caster mask leaves out; its twin is in every layer.
+  const ghost = await make({ kind: 'box', name: 'ghost', static: true, transform: { position: [-4, 10, -13] }, box: { size: [2.5, 0.4, 2.5], material: { color: '#ffffff' } } });
+  await command('setComponent', { entityId: ghost, component: 'box', value: { size: [2.5, 0.4, 2.5], material: { color: '#ffffff' }, lightLayers: 2 } });
+  const twin = await make({ kind: 'box', name: 'twin', static: true, transform: { position: [-1, 10, -15] }, box: { size: [2.5, 0.4, 2.5], material: { color: '#ffffff' } } });
 
   // ---- Play: the steps, the cache's draws, the far caster's shadow ----
   const play = async (cached: boolean): Promise<{ img: Image; png: Buffer }> => {
@@ -319,11 +327,25 @@ for (const variant of RENDERER_VARIANTS) test(`static casters cast from a cached
       expect(b.staticTotal - a.staticTotal, 'an idle scene draws the static map no more').toBe(0);
       expect(b.dynamicTotal - a.dynamicTotal, 'the dynamic map is drawn every frame').toBeGreaterThan(10);
       expect(b.static).toBe(0);
+      // Light layers: hiding the ghost changes no shadow (the caster mask left it out); hiding its twin takes the
+      // twin's shadow off the floor.
+      const both = await settledShot(canvas, `play-ghost-and-twin-${variant}`);
+      expect(await staticDraws(() => send('hide', { id: ghost })), 'a script hiding a static box draws it again').toBeGreaterThan(0);
+      const noGhost = await settledShot(canvas, `play-twin-${variant}`);
+      await staticDraws(() => send('hide', { id: twin }));
+      const neither = await settledShot(canvas, `play-no-slab-${variant}`);
+      const ghostShadow = darkerPixels(both.img, noGhost.img);
+      const twinShadow = darkerPixels(noGhost.img, neither.img);
+      console.log(`[shadows] ${variant} shadow pixels: ghost (outside the caster mask) ${ghostShadow}, twin ${twinShadow}`);
+      expect(ghostShadow, 'an object outside the light\'s shadow caster mask casts no shadow').toBeLessThan(20);
+      expect(twinShadow, 'its twin in the mask casts one').toBeGreaterThan(200);
       expect(await staticDraws(() => send('place', { id: mover, x: 1, y: 0.9, z: -3 })), 'a moving box leaves the static map as it is').toBe(0);
       expect(await staticDraws(() => send('place', { id: rig, x: 4, y: 0, z: -6 })), "a script moving a static box's parent draws it again").toBeGreaterThan(0);
       expect(await staticDraws(() => send('hide', { id: pillar })), 'a script hiding a static box draws it again').toBeGreaterThan(0);
       expect(await staticDraws(async () => { for (const z of [-15, -30, -45, -60, -70]) { await send('walk', { z }); await frames(10); } }), 'the static square steps along with the camera').toBeGreaterThan(0);
     } else {
+      await send('hide', { id: ghost });
+      await send('hide', { id: twin });
       await send('place', { id: mover, x: 1, y: 0.9, z: -3 });
       await send('place', { id: rig, x: 4, y: 0, z: -6 });
       await send('hide', { id: pillar });

@@ -28,20 +28,21 @@ import { MAX_COLLIDER_EXTENT, colliderShapeParts, limitsError, validateColliderS
 
 export { COLLIDER_3D_LIMITS, COLLIDER_3D_SHAPES, CONVEX_TOL, MAX_COLLIDER_EXTENT, MAX_POLYGON_VERTICES, MIN_POLYGON_AREA, canonicalCollider, canonicalShape, colliderShapeParts, colliderShapePoints, COLLIDER_PRIMITIVE_TYPES, COLLIDER_SHAPE_TYPES } from './collider-shapes';
 import type { ColliderShape, ControllerComponent, TransformComponent } from './types-v2';
+import { validateLightLayerMask } from './light-layers';
 
 export const ID_RE_V2 = ID_RE;
 export const PROPERTY_KEY_RE = /^[a-z][a-z0-9_]{0,63}$/;
 
 export const MAX_ENTITIES_V2 = 1024;
 
-const KNOWN_MODEL_FIELDS = new Set(['asset', 'piece', 'castShadow', 'receiveShadow']);
+const KNOWN_MODEL_FIELDS = new Set(['asset', 'piece', 'castShadow', 'receiveShadow', 'lightLayers']);
 const KNOWN_MODEL_ASSET_FIELDS = new Set(['assetId']);
 const KNOWN_BEHAVIOR_FIELDS = new Set(['behaviorId', 'values']);
 const KNOWN_PREFAB_FIELDS = new Set(['prefabId', 'localId']);
 const KNOWN_COLLIDER_FIELDS = new Set(['shape']);
 
 const KNOWN_TRANSFORM_FIELDS = new Set(['position', 'rotation', 'scale']);
-const KNOWN_BOX_FIELDS = new Set(['size', 'material', 'castShadow', 'receiveShadow']);
+const KNOWN_BOX_FIELDS = new Set(['size', 'material', 'castShadow', 'receiveShadow', 'lightLayers']);
 const KNOWN_MATERIAL_FIELDS = new Set(['color']);
 const KNOWN_CAMERA_FIELDS = new Set(['type', 'fovY', 'near', 'far']);
 
@@ -88,7 +89,7 @@ export function validateModelComponent(c: unknown, path: string, errors: ModelEr
   validateModelPiece(c['piece'], `${path}/piece`, errors);
   validateShadowFlags(c, path, errors);
   for (const k of Object.keys(c)) {
-    if (!KNOWN_MODEL_FIELDS.has(k)) errors.push(unexpectedField(`${path}/${pointerSegment(k)}`, k, 'asset, piece, castShadow, receiveShadow'));
+    if (!KNOWN_MODEL_FIELDS.has(k)) errors.push(unexpectedField(`${path}/${pointerSegment(k)}`, k, 'asset, piece, castShadow, receiveShadow, lightLayers'));
   }
 }
 
@@ -102,6 +103,8 @@ export function validateShadowFlags(c: Record<string, unknown>, path: string, er
   for (const k of ['castShadow', 'receiveShadow'] as const) {
     if (c[k] !== undefined && typeof c[k] !== 'boolean') errors.push(fieldType(`${path}/${k}`, c[k], 'boolean'));
   }
+  // The light layers it is in (light-layers.ts; absent: every layer).
+  validateLightLayerMask(c['lightLayers'], `${path}/lightLayers`, errors, 1);
 }
 
 /**
@@ -888,7 +891,7 @@ export function validateBoxV2(b: unknown, path: string, errors: ModelErrorV2[]):
   }
   validateShadowFlags(b, path, errors);
   for (const k of Object.keys(b)) {
-    if (!KNOWN_BOX_FIELDS.has(k)) errors.push(unexpectedField(`${path}/${pointerSegment(k)}`, k, 'size, material, castShadow, receiveShadow'));
+    if (!KNOWN_BOX_FIELDS.has(k)) errors.push(unexpectedField(`${path}/${pointerSegment(k)}`, k, 'size, material, castShadow, receiveShadow, lightLayers'));
   }
 }
 

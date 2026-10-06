@@ -5,12 +5,20 @@
 
 import { type AssetRefFieldDescriptor, type BoolFieldDescriptor, type ColorFieldDescriptor, type DescriptorAssetKind, type DescriptorRefTarget, type DescriptorScalar, type EntityRefFieldDescriptor, type EnumFieldDescriptor, type EnumOption, type FieldCondition, type FieldDescriptor, type IntFieldDescriptor, type JsonFieldDescriptor, type ListFieldDescriptor, type MapFieldDescriptor, type NumberFieldDescriptor, type ObjectFieldDescriptor, type RefFieldDescriptor, type SceneRefFieldDescriptor, type SignalFieldDescriptor, type StringFieldDescriptor, type VecFieldDescriptor } from './descriptor-types';
 
+import { LIGHT_LAYERS_ALL } from './light-layers';
+
 // ---- small builders ------------------------------------------------------------
 
 type Opts<T extends FieldDescriptor> = Omit<T, 'type' | 'key' | 'label' | 'tooltip'>;
 
 export const num = (key: string, label: string, tooltip: string, o: Opts<NumberFieldDescriptor> = {}): NumberFieldDescriptor => ({ type: 'number', key, label, tooltip, ...o });
 export const int = (key: string, label: string, tooltip: string, o: Opts<IntFieldDescriptor> = {}): IntFieldDescriptor => ({ type: 'int', key, label, tooltip, step: 1, ...o });
+/**
+ * A light layer mask (light-layers.ts): an integer from `min` to every layer, absent meaning every layer (so it is
+ * stored only when it differs).
+ */
+export const lightLayerMask = (key: string, label: string, tooltip: string, min: 0 | 1, o: Opts<IntFieldDescriptor> = {}): IntFieldDescriptor =>
+  int(key, label, tooltip, { min, max: LIGHT_LAYERS_ALL, default: LIGHT_LAYERS_ALL, omitDefault: true, mask: 'lightLayers', ...o });
 export const bool = (key: string, label: string, tooltip: string, o: Opts<BoolFieldDescriptor> = {}): BoolFieldDescriptor => ({ type: 'bool', key, label, tooltip, ...o });
 const opts = (values: readonly string[], labels: Readonly<Record<string, string>> = {}): EnumOption[] => values.map((v) => ({ value: v, label: labels[v] ?? v.charAt(0).toUpperCase() + v.slice(1) }));
 export const enm = (key: string, label: string, tooltip: string, values: readonly string[], o: Opts<EnumFieldDescriptor> | (Omit<Opts<EnumFieldDescriptor>, 'options'> & { labels?: Readonly<Record<string, string>> }) = {}): EnumFieldDescriptor => {

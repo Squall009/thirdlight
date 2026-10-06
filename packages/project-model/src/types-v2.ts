@@ -37,6 +37,8 @@ export interface ModelComponent {
   castShadow?: boolean;
   /** Shows realtime shadows falling on it (absent: true). */
   receiveShadow?: boolean;
+  /** The light layers it is in, a bit mask (light-layers.ts; absent: every layer). */
+  lightLayers?: number;
 }
 
 /** Seven-type property value vocabulary. */

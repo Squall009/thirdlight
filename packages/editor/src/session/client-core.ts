@@ -334,6 +334,8 @@ export class SessionClientCore {
   private input: InputConfig | null = null;
   /** The project's named collision layers (from `queryGameConfig`, then `setCollisionLayers` changes). */
   private collisionLayers: string[] = [];
+  /** The light layer names by number (from `queryGameConfig`, then `setLightLayers` changes). */
+  private lightLayers: string[] = [];
   /** The game modes and behavior groups (from `queryGameConfig`, then setModes / setBehaviorGroups changes). */
   private modes: GameMode[] = [];
   private behaviorGroups: string[] = [];
@@ -580,6 +582,8 @@ export class SessionClientCore {
         this.input = input !== undefined && input !== null ? structuredClone(input) : null;
         const layers = (g as { collisionLayers?: string[] }).collisionLayers;
         this.collisionLayers = Array.isArray(layers) ? [...layers] : [];
+        const lightLayers = (g as { lightLayers?: string[] }).lightLayers;
+        this.lightLayers = Array.isArray(lightLayers) ? [...lightLayers] : [];
         const modes = (g as { modes?: GameMode[] }).modes;
         this.modes = Array.isArray(modes) ? structuredClone(modes) : [];
         const groups = (g as { behaviorGroups?: string[] }).behaviorGroups;
@@ -873,6 +877,8 @@ export class SessionClientCore {
         this.input = change.next === null ? null : structuredClone(change.next);
       } else if (change.type === 'setCollisionLayers') {
         this.collisionLayers = [...change.next];
+      } else if (change.type === 'setLightLayers') {
+        this.lightLayers = [...change.next];
       } else if (change.type === 'setModes') {
         this.modes = structuredClone(change.next);
       } else if (change.type === 'setBehaviorGroups') {
@@ -1491,6 +1497,11 @@ export class SessionClientCore {
   /** The project's named collision layers ("default" is implicit). */
   getCollisionLayers(): string[] {
     return [...this.collisionLayers];
+  }
+
+  /** The light layer names by number (index n names layer n + 1; "" or missing: unnamed). */
+  getLightLayers(): string[] {
+    return [...this.lightLayers];
   }
 
   /** The game modes (the first is the start mode). */

@@ -37,6 +37,8 @@ export interface BoxComponent {
   castShadow?: boolean;
   /** Shows realtime shadows falling on it (absent: true). */
   receiveShadow?: boolean;
+  /** The light layers it is in, a bit mask (light-layers.ts; absent: every layer). */
+  lightLayers?: number;
 }
 
 /** `camera` component — perspective; `aspect` is never persisted. */

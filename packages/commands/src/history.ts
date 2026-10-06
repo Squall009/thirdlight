@@ -26,7 +26,7 @@ import { replaySceneMove } from './move-scene-ops';
 import { COMPONENT_FIELD_ORDER } from './v3';
 import type { AnimatorController, EnvironmentConfig, InputConfig, LightingBake, MaterialDef, SceneEnvironment } from '@thirdlight/project-model';
 import { withAnimator, withEnvironment, withInput, withLighting, withMaterial, withSceneEnvironment } from './material-ops';
-import { withCollisionLayers } from './layer-ops';
+import { withCollisionLayers, withLightLayers } from './layer-ops';
 import { withSaveSchema } from './save-schema-ops';
 import { editOwnerGraph, withGraphDocument } from './graph-ops';
 import { effectsOf, withEffect } from './effect-ops';
@@ -564,6 +564,11 @@ function applyInverse(state: CommandState<SceneDocument>, entry: HistoryEntry): 
     const before = (content as { collisionLayers?: string[] }).collisionLayers ?? [];
     const change: ChangeData = { type: 'setCollisionLayers', previous: [...before], next: [...inv.restore] };
     return finish(state, bumped(scene), withCollisionLayers(content, inv.restore), change, entry.requestId);
+  }
+  if (inv.kind === 'setLightLayers') {
+    const before = (content as { lightLayers?: string[] }).lightLayers ?? [];
+    const change: ChangeData = { type: 'setLightLayers', previous: [...before], next: [...inv.restore] };
+    return finish(state, bumped(scene), withLightLayers(content, inv.restore), change, entry.requestId);
   }
 
   if (inv.kind === 'setInput') {
@@ -1104,6 +1109,11 @@ function applyForward(state: CommandState<SceneDocument>, entry: HistoryEntry): 
     const before = (content as { collisionLayers?: string[] }).collisionLayers ?? [];
     const change: ChangeData = { type: 'setCollisionLayers', previous: [...before], next: [...f.next] };
     return finish(state, bumped(scene), withCollisionLayers(content, f.next), change, entry.requestId);
+  }
+  if (f.type === 'setLightLayers') {
+    const before = (content as { lightLayers?: string[] }).lightLayers ?? [];
+    const change: ChangeData = { type: 'setLightLayers', previous: [...before], next: [...f.next] };
+    return finish(state, bumped(scene), withLightLayers(content, f.next), change, entry.requestId);
   }
 
   if (f.type === 'setInput') {

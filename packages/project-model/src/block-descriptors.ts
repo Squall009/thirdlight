@@ -6,6 +6,7 @@
  *
  * Pure data.
  */
+import { lightLayerMask } from './descriptor-builders';
 import { BLOCK_MAX_SLOPE_RANGE, BLOCK_SMOOTH_ANGLE_RANGE, BLOCK_TOP_SUBDIVISIONS } from './block-layers';
 import type { BoolFieldDescriptor, ComponentDescriptor, EntityRefFieldDescriptor, FieldDescriptor, IntFieldDescriptor, JsonFieldDescriptor, NumberFieldDescriptor, ObjectFieldDescriptor, VecFieldDescriptor } from './descriptors';
 
@@ -50,6 +51,7 @@ export const blockLayer: ComponentDescriptor = {
       valueLabels: BLOCK_TOP_SUBDIVISIONS.map((n) => `${n} × ${n}`),
       default: 1,
     }),
+    lightLayerMask('lightLayers', 'Light layers', 'The light layers its blocks are in: only lights whose light mask shares one of them light the blocks, and the blocks cast shadows only for lights whose shadow caster mask shares one.', 1),
   ]),
   // 1 m cells over 64 × 16 × 64 — a common kit module over the interactive-editing target; no genre assumed.
   add: { kind: 'menu', value: { cellSize: [1, 1, 1], bounds: { min: [0, 0, 0], max: [64, 16, 64] } } },

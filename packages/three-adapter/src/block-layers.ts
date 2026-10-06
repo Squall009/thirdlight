@@ -52,6 +52,8 @@ import {
   BlockGrid,
   CHUNK_SIZE,
   chunkPaintColors,
+  LIGHT_LAYERS_ALL,
+  lightLayerMaskOf,
   type BlockChunk,
   type BlockLayerComponent,
   type BlockLayerData,
@@ -65,6 +67,7 @@ import { keepMetreUv, syncCellUv } from './block-cell-uv';
 import { chunkModelKey, meshChunkForDrawing, StandInShapes, variantModelOf, type ChunkLooks, type ChunkMeshResult, type ChunkModelRef } from './block-chunk-mesh';
 import { MeshWorkerPool, meshWorkerCount, type MeshWorkerFactory } from './block-mesh-pool';
 import type { MeshWorkerReply } from './block-mesh-worker';
+import { LIGHT_LAYERS_KEY } from './light-layers';
 import { currentLodLevel } from './lod-switch';
 
 /**
@@ -819,6 +822,9 @@ export class BlockLayerView {
       m.name = `block:${p.key}`;
       m.castShadow = layer.component.castShadow !== false;
       m.receiveShadow = layer.component.receiveShadow !== false;
+      // The layer's light layers (light-layers.ts; absent: every layer).
+      const lightLayers = lightLayerMaskOf(layer.component.lightLayers);
+      if (lightLayers !== LIGHT_LAYERS_ALL) m.userData[LIGHT_LAYERS_KEY] = lightLayers;
       m.matrixAutoUpdate = false;
       m.updateMatrix();
       if (level > 0) m.userData[COARSE_LEVEL] = level;

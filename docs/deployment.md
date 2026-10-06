@@ -2714,7 +2714,8 @@ and Assets error nodes.
     physics body, the camera, static, or moved every step by its mover,
     patrol, socket or facing — no `ownedTransforms` needed.
   - `light`: `color`, `intensity`, `range` (point and spot); presets blend
-    from the written values.
+    from the written values. `lightMask` and `shadowCasterMask` (light
+    layers, below).
   - `mover`: `speed` and `active` (the Inspector's new **Moving** switch: a
     mover that is off holds where it is, still solid).
   - `materialParams`: `{ materialId: { parameter: value } }` for the graph
@@ -3295,6 +3296,36 @@ changing a baked light's colour in a preset does not change the baked
 surfaces (a light a bake holds is not realtime at all). Give such presets a
 `lightmap` multiplier — e.g. `{ intensity: 0.2, tint: '#8090ff' }` for night
 — and the baked surfaces darken and tint with the blend.
+
+## Light layers
+
+Which lights light an object and whose shadows it casts (Godot's light cull
+mask and shadow caster mask, Unity's rendering layers). There are 8 layers
+(`LIGHT_LAYER_COUNT`, project-model `light-layers.ts`); every mask is a bit
+mask, bit n = layer n + 1, 255 = every layer.
+
+- **Objects** — a box, model, instance set or block layer has **Light
+  layers** in the Inspector (`lightLayers`, 1–255; absent: every layer): the
+  layers it is in. An object is in at least one layer.
+- **Lights** — every light has a **Light mask** (`lightMask`, 0–255): it
+  lights an object only when they share a layer; a directional, point or
+  spot light also has a **Shadow caster mask** (`shadowCasterMask`, 0–255):
+  only objects sharing a layer with it cast its shadow (the cached static map
+  and the dynamic one alike). 0 lights nothing / takes no shadow.
+- **Names** — Project Settings → **Light layers** names the 8 layers
+  (`content.lightLayers`, `setLightLayers {layers}` from MCP); the names are
+  only labels for the Inspector's checkboxes, the data holds the masks.
+- **Scripts** — `ctx.entity(light).set('light', { lightMask, shadowCasterMask })`
+  while the game runs (page, worker and replay alike).
+- **Cost** — the defaults (every layer) cost nothing: such a light is an
+  ordinary three.js light and the shaders are the same as without layers
+  (village class: same 52 shader modules and 34 pipelines, frame time
+  unchanged). A light with a narrower mask tests each drawn object's layers
+  on the CPU and multiplies its colour by the result: one shader for every
+  mask combination, so changing a mask builds nothing; a light turning from
+  every layer to fewer (or back) rebuilds the lit shaders once, as adding a
+  light does. Batching, static merging and instancing keep objects of
+  different layers in different draws.
 
 ## Icons and gizmos
 

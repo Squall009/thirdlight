@@ -39,6 +39,7 @@ import * as THREE from 'three/webgpu';
 import * as TSLTyped from 'three/tsl';
 
 import type { N } from './effects-tsl';
+import { castsShadowFor, isLayeredLight } from './light-layers';
 import { DrawnCasters, isStaticCaster, type StaticShadowRevision } from './shadow-casters';
 
 /** TSL untyped: three's typings lag the node API used here. */
@@ -131,6 +132,8 @@ class PassShadowNode extends ShadowNodeBase {
    */
   staticHolds: ((o: THREE.Object3D) => boolean) | null = null;
   missed = false;
+  /** The casters the light's shadow caster mask lets in (null: every caster). */
+  casts: ((o: THREE.Object3D) => boolean) | null = null;
   constructor(
     light: THREE.Object3D,
     shadow: THREE.LightShadow,
@@ -152,6 +155,8 @@ class PassShadowNode extends ShadowNodeBase {
           this.underlaid = true;
           base(u, rest[0], rest[1], u.geometry, u.material, null, ...rest.slice(5));
         }
+        // A caster outside the light's shadow caster mask is in neither map.
+        if (this.casts !== null && !this.casts(object)) return;
         const isStatic = isStaticCaster(object);
         if (isStatic !== want) {
           if (!isStatic || this.staticHolds === null || this.staticHolds(object)) return;
@@ -378,6 +383,10 @@ export class CachedShadowNode extends ShadowBaseNodeBase {
       this.staticNode = s;
       this.dynamicNode = new PassShadowNode(this.dynamicLight, this.dynamicLight.shadow, false);
       this.dynamicNode.staticHolds = (o) => s.drawnWith.has(o);
+      const light = this.light;
+      const casts = isLayeredLight(light) ? (o: THREE.Object3D) => castsShadowFor(light, o) : null;
+      s.casts = casts;
+      this.dynamicNode.casts = casts;
       this.staticDirty = true;
     }
     if (this.underlay === null) {

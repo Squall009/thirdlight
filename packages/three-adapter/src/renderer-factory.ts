@@ -30,6 +30,7 @@
 import { WebGPURenderer } from 'three/webgpu';
 
 import { registerEffectLights } from './effect-lights';
+import { registerLayeredLights } from './light-layers';
 import { installProgramRelease, installVaoSweep, trackRenderer, trackTextureListeners } from './dispose';
 
 export type RendererPreference = 'auto' | 'webgpu' | 'webgl2';
@@ -332,6 +333,8 @@ const BROWSER_DEPS: RendererFactoryDeps = {
     } as unknown as ConstructorParameters<typeof WebGPURenderer>[0]);
     // Every renderer can draw a scene holding the effect light pool.
     registerEffectLights(r);
+    // And lights whose layer masks leave some objects unlit or unshadowed.
+    registerLayeredLights(r);
     return r as unknown as NodeRendererLike;
   },
   probe: (gpu, secure, timeoutMs) => probeWebGpu(gpu, secure, timeoutMs),

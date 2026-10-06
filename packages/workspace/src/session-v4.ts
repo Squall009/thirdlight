@@ -1102,6 +1102,8 @@ export function serveQueryV4(s: ProjectSession, op: QueryOp, projectId: string, 
         ...(omit.includes('timelines') ? {} : { timelines: JSON.parse(JSON.stringify((state.content as { timelines?: unknown[] }).timelines ?? [])) as unknown }),
         // The named collision layers.
         collisionLayers: [...((state.content as { collisionLayers?: string[] }).collisionLayers ?? [])],
+        // The light layer names (editor labels by layer number).
+        lightLayers: [...((state.content as { lightLayers?: string[] }).lightLayers ?? [])],
         // The game modes and behavior groups.
         modes: JSON.parse(JSON.stringify((state.content as { modes?: unknown[] }).modes ?? [])) as unknown,
         behaviorGroups: [...((state.content as { behaviorGroups?: string[] }).behaviorGroups ?? [])],

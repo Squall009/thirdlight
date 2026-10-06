@@ -72,6 +72,8 @@ import type { SetAddressArgs, SetLabelsArgs, SetLoadingChange, SetLoadingInverse
 import type { MoveResourcesChange, MoveResourcesInverse, PreparedMoves } from './move-ops';
 export type { CreateFolderArgs, FileMove, FolderMove, MoveItemRef, MoveResourcesArgs, MoveResourcesChange, MoveResourcesInverse, PreparedMoves, RenameFolderArgs } from './move-ops';
 export type { LoadableItemRef, LoadingItemChange, LoadingValue, SetAddressArgs, SetLabelsArgs, SetLoadingChange, SetLoadingInverse } from './loadable-ops';
+import type { SetCollisionLayersChange, SetCollisionLayersInverse, SetLightLayersChange, SetLightLayersInverse } from './layer-types';
+export type { SetCollisionLayersChange, SetCollisionLayersInverse, SetLightLayersChange, SetLightLayersInverse } from './layer-types';
 export type { AdoptedScene, ImportResourcesArgs, ImportResourcesChange, ImportResourcesInverse, PreparedResourceImport, PreparedResourceRecord } from './import-resources';
 
 // ---- ops and origins --------------------------------------------------------
@@ -123,6 +125,8 @@ export type V3MutationOp =
   | 'setInput'
   // Named collision layers (3D physics)
   | 'setCollisionLayers'
+  // Light layer names (editor labels)
+  | 'setLightLayers'
   // The project save schema
   | 'setSaveSchema'
   // the scene index of a v4 project
@@ -747,13 +751,6 @@ export interface SetGraphInverse {
 }
 
 
-/** `setCollisionLayers` change data (the whole list; empty = only "default"). */
-export interface SetCollisionLayersChange {
-  type: 'setCollisionLayers';
-  previous: string[];
-  next: string[];
-}
-
 /** `setSaveSchema` change data (the whole schema; null = no project saves). */
 export interface SetSaveSchemaChange {
   type: 'setSaveSchema';
@@ -1040,6 +1037,7 @@ export type ChangeData =
   | SetAnimatorChange
   | SetInputChange
   | SetCollisionLayersChange
+  | SetLightLayersChange
   | SetSaveSchemaChange
   | SetSceneIndexChange
   | GraphEditChange
@@ -1092,6 +1090,7 @@ export type ForwardChange =
   | SetAnimatorChange
   | SetInputChange
   | SetCollisionLayersChange
+  | SetLightLayersChange
   | SetSaveSchemaChange
   | SetSceneIndexChange
   | GraphEditChange
@@ -1250,12 +1249,6 @@ export interface SetAnimatorInverse {
 }
 
 
-/** Undo of `setCollisionLayers`: restore the previous list. */
-export interface SetCollisionLayersInverse {
-  kind: 'setCollisionLayers';
-  restore: string[];
-}
-
 /** Undo of `setSaveSchema`: restore the previous schema (null = none). */
 export interface SetSaveSchemaInverse {
   kind: 'setSaveSchema';
@@ -1324,6 +1317,7 @@ export type InverseSpec =
   | SetAnimatorInverse
   | SetInputInverse
   | SetCollisionLayersInverse
+  | SetLightLayersInverse
   | SetSaveSchemaInverse
   | RemoveEntitiesInverse
   | SetAssetOptionsInverse

@@ -3,7 +3,7 @@
  * component and content descriptors (`queryGameConfig {descriptors:true}`).
  *
  * - `widgetFor`: one widget per field type (number/int with unit, range and
- *   step, bool, enum, vec2/vec3, quat as Euler degrees, colour, asset ref
+ *   step, a layer mask as one checkbox per bit, bool, enum, vec2/vec3, quat as Euler degrees, colour, asset ref
  *   with its kinds, entity ref, scene ref, named refs, signal, string,
  *   nested object, list, map; tool-written and loosely typed values are
  *   shown read-only).
@@ -40,6 +40,7 @@ import type {
 export type WidgetKind =
   | 'number'
   | 'int'
+  | 'mask'
   | 'bool'
   | 'enum'
   | 'vector'
@@ -84,7 +85,7 @@ export function widgetFor(f: FieldDescriptor): WidgetKind {
     case 'number':
       return 'number';
     case 'int':
-      return 'int';
+      return f.mask !== undefined ? 'mask' : 'int';
     case 'bool':
       return 'bool';
     case 'enum':
@@ -436,6 +437,22 @@ export function componentPatch(root: ObjectFieldDescriptor, current: Obj, path: 
     if (!deepEqual(current[k], candidate[k])) patch[k] = candidate[k] === undefined ? null : candidate[k];
   }
   return Object.keys(patch).length === 0 ? null : patch;
+}
+
+// ---- layer masks -------------------------------------------------------------------
+
+/** How many bits a mask field has (its `max` is every bit set). */
+export function maskBitCount(f: FieldDescriptor): number {
+  return f.type === 'int' && f.max !== undefined && f.max > 0 ? Math.round(Math.log2(f.max + 1)) : 0;
+}
+
+/**
+ * The mask after turning one bit on or off; null when the field's `min`
+ * refuses it (an object stays in at least one layer).
+ */
+export function toggledMask(f: FieldDescriptor, mask: number, bit: number, on: boolean): number | null {
+  const next = on ? mask | (1 << bit) : mask & ~(1 << bit);
+  return f.type === 'int' && f.min !== undefined && next < f.min ? null : next;
 }
 
 // ---- number input ------------------------------------------------------------------

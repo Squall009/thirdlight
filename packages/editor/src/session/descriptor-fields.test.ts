@@ -11,6 +11,7 @@ import {
   checkNumber,
   intChoiceLabel,
   intChoices,
+  maskBitCount,
   collectSignals,
   componentOp,
   componentPatch,
@@ -26,6 +27,7 @@ import {
   setAt,
   sliderRange,
   startValue,
+  toggledMask,
   visibleFields,
   widgetFor,
   createEntries,
@@ -84,6 +86,7 @@ describe('widgetFor', () => {
     const cases: [FieldDescriptor, string][] = [
       [f({ type: 'number', key: 'a' }), 'number'],
       [f({ type: 'int', key: 'a' }), 'int'],
+      [f({ type: 'int', key: 'a', min: 1, max: 255, mask: 'lightLayers' }), 'mask'],
       [f({ type: 'bool', key: 'a' }), 'bool'],
       [f({ type: 'enum', key: 'a', options: [] }), 'enum'],
       [f({ type: 'vec2', key: 'a', labels: ['x', 'y'] }), 'vector'],
@@ -105,6 +108,18 @@ describe('widgetFor', () => {
       [f({ type: 'number', key: 'a', readOnly: true }), 'readonly'],
     ];
     for (const [d, w] of cases) expect(widgetFor(d), d.type).toBe(w);
+  });
+
+  it('edits a layer mask one bit at a time, keeping its min; the default mask is stored as absent', () => {
+    const objectMask = f({ type: 'int', key: 'lightLayers', min: 1, max: 255, default: 255, omitDefault: true, mask: 'lightLayers' });
+    expect(maskBitCount(objectMask)).toBe(8);
+    expect(toggledMask(objectMask, 255, 0, false)).toBe(254);
+    expect(toggledMask(objectMask, 2, 1, false)).toBeNull();
+    expect(toggledMask(f({ ...objectMask, min: 0 }), 2, 1, false)).toBe(0);
+    expect(toggledMask(objectMask, 2, 0, true)).toBe(3);
+    const root = f({ type: 'object', key: 'box', fields: [objectMask] }) as ObjectFieldDescriptor;
+    expect(componentPatch(root, {}, ['lightLayers'], 2)).toEqual({ lightLayers: 2 });
+    expect(componentPatch(root, { lightLayers: 254 }, ['lightLayers'], 255)).toEqual({ lightLayers: null });
   });
 
   it('adds a slider to bounded numbers only', () => {

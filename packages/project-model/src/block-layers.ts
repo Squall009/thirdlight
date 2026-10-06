@@ -31,6 +31,7 @@
  * Pure data rules; the grid helpers are `block-grid.ts`, the meshing
  * `block-mesh.ts`.
  */
+import { validateLightLayerMask } from './light-layers';
 import { ID_RE } from './validate';
 import type { ModelErrorV2 } from './errors';
 import { chunkPaintError, decodeChunkPaint, encodeChunkPaint, isUnpainted } from './block-paint';
@@ -105,6 +106,8 @@ export interface BlockLayerComponent {
   castShadow?: boolean;
   /** Shows shadows falling on it (absent: true; stored only when false). */
   receiveShadow?: boolean;
+  /** The light layers its blocks are in, a bit mask (light-layers.ts; absent: every layer). */
+  lightLayers?: number;
   /**
    * Degrees: the steepest part of the layer's surface that counts as ground —
    * characters do not walk up steeper slopes whatever their own slope limit,
@@ -737,7 +740,7 @@ export function canonicalBlockStamps(list: readonly BlockStamp[]): BlockStamp[] 
 export const BLOCK_LAYER_DEFAULT: BlockLayerComponent = Object.freeze({ cellSize: [1, 1, 1], bounds: { min: [0, 0, 0], max: [64, 16, 64] } }) as BlockLayerComponent;
 
 /** The stored fields of the `blockLayer` component, in canonical order. */
-export const BLOCK_LAYER_FIELDS = ['cellSize', 'bounds', 'metadataOnly', 'collision', 'castShadow', 'receiveShadow', 'maxSlope', 'smoothAngle', 'topSubdivision'] as const;
+export const BLOCK_LAYER_FIELDS = ['cellSize', 'bounds', 'metadataOnly', 'collision', 'castShadow', 'receiveShadow', 'maxSlope', 'smoothAngle', 'topSubdivision', 'lightLayers'] as const;
 
 export function validateBlockLayerComponent(v: unknown, path: string, errors: ModelErrorV2[]): void {
   if (!isPlainObject(v)) return err(errors, 'field_type', path, 'blockLayer is an object', v, 'object');
@@ -774,6 +777,7 @@ export function validateBlockLayerComponent(v: unknown, path: string, errors: Mo
   if (sa !== undefined && (!finite(sa) || sa < BLOCK_SMOOTH_ANGLE_RANGE.min || sa > BLOCK_SMOOTH_ANGLE_RANGE.max)) err(errors, 'field_value', `${path}/smoothAngle`, `smoothAngle is degrees in ${BLOCK_SMOOTH_ANGLE_RANGE.min}-${BLOCK_SMOOTH_ANGLE_RANGE.max} (0: flat-shaded tops)`, sa);
   const ts = v['topSubdivision'];
   if (ts !== undefined && !BLOCK_TOP_SUBDIVISIONS.includes(ts as number)) err(errors, 'field_value', `${path}/topSubdivision`, `topSubdivision is one of ${BLOCK_TOP_SUBDIVISIONS.join(', ')}`, ts);
+  validateLightLayerMask(v['lightLayers'], `${path}/lightLayers`, errors, 1);
 }
 
 export function canonicalBlockLayerComponent(c: BlockLayerComponent): BlockLayerComponent {
@@ -787,6 +791,7 @@ export function canonicalBlockLayerComponent(c: BlockLayerComponent): BlockLayer
     ...(c.maxSlope !== undefined ? { maxSlope: canonNum(c.maxSlope) } : {}),
     ...(c.smoothAngle !== undefined && c.smoothAngle > 0 ? { smoothAngle: canonNum(c.smoothAngle) } : {}),
     ...(c.topSubdivision !== undefined && c.topSubdivision > 1 ? { topSubdivision: c.topSubdivision } : {}),
+    ...(c.lightLayers !== undefined ? { lightLayers: c.lightLayers } : {}),
   };
 }
 

@@ -660,6 +660,7 @@ export class Projection {
       case 'setAnimator':
       case 'setInput':
       case 'setCollisionLayers':
+      case 'setLightLayers':
       // Game modes and behavior groups (tracked by the client from the change data).
       case 'setModes':
       case 'setBehaviorGroups':

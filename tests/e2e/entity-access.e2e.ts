@@ -16,9 +16,11 @@
  *   `ctx.shell`.
  * - Play: the script reads the sun through `ctx.entity(sun).get('light')`
  *   and on the debug command "stage" writes it blue (the picture turns from
- *   red to blue), then switches the wall off (`set('object', { active:
- *   false })`: it is not drawn — its blue-lit face leaves the picture), then
- *   tries to change the light's type and is refused with the field named.
+ *   red to blue), then gives it an empty light mask (it lights no light
+ *   layer: the blue leaves the picture), then its full mask back (blue
+ *   again), then switches the wall off (`set('object', { active: false })`: it is not
+ *   drawn — its blue-lit face leaves the picture), then tries to change the
+ *   light's type and is refused with the field named.
  */
 import { randomBytes, createHash } from 'node:crypto';
 
@@ -81,8 +83,10 @@ const DIRECTOR = [
   "      if (sun.get('light').color === '#ff0000') ctx.game.add('read_red', 1);",
   "      if (sun.set('light', { color: '#0000ff' }).ok) ctx.game.add('wrote_blue', 1);",
   '    }',
-  "    if (state.stage === 2 && wall.set('object', { active: false }).ok) ctx.game.add('wall_off', 1);",
-  '    if (state.stage === 3) {',
+  "    if (state.stage === 2 && sun.set('light', { lightMask: 0 }).ok) ctx.game.add('unlit', 1);",
+  "    if (state.stage === 3 && sun.set('light', { lightMask: 255 }).ok) ctx.game.add('lit_again', 1);",
+  "    if (state.stage === 4 && wall.set('object', { active: false }).ok) ctx.game.add('wall_off', 1);",
+  '    if (state.stage === 5) {',
   "      const r = sun.set('light', { type: 'spot' });",
   "      if (!r.ok && r.field === 'light.type' && r.code === 'field_not_writable') ctx.game.add('refused', 1);",
   "      if (sun.get('light').color === '#0000ff' && wall.get('object').active === false) ctx.game.add('read_back', 1);",
@@ -186,7 +190,8 @@ for (const variant of RENDERER_VARIANTS) test(`ctx.entity: object properties pic
   await expect(completion).toContainText('shell');
   await page.keyboard.press('Escape');
 
-  // Play: red, then (stage 1) blue through ctx.entity(sun).set('light'), then (stage 2) the wall switched off.
+  // Play: red, then (stage 1) blue through ctx.entity(sun).set('light'), (stage 2) an empty light mask, (stage 3) the
+  // full mask again, then (stage 4) the wall switched off.
   page.on('pageerror', (e) => console.log(`[page pageerror] ${e.message}`));
   await openEditor(page, url);
   const started = page.waitForResponse((r) => r.request().method() === 'POST' && r.url().endsWith('/play'));
@@ -220,6 +225,17 @@ for (const variant of RENDERER_VARIANTS) test(`ctx.entity: object properties pic
   const lit = await log('sun written blue');
   expect(share(lit, red)).toBeLessThan(0.01);
 
+  // An empty light mask: the sun lights no layer (realized again as a layered light), the wall loses its blue.
+  await stage();
+  await expect.poll(async () => (await observe()).counters?.['unlit'], { timeout: 30_000 }).toBe(1);
+  await expect.poll(async () => share(await shot(), blue), { timeout: 20_000 }).toBeLessThan(0.01);
+  await log('sun light mask empty');
+
+  // Its full mask back: a plain light again, the wall blue again.
+  await stage();
+  await expect.poll(async () => (await observe()).counters?.['lit_again'], { timeout: 30_000 }).toBe(1);
+  await expect.poll(async () => share(await shot(), blue), { timeout: 20_000 }).toBeGreaterThan(0.3);
+
   await stage();
   await expect.poll(async () => (await observe()).counters?.['wall_off'], { timeout: 30_000 }).toBe(1);
   // Switched off: not drawn (the renderer hides it) — most of the blue-lit wall leaves the picture.
@@ -233,7 +249,7 @@ for (const variant of RENDERER_VARIANTS) test(`ctx.entity: object properties pic
   // The refusal is in the play's diagnostics, naming the field.
   const diag = (await api(`play/${psid}/diagnostics`)).json as { diagnostics?: { runtime?: { errors?: { code: string; message: string }[]; entityWrites?: Record<string, number> } } };
   const runtime = diag.diagnostics?.runtime;
-  expect(runtime?.entityWrites).toMatchObject({ applied: 2, refused: 1 });
+  expect(runtime?.entityWrites).toMatchObject({ applied: 4, refused: 1 });
   expect(runtime?.errors?.some((e) => e.code === 'entity_write' && e.message.includes('light.type'))).toBe(true);
   await page.getByTitle('Stop the play preview').click().catch(() => undefined);
 });

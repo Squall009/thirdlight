@@ -283,7 +283,7 @@ async function restoreSearch(page: Page): Promise<void> {
 
 
 /** The project-wide settings, by section (the Project Settings window's sub-tabs). */
-export type ProjectSettingsSection = 'Gameplay' | 'Input' | 'Tags' | 'Collision layers' | 'Quality' | 'Audio' | 'Dialogue' | 'Saves' | 'Game modes' | 'Game shell' | 'Scripts';
+export type ProjectSettingsSection = 'Gameplay' | 'Input' | 'Tags' | 'Collision layers' | 'Light layers' | 'Quality' | 'Audio' | 'Dialogue' | 'Saves' | 'Game modes' | 'Game shell' | 'Scripts';
 
 /** A sub-tab of the Project Settings window. */
 export function settingsTab(page: Page, section: ProjectSettingsSection): Locator {

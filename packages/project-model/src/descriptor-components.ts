@@ -30,7 +30,7 @@ import { MAX_LEN } from './validate';
 import { DIRECTIONAL_SHADOW_DEFAULTS, DIRECTIONAL_SHADOW_LIMITS, MAX_ABS_V3, MAX_EMISSIVE_INTENSITY, MAX_INTENSITY, MAX_LOCAL_INTENSITY, SURFACE_DEFAULTS } from './scene-v3';
 import { MAX_INSTANCES } from './types-v3';
 import { type ComponentDescriptor, type FieldDescriptor, type ObjectFieldDescriptor } from './descriptor-types';
-import { asset, bool, color, enm, entity, ID, int, json, list, map, NAME, num, obj, ref, scene, signal, str, vec2, vec3, when } from './descriptor-builders';
+import { asset, bool, color, enm, entity, ID, int, json, lightLayerMask, list, map, NAME, num, obj, ref, scene, signal, str, vec2, vec3, when } from './descriptor-builders';
 
 // ---- components ------------------------------------------------------------------
 
@@ -68,6 +68,7 @@ export const model: ComponentDescriptor = {
     // True by default — solid geometry blocks the light and shows the shadows falling on it in any genre.
     bool('castShadow', 'Casts shadows', 'Blocks the directional light: casts a realtime shadow (off for decals, glows, backdrops).', { default: true, omitDefault: true }),
     bool('receiveShadow', 'Receives shadows', 'Shows the realtime shadows falling on it.', { default: true, omitDefault: true }),
+    lightLayerMask('lightLayers', 'Light layers', 'The light layers it is in: only lights whose light mask shares one of them light it, and it casts shadows only for lights whose shadow caster mask shares one.', 1),
   ]),
   add: { kind: 'pick', value: { asset: {} }, pick: ['asset/assetId'] },
   handles: [],
@@ -90,6 +91,7 @@ export const box: ComponentDescriptor = {
     // True by default — solid geometry blocks the light and shows the shadows falling on it in any genre.
     bool('castShadow', 'Casts shadows', 'Blocks the directional light: casts a realtime shadow (off for decals, glows, backdrops).', { default: true, omitDefault: true }),
     bool('receiveShadow', 'Receives shadows', 'Shows the realtime shadows falling on it.', { default: true, omitDefault: true }),
+    lightLayerMask('lightLayers', 'Light layers', 'The light layers it is in: only lights whose light mask shares one of them light it, and it casts shadows only for lights whose shadow caster mask shares one.', 1),
   ]),
   add: { kind: 'menu', value: { size: [1, 1, 1], material: { color: '#b0b0b0' } } },
   handles: [{ kind: 'box3', label: 'Size', bind: { size: 'size' }, space: 'local', follows: 'transform' }],
@@ -529,6 +531,8 @@ export const light: ComponentDescriptor = {
     asset('cookie', 'Cookie', 'A texture projected through the cone (the light is tinted and masked by it: a window frame, leaves, a logo).', ['texture'], { when: when('type', 'spot') }),
     color('groundColor', 'Ground colour', 'The colour from below.', { when: when('type', 'hemisphere'), default: '#444444' }),
     enm('mode', 'Mode', 'Realtime, baked into lightmaps, or both (mixed).', ['realtime', 'baked', 'mixed'], { default: 'realtime', omitDefault: true }),
+    lightLayerMask('lightMask', 'Light mask', 'The light layers it lights: an object is lit only when it is in one of them.', 0),
+    lightLayerMask('shadowCasterMask', 'Shadow caster mask', 'Only objects in one of these light layers cast its shadow.', 0, { when: when('type', 'directional', 'point', 'spot') }),
   ]),
   add: { kind: 'menu', value: { type: 'point', color: '#ffd9a0', intensity: 30, range: 8, decay: 2 } },
   // Genre-neutral reasons (the GameObject menu creates these too):
@@ -631,6 +635,7 @@ export const instances: ComponentDescriptor = {
     // more than they show; a set of rocks or trees that should cast turns it on.
     bool('castShadow', 'Casts shadows', 'Blocks the directional light: casts a realtime shadow (off unless set: foliage and scatter rarely need one).', { default: false, omitDefault: true }),
     bool('receiveShadow', 'Receives shadows', 'Shows the realtime shadows falling on it.', { default: true, omitDefault: true }),
+    lightLayerMask('lightLayers', 'Light layers', 'The light layers it is in: only lights whose light mask shares one of them light it, and it casts shadows only for lights whose shadow caster mask shares one.', 1),
     // Absent = the project's Instance chunk size (32 m unless set).
     num('chunkSize', 'Chunk size', 'The copies are drawn in chunks about this wide, each hidden when out of view and given its level of detail on its own (absent: the project\'s Instance chunk size).', { min: 1, max: 4096, step: 1, unit: 'm' }),
   ]),

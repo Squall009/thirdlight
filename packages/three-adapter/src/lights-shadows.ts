@@ -18,6 +18,9 @@
  *   (`shadow_unsupported`, soft degradation).
  * - A light a bake holds is not realtime (ambient and hemisphere lights
  *   always stay, for the dynamic objects).
+ * - A light whose layer masks leave some objects out is a layered light
+ *   (light-layers.ts); a script's mask change applies in place, or realizes
+ *   the light again when it turns plain or layered.
  */
 import * as THREE from 'three';
 import { blendLight, type EnvironmentBlendView, type EnvironmentLightValues, type ResourceManager } from '@thirdlight/runtime';
@@ -27,6 +30,18 @@ import { decideShadows, deriveShadowCamera, directionalShadowSettings, planScene
 import { selectSceneLights, type SceneLightEntry, type SceneLightKind, type SceneLightSelection } from './scene-lights';
 import type { StaticShadowRevision } from './shadow-casters';
 import { textureHolds } from './texture-holds';
+import {
+  isLayeredLight,
+  LayeredAmbientLight,
+  LayeredDirectionalLight,
+  LayeredHemisphereLight,
+  LayeredPointLight,
+  LayeredSpotLight,
+  lightMasksOf,
+  needsLayeredLight,
+  setLightMasks,
+  type LightMasks,
+} from './light-layers';
 
 /** The authored light component as the realization reads it. */
 interface LightLike {
@@ -42,6 +57,8 @@ interface LightLike {
   readonly castShadow?: boolean;
   readonly mode?: string;
   readonly cookie?: string;
+  readonly lightMask?: number;
+  readonly shadowCasterMask?: number;
 }
 
 /** A realized entity as the lights read it. */
@@ -106,6 +123,15 @@ export interface LightsDiagnostics {
   lights?: { directional: string | null; ambient: string | null; hemisphere: string | null; local: number; localOn: number; cookies: number };
 }
 
+/** What a script may write over a realized light. */
+export interface LightValueOverride {
+  readonly color?: string;
+  readonly intensity?: number;
+  readonly range?: number;
+  readonly lightMask?: number;
+  readonly shadowCasterMask?: number;
+}
+
 export interface SceneLights {
   /** Realize an entity's light (none when it has none, or a bake holds it). */
   realize(e: LightEntityLike): void;
@@ -139,8 +165,12 @@ export interface SceneLights {
   applyBlend(base: Parameters<typeof blendLight>[3], presets: Parameters<typeof blendLight>[4], view: EnvironmentBlendView): void;
   /** Back to the authored values (a blend ended). */
   restore(): void;
-  /** The values scripts wrote: colour and intensity become the authored ones, range a light's distance. */
-  applyOverrides(overrides: ReadonlyMap<string, { color?: string; intensity?: number; range?: number }>, blending: boolean, rangeOf: (entityId: string) => number): void;
+  /**
+   * The values scripts wrote: colour and intensity become the authored ones, range a light's distance, the masks
+   * its light layers. True when a light was realized again (a mask turned it plain or layered): the lights that
+   * are on must be selected again.
+   */
+  applyOverrides(overrides: ReadonlyMap<string, LightValueOverride>, blending: boolean, rangeOf: (entityId: string) => number): boolean;
   diagnostics(): LightsDiagnostics;
   dispose(): void;
 }
@@ -182,18 +212,25 @@ export function createSceneLights(o: SceneLightsOptions): SceneLights {
     );
   };
   /** A point, spot or hemisphere light for an entity (null otherwise, or when a bake holds it). */
-  const localLightOf = (id: string, l: LightLike): THREE.Light | null => {
+  const localLightOf = (id: string, l: LightLike, masks: LightMasks): THREE.Light | null => {
     if (bakedAway(id, l)) return null;
     const colour = new THREE.Color(l.color);
-    if (l.type === 'hemisphere') return new THREE.HemisphereLight(colour, new THREE.Color(l.groundColor ?? '#444444'), l.intensity);
+    const layered = needsLayeredLight(masks);
+    if (l.type === 'hemisphere') {
+      const h = new (layered ? LayeredHemisphereLight : THREE.HemisphereLight)(colour, new THREE.Color(l.groundColor ?? '#444444'), l.intensity);
+      setLightMasks(h, masks);
+      return h;
+    }
     if (l.type === 'point') {
-      const p = new THREE.PointLight(colour, l.intensity, l.range ?? 0, l.decay ?? 2);
+      const p = new (layered ? LayeredPointLight : THREE.PointLight)(colour, l.intensity, l.range ?? 0, l.decay ?? 2);
+      setLightMasks(p, masks);
       p.castShadow = l.castShadow === true;
       if (p.castShadow) p.shadow.mapSize.set(POINT_SHADOW_MAP_SIZE, POINT_SHADOW_MAP_SIZE);
       return p;
     }
     if (l.type === 'spot') {
-      const s = new THREE.SpotLight(colour, l.intensity, l.range ?? 0, THREE.MathUtils.degToRad(l.angle ?? 30), l.penumbra ?? 0.2, l.decay ?? 2);
+      const s = new (layered ? LayeredSpotLight : THREE.SpotLight)(colour, l.intensity, l.range ?? 0, THREE.MathUtils.degToRad(l.angle ?? 30), l.penumbra ?? 0.2, l.decay ?? 2);
+      setLightMasks(s, masks);
       // Three puts a new SpotLight at (0, 1, 0) (Object3D.DEFAULT_UP); at its entity's origin it shines along `direction`.
       s.position.set(0, 0, 0);
       const d = l.direction ?? [0, -1, 0];
@@ -217,7 +254,7 @@ export function createSceneLights(o: SceneLightsOptions): SceneLights {
   let shadowProbeDone = false;
   const keyDirectionOf = (r: KeyRec | null): readonly [number, number, number] | undefined => r?.directionNow ?? r?.authored.direction;
   /** A directional light at the derived position round the view's start square. */
-  const directionalLightOf = (id: string, l: AuthoredLight): KeyRec => {
+  const directionalLightOf = (id: string, l: AuthoredLight, masks: LightMasks): KeyRec => {
     const settings = directionalShadowSettings(l);
     const start = o.startView;
     const region: ShadowRegion = { minX: start[0] - settings.extent, maxX: start[0] + settings.extent, minY: start[1] - settings.extent, maxY: start[1] + settings.extent };
@@ -226,7 +263,8 @@ export function createSceneLights(o: SceneLightsOptions): SceneLights {
     // `outcome` always resolves `ok: true` here (webgl2: true).
     const plan: ShadowPlan = outcome.ok ? outcome.plan : deriveShadowCamera(region, direction);
     const [planned] = planSceneLights([l], region, outcome);
-    const light = new THREE.DirectionalLight(new THREE.Color(l.color), l.intensity);
+    const light = new (needsLayeredLight(masks) ? LayeredDirectionalLight : THREE.DirectionalLight)(new THREE.Color(l.color), l.intensity);
+    setLightMasks(light, masks);
     if (planned !== undefined && planned.kind === 'directional') {
       light.position.set(planned.position[0], planned.position[1], planned.position[2]);
       light.target.position.set(planned.target[0], planned.target[1], planned.target[2]);
@@ -299,74 +337,108 @@ export function createSceneLights(o: SceneLightsOptions): SceneLights {
     shadowState = { shadows: 'off', reason: 'shadow_unsupported' };
   };
 
-  return {
-    realize(e: LightEntityLike): void {
-      const l = (e.components as { light?: LightLike }).light;
-      if (l === undefined) return;
-      const tags = e.tags ?? 0;
-      const local = localLightOf(e.id, l);
-      if (local !== null) {
-        // Environment presets may set its colour, intensity, direction and ground colour.
-        const d = l.direction ?? (l.type === 'spot' ? [0, -1, 0] : undefined);
-        envLights.set(e.id, {
-          light: local,
-          id: e.id,
-          tags,
-          type: l.type,
-          authored: { color: l.color, intensity: l.intensity, ...(d !== undefined ? { direction: [d[0] ?? 0, d[1] ?? -1, d[2] ?? 0] as [number, number, number] } : {}), ...(l.type === 'hemisphere' ? { groundColor: l.groundColor ?? '#444444' } : {}) },
-        });
-        revision += 1;
-        if (l.type === 'hemisphere') scene.add(local);
-        else {
-          // The cone's target rides on the light (both at the entity's origin and turn), so it is placed with it.
-          if (local instanceof THREE.SpotLight) local.add(local.target);
-          o.place(e.id, local);
-        }
-        if ((local as THREE.PointLight).castShadow === true) localShadowLights += 1;
-        switchable.set(e.id, { kind: l.type as SceneLightKind, light: local });
-        return;
-      }
-      // A directional or ambient light of any loaded scene: its entity's transform is irrelevant.
-      if (!o.v3 || (l.type !== 'directional' && l.type !== 'ambient') || bakedAway(e.id, l)) return;
-      if (l.type === 'ambient') {
-        // No shadow, no position dependence; the intensity is used exactly as authored.
-        const ambient = new THREE.AmbientLight(new THREE.Color(l.color), l.intensity);
-        scene.add(ambient);
-        switchable.set(e.id, { kind: 'ambient', light: ambient });
-        envLights.set(e.id, { light: ambient, id: e.id, tags, type: 'ambient', authored: { color: l.color, intensity: l.intensity } });
-      } else {
-        const rec = directionalLightOf(e.id, l as AuthoredLight);
-        scene.add(rec.light);
-        directionals.set(e.id, rec);
-        switchable.set(e.id, { kind: 'directional', light: rec.light });
-        const kd = l.direction ?? [0, -1, 0];
-        envLights.set(e.id, { light: rec.light, id: e.id, tags, type: 'directional', authored: { color: l.color, intensity: l.intensity, direction: [kd[0] ?? 0, kd[1] ?? -1, kd[2] ?? 0] } });
-      }
+  /** The entity each realized light was made from (realized again when a script's mask turns it plain or layered). */
+  const realizedFrom = new Map<string, LightEntityLike>();
+  /** The masks scripts wrote, by light entity. */
+  const maskOverrides = new Map<string, { lightMask?: number; shadowCasterMask?: number }>();
+  /** A light's masks now: the authored ones under what a script wrote. */
+  const masksOf = (id: string, l: LightLike): LightMasks => {
+    const authored = lightMasksOf(l);
+    const w = maskOverrides.get(id);
+    return w === undefined ? authored : { lightMask: w.lightMask ?? authored.lightMask, shadowCasterMask: w.shadowCasterMask ?? authored.shadowCasterMask };
+  };
+  /** Realize a light again from its entity (a light on its entity leaves the node first: release leaves it there). */
+  function replaceLight(id: string): void {
+    const e = realizedFrom.get(id);
+    const lit = switchable.get(id);
+    if (e === undefined) return;
+    releaseLight(id);
+    if (lit !== undefined && (lit.kind === 'point' || lit.kind === 'spot')) {
+      lit.light.removeFromParent();
+      lit.light.dispose();
+    }
+    realizeLight(e);
+  }
+
+function realizeLight(e: LightEntityLike): void {
+    const l = (e.components as { light?: LightLike }).light;
+    if (l === undefined) return;
+    realizedFrom.set(e.id, e);
+    const tags = e.tags ?? 0;
+    const masks = masksOf(e.id, l);
+    const local = localLightOf(e.id, l, masks);
+    if (local !== null) {
+      // Environment presets may set its colour, intensity, direction and ground colour.
+      const d = l.direction ?? (l.type === 'spot' ? [0, -1, 0] : undefined);
+      envLights.set(e.id, {
+        light: local,
+        id: e.id,
+        tags,
+        type: l.type,
+        authored: { color: l.color, intensity: l.intensity, ...(d !== undefined ? { direction: [d[0] ?? 0, d[1] ?? -1, d[2] ?? 0] as [number, number, number] } : {}), ...(l.type === 'hemisphere' ? { groundColor: l.groundColor ?? '#444444' } : {}) },
+      });
       revision += 1;
-    },
+      if (l.type === 'hemisphere') scene.add(local);
+      else {
+        // The cone's target rides on the light (both at the entity's origin and turn), so it is placed with it.
+        if (local instanceof THREE.SpotLight) local.add(local.target);
+        o.place(e.id, local);
+      }
+      if ((local as THREE.PointLight).castShadow === true) localShadowLights += 1;
+      switchable.set(e.id, { kind: l.type as SceneLightKind, light: local });
+      return;
+    }
+    // A directional or ambient light of any loaded scene: its entity's transform is irrelevant.
+    if (!o.v3 || (l.type !== 'directional' && l.type !== 'ambient') || bakedAway(e.id, l)) return;
+    if (l.type === 'ambient') {
+      // No shadow, no position dependence; the intensity is used exactly as authored.
+      const ambient = new (needsLayeredLight(masks) ? LayeredAmbientLight : THREE.AmbientLight)(new THREE.Color(l.color), l.intensity);
+      setLightMasks(ambient, masks);
+      scene.add(ambient);
+      switchable.set(e.id, { kind: 'ambient', light: ambient });
+      envLights.set(e.id, { light: ambient, id: e.id, tags, type: 'ambient', authored: { color: l.color, intensity: l.intensity } });
+    } else {
+      const rec = directionalLightOf(e.id, l as AuthoredLight, masks);
+      scene.add(rec.light);
+      directionals.set(e.id, rec);
+      switchable.set(e.id, { kind: 'directional', light: rec.light });
+      const kd = l.direction ?? [0, -1, 0];
+      envLights.set(e.id, { light: rec.light, id: e.id, tags, type: 'directional', authored: { color: l.color, intensity: l.intensity, direction: [kd[0] ?? 0, kd[1] ?? -1, kd[2] ?? 0] } });
+    }
+    revision += 1;
+  }
+
+function releaseLight(entityId: string): void {
+    realizedFrom.delete(entityId);
+  if (envLights.delete(entityId)) revision += 1;
+    const lit = switchable.get(entityId);
+    if (lit === undefined) return;
+    switchable.delete(entityId);
+    const cookie = cookies.get(lit.light as THREE.SpotLight);
+    if (cookie !== undefined) {
+      cookies.delete(lit.light as THREE.SpotLight);
+      (lit.light as THREE.SpotLight).map = null;
+      cookie.dispose();
+    }
+    cookieHolds?.releaseHolder(lit.light.uuid);
+    if ((lit.light as THREE.PointLight).castShadow === true && (lit.kind === 'point' || lit.kind === 'spot')) localShadowLights = Math.max(0, localShadowLights - 1);
+    // A light on its entity goes with the entity's node; the scene-level ones leave the scene here.
+    if (lit.kind === 'directional' || lit.kind === 'ambient' || lit.kind === 'hemisphere') {
+      lit.light.removeFromParent();
+      if (lit.kind === 'directional') (lit.light as THREE.DirectionalLight).target.removeFromParent();
+      lit.light.dispose();
+      directionals.get(entityId)?.cached?.dispose();
+      directionals.delete(entityId);
+      if (keyRec?.id === entityId) keyRec = null;
+    }
+  }
+
+  return {
+    realize: realizeLight,
 
     release(entityId: string): void {
-      if (envLights.delete(entityId)) revision += 1;
-      const lit = switchable.get(entityId);
-      if (lit === undefined) return;
-      switchable.delete(entityId);
-      const cookie = cookies.get(lit.light as THREE.SpotLight);
-      if (cookie !== undefined) {
-        cookies.delete(lit.light as THREE.SpotLight);
-        (lit.light as THREE.SpotLight).map = null;
-        cookie.dispose();
-      }
-      cookieHolds?.releaseHolder(lit.light.uuid);
-      if ((lit.light as THREE.PointLight).castShadow === true && (lit.kind === 'point' || lit.kind === 'spot')) localShadowLights = Math.max(0, localShadowLights - 1);
-      // A light on its entity goes with the entity's node; the scene-level ones leave the scene here.
-      if (lit.kind === 'directional' || lit.kind === 'ambient' || lit.kind === 'hemisphere') {
-        lit.light.removeFromParent();
-        if (lit.kind === 'directional') (lit.light as THREE.DirectionalLight).target.removeFromParent();
-        lit.light.dispose();
-        directionals.get(entityId)?.cached?.dispose();
-        directionals.delete(entityId);
-        if (keyRec?.id === entityId) keyRec = null;
-      }
+      releaseLight(entityId);
+      maskOverrides.delete(entityId);
     },
 
     has: (entityId) => switchable.has(entityId),
@@ -466,7 +538,30 @@ export function createSceneLights(o: SceneLightsOptions): SceneLights {
       for (const key of directionals.values()) key.directionNow = null;
     },
 
-    applyOverrides(ov, blending, rangeOf): void {
+    applyOverrides(ov, blending, rangeOf): boolean {
+      // The masks first: a light turning plain or layered is realized again (its values are set below).
+      let replaced = false;
+      for (const id of [...realizedFrom.keys()]) {
+        const w = ov.get(id);
+        const want = w?.lightMask === undefined && w?.shadowCasterMask === undefined ? undefined : { ...(w.lightMask !== undefined ? { lightMask: w.lightMask } : {}), ...(w.shadowCasterMask !== undefined ? { shadowCasterMask: w.shadowCasterMask } : {}) };
+        const had = maskOverrides.get(id);
+        if (had?.lightMask === want?.lightMask && had?.shadowCasterMask === want?.shadowCasterMask) continue;
+        if (want === undefined) maskOverrides.delete(id);
+        else maskOverrides.set(id, want);
+        const lit = switchable.get(id);
+        const l = (realizedFrom.get(id)!.components as { light?: LightLike }).light;
+        if (lit === undefined || l === undefined) continue;
+        const masks = masksOf(id, l);
+        if (needsLayeredLight(masks) !== isLayeredLight(lit.light)) {
+          replaceLight(id);
+          replaced = true;
+          continue;
+        }
+        const casters = isLayeredLight(lit.light) ? lit.light.shadowCasterMask : masks.shadowCasterMask;
+        setLightMasks(lit.light, masks);
+        // Other casters in the key light's cached static map.
+        if (casters !== masks.shadowCasterMask) directionals.get(id)?.cached?.invalidate();
+      }
       for (const rec of envLights.values()) {
         let original = lightOriginals.get(rec);
         if (original === undefined) lightOriginals.set(rec, (original = rec.authored));
@@ -479,6 +574,7 @@ export function createSceneLights(o: SceneLightsOptions): SceneLights {
         if ((l as THREE.PointLight).isPointLight !== true && (l as THREE.SpotLight).isSpotLight !== true) continue;
         l.distance = ov.get(id)?.range ?? rangeOf(id);
       }
+      return replaced;
     },
 
     diagnostics(): LightsDiagnostics {

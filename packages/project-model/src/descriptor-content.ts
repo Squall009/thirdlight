@@ -11,6 +11,7 @@ import { MAX_ANIMATOR_MORPHS } from './animator';
 import { ANIMATOR_CONDITION_OPS, ANIMATOR_PARAMETER_TYPES, MAX_ANIMATOR_CONDITIONS, MAX_ANIMATOR_EVENTS, MAX_ANIMATOR_LAYERS, MAX_ANIMATOR_PARAMETERS, MAX_ANIMATOR_STATES, MAX_ANIMATOR_TRANSITIONS, MAX_BLEND_CHILDREN, MAX_BLEND_GROUND_SPEED, MAX_LAYER_MASK } from './animator';
 import { MAX_TRANSITION_FADE } from './blocks';
 import { MAX_COLLISION_LAYERS } from './components';
+import { LIGHT_LAYER_COUNT, MAX_LIGHT_LAYER_NAME } from './light-layers';
 import { RESOURCE_KIND_TABLE } from './loadable';
 import { ADDRESS_MAX_LENGTH, ASSET_LABEL_MAX_LENGTH, M2_SETTINGS_KEYS, MAX_ENUM_VALUES, MAX_DECLARATION_BYTES, MAX_PREFAB_ENTITIES, PREFAB_V4_COMPONENTS } from './content';
 import {
@@ -531,6 +532,7 @@ export const CONTENT: readonly ContentBlockDescriptor[] = [
     ops: ['setLabels', 'setAddress'],
   },
   { key: 'collisionLayers', label: 'Collision layers', tooltip: 'Named collision layers colliders are in and script queries filter by (3D; "default" is implicit).', required: false, value: list('collisionLayers', 'Collision layers', `Up to ${MAX_COLLISION_LAYERS} names ("default" is implicit).`, str('*', 'Layer', 'A letter or _, then letters, digits or _.', { format: 'identifier', minLength: 1, maxLength: 32 }), { maxItems: MAX_COLLISION_LAYERS, unique: true, default: [] }), ops: ['setCollisionLayers'] },
+  { key: 'lightLayers', label: 'Light layers', tooltip: 'Names of the light layers by number (editor labels: objects, lights and scripts use the layer masks).', required: false, value: list('lightLayers', 'Light layers', `Up to ${LIGHT_LAYER_COUNT} names, the first naming layer 1 ("" leaves one unnamed).`, str('*', 'Layer', 'A name of up to 32 characters ("" for none).', { maxLength: MAX_LIGHT_LAYER_NAME }), { maxItems: LIGHT_LAYER_COUNT, default: [] }), ops: ['setLightLayers'] },
   // The project save schema (save document version + migrations, slots, sections, picture, settings document).
   {
     key: 'saveSchema',

@@ -15,6 +15,7 @@
  * result, never throws, never reads files.
  */
 import { ID_RE } from './validate';
+import { validateLightLayerMask } from './light-layers';
 
 import { BLOCK_COMPONENT_NAMES, BLOCK_COMPONENTS } from './blocks';
 import { canonicalEffectComponent, validateEffectComponent, type EffectComponent } from './effects';
@@ -274,7 +275,7 @@ export function validateInstancesComponent(c: unknown, path: string, errors: Mod
     errors.push(fieldValue(`${path}/chunkSize`, chunkSize, `a number 1-${MAX_INSTANCE_CHUNK_SIZE}`, 'chunkSize is the chunk width in metres'));
   }
   for (const k of Object.keys(c)) {
-    if (k !== 'asset' && k !== 'buffer' && k !== 'count' && k !== 'castShadow' && k !== 'receiveShadow' && k !== 'chunkSize') errors.push(unexpectedField(`${path}/${pointerSegment(k)}`, k, 'asset, buffer, count, castShadow, receiveShadow, chunkSize'));
+    if (k !== 'asset' && k !== 'buffer' && k !== 'count' && k !== 'castShadow' && k !== 'receiveShadow' && k !== 'chunkSize' && k !== 'lightLayers') errors.push(unexpectedField(`${path}/${pointerSegment(k)}`, k, 'asset, buffer, count, castShadow, receiveShadow, chunkSize, lightLayers'));
   }
 }
 
@@ -312,6 +313,7 @@ export function validateLightComponent(c: unknown, path: string, errors: ModelEr
   if (version === 4 && c['mode'] !== undefined && c['mode'] !== 'realtime' && c['mode'] !== 'baked' && c['mode'] !== 'mixed') {
     errors.push(fieldValue(`${path}/mode`, c['mode'], '"realtime" | "baked" | "mixed"', 'mode is realtime, baked or mixed'));
   }
+  if (version === 4) validateLightMasks(c, type === 'directional', path, errors);
   let directional = false;
   if (type === undefined) errors.push(fieldMissing(`${path}/type`, 'type'));
   else if (typeof type !== 'string') errors.push(fieldType(`${path}/type`, type, 'string'));
@@ -377,9 +379,19 @@ export function validateLightComponent(c: unknown, path: string, errors: ModelEr
     }
   }
   for (const k of Object.keys(c)) {
-    if (version === 4 && k === 'mode') continue;
+    if (version === 4 && (k === 'mode' || k === 'lightMask' || k === 'shadowCasterMask')) continue;
     if (!KNOWN_LIGHT_FIELDS.has(k)) errors.push(unexpectedField(`${path}/${pointerSegment(k)}`, k, 'type, color, intensity, direction, castShadow, shadowMapSize, shadowBias, shadowNormalBias, shadowExtent'));
   }
+}
+
+/**
+ * v4: the light layers a light lights (`lightMask`) and whose objects cast
+ * its shadow (`shadowCasterMask`; only a light that can cast one).
+ */
+function validateLightMasks(c: Record<string, unknown>, shadows: boolean, path: string, errors: ModelErrorV3[]): void {
+  validateLightLayerMask(c['lightMask'], `${path}/lightMask`, errors, 0);
+  if (shadows) validateLightLayerMask(c['shadowCasterMask'], `${path}/shadowCasterMask`, errors, 0);
+  else if (c['shadowCasterMask'] !== undefined) errors.push(fieldValue(`${path}/shadowCasterMask`, c['shadowCasterMask'], 'absent', 'only a directional, point or spot light casts shadows'));
 }
 
 /**
@@ -393,7 +405,8 @@ function validateLocalLight(c: Record<string, unknown>, type: 'point' | 'spot' |
   if (c['color'] === undefined) errors.push(fieldMissing(`${path}/color`, 'color'));
   if (c['intensity'] === undefined) errors.push(fieldMissing(`${path}/intensity`, 'intensity'));
   else checkFiniteNumber(c['intensity'], `${path}/intensity`, { min: 0, absMax: type === 'hemisphere' ? MAX_INTENSITY : MAX_LOCAL_INTENSITY }, `0 <= v <= ${type === 'hemisphere' ? MAX_INTENSITY : MAX_LOCAL_INTENSITY}`, errors);
-  const allowed = type === 'hemisphere' ? ['type', 'color', 'intensity', 'groundColor', 'mode'] : type === 'point' ? ['type', 'color', 'intensity', 'range', 'decay', 'castShadow', 'mode'] : ['type', 'color', 'intensity', 'range', 'decay', 'castShadow', 'direction', 'angle', 'penumbra', 'mode', 'cookie'];
+  const allowed = type === 'hemisphere' ? ['type', 'color', 'intensity', 'groundColor', 'mode', 'lightMask'] : type === 'point' ? ['type', 'color', 'intensity', 'range', 'decay', 'castShadow', 'mode', 'lightMask', 'shadowCasterMask'] : ['type', 'color', 'intensity', 'range', 'decay', 'castShadow', 'direction', 'angle', 'penumbra', 'mode', 'cookie', 'lightMask', 'shadowCasterMask'];
+  validateLightMasks(c, type !== 'hemisphere', path, errors);
   for (const k of Object.keys(c)) {
     if (!allowed.includes(k)) errors.push(unexpectedField(`${path}/${pointerSegment(k)}`, k, allowed.join(', ')));
   }
@@ -933,6 +946,9 @@ function canonicalLight(c: unknown): LightComponent {
   if (typeof o['groundColor'] === 'string') out.groundColor = o['groundColor'].toLowerCase();
   if (o['mode'] === 'baked' || o['mode'] === 'mixed') out.mode = o['mode'];
   if (out.type === 'spot' && typeof o['cookie'] === 'string') out.cookie = o['cookie'];
+  // The light layer masks, kept when set (an existing light keeps its exact canonical bytes).
+  if (typeof o['lightMask'] === 'number') out.lightMask = o['lightMask'];
+  if (typeof o['shadowCasterMask'] === 'number') out.shadowCasterMask = o['shadowCasterMask'];
   return out;
 }
 
@@ -1030,7 +1046,7 @@ function canonicalEntityV3(e: Record<string, unknown>): SceneEntityV3 {
   // After that (existing entities keep their bytes).
   if (comps['cameraRegion'] !== undefined) (components as { cameraRegion?: CameraRegionComponent }).cameraRegion = canonicalCameraRegion(comps['cameraRegion'] as CameraRegionComponent);
   if (comps['instances'] !== undefined) {
-    const i = comps['instances'] as { asset: { assetId: string; piece?: string }; buffer: string; count: number; castShadow?: boolean; receiveShadow?: boolean; chunkSize?: number };
+    const i = comps['instances'] as { asset: { assetId: string; piece?: string }; buffer: string; count: number; castShadow?: boolean; receiveShadow?: boolean; chunkSize?: number; lightLayers?: number };
     components.instances = {
       asset: { assetId: i.asset.assetId, ...(i.asset.piece !== undefined ? { piece: i.asset.piece } : {}) },
       buffer: i.buffer,
@@ -1040,6 +1056,7 @@ function canonicalEntityV3(e: Record<string, unknown>): SceneEntityV3 {
       ...(typeof i.receiveShadow === 'boolean' ? { receiveShadow: i.receiveShadow } : {}),
       // Kept only when set.
       ...(typeof i.chunkSize === 'number' ? { chunkSize: i.chunkSize } : {}),
+      ...(typeof i.lightLayers === 'number' ? { lightLayers: i.lightLayers } : {}),
     };
   }
   const name = e['name'];

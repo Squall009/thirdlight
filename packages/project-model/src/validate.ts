@@ -745,6 +745,7 @@ export function canonicalBox(b: unknown): BoxComponent {
     // Kept only when set (an existing box keeps its exact canonical bytes).
     ...(typeof o['castShadow'] === 'boolean' ? { castShadow: o['castShadow'] } : {}),
     ...(typeof o['receiveShadow'] === 'boolean' ? { receiveShadow: o['receiveShadow'] } : {}),
+    ...(typeof o['lightLayers'] === 'number' ? { lightLayers: o['lightLayers'] } : {}),
   };
 }
 

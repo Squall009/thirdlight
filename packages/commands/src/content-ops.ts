@@ -807,7 +807,7 @@ export function applySetComponent(input: OpInput, args: SetComponentArgs): OpOut
     if (Object.prototype.hasOwnProperty.call(args.value, f)) {
       // `null` removes an optional field (e.g. v4 camera bounds);
       // the model validation below refuses removing a required one.
-      if (args.value[f] === null && (isV3Component(args.component) || (args.component === 'collider' && (f === 'oneWay' || f === 'layers')) || args.component === 'controller' || (args.component === 'model' && f === 'piece') || ((args.component === 'box' || args.component === 'model') && (f === 'castShadow' || f === 'receiveShadow')))) delete candidate[f];
+      if (args.value[f] === null && (isV3Component(args.component) || (args.component === 'collider' && (f === 'oneWay' || f === 'layers')) || args.component === 'controller' || (args.component === 'model' && f === 'piece') || ((args.component === 'box' || args.component === 'model') && (f === 'castShadow' || f === 'receiveShadow' || f === 'lightLayers')))) delete candidate[f];
       else candidate[f] = deepClone(args.value[f]);
       changedFields.push(f);
     }

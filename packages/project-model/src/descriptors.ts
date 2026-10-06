@@ -105,7 +105,7 @@ const SCRIPT_OBJECT_READ: ReadonlySet<string> = new Set(['id', 'name', 'parentId
 const SCRIPT_WRITABLE: Readonly<Record<string, readonly string[]>> = {
   entity: ['active', 'visible', 'keepLoaded'],
   transform: ['position', 'rotation', 'scale'],
-  light: ['color', 'intensity', 'range'],
+  light: ['color', 'intensity', 'range', 'lightMask', 'shadowCasterMask'],
   mover: ['speed', 'active'],
   // Which project material a slot wears: swapped once the material has loaded (the renderer waits for it).
   materials: ['*'],

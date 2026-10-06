@@ -20,6 +20,7 @@ import { GameplayPanel } from '../GameplayPanel';
 import { InputPanel } from '../InputPanel';
 import { TagsPanel } from '../TagsPanel';
 import { CollisionLayersPanel } from '../CollisionLayersPanel';
+import { LightLayersPanel } from '../LightLayersPanel';
 import { SavesPanel } from '../SavesPanel';
 import { ModesPanel } from '../ModesPanel';
 import { ShellPanel } from '../ShellPanel';
@@ -34,7 +35,7 @@ import { QualityPanel } from './QualityPanel';
 import { AudioPanel } from './AudioPanel';
 import { DialogueSettingsPanel } from './DialogueSettingsPanel';
 
-export type SettingsSection = 'gameplay' | 'input' | 'tags' | 'layers' | 'quality' | 'audio' | 'dialogue' | 'saves' | 'modes' | 'shell' | 'scripts';
+export type SettingsSection = 'gameplay' | 'input' | 'tags' | 'layers' | 'lightLayers' | 'quality' | 'audio' | 'dialogue' | 'saves' | 'modes' | 'shell' | 'scripts';
 
 /**
  * The sub-tabs in the order the window lists them, with the words the search
@@ -46,6 +47,7 @@ export const SETTINGS_SECTIONS: ReadonlyArray<{ id: SettingsSection; label: stri
   { id: 'input', label: 'Input', keywords: ['actions', 'bindings', 'keys', 'keyboard', 'gamepad', 'mouse', 'pointer', 'cursor', 'touch'] },
   { id: 'tags', label: 'Tags', keywords: ['tag', 'labels'] },
   { id: 'layers', label: 'Collision layers', keywords: ['physics', 'collision', 'layers', 'masks'] },
+  { id: 'lightLayers', label: 'Light layers', keywords: ['lighting', 'layers', 'light mask', 'shadow caster mask', 'rendering layers', 'lighting channels'] },
   { id: 'quality', label: 'Quality', keywords: ['graphics', 'rendering', 'quality level'] },
   { id: 'audio', label: 'Audio', keywords: ['sound', 'event sounds', 'cues', 'signals'] },
   { id: 'dialogue', label: 'Dialogue', keywords: ['speakers', 'portraits', 'voice', 'text speed', 'backlog', 'conversations'] },
@@ -216,6 +218,8 @@ function Section(props: ProjectSettingsWindowProps & { id: SettingsSection }): J
           onSetLayers={(next) => void s.saveCollisionLayers(next)}
         />
       );
+    case 'lightLayers':
+      return <LightLayersPanel names={s.lightLayers} error={s.lightLayersError} onSetNames={(next) => void s.saveLightLayers(next)} />;
     case 'quality':
       return (
         <QualityPanel

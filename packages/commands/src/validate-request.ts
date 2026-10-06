@@ -144,6 +144,7 @@ export const MUTATION_OPS: readonly MutationOp[] = [
   'deleteAnimator',
   'setInput',
   'setCollisionLayers',
+  'setLightLayers',
   'setSaveSchema',
   'createScene',
   'renameScene',
@@ -233,7 +234,7 @@ export const CREATE_COMPONENTS: readonly string[] = SET_COMPONENT_NAMES.filter((
 
 /** Expected-text constants (the `expected` strings are log-safe, stable). */
 const EXPECT = {
-  op: 'one of: createEntity, setTransform, deleteEntity, undo, redo, publishAsset, publishBehavior, setBehaviorProperties, setComponent, setSettings, acknowledgeBehaviorTrust, createPrefab, instantiatePrefab, applySurfacePreset, updateEntity, moveEntities, setTags, setAssetOptions, pasteEntities, setMaterial, deleteMaterial, setEnvironment, setLighting, setAnimator, deleteAnimator, setInput, setCollisionLayers, setSaveSchema, createScene, renameScene, deleteScene, setStartScenes, setGraph, deleteGraph, graphEdit, setEffect, deleteEffect, renameEffect, setScriptLibrary, deleteScriptLibrary, editBlocks, setBlockType, deleteBlockType, setCellFields, setBlockStamp, deleteBlockStamp, setUiDocument, deleteUiDocument, setUiTheme, deleteUiTheme, setTimeline, deleteTimeline, setModes, setBehaviorGroups, setEventCues, setShell, setDialogue, deleteDialogue, setSpeaker, deleteSpeaker, setDialogueSettings, deleteAsset, deletePrefab, importAssets, importResources, createEntities, commitScriptLibraryStage, setLabels, setAddress, moveResources, renameFolder, createFolder, paintInstances, colliderFromModel',
+  op: 'one of: createEntity, setTransform, deleteEntity, undo, redo, publishAsset, publishBehavior, setBehaviorProperties, setComponent, setSettings, acknowledgeBehaviorTrust, createPrefab, instantiatePrefab, applySurfacePreset, updateEntity, moveEntities, setTags, setAssetOptions, pasteEntities, setMaterial, deleteMaterial, setEnvironment, setLighting, setAnimator, deleteAnimator, setInput, setCollisionLayers, setLightLayers, setSaveSchema, createScene, renameScene, deleteScene, setStartScenes, setGraph, deleteGraph, graphEdit, setEffect, deleteEffect, renameEffect, setScriptLibrary, deleteScriptLibrary, editBlocks, setBlockType, deleteBlockType, setCellFields, setBlockStamp, deleteBlockStamp, setUiDocument, deleteUiDocument, setUiTheme, deleteUiTheme, setTimeline, deleteTimeline, setModes, setBehaviorGroups, setEventCues, setShell, setDialogue, deleteDialogue, setSpeaker, deleteSpeaker, setDialogueSettings, deleteAsset, deletePrefab, importAssets, importResources, createEntities, commitScriptLibraryStage, setLabels, setAddress, moveResources, renameFolder, createFolder, paintInstances, colliderFromModel',
   projectId: 'project-model ID syntax: [a-z0-9][a-z0-9_-]{0,63}',
   expectedRevision: 'integer, 0 <= v <= 2^53-1',
   requestId: 'req- + 32 lowercase hex chars: ^req-[0-9a-f]{32}$',
@@ -1277,6 +1278,7 @@ export type ValidatedOpArgs =
   | { op: 'deleteAnimator'; args: { controllerId: string } }
   | { op: 'setInput'; args: { input: InputConfig | null } }
   | { op: 'setCollisionLayers'; args: { layers: string[] } }
+  | { op: 'setLightLayers'; args: { layers: string[] } }
   | { op: 'setSaveSchema'; args: { schema: import('@thirdlight/project-model').SaveSchema | null } }
   | { op: 'createScene' | 'renameScene' | 'deleteScene' | 'setStartScenes'; args: SceneIndexArgs }
   | { op: 'setGraph'; args: { graph: GraphDocument } }
@@ -1555,6 +1557,12 @@ export function validateOpArgs(
       for (const k of Object.keys(args)) if (k !== 'layers') return { ok: false, error: fieldUnexpected(`/args/${pointerSegment(k)}`, k, 'layers') };
       if (args['layers'] === undefined) return { ok: false, error: fieldMissing('/args/layers', 'layers') };
       if (!Array.isArray(args['layers'])) return { ok: false, error: fieldType('/args/layers', args['layers'], 'array of layer names ([] = only "default")') };
+      return { ok: true, validated: { op, args } as ValidatedOpArgs };
+    }
+    case 'setLightLayers': {
+      for (const k of Object.keys(args)) if (k !== 'layers') return { ok: false, error: fieldUnexpected(`/args/${pointerSegment(k)}`, k, 'layers') };
+      if (args['layers'] === undefined) return { ok: false, error: fieldMissing('/args/layers', 'layers') };
+      if (!Array.isArray(args['layers'])) return { ok: false, error: fieldType('/args/layers', args['layers'], 'array of layer names by number ([] = none named)') };
       return { ok: true, validated: { op, args } as ValidatedOpArgs };
     }
     case 'setSaveSchema': {

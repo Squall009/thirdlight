@@ -56,6 +56,7 @@ import {
 import type { ModelErrorV2, ModelResultV2, ModelResultV3 } from './errors';
 import type { BehaviorRecord, GameplaySettings, PrefabDefinition, SettingsMap } from './types-v2';
 import { validateCollisionLayers, ID_RE_V2 } from './components';
+import { validateLightLayerNames } from './light-layers';
 import type { AssetRecordV3, ContentCatalogV3 } from './types-v3';
 import { MAX_TAGS, type ContentCatalogV4 } from './types-v3';
 import { REMOVED_FROM_ENGINE } from './upgrade-v24';
@@ -120,8 +121,8 @@ function validateContentV3Value(doc: Record<string, unknown>, version: 3 | 4 = 3
     if (doc[key] === undefined) errors.push(fieldMissing(`/${pointerSegment(key)}`, key));
   }
   for (const k of Object.keys(doc)) {
-    if (!required.includes(k) && k !== 'tags' && !(version === 4 && k === 'game') && !(version === 4 && (k === 'materials' || k === 'environment' || k === 'lighting' || k === 'animators' || k === 'input' || k === 'flow' || k === 'graphs' || k === 'effects' || k === 'scriptLibraries' || k === 'blockTypes' || k === 'cellFields' || k === 'blockStamps' || k === 'collisionLayers' || k === 'saveSchema' || k === 'uiDocuments' || k === 'uiThemes' || k === 'timelines' || k === 'modes' || k === 'behaviorGroups' || k === 'dialogues' || k === 'speakers' || k === 'dialogueSettings' || k === 'eventCues' || k === 'shell' || k === 'loadable'))) {
-      errors.push(unexpectedField(`/${pointerSegment(k)}`, k, [...required, 'tags (optional)', ...(version === 4 ? ['materials (optional)', 'environment (optional)', 'lighting (optional)', 'animators (optional)', 'input (optional)', 'graphs (optional)', 'effects (optional)', 'scriptLibraries (optional)', 'blockTypes (optional)', 'cellFields (optional)', 'blockStamps (optional)', 'collisionLayers (optional)', 'saveSchema (optional)', 'uiDocuments (optional)', 'uiThemes (optional)', 'timelines (optional)', 'modes (optional)', 'behaviorGroups (optional)', 'dialogues (optional)', 'speakers (optional)', 'dialogueSettings (optional)', 'eventCues (optional)', 'shell (optional)', 'loadable (optional)'] : [])].join(', ')));
+    if (!required.includes(k) && k !== 'tags' && !(version === 4 && k === 'game') && !(version === 4 && (k === 'materials' || k === 'environment' || k === 'lighting' || k === 'animators' || k === 'input' || k === 'flow' || k === 'graphs' || k === 'effects' || k === 'scriptLibraries' || k === 'blockTypes' || k === 'cellFields' || k === 'blockStamps' || k === 'collisionLayers' || k === 'saveSchema' || k === 'uiDocuments' || k === 'uiThemes' || k === 'timelines' || k === 'modes' || k === 'behaviorGroups' || k === 'dialogues' || k === 'speakers' || k === 'dialogueSettings' || k === 'eventCues' || k === 'shell' || k === 'loadable' || k === 'lightLayers'))) {
+      errors.push(unexpectedField(`/${pointerSegment(k)}`, k, [...required, 'tags (optional)', ...(version === 4 ? ['materials (optional)', 'environment (optional)', 'lighting (optional)', 'animators (optional)', 'input (optional)', 'graphs (optional)', 'effects (optional)', 'scriptLibraries (optional)', 'blockTypes (optional)', 'cellFields (optional)', 'blockStamps (optional)', 'collisionLayers (optional)', 'saveSchema (optional)', 'uiDocuments (optional)', 'uiThemes (optional)', 'timelines (optional)', 'modes (optional)', 'behaviorGroups (optional)', 'dialogues (optional)', 'speakers (optional)', 'dialogueSettings (optional)', 'eventCues (optional)', 'shell (optional)', 'loadable (optional)', 'lightLayers (optional)'] : [])].join(', ')));
     }
   }
   if (version === 4 && doc['scenes'] !== undefined) {
@@ -264,6 +265,8 @@ function validateContentV3Value(doc: Record<string, unknown>, version: 3 | 4 = 3
   }
   // The named collision layers (v4).
   if (version === 4 && doc['collisionLayers'] !== undefined && !same('collisionLayers')) validateCollisionLayers(doc['collisionLayers'], '/collisionLayers', errors);
+  // The light layers' names (v4).
+  if (version === 4 && doc['lightLayers'] !== undefined && !same('lightLayers')) validateLightLayerNames(doc['lightLayers'], '/lightLayers', errors);
   // The project save schema (v4).
   if (version === 4 && doc['saveSchema'] !== undefined && !same('saveSchema')) validateSaveSchema(doc['saveSchema'], '/saveSchema', errors);
   if (!same('behaviors', 'scriptLibraries')) validateLibraryPinReferences(doc, errors);
@@ -536,6 +539,7 @@ const CANONICAL_KEYS: readonly CanonicalKey[] = [
   { key: 'timelines', canon: canonicalTimelines, idOf: (t: TimelineAsset) => t.timelineId, present: nonEmpty },
   { key: 'lighting', canon: canonicalLighting, present: (v: Record<string, unknown>) => Object.keys(v).length > 0 },
   { key: 'loadable', canon: canonicalLoadable, present: nonEmpty },
+  { key: 'lightLayers', canon: (l: string[]) => [...l], present: nonEmpty },
 ];
 
 /**
