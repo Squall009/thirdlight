@@ -3774,9 +3774,11 @@ its reason (the same line is next to its constant in the code):
 | Scenes / entities | As many scenes as the game needs; 16,384 entities per scene (a big world is several scenes loaded together) | A scene is one load unit and one file |
 | Prefabs | 1,024 entities and 16 levels per prefab; 1 MiB (the content file cap) | One definition is one file and one command's copy |
 | Collision layers / tags | 15 named layers (+ `default`) / 32 tags | Rapier's 16-bit collision groups / a 32-bit tag mask |
-| Local lights | 16 point and spot lights per scene, 16 drawn across loaded scenes | Forward-lighting cost; scalable lighting is phase 29 |
+| Local lights | 16 point and spot lights per scene, 16 drawn across loaded scenes (`MAX_LOCAL_LIGHTS`; a quality level's `localLights` may draw fewer); plus 16 effect-light slots (`EFFECT_LIGHT_LIMIT`) | Forward-lighting cost: every drawn light is evaluated on every lit object (per vertex where an object or light says so, see "Local lights per pixel or per vertex"); no clustered lighting yet |
+| Light layers | 8 (`LIGHT_LAYER_COUNT`) | Masks are small integers kept per object and per light; the names are labels in Project Settings |
 | Fog volumes | 16 per scene | A fixed-size uniform array in the shader |
-| Lightmaps | 16 atlases and 4,096 entries per scene bake, 64 baked lights | The bake's own format; phase 29 reworks lighting |
+| Lightmaps | 16 atlases and 4,096 entries per scene bake, 64 baked lights | The bake's own format |
+| Probe grids | Tiles of at most 64 intervals a side (`PROBE_TILE_INTERVALS`; any number of tiles), at most 8 bounces; loaded tiles share one 3D texture of at most 2,048 texels a side (`PROBE_PACK_MAX_EDGE`; tiles past it are listed as `unplaced` in diagnostics and lit by the flat ambient light) | One tile is one texture file; 2,048 is WebGPU's default 3D texture limit, and one texture for all tiles keeps a pixel's probe lookup to one table |
 | Texture arrays | 256 layers | What WebGL 2 and WebGPU both guarantee |
 | Texture edge | 4,096 px | Kept after streaming: the KTX2 encoder makes at most about 3,500² (12 Mpix), WebGL 2 promises only 2,048 and many devices stop at 4,096, and a streamed texture close to the camera still needs its full-size level |
 | Texture budget | 512 MiB by default (`texture_budget_mb`, 1–65,536) | A runtime budget: streamed textures' mips fit it, the least needed dropped first; the mip tails and textures that do not stream are counted, never dropped |
@@ -4894,6 +4896,9 @@ on an export's URL they apply directly):
 - `?threads=off` — the simulation on the page's main thread (a debug
   switch; also a play's `threads` and the `sim_thread` setting);
 - `?frameRateCap=none|30|60|120` — pins the frame-rate cap;
+- `?probes=off` — draws without the probe grids (the flat ambient light);
+- `?vertexLights=off` — every local light per pixel;
+- `?quality=<id>` — pins a quality level;
 - `?ao=off|ssao|gtao`, `?renderScale=0.5…1`, `?dynamicResolution=on|off` —
   pin the render settings over the project's (an export's URL; the perf
   harness's `--switches`);
