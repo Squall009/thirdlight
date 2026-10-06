@@ -110,6 +110,8 @@ both renderers where it changes drawing.
 | 28b.7 | done 2026-10-06: KTX2-only — `painted-terrain.e2e.ts` now builds the layered material's three roles from single-layer KTX2 files made outside the project (ETC1S albedo + height re-encoded, UASTC normal/ORM joined), deletes the prebuilt arrays and every PNG, and checks Scene view, Play and export pixels; seam — `block-world-uv.e2e.ts` (4 m ramp); normal maps — same file now lights the world-mapped kit's top, +Z and +X walls from each face's image top-right vs the mirror side (169 vs 10–11 brightness; one turned sign cancels), stand-in tops in `layered-material.e2e.ts`; all green on WebGPU and WebGL 2 (pixels; owner look pending). Meshing (`perf blocks` at c67faf4c, worst / p95 ms): Scene view type change webgpu 18.5/17.5, webgl2 18.2/17.6; kit arrival 17.8/17.6 both (display-rate jitter, 0 frames > 33 ms); export load worst webgpu 53.1 (1 frame), webgl2 685 (uncapped GPU stall noted in 28c.10, not re-attributed here) — soft-target miss left as a note. `docs/deployment.md`: square-cell rule added; world UVs, per-layer settings, KTX2 packing and slots were there. |
 | 28b.8 | part A done 2026-10-06: a worker-mode replay answered `applied` before the page had applied the restarted run's frame, so the next observation showed the new run id with the old scenes (fails ~40% alone since at least 3128b471, before 28b); it now waits until the page shows a step of the new run (12/12 alone, was 2–3/6). Footprints: an unmoved prop writes its fields again on cells another prop's clear emptied; a footprint the command sets with a field outside the schema is refused naming the field and layer, a moved one skips it; the editor's snap and "Write to cells" read world places through the model's `footprintPlaces`/`placeInWorld` (world-matrix code moved from commands to project-model). project-window flake → D171. | Part B done 2026-10-06: slot-array key names each layer's PNG original (or none), so a PNG appearing re-assembles and hosts agree (cache hit at 1024² ~1–4 ms, was 0.2 ms: the layer files are read and PNGs hashed first); a sibling PNG counts only when the KTX2 records its digest (`convertedFrom` or KVD `thirdlight.sourceSha256`), else re-encoded from the KTX2, flagged; zstd levels bounded by the image's size, refused before inflating; joins compare premultiplied alpha, `KTXorientation`, level count 0 (kept); editor imports slot keys/encodings from project-model; Triplanar in linear → data; `engines.node` ^22.15.0. Function-call slots → D172, shader-parity green → D173. Part C done 2026-10-06: world tangents follow the face's +u, Gram-Schmidt against the vertex normal (fallback cross(n, +v)); world UVs wrap per chunk by whole 720 m periods (`WORLD_UV_PERIOD_METRES`); old-material cell UVs divide by the projection a triangle used (read from v = −y), not the vertex normal; a model's negative normal scale keeps its sign; old kit graphs' hand decodes turn their green like Normal map nodes. `perf blocks` before → after (worst/p95 ms): type change webgpu 17.8/17.6 → 17.8/17.5, webgl2 18.4/17.6 → 18.5/17.6; kit arrival 17.8/17.5 → 17.7/17.6 and 18.7/17.7 → 19.3/17.7; export grid writes p95 webgpu 5.6 → 5.3, webgl2 7.9 → 8.2 (noise). Village baseline re-recorded (two quiet runs at 6.3): webgpu p50 7.5 → 6.3 ms. Remaining lows → D174–D182 (incl. export-load worst frame D180, full gate over budget D181).
 
+Phase done 2026-10-06 (owner look pending): full gate `--both-renderers` (21 min, over the 15 min budget, D181) red on one real failure (a replay race older than this phase) and one flake (D171); fixed in 28b.8, `gate.sh rerun` green. Review findings fixed in 28b.8; the rest are D172–D182.
+
 ## 5. Decision log
 
 - 2026-10-03: planned with the owner while phase 28 finished. A separate
@@ -310,3 +312,26 @@ both renderers where it changes drawing.
   × 2 − 1) and turns its green around where a Normal map node would; a
   hand decode of any other shape is used as wired (documented). Cheap (one
   multiply in the shader on those graphs only) and leaves other graphs alone.
+- 2026-10-06, phase review (fresh read-only agent, notes in
+  `~/.cache/thirdlight-phase28b/review.md`): no high findings.
+  - **Medium, all fixed in 28b.8:** a prop's delete wiped a neighbour's
+    shared cell fields; a stale footprint field blocked moves with a generic
+    error; editor and backend placed footprints from different matrices; the
+    slot-array cache key missed the PNG original read; a sibling PNG was
+    trusted as lossless without proof; the village baseline was recorded
+    during a host-drift episode (re-recorded tighter); world tangents tilted
+    at smoothed vertices; world UVs lost precision far from the origin; the
+    old-material cell-UV restore chose its divisor from the vertex normal.
+  - **Low:** fixed where cheap (zstd bound, join flag checks, copied
+    constants, `engines.node`, normal-scale sign, hand-decoded kit normals);
+    the rest are D172–D182.
+  - **Clean:** no history comments, no per-project caps, no file past 2,000
+    lines, runtime boundaries hold, the 256 MiB join limit is a host-memory
+    guard.
+  - **Owner look:** normal maps now read green the glTF way (d3bedce8);
+    maps authored against the old reading need their green flipped, so
+    Skyforge's painted terrain (E40) wants a look. Stand-in textures repeat
+    per metre with upright wall images. The seamless 4 m texture, kit normal
+    maps on tops and walls, and KTX2-only painted terrain have been checked
+    by pixel tests only. The slot picker and Layers table have not been
+    looked at. Plus the "default chosen, owner to confirm" entries above.
