@@ -17,7 +17,7 @@
  * scene, whether Continue has a save, each slot's state, the last note, the
  * volumes, the quality and the frame-rate cap.
  */
-import { FRAME_RATE_CAPS, frameRateCapOf, type UiAction } from '@thirdlight/runtime';
+import { DEFAULT_QUALITY_LEVELS, FRAME_RATE_CAPS, frameRateCapOf, type UiAction } from '@thirdlight/runtime';
 
 import type { UiEdges } from './dom';
 import type { HostDom, HostDomNode } from './dom';
@@ -78,7 +78,9 @@ export interface ShellDeps {
   /** The engine's pause panel (Resume only), made on first use (null: no DOM). */
   readonly pausePanel: () => { show(): void; hide(): void; readonly shown: boolean; handleEdges(e: { up: boolean; down: boolean; submit: boolean; cancel: boolean }): void } | null;
   readonly setVolume?: (bus: 'music' | 'sfx' | 'ui', value: number) => void;
-  readonly setQuality?: (q: 'low' | 'medium' | 'high') => void;
+  readonly setQuality?: (q: string) => void;
+  /** The project's quality level ids, lowest first, and the one a game starts at (absent: the engine's low, medium and high, at high). */
+  readonly qualityLevels?: { readonly ids: readonly string[]; readonly start: string };
   /** The frame-rate cap in effect (the game's: its setting, a script) and setting the player's (null: none). */
   readonly frameRateCap?: () => number | null;
   readonly setFrameRateCap?: (fps: number | null) => void;
@@ -114,8 +116,6 @@ export interface ShellController {
   dispose(): void;
 }
 
-const QUALITIES = ['low', 'medium', 'high'] as const;
-
 export function createShellController(deps: ShellDeps): ShellController {
   const shell = deps.shell;
   const screens = shell.screens ?? {};
@@ -127,7 +127,9 @@ export function createShellController(deps: ShellDeps): ShellController {
   let disposed = false;
   const settingsKey = `${deps.namespace}:shell-settings`;
   let volumes = { music: 1, sfx: 1, ui: 1 };
-  let quality: (typeof QUALITIES)[number] = 'high';
+  // The levels a quality setting steps through (the project's, else the engine's).
+  const qualities: readonly string[] = deps.qualityLevels?.ids ?? DEFAULT_QUALITY_LEVELS.map((l) => l.id);
+  let quality: string = deps.qualityLevels?.start ?? qualities[qualities.length - 1]!;
   /** The frame-rate cap the player chose (undefined: none chosen, the game's applies; null: no cap). */
   let frameRateCap: number | null | undefined = undefined;
   try {
@@ -141,8 +143,8 @@ export function createShellController(deps: ShellDeps): ShellController {
           deps.setVolume?.(k, x);
         }
       }
-      if ((QUALITIES as readonly unknown[]).includes(v.quality)) {
-        quality = v.quality as (typeof QUALITIES)[number];
+      if (typeof v.quality === 'string' && qualities.includes(v.quality)) {
+        quality = v.quality;
         deps.setQuality?.(quality);
       }
       const cap = v.frameRateCap === undefined ? undefined : frameRateCapOf(v.frameRateCap);
@@ -342,8 +344,11 @@ export function createShellController(deps: ShellDeps): ShellController {
           const k = a.setting;
           if (k === 'music' || k === 'sfx' || k === 'ui') setVolume(k, typeof a.value === 'number' ? a.value : volumes[k] + (a.step ?? 1) * 0.1);
           else if (k === 'quality') {
-            if (typeof a.value === 'string' && (QUALITIES as readonly string[]).includes(a.value)) quality = a.value as (typeof QUALITIES)[number];
-            else quality = QUALITIES[(QUALITIES.indexOf(quality) + ((a.step ?? 1) < 0 ? 2 : 1)) % 3]!;
+            if (typeof a.value === 'string' && qualities.includes(a.value)) quality = a.value;
+            else {
+              const n = qualities.length;
+              quality = qualities[(Math.max(0, qualities.indexOf(quality)) + ((a.step ?? 1) < 0 ? n - 1 : 1)) % n]!;
+            }
             deps.setQuality?.(quality);
             keepSettings();
           } else if (k === 'frameRateCap') {

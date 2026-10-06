@@ -1,6 +1,6 @@
 /**
  * The play-start options (scene, mode, variables, save) and the
- * `debugCommand` game control — strict wire validation.
+ * `debugCommand` and `setQuality` game controls — strict wire validation.
  */
 import { describe, expect, it } from 'vitest';
 
@@ -73,5 +73,19 @@ describe('the debugCommand game control', () => {
     expect(validateBridgeEditorToPreview({ v: 2, type: 'tl.game.control', playSessionId: psid, relayId, command: 'debugCommand', name: 'nudge', args: { dx: 1 } }).ok).toBe(true);
     expect(validateBridgeEditorToPreview({ v: 2, type: 'tl.game.control', playSessionId: psid, relayId, command: 'debugCommand', name: 'nudge', args: { dx: [1] } }).ok).toBe(false);
     expect(validateBridgeEditorToPreview({ v: 2, type: 'tl.game.control', playSessionId: psid, relayId, command: 'start', name: 'nudge' }).ok).toBe(false);
+  });
+});
+
+describe('the setQuality game control', () => {
+  it('carries a quality level id, and only it does; the bridge passes it to the preview', () => {
+    expect(parseGameControlRequest({ command: 'setQuality', level: 'low' })).toEqual({ ok: true, request: { command: 'setQuality', level: 'low' } });
+    for (const body of [{ command: 'setQuality' }, { command: 'setQuality', level: 'Low!' }, { command: 'setQuality', level: 3 }, { command: 'mute', level: 'low' }]) {
+      expect(parseGameControlRequest(body).ok, JSON.stringify(body)).toBe(false);
+    }
+    const psid = `play-${'a'.repeat(32)}`;
+    const relayId = `relay-${'b'.repeat(32)}`;
+    expect(validateBridgeEditorToPreview({ v: 2, type: 'tl.game.control', playSessionId: psid, relayId, command: 'setQuality', level: 'ultra' }).ok).toBe(true);
+    expect(validateBridgeEditorToPreview({ v: 2, type: 'tl.game.control', playSessionId: psid, relayId, command: 'setQuality', level: 'Ultra' }).ok).toBe(false);
+    expect(validateBridgeEditorToPreview({ v: 2, type: 'tl.game.control', playSessionId: psid, relayId, command: 'mute', level: 'low' }).ok).toBe(false);
   });
 });

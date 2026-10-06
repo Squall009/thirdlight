@@ -865,6 +865,7 @@ export {
   type MaterialValue,
   MAX_MATERIAL_SLOTS,
   validateEnvironment,
+  validateQualityLevels,
   validateMaterialMapping,
   validateMaterials,
   // Material instances.
@@ -1159,6 +1160,22 @@ export {
   type AmbientOcclusionKind,
   type RenderSettings,
 } from './render-settings';
+// Quality levels (the project's or the engine's low/medium/high) and how a level changes a scene's post.
+export {
+  DEFAULT_QUALITY_LEVELS,
+  levelPost,
+  MSAA_SAMPLE_COUNTS,
+  PIXEL_RATIO_CAP_MAX,
+  PIXEL_RATIO_CAP_MIN,
+  QUALITY_LEVEL_ID_RE,
+  QUALITY_POST_EFFECTS,
+  qualityLevelOf,
+  qualityLevelsOf,
+  SHADOW_MAP_SIZES,
+  type MsaaSamples,
+  type QualityLevelConfig,
+  type QualityLevelPost,
+} from './quality-levels';
 // Dialogue (content.dialogues / speakers / dialogueSettings), its graph kind, expressions and the runtime form.
 export {
   DIALOGUE_DEFAULTS,

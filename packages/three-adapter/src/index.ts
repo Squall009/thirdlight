@@ -245,7 +245,6 @@ export {
   environmentHasLook,
   layerEnvironment,
   MAX_RENDER_PIXEL_RATIO,
-  QUALITY_PROFILE,
   renderPixelRatio,
   type EnvironmentBlendLike,
   type EnvironmentLayerLike,
@@ -265,6 +264,7 @@ export { AO_RESOLUTION_SCALE } from './post-ao';
 export { FSR_SHARPNESS, UPSCALE_URL_PARAM, upscaleFilterFromUrl, type UpscaleFilter } from './post-upscale';
 export { DynamicResolution, SLOW_FRAMES_URL_PARAM, slowFramesFromUrl, type DynamicResolutionFrame, type DynamicResolutionState } from './dynamic-resolution';
 export { createRenderControl, RENDER_URL_PARAMS, renderSettingsFromUrl, type RenderControl, type RenderControlDiagnostics, type RenderControlOptions, type RenderSettingsLike } from './render-control';
+export { createQualityControl, QUALITY_URL_PARAM, qualityFromUrl, type QualityControl, type QualityDiagnostics, type QualityProjectLike } from './quality-control';
 // Lightmaps (runtime application; the editor's baker uses the same UV1 layout).
 export {
   addBoxLightmapUv,

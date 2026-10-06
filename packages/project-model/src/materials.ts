@@ -19,7 +19,10 @@ import { canonicalGraphData, graphAssetRefs, nodeFieldValue, validateGraphData, 
 import { canonicalEnvironmentPresets, validateEnvironmentPresets, type EnvironmentPreset } from './environment-presets';
 import { MATERIAL_DATA_MAX, MATERIAL_GRAPH_KIND, MATERIAL_PARAMETER_TYPES, type MaterialParameterType } from './material-graph-kinds';
 import { isTextureSlots, textureSlotsError } from './texture-slots';
-import { MATERIAL_LOCAL_LIGHT_MODES } from './local-lights';
+import { MATERIAL_LOCAL_LIGHT_MODES, MAX_LOCAL_LIGHTS } from './local-lights';
+import { LOD_BIAS_MAX, LOD_BIAS_MIN } from './model-lod';
+import { MSAA_SAMPLE_COUNTS, PIXEL_RATIO_CAP_MAX, PIXEL_RATIO_CAP_MIN, QUALITY_LEVEL_ID_RE, QUALITY_POST_EFFECTS, qualityLevelsOf, SHADOW_MAP_SIZES, type QualityLevelConfig } from './quality-levels';
+import { AMBIENT_OCCLUSION_KINDS, RENDER_SCALE_MAX, RENDER_SCALE_MIN } from './render-settings';
 
 export const MATERIAL_SHADERS = ['standard', 'foliage', 'kit', 'unlit', 'water'] as const;
 export type MaterialShader = (typeof MATERIAL_SHADERS)[number];
@@ -732,15 +735,18 @@ export interface SceneEnvironment {
 }
 
 /**
- * The project's part of the environment (`content.environment`): the default
- * quality level (the player's setting, so project-wide) and the presets
- * (named looks scripts switch or blend to, laid over the active scene's look).
+ * The project's part of the environment (`content.environment`): the quality
+ * levels and the one a game starts at (the player's setting, so
+ * project-wide) and the presets (named looks scripts switch or blend to,
+ * laid over the active scene's look).
  */
 export interface EnvironmentConfig {
-  /** The project's default quality level (players can change it in the settings menu). */
-  quality?: 'low' | 'medium' | 'high';
+  /** The level a game starts at, one of the levels' ids (absent: the highest; players change it in the settings menu). */
+  quality?: string;
   /** Named looks scripts switch or blend to at run time (environment-presets.ts). */
   presets?: EnvironmentPreset[];
+  /** The project's quality levels, lowest first (quality-levels.ts; absent: the engine's low, medium and high). */
+  qualityLevels?: QualityLevelConfig[];
 }
 
 /** The fields of a scene's look (the rest of the environment is the project's). */
@@ -755,11 +761,67 @@ export function validateEnvironment(value: unknown, path: string, errors: ModelE
     return;
   }
   for (const k of Object.keys(value)) {
-    if ((SCENE_ENVIRONMENT_FIELDS as readonly string[]).includes(k)) err(errors, 'field_unexpected', `${path}/${k}`, `"${k}" is part of a scene's look: each scene has its own sky, fog, post-processing and wind (setEnvironment {sceneId, environment})`, k, 'quality, presets');
-    else if (!['quality', 'presets'].includes(k)) err(errors, 'field_unexpected', `${path}/${k}`, `unknown environment field "${k}"`, k, 'quality, presets');
+    if ((SCENE_ENVIRONMENT_FIELDS as readonly string[]).includes(k)) err(errors, 'field_unexpected', `${path}/${k}`, `"${k}" is part of a scene's look: each scene has its own sky, fog, post-processing and wind (setEnvironment {sceneId, environment})`, k, 'quality, qualityLevels, presets');
+    else if (!['quality', 'qualityLevels', 'presets'].includes(k)) err(errors, 'field_unexpected', `${path}/${k}`, `unknown environment field "${k}"`, k, 'quality, qualityLevels, presets');
   }
   if (value['presets'] !== undefined) validateEnvironmentPresets(value['presets'], `${path}/presets`, errors);
-  if (value['quality'] !== undefined && !['low', 'medium', 'high'].includes(value['quality'] as string)) err(errors, 'field_value', `${path}/quality`, 'quality is low, medium or high', value['quality']);
+  const before = errors.length;
+  if (value['qualityLevels'] !== undefined) validateQualityLevels(value['qualityLevels'], `${path}/qualityLevels`, errors);
+  if (value['quality'] !== undefined && errors.length === before) {
+    const ids = qualityLevelsOf(value as { qualityLevels?: QualityLevelConfig[] }).map((l) => l.id);
+    if (!ids.includes(value['quality'] as string)) err(errors, 'field_value', `${path}/quality`, `quality is one of the quality levels: ${ids.join(', ')}`, value['quality'], ids.join(' | '));
+  }
+}
+
+/** `environment.qualityLevels`: at least one level, unique ids, each field in its range (quality-levels.ts). */
+export function validateQualityLevels(value: unknown, path: string, errors: ModelErrorV2[]): void {
+  if (!Array.isArray(value) || value.length === 0) {
+    err(errors, 'field_type', path, 'qualityLevels is a list of at least one level { id, name?, post?, renderScale?, pixelRatio?, msaa?, shadowMapSize?, localLights?, ambientOcclusion?, lodBias?, dynamicResolution? }, lowest first', value);
+    return;
+  }
+  const seen = new Set<string>();
+  value.forEach((l, i) => {
+    const at = `${path}/${i}`;
+    const v = checkFields(
+      l,
+      at,
+      {
+        id: { kind: 'other' },
+        name: { kind: 'other' },
+        post: { kind: 'other' },
+        renderScale: { kind: 'num', min: RENDER_SCALE_MIN, max: RENDER_SCALE_MAX },
+        pixelRatio: { kind: 'num', min: PIXEL_RATIO_CAP_MIN, max: PIXEL_RATIO_CAP_MAX },
+        msaa: { kind: 'other' },
+        shadowMapSize: { kind: 'other' },
+        localLights: { kind: 'other' },
+        ambientOcclusion: { kind: 'enum', values: AMBIENT_OCCLUSION_KINDS },
+        lodBias: { kind: 'num', min: LOD_BIAS_MIN, max: LOD_BIAS_MAX },
+        dynamicResolution: { kind: 'bool' },
+      },
+      ['id'],
+      errors,
+    );
+    if (v === null) return;
+    const id = v['id'];
+    if (typeof id !== 'string' || !QUALITY_LEVEL_ID_RE.test(id)) err(errors, 'field_value', `${at}/id`, 'a level id is a lowercase letter, then up to 31 lowercase letters, digits, _ or -', id, 'e.g. low');
+    else if (seen.has(id)) err(errors, 'field_value', `${at}/id`, `the level id "${id}" is used twice`, id);
+    else seen.add(id);
+    const name = v['name'];
+    if (name !== undefined && (typeof name !== 'string' || name.length < 1 || name.length > 64)) err(errors, 'field_value', `${at}/name`, 'a level name is 1–64 characters', name);
+    if (v['msaa'] !== undefined && !(MSAA_SAMPLE_COUNTS as readonly unknown[]).includes(v['msaa'])) err(errors, 'field_value', `${at}/msaa`, `msaa is one of ${MSAA_SAMPLE_COUNTS.join(', ')} samples (WebGPU multisamples at 4 only)`, v['msaa'], MSAA_SAMPLE_COUNTS.join(' | '));
+    if (v['shadowMapSize'] !== undefined && !(SHADOW_MAP_SIZES as readonly unknown[]).includes(v['shadowMapSize'])) err(errors, 'field_value', `${at}/shadowMapSize`, `shadowMapSize is one of ${SHADOW_MAP_SIZES.join(', ')}`, v['shadowMapSize'], SHADOW_MAP_SIZES.join(' | '));
+    const ll = v['localLights'];
+    if (ll !== undefined && !(typeof ll === 'number' && Number.isInteger(ll) && ll >= 0 && ll <= MAX_LOCAL_LIGHTS)) err(errors, 'field_value', `${at}/localLights`, `localLights is a whole number 0–${MAX_LOCAL_LIGHTS}`, ll);
+    if (v['post'] !== undefined) {
+      const post = v['post'];
+      if (isPlainObject(post)) {
+        for (const k of Object.keys(post)) {
+          if (!(QUALITY_POST_EFFECTS as readonly string[]).includes(k) && k !== 'antialias') err(errors, 'field_unexpected', `${at}/post/${k}`, `a level changes the post effects ${QUALITY_POST_EFFECTS.join(', ')} and the anti-aliasing (tone, exposure and grading are the look's)`, k, [...QUALITY_POST_EFFECTS, 'antialias'].join(', '));
+        }
+      }
+      validatePost(post, `${at}/post`, errors, { effectsPartial: true });
+    }
+  });
 }
 
 /** A scene's look: `{ sky?, fog?, post?, wind? }`. */
@@ -835,6 +897,8 @@ function canonicalObject<T extends object>(o: T): T {
 export function canonicalEnvironment(e: EnvironmentConfig): EnvironmentConfig {
   return {
     ...(e.quality !== undefined ? { quality: e.quality } : {}),
+    // A level's fields in a fixed order (the levels' own order is the project's: lowest first).
+    ...(e.qualityLevels !== undefined && e.qualityLevels.length > 0 ? { qualityLevels: e.qualityLevels.map((l) => canonicalObject(l)) } : {}),
     // Last, so an environment without presets keeps its exact bytes.
     ...(e.presets !== undefined && e.presets.length > 0 ? { presets: canonicalEnvironmentPresets(e.presets) } : {}),
   };
@@ -927,7 +991,8 @@ export function validateFog(value: unknown, path: string, errors: ModelErrorV2[]
   );
 }
 
-export function validatePost(value: unknown, path: string, errors: ModelErrorV2[]): void {
+/** `effectsPartial`: an effect may leave out `enabled` (a quality level changes only some of its fields). */
+export function validatePost(value: unknown, path: string, errors: ModelErrorV2[], o: { readonly effectsPartial?: boolean } = {}): void {
   const nested: FieldRule = { kind: 'other' };
   const v = checkFields(
     value,
@@ -963,7 +1028,7 @@ export function validatePost(value: unknown, path: string, errors: ModelErrorV2[
     dof: { enabled: { kind: 'bool' }, focus: { kind: 'num', min: 0.1, max: 1000 }, aperture: { kind: 'num', min: 0, max: 0.1 }, maxBlur: { kind: 'num', min: 0, max: 0.05 } },
   };
   for (const [k, rules] of Object.entries(sub)) {
-    if (v[k] !== undefined) checkFields(v[k], `${path}/${k}`, rules, k === 'grading' ? [] : ['enabled'], errors);
+    if (v[k] !== undefined) checkFields(v[k], `${path}/${k}`, rules, k === 'grading' || o.effectsPartial === true ? [] : ['enabled'], errors);
   }
 }
 

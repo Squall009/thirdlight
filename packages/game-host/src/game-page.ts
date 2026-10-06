@@ -31,10 +31,10 @@
  * Browser-only (DOM, WebGL/WebGPU, Web Audio, Web Crypto).
  */
 import { audioSpatialOf, dependencyTables, depthBufferOf, instanceChunkSizeOf, lodTuningOf, type ModelLodSettings, materialTextureRefs, physicsDimensionOf, scanDependencies, sha256HexAsync, textureBudgetBytesOf, type MaterialDef, type ModelColliderTable, type SaveSchema } from '@thirdlight/project-model';
-import { assetVersionKey, createResourceManager, fixedStepHzOf, EMBEDDED_TEXTURES_LISTED, embeddedTextureBytes, renderSettingsOf, type ResourceManager, type ResourceObservation } from '@thirdlight/runtime';
+import { assetVersionKey, createResourceManager, fixedStepHzOf, EMBEDDED_TEXTURES_LISTED, embeddedTextureBytes, qualityLevelOf, qualityLevelsOf, renderSettingsOf, type ResourceManager, type ResourceObservation } from '@thirdlight/runtime';
 import { attachBrowserInput, DEFAULT_INPUT_CONFIG, DEFAULT_INPUT_CONFIG_3D, focusGameSurface, type InputConfigLike } from '@thirdlight/input';
 import type { RapierPhysicsInitConfig, RapierPhysicsPort, RapierStaticColliderSpec } from '@thirdlight/physics-rapier';
-import { batchingFromUrl, createSceneAdapter, createTextureStreamer, decodeTexture, effectsOptionFrom, environmentHasLook, mergingFromUrl, pageSearch, probesFromUrl, resolveRendererPreference, setKtx2DecoderBase, renderSettingsFromUrl, shadowCacheFromUrl, slowFramesFromUrl, upscaleFilterFromUrl } from '@thirdlight/three-adapter';
+import { batchingFromUrl, createSceneAdapter, createTextureStreamer, decodeTexture, effectsOptionFrom, environmentHasLook, mergingFromUrl, pageSearch, probesFromUrl, qualityFromUrl, resolveRendererPreference, setKtx2DecoderBase, renderSettingsFromUrl, shadowCacheFromUrl, slowFramesFromUrl, upscaleFilterFromUrl } from '@thirdlight/three-adapter';
 import { createGltfLoaderPort } from '@thirdlight/three-adapter/gltf-loader';
 import type { EffectDefLike, EnvironmentLike, FrameDrawnInfo, TextureStreamer, LightingBakeLike, MaterialDefLike, MaterialFunctionLike, SceneAdapter, SceneAdapterModels, SceneAdapterOptions, WindLike } from '@thirdlight/three-adapter';
 import {
@@ -620,7 +620,11 @@ export async function startGamePage(o: GamePageOptions): Promise<GamePageHandle>
   const manifest = content.manifest;
   const onProgress = o.onProgress ?? (() => undefined);
   const settings = manifest.settings;
-  const renderSettings = { ...renderSettingsOf(settings), ...renderSettingsFromUrl(pageSearch()) };
+  // The project's render settings; the page's flags pin theirs over a quality level and a player's fields.
+  const renderSettings = renderSettingsOf(settings);
+  const pinnedRender = renderSettingsFromUrl(pageSearch());
+  const qualityLevels = qualityLevelsOf(manifest.environment);
+  const pinnedQuality = qualityFromUrl(pageSearch());
   // KTX2 textures (and GLBs with KHR_texture_basisu) transcode with three's Basis files there.
   setKtx2DecoderBase(o.decoderBase);
   const io = { read: o.read, sha256Hex };
@@ -886,11 +890,13 @@ export async function startGamePage(o: GamePageOptions): Promise<GamePageHandle>
           resources,
           // The page's ?renderer= flag, else the project's render_backend setting.
           // GPU timestamps for the perf harness, the stats overlay and dynamic resolution (a project's, or a player's field that may turn it on).
-          renderer: { ...resolveRendererPreference({ url: pageSearch(), setting: settings.render_backend }), depthBuffer: depthBufferOf(settings), trackTimestamp: o.measureGpu === true || statsOverlayModeOf(settings) !== 'off' || renderSettings.dynamicResolution || manifest.saveSchema?.settings?.some((f) => f.engine === 'dynamicResolution') === true },
-          // The project's AO kind, render scale and dynamic resolution (a player's settings fields apply over them), the
-          // page's ?ao=, ?renderScale=, ?dynamicResolution=, ?upscale=bilinear and ?slowFrames= diagnostics, and the
-          // frame budget from the frame-rate cap.
-          render: { ...renderSettings, upscale: upscaleFilterFromUrl(pageSearch()), slowFramesMs: slowFramesFromUrl(pageSearch()), frameBudgetMs: () => 1000 / (host.runtime?.frameRateCap?.() ?? 60) },
+          renderer: { ...resolveRendererPreference({ url: pageSearch(), setting: settings.render_backend }), depthBuffer: depthBufferOf(settings), trackTimestamp: o.measureGpu === true || statsOverlayModeOf(settings) !== 'off' || renderSettings.dynamicResolution || pinnedRender.dynamicResolution === true || qualityLevels.some((l) => l.dynamicResolution === true) || manifest.saveSchema?.settings?.some((f) => f.engine === 'dynamicResolution') === true },
+          // The project's AO kind, render scale and dynamic resolution (the quality level's, then a player's settings
+          // fields apply over them), the page's ?ao=, ?renderScale=, ?dynamicResolution= (over all of them),
+          // ?upscale=bilinear and ?slowFrames= diagnostics, and the frame budget from the frame-rate cap.
+          render: { ...renderSettings, pinned: pinnedRender, upscale: upscaleFilterFromUrl(pageSearch()), slowFramesMs: slowFramesFromUrl(pageSearch()), frameBudgetMs: () => 1000 / (host.runtime?.frameRateCap?.() ?? 60) },
+          // The page's ?quality= pins a level (a diagnostic comparison).
+          qualityPinned: pinnedQuality,
           // Repeated objects drawn instanced unless the page says ?batching=off (a diagnostic comparison).
           batching: batchingFromUrl(pageSearch()),
           // The project's LOD bias and hysteresis.
@@ -936,7 +942,9 @@ export async function startGamePage(o: GamePageOptions): Promise<GamePageHandle>
       assetPaths: assetPathsById,
       ...(manifest.shell !== undefined ? { shell: manifest.shell } : {}),
       inputConfig: structuredClone(manifest.input ?? (physicsDimensionOf(settings) === 3 ? DEFAULT_INPUT_CONFIG_3D : DEFAULT_INPUT_CONFIG)) as unknown as NonNullable<GameHostConfig['inputConfig']>,
-      setQuality: (level) => adapterRef.current?.setQuality?.(level),
+      setQuality: (level) => adapterRef.current?.setQuality?.(level) ?? false,
+      // The game shell's quality setting steps through the project's levels.
+      qualityLevels: { ids: qualityLevels.map((l) => l.id), start: qualityLevelOf(qualityLevels, pinnedQuality ?? manifest.environment?.quality).id },
       // The player's settings in this browser's localStorage, and project save slots in its IndexedDB.
       ...(browserSaveStorage() !== null ? { saveStorage: browserSaveStorage()!, saveNamespace: o.saveNamespace } : {}),
       // Without IndexedDB every save is refused as storage_unavailable (the game can say so) rather than kept for the page's life.

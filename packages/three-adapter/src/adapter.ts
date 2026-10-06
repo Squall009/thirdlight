@@ -39,6 +39,7 @@ import { markStatic, STATIC_KEY } from './static-merge';
 import { compileIntoTarget, type Precompile } from './environment-nodes';
 import { INSTANCE_MATRIX_ATTRIBUTE } from './attribute-instancing';
 import { createEnvironmentRenderer, environmentHasLook, environmentTextureIds, layerEnvironment, renderPixelRatio, type EnvironmentLayerLike, type EnvironmentLike, type EnvironmentRenderer, type FogVolumeLike, type QualityLevel } from './environment';
+import { createQualityControl } from './quality-control';
 import { createGpuTiming } from './gpu-timing';
 import { createRenderControl } from './render-control';
 import * as THREE from 'three';
@@ -260,7 +261,6 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   let environmentHolds: TextureHolds | null = null;
   /** The size last handed to the environment renderer (it rebuilds its post stack on a change). */
   let environmentSize: [number, number] | null = null;
-  let playerQuality: QualityLevel | null = opts.environment?.quality ?? null;
   /** The scenes' looks (absent: the environment's value is the whole look). */
   const sceneLooks = opts.environment?.scenes ?? null;
   /** The scene whose look is laid over the project environment now, and that look (null: none). */
@@ -855,7 +855,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       owned.renderer = handle;
       const onChange = opts.renderer?.onChange;
       if (onChange !== undefined) handle.onChange(() => onChange(handle.info()));
-      pixelRatio = renderPixelRatio(globalThis.window?.devicePixelRatio);
+      pixelRatio = renderPixelRatio(globalThis.window?.devicePixelRatio, qualityControl.pixelRatioCap());
       // Set up when it is ready (adoptRenderer): WebGPURenderer initialises asynchronously.
       return null;
     } catch {
@@ -961,6 +961,24 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     lights.select(sceneRankOf, hiddenIds);
   }
   selectLights();
+  /** The quality level drawn and its renderer settings (quality-control.ts). */
+  const qualityControl = createQualityControl(
+    {
+      renderControl,
+      lodTuning: graph.lodTuning,
+      setLightLimits: (limits) => lights.setLimits(limits),
+      reselectLights: selectLights,
+      setPixelRatioCap: (cap) => {
+        pixelRatio = renderPixelRatio(globalThis.window?.devicePixelRatio, cap);
+        owned.renderer?.current()?.setPixelRatio(pixelRatio);
+        // The post stack follows the new drawing-buffer size.
+        environmentSize = null;
+      },
+      environment: () => environmentRenderer,
+      changed: () => opts.onChange?.(),
+    },
+    { project: environmentValue, ...(opts.lod !== undefined ? { lod: opts.lod } : {}), pinned: opts.qualityPinned ?? null },
+  );
   /** The probe tiles follow the realized scenes (a host without a scene set draws its snapshot's scene). */
   function followProbeScenes(): void {
     const own = (opts.snapshot.scene as { sceneId?: string }).sceneId;
@@ -1455,12 +1473,12 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     // (soft degradation: the `shadows`/`shadowReason` pair is the diagnostic) and it is drawn again without.
     const probing = lights.beforeFrame(renderer);
     try {
-      // A player's quality level also applies without a project environment (the low
-      // level draws without MSAA), so the environment renderer draws then too.
+      // A quality level also applies without a project environment (a level without MSAA
+      // draws through a plain pass), so the environment renderer draws then too.
       // With the scenes' looks given, only once there is something to draw (a look, presets, a blend):
       // a game whose scenes set no look renders as one without an environment.
       const wanted = opts.environment !== undefined && (sceneLooks === null || effectiveEnvironment() !== null || envPresets.size > 0 || envBlendActive);
-      if ((wanted || playerQuality !== null || renderControl.needsEnvironment()) && environmentRenderer === null) {
+      if ((wanted || qualityControl.needsEnvironment() || renderControl.needsEnvironment()) && environmentRenderer === null) {
         // The sky, its faces and the grading LUT are held for the environment's life. They are the same
         // decoded textures materials draw with (the environment builds its cube, equirect copy and LUT
         // from their images and never changes them), so a texture used by both is decoded once.
@@ -1469,7 +1487,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
         environmentRenderer = createEnvironmentRenderer(renderer, scene, { loadTexture: (id) => envTextures.get(id, 'environment'), ...(opts.onChange !== undefined ? { onChange: opts.onChange } : {}) });
         environmentHolds = envTextures;
         environmentRenderer.set(effectiveEnvironment());
-        if (playerQuality !== null) environmentRenderer.setQuality(playerQuality);
+        qualityControl.applyEnvironment(environmentRenderer);
         // A blend already running goes onto the new environment renderer.
         envAppliedKey = '';
         envBlendActive = false;
@@ -1615,6 +1633,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     const envDiagnostics = environmentRenderer !== null && !disposed ? environmentRenderer.diagnostics() : null;
     if (envDiagnostics !== null) d.environment = envDiagnostics;
     if (!disposed && lastFrameDrawn) d.render = { ...renderControl.diagnostics(), internal: envDiagnostics?.render.internal ?? null };
+    if (!disposed) d.quality = { ...qualityControl.diagnostics(), ...(lit.shadowMapSize !== undefined ? { keyShadowMapSize: lit.shadowMapSize } : {}) };
     const probeState = disposed ? null : probes.observe();
     if (probeState !== null) d.probes = probeState;
     if (opts.textureStreamer !== undefined && !disposed) d.textures = opts.textureStreamer.observe();
@@ -1725,17 +1744,14 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     dispose,
     renderedNodes: (entityId, names) => (disposed ? null : (animatorPlayers.get(entityId)?.player.nodePoses(names) ?? null)),
     setLodTuning(tuning: { readonly bias?: number; readonly hysteresis?: number }): void {
-      if (graph.lodTuning.set(tuning)) opts.onChange?.();
+      qualityControl.setProjectLod(tuning);
     },
-    setRenderSettings(settings) {
-      renderControl.set(settings);
+    setRenderSettings(settings, layer) {
+      renderControl.set(settings, layer);
       opts.onChange?.();
     },
-    setQuality(level: QualityLevel): void {
-      playerQuality = level;
-      environmentRenderer?.setQuality(level);
-    },
-    qualityLevel: (): QualityLevel => environmentRenderer?.diagnostics().quality ?? playerQuality ?? 'high',
+    setQuality: (level: QualityLevel): boolean => qualityControl.choose(level),
+    qualityLevel: (): QualityLevel => qualityControl.level().id,
     takeGpuTime: () => gpuTiming.take(),
     projectToScreen(target, out): boolean {
       if (disposed || camera === null) return false;
@@ -1809,6 +1825,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       const texturesBefore = JSON.stringify(environmentTextureIds(environmentValue));
       environmentValue = value;
       readPresets();
+      qualityControl.setProject(value);
       envAppliedKey = ENV_STALE;
       if (JSON.stringify(environmentTextureIds(value)) !== texturesBefore && environmentRenderer !== null) {
         // Other textures: a new environment renderer holds them, and the ones only the old one named are let go.

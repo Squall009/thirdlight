@@ -15,8 +15,12 @@
  *  - Render on demand: the idle Scene view draws no frames; a change (a
  *    command from outside) draws again, and the sync touches only the changed
  *    object (`data-sync`: processed 1 of 121+).
- *  - MSAA is the quality level's choice: the low level draws without it in
- *    the Scene view and in Play.
+ *  - Quality levels (both renderers): the engine's low level draws without
+ *    MSAA in the Scene view and in Play; a project's own levels switch in a
+ *    running Play through the game-control API (`setQuality`): render scale,
+ *    AO kind, the key light's shadow map size, MSAA and the post passes
+ *    follow, the picture differs, and switching back and forth frees what it
+ *    made.
  *  - Play is not paid for twice: a Scene view kept drawing by an animated
  *    material draws nothing while the Game view is in front, and draws again
  *    when it is shown (during Play and after Stop).
@@ -287,21 +291,94 @@ test('the export draws the box field instanced and looks the same as without ins
   }
 });
 
-test('MSAA follows the quality level: the low level draws without it in the Scene view and in Play', async ({ page }) => {
-  test.setTimeout(180_000);
+test('quality levels: the engine\'s low draws without MSAA in the Scene view and Play; a project\'s levels switch in a running Play by game control (both renderers, no leak)', async ({ page }) => {
+  test.skip(test.info().project.name === 'webgpu', 'both renderers run in the default project');
+  test.setTimeout(360_000);
+  await command('createEntity', { sceneId: 'scene-main', kind: 'box', name: 'ground', transform: { position: [0, -0.5, 0] }, box: { size: [20, 1, 20], material: { color: '#9a9a9a' } } });
   await command('createEntity', { sceneId: 'scene-main', kind: 'box', name: 'cube', transform: { position: [0, 0.5, 0] }, box: { size: [1, 1, 1], material: { color: '#c05030' } } });
   await page.goto(be.editorUrl);
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
-  // The default (no level set: high) keeps the renderer's MSAA.
+  // The default (no level set: high) keeps the renderer's MSAA; the engine's low level draws without it.
   await expect.poll(async () => Number(await attr(page, 'data-msaa')), { timeout: 30_000 }).toBeGreaterThan(0);
   await command('setEnvironment', { environment: { quality: 'low' } });
   await expect.poll(async () => attr(page, 'data-msaa'), { timeout: 30_000 }).toBe('0');
   await page.getByTitle('Start an isolated play preview').click();
-  const canvas = page.frameLocator('iframe.tl-app__preview-frame').locator('canvas').first();
-  await expect.poll(async () => canvas.getAttribute('data-tl-msaa'), { timeout: 60_000 }).toBe('0');
+  const msaaCanvas = page.frameLocator('iframe.tl-app__preview-frame').locator('canvas').first();
+  await expect.poll(async () => msaaCanvas.getAttribute('data-tl-msaa'), { timeout: 60_000 }).toBe('0');
   await page.getByTitle('Stop the play preview').click();
-  await command('setEnvironment', { environment: { quality: 'high' } });
-  await expect.poll(async () => Number(await attr(page, 'data-msaa')), { timeout: 30_000 }).toBeGreaterThan(0);
+  await expect(page.getByTitle('Start an isolated play preview')).toBeVisible({ timeout: 30_000 });
+
+  // A project's own levels over a look with ambient occlusion and a strong bloom (the low level drops it), a sun with a shadow.
+  await command('setComponent', { entityId: 'light-0001', component: 'light', value: { type: 'directional', color: '#ffffff', intensity: 1.5, direction: [0.5, -1, 0.6], castShadow: true, shadowMapSize: 2048 } });
+  await command('setEnvironment', { sceneId: 'scene-main', environment: { sky: { mode: 'color', color: '#5a6a80' }, post: { ssao: { enabled: true, radius: 0.5, intensity: 1.5 }, bloom: { enabled: true, strength: 1.5, threshold: 0.1 }, antialias: 'smaa' } } });
+  await command('setEnvironment', {
+    environment: {
+      quality: 'ultra',
+      qualityLevels: [
+        { id: 'potato', name: 'Potato', renderScale: 0.5, ambientOcclusion: 'off', msaa: 0, shadowMapSize: 512, post: { bloom: { enabled: false }, antialias: 'none' } },
+        { id: 'ultra', name: 'Ultra', ambientOcclusion: 'gtao', shadowMapSize: 2048, post: { ssao: { radius: 0.8 } } },
+      ],
+    },
+  });
+  await command('setTransform', { entityId: 'cam-main', transform: { position: [0, 2.5, 5], rotation: [-0.2588190, 0, 0, 0.9659258], scale: [1, 1, 1] } });
+  type Diag = {
+    quality?: { level: string; levels: string[]; source: string; shadowMapSize: number | null; keyShadowMapSize?: number };
+    render?: { ambientOcclusion: string; renderScale: number; scale: number; internal: [number, number] | null };
+    environment?: { passes: string[]; samples: number };
+    gpu?: Record<string, number>;
+  };
+  const diagnostics = async (psid: string): Promise<Diag> => ((await relay(`${psid}/diagnostics`)).json['diagnostics'] as { renderer?: Diag } | undefined)?.renderer ?? {};
+  const level = async (psid: string, id: string): Promise<{ status: number; json: Record<string, unknown> }> => relay(`${psid}/control`, { command: 'setQuality', level: id });
+  for (const variant of ['auto', 'webgl2'] as const) {
+    await page.goto(editorUrlFor(be.editorUrl, variant));
+    await expect(page.locator('.tl-statusbar')).toContainText('connected');
+    const playing = page.waitForResponse((res) => res.request().method() === 'POST' && res.url().endsWith('/play'));
+    await page.getByTitle('Start an isolated play preview').click();
+    const psid = String(((await (await playing).json()) as { playSessionId: string }).playSessionId);
+    const canvas = page.frameLocator('iframe.tl-app__preview-frame').locator('canvas').first();
+    await expectRendererBackend(canvas, variant);
+    // The project's starting level.
+    // (A drawn frame reports the render settings.)
+    await expect.poll(async () => { const g = await diagnostics(psid); return [g.quality?.keyShadowMapSize, g.render?.renderScale]; }, { timeout: 60_000 }).toEqual([2048, 1]);
+    const ultra = await diagnostics(psid);
+    expect(ultra.quality).toMatchObject({ level: 'ultra', levels: ['potato', 'ultra'], source: 'project', shadowMapSize: 2048 });
+    expect(ultra.render).toMatchObject({ ambientOcclusion: 'gtao', renderScale: 1 });
+    const shotUltra = await settledShot(canvas, `${variant}-quality-ultra`);
+    // Game control: the low level in the same session.
+    const r = await level(psid, 'potato');
+    expect(r.status, JSON.stringify(r.json)).toBe(200);
+    expect(r.json).toMatchObject({ ok: true, command: 'setQuality' });
+    await expect.poll(async () => (await diagnostics(psid)).quality?.level, { timeout: 30_000 }).toBe('potato');
+    await expect.poll(async () => { const g = await diagnostics(psid); return [g.quality?.keyShadowMapSize, g.render?.renderScale, g.environment?.samples, g.environment?.passes.includes('bloom')]; }, { timeout: 30_000 }).toEqual([512, 0.5, 0, false]);
+    const potato = await diagnostics(psid);
+    expect(potato.quality?.source).toBe('chosen');
+    expect(potato.render).toMatchObject({ ambientOcclusion: 'off', renderScale: 0.5, scale: 0.5 });
+    expect(potato.environment?.samples).toBe(0);
+    expect(potato.environment?.passes ?? []).not.toContain('bloom');
+    const shotPotato = await settledShot(canvas, `${variant}-quality-potato`);
+    const d = diff(shotUltra, shotPotato, STRICT);
+    console.log(`[quality] ${backendOf(variant)} ultra → potato: ${show(d, STRICT)}; ultra ${JSON.stringify(ultra.environment?.passes)} samples ${ultra.environment?.samples}, potato ${JSON.stringify(potato.environment?.passes)}, drawn at ${JSON.stringify(potato.render?.internal)}`);
+    expect(d.mean, 'the levels draw differently').toBeGreaterThan(2);
+    // A level the project lacks is refused, and nothing changes.
+    const bad = await level(psid, 'medium');
+    expect(bad.status).not.toBe(200);
+    expect((await diagnostics(psid)).quality?.level).toBe('potato');
+    // Switching back and forth leaks nothing: the GPU resources at ultra are what they were the first time.
+    await level(psid, 'ultra');
+    await expect.poll(async () => (await diagnostics(psid)).quality?.keyShadowMapSize, { timeout: 30_000 }).toBe(2048);
+    await settledShot(canvas, `${variant}-quality-ultra-2`);
+    const first = (await diagnostics(psid)).gpu!;
+    for (const id of ['potato', 'ultra', 'potato', 'ultra']) {
+      await level(psid, id);
+      await expect.poll(async () => (await diagnostics(psid)).quality?.keyShadowMapSize, { timeout: 30_000 }).toBe(id === 'ultra' ? 2048 : 512);
+      await settledShot(canvas, `${variant}-quality-${id}-again`);
+    }
+    const after = (await diagnostics(psid)).gpu!;
+    console.log(`[quality] ${backendOf(variant)} GPU resources at ultra, first ${JSON.stringify(first)}, after four more switches ${JSON.stringify(after)}`);
+    for (const k of ['geometries', 'textures', 'renderTargets', 'attributes', 'uniformBuffers'] as const) expect(after[k], k).toBeLessThanOrEqual(first[k]!);
+    await page.getByTitle('Stop the play preview').click();
+    await expect(page.getByTitle('Start an isolated play preview')).toBeVisible({ timeout: 30_000 });
+  }
 });
 
 test('the Scene view draws nothing behind the Game view during Play, and again when shown', async ({ page }) => {

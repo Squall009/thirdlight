@@ -305,7 +305,9 @@ describe('ctx.ui in the runtime', () => {
     const stats = { fps: 58.5, frameMs: { avg: 17.1, worst: 33.4 }, cpuMs: { avg: 4.2, worst: 9 }, gpuMs: { avg: 6, worst: 6.5 }, drawCalls: 40, triangles: 1200, textureBytes: 1e6, textureBudgetBytes: 512 * 1024 * 1024, geometryBytes: 3e5, entities: 7, quality: 'medium', windowMs: 501 };
     expect(rt.setStats!(stats)).toBe(true);
     expect(rt.setStats!({ ...stats, fps: -1 })).toBe(false);
-    expect(rt.setStats!({ ...stats, quality: 'ultra' })).toBe(false);
+    // A level id (the project's own levels too: 'ultra'), never anything else.
+    expect(rt.setStats!({ ...stats, quality: 'ultra' })).toBe(true);
+    expect(rt.setStats!({ ...stats, quality: 'Ultra!' })).toBe(false);
     expect(rt.setStats!({ ...stats, gpuMs: { avg: 1 } })).toBe(false);
     // The frame-rate cap: 30, 60 or 120, null or absent for none.
     expect(rt.setStats!({ ...stats, frameRateCap: 45 })).toBe(false);

@@ -24,7 +24,12 @@ export interface RenderSettingsLike {
   readonly dynamicResolution?: boolean;
 }
 
+/** The project's settings (the options' own fields) under the quality level's, under a player's, under the page's flags. */
 export interface RenderControlOptions extends RenderSettingsLike {
+  /** The page's flags (`?ao=`, `?renderScale=`, `?dynamicResolution=`): over everything else (a diagnostic comparison). */
+  readonly pinned?: RenderSettingsLike;
+  /** Always draw at full resolution (the editor's Scene view: it is for editing; render scale and dynamic resolution are Play's and the export's). */
+  readonly fixedScale?: boolean;
   /** How the scaled picture is upscaled (FSR 1; bilinear is a diagnostic comparison, `?upscale=bilinear`). */
   readonly upscale?: UpscaleFilter;
   /** A forced overload for dynamic resolution's first `slowFramesMs` (a diagnostic, `?slowFrames=`). */
@@ -45,8 +50,10 @@ export interface RenderControlDiagnostics {
 }
 
 export interface RenderControl {
-  /** New settings (unset parts keep their value). */
-  set(next: RenderSettingsLike): void;
+  /** New settings of the project's or a player's layer (the default; unset parts keep their value). */
+  set(next: RenderSettingsLike, layer?: 'project' | 'player'): void;
+  /** The quality level's settings (in place of the last level's; what a level leaves out is the project's). */
+  setLevel(level: RenderSettingsLike): void;
   /** Whether frames must go through the environment renderer for the scale (a scene without a look draws directly otherwise). */
   needsEnvironment(): boolean;
   /** Apply the settings to an environment renderer (a new one, or after a change). */
@@ -78,10 +85,24 @@ export function renderSettingsFromUrl(search: string): RenderSettingsLike {
   };
 }
 
+/** Only the parts a layer sets (an explicit undefined is not a setting). */
+const defined = (s: RenderSettingsLike): RenderSettingsLike => ({
+  ...(s.ambientOcclusion !== undefined ? { ambientOcclusion: s.ambientOcclusion } : {}),
+  ...(s.renderScale !== undefined ? { renderScale: s.renderScale } : {}),
+  ...(s.dynamicResolution !== undefined ? { dynamicResolution: s.dynamicResolution } : {}),
+});
+
 export function createRenderControl(opts: RenderControlOptions = {}): RenderControl {
-  let ao: 'off' | 'ssao' | 'gtao' = opts.ambientOcclusion ?? 'ssao';
-  let renderScale = renderScaleOf(opts.renderScale) ?? RENDER_SCALE_MAX;
-  let dynamic = opts.dynamicResolution === true;
+  let project: RenderSettingsLike = defined(opts);
+  let level: RenderSettingsLike = {};
+  let player: RenderSettingsLike = {};
+  const pinned: RenderSettingsLike = defined(opts.pinned ?? {});
+  const fixed: RenderSettingsLike = opts.fixedScale === true ? { renderScale: RENDER_SCALE_MAX, dynamicResolution: false } : {};
+  const resolved = (): RenderSettingsLike => ({ ...project, ...level, ...player, ...pinned, ...fixed });
+  const first = resolved();
+  let ao: 'off' | 'ssao' | 'gtao' = first.ambientOcclusion ?? 'ssao';
+  let renderScale = renderScaleOf(first.renderScale) ?? RENDER_SCALE_MAX;
+  let dynamic = first.dynamicResolution === true;
   const upscale: UpscaleFilter = opts.upscale ?? 'fsr1';
   const drs = new DynamicResolution(RENDER_SCALE_MIN, renderScale);
   if ((opts.slowFramesMs ?? 0) > 0) drs.stress(opts.slowFramesMs!);
@@ -89,22 +110,34 @@ export function createRenderControl(opts: RenderControlOptions = {}): RenderCont
   let dirty = true;
   let lastFrameAt: number | null = null;
   const scaleNow = (): number => (dynamic ? drs.current() : renderScale);
+  /** Take the layers' settings now (a change of scale or of dynamic resolution starts dynamic resolution over). */
+  const update = (): void => {
+    const next = resolved();
+    const kind = next.ambientOcclusion ?? 'ssao';
+    const s = renderScaleOf(next.renderScale) ?? RENDER_SCALE_MAX;
+    const d = next.dynamicResolution === true;
+    if (kind === ao && s === renderScale && d === dynamic) return;
+    ao = kind;
+    if (s !== renderScale) {
+      renderScale = s;
+      drs.setRange(RENDER_SCALE_MIN, renderScale);
+      drs.reset();
+    }
+    if (d !== dynamic) {
+      dynamic = d;
+      drs.reset();
+    }
+    dirty = true;
+  };
   return {
-    set(next) {
-      if (next.ambientOcclusion !== undefined) ao = next.ambientOcclusion;
-      if (next.renderScale !== undefined) {
-        const s = renderScaleOf(next.renderScale);
-        if (s !== undefined && s !== renderScale) {
-          renderScale = s;
-          drs.setRange(RENDER_SCALE_MIN, renderScale);
-          drs.reset();
-        }
-      }
-      if (next.dynamicResolution !== undefined && next.dynamicResolution !== dynamic) {
-        dynamic = next.dynamicResolution;
-        drs.reset();
-      }
-      dirty = true;
+    set(next, layer = 'player') {
+      if (layer === 'project') project = { ...project, ...defined(next) };
+      else player = { ...player, ...defined(next) };
+      update();
+    },
+    setLevel(next) {
+      level = defined(next);
+      update();
     },
     needsEnvironment: () => renderScale < 1 || dynamic,
     apply(env) {

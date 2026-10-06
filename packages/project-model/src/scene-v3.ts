@@ -14,6 +14,8 @@
  * renumbered or reinterpreted). Pure and total: same input → same
  * result, never throws, never reads files.
  */
+import { MAX_LOCAL_LIGHTS } from './local-lights';
+import { SHADOW_MAP_SIZES } from './quality-levels';
 import { INSTANCE_DENSITY_SIZE_MIN } from './model-lod';
 import { canonicalProbeVolume, validateProbeVolumeComponent, type ProbeVolumeComponent } from './probe-grids';
 import { ID_RE } from './validate';
@@ -158,7 +160,7 @@ const KNOWN_LIGHT_FIELDS = new Set(['type', 'color', 'intensity', 'direction', '
  *   genre; a v3 game's level bounds decide its square instead.
  */
 export const DIRECTIONAL_SHADOW_LIMITS = {
-  mapSizes: [512, 1024, 2048, 4096],
+  mapSizes: SHADOW_MAP_SIZES,
   bias: { min: -0.01, max: 0.01 },
   normalBias: { min: 0, max: 1 },
   extent: { min: 1, max: 64 },
@@ -170,9 +172,9 @@ const KNOWN_LIGHT_FIELDS_V4 = new Set(['type', 'color', 'intensity', 'direction'
 const COOKIE_ID_RE = ID_RE;
 /** point/spot intensity is in candela (three's physical units). */
 export const MAX_LOCAL_INTENSITY = 1000;
-/** Most point + spot lights per scene, and hemisphere lights per scene (forward-lighting cost per drawn light; scalable lighting replaces it). */
-export const MAX_LOCAL_LIGHTS = 16;
+/** Most hemisphere lights per scene (the point and spot lights' `MAX_LOCAL_LIGHTS` is local-lights.ts's). */
 export const MAX_HEMISPHERE_LIGHTS = 1;
+export { MAX_LOCAL_LIGHTS };
 const KNOWN_SURFACE_FIELDS = new Set(['color', 'roughness', 'metalness', 'emissive', 'emissiveIntensity']);
 const KNOWN_MODEL_ANIMATION_FIELDS = new Set(['assetId', 'version', 'roles']);
 const ROLE_KEYS = ['idle', 'run', 'airborne'] as const;

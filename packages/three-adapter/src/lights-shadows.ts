@@ -120,6 +120,8 @@ type EnvLight = { light: THREE.Light; id: string; tags: number; type: string; au
 
 export interface LightsDiagnostics {
   shadows: 'on' | 'off';
+  /** The key light's shadow map size (texels per side; absent: no key light shadow). */
+  shadowMapSize?: number;
   shadowReason?: ShadowReason;
   /** The key light's static and dynamic shadow-map draws (absent: not cached, or no key light shadow). */
   shadowMaps?: CachedShadowCounts;
@@ -174,6 +176,12 @@ export interface SceneLights {
    * are on must be selected again.
    */
   applyOverrides(overrides: ReadonlyMap<string, LightValueOverride>, blending: boolean, rangeOf: (entityId: string) => number): boolean;
+  /**
+   * A quality level's limits: the largest shadow map any light draws, and how many point and spot lights are on
+   * (null: no limit beyond the lights' own sizes and the scenes' budget). True when the lights that are on must
+   * be selected again (the shadow-casting lights were realized again at their new size, or the budget changed).
+   */
+  setLimits(limits: { readonly shadowMapSize: number | null; readonly localLights: number | null }): boolean;
   diagnostics(): LightsDiagnostics;
   dispose(): void;
 }
@@ -188,6 +196,10 @@ export function createSceneLights(o: SceneLightsOptions): SceneLights {
   const bakedAway = (id: string, l: { type: string; mode?: string }): boolean => l.mode === 'baked' && l.type !== 'ambient' && l.type !== 'hemisphere' && o.bakedLight(id);
   /** point/spot lights casting shadows (the shadow map is enabled for them). */
   let localShadowLights = 0;
+  /** The quality level's largest shadow map (null: each light's own size) and point/spot light budget (null: the scenes'). */
+  let shadowMapCap: number | null = null;
+  let localBudget: number | null = null;
+  const capped = (size: number): number => (shadowMapCap === null ? size : Math.min(size, shadowMapCap));
   /** Every realized light by entity, switched on and off by `select`. */
   const switchable = new Map<string, { kind: SceneLightKind; light: THREE.Light }>();
   /** The lights presets and scripts may change. */
@@ -233,7 +245,7 @@ export function createSceneLights(o: SceneLightsOptions): SceneLights {
       setLightMasks(p, masks);
       setLightImportance(p, lightImportanceOf(l.importance));
       p.castShadow = l.castShadow === true;
-      if (p.castShadow) p.shadow.mapSize.set(POINT_SHADOW_MAP_SIZE, POINT_SHADOW_MAP_SIZE);
+      if (p.castShadow) p.shadow.mapSize.set(capped(POINT_SHADOW_MAP_SIZE), capped(POINT_SHADOW_MAP_SIZE));
       return p;
     }
     if (l.type === 'spot') {
@@ -245,7 +257,7 @@ export function createSceneLights(o: SceneLightsOptions): SceneLights {
       const d = l.direction ?? [0, -1, 0];
       s.target.position.set(d[0] ?? 0, d[1] ?? -1, d[2] ?? 0);
       s.castShadow = l.castShadow === true;
-      if (s.castShadow) s.shadow.mapSize.set(SPOT_SHADOW_MAP_SIZE, SPOT_SHADOW_MAP_SIZE);
+      if (s.castShadow) s.shadow.mapSize.set(capped(SPOT_SHADOW_MAP_SIZE), capped(SPOT_SHADOW_MAP_SIZE));
       // A cookie (three's SpotLight.map; the node lighting projects it through the cone on both backends).
       if (typeof l.cookie === 'string') attachCookie(s, l.cookie);
       return s;
@@ -264,7 +276,8 @@ export function createSceneLights(o: SceneLightsOptions): SceneLights {
   const keyDirectionOf = (r: KeyRec | null): readonly [number, number, number] | undefined => r?.directionNow ?? r?.authored.direction;
   /** A directional light at the derived position round the view's start square. */
   const directionalLightOf = (id: string, l: AuthoredLight, masks: LightMasks): KeyRec => {
-    const settings = directionalShadowSettings(l);
+    const own = directionalShadowSettings(l);
+    const settings = { ...own, mapSize: capped(own.mapSize) };
     const start = o.startView;
     const region: ShadowRegion = { minX: start[0] - settings.extent, maxX: start[0] + settings.extent, minY: start[1] - settings.extent, maxY: start[1] + settings.extent };
     const direction = l.direction ?? [0, -1, 0];
@@ -466,7 +479,7 @@ function releaseLight(entityId: string): void {
         }
         entries.push({ id, kind: r.kind, rank: rankOf(id), order: order++ });
       }
-      selection = selectSceneLights(entries);
+      selection = selectSceneLights(entries, localBudget ?? undefined);
       for (const [id, r] of switchable) r.light.visible = selection.active.has(id);
       const next = selection.directional !== null ? (directionals.get(selection.directional) ?? null) : null;
       if (next !== keyRec || keyRec === null) {
@@ -587,8 +600,24 @@ function releaseLight(entityId: string): void {
       return replaced;
     },
 
+    setLimits(limits): boolean {
+      const cap = limits.shadowMapSize;
+      const budget = limits.localLights;
+      const capChanged = cap !== shadowMapCap;
+      const budgetChanged = budget !== localBudget;
+      shadowMapCap = cap;
+      localBudget = budget;
+      if (!capChanged) return budgetChanged;
+      // The shadow-casting lights again at the new size (a shadow map's size is fixed when it is made).
+      // (Ids first: realizing a light again takes it out of `switchable` and puts it back.)
+      const casting = [...switchable].filter(([, r]) => (r.light as THREE.DirectionalLight).castShadow === true).map(([id]) => id);
+      for (const id of casting) replaceLight(id);
+      return true;
+    },
+
     diagnostics(): LightsDiagnostics {
       const d: LightsDiagnostics = { shadows: shadowState.shadows };
+      if (shadowState.shadows === 'on' && keyRec !== null && keyRec.light.castShadow) d.shadowMapSize = keyRec.settings.mapSize;
       // `shadowReason` is present iff `shadows === 'off'`.
       if (shadowState.shadows === 'off' && shadowState.reason !== undefined) d.shadowReason = shadowState.reason;
       if (shadowState.shadows === 'on' && keyRec?.cached != null && keyRec.light.castShadow) d.shadowMaps = keyRec.cached.diagnostics();

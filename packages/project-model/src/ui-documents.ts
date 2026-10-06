@@ -26,6 +26,7 @@ import type { ModelErrorV2 } from './errors';
 import { projectInputMaps } from './input';
 import { frameRateCapOf } from './frame-rate-cap';
 import { SAVE_LIMITS, SETTINGS_ENGINE_BINDINGS, type SettingsEngineBinding } from './save-schema';
+import { QUALITY_LEVEL_ID_RE } from './quality-levels';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -554,7 +555,7 @@ function validateActions(errors: ModelErrorV2[], v: unknown, path: string, refs:
         if (a['value'] !== undefined) {
           if (a['setting'] === 'frameRateCap') {
             if (frameRateCapOf(a['value']) === undefined) err(errors, 'field_value', `${p}/value`, 'a frame-rate cap is 30, 60, 120 or none', a['value'], '30 | 60 | 120 | none');
-          } else if (!isNum(a['value'], 0, 1) && !(typeof a['value'] === 'string' && ['low', 'medium', 'high'].includes(a['value']))) err(errors, 'field_value', `${p}/value`, 'a setting value is 0–1 (a volume) or low, medium, high (quality)', a['value'], '0..1 | low | medium | high');
+          } else if (!isNum(a['value'], 0, 1) && !(typeof a['value'] === 'string' && QUALITY_LEVEL_ID_RE.test(a['value']))) err(errors, 'field_value', `${p}/value`, 'a setting value is 0–1 (a volume) or a quality level id (low, medium, high or the project\'s own)', a['value'], '0..1 | a level id');
         }
         if (a['step'] !== undefined && a['step'] !== 1 && a['step'] !== -1) err(errors, 'field_value', `${p}/step`, 'step is 1 or -1', a['step'], '1 | -1');
         break;

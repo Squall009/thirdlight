@@ -29,10 +29,11 @@ export { SAVE_LIMITS, SCRIPT_SAVE_LIMITS, SETTINGS_ENGINE_BINDINGS } from './sav
 export { FRAME_RATE_CAP_CHOICES } from './frame-rate-cap';
 export { AMBIENT_OCCLUSION_KINDS, RENDER_SCALE_MAX, RENDER_SCALE_MIN, renderSettingsOf } from './render-settings';
 export { ENVIRONMENT_PRESET_LIMITS } from './environment-presets';
+export { DEFAULT_QUALITY_LEVELS, MSAA_SAMPLE_COUNTS, PIXEL_RATIO_CAP_MAX, PIXEL_RATIO_CAP_MIN, QUALITY_LEVEL_ID_RE, qualityLevelsOf, SHADOW_MAP_SIZES } from './quality-levels';
 export { MAX_TRANSITION_FADE, MAX_TRANSITION_UNLOADS } from './blocks';
 export { MAX_INPUT_ACTIONS, MAX_INPUT_BINDINGS } from './input';
 export { MAX_FOG_VOLUMES, MAX_MATERIAL_INSTANCE_DEPTH } from './materials';
-export { MAX_LOCAL_LIGHTS } from './scene-v3';
+export { MAX_LOCAL_LIGHTS } from './local-lights';
 export { LIGHT_LAYER_COUNT, LIGHT_LAYERS_ALL, MAX_LIGHT_LAYER_NAME, lightLayerLabel } from './light-layers';
 export { INSTANCES_LOCAL_LIGHTS_DEFAULT, LIGHT_IMPORTANCES, LOCAL_LIGHT_MODES, MATERIAL_LOCAL_LIGHT_MODES } from './local-lights';
 export { COLLIDER_3D_LIMITS, CONVEX_TOL, MAX_COLLIDER_EXTENT, MAX_POLYGON_VERTICES, MIN_POLYGON_AREA } from './components';

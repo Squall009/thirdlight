@@ -17,7 +17,7 @@
  *
  * Pure: no I/O, no Node built-ins, types-only edges to `commands`/`project-model`.
  */
-import { ID_RE } from '@thirdlight/project-model/limits';
+import { ID_RE, QUALITY_LEVEL_ID_RE } from '@thirdlight/project-model/limits';
 import { MAX_TEXTURE_LAYERS } from '@thirdlight/project-model/limits';
 import type {
   ApplySurfacePresetArgs,
@@ -518,7 +518,7 @@ export type { ChangeData, ContentCounts, GameConfigQueryResult, AuthoringEnvelop
  * `sceneId`) are the same request a script's `ctx.scenes` makes;
  * `debugPause` / `debugResume` / `debugStep` drive the visual-script debugger (Play only).
  */
-export const GAME_CONTROL_COMMANDS = ['replay', 'mute', 'unmute', 'loadScene', 'unloadScene', 'clearSave', 'debugPause', 'debugResume', 'debugStep', 'debugCommand'] as const;
+export const GAME_CONTROL_COMMANDS = ['replay', 'mute', 'unmute', 'loadScene', 'unloadScene', 'clearSave', 'debugPause', 'debugResume', 'debugStep', 'debugCommand', 'setQuality'] as const;
 
 /**
  * A project debug command call (`debugCommand`): its name and
@@ -612,6 +612,8 @@ export interface GameControlRequest {
   /** debugCommand only — the command and its arguments. */
   name?: string;
   args?: Record<string, number | string | boolean>;
+  /** setQuality only — the quality level to draw at (one of the project's level ids). */
+  level?: string;
 }
 
 const GAME_CONTROL_REQUEST_FIELDS = new Map([
@@ -620,6 +622,7 @@ const GAME_CONTROL_REQUEST_FIELDS = new Map([
   ['sceneId', 'the scene (loadScene / unloadScene)'],
   ['name', 'the debug command (debugCommand)'],
   ['args', 'the debug command\'s arguments (debugCommand)'],
+  ['level', 'the quality level id (setQuality)'],
 ]);
 const SCENE_ID_RE = ID_RE;
 
@@ -654,6 +657,14 @@ export function parseGameControlRequest(value: unknown): { ok: true; request: Ga
     const p = debugCommandCallProblem(shape.value.name, shape.value.args);
     if (p !== null) return { ok: false, error: sessionError('field_value', 'validation', p.problem, { path: p.path }) };
   }
+  // A quality change carries the level (and only it does); whether the project has it is the play's to say.
+  const qualityCommand = cmd.value === 'setQuality';
+  if (qualityCommand !== (shape.value.level !== undefined)) {
+    return { ok: false, error: sessionError('field_value', 'validation', qualityCommand ? 'setQuality names its level (one of the project\'s quality level ids)' : 'level goes with setQuality only', { path: '/level' }) };
+  }
+  if (qualityCommand && !(typeof shape.value.level === 'string' && QUALITY_LEVEL_ID_RE.test(shape.value.level))) {
+    return { ok: false, error: sessionError('field_value', 'validation', 'level must be a quality level id (a lowercase letter, then up to 31 lowercase letters, digits, _ or -)', { path: '/level' }) };
+  }
   let expectedRunId: string | undefined;
   if (shape.value.expectedRunId !== undefined) {
     const rid = checkField(shape.value, 'expectedRunId', '', '<snapshotId>#<replayEpoch>', (v) =>
@@ -669,6 +680,7 @@ export function parseGameControlRequest(value: unknown): { ok: true; request: Ga
       ...(expectedRunId !== undefined ? { expectedRunId } : {}),
       ...(sceneId !== undefined ? { sceneId } : {}),
       ...(debugCommand ? { name: shape.value.name as string, args: (shape.value.args ?? {}) as Record<string, number | string | boolean> } : {}),
+      ...(qualityCommand ? { level: shape.value.level as string } : {}),
     },
   };
 }

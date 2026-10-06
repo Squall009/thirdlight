@@ -5,7 +5,7 @@
  * window, outside the input frame, so they are never in the digest or a
  * save.
  */
-import { frameRateCapOf } from '@thirdlight/project-model';
+import { frameRateCapOf, QUALITY_LEVEL_ID_RE } from '@thirdlight/project-model';
 
 import type { BehaviorStats, BehaviorStatsTime } from './types-behavior-world';
 
@@ -34,7 +34,6 @@ export const ENGINE_STATS_NONE: BehaviorStats = Object.freeze({
   windowMs: 0,
 });
 
-const QUALITY = new Set(['low', 'medium', 'high']);
 const count = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v) && v >= 0;
 const timeOf = (v: unknown): BehaviorStatsTime | null => {
   if (typeof v !== 'object' || v === null) return null;
@@ -52,7 +51,7 @@ export function engineStatsOf(v: unknown): BehaviorStats | null {
   if (frameMs === null || cpuMs === null || (s['gpuMs'] !== null && gpuMs === null)) return null;
   const n = ['fps', 'drawCalls', 'triangles', 'textureBytes', 'textureBudgetBytes', 'geometryBytes', 'entities', 'windowMs'] as const;
   for (const k of n) if (!count(s[k])) return null;
-  if (typeof s['quality'] !== 'string' || !QUALITY.has(s['quality'])) return null;
+  if (typeof s['quality'] !== 'string' || !QUALITY_LEVEL_ID_RE.test(s['quality'])) return null;
   // The cap: 30, 60 or 120, or null or absent (none).
   const cap = s['frameRateCap'];
   const frameRateCap = cap === null || cap === undefined ? null : typeof cap === 'number' && cap > 0 ? frameRateCapOf(cap) : undefined;

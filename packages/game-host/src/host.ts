@@ -432,8 +432,10 @@ export interface GameHostConfig {
   readonly projectSaveBackend?: ProjectSaveBackend;
   /** The browser's storage manager (`navigator.storage`): persistence asked at the first save, usage and quota. */
   readonly deviceStorage?: DeviceStorage;
-  /** Apply a player's quality setting (the wrapper forwards it to the renderer). */
-  readonly setQuality?: (level: 'low' | 'medium' | 'high') => void;
+  /** Apply a player's or the game-control API's quality level (the wrapper forwards it to the renderer); false: the project has no such level. */
+  readonly setQuality?: (level: string) => boolean;
+  /** The project's quality level ids, lowest first, and the one a game starts at (the game shell's quality setting steps through them). */
+  readonly qualityLevels?: { readonly ids: readonly string[]; readonly start: string };
   /**
    * Where the simulation runs. Absent: in this page — `mount()`
    * composes the runtime (`composeGameRuntime`) with `physics`,
@@ -496,6 +498,11 @@ export interface GameHost {
    * declared the command or the arguments do not match.
    */
   debugCommand?(name: string, args?: Readonly<Record<string, number | string | boolean>>): GameControlResult;
+  /**
+   * Draw at a quality level for the rest of this session (game control: compare levels in one run). Presentation
+   * only: not simulation input, not kept in the player's settings; refused when the project has no such level.
+   */
+  setQuality?(level: string): GameControlResult;
   /** The in-game debug console (null: this game has none). */
   readonly debugConsole?: DebugConsole | null;
   /** What became of `config.start` (null: no start options). */
@@ -956,7 +963,8 @@ export function createGameHost(config: GameHostConfig): GameHost {
         return pausePanel;
       },
       setVolume: (bus, value) => config.audio.setVolume?.(bus, value),
-      setQuality: (q) => config.setQuality?.(q),
+      setQuality: (q) => void config.setQuality?.(q),
+      ...(config.qualityLevels !== undefined ? { qualityLevels: config.qualityLevels } : {}),
       frameRateCap: () => rt.frameRateCap?.() ?? null,
       setFrameRateCap: (fps) => void rt.setFrameRateCap?.(fps),
       ...(config.saveStorage !== undefined ? { storage: config.saveStorage } : {}),
@@ -1820,6 +1828,12 @@ export function createGameHost(config: GameHostConfig): GameHost {
     dispose,
     scene,
     debugCommand,
+    setQuality: (level: string): GameControlResult => {
+      if (disposed) return { ok: false, error: { code: 'host_disposed', message: 'the host is disposed' } };
+      if (!mounted || runtime === null) return { ok: false, error: { code: 'host_not_mounted', message: 'the host is not mounted' } };
+      if (config.setQuality?.(level) !== true) return { ok: false, error: { code: 'game_command_invalid', reason: 'quality_level', message: `the project has no quality level "${level}"${config.qualityLevels !== undefined ? ` (its levels: ${config.qualityLevels.ids.join(', ')})` : ''}` } };
+      return { ok: true, state: playState(), acceptedAtStep: stepNow(runtime) };
+    },
     uiHitTargets,
     clickUi,
     playState,

@@ -601,6 +601,25 @@ const SCENE_ENV_BASES: J[] = [
 // The project's part: the quality and the presets.
 const ENV_BASES: J[] = [
   { quality: 'medium' },
+  // The project's own quality levels (every field of a level).
+  {
+    qualityLevels: [
+      {
+        id: 'low',
+        name: 'Low',
+        post: { bloom: { enabled: false, strength: 0.3, radius: 0.2, threshold: 1 }, ssao: { enabled: true, radius: 0.3, intensity: 1 }, dof: { enabled: false, focus: 5, aperture: 0.001, maxBlur: 0.005 }, antialias: 'fxaa' },
+        renderScale: 0.75,
+        pixelRatio: 1,
+        msaa: 0,
+        shadowMapSize: 1024,
+        localLights: 4,
+        ambientOcclusion: 'ssao',
+        lodBias: 0.5,
+        dynamicResolution: true,
+      },
+      { id: 'high' },
+    ],
+  },
   // Environment presets.
   {
     presets: [
@@ -979,8 +998,9 @@ describe('descriptor registry', () => {
     expect(JSON.parse(JSON.stringify(DESCRIPTORS))).toEqual(DESCRIPTORS);
     // it travels in every queryGameConfig: keep it small
     // (the UI document vocabulary is about 20 KB; environment presets, which repeat
-    // the sky/fog/post descriptors, about 9 KB; a compound repeats the collider shapes, about 6 KB)
-    expect(JSON.stringify(DESCRIPTORS).length).toBeLessThan(265_000);
+    // the sky/fog/post descriptors, about 9 KB; a compound repeats the collider shapes, about 6 KB;
+    // a quality level repeats the bloom/AO/depth-of-field descriptors, about 3 KB)
+    expect(JSON.stringify(DESCRIPTORS).length).toBeLessThan(269_000);
     for (const c of DESCRIPTORS.components) expect(c.value.key).toBe(c.name);
   });
 

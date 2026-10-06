@@ -339,7 +339,8 @@ export class Viewport {
       resources: assets.resources,
       background: SCENE_BACKGROUND,
       ...(this.lodTuning !== null ? { lod: this.lodTuning } : {}),
-      render: { ambientOcclusion: this.aoKind },
+      // The project's AO kind; full resolution whatever the quality level's render scale (the Scene view is for editing).
+      render: { ambientOcclusion: this.aoKind, fixedScale: true },
       onChange: () => this.contentArrived(),
       renderer: {
         ...this.rendererChoice,
@@ -372,9 +373,10 @@ export class Viewport {
   /** The adapter's world, environment, bakes and block layers follow the current state (a new adapter, a lighting mode). */
   private applyLook(): void {
     const game = this.lighting.mode === 'game';
-    // The editor rig still draws at the project's quality level (low: no MSAA).
+    // The editor rig still draws at the project's quality level (the engine's low: no MSAA).
     const quality = this.environmentValue?.quality;
-    this.adapter.setEnvironment?.(game ? this.environmentValue : quality !== undefined ? { quality } : null);
+    const qualityLevels = this.environmentValue?.qualityLevels;
+    this.adapter.setEnvironment?.(game ? this.environmentValue : quality !== undefined || qualityLevels !== undefined ? { ...(quality !== undefined ? { quality } : {}), ...(qualityLevels !== undefined ? { qualityLevels } : {}) } : null);
     this.adapter.setBakes?.(game ? this.bakes : null);
     this.adapter.previewEnvironmentBlend?.(game ? this.envPreview : null, this.envPreviewTags);
   }
@@ -420,7 +422,7 @@ export class Viewport {
   setAmbientOcclusion(kind: 'off' | 'ssao' | 'gtao'): void {
     if (kind === this.aoKind) return;
     this.aoKind = kind;
-    this.adapter.setRenderSettings?.({ ambientOcclusion: kind });
+    this.adapter.setRenderSettings?.({ ambientOcclusion: kind }, 'project');
     this.requestRender();
   }
 

@@ -10,7 +10,7 @@
  * discriminators the caller supplies (origin/source checks are the transport's
  * job — they cannot be verified from the message body). Pure: no I/O.
  */
-import { ID_RE } from '@thirdlight/project-model/limits';
+import { ID_RE, QUALITY_LEVEL_ID_RE } from '@thirdlight/project-model/limits';
 import { isContentId, isNonce, isPlaySessionId, isRelayId, isRequestId } from './ids';
 import {
   BRIDGE_LOAD_PROGRESS_MAX_BYTES,
@@ -26,7 +26,7 @@ import {
 import { SCREENSHOT_DATA_URL_MAX, SCREENSHOT_MAX_WIDTH_MAX, SCREENSHOT_MAX_WIDTH_MIN } from './http';
 import { PLAY_DIAGNOSTICS_MAX_BYTES, playDiagnosticsBytes } from './diagnostics-bound';
 import { playProblemProblem } from './play-problems';
-import { debugCommandCallProblem, RELAY_ANSWER_WITHIN_MAX_MS } from './m3';
+import { debugCommandCallProblem, GAME_CONTROL_COMMANDS, RELAY_ANSWER_WITHIN_MAX_MS } from './m3';
 
 /** The exhaustive allowlists (v2). */
 export const BRIDGE_EDITOR_TO_PREVIEW_TYPES = [
@@ -76,8 +76,6 @@ export const BRIDGE_DEBUG_MAX_BREAKPOINTS = 64;
 export const BRIDGE_DEBUG_RESULT_MAX_BYTES = 32_768;
 /** What a debug request may ask of the running play besides reading. */
 export const BRIDGE_DEBUG_COMMANDS = ['pause', 'resume', 'step'] as const;
-/** Game-control commands (play controls plus the debugger's pause / resume / step). */
-const GAME_CONTROL = ['replay', 'mute', 'unmute', 'loadScene', 'unloadScene', 'clearSave', 'debugPause', 'debugResume', 'debugStep', 'debugCommand'];
 const ENTITY_ID_RE = ID_RE;
 /** A debugger node id: a graph item id, optionally scoped (`fn:<functionId>/` or `lib:<graphId>/`). */
 const DEBUG_NODE_RE = /^(?:(?:fn|lib):[A-Za-z0-9_-]{1,64}\/)?[A-Za-z0-9_-]{1,64}$/;
@@ -246,13 +244,18 @@ export function validateBridgeEditorToPreview(value: unknown): Verdict {
       // A debug command carries its name and arguments.
       const debugCommand = m['command'] === 'debugCommand';
       const replay = m['command'] === 'replay';
-      const fields = type === 'tl.game.control' ? ['v', 'type', 'playSessionId', 'relayId', 'command', ...(sceneCommand ? ['sceneId'] : []), ...(debugCommand ? ['name', 'args'] : []), ...(replay ? ['answerWithinMs'] : [])] : ['v', 'type', 'playSessionId', 'relayId', 'entityId'];
+      // A quality change carries its level.
+      const qualityCommand = m['command'] === 'setQuality';
+      const fields = type === 'tl.game.control' ? ['v', 'type', 'playSessionId', 'relayId', 'command', ...(sceneCommand ? ['sceneId'] : []), ...(debugCommand ? ['name', 'args'] : []), ...(replay ? ['answerWithinMs'] : []), ...(qualityCommand ? ['level'] : [])] : ['v', 'type', 'playSessionId', 'relayId', 'entityId'];
       const bad = rejectUnknown(m, fields);
       if (bad) return { ok: false, reason: bad.reason, path: bad.path };
       if (!isPlaySessionId(m['playSessionId'])) return { ok: false, reason: 'playSessionId must be play- + 32 hex', path: '/playSessionId' };
       if (!isRelayId(m['relayId'])) return { ok: false, reason: 'relayId must be relay- + 32 hex', path: '/relayId' };
-      if (type === 'tl.game.control' && !GAME_CONTROL.includes(String(m['command']))) {
-        return { ok: false, reason: `command must be one of ${GAME_CONTROL.join(', ')}`, path: '/command' };
+      if (type === 'tl.game.control' && !(GAME_CONTROL_COMMANDS as readonly string[]).includes(String(m['command']))) {
+        return { ok: false, reason: `command must be one of ${GAME_CONTROL_COMMANDS.join(', ')}`, path: '/command' };
+      }
+      if (type === 'tl.game.control' && qualityCommand && !(typeof m['level'] === 'string' && QUALITY_LEVEL_ID_RE.test(m['level']))) {
+        return { ok: false, reason: 'level must be a quality level id', path: '/level' };
       }
       if (type === 'tl.game.observe' && m['entityId'] !== undefined && (typeof m['entityId'] !== 'string' || !/^[a-z0-9][a-z0-9_-]{0,63}$/.test(m['entityId']))) {
         return { ok: false, reason: 'entityId must be an entity id', path: '/entityId' };

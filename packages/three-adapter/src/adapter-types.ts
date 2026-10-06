@@ -13,6 +13,7 @@ import type { BuiltInstanceSet, InstanceSetStats } from './instancing';
 import type { ViewCullDiagnostics } from './view-cull';
 import type { RuntimeMaterialsDiagnostics } from './runtime-materials';
 import type { RenderControlDiagnostics, RenderControlOptions, RenderSettingsLike } from './render-control';
+import type { QualityDiagnostics } from './quality-control';
 import type { AdapterError } from './errors';
 import type { ScreenshotResult } from './capture';
 import type { RenderedNodePose } from './animator-player';
@@ -102,8 +103,6 @@ export interface SceneAdapterOptions {
   environment?: {
     readonly value: EnvironmentLike;
     readonly loadTexture: (assetId: string) => Promise<THREE.Texture | null>;
-    /** A player's quality setting (null = the environment's). */
-    readonly quality?: QualityLevel | null;
     /**
      * Each scene's look (sky, fog, post, wind) over `value` (the project's
      * quality and presets): the active scene's is drawn — `start` until the
@@ -162,6 +161,8 @@ export interface SceneAdapterOptions {
    * diagnostics (`render-control.ts`). The editor's Scene view gives only the AO kind.
    */
   render?: RenderControlOptions;
+  /** A quality level pinned over a player's choice and the project's (the page's `?quality=`, a diagnostic comparison; absent: none). */
+  qualityPinned?: QualityLevel | null;
   /**
    * Draw repeated objects (boxes, model pieces with the same
    * geometry, material and shadow flags) instanced (default true). Off: one
@@ -299,6 +300,8 @@ export interface SceneAdapterDiagnostics {
   lod?: { bias: number; hysteresis: number; switches: number; copySwitches: number; instances: InstanceSetStats };
   /** The render settings and dynamic resolution's state; `internal`: the scene pass's size in pixels (null: drawn without a post pipeline). */
   render?: RenderControlDiagnostics & { internal: [number, number] | null };
+  /** The quality level drawn and its renderer settings; `keyShadowMapSize`: the key light's shadow map as drawn (absent: none). ABSENT after dispose. */
+  quality?: QualityDiagnostics & { keyShadowMapSize?: number };
   /** The block layers drawn (layers, chunk meshes, triangles). */
   blocks?: BlockLayerViewDiagnostics;
   /**
@@ -360,13 +363,13 @@ export interface SceneAdapter {
    *  adapter disposed. The wrapper posts `tl.ready` on `ok: true`
    *  and `tl.error` (phase `"assets"`) on `ok: false`. */
   modelsSettled?(): Promise<ModelsSettledResult>;
-  /** A player's quality setting (low/medium/high) over the environment's. */
-  setQuality?(level: QualityLevel): void;
+  /** A player's or the game-control API's quality level over the project's; false when the project has no such level. */
+  setQuality?(level: QualityLevel): boolean;
   /** The project's LOD bias and hysteresis (`lod_bias`, `lod_hysteresis`); unset parts keep their value. */
   setLodTuning?(tuning: { readonly bias?: number; readonly hysteresis?: number }): void;
   /** Render settings (AO kind, render scale, dynamic resolution: a player's or the project's); unset parts keep their value. */
-  setRenderSettings?(settings: RenderSettingsLike): void;
-  /** The quality level drawn (the player's over the environment's; high without either). */
+  setRenderSettings?(settings: RenderSettingsLike, layer?: 'project' | 'player'): void;
+  /** The quality level drawn (the page's, else the chosen one, else the project's; the highest without any). */
   qualityLevel?(): QualityLevel;
   /** The GPU time (ms) and frames measured since the last call; null where nothing is measured (no timestamp queries). */
   takeGpuTime?(): { ms: number; frames: number; worst: number } | null;

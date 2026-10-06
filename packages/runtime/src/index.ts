@@ -401,6 +401,7 @@ export { FRAME_RATE_CAP_URL_PARAM, FramePacer, frameRateCapFromUrl, SIM_DELAY_UR
 export { FRAME_RATE_CAPS, frameRateCapOf, projectFrameRateCap, type FrameRateCap } from '@thirdlight/project-model';
 // The render settings (ambient occlusion, render scale, dynamic resolution) the renderer and the game page read.
 export { AMBIENT_OCCLUSION_KINDS, ambientOcclusionOf, RENDER_SCALE_MAX, RENDER_SCALE_MIN, renderScaleOf, renderSettingsOf, type AmbientOcclusionKind, type RenderSettings } from '@thirdlight/project-model';
+export { DEFAULT_QUALITY_LEVELS, levelPost, LOD_BIAS_MAX, LOD_BIAS_MIN, PIXEL_RATIO_CAP_MAX, QUALITY_LEVEL_ID_RE, qualityLevelOf, qualityLevelsOf, type QualityLevelConfig, type QualityLevelPost } from '@thirdlight/project-model';
 // The simulation's step rate when a project sets none (project-model's).
 export { DEFAULT_FIXED_STEP_HZ, fixedStepHzOf } from '@thirdlight/project-model';
 export { clampAlpha, previewFrameSeconds } from './frame-clock';

@@ -31,7 +31,8 @@ export interface HostSavesConfig {
   readonly settingsStorage?: SaveStorage;
   readonly captureThumbnail: ThumbnailCapture;
   readonly pictureWaits: () => boolean;
-  readonly setQuality?: (level: 'low' | 'medium' | 'high') => void;
+  /** Apply a player's quality level (false: the project has no such level). */
+  readonly setQuality?: (level: string) => boolean;
   readonly setVolume?: (bus: 'music' | 'sfx' | 'ui', value: number) => void;
   /** Apply a player's frame-rate cap (30, 60, 120 or 'none'). */
   readonly setFrameRateCap?: (fps: string) => void;
@@ -58,7 +59,7 @@ export function startHostSaves(c: HostSavesConfig): ProjectSaveService {
     pictureWaits: c.pictureWaits,
     applyEngine: (binding, value) => {
       if (binding === 'quality') {
-        if (value === 'low' || value === 'medium' || value === 'high') c.setQuality?.(value);
+        if (typeof value === 'string' && c.setQuality?.(value) === false) console.warn(`[game-host] the quality setting names no level of the project: ${value}`);
       } else if (binding === 'frameRateCap') {
         if (typeof value === 'string') c.setFrameRateCap?.(value);
       } else if (binding === 'ambientOcclusion') {

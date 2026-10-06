@@ -154,7 +154,7 @@ export interface BehaviorStats {
   readonly geometryBytes: number;
   /** Objects in the simulation. */
   readonly entities: number;
-  /** The quality level drawn: "low", "medium" or "high". */
+  /** The quality level drawn: its id ("low", "medium", "high", or one of the project's own levels). */
   readonly quality: string;
   /** The frame-rate cap the page draws under (30, 60 or 120 fps), or null for none (the display's rate). */
   readonly frameRateCap: number | null;

@@ -205,10 +205,10 @@ export class Bridge {
   }
 
   /** Forward a game control command (editor side). */
-  requestGameControl(playSessionId: string, relayId: string, command: string, sceneId?: string, debug?: { name: string; args: Record<string, unknown> }, answerWithinMs?: number): void {
+  requestGameControl(playSessionId: string, relayId: string, command: string, sceneId?: string, debug?: { name: string; args: Record<string, unknown> }, answerWithinMs?: number, level?: string): void {
     if (this.direction !== 'editor') throw new Error('requestGameControl is editor-side only');
-    // A debug command carries its name and arguments; a replay how long its answer may wait for the restart.
-    this.postLocal({ v: 2, type: 'tl.game.control', playSessionId, relayId, command, ...(sceneId !== undefined ? { sceneId } : {}), ...(debug !== undefined ? { name: debug.name, args: debug.args } : {}), ...(command === 'replay' && answerWithinMs !== undefined ? { answerWithinMs } : {}) });
+    // A debug command carries its name and arguments; a replay how long its answer may wait for the restart; setQuality its level.
+    this.postLocal({ v: 2, type: 'tl.game.control', playSessionId, relayId, command, ...(sceneId !== undefined ? { sceneId } : {}), ...(debug !== undefined ? { name: debug.name, args: debug.args } : {}), ...(command === 'replay' && answerWithinMs !== undefined ? { answerWithinMs } : {}), ...(command === 'setQuality' && level !== undefined ? { level } : {}) });
   }
 
   /** Request a game observation (editor side). */

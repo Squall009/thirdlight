@@ -250,8 +250,10 @@ export function makeInputRelayRequest(
  * Game control request forwarded to the owner editor. Never carries bytes
  * or a capability.
  */
-export function makeGameControlRequest(relayId: string, command: string, expectedRunId?: string, sceneId?: string, debug?: { name: string; args: Record<string, number | string | boolean> }, answerWithinMs?: number): string {
+export function makeGameControlRequest(relayId: string, command: string, expectedRunId?: string, sceneId?: string, debug?: { name: string; args: Record<string, number | string | boolean> }, answerWithinMs?: number, level?: string): string {
   const obj: Record<string, unknown> = { type: 'game.control.request', relayId, command };
+  // setQuality's level.
+  if (level !== undefined) obj.level = level;
   if (expectedRunId !== undefined) obj.expectedRunId = expectedRunId;
   // A replay answers once its restart is applied, or as pending after this long (inside the relay's timeout).
   if (answerWithinMs !== undefined) obj.answerWithinMs = answerWithinMs;

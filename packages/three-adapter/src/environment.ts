@@ -3,7 +3,7 @@
  * volumes, tone mapping and the post stack — shared by the editor's Scene
  * view and Play/export. It replaces `renderer.render(scene, camera)`.
  *
- * Pass order (each only when enabled and allowed by the quality level):
+ * Pass order (each only when the look enables it, after the quality level's changes):
  * render (ambient occlusion — SSAO or GTAO, `setRender` — darkening the
  * lit materials' indirect light) → fog volumes (from the scene pass's
  * depth) → depth of field → bloom → output (tone mapping + sRGB) → grading
@@ -22,8 +22,9 @@
  * `three/webgpu`'s generator, and the post stack a `RenderPipeline` (TSL
  * display nodes for GTAO, depth of field, bloom, SMAA and FXAA; the fog
  * volume and grading passes ported line by line from the archived GLSL). The
- * low quality level also draws without MSAA (its profile has no
- * anti-aliasing), through a plain scene pass. The WebGLRenderer version
+ * quality level (project-model quality-levels.ts) changes the look's post
+ * per effect, and a level without MSAA (the engine's low) draws through a
+ * plain scene pass. The WebGLRenderer version
  * (EffectComposer, `Sky.js`, GLSL passes) is archived
  * (`archive/webgl-renderer-17/`).
  *
@@ -31,6 +32,7 @@
  */
 import * as THREE from 'three';
 import { PMREMGenerator as NodePMREMGenerator, type WebGPURenderer } from 'three/webgpu';
+import { levelPost, qualityLevelOf, qualityLevelsOf, type QualityLevelConfig } from '@thirdlight/runtime';
 
 import { ScreenSpaceOcclusion } from './post-ao';
 import type { UpscaleFilter } from './post-upscale';
@@ -76,7 +78,10 @@ export interface EnvironmentLike {
   readonly sky?: SkyLike;
   readonly fog?: FogLike;
   readonly post?: PostLike;
-  readonly quality?: 'low' | 'medium' | 'high';
+  /** The level drawn, one of the levels' ids (absent: the highest). */
+  readonly quality?: string;
+  /** The project's quality levels (absent: the engine's low, medium and high). */
+  readonly qualityLevels?: readonly QualityLevelConfig[];
   /** The environment presets (the renderer draws a blend of them through `setBlend`). */
   readonly presets?: readonly { readonly presetId: string; readonly [field: string]: unknown }[];
 }
@@ -115,9 +120,9 @@ export function layerEnvironment<T extends EnvironmentLike & { readonly wind?: u
   return out as T;
 }
 
-/** True when an environment has anything the renderer draws (sky, fog, post or a quality level). */
-export function environmentHasLook(env: { readonly sky?: unknown; readonly fog?: unknown; readonly post?: unknown; readonly quality?: unknown; readonly wind?: unknown } | null | undefined): boolean {
-  return env !== null && env !== undefined && (env.sky !== undefined || env.fog !== undefined || env.post !== undefined || env.quality !== undefined);
+/** True when an environment has anything the renderer draws (sky, fog, post, a quality level or the levels). */
+export function environmentHasLook(env: { readonly sky?: unknown; readonly fog?: unknown; readonly post?: unknown; readonly quality?: unknown; readonly qualityLevels?: unknown; readonly wind?: unknown } | null | undefined): boolean {
+  return env !== null && env !== undefined && (env.sky !== undefined || env.fog !== undefined || env.post !== undefined || env.quality !== undefined || env.qualityLevels !== undefined);
 }
 /**
  * The texture assets an environment may name (a sky, its faces, the grading
@@ -150,27 +155,22 @@ export interface FogVolumeLike {
   readonly heightFalloff?: number;
 }
 
-export type QualityLevel = 'low' | 'medium' | 'high';
-
-/** What each quality level allows. */
-export const QUALITY_PROFILE: Readonly<Record<QualityLevel, { bloom: boolean; ssao: boolean; dof: boolean; fogVolumes: boolean; antialias: boolean }>> = {
-  low: { bloom: false, ssao: false, dof: false, fogVolumes: true, antialias: false },
-  medium: { bloom: true, ssao: false, dof: false, fogVolumes: true, antialias: true },
-  high: { bloom: true, ssao: true, dof: true, fogVolumes: true, antialias: true },
-};
+/** A quality level's id (the project's levels, or the engine's low, medium and high). */
+export type QualityLevel = string;
 
 /**
- * Most drawing-buffer pixels per CSS pixel a game view renders. A HiDPI or
- * scaled display (device pixel ratio 2) would otherwise draw four times the
- * pixels, every post pass included: an integrated GPU drops from a CPU-bound
- * ~40 fps to ~15 fps on a lit 3D scene. Anti-aliasing covers the edges.
+ * Most drawing-buffer pixels per CSS pixel a game view renders unless its
+ * quality level raises it. A HiDPI or scaled display (device pixel ratio 2)
+ * would otherwise draw four times the pixels, every post pass included: an
+ * integrated GPU drops from a CPU-bound ~40 fps to ~15 fps on a lit 3D
+ * scene. Anti-aliasing covers the edges.
  */
 export const MAX_RENDER_PIXEL_RATIO = 1;
 
-/** The pixel ratio a game view renders at on a display with `devicePixelRatio`. */
-export function renderPixelRatio(devicePixelRatio: number | undefined): number {
+/** The pixel ratio a game view renders at on a display with `devicePixelRatio` (`cap`: the quality level's). */
+export function renderPixelRatio(devicePixelRatio: number | undefined, cap: number = MAX_RENDER_PIXEL_RATIO): number {
   const dpr = typeof devicePixelRatio === 'number' && devicePixelRatio > 0 ? devicePixelRatio : 1;
-  return Math.min(dpr, MAX_RENDER_PIXEL_RATIO);
+  return Math.min(dpr, cap);
 }
 
 /**
@@ -208,7 +208,7 @@ export interface EnvironmentRenderer {
   /** Where the sun is, from the scene's directional light (its `direction`, pointing away from the sun). */
   setKeyLightDirection(direction: readonly [number, number, number] | null): void;
   setFogVolumes(volumes: readonly FogVolumeLike[]): void;
-  /** Override the level (a player setting); null = the environment's. */
+  /** Draw at this level (a player's setting, a game-control command); null = the environment's. An id the levels lack: the highest. */
   setQuality(level: QualityLevel | null): void;
   /** The render settings (unset parts keep their value). A scale change alone rebuilds nothing when `dynamic` is on. */
   setRender(options: Partial<RenderOptions>): void;
@@ -223,7 +223,7 @@ export interface EnvironmentRenderer {
   compileAsync(camera: THREE.Camera): Precompile;
   /** Canvas size in CSS pixels. */
   resize(width: number, height: number): void;
-  /** `samples` = the MSAA samples the scene is drawn with (0: none — the low level, or a post stack with its own anti-aliasing). */
+  /** `samples` = the MSAA samples the scene is drawn with (0: none — a level without MSAA, or a post stack with its own anti-aliasing). */
   diagnostics(): { post: boolean; passes: string[]; fallback: string | null; quality: QualityLevel; samples: number; iblRebakes: number; render: { ao: RenderOptions['ao']; scale: number; dynamic: boolean; upscale: UpscaleFilter | null; internal: [number, number] | null } };
   /** The MSAA samples of the last frame path (allocation-free, for a per-frame read). */
   samples(): number;
@@ -361,7 +361,22 @@ export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE
     }
     return p;
   };
-  const quality = (): QualityLevel => qualityOverride ?? env?.quality ?? 'high';
+  /**
+   * The level drawn: the override, else the project's (the environment `set`
+   * gave carries the levels; a blend's look need not).
+   */
+  const level = (): QualityLevelConfig => {
+    const project = baseEnv ?? env;
+    return qualityLevelOf(qualityLevelsOf(project), qualityOverride ?? project?.quality);
+  };
+  /** The look's post at the level (the same object while neither changes: no allocation per frame). */
+  let postMemo: { post: PostLike | undefined; level: QualityLevelConfig; out: PostLike | undefined } | null = null;
+  const postNow = (): PostLike | undefined => {
+    const p = env?.post;
+    const l = level();
+    if (postMemo === null || postMemo.post !== p || postMemo.level !== l) postMemo = { post: p, level: l, out: levelPost(p as Parameters<typeof levelPost>[0], l.post) as PostLike | undefined };
+    return postMemo.out;
+  };
 
   // ---- sky ---------------------------------------------------------------------
   const sunDirection = (sky: SkyLike): THREE.Vector3 => {
@@ -723,16 +738,15 @@ export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE
 
   // ---- post ----------------------------------------------------------------------
   const wanted = (): { bloom: boolean; ssao: boolean; dof: boolean; fogVolumes: boolean; grading: boolean; aa: 'none' | 'fxaa' | 'smaa' } => {
-    const p = env?.post;
-    const q = QUALITY_PROFILE[quality()];
+    const p = postNow();
     const g = p?.grading;
     return {
-      bloom: q.bloom && p?.bloom?.enabled === true,
-      ssao: q.ssao && p?.ssao?.enabled === true && render.ao !== 'off',
-      dof: q.dof && p?.dof?.enabled === true,
-      fogVolumes: q.fogVolumes && volumes.length > 0,
+      bloom: p?.bloom?.enabled === true,
+      ssao: p?.ssao?.enabled === true && render.ao !== 'off',
+      dof: p?.dof?.enabled === true,
+      fogVolumes: volumes.length > 0,
       grading: (g !== undefined && (g.brightness !== undefined || g.contrast !== undefined || g.saturation !== undefined || g.tint !== undefined || g.lut !== undefined || g.lift !== undefined || g.gamma !== undefined || g.gain !== undefined)) || p?.vignette?.enabled === true,
-      aa: q.antialias ? (p?.antialias ?? 'none') : 'none',
+      aa: p?.antialias ?? 'none',
     };
   };
 
@@ -746,24 +760,28 @@ export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE
   };
   const buildPipeline = (camera: THREE.Camera): void => {
     const w = wanted();
-    // The low level has no anti-aliasing: on WebGPURenderer that includes MSAA, so it draws
-    // through a plain scene pass (no samples) even without post effects.
-    const noMsaa = !QUALITY_PROFILE[quality()].antialias;
+    // A level without MSAA (the engine's low) draws through a plain scene pass (no samples) even
+    // without post effects: WebGPURenderer's own canvas pass always multisamples when it was made to.
+    const noMsaa = level().msaa === 0;
     const isPost = anyPost(w);
     // A render scale below 1 (or one dynamic resolution may lower) draws through the pipeline's upscale.
     const upscaling = render.scale < 1 || render.dynamic;
     // Without a post stack a colour or sRGB image background is shown as it is (not tone mapped,
     // as the archived WebGL renderer drew it); WebGPURenderer tone maps the whole frame, so the
-    // background gets its own pass.
+    // background gets its own pass. Not under a render scale: drawn at the scale into its own target
+    // that pass comes out black (both backends), so an upscaled frame draws its background as a post
+    // stack does (tone mapped with the scene).
     const bg = scene.background as (THREE.Color | THREE.Texture | null) & { isColor?: boolean; isTexture?: boolean };
-    const displayBackground = !isPost && renderer.toneMapping !== THREE.NoToneMapping && bg !== null && (bg.isColor === true || (bg.isTexture === true && (bg as THREE.Texture).colorSpace === THREE.SRGBColorSpace));
-    const post = env?.post;
+    const displayBackground = !isPost && !upscaling && renderer.toneMapping !== THREE.NoToneMapping && bg !== null && (bg.isColor === true || (bg.isTexture === true && (bg as THREE.Texture).colorSpace === THREE.SRGBColorSpace));
+    const post = postNow();
     // The numbers the passes take as uniforms (grading, vignette, bloom) are not part of
     // the key (nor the exposure, a renderer setting): a blend or an edit of them updates the built stack
     // (postParams) instead of rebuilding it.
     const structure = [post?.toneMapping ?? null, post?.grading?.lut ?? null, post?.ssao ?? null, post?.dof ?? null, post?.antialias ?? null];
     // The scale itself is not in the key: the built stack follows it in place.
-    const key = JSON.stringify({ w, structure, q: quality(), cam: camera.uuid, noMsaa, displayBackground, ao: w.ssao ? render.ao : null, upscale: upscaling ? render.upscale : null });
+    // The level is not in the key: what it changes (the wanted passes, the post, MSAA) is, so a level that draws the
+    // same stack rebuilds nothing.
+    const key = JSON.stringify({ w, structure, cam: camera.uuid, noMsaa, displayBackground, ao: w.ssao ? render.ao : null, upscale: upscaling ? render.upscale : null });
     if (key === composerKey) return;
     composerKey = key;
     disposePipeline();
@@ -827,7 +845,7 @@ export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE
   };
   /** The uniform numbers of the post stack from the drawn environment. */
   const postParams = (): Pick<PostPlan, 'grading' | 'bloom'> => {
-    const post = env?.post;
+    const post = postNow();
     const g = post?.grading;
     const w = wanted();
     return {
@@ -911,9 +929,9 @@ export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE
       volumes = list.slice(0, MAX_FOG_VOLUMES);
       if (changedCount) composerKey = '';
     },
-    setQuality(level) {
-      qualityOverride = level;
-      composerKey = '';
+    setQuality(id) {
+      // The next frame's key says whether the stack changes.
+      qualityOverride = id;
     },
     setRender(next) {
       const was = render;
@@ -963,7 +981,7 @@ export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE
         post: passNames.length > 0,
         passes: [...passNames],
         fallback,
-        quality: quality(),
+        quality: level().id,
         samples: samplesNow,
         iblRebakes,
         render: { ao: render.ao, scale: render.scale, dynamic: render.dynamic, upscale: upscaled ? render.upscale : null, internal: pipeline?.internalSize() ?? null },

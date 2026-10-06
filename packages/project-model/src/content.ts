@@ -12,7 +12,8 @@
 import { canonicalEventCues, validateEventCueReferences, validateEventCues } from './event-cues';
 import { canonicalShell, validateShell, validateShellReferences, type GameShell } from './shell';
 import { canonicalLoadable, ENV_PRESETS_LIST, RESOURCE_KIND_TABLE, validateLoadable } from './loadable';
-import { canonicalSaveSchema, validateSaveSchema } from './save-schema';
+import { canonicalSaveSchema, validateQualityBindings, validateSaveSchema } from './save-schema';
+import { qualityLevelsOf } from './quality-levels';
 import { canonicalDialogues, canonicalDialogueSettings, canonicalSpeakers, validateDialogueReferences, validateDialogues, validateDialogueSettings, validateSpeakers } from './dialogue';
 import { canonicalTimelines, validateTimelineReferences, validateTimelines, type TimelineAsset } from './timelines';
 import { animatorAssetIds, canonicalAnimators, validateAnimators, type AnimatorController } from './animator';
@@ -40,6 +41,7 @@ import {
   validateMaterials,
   validateMaterialInstances,
   resolveMaterial,
+  type EnvironmentConfig,
   type MaterialDef,
 } from './materials';
 import {
@@ -269,6 +271,10 @@ function validateContentV3Value(doc: Record<string, unknown>, version: 3 | 4 = 3
   if (version === 4 && doc['lightLayers'] !== undefined && !same('lightLayers')) validateLightLayerNames(doc['lightLayers'], '/lightLayers', errors);
   // The project save schema (v4).
   if (version === 4 && doc['saveSchema'] !== undefined && !same('saveSchema')) validateSaveSchema(doc['saveSchema'], '/saveSchema', errors);
+  // A settings field bound to the quality names the project's levels.
+  if (version === 4 && errors.length === 0 && doc['saveSchema'] !== undefined && !same('saveSchema', 'environment')) {
+    validateQualityBindings(doc['saveSchema'], qualityLevelsOf(doc['environment'] as EnvironmentConfig | undefined).map((l) => l.id), '/saveSchema', errors);
+  }
   if (!same('behaviors', 'scriptLibraries')) validateLibraryPinReferences(doc, errors);
   // Project UI documents and themes (v4), and what they reference.
   // A document's action map may be one of the project's own maps (input.maps).

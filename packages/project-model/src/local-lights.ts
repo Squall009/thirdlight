@@ -22,6 +22,9 @@
 import type { ModelErrorV2 } from './errors';
 import { fieldValue } from './validate';
 
+/** Most point + spot lights per scene: the forward-lighting cost per drawn light (a quality level may draw fewer). */
+export const MAX_LOCAL_LIGHTS = 16;
+
 /** An object's local-light modes. */
 export const LOCAL_LIGHT_MODES = ['pixel', 'vertex', 'none'] as const;
 export type LocalLightMode = (typeof LOCAL_LIGHT_MODES)[number];

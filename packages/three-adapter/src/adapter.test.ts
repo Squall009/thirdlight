@@ -82,6 +82,8 @@ describe('scene adapter surface (Node unit/mock-level)', () => {
       // The lights that are on (none here).
       'lights',
       'pixelRatio',
+      // The quality level drawn and its renderer settings.
+      'quality',
       'renderBackend',
       'rendererInfo',
       // The scene's Object3Ds by kind: only drawables and lights are in it.

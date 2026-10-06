@@ -44,7 +44,7 @@ import { Bridge } from './bridge';
 import { answerScreenshotWhenDrawn, answerScreenshotWithOverlay } from './screenshot-answer';
 import { awaitRestart } from './replay-answer';
 import { resolveRelayFrames, type IncomingRelayFrame } from './relay-frames';
-import { fitPlayDiagnostics } from '@thirdlight/protocol';
+import { fitPlayDiagnostics, type GameControlCommand } from '@thirdlight/protocol';
 
 /** Three's Draco and Basis decoders on the preview origin. */
 const PREVIEW_DECODER_BASE = '/decoders/';
@@ -604,6 +604,9 @@ export function bootstrapPreviewM3(): void {
     } else if (body.command === 'loadScene' || body.command === 'unloadScene') {
       const s = handle.host.scene(body.command === 'loadScene' ? 'load' : 'unload', String(body.sceneId ?? ''));
       r = s.ok ? acceptedNow() : s;
+    } else if (body.command === 'setQuality') {
+      // The level drawn for the rest of this play (presentation: not the simulation's input).
+      r = handle.host.setQuality?.(String(body.level ?? '')) ?? { ok: false, error: { code: 'game_command_invalid', message: 'this play cannot change its quality level' } };
     } else {
       r = handle.host.control(body.command);
     }
@@ -709,14 +712,15 @@ function shownStepOf(h: M3PreviewHandle): number {
   return o.ok ? o.observation.stepIndex : -1;
 }
 
-/** A relayed game control request (`debugCommand` with its name and arguments; a replay how long its answer may wait). */
+/** A relayed game control request (`debugCommand` with its name and arguments; a replay how long its answer may wait; setQuality its level). */
 interface ControlBody {
   relayId: string;
   answerWithinMs?: number;
-  command: 'replay' | 'mute' | 'unmute' | 'loadScene' | 'unloadScene' | 'clearSave' | 'debugPause' | 'debugResume' | 'debugStep' | 'debugCommand';
+  command: GameControlCommand;
   sceneId?: string;
   name?: string;
   args?: Record<string, number | string | boolean>;
+  level?: string;
 }
 
 /**

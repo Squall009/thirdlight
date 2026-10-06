@@ -46,6 +46,7 @@ import {
   positionLocal,
   pow,
   renderOutput,
+  rtt,
   select,
   smoothstep,
   texture,
@@ -251,6 +252,18 @@ export function buildPostPipeline(renderer: WebGPURenderer, scene: THREE.Scene, 
     scaled.push(t);
     return t.node;
   };
+  /**
+   * `c` as a texture node a display node samples. Given anything else, three's display nodes (SMAA, FXAA, depth
+   * of field) draw it into a target of their own (`convertToTexture`) that their `dispose` never frees, so each
+   * rebuilt stack would keep the last one's: the pipeline makes that target here and frees it with itself.
+   */
+  const asTexture = (c: N): N => {
+    if (c.isTextureNode === true || c.isSampleNode === true) return c;
+    if (c.isPassNode === true) return c.getTextureNode();
+    const t: N = rtt(c);
+    disposables.push(t);
+    return t;
+  };
   const wantsAo = plan.ao !== null && perspective && aoLight !== null;
   // The MRT node is kept so the render contexts drawn with it can be released with the pipeline.
   const sceneMrt: unknown = wantsAo ? mrt({ output, normal: normalView }) : null;
@@ -343,7 +356,7 @@ export function buildPostPipeline(renderer: WebGPURenderer, scene: THREE.Scene, 
   if (plan.dof !== null && perspective) {
     dofPlan = plan.dof;
     const focalLength = dofPlan.maxBlur / Math.max(1e-6, dofPlan.aperture);
-    const dofNode: N = dof(upscaling ? atRenderScale(color) : color, scenePass.getViewZNode(), uniform(dofPlan.focus), uniform(focalLength), bokehScale);
+    const dofNode: N = dof(upscaling ? atRenderScale(color) : asTexture(color), scenePass.getViewZNode(), uniform(dofPlan.focus), uniform(focalLength), bokehScale);
     disposables.push(dofNode);
     color = dofNode;
     passes.push('dof');
@@ -426,12 +439,12 @@ export function buildPostPipeline(renderer: WebGPURenderer, scene: THREE.Scene, 
   // Under a render scale the picture is drawn at the scale up to here (anti-aliasing included: FSR 1 wants an
   // anti-aliased input), then upscaled.
   if (plan.aa === 'smaa') {
-    const n: N = upscaling ? atScale(smaa(atRenderScale(color)), () => scale) : smaa(color);
+    const n: N = upscaling ? atScale(smaa(atRenderScale(color)), () => scale) : smaa(asTexture(color));
     disposables.push(n);
     color = upscaling ? n.getTextureNode() : n;
     passes.push('smaa');
   } else if (plan.aa === 'fxaa') {
-    const n: N = fxaa(upscaling ? atRenderScale(color) : color);
+    const n: N = fxaa(upscaling ? atRenderScale(color) : asTexture(color));
     disposables.push(n);
     color = upscaling ? atRenderScale(n) : n;
     passes.push('fxaa');

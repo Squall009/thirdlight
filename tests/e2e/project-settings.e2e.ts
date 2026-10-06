@@ -1,9 +1,9 @@
 /**
  * The Project Settings window in a real browser against the real backend:
  * File → Project Settings… opens one full window over the editor; each
- * sub-tab (Gameplay, Input, Tags, Collision layers, Quality, Saves, Game
- * modes, Game shell, Scripts) shows its panel and an edit in it reaches the
- * backend (read back over HTTP); the search filters the sub-tabs; Esc and ×
+ * sub-tab (Gameplay, Input, Tags, Collision layers, Quality — its quality
+ * levels too —, Saves, Game modes, Game shell, Scripts) shows its panel and an
+ * edit in it reaches the backend (read back over HTTP); the search filters the sub-tabs; Esc and ×
  * return to the editor; the bottom dock lists no settings (they have one
  * place); opening
  * a script from Scripts brings the editor window to the front.
@@ -88,6 +88,24 @@ test('Project Settings: every sub-tab shows its panel and its edits round-trip t
   await expect(level).toHaveValue('high');
   await level.selectOption('low');
   await expect.poll(() => (content()['environment'] as { quality?: string } | undefined)?.quality).toBe('low');
+  // Quality levels: the engine's three until the project customizes them; a level's fields round-trip, a new level
+  // joins the starting-level choice, and the starting level stays.
+  type Env = { quality?: string; qualityLevels?: { id: string; renderScale?: number; shadowMapSize?: number; post?: { ssao?: { enabled?: boolean } } }[] };
+  const env = (): Env => (content()['environment'] ?? {}) as Env;
+  const levels = panel('Quality').getByLabel('quality levels', { exact: true });
+  await expect(levels.getByLabel('engine quality levels')).toBeVisible();
+  await levels.getByRole('button', { name: 'customize quality levels' }).click();
+  await expect.poll(() => env().qualityLevels?.map((l) => l.id)).toEqual(['low', 'medium', 'high']);
+  const lowScale = levels.getByLabel('level 1 renderScale', { exact: true });
+  await lowScale.fill('0.5');
+  await lowScale.press('Enter');
+  await expect.poll(() => env().qualityLevels?.[0]?.renderScale).toBe(0.5);
+  await levels.getByLabel('level 2 shadowMapSize', { exact: true }).selectOption('1024');
+  await expect.poll(() => env().qualityLevels?.[1]?.shadowMapSize).toBe(1024);
+  await levels.getByRole('button', { name: 'add quality level' }).click();
+  await expect.poll(() => env().qualityLevels?.map((l) => l.id)).toEqual(['low', 'medium', 'high', 'level4']);
+  await expect(level.locator('option')).toHaveText(['Low', 'Medium', 'High', 'level4']);
+  expect(env().quality).toBe('low');
   const quality = panel('Quality').getByLabel('quality settings');
   await expect(quality.getByLabel('settings run_speed', { exact: true })).toHaveCount(0);
   await expect(quality.getByLabel('settings render_backend', { exact: true })).toBeVisible();

@@ -833,7 +833,7 @@ export function makePlayRoutes(ctx: PlayRoutesContext) {
     const relayId = `relay-${hex(16)}`;
     // A replay answers once its restart is applied, or says it is pending while the relay still waits.
     const answerWithinMs = parsedReq.request.command === 'replay' ? relayAnswerWithinMs(relayTimeoutMs()) : undefined;
-    const payload = makeGameControlRequest(relayId, parsedReq.request.command, parsedReq.request.expectedRunId, parsedReq.request.sceneId, parsedReq.request.name !== undefined ? { name: parsedReq.request.name, args: parsedReq.request.args ?? {} } : undefined, answerWithinMs);
+    const payload = makeGameControlRequest(relayId, parsedReq.request.command, parsedReq.request.expectedRunId, parsedReq.request.sceneId, parsedReq.request.name !== undefined ? { name: parsedReq.request.name, args: parsedReq.request.args ?? {} } : undefined, answerWithinMs, parsedReq.request.level);
     const outcome: GameRelayOutcome = await plays.relayGame(rec.playSessionId, 'control', relayId, payload, relayTimeoutMs());
     if (outcome.ok) {
       sessions.record(owner, 'play', relayId, rec.revision, nowMs(), 'game_control');

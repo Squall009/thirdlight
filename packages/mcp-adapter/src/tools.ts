@@ -279,7 +279,7 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       'calls may not form a cycle; a function whose ports are wired in a material cannot drop them). Each scene has its own look: setEnvironment {sceneId, environment: {wind?: ' +
       '{direction: [x, z], strength, gust, gustFrequency, turbulence}, sky?: {mode: procedural|gradient|texture|color, ...}, fog?: {mode: none|linear|exp2, color, near?, far?, density?}, ' +
       'post?: {toneMapping?, exposure?, bloom?, grading?: {brightness?, contrast?, saturation?, tint?, lut?, lift? -0.5..0.5, gamma? 0.2..5, gain? 0..4}, vignette?, ssao?, dof?, antialias?}}} replaces that scene\'s look ({} = the engine defaults; with several scenes loaded the active scene\'s applies; tl_inspect target=project environments=true lists the looks); ' +
-      'setEnvironment {environment: {quality?, presets?: [{presetId, name, sky?, fog?, post?, lights?: [{entity|tag|type, color?, intensity?, direction?, groundColor?}], lightmap?: {intensity?, tint?}}]}} (no sceneId) sets the project\'s default quality and the presets (named looks laid over the active scene\'s, scripts switch/blend to them with ctx.environment.set(id, {blend, easing, override}) / blend(a, b, t); tl_game_observe reports environment {target, progress, weights}) ' +
+      'setEnvironment {environment: {quality?, qualityLevels?: [{id, name?, post?: {bloom?, ssao?, dof? (fields over the look\'s where the look has the effect on; enabled: false turns it off; never turns one on), antialias?}, renderScale? 0.5-1, pixelRatio? 1-2, msaa? 0|4, shadowMapSize? 256-4096 (largest shadow map), localLights? 0-16, ambientOcclusion? off|ssao|gtao, lodBias? 0.25-4, dynamicResolution?}] (lowest first; absent: low/medium/high; each unset setting is the project\'s), presets?: [{presetId, name, sky?, fog?, post?, lights?: [{entity|tag|type, color?, intensity?, direction?, groundColor?}], lightmap?: {intensity?, tint?}}]}} (no sceneId; replaces the project\'s part whole) sets the project\'s quality levels, the level a game starts at and the presets (named looks laid over the active scene\'s, scripts switch/blend to them with ctx.environment.set(id, {blend, easing, override}) / blend(a, b, t); tl_game_observe reports environment {target, progress, weights}) ' +
       '(the foliage shader bends by COLOR_0.r); a fogVolume component {size, density, color, falloff?, heightFalloff? per m (density fades above the box bottom)}. Cameras: a virtualCamera component {rig: follow|orbitPoint|topDown|fixed|rail, priority?, enabled?, target? (entity), targetOffset?, distance?, yaw?, pitch?, pitchMin/Max?, yawAction?/pitchAction?/zoomAction?/turnLeftAction?/turnRightAction? (input action names), yawStep?, turnTime?, point?, collision?, damping?, path? (rail: the entity with a cameraPath {points: [[x,y,z]...], closed?, smooth?}), progress?, railSpeed?, railMode?, fovY?, near?, far?, blend?: cut|linear|eased, blendTime?, letterbox?, shakeAmplitude?/Frequency?/Rotation?} — the enabled one with the highest priority is live (scripts: ctx.camera); tl_game_observe reports the resolved camera. Sockets: a socketAttach component {target (an entity with a model), node (a node/bone name of its model), position?, rotation?, scale? (offset in the node space), attached? (default true)} — the object rides on that node every step (scripts: ctx.sockets.attach/detach, ctx.animator(id).setSpeed); tl_game_observe reports sockets [{entityId, target, node, position}]. setLighting {sceneId, ' +
       'lighting: null} clears a scene\'s baked lightmaps and probes (bakes are made in the editor\'s Lighting window; probes there with "Bake probes", WebGPU only); a probeVolume component {size [w,h,d] m, spacing? m} sets where the probe bake puts probes (none: over the static objects). Animation: setAnimator {controller: ' +
       '{controllerId, name, parameters: [{name, type: float|int|bool|trigger, default?}], states: [{id, name, motion: {kind: "clip", clip: ' +
@@ -722,6 +722,7 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       'debugCommand with name and args runs a project debug command - one a script declared with ctx.debug.command(name, {description, args: [{name, type: number|string|boolean, optional}]}, handler?) - ' +
       'inside the next simulation step as part of its input (a recording replays it; tl_game_observe lists debugCommands {registered, applied [{stepIndex, name, args}]}); ' +
       'refused (game_command_invalid) when no script declared it or the args do not match); ' +
+      'setQuality with level draws the play at that quality level from now on (one of the project\'s environment.qualityLevels ids, else low | medium | high) to compare levels in one session - presentation only (not the simulation\'s input, not the player\'s saved setting); refused (game_command_invalid) when the project has no such level; tl_diagnostics renderer.quality {level, levels, source, pixelRatioCap, shadowMapSize, localLights, lodBias, keyShadowMapSize}, renderer.render {ambientOcclusion, renderScale, …} and renderer.environment {passes, samples} show what it draws; ' +
       '{signal: name} (command signal) emits a signal as a script\'s ctx.signals.emit would - switches, movers, timelines, effects, event sounds and scripts see it in the step the call rides on - sent as the engine\'s signal debug command (input of the next step: a recording replays it; debugCommands.applied lists it); signals carry no value, so value is refused; ' +
       'all go to an explicitly presented play ' +
       'session. expectedRunId is an optional optimistic guard (<snapshotId>#<replayEpoch>); a mismatch is refused ' +
@@ -740,6 +741,7 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
         sceneId: { type: 'string', description: 'loadScene / unloadScene: the scene' },
         name: { type: 'string', description: 'debugCommand: the debug command a script declared' },
         args: { type: 'object', description: 'debugCommand: its arguments by name (numbers, text up to 256 characters, true/false; at most 8)', additionalProperties: { type: ['number', 'string', 'boolean'] } },
+        level: { type: 'string', description: 'setQuality: the quality level id' },
       },
       required: ['playSessionId'],
       additionalProperties: false,
@@ -1467,7 +1469,7 @@ async function gameControl(ctx: McpContext, a: Record<string, unknown>): Promise
   if (command === SIGNAL_DEBUG_COMMAND_NAME) {
     if (a.value !== undefined) return toolError('signals carry no value (ctx.signals.emit takes a name only); give scripts a value with a debugCommand or a script message');
     if (typeof a.signal !== 'string' || a.signal.length === 0) return toolError('signal (the signal name) is required for command signal');
-    if (a.name !== undefined || a.args !== undefined || a.sceneId !== undefined) return toolError('signal takes the signal name only');
+    if (a.name !== undefined || a.args !== undefined || a.sceneId !== undefined || a.level !== undefined) return toolError('signal takes the signal name only');
     a = { ...a, command: 'debugCommand', name: SIGNAL_DEBUG_COMMAND_NAME, args: { name: a.signal } };
   } else if (a.signal !== undefined) {
     return toolError('signal goes with command signal only');
@@ -1495,6 +1497,12 @@ async function gameControl(ctx: McpContext, a: Record<string, unknown>): Promise
     }
   } else if (a.name !== undefined || a.args !== undefined) {
     return toolError('name and args go with debugCommand only');
+  }
+  if (a.command === 'setQuality') {
+    if (typeof a.level !== 'string' || a.level.length === 0) return toolError('level (a quality level id) is required for setQuality');
+    body.level = a.level;
+  } else if (a.level !== undefined) {
+    return toolError('level goes with setQuality only');
   }
   const res = await ctx.client.gameControl(ctx.projectId, playSessionId, body);
   return isObj(res.body) && res.body.ok === true ? toolOk(res.body) : surfaceBackendError(res);

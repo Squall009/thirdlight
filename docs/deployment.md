@@ -326,7 +326,7 @@ window), **Console** and **Problems** (Window menu lists just those).
   timeline, conversation or UI document on its scene at the editor's
   resolution.
 - **File → Project Settings…** is one full window with sub-tabs: Gameplay,
-  Input, Tags, Collision layers, Quality (the quality level and the texture
+  Input, Tags, Collision layers, Quality (the quality levels, the starting level and the texture
   budget), Audio (event sounds), Dialogue (speakers, dialogue settings),
   Saves, Game modes, Game shell and Scripts (trust and publication). Its
   search filters the sub-tabs by name and by the settings they hold.
@@ -3172,7 +3172,7 @@ Project Settings → **Saves** (MCP: `setSaveSchema {schema | null}`):
   defaults, which the game's own settings screen writes with
   `ctx.saves.setSetting(key, value)` and reads with `ctx.saves.setting(key)`.
   A field may drive an engine setting — music, sound or menu volume (a 0–1
-  number) or quality (a choice of low/medium/high) — which applies at once.
+  number) or quality (a choice of the project's quality level ids: low/medium/high unless it lists its own) — which applies at once.
   It is kept in the player's browser (localStorage, per project) and the
   game starts with it.
 
@@ -3387,6 +3387,52 @@ Play diagnostics report `renderer.render` (`ambientOcclusion`, `renderScale`,
 `dynamicResolution`, the `scale` drawn now, `internal`: the scene's size in
 pixels, and dynamic resolution's state: its source `gpu` or `frame`, the last
 load, steps down and up).
+
+**Quality levels.** A project lists its own quality levels in **Project
+Settings → Quality → Quality levels** (`environment.qualityLevels`, lowest
+first; *Customize levels* starts from the engine's three); a project that
+lists none has the engine's low (no bloom, ambient occlusion, depth of field,
+anti-aliasing or MSAA), medium (no ambient occlusion or depth of field) and
+high (the look as authored), as before. *Starting level* is
+`environment.quality` (absent: the highest). Each level has an `id` (what a
+player's setting and game control name), a `name`, and changes only what it
+sets:
+
+- `post` — per effect (`bloom`, `ssao`, `dof`) the fields it lays over each
+  scene's look *where the look has the effect on* (a smaller AO radius, a
+  weaker bloom); `enabled: false` (Off) turns the effect off; `antialias`
+  replaces the look's kind where the look has anti-aliasing (`none`: off). A
+  level never turns on an effect or anti-aliasing the look leaves off, and
+  tone mapping, exposure and grading stay the look's.
+- renderer settings — `renderScale` (0.5–1), `pixelRatio` (1–2: the most
+  drawing-buffer pixels per CSS pixel; absent 1), `msaa` (0 or 4 — WebGPU
+  multisamples at 4 only; absent: the renderer's), `shadowMapSize` (512–4096:
+  the largest shadow map any light draws; a light's larger own size is lowered
+  to it), `localLights` (0–16 point and spot lights drawn at once),
+  `ambientOcclusion` (off/ssao/gtao), `lodBias` (0.25–4, over `lod_bias`) and
+  `dynamicResolution`. What a level leaves out is the project's setting; a
+  player's settings field bound to `renderScale`, `ambientOcclusion` or
+  `dynamicResolution` lays over the level, and the page flags (`?ao=`,
+  `?renderScale=`, `?dynamicResolution=`) over everything.
+
+The player's quality setting picks the level: a settings field bound with
+`engine: 'quality'` (an enum of the project's level ids — the project check
+refuses one it lacks), or the game shell's quality setting, which steps
+through the levels in order. A running Play switches level for the rest of
+the session with game control — `tl_game_control {command: 'setQuality',
+level}` or `POST …/play/<id>/control {"command":"setQuality","level":"low"}`
+(presentation only: not simulation input, not the player's saved setting;
+a level the project lacks is refused) — to compare levels in one session.
+Scripts read the level drawn in `ctx.stats.quality` (UI documents:
+`$flow.stats.quality`). Play diagnostics report `renderer.quality` (`level`,
+`levels`, `source` page/chosen/project/highest, `pixelRatioCap`,
+`shadowMapSize`, `localLights`, `lodBias`, `keyShadowMapSize`: the key light's
+map as drawn) beside `renderer.render` and `renderer.environment` (passes,
+samples). The page flag `?quality=<id>` pins a level (the perf harness's
+`--switches quality=low`). The Scene view draws the starting level at full
+resolution. A level change rebuilds the post stack only when the passes
+change and frees the old one; shadow-casting lights are made again at the new
+size.
 
 ## Grading and fog volumes
 
@@ -4965,10 +5011,11 @@ page needs no extra headers for this (no SharedArrayBuffer is used). Numbers
   the next frame. A Scene view lent to an editor window's preview pane keeps
   drawing there.
 - *MSAA is the quality level's choice.* The environment's (or the player's)
-  quality level decides: low draws without MSAA, medium and high with it
-  (a post stack uses its own anti-aliasing instead). The Scene view follows
-  the project's level with the editor lighting too, and Play applies a
-  player's level also in projects without an environment.
+  quality level decides: the engine's low draws without MSAA, medium and high
+  with it, and a project's level says with `msaa` (a post stack uses its own
+  anti-aliasing instead). The Scene view follows the project's level with the
+  editor lighting too, and Play applies a player's level also in projects
+  without an environment.
 - *Textures.* Decoded textures get mipmaps (three's default trilinear
   filtering); imported GLB files may carry KTX2/Basis textures (read by the
   importer and transcoded in the browser). Since 25.19 the backend encodes

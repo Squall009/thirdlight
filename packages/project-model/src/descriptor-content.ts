@@ -37,6 +37,10 @@ import { BLOCK_LIMITS, BLOCK_UV_MODES } from './block-layers';
 import { DEFAULT_WIND, MATERIAL_PARAMS, MATERIAL_SHADERS, MATERIAL_TEXTURE_SLOTS, MAX_MATERIAL_PARAMETERS, MAX_MATERIAL_SLOTS, type MaterialParamType } from './materials';
 import { MATERIAL_DATA_MAX, MATERIAL_PARAMETER_TYPES } from './material-graph-kinds';
 import { MODE_LIMITS } from './modes';
+import { MAX_LOCAL_LIGHTS } from './local-lights';
+import { LOD_BIAS_MAX, LOD_BIAS_MIN } from './model-lod';
+import { MSAA_SAMPLE_COUNTS, PIXEL_RATIO_CAP_MAX, PIXEL_RATIO_CAP_MIN, QUALITY_POST_EFFECTS, SHADOW_MAP_SIZES } from './quality-levels';
+import { AMBIENT_OCCLUSION_KINDS, RENDER_SCALE_MAX, RENDER_SCALE_MIN } from './render-settings';
 import { MAX_TAGS } from './types-v3';
 import { asset, bool, color, enm, entity, ID, int, json, list, map, NAME, num, obj, ref, scene, str, vec2, vec3, when } from './descriptor-builders';
 import { ASSET_KINDS, type ContentBlockDescriptor, type DescriptorJson, type DescriptorUnit, type FieldDescriptor, type ListFieldDescriptor, type ObjectFieldDescriptor } from './descriptor-types';
@@ -148,8 +152,38 @@ const PRESET = obj('*', 'Preset', 'A named look: sky, fog, post-processing, ligh
   ]),
 ], { rules: ['Preset ids are unique.'] });
 
-const ENVIRONMENT: FieldDescriptor = obj('environment', 'Environment', 'The default quality and the presets; each scene has its own sky, fog, post-processing and wind.', [
-  enm('quality', 'Quality', 'The default graphics quality (players change it in Settings).', ['low', 'medium', 'high'], { default: 'high' }),
+/**
+ * A quality level's post-processing: the look's effects it may change, each
+ * effect's `enabled` optional (off turns the effect off at the level; a level
+ * never turns one on).
+ */
+const LEVEL_POST = obj(
+  'post',
+  'Post-processing',
+  'Per effect, what this level changes where the look has it on; Off turns it off (never on).',
+  POST.fields
+    .filter((f) => (QUALITY_POST_EFFECTS as readonly string[]).includes(f.key) || f.key === 'antialias')
+    .map((f) => (f.type === 'object' ? { ...f, fields: f.fields.map((x) => (x.key === 'enabled' ? bool('enabled', 'On', 'Off: off at this level.', { default: true }) : x)) } : f)),
+);
+
+/** One quality level (quality-levels.ts): the look's post per effect and renderer settings, each absent one the project's. */
+const QUALITY_LEVEL = obj('level', 'Quality level', 'Graphics settings players pick from.', [
+  str('id', 'Id', 'Named by environment.quality, a player\'s setting and game-control setQuality.', { required: true, minLength: 1, maxLength: 32 }),
+  str('name', 'Name', 'Shown to players (absent: the id).', { minLength: 1, maxLength: 64 }),
+  LEVEL_POST,
+  num('renderScale', 'Render scale', 'Drawn at this share of the resolution, FSR 1 upscaled (absent: render_scale).', { min: RENDER_SCALE_MIN, max: RENDER_SCALE_MAX, step: 0.05 }),
+  num('pixelRatio', 'Pixel ratio cap', 'Most pixels per CSS pixel on HiDPI displays (absent: 1).', { min: PIXEL_RATIO_CAP_MIN, max: PIXEL_RATIO_CAP_MAX, step: 0.25 }),
+  int('msaa', 'MSAA', 'Multisampling without a post stack (absent: 4).', { values: [...MSAA_SAMPLE_COUNTS], valueLabels: MSAA_SAMPLE_COUNTS.map((n) => (n === 0 ? 'Off' : `${n}×`)) }),
+  int('shadowMapSize', 'Largest shadow map', 'Larger light shadow maps are lowered to it (absent: each light\'s own).', { values: [...SHADOW_MAP_SIZES] }),
+  int('localLights', 'Local lights', `Point and spot lights drawn at once (absent: ${MAX_LOCAL_LIGHTS}).`, { min: 0, max: MAX_LOCAL_LIGHTS }),
+  enm('ambientOcclusion', 'Ambient occlusion', 'Where a look has AO (absent: ambient_occlusion).', [...AMBIENT_OCCLUSION_KINDS], { labels: { off: 'Off', ssao: 'SSAO', gtao: 'GTAO' } }),
+  num('lodBias', 'LOD bias', 'Above 1 keeps finer LODs further (absent: lod_bias).', { min: LOD_BIAS_MIN, max: LOD_BIAS_MAX, step: 0.05 }),
+  bool('dynamicResolution', 'Dynamic resolution', 'Lower the scale while the GPU is over budget (absent: dynamic_resolution).'),
+], { rules: ['Level ids are unique.'] });
+
+const ENVIRONMENT: FieldDescriptor = obj('environment', 'Environment', 'The quality levels, the one a game starts at, and the presets; each scene has its own sky, fog, post-processing and wind.', [
+  str('quality', 'Quality', 'The quality level a game starts at, one of the levels\' ids (players change it in Settings; absent: the highest).', { minLength: 1 }),
+  list('qualityLevels', 'Quality levels', 'The project\'s quality levels, lowest first (absent: the engine\'s low, medium and high: low draws no bloom, AO, depth of field, anti-aliasing or MSAA; medium no AO or depth of field).', QUALITY_LEVEL, { minItems: 1 }),
   list('presets', 'Presets', 'Named looks scripts switch or blend to at run time (ctx.environment), laid over the active scene\'s look.', PRESET, { maxItems: 64 }),
 ]);
 
@@ -394,7 +428,7 @@ const SETTINGS: FieldDescriptor = obj('settings', 'Gameplay settings', 'The play
 }), { required: true, default: {}, rules: ['min_slope_slide_deg ≤ max_slope_climb_deg'] });
 
 export const CONTENT: readonly ContentBlockDescriptor[] = [
-  { key: 'environment', label: 'Environment', tooltip: 'The default quality and the environment presets (each scene has its own look).', required: false, value: ENVIRONMENT, ops: ['setEnvironment'] },
+  { key: 'environment', label: 'Environment', tooltip: 'The quality levels, the default level and the environment presets (each scene has its own look).', required: false, value: ENVIRONMENT, ops: ['setEnvironment'] },
   { key: 'input', label: 'Input', tooltip: 'Actions and their bindings.', required: false, value: INPUT, ops: ['setInput'] },
   { key: 'materials', label: 'Materials', tooltip: 'Project materials.', required: false, value: list('materials', 'Materials', 'The project\'s materials (each its own file).', MATERIAL_ITEM, { default: [] }), ops: ['setMaterial', 'deleteMaterial'] },
   { key: 'animators', label: 'Animator controllers', tooltip: 'State machines for model animation.', required: false, value: list('animators', 'Animator controllers', 'The project\'s controllers (each its own file).', ANIMATOR_ITEM, { default: [] }), ops: ['setAnimator', 'deleteAnimator'] },

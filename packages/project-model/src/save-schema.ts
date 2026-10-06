@@ -32,6 +32,7 @@
  */
 import type { ModelErrorV2 } from './errors';
 import { FRAME_RATE_CAP_CHOICES } from './frame-rate-cap';
+import { QUALITY_LEVEL_ID_RE } from './quality-levels';
 import { AMBIENT_OCCLUSION_KINDS, RENDER_SCALE_MAX, RENDER_SCALE_MIN } from './render-settings';
 import { utf8Encode } from './sha256';
 import { fieldType, unexpectedField, withFound } from './validate';
@@ -128,7 +129,7 @@ export interface SettingsField {
   /** enum: the choices. */
   values?: string[];
   /**
-   * An engine setting this field drives (music/sfx/ui: a number 0–1; quality: an enum of low/medium/high; frameRateCap: an enum of 30/60/120/none;
+   * An engine setting this field drives (music/sfx/ui: a number 0–1; quality: an enum of the project's quality level ids (low/medium/high unless it lists its own); frameRateCap: an enum of 30/60/120/none;
    * ambientOcclusion: an enum of off/ssao/gtao; renderScale: a number within 0.5–1; dynamicResolution: a bool).
    */
   engine?: SettingsEngineBinding;
@@ -152,7 +153,6 @@ const KEY_RE = /^[A-Za-z_][A-Za-z0-9_]{0,31}$/;
 const MIGRATION_NAME_RE = /^[A-Za-z_][A-Za-z0-9_.:-]{0,63}$/;
 const SCHEMA_KEYS = new Set(['version', 'slots', 'migrations', 'sections', 'legacyWorld', 'thumbnail', 'settings']);
 const FIELD_KEYS = new Set(['key', 'type', 'default', 'label', 'min', 'max', 'values', 'engine']);
-const QUALITY = ['low', 'medium', 'high'];
 
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const intIn = (v: unknown, lo: number, hi: number): v is number => typeof v === 'number' && Number.isInteger(v) && v >= lo && v <= hi;
@@ -209,7 +209,8 @@ function validateField(f: unknown, path: string, errors: ModelErrorV2[]): void {
     } else if (engine === 'dynamicResolution') {
       if (type !== 'bool') errors.push(bad(`${path}/engine`, engine, 'a field driving dynamic resolution is a bool', 'a bool field'));
     } else if (engine === 'quality') {
-      if (type !== 'enum' || !Array.isArray(f['values']) || !f['values'].every((v) => QUALITY.includes(v as string))) errors.push(bad(`${path}/engine`, engine, 'a field driving the quality is an enum of low, medium and/or high', 'an enum of low | medium | high'));
+      // Which levels the project has is the environment's (content.ts checks the two together).
+      if (type !== 'enum' || !Array.isArray(f['values']) || !f['values'].every((v) => typeof v === 'string' && QUALITY_LEVEL_ID_RE.test(v))) errors.push(bad(`${path}/engine`, engine, 'a field driving the quality is an enum of quality level ids (the project\'s levels: low, medium and high unless it lists its own)', 'an enum of level ids'));
     } else if (type !== 'number' || (f['min'] !== undefined && (f['min'] as number) < 0) || (f['max'] !== undefined && (f['max'] as number) > 1)) {
       errors.push(bad(`${path}/engine`, engine, 'a field driving a volume is a number within 0–1', 'a number field (min ≥ 0, max ≤ 1)'));
     }
@@ -338,4 +339,18 @@ export function effectiveField(f: SettingsField): SettingsField {
 export function saveWorldMode(s: Pick<SaveSchema, 'sections' | 'legacyWorld'>): 'section' | 'legacy' | 'off' {
   if (s.sections?.includes('world') === true) return 'section';
   return s.legacyWorld === false ? 'off' : 'legacy';
+}
+
+/**
+ * The settings fields bound to the quality name only the project's levels
+ * (`environment.qualityLevels`, else the engine's low, medium and high).
+ */
+export function validateQualityBindings(saveSchema: unknown, levelIds: readonly string[], path: string, errors: ModelErrorV2[]): void {
+  const fields = isObj(saveSchema) && Array.isArray(saveSchema['settings']) ? (saveSchema['settings'] as unknown[]) : [];
+  fields.forEach((f, i) => {
+    if (!isObj(f) || f['engine'] !== 'quality' || !Array.isArray(f['values'])) return;
+    for (const v of f['values']) {
+      if (!levelIds.includes(v as string)) errors.push(bad(`${path}/settings/${i}/values`, v, `"${String(v)}" is not one of the project's quality levels (${levelIds.join(', ')})`, levelIds.join(' | ')));
+    }
+  });
 }
