@@ -1089,6 +1089,8 @@ export {
   type SurfaceGrid,
   type SurfaceHit,
 } from './block-surface';
+// A prop's block footprint: the cells beneath it and the meta edits that move it.
+export { footprintCells, footprintEdits, footprintMinCell, overLayer, turnedSize, yawQuarterTurns, type FootprintLayer } from './block-footprint';
 export { PNG_DECODE_MAX_PIXELS, decodeBase64, decodePngRgba, encodeBase64, inflateZlib, type DecodedPng, type PngDecodeOptions } from './png-decode';
 // The project save schema (save document, slots, sections, settings document).
 export {

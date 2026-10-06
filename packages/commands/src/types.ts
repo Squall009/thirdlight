@@ -563,6 +563,8 @@ export interface EditBlocksChange {
   chunks: [number, number][];
   regions: string[];
   cells: number;
+  /** Columns whose top row moved under the command's `surface` / `sculpt` edits (absent: it had none). */
+  rebased?: number;
 }
 
 /** undo/redo of `editBlocks` — the layer's whole entry before and after (null = none). */
@@ -1366,6 +1368,8 @@ export interface HistoryEntry {
   change: ForwardChange;
   /** Inverse spec. */
   inverse: InverseSpec;
+  /** The block layers props' footprints were written to with the command, before and after. */
+  footprints?: import('./footprint-ops').FootprintLayerEntry[];
   /**
    * The scene the entry edited in a v4 project (set by the
    * workspace; absent for content-only entries and in v1–v3).

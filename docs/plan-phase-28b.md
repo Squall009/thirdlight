@@ -104,7 +104,9 @@ both renderers where it changes drawing.
 | 28b.2 | part A done 2026-10-06: the pack route takes KTX2 sources; whole UASTC layers alike are joined as stored (level digests and transcoded texels equal the sources', vitest + e2e), else transcoded (or their PNG read) and encoded once with `packedFrom.reencoded` per layer, shown by the pack dialog. 4 × 1024² UASTC: joined in 14 ms (187 KB) vs 26.9 s encoding the same from PNG (187 KB); 4 × 1024² ETC1S re-encoded from KTX2 8.7 s (494 KB; from PNG 10.1 s, 474 KB). Part B done 2026-10-06: a texture parameter's default or an instance's value may be a list of single-layer textures; the Scene view, preview, Play and export draw one array assembled by the backend and cached in the import cache by the layers' digests (export ships `slots-…` arrays, not the slot textures). 4 × 1024²: UASTC joined 14 ms, ETC1S encoded 8.6 s, cache hit 0.2 ms; an A/B one-slot swap assembles one array (12 ms / 9.6 s) = +5.6 MB resident instead of a second three-array set (+16.8 MB; computed at 1 B/texel with mips, not measured in a browser). Pixel e2e (slot 3 = layer 4's texture) green on WebGPU and WebGL 2. |
 | 28b.3 | done 2026-10-06: `uv: 'model' \| 'world'` on block types and variants (Blocks panel form, MCP); box mapping per flat face in metres from the layer origin, vertices split per projection, 45° switch, tangents along +u; pieces without UVs take world ones. Pixel e2e (4 m ramp over 4 cells, no seam) green on WebGPU and WebGL 2. Mesh time per sloped smoothed chunk (blocks ground, Node) 22.0 → 21.2 ms stand-ins, 22.6 ms world + tangents; `perf blocks` p95/worst scene type change webgpu 17.5/18.2 → 17.6/20.6, webgl2 17.6/17.9 → 17.4/17.8; village p50 webgpu 6.3 → 6.2, webgl2 4.3 → 4.2 ms (noise). |
 | 28b.4 | done 2026-10-06: per-layer tiling (m), normal strength, height contrast/offset as vec4 parameters of the template, a Layers table in the Material editor, Height blend `contrast`/`offset` inputs; old layered materials keep cell-unit repeat on non-1 m cells. Normal-map green was wrong on every engine surface (92 vs 169 brightness, both renderers): fixed in the decode and the mesher's tangents; pixel e2e green on WebGPU and WebGL 2. Village p50/p95 webgpu 6.3/7.8 → 6.3/7.9, webgl2 4.2/6.9 → 4.4/6.9 ms; `perf blocks` scene type change p95/worst webgpu 17.5/18.0 → 17.6/19.5, webgl2 17.6/17.9 → 17.4/18.3; export grid writes p95 webgpu 6.0 → 12.9, webgl2 8.2 → 11.3 ms (fewer frames sampled in that run; recheck). Recheck of grid writes (lead, alone on the host): p95 5.7 ms WebGPU, 7.6 ms WebGL 2 — the rise was noise. |
-| 28b.5–28b.7 | — |
+| 28b.5 | moved to 28c (28c.10) |
+| 28b.6 | done 2026-10-06: the command layer writes a prop's footprint with whatever entity command places, moves, turns, re-sizes or deletes it (one revision, one undo step; the change names `footprints` chunks, clients re-read them); the editor's follow-up `editBlocks` is gone. `editBlocks` reports `rebased` for surface/sculpt edits. vitest (commands) + block-editor e2e (Ctrl+Z/Ctrl+Y of a gizmo move, MCP delete + editor undo). Village p50/p95 webgpu 6.3/7.8, webgl2 4.4/6.5 ms (no drawing change). |
+| 28b.7 | — |
 
 ## 5. Decision log
 
@@ -234,3 +236,24 @@ both renderers where it changes drawing.
   Normal maps authored to look right under the old reading need their green
   turned around; Skyforge's painted terrain (E40) should be looked at again.
   Default chosen, owner to confirm.
+- 2026-10-06 (28b.6): footprints are written by the command layer after
+  any entity command, not by the editor: the step compares each
+  `blockFootprint` prop's world position, rotation and component before and
+  after the command, so a gizmo move, an MCP `setTransform`, moving the
+  prop's parent, setting or changing the component, placing (paste,
+  prefab) and deleting all move the footprint in the same revision and undo
+  step. MCP moves now write footprints too (before, only the editor did).
+  A prop moved to another scene leaves its cells; moving a layer moves no
+  footprint. Clears run before writes, so a prop leaving cells another prop
+  also covers clears the shared fields there (as before). A footprint whose
+  field is outside the cell schema refuses the command that would write it
+  (the error names the layer) instead of failing a second request later. A
+  prop above the cells writes metadata-only cells where its base is, as the
+  editor did. The history entry keeps each written layer's entry before and
+  after (as `editBlocks` does); the change carries
+  `footprints: [{entityId, chunks, regions}]` on any change type. The
+  Inspector's "Write to cells" stays, to write the footprint again after the
+  cells were edited by hand. `rebased` counts distinct columns whose top row
+  differs after the command from before its first surface/sculpt edit; it is
+  present only when the command had such an edit (0 included). Default
+  chosen, owner to confirm.

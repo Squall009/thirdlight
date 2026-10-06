@@ -729,7 +729,8 @@ export interface BlockEditContext {
   stamps: ReadonlyMap<string, BlockStamp>;
 }
 
-export type BlockEditResult = { ok: true; cells: number } | { ok: false; path: string; message: string };
+/** `rebased`: columns whose top row moved under `surface` / `sculpt` edits (absent: the command had none). */
+export type BlockEditResult = { ok: true; cells: number; rebased?: number } | { ok: false; path: string; message: string };
 
 function fail(path: string, message: string): { ok: false; path: string; message: string } {
   return { ok: false, path, message };
@@ -893,6 +894,13 @@ export function applyBlockEdits(g: BlockGrid, edits: readonly BlockEdit[], ctx: 
   };
   const put = (x: number, y: number, z: number, cell: BlockCell | null): void => {
     if (g.set(x, y, z, cell)) changed += 1;
+  };
+  // The top row of each column a surface or sculpt edit sets, before its first edit, so the result can say how many re-based.
+  let topsBefore: Map<string, { x: number; z: number; top: number | null }> | null = null;
+  const surfaceColumn = (x: number, z: number): void => {
+    topsBefore ??= new Map();
+    const k = `${x},${z}`;
+    if (!topsBefore.has(k)) topsBefore.set(k, { x, z, top: g.columnTop(x, z) });
   };
   for (let i = 0; i < edits.length; i++) {
     const e = edits[i]!;
@@ -1153,9 +1161,11 @@ export function applyBlockEdits(g: BlockGrid, edits: readonly BlockEdit[], ctx: 
         const cols = e.columns;
         const over = budget(cols.length / 6, p);
         if (over) return over;
+        topsBefore ??= new Map();
         for (let k = 0; k < cols.length; k += 6) {
           const o = outside(g, cols[k]!, g.min[1], cols[k + 1]!, `${p}/columns/${k}`);
           if (o) return o;
+          surfaceColumn(cols[k]!, cols[k + 1]!);
           const n = setColumnSurface(g, ctx.types, cols[k]!, cols[k + 1]!, cols.slice(k + 2, k + 6), e.cell);
           if (n > 0) changed += n;
         }
@@ -1171,8 +1181,10 @@ export function applyBlockEdits(g: BlockGrid, edits: readonly BlockEdit[], ctx: 
         const next = sculptHeights(g, ctx.types, e, e.cell !== undefined);
         const over = budget(next.size, p);
         if (over) return over;
+        topsBefore ??= new Map();
         for (const k of [...next.keys()].sort()) {
           const c = next.get(k)!;
+          surfaceColumn(c.x, c.z);
           const n = setColumnSurface(g, ctx.types, c.x, c.z, c.h, e.cell);
           if (n > 0) changed += n;
         }
@@ -1221,7 +1233,10 @@ export function applyBlockEdits(g: BlockGrid, edits: readonly BlockEdit[], ctx: 
     }
   }
   if (g.metadataOnly && changedBlocks(g)) return fail('/args/edits', 'a metadata-only layer holds no blocks (paint metadata, or use a block layer)');
-  return { ok: true, cells: changed };
+  if (topsBefore === null) return { ok: true, cells: changed };
+  let rebased = 0;
+  for (const c of (topsBefore as Map<string, { x: number; z: number; top: number | null }>).values()) if (g.columnTop(c.x, c.z) !== c.top) rebased += 1;
+  return { ok: true, cells: changed, rebased };
 }
 
 function changedBlocks(g: BlockGrid): boolean {

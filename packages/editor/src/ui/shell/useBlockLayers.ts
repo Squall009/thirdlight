@@ -12,8 +12,8 @@ import { presetValue } from '../../session/descriptor-fields';
 import type { DescriptorRegistry, BlockEdit, BlockFootprintComponent, BlockLayerComponent, BlockStamp, BlockType, CellField } from '@thirdlight/project-model';
 import type { BlockLayerRow, BlockPanelHandlers } from '../BlocksPanel';
 import type { BlockEditor } from '../../viewport/block-editor';
-import { BlockGrid } from '@thirdlight/runtime';
-import { footprintCells, footprintEdits, snapToCellTop, yawQuarterTurns, type PropLayer } from '../../session/block-footprint';
+import { BlockGrid, footprintCells, footprintEdits, yawQuarterTurns } from '@thirdlight/runtime';
+import { snapToCellTop, type PropLayer } from '../../session/block-footprint';
 import type { Stable } from './useProjectContent';
 import type { ClientRef, ReportFailure, SetNotice, ViewportRef } from './commands';
 
@@ -64,23 +64,23 @@ export function useBlockLayers(deps: BlockLayersDeps) {
     }
     return out;
   }, [clientRef]);
-  /** Write a prop's block footprint: its fields leave the cells under `before` and land on those under `after` (one editBlocks per layer). */
-  const writeFootprint = useCallback(async (entityId: string, before: { position: number[]; rotation: number[] } | null, after: { position: number[]; rotation: number[] }, fp?: BlockFootprintComponent) => {
+  /**
+   * Write a prop's block footprint into the cells beneath it again (one
+   * editBlocks per layer), after the cells were edited by hand. Moving,
+   * placing and deleting the prop write it in the backend with that command.
+   */
+  const writeFootprint = useCallback(async (entityId: string, at: { position: number[]; rotation: number[] }) => {
     const c = clientRef.current;
     if (!c) return;
-    const footprint = fp ?? ((c.projection.getEntity(entityId)?.components as { blockFootprint?: BlockFootprintComponent } | undefined)?.blockFootprint);
+    const footprint = (c.projection.getEntity(entityId)?.components as { blockFootprint?: BlockFootprintComponent } | undefined)?.blockFootprint;
     if (footprint === undefined) return;
     for (const layer of propLayers(footprint.layer)) {
-      const was = before === null ? [] : footprintCells(layer, before.position, before.rotation, footprint);
-      const now = footprintCells(layer, after.position, after.rotation, footprint);
-      const edits = footprintEdits(was, now, footprint.set);
+      const edits = footprintEdits([], footprintCells(layer, at.position, at.rotation, footprint), footprint.set);
       if (edits === null) continue;
       const r = await c.command('editBlocks', { entityId: layer.entityId, edits }, c.projection.revision);
       if (!r.ok && (r.response as { code?: string }).code !== 'no_change') reportFailure('Block footprint', r);
     }
   }, [clientRef, propLayers, reportFailure]);
-  const writeFootprintRef = useRef(writeFootprint);
-  writeFootprintRef.current = writeFootprint;
   // Cell-top snapping: moved and dropped objects land on the block cells under them.
   useEffect(() => {
     const v = viewportRef.current;
@@ -165,7 +165,7 @@ export function useBlockLayers(deps: BlockLayersDeps) {
 
   return {
     blockEditor, setBlockEditor, blockRows, blockTypes, cellFields, blockStamps, blockLayerId, setBlockLayerId, blockLayerIdRef, blockHandlersRef,
-    propLayers, writeFootprint, writeFootprintRef, blockRun, blockEdit, createBlockLayer, receive,
+    propLayers, writeFootprint, blockRun, blockEdit, createBlockLayer, receive,
   };
 }
 

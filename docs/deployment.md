@@ -4172,9 +4172,13 @@ stroke or button is one undo step, and MCP can do the same.
   "Snap objects to block cell tops": moved and dropped objects land on the
   top of the columns under them. The **Block footprint** component (`layer?`,
   `size` [x, z] cells, `set` {field: value}) writes its metadata into the
-  cells beneath the object whenever it is moved in the editor (clearing them
-  where it stood); the Inspector's "Write to cells" and "Snap to cell top" do
-  it on demand. The runtime ignores the component (scripts read the cells).
+  cells beneath the object with the command that places, moves, turns or
+  deletes it, or sets the component (clearing them where it stood), in the
+  editor and over MCP alike: one undo step takes the object and its cells
+  back together. The Inspector's "Write to cells" writes it again after the
+  cells were edited by hand. The runtime ignores the component (scripts read
+  the cells). An `editBlocks` with surface or sculpt edits reports
+  `rebased`, the columns whose top row moved.
 - **Measured**: a stroke on a 64 × 64 × 16 layer holding 32,768 cells
   previews in about 40–55 ms per pointer move and is stored about
   110–160 ms after release on the test host.

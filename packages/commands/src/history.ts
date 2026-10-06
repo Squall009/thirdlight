@@ -35,6 +35,7 @@ import { dialogueValueOf, withDialogueValue } from './dialogue-ops';
 import { behaviorGroupsOf, eventCuesOf, modesOf, shellOf, withBehaviorGroups, withEventCues, withModes, withShell } from './mode-ops';
 import { timelineOf, withTimeline } from './timeline-ops';
 import { scriptLibrariesOf, withBehaviorRecords, withScriptLibrary } from './script-library-ops';
+import { withFootprintChunks, withFootprintLayers } from './footprint-ops';
 import { blockStampsOf, blockTypesOf, cellFieldsOf, layerDataOf, layerDelta, withBlockStamp, withBlockType, withCellFields, withLayerData, withoutLayersOf } from './block-ops';
 import type { GraphDocument } from '@thirdlight/project-model';
 import type {
@@ -1272,7 +1273,9 @@ export function executeUndo(
   const history = state.history;
   if (history.cursor === 0) return { ok: false, error: { ...historyEmpty('undo') } };
   const entry = history.entries[history.cursor - 1] as HistoryEntry;
-  const applied = applyInverse(state, entry);
+  // The footprint writes came after the command, so they go back first.
+  const fp = entry.footprints;
+  const applied = applyInverse(fp !== undefined ? { ...state, scene: withFootprintLayers(state.scene, fp, 'restore') } : state, entry);
   if (!applied.ok) return applied;
   return {
     ok: true,
@@ -1281,7 +1284,7 @@ export function executeUndo(
       content: applied.applied.content,
       ...(applied.applied.otherScene !== undefined ? { otherScene: applied.applied.otherScene } : {}),
       history: { ...history, cursor: history.cursor - 1 },
-      change: applied.applied.change,
+      change: fp !== undefined ? withFootprintChunks(applied.applied.change, fp) : applied.applied.change,
       appliedOf: entry.requestId,
       originOfApplied: entry.origin,
     },
@@ -1302,14 +1305,15 @@ export function executeRedo(
   const entry = history.entries[history.cursor] as HistoryEntry;
   const applied = applyForward(state, entry);
   if (!applied.ok) return applied;
+  const fp = entry.footprints;
   return {
     ok: true,
     outcome: {
-      scene: applied.applied.scene,
+      scene: fp !== undefined ? withFootprintLayers(applied.applied.scene, fp, 'next') : applied.applied.scene,
       content: applied.applied.content,
       ...(applied.applied.otherScene !== undefined ? { otherScene: applied.applied.otherScene } : {}),
       history: { ...history, cursor: history.cursor + 1 },
-      change: applied.applied.change,
+      change: fp !== undefined ? withFootprintChunks(applied.applied.change, fp) : applied.applied.change,
       appliedOf: entry.requestId,
       originOfApplied: entry.origin,
     },

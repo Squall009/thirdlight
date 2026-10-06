@@ -205,7 +205,7 @@ function EditorApp(): JSX.Element {
   // The snapping steps and cell-top snapping (editor settings per project, in this browser).
   const [snapSettings, setSnapSettingsState] = useState<SnapSettings>({ ...DEFAULT_SNAP_SETTINGS });
   const blocks = useBlockLayers({ clientRef, viewportRef, registry, cellTops: snapSettings.cellTops, reportFailure, setNotice, selectedId, select: setSelectedId });
-  const { setBlockEditor, blockHandlersRef, writeFootprintRef, receive: receiveBlocks } = blocks;
+  const { setBlockEditor, blockHandlersRef, receive: receiveBlocks } = blocks;
   const modelFilesRef = useRef<ModelFiles | null>(null);
   const shiftRef = useRef(false);
   const snappingRef = useRef(true);
@@ -369,13 +369,9 @@ function EditorApp(): JSX.Element {
         g.setLocal(transform);
         const outcome = g.decideCommit();
         if (outcome.kind !== 'commit') return restore();
-        const before = client.entityTransform(id);
+        // A prop's block footprint follows it in the same command (the backend writes it).
         const res = await client.command('setTransform', { entityId: id, transform: outcome.command.args.transform }, outcome.command.expectedRevision);
-        if (res.ok) {
-          // A prop's block footprint follows it (its metadata leaves the old cells, lands on the new).
-          void writeFootprintRef.current(id, before, outcome.command.args.transform as { position: number[]; rotation: number[] });
-          return;
-        }
+        if (res.ok) return;
         if (res.response.ok === false && res.response.code === 'revision_conflict') {
           // Bounded auto-rebase (≤ 1) via the gesture; if it still conflicts,
           // the conflict is surfaced in the status bar (explained, not lost).

@@ -365,6 +365,8 @@ export { BLOCK_EDIT_MAX_EDITS, SCULPT_LIMITS, chunkLightmapLayout, applyBlockEdi
 export { INSTANCE_BRUSH_DEFAULTS, INSTANCE_BRUSH_LIMITS, StrokeCandidates, candidateDrop, dropOntoBlockLayers, instanceStrokeError } from '@thirdlight/project-model';
 // The paint brush and block-layer paint (the editor's Paint mode, the renderer's paint colours).
 export { BRUSH_FALLOFFS, PAINT_BRUSH_LIMITS, PAINT_CHANNELS, chunkPaintColors, type BrushFalloff, type PaintBrush } from '@thirdlight/project-model';
+// A prop's block footprint: the editor snaps props and writes footprints with the backend's geometry.
+export { footprintCells, footprintEdits, footprintMinCell, overLayer, turnedSize, yawQuarterTurns, type FootprintLayer } from '@thirdlight/project-model';
 export { BlockGrid, CHUNK_SIZE, autoVariant, blockTopOptions, blockTypeSolid, blockVariantUv, chunkKeyOf, collisionMeshChunk, compareChunkKeys, meshBlockChunk, rotatedFootprint, shapeSource, type BlockCell, type BlockChunk, type BlockLayerComponent, type BlockLayerData, type BlockLookResolver, type BlockMeshSource, type BlockTopOptions, type BlockType, type BlockUvMode, type BlockVariant, type CellField, type ChunkMeshPart } from '@thirdlight/project-model';
 // The audio intent log (script sound handles, music, duck) and the positional maths the host shares.
 export { AUDIO_BUS_NAMES, AUDIO_MAX_HANDLES, AUDIO_MAX_QUEUED_COMMANDS, AUDIO_MAX_PLAYS_PER_STEP, AUDIO_PITCH_MAX, AUDIO_PITCH_MIN, AUDIO_SPATIAL_DEFAULTS, AudioMixer, STINGER_DEFAULTS, distanceGain, lateBoundOf, listenerRelative, ownerModeOf, spatialOf, type AudioOwner, type AudioOwnerMode, type AudioBusName, type AudioCommand, type AudioDistanceModel, type AudioSpatial } from './audio-mixer';

@@ -113,7 +113,7 @@ export function applyEditBlocks(input: OpInput, args: { entityId: string; edits:
   const gate = gateResultState({ scene, content: input.content, manifest: input.manifest }, result, input.content);
   if (!gate.ok) return gate;
   const stored = layerDataOf(gate.scene, args.entityId);
-  const change: EditBlocksChange = { type: 'editBlocks', entityId: args.entityId, chunks: delta.chunks, regions: delta.regions, cells: res.cells };
+  const change: EditBlocksChange = { type: 'editBlocks', entityId: args.entityId, chunks: delta.chunks, regions: delta.regions, cells: res.cells, ...(res.rebased !== undefined ? { rebased: res.rebased } : {}) };
   return { ok: true, op: { scene: gate.scene, change, inverse: { kind: 'editBlocks', entityId: args.entityId, restore: previous, next: stored } } };
 }
 

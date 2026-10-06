@@ -11,7 +11,8 @@
  * stamp and place the stamp, lock and hide the layer. The Edit menu's snapping
  * settings change the gizmo's step, and with cell-top snapping on a prop
  * dragged over the layer lands on the cells and its block footprint writes
- * its metadata beneath it. The Inspector edits the layer's cell size with x
+ * its metadata beneath it, in the same undo step as the move (undo and redo
+ * take both); deleting the prop clears the cells and undo restores them. The Inspector edits the layer's cell size with x
  * and z as one value (cells are square from above); a command with x ≠ z is
  * refused. Every result is read back from the backend
  * (`queryBlocks`, `queryEntity`); the stroke latency is measured.
@@ -297,8 +298,10 @@ test('the Blocks panel paints, fills, picks, replaces, selects, stamps and paint
   await (await menuItem(page, 'Edit', 'Snapping settings…')).click();
   await dialog.getByLabel('snap to cell tops').check();
   await dialog.getByRole('button', { name: 'Save', exact: true }).click();
+  // A field of its own for the footprint (cells read back with the fields' defaults filled in).
+  await cmd('setCellFields', { fields: [{ key: 'hazard', type: 'bool', color: '#ff0000' }, { key: 'lot', type: 'int', default: 0, min: 0, max: 99 }] });
   const hut = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'box', name: 'Hut', transform: { position: [-4.5, 3, -5.5] }, box: { size: [1, 1, 1], material: { color: '#dd8844' } } }))['createdId']);
-  await cmd('setComponent', { entityId: hut, component: 'blockFootprint', value: { layer, set: { hazard: true } } });
+  await cmd('setComponent', { entityId: hut, component: 'blockFootprint', value: { layer, set: { lot: 7 } } });
   await dragGizmoX(page, hut);
   await expect.poll(async () => (await entity(hut)).components.transform.position[1]).toBe(0.5);
   const p = (await entity(hut)).components.transform.position;
@@ -306,7 +309,24 @@ test('the Blocks panel paints, fills, picks, replaces, selects, stamps and paint
   expect(p[2]).toBe(-5.5);
   expect((((p[0]! - ORIGIN[0] - 0.5) % 1) + 1) % 1).toBe(0);
   const cx = p[0]! - ORIGIN[0] - 0.5;
-  await expect.poll(async () => (await cells(layer, [cx, 7, 2, cx + 1, 8, 3])).get(`${cx},7,2`)?.meta['hazard']).toBe(true);
+  await expect.poll(async () => (await cells(layer, [cx, 7, 2, cx + 1, 8, 3])).get(`${cx},7,2`)?.meta['lot']).toBe(7);
+  // The footprint is written with the move, so one undo takes both back: the hut returns to y = 3 and
+  // the footprint to the row-9 cell it wrote when the component was set there.
+  const lotAt = async (x: number, y: number, z: number): Promise<unknown> => (await cells(layer, [x, y, z, x + 1, y + 1, z + 1])).get(`${x},${y},${z}`)?.meta['lot'];
+  expect(await lotAt(3, 9, 2)).not.toBe(7);
+  await page.keyboard.press('Control+z');
+  await expect.poll(async () => (await entity(hut)).components.transform.position).toEqual([-4.5, 3, -5.5]);
+  expect(await lotAt(cx, 7, 2)).toBe(0);
+  expect(await lotAt(3, 9, 2)).toBe(7);
+  await page.keyboard.press('Control+y');
+  await expect.poll(() => lotAt(cx, 7, 2)).toBe(7);
+  expect(await lotAt(3, 9, 2)).not.toBe(7);
+  // Deleting the prop (as MCP sends it) clears its cells; the editor's undo brings them back with it.
+  await cmd('deleteEntity', { entityId: hut });
+  expect(await lotAt(cx, 7, 2)).toBe(0);
+  await page.keyboard.press('Control+z');
+  await expect.poll(() => lotAt(cx, 7, 2)).toBe(7);
+  await expect(page.locator(`.tl-hierarchy__list li[data-entity-id="${hut}"]`)).toHaveCount(1);
 
   // ---- the Inspector's cell size: cells are square from above, so x and z are edited as one value.
   await page.locator(`.tl-hierarchy__list li[data-entity-id="${layer}"]`).click();

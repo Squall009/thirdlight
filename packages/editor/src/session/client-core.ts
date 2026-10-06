@@ -24,7 +24,7 @@ import { applyGraphOpsLocal } from '../graph/model';
 import type { BlockChunk, BlockLayerComponent, BlockRegion, BlockStamp, BlockType, CellField, SaveSchema } from '@thirdlight/project-model';
 import type { DialogueDocument, DialogueSettings, DialogueSpeaker } from '@thirdlight/project-model';
 import type { AnimatorController, DescriptorRegistry, GraphDocument, GraphKindDef, EnvironmentConfig, SceneEnvironment, InputConfig, LightingBake, MaterialDef, EffectDef, ScriptLibrary, UiDocument, UiTheme, TimelineAsset, GameMode, EventCue, GameShell, LoadableEntry } from '@thirdlight/project-model';
-import type { CommandError, ChangeData } from '@thirdlight/commands';
+import type { CommandError, ChangeData, FootprintChunks } from '@thirdlight/commands';
 import {
   makeEnvelope,
   makeEstablishBody,
@@ -998,6 +998,8 @@ export class SessionClientCore {
         // Read the chunks (and regions) the change names, then redraw.
         void this.refreshBlockChunks(change.entityId, change.chunks).then(() => this.cb.onSceneChanged());
       }
+      // Props' block footprints written with the change: read those chunks too.
+      for (const f of (change as { footprints?: readonly FootprintChunks[] }).footprints ?? []) void this.refreshBlockChunks(f.entityId, f.chunks).then(() => this.cb.onSceneChanged());
       if (blockLayerListTouched(change, this.blockLayers)) void this.refreshBlockLayers().then(() => this.cb.onSceneChanged());
       this.ensureSceneRecords();
       this.save = 'saved';

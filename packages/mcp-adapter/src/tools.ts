@@ -370,7 +370,9 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       'smoothAngle? (degrees 0-180, the crease angle of the tops: tops meeting at the same height at less than it are shaded smooth across cells and chunk edges, sharper edges stay hard; 0 or absent: flat-shaded), ' +
       'topSubdivision? 1|2 (2: sloped tops drawn cut 2×2 with the inner heights blended from the corners; collision keeps the corners\' two triangles)} ' +
       '(its position is the min corner of cell 0; a root at identity rotation and unit scale). A prop may carry setComponent "blockFootprint" {layer?: layer entity id, size?: [x,z] cells, set: {field: value}} ' +
-      '(the metadata the editor writes into the cells beneath it when it is placed or moved; via MCP write them with an editBlocks meta edit). editBlocks {entityId, edits: [...]} edits one layer as one undo step (cells are {block?, rot? 90|180|270, variant?, ' +
+      '(the metadata the cells beneath it take: any command that places, moves, turns or deletes the prop, or sets this component, writes it into the cells it now stands on and clears it from the cells it left, in the same undo step; ' +
+      'its result change lists footprints: [{entityId, chunks, regions}] for the layers written). editBlocks {entityId, edits: [...]} edits one layer as one undo step ' +
+      '(its change: chunks, regions, cells changed, and rebased: the columns whose top row moved, when it had surface or sculpt edits) (cells are {block?, rot? 90|180|270, variant?, ' +
       'corners? [h, h, h, h] (a sloped top of a single-cell full block: the corner heights −x−z, +x−z, +x+z, −x+z in cell heights 0-4, steps of 1/64; above 1 reaches into the empty cells above), meta?}; ' +
       'boxes are [x0,y0,z0,x1,y1,z1] max exclusive): {kind:"fill", box, cell|null, mode?: set|keep|replace}, {kind:"cells", at: [x,y,z,...], cell|null}, ' +
       '{kind:"array", origin, size: [w,h,d], palette: [cell|null,...], data: [count, index, ...] run-length, x fastest then z then y, index -1 leaves a cell}, ' +

@@ -636,6 +636,8 @@ function validateChangeShape(change: unknown, op: string, storageVersion: 3 | 4)
     }
     const optional = V2_CHANGE_OPTIONAL_KEYS[t] ?? [];
     for (const k of keys) {
+      // Any entity change may carry the block chunks its props' footprints were written to.
+      if (k === 'footprints') continue;
       if (!required.includes(k) && !optional.includes(k)) return rerr(`unknown field in recorded ${t} change`, k, `/result/change/${pointerSegment(k)}`);
     }
   }
@@ -786,6 +788,8 @@ const V2_CHANGE_OPTIONAL_KEYS: Record<string, readonly string[]> = {
   // A scene's look (with sceneId), and the looks of the scenes a scene-index change adds or removes.
   setEnvironment: ['sceneId'],
   setSceneIndex: ['environments'],
+  // Columns re-based by surface and sculpt edits.
+  editBlocks: ['rebased'],
 };
 
 /** Forward-op → change-type correspondence for the content and prefab ops. */

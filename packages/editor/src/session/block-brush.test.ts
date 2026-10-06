@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { BlockGrid, applyBlockEdits, type BlockLayerComponent, type BlockType } from '@thirdlight/runtime';
+import { BlockGrid, applyBlockEdits, footprintCells, footprintEdits, yawQuarterTurns, type BlockLayerComponent, type BlockType } from '@thirdlight/runtime';
 import {
   DEFAULT_BRUSH,
   arrayFromCells,
@@ -25,7 +25,7 @@ import {
   toolSculpts,
 } from './block-brush';
 import { enumColors, fieldColor, overlayColor, overlayLegend, parseMetaValue } from './block-overlay';
-import { footprintCells, footprintEdits, snapToCellTop, yawQuarterTurns } from './block-footprint';
+import { snapToCellTop } from './block-footprint';
 import { DEFAULT_SNAP_SETTINGS, getSnapSettings, loadSnapSettings, sanitizeSnapSettings, saveSnapSettings, setSnapSettings, snapTranslateDelta } from './snapping';
 
 const LAYER: BlockLayerComponent = { cellSize: [1, 0.5, 1], bounds: { min: [0, 0, 0], max: [64, 16, 64] } };

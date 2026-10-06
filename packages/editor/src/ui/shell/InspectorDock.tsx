@@ -19,7 +19,8 @@ import { MaterialMappingEditor } from '../material/MaterialInspector';
 import { AnimatorInspector } from '../animator/AnimatorInspector';
 import { PlayDebugView } from '../PlayDebugView';
 import type { BlockFootprintComponent } from '@thirdlight/project-model';
-import { snapToCellTop, yawQuarterTurns } from '../../session/block-footprint';
+import { yawQuarterTurns } from '@thirdlight/runtime';
+import { snapToCellTop } from '../../session/block-footprint';
 import { GraphInspector } from '../../graph/GraphInspector';
 import { effectPortContext, shownSystem } from '../effect/EffectDocument';
 import { functionName as scriptFunctionName } from '../../session/visual-debug';
@@ -385,7 +386,7 @@ function EntityInspector(props: InspectorDockProps): JSX.Element {
               // Write the footprint's metadata into the cells beneath, or land the object on the cell tops.
               blockFootprint: (
                 <div className="tl-inspector__modes">
-                  <button className="tl-btn tl-btn--small" title="Write the footprint's metadata into the block cells beneath the object" onClick={() => void writeFootprint(selected.id, null, { position: selected.position, rotation: selected.rotation })}>
+                  <button className="tl-btn tl-btn--small" title="Write the footprint's metadata into the block cells beneath the object" onClick={() => void writeFootprint(selected.id, { position: selected.position, rotation: selected.rotation })}>
                     Write to cells
                   </button>
                   <button
@@ -397,10 +398,9 @@ function EntityInspector(props: InspectorDockProps): JSX.Element {
                       const fp = (selected.components as { blockFootprint?: BlockFootprintComponent }).blockFootprint;
                       const at = snapToCellTop(propLayers(fp?.layer), selected.position, fp?.size, yawQuarterTurns(selected.rotation));
                       if (at === null) return setNotice('Not over a block layer.');
-                      const before = { position: selected.position, rotation: selected.rotation };
+                      // The footprint moves with the object in the same command.
                       void c.command('setTransform', { entityId: selected.id, transform: { position: at } }, c.projection.revision).then((r) => {
-                        if (r.ok) void writeFootprint(selected.id, before, { position: at, rotation: selected.rotation });
-                        else if ((r.response as { code?: string }).code !== 'no_change') reportFailure('Snap to cell top', r);
+                        if (!r.ok && (r.response as { code?: string }).code !== 'no_change') reportFailure('Snap to cell top', r);
                       });
                     }}
                   >
