@@ -19,6 +19,7 @@ import type { ModelsSettledResult, SceneAdapterModels, SceneAdapterModelsDiagnos
 import type { GlbLoaderPort } from './visual';
 import type { ShadowReason } from './lighting';
 import type { ProbeGridsObservation } from './probe-grids';
+import type { ProbeLighting } from './probe-lighting';
 import type { CachedShadowCounts } from './cached-shadow';
 import type { EffectDefLike, EffectsDiagnostics, EffectsPlayerOptions } from './effects-player';
 import type { AutoBatcherDiagnostics } from './batching';
@@ -410,6 +411,8 @@ export interface SceneAdapter {
   blockLayers?(): BlockLayerView;
   /** The renderer drawing now (null before it is ready). */
   currentRenderer?(): AnyRenderer | null;
+  /** The probe light the materials sample (its packed tiles; the editor's probe debug view draws them), or null without probes. */
+  probeLighting?(): ProbeLighting | null;
   /** The last frame was not drawn (the renderer starting, a precompile running): a host drawing on demand asks again. */
   frameSkipped?(): boolean;
   /** The last drawn frame's draw calls, triangles, MSAA samples and batches, without the whole diagnostics walk. */

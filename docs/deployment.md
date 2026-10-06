@@ -1568,12 +1568,15 @@ boxes instead.
   starts from its last bake's settings.
 - Large boxes are split into tiles of at most 64 probe intervals per axis;
   there is no cap on the number of probes or tiles. The window reports the
-  probes, tiles, GPU memory (8 bytes × 7 per probe and padding) and file
+  probes, tiles, GPU memory (8 bytes × 6 per probe and padding) and file
   size of each bake; each tile is a texture asset named `probes <scene>
-  <n>` (a 16-bit PNG of half floats; a re-bake adds versions).
+  <n>` (a 16-bit PNG of half floats; a re-bake adds versions). Files baked
+  before the probes held walls (an older layout) no longer load: bake again.
 - Probes inside geometry (seeing back faces in more than a quarter of their
   directions) are moved out by a quarter or half a spacing, or filled from
-  their neighbours, so no light comes from inside walls.
+  their neighbours, so no light comes from inside walls. The bake also
+  records **walls**: where a surface lies between two neighbouring probes
+  (each sees it before the other), and where.
 - The bake runs on the Scene view's renderer and needs **WebGPU**; on WebGL 2
   the button is off and the window says so. Baked probes load on both
   renderers (Play, export, the Scene view). Measured on this host (Iris Xe):
@@ -1581,9 +1584,45 @@ boxes instead.
   ground (38,025 probes) in ~135 s.
 
 **Clear probes** removes them (Clear bake removes only the lightmaps).
-Probes show stale like lightmaps. Until the probes are sampled by materials
-(the next part of this work), they are baked, stored and loaded but do not
-change the picture.
+Probes show stale like lightmaps (a stale bake is still used).
+
+**How the probes light the scene.** Every lit 3D object — models, boxes,
+graph and kit materials, foliage and water, instance sets, block chunks,
+skinned characters, moving or not — takes its indirect light per pixel from
+the probes around it, in place of the flat ambient light, wherever it is
+inside a tile; outside every tile the flat ambient light stays (the probes
+fade out over one spacing past a tile's edge). What the probes replace: the
+sky's image-based diffuse light and the ambient and hemisphere lights whose
+mode is `baked` or `mixed` (the bake holds them); `realtime` ambient and
+hemisphere lights are added on top as before, and direct light (sun, point,
+spot, effect lights) is unchanged. The sky's reflections are darkened where
+the probes are darker than the light they replace (a closed room does not
+mirror the sky). Lightmapped surfaces keep their lightmap and ignore the
+probes.
+
+- A pixel samples the probes half a spacing off its surface, but never
+  across a wall the bake found: an inside wall, floor or object standing by
+  a closed wall reads only the probes on its own side, so sunlight outside
+  does not leak in. Probes moved out of geometry count half, filled ones
+  hardly at all.
+- The probes hold first-order light (soft directional indirect light; four
+  texture reads a pixel). Where tiles meet, the first tile of the scene
+  holds the shared face (both hold the same probes there).
+- Light layers: the probes light every layer (they are indirect light).
+- A light with mode `baked` that a lightmap bake holds is off for moving
+  objects too: they get its bounce from the probes, not its direct light;
+  `mixed` lights stay realtime for direct light and their bounce is in the
+  probes.
+- Cost, measured on this host's Iris Xe at 1920 × 1080 (village perf class,
+  two tiles): about +0.8 ms GPU in the scene pass on WebGPU (2.7 → 3.5 ms;
+  frame p50 6.2 → 7.0 ms), within noise on WebGL 2. A scene without baked
+  probes builds exactly the shaders it built before (no cost).
+- `?probes=off` on a game page draws without the probes (a diagnostic
+  comparison, like `?shadowcache=off`).
+- **Gizmos → Light probes** in the Scene view draws every probe as a small
+  sphere lit by its own light; probes moved out of geometry have a yellow
+  rim, filled ones a red rim, and both are drawn through the geometry they
+  sit in.
 
 ## Animation (Animator)
 

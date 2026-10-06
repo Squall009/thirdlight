@@ -96,7 +96,7 @@ export async function runProbeBake(deps: ProbeBakeDeps): Promise<ProbeBakeRunRes
   for (let i = 0; i < grids.length; i++) {
     deps.onProgress(`saving probes ${i + 1}/${grids.length}`, 0.9 + (0.1 * i) / grids.length);
     const tile = baked.tiles[i]!;
-    const packed = packProbeTexels(tile.sh, tile.validity);
+    const packed = packProbeTexels(tile.sh, tile.validity, tile.walls);
     const png = await encodePng16(packed.width, packed.height, packed.samples);
     fileBytes += png.byteLength;
     const id = await publishBakeTexture(client, png, `probes ${deps.sceneName} ${i + 1}`, previous?.probes?.grids[i]?.asset, 'probe file');

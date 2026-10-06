@@ -1,4 +1,3 @@
-/// <reference path="./three-addons.d.ts" />
 /**
  * The probe bake ("Bake probes"): the indirect light at every probe of a
  * scene's probe tiles, from its static objects and its baked/mixed lights.
@@ -10,7 +9,7 @@
  * nothing else needs hiding (meshes of one material merged, so a cube face
  * is a few draws). Per probe a small cube map is rendered and
  * projected to L2 spherical harmonics on the GPU (the projection three's
- * `LightProbeGrid` uses, so its light node reads the result), then read back.
+ * `LightProbeGrid` uses), then read back.
  *
  * - Sky: what a probe sees where no object is — the sky's environment map
  *   (or the sky colour) plus the baked/mixed ambient and hemisphere lights as
@@ -18,7 +17,12 @@
  *   (that light would reach them through closed walls); they get it with the
  *   bounces.
  * - Bounces: each extra pass draws the surfaces lit by the previous pass's
- *   probes too (three's `LightProbeGrid` as a light), one bounce per pass.
+ *   probes too (the probe lighting the game draws with, probe-lighting.ts),
+ *   one bounce per pass.
+ * - Walls: the validity captures also read how far each probe sees along
+ *   the axes; an edge between two probes that each see a surface before the
+ *   other is cut there (`edgeWalls`), and the probe lighting keeps samples on
+ *   their side of it.
  * - Validity: first a cube map of front faces (black) and back faces (white)
  *   at each probe. A probe seeing back faces in more than
  *   `PROBE_VALIDITY_THRESHOLD` of its directions is inside geometry; it is
@@ -32,14 +36,13 @@
  * at this rate, and the bake stays the Scene view's work).
  */
 import * as THREE from 'three';
-import { Fn, Loop, array, cubeTexture, float, frontFacing, int, normalWorldGeometry, pmremTexture, screenCoordinate, uniform, vec3, vec4 } from 'three/tsl';
+import { Fn, Loop, array, cameraPosition, cubeTexture, float, frontFacing, int, normalWorldGeometry, pmremTexture, positionWorld, screenCoordinate, select, uniform, vec3, vec4 } from 'three/tsl';
 import { CubeRenderTarget, MeshBasicNodeMaterial, NodeMaterial, QuadMesh, type WebGPURenderer } from 'three/webgpu';
-import { LightProbeGrid } from 'three/examples/jsm/lighting/LightProbeGrid.js';
-import { LightProbeGridNode } from 'three/examples/jsm/tsl/lighting/LightProbeGridNode.js';
-import { PROBE_FILLED, PROBE_MOVED, PROBE_VALID, PROBE_VALIDITY_THRESHOLD, probeCount, type ProbeGridBox } from '@thirdlight/runtime';
+import { PROBE_FILLED, PROBE_MOVED, PROBE_VALID, PROBE_VALIDITY_THRESHOLD, probeCount, type ProbeGridBox, type ProbeGridRecord } from '@thirdlight/runtime';
 
 import { aimBakeDirectional, bakeLocalLight, fittedBakeDirectional, readFloatTarget, type BakeLightInput } from './lightmap-baker';
-import { atlasFromSamples, packProbeTexels, probeAtlasTexture, probeGridLight } from './probe-artifact';
+import { atlasFromSamples, packProbeTexels } from './probe-artifact';
+import { ProbeLighting } from './probe-lighting';
 import { mergeLayout, mergeWorldGeometry, OBJECT_FRAME_KEY } from './static-merge';
 
 export interface ProbeBakeMesh {
@@ -68,6 +71,8 @@ export interface BakedProbeTile {
   readonly sh: Float32Array;
   /** PROBE_VALID, PROBE_MOVED or PROBE_FILLED per probe. */
   readonly validity: Float32Array;
+  /** 6 floats per probe: per axis, whether a surface cuts the edge to the next probe (1 or 0) and where (`edgeWalls`). */
+  readonly walls: Float32Array;
 }
 
 export type ProbeBakeResult =
@@ -90,15 +95,31 @@ const MERGE_CELL_M = 16;
 /** The virtual offsets tried, in spacings, away from the back faces. */
 const OFFSET_STEPS = [0.25, 0.5];
 const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
+/** Columns of a projection row: the nine SH coefficients, then what the probe sees along +x, −x, +y, −y, +z, −z. */
+const ROW = 15;
+const AXES: readonly [number, number, number][] = [
+  [1, 0, 0],
+  [-1, 0, 0],
+  [0, 1, 0],
+  [0, -1, 0],
+  [0, 0, 1],
+  [0, 0, -1],
+];
 /** The SH DC basis times the sphere's area: a direction share of 1 everywhere projects to this. */
 const DC_OF_ONE = 0.282095 * 4 * Math.PI;
 
-/** Projects the captured cube map to one SH coefficient per fragment (its column); alpha carries the row's marker. */
+/**
+ * Projects the captured cube map to one SH coefficient per fragment (its
+ * column); the last six columns read what the probe sees straight along each
+ * axis. Alpha carries the row's marker.
+ */
 function projectionMaterial(cube: THREE.Texture, marker: ReturnType<typeof uniform>): NodeMaterial {
   const cubeNode = cubeTexture(cube as THREE.CubeTexture);
   const m = new NodeMaterial();
   m.outputNode = Fn(() => {
     const coef = int(screenCoordinate.x).toVar();
+    const axis = array(AXES.map(([x, y, z]) => vec3(x, y, z))).element((coef.sub(9) as never as { max(v: number): { min(v: number): never } }).max(0).min(5));
+    const along = cubeNode.sample(axis).level(float(0));
     const accum = vec3(0).toVar();
     Loop(SH_SAMPLES, ({ i }: { i: unknown }) => {
       const fi = float(i as never);
@@ -120,10 +141,10 @@ function projectionMaterial(cube: THREE.Texture, marker: ReturnType<typeof unifo
         zc.mul(zc).mul(3).sub(1).mul(0.315392),
         x.mul(zc).mul(1.092548),
         x.mul(x).sub(y.mul(y)).mul(0.546274),
-      ]).element(coef);
+      ]).element((coef as never as { min(v: number): never }).min(8));
       accum.addAssign(radiance.mul(basis));
     });
-    return vec4(accum.mul((4 * Math.PI) / SH_SAMPLES), marker as never);
+    return select(coef.lessThan(9), vec4(accum.mul((4 * Math.PI) / SH_SAMPLES), marker as never), vec4(along.rgb, marker as never));
   })();
   m.depthTest = false;
   m.depthWrite = false;
@@ -200,12 +221,40 @@ function dilate(sh: Float32Array, validity: Float32Array, resolution: readonly n
   }
 }
 
+/**
+ * Each probe's walls from what the probes see straight along the axes
+ * (`along`: 6 distances a probe, +x −x +y −y +z −z, 0 where nothing is hit):
+ * the edge from a probe to the next one along an axis is cut when each of
+ * the two sees a surface before the other; the cut is where its two
+ * surfaces' middle is, as a share of the edge (0…1). `out`: 6 floats a probe,
+ * per axis the cut flag (1 or 0) and the share.
+ */
+export function edgeWalls(grid: ProbeGridBox, along: Float32Array, out: Float32Array): void {
+  const n = grid.resolution as readonly number[];
+  const [nx, ny] = n as [number, number, number];
+  const step = [0, 1, 2].map((a) => (grid.max[a]! - grid.min[a]!) / (n[a]! - 1));
+  const offset = [1, nx, nx * ny];
+  out.fill(0);
+  for (let i = 0; i < along.length / 6; i++) {
+    const at = [i % nx, Math.floor(i / nx) % ny, Math.floor(i / (nx * ny))];
+    for (let a = 0; a < 3; a++) {
+      if (at[a]! >= n[a]! - 1) continue;
+      const s = step[a]!;
+      const fromLo = along[i * 6 + a * 2]!;
+      const fromHi = along[(i + offset[a]!) * 6 + a * 2 + 1]!;
+      if (!(fromLo > 0 && fromLo < s && fromHi > 0 && fromHi < s)) continue;
+      out[i * 6 + a * 2] = 1;
+      out[i * 6 + a * 2 + 1] = (fromLo / s + (1 - fromHi / s)) / 2;
+    }
+  }
+}
+
 export async function bakeProbeGrids(input: ProbeBakeInput): Promise<ProbeBakeResult> {
   const started = performance.now();
   const renderer = input.renderer;
   if ((renderer.backend as { isWebGPUBackend?: boolean }).isWebGPUBackend !== true) return { ok: false, code: 'bake_unsupported', message: 'baking probes needs WebGPU (baked probes still draw on WebGL 2)' };
   if (input.grids.length === 0) return { ok: false, code: 'bake_failed', message: 'no probes to bake: mark objects Static or add a probe volume' };
-  if (renderer.library.getLightNodeClass(LightProbeGrid as never) === null) renderer.library.addLight(LightProbeGridNode as never, LightProbeGrid as never);
+  if (renderer.library.getLightNodeClass(ProbeLighting as never) === null) return { ok: false, code: 'bake_unsupported', message: 'the renderer cannot draw probe lighting' };
 
   const disposables: { dispose(): void }[] = [];
   const scene = new THREE.Scene();
@@ -298,9 +347,10 @@ export async function bakeProbeGrids(input: ProbeBakeInput): Promise<ProbeBakeRe
   const marker = uniform(0);
   const projection = projectionMaterial(cubeTarget.texture, marker);
   const quad = new QuadMesh(projection);
-  const batch = new THREE.RenderTarget(9, CHUNK, { type: THREE.FloatType, format: THREE.RGBAFormat, minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter, depthBuffer: false, generateMipmaps: false });
+  const batch = new THREE.RenderTarget(ROW, CHUNK, { type: THREE.FloatType, format: THREE.RGBAFormat, minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter, depthBuffer: false, generateMipmaps: false });
+  // Back faces seen (red) and how far the surface is (green: the axis reads give the cell walls).
   const backFaces = new MeshBasicNodeMaterial({ side: THREE.DoubleSide });
-  backFaces.colorNode = frontFacing.select(vec3(0), vec3(1));
+  backFaces.colorNode = vec3(frontFacing.select(float(0), float(1)), positionWorld.distance(cameraPosition), 0);
   const sky = skyNode(input.sky, input.lights);
   disposables.push(cubeTarget, projection, batch, backFaces);
   for (const l of shadowed) disposables.push(l);
@@ -314,8 +364,12 @@ export async function bakeProbeGrids(input: ProbeBakeInput): Promise<ProbeBakeRe
   let done = 0;
   const progress = (text: string): void => input.onProgress?.(text, Math.min(0.99, done / units));
 
-  /** Capture cube maps at these points and read back their nine SH coefficients (RGB, 27 floats a point). */
-  const capture = async (points: Float32Array): Promise<Float32Array> => {
+  /**
+   * Capture cube maps at these points and read back their nine SH
+   * coefficients (RGB, 27 floats a point); `along` (when given) gets the
+   * green channel seen along each axis (6 floats a point).
+   */
+  const capture = async (points: Float32Array, along?: Float32Array): Promise<Float32Array> => {
     const n = points.length / 3;
     const out = new Float32Array(n * 27);
     for (let start = 0; start < n; start += CHUNK) {
@@ -329,7 +383,7 @@ export async function bakeProbeGrids(input: ProbeBakeInput): Promise<ProbeBakeRe
         cubeCamera.update(renderer as never, scene);
         renderer.autoClear = false;
         marker.value = k + 1;
-        batch.viewport.set(0, k, 9, 1);
+        batch.viewport.set(0, k, ROW, 1);
         renderer.setRenderTarget(batch);
         quad.render(renderer);
         captures++;
@@ -338,9 +392,10 @@ export async function bakeProbeGrids(input: ProbeBakeInput): Promise<ProbeBakeRe
       const raw = await readFloatTarget(renderer, batch);
       // Rows are matched by their marker, whichever way up the read-back is.
       for (let row = 0; row < CHUNK; row++) {
-        const k = Math.round(raw[(row * 9 + 0) * 4 + 3]!) - 1;
+        const k = Math.round(raw[(row * ROW + 0) * 4 + 3]!) - 1;
         if (k < 0 || k >= count) continue;
-        for (let c = 0; c < 9; c++) for (let ch = 0; ch < 3; ch++) out[(start + k) * 27 + c * 3 + ch] = raw[(row * 9 + c) * 4 + ch]!;
+        for (let c = 0; c < 9; c++) for (let ch = 0; ch < 3; ch++) out[(start + k) * 27 + c * 3 + ch] = raw[(row * ROW + c) * 4 + ch]!;
+        if (along !== undefined) for (let a = 0; a < 6; a++) along[(start + k) * 6 + a] = raw[(row * ROW + 9 + a) * 4 + 1]!;
       }
       done += count;
       await tick();
@@ -348,7 +403,7 @@ export async function bakeProbeGrids(input: ProbeBakeInput): Promise<ProbeBakeRe
     return out;
   };
 
-  const tiles: { grid: ProbeGridBox; spacing: number; at: Float32Array; validity: Float32Array; sh: Float32Array }[] = input.grids.map((grid) => {
+  const tiles: { grid: ProbeGridBox; spacing: number; at: Float32Array; validity: Float32Array; sh: Float32Array; walls: Float32Array }[] = input.grids.map((grid) => {
     const n = probeCount(grid);
     const [nx, ny, nz] = grid.resolution;
     const at = new Float32Array(n * 3);
@@ -363,17 +418,17 @@ export async function bakeProbeGrids(input: ProbeBakeInput): Promise<ProbeBakeRe
       }
     }
     const spacing = Math.min(...[0, 1, 2].map((a) => (grid.max[a]! - grid.min[a]!) / (grid.resolution[a]! - 1)));
-    return { grid, spacing, at, validity: new Float32Array(n).fill(PROBE_VALID), sh: new Float32Array(n * 27) };
+    return { grid, spacing, at, validity: new Float32Array(n).fill(PROBE_VALID), sh: new Float32Array(n * 27), walls: new Float32Array(n * 6) };
   });
 
-  const gridLights: { light: LightProbeGrid; texture: THREE.Data3DTexture }[] = [];
-  const dropGridLights = (): void => {
-    for (const g of gridLights) {
-      scene.remove(g.light);
-      g.texture.dispose();
-      g.light.dispose();
-    }
-    gridLights.length = 0;
+  // The bounce passes light the surfaces with the previous pass's probes, sampled as the game samples them
+  // (walls kept: bounce light must not leak into a closed room either).
+  let bounceLight: ProbeLighting | null = null;
+  const dropBounceLight = (): void => {
+    if (bounceLight === null) return;
+    scene.remove(bounceLight);
+    bounceLight.dispose();
+    bounceLight = null;
   };
   let moved = 0;
   let filled = 0;
@@ -387,7 +442,9 @@ export async function bakeProbeGrids(input: ProbeBakeInput): Promise<ProbeBakeRe
       progress('finding probes inside geometry…');
       let points = t.at;
       let index = Array.from({ length: t.validity.length }, (_, i) => i);
-      const sh = await capture(points);
+      const along = new Float32Array(t.validity.length * 6);
+      const sh = await capture(points, along);
+      edgeWalls(t.grid, along, t.walls);
       const share = (k: number): number => sh[k * 27]! / DC_OF_ONE;
       // The back faces' mean direction (the SH's first band: y, z, x), away from which a probe moves.
       const away = (k: number): THREE.Vector3 => new THREE.Vector3(sh[k * 27 + 9]!, sh[k * 27 + 3]!, sh[k * 27 + 6]!).negate();
@@ -439,25 +496,23 @@ export async function bakeProbeGrids(input: ProbeBakeInput): Promise<ProbeBakeRe
       }
       if (pass + 1 < passes) {
         // The next pass's surfaces are lit by these probes too.
-        dropGridLights();
-        for (const t of tiles) {
-          const packed = packProbeTexels(t.sh, t.validity);
-          const texture = probeAtlasTexture(atlasFromSamples(packed.samples, t.grid.resolution), t.grid.resolution);
-          const light = probeGridLight(t.grid, texture);
-          light.updateMatrixWorld();
-          scene.add(light);
-          gridLights.push({ light, texture });
+        if (bounceLight === null) {
+          bounceLight = new ProbeLighting();
+          scene.add(bounceLight);
         }
+        bounceLight.setTiles(
+          tiles.map((t, i) => ({ sceneId: '', grid: { ...t.grid, asset: String(i) } as ProbeGridRecord, atlas: atlasFromSamples(packProbeTexels(t.sh, t.validity, t.walls).samples, t.grid.resolution), validity: t.validity })),
+        );
       }
     }
     input.onProgress?.('done', 1);
     const millis = Math.round(performance.now() - started);
-    return { ok: true, tiles: tiles.map((t) => ({ sh: t.sh, validity: t.validity })), millis, probes: total, moved, filled, captures };
+    return { ok: true, tiles: tiles.map((t) => ({ sh: t.sh, validity: t.validity, walls: t.walls })), millis, probes: total, moved, filled, captures };
   } catch (e) {
     if (e instanceof DOMException && e.name === 'AbortError') return { ok: false, code: 'bake_cancelled', message: 'the bake was cancelled' };
     return { ok: false, code: 'bake_failed', message: (e as Error).message };
   } finally {
-    dropGridLights();
+    dropBounceLight();
     renderer.setRenderTarget(saved.target);
     renderer.autoClear = saved.autoClear;
     renderer.setClearColor(saved.clear, saved.alpha);

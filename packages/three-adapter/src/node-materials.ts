@@ -7,7 +7,8 @@
  *   (same values; what `WebGPURenderer` would convert it to, but as an object
  *   we own so node hooks can go on it).
  * - `withoutAmbientLight`: a lightmapped copy whose bake holds the ambient /
- *   hemisphere light ignores those lights (the bake holds them).
+ *   hemisphere light ignores those lights (the bake holds them);
+ *   `withoutProbeLighting`: every lightmapped copy ignores the probe lighting.
  * - `cloneMaterial`: a per-mesh copy that keeps the hooks (both kinds).
  * - `instanceOrigin`: the instance's translation in an `InstancedMesh`
  *   (the kit's world-X UV shift works per instance).
@@ -76,6 +77,7 @@ export function standardNodeMaterialFrom(source: THREE.Material | null): MeshSta
 }
 
 const NO_AMBIENT_KEY = 'tl-lightmap-no-ambient';
+const NO_PROBES_KEY = 'tl-lightmap-no-probes';
 const OWN_HOOKS = ['setupLighting', 'customProgramCacheKey', 'setupLightMap'] as const;
 
 interface LightsNodeLike {
@@ -87,30 +89,41 @@ interface BuilderLightsLike {
 }
 
 /**
- * The node version of the lightmap's no-ambient hook: while this material
- * builds its lighting, the scene's ambient and hemisphere lights are left out
- * (the bake holds them). The program cache key says so, or three would share
- * the program of an identical material that keeps them.
+ * While this material builds its lighting, the scene's lights `leaveOut`
+ * picks are left out. The program cache key says so (`key`), or three would
+ * share the program of an identical material that keeps them.
  */
-export function withoutAmbientLight(material: THREE.Material): void {
+function withoutLights(material: THREE.Material, leaveOut: (l: THREE.Light) => boolean, key: string): void {
   const m = material as THREE.Material & { setupLighting: (builder: NodeBuilder) => unknown };
   const base = m.setupLighting;
   const baseKey = m.customProgramCacheKey;
-  m.setupLighting = function setupLightingWithoutAmbient(builder: NodeBuilder) {
+  m.setupLighting = function setupLightingWithout(builder: NodeBuilder) {
     const b = builder as unknown as BuilderLightsLike;
     const all = b.lightsNode;
     if (all === null || all === undefined) return base.call(this, builder);
-    const kept = all.getLights().filter((l) => (l as THREE.AmbientLight).isAmbientLight !== true && (l as THREE.HemisphereLight).isHemisphereLight !== true);
-    b.lightsNode = b.renderer.lighting.createNode(kept);
+    b.lightsNode = b.renderer.lighting.createNode(all.getLights().filter((l) => !leaveOut(l)));
     try {
       return base.call(this, builder);
     } finally {
       b.lightsNode = all;
     }
   };
-  m.customProgramCacheKey = function cacheKeyWithoutAmbient() {
-    return `${baseKey.call(this)}|${NO_AMBIENT_KEY}`;
+  m.customProgramCacheKey = function cacheKeyWithout() {
+    return `${baseKey.call(this)}|${key}`;
   };
+}
+
+/**
+ * The node version of the lightmap's no-ambient hook: a lightmapped copy
+ * whose bake holds the ambient / hemisphere light leaves those lights out.
+ */
+export function withoutAmbientLight(material: THREE.Material): void {
+  withoutLights(material, (l) => (l as THREE.AmbientLight).isAmbientLight === true || (l as THREE.HemisphereLight).isHemisphereLight === true, NO_AMBIENT_KEY);
+}
+
+/** A lightmapped copy leaves the probe lighting out (probe-lighting.ts): its lightmap holds its indirect light. */
+export function withoutProbeLighting(material: THREE.Material): void {
+  withoutLights(material, (l) => (l as { isProbeLighting?: boolean }).isProbeLighting === true, NO_PROBES_KEY);
 }
 
 /**

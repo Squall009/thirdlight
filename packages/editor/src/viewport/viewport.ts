@@ -28,6 +28,7 @@ import {
   mergingFromUrl,
   shadowCacheFromUrl,
   createEffectsPlayer,
+  createProbeDebugView,
   createSceneAdapter,
   DEFAULT_RENDERER_PREFERENCE,
   pageSearch,
@@ -38,6 +39,8 @@ import {
   type EnvironmentLike,
   type LightingBakeLike,
   type MaterialLibrary,
+  type ProbeDebugView,
+  type ProbeLighting,
   type RendererInfo,
   type RendererPreference,
   type RendererPreferenceSource,
@@ -156,7 +159,9 @@ export class Viewport {
   /** The helper overlay: collider outlines, component areas, the selection's handles. */
   private readonly helpers: HelperOverlay;
   /** Which helpers the Scene view draws (the Gizmos menu). */
-  private gizmos = { icons: true, lights: true, colliders: false, gameplay: true, grid: true };
+  private gizmos = { icons: true, lights: true, colliders: false, gameplay: true, grid: true, probes: false };
+  /** The probe debug view while the Gizmos menu shows it (over the probe light it was made for). */
+  private probeDebug: { light: ProbeLighting; view: ProbeDebugView } | null = null;
   private readonly orbit: OrbitControls;
   private readonly gizmo: TransformControls;
   private readonly snapping: () => boolean;
@@ -996,6 +1001,7 @@ export class Viewport {
       const vp = new THREE.Matrix4().multiplyMatrices(this.camera.projectionMatrix, this.camera.matrixWorldInverse);
       this.root.setAttribute('data-view-proj', JSON.stringify(vp.elements.map((v) => Math.round(v * 1e6) / 1e6)));
     }
+    this.followProbeDebug(adapter);
     const drawn = adapter.renderFrame();
     // The renderer starting or a precompile running skips the frame: ask again until one is drawn.
     if (!drawn.ok || adapter.frameSkipped?.() === true) {
@@ -1212,7 +1218,7 @@ export class Viewport {
   }
 
   /** Show or hide the Scene view's helpers (icons, light ranges, collider outlines, gameplay paths and areas, the grid). */
-  setGizmos(next: Partial<{ icons: boolean; lights: boolean; colliders: boolean; gameplay: boolean; grid: boolean }>): void {
+  setGizmos(next: Partial<{ icons: boolean; lights: boolean; colliders: boolean; gameplay: boolean; grid: boolean; probes: boolean }>): void {
     this.gizmos = { ...this.gizmos, ...next };
     this.entityOverlays.setGizmos({ icons: this.gizmos.icons, lights: this.gizmos.lights });
     this.helpers.setGizmos({ colliders: this.gizmos.colliders, gameplay: this.gizmos.gameplay });
@@ -1222,6 +1228,23 @@ export class Viewport {
     this.requestRender();
   }
 
+  /** The probe debug view follows the adapter's probe light (it comes with a bake and goes with it) while shown. */
+  private followProbeDebug(adapter: SceneAdapter): void {
+    const light = this.gizmos.probes ? (adapter.probeLighting?.() ?? null) : null;
+    if (this.probeDebug !== null && this.probeDebug.light !== light) {
+      this.probeDebug.view.dispose();
+      this.probeDebug = null;
+    }
+    if (light !== null && this.probeDebug === null) {
+      this.probeDebug = { light, view: createProbeDebugView(light) };
+      this.overlay.add(this.probeDebug.view.object);
+    }
+    this.probeDebug?.view.update();
+    // Probes drawn, and of those the ones inside geometry (moved or filled; tests read them).
+    const shown = `${this.probeDebug?.view.count() ?? 0} ${this.probeDebug?.view.invalid() ?? 0}`;
+    if (this.root.getAttribute('data-probe-spheres') !== shown) this.root.setAttribute('data-probe-spheres', shown);
+  }
+
   /** The drawn helper counts on the view element (tests read them). */
   private stampGizmoCounts(): void {
     const c = this.helpers.blockHelpers();
@@ -1229,7 +1252,7 @@ export class Viewport {
     this.root.setAttribute('data-collider-outlines-shown', c.collidersShown.join(' '));
     this.root.setAttribute('data-mover-paths', String(c.moverPaths.length));
     this.root.setAttribute('data-capsule-outlines', String(c.capsules));
-    this.root.setAttribute('data-gizmos', (['icons', 'lights', 'colliders', 'gameplay'] as const).filter((k) => this.gizmos[k]).join(' '));
+    this.root.setAttribute('data-gizmos', (['icons', 'lights', 'colliders', 'gameplay', 'probes'] as const).filter((k) => this.gizmos[k]).join(' '));
     this.root.setAttribute('data-grid', String(this.gizmos.grid));
   }
 

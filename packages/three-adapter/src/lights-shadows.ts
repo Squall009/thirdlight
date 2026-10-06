@@ -30,6 +30,7 @@ import { decideShadows, deriveShadowCamera, directionalShadowSettings, planScene
 import { selectSceneLights, type SceneLightEntry, type SceneLightKind, type SceneLightSelection } from './scene-lights';
 import type { StaticShadowRevision } from './shadow-casters';
 import { textureHolds } from './texture-holds';
+import { markProbeHeld } from './probe-lighting';
 import {
   isLayeredLight,
   LayeredAmbientLight,
@@ -175,6 +176,9 @@ export interface SceneLights {
   dispose(): void;
 }
 
+/** A baked or mixed ambient/hemisphere light is in the probe bake (it is the sky the probes see): inside a tile the probes replace it. */
+const probeHeldMode = (mode: string | undefined): boolean => mode === 'baked' || mode === 'mixed';
+
 export function createSceneLights(o: SceneLightsOptions): SceneLights {
   const { scene } = o;
   let disposed = false;
@@ -219,6 +223,7 @@ export function createSceneLights(o: SceneLightsOptions): SceneLights {
     if (l.type === 'hemisphere') {
       const h = new (layered ? LayeredHemisphereLight : THREE.HemisphereLight)(colour, new THREE.Color(l.groundColor ?? '#444444'), l.intensity);
       setLightMasks(h, masks);
+      markProbeHeld(h, probeHeldMode(l.mode));
       return h;
     }
     if (l.type === 'point') {
@@ -394,6 +399,7 @@ function realizeLight(e: LightEntityLike): void {
       // No shadow, no position dependence; the intensity is used exactly as authored.
       const ambient = new (needsLayeredLight(masks) ? LayeredAmbientLight : THREE.AmbientLight)(new THREE.Color(l.color), l.intensity);
       setLightMasks(ambient, masks);
+      markProbeHeld(ambient, probeHeldMode(l.mode));
       scene.add(ambient);
       switchable.set(e.id, { kind: 'ambient', light: ambient });
       envLights.set(e.id, { light: ambient, id: e.id, tags, type: 'ambient', authored: { color: l.color, intensity: l.intensity } });

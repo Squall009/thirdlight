@@ -274,8 +274,8 @@ export { textureHolds, type TextureHolds } from './texture-holds';
 export { bakeLightmapsInBrowser, type BakedAtlas, type BakeLightInput, type BakeMeshInput, type BakeTargetInput, type BrowserBakeInput, type BrowserBakeResult } from './lightmap-baker';
 // Probe grids: the bake (the editor's Scene view), the tile files, and the loaded tiles (Play, export, the Scene view).
 export { bakeProbeGrids, type BakedProbeTile, type ProbeBakeInput, type ProbeBakeMesh, type ProbeBakeResult } from './probe-bake';
-export { atlasFromSamples, decodeProbeArtifact, encodePng16, packProbeTexels, probeAtlasTexture, probeGridLight } from './probe-artifact';
-export { createProbeGridSet, type LoadedProbeTile, type ProbeBakeLike, type ProbeGridSet, type ProbeGridsObservation } from './probe-grids';
+export { atlasFromSamples, decodeProbeArtifact, encodePng16, packProbeTexels } from './probe-artifact';
+export { createProbeGridSet, createProbeLightingHost, type LoadedProbeTile, type ProbeBakeLike, type ProbeGridSet, type ProbeGridsObservation, type ProbeLightingHost } from './probe-grids';
 // Poses a model from an animator pose (the Animator window's live preview).
 export { createAnimatorPlayer, type AnimatorPlayer, type AnimatorPlayerOptions, type AnimatorPoseLike, type RenderedNodePose } from './animator-player';
 // Visual effects — the player (Play, exports, the Scene view's edit-mode preview) and its executors.
@@ -303,3 +303,6 @@ export { disposeObjectTree, disposeSharingGeometry, installProgramRelease, insta
 // Block layers — merged chunk meshes (the Play/export adapter and the editor's Scene view share it).
 export { BlockLayerView, MESH_APPLY_BUDGET_MS, SYNC_MESH_BUDGET_MS, blockChunkKey, blockLookFromObject, type BlockChunkLightmapTarget, type BlockLayerViewDeps, type BlockLayerViewDiagnostics, type BlockModelLook } from './block-layers';
 export { MESH_WORKERS_MAX, createBrowserMeshWorker, meshWorkerCount, type MeshWorkerFactory, type MeshWorkerPort } from './block-mesh-pool';
+// Probe lighting: the probe light every lit material samples, and the editor's probe debug view.
+export { isProbeLighting, packProbeTiles, PROBES_URL_PARAM, probesFromUrl, PROBE_WEIGHT_FILLED, PROBE_WEIGHT_MOVED, PROBE_WEIGHT_VALID, ProbeLighting, probeWeight, type PackedProbes } from './probe-lighting';
+export { createProbeDebugView, type ProbeDebugView } from './probe-debug';

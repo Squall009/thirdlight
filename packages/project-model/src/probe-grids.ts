@@ -20,10 +20,14 @@
  * The baked result is `content.lighting[sceneId].probes`: per tile its box,
  * its probe counts and a texture asset holding the probes (the bake's
  * artifact, a 16-bit PNG whose samples are half floats: per probe
- * `PROBE_TEXELS` RGBA texels, the nine L2 spherical-harmonic RGB
+ * `PROBE_TEXELS` RGBA texels — the nine L2 spherical-harmonic RGB
  * coefficients of the radiance the probe sees, packed as three.js's
- * `LightProbeGrid` atlas packs them, and the probe's validity in the last
- * alpha).
+ * `LightProbeGrid` atlas packs them, with the probe's validity in the seventh
+ * texel's alpha (`PROBE_SH_TEXELS`), then its walls: per axis, whether a
+ * surface cuts the edge to the next probe along it (1 or 0) and where (the
+ * cut's share of the edge, times the cut flag), x and y in one texel, z in
+ * the next — so the hardware filter interpolates the four edges of a cell
+ * around any point).
  */
 import { ID_RE } from './validate';
 import type { ModelErrorV2 } from './errors';
@@ -48,10 +52,18 @@ export const MAX_PROBE_BOUNCES = 8;
  * virtual offset) or filled from its valid neighbours (dilation).
  */
 export const PROBE_VALIDITY_THRESHOLD = 0.25;
-/** RGBA texels per probe in a probe artifact: 27 SH values and the validity. */
-export const PROBE_TEXELS = 7;
+/** RGBA texels per probe holding its light: 27 SH values and the validity. */
+export const PROBE_SH_TEXELS = 7;
+/** RGBA texels per probe in a probe artifact: its light, then its walls. */
+export const PROBE_TEXELS = 9;
+/**
+ * RGBA half-float texels a probe takes in the GPU texture the materials
+ * sample (the adapter's probe lighting packs it): its first-order light and
+ * weight in four, its walls in two.
+ */
+export const PROBE_GPU_TEXELS = 6;
 /** Probes per row of a probe artifact (its width is this times `PROBE_TEXELS` texels, under the texture edge limit). */
-export const PROBE_ARTIFACT_ROW_PROBES = 512;
+export const PROBE_ARTIFACT_ROW_PROBES = 448;
 /** Padding slices at both ends of each of the seven sub-volumes of a probe tile's 3D texture (three.js's atlas layout). */
 export const PROBE_ATLAS_PADDING = 1;
 /** Validity values a probe artifact stores in its last alpha. */
@@ -108,10 +120,10 @@ export function probeCount(g: { resolution: readonly number[] }): number {
   return g.resolution[0]! * g.resolution[1]! * g.resolution[2]!;
 }
 
-/** A tile's 3D texture size (bytes): RGBA half floats, seven padded sub-volumes along z. */
+/** A tile's share of the GPU texture (bytes): RGBA half floats, a padded sub-volume along z per GPU texel. */
 export function probeGridGpuBytes(g: { resolution: readonly number[] }): number {
   const [nx, ny, nz] = g.resolution as Vec3;
-  return nx * ny * 7 * (nz + 2 * PROBE_ATLAS_PADDING) * 8;
+  return nx * ny * PROBE_GPU_TEXELS * (nz + 2 * PROBE_ATLAS_PADDING) * 8;
 }
 
 /** A tile's artifact image size (pixels). */

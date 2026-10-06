@@ -31,6 +31,7 @@ import { WebGPURenderer } from 'three/webgpu';
 
 import { registerEffectLights } from './effect-lights';
 import { registerLayeredLights } from './light-layers';
+import { registerProbeLighting } from './probe-lighting';
 import { installProgramRelease, installVaoSweep, trackRenderer, trackTextureListeners } from './dispose';
 
 export type RendererPreference = 'auto' | 'webgpu' | 'webgl2';
@@ -335,6 +336,8 @@ const BROWSER_DEPS: RendererFactoryDeps = {
     registerEffectLights(r);
     // And lights whose layer masks leave some objects unlit or unshadowed.
     registerLayeredLights(r);
+    // And the probe lighting (its light, and the lights node that lets it replace the ambient light).
+    registerProbeLighting(r as never);
     return r as unknown as NodeRendererLike;
   },
   probe: (gpu, secure, timeoutMs) => probeWebGpu(gpu, secure, timeoutMs),

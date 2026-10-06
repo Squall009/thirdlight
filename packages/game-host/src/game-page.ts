@@ -34,7 +34,7 @@ import { audioSpatialOf, dependencyTables, depthBufferOf, instanceChunkSizeOf, m
 import { assetVersionKey, createResourceManager, fixedStepHzOf, EMBEDDED_TEXTURES_LISTED, embeddedTextureBytes, type ResourceManager, type ResourceObservation } from '@thirdlight/runtime';
 import { attachBrowserInput, DEFAULT_INPUT_CONFIG, DEFAULT_INPUT_CONFIG_3D, focusGameSurface, type InputConfigLike } from '@thirdlight/input';
 import type { RapierPhysicsInitConfig, RapierPhysicsPort, RapierStaticColliderSpec } from '@thirdlight/physics-rapier';
-import { batchingFromUrl, createSceneAdapter, createTextureStreamer, decodeTexture, effectsOptionFrom, environmentHasLook, mergingFromUrl, pageSearch, resolveRendererPreference, setKtx2DecoderBase, shadowCacheFromUrl } from '@thirdlight/three-adapter';
+import { batchingFromUrl, createSceneAdapter, createTextureStreamer, decodeTexture, effectsOptionFrom, environmentHasLook, mergingFromUrl, pageSearch, probesFromUrl, resolveRendererPreference, setKtx2DecoderBase, shadowCacheFromUrl } from '@thirdlight/three-adapter';
 import { createGltfLoaderPort } from '@thirdlight/three-adapter/gltf-loader';
 import type { EffectDefLike, EnvironmentLike, FrameDrawnInfo, TextureStreamer, LightingBakeLike, MaterialDefLike, MaterialFunctionLike, SceneAdapter, SceneAdapterModels, SceneAdapterOptions, WindLike } from '@thirdlight/three-adapter';
 import {
@@ -558,7 +558,8 @@ function materialsOptionOf(manifest: GamePageManifest, env: GamePageManifest['en
         environmentHasLook(env) || (env?.presets?.length ?? 0) > 0
         ? { environment: { value: env ?? {}, loadTexture: loadWhole } }
         : {}),
-    ...(manifest.lighting !== undefined ? { lighting: { bakes: manifest.lighting, loadTexture: loadWhole, loadBytes } } : {}),
+    // The baked probes light the scene unless the page says ?probes=off (a diagnostic comparison).
+    ...(manifest.lighting !== undefined ? { lighting: { bakes: manifest.lighting, loadTexture: loadWhole, ...(probesFromUrl(pageSearch()) ? { loadBytes } : {}) } } : {}),
     materials: { defs: manifest.materials ?? [], functions: manifest.materialFunctions ?? [], wind: env?.wind ?? null, loadTexture, textureRefs: materialTexturesOf(manifest) },
   };
 }

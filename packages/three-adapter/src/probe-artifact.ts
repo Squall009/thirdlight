@@ -5,33 +5,46 @@
  * (lossless, so the probes read back exactly as baked; an 8-bit image cannot
  * hold the range of sunlit and dark probes): per probe `PROBE_TEXELS` texels,
  * `PROBE_ARTIFACT_ROW_PROBES` probes a row, probes in the order x, then y,
- * then z. A probe's 28 values are its nine L2 spherical-harmonic RGB
- * coefficients (coefficient-major) and its validity.
+ * then z. A probe's first 28 values are its nine L2 spherical-harmonic RGB
+ * coefficients (coefficient-major) and its validity; the next two texels
+ * hold its walls (see project-model probe-grids.ts). A file of an older
+ * layout (seven texels a probe, before the walls) is refused: bake again.
  *
- * The 3D texture is three.js's `LightProbeGrid` atlas: RGBA half floats,
- * nx × ny × 7 (nz + 2) — seven sub-volumes along z, each with a padding slice
- * at both ends (a copy of its edge slice, so trilinear filtering never reads
- * across sub-volumes); texel t of a probe goes to sub-volume t. A grid built
- * from it draws through three's `LightProbeGridNode`.
+ * The 3D texture is three.js's `LightProbeGrid` atlas with one more
+ * sub-volume: RGBA half floats, nx × ny × PROBE_TEXELS (nz + 2) — a
+ * sub-volume per probe texel along z, each with a padding slice at both ends
+ * (a copy of its edge slice, so trilinear filtering never reads across
+ * sub-volumes); texel t of a probe goes to sub-volume t. The probe lighting
+ * (probe-lighting.ts) samples it.
  *
  * Pure apart from `CompressionStream` (encoding, in the editor's bake).
  */
 import * as THREE from 'three';
-import { LightProbeGrid } from 'three/examples/jsm/lighting/LightProbeGrid.js';
-import { decodePngRgba, MAX_TEXTURE_EDGE, PROBE_ARTIFACT_ROW_PROBES, PROBE_ATLAS_PADDING, PROBE_TEXELS, probeArtifactSize, probeCount, type ProbeGridBox } from '@thirdlight/runtime';
+import { decodePngRgba, MAX_TEXTURE_EDGE, PROBE_ARTIFACT_ROW_PROBES, PROBE_ATLAS_PADDING, PROBE_SH_TEXELS, PROBE_TEXELS, probeArtifactSize, probeCount, type ProbeGridBox } from '@thirdlight/runtime';
 
-/** Values per probe in the file: 27 SH values and the validity. */
-const VALUES = PROBE_TEXELS * 4;
+/** The value index of a probe's validity (the last of its light's texels). */
+const VALIDITY = PROBE_SH_TEXELS * 4 - 1;
 
-/** The file's samples (half floats) from per-probe SH (27 floats each) and validity. */
-export function packProbeTexels(sh: Float32Array, validity: Float32Array): { width: number; height: number; samples: Uint16Array } {
+/**
+ * The file's samples (half floats) from per-probe SH (27 floats each),
+ * validity and walls (6 floats each: per axis the cut flag and the cut's
+ * share of the edge; absent: no walls).
+ */
+export function packProbeTexels(sh: Float32Array, validity: Float32Array, walls?: Float32Array): { width: number; height: number; samples: Uint16Array } {
   const probes = validity.length;
   const { width, height } = probeArtifactSize(probes);
   const samples = new Uint16Array(width * height * 4);
   for (let p = 0; p < probes; p++) {
     const base = (Math.floor(p / PROBE_ARTIFACT_ROW_PROBES) * width + (p % PROBE_ARTIFACT_ROW_PROBES) * PROBE_TEXELS) * 4;
     for (let v = 0; v < 27; v++) samples[base + v] = THREE.DataUtils.toHalfFloat(sh[p * 27 + v]!);
-    samples[base + 27] = THREE.DataUtils.toHalfFloat(validity[p]!);
+    samples[base + VALIDITY] = THREE.DataUtils.toHalfFloat(validity[p]!);
+    if (walls === undefined) continue;
+    // (cut x, cut x × where, cut y, cut y × where), (cut z, cut z × where, 0, 0).
+    for (let a = 0; a < 3; a++) {
+      const cut = walls[p * 6 + a * 2]!;
+      samples[base + PROBE_SH_TEXELS * 4 + a * 2] = THREE.DataUtils.toHalfFloat(cut);
+      samples[base + PROBE_SH_TEXELS * 4 + a * 2 + 1] = THREE.DataUtils.toHalfFloat(cut * walls[p * 6 + a * 2 + 1]!);
+    }
   }
   return { width, height, samples };
 }
@@ -96,13 +109,13 @@ export async function encodePng16(width: number, height: number, samples: Uint16
   return out;
 }
 
-/** A tile's 3D texture data (three's atlas layout) from the file's samples. */
+/** A tile's 3D texture data (three's atlas layout, a sub-volume per probe texel) from the file's samples. */
 export function atlasFromSamples(samples: Uint16Array, resolution: readonly number[]): Uint16Array {
   const [nx, ny, nz] = resolution as [number, number, number];
   const probes = nx * ny * nz;
   const width = probeArtifactSize(probes).width;
   const padded = nz + 2 * PROBE_ATLAS_PADDING;
-  const atlas = new Uint16Array(nx * ny * 7 * padded * 4);
+  const atlas = new Uint16Array(nx * ny * PROBE_TEXELS * padded * 4);
   const put = (slice: number, ix: number, iy: number, from: number): void => {
     const o = ((slice * ny + iy) * nx + ix) * 4;
     atlas[o] = samples[from]!;
@@ -133,42 +146,11 @@ export function decodeProbeArtifact(bytes: Uint8Array, grid: Pick<ProbeGridBox, 
   const src = decoded.png.rgba16;
   const probes = probeCount(grid);
   const size = probeArtifactSize(probes);
-  if (src === undefined || decoded.png.width !== size.width || decoded.png.height !== size.height) return { ok: false, message: `the probe file is not a ${size.width} × ${size.height} 16-bit RGBA image` };
+  if (src === undefined || decoded.png.width !== size.width || decoded.png.height !== size.height) return { ok: false, message: `the probe file is not a ${size.width} × ${size.height} 16-bit RGBA image (an older layout: bake the probes again)` };
   const validity = new Float32Array(probes);
   for (let p = 0; p < probes; p++) {
     const base = (Math.floor(p / PROBE_ARTIFACT_ROW_PROBES) * size.width + (p % PROBE_ARTIFACT_ROW_PROBES) * PROBE_TEXELS) * 4;
-    validity[p] = THREE.DataUtils.fromHalfFloat(src[base + VALUES - 1]!);
+    validity[p] = THREE.DataUtils.fromHalfFloat(src[base + VALIDITY]!);
   }
   return { ok: true, atlas: atlasFromSamples(src, grid.resolution), validity };
-}
-
-/** three's atlas as a texture (linear filtering between probes). */
-export function probeAtlasTexture(atlas: Uint16Array, resolution: readonly number[]): THREE.Data3DTexture {
-  const [nx, ny, nz] = resolution as [number, number, number];
-  const tex = new THREE.Data3DTexture(atlas, nx, ny, 7 * (nz + 2 * PROBE_ATLAS_PADDING));
-  tex.format = THREE.RGBAFormat;
-  tex.type = THREE.HalfFloatType;
-  tex.minFilter = THREE.LinearFilter;
-  tex.magFilter = THREE.LinearFilter;
-  tex.wrapS = tex.wrapT = tex.wrapR = THREE.ClampToEdgeWrapping;
-  tex.generateMipmaps = false;
-  tex.unpackAlignment = 1;
-  tex.needsUpdate = true;
-  return tex;
-}
-
-/**
- * A three `LightProbeGrid` over a tile with this atlas. As a light in a
- * scene it adds the probes' irradiance to every lit node material (the bake's
- * bounce passes use it so); `falloff` limits it to its own box, so tiles
- * side by side do not add up. The caller owns (and disposes) the texture.
- */
-export function probeGridLight(grid: ProbeGridBox, texture: THREE.Data3DTexture): LightProbeGrid {
-  const [w, h, d] = [grid.max[0] - grid.min[0], grid.max[1] - grid.min[1], grid.max[2] - grid.min[2]];
-  const light = new LightProbeGrid(w, h, d, grid.resolution[0], grid.resolution[1], grid.resolution[2]);
-  light.position.set((grid.min[0] + grid.max[0]) / 2, (grid.min[1] + grid.max[1]) / 2, (grid.min[2] + grid.max[2]) / 2);
-  light.texture = texture;
-  light.falloff = 1e-3;
-  light.updateBoundingBox();
-  return light;
 }

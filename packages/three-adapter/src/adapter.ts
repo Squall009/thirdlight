@@ -29,7 +29,7 @@ import type { MaterialFunctionLike } from './material-graph';
 import { createMaterialLibrary, type MaterialDefLike, type MaterialLibrary, type MaterialOverridesLike, type WindLike } from './material-library';
 import { createAnimatorPlayer, type AnimatorPlayer, type AnimatorPoseLike } from './animator-player';
 import { addBoxLightmapUv, createLightmapSet, type LightingBakeLike, type LightmapSet } from './lightmaps';
-import { createProbeGridSet, type ProbeGridSet } from './probe-grids';
+import { createProbeLightingHost } from './probe-grids';
 import { releaseEmissiveLooks, setEntityLook, SHARED_MATERIAL_KEY } from './node-materials';
 import { disposeObjectTree } from './dispose';
 import { bothMemberships, ViewCuller } from './view-cull';
@@ -217,12 +217,9 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       : null;
   let lightmaps: LightmapSet | null = lightmapSetOf(opts.lighting?.bakes ?? null);
   lightmapsLive = lightmaps;
-  /** The loaded scenes' baked probe tiles (they follow the realized scenes). */
-  const probeGridsOf = (bakes: Readonly<Record<string, LightingBakeLike>> | null): ProbeGridSet | null => {
-    const loadBytes = opts.lighting?.loadBytes;
-    return loadBytes !== undefined && bakes !== null && Object.values(bakes).some((b) => b.probes !== undefined) ? createProbeGridSet(Object.fromEntries(Object.entries(bakes).map(([id, b]) => [id, b.probes])), loadBytes, resources) : null;
-  };
-  let probeGrids = probeGridsOf(opts.lighting?.bakes ?? null);
+  /** The loaded scenes' baked probe tiles (they follow the realized scenes) and the probe light every material samples. */
+  const probes = createProbeLightingHost(scene, resources, opts.lighting?.loadBytes, () => opts.onChange?.());
+  probes.setBakes(opts.lighting?.bakes ?? null);
   /** Entities the runtime hides (`ctx.game.setVisible`, a collected collectible), with their children. */
   let hiddenIds: ReadonlySet<string> = NO_HIDDEN;
   /** The hidden set last derived from (the runtime hands out the same set while nothing changes). */
@@ -959,7 +956,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   /** The probe tiles follow the realized scenes (a host without a scene set draws its snapshot's scene). */
   function followProbeScenes(): void {
     const own = (opts.snapshot.scene as { sceneId?: string }).sceneId;
-    probeGrids?.follow(realizedScenes.size > 0 ? realizedScenes.keys() : own !== undefined ? [own] : []);
+    probes.follow(realizedScenes.size > 0 ? realizedScenes.keys() : own !== undefined ? [own] : []);
   }
   followProbeScenes();
   /** The scenes realized since the last drawn frame (for `onFrameDrawn`). */
@@ -1526,6 +1523,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       return { ok: false, error: adapterError('render_failed', `render failed: ${String(e)}`) };
     }
     lastFrameDrawn = true;
+    probes.frameDrawn();
     gpuTiming.afterFrame(renderer);
     presentedRevision = realizedRevision;
     if (opts.onFrameDrawn !== undefined) {
@@ -1598,7 +1596,8 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     if (!disposed && blockView.layerIds().length > 0) d.blocks = blockView.diagnostics();
     if (!disposed && materialLibrary !== null && runtimeMaterials !== null) d.materials = { graphMaterials: materialLibrary.graphMaterialCount(), ...(materialSwaps !== null && (materialSwaps.applied > 0 || materialSwaps.pending() > 0) ? { swapsApplied: materialSwaps.applied, swapsPending: materialSwaps.pending() } : {}), ...runtimeMaterials.diagnostics() };
     if (environmentRenderer !== null && !disposed) d.environment = environmentRenderer.diagnostics();
-    if (probeGrids !== null && !disposed) d.probes = probeGrids.observe();
+    const probeState = disposed ? null : probes.observe();
+    if (probeState !== null) d.probes = probeState;
     if (opts.textureStreamer !== undefined && !disposed) d.textures = opts.textureStreamer.observe();
     if (liveRenderer !== null && lastFrameDrawn) d.frame = { drawCalls: lastFrameCounts.drawCalls, triangles: lastFrameCounts.triangles };
     if (!disposed) d.sceneGraph = graph.counts();
@@ -1619,7 +1618,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     effectMaterials.clear();
     animatorPlayers.clear();
     lightmaps?.dispose();
-    probeGrids?.dispose();
+    probes.dispose();
     runtimeMaterials?.dispose();
     materialSwaps?.dispose();
     sceneHolds.clear();
@@ -1802,9 +1801,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       lightmaps?.dispose();
       lightmaps = lightmapSetOf(bakes);
       lightmapsLive = lightmaps;
-      probeGrids?.dispose();
-      probeGrids = probeGridsOf(bakes);
-      followProbeScenes();
+      probes.setBakes(bakes);
       for (const id of blockView.layerIds()) blockView.setLightmapUv(id, lightmaps?.hasChunks(id) === true);
       blockView.remeshAll();
     },
@@ -1826,6 +1823,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       return null;
     },
     threeScene: () => scene,
+    probeLighting: () => probes.light(),
     pickables: () => graph.pickables(),
     attachOverlay(entityId, object): void {
       let hung = overlays.get(entityId);

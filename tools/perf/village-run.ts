@@ -25,6 +25,8 @@
  *   --busy N                     also trace N ms of each export run for busy time per second: the page's main thread, its
  *                                workers and the GPU process (with --vsync and --switches 'frameRateCap=60,frameRateCap=30':
  *                                what a frame-rate cap saves)
+ *   --probes                     bake the class's probes in the editor (WebGPU) before the export: the export then
+ *                                draws with probe lighting (its cost against a run without)
  *   --gate                       the fast gate's check: frames only (no GPU passes or profile); the plain page is
  *                                measured too and the class's frame reported against it (`plainPageRows`), not gated
  *   --check FILE                 compare the export's frame time with a recorded baseline: exit 1 when the median (the
@@ -45,6 +47,7 @@ import * as esbuild from 'esbuild';
 
 import { PERF_ROOT, REPO, startPerfBackend } from './backend';
 import { launchGpuBrowser, measurePage, serveStatic, sourcesOf, type FrameRenderer, type FrameRunResult, type PageStep } from './frame-run';
+import { bakeProbesInEditor } from './probe-bake-run';
 import { measureSceneView, sceneViewLine, type SceneViewResult } from './scene-view-run';
 import { FRAME_HISTOGRAM_EDGES_MS } from './stats';
 import { buildVillage, VILLAGE_SEED, VILLAGE_VERSION, type VillageBuild } from './village';
@@ -82,6 +85,8 @@ export interface VillageReport {
   machine: { cpu: string; cores: number; gpu: string };
   subject: { name: string; version?: number; seed?: number; build?: VillageBuild; exportMs?: number };
   export: Partial<Record<FrameRenderer, FrameRunResult>>;
+  /** `--probes`: the probe bake before the export. */
+  probes?: Record<string, unknown>;
   bare: Partial<Record<BareVariant, Partial<Record<FrameRenderer, FrameRunResult>>>>;
   /** The editor's Scene view on the same content (`--scene-view`). */
   sceneView?: Partial<Record<FrameRenderer, SceneViewResult>>;
@@ -271,6 +276,7 @@ export async function runVillageCli(argv: readonly string[]): Promise<void> {
       if (typeof reg.json['projectId'] !== 'string') throw new Error(`register failed: ${JSON.stringify(reg.json).slice(0, 400)}`);
       projectId = reg.json['projectId'];
     }
+    if (has('probes')) report.probes = await bakeProbesInEditor(be, projectId, log);
     if (sceneView) {
       const browser = await launchGpuBrowser({ vsync: has('vsync') });
       try {

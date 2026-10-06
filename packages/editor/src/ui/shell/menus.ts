@@ -34,8 +34,8 @@ export interface EditorMenuInput {
   snapping: boolean;
   setSnapping: Dispatch<SetStateAction<boolean>>;
   snapSettings: SnapSettings;
-  gizmos: { icons: boolean; lights: boolean; colliders: boolean; gameplay: boolean; grid: boolean };
-  setGizmos: Dispatch<SetStateAction<{ icons: boolean; lights: boolean; colliders: boolean; gameplay: boolean; grid: boolean }>>;
+  gizmos: { icons: boolean; lights: boolean; colliders: boolean; gameplay: boolean; grid: boolean; probes: boolean };
+  setGizmos: Dispatch<SetStateAction<{ icons: boolean; lights: boolean; colliders: boolean; gameplay: boolean; grid: boolean; probes: boolean }>>;
   effectPreview: boolean;
   setEffectPreview: Dispatch<SetStateAction<boolean>>;
   workspace: WorkspaceState;
@@ -212,6 +212,7 @@ export function editorMenus(input: EditorMenuInput): Menu[] {
         { label: `Collider outlines: ${gizmos.colliders ? 'on' : 'off'}`, onSelect: () => setGizmos((g) => ({ ...g, colliders: !g.colliders })) },
         { label: `Gameplay paths and areas: ${gizmos.gameplay ? 'on' : 'off'}`, onSelect: () => setGizmos((g) => ({ ...g, gameplay: !g.gameplay })) },
         { label: `Grid: ${gizmos.grid ? 'on' : 'off'}`, onSelect: () => setGizmos((g) => ({ ...g, grid: !g.grid })) },
+        { label: `Light probes: ${gizmos.probes ? 'on' : 'off'}`, onSelect: () => setGizmos((g) => ({ ...g, probes: !g.probes })) },
         { label: `Play selected effects: ${effectPreview ? 'on' : 'off'}`, onSelect: () => setEffectPreview((v) => !v) },
       ],
     },

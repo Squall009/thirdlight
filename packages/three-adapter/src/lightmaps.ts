@@ -20,7 +20,7 @@ import * as THREE from 'three';
 import { materialLightMap, uniform } from 'three/tsl';
 import { IrradianceNode } from 'three/webgpu';
 
-import { copyMaterialKeepingHooks, isNodeMaterial, toNodeMaterial, withoutAmbientLight } from './node-materials';
+import { copyMaterialKeepingHooks, isNodeMaterial, toNodeMaterial, withoutAmbientLight, withoutProbeLighting } from './node-materials';
 import { textureHolds, type TextureHolds } from './texture-holds';
 import type { ProbeBakeLike } from './probe-grids';
 
@@ -115,6 +115,8 @@ export function lightmappedMaterial(material: THREE.Material, map: THREE.Texture
   c.userData['lightmapRange'] = range;
   if (tint !== undefined) withLightmapTint(c, tint);
   if (ignoreAmbient) withoutAmbientLight(c);
+  // The lightmap holds this surface's indirect light: the probes would count it twice.
+  withoutProbeLighting(c);
   c.needsUpdate = true;
   return c;
 }

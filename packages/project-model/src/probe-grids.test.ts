@@ -72,7 +72,7 @@ describe('probe grid placement', () => {
     expect(width).toBe(PROBE_ARTIFACT_ROW_PROBES * PROBE_TEXELS);
     expect(width).toBeLessThanOrEqual(MAX_TEXTURE_EDGE);
     expect(height).toBeLessThanOrEqual(MAX_TEXTURE_EDGE);
-    expect(probeGridGpuBytes({ resolution: [2, 3, 4] })).toBe(2 * 3 * 7 * 6 * 8);
+    expect(probeGridGpuBytes({ resolution: [2, 3, 4] })).toBe(2 * 3 * 6 * 6 * 8);
   });
 });
 

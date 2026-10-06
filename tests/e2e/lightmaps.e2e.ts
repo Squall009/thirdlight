@@ -26,7 +26,9 @@ import { startBackend, type E2EBackend } from './backend';
 import { decodePng, type Image } from './png';
 import { backendOf, editorUrlFor, expectRendererBackend, onlyInItsProject, RENDERER_VARIANTS, type RendererVariant } from './renderer-variants';
 import { decodeProbeArtifact } from '@thirdlight/three-adapter';
-import { openWindow } from './ui';
+import { diff, show, STRICT, within } from './parity';
+import { menu, openWindow, showView } from './ui';
+import { centre, gameCameraAtView, settledShot } from './view-match';
 
 let be: E2EBackend;
 let seq = 0;
@@ -39,7 +41,7 @@ const bakeBlender = process.env['TL_BAKE_BLENDER'] ?? process.env['THIRDLIGHT_BL
 const bakeHost = process.env['TL_BAKE_HOST'] ?? 'local';
 const haveBlender = bakeHost !== 'local' || spawnSync(bakeBlender, ['--version'], { encoding: 'utf8' }).status === 0;
 
-async function cmd(op: string, args: Record<string, unknown>): Promise<Record<string, unknown>> {
+async function cmd(op: string, args: Record<string, unknown>, sameIsFine = false): Promise<Record<string, unknown>> {
   const q = await be.command({ op: 'queryProject', projectId: be.projectId, args: {} });
   seq += 1;
   const res = await be.command({
@@ -50,15 +52,19 @@ async function cmd(op: string, args: Record<string, unknown>): Promise<Record<st
     origin: { kind: 'mcp', clientId: 'e2e-lightmaps' },
     args,
   });
+  if (sameIsFine && (res as { error?: { code?: string } }).error?.code === 'no_change') return res;
   expect(res.ok, JSON.stringify(res)).toBe(true);
   return res;
 }
 
-/** Mean brightness of a small square around a world point, as the Play camera sees it. */
-function brightnessAt(img: Image, world: [number, number, number]): number {
+/** The Play camera's pose in the lightmap scene. */
+const PLAY_POSE = { position: [0, 3, 6], rotation: [-0.2588190451, 0, 0, 0.9659258263] };
+
+/** Mean brightness of a small square around a world point, as the Play camera (at `pose`) sees it. */
+function brightnessAt(img: Image, world: [number, number, number], pose: { position: number[]; rotation: number[] } = PLAY_POSE): number {
   const camera = new THREE.PerspectiveCamera(60, img.width / img.height, 0.1, 100);
-  camera.position.set(0, 3, 6);
-  camera.quaternion.set(-0.2588190451, 0, 0, 0.9659258263);
+  camera.position.set(pose.position[0]!, pose.position[1]!, pose.position[2]!);
+  camera.quaternion.set(pose.rotation[0]!, pose.rotation[1]!, pose.rotation[2]!, pose.rotation[3]!);
   camera.updateMatrixWorld();
   const p = new THREE.Vector3(...world).project(camera);
   const cx = Math.round(((p.x + 1) / 2) * img.width);
@@ -314,4 +320,143 @@ test('Bake final runs Blender Cycles on the bake host; its lightmap shows the sh
   // Bounce light adds a little on top of what the realtime sun + ambient gave.
   expect(afterLit / beforeLit).toBeGreaterThan(0.7);
   expect(afterLit / beforeLit).toBeLessThan(1.7);
+});
+
+/**
+ * Probe lighting, baked once (WebGPU) and drawn on both renderers (the
+ * editor reloaded with `?renderer=webgl2` for the second): a closed room
+ * beside a sunlit yard, an open canopy, and a moving (non-static) cube.
+ *
+ * - Inside the closed room the probes see no light: its walls stay dark,
+ *   also next to the wall whose outside the sun lights (no light leaks
+ *   through it), where the flat ambient light lit them before the bake.
+ * - The cube in the open and under the canopy: its front face (never in
+ *   sunlight) is about as bright in both places with the flat ambient light,
+ *   and darker under the canopy with the probes (indirect light changes as it
+ *   moves).
+ * - The Scene view and Play draw the probe-lit scene alike.
+ * - The probe debug view (Gizmos → Light probes) draws a sphere per probe.
+ */
+test('probe grids light every object in place of the flat ambient light: no leak through a closed wall, a moving object, the Scene view as Play (both renderers)', async ({ page }) => {
+  onlyInItsProject('auto', ['auto']);
+  test.skip(backendOf('auto') !== 'webgpu', 'baking probes needs WebGPU');
+  test.setTimeout(300_000);
+  be = await startBackend();
+  const box = async (name: string, size: number[], position: number[], staticOn = true): Promise<string> => {
+    const id = String((await cmd('createEntity', { sceneId: 'scene-main', kind: 'box', name, box: { size, material: { color: '#b0b0b0' } }, transform: { position } })).createdId);
+    if (staticOn) await cmd('updateEntity', { entityId: id, static: true });
+    return id;
+  };
+  await box('ground', [20, 0.5, 16], [0, -0.25, -2]);
+  // The room: inside x 3…7, z −5…−1, 2.6 m high; walls and roof 0.4 m thick.
+  await box('room west', [0.4, 2.6, 4.8], [2.8, 1.3, -3]);
+  await box('room east', [0.4, 2.6, 4.8], [7.2, 1.3, -3]);
+  await box('room north', [4, 2.6, 0.4], [5, 1.3, -5.2]);
+  await box('room south', [4, 2.6, 0.4], [5, 1.3, -0.8]);
+  await box('room roof', [4.8, 0.4, 4.8], [5, 2.8, -3]);
+  // The canopy: a roof 1.2 m up over x −8…0, z −7…1, open on every side.
+  await box('canopy', [8, 0.2, 8], [-4, 1.3, -3]);
+  const mover = await box('mover', [0.8, 0.8, 0.8], [-4, 0.4, 3], false);
+  // The sun comes from the north (behind the room's north wall, never onto the cube's front face).
+  await cmd('setComponent', { entityId: 'light-0001', component: 'light', value: { type: 'directional', color: '#ffffff', intensity: 2, direction: [0.3, -1, 0.6], castShadow: true, mode: 'mixed' } });
+  await cmd('setComponent', { entityId: 'light-0002', component: 'light', value: { type: 'ambient', color: '#8090a8', intensity: 0.8, mode: 'mixed' } });
+  await cmd('setEnvironment', { sceneId: 'scene-main', environment: { sky: { mode: 'color', color: '#a0b8e0' } } });
+
+  const insidePose = { position: [5, 1.4, -1.4], rotation: [0, 0, 0, 1] };
+  const yardPose = { position: [-4, 0.7, 7], rotation: [0, 0, 0, 1] };
+  // On the north wall's inside (its outside is sunlit): low and high, next to the west wall, in the middle; the floor by it.
+  const insideSpots: [number, number, number][] = [
+    [5, 0.2, -5],
+    [5, 1.3, -5],
+    [3.3, 1.3, -5],
+    [6.7, 0.3, -5],
+    [5, 0.02, -4.7],
+  ];
+  const moverFront = (z: number): [number, number, number] => [-4, 0.4, z + 0.4];
+  const frame = page.locator('iframe.tl-app__preview-frame');
+
+  /** One Play from `pose`, settled; brightness at the spots. */
+  const playAt = async (variant: RendererVariant, pose: { position: number[]; rotation: number[] }, label: string): Promise<Image> => {
+    await cmd('setTransform', { entityId: 'cam-main', transform: { position: pose.position, rotation: pose.rotation, scale: [1, 1, 1] } }, true);
+    await page.getByTitle('Start an isolated play preview').click();
+    const canvas = page.frameLocator('iframe.tl-app__preview-frame').locator('canvas').first();
+    await expectRendererBackend(canvas, variant);
+    await expect(frame).toBeVisible();
+    const img = await settledShot(frame, label);
+    await page.getByTitle('Stop the play preview').click();
+    await expect(page.getByTitle('Start an isolated play preview')).toBeVisible({ timeout: 30_000 });
+    return img;
+  };
+  const interior = (img: Image): number[] => insideSpots.map((w) => brightnessAt(img, w, insidePose));
+  const moverRatio = async (variant: RendererVariant, label: string): Promise<{ open: number; covered: number }> => {
+    await cmd('setTransform', { entityId: mover, transform: { position: [-4, 0.4, 3] } }, true);
+    const open = brightnessAt(await playAt(variant, yardPose, `${label}-open`), moverFront(3), yardPose);
+    await cmd('setTransform', { entityId: mover, transform: { position: [-4, 0.4, -3] } }, true);
+    const covered = brightnessAt(await playAt(variant, yardPose, `${label}-covered`), moverFront(-3), yardPose);
+    return { open, covered };
+  };
+
+  await page.goto(editorUrlFor(be.editorUrl, 'auto'));
+  await expect(page.locator('.tl-statusbar')).toContainText('connected');
+  await expectRendererBackend(page.locator('canvas.tl-viewport'), 'auto');
+
+  // Before the bake: the flat ambient light.
+  const flat = interior(await playAt('auto', insidePose, 'flat-inside'));
+  const flatMover = await moverRatio('auto', 'flat-mover');
+  console.log(`[probe lighting] flat ambient: inside ${flat.map((v) => v.toFixed(1)).join(' ')}; mover open ${flatMover.open.toFixed(1)} covered ${flatMover.covered.toFixed(1)}`);
+
+  await openWindow(page, 'Lighting');
+  await page.getByRole('button', { name: 'Bake probes' }).click();
+  await expect(page.locator('[aria-label="probe status"]')).toContainText('Probes from', { timeout: 120_000 });
+  console.log(`[probe lighting] ${await page.getByRole('status').textContent()}`);
+  const probes = (await bakeOf()).probes!;
+
+  // The debug view: a sphere per probe while on.
+  const view = page.locator('canvas.tl-viewport');
+  await showView(page, 'Scene');
+  await menu(page, 'Gizmos', 'Light probes: off');
+  await expect(view).toHaveAttribute('data-gizmos', /probes/);
+  await expect(view).toHaveAttribute('data-probe-spheres', `${probes.probes} ${probes.moved + probes.filled}`, { timeout: 30_000 });
+  await settledShot(view, 'probe-debug');
+  await menu(page, 'Gizmos', 'Light probes: on');
+  await expect(view).toHaveAttribute('data-probe-spheres', '0 0');
+
+  for (const variant of ['auto', 'webgl2'] as const) {
+    if (variant === 'webgl2') {
+      await page.goto(editorUrlFor(be.editorUrl, 'webgl2'));
+      await expect(page.locator('.tl-statusbar')).toContainText('connected');
+      await expectRendererBackend(view, 'webgl2');
+    }
+    const lit = interior(await playAt(variant, insidePose, `${variant}-inside`));
+    const moved = await moverRatio(variant, `${variant}-mover`);
+    console.log(`[probe lighting] ${backendOf(variant)}: inside ${lit.map((v) => v.toFixed(1)).join(' ')}; mover open ${moved.open.toFixed(1)} covered ${moved.covered.toFixed(1)}`);
+    // No leak: every spot inside is dark, the ones by the sunlit wall included, where the flat light lit them.
+    for (let i = 0; i < lit.length; i++) {
+      expect(flat[i]!, `flat ambient light at spot ${i}`).toBeGreaterThan(25);
+      expect(lit[i]!, `probe light at spot ${i}`).toBeLessThan(Math.max(8, flat[i]! * 0.15));
+    }
+    // The moving cube: alike in both places with flat light, darker under the canopy with the probes.
+    expect(Math.abs(flatMover.covered / flatMover.open - 1)).toBeLessThan(0.1);
+    expect(moved.covered).toBeLessThan(moved.open * 0.75);
+
+    // The Scene view draws what Play draws (the default view of the yard, the room and the canopy).
+    await menu(page, 'Gizmos', 'Icons: on');
+    await menu(page, 'Gizmos', 'Light ranges: on');
+    await menu(page, 'Gizmos', 'Gameplay paths and areas: on');
+    await menu(page, 'Gizmos', 'Grid: on');
+    await expect(view).toHaveAttribute('data-gizmos', '');
+    await gameCameraAtView(page, (op, args) => cmd(op, args, true), variant, async (id) => (await be.command({ op: 'queryEntity', projectId: be.projectId, args: { entityId: id } }))['entity'] as never);
+    const scene = await settledShot(view, `${variant}-scene-view`);
+    await page.getByTitle('Start an isolated play preview').click();
+    const game = page.frameLocator('iframe.tl-app__preview-frame').locator('canvas').first();
+    await expectRendererBackend(game, variant);
+    const play = await settledShot(game, `${variant}-play`);
+    await page.getByTitle('Stop the play preview').click();
+    await showView(page, 'Scene');
+    const w = Math.min(scene.width, play.width);
+    const h = Math.min(scene.height, play.height);
+    const d = diff(centre(scene, w, h), centre(play, w, h), STRICT);
+    console.log(`[probe lighting] ${backendOf(variant)} Scene view vs Play: ${show(d)}`);
+    expect(within(d), show(d)).toBe(true);
+  }
 });
