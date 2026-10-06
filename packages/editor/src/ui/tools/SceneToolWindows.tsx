@@ -10,6 +10,8 @@ import { useEffect, useState, type JSX, type RefObject } from 'react';
 import type { ProjectedEntity } from '../../session/projection';
 import { bakeIsStale } from '../../viewport/bake-run';
 import { probesAreStale } from '../../viewport/probe-bake-run';
+import { alignSkyToKeyLight } from '../../viewport/sky-align';
+import { skyTurnDegrees } from '@thirdlight/three-adapter';
 import { EnvironmentPanel } from '../EnvironmentPanel';
 import { LightingPanel } from '../LightingPanel';
 import type { SceneHeaderView } from '../Hierarchy';
@@ -83,6 +85,13 @@ export function SceneToolWindows(p: SceneToolWindowsProps): JSX.Element | null {
         look={sceneLook}
         onSaveLook={(look) => active !== null && void saveSceneEnvironment(active.sceneId, look, sceneLook)}
         error={materialError}
+        alignSun={(sky) => {
+          // The key light: the active scene's first directional light that is on (the scene's own, as Play picks it).
+          const key = p.entities.find((e) => e.light?.type === 'directional' && e.active && (active === null || (e.sceneId ?? active.sceneId) === active.sceneId));
+          const v = p.viewportRef.current;
+          if (v === null) return Promise.resolve({ ok: false, message: 'the Scene view is not ready' });
+          return alignSkyToKeyLight(sky, key?.light?.direction ?? (key !== undefined ? [0, -1, 0] : null), (id) => v.loadTexture(id));
+        }}
         presets={{
           lights: p.entities.filter((e) => e.light !== undefined).map((e) => ({ id: e.id, type: e.light!.type, color: e.light!.color, intensity: e.light!.intensity, ...(e.light!.direction !== undefined ? { direction: e.light!.direction } : {}), ...(e.light!.groundColor !== undefined ? { groundColor: e.light!.groundColor } : {}) })),
           onPreview: (weights) => p.viewportRef.current?.previewEnvironmentBlend(weights === null ? null : { weights }, new Map((p.clientRef.current?.getTags() ?? []).map((t) => [t.name, t.bit]))),
@@ -106,7 +115,7 @@ export function SceneToolWindows(p: SceneToolWindowsProps): JSX.Element | null {
         probeSettings={b.probeSettings}
         onProbeSettings={b.setProbeSettings}
         probeUnavailable={b.probeUnavailable}
-        probesStale={lighting[active.sceneId]?.probes !== undefined && probesAreStale(lighting[active.sceneId]!.probes!, (p.clientRef.current?.projection.listEntities() ?? []).filter((e) => e.sceneId === active.sceneId), (id) => p.clientRef.current?.getBlockLayers().get(id)?.chunks)}
+        probesStale={lighting[active.sceneId]?.probes !== undefined && probesAreStale(lighting[active.sceneId]!.probes!, (p.clientRef.current?.projection.listEntities() ?? []).filter((e) => e.sceneId === active.sceneId), (id) => p.clientRef.current?.getBlockLayers().get(id)?.chunks, skyTurnDegrees(sceneLook?.sky))}
         onBakeProbes={() => void b.bakeProbes()}
         onClearProbes={() => void b.clearProbes()}
       />

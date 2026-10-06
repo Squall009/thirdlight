@@ -17,7 +17,9 @@
  */
 import { useEffect, useState, type JSX } from 'react';
 import type { EnvironmentConfig, EnvironmentPreset, EnvironmentPresetLight, FogConfig, PostConfig, SceneEnvironment, SkyConfig, WindConfig } from '@thirdlight/project-model';
+import { wrapDegrees } from '@thirdlight/three-adapter';
 import { DEFAULT_WIND } from '../session/material-schema';
+import type { SkyAlignResult } from '../viewport/sky-align';
 import { RefPicker, TEXTURE_KINDS } from './catalog/RefPicker';
 
 interface Props {
@@ -28,6 +30,8 @@ interface Props {
   look: SceneEnvironment | null;
   onSaveLook: (look: SceneEnvironment) => void;
   error: string | null;
+  /** "Align the sky's sun to the key light": the turn for this sky (absent: no Scene view to read the image with). */
+  alignSun?: (sky: SkyConfig) => Promise<SkyAlignResult>;
   /** The scene lights a captured preset records, and the Scene view's preset preview. */
   presets?: {
     lights: readonly PresetLightSource[];
@@ -233,6 +237,41 @@ function Choice<T extends string>(props: { label: string; name: string; value: T
   );
 }
 
+/** An image sky's turn about the vertical axis, and the button that turns its sun to the key light. */
+function SkyTurn(props: { sky: SkyConfig; onCommit: (rotation: number) => void; align?: (sky: SkyConfig) => Promise<SkyAlignResult> }): JSX.Element {
+  const [note, setNote] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const align = props.align;
+  return (
+    <>
+      <Slider label="rotation (°)" name="sky rotation" value={wrapDegrees(props.sky.rotation ?? 0)} min={-180} max={180} step={1} onCommit={props.onCommit} />
+      {align !== undefined && (
+        <button
+          type="button"
+          className="tl-button"
+          disabled={busy}
+          title="Turn the sky so the sun in its image sits where the scene's directional light comes from (azimuth only)"
+          onClick={() => {
+            setBusy(true);
+            void align(props.sky).then((r) => {
+              setBusy(false);
+              setNote(r.ok ? r.note : `Could not align: ${r.message}`);
+              if (r.ok) props.onCommit(r.rotation);
+            });
+          }}
+        >
+          align the sky's sun to the key light
+        </button>
+      )}
+      {note !== null && (
+        <p className="tl-hint" aria-label="sky align result">
+          {note}
+        </p>
+      )}
+    </>
+  );
+}
+
 /** A texture of the project (paged from the index), or none. */
 function TextureChoice(props: { label: string; name: string; value: string; onCommit: (v: string) => void }): JSX.Element {
   return (
@@ -314,7 +353,10 @@ export function EnvironmentPanel(p: Props): JSX.Element {
           )}
           {env.sky !== undefined && sky.mode === 'color' && <Colour label="colour" name="sky colour" value={sky.color ?? '#7ec8ff'} onCommit={(v) => setSky({ color: v })} />}
           {env.sky !== undefined && sky.mode === 'texture' && (
-            <TextureChoice label="panorama (equirect)" name="sky texture" value={sky.texture ?? ''} onCommit={(v) => setSky(v === '' ? { texture: undefined } : { texture: v })} />
+            <>
+              <TextureChoice label="panorama (equirect)" name="sky texture" value={sky.texture ?? ''} onCommit={(v) => setSky(v === '' ? { texture: undefined } : { texture: v })} />
+              <SkyTurn sky={sky} onCommit={(rotation) => setSky({ rotation })} {...(p.alignSun !== undefined ? { align: p.alignSun } : {})} />
+            </>
           )}
           {env.sky !== undefined && (
             <>

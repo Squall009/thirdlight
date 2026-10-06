@@ -692,6 +692,12 @@ export interface SkyConfig {
   texture?: string;
   /** Six texture assets px, nx, py, ny, pz, nz (instead of `texture`). */
   cube?: [string, string, string, string, string, string];
+  /**
+   * A texture sky's turn about +Y in degrees (absent: 0), counter-clockwise
+   * seen from above: the background and the image-based lighting turn
+   * together, so a painted sun can be lined up with the key light.
+   */
+  rotation?: number;
   /** Background brightness. */
   intensity?: number;
   /** Image-based lighting strength from the sky (0 = none). */
@@ -947,6 +953,9 @@ function checkFields(value: unknown, path: string, rules: Record<string, FieldRu
   return value;
 }
 
+/** The largest turn a sky's `rotation` takes either way (degrees; one full turn). */
+export const SKY_ROTATION_MAX = 360;
+
 export function validateSky(value: unknown, path: string, errors: ModelErrorV2[]): void {
   const checked = checkFields(
     value,
@@ -966,6 +975,7 @@ export function validateSky(value: unknown, path: string, errors: ModelErrorV2[]
       bottomColor: { kind: 'color' },
       color: { kind: 'color' },
       texture: { kind: 'id' },
+      rotation: { kind: 'num', min: -SKY_ROTATION_MAX, max: SKY_ROTATION_MAX },
       intensity: { kind: 'num', min: 0, max: 8 },
       environmentIntensity: { kind: 'num', min: 0, max: 8 },
     },

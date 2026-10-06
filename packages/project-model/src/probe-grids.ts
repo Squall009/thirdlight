@@ -32,6 +32,7 @@
 import { ID_RE } from './validate';
 import type { ModelErrorV2 } from './errors';
 import type { Vec3 } from './types';
+import { SKY_ROTATION_MAX } from './materials';
 
 /** Default horizontal distance between probes (meters). */
 export const DEFAULT_PROBE_SPACING = 2;
@@ -99,6 +100,8 @@ export interface ProbeBake {
   /** Hashes of the baked/mixed lights and the static objects at bake time (stale check). */
   lightsHash: string;
   staticsHash: string;
+  /** The texture sky's turn the probes saw (degrees; absent: 0): another turn makes them stale. */
+  skyRotation?: number;
 }
 
 /** The `probeVolume` component: a box of probes around the entity (its position is the centre). */
@@ -202,6 +205,8 @@ const intIn = (v: unknown, lo: number, hi: number): boolean => finite(v, lo, hi)
 const vec3In = (v: unknown, lo: number, hi: number): boolean => Array.isArray(v) && v.length === 3 && v.every((n) => finite(n, lo, hi));
 
 const PROBE_BAKE_FIELDS = ['createdAt', 'spacing', 'bounces', 'grids', 'probes', 'moved', 'filled', 'gpuBytes', 'lightsHash', 'staticsHash'];
+/** Optional fields of a probe bake. */
+const PROBE_BAKE_OPTIONAL = ['skyRotation'];
 const GRID_FIELDS = ['min', 'max', 'resolution', 'asset'];
 
 /** `lighting[sceneId].probes` (structure and ranges; the assets' kinds are checked with the content). */
@@ -210,7 +215,7 @@ export function validateProbeBake(value: unknown, path: string, errors: ModelErr
     err(errors, 'field_type', path, 'probes is an object', value);
     return;
   }
-  for (const k of Object.keys(value)) if (!PROBE_BAKE_FIELDS.includes(k)) err(errors, 'field_unexpected', `${path}/${k}`, `unknown probes field "${k}"`, k);
+  for (const k of Object.keys(value)) if (!PROBE_BAKE_FIELDS.includes(k) && !PROBE_BAKE_OPTIONAL.includes(k)) err(errors, 'field_unexpected', `${path}/${k}`, `unknown probes field "${k}"`, k);
   for (const k of PROBE_BAKE_FIELDS) if (value[k] === undefined) err(errors, 'field_missing', `${path}/${k}`, `"${k}" is required`);
   const v = value;
   if (v['createdAt'] !== undefined && (typeof v['createdAt'] !== 'string' || !ISO_RE.test(v['createdAt']))) err(errors, 'field_value', `${path}/createdAt`, 'createdAt is an ISO-8601 UTC time', v['createdAt']);
@@ -218,6 +223,7 @@ export function validateProbeBake(value: unknown, path: string, errors: ModelErr
   if (v['bounces'] !== undefined && !intIn(v['bounces'], 0, MAX_PROBE_BOUNCES)) err(errors, 'field_value', `${path}/bounces`, `bounces is an integer in [0, ${MAX_PROBE_BOUNCES}]`, v['bounces']);
   for (const k of ['probes', 'moved', 'filled', 'gpuBytes']) if (v[k] !== undefined && !intIn(v[k], 0, Number.MAX_SAFE_INTEGER)) err(errors, 'field_value', `${path}/${k}`, `${k} is a non-negative integer`, v[k]);
   for (const k of ['lightsHash', 'staticsHash']) if (v[k] !== undefined && (typeof v[k] !== 'string' || !HASH_RE.test(v[k] as string))) err(errors, 'field_value', `${path}/${k}`, `${k} is 16 lowercase hex digits`, v[k]);
+  if (v['skyRotation'] !== undefined && !finite(v['skyRotation'], -SKY_ROTATION_MAX, SKY_ROTATION_MAX)) err(errors, 'field_value', `${path}/skyRotation`, `skyRotation is degrees in [${-SKY_ROTATION_MAX}, ${SKY_ROTATION_MAX}]`, v['skyRotation']);
   const grids = v['grids'];
   if (grids === undefined) return;
   if (!Array.isArray(grids) || grids.length < 1) {
@@ -253,6 +259,7 @@ export function canonicalProbeBake(b: ProbeBake): ProbeBake {
     gpuBytes: b.gpuBytes,
     lightsHash: b.lightsHash,
     staticsHash: b.staticsHash,
+    ...(b.skyRotation !== undefined ? { skyRotation: b.skyRotation } : {}),
   };
 }
 

@@ -36,6 +36,7 @@ import { levelPost, qualityLevelOf, qualityLevelsOf, type QualityLevelConfig } f
 
 import { ScreenSpaceOcclusion } from './post-ao';
 import type { UpscaleFilter } from './post-upscale';
+import { applySkyRotation, skyRotationRadians } from './sky-rotation';
 import { buildPostPipeline, compileIntoTarget, createSkyMesh, SETTLED_PRECOMPILE as settledPrecompile, type Precompile, gradientSkyMaterial, gradientSkyUniforms, imageSkyMaterial, MAX_FOG_VOLUMES, type FogVolumeBox, type PostPipeline, type PostPlan } from './environment-nodes';
 
 /** Structural copies of the project-model environment types. */
@@ -54,6 +55,8 @@ export interface SkyLike {
   readonly color?: string;
   readonly texture?: string;
   readonly cube?: readonly string[];
+  /** A texture sky's turn about +Y (degrees; sky-rotation.ts). */
+  readonly rotation?: number;
   readonly intensity?: number;
   readonly environmentIntensity?: number;
 }
@@ -379,6 +382,15 @@ export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE
   };
 
   // ---- sky ---------------------------------------------------------------------
+  /**
+   * What the built sky is built from: its fields but the turn (a turn is two
+   * rotation uniforms, never a new sky, image upload or PMREM bake) and, for a
+   * sun that follows it, the key light.
+   */
+  const skyKeyOf = (sky: SkyLike | undefined): string => {
+    if (sky === undefined) return 'null';
+    return JSON.stringify(sky, (k, v: unknown) => (k === 'rotation' ? undefined : v)) + (sky.sunFromLight !== false ? JSON.stringify(keyLight) : '');
+  };
   const sunDirection = (sky: SkyLike): THREE.Vector3 => {
     if (sky.sunFromLight !== false && keyLight !== null) {
       return new THREE.Vector3(-keyLight[0], -keyLight[1], -keyLight[2]).normalize();
@@ -430,7 +442,8 @@ export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE
   };
   const buildSky = (): void => {
     const sky = env?.sky;
-    const key = JSON.stringify(sky ?? null) + (sky?.sunFromLight !== false ? JSON.stringify(keyLight) : '');
+    applySkyRotation(scene, skyRotationRadians(sky));
+    const key = skyKeyOf(sky);
     if (key === skyKey) return;
     skyKey = key;
     clearSky();
@@ -582,8 +595,9 @@ export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE
     } else if (sky.mode === 'color' && (scene.background as THREE.Color | null)?.isColor === true) {
       (scene.background as THREE.Color).set(sky.color ?? '#7ec8ff');
     }
+    applySkyRotation(scene, skyRotationRadians(sky));
     // The static path's key follows (a later `set` with this sky changes nothing).
-    skyKey = JSON.stringify(sky) + (sky.sunFromLight !== false ? JSON.stringify(keyLight) : '');
+    skyKey = skyKeyOf(sky);
   };
   const disposeLayer = (l: SkyLayer): void => {
     if (l.mesh !== null) {
@@ -700,6 +714,12 @@ export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE
       if (l.mesh !== null) {
         l.mesh.renderOrder = -1000 + i;
         l.mesh.visible = opacity > 0;
+        // A dome samples by its local direction: turning the mesh turns the image as the background's rotation does.
+        const turn = skyRotationRadians(entry.sky);
+        if (l.mesh.rotation.y !== turn) {
+          l.mesh.rotation.y = turn;
+          l.mesh.updateMatrixWorld(true);
+        }
       }
     });
     for (const [key, l] of [...layers.entries()]) {
@@ -708,6 +728,7 @@ export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE
       layers.delete(key);
     }
     scene.environment = layers.get(heaviest.key)?.env?.texture ?? null;
+    applySkyRotation(scene, skyRotationRadians(heaviest.sky));
     const s = scene as THREE.Scene & { environmentIntensity?: number };
     s.environmentIntensity = heaviest.sky?.environmentIntensity ?? 1;
     scene.background = baseBackground;

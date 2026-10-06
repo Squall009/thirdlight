@@ -2,13 +2,15 @@
  * The Environment window. A solid sky colour fills the Scene view's
  * background, the physical sky draws a sky, a vignette darkens the corners,
  * bloom brightens the view, a fog volume fills its box with fog (and thins
- * with height) — and Play and
+ * with height), an image sky turns (the rotation field, and "align the sky's
+ * sun to the key light" finding the image's sun) — and Play and
  * the export render the same environment.
  *
  * WebGPURenderer with the TSL sky, fog volumes and post stack, on the
  * product's own renderer (renderer-variants.ts PRODUCT_RENDERER_VARIANTS):
  * env-parity compares the sky, grading, bloom and fog volume on both backends.
  */
+import { randomUUID } from 'node:crypto';
 import { createReadStream, existsSync, statSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import { extname, join, normalize } from 'node:path';
@@ -19,6 +21,8 @@ import { startBackend, type E2EBackend } from './backend';
 import { decodePng, type Image } from './png';
 import { editorUrlFor, expectRendererBackend, exportQueryFor, onlyInItsProject, PRODUCT_RENDERER_VARIANTS } from './renderer-variants';
 import { menu, openWindow, toolWindowScene } from './ui';
+import { makePng } from './png-make';
+import { publishTexture } from './painted-layers';
 
 let be: E2EBackend;
 test.beforeEach(async () => {
@@ -154,6 +158,49 @@ for (const variant of PRODUCT_RENDERER_VARIANTS) test(`sky, vignette, bloom and 
   expect(await storedLook()).toMatchObject({ sky: { mode: 'color' }, post: { vignette: { enabled: true } } });
   // The scene the window edits is named at its top.
   await expect(toolWindowScene(page, 'Environment')).toHaveAttribute('data-scene-id', 'scene-main');
+
+  // An image sky turns. Its sun (a white disc) sits at azimuth 120°, 20° up; below the
+  // horizon the image is red towards −X…+Z (u < ½) and green the other half — the Scene view's
+  // camera looks down, so the top of the view shows that ground half.
+  const SKY_W = 256;
+  const SKY_H = 128;
+  const sunAt = [(120 / 360 + 0.5) * SKY_W - 0.5, (0.5 - 20 / 180) * SKY_H - 0.5]; // pixel centres
+  await publishTexture(be, new Uint8Array(makePng(SKY_W, SKY_H, (x, y) => (Math.hypot(x - sunAt[0]!, y - sunAt[1]!) < 4 ? [255, 255, 250, 255] : y < SKY_H / 2 ? [60, 120, 230, 255] : x < SKY_W / 2 ? [200, 60, 50, 255] : [50, 170, 60, 255]))), 'sky-sun', 'Sky with a sun');
+  const mcp = async (op: string, args: Record<string, unknown>): Promise<void> => {
+    const rev = Number((await be.command({ op: 'queryProject', projectId: be.projectId, args: {} })).revision);
+    const r = await be.command({ op, projectId: be.projectId, expectedRevision: rev, requestId: `req-${randomUUID().replace(/-/g, '')}`, origin: { kind: 'mcp', clientId: 'e2e-environment' }, args });
+    expect(r['ok'], JSON.stringify(r).slice(0, 400)).toBe(true);
+  };
+  // The key light comes from (−0.2, 0.6, 1): azimuth atan2(1, −0.2) = 101.3°.
+  await mcp('setComponent', { entityId: 'light-0001', component: 'light', value: { type: 'directional', color: '#ffffff', intensity: 2, direction: [0.2, -0.6, -1], castShadow: false } });
+  const current = await storedLook();
+  await mcp('setEnvironment', { sceneId: 'scene-main', environment: { ...current, sky: { mode: 'texture', texture: 'sky-sun' } } });
+  await synced();
+  const storedSky = async (): Promise<Record<string, unknown>> => ((await storedLook())['sky'] ?? {}) as Record<string, unknown>;
+  const topHue = async (): Promise<number> => {
+    const c = avg(await shot(viewport), 0.05, 0.02, 0.95, 0.1);
+    return c[0] - c[1];
+  };
+  const rotation = page.getByRole('slider', { name: 'sky rotation' });
+  await expect(rotation).toBeVisible();
+  await expect.poll(topHue, { timeout: 15_000 }).not.toBe(0);
+  const unturned = await topHue();
+  // The field: End turns it half round (the far ground half comes into view).
+  await rotation.focus();
+  await page.keyboard.press('End');
+  await expect.poll(storedSky).toMatchObject({ mode: 'texture', rotation: 180 });
+  await expect.poll(async () => Math.sign(await topHue()), { timeout: 10_000 }).toBe(-Math.sign(unturned));
+  await synced();
+  // Align: the image's sun (120°) to the key light's azimuth (101.3°) is a turn of 18.7°.
+  await page.getByRole('button', { name: "align the sky's sun to the key light" }).click();
+  await expect(page.getByLabel('sky align result')).toContainText('sun found at azimuth 120°');
+  await expect.poll(async () => Math.abs(Number((await storedSky())['rotation']) - 18.7), { timeout: 10_000 }).toBeLessThan(0.5);
+  await expect.poll(async () => Math.sign(await topHue()), { timeout: 10_000 }).toBe(Math.sign(unturned));
+  await synced();
+  // Back to the colour sky the rest of the test expects (the turn stays stored; colour skies ignore it).
+  await page.getByRole('combobox', { name: 'sky mode' }).selectOption('color');
+  await expect.poll(storedSky).toMatchObject({ mode: 'color' });
+  await synced();
 
   // Play: the sky colour and the fog volume are there.
   await page.getByTitle('Start an isolated play preview').click();

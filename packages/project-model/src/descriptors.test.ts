@@ -595,7 +595,7 @@ const WIND_FULL = { direction: [1, 0], strength: 0.5, gust: 0.4, gustFrequency: 
 const SCENE_ENV_BASES: J[] = [
   { sky: SKY_PROCEDURAL, fog: { mode: 'linear', color: '#c8d2dc', near: 10, far: 120 }, post: POST_FULL, wind: WIND_FULL },
   { sky: { mode: 'gradient', topColor: '#3d7cd6', horizonColor: '#bfe3ff', bottomColor: '#6b7b5a', intensity: 1 }, fog: { mode: 'exp2', color: '#c8d2dc', density: 0.01 } },
-  { sky: { mode: 'texture', texture: 'tex-a', cube: ['px', 'nx', 'py', 'ny', 'pz', 'nz'] }, fog: { mode: 'none', color: '#c8d2dc' } },
+  { sky: { mode: 'texture', texture: 'tex-a', cube: ['px', 'nx', 'py', 'ny', 'pz', 'nz'], rotation: 90 }, fog: { mode: 'none', color: '#c8d2dc' } },
   { sky: { mode: 'color', color: '#7ec8ff' } },
 ];
 // The project's part: the quality and the presets.

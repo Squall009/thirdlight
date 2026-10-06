@@ -59,7 +59,7 @@ export interface ProbeBakeInput {
   /** The baked and mixed lights. */
   readonly lights: readonly BakeLightInput[];
   /** The sky the probes see: an environment map (PMREM) or a colour. */
-  readonly sky: { readonly environment: THREE.Texture | null; readonly intensity: number; readonly color: THREE.Color | null };
+  readonly sky: { readonly environment: THREE.Texture | null; readonly intensity: number; readonly color: THREE.Color | null; /** The sky's turn about +Y (radians; the live scene's `environmentRotation`). */ readonly rotation?: number };
   readonly grids: readonly ProbeGridBox[];
   readonly bounces: number;
   readonly onProgress?: (text: string, fraction: number) => void;
@@ -154,7 +154,13 @@ function projectionMaterial(cube: THREE.Texture, marker: ReturnType<typeof unifo
 /** What a probe sees where no object is: the sky's map or colour, plus the ambient and hemisphere lights as radiance. */
 function skyNode(sky: ProbeBakeInput['sky'], lights: readonly BakeLightInput[]): ReturnType<typeof vec3> {
   const dir = normalWorldGeometry.normalize();
-  let node = sky.environment !== null ? pmremTexture(sky.environment, dir, float(0)).rgb.mul(sky.intensity) : sky.color !== null ? vec3(sky.color.r, sky.color.g, sky.color.b) : vec3(0);
+  // The bake scene has no environment of its own, so three's environment rotation is not applied here:
+  // the map is sampled the way the live scene's turned sky shows it (Ry(θ)ᵀ·d, as `materialEnvRotation`).
+  const turn = sky.rotation ?? 0;
+  const c = Math.cos(turn);
+  const s = Math.sin(turn);
+  const lookup = turn === 0 ? dir : vec3(dir.x.mul(c).sub(dir.z.mul(s)), dir.y, dir.x.mul(s).add(dir.z.mul(c)));
+  let node = sky.environment !== null ? pmremTexture(sky.environment, lookup, float(0)).rgb.mul(sky.intensity) : sky.color !== null ? vec3(sky.color.r, sky.color.g, sky.color.b) : vec3(0);
   for (const l of lights) {
     // Radiance L from every direction gives an open surface the irradiance π·L: an ambient light of
     // intensity I is L = I/π. A hemisphere light's up/down difference is scaled by 3/2 so the irradiance

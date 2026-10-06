@@ -48,6 +48,10 @@ describe('environment sky, fog and post', () => {
     expect(check({ sky: { mode: 'procedural', turbidity: 99 } })).toEqual(['/environment/sky/turbidity']);
     expect(check({ sky: { mode: 'texture' } })).toEqual(['/environment/sky/texture']);
     expect(check({ sky: { mode: 'texture', cube: ['asset-0001'] } })).toEqual(['/environment/sky/cube']);
+    // A texture sky's turn: degrees either way up to one full turn.
+    expect(check({ sky: { mode: 'texture', texture: 'asset-0001', rotation: -135.5 } })).toEqual([]);
+    expect(check({ sky: { mode: 'texture', texture: 'asset-0001', rotation: 400 } })).toEqual(['/environment/sky/rotation']);
+    expect(check({ sky: { mode: 'texture', texture: 'asset-0001', rotation: '90' } })).toEqual(['/environment/sky/rotation']);
     expect(check({ fog: { mode: 'linear' } })).toEqual(['/environment/fog/color']);
     expect(check({ post: { bloom: { strength: 1 } } })).toEqual(['/environment/post/bloom/enabled']);
     expect(check({ post: { glow: { enabled: true } } })).toEqual(['/environment/post/glow']);

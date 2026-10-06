@@ -11,7 +11,7 @@
  * Browser-only.
  */
 import { bakeHashes, type BakeHashEntity } from '@thirdlight/protocol';
-import { bakeProbeGrids, encodePng16, packProbeTexels, type ProbeBakeResult } from '@thirdlight/three-adapter';
+import { bakeProbeGrids, encodePng16, packProbeTexels, skyTurnDegrees, type ProbeBakeResult } from '@thirdlight/three-adapter';
 import { DEFAULT_PROBE_BOUNCES, DEFAULT_PROBE_SPACING, placeProbeGrids, probeGridGpuBytes } from '@thirdlight/runtime';
 import type { LightingBake, ProbeBake } from '@thirdlight/project-model';
 import type * as THREE from 'three';
@@ -74,7 +74,9 @@ export async function runProbeBake(deps: ProbeBakeDeps): Promise<ProbeBakeRunRes
     environment: live?.environment ?? null,
     intensity: live?.environmentIntensity ?? 1,
     color: (live?.background as THREE.Color | null)?.isColor === true ? (live!.background as THREE.Color) : null,
+    rotation: live?.environmentRotation.y ?? 0,
   };
+  const skyTurn = skyTurnDegrees(client.getSceneEnvironment(sceneId)?.sky);
   deps.onProgress('baking probes…', 0);
   const baked: ProbeBakeResult = await bakeProbeGrids({
     renderer: ctx.renderer as WebGPURenderer,
@@ -116,6 +118,7 @@ export async function runProbeBake(deps: ProbeBakeDeps): Promise<ProbeBakeRunRes
     gpuBytes: grids.reduce((n, g) => n + probeGridGpuBytes(g), 0),
     lightsHash: hashes.lightsHash,
     staticsHash: hashes.staticsHash,
+    ...(skyTurn !== 0 ? { skyRotation: skyTurn } : {}),
   };
   // A scene without lightmaps gets a bake record of probes only (no atlases, no entries).
   const lighting: LightingBake =
@@ -142,8 +145,12 @@ export function withoutLightmaps(bake: LightingBake): LightingBake | null {
   return { ...bake, atlases: [], entries: [], bakedLights: [] };
 }
 
-/** Whether the probes no longer match the scene's static objects or baked lights (they are still used). */
-export function probesAreStale(probes: ProbeBake, sceneEntities: readonly ProjectedEntity[], cellsOf: Parameters<typeof bakeHashEntity>[1]): boolean {
+/**
+ * Whether the probes no longer match the scene's static objects, baked
+ * lights or the sky's turn (`skyTurn`, degrees: the probes hold the sky as it
+ * was turned at the bake) — they are still used.
+ */
+export function probesAreStale(probes: ProbeBake, sceneEntities: readonly ProjectedEntity[], cellsOf: Parameters<typeof bakeHashEntity>[1], skyTurn = 0): boolean {
   const h = bakeHashes(sceneEntities.map((e) => bakeHashEntity(e, cellsOf)));
-  return h.staticsHash !== probes.staticsHash || h.lightsHash !== probes.lightsHash;
+  return h.staticsHash !== probes.staticsHash || h.lightsHash !== probes.lightsHash || Math.abs((probes.skyRotation ?? 0) - skyTurn) > 1e-6;
 }

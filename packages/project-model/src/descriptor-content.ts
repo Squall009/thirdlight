@@ -34,7 +34,7 @@ import { DIALOGUE_LIMITS } from './dialogue';
 import { TIMELINE_LIMITS } from './timelines';
 import { SCRIPT_LIBRARY_LIMITS } from './script-libraries';
 import { BLOCK_LIMITS, BLOCK_UV_MODES } from './block-layers';
-import { DEFAULT_WIND, MATERIAL_PARAMS, MATERIAL_SHADERS, MATERIAL_TEXTURE_SLOTS, MAX_MATERIAL_PARAMETERS, MAX_MATERIAL_SLOTS, type MaterialParamType } from './materials';
+import { DEFAULT_WIND, SKY_ROTATION_MAX, MATERIAL_PARAMS, MATERIAL_SHADERS, MATERIAL_TEXTURE_SLOTS, MAX_MATERIAL_PARAMETERS, MAX_MATERIAL_SLOTS, type MaterialParamType } from './materials';
 import { MATERIAL_DATA_MAX, MATERIAL_PARAMETER_TYPES } from './material-graph-kinds';
 import { MODE_LIMITS } from './modes';
 import { MAX_LOCAL_LIGHTS } from './local-lights';
@@ -78,6 +78,7 @@ const SKY = obj('sky', 'Sky', 'The background and the light it gives (image-base
   color('color', 'Colour', 'The one sky colour.', { when: when('mode', 'color'), default: '#7ec8ff' }),
   asset('texture', 'Image', 'An equirectangular sky image.', ['texture'], { when: when('mode', 'texture') }),
   list('cube', 'Cube faces', 'Six images +x, −x, +y, −y, +z, −z (instead of one image).', asset('*', 'Face', 'A cube face.', ['texture']), { when: when('mode', 'texture'), length: 6 }),
+  num('rotation', 'Rotation', 'Turns the sky image about the vertical axis (background and sky lighting alike).', { when: when('mode', 'texture'), min: -SKY_ROTATION_MAX, max: SKY_ROTATION_MAX, step: 1, unit: 'deg', default: 0 }),
   num('intensity', 'Brightness', 'Background brightness.', { min: 0, max: 8, step: 0.05, default: 1 }),
   num('environmentIntensity', 'Sky lighting', 'How much the sky lights the scene (0: none).', { min: 0, max: 8, step: 0.05, default: 1 }),
 ], { rules: ['A texture sky needs an image or six cube faces.'] });

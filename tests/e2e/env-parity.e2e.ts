@@ -232,6 +232,65 @@ test('ambient occlusion darkens the indirect light, not the sun', async ({ page 
   expect(gpuErrors).toEqual([]);
 });
 
+/**
+ * A turned texture sky turns its background and its image-based lighting
+ * alike. The `sky-texture` equirect has a red marker at its middle column
+ * (world +X unturned): the mirror sphere shows it on its right. A turn of
+ * +90° about +Y takes +X to −Z, the view direction: the marker shows in the
+ * background above the middle pillar and leaves the sphere; −90° takes it to
+ * +Z, towards the camera: the sphere's middle reflects it, the background
+ * does not. Background and reflection turning opposite ways would show the
+ * marker in both places or in neither.
+ */
+test('a turned sky turns its background and its reflections alike', async ({ page }) => {
+  test.setTimeout(150_000);
+  const backend = project() === 'webgpu' ? 'webgpu' : 'webgl2';
+  const shot = async (turn: number): Promise<Image> => {
+    await page.setViewportSize({ width: WIDTH, height: HEIGHT });
+    await page.goto(`${harness!.base}?backend=${backend}&case=sky-texture&skyRotation=${turn}`);
+    await expect.poll(() => page.evaluate(() => (window as unknown as { __envCase?: unknown }).__envCase !== undefined), { timeout: 60_000 }).toBe(true);
+    const result = await page.evaluate(() => (window as unknown as { __envCase: { ok: boolean; error?: string; backend?: string } }).__envCase);
+    expect(result.ok, result.error).toBe(true);
+    expect(result.backend).toBe(backend);
+    const png = await page.locator('canvas').screenshot();
+    const out = test.info().outputPath();
+    mkdirSync(out, { recursive: true });
+    writeFileSync(join(out, `sky-rotation-${turn}-${backend}.png`), png);
+    return decodePng(png);
+  };
+  /** The most marker-red 3 × 3 mean in a box (red over the other channels). */
+  const redness = (img: Image, x0: number, y0: number, x1: number, y1: number): number => {
+    let best = -255;
+    for (let y = y0 + 1; y < y1 - 1; y++) {
+      for (let x = x0 + 1; x < x1 - 1; x++) {
+        let r = 0;
+        for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+          const p = img.pixel(x + dx, y + dy);
+          r += p[0] - (p[1] + p[2]) / 2;
+        }
+        best = Math.max(best, r / 9);
+      }
+    }
+    return best;
+  };
+  // The background above the middle pillar; the mirror sphere's right side and its middle (320 × 240 view).
+  const background = (img: Image): number => redness(img, 140, 20, 180, 72);
+  const sphereRight = (img: Image): number => redness(img, 172, 130, 194, 160);
+  const sphereMiddle = (img: Image): number => redness(img, 150, 132, 180, 162);
+  const plain = await shot(0);
+  const left = await shot(90);
+  const right = await shot(-90);
+  const rows = [plain, left, right].map((img) => [background(img), sphereRight(img), sphereMiddle(img)].map((v) => v.toFixed(0)).join('/'));
+  console.log(`[env-parity] ${backend} sky rotation 0 / 90 / -90 (background/sphere right/sphere middle redness): ${rows.join('  ')}`);
+  expect(background(plain)).toBeLessThan(40);
+  expect(sphereRight(plain)).toBeGreaterThan(80);
+  expect(background(left)).toBeGreaterThan(80);
+  expect(sphereRight(left)).toBeLessThan(40);
+  expect(sphereMiddle(left)).toBeLessThan(40);
+  expect(background(right)).toBeLessThan(40);
+  expect(sphereMiddle(right)).toBeGreaterThan(80);
+});
+
 for (const name of CASES) {
   test(`${name}: WebGPURenderer matches the WebGL environment reference`, async ({ page }) => {
     test.setTimeout(150_000);

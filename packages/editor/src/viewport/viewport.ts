@@ -562,6 +562,11 @@ export class Viewport {
     );
   }
 
+  /** A texture asset as this view decodes it (the sky's image for "align the sky's sun"). */
+  loadTexture(assetId: string): Promise<THREE.Texture | null> {
+    return this.assets.loadTexture(assetId);
+  }
+
   /**
    * What the probe bake draws with: this view's renderer and its scene (the
    * sky), the baked lights, and the hooks that gather the static objects and

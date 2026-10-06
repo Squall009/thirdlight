@@ -1623,7 +1623,10 @@ boxes instead.
   ground (38,025 probes) in ~135 s.
 
 **Clear probes** removes them (Clear bake removes only the lightmaps).
-Probes show stale like lightmaps (a stale bake is still used).
+Probes show stale like lightmaps (a stale bake is still used); turning an
+image sky (`sky.rotation`) after the bake makes them stale too (the bake
+records the turn it saw as `probes.skyRotation`). Lightmaps do not see the
+sky's image and stay as they are.
 
 **How the probes light the scene.** Every lit 3D object — models, boxes,
 graph and kit materials, foliage and water, instance sets, block chunks,
@@ -3442,6 +3445,29 @@ brightens) and **gain** (scales the whites, 0–4); the defaults (0, 1, 1)
 leave the image unchanged. A **fog volume** (Inspector) has *thins with
 height*: its density fades by e^(−k·height) above the box bottom (k per
 metre, 0–10; 0 = even fog, as before).
+
+## Sky rotation
+
+An image sky (`sky.mode` `texture`, an equirect or six cube faces) turns
+about the vertical axis by `sky.rotation` (degrees, −360–360, absent 0;
+counter-clockwise seen from above): the background and the sky's
+image-based lighting and reflections turn together, on both renderers, in
+the Scene view, Play and the export. A turn changes two rotation uniforms:
+no image is reloaded and no lighting re-baked. Other sky modes ignore it
+(the physical sky's sun already follows the key light). Set it in the
+Environment window (*rotation (°)* under the panorama) or MCP `setEnvironment {sceneId, environment: {sky: {…,
+rotation}}}`. Scripts turn a sky through environment presets: two presets
+with the same image and different turns blend the turn the short way round
+(`ctx.environment.set` / `blend`); there is no per-field sky setter.
+
+**Align the sky's sun to the key light** (Environment window button) finds
+the sun in the image — the centre of its brightest area: the pixels within
+3/255 of the brightest one, gathered round the 10° cell holding most of
+them, read at 512 × 256 (64 × 64 per cube face) — and sets the turn that
+puts it at the azimuth the active scene's directional light comes from. It
+matches the azimuth only (a turn cannot raise or lower a painted sun) and
+says where it found the sun. Images in a compressed (KTX2) format cannot be
+read for this; set the rotation by hand.
 
 ## Environment presets (runtime environment changes, phase 23.18)
 

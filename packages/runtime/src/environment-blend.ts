@@ -242,8 +242,11 @@ function blendSkies(parts: readonly (readonly [SkyConfig, number])[]): SkyConfig
       return { mode: 'gradient', topColor: c('topColor'), horizonColor: c('horizonColor'), bottomColor: c('bottomColor'), ...common };
     case 'color':
       return { mode: 'color', color: c('color'), ...common };
-    default:
-      return { ...first, ...common };
+    default: {
+      // One image turned two ways blends its turn the short way round (a script swinging the sky between presets).
+      const turned = parts.some(([s]) => s.rotation !== undefined && s.rotation !== 0);
+      return { ...first, ...common, ...(turned ? { rotation: mixAngles(parts.map(([s, w]) => [s.rotation ?? 0, w])) } : {}) };
+    }
   }
 }
 

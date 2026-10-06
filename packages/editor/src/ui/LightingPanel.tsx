@@ -109,7 +109,7 @@ export function LightingPanel(p: Props): JSX.Element {
           <span>
             Probes from {p.bake.probes.createdAt.replace('T', ' ').slice(0, 16)} — {p.bake.probes.probes} probes in {p.bake.probes.grids.length} tile{p.bake.probes.grids.length === 1 ? '' : 's'},{' '}
             {(p.bake.probes.gpuBytes / 1048576).toFixed(1)} MB GPU, {p.bake.probes.spacing} m apart
-            {p.probesStale && <b className="tl-lighting__stale"> — stale: static objects or baked lights changed; bake again</b>}
+            {p.probesStale && <b className="tl-lighting__stale"> — stale: static objects, baked lights or the sky's rotation changed; bake again</b>}
           </span>
         )}
       </div>

@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import type { ModelErrorV2 } from './errors';
 import { validateLightingBake } from './lighting';
 import {
+  canonicalProbeBake,
   DEFAULT_PROBE_SPACING,
   PROBE_ARTIFACT_ROW_PROBES,
   PROBE_TEXELS,
@@ -13,6 +14,7 @@ import {
   probeGridGpuBytes,
   probeTilesOver,
   validateProbeVolumeComponent,
+  type ProbeBake,
 } from './probe-grids';
 import { MAX_TEXTURE_EDGE } from './content-limits';
 import { collectAssetRefsV3 } from './capture';
@@ -88,6 +90,13 @@ describe('probe bake records', () => {
   it('a bake with probes may have no lightmaps; one without needs an atlas', () => {
     expect(errorsOf({ ...lightmapFields, atlases: [], probes })).toEqual([]);
     expect(errorsOf({ ...lightmapFields, atlases: [] }).map((e) => e.path)).toEqual(['/atlases']);
+  });
+
+  it('records the sky turn the probes saw (optional, degrees)', () => {
+    expect(errorsOf({ ...lightmapFields, atlases: [], probes: { ...probes, skyRotation: -90 } })).toEqual([]);
+    expect(canonicalProbeBake({ ...probes, skyRotation: 45 } as ProbeBake).skyRotation).toBe(45);
+    expect('skyRotation' in canonicalProbeBake(probes as ProbeBake)).toBe(false);
+    expect(errorsOf({ ...lightmapFields, atlases: [], probes: { ...probes, skyRotation: 720 } }).map((e) => e.path)).toEqual(['/probes/skyRotation']);
   });
 
   it('refuses malformed tiles', () => {

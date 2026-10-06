@@ -2,10 +2,11 @@
  * The neutral environment/post test scene (browser code, bundled
  * by `env-parity.e2e.ts` with esbuild). One case per page load:
  *
- *   index.html?backend=webgl2|webgpu|auto&case=<name>[&ao=off|ssao|gtao][&light=ambient]
+ *   index.html?backend=webgl2|webgpu|auto&case=<name>[&ao=off|ssao|gtao][&light=ambient][&skyRotation=<deg>]
  *
  * (`ao`: the kind of ambient occlusion; `light=ambient`: no sun, only
- * ambient light — the ambient-occlusion check in env-parity.e2e.ts.)
+ * ambient light — the ambient-occlusion check in env-parity.e2e.ts;
+ * `skyRotation`: the case's sky turned about +Y — the sky rotation check.)
  *
  * Every case draws the same small scene (a ground, boxes near and far, a
  * rough and a mirror-like sphere, an emissive block) through the real
@@ -210,7 +211,8 @@ async function main(): Promise<void> {
   const ao = q.get('ao');
   if (ao === 'off' || ao === 'ssao' || ao === 'gtao') env.setRender({ ao });
   env.setKeyLightDirection(SUN_DIR);
-  env.set(c.env);
+  const turn = q.get('skyRotation');
+  env.set(turn !== null && c.env.sky !== undefined ? { ...c.env, sky: { ...c.env.sky, rotation: Number(turn) } } : c.env);
   env.setFogVolumes(c.volumes ?? []);
   // Textures arrive through promises (and PMREM runs when they do): wait for them, then draw a few frames.
   const frame = (): Promise<void> => new Promise((r) => requestAnimationFrame(() => r()));

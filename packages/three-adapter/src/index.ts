@@ -259,6 +259,7 @@ export {
   type RenderOptions,
   type SkyLike,
 } from './environment';
+export { alignedSkyRotation, applySkyRotation, azimuthDeg, cubePixelDirection, equirectPixelDirection, findSkySun, skyRotationRadians, skyTurnDegrees, wrapDegrees, type SkyPixels, type SkySun } from './sky-rotation';
 // Ambient occlusion on the indirect light, render scale with FSR 1 upscaling, dynamic resolution.
 export { AO_RESOLUTION_SCALE } from './post-ao';
 export { FSR_SHARPNESS, UPSCALE_URL_PARAM, upscaleFilterFromUrl, type UpscaleFilter } from './post-upscale';

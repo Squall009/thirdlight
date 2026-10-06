@@ -79,6 +79,13 @@ describe('environment blend maths', () => {
     const tp = new Map([t1, t2, t3].map((p) => [p.presetId, p]));
     expect(blendEnvironment({}, tp, view([['t1', 0.5], ['t2', 0.5]])).sky).toMatchObject({ mode: 'texture', texture: 'img-a', intensity: 1.5 });
     expect(blendEnvironment({}, tp, view([['t1', 0.5], ['t3', 0.5]])).skyLayers).toHaveLength(2);
+    // The same image turned two ways blends its turn the short way round (170° and −150° meet at −170°).
+    const r1: EnvironmentPreset = { presetId: 'r1', name: 'R1', sky: { mode: 'texture', texture: 'img-a', rotation: 170 } };
+    const r2: EnvironmentPreset = { presetId: 'r2', name: 'R2', sky: { mode: 'texture', texture: 'img-a', rotation: -150 } };
+    const rp = new Map([r1, r2, t2].map((p) => [p.presetId, p]));
+    expect(blendEnvironment({}, rp, view([['r1', 0.5], ['r2', 0.5]])).sky!.rotation).toBeCloseTo(-170, 6);
+    expect(blendEnvironment({}, rp, view([['r1', 0.5], ['t2', 0.5]])).sky!.rotation).toBeCloseTo(85, 6);
+    expect(blendEnvironment({}, tp, view([['t1', 0.5], ['t2', 0.5]])).sky!.rotation).toBeUndefined();
   });
 
   it('fog thins towards a look without fog; linear and exp2 convert', () => {
