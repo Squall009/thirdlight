@@ -10,6 +10,7 @@ import type { LightingBakeLike } from './lightmaps';
 import type { EnvironmentLayerLike, EnvironmentLike, QualityLevel } from './environment';
 import type { BlockLayerView, BlockLayerViewDiagnostics } from './block-layers';
 import type { BuiltInstanceSet } from './instancing';
+import type { ViewCullDiagnostics } from './view-cull';
 import type { RuntimeMaterialsDiagnostics } from './runtime-materials';
 import type { AdapterError } from './errors';
 import type { ScreenshotResult } from './capture';
@@ -274,6 +275,8 @@ export interface SceneAdapterDiagnostics {
    * with (every pass); ABSENT before the first drawn frame.
    */
   instanced?: { meshes: number; programs: number };
+  /** Draws culled inside against the view (batches, instance-set chunks, merged cells) and those put in order again last frame; ABSENT before the first drawn frame. */
+  viewCull?: ViewCullDiagnostics;
   /** The block layers drawn (layers, chunk meshes, triangles). */
   blocks?: BlockLayerViewDiagnostics;
   /**

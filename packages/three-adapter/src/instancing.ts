@@ -233,7 +233,8 @@ export function buildInstanceSet(template: ModelInstance, floats: Float32Array, 
       const inst = createAttributeInstancedMesh(part.mesh.geometry, part.mesh.material as THREE.Material, chunk.copies.length, { raycast: true });
       inst.count = chunk.copies.length;
       inst.mesh.name = part.mesh.name;
-      inst.mesh.castShadow = true;
+      // The set's own flags go on when it is attached (an instance set casts only when it says so).
+      inst.mesh.castShadow = false;
       inst.mesh.receiveShadow = true;
       return inst;
     });

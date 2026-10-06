@@ -627,8 +627,9 @@ export const instances: ComponentDescriptor = {
     ], { required: true }),
     str('buffer', 'Buffer', 'The SHA-256 of the copies\' transforms (written by the brush and import tools).', { format: 'sha256', minLength: 64, maxLength: 64, required: true, readOnly: true }),
     int('count', 'Copies', 'How many copies the buffer holds.', { min: 1, max: MAX_INSTANCES, required: true, readOnly: true }),
-    // True by default — solid geometry blocks the light and shows the shadows falling on it in any genre.
-    bool('castShadow', 'Casts shadows', 'Blocks the directional light: casts a realtime shadow (off for decals, glows, backdrops).', { default: true, omitDefault: true }),
+    // Off by default: an instance set is mostly foliage and scatter, whose many small shadows cost a shadow pass
+    // more than they show; a set of rocks or trees that should cast turns it on.
+    bool('castShadow', 'Casts shadows', 'Blocks the directional light: casts a realtime shadow (off unless set: foliage and scatter rarely need one).', { default: false, omitDefault: true }),
     bool('receiveShadow', 'Receives shadows', 'Shows the realtime shadows falling on it.', { default: true, omitDefault: true }),
     // Absent = the project's Instance chunk size (32 m unless set).
     num('chunkSize', 'Chunk size', 'The copies are drawn in chunks about this wide, each hidden when out of view and given its level of detail on its own (absent: the project\'s Instance chunk size).', { min: 1, max: 4096, step: 1, unit: 'm' }),

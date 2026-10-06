@@ -123,7 +123,8 @@ test('an instance set in a scene loaded during Play is drawn once the scene load
   await expect(page.locator('.tl-notice')).toHaveCount(0);
 });
 
-test('a set is chunked by extent (the project default, overridden per set in the Inspector)', async ({ page }) => {
+test('a set is chunked by extent (the project default, overridden per set in the Inspector); it casts a shadow only when set', async ({ page }) => {
+  test.setTimeout(150_000);
   be = await startBackend('inst-chunks', 'starter');
   // 200 copies in a 99.5 m row (x 0..99.5) near the ground.
   const transforms: number[] = [];
@@ -158,9 +159,31 @@ test('a set is chunked by extent (the project default, overridden per set in the
   await cmd('setSettings', { settings: { instance_chunk_m: 50 } });
   await expect(chunks).toHaveAttribute('data-chunks', '2');
 
-  // Play draws the set (with the project's chunk size) without a notice.
-  await page.getByTitle('Start an isolated play preview').click();
-  await expect(playCanvas(page)).toHaveAttribute('data-tl-renderer-state', 'ready', { timeout: 30_000 });
-  await expect(page.locator('.tl-notice')).toHaveCount(0);
-  await page.screenshot({ path: 'test-results/instances-chunks-play.png' });
+  // Play draws the set (with the project's chunk size) without a notice. The sun casts shadows; the set casts
+  // none unless it says so (foliage and scatter): its chunks are not drawn into the shadow map.
+  await cmd('setComponent', { entityId: 'light-0001', component: 'light', value: { type: 'directional', color: '#ffffff', intensity: 1.2, direction: [0.5, -1, 0.6], castShadow: true } });
+  const casts = page.locator('.tl-inspector').getByLabel('instances castShadow', { exact: true });
+  await expect(casts).not.toBeChecked();
+  const playDraws = async (shot: string): Promise<number> => {
+    const started = page.waitForResponse((r) => r.request().method() === 'POST' && r.url().endsWith('/play'));
+    await page.getByTitle('Start an isolated play preview').click();
+    const psid = String(((await (await started).json()) as { playSessionId: string }).playSessionId);
+    await expect(playCanvas(page)).toHaveAttribute('data-tl-renderer-state', 'ready', { timeout: 30_000 });
+    await expect(page.locator('.tl-notice')).toHaveCount(0);
+    const draws = async (): Promise<number> => ((await api(`play/${psid}/diagnostics`, {})).json as { diagnostics?: { renderer?: { frame?: { drawCalls: number } } } }).diagnostics?.renderer?.frame?.drawCalls ?? 0;
+    await expect.poll(draws, { timeout: 15_000 }).toBeGreaterThan(0);
+    await page.screenshot({ path: `test-results/${shot}.png` });
+    const n = await draws();
+    await page.getByRole('button', { name: '■ stop' }).click();
+    await expect(page.getByTitle('Start an isolated play preview')).toBeVisible();
+    return n;
+  };
+  const without = await playDraws('instances-chunks-play');
+  // "Casts shadows" on in the Inspector: stored on the set, and its chunks are drawn into the shadow map too.
+  await page.locator('.tl-hierarchy__list li.tl-row').filter({ hasText: 'Row' }).click();
+  await page.locator('.tl-inspector').getByLabel('instances castShadow', { exact: true }).click();
+  await expect.poll(async () => ((await query('queryEntity', { entityId: id })).entity as { components: { instances: { castShadow?: boolean } } }).components.instances.castShadow).toBe(true);
+  const withShadow = await playDraws('instances-chunks-play-casting');
+  console.log(`[instances] draws a frame: ${without} casting none, ${withShadow} casting`);
+  expect(withShadow).toBeGreaterThan(without);
 });

@@ -58,6 +58,7 @@ import { createAttributeInstancedMesh, type AttributeInstancedMesh } from './att
 import { OVERRIDES_KEY, RUNTIME_VALUES_KEY } from './material-graph';
 import { isStaticCaster, STATIC_CASTER_KEY } from './shadow-casters';
 import { createStaticMerger, MERGE_BACKGROUND_BUDGET_MS, MERGE_QUIET_MS, staticScopeOf, type StaticMergeDiagnostics, type StaticMerger } from './static-merge';
+import { VIEW_CULL_KEY, type ViewCuller } from './view-cull';
 
 /** The layer batched members move to (cameras draw layer 0 only; pickers enable this one). */
 export const BATCHED_LAYER = 30;
@@ -103,7 +104,7 @@ const DEFAULT_ON_BEFORE_RENDER = THREE.Object3D.prototype.onBeforeRender;
 export function batchRefusal(mesh: THREE.Mesh): string | null {
   const hint = mesh.userData[BATCH_KEY] as BatchHint | undefined;
   if (hint === undefined) return 'not marked';
-  if ((mesh as THREE.InstancedMesh).isInstancedMesh === true || (mesh as unknown as { isBatchedMesh?: boolean }).isBatchedMesh === true) return 'already instanced';
+  if ((mesh as THREE.InstancedMesh).isInstancedMesh === true || (mesh as unknown as { isBatchedMesh?: boolean }).isBatchedMesh === true || mesh.userData[VIEW_CULL_KEY] !== undefined) return 'already instanced';
   if ((mesh as THREE.SkinnedMesh).isSkinnedMesh === true) return 'skinned';
   if (mesh.morphTargetInfluences !== undefined && mesh.morphTargetInfluences.length > 0) return 'morph targets';
   const mat = mesh.material;
@@ -241,6 +242,8 @@ export interface AutoBatcherOptions {
    * drawn through a batch or a merged cell instead of alone changes no shadow.
    */
   readonly staticChanged?: (where: THREE.Object3D | null) => void;
+  /** Culls the batches' members and the merged cells' objects against the view (`view-cull.ts`). */
+  readonly viewCull?: ViewCuller;
 }
 
 export interface AutoBatcherDiagnostics {
@@ -397,6 +400,7 @@ export function createAutoBatcher(scene: THREE.Scene, options: AutoBatcherOption
           budgetMs: mergeMode === 'load' ? Infinity : (options.mergeBudgetMs ?? MERGE_BACKGROUND_BUDGET_MS),
           now,
           partsOf: batchKeyParts,
+          ...(options.viewCull !== undefined ? { viewCull: options.viewCull } : {}),
           onMerged: (mesh, on) => {
             const m = members.get(mesh);
             if (m !== undefined && (!on || m.wanting)) setMerged(m, on);
@@ -461,6 +465,7 @@ export function createAutoBatcher(scene: THREE.Scene, options: AutoBatcherOption
     for (const m of g.members) unbatch(m);
     g.unlisten();
     g.unlisten = () => undefined;
+    options.viewCull?.remove(g.inst);
     // Its render objects and its instance buffer go too (the source geometry stays its owner's).
     g.inst.dispose();
     g.inst = null;
@@ -614,6 +619,7 @@ export function createAutoBatcher(scene: THREE.Scene, options: AutoBatcherOption
         group.unlisten();
         group.unlisten = () => undefined;
         group.inst = null;
+        options.viewCull?.remove(inst);
         inst.mesh.removeFromParent();
         queueMicrotask(() => inst.dispose());
         for (const m of group.members) {
@@ -625,6 +631,7 @@ export function createAutoBatcher(scene: THREE.Scene, options: AutoBatcherOption
       material.addEventListener('dispose', onMaterialDispose);
       g.unlisten = () => material.removeEventListener('dispose', onMaterialDispose);
       scene.add(mesh);
+      options.viewCull?.add(inst);
       for (const m of g.members) {
         writeMatrix(g, m);
         batch(m);

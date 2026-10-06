@@ -4428,6 +4428,7 @@ defined once, in the package named, and imported wherever else it is used:
 | Edit meshing on the page (`SYNC_MESH_BUDGET_MS`) | An edit's chunks mesh on the page while their measured cost fits 8 ms a frame; the rest go to the workers | `three-adapter/src/block-layers.ts` | A small edit shows in the same frame, a large one never hitches |
 | Worker meshes swapped in (`MESH_APPLY_BUDGET_MS`) | 4 ms a frame | `three-adapter/src/block-layers.ts` | Uploading many chunks at once would be the hitch the workers removed |
 | Instancing and merge cell (`createAutoBatcher` options) | 64 m cells; an instanced group needs 4 members; geometry from 256 triangles is split per cell | `three-adapter/src/batching.ts` (static merging gets the cell size from the batcher) | Off-screen cells are culled while a cell still holds many objects |
+| Culling inside a draw (`ViewCuller`, `VIEW_SAME_TOLERANCE`) | The members of a batch, the copies of an instance-set chunk and the objects of a merged cell are tested against the view one by one; those in view lead the draw nearest first and the view draws only them, shadow maps draw all; a draw is put in order again only when what is in view changes (camera matrices equal within 1e-9 count as still) | `three-adapter/src/view-cull.ts` | three culls a whole draw: a batch spread over the scene drew its members out of view too (the village class: 204k → 107k triangles a frame). The cell size then barely matters: 16, 32, 64 and 128 m measured within noise on the class and the Skyforge copy (28c.15), so 64 m stays |
 | Merged cells (`MIN_MERGE`, `MERGE_QUIET_MS`, `MERGE_BACKGROUND_BUDGET_MS`, `MERGED_RENDER_ORDER`) | At least 2 members; a moved static member rejoins after 500 ms still; the editor builds 4 ms of cells a frame (Play and the export at load); cells draw first (render order −1) | `three-adapter/src/static-merge.ts` | Cells are the level's occluders; a cell's centre would otherwise sort it behind what stands in front of it |
 | Cached sun shadow (`STATIC_SHADOW_STEP`, `STATIC_SHADOW_TURN_DEGREES`) | The static map follows the camera in steps of half the shadow square's half side (1,288² texels at the default 1,024² map); drawn again at a step, a turn of more than 0.05°, or a change within its reach | `three-adapter/src/cached-shadow.ts` | Static casters are drawn once, not every frame; texels line up with the dynamic map |
 | Effect lights (`EFFECT_LIGHT_LIMIT`) | 16 slots in one light node | `project-model/src/effect-graph-kinds.ts` | A fixed shader: a new effect light never recompiles, a dark slot costs nothing |
@@ -4452,6 +4453,18 @@ on an export's URL they apply directly):
 `node tools/perf/run.mjs village --switches 'batching=off,merging=off,shadowcache=off,threads=off'`
 measures the export again with each switch in the same browser after its own
 run (each one's share; the numbers are in `docs/plan-phase-28c.md` §6).
+`--vsync --busy 5000 --switches 'frameRateCap=60,frameRateCap=30'` measures what a
+frame-rate cap saves: busy time per second of the page's main thread, its
+workers and the GPU process (a Chrome trace; three's pass timestamps include
+the waits between passes, so they do not measure GPU busy time at a capped
+rate).
+
+**Instance sets cast no shadow unless they say so.** An instance set's
+`castShadow` is off when absent (the Inspector's "Casts shadows" on an instance
+set; `setComponent instances … castShadow: true`). Until 28c.15 an instance set
+cast the sun's shadow by default, so an existing game's foliage, scatter, rocks
+and trees placed as instance sets stop casting unless the set turns it on;
+boxes and models still cast by default.
 
 **Runtime and simulation (21.2).** The fixed step no longer allocates per
 entity: the step's backup and the committed state are reused copies that are

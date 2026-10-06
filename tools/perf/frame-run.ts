@@ -63,6 +63,23 @@ export interface FrameRunOptions {
   /** Dump the drawn scene through the page's origin (the server writes it). */
   dump?: boolean;
   shot?: string;
+  /** Trace this long (ms) for each thread's busy time (0 or absent: no trace). */
+  busyMs?: number;
+}
+
+/**
+ * Busy time per second of wall clock, from a Chrome trace's top-level tasks: the page's main thread, its
+ * workers (the simulation, mesh workers) and the GPU process's threads (the work the page's draws hand it), and
+ * frames drawn per second. Tracing adds its own cost to every thread, so compare runs with each other, not with
+ * the untraced main-thread time. The GPU's own busy time is not here: three's pass timestamps include the waits
+ * between passes and grow with idle time at a capped rate, so they do not measure it.
+ */
+export interface ThreadBusy {
+  readonly seconds: number;
+  readonly fps: number;
+  readonly mainMsPerS: number;
+  readonly workerMsPerS: number;
+  readonly gpuProcessMsPerS: number;
 }
 
 export interface FrameRunResult {
@@ -83,6 +100,7 @@ export interface FrameRunResult {
   shaders?: PageSample['shaderModules'];
   gpu: GpuTimings | null;
   profile: ProfileSplit | null;
+  busy?: ThreadBusy;
   dump?: DumpSummary | string;
   errors: string[];
 }
@@ -220,6 +238,7 @@ export async function measurePage(browser: Browser, opts: FrameRunOptions): Prom
       await page.evaluate(probeSetGpuTiming, false);
     }
     const profile = opts.profileMs > 0 ? await profileSplit(cdp, opts.profileMs, opts.sourceOf ?? (() => null)) : null;
+    const busy = (opts.busyMs ?? 0) > 0 ? await threadBusy(browser, page, opts.busyMs!) : undefined;
     await cdp.detach().catch(() => undefined);
     const out: FrameRunResult = {
       url: opts.url,
@@ -237,6 +256,7 @@ export async function measurePage(browser: Browser, opts: FrameRunOptions): Prom
       shaders: sample.shaderModules,
       gpu,
       profile,
+      ...(busy !== undefined ? { busy } : {}),
       errors,
     };
     if (opts.dump === true) out.dump = await page.evaluate(dumpScene);
@@ -245,4 +265,52 @@ export async function measurePage(browser: Browser, opts: FrameRunOptions): Prom
   } finally {
     await context.close();
   }
+}
+
+interface TraceEvent {
+  readonly ph: string;
+  readonly name: string;
+  readonly pid: number;
+  readonly tid: number;
+  readonly ts: number;
+  readonly dur?: number;
+  readonly args?: { name?: string };
+}
+
+/** Trace `ms` of the page and sum each thread's top-level task time (see {@link ThreadBusy}). */
+async function threadBusy(browser: Browser, page: import('@playwright/test').Page, ms: number): Promise<ThreadBusy> {
+  await browser.startTracing(page, { categories: ['toplevel', 'disabled-by-default-devtools.timeline'] });
+  await page.evaluate(startRecording);
+  const w0 = performance.now();
+  await new Promise((r) => setTimeout(r, ms));
+  const sample = await page.evaluate(readSample, true);
+  const wall = performance.now() - w0;
+  const buf = await browser.stopTracing();
+  const events = (JSON.parse(buf.toString('utf8')) as { traceEvents: TraceEvent[] }).traceEvents;
+  const threadName = new Map<string, string>();
+  for (const e of events) if (e.ph === 'M' && e.name === 'thread_name') threadName.set(`${e.pid}:${e.tid}`, e.args?.name ?? '');
+  let t0 = Infinity;
+  let t1 = -Infinity;
+  const byThread = new Map<string, number>();
+  for (const e of events) {
+    if (e.ph !== 'X' || (e.name !== 'ThreadControllerImpl::RunTask' && e.name !== 'RunTask') || e.dur === undefined) continue;
+    const k = `${e.pid}:${e.tid}`;
+    byThread.set(k, (byThread.get(k) ?? 0) + e.dur / 1000);
+    t0 = Math.min(t0, e.ts);
+    t1 = Math.max(t1, e.ts + e.dur);
+  }
+  const seconds = Math.max(1e-3, (t1 - t0) / 1e6);
+  // The page's renderer main thread is the busiest of the renderers' main threads (another tab or a frame idles).
+  let main = 0;
+  let worker = 0;
+  let gpuProcess = 0;
+  for (const [k, msBusy] of byThread) {
+    const name = threadName.get(k) ?? '';
+    if (name === 'CrRendererMain') main = Math.max(main, msBusy);
+    else if (name.startsWith('DedicatedWorker')) worker += msBusy;
+    else if (name === 'CrGpuMain' || name === 'VizCompositorThread' || name.startsWith('GpuMemory') || name === 'CrGpuIO') gpuProcess += msBusy;
+  }
+  const r = (v: number): number => Math.round((v / seconds) * 10) / 10;
+  const frames = sample.frames.length;
+  return { seconds: Math.round(seconds * 100) / 100, fps: Math.round((frames / (wall / 1000)) * 10) / 10, mainMsPerS: r(main), workerMsPerS: r(worker), gpuProcessMsPerS: r(gpuProcess) };
 }

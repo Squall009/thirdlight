@@ -58,7 +58,7 @@ export interface InstancesComponent {
   /** SHA-256 (64 lowercase hex) of the buffer bytes; byte length = count × 40. */
   buffer: string;
   count: number;
-  /** The copies cast the directional light's realtime shadow (absent: true). */
+  /** The copies cast the directional light's realtime shadow (absent: false). */
   castShadow?: boolean;
   /** The copies show realtime shadows falling on them (absent: true). */
   receiveShadow?: boolean;

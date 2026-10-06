@@ -22,6 +22,9 @@
  *                                run (one optimization switched off at a time: each one's share of the frame)
  *   --vsync                      draw at the display's rate (a player's browser) instead of uncapped: frame drops
  *                                show as intervals of two refreshes or more
+ *   --busy N                     also trace N ms of each export run for busy time per second: the page's main thread, its
+ *                                workers and the GPU process (with --vsync and --switches 'frameRateCap=60,frameRateCap=30':
+ *                                what a frame-rate cap saves)
  *   --gate                       the fast gate's check: frames only (no GPU passes or profile); the plain page is
  *                                measured too and the class's frame reported against it (`plainPageRows`), not gated
  *   --check FILE                 compare the export's frame time with a recorded baseline: exit 1 when the median (the
@@ -203,6 +206,13 @@ export function frameLine(what: string, r: FrameRunResult): string {
   return `${what}: ${r.frames.fps} fps, frame p50/p95/p99/max ${r.frames.p50}/${r.frames.p95}/${r.frames.p99}/${r.frames.max ?? '-'} ms${hist(r.frames.histogram)}, ${r.draws.p50} draws (scene ${r.scene.passDraws?.scene ?? '-'}, shadow ${r.scene.passDraws?.shadow ?? '-'}, post ${r.scene.passDraws?.post ?? '-'}; shadow per frame mean/p95/max ${r.scene.shadowDraws?.mean ?? '-'}/${r.scene.shadowDraws?.p95 ?? '-'}/${r.scene.shadowDraws?.max ?? '-'}), ${Math.round(r.tris.p50 / 1000)}k tris, ${r.scene.objects} Object3Ds (${r.scene.groups} groups, ${r.scene.lods} LOD, ${r.scene.meshes} meshes of which ${r.scene.hiddenMeshes} hidden, ${r.scene.bones} bones, ${r.scene.pointLights} point lights)${r.scene.merged !== undefined && r.scene.merged.meshes > 0 ? `, ${r.scene.merged.shown}/${r.scene.merged.meshes} merged cells drawn (${Math.round((r.scene.merged.vertexBytes + r.scene.merged.indexBytes) / 1024)} KiB)` : ''}, ${r.live.uniformBuffers} uniform buffers${r.gpuCalls ? `, per frame ${r.gpuCalls.renderPasses} render/${r.gpuCalls.computePasses} compute passes, ${r.gpuCalls.setPipeline} pipeline and ${r.gpuCalls.setBindGroup} bind-group sets, ${r.gpuCalls.createBindGroup} bind groups made, ${r.gpuCalls.writeBuffer} buffer writes (${Math.round(r.gpuCalls.writeBufferBytes / 1024)} KiB), ${r.gpuCalls.textureUploads} texture uploads, ${r.gpuCalls.submits} submits` : ''}${r.shaders ? `, ${r.shaders.distinct} shader modules (${Math.round(r.shaders.totalChars / 1024)} KiB WGSL, largest ${Math.round(r.shaders.maxChars / 1024)} KiB)` : ''}, ${r.live.pipelines} pipelines, main thread ${r.mainThread.taskMsPerFrame} ms/frame (${Math.round(r.mainThread.busyShare * 100)}%)${gpu}${pk}${r.errors.length > 0 ? `; ${r.errors.length} page errors: ${r.errors[0]}` : ''}`;
 }
 
+/** Busy time per second (`--busy`): drawn frames, the page's main thread (untraced, and traced), workers, GPU process. */
+export function busyLine(what: string, r: FrameRunResult): string {
+  const b = r.busy!;
+  const main = Math.round(r.mainThread.busyShare * 1000);
+  return `${what}: ${b.fps} drawn fps, main thread ${main} ms/s untraced (${b.mainMsPerS} traced), workers ${b.workerMsPerS} ms/s, GPU process ${b.gpuProcessMsPerS} ms/s (${b.seconds} s traced)`;
+}
+
 export async function runVillageCli(argv: readonly string[]): Promise<void> {
   const get = flagOf(argv);
   const has = (name: string): boolean => argv.includes(`--${name}`);
@@ -222,6 +232,7 @@ export async function runVillageCli(argv: readonly string[]): Promise<void> {
   const ablation = !gate && has('ablation');
   const query = get('query') !== undefined ? `&${get('query')}` : '';
   const switches = gate ? [] : (get('switches') ?? '').split(',').filter((x) => x !== '');
+  const busyMs = gate ? 0 : Number(get('busy') ?? 0);
 
   const startedAt = new Date().toISOString();
   const stamp = startedAt.replace(/[:.]/g, '-');
@@ -290,13 +301,15 @@ export async function runVillageCli(argv: readonly string[]): Promise<void> {
     const site = exportDir === null ? null : await serveStatic(exportDir, {}, dumpDir);
     try {
       for (const [i, r] of (site === null ? [] : renderers).entries()) {
-        const res = await measurePage(browser, { url: `${site!.url}?renderer=${r}${query}`, warmupMs, recordMs, gpuMs, profileMs, steps, sourceOf: sourcesOf(site!), dump: bare && i === 0, shot: join(runDir, `export-${r}.png`) });
+        const res = await measurePage(browser, { url: `${site!.url}?renderer=${r}${query}`, warmupMs, recordMs, gpuMs, profileMs, steps, sourceOf: sourcesOf(site!), dump: bare && i === 0, shot: join(runDir, `export-${r}.png`), busyMs });
         report.export[r] = res;
         log(frameLine(`export ${r}`, res));
+        if (res.busy !== undefined) log(busyLine(`busy ${r}`, res));
         for (const sw of switches) {
-          const off = await measurePage(browser, { url: `${site!.url}?renderer=${r}${query}&${sw}`, warmupMs, recordMs, gpuMs, profileMs: 0, steps, sourceOf: sourcesOf(site!), shot: join(runDir, `export-${r}-${sw.replace(/[^a-z0-9]+/gi, '_')}.png`) });
+          const off = await measurePage(browser, { url: `${site!.url}?renderer=${r}${query}&${sw}`, warmupMs, recordMs, gpuMs, profileMs: 0, steps, sourceOf: sourcesOf(site!), shot: join(runDir, `export-${r}-${sw.replace(/[^a-z0-9]+/gi, '_')}.png`), busyMs });
           ((report.switches ??= {})[sw] ??= {})[r] = off;
           log(frameLine(`export ${r} ${sw}`, off));
+          if (off.busy !== undefined) log(busyLine(`busy ${r} ${sw}`, off));
           log(`switch ${r} ${sw}: ${off.frames.fps} fps (on ${res.frames.fps}), p50 ${off.frames.p50} ms (on ${res.frames.p50}), main thread ${off.mainThread.taskMsPerFrame} ms (on ${res.mainThread.taskMsPerFrame}), draws ${off.draws.p50} (on ${res.draws.p50})`);
         }
       }

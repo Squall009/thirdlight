@@ -39,6 +39,7 @@ import * as THREE from 'three';
 import type { BatchKeyParts } from './batching';
 import { LOD_OWNER_KEY } from './lod-switch';
 import { STATIC_CASTER_KEY } from './shadow-casters';
+import { SphereSide, type CullView, type ViewCullable, type ViewCuller } from './view-cull';
 
 /** `mesh.userData[STATIC_KEY]`: the scope (a scene id) of a mesh whose object never moves; absent: not static. */
 export const STATIC_KEY = '__tlStatic';
@@ -159,6 +160,8 @@ export interface StaticMergerOptions {
   /** What a mesh would be grouped by (null: not batchable), for the levels of a LOD not attached yet. */
   readonly partsOf: (mesh: THREE.Mesh) => BatchKeyParts | null;
   readonly now?: () => number;
+  /** Culls each cell's members against the view (`view-cull.ts`; absent: a cell draws all of them). */
+  readonly viewCull?: ViewCuller;
 }
 
 export interface StaticMerger {
@@ -192,12 +195,14 @@ interface Slot {
   /** The world matrix its vertices were written with, and whether its triangles were turned (a mirroring matrix). */
   readonly matrix: Float64Array;
   flipped: boolean;
+  /** Its world-space bounding sphere as written (centre xyz, radius). */
+  readonly sphere: Float64Array;
   wanted: boolean;
   /** In the drawn index. */
   active: boolean;
 }
 
-interface Built {
+interface Built extends ViewCullable {
   readonly mesh: THREE.Mesh;
   readonly geometry: THREE.BufferGeometry;
   /** Every slot's triangles (vertex indices of the built geometry), in slot order. */
@@ -205,6 +210,11 @@ interface Built {
   readonly index: THREE.BufferAttribute;
   readonly vertices: number;
   readonly vertexBytes: number;
+  /** The slots in the drawn index (in slot order), and the index entries they fill. */
+  drawnSlots: Slot[];
+  full: number;
+  /** Every vertex's bounds (the geometry's sphere is moved to sort the draw: `cullableCell`). */
+  readonly bounds: THREE.Sphere;
 }
 
 interface Cell {
@@ -258,11 +268,32 @@ function writeVertices(attrs: ReadonlyMap<string, THREE.BufferAttribute>, slot: 
     const dst = out.array as unknown as { [i: number]: number; set(a: ArrayLike<number>, at: number): void };
     const base = slot.vStart * size;
     if (name === 'position') {
+      let x0 = Infinity;
+      let y0 = Infinity;
+      let z0 = Infinity;
+      let x1 = -Infinity;
+      let y1 = -Infinity;
+      let z1 = -Infinity;
       for (let i = 0; i < n; i += 1) {
         tmpV.fromBufferAttribute(src, i).applyMatrix4(tmpM);
         dst[base + i * 3] = tmpV.x;
         dst[base + i * 3 + 1] = tmpV.y;
         dst[base + i * 3 + 2] = tmpV.z;
+        if (tmpV.x < x0) x0 = tmpV.x;
+        if (tmpV.y < y0) y0 = tmpV.y;
+        if (tmpV.z < z0) z0 = tmpV.z;
+        if (tmpV.x > x1) x1 = tmpV.x;
+        if (tmpV.y > y1) y1 = tmpV.y;
+        if (tmpV.z > z1) z1 = tmpV.z;
+      }
+      // The sphere round its box (the view culls the slot by it).
+      const sp = slot.sphere;
+      if (n === 0) sp.fill(0);
+      else {
+        sp[0] = (x0 + x1) / 2;
+        sp[1] = (y0 + y1) / 2;
+        sp[2] = (z0 + z1) / 2;
+        sp[3] = Math.hypot(x1 - x0, y1 - y0, z1 - z0) / 2;
       }
     } else if (name === 'normal' || name === 'tangent') {
       const m = name === 'normal' ? tmpN : tmpR;
@@ -300,6 +331,110 @@ function writeTriangles(template: Uint32Array, slot: Slot): void {
   }
 }
 
+/**
+ * Write the drawn index from `list`'s triangles, in `order` (indices into
+ * `list`) when given. Returns the index entries written.
+ */
+function fillIndex(b: Built, list: readonly Slot[], order: Uint32Array | null): number {
+  const out = b.index.array as Uint16Array | Uint32Array;
+  let n = 0;
+  for (let k = 0; k < list.length; k += 1) {
+    const s = list[order !== null ? order[k]! : k]!;
+    out.set(b.template.subarray(s.iStart, s.iStart + s.iCount), n);
+    n += s.iCount;
+  }
+  b.index.needsUpdate = true;
+  return n;
+}
+
+/**
+ * A built cell that culls its slots in the view: their triangles in view lead
+ * the index, nearest first, and the view's pass draws only those
+ * (`view-cull.ts`), every other pass all of them.
+ */
+function cullableCell(parts: Pick<Built, 'mesh' | 'geometry' | 'template' | 'index' | 'vertices' | 'vertexBytes' | 'bounds'>): Built {
+  let culledFor: CullView | null = null;
+  let culledStamp = -1;
+  let inView = 0;
+  /** Which slots were in view at the last cull, the drawn order and the depths it was sorted by. */
+  let seen = new Uint8Array(0);
+  let order = new Uint32Array(0);
+  let depths = new Float32Array(0);
+  let seenFor: Slot[] | null = null;
+  const b: Built = {
+    ...parts,
+    drawnSlots: [],
+    full: 0,
+    cull(view) {
+      if (culledFor === view && culledStamp === view.stamp && seenFor === b.drawnSlots) return false;
+      culledFor = view;
+      culledStamp = view.stamp;
+      const list = b.drawnSlots;
+      const fresh = seenFor !== list;
+      if (fresh) {
+        // The drawn slots changed (a level switch, a member leaving): the index is in slot order again.
+        seenFor = list;
+        if (seen.length < list.length) {
+          seen = new Uint8Array(list.length);
+          order = new Uint32Array(list.length);
+          depths = new Float32Array(list.length);
+        }
+      }
+      if (b.full === 0) {
+        inView = 0;
+        return false;
+      }
+      const all = b.bounds;
+      const side = view.side(all.center.x, all.center.y, all.center.z, all.radius);
+      if (side === SphereSide.Outside) {
+        inView = 0;
+        seen.fill(0, 0, list.length);
+        return false;
+      }
+      let changed = fresh;
+      let n = 0;
+      for (let i = 0; i < list.length; i += 1) {
+        const sp = list[i]!.sphere;
+        const v = side === SphereSide.Inside || view.side(sp[0]!, sp[1]!, sp[2]!, sp[3]!) !== SphereSide.Outside ? 1 : 0;
+        if (seen[i] !== v) {
+          seen[i] = v;
+          changed = true;
+        }
+        if (v === 1) n += list[i]!.iCount;
+      }
+      inView = n;
+      if (!changed) return false;
+      // In view first, nearest first (shaded once where they overlap), then the rest.
+      let k = 0;
+      for (let i = 0; i < list.length; i += 1) {
+        if (seen[i] !== 1) continue;
+        const sp = list[i]!.sphere;
+        depths[i] = view.depth(sp[0]!, sp[1]!, sp[2]!);
+        order[k++] = i;
+      }
+      order.subarray(0, k).sort((x, y) => depths[x]! - depths[y]!);
+      const nearest = k > 0 ? list[order[0]!]!.sphere : null;
+      for (let i = 0; i < list.length; i += 1) if (seen[i] !== 1) order[k++] = i;
+      fillIndex(b, list, order);
+      // three sorts the draw by its sphere's centre: at the nearest slot in view it is drawn about when that
+      // object would be, not at the middle of the cell (the sphere still holds every vertex: culled by it in
+      // every pass).
+      const sphere = b.geometry.boundingSphere!;
+      if (nearest === null) sphere.copy(all);
+      else {
+        sphere.center.set(nearest[0]!, nearest[1]!, nearest[2]!);
+        sphere.radius = all.radius + sphere.center.distanceTo(all.center);
+      }
+      return true;
+    },
+  };
+  // Per pass: the view draws the slots in view, any other camera (a shadow map) all of them.
+  b.mesh.onBeforeRender = (_r, _s, camera) => {
+    b.geometry.drawRange.count = culledFor !== null && culledStamp === culledFor.stamp && seenFor === b.drawnSlots && culledFor.is(camera) ? inView : b.full;
+  };
+  return b;
+}
+
 export function createStaticMerger(options: StaticMergerOptions): StaticMerger {
   const now = options.now ?? (() => performance.now());
   const cells = new Map<string, Cell>();
@@ -324,6 +459,7 @@ export function createStaticMerger(options: StaticMergerOptions): StaticMerger {
   };
 
   const releaseBuilt = (b: Built): void => {
+    options.viewCull?.remove(b);
     b.mesh.removeFromParent();
     // Its render objects go with the object; the merged geometry is all its own.
     b.mesh.dispose();
@@ -369,7 +505,7 @@ export function createStaticMerger(options: StaticMergerOptions): StaticMerger {
   };
 
   const addSlot = (mesh: THREE.Mesh, cell: Cell): Slot => {
-    const s: Slot = { mesh, cell, geometry: mesh.geometry, vStart: -1, vCount: 0, iStart: 0, iCount: 0, matrix: new Float64Array(16), flipped: false, wanted: false, active: false };
+    const s: Slot = { mesh, cell, geometry: mesh.geometry, vStart: -1, vCount: 0, iStart: 0, iCount: 0, matrix: new Float64Array(16), flipped: false, sphere: new Float64Array(4), wanted: false, active: false };
     slots.set(mesh, s);
     cell.slots.add(s);
     cell.needsBuild = true;
@@ -466,6 +602,7 @@ export function createStaticMerger(options: StaticMergerOptions): StaticMerger {
     geometry.setIndex(index);
     geometry.computeBoundingBox();
     geometry.computeBoundingSphere();
+    const bounds = geometry.boundingSphere!.clone();
     const mesh = new THREE.Mesh(geometry, cell.material);
     mesh.name = `tl-merged:${cell.key}`;
     mesh.castShadow = cell.castShadow;
@@ -482,7 +619,9 @@ export function createStaticMerger(options: StaticMergerOptions): StaticMerger {
     mesh.renderOrder = MERGED_RENDER_ORDER;
     mesh.raycast = () => undefined;
     if (cell.built !== null) releaseBuilt(cell.built);
-    cell.built = { mesh, geometry, template, index, vertices, vertexBytes };
+    const built = cullableCell({ mesh, geometry, template, index, vertices, vertexBytes, bounds });
+    cell.built = built;
+    options.viewCull?.add(built);
     cell.dead = 0;
     cell.needsBuild = false;
     options.scene.add(mesh);
@@ -498,15 +637,12 @@ export function createStaticMerger(options: StaticMergerOptions): StaticMerger {
   const writeIndex = (cell: Cell): void => {
     const b = cell.built;
     if (b === null) return;
-    const out = b.index.array as Uint16Array | Uint32Array;
-    let n = 0;
-    for (const s of cell.slots) {
-      if (!s.active || s.vStart < 0) continue;
-      out.set(b.template.subarray(s.iStart, s.iStart + s.iCount), n);
-      n += s.iCount;
-    }
+    const list: Slot[] = [];
+    for (const s of cell.slots) if (s.active && s.vStart >= 0) list.push(s);
+    b.drawnSlots = list;
+    const n = fillIndex(b, list, null);
+    b.full = n;
     b.geometry.setDrawRange(0, n);
-    b.index.needsUpdate = true;
     b.mesh.visible = n > 0;
   };
 
@@ -588,6 +724,9 @@ export function createStaticMerger(options: StaticMergerOptions): StaticMerger {
         for (const a of Object.values(b.geometry.attributes)) (a as THREE.BufferAttribute).needsUpdate = true;
         b.geometry.computeBoundingBox();
         b.geometry.computeBoundingSphere();
+        b.bounds.copy(b.geometry.boundingSphere!);
+        // Its slots' spheres moved with them: culled again from a fresh index.
+        indexDirty.add(cell);
       }
       vertexDirty.clear();
       for (const cell of indexDirty) writeIndex(cell);

@@ -31,6 +31,7 @@ import { createAnimatorPlayer, type AnimatorPlayer, type AnimatorPoseLike } from
 import { addBoxLightmapUv, createLightmapSet, type LightingBakeLike, type LightmapSet } from './lightmaps';
 import { releaseEmissiveLooks, setEntityLook, SHARED_MATERIAL_KEY } from './node-materials';
 import { disposeObjectTree } from './dispose';
+import { bothMemberships, ViewCuller } from './view-cull';
 import { BATCH_KEY, createAutoBatcher, markBatchable, unitBoxGeometry, type AutoBatcher, type AutoBatcherDiagnostics } from './batching';
 import { markStatic, STATIC_KEY } from './static-merge';
 import { compileIntoTarget, type Precompile } from './environment-nodes';
@@ -113,11 +114,14 @@ interface OwnedResources {
  * Whether an entity's box, model or instance set casts and
  * receives the directional light's realtime shadow — its component's
  * `castShadow` / `receiveShadow`, true when absent (solid geometry blocks the
- * light and shows the shadows falling on it; project-model's descriptors).
+ * light and shows the shadows falling on it), except an instance set's
+ * `castShadow`, false when absent (foliage and scatter; project-model's
+ * descriptors).
  */
 function shadowFlagsOf(components: unknown): { cast: boolean; receive: boolean } {
   const c = components as { box?: { castShadow?: unknown; receiveShadow?: unknown }; model?: { castShadow?: unknown; receiveShadow?: unknown }; instances?: { castShadow?: unknown; receiveShadow?: unknown } };
-  const part = c.box ?? c.model ?? c.instances;
+  const part = c.box ?? c.model;
+  if (part === undefined && c.instances !== undefined) return { cast: c.instances.castShadow === true, receive: c.instances.receiveShadow !== false };
   return { cast: part?.castShadow !== false, receive: part?.receiveShadow !== false };
 }
 
@@ -467,13 +471,16 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     material.dispose();
   };
   /** Repeated objects drawn instanced (absent when the option turns it off). */
-  const batcher: AutoBatcher | null = opts.batching === false ? null : createAutoBatcher(scene, { merging: opts.merging ?? 'load', park: (o, on) => graph.park(o, on), ...(staticShadows !== null ? { staticChanged: (where) => (where === null ? staticShadows.bump() : staticShadows.touched(where)) } : {}) });
+  /** What batches, instance-set chunks and merged cells draw is culled inside against the frame's camera. */
+  const viewCull = new ViewCuller();
+  const batcher: AutoBatcher | null = opts.batching === false ? null : createAutoBatcher(scene, { merging: opts.merging ?? 'load', viewCull, park: (o, on) => graph.park(o, on), ...(staticShadows !== null ? { staticChanged: (where) => (where === null ? staticShadows.bump() : staticShadows.touched(where)) } : {}) });
   // A scene dump (the perf harness's plain page) reads the parked drawables with the scene.
   scene.userData['tlParked'] = graph.parkedObjects();
-  // Its update walks the graph for the world matrices right before every render: the renderer's own pass is left out.
-  if (batcher !== null) scene.matrixWorldAutoUpdate = false;
-  // It hears what enters and leaves the scene and what moved from the render graph (it never walks the scene).
-  graph.setMembership(batcher);
+  // The world matrices are brought up to date right before every render (the batcher's update, else here, so the
+  // view culls with them): the renderer's own pass is left out.
+  scene.matrixWorldAutoUpdate = false;
+  // They hear what enters and leaves the scene and what moved from the render graph (neither walks the scene).
+  graph.setMembership(bothMemberships(batcher, viewCull));
   /** An entity's look, material or flags changed outside its realization: its meshes are grouped again. */
   const regroupEntity = (id: string): void => {
     const node = batcher === null ? undefined : graph.node(id);
@@ -1435,7 +1442,13 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     // The level of detail each LOD draws attached (the batcher and the draw see only that one).
     graph.updateLods(camera!);
     // Regroup the repeated objects and copy their matrices (after every transform and look change).
-    batcher?.update(camera!);
+    if (batcher !== null) batcher.update(camera!);
+    else {
+      scene.updateMatrixWorld();
+      if (camera!.parent === null && camera!.matrixWorldAutoUpdate) camera!.updateMatrixWorld();
+    }
+    // Then what each batch, chunk and merged cell has in view leads its draw.
+    viewCull.update(camera!);
     // Merged cells still building in the background, or a moved static object waiting to rejoin its cell: a host drawing on demand draws again.
     if (batcher?.pending() === true) opts.onChange?.();
     // Shadows on before the draw (and before the precompile below, so the programs are built with
@@ -1589,6 +1602,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
         d.batching = { ...d.batching, programs: states.size };
       }
     }
+    if (!disposed && lastFrameDrawn) d.viewCull = viewCull.diagnostics();
     if (!disposed && blockView.layerIds().length > 0) d.blocks = blockView.diagnostics();
     if (!disposed && materialLibrary !== null && runtimeMaterials !== null) d.materials = { graphMaterials: materialLibrary.graphMaterialCount(), ...(materialSwaps !== null && (materialSwaps.applied > 0 || materialSwaps.pending() > 0) ? { swapsApplied: materialSwaps.applied, swapsPending: materialSwaps.pending() } : {}), ...runtimeMaterials.diagnostics() };
     if (environmentRenderer !== null && !disposed) d.environment = environmentRenderer.diagnostics();
@@ -1652,6 +1666,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     entityResources.clear();
     stopReassigned?.();
     batcher?.dispose();
+    viewCull.dispose();
     blockView.dispose();
     for (const rec of boxMaterials.values()) rec.material.dispose();
     boxMaterials.clear();
