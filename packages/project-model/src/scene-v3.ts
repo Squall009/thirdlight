@@ -18,6 +18,7 @@ import { INSTANCE_DENSITY_SIZE_MIN } from './model-lod';
 import { canonicalProbeVolume, validateProbeVolumeComponent, type ProbeVolumeComponent } from './probe-grids';
 import { ID_RE } from './validate';
 import { validateLightLayerMask } from './light-layers';
+import { validateLightImportance, validateLocalLightMode, type LightImportance, type LocalLightMode } from './local-lights';
 
 import { BLOCK_COMPONENT_NAMES, BLOCK_COMPONENTS } from './blocks';
 import { canonicalEffectComponent, validateEffectComponent, type EffectComponent } from './effects';
@@ -247,7 +248,7 @@ function optionalColor(v: unknown, path: string, dflt: string, errors: ModelErro
 export const MAX_INSTANCE_CHUNK_SIZE = 4096;
 
 /** The keys of an `instances` component. */
-const INSTANCES_KEYS = new Set(['asset', 'buffer', 'count', 'castShadow', 'receiveShadow', 'chunkSize', 'lightLayers', 'densityStart', 'densityEnd', 'densityMin', 'lodPerCopy']);
+const INSTANCES_KEYS = new Set(['asset', 'buffer', 'count', 'castShadow', 'receiveShadow', 'chunkSize', 'lightLayers', 'densityStart', 'densityEnd', 'densityMin', 'lodPerCopy', 'localLights']);
 
 export function validateInstancesComponent(c: unknown, path: string, errors: ModelErrorV3[]): void {
   if (!isPlainObject(c)) {
@@ -396,7 +397,7 @@ export function validateLightComponent(c: unknown, path: string, errors: ModelEr
     }
   }
   for (const k of Object.keys(c)) {
-    if (version === 4 && (k === 'mode' || k === 'lightMask' || k === 'shadowCasterMask')) continue;
+    if (version === 4 && (k === 'mode' || k === 'lightMask' || k === 'shadowCasterMask' || k === 'importance')) continue;
     if (!KNOWN_LIGHT_FIELDS.has(k)) errors.push(unexpectedField(`${path}/${pointerSegment(k)}`, k, 'type, color, intensity, direction, castShadow, shadowMapSize, shadowBias, shadowNormalBias, shadowExtent'));
   }
 }
@@ -422,8 +423,10 @@ function validateLocalLight(c: Record<string, unknown>, type: 'point' | 'spot' |
   if (c['color'] === undefined) errors.push(fieldMissing(`${path}/color`, 'color'));
   if (c['intensity'] === undefined) errors.push(fieldMissing(`${path}/intensity`, 'intensity'));
   else checkFiniteNumber(c['intensity'], `${path}/intensity`, { min: 0, absMax: type === 'hemisphere' ? MAX_INTENSITY : MAX_LOCAL_INTENSITY }, `0 <= v <= ${type === 'hemisphere' ? MAX_INTENSITY : MAX_LOCAL_INTENSITY}`, errors);
-  const allowed = type === 'hemisphere' ? ['type', 'color', 'intensity', 'groundColor', 'mode', 'lightMask'] : type === 'point' ? ['type', 'color', 'intensity', 'range', 'decay', 'castShadow', 'mode', 'lightMask', 'shadowCasterMask'] : ['type', 'color', 'intensity', 'range', 'decay', 'castShadow', 'direction', 'angle', 'penumbra', 'mode', 'cookie', 'lightMask', 'shadowCasterMask'];
+  const allowed = type === 'hemisphere' ? ['type', 'color', 'intensity', 'groundColor', 'mode', 'lightMask'] : type === 'point' ? ['type', 'color', 'intensity', 'range', 'decay', 'castShadow', 'mode', 'lightMask', 'shadowCasterMask', 'importance'] : ['type', 'color', 'intensity', 'range', 'decay', 'castShadow', 'direction', 'angle', 'penumbra', 'mode', 'cookie', 'lightMask', 'shadowCasterMask', 'importance'];
   validateLightMasks(c, type !== 'hemisphere', path, errors);
+  // Whether it is shaded per pixel or per vertex on the objects it lights (local-lights.ts).
+  if (type !== 'hemisphere') validateLightImportance(c['importance'], `${path}/importance`, errors);
   for (const k of Object.keys(c)) {
     if (!allowed.includes(k)) errors.push(unexpectedField(`${path}/${pointerSegment(k)}`, k, allowed.join(', ')));
   }
@@ -967,6 +970,7 @@ function canonicalLight(c: unknown): LightComponent {
   // The light layer masks, kept when set (an existing light keeps its exact canonical bytes).
   if (typeof o['lightMask'] === 'number') out.lightMask = o['lightMask'];
   if (typeof o['shadowCasterMask'] === 'number') out.shadowCasterMask = o['shadowCasterMask'];
+  if ((out.type === 'point' || out.type === 'spot') && typeof o['importance'] === 'string') out.importance = o['importance'] as LightImportance;
   return out;
 }
 
@@ -1065,7 +1069,7 @@ function canonicalEntityV3(e: Record<string, unknown>): SceneEntityV3 {
   if (comps['cameraRegion'] !== undefined) (components as { cameraRegion?: CameraRegionComponent }).cameraRegion = canonicalCameraRegion(comps['cameraRegion'] as CameraRegionComponent);
   if (comps['probeVolume'] !== undefined) components.probeVolume = canonicalProbeVolume(comps['probeVolume'] as ProbeVolumeComponent);
   if (comps['instances'] !== undefined) {
-    const i = comps['instances'] as { asset: { assetId: string; piece?: string }; buffer: string; count: number; castShadow?: boolean; receiveShadow?: boolean; chunkSize?: number; lightLayers?: number; densityStart?: number; densityEnd?: number; densityMin?: number; lodPerCopy?: boolean };
+    const i = comps['instances'] as { asset: { assetId: string; piece?: string }; buffer: string; count: number; castShadow?: boolean; receiveShadow?: boolean; chunkSize?: number; lightLayers?: number; densityStart?: number; densityEnd?: number; densityMin?: number; lodPerCopy?: boolean; localLights?: LocalLightMode };
     components.instances = {
       asset: { assetId: i.asset.assetId, ...(i.asset.piece !== undefined ? { piece: i.asset.piece } : {}) },
       buffer: i.buffer,
@@ -1080,6 +1084,7 @@ function canonicalEntityV3(e: Record<string, unknown>): SceneEntityV3 {
       ...(typeof i.densityEnd === 'number' ? { densityEnd: i.densityEnd } : {}),
       ...(typeof i.densityMin === 'number' ? { densityMin: i.densityMin } : {}),
       ...(typeof i.lodPerCopy === 'boolean' ? { lodPerCopy: i.lodPerCopy } : {}),
+      ...(typeof i.localLights === 'string' ? { localLights: i.localLights } : {}),
     };
   }
   const name = e['name'];

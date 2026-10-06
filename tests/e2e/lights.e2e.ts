@@ -2,8 +2,9 @@
  * Point, spot and hemisphere lights. A red point light next to a
  * box tints it in the Scene view (game lighting) and in Play; the light is
  * edited in the Inspector (its light mask and the box's light layers as
- * checkboxes named in Project Settings); the Scene view toggles between the
- * editor rig and the scene's own lights.
+ * checkboxes named in Project Settings, the box's local-light mode — none
+ * unlights it — and the light's importance as selects); the Scene view
+ * toggles between the editor rig and the scene's own lights.
  *
  * Runs on the product's own renderer (renderer-variants.ts
  * PRODUCT_RENDERER_VARIANTS): scene-lights covers lights and cookies on both.
@@ -105,6 +106,30 @@ for (const variant of PRODUCT_RENDERER_VARIANTS) test(`a red point light tints a
     await expect(boxLayer(bit)).toBeChecked();
   }
   await expect.poll(() => stored(boxId, 'box', 'lightLayers')).toBeUndefined();
+
+  // Local lights: the box set to none loses the red light in the Scene view (the ground around it stays red); cleared
+  // (— : per pixel), it is red again.
+  const redNow = async (): Promise<number> => reddish(decodePng(await viewport.screenshot()));
+  await page.locator('canvas.tl-viewport').click({ position: { x: 5, y: 5 } });
+  const litBox = await redNow();
+  await page.locator(`.tl-hierarchy__list li[data-entity-id="${boxId}"]`).click();
+  await inspector(page).getByLabel('box localLights', { exact: true }).selectOption('none');
+  await expect.poll(() => stored(boxId, 'box', 'localLights')).toBe('none');
+  await page.locator('canvas.tl-viewport').click({ position: { x: 5, y: 5 } });
+  await expect.poll(redNow, { timeout: 20_000 }).toBeLessThan(litBox - 500);
+  console.log(`[lights] reddish samples: box lit ${litBox}, box without local lights ${await redNow()}`);
+  await page.locator(`.tl-hierarchy__list li[data-entity-id="${boxId}"]`).click();
+  await inspector(page).getByLabel('box localLights', { exact: true }).selectOption('');
+  await expect.poll(() => stored(boxId, 'box', 'localLights')).toBeUndefined();
+  await page.locator('canvas.tl-viewport').click({ position: { x: 5, y: 5 } });
+  await expect.poll(redNow, { timeout: 20_000 }).toBeGreaterThan(litBox - 200);
+  // The light's importance: per vertex is stored, Auto (the default) is stored as absent.
+  await page.locator(`.tl-hierarchy__list li[data-entity-id="${lightId}"]`).click();
+  const importance = inspector(page).getByLabel('light importance', { exact: true });
+  await importance.selectOption('vertex');
+  await expect.poll(() => stored(lightId, 'light', 'importance')).toBe('vertex');
+  await inspector(page).getByLabel('light importance', { exact: true }).selectOption('auto');
+  await expect.poll(() => stored(lightId, 'light', 'importance')).toBeUndefined();
 
   // Play shows the same light.
   await page.getByTitle('Start an isolated play preview').click();

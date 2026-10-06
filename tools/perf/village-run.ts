@@ -25,6 +25,8 @@
  *   --busy N                     also trace N ms of each export run for busy time per second: the page's main thread, its
  *                                workers and the GPU process (with --vsync and --switches 'frameRateCap=60,frameRateCap=30':
  *                                what a frame-rate cap saves)
+ *   --point-lights N             add N point lights over the scatter (village.ts addVillageLamps; not in the baseline):
+ *                                local lights over foliage, per pixel against per vertex with --switches vertexLights=off
  *   --probes                     bake the class's probes in the editor (WebGPU) before the export: the export then
  *                                draws with probe lighting (its cost against a run without)
  *   --gate                       the fast gate's check: frames only (no GPU passes or profile); the plain page is
@@ -50,7 +52,7 @@ import { launchGpuBrowser, measurePage, serveStatic, sourcesOf, type FrameRender
 import { bakeProbesInEditor } from './probe-bake-run';
 import { measureSceneView, sceneViewLine, type SceneViewResult } from './scene-view-run';
 import { FRAME_HISTOGRAM_EDGES_MS } from './stats';
-import { buildVillage, VILLAGE_SEED, VILLAGE_VERSION, type VillageBuild } from './village';
+import { addVillageLamps, buildVillage, VILLAGE_SEED, VILLAGE_VERSION, type VillageBuild } from './village';
 
 /**
  * A median frame time worse than the baseline by more than this fraction fails the check. The median, not the
@@ -271,6 +273,10 @@ export async function runVillageCli(argv: readonly string[]): Promise<void> {
     if (projectFolder === undefined) {
       report.subject.build = await buildVillage(be, projectId, undefined, log);
       log(`village: built in ${report.subject.build.ms} ms (${report.subject.build.commands} commands)`);
+      if (get('point-lights') !== undefined) {
+        await addVillageLamps(be, projectId, Number(get('point-lights')));
+        log(`village: ${get('point-lights')} lamps over the scatter`);
+      }
     } else {
       const reg = await be.post('/api/v1/admin/projects/register', { folder: resolve(projectFolder) });
       if (typeof reg.json['projectId'] !== 'string') throw new Error(`register failed: ${JSON.stringify(reg.json).slice(0, 400)}`);

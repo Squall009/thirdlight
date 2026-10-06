@@ -10,6 +10,7 @@
  * the boundary re-checks every rule; these types alone do not make a value
  * safe.
  */
+import type { LocalLightMode } from './local-lights';
 
 /** Three finite numbers (meters), in canonical order. */
 export type Vec3 = [number, number, number];
@@ -39,6 +40,8 @@ export interface BoxComponent {
   receiveShadow?: boolean;
   /** The light layers it is in, a bit mask (light-layers.ts; absent: every layer). */
   lightLayers?: number;
+  /** How local lights reach it (local-lights.ts; absent: its material's mode, else per pixel). */
+  localLights?: LocalLightMode;
 }
 
 /** `camera` component — perspective; `aspect` is never persisted. */

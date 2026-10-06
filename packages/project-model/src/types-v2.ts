@@ -9,6 +9,7 @@
  * the entry points are `unknown`; the boundary re-checks every rule.
  */
 
+import type { LocalLightMode } from './local-lights';
 import type {
   BoxComponent,
   CameraComponent,
@@ -39,6 +40,8 @@ export interface ModelComponent {
   receiveShadow?: boolean;
   /** The light layers it is in, a bit mask (light-layers.ts; absent: every layer). */
   lightLayers?: number;
+  /** How local lights reach it (local-lights.ts; absent: its material's mode, else per pixel). */
+  localLights?: LocalLightMode;
 }
 
 /** Seven-type property value vocabulary. */

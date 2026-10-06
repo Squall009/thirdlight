@@ -22,6 +22,7 @@ import {
 
 /** The error element type shared by the narrow and v2 (extended) results. */
 type AnyError = ModelError | ModelErrorV2;
+import type { LocalLightMode } from './local-lights';
 import type {
   BoxComponent,
   CameraComponent,
@@ -746,6 +747,7 @@ export function canonicalBox(b: unknown): BoxComponent {
     ...(typeof o['castShadow'] === 'boolean' ? { castShadow: o['castShadow'] } : {}),
     ...(typeof o['receiveShadow'] === 'boolean' ? { receiveShadow: o['receiveShadow'] } : {}),
     ...(typeof o['lightLayers'] === 'number' ? { lightLayers: o['lightLayers'] } : {}),
+    ...(typeof o['localLights'] === 'string' ? { localLights: o['localLights'] as LocalLightMode } : {}),
   };
 }
 

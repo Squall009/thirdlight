@@ -3440,6 +3440,45 @@ mask, bit n = layer n + 1, 255 = every layer.
   light does. Batching, static merging and instancing keep objects of
   different layers in different draws.
 
+## Local lights per pixel or per vertex
+
+How point, spot and effect lights reach an object (Unity's "Not Important"
+lights, Godot's vertex shading). The sun, ambient light and probes are
+always per pixel.
+
+- **Objects** — a box, model or instance set has **Local lights** in the
+  Inspector (`localLights`): **Per pixel** (as before: highlights and
+  shadows), **Per vertex** (the lights are evaluated at the mesh's vertices
+  and interpolated: diffuse light only, no highlights or shadows) or
+  **None** (no local light at all). "—" (absent) follows the material, else
+  the default: per pixel for everything, instance sets included
+  (`INSTANCES_LOCAL_LIGHTS_DEFAULT`, project-model `local-lights.ts`).
+- **Materials** — standard, foliage and kit materials have a **Local lights**
+  parameter (`object` follows the object), graph materials a **Local lights**
+  field on their PBR and Custom-lit outputs. An object's own mode wins.
+- **Lights** — a point or spot light has an **Importance**: **Auto** (as each
+  object says), **Per pixel** (always, a hero light) or **Per vertex**
+  (always, a cheap fill light). A spot light with a cookie stays per pixel.
+- Per-vertex light joins a surface's ambient light (Custom-lit graphs read it
+  in their Ambient input); light layers and flicker (a script's or effect's
+  changing intensity) work as per pixel.
+- **When it pays** — per vertex costs per vertex instead of per pixel, so it
+  is cheaper where a mesh has fewer vertices than the pixels it covers: big,
+  coarse or close geometry (a grass field at your feet, large leaves, low-poly
+  props in a torch-lit room). Dense scatter far from the camera has about as
+  many vertices as pixels. Measured on this host's Iris Xe at 1920 × 1080:
+  the village perf class with 12 lamps over its scatter
+  (`node tools/perf/run.mjs village --point-lights 12 --switches
+  vertexLights=off`) drew its scene pass in 6.88 ms with the scatter per
+  vertex and 6.78 ms per pixel (frame 8.6 ms either way), so instance sets
+  stay per pixel unless a set or its material asks.
+- **Cost of the feature** — none unless used: the default draws the same
+  shaders as before (village: 52 shader modules and 34 pipelines). Each mode
+  in use adds one program per material it is used with (light layers add
+  none on top). Changing a light's importance rebuilds the lit shaders once.
+- `?vertexLights=off` on a game page shades every local light per pixel (a
+  diagnostic comparison, like `?probes=off`).
+
 ## Icons and gizmos
 
 The Scene view and the hierarchy show what an object is: its light type

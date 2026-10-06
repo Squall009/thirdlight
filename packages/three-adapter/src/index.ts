@@ -307,3 +307,5 @@ export { MESH_WORKERS_MAX, createBrowserMeshWorker, meshWorkerCount, type MeshWo
 // Probe lighting: the probe light every lit material samples, and the editor's probe debug view.
 export { isProbeLighting, packProbeTiles, PROBES_URL_PARAM, probesFromUrl, PROBE_WEIGHT_FILLED, PROBE_WEIGHT_MOVED, PROBE_WEIGHT_VALID, ProbeLighting, probeWeight, type PackedProbes } from './probe-lighting';
 export { createProbeDebugView, type ProbeDebugView } from './probe-debug';
+// Local lights per vertex: an object's or material's mode, a light's importance.
+export { LIGHT_IMPORTANCE_KEY, LOCAL_LIGHTS_KEY, VERTEX_LIGHTS_URL_PARAM, localLightVariantCount, vertexLightsFromUrl } from './local-lights';

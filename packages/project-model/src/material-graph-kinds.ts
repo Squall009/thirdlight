@@ -28,6 +28,7 @@
  * 18.3; `default` strings name its built-in sources).
  */
 import type { GraphFieldDef, GraphKindDef, GraphNodeDef, GraphPortDef, GraphValue } from './graph';
+import { MATERIAL_LOCAL_LIGHT_MODES } from './local-lights';
 
 /** The value types in widening order (the `auto` rule picks the widest connected). */
 export const MATERIAL_VALUE_TYPES = ['float', 'vec2', 'vec3', 'vec4'] as const;
@@ -90,6 +91,8 @@ const SURFACE_FLAGS: readonly GraphFieldDef[] = [
   { key: 'transparent', label: 'Transparent', type: 'boolean', default: false },
   { key: 'castShadows', label: 'Casts shadows', type: 'boolean', default: true },
 ];
+/** A lit surface's flags: also how local lights reach it (local-lights.ts; `object` follows the object's mode). */
+const LIT_SURFACE_FLAGS: readonly GraphFieldDef[] = [...SURFACE_FLAGS, { key: 'localLights', label: 'Local lights', type: 'enum', options: MATERIAL_LOCAL_LIGHT_MODES, default: 'object' }];
 
 const INPUT_NODES: readonly GraphNodeDef[] = [
   { type: 'float', label: 'Float', category: 'Inputs', description: 'A constant number.', inputs: [], outputs: [port('value', 'value', 'float')], fields: [{ key: 'value', label: 'Value', type: 'number', default: 0, min: -1e6, max: 1e6 }] },
@@ -485,7 +488,7 @@ const OUTPUT_NODES: readonly GraphNodeDef[] = [
       port('alphaClip', 'alpha clip', 'float', 0),
     ],
     outputs: [],
-    fields: SURFACE_FLAGS,
+    fields: LIT_SURFACE_FLAGS,
     required: true,
     exclusive: 'surface',
   },
@@ -513,7 +516,7 @@ const OUTPUT_NODES: readonly GraphNodeDef[] = [
       port('alphaClip', 'alpha clip', 'float', 0),
     ],
     outputs: [],
-    fields: SURFACE_FLAGS,
+    fields: LIT_SURFACE_FLAGS,
     exclusive: 'surface',
   },
   {

@@ -322,3 +322,21 @@ export async function buildVillage(be: PerfBackend, projectId: string, plan = vi
   });
   return { projectId, ms: Math.round(performance.now() - t0), commands, counts: plan.counts };
 }
+
+/**
+ * Lamps over the scatter (`node tools/perf/run.mjs village --point-lights N`): N warm point lights 1.5 m up on a ring
+ * through the instance sets, reaching 8 m — what local lights over foliage cost (per pixel against per vertex,
+ * with `--switches vertexLights=off`). Not part of the class (its baseline has none).
+ */
+export async function addVillageLamps(be: PerfBackend, projectId: string, n: number): Promise<void> {
+  const p = be.project(projectId);
+  const rnd = prng(VILLAGE_SEED + 1);
+  const lamps: EntityValue[] = [];
+  for (let i = 0; i < n; i += 1) {
+    const a = (i / n) * Math.PI * 2 + rnd() * 0.3;
+    const r = 8 + rnd() * 18;
+    lamps.push({ id: `lamp-${i}`, name: `Lamp ${i + 1}`, components: { transform: T(Math.cos(a) * r, GROUND_Y + 1.5, Math.sin(a) * r), light: { type: 'point', color: '#ffc27a', intensity: 12, range: 8, decay: 2 } } });
+  }
+  await p.command('pasteEntities', { sceneId: 'scene-main', entities: lamps });
+}
+

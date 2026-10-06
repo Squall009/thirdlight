@@ -22,7 +22,7 @@ import type { N } from './effects-tsl';
 
 /** TSL untyped: three's typings lag the node API used here. */
 const TSL: N = TSLTyped;
-const { Loop, NodeUpdateType, getDistanceAttenuation, positionView, renderGroup, uniform, uniformArray, vec3 } = TSL;
+const { Loop, NodeUpdateType, abs, getDistanceAttenuation, max, positionView, renderGroup, uniform, uniformArray, vec3 } = TSL;
 
 /** One slot of the pool: a point light by value (world position, linear colour). */
 export class EffectLightSlot {
@@ -114,6 +114,63 @@ class EffectLightsNode extends (THREE.Node as unknown as new () => { updateType:
     reflectedLight.directDiffuse.addAssign(diffuse);
     reflectedLight.directSpecular.addAssign(specular);
   }
+}
+
+/** The pool's values for vertex stages: arrays of their own, filled from the slots every render. */
+interface VertexPool {
+  readonly colors: N;
+  readonly positions: N;
+  readonly decays: N;
+  readonly count: N;
+}
+const vertexPools = new WeakMap<EffectLights, VertexPool>();
+
+function vertexPoolOf(light: EffectLights): VertexPool {
+  const seen = vertexPools.get(light);
+  if (seen !== undefined) return seen;
+  const colors = light.slots.map(() => new THREE.Color());
+  const positions = light.slots.map(() => new THREE.Vector4());
+  const decays = light.slots.map(() => new THREE.Vector4());
+  const pool: VertexPool = {
+    colors: uniformArray(colors, 'color').setGroup(renderGroup),
+    positions: uniformArray(positions, 'vec4').setGroup(renderGroup),
+    decays: uniformArray(decays, 'vec4').setGroup(renderGroup),
+    // Written first each render (the arrays beside it are filled here, before the group uploads).
+    count: uniform(0, 'int')
+      .setGroup(renderGroup)
+      .onRenderUpdate(({ camera }: { camera: THREE.Camera }) => {
+        const count = Math.min(light.count, light.slots.length);
+        for (let i = 0; i < count; i++) {
+          const sl = light.slots[i]!;
+          colors[i]!.copy(sl.color).multiplyScalar(sl.intensity);
+          _view.copy(sl.position).applyMatrix4(camera.matrixWorldInverse);
+          positions[i]!.set(_view.x, _view.y, _view.z, sl.distance);
+          decays[i]!.x = sl.decay;
+        }
+        return count;
+      }),
+  };
+  vertexPools.set(light, pool);
+  return pool;
+}
+
+/**
+ * The pool's diffuse irradiance at a vertex (view space), for an object
+ * shading local lights per vertex (local-lights.ts; built in the vertex
+ * stage's flow, so it may loop): a loop over the slots in use.
+ */
+export function effectLightsVertexIrradiance(light: EffectLights, normal: N, position: N, twoSided: boolean): N {
+  const v = vertexPoolOf(light);
+  const total = vec3(0).toVar('effectLightsVertex');
+  Loop(v.count, ({ i }: { i: N }) => {
+    const p = v.positions.element(i);
+    const toLight = p.xyz.sub(position).toVar();
+    const distance = toLight.length().toVar();
+    const attenuation = getDistanceAttenuation({ lightDistance: distance, cutoffDistance: p.w, decayExponent: v.decays.element(i).x });
+    const nl = normal.dot(toLight.div(max(distance, 1e-4)));
+    total.addAssign(v.colors.element(i).mul(attenuation).mul(twoSided ? abs(nl) : max(nl, 0)));
+  });
+  return total;
 }
 
 /** Teach a renderer to shade `EffectLights` (three finds a light's node class by its constructor). */

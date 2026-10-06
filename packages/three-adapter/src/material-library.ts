@@ -41,7 +41,7 @@
  * Pure three.js: textures come from an injected loader (the host resolves
  * bytes; nothing here fetches).
  */
-import { MAX_MATERIAL_INSTANCE_DEPTH } from '@thirdlight/runtime';
+import { MAX_MATERIAL_INSTANCE_DEPTH, localLightModeOf } from '@thirdlight/runtime';
 import * as THREE from 'three';
 import * as TSL from 'three/tsl';
 import { MeshBasicNodeMaterial, type MeshStandardNodeMaterial, type NodeBuilder } from 'three/webgpu';
@@ -70,6 +70,7 @@ import { textureHolds, type TextureHolds } from './texture-holds';
 import { SAMPLED_TEXTURES_KEY } from './texture-streaming';
 import { OBJECT_FRAME_KEY } from './static-merge';
 import { CHANGING_ALPHA_KEY } from './shadow-casters';
+import { LOCAL_LIGHTS_KEY } from './local-lights';
 import type { ResourceManager } from '@thirdlight/runtime';
 
 export type MaterialShaderName = 'standard' | 'foliage' | 'kit' | 'unlit' | 'water';
@@ -394,6 +395,9 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
     if (typeof p['emissive'] === 'string') m.emissive.set(p['emissive']);
     if (p['emissiveIntensity'] !== undefined) m.emissiveIntensity = num(p['emissiveIntensity'], m.emissiveIntensity);
     if (p['aoIntensity'] !== undefined) m.aoMapIntensity = num(p['aoIntensity'], 1);
+    // How local lights reach the surfaces wearing it, unless the object says (local-lights.ts).
+    const localLights = localLightModeOf(p['localLights']);
+    if (localLights !== undefined) m.userData[LOCAL_LIGHTS_KEY] = localLights;
     // The green of a normal map turned around where the frame is derived from the texture coordinates
     // (normalGreenSign; what three's glTF loader does to its own materials, kept for a model's). A file's
     // own scale is read from x, which the loader never turns around: a glTF normalTexture.scale below 0

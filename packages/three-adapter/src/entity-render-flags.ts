@@ -1,12 +1,14 @@
 /**
  * How an entity's drawables meet the lights: whether its box, model or
- * instance set casts and receives the key light's shadow, and which light
- * layers it is in (light-layers.ts). Set on every mesh under what the entity
+ * instance set casts and receives the key light's shadow, which light
+ * layers it is in (light-layers.ts) and how its local lights are shaded
+ * (local-lights.ts). Set on every mesh under what the entity
  * shows, when it is realized and when a model or instance set arrives.
  */
 import type * as THREE from 'three';
 
 import { applyObjectLightLayers, lightLayersOfComponents } from './light-layers';
+import { applyObjectLocalLights, localLightsOfComponents } from './local-lights';
 import { MATERIAL_NO_SHADOW_KEY } from './material-library';
 
 /**
@@ -37,11 +39,12 @@ function applyShadowFlags(root: THREE.Object3D, flags: { cast: boolean; receive:
 }
 
 /**
- * The entity's shadow flags and light layers on every mesh under `root`.
- * Returns whether the light layers of a mesh changed (the shadow maps that
- * drew it, and its batch, must follow).
+ * The entity's shadow flags, light layers and local-light mode on every mesh
+ * under `root`. Returns whether the light layers or the mode of a mesh
+ * changed (the shadow maps that drew it, and its batch, must follow).
  */
 export function applyEntityRenderFlags(root: THREE.Object3D, components: unknown): boolean {
   applyShadowFlags(root, shadowFlagsOf(components));
-  return applyObjectLightLayers(root, lightLayersOfComponents(components));
+  const layers = applyObjectLightLayers(root, lightLayersOfComponents(components));
+  return applyObjectLocalLights(root, localLightsOfComponents(components)) || layers;
 }

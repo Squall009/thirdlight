@@ -19,6 +19,7 @@ import { canonicalGraphData, graphAssetRefs, nodeFieldValue, validateGraphData, 
 import { canonicalEnvironmentPresets, validateEnvironmentPresets, type EnvironmentPreset } from './environment-presets';
 import { MATERIAL_DATA_MAX, MATERIAL_GRAPH_KIND, MATERIAL_PARAMETER_TYPES, type MaterialParameterType } from './material-graph-kinds';
 import { isTextureSlots, textureSlotsError } from './texture-slots';
+import { MATERIAL_LOCAL_LIGHT_MODES } from './local-lights';
 
 export const MATERIAL_SHADERS = ['standard', 'foliage', 'kit', 'unlit', 'water'] as const;
 export type MaterialShader = (typeof MATERIAL_SHADERS)[number];
@@ -51,6 +52,8 @@ const SURFACE_PARAMS: Readonly<Record<string, MaterialParamType>> = {
   offset: vec2(-1000, 1000, [0, 0]),
   normalScale: num(0, 4, 1),
   aoIntensity: num(0, 2, 1),
+  // How local lights reach its surfaces (local-lights.ts): `object` follows the object's mode.
+  localLights: { kind: 'enum', values: MATERIAL_LOCAL_LIGHT_MODES, default: 'object' },
 };
 
 /** The parameter schema of every shader type (absent in a material = keep the file's value / the default). */

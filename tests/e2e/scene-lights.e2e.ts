@@ -23,18 +23,27 @@
  * blue; Dusk unloaded, Level's night comes back (not the start scene's red
  * sun); Level unloaded, red. The renderer diagnostics name the directional
  * light that is on at each point and count the local lights and cookies.
+ * Then "Vertex" (local lights per vertex): three one-copy instance sets of a
+ * coarse slab (each face one quad), each with a white lamp 2 m in front of
+ * its middle — the first set to per vertex, the second in the instance-set
+ * default (per pixel), the third to none — and a script making the first
+ * lamp flicker. Per pixel the slab is bright in the middle and dark at
+ * its edges; per vertex the four corners carry all the light, so the face
+ * is evenly lit (and lit, unlike the third, which shows only the ambient
+ * light); the flicker changes the per-vertex slab's light.
  * Then the export (Level a second start scene, so its night sun wins over
  * the start scene's), served statically with the backend stopped: night, 11
  * lit patches and the cookie in its own pixels.
  */
 import { randomBytes } from 'node:crypto';
-import { createReadStream, existsSync, statSync } from 'node:fs';
+import { createReadStream, existsSync, statSync, writeFileSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import { extname, join, normalize } from 'node:path';
 
 import { expect, test } from './pw';
 
-import { publishBytes, startBackend, type E2EBackend } from './backend';
+import { publishBytes, publishScript, startBackend, type E2EBackend } from './backend';
+import { multiPieceGlb } from './multi-piece-glb';
 import { decodePng, type Image } from './png';
 import { makePng } from './png-make';
 import { editorUrlFor, exportQueryFor, expectRendererBackend, onlyInItsProject, RENDERER_VARIANTS } from './renderer-variants';
@@ -100,6 +109,78 @@ function mostRuns(img: Image, from: number, to: number, test: (r: number, g: num
   return best;
 }
 
+const luma = (img: Image, x: number, y: number): number => {
+  const [r, g, b] = img.pixel(Math.min(img.width - 1, Math.max(0, Math.round(x))), Math.min(img.height - 1, Math.max(0, Math.round(y))));
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+};
+/** The mean luminance (0-255) of a 5 × 5 patch. */
+function patch(img: Image, x: number, y: number): number {
+  let sum = 0;
+  for (let dy = -2; dy <= 2; dy += 1) for (let dx = -2; dx <= 2; dx += 1) sum += luma(img, x + dx, y + dy);
+  return sum / 25;
+}
+type Slab = { cx: number; cy: number; w: number; h: number };
+/**
+ * The "Vertex" scene's slabs in a picture: the two lit ones (per vertex on the left, per pixel in the middle) are the
+ * runs above the background along the row crossing most lit pixels; the third (no local light, dark) is as far right
+ * of the middle one as the left one is left of it. Null while the two do not both show.
+ */
+function findSlabs(img: Image): Slab[] | null {
+  const bg = luma(img, 2, 2) + 10;
+  let best = { y: 0, n: 0 };
+  for (let y = 0; y < img.height; y += 1) {
+    let n = 0;
+    for (let x = 0; x < img.width; x += 1) if (luma(img, x, y) > bg) n += 1;
+    if (n > best.n) best = { y, n };
+  }
+  const found: Slab[] = [];
+  let from = -1;
+  for (let x = 0; x <= img.width; x += 1) {
+    const on = x < img.width && luma(img, x, best.y) > bg;
+    if (on && from < 0) from = x;
+    if (!on && from >= 0) {
+      if (x - from >= 6) {
+        const cx = (from + x - 1) / 2;
+        let top = best.y;
+        let bottom = best.y;
+        while (top > 0 && luma(img, cx, top - 1) > bg) top -= 1;
+        while (bottom < img.height - 1 && luma(img, cx, bottom + 1) > bg) bottom += 1;
+        found.push({ cx, cy: (top + bottom) / 2, w: x - from, h: bottom - top + 1 });
+      }
+      from = -1;
+    }
+  }
+  if (found.length !== 2) return null;
+  const [a, b] = found as [Slab, Slab];
+  return [a, b, { ...b, cx: 2 * b.cx - a.cx }];
+}
+/** A slab's middle luminance and its middle over the mean of the middles of its four edges (1: evenly lit). */
+function slabLight(img: Image, s: Slab): { middle: number; ratio: number } {
+  const m = patch(img, s.cx, s.cy);
+  const k = 0.85 / 2;
+  const edge = (patch(img, s.cx - k * s.w, s.cy) + patch(img, s.cx + k * s.w, s.cy) + patch(img, s.cx, s.cy - k * s.h) + patch(img, s.cx, s.cy + k * s.h)) / 4;
+  return { middle: m, ratio: m / Math.max(edge, 1) };
+}
+/** The "Vertex" scene's slabs: their middles (x) and the face's plane; a lamp 2 m in front of each middle. */
+const SLAB_X = [0, 4, 8] as const;
+const SLAB_Y = 4;
+const SLAB_FACE_Z = -2.4;
+
+/** The flicker: the lamp's intensity alternates every 120 steps (a second; a script writes the light's value, no rebuild). */
+const FLICKER = (lamp: string): string =>
+  [
+    'export default {',
+    '  instantiate() { return { n: 0 }; },',
+    '  step(state: { n: number }, ctx: any) {',
+    "    if (ctx.phase !== 'intent') return;",
+    '    state.n += 1;',
+    '    if (state.n % 120 !== 0) return;',
+    `    ctx.entity('${lamp}')?.set('light', { intensity: (state.n / 120) % 2 === 1 ? 5 : 10 });`,
+    '  },',
+    '};',
+    '',
+  ].join('\n');
+
 /** A plain static file server: the exported game gets nothing else. */
 function serveDir(dir: string): Promise<{ url: string; close: () => Promise<void> }> {
   const types: Record<string, string> = { '.html': 'text/html', '.js': 'text/javascript', '.json': 'application/json', '.wasm': 'application/wasm' };
@@ -151,6 +232,27 @@ for (const variant of RENDERER_VARIANTS) test(`lights belong to scenes: the most
   ]);
   const nightSun = String((await cmd('createEntity', { sceneId: 'scene-level', parentId: null, kind: 'group', name: 'Night sun', transform: { position: [0, 0, 0] }, components: { light: { type: 'directional', color: '#ffffff', intensity: 0, direction: [0, -0.2, -1] } } }))['createdId']);
 
+  // Vertex: a night sun, a dim fill and three one-copy instance sets of a white 3 × 3 m slab (one quad a face), per
+  // vertex, per pixel (the instance-set default) and none, each with a white lamp 2 m in front of its middle (its
+  // range keeps it off the other slabs); a script flickers the first lamp.
+  await publishBytes(be, multiPieceGlb([{ name: 'slab', lods: [[3, 3, 0.2]], colors: [[1, 1, 1]], vertexColor: [1, 1, 1, 1] }]), 'model', 'slabs', 'Slabs');
+  await cmd('createScene', { sceneId: 'scene-vertex', name: 'Vertex' });
+  const vertexEntity = async (name: string, components: Record<string, unknown>): Promise<string> => String((await cmd('createEntity', { sceneId: 'scene-vertex', parentId: null, kind: 'group', name, transform: { position: [0, 0, 0] }, components }))['createdId']);
+  await vertexEntity('Vertex night', { light: { type: 'directional', color: '#ffffff', intensity: 0, direction: [0, -0.2, -1] } });
+  await vertexEntity('Vertex fill', { light: { type: 'ambient', color: '#ffffff', intensity: 0.02 } });
+  const slabModes = ['vertex', undefined, 'none'] as const;
+  const vertexLamps: string[] = [];
+  for (let i = 0; i < SLAB_X.length; i += 1) {
+    const cx = SLAB_X[i]!;
+    const buf = await api('content/buffers', { transforms: [cx - 1.5, SLAB_Y - 1.5, SLAB_FACE_Z - 0.1, 0, 0, 0, 1, 1, 1, 1] });
+    expect(buf.status, JSON.stringify(buf.json)).toBe(200);
+    const mode = slabModes[i];
+    await vertexEntity(`Slab ${mode ?? 'default'}`, { instances: { asset: { assetId: 'slabs', piece: 'slab' }, buffer: buf.json['digest'], count: 1, ...(mode !== undefined ? { localLights: mode } : {}) } });
+    const lamp = String((await cmd('createEntity', { sceneId: 'scene-vertex', parentId: null, kind: 'group', name: `Slab lamp ${i + 1}`, transform: { position: [cx, SLAB_Y, SLAB_FACE_Z + 2] }, components: { light: { type: 'point', color: '#ffffff', intensity: 10, range: 3.5, decay: 2 } } }))['createdId']);
+    vertexLamps.push(lamp);
+  }
+  await publishScript(be, 'flicker', FLICKER(vertexLamps[0]!), vertexLamps[0]!);
+
   page.on('pageerror', (e) => console.log(`[page pageerror] ${e.message}`));
   await page.goto(editorUrlFor(be.editorUrl, variant));
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
@@ -166,10 +268,12 @@ for (const variant of RENDERER_VARIANTS) test(`lights belong to scenes: the most
     const r = await api(`play/${psid}/diagnostics`);
     return ((r.json as { diagnostics?: { renderer?: { lights?: Lights } } }).diagnostics?.renderer?.lights) ?? null;
   };
+  let lastShot = Buffer.alloc(0);
   const shot = async (): Promise<Image> => {
     const r = await api(`play/${psid}/screenshot`, { maxWidth: 512 });
     expect(r.status, JSON.stringify(r.json).slice(0, 200)).toBe(200);
-    return decodePng(Buffer.from(String(r.json['dataUrl']).replace(/^data:image\/png;base64,/, ''), 'base64'));
+    lastShot = Buffer.from(String(r.json['dataUrl']).replace(/^data:image\/png;base64,/, ''), 'base64');
+    return decodePng(lastShot);
   };
   const control = async (command: string, sceneId: string): Promise<void> => {
     const r = await api(`play/${psid}/control`, { command, sceneId });
@@ -235,6 +339,31 @@ for (const variant of RENDERER_VARIANTS) test(`lights belong to scenes: the most
   await expect.poll(async () => await lights(), { timeout: 30_000 }).toEqual({ directional: 'light-0001', ambient: 'light-0002', hemisphere: null, local: 0, localOn: 0, cookies: 0 });
   await expect.poll(async () => share(await shot(), red), { timeout: 20_000 }).toBeGreaterThan(0.3);
   expect(share(await log('level unloaded'), green)).toBeLessThan(0.01);
+
+  // Vertex loaded: the per-pixel slab is bright in its middle and dark at its edges; the per-vertex one evenly lit,
+  // brighter than the one without local lights; the flicker shows on the per-vertex slab (seen bright and dim).
+  await control('loadScene', 'scene-vertex');
+  await loaded(['scene-main', 'scene-vertex']);
+  await expect.poll(async () => (await lights())?.local, { timeout: 30_000 }).toBe(3);
+  let seen = { bright: 0, dim: 255 };
+  await expect
+    .poll(
+      async () => {
+        const img = await shot();
+        const slabs = findSlabs(img);
+        if (slabs === null) return 'slabs not found';
+        const [vertex, pixel, none] = slabs.map((sl) => slabLight(img, sl));
+        seen = { bright: Math.max(seen.bright, vertex!.middle), dim: Math.min(seen.dim, vertex!.middle) };
+        const at = (l: { middle: number; ratio: number }): string => `${l.middle.toFixed(0)}/${l.ratio.toFixed(2)}`;
+        console.log(`vertex lights (${variant}): middle/ratio vertex ${at(vertex!)} pixel ${at(pixel!)} none ${at(none!)}; vertex seen ${seen.dim.toFixed(0)}..${seen.bright.toFixed(0)}`);
+        return [pixel!.ratio > 1.25, vertex!.ratio < 1.1 && vertex!.ratio > 0.9, vertex!.middle > none!.middle + 15, none!.middle < 30, seen.bright > 1.2 * seen.dim + 5].join(' ');
+      },
+      { timeout: 30_000, intervals: [250] },
+    )
+    .toBe('true true true true true')
+    .finally(() => writeFileSync(`test-results/scene-lights-vertex-${variant}.png`, lastShot));
+  await control('unloadScene', 'scene-vertex');
+  await loaded(['scene-main']);
   await expect(page.locator('.tl-notice')).toHaveCount(0);
 
   // The export, with Level a start scene too (the later start scene's sun is on): night, 11 lit patches, the cookie —

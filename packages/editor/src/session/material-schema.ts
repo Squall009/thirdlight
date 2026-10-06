@@ -28,6 +28,7 @@ const SURFACE_PARAMS: Readonly<Record<string, MaterialParamType>> = {
   offset: vec2(-1000, 1000, [0, 0]),
   normalScale: num(0, 4, 1),
   aoIntensity: num(0, 2, 1),
+  localLights: { kind: 'enum', values: ['object', 'pixel', 'vertex', 'none'], default: 'object' },
 };
 
 /** The parameter schema of every shader type (absent in a material = keep the file's value / the default). */

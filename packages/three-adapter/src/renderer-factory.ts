@@ -32,6 +32,7 @@ import { WebGPURenderer } from 'three/webgpu';
 import { registerEffectLights } from './effect-lights';
 import { registerLayeredLights } from './light-layers';
 import { registerProbeLighting } from './probe-lighting';
+import { installLocalLightModes, vertexLightsFromUrl } from './local-lights';
 import { installProgramRelease, installVaoSweep, trackRenderer, trackTextureListeners } from './dispose';
 
 export type RendererPreference = 'auto' | 'webgpu' | 'webgl2';
@@ -338,6 +339,8 @@ const BROWSER_DEPS: RendererFactoryDeps = {
     registerLayeredLights(r);
     // And the probe lighting (its light, and the lights node that lets it replace the ambient light).
     registerProbeLighting(r as never);
+    // And objects whose local lights are shaded per vertex or not at all (their material's mode variant per draw).
+    installLocalLightModes(r as never, vertexLightsFromUrl(pageSearch()));
     return r as unknown as NodeRendererLike;
   },
   probe: (gpu, secure, timeoutMs) => probeWebGpu(gpu, secure, timeoutMs),

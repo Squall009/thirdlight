@@ -43,6 +43,7 @@ import * as TSLTyped from 'three/tsl';
 import { PROBE_ATLAS_PADDING, PROBE_FILLED, PROBE_GPU_TEXELS, PROBE_MOVED, PROBE_SH_TEXELS, PROBE_TEXELS } from '@thirdlight/runtime';
 
 import type { N } from './effects-tsl';
+import { buildVertexLights, localLightsCacheKey, splitLocalLights } from './local-lights';
 import type { LoadedProbeTile } from './probe-grids';
 
 /** TSL untyped: three's typings lag the node API used here. */
@@ -504,12 +505,24 @@ type LightNodeLike = { readonly isProbeLightingNode?: boolean; readonly light?: 
 
 const isHeld = (n: LightNodeLike): boolean => n.light?.userData[PROBE_HELD_KEY] === true;
 
-/** The scene's lights node: with a probe light present, the probe-held lights and the probes build last (see the top). */
-class ProbeOrderedLightsNode extends (THREE.LightsNode as unknown as new () => { setupLights(builder: N, nodes: LightNodeLike[]): void; setLights(l: THREE.Light[]): unknown }) {
+/**
+ * The scene's lights node: local lights split per the build's mode
+ * (local-lights.ts); with a probe light present, the probe-held lights and
+ * the probes build last (see the top).
+ */
+class ProbeOrderedLightsNode extends (THREE.LightsNode as unknown as new () => { setupLights(builder: N, nodes: LightNodeLike[]): void; setLights(l: THREE.Light[]): unknown; customCacheKey(): number; getLights(): THREE.Light[] }) {
   static get type(): string {
     return 'LightsNode';
   }
-  override setupLights(builder: N, nodes: LightNodeLike[]): void {
+  /** Lights' importances decide which builds shade them per vertex: a change rebuilds the lit programs. */
+  override customCacheKey(): number {
+    const own = localLightsCacheKey(this.getLights());
+    return own === 0 ? super.customCacheKey() : (Math.imul(super.customCacheKey(), 31) + own) | 0;
+  }
+  override setupLights(builder: N, all: LightNodeLike[]): void {
+    // Local lights shaded per vertex (or left out) for this build's mode: they add to the irradiance the probes keep.
+    const { pixel: nodes, vertex } = splitLocalLights(builder, all);
+    buildVertexLights(builder, vertex);
     const probe = nodes.find((n) => n.isProbeLightingNode === true);
     if (probe === undefined) {
       super.setupLights(builder, nodes);

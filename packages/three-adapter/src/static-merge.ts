@@ -36,10 +36,11 @@
  */
 import * as THREE from 'three';
 
-import { LIGHT_LAYERS_ALL } from '@thirdlight/runtime';
+import { LIGHT_LAYERS_ALL, type LocalLightMode } from '@thirdlight/runtime';
 
 import type { BatchKeyParts } from './batching';
 import { LIGHT_LAYERS_KEY } from './light-layers';
+import { LOCAL_LIGHTS_KEY } from './local-lights';
 import { LOD_OWNER_KEY } from './lod-switch';
 import { STATIC_CASTER_KEY } from './shadow-casters';
 import { SphereSide, type CullView, type ViewCullable, type ViewCuller } from './view-cull';
@@ -227,6 +228,8 @@ interface Cell {
   readonly receiveShadow: boolean;
   /** The light layers of its members (one merged draw has one set of lights). */
   readonly lightLayers: number;
+  /** Their local-light mode when set (one merged draw has one). */
+  readonly localLights: LocalLightMode | undefined;
   readonly slots: Set<Slot>;
   built: Built | null;
   /** Slots without vertices in the build, or too many dead ones. */
@@ -505,7 +508,7 @@ export function createStaticMerger(options: StaticMergerOptions): StaticMerger {
     const e = mesh.matrixWorld.elements;
     const s = options.cellSize;
     const cell = `${Math.floor(e[12]! / s)},${Math.floor(e[13]! / s)},${Math.floor(e[14]! / s)}`;
-    return `${scope}|${parts.material.uuid}|${parts.castShadow ? 1 : 0}${parts.receiveShadow ? 1 : 0}${parts.lightLayers === LIGHT_LAYERS_ALL ? '' : `L${parts.lightLayers}`}|${cell}|${mergeLayout(mesh.geometry)}`;
+    return `${scope}|${parts.material.uuid}|${parts.castShadow ? 1 : 0}${parts.receiveShadow ? 1 : 0}${parts.lightLayers === LIGHT_LAYERS_ALL ? '' : `L${parts.lightLayers}`}${parts.localLights === undefined ? '' : `M${parts.localLights}`}|${cell}|${mergeLayout(mesh.geometry)}`;
   };
 
   const releaseBuilt = (b: Built): void => {
@@ -534,7 +537,7 @@ export function createStaticMerger(options: StaticMergerOptions): StaticMerger {
   const cellFor = (key: string, parts: BatchKeyParts): Cell => {
     let cell = cells.get(key);
     if (cell !== undefined) return cell;
-    const c: Cell = { key, material: parts.material, castShadow: parts.castShadow, receiveShadow: parts.receiveShadow, lightLayers: parts.lightLayers, slots: new Set(), built: null, needsBuild: false, dead: 0, wanted: 0, addedAt: frame, unlisten: () => undefined };
+    const c: Cell = { key, material: parts.material, castShadow: parts.castShadow, receiveShadow: parts.receiveShadow, lightLayers: parts.lightLayers, localLights: parts.localLights, slots: new Set(), built: null, needsBuild: false, dead: 0, wanted: 0, addedAt: frame, unlisten: () => undefined };
     // A material disposed (its last wearer went) takes its cells with it; the objects are drawn alone again.
     const onDispose = (): void => {
       if (cells.get(key) !== c) return;
@@ -647,6 +650,7 @@ export function createStaticMerger(options: StaticMergerOptions): StaticMerger {
     mesh.castShadow = cell.castShadow;
     mesh.receiveShadow = cell.receiveShadow;
     if (cell.lightLayers !== LIGHT_LAYERS_ALL) mesh.userData[LIGHT_LAYERS_KEY] = cell.lightLayers;
+    if (cell.localLights !== undefined) mesh.userData[LOCAL_LIGHTS_KEY] = cell.localLights;
     // Vertices are in world space: the identity, never recomposed.
     mesh.matrixAutoUpdate = false;
     mesh.matrixWorldAutoUpdate = false;

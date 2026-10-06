@@ -462,7 +462,7 @@ function entityScene(name: string, value: J, extra: Obj = {}): J {
 const LIGHTS = [
   { type: 'directional', color: '#fff4e0', intensity: 1.6, direction: [0.4, -1, -0.6], castShadow: true, mode: 'mixed', shadowMapSize: 2048, shadowBias: -0.001, shadowNormalBias: 0.05, shadowExtent: 30, lightMask: 5, shadowCasterMask: 3 },
   { type: 'ambient', color: '#8a94b0', intensity: 0.9, mode: 'baked' },
-  { type: 'point', color: '#ffd9a0', intensity: 30, range: 8, decay: 2, castShadow: true, mode: 'realtime', lightMask: 0, shadowCasterMask: 254 },
+  { type: 'point', color: '#ffd9a0', intensity: 30, range: 8, decay: 2, castShadow: true, mode: 'realtime', lightMask: 0, shadowCasterMask: 254, importance: 'vertex' },
   { type: 'spot', color: '#ffffff', intensity: 80, range: 12, decay: 2, angle: 30, penumbra: 0.3, direction: [0, -1, 0], castShadow: false, cookie: 'tex-a' },
   { type: 'hemisphere', color: '#bcd7ff', groundColor: '#5a4a38', intensity: 0.8, mode: 'baked' },
 ];
@@ -479,13 +479,13 @@ const COMPONENT_BASES_PLACED: Record<string, J> = {
 /** Every component's variant bases (each fills every field that applies). */
 const COMPONENT_BASES: Record<string, J[]> = {
   transform: [{ position: [1, 2, 3], rotation: [0, 0, 0, 1], scale: [1, 2, 1] }],
-  model: [{ asset: { assetId: 'model-a' }, piece: 'Tree', castShadow: false, receiveShadow: true, lightLayers: 2 }],
-  box: [{ size: [1, 2, 3], material: { color: '#aabbcc' }, castShadow: true, receiveShadow: false, lightLayers: 3 }],
+  model: [{ asset: { assetId: 'model-a' }, piece: 'Tree', castShadow: false, receiveShadow: true, lightLayers: 2, localLights: 'vertex' }],
+  box: [{ size: [1, 2, 3], material: { color: '#aabbcc' }, castShadow: true, receiveShadow: false, lightLayers: 3, localLights: 'none' }],
   materials: [{ '*': 'mat-a', Bark: 'mat-b' }],
   materialParams: [{ 'mat-a': { tint: '#aabbcc', speed: 2, offset: [1, 2] } }],
   effect: [{ effectId: 'fx-a', playOnStart: false, params: { rate: 3, tint: '#aabbcc', offset: [1, 2, 3] }, signal: 'go', stopSignal: 'halt' }],
   surface: [{ color: '#aabbcc', roughness: 0.5, metalness: 0.2, emissive: '#112233', emissiveIntensity: 1 }],
-  instances: [{ asset: { assetId: 'model-a', piece: 'Rock' }, buffer: 'a'.repeat(64), count: 10, castShadow: false, receiveShadow: false, chunkSize: 24, lightLayers: 4, densityStart: 0.03, densityEnd: 0.01, densityMin: 0.5, lodPerCopy: true }],
+  instances: [{ asset: { assetId: 'model-a', piece: 'Rock' }, buffer: 'a'.repeat(64), count: 10, castShadow: false, receiveShadow: false, chunkSize: 24, lightLayers: 4, densityStart: 0.03, densityEnd: 0.01, densityMin: 0.5, lodPerCopy: true , localLights: 'pixel' }],
   fogVolume: [{ size: [6, 3, 4], density: 0.25, color: '#dfe7ef', falloff: 0.5, heightFalloff: 0.3 }],
   probeVolume: [{ size: [16, 6, 16], spacing: 1.5 }],
   collider: [
@@ -980,7 +980,7 @@ describe('descriptor registry', () => {
     // it travels in every queryGameConfig: keep it small
     // (the UI document vocabulary is about 20 KB; environment presets, which repeat
     // the sky/fog/post descriptors, about 9 KB; a compound repeats the collider shapes, about 6 KB)
-    expect(JSON.stringify(DESCRIPTORS).length).toBeLessThan(260_000);
+    expect(JSON.stringify(DESCRIPTORS).length).toBeLessThan(265_000);
     for (const c of DESCRIPTORS.components) expect(c.value.key).toBe(c.name);
   });
 

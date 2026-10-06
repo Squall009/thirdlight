@@ -33,6 +33,7 @@ export { MAX_INPUT_ACTIONS, MAX_INPUT_BINDINGS } from './input';
 export { MAX_FOG_VOLUMES, MAX_MATERIAL_INSTANCE_DEPTH } from './materials';
 export { MAX_LOCAL_LIGHTS } from './scene-v3';
 export { LIGHT_LAYER_COUNT, LIGHT_LAYERS_ALL, MAX_LIGHT_LAYER_NAME, lightLayerLabel } from './light-layers';
+export { INSTANCES_LOCAL_LIGHTS_DEFAULT, LIGHT_IMPORTANCES, LOCAL_LIGHT_MODES, MATERIAL_LOCAL_LIGHT_MODES } from './local-lights';
 export { COLLIDER_3D_LIMITS, CONVEX_TOL, MAX_COLLIDER_EXTENT, MAX_POLYGON_VERTICES, MIN_POLYGON_AREA } from './components';
 // The audio load-type defaults and the browser-support rules (pure data rules the editor applies too).
 export { AUDIO_DECODE_ON_LOAD_BELOW_MS, AUDIO_FORMATS, AUDIO_LOAD_TYPES, AUDIO_PIPELINE_NAME, AUDIO_PIPELINE_VERSION, AUDIO_STREAM_ABOVE_MS, audioLoadOf, audioPlaybackGaps, audioSummaryOf, defaultAudioLoadType } from './audio-assets';

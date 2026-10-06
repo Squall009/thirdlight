@@ -6,8 +6,8 @@
  * detail: a model's switch point and cull size set in its import settings
  * (the asset inspector) move where placed models and each instance copy
  * switch and stop being drawn, on both renderers, in Play and the export
- * (with the project's LOD bias); an instance set's density falloff is set in
- * the Inspector.
+ * (with the project's LOD bias); an instance set's density falloff and its
+ * local-light mode are set in the Inspector.
  */
 import { createHash } from 'node:crypto';
 import { join } from 'node:path';
@@ -156,6 +156,11 @@ test('a set is chunked by extent (the project default, overridden per set in the
   await f.press('Enter');
   await expect.poll(async () => ((await query('queryEntity', { entityId: id })).entity as { components: { instances: { chunkSize?: number } } }).components.instances.chunkSize).toBe(10);
   await expect(chunks).toHaveAttribute('data-chunks', '10');
+  // How local lights reach the copies: absent (— : the instance-set default), set to per vertex here.
+  const localLights = page.locator('.tl-inspector').getByLabel('instances localLights', { exact: true });
+  await expect(localLights).toHaveValue('');
+  await localLights.selectOption('vertex');
+  await expect.poll(async () => ((await query('queryEntity', { entityId: id })).entity as { components: { instances: { localLights?: string } } }).components.instances.localLights).toBe('vertex');
 
   // Back to the project default, then the project's own size (setSettings instance_chunk_m) rebuilds it: 50 m → 2 chunks.
   const current = (await query('queryEntity', { entityId: id })).entity as { components: { instances: Record<string, unknown> } };

@@ -75,7 +75,7 @@ describe('the material node catalogue (data)', () => {
     for (const t of expected) expect(types.has(t), t).toBe(true);
     const pbr = MATERIAL_GRAPH_KIND.nodes.find((d) => d.type === 'pbr')!;
     expect(pbr.inputs.map((p) => p.id)).toEqual(['baseColor', 'metalness', 'roughness', 'normal', 'emissive', 'ao', 'opacity', 'alphaClip']);
-    expect(pbr.fields!.map((f) => f.key)).toEqual(['doubleSided', 'transparent', 'castShadows']);
+    expect(pbr.fields!.map((f) => f.key)).toEqual(['doubleSided', 'transparent', 'castShadows', 'localLights']);
     // A function has interface nodes instead of parameters and outputs.
     const fn = new Set(MATERIAL_FUNCTION_GRAPH_KIND.nodes.map((d) => d.type));
     for (const t of ['functionInput', 'functionOutput', 'call', 'multiply']) expect(fn.has(t), t).toBe(true);
@@ -151,7 +151,7 @@ describe('material graph validation', () => {
     expect(outs('ambientLight')).toEqual(['ambient:vec3', 'environment:vec3', 'lightmap:vec3']);
     const lit = MATERIAL_GRAPH_KIND.nodes.find((d) => d.type === 'customLit')!;
     expect(lit.inputs.map((p) => p.id)).toEqual(['color', 'emissive', 'normal', 'opacity', 'alphaClip']);
-    expect(lit.fields!.map((f) => f.key)).toEqual(['doubleSided', 'transparent', 'castShadows']);
+    expect(lit.fields!.map((f) => f.key)).toEqual(['doubleSided', 'transparent', 'castShadows', 'localLights']);
     expect(MATERIAL_GRAPH_KIND.sinks).toContain('customLit');
     // A cel graph: N·L stepped into a colour ramp, into a Custom-lit output.
     const cel: GraphData = {
