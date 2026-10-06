@@ -17,9 +17,12 @@ import type { MeshWorkerPort } from './block-mesh-pool';
 import { runBlockMeshWorker } from './block-mesh-worker';
 
 const TYPES: BlockType[] = [
-  { blockId: 'stone', name: 'Stone', variants: [{ color: '#888888' }], shape: 'full' },
+  // A mapped material: its world-mapped stand-in carries tangents.
+  { blockId: 'stone', name: 'Stone', variants: [{ color: '#888888' }], shape: 'full', materials: { '*': 'rock' } },
   { blockId: 'grass', name: 'Grass', variants: [{ color: '#55aa55' }, { color: '#66bb66' }], shape: 'full' },
   { blockId: 'crate', name: 'Crate', variants: [{ model: { assetId: 'kit' } }], shape: 'full' },
+  // The same model with world texture coordinates (and tangents) on one variant.
+  { blockId: 'tile', name: 'Tile', variants: [{ model: { assetId: 'kit' }, uv: 'world' }, { model: { assetId: 'kit' } }], shape: 'full' },
 ];
 const LAYER: BlockLayerComponent = { cellSize: [1, 0.5, 1], bounds: { min: [0, 0, 0], max: [32, 24, 32] }, smoothAngle: 40, topSubdivision: 2 } as BlockLayerComponent;
 const q = (v: number): number => Math.round(v * 16) / 16;
@@ -36,6 +39,7 @@ function groundData(): { entityId: string; chunks: ReturnType<BlockGrid['encodeC
     g.set(x, row, z, { block: 'grass', ...(corners.every((v) => v === 1) ? {} : { corners }) });
   }
   for (let x = 2; x < 30; x += 3) g.set(x, 20, 5, { block: 'crate' });
+  for (let x = 0; x < 32; x++) g.set(x, 20, 9, { block: 'tile', variant: x % 2 });
   return { entityId: 'ground', chunks: g.chunkKeys().map((k) => g.encodeChunk(k)) };
 }
 
@@ -111,7 +115,7 @@ function drawn(v: BlockLayerView): string[] {
     const m = o as THREE.Mesh;
     if (m.isMesh !== true) return;
     const g = m.geometry as THREE.BufferGeometry;
-    const arrays = ['position', 'normal', 'uv', 'uv1'].map((n) => g.getAttribute(n)?.array as Float32Array | undefined);
+    const arrays = ['position', 'normal', 'uv', 'tangent', 'uv1'].map((n) => g.getAttribute(n)?.array as Float32Array | undefined);
     out.push(`${m.parent?.name}/${m.name}:${arrays.map((a) => (a === undefined ? '-' : bytesDigest(a))).join('|')}|${bytesDigest(g.getIndex()!.array as Uint32Array)}`);
   });
   return out.sort();
@@ -135,6 +139,11 @@ describe('block view: meshing in workers', () => {
     expect(d.chunks).toBe(4);
     expect(d.lods?.chunks).toBeGreaterThan(0);
     expect(drawn(worker)).toEqual(drawn(page));
+    // World-mapped looks (the stone stand-ins, the tile's first variant) carry tangents; model-mapped ones none.
+    const tangents = drawn(page).filter((m) => m.split('|')[3] !== '-');
+    expect(tangents.some((m) => m.includes('block:c:stone'))).toBe(true);
+    expect(tangents.some((m) => m.includes(':tile:w#'))).toBe(true);
+    expect(tangents.some((m) => m.includes(':crate#') || m.includes(':tile#'))).toBe(false);
     worker.dispose();
     page.dispose();
   });

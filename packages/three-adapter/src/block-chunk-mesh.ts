@@ -12,6 +12,7 @@
  */
 import {
   blockTopOptions,
+  blockVariantUv,
   chunkLightmapLayout,
   meshBlockChunk,
   shapeSource,
@@ -112,15 +113,18 @@ export function meshChunkForDrawing(grid: BlockGrid, component: BlockLayerCompon
             missing.set(chunkModelKey(model), model);
             return null;
           }
-          const key = `m:${model.assetId}:${model.piece ?? ''}:${type.blockId}`;
+          // Two variants drawing one model with different texture coordinates are two looks.
+          const world = blockVariantUv(type, variant) === 'world';
+          const key = `m:${model.assetId}:${model.piece ?? ''}:${type.blockId}${world ? ':w' : ''}`;
           used.set(key, { key, blockId: type.blockId, model, color: null, levels: look.levels });
           const levels = look.levels ?? [];
-          return { key, source: level === 0 || levels.length === 0 ? look.source : levels[Math.min(level, levels.length) - 1]!.source };
+          return { key, source: level === 0 || levels.length === 0 ? look.source : levels[Math.min(level, levels.length) - 1]!.source, ...(world ? { uv: 'world' as const, tangents: true } : {}) };
         }
         const color = type.variants[variant]?.color ?? type.variants[0]?.color ?? '#b0b0b0';
         const key = `c:${type.blockId}:${variant}`;
         used.set(key, { key, blockId: type.blockId, model: null, color, levels: undefined });
-        return { key, source: standIns.of(type, fm) };
+        // A stand-in is always world-mapped; only a mapped material (a texture, maybe a normal map) reads its tangents.
+        return { key, source: standIns.of(type, fm), uv: 'world', tangents: type.materials !== undefined && Object.keys(type.materials).length > 0 };
       },
     }, tops);
   let parts = mesh(0);
@@ -151,7 +155,7 @@ export function meshChunkForDrawing(grid: BlockGrid, component: BlockLayerCompon
 export function chunkResultBuffers(result: ChunkMeshResult): ArrayBuffer[] {
   const out = new Set<ArrayBuffer>();
   const add = (p: ChunkMeshPart): void => {
-    for (const a of [p.positions, p.normals, p.uvs, p.indices, p.uv1]) if (a !== undefined) out.add(a.buffer as ArrayBuffer);
+    for (const a of [p.positions, p.normals, p.uvs, p.tangents, p.indices, p.uv1]) if (a !== undefined) out.add(a.buffer as ArrayBuffer);
   };
   for (const p of result.parts) add(p);
   for (const c of result.coarse) for (const p of c.parts) add(p);

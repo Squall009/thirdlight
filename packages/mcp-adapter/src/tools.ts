@@ -362,9 +362,9 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       'published script that imports a changed library once (the answer\'s libraryStage.compiled); acknowledge the staged digests first as for setScriptLibrary. ' +
       'Each library is its own shared module in Play and exports (compiled once, minified and tree-shaken; scripts import it instead of carrying a copy). ' +
       'The libraries are in tl_content_query target="game" (scriptLibraries). ' +
-      'Block layers (grid levels built from blocks): setBlockType {block: {blockId, name, variants: [{model: {assetId, piece?}} | {prefab} | {color: "#rrggbb"}, weight?], ' +
+      'Block layers (grid levels built from blocks): setBlockType {block: {blockId, name, variants: [{model: {assetId, piece?}} | {prefab} | {color: "#rrggbb"}, weight?, uv?], ' +
       'shape: full|half|ramp|stairs|custom|none (collision; ramps/stairs rise toward +Z), boxes? (custom: [x0,y0,z0,x1,y1,z1] in 0-1), solid?, footprint? [x,y,z] cells, ' +
-      'rotations? [0,90,180,270], metadata? {field: value}, materials?}} / deleteBlockType {blockId}; setCellFields {fields: [{key, type: bool|enum|int|float|string, default?, values? (enum), min?, max?, color?, label?}]} ' +
+      'rotations? [0,90,180,270], metadata? {field: value}, materials?, uv? model|world (world: texture coordinates from the layer position in metres, box-mapped per face, so a texture runs across cells; a variant may set its own; absent: the model\'s own)}} / deleteBlockType {blockId}; setCellFields {fields: [{key, type: bool|enum|int|float|string, default?, values? (enum), min?, max?, color?, label?}]} ' +
       '(the cell metadata schema); an entity gets setComponent "blockLayer" {cellSize: [x,y,z] m (x = z: cells are square from above), bounds: {min: [x,y,z], max: [x,y,z]} cells (max exclusive), metadataOnly?, collision?, ' +
       'maxSlope? (degrees: characters do not walk up steeper parts of the layer; surface queries call them not walkable), ' +
       'smoothAngle? (degrees 0-180, the crease angle of the tops: tops meeting at the same height at less than it are shaded smooth across cells and chunk edges, sharper edges stay hard; 0 or absent: flat-shaded), ' +

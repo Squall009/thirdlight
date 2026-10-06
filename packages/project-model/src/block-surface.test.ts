@@ -190,7 +190,7 @@ function meshDigest(parts: readonly ChunkMeshPart[], pieces: readonly { vertices
   return h.toString(16);
 }
 /** The digest of the mesher before sloped cells existed (the same edits, measured on the previous code). */
-const PINNED_FLAT_DIGEST = '4cd820fc';
+const PINNED_FLAT_DIGEST = '185e37fa';
 
 describe('smooth slopes across rows', () => {
   /** A lane rising `rise` cells per column from column x0 (flat floor of one row before it): each column's top cell is the row under its lowest corner. */

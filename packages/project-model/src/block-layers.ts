@@ -127,6 +127,16 @@ export interface BlockLayerComponent {
 export type BlockShape = 'full' | 'half' | 'ramp' | 'stairs' | 'custom' | 'none';
 export const BLOCK_SHAPES: readonly BlockShape[] = ['full', 'half', 'ramp', 'stairs', 'custom', 'none'];
 
+/**
+ * Where a block look's texture coordinates come from: `model`, the look's
+ * own (a stand-in, or a model piece without any, takes world ones); `world`,
+ * generated from the cell's position in the layer, in metres, so a texture
+ * runs on across cells without a seam (box mapping: one planar projection
+ * per face).
+ */
+export type BlockUvMode = 'model' | 'world';
+export const BLOCK_UV_MODES: readonly BlockUvMode[] = ['model', 'world'];
+
 /** One look of a block: a model (asset, optional piece), a prefab's model, or a coloured stand-in shaped like the collision shape. */
 export interface BlockVariant {
   model?: { assetId: string; piece?: string };
@@ -135,6 +145,8 @@ export interface BlockVariant {
   color?: string;
   /** Relative weight when the cell names no variant (absent: 1). */
   weight?: number;
+  /** This look's texture coordinates (absent: the block type's). */
+  uv?: BlockUvMode;
 }
 
 export interface BlockType {
@@ -155,6 +167,8 @@ export interface BlockType {
   metadata?: Record<string, CellMetaValue>;
   /** Model material mapping (source material name or "*" → materialId). */
   materials?: Record<string, string>;
+  /** Its looks' texture coordinates (absent: `model`; stored only when `world`); a variant may set its own. */
+  uv?: BlockUvMode;
 }
 
 export type CellFieldType = 'bool' | 'enum' | 'int' | 'float' | 'string';
@@ -453,7 +467,8 @@ export function canonicalRuns(palette: readonly BlockCell[], columns: readonly (
 
 function validateVariant(v: unknown, path: string, errors: ModelErrorV2[]): void {
   if (!isPlainObject(v)) return err(errors, 'field_type', path, 'a variant is an object {model? | prefab? | color?, weight?}', v, 'object');
-  onlyKeys(v, ['model', 'prefab', 'color', 'weight'], path, errors, 'variant');
+  onlyKeys(v, ['model', 'prefab', 'color', 'weight', 'uv'], path, errors, 'variant');
+  validateUvMode(v['uv'], `${path}/uv`, errors);
   const sources = ['model', 'prefab', 'color'].filter((k) => v[k] !== undefined);
   if (sources.length > 1) err(errors, 'field_value', path, 'a variant is a model, a prefab or a colour (one of them)', sources);
   if (v['model'] !== undefined) {
@@ -468,6 +483,10 @@ function validateVariant(v: unknown, path: string, errors: ModelErrorV2[]): void
   if (v['prefab'] !== undefined && (typeof v['prefab'] !== 'string' || !ID_RE.test(v['prefab']))) err(errors, 'id_invalid', `${path}/prefab`, 'prefab is a prefabId', v['prefab']);
   if (v['color'] !== undefined && (typeof v['color'] !== 'string' || !COLOR_RE.test(v['color']))) err(errors, 'field_value', `${path}/color`, 'color is "#rrggbb" (lower case)', v['color']);
   if (v['weight'] !== undefined && (!finite(v['weight']) || v['weight'] <= 0 || v['weight'] > 1000)) err(errors, 'field_value', `${path}/weight`, 'weight is a number in (0, 1000]', v['weight']);
+}
+
+function validateUvMode(v: unknown, path: string, errors: ModelErrorV2[]): void {
+  if (v !== undefined && !BLOCK_UV_MODES.includes(v as BlockUvMode)) err(errors, 'field_value', path, 'uv is model or world', v, BLOCK_UV_MODES.join(' | '));
 }
 
 function validateUnitBox(b: unknown, path: string, errors: ModelErrorV2[]): void {
@@ -490,7 +509,8 @@ export function validateBlockTypes(value: unknown, path: string, errors: ModelEr
 
 export function validateBlockType(t: unknown, p: string, errors: ModelErrorV2[]): void {
   if (!isPlainObject(t)) return err(errors, 'field_type', p, 'a block type is an object', t, 'object');
-  onlyKeys(t, ['blockId', 'name', 'variants', 'shape', 'boxes', 'solid', 'footprint', 'rotations', 'metadata', 'materials'], p, errors, 'block type');
+  onlyKeys(t, ['blockId', 'name', 'variants', 'shape', 'boxes', 'solid', 'footprint', 'rotations', 'metadata', 'materials', 'uv'], p, errors, 'block type');
+  validateUvMode(t['uv'], `${p}/uv`, errors);
   if (typeof t['blockId'] !== 'string' || !ID_RE.test(t['blockId'])) err(errors, 'id_invalid', `${p}/blockId`, 'blockId uses the id syntax [a-z0-9][a-z0-9_-]{0,63}', t['blockId']);
   if (typeof t['name'] !== 'string' || t['name'].length < 1 || t['name'].length > 128 || /[\u0000-\u001f]/.test(t['name'])) err(errors, 'field_value', `${p}/name`, 'name is 1-128 characters without control characters', t['name']);
   const variants = t['variants'];
@@ -540,6 +560,7 @@ export function canonicalBlockType(t: BlockType): BlockType {
       ...(v.prefab !== undefined ? { prefab: v.prefab } : {}),
       ...(v.color !== undefined ? { color: v.color } : {}),
       ...(v.weight !== undefined ? { weight: canonNum(v.weight) } : {}),
+      ...(v.uv !== undefined ? { uv: v.uv } : {}),
     })),
     shape: t.shape,
   };
@@ -553,7 +574,13 @@ export function canonicalBlockType(t: BlockType): BlockType {
     for (const k of sortedKeys(t.materials)) m[k] = t.materials[k]!;
     out.materials = m;
   }
+  if (t.uv === 'world') out.uv = 'world';
   return out;
+}
+
+/** A variant's texture coordinates: its own, else its block type's (absent: `model`); out of range reads variant 0. */
+export function blockVariantUv(t: Pick<BlockType, 'uv' | 'variants'>, variant: number): BlockUvMode {
+  return (t.variants[variant] ?? t.variants[0])?.uv ?? t.uv ?? 'model';
 }
 
 export function canonicalBlockTypes(list: readonly BlockType[]): BlockType[] {

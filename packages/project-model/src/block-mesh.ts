@@ -20,7 +20,7 @@
  * rotation.y). Ramps and stairs rise toward +Z at rotation 0.
  */
 import { COLLIDER_3D_LIMITS } from './components';
-import { CHUNK_SIZE, blockTypeSolid, rotatedFootprint, type BlockCell, type BlockLayerComponent, type BlockShape, type BlockType } from './block-layers';
+import { CHUNK_SIZE, blockTypeSolid, rotatedFootprint, type BlockCell, type BlockLayerComponent, type BlockShape, type BlockType, type BlockUvMode } from './block-layers';
 import { autoVariant, chunkKeyOf, type BlockGrid } from './block-grid';
 import { blockTopAt, cellCorners, cornerGradientAt, cornerHeightAt, diagonalSide, rotateXZ, subdividedGradientAt, subdividedHeightAt, topSubSquare, type CellCorners } from './block-surface';
 
@@ -28,6 +28,7 @@ import { blockTopAt, cellCorners, cornerGradientAt, cornerHeightAt, diagonalSide
 export interface BlockMeshSource {
   positions: Float32Array;
   normals: Float32Array;
+  /** Texture coordinates; absent, or NaN at a vertex (a model piece without any): world ones are generated there. */
   uvs?: Float32Array;
   indices: Uint32Array;
   groups: { start: number; count: number; material: number }[];
@@ -151,12 +152,14 @@ const SIDE_OFFSET: [number, number, number][] = [
   [0, 0, -1],
 ];
 
-/** A source turned by a rotation, its triangles' sides and the profile key per side. */
+/** A source turned by a rotation, its triangles' sides, the profile key per side and each triangle's box-mapping projection. */
 interface Classified {
   positions: Float32Array;
   normals: Float32Array;
   side: Int8Array;
   profile: string[];
+  /** Per triangle: the projection its world texture coordinates use (`projectionOf` its flat face normal). */
+  proj: Int8Array;
 }
 
 const classifiedCache = new WeakMap<BlockMeshSource, Map<string, Classified>>();
@@ -185,6 +188,7 @@ function classify(src: BlockMeshSource, rot: number, w: number, h: number, d: nu
   }
   const tris = src.indices.length / 3;
   const side = new Int8Array(tris).fill(-1);
+  const proj = new Int8Array(tris);
   const planes = [w / 2, -w / 2, h, 0, d / 2, -d / 2];
   const eps = 1e-4 * Math.max(w, h, d);
   // A side's profile: the set of its boundary points projected onto the side
@@ -195,6 +199,7 @@ function classify(src: BlockMeshSource, rot: number, w: number, h: number, d: nu
     const a = src.indices[t * 3]!;
     const b = src.indices[t * 3 + 1]!;
     const c = src.indices[t * 3 + 2]!;
+    proj[t] = triangleProjection(positions, normals, a, b, c);
     for (let s = 0; s < 6; s++) {
       const axis = s >> 1;
       const plane = planes[s]!;
@@ -213,10 +218,100 @@ function classify(src: BlockMeshSource, rot: number, w: number, h: number, d: nu
     }
   }
   const profile = points.map((pts, s) => (pts.length === 0 ? '' : `${profilePoints(pts)}#${Math.round(area[s]! * 1e4)}`));
-  const out = { positions, normals, side, profile };
+  const out = { positions, normals, side, profile, proj };
   byKey.set(key, out);
   return out;
 }
+
+// ---- world texture coordinates -----------------------------------------------------------
+
+/**
+ * Box mapping: a triangle's projection is the axis its flat face normal points
+ * along most, with its sign (numbered as the sides: +X, −X, +Y, −Y, +Z, −Z).
+ * A slope stays on the top projection up to 45° and takes its wall's past it;
+ * the small tolerance keeps an exact 45° slope (rounded in floats) on the top.
+ */
+export function projectionOf(nx: number, ny: number, nz: number): number {
+  const ax = Math.abs(nx);
+  const ay = Math.abs(ny);
+  const az = Math.abs(nz);
+  const tol = 1e-6 * (ax + ay + az);
+  if (ay + tol >= ax && ay + tol >= az) return ny >= 0 ? 2 : 3;
+  if (ax + tol >= az) return nx >= 0 ? 0 : 1;
+  return nz >= 0 ? 4 : 5;
+}
+
+/**
+ * Per projection: the axis u follows and its sign, the same for v, and the
+ * axis projected away. Seen from outside, every face shows the image upright
+ * and unmirrored for textures as the engine loads them (flipY off: v = 0 is
+ * the image's top row, so v runs down a wall), a top shows it with the
+ * image's top toward −Z, and a bottom seen from below likewise.
+ */
+const PROJ_U_AXIS = [2, 2, 0, 0, 0, 0];
+const PROJ_U_SIGN = [-1, 1, 1, 1, 1, -1];
+const PROJ_V_AXIS = [1, 1, 2, 2, 1, 1];
+const PROJ_V_SIGN = [-1, -1, 1, -1, -1, -1];
+const PROJ_N_AXIS = [0, 0, 1, 1, 2, 2];
+
+/** A triangle's projection from its flat face normal, turned to the side its vertex normals face (a model's winding may be either way). */
+function triangleProjection(p: Float32Array, n: Float32Array, a: number, b: number, c: number): number {
+  const ex = p[b * 3]! - p[a * 3]!;
+  const ey = p[b * 3 + 1]! - p[a * 3 + 1]!;
+  const ez = p[b * 3 + 2]! - p[a * 3 + 2]!;
+  const fx = p[c * 3]! - p[a * 3]!;
+  const fy = p[c * 3 + 1]! - p[a * 3 + 1]!;
+  const fz = p[c * 3 + 2]! - p[a * 3 + 2]!;
+  const nx = ey * fz - ez * fy;
+  const ny = ez * fx - ex * fz;
+  const nz = ex * fy - ey * fx;
+  const sx = n[a * 3]! + n[b * 3]! + n[c * 3]!;
+  const sy = n[a * 3 + 1]! + n[b * 3 + 1]! + n[c * 3 + 1]!;
+  const sz = n[a * 3 + 2]! + n[b * 3 + 2]! + n[c * 3 + 2]!;
+  if (nx === 0 && ny === 0 && nz === 0) return projectionOf(sx, sy, sz);
+  return nx * sx + ny * sy + nz * sz < 0 ? projectionOf(-nx, -ny, -nz) : projectionOf(nx, ny, nz);
+}
+
+/** World texture coordinates (layer-local metres) of a point under a projection, written to `out` at `o`. */
+function worldUv(proj: number, px: number, py: number, pz: number, out: number[], o: number): void {
+  const ua = PROJ_U_AXIS[proj]!;
+  const va = PROJ_V_AXIS[proj]!;
+  out[o] = PROJ_U_SIGN[proj]! * (ua === 0 ? px : ua === 1 ? py : pz);
+  out[o + 1] = PROJ_V_SIGN[proj]! * (va === 0 ? px : va === 1 ? py : pz);
+}
+
+/**
+ * Pushes a vertex's tangent under a projection: the direction of +u along the
+ * surface its normal describes (the projected-away axis follows the surface,
+ * so a slope's tangent climbs with it), and in w the handedness that makes
+ * cross(normal, tangent) × w run along +v — the frame three.js derives from
+ * the texture coordinates when a mesh has no tangents, so a normal map lights
+ * the same either way.
+ */
+function worldTangent(proj: number, nx: number, ny: number, nz: number, out: number[]): void {
+  const a = PROJ_U_AXIS[proj]!;
+  const b = PROJ_V_AXIS[proj]!;
+  const c = PROJ_N_AXIS[proj]!;
+  const n = [nx, ny, nz];
+  const nc = n[c]!;
+  const flat = Math.abs(nc) < 1e-6;
+  const su = PROJ_U_SIGN[proj]!;
+  const sv = PROJ_V_SIGN[proj]!;
+  const t = [0, 0, 0];
+  t[a] = su;
+  if (!flat) t[c] = (-n[a]! / nc) * su;
+  const d = [0, 0, 0];
+  d[b] = sv;
+  if (!flat) d[c] = (-n[b]! / nc) * sv;
+  const len = Math.hypot(t[0]!, t[1]!, t[2]!);
+  const cx = ny * t[2]! - nz * t[1]!;
+  const cy = nz * t[0]! - nx * t[2]!;
+  const cz = nx * t[1]! - ny * t[0]!;
+  out.push(t[0]! / len, t[1]! / len, t[2]! / len, cx * d[0]! + cy * d[1]! + cz * d[2]! >= 0 ? 1 : -1);
+}
+
+/** Whether a source vertex has texture coordinates of its own. */
+const hasOwnUv = (src: BlockMeshSource, v: number): boolean => src.uvs !== undefined && !Number.isNaN(src.uvs[v * 2]!);
 
 /**
  * A side's boundary points (integer pairs, 0.1 mm) as one string: sorted and
@@ -429,6 +524,8 @@ export interface ChunkMeshPart {
   positions: Float32Array;
   normals: Float32Array;
   uvs: Float32Array;
+  /** Tangents (xyz, w the handedness): a look with world texture coordinates whose resolver asked for them. */
+  tangents?: Float32Array;
   /** Lightmap UVs, when a lightmap layout was made for the chunk (`chunkLightmapLayout`). */
   uv1?: Float32Array;
   indices: Uint32Array;
@@ -436,8 +533,13 @@ export interface ChunkMeshPart {
 
 /** What the mesher needs per block cell: the source to draw (null: nothing), and a key naming it. */
 export interface BlockLookResolver {
-  /** The look of a block type's variant (a stand-in or a model's geometry); null while not loaded (nothing drawn yet). */
-  source(type: BlockType, variant: number, footprintMetres: [number, number, number]): { key: string; source: BlockMeshSource } | null;
+  /**
+   * The look of a block type's variant (a stand-in or a model's geometry);
+   * null while not loaded (nothing drawn yet). `uv: 'world'` gives every
+   * vertex world texture coordinates (absent: the look's own, world ones only
+   * where it has none); `tangents` adds tangents to world ones.
+   */
+  source(type: BlockType, variant: number, footprintMetres: [number, number, number]): { key: string; source: BlockMeshSource; uv?: BlockUvMode; tangents?: boolean } | null;
   /** Whether a block type hides neighbours' faces (default: `blockTypeSolid`). */
   solid?(type: BlockType): boolean;
 }
@@ -454,12 +556,17 @@ interface CellLook {
   classified: Classified | null;
   key: string | null;
   source: BlockMeshSource | null;
+  /** Every vertex takes world texture coordinates. */
+  world: boolean;
+  /** Its world texture coordinates come with tangents. */
+  tangents: boolean;
 }
 
 class Accumulator {
   positions: number[] = [];
   normals: number[] = [];
   uvs: number[] = [];
+  tangents: number[] = [];
   indices: number[] = [];
 }
 
@@ -494,12 +601,15 @@ interface PlacedCell {
 
 /** One top triangle of the chunk waiting for its smoothed normals. */
 interface PendingTop {
-  part: { acc: Accumulator; seen: SeenVertices };
+  part: { acc: Accumulator; seen: SeenVertices; tangents: boolean };
   /** Layer-local positions and uvs of its three corners, its unit face normal and its corners' weld points. */
   p: number[];
   uv: number[];
   n: [number, number, number];
   keys: [WeldPoint, WeldPoint, WeldPoint];
+  /** Its projection, and per corner whether its uv is a world one (a world corner is split where the projection changes). */
+  proj: number;
+  world: [boolean, boolean, boolean];
 }
 
 /** A point of the weld: a position on a 0.1 mm grid (layer-local metres) and the tops meeting there. */
@@ -545,14 +655,14 @@ interface SeenVertex {
   readonly next: SeenVertex | null;
 }
 
-/** A part's smoothed top vertices: a corner landing on the same weld point with the same normal and uv reuses one. */
+/** A part's smoothed top vertices: a corner landing on the same weld point with the same normal, uv and projection reuses one. */
 class SeenVertices {
   private readonly buckets = new Map<number, SeenVertex>();
 
-  /** The vertex for a weld point and rounded normal + uv (`key`), or -1. */
+  /** The vertex for a weld point and rounded normal + uv + projection (`key`), or -1. */
   get(point: WeldPoint, key: readonly number[]): number {
     for (let v = this.buckets.get(this.hash(point, key)) ?? null; v !== null; v = v.next) {
-      if (v.point === point && v.key[0] === key[0] && v.key[1] === key[1] && v.key[2] === key[2] && v.key[3] === key[3] && v.key[4] === key[4]) return v.out;
+      if (v.point === point && v.key[0] === key[0] && v.key[1] === key[1] && v.key[2] === key[2] && v.key[3] === key[3] && v.key[4] === key[4] && v.key[5] === key[5]) return v.out;
     }
     return -1;
   }
@@ -563,7 +673,7 @@ class SeenVertices {
   }
 
   private hash(point: WeldPoint, key: readonly number[]): number {
-    return mix(point.id, mix(key[0]!, key[1]!, key[2]!), mix(key[3]!, key[4]!, 0));
+    return mix(point.id, mix(key[0]!, key[1]!, key[2]!), mix(key[3]!, key[4]!, key[5]!));
   }
 }
 
@@ -605,10 +715,12 @@ export function meshBlockChunk(grid: BlockGrid, cx: number, cz: number, types: R
     const rot = cell.rot ?? 0;
     const corners = single ? cellCorners(cell) : null;
     const sloped = src !== null && corners !== null ? slopedLook(src.source, rot, fm[0], fm[1], fm[2], corners, subdivision) : null;
+    const world = src?.uv === 'world';
+    const tangents = world && src?.tangents === true;
     const look: CellLook =
       sloped !== null
-        ? { type: t, variant, rot: 0, single, solid: false, corners, classified: sloped.classified, key: src!.key, source: sloped.source }
-        : { type: t, variant, rot, single, solid: corners === null && solidOf(t), corners: null, classified: src !== null && single ? classify(src.source, rot, fm[0], fm[1], fm[2]) : null, key: src?.key ?? null, source: src?.source ?? null };
+        ? { type: t, variant, rot: 0, single, solid: false, corners, classified: sloped.classified, key: src!.key, source: sloped.source, world, tangents }
+        : { type: t, variant, rot, single, solid: corners === null && solidOf(t), corners: null, classified: src !== null && single ? classify(src.source, rot, fm[0], fm[1], fm[2]) : null, key: src?.key ?? null, source: src?.source ?? null, world, tangents };
     if (!auto) lookCache.set(cacheKey, look);
     return look;
   };
@@ -676,7 +788,8 @@ export function meshBlockChunk(grid: BlockGrid, cx: number, cz: number, types: R
     }
     return keys as [WeldPoint, WeldPoint, WeldPoint];
   };
-  const parts = new Map<string, { acc: Accumulator; seen: SeenVertices; blockId: string; variant: number; material: number }>();
+  const parts = new Map<string, { acc: Accumulator; seen: SeenVertices; tangents: boolean; blockId: string; variant: number; material: number }>();
+  const uv: number[] = [0, 0];
   grid.forEachInChunk(chunkKeyOf(cx, cz), (x, y, z, idx) => {
     const cell: BlockCell = grid.valueOf(idx);
     if (cell.block === undefined) return;
@@ -687,39 +800,56 @@ export function meshBlockChunk(grid: BlockGrid, cx: number, cz: number, types: R
       const key = `${look.key}#${g.material}`;
       let part = parts.get(key);
       if (part === undefined) {
-        part = { acc: new Accumulator(), seen: new SeenVertices(), blockId: look.type.blockId, variant: look.variant, material: g.material };
+        part = { acc: new Accumulator(), seen: new SeenVertices(), tangents: look.tangents, blockId: look.type.blockId, variant: look.variant, material: g.material };
         parts.set(key, part);
       }
       const acc = part.acc;
+      // A source vertex with world uvs becomes one vertex per projection of the triangles using it (keys v·7 + 1 + projection; own uvs: v·7).
       const remap = new Map<number, number>();
       for (let i = g.start; i < g.start + g.count; i += 3) {
         const t = i / 3;
         const s = look.classified !== null ? look.classified.side[t]! : -1;
         if (s >= 0 && hidden[s]) continue;
+        const proj = rotated.proj[t]!;
         if (smoothing) {
           const top = topOf(placed, src.indices[i]!, src.indices[i + 1]!, src.indices[i + 2]!);
           if (top !== null) {
-            const uv: number[] = [];
+            const uvs = [0, 0, 0, 0, 0, 0];
+            const world: [boolean, boolean, boolean] = [false, false, false];
             for (let k = 0; k < 3; k++) {
               const v = src.indices[i + k]!;
-              uv.push(...uvOf(src, rotated, v, top.p[k * 3]!, top.p[k * 3 + 1]!, top.p[k * 3 + 2]!, cs));
+              world[k] = look.world || !hasOwnUv(src, v);
+              if (world[k]) worldUv(proj, top.p[k * 3]!, top.p[k * 3 + 1]!, top.p[k * 3 + 2]!, uvs, k * 2);
+              else {
+                uvs[k * 2] = src.uvs![v * 2]!;
+                uvs[k * 2 + 1] = src.uvs![v * 2 + 1]!;
+              }
             }
-            tops.push({ part, p: top.p, uv, n: top.n, keys: weldTop(top.p, top.n) });
+            tops.push({ part, p: top.p, uv: uvs, n: top.n, keys: weldTop(top.p, top.n), proj, world });
             continue;
           }
         }
         for (let k = 0; k < 3; k++) {
           const v = src.indices[i + k]!;
-          let out = remap.get(v);
+          const world = look.world || !hasOwnUv(src, v);
+          const rk = world ? v * 7 + 1 + proj : v * 7;
+          let out = remap.get(rk);
           if (out === undefined) {
             out = acc.positions.length / 3;
-            remap.set(v, out);
+            remap.set(rk, out);
             const px = rotated.positions[v * 3]! + ox;
             const py = rotated.positions[v * 3 + 1]! + oy;
             const pz = rotated.positions[v * 3 + 2]! + oz;
+            const nx = rotated.normals[v * 3]!;
+            const ny = rotated.normals[v * 3 + 1]!;
+            const nz = rotated.normals[v * 3 + 2]!;
             acc.positions.push(px, py, pz);
-            acc.normals.push(rotated.normals[v * 3]!, rotated.normals[v * 3 + 1]!, rotated.normals[v * 3 + 2]!);
-            acc.uvs.push(...uvOf(src, rotated, v, px, py, pz, cs));
+            acc.normals.push(nx, ny, nz);
+            if (world) {
+              worldUv(proj, px, py, pz, uv, 0);
+              acc.uvs.push(uv[0]!, uv[1]!);
+            } else acc.uvs.push(src.uvs![v * 2]!, src.uvs![v * 2 + 1]!);
+            if (part.tangents) worldTangent(proj, nx, ny, nz, acc.tangents);
           }
           acc.indices.push(out);
         }
@@ -785,8 +915,8 @@ export function meshBlockChunk(grid: BlockGrid, cx: number, cz: number, types: R
         const n = len > 1e-12 ? [sx / len, sy / len, sz / len] : t.n;
         const u = t.uv[k * 2]!;
         const v = t.uv[k * 2 + 1]!;
-        // Corners that land on the same point with the same normal and uv share one vertex.
-        const id = [Math.round(n[0]! * 1e6), Math.round(n[1]! * 1e6), Math.round(n[2]! * 1e6), Math.round(u * 1e5), Math.round(v * 1e5)];
+        // Corners that land on the same point with the same normal, uv and projection share one vertex.
+        const id = [Math.round(n[0]! * 1e6), Math.round(n[1]! * 1e6), Math.round(n[2]! * 1e6), Math.round(u * 1e5), Math.round(v * 1e5), t.world[k] ? t.proj : -1];
         let out = seen.get(t.keys[k]!, id);
         if (out < 0) {
           out = acc.positions.length / 3;
@@ -794,6 +924,7 @@ export function meshBlockChunk(grid: BlockGrid, cx: number, cz: number, types: R
           acc.positions.push(t.p[k * 3]!, t.p[k * 3 + 1]!, t.p[k * 3 + 2]!);
           acc.normals.push(n[0]!, n[1]!, n[2]!);
           acc.uvs.push(u, v);
+          if (t.part.tangents) worldTangent(t.proj, n[0]!, n[1]!, n[2]!, acc.tangents);
         }
         acc.indices.push(out);
       }
@@ -802,20 +933,9 @@ export function meshBlockChunk(grid: BlockGrid, cx: number, cz: number, types: R
   const out: ChunkMeshPart[] = [];
   for (const [key, p] of [...parts.entries()].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) {
     if (p.acc.indices.length === 0) continue;
-    out.push({ key, blockId: p.blockId, variant: p.variant, material: p.material, positions: new Float32Array(p.acc.positions), normals: new Float32Array(p.acc.normals), uvs: new Float32Array(p.acc.uvs), indices: new Uint32Array(p.acc.indices) });
+    out.push({ key, blockId: p.blockId, variant: p.variant, material: p.material, positions: new Float32Array(p.acc.positions), normals: new Float32Array(p.acc.normals), uvs: new Float32Array(p.acc.uvs), ...(p.tangents ? { tangents: new Float32Array(p.acc.tangents) } : {}), indices: new Uint32Array(p.acc.indices) });
   }
   return out;
-}
-
-/** A vertex's uv: the look's own, or (a stand-in) world-aligned planar uvs, one unit per cell, on the plane its normal faces most. */
-function uvOf(src: BlockMeshSource, rotated: Classified, v: number, px: number, py: number, pz: number, cs: readonly number[]): [number, number] {
-  if (src.uvs !== undefined) return [src.uvs[v * 2]!, src.uvs[v * 2 + 1]!];
-  const ax = Math.abs(rotated.normals[v * 3]!);
-  const ay = Math.abs(rotated.normals[v * 3 + 1]!);
-  const az = Math.abs(rotated.normals[v * 3 + 2]!);
-  if (ay >= ax && ay >= az) return [px / cs[0]!, pz / cs[2]!];
-  if (ax >= az) return [pz / cs[2]!, py / cs[1]!];
-  return [px / cs[0]!, py / cs[1]!];
 }
 
 const unculledCache = new WeakMap<BlockMeshSource, Map<number, Classified>>();

@@ -134,6 +134,7 @@ export function chunkLightmapLayout(parts: readonly ChunkMeshPart[], cellSize: r
     const positions: number[] = [];
     const normals: number[] = [];
     const uvs: number[] = [];
+    const tangents: number[] = [];
     const uv1: number[] = [];
     const indices: number[] = [];
     const at = new Map<string, number>();
@@ -155,6 +156,7 @@ export function chunkLightmapLayout(parts: readonly ChunkMeshPart[], cellSize: r
           positions.push(part.positions[vi * 3]!, part.positions[vi * 3 + 1]!, part.positions[vi * 3 + 2]!);
           normals.push(part.normals[vi * 3]!, part.normals[vi * 3 + 1]!, part.normals[vi * 3 + 2]!);
           uvs.push(part.uvs[vi * 2]!, part.uvs[vi * 2 + 1]!);
+          if (part.tangents !== undefined) tangents.push(part.tangents[vi * 4]!, part.tangents[vi * 4 + 1]!, part.tangents[vi * 4 + 2]!, part.tangents[vi * 4 + 3]!);
           // Clamped: a coarser level's face reaching past the detailed extent stays inside the slot.
           const fu = du > 0 ? Math.min(1, Math.max(0, (part.positions[vi * 3 + u]! - s.minU) / du)) : 0.5;
           const fv = dv > 0 ? Math.min(1, Math.max(0, (part.positions[vi * 3 + v]! - s.minV) / dv)) : 0.5;
@@ -163,7 +165,7 @@ export function chunkLightmapLayout(parts: readonly ChunkMeshPart[], cellSize: r
         indices.push(o);
       }
     }
-    return { ...part, positions: new Float32Array(positions), normals: new Float32Array(normals), uvs: new Float32Array(uvs), uv1: new Float32Array(uv1), indices: new Uint32Array(indices) };
+    return { ...part, positions: new Float32Array(positions), normals: new Float32Array(normals), uvs: new Float32Array(uvs), ...(part.tangents !== undefined ? { tangents: new Float32Array(tangents) } : {}), uv1: new Float32Array(uv1), indices: new Uint32Array(indices) };
   });
   return { parts: out, layout, side, area, slots: reference?.slots ?? slots };
 }

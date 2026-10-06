@@ -266,8 +266,9 @@ function mergeMeshes(meshes: readonly THREE.Mesh[], inv: THREE.Matrix4, material
         v.fromBufferAttribute(nor, i).applyMatrix3(nm).normalize();
         normals.push(v.x, v.y, v.z);
       } else normals.push(0, 1, 0);
+      // A piece without texture coordinates gets world ones from the mesher (NaN marks them).
       if (uv !== undefined) uvs.push(uv.getX(i), uv.getY(i));
-      else uvs.push(0, 0);
+      else uvs.push(NaN, NaN);
     }
     const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
     const index = g.getIndex();
@@ -807,6 +808,7 @@ export class BlockLayerView {
       geometry.setAttribute('position', new THREE.BufferAttribute(p.positions, 3));
       geometry.setAttribute('normal', new THREE.BufferAttribute(p.normals, 3));
       geometry.setAttribute('uv', new THREE.BufferAttribute(p.uvs, 2));
+      if (p.tangents !== undefined) geometry.setAttribute('tangent', new THREE.BufferAttribute(p.tangents, 4));
       if (p.uv1 !== undefined) geometry.setAttribute('uv1', new THREE.BufferAttribute(p.uv1, 2));
       geometry.setIndex(new THREE.BufferAttribute(p.indices, 1));
       geometry.computeBoundingSphere();

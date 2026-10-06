@@ -32,7 +32,7 @@ import { UI_LIMITS } from './ui-documents';
 import { DIALOGUE_LIMITS } from './dialogue';
 import { TIMELINE_LIMITS } from './timelines';
 import { SCRIPT_LIBRARY_LIMITS } from './script-libraries';
-import { BLOCK_LIMITS } from './block-layers';
+import { BLOCK_LIMITS, BLOCK_UV_MODES } from './block-layers';
 import { DEFAULT_WIND, MATERIAL_PARAMS, MATERIAL_SHADERS, MATERIAL_TEXTURE_SLOTS, MAX_MATERIAL_PARAMETERS, MAX_MATERIAL_SLOTS, type MaterialParamType } from './materials';
 import { MATERIAL_DATA_MAX, MATERIAL_PARAMETER_TYPES } from './material-graph-kinds';
 import { MODE_LIMITS } from './modes';
@@ -410,7 +410,8 @@ export const CONTENT: readonly ContentBlockDescriptor[] = [
     value: list('blockTypes', 'Block types', 'The project\'s block types.', obj('*', 'Block type', 'One block.', [
       str('blockId', 'Id', 'The stable block id cells name.', { ...ID, required: true }),
       str('name', 'Name', 'Shown in the block palette.', { ...NAME, required: true }),
-      json('variants', 'Looks', `1–${BLOCK_LIMITS.variants} weighted looks: {model: {assetId, piece?}} | {prefab} | {color: "#rrggbb"}, each with an optional weight (a cell without a variant picks one by weight, stably by position).`, { required: true }),
+      json('variants', 'Looks', `1–${BLOCK_LIMITS.variants} weighted looks: {model: {assetId, piece?}} | {prefab} | {color: "#rrggbb"}, each with an optional weight (a cell without a variant picks one by weight, stably by position) and an optional uv ("model" | "world") of its own.`, { required: true }),
+      enm('uv', 'Texture mapping', "Where the looks' texture coordinates come from. Model: the model's own (a coloured stand-in, or a model part without any, is mapped to the world). World: from the block's place in the layer, in metres, one flat projection per face (tops from above, walls from the side, slopes past 45° as walls), so a texture runs on across cells without a seam; a material's tiling sets how many metres one repeat covers. A look may set its own.", BLOCK_UV_MODES, { default: 'model', labels: { model: 'Model', world: 'World (metres)' } }),
       enm('shape', 'Collision shape', 'The collision shape (and the coloured stand-in\'s shape): full, half, ramp, stairs (rising toward +Z), custom boxes or none.', ['full', 'half', 'ramp', 'stairs', 'custom', 'none'], { required: true }),
       json('boxes', 'Custom boxes', `1–${BLOCK_LIMITS.customBoxes} boxes [x0, y0, z0, x1, y1, z1] in footprint units (0–1).`, { required: true, when: when('shape', 'custom') }),
       bool('solid', 'Solid', 'Fills its cell and hides the faces of neighbours touching it (absent: a full shape is solid).'),
