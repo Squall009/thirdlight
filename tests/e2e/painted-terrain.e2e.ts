@@ -17,6 +17,13 @@
  *   the same material: magenta (the Height blend node takes any mesh's
  *   vertex colours as weights).
  *
+ * - Then the albedo + height array is replaced by per-layer slots: four
+ *   single-layer KTX2 textures picked one per slot in the material's
+ *   parameters (Material editor), slot 3 holding layer 4's texture. The
+ *   Scene view (the backend's assembly route), Play and the export (arrays
+ *   assembled for the build) draw from them: the layer-3 patch turns
+ *   magenta; the normal and ORM arrays stay prebuilt.
+ *
  * Runs per renderer variant (renderer-variants.ts): auto, WebGL 2
  * (TL_E2E_ALL_VARIANTS=1 on a GPU), WebGPU in `webgpu`.
  */
@@ -29,9 +36,9 @@ import { expect, test, type Locator, type Page } from '@playwright/test';
 
 import { publishBytes, startBackend, type E2EBackend } from './backend';
 import { multiPieceGlb } from './multi-piece-glb';
-import { count, isBlue, isGreenish, isMagenta, materials, packNormalAndOrm, publishLayerSources, reds, useArrays } from './painted-layers';
+import { count, isBlue, isGreenish, isMagenta, isRed, materials, packNormalAndOrm, packSlotSources, publishLayerSources, reds, useArrays } from './painted-layers';
 import { decodePng, type Image } from './png';
-import { menu, projectWindow, openWindow, closeEditor, createItem } from './ui';
+import { menu, projectWindow, openWindow, closeEditor, createItem, editorPane, openEditor } from './ui';
 import { editorUrlFor, expectRendererBackend, exportQueryFor, onlyInItsProject, RENDERER_VARIANTS } from './renderer-variants';
 
 let be: E2EBackend | null = null;
@@ -52,10 +59,48 @@ async function cmd(op: string, args: Record<string, unknown>): Promise<Record<st
 
 const shot = async (t: Locator | Page): Promise<Image> => decodePng(await t.screenshot());
 
-/** What a picture must show; returns a problem or null. */
-function checkPicture(img: Image, glb = true): string | null {
+/**
+ * Pixels passing `test` on the painted layer: red ground within 48 px on
+ * both sides along the row (a patch on the layer, not the GLB beside it or
+ * the view's own text and grid).
+ */
+function countOnLayer(img: Image, test: (r: number, g: number, b: number) => boolean): number {
+  const redAt = (x: number, y: number): boolean => {
+    if (x < 0 || x >= img.width) return false;
+    const [r, g, b] = img.pixel(x, y);
+    return isRed(r, g, b);
+  };
+  let n = 0;
+  for (let y = 0; y < img.height; y += 2) {
+    for (let x = 0; x < img.width; x += 2) {
+      const [r, g, b] = img.pixel(x, y);
+      if (!test(r, g, b)) continue;
+      let left = false;
+      let right = false;
+      for (let d = 2; d <= 96 && !(left && right); d += 2) {
+        left ||= redAt(x - d, y);
+        right ||= redAt(x + d, y);
+      }
+      if (left && right) n += 1;
+    }
+  }
+  return n;
+}
+
+/**
+ * What a picture must show; returns a problem or null. `slotted`: drawn from
+ * the per-layer slots, whose layer 3 is layer 4's texture: the layer-3 patch
+ * on the layer is magenta, not blue.
+ */
+function checkPicture(img: Image, glb = true, slotted = false): string | null {
   const blue = count(img, isBlue);
-  if (blue < 60) return `the blue layer-3 patch is missing (${blue} pixels)`;
+  if (!slotted && blue < 60) return `the blue layer-3 patch is missing (${blue} pixels)`;
+  if (slotted) {
+    const blueOn = countOnLayer(img, isBlue);
+    const magentaOn = countOnLayer(img, isMagenta);
+    if (blueOn > 12) return `${blueOn} blue pixels on the layer: layer 3 is still the prebuilt array's, not slot 3's (magenta)`;
+    if (magentaOn < 60) return `the magenta layer-3 patch from slot 3 is missing (${magentaOn} magenta pixels on the layer)`;
+  }
   const red = reds(img);
   if (red.length < 200) return `the red ground (layer 1) is missing (${red.length} pixels)`;
   // The height blend: layers 1 and 2 half and half show layer 1 (red); a cross-fade would be olive.
@@ -205,13 +250,28 @@ for (const variant of RENDERER_VARIANTS) test(`painted terrain: height-blended l
   await menu(page, 'Gizmos', 'Icons: on');
   let problem: string | null = 'not checked';
   await expect.poll(async () => (problem = checkPicture(await shot(viewport))), { timeout: 60_000, message: 'Scene view picture' }).toBeNull();
+  // The prebuilt array's picture is not the slots' (the check below tells them apart).
+  expect(checkPicture(await shot(viewport), true, true)).toMatch(/blue pixels on the layer/);
+
+  // ---- Per-layer slots: the albedo + height layers as four single-layer KTX2 textures, picked per slot in the Material editor.
+  // Slot 3 takes layer 4's texture: the picture then shows the slots, not the prebuilt array.
+  const sources = await packSlotSources(be);
+  const slots = [sources[0]!, sources[1]!, sources[3]!, sources[3]!];
+  await openEditor(page, 'Material', 'Graph material 1');
+  const doc = editorPane(page, 'Material', 'Graph material 1');
+  await doc.getByRole('button', { name: 'parameter albedoHeight default per-layer slots' }).click();
+  for (let i = 0; i < 4; i++) await doc.getByLabel(`parameter albedoHeight default slot ${i + 1}`, { exact: true }).selectOption(slots[i]!);
+  await expect.poll(async () => (await materials(be!)).find((m) => m.materialId === mat)!.parameters!.find((p) => p.key === 'albedoHeight')!.default, { timeout: 15_000 }).toEqual(slots);
+  await closeEditor(page);
+  // The Scene view draws the array the backend assembled from the slots.
+  await expect.poll(async () => (problem = checkPicture(await shot(viewport), true, true)), { timeout: 60_000, message: 'Scene view picture (per-layer slots)' }).toBeNull();
 
   // ---- Play.
   await page.getByTitle('Start an isolated play preview').click();
   const frame = page.locator('iframe.tl-app__preview-frame');
   await expect(frame).toBeVisible();
   await expectRendererBackend(page.frameLocator('iframe.tl-app__preview-frame').locator('canvas').first(), variant);
-  await expect.poll(async () => (problem = checkPicture(await shot(frame))), { timeout: 60_000, message: 'Play picture' }).toBeNull();
+  await expect.poll(async () => (problem = checkPicture(await shot(frame), true, true)), { timeout: 60_000, message: 'Play picture' }).toBeNull();
   await expect(page.locator('.tl-notice')).toHaveCount(0);
   await page.getByTitle('Stop the play preview').click();
   expect(errors).toEqual([]);
@@ -230,7 +290,7 @@ for (const variant of RENDERER_VARIANTS) test(`painted terrain: height-blended l
   try {
     await exported.goto(`${site.url}${exportQueryFor(variant)}`);
     await expectRendererBackend(exported.locator('canvas').first(), variant);
-    await expect.poll(async () => (problem = checkPicture(await shot(exported))), { timeout: 60_000, message: 'export picture' }).toBeNull();
+    await expect.poll(async () => (problem = checkPicture(await shot(exported), true, true)), { timeout: 60_000, message: 'export picture' }).toBeNull();
     expect(exportErrors).toEqual([]);
   } finally {
     await site.close();

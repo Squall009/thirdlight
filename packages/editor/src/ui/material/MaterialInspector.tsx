@@ -19,7 +19,7 @@
  * Browser-only (React).
  */
 import { useEffect, useState, type DragEvent, type JSX } from 'react';
-import type { MaterialDef, MaterialParameterValue, MaterialParamType, MaterialParamValue, MaterialShader } from '@thirdlight/project-model';
+import type { MaterialDef, MaterialParameterValue, MaterialParamType, MaterialParamValue, MaterialShader, MaterialValue } from '@thirdlight/project-model';
 import { ParameterValue } from './MaterialDocument';
 import { MATERIAL_PARAMS, MATERIAL_SHADERS, MATERIAL_TEXTURE_SLOTS } from '../../session/material-schema';
 import { resolveMaterialInstancesLike, type MaterialDefLike } from '@thirdlight/three-adapter';
@@ -244,7 +244,7 @@ function InstanceInspector(props: { instance: MaterialDef; materials: readonly M
     else textures[slot] = assetId;
     save({ textures });
   };
-  const setValue = (key: string, value: MaterialParameterValue | undefined): void => {
+  const setValue = (key: string, value: MaterialValue | undefined): void => {
     const values = { ...(m.values ?? {}) };
     if (value === undefined) delete values[key];
     else values[key] = value;
@@ -295,7 +295,7 @@ function InstanceInspector(props: { instance: MaterialDef; materials: readonly M
             return (
               <div key={x.key} className={own !== undefined ? 'tl-param is-set' : 'tl-param'} data-param={x.key}>
                 <span className="tl-field__label" title={x.tooltip}>{x.label ?? x.key}</span>
-                <ParameterValue key={JSON.stringify(own ?? x.default)} param={{ ...x, default: own ?? x.default }} label={`instance ${x.key}`} onCommit={(v) => setValue(x.key, v)} />
+                <ParameterValue key={JSON.stringify(own ?? x.default)} param={{ ...x, default: own ?? x.default }} label={`instance ${x.key}`} slots onCommit={(v) => setValue(x.key, v)} />
                 <button className="tl-btn tl-btn--small tl-param__reset" disabled={own === undefined} aria-label={`reset ${x.key}`} title="Use the parent's value" onClick={() => setValue(x.key, undefined)}>
                   ↺
                 </button>
@@ -499,7 +499,7 @@ function ParameterOverrides(p: { mapping: Readonly<Record<string, string>>; mate
               return (
                 <div key={x.key} className={over !== undefined ? 'tl-param is-set' : 'tl-param'} data-param={x.key}>
                   <span className="tl-field__label" title={x.tooltip}>{x.label ?? x.key}</span>
-                  <ParameterValue key={JSON.stringify(over ?? x.default)} param={{ ...x, default: over ?? x.default }} label={`${m.name} ${x.key}`} onCommit={(v) => set(m.materialId, x.key, v)} />
+                  <ParameterValue key={JSON.stringify(over ?? x.default)} param={{ ...x, default: over ?? x.default }} label={`${m.name} ${x.key}`} onCommit={(v) => set(m.materialId, x.key, v as MaterialParameterValue)} />
                   <button className="tl-btn tl-btn--small tl-param__reset" disabled={over === undefined} aria-label={`reset ${m.name} ${x.key}`} title="Use the material's value" onClick={() => set(m.materialId, x.key, undefined)}>
                     ↺
                   </button>

@@ -438,6 +438,8 @@ export interface WorkspaceService {
   holdAssetBytes(projectId: string, bytes: Uint8Array): { ok: true; digest: string; byteLength: number } | { ok: false; error: CommandError };
   /** Put what an importer made from a file (a converted GLB, a KTX2 encode) into the import cache. */
   writeImportedArtifact(projectId: string, key: ImportKey, bytes: Uint8Array): { ok: true; digest: string } | { ok: false; error: CommandError };
+  /** The one artifact the import cache keeps under a key (one derived from several files), found by the key alone; null: none. */
+  locateImportedArtifact(projectId: string, key: ImportKey): BlobFile | null;
   /** The cached inspection of a file's bytes, or null. */
   readImportHeader(projectId: string, sourceDigest: string, kind: string, toolchain: string): ImportHeader | null;
   writeImportHeader(projectId: string, header: ImportHeader, toolchain: string): void;

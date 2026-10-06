@@ -20,7 +20,7 @@
  * buffered and bounded so a locator read can never reach a project directory.
  */
 import { PLAY_CONTENT_ARTIFACT_MAX_BYTES, type SessionError } from '@thirdlight/protocol';
-import { buildContentClosureM3, type ClosureSourceMap, type ContentClosureM3 } from '@thirdlight/exporter';
+import { buildContentClosureM3, type ClosureSourceMap, type ClosureTextureSlots, type ContentClosureM3 } from '@thirdlight/exporter';
 import type { MissingPlayFile, PlayCheck, RuntimeContentManifestV5 } from '@thirdlight/project-model';
 import type { WorkspaceService } from '@thirdlight/workspace';
 import { generateGraphSource, type BehaviorCompiler } from '@thirdlight/behavior-build';
@@ -77,6 +77,8 @@ export interface BuildPlayContentM3Input {
   background?: boolean;
   /** The start scenes of this Play when its start options load others too (what the start draws; default `startScenes`). */
   drawnScenes?: readonly string[];
+  /** The texture-array assembly for per-layer texture slots (absent: a material naming slots refuses the Play). */
+  textureSlots?: ClosureTextureSlots;
 }
 
 export interface BuiltPlayContentM3 {
@@ -153,6 +155,7 @@ export async function buildPlayContentM3(input: BuildPlayContentM3Input): Promis
     // A missing file the start does not draw is stood in for; one it draws refuses the Play, naming every missing file.
     placeholders: placeholderBytes,
     ...(input.drawnScenes !== undefined ? { drawnScenes: input.drawnScenes } : {}),
+    ...(input.textureSlots !== undefined ? { textureSlots: input.textureSlots } : {}),
   });
   if (!built.ok) {
     return { ok: false, error: sessionErrorFromM3Closure(built.error) };

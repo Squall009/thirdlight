@@ -324,8 +324,9 @@ export const NODE_SIDE_ALLOWED = {
     node: [],
     typesOnly: { 'project-model': true, commands: true },
     // The model's limits (plain constants): the editor checks the same bounds
-    // before it sends a command.
-    valueSubpaths: { 'project-model': ['limits'] },
+    // before it sends a command. The texture-slot rules (pure functions over
+    // material data): the views draw a material's slots as Play does.
+    valueSubpaths: { 'project-model': ['limits', 'texture-slots'] },
   },
 };
 

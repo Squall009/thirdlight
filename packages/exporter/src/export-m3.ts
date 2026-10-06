@@ -208,6 +208,8 @@ export async function exportProjectM3(
     // The assets and instance buffers are found on disk and copied into the output one at a
     // time, each checked against its digest while it is copied: the export never holds them.
     locate: true,
+    // Per-layer texture slots ship as arrays assembled now: the game runs without the backend.
+    ...(ctx.textureSlots !== undefined ? { textureSlots: ctx.textureSlots } : {}),
   });
   if (!closureResult.ok) {
     const e = closureResult.error;

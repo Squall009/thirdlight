@@ -89,6 +89,21 @@ export async function packNormalAndOrm(be: E2EBackend): Promise<void> {
   await packTexture(be, four([{ assetId: 'orm-src', channel: 'r' }, { assetId: 'orm-src', channel: 'g' }, { assetId: 'orm-src', channel: 'b' }, { value: 255 }]), 'data', 'terrain-orm');
 }
 
+/**
+ * Per-layer slot sources: each layer of the albedo + height array as a
+ * single-layer KTX2 of its own (ids slot-alb-1…4; RGB of alb-i, A = hgt-i's
+ * R; ETC1S colour, as the Texture Designer's colour export), for a material
+ * that names them per slot instead of a prebuilt array.
+ */
+export async function packSlotSources(be: E2EBackend): Promise<string[]> {
+  const ids: string[] = [];
+  for (let i = 0; i < 4; i++) {
+    await packTexture(be, [ALBEDO_HEIGHT_LAYERS[i]!], 'color', `slot-alb-${i + 1}`);
+    ids.push(`slot-alb-${i + 1}`);
+  }
+  return ids;
+}
+
 interface Mat {
   materialId: string;
   graph?: unknown;

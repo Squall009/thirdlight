@@ -26,10 +26,12 @@ import { dialogueForRuntime, type DialogueDocument, type DialogueSettings, type 
 import type { GameMode } from '@thirdlight/project-model';
 import type { EventCue, GameShell, TimelineAsset } from '@thirdlight/project-model';
 import type { AnimatorController, EnvironmentConfig, PrefabDefinition, InputConfig, LightingMap, MaterialDef, UiDocument, UiTheme } from '@thirdlight/project-model';
-import { animatorsForRuntime, effectsForRuntime, type EffectDef, materialFunctionsForRuntime, materialsForRuntime, type GraphDocument, captureContentViewV3, captureManifestV5, restampManifestV5, type CatalogFile, dependencyTables, scanDependencies, M3_ENGINE_PINS, resolveMediaIdentityV3, sha256Hex, type GameplaySettings, type ManifestAssetInputV2, type ManifestAssetInputV5, type ManifestBehaviorInput, type MediaBlock, type RuntimeContentManifestV5, type ManifestSceneRow, physicsDimensionOf, resolveRequiredModules, materialsInUse, resolveMaterialInstances, loadableAssetIds, loadableResourceIds, loadableRows, scriptLibraryContainerText, scriptLibraryDigest, type ScriptLibrary } from '@thirdlight/project-model';
+import { animatorsForRuntime, effectsForRuntime, type EffectDef, materialFunctionsForRuntime, materialsForRuntime, type GraphDocument, captureContentViewV3, captureManifestV5, restampManifestV5, type CatalogFile, dependencyTables, scanDependencies, M3_ENGINE_PINS, resolveMediaIdentityV3, sha256Hex, type GameplaySettings, type ManifestAssetInputV2, type ManifestAssetInputV5, type ManifestBehaviorInput, type MediaBlock, type RuntimeContentManifestV5, type ManifestSceneRow, physicsDimensionOf, resolveRequiredModules, materialsInUse, resolveMaterialInstances, hasTextureSlots, withAssembledSlots, textureSlotSetKey, loadableAssetIds, loadableResourceIds, loadableRows, scriptLibraryContainerText, scriptLibraryDigest, type ScriptLibrary } from '@thirdlight/project-model';
 import { playChecks, projectWideRoots, startDrawSet, type MissingPlayFile, type PlayCheck, type SceneV4 } from '@thirdlight/project-model';
 import { ASSET_QUERY_PAGE_MAX, audioLoadOf, COLLIDER_3D_LIMITS, MODEL_RIG_LIMITS, modelCollisionParts, sceneColliderPoints, readModelGeometry, readModelRig, textureStreamingOf, type AudioLoadType, type ManifestMipPart, type ModelRig } from '@thirdlight/project-model';
 import type { BlobFile, WorkspaceService } from '@thirdlight/workspace';
+
+import { closureSlotArrays, type ClosureSlotArrays, type ClosureTextureSlots } from './closure-texture-slots';
 
 /** The injected compiler port (structural; no behavior-build edge). */
 export interface ContentClosureCompilerPort {
@@ -241,6 +243,12 @@ export interface ContentClosureM3Input {
    * missing file.
    */
   placeholders?: ClosurePlaceholderMaker;
+  /**
+   * The backend's texture-array assembly for per-layer texture slots
+   * (`closure-texture-slots.ts`). Absent: a used material that names slots
+   * refuses the build.
+   */
+  textureSlots?: ClosureTextureSlots;
   /** The scenes the start loads when they are not only `startScenes` (a Play started in another scene). */
   drawnScenes?: readonly string[];
 }
@@ -800,6 +808,46 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
       ...(mipPartsOf.has(a.assetId) ? { mipParts: mipPartsOf.get(a.assetId)! } : {}),
     });
   }
+  // Only the materials the game uses (an object, a prefab, a shipped model's default mapping,
+  // a block type, an effect or a timeline names them), resolved; found once, when first needed.
+  const allMaterials = (input.content as { materials?: MaterialDef[] } | null)?.materials;
+  let usedMemo: MaterialDef[] | undefined | null = null;
+  const usedMaterialsOf = (): MaterialDef[] | undefined => {
+    if (usedMemo !== null) return usedMemo;
+    usedMemo = allMaterials === undefined
+      ? undefined
+      : (() => {
+          const entities = input.scenes !== undefined
+            ? input.scenes.flatMap((sc) => ((sc as { entities?: { components?: unknown }[] }).entities ?? []))
+            : ((input.scene as { entities?: { components?: unknown }[] } | null)?.entities ?? []);
+          const used = materialsInUse({
+            entities: [...entities, ...((input.content as { prefabs?: PrefabDefinition[] } | null)?.prefabs ?? []).flatMap((d) => d.entities as unknown as { components?: unknown }[])],
+            assets: view.assets,
+            blockTypes: (input.content as { blockTypes?: BlockType[] }).blockTypes ?? [],
+            effects: (input.content as { effects?: EffectDef[] }).effects ?? [],
+            timelines: (input.content as { timelines?: TimelineAsset[] }).timelines ?? [],
+          });
+          // A loadable material ships too (a script may load it by name).
+          for (const id of loadableResourceIds(input.content, 'material')) used.add(id);
+          // A named instance ships resolved (its chain's graph, parameters and values folded
+          // in), so the runtime never sees an instance; its parents ship only when something names them.
+          return resolveMaterialInstances(allMaterials).filter((m) => used.has(m.materialId));
+        })();
+    return usedMemo;
+  };
+  // 5a. Per-layer texture slots: each distinct list a used material draws with ships as one
+  //     assembled array (the backend's, cached by the layers' digests) under an id of its own.
+  let slotArrays: ClosureSlotArrays | null = null;
+  if (allMaterials !== undefined && hasTextureSlots(resolveMaterialInstances(allMaterials))) {
+    const made = await closureSlotArrays({ port: input.textureSlots, service, projectId, assets: ((input.content as { assets?: [] }).assets ?? []) as never, materials: usedMaterialsOf() ?? [], locate, hash });
+    if (!made.ok) return made;
+    slotArrays = made.arrays;
+    // An array that is also a shipped asset's file (the same bytes published) ships once.
+    const have = new Set([...assetFiles, ...assetArtifacts].map((a) => a.path));
+    assetFiles.push(...slotArrays.files.filter((f) => !have.has(f.path)));
+    assetArtifacts.push(...slotArrays.artifacts.filter((f) => !have.has(f.path)));
+    for (const r of slotArrays.rows) shippedKey.push(`slots:${r.sourceDigest}`);
+  }
   // The decoders the shipped assets need, from what their records say (the bytes are not read here):
   // a model's import recipe names the glTF extensions it uses (the view's recipe is only its profile and version).
   const decoders = new Set<'draco' | 'basis'>();
@@ -810,6 +858,8 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
       if (Array.isArray(used) && used.includes('KHR_texture_basisu')) decoders.add('basis');
     } else if (a.kind === 'texture' && recordsById.get(a.assetId)?.versions?.find((v) => v.version === a.version)?.metrics?.format === 'ktx2') decoders.add('basis');
   }
+  // An assembled array is a KTX2.
+  if ((slotArrays?.rows.length ?? 0) > 0) decoders.add('basis');
 
   stage('assets');
   if (input.background === true) await new Promise<void>((resolve) => setTimeout(resolve, 0));
@@ -923,37 +973,19 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
     captured = { ...restampManifestV5(memo.catalog.manifest, input.capturedAt, hash), files: memo.catalog.files };
     closureCacheStats.catalogHits += 1;
   } else {
-    // 6b. Only the materials the game uses (an object, a prefab, a shipped model's default
-    //     mapping, a block type, an effect or a timeline names them), and the functions those call.
-    const allMaterials = (input.content as { materials?: MaterialDef[] } | null)?.materials;
-    const usedMaterials = allMaterials === undefined
-      ? undefined
-      : (() => {
-          const entities = input.scenes !== undefined
-            ? input.scenes.flatMap((sc) => ((sc as { entities?: { components?: unknown }[] }).entities ?? []))
-            : ((input.scene as { entities?: { components?: unknown }[] } | null)?.entities ?? []);
-          const used = materialsInUse({
-            entities: [...entities, ...((input.content as { prefabs?: PrefabDefinition[] } | null)?.prefabs ?? []).flatMap((d) => d.entities as unknown as { components?: unknown }[])],
-            assets: view.assets,
-            blockTypes: (input.content as { blockTypes?: BlockType[] }).blockTypes ?? [],
-            effects: (input.content as { effects?: EffectDef[] }).effects ?? [],
-            timelines: (input.content as { timelines?: TimelineAsset[] }).timelines ?? [],
-          });
-          // A loadable material ships too (a script may load it by name).
-          for (const id of loadableResourceIds(input.content, 'material')) used.add(id);
-          // A named instance ships resolved (its chain's graph, parameters and values folded
-          // in), so the runtime never sees an instance; its parents ship only when something names them.
-          return resolveMaterialInstances(allMaterials).filter((m) => used.has(m.materialId));
-        })();
+    // 6b. Only the materials the game uses (5a found them when a material names texture slots).
+    const usedMaterials = usedMaterialsOf();
 
     // 7. The v5 manifest and its catalog files (pure derivation) + self-identifying buildId.
     const content = input.content as Record<string, unknown>;
-    const runtimeMaterials = usedMaterials !== undefined ? materialsForRuntime(usedMaterials) : undefined;
+    // A slot list becomes the id of its assembled array (the runtime samples arrays only).
+    const slotIds = slotArrays?.ids;
+    const runtimeMaterials = usedMaterials !== undefined ? materialsForRuntime(slotIds !== undefined ? withAssembledSlots(usedMaterials, (set) => slotIds.get(textureSlotSetKey(set)) ?? '') : usedMaterials) : undefined;
     const runtimeFunctions = usedMaterials !== undefined ? materialFunctionsForRuntime(usedMaterials, (content['graphs'] as GraphDocument[] | undefined) ?? []) : undefined;
     const runtimeEffects = content['effects'] !== undefined ? effectsForRuntime(content['effects'] as EffectDef[]) : undefined;
     const runtimeAnimators = content['animators'] !== undefined ? animatorsForRuntime(content['animators'] as AnimatorController[]) : undefined;
     // What each scene, each model and the project-wide blocks need of the shipped assets (the catalog's dependency lists).
-    const tables = dependencyTables({ assets: view.assets, ...(runtimeMaterials !== undefined ? { materials: runtimeMaterials } : {}), ...(runtimeFunctions !== undefined ? { functions: runtimeFunctions } : {}), ...(runtimeEffects !== undefined ? { effects: runtimeEffects } : {}), ...(runtimeAnimators !== undefined ? { animators: runtimeAnimators } : {}), prefabs: prefabDefs });
+    const tables = dependencyTables({ assets: slotArrays !== null ? [...view.assets, ...slotArrays.rows] : view.assets, ...(runtimeMaterials !== undefined ? { materials: runtimeMaterials } : {}), ...(runtimeFunctions !== undefined ? { functions: runtimeFunctions } : {}), ...(runtimeEffects !== undefined ? { effects: runtimeEffects } : {}), ...(runtimeAnimators !== undefined ? { animators: runtimeAnimators } : {}), prefabs: prefabDefs });
     const lighting = content['lighting'] as LightingMap | undefined;
     const sceneDependencies = new Map<string, readonly string[]>(derived?.sceneDependencies ?? []);
     if (derived?.sceneDependencies === undefined) {
@@ -995,7 +1027,7 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
       capturedAt: input.capturedAt,
       sceneDigest,
       contentDigest: view.contentDigest,
-      assets: entries,
+      assets: slotArrays !== null ? [...entries, ...slotArrays.rows] : entries,
       // The catalog of what a script may load by address or label (what this build holds).
       loadable: loadableRows(input.content, { assets: new Set(assets.map((a) => a.assetId)) }),
       behaviors: behaviorInputs,

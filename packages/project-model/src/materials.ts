@@ -18,6 +18,7 @@ import type { ModelErrorV2 } from './errors';
 import { canonicalGraphData, graphAssetRefs, nodeFieldValue, validateGraphData, type GraphContext, type GraphData, type GraphDocument } from './graph';
 import { canonicalEnvironmentPresets, validateEnvironmentPresets, type EnvironmentPreset } from './environment-presets';
 import { MATERIAL_DATA_MAX, MATERIAL_GRAPH_KIND, MATERIAL_PARAMETER_TYPES, type MaterialParameterType } from './material-graph-kinds';
+import { isTextureSlots, textureSlotsError } from './texture-slots';
 
 export const MATERIAL_SHADERS = ['standard', 'foliage', 'kit', 'unlit', 'water'] as const;
 export type MaterialShader = (typeof MATERIAL_SHADERS)[number];
@@ -136,7 +137,7 @@ export interface MaterialDef {
    */
   instanceOf?: string;
   /** Instances of graph materials: parameter key → value (see `MaterialParameter.default`). */
-  values?: Record<string, MaterialParameterValue>;
+  values?: Record<string, MaterialValue>;
 }
 
 /** An exposed parameter of a graph material. */
@@ -145,10 +146,11 @@ export interface MaterialParameter {
   key: string;
   type: MaterialParameterType;
   /**
-   * float: a number; vec2–4: 2–4 numbers; color: "#rrggbb"; texture: a texture asset id or "" (none);
+   * float: a number; vec2–4: 2–4 numbers; color: "#rrggbb"; texture: a texture asset id or "" (none),
+   * or per-layer slots — one single-layer texture asset id per array layer (`texture-slots.ts`);
    * data: the RGBA bytes (4 integers 0–255) every cell starts with.
    */
-  default: number | number[] | string;
+  default: MaterialValue;
   /** Data only (required there): the grid's cells [width, height], 1–64 each. */
   size?: [number, number];
   /** float / vec2–4: the range the value (every component) stays in. */
@@ -161,8 +163,10 @@ export interface MaterialParameter {
   tooltip?: string;
 }
 
-/** The value an object stores to override a public parameter (see `MaterialParameter.default`). */
+/** The value an object stores to override a public parameter (see `MaterialParameter.default`; never per-layer slots). */
 export type MaterialParameterValue = number | number[] | string;
+/** A material's or an instance's value of a parameter: an override's, or per-layer texture slots (`texture-slots.ts`). */
+export type MaterialValue = MaterialParameterValue | string[];
 
 /** Most exposed parameters of one material. */
 export const MAX_MATERIAL_PARAMETERS = 64;
@@ -242,7 +246,8 @@ export function materialParameterValueError(p: Pick<MaterialParameter, 'type' | 
     case 'color':
       return typeof v === 'string' && COLOR_RE.test(v) ? null : 'a colour "#rrggbb" (lowercase hex)';
     case 'texture':
-      return typeof v === 'string' && (v === '' || ID_RE.test(v)) ? null : 'a texture asset id (or "" for none)';
+      if (Array.isArray(v)) return textureSlotsError(v);
+      return typeof v === 'string' && (v === '' || ID_RE.test(v)) ? null : 'a texture asset id (or "" for none), or per-layer slots (a list of texture asset ids)';
     case 'data':
       return Array.isArray(v) && v.length === 4 && v.every((x) => Number.isInteger(x) && x >= 0 && x <= 255) ? null : '4 integers 0–255 (the RGBA every cell starts with)';
     default:
@@ -399,8 +404,9 @@ function validateMaterialInstanceValues(value: unknown, path: string, errors: Mo
   }
   for (const [k, v] of Object.entries(value)) {
     if (!MATERIAL_PARAMETER_KEY_RE.test(k)) err(errors, 'field_value', `${path}/${k}`, 'a parameter key is an identifier', k);
-    const ok = (typeof v === 'number' && Number.isFinite(v)) || typeof v === 'string' || (Array.isArray(v) && v.length >= 2 && v.length <= 4 && v.every((x) => typeof x === 'number' && Number.isFinite(x)));
-    if (!ok) err(errors, 'field_type', `${path}/${k}`, 'a parameter value is a number, 2-4 numbers or a string', v);
+    // Per-layer texture slots are a list of strings (checked against the declaration with the instance rules).
+    const ok = (typeof v === 'number' && Number.isFinite(v)) || typeof v === 'string' || (Array.isArray(v) && v.length >= 2 && v.length <= 4 && v.every((x) => typeof x === 'number' && Number.isFinite(x))) || (Array.isArray(v) && v.length >= 1 && isTextureSlots(v));
+    if (!ok) err(errors, 'field_type', `${path}/${k}`, 'a parameter value is a number, 2-4 numbers, a string or per-layer texture slots (a list of texture asset ids)', v);
   }
 }
 
@@ -494,7 +500,7 @@ function resolveFrom(byId: ReadonlyMap<unknown, MaterialLike>, start: MaterialLi
   const self = chain[0]!;
   const params: Record<string, MaterialParamValue> = {};
   const textures: Record<string, string> = {};
-  const values: Record<string, MaterialParameterValue> = {};
+  const values: Record<string, MaterialValue> = {};
   // From the root down to the instance: the nearer level wins.
   for (let i = chain.length - 1; i >= 0; i--) {
     const m = chain[i]!;
@@ -534,7 +540,7 @@ export function canonicalMaterialParameters(list: readonly MaterialParameter[]):
   return list.map((p) => ({
     key: p.key,
     type: p.type,
-    default: Array.isArray(p.default) ? [...p.default] : typeof p.default === 'string' && p.type === 'color' ? p.default.toLowerCase() : p.default,
+    default: Array.isArray(p.default) ? ([...p.default] as MaterialValue) : typeof p.default === 'string' && p.type === 'color' ? p.default.toLowerCase() : p.default,
     ...(p.min !== undefined ? { min: p.min } : {}),
     ...(p.max !== undefined ? { max: p.max } : {}),
     ...(p.size !== undefined ? { size: [p.size[0], p.size[1]] as [number, number] } : {}),
@@ -563,7 +569,7 @@ export function canonicalMaterials(list: readonly MaterialDef[]): MaterialDef[] 
       // Last, so every other material keeps its exact bytes.
       ...(m.instanceOf !== undefined ? { instanceOf: m.instanceOf } : {}),
       ...(m.instanceOf !== undefined && m.values !== undefined && Object.keys(m.values).length > 0
-        ? { values: Object.fromEntries(Object.keys(m.values).sort().map((k) => { const v = m.values![k]!; return [k, Array.isArray(v) ? [...v] : typeof v === 'string' && COLOR_RE.test(v.toLowerCase()) ? v.toLowerCase() : v]; })) }
+        ? { values: Object.fromEntries(Object.keys(m.values).sort().map((k) => { const v = m.values![k]!; return [k, Array.isArray(v) ? ([...v] as MaterialValue) : typeof v === 'string' && COLOR_RE.test(v.toLowerCase()) ? v.toLowerCase() : v]; })) }
         : {}),
     }));
 }

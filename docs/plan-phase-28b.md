@@ -101,7 +101,7 @@ both renderers where it changes drawing.
 |---|---|
 | 28b.0 | done 2026-10-03 |
 | 28b.1 | done 2026-10-06: validator refuses x ≠ z, Inspector ties x and z (`same` on vec descriptors), sloped stretch-back removed; D52 closed. `perf blocks` before → after (p95 / worst ms): scene block change webgpu 17.5/18.3 → 17.5/19.7, webgl2 17.6/19.6 → 17.6/18.2; export grid writes webgpu 6.0/13.4 → 6.0/15.6, webgl2 8.4/232 → 8.9/231 (noise). Fast gate's village perf check RED on webgpu p50 (7.5 ms vs limit 7.26) — clean HEAD 0c04d623 measures 7.7 ms too, so it predates this item (baseline recorded before 28c.15). |
-| 28b.2 | part A done 2026-10-06: the pack route takes KTX2 sources; whole UASTC layers alike are joined as stored (level digests and transcoded texels equal the sources', vitest + e2e), else transcoded (or their PNG read) and encoded once with `packedFrom.reencoded` per layer, shown by the pack dialog. 4 × 1024² UASTC: joined in 14 ms (187 KB) vs 26.9 s encoding the same from PNG (187 KB); 4 × 1024² ETC1S re-encoded from KTX2 8.7 s (494 KB; from PNG 10.1 s, 474 KB). Part B (per-layer slots) open. |
+| 28b.2 | part A done 2026-10-06: the pack route takes KTX2 sources; whole UASTC layers alike are joined as stored (level digests and transcoded texels equal the sources', vitest + e2e), else transcoded (or their PNG read) and encoded once with `packedFrom.reencoded` per layer, shown by the pack dialog. 4 × 1024² UASTC: joined in 14 ms (187 KB) vs 26.9 s encoding the same from PNG (187 KB); 4 × 1024² ETC1S re-encoded from KTX2 8.7 s (494 KB; from PNG 10.1 s, 474 KB). Part B done 2026-10-06: a texture parameter's default or an instance's value may be a list of single-layer textures; the Scene view, preview, Play and export draw one array assembled by the backend and cached in the import cache by the layers' digests (export ships `slots-…` arrays, not the slot textures). 4 × 1024²: UASTC joined 14 ms, ETC1S encoded 8.6 s, cache hit 0.2 ms; an A/B one-slot swap assembles one array (12 ms / 9.6 s) = +5.6 MB resident instead of a second three-array set (+16.8 MB; computed at 1 B/texel with mips, not measured in a browser). Pixel e2e (slot 3 = layer 4's texture) green on WebGPU and WebGL 2. |
 | 28b.3–28b.7 | — |
 
 ## 5. Decision log
@@ -138,3 +138,17 @@ both renderers where it changes drawing.
   its largest level (64 layers of 2048²); the encoder's 12 Mpix limit does
   not apply to it. Texture arrays and cube maps are refused as sources.
   Default chosen, owner to confirm.
+- 2026-10-06 (28b.2 B): per-layer slots are the texture parameter's value
+  itself (a list of ids in `default` or an instance's `values`), not a new
+  field, so an A/B instance changes one slot; object overrides stay one
+  texture. An empty slot takes the first filled slot's texture (an array
+  needs every layer; the join stays possible). A slot is a plain texture,
+  taken whole (an albedo + height slot holds the height in alpha; no
+  per-slot channel repack). The array's encoding follows the graph (Normal
+  map node → normal, linear Sample texture → data, else colour). Arrays live
+  in the import cache (`texture-slots-1`, keyed by the layers' digests,
+  encoding and encoder); the export names them `slots-<digest>`. The Scene
+  view and preview fetch the same array through
+  `POST …/content/textures/slots`. The editor may value-import
+  `@thirdlight/project-model/texture-slots` (a new pure subpath in the
+  boundary table). Default chosen, owner to confirm.

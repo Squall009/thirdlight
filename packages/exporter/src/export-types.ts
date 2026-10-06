@@ -6,6 +6,7 @@
  */
 import type { WorkspaceService } from '@thirdlight/workspace';
 
+import type { ClosureTextureSlots } from './closure-texture-slots';
 import type { ContentClosureCompilerPort } from './content-closure';
 
 /**
@@ -74,6 +75,8 @@ export interface ExportContext {
    * backend also uses for play).
    */
   compiler: ContentClosureCompilerPort;
+  /** The backend's texture-array assembly for per-layer texture slots (the export ships the assembled arrays). */
+  textureSlots?: ClosureTextureSlots;
   /**
    * The injectable wall clock (milliseconds since the epoch) used
    * for the manifest `capturedAt` and `meta.json.exportedAt`. Defaults to

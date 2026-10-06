@@ -1,7 +1,7 @@
 import { type IncomingMessage, type ServerResponse } from 'node:http';
 import { closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync, writeSync } from 'node:fs';
 import { join } from 'node:path';
-import { exportProject, type ExportFs } from '@thirdlight/exporter';
+import { exportProject, type ClosureTextureSlots, type ExportFs } from '@thirdlight/exporter';
 import { loadTemplate, resolveTemplateModules } from './templates';
 import { engineIdentity } from './engine';
 import { parseAdminNoArgsBody, parseAdminCreateProjectRequest, parseStrictJsonBytes, sessionError, statusFor, type SessionError } from '@thirdlight/protocol';
@@ -23,10 +23,12 @@ export interface AdminRoutesContext {
   readonly recordProblem: (projectId: string, source: Problem["source"], code: string, message: string) => void;
   /** Make the import cache whole before the export reads what the catalog records. */
   readonly ensureImported?: (projectId: string) => Promise<unknown>;
+  /** The texture arrays of per-layer texture slots (the export ships them assembled). */
+  readonly textureSlots?: ClosureTextureSlots;
 }
 
 export function makeAdminRoutes(ctx: AdminRoutesContext) {
-  const { config, behaviorCompiler, service, sendJson, sendError, requireAuth, readBody, workspaceError, recordProblem, ensureImported } = ctx;
+  const { config, behaviorCompiler, service, sendJson, sendError, requireAuth, readBody, workspaceError, recordProblem, ensureImported, textureSlots } = ctx;
 
   const adminCreateProject = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
     const authError = requireAuth(req, '', true);
@@ -265,6 +267,7 @@ export function makeAdminRoutes(ctx: AdminRoutesContext) {
       // The export bundle entry + the SAME behavior compiler instance the play build uses.
       m3BootstrapEntry: join(engineRoot, 'packages/exporter/src/export-bootstrap-m3.ts'),
       compiler: behaviorCompiler,
+      ...(textureSlots !== undefined ? { textureSlots } : {}),
       threePackageJson: join(engineRoot, 'node_modules/three/package.json'),
       typescriptPackageJson: join(engineRoot, 'node_modules/typescript/package.json'),
       lockfile: join(engineRoot, 'package-lock.json'),

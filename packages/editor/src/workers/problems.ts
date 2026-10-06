@@ -18,6 +18,7 @@ import { materialGraphProblems, type MaterialFunctionLike } from '@thirdlight/th
 
 import { diagnoseGraph, portsResolver } from '../graph/model';
 import { graphsPortContext, materialPortContext } from '../session/material-graph';
+import { slotProblemInput } from '../session/texture-slots';
 
 export interface GraphIssue {
   key: string;
@@ -74,7 +75,9 @@ export function materialIssuesOf(materials: readonly MaterialDef[], graphs: read
     if (m.graph === undefined) return [];
     const g = m.graph;
     const rules = diagnoseGraph(kind, g, portsResolver(kind, g, materialPortContext(m.parameters, graphs, kinds)));
-    const compiled = materialGraphProblems({ graph: g, ...(m.parameters !== undefined ? { parameters: m.parameters } : {}) }, functions, textures);
+    // Per-layer slots compile as their array's key.
+    const input = slotProblemInput(m, textures);
+    const compiled = materialGraphProblems({ graph: g, ...(input.parameters !== undefined ? { parameters: input.parameters as unknown as Parameters<typeof materialGraphProblems>[0]['parameters'] } : {}) }, functions, input.textureIds);
     const label = labeller(kind, g.nodes);
     return [...rules, ...compiled].map((p, i) => ({
       key: `material:${m.materialId}:${i}`,

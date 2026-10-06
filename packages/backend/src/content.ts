@@ -60,13 +60,14 @@ import {
   type StageInspectRequest,
   INSTANCE_BUFFER_INLINE_MAX,
 } from '@thirdlight/protocol';
-import { INSTANCE_FLOATS, MAX_INSTANCES } from '@thirdlight/project-model/limits';
+import { ID_RE, INSTANCE_FLOATS, MAX_INSTANCES, MAX_TEXTURE_LAYERS } from '@thirdlight/project-model/limits';
 import { inspectAudio, inspectFont, inspectGlb, inspectImage, AUDIO_TOOLCHAIN, FONT_TOOLCHAIN, IMAGE_TOOLCHAIN, M2_GLTF_TOOLCHAIN, type ImportJobPort, type ImportProposal } from '@thirdlight/asset-pipeline';
 import { createBehaviorCompiler } from '@thirdlight/behavior-build';
 import type { BehaviorCompiler } from '@thirdlight/behavior-build';
 import { importKeyOfConverted, type CommandError, type IntegrityPage, type MutationSuccess, type StageInspector, type WorkspaceService } from '@thirdlight/workspace';
 import { isFbx, type FbxConverter } from './fbx';
-import { KTX2_ENCODER, type Ktx2Mode, type PackLayer, type PackSource, type TextureEncoder } from './texture-encode';
+import { KTX2_ENCODER, KTX2_MODES, type Ktx2Mode, type PackLayer, type PackSource, type TextureEncoder } from './texture-encode';
+import type { SlotLayer, TextureSlotAssembler } from './texture-slots';
 import { losslessOriginal, textureVersionsOf } from './texture-originals';
 import type { AssetFileCheck } from './asset-files';
 import { THUMBNAIL_BYTES_MAX, type ThumbnailCache } from './thumbnails';
@@ -548,6 +549,8 @@ export interface ContentRouteDeps {
   bakes?: BakeService;
   /** The asset file check (moved and changed files, the import cache). */
   assetFiles?: AssetFileCheck;
+  /** The texture arrays of per-layer texture slots (absent: the slots route answers "unavailable"). */
+  textureSlots?: TextureSlotAssembler;
 }
 
 /** Where an FBX to convert comes from: a game-folder file or an upload stage. */
@@ -621,6 +624,12 @@ export class ContentRoutes {
     if (n === 7 && parts[5] === 'textures' && parts[6] === 'pack') {
       if (method !== 'POST') return this.methodNotAllowed(res, 'POST');
       await this.packTexture(req, res, projectId);
+      return true;
+    }
+    // POST /api/v1/projects/:projectId/content/textures/slots (the array of per-layer texture slots, assembled or cached: the editor's views draw it)
+    if (n === 7 && parts[5] === 'textures' && parts[6] === 'slots') {
+      if (method !== 'POST') return this.methodNotAllowed(res, 'POST');
+      await this.slotArray(req, res, projectId);
       return true;
     }
     // POST /api/v1/projects/:projectId/content/job-exports/inspect (an asset tool's job export: a GLB + manifest.json)
@@ -1448,6 +1457,45 @@ export class ContentRoutes {
     } finally {
       this.deps.service.discardStage(projectId, stageId);
     }
+  }
+
+  /** `{ layers: [texture assetId…], mode }` → the KTX2 array of those layers' current versions. */
+  private async slotArray(req: IncomingMessage, res: ServerResponse, projectId: string): Promise<void> {
+    const auth = this.deps.requireAuth(req, projectId, false);
+    if (auth !== null) return this.deps.sendError(res, auth);
+    const body = await this.readJsonBody(req, res);
+    if (body === null) return;
+    const b = body as { layers?: unknown; mode?: unknown };
+    const ids = b.layers;
+    if (!Array.isArray(ids) || ids.length < 1 || ids.length > MAX_TEXTURE_LAYERS || !ids.every((x) => typeof x === 'string' && ID_RE.test(x))) {
+      return this.deps.sendError(res, sessionError('field_value', 'validation', `layers lists 1-${MAX_TEXTURE_LAYERS} texture asset ids`, { path: '/layers' }));
+    }
+    if (typeof b.mode !== 'string' || !(KTX2_MODES as readonly string[]).includes(b.mode)) return this.deps.sendError(res, sessionError('field_value', 'validation', `mode is one of ${KTX2_MODES.join(', ')}`, { path: '/mode' }));
+    const assembler = this.deps.textureSlots;
+    if (assembler === undefined) return this.deps.sendError(res, sessionError('converter_unavailable', 'unavailable', 'texture slot assembly is not available on this server'));
+    const layers: SlotLayer[] = [];
+    for (const assetId of ids as string[]) {
+      const q = this.deps.service.query({ op: 'queryAssets', projectId, args: { assetId, includeVersions: true, limit: 1, offset: 0 } }) as { ok: boolean; assets?: { kind: string; currentVersion: number; versions?: { version: number; sourceDigest: string }[] }[] };
+      const a = q.assets?.[0];
+      const v = a?.versions?.find((x) => x.version === a.currentVersion);
+      if (!q.ok || a === undefined || a.kind !== 'texture' || v === undefined) return this.deps.sendError(res, sessionError('asset_not_found', 'validation', `no texture asset "${assetId}" in this project`, { path: '/layers' }));
+      layers.push({ assetId, version: v.version, sourceDigest: v.sourceDigest });
+    }
+    const made = await assembler.assemble(projectId, layers, b.mode as Ktx2Mode);
+    if (!made.ok) return this.deps.sendError(res, sessionError((made.code === 'converter_unavailable' ? 'converter_unavailable' : 'conversion_failed') as SessionError['code'], made.code === 'converter_unavailable' ? 'unavailable' : 'validation', made.message.slice(0, 256), { path: '/layers' }));
+    const opened = this.deps.service.openBlobFile(projectId, made.file);
+    if (!opened.ok) return this.deps.sendError(res, commandErrorToSession(opened.error));
+    const parts: Uint8Array[] = [];
+    try {
+      for await (const c of opened.blob.chunks()) parts.push(c);
+    } catch {
+      return this.deps.sendError(res, sessionError('asset_source_changed', 'conflict', 'the assembled array changed while it was read; ask again'));
+    }
+    res.setHeader('content-type', 'application/octet-stream');
+    res.setHeader('content-length', String(made.file.byteLength));
+    res.setHeader('x-thirdlight-digest', made.file.digest);
+    res.statusCode = 200;
+    res.end(Buffer.concat(parts));
   }
 
   // ---- bounded content queries ----------------------------------------------

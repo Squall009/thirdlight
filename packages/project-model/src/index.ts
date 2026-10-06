@@ -835,6 +835,7 @@ export {
   type MaterialParamsComponent,
   type MaterialParameter,
   type MaterialParameterValue,
+  type MaterialValue,
   MAX_MATERIAL_SLOTS,
   validateEnvironment,
   validateMaterialMapping,
@@ -863,6 +864,8 @@ export {
   type MaterialShader,
   type WindConfig,
 } from './materials';
+// Per-layer texture slots of graph materials (Play and the export assemble arrays from them).
+export { hasTextureSlots, isTextureSlots, materialSlotTextureRefs, materialTextureSlotSets, textureSlotLayers, textureSlotMode, textureSlotSetKey, textureSlotsError, withAssembledSlots, type TextureSlotSet } from './texture-slots';
 
 // Environment presets (named looks scripts switch or blend to).
 export {

@@ -8,6 +8,7 @@ import { type BackendConfig } from './config';
 import { createBehaviorCompilerPort } from './content';
 import { PlayContentStore, sha256HexBytes, type PlayServed } from './play-content';
 import { buildPlayContentM3 } from './play-m3';
+import type { ClosureTextureSlots } from '@thirdlight/exporter';
 import { SessionRegistry, type SessionRecord } from './sessions';
 import { PlayManager, type PlayRecord, type RelayOutcome, type InputRelayOutcome, type GameRelayOutcome, type GameRelayCode } from './play';
 import type { HeadlessEditors } from './headless';
@@ -49,13 +50,15 @@ export interface PlayRoutesContext {
   readonly playBuild: PlayBuildCache;
   /** Make the import cache whole before a build reads what the catalog records. */
   readonly ensureImported?: (projectId: string) => Promise<{ ok: true; report: AssetFileCheckReport } | { ok: false; code: string; message: string }>;
+  /** The texture arrays of per-layer texture slots (assembled once, cached). */
+  readonly textureSlots?: ClosureTextureSlots;
 }
 
 /** How long a project must be left alone after a file check before its next Play is built ahead. */
 export const PLAY_BUILD_AHEAD_IDLE_MS = 1_000;
 
 export function makePlayRoutes(ctx: PlayRoutesContext) {
-  const { config, nowMs, logStartup, behaviorCompiler, service, sessions, playContent, plays, relayTimeoutMs, sendJson, sendError, bearerToken, tokenScope, badOriginError, requireAuth, readBody, fullState, workspaceError, connectedOwner, unavailableError, recordProblem, headless, playBuild, ensureImported } = ctx;
+  const { config, nowMs, logStartup, behaviorCompiler, service, sessions, playContent, plays, relayTimeoutMs, sendJson, sendError, bearerToken, tokenScope, badOriginError, requireAuth, readBody, fullState, workspaceError, connectedOwner, unavailableError, recordProblem, headless, playBuild, ensureImported, textureSlots } = ctx;
 
   /**
    * The project's live (active or presented) play with this id, or null after
@@ -131,6 +134,7 @@ export function makePlayRoutes(ctx: PlayRoutesContext) {
       const run = buildPlayContentM3({
         service,
         compiler: behaviorCompiler,
+        ...(textureSlots !== undefined ? { textureSlots } : {}),
         projectId,
         revision: captured.read.revision,
         capturedAt: utcSecond(nowMs()),
@@ -370,6 +374,7 @@ export function makePlayRoutes(ctx: PlayRoutesContext) {
       const builtM3 = await buildPlayContentM3({
         service,
         compiler: behaviorCompiler,
+        ...(textureSlots !== undefined ? { textureSlots } : {}),
         projectId,
         revision: state.revision,
         capturedAt: utcSecond(now),

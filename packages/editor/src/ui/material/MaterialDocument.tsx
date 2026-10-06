@@ -15,14 +15,15 @@
  *
  * Browser-only (React).
  */
-import { useMemo, useState, type JSX } from 'react';
+import { useEffect, useMemo, useState, type JSX } from 'react';
 import type { GraphDocument, GraphValue, MaterialDef, MaterialParameter } from '@thirdlight/project-model';
-import { MATERIAL_DATA_MAX } from '@thirdlight/project-model/limits';
+import { MATERIAL_DATA_MAX, MAX_TEXTURE_LAYERS } from '@thirdlight/project-model/limits';
 import { materialGraphProblems, type MaterialFunctionLike } from '@thirdlight/three-adapter';
 
 import { GraphEditor } from '../../graph/GraphEditor';
 import type { GraphKindDef, GraphOp } from '../../graph/model';
 import { materialPortContext, parameterDefault } from '../../session/material-graph';
+import { slotProblemInput } from '../../session/texture-slots';
 import { stringsIn, useTextureIds } from '../catalog/catalog-context';
 import { RefPicker, TEXTURE_KINDS } from '../catalog/RefPicker';
 import { usePreview } from '../preview/preview-request';
@@ -60,10 +61,12 @@ export function MaterialDocument(p: MaterialDocumentProps): JSX.Element {
   const functions = useMemo(() => p.graphs.filter((g) => g.kind === 'material-function'), [p.graphs]);
   const hasGraph = m?.graph !== undefined;
   usePreview(useMemo(() => (hasGraph ? { kind: 'material' as const, materialId: p.materialId, materials: p.materials, functions: functions as unknown as MaterialFunctionLike[] } : null), [hasGraph, p.materialId, p.materials, functions]));
-  const compileProblems = useMemo(
-    () => (m?.graph !== undefined ? materialGraphProblems({ graph: m.graph, ...(m.parameters !== undefined ? { parameters: m.parameters } : {}) }, p.graphs as unknown as MaterialFunctionLike[], textureIds) : []),
-    [m?.graph, m?.parameters, p.graphs, textureIds],
-  );
+  const compileProblems = useMemo(() => {
+    if (m?.graph === undefined) return [];
+    // Per-layer slots compile as their array's key.
+    const input = slotProblemInput(m, textureIds);
+    return materialGraphProblems({ graph: m.graph, ...(input.parameters !== undefined ? { parameters: input.parameters as unknown as Parameters<typeof materialGraphProblems>[0]['parameters'] } : {}) }, p.graphs as unknown as MaterialFunctionLike[], input.textureIds);
+  }, [m, p.graphs, textureIds]);
   if (m === null) return <p className="tl-hint">This material no longer exists (deleted or undone). Close the tab, or undo the deletion.</p>;
   if (kind === undefined) return <p className="tl-hint">Loading the material node catalogue…</p>;
   if (m.graph === undefined) return <p className="tl-hint">"{m.name}" is a shader material (no graph). Choose it in the project window and use "Convert to graph" in its Inspector.</p>;
@@ -158,7 +161,7 @@ function ParameterEditor({ material, onSave }: { material: MaterialDef; onSave: 
               </option>
             ))}
           </select>
-          <ParameterValue param={x} onCommit={(v) => setAt(i, { default: v })} />
+          <ParameterValue param={x} slots onCommit={(v) => setAt(i, { default: v })} />
           {x.type === 'data' && <DataSize value={x.size ?? NEW_DATA_SIZE} name={`parameter ${x.key} size`} onCommit={(size) => setAt(i, { size })} />}
           <select className="tl-input" aria-label={`parameter ${x.key} visibility`} value={x.visibility ?? 'public'} onChange={(e) => setAt(i, { visibility: e.target.value as 'public' | 'private' })}>
             <option value="public">public</option>
@@ -173,12 +176,17 @@ function ParameterEditor({ material, onSave }: { material: MaterialDef; onSave: 
   );
 }
 
-/** A parameter's default: a number, 2–4 numbers, a colour or a texture (committed on blur / change). */
-export function ParameterValue({ param, onCommit, label }: { param: Pick<MaterialParameter, 'type' | 'key' | 'default' | 'min' | 'max'>; onCommit: (v: MaterialParameter['default']) => void; label?: string }): JSX.Element {
+/**
+ * A parameter's default: a number, 2–4 numbers, a colour or a texture
+ * (committed on blur / change). `slots`: a texture may instead name one
+ * single-layer texture per array layer (a material's default or an
+ * instance's value, not an object's override).
+ */
+export function ParameterValue({ param, onCommit, label, slots }: { param: Pick<MaterialParameter, 'type' | 'key' | 'default' | 'min' | 'max'>; onCommit: (v: MaterialParameter['default']) => void; label?: string; slots?: boolean }): JSX.Element {
   const name = label ?? `parameter ${param.key} default`;
   const [draft, setDraft] = useState<string>(Array.isArray(param.default) ? param.default.join(', ') : String(param.default));
   if (param.type === 'color') return <input type="color" aria-label={name} value={String(param.default)} onChange={(e) => onCommit(e.target.value.toLowerCase())} />;
-  if (param.type === 'texture') return <RefPicker aria={name} kinds={TEXTURE_KINDS} value={String(param.default)} none="(none)" onPick={(id) => onCommit(id)} />;
+  if (param.type === 'texture') return <TextureValue value={param.default} name={name} slots={slots === true} onCommit={onCommit} />;
   // A data parameter's default is the RGBA bytes every cell starts with.
   const n = param.type === 'float' ? 1 : param.type === 'data' ? 4 : Number(param.type.slice(3));
   const commit = (): void => {
@@ -191,6 +199,70 @@ export function ParameterValue({ param, onCommit, label }: { param: Pick<Materia
     if (JSON.stringify(v) !== JSON.stringify(param.default)) onCommit(v);
   };
   return <input className="tl-input tl-input--num" aria-label={name} title={n === 1 ? 'a number' : `${n} numbers, comma separated`} value={draft} onChange={(e) => setDraft(e.target.value)} onBlur={commit} onKeyDown={(e) => e.key === 'Enter' && commit()} />;
+}
+
+/** The slots a texture parameter starts with when switched to per-layer slots (the layered template's four layers). */
+const NEW_SLOT_COUNT = 4;
+
+/**
+ * A texture value: one texture (a plain one or an array), or per-layer
+ * slots — a picker per array layer, Play and the export assemble the array.
+ * A new slot list is held here until one slot names a texture (a list with
+ * none filled is not a value).
+ */
+function TextureValue({ value, name, slots, onCommit }: { value: MaterialParameter['default']; name: string; slots: boolean; onCommit: (v: MaterialParameter['default']) => void }): JSX.Element {
+  // The list shown until the material holds it: picks not saved yet (a quick second pick builds on the
+  // first, not on the saved list), or a new list with no slot filled (not a value to save).
+  const [held, setHeld] = useState<string[] | null>(null);
+  const saved = Array.isArray(value) ? (value as unknown[]).map(String) : null;
+  const confirmed = held !== null && saved !== null && held.length === saved.length && held.every((x, i) => x === saved[i]);
+  useEffect(() => {
+    if (confirmed) setHeld(null);
+  }, [confirmed]);
+  // An object's override is one texture: over a material's slots it starts as none (the slots draw).
+  if (!slots && Array.isArray(value)) return <RefPicker aria={name} kinds={TEXTURE_KINDS} value="" none="(the material's slots)" onPick={(id) => onCommit(id)} />;
+  const list = held ?? saved;
+  if (list === null) {
+    return (
+      <span className="tl-texture-value">
+        <RefPicker aria={name} kinds={TEXTURE_KINDS} value={String(value)} none="(none)" onPick={(id) => onCommit(id)} />
+        {slots && (
+          <button type="button" className="tl-btn tl-btn--small" aria-label={`${name} per-layer slots`} title="One single-layer texture per array layer instead of a prebuilt array (Play and the export assemble the array; an empty slot takes the first filled slot's texture)" onClick={() => setHeld(Array.from({ length: NEW_SLOT_COUNT }, () => ''))}>
+            slots
+          </button>
+        )}
+      </span>
+    );
+  }
+  const set = (next: string[]): void => {
+    setHeld(next);
+    if (next.some((x) => x !== '')) onCommit(next);
+  };
+  return (
+    <span className="tl-texture-slots" role="group" aria-label={`${name} slots`}>
+      {list.map((id, i) => (
+        <RefPicker key={i} aria={`${name} slot ${i + 1}`} kinds={TEXTURE_KINDS} value={id} none="(empty)" onPick={(v) => set(list.map((x, j) => (j === i ? v : x)))} />
+      ))}
+      <button type="button" className="tl-btn tl-btn--small" aria-label={`${name} add slot`} title="Another array layer" disabled={list.length >= MAX_TEXTURE_LAYERS} onClick={() => set([...list, ''])}>
+        +
+      </button>
+      <button type="button" className="tl-btn tl-btn--small" aria-label={`${name} remove slot`} title="Drop the last array layer" disabled={list.length <= 1} onClick={() => set(list.slice(0, -1))}>
+        −
+      </button>
+      <button
+        type="button"
+        className="tl-btn tl-btn--small"
+        aria-label={`${name} one texture`}
+        title="Back to one texture (a prebuilt array or a plain texture)"
+        onClick={() => {
+          setHeld(null);
+          onCommit('');
+        }}
+      >
+        one
+      </button>
+    </span>
+  );
 }
 
 /** A data parameter's grid size (cells per side, 1–64; committed on blur / Enter). */

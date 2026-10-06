@@ -699,6 +699,19 @@ function validateMaterialReferences(doc: Record<string, unknown>, errors: ModelE
   };
   const materials = Array.isArray(doc['materials']) ? (doc['materials'] as unknown[]).filter(isPlainObject) : [];
   const materialIds = new Set(materials.map((m) => m['materialId']));
+  // A texture parameter's value: one texture (an array or a plain one), or per-layer slots, each one plain texture (a layer of the array assembled from them).
+  const textureRef = (v: unknown, at: string): void => {
+    if (typeof v === 'string') {
+      if (v !== '' && kindOf.get(v) !== 'texture') errors.push(withFound({ code: 'asset_reference_missing', path: at, message: 'a texture parameter must name a texture asset of this project', expected: 'a texture assetId' }, v));
+      return;
+    }
+    if (!Array.isArray(v)) return;
+    v.forEach((id, k) => {
+      if (typeof id !== 'string' || id === '') return;
+      if (kindOf.get(id) !== 'texture') errors.push(withFound({ code: 'asset_reference_missing', path: `${at}/${k}`, message: 'a texture slot must name a texture asset of this project', expected: 'a texture assetId' }, id));
+      else if (arrays.has(id)) errors.push(withFound({ code: 'field_value', path: `${at}/${k}`, message: 'a texture slot holds one layer: it names a plain texture, not a texture array', expected: 'a plain texture assetId' }, id));
+    });
+  };
   // The material records the previous block held (with the same assets, an unchanged record's references still hold).
   const before = unchanged() ? previous?.materials : undefined;
   materials.forEach((m, i) => {
@@ -718,9 +731,7 @@ function validateMaterialReferences(doc: Record<string, unknown>, errors: ModelE
     if (isPlainObject(m['graph']) && Array.isArray(m['graph']['nodes'])) graphRefs(GRAPH_KINDS['material']!, m['graph'] as unknown as GraphData, `/materials/${i}/graph`);
     if (Array.isArray(m['parameters'])) {
       (m['parameters'] as unknown[]).forEach((p, j) => {
-        if (isPlainObject(p) && p['type'] === 'texture' && typeof p['default'] === 'string' && p['default'] !== '' && kindOf.get(p['default']) !== 'texture') {
-          errors.push(withFound({ code: 'asset_reference_missing', path: `/materials/${i}/parameters/${j}/default`, message: 'a texture parameter must name a texture asset of this project', expected: 'a texture assetId' }, p['default']));
-        }
+        if (isPlainObject(p) && p['type'] === 'texture') textureRef(p['default'], `/materials/${i}/parameters/${j}/default`);
       });
     }
     // An instance's value for a texture parameter names a texture asset.
@@ -728,9 +739,7 @@ function validateMaterialReferences(doc: Record<string, unknown>, errors: ModelE
       const root = resolveMaterial(materials as unknown as MaterialDef[], m['materialId']);
       for (const p of root?.parameters ?? []) {
         const v = m['values'][p.key];
-        if (p.type === 'texture' && typeof v === 'string' && v !== '' && kindOf.get(v) !== 'texture') {
-          errors.push(withFound({ code: 'asset_reference_missing', path: `/materials/${i}/values/${pointerSegment(p.key)}`, message: 'a texture parameter must name a texture asset of this project', expected: 'a texture assetId' }, v));
-        }
+        if (p.type === 'texture') textureRef(v, `/materials/${i}/values/${pointerSegment(p.key)}`);
       }
     }
   });

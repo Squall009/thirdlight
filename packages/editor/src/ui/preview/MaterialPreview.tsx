@@ -10,6 +10,7 @@ import { useEffect, useRef, useState, type JSX } from 'react';
 import type { MaterialDefLike } from '@thirdlight/three-adapter';
 import type * as THREE from 'three';
 
+import { withSlotTextureKeys } from '../../session/texture-slots';
 import { MaterialSubject, type PreviewShape } from '../../viewport/preview-subjects';
 import { MODEL_KINDS, RefPicker } from '../catalog/RefPicker';
 import { useIndexList } from '../catalog/useIndexList';
@@ -29,7 +30,8 @@ export function MaterialPreview({ renderer, request, deps }: PreviewControlsProp
   const models = useIndexList({ kinds: MODEL_KINDS });
   const firstModel = models.entry(0)?.id ?? '';
   useEffect(() => {
-    subject?.setMaterial(request.materials as unknown as MaterialDefLike[], request.functions, request.materialId);
+    // Per-layer texture slots draw as the array the backend assembles from them.
+    subject?.setMaterial(withSlotTextureKeys(request.materials) as unknown as MaterialDefLike[], request.functions, request.materialId);
   }, [subject, request.materials, request.functions, request.materialId]);
   useEffect(() => {
     if (subject === null) return undefined;

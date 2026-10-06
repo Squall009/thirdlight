@@ -592,6 +592,30 @@ export function importedArtifactPath(ctx: ContentContext, key: ImportKey, digest
   }
 }
 
+/**
+ * The one artifact the cache keeps under a key, found without knowing its
+ * digest (its name): for what an importer derives from several files (a
+ * texture array assembled from per-layer slots), keyed by all their digests.
+ * Null when the cache holds none. Sending the file verifies its bytes.
+ */
+export function locateImportedByKey(ctx: ContentContext, key: ImportKey): { digest: string; byteLength: number; real: string } | null {
+  const segs = importCacheSegments(key);
+  if (segs === null) return null;
+  const dir = join(ctx.dir, ...segs);
+  try {
+    for (const name of readdirSync(dir)) {
+      const m = /^([0-9a-f]{64})\.bin$/.exec(name);
+      if (m === null) continue;
+      const path = join(dir, name);
+      const st = lstatSync(path);
+      if (st.isFile()) return { digest: m[1]!, byteLength: st.size, real: realpathSync(path) };
+    }
+  } catch {
+    // no folder yet: nothing cached
+  }
+  return null;
+}
+
 /** Whether the cache holds an artifact (by size and name; a read verifies the bytes). */
 export function hasImported(ctx: ContentContext, key: ImportKey, digest: string, byteLength: number): boolean {
   const segs = importCacheSegments(key);

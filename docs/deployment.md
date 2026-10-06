@@ -1386,6 +1386,35 @@ the same name and size beside the KTX2 file — that PNG is read instead.
 `packedFrom.reencoded` says per layer whether it was encoded again from a
 lossy KTX2, and the dialog stays open after a pack to say so.
 
+### Per-layer texture slots (28b.2)
+
+A graph material's texture parameter that its graph samples as an array
+(the height-blended layers template's `albedoHeight`, `normals` and `orm`)
+can name **one single-layer texture per layer** instead of a prebuilt array:
+in the material's parameters (Material editor) the texture's **slots**
+button turns it into a picker per layer (`+` / `−` add and drop the last
+layer, **one** goes back to a single texture). MCP: the parameter's
+`default` (or an instance's `values` entry) is a list of texture asset ids,
+`""` for an empty slot. Each slot names a plain texture (not an array); an
+empty slot takes the first filled slot's texture. An object's override of
+the parameter is one texture, not slots.
+
+The Scene view, the material preview, Play and the export draw the slots as
+one KTX2 array the backend assembles from them — the pack route's rules
+(UASTC layers alike joined as stored, others encoded once), each layer the
+whole RGBA of its texture, encoded by how the graph reads the parameter (a
+Normal map node: normal map; a Sample texture node in linear colour space:
+data; otherwise colour). An albedo + height slot texture holds its height in
+alpha. The array is made once and kept in the project's import cache, keyed
+by the layers' file digests and the encoding: later Plays and exports, a
+backend restart and every material naming the same list reuse it. An A/B
+trial is a material instance with one slot changed: only that role's array
+is assembled again, and the slots it shares with its parent stay one array.
+The export ships the assembled arrays (under ids `slots-…`, made from the
+array file's digest) and the materials name them; the slot textures ship
+only if something else uses them. 4 × 1024²: joined in about 14 ms (UASTC),
+encoded in about 9 s (ETC1S); a cached array is found in under 1 ms.
+
 ### Job exports from asset tools (phase 25.22)
 
 An asset tool (an art pipeline, a generator, a hand-made delivery) can hand

@@ -36,6 +36,7 @@ import { createMissingFiles, makeMissingFilesRoute } from './missing-files';
 import { createFolderImport } from './folder-import';
 import { createFbxConverter } from './fbx';
 import { createInlineTextureEncoder, createWorkerTextureEncoder } from './texture-encode';
+import { createTextureSlotAssembler, type TextureSlotAssembler } from './texture-slots';
 import { createTextureExtraction } from './model-textures';
 
 /** The KTX2 encoder's worker script, when this runs as the built bundle. */
@@ -89,6 +90,7 @@ export interface Backend {
     service: WorkspaceService;
     contentRoutes: ContentRoutes;
     playContent: PlayContentStore;
+    textureSlots: TextureSlotAssembler;
   };
 }
 
@@ -293,6 +295,8 @@ export function createBackend(
   // KTX2 encoding on import — a worker thread next to the deployment bundle
   // (dist/backend/ktx2-worker.mjs), in this thread when run from source (tests).
   const textureEncoder = KTX2_WORKER !== null ? createWorkerTextureEncoder(KTX2_WORKER) : createInlineTextureEncoder();
+  // Per-layer texture slots' arrays (Play, the export and the editor's views), cached in the import cache.
+  const textureSlots = createTextureSlotAssembler({ service, encoder: textureEncoder, now: nowMs });
   // A model's "extract textures" import setting: its images become texture assets.
   const textures = createTextureExtraction({ service, inspector: assetInspector, textureEncoder, now: nowMs });
   // The game folder is the truth for assets: moved and changed files, the import cache.
@@ -326,6 +330,7 @@ export function createBackend(
     onJobFailed: (projectId, kind, code, message) => recordProblem(projectId, 'import', code, `Import ${kind} failed: ${message}`),
     fbx,
     textureEncoder,
+    textureSlots,
     assetFiles,
     thumbnails: createThumbnailCache((projectId) => service.importCacheDir(projectId)),
     bakes: createBakeService({
@@ -1829,11 +1834,11 @@ export function createBackend(
 
   // The prebuilt play scripts (bundle, worker, physics), read once per build, at digest-keyed URLs.
   const playBuild = createPlayBuildCache(config.previewStaticDir);
-  const { playStartRoute, playStopRoute, playSnapshotRoute, relayRoute, inputRelayRoute, gameControlRoute, gameObserveRoute, warmPlay: warmPlayBuild } = makePlayRoutes({ config, nowMs, logStartup, behaviorCompiler, service, sessions, playContent, plays, relayTimeoutMs, sendJson, sendError, bearerToken, tokenScope, badOriginError, requireAuth, readBody, fullState, workspaceError, connectedOwner, unavailableError, recordProblem, headless, playBuild, ensureImported: assetFiles.ensureImported });
+  const { playStartRoute, playStopRoute, playSnapshotRoute, relayRoute, inputRelayRoute, gameControlRoute, gameObserveRoute, warmPlay: warmPlayBuild } = makePlayRoutes({ config, nowMs, logStartup, behaviorCompiler, service, sessions, playContent, plays, relayTimeoutMs, sendJson, sendError, bearerToken, tokenScope, badOriginError, requireAuth, readBody, fullState, workspaceError, connectedOwner, unavailableError, recordProblem, headless, playBuild, ensureImported: assetFiles.ensureImported, textureSlots });
   warmPlay = warmPlayBuild;
 
   const pinWarned = new Set<string>();
-  const { adminCreateProject, adminRegisterProject, adminUnregisterProject, adminProjectOp, adminExportRoute } = makeAdminRoutes({ config, behaviorCompiler, service, sendJson, sendError, requireAuth, readBody, workspaceError, recordProblem, ensureImported: assetFiles.ensureImported });
+  const { adminCreateProject, adminRegisterProject, adminUnregisterProject, adminProjectOp, adminExportRoute } = makeAdminRoutes({ config, behaviorCompiler, service, sendJson, sendError, requireAuth, readBody, workspaceError, recordProblem, ensureImported: assetFiles.ensureImported, textureSlots });
 
   const { serveStatic, previewCsp, locatorBaseHeaders, previewTemplate, previewShellHtml, isolationHeaders } = makeStaticRoutes({ config, sendJson });
 
@@ -1918,7 +1923,7 @@ export function createBackend(
           });
         });
       }),
-    _test: { sessions, plays, startupLog, service, contentRoutes, playContent },
+    _test: { sessions, plays, startupLog, service, contentRoutes, playContent, textureSlots },
   };
 
   return { ok: true, backend };

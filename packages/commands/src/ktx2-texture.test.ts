@@ -136,6 +136,54 @@ describe('packed textures and texture arrays', () => {
   });
 });
 
+describe('per-layer texture slots of a graph material', () => {
+  const slotted = (value: unknown): Record<string, unknown> => ({
+    material: {
+      materialId: 'mat-slots',
+      name: 'Slots',
+      shader: 'standard',
+      params: {},
+      textures: {},
+      parameters: [{ key: 'layers', type: 'texture', default: value }],
+      graph: {
+        nodes: [
+          { id: 'p', type: 'parameter', position: [0, 0], data: { key: 'layers' } },
+          { id: 's', type: 'sampleTexture', position: [200, 0] },
+          { id: 'o', type: 'pbr', position: [400, 0] },
+        ],
+        edges: [
+          { id: 'e1', from: { node: 'p', port: 'value' }, to: { node: 's', port: 'tex' } },
+          { id: 'e2', from: { node: 's', port: 'rgb' }, to: { node: 'o', port: 'baseColor' } },
+        ],
+      },
+    },
+  });
+  const two = (): State => {
+    let s = run(fresh(), 'publishAsset', publish({ assetId: 'tex-a' })).state;
+    s = run(s, 'publishAsset', publish({ assetId: 'tex-b' })).state;
+    return s;
+  };
+
+  it('a texture parameter names one plain texture per slot; an instance changes the slots; an object override cannot', () => {
+    const s0 = two();
+    const set = run(s0, 'setMaterial', slotted(['tex-a', '', 'tex-b']));
+    expect(set.ok, JSON.stringify(set.result).slice(0, 400)).toBe(true);
+    const inst = run(set.state, 'setMaterial', { material: { materialId: 'mat-b', name: 'B', shader: 'standard', params: {}, textures: {}, instanceOf: 'mat-slots', values: { layers: ['tex-b', '', 'tex-b'] } } });
+    expect(inst.ok, JSON.stringify(inst.result).slice(0, 400)).toBe(true);
+    // Unknown ids, a texture array as a slot, nothing filled, more slots than an array holds.
+    expect(message(run(s0, 'setMaterial', slotted(['tex-a', 'nope'])))).toMatch(/texture slot must name a texture asset/);
+    const withArray = run(s0, 'publishAsset', publish({ assetId: 'tex-arr', convertedFrom: undefined, metrics: { format: 'ktx2', width: 64, height: 64, decodedBytes: 64 * 64 * 4 * 2, codec: 'uastc', levels: 7, layers: 2 }, packedFrom: { layers: [[{ value: 1 }, { value: 1 }, { value: 1 }, { value: 1 }], [{ value: 1 }, { value: 1 }, { value: 1 }, { value: 1 }]], converter: { name: 'ktx2-encoder', version: '0.6.0' }, encoding: 'data' } })).state;
+    expect(message(run(withArray, 'setMaterial', slotted(['tex-a', 'tex-arr'])))).toMatch(/plain texture, not a texture array/);
+    expect(message(run(s0, 'setMaterial', slotted(['', ''])))).toMatch(/at least one slot/);
+    expect(message(run(s0, 'setMaterial', slotted(Array.from({ length: 257 }, () => 'tex-a'))))).toMatch(/1-256/);
+    const box = s0.scene.entities.find((e) => (e.components as Record<string, unknown>)['box'] !== undefined);
+    if (box !== undefined) {
+      const over = run(set.state, 'setComponent', { entityId: box.id, component: 'materialParams', value: { 'mat-slots': { layers: ['tex-a'] } } });
+      expect(over.ok).toBe(false);
+    }
+  });
+});
+
 describe('texture mip streaming (setAssetOptions streaming)', () => {
   const BIG = { format: 'ktx2', width: 2048, height: 2048, decodedBytes: 2048 * 2048 * 4, codec: 'etc1s', levels: 12 };
   const recOf = (s: State, id: string) => (s.content as unknown as { assets: { assetId: string; streaming?: boolean }[] }).assets.find((a) => a.assetId === id)!;

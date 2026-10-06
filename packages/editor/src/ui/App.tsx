@@ -39,7 +39,8 @@ import { createSceneViewAssets } from '../viewport/scene-assets';
 import { extractedImagePictures, TileThumbnails } from '../viewport/thumbnails';
 import { setKtx2DecoderBase, pageSearch, resolveRendererPreference, type EnvironmentLike, type LightingBakeLike, type MaterialDefLike, type MaterialFunctionLike, type MaterialLibrary, type RendererInfo, type WindLike } from '@thirdlight/three-adapter';
 import { editorRendererChoice, setEditorRendererChoice } from '../viewport/renderer-choice';
-import type { EffectComponent } from '@thirdlight/project-model';
+import type { EffectComponent, MaterialDef } from '@thirdlight/project-model';
+import { withSlotTextureKeys } from '../session/texture-slots';
 import { viewLensOf } from '@thirdlight/runtime';
 import { Hierarchy, type SceneAction, type SceneHeaderView } from './Hierarchy';
 import { Toolbar } from './Toolbar';
@@ -263,7 +264,8 @@ function EditorApp(): JSX.Element {
     const matsKey = JSON.stringify([mats, libFunctions]);
     if (matsKey !== materialsKeyRef.current) {
       materialsKeyRef.current = matsKey;
-      materialLibraryRef.current?.setMaterials(mats as unknown as MaterialDefLike[], libFunctions as unknown as MaterialFunctionLike[]);
+      // A material's per-layer texture slots draw as the array the backend assembles from them.
+      materialLibraryRef.current?.setMaterials(withSlotTextureKeys(mats as unknown as MaterialDef[]) as unknown as MaterialDefLike[], libFunctions as unknown as MaterialFunctionLike[]);
       // A material that animates (wind, water) keeps the Scene view drawing from this frame on.
       viewportRef.current?.requestRender();
     }

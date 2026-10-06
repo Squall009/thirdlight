@@ -804,6 +804,17 @@ export class SessionClient extends SessionClientCore {
     return new Uint8Array(await res.arrayBuffer());
   }
 
+  /** The texture array of per-layer slots (the layers' current versions; the backend assembles it once and caches it). */
+  async textureSlotBytes(layers: readonly string[], mode: string): Promise<Uint8Array> {
+    const res = await fetch(`${this.cfg.authoringOrigin}/api/v1/projects/${this.cfg.projectId}/content/textures/slots`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${this.cfg.authoringToken}`, origin: this.cfg.authoringOrigin, 'content-type': 'application/json' },
+      body: JSON.stringify({ layers, mode }),
+    });
+    if (!res.ok) throw { status: res.status, body: null };
+    return new Uint8Array(await res.arrayBuffer());
+  }
+
   /**
    * A descriptor resolver for the three-adapter visual path: it
    * receives only the immutable version facts and returns the verified bytes.
