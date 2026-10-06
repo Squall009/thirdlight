@@ -102,7 +102,8 @@ both renderers where it changes drawing.
 | 28b.0 | done 2026-10-03 |
 | 28b.1 | done 2026-10-06: validator refuses x ≠ z, Inspector ties x and z (`same` on vec descriptors), sloped stretch-back removed; D52 closed. `perf blocks` before → after (p95 / worst ms): scene block change webgpu 17.5/18.3 → 17.5/19.7, webgl2 17.6/19.6 → 17.6/18.2; export grid writes webgpu 6.0/13.4 → 6.0/15.6, webgl2 8.4/232 → 8.9/231 (noise). Fast gate's village perf check RED on webgpu p50 (7.5 ms vs limit 7.26) — clean HEAD 0c04d623 measures 7.7 ms too, so it predates this item (baseline recorded before 28c.15). |
 | 28b.2 | part A done 2026-10-06: the pack route takes KTX2 sources; whole UASTC layers alike are joined as stored (level digests and transcoded texels equal the sources', vitest + e2e), else transcoded (or their PNG read) and encoded once with `packedFrom.reencoded` per layer, shown by the pack dialog. 4 × 1024² UASTC: joined in 14 ms (187 KB) vs 26.9 s encoding the same from PNG (187 KB); 4 × 1024² ETC1S re-encoded from KTX2 8.7 s (494 KB; from PNG 10.1 s, 474 KB). Part B done 2026-10-06: a texture parameter's default or an instance's value may be a list of single-layer textures; the Scene view, preview, Play and export draw one array assembled by the backend and cached in the import cache by the layers' digests (export ships `slots-…` arrays, not the slot textures). 4 × 1024²: UASTC joined 14 ms, ETC1S encoded 8.6 s, cache hit 0.2 ms; an A/B one-slot swap assembles one array (12 ms / 9.6 s) = +5.6 MB resident instead of a second three-array set (+16.8 MB; computed at 1 B/texel with mips, not measured in a browser). Pixel e2e (slot 3 = layer 4's texture) green on WebGPU and WebGL 2. |
-| 28b.3–28b.7 | — |
+| 28b.3 | done 2026-10-06: `uv: 'model' \| 'world'` on block types and variants (Blocks panel form, MCP); box mapping per flat face in metres from the layer origin, vertices split per projection, 45° switch, tangents along +u; pieces without UVs take world ones. Pixel e2e (4 m ramp over 4 cells, no seam) green on WebGPU and WebGL 2. Mesh time per sloped smoothed chunk (blocks ground, Node) 22.0 → 21.2 ms stand-ins, 22.6 ms world + tangents; `perf blocks` p95/worst scene type change webgpu 17.5/18.2 → 17.6/20.6, webgl2 17.6/17.9 → 17.4/17.8; village p50 webgpu 6.3 → 6.2, webgl2 4.3 → 4.2 ms (noise). |
+| 28b.4–28b.7 | — |
 
 ## 5. Decision log
 
@@ -152,3 +153,32 @@ both renderers where it changes drawing.
   `POST …/content/textures/slots`. The editor may value-import
   `@thirdlight/project-model/texture-slots` (a new pure subpath in the
   boundary table). Default chosen, owner to confirm.
+- 2026-10-06 (28b.3): world UVs are metres from the layer's origin (the min
+  corner of cell 0), not absolute world: chunks are meshed layer-local and a
+  layer only moves, so two layers whose origins differ by a non-multiple of a
+  texture's repeat meet with an offset. Signs: every face shows the image
+  upright and unmirrored from outside for textures as the engine loads them
+  (flipY off, v = 0 the top row): tops u = x, v = z (image top toward −Z),
+  bottoms u = x, v = −z, walls v = −y with u to the viewer's right (+X walls
+  u = −z, −X u = z, +Z u = x, −Z u = −x). The old stand-in mapping (cells,
+  v = +y, chosen per vertex normal) is replaced; at an exact 45° the top
+  projection wins. A variant's `uv` overrides its type's; a type stores only
+  `world`, a variant either value. Stand-ins are always world-mapped.
+  Tangents are written only where they can be read: world-mapped model looks
+  and stand-ins with a `materials` mapping (a plain coloured stand-in is
+  Lambert, no map); model-mapped looks keep none (the shader derives the
+  frame from the UVs, as before), also where a piece without UVs takes world
+  ones. The tangent's handedness matches three.js's derived frame
+  (cross(n, t) × w = +v), so a material lights the same with or without the
+  attribute; the normal-map green convention stays 28b.4's check. Default
+  chosen, owner to confirm.
+- 2026-10-06 (28b.3): existing projects. Skyforge's block types are all
+  model looks without `uv`, so they draw as before (unless a kit piece has
+  no UVs: it now shows world-mapped texture instead of the texture's corner
+  colour); Sprout has no block layers. A stand-in with a textured mapped
+  material (none in either game; the engine's painted-terrain tests) now
+  repeats per metre instead of per cell (the same on 1 m cells; twice as
+  often on 2 m cells) and its walls' image is flipped upright. Stand-in
+  layers mesh to the same positions, normals and indices byte for byte (the
+  pinned digests without UVs match); only UVs changed. Accepted: default
+  chosen, owner to confirm.

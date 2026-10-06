@@ -103,6 +103,8 @@ const WEBGPU_SPECS = [
   '**/painted-terrain.e2e.ts',
   // Smoothed block-layer tops (no seam at a chunk edge, a hard crease) in the Scene view, Play and the export on WebGPU.
   '**/smooth-tops.e2e.ts',
+  // World-aligned texture coordinates on block looks (a texture across cells without a seam) on WebGPU.
+  '**/block-world-uv.e2e.ts',
   // Mip streaming of large KTX2 textures under the texture budget (Play, the export's files) on WebGPU.
   '**/texture-streaming.e2e.ts',
   // A model's images extracted into texture assets, drawn and streamed (Scene view, Play, export) on WebGPU.

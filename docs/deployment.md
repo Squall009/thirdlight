@@ -4025,6 +4025,24 @@ brushes, overlays and stamp UI are below (23.6).
   profile — two half blocks, two ramps side by side); whole chunks are culled
   outside the view. The Scene view, Play and exports draw layers through the
   same code (WebGPU and WebGL 2).
+- **Texture mapping** (`uv` on a block type, and optionally on each look;
+  the block type form in the Blocks panel, MCP `setBlockType`): `model` (the
+  default) keeps a model's own texture coordinates; `world` gives the look
+  texture coordinates from its place in the layer, in **metres** from the
+  layer's origin, so a texture runs on across cells without a seam (a kit
+  whose pieces each map the whole texture no longer shows the same corner on
+  every cell). It is box mapping, one flat projection per face chosen from
+  the face's own normal: tops from above (u = x, v = z, the image's top
+  toward −Z), walls facing ±X from the side (u along z, v down the wall),
+  walls facing ±Z likewise (u along x); every wall shows the image upright
+  and unmirrored from outside. A slope keeps the top's projection up to 45°
+  and takes its wall's past it; a vertex where two projections meet is split,
+  so no triangle mixes them. One texture sample per layer (no triplanar
+  blend). A material's **tiling** sets the repeats per metre (0.25: one
+  repeat per 4 m). World-mapped looks carry tangents along +u, so normal
+  maps light every face the same way. Coloured stand-ins are always
+  world-mapped (in metres), and a model piece without texture coordinates
+  takes world ones (it used to read the texture's corner).
 - **Collision** (3D projects): one triangle-mesh collider per chunk built from
   the collision shapes, rebuilt when cells change, before the step's physics
   sweep. A 2D-plane project draws layers but they do not collide.

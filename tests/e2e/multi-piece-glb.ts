@@ -9,6 +9,8 @@
  * for light baking.
  * With `{ texturePng }` the material's base colour is that PNG,
  * embedded in the GLB (a bufferView image) and mapped through TEXCOORD_0.
+ * With `{ centred: true }` a box's pivot is its base centre (a block cell's
+ * frame) instead of its base centre-left.
  */
 
 export interface PieceSpec {
@@ -25,10 +27,10 @@ export interface PieceSpec {
   vertexColor?: [number, number, number, number];
 }
 
-function box(size: [number, number, number]): { positions: number[]; normals: number[]; uv1: number[]; indices: number[] } {
+function box(size: [number, number, number], centred = false): { positions: number[]; normals: number[]; uv1: number[]; indices: number[] } {
   const [sx, sy, sz] = size;
-  // Pivot at the base centre-left like a kit piece: x 0..sx, y 0..sy, z -sz/2..sz/2.
-  const x0 = 0, x1 = sx, y0 = 0, y1 = sy, z0 = -sz / 2, z1 = sz / 2;
+  // Pivot at the base centre-left like a kit piece: x 0..sx, y 0..sy, z -sz/2..sz/2 (centred: x -sx/2..sx/2).
+  const x0 = centred ? -sx / 2 : 0, x1 = centred ? sx / 2 : sx, y0 = 0, y1 = sy, z0 = -sz / 2, z1 = sz / 2;
   const faces: { n: [number, number, number]; v: [number, number, number][] }[] = [
     { n: [0, 0, 1], v: [[x0, y0, z1], [x1, y0, z1], [x1, y1, z1], [x0, y1, z1]] },
     { n: [0, 0, -1], v: [[x1, y0, z0], [x0, y0, z0], [x0, y1, z0], [x1, y1, z0]] },
@@ -56,7 +58,7 @@ function box(size: [number, number, number]): { positions: number[]; normals: nu
   return { positions, normals, uv1, indices };
 }
 
-export function multiPieceGlb(pieces: readonly PieceSpec[], options: { lightmapUv?: boolean; texturePng?: Buffer } = {}): Buffer {
+export function multiPieceGlb(pieces: readonly PieceSpec[], options: { lightmapUv?: boolean; texturePng?: Buffer; centred?: boolean } = {}): Buffer {
   const chunks: Buffer[] = [];
   let offset = 0;
   const bufferViews: Record<string, unknown>[] = [];
@@ -72,10 +74,11 @@ export function multiPieceGlb(pieces: readonly PieceSpec[], options: { lightmapU
   };
   const extraMaterials: Record<string, unknown>[] = [];
   const addMesh = (name: string, size: [number, number, number], render: boolean, color?: [number, number, number], vertexColor: [number, number, number, number] = [1, 0, 0, 1]): number => {
-    const g = box(size);
+    const g = box(size, options.centred === true);
     const count = g.positions.length / 3;
     const pos = addView(Buffer.from(new Float32Array(g.positions).buffer), 34962);
-    accessors.push({ bufferView: pos, componentType: 5126, count, type: 'VEC3', min: [0, 0, -size[2] / 2], max: [size[0], size[1], size[2] / 2] });
+    const xMin = options.centred === true ? -size[0] / 2 : 0;
+    accessors.push({ bufferView: pos, componentType: 5126, count, type: 'VEC3', min: [xMin, 0, -size[2] / 2], max: [xMin + size[0], size[1], size[2] / 2] });
     const posA = accessors.length - 1;
     const nrm = addView(Buffer.from(new Float32Array(g.normals).buffer), 34962);
     accessors.push({ bufferView: nrm, componentType: 5126, count, type: 'VEC3' });
