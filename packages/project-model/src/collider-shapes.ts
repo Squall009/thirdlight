@@ -42,8 +42,10 @@ export const CONVEX_TOL = 1e-9;
  * coordinate lies within the 64 m collider extent, like a polygon's. A
  * compound has no shape count of its own: its hulls' and meshes' points
  * count toward that scene budget, and the command request bounds one edit.
+ * A heightfield (made by the engine from a terrain tile, never authored)
+ * has at most `heightfieldCells` cells a side: the largest tile's.
  */
-export const COLLIDER_3D_LIMITS = Object.freeze({ convexPoints: 64, meshVertices: 1024, meshTriangles: 2048, pointsTotal: 1_048_576 });
+export const COLLIDER_3D_LIMITS = Object.freeze({ convexPoints: 64, meshVertices: 1024, meshTriangles: 2048, pointsTotal: 1_048_576, heightfieldCells: 1024 });
 /** The 3D collider shape types (a 3D project only; a 2D plane uses box and polygon). */
 export const COLLIDER_3D_SHAPES = ['sphere', 'capsule', 'convex', 'mesh'] as const;
 /** The shape types a compound lists (and a collider may be itself). */

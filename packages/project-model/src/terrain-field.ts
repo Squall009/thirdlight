@@ -4,8 +4,12 @@
  * heightfield colliders, surface queries and placement tools read, the same
  * in the editor, Play and an export.
  *
- * Heights between samples are bilinear (the four samples around the point);
- * a point in a hole, outside every tile or in a tile not loaded has none.
+ * Between samples the surface is two triangles per cell, split along the
+ * diagonal from its (+x, min z) corner to its (min x, +z) corner: the
+ * triangles the renderer's finest level draws and the heightfield colliders
+ * hold, so a query, a collision and the nearby ground agree exactly (the
+ * bilinear surface would stand up to a quarter of a cell's twist off them).
+ * A point in a hole, outside every tile or in a tile not loaded has none.
  *
  * Pure.
  */
@@ -78,12 +82,50 @@ export class TerrainField {
   heightAt(wx: number, wz: number): number | null {
     const at = this.locate(wx, wz);
     if (at === null || terrainHoleAt(at.t, at.cx, at.cz)) return null;
-    const s = this.n + 1;
-    const i = at.cz * s + at.cx;
-    const h = at.t.heights;
-    const top = h[i]! + (h[i + 1]! - h[i]!) * at.fx;
-    const bottom = h[i + s]! + (h[i + s + 1]! - h[i + s]!) * at.fx;
-    return this.origin[1] + terrainHeightOf(this.range, top + (bottom - top) * at.fz);
+    return this.origin[1] + terrainHeightOf(this.range, terrainCellStep(at.t.heights, at.cz * (this.n + 1) + at.cx, this.n + 1, at.fx, at.fz));
+  }
+
+  /**
+   * Where a ray (world origin, unit direction) first meets the surface
+   * within `maxDistance`, or null: marched in steps of a quarter sample
+   * along its horizontal path, then refined by halving (picking in the
+   * editor reads this; the game's rays hit the colliders).
+   */
+  raycast(origin: readonly number[], dir: readonly number[], maxDistance: number): { distance: number; point: [number, number, number] } | null {
+    const [ox, oy, oz] = [origin[0]!, origin[1]!, origin[2]!];
+    const [dx, dy, dz] = [dir[0]!, dir[1]!, dir[2]!];
+    const flat = Math.hypot(dx, dz);
+    // A straight-down ray needs only the point under it; otherwise a quarter sample of horizontal travel per step.
+    const step = flat < 1e-9 ? maxDistance : Math.min(maxDistance, (this.spacing * 0.25) / flat);
+    const above = (t: number): boolean | null => {
+      const h = this.heightAt(ox + dx * t, oz + dz * t);
+      return h === null ? null : oy + dy * t >= h;
+    };
+    if (flat < 1e-9) {
+      const h = this.heightAt(ox, oz);
+      if (h === null || dy === 0) return null;
+      const t = (h - oy) / dy;
+      return t >= 0 && t <= maxDistance ? { distance: t, point: [ox, h, oz] } : null;
+    }
+    let prev = 0;
+    let prevAbove = above(0);
+    for (let t = step; t <= maxDistance + step * 0.5; t += step) {
+      const now = Math.min(t, maxDistance);
+      const a = above(now);
+      if (a === false && prevAbove === true) {
+        let lo = prev;
+        let hi = now;
+        for (let k = 0; k < 24; k++) {
+          const mid = (lo + hi) * 0.5;
+          if (above(mid) === false) hi = mid;
+          else lo = mid;
+        }
+        return { distance: hi, point: [ox + dx * hi, oy + dy * hi, oz + dz * hi] };
+      }
+      prev = now;
+      prevAbove = a;
+    }
+    return null;
   }
 
   /** Whether a world point is over a hole (false off the terrain). */
@@ -113,9 +155,25 @@ export class TerrainField {
     return { height, normal, slope: (Math.acos(normal[1]) * 180) / Math.PI, layers, weights };
   }
 
+  /** The loaded tiles by "x,z". */
+  loadedTiles(): ReadonlyMap<string, TerrainTile> {
+    return this.tiles;
+  }
+
   /** The world box of tile (x, z) in XZ: [minX, minZ, maxX, maxZ]. */
   tileBounds(x: number, z: number): [number, number, number, number] {
     const size = terrainTileSize({ tileSamples: this.n + 1, spacing: this.spacing });
     return [this.origin[0] + x * size, this.origin[2] + z * size, this.origin[0] + (x + 1) * size, this.origin[2] + (z + 1) * size];
   }
+}
+
+/**
+ * The height step at (fx, fz) within the cell whose min corner is sample `i`
+ * of a tile `s` samples a side: on the triangle (min, +x, +z corners) when
+ * fx + fz ≤ 1, else on the triangle (+x+z, +z, +x corners).
+ */
+export function terrainCellStep(h: ArrayLike<number>, i: number, s: number, fx: number, fz: number): number {
+  if (fx + fz <= 1) return h[i]! + (h[i + 1]! - h[i]!) * fx + (h[i + s]! - h[i]!) * fz;
+  const h11 = h[i + s + 1]!;
+  return h11 + (h[i + s]! - h11) * (1 - fx) + (h[i + 1]! - h11) * (1 - fz);
 }

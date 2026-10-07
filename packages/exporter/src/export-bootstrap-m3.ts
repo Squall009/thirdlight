@@ -33,7 +33,7 @@ import { moduleSpecs } from 'thirdlight:export-modules';
 
 /** The simulation worker's bundle, next to this one (relative to the page). */
 const EXPORT_SIM_WORKER_PATH = './js/sim-worker.js';
-/** The block mesh worker (`js/mesh-worker.js`, only in an export with block layers; without it chunks mesh on the page). */
+/** The view's worker (`js/mesh-worker.js`, only in an export with block layers or terrain; without it chunks mesh and tiles pack on the page). */
 const EXPORT_MESH_WORKER_PATH = './js/mesh-worker.js';
 /** The 3D physics backend (`js/physics-3d.js`, only in a 3D project's export). */
 const EXPORT_PHYSICS_3D_PATH = './js/physics-3d.js';

@@ -76,6 +76,7 @@ import {
 import { LiveBlocks, edgeKeyOf, type LiveBlockChanges } from './live-blocks';
 import { walkNeighboursQuery, walkPathQuery, walkReachQuery, type GridWalkOptions, type GridWalkPlace, type WalkGraphCache, type WalkLayer } from './grid-walk';
 import type { PhysicsPort3D, StaticColliderSpec3D } from './ports';
+import { TerrainColliders } from './terrain-collision';
 
 // ---- the script API types (public: `ctx.grid`) -------------------------------------
 
@@ -607,9 +608,12 @@ export class RuntimeGrid {
     return this.layerMap.size === 0;
   }
 
-  /** The layers of entities that carry `blockLayer` (their cells from the resolved component's `data`). */
+  /** The terrains' colliders (flushed with the chunks', in the same batch points). */
+  readonly terrain = new TerrainColliders();
+
+  /** The layers of entities that carry `blockLayer` (their cells from the resolved component's `data`), and their terrains; returns both's ids. */
   addLayers(entities: readonly EntityV3[]): string[] {
-    const added: string[] = [];
+    const added: string[] = this.collide ? this.terrain.add(entities) : [];
     for (const e of entities) {
       const comp = (e.components as { blockLayer?: BlockLayerComponent & { data?: BlockLayerData } }).blockLayer;
       if (comp === undefined || this.layerMap.has(e.id)) continue;
@@ -629,7 +633,7 @@ export class RuntimeGrid {
 
   /** Forget unloaded layers; returns their collider ids (the caller removes them from the port). */
   removeLayers(ids: ReadonlySet<string>): string[] {
-    const colliders: string[] = [];
+    const colliders: string[] = this.terrain.remove(ids);
     for (const id of ids) {
       const layer = this.layerMap.get(id);
       if (layer === undefined) continue;
@@ -879,6 +883,7 @@ export class RuntimeGrid {
 
   /** Rebuild the colliders of the chunks written since the last flush (batched: one remove, one add). */
   flushCollision(port: PhysicsPort3D | undefined): void {
+    if (this.collide) this.terrain.flush(port);
     if (this.collisionDirty.size === 0) return;
     const dirty = this.collisionDirty;
     this.collisionDirty = new Map();

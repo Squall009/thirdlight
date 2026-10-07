@@ -160,6 +160,12 @@ export interface GraphSurface {
   readonly position: N;
   /** False where a pixel is cut away (the material's mask node), or null. */
   readonly mask: N | null;
+  /**
+   * The texture-array layer a graph's array layer (a layer slot, 0–3) reads
+   * at a pixel (a terrain's per-sample layer indices: any number of layers
+   * draws through four slots); absent: the graph's layer as it is.
+   */
+  readonly arrayLayer?: (slot: N) => N;
 }
 
 export interface GraphProblem {
@@ -872,13 +878,17 @@ export function compileMaterialGraph(input: { graph: MaterialGraphLike; paramete
   };
   /**
    * A texture read at a UV; of a texture array, at `layer`
-   * (rounded, kept within the array; a plain texture ignores it).
+   * (rounded, kept within the array; a plain texture ignores it). On a
+   * surface that says which array layer each layer slot shows per pixel (a
+   * terrain), the layer is that slot's.
    */
   const sample = (t: THREE.Texture, uv: N, stage: Stage, layer?: N): N => {
     let s = T.texture(t, uv);
     if (isArrayTexture(t)) {
       const last = Math.max(0, arrayLayers(t) - 1);
-      s = s.depth(T.int(T.clamp(T.floor((layer ?? T.float(0)).add(0.5)), 0, last)));
+      const want = layer ?? T.float(0);
+      const slot = stage === 'fragment' && env.surface?.arrayLayer !== undefined ? env.surface.arrayLayer(want) : want;
+      s = s.depth(T.int(T.clamp(T.floor(slot.add(0.5)), 0, last)));
     }
     return stage === 'vertex' ? s.level(0) : s;
   };

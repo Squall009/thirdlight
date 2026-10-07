@@ -16,10 +16,19 @@
  * texture coordinates are metres in the terrain's frame (less whole
  * `WORLD_UV_PERIOD_METRES`, as block layers' are), +u along x, +v along z.
  *
- * Per pixel: the layer weights (a linear sample of the layer texture: layers
- * 0–2, the rest is layer 3) stand in for COLOR_0, which the layered template
- * reads as its paint; a cell marked as a hole is cut away (the mask, also in
- * the shadow pass).
+ * Per pixel: the four channels' weights (a linear sample of the layer
+ * texture: channels 0–2, the rest is channel 3) stand in for COLOR_0, which
+ * the layered template reads as its paint; the nearest sample's layer
+ * indices say which texture-array layer each of the template's four layer
+ * slots reads there (`GraphSurface.arrayLayer`), so a terrain draws any
+ * number of layers through four slots; a cell marked as a hole is cut away
+ * (the mask, also in the shadow pass). The terrain's own reads per pixel are
+ * three: the weights, the indices and the hole; the layered template's
+ * twelve come on top (fifteen in all).
+ *
+ * A layer slot's settings (tiling, normal strength, height contrast and
+ * offset: the template's vec4 per-layer parameters) are its channel's:
+ * layer L takes those of layer L % 4.
  *
  * The camera position the morph reads is the view's for every pass of the
  * frame, so a shadow map holds the same shape as the view.
@@ -35,7 +44,7 @@ import { STEADY_SHAPE_KEY } from './shadow-casters';
 
 /** TSL untyped: three's typings lag the node API used here. */
 const TSL: N = TSLTyped;
-const { Fn, attribute, clamp, dot, float, floor, fract, int, ivec2, length, max, min, mix, modelWorldMatrix, normalLocal, normalize, positionGeometry, renderGroup, sqrt, tangentLocal, texture, textureLoad, uniform, varyingProperty, vec2, vec3, vec4 } = TSL;
+const { Fn, attribute, clamp, dot, float, floor, fract, int, ivec2, length, max, min, mix, modelWorldMatrix, normalLocal, normalize, positionGeometry, renderGroup, select, sqrt, tangentLocal, texture, textureLoad, uniform, varyingProperty, vec2, vec3, vec4 } = TSL;
 
 /** The instanced attributes of a drawn node (`terrain-quadtree.ts`'s eight floats). */
 export const TERRAIN_NODE_ATTRIBUTE = 'tlTerrainNode';
@@ -61,18 +70,19 @@ export function terrainUniforms(): TerrainUniforms {
   return { samples: uniform(257), spacing: uniform(1), low: uniform(0), step: uniform(1), grid: uniform(16) };
 }
 
-/** The default look of a terrain without a graph material: its four drawn layers as plain colours (sRGB). */
+/** The default look of a terrain without a graph material: its four channels as plain colours (sRGB; layer L shows channel L % 4's). */
 export const TERRAIN_DEFAULT_COLOURS: readonly string[] = Object.freeze(['#6f8a4a', '#8a6f4f', '#8a8580', '#c8b98a']);
 
 /** Decode a texel's 16-bit step (R high byte, G low byte). */
 const stepOf = (t: N): N => floor(t.r.mul(255).add(0.5)).mul(256).add(floor(t.g.mul(255).add(0.5)));
 
 /**
- * The surface a terrain page's materials compile against: its height and
- * layer texture arrays, its shape values, and `key` naming it (a page's
- * textures replaced by larger ones take a new key, so a new compile).
+ * The surface a terrain page's materials compile against: its height,
+ * layer-weight and layer-index texture arrays, its shape values, and `key`
+ * naming it (a page's textures replaced by larger ones take a new key, so a
+ * new compile).
  */
-export function terrainSurface(key: string, heights: THREE.DataArrayTexture, layers: THREE.DataArrayTexture, u: TerrainUniforms): GraphSurface {
+export function terrainSurface(key: string, heights: THREE.DataArrayTexture, layers: THREE.DataArrayTexture, indices: THREE.DataArrayTexture, u: TerrainUniforms): GraphSurface {
   const vSample = varyingProperty('vec2', 'tlTerrainSample');
   const vLayer = varyingProperty('float', 'tlTerrainLayer');
   const vUv = varyingProperty('vec2', 'tlTerrainUv');
@@ -122,12 +132,22 @@ export function terrainSurface(key: string, heights: THREE.DataArrayTexture, lay
   })();
   const cell = clamp(floor(vSample), vec2(0), vec2(u.samples.sub(2)));
   const mask = textureLoad(layers, ivec2(int(cell.x), int(cell.y))).depth(pixelLayer).a.lessThan(0.5);
+  // The nearest sample's layer per channel (the weight filtered in from a neighbour names the same layer there: see terrain-texels.ts).
+  const near = clamp(floor(vSample.add(0.5)), vec2(0), vec2(u.samples.sub(1)));
+  const ids = textureLoad(indices, ivec2(int(near.x), int(near.y))).depth(pixelLayer).mul(255).add(0.5).floor();
+  const arrayLayer = (slot: N): N => {
+    const s = floor(slot.add(0.5));
+    const mapped = select(s.lessThan(0.5), ids.x, select(s.lessThan(1.5), ids.y, select(s.lessThan(2.5), ids.z, ids.w)));
+    // A layer a graph reads past the four slots is its own.
+    return select(s.lessThan(3.5), mapped, slot);
+  };
   return {
     key,
     uv: () => vUv,
     vertexColor: (name) => (name === 'color' ? weights : null),
     position,
     mask,
+    arrayLayer,
   };
 }
 

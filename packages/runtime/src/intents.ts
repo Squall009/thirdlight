@@ -767,6 +767,19 @@ function vectorError(kind: string, name: string, v: readonly number[] | undefine
 }
 
 /**
+ * Write an intent's quaternion (normalized) or facing rotation
+ * (validated before: finite, not all zero, up not parallel) into `rotation`.
+ */
+export function writeRotationForm(rotation: number[], intent: { quaternion?: readonly number[]; facing?: readonly number[]; up?: readonly number[] }): void {
+  const q = intent.quaternion !== undefined ? normalizedQuaternion(intent.quaternion) : facingQuaternion(intent.facing!, intent.up);
+  if (q === null) return;
+  rotation[0] = q[0];
+  rotation[1] = q[1];
+  rotation[2] = q[2];
+  rotation[3] = q[3];
+}
+
+/**
  * The unit quaternion [x, y, z, w] of a (validated, non-zero)
  * quaternion — each component divided by the length.
  */

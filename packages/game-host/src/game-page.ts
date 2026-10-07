@@ -34,7 +34,7 @@ import { audioSpatialOf, dependencyTables, depthBufferOf, instanceChunkSizeOf, l
 import { assetVersionKey, createResourceManager, fixedStepHzOf, EMBEDDED_TEXTURES_LISTED, embeddedTextureBytes, qualityLevelOf, qualityLevelsOf, renderSettingsOf, type ResourceManager, type ResourceObservation } from '@thirdlight/runtime';
 import { attachBrowserInput, DEFAULT_INPUT_CONFIG, DEFAULT_INPUT_CONFIG_3D, focusGameSurface, type InputConfigLike } from '@thirdlight/input';
 import type { RapierPhysicsInitConfig, RapierPhysicsPort, RapierStaticColliderSpec } from '@thirdlight/physics-rapier';
-import { batchingFromUrl, terrainFromUrl, createSceneAdapter, createTextureStreamer, decodeTexture, effectsOptionFrom, environmentHasLook, mergingFromUrl, pageSearch, probesFromUrl, qualityFromUrl, resolveRendererPreference, setKtx2DecoderBase, renderSettingsFromUrl, shadowCacheFromUrl, slowFramesFromUrl, upscaleFilterFromUrl } from '@thirdlight/three-adapter';
+import { batchingFromUrl, createBrowserMeshWorker, terrainFromUrl, TerrainTileStore, createSceneAdapter, createTextureStreamer, decodeTexture, effectsOptionFrom, environmentHasLook, mergingFromUrl, pageSearch, probesFromUrl, qualityFromUrl, resolveRendererPreference, setKtx2DecoderBase, renderSettingsFromUrl, shadowCacheFromUrl, slowFramesFromUrl, upscaleFilterFromUrl } from '@thirdlight/three-adapter';
 import { createGltfLoaderPort } from '@thirdlight/three-adapter/gltf-loader';
 import type { EffectDefLike, EnvironmentLike, FrameDrawnInfo, TextureStreamer, LightingBakeLike, MaterialDefLike, MaterialFunctionLike, SceneAdapter, SceneAdapterModels, SceneAdapterOptions, WindLike } from '@thirdlight/three-adapter';
 import {
@@ -115,6 +115,7 @@ import type { Physics2DModule } from './physics-global';
 import { pageAudio } from './page-audio';
 import { mipPartsOf } from './asset-reader';
 import { withBlockChunkData } from './block-chunk-data';
+import { feedTerrainCollision, preloadTerrainTiles } from './terrain-tiles';
 import { composeOverlay } from './overlay-capture';
 import { statsOverlayModeOf } from './stats-overlay';
 
@@ -775,6 +776,13 @@ export async function startGamePage(o: GamePageOptions): Promise<GamePageHandle>
       remoteStart = null;
       throw e instanceof AssetReadError ? new GamePageError('asset_source_invalid', 'assets', e.message) : e;
     }
+    // The terrains' tiles: one decoded copy each, drawn by the adapter and handed to the simulation's colliders; the start
+    // scenes' are read (and packed on a worker) before the game starts, so their ground is there on its first step.
+    const terrainTiles = new TerrainTileStore({ read: readBuffer ?? null, worker: o.meshWorkerUrl !== undefined ? () => createBrowserMeshWorker(o.meshWorkerUrl!, 'thirdlight-terrain') : null });
+    releases.push(() => terrainTiles.dispose());
+    const terrainDrawn = terrainFromUrl(pageSearch());
+    // A tile that cannot be read is reported by the renderer (and has no collider); the game still starts.
+    await preloadTerrainTiles(snapshot.scene.entities, terrainTiles, terrainDrawn).catch((e: unknown) => console.warn(`terrain tiles: ${e instanceof Error ? e.message : String(e)}`));
     const models = buildModelsBlock(manifest, snapshot, assetReader, o.read, content);
 
     let remote: RemoteSimulation | null = null;
@@ -906,7 +914,8 @@ export async function startGamePage(o: GamePageOptions): Promise<GamePageHandle>
           // Repeated objects drawn instanced unless the page says ?batching=off (a diagnostic comparison).
           batching: batchingFromUrl(pageSearch()),
           // Terrains drawn unless the page says ?terrain=off (a diagnostic comparison); their tiles are the build's buffers.
-          terrain: terrainFromUrl(pageSearch()),
+          terrain: terrainDrawn,
+          terrainTiles,
           ...(readBuffer !== undefined ? { resolveBuffer: readBuffer } : {}),
           // The project's LOD bias and hysteresis.
           lod: lodTuningOf(settings),
@@ -991,6 +1000,9 @@ export async function startGamePage(o: GamePageOptions): Promise<GamePageHandle>
     timings?.end('mount');
     onProgress('runtime', 0, 0);
     if (!mount.ok) throw new GamePageError('play_content_not_ready', 'manifest', `host mount failed: ${JSON.stringify(mount.error)}`);
+    // The simulation's terrain colliders: the tiles decoded so far, then each one as it arrives (a scene loaded later).
+    const simulation = host.runtime;
+    if (simulation?.addTerrainTiles !== undefined) releases.push(feedTerrainCollision(terrainTiles, (t) => simulation.addTerrainTiles!(t)));
     // The page's ?frameRateCap= flag pins the pacing whatever the game sets (measurements run uncapped).
     const pinnedCap = frameRateCapFromUrl(pageSearch());
     if (pinnedCap !== undefined) host.runtime?.pinFrameRateCap?.(pinnedCap);
@@ -998,6 +1010,8 @@ export async function startGamePage(o: GamePageOptions): Promise<GamePageHandle>
     scenes?.setPrepare(
       pageScenePreparation({
         adapter: () => adapterRef.current,
+        // Its terrains' tiles before the simulation gets it (their colliders on its first step there).
+        terrain: (entities) => preloadTerrainTiles(entities, terrainTiles, terrainDrawn).catch((e: unknown) => console.warn(`terrain tiles: ${e instanceof Error ? e.message : String(e)}`)),
         reader: assetReader,
         catalog: content.catalog,
         resources,

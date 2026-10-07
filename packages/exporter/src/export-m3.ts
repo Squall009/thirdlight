@@ -241,15 +241,19 @@ export async function exportProjectM3(
   // The workers and the physics backend, each its own script next to the bootstrap's (same directory, same rules).
   const here = ctx.fs.join(m3BootstrapEntry, '..');
   const read = (path: string): Uint8Array => ctx.fs.read(path);
-  // The block mesh worker, for a game with block layers (a scene or a prefab names one); without it chunks mesh on the page.
+  // The view's worker (block chunks meshed, terrain tiles packed), for a game with block layers or terrain (a scene or a prefab names one);
+  // without it chunks mesh and tiles pack on the page.
   const decoder = new TextDecoder();
-  const hasBlockLayers = [closure.sceneBytes, ...closure.sceneArtifacts.map((a) => a.bytes), ...closure.contentFileArtifacts.map((a) => a.bytes)].some((b) => decoder.decode(b).includes('"blockLayer"'));
+  const hasBlockLayers = [closure.sceneBytes, ...closure.sceneArtifacts.map((a) => a.bytes), ...closure.contentFileArtifacts.map((a) => a.bytes)].some((b) => {
+    const text = decoder.decode(b);
+    return text.includes('"blockLayer"') || text.includes('"tileSamples"');
+  });
   // Only the physics engine the project's dimension uses: a game on the 2D plane ships rapier2d, a 3D game with physics rapier3d.
   const threeD = closure.moduleIds.includes(PHYSICS_3D_MODULE);
   const twoD = physicsDimensionOf(closure.manifest.settings) === 2;
   const planned: { name: string; entry: string; what: string; moduleIds?: readonly string[]; wasm?: true }[] = [
     { name: WORKER_BUNDLE_NAME, entry: ctx.fs.join(here, 'export-sim-worker.ts'), what: 'simulation worker', moduleIds: closure.moduleIds },
-    ...(hasBlockLayers ? [{ name: MESH_WORKER_BUNDLE_NAME, entry: ctx.fs.join(here, 'export-mesh-worker.ts'), what: 'block mesh worker' }] : []),
+    ...(hasBlockLayers ? [{ name: MESH_WORKER_BUNDLE_NAME, entry: ctx.fs.join(here, 'export-mesh-worker.ts'), what: 'block mesh and terrain worker' }] : []),
     ...(twoD ? [{ name: PHYSICS_2D_BUNDLE_NAME, entry: ctx.fs.join(here, 'export-physics-2d.ts'), what: '2D physics', wasm: true as const }] : []),
     ...(threeD ? [{ name: PHYSICS_3D_BUNDLE_NAME, entry: ctx.fs.join(here, 'export-physics-3d.ts'), what: '3D physics', wasm: true as const }] : []),
   ];

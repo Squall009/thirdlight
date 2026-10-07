@@ -255,9 +255,10 @@ export { readModelRig, rigNodeNames, type ModelRig } from '@thirdlight/project-m
 // A build's block chunk data, decoded on the game page before a scene reaches the runtime (pure byte decoding).
 export { BLOCK_CHUNK_DATA_KEY, decodeBlockChunks, readBlockChunkData } from '@thirdlight/project-model';
 // A terrain's tiles: decoded on the page from their blobs, asked for heights, normals, holes and layers (renderer, colliders, queries).
-export { TerrainField, decodeTerrainTile, readTerrainTileBlob, terrainTileKey, type TerrainComponent, type TerrainSample, type TerrainTile } from '@thirdlight/project-model';
-export { TERRAIN_HEIGHT_STEPS, TERRAIN_PAINT_BYTES, TERRAIN_SAMPLE_LAYERS, TERRAIN_WEIGHT_BYTES, WORLD_UV_PERIOD_METRES, flatTerrainTile, terrainFlatStep, terrainHeightOf, terrainLayersAt, terrainTileSize, type TerrainTileRef } from '@thirdlight/project-model';
+export { TerrainField, decodeTerrainTile, readTerrainTileBlob, terrainCellStep, terrainTileKey, type TerrainComponent, type TerrainSample, type TerrainTile } from '@thirdlight/project-model';
+export { TERRAIN_HEIGHT_STEPS, TERRAIN_PAINT_BYTES, TERRAIN_SAMPLE_LAYERS, TERRAIN_WEIGHT_BYTES, WORLD_UV_PERIOD_METRES, flatTerrainTile, terrainFlatStep, terrainHeightOf, terrainLayersAt, terrainTileBytes, terrainTileSize, type TerrainTileRef } from '@thirdlight/project-model';
 export { terrainTileOf } from './terrain-blob';
+export { TERRAIN_COLLIDER_PATCH_CELLS, TerrainColliders, terrainColliderId, terrainColliderPieces, type TerrainCollisionDiagnostics, type TerrainCollisionTile, type TerrainColliderPiece, type TerrainTileData } from './terrain-collision';
 // Gunzip with the platform's DecompressionStream (a build's binary data ships gzip: block chunks, terrain tiles).
 export { gunzip } from './gunzip';
 // The project's lens (its camera settings) for the editor's camera previews.

@@ -51,7 +51,8 @@ export type ColliderPrimitive3D =
   | { type: 'sphere'; radius: number }
   | { type: 'capsule'; radius: number; halfHeight: number }
   | { type: 'convex'; points: readonly number[] }
-  | { type: 'mesh'; vertices: readonly number[]; indices: readonly number[] };
+  | { type: 'mesh'; vertices: readonly number[]; indices: readonly number[] }
+  | { type: 'heightfield'; cellsX: number; cellsZ: number; cellX: number; cellZ: number; heights: Float32Array };
 
 /** One shape of a compound, placed in its body's frame. */
 export interface ColliderPart3D {
@@ -66,6 +67,7 @@ export type ColliderShape3D = ColliderPrimitive3D | { type: 'compound'; parts: r
 /** The port's limits for a hull and a mesh: the model's (which also keeps a scene's total). */
 export const MAX_CONVEX_POINTS_3D = COLLIDER_3D_LIMITS.convexPoints;
 export const MAX_MESH_VERTICES_3D = COLLIDER_3D_LIMITS.meshVertices;
+export const MAX_HEIGHTFIELD_CELLS_3D = COLLIDER_3D_LIMITS.heightfieldCells;
 export const MAX_MESH_TRIANGLES_3D = COLLIDER_3D_LIMITS.meshTriangles;
 
 /** The 3D port's diagnostics (the runtime-read counters plus the library's own live counts). */
@@ -210,7 +212,28 @@ function validatePrimitive3D(value: unknown): { ok: true; shape: ColliderPrimiti
     if (extra !== null) return { ok: false, detail: extra };
     return { ok: true, shape: { type: 'mesh', vertices, indices } };
   }
-  return { ok: false, detail: 'a 3D collider is a box, sphere, capsule, convex hull or mesh (polygons are 2D-plane shapes)' };
+  if (type === 'heightfield') {
+    const extra = onlyKeys(v, ['type', 'cellsX', 'cellsZ', 'cellX', 'cellZ', 'heights'], 'heightfield');
+    if (extra !== null) return { ok: false, detail: extra };
+    const cx = v['cellsX'];
+    const cz = v['cellsZ'];
+    for (const [k, n] of [['cellsX', cx], ['cellsZ', cz]] as const) {
+      if (!Number.isInteger(n) || (n as number) < 1 || (n as number) > MAX_HEIGHTFIELD_CELLS_3D) return { ok: false, detail: `heightfield ${k} must be a whole number of cells, 1-${MAX_HEIGHTFIELD_CELLS_3D}` };
+    }
+    for (const k of ['cellX', 'cellZ'] as const) if (!positive(v[k])) return { ok: false, detail: `heightfield ${k} must satisfy 0 < ${k} <= ${MAX_SHAPE_VALUE}` };
+    const h = v['heights'];
+    const count = ((cx as number) + 1) * ((cz as number) + 1);
+    if (!(Array.isArray(h) || h instanceof Float32Array) || (h as ArrayLike<number>).length !== count) return { ok: false, detail: `heightfield heights must be (cellsX + 1) × (cellsZ + 1) = ${count} numbers` };
+    const heights = h instanceof Float32Array ? h : Float32Array.from(h as number[]);
+    // A tile's million heights: one plain loop over a local bound.
+    const lim = MAX_SHAPE_VALUE;
+    for (let i = 0; i < heights.length; i++) {
+      const y = heights[i]!;
+      if (!(y >= -lim && y <= lim)) return { ok: false, detail: `heightfield height ${i} must be finite, within ±${lim}` };
+    }
+    return { ok: true, shape: { type: 'heightfield', cellsX: cx as number, cellsZ: cz as number, cellX: v['cellX'] as number, cellZ: v['cellZ'] as number, heights } };
+  }
+  return { ok: false, detail: 'a 3D collider is a box, sphere, capsule, convex hull, mesh or heightfield (polygons are 2D-plane shapes)' };
 }
 
 /**
@@ -253,7 +276,7 @@ function validateSpec(spec: StaticColliderSpec3D, label: string): { reason: 'inv
   if (!shape.ok) return { reason: 'invalid_shape', message: `${label}: ${shape.detail}` };
   if (spec.kinematic !== undefined && typeof spec.kinematic !== 'boolean') return { reason: 'invalid_config', message: `${label}: kinematic must be true, false or absent` };
   if (spec.layers !== undefined && !(Array.isArray(spec.layers) && spec.layers.length >= 1 && spec.layers.length <= 16 && spec.layers.every((n) => typeof n === 'string'))) return { reason: 'invalid_config', message: `${label}: layers must be 1-16 layer names or absent` };
-  if (spec.kinematic === true && partsOf(shape.shape).some((p) => p.shape.type === 'mesh')) return { reason: 'invalid_shape', message: `${label}: a mesh collider is static (a moving collider uses box, sphere, capsule or convex)` };
+  if (spec.kinematic === true && partsOf(shape.shape).some((p) => p.shape.type === 'mesh' || p.shape.type === 'heightfield')) return { reason: 'invalid_shape', message: `${label}: a mesh collider is static, a heightfield too (a moving collider uses box, sphere, capsule or convex)` };
   if (spec.maxSlope !== undefined && (!finite(spec.maxSlope) || spec.maxSlope <= 0 || spec.maxSlope >= Math.PI / 2)) return { reason: 'invalid_config', message: `${label}: maxSlope must be a finite angle in (0, pi/2) or absent` };
   return null;
 }
@@ -419,7 +442,16 @@ function colliderDescOf(shape: ColliderPrimitive3D): RAPIER.ColliderDesc | null 
     case 'mesh':
       // Duplicate vertices (a model's seams) are merged and degenerate triangles dropped.
       return RAPIER.ColliderDesc.trimesh(new Float32Array(shape.vertices), new Uint32Array(shape.indices), RAPIER.TriMeshFlags.MERGE_DUPLICATE_VERTICES | RAPIER.TriMeshFlags.DELETE_DEGENERATE_TRIANGLES);
+    case 'heightfield': {
+      // Rapier's matrix: rows along z, columns along x, column-major (the shape's order), centred on the collider; its cells split the same diagonal.
+      return RAPIER.ColliderDesc.heightfield(shape.cellsZ, shape.cellsX, shape.heights, { x: shape.cellsX * shape.cellX, y: 1, z: shape.cellsZ * shape.cellZ });
+    }
   }
+}
+
+/** Where a shape's own frame sits from its collider's origin: a heightfield's origin is its min corner, Rapier's its centre. */
+function shapeOffset(shape: ColliderPrimitive3D): [number, number, number] {
+  return shape.type === 'heightfield' ? [(shape.cellsX * shape.cellX) / 2, 0, (shape.cellsZ * shape.cellZ) / 2] : [0, 0, 0];
 }
 
 /** The shape's highest point above its body origin with the body's rotation. */
@@ -434,6 +466,11 @@ function topOf(shape: ColliderPrimitive3D, q: PhysicsQuat): number {
       return shape.radius;
     case 'capsule':
       return Math.abs(rotate(q, [0, shape.halfHeight, 0])[1]) + shape.radius;
+    case 'heightfield': {
+      let top = -Infinity;
+      for (let i = 0; i < shape.heights.length; i++) top = Math.max(top, shape.heights[i]!);
+      return rotate(q, [0, top, 0])[1];
+    }
     case 'convex':
     case 'mesh': {
       const pts = shape.type === 'convex' ? shape.points : shape.vertices;
@@ -506,7 +543,8 @@ function addStaticBody(world: RAPIER.World, spec: StaticColliderSpec3D, bits: La
   let top = -Infinity;
   for (const p of parts) top = Math.max(top, rotate(rotation, [p.position.x, p.position.y, p.position.z])[1] + topOf(p.shape, mulQuat(rotation, p.rotation)));
   const colliders = parts.map((p, i) => {
-    const desc = descs[i]!.setTranslation(p.position.x, p.position.y, p.position.z).setRotation({ x: p.rotation.x, y: p.rotation.y, z: p.rotation.z, w: p.rotation.w });
+    const off = rotate(p.rotation, shapeOffset(p.shape));
+    const desc = descs[i]!.setTranslation(p.position.x + off[0], p.position.y + off[1], p.position.z + off[2]).setRotation({ x: p.rotation.x, y: p.rotation.y, z: p.rotation.z, w: p.rotation.w });
     const collider = world.createCollider(desc.setCollisionGroups(groups), body);
     return { collider, info: { entityId: spec.entityId, body, kinematic, top, ...(spec.maxSlope !== undefined ? { climbCos: Math.cos(spec.maxSlope) } : {}) } };
   });

@@ -35,13 +35,13 @@ interface WorkerLike {
   terminate(): void;
 }
 
-/** A dedicated browser worker running the mesh worker script at `url` (null: no workers on this page). */
-export function createBrowserMeshWorker(url: string): MeshWorkerPort | null {
+/** A dedicated browser worker running the view's worker script at `url` (null: no workers on this page); `name` shows in the browser's tools. */
+export function createBrowserMeshWorker(url: string, name = 'thirdlight-block-mesher'): MeshWorkerPort | null {
   const Ctor = (globalThis as { Worker?: new (url: string, options?: { name?: string }) => WorkerLike }).Worker;
   if (typeof Ctor !== 'function') return null;
   let w: WorkerLike;
   try {
-    w = new Ctor(url, { name: 'thirdlight-block-mesher' });
+    w = new Ctor(url, { name });
   } catch {
     return null;
   }

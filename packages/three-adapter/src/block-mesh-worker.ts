@@ -18,6 +18,9 @@ import { BlockGrid, blockKitView, type BlockChunk, type BlockGridReader, type Bl
 
 import { chunkModelKey, chunkResultBuffers, meshChunkForDrawing, StandInShapes, type ChunkLooks, type ChunkMeshResult, type ChunkModelGeometry, type ChunkModelRef } from './block-chunk-mesh';
 
+// The same worker script packs terrain tiles (a separate worker of it: see terrain-tile-store.ts).
+export { runTerrainPackWorker } from './terrain-pack-worker';
+
 /** Page → worker. */
 export type MeshWorkerRequest =
   /** The block types and, per type, each variant's model (null: a stand-in). */

@@ -2,32 +2,43 @@
  * The terrains of the loaded scenes, drawn (the same view in the editor's
  * Scene view, Play and an export).
  *
- * A terrain's tiles are read by digest (the build's buffers, the editor's
- * content route), decoded, and packed into two texture arrays per page of
- * tiles (`terrain-texels.ts`): a tile is one layer of each. Up to
+ * A terrain's tiles come from the page's tile store (`terrain-tile-store.ts`:
+ * read by digest, decoded and packed into texels on a worker, one decoded
+ * copy shared with collision and queries) into three texture arrays per page
+ * of tiles (`terrain-texels.ts`): a tile is one layer of each. Up to
  * {@link TERRAIN_PAGE_LAYERS} tiles share a page (the layer count both
  * renderers guarantee); a page is one draw of the shared grid mesh,
  * instanced once per selected quadtree node (`terrain-quadtree.ts`), its
  * vertices placed in the vertex shader (`terrain-material.ts`). Nothing is
- * meshed on the CPU: a sculpt replaces a tile's digest, the new tile is read
- * and its layers uploaded again (with its neighbours' normals along the
- * shared edges), and the cached static shadow map is drawn again once.
+ * meshed on the CPU: a sculpt replaces a tile's digest, the new tile is
+ * packed and its layers uploaded again (its border normals, and its
+ * neighbours' along the shared edges, written on the page: a few thousand
+ * samples), and the cached static shadow map is drawn again once.
+ *
+ * Arrived texels are copied into the pages and uploaded a layer texture at a
+ * time, within a time and a byte budget per frame (at least one), so a large
+ * tile is spread over a few frames; a tile is drawn once its three layers
+ * are up.
  *
  * Each frame the nodes are selected for the view's camera (only when it or
  * the tiles changed) and those in view lead the draw: the view's pass draws
  * them; any other camera (a shadow map) draws every selected node.
  *
- * A terrain wears its `materials` component's material ("*"): a graph
- * material compiled for the terrain's surface (the layered template reads
- * its layer weights as paint); with none, or one that is not a graph, it
- * shows its four drawn layers as plain colours.
+ * A terrain wears its `materials` component's material ("*"; a run-time
+ * swap too): a graph material compiled for the terrain's surface (the
+ * layered template reads its layer weights as paint, and its texture arrays
+ * at each pixel's layers); with none, or one that is not a graph, it shows
+ * its four weight channels as plain colours.
+ *
+ * Picking: a page's mesh answers a ray from its terrain's `TerrainField`
+ * (the grid three would test is flat).
  *
  * An entity realized again (an edit in the editor) keeps its textures: a
  * removal waits until the next update, and a terrain set again before it
  * only reads the tiles whose digests changed.
  */
 import * as THREE from 'three';
-import { flatTerrainTile, terrainFlatStep, terrainHeightOf, terrainTileKey, terrainTileOf, type TerrainComponent, type TerrainTile } from '@thirdlight/runtime';
+import { flatTerrainTile, TerrainField, terrainFlatStep, terrainHeightOf, terrainTileBytes, terrainTileKey, type TerrainComponent, type TerrainTile } from '@thirdlight/runtime';
 
 import { disposeSharingGeometry } from './dispose';
 import { applyEntityRenderFlags } from './entity-render-flags';
@@ -36,7 +47,9 @@ import type { GraphSurface } from './material-graph';
 import { STATIC_CASTER_KEY } from './shadow-casters';
 import { defaultTerrainMaterial, TERRAIN_NODE_ATTRIBUTE, TERRAIN_SUB_ATTRIBUTE, terrainEye, terrainSurface, terrainUniforms, type TerrainUniforms } from './terrain-material';
 import { PageNodes, selectTerrainNodes, terrainLodLayout, terrainLodRanges, TERRAIN_NODE_FLOATS, tileHeightBounds, type SelectStats, type SelectTile, type TerrainLodLayout, type TileHeightBounds } from './terrain-quadtree';
-import { metresPerStep, packHeightNormal, packLayers, TERRAIN_TEXEL_BYTES } from './terrain-texels';
+import { metresPerStep, packFlat, packHeightNormalBorder, TERRAIN_TEXEL_BYTES } from './terrain-texels';
+import type { TerrainTexels } from './terrain-pack-worker';
+import { terrainPackShape, type TerrainTileStore } from './terrain-tile-store';
 import { SphereSide, type CullView } from './view-cull';
 
 /** Tiles per texture page: the array layers WebGL 2 and WebGPU both guarantee (256). */
@@ -50,12 +63,21 @@ export function terrainFromUrl(search: string): boolean {
   return v !== 'off' && v !== '0' && v !== 'false';
 }
 
-/** Main-thread time per frame spent packing and uploading arrived tiles (at least one tile a frame). */
-export const TERRAIN_PACK_BUDGET_MS = 3;
+/** Main-thread time per frame spent copying arrived texels into the pages (at least one layer texture a frame). */
+export const TERRAIN_UPLOAD_BUDGET_MS = 2;
+
+/** Texel bytes uploaded per frame at most (at least one layer texture: a 1,025² tile's is 4.2 MB). */
+export const TERRAIN_UPLOAD_BUDGET_BYTES = 4 * 1024 * 1024;
+
+/** Frames whose upload times the diagnostics' peak covers. */
+const UPLOAD_PEAK_FRAMES = 240;
+
+/** `mesh.userData[TERRAIN_ENTITY_KEY]`: the terrain entity a page's mesh draws (picking names it). */
+export const TERRAIN_ENTITY_KEY = '__tlTerrainEntity';
 
 export interface TerrainViewDeps {
-  /** A tile blob's bytes by digest (null: tiles with data cannot be read; they are not drawn). */
-  readonly readBlob: ((digest: string) => Promise<ArrayBuffer>) | null;
+  /** The page's decoded tiles (shared with collision and queries). */
+  readonly tiles: TerrainTileStore;
   readonly materials: MaterialLibrary | null;
   /** List a drawable in the scene, or take it out. */
   place(mesh: THREE.Mesh, shown: boolean): void;
@@ -86,9 +108,18 @@ export interface TerrainViewDiagnostics {
   inView: number;
   perLevel: number[];
   draws: number;
-  /** Main-thread milliseconds of the last frame's selection and uploads. */
+  /** Main-thread milliseconds of the last frame's selection and uploads; the most a frame's uploads took and uploaded (bytes) over the last few seconds. */
   selectMs: number;
   uploadMs: number;
+  uploadMsPeak: number;
+  uploadBytesPeak: number;
+  /** Tiles uploaded whole since the view began (a sculpted tile again: a test waits for its upload by it). */
+  tilesUploaded: number;
+  /** The last tile's decode and packing (on the worker), milliseconds. */
+  decodeMs: number;
+  packMs: number;
+  /** Bytes the decoded tiles take on the page (`TerrainField.memory()`: one copy, shared with collision and queries). */
+  cpuBytes: number;
   /** Tiles that failed to read (digest, message). */
   errors: string[];
 }
@@ -103,13 +134,20 @@ interface TileRec {
   page: number;
   layer: number;
   bounds: TileHeightBounds | null;
-  /** Packed into its layers at least once (drawn). */
+  /** Texels arrived and not yet copied into the page (each part null once it is). */
+  pending: { heights: Uint8Array | null; layers: Uint8Array | null; indices: Uint8Array | null } | null;
+  /** Its three layers uploaded at least once (drawn). */
   ready: boolean;
 }
+
+/** The page textures, in upload order. */
+const PARTS = ['heights', 'layers', 'indices'] as const;
+type Part = (typeof PARTS)[number];
 
 interface Page {
   heights: THREE.DataArrayTexture;
   layers: THREE.DataArrayTexture;
+  indices: THREE.DataArrayTexture;
   capacity: number;
   used: Set<number>;
   surface: GraphSurface;
@@ -142,10 +180,15 @@ interface TerrainRec {
   leaving: boolean;
   /** Selection inputs changed (tiles drawn, ranges, origin): select again. */
   dirty: boolean;
-  /** Tiles whose layers are to be packed (heights and normals, layers). */
-  packHeights: Set<TileRec>;
-  packLayers: Set<TileRec>;
+  /** Tiles with texels to copy into their page, in arrival order. */
+  uploads: Set<TileRec>;
+  /** Uploaded tiles whose heights layer is to go up again (a neighbour's arrival changed its border normals). */
+  reheights: Set<TileRec>;
   serial: number;
+  /** The field over its decoded tiles (picking), made again when tiles arrive. */
+  field: TerrainField | null;
+  /** Its last selection's totals. */
+  readonly stats: SelectStats;
   /** The finest level's reach the nodes were last selected with (the LOD bias or `lodDistance` changed it: select again). */
   reach: number;
 }
@@ -215,9 +258,17 @@ export class TerrainView {
   private readonly grids = new Map<number, THREE.BufferGeometry>();
   private serials = 0;
   private disposed = false;
-  private readonly stats: SelectStats = { nodes: 0, inView: 0, perLevel: [] };
   private lastSelectMs = 0;
   private lastUploadMs = 0;
+  /** The last frames' upload times and bytes (a ring; their peak is in the diagnostics). */
+  private readonly uploadMsRing = new Float32Array(UPLOAD_PEAK_FRAMES);
+  private readonly uploadBytesRing = new Float64Array(UPLOAD_PEAK_FRAMES);
+  private ringAt = 0;
+  private lastDecodeMs = 0;
+  private lastPackMs = 0;
+  private tilesUploaded = 0;
+  /** How many tiles of all terrains draw each digest (a tile no terrain draws is let go by the store). */
+  private readonly digestUse = new Map<string, number>();
   private readonly errors: string[] = [];
 
   constructor(deps: TerrainViewDeps) {
@@ -235,7 +286,7 @@ export class TerrainView {
     }
     if (rec === undefined) {
       const layout = terrainLodLayout(component.tileSamples, component.spacing);
-      rec = { id, component, origin: at, look, layout, uniforms: terrainUniforms(), tiles: new Map(), pages: [], hidden: false, leaving: false, dirty: true, packHeights: new Set(), packLayers: new Set(), serial: ++this.serials, reach: Number.NaN };
+      rec = { id, component, origin: at, look, layout, uniforms: terrainUniforms(), tiles: new Map(), pages: [], hidden: false, leaving: false, dirty: true, uploads: new Set(), reheights: new Set(), serial: ++this.serials, reach: Number.NaN, field: null, stats: { nodes: 0, inView: 0, perLevel: [] } };
       this.terrains.set(id, rec);
     }
     rec.leaving = false;
@@ -243,6 +294,7 @@ export class TerrainView {
     rec.component = component;
     rec.look = look;
     rec.dirty = true;
+    rec.field = null;
     const u = rec.uniforms;
     u.samples.value = component.tileSamples;
     u.spacing.value = component.spacing;
@@ -256,26 +308,25 @@ export class TerrainView {
       listed.add(key);
       let t = rec.tiles.get(key);
       if (t === undefined) {
-        t = { x: ref.x, z: ref.z, digest: null, reading: null, tile: null, page: -1, layer: -1, bounds: null, ready: false };
+        t = { x: ref.x, z: ref.z, digest: null, reading: null, tile: null, page: -1, layer: -1, bounds: null, pending: null, ready: false };
         rec.tiles.set(key, t);
         this.allocate(rec, t);
-        if (ref.data === undefined) this.arrive(rec, t, null, flatTerrainTile(component.tileSamples, terrainFlatStep(component.heightRange)));
+        if (ref.data === undefined) this.arriveFlat(rec, t);
       }
       const want = ref.data ?? null;
-      if (want === t.digest && t.tile !== null) continue;
+      if (want === t.digest && t.tile !== null && !rangeChanged) continue;
       if (want === null) {
         t.reading = null;
-        this.arrive(rec, t, null, flatTerrainTile(component.tileSamples, terrainFlatStep(component.heightRange)));
-      } else if (t.reading !== want) this.read(rec, t, want);
+        this.arriveFlat(rec, t);
+      } else if (t.reading !== want || rangeChanged) this.read(rec, t, want);
     }
     for (const [key, t] of [...rec.tiles]) {
       if (listed.has(key)) continue;
       rec.tiles.delete(key);
       this.release(rec, t);
-      this.neighboursRepack(rec, t);
+      this.useDigest(t.digest, null);
+      this.neighboursBorder(rec, t);
     }
-    // A new height range rescales every stored step: every tile's normals change.
-    if (rangeChanged) for (const t of rec.tiles.values()) if (t.tile !== null) rec.packHeights.add(t);
     this.placeAll(rec, at);
     this.dress(rec);
   }
@@ -304,10 +355,25 @@ export class TerrainView {
     return [...this.terrains.keys()];
   }
 
+  /** A run-time material swap on a terrain (its look's materials). */
+  restyle(id: string, materials: Readonly<Record<string, string>> | null, overrides: MaterialOverridesLike | null): void {
+    const rec = this.terrains.get(id);
+    if (rec === undefined) return;
+    rec.look = { ...rec.look, materials, overrides };
+    this.dress(rec);
+  }
+
+  /** The field over a terrain's decoded tiles (heights, holes, layers at a point), or null for no such terrain. */
+  field(id: string): TerrainField | null {
+    const rec = this.terrains.get(id);
+    return rec === undefined ? null : this.fieldOf(rec);
+  }
+
   /**
    * Before the frame is drawn, after `view` was set to the frame's camera:
-   * drop removed terrains, pack and upload arrived tiles (within the frame's
-   * budget), and select the nodes drawn when the view or the tiles changed.
+   * drop removed terrains, copy arrived texels into their pages and upload
+   * them (within the frame's budget), and select the nodes drawn when the
+   * view or the tiles changed.
    */
   update(view: CullView): void {
     if (this.disposed) return;
@@ -318,47 +384,56 @@ export class TerrainView {
       return;
     }
     const t0 = performance.now();
-    let uploaded = false;
+    let bytes = 0;
+    let parts = 0;
+    // Room for one more layer texture of `next` bytes this frame (the first always fits).
+    const room = (next: number): boolean => parts === 0 || (performance.now() - t0 < TERRAIN_UPLOAD_BUDGET_MS && bytes + next <= TERRAIN_UPLOAD_BUDGET_BYTES);
     for (const rec of this.terrains.values()) {
-      if (rec.packHeights.size === 0 && rec.packLayers.size === 0) continue;
-      const mps = metresPerStep(rec.component.heightRange);
-      const neighbour = (t: TileRec) => (dx: number, dz: number): TerrainTile | undefined => rec.tiles.get(terrainTileKey(t.x + dx, t.z + dz))?.tile ?? undefined;
-      for (const t of [...rec.packHeights]) {
-        if (uploaded && performance.now() - t0 > TERRAIN_PACK_BUDGET_MS) break;
-        rec.packHeights.delete(t);
-        if (t.tile === null || t.layer < 0) continue;
-        const p = rec.pages[t.page]!;
-        const bytes = t.tile.samples * t.tile.samples * TERRAIN_TEXEL_BYTES;
-        packHeightNormal((p.heights.image.data as Uint8Array).subarray(t.layer * bytes, (t.layer + 1) * bytes), t.tile, neighbour(t), mps, rec.component.spacing);
-        p.heights.addLayerUpdate(t.layer);
-        p.heights.needsUpdate = true;
-        uploaded = true;
-        // Drawn once both layers hold it.
-        if (!rec.packLayers.has(t) && !t.ready) {
-          t.ready = true;
-          rec.dirty = true;
+      // Border normals changed under tiles already up: their heights layer again.
+      for (const t of [...rec.reheights]) {
+        if (!room(t.tile!.samples * t.tile!.samples * TERRAIN_TEXEL_BYTES)) break;
+        rec.reheights.delete(t);
+        if (t.layer < 0 || (t.pending?.heights ?? null) !== null) continue;
+        bytes += this.markLayer(rec.pages[t.page]!, 'heights', t.layer, t.tile!.samples);
+        parts += 1;
+      }
+      for (const t of [...rec.uploads]) {
+        const pend = t.pending;
+        if (pend === null || t.layer < 0 || t.tile === null) {
+          rec.uploads.delete(t);
+          continue;
+        }
+        const size = t.tile.samples * t.tile.samples * TERRAIN_TEXEL_BYTES;
+        if (!room(size)) break;
+        // One layer texture at a time: a large tile goes up over a few frames.
+        for (const part of PARTS) {
+          const src = pend[part];
+          if (src === null) continue;
+          if (!room(size)) break;
+          const p = rec.pages[t.page]!;
+          (p[part].image.data as Uint8Array).set(src, t.layer * size);
+          bytes += this.markLayer(p, part, t.layer, t.tile.samples);
+          parts += 1;
+          pend[part] = null;
+        }
+        if (pend.heights === null && pend.layers === null && pend.indices === null) {
+          t.pending = null;
+          rec.uploads.delete(t);
+          this.tilesUploaded += 1;
+          if (!t.ready) {
+            t.ready = true;
+            rec.dirty = true;
+          }
         }
       }
-      for (const t of [...rec.packLayers]) {
-        if (uploaded && performance.now() - t0 > TERRAIN_PACK_BUDGET_MS) break;
-        rec.packLayers.delete(t);
-        if (t.tile === null || t.layer < 0) continue;
-        const p = rec.pages[t.page]!;
-        const bytes = t.tile.samples * t.tile.samples * TERRAIN_TEXEL_BYTES;
-        packLayers((p.layers.image.data as Uint8Array).subarray(t.layer * bytes, (t.layer + 1) * bytes), t.tile);
-        p.layers.addLayerUpdate(t.layer);
-        p.layers.needsUpdate = true;
-        uploaded = true;
-        if (!rec.packHeights.has(t) && !t.ready) {
-          t.ready = true;
-          rec.dirty = true;
-        }
-      }
-      if (rec.packHeights.size > 0 || rec.packLayers.size > 0) this.deps.changed();
+      if (rec.uploads.size > 0 || rec.reheights.size > 0) this.deps.changed();
     }
     const t1 = performance.now();
     this.lastUploadMs = t1 - t0;
-    if (uploaded) this.deps.shapeChanged();
+    this.uploadMsRing[this.ringAt] = this.lastUploadMs;
+    this.uploadBytesRing[this.ringAt] = bytes;
+    this.ringAt = (this.ringAt + 1) % UPLOAD_PEAK_FRAMES;
+    if (parts > 0) this.deps.shapeChanged();
     // The morph reads the view's camera in every pass.
     (terrainEye.value as THREE.Vector3).set(view.eye[0]!, view.eye[1]!, view.eye[2]!);
     for (const rec of this.terrains.values()) this.select(rec, view);
@@ -370,15 +445,37 @@ export class TerrainView {
     let tilesListed = 0;
     let gpuBytes = 0;
     let draws = 0;
+    const held = new Set<TerrainTile>();
     for (const rec of this.terrains.values()) {
       tilesListed += rec.tiles.size;
-      for (const t of rec.tiles.values()) if (t.ready) tilesDrawn += 1;
+      for (const t of rec.tiles.values()) {
+        if (t.ready) tilesDrawn += 1;
+        if (t.tile !== null && t.digest !== null) held.add(t.tile);
+      }
       for (const p of rec.pages) {
-        gpuBytes += p.heights.image.data!.byteLength + p.layers.image.data!.byteLength;
+        gpuBytes += p.heights.image.data!.byteLength + p.layers.image.data!.byteLength + p.indices.image.data!.byteLength;
         if (p.nodes.count > 0) draws += 1;
       }
     }
-    return { terrains: this.terrains.size, tilesDrawn, tilesListed, gpuBytes, nodes: this.stats.nodes, inView: this.stats.inView, perLevel: [...this.stats.perLevel], draws, selectMs: Math.round(this.lastSelectMs * 1000) / 1000, uploadMs: Math.round(this.lastUploadMs * 1000) / 1000, errors: this.errors.slice(-8) };
+    // Every terrain's last selection, level by level (leaf first).
+    let nodes = 0;
+    let inView = 0;
+    const perLevel: number[] = [];
+    for (const rec of this.terrains.values()) {
+      nodes += rec.stats.nodes;
+      inView += rec.stats.inView;
+      rec.stats.perLevel.forEach((n, l) => (perLevel[l] = (perLevel[l] ?? 0) + n));
+    }
+    let cpuBytes = 0;
+    for (const t of held) cpuBytes += terrainTileBytes(t);
+    const r3 = (v: number): number => Math.round(v * 1000) / 1000;
+    let peakMs = 0;
+    let peakBytes = 0;
+    for (let i = 0; i < UPLOAD_PEAK_FRAMES; i++) {
+      peakMs = Math.max(peakMs, this.uploadMsRing[i]!);
+      peakBytes = Math.max(peakBytes, this.uploadBytesRing[i]!);
+    }
+    return { terrains: this.terrains.size, tilesDrawn, tilesListed, gpuBytes, nodes, inView, perLevel, draws, selectMs: r3(this.lastSelectMs), uploadMs: r3(this.lastUploadMs), uploadMsPeak: r3(peakMs), uploadBytesPeak: peakBytes, tilesUploaded: this.tilesUploaded, decodeMs: r3(this.lastDecodeMs), packMs: r3(this.lastPackMs), cpuBytes, errors: this.errors.slice(-8) };
   }
 
   dispose(): void {
@@ -392,48 +489,109 @@ export class TerrainView {
 
   private read(rec: TerrainRec, t: TileRec, digest: string): void {
     t.reading = digest;
-    const read = this.deps.readBlob;
-    if (read === null) {
+    if (!this.deps.tiles.reads) {
       this.error(`terrain ${rec.id}: tile [${t.x}, ${t.z}] has data but nothing reads buffers here`);
       return;
     }
-    void read(digest)
-      .then(terrainTileOf)
-      .then(
-        (tile) => {
-          // Still wanted: the same terrain and tile, not read again since.
-          if (this.disposed || this.terrains.get(rec.id) !== rec || rec.tiles.get(terrainTileKey(t.x, t.z)) !== t || t.reading !== digest) return;
-          t.reading = null;
-          if (tile.samples !== rec.component.tileSamples) {
-            this.error(`terrain ${rec.id}: tile [${t.x}, ${t.z}] holds ${tile.samples} samples a side, the terrain ${rec.component.tileSamples}`);
-            return;
-          }
-          this.arrive(rec, t, digest, tile);
-          this.deps.changed();
-        },
-        (e: unknown) => {
-          if (t.reading === digest) t.reading = null;
-          this.error(`terrain ${rec.id}: tile [${t.x}, ${t.z}] (${digest.slice(0, 12)}…) could not be read: ${e instanceof Error ? e.message : String(e)}`);
-        },
-      );
+    const shape = terrainPackShape(rec.component);
+    void this.deps.tiles.packed(digest, shape).then(
+      (packed) => {
+        // Still wanted: the same terrain, tile and shape, not read again since.
+        if (this.disposed || this.terrains.get(rec.id) !== rec || rec.tiles.get(terrainTileKey(t.x, t.z)) !== t || t.reading !== digest) return;
+        if (metresPerStep(rec.component.heightRange) !== shape.metresPerStep || rec.component.spacing !== shape.spacing) return;
+        t.reading = null;
+        if (packed.tile.samples !== rec.component.tileSamples) {
+          this.error(`terrain ${rec.id}: tile [${t.x}, ${t.z}] holds ${packed.tile.samples} samples a side, the terrain ${rec.component.tileSamples}`);
+          return;
+        }
+        this.lastDecodeMs = packed.decodeMs;
+        this.lastPackMs = packed.packMs;
+        this.arrive(rec, t, digest, packed.tile, packed.texels);
+        this.deps.changed();
+      },
+      (e: unknown) => {
+        if (t.reading === digest) t.reading = null;
+        this.error(`terrain ${rec.id}: tile [${t.x}, ${t.z}] (${digest.slice(0, 12)}…) could not be read: ${e instanceof Error ? e.message : String(e)}`);
+      },
+    );
   }
 
-  private arrive(rec: TerrainRec, t: TileRec, digest: string | null, tile: TerrainTile): void {
+  /** A tile without data: flat at the terrain's flat step (texels filled on the page, cheap). */
+  private arriveFlat(rec: TerrainRec, t: TileRec): void {
+    const s = rec.component.tileSamples;
+    const step = terrainFlatStep(rec.component.heightRange);
+    const tile = flatTerrainTile(s, step);
+    const bytes = s * s * TERRAIN_TEXEL_BYTES;
+    const texels = { heights: new Uint8Array(bytes), layers: new Uint8Array(bytes), indices: new Uint8Array(bytes), bounds: tileHeightBounds(tile.heights, rec.layout) };
+    packFlat(texels.heights, texels.layers, texels.indices, step);
+    this.arrive(rec, t, null, tile, texels);
+  }
+
+  private arrive(rec: TerrainRec, t: TileRec, digest: string | null, tile: TerrainTile, texels: TerrainTexels): void {
+    this.useDigest(t.digest, digest);
     t.digest = digest;
     t.tile = tile;
-    t.bounds = tileHeightBounds(tile.heights, rec.layout);
-    rec.packHeights.add(t);
-    rec.packLayers.add(t);
+    t.bounds = texels.bounds;
+    t.pending = { heights: texels.heights, layers: texels.layers, indices: texels.indices };
+    rec.uploads.delete(t);
+    rec.uploads.add(t);
+    rec.reheights.delete(t);
     rec.dirty = true;
-    // Their normals along the shared edges read this tile's samples.
-    this.neighboursRepack(rec, t);
+    rec.field = null;
+    // Packed alone: its border normals read the neighbours here; theirs read it.
+    packHeightNormalBorder(t.pending.heights!, tile, this.neighbourOf(rec, t), metresPerStep(rec.component.heightRange), rec.component.spacing);
+    this.neighboursBorder(rec, t);
   }
 
-  private neighboursRepack(rec: TerrainRec, t: TileRec): void {
+  private neighbourOf(rec: TerrainRec, t: TileRec): (dx: number, dz: number) => TerrainTile | undefined {
+    return (dx, dz) => rec.tiles.get(terrainTileKey(t.x + dx, t.z + dz))?.tile ?? undefined;
+  }
+
+  /** The neighbours' border normals again (a tile came, changed or went): in their pending texels, or in their page and uploaded again. */
+  private neighboursBorder(rec: TerrainRec, t: TileRec): void {
+    const mps = metresPerStep(rec.component.heightRange);
     for (const [dx, dz] of [[-1, 0], [1, 0], [0, -1], [0, 1]] as const) {
       const n = rec.tiles.get(terrainTileKey(t.x + dx, t.z + dz));
-      if (n?.tile !== null && n?.tile !== undefined) rec.packHeights.add(n);
+      if (n === undefined || n.tile === null || n.layer < 0) continue;
+      const pend = n.pending?.heights ?? null;
+      if (pend !== null) packHeightNormalBorder(pend, n.tile, this.neighbourOf(rec, n), mps, rec.component.spacing);
+      else if (n.ready) {
+        const size = n.tile.samples * n.tile.samples * TERRAIN_TEXEL_BYTES;
+        const p = rec.pages[n.page]!;
+        packHeightNormalBorder((p.heights.image.data as Uint8Array).subarray(n.layer * size, (n.layer + 1) * size), n.tile, this.neighbourOf(rec, n), mps, rec.component.spacing);
+        rec.reheights.add(n);
+      }
     }
+  }
+
+  /** Mark one layer of a page texture for upload; its bytes. */
+  private markLayer(p: Page, part: Part, layer: number, samples: number): number {
+    p[part].addLayerUpdate(layer);
+    p[part].needsUpdate = true;
+    return samples * samples * TERRAIN_TEXEL_BYTES;
+  }
+
+  /** Count a tile's digest in and the one it had out; the store lets go of a tile no terrain draws. */
+  private useDigest(was: string | null, now: string | null): void {
+    if (was === now) return;
+    if (now !== null) this.digestUse.set(now, (this.digestUse.get(now) ?? 0) + 1);
+    if (was !== null) {
+      const n = (this.digestUse.get(was) ?? 1) - 1;
+      if (n > 0) this.digestUse.set(was, n);
+      else {
+        this.digestUse.delete(was);
+        this.deps.tiles.release(was);
+      }
+    }
+  }
+
+  private fieldOf(rec: TerrainRec): TerrainField {
+    if (rec.field === null) {
+      const loaded = new Map<string, TerrainTile>();
+      for (const [k, t] of rec.tiles) if (t.tile !== null) loaded.set(k, t.tile);
+      rec.field = new TerrainField(rec.component, rec.origin, loaded);
+    }
+    return rec.field;
   }
 
   private error(message: string): void {
@@ -467,8 +625,9 @@ export class TerrainView {
   }
 
   private release(rec: TerrainRec, t: TileRec): void {
-    rec.packHeights.delete(t);
-    rec.packLayers.delete(t);
+    rec.uploads.delete(t);
+    rec.reheights.delete(t);
+    rec.field = null;
     rec.pages[t.page]?.used.delete(t.layer);
     t.page = -1;
     t.layer = -1;
@@ -479,7 +638,8 @@ export class TerrainView {
     const s = rec.component.tileSamples;
     const heights = arrayTexture(s, capacity, THREE.NearestFilter);
     const layers = arrayTexture(s, capacity, THREE.LinearFilter);
-    const surface = terrainSurface(`terrain:${rec.serial}:${++this.serials}`, heights, layers, rec.uniforms);
+    const indices = arrayTexture(s, capacity, THREE.NearestFilter);
+    const surface = terrainSurface(`terrain:${rec.serial}:${++this.serials}`, heights, layers, indices, rec.uniforms);
     const fallback = defaultTerrainMaterial(surface);
     let grid = this.grids.get(rec.layout.grid);
     if (grid === undefined) this.grids.set(rec.layout.grid, (grid = gridGeometry(rec.layout.grid)));
@@ -488,11 +648,17 @@ export class TerrainView {
     mesh.name = `terrain:${rec.id}`;
     mesh.frustumCulled = false;
     mesh.matrixAutoUpdate = false;
-    // Picking the terrain reads its heights (the grid three would test is flat).
-    mesh.raycast = () => undefined;
     mesh.userData[STATIC_CASTER_KEY] = true;
     mesh.userData[GRAPH_SURFACE_KEY] = surface;
-    const page: Page = { heights, layers, capacity, used: new Set(), surface, fallback, mesh, geometry, buffer, own, nodes: new PageNodes(), listed: false, undoMaterial: null, view: null, stamp: -1 };
+    mesh.userData[TERRAIN_ENTITY_KEY] = rec.id;
+    const page: Page = { heights, layers, indices, capacity, used: new Set(), surface, fallback, mesh, geometry, buffer, own, nodes: new PageNodes(), listed: false, undoMaterial: null, view: null, stamp: -1 };
+    // Picking reads the terrain's heights (the grid three would test is flat); its first page answers for it.
+    mesh.raycast = (raycaster, hits) => {
+      if (rec.pages[0] !== page || this.terrains.get(rec.id) !== rec) return;
+      const r = raycaster.ray;
+      const hit = this.fieldOf(rec).raycast([r.origin.x, r.origin.y, r.origin.z], [r.direction.x, r.direction.y, r.direction.z], raycaster.far);
+      if (hit !== null && hit.distance >= raycaster.near) hits.push({ distance: hit.distance, point: new THREE.Vector3(...hit.point), object: mesh });
+    };
     // Per pass: the view draws the nodes in view (they lead), any other camera all of them.
     mesh.onBeforeRender = (_r, _s, camera) => {
       page.geometry.instanceCount = page.view !== null && page.stamp === page.view.stamp && page.view.is(camera) ? page.nodes.inView : page.nodes.count;
@@ -507,17 +673,21 @@ export class TerrainView {
     const s = rec.component.tileSamples;
     const heights = arrayTexture(s, capacity, THREE.NearestFilter);
     const layers = arrayTexture(s, capacity, THREE.LinearFilter);
+    const indices = arrayTexture(s, capacity, THREE.NearestFilter);
     (heights.image.data as Uint8Array).set(old.heights.image.data as Uint8Array);
     (layers.image.data as Uint8Array).set(old.layers.image.data as Uint8Array);
-    const surface = terrainSurface(`terrain:${rec.serial}:${++this.serials}`, heights, layers, rec.uniforms);
+    (indices.image.data as Uint8Array).set(old.indices.image.data as Uint8Array);
+    const surface = terrainSurface(`terrain:${rec.serial}:${++this.serials}`, heights, layers, indices, rec.uniforms);
     const fallback = defaultTerrainMaterial(surface);
     old.undoMaterial?.();
     old.undoMaterial = null;
     old.heights.dispose();
     old.layers.dispose();
+    old.indices.dispose();
     old.fallback.dispose();
     old.heights = heights;
     old.layers = layers;
+    old.indices = indices;
     old.capacity = capacity;
     old.surface = surface;
     old.fallback = fallback;
@@ -545,7 +715,10 @@ export class TerrainView {
       m.userData[PLACED_KEY] = true;
       if (!rec.hidden) this.list(p, true);
     }
-    if (moved) rec.dirty = true;
+    if (moved) {
+      rec.dirty = true;
+      rec.field = null;
+    }
   }
 
   /** The terrain's material and render flags on every page. */
@@ -569,9 +742,11 @@ export class TerrainView {
       disposeSharingGeometry(p.geometry, p.own);
       p.heights.dispose();
       p.layers.dispose();
+      p.indices.dispose();
       p.fallback.dispose();
     }
     rec.pages = [];
+    for (const t of rec.tiles.values()) this.useDigest(t.digest, null);
     this.terrains.delete(rec.id);
   }
 
@@ -598,7 +773,7 @@ export class TerrainView {
         inView: view.camera === null ? null : (x, y, z, r) => view.side(x + ox, y + oy, z + oz, r) !== SphereSide.Outside,
       },
       rec.pages.map((p) => p.nodes),
-      this.stats,
+      rec.stats,
     );
     for (const p of rec.pages) {
       const need = p.nodes.count * TERRAIN_NODE_FLOATS;

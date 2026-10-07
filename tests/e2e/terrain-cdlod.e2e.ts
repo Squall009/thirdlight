@@ -22,6 +22,16 @@
  *   (the levels meet in view, and 64 tiles' seams): red and blue show, and
  *   the only sky pixels are the hole's — one compact blob, no crack along a
  *   level or tile boundary.
+ * - Any number of layers: the albedo array has a fifth layer (yellow), and a
+ *   second disc is painted layer index 4; it shows yellow (the material reads
+ *   each pixel's layer indices) in the Scene view and Play.
+ * - Collision (3D, Play on both renderers): a player stands on the terrain at
+ *   its height (a flattened strip), walks forward into the hole and falls
+ *   through it; the simulation's terrain colliders and the page's decoded
+ *   tiles show in Play's diagnostics.
+ * - A 1,025² tile far out of view (its own terrain) is packed on a worker and
+ *   uploaded over several frames in the Scene view and Play: no frame spends
+ *   more than a few milliseconds of the page's time on it (the upload peak).
  */
 import { randomBytes } from 'node:crypto';
 import { createReadStream, existsSync, statSync } from 'node:fs';
@@ -31,9 +41,10 @@ import { extname, join, normalize } from 'node:path';
 import { expect, test, type Page } from './pw';
 
 import { layeredMaterial } from '../../packages/editor/src/session/material-graph';
-import { startBackend, type E2EBackend } from './backend';
+import { controls, startBackend, type E2EBackend } from './backend';
 import { gpuAvailable } from './browser-env.mjs';
-import { ALBEDO_HEIGHT_LAYERS, isBlue, isRed, packNormalAndOrm, packTexture, publishLayerSources, useArrays, type Pred } from './painted-layers';
+import { ALBEDO_HEIGHT_LAYERS, isBlue, isRed, packNormalAndOrm, packTexture, publishLayerSources, publishTexture, useArrays, type Pred } from './painted-layers';
+import { makePng } from './png-make';
 import { decodePng, type Image } from './png';
 import { expectRendererBackend } from './renderer-variants';
 
@@ -51,6 +62,10 @@ async function cmd(op: string, args: Record<string, unknown>): Promise<Record<st
   expect(res['ok'], JSON.stringify(res).slice(0, 600)).toBe(true);
   return res;
 }
+type Observation = { state: string; stepIndex?: number; player?: { x: number; y: number; z: number } };
+type TerrainDiag = { tilesDrawn: number; draws: number; perLevel: number[]; errors: string[]; uploadMsPeak?: number; uploadBytesPeak?: number; tilesUploaded?: number; cpuBytes?: number; decodeMs?: number; packMs?: number };
+type Diagnostics = { renderer?: { terrain?: TerrainDiag }; runtime?: { terrainMemory?: { tiles: number; bytes: number; colliders: number; tilesWithColliders: number; lastBuild: { tiles: number; ms: number } | null; waiting: number } } };
+
 async function relay(path: string, body: unknown): Promise<{ status: number; json: Record<string, unknown> }> {
   const r = await fetch(`${be!.origin}/api/v1/projects/${be!.projectId}/play/${path}`, { method: 'POST', headers: { authorization: `Bearer ${be!.token}`, 'content-type': 'application/json', origin: be!.origin }, body: JSON.stringify(body) });
   return { status: r.status, json: (await r.json()) as Record<string, unknown> };
@@ -74,6 +89,14 @@ const HOLE: [number, number] = [2, -12];
 const PLAIN: [number, number] = [-3, 2];
 const SKY = '#00d8ff';
 const isSky: Pred = (r, g, b) => b > 150 && g > 120 && r < 70;
+/** The fifth layer (index 4: past the template's four slots), painted in a disc here. */
+const FIFTH: [number, number] = [3, 6];
+const isYellow: Pred = (r, g, b) => r > 80 && g > 70 && b < 0.65 * g && Math.abs(r - g) < 0.3 * r;
+/** The player's start (on a strip flattened to 2.1 m) and the way it walks (−z) into the hole. */
+const PLAYER: [number, number] = [2, -5];
+const STRIP_HEIGHT = 2.1;
+/** The 1,025² tile's terrain: far out of view (its uploads are what is measured). */
+const BIG_ORIGIN: V3 = [3000, 0, 3000];
 
 /** The heightmap as RAW 16-bit little-endian samples of the terrain's range. */
 function heightmap(): Uint8Array {
@@ -98,13 +121,16 @@ async function stage(bytes: Uint8Array): Promise<string> {
   return s.stageId;
 }
 
-async function buildTerrain(): Promise<string> {
+async function buildTerrain(): Promise<{ ground: string; big: string }> {
   await cmd('setSettings', { settings: { camera_far_m: 400 } });
   for (const id of ['model-0001', 'spawn-0001', 'box-0001', 'box-0002', 'box-0003', 'box-0004', 'model-0002']) await cmd('deleteEntity', { entityId: id }).catch(() => undefined);
   // The arrays (through the pack route) and the layered template, made as the Materials tab makes it.
   await publishLayerSources(be!);
+  await publishTexture(be!, new Uint8Array(makePng(16, 16, () => [230, 200, 40, 255])), 'alb-5', 'Albedo 5');
+  await publishTexture(be!, new Uint8Array(makePng(16, 16, () => [230, 230, 230, 255])), 'hgt-5', 'Height 5');
   await packNormalAndOrm(be!);
-  await packTexture(be!, ALBEDO_HEIGHT_LAYERS, 'color', 'terrain-albedo');
+  const five = [...ALBEDO_HEIGHT_LAYERS, [{ assetId: 'alb-5', channel: 'r' as const }, { assetId: 'alb-5', channel: 'g' as const }, { assetId: 'alb-5', channel: 'b' as const }, { assetId: 'hgt-5', channel: 'r' as const }]];
+  await packTexture(be!, five, 'color', 'terrain-albedo');
   const mat = layeredMaterial('mat-terrain', 'Terrain layers');
   await cmd('setMaterial', { material: mat });
   await useArrays(be!, 'mat-terrain', { albedoHeight: 'terrain-albedo', normals: 'terrain-normals', orm: 'terrain-orm' });
@@ -119,7 +145,25 @@ async function buildTerrain(): Promise<string> {
   await cmd('setComponent', { entityId: ground, component: 'materials', value: { '*': 'mat-terrain' } });
   await cmd('editTerrain', { entityId: ground, kind: 'import', stageId: await stage(heightmap()), format: 'raw16', at: [0, 0] });
   await cmd('editTerrain', { entityId: ground, kind: 'paint', dabs: [PAINTED], radius: 4, strength: 1, falloff: 'constant', layer: 2 });
-  return ground;
+  await cmd('editTerrain', { entityId: ground, kind: 'paint', dabs: [FIFTH], radius: 2.5, strength: 1, falloff: 'constant', layer: 4 });
+  // A strip the player walks along into the hole: flat (the bumps are steeper than it climbs).
+  const strip: [number, number][] = [];
+  for (let z = PLAYER[1] + 2; z >= HOLE[1] + 1; z -= 1) strip.push([PLAYER[0], z]);
+  await cmd('editTerrain', { entityId: ground, kind: 'flatten', dabs: strip, radius: 2.5, strength: 1, falloff: 'constant', height: STRIP_HEIGHT });
+  // A 3D game with a player on the strip (its capsule's 0.9 m half height over the ground).
+  await cmd('setSettings', { settings: { physics_dimension: 3 } });
+  const player = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Player', transform: { position: [PLAYER[0], STRIP_HEIGHT + 0.95, PLAYER[1]] } }))['createdId']);
+  await cmd('setComponent', { entityId: player, component: 'controller', value: {} });
+  // One 1,025² tile of noise, far out of view.
+  const big = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Far', transform: { position: BIG_ORIGIN } }))['createdId']);
+  await cmd('setComponent', { entityId: big, component: 'terrain', value: { tileSamples: 1025, spacing: 1, heightRange: [-64, 64], tiles: [{ x: 0, z: 0 }] } });
+  await bigNoise(big, 7);
+  return { ground, big };
+}
+
+/** Noise over the whole 1,025² tile (a new tile: read, packed and uploaded again). */
+async function bigNoise(big: string, seed: number): Promise<void> {
+  await cmd('editTerrain', { entityId: big, kind: 'noise', dabs: [[BIG_ORIGIN[0] + 512, BIG_ORIGIN[2] + 512]], radius: 800, strength: 4, falloff: 'constant', scale: 16, seed });
 }
 
 /** World point of the terrain's surface at (x, z) (the stored heights). */
@@ -177,11 +221,12 @@ function skyPixels(img: Image, near = 0.08): { n: number; away: number } {
 /** Layers and the hole in a frame from the scene camera: red and blue ground, and the sky only through the hole (no crack). */
 function frameOk(img: Image): boolean {
   const sky = skyPixels(img);
-  return count(img, isRed) / ((img.width * img.height) / 4) > 0.5 && count(img, isBlue) > 20 && sky.n > 40 && sky.away === 0;
+  return count(img, isRed) / ((img.width * img.height) / 4) > 0.5 && count(img, isBlue) > 20 && count(img, isYellow) > 20 && sky.n > 40 && sky.away === 0;
 }
 function expectFrame(img: Image, what: string): void {
   expect(count(img, isRed) / ((img.width * img.height) / 4), `${what}: red ground`).toBeGreaterThan(0.5);
   expect(count(img, isBlue), `${what}: the painted disc`).toBeGreaterThan(20);
+  expect(count(img, isYellow), `${what}: the disc of the fifth layer`).toBeGreaterThan(20);
   const sky = skyPixels(img);
   expect(sky.n, `${what}: the sky through the hole`).toBeGreaterThan(40);
   expect(sky.away, `${what}: sky pixels away from the hole (a crack between levels or tiles)`).toBe(0);
@@ -215,10 +260,11 @@ test('terrain: CDLOD heights, layered material, paint and a hole in the Scene vi
   test.skip(test.info().project.name === 'webgpu', 'one pass covers both renderers');
   test.setTimeout(420_000);
   be = await startBackend('terrain-cdlod');
-  const ground = await buildTerrain();
+  const { ground, big } = await buildTerrain();
   const plain = await surface(ground, ...PLAIN);
   const painted = await surface(ground, ...PAINTED);
   const holeAt: V3 = [HOLE[0], (await surface(ground, ...HOLE))[1], HOLE[1]];
+  const fifth = await surface(ground, ...FIFTH);
   let holed = false;
 
   for (const renderer of BACKENDS) {
@@ -228,17 +274,25 @@ test('terrain: CDLOD heights, layered material, paint and a hole in the Scene vi
     await expect.poll(() => canvas.evaluate((c) => `${c.getAttribute('data-tl-renderer')}/${c.getAttribute('data-tl-renderer-state')}`), { timeout: 30_000 }).toBe(`${renderer}/ready`);
     await expect(viewport(page)).toHaveAttribute('data-view-proj', /\[/);
     // Every tile read and uploaded, one draw for the page of tiles, nothing failed to read.
-    const terrain = async (): Promise<{ tilesDrawn: number; draws: number; perLevel: number[]; errors: string[] }> => JSON.parse((await viewport(page).getAttribute('data-terrain')) ?? '{"tilesDrawn":0,"draws":0,"perLevel":[],"errors":[]}');
-    await expect.poll(async () => (await terrain()).tilesDrawn, { timeout: 30_000 }).toBe(TILES * TILES);
+    const terrain = async (): Promise<TerrainDiag> => JSON.parse((await viewport(page).getAttribute('data-terrain')) ?? '{"tilesDrawn":0,"draws":0,"perLevel":[],"errors":[]}');
+    // The 64 tiles and the far 1,025² one.
+    await expect.poll(async () => (await terrain()).tilesDrawn, { timeout: 60_000 }).toBe(TILES * TILES + 1);
     const t = await terrain();
-    expect(t.draws).toBe(1);
+    // One page per terrain: the 64 tiles' and the far tile's (a tile's root is always selected: shadow maps draw it).
+    expect(t.draws).toBe(2);
     expect(t.errors).toEqual([]);
-    // The quadtree's three levels (8, 16, 32 m nodes) are all drawn.
-    expect(t.perLevel.length).toBe(3);
-    expect(t.perLevel.every((n) => n > 0)).toBe(true);
+    // Packed on a worker, uploaded a layer texture at a time: no frame spent more than a few milliseconds of the page's time on it.
+    test.info().annotations.push({ type: `${renderer} Scene view terrain`, description: JSON.stringify({ uploadMsPeak: t.uploadMsPeak, uploadBytesPeak: t.uploadBytesPeak, decodeMs: t.decodeMs, packMs: t.packMs, cpuBytes: t.cpuBytes }) });
+    expect(t.uploadMsPeak!, 'the most a frame spent uploading').toBeLessThan(8);
+    expect(t.uploadBytesPeak!, 'the most a frame uploaded (one 1,025² layer texture)').toBeLessThanOrEqual(1025 * 1025 * 4);
+    // The quadtree's three levels (8, 16, 32 m nodes) are all drawn; the far tile (seven levels) only at its root.
+    expect(t.perLevel.length).toBe(7);
+    expect(t.perLevel.slice(0, 3).every((n) => n > 0)).toBe(true);
     // The Scene view: the layered material's layer 1 where unpainted, layer 3 on the painted disc.
     await expect.poll(() => shareNear(page, plain, isRed), { timeout: 60_000, message: `${renderer} Scene view: red ground` }).toBeGreaterThan(0.8);
     await expect.poll(() => shareNear(page, painted, isBlue), { timeout: 30_000, message: `${renderer} Scene view: the painted disc` }).toBeGreaterThan(0.8);
+    // Layer index 4: past the template's four slots, drawn from the array's fifth layer.
+    await expect.poll(() => shareNear(page, fifth, isYellow), { timeout: 30_000, message: `${renderer} Scene view: the fifth layer's disc` }).toBeGreaterThan(0.8);
     if (!holed) {
       expect(await shareNear(page, holeAt, (r, g, b) => isRed(r, g, b) || isBlue(r, g, b))).toBeGreaterThan(0.8);
       // A holes stroke with the page open: its tile's layers are uploaded again and the ground there is cut away.
@@ -246,6 +300,28 @@ test('terrain: CDLOD heights, layered material, paint and a hole in the Scene vi
       holed = true;
     }
     await expect.poll(() => shareNear(page, holeAt, (r, g, b) => !isRed(r, g, b) && !isBlue(r, g, b)), { timeout: 30_000, message: `${renderer} Scene view: the hole` }).toBeGreaterThan(0.6);
+
+    // The 1,025² tile sculpted with the page open: packed on the worker, its 12.6 MB of texels uploaded over a few frames.
+    // The page's frames meanwhile (a rAF loop beside the view's) are recorded; what the uploads took of each is asserted.
+    const uploaded = (await terrain()).tilesUploaded!;
+    await page.evaluate(() => {
+      const w = window as unknown as { __tlFrames?: number[] };
+      const frames: number[] = (w.__tlFrames = []);
+      let last = performance.now();
+      const tick = (now: number): void => {
+        frames.push(now - last);
+        last = now;
+        if (frames.length < 2000) requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+    });
+    await bigNoise(big, renderer === 'webgpu' ? 8 : 9);
+    await expect.poll(async () => (await terrain()).tilesUploaded!, { timeout: 30_000, message: `${renderer} Scene view: the sculpted 1,025² tile uploaded again` }).toBeGreaterThan(uploaded);
+    const rafFrames = await page.evaluate(() => (window as unknown as { __tlFrames: number[] }).__tlFrames.splice(0));
+    const after = await terrain();
+    test.info().annotations.push({ type: `${renderer} Scene view 1,025² re-upload`, description: JSON.stringify({ frames: rafFrames.length, maxMs: Math.round(Math.max(...rafFrames) * 10) / 10, missedVsync: rafFrames.filter((f) => f > 25).length, uploadMsPeak: after.uploadMsPeak, uploadBytesPeak: after.uploadBytesPeak, decodeMs: after.decodeMs, packMs: after.packMs }) });
+    expect(after.uploadMsPeak!, 'the most a frame spent uploading').toBeLessThan(8);
+    expect(after.errors).toEqual([]);
 
     // Play: the scene camera's frame.
     const started = page.waitForResponse((r) => r.request().method() === 'POST' && r.url().endsWith('/play'));
@@ -266,6 +342,56 @@ test('terrain: CDLOD heights, layered material, paint and a hole in the Scene vi
         throw e;
       });
     expectFrame(last!, `${renderer} Play`);
+
+    // Play's diagnostics: the tiles drawn (the far one too), the page's decoded copy, the simulation's colliders.
+    let diag: Diagnostics = {};
+    await expect
+      .poll(async () => {
+        diag = ((await relay(`${psid}/diagnostics`, {})).json as { diagnostics?: Diagnostics }).diagnostics ?? {};
+        return `${diag.renderer?.terrain?.tilesDrawn ?? 0} ${diag.runtime?.terrainMemory?.waiting ?? -1}`;
+      }, { timeout: 60_000, message: `${renderer} Play: every tile drawn and every collider built` })
+      .toBe(`${TILES * TILES + 1} 0`);
+    const mem = diag.runtime!.terrainMemory!;
+    test.info().annotations.push({ type: `${renderer} Play terrain`, description: JSON.stringify({ renderer: diag.renderer!.terrain, collision: mem }) });
+    // Every tile has colliders (the holed one in patches); the page holds one decoded copy (65 tiles' worth).
+    expect(mem.tilesWithColliders).toBe(TILES * TILES + 1);
+    expect(mem.colliders).toBeGreaterThan(TILES * TILES + 1);
+    expect(diag.renderer!.terrain!.cpuBytes!).toBeGreaterThan(1025 * 1025 * 2);
+    expect(diag.renderer!.terrain!.uploadMsPeak!).toBeLessThan(8);
+
+    // The player stands on the terrain, walks forward (−z) into the hole and falls through it.
+    const read = async (): Promise<Observation | null> => {
+      const r = await relay(`${psid}/observe`, {});
+      return r.status === 200 ? (r.json as unknown as Observation) : null;
+    };
+    const standing: { o: Observation | null } = { o: null };
+    await expect
+      .poll(async () => {
+        const o = await read();
+        const before = standing.o;
+        const same = o?.player !== undefined && before?.player !== undefined && Math.abs(o.player.y - before.player.y) < 1e-4 && (o.stepIndex ?? 0) > (before.stepIndex ?? 0);
+        standing.o = o;
+        return same;
+      }, { timeout: 30_000, intervals: [250], message: `${renderer} Play: the player at rest` })
+      .toBe(true);
+    const at = standing.o!.player!;
+    expect(Math.abs(at.y - (STRIP_HEIGHT + 0.9)), `${renderer} Play: standing on the terrain (at y ${at.y})`).toBeLessThan(0.05);
+    // A second of forward a request (the relay's body bound), until it is in the hole (about 5 m at the walking speed).
+    const frames = Array.from({ length: 120 }, (_, k) => ({ stepOffset: k, ...controls(0, 'none', 1) }));
+    for (let leg = 0; leg < 4 && ((await read())?.player?.y ?? 0) > STRIP_HEIGHT - 0.5; leg++) {
+      const from = (await read())!.player!.z;
+      const walk = await relay(`${psid}/input`, { mode: 'exclusive-test', frames });
+      expect(walk.status, JSON.stringify(walk.json)).toBe(200);
+      // The leg walked (or the ground gave way).
+      await expect.poll(async () => {
+        const p = (await read())?.player;
+        return p !== undefined && (p.z < from - 1.5 || p.y < STRIP_HEIGHT - 0.5);
+      }, { timeout: 30_000, message: `${renderer} Play: walking forward (leg ${leg + 1})` }).toBe(true);
+      await page.waitForTimeout(1200);
+    }
+    await expect.poll(async () => (await read())?.player?.y ?? Infinity, { timeout: 30_000, message: `${renderer} Play: fell through the hole` }).toBeLessThan(STRIP_HEIGHT - 3);
+    const fell = (await read())!.player!;
+    expect(fell.z, `${renderer} Play: it went forward into the hole`).toBeLessThan(HOLE[1] + 3.5);
   }
 
   // The static export with the backend stopped, on each renderer.

@@ -1202,7 +1202,7 @@ export {
   type TerrainSculptKind,
 } from './terrain-edit';
 export { HEIGHTMAP_FORMATS, HEIGHTMAP_MAX_SAMPLES, blockLayerToTerrain, decodeHeightmap, importHeightmap, type BlockLayerSource, type Heightmap, type HeightmapFormat, type HeightmapOptions } from './terrain-import';
-export { TerrainField, type TerrainSample } from './terrain-field';
+export { TerrainField, terrainCellStep, type TerrainSample } from './terrain-field';
 export { blockChunkStorageOf, maxSlopeClimbOf } from './content-settings';
 export { chunkLightmapLayout, type ChunkLightmapLayout } from './block-lightmap';
 // The instance brush (paint and erase copies of an instance set on a surface).

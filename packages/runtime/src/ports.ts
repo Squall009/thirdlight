@@ -401,7 +401,16 @@ export type ColliderPrimitive3D =
   | { type: 'sphere'; radius: number }
   | { type: 'capsule'; radius: number; halfHeight: number }
   | { type: 'convex'; points: readonly number[] }
-  | { type: 'mesh'; vertices: readonly number[]; indices: readonly number[] };
+  | { type: 'mesh'; vertices: readonly number[]; indices: readonly number[] }
+  /**
+   * A heightfield (a static collider only; a terrain tile's): `cellsX` ×
+   * `cellsZ` cells of `cellX` × `cellZ` metres from the collider's origin
+   * toward +x and +z, `heights` (metres) column by column from the min-x
+   * column, each `cellsZ + 1` from min z (Rapier's own order: handed over
+   * without a copy-and-turn). Each cell is two triangles split from its
+   * (+x, min z) corner to its (min x, +z) corner.
+   */
+  | { type: 'heightfield'; cellsX: number; cellsZ: number; cellX: number; cellZ: number; heights: Float32Array | readonly number[] };
 
 /**
  * A primitive, or several placed on one body (`compound`: each part at its

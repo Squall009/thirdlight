@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { flatTerrainTile, terrainLayersAt, type TerrainTile } from '@thirdlight/runtime';
 
-import { metresPerStep, packHeightNormal, packLayers, TERRAIN_TEXEL_BYTES } from './terrain-texels';
+import { metresPerStep, packFlat, packHeightNormal, packHeightNormalAlone, packHeightNormalBorder, packLayers, TERRAIN_TEXEL_BYTES } from './terrain-texels';
 
 const S = 17;
 const tileOf = (f: (x: number, z: number) => number): TerrainTile => {
@@ -13,7 +13,7 @@ const tileOf = (f: (x: number, z: number) => number): TerrainTile => {
 describe('terrain tile texels', () => {
   it('keeps the 16-bit step and gives neighbouring tiles the same normal on their shared edge', () => {
     // A slope over two tiles side by side: global x = tile * 16 + x.
-    const height = (gx: number, gz: number): number => 20000 + gx * 37 + gz * gz * 3;
+    const height = (gx: number, gz: number): number => 20000 + gx * 37 + gx * gx * 9 + gz * gz * 3;
     const a = tileOf((x, z) => height(x, z));
     const b = tileOf((x, z) => height(16 + x, z));
     const tiles = new Map([
@@ -34,6 +34,12 @@ describe('terrain tile texels', () => {
     }
     // The slope rises along +x: the normal leans toward −x.
     expect(pa[(8 * S + 8) * 4 + 2]!).toBeLessThan(127);
+    // Packed alone (off the page), then its border again with the neighbours: the same texels.
+    const alone = new Uint8Array(S * S * TERRAIN_TEXEL_BYTES);
+    packHeightNormalAlone(alone, a, mps, 1);
+    expect(alone).not.toEqual(pa);
+    packHeightNormalBorder(alone, a, nb(0), mps, 1);
+    expect(alone).toEqual(pa);
   });
 
   it('mixes baked weights and hand paint as the surface queries do, and marks hole cells', () => {
@@ -48,7 +54,9 @@ describe('terrain tile texels', () => {
     }
     t.holes[0] = 0b10; // cell (1, 0)
     const out = new Uint8Array(S * S * TERRAIN_TEXEL_BYTES);
-    packLayers(out, t);
+    const ids = new Uint8Array(S * S * TERRAIN_TEXEL_BYTES);
+    packLayers(out, ids, t);
+    expect([...ids.subarray(0, 4)]).toEqual([0, 1, 2, 3]);
     for (const i of [0, 40, 128, 288]) {
       const { layers, weights } = terrainLayersAt(t, i);
       const want = [0, 0, 0, 0];
@@ -61,12 +69,35 @@ describe('terrain tile texels', () => {
     expect(out[16 * 4 + 3]).toBe(0);
   });
 
-  it('draws only the first four layers, the others leaving their share to them', () => {
+  it('draws any layer: a layer goes in channel layer % 4 with its index; an empty channel takes a neighbour\'s layer', () => {
     const t = flatTerrainTile(S, 0);
     t.weights = new Uint8Array(S * S * 8);
     for (let i = 0; i < S * S; i++) t.weights.set([7, 1, 0, 0, 155, 100, 0, 0], i * 8);
+    // Sample 5 has layer 12 (channel 0) instead of layer 1.
+    t.weights.set([7, 12, 0, 0, 155, 100, 0, 0], 5 * 8);
     const out = new Uint8Array(S * S * TERRAIN_TEXEL_BYTES);
-    packLayers(out, t);
-    expect([out[0], out[1], out[2]]).toEqual([0, 255, 0]);
+    const ids = new Uint8Array(S * S * TERRAIN_TEXEL_BYTES);
+    packLayers(out, ids, t);
+    // Channel 1 = layer 1 (100), channel 3 = layer 7 (the rest, 155).
+    expect([out[0], out[1], out[2]]).toEqual([0, 100, 0]);
+    expect([...ids.subarray(0, 4)]).toEqual([0, 1, 2, 7]);
+    // Sample 4, next to sample 5: its empty channel 0 names layer 12 (the weight filtered in from 5 is that layer's).
+    expect([...ids.subarray(4 * 4, 5 * 4)]).toEqual([12, 1, 2, 7]);
+    expect([...ids.subarray(5 * 4, 6 * 4)]).toEqual([12, 1, 2, 7]);
+    expect([out[5 * 4], out[5 * 4 + 1]]).toEqual([100, 0]);
+    // Two layers in one channel at a sample: the stronger shows and takes the other's share.
+    t.weights.set([3, 7, 0, 0, 60, 195, 0, 0], 0);
+    packLayers(out, ids, t);
+    expect([out[0], out[1], out[2], ids[3]]).toEqual([0, 0, 0, 7]);
+  });
+
+  it('a flat tile: filled texels', () => {
+    const h = new Uint8Array(S * S * 4);
+    const w = new Uint8Array(S * S * 4);
+    const ids = new Uint8Array(S * S * 4);
+    packFlat(h, w, ids, 0x1234);
+    expect([...h.subarray(40, 44)]).toEqual([0x12, 0x34, 128, 128]);
+    expect([...w.subarray(40, 44)]).toEqual([255, 0, 0, 0]);
+    expect([...ids.subarray(40, 44)]).toEqual([0, 1, 2, 3]);
   });
 });

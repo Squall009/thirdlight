@@ -205,6 +205,8 @@ export function pageScenePreparation(o: {
    * preparation holds it as it is.
    */
   readonly resources?: ResourceManager;
+  /** Read the scene's terrains' tiles (the simulation's colliders take them as they decode). */
+  readonly terrain?: (entities: readonly { readonly components?: unknown }[]) => Promise<void>;
 }): (sceneId: string, entities: SceneEntities) => ScenePreparation {
   let serial = 0;
   return (sceneId, entities) => {
@@ -223,8 +225,9 @@ export function pageScenePreparation(o: {
     const probeFiles = new Set(grids.map((g) => g.asset));
     const textures = rows.filter((r) => r.kind === 'texture' && !probeFiles.has(r.assetId)).map((r) => r.assetId);
     const prepared = o.adapter()?.prepareScene?.(sceneId, entities as unknown as readonly { id: string; components: unknown }[], textures) ?? null;
+    const terrain = o.terrain?.(entities as unknown as readonly { readonly components?: unknown }[]) ?? Promise.resolve();
     return {
-      ready: Promise.all([read, prepared?.ready ?? Promise.resolve()]).then(() => undefined),
+      ready: Promise.all([read, prepared?.ready ?? Promise.resolve(), terrain]).then(() => undefined),
       release: () => {
         prepared?.release();
         o.reader.release(holder);

@@ -281,6 +281,9 @@ export function runSimWorker(endpoint: SimEndpoint, deps: SimWorkerDeps): void {
       case 'setFrameRateCap':
         rt.setFrameRateCap?.(c.fps);
         break;
+      case 'terrainTiles':
+        rt.addTerrainTiles?.(c.tiles);
+        break;
       case 'debugCommand':
         r = rt.queueDebugCommand?.(c.call) ?? { ok: false, error: { code: 'game_command_invalid', message: 'this runtime has no debug commands' } };
         break;

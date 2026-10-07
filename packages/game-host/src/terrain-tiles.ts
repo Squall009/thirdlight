@@ -1,12 +1,17 @@
 /**
  * The page side of a terrain's tiles: each tile the component names with
  * data is a `manifest.buffers` blob (`content/sha256/<digest>`, digest-verified
- * by the reader), stored gzip by the editor and shipped as it is; here it is
- * inflated by the browser's own DecompressionStream and decoded, and the
+ * by the reader), stored gzip by the editor and shipped as it is; it is
+ * inflated by the platform's own DecompressionStream and decoded, and the
  * tiles become a `TerrainField` to ask for heights, normals, holes and
  * layers. A tile named by several terrains (or twice) is read once.
+ *
+ * A game page holds its decoded tiles in the renderer's tile store (decoded
+ * and packed on a worker) and hands them to the simulation's colliders from
+ * there (`preloadTerrainTiles`, `feedTerrainCollision`); `loadTerrainField`
+ * reads a terrain whole where no renderer runs.
  */
-import { TerrainField, terrainTileKey, terrainTileOf, type TerrainComponent, type TerrainTile } from '@thirdlight/runtime';
+import { TerrainField, terrainTileKey, terrainTileOf, type TerrainComponent, type TerrainTile, type TerrainTileData } from '@thirdlight/runtime';
 
 export { terrainTileOf };
 
@@ -32,4 +37,37 @@ export async function loadTerrainField(component: TerrainComponent, origin: read
     }),
   );
   return new TerrainField(component, origin, tiles);
+}
+
+/** The page's decoded tiles as the game page uses them (three-adapter's `TerrainTileStore`). */
+export interface PageTerrainTiles {
+  preload(component: TerrainComponent, pack: boolean): Promise<void>;
+  tiles(): ReadonlyMap<string, TerrainTile>;
+  onTile(listener: (digest: string, tile: TerrainTile) => void): () => void;
+}
+
+/**
+ * Read the terrains of `entities` into the page's tiles before the
+ * simulation gets them (their colliders are built on its first step): every
+ * tile with data, packed for drawing too when terrains are drawn.
+ */
+export async function preloadTerrainTiles(entities: readonly { readonly components?: unknown }[], tiles: PageTerrainTiles, drawn: boolean): Promise<void> {
+  const work: Promise<void>[] = [];
+  for (const e of entities) {
+    const c = (e.components as { terrain?: TerrainComponent } | undefined)?.terrain;
+    if (c === undefined || !c.tiles.some((t) => t.data !== undefined)) continue;
+    if (!drawn && c.collision === false) continue;
+    work.push(tiles.preload(c, drawn));
+  }
+  await Promise.all(work);
+}
+
+/** What collision reads of a decoded tile (the same arrays: a simulation on the page shares them; its worker gets a copy). */
+export const terrainTileData = (digest: string, tile: TerrainTile): TerrainTileData => ({ digest, samples: tile.samples, heights: tile.heights, holes: tile.holes });
+
+/** Hand the page's decoded tiles to a simulation's colliders: those decoded now, and each one as it is; returns the stop. */
+export function feedTerrainCollision(tiles: PageTerrainTiles, add: (tiles: readonly TerrainTileData[]) => void): () => void {
+  const now = [...tiles.tiles()].map(([d, t]) => terrainTileData(d, t));
+  if (now.length > 0) add(now);
+  return tiles.onTile((digest, tile) => add([terrainTileData(digest, tile)]));
 }

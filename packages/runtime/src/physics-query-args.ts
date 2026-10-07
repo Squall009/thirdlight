@@ -36,11 +36,14 @@ export function queryPositive(v: unknown, what: string): number {
 
 /**
  * The entity a physics collider belongs to — a block layer's
- * chunk collider (`<layer>#blocks:<chunk>:<piece>`) is its layer.
+ * chunk collider (`<layer>#blocks:<chunk>:<piece>`) is its layer, a
+ * terrain's tile collider (`<terrain>#terrain:<tile>:<piece>`) its terrain.
  */
 export function colliderEntityOf(colliderId: string): string {
   const i = colliderId.indexOf('#blocks:');
-  return i > 0 ? colliderId.slice(0, i) : colliderId;
+  if (i > 0) return colliderId.slice(0, i);
+  const t = colliderId.indexOf('#terrain:');
+  return t > 0 ? colliderId.slice(0, t) : colliderId;
 }
 
 /** A query's reach (absent: `fallback`; at most 10 km). */

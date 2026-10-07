@@ -351,6 +351,18 @@ export function shapeAabb3(shape: ColliderShape3D, q: readonly number[]): { min:
       for (let i = 0; i + 2 < list.length; i += 3) pts.push([list[i]!, list[i + 1]!, list[i + 2]!]);
       break;
     }
+    case 'heightfield': {
+      let lo = Infinity;
+      let hi = -Infinity;
+      for (let i = 0; i < shape.heights.length; i++) {
+        lo = Math.min(lo, shape.heights[i]!);
+        hi = Math.max(hi, shape.heights[i]!);
+      }
+      const sx = shape.cellsX * shape.cellX;
+      const sz = shape.cellsZ * shape.cellZ;
+      for (const x of [0, sx]) for (const y of [lo, hi]) for (const z of [0, sz]) pts.push([x, y, z]);
+      break;
+    }
   }
   for (const p of pts) {
     const r = rotate3(q, p);

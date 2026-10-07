@@ -4944,8 +4944,8 @@ stroke or button is one undo step, and MCP can do the same.
 
 A `terrain` component makes an object a heightfield of square tiles for
 landscape (block layers stay the tool for authored structure). It is drawn in
-the Scene view, Play and an export alike; collision comes with the next item
-(a terrain has none yet), and the editor's Terrain tools after that.
+the Scene view, Play and an export alike and collides in 3D games; the
+editor's Terrain tools come next.
 
 - **The component** `{tileSamples, spacing, heightRange: [low, high], tiles:
   [{x, z, data?}]}`: each tile holds `tileSamples × tileSamples` samples
@@ -4958,7 +4958,9 @@ the Scene view, Play and an export alike; collision comes with the next item
   `setComponent terrain {tileSamples: 257, spacing: 1, heightRange: [-128, 384],
   tiles: [{x: 0, z: 0}, {x: 1, z: 0}]}`. Changing `heightRange` later
   stretches the stored heights with it; `tileSamples` is fixed once tiles hold
-  data (a tile of another size is refused).
+  data (a tile of another size is refused). **`collision`** (optional,
+  default on; stored only when off): the tiles are colliders in a 3D game —
+  turn it off for scenery the player never reaches.
 - **Tiles are files**: each tile's heights, baked layer weights (the four
   strongest layers per sample, so the number of layers is not tied to
   texture channels), hole mask and hand paint (kept apart from the baked
@@ -5000,10 +5002,31 @@ the Scene view, Play and an export alike; collision comes with the next item
   its tiles take decoded in a game: a terrain has no tile cap, its memory is
   what bounds it); with `entityId` the tiles one by one, and with `points:
   [[x, z], …]` the surface there (height, normal, slope, layers, hole).
+- **The surface**: between samples each cell is two triangles split from
+  its (+x, min z) corner to its (min x, +z) corner — the triangles the finest
+  level draws, the colliders hold and `queryTerrain` / the terrain field
+  answer, so they agree exactly near the camera (further out the coarser
+  levels are an approximation of it, for the eye only). Before this the
+  queries were bilinear: they differ by at most a quarter of a cell's twist
+  (|h00 + h11 − h10 − h01| / 4).
 - **Play and export** ship each tile blob as it is stored (a
-  `manifest.buffers` row, `content/sha256/<digest>`); the game page inflates
-  it with the browser's own decompression and the runtime's terrain field
-  answers heights, normals, slopes, holes and layers.
+  `manifest.buffers` row, `content/sha256/<digest>`). The game page reads a
+  start scene's tiles before the game starts (a scene loaded later: before
+  it reaches the game), inflates, decodes and packs them for drawing on a
+  worker (the view worker, `js/mesh-worker.js`, shipped with block layers or
+  terrain; without it the page does it), and keeps one decoded copy of each,
+  which the renderer, picking and the simulation's colliders share (a
+  simulation in its worker gets a copy of the heights and holes).
+- **Collision** (3D games): a tile is one heightfield collider; a tile with
+  holes is cut into 16 × 16-cell patches — whole ones merged into
+  rectangles, each a heightfield; cut ones a triangle mesh of their whole
+  cells — so a character falls through a hole. Colliders are added and
+  removed in the same batches as block layers' chunks, between steps; a tile
+  whose data has not arrived has none yet. Rays (`ctx.physics.raycast3d`)
+  hit the terrain and name its object. Every tile collides for now; world
+  streaming will keep colliders to a ring round the player.
+- **Picking** in the Scene view reads the terrain's heights (click to select
+  it; drops land on it).
 - **Drawing** (CDLOD): each tile is a quadtree whose nodes are one shared
   16 × 16 grid drawn instanced, raised in the vertex shader from the tile's
   heights and morphed between levels by distance, so levels meet without
@@ -5016,25 +5039,44 @@ the Scene view, Play and an export alike; collision comes with the next item
   (put fog there). A sculpt, paint or holes edit uploads only the changed
   tiles again; the sun's cached static shadow is drawn again once.
 - **Material**: give the object a `materials` component with `"*"` naming a
-  graph material — the **height-blended layers** template draws the
-  terrain's layers 0–3 (layer weights stand in for its painted vertex
-  colours; texture coordinates are metres from the terrain's corner, +u along
-  x, +v along z, as block layers' tops). Layers past the fourth are not drawn
-  yet (the four drawn share their weight). Without a graph material the four
-  layers show as plain colours (green, brown, grey, sand). Holes are cut away
-  (also from the shadow). Light layers and local-light modes come from the
+  graph material (a script's material swap reaches it too) — the
+  **height-blended layers** template draws any number of the terrain's
+  layers: layer L is read from its texture arrays' layer L (put one array
+  layer per terrain layer), through the template's four slots — a layer goes
+  in slot L % 4 and takes that slot's per-layer settings (tiling, normal
+  strength, height contrast and offset). Number layers that meet so they
+  fall in different slots: two layers of one slot at neighbouring samples
+  meet at a hard edge (at one sample, the stronger shows). Layer weights
+  stand in for the template's painted vertex colours; texture coordinates are
+  metres from the terrain's corner, +u along x, +v along z, as block layers'
+  tops. The terrain's own reads are three a pixel (weights, layer indices,
+  hole) beside the template's twelve. Without a graph material the four slots
+  show as plain colours (green, brown, grey, sand). Holes are cut away (also
+  from the shadow). Light layers and local-light modes come from the
   object's components as for any object; the terrain casts into the cached
   static shadow and receives the scene's probes and ambient occlusion.
 - **Diagnostics**: the adapter's `terrain` block (tiles drawn, texture bytes,
-  nodes selected and in view per level, draws, main-thread ms of the last
-  selection and uploads, tiles that failed to read); `?terrain=off` on a game
-  page draws none (to measure what a terrain costs).
+  `cpuBytes` — the page's decoded tiles, one copy —, nodes selected and in
+  view per level, draws, main-thread ms of the last selection and uploads and
+  the most a frame spent and uploaded lately, the last tile's decode and pack
+  ms on the worker, tiles that failed to read); the runtime's
+  `terrainMemory` in Play (the simulation's tile data and bytes, colliders,
+  tiles with colliders, the last build's tiles and ms, tiles still waiting);
+  `?terrain=off` on a game page draws none (to measure what a terrain
+  costs). Arrived tiles are uploaded a texture layer at a time within 2 ms
+  and 4 MiB a frame (at least one), so a large tile goes up over a few
+  frames.
 - **Measured** (landscape perf class: 12 × 12 tiles of 257² at 2 m, the
   layered material, Iris Xe at 1080p): the terrain adds 0.9 ms of GPU time,
   one draw and 0.5 ms (WebGPU) to 0.9 ms (WebGL 2) of main-thread time per
   frame; a CDLOD selection over its 144 tiles takes about 0.05 ms when the
-  camera moves; a 257² tile's upload about 4.3 ms of packing (one tile or
-  more within 3 ms a frame).
+  camera moves. Packing a tile runs on a worker (a 1,025² tile: about 17 ms
+  to decode and 85–98 ms to pack there); the page only copies and uploads
+  it, at most about 3 ms a frame, and a 60 Hz page misses no frame while a
+  sculpted 1,025² tile goes up. Collision: a 257² tile's heightfield is made
+  and added in about 7–9 ms, a 1,025² tile's in about 12 ms (one holed in
+  patches about 23 ms), in the simulation's worker; a step with them costs
+  under 0.1 ms.
 - **Measured** (this host, Node): a dab on a 513² tile at 1 m costs 0.1–0.2 ms
   at 8 m radius, about 0.9 ms at 32 m and 3.7 ms at 64 m (paint 0.5 / 5.5 /
   23 ms); a 32-dab stroke as the backend runs it (read the tile, plan, encode,

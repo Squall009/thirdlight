@@ -53,6 +53,13 @@ export interface SceneAdapterOptions {
    * Absent: the models' `resolveBuffer`, if any.
    */
   resolveBuffer?: (digest: string) => Promise<ArrayBuffer>;
+  /**
+   * The page's decoded terrain tiles, shared with collision (a game page
+   * reads its start scene's tiles before the simulation starts). Absent: the
+   * adapter keeps its own, read through `resolveBuffer` and packed in a
+   * worker of `meshWorkerUrl`.
+   */
+  terrainTiles?: import('./terrain-tile-store').TerrainTileStore;
   /** Draw terrains (default true; false: none, a diagnostic comparison). */
   terrain?: boolean;
   /**

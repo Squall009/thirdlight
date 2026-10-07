@@ -89,6 +89,8 @@ export interface Runtime {
   takeGridChanges?(): import('./grid').GridRenderChange[];
   /** The block cells changed since the run started (plain data). */
   gridDiff?(): import('./grid').GridDiff;
+  /** Terrain tiles decoded on the page (by digest): their terrains' colliders are built (between steps). */
+  addTerrainTiles?(tiles: readonly import('./terrain-collision').TerrainTileData[]): void;
   /** The material parameters scripts changed since the last call (one change per parameter); the adapter applies them. */
   takeMaterialChanges?(): import('./material-params').MaterialRenderChange[];
   /** The material parameters scripts set, as digest text (null while none is set). */
@@ -388,5 +390,7 @@ export interface RuntimeDiagnostics {
    * a layer is loaded; a layer has no cell cap, so this is what bounds it.
    */
   blockMemory?: import('./grid').BlockMemoryDiagnostics;
+  /** What terrain collision holds (tiles' heights and holes, colliders, the last build's time). Present while a terrain with collision is loaded. */
+  terrainMemory?: import('./terrain-collision').TerrainCollisionDiagnostics;
 
 }

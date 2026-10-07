@@ -19,6 +19,7 @@
  *   action sampling and fail-stop with no rollback.
  */
 import { RuntimeGrid, type GridCutawayState, type GridRenderChange } from './grid';
+import type { TerrainTileData } from './terrain-collision';
 import { fail, isPhysicsPort, isPlainObject, parseConfig, PHYSICS_PORT_REASON } from './runtime-config';
 import { RuntimeMaterials, type MaterialRenderChange, type RuntimeMaterialCatalog } from './material-params';
 import { MAX_FRAME_ASSET_ANSWERS, RuntimeAssetHandles, validateAssetAnswers, type AssetHandleAnswer, type AssetHandleRequest } from './asset-handles';
@@ -39,7 +40,6 @@ import {
   viewLensOf,
   type EntityV3,
   type PrefabDefinition,
-  type Quat,
   type RuntimeUiDocumentRow,
   type UiEngineAction,
   MAX_TRANSITION_FADE, SCRIPT_SAVE_LIMITS, UI_DEPRECATED_ENGINE_ACTIONS,
@@ -71,9 +71,8 @@ import { ColliderSystem } from './collider-system';
 import {
   BehaviorIntentError,
   INTENT_LIMITS,
-  facingQuaternion,
-  normalizedQuaternion,
   quantizeIntentMove,
+  writeRotationForm,
   validateIntentPhase,
   validateIntentShape,
   validateIntentValue,
@@ -665,19 +664,6 @@ export function instantiateRuntime(
     ...(snap.sceneList !== undefined ? { sceneList: snap.sceneList } : {}),
   });
   return { ok: true, runtime: rt };
-}
-
-/**
- * Write an intent's quaternion (normalized) or facing rotation
- * (validated before: finite, not all zero, up not parallel) into `rotation`.
- */
-function writeRotationForm(rotation: Quat, intent: { quaternion?: readonly number[]; facing?: readonly number[]; up?: readonly number[] }): void {
-  const q = intent.quaternion !== undefined ? normalizedQuaternion(intent.quaternion) : facingQuaternion(intent.facing!, intent.up);
-  if (q === null) return;
-  rotation[0] = q[0];
-  rotation[1] = q[1];
-  rotation[2] = q[2];
-  rotation[3] = q[3];
 }
 
 function resolveSettings(input: unknown): { settings: GameplaySettings } | { error: RuntimeError } {
@@ -1476,6 +1462,12 @@ class RuntimeInstance implements Runtime {
    */
   takeGridChanges(): GridRenderChange[] {
     return this.grid.takeRenderChanges();
+  }
+
+  /** Terrain tiles decoded on the page (by digest): their terrains' colliders are built now (between steps). */
+  addTerrainTiles(tiles: readonly TerrainTileData[]): void {
+    this.grid.terrain.addTiles(tiles);
+    this.grid.flushCollision(this.physics3d);
   }
 
   /** The cells changed since the run started (tests, saves). */
@@ -4604,8 +4596,8 @@ class RuntimeInstance implements Runtime {
     const ea = this.entityAccess;
     if (ea.applied + ea.refused + ea.conflicts > 0) m2.entityWrites = { applied: ea.applied, refused: ea.refused, conflicts: ea.conflicts, inactive: ea.inactive().size };
     // Script messages refused at the per-step limit (only once one was: the warning); block layers' memory (with layers).
-    const queue = this.blocks?.messageQueueView() ?? null, blockMemory = this.grid.memory();
-    Object.assign(m2, queue !== null ? { messageQueue: queue } : {}, blockMemory !== null ? { blockMemory } : {});
+    const queue = this.blocks?.messageQueueView() ?? null, blockMemory = this.grid.memory(), terrainMemory = this.grid.terrain.memory();
+    Object.assign(m2, queue !== null ? { messageQueue: queue } : {}, blockMemory !== null ? { blockMemory } : {}, terrainMemory !== null ? { terrainMemory } : {});
     if (this.failedModuleId !== undefined) m2.failedModuleId = this.failedModuleId;
     if (this.failedPhase !== undefined) m2.failedPhase = this.failedPhase;
     if (this.failedStepIndex !== undefined) m2.failedStepIndex = this.failedStepIndex;

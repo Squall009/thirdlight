@@ -48,7 +48,8 @@ import { syncCellUv } from './block-cell-uv';
 import { BlockLayerView, blockLookFromObject, type BlockLayerViewDiagnostics, type BlockModelLook } from './block-layers';
 import { createCutawayFollower } from './block-cutaway-follow';
 import { createBrowserMeshWorker } from './block-mesh-pool';
-import { TerrainView } from './terrain-view';
+import { TERRAIN_ENTITY_KEY, TerrainView } from './terrain-view';
+import { TerrainTileStore } from './terrain-tile-store';
 import { RuntimeMaterialView, type MaterialRenderChangeLike, type RuntimeMaterialsDiagnostics } from './runtime-materials';
 import { MaterialSwapView, type MaterialMappingLike } from './material-swaps';
 import type { BlockLayerComponent, BlockLayerData, BlockType, GridRenderChange, TerrainComponent } from '@thirdlight/runtime';
@@ -521,8 +522,10 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     },
   });
   // Terrains — CDLOD over their tiles' texture arrays (terrain-view.ts).
+  // The page's decoded tiles (a game page's, shared with collision), else the adapter's own.
+  const ownTiles = opts.terrainTiles === undefined ? new TerrainTileStore({ read: opts.resolveBuffer ?? opts.models?.resolveBuffer ?? null, worker: opts.meshWorkerUrl !== undefined ? () => createBrowserMeshWorker(opts.meshWorkerUrl!, 'thirdlight-terrain') : null }) : null;
   const terrains = new TerrainView({
-    readBlob: opts.resolveBuffer ?? opts.models?.resolveBuffer ?? null,
+    tiles: opts.terrainTiles ?? ownTiles!,
     materials: materialLibrary,
     place: (mesh, shown) => (shown ? graph.listStatic(mesh) : graph.unlistStatic(mesh)),
     shapeChanged: () => staticShadows?.bump(),
@@ -765,6 +768,8 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       ...(materialLibrary.preloadTextures !== undefined ? { preload: (ids: readonly string[]) => materialLibrary.preloadTextures!(ids) } : {}),
       applyEntity: (entityId) => {
         const e = entityDocs.get(entityId);
+        // A terrain's pages wear it (no entity node of its own).
+        if (e !== undefined && !disposed && (e.components as { terrain?: unknown }).terrain !== undefined) return terrains.restyle(entityId, effectiveMaterials(entityId, (e.components as { materials?: Record<string, string> }).materials) ?? null, materialParamsOf(e.components));
         const obj = graph.node(entityId);
         if (e === undefined || obj === undefined || disposed) return;
         // The lightmapped copies are of the materials worn before: taken off, then made again over the new ones.
@@ -1676,6 +1681,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     viewCull.dispose();
     blockView.dispose();
     terrains.dispose();
+    ownTiles?.dispose();
     for (const rec of boxMaterials.values()) rec.material.dispose();
     boxMaterials.clear();
     boxMaterialKeys.clear();
@@ -1837,6 +1843,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     entityObject: (entityId, create) => (disposed ? null : ((create === true ? graph.nodeFor(entityId) : graph.node(entityId)) ?? null)),
     entityOf(object): string | null {
       for (let o: THREE.Object3D | null = object; o !== null; o = o.parent) if (o instanceof EntityNode) return o.entityId;
+      else if (typeof o.userData[TERRAIN_ENTITY_KEY] === 'string') return o.userData[TERRAIN_ENTITY_KEY] as string;
       return null;
     },
     threeScene: () => scene,
