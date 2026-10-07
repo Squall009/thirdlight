@@ -38,6 +38,7 @@
 
 import { UI_DESCRIPTORS } from './ui-descriptors';
 import { blockFootprint, blockLayer } from './block-descriptors';
+import { terrain } from './terrain-descriptor';
 import { COMPONENT_ICONS, type ComponentDescriptor, type DescriptorRegistry, type FieldDescriptor, HANDLE_KINDS, HANDLE_ROLES, type ObjectFieldDescriptor } from './descriptor-types';
 import { animator, audioSource, behavior, behaviorGroupC, box, cameraPath, cameraRegion, climbVolume, collectible, collider, controller, effectComponent, ENTITY, faceMovement, fogVolume, folder, gravityC, health, hitbox, instances, light, materialParams, materials, model, modelAnimation, mover, patrol, playerSpawn, prefab, probeVolume, socketAttach, surface, switchC, transform, trigger, virtualCamera } from './descriptor-components';
 import { CONTENT, SCENE_ENVIRONMENT } from './descriptor-content';
@@ -84,16 +85,17 @@ const COMPONENTS: readonly ComponentDescriptor[] = [
   blockLayer,
   blockFootprint,
   behaviorGroupC,
+  terrain,
 ];
 
 // ---- What scripts read and write (ctx.entity) --------------------------
 
 /**
  * Components scripts never read: a folder is not in the game, an instance
- * set's copies and a block layer's cells are bulk data (the block layers are
- * read through `ctx.grid`).
+ * set's copies, a block layer's cells and a terrain's tiles are bulk data (the
+ * block layers are read through `ctx.grid`).
  */
-const SCRIPT_UNREADABLE: ReadonlySet<string> = new Set(['folder', 'instances', 'blockLayer']);
+const SCRIPT_UNREADABLE: ReadonlySet<string> = new Set(['folder', 'instances', 'blockLayer', 'terrain']);
 /** The object's own fields scripts read (`locked` is editor-only; `components` is the rest of the table). */
 const SCRIPT_OBJECT_READ: ReadonlySet<string> = new Set(['id', 'name', 'parentId', 'active', 'visible', 'static', 'keepLoaded', 'tags']);
 /**

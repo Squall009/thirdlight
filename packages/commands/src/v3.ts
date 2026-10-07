@@ -17,6 +17,7 @@ import { CONTROLLER_FIELDS } from '@thirdlight/project-model';
 import { CAMERA_PATH_FIELDS, CAMERA_REGION_FIELDS, VIRTUAL_CAMERA_FIELDS, validateCameraPathComponent, validateCameraRegionComponent, validateVirtualCameraComponent, validateProbeVolumeComponent } from '@thirdlight/project-model';
 import { BLOCK_LAYER_FIELDS, validateBlockLayerComponent, validateBlockFootprintComponent } from '@thirdlight/project-model';
 import { validateBehaviorGroupComponent } from '@thirdlight/project-model';
+import { TERRAIN_FIELDS, validateTerrainComponent } from '@thirdlight/project-model';
 import { SOCKET_ATTACH_FIELDS, validateSocketAttachComponent } from '@thirdlight/project-model';
 import { BLOCK_COMPONENTS, validateAnimatorComponent, validateFogVolumeComponent, validateMaterialMapping, validateMaterialParamsComponent, validateEffectComponent } from '@thirdlight/project-model';
 import {
@@ -81,6 +82,7 @@ export const COMPONENT_FIELD_ORDER_V3: Record<V3OwnedComponent, readonly string[
   // A camera region (project-model cameras.ts field order).
   cameraRegion: CAMERA_REGION_FIELDS,
   probeVolume: ['size', 'spacing'],
+  terrain: TERRAIN_FIELDS,
 };
 
 /**
@@ -152,6 +154,8 @@ export const V3_COMPONENTS: readonly V3OwnedComponent[] = [
   // v4 scenes only.
   'cameraRegion',
   'probeVolume',
+  // v4 scenes only.
+  'terrain',
 ];
 
 /** Every component `setComponent` may address. */
@@ -240,6 +244,9 @@ export function validateV3ComponentValue(
       break;
     case 'probeVolume':
       validateProbeVolumeComponent(value, path, errors as unknown as Parameters<typeof validateProbeVolumeComponent>[2]);
+      break;
+    case 'terrain':
+      validateTerrainComponent(value, path, errors as unknown as Parameters<typeof validateTerrainComponent>[2]);
       break;
     case 'socketAttach':
       validateSocketAttachComponent(value, path, errors as unknown as Parameters<typeof validateSocketAttachComponent>[2]);

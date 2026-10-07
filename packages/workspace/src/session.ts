@@ -14,6 +14,7 @@
  * external change (when writes are paused).
  */
 
+import { serveQueryTerrain } from './terrain-query';
 import type { PreparedImportFile } from './folder-import';
 import { resolveEntry, type RegisteredProject } from './registry';
 import { mkdirSync, chmodSync, realpathSync } from 'node:fs';
@@ -1297,6 +1298,8 @@ const QUERY_OPS = [
   'queryBlocks',
   // The project index: what the project holds and what references what.
   'queryIndex',
+  // Terrains: tiles, their bytes, the surface at points.
+  'queryTerrain',
 ] as const;
 type QueryOp = (typeof QUERY_OPS)[number];
 
@@ -1348,5 +1351,6 @@ export function serveQuery(
   if (s.v4 === null || s.v4 === undefined) {
     return queryFailure(op, projectId, projectUnavailable('envelope_invalid', null, []));
   }
+  if (op === 'queryTerrain') return serveQueryTerrain(core, s, projectId, args ?? {});
   return serveQueryV4(s, op, projectId, args, workspaceBlock(s));
 }

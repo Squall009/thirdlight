@@ -474,6 +474,7 @@ function validateRecordResult(
   let allowed: string[];
   if (op === 'createEntity' || op === 'pasteEntities' || op === 'createEntities') allowed = [...base, 'createdId'];
   else if (op === 'undo' || op === 'redo') allowed = [...base, 'appliedOf', 'originOfApplied'];
+  else if (op === 'editTerrain') allowed = [...base, 'terrain'];
   else allowed = base;
   // Record version 2 also stores the acked scene id.
   if (recordVersion >= 2) allowed = [...allowed, 'sceneId'];
@@ -527,6 +528,13 @@ function validateRecordResult(
     // A scene-index change names no scene (the live acknowledgement omits it).
     if ((result['change'] as { type?: unknown })['type'] === 'setSceneIndex') {
       return rerr('recorded result of a scene-index change carries no sceneId', result['sceneId'], '/result/sceneId');
+    }
+  }
+  if (op === 'editTerrain' && 'terrain' in result) {
+    const t = result['terrain'];
+    const pairs = (v: unknown): boolean => Array.isArray(v) && v.every((p) => Array.isArray(p) && p.length === 2 && p.every((n) => isSafeInt(n)));
+    if (!isPlainObject(t) || !pairs(t['tiles']) || !pairs(t['added']) || !isSafeInt(t['changed']) || (t['clamped'] !== undefined && !isSafeInt(t['clamped'])) || Object.keys(t).some((k) => !['tiles', 'added', 'changed', 'clamped'].includes(k))) {
+      return rerr('recorded result terrain must be {tiles, added, changed, clamped?}', undefined, '/result/terrain');
     }
   }
   if (op === 'createEntity') {
@@ -866,6 +874,7 @@ const M2_CHANGE_TYPE_BY_OP: Record<string, string> = {
   createFolder: 'moveResources',
   paintInstances: 'setComponent',
   colliderFromModel: 'setComponent',
+  editTerrain: 'setComponent',
 };
 
 /**

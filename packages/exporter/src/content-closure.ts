@@ -154,6 +154,8 @@ const MISSING_CODES: ReadonlySet<string> = new Set(['asset_source_missing', 'blo
 export type ClosurePlaceholderMaker = (asset: { readonly assetId: string; readonly kind: string; readonly bounds?: unknown }) => Uint8Array | null;
 
 const DIGEST_RE = /^[0-9a-f]{64}$/;
+/** A buffer whose size is its blob's own (a terrain tile): no count says what it should be. */
+const TERRAIN_TILE_SIZE_OF_BLOB = -1;
 /** One page of the behavior query (its largest). */
 const BEHAVIOR_PAGE = ASSET_QUERY_PAGE_MAX;
 
@@ -886,7 +888,7 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
   if (input.scenes !== undefined && derived === null) {
     const start = new Set(input.startScenes ?? []);
     for (const doc of input.scenes) {
-      const sc = doc as { sceneId: string; entities: { components: { instances?: { buffer: string; count: number } } }[] };
+      const sc = doc as { sceneId: string; entities: { components: { instances?: { buffer: string; count: number }; terrain?: { tiles: { data?: string }[] } } }[] };
       const bytes = new TextEncoder().encode(`${JSON.stringify(packer.pack(doc), null, 2)}\n`);
       const digest = hash(bytes);
       const path = `scenes/${sc.sceneId}.json`;
@@ -895,20 +897,25 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
       for (const e of sc.entities) {
         const inst = e.components.instances;
         if (inst !== undefined) buffers.set(inst.buffer, inst.count * 40);
+        // A terrain's tile blobs ship as they are stored (gzip, which the page inflates natively).
+        for (const t of e.components.terrain?.tiles ?? []) if (t.data !== undefined && !buffers.has(t.data)) buffers.set(t.data, TERRAIN_TILE_SIZE_OF_BLOB);
       }
     }
   }
   for (const [digest, byteLength] of [...buffers.entries()].sort(([a], [b]) => (a < b ? -1 : 1))) {
     const badSize = (found: number): { ok: false; error: ContentClosureError } => ({ ok: false, error: { code: 'export_scene_invalid', cls: 'validation', reason: 'instances_buffer', message: `instance buffer ${digest.slice(0, 12)}… holds ${found} bytes, not ${byteLength} (count × 40)` } });
+    const sized = byteLength !== TERRAIN_TILE_SIZE_OF_BLOB;
     if (locate) {
       const at = service.locateSourceBlob(projectId, digest);
       if (!at.ok) return { ok: false, error: fromCommandError(at.error) };
-      if (at.file.byteLength !== byteLength) return badSize(at.file.byteLength);
-      bufferFiles.push({ path: `content/sha256/${digest}`, digest, byteLength, contentType: 'application/octet-stream', file: at.file });
+      if (sized && at.file.byteLength !== byteLength) return badSize(at.file.byteLength);
+      buffers.set(digest, at.file.byteLength);
+      bufferFiles.push({ path: `content/sha256/${digest}`, digest, byteLength: at.file.byteLength, contentType: 'application/octet-stream', file: at.file });
     } else {
       const read = service.readSourceBlob(projectId, { digest });
       if (!read.ok) return { ok: false, error: fromCommandError(read.error) };
-      if (read.byteLength !== byteLength) return badSize(read.byteLength);
+      if (sized && read.byteLength !== byteLength) return badSize(read.byteLength);
+      buffers.set(digest, read.byteLength);
       bufferArtifacts.push({ path: `content/sha256/${digest}`, bytes: read.bytes, digest, contentType: 'application/octet-stream' });
     }
   }

@@ -3868,6 +3868,8 @@ its reason (the same line is next to its constant in the code):
 | Instance brush | 256 dabs and 1,536 places per stroke (`INSTANCE_BRUSH_LIMITS`); no count of strokes or painted copies beyond a set's | One stroke with its surface is one 64 KiB command; a longer drag is the next stroke |
 | Block edits | 1,048,576 cells per edit | One command's work; a layer is stored in chunks |
 | Block layers | 1,024 × 256 × 1,024 cells of bounds per layer, 16 layers with cells per scene; no count of cells in a layer or a scene | A layer's memory (`runtime.blockMemory` in Play diagnostics), not a cell count, bounds it |
+| Terrain | Tiles of 17–1,025 samples a side (2^n + 1), coordinates within ±4,096 tiles, 256 material layers (one byte an index; each sample blends its strongest four); no count of tiles | A tile is one blob and one decode; what the tiles take decoded is shown (`queryTerrain` `memoryBytes`), not capped |
+| Terrain edit | 1,024 dabs, 2,048 m radius, dabs covering at most 16,777,216 samples together (`TERRAIN_BRUSH_LIMITS`); a heightmap import of at most 8,193² samples (`HEIGHTMAP_MAX_SAMPLES`; a RAW file also within the 32 MiB upload) | One command's work in the backend's memory; a longer drag is the next stroke |
 | WebSocket message to the editor | 1 MiB (a larger Play snapshot is fetched over HTTP; a larger change makes the editor re-read the project; anything else over it is dropped and listed under Problems) | One frame |
 
 ### Engine defaults
@@ -4937,6 +4939,79 @@ stroke or button is one undo step, and MCP can do the same.
 - **Measured**: a stroke on a 64 × 64 × 16 layer holding 32,768 cells
   previews in about 40–55 ms per pointer move and is stored about
   110–160 ms after release on the test host.
+
+## Terrain
+
+A `terrain` component makes an object a heightfield of square tiles for
+landscape (block layers stay the tool for authored structure). Drawing and
+collision come with the renderer item after this one; today a terrain is data
+that is edited, saved, played and exported, and that scripts' and tools'
+queries can read.
+
+- **The component** `{tileSamples, spacing, heightRange: [low, high], tiles:
+  [{x, z, data?}]}`: each tile holds `tileSamples × tileSamples` samples
+  (17, 33, 65, 129, 257, 513 or 1,025; neighbouring tiles share their edge
+  samples) `spacing` metres apart; tile (x, z) covers x…x + 1 tile widths
+  from the object's position (its rotation and scale are not applied).
+  Heights are 16-bit steps between `low` and `high` metres above the object
+  (a 512 m range is held to 8 mm; a narrower range is finer). A tile without
+  `data` is flat at 0 m: a terrain is made by naming its tiles, e.g.
+  `setComponent terrain {tileSamples: 257, spacing: 1, heightRange: [-128, 384],
+  tiles: [{x: 0, z: 0}, {x: 1, z: 0}]}`. Changing `heightRange` later
+  stretches the stored heights with it; `tileSamples` is fixed once tiles hold
+  data (a tile of another size is refused).
+- **Tiles are files**: each tile's heights, baked layer weights (the four
+  strongest layers per sample, so the number of layers is not tied to
+  texture channels), hole mask and hand paint (kept apart from the baked
+  weights, so rules can be baked again without losing it) are one
+  content-addressed blob in the project's source store
+  (`sources/sha256/<digest>`, gzip), named by `data`. An edit writes new
+  blobs and the component names them; undo and redo point back at the old
+  digests. Read a tile's bytes with `GET content/buffers/<digest>`.
+- **`editTerrain {entityId, kind, …}`** is one edit and one undo, in the
+  editor and over MCP alike; points are world metres:
+  - `raise`, `lower`, `smooth`, `flatten` (`height`, world y), `noise`
+    (`scale` m, `seed`): `dabs: [[x, z], …]`, `radius` (m), `strength`
+    (metres at the centre for raise, lower and noise; the blend 0–1 for
+    smooth and flatten), `falloff` smooth | linear | constant;
+  - `ramp {from: [x, y, z], to: [x, y, z], radius (half the width), strength,
+    falloff?}` lays the ground onto the slope between the two points;
+  - `paint {dabs, radius, strength, layer 0–255, erase?}` paints hand paint
+    over the baked layers (`erase` gives the samples back to the baked
+    layers);
+  - `holes {dabs, radius, erase?}` cuts the cells whose centres are within the
+    radius out of the terrain (or fills them back);
+  - `import {stageId, format: png16 | raw16, size?: [w, h], byteOrder?:
+    little | big, at?: [tileX, tileZ], range?: [low, high]}` lays an uploaded
+    16-bit heightmap one pixel per sample (rows go +z) from tile `at`, adding
+    the tiles it reaches; its 0 and 65,535 stand for `range` (absent: the
+    terrain's own, so the values copy straight across). RAW files are
+    little-endian unless told (World Machine, Gaea and Unity write that); a
+    square RAW needs no size;
+  - `fromBlocks {source}` turns a block layer whose surface is corner heights
+    into tiles: every sample over the layer takes the layer's top there,
+    cells over columns without blocks become holes, painted layers 0–3 come
+    as hand paint (wetness is not carried).
+  The result names what it did: `terrain {tiles: [[x, z], …] written, added,
+  changed (samples, or hole cells), clamped? (heights outside the range)}`.
+  The same stroke gives the same tiles every time (squared distances and
+  16-bit steps only).
+- **Reading**: `queryTerrain` (MCP `tl_content_query target="terrain"`)
+  lists each terrain with its tiles, `storedBytes` and `memoryBytes` (what
+  its tiles take decoded in a game: a terrain has no tile cap, its memory is
+  what bounds it); with `entityId` the tiles one by one, and with `points:
+  [[x, z], …]` the surface there (height, normal, slope, layers, hole).
+- **Play and export** ship each tile blob as it is stored (a
+  `manifest.buffers` row, `content/sha256/<digest>`); the game page inflates
+  it with the browser's own decompression and the runtime's terrain field
+  answers heights, normals, slopes, holes and layers.
+- **Measured** (this host, Node): a dab on a 513² tile at 1 m costs 0.1–0.2 ms
+  at 8 m radius, about 0.9 ms at 32 m and 3.7 ms at 64 m (paint 0.5 / 5.5 /
+  23 ms); a 32-dab stroke as the backend runs it (read the tile, plan, encode,
+  gzip, digest) about 36 ms. A 513² tile of rolling hills stores in about
+  210 KB (526 KB of raw heights), 262 KB painted with four layers. A 4,097²
+  16-bit PNG imports into 64 tiles of 513² in about 1.9 s (a 4,096² RAW
+  1.5 s), 13.4 MB stored.
 
 ## Sockets (objects on model nodes)
 

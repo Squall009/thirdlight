@@ -489,6 +489,7 @@ const COMPONENT_BASES: Record<string, J[]> = {
   instances: [{ asset: { assetId: 'model-a', piece: 'Rock' }, buffer: 'a'.repeat(64), count: 10, castShadow: false, receiveShadow: false, chunkSize: 24, lightLayers: 4, densityStart: 0.03, densityEnd: 0.01, densityMin: 0.5, lodPerCopy: true , localLights: 'pixel' }],
   fogVolume: [{ size: [6, 3, 4], density: 0.25, color: '#dfe7ef', falloff: 0.5, heightFalloff: 0.3 }],
   probeVolume: [{ size: [16, 6, 16], spacing: 1.5 }],
+  terrain: [{ tileSamples: 129, spacing: 2, heightRange: [-10, 90], tiles: [{ x: 0, z: 0 }, { x: 1, z: -1, data: 'b'.repeat(64) }] }],
   collider: [
     { shape: { type: 'box', hx: 0.5, hy: 0.25 }, oneWay: true },
     { shape: { type: 'box', hx: 0.5, hy: 0.25, hz: 1 }, layers: ['default', 'props'] },
@@ -1008,8 +1009,8 @@ describe('descriptor registry', () => {
     // the sky/fog/post descriptors, about 9 KB; a compound repeats the collider shapes, about 6 KB;
     // a quality level repeats the bloom/AO/depth-of-field descriptors, about 3 KB; a block type's connection pieces
     // repeat their look and turn, about 3 KB; a block layer's cut-away, about 1.6 KB; kits on block types and layers,
-    // about 2 KB; a block layer's walk and corner shading, about 1.7 KB)
-    expect(JSON.stringify(DESCRIPTORS).length).toBeLessThan(282_000);
+    // about 2 KB; a block layer's walk and corner shading, about 1.7 KB; the terrain and its exclusions, about 1.6 KB)
+    expect(JSON.stringify(DESCRIPTORS).length).toBeLessThan(284_000);
     for (const c of DESCRIPTORS.components) expect(c.value.key).toBe(c.name);
   });
 

@@ -9,30 +9,13 @@
  */
 import { BLOCK_CHUNK_DATA_KEY as CHUNK_DATA_KEY, decodeBlockChunks, readBlockChunkData } from '@thirdlight/runtime';
 
-/** Gunzip natively, refusing more than `max` bytes out. */
-async function gunzip(stored: Uint8Array, max: number): Promise<Uint8Array> {
-  const reader = new Blob([stored as BlobPart]).stream().pipeThrough(new DecompressionStream('gzip')).getReader();
-  const out = new Uint8Array(max);
-  let n = 0;
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    if (n + value.length > max) {
-      await reader.cancel();
-      throw new Error('block chunk data inflates past its stated size');
-    }
-    out.set(value, n);
-    n += value.length;
-  }
-  if (n !== max) throw new Error(`block chunk data holds ${n} bytes, its header says ${max}`);
-  return out;
-}
+import { gunzip } from './gunzip';
 
 /** A blob's chunks. */
 async function chunksOf(blob: ArrayBuffer): Promise<unknown[]> {
   const { compression, rawLength, stored } = readBlockChunkData(new Uint8Array(blob));
   if (compression === 'zstd') throw new Error('block chunk data: zstd is not read in a game (a build ships gzip)');
-  return decodeBlockChunks(compression === 'gzip' ? await gunzip(stored, rawLength) : stored);
+  return decodeBlockChunks(compression === 'gzip' ? await gunzip(stored, rawLength, 'block chunk data') : stored);
 }
 
 /**

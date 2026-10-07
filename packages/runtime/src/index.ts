@@ -254,6 +254,8 @@ export type { BehaviorSockets } from './types';
 export { readModelRig, rigNodeNames, type ModelRig } from '@thirdlight/project-model';
 // A build's block chunk data, decoded on the game page before a scene reaches the runtime (pure byte decoding).
 export { BLOCK_CHUNK_DATA_KEY, decodeBlockChunks, readBlockChunkData } from '@thirdlight/project-model';
+// A terrain's tiles: decoded on the page from their blobs, asked for heights, normals, holes and layers (renderer, colliders, queries).
+export { TerrainField, decodeTerrainTile, readTerrainTileBlob, terrainTileKey, type TerrainComponent, type TerrainSample, type TerrainTile } from '@thirdlight/project-model';
 // The project's lens (its camera settings) for the editor's camera previews.
 export { VIEW_LENS_DEFAULTS, viewLensOf } from '@thirdlight/project-model';
 export { inputView, type BehaviorInputView } from './behavior';

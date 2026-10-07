@@ -80,6 +80,7 @@ export const model: ComponentDescriptor = {
   add: { kind: 'pick', value: { asset: {} }, pick: ['asset/assetId'] },
   handles: [],
   excludes: [
+    { component: 'terrain', reason: 'a terrain is its own level geometry' },
     { component: 'blockLayer', reason: 'a block layer is its own level geometry' },
     { component: 'box', reason: 'an object shows one model or box' },
     { component: 'instances', reason: 'an instance set places its own model many times' },
@@ -104,6 +105,7 @@ export const box: ComponentDescriptor = {
   add: { kind: 'menu', value: { size: [1, 1, 1], material: { color: '#b0b0b0' } } },
   handles: [{ kind: 'box3', label: 'Size', bind: { size: 'size' }, space: 'local', follows: 'transform' }],
   excludes: [
+    { component: 'terrain', reason: 'a terrain is its own level geometry' },
     { component: 'blockLayer', reason: 'a block layer is its own level geometry' },
     { component: 'model', reason: 'an object shows one model or box' },
     { component: 'instances', reason: 'an instance set places its own model many times' },
@@ -233,6 +235,7 @@ export const collider: ComponentDescriptor = {
     { kind: 'capsule', label: 'Capsule', bind: { radius: 'shape/radius', height: 'shape/height' }, space: 'local', when: when('shape/type', 'capsule'), follows: 'transform' },
   ],
   excludes: [
+    { component: 'terrain', reason: 'a terrain is its own level geometry' },
     { component: 'socketAttach', reason: 'a socket poses the object every step; a physics body is posed by physics' },
     { component: 'blockLayer', reason: 'a block layer is its own level geometry' },
     { component: 'controller', reason: 'the player controller has its own capsule' },
@@ -314,6 +317,7 @@ export const controller: ComponentDescriptor = {
     { kind: 'height', label: 'Ledge height', bind: { height: 'ledgeHeight' }, space: 'local', from: 'capsule', when: when('ledgeClimb', true), dimension: 3 },
   ],
   excludes: [
+    { component: 'terrain', reason: 'a terrain is its own level geometry' },
     { component: 'socketAttach', reason: 'a socket poses the object every step; the player is moved by its controller' },
     { component: 'blockLayer', reason: 'a block layer is its own level geometry' },
     { component: 'collider', reason: 'the player controller has its own capsule' },
@@ -659,6 +663,7 @@ export const instances: ComponentDescriptor = {
   add: { kind: 'tool', tool: 'instance brush or instance import' },
   handles: [],
   excludes: [
+    { component: 'terrain', reason: 'a terrain is its own level geometry' },
     ...['box', 'model', 'collider', 'controller', 'modelAnimation', 'playerSpawn', 'light'].map((c) => ({ component: c, reason: 'an instance set is one model placed many times, with nothing of its own' })),
     { component: 'blockLayer', reason: 'a block layer is its own level geometry' },
   ],

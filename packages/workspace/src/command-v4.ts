@@ -25,6 +25,7 @@ import { pendingInfo, type Core, type ProjectSession } from './session';
 import { envelopeRequestId, failRequest } from './request-envelope';
 import { scriptsNaming } from './script-names';
 import { prepareInstanceStroke, prepareModelCollider, publishStrokeBuffer, type StrokeBuffer } from './instance-strokes';
+import { prepareTerrainEdit, publishTerrainBlobs, verifyTerrainTiles, type TerrainBlob } from './terrain-edits';
 import { catalogV4Of, commandContentOf, crossSceneEntities, projectRuleError, sceneMissing, sceneNotEmpty, sceneRequired, sceneV4Of } from './content-shapes';
 
 /**
@@ -196,6 +197,17 @@ export function runCommandV4(core: Core, s: ProjectSession, sent: unknown, D: st
     commandState.preparedInstanceStroke = prepared.prepared;
     strokeBuffer = prepared.buffer;
   }
+  // A terrain edit: the tiles it reaches read and planned here; its new tiles are published once the command passed.
+  let terrainBlobs: TerrainBlob[] = [];
+  let terrainReport: { tiles: [number, number][]; added: [number, number][]; changed: number; clamped?: number } | null = null;
+  if (op === 'editTerrain') {
+    const prepared = prepareTerrainEdit(core, s, carrier, commandState.content, args);
+    if (!prepared.ok) return failRequest(request, prepared.error);
+    commandState.preparedTerrainEdit = prepared.prepared;
+    terrainBlobs = prepared.blobs;
+    const p = prepared.prepared;
+    terrainReport = { tiles: p.touched, added: p.added, changed: p.changed, ...(p.clamped !== undefined ? { clamped: p.clamped } : {}) };
+  }
   // A collider from the object's model: the host reads the model file and makes the shape.
   if (op === 'colliderFromModel') {
     const prepared = prepareModelCollider(core, s, carrier, commandState.content, args);
@@ -251,6 +263,9 @@ export function runCommandV4(core: Core, s: ProjectSession, sent: unknown, D: st
     const v = verifyReferencedBlob(contentCtx(s), inst.buffer, inst.count * INSTANCE_FLOATS * 4);
     if (!v.ok) return refuse(v.error);
   }
+  // Terrain tiles a change names (a setComponent, an undo, an edit's own): stored tile blobs of the terrain's size.
+  const tileError = verifyTerrainTiles(core, s, carrier.entities, resultScene.entities, terrainBlobs);
+  if (tileError !== null) return refuse(tileError);
 
   // The whole resulting project: scenes (the index may have changed) and content.
   const newRevision = outcome.result.revision;
@@ -281,10 +296,14 @@ export function runCommandV4(core: Core, s: ProjectSession, sent: unknown, D: st
     const unpublished = publishStrokeBuffer(core, s, strokeBuffer);
     if (unpublished !== null) return refuse(unpublished);
   }
+  const unpublishedTiles = publishTerrainBlobs(core, s, terrainBlobs);
+  if (unpublishedTiles !== null) return refuse(unpublishedTiles);
   // The acknowledgement names the edited scene (the editor
   // files new entities under it); a scene-index change names none.
   // The record stores that acknowledgement, so a replay carries it.
   let ack: MutationSuccess = outcome.result.change.type !== 'setSceneIndex' ? { ...outcome.result, sceneId: carrierId } : outcome.result;
+  // A terrain edit reports the tiles it wrote and added.
+  if (terrainReport !== null) ack = { ...ack, terrain: terrainReport };
   // Adopted scenes are in their own files: the acknowledgement (and so every retry record) names them without their documents.
   if (change.type === 'importResources') ack = { ...ack, change: { ...ack.change, scenesAdded: (change.scenesAdded ?? []).map((a) => ({ sceneId: a.sceneId, name: a.name })) } as MutationSuccess['change'] };
   const record: RetryRecord = { requestId: envelopeRequestId(request)!, digest: D, appliedRevision: newRevision, result: ack };

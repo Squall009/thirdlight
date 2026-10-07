@@ -93,6 +93,7 @@ import {
   SCRIPT_LIBRARY_LIMITS,
   SCULPT_LIMITS,
   INSTANCE_BRUSH_LIMITS,
+  TERRAIN_BRUSH_LIMITS,
   INSTANCE_BRUSH_REACH,
   TEXTURE_BUDGET_DEFAULT_MB,
   TEXTURE_BUDGET_MAX_MB,
@@ -241,7 +242,16 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       `each drops straight down onto the surface within ${INSTANCE_BRUSH_REACH} radii above and below its dab: without surface onto the scene's block layers (other places get no copy); ` +
       `surface (the editor sends it: per candidate in that order [y, nx, nz] or null, up to ${INSTANCE_BRUSH_LIMITS.samples}) names the surface itself. ` +
       `erase removes the copies within the radius across and ${INSTANCE_BRUSH_REACH} radii up and down of any dab (a set keeps one copy). ` +
-      'The copies stay in the set\'s chunks. Models: createEntity kind "model" ' +
+      'The copies stay in the set\'s chunks. ' +
+      'A terrain is setComponent "terrain" {tileSamples: 17|33|65|129|257|513|1025 (2^n+1 samples a tile side), spacing (m between samples), heightRange: [low, high] (m above the object; 16-bit steps), ' +
+      'tiles: [{x, z, data?}]} (the object\'s position is the min corner of tile [0, 0]; a tile without data is flat at 0 m; data digests are written by editTerrain). ' +
+      `editTerrain {entityId, kind, ...} is one edit, one undo: kind raise|lower|smooth|flatten|noise with dabs [[x, z] world points, 1-${TERRAIN_BRUSH_LIMITS.dabs}], radius (m), strength (raise/lower/noise: m at the centre; smooth/flatten: blend 0-1], ` +
+      'falloff? smooth|linear|constant, flatten height (world y), noise scale? (m) and seed?; kind ramp {from, to: [x, y, z] world, radius (half width m), strength 0-1, falloff?}; ' +
+      'kind paint {dabs, radius, strength 0-1, layer 0-255, erase? (true: back to the baked layers)} paints hand paint over the rule-baked layer weights (each sample blends its strongest four layers); ' +
+      'kind holes {dabs, radius, erase?} cuts cells out (erase fills them); kind import {stageId (tl_content_upload), format png16|raw16, size? [w, h] (raw16; absent: square), byteOrder? little|big, ' +
+      'at? [tileX, tileZ], range? [low, high] m its 0 and 65535 stand for (absent: the terrain\'s)} lays a 16-bit heightmap one pixel per sample (rows go +z) and adds the tiles it reaches; ' +
+      'kind fromBlocks {source: a block layer object} turns the layer\'s corner-height surface into tiles (cells over no column become holes, painted layers 0-3 come as hand paint). ' +
+      'The result names the tiles it wrote in terrain {tiles, added, changed, clamped?}; tl_content_query target="terrain" reads heights back. Models: createEntity kind "model" ' +
       'takes model {asset:{assetId}, piece?} — piece names one piece of a multi-piece GLB (the base name of its <piece>_LOD0..n / ' +
       '<piece>_COL nodes, or a top-level node); LOD nodes switch by screen size and _COL nodes are never drawn. A folder create ' +
       'may carry children: [createEntity args without parentId] (up to 256, one undo). createEntity also takes active, visible, locked, static (booleans) ' +
@@ -494,7 +504,9 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       'files) for tl_content_upload projectPath; target="blocks" reads block layers: without entityId the layers ' +
       '(component, cell count, chunks, regions; sceneId optional), with entityId one layer — chunks [[cx,cz],…] in their stored ' +
       'form, box [x0,y0,z0,x1,y1,z1] its cells as [x,y,z,paletteIndex] with each value\'s effective metadata, or region (its ' +
-      'boxes and cells). target="materials" pages the materials {materialId, name, graph, problems: [{nodeId?, severity, message}]} - ' +
+      'boxes and cells). target="terrain" reads terrains: without entityId each terrain (tileSamples, spacing, heightRange, tiles, tilesWithData, ' +
+      'storedBytes, memoryBytes = what its tiles take decoded in a game; sceneId optional), with entityId one terrain with tileRows [{x, z, data, storedBytes, memoryBytes}] and, ' +
+      'with points [[x, z], …] (world, up to 1024), the surface there {height, normal, slope, layers, weights, hole} (height null: off the terrain or a hole). target="materials" pages the materials {materialId, name, graph, problems: [{nodeId?, severity, message}]} - ' +
       'a graph material\'s compile problems as the editor\'s Problems tab shows them, checked by the backend when it loads the project and after every change ' +
       '(materialId: one; withProblems: only broken ones; total, withProblems counts). target="index" pages the project index: every asset, ' +
       'resource (prefab, material, behavior, library, graph, ui, uitheme, dialogue, timeline, effect, animator, envpreset — each its own file in the game folder) and scene ' +
@@ -505,7 +517,7 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
     inputSchema: {
       type: 'object',
       properties: {
-        target: { type: 'string', enum: ['assets', 'asset', 'prefabs', 'behaviors', 'integrity', 'game', 'projectFiles', 'blocks', 'materials', 'index'] },
+        target: { type: 'string', enum: ['assets', 'asset', 'prefabs', 'behaviors', 'integrity', 'game', 'projectFiles', 'blocks', 'materials', 'index', 'terrain'] },
         kind: { type: 'string', description: 'target="index": one kind (an asset kind, a resource kind such as prefab or material, or scene)' },
         id: { type: 'string', description: 'target="index": one id' },
         label: { type: 'string', description: 'target="index": only entries with this label' },
@@ -523,8 +535,9 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
         check: { type: 'boolean', description: 'target="integrity": check the game folder first (moved files, changed files imported again)' },
         problems: { type: 'boolean', description: 'target="integrity": only the entries that are not ok (limit and offset page them; total counts them)' },
         withProblems: { type: 'boolean', description: 'target="materials": only materials whose graph has problems' },
-        sceneId: { type: 'string', description: 'target="blocks": the scene whose layers are listed' },
-        entityId: { type: 'string', description: 'target="blocks": one block layer (the entity carrying blockLayer)' },
+        sceneId: { type: 'string', description: 'target="blocks" / "terrain": the scene whose layers or terrains are listed' },
+        entityId: { type: 'string', description: 'target="blocks": one block layer (the entity carrying blockLayer); target="terrain": one terrain' },
+        points: { type: 'array', items: { type: 'array', items: { type: 'number' } }, description: 'target="terrain": [[x, z], …] world points to read the surface at' },
         chunks: { type: 'array', items: { type: 'array', items: { type: 'integer' } }, description: 'target="blocks": [[cx, cz], …] chunks to read' },
         box: { type: 'array', items: { type: 'integer' }, description: 'target="blocks": [x0, y0, z0, x1, y1, z1] cells to read' },
         region: { type: 'string', description: 'target="blocks": a region id of the layer' },
@@ -1292,6 +1305,13 @@ async function contentQuery(ctx: McpContext, a: Record<string, unknown>): Promis
     const args: Record<string, unknown> = {};
     for (const k of ['sceneId', 'entityId', 'chunks', 'box', 'region'] as const) if (a[k] !== undefined) args[k] = a[k];
     const res = await ctx.client.command(ctx.projectId, { op: 'queryBlocks', args });
+    return isObj(res.body) && res.body.ok === true ? toolOk(res.body) : surfaceBackendError(res);
+  }
+  // Terrains: tiles and their bytes, the surface at points.
+  if (target === 'terrain') {
+    const args: Record<string, unknown> = {};
+    for (const k of ['sceneId', 'entityId', 'points'] as const) if (a[k] !== undefined) args[k] = a[k];
+    const res = await ctx.client.command(ctx.projectId, { op: 'queryTerrain', args });
     return isObj(res.body) && res.body.ok === true ? toolOk(res.body) : surfaceBackendError(res);
   }
   // The project index: every asset, resource and scene (file, name, labels, what it references).

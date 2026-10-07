@@ -247,7 +247,8 @@ cause and a follow-up, never a reason to throw an item away (owner,
 | 30.7 | done 2026-10-07: `blockLayer.cutaway` {`regions: [{region, when?}]`, `planes: [row]`, `fade`} (`block-cutaway.ts`; Inspector, Blocks panel **Cut** + Scene-view **Preview** per region, MCP docs): a region hides while the subject is under it (`when`: inside another region), a plane hides its rows and up while the subject is below; subject = the live camera's target (`CameraViewInfo.target`, page side, per drawn frame) or `ctx.grid.setCutawaySubject/setCutawayPoint`; `ctx.grid.setCutaway(layer, zone, true\|false\|null)` forces (mirrored worker → page). Drawing: a zone's triangles are their own meshes (index split on the page, shared vertex buffers; faces between zone and rest kept by the mesher, page = worker); cut = off the view's camera layer, still in the shadow cameras' (layer 31); fade = a child copy with one dithered `maskNode` variant per material (per-object uniform), precompiled at load. Measured `level --classes area --roofs` vs `--cutaway` (10 roofs, half held cut, half swapped every 2 s): WebGPU p50/p95 6.5/9.3 → 6.6/9.7 ms, GPU 10.32 → 10.33 ms, main 6.54 → 6.62 ms, draws 259 → 259 (scene pass 237 → 255 at the sample); WebGL 2 p50/p95 2.6/6.9 → 2.8/6.7, main 6.73 → 6.67, draws 260 → 277; shadow draws 1/frame max in both (the static map never redrawn by cuts or fades). Within §5. Pixels: Play, export WebGPU and WebGL 2 (roof drawn before, dithered while fading, gone after; the other roof stays — block-layers e2e); Scene view preview (block-editor e2e). Unverified: the owner's laptop; the first-fade precompile on a slow device. |
 | 30.8 | done 2026-10-07: block type `kits` {name: {block, variant?, variants?}} (same placement and footprint, checked) and layer `kits` [{kit, region?}] (Blocks panel Kit on the layer bar and per region, type form Kits, Inspector, MCP); resolved where a look is needed through a read-only view of the grid (`block-kit-view.ts`: meshing page = workers, byte-tested; collision; connected pieces; live blocks; surface queries), cells/saves/undo unchanged; `ctx.grid.setKit/kit`, `kitBlock` in `get`/`edge`, kits in the grid diff; a kit or block-type change is a restyle: every chunk re-meshes in the workers (old meshes drawn until the new arrive), the cached static shadow held and drawn once (Play e2e: static draws 1 → 2 across a dig + kit swap); Problems warn on cut-aways/kits naming missing regions or kits, and the Blocks panel's region rename/delete takes them along (30.7's gap). Measured `level --classes area --kit-swap` (whole 100 × 100 m layer swapped every 2 s, 49 chunks): swap 300–394 ms WebGPU / 339–415 ms WebGL 2 (two workers), page's own work ≤ 3.8 ms a frame; frames over 16.7 ms during swaps 3/408 = 0.7 % WebGPU, 9/368 = 2.4 % WebGL 2 vs the class without swaps 1.3 % / 2.4 % (§5 "none" is missed by the class's background, not the swap); whole run WebGPU p50/p95 6.6/9.8 ms, GPU 10.43, main 6.59, 259 draws; WebGL 2 2.8/7.3, main 6.34. Without kits (`level --classes area`): WebGPU 6.5/9.5 ms, GPU 10.31, main 6.58, 259 draws; WebGL 2 2.6/6.8, main 6.62 (unchanged vs 30.7). Pixels: Scene view (block-editor e2e), Play, export WebGPU and WebGL 2 (block-layers e2e). Unverified: the owner's laptop; real kit models. |
 | 30.9 | done 2026-10-07 (Part A done): all three extras kept (§7). **Walk graph** (`block-walk.ts`, `ctx.grid.walkNeighbours/path/reachable`, layer `walk` {from, maxStep, maxDrop, headroom, field, diagonal}; options costField, avoid): A* and reach respect step/drop/headroom, walls and closed doors, kits; unit-tested (doors, steps, ramps, stairs, headroom, diagonals, footprints, avoid, cost field). Measured on the area class layer (`TL_PERF=1 npx vitest run tests/perf/block-walk.test.ts`, Node): corner to corner 191 places, 8,172 visited, cold 37–83 ms, warm (graph kept until a write) 18–25 ms; into a room through its door 0.02 ms; reach 20 m (746 places) 1.6 ms; walkNeighbours 3.7–4.3 µs. **Problems** (backend, after edits settle; `block_floating`, `block_region_empty`, `block_unreachable`): whole-layer checks 131–149 ms (10,000 places), off the frame; block-editor e2e. **Corner shading** (`vertexAO`, opt-in): +2.8 ms/chunk meshing with cell walls, +5.0 with edge walls (21.7–23.2 ms/chunk without; workers), 4 B a vertex; `level --classes area` without it unchanged (WebGPU 6.6/9.6 ms, GPU 10.35 ms, main 6.57 ms, 259 draws; WebGL 2 2.6/6.8, main 6.62); `--vertex-ao`: WebGPU 6.6/9.7, GPU 10.34, main 6.6, 259 draws, 30 pipelines (29); WebGL 2 2.6/6.8, main 6.63. Pixels: Scene view crease with the sun off 46–52 % darker on WebGPU and WebGL 2, open ground unchanged (terrain-paint e2e). Unverified: the look (in the sunlit area class the difference is under 0.1 % of pixels; it shows where indirect light dominates — interiors, shade); the owner's laptop. |
-| 30.10–30.27 | — |
+| 30.10 | part A done 2026-10-07 (data, `editTerrain`, heightmap import, block converter; the Terrain tool set is part B, after 30.11): `terrain` component {tileSamples 17–1,025 (2ⁿ+1), spacing, heightRange, tiles [{x, z, data?}]} (`terrain.ts`), tiles as content-addressed gzip blobs `TLTR` (`terrain-tile.ts`; heights as 16-bit steps stored as differences from a plane, baked weights and hand paint as top-4 index + weight per sample, hole bit per cell; the header names size and maps), `editTerrain` raise/lower/smooth/flatten/noise/ramp/paint/holes/import/fromBlocks (`terrain-edit.ts`, `terrain-import.ts`, commands `terrain-ops.ts`, host `workspace/terrain-edits.ts`; one setComponent change, undo = old digests; result `terrain {tiles, added, changed, clamped?}`), `queryTerrain` / MCP `target="terrain"` (memoryBytes), export/Play ship tiles in `manifest.buffers`, page loader `game-host/terrain-tiles.ts` → `TerrainField` (heights, normals, slope, holes, layers). Measured (`TL_PERF=1 npx vitest run tests/perf/terrain.test.ts`, Node): a dab on a 513² tile at 1 m: sculpt 0.10–0.18 / 0.90–1.00 / 3.6–3.8 ms at 8 / 32 / 64 m radius, paint 0.5 / 5.5 / 23 ms, holes ≤ 0.08 ms; a 32-dab stroke the backend's way 36 ms (decode 4.8, plan 7.3, encode + gzip + digest 23.6). Blob of a 513² tile of rolling hills 210 KB (526 KB raw heights; 2.9 MB decoded with paint), painted with four layers 262 KB. 4k import: 4,097² PNG16 (19.4 MB file) → 64 tiles in 1.94 s (decode 0.42, lay 0.14, encode + gzip 1.38), 4,096² RAW 1.52 s; 13.4 MB stored. No frame-time numbers: nothing is drawn yet (30.11). Unverified: anything in a browser (no drawing; the page loader is tested in Node with its DecompressionStream). |
+| 30.11–30.27 | — |
 
 (30.1's before numbers and 30.20's after numbers.)
 
@@ -500,6 +501,51 @@ cause and a follow-up, never a reason to throw an item away (owner,
     and model looks' own shapes do not occlude (cells only).
   - Additive optional fields, no schema bump (`walk`, `vertexAO` on `blockLayer`); neither game needs a change. The
     descriptor registry guard moved from 280,000 to 282,000 bytes.
+- 2026-10-07 (30.10 part A): terrain data. Default chosen, owner to confirm:
+  - A new component type `terrain` (additive; no schema bump; neither game needs a change). Tiles are listed in the
+    component (`tiles: [{x, z, data?}]`, sorted by z then x) and their data are blobs in the source store (like instance
+    buffers): the scene file stays small, an edit is a `setComponent` whose undo names the old digests. A tile without
+    `data` is flat at the step nearest 0 m, unpainted and whole (a terrain is made by naming tiles; a tile edited back to
+    that is stored without data). The component keeps the whole tile list per undo step (~90 B a tile: 1,024 tiles ≈
+    92 KB a step); a per-tile patch change like `block-patch.ts` is the follow-up if terrains grow to thousands of tiles.
+  - Placed by the object's position only (rotation and scale not applied), as block layers are: tiles stay axis-aligned
+    squares for the quadtree and heightfield colliders. Tile coordinates within ±4,096 (a dimension, not a count).
+  - Heights: 16-bit steps of `heightRange` (metres above the object). Changing the range stretches the stored heights;
+    `tileSamples` is fixed once a tile holds data (a tile blob of another size is refused at commit). Heights between
+    samples are bilinear in `TerrainField` (30.11 may switch to its triangle split if collision needs it).
+  - Layers: per sample the four strongest layers' indices and weights (one byte each: 256 layers, the format's dimension,
+    no channel cap). Hand paint is a separate map with an amount per sample (0: the baked weights, 255: all paint); the
+    shown layers are the two mixed by the amount (`terrainLayersAt`). Paint `erase` lowers the amount (back to the
+    rules), not one layer. The paint brush core (`paintPoint`) moves the weights.
+  - Blob: the block chunks' 12-byte header moved to `binary-container.ts` (magic, version, compression, two bytes the kind
+    uses, raw length) and is shared; a tile's two bytes are its size and maps, so the commit check and memory figures read
+    no payload. Heights are stored as differences from a plane through the samples before (left + above − above-left),
+    low bytes then high bytes; maps as planes; a map holding only its default is not written, so equal tiles are equal
+    bytes. Stored gzip (not zstd) in the project too, so a build ships the very blob (one digest from edit to export) and
+    the page inflates it natively (the zstd reasons of 30.2 part B).
+  - Brushes: one dab reads the heights as they were before it and writes 16-bit steps; edge samples are written in every
+    tile holding them; the falloffs are the paint brush's (`brushFalloff`); noise is value noise from an integer hash.
+    Per-request bounds only (`TERRAIN_BRUSH_LIMITS`: 1,024 dabs, 2,048 m radius, 16,777,216 samples covered by a stroke;
+    `HEIGHTMAP_MAX_SAMPLES` 8,193²); nothing caps tiles. Points are world metres.
+  - Import: one pixel per sample from tile `at`, rows going +z; tiles it reaches are made, new tiles past the image take
+    its nearest edge (no cliff), existing tiles keep their samples past the image. A 4,097² RAW (33.6 MB) is over the
+    32 MiB upload: 4,096² is the largest square RAW; a PNG16 of 4,097² fits (19 MB here).
+  - Converter (`fromBlocks`): samples take the bilinear lattice-vertex heights (the mean of the column corners at each
+    vertex), cells over empty columns become holes, new tiles' cells off the layer are holes; paint layers 0–3 become hand
+    paint (amount 255), wetness is dropped (terrain has no wetness channel yet). The block layer is not changed.
+  - Memory: a terrain has no tile cap; `queryTerrain` reports `memoryBytes` (what the tiles take decoded) and
+    `storedBytes`; the runtime's diagnostics figure comes with 30.11, when Play holds tiles (`TerrainField.memory()`).
+  - The registry guard moved from 282,000 to 284,000 bytes (the terrain descriptor and the five exclusions naming it).
+    `commands/types.ts` (1,991 lines) gave its op-name unions to `mutation-ops.ts` before it grew.
+  - Notes for 30.11: the data API is `TerrainField` (project-model `terrain-field.ts`, re-exported by runtime):
+    `heightAt`, `sample` (normal, slope, layers), `holeAt`, `tile(x, z)` (`TerrainTile`: `heights` Uint16 row-major,
+    `weights`/`paint` interleaved 8/9 bytes per sample, `holes` bits per cell), `tileBounds`, `memory`; the page loader is
+    `loadTerrainField(component, origin, read, only?)` / `terrainTileOf(blob)` (game-host `terrain-tiles.ts`, `read` = the
+    `manifest.buffers` resolver; `only` limits it to a ring of tiles). In the editor a tile's bytes come from
+    `GET content/buffers/<digest>` (the instance-set route) and `terrainTileOf`. A sculpt changes only the tiles in the
+    result's `terrain.tiles` (upload those texture regions). Holes are per cell (between samples). The Terrain tool set
+    (30.10 part B) can run the same cores (`sculptTerrain`, `rampTerrain`, `paintTerrain`, `holeTerrain` on
+    `TerrainSamples`) for its local preview; paint dabs cost 5–23 ms at 32–64 m radius on the CPU (a GPU preview avoids it).
 - 2026-10-03: Skyforge's requests mapped (the engine never reads the game
   repo; the ids only trace them back):
 

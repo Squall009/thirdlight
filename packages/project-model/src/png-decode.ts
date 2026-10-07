@@ -16,6 +16,8 @@ export interface DecodedPng {
   rgba: Uint8Array;
   /** The samples as stored, for a 16-bit RGBA image decoded with `keep16` (data images: baked probes). */
   rgba16?: Uint16Array;
+  /** With `channel16`: each pixel's first channel at 16 bits (8-bit depths scaled up), and `rgba` empty (data images: heightmaps). */
+  channel16?: Uint16Array;
 }
 
 /** At most this many pixels (a 1024 × 1024 map): an engine limit. */
@@ -237,6 +239,8 @@ export interface PngDecodeOptions {
   readonly inflate?: (data: Uint8Array, maxOut: number) => Uint8Array;
   /** Also return a 16-bit RGBA image's samples unchanged (`rgba16`). */
   readonly keep16?: boolean;
+  /** Return only each pixel's first channel at 16 bits (`channel16`), not RGBA: a heightmap needs one channel at full depth. */
+  readonly channel16?: boolean;
 }
 
 /** The scanlines' sizes: per pass, its width, height and row stride (bytes, without the filter byte). */
@@ -319,7 +323,8 @@ export function decodePngRgba(bytes: Uint8Array, options: PngDecodeOptions = {})
     // tRNS of a grey or RGB image: the one transparent sample value(s), at the file's depth.
     const trnsKey = trns !== null && (colorType === 0 || colorType === 2) && trns.length >= (colorType === 0 ? 2 : 6) ? Array.from({ length: colorType === 0 ? 1 : 3 }, (_, i) => (trns![i * 2]! << 8) | trns![i * 2 + 1]!) : null;
     const to8 = (v: number): number => (depth === 16 ? v >> 8 : depth === 8 ? v : Math.round((v * 255) / maxSample));
-    const rgba = new Uint8Array(width * height * 4);
+    const one = options.channel16 === true ? new Uint16Array(width * height) : null;
+    const rgba = new Uint8Array(one !== null ? 0 : width * height * 4);
     const rgba16 = options.keep16 === true && depth === 16 && colorType === 6 ? new Uint16Array(width * height * 4) : null;
     let at = 0;
     for (const { x0, y0, dx, dy, w, h, stride } of passes) {
@@ -356,6 +361,11 @@ export function decodePngRgba(bytes: Uint8Array, options: PngDecodeOptions = {})
         for (let col = 0; col < w; col++) {
           const o = (y * width + x0 + col * dx) * 4;
           const s = col * channels;
+          if (one !== null) {
+            const v = sample(s);
+            one[o >> 2] = colorType === 3 ? (palette as Uint8Array)[v * 3]! * 257 : depth === 16 ? v : to8(v) * 257;
+            continue;
+          }
           if (colorType === 3) {
             const idx = sample(s);
             const pl = palette as Uint8Array;
@@ -389,7 +399,7 @@ export function decodePngRgba(bytes: Uint8Array, options: PngDecodeOptions = {})
         cur = t;
       }
     }
-    return { ok: true, png: { width, height, rgba, ...(rgba16 !== null ? { rgba16 } : {}) } };
+    return { ok: true, png: { width, height, rgba, ...(rgba16 !== null ? { rgba16 } : {}), ...(one !== null ? { channel16: one } : {}) } };
   } catch (e) {
     if (e instanceof InflateError) return { ok: false, message: `the PNG data does not inflate (${e.message})` };
     return { ok: false, message: `the PNG could not be read${e instanceof Error ? ` (${e.message})` : ''}` };

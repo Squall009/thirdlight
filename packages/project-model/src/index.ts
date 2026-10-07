@@ -1141,6 +1141,66 @@ export { WALK_METRES_RANGE, canonicalBlockLayerWalk, defaultWalkSettings, valida
 export { BLOCK_CHECK_EXAMPLES, blockLayerChecks, type BlockCheckCode, type BlockLayerCheck } from './block-checks';
 export { BLOCK_PAINT_LAYOUT, PAINT_BYTES, PAINT_CHANNELS, PAINT_CHUNK_SIZE, PAINT_VERTICES, PAINT_WETNESS_CHANNEL, chunkPaintColors, chunkPaintError, chunksOfVertex, decodeChunkPaint, encodeChunkPaint, isUnpainted, paintDab, paintOffset, unpaintedChunk, type PaintSurface } from './block-paint';
 export { BLOCK_CHUNK_COMPRESSION, BLOCK_CHUNK_DATA_KEY, BLOCK_CHUNK_HEADER_BYTES, decodeBlockChunks, encodeBlockChunks, readBlockChunkData, wrapBlockChunkData, type BlockChunkCompression } from './block-chunk-binary';
+export { BINARY_COMPRESSION, BINARY_HEADER_BYTES, hasBinaryMagic, readBinaryBlob, wrapBinaryBlob, type BinaryCompression } from './binary-container';
+export {
+  TERRAIN_FIELDS,
+  TERRAIN_HEIGHT_LIMIT,
+  TERRAIN_HEIGHT_STEPS,
+  TERRAIN_SPACING_LIMITS,
+  TERRAIN_TILE_COORD_MAX,
+  TERRAIN_TILE_SAMPLES,
+  TERRAIN_TILE_SAMPLES_DEFAULT,
+  canonicalTerrain,
+  terrainFlatStep,
+  terrainHeightOf,
+  terrainStepOf,
+  terrainTileKey,
+  terrainTileSize,
+  validateTerrainComponent,
+  type TerrainComponent,
+  type TerrainTileRef,
+} from './terrain';
+export {
+  TERRAIN_LAYER_MAX,
+  TERRAIN_PAINT_BYTES,
+  TERRAIN_SAMPLE_LAYERS,
+  TERRAIN_TILE_HEADER_BYTES,
+  TERRAIN_TILE_MAGIC,
+  TERRAIN_WEIGHT_BYTES,
+  cloneTerrainTile,
+  decodeTerrainTile,
+  encodeTerrainTile,
+  flatTerrainTile,
+  isTerrainTileBlob,
+  readTerrainTileBlob,
+  setTerrainHole,
+  terrainBakedLayers,
+  terrainHoleAt,
+  terrainLayersAt,
+  terrainTileBlobBytes,
+  terrainTileBytes,
+  wrapTerrainTile,
+  type TerrainTile,
+} from './terrain-tile';
+export {
+  TERRAIN_BRUSH_LIMITS,
+  TERRAIN_SCULPT_KINDS,
+  TerrainSamples,
+  holeTerrain,
+  paintTerrain,
+  paintTerrainSample,
+  rampTerrain,
+  sculptTerrain,
+  terrainDabSamples,
+  terrainNoise,
+  type TerrainHoleDab,
+  type TerrainPaintDab,
+  type TerrainRamp,
+  type TerrainSculptDab,
+  type TerrainSculptKind,
+} from './terrain-edit';
+export { HEIGHTMAP_FORMATS, HEIGHTMAP_MAX_SAMPLES, blockLayerToTerrain, decodeHeightmap, importHeightmap, type BlockLayerSource, type Heightmap, type HeightmapFormat, type HeightmapOptions } from './terrain-import';
+export { TerrainField, type TerrainSample } from './terrain-field';
 export { blockChunkStorageOf, maxSlopeClimbOf } from './content-settings';
 export { chunkLightmapLayout, type ChunkLightmapLayout } from './block-lightmap';
 // The instance brush (paint and erase copies of an instance set on a surface).

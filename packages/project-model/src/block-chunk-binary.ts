@@ -22,6 +22,7 @@
 import type { BlockCell, BlockChunk } from './block-layers';
 import type { BlockEdge } from './block-edges';
 import { decodeBase64, encodeBase64 } from './png-decode';
+import { BINARY_COMPRESSION, BINARY_CONTAINER_VERSION, BINARY_HEADER_BYTES, readBinaryBlob, wrapBinaryBlob, type BinaryCompression } from './binary-container';
 
 /** The first bytes of a binary chunk blob ("TLBK"). */
 export const BLOCK_CHUNK_MAGIC = Object.freeze([0x54, 0x4c, 0x42, 0x4b]);
@@ -36,17 +37,17 @@ export const BLOCK_CHUNK_BINARY_VERSION = 3;
 const LAYOUT_WITHOUT_EDGES = 1;
 const LAYOUT_WITH_EDGES = 2;
 /** The header layout (its fifth byte). */
-export const BLOCK_CHUNK_CONTAINER_VERSION = 1;
+export const BLOCK_CHUNK_CONTAINER_VERSION = BINARY_CONTAINER_VERSION;
 /** How a blob's payload is compressed (the header's byte). */
-export const BLOCK_CHUNK_COMPRESSION = Object.freeze({ none: 0, zstd: 1, gzip: 2 } as const);
-export type BlockChunkCompression = keyof typeof BLOCK_CHUNK_COMPRESSION;
+export const BLOCK_CHUNK_COMPRESSION = BINARY_COMPRESSION;
+export type BlockChunkCompression = BinaryCompression;
 /**
  * The key a build's scene document puts on a layer entry in place of its
  * `chunks`: the digest of the layer's chunk data (a `manifest.buffers` row).
  */
 export const BLOCK_CHUNK_DATA_KEY = 'chunkData';
-/** Magic, version, compression, a reserved byte and the payload's uncompressed length (u32 LE). */
-export const BLOCK_CHUNK_HEADER_BYTES = 12;
+/** Magic, version, compression, two reserved bytes and the payload's uncompressed length (u32 LE). */
+export const BLOCK_CHUNK_HEADER_BYTES = BINARY_HEADER_BYTES;
 
 /** A paint stored as its lattice bytes / as its text (a base64 form `encodeBase64` would not write back the same). */
 const PAINT_NONE = 0;
@@ -272,21 +273,11 @@ function structuredCloneCell(c: BlockCell): BlockCell {
 
 /** A blob: the header (magic, version, compression, payload length) and the (compressed) payload. */
 export function wrapBlockChunkData(compression: BlockChunkCompression, rawLength: number, stored: Uint8Array): Uint8Array {
-  const out = new Uint8Array(BLOCK_CHUNK_HEADER_BYTES + stored.length);
-  out.set(BLOCK_CHUNK_MAGIC, 0);
-  out[4] = BLOCK_CHUNK_CONTAINER_VERSION;
-  out[5] = BLOCK_CHUNK_COMPRESSION[compression];
-  new DataView(out.buffer).setUint32(8, rawLength, true);
-  out.set(stored, BLOCK_CHUNK_HEADER_BYTES);
-  return out;
+  return wrapBinaryBlob(BLOCK_CHUNK_MAGIC, compression, rawLength, stored);
 }
 
 /** A blob's header and its stored payload (throws when it is not one). */
 export function readBlockChunkData(blob: Uint8Array): { compression: BlockChunkCompression; rawLength: number; stored: Uint8Array } {
-  if (blob.length < BLOCK_CHUNK_HEADER_BYTES || BLOCK_CHUNK_MAGIC.some((b, i) => blob[i] !== b)) throw new Error('not a binary block chunk file');
-  if (blob[4] !== BLOCK_CHUNK_CONTAINER_VERSION) throw new Error(`block chunk binary: header version ${blob[4]} is not one this engine reads (${BLOCK_CHUNK_CONTAINER_VERSION})`);
-  const compression = (Object.keys(BLOCK_CHUNK_COMPRESSION) as BlockChunkCompression[]).find((k) => BLOCK_CHUNK_COMPRESSION[k] === blob[5]);
-  if (compression === undefined) throw new Error(`block chunk binary: unknown compression ${blob[5]}`);
-  const rawLength = new DataView(blob.buffer, blob.byteOffset, blob.byteLength).getUint32(8, true);
-  return { compression, rawLength, stored: blob.subarray(BLOCK_CHUNK_HEADER_BYTES) };
+  const { compression, rawLength, stored } = readBinaryBlob(blob, BLOCK_CHUNK_MAGIC, 'block chunk');
+  return { compression, rawLength, stored };
 }

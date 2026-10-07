@@ -18,6 +18,7 @@ import { MAX_LOCAL_LIGHTS } from './local-lights';
 import { SHADOW_MAP_SIZES } from './quality-levels';
 import { INSTANCE_DENSITY_SIZE_MIN } from './model-lod';
 import { canonicalProbeVolume, validateProbeVolumeComponent, type ProbeVolumeComponent } from './probe-grids';
+import { canonicalTerrain, validateTerrainComponent, type TerrainComponent } from './terrain';
 import { ID_RE } from './validate';
 import { validateLightLayerMask } from './light-layers';
 import { validateLightImportance, validateLocalLightMode, type LightImportance, type LocalLightMode } from './local-lights';
@@ -135,8 +136,9 @@ const KNOWN_ENTITY_FIELDS = new Set(['id', 'name', 'parentId', ...ENTITY_FLAGS, 
 // `materialParams` (per-object overrides of graph-material parameters) is appended last.
 // `effect` (plays a visual effect from the entity) is appended after it.
 // No `camera`: the engine owns the view and scenes hold shots (`virtualCamera`); an older project's scene camera is upgraded on open.
-export const V4_REGISTRY: readonly string[] = [...V3_REGISTRY.filter((c) => c !== 'camera'), 'instances', 'materials', 'fogVolume', 'animator', ...BLOCK_COMPONENT_NAMES, 'materialParams', 'effect', 'virtualCamera', 'cameraPath', 'blockLayer', 'blockFootprint', 'socketAttach', 'behaviorGroup', 'cameraRegion', 'probeVolume'];
-// `probeVolume` (a box the probe bake fills with probes) last.
+export const V4_REGISTRY: readonly string[] = [...V3_REGISTRY.filter((c) => c !== 'camera'), 'instances', 'materials', 'fogVolume', 'animator', ...BLOCK_COMPONENT_NAMES, 'materialParams', 'effect', 'virtualCamera', 'cameraPath', 'blockLayer', 'blockFootprint', 'socketAttach', 'behaviorGroup', 'cameraRegion', 'probeVolume', 'terrain'];
+// `terrain` (a heightfield of tiles) last.
+// `probeVolume` (a box the probe bake fills with probes) before it.
 // `cameraRegion` (a track camera's dead zone, bounds and distance while its target is inside) before it.
 // `blockLayer` (a grid of blocks; its cells are the scene's `blocks`) is appended after it.
 // `blockFootprint` (the metadata a prop writes into the block cells beneath it) after that.
@@ -794,6 +796,13 @@ function validateEntityComponentsV3(
   // A camera region (any entity may carry one).
   if (comps['cameraRegion'] !== undefined) validateCameraRegionComponent(comps['cameraRegion'], `${path}/cameraRegion`, errors);
   if (comps['probeVolume'] !== undefined) validateProbeVolumeComponent(comps['probeVolume'], `${path}/probeVolume`, errors);
+  if (comps['terrain'] !== undefined) {
+    validateTerrainComponent(comps['terrain'], `${path}/terrain`, errors);
+    // A terrain is level geometry of its own: no model, body or other level geometry on the same object.
+    for (const other of ['model', 'box', 'collider', 'controller', 'instances', 'blockLayer'] as const) {
+      if (comps[other] !== undefined) errors.push(collisionConflict(path, `terrain and ${other} are mutually exclusive on one entity`, ['terrain', other]));
+    }
+  }
   // The entity rides on a node of another entity's model.
   if (comps['socketAttach'] !== undefined) validateSocketAttachComponent(comps['socketAttach'], `${path}/socketAttach`, errors);
   // The behavior group (whether the group exists is the project composition's check).
@@ -1073,6 +1082,7 @@ function canonicalEntityV3(e: Record<string, unknown>): SceneEntityV3 {
   // After that (existing entities keep their bytes).
   if (comps['cameraRegion'] !== undefined) (components as { cameraRegion?: CameraRegionComponent }).cameraRegion = canonicalCameraRegion(comps['cameraRegion'] as CameraRegionComponent);
   if (comps['probeVolume'] !== undefined) components.probeVolume = canonicalProbeVolume(comps['probeVolume'] as ProbeVolumeComponent);
+  if (comps['terrain'] !== undefined) components.terrain = canonicalTerrain(comps['terrain'] as TerrainComponent);
   if (comps['instances'] !== undefined) {
     const i = comps['instances'] as { asset: { assetId: string; piece?: string }; buffer: string; count: number; castShadow?: boolean; receiveShadow?: boolean; chunkSize?: number; lightLayers?: number; densityStart?: number; densityEnd?: number; densityMin?: number; lodPerCopy?: boolean; localLights?: LocalLightMode };
     components.instances = {

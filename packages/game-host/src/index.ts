@@ -135,6 +135,8 @@ export {
 } from './scene-catalog';
 // A build's runtime content: the manifest and the catalog, read as the game needs it (v5; a v4 build opens the same way).
 export { openRuntimeContent, type CatalogRow, type RuntimeCatalog, type RuntimeContent } from './runtime-content';
+// A terrain's tiles read from their blobs (renderer, colliders and queries ask the field).
+export { loadTerrainField, terrainTileOf } from './terrain-tiles';
 // Scene loads prepared before they are handed to the simulation, and scenes read ahead.
 export { createScenePreloader, pageScenePreparation, SCENES_READ_AHEAD, SCENE_PREPARE_WAIT_MS, type ScenePreloader, type ScenePreparation, type ScenePreparingAdapter, type ScenePreloadHooks } from './scene-preload';
 // The simulation worker (runs the deterministic simulation off the page) and its page-side mirror.
