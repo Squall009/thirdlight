@@ -64,6 +64,7 @@ import { useDocumentCommands } from './workspace/useDocumentCommands';
 import { workspaceHostOf } from './workspace/workspace-host';
 import { useEditorProblems } from './shell/useEditorProblems';
 import { useBlockLayers } from './shell/useBlockLayers';
+import { useTerrainTools } from './shell/useTerrainTools';
 import { useSceneEditing } from './shell/useSceneEditing';
 import { useEditorShortcuts } from './shell/useEditorShortcuts';
 import { useEditorDialogs } from './shell/useEditorDialogs';
@@ -207,6 +208,7 @@ function EditorApp(): JSX.Element {
   const [snapSettings, setSnapSettingsState] = useState<SnapSettings>({ ...DEFAULT_SNAP_SETTINGS });
   const blocks = useBlockLayers({ clientRef, viewportRef, registry, cellTops: snapSettings.cellTops, reportFailure, setNotice, selectedId, select: setSelectedId });
   const { setBlockEditor, blockHandlersRef, receive: receiveBlocks } = blocks;
+  const terrainTools = useTerrainTools({ clientRef, viewportRef, reportFailure, setNotice, select: setSelectedId });
   const modelFilesRef = useRef<ModelFiles | null>(null);
   const shiftRef = useRef(false);
   const snappingRef = useRef(true);
@@ -433,6 +435,8 @@ function EditorApp(): JSX.Element {
       onRefused: (message) => setNotice(message),
     });
     setBlockEditor(blockEd);
+    // The terrain tools (a stroke is one editTerrain, previewed on the GPU, sent on release).
+    terrainTools.makeTerrainEditor(client);
     setSnapSettingsState(loadSnapSettings(typeof window !== 'undefined' ? window.localStorage : null, config.projectId));
     const { loadTexture: loadTextureAsset, materialLibrary, files } = sceneAssets;
     loadTextureRef.current = loadTextureAsset;
@@ -918,6 +922,7 @@ function EditorApp(): JSX.Element {
     showToolWindow,
     createPrefabFromSelection: () => void prefab.createPrefabFromSelection(),
     createBlockLayer: () => void blocks.createBlockLayer(),
+    createTerrain: () => void terrainTools.createTerrain(),
     resync,
     scene: sceneEditing,
     entity: entityEditing,
@@ -939,6 +944,7 @@ function EditorApp(): JSX.Element {
       entity={entityEditing}
       scene={sceneEditing}
       blocks={blocks}
+      terrain={terrainTools}
       play={playSession}
       entities={entities}
       selected={selected}

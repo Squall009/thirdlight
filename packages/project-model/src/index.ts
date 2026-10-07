@@ -1186,6 +1186,7 @@ export {
 } from './terrain-tile';
 export {
   TERRAIN_BRUSH_LIMITS,
+  TERRAIN_NOISE_HASH,
   TERRAIN_SCULPT_KINDS,
   TerrainSamples,
   holeTerrain,

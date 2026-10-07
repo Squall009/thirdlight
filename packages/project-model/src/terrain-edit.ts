@@ -163,11 +163,15 @@ function sampleBox(s: TerrainSamples, cx: number, cz: number, r: number, b: read
   return x0 > x1 || z0 > z1 ? null : [x0, z0, x1, z1];
 }
 
+/** The noise hash's multipliers: x, z and seed lanes, then two mixing rounds (the editor's GPU preview hashes alike). */
+export const TERRAIN_NOISE_HASH: readonly number[] = Object.freeze([0x27d4eb2d, 0x165667b1, 0x9e3779b1, 0x85ebca6b, 0xc2b2ae35]);
+const [HX, HZ, HS, HM1, HM2] = TERRAIN_NOISE_HASH as [number, number, number, number, number];
+
 /** A deterministic hash of a lattice point to [0, 1). */
 function hash01(ix: number, iz: number, seed: number): number {
-  let h = Math.imul(ix | 0, 0x27d4eb2d) ^ Math.imul(iz | 0, 0x165667b1) ^ Math.imul(seed | 0, 0x9e3779b1);
-  h = Math.imul(h ^ (h >>> 15), 0x85ebca6b);
-  h = Math.imul(h ^ (h >>> 13), 0xc2b2ae35);
+  let h = Math.imul(ix | 0, HX) ^ Math.imul(iz | 0, HZ) ^ Math.imul(seed | 0, HS);
+  h = Math.imul(h ^ (h >>> 15), HM1);
+  h = Math.imul(h ^ (h >>> 13), HM2);
   h ^= h >>> 16;
   return (h >>> 0) / 4294967296;
 }

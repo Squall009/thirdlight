@@ -4944,8 +4944,8 @@ stroke or button is one undo step, and MCP can do the same.
 
 A `terrain` component makes an object a heightfield of square tiles for
 landscape (block layers stay the tool for authored structure). It is drawn in
-the Scene view, Play and an export alike and collides in 3D games; the
-editor's Terrain tools come next.
+the Scene view, Play and an export alike and collides in 3D games, and is
+edited with the editor's Terrain tools.
 
 - **The component** `{tileSamples, spacing, heightRange: [low, high], tiles:
   [{x, z, data?}]}`: each tile holds `tileSamples × tileSamples` samples
@@ -5027,6 +5027,39 @@ editor's Terrain tools come next.
   streaming will keep colliders to a ring round the player.
 - **Picking** in the Scene view reads the terrain's heights (click to select
   it; drops land on it).
+- **Terrain tools** (the Inspector of a selected terrain, beside where a
+  block layer shows its Blocks tools; **GameObject → Terrain** makes a new
+  one: 2 × 2 tiles of 257 samples a metre apart, heights −128 to 384 m):
+  Raise, Lower, Smooth, Flatten (to the height where the stroke began),
+  Noise (size, seed), Ramp (drag from one end to the other), Paint (pick a
+  layer: eight swatches or any number 0–255) and Holes; Radius (m),
+  Strength (metres for raise, lower and noise; a 0–1 blend for the others)
+  and Falloff. Ctrl (or the Lower / erase / fill toggle) lowers, takes hand
+  paint back or fills holes for one stroke. **Edit terrain** arms the tools:
+  a left drag sculpts (Alt+drag or the right button orbits), Esc drops the
+  stroke in flight. The cursor is a ring laid on the ground under the
+  pointer. A stroke is previewed on the GPU while the pointer is held — each
+  dab changes the drawn tiles' textures in place before the next frame, no
+  tile is re-packed or meshed on the CPU and nothing is sent per dab — and
+  the release stores one `editTerrain` (one undo); the tiles it changed are
+  read and uploaded again over the preview, the others drawn from what they
+  held. The preview's heights are the stored ones (to a step in rare
+  rounding cases), its paint a close approximation the stored tiles settle
+  (an erase previews toward layer 0, what ground without rules bakes),
+  its holes exact. A stroke holds at most the dabs the command takes at its
+  radius (992 at 64 m on a 1 m grid; more is the next stroke). **Import
+  heightmap…** stages a 16-bit PNG or RAW file (a square RAW names its own
+  size) and lays it from a chosen tile with the heights its 0 and 65,535
+  stand for; **From block layer → Convert** turns a block layer's surface
+  into the terrain's samples. Each is one undo step. Measured (Iris Xe, both
+  renderers): a 64 m raise dragged over a 1,025² tile costs the page about
+  0.25 ms a frame (at most 0.5 ms; no frame missed), is stored about 140 ms
+  after the release and its stored tile replaces the preview about 150 ms
+  after it; read back, the preview's heights match the stored ones (at most
+  one sample a step off). The passes are built when a tool or terrain is
+  chosen, not on the first dab. `?terrainCheck=1` on the editor's URL reads
+  each stroke's preview back and compares it with the stored tiles
+  (`data-terrain-stroke` on the Scene view; a test's measure).
 - **Drawing** (CDLOD): each tile is a quadtree whose nodes are one shared
   16 × 16 grid drawn instanced, raised in the vertex shader from the tile's
   heights and morphed between levels by distance, so levels meet without

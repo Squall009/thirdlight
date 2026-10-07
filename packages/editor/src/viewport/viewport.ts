@@ -64,6 +64,7 @@ import { BrushBlockSurfaces, InstanceBrushTool, type InstanceBrushMode } from '.
 import { iconTableOf } from './icons';
 import { planSync, removedIds, helperRelevant } from './sync-plan';
 import { BlockEditor, type BlockEditorCallbacks } from './block-editor';
+import { TerrainEditor, type TerrainEditorCallbacks } from './terrain-editor';
 import { virtualCameraPreviews } from './camera-previews';
 import { gatherBakeInputs, gatherBakeLights, type BakeInputs } from './bake-inputs';
 import type { ProbeBakeHost } from './probe-bake-inputs';
@@ -189,6 +190,7 @@ export class Viewport {
   private framesDrawn = 0;
   /** Armed block tools own the left button: the selection (the layer they edit) gets no gizmo meanwhile. */
   private blockToolsArmed = false;
+  private terrainToolsArmed = false;
   /** The instance brush and the block layers it paints on. */
   private readonly brushSurfaces = new BrushBlockSurfaces();
   private readonly instanceBrush: InstanceBrushTool;
@@ -507,6 +509,29 @@ export class Viewport {
       );
     }
     return this.blockEditorInst;
+  }
+
+  private terrainEditorInst: TerrainEditor | null = null;
+
+  /** The terrain tools (created on first use with the App's callbacks). */
+  terrainEditor(cb?: TerrainEditorCallbacks): TerrainEditor | null {
+    if (this.terrainEditorInst === null && cb !== undefined) {
+      this.terrainEditorInst = new TerrainEditor(
+        {
+          scene: this.overlay,
+          camera: this.camera,
+          canvas: this.root,
+          requestRender: () => this.requestRender(),
+          terrains: () => this.adapter.terrains?.() ?? null,
+          armed: (on) => {
+            this.terrainToolsArmed = on;
+            this.setSelected(this.selectedId);
+          },
+        },
+        cb,
+      );
+    }
+    return this.terrainEditorInst;
   }
 
   /** Arm the block tools: a left drag paints (Alt+drag or the right button orbits), clicks pick no objects. */
@@ -1045,6 +1070,7 @@ export class Viewport {
     // The terrains drawn (tests read the tiles drawn and the nodes selected).
     if (terrain !== null) this.root.setAttribute('data-terrain', JSON.stringify(adapter.terrainDiagnostics?.() ?? terrain));
     else this.root.removeAttribute('data-terrain');
+    this.terrainEditorInst?.afterFrame();
     const f = adapter.lastFrame?.();
     this.root.setAttribute('data-frames', String(this.framesDrawn));
     // The renderer's live resource counts after the frame (the leak tests read them).
@@ -1147,7 +1173,7 @@ export class Viewport {
   /** Cancel an in-flight gizmo gesture (Esc): revert, send nothing. */
   cancelGesture(): boolean {
     // A block stroke in flight is dropped (nothing is sent).
-    if (this.blockEditorInst?.cancel() === true) {
+    if (this.blockEditorInst?.cancel() === true || this.terrainEditorInst?.cancel() === true) {
       this.orbit.enabled = true;
       return true;
     }
@@ -1302,7 +1328,7 @@ export class Viewport {
     this.syncCopyProxy();
     // No gizmo on a folder (no transform) or a locked entity.
     const movable = id !== null && !this.folderIds.has(id) && this.hierarchyFlags.get(id)?.locked !== true && this.synced.has(id);
-    const target = this.blockToolsArmed || this.instanceBrush.active(id) ? null : this.copySel !== null && this.copyProxy.parent !== null ? this.copyProxy : id && movable ? this.gizmoProxy : null;
+    const target = this.blockToolsArmed || this.terrainToolsArmed || this.instanceBrush.active(id) ? null : this.copySel !== null && this.copyProxy.parent !== null ? this.copyProxy : id && movable ? this.gizmoProxy : null;
     if (id && target) {
       if (!this.draggingGizmo) this.placeGizmoFrame();
       if (this.gizmo.object !== target) this.gizmo.attach(target);
@@ -1420,7 +1446,7 @@ export class Viewport {
     this.downAt = { x: e.clientX, y: e.clientY };
     if (e.button !== 0) return;
     // Armed block tools take the left button (the gizmo stands aside while they are armed).
-    if (this.blockEditorInst?.isActive() === true && this.blockEditorInst.pointerDown(e)) {
+    if ((this.blockEditorInst?.isActive() === true && this.blockEditorInst.pointerDown(e)) || (this.terrainEditorInst?.isActive() === true && this.terrainEditorInst.pointerDown(e))) {
       e.stopImmediatePropagation();
       this.downAt = null;
       this.orbit.enabled = false;
@@ -1469,7 +1495,7 @@ export class Viewport {
   }
 
   private onPointerMove = (e: PointerEvent): void => {
-    if (this.blockEditorInst?.isActive() === true && this.blockEditorInst.pointerMove(e)) {
+    if ((this.blockEditorInst?.isActive() === true && this.blockEditorInst.pointerMove(e)) || (this.terrainEditorInst?.isActive() === true && this.terrainEditorInst.pointerMove(e))) {
       e.stopImmediatePropagation();
       return;
     }
@@ -1490,7 +1516,7 @@ export class Viewport {
   };
 
   private onPointerUp = (e: PointerEvent): void => {
-    if (this.blockEditorInst !== null && this.blockEditorInst.pointerUp(e)) {
+    if ((this.blockEditorInst !== null && this.blockEditorInst.pointerUp(e)) || (this.terrainEditorInst !== null && this.terrainEditorInst.pointerUp(e))) {
       e.stopImmediatePropagation();
       this.orbit.enabled = true;
       return;
@@ -1789,6 +1815,8 @@ export class Viewport {
   dispose(): void {
     this.blockEditorInst?.dispose();
     this.blockEditorInst = null;
+    this.terrainEditorInst?.dispose();
+    this.terrainEditorInst = null;
     this.releaseEffectPreview();
     this.copyHighlight?.removeFromParent();
     this.copyHighlight?.dispose();

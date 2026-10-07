@@ -33,11 +33,19 @@
  * Picking: a page's mesh answers a ray from its terrain's `TerrainField`
  * (the grid three would test is flat).
  *
+ * A stroke's preview (the editor's brushes): its dabs are drawn into the
+ * tiles' texture layers on the GPU at the next frame (`terrain-brush-gpu.ts`),
+ * the CPU copies keeping the stored tiles. When the stroke is stored, the
+ * tiles it changed keep their preview until their new data arrive and are
+ * uploaded over it; the others (and every tile of a stroke not stored) are
+ * uploaded again from their CPU copies.
+ *
  * An entity realized again (an edit in the editor) keeps its textures: a
  * removal waits until the next update, and a terrain set again before it
  * only reads the tiles whose digests changed.
  */
 import * as THREE from 'three';
+import type { WebGPURenderer } from 'three/webgpu';
 import { flatTerrainTile, TerrainField, terrainFlatStep, terrainHeightOf, terrainTileBytes, terrainTileKey, type TerrainComponent, type TerrainTile } from '@thirdlight/runtime';
 
 import { disposeSharingGeometry } from './dispose';
@@ -48,6 +56,8 @@ import { STATIC_CASTER_KEY } from './shadow-casters';
 import { defaultTerrainMaterial, TERRAIN_NODE_ATTRIBUTE, TERRAIN_SUB_ATTRIBUTE, terrainEye, terrainSurface, terrainUniforms, type TerrainUniforms } from './terrain-material';
 import { PageNodes, selectTerrainNodes, terrainLodLayout, terrainLodRanges, TERRAIN_NODE_FLOATS, tileHeightBounds, type SelectStats, type SelectTile, type TerrainLodLayout, type TileHeightBounds } from './terrain-quadtree';
 import { metresPerStep, packFlat, packHeightNormalBorder, TERRAIN_TEXEL_BYTES } from './terrain-texels';
+import { TerrainBrushGpu, terrainBrushParts, type TerrainBrushKind, type TerrainBrushPart, type TerrainBrushTile } from './terrain-brush-gpu';
+import { boxTiles, brushDabOf, brushSampleBox, compareRect, emptyDiff, rectUnion, tileRect, type PreviewDiff, type TerrainPreviewDab } from './terrain-preview';
 import type { TerrainTexels } from './terrain-pack-worker';
 import { terrainPackShape, type TerrainTileStore } from './terrain-tile-store';
 import { SphereSide, type CullView } from './view-cull';
@@ -138,6 +148,49 @@ interface TileRec {
   pending: { heights: Uint8Array | null; layers: Uint8Array | null; indices: Uint8Array | null } | null;
   /** Its three layers uploaded at least once (drawn). */
   ready: boolean;
+  /** A stroke's preview drew into its layers on the GPU (the parts and the samples it wrote); null: they hold its data. */
+  preview: { parts: Set<TerrainBrushPart>; rect: [number, number, number, number] | null; from: string | null } | null;
+}
+
+/** A stroke's preview as the editor reads it (its dabs' cost on the page, and how it settled). */
+export interface TerrainPreviewStats {
+  /** Drawing dabs now; ended and waiting for the stored tiles. */
+  active: boolean;
+  settling: boolean;
+  dabs: number;
+  /** GPU passes and tiles written. */
+  passes: number;
+  tiles: number;
+  /** Main-thread milliseconds of a frame's dabs: the most, and over the frames that drew some. */
+  msMax: number;
+  msMean: number;
+  frames: number;
+  /** The most after the stroke's first frame (which sets up the passes' targets). */
+  msMaxAfterFirst: number;
+  /** From the stroke's end until every previewed tile held its stored data again (null: not yet). */
+  settleMs: number | null;
+  /** The preview against the stored tiles (only when asked for at the end; null until compared). */
+  diff: PreviewDiff | null;
+}
+
+interface StrokeRec {
+  queue: TerrainPreviewDab[];
+  stats: TerrainPreviewStats;
+  touchedTiles: Set<TileRec>;
+  /** No more dabs (the pointer let go); the edit stored or not. */
+  released: { check: boolean } | null;
+  ended: { touched: Set<string> | null; check: boolean; at: number } | null;
+  snapshot: SettleRec['snapshot'];
+}
+
+interface SettleRec {
+  at: number;
+  /** Tiles whose stored data are still to come, and those arrived but not yet uploaded. */
+  waiting: Set<TileRec>;
+  uploading: Set<TileRec>;
+  stats: TerrainPreviewStats;
+  /** The preview read back (check), compared once every tile settled. */
+  snapshot: Promise<{ t: TileRec; part: TerrainBrushPart; rect: [number, number, number, number]; bytes: Uint8Array }[]> | null;
 }
 
 /** The page textures, in upload order. */
@@ -191,6 +244,12 @@ interface TerrainRec {
   readonly stats: SelectStats;
   /** The finest level's reach the nodes were last selected with (the LOD bias or `lodDistance` changed it: select again). */
   reach: number;
+  /** The stroke kind whose passes are to be built ahead (null: none, or built). */
+  warm: TerrainBrushKind | null;
+  /** A stroke being previewed, one settling, and the last one's figures. */
+  stroke: StrokeRec | null;
+  settle: SettleRec | null;
+  lastStroke: TerrainPreviewStats | null;
 }
 
 /** The shared grid mesh: `grid`² quads over [0, 1]² in x and z, facing up (normal and tangent the vertex shader replaces). */
@@ -246,6 +305,9 @@ function arrayTexture(samples: number, capacity: number, filter: THREE.Magnifica
   return t;
 }
 
+/** A stored stroke's tiles whose new data have not come by then are uploaded again from their copies (the preview is not left standing). */
+const SETTLE_TIMEOUT_MS = 15_000;
+
 /** `mesh.userData[PLACED_KEY]`: the page's mesh has its world matrix (it was placed once). */
 const PLACED_KEY = '__tlTerrainPlaced';
 
@@ -270,6 +332,9 @@ export class TerrainView {
   /** How many tiles of all terrains draw each digest (a tile no terrain draws is let go by the store). */
   private readonly digestUse = new Map<string, number>();
   private readonly errors: string[] = [];
+  /** The strokes' GPU passes (made with the renderer that draws them). */
+  private brush: TerrainBrushGpu | null = null;
+  private brushRenderer: WebGPURenderer | null = null;
 
   constructor(deps: TerrainViewDeps) {
     this.deps = deps;
@@ -286,7 +351,7 @@ export class TerrainView {
     }
     if (rec === undefined) {
       const layout = terrainLodLayout(component.tileSamples, component.spacing);
-      rec = { id, component, origin: at, look, layout, uniforms: terrainUniforms(), tiles: new Map(), pages: [], hidden: false, leaving: false, dirty: true, uploads: new Set(), reheights: new Set(), serial: ++this.serials, reach: Number.NaN, field: null, stats: { nodes: 0, inView: 0, perLevel: [] } };
+      rec = { id, component, origin: at, look, layout, uniforms: terrainUniforms(), tiles: new Map(), pages: [], hidden: false, leaving: false, dirty: true, uploads: new Set(), reheights: new Set(), serial: ++this.serials, reach: Number.NaN, field: null, stats: { nodes: 0, inView: 0, perLevel: [] }, stroke: null, settle: null, lastStroke: null, warm: null };
       this.terrains.set(id, rec);
     }
     rec.leaving = false;
@@ -308,13 +373,17 @@ export class TerrainView {
       listed.add(key);
       let t = rec.tiles.get(key);
       if (t === undefined) {
-        t = { x: ref.x, z: ref.z, digest: null, reading: null, tile: null, page: -1, layer: -1, bounds: null, pending: null, ready: false };
+        t = { x: ref.x, z: ref.z, digest: null, reading: null, tile: null, page: -1, layer: -1, bounds: null, pending: null, ready: false, preview: null };
         rec.tiles.set(key, t);
         this.allocate(rec, t);
         if (ref.data === undefined) this.arriveFlat(rec, t);
       }
       const want = ref.data ?? null;
-      if (want === t.digest && t.tile !== null && !rangeChanged) continue;
+      if (want === t.digest && t.tile !== null && !rangeChanged) {
+        // Back to the data drawn before another read arrived (an undo right after an edit): that read is not wanted.
+        t.reading = null;
+        continue;
+      }
       if (want === null) {
         t.reading = null;
         this.arriveFlat(rec, t);
@@ -369,19 +438,235 @@ export class TerrainView {
     return rec === undefined ? null : this.fieldOf(rec);
   }
 
+  // ---- stroke previews ---------------------------------------------------------------------
+
+  /** Begin previewing a stroke on terrain `id` (false: no such terrain). A stroke still in flight there is ended as not stored. */
+  previewBegin(id: string): boolean {
+    const rec = this.terrains.get(id);
+    if (rec === undefined) return false;
+    if (rec.stroke !== null && rec.stroke.ended === null) rec.stroke.ended = { touched: null, check: false, at: performance.now() };
+    if (rec.stroke !== null) this.drawStroke(rec, null);
+    const stats: TerrainPreviewStats = { active: true, settling: false, dabs: 0, passes: 0, tiles: 0, msMax: 0, msMean: 0, frames: 0, msMaxAfterFirst: 0, settleMs: null, diff: null };
+    rec.stroke = { queue: [], stats, touchedTiles: new Set(), ended: null, released: null, snapshot: null };
+    rec.lastStroke = stats;
+    return true;
+  }
+
+  /** The passes a kind of stroke draws on terrain `id`, built ahead (the editor's tool chosen) so its first dab builds none. */
+  previewWarm(id: string, kind: TerrainBrushKind): void {
+    const rec = this.terrains.get(id);
+    if (rec === undefined) return;
+    rec.warm = kind;
+    this.deps.changed();
+  }
+
+  /** A dab of the stroke (drawn on the GPU before the next frame). */
+  previewDab(id: string, dab: TerrainPreviewDab): void {
+    const k = this.terrains.get(id)?.stroke;
+    if (k == null || k.released !== null) return;
+    k.queue.push(dab);
+    this.deps.changed();
+  }
+
+  /**
+   * The stroke's last dab is in (the pointer let go; its edit is being
+   * stored). `check`: read the preview back once drawn, to compare with the
+   * stored tiles when they arrive (`previewStats().diff`; a test's measure).
+   */
+  previewRelease(id: string, check: boolean): void {
+    const k = this.terrains.get(id)?.stroke;
+    if (k == null || k.released !== null) return;
+    k.released = { check };
+    this.deps.changed();
+  }
+
+  /**
+   * The stroke's edit was stored (`stored`: the tiles it changed, [x, z];
+   * they keep the preview until their data arrive) or not (null: every
+   * previewed tile is uploaded again from its copy).
+   */
+  previewEnd(id: string, stored: readonly (readonly number[])[] | null): void {
+    const k = this.terrains.get(id)?.stroke;
+    if (k == null || k.ended !== null) return;
+    k.released ??= { check: false };
+    k.ended = { touched: stored === null ? null : new Set(stored.map((t) => terrainTileKey(t[0]!, t[1]!))), check: k.released.check, at: performance.now() };
+    this.deps.changed();
+  }
+
+  /** The last stroke's figures on terrain `id` (null: none). */
+  previewStats(id: string): TerrainPreviewStats | null {
+    return this.terrains.get(id)?.lastStroke ?? null;
+  }
+
+  /** Draw the stroke's waiting dabs; read it back once released (check); hand it to settling once ended. */
+  private drawStroke(rec: TerrainRec, renderer: WebGPURenderer | null): void {
+    const k = rec.stroke!;
+    if (renderer === null) k.queue = [];
+    if (k.queue.length > 0 && renderer !== null) {
+      const brush = this.brushFor(renderer);
+      const t0 = performance.now();
+      const shape = { origin: rec.origin, heightRange: rec.component.heightRange, spacing: rec.component.spacing };
+      for (const d of k.queue) {
+        const dab = brushDabOf(d, shape);
+        const before = brush.stats.passes;
+        brush.dab(dab, this.brushTiles(rec, dab, k));
+        k.stats.passes += brush.stats.passes - before;
+        k.stats.dabs += 1;
+      }
+      k.queue = [];
+      const ms = performance.now() - t0;
+      const st = k.stats;
+      st.frames += 1;
+      st.msMax = Math.max(st.msMax, Math.round(ms * 1000) / 1000);
+      st.msMean = Math.round(((st.msMean * (st.frames - 1) + ms) / st.frames) * 1000) / 1000;
+      if (st.frames > 1) st.msMaxAfterFirst = Math.max(st.msMaxAfterFirst, Math.round(ms * 1000) / 1000);
+      st.tiles = k.touchedTiles.size;
+      this.deps.shapeChanged();
+    }
+    if (k.released?.check === true && k.snapshot === null && renderer !== null) k.snapshot = this.snapshot(rec, k);
+    if (k.ended !== null) this.finishStroke(rec, k);
+  }
+
+  private brushFor(renderer: WebGPURenderer): TerrainBrushGpu {
+    if (this.brush === null || this.brushRenderer !== renderer) {
+      this.brush?.dispose();
+      this.brush = new TerrainBrushGpu(renderer);
+      this.brushRenderer = renderer;
+    }
+    return this.brush;
+  }
+
+  /** The tiles a dab reaches (drawn, with no texels waiting to go up), each with the samples it writes; marked previewed. */
+  private brushTiles(rec: TerrainRec, dab: ReturnType<typeof brushDabOf>, k: StrokeRec): TerrainBrushTile[] {
+    const n = rec.component.tileSamples - 1;
+    const sp = rec.component.spacing;
+    const mps = metresPerStep(rec.component.heightRange);
+    const box = brushSampleBox(dab, sp);
+    const [tx0, tz0, tx1, tz1] = boxTiles(box, n);
+    const parts = terrainBrushParts(dab.kind);
+    const out: TerrainBrushTile[] = [];
+    for (let tz = tz0; tz <= tz1; tz++) {
+      for (let tx = tx0; tx <= tx1; tx++) {
+        const t = rec.tiles.get(terrainTileKey(tx, tz));
+        if (t === undefined || !t.ready || t.layer < 0 || t.pending !== null || t.tile === null) continue;
+        const rect = tileRect(box, tx, tz, n);
+        if (rect === null) continue;
+        const p = rec.pages[t.page]!;
+        const around: number[] = [];
+        for (let dz = -1; dz <= 1; dz++) {
+          for (let dx = -1; dx <= 1; dx++) {
+            const nb = dx === 0 && dz === 0 ? t : rec.tiles.get(terrainTileKey(tx + dx, tz + dz));
+            around.push(nb !== undefined && nb.ready && nb.layer >= 0 && nb.page === t.page ? nb.layer : -1);
+          }
+        }
+        out.push({ heights: p.heights, layers: p.layers, indices: p.indices, layer: t.layer, cells: n, spacing: sp, metresPerStep: mps, ox: tx * n * sp, oz: tz * n * sp, around, rect });
+        t.preview ??= { parts: new Set(), rect: null, from: t.digest };
+        for (const part of parts) t.preview.parts.add(part);
+        t.preview.rect = rectUnion(t.preview.rect, rect);
+        k.touchedTiles.add(t);
+      }
+    }
+    return out;
+  }
+
+  /** Read the previewed rectangles back (copied on the GPU now; read later). */
+  private snapshot(rec: TerrainRec, k: StrokeRec): SettleRec['snapshot'] {
+    const brush = this.brush;
+    if (brush === null) return null;
+    const reads: Promise<{ t: TileRec; part: TerrainBrushPart; rect: [number, number, number, number]; bytes: Uint8Array }>[] = [];
+    for (const t of k.touchedTiles) {
+      const pv = t.preview;
+      if (pv === null || pv.rect === null || t.layer < 0) continue;
+      const rect = pv.rect;
+      for (const part of pv.parts) reads.push(brush.read(rec.pages[t.page]![part], t.layer, rect).then((bytes) => ({ t, part, rect, bytes })));
+    }
+    return Promise.all(reads);
+  }
+
+  /** The stroke ended: tiles the stored edit changed wait for their data; the rest are uploaded again from their copies. */
+  private finishStroke(rec: TerrainRec, k: StrokeRec): void {
+    const end = k.ended!;
+    const settle: SettleRec = { at: end.at, waiting: new Set(rec.settle?.waiting ?? []), uploading: new Set(rec.settle?.uploading ?? []), stats: k.stats, snapshot: k.snapshot };
+    rec.settle = settle;
+    rec.stroke = null;
+    k.stats.active = false;
+    k.stats.settling = true;
+    for (const t of k.touchedTiles) {
+      if (rec.tiles.get(terrainTileKey(t.x, t.z)) !== t) continue;
+      // Arrived already (the stored change came first): its upload replaces the preview.
+      if (t.preview === null) {
+        if (t.pending !== null) settle.uploading.add(t);
+        continue;
+      }
+      if (end.touched !== null && end.touched.has(terrainTileKey(t.x, t.z))) settle.waiting.add(t);
+      else this.restoreTile(rec, t);
+    }
+  }
+
+  /** Upload a previewed tile's layers again from its copy (they hold its stored data). */
+  private restoreTile(rec: TerrainRec, t: TileRec): void {
+    const pv = t.preview;
+    t.preview = null;
+    rec.settle?.waiting.delete(t);
+    if (pv === null || t.layer < 0 || t.tile === null || t.pending !== null) return;
+    const size = t.tile.samples * t.tile.samples * TERRAIN_TEXEL_BYTES;
+    const p = rec.pages[t.page]!;
+    const copy = (part: TerrainBrushPart): Uint8Array | null => (pv.parts.has(part) ? (p[part].image.data as Uint8Array).subarray(t.layer * size, (t.layer + 1) * size) : null);
+    t.pending = { heights: copy('heights'), layers: copy('layers'), indices: copy('indices') };
+    rec.uploads.add(t);
+    rec.settle?.uploading.add(t);
+  }
+
+  /** Every previewed tile holds its stored data again: the stroke settled (its preview compared, when read back). */
+  private settleStroke(rec: TerrainRec): void {
+    const st = rec.settle!;
+    if (performance.now() - st.at > SETTLE_TIMEOUT_MS) for (const t of [...st.waiting]) this.restoreTile(rec, t);
+    if (st.waiting.size > 0 || st.uploading.size > 0) return;
+    rec.settle = null;
+    st.stats.settling = false;
+    st.stats.settleMs = Math.round((performance.now() - st.at) * 10) / 10;
+    this.deps.changed();
+    if (st.snapshot === null) return;
+    void st.snapshot.then(
+      (reads) => {
+        const diff = emptyDiff();
+        for (const r of reads) {
+          const t = r.t;
+          if (rec.tiles.get(terrainTileKey(t.x, t.z)) !== t || t.layer < 0 || t.tile === null) continue;
+          const size = t.tile.samples * t.tile.samples * TERRAIN_TEXEL_BYTES;
+          const p = rec.pages[t.page]!;
+          const stored = (p[r.part].image.data as Uint8Array).subarray(t.layer * size, (t.layer + 1) * size);
+          const weights = (p.layers.image.data as Uint8Array).subarray(t.layer * size, (t.layer + 1) * size);
+          compareRect(diff, r.part, r.bytes, stored, r.rect, t.tile.samples, weights);
+        }
+        st.stats.diff = diff;
+        this.deps.changed();
+      },
+      (e: unknown) => this.error(`terrain ${rec.id}: the stroke's preview could not be read back: ${e instanceof Error ? e.message : String(e)}`),
+    );
+  }
+
   /**
    * Before the frame is drawn, after `view` was set to the frame's camera:
-   * drop removed terrains, copy arrived texels into their pages and upload
-   * them (within the frame's budget), and select the nodes drawn when the
-   * view or the tiles changed.
+   * drop removed terrains, draw a stroke's waiting dabs (with `renderer`),
+   * copy arrived texels into their pages and upload them (within the frame's
+   * budget), and select the nodes drawn when the view or the tiles changed.
    */
-  update(view: CullView): void {
+  update(view: CullView, renderer?: WebGPURenderer | null): void {
     if (this.disposed) return;
     for (const rec of [...this.terrains.values()]) if (rec.leaving) this.drop(rec);
     if (this.terrains.size === 0) {
       this.lastSelectMs = 0;
       this.lastUploadMs = 0;
       return;
+    }
+    // Before the uploads: a tile with texels still to copy is left out of the dabs (its upload would cover them).
+    for (const rec of this.terrains.values()) {
+      if (rec.warm !== null && renderer != null && rec.pages.length > 0) {
+        for (const p of rec.pages) this.brushFor(renderer).warm(p, rec.warm);
+        rec.warm = null;
+      }
+      if (rec.stroke !== null) this.drawStroke(rec, renderer ?? null);
     }
     const t0 = performance.now();
     let bytes = 0;
@@ -419,6 +704,7 @@ export class TerrainView {
         if (pend.heights === null && pend.layers === null && pend.indices === null) {
           t.pending = null;
           rec.uploads.delete(t);
+          rec.settle?.uploading.delete(t);
           this.tilesUploaded += 1;
           if (!t.ready) {
             t.ready = true;
@@ -438,6 +724,7 @@ export class TerrainView {
     (terrainEye.value as THREE.Vector3).set(view.eye[0]!, view.eye[1]!, view.eye[2]!);
     for (const rec of this.terrains.values()) this.select(rec, view);
     this.lastSelectMs = performance.now() - t1;
+    for (const rec of this.terrains.values()) if (rec.settle !== null) this.settleStroke(rec);
   }
 
   diagnostics(): TerrainViewDiagnostics {
@@ -480,6 +767,8 @@ export class TerrainView {
 
   dispose(): void {
     this.disposed = true;
+    this.brush?.dispose();
+    this.brush = null;
     for (const rec of [...this.terrains.values()]) this.drop(rec);
     for (const g of this.grids.values()) g.dispose();
     this.grids.clear();
@@ -528,6 +817,11 @@ export class TerrainView {
   }
 
   private arrive(rec: TerrainRec, t: TileRec, digest: string | null, tile: TerrainTile, texels: TerrainTexels): void {
+    // Its stored data replace a stroke's preview once uploaded.
+    if (t.preview !== null) {
+      t.preview = null;
+      if (rec.settle?.waiting.delete(t) === true) rec.settle.uploading.add(t);
+    }
     this.useDigest(t.digest, digest);
     t.digest = digest;
     t.tile = tile;
@@ -556,10 +850,11 @@ export class TerrainView {
       const pend = n.pending?.heights ?? null;
       if (pend !== null) packHeightNormalBorder(pend, n.tile, this.neighbourOf(rec, n), mps, rec.component.spacing);
       else if (n.ready) {
+        // A previewed tile keeps the preview's border on the GPU until its own data come (or its copy is uploaded again).
         const size = n.tile.samples * n.tile.samples * TERRAIN_TEXEL_BYTES;
         const p = rec.pages[n.page]!;
         packHeightNormalBorder((p.heights.image.data as Uint8Array).subarray(n.layer * size, (n.layer + 1) * size), n.tile, this.neighbourOf(rec, n), mps, rec.component.spacing);
-        rec.reheights.add(n);
+        if (n.preview === null) rec.reheights.add(n);
       }
     }
   }

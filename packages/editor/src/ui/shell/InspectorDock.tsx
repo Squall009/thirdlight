@@ -27,6 +27,7 @@ import { SURFACE_PRESET_NAMES, type SurfacePresetName } from '../../session/medi
 import type { GizmoMode } from '../../viewport/viewport';
 import type { TileThumbnails } from '../../viewport/thumbnails';
 import { BlocksPanel } from '../BlocksPanel';
+import { TerrainPanel } from '../TerrainPanel';
 import { InstanceBrushPanel, type useInstanceBrush } from '../instances/InstanceBrush';
 import { ItemInspector } from '../project/ItemInspector';
 import type { ItemActions } from '../project/useItemActions';
@@ -43,7 +44,9 @@ import type { ProjectSettings } from './useProjectSettings';
 import type { DocumentState } from '../workspace/useDocumentState';
 import type { DocumentCommands } from '../workspace/useDocumentCommands';
 import type { AnimatorTools } from './useAnimatorTools';
+import type { TerrainComponent } from '@thirdlight/project-model';
 import type { BlockLayers } from './useBlockLayers';
+import type { TerrainTools } from './useTerrainTools';
 import type { PlaySession } from './usePlaySession';
 import type { SceneEditing } from './useSceneEditing';
 import type { EntityEditing } from './useEntityEditing';
@@ -62,6 +65,7 @@ export interface InspectorDockProps {
   entity: EntityEditing;
   scene: SceneEditing;
   blocks: BlockLayers;
+  terrain: TerrainTools;
   play: PlaySession;
   entities: ProjectedEntity[];
   selected: ProjectedEntity | null;
@@ -378,6 +382,20 @@ function EntityInspector(props: InspectorDockProps): JSX.Element {
                   onCreateLayer={() => void createBlockLayer()}
                   onSetFlag={(id, flag, value) => void setFlag(id, flag, value)}
                   onNotice={setNotice}
+                />
+              ),
+              // The selected terrain's tools: they edit it in the Scene view.
+              terrain: (
+                <TerrainPanel
+                  editor={props.terrain.terrainEditor}
+                  visible={props.placement === 'dock' && props.sceneInFront}
+                  entityId={selected.id}
+                  component={selected.components['terrain'] as TerrainComponent}
+                  locked={hierarchyFlags.get(selected.id)?.locked === true}
+                  hidden={hierarchyFlags.get(selected.id)?.active === false}
+                  blockLayers={blockRows}
+                  run={props.terrain.terrainRun}
+                  stage={props.terrain.stageFile}
                 />
               ),
               // Write the footprint's metadata into the cells beneath, or land the object on the cell tops.

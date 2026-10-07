@@ -257,6 +257,8 @@ export { BLOCK_CHUNK_DATA_KEY, decodeBlockChunks, readBlockChunkData } from '@th
 // A terrain's tiles: decoded on the page from their blobs, asked for heights, normals, holes and layers (renderer, colliders, queries).
 export { TerrainField, decodeTerrainTile, readTerrainTileBlob, terrainCellStep, terrainTileKey, type TerrainComponent, type TerrainSample, type TerrainTile } from '@thirdlight/project-model';
 export { TERRAIN_HEIGHT_STEPS, TERRAIN_PAINT_BYTES, TERRAIN_SAMPLE_LAYERS, TERRAIN_WEIGHT_BYTES, WORLD_UV_PERIOD_METRES, flatTerrainTile, terrainFlatStep, terrainHeightOf, terrainLayersAt, terrainTileBytes, terrainTileSize, type TerrainTileRef } from '@thirdlight/project-model';
+// The terrain editing bounds and forms the editor's tools offer (the command checks them), and the noise hash its preview repeats.
+export { HEIGHTMAP_FORMATS, TERRAIN_BRUSH_LIMITS, TERRAIN_LAYER_MAX, TERRAIN_NOISE_HASH, TERRAIN_TILE_COORD_MAX, TERRAIN_TILE_SAMPLES_DEFAULT, terrainDabSamples, type HeightmapFormat } from '@thirdlight/project-model';
 export { terrainTileOf } from './terrain-blob';
 export { TERRAIN_COLLIDER_PATCH_CELLS, TerrainColliders, terrainColliderId, terrainColliderPieces, type TerrainCollisionDiagnostics, type TerrainCollisionTile, type TerrainColliderPiece, type TerrainTileData } from './terrain-collision';
 // Gunzip with the platform's DecompressionStream (a build's binary data ships gzip: block chunks, terrain tiles).

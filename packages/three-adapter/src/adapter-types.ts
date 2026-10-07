@@ -456,6 +456,8 @@ export interface SceneAdapter {
   blockLayers?(): BlockLayerView;
   /** The terrains drawn (null: none): tiles, texture bytes, the nodes selected per level, draws. */
   terrainDiagnostics?(): TerrainViewDiagnostics | null;
+  /** The terrains drawn: their fields (picking) and stroke previews (the editor's terrain tools). */
+  terrains?(): import('./terrain-view').TerrainView;
   /** The renderer drawing now (null before it is ready). */
   currentRenderer?(): AnyRenderer | null;
   /** The probe light the materials sample (its packed tiles; the editor's probe debug view draws them), or null without probes. */

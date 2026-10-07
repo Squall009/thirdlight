@@ -151,6 +151,13 @@ export class SessionClient extends SessionClientCore {
   async stageBehaviorSource(
     bytes: Uint8Array,
   ): Promise<{ ok: true; stageId: string; digest: string; byteLength: number } | { ok: false; error: { code: string; message: string } }> {
+    return this.stageBytes(bytes);
+  }
+
+  /** Stage a file's bytes for a command that reads one (a heightmap import; a behavior source above). */
+  async stageBytes(
+    bytes: Uint8Array,
+  ): Promise<{ ok: true; stageId: string; digest: string; byteLength: number } | { ok: false; error: { code: string; message: string } }> {
     try {
       const stage = await this.request<{ ok: true; stageId: string; expiresAt: string }>(
         `/projects/${this.cfg.projectId}/content/stages`,

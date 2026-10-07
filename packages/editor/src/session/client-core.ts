@@ -223,6 +223,8 @@ export interface CommandResultOk {
   folderImport?: import('./folder-upload').FolderImportView;
   /** The applied change (a folder import lists the assets it added). */
   change?: unknown;
+  /** A terrain edit's report: the tiles it changed and added ([x, z]), the samples changed. */
+  terrain?: { tiles: [number, number][]; added: [number, number][]; changed: number; clamped?: number };
 }
 export type CommandResult = CommandResultOk | { ok: false; response: MutationResponse };
 
@@ -1198,7 +1200,7 @@ export class SessionClientCore {
         const createdId = (r as { createdId?: unknown }).createdId;
         // A staged library commit says which scripts it recompiled (once each).
         const libraryStage = (r as { libraryStage?: CommandResultOk['libraryStage'] }).libraryStage;
-        return { ok: true, revision: r.revision, change: r.change, ...(typeof createdId === 'string' ? { createdId } : {}), ...(libraryStage !== undefined ? { libraryStage } : {}), ...(r.folderImport !== undefined ? { folderImport: r.folderImport } : {}) };
+        return { ok: true, revision: r.revision, change: r.change, ...(typeof createdId === 'string' ? { createdId } : {}), ...(libraryStage !== undefined ? { libraryStage } : {}), ...(r.folderImport !== undefined ? { folderImport: r.folderImport } : {}), ...((r as { terrain?: CommandResultOk['terrain'] }).terrain !== undefined ? { terrain: (r as { terrain?: CommandResultOk['terrain'] }).terrain } : {}) };
       }
       if (r.code === 'revision_conflict') {
         const current = r.currentRevision ?? -1;

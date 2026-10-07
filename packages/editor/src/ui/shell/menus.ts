@@ -52,6 +52,7 @@ export interface EditorMenuInput {
   createPrefabFromSelection: () => void;
   /** GameObject → Block layer (a new layer, selected so its tools show). */
   createBlockLayer: () => void;
+  createTerrain: () => void;
   resync: () => void;
   scene: SceneEditing;
   entity: EntityEditing;
@@ -60,7 +61,7 @@ export interface EditorMenuInput {
 
 export function editorMenus(input: EditorMenuInput): Menu[] {
   const { registry, settings, sceneHeaders, closedScenes, entities, selected, selectedId, selectedComponents, ui, snapping, setSnapping, snapSettings } = input;
-  const { gizmos, setGizmos, effectPreview, setEffectPreview, workspace, workspaceDispatch, setCenterTab, setBottomTab, showProject, openProjectSettings, showToolWindow, createPrefabFromSelection, createBlockLayer, resync } = input;
+  const { gizmos, setGizmos, effectPreview, setEffectPreview, workspace, workspaceDispatch, setCenterTab, setBottomTab, showProject, openProjectSettings, showToolWindow, createPrefabFromSelection, createBlockLayer, createTerrain, resync } = input;
   const { clipboardRef, copySelection, createEmpty, createEntityAt, createFolder, createLight, del, duplicate, newBox, paste, redo, undo } = input.scene;
   const { addComponentTo, colliderFromModel, colliderFromModel3D, editComponent } = input.entity;
   const { setDialog, setExportState, setSnapDraft } = input.dialogs;
@@ -159,6 +160,7 @@ export function editorMenus(input: EditorMenuInput): Menu[] {
         { label: 'Model from asset…', onSelect: () => showProject('t:model') },
         { label: 'Instance set…', onSelect: () => setDialog('instances') },
         { label: 'Block layer', onSelect: () => createBlockLayer() },
+        { label: 'Terrain', onSelect: () => createTerrain() },
         { label: 'Prefab copy…', onSelect: () => showProject('t:prefab') },
         'separator',
         { label: 'Create prefab from selection', disabled: noSelection, reason: need, onSelect: () => createPrefabFromSelection() },

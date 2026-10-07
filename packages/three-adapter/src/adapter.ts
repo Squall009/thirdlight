@@ -526,10 +526,9 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   const ownTiles = opts.terrainTiles === undefined ? new TerrainTileStore({ read: opts.resolveBuffer ?? opts.models?.resolveBuffer ?? null, worker: opts.meshWorkerUrl !== undefined ? () => createBrowserMeshWorker(opts.meshWorkerUrl!, 'thirdlight-terrain') : null }) : null;
   const terrains = new TerrainView({
     tiles: opts.terrainTiles ?? ownTiles!,
-    materials: materialLibrary,
     place: (mesh, shown) => (shown ? graph.listStatic(mesh) : graph.unlistStatic(mesh)),
     shapeChanged: () => staticShadows?.bump(),
-    changed: () => opts.onChange?.(),
+    materials: materialLibrary, changed: () => opts.onChange?.(),
     lodBias: () => graph.lodTuning.bias,
   });
   /** The block layers realized from their documents (a host may drive layers of its own through `blockLayers()`). */
@@ -1443,7 +1442,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     // Then what each batch, chunk and merged cell has in view leads its draw.
     viewCull.update(camera!);
     // The terrains' nodes for this view (only when it or their tiles changed), and tiles that arrived uploaded.
-    terrains.update(viewCull.view);
+    terrains.update(viewCull.view, renderer as never);
     // Merged cells still building in the background, or a moved static object waiting to rejoin its cell: a host drawing on demand draws again.
     if (batcher?.pending() === true) opts.onChange?.();
     // Shadows on before the draw (and before the precompile below, so the programs are built with
@@ -1867,6 +1866,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     modelFailures: () => realization?.failures() ?? new Map(),
     blockLayers: () => blockView,
     terrainDiagnostics: () => (terrains.ids().length > 0 ? terrains.diagnostics() : null),
+    terrains: () => terrains,
     currentRenderer: () => (disposed ? null : (owned.renderer?.current() ?? null)),
     frameSkipped: () => lastFrameSkipped || precompileRun !== null,
     lastFrame: () => ({ drawCalls: lastFrameCounts.drawCalls, triangles: lastFrameCounts.triangles, samples: msaaMark, batching: batcher !== null && lastFrameDrawn ? batcher.diagnostics() : null }),

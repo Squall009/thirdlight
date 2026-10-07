@@ -236,7 +236,10 @@ export {
   type BatchHint,
 } from './batching';
 export { isStaticCaster, SHADOW_CACHE_URL_PARAM, shadowCacheFromUrl, STATIC_CASTER_KEY } from './shadow-casters';
-export { TERRAIN_PAGE_LAYERS, TERRAIN_URL_PARAM, terrainFromUrl, type TerrainViewDiagnostics } from './terrain-view';
+export { TERRAIN_PAGE_LAYERS, TERRAIN_URL_PARAM, terrainFromUrl, type TerrainPreviewStats, type TerrainView, type TerrainViewDiagnostics } from './terrain-view';
+export { brushDabOf, type PreviewDiff, type TerrainPreviewDab } from './terrain-preview';
+export type { TerrainBrushKind } from './terrain-brush-gpu';
+export { TERRAIN_DEFAULT_COLOURS } from './terrain-material';
 export { TERRAIN_GRID_QUADS, terrainLodLayout, terrainMinLodDistance } from './terrain-quadtree';
 export { TerrainTileStore, terrainPackShape, type PackedTerrainTile } from './terrain-tile-store';
 export { snapToLightGrid, staticShadowSize, STATIC_SHADOW_STEP, STATIC_SHADOW_TURN_DEGREES, type CachedShadowCounts } from './cached-shadow';

@@ -32,6 +32,17 @@
  * - A 1,025² tile far out of view (its own terrain) is packed on a worker and
  *   uploaded over several frames in the Scene view and Play: no frame spends
  *   more than a few milliseconds of the page's time on it (the upload peak).
+ * - The Terrain tools (the Inspector of a selected terrain, both renderers):
+ *   raise, paint (and noise, smooth, a ramp: read back only) and a holes click previewed on the GPU
+ *   while the pointer is held, then stored as one `editTerrain` each; the
+ *   preview read back against the stored tiles (`?terrainCheck=1`: heights
+ *   to a step, paint to a few weight bytes, holes exactly) and the pixels
+ *   before and after the stored tiles replaced it; undo and redo; the brush
+ *   cursor on the ground under the pointer. On the first renderer also a new
+ *   terrain from the GameObject menu, the heightmap import dialog and a block
+ *   layer converted (each undone). Then a 64 m raise on the 1,025² tile: the
+ *   preview's main-thread time per frame, the page's frames meanwhile, the
+ *   commit's round trip and how long until the stored tile replaced it.
  */
 import { randomBytes } from 'node:crypto';
 import { createReadStream, existsSync, statSync } from 'node:fs';
@@ -46,6 +57,7 @@ import { gpuAvailable } from './browser-env.mjs';
 import { ALBEDO_HEIGHT_LAYERS, isBlue, isRed, packNormalAndOrm, packTexture, publishLayerSources, publishTexture, useArrays, type Pred } from './painted-layers';
 import { makePng } from './png-make';
 import { decodePng, type Image } from './png';
+import { menu } from './ui';
 import { expectRendererBackend } from './renderer-variants';
 
 let be: E2EBackend | null = null;
@@ -253,6 +265,92 @@ function serveDir(dir: string): Promise<{ url: string; close: () => Promise<void
   });
 }
 
+// ---- the Terrain tools ----------------------------------------------------------------------------
+
+type PreviewDiff = { samples: number; stepsMax: number; stepsDiffering: number; normalMax: number; weightMax: number; holesDiffering: number; indicesDiffering: number };
+type StrokeInfo = { serial: number; tool: string; dabs: number; commitMs: number | null; stored: boolean | null; preview?: { active: boolean; settling: boolean; dabs: number; passes: number; tiles: number; msMax: number; msMean: number; frames: number; msMaxAfterFirst: number; settleMs: number | null; diff: PreviewDiff | null } };
+const strokeInfo = async (page: Page): Promise<StrokeInfo | null> => JSON.parse((await viewport(page).getAttribute('data-terrain-stroke')) ?? 'null') as StrokeInfo | null;
+const terrainPanel = (page: Page) => page.getByLabel('terrain tools');
+const terrainTool = (page: Page, name: string) => terrainPanel(page).getByRole('toolbar', { name: 'terrain tool' }).getByRole('button', { name, exact: true });
+async function selectEntity(page: Page, id: string): Promise<void> {
+  await page.locator(`.tl-hierarchy__list li[data-entity-id="${id}"]`).click();
+  await expect(terrainPanel(page)).toBeVisible();
+  await expect(viewport(page)).toHaveAttribute('data-terrain-tool', /\w/);
+}
+async function setNumber(page: Page, label: string, value: number): Promise<void> {
+  const f = terrainPanel(page).getByLabel(label, { exact: true });
+  await f.fill(String(value));
+  await f.blur();
+}
+/** The ground the brush cursor finds under a screen point (null: no terrain there). */
+async function cursorAt(page: Page, s: { x: number; y: number }): Promise<V3 | null> {
+  await page.mouse.move(s.x + 1, s.y);
+  await page.mouse.move(s.x, s.y);
+  // The cursor follows each pointer move at once.
+  const at = (await viewport(page).getAttribute('data-terrain-brush')) ?? '';
+  return at === '' ? null : (at.split(',').map(Number) as V3);
+}
+/** The first of `candidates` (x, z) the view sees: the cursor lands on it. */
+async function visibleSpot(page: Page, ground: string, candidates: readonly [number, number][]): Promise<V3> {
+  for (const [x, z] of candidates) {
+    const p = await surface(ground, x, z);
+    const hit = await cursorAt(page, await screenOf(page, p));
+    if (hit !== null && Math.hypot(hit[0] - x, hit[2] - z) < 0.3) return p;
+  }
+  throw new Error(`none of ${JSON.stringify(candidates)} is in view`);
+}
+/** A square of the Scene view around a world point. */
+async function shot(page: Page, p: V3, size: number): Promise<Image> {
+  const s = await screenOf(page, p);
+  return decodePng(await page.screenshot({ clip: { x: s.x - size / 2, y: s.y - size / 2, width: size, height: size } }));
+}
+/** The mean absolute difference of two equal-sized pictures (0–255 per channel). */
+function meanDiff(a: Image, b: Image): number {
+  let sum = 0;
+  for (let y = 0; y < a.height; y++) for (let x = 0; x < a.width; x++) {
+    const p = a.pixel(x, y);
+    const q = b.pixel(x, y);
+    sum += Math.abs(p[0] - q[0]) + Math.abs(p[1] - q[1]) + Math.abs(p[2] - q[2]);
+  }
+  return sum / (a.width * a.height * 3);
+}
+function share(img: Image, test: Pred): number {
+  let n = 0;
+  for (let y = 0; y < img.height; y++) for (let x = 0; x < img.width; x++) if (test(...img.pixel(x, y))) n += 1;
+  return n / (img.width * img.height);
+}
+/**
+ * A stroke through world points with the pointer held until every dab is drawn
+ * (the preview's picture taken then), released, and stored: the stroke's
+ * figures once the stored tiles replaced the preview, with the pictures
+ * around `look` before, during and after.
+ */
+async function terrainStroke(page: Page, points: readonly V3[], look: V3, size: number, held = true): Promise<{ info: StrokeInfo; before: Image; preview: Image; after: Image }> {
+  const first = await screenOf(page, points[0]!);
+  await page.mouse.move(first.x, first.y);
+  const before = await shot(page, look, size);
+  const was = (await strokeInfo(page))?.serial ?? 0;
+  await page.mouse.down();
+  for (const p of points.slice(1)) {
+    const s = await screenOf(page, p);
+    await page.mouse.move(s.x, s.y, { steps: 6 });
+  }
+  // Every dab sent to the preview drawn: the figures are published after the frame that drew them (a ramp is drawn at its release).
+  if (held) await expect.poll(async () => {
+    const i = await strokeInfo(page);
+    return i !== null && i.serial > was && i.preview !== undefined && i.preview.active && i.preview.dabs === i.dabs && i.dabs > 0;
+  }, { timeout: 15_000, message: 'the stroke previewed' }).toBe(true);
+  const preview = await shot(page, look, size);
+  await page.mouse.up();
+  let info: StrokeInfo | null = null;
+  await expect.poll(async () => {
+    info = await strokeInfo(page);
+    return info !== null && info.serial > was && info.stored === true && info.preview?.settleMs != null && info.preview.diff != null;
+  }, { timeout: 30_000, message: 'the stroke stored and its tiles replacing the preview' }).toBe(true);
+  const after = await shot(page, look, size);
+  return { info: info!, before, preview, after };
+}
+
 /** WebGPU and WebGL 2 on a GPU host; WebGL 2 alone where there is no WebGPU adapter. */
 const BACKENDS: readonly ('webgpu' | 'webgl2')[] = gpuAvailable() ? ['webgpu', 'webgl2'] : ['webgl2'];
 
@@ -268,7 +366,7 @@ test('terrain: CDLOD heights, layered material, paint and a hole in the Scene vi
   let holed = false;
 
   for (const renderer of BACKENDS) {
-    await page.goto(be.editorUrl.replace('#', `&renderer=${renderer}#`));
+    await page.goto(be.editorUrl.replace('#', `&renderer=${renderer}&terrainCheck=1#`));
     await expect(page.locator('.tl-statusbar')).toContainText('connected');
     const canvas = page.locator('canvas.tl-viewport');
     await expect.poll(() => canvas.evaluate((c) => `${c.getAttribute('data-tl-renderer')}/${c.getAttribute('data-tl-renderer-state')}`), { timeout: 30_000 }).toBe(`${renderer}/ready`);
@@ -322,6 +420,8 @@ test('terrain: CDLOD heights, layered material, paint and a hole in the Scene vi
     test.info().annotations.push({ type: `${renderer} Scene view 1,025² re-upload`, description: JSON.stringify({ frames: rafFrames.length, maxMs: Math.round(Math.max(...rafFrames) * 10) / 10, missedVsync: rafFrames.filter((f) => f > 25).length, uploadMsPeak: after.uploadMsPeak, uploadBytesPeak: after.uploadBytesPeak, decodeMs: after.decodeMs, packMs: after.packMs }) });
     expect(after.uploadMsPeak!, 'the most a frame spent uploading').toBeLessThan(8);
     expect(after.errors).toEqual([]);
+
+    await terrainTools(page, renderer, ground, big, renderer === BACKENDS[0]);
 
     // Play: the scene camera's frame.
     const started = page.waitForResponse((r) => r.request().method() === 'POST' && r.url().endsWith('/play'));
@@ -429,3 +529,217 @@ test('terrain: CDLOD heights, layered material, paint and a hole in the Scene vi
     await site.close();
   }
 });
+
+/**
+ * The Terrain tools in the Scene view (see the file's header). Leaves the ground as it was (every stroke undone) and
+ * the 1,025² tile raised.
+ */
+/** Ground points for the strokes: a grid round the view's middle, away from the painted discs, the hole and the plain point. */
+function spots(away: readonly V3[]): [number, number][] {
+  const keep: [number, number, number][] = [[...PAINTED, 6], [...FIFTH, 4.5], [...HOLE, 5], [...PLAIN, 2.5], ...away.map((p) => [p[0], p[2], 3.5] as [number, number, number])];
+  const out: [number, number][] = [];
+  for (let z = -10; z <= 4; z += 1.5) for (let x = -8; x <= 6; x += 1.5) if (keep.every(([kx, kz, r]) => Math.hypot(x - kx, z - kz) > r)) out.push([x, z]);
+  return out.sort((a, b) => Math.hypot(...a) - Math.hypot(...b));
+}
+
+async function terrainTools(page: Page, renderer: string, ground: string, big: string, first: boolean): Promise<void> {
+  const height = async (x: number, z: number): Promise<number> => ((await query('queryTerrain', { entityId: ground, points: [[x, z]] }))['points'] as { height: number }[])[0]!.height;
+  await selectEntity(page, ground);
+  await expect(terrainPanel(page).getByLabel('terrain size')).toContainText(`${TILES * TILES} tiles of ${CELLS * SPACING} m`);
+  const rev0 = Number((await query('queryProject')).revision);
+
+  // ---- raise: a short drag, the ground up where it went.
+  await terrainTool(page, 'Raise').click();
+  await expect(viewport(page)).toHaveAttribute('data-terrain-tool', 'raise');
+  await setNumber(page, 'terrain radius', 1.5);
+  await setNumber(page, 'terrain strength', 0.4);
+  const raiseAt = await visibleSpot(page, ground, spots([]));
+  const h0 = await height(raiseAt[0], raiseAt[2]);
+  // The cursor sits on the ground under the pointer (the stored surface).
+  const cursor = await cursorAt(page, await screenOf(page, raiseAt));
+  expect(Math.abs(cursor![1] - h0), 'the brush cursor on the ground').toBeLessThan(0.1);
+  const raise = await terrainStroke(page, [[raiseAt[0] - 0.5, raiseAt[1], raiseAt[2]], [raiseAt[0] + 0.5, raiseAt[1], raiseAt[2]]], raiseAt, 140);
+  const h1 = await height(raiseAt[0], raiseAt[2]);
+  expect(h1 - h0, `${renderer}: the ground raised (from ${h0} to ${h1})`).toBeGreaterThan(0.3);
+  expect(Number((await query('queryProject')).revision), 'one command for the stroke').toBe(rev0 + 1);
+  const rd = raise.info.preview!.diff!;
+  expect(rd.samples).toBeGreaterThan(50);
+  expect(rd.stepsMax, `${renderer} raise: preview heights against the stored tiles ${JSON.stringify(rd)}`).toBeLessThanOrEqual(1);
+  expect(rd.stepsDiffering / rd.samples).toBeLessThan(0.01);
+  expect(rd.normalMax).toBeLessThanOrEqual(2);
+  const raisePx = { previewVsBefore: meanDiff(raise.preview, raise.before), previewVsStored: meanDiff(raise.preview, raise.after) };
+  expect(raisePx.previewVsStored, `${renderer} raise: the stored tiles drawn as the preview was ${JSON.stringify(raisePx)}`).toBeLessThan(Math.max(2, raisePx.previewVsBefore / 3));
+
+  // ---- paint: layer 2 (blue) over the red ground.
+  await terrainTool(page, 'Paint').click();
+  await terrainPanel(page).getByRole('radio', { name: 'layer 2' }).click();
+  await setNumber(page, 'terrain radius', 1.2);
+  await setNumber(page, 'terrain blend', 0.6);
+  await terrainPanel(page).getByLabel('terrain falloff').selectOption('constant');
+  const paintAt = await visibleSpot(page, ground, spots([raiseAt]));
+  const paint = await terrainStroke(page, [[paintAt[0] - 0.3, paintAt[1], paintAt[2]], [paintAt[0] + 0.3, paintAt[1], paintAt[2]]], paintAt, 30);
+  expect(share(paint.before, isRed), `${renderer}: red before the paint`).toBeGreaterThan(0.6);
+  expect(share(paint.preview, isBlue), `${renderer}: the paint previewed`).toBeGreaterThan(0.6);
+  expect(share(paint.after, isBlue), `${renderer}: the paint stored`).toBeGreaterThan(0.6);
+  const pd = paint.info.preview!.diff!;
+  expect(pd.weightMax, `${renderer} paint: preview weights against the stored tiles ${JSON.stringify(pd)}`).toBeLessThanOrEqual(4);
+  expect(pd.indicesDiffering).toBe(0);
+  expect(meanDiff(paint.preview, paint.after)).toBeLessThan(6);
+
+  // ---- noise, smooth and a ramp over the raised ground: their previews against the stored tiles.
+  const others: Record<string, PreviewDiff> = {};
+  await terrainTool(page, 'Noise').click();
+  await setNumber(page, 'noise size', 1.5);
+  others['noise'] = (await terrainStroke(page, [[raiseAt[0], raiseAt[1], raiseAt[2] - 0.4], [raiseAt[0], raiseAt[1], raiseAt[2] + 0.4]], raiseAt, 40)).info.preview!.diff!;
+  await terrainTool(page, 'Smooth').click();
+  others['smooth'] = (await terrainStroke(page, [[raiseAt[0] - 0.5, raiseAt[1], raiseAt[2]], [raiseAt[0] + 0.5, raiseAt[1], raiseAt[2]]], raiseAt, 40)).info.preview!.diff!;
+  await terrainTool(page, 'Ramp').click();
+  others['ramp'] = (await terrainStroke(page, [[raiseAt[0] - 1, raiseAt[1], raiseAt[2] + 1], [raiseAt[0] + 1, raiseAt[1], raiseAt[2] - 1]], raiseAt, 40, false)).info.preview!.diff!;
+  for (const [kind, d] of Object.entries(others)) {
+    expect(d.samples, `${renderer} ${kind}: compared`).toBeGreaterThan(20);
+    expect(d.stepsMax, `${renderer} ${kind}: preview heights against the stored tiles ${JSON.stringify(d)}`).toBeLessThanOrEqual(1);
+    expect(d.normalMax, `${renderer} ${kind}: normals ${JSON.stringify(d)}`).toBeLessThanOrEqual(2);
+  }
+
+  // ---- holes: one click, the sky through it.
+  await terrainTool(page, 'Holes').click();
+  await setNumber(page, 'terrain radius', 1);
+  const holeAt = await visibleSpot(page, ground, spots([raiseAt, paintAt]));
+  const hole = await terrainStroke(page, [holeAt], holeAt, 16);
+  expect(share(hole.before, isSky), `${renderer}: ground before the hole`).toBeLessThan(0.05);
+  expect(share(hole.preview, isSky), `${renderer}: the hole previewed`).toBeGreaterThan(0.5);
+  expect(share(hole.after, isSky), `${renderer}: the hole stored`).toBeGreaterThan(0.5);
+  expect(hole.info.preview!.diff!.holesDiffering, `${renderer} holes: ${JSON.stringify(hole.info.preview!.diff)}`).toBe(0);
+  test.info().annotations.push({ type: `${renderer} terrain tools: preview against stored`, description: JSON.stringify({ raise: { diff: rd, px: raisePx, msMax: raise.info.preview!.msMax, commitMs: raise.info.commitMs, settleMs: raise.info.preview!.settleMs }, paint: { diff: pd, commitMs: paint.info.commitMs, settleMs: paint.info.preview!.settleMs }, hole: { diff: hole.info.preview!.diff, settleMs: hole.info.preview!.settleMs }, others }) });
+  console.log(`${renderer} terrain tools: ${JSON.stringify({ raise: { diff: rd, px: raisePx, msMax: raise.info.preview!.msMax, commitMs: raise.info.commitMs, settleMs: raise.info.preview!.settleMs }, paint: { diff: pd, commitMs: paint.info.commitMs, settleMs: paint.info.preview!.settleMs }, hole: { diff: hole.info.preview!.diff, settleMs: hole.info.preview!.settleMs }, others })}`);
+
+  // ---- undo and redo: the hole goes and comes back; then everything is undone.
+  const holeShare = async (): Promise<number> => share(await shot(page, holeAt, 16), isSky);
+  await page.keyboard.press('Control+z');
+  await expect.poll(holeShare, { timeout: 30_000, message: `${renderer}: the hole undone` }).toBeLessThan(0.05);
+  await page.keyboard.press('Control+y');
+  await expect.poll(holeShare, { timeout: 30_000, message: `${renderer}: the hole redone` }).toBeGreaterThan(0.5);
+  for (let i = 0; i < 6; i++) await page.keyboard.press('Control+z');
+  await expect.poll(holeShare, { timeout: 30_000 }).toBeLessThan(0.05);
+  await expect.poll(async () => share(await shot(page, paintAt, 30), isRed), { timeout: 30_000, message: `${renderer}: the paint undone` }).toBeGreaterThan(0.6);
+  await expect.poll(() => height(raiseAt[0], raiseAt[2]), { timeout: 30_000 }).toBe(h0);
+
+  if (first) {
+    // ---- a new terrain from the GameObject menu: selected, its tools show (then undone).
+    const newRows = page.locator('.tl-hierarchy__list li.tl-row').filter({ has: page.locator('.tl-row__name', { hasText: /^Terrain$/ }) });
+    await menu(page, 'GameObject', 'Terrain');
+    await expect(terrainPanel(page).getByLabel('terrain size')).toContainText('4 tiles of 256 m');
+    await expect(newRows).toHaveCount(1);
+    await page.keyboard.press('Control+z');
+    await page.keyboard.press('Control+z');
+    await expect(newRows).toHaveCount(0, { timeout: 30_000 });
+    await selectEntity(page, ground);
+
+    // ---- the heightmap import dialog: a 33² RAW of 10 m on tile [7, 7] (then undone).
+    const at: [number, number] = [ORIGIN[0] + 7 * CELLS * SPACING + 4, ORIGIN[2] + 7 * CELLS * SPACING + 4];
+    const was = await height(...at);
+    const raw = new Uint8Array(33 * 33 * 2);
+    const v = Math.round(((10 - RANGE[0]) / (RANGE[1] - RANGE[0])) * 65535);
+    for (let i = 0; i < 33 * 33; i++) new DataView(raw.buffer).setUint16(i * 2, v, true);
+    await terrainPanel(page).getByRole('button', { name: 'Import heightmap…' }).click();
+    const dialog = page.getByRole('dialog', { name: 'import heightmap' });
+    await dialog.getByLabel('heightmap file').setInputFiles({ name: 'patch.raw', mimeType: 'application/octet-stream', buffer: Buffer.from(raw) });
+    await expect(dialog.getByLabel('heightmap format')).toHaveValue('raw16');
+    await expect(dialog.getByLabel('raw width')).toHaveValue('33');
+    await dialog.getByLabel('import tile x').fill('7');
+    await dialog.getByLabel('import tile z').fill('7');
+    await dialog.getByRole('button', { name: 'import', exact: true }).click();
+    await expect(dialog).toBeHidden({ timeout: 30_000 });
+    await expect.poll(() => height(...at), { timeout: 30_000 }).toBeCloseTo(10, 1);
+    await page.keyboard.press('Control+z');
+    await expect.poll(() => height(...at), { timeout: 30_000 }).toBe(was);
+
+    // ---- a block layer converted onto the 1,025² tile (then undone): its top, 3 m over the layer's object.
+    await cmd('setBlockType', { block: { blockId: 'stone', name: 'Stone', variants: [{ color: '#808080' }], shape: 'full' } });
+    const layer = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Blocks', transform: { position: [BIG_ORIGIN[0] + 100, 0, BIG_ORIGIN[2] + 100] } }))['createdId']);
+    await cmd('setComponent', { entityId: layer, component: 'blockLayer', value: { cellSize: [1, 1, 1], bounds: { min: [0, 0, 0], max: [8, 8, 8] } } });
+    await cmd('editBlocks', { entityId: layer, edits: [{ kind: 'fill', box: [0, 0, 0, 8, 3, 8], cell: { block: 'stone' } }] });
+    await selectEntity(page, big);
+    await terrainPanel(page).getByLabel('convert source').selectOption(layer);
+    const bigAt: [number, number] = [BIG_ORIGIN[0] + 104, BIG_ORIGIN[2] + 104];
+    const bigHeight = async (): Promise<number> => ((await query('queryTerrain', { entityId: big, points: [bigAt] }))['points'] as { height: number }[])[0]!.height;
+    const bigWas = await bigHeight();
+    await terrainPanel(page).getByRole('button', { name: 'convert block layer' }).click();
+    await expect.poll(bigHeight, { timeout: 30_000 }).toBeCloseTo(3, 1);
+    await page.keyboard.press('Control+z');
+    await expect.poll(bigHeight, { timeout: 30_000 }).toBe(bigWas);
+    await cmd('deleteEntity', { entityId: layer });
+  }
+
+  // ---- a 64 m raise on the 1,025² tile: the preview's cost per frame and the page's frames while dragging, the commit.
+  await selectEntity(page, big);
+  await page.keyboard.press('f');
+  const box = (await viewport(page).boundingBox())!;
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  // Out to about 130 m from the tile's corner (the view looks down at it from +x +z).
+  for (let i = 0; i < 12; i++) await page.mouse.wheel(0, 500);
+  await page.waitForTimeout(300);
+  await terrainTool(page, 'Raise').click();
+  await setNumber(page, 'terrain radius', 64);
+  await setNumber(page, 'terrain strength', 0.5);
+  // Two loops of 15 m round a point of the tile the view sees (all in view), projected to the screen.
+  let loop: { x: number; y: number }[] = [];
+  const inBox = (q: { x: number; y: number }): boolean => q.x > box.x + 10 && q.x < box.x + box.width - 10 && q.y > box.y + 10 && q.y < box.y + box.height - 10;
+  for (const d of [60, 50, 40, 30, 25, 20]) {
+    const c: V3 = [BIG_ORIGIN[0] + d, 0, BIG_ORIGIN[2] + d];
+    const s0 = await screenOf(page, c);
+    const at = s0.x > box.x && s0.x < box.x + box.width && s0.y > box.y && s0.y < box.y + box.height ? await cursorAt(page, s0) : null;
+    if (at === null || Math.hypot(at[0] - c[0], at[2] - c[2]) > 20) continue;
+    loop = [];
+    for (let i = 0; i <= 150; i++) {
+      const a = (i / 150) * 4 * Math.PI;
+      loop.push(await screenOf(page, [c[0] + 15 * Math.cos(a), 0, c[2] + 15 * Math.sin(a)]));
+    }
+    if (loop.every(inBox)) break;
+    loop = [];
+  }
+  expect(loop.length, `${renderer}: a part of the 1,025² tile in view`).toBeGreaterThan(0);
+  const hit = await cursorAt(page, loop[0]!);
+  expect(hit, `${renderer}: the 1,025² tile under the pointer`).not.toBeNull();
+  const serial = (await strokeInfo(page))?.serial ?? 0;
+  const rafStart = async (): Promise<void> => page.evaluate(() => {
+    const w = window as unknown as { __tlFrames?: number[] };
+    const frames: number[] = (w.__tlFrames = []);
+    let last = performance.now();
+    const tick = (now: number): void => {
+      frames.push(now - last);
+      last = now;
+      if (frames.length < 4000) requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  });
+  await rafStart();
+  const t0 = Date.now();
+  await page.mouse.down();
+  // About 3 s of drag, a pointer move a frame or so.
+  for (const s of loop.slice(1)) {
+    await page.mouse.move(s.x, s.y);
+    await page.waitForTimeout(16);
+  }
+  const strokeFrames = await page.evaluate(() => (window as unknown as { __tlFrames: number[] }).__tlFrames.splice(0));
+  const dragMs = Date.now() - t0;
+  await page.mouse.up();
+  let info: StrokeInfo | null = null;
+  await expect.poll(async () => {
+    info = await strokeInfo(page);
+    return info !== null && info.serial > serial && info.stored === true && info.preview?.settleMs != null && info.preview.diff != null;
+  }, { timeout: 60_000, message: `${renderer}: the 64 m stroke stored and settled` }).toBe(true).catch((e: Error) => {
+    throw new Error(`${e.message}: ${JSON.stringify(info)}`);
+  });
+  const st = info!.preview!;
+  const sorted = [...strokeFrames].sort((a, b) => a - b);
+  const p95 = sorted[Math.floor(sorted.length * 0.95)] ?? 0;
+  const report = { dabs: info!.dabs, passes: st.passes, tiles: st.tiles, previewMsMax: st.msMax, previewMsMaxAfterFirst: st.msMaxAfterFirst, previewMsMean: st.msMean, previewFrames: st.frames, rafFrames: strokeFrames.length, rafMaxMs: Math.round(Math.max(...strokeFrames) * 10) / 10, rafP95Ms: Math.round(p95 * 10) / 10, over16_7: strokeFrames.filter((f) => f > 16.7).length, over25: strokeFrames.filter((f) => f > 25).length, dragMs, commitMs: info!.commitMs, settleMs: st.settleMs, diff: st.diff };
+  test.info().annotations.push({ type: `${renderer} 64 m raise on a 1,025² tile`, description: JSON.stringify(report) });
+  console.log(`${renderer} 64 m raise on a 1,025² tile: ${JSON.stringify(report)}`);
+  expect(info!.dabs).toBeGreaterThan(3);
+  // The preview's own main-thread time stays well inside a frame.
+  expect(st.msMax, `${renderer}: the preview's main-thread time per frame`).toBeLessThan(16.7);
+  expect(st.msMean).toBeLessThan(4);
+  expect(st.diff!.stepsMax, `${renderer} 64 m raise: preview against stored ${JSON.stringify(st.diff)}`).toBeLessThanOrEqual(1);
+}
