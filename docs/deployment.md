@@ -5190,6 +5190,107 @@ edited with the editor's Terrain tools.
   16-bit PNG imports into 64 tiles of 513² in about 1.9 s (a 4,096² RAW
   1.5 s), 13.4 MB stored.
 
+## Rule scatter and ground cover
+
+Terrains and block layers place models by rules — trees, rocks, shrubs that
+are stored, and ground cover (grass, pebbles, small flowers) made near the
+camera while the game runs — with one rule list format on both, so a block
+area and the terrain around it are dressed alike.
+
+- **Scatter rules** (`terrain.scatter`, `blockLayer.scatter`; the terrain
+  tools' **Scatter rules…**, the Blocks panel's **Scatter…**): each rule has
+  an `id` (1-32 of A-Z a-z 0-9 _ -), a model `asset {assetId, piece?}`, a
+  `density` (candidate places per m² where every condition holds fully), a
+  `spacing` (m; no two copies of the rule closer), a random `scale [min,
+  max]`, `yaw` (degrees of random turn, default 360), `align` (0 upright, 1
+  along the ground's normal), `sink` (m into the ground), a `seed`, and the
+  conditions material rules have — `height`, `slope`, `cavity`, `noise`, on
+  block layers `blocks` and `meta` — plus `layers: [{layer, min?, max?,
+  fade?}]` (the share 0-1 the ground shows of a material layer, hand paint
+  included) and `exclude` (block-layer region names kept clear: a region
+  over the whole block area keeps the terrain's trees off it). Each
+  condition fades past its ends; a place is kept with the probability its
+  conditions give, and where no kept place of the rule within the spacing
+  ranks higher. Copies stand on the highest top of a block layer's column
+  or on the terrain's surface.
+- **Stored copies**: a terrain bakes each tile's copies into a blob of its own
+  (`tiles[].scatter`), a block layer into each chunk (`scatter`, written
+  with the chunk's file). **Apply** (MCP `editTerrain bake {scatter}`; on a
+  block layer `setComponent` then `editBlocks {kind: "bakeScatter"}`, two
+  undo steps) bakes every tile or chunk. Then an edit that moves the ground,
+  paints or cuts it bakes again only around what it changed (the rules'
+  reach: spacing and cavity), in the same command and undo step, giving
+  exactly the copies a whole bake gives; the game only reads the stored
+  copies. Measured (Node): a 512 m tile with three tree and rock rules bakes
+  in 7 ms (188 copies; 30 ms at 16 times the density), a 16 m raise's
+  rectangle in 0.6-5 ms; the landscape perf class's 144 tiles in 0.9 s
+  (one command).
+- **The Scatter brush** (the terrain tools' **Scatter**, the Blocks tools'
+  **Scatter**, MCP `editTerrain {kind: "scatter", rule, dabs, radius,
+  erase?}` and `editBlocks {kind: "scatter", rule, at, radius, erase?}`):
+  the rule's candidate places under the brush get a copy whatever the
+  conditions, or (Ctrl / erase) none. These hand edits are kept apart from
+  the rules and survive every bake (a sculpt under a hand-placed tree moves
+  it with the ground). Copies placed one by one stay instance sets of their
+  own.
+- **Addresses**: every stored copy has an address — its rule and candidate
+  cell — that stays the same through every bake that keeps it.
+  `queryTerrain {entityId, scatter: {box?: [x0, z0, x1, z1]}}` lists each
+  rule's copies and hand edits, and with a box the copies in it with their
+  addresses; a block layer's are in its chunks (`queryBlocks`).
+- **Ground cover** (a rule with `cover: true`, `coverDistance` m, default
+  40): never stored. Squares of 32 m round the camera within its reach are
+  made on a worker (the view worker, from the same rules and ground) and
+  drawn one instance set per rule and square, thinning out to nothing over
+  the last 40 % of the reach; squares the camera leaves are dropped, and an
+  edit of the ground makes the squares over it again. No colliders, no hand
+  edits. Measured: a 32 m square of grass at 2 per m² (712 copies) takes
+  about 4 ms on the worker and 0.7-1.1 ms of the page.
+- **Drawing**: per rule, the copies of 2,048 m squares of tiles or chunks
+  are one instance set, 2,048 m chunks by default (`chunkSize`), each copy
+  at its own level of detail (`lodPerCopy`, default on for scatter) and
+  culled one by one inside its draw — a few draws per rule for a whole
+  landscape. A re-bake rebuilds only its square, a rule a frame. Density
+  falloff and levels of detail work as for instance sets. Play and an
+  export ship the tiles' scatter blobs with the tiles.
+- `?scatter=off` on a game page draws no scatter (to measure what it
+  costs); the adapter's diagnostics carry `scatter` (sources, cells,
+  groups, sets, copies, bytes, build ms) and `cover` (squares, sets,
+  copies, mean worker ms).
+
+### Foliage best practice (the foliage policy)
+
+Scattered foliage is most of a landscape's copies, and the shadow map is
+where it costs most: every caster is drawn once more per shadow pass, and a
+swaying one cannot live in the cached static map. The engine's scatter
+defaults follow this policy, and games should too:
+
+- **No map shadows by default.** Scatter copies cast nothing unless a rule
+  says `castShadow`. Grass and small plants never should.
+- **Shadows only near the camera.** A rule that casts sets `shadowDistance`
+  (the editor writes 40 m when **Casts shadow** is ticked): only copies
+  within it cast, from shadow-only squares round the camera into the moving
+  shadow map. Without it every copy casts into the cached static map (fine
+  for few, large, still things: a dozen boulders).
+- **Contact or blob shadows instead.** `blobShadow` (m, at the copy's scale)
+  puts a soft dark disc on the ground under each copy within 60 m — what the
+  eye reads as "standing on the ground" far more than a shadow-map edge — at
+  one extra instanced draw per rule and no shadow pass.
+- **Wind only near.** A foliage material's `windDistance` (m; 40 m is the
+  policy's near ring) moves vertices only that close to the camera; past it
+  they skip the wind's work and stand still (it fades out over the last
+  fifth). Absent or 0: everywhere, as before.
+- **Thin out with distance.** Set a density falloff (`densityMin` 0.25 is a
+  good start): far copies are fewer, and ground cover thins to nothing at
+  its reach on its own.
+
+Measured with the landscape perf class (Iris Xe, 1080p, about 37,000 stored
+copies and ground cover; `level --classes landscape` against `--foliage
+off`): 542k against 641k triangles a frame, the moving shadow pass 0.26
+against 0.38 ms a frame and a redraw of the cached static map 0.81 against
+1.69 ms; all scatter and cover together cost 2.7 ms of GPU time and about 50
+draws (WebGPU).
+
 ## Sockets (objects on model nodes)
 
 Since phase 23.11 an object can ride on a named node — a bone or any node —
