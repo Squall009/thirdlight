@@ -311,6 +311,18 @@ export class BlockEditor {
     this.host.requestRender();
   }
 
+  /**
+   * Preview a cut-away zone of a layer in the Scene view: hidden (it fades out
+   * as in the game) or back to what the subject decides (the editor has none:
+   * shown). False when the layer has no such zone (yet: its component is
+   * stored first).
+   */
+  previewCutaway(entityId: string, zone: string, on: boolean): boolean {
+    const ok = this.host.view().setCutaway(entityId, zone, on ? true : null);
+    this.host.requestRender();
+    return ok;
+  }
+
   setSelection(box: CellBox | null): void {
     this.selection = box;
     this.placeBox(this.selectionBox, box);

@@ -36,6 +36,7 @@ import {
   cellCorners,
   cellOfKey,
   canonicalBlockCell,
+  cutawayZoneKeys,
   cellCenter,
   cellFieldValueError,
   cellKeyOf,
@@ -318,6 +319,22 @@ export interface BehaviorGrid {
    */
   typeMaterials(blockId: string): Readonly<Record<string, string>> | null;
   /**
+   * Force a cut-away zone of a layer hidden (true) or shown (false) whatever the subject does, or give it back to the subject (null). A zone is a region the layer's cutaway lists, or "#<row>" for one of its height planes. Drawing only (it fades like any cut-away). False when refused (an unknown layer or zone).
+   * @graphNode Set cut-away
+   */
+  setCutaway(layer: string, zone: string, cut: boolean | null): boolean;
+  /**
+   * The object whose position decides the layers' cut-aways (what is cut while it stands under or inside it), or null for the camera's target (the default). False when the id is not a string.
+   * @graphNode Set cut-away subject
+   * @graphLabel targetId target
+   */
+  setCutawaySubject(targetId: string | null): boolean;
+  /**
+   * A world point [x, y, z] that decides the layers' cut-aways in place of an object. False when it is not three finite numbers.
+   * @graphNode Set cut-away point
+   */
+  setCutawayPoint(point: readonly number[]): boolean;
+  /**
    * The edge piece on a side of a cell (a wall, door or fence between it and its neighbour), or null when none stands there.
    * @graphPure
    * @graphNode Get edge
@@ -387,6 +404,16 @@ export interface GridRenderChange {
   readonly chunk: BlockChunk | null;
 }
 
+/** What scripts set for the layers' cut-aways (`setCutaway`, `setCutawaySubject`, `setCutawayPoint`); the renderer reads it. */
+export interface GridCutawayState {
+  /** The subject scripts named: an object id or a world point (null: the camera's target). */
+  readonly subject: string | readonly [number, number, number] | null;
+  /** Zones forced hidden (true) or shown (false): [layer, zone, cut]. */
+  readonly forced: readonly (readonly [string, string, boolean])[];
+}
+
+const NO_CUTAWAY: GridCutawayState = Object.freeze({ subject: null, forced: Object.freeze([]) });
+
 /** At most this many script writes per step (an engine limit protecting the step budget). */
 export const GRID_WRITES_PER_STEP = 4096;
 
@@ -428,6 +455,11 @@ export class RuntimeGrid {
   private readonly layerMap = new Map<string, Layer>();
   /** The block types' material swaps (block id → slot → material). */
   private readonly typeSwaps = new Map<string, Readonly<Record<string, string>>>();
+  /** The cut-away zones scripts forced (`layer` NUL `zone` → cut) and the subject they named. */
+  private readonly cutawayForced = new Map<string, boolean>();
+  private cutawaySubject: string | readonly [number, number, number] | null = null;
+  /** What `cutawayState` hands out: a new object only after a change (readers compare it by identity). */
+  private cutawayView: GridCutawayState = NO_CUTAWAY;
   private readonly materialIds: ReadonlySet<string> | null;
   private readonly collide: boolean;
   private collisionDirty = new Map<string, Set<string>>();
@@ -459,6 +491,19 @@ export class RuntimeGrid {
   /** The block types' material swaps (the renderer puts them on once loaded). */
   typeMaterialSwaps(): ReadonlyMap<string, Readonly<Record<string, string>>> {
     return this.typeSwaps;
+  }
+
+  /** What scripts set for the cut-aways (the same object until it changes). */
+  cutawayState(): GridCutawayState {
+    return this.cutawayView;
+  }
+
+  private cutawayChanged(): void {
+    const forced = [...this.cutawayForced].map(([k, cut]) => {
+      const i = k.indexOf('\u0000');
+      return Object.freeze([k.slice(0, i), k.slice(i + 1), cut] as const);
+    });
+    this.cutawayView = forced.length === 0 && this.cutawaySubject === null ? NO_CUTAWAY : Object.freeze({ subject: this.cutawaySubject, forced: Object.freeze(forced) });
   }
 
   /** Why a block type's swap patch cannot be made (null: it can). */
@@ -522,6 +567,9 @@ export class RuntimeGrid {
       this.live?.removeLayer(id);
       this.collisionDirty.delete(id);
       this.renderDirty.delete(id);
+      let forced = false;
+      for (const k of this.cutawayForced.keys()) if (k.startsWith(`${id}\u0000`)) forced = this.cutawayForced.delete(k) || forced;
+      if (forced) this.cutawayChanged();
     }
     return colliders;
   }
@@ -555,6 +603,9 @@ export class RuntimeGrid {
     this.previous = Object.freeze([]);
     this.writes = 0;
     this.typeSwaps.clear();
+    this.cutawayForced.clear();
+    this.cutawaySubject = null;
+    this.cutawayChanged();
     return live;
   }
 
@@ -1164,6 +1215,32 @@ export class RuntimeGrid {
         if (!g.unlimited && g.writes >= GRID_WRITES_PER_STEP) return false;
         g.writes += 1;
         g.swapType(blockId, materials);
+        return true;
+      },
+      setCutaway(layer, zone, cut) {
+        const l = layerOf(layer);
+        if (l === undefined || typeof zone !== 'string' || (cut !== null && typeof cut !== 'boolean') || !cutawayZoneKeys(l.component).includes(zone)) return false;
+        const key = `${l.entityId}\u0000${zone}`;
+        if (cut === null ? !g.cutawayForced.delete(key) : g.cutawayForced.get(key) === cut) return true;
+        if (cut !== null) g.cutawayForced.set(key, cut);
+        g.cutawayChanged();
+        return true;
+      },
+      setCutawaySubject(targetId) {
+        if (targetId !== null && (typeof targetId !== 'string' || targetId.length > 256)) return false;
+        if (g.cutawaySubject !== targetId) {
+          g.cutawaySubject = targetId;
+          g.cutawayChanged();
+        }
+        return true;
+      },
+      setCutawayPoint(point) {
+        if (!Array.isArray(point) || point.length !== 3 || !point.every((v) => typeof v === 'number' && Number.isFinite(v))) return false;
+        const s = g.cutawaySubject;
+        if (typeof s === 'string' || s === null || s[0] !== point[0] || s[1] !== point[1] || s[2] !== point[2]) {
+          g.cutawaySubject = Object.freeze([point[0], point[1], point[2]] as const);
+          g.cutawayChanged();
+        }
         return true;
       },
       typeMaterials(blockId) {

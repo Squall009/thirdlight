@@ -4502,7 +4502,8 @@ brushes, overlays and stamp UI are below (23.6).
   entered face; a deterministic walk over cells, independent of physics),
   `neighbours`, `regions` / `region` / `inRegion`, `changes` (last step's
   writes), `setTypeMaterials` / `typeMaterials` (a block type's material
-  swap, shown once the material has loaded), `diff` / `applyDiff` (plain
+  swap, shown once the material has loaded), `setCutaway` /
+  `setCutawaySubject` / `setCutawayPoint` (cut-aways, below), `diff` / `applyDiff` (plain
   data for a save, the type swaps included). Writes are refused
   (`false`) when they do not fit; at most 4,096 per step. Visual-script nodes
   exist for the calls.
@@ -4691,6 +4692,43 @@ brushes, overlays and stamp UI are below (23.6).
   wet (`wetFlatten`, 0.7) — no extra texture read. A layered material made
   before keeps its graph and look (make a new one from the template for
   these).
+- **Cut-aways (interiors)** (30.7): a layer's `cutaway` (Inspector
+  **Cut-away**, MCP `setComponent blockLayer`) lists what is hidden from the
+  view while the *subject* is under or inside it — by default the camera's
+  target (the object the live virtual camera follows or frames; a camera
+  without a target cuts nothing):
+  - `regions: [{region, when?}]` — a named region of the layer: its cells are
+    hidden while the subject stands under one of its boxes (within its
+    columns, below its lowest row: the roof and upper floors over the
+    player), or, with `when`, while the subject is inside that other region
+    (the walls round the room it is in). Edge pieces on a region's outline go
+    with it. A region that does not exist cuts nothing.
+  - `planes: [row]` — every cell from the row up, across the layer, while
+    the subject is below that row (the floors above a dungeon level).
+  - `fade` — seconds a zone takes to fade out or back in (default 0.25, 0 at
+    once). The first frame takes each zone's state at once (no fading roofs
+    when a level starts).
+  - Drawing only: collision, grid queries, the key light's shadow and baked
+    probes are as if nothing were cut — a cut roof still shades the room
+    under it (so the room keeps the light the probes baked for it, and the
+    cached static shadow map is never drawn again for a cut). Interiors are
+    lit by the probes and by lights in the layer's light layers as before.
+  - Scripts: `ctx.grid.setCutaway(layer, zone, true | false | null)` forces a
+    zone hidden or shown (null: back to the subject; a zone is a listed
+    region's id or `"#<row>"` for a plane), `ctx.grid.setCutawaySubject(id |
+    null)` and `ctx.grid.setCutawayPoint([x, y, z])` name what decides
+    instead of the camera's target. A new run forgets them; saves do not
+    keep them (set them again when a save loads).
+  - Cost: a cut-away's cells are drawn as meshes of their own (a draw or two
+    more per chunk a zone touches); a cut zone's meshes are left out of the
+    view's draws; a fading one draws a dithered copy (one material variant per
+    material, compiled while the level loads). The faces between a zone's
+    cells and the rest are kept (the top of a wall under a cut roof).
+    Measured (30.7, the level `area` class with a roof on each of its 10
+    rooms, half held cut and half swapped every 2 s): WebGPU p50/p95 6.6/9.7
+    ms against 6.5/9.3 with the same roofs never cut, GPU 10.33 vs 10.32 ms,
+    main thread 6.62 vs 6.54 ms; WebGL 2 2.8/6.7 vs 2.6/6.9 ms; one shadow
+    draw a frame throughout (the static map never drawn again).
 - **Per-layer settings** (28b.4): the template's four layers each have a
   **tiling** (metres per repeat of the layer's textures, 1 by default), a
   **normal strength** (0: flat), and a **height contrast** and **height
@@ -4777,7 +4815,11 @@ stroke or button is one undo step, and MCP can do the same.
   mirrored) with the Stamp tool, or deletes it.
 - **Regions**: the layer's named regions are outlined; click one to paint it
   with the Region tool (Ctrl removes), + Region makes one (from the selection
-  when there is one), Rename, delete, "Add / Remove selection".
+  when there is one), Rename, delete, "Add / Remove selection". **Cut**
+  marks a region cut away in the game (the layer's `cutaway.regions`, one
+  undo step); **Preview** then shows the Scene view as the game does while
+  it is cut (it fades out; editor only, nothing stored). The Scene view has
+  no camera target, so nothing is cut there unless previewed.
 - **Props on blocks**: Edit → Snapping settings… sets the move, rotate and
   scale steps (per project, in this browser; defaults 0.25 m, 15°, 0.25) and
   "Snap objects to block cell tops": moved and dropped objects land on the

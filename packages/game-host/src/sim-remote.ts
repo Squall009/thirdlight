@@ -478,6 +478,7 @@ export function startRemoteSimulation(opts: RemoteSimulationOptions): Promise<Re
     lightOverrides: () => mirror.lights,
     materialSwaps: () => mirror.swapEntities,
     blockMaterialSwaps: () => mirror.swapBlocks,
+    blockCutaways: () => mirror.cutaway,
     // The look overrides (ctx.look).
     entityLooks: () => mirror.looks,
     animatorPoses: (): ReadonlyMap<string, AnimatorPose> => mirror.poses,

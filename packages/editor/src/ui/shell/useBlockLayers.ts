@@ -180,7 +180,7 @@ export function useBlockLayers(deps: BlockLayersDeps) {
     const blockLayers = c.getBlockLayers();
     if (blockLayers.size > 0 || c.getBlockRevision() > 0) {
       const byId = new Map(c.projection.listEntities().map((e) => [e.id, e]));
-      const layers = new Map([...blockLayers].filter(([id]) => byId.has(id)).map(([id, l]) => [id, { component: l.component, chunks: l.chunks, origin: byId.get(id)!.position }]));
+      const layers = new Map([...blockLayers].filter(([id]) => byId.has(id)).map(([id, l]) => [id, { component: l.component, chunks: l.chunks, origin: byId.get(id)!.position, regions: l.regions }]));
       // An inactive layer object is not drawn.
       const flags = effectiveFlagsOf(c.projection.listEntities());
       for (const [id, l] of layers) (l as { hidden?: boolean }).hidden = flags.get(id)?.active === false;

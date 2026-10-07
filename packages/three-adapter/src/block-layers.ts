@@ -64,6 +64,7 @@ import {
 } from '@thirdlight/runtime';
 
 import { keepMetreUv, syncCellUv } from './block-cell-uv';
+import { CUTAWAY_COPY_KEY, CutawayDrawing, splitByCutaway, type CutawayDiagnostics } from './block-cutaway-view';
 import { chunkModelKey, meshChunkForDrawing, StandInShapes, variantModelOf, type ChunkLooks, type ChunkMeshResult, type ChunkModelRef } from './block-chunk-mesh';
 import { MeshWorkerPool, meshWorkerCount, type MeshWorkerFactory } from './block-mesh-pool';
 import type { MeshWorkerReply } from './block-mesh-worker';
@@ -135,6 +136,8 @@ export interface BlockLayerViewDeps {
   cores?: number;
   /** The clock a stalled worker is measured on (ms; default `performance.now`; tests). */
   now?: () => number;
+  /** Compile an object's pipelines in the background (a cut-away's fade copy, before its first fade). */
+  precompile?(object: THREE.Object3D): void;
 }
 
 /** A chunk's lightmap target: its meshes with UV1 and the layout they follow. */
@@ -200,6 +203,8 @@ export interface BlockLayerViewDiagnostics {
     /** The slowest layer's measured time to mesh one chunk (ms; -1 before any). */
     chunkMs: number;
   };
+  /** The layers' cut-away zones (absent: no layer has any). */
+  cutaway?: CutawayDiagnostics;
 }
 
 /**
@@ -311,12 +316,12 @@ function mergeMeshes(meshes: readonly THREE.Mesh[], inv: THREE.Matrix4, material
 /** Marks a chunk mesh of a coarser level of detail (its level): bakes, picks and counts use the detailed ones. */
 const COARSE_LEVEL = 'tlBlockLodLevel';
 
-/** A chunk's meshes at full detail (the always-drawn ones and its detailed level). */
+/** A chunk's meshes at full detail (the always-drawn ones and its detailed level; not a cut-away's fading copies). */
 function detailedMeshes(group: THREE.Object3D): THREE.Mesh[] {
   const out: THREE.Mesh[] = [];
   group.traverse((o) => {
     const m = o as THREE.Mesh;
-    if (m.isMesh === true && m.userData[COARSE_LEVEL] === undefined) out.push(m);
+    if (m.isMesh === true && m.userData[COARSE_LEVEL] === undefined && m.userData[CUTAWAY_COPY_KEY] !== true) out.push(m);
   });
   return out;
 }
@@ -348,6 +353,8 @@ export class BlockLayerView {
   /** `flush`: every changed chunk meshes on the page this update, the workers told to drop theirs. */
   private meshAllHere = false;
   private serials = 0;
+  /** The layers' cut-away zones: which chunk meshes they hold and how far each is faded. */
+  private readonly cut: CutawayDrawing;
   private readonly stats = { meshedHere: 0, meshedInWorkers: 0, lastUpdate: { here: 0, applied: 0, ms: 0 }, longestUpdateMs: 0 };
   private disposed = false;
 
@@ -355,6 +362,7 @@ export class BlockLayerView {
     this.deps = deps;
     this.root.name = 'block-layers';
     this.poolUnavailable = deps.meshWorkers === undefined;
+    this.cut = new CutawayDrawing(deps.precompile !== undefined ? { precompile: (o) => deps.precompile!(o) } : {});
   }
 
   /** The block types (every chunk re-meshes when they change). */
@@ -388,6 +396,8 @@ export class BlockLayerView {
     }
     layer.group.position.set(origin[0] ?? 0, origin[1] ?? 0, origin[2] ?? 0);
     layer.group.updateMatrixWorld(true);
+    // Its cut-away zones (the chunks are split by them when they are meshed again, below).
+    this.cut.setLayer(entityId, component, layer.grid.regions, origin);
     for (const ck of layer.grid.chunkKeys()) layer.dirty.add(ck);
     for (const ck of layer.chunks.keys()) layer.dirty.add(ck);
     if (component.metadataOnly !== true && this.startPool()) this.pool!.broadcast({ t: 'layer', entityId, serial: layer.serial, component, data });
@@ -403,6 +413,7 @@ export class BlockLayerView {
     for (const chunk of layer.chunks.values()) this.deps.place?.(chunk, false);
     g.set(origin[0] ?? 0, origin[1] ?? 0, origin[2] ?? 0);
     layer.group.updateMatrixWorld(true);
+    this.cut.setOrigin(entityId, origin);
     if (!layer.hidden) for (const chunk of layer.chunks.values()) this.deps.place?.(chunk, true);
   }
 
@@ -455,6 +466,7 @@ export class BlockLayerView {
     const layer = this.layers.get(entityId);
     if (layer === undefined) return;
     for (const [ck, g] of layer.chunks) this.dropChunk(entityId, layer, ck, g);
+    this.cut.removeLayer(entityId);
     layer.group.removeFromParent();
     this.layers.delete(entityId);
     this.pool?.broadcast({ t: 'drop', entityId });
@@ -545,7 +557,32 @@ export class BlockLayerView {
     }
     const round = (v: number): number => Math.round(v * 100) / 100;
     const meshing = { workers: this.pool?.size ?? 0, queued, meshedHere: this.stats.meshedHere, meshedInWorkers: this.stats.meshedInWorkers, lastUpdate: { ...this.stats.lastUpdate, ms: round(this.stats.lastUpdate.ms) }, longestUpdateMs: round(this.stats.longestUpdateMs), chunkMs: chunkMs < 0 ? -1 : round(chunkMs) };
-    return { layers: this.layers.size, chunks, meshes, triangles, ...(lodChunks > 0 ? { lods: { chunks: lodChunks, shown } } : {}), meshing };
+    const cutaway = this.cut.diagnostics();
+    return { layers: this.layers.size, chunks, meshes, triangles, ...(lodChunks > 0 ? { lods: { chunks: lodChunks, shown } } : {}), meshing, ...(cutaway !== null ? { cutaway } : {}) };
+  }
+
+  /** Whether any layer has cut-away zones (the host finds the subject only then). */
+  hasCutaways(): boolean {
+    return this.cut.any();
+  }
+
+  /**
+   * Force a layer's cut-away zone hidden or shown, or give it back to the
+   * subject (null) — the host's own forcing (an editor's preview), over the
+   * game's. False: no such zone.
+   */
+  setCutaway(entityId: string, zone: string, cut: boolean | null): boolean {
+    return this.cut.force(entityId, zone, cut);
+  }
+
+  /** The zones the game's scripts force (the runtime's whole list). */
+  setGameCutaways(forced: readonly (readonly [string, string, boolean])[]): void {
+    this.cut.setGameForced(forced);
+  }
+
+  /** Follow the subject (a world point; null: none) for `dt` seconds; whether a zone is still fading (draw again). */
+  updateCutaways(dt: number, subject: THREE.Vector3 | null): boolean {
+    return this.cut.update(dt, subject);
   }
 
   /**
@@ -577,7 +614,7 @@ export class BlockLayerView {
       const [cx, cz] = ck.split(',').map(Number) as [number, number];
       const meshes = detailedMeshes(g).filter((m) => m.geometry.getAttribute('uv1') !== undefined);
       const coarse: THREE.Mesh[] = [];
-      g.traverse((o) => ((o as THREE.Mesh).isMesh === true && o.userData[COARSE_LEVEL] !== undefined ? coarse.push(o as THREE.Mesh) : undefined));
+      g.traverse((o) => ((o as THREE.Mesh).isMesh === true && o.userData[COARSE_LEVEL] !== undefined && o.userData[CUTAWAY_COPY_KEY] !== true ? coarse.push(o as THREE.Mesh) : undefined));
       out.push({ cx, cz, layout: lm.layout, area: lm.area, side: lm.side, meshes, coarse });
     }
     return out;
@@ -605,6 +642,7 @@ export class BlockLayerView {
     this.pool = null;
     this.results.length = 0;
     for (const id of [...this.layers.keys()]) this.removeLayer(id);
+    this.cut.dispose();
     for (const m of this.colorMaterials.values()) m.dispose();
     this.colorMaterials.clear();
     this.root.removeFromParent();
@@ -809,16 +847,45 @@ export class BlockLayerView {
     }
     const group = new THREE.Group();
     group.name = `block-chunk:${entityId}:${ck}`;
-    const build = (p: ChunkMeshPart, level: number): THREE.Mesh | null => {
+    const zones = this.cut.zonesOf(entityId);
+    const cutMeshes: { mesh: THREE.Mesh; zones: readonly number[] }[] = [];
+    /** A part's meshes: one, or (a layer with cut-away zones) the triangles in no zone and one per set of zones they lie in. */
+    const build = (p: ChunkMeshPart, level: number): THREE.Mesh[] => {
       const look = looks.get(p.key.slice(0, p.key.lastIndexOf('#')));
-      if (look === undefined) return null;
+      if (look === undefined) return [];
+      const split = splitByCutaway(p.positions, p.indices, zones, layer.grid.cellSize);
+      if (split === null) {
+        const m = buildMesh(p, look, level, p.indices);
+        return m === null ? [] : [m];
+      }
+      // The pieces share the part's vertex buffers (a stand-in's UVs in cells are made per index, so those are its own).
+      const out: THREE.Mesh[] = [];
+      const shared = new Map<string, THREE.BufferAttribute>();
+      const base = split.base.length > 0 ? buildMesh(p, look, level, split.base, shared) : null;
+      if (base !== null) out.push(base);
+      for (const c of split.cut) {
+        const m = buildMesh(p, look, level, c.indices, shared);
+        if (m === null) continue;
+        out.push(m);
+        cutMeshes.push({ mesh: m, zones: c.zones });
+      }
+      return out;
+    };
+    const buildMesh = (p: ChunkMeshPart, look: { materials: readonly THREE.Material[]; type: BlockType; assetId: string | null; color: string | null }, level: number, indices: Uint32Array, shared?: Map<string, THREE.BufferAttribute>): THREE.Mesh | null => {
+      const attr = (name: string, array: Float32Array | Uint8Array, size: number, normalized = false, own = false): THREE.BufferAttribute => {
+        if (shared === undefined || own) return new THREE.BufferAttribute(own ? array.slice() : array, size, normalized);
+        let a = shared.get(name);
+        if (a === undefined) shared.set(name, (a = new THREE.BufferAttribute(array, size, normalized)));
+        return a;
+      };
       const geometry = new THREE.BufferGeometry();
-      geometry.setAttribute('position', new THREE.BufferAttribute(p.positions, 3));
-      geometry.setAttribute('normal', new THREE.BufferAttribute(p.normals, 3));
-      geometry.setAttribute('uv', new THREE.BufferAttribute(p.uvs, 2));
-      if (p.tangents !== undefined) geometry.setAttribute('tangent', new THREE.BufferAttribute(p.tangents, 4));
-      if (p.uv1 !== undefined) geometry.setAttribute('uv1', new THREE.BufferAttribute(p.uv1, 2));
-      geometry.setIndex(new THREE.BufferAttribute(p.indices, 1));
+      geometry.setAttribute('position', attr('position', p.positions, 3));
+      geometry.setAttribute('normal', attr('normal', p.normals, 3));
+      const cellUv = look.assetId === null && look.type.materials !== undefined && Object.keys(look.type.materials).length > 0;
+      geometry.setAttribute('uv', attr('uv', p.uvs, 2, false, cellUv));
+      if (p.tangents !== undefined) geometry.setAttribute('tangent', attr('tangent', p.tangents, 4));
+      if (p.uv1 !== undefined) geometry.setAttribute('uv1', attr('uv1', p.uv1, 2));
+      geometry.setIndex(new THREE.BufferAttribute(indices, 1));
       geometry.computeBoundingSphere();
       geometry.computeBoundingBox();
       const material = look.color !== null ? this.colorMaterial(look.color) : (look.materials[p.material] ?? look.materials[0] ?? this.colorMaterial('#b0b0b0'));
@@ -841,17 +908,17 @@ export class BlockLayerView {
       }
       // A painted layer's paint (made with the meshing); a material that tints by vertex colours would be tinted by it: its chunks keep none.
       if (p.weights !== undefined && p.wetness !== undefined && (m.material as THREE.Material & { vertexColors?: boolean }).vertexColors !== true) {
-        geometry.setAttribute('color', new THREE.BufferAttribute(p.weights, 4, true));
-        geometry.setAttribute('color_1', new THREE.BufferAttribute(p.wetness, 4, true));
+        geometry.setAttribute('color', attr('color', p.weights, 4, true));
+        geometry.setAttribute('color_1', attr('color_1', p.wetness, 4, true));
       }
       return m;
     };
     const detailed = new THREE.Group();
     for (const p of parts) {
-      const m = build(p, 0);
-      if (m === null) continue;
-      if (coarse.length > 0 && p.key.startsWith('m:')) detailed.add(m);
-      else group.add(m);
+      for (const m of build(p, 0)) {
+        if (coarse.length > 0 && p.key.startsWith('m:')) detailed.add(m);
+        else group.add(m);
+      }
     }
     if (coarse.length > 0 && detailed.children.length > 0) {
       // One THREE.LOD at the centre of the chunk's model geometry; each level's meshes offset back by it.
@@ -871,10 +938,7 @@ export class BlockLayerView {
       lod.addLevel(level(detailed), 0);
       coarse.forEach((c, i) => {
         const g = new THREE.Group();
-        for (const p of c.parts) {
-          const m = build(p, i + 1);
-          if (m !== null) g.add(m);
-        }
+        for (const p of c.parts) for (const m of build(p, i + 1)) g.add(m);
         lod.addLevel(level(g), c.distance + radius);
       });
       lod.matrixAutoUpdate = false;
@@ -891,9 +955,12 @@ export class BlockLayerView {
       layer.lightmapLayouts.set(ck, lightmap);
       this.deps.chunkBuilt?.(entityId, cx, cz, group, lightmap.layout);
     }
+    // Last: they take their zones' fade, and a fade variant of the material they wear now (lightmap included).
+    this.cut.register(entityId, ck, cutMeshes);
   }
 
   private dropChunk(entityId: string, layer: LayerState, ck: string, group: THREE.Group): void {
+    this.cut.drop(entityId, ck);
     if (layer.lightmapLayouts.delete(ck)) {
       const [cx, cz] = ck.split(',').map(Number) as [number, number];
       this.deps.chunkDropped?.(entityId, cx, cz);

@@ -47,7 +47,7 @@ import {
   type SceneAdapter,
 } from '@thirdlight/three-adapter';
 import { createGltfLoaderPort } from '@thirdlight/three-adapter/gltf-loader';
-import type { BlockChunk, BlockLayerComponent, BlockType, InstanceBrush, InstanceStroke } from '@thirdlight/project-model';
+import type { BlockChunk, BlockLayerComponent, BlockRegion, BlockType, InstanceBrush, InstanceStroke } from '@thirdlight/project-model';
 import * as THREE from 'three';
 import { AMBIENT_OCCLUSION_DEFAULT, VIEW_LENS_DEFAULTS, type EnvironmentBlendView } from '@thirdlight/runtime';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
@@ -443,7 +443,7 @@ export class Viewport {
    * and block types; `revision` changes whenever cells, layers or types do.
    * They are drawn by the adapter's block view (the same merged chunk meshes Play and exports draw).
    */
-  setBlockLayers(types: readonly BlockType[], layers: ReadonlyMap<string, { component: BlockLayerComponent; chunks: ReadonlyMap<string, BlockChunk>; origin: readonly number[]; hidden?: boolean }>, revision: number): void {
+  setBlockLayers(types: readonly BlockType[], layers: ReadonlyMap<string, { component: BlockLayerComponent; chunks: ReadonlyMap<string, BlockChunk>; origin: readonly number[]; regions?: readonly BlockRegion[]; hidden?: boolean }>, revision: number): void {
     this.blockInput = { types, layers, revision };
     const view = this.adapter.blockLayers?.();
     if (view === undefined) return;
@@ -459,9 +459,10 @@ export class Viewport {
       for (const [id, l] of layers) {
         // Only the chunks whose stored object changed are handed over (an edit re-meshes
         // the chunks it touched, not the layer; a previewed stroke's chunks then compare equal).
-        const key = JSON.stringify(l.component);
+        // A layer with cut-aways is split by its regions: a region edit meshes it again.
+        const key = JSON.stringify(l.component) + (l.component.cutaway !== undefined ? JSON.stringify(l.regions ?? []) : '');
         const prev = this.blockApplied.get(id);
-        if (prev === undefined || prev.component !== key || !view.hasLayer(id)) view.setLayer(id, l.component, l.origin, { entityId: id, chunks: [...l.chunks.values()] });
+        if (prev === undefined || prev.component !== key || !view.hasLayer(id)) view.setLayer(id, l.component, l.origin, { entityId: id, chunks: [...l.chunks.values()], ...(l.regions !== undefined && l.regions.length > 0 ? { regions: l.regions.map((r) => ({ regionId: r.regionId, boxes: r.boxes.map((b) => [...b]) })) } : {}) });
         else {
           const changed: { cx: number; cz: number; chunk: BlockChunk | null }[] = [];
           for (const [k, c] of l.chunks) if (prev.chunks.get(k) !== c) changed.push({ cx: c.cx, cz: c.cz, chunk: c });

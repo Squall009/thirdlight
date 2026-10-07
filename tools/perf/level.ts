@@ -33,6 +33,13 @@
  * face from the ground, and the tops around it, so the chunks carry paint
  * colours and the cut walls.
  *
+ * Either class can roof its rooms (`--roofs`: a rock slab one row thick on
+ * each room's walls, a region per roof; none by default, as recorded), and
+ * make the roofs cut-aways (`--cutaway`): the layer lists the roof regions and
+ * a script forces every odd roof cut and swaps the even ones between cut and
+ * drawn every two seconds, so the measurement holds cut roofs, drawn roofs and
+ * fades (`--roofs` alone is the same roofs never cut).
+ *
  * Both classes share the camera (at the area's edge, looking across it to the
  * horizon) and the environment, so the landscape's extra cost is the far part.
  * `levelPlan` is a pure function of the kind and the seed; `buildLevel`
@@ -135,7 +142,30 @@ export interface LevelPlan {
   edgeWalls: boolean;
   /** The layer has wall paint, and the rooms' front walls are painted. */
   wallPaint: boolean;
+  /** The rooms' roofs: none, roofs, or roofs that are cut-aways driven by a script. */
+  roofs: LevelRoofs;
 }
+
+export type LevelRoofs = 'none' | 'roofs' | 'cutaway';
+
+/** The roofs' script: every odd roof cut, the even ones swapped between cut and drawn every 240 steps (2 s). */
+const CUTAWAY_BEHAVIOR = (rooms: number): BehaviorPlan => ({
+  behaviorId: 'level-cutaway',
+  displayName: 'Level cut-aways',
+  ownedTransforms: [],
+  declaration: { properties: [] },
+  source: [
+    'export default {',
+    '  instantiate() { return {}; },',
+    '  step(state: any, ctx: any) {',
+    "    if (ctx.phase !== 'intent' || ctx.stepIndex % 240 !== 1) return;",
+    '    const layer = ctx.grid.layers()[0];',
+    '    const even = Math.floor(ctx.stepIndex / 240) % 2 === 0;',
+    `    for (let i = 0; i < ${rooms}; i += 1) ctx.grid.setCutaway(layer, \`roof-\${i}\`, i % 2 === 1 ? true : even);`,
+    '  },',
+    '};',
+  ].join('\n'),
+});
 
 /** The live door's script: it finds its cell once, then reads the cell's `open` field every step. */
 const DOOR_BEHAVIOR: BehaviorPlan = {
@@ -168,7 +198,7 @@ function copies(n: number, at: (i: number) => { x: number; y: number; z: number;
   return f;
 }
 
-export function levelPlan(kind: LevelKind, seed = LEVEL_SEED, liveDoorCount = 0, edgeWalls = false, wallPaint = false): LevelPlan {
+export function levelPlan(kind: LevelKind, seed = LEVEL_SEED, liveDoorCount = 0, edgeWalls = false, wallPaint = false, roofs: LevelRoofs = 'none'): LevelPlan {
   const S = LEVEL_SPEC;
   const N = S.areaSide;
   const rnd = prng(seed * 104729 + N);
@@ -250,6 +280,14 @@ export function levelPlan(kind: LevelKind, seed = LEVEL_SEED, liveDoorCount = 0,
     counts.rooms! += 1;
   }
   blockEdits.push(...walls);
+  if (roofs !== 'none') {
+    // A rock slab on each room's walls (the outline included), and its region.
+    rooms.forEach((r, i) => {
+      const box = [r.box[0], r.top, r.box[1], r.box[2], r.top + 1, r.box[3]];
+      blockEdits.push({ kind: 'fill', box, cell: { block: 'rock' } }, { kind: 'region', regionId: `roof-${i}`, op: 'set', boxes: [box] });
+    });
+    counts.roofs = rooms.length;
+  }
   if (wallPaint) {
     // Each room's front (z0) wall: layer 3 and wetness up its face from the ground at both ends of the door, and the tops before it.
     for (const r of rooms) {
@@ -358,11 +396,11 @@ export function levelPlan(kind: LevelKind, seed = LEVEL_SEED, liveDoorCount = 0,
 
   const batches: EntityValue[][] = [];
   for (let i = 0; i < entities.length; i += PASTE_MAX) batches.push(entities.slice(i, i + PASTE_MAX));
-  const layer: EntityValue = { id: 'ground', name: 'Ground', components: { transform: T(-half, 0, -half), blockLayer: { cellSize: [1, S.cellHeight, 1], bounds: { min: [0, 0, 0], max: [N, 32, N] }, maxSlope: 60, smoothAngle: 40, topSubdivision: 2, ...(wallPaint ? { wallPaint: true } : {}) } } };
+  const layer: EntityValue = { id: 'ground', name: 'Ground', components: { transform: T(-half, 0, -half), blockLayer: { cellSize: [1, S.cellHeight, 1], bounds: { min: [0, 0, 0], max: [N, 32, N] }, maxSlope: 60, smoothAngle: 40, topSubdivision: 2, ...(wallPaint ? { wallPaint: true } : {}), ...(roofs === 'cutaway' ? { cutaway: { regions: rooms.map((_, i) => ({ region: `roof-${i}` })) } } : {}) } } };
   // At the area's south edge, 8 m over its ground, looking north across it to the horizon.
   const pitch = -0.12;
   const camera: LevelPlan['camera'] = { position: [0, r3(groundY(half, N - 2) + 8), half - 2], rotation: [r6(Math.sin(pitch / 2)), 0, 0, r6(Math.cos(pitch / 2))] };
-  return { kind, version: LEVEL_VERSION, seed, props, buffers, layer, batches, blockEdits, rooms, camera, counts, liveDoors, edgeWalls, wallPaint };
+  return { kind, version: LEVEL_VERSION, seed, props, buffers, layer, batches, blockEdits, rooms, camera, counts, liveDoors, edgeWalls, wallPaint, roofs };
 }
 
 /**
@@ -477,6 +515,13 @@ export async function buildLevel(be: PerfBackend, projectId: string, plan: Level
     await cmd('setBlockType', { block: { blockId: 'door', name: 'Door', variants: [{ prefab: 'level-door' }], shape: 'none', live: true } });
     const doors = plan.liveDoors.map(([x, y, z]) => ({ kind: 'fill', box: [x, y, z, x + 1, y + 1, z + 1], cell: { block: 'door' } }));
     for (let i = 0; i < doors.length; i += 256) await cmd('editBlocks', { entityId: layerId, edits: doors.slice(i, i + 256) });
+  }
+
+  if (plan.roofs === 'cutaway') {
+    const behavior = CUTAWAY_BEHAVIOR(plan.rooms.length);
+    await publishBehaviorVia(be, p, cmd, behavior);
+    const driver = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Cut-away driver', transform: { position: [0, 0, 0] } }))['createdId']);
+    await cmd('setBehaviorProperties', { entityId: driver, behaviorId: behavior.behaviorId, values: {} });
   }
 
   const digests = new Map<string, string>();

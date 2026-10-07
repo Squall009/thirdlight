@@ -22,7 +22,8 @@
  * take both); deleting the prop clears the cells and undo restores them; a prop
  * under a moved group snaps and writes its footprint where it stands in the
  * world. The Inspector edits the layer's cell size with x and z as one value
- * (cells are square from above); a command with x ≠ z is refused. Every result is read back from the backend
+ * (cells are square from above); a command with x ≠ z is refused. A region marked cut away in the Blocks panel
+ * is hidden in the Scene view while its preview is on (pixels). Every result is read back from the backend
  * (`queryBlocks`, `queryEntity`); the stroke latency is measured.
  */
 import { randomBytes } from 'node:crypto';
@@ -375,6 +376,28 @@ test('the Blocks panel paints, fills, picks, replaces, selects, stamps and paint
   await expect.poll(async () => countPixels(decodePng(await view(page).screenshot()), green), { timeout: 20_000, message: 'no grass pixels while the layer is hidden' }).toBeLessThan(20);
   await panel(page).getByRole('button', { name: 'hide layer' }).click();
   await expect.poll(async () => (await entity(layer)).active ?? true).toBe(true);
+
+  // ---- cut-away: a region over the painted rows, marked cut away in the Blocks panel (one setComponent); its preview
+  // fades those rows out of the Scene view, leaving the stone tops under them, and back in.
+  await cmd('editBlocks', { entityId: layer, edits: [{ kind: 'region', regionId: 'upper', op: 'set', boxes: [[0, 8, 0, 64, 16, 64]] }] });
+  const cutBox = panel(page).getByLabel('cut away upper', { exact: true });
+  await expect(cutBox).not.toBeChecked();
+  await cutBox.click();
+  await expect.poll(async () => ((await entity(layer)).components.blockLayer as { cutaway?: unknown } | undefined)?.cutaway).toEqual({ regions: [{ region: 'upper' }] });
+  await expect(cutBox).toBeChecked();
+  const previewCut = panel(page).getByRole('button', { name: 'preview cut-away upper' });
+  // Grass (the brush's hover outline, still on the view, adds a few green pixels of its own).
+  const grass = (r: number, g: number, b: number): boolean => green(r, g, b) && b < r + 35;
+  await expect.poll(async () => countPixels(decodePng(await view(page).screenshot()), grass), { timeout: 20_000 }).toBeGreaterThan(200);
+  const grassShown = countPixels(decodePng(await view(page).screenshot()), grass);
+  await previewCut.click();
+  await expect(previewCut).toHaveAttribute('aria-pressed', 'true');
+  await expect.poll(async () => countPixels(decodePng(await view(page).screenshot()), grass), { timeout: 20_000, message: 'the grass rows cut away' }).toBeLessThan(grassShown / 5);
+  await expect.poll(async () => JSON.parse((await view(page).getAttribute('data-block-layers')) ?? '{}').cutaway, { timeout: 20_000 }).toEqual(expect.objectContaining({ zones: 1, cut: 1, fading: 0 }));
+  await previewCut.click();
+  await expect.poll(async () => countPixels(decodePng(await view(page).screenshot()), grass), { timeout: 20_000, message: 'the grass back after the preview' }).toBeGreaterThan(200);
+  await cutBox.click();
+  await expect.poll(async () => ((await entity(layer)).components.blockLayer as { cutaway?: unknown } | undefined)?.cutaway).toBeUndefined();
 
   // ---- snapping settings: a 1 m move step moves an object in whole metres.
   await projectWindow(page);

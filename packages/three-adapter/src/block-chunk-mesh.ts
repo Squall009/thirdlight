@@ -13,6 +13,8 @@
  */
 import {
   blockTopOptions,
+  cutawaySeams,
+  cutawayZones,
   blockVariantUv,
   chunkLightmapLayout,
   chunkMeshPaint,
@@ -103,7 +105,9 @@ export function meshChunkForDrawing(grid: BlockGrid, component: BlockLayerCompon
   const { cx, cz } = req;
   const used = new Map<string, ChunkLookUse & { levels: ChunkModelGeometry['levels'] }>();
   const missing = new Map<string, ChunkModelRef>();
-  const tops = blockTopOptions(component);
+  // A layer with cut-aways keeps the faces between a zone's cells and the rest (the wall's top under a cut roof).
+  const seams = component.cutaway !== undefined ? cutawaySeams(cutawayZones(component, grid.regions)) : undefined;
+  const tops = { ...blockTopOptions(component), ...(seams !== undefined ? { seams } : {}) };
   /** The chunk meshed at one level of detail: model looks at that level (or their last), stand-ins as they are. */
   const mesh = (level: number): ChunkMeshPart[] =>
     meshBlockChunk(grid, cx, cz, types, {

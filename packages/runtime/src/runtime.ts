@@ -18,7 +18,7 @@
  *   guard, transform-ownership validation, the settle pre-roll, per-step
  *   action sampling and fail-stop with no rollback.
  */
-import { RuntimeGrid, type GridRenderChange } from './grid';
+import { RuntimeGrid, type GridCutawayState, type GridRenderChange } from './grid';
 import { fail, isPhysicsPort, isPlainObject, parseConfig, PHYSICS_PORT_REASON } from './runtime-config';
 import { RuntimeMaterials, type MaterialRenderChange, type RuntimeMaterialCatalog } from './material-params';
 import { MAX_FRAME_ASSET_ANSWERS, RuntimeAssetHandles, validateAssetAnswers, type AssetHandleAnswer, type AssetHandleRequest } from './asset-handles';
@@ -1707,6 +1707,11 @@ class RuntimeInstance implements Runtime {
     return this.grid.typeMaterialSwaps();
   }
 
+  /** What scripts set for the block layers' cut-aways (`ctx.grid.setCutaway`, …); the renderer decides what is cut. */
+  blockCutaways(): GridCutawayState {
+    return this.grid.cutawayState();
+  }
+
   /** The light values scripts wrote (`ctx.entity(id).set('light', …)`), by object; the renderer applies them. */
   lightOverrides(): ReadonlyMap<string, LightOverride> {
     return this.entityAccess.lightOverrides();
@@ -1847,9 +1852,7 @@ class RuntimeInstance implements Runtime {
   }
 
   stop(): { ok: true } | { ok: false; error: RuntimeError } {
-    if (this.stateName === 'disposed') {
-      return { ok: false, error: fail('runtime_disposed', 'runtime is disposed') };
-    }
+    if (this.stateName === 'disposed') return { ok: false, error: fail('runtime_disposed', 'runtime is disposed') };
     if (this.stateName === 'failed') {
       // stop() from `failed` returns { ok: true } (no driver).
       return { ok: true };
@@ -1868,9 +1871,7 @@ class RuntimeInstance implements Runtime {
   }
 
   tick(nowSeconds: number): { ok: true } | { ok: false; error: RuntimeError } {
-    if (this.stateName === 'disposed') {
-      return { ok: false, error: fail('runtime_disposed', 'runtime is disposed') };
-    }
+    if (this.stateName === 'disposed') return { ok: false, error: fail('runtime_disposed', 'runtime is disposed') };
     if (this.driverKind === 'raf') {
       return {
         ok: false,
@@ -1907,9 +1908,7 @@ class RuntimeInstance implements Runtime {
   }
 
   getInterpolatedState(): { ok: true; state: InterpolatedState } | { ok: false; error: RuntimeError } {
-    if (this.stateName === 'disposed') {
-      return { ok: false, error: fail('runtime_disposed', 'runtime is disposed') };
-    }
+    if (this.stateName === 'disposed') return { ok: false, error: fail('runtime_disposed', 'runtime is disposed') };
     const s = this.drawnSteps();
     return { ok: true, state: { stepIndex: this.stepIndex, simTime: this.simTime, alpha: s.alpha, transforms: this.stepReads.transforms(s) } };
   }

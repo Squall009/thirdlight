@@ -26,6 +26,7 @@ import * as THREE from 'three';
 import { blendLight, lightImportanceOf, type EnvironmentBlendView, type EnvironmentLightValues, type ResourceManager } from '@thirdlight/runtime';
 
 import { CachedShadowNode, snapToLightGrid, type CachedShadowCounts } from './cached-shadow';
+import { shadowSeesCutaways } from './block-cutaway-view';
 import { decideShadows, deriveShadowCamera, directionalShadowSettings, planSceneLights, SHADOW_PROFILE, type AuthoredLight, type ShadowOutcome, type ShadowPlan, type ShadowReason, type ShadowRegion } from './lighting';
 import { selectSceneLights, type SceneLightEntry, type SceneLightKind, type SceneLightSelection } from './scene-lights';
 import type { StaticShadowRevision } from './shadow-casters';
@@ -307,6 +308,8 @@ export function createSceneLights(o: SceneLightsOptions): SceneLights {
       light.shadow.camera.near = plan.camera.near;
       light.shadow.camera.far = plan.camera.far;
       light.shadow.camera.updateProjectionMatrix();
+      // What a block layer cuts away from the view still casts.
+      shadowSeesCutaways(light.shadow.camera);
       if (o.staticShadows !== null) {
         cached = new CachedShadowNode(light, o.staticShadows, { mapSize: settings.mapSize, halfExtent: plan.halfExtent, near: plan.camera.near, far: plan.camera.far, distance: SHADOW_PROFILE.distance, bias: settings.bias, normalBias: settings.normalBias });
         (light.shadow as { shadowNode?: unknown }).shadowNode = cached;

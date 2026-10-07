@@ -25,7 +25,7 @@ import { useEffect, useMemo, useState, type JSX } from 'react';
 import type { TileThumbnails } from '../viewport/thumbnails';
 import { useTileUrl } from './assets/TileImage';
 import { useAssetSummaries } from './catalog/catalog-context';
-import type { BlockCell, BlockEdit, BlockLayerComponent, BlockRegion, BlockStamp, BlockType, CellField, CellMetaValue, DescriptorRegistry, ObjectFieldDescriptor, PaintTarget } from '@thirdlight/project-model';
+import type { BlockCell, BlockCutaway, BlockEdit, BlockLayerComponent, BlockRegion, BlockStamp, BlockType, CellField, CellMetaValue, DescriptorRegistry, ObjectFieldDescriptor, PaintTarget } from '@thirdlight/project-model';
 import { BRUSH_FALLOFFS, PAINT_BRUSH_LIMITS, SCULPT_LIMITS, type BrushFalloff } from '@thirdlight/runtime';
 import { ObjectFields, type FieldContext } from './DescriptorFields';
 import { componentPatch } from '../session/descriptor-fields';
@@ -154,6 +154,30 @@ export function BlocksPanel(p: Props): JSX.Element {
   const [error, setError] = useState<string | null>(null);
 
   const layer = p.layers.find((l) => l.entityId === layerId) ?? null;
+  /** Cut-away regions previewed hidden in the Scene view (`<layer> NUL <region>`). */
+  const [cutPreview, setCutPreview] = useState<ReadonlySet<string>>(new Set());
+  const previewKey = (entityId: string, regionId: string): string => `${entityId}\u0000${regionId}`;
+  const previewCut = (entityId: string, regionId: string, on: boolean): void => {
+    p.editor?.previewCutaway(entityId, regionId, on);
+    setCutPreview((prev) => {
+      const next = new Set(prev);
+      if (on) next.add(previewKey(entityId, regionId));
+      else next.delete(previewKey(entityId, regionId));
+      return next;
+    });
+  };
+  /** Mark a region cut away in the game (or not): the layer's `cutaway.regions`, one setComponent. */
+  const setCutaway = (l: BlockLayerRow, regionId: string, on: boolean): void => {
+    const c = l.component.cutaway ?? {};
+    const regions = (c.regions ?? []).filter((x) => x.region !== regionId);
+    if (on) regions.push({ region: regionId });
+    const cutaway: BlockCutaway = { ...c, regions };
+    if (regions.length === 0) delete cutaway.regions;
+    // A component's fields are set one by one: an empty cut-away is stored as none.
+    const component: BlockLayerComponent = { ...l.component, cutaway };
+    if (!on && cutPreview.has(previewKey(l.entityId, regionId))) previewCut(l.entityId, regionId, false);
+    void p.run(on ? 'Cut away region' : 'Stop cutting region away', 'setComponent', { entityId: l.entityId, component: 'blockLayer', value: component });
+  };
   const typeOf = useMemo(() => new Map(p.types.map((t) => [t.blockId, t])), [p.types]);
   const field = p.fields.find((f) => f.key === metaField) ?? null;
 
@@ -675,6 +699,20 @@ export function BlocksPanel(p: Props): JSX.Element {
                 ) : (
                   <button className="tl-blocks__name" aria-label={`region ${r.regionId}`} onClick={() => { setRegion(r.regionId); place('region'); }} onDoubleClick={() => setRenameDraft({ id: r.regionId, to: r.regionId })} title="Paint it with the Region tool; double-click to rename">
                     {r.regionId} <small>{r.boxes.length} box{r.boxes.length === 1 ? '' : 'es'}</small>
+                  </button>
+                )}
+                <label title="Cut away: in the game its cells are hidden (with a fade) while the camera's target stands under it — the roof over a room. The layer's Cut-away settings (Inspector) can hide it while the target is inside another region instead, and set the fade.">
+                  <input type="checkbox" aria-label={`cut away ${r.regionId}`} checked={layer?.component.cutaway?.regions?.some((x) => x.region === r.regionId) === true} onChange={(e) => layer !== null && setCutaway(layer, r.regionId, e.target.checked)} /> Cut
+                </label>
+                {layer !== null && layer.component.cutaway?.regions?.some((x) => x.region === r.regionId) === true && (
+                  <button
+                    className="tl-btn tl-btn--small"
+                    aria-label={`preview cut-away ${r.regionId}`}
+                    aria-pressed={cutPreview.has(previewKey(layer.entityId, r.regionId))}
+                    title="Show the Scene view as the game does while this region is cut away"
+                    onClick={() => previewCut(layer.entityId, r.regionId, !cutPreview.has(previewKey(layer.entityId, r.regionId)))}
+                  >
+                    Preview
                   </button>
                 )}
                 <button className="tl-btn tl-btn--small" aria-label={`rename ${r.regionId}`} onClick={() => setRenameDraft({ id: r.regionId, to: r.regionId })}>

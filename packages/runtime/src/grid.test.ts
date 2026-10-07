@@ -278,3 +278,52 @@ describe('sloped terrain in ctx.grid', () => {
   });
 });
 
+
+describe('ctx.grid cut-aways', () => {
+  const withCutaway = (id: string): EntityV3 => {
+    const e = layerEntity(id, [0, 0, 0]) as unknown as { components: { blockLayer: BlockLayerComponent } };
+    e.components.blockLayer = { ...e.components.blockLayer, cutaway: { regions: [{ region: 'roof' }], planes: [6] } };
+    return e as unknown as EntityV3;
+  };
+
+  it('scripts force a zone, name a subject, and the state is a new object only after a change', () => {
+    const grid = new RuntimeGrid(TYPES, FIELDS, true);
+    grid.addLayers([withCutaway('house')]);
+    const before = grid.cutawayState();
+    expect(before).toEqual({ subject: null, forced: [] });
+    expect(grid.api.setCutaway('house', 'roof', true)).toBe(true);
+    expect(grid.api.setCutaway('house', '#6', false)).toBe(true);
+    const forced = grid.cutawayState();
+    expect(forced).not.toBe(before);
+    expect(forced.forced).toEqual([['house', 'roof', true], ['house', '#6', false]]);
+    // The same write again changes nothing (the renderer is not told again).
+    expect(grid.api.setCutaway('house', 'roof', true)).toBe(true);
+    expect(grid.cutawayState()).toBe(forced);
+    expect(grid.api.setCutaway('house', 'roof', null)).toBe(true);
+    expect(grid.cutawayState().forced).toEqual([['house', '#6', false]]);
+    expect(grid.api.setCutawaySubject('player')).toBe(true);
+    expect(grid.cutawayState().subject).toBe('player');
+    expect(grid.api.setCutawayPoint([1, 2, 3])).toBe(true);
+    expect(grid.cutawayState().subject).toEqual([1, 2, 3]);
+    expect(grid.api.setCutawaySubject(null)).toBe(true);
+    expect(grid.cutawayState().subject).toBeNull();
+  });
+
+  it('refuses unknown layers and zones, and a new run forgets what scripts set', () => {
+    const grid = new RuntimeGrid(TYPES, FIELDS, true);
+    grid.addLayers([withCutaway('house'), layerEntity('plain', [0, 0, 0])]);
+    expect(grid.api.setCutaway('nowhere', 'roof', true)).toBe(false);
+    expect(grid.api.setCutaway('house', 'cellar', true)).toBe(false);
+    expect(grid.api.setCutaway('house', '#5', true)).toBe(false);
+    expect(grid.api.setCutaway('plain', 'roof', true)).toBe(false);
+    expect(grid.api.setCutawayPoint([1, Number.NaN, 3])).toBe(false);
+    grid.api.setCutaway('house', 'roof', true);
+    grid.api.setCutawaySubject('player');
+    grid.reset();
+    expect(grid.cutawayState()).toEqual({ subject: null, forced: [] });
+    // An unloaded layer's forced zones go with it.
+    grid.api.setCutaway('house', 'roof', true);
+    grid.removeLayers(new Set(['house']));
+    expect(grid.cutawayState().forced).toEqual([]);
+  });
+});

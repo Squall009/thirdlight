@@ -656,6 +656,12 @@ export interface BlockTopOptions {
   readonly topSubdivision?: number;
   /** Walls of world-mapped looks cut at the wall paint points (`block-wall-cut.ts`; a layer with `wallPaint`). */
   readonly wallSteps?: WallSteps;
+  /**
+   * A cell's seam group: a face between cells of different groups is kept
+   * even where the neighbour would hide it (a cut-away roof's cells and the
+   * wall under them: when the roof is cut the wall's top is there to see).
+   */
+  readonly seams?: (x: number, y: number, z: number) => number;
 }
 
 /** A layer component's top options. */
@@ -774,6 +780,7 @@ export function meshBlockChunk(grid: BlockGrid, cx: number, cz: number, types: R
   const cs = grid.cellSize;
   const subdivision = Math.max(1, Math.floor(options.topSubdivision ?? 1));
   const wallSteps = options.wallSteps;
+  const seams = options.seams;
   /** Cut wall vertices of the cell being emitted, by projection, place across and height: [plane, vertex] pairs (cleared per cell, as `remap` is). */
   const cutRemap = new Map<number, number[]>();
   const smoothAngle = options.smoothAngle ?? 0;
@@ -824,6 +831,7 @@ export function meshBlockChunk(grid: BlockGrid, cx: number, cz: number, types: R
         const o = SIDE_OFFSET[s]!;
         const nb = lookOf(x + o[0], y + o[1], z + o[2]);
         if (nb === null || !nb.single) continue;
+        if (seams !== undefined && seams(x, y, z) !== seams(x + o[0], y + o[1], z + o[2])) continue;
         // A solid neighbour covers a face only where the face stays inside the cell's side.
         if (nb.solid && sideInside(look.corners, s)) hidden[s] = true;
         else if (nb.classified !== null && nb.classified.profile[OPPOSITE[s]!] === look.classified.profile[s]) hidden[s] = true;

@@ -49,6 +49,8 @@ export class FrameEncoder {
   private lightsRef: unknown = null;
   /** The material swaps last sent ('': none). */
   private swapsKey = '';
+  /** The cut-away state last sent (the runtime hands out a new object only when it changes). */
+  private cutawaySent: unknown = null;
   /** The look overrides last sent ('': none). */
   private looksKey = '';
   private posesKey = '';
@@ -259,6 +261,12 @@ export class FrameEncoder {
         this.swapsKey = key;
         out.swaps = swaps;
       }
+    }
+    // What scripts set for the cut-aways (only when it changed).
+    const cutaway = rt.blockCutaways?.();
+    if (cutaway !== undefined && cutaway !== this.cutawaySent) {
+      if (this.cutawaySent !== null || cutaway.subject !== null || cutaway.forced.length > 0) out.cutaway = cutaway;
+      this.cutawaySent = cutaway;
     }
     // The look overrides (only when they changed; never for a game that set none).
     const looks = rt.entityLooks?.();
@@ -516,6 +524,8 @@ export class FrameMirror {
   /** The material swaps of objects and of block types. */
   swapEntities: ReadonlyMap<string, Readonly<Record<string, string>>> = new Map();
   swapBlocks: ReadonlyMap<string, Readonly<Record<string, string>>> = new Map();
+  /** What scripts set for the block layers' cut-aways. */
+  cutaway: import('@thirdlight/runtime').GridCutawayState = { subject: null, forced: [] };
   /** The look overrides. */
   looks: ReadonlyMap<string, { readonly emissive?: string; readonly emissiveIntensity?: number; readonly tint?: string }> = new Map();
   poses: ReadonlyMap<string, AnimatorPose> = new Map();
@@ -758,6 +768,7 @@ export class FrameMirror {
       this.swapEntities = new Map(s.swaps.entities);
       this.swapBlocks = new Map(s.swaps.blocks);
     }
+    if (s.cutaway !== undefined) this.cutaway = s.cutaway;
     if (s.looks !== undefined) this.looks = new Map(s.looks);
     if (s.poses !== undefined) this.poses = new Map(s.poses);
     if (s.counters !== undefined) this.counters = s.counters;

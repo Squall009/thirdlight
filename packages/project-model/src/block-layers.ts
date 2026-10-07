@@ -39,6 +39,7 @@ import { canonicalWallPaint, wallPaintError } from './block-wall-paint';
 import { liveBlockPrefabProblem } from './block-live';
 import { canonicalChunkEdges, canonicalPatternEdges, composeChunkEdges, validateBlockPlacement, validateChunkEdges, validatePatternEdges, type BlockEdge, type BlockPlacement } from './block-edges';
 import { canonicalBlockConnect, composeBlockConnect, validateBlockConnect, type BlockConnect } from './block-connect';
+import { canonicalBlockCutaway, validateBlockCutaway, type BlockCutaway } from './block-cutaway';
 
 // ---- types -----------------------------------------------------------------------
 
@@ -148,6 +149,12 @@ export interface BlockLayerComponent {
    * when true).
    */
   wallPaint?: boolean;
+  /**
+   * What is cut away from the view while the camera's target (or a subject a
+   * game names) is under or inside it: regions and height planes
+   * (`block-cutaway.ts`). Drawing only (absent: nothing is cut).
+   */
+  cutaway?: BlockCutaway;
 }
 
 export type BlockShape = 'full' | 'half' | 'ramp' | 'stairs' | 'custom' | 'none';
@@ -791,7 +798,7 @@ export function canonicalBlockStamps(list: readonly BlockStamp[]): BlockStamp[] 
 export const BLOCK_LAYER_DEFAULT: BlockLayerComponent = Object.freeze({ cellSize: [1, 1, 1], bounds: { min: [0, 0, 0], max: [64, 16, 64] } }) as BlockLayerComponent;
 
 /** The stored fields of the `blockLayer` component, in canonical order. */
-export const BLOCK_LAYER_FIELDS = ['cellSize', 'bounds', 'metadataOnly', 'collision', 'castShadow', 'receiveShadow', 'maxSlope', 'smoothAngle', 'topSubdivision', 'wallPaint', 'lightLayers'] as const;
+export const BLOCK_LAYER_FIELDS = ['cellSize', 'bounds', 'metadataOnly', 'collision', 'castShadow', 'receiveShadow', 'maxSlope', 'smoothAngle', 'topSubdivision', 'wallPaint', 'lightLayers', 'cutaway'] as const;
 
 export function validateBlockLayerComponent(v: unknown, path: string, errors: ModelErrorV2[]): void {
   if (!isPlainObject(v)) return err(errors, 'field_type', path, 'blockLayer is an object', v, 'object');
@@ -829,6 +836,7 @@ export function validateBlockLayerComponent(v: unknown, path: string, errors: Mo
   const ts = v['topSubdivision'];
   if (ts !== undefined && !BLOCK_TOP_SUBDIVISIONS.includes(ts as number)) err(errors, 'field_value', `${path}/topSubdivision`, `topSubdivision is one of ${BLOCK_TOP_SUBDIVISIONS.join(', ')}`, ts);
   validateLightLayerMask(v['lightLayers'], `${path}/lightLayers`, errors, 1);
+  validateBlockCutaway(v['cutaway'], `${path}/cutaway`, errors);
 }
 
 export function canonicalBlockLayerComponent(c: BlockLayerComponent): BlockLayerComponent {
@@ -844,6 +852,7 @@ export function canonicalBlockLayerComponent(c: BlockLayerComponent): BlockLayer
     ...(c.topSubdivision !== undefined && c.topSubdivision > 1 ? { topSubdivision: c.topSubdivision } : {}),
     ...(c.wallPaint === true ? { wallPaint: true as const } : {}),
     ...(c.lightLayers !== undefined ? { lightLayers: c.lightLayers } : {}),
+    ...(canonicalBlockCutaway(c.cutaway) !== undefined ? { cutaway: canonicalBlockCutaway(c.cutaway)! } : {}),
   };
 }
 

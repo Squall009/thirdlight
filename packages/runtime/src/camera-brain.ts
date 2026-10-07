@@ -200,6 +200,8 @@ export interface CameraViewInfo {
   readonly shake: number;
   /** The camera region the live track camera is in (null: none; absent: no region loaded, or not a track camera). */
   readonly region?: string | null;
+  /** The object the live camera follows or frames (absent: none) — what block layers' cut-aways test by default. */
+  readonly target?: string;
 }
 
 interface CamState {
@@ -1225,7 +1227,14 @@ export class CameraBrain {
       letterbox: c.letterbox,
       shake: this.lastShake,
       ...this.regionView(),
+      ...this.targetView(),
     };
+  }
+
+  /** The live camera's target object, when it has one. */
+  private targetView(): { target?: string } {
+    const t = this.liveId === null ? null : (this.cams.get(this.liveId)?.target ?? null);
+    return t !== null ? { target: t } : {};
   }
 
   /** The live track camera's region, while regions are loaded. */

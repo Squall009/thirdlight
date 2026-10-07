@@ -43,6 +43,7 @@ import { castsShadowFor, isLayeredLight } from './light-layers';
 import { DrawnCasters, isStaticCaster, type StaticShadowRevision } from './shadow-casters';
 import { withEmptyInstanceDraws } from './attribute-instancing';
 import { STATIC_SHADOW_CAMERA_KEY } from './view-cull';
+import { shadowSeesCutaways } from './block-cutaway-view';
 
 /** TSL untyped: three's typings lag the node API used here. */
 const TSL: N = TSLTyped;
@@ -269,6 +270,8 @@ class ShadowStandIn extends THREE.Object3D {
     s.camera.near = near;
     s.camera.far = far;
     s.camera.updateProjectionMatrix();
+    // What a block layer cuts away from the view still casts.
+    shadowSeesCutaways(s.camera);
     this.shadow = s;
   }
   /** Shine along `dir` (normalized) on `centre` from `distance` before it. */

@@ -45,6 +45,24 @@ describe('the level classes', () => {
     expect(cells.edgeWalls).toBe(false);
   });
 
+  it('can roof the rooms, and make the roofs cut-aways the layer lists, leaving the rest of the plan as it was', () => {
+    const plain = levelPlan('area');
+    const roofed = levelPlan('area', undefined, 0, false, false, 'roofs');
+    const cut = levelPlan('area', undefined, 0, false, false, 'cutaway');
+    const regions = (p: typeof plain): unknown[] => p.blockEdits.filter((e) => e['kind'] === 'region');
+    expect(regions(plain)).toHaveLength(0);
+    expect(regions(roofed)).toHaveLength(LEVEL_SPEC.rooms);
+    expect(regions(cut)).toEqual(regions(roofed));
+    expect((roofed.layer.components['blockLayer'] as { cutaway?: unknown }).cutaway).toBeUndefined();
+    expect((cut.layer.components['blockLayer'] as { cutaway?: { regions: unknown[] } }).cutaway?.regions).toHaveLength(LEVEL_SPEC.rooms);
+    // Each roof lies on its room's walls: the row above their top, over the whole room.
+    const first = regions(roofed)[0] as { boxes: number[][] };
+    const r = roofed.rooms[0]!;
+    expect(first.boxes).toEqual([[r.box[0], r.top, r.box[1], r.box[2], r.top + 1, r.box[3]]]);
+    expect(plain.roofs).toBe('none');
+    expect(roofed.batches).toEqual(plain.batches);
+  });
+
   it('makes the landscape the area plus far rings outside it, under the far plane', () => {
     const a = levelPlan('area');
     const l = levelPlan('landscape');

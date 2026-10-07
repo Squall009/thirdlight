@@ -75,6 +75,8 @@ export interface Runtime {
   materialSwaps?(): ReadonlyMap<string, Readonly<Record<string, string>>>;
   /** The block types' material swaps, by block id; the renderer puts them on once loaded. */
   blockMaterialSwaps?(): ReadonlyMap<string, Readonly<Record<string, string>>>;
+  /** What scripts set for the block layers' cut-aways (forced zones, the subject); the renderer decides what is cut. */
+  blockCutaways?(): import('./grid').GridCutawayState;
   /** The fields scripts wrote as digest text (null while none). */
   entityFieldsState?(): string | null;
   /** The sounds scripts played since the last call. The audio intent log's commands. */

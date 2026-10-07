@@ -28,6 +28,13 @@
  * runs, its corner and its T-join each show their own look (yellow, red,
  * blue) in Play and the export on both renderers.
  *
+ * Two roofs are cut-aways: a lavender one over the spawn hidden (with a fade)
+ * while the camera's target, the player, is inside the pit region below the
+ * floor, and a pink one elsewhere, cut only while the target stands under
+ * it (never here). Before the dig both are drawn; once the player has fallen
+ * into the pit the lavender roof is gone and the pink one stays — in Play and
+ * the export, on both renderers.
+ *
  * A new project stores the chunk as a binary file; turning the project's
  * `block_chunk_storage` to 0 rewrites it as JSON text (the same cells
  * through queryBlocks). The export ships the cells as binary chunk data the
@@ -227,6 +234,39 @@ const RAMPART: readonly number[] = [9, 10, 11].flatMap((y) => ([[2, 2], [3, 2], 
  */
 const BEACONS: readonly [number, number, number][] = [[8, 5, 8], [3, 4, 12], [13, 6, 4]];
 
+/** Lavender pixels (blue well above red and green, which stay well above none): the roof over the spawn. */
+function lavenderPixels(img: Image): number {
+  let n = 0;
+  for (let y = 0; y < img.height; y += 2) {
+    for (let x = 0; x < img.width; x += 2) {
+      const [r, g, b] = img.pixel(x, y);
+      if (b > 110 && b > r + 35 && b > g + 35 && r > b * 0.4 && g > b * 0.4) n += 1;
+    }
+  }
+  return n;
+}
+
+/** Pale pink pixels (red high, green below blue): the roof elsewhere. */
+function pinkPixels(img: Image): number {
+  let n = 0;
+  for (let y = 0; y < img.height; y += 2) {
+    for (let x = 0; x < img.width; x += 2) {
+      const [r, g, b] = img.pixel(x, y);
+      if (r > 120 && r > g + 25 && b > g + 6 && r > b + 6 && g > r * 0.45) n += 1;
+    }
+  }
+  return n;
+}
+
+/**
+ * The cut-away roofs, one row at the top of the layer (7.5 m, clear of the falling player): lavender over the spawn,
+ * cut while the player is in the pit (the region below the floor it falls into); pink over the near corner, cut
+ * while the player stands under it.
+ */
+const ROOF_A = [6, 15, 6, 10, 16, 10];
+const ROOF_B = [12, 15, 13, 15, 16, 16];
+const PIT = [0, -16, 0, 24, 0, 24];
+
 /** The map: stone under grass, raised by a heightmap, a lower floor 5 m below, a player above the middle. */
 async function buildMap(): Promise<{ layer: string; player: string }> {
   await cmd('setSettings', { settings: { physics_dimension: 3 } });
@@ -248,9 +288,12 @@ async function buildMap(): Promise<{ layer: string; player: string }> {
   await cmd('createEntity', { sceneId: 'scene-kit', parentId: gate, kind: 'box', name: 'Gate leaf', transform: { position: [0, 0.45, 0] }, box: { size: [0.9, 0.9, 0.12], material: { color: '#ff8a00' } } });
   await cmd('createPrefab', { prefabId: 'gate', displayName: 'Gate', sourceEntityId: gate });
   await cmd('setBlockType', { block: { blockId: 'gate', name: 'Gate', variants: [{ prefab: 'gate' }], shape: 'full', placement: 'edge', live: true } });
+  await cmd('setBlockType', { block: { blockId: 'roof-a', name: 'Roof A', variants: [{ color: '#9090ff' }], shape: 'full' } });
+  await cmd('setBlockType', { block: { blockId: 'roof-b', name: 'Roof B', variants: [{ color: '#ffb4d2' }], shape: 'full' } });
   await cmd('setBlockType', { block: { blockId: 'rampart', name: 'Rampart', variants: [{ color: '#303030', weight: 1000 }, { color: '#f0e000', weight: 0.001 }, { color: '#e01010', weight: 0.001 }, { color: '#1020ff', weight: 0.001 }], shape: 'full', connect: { pieces: { straight: { variant: 1 }, corner: { variant: 2 }, t: { variant: 3 } } } } });
   // The camera looks down at the map from its south side.
-  const cam = ((await query('queryEntities', { limit: 100, offset: 0 })) as { entities: { id: string; components: Record<string, unknown> }[] }).entities.find((e) => e.components['virtualCamera'] !== undefined)!.id;
+  const camEntity = ((await query('queryEntities', { limit: 100, offset: 0 })) as { entities: { id: string; components: Record<string, unknown> }[] }).entities.find((e) => e.components['virtualCamera'] !== undefined)!;
+  const cam = camEntity.id;
   const pitch = (-35 * Math.PI) / 180;
   await cmd('setTransform', { entityId: cam, transform: { position: [8, 11, 26], rotation: [Math.sin(pitch / 2), 0, 0, Math.cos(pitch / 2)] } });
   await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Ground', transform: { position: [0, 0, 0] } });
@@ -260,7 +303,10 @@ async function buildMap(): Promise<{ layer: string; player: string }> {
   const ents = ((await query('queryEntities', { limit: 100, offset: 0 })) as { entities: { id: string; name?: string }[] }).entities;
   const id = (name: string): string => ents.find((e) => e.name === name)!.id;
   await cmd('setComponent', { entityId: id('Player'), component: 'controller', value: {} });
-  await cmd('setComponent', { entityId: id('Ground'), component: 'blockLayer', value: { cellSize: [1, 0.5, 1], bounds: { min: [0, 0, 0], max: [24, 16, 24] } } });
+  await cmd('setComponent', { entityId: id('Ground'), component: 'blockLayer', value: { cellSize: [1, 0.5, 1], bounds: { min: [0, 0, 0], max: [24, 16, 24] }, cutaway: { regions: [{ region: 'roof.a', when: 'pit' }, { region: 'roof.b' }], fade: 3 } } });
+  // The player is the camera's target (what the cut-aways test): a track rig whose framed point is held at the spawn,
+  // so the view stays where it was.
+  await cmd('setComponent', { entityId: cam, component: 'virtualCamera', value: { ...(camEntity.components['virtualCamera'] as object), rig: 'track', target: id('Player'), boundsMin: [8.5, 6, 8.5], boundsMax: [8.5, 6, 8.5] } });
   // A 16 × 16 heightmap: a gentle rise toward +x (1–4 cells of grass-topped columns); its colour map
   // is all green (grass) — the whole map in one request.
   const height = makePng(16, 16, (x) => [48 + x * 8, 48 + x * 8, 48 + x * 8, 255]);
@@ -276,6 +322,11 @@ async function buildMap(): Promise<{ layer: string; player: string }> {
       { kind: 'edges', at: [...WALL_EDGES], edge: { block: 'wall' } },
       { kind: 'edges', at: [...GATE_EDGE], edge: { block: 'gate' } },
       { kind: 'cells', at: [...RAMPART], cell: { block: 'rampart' } },
+      { kind: 'fill', box: [...ROOF_A], cell: { block: 'roof-a' } },
+      { kind: 'fill', box: [...ROOF_B], cell: { block: 'roof-b' } },
+      { kind: 'region', regionId: 'roof.a', op: 'set', boxes: [[...ROOF_A]] },
+      { kind: 'region', regionId: 'roof.b', op: 'set', boxes: [[...ROOF_B]] },
+      { kind: 'region', regionId: 'pit', op: 'set', boxes: [[...PIT]] },
     ],
   });
   expect((res.change as { chunks: number[][] }).chunks).toEqual([[0, 0]]);
@@ -339,6 +390,37 @@ async function expectFallsThrough(read: () => Promise<Observation | null>, what:
   }
 }
 
+/**
+ * The roofs once the player lies in the pit: the lavender one fades out (the counts on the way are logged) and the pink
+ * one stays. Before the dig both were drawn when a picture made it in time (`before`: the lavender count then).
+ */
+async function expectRoofsCut(shoot: () => Promise<Buffer>, where: string, before: number | null): Promise<void> {
+  const counts: number[] = [];
+  await expect
+    .poll(async () => {
+      const n = lavenderPixels(decodePng(await shoot()));
+      counts.push(n);
+      return n;
+    }, { timeout: 30_000, intervals: [100], message: `the lavender roof cut away in ${where}` })
+    .toBeLessThan(5);
+  const pink = pinkPixels(decodePng(await shoot()));
+  console.log(`cut-away in ${where}: lavender roof before the dig ${before ?? 'not seen in time'}, while fading ${counts.join(' ')}; pink roof ${pink}`);
+  expect(pink).toBeGreaterThan(20);
+  if (before !== null) expect(before).toBeGreaterThan(40);
+}
+
+/** The lavender roof's pixels in a picture taken before the dig (null: none was in time). */
+async function roofBeforeDig(shoot: () => Promise<Buffer>, read: () => Promise<Observation | null>): Promise<number | null> {
+  for (let i = 0; i < 40; i += 1) {
+    const step = (await read())?.stepIndex ?? 0;
+    if (step >= DIG_STEP - 24) return null;
+    const n = lavenderPixels(decodePng(await shoot()));
+    // A picture is taken after the step read: still before the dig only if the run has not got there since.
+    if (n > 40 && ((await read())?.stepIndex ?? DIG_STEP) < DIG_STEP) return n;
+  }
+  return null;
+}
+
 async function startPlay(page: Page): Promise<string> {
   await page.goto(be!.editorUrl);
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
@@ -356,7 +438,7 @@ test('a block map built with bulk commands renders in the Scene view, Play and t
 
   // Read back through queryBlocks: the layer list, a box of cells with their effective metadata, a region.
   const list = (await query('queryBlocks')) as { layers: { entityId: string; cells: number; chunks: number[][]; regions: string[] }[] };
-  expect(list.layers).toEqual([expect.objectContaining({ entityId: layer, chunks: [[0, 0]], regions: ['spawn.area'], edges: WALL_EDGES.length / 4 + 1 })]);
+  expect(list.layers).toEqual([expect.objectContaining({ entityId: layer, chunks: [[0, 0]], regions: ['pit', 'roof.a', 'roof.b', 'spawn.area'], edges: WALL_EDGES.length / 4 + 1 })]);
   const cells16 = list.layers[0]!.cells;
   expect(cells16).toBeGreaterThan(16 * 16 * 2);
   const box = (await query('queryBlocks', { entityId: layer, box: [0, 0, 0, 1, 16, 1] })) as { box: { cells: number[][]; palette: { block?: string }[]; meta: { walkable: boolean; cost: number }[] } };
@@ -379,8 +461,11 @@ test('a block map built with bulk commands renders in the Scene view, Play and t
   await expect.poll(async () => JSON.parse((await viewport.getAttribute('data-block-layers')) ?? '{"meshes":0}').meshes as number, { timeout: 30_000 }).toBeGreaterThan(0);
   const stats = JSON.parse((await viewport.getAttribute('data-block-layers'))!) as { layers: number; chunks: number; meshes: number; triangles: number };
   expect(stats).toEqual(expect.objectContaining({ layers: 1, chunks: 1 }));
-  // One per look: stone, grass, the beacon base, the wall, and the connected wall's four pieces.
-  expect(stats.meshes).toBeLessThanOrEqual(8);
+  // One per look: stone, grass, the beacon base, the wall, the connected wall's four pieces and the two roofs (each
+  // a cut-away zone's own mesh).
+  expect(stats.meshes).toBeLessThanOrEqual(10);
+  // The Scene view has no camera target: nothing is cut.
+  expect((stats as { cutaway?: unknown }).cutaway).toEqual({ zones: 2, cut: 0, fading: 0, meshes: 2 });
   // Hidden faces left out: far fewer triangles than 12 per cell.
   expect(stats.triangles).toBeLessThan(cells16 * 12 * 0.25);
 
@@ -420,6 +505,11 @@ test('a block map built with bulk commands renders in the Scene view, Play and t
     return r.status === 200 ? (r.json as unknown as Observation) : null;
   };
   await expectRestsOnBlocks(read, 'Play', topY);
+  const playShot = async (): Promise<Buffer> => {
+    const shot = await relay(`${psid}/screenshot`, { maxWidth: 480 });
+    return Buffer.from(String(shot.json.dataUrl ?? '').split(',')[1] ?? '', 'base64');
+  };
+  const roofInPlay = await roofBeforeDig(playShot, read);
   // Each beacon cell spawned its prefab (a root and its post) as objects of the game, the posts drawn.
   const liveObjects = async (): Promise<number | undefined> => ((await relay(`${psid}/diagnostics`, {})).json as { diagnostics?: { runtime?: { blockMemory?: { liveObjects?: number } } } }).diagnostics?.runtime?.blockMemory?.liveObjects;
   // …and the gate its root and leaf.
@@ -452,6 +542,9 @@ test('a block map built with bulk commands renders in the Scene view, Play and t
     }, { timeout: 60_000, message: 'grass-green pixels in the Play screenshot' })
     .toBeGreaterThan(500);
   await expectFallsThrough(read, 'Play');
+  await expectRoofsCut(playShot, 'Play', roofInPlay);
+  const cutawayDiag = async (): Promise<unknown> => ((await relay(`${psid}/diagnostics`, {})).json as { diagnostics?: { renderer?: { blocks?: { cutaway?: unknown } } } }).diagnostics?.renderer?.blocks?.cutaway;
+  await expect.poll(cutawayDiag, { timeout: 30_000 }).toEqual({ zones: 2, cut: 1, fading: 0, meshes: 2 });
   // The dug column's beacon went with its cell.
   await expect.poll(liveObjects, { timeout: 30_000 }).toBe((BEACONS.length - 1) * 2 + 2);
 
@@ -482,6 +575,7 @@ test('a block map built with bulk commands renders in the Scene view, Play and t
     // The rest is read before the dig, from the simulation: it does not wait for the first drawn frame.
     await expectRestsOnBlocks(observe, 'export', topY);
     await expect.poll(async () => Number((await canvas.getAttribute('data-tl-draws')) ?? 0), { timeout: 60_000 }).toBeGreaterThan(0);
+    const roofInExport = await roofBeforeDig(() => canvas.screenshot(), observe);
     await expect.poll(async () => greenPixels(decodePng(await canvas.screenshot())), { timeout: 30_000, message: 'grass-green pixels in the export' }).toBeGreaterThan(500);
     await expect.poll(async () => magentaPixels(decodePng(await canvas.screenshot())), { timeout: 30_000, message: 'the beacons\' posts in the export' }).toBeGreaterThan(30);
     await expect.poll(async () => cyanPixels(decodePng(await canvas.screenshot())), { timeout: 30_000, message: 'the edge wall in the export' }).toBeGreaterThan(80);
@@ -490,6 +584,7 @@ test('a block map built with bulk commands renders in the Scene view, Play and t
     await expectFallsThrough(observe, 'export').catch((e: Error) => {
       throw new Error(`${e.message}\nconsole: ${logs.slice(-20).join(' | ')}`);
     });
+    await expectRoofsCut(() => canvas.screenshot(), 'the export', roofInExport);
     expect(errors).toEqual([]);
     // The other renderer reads the same chunk data (on a GPU the default above is WebGPU).
     if (gpuAvailable()) {
@@ -499,13 +594,17 @@ test('a block map built with bulk commands renders in the Scene view, Play and t
       try {
         await gl.goto(`${site.url}?renderer=webgl2`);
         const glCanvas = gl.locator('canvas').first();
-        await expectRestsOnBlocks(() => gl.evaluate(() => ((window as unknown as { __thirdlightObserve?: () => unknown }).__thirdlightObserve?.() ?? null) as Observation | null), 'export (WebGL 2)', topY);
+        const glObserve = (): Promise<Observation | null> => gl.evaluate(() => ((window as unknown as { __thirdlightObserve?: () => unknown }).__thirdlightObserve?.() ?? null) as Observation | null);
+        await expectRestsOnBlocks(glObserve, 'export (WebGL 2)', topY);
         await expect.poll(async () => glCanvas.getAttribute('data-tl-renderer'), { timeout: 60_000 }).toBe('webgl2');
+        const roofOnWebGl = await roofBeforeDig(() => glCanvas.screenshot(), glObserve);
         await expect.poll(async () => greenPixels(decodePng(await glCanvas.screenshot())), { timeout: 30_000, message: 'grass-green pixels in the export on WebGL 2' }).toBeGreaterThan(500);
         await expect.poll(async () => magentaPixels(decodePng(await glCanvas.screenshot())), { timeout: 30_000, message: 'the beacons\' posts in the export on WebGL 2' }).toBeGreaterThan(30);
         await expect.poll(async () => cyanPixels(decodePng(await glCanvas.screenshot())), { timeout: 30_000, message: 'the edge wall in the export on WebGL 2' }).toBeGreaterThan(80);
         await expect.poll(async () => orangePixels(decodePng(await glCanvas.screenshot())), { timeout: 30_000, message: 'the live gate in the export on WebGL 2' }).toBeGreaterThan(30);
         await expectConnectedWall(() => glCanvas.screenshot(), 'the export on WebGL 2');
+        await expectFallsThrough(glObserve, 'export (WebGL 2)');
+        await expectRoofsCut(() => glCanvas.screenshot(), 'the export on WebGL 2', roofOnWebGl);
         expect(errors).toEqual([]);
       } finally {
         await gl.close();
