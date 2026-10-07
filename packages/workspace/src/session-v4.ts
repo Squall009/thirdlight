@@ -1250,7 +1250,7 @@ export function serveQueryV4(s: ProjectSession, op: QueryOp, projectId: string, 
  * those chunks in their stored form (palette + runs; the editor reads what a
  * change named), with `box: [x0, y0, z0, x1, y1, z1]` the cells inside it as
  * `[x, y, z, paletteIndex]` rows plus the palette and each distinct value's
- * effective metadata (at most 65,536 cells), with `region: id` that region's
+ * effective metadata (at most 65,536 cells) and the edge pieces on and inside it, with `region: id` that region's
  * boxes and cells (at most 65,536).
  */
 function serveQueryBlocks(state: V4State, projectId: string, a: Record<string, unknown>): QueryResult {
@@ -1261,6 +1261,7 @@ function serveQueryBlocks(state: V4State, projectId: string, a: Record<string, u
       .filter((e) => (e.components as { blockLayer?: unknown }).blockLayer !== undefined)
       .map((e) => ({ entityId: e.id, sceneId: sc.sceneId, component: (e.components as { blockLayer: BlockLayerComponent }).blockLayer, data: sc.blocks?.find((b) => b.entityId === e.id) ?? null }));
   const cellCount = (d: BlockLayerData | null): number => (d?.chunks ?? []).reduce((n, c) => n + c.columns.reduce((m, col) => { let t = 0; for (let i = 3; i < col.length; i += 3) t += col[i]!; return m + t; }, 0), 0);
+  const edgeCount = (d: BlockLayerData | null): number => (d?.chunks ?? []).reduce((n, c) => n + (c.edges?.length ?? 0), 0);
   if (a['entityId'] === undefined) {
     const sceneId = a['sceneId'];
     if (sceneId !== undefined && (typeof sceneId !== 'string' || !state.scenes.has(sceneId))) return failure(op, projectId, fieldValueType('/args/sceneId', sceneId, 'a scene id of the project', 'no such scene'));
@@ -1270,6 +1271,7 @@ function serveQueryBlocks(state: V4State, projectId: string, a: Record<string, u
       sceneId: l.sceneId,
       component: l.component,
       cells: cellCount(l.data),
+      edges: edgeCount(l.data),
       chunks: (l.data?.chunks ?? []).map((c) => [c.cx, c.cz]),
       regions: (l.data?.regions ?? []).map((r) => r.regionId),
     }));
@@ -1280,7 +1282,7 @@ function serveQueryBlocks(state: V4State, projectId: string, a: Record<string, u
   const scene = sceneOfEntity(state, entityId);
   const layer = scene === null ? undefined : layersOf(scene).find((l) => l.entityId === entityId);
   if (scene === null || layer === undefined) return failure(op, projectId, entityNotFound(entityId));
-  const out: Record<string, unknown> = { ok: true, projectId, revision: state.revision, sceneId: scene.sceneId, entityId, component: layer.component, cells: cellCount(layer.data), regions: layer.data?.regions ?? [] };
+  const out: Record<string, unknown> = { ok: true, projectId, revision: state.revision, sceneId: scene.sceneId, entityId, component: layer.component, cells: cellCount(layer.data), edges: edgeCount(layer.data), regions: layer.data?.regions ?? [] };
   const chunks = a['chunks'];
   if (chunks !== undefined) {
     if (!Array.isArray(chunks) || chunks.length > 4096 || !chunks.every((c) => Array.isArray(c) && c.length === 2 && Number.isSafeInteger(c[0]) && Number.isSafeInteger(c[1]))) return failure(op, projectId, fieldValueType('/args/chunks', chunks, 'up to 4096 [cx, cz] pairs', 'chunks is a list of [cx, cz]'));
@@ -1323,7 +1325,22 @@ function serveQueryBlocks(state: V4State, projectId: string, a: Record<string, u
     const b = box as number[];
     const listed = listCells((x, y, z) => boxContains(b, x, y, z));
     if (listed === null) return failure(op, projectId, fieldValueType('/args/box', box, 'a box holding at most 65536 cells', 'the box holds more than 65,536 cells; ask for a smaller box or for chunks'));
-    out['box'] = { box: b, cells: listed.rows, palette: listed.palette, meta: listed.meta };
+    // The edge pieces on the box's outline or inside it, as [x, y, z, axis, edgePaletteIndex] rows.
+    const grid = BlockGrid.from(layer.component, layer.data);
+    const edges: number[][] = [];
+    const edgePalette: unknown[] = [];
+    const edgeRemap = new Map<number, number>();
+    grid.forEachEdge((x, y, z, axis, idx) => {
+      if (y < b[1]! || y >= b[4]! || x < b[0]! || z < b[2]! || x > b[3]! - (axis === 0 ? 0 : 1) || z > b[5]! - (axis === 1 ? 0 : 1) || edges.length >= 65_536) return;
+      let q = edgeRemap.get(idx);
+      if (q === undefined) {
+        q = edgePalette.length;
+        edgeRemap.set(idx, q);
+        edgePalette.push(grid.edgeValueOf(idx));
+      }
+      edges.push([x, y, z, axis, q]);
+    });
+    out['box'] = { box: b, cells: listed.rows, palette: listed.palette, meta: listed.meta, edges, edgePalette };
   }
   const region = a['region'];
   if (region !== undefined) {

@@ -8,7 +8,11 @@
  * the eyedropper, replace all of a type, raise a column, erase, undo and redo
  * (one step per stroke), paint metadata and show it as an overlay (red pixels
  * in the Scene view), select, copy, paste and mirror a selection, save it as a
- * stamp and place the stamp, lock and hide the layer. The Edit menu's snapping
+ * stamp and place the stamp, lock and hide the layer. With an edge piece
+ * (a wall) as the brush, the rectangle draws a room's outline on the cell
+ * edges, the brush and eraser take the edges dragged over and the line runs
+ * along a grid line (turned end for end), each one undo step; the block type
+ * form turns a block type into an edge piece. The Edit menu's snapping
  * settings change the gizmo's step, and with cell-top snapping on a prop
  * dragged over the layer lands on the cells and its block footprint writes
  * its metadata beneath it, in the same undo step as the move (undo and redo
@@ -114,7 +118,8 @@ test('the Blocks panel paints, fills, picks, replaces, selects, stamps and paint
   test.setTimeout(420_000);
   be = await startBackend('block-editor-e2e');
   await cmd('setCellFields', { fields: [{ key: 'hazard', type: 'bool', color: '#ff0000' }] });
-  for (const [blockId, color] of [['stone', '#6b7280'], ['grass', '#3fa34d'], ['sand', '#d8c27a']] as const) await cmd('setBlockType', { block: { blockId, name: blockId[0]!.toUpperCase() + blockId.slice(1), variants: [{ color }], shape: 'full' } });
+  for (const [blockId, color] of [['stone', '#6b7280'], ['grass', '#3fa34d'], ['sand', '#d8c27a'], ['door', '#a05020']] as const) await cmd('setBlockType', { block: { blockId, name: blockId[0]!.toUpperCase() + blockId.slice(1), variants: [{ color }], shape: 'full' } });
+  await cmd('setBlockType', { block: { blockId: 'wall', name: 'Wall', variants: [{ color: '#20c8f0' }], shape: 'full', placement: 'edge' } });
   const layer = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Ground', transform: { position: [...ORIGIN] } }))['createdId']);
   await cmd('setComponent', { entityId: layer, component: 'blockLayer', value: { cellSize: [1, 1, 1], bounds: { min: [0, 0, 0], max: [64, 16, 64] } } });
   await cmd('editBlocks', { entityId: layer, edits: [{ kind: 'fill', box: [0, 0, 0, 64, 8, 64], cell: { block: 'stone' } }] });
@@ -243,6 +248,59 @@ test('the Blocks panel paints, fills, picks, replaces, selects, stamps and paint
   await expect.poll(() => blockAt(layer, 6, 8, 12)).toBe('grass');
   expect(await blockAt(layer, 5, 8, 12)).toBe('grass');
   expect(await blockAt(layer, 4, 8, 12)).toBeNull();
+
+  // ---- edge pieces: the wall as the brush draws on the cell edges of the row above the tops (its floor at y = 0.5),
+  //      over free cells near the layer's -x side.
+  type EdgeBox = { edges: number[][]; edgePalette: { block: string; rot?: number }[] };
+  const edgesIn = async (box: number[]): Promise<EdgeBox> => ((await query('queryBlocks', { entityId: layer, box })) as { box: EdgeBox }).box;
+  /** A point on that floor (cells x, z). */
+  const floorAt = (x: number, z: number): V3 => [ORIGIN[0] + x, ORIGIN[1] + 8, ORIGIN[2] + z];
+  await blockButton(page, 'wall').click();
+  await tool(page, 'Rectangle').click();
+  // The hover snaps to the nearest cell edge.
+  const near = await screen(page, floorAt(1.1, 8.5));
+  await page.mouse.move(near.x - 3, near.y);
+  await page.mouse.move(near.x, near.y);
+  await expect(view(page)).toHaveAttribute('data-block-edge', '1,8,8,0');
+  // A rectangle from corner (1, 8) to (4, 10): the room's outline, 2 × 3 + 2 × 2 edges in one command.
+  const room = [1, 8, 8, 4, 9, 10];
+  const roomRev = Number((await query('queryProject')).revision);
+  await stroke(page, [await screen(page, floorAt(1, 8)), await screen(page, floorAt(4, 10))]);
+  await expect.poll(async () => (await edgesIn(room)).edges.length).toBe(10);
+  expect(Number((await query('queryProject')).revision)).toBe(roomRev + 1);
+  await expect(view(page)).toHaveAttribute('data-block-stroke', /"tool":"rect".*"edges":true/);
+  // Drawn in the Scene view (the wall's cyan stand-ins).
+  const cyan = (r: number, g: number, b: number): boolean => g > r + 60 && b > r + 60;
+  await expect.poll(async () => countPixels(decodePng(await view(page).screenshot()), cyan), { timeout: 20_000, message: 'the walls in the Scene view' }).toBeGreaterThan(60);
+  await page.keyboard.press('Control+z');
+  await expect.poll(async () => (await edgesIn(room)).edges.length).toBe(0);
+  await page.keyboard.press('Control+y');
+  await expect.poll(async () => (await edgesIn(room)).edges.length).toBe(10);
+  // The brush takes the edges it is dragged along: the z = 11 line over x 1-3.
+  await tool(page, 'Paint').click();
+  await stroke(page, [await screen(page, floorAt(1.5, 11.05)), await screen(page, floorAt(3.5, 11.05))]);
+  await expect.poll(async () => (await edgesIn([1, 8, 11, 4, 9, 12])).edges.filter((e) => e[2] === 11 && e[3] === 1).length).toBe(3);
+  // The eraser takes one edge of the room.
+  await tool(page, 'Erase').click();
+  const gap = await screen(page, floorAt(2.5, 8.05));
+  await page.mouse.move(gap.x, gap.y);
+  await expect(view(page)).toHaveAttribute('data-block-edge', '2,8,8,1');
+  await page.mouse.down();
+  await page.mouse.up();
+  await expect.poll(async () => (await edgesIn(room)).edges.length).toBe(9);
+  // A line along the x = 5 grid line, the brush turned end for end (an edge piece turns 0 / 180 only).
+  await panel(page).getByRole('button', { name: 'rotate brush' }).click();
+  await expect(panel(page).getByRole('button', { name: 'rotate brush' })).toHaveText('Rotate 180°');
+  await tool(page, 'Line').click();
+  await stroke(page, [await screen(page, floorAt(5, 8)), await screen(page, floorAt(5.1, 11.3))]);
+  const line = [5, 8, 8, 6, 9, 11];
+  await expect.poll(async () => (await edgesIn(line)).edges.filter((e) => e[0] === 5 && e[3] === 0).length).toBe(3);
+  expect((await edgesIn(line)).edgePalette).toEqual([{ block: 'wall', rot: 180 }]);
+  await panel(page).getByRole('button', { name: 'rotate brush' }).click();
+  // The block type form makes a block type an edge piece.
+  await blockButton(page, 'door').click();
+  await panel(page).getByLabel('block type form').getByLabel('blockType placement', { exact: true }).selectOption('edge');
+  await expect.poll(async () => ((await query('queryGameConfig')) as { blockTypes?: { blockId: string; placement?: string }[] }).blockTypes?.find((t) => t.blockId === 'door')?.placement).toBe('edge');
 
   // ---- metadata paint (a rectangle of hazard = true) and its overlay.
   await panel(page).getByLabel('metadata field').selectOption('hazard');

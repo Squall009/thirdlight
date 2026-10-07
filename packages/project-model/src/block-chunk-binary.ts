@@ -20,12 +20,19 @@
  * DecompressionStream in a game).
  */
 import type { BlockCell, BlockChunk } from './block-layers';
+import type { BlockEdge } from './block-edges';
 import { decodeBase64, encodeBase64 } from './png-decode';
 
 /** The first bytes of a binary chunk blob ("TLBK"). */
 export const BLOCK_CHUNK_MAGIC = Object.freeze([0x54, 0x4c, 0x42, 0x4b]);
-/** The payload layout this module writes and reads (the payload's first number). */
-export const BLOCK_CHUNK_BINARY_VERSION = 1;
+/**
+ * The payload layout this module writes (the payload's first number): 2
+ * adds each chunk's edge pieces after its columns. A payload without edge
+ * pieces is written as 1, byte for byte what it was before edges existed, so
+ * existing files and builds keep their digests; both are read.
+ */
+export const BLOCK_CHUNK_BINARY_VERSION = 2;
+const LAYOUT_WITHOUT_EDGES = 1;
 /** The header layout (its fifth byte). */
 export const BLOCK_CHUNK_CONTAINER_VERSION = 1;
 /** How a blob's payload is compressed (the header's byte). */
@@ -134,8 +141,11 @@ export function encodeBlockChunks(chunks: readonly BlockChunk[]): Uint8Array {
       return i;
     });
   const palettes = chunks.map((c) => paletteOf(c.palette));
+  // Edge values go in the same table (they are JSON objects like cells).
+  const edgePalettes = chunks.map((c) => (c.edges !== undefined && c.edges.length > 0 ? paletteOf((c.edgePalette ?? []) as unknown as BlockCell[]) : null));
+  const layout = edgePalettes.some((p) => p !== null) ? BLOCK_CHUNK_BINARY_VERSION : LAYOUT_WITHOUT_EDGES;
   const w = new Writer();
-  w.uint(BLOCK_CHUNK_BINARY_VERSION);
+  w.uint(layout);
   w.uint(cells.length);
   for (const s of cells) w.bytes(utf8.encode(s));
   w.uint(chunks.length);
@@ -161,6 +171,16 @@ export function encodeBlockChunks(chunks: readonly BlockChunk[]): Uint8Array {
       w.uint(col.length);
       for (const v of col) w.int(v);
     }
+    if (layout === LAYOUT_WITHOUT_EDGES) return;
+    const ep = edgePalettes[k];
+    if (ep === null || ep === undefined) {
+      w.uint(0);
+      return;
+    }
+    w.uint(ep.length);
+    for (const i of ep) w.uint(i);
+    w.uint(c.edges!.length);
+    for (const r of c.edges!) for (const v of r) w.int(v);
   });
   return w.done();
 }
@@ -169,7 +189,7 @@ export function encodeBlockChunks(chunks: readonly BlockChunk[]): Uint8Array {
 export function decodeBlockChunks(payload: Uint8Array): BlockChunk[] {
   const r = new Reader(payload);
   const version = r.uint();
-  if (version !== BLOCK_CHUNK_BINARY_VERSION) throw new Error(`block chunk binary: layout ${version} is newer than this engine reads (${BLOCK_CHUNK_BINARY_VERSION})`);
+  if (version !== BLOCK_CHUNK_BINARY_VERSION && version !== LAYOUT_WITHOUT_EDGES) throw new Error(`block chunk binary: layout ${version} is newer than this engine reads (${BLOCK_CHUNK_BINARY_VERSION})`);
   const cellCount = r.count(1);
   const cells: BlockCell[] = [];
   for (let i = 0; i < cellCount; i++) {
@@ -209,8 +229,25 @@ export function decodeBlockChunks(payload: Uint8Array): BlockChunk[] {
       for (let j = 0; j < len; j++) col[j] = r.int();
       columns[i] = col;
     }
+    let edges: { edgePalette: BlockEdge[]; edges: number[][] } | null = null;
+    if (version !== LAYOUT_WITHOUT_EDGES) {
+      const en = r.count(1);
+      if (en > 0) {
+        const edgePalette: BlockEdge[] = [];
+        for (let i = 0; i < en; i++) {
+          const at = r.uint();
+          const e = cells[at];
+          if (e === undefined) throw new Error(`block chunk binary: chunk ${cx},${cz} names edge value ${at} of ${cellCount}`);
+          edgePalette.push({ ...(e as unknown as BlockEdge) });
+        }
+        const rn = r.count(5);
+        const rows: number[][] = new Array(rn);
+        for (let i = 0; i < rn; i++) rows[i] = [r.int(), r.int(), r.int(), r.int(), r.int()];
+        edges = { edgePalette, edges: rows };
+      }
+    }
     // Key order as a JSON chunk file has it.
-    out.push(paint !== undefined ? { cx, cz, palette, columns, paint } : { cx, cz, palette, columns });
+    out.push({ cx, cz, palette, columns, ...(edges ?? {}), ...(paint !== undefined ? { paint } : {}) });
   }
   if (r.left !== 0) throw new Error('block chunk binary: bytes after the last chunk');
   return out;

@@ -163,6 +163,57 @@ describe.skipIf(process.env['TL_PERF'] === undefined)('block layers: measurement
     void applyBlockEdits;
   });
 
+  it('edge pieces: a 40 × 40 terrain with walls on every fourth grid line meshes and builds colliders per chunk', () => {
+    const types = new Map([...TYPES, { blockId: 'wall', name: 'Wall', variants: [{ color: '#8a8580' }, { color: '#7d7872' }], shape: 'full', placement: 'edge' } as BlockType].map((t) => [t.blockId, t]));
+    const plain = new BlockGrid({ cellSize: [1, 0.5, 1], bounds: { min: [0, 0, 0], max: [40, 16, 40] } });
+    const heights: number[][] = [];
+    for (let x = 0; x < 40; x++) for (let z = 0; z < 40; z++) {
+      const h = 3 + Math.round(4 + 3 * Math.sin(x / 5) * Math.cos(z / 7));
+      (heights[x] ??= [])[z] = h;
+      for (let y = 0; y < h; y++) plain.set(x, y, z, { block: y === h - 1 ? 'grass' : y > h - 3 ? 'dirt' : 'stone' });
+    }
+    const walled = BlockGrid.from({ cellSize: [1, 0.5, 1], bounds: { min: [0, 0, 0], max: [40, 16, 40] } }, plain.toData('l', null, plain.takeDirty().chunks));
+    // Walls 2 m high (4 rows) from the higher ground beside each edge, on the x and z lines 0, 4, 8, …
+    const at: number[] = [];
+    for (let line = 0; line <= 40; line += 4) for (let i = 0; i < 40; i++) {
+      for (const axis of [0, 1]) {
+        const [x, z] = axis === 0 ? [line, i] : [i, line];
+        if ((axis === 0 && x > 39) || (axis === 1 && z > 39)) continue;
+        const g = heights[x]![z]!;
+        for (let y = g; y < g + 4; y++) at.push(x, y, z, axis);
+      }
+    }
+    expect(applyBlockEdits(walled, [{ kind: 'edges', at, edge: { block: 'wall' } }], { types, stamps: new Map() }).ok).toBe(true);
+    const looks = { source: (t: BlockType, v: number, fm: [number, number, number]) => ({ key: `${t.blockId}:${v}`, source: shapeSource(t.shape, fm[0], fm[1], fm[2]), uv: 'world' as const }) };
+    const keys = walled.chunkKeys();
+    const time = (g: BlockGrid, f: (cx: number, cz: number) => number): { msPerChunk: number; count: number } => {
+      const runs: number[] = [];
+      let count = 0;
+      for (let rep = 0; rep < 7; rep++) {
+        count = 0;
+        const t0 = performance.now();
+        for (const k of keys) {
+          const [cx, cz] = k.split(',').map(Number) as [number, number];
+          count += f(cx, cz);
+        }
+        runs.push((performance.now() - t0) / keys.length);
+      }
+      return { msPerChunk: Math.round(median(runs) * 1000) / 1000, count };
+    };
+    const tris = (g: BlockGrid) => (cx: number, cz: number): number => meshBlockChunk(g, cx, cz, types, looks).reduce((n, p) => n + p.indices.length / 3, 0);
+    const colliderTris = (g: BlockGrid) => (cx: number, cz: number): number => collisionMeshChunk(g, cx, cz, types).reduce((n, p) => n + p.indices.length / 3, 0);
+    const numbers = {
+      chunks: keys.length,
+      edges: walled.edgeCount,
+      edgesPerChunk: Math.round(walled.edgeCount / keys.length),
+      mesh: { without: time(plain, tris(plain)), with: time(walled, tris(walled)) },
+      collider: { without: time(plain, colliderTris(plain)), with: time(walled, colliderTris(walled)) },
+    };
+    record(`block-layers edges 40x40: ${JSON.stringify(numbers)}`);
+    // An edge piece is a box of 12 triangles drawn whole.
+    expect(numbers.mesh.with.count - numbers.mesh.without.count).toBe(numbers.edges * 12);
+  }, 300_000);
+
   it('a 64 × 64 rolling sloped terrain meshes flat, smoothed and with subdivided tops', () => {
     const g = slopedTerrain(64);
     const types = new Map(TYPES.map((t) => [t.blockId, t]));

@@ -23,6 +23,9 @@ const TYPES: BlockType[] = [
   { blockId: 'crate', name: 'Crate', variants: [{ model: { assetId: 'kit' } }], shape: 'full' },
   // The same model with world texture coordinates (and tangents) on one variant.
   { blockId: 'tile', name: 'Tile', variants: [{ model: { assetId: 'kit' }, uv: 'world' }, { model: { assetId: 'kit' } }], shape: 'full' },
+  // Edge pieces: a stand-in wall and a model gate.
+  { blockId: 'wall', name: 'Wall', variants: [{ color: '#aa8866' }], shape: 'full', placement: 'edge' },
+  { blockId: 'gate', name: 'Gate', variants: [{ model: { assetId: 'kit' } }], shape: 'half', placement: 'edge' },
 ];
 const LAYER: BlockLayerComponent = { cellSize: [1, 0.5, 1], bounds: { min: [0, 0, 0], max: [32, 24, 32] }, smoothAngle: 40, topSubdivision: 2 } as BlockLayerComponent;
 const q = (v: number): number => Math.round(v * 16) / 16;
@@ -40,6 +43,9 @@ function groundData(): { entityId: string; chunks: ReturnType<BlockGrid['encodeC
   }
   for (let x = 2; x < 30; x += 3) g.set(x, 20, 5, { block: 'crate' });
   for (let x = 0; x < 32; x++) g.set(x, 20, 9, { block: 'tile', variant: x % 2 });
+  // A wall along an x line across two chunks, and gates (some turned, some open) along a z line.
+  for (let z = 0; z < 32; z++) g.setEdge(16, 20, z, 0, { block: 'wall' });
+  for (let x = 0; x < 32; x += 2) g.setEdge(x, 21, 16, 1, { block: 'gate', ...(x % 4 === 0 ? { rot: 180 as const, open: true } : {}) });
   return { entityId: 'ground', chunks: g.chunkKeys().map((k) => g.encodeChunk(k)) };
 }
 
@@ -139,6 +145,9 @@ describe('block view: meshing in workers', () => {
     expect(d.chunks).toBe(4);
     expect(d.lods?.chunks).toBeGreaterThan(0);
     expect(drawn(worker)).toEqual(drawn(page));
+    // The edge pieces are drawn in their chunks: the wall's stand-in and the gate's model part.
+    expect(drawn(page).some((m) => m.includes('block:c:wall'))).toBe(true);
+    expect(drawn(page).some((m) => m.includes(':gate#'))).toBe(true);
     // World-mapped looks (the stone stand-ins, the tile's first variant) carry tangents; model-mapped ones none.
     const tangents = drawn(page).filter((m) => m.split('|')[3] !== '-');
     expect(tangents.some((m) => m.includes('block:c:stone'))).toBe(true);

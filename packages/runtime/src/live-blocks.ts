@@ -10,6 +10,9 @@
  * cell set again gets the same ids and nothing is ever allocated from the
  * scene's id space.
  *
+ * Live edge pieces (a door on a cell edge) work the same way, keyed by
+ * their edge, their root standing on the edge (`liveEdgePlacement`).
+ *
  * Pure bookkeeping: `sync` says which objects go and which come (in a fixed
  * order, so a replay spawns the same); the runtime adds and removes them
  * through its spawned-copy path (colliders, scripts, gameplay blocks, the
@@ -18,15 +21,20 @@
 import {
   LIVE_BLOCK_ROOT_MERGED,
   autoVariant,
+  blockTypeIsEdge,
   blockTypeLive,
+  edgeAutoVariant,
   cellKeyOf,
   cellOfKey,
   liveBlockIds,
   liveBlockPlacement,
   liveBlockPrefix,
   liveBlockRootId,
+  liveEdgePlacement,
+  liveEdgeRootId,
   rotatedFootprint,
   type BlockCell,
+  type BlockEdge,
   type BlockGrid,
   type BlockType,
   type EntityV3,
@@ -51,7 +59,18 @@ interface LiveLayer {
   full: boolean;
   /** Cells written since the last sync. */
   readonly dirty: Set<number>;
+  /** Edge key (`edgeKeyOf`) → its edge piece's objects. */
+  readonly edges: Map<number, LiveRecord>;
+  /** Edges written since the last sync. */
+  readonly dirtyEdges: Set<number>;
 }
+
+/** One number per edge (a cell key and the line it stands on). */
+export const edgeKeyOf = (x: number, y: number, z: number, axis: number): number => cellKeyOf(x, y, z) * 2 + axis;
+const edgeOfKey = (k: number): [number, number, number, number] => {
+  const [x, y, z] = cellOfKey(Math.floor(k / 2));
+  return [x, y, z, k % 2];
+};
 
 /** What a sync reads of a layer. */
 export interface LiveLayerSource {
@@ -66,12 +85,12 @@ export interface LiveBlockChanges {
   readonly refused: readonly string[];
 }
 
-const CELL_PART = /^(m?\d+)_(m?\d+)_(m?\d+)(-\d+)?$/;
+const CELL_PART = /^(m?\d+)_(m?\d+)_(m?\d+)[xz]?(-\d+)?$/;
 
 export class LiveBlocks {
   private readonly layers = new Map<string, LiveLayer>();
-  /** Every live object → its layer and anchor cell. */
-  private readonly byId = new Map<string, { readonly layer: string; readonly key: number }>();
+  /** Every live object → its layer and anchor cell (or edge: `axis` 0 or 1, `key` the edge's). */
+  private readonly byId = new Map<string, { readonly layer: string; readonly key: number; readonly axis: number }>();
   /** Objects whose layer left (the runtime removes them at once). */
   private gone: string[] = [];
 
@@ -94,12 +113,12 @@ export class LiveBlocks {
   /** Whether a sync has anything to do. */
   get pending(): boolean {
     if (this.gone.length > 0) return true;
-    for (const l of this.layers.values()) if (l.full || l.dirty.size > 0) return true;
+    for (const l of this.layers.values()) if (l.full || l.dirty.size > 0 || l.dirtyEdges.size > 0) return true;
     return false;
   }
 
   addLayer(layerId: string): void {
-    if (!this.layers.has(layerId)) this.layers.set(layerId, { prefix: liveBlockPrefix(layerId), cells: new Map(), full: true, dirty: new Set() });
+    if (!this.layers.has(layerId)) this.layers.set(layerId, { prefix: liveBlockPrefix(layerId), cells: new Map(), full: true, dirty: new Set(), edges: new Map(), dirtyEdges: new Set() });
   }
 
   /** A layer left the game: its objects go with it (`takeGone`). */
@@ -107,6 +126,7 @@ export class LiveBlocks {
     const l = this.layers.get(layerId);
     if (l === undefined) return;
     for (const r of l.cells.values()) this.forget(r, this.gone);
+    for (const r of l.edges.values()) this.forget(r, this.gone);
     this.layers.delete(layerId);
   }
 
@@ -129,6 +149,12 @@ export class LiveBlocks {
     this.layers.get(layerId)?.dirty.add(cellKeyOf(x, y, z));
   }
 
+  /** A written edge: looked at again at the next sync when its piece before or after is live. */
+  writtenEdge(layerId: string, x: number, y: number, z: number, axis: number, before: BlockEdge | null, after: BlockEdge | null): void {
+    if (!this.isLive(before) && !this.isLive(after)) return;
+    this.layers.get(layerId)?.dirtyEdges.add(edgeKeyOf(x, y, z, axis));
+  }
+
   /**
    * A new run: every live object goes (returned) and every cell is spawned
    * again at the next sync, so the run starts from fresh objects as it does
@@ -139,17 +165,24 @@ export class LiveBlocks {
     this.gone = [];
     for (const l of this.layers.values()) {
       for (const r of l.cells.values()) this.forget(r, out);
+      for (const r of l.edges.values()) this.forget(r, out);
       l.cells.clear();
       l.dirty.clear();
+      l.edges.clear();
+      l.dirtyEdges.clear();
       l.full = true;
     }
     return out;
   }
 
-  /** The cell a live object belongs to (its block's anchor), or null. */
-  cellOf(id: string): { layer: string; x: number; y: number; z: number } | null {
+  /** The cell a live object belongs to (its block's anchor; for an edge piece the edge's: `axis` 0 or 1), or null. */
+  cellOf(id: string): { layer: string; x: number; y: number; z: number; axis?: number } | null {
     const at = this.byId.get(id);
     if (at === undefined) return null;
+    if (at.axis >= 0) {
+      const [x, y, z, axis] = edgeOfKey(at.key);
+      return { layer: at.layer, x, y, z, axis };
+    }
     const [x, y, z] = cellOfKey(at.key);
     return { layer: at.layer, x, y, z };
   }
@@ -173,6 +206,11 @@ export class LiveBlocks {
     return this.wanted(cell, x, y, z) === null ? null : liveBlockRootId(layerId, x, y, z);
   }
 
+  /** The root id an edge's live piece has, or null when the edge shows no live prefab look. */
+  edgeRootIdOf(layerId: string, x: number, y: number, z: number, axis: number, edge: BlockEdge | null): string | null {
+    return this.wantedEdge(edge, x, y, z, axis) === null ? null : liveEdgeRootId(layerId, x, y, z, axis);
+  }
+
   /**
    * The objects to remove and to add for the cells written since the last
    * call. `taken` names ids already in the game; a cell whose ids are taken
@@ -184,9 +222,9 @@ export class LiveBlocks {
     const add: EntityV3[] = [];
     const refused: string[] = [];
     const removing = new Set<string>();
-    const spawns: { layerId: string; l: LiveLayer; src: LiveLayerSource; key: number; want: NonNullable<ReturnType<LiveBlocks['wanted']>> }[] = [];
+    const spawns: { layerId: string; l: LiveLayer; src: LiveLayerSource; key: number; axis: number; want: NonNullable<ReturnType<LiveBlocks['wanted']>> }[] = [];
     for (const [layerId, l] of this.layers) {
-      if (!l.full && l.dirty.size === 0) continue;
+      if (!l.full && l.dirty.size === 0 && l.dirtyEdges.size === 0) continue;
       const src = source(layerId);
       if (src === undefined) continue;
       const keys: number[] = [];
@@ -206,37 +244,60 @@ export class LiveBlocks {
         }
         for (const k of l.cells.keys()) if (!seen.has(k)) keys.push(k);
       } else keys.push(...l.dirty);
+      // Edges: the same walk over the edge pieces.
+      const edgeKeys: number[] = [];
+      if (l.full) {
+        const seen = new Set<number>();
+        if (src.grid.edgeCount > 0) {
+          src.grid.forEachEdge((x, y, z, axis, idx) => {
+            if (this.wantedEdge(src.grid.edgeValueOf(idx), x, y, z, axis) === null) return;
+            const k = edgeKeyOf(x, y, z, axis);
+            seen.add(k);
+            edgeKeys.push(k);
+          });
+        }
+        for (const k of l.edges.keys()) if (!seen.has(k)) edgeKeys.push(k);
+      } else edgeKeys.push(...l.dirtyEdges);
       l.full = false;
       l.dirty.clear();
+      l.dirtyEdges.clear();
       keys.sort((a, b) => a - b);
-      for (const k of keys) {
-        const [x, y, z] = cellOfKey(k);
-        const want = this.wanted(src.grid.get(x, y, z), x, y, z);
-        const had = l.cells.get(k);
-        if (had !== undefined && want !== null && had.prefabId === want.def.prefabId && had.rot === want.rot) continue;
+      edgeKeys.sort((a, b) => a - b);
+      const follow = (records: Map<number, LiveRecord>, k: number, axis: number, want: ReturnType<LiveBlocks['wanted']>): void => {
+        const had = records.get(k);
+        if (had !== undefined && want !== null && had.prefabId === want.def.prefabId && had.rot === want.rot) return;
         if (had !== undefined) {
-          l.cells.delete(k);
+          records.delete(k);
           this.forget(had, remove);
           for (const id of had.ids) removing.add(id);
         }
-        if (want !== null) spawns.push({ layerId, l, src, key: k, want });
+        if (want !== null) spawns.push({ layerId, l, src, key: k, axis, want });
+      };
+      for (const k of keys) {
+        const [x, y, z] = cellOfKey(k);
+        follow(l.cells, k, -1, this.wanted(src.grid.get(x, y, z), x, y, z));
+      }
+      for (const k of edgeKeys) {
+        const [x, y, z, axis] = edgeOfKey(k);
+        follow(l.edges, k, axis, this.wantedEdge(src.grid.edgeAt(x, y, z, axis), x, y, z, axis));
       }
     }
     for (const s of spawns) {
-      const [x, y, z] = cellOfKey(s.key);
-      const ids = liveBlockIds(liveBlockRootId(s.layerId, x, y, z), s.want.def.entities.length);
+      const edge = s.axis >= 0;
+      const [x, y, z] = edge ? edgeOfKey(s.key) : cellOfKey(s.key);
+      const ids = liveBlockIds(edge ? liveEdgeRootId(s.layerId, x, y, z, s.axis) : liveBlockRootId(s.layerId, x, y, z), s.want.def.entities.length);
       if (ids.some((id) => taken(id) && !removing.has(id))) {
         refused.push(ids[0]!);
         continue;
       }
-      const placement = liveBlockPlacement(s.src.origin, s.src.grid.cellSize, rotatedFootprint(s.want.type, s.want.rot), s.want.rot, x, y, z);
+      const placement = edge ? liveEdgePlacement(s.src.origin, s.src.grid.cellSize, x, y, z, s.axis, s.want.rot) : liveBlockPlacement(s.src.origin, s.src.grid.cellSize, rotatedFootprint(s.want.type, s.want.rot), s.want.rot, x, y, z);
       const entities = expandPrefab(s.want.def, ids, placement, entityRefKeys);
       // The root's model is drawn merged into the chunk with the other blocks.
       const root = entities[0]!.components as unknown as Record<string, unknown>;
       for (const c of LIVE_BLOCK_ROOT_MERGED) delete root[c];
       add.push(...entities);
-      s.l.cells.set(s.key, { prefabId: s.want.def.prefabId, rot: s.want.rot, ids });
-      for (const id of ids) this.byId.set(id, { layer: s.layerId, key: s.key });
+      (edge ? s.l.edges : s.l.cells).set(s.key, { prefabId: s.want.def.prefabId, rot: s.want.rot, ids });
+      for (const id of ids) this.byId.set(id, { layer: s.layerId, key: s.key, axis: s.axis });
     }
     return { remove, add, refused };
   }
@@ -251,7 +312,17 @@ export class LiveBlocks {
     return def === undefined ? null : { type, def, rot: cell.rot ?? 0 };
   }
 
-  private isLive(cell: BlockCell | null): boolean {
+  /** The prefab an edge spawns, or null (no live edge piece, or its look is not a prefab of this game). */
+  private wantedEdge(edge: BlockEdge | null, x: number, y: number, z: number, axis: number): { type: BlockType; def: PrefabDefinition; rot: number } | null {
+    if (edge === null) return null;
+    const type = this.types.get(edge.block);
+    if (type === undefined || !blockTypeIsEdge(type) || !blockTypeLive(type)) return null;
+    const look = type.variants[edge.variant ?? edgeAutoVariant(type, x, y, z, axis)];
+    const def = look?.prefab !== undefined ? this.prefabs.get(look.prefab) : undefined;
+    return def === undefined ? null : { type, def, rot: edge.rot ?? 0 };
+  }
+
+  private isLive(cell: BlockCell | BlockEdge | null): boolean {
     if (cell?.block === undefined) return false;
     const type = this.types.get(cell.block);
     return type !== undefined && blockTypeLive(type);

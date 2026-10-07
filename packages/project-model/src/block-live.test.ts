@@ -7,7 +7,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { canonicalBlockType, composeBlockContent, rotatedFootprint, validateBlockType, type BlockType } from './block-layers';
-import { blockTypeLive, liveBlockIds, liveBlockPlacement, liveBlockPrefabProblem, liveBlockPrefix, liveBlockRootId } from './block-live';
+import { blockTypeLive, liveBlockIds, liveBlockPlacement, liveBlockPrefabProblem, liveBlockPrefix, liveBlockRootId, liveEdgeRootId } from './block-live';
 import { ID_RE } from './validate';
 import type { ModelErrorV2 } from './errors';
 
@@ -60,7 +60,12 @@ describe('live block types', () => {
     expect(liveBlockPrefix(long)).toMatch(/^l[0-9a-f]{8}$/);
     expect(liveBlockPrefix(long)).not.toBe(liveBlockPrefix(`${'a'.repeat(59)}b`));
     for (const id of liveBlockIds(liveBlockRootId(long, -4096, -1024, -4096), 9999)) expect(ID_RE.test(id)).toBe(true);
-    for (const id of liveBlockIds(liveBlockRootId('a'.repeat(41), -4096, -1024, -4096), 9999)) expect(ID_RE.test(id)).toBe(true);
+    for (const id of liveBlockIds(liveBlockRootId('a'.repeat(40), -4096, -1024, -4096), 9999)) expect(ID_RE.test(id)).toBe(true);
+    // An edge piece's ids name its edge (the axis letter after the coordinates) and fit the syntax too.
+    expect(liveEdgeRootId('ground', 3, 0, 12, 0)).toBe('ground-3_0_12x');
+    expect(liveEdgeRootId('ground', 3, 0, 12, 1)).toBe('ground-3_0_12z');
+    for (const id of liveBlockIds(liveEdgeRootId('a'.repeat(40), -4096, -1024, -4096, 1), 9999)) expect(ID_RE.test(id)).toBe(true);
+    for (const id of liveBlockIds(liveEdgeRootId('a'.repeat(41), -4096, -1024, -4096, 1), 9999)) expect(ID_RE.test(id)).toBe(true);
   });
 
   it('the root stands at the bottom centre of the turned footprint, turned about +Y', () => {

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { BlockGrid, applyBlockEdits, footprintCells, footprintEdits, yawQuarterTurns, type BlockLayerComponent, type BlockType } from '@thirdlight/runtime';
+import * as eb from './block-brush';
 import {
   DEFAULT_BRUSH,
   arrayFromCells,
@@ -281,5 +282,43 @@ describe('terrain brushes', () => {
     applyBlockEdits(stored, dabs, { types, stamps: new Map() });
     expect(JSON.stringify(preview.chunkKeys().map((k) => preview.encodeChunk(k)))).toBe(JSON.stringify(stored.chunkKeys().map((k) => stored.encodeChunk(k))));
     expect(preview.get(5, preview.columnTop(5, 8)!, 8)?.corners).toBeDefined();
+  });
+});
+
+describe('edge brush maths', () => {
+  const WALL = { blockId: 'wall', name: 'Wall', variants: [{ color: '#888888' }, { color: '#999999' }], shape: 'full', placement: 'edge' } as BlockType;
+  const BOUNDS: BlockLayerComponent['bounds'] = { min: [0, 0, 0], max: [8, 4, 8] };
+
+  it('snaps to the nearest cell edge and grid corner', () => {
+    expect(eb.nearestEdge(2.1, 5.5, 1)).toEqual([2, 1, 5, 0]);
+    expect(eb.nearestEdge(2.9, 5.5, 1)).toEqual([3, 1, 5, 0]);
+    expect(eb.nearestEdge(2.5, 5.05, 1)).toEqual([2, 1, 5, 1]);
+    expect(eb.nearestEdge(2.5, 5.95, 1)).toEqual([2, 1, 6, 1]);
+    expect(eb.nearestCorner(2.6, 5.2)).toEqual([3, 5]);
+  });
+
+  it('a line runs along the grid line in the longer direction; a rectangle draws its outline', () => {
+    expect(eb.edgeLine([1, 2], [4, 3], 0)).toEqual([[1, 0, 2, 1], [2, 0, 2, 1], [3, 0, 2, 1]]);
+    expect(eb.edgeLine([1, 2], [0, 5], 0)).toEqual([[1, 0, 2, 0], [1, 0, 3, 0], [1, 0, 4, 0]]);
+    const room = eb.edgeRect([4, 4], [1, 2], 1);
+    expect(room).toHaveLength(2 * 3 + 2 * 2);
+    expect(room).toContainEqual([1, 1, 2, 1]);
+    expect(room).toContainEqual([3, 1, 4, 1]);
+    expect(room).toContainEqual([4, 1, 3, 0]);
+    expect(eb.edgeRect([1, 1], [1, 3], 0)).toEqual(eb.edgeLine([1, 1], [1, 3], 0));
+  });
+
+  it('the brush puts down the edge piece turned end for end only; the edit keeps the edges inside the bounds', () => {
+    expect(eb.allowedRotations(WALL)).toEqual([0, 180]);
+    expect(eb.nextRotation(0, WALL)).toBe(180);
+    expect(eb.brushEdge({ ...DEFAULT_BRUSH, block: 'wall', rot: 270 }, WALL)).toEqual({ block: 'wall' });
+    expect(eb.brushEdge({ ...DEFAULT_BRUSH, block: 'wall', rot: 180, randomize: false, variant: 1 }, WALL)).toEqual({ block: 'wall', rot: 180, variant: 1 });
+    expect(eb.edgeTool('rect', WALL) && !eb.edgeTool('box', WALL) && !eb.edgeTool('rect', { placement: undefined })).toBe(true);
+    // x = 8 is the layer's far border line (in bounds for an x-line edge), z = 8 is not a cell row.
+    expect(eb.edgesEdit([[8, 0, 2, 0], [2, 0, 8, 0], [2, 0, 8, 1]], { block: 'wall' }, BOUNDS)).toEqual([{ kind: 'edges', at: [8, 0, 2, 0, 2, 0, 8, 1], edge: { block: 'wall' } }]);
+    expect(eb.edgesEdit([[9, 0, 2, 0]], null, BOUNDS)).toBeNull();
+    // Previewed with the backend's own edit code.
+    const g = new BlockGrid({ cellSize: [1, 1, 1], bounds: BOUNDS });
+    expect(applyBlockEdits(g, eb.edgesEdit(eb.edgeRect([0, 0], [2, 2], 0), { block: 'wall' }, BOUNDS)!, { types: new Map([['wall', WALL]]), stamps: new Map() })).toEqual({ ok: true, cells: 8 });
   });
 });

@@ -83,6 +83,10 @@ export function chunkFileBytes(projectId: string, sceneId: string, entityId: str
       `  "cz": ${chunk.cz}`,
       `  "palette": [\n${chunk.palette.map((c) => `    ${JSON.stringify(c)}`).join(',\n')}\n  ]`,
       `  "columns": [\n${chunk.columns.map((c) => `    ${JSON.stringify(c)}`).join(',\n')}\n  ]`,
+      // The chunk's edge pieces (one row per line), when it has some.
+      ...(chunk.edges !== undefined && chunk.edgePalette !== undefined
+        ? [`  "edgePalette": [\n${chunk.edgePalette.map((e) => `    ${JSON.stringify(e)}`).join(',\n')}\n  ]`, `  "edges": [\n${chunk.edges.map((r) => `    ${JSON.stringify(r)}`).join(',\n')}\n  ]`]
+        : []),
       // The chunk's paint (one base64 line), when painted.
       ...(chunk.paint !== undefined ? [`  "paint": ${JSON.stringify(chunk.paint)}`] : []),
     ];

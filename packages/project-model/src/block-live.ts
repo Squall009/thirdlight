@@ -14,6 +14,8 @@
  * a replay and after a save is loaded, and a layer's live blocks never use
  * the scene's id space: `<layer>-<x>_<y>_<z>` for the root (negative
  * coordinates as `m<n>`), `-<i>` after it for the prefab's i-th object. A
+ * live edge piece (`block-edges.ts`: a door) is named by its edge the same
+ * way with `x` or `z` after the coordinates (an edge on an x or a z line). A
  * layer id too long to fit the id syntax is shortened to a hash of it.
  *
  * Pure data rules; the runtime keeps the entities (`runtime/src/live-blocks.ts`).
@@ -32,8 +34,8 @@ export const LIVE_BLOCK_ROOT_MERGED: readonly string[] = Object.freeze(['model',
 const ID_MAX = 64;
 /** Room kept for a child's `-<i>` (prefabs of up to 9,999 objects). */
 const CHILD_SUFFIX_MAX = 5;
-/** The longest cell part (`m4096_m1024_m4096`) the layer bounds allow. */
-const CELL_PART_MAX = 17;
+/** The longest cell part (`m4096_m1024_m4096`, an edge's with its axis letter) the layer bounds allow. */
+const CELL_PART_MAX = 18;
 
 const coord = (n: number): string => (n < 0 ? `m${-n}` : String(n));
 
@@ -54,6 +56,11 @@ export function liveBlockPrefix(layerId: string): string {
 /** The id of a live block's root object (its anchor cell's). */
 export function liveBlockRootId(layerId: string, x: number, y: number, z: number): string {
   return `${liveBlockPrefix(layerId)}-${coord(x)}_${coord(y)}_${coord(z)}`;
+}
+
+/** The id of a live edge piece's root object (its edge's: x, y, z and the line it stands on). */
+export function liveEdgeRootId(layerId: string, x: number, y: number, z: number, axis: number): string {
+  return `${liveBlockRootId(layerId, x, y, z)}${axis === 0 ? 'x' : 'z'}`;
 }
 
 /** The ids of a live block's objects: the root, then `-<i>` for the prefab's other objects in its order. */

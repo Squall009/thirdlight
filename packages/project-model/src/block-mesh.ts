@@ -21,7 +21,8 @@
  */
 import { COLLIDER_3D_LIMITS } from './components';
 import { CHUNK_SIZE, blockTypeSolid, rotatedFootprint, type BlockCell, type BlockLayerComponent, type BlockShape, type BlockType, type BlockUvMode } from './block-layers';
-import { autoVariant, chunkKeyOf, type BlockGrid } from './block-grid';
+import { autoVariant, chunkKeyOf, edgeAutoVariant, type BlockGrid } from './block-grid';
+import { blockTypeIsEdge, edgeCollides, edgeFrame, edgeLookMetres, type BlockEdge } from './block-edges';
 import { blockTopAt, cellCorners, cornerGradientAt, cornerHeightAt, diagonalSide, rotateXZ, subdividedGradientAt, subdividedHeightAt, topSubSquare, type CellCorners } from './block-surface';
 
 /** Indexed triangles in the block-local frame; `groups` split the index list by material. */
@@ -606,6 +607,8 @@ export interface BlockLookResolver {
   source(type: BlockType, variant: number, footprintMetres: [number, number, number]): { key: string; source: BlockMeshSource; uv?: BlockUvMode; tangents?: boolean } | null;
   /** Whether a block type hides neighbours' faces (default: `blockTypeSolid`). */
   solid?(type: BlockType): boolean;
+  /** Whether an edge piece is meshed (default: every one; collision leaves out open ones). */
+  edge?(type: BlockType, edge: BlockEdge): boolean;
 }
 
 interface CellLook {
@@ -852,10 +855,53 @@ export function meshBlockChunk(grid: BlockGrid, cx: number, cz: number, types: R
     }
     return keys as [WeldPoint, WeldPoint, WeldPoint];
   };
-  const parts = new Map<string, { acc: Accumulator; seen: SeenVertices; tangents: boolean; blockId: string; variant: number; material: number }>();
+  type Part = { acc: Accumulator; seen: SeenVertices; tangents: boolean; blockId: string; variant: number; material: number };
+  const parts = new Map<string, Part>();
+  const partOf = (lookKey: string, material: number, tangents: boolean, blockId: string, variant: number): Part => {
+    const key = `${lookKey}#${material}`;
+    let part = parts.get(key);
+    if (part === undefined) {
+      part = { acc: new Accumulator(), seen: new SeenVertices(), tangents, blockId, variant, material };
+      parts.set(key, part);
+    }
+    return part;
+  };
   const uv: number[] = [0, 0];
   const wx = worldUvWrap(cx * CHUNK_SIZE * cs[0]!);
   const wz = worldUvWrap(cz * CHUNK_SIZE * cs[2]!);
+  /**
+   * One triangle of a placed look (source index `i`, triangle `t`) into its
+   * part. A source vertex with world uvs becomes one vertex per projection of
+   * the triangles using it (`remap` keys v·7 + 1 + projection; own uvs: v·7).
+   */
+  const emitTriangle = (part: Part, remap: Map<number, number>, src: BlockMeshSource, rotated: Classified, worldLook: boolean, i: number, t: number, ox: number, oy: number, oz: number): void => {
+    const acc = part.acc;
+    const proj = rotated.proj[t]!;
+    for (let k = 0; k < 3; k++) {
+      const v = src.indices[i + k]!;
+      const world = worldLook || !hasOwnUv(src, v);
+      const rk = world ? v * 7 + 1 + proj : v * 7;
+      let out = remap.get(rk);
+      if (out === undefined) {
+        out = acc.positions.length / 3;
+        remap.set(rk, out);
+        const px = rotated.positions[v * 3]! + ox;
+        const py = rotated.positions[v * 3 + 1]! + oy;
+        const pz = rotated.positions[v * 3 + 2]! + oz;
+        const nx = rotated.normals[v * 3]!;
+        const ny = rotated.normals[v * 3 + 1]!;
+        const nz = rotated.normals[v * 3 + 2]!;
+        acc.positions.push(px, py, pz);
+        acc.normals.push(nx, ny, nz);
+        if (world) {
+          worldUv(proj, px, py, pz, wx, wz, uv, 0);
+          acc.uvs.push(uv[0]!, uv[1]!);
+        } else acc.uvs.push(src.uvs![v * 2]!, src.uvs![v * 2 + 1]!);
+        if (part.tangents) worldTangent(proj, rotated.face[t * 3]!, rotated.face[t * 3 + 1]!, rotated.face[t * 3 + 2]!, nx, ny, nz, acc.tangents);
+      }
+      acc.indices.push(out);
+    }
+  };
   grid.forEachInChunk(chunkKeyOf(cx, cz), (x, y, z, idx) => {
     const cell: BlockCell = grid.valueOf(idx);
     if (cell.block === undefined) return;
@@ -863,14 +909,7 @@ export function meshBlockChunk(grid: BlockGrid, cx: number, cz: number, types: R
     if (placed === null) return;
     const { look, source: src, rotated, ox, oy, oz, hidden } = placed;
     for (const g of src.groups) {
-      const key = `${look.key}#${g.material}`;
-      let part = parts.get(key);
-      if (part === undefined) {
-        part = { acc: new Accumulator(), seen: new SeenVertices(), tangents: look.tangents, blockId: look.type.blockId, variant: look.variant, material: g.material };
-        parts.set(key, part);
-      }
-      const acc = part.acc;
-      // A source vertex with world uvs becomes one vertex per projection of the triangles using it (keys v·7 + 1 + projection; own uvs: v·7).
+      const part = partOf(look.key!, g.material, look.tangents, look.type.blockId, look.variant);
       const remap = new Map<number, number>();
       for (let i = g.start; i < g.start + g.count; i += 3) {
         const t = i / 3;
@@ -895,31 +934,25 @@ export function meshBlockChunk(grid: BlockGrid, cx: number, cz: number, types: R
             continue;
           }
         }
-        for (let k = 0; k < 3; k++) {
-          const v = src.indices[i + k]!;
-          const world = look.world || !hasOwnUv(src, v);
-          const rk = world ? v * 7 + 1 + proj : v * 7;
-          let out = remap.get(rk);
-          if (out === undefined) {
-            out = acc.positions.length / 3;
-            remap.set(rk, out);
-            const px = rotated.positions[v * 3]! + ox;
-            const py = rotated.positions[v * 3 + 1]! + oy;
-            const pz = rotated.positions[v * 3 + 2]! + oz;
-            const nx = rotated.normals[v * 3]!;
-            const ny = rotated.normals[v * 3 + 1]!;
-            const nz = rotated.normals[v * 3 + 2]!;
-            acc.positions.push(px, py, pz);
-            acc.normals.push(nx, ny, nz);
-            if (world) {
-              worldUv(proj, px, py, pz, wx, wz, uv, 0);
-              acc.uvs.push(uv[0]!, uv[1]!);
-            } else acc.uvs.push(src.uvs![v * 2]!, src.uvs![v * 2 + 1]!);
-            if (part.tangents) worldTangent(proj, rotated.face[t * 3]!, rotated.face[t * 3 + 1]!, rotated.face[t * 3 + 2]!, nx, ny, nz, acc.tangents);
-          }
-          acc.indices.push(out);
-        }
+        emitTriangle(part, remap, src, rotated, look.world, i, t, ox, oy, oz);
       }
+    }
+  });
+  // The chunk's edge pieces: each look turned onto its edge, nothing hidden (they are thinner than a cell).
+  grid.forEachEdgeInChunk(chunkKeyOf(cx, cz), (x, y, z, axis, idx) => {
+    const edge = grid.edgeValueOf(idx);
+    const t = types.get(edge.block);
+    if (t === undefined || !blockTypeIsEdge(t) || (looks.edge !== undefined && !looks.edge(t, edge))) return;
+    const variant = edge.variant ?? edgeAutoVariant(t, x, y, z, axis);
+    const src = looks.source(t, variant, edgeLookMetres(t, cs));
+    if (src === null) return;
+    const f = edgeFrame(cs, x, y, z, axis, edge.rot);
+    const rotated = classifyUnculled(src.source, f.rot);
+    const world = src.uv === 'world';
+    for (const g of src.source.groups) {
+      const part = partOf(src.key, g.material, world && src.tangents === true, t.blockId, variant);
+      const remap = new Map<number, number>();
+      for (let i = g.start; i < g.start + g.count; i += 3) emitTriangle(part, remap, src.source, rotated, world, i, i / 3, f.ox, f.oy, f.oz);
     }
   });
   if (smoothing && tops.length > 0) {
@@ -1058,6 +1091,8 @@ export function collisionMeshChunk(grid: BlockGrid, cx: number, cz: number, type
       return s === null ? null : { key: 'c', source: s };
     },
     solid: (t) => t.shape === 'full' && (t.footprint === undefined || (t.footprint[0] === 1 && t.footprint[1] === 1 && t.footprint[2] === 1)),
+    // An open door lets the player through.
+    edge: (t, e) => edgeCollides(t, e),
   });
   // Merge vertices (1e-4 m grid) and collect the triangles.
   const tris: number[] = [];

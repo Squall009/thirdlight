@@ -23,11 +23,16 @@
  * - metadata paint: `meta` at the crossed cells or over a rectangle;
  * - region paint: `region` add / remove of the rectangle;
  * - stamp: `stamp` at the pressed cell; paste: `copy` (same layer) or
- *   `array` (another layer).
+ *   `array` (another layer);
+ * - with an edge piece as the brush block (a wall, door, fence): paint and
+ *   erase take the cell edge nearest the pointer as it moves, line runs along
+ *   the grid lines between the press and the release corner, rectangle draws
+ *   the edges of its outline — all one `edges` edit.
  *
  * Pure: no DOM, no three.js.
  */
-import type { BlockCell, BlockEdit, BlockLayerComponent, BlockRotation, BlockType, CellMetaValue, PaintBrush } from '@thirdlight/project-model';
+import { edgeInBounds } from '@thirdlight/runtime';
+import type { BlockCell, BlockEdge, BlockEdit, BlockLayerComponent, BlockRotation, BlockType, CellMetaValue, PaintBrush } from '@thirdlight/project-model';
 
 export type Cell3 = [number, number, number];
 
@@ -38,9 +43,9 @@ export type BlockToolId = 'single' | 'line' | 'rect' | 'box' | 'flood' | 'column
 
 /** The block tools a block layer's Inspector offers (label, key, what it does). */
 export const BLOCK_TOOLS: readonly { id: BlockToolId; label: string; hint: string }[] = [
-  { id: 'single', label: 'Paint', hint: 'Paint the brush block cell by cell (drag).' },
-  { id: 'line', label: 'Line', hint: 'Drag a straight line of blocks.' },
-  { id: 'rect', label: 'Rectangle', hint: 'Drag a one-cell-thick rectangle.' },
+  { id: 'single', label: 'Paint', hint: 'Paint the brush block cell by cell (drag); an edge piece (wall, door, fence) goes on the cell edges you drag over.' },
+  { id: 'line', label: 'Line', hint: 'Drag a straight line of blocks; an edge piece runs along the grid line between two corners.' },
+  { id: 'rect', label: 'Rectangle', hint: 'Drag a one-cell-thick rectangle; an edge piece draws its outline (the walls of a room).' },
   { id: 'box', label: 'Box', hint: 'Drag a rectangle; it is filled up to the box height.' },
   { id: 'flood', label: 'Flood', hint: 'Fill the connected cells equal to the clicked one.' },
   { id: 'column', label: 'Raise / lower', hint: 'Raise the columns you drag over by one cell (lower: Ctrl held or the Lower toggle).' },
@@ -48,7 +53,7 @@ export const BLOCK_TOOLS: readonly { id: BlockToolId; label: string; hint: strin
   { id: 'smooth', label: 'Smooth', hint: 'Terrain: even out the ground under the brush as you drag (slopes soften, cliffs wear down).' },
   { id: 'flatten', label: 'Flatten', hint: 'Terrain: level the ground under the brush to the height where the drag starts.' },
   { id: 'paint', label: 'Paint texture', hint: 'Terrain (the Paint mode): paint a material layer (1-4) or wetness onto the ground under a round brush as you drag (erase: Ctrl held or the Lower / remove toggle); a painted terrain material shows it.' },
-  { id: 'erase', label: 'Erase', hint: 'Erase cells (drag).' },
+  { id: 'erase', label: 'Erase', hint: 'Erase cells (drag); with an edge piece as the brush block, the edges you drag over.' },
   { id: 'eyedropper', label: 'Pick', hint: 'Take the clicked cell\'s block, rotation and variant as the brush.' },
   { id: 'replace', label: 'Replace all', hint: 'Replace every block of the clicked cell\'s type in the layer with the brush block.' },
   { id: 'meta', label: 'Metadata', hint: 'Paint the chosen metadata field value (drag; Rectangle shape for an area).' },
@@ -183,21 +188,22 @@ export function dabSpacing(radius: number): number {
   return Math.max(0.5, radius / 4);
 }
 
-/** The allowed rotations of a block type (absent: all four). */
-export function allowedRotations(t: Pick<BlockType, 'rotations'> | undefined): BlockRotation[] {
-  const r = (t?.rotations ?? [0, 90, 180, 270]).filter((v): v is BlockRotation => v === 0 || v === 90 || v === 180 || v === 270);
+/** The allowed rotations of a block type (absent: all four; an edge piece turns end for end only). */
+export function allowedRotations(t: (Pick<BlockType, 'rotations'> & Partial<Pick<BlockType, 'placement'>>) | undefined): BlockRotation[] {
+  const all: number[] = t?.placement === 'edge' ? [0, 180] : [0, 90, 180, 270];
+  const r = (t?.rotations ?? all).filter((v): v is BlockRotation => all.includes(v));
   return r.length > 0 ? [...r].sort((a, b) => a - b) : [0];
 }
 
 /** The next allowed rotation after `rot` (a quarter turn counter-clockwise, skipping disallowed ones). */
-export function nextRotation(rot: BlockRotation, t: Pick<BlockType, 'rotations'> | undefined): BlockRotation {
+export function nextRotation(rot: BlockRotation, t: (Pick<BlockType, 'rotations'> & Partial<Pick<BlockType, 'placement'>>) | undefined): BlockRotation {
   const allowed = allowedRotations(t);
   const after = allowed.find((r) => r > rot);
   return after ?? allowed[0]!;
 }
 
 /** The rotation to paint: the brush's if the type allows it, else its first allowed one. */
-export function paintRotation(rot: BlockRotation, t: Pick<BlockType, 'rotations'> | undefined): BlockRotation {
+export function paintRotation(rot: BlockRotation, t: (Pick<BlockType, 'rotations'> & Partial<Pick<BlockType, 'placement'>>) | undefined): BlockRotation {
   const allowed = allowedRotations(t);
   return allowed.includes(rot) ? rot : allowed[0]!;
 }
@@ -216,6 +222,69 @@ export function brushCell(b: BrushState, t: Pick<BlockType, 'rotations' | 'varia
 export function pickBrush(b: BrushState, cell: BlockCell | null): BrushState {
   if (cell === null || cell.block === undefined) return b;
   return { ...b, block: cell.block, rot: (cell.rot ?? 0) as BlockRotation, variant: cell.variant ?? null, randomize: cell.variant === undefined };
+}
+
+// ---- edge pieces -------------------------------------------------------------------------
+
+/** An edge: x, y, z and its line (0: an x line, the cell's −x side; 1: a z line, its −z side), as the `edges` edit takes it. */
+export type Edge4 = [number, number, number, number];
+
+/** Whether the brush paints edge pieces with this tool (its block is an edge piece, and the tool draws). */
+export function edgeTool(tool: BlockToolId, t: Pick<BlockType, 'placement'> | undefined): boolean {
+  return t?.placement === 'edge' && (tool === 'single' || tool === 'erase' || tool === 'line' || tool === 'rect');
+}
+
+/** The cell edge nearest a point of row `y` (`fx`, `fz` in cells: the side of the cell under it the point is closest to). */
+export function nearestEdge(fx: number, fz: number, y: number): Edge4 {
+  const cx = Math.floor(fx);
+  const cz = Math.floor(fz);
+  const u = fx - cx;
+  const v = fz - cz;
+  const d = [u, 1 - u, v, 1 - v];
+  const side = d.indexOf(Math.min(...d));
+  return side === 0 ? [cx, y, cz, 0] : side === 1 ? [cx + 1, y, cz, 0] : side === 2 ? [cx, y, cz, 1] : [cx, y, cz + 1, 1];
+}
+
+/** The grid corner nearest a point (cells). */
+export const nearestCorner = (fx: number, fz: number): [number, number] => [Math.round(fx), Math.round(fz)];
+
+/** The edges along the grid line from corner `a` toward `b` on row `y`: straight along the longer direction, from the press corner. */
+export function edgeLine(a: readonly [number, number], b: readonly [number, number], y: number): Edge4[] {
+  const out: Edge4[] = [];
+  if (Math.abs(b[0] - a[0]) >= Math.abs(b[1] - a[1])) for (let x = Math.min(a[0], b[0]); x < Math.max(a[0], b[0]); x++) out.push([x, y, a[1], 1]);
+  else for (let z = Math.min(a[1], b[1]); z < Math.max(a[1], b[1]); z++) out.push([a[0], y, z, 0]);
+  return out;
+}
+
+/** The edges of the outline of the rectangle between corners `a` and `b` on row `y` (a flat one is a line). */
+export function edgeRect(a: readonly [number, number], b: readonly [number, number], y: number): Edge4[] {
+  const [x0, x1] = [Math.min(a[0], b[0]), Math.max(a[0], b[0])];
+  const [z0, z1] = [Math.min(a[1], b[1]), Math.max(a[1], b[1])];
+  if (x0 === x1 || z0 === z1) return edgeLine([x0, z0], [x1, z1], y);
+  const out: Edge4[] = [];
+  for (let x = x0; x < x1; x++) out.push([x, y, z0, 1], [x, y, z1, 1]);
+  for (let z = z0; z < z1; z++) out.push([x0, y, z, 0], [x1, y, z, 0]);
+  return out;
+}
+
+/** The edge piece the brush puts down (null: no block chosen). */
+export function brushEdge(b: BrushState, t: (Pick<BlockType, 'rotations' | 'variants'> & Partial<Pick<BlockType, 'placement'>>) | undefined): BlockEdge | null {
+  if (b.block === null) return null;
+  const rot = paintRotation(b.rot, t);
+  return { block: b.block, ...(rot === 180 ? { rot: 180 as const } : {}), ...(!b.randomize && b.variant !== null && t !== undefined && b.variant >= 0 && b.variant < t.variants.length ? { variant: b.variant } : {}) };
+}
+
+/** The `edges` edit for a list of edges (those inside the bounds; null: none left). */
+export function edgesEdit(edges: readonly Edge4[], edge: BlockEdge | null, bounds: BlockLayerComponent['bounds']): BlockEdit[] | null {
+  const at: number[] = [];
+  for (const e of edges) if (edgeInBounds(bounds.min, bounds.max, e[0], e[1], e[2], e[3])) at.push(e[0], e[1], e[2], e[3]);
+  return at.length > 0 ? [{ kind: 'edges', at, edge }] : null;
+}
+
+/** The cell box (fractional) an edge's ghost covers: a slab `thick` cells thick on the edge. */
+export function edgeGhostBox(e: Edge4, thick: number): number[] {
+  const h = thick / 2;
+  return e[3] === 0 ? [e[0] - h, e[1], e[2], e[0] + h, e[1] + 1, e[2] + 1] : [e[0], e[1], e[2] - h, e[0] + 1, e[1] + 1, e[2] + h];
 }
 
 // ---- strokes ---------------------------------------------------------------------------

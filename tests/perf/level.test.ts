@@ -31,6 +31,20 @@ describe('the level classes', () => {
     }
   });
 
+  it('can build the rooms from edge pieces: the same rooms, walls as edges from the ground up, each edit a request\'s size', () => {
+    const cells = levelPlan('area');
+    const edges = levelPlan('area', undefined, 0, true);
+    expect(edges.rooms).toEqual(cells.rooms);
+    expect(edges.blockEdits.some((e) => e['kind'] === 'fill' && (e['cell'] as { block?: string }).block === 'rock')).toBe(false);
+    const list = edges.blockEdits.filter((e) => e['kind'] === 'edges');
+    expect(list).toHaveLength(2 * LEVEL_SPEC.rooms);
+    for (const e of list) expect(JSON.stringify(e).length).toBeLessThan(64 * 1024);
+    expect(edges.counts['edges']).toBe(list.reduce((n, e) => n + (e['at'] as number[]).length / 4, 0));
+    expect(edges.counts['edges']).toBeGreaterThan(1000);
+    // The default plan is unchanged by the option (the recorded classes stay comparable).
+    expect(cells.edgeWalls).toBe(false);
+  });
+
   it('makes the landscape the area plus far rings outside it, under the far plane', () => {
     const a = levelPlan('area');
     const l = levelPlan('landscape');

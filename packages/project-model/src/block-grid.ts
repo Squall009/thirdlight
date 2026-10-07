@@ -34,6 +34,7 @@ import { decodeBase64, decodePngRgba } from './png-decode';
 import { SCULPT_LIMITS, SCULPT_OPS, sculptHeights, setColumnSurface, type SculptOp } from './block-sculpt';
 import { PAINT_CHANNELS, decodeChunkPaint, encodeChunkPaint, isUnpainted, paintDab, unpaintedChunk, type PaintSurface } from './block-paint';
 import { paintBrushError, type BrushFalloff } from './paint-brush';
+import { canonicalBlockEdge, edgeInBounds, edgeLocalKey, edgesEditShapeError, edgesEditTargets, type BlockEdge, type EdgesEdit } from './block-edges';
 
 // ---- keys ---------------------------------------------------------------------------
 
@@ -63,13 +64,25 @@ export const chunkKeyOf = (cx: number, cz: number): string => `${cx},${cz}`;
  * its columns more than its depth.
  */
 export const BLOCK_COLUMN_BYTES = 270;
+/** The memory an edge piece takes: its entry in its chunk's edge map (measured on V8: 28 bytes an edge in chunks of 256 edges). */
+export const BLOCK_EDGE_BYTES = 28;
 
 /** A layer's cells in memory (`BlockGrid.memory`). */
 export interface BlockLayerMemory {
   chunks: number;
   columns: number;
   cells: number;
+  /** Edge pieces (`block-edges.ts`). */
+  edges: number;
   bytes: number;
+}
+
+/** An edge's local key (`edgeLocalKey`) back to lx, lz, y, axis. */
+function edgeOfLocalKey(k: number): [number, number, number, number] {
+  const lx = k % CHUNK_SIZE;
+  const lz = Math.floor(k / CHUNK_SIZE) % CHUNK_SIZE;
+  const r = Math.floor(k / (CHUNK_SIZE * CHUNK_SIZE));
+  return [lx, lz, Math.floor(r / 2) - BLOCK_LIMITS.coordinateY, r % 2];
 }
 
 /** A column's cells: palette indices (−1 empty) from `y0` up. */
@@ -95,6 +108,9 @@ export class BlockGrid {
   readonly regions = new Map<string, number[][]>();
   /** Each chunk's paint lattice (`block-paint.ts`); absent: unpainted. */
   private readonly paints = new Map<string, Uint8Array>();
+  /** Each chunk's edge pieces: edge local key (`edgeLocalKey`) → palette index (edge values share the palette). */
+  private readonly edgeChunks = new Map<string, Map<number, number>>();
+  private edgeTotal = 0;
   /** Chunks written since the last `takeDirty` (keys). */
   private dirty = new Set<string>();
   /** Chunks whose meshes (render, collision) changed: the written ones and their neighbours across a written border cell. */
@@ -138,6 +154,13 @@ export class BlockGrid {
       }
       const paint = decodeChunkPaint(c.paint);
       if (paint !== null) g.paints.set(ck, paint);
+      if (c.edges !== undefined && c.edgePalette !== undefined && c.edges.length > 0) {
+        const values = c.edgePalette.map((e) => g.internEdge(e));
+        const map = new Map<number, number>();
+        for (const r of c.edges) map.set(edgeLocalKey(r[0]!, r[1]!, r[2]!, r[3]!), values[r[4]!]!);
+        g.edgeChunks.set(ck, map);
+        g.edgeTotal += map.size;
+      }
     }
     for (const r of data?.regions ?? []) g.regions.set(r.regionId, r.boxes.map((b) => [...b]));
     g.dirty.clear();
@@ -168,8 +191,26 @@ export class BlockGrid {
     return i;
   }
 
+  /** The palette index of an edge value (edges and cells share the palette; an edge's key is its canonical form). */
+  internEdge(edge: BlockEdge): number {
+    const e = canonicalBlockEdge(edge);
+    const k = JSON.stringify(e);
+    let i = this.keys.get(k);
+    if (i === undefined) {
+      i = this.palette.length;
+      this.palette.push(Object.freeze(e) as BlockCell);
+      this.keys.set(k, i);
+    }
+    return i;
+  }
+
   valueOf(index: number): BlockCell {
     return this.palette[index] as BlockCell;
+  }
+
+  /** An edge value by its palette index. */
+  edgeValueOf(index: number): BlockEdge {
+    return this.palette[index] as unknown as BlockEdge;
   }
 
   /** Every distinct cell value the layer has held (what a renderer may need looks for before meshing). */
@@ -205,6 +246,73 @@ export class BlockGrid {
   get(x: number, y: number, z: number): BlockCell | null {
     const i = this.indexAt(x, y, z);
     return i < 0 ? null : (this.palette[i] as BlockCell);
+  }
+
+  // ---- Edge pieces ----------------------------------------------------------
+
+  /** The number of edge pieces. */
+  get edgeCount(): number {
+    return this.edgeTotal;
+  }
+
+  /** Whether an edge lies within the bounds (one past the cells along its axis). */
+  edgeInBounds(x: number, y: number, z: number, axis: number): boolean {
+    return edgeInBounds(this.min, this.max, x, y, z, axis);
+  }
+
+  /** The palette index of the edge piece at (x, y, z, axis) (−1: none). */
+  edgeIndexAt(x: number, y: number, z: number, axis: number): number {
+    const cx = chunkIndex(x);
+    const cz = chunkIndex(z);
+    return this.edgeChunks.get(chunkKeyOf(cx, cz))?.get(edgeLocalKey(x - cx * CHUNK_SIZE, z - cz * CHUNK_SIZE, y, axis)) ?? -1;
+  }
+
+  edgeAt(x: number, y: number, z: number, axis: number): BlockEdge | null {
+    const i = this.edgeIndexAt(x, y, z, axis);
+    return i < 0 ? null : this.edgeValueOf(i);
+  }
+
+  /** Write an edge piece's palette index (−1 removes it); returns whether it changed. Only its own chunk re-meshes (edges hide no faces). */
+  setEdgeIndex(x: number, y: number, z: number, axis: number, index: number): boolean {
+    const cx = chunkIndex(x);
+    const cz = chunkIndex(z);
+    const ck = chunkKeyOf(cx, cz);
+    const lk = edgeLocalKey(x - cx * CHUNK_SIZE, z - cz * CHUNK_SIZE, y, axis);
+    let map = this.edgeChunks.get(ck);
+    const before = map?.get(lk) ?? -1;
+    if (before === index) return false;
+    if (index < 0) {
+      map!.delete(lk);
+      this.edgeTotal -= 1;
+      if (map!.size === 0) this.edgeChunks.delete(ck);
+    } else {
+      if (map === undefined) this.edgeChunks.set(ck, (map = new Map()));
+      map.set(lk, index);
+      if (before < 0) this.edgeTotal += 1;
+    }
+    this.dirty.add(ck);
+    this.meshDirty.add(ck);
+    return true;
+  }
+
+  setEdge(x: number, y: number, z: number, axis: number, edge: BlockEdge | null): boolean {
+    return this.setEdgeIndex(x, y, z, axis, edge === null ? -1 : this.internEdge(edge));
+  }
+
+  /** Every edge piece of a chunk (y, axis, z, x ascending). */
+  forEachEdgeInChunk(ck: string, cb: (x: number, y: number, z: number, axis: number, index: number) => void): void {
+    const map = this.edgeChunks.get(ck);
+    if (map === undefined) return;
+    const [cx, cz] = ck.split(',').map(Number) as [number, number];
+    for (const lk of [...map.keys()].sort((a, b) => a - b)) {
+      const [lx, lz, y, axis] = edgeOfLocalKey(lk);
+      cb(cx * CHUNK_SIZE + lx, y, cz * CHUNK_SIZE + lz, axis, map.get(lk)!);
+    }
+  }
+
+  /** Every edge piece (chunks in key order). */
+  forEachEdge(cb: (x: number, y: number, z: number, axis: number, index: number) => void): void {
+    for (const ck of [...this.edgeChunks.keys()].sort(compareChunkKeys)) this.forEachEdgeInChunk(ck, cb);
   }
 
   /** Write a palette index (−1 clears); returns whether the cell changed. */
@@ -270,6 +378,19 @@ export class BlockGrid {
     for (const [k, idx] of next) {
       const [x, y, z] = cellOfKey(k);
       this.setIndex(x, y, z, idx);
+    }
+    // Its edge pieces follow.
+    const nextEdges = new Map<number, number>();
+    if (chunk?.edges !== undefined && chunk.edgePalette !== undefined) {
+      const values = chunk.edgePalette.map((e) => this.internEdge(e));
+      for (const r of chunk.edges) nextEdges.set(edgeLocalKey(r[0]!, r[1]!, r[2]!, r[3]!), values[r[4]!]!);
+    }
+    const edgeCells: [number, number, number, number][] = [];
+    this.forEachEdgeInChunk(ck, (x, y, z, axis) => edgeCells.push([x, y, z, axis]));
+    for (const [x, y, z, axis] of edgeCells) if (!nextEdges.has(edgeLocalKey(x - cx * CHUNK_SIZE, z - cz * CHUNK_SIZE, y, axis))) this.setEdgeIndex(x, y, z, axis, -1);
+    for (const [lk, idx] of nextEdges) {
+      const [lx, lz, y, axis] = edgeOfLocalKey(lk);
+      this.setEdgeIndex(cx * CHUNK_SIZE + lx, y, cz * CHUNK_SIZE + lz, axis, idx);
     }
     // The chunk's paint follows too (only this chunk's meshes read it).
     const paint = chunk !== null ? decodeChunkPaint(chunk.paint) : null;
@@ -368,12 +489,15 @@ export class BlockGrid {
       for (const col of chunk.values()) bytes += col.data.byteLength;
     }
     for (const paint of this.paints.values()) bytes += paint.byteLength;
-    return { chunks, columns, cells: this.count, bytes: bytes + columns * BLOCK_COLUMN_BYTES };
+    for (const ck of this.edgeChunks.keys()) if ((this.chunks.get(ck)?.size ?? 0) === 0) chunks += 1;
+    return { chunks, columns, cells: this.count, edges: this.edgeTotal, bytes: bytes + columns * BLOCK_COLUMN_BYTES + this.edgeTotal * BLOCK_EDGE_BYTES };
   }
 
-  /** The chunk keys holding cells, sorted (cz, cx). */
+  /** The chunk keys holding cells or edge pieces, sorted (cz, cx). */
   chunkKeys(): string[] {
-    return [...this.chunks.keys()].filter((k) => this.chunkHasCells(k)).sort(compareChunkKeys);
+    const keys = new Set([...this.chunks.keys()].filter((k) => this.chunkHasCells(k)));
+    for (const k of this.edgeChunks.keys()) keys.add(k);
+    return [...keys].sort(compareChunkKeys);
   }
 
   private chunkHasCells(ck: string): boolean {
@@ -383,10 +507,9 @@ export class BlockGrid {
     return false;
   }
 
-  /** One chunk in the canonical stored form (null: no cells). */
+  /** One chunk in the canonical stored form (null: no cells and no edge pieces). */
   encodeChunk(ck: string): BlockChunk | null {
-    const chunk = this.chunks.get(ck);
-    if (chunk === undefined) return null;
+    const chunk = this.chunks.get(ck) ?? new Map<number, Column>();
     const [cx, cz] = ck.split(',').map(Number) as [number, number];
     const remap = new Map<number, number>();
     const palette: BlockCell[] = [];
@@ -418,9 +541,31 @@ export class BlockGrid {
       flush(col.data.length);
       if (row.length > 2) columns.push(row);
     }
-    if (columns.length === 0) return null;
+    const edges = this.encodeEdges(ck);
+    if (columns.length === 0 && edges === null) return null;
     const paint = this.paints.get(ck);
-    return markCanonicalChunk({ cx, cz, palette, columns, ...(paint !== undefined && !isUnpainted(paint) ? { paint: encodeChunkPaint(paint) } : {}) });
+    return markCanonicalChunk({ cx, cz, palette, columns, ...(edges ?? {}), ...(paint !== undefined && !isUnpainted(paint) ? { paint: encodeChunkPaint(paint) } : {}) });
+  }
+
+  /** A chunk's edge pieces in the canonical stored form (rows in local key order, palette by first use; null: none). */
+  private encodeEdges(ck: string): { edgePalette: BlockEdge[]; edges: number[][] } | null {
+    const map = this.edgeChunks.get(ck);
+    if (map === undefined || map.size === 0) return null;
+    const remap = new Map<number, number>();
+    const edgePalette: BlockEdge[] = [];
+    const edges: number[][] = [];
+    for (const lk of [...map.keys()].sort((a, b) => a - b)) {
+      const idx = map.get(lk)!;
+      let q = remap.get(idx);
+      if (q === undefined) {
+        q = edgePalette.length;
+        remap.set(idx, q);
+        edgePalette.push({ ...this.edgeValueOf(idx) });
+      }
+      const [lx, lz, y, axis] = edgeOfLocalKey(lk);
+      edges.push([lx, lz, y, axis, q]);
+    }
+    return { edgePalette, edges };
   }
 
   /** The chunks written since the last call (keys, sorted), the chunks to re-mesh, and the regions changed. */
@@ -587,9 +732,11 @@ export type BlockEdit =
    * toward the target per dab at the centre (0-1], `falloff` smooth (default),
    * linear or constant. Only chunks holding cells are painted.
    */
-  | { kind: 'paint'; at: number[]; radius: number; strength: number; channel: number; falloff?: BrushFalloff; erase?: boolean };
+  | { kind: 'paint'; at: number[]; radius: number; strength: number; channel: number; falloff?: BrushFalloff; erase?: boolean }
+  /** Edge pieces (`block-edges.ts`): set (or remove with null) the edges at `at` (x, y, z, axis, …) or on and inside `box`; `keep`: only where none stands. */
+  | EdgesEdit;
 
-export const BLOCK_EDIT_KINDS = ['fill', 'cells', 'array', 'replace', 'meta', 'flood', 'column', 'stamp', 'copy', 'region', 'heightmap', 'surface', 'sculpt', 'paint'] as const;
+export const BLOCK_EDIT_KINDS = ['fill', 'cells', 'array', 'replace', 'meta', 'flood', 'column', 'stamp', 'copy', 'region', 'heightmap', 'surface', 'sculpt', 'paint', 'edges'] as const;
 
 const EDIT_KEYS: Record<(typeof BLOCK_EDIT_KINDS)[number], { required: string[]; optional: string[] }> = {
   fill: { required: ['box', 'cell'], optional: ['mode'] },
@@ -606,6 +753,7 @@ const EDIT_KEYS: Record<(typeof BLOCK_EDIT_KINDS)[number], { required: string[];
   surface: { required: ['columns'], optional: ['cell'] },
   sculpt: { required: ['op', 'at', 'radius', 'strength'], optional: ['height', 'cell'] },
   paint: { required: ['at', 'radius', 'strength', 'channel'], optional: ['falloff', 'erase'] },
+  edges: { required: ['edge'], optional: ['at', 'box', 'mode'] },
 };
 
 /**
@@ -644,6 +792,11 @@ export function blockEditsShapeError(edits: unknown): { path: string; message: s
     if (e['mirror'] !== undefined && e['mirror'] !== 'x' && e['mirror'] !== 'z') return bad('mirror', 'mirror is "x" or "z"');
     for (const k of ['move', 'occupiedOnly', 'keepAbove', 'erase']) if (e[k] !== undefined && typeof e[k] !== 'boolean') return bad(k, `${k} is a boolean`);
     switch (kind) {
+      case 'edges': {
+        const ee = edgesEditShapeError(e);
+        if (ee !== null) return bad(ee.key, ee.message);
+        break;
+      }
       case 'cells':
       case 'meta':
         if (e['at'] !== undefined && (!ints(e['at']) || (e['at'] as number[]).length % 3 !== 0 || (e['at'] as number[]).length === 0)) return bad('at', 'at is a flat list of integer x, y, z triples');
@@ -1205,6 +1358,19 @@ export function applyBlockEdits(g: BlockGrid, edits: readonly BlockEdit[], ctx: 
         }
         break;
       }
+      case 'edges': {
+        if (g.metadataOnly && e.edge !== null) return fail(p, 'a metadata-only layer holds no edge pieces');
+        const targets = edgesEditTargets(g, e, BLOCK_EDIT_MAX_CELLS - visited);
+        if (typeof targets === 'string') return fail(e.at !== undefined ? `${p}/at` : `${p}/box`, targets);
+        const over = budget(targets.length, p);
+        if (over) return over;
+        const idx = e.edge === null ? -1 : g.internEdge(e.edge);
+        for (const [x, y, z, axis] of targets) {
+          if (e.mode === 'keep' && g.edgeIndexAt(x!, y!, z!, axis!) >= 0) continue;
+          if (g.setEdgeIndex(x!, y!, z!, axis!, idx)) changed += 1;
+        }
+        break;
+      }
       case 'paint': {
         // The layer's surface paint (the cells stay as they are).
         if (g.metadataOnly) return fail(p, 'a metadata-only layer has no surface to paint');
@@ -1397,6 +1563,11 @@ export function autoVariant(t: Pick<BlockType, 'variants'>, x: number, y: number
     if (pick < 0) return i;
   }
   return n - 1;
+}
+
+/** The look an edge piece without a variant shows: weighted, keyed by its place (the x- and z-line edges of one cell pick apart). */
+export function edgeAutoVariant(t: Pick<BlockType, 'variants'>, x: number, y: number, z: number, axis: number): number {
+  return autoVariant(t, x * 2 + axis, y, z);
 }
 
 /** The key of a canonical cell value (re-exported for the grid's callers). */

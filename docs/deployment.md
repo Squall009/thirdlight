@@ -4514,7 +4514,7 @@ brushes, overlays and stamp UI are below (23.6).
     run restarted (fresh objects). A cell rewritten with the same prefab and
     rotation keeps its objects and their state.
   - Ids come from the cell — `<layer>-<x>_<y>_<z>` for the root (negative
-    coordinates `m<n>`, a layer id over 41 characters shortened to a hash),
+    coordinates `m<n>`, a layer id over 40 characters shortened to a hash),
     `-<i>` after it for the prefab's i-th object — so they are the same in
     every run, replay and loaded save, and never use the scene's id space.
     Nothing of them is written into the scene file.
@@ -4540,6 +4540,48 @@ brushes, overlays and stamp UI are below (23.6).
     120 µs each to spawn (60 ms at once when a layer loads), 0.6–1.2 µs each
     per fixed step, and 16 KB of heap each; drawn, 500 leaves are one
     instanced batch (+2 draws with the shadow).
+- **Edge pieces** (30.4): a block type with **Placement: Edge**
+  (`placement: 'edge'`) stands on the edge between two cells instead of in
+  a cell — a wall, door, window, fence or railing.
+  - An edge is a cell side one row high: on an x grid line (`axis` 0, the
+    cell's −x side) or a z grid line (`axis` 1, its −z side); the cell on the
+    other side has it as its +x / +z side. A layer's edges reach one past its
+    cells along their axis, so its outer border can carry walls. Stack edges
+    for a taller wall. They are stored in their chunk beside its cells (the
+    chunk file's `edgePalette` and `edges` rows `[lx, lz, y, axis, p]`, also
+    in the binary form; additive: projects without edges keep their bytes).
+  - A look is drawn with its origin at the bottom centre of the edge, its +X
+    along the edge and +Z facing across it (+x or +z; `rot: 180` faces the
+    other way — edge pieces turn end for end only). Collision shapes: `full`
+    (a slab across the edge, an eighth of a cell thick), `half` (its lower
+    half), `custom` boxes in a cell-sized frame centred on the edge, or
+    `none`. Edge pieces are merged into the chunk mesh and collider like
+    cells; they hide no faces and are never hidden. No footprint or `solid`.
+  - **Blocks passage** (`blocking`, default on) says whether the piece stops
+    movement across its edge; an **open** piece (`open: true`, a door) never
+    does and has no collider. `ctx.grid.edge(layer, x, y, z, side)` reads the
+    piece on a cell's side (`-x`, `+x`, `-z`, `+z`) with `blocked`;
+    `ctx.grid.blocked(…)` answers just that, for grid movement and
+    pathfinding; `setEdge` / `clearEdge` / `setEdgeOpen(…, open)` write them
+    (the collider follows in the same step, refused writes return false, the
+    4,096-writes-per-step limit counts them). `ctx.grid.changes()` lists edge
+    writes with their `side`; the grid save section keeps changed edges
+    (`edges` per layer).
+  - A **Live** edge piece spawns its prefab on its edge like a live cell (ids
+    `<layer>-<x>_<y>_<z>x` / `…z` by the edge's line; `ctx.grid.edgeEntity`,
+    and `ctx.grid.cellOf(id)` gives the cell and `side`). Opening or closing
+    it keeps its objects; turning or clearing it respawns or removes them.
+    What a door does when used is the game's script (e.g. `setEdgeOpen` and
+    animating its leaf child).
+  - `editBlocks` edit `{kind: 'edges', at: [x, y, z, axis, …] | box, edge |
+    null, mode?: 'set' | 'keep'}` (a box takes every edge on its outline and
+    inside it); `queryBlocks` with a box lists the edges in it.
+  - Not yet: copy, move, mirror, stamps and paste carry cells only; an edge on
+    sloped ground stands at its row's bottom (it does not follow the slope).
+  - Measured (30.4, Node, 40 × 40 terrain with walls 4 rows high on every
+    fourth grid line, 356 edges a chunk): meshing 12.4 → 17.0 ms a chunk
+    (about 13 µs an edge), collider 3.1 → 7.4 ms a chunk; an edge takes 28
+    bytes of memory (`runtime.blockMemory` counts `edges`).
 - **Lightmaps** (25.20): a block layer object marked **Static** is baked
   like a static box or model — each chunk gets its own lightmap (one entry
   per chunk in the bake, browser preview and Blender final alike); a chunk
@@ -4639,8 +4681,14 @@ stroke or button is one undo step, and MCP can do the same.
   cell's block, rotation and look), Replace all (every block of the clicked
   type becomes the brush block), Metadata, Select, Paste, Stamp and Region.
   Adding tools place on the face under the pointer. A stroke previews at once
-  and is stored when the button is released (Esc drops it).
-- **Brush**: Rotate (Q) steps through the block type's allowed rotations;
+  and is stored when the button is released (Esc drops it). With an **edge
+  piece** as the brush block, Paint and Erase take the cell edge nearest the
+  pointer (on the row in front of the face under it) and every edge the drag
+  passes, Line runs along the grid line between the press and release
+  corners (in the longer direction), and Rectangle draws the edges of its
+  outline (a room's walls); each is one undo step.
+- **Brush**: Rotate (Q) steps through the block type's allowed rotations (an
+  edge piece: 0 and 180);
   "Random look" lets every cell show a look picked by the variants' weights
   (stable by position); off paints the chosen look.
 - **Palette**: the project's block types as colour swatches (a model's

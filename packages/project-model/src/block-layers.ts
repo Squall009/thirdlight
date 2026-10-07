@@ -36,6 +36,7 @@ import { ID_RE } from './validate';
 import type { ModelErrorV2 } from './errors';
 import { chunkPaintError, decodeChunkPaint, encodeChunkPaint, isUnpainted } from './block-paint';
 import { liveBlockPrefabProblem } from './block-live';
+import { canonicalChunkEdges, composeChunkEdges, validateBlockPlacement, validateChunkEdges, type BlockEdge, type BlockPlacement } from './block-edges';
 
 // ---- types -----------------------------------------------------------------------
 
@@ -78,6 +79,10 @@ export interface BlockChunk {
    * (all first layer, dry).
    */
   paint?: string;
+  /** The edge pieces' values (`block-edges.ts`); present with `edges`. */
+  edgePalette?: BlockEdge[];
+  /** The chunk's edge pieces: `[lx, lz, y, axis, p]` rows (p an `edgePalette` index); absent: none. */
+  edges?: number[][];
 }
 
 /** A named set of cells: boxes `[x0, y0, z0, x1, y1, z1]` (min inclusive, max exclusive). */
@@ -179,6 +184,10 @@ export interface BlockType {
    * Stored only when true.
    */
   live?: boolean;
+  /** `edge`: it stands on cell edges (walls, doors, fences; `block-edges.ts`); absent: it fills cells. Stored only when `edge`. */
+  placement?: BlockPlacement;
+  /** An edge piece blocks passage across its edge (absent: true; stored only when false). An open edge never does. */
+  blocking?: boolean;
 }
 
 export type CellFieldType = 'bool' | 'enum' | 'int' | 'float' | 'string';
@@ -518,7 +527,8 @@ export function validateBlockTypes(value: unknown, path: string, errors: ModelEr
 
 export function validateBlockType(t: unknown, p: string, errors: ModelErrorV2[]): void {
   if (!isPlainObject(t)) return err(errors, 'field_type', p, 'a block type is an object', t, 'object');
-  onlyKeys(t, ['blockId', 'name', 'variants', 'shape', 'boxes', 'solid', 'footprint', 'rotations', 'metadata', 'materials', 'uv', 'live'], p, errors, 'block type');
+  onlyKeys(t, ['blockId', 'name', 'variants', 'shape', 'boxes', 'solid', 'footprint', 'rotations', 'metadata', 'materials', 'uv', 'live', 'placement', 'blocking'], p, errors, 'block type');
+  validateBlockPlacement(t, p, errors);
   if (t['live'] !== undefined) {
     if (typeof t['live'] !== 'boolean') err(errors, 'field_type', `${p}/live`, 'live is a boolean', t['live'], 'boolean');
     else if (t['live'] && (!Array.isArray(t['variants']) || !t['variants'].some((v) => isPlainObject(v) && v['prefab'] !== undefined))) err(errors, 'field_value', `${p}/live`, 'a live block spawns its prefab looks: give it a prefab look', t['live']);
@@ -589,6 +599,8 @@ export function canonicalBlockType(t: BlockType): BlockType {
   }
   if (t.uv === 'world') out.uv = 'world';
   if (t.live === true) out.live = true;
+  if (t.placement === 'edge') out.placement = 'edge';
+  if (t.placement === 'edge' && t.blocking === false) out.blocking = false;
   return out;
 }
 
@@ -864,8 +876,8 @@ export function validateSceneBlocks(value: unknown, entities: readonly unknown[]
         const keys = new Set<string>();
         chunks.forEach((c, j) => {
           const cp = `${p}/chunks/${j}`;
-          if (!isPlainObject(c)) return err(errors, 'field_type', cp, 'a chunk is {cx, cz, palette, columns, paint?}', c, 'object');
-          onlyKeys(c, ['cx', 'cz', 'palette', 'columns', 'paint'], cp, errors, 'chunk');
+          if (!isPlainObject(c)) return err(errors, 'field_type', cp, 'a chunk is {cx, cz, palette, columns, edgePalette?, edges?, paint?}', c, 'object');
+          onlyKeys(c, ['cx', 'cz', 'palette', 'columns', 'edgePalette', 'edges', 'paint'], cp, errors, 'chunk');
           // The chunk's paint lattice.
           if (c['paint'] !== undefined) {
             const pe = chunkPaintError(c['paint']);
@@ -888,6 +900,7 @@ export function validateSceneBlocks(value: unknown, entities: readonly unknown[]
           }
           const n = validateColumns(c['columns'], `${cp}/columns`, errors, CHUNK_SIZE, CHUNK_SIZE, BLOCK_LIMITS.coordinateY * -1, BLOCK_LIMITS.coordinateY, palette.length);
           if (n < 0) return;
+          validateChunkEdges(c, cp, errors, { bounds: { min: min as [number, number, number], max: max as [number, number, number] }, ...(comp.metadataOnly === true ? { metadataOnly: true } : {}) });
           // Every cell within the layer's bounds.
           for (const col of c['columns'] as number[][]) {
             const x = (cx as number) * CHUNK_SIZE + col[0]!;
@@ -940,10 +953,11 @@ const canonicalChunks = new WeakSet<BlockChunk>();
 export function canonicalBlockChunk(c: BlockChunk): BlockChunk | null {
   if (canonicalChunks.has(c)) return c;
   const runs = canonicalRuns(c.palette, c.columns);
-  if (runs.columns.length === 0) return null;
+  const edges = canonicalChunkEdges(c.edgePalette, c.edges);
+  if (runs.columns.length === 0 && edges === null) return null;
   // An all-unpainted lattice is not stored.
   const paint = c.paint !== undefined ? decodeChunkPaint(c.paint) : null;
-  const out: BlockChunk = { cx: c.cx, cz: c.cz, palette: runs.palette, columns: runs.columns, ...(paint !== null && !isUnpainted(paint) ? { paint: encodeChunkPaint(paint) } : {}) };
+  const out: BlockChunk = { cx: c.cx, cz: c.cz, palette: runs.palette, columns: runs.columns, ...(edges ?? {}), ...(paint !== null && !isUnpainted(paint) ? { paint: encodeChunkPaint(paint) } : {}) };
   canonicalChunks.add(out);
   return out;
 }
@@ -1011,6 +1025,7 @@ function composeCells(palette: readonly BlockCell[], path: string, content: Bloc
       else {
         if (!(t.rotations ?? ROTATIONS).includes(c.rot ?? 0)) err(errors, 'field_value', `${p}/rot`, `block "${t.blockId}" allows the rotations ${(t.rotations ?? ROTATIONS).join(', ')}`, c.rot ?? 0);
         if (c.variant !== undefined && c.variant >= t.variants.length) err(errors, 'field_value', `${p}/variant`, `block "${t.blockId}" has ${t.variants.length} variant(s)`, c.variant);
+        if (t.placement === 'edge') err(errors, 'field_value', `${p}/block`, `block "${t.blockId}" is an edge piece: it stands on cell edges (an edges edit), not in a cell`, c.block);
         if (c.corners !== undefined && !blockTypeSlopes(t)) err(errors, 'field_value', `${p}/corners`, `corners slope the top of a single-cell full block; block "${t.blockId}" is ${t.shape}${t.footprint !== undefined ? ` with a footprint of ${t.footprint.join(' × ')}` : ''}`, c.corners);
       }
     }
@@ -1049,6 +1064,7 @@ export function composeBlockLayers(blocks: readonly BlockLayerData[] | undefined
       if (seen !== undefined && seen.types === content.blockTypes && seen.fields === content.cellFields && seen.metadataOnly === metadataOnly) return;
       const before = errors.length;
       composeCells(c.palette, `/blocks/${i}/chunks/${j}/palette`, content, errors, metadataOnly);
+      composeChunkEdges(c.edgePalette, `/blocks/${i}/chunks/${j}/edgePalette`, types, errors);
       if (errors.length === before) composed.set(c, { types: content.blockTypes, fields: content.cellFields, metadataOnly });
     });
     if (hasFootprints) footprintErrors(entry, comp, types, `/blocks/${i}`, errors);

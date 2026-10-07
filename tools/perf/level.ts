@@ -22,6 +22,11 @@
  * reads its cell's `open` field every step) and a door leaf with a box and a
  * box collider, so each cell spawns two objects in the game.
  *
+ * Either class can build its rooms from edge pieces instead (`--edge-walls`;
+ * cell walls by default, as recorded): each wall a stack of one-row edge
+ * pieces on the room's outline from the ground up, the door gap two closed
+ * door pieces, so the two runs compare walls of cells with walls of edges.
+ *
  * Both classes share the camera (at the area's edge, looking across it to the
  * horizon) and the environment, so the landscape's extra cost is the far part.
  * `levelPlan` is a pure function of the kind and the seed; `buildLevel`
@@ -120,6 +125,8 @@ export interface LevelPlan {
   counts: Record<string, number>;
   /** Live door cells [x, y, z] of the layer (empty: none). */
   liveDoors: [number, number, number][];
+  /** The rooms' walls are edge pieces (`rock-wall`, the door gap `rock-door`). */
+  edgeWalls: boolean;
 }
 
 /** The live door's script: it finds its cell once, then reads the cell's `open` field every step. */
@@ -153,7 +160,7 @@ function copies(n: number, at: (i: number) => { x: number; y: number; z: number;
   return f;
 }
 
-export function levelPlan(kind: LevelKind, seed = LEVEL_SEED, liveDoorCount = 0): LevelPlan {
+export function levelPlan(kind: LevelKind, seed = LEVEL_SEED, liveDoorCount = 0, edgeWalls = false): LevelPlan {
   const S = LEVEL_SPEC;
   const N = S.areaSide;
   const rnd = prng(seed * 104729 + N);
@@ -200,6 +207,29 @@ export function levelPlan(kind: LevelKind, seed = LEVEL_SEED, liveDoorCount = 0)
     const top = Math.ceil(hi) + 6;
     const doorX = x0 + Math.floor(w / 2);
     const cell = { block: 'rock' };
+    if (edgeWalls) {
+      // The outline's edges from the ground (the lower end of the edge) up to the top; the door gap holds doors.
+      const wall: number[] = [];
+      const doors: number[] = [];
+      const stack = (out: number[], x: number, z: number, axis: number, top_: number): void => {
+        const ground = Math.floor(Math.min(levelHeightAt(x, z), axis === 0 ? levelHeightAt(x, z + 1) : levelHeightAt(x + 1, z)));
+        for (let y = ground; y < top_; y += 1) out.push(x, y, z, axis);
+      };
+      for (let x = x0; x < x1; x += 1) {
+        if (x === doorX || x === doorX + 1) stack(doors, x, z0, 1, Math.floor(levelHeightAt(x, z0)) + 4);
+        else stack(wall, x, z0, 1, top);
+        stack(wall, x, z1, 1, top);
+      }
+      for (let z = z0; z < z1; z += 1) {
+        stack(wall, x0, z, 0, top);
+        stack(wall, x1, z, 0, top);
+      }
+      walls.push({ kind: 'edges', at: wall, edge: { block: 'rock-wall' } }, { kind: 'edges', at: doors, edge: { block: 'rock-door' } });
+      counts.edges = (counts.edges ?? 0) + (wall.length + doors.length) / 4;
+      rooms.push({ box: [x0, z0, x1, z1], top });
+      counts.rooms! += 1;
+      continue;
+    }
     // The z0 wall in two parts around a two-column door; the others whole.
     walls.push(
       { kind: 'fill', box: [x0, 0, z0, doorX, top, z0 + 1], cell },
@@ -314,7 +344,7 @@ export function levelPlan(kind: LevelKind, seed = LEVEL_SEED, liveDoorCount = 0)
   // At the area's south edge, 8 m over its ground, looking north across it to the horizon.
   const pitch = -0.12;
   const camera: LevelPlan['camera'] = { position: [0, r3(groundY(half, N - 2) + 8), half - 2], rotation: [r6(Math.sin(pitch / 2)), 0, 0, r6(Math.cos(pitch / 2))] };
-  return { kind, version: LEVEL_VERSION, seed, props, buffers, layer, batches, blockEdits, rooms, camera, counts, liveDoors };
+  return { kind, version: LEVEL_VERSION, seed, props, buffers, layer, batches, blockEdits, rooms, camera, counts, liveDoors, edgeWalls };
 }
 
 /**
@@ -403,14 +433,20 @@ export async function buildLevel(be: PerfBackend, projectId: string, plan: Level
   }
   await cmd('setBlockType', { block: { blockId: 'soil', name: 'Soil', variants: [{ color: '#6f8a4a' }, { color: '#7a9050' }], shape: 'full' } });
   await cmd('setBlockType', { block: { blockId: 'rock', name: 'Rock', variants: [{ color: '#8a8580' }, { color: '#7d7872' }], shape: 'full' } });
+  if (plan.edgeWalls) {
+    await cmd('setBlockType', { block: { blockId: 'rock-wall', name: 'Rock wall', variants: [{ color: '#8a8580' }, { color: '#7d7872' }], shape: 'full', placement: 'edge' } });
+    await cmd('setBlockType', { block: { blockId: 'rock-door', name: 'Rock door', variants: [{ color: '#6b4a2b' }], shape: 'full', placement: 'edge' } });
+  }
 
   await cmd('pasteEntities', { sceneId: 'scene-main', entities: [plan.layer] });
   const listed = (await p.query('queryEntities', { limit: 100, offset: 0 }))['entities'] as { id: string; components: Record<string, unknown> }[];
   const layerId = listed.find((e) => e.components['blockLayer'] !== undefined)?.id;
   if (layerId === undefined) throw new Error('level: the block layer was not created');
   for (const edit of plan.blockEdits.filter((e) => e['kind'] === 'surface')) await cmd('editBlocks', { entityId: layerId, edits: [edit] });
-  const fills = plan.blockEdits.filter((e) => e['kind'] !== 'surface');
+  const fills = plan.blockEdits.filter((e) => e['kind'] !== 'surface' && e['kind'] !== 'edges');
   for (let i = 0; i < fills.length; i += 64) await cmd('editBlocks', { entityId: layerId, edits: fills.slice(i, i + 64) });
+  // A room's edges per command (each a few kilobytes of edge lists).
+  for (const e of plan.blockEdits.filter((x) => x['kind'] === 'edges' && (x['at'] as number[]).length > 0)) await cmd('editBlocks', { entityId: layerId, edits: [e] });
   if (plan.liveDoors.length > 0) {
     // The door prefab, kept in a scene the game never loads; the block type spawns it per cell.
     await cmd('setCellFields', { fields: [{ key: 'open', type: 'bool' }] });

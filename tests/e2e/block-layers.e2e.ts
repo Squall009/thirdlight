@@ -20,6 +20,10 @@
  * object of the game (counted in Play's diagnostics, seen in the pictures
  * on both renderers), and the dug column's beacon goes with its cell.
  *
+ * Edge pieces stand on cell edges: a cyan wall two rows high along a grid
+ * line, and a live gate whose prefab's orange leaf is an object of the
+ * game; both are seen in Play and the export on both renderers.
+ *
  * A new project stores the chunk as a binary file; turning the project's
  * `block_chunk_storage` to 0 rewrites it as JSON text (the same cells
  * through queryBlocks). The export ships the cells as binary chunk data the
@@ -137,6 +141,37 @@ function magentaPixels(img: Image): number {
   return n;
 }
 
+/** Cyan pixels (green and blue well above red): the edge wall. */
+function cyanPixels(img: Image): number {
+  let n = 0;
+  for (let y = 0; y < img.height; y += 2) {
+    for (let x = 0; x < img.width; x += 2) {
+      const [r, g, b] = img.pixel(x, y);
+      if (g > r + 50 && b > r + 50 && Math.abs(g - b) < 60) n += 1;
+    }
+  }
+  return n;
+}
+
+/** Orange pixels (red above green above blue): the live gate's leaf. */
+function orangePixels(img: Image): number {
+  let n = 0;
+  for (let y = 0; y < img.height; y += 2) {
+    for (let x = 0; x < img.width; x += 2) {
+      const [r, g, b] = img.pixel(x, y);
+      if (r > 90 && r > g + 40 && g > b + 25) n += 1;
+    }
+  }
+  return n;
+}
+
+/**
+ * The edge pieces: a wall on the x = 1 grid line over z 3-8, rows 3 and 4 (on the grass tops there, 1 m
+ * high), and a live gate on the z = 14 line over x = 10, row 5.
+ */
+const WALL_EDGES: readonly number[] = [3, 4].flatMap((y) => [3, 4, 5, 6, 7, 8].flatMap((z) => [1, y, z, 0]));
+const GATE_EDGE: readonly number[] = [10, 5, 14, 1];
+
 /**
  * Beacon cells on the grass tops (row = the column's height): one in the dug column under the player, two
  * elsewhere. Each spawns the beacon prefab in the game: its root's base model is merged into the chunk, its
@@ -159,6 +194,12 @@ async function buildMap(): Promise<{ layer: string; player: string }> {
   await cmd('createPrefab', { prefabId: 'beacon', displayName: 'Beacon', sourceEntityId: beacon });
   // Not live yet: the Blocks panel's block type form turns it live.
   await cmd('setBlockType', { block: { blockId: 'beacon', name: 'Beacon', variants: [{ prefab: 'beacon' }], shape: 'none' } });
+  // Edge pieces: a cyan wall (a stand-in slab) and a live gate (a logic-only root with an orange leaf).
+  await cmd('setBlockType', { block: { blockId: 'wall', name: 'Wall', variants: [{ color: '#00d8f0' }], shape: 'full', placement: 'edge' } });
+  const gate = String((await cmd('createEntity', { sceneId: 'scene-kit', parentId: null, kind: 'group', name: 'Gate', transform: { position: [0, 0, 0] } }))['createdId']);
+  await cmd('createEntity', { sceneId: 'scene-kit', parentId: gate, kind: 'box', name: 'Gate leaf', transform: { position: [0, 0.45, 0] }, box: { size: [0.9, 0.9, 0.12], material: { color: '#ff8a00' } } });
+  await cmd('createPrefab', { prefabId: 'gate', displayName: 'Gate', sourceEntityId: gate });
+  await cmd('setBlockType', { block: { blockId: 'gate', name: 'Gate', variants: [{ prefab: 'gate' }], shape: 'full', placement: 'edge', live: true } });
   // The camera looks down at the map from its south side.
   const cam = ((await query('queryEntities', { limit: 100, offset: 0 })) as { entities: { id: string; components: Record<string, unknown> }[] }).entities.find((e) => e.components['virtualCamera'] !== undefined)!.id;
   const pitch = (-35 * Math.PI) / 180;
@@ -183,6 +224,8 @@ async function buildMap(): Promise<{ layer: string; player: string }> {
       { kind: 'region', regionId: 'spawn.area', op: 'set', boxes: [[6, 0, 6, 10, 16, 10]] },
       { kind: 'meta', box: [0, 1, 0, 16, 2, 16], set: { cost: 2 }, occupiedOnly: true },
       ...BEACONS.map(([x, y, z]) => ({ kind: 'fill', box: [x, y, z, x + 1, y + 1, z + 1], cell: { block: 'beacon' } })),
+      { kind: 'edges', at: [...WALL_EDGES], edge: { block: 'wall' } },
+      { kind: 'edges', at: [...GATE_EDGE], edge: { block: 'gate' } },
     ],
   });
   expect((res.change as { chunks: number[][] }).chunks).toEqual([[0, 0]]);
@@ -254,7 +297,7 @@ test('a block map built with bulk commands renders in the Scene view, Play and t
 
   // Read back through queryBlocks: the layer list, a box of cells with their effective metadata, a region.
   const list = (await query('queryBlocks')) as { layers: { entityId: string; cells: number; chunks: number[][]; regions: string[] }[] };
-  expect(list.layers).toEqual([expect.objectContaining({ entityId: layer, chunks: [[0, 0]], regions: ['spawn.area'] })]);
+  expect(list.layers).toEqual([expect.objectContaining({ entityId: layer, chunks: [[0, 0]], regions: ['spawn.area'], edges: WALL_EDGES.length / 4 + 1 })]);
   const cells16 = list.layers[0]!.cells;
   expect(cells16).toBeGreaterThan(16 * 16 * 2);
   const box = (await query('queryBlocks', { entityId: layer, box: [0, 0, 0, 1, 16, 1] })) as { box: { cells: number[][]; palette: { block?: string }[]; meta: { walkable: boolean; cost: number }[] } };
@@ -303,7 +346,9 @@ test('a block map built with bulk commands renders in the Scene view, Play and t
   expect(sceneFile()['blockChunkFormat']).toBeUndefined();
   const chunkFile = readFileSync(join(sceneDir, blocksDir, `${layer}.0.0.json`), 'utf8');
   expect(chunkFile).toContain('"type": "block-chunk"');
-  expect(chunkFile.split('\n').filter((l) => l.startsWith('    [')).length).toBe(256);
+  // 256 column lines, then one line per edge piece.
+  expect(chunkFile.split('\n').filter((l) => l.startsWith('    [')).length).toBe(256 + WALL_EDGES.length / 4 + 1);
+  expect(chunkFile).toContain('"edges": [');
   // The same cells either way.
   expect(((await query('queryBlocks', { entityId: layer, box: [0, 0, 0, 1, 16, 1] })) as typeof box).box).toEqual(box.box);
 
@@ -317,7 +362,14 @@ test('a block map built with bulk commands renders in the Scene view, Play and t
   await expectRestsOnBlocks(read, 'Play', topY);
   // Each beacon cell spawned its prefab (a root and its post) as objects of the game, the posts drawn.
   const liveObjects = async (): Promise<number | undefined> => ((await relay(`${psid}/diagnostics`, {})).json as { diagnostics?: { runtime?: { blockMemory?: { liveObjects?: number } } } }).diagnostics?.runtime?.blockMemory?.liveObjects;
-  await expect.poll(liveObjects, { timeout: 30_000, message: 'the beacon cells\' objects in Play' }).toBe(BEACONS.length * 2);
+  // …and the gate its root and leaf.
+  await expect.poll(liveObjects, { timeout: 30_000, message: 'the beacon cells\' and the gate\'s objects in Play' }).toBe(BEACONS.length * 2 + 2);
+  const inPlay = async (count: (img: Image) => number): Promise<number> => {
+    const shot = await relay(`${psid}/screenshot`, { maxWidth: 480 });
+    return shot.status === 200 ? count(decodePng(Buffer.from(String(shot.json.dataUrl ?? '').split(',')[1] ?? '', 'base64'))) : 0;
+  };
+  await expect.poll(() => inPlay(cyanPixels), { timeout: 60_000, message: 'the edge wall in the Play screenshot' }).toBeGreaterThan(40);
+  await expect.poll(() => inPlay(orangePixels), { timeout: 60_000, message: "the live gate's leaf in the Play screenshot" }).toBeGreaterThan(15);
   await expect
     .poll(async () => {
       const shot = await relay(`${psid}/screenshot`, { maxWidth: 480 });
@@ -336,7 +388,7 @@ test('a block map built with bulk commands renders in the Scene view, Play and t
     .toBeGreaterThan(500);
   await expectFallsThrough(read, 'Play');
   // The dug column's beacon went with its cell.
-  await expect.poll(liveObjects, { timeout: 30_000 }).toBe((BEACONS.length - 1) * 2);
+  await expect.poll(liveObjects, { timeout: 30_000 }).toBe((BEACONS.length - 1) * 2 + 2);
 
   // The static export with the backend stopped. Its scene files hold no cells: each layer names its
   // binary chunk data (gzip), a digest-addressed buffer, whatever form the project stores them in.
@@ -367,6 +419,8 @@ test('a block map built with bulk commands renders in the Scene view, Play and t
     await expect.poll(async () => Number((await canvas.getAttribute('data-tl-draws')) ?? 0), { timeout: 60_000 }).toBeGreaterThan(0);
     await expect.poll(async () => greenPixels(decodePng(await canvas.screenshot())), { timeout: 30_000, message: 'grass-green pixels in the export' }).toBeGreaterThan(500);
     await expect.poll(async () => magentaPixels(decodePng(await canvas.screenshot())), { timeout: 30_000, message: 'the beacons\' posts in the export' }).toBeGreaterThan(30);
+    await expect.poll(async () => cyanPixels(decodePng(await canvas.screenshot())), { timeout: 30_000, message: 'the edge wall in the export' }).toBeGreaterThan(80);
+    await expect.poll(async () => orangePixels(decodePng(await canvas.screenshot())), { timeout: 30_000, message: 'the live gate in the export' }).toBeGreaterThan(30);
     await expectFallsThrough(observe, 'export').catch((e: Error) => {
       throw new Error(`${e.message}\nconsole: ${logs.slice(-20).join(' | ')}`);
     });
@@ -383,6 +437,8 @@ test('a block map built with bulk commands renders in the Scene view, Play and t
         await expect.poll(async () => glCanvas.getAttribute('data-tl-renderer'), { timeout: 60_000 }).toBe('webgl2');
         await expect.poll(async () => greenPixels(decodePng(await glCanvas.screenshot())), { timeout: 30_000, message: 'grass-green pixels in the export on WebGL 2' }).toBeGreaterThan(500);
         await expect.poll(async () => magentaPixels(decodePng(await glCanvas.screenshot())), { timeout: 30_000, message: 'the beacons\' posts in the export on WebGL 2' }).toBeGreaterThan(30);
+        await expect.poll(async () => cyanPixels(decodePng(await glCanvas.screenshot())), { timeout: 30_000, message: 'the edge wall in the export on WebGL 2' }).toBeGreaterThan(80);
+        await expect.poll(async () => orangePixels(decodePng(await glCanvas.screenshot())), { timeout: 30_000, message: 'the live gate in the export on WebGL 2' }).toBeGreaterThan(30);
         expect(errors).toEqual([]);
       } finally {
         await gl.close();

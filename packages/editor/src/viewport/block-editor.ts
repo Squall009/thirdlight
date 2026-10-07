@@ -23,10 +23,16 @@
  * as one `editBlocks` on release. The Paint mode (the `paint`
  * tool) works the same way with `paint` dabs of the paint brush.
  *
+ * With an edge piece as the brush block (a wall, door, fence) the drawing
+ * tools work on cell edges: the target is the edge of the target cell's row
+ * nearest the pointer (`data-block-edge`), paint and erase collect the edges
+ * the drag passes, line and rectangle run along the grid lines between two
+ * corners; each stroke is one `edges` edit, previewed the same way.
+ *
  * Browser-only (three.js); the maths is `session/block-brush.ts`.
  */
 import * as THREE from 'three';
-import { BLOCK_EDIT_MAX_EDITS, BlockGrid, applyBlockEdits, effectiveCellMeta, pickCell } from '@thirdlight/runtime';
+import { BLOCK_EDGE_THICKNESS, BLOCK_EDIT_MAX_EDITS, BlockGrid, applyBlockEdits, effectiveCellMeta, pickCell } from '@thirdlight/runtime';
 import type { BlockCell, BlockChunk, BlockEdit, BlockLayerComponent, BlockRegion, BlockStamp, BlockType, CellField } from '@thirdlight/project-model';
 import type { BlockLayerView } from '@thirdlight/three-adapter';
 import {
@@ -34,6 +40,14 @@ import {
   beginStroke,
   boxBetween,
   brushCell,
+  brushEdge,
+  edgeGhostBox,
+  edgeLine,
+  edgeRect,
+  edgeTool,
+  edgesEdit,
+  nearestCorner,
+  nearestEdge,
   clipBox,
   dabSpacing,
   extendStroke,
@@ -50,6 +64,7 @@ import {
   type BrushState,
   type Cell3,
   type CellBox,
+  type Edge4,
   type PasteSource,
   type Stroke,
   type StrokeContext,
@@ -178,6 +193,8 @@ export class BlockEditor {
   /** A terrain brush stroke: its dabs (sent on release), the last dab's centre (columns) and the flatten height (rows). */
   private sculpt: { tool: 'height' | 'smooth' | 'flatten' | 'paint'; dabs: BlockEdit[]; last: [number, number]; level: number; invert: boolean } | null = null;
   private readonly ring: THREE.LineLoop;
+  /** An edge stroke in flight: its row, its press and current corner (line, rectangle), the edges it collected (paint, erase) and the last point (cells). */
+  private edgeStroke: { tool: BlockToolId; row: number; start: [number, number]; end: [number, number]; edges: Edge4[]; seen: Set<string>; last: [number, number] } | null = null;
   /** Measured stroke timings (tests read them from the canvas). */
   private lastStroke: { tool: BlockToolId; cells: number; previewMs: number; commitMs: number | null } | null = null;
 
@@ -350,6 +367,18 @@ export class BlockEditor {
       this.drawRing(at);
       return true;
     }
+    if (this.edgeMode()) {
+      const at = this.edgeTarget(e.clientX, e.clientY, null);
+      if (at === null) return true;
+      this.previewMs = 0;
+      this.previewChunks.clear();
+      this.scratch = null;
+      const corner = nearestCorner(at.fx, at.fz);
+      this.edgeStroke = { tool: this.opts.tool, row: at.row, start: corner, end: corner, edges: [], seen: new Set(), last: [at.fx, at.fz] };
+      this.addEdges([at.edge]);
+      this.drawEdgeStroke();
+      return true;
+    }
     const t = this.resolveTarget(e.clientX, e.clientY, null);
     if (t === null) return true;
     this.target = t;
@@ -379,6 +408,28 @@ export class BlockEditor {
       if (n > 0) k.last = [at.x, at.z];
       return true;
     }
+    if (this.edgeStroke !== null || this.edgeMode()) {
+      const k = this.edgeStroke;
+      const at = this.edgeTarget(e.clientX, e.clientY, k?.row ?? null);
+      this.host.canvas.setAttribute('data-block-edge', at === null ? '' : at.edge.join(','));
+      if (k === null) {
+        this.drawEdgeHover(at?.edge ?? null);
+        return false;
+      }
+      if (at === null) return true;
+      if (k.tool === 'single' || k.tool === 'erase') {
+        // Every edge the drag passed, sampled every quarter cell (a fast drag leaves no gaps).
+        const dx = at.fx - k.last[0];
+        const dz = at.fz - k.last[1];
+        const n = Math.max(1, Math.ceil(Math.hypot(dx, dz) * 4));
+        const crossed: Edge4[] = [];
+        for (let i = 1; i <= n; i++) crossed.push(nearestEdge(k.last[0] + (dx * i) / n, k.last[1] + (dz * i) / n, k.row));
+        k.last = [at.fx, at.fz];
+        this.addEdges(crossed);
+      } else k.end = nearestCorner(at.fx, at.fz);
+      this.drawEdgeStroke();
+      return true;
+    }
     const s = this.stroke;
     if (s === null) {
       // Hover: the target cell outline and the readout.
@@ -401,6 +452,12 @@ export class BlockEditor {
   }
 
   pointerUp(e: PointerEvent): boolean {
+    const es = this.edgeStroke;
+    if (es !== null) {
+      this.edgeStroke = null;
+      void this.finishEdgeStroke(es);
+      return true;
+    }
     const k = this.sculpt;
     if (k !== null) {
       this.sculpt = null;
@@ -417,6 +474,12 @@ export class BlockEditor {
 
   /** Esc: drop the stroke in flight (nothing is sent). */
   cancel(): boolean {
+    if (this.edgeStroke !== null) {
+      this.edgeStroke = null;
+      this.restorePreview();
+      this.drawEdgeStroke();
+      return true;
+    }
     if (this.sculpt !== null) {
       this.sculpt = null;
       this.restorePreview();
@@ -430,7 +493,107 @@ export class BlockEditor {
   }
 
   strokeInFlight(): boolean {
-    return this.stroke !== null || this.sculpt !== null;
+    return this.stroke !== null || this.sculpt !== null || this.edgeStroke !== null;
+  }
+
+  // ---- internals: edge pieces --------------------------------------------------------
+
+  /** Whether the tool in hand draws edge pieces (its brush block is one). */
+  private edgeMode(): boolean {
+    const b = this.opts.brush.block;
+    return edgeTool(this.opts.tool, b !== null ? this.types.get(b) : undefined);
+  }
+
+  /**
+   * The edge under the pointer: on the row of the cell an adding tool would
+   * fill (the one in front of the block face under it, or the slice), or on
+   * `row` during a stroke, the side of the cell under the pointer it is
+   * nearest; with the point on that row's floor (cells).
+   */
+  private edgeTarget(clientX: number, clientY: number, row: number | null): { edge: Edge4; row: number; fx: number; fz: number } | null {
+    const layer = this.layer;
+    if (layer === null) return null;
+    let y = row;
+    if (y === null) {
+      const t = this.resolveTarget(clientX, clientY, null, true);
+      if (t === null) return null;
+      y = t.cell[1];
+    }
+    const ray = this.ray(clientX, clientY);
+    const o = { x: layer.origin[0] ?? 0, y: layer.origin[1] ?? 0, z: layer.origin[2] ?? 0 };
+    const cs = layer.component.cellSize;
+    const p = ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0, 1, 0), -(o.y + y * cs[1])), new THREE.Vector3());
+    if (p === null) return null;
+    const fx = (p.x - o.x) / cs[0];
+    const fz = (p.z - o.z) / cs[2];
+    return { edge: nearestEdge(fx, fz, y), row: y, fx, fz };
+  }
+
+  /** Add edges to the paint / erase stroke in flight (each once) and preview them. */
+  private addEdges(edges: readonly Edge4[]): void {
+    const k = this.edgeStroke;
+    if (k === null || (k.tool !== 'single' && k.tool !== 'erase')) return;
+    const fresh = edges.filter((e) => {
+      const key = e.join(',');
+      if (k.seen.has(key)) return false;
+      k.seen.add(key);
+      return true;
+    });
+    if (fresh.length === 0) return;
+    k.edges.push(...fresh);
+    const edits = edgesEdit(fresh, k.tool === 'erase' ? null : this.brushEdgeValue(), this.layer!.component.bounds);
+    if (edits !== null) this.previewEdits(edits);
+  }
+
+  private brushEdgeValue(): ReturnType<typeof brushEdge> {
+    const b = this.opts.brush;
+    return brushEdge(b, b.block !== null ? this.types.get(b.block) : undefined);
+  }
+
+  /** The edges a stroke covers now. */
+  private strokeEdges(k: NonNullable<BlockEditor['edgeStroke']>): Edge4[] {
+    if (k.tool === 'line') return edgeLine(k.start, k.end, k.row);
+    if (k.tool === 'rect') return edgeRect(k.start, k.end, k.row);
+    return k.edges;
+  }
+
+  private async finishEdgeStroke(k: NonNullable<BlockEditor['edgeStroke']>): Promise<void> {
+    const layer = this.layer;
+    this.drawEdgeStroke();
+    if (layer === null) return;
+    const edits = edgesEdit(this.strokeEdges(k), k.tool === 'erase' ? null : this.brushEdgeValue(), layer.component.bounds);
+    if (edits === null) {
+      this.restorePreview();
+      return;
+    }
+    const previewMs = this.previewMs;
+    const t0 = performance.now();
+    const ok = await this.cb.onCommit(layer.entityId, edits);
+    this.lastStroke = { tool: k.tool, cells: (edits[0] as { at: number[] }).at.length / 4, previewMs: Math.round(previewMs * 100) / 100, commitMs: Math.round((performance.now() - t0) * 100) / 100 };
+    this.host.canvas.setAttribute('data-block-stroke', JSON.stringify({ ...this.lastStroke, edges: true }));
+    if (!ok) this.restorePreview();
+    else {
+      this.previewChunks.clear();
+      this.scratch = null;
+    }
+  }
+
+  private drawEdgeHover(edge: Edge4 | null): void {
+    (this.hover.material as THREE.LineBasicMaterial).color.setHex(this.opts.tool === 'erase' ? HOVER_ERASE : HOVER_ADD);
+    this.placeBox(this.hover, edge === null ? null : edgeGhostBox(edge, Math.max(BLOCK_EDGE_THICKNESS, 0.1)));
+    this.host.requestRender();
+  }
+
+  /** A line or rectangle stroke's ghost: a thin slab per edge it will set. */
+  private drawEdgeStroke(): void {
+    const k = this.edgeStroke;
+    if (this.lineGhost !== null) this.lineGhost.visible = false;
+    if (k === null || this.layer === null) {
+      this.host.requestRender();
+      return;
+    }
+    if (k.tool === 'line' || k.tool === 'rect') this.drawLineGhost(this.strokeEdges(k).map((e) => edgeGhostBox(e, Math.max(BLOCK_EDGE_THICKNESS, 0.1))));
+    this.host.requestRender();
   }
 
   // ---- internals: terrain brushes ---------------------------------------------------
@@ -521,7 +684,7 @@ export class BlockEditor {
    * with no block in front of the slice plane, the plane's cell. During a
    * rectangle stroke the target stays on the press cell's row.
    */
-  private resolveTarget(clientX: number, clientY: number, s: Stroke | null): { cell: Cell3; value: BlockCell | null } | null {
+  private resolveTarget(clientX: number, clientY: number, s: Stroke | null, adds?: boolean): { cell: Cell3; value: BlockCell | null } | null {
     const layer = this.layer;
     const g = this.grid;
     if (layer === null || g === null) return null;
@@ -550,7 +713,7 @@ export class BlockEditor {
     const planeDist = planeCell === null ? Infinity : (ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0, 1, 0), -(o.y + this.slice * cs[1])), new THREE.Vector3())?.distanceTo(ray.origin) ?? Infinity);
     if (hit !== null && hit.distance <= planeDist + 1e-6) {
       let c: Cell3 = [...hit.cell];
-      if (toolAdds(tool)) {
+      if (adds ?? toolAdds(tool)) {
         const n = hit.normal;
         c = [c[0] + n[0], c[1] + n[1], c[2] + n[2]];
         if (c[0] < b.min[0] || c[0] >= b.max[0] || c[1] < b.min[1] || c[1] >= b.max[1] || c[2] < b.min[2] || c[2] >= b.max[2]) return null;
@@ -722,13 +885,13 @@ export class BlockEditor {
       this.placeBox(this.ghostEdges, clipped);
       (this.ghost.material as THREE.MeshBasicMaterial).color.setHex(s.tool === 'select' ? SELECTION : s.tool === 'region' ? REGION : GHOST);
     } else if (s.tool === 'line') {
-      const cells = lineCells(s.start, s.end);
-      this.drawLineGhost(cells);
+      this.drawLineGhost(lineCells(s.start, s.end).map((c) => [c[0], c[1], c[2], c[0] + 1, c[1] + 1, c[2] + 1]));
     } else this.drawHover(s.end);
     this.host.requestRender();
   }
 
-  private drawLineGhost(cells: readonly Cell3[]): void {
+  /** Ghost boxes (cell units, `[x0, y0, z0, x1, y1, z1]`): one instance each. */
+  private drawLineGhost(cells: readonly (readonly number[])[]): void {
     const cs = this.layer!.component.cellSize;
     if (this.lineGhost === null || this.lineGhost.instanceMatrix.count < cells.length) {
       if (this.lineGhost !== null) {
@@ -743,7 +906,7 @@ export class BlockEditor {
     }
     const m = new THREE.Matrix4();
     cells.forEach((c, i) => {
-      m.makeScale(cs[0], cs[1], cs[2]).setPosition(c[0] * cs[0], c[1] * cs[1], c[2] * cs[2]);
+      m.makeScale((c[3]! - c[0]!) * cs[0], (c[4]! - c[1]!) * cs[1], (c[5]! - c[2]!) * cs[2]).setPosition(c[0]! * cs[0], c[1]! * cs[1], c[2]! * cs[2]);
       this.lineGhost!.setMatrixAt(i, m);
     });
     this.lineGhost.count = cells.length;
