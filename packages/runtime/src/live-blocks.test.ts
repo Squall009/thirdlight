@@ -1,0 +1,76 @@
+/**
+ * The live blocks' bookkeeping on the runtime grid: which objects go and come
+ * for a written cell (only the cells written, only when their prefab or
+ * rotation changed), ids taken by other objects, layers leaving, a new run.
+ */
+import { describe, expect, it } from 'vitest';
+import { BlockGrid, applyBlockEdits, type BlockLayerComponent, type BlockType, type EntityV3, type PrefabDefinition } from '@thirdlight/project-model';
+
+import { RuntimeGrid } from './grid';
+
+const COMP: BlockLayerComponent = { cellSize: [1, 0.5, 1], bounds: { min: [0, 0, 0], max: [32, 8, 32] } };
+const TYPES: BlockType[] = [
+  { blockId: 'stone', name: 'Stone', variants: [{ color: '#888888' }], shape: 'full' },
+  { blockId: 'lamp', name: 'Lamp', variants: [{ prefab: 'lamp' }, { prefab: 'torch' }, { color: '#ffff00' }], shape: 'none', live: true },
+];
+const T = { position: [0, 0, 0], rotation: [0, 0, 0, 1], scale: [1, 1, 1] };
+const prefab = (prefabId: string, n: number): PrefabDefinition =>
+  ({ prefabId, displayName: prefabId, createdRevision: 1, entityCount: n, depth: 2, entities: Array.from({ length: n }, (_, i) => ({ localId: `box-000${i + 1}`, ...(i > 0 ? { parentLocalId: 'box-0001' } : {}), components: { transform: T, ...(i === 0 ? { model: { asset: { assetId: 'm' } }, materials: { '*': 'mat' } } : { light: { type: 'point' } }) } })) }) as never;
+const PREFABS = new Map([['lamp', prefab('lamp', 2)], ['torch', prefab('torch', 1)]]);
+
+function layer(id: string, build: (g: BlockGrid) => void): EntityV3 {
+  const g = new BlockGrid(COMP);
+  build(g);
+  const data = g.toData(id, null, g.takeDirty().chunks);
+  return { id, components: { transform: T, blockLayer: { ...COMP, ...(data !== null ? { data } : {}) } } } as unknown as EntityV3;
+}
+const edits = (g: BlockGrid, list: unknown[]): void => void applyBlockEdits(g, list as never, { types: new Map(TYPES.map((t) => [t.blockId, t])), stamps: new Map() });
+const ids = (add: readonly EntityV3[]): string[] => add.map((e) => e.id);
+
+describe('live blocks on the runtime grid', () => {
+  it('spawns the loaded cells once, then only what a write changes; the root leaves its model to the chunk', () => {
+    const grid = new RuntimeGrid(TYPES, [], false, 45, undefined, PREFABS);
+    grid.addLayers([layer('g', (g) => edits(g, [{ kind: 'fill', box: [0, 0, 0, 4, 1, 4], cell: { block: 'stone' } }, { kind: 'fill', box: [1, 1, 1, 2, 2, 2], cell: { block: 'lamp', variant: 0 } }]))]);
+    const first = grid.takeLive(() => false)!;
+    expect(ids(first.add)).toEqual(['g-1_1_1', 'g-1_1_1-1']);
+    const root = first.add[0]!.components as unknown as Record<string, unknown>;
+    expect(root['model']).toBeUndefined();
+    expect(root['materials']).toBeUndefined();
+    expect((first.add[1]!.components as unknown as Record<string, unknown>)['light']).toBeDefined();
+    expect(first.add[1]!.parentId).toBe('g-1_1_1');
+    expect(grid.takeLive(() => true)).toBeNull();
+    // Metadata and a stone write: nothing to do; a new variant swaps the objects; a colour look has none.
+    grid.api.set('g', 0, 0, 0, { block: 'stone', rot: 90 });
+    expect(grid.takeLive(() => true)).toBeNull();
+    grid.api.set('g', 1, 1, 1, { block: 'lamp', variant: 1 });
+    const swapped = grid.takeLive((id) => id.startsWith('g-1_1_1'))!;
+    expect([swapped.remove, ids(swapped.add), swapped.refused]).toEqual([['g-1_1_1', 'g-1_1_1-1'], ['g-1_1_1'], []]);
+    expect(grid.api.entity('g', 1, 1, 1)).toBe('g-1_1_1');
+    expect(grid.api.cellOf('g-1_1_1')).toEqual({ layer: 'g', x: 1, y: 1, z: 1 });
+    expect(grid.isLive('g-1_1_1') && !grid.isLive('g-1_1_1-1')).toBe(true);
+    grid.api.set('g', 1, 1, 1, { block: 'lamp', variant: 2 });
+    expect(grid.api.entity('g', 1, 1, 1)).toBeNull();
+    expect(grid.takeLive(() => true)).toEqual({ remove: ['g-1_1_1'], add: [], refused: [] });
+    expect(grid.liveCount).toBe(0);
+  });
+
+  it('a cell whose ids another object holds spawns nothing; a layer leaving and a new run return its objects', () => {
+    const grid = new RuntimeGrid(TYPES, [], false, 45, undefined, PREFABS);
+    grid.addLayers([layer('g', (g) => edits(g, [{ kind: 'fill', box: [0, 0, 0, 2, 1, 1], cell: { block: 'lamp', variant: 1 } }]))]);
+    const d = grid.takeLive((id) => id === 'g-0_0_0')!;
+    expect([ids(d.add), d.refused]).toEqual([['g-1_0_0'], ['g-0_0_0']]);
+    expect(grid.mayBeLive('g-0_0_0') && grid.mayBeLive('g-7_1_2-3') && !grid.mayBeLive('g-x') && !grid.mayBeLive('other-1_1_1')).toBe(true);
+    expect(grid.reset()).toEqual(['g-1_0_0']);
+    expect(ids(grid.takeLive(() => false)!.add)).toEqual(['g-0_0_0', 'g-1_0_0']);
+    grid.removeLayers(new Set(['g']));
+    expect(grid.takeGoneLive()).toEqual(['g-0_0_0', 'g-1_0_0']);
+    expect(grid.takeLive(() => false)).toBeNull();
+  });
+
+  it('a game without live block types keeps no bookkeeping', () => {
+    const grid = new RuntimeGrid([TYPES[0]!], [], false, 45, undefined, PREFABS);
+    grid.addLayers([layer('g', (g) => edits(g, [{ kind: 'fill', box: [0, 0, 0, 2, 1, 1], cell: { block: 'stone' } }]))]);
+    expect(grid.takeLive(() => false)).toBeNull();
+    expect(grid.api.entity('g', 0, 0, 0)).toBeNull();
+  });
+});

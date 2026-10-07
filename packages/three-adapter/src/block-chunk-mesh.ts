@@ -40,7 +40,7 @@ export const chunkModelKey = (ref: ChunkModelRef): string => `${ref.assetId}|${r
 
 /** Where the mesher finds a variant's model and a model's geometry. */
 export interface ChunkLooks {
-  /** The model a block type's variant draws; null: a stand-in in the variant's colour. */
+  /** The model a block type's variant draws; null: a stand-in in the variant's colour (for a prefab look whose root has no model: nothing). */
   variantModel(type: BlockType, variant: number): ChunkModelRef | null;
   /** A model's geometry; null while it is not there (the chunk draws without it). */
   model(ref: ChunkModelRef): ChunkModelGeometry | null;
@@ -120,6 +120,8 @@ export function meshChunkForDrawing(grid: BlockGrid, component: BlockLayerCompon
           const levels = look.levels ?? [];
           return { key, source: level === 0 || levels.length === 0 ? look.source : levels[Math.min(level, levels.length) - 1]!.source, ...(world ? { uv: 'world' as const, tangents: true } : {}) };
         }
+        // A prefab look whose root has no model (a live block's logic-only cell) draws nothing.
+        if ((type.variants[variant] ?? type.variants[0])?.prefab !== undefined) return null;
         const color = type.variants[variant]?.color ?? type.variants[0]?.color ?? '#b0b0b0';
         const key = `c:${type.blockId}:${variant}`;
         used.set(key, { key, blockId: type.blockId, model: null, color, levels: undefined });

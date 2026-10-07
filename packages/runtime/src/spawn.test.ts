@@ -383,6 +383,8 @@ describe('spawn: per-copy property values', () => {
     const host = {
       prefabs,
       spawned: () => spawned as never,
+      live: () => false,
+      liveCount: () => 0,
       inGame: (id: string) => spawned.has(id),
       transformOf: (id: string) => transforms.get(id) as never,
       entityRefKeysOf: () => ['target'],

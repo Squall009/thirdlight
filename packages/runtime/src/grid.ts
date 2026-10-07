@@ -46,8 +46,10 @@ import {
   type CellMetaValue,
   type EntityV3,
   type ModelErrorV2,
+  type PrefabDefinition,
 } from '@thirdlight/project-model';
 
+import { LiveBlocks, type LiveBlockChanges } from './live-blocks';
 import type { PhysicsPort3D, StaticColliderSpec3D } from './ports';
 
 // ---- the script API types (public: `ctx.grid`) -------------------------------------
@@ -264,6 +266,18 @@ export interface BehaviorGrid {
    */
   typeMaterials(blockId: string): Readonly<Record<string, string>> | null;
   /**
+   * The id of the object a live block's cell spawns (its prefab's root; a cell a larger block covers names the block's), or null when the cell shows no live block. The id is the cell's from the write on; the object is in the game from the end of the step that wrote the cell.
+   * @graphPure
+   * @graphNode Cell object
+   */
+  entity(layer: string, x: number, y: number, z: number): string | null;
+  /**
+   * The cell a live block's object belongs to (its root or any of its children; the block's anchor cell), or null for any other object.
+   * @graphPure
+   * @graphNode Object cell
+   */
+  cellOf(entityId: string): (GridVec3 & { readonly layer: string }) | null;
+  /**
    * The cells scripts wrote in the previous step, in write order.
    * @graphNode skip scripts read the list with a loop
    */
@@ -295,6 +309,8 @@ export const GRID_WRITES_PER_STEP = 4096;
 export interface BlockMemoryDiagnostics {
   bytes: number;
   layers: ({ entityId: string } & BlockLayerMemory)[];
+  /** The live blocks' objects in the game (absent: no block type of the game is live). */
+  liveObjects?: number;
 }
 
 interface Layer {
@@ -339,10 +355,13 @@ export class RuntimeGrid {
 
   /** Degrees: what surface queries call walkable on a layer without its own maxSlope (the project's steepest walkable slope). */
   private readonly defaultMaxSlope: number;
+  /** The live blocks' objects (null: no block type of this game is live). */
+  private readonly live: LiveBlocks | null;
 
-  constructor(types: readonly BlockType[], fields: readonly CellField[], collide: boolean, defaultMaxSlope = 45, materialIds?: readonly string[]) {
+  constructor(types: readonly BlockType[], fields: readonly CellField[], collide: boolean, defaultMaxSlope = 45, materialIds?: readonly string[], prefabs?: ReadonlyMap<string, PrefabDefinition>) {
     this.materialIds = materialIds !== undefined ? new Set(materialIds) : null;
     this.types = new Map(types.map((t) => [t.blockId, t]));
+    this.live = prefabs !== undefined && LiveBlocks.anyLive(types) ? new LiveBlocks(this.types, prefabs) : null;
     this.fields = fields;
     this.fieldByKey = new Map(fields.map((f) => [f.key, f]));
     this.collide = collide;
@@ -398,6 +417,7 @@ export class RuntimeGrid {
       const layer: Layer = { entityId: e.id, component: comp, origin: freezeVec(p[0], p[1], p[2]), authored: data, grid: BlockGrid.from(comp, data), covers: new Map(), touched: new Set(), colliders: new Map() };
       this.rebuildCovers(layer);
       this.layerMap.set(e.id, layer);
+      this.live?.addLayer(e.id);
       this.markAll(layer);
       added.push(e.id);
     }
@@ -412,6 +432,7 @@ export class RuntimeGrid {
       if (layer === undefined) continue;
       for (const list of layer.colliders.values()) colliders.push(...list);
       this.layerMap.delete(id);
+      this.live?.removeLayer(id);
       this.collisionDirty.delete(id);
       this.renderDirty.delete(id);
     }
@@ -425,11 +446,16 @@ export class RuntimeGrid {
   memory(): BlockMemoryDiagnostics | null {
     if (this.layerMap.size === 0) return null;
     const layers = [...this.layerMap.values()].map((l) => ({ entityId: l.entityId, ...l.grid.memory() })).sort((a, b) => b.bytes - a.bytes);
-    return { bytes: layers.reduce((n, l) => n + l.bytes, 0), layers };
+    return { bytes: layers.reduce((n, l) => n + l.bytes, 0), layers, ...(this.live !== null ? { liveObjects: this.live.count } : {}) };
   }
 
-  /** A new run (start, replay): every layer back to its authored cells. */
-  reset(): void {
+  /**
+   * A new run (start, replay): every layer back to its authored cells.
+   * Returns the live objects to remove (every cell spawns afresh at the next
+   * `takeLive`).
+   */
+  reset(): string[] {
+    const live = this.live?.restart() ?? [];
     for (const layer of this.layerMap.values()) {
       if (layer.touched.size === 0) continue;
       layer.grid = BlockGrid.from(layer.component, layer.authored);
@@ -441,6 +467,7 @@ export class RuntimeGrid {
     this.previous = Object.freeze([]);
     this.writes = 0;
     this.typeSwaps.clear();
+    return live;
   }
 
   /** A save's block type swaps (the grid diff's `types`): why they cannot be restored, or null. */
@@ -586,6 +613,35 @@ export class RuntimeGrid {
     return out;
   }
 
+  /**
+   * The live objects that go and come for the cells changed since the last
+   * call (null: none); `taken` names ids already in the game.
+   */
+  takeLive(taken: (id: string) => boolean, entityRefKeys?: (behaviorId: string) => readonly string[] | undefined): LiveBlockChanges | null {
+    if (this.live === null || !this.live.pending) return null;
+    return this.live.sync((id) => this.layerMap.get(id), taken, entityRefKeys);
+  }
+
+  /** The live objects of layers that left the game since the last call (removed at once). */
+  takeGoneLive(): string[] {
+    return this.live?.takeGone() ?? [];
+  }
+
+  /** Whether an object is a live block's (its cell spawned it). */
+  isLive(entityId: string): boolean {
+    return this.live?.has(entityId) === true;
+  }
+
+  /** The live blocks' objects in the game. */
+  get liveCount(): number {
+    return this.live?.count ?? 0;
+  }
+
+  /** Whether an id may name a live block's object (one alive, or one a loaded layer's cell would spawn). */
+  mayBeLive(entityId: string): boolean {
+    return this.live !== null && (this.live.has(entityId) || this.live.mayBeLive(entityId));
+  }
+
   /** A layer's current grid (the renderer's own copy starts from the entity's data). */
   gridOf(entityId: string): BlockGrid | null {
     return this.layerMap.get(entityId)?.grid ?? null;
@@ -594,6 +650,7 @@ export class RuntimeGrid {
   // ---- internals -----------------------------------------------------------------------
 
   private markAll(layer: Layer): void {
+    this.live?.markFull(layer.entityId);
     const keys = new Set(layer.grid.chunkKeys());
     for (const ck of layer.colliders.keys()) keys.add(ck);
     if (keys.size === 0) return;
@@ -690,6 +747,7 @@ export class RuntimeGrid {
     this.writes += 1;
     this.removeCover(layer, x, y, z, before);
     this.addCover(layer, x, y, z, normalized);
+    this.live?.written(layerId, x, y, z, before, normalized);
     layer.touched.add(cellKeyOf(x, y, z));
     this.markWritten(layer);
     this.current.push(Object.freeze({ layer: layerId, x, y, z, before: before?.block ?? null, after: normalized?.block ?? null, stepIndex: this.stepIndex }));
@@ -866,6 +924,22 @@ export class RuntimeGrid {
       inRegion(layer, regionId, x, y, z) {
         const boxes = layerOf(layer)?.grid.regions.get(regionId);
         return boxes !== undefined && int(x) && int(y) && int(z) && regionContains(boxes, x, y, z);
+      },
+      entity(layer, x, y, z) {
+        const l = layerOf(layer);
+        if (l === undefined || g.live === null || !int(x) || !int(y) || !int(z)) return null;
+        let [ax, ay, az] = [x, y, z];
+        let cell = l.grid.get(x, y, z);
+        const a = cell?.block === undefined ? l.covers.get(cellKeyOf(x, y, z)) : undefined;
+        if (a !== undefined) {
+          [ax, ay, az] = cellOfKey(a);
+          cell = l.grid.get(ax, ay, az);
+        }
+        return g.live.rootIdOf(l.entityId, ax, ay, az, cell);
+      },
+      cellOf(entityId) {
+        const c = typeof entityId === 'string' ? g.live?.cellOf(entityId) ?? null : null;
+        return c === null ? null : Object.freeze({ layer: c.layer, x: c.x, y: c.y, z: c.z });
       },
       changes: () => g.previous,
       diff() {

@@ -60,6 +60,8 @@ export interface SaveSectionOwners {
   spawnedCopies(): SavedSpawnCopy[];
   spawnedCopiesProblem(value: unknown): string | null;
   restoreSpawnedCopies(copies: readonly SavedSpawnCopy[]): void;
+  /** The live blocks' objects follow the restored cells now (before the other sections name them). */
+  syncLive(): void;
   captureWorld(): WorldSave;
   worldProblem(world: WorldSave): string | null;
   applyWorld(world: WorldSave): void;
@@ -116,7 +118,9 @@ export function saveSectionsPort(o: SaveSectionOwners): SaveSectionsPort {
         case 'components': {
           if (typeof value === 'object' && value !== null && !Array.isArray(value) && 'fields' in value) {
             const { fields, ...others } = value as Record<string, unknown>;
-            const problem = o.entityAccess.checkState(fields);
+            // A live block's object a restored cell spawns is not in the game yet: its fields are restored once it is.
+            const known = typeof fields === 'object' && fields !== null && !Array.isArray(fields) ? Object.fromEntries(Object.entries(fields).filter(([id]) => o.grid.isLive(id) || !o.grid.mayBeLive(id))) : fields;
+            const problem = o.entityAccess.checkState(known);
             if (problem !== null) return problem;
             value = others;
           }
@@ -136,8 +140,11 @@ export function saveSectionsPort(o: SaveSectionOwners): SaveSectionsPort {
     applyWorld: (world: WorldSave): void => o.applyWorld(world),
     apply(section, value) {
       switch (section) {
-        case 'grid':
-          return o.grid.restoreDiff(value);
+        case 'grid': {
+          const problem = o.grid.restoreDiff(value);
+          if (problem === null) o.syncLive();
+          return problem;
+        }
         case 'world':
           if (value !== undefined) o.applyWorld(value as WorldSave);
           return null;

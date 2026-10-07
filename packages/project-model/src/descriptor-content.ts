@@ -456,6 +456,7 @@ export const CONTENT: readonly ContentBlockDescriptor[] = [
       json('metadata', 'Default metadata', 'Cell metadata every cell of this block starts with (field key → value).'),
       // A picker per slot (as a model asset's default materials); "*" also maps a stand-in's one material.
       map('materials', 'Materials', 'Material slot → project material: a model look\'s source material name, or "*" for every slot (a coloured stand-in has one: "*" gives it a material, e.g. a painted terrain material).', 'Slot', ref('*', 'Material', 'A project material.', 'material'), { keyFormat: 'materialSlot', minEntries: 1, maxEntries: 32 }),
+      bool('live', 'Live', "In the running game each cell showing a prefab look spawns that prefab as real objects (scripts, movers, lights, children), placed, removed and saved with the cell; the root's model stays merged with the blocks."),
     ]), { default: [] }),
     ops: ['setBlockType', 'deleteBlockType'],
   },

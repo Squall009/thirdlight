@@ -8,6 +8,7 @@
  * landscape's far part adds to the area.
  *
  *   --classes area,landscape     (default both)
+ *   --live N                     N live door cells in each class (default 0: the classes as recorded)
  *   --renderers webgpu,webgl2    (default both)
  *   --query 'a=b&c=d'            add to the export's page query
  *   --switches 'a=off,b=off'     measure each export again with each query added (one switch at a time)
@@ -35,6 +36,8 @@ export interface LevelReport {
   machine: { cpu: string; cores: number };
   version: number;
   seed: number;
+  /** Live door cells per class (absent: none). */
+  liveDoors?: number;
   query: string;
   builds: Partial<Record<LevelKind, LevelBuild & { exportMs: number }>>;
   classes: Partial<Record<LevelKind, Partial<Record<FrameRenderer, FrameRunResult>>>>;
@@ -110,6 +113,8 @@ export async function runLevelCli(argv: readonly string[]): Promise<void> {
   const profileMs = Number(get('profile-ms') ?? 5000);
   const query = get('query') !== undefined ? `&${get('query')}` : '';
   const switches = (get('switches') ?? '').split(',').filter((x) => x !== '');
+  const liveDoors = Number(get('live') ?? 0);
+  if (!Number.isInteger(liveDoors) || liveDoors < 0) throw new Error(`--live: a whole number of door cells, not ${get('live')}`);
 
   const startedAt = new Date().toISOString();
   const stamp = startedAt.replace(/[:.]/g, '-');
@@ -123,14 +128,14 @@ export async function runLevelCli(argv: readonly string[]): Promise<void> {
   } catch {
     /* not a git checkout */
   }
-  const report: LevelReport = { reportVersion: 1, startedAt, commit, machine: { cpu: cpus()[0]?.model ?? 'unknown', cores: cpus().length }, version: LEVEL_VERSION, seed: LEVEL_SEED, query, builds: {}, classes: {}, errors: [] };
+  const report: LevelReport = { reportVersion: 1, startedAt, commit, machine: { cpu: cpus()[0]?.model ?? 'unknown', cores: cpus().length }, version: LEVEL_VERSION, seed: LEVEL_SEED, ...(liveDoors > 0 ? { liveDoors } : {}), query, builds: {}, classes: {}, errors: [] };
 
   // Every class built and exported by one backend, then measured with it stopped (one backend or one browser at a time).
   const exportDirs: Partial<Record<LevelKind, string>> = {};
   const be = await startPerfBackend(join(runDir, 'data'), join(runDir, 'exports'));
   try {
     for (const kind of kinds) {
-      const b = await buildLevel(be, `level-${kind}`, levelPlan(kind), log);
+      const b = await buildLevel(be, `level-${kind}`, levelPlan(kind, LEVEL_SEED, liveDoors), log);
       const t = performance.now();
       const res = await be.post(`/api/v1/admin/projects/${b.projectId}/export`, {});
       if (res.status !== 200) throw new Error(`export failed: ${JSON.stringify(res.json).slice(0, 400)}`);

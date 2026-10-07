@@ -1083,6 +1083,7 @@ export {
 export { SCULPT_LIMITS, SCULPT_OPS, columnHeights, sculptHeights, setColumnSurface, type ColumnHeights, type SculptDab, type SculptOp } from './block-sculpt';
 // The paint brush (any paint target) and a block layer's surface paint.
 export { BRUSH_FALLOFFS, PAINT_BRUSH_LIMITS, brushFalloff, paintBrushError, paintPoint, type BrushFalloff, type PaintBrush, type PaintLayout } from './paint-brush';
+export { LIVE_BLOCK_PREFAB_REFUSED, LIVE_BLOCK_ROOT_MERGED, LIVE_BLOCK_ROOT_REFUSED, blockTypeLive, liveBlockIds, liveBlockPlacement, liveBlockPrefabProblem, liveBlockPrefix, liveBlockRootId } from './block-live';
 export { BLOCK_PAINT_LAYOUT, PAINT_BYTES, PAINT_CHANNELS, PAINT_CHUNK_SIZE, PAINT_VERTICES, PAINT_WETNESS_CHANNEL, chunkPaintColors, chunkPaintError, chunksOfVertex, decodeChunkPaint, encodeChunkPaint, isUnpainted, paintDab, paintOffset, unpaintedChunk, type PaintSurface } from './block-paint';
 export { BLOCK_CHUNK_COMPRESSION, BLOCK_CHUNK_DATA_KEY, BLOCK_CHUNK_HEADER_BYTES, decodeBlockChunks, encodeBlockChunks, readBlockChunkData, wrapBlockChunkData, type BlockChunkCompression } from './block-chunk-binary';
 export { blockChunkStorageOf } from './content-settings';

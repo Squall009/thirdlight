@@ -16,6 +16,12 @@
  *   engine has a terrain component; the plan grows a `terrain` part then and
  *   drops the plane, keeping the rings' layout so the numbers stay comparable.
  *
+ * Either class can carry `liveDoors` live door cells on the ground outside the
+ * rooms (`--live N`; none by default, so the classes' numbers stay
+ * comparable): a live block type whose prefab is a root with a script (it
+ * reads its cell's `open` field every step) and a door leaf with a box and a
+ * box collider, so each cell spawns two objects in the game.
+ *
  * Both classes share the camera (at the area's edge, looking across it to the
  * horizon) and the environment, so the landscape's extra cost is the far part.
  * `levelPlan` is a pure function of the kind and the seed; `buildLevel`
@@ -24,9 +30,9 @@
 import { INSTANCE_DENSITY_MIN_NEW } from '@thirdlight/project-model';
 
 import { packGlb } from './assets';
-import { publishBufferVia, publishFileVia, splitBySize } from './build';
+import { publishBehaviorVia, publishBufferVia, publishFileVia, splitBySize } from './build';
 import type { PerfBackend } from './backend';
-import { prng, type EntityValue } from './generate';
+import { prng, type BehaviorPlan, type EntityValue } from './generate';
 import { propGlb, scatterKitGlb, type PropSpec } from './village-assets';
 
 /** Bump when the generated content changes. */
@@ -112,7 +118,30 @@ export interface LevelPlan {
   rooms: LevelRoom[];
   camera: { position: [number, number, number]; rotation: [number, number, number, number] };
   counts: Record<string, number>;
+  /** Live door cells [x, y, z] of the layer (empty: none). */
+  liveDoors: [number, number, number][];
 }
+
+/** The live door's script: it finds its cell once, then reads the cell's `open` field every step. */
+const DOOR_BEHAVIOR: BehaviorPlan = {
+  behaviorId: 'level-door',
+  displayName: 'Level door',
+  ownedTransforms: [],
+  declaration: { properties: [] },
+  source: [
+    'export default {',
+    '  instantiate() { return { open: false, cell: null }; },',
+    '  step(state: any, ctx: any) {',
+    "    if (ctx.phase !== 'intent') return;",
+    '    if (state.cell === null) state.cell = ctx.grid.cellOf(ctx.entityId);',
+    '    const c = state.cell;',
+    '    if (c === null) return;',
+    "    const open = ctx.grid.meta(c.layer, c.x, c.y, c.z, 'open') === true;",
+    "    if (open !== state.open) { state.open = open; ctx.signals.emit('door'); }",
+    '  },',
+    '};',
+  ].join('\n'),
+};
 
 /** Copies of one instance set as the engine's 10 floats each (position, rotation, scale). */
 function copies(n: number, at: (i: number) => { x: number; y: number; z: number; yaw: number; s: number }): Float32Array {
@@ -124,7 +153,7 @@ function copies(n: number, at: (i: number) => { x: number; y: number; z: number;
   return f;
 }
 
-export function levelPlan(kind: LevelKind, seed = LEVEL_SEED): LevelPlan {
+export function levelPlan(kind: LevelKind, seed = LEVEL_SEED, liveDoorCount = 0): LevelPlan {
   const S = LEVEL_SPEC;
   const N = S.areaSide;
   const rnd = prng(seed * 104729 + N);
@@ -265,13 +294,27 @@ export function levelPlan(kind: LevelKind, seed = LEVEL_SEED): LevelPlan {
     });
   }
 
+  // Live doors on free ground columns outside the rooms, a row above the column's highest corner (its own
+  // generator, so the classes' content does not change with the count).
+  const liveDoors: [number, number, number][] = [];
+  const doorRnd = prng(seed * 7919 + liveDoorCount);
+  const taken = new Set<number>();
+  while (liveDoors.length < liveDoorCount) {
+    const x = 1 + Math.floor(doorRnd() * (N - 2));
+    const z = 1 + Math.floor(doorRnd() * (N - 2));
+    if (taken.has(x * N + z) || inRoom(x + 0.5, z + 0.5)) continue;
+    taken.add(x * N + z);
+    liveDoors.push([x, Math.ceil(Math.max(levelHeightAt(x, z), levelHeightAt(x + 1, z), levelHeightAt(x + 1, z + 1), levelHeightAt(x, z + 1))), z]);
+  }
+  counts.liveDoors = liveDoors.length;
+
   const batches: EntityValue[][] = [];
   for (let i = 0; i < entities.length; i += PASTE_MAX) batches.push(entities.slice(i, i + PASTE_MAX));
   const layer: EntityValue = { id: 'ground', name: 'Ground', components: { transform: T(-half, 0, -half), blockLayer: { cellSize: [1, S.cellHeight, 1], bounds: { min: [0, 0, 0], max: [N, 32, N] }, maxSlope: 60, smoothAngle: 40, topSubdivision: 2 } } };
   // At the area's south edge, 8 m over its ground, looking north across it to the horizon.
   const pitch = -0.12;
   const camera: LevelPlan['camera'] = { position: [0, r3(groundY(half, N - 2) + 8), half - 2], rotation: [r6(Math.sin(pitch / 2)), 0, 0, r6(Math.cos(pitch / 2))] };
-  return { kind, version: LEVEL_VERSION, seed, props, buffers, layer, batches, blockEdits, rooms, camera, counts };
+  return { kind, version: LEVEL_VERSION, seed, props, buffers, layer, batches, blockEdits, rooms, camera, counts, liveDoors };
 }
 
 /**
@@ -368,6 +411,19 @@ export async function buildLevel(be: PerfBackend, projectId: string, plan: Level
   for (const edit of plan.blockEdits.filter((e) => e['kind'] === 'surface')) await cmd('editBlocks', { entityId: layerId, edits: [edit] });
   const fills = plan.blockEdits.filter((e) => e['kind'] !== 'surface');
   for (let i = 0; i < fills.length; i += 64) await cmd('editBlocks', { entityId: layerId, edits: fills.slice(i, i + 64) });
+  if (plan.liveDoors.length > 0) {
+    // The door prefab, kept in a scene the game never loads; the block type spawns it per cell.
+    await cmd('setCellFields', { fields: [{ key: 'open', type: 'bool' }] });
+    await publishBehaviorVia(be, p, cmd, DOOR_BEHAVIOR);
+    await cmd('createScene', { sceneId: 'scene-kit', name: 'Kit' });
+    const root = String((await cmd('createEntity', { sceneId: 'scene-kit', parentId: null, kind: 'group', name: 'Door', transform: { position: [0, 0, 0] } }))['createdId']);
+    await cmd('setBehaviorProperties', { entityId: root, behaviorId: DOOR_BEHAVIOR.behaviorId, values: {} });
+    await cmd('createEntity', { sceneId: 'scene-kit', parentId: root, kind: 'box', name: 'Leaf', transform: { position: [0, 1, 0] }, box: { size: [0.9, 2, 0.1], material: { color: '#8b5a2b' } }, components: { collider: { shape: { type: 'box', hx: 0.45, hy: 1, hz: 0.05 } } } });
+    await cmd('createPrefab', { prefabId: 'level-door', displayName: 'Door', sourceEntityId: root });
+    await cmd('setBlockType', { block: { blockId: 'door', name: 'Door', variants: [{ prefab: 'level-door' }], shape: 'none', live: true } });
+    const doors = plan.liveDoors.map(([x, y, z]) => ({ kind: 'fill', box: [x, y, z, x + 1, y + 1, z + 1], cell: { block: 'door' } }));
+    for (let i = 0; i < doors.length; i += 256) await cmd('editBlocks', { entityId: layerId, edits: doors.slice(i, i + 256) });
+  }
 
   const digests = new Map<string, string>();
   for (const b of plan.buffers) digests.set(b.key, await publishBufferVia(be, projectId, b.floats));

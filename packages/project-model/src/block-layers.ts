@@ -35,6 +35,7 @@ import { validateLightLayerMask } from './light-layers';
 import { ID_RE } from './validate';
 import type { ModelErrorV2 } from './errors';
 import { chunkPaintError, decodeChunkPaint, encodeChunkPaint, isUnpainted } from './block-paint';
+import { liveBlockPrefabProblem } from './block-live';
 
 // ---- types -----------------------------------------------------------------------
 
@@ -172,6 +173,12 @@ export interface BlockType {
   materials?: Record<string, string>;
   /** Its looks' texture coordinates (absent: `model`; stored only when `world`); a variant may set its own. */
   uv?: BlockUvMode;
+  /**
+   * Its prefab looks spawn the prefab as a live entity per cell while the
+   * game runs (`block-live.ts`); absent: the prefab's model is drawn only.
+   * Stored only when true.
+   */
+  live?: boolean;
 }
 
 export type CellFieldType = 'bool' | 'enum' | 'int' | 'float' | 'string';
@@ -511,7 +518,11 @@ export function validateBlockTypes(value: unknown, path: string, errors: ModelEr
 
 export function validateBlockType(t: unknown, p: string, errors: ModelErrorV2[]): void {
   if (!isPlainObject(t)) return err(errors, 'field_type', p, 'a block type is an object', t, 'object');
-  onlyKeys(t, ['blockId', 'name', 'variants', 'shape', 'boxes', 'solid', 'footprint', 'rotations', 'metadata', 'materials', 'uv'], p, errors, 'block type');
+  onlyKeys(t, ['blockId', 'name', 'variants', 'shape', 'boxes', 'solid', 'footprint', 'rotations', 'metadata', 'materials', 'uv', 'live'], p, errors, 'block type');
+  if (t['live'] !== undefined) {
+    if (typeof t['live'] !== 'boolean') err(errors, 'field_type', `${p}/live`, 'live is a boolean', t['live'], 'boolean');
+    else if (t['live'] && (!Array.isArray(t['variants']) || !t['variants'].some((v) => isPlainObject(v) && v['prefab'] !== undefined))) err(errors, 'field_value', `${p}/live`, 'a live block spawns its prefab looks: give it a prefab look', t['live']);
+  }
   validateUvMode(t['uv'], `${p}/uv`, errors);
   if (typeof t['blockId'] !== 'string' || !ID_RE.test(t['blockId'])) err(errors, 'id_invalid', `${p}/blockId`, 'blockId uses the id syntax [a-z0-9][a-z0-9_-]{0,63}', t['blockId']);
   if (typeof t['name'] !== 'string' || t['name'].length < 1 || t['name'].length > 128 || /[\u0000-\u001f]/.test(t['name'])) err(errors, 'field_value', `${p}/name`, 'name is 1-128 characters without control characters', t['name']);
@@ -577,6 +588,7 @@ export function canonicalBlockType(t: BlockType): BlockType {
     out.materials = m;
   }
   if (t.uv === 'world') out.uv = 'world';
+  if (t.live === true) out.live = true;
   return out;
 }
 
@@ -967,7 +979,11 @@ export function composeBlockContent(content: BlockContentView, errors: ModelErro
         const pf = prefabs.get(v.prefab);
         const root = pf?.entities.find((e) => e.parentLocalId === undefined);
         if (pf === undefined) err(errors, 'prefab_reference_missing', `${p}/variants/${j}/prefab`, 'a block variant names a prefab of this project', v.prefab);
-        else if (root === undefined || root.components['model'] === undefined) err(errors, 'field_value', `${p}/variants/${j}/prefab`, "a block variant's prefab has a model on its root (the block shows that model)", v.prefab);
+        else if (t.live === true) {
+          // A live block's root without a model is a logic-only cell (a trigger, a sound): the chunk draws nothing for it.
+          const problem = liveBlockPrefabProblem(pf);
+          if (problem !== null) err(errors, 'field_value', `${p}/variants/${j}/prefab`, `prefab "${v.prefab}" cannot be a live block: ${problem}`, v.prefab);
+        } else if (root === undefined || root.components['model'] === undefined) err(errors, 'field_value', `${p}/variants/${j}/prefab`, "a block variant's prefab has a model on its root (the block shows that model)", v.prefab);
       }
     });
     for (const [slot, id] of Object.entries(t.materials ?? {})) if (!materials.has(id)) err(errors, 'reference_missing', `${p}/materials/${slot}`, 'the material mapping names no material of this project', id);

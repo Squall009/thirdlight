@@ -240,7 +240,8 @@ cause and a follow-up, never a reason to throw an item away (owner,
 | 30.0 | done 2026-10-03 (plan only; the release checks run when the phase starts) |
 | 30.1 | done 2026-10-07: `node tools/perf/run.mjs level [--classes area,landscape]` (tools/perf/level.ts, level-run.ts; vitest tests/perf/level.test.ts). **area**: 100 × 100 m block layer (corner-height hills, 10 walled rooms), 300 static props, 40 foliage sets (6,000 copies, no shadow, density falloff), 6 point lights, shadowed sun, exp2 fog, SSAO/bloom/SMAA. **landscape**: the area plus placeholder far part (a 6 km ground plane and 64 instance sets, 32,000 tree/rock copies in 4 rings to 3 km, 256 m chunks, far plane 4 km) until 30.10/30.11: the plan grows a terrain part then, drops the plane and keeps the rings. Iris Xe, 1080p, uncapped, before numbers (p50/p95/p99 ms, draws, main thread ms/frame, WebGPU pass GPU ms): area WebGPU 6.5/9.4/23.5, 259 draws, main 6.6, GPU 10.3 (scene 4.2, SSAO 1.4, SMAA 1.1); area WebGL 2 2.5/6.5/192.7 (p99 = the known WebGL 2 uncapped GPU-process stalls), 260 draws, main 6.6. Landscape WebGPU 7.1/10.3/15.1, 474 draws, main 7.3, GPU 11.7 (scene 5.2); WebGL 2 4.9/7.9/57.2, 475 draws, main 7.4. Whole-frame p95 within 16.7 ms on both; the far placeholder adds 0.6 ms p50 / 1.4 ms GPU / 215 draws on WebGPU (2.4 ms p50 on WebGL 2). Not measurable yet: terrain GPU time and draws, ground cover, streaming hitches (no terrain, scatter rules or world streaming); WebGL 2 gives no pass timings; the owner's Ryzen APU laptop is not recorded (not on this host). |
 | 30.2 | part A done 2026-10-07 (undo per chunk, no cell caps, simplifier; binary chunk data is part B). **Undo** (`TL_PERF=1 npx vitest run tests/perf/block-layers.test.ts`, 512 × 512 layer, 262,144 cells in 1,024 chunks, one-cell edit, before → after): undo step 19.9 → 12.4 KB retained (the rest is the two JSON chunks themselves; part B's binary chunks shrink it), edit 223 → 77 ms, undo 175 → 21 ms, redo 181 → 21 ms (the no-change check compares chunks instead of serializing the scene twice; the edit's rest is decoding and validating the whole layer, O(layer)). **No cell caps**: two 1,048,576-cell layers fill, edit, undo, save and reopen through the workspace; `runtime.blockMemory` in Play diagnostics: 4 B a cell + ~270 B a column measured on V8 (1,024² columns ≈ 280 MB; area, not depth, costs). **Simplifier** (meshoptimizer 1.1.1): levels at 50/25/12.5 % of a 3,968 / 65,024 / 261,120-triangle mesh in 3 / 35 / 139 ms; import setting `generateLods` (off unless asked). Unverified: generated levels switching in a real browser (only the file and import are tested). Part B done 2026-10-07 (binary chunk data): chunk files `.bin` (varints, zstd) or `.json` by `block_chunk_storage`, both read; Play/export ship one gzip blob per layer. Skyforge copy: 13 chunk files 94.6 → 13.5 KB (convert 65 ms), exported scene files 1.42 → 0.97 MB (cells 11 KB); 512² / 1,024² test layers (1.8 M / 7.3 M cells): 43 / 174 MB pretty JSON → 73 / 140 KB gzip, parse 47 / 232 → 17 / 38 ms (gunzip + decode, Node). Undo step: 3.1 KB of binary chunks (the same chunks are 6.7 KB as JSON text, ~10× that as heap objects); undo/redo 23 ms. Both games' copies open, Play and export (WebGPU and WebGL 2) unchanged; they need no change. |
-| 30.3–30.27 | — |
+| 30.3 | done 2026-10-07: block type `live` (Blocks panel form); each cell showing a prefab look spawns the prefab with cell-derived ids (`<layer>-<x>_<y>_<z>[-i]`, never in the scene file), root = the cell's static part (its model stays merged in the chunk; a model-less root is a logic-only cell), objects follow the cell (layer load/unload, `ctx.grid.set`/`clear` at the end of that step, save load, scene reload, restart); `ctx.grid.entity`/`cellOf`; `runtime.blockMemory.liveObjects`. Measured (`TL_PERF=1 npx vitest run tests/perf/live-blocks.test.ts`, 500 doors = scripted root + box-collider leaf, page composition with Rapier): spawn 120 µs/door (60 ms when the layer loads: a hitch, see §7), step +0.3–0.6 ms (0.6–1.2 µs/door), one door spawned + one removed per step +0.5 ms over the same writes without live blocks (2.0 → 2.5 ms; the 2.0 is the chunk collider rebuild), heap 16 KB/door. `node tools/perf/run.mjs level --classes area --live 500` vs `--live 0` (Iris Xe, 1080p): WebGPU p50/p95 6.4/9.4 vs 6.6/9.3 ms, main thread 6.42 vs 6.59 ms/frame, GPU 10.1 vs 10.4 ms, draws 261 vs 259 (the 500 leaves are one instanced batch + its shadow), first frame 1.95 vs 1.75 s; WebGL 2 p50/p95 2.7/5.9 vs 2.7/7.0, main 6.47 vs 6.67. Within §5. Unverified: the owner's laptop; worker-thread time is from the Node run, not the browser profile. |
+| 30.4–30.27 | — |
 
 (30.1's before numbers and 30.20's after numbers.)
 
@@ -309,6 +310,30 @@ cause and a follow-up, never a reason to throw an item away (owner,
 - 2026-10-07 (30.2 part B): copies of Sprout and Skyforge (read-only copies, deleted after) open, Play (Skyforge's
   scene-main loaded through the Play relay, both layers in `runtime.blockMemory`) and export on WebGPU and WebGL 2;
   Skyforge's chunk files stay JSON until it sets the setting. Neither game needs a change.
+- 2026-10-07 (30.3): live blocks. Default chosen, owner to confirm:
+  - Additive optional `live` on a block type (stored only when true); no schema bump. A live type needs a prefab
+    look; its prefab's root is the cell's static part (placed at the footprint's bottom centre, turned with the
+    cell, unit scale, its model merged in the chunk, refused if it carries a mover, patrol, gravity, animator, model
+    animation or socket attachment); a model-less root is allowed on a live type only (draws nothing in the chunk).
+  - Ids are the cell's (deterministic, so replays, saves and scripts name the same objects; no serials to save);
+    a layer id longer than 41 characters is hashed into the prefix to stay within the id syntax. An id another
+    object already holds spawns nothing and logs `spawn_refused`.
+  - The objects go through the spawned-copy path (so they reach the page like `ctx.spawn` copies), but are not
+    `ctx.destroy`-able, not in the `spawned` save section and not counted against the spawned-object limit.
+    "Pooling" is: objects only for cells that need them, a cell rewritten with the same prefab and rotation keeps
+    its objects, a write that changes neither prefab nor rotation (metadata) touches none, and the objects are not
+    copied a second time when they enter the game; there is no pool of detached objects (a reused object would
+    carry its script's state into another cell).
+  - Timing: the objects follow the cells at each step boundary and at the end of each step (a write is seen by
+    scripts from the next step, as `ctx.spawn` copies are), and at once when a save's grid section is restored
+    (before its components section names them).
+  - Saves: a live block's lasting state belongs in its cell's metadata (the grid section); fields written with
+    `ctx.entity(id).set` travel in the components section by id, accepted for ids a restored cell is about to spawn.
+  - A new run and a scene reload respawn fresh objects (scripts start over).
+  - Follow-ups: spawning costs ~120 µs a door, so a layer with thousands of live cells hitches when it loads
+    (500 = 60 ms) and a script writing many live cells in one step pays it per cell; spreading spawns over steps
+    belongs with world streaming (30.16). The Scene view shows only the root's model, not the live children.
+  - The registry-size guard in descriptors.test.ts moved from 269,000 to 270,000 bytes for the `live` field.
 - 2026-10-03: Skyforge's requests mapped (the engine never reads the game
   repo; the ids only trace them back):
 

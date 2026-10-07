@@ -19,12 +19,13 @@
  *   action sampling and fail-stop with no rollback.
  */
 import { RuntimeGrid, type GridRenderChange } from './grid';
+import { fail, isPhysicsPort, isPlainObject, parseConfig, PHYSICS_PORT_REASON } from './runtime-config';
 import { RuntimeMaterials, type MaterialRenderChange, type RuntimeMaterialCatalog } from './material-params';
 import { MAX_FRAME_ASSET_ANSWERS, RuntimeAssetHandles, validateAssetAnswers, type AssetHandleAnswer, type AssetHandleRequest } from './asset-handles';
 import { rideOnFrame } from './frame-queues';
-import { SAVE_KEY_RE, SAVE_MAX_KEYS, SAVE_MAX_VALUE_CHARS, saveSectionsPort, saveValueText } from './save-sections';
+import { SAVE_MAX_KEYS, SAVE_MAX_VALUE_CHARS, saveSectionsPort } from './save-sections';
 import { MAX_FRAME_SAVE_EVENTS, RuntimeSaves, validateSaveEvents, type SaveEvent, type SaveRequest, type SaveSectionsPort, type WorldSave } from './project-saves';
-import { DEFAULT_FIXED_STEP_HZ, projectFrameRateCap, type SaveSchema } from '@thirdlight/project-model';
+import { projectFrameRateCap, type SaveSchema } from '@thirdlight/project-model';
 
 import { RuntimeInputStatus, type InputBindingRequest } from './input-status';
 import type { BlockType, CellField } from '@thirdlight/project-model';
@@ -41,11 +42,10 @@ import {
   type Quat,
   type RuntimeUiDocumentRow,
   type UiEngineAction,
-  MAX_TRANSITION_FADE, SAVE_LIMITS, SCRIPT_SAVE_LIMITS, UI_DEPRECATED_ENGINE_ACTIONS,
+  MAX_TRANSITION_FADE, SCRIPT_SAVE_LIMITS, UI_DEPRECATED_ENGINE_ACTIONS,
 } from '@thirdlight/project-model';
 import {
   actionPhase,
-  NEUTRAL_ACTION_SOURCE,
   neutralFrame,
   validateActionFrame,
   InputFrameError,
@@ -63,7 +63,7 @@ import { MAX_FRAME_UI_EVENTS, UiState, type UiEventRecord, type UiOutput, type U
 import { queueUiEventChecked, uiControlOf } from './ui-control';
 import { EngineStatsHolder } from './engine-stats';
 import type { FramePacingStats } from './frame-pacing';
-import { defaultClock, FrameLoop, hasRaf } from './frame-loop';
+import { FrameLoop } from './frame-loop';
 import { ModeState, type ModeView } from './modes';
 import { BehaviorHostError, BehaviorHostIntentLimit, compiledFramesOf, createTagQuery, graphNodeIdOf, type BehaviorDebugView, type BehaviorPropertyView, type CompiledFrame } from './behavior';
 import { character3DPhysicsOf, offsetEntities, playerCapsuleOf, type LiveTagIndex } from './scene-set';
@@ -83,7 +83,7 @@ import {
   type IntentTransformWrite,
 } from './intents';
 import { DuplicateMoveError, PhaseViolationError, frozenContext, liveScopedState, phaseScopedState } from './guard';
-import { isSimulationRegistry, validatePhaseList } from './registry';
+import { validatePhaseList } from './registry';
 import { deepFreeze, validateRuntimeSnapshot } from './snapshot';
 import { type AnimatorControllerLike, type AnimatorPose } from './animator';
 import { AnimatorSystem } from './animator-system';
@@ -168,7 +168,6 @@ import {
   type SimulationModuleSpec,
   type SimulationPhase,
   type SimulationPhaseModule,
-  type SimulationRegistry,
   type StepContext,
   type TransformState,
   type DebugCommandOptions,
@@ -187,10 +186,8 @@ export { PHYSICS_QUERY_LIMIT } from './physics-query-args';
 
 /** A script message name (the timer-name syntax). */
 const MESSAGE_NAME_RE = /^[A-Za-z0-9_.:-]{1,64}$/;
-const MIN_FIXED_STEP_HZ = 1;
 /** Effect requests kept for a renderer that does not take them (headless): the newest this many. */
 export const EFFECT_MAX_QUEUED_REQUESTS = 256;
-const MAX_FIXED_STEP_HZ = 1000;
 export { catchUpSteps, MAX_CATCHUP_SECONDS } from './frame-clock';
 /**
  * The M2 settle pre-roll at 120 Hz — the engine's settle time
@@ -214,10 +211,6 @@ export function engineTimingSteps(hz: number): { settleSteps: number; dropThroug
 const MAX_ERROR_ENTRIES = 32;
 /** Dialogue inputs per input frame (DIALOGUE_LIMITS.frameInputs). */
 const DIALOGUE_FRAME_INPUTS = 8;
-/** The default module selection. */
-const DEFAULT_MODULES = ['thirdlight.demo:box-motion'];
-/** The `config_invalid` reason for a physics-bearing set. */
-const PHYSICS_PORT_REASON = 'physics_port';
 
 interface BehaviorLogSink {
   handler: ((moduleId: string, level: BehaviorLogLevel, message: string, at?: { file: string; line: number; column: number }) => void) | null;
@@ -260,10 +253,6 @@ class InputSourceError extends Error {
   readonly reason = 'input_source_threw';
 }
 
-function isPlainObject(v: unknown): v is Record<string, unknown> {
-  return typeof v === 'object' && v !== null && !Array.isArray(v);
-}
-
 function messageOf(e: unknown): string {
   // Duck-typed: an artifact executed in another realm (the Node `vm` test host)
   // throws an Error that is not `instanceof` this realm's Error.
@@ -281,10 +270,6 @@ function messageOf(e: unknown): string {
   return clipMessage(String(e));
 }
 
-function fail(code: ErrorCode, message: string, extra?: Partial<RuntimeError>): RuntimeError {
-  return { code, message: clipMessage(message), ...extra };
-}
-
 function cloneTransform(t: TransformState): TransformState {
   return {
     position: [t.position[0], t.position[1], t.position[2]],
@@ -299,224 +284,6 @@ function cloneCurr(curr: Map<string, TransformState>): Map<string, TransformStat
   return out;
 }
 
-function isPhysicsPort(v: unknown): v is PhysicsPort {
-  return (
-    isPlainObject(v) &&
-    typeof v['stageCharacterMove'] === 'function' &&
-    typeof v['step'] === 'function' &&
-    typeof v['dispose'] === 'function'
-  );
-}
-
-/** A 3D port carries `dimension: 3` (the 2D port has no such field). */
-function isPhysicsPort3D(v: unknown): v is PhysicsPort3D {
-  return isPlainObject(v) && v['dimension'] === 3 && typeof v['stageCharacterMove'] === 'function' && typeof v['step'] === 'function' && typeof v['dispose'] === 'function';
-}
-
-function isFiniteVec2(v: unknown): v is Vec2 {
-  return (
-    isPlainObject(v) &&
-    typeof v['x'] === 'number' &&
-    typeof v['y'] === 'number' &&
-    Number.isFinite(v['x']) &&
-    Number.isFinite(v['y'])
-  );
-}
-
-/** Strict config parsing. */
-function parseConfig(config: unknown): { cfg: ParsedConfig } | { error: RuntimeError } {
-  if (!isPlainObject(config)) {
-    return { error: fail('config_invalid', 'config must be an object', { reason: 'shape', path: '' }) };
-  }
-  const allowed = new Set([
-    'snapshot',
-    'registry',
-    'modules',
-    'actions',
-    'physics',
-    'settings',
-    'clock',
-    'driver',
-    'fixedStepHz',
-    'onFrame',
-    'variables',
-    'startMode',
-    'projectSettings',
-  ]);
-  for (const key of Object.keys(config)) {
-    if (!allowed.has(key)) {
-      return {
-        error: fail('config_invalid', `unknown config field "${key}" (strict shape)`, {
-          reason: 'shape',
-          path: `/${key}`,
-        }),
-      };
-    }
-  }
-  if (!('snapshot' in config)) {
-    return { error: fail('config_invalid', 'config field "snapshot" is required', { reason: 'missing', path: '/snapshot' }) };
-  }
-  if (!isSimulationRegistry(config.registry)) {
-    return {
-      error: fail('config_invalid', 'config field "registry" must be a simulation registry (createSimulationRegistry)', {
-        reason: 'registry',
-        path: '/registry',
-      }),
-    };
-  }
-  let modules: string[];
-  if (config.modules === undefined) {
-    modules = [...DEFAULT_MODULES];
-  } else if (
-    !Array.isArray(config.modules) ||
-    config.modules.some((m) => typeof m !== 'string')
-  ) {
-    return { error: fail('config_invalid', 'config field "modules" must be an array of module ID strings', { reason: 'shape', path: '/modules' }) };
-  } else {
-    modules = [...(config.modules as string[])];
-  }
-  let actions: ActionSource;
-  if (config.actions === undefined) {
-    actions = NEUTRAL_ACTION_SOURCE;
-  } else if (!isPlainObject(config.actions) || typeof config.actions['sample'] !== 'function') {
-    return {
-      error: fail('config_invalid', 'config field "actions" must be an ActionSource ({ sample(stepIndex) })', {
-        reason: 'actions',
-        path: '/actions',
-      }),
-    };
-  } else {
-    actions = config.actions as unknown as ActionSource;
-  }
-  let physics: PhysicsPort | undefined;
-  let physics3d: PhysicsPort3D | undefined;
-  if (config.physics !== undefined && isPhysicsPort3D(config.physics)) {
-    // A 3D project's port (the runtime holds one or the other).
-    physics3d = config.physics;
-  } else if (config.physics !== undefined) {
-    if (!isPhysicsPort(config.physics)) {
-      return {
-        error: fail('config_invalid', 'config field "physics" must be an initialized PhysicsPort', {
-          reason: PHYSICS_PORT_REASON,
-          path: '/physics',
-        }),
-      };
-    }
-    physics = config.physics;
-  }
-  let clock: () => number;
-  let clockLabel: 'performance' | 'injected';
-  if (config.clock !== undefined) {
-    if (typeof config.clock !== 'function') {
-      return { error: fail('config_invalid', 'config field "clock" must be a function () => seconds', { reason: 'shape', path: '/clock' }) };
-    }
-    clock = config.clock as () => number;
-    clockLabel = 'injected';
-  } else {
-    const def = defaultClock();
-    if (!def) {
-      return { error: fail('config_invalid', 'no default clock available — inject a clock (monotonic seconds)', { reason: 'clock', path: '/clock' }) };
-    }
-    clock = def;
-    clockLabel = 'performance';
-  }
-  let driverKind: 'raf' | 'manual';
-  if (config.driver === undefined) {
-    driverKind = hasRaf() ? 'raf' : 'manual';
-  } else if (!isPlainObject(config.driver) || Object.keys(config.driver).length !== 1 || !(config.driver.kind === 'raf' || config.driver.kind === 'manual')) {
-    return { error: fail('config_invalid', 'config field "driver" must be { kind: "raf" | "manual" }', { reason: 'shape', path: '/driver' }) };
-  } else if (config.driver.kind === 'raf' && !hasRaf()) {
-    return { error: fail('config_invalid', 'the "raf" driver requires requestAnimationFrame (absent in this environment)', { reason: 'driver', path: '/driver' }) };
-  } else {
-    driverKind = config.driver.kind;
-  }
-  let hz = DEFAULT_FIXED_STEP_HZ;
-  if (config.fixedStepHz !== undefined) {
-    if (
-      typeof config.fixedStepHz !== 'number' ||
-      !Number.isInteger(config.fixedStepHz) ||
-      config.fixedStepHz < MIN_FIXED_STEP_HZ ||
-      config.fixedStepHz > MAX_FIXED_STEP_HZ
-    ) {
-      return { error: fail('config_invalid', `config field "fixedStepHz" must be an integer in [${MIN_FIXED_STEP_HZ}, ${MAX_FIXED_STEP_HZ}]`, { reason: 'shape', path: '/fixedStepHz' }) };
-    }
-    hz = config.fixedStepHz;
-  }
-  let onFrame: (() => void) | undefined;
-  if (config.onFrame !== undefined) {
-    if (typeof config.onFrame !== 'function') {
-      return { error: fail('config_invalid', 'config field "onFrame" must be a function', { reason: 'shape', path: '/onFrame' }) };
-    }
-    onFrame = config.onFrame as () => void;
-  }
-  // Injected script variables (ctx.save from step 0), under ctx.save's own rules.
-  let variables: Record<string, unknown> | undefined;
-  if (config.variables !== undefined) {
-    const v = config.variables;
-    if (!isPlainObject(v) || Object.keys(v).length > SAVE_MAX_KEYS) {
-      return { error: fail('config_invalid', `config field "variables" must map at most ${SAVE_MAX_KEYS} keys to JSON values`, { reason: 'shape', path: '/variables' }) };
-    }
-    variables = {};
-    for (const [k, value] of Object.entries(v)) {
-      const text = saveValueText(value);
-      if (!SAVE_KEY_RE.test(k) || text === null) {
-        return { error: fail('config_invalid', `variable ${JSON.stringify(k.slice(0, 64))}: a key is 1-64 of A-Z a-z 0-9 _ . : - and a value JSON of at most ${SAVE_MAX_VALUE_CHARS} characters`, { reason: 'shape', path: `/variables/${k.slice(0, 64)}` }) };
-      }
-      variables[k] = JSON.parse(text) as unknown;
-    }
-  }
-  // The game mode runs start in (checked against the snapshot's modes at instantiate).
-  const startMode = config.startMode;
-  if (startMode !== undefined && (typeof startMode !== 'string' || !/^[a-z0-9][a-z0-9_-]{0,63}$/.test(startMode))) {
-    return { error: fail('config_invalid', 'config field "startMode" must be a game mode id', { reason: 'shape', path: '/startMode' }) };
-  }
-  // The stored project settings document (checked field by field against the save schema by the runtime).
-  let projectSettings: Record<string, unknown> | undefined;
-  if (config.projectSettings !== undefined) {
-    if (!isPlainObject(config.projectSettings) || Object.keys(config.projectSettings).length > SAVE_LIMITS.settingsFields) {
-      return { error: fail('config_invalid', `config field "projectSettings" must map at most ${SAVE_LIMITS.settingsFields} keys to values`, { reason: 'shape', path: '/projectSettings' }) };
-    }
-    projectSettings = { ...(config.projectSettings as Record<string, unknown>) };
-  }
-  return {
-    cfg: {
-      snapshot: config.snapshot,
-      registry: config.registry as SimulationRegistry,
-      modules,
-      actions,
-      physics,
-      ...(physics3d !== undefined ? { physics3d } : {}),
-      settings: config.settings,
-      clock,
-      clockLabel,
-      driverKind,
-      hz,
-      onFrame,
-      ...(variables !== undefined ? { variables } : {}),
-      ...(startMode !== undefined ? { startMode } : {}),
-      ...(projectSettings !== undefined ? { projectSettings } : {}),
-    },
-  };
-}
-
-interface ParsedConfig {
-  snapshot: unknown;
-  registry: SimulationRegistry;
-  modules: string[];
-  actions: ActionSource;
-  physics?: PhysicsPort;
-  /** The 3D port (instead of `physics`). */
-  physics3d?: PhysicsPort3D;
-  settings: unknown;
-  clock: () => number;
-  clockLabel: 'performance' | 'injected';
-  driverKind: 'raf' | 'manual';
-  hz: number;
-  onFrame?: () => void;
-  variables?: Record<string, unknown>;
-  startMode?: string;
-  projectSettings?: Record<string, unknown>;
-}
 
 /**
  * Create a runtime instance. Validates the snapshot
@@ -1512,6 +1279,8 @@ class RuntimeInstance implements Runtime {
     this.spawnRequests = new SpawnRequests({
       prefabs: this.prefabs,
       spawned: () => this.spawnedEntities,
+      live: (id) => this.grid.isLive(id),
+      liveCount: () => this.grid.liveCount,
       inGame: (id) => this.entities.has(id),
       transformOf: (id) => this.curr.get(id),
       entityRefKeysOf: (b) => this.entityRefKeysOf(b),
@@ -1520,7 +1289,7 @@ class RuntimeInstance implements Runtime {
     });
     this.spawnControl = this.spawnRequests.control();
     // The start scenes' block layers; in 3D their chunks collide (a 2D plane draws them only).
-    this.grid = new RuntimeGrid(args.blockTypes, args.cellFields, args.physics3d !== undefined, args.settings.max_slope_climb_deg, args.materialIds);
+    this.grid = new RuntimeGrid(args.blockTypes, args.cellFields, args.physics3d !== undefined, args.settings.max_slope_climb_deg, args.materialIds, this.prefabs);
     this.grid.addLayers(args.initialEntities);
     this.grid.flushCollision(args.physics3d);
     // The start set's graph materials (the values scripts set per object).
@@ -1823,6 +1592,7 @@ class RuntimeInstance implements Runtime {
       spawnedCopies: () => rt.spawnRequests.savedCopies(),
       spawnedCopiesProblem: (value) => rt.spawnRequests.savedCopiesProblem(value),
       restoreSpawnedCopies: (copies) => rt.spawnRequests.restore(copies),
+      syncLive: () => void rt.syncLiveBlocks(),
       captureWorld: () => rt.captureWorld(),
       worldProblem: (world) => rt.worldProblem(world),
       applyWorld: (world) => rt.applyWorld(world),
@@ -2508,6 +2278,7 @@ class RuntimeInstance implements Runtime {
     // A restart asked for, then the game mode's step start.
     if (this.pendingRestart && !this.restartRun(this.stepIndex + 1)) return false;
     if (this.pendingListedScene !== null) this.goToListedScene();
+    if (!this.syncLiveBlocks()) return false;
     this.modes.beginStep(this.stepIndex + 1);
     this.grid.beginStep(this.stepIndex + 1);
     this.materials.beginStep(this.stepIndex + 1);
@@ -2616,8 +2387,9 @@ class RuntimeInstance implements Runtime {
     this.animators.step();
     // Attached entities follow their nodes (posed by the animators just stepped).
     this.stepSockets(null);
-    // Cells written after the physics phase collide from the next step.
+    // Cells written after the physics phase collide from the next step; the live blocks' objects follow now.
     this.grid.flushCollision(this.physics3d);
+    if (!this.syncLiveBlocks()) return false;
     return true;
   }
 
@@ -2640,6 +2412,7 @@ class RuntimeInstance implements Runtime {
     // (last step's events end; a script's switch applies now).
     if (this.pendingRestart && !this.restartRun(ordinal)) return false;
     if (this.pendingListedScene !== null) this.goToListedScene();
+    if (!this.syncLiveBlocks()) return false;
     // A 2D-plane respawn (ctx.lifecycle, a restart's placement) places the character at the boundary.
     if (!this.placement.respawn2DAtBoundary(ordinal)) return false;
     this.modes.beginStep(ordinal);
@@ -2744,8 +2517,9 @@ class RuntimeInstance implements Runtime {
     this.prev = backup;
     this.stepIndex += 1;
     this.simTime = this.stepIndex / this.hz;
-    // Cells written after the physics phase collide from the next step.
+    // Cells written after the physics phase collide from the next step; the live blocks' objects follow now.
     this.grid.flushCollision(this.physics3d);
+    if (!this.syncLiveBlocks()) return false;
     this.committedMirror.copyFrom(this.curr, this.currShape);
     this.committed = this.committedMirror.map;
     this.animators.step();
@@ -2980,7 +2754,8 @@ class RuntimeInstance implements Runtime {
     this.blocks?.resetRun();
     // Every field scripts wrote back as authored (switched-off objects come back, colliders included).
     this.entityAccess.reset();
-    this.grid.reset();
+    // The live blocks start over as fresh objects at the next boundary.
+    this.removeSpawnedIds(new Set(this.grid.reset().filter((id) => this.spawnedEntities.has(id))));
     this.grid.flushCollision(this.physics3d);
     this.materials.reset();
     this.ui.resetRun();
@@ -3835,8 +3610,9 @@ class RuntimeInstance implements Runtime {
       const owners = instance.transformOwners;
       if (Array.isArray(owners)) entry.owners = owners.filter((id) => !ids.has(id));
     }
-    // Unloaded block layers take their chunk colliders along.
+    // Unloaded block layers take their chunk colliders and their live blocks' objects along.
     const gridColliders = this.grid.removeLayers(ids);
+    this.removeSpawnedIds(new Set(this.grid.takeGoneLive().filter((id) => this.spawnedEntities.has(id))));
     if (gridColliders.length > 0 && typeof this.physics3d?.removeStaticColliders === 'function') {
       try {
         this.physics3d.removeStaticColliders(gridColliders);
@@ -3967,15 +3743,28 @@ class RuntimeInstance implements Runtime {
     return true;
   }
 
-  /** Add one spawned copy (colliders, state, blocks, scripts). Returns false after a fail-stop. */
-  private addSpawned(entities: readonly EntityV3[]): boolean {
+  /**
+   * The live blocks' objects follow their cells: those of the cells changed
+   * since the last call go and come through the spawned-copy path. Returns
+   * false after a fail-stop.
+   */
+  private syncLiveBlocks(): boolean {
+    const d = this.grid.takeLive((id) => this.entities.has(id), (b) => this.entityRefKeysOf(b));
+    if (d === null) return true;
+    this.removeSpawnedIds(new Set(d.remove.filter((id) => this.spawnedEntities.has(id))));
+    if (d.refused.length > 0) this.recordError({ code: 'spawn_refused', message: clipMessage(`live blocks not spawned: objects of the game already have the ids ${d.refused.slice(0, 4).join(', ')}`), stepIndex: this.stepIndex });
+    return d.add.length === 0 || this.addSpawned(d.add, true);
+  }
+
+  /** Add one spawned copy (colliders, state, blocks, scripts; `owned`: made for this call, not copied again). Returns false after a fail-stop. */
+  private addSpawned(entities: readonly EntityV3[], owned = false): boolean {
     const root = entities[0]!;
     const clash = entities.find((e) => this.entities.has(e.id));
     if (clash !== undefined) {
       this.recordError({ code: 'spawn_refused', message: clipMessage(`spawn "${root.id}" was not added: entity "${clash.id}" is already in the game`), stepIndex: this.stepIndex });
       return true;
     }
-    const frozen = deepFreeze(entities.map((e) => structuredClone(e)));
+    const frozen = deepFreeze(owned ? [...entities] : entities.map((e) => structuredClone(e)));
     const added = this.colliders.add(frozen, `spawn "${root.id}"`);
     if (!added.ok && 'refused' in added) {
       this.recordError({ code: 'spawn_refused', message: clipMessage(`spawn "${root.id}" was not added: ${added.refused}`), stepIndex: this.stepIndex });

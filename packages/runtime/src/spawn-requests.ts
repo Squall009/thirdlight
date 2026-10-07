@@ -20,8 +20,12 @@ export type SpawnOp =
 /** What the requests read of the running game. */
 export interface SpawnRequestHost {
   readonly prefabs: ReadonlyMap<string, PrefabDefinition>;
-  /** The live spawned entities, in spawn order (parents before children). */
+  /** The live spawned entities, in spawn order (parents before children); live blocks' objects among them. */
   spawned(): ReadonlyMap<string, EntityV3>;
+  /** Whether a spawned object is a live block's (its cell owns it: never destroyed, counted or saved here). */
+  live(entityId: string): boolean;
+  /** The live blocks' objects among the spawned ones. */
+  liveCount(): number;
   /** Any object of the game has this id (authored or spawned). */
   inGame(entityId: string): boolean;
   /** The object's transform this step (undefined: not loaded). */
@@ -79,7 +83,7 @@ export class SpawnRequests {
           const problem = this.host.valuesProblem(def.entities[0]!.components.behavior!.behaviorId, properties);
           if (problem !== null) return refuse('behavior_spawn_invalid', `ctx.spawn("${def.prefabId}"): properties: ${problem}`);
         }
-        const live = this.host.spawned().size + this.reserved.size;
+        const live = this.host.spawned().size - this.host.liveCount() + this.reserved.size;
         if (this.spawnsThisStep >= MAX_SPAWNS_PER_STEP || live + def.entities.length > MAX_LIVE_SPAWNED) {
           this.logRefusal(this.spawnsThisStep >= MAX_SPAWNS_PER_STEP
             ? `ctx.spawn("${def.prefabId}") refused: at most ${MAX_SPAWNS_PER_STEP} spawns per step`
@@ -93,6 +97,7 @@ export class SpawnRequests {
       },
       destroy: (entityId: string): boolean => {
         if (typeof entityId !== 'string') return refuse('behavior_destroy_invalid', 'ctx.destroy: entityId must be a string');
+        if (this.host.live(entityId)) return refuse('behavior_destroy_refused', `ctx.destroy: "${entityId}" is a live block's object: it goes with its cell (ctx.grid.clear)`);
         if (this.host.spawned().has(entityId) || this.reserved.has(entityId)) {
           if (this.pendingDestroys.has(entityId)) return false;
           this.pendingDestroys.add(entityId);
@@ -154,7 +159,8 @@ export class SpawnRequests {
     const copyOf = new Map<string, string[]>();
     const roots: string[] = [];
     for (const e of this.host.spawned().values()) {
-      if (this.pendingDestroys.has(e.id)) continue;
+      // A live block's objects are saved with their cell (the grid section).
+      if (this.pendingDestroys.has(e.id) || this.host.live(e.id)) continue;
       const parent = e.parentId;
       const ids = parent !== undefined ? copyOf.get(parent) : undefined;
       // Parents come before children: a child joins its parent's copy.
@@ -212,7 +218,7 @@ export class SpawnRequests {
     this.pendingDestroys.clear();
     const spawned = this.host.spawned();
     for (const e of spawned.values()) {
-      if (e.parentId !== undefined && spawned.has(e.parentId)) continue;
+      if ((e.parentId !== undefined && spawned.has(e.parentId)) || this.host.live(e.id)) continue;
       this.pendingDestroys.add(e.id);
       this.ops.push({ op: 'destroy', entityId: e.id });
     }

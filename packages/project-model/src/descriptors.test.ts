@@ -882,6 +882,7 @@ function runAllProbes(): void {
   // Block types, cell fields and stamps.
   probe('blockTypes', (v) => errorsOf((e) => validateBlockTypes(v, '', e)), [{ blockId: 'grass', name: 'Grass', variants: [{ color: '#55aa55', weight: 2 }], shape: 'full', solid: true, footprint: [1, 1, 1], rotations: [0, 90], metadata: { walkable: true }, materials: { '*': 'mat-a' }, uv: 'world' }], '', block('blockTypes'), 'blockTypes:');
   probe('blockTypes[1]', (v) => errorsOf((e) => validateBlockTypes(v, '', e)), [{ blockId: 'odd', name: 'Odd', variants: [{ model: { assetId: 'model-a', piece: 'Rock' } }], shape: 'custom', boxes: [[0, 0, 0, 1, 0.5, 1]] }], '', block('blockTypes'), 'blockTypes:');
+  probe('blockTypes[2]', (v) => errorsOf((e) => validateBlockTypes(v, '', e)), [{ blockId: 'door', name: 'Door', variants: [{ prefab: 'door' }], shape: 'none', live: true }], '', block('blockTypes'), 'blockTypes:');
   probe('cellFields', (v) => errorsOf((e) => validateCellFields(v, '', e)), [{ key: 'terrain', type: 'enum', values: ['grass', 'rock'], color: '#aa5500', label: 'Terrain' }], '', block('cellFields'), 'cellFields:');
   probe('cellFields[1]', (v) => errorsOf((e) => validateCellFields(v, '', e)), [{ key: 'cost', type: 'int', default: 1, min: 0, max: 10 }], '', block('cellFields'), 'cellFields:');
   probe('blockStamps', (v) => errorsOf((e) => validateBlockStamps(v, '', e)), [{ stampId: 'hut', name: 'Hut', size: [2, 1, 2], palette: [{ block: 'grass' }], columns: [[0, 0, 0, 1, 0]] }], '', block('blockStamps'), 'blockStamps:');
@@ -1000,7 +1001,7 @@ describe('descriptor registry', () => {
     // (the UI document vocabulary is about 20 KB; environment presets, which repeat
     // the sky/fog/post descriptors, about 9 KB; a compound repeats the collider shapes, about 6 KB;
     // a quality level repeats the bloom/AO/depth-of-field descriptors, about 3 KB)
-    expect(JSON.stringify(DESCRIPTORS).length).toBeLessThan(269_000);
+    expect(JSON.stringify(DESCRIPTORS).length).toBeLessThan(270_000);
     for (const c of DESCRIPTORS.components) expect(c.value.key).toBe(c.name);
   });
 

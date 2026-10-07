@@ -14,6 +14,12 @@
  * below. The blocks are seen in the Play screenshot (grass-green pixels).
  * The static export, served with the backend stopped, does the same.
  *
+ * A beacon block type shows a prefab: its root's base model is drawn in the
+ * chunk; the Blocks panel's block type form turns it live, so in Play and
+ * the export each beacon cell also spawns the prefab's magenta post as an
+ * object of the game (counted in Play's diagnostics, seen in the pictures
+ * on both renderers), and the dug column's beacon goes with its cell.
+ *
  * A new project stores the chunk as a binary file; turning the project's
  * `block_chunk_storage` to 0 rewrites it as JSON text (the same cells
  * through queryBlocks). The export ships the cells as binary chunk data the
@@ -26,9 +32,10 @@ import { extname, join, normalize } from 'node:path';
 
 import { expect, test, type Page } from './pw';
 
-import { startBackend, type E2EBackend } from './backend';
+import { publishBytes, startBackend, type E2EBackend } from './backend';
 import { gpuAvailable } from './browser-env.mjs';
-import { closeProjectSettings, openProjectSettings } from './ui';
+import { multiPieceGlb } from './multi-piece-glb';
+import { closeProjectSettings, openProjectSettings, openWindow } from './ui';
 import { decodePng, type Image } from './png';
 import { makePng } from './png-make';
 
@@ -118,12 +125,40 @@ function greenPixels(img: Image): number {
   return n;
 }
 
+/** Magenta pixels (red and blue well above green; shaded posts are dark): the live beacons' posts. */
+function magentaPixels(img: Image): number {
+  let n = 0;
+  for (let y = 0; y < img.height; y += 2) {
+    for (let x = 0; x < img.width; x += 2) {
+      const [r, g, b] = img.pixel(x, y);
+      if (r > 70 && b > 70 && g < Math.min(r, b) * 0.6) n += 1;
+    }
+  }
+  return n;
+}
+
+/**
+ * Beacon cells on the grass tops (row = the column's height): one in the dug column under the player, two
+ * elsewhere. Each spawns the beacon prefab in the game: its root's base model is merged into the chunk, its
+ * magenta post is a live object.
+ */
+const BEACONS: readonly [number, number, number][] = [[8, 5, 8], [3, 4, 12], [13, 6, 4]];
+
 /** The map: stone under grass, raised by a heightmap, a lower floor 5 m below, a player above the middle. */
 async function buildMap(): Promise<{ layer: string; player: string }> {
   await cmd('setSettings', { settings: { physics_dimension: 3 } });
   await cmd('setCellFields', { fields: [{ key: 'walkable', type: 'bool', color: '#20c020' }, { key: 'cost', type: 'int', default: 1, min: 0, max: 9 }] });
   await cmd('setBlockType', { block: { blockId: 'stone', name: 'Stone', variants: [{ color: '#6b7280' }], shape: 'full' } });
   await cmd('setBlockType', { block: { blockId: 'grass', name: 'Grass', variants: [{ color: '#3fa34d' }], shape: 'full', metadata: { walkable: true } } });
+  // The beacon prefab, kept in a scene the game never loads: a base model on its root, a magenta post as its child.
+  await publishBytes(be!, new Uint8Array(multiPieceGlb([{ name: 'base', lods: [[0.8, 0.1, 0.8]] }], { centred: true })), 'model', 'beacon-base', 'Beacon base');
+  await cmd('createScene', { sceneId: 'scene-kit', name: 'Kit' });
+  const beacon = String((await cmd('createEntity', { sceneId: 'scene-kit', parentId: null, kind: 'group', name: 'Beacon', transform: { position: [0, 0, 0] } }))['createdId']);
+  await cmd('setComponent', { entityId: beacon, component: 'model', value: { asset: { assetId: 'beacon-base' } } });
+  await cmd('createEntity', { sceneId: 'scene-kit', parentId: beacon, kind: 'box', name: 'Beacon post', transform: { position: [0, 0.85, 0] }, box: { size: [0.4, 1.5, 0.4], material: { color: '#ff00ff' } } });
+  await cmd('createPrefab', { prefabId: 'beacon', displayName: 'Beacon', sourceEntityId: beacon });
+  // Not live yet: the Blocks panel's block type form turns it live.
+  await cmd('setBlockType', { block: { blockId: 'beacon', name: 'Beacon', variants: [{ prefab: 'beacon' }], shape: 'none' } });
   // The camera looks down at the map from its south side.
   const cam = ((await query('queryEntities', { limit: 100, offset: 0 })) as { entities: { id: string; components: Record<string, unknown> }[] }).entities.find((e) => e.components['virtualCamera'] !== undefined)!.id;
   const pitch = (-35 * Math.PI) / 180;
@@ -147,6 +182,7 @@ async function buildMap(): Promise<{ layer: string; player: string }> {
       { kind: 'heightmap', png: height.toString('base64'), origin: [0, 0], y: 2, scale: 6, cell: { block: 'grass' }, colors: { png: colors.toString('base64'), map: [{ color: '#3caa50', cell: { block: 'grass' } }] } },
       { kind: 'region', regionId: 'spawn.area', op: 'set', boxes: [[6, 0, 6, 10, 16, 10]] },
       { kind: 'meta', box: [0, 1, 0, 16, 2, 16], set: { cost: 2 }, occupiedOnly: true },
+      ...BEACONS.map(([x, y, z]) => ({ kind: 'fill', box: [x, y, z, x + 1, y + 1, z + 1], cell: { block: 'beacon' } })),
     ],
   });
   expect((res.change as { chunks: number[][] }).chunks).toEqual([[0, 0]]);
@@ -245,6 +281,16 @@ test('a block map built with bulk commands renders in the Scene view, Play and t
   // Hidden faces left out: far fewer triangles than 12 per cell.
   expect(stats.triangles).toBeLessThan(cells16 * 12 * 0.25);
 
+  // The Blocks panel's block type form turns the beacon live (one setBlockType), read back over HTTP.
+  await openWindow(page, 'Blocks');
+  const blocksPanel = page.getByLabel('blocks panel');
+  await blocksPanel.getByRole('button', { name: 'block beacon', exact: true }).click();
+  const liveBox = blocksPanel.getByLabel('block type form').getByLabel('blockType live', { exact: true });
+  await expect(liveBox).not.toBeChecked();
+  await liveBox.click();
+  await expect.poll(async () => ((await query('queryGameConfig')) as { blockTypes?: { blockId: string; live?: boolean }[] }).blockTypes?.find((t) => t.blockId === 'beacon')?.live).toBe(true);
+  await expect(liveBox).toBeChecked();
+
   // …and JSON text, one column per line (a diff shows the columns that changed), once the project asks for it
   // in its settings: the chunk file is rewritten in the same save.
   await openProjectSettings(page, 'Gameplay');
@@ -269,6 +315,16 @@ test('a block map built with bulk commands renders in the Scene view, Play and t
     return r.status === 200 ? (r.json as unknown as Observation) : null;
   };
   await expectRestsOnBlocks(read, 'Play', topY);
+  // Each beacon cell spawned its prefab (a root and its post) as objects of the game, the posts drawn.
+  const liveObjects = async (): Promise<number | undefined> => ((await relay(`${psid}/diagnostics`, {})).json as { diagnostics?: { runtime?: { blockMemory?: { liveObjects?: number } } } }).diagnostics?.runtime?.blockMemory?.liveObjects;
+  await expect.poll(liveObjects, { timeout: 30_000, message: 'the beacon cells\' objects in Play' }).toBe(BEACONS.length * 2);
+  await expect
+    .poll(async () => {
+      const shot = await relay(`${psid}/screenshot`, { maxWidth: 480 });
+      if (shot.status !== 200) return 0;
+      return magentaPixels(decodePng(Buffer.from(String(shot.json.dataUrl ?? '').split(',')[1] ?? '', 'base64')));
+    }, { timeout: 60_000, message: 'the beacons\' magenta posts in the Play screenshot' })
+    .toBeGreaterThan(15);
   // The blocks are in the Play screenshot.
   await expect
     .poll(async () => {
@@ -279,6 +335,8 @@ test('a block map built with bulk commands renders in the Scene view, Play and t
     }, { timeout: 60_000, message: 'grass-green pixels in the Play screenshot' })
     .toBeGreaterThan(500);
   await expectFallsThrough(read, 'Play');
+  // The dug column's beacon went with its cell.
+  await expect.poll(liveObjects, { timeout: 30_000 }).toBe((BEACONS.length - 1) * 2);
 
   // The static export with the backend stopped. Its scene files hold no cells: each layer names its
   // binary chunk data (gzip), a digest-addressed buffer, whatever form the project stores them in.
@@ -308,6 +366,7 @@ test('a block map built with bulk commands renders in the Scene view, Play and t
     await expectRestsOnBlocks(observe, 'export', topY);
     await expect.poll(async () => Number((await canvas.getAttribute('data-tl-draws')) ?? 0), { timeout: 60_000 }).toBeGreaterThan(0);
     await expect.poll(async () => greenPixels(decodePng(await canvas.screenshot())), { timeout: 30_000, message: 'grass-green pixels in the export' }).toBeGreaterThan(500);
+    await expect.poll(async () => magentaPixels(decodePng(await canvas.screenshot())), { timeout: 30_000, message: 'the beacons\' posts in the export' }).toBeGreaterThan(30);
     await expectFallsThrough(observe, 'export').catch((e: Error) => {
       throw new Error(`${e.message}\nconsole: ${logs.slice(-20).join(' | ')}`);
     });
@@ -323,6 +382,7 @@ test('a block map built with bulk commands renders in the Scene view, Play and t
         await expectRestsOnBlocks(() => gl.evaluate(() => ((window as unknown as { __thirdlightObserve?: () => unknown }).__thirdlightObserve?.() ?? null) as Observation | null), 'export (WebGL 2)', topY);
         await expect.poll(async () => glCanvas.getAttribute('data-tl-renderer'), { timeout: 60_000 }).toBe('webgl2');
         await expect.poll(async () => greenPixels(decodePng(await glCanvas.screenshot())), { timeout: 30_000, message: 'grass-green pixels in the export on WebGL 2' }).toBeGreaterThan(500);
+        await expect.poll(async () => magentaPixels(decodePng(await glCanvas.screenshot())), { timeout: 30_000, message: 'the beacons\' posts in the export on WebGL 2' }).toBeGreaterThan(30);
         expect(errors).toEqual([]);
       } finally {
         await gl.close();

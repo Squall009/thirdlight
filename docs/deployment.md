@@ -4396,8 +4396,8 @@ brushes, overlays and stamp UI are below (23.6).
 
 - **Block types** (`content.blockTypes`, `setBlockType` / `deleteBlockType`):
   up to 8 weighted **looks** each — a model (asset and optional piece), a
-  prefab's root model, or a coloured stand-in shaped like the collision
-  shape; a **collision shape** (`full`, `half`, `ramp`, `stairs` — both rising
+  prefab's root model (or, on a **Live** type, the prefab itself: below), or a
+  coloured stand-in shaped like the collision shape; a **collision shape** (`full`, `half`, `ramp`, `stairs` — both rising
   toward +Z —, `custom` boxes, `none`); `solid` (hides the faces of
   neighbours touching it; default for `full`); a **footprint** of several
   cells (stored at its min corner, the covered cells stay empty); the allowed
@@ -4502,6 +4502,44 @@ brushes, overlays and stamp UI are below (23.6).
   data for a save, the type swaps included). Writes are refused
   (`false`) when they do not fit; at most 4,096 per step. Visual-script nodes
   exist for the calls.
+- **Live blocks** (30.3): a block type marked **Live** (`live: true`, the
+  Blocks panel's block type form) spawns each of its prefab looks as real
+  objects of the game, per cell — a door, a lamp, a trigger, a sound, with
+  their scripts, movers, lights and children. What a door does is the
+  prefab's scripts (the game's), not the engine's.
+  - Only cells that need them have objects. They come with the cell and go
+    with it: a layer loading or unloading, `ctx.grid.set` / `clear` (the
+    objects are in the game from the end of the step that wrote the cell; the
+    chunk's collider changes as before), a save loaded, a scene reloaded, a
+    run restarted (fresh objects). A cell rewritten with the same prefab and
+    rotation keeps its objects and their state.
+  - Ids come from the cell — `<layer>-<x>_<y>_<z>` for the root (negative
+    coordinates `m<n>`, a layer id over 41 characters shortened to a hash),
+    `-<i>` after it for the prefab's i-th object — so they are the same in
+    every run, replay and loaded save, and never use the scene's id space.
+    Nothing of them is written into the scene file.
+  - The prefab's root is the cell's **static part**: placed at the bottom
+    centre of the block's footprint, turned with the cell, at unit scale (the
+    prefab root's own transform is not used), its model drawn merged into the
+    chunk with the other blocks (the spawned root carries no model). It may
+    not carry a mover, patrol, gravity, animator, model animation or socket
+    attachment; put moving parts on children. A root without a model is a
+    logic-only cell (nothing drawn in the chunk, nothing in three.js). No
+    object of a live prefab may be a player controller, a block layer or kept
+    loaded.
+  - `ctx.grid.entity(layer, x, y, z)` names a cell's root object (a covered
+    cell names its block's); `ctx.grid.cellOf(id)` gives an object's cell, so
+    a script reads and writes its own cell's metadata. Keep a live block's
+    lasting state in its cell's metadata: the grid section of a save keeps
+    it. Fields written with `ctx.entity(id).set` are kept by the components
+    section as for any object. `ctx.destroy` refuses a live block's objects
+    (clear the cell); the `spawned` save section leaves them out; they do not
+    count against the spawned-object limit.
+  - Play diagnostics show `runtime.blockMemory.liveObjects`. Measured (30.3):
+    500 doors (a scripted root and a leaf with a box collider) cost about
+    120 µs each to spawn (60 ms at once when a layer loads), 0.6–1.2 µs each
+    per fixed step, and 16 KB of heap each; drawn, 500 leaves are one
+    instanced batch (+2 draws with the shadow).
 - **Lightmaps** (25.20): a block layer object marked **Static** is baked
   like a static box or model — each chunk gets its own lightmap (one entry
   per chunk in the bake, browser preview and Blender final alike); a chunk
