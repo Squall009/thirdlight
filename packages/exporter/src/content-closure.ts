@@ -32,6 +32,7 @@ import { ASSET_QUERY_PAGE_MAX, audioLoadOf, COLLIDER_3D_LIMITS, MODEL_RIG_LIMITS
 import type { BlobFile, WorkspaceService } from '@thirdlight/workspace';
 
 import { closureSlotArrays, type ClosureSlotArrays, type ClosureTextureSlots } from './closure-texture-slots';
+import { blockDataPacker, type GzipPort } from './block-chunk-data';
 
 /** The injected compiler port (structural; no behavior-build edge). */
 export interface ContentClosureCompilerPort {
@@ -230,6 +231,11 @@ export interface ContentClosureM3Input {
    */
   locate?: boolean;
   /**
+   * The host's gzip: block-layer cells ship gzip-compressed
+   * (block-chunk-data.ts). Absent: uncompressed (the same cells).
+   */
+  gzip?: GzipPort;
+  /**
    * A build made ahead of a Play, in the background: it gives the event loop
    * back between its stages so requests meanwhile are not held for the whole
    * build (the output is the same).
@@ -277,7 +283,7 @@ export interface ContentClosureM3 {
   behaviorArtifacts: readonly ClosureArtifact[];
   /** One artifact per scene of a v4 project (`scenes/<sceneId>.json`). */
   sceneArtifacts: readonly ClosureArtifact[];
-  /** The instance-set buffers (`content/sha256/<digest>`). */
+  /** The instance-set buffers and the block layers' chunk data (`content/sha256/<digest>`). */
   bufferArtifacts: readonly ClosureArtifact[];
   /** With `locate`: the reachable asset artifacts found on disk, not read (sorted by path). */
   assetFiles: readonly ClosureFileArtifact[];
@@ -504,6 +510,10 @@ interface DerivedCapture {
   readonly sceneRows: readonly ManifestSceneRow[];
   /** The instance buffers the scenes name (read or located per build). */
   readonly buffers: readonly { digest: string; byteLength: number }[];
+  /** The block layers' chunk data the scene files name (made by the build, block-chunk-data.ts). */
+  readonly blockData: readonly ClosureArtifact[];
+  /** Whether that chunk data is gzip-compressed (a build with the other choice derives again). */
+  readonly gzip: boolean;
   readonly sceneBytes: Uint8Array;
   readonly sceneDigest: string;
   /** Each scene's dependencies (the asset ids it needs), once derived. */
@@ -621,7 +631,7 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
   const identities = contentKey !== null ? captureIdentities(input.scene, input.scenes) : null;
   const startKey = (input.startScenes ?? []).join('\u0000');
   const remembered = contentKey !== null && identities !== null ? derivedCaptures.get(contentKey) : undefined;
-  const derived = remembered !== undefined && remembered.projectId === projectId && remembered.revision === input.revision && remembered.startScenes === startKey && sameIdentities(remembered.identities, identities!) ? remembered : null;
+  const derived = remembered !== undefined && remembered.projectId === projectId && remembered.revision === input.revision && remembered.startScenes === startKey && remembered.gzip === (input.gzip !== undefined) && sameIdentities(remembered.identities, identities!) ? remembered : null;
   if (derived !== null) closureCacheStats.hits += 1;
   else closureCacheStats.misses += 1;
 
@@ -871,11 +881,13 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
   const bufferArtifacts: ClosureArtifact[] = [];
   const bufferFiles: ClosureFileArtifact[] = [];
   const buffers = new Map<string, number>(derived !== null ? derived.buffers.map((b) => [b.digest, b.byteLength] as const) : []);
+  // The block layers' cells leave the scene files as binary chunk data (the same blob for a layer two files name).
+  const packer = blockDataPacker(hash, input.gzip);
   if (input.scenes !== undefined && derived === null) {
     const start = new Set(input.startScenes ?? []);
     for (const doc of input.scenes) {
       const sc = doc as { sceneId: string; entities: { components: { instances?: { buffer: string; count: number } } }[] };
-      const bytes = new TextEncoder().encode(`${JSON.stringify(doc, null, 2)}\n`);
+      const bytes = new TextEncoder().encode(`${JSON.stringify(packer.pack(doc), null, 2)}\n`);
       const digest = hash(bytes);
       const path = `scenes/${sc.sceneId}.json`;
       sceneArtifacts.push({ path, bytes, digest, contentType: 'application/json' });
@@ -958,11 +970,14 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
 
   stage('rigs');
   // 6. The emitted scene bytes + sceneDigest (the manifest's sceneDigest input).
-  const sceneBytes = derived !== null ? derived.sceneBytes : new TextEncoder().encode(`${JSON.stringify(input.scene, null, 2)}\n`);
+  const sceneBytes = derived !== null ? derived.sceneBytes : new TextEncoder().encode(`${JSON.stringify(packer.pack(input.scene), null, 2)}\n`);
   const sceneDigest = derived !== null ? derived.sceneDigest : hash(sceneBytes);
+  const blockData: readonly ClosureArtifact[] = derived !== null ? derived.blockData : packer.blobs().map((b) => ({ path: `content/sha256/${b.digest}`, bytes: b.bytes, digest: b.digest, contentType: 'application/octet-stream' }));
+  // Read with the instance buffers (manifest.buffers), served from the build.
+  for (const a of blockData) if (!buffers.has(a.digest)) bufferArtifacts.push(a);
   let remember: DerivedCapture | null = null;
   if (derived === null && contentKey !== null && identities !== null) {
-    remember = { projectId, revision: input.revision, startScenes: startKey, identities, view, media, sceneArtifacts: [...sceneArtifacts], sceneRows: [...sceneRows], buffers: [...buffers.entries()].map(([digest, byteLength]) => ({ digest, byteLength })), sceneBytes, sceneDigest };
+    remember = { projectId, revision: input.revision, startScenes: startKey, identities, view, media, sceneArtifacts: [...sceneArtifacts], sceneRows: [...sceneRows], buffers: [...buffers.entries()].map(([digest, byteLength]) => ({ digest, byteLength })), blockData, gzip: input.gzip !== undefined, sceneBytes, sceneDigest };
     derivedCaptures.set(contentKey, remember);
   }
 
@@ -1077,7 +1092,7 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
       ...(content['blockTypes'] !== undefined ? { blockTypes: content['blockTypes'] as BlockType[] } : {}),
       ...(content['cellFields'] !== undefined ? { cellFields: content['cellFields'] as CellField[] } : {}),
       // Every scene with what it needs; the scenes the game starts with; what the project-wide blocks need.
-      ...(input.scenes !== undefined ? { scenes: sceneRows.map((r) => ({ ...r, dependencies: sceneDependencies.get(r.sceneId) ?? [] })), buffers: [...buffers.entries()].sort(([a], [b]) => (a < b ? -1 : 1)).map(([digest, byteLength]) => ({ digest, byteLength })) } : {}),
+      ...(input.scenes !== undefined ? { scenes: sceneRows.map((r) => ({ ...r, dependencies: sceneDependencies.get(r.sceneId) ?? [] })), buffers: [...buffers.entries(), ...blockData.filter((a) => !buffers.has(a.digest)).map((a) => [a.digest, a.bytes.length] as const)].sort(([a], [b]) => (a < b ? -1 : 1)).map(([digest, byteLength]) => ({ digest, byteLength })) } : {}),
       start: input.startScenes ?? [],
       dependencies: sharedDependencies,
       media,

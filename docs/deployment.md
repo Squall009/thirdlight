@@ -4420,11 +4420,34 @@ brushes, overlays and stamp UI are below (23.6).
   `runtime.blockMemory`: bytes in all, and per layer its chunks, columns,
   cells and bytes (4 bytes a cell plus about 270 bytes a column, so a layer's
   memory grows with its area more than its depth: 1,024 × 1,024 columns take
-  about 280 MB). An undo step keeps only the chunks its edit changed.
-- **Storage**: each chunk of 16 × 16 columns is its own diff-friendly file,
-  `scenes/<sceneId>.blocks/<entityId>.<cx>.<cz>.json` (the palette and one
-  run-length column per line); the scene file lists them. External-edit
-  detection and the recovery snapshots cover these files like any project file.
+  about 280 MB). An undo step keeps only the chunks its edit changed, in
+  their compact binary form (about 1.5 KB a chunk on a 512 × 512 layer).
+- **Storage**: each chunk of 16 × 16 columns is its own file in
+  `scenes/<sceneId>.blocks/`, listed by the scene file, in one of two forms
+  set by the project setting **Project files → Block chunk files**
+  (`block_chunk_storage`):
+  - `0` (*JSON text*; what a project that never set it has):
+    `<entityId>.<cx>.<cz>.json`, the palette and one run-length column per
+    line, so a version-control diff shows the columns that changed;
+  - `1` (*Binary*; what new projects are made with): `<entityId>.<cx>.<cz>.bin`,
+    the same cells as varints, zstd-compressed — several times smaller and
+    faster to open, but a diff only shows that a file changed (the editor's
+    `queryBlocks` reads the cells either way).
+  Changing the setting rewrites every chunk file in the new form in the same
+  save (one undo step). Both forms are always read: a scene file says which
+  form its chunks are in (`blockChunkFormat: "binary"`, absent: JSON), so a
+  project whose scenes were written in different forms (after a merge, or by
+  an older engine) opens as it is, and a scene the editor writes again moves
+  to the project's form. Nothing is converted on open. A chunk's paint is
+  kept in both forms. External-edit detection and the recovery snapshots
+  cover these files like any project file.
+- **Export**: Play and the export ship each layer's cells as one binary,
+  gzip-compressed blob (`content/sha256/<digest>`, a `manifest.buffers` row);
+  the scene files name it (`chunkData`) instead of holding the cells, and the
+  game page decodes it with the browser's own gzip before the scene starts.
+  On Skyforge's village copy the exported scene files went from 1.42 MB to
+  0.97 MB (its two layers: 11 KB of chunk data); a 512 × 512 test layer of
+  1.8 M cells is 73 KB instead of 43 MB of pretty-printed JSON.
 - **Editing** (`editBlocks {entityId, edits}`, one undo step, each request
   under 64 KiB): `fill` a box (set / keep / replace), `cells`, `array`
   (run-length data), `replace` a block type, `meta` (paint metadata), `flood`,

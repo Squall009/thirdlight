@@ -8,6 +8,7 @@ import { parseAdminNoArgsBody, parseAdminCreateProjectRequest, parseStrictJsonBy
 import { type CommandError, type WorkspaceService } from '@thirdlight/workspace';
 import { type BackendConfig } from './config';
 import { createBehaviorCompilerPort } from './content';
+import { nodeGzip } from './gzip-port';
 
 import type { Problem } from './backend';
 
@@ -268,6 +269,8 @@ export function makeAdminRoutes(ctx: AdminRoutesContext) {
       m3BootstrapEntry: join(engineRoot, 'packages/exporter/src/export-bootstrap-m3.ts'),
       compiler: behaviorCompiler,
       ...(textureSlots !== undefined ? { textureSlots } : {}),
+      // Block-layer cells ship as gzip-compressed chunk data.
+      gzip: nodeGzip,
       threePackageJson: join(engineRoot, 'node_modules/three/package.json'),
       typescriptPackageJson: join(engineRoot, 'node_modules/typescript/package.json'),
       lockfile: join(engineRoot, 'package-lock.json'),

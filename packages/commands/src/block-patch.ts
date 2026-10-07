@@ -4,18 +4,21 @@
  *
  * A history entry that kept the layer's whole entry twice grew with the
  * layer, not the edit: on a large layer every one-cell edit held two lists of
- * all its chunks. A patch holds the changed chunk objects only (the scene's
- * own, immutable values), so an undo step costs what the edit touched, and
- * undo and redo replace those chunks in whatever the layer holds now.
+ * all its chunks. A patch holds the changed chunks only, so an undo step
+ * costs what the edit touched, and undo and redo replace those chunks in
+ * whatever the layer holds now. Each is kept in its binary form
+ * (block-chunk-binary.ts, uncompressed): a chunk object of a few hundred
+ * columns is kilobytes of small arrays on the heap, its binary form a few
+ * hundred bytes, decoded only when the step is undone or redone.
  */
-import type { BlockChunk, BlockLayerData, BlockRegion } from '@thirdlight/project-model';
+import { decodeBlockChunks, encodeBlockChunks, type BlockChunk, type BlockLayerData, type BlockRegion } from '@thirdlight/project-model';
 
-/** One chunk before and after (null: no chunk there). */
+/** One chunk before and after, in binary form (null: no chunk there). */
 export interface BlockChunkSwap {
   cx: number;
   cz: number;
-  restore: BlockChunk | null;
-  next: BlockChunk | null;
+  restore: Uint8Array | null;
+  next: Uint8Array | null;
 }
 
 /** One region before and after (null: no such region). */
@@ -52,7 +55,7 @@ export function layerPatch(entityId: string, a: BlockLayerData | null, b: BlockL
     const y = cb.get(k);
     if (sameChunk(x, y)) continue;
     const [cx, cz] = k.split(',').map(Number) as [number, number];
-    chunks.push({ cx, cz, restore: x ?? null, next: y ?? null });
+    chunks.push({ cx, cz, restore: x !== undefined ? encodeBlockChunks([x]) : null, next: y !== undefined ? encodeBlockChunks([y]) : null });
   }
   chunks.sort(byChunkOrder);
   const ra = new Map((a?.regions ?? []).map((r) => [r.regionId, r]));
@@ -80,7 +83,7 @@ export function patchedLayer(current: BlockLayerData | null, p: BlockLayerPatch,
   for (const s of p.chunks) {
     const v = s[side];
     if (v === null) chunks.delete(chunkKey(s));
-    else chunks.set(chunkKey(s), v);
+    else chunks.set(chunkKey(s), decodeBlockChunks(v)[0]!);
   }
   const regions = new Map((current?.regions ?? []).map((r) => [r.regionId, r]));
   for (const s of p.regions) {

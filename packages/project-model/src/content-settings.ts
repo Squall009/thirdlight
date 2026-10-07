@@ -163,6 +163,13 @@ export const M2_SETTINGS_KEYS: readonly SettingsKeySpec[] = [
   // lists what is left (Godot extracts on import; Unity reimports when an
   // importer default changes).
   { key: 'import_extract_textures', type: 'number', default: 0, values: [0, 1], valueLabels: ['New models', 'Every model (older imports too)'], integer: true, unit: '', optional: true, group: 'Import', label: 'Extract model textures', tooltip: 'Which models have the images inside their files taken out into compressed (KTX2) texture assets they share: new imports only, or every model — older imports are then extracted where their GLB file is, and Problems lists any model still holding images.' },
+  // How the editor stores a project's block-layer cells (block-chunk-binary.ts): 0, one JSON text file per
+  // chunk — what every project had before, so an existing project keeps its files until it opts in; 1, one
+  // compressed binary file per chunk (smaller and faster to read, but a git diff shows only that it changed).
+  // New projects are made with 1 (NEW_PROJECT_SETTINGS). Changing it rewrites every chunk file in the new form
+  // in the same save; either form is read whatever the setting says. The game never sees it (an export always
+  // ships its own binary chunk data).
+  { key: 'block_chunk_storage', type: 'number', default: 0, values: [0, 1], valueLabels: ['JSON text', 'Binary'], integer: true, unit: '', optional: true, group: 'Project files', label: 'Block chunk files', tooltip: 'Block-layer cells as JSON text (a diff shows each column) or compressed binary (smaller, faster). A change rewrites every chunk file; both open.' },
   // The built-in stats overlay (game-host stats-overlay.ts): engine UI a game
   // opts into, so 0 (none, and no key) is the default; 1 shows it from the
   // start, 2 keeps it hidden until F3, in Play and the export alike.
@@ -192,6 +199,7 @@ export const M2_SETTINGS_KEYS: readonly SettingsKeySpec[] = [
  */
 export const NEW_PROJECT_SETTINGS: Readonly<Record<string, number>> = Object.freeze({
   ambient_occlusion: ambientOcclusionSettingValue(AMBIENT_OCCLUSION_NEW_PROJECT),
+  block_chunk_storage: 1,
 });
 
 /** The simulation's dimension (the `physics_dimension` setting's values). */
@@ -225,6 +233,11 @@ export function audioSpatialOf(settings: unknown): 'legacy' | 'panner' {
 /** Whether the project extracts every model's images, older imports included (`import_extract_textures` 1). */
 export function extractTexturesEverywhere(settings: unknown): boolean {
   return typeof settings === 'object' && settings !== null && (settings as Record<string, unknown>)['import_extract_textures'] === 1;
+}
+
+/** How the editor writes block chunk files (`block_chunk_storage`; absent or 0: JSON text, 1: binary). */
+export function blockChunkStorageOf(settings: unknown): 'json' | 'binary' {
+  return typeof settings === 'object' && settings !== null && (settings as Record<string, unknown>)['block_chunk_storage'] === 1 ? 'binary' : 'json';
 }
 
 /** The project's instance-set chunk size (m) when it sets `instance_chunk_m`, else undefined (the engine default, 32 m). */

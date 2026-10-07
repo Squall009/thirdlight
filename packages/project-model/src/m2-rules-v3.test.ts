@@ -295,6 +295,8 @@ describe('gameplay settings resolution', () => {
       'camera_far_m',
       // Which models' images are extracted (0 new imports, 1 every model).
       'import_extract_textures',
+      // How the editor stores block chunk files (0 JSON text, 1 binary).
+      'block_chunk_storage',
       // The built-in stats overlay (0 off, 1 shown, 2 hidden until F3).
       'stats_overlay',
       // The frame-rate cap (0 none, 30, 60, 120).

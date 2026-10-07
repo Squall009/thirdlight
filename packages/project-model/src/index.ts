@@ -1084,6 +1084,8 @@ export { SCULPT_LIMITS, SCULPT_OPS, columnHeights, sculptHeights, setColumnSurfa
 // The paint brush (any paint target) and a block layer's surface paint.
 export { BRUSH_FALLOFFS, PAINT_BRUSH_LIMITS, brushFalloff, paintBrushError, paintPoint, type BrushFalloff, type PaintBrush, type PaintLayout } from './paint-brush';
 export { BLOCK_PAINT_LAYOUT, PAINT_BYTES, PAINT_CHANNELS, PAINT_CHUNK_SIZE, PAINT_VERTICES, PAINT_WETNESS_CHANNEL, chunkPaintColors, chunkPaintError, chunksOfVertex, decodeChunkPaint, encodeChunkPaint, isUnpainted, paintDab, paintOffset, unpaintedChunk, type PaintSurface } from './block-paint';
+export { BLOCK_CHUNK_COMPRESSION, BLOCK_CHUNK_DATA_KEY, BLOCK_CHUNK_HEADER_BYTES, decodeBlockChunks, encodeBlockChunks, readBlockChunkData, wrapBlockChunkData, type BlockChunkCompression } from './block-chunk-binary';
+export { blockChunkStorageOf } from './content-settings';
 export { chunkLightmapLayout, type ChunkLightmapLayout } from './block-lightmap';
 // The instance brush (paint and erase copies of an instance set on a surface).
 export {

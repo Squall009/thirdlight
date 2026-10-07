@@ -35,6 +35,7 @@ import type { AdoptedScene, PreparedResourceImport, PreparedResourceRecord } fro
 import { sha256Hex } from './digest';
 import { freeAssetId, idStemOf } from './folder-import';
 import { ENV_PRESETS, gamePathOf, gameRel, parseResourceFile, recordsOfKind, resourceKindOfList, resourceStem, scanResourceFiles, type ResourceKind } from './resource-files';
+import { sceneChunkFormat } from './chunk-files';
 import { formerKey, joinChunkFiles, projectOwnSkip, readGameScenes, type GameSceneFile, type KnownFile, type V4State } from './store-v4';
 import { detectExternalChangeV4, gameRootOf, publishV4 } from './session-v4';
 import type { Core, ProjectSession } from './session';
@@ -302,7 +303,7 @@ export function checkResourceFiles(core: Core, s: ProjectSession): { report: Res
   for (const sc of current.scenes.values()) for (const e of sc.entities) entityIds.add(e.id);
   for (const f of untrackedScenes) {
     const fromId = sceneIdOf(f);
-    const joined = joinChunkFiles(core.ops, s.dir, s.projectId, fromId, f.value['scene'], f.value['blockChunks'], new Map());
+    const joined = joinChunkFiles(core.ops, s.dir, s.projectId, fromId, f.value['scene'], f.value['blockChunks'], new Map(), sceneChunkFormat(f.value));
     if (!joined.ok) {
       report.problems.push({ path: f.path, message: `${f.path} was not taken in: ${joined.error.message}` });
       continue;

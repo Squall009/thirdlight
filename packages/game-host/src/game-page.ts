@@ -114,6 +114,7 @@ import {
 import type { Physics2DModule } from './physics-global';
 import { pageAudio } from './page-audio';
 import { mipPartsOf } from './asset-reader';
+import { withBlockChunkData } from './block-chunk-data';
 import { composeOverlay } from './overlay-capture';
 import { statsOverlayModeOf } from './stats-overlay';
 
@@ -634,7 +635,10 @@ export async function startGamePage(o: GamePageOptions): Promise<GamePageHandle>
   timings?.begin('startScenes');
   // Each scene's look as its document is read (the active scene's draws: the first start scene's at first).
   const sceneLooks = new Map<string, SceneLookLike | null>();
-  const catalog0 = manifest.scenes !== undefined ? await prepareSceneCatalog(manifest.scenes, io, content.catalog, (sceneId, look) => sceneLooks.set(sceneId, look)) : null;
+  // Block layers' cells arrive as chunk data buffers (an export's start scene and every scene loaded later).
+  const readBuffer = manifest.buffers !== undefined ? bufferResolver(manifest.buffers, io) : undefined;
+  const catalog0 = manifest.scenes !== undefined ? await prepareSceneCatalog(manifest.scenes, io, content.catalog, (sceneId, look) => sceneLooks.set(sceneId, look), readBuffer) : null;
+  const startScene = (await withBlockChunkData(o.snapshot.scene, readBuffer)) as typeof o.snapshot.scene;
   const firstStart = manifest.scenes?.find((r) => r.start)?.sceneId;
   const startLook = firstStart !== undefined ? (sceneLooks.get(firstStart) ?? null) : null;
   // The environment the page starts with: the project's quality and presets with the start scene's look (its textures are read with the start's).
@@ -660,7 +664,7 @@ export async function startGamePage(o: GamePageOptions): Promise<GamePageHandle>
         });
   const catalog = catalog0 === null || scenes === null ? null : { rows: catalog0.rows, loadScene: scenes.load };
   // The scene as the game loads it (folders and inactive entities resolved away): physics, the renderer and the runtime all use this one.
-  const { snapshot, modeRows, uiDocs } = runtimeSnapshotOf(o.snapshot, content, catalog?.rows ?? null);
+  const { snapshot, modeRows, uiDocs } = runtimeSnapshotOf(startScene === o.snapshot.scene ? o.snapshot : { ...o.snapshot, scene: startScene }, content, catalog?.rows ?? null);
 
   // Everything this page loads from assets is held in one resource manager (the host settles it after
   // each frame): the reader's bytes, the adapter's models and textures, the decoded sounds, the UI's images.

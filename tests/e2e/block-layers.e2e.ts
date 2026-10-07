@@ -13,6 +13,11 @@
  * the cells under it at 3 s and it falls through the hole onto a floor
  * below. The blocks are seen in the Play screenshot (grass-green pixels).
  * The static export, served with the backend stopped, does the same.
+ *
+ * A new project stores the chunk as a binary file; turning the project's
+ * `block_chunk_storage` to 0 rewrites it as JSON text (the same cells
+ * through queryBlocks). The export ships the cells as binary chunk data the
+ * game reads back, on WebGPU and (on a GPU host) WebGL 2.
  */
 import { createHash, randomBytes } from 'node:crypto';
 import { createReadStream, existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
@@ -22,6 +27,8 @@ import { extname, join, normalize } from 'node:path';
 import { expect, test, type Page } from './pw';
 
 import { startBackend, type E2EBackend } from './backend';
+import { gpuAvailable } from './browser-env.mjs';
+import { closeProjectSettings, openProjectSettings } from './ui';
 import { decodePng, type Image } from './png';
 import { makePng } from './png-make';
 
@@ -219,13 +226,13 @@ test('a block map built with bulk commands renders in the Scene view, Play and t
   expect(column.slice(0, 3)).toEqual([[0, 'stone', 1], [1, 'stone', 2], [2, 'grass', 1]]);
   const region = (await query('queryBlocks', { entityId: layer, region: 'spawn.area' })) as { region: { cells: number[][] } };
   expect(region.region.cells.length).toBe(4 * 16 * 4);
-  // One file per chunk, listed by the scene file.
+  // One file per chunk, listed by the scene file: binary in a new project…
   const sceneDir = join(be.projectDir, 'scenes');
   const blocksDir = readdirSync(sceneDir).find((n) => n.endsWith('.blocks'))!;
-  expect(readdirSync(join(sceneDir, blocksDir))).toEqual([`${layer}.0.0.json`]);
-  const chunkFile = readFileSync(join(sceneDir, blocksDir, `${layer}.0.0.json`), 'utf8');
-  expect(chunkFile).toContain('"type": "block-chunk"');
-  expect(chunkFile.split('\n').filter((l) => l.startsWith('    [')).length).toBe(256);
+  const sceneFile = (): Record<string, unknown> => JSON.parse(readFileSync(join(sceneDir, blocksDir.replace(/\.blocks$/, '.json')), 'utf8')) as Record<string, unknown>;
+  expect(readdirSync(join(sceneDir, blocksDir))).toEqual([`${layer}.0.0.bin`]);
+  expect(readFileSync(join(sceneDir, blocksDir, `${layer}.0.0.bin`)).subarray(0, 4).toString('latin1')).toBe('TLBK');
+  expect(sceneFile()['blockChunkFormat']).toBe('binary');
 
   // The Scene view meshes the layer (merged chunk meshes: a few per chunk).
   await page.goto(be.editorUrl);
@@ -237,6 +244,22 @@ test('a block map built with bulk commands renders in the Scene view, Play and t
   expect(stats.meshes).toBeLessThanOrEqual(4);
   // Hidden faces left out: far fewer triangles than 12 per cell.
   expect(stats.triangles).toBeLessThan(cells16 * 12 * 0.25);
+
+  // …and JSON text, one column per line (a diff shows the columns that changed), once the project asks for it
+  // in its settings: the chunk file is rewritten in the same save.
+  await openProjectSettings(page, 'Gameplay');
+  await page.locator('.tl-gameplay__tabs').getByRole('button', { name: 'settings', exact: true }).click();
+  const storage = page.getByLabel('gameplay settings').getByLabel('settings block_chunk_storage', { exact: true });
+  await expect(storage).toHaveValue('1');
+  await storage.selectOption('0');
+  await expect.poll(() => readdirSync(join(sceneDir, blocksDir))).toEqual([`${layer}.0.0.json`]);
+  await closeProjectSettings(page);
+  expect(sceneFile()['blockChunkFormat']).toBeUndefined();
+  const chunkFile = readFileSync(join(sceneDir, blocksDir, `${layer}.0.0.json`), 'utf8');
+  expect(chunkFile).toContain('"type": "block-chunk"');
+  expect(chunkFile.split('\n').filter((l) => l.startsWith('    [')).length).toBe(256);
+  // The same cells either way.
+  expect(((await query('queryBlocks', { entityId: layer, box: [0, 0, 0, 1, 16, 1] })) as typeof box).box).toEqual(box.box);
 
   // Play (the simulation worker): lands on the grass top under x = 8 (height 2 + round((48 + 64) / 255 × 6) = 5 cells → 2.5 m).
   const topY = 0.5 * (2 + Math.round(((48 + 8 * 8) / 255) * 6));
@@ -257,11 +280,20 @@ test('a block map built with bulk commands renders in the Scene view, Play and t
     .toBeGreaterThan(500);
   await expectFallsThrough(read, 'Play');
 
-  // The static export with the backend stopped.
+  // The static export with the backend stopped. Its scene files hold no cells: each layer names its
+  // binary chunk data (gzip), a digest-addressed buffer, whatever form the project stores them in.
   const res = await be.admin(`projects/${be.projectId}/export`);
   expect(res.status, JSON.stringify(res.json)).toBe(200);
   await be.halt();
   const dir = join(be.exportRoot, String(res.json.outputDir));
+  const exported = (path: string): { blocks: { entityId: string; chunks?: unknown; chunkData?: string }[] } => JSON.parse(readFileSync(join(dir, path), 'utf8')) as { blocks: { entityId: string; chunks?: unknown; chunkData?: string }[] };
+  const entry = exported('scenes/scene-main.json').blocks.find((b) => b.entityId === layer)!;
+  expect(entry.chunks).toBeUndefined();
+  expect(entry.chunkData).toMatch(/^[0-9a-f]{64}$/);
+  expect(exported('scene.json').blocks.find((b) => b.entityId === layer)!.chunkData).toBe(entry.chunkData);
+  const blob = readFileSync(join(dir, 'content', 'sha256', entry.chunkData!));
+  expect([blob.subarray(0, 4).toString('latin1'), blob[5]]).toEqual(['TLBK', 2]);
+  expect(createHash('sha256').update(blob).digest('hex')).toBe(entry.chunkData);
   const site = await serveDir(dir);
   const game = await page.context().newPage();
   const errors: string[] = [];
@@ -280,6 +312,22 @@ test('a block map built with bulk commands renders in the Scene view, Play and t
       throw new Error(`${e.message}\nconsole: ${logs.slice(-20).join(' | ')}`);
     });
     expect(errors).toEqual([]);
+    // The other renderer reads the same chunk data (on a GPU the default above is WebGPU).
+    if (gpuAvailable()) {
+      expect(await canvas.getAttribute('data-tl-renderer')).toBe('webgpu');
+      const gl = await page.context().newPage();
+      gl.on('pageerror', (e) => errors.push(`webgl2: ${e.message}`));
+      try {
+        await gl.goto(`${site.url}?renderer=webgl2`);
+        const glCanvas = gl.locator('canvas').first();
+        await expectRestsOnBlocks(() => gl.evaluate(() => ((window as unknown as { __thirdlightObserve?: () => unknown }).__thirdlightObserve?.() ?? null) as Observation | null), 'export (WebGL 2)', topY);
+        await expect.poll(async () => glCanvas.getAttribute('data-tl-renderer'), { timeout: 60_000 }).toBe('webgl2');
+        await expect.poll(async () => greenPixels(decodePng(await glCanvas.screenshot())), { timeout: 30_000, message: 'grass-green pixels in the export on WebGL 2' }).toBeGreaterThan(500);
+        expect(errors).toEqual([]);
+      } finally {
+        await gl.close();
+      }
+    }
   } finally {
     await game.close();
     await site.close();

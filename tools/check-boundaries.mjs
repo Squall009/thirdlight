@@ -118,7 +118,8 @@ export const NODE_SIDE_ALLOWED = {
   workspace: {
     packages: ['project-model', 'commands', 'asset-pipeline', 'behavior-build'],
     external: [],
-    node: ['fs', 'path', 'crypto', 'os'],
+    // zlib: binary block chunk files are zstd-compressed project files.
+    node: ['fs', 'path', 'crypto', 'os', 'zlib'],
     // The compiler/inspector instances are
     // injected by the backend — workspace holds only their types.
     typesOnly: { 'asset-pipeline': true, 'behavior-build': true },

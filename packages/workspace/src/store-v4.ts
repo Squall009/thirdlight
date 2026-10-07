@@ -88,6 +88,7 @@ import { RETRY_RECORD_VERSION, RETRY_RETENTION, validateRetryBlock, type RetryRe
 import { snapshotForeignBytes } from './recovery';
 import { pointerSegment, type LoadDetail, type UnavailableReason } from './errors';
 import { writeAtomic, type WriteOps } from './write';
+import { CHUNK_REL_RE, CHUNK_TEMP_RE, chunkRel, readBinaryChunkFile, SCENE_CHUNK_FORMAT_KEY, sceneChunkFormat, type ChunkFileFormat } from './chunk-files';
 import { flushPending, journalInFlight, nextJournalName, scheduleFlush } from './journal-flush';
 import { layoutProjectJson } from './project-json';
 import { fileOfRecord, parseSidecar, PROJECT_OWN_ENTRIES, SIDECAR_FORMAT_PRE_ADDRESS, sidecarBytes, sidecarOf, sidecarPath, type RecordLike } from './asset-files';
@@ -102,21 +103,19 @@ export const sceneRel = (sceneId: string): string => `scenes/${sceneId}.json`;
 
 const CONTENT_FILE_KEYS = ['storageVersion', 'type', 'projectId', 'revision', 'content', 'retry'] as const;
 const SCENE_FILE_KEYS = ['storageVersion', 'type', 'projectId', 'scene', 'retry'] as const;
-/** A scene file lists its block chunk files (only when it has some). */
-const SCENE_FILE_OPTIONAL_KEYS = ['blockChunks'] as const;
+/** A scene file lists its block chunk files and names their form (only when it has some; chunk-files.ts). */
+const SCENE_FILE_OPTIONAL_KEYS = ['blockChunks', SCENE_CHUNK_FORMAT_KEY] as const;
 const CHUNK_FILE_KEYS = ['storageVersion', 'type', 'projectId', 'sceneId', 'entityId', 'cx', 'cz', 'palette', 'columns'] as const;
+/** A painted chunk's paint (block-paint.ts). */
+const CHUNK_FILE_OPTIONAL_KEYS = ['paint'] as const;
 
-/**
- * One block-layer chunk per file,
- * `scenes/<sceneId>.blocks/<entityId>.<cx>.<cz>.json`. The scene file lists
+/*
+ * One block-layer chunk per file (chunk-files.ts). The scene file lists
  * the chunk files it owns (`blockChunks`, the index) and carries the
  * revision and the retry records: every change to a scene's cells rewrites
  * its scene file and the chunk files that changed, in one transaction.
  */
-export const chunkRel = (sceneId: string, entityId: string, cx: number, cz: number): string => `scenes/${sceneId}.blocks/${entityId}.${cx}.${cz}.json`;
-const CHUNK_REL_RE = /^scenes\/[a-z0-9][a-z0-9_-]{0,63}\.blocks\/[a-z0-9][a-z0-9_-]{0,63}\.-?\d{1,4}\.-?\d{1,4}\.json$/;
-/** The directory holding a scene's chunk files. */
-export const chunkDirRel = (sceneId: string): string => `scenes/${sceneId}.blocks`;
+export { chunkDirRel, chunkFileBytes, chunkRel, isChunkRel, sceneChunkFiles, type ChunkFileFormat } from './chunk-files';
 
 /** A file as this backend last wrote or loaded it. */
 export interface KnownFile {
@@ -314,14 +313,15 @@ export function contentFileBytes(projectId: string, revision: number, content: C
   });
 }
 
-export function sceneFileBytes(projectId: string, scene: SceneV4, records: readonly RetryRecord[]): Uint8Array {
+/** A scene file's bytes; `chunkFormat` is the form its chunk files are written in (named only when binary). */
+export function sceneFileBytes(projectId: string, scene: SceneV4, records: readonly RetryRecord[], chunkFormat: ChunkFileFormat = 'json'): Uint8Array {
   const split = splitSceneBlocks(scene);
   return fileJsonBytes({
     storageVersion: 4,
     type: 'scene',
     projectId,
     scene: split.scene,
-    ...(split.index.length > 0 ? { blockChunks: split.index } : {}),
+    ...(split.index.length > 0 ? { blockChunks: split.index, ...(chunkFormat === 'binary' ? { [SCENE_CHUNK_FORMAT_KEY]: 'binary' } : {}) } : {}),
     retry: { recordVersion: RETRY_RECORD_VERSION, retention: RETRY_RETENTION, records },
   });
 }
@@ -339,42 +339,6 @@ function splitSceneBlocks(scene: SceneV4): { scene: SceneV4; index: { entityId: 
     entries.push({ entityId: b.entityId, ...(b.regions !== undefined ? { regions: b.regions } : {}) });
   }
   return { scene: { ...scene, blocks: entries }, index };
-}
-
-const chunkBytesCache = new WeakMap<BlockChunk, { key: string; bytes: Uint8Array; hash: string }>();
-
-/** A chunk file's bytes (palette one value per line, one column per line: a diff shows the columns that changed). */
-export function chunkFileBytes(projectId: string, sceneId: string, entityId: string, chunk: BlockChunk): { bytes: Uint8Array; hash: string } {
-  const key = `${projectId}|${sceneId}|${entityId}`;
-  const hit = chunkBytesCache.get(chunk);
-  if (hit !== undefined && hit.key === key) return hit;
-  const head = [
-    `  "storageVersion": 4`,
-    `  "type": "block-chunk"`,
-    `  "projectId": ${JSON.stringify(projectId)}`,
-    `  "sceneId": ${JSON.stringify(sceneId)}`,
-    `  "entityId": ${JSON.stringify(entityId)}`,
-    `  "cx": ${chunk.cx}`,
-    `  "cz": ${chunk.cz}`,
-    `  "palette": [\n${chunk.palette.map((c) => `    ${JSON.stringify(c)}`).join(',\n')}\n  ]`,
-    `  "columns": [\n${chunk.columns.map((c) => `    ${JSON.stringify(c)}`).join(',\n')}\n  ]`,
-  ];
-  const bytes = new TextEncoder().encode(`{\n${head.join(',\n')}\n}\n`);
-  const out = { key, bytes, hash: sha256Hex(bytes) };
-  chunkBytesCache.set(chunk, out);
-  return out;
-}
-
-/** Every chunk file of a scene (relative path → bytes, hash). */
-export function sceneChunkFiles(projectId: string, scene: SceneV4): Map<string, { bytes: Uint8Array; hash: string }> {
-  const out = new Map<string, { bytes: Uint8Array; hash: string }>();
-  for (const b of scene.blocks ?? []) for (const c of b.chunks ?? []) out.set(chunkRel(scene.sceneId, b.entityId, c.cx, c.cz), chunkFileBytes(projectId, scene.sceneId, b.entityId, c));
-  return out;
-}
-
-/** Whether a relative path is a chunk file of `sceneId` (or of any scene). */
-export function isChunkRel(rel: string, sceneId?: string): boolean {
-  return CHUNK_REL_RE.test(rel) && (sceneId === undefined || rel.startsWith(`${chunkDirRel(sceneId)}/`));
 }
 
 export function manifestV2Bytes(manifest: ProjectManifestV2): Uint8Array {
@@ -475,7 +439,7 @@ export function loadV4(ops: WriteOps, dir: string, projectId: string, gameRoot: 
     files.set(rel, { bytes: f.bytes, hash: sha256Hex(f.bytes) });
     scenePaths.set(id, rel);
     // The scene's block chunks, one file each (listed by the scene file).
-    const joined = joinChunkFiles(ops, dir, projectId, id, f.value['scene'], f.value['blockChunks'], files);
+    const joined = joinChunkFiles(ops, dir, projectId, id, f.value['scene'], f.value['blockChunks'], files, sceneChunkFormat(f.value));
     if (!joined.ok) return blocked('envelope_invalid', [joined.error]);
     sceneDocs.push(joined.scene);
     const r = typeof scene.revision === 'number' ? scene.revision : 0;
@@ -751,8 +715,8 @@ function joinResourceFiles(
 }
 
 /**
- * Read the chunk files a scene file lists and put the chunks
- * back into the scene's layer entries (the model validates the result).
+ * Read the chunk files a scene file lists (in the form it names) and put the
+ * chunks back into the scene's layer entries (the model validates the result).
  */
 export function joinChunkFiles(
   ops: WriteOps,
@@ -762,6 +726,7 @@ export function joinChunkFiles(
   scene: unknown,
   index: unknown,
   files: Map<string, KnownFile>,
+  format: ChunkFileFormat = 'json',
 ): { ok: true; scene: unknown } | { ok: false; error: LoadDetail } {
   if (index === undefined) return { ok: true, scene };
   const bad = (path: string, message: string): { ok: false; error: LoadDetail } => ({ ok: false, error: { code: 'envelope_invalid', path, message, expected: 'a valid block chunk index and chunk files' } });
@@ -774,21 +739,39 @@ export function joinChunkFiles(
   for (let i = 0; i < index.length; i++) {
     const e = index[i] as { entityId?: unknown; cx?: unknown; cz?: unknown } | null;
     if (e === null || typeof e !== 'object' || typeof e.entityId !== 'string' || !Number.isSafeInteger(e.cx) || !Number.isSafeInteger(e.cz)) return bad(`/${rel0}/blockChunks/${i}`, `${rel0}: a chunk index entry is {entityId, cx, cz}`);
-    const rel = chunkRel(sceneId, e.entityId, e.cx as number, e.cz as number);
+    const rel = chunkRel(sceneId, e.entityId, e.cx as number, e.cz as number, format);
     if (!CHUNK_REL_RE.test(rel)) return bad(`/${rel0}/blockChunks/${i}`, `${rel0}: a chunk index entry names no valid chunk file`);
-    const f = readJson(ops, join(dir, rel));
-    if (!f.ok) return { ok: false, error: { ...f.error, path: `/${rel}` } };
-    const ce = checkFileKeys(f.value, CHUNK_FILE_KEYS, 'block-chunk', projectId, rel);
-    if (ce !== null) return { ok: false, error: ce };
-    if (f.value['sceneId'] !== sceneId || f.value['entityId'] !== e.entityId || f.value['cx'] !== e.cx || f.value['cz'] !== e.cz) return bad(`/${rel}`, `${rel} holds a different chunk than its name and the index say`);
-    files.set(rel, { bytes: f.bytes, hash: sha256Hex(f.bytes) });
+    let chunk: { cx: unknown; cz: unknown; palette: unknown; columns: unknown; paint?: unknown };
+    let bytes: Uint8Array;
+    if (format === 'binary') {
+      try {
+        bytes = ops.readFile(join(dir, rel));
+      } catch {
+        return { ok: false, error: { code: 'envelope_invalid', path: `/${rel}`, message: `${rel} is ${ops.fileExists(join(dir, rel)) ? 'unreadable' : 'missing'}`, expected: 'a readable project file' } };
+      }
+      try {
+        chunk = readBinaryChunkFile(bytes);
+      } catch (err) {
+        return bad(`/${rel}`, `${rel}: ${err instanceof Error ? err.message : String(err)}`);
+      }
+      if (chunk.cx !== e.cx || chunk.cz !== e.cz) return bad(`/${rel}`, `${rel} holds a different chunk than its name and the index say`);
+    } else {
+      const f = readJson(ops, join(dir, rel));
+      if (!f.ok) return { ok: false, error: { ...f.error, path: `/${rel}` } };
+      const ce = checkFileKeys(f.value, CHUNK_FILE_KEYS, 'block-chunk', projectId, rel, CHUNK_FILE_OPTIONAL_KEYS);
+      if (ce !== null) return { ok: false, error: ce };
+      if (f.value['sceneId'] !== sceneId || f.value['entityId'] !== e.entityId || f.value['cx'] !== e.cx || f.value['cz'] !== e.cz) return bad(`/${rel}`, `${rel} holds a different chunk than its name and the index say`);
+      chunk = { cx: f.value['cx'], cz: f.value['cz'], palette: f.value['palette'], columns: f.value['columns'], ...('paint' in f.value ? { paint: f.value['paint'] } : {}) };
+      bytes = f.bytes;
+    }
+    files.set(rel, { bytes, hash: sha256Hex(bytes) });
     let entry = blocks.get(e.entityId);
     if (entry === undefined) {
       entry = { entityId: e.entityId };
       blocks.set(e.entityId, entry);
     }
     const chunks = (entry['chunks'] as unknown[] | undefined) ?? [];
-    chunks.push({ cx: f.value['cx'], cz: f.value['cz'], palette: f.value['palette'], columns: f.value['columns'] });
+    chunks.push(chunk);
     entry['chunks'] = chunks;
   }
   return { ok: true, scene: { ...(scene as Record<string, unknown>), blocks: [...blocks.values()] } };
@@ -803,7 +786,7 @@ export function isV4Layout(ops: WriteOps, dir: string): boolean {
 const V4_TEMP_IN_PROJECT = /^\.(content|project)\.json\.tmp-/;
 const V4_TEMP_IN_SCENES = /^\.[a-z0-9][a-z0-9_-]{0,63}\.json\.tmp-/;
 const V4_TEMP_IN_THIRDLIGHT = /^\.journal(?:-\d{1,15})?\.json\.tmp-/;
-const V4_TEMP_IN_CHUNKS = /^\.[a-z0-9][a-z0-9_-]{0,63}\.-?\d{1,4}\.-?\d{1,4}\.json\.tmp-/;
+const V4_TEMP_IN_CHUNKS = CHUNK_TEMP_RE;
 
 /**
  * Leftover `W` temps of the v4 project files: of

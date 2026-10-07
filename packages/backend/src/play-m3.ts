@@ -26,6 +26,7 @@ import type { WorkspaceService } from '@thirdlight/workspace';
 import { generateGraphSource, type BehaviorCompiler } from '@thirdlight/behavior-build';
 import { sha256HexBytes, type PlayServed } from './play-content';
 import { placeholderBytes } from './play-placeholders';
+import { nodeGzip } from './gzip-port';
 
 /**
  * The Play debug build of a visual script (the closure's
@@ -149,6 +150,8 @@ export async function buildPlayContentM3(input: BuildPlayContentM3Input): Promis
     ...(input.timings !== undefined ? { timings: { now: () => performance.now(), add: (stage: string, ms: number) => void (input.timings![stage] = Math.round(ms)) } } : {}),
     // Node's native SHA-256 for the scene files (the same digests as the portable one).
     sha256: sha256HexBytes,
+    // Block-layer cells as gzip-compressed chunk data (the page decodes gzip natively).
+    gzip: nodeGzip,
     // The page reads each asset when it needs it: the build only finds and checks the files.
     locate: true,
     ...(input.background === true ? { background: true } : {}),

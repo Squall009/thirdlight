@@ -8,12 +8,15 @@
  *   the snapshot's scene membership) and returns the loader the host calls
  *   when the game asks for another scene; each scene's look (sky, fog, post,
  *   wind) is handed on as its document is read;
- * - `bufferResolver` reads and verifies instance-set buffers on demand.
+ * - `bufferResolver` reads and verifies instance-set buffers and block chunk
+ *   data on demand (a loaded scene's layers read their cells through it).
  *
  * Every read is re-hashed against the manifest before it is used. The page
  * owns the fetch (`read`); nothing here reaches the network by itself.
  */
 import { sceneEntitiesFromDocument, type LoadedSceneBatch, type RuntimeSceneRow } from '@thirdlight/runtime';
+
+import { withBlockChunkData } from './block-chunk-data';
 
 /** One `manifest.scenes` row. */
 export interface ManifestSceneRow {
@@ -54,6 +57,8 @@ export async function prepareSceneCatalog(
   catalog?: { sceneEntries(sceneId: string): Promise<unknown> | null },
   /** Each scene's look as its document is read (a start scene's at once, another's when it loads). */
   onLook?: (sceneId: string, look: SceneLookLike | null) => void,
+  /** A buffer's verified bytes by digest: a scene's block layers read their chunk data with it. */
+  readBuffer?: (digest: string) => Promise<ArrayBuffer>,
 ): Promise<{ rows: RuntimeSceneRow[]; loadScene: (sceneId: string) => Promise<LoadedSceneBatch['entities']> }> {
   const out: RuntimeSceneRow[] = [];
   for (const row of rows) {
@@ -72,7 +77,7 @@ export async function prepareSceneCatalog(
     if (row === undefined) throw new Error(`scene "${sceneId}" is not part of this build`);
     // The scene and the entries it needs, read together (the entries are known before its objects arrive).
     const [bytes] = await Promise.all([readVerified(io, row.path, row.digest, row.byteLength), catalog?.sceneEntries(sceneId) ?? null]);
-    const doc: unknown = JSON.parse(new TextDecoder().decode(bytes));
+    const doc = await withBlockChunkData(JSON.parse(new TextDecoder().decode(bytes)), readBuffer);
     const res = sceneEntitiesFromDocument(doc, sceneId);
     if (!res.ok) throw new Error(res.message);
     onLook?.(sceneId, lookOf(doc));
@@ -95,12 +100,12 @@ function lookOf(doc: unknown): SceneLookLike | null {
   return typeof env === 'object' && env !== null && !Array.isArray(env) ? (env as SceneLookLike) : null;
 }
 
-/** The instance-set buffer resolver for the adapter's `models.resolveBuffer`. */
+/** The buffer resolver (instance sets: the adapter's `models.resolveBuffer`; block layers' chunk data). */
 export function bufferResolver(rows: readonly ManifestBufferRow[], io: SceneCatalogIo): (digest: string) => Promise<ArrayBuffer> {
   const byDigest = new Map(rows.map((r) => [r.digest, r]));
   return (digest: string) => {
     const row = byDigest.get(digest);
-    if (row === undefined) return Promise.reject(new Error(`instance buffer ${digest.slice(0, 12)}… is not part of this build`));
+    if (row === undefined) return Promise.reject(new Error(`buffer ${digest.slice(0, 12)}… is not part of this build`));
     return readVerified(io, `content/sha256/${digest}`, digest, row.byteLength);
   };
 }

@@ -6,7 +6,8 @@
   "content": {
     "assets": [],
     "settings": {
-      "ambient_occlusion": 1
+      "ambient_occlusion": 1,
+      "block_chunk_storage": 1
     },
     "behaviorTrust": {
       "entries": []

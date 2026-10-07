@@ -7,7 +7,7 @@
 
 import { createCommandState, filterEntitiesByComponent, queryAssets, queryBehaviors, queryGameConfig, queryPrefabs } from '@thirdlight/commands';
 import type { HistoryState } from '@thirdlight/commands';
-import { BlockGrid, boxContains, effectiveCellMeta, regionCells, regionContains, type BlockCell, type BlockLayerComponent, type BlockLayerData, type BlockType, type CellField } from '@thirdlight/project-model';
+import { BlockGrid, blockChunkStorageOf, boxContains, effectiveCellMeta, regionCells, regionContains, type BlockCell, type BlockLayerComponent, type BlockLayerData, type BlockType, type CellField } from '@thirdlight/project-model';
 import { composeV4, defaultInputFor, DESCRIPTORS, physicsDimensionOf, effectiveEntityFlags, GRAPH_KINDS, glbClipDurations, liveLoadable, migrateModelAnimations, validateContentV4, validateSceneV4, type ContentCatalogV3, type Manifest, type ModelErrorV3, type ProjectManifestV2, type SceneV3, type SceneV4 } from '@thirdlight/project-model';
 
 import { readFileSync, writeFileSync } from 'node:fs';
@@ -54,6 +54,7 @@ import {
   sceneChunkFiles,
   isChunkRel,
   chunkRel,
+  type ChunkFileFormat,
   projectWidePart,
   resourceFilesOf,
   sidecarWrite,
@@ -350,7 +351,7 @@ function writeUpgradedProject(core: Core, dir: string, thirdlightDir: string, pr
   for (const [id, scene] of bump ? state.scenes : []) {
     const stamped: SceneV4 = { ...scene, revision };
     const rel = sceneRelOf(state, id);
-    const bytes = sceneFileBytes(projectId, stamped, state.fileRecords.get(rel) ?? []);
+    const bytes = sceneFileBytes(projectId, stamped, state.fileRecords.get(rel) ?? [], chunkFormatOnRecord(state.files, scene));
     writes.push({ rel, bytes });
     files.set(rel, { bytes, hash: sha256Hex(bytes) });
     scenes.set(id, stamped);
@@ -518,6 +519,9 @@ export function changedFiles(projectId: string, before: V4State, after: { conten
     return list;
   };
   // Scenes: written when their entities, cells or look changed; created / removed with the index.
+  // The project's chunk form: a scene with cells is written again when it changed (its chunk files move to it).
+  const chunkFormat = blockChunkStorageOf(after.content.settings);
+  const formatChanged = chunkFormat !== blockChunkStorageOf(before.content.settings);
   for (const [id, scene] of after.scenes) {
     const prev = before.scenes.get(id);
     // A scene the command did not touch is the same object (or
@@ -526,7 +530,8 @@ export function changedFiles(projectId: string, before: V4State, after: { conten
     // The scene's block cells count too (they live in its chunk files), and its look.
     const sameBlocks = prev !== undefined && (prev.blocks === scene.blocks || JSON.stringify(prev.blocks ?? null) === JSON.stringify(scene.blocks ?? null));
     const sameLook = prev !== undefined && (prev.environment === scene.environment || JSON.stringify(prev.environment ?? null) === JSON.stringify(scene.environment ?? null));
-    if (prev !== undefined && (prev === scene || (sameBlocks && sameLook && (prev.entities === scene.entities || JSON.stringify(prev.entities) === JSON.stringify(scene.entities))))) continue;
+    const convert = formatChanged && (scene.blocks ?? []).some((b) => (b.chunks?.length ?? 0) > 0);
+    if (!convert && prev !== undefined && (prev === scene || (sameBlocks && sameLook && (prev.entities === scene.entities || JSON.stringify(prev.entities) === JSON.stringify(scene.entities))))) continue;
     let rel = scenePaths.get(id);
     if (rel === undefined) {
       rel = newSceneRel(id);
@@ -534,13 +539,13 @@ export function changedFiles(projectId: string, before: V4State, after: { conten
     }
     const recs = appendTo(rel);
     const stamped: SceneV4 = { ...scene, revision: after.revision };
-    const bytes = sceneFileBytes(projectId, stamped, recs);
+    const bytes = sceneFileBytes(projectId, stamped, recs, chunkFormat);
     writes.push({ rel, bytes });
     files.set(rel, { bytes, hash: sha256Hex(bytes) });
     fileRecords.set(rel, recs);
     after.scenes.set(id, stamped);
-    // The chunk files that changed, appeared or went away.
-    const chunks = sceneChunkFiles(projectId, stamped);
+    // The chunk files that changed, appeared or went away (or are in the other form).
+    const chunks = sceneChunkFiles(projectId, stamped, chunkFormat);
     for (const [crel, f] of chunks) {
       if (files.get(crel)?.hash === f.hash) continue;
       writes.push({ rel: crel, bytes: f.bytes });
@@ -628,11 +633,17 @@ class FileDelta {
   }
 }
 
-/** The chunk files a scene (as last written) has. */
+/** The chunk files a scene (as last written) may have, in either form (the caller keeps those on record). */
 function chunkRelsOf(scene: SceneV4 | undefined): string[] {
   const out: string[] = [];
-  for (const b of scene?.blocks ?? []) for (const c of b.chunks ?? []) out.push(chunkRel(scene!.sceneId, b.entityId, c.cx, c.cz));
+  for (const b of scene?.blocks ?? []) for (const c of b.chunks ?? []) out.push(chunkRel(scene!.sceneId, b.entityId, c.cx, c.cz, 'json'), chunkRel(scene!.sceneId, b.entityId, c.cx, c.cz, 'binary'));
   return out;
+}
+
+/** The form a scene's chunk files are in on record (a scene's chunks are all in one form): a rewrite of its scene file alone names it. */
+function chunkFormatOnRecord(files: { has(rel: string): boolean }, scene: SceneV4): ChunkFileFormat {
+  for (const b of scene.blocks ?? []) for (const c of b.chunks ?? []) return files.has(chunkRel(scene.sceneId, b.entityId, c.cx, c.cz, 'binary')) ? 'binary' : 'json';
+  return 'json';
 }
 
 /**
@@ -902,12 +913,14 @@ export function acceptExternalV4(core: Core, s: ProjectSession): { ok: true; rev
   writes.push({ rel: CONTENT_REL, bytes: contentBytes });
   files.set(CONTENT_REL, { bytes: contentBytes, hash: sha256Hex(contentBytes) });
   for (const scene of state.scenes.values()) {
-    const bytes = sceneFileBytes(s.projectId, scene, []);
+    // In the form they are in (a project's form changes only through its setting).
+    const chunkFormat = chunkFormatOnRecord(state.files, scene);
+    const bytes = sceneFileBytes(s.projectId, scene, [], chunkFormat);
     const rel = sceneRelOf(state, scene.sceneId);
     writes.push({ rel, bytes });
     files.set(rel, { bytes, hash: sha256Hex(bytes) });
     // Its chunk files, canonical.
-    for (const [crel, f] of sceneChunkFiles(s.projectId, scene)) {
+    for (const [crel, f] of sceneChunkFiles(s.projectId, scene, chunkFormat)) {
       writes.push({ rel: crel, bytes: f.bytes });
       files.set(crel, f);
     }
@@ -997,7 +1010,7 @@ export function clearRecordsV4(core: Core, s: ProjectSession): { ok: true } | { 
     const bytes =
       rel === CONTENT_REL
         ? contentFileBytes(s.projectId, (JSON.parse(new TextDecoder().decode(state.files.get(rel)!.bytes)) as { revision: number }).revision, state.content, [])
-        : sceneFileBytes(s.projectId, state.scenes.get(sceneId!)!, []);
+        : sceneFileBytes(s.projectId, state.scenes.get(sceneId!)!, [], chunkFormatOnRecord(state.files, state.scenes.get(sceneId!)!));
     writes.push({ rel, bytes });
     files.set(rel, { bytes, hash: sha256Hex(bytes) });
   }

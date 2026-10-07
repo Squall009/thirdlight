@@ -13,7 +13,8 @@
  * - A 64 × 64 rolling terrain of sloped cells: meshing time flat (the
  *   default), with smoothed tops and with subdivided tops.
  * - A one-cell edit on a 512 × 512 layer (262,144 cells, 1,024 chunks): the
- *   heap an undo step keeps, and the edit, undo and redo times.
+ *   heap an undo step keeps, the chunk bytes it holds (binary, and the same
+ *   chunks as JSON text), and the edit, undo and redo times.
  * The numbers are printed (and recorded in docs/plan-phase-23.md); the
  * assertions are the budgets (interactive: an edit under 50 ms; a few draws
  * per chunk).
@@ -25,7 +26,7 @@ import { setFlagsFromString } from 'node:v8';
 import { runInNewContext } from 'node:vm';
 
 import { describe, expect, it } from 'vitest';
-import { applyBlockEdits, BlockGrid, collisionMeshChunk, meshBlockChunk, shapeSource, type BlockType, type SceneV4 } from '@thirdlight/project-model';
+import { applyBlockEdits, BlockGrid, collisionMeshChunk, decodeBlockChunks, meshBlockChunk, shapeSource, type BlockType, type SceneV4 } from '@thirdlight/project-model';
 
 import { applyMutation, createCommandState, type CommandState } from '../../packages/commands/src/index';
 import { m2EnvelopeV4 } from '../../packages/commands/src/test-fixtures';
@@ -112,11 +113,16 @@ describe.skipIf(process.env['TL_PERF'] === undefined)('block layers: measurement
     const edit: number[] = [];
     for (let i = 0; i < EDITS; i++) edit.push(run('editBlocks', { entityId: id, edits: [{ kind: 'cells', at: [7 + i * 11, 0, 300], cell: i % 2 === 0 ? null : { block: 'dirt' } }] }));
     const perStep = (heap() - h0) / EDITS;
+    // What the steps hold directly: their chunks in binary form, and the same chunks as JSON text (the objects' size before).
+    const steps = s.history.entries.slice(-EDITS).map((e) => (e.inverse as { patch?: { chunks: { restore: Uint8Array | null; next: Uint8Array | null }[] } }).patch);
+    const held = steps.flatMap((p) => p?.chunks ?? []).flatMap((c) => [c.restore, c.next]).filter((b): b is Uint8Array => b !== null);
+    const binaryPerStep = held.reduce((n, b) => n + b.length, 0) / EDITS;
+    const jsonPerStep = held.reduce((n, b) => n + JSON.stringify(decodeBlockChunks(b)[0]).length, 0) / EDITS;
     const undo: number[] = [];
     const redo: number[] = [];
     for (let i = 0; i < 10; i++) undo.push(run('undo', {}));
     for (let i = 0; i < 10; i++) redo.push(run('redo', {}));
-    const numbers = { cells: 512 * 512, chunks: 1024, undoBytesPerOneCellEdit: Math.round(perStep), editMs: median(edit), undoMs: median(undo), redoMs: median(redo) };
+    const numbers = { cells: 512 * 512, chunks: 1024, undoHeapBytesPerOneCellEdit: Math.round(perStep), undoChunkBytesPerStep: Math.round(binaryPerStep), sameChunksAsJsonPerStep: Math.round(jsonPerStep), editMs: median(edit), undoMs: median(undo), redoMs: median(redo) };
     record(`block-layers undo 512x512: ${JSON.stringify(numbers)}`);
     expect(numbers.editMs).toBeGreaterThan(0);
   }, 300_000);

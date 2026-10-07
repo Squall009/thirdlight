@@ -41,6 +41,7 @@ import {
 import { canonicalDocument } from './canonical';
 import type { ContentClosureCompilerPort } from './content-closure';
 import { buildContentClosureM3, type ContentClosureM3 } from './content-closure';
+import { blockDataText } from './block-chunk-data';
 import { buildM3Bundle, buildSimWorkerBundle, EXPORT_BUILD_OPTIONS, THREE_WEBGPU_ONLY_PLUGIN, type M2BundleResult } from './export-bundle';
 import { assertRelativeClosure, scanAssetContainer, scanWasmContainer, textPatternCounts, type ScanPatterns } from './export-content-scan';
 import { openStaging, resolveExportTarget, type ExportStaging } from './export-io';
@@ -208,6 +209,8 @@ export async function exportProjectM3(
     // The assets and instance buffers are found on disk and copied into the output one at a
     // time, each checked against its digest while it is copied: the export never holds them.
     locate: true,
+    // Block-layer cells ship as gzip-compressed binary chunk data (the page decodes gzip natively).
+    ...(ctx.gzip !== undefined ? { gzip: ctx.gzip } : {}),
     // Per-layer texture slots ship as arrays assembled now: the game runs without the backend.
     ...(ctx.textureSlots !== undefined ? { textureSlots: ctx.textureSlots } : {}),
   });
@@ -312,7 +315,7 @@ export async function exportProjectM3(
   if (recomputed !== parsedManifest.buildId || parsedManifest.buildId !== closure.buildId) {
     return fail('export_manifest_invalid', 'internal', 'the manifest buildId does not match its own canonical bytes');
   }
-  const declaredManifestPaths = new Set<string>([...closure.assetFiles, ...closure.behaviorArtifacts, ...closure.libraryArtifacts, ...closure.sceneArtifacts, ...closure.bufferFiles, ...closure.streamedTextures.flatMap((t) => t.parts), ...closure.contentFileArtifacts].map((a) => a.path));
+  const declaredManifestPaths = new Set<string>([...closure.assetFiles, ...closure.behaviorArtifacts, ...closure.libraryArtifacts, ...closure.sceneArtifacts, ...closure.bufferFiles, ...closure.bufferArtifacts, ...closure.streamedTextures.flatMap((t) => t.parts), ...closure.contentFileArtifacts].map((a) => a.path));
   if (declaredManifestPaths.size !== closure.declaredPaths.length) {
     return fail('export_manifest_invalid', 'internal', 'the manifest declares a duplicate artifact path');
   }
@@ -339,6 +342,19 @@ export async function exportProjectM3(
     const sceneCounts = textPatternCounts(new TextDecoder().decode(sc.bytes), patterns);
     if (sceneCounts.a + sceneCounts.b + sceneCounts.c + sceneCounts.e + sceneCounts.g + sceneCounts.i !== 0 || digestBytes(sc.bytes) !== sc.digest) {
       return fail('export_bundle_forbidden_content', 'internal', `forbidden content in scene file ${sc.path}`);
+    }
+  }
+  // The block layers' chunk data is the scene files' cells: their text (cell metadata) follows the same rules.
+  for (const b of closure.bufferArtifacts) {
+    let text: string;
+    try {
+      text = blockDataText(b.bytes, ctx.gzip);
+    } catch (e) {
+      return fail('export_scene_invalid', 'internal', `block chunk data ${b.path} does not read back: ${e instanceof Error ? e.message : String(e)}`);
+    }
+    const c = textPatternCounts(text, patterns);
+    if (c.a + c.b + c.c + c.e + c.g + c.i !== 0 || digestBytes(b.bytes) !== b.digest) {
+      return fail('export_bundle_forbidden_content', 'internal', `forbidden content in block chunk data ${b.path}`);
     }
   }
   // Every script and its source map: the forbidden patterns must be zero. This
@@ -449,7 +465,7 @@ async function writeOutput(
   }
   put(MANIFEST_NAME, parts.manifestBytes);
   put(SCENE_NAME, closure.sceneBytes, closure.sceneDigest);
-  for (const a of [...closure.behaviorArtifacts, ...closure.libraryArtifacts, ...closure.sceneArtifacts]) put(a.path, a.bytes, a.digest);
+  for (const a of [...closure.behaviorArtifacts, ...closure.libraryArtifacts, ...closure.sceneArtifacts, ...closure.bufferArtifacts]) put(a.path, a.bytes, a.digest);
   // The catalog's files are JSON text (the rules manifest.json's text has), scanned one at a time.
   for (const f of closure.contentFileArtifacts) {
     const text = new TextDecoder().decode(f.bytes);

@@ -8,6 +8,7 @@ import type { WorkspaceService } from '@thirdlight/workspace';
 
 import type { ClosureTextureSlots } from './closure-texture-slots';
 import type { ContentClosureCompilerPort } from './content-closure';
+import type { GzipPort } from './block-chunk-data';
 
 /**
  * The injected IO facade (export.md dependency-injection style — the
@@ -77,6 +78,8 @@ export interface ExportContext {
   compiler: ContentClosureCompilerPort;
   /** The backend's texture-array assembly for per-layer texture slots (the export ships the assembled arrays). */
   textureSlots?: ClosureTextureSlots;
+  /** The backend's gzip: block-layer cells ship as gzip-compressed chunk data (absent: uncompressed). */
+  gzip?: GzipPort;
   /**
    * The injectable wall clock (milliseconds since the epoch) used
    * for the manifest `capturedAt` and `meta.json.exportedAt`. Defaults to
