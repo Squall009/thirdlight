@@ -126,6 +126,8 @@ export class BlockGrid {
   private readonly paints = new Map<string, Uint8Array>();
   /** Each chunk's wall paint points (`block-wall-paint.ts`); absent: none painted. */
   private readonly wallPaints = new Map<string, WallPaint>();
+  /** Each chunk's scatter as stored (`scatter.ts`, base64); absent: none. */
+  private readonly scatters = new Map<string, string>();
   /** Each chunk's edge pieces: edge local key (`edgeLocalKey`) → palette index (edge values share the palette). */
   private readonly edgeChunks = new Map<string, Map<number, number>>();
   private edgeTotal = 0;
@@ -174,6 +176,7 @@ export class BlockGrid {
       if (paint !== null) g.paints.set(ck, paint);
       const wall = decodeWallPaint(c.wallPaint);
       if (wall !== null) g.wallPaints.set(ck, wall);
+      if (c.scatter !== undefined) g.scatters.set(ck, c.scatter);
       if (c.edges !== undefined && c.edgePalette !== undefined && c.edges.length > 0) {
         const values = c.edgePalette.map((e) => g.internEdge(e));
         const map = new Map<number, number>();
@@ -437,6 +440,21 @@ export class BlockGrid {
       // Wall points on a chunk's + borders are also drawn by the next chunk's edge pieces.
       for (const k of [ck, chunkKeyOf(cx + 1, cz), chunkKeyOf(cx, cz + 1)]) this.meshDirty.add(k);
     }
+    this.setChunkScatter(cx, cz, chunk?.scatter);
+  }
+
+  /** A chunk's scatter as stored (base64 of its cell; undefined: none). */
+  chunkScatter(cx: number, cz: number): string | undefined {
+    return this.scatters.get(chunkKeyOf(cx, cz));
+  }
+
+  /** Set a chunk's stored scatter (undefined: none); the chunk is written (its meshes are not: scatter draws apart). */
+  setChunkScatter(cx: number, cz: number, text: string | undefined): void {
+    const ck = chunkKeyOf(cx, cz);
+    if (this.scatters.get(ck) === text) return;
+    if (text === undefined) this.scatters.delete(ck);
+    else this.scatters.set(ck, text);
+    this.dirty.add(ck);
   }
 
   // ---- Paint ------------------------------------------------------------
@@ -624,7 +642,8 @@ export class BlockGrid {
     if (columns.length === 0 && edges === null) return null;
     const paint = this.paints.get(ck);
     const wallPaint = encodeWallPaint(this.wallPaints.get(ck));
-    return markCanonicalChunk({ cx, cz, palette, columns, ...(edges ?? {}), ...(paint !== undefined && !isUnpainted(paint) ? { paint: encodeChunkPaint(paint) } : {}), ...(wallPaint !== undefined ? { wallPaint } : {}) });
+    const scatter = this.scatters.get(ck);
+    return markCanonicalChunk({ cx, cz, palette, columns, ...(edges ?? {}), ...(paint !== undefined && !isUnpainted(paint) ? { paint: encodeChunkPaint(paint) } : {}), ...(wallPaint !== undefined ? { wallPaint } : {}), ...(scatter !== undefined ? { scatter } : {}) });
   }
 
   /** A chunk's edge pieces in the canonical stored form (rows in local key order, palette by first use; null: none). */
@@ -673,9 +692,10 @@ export class BlockGrid {
       const c = this.encodeChunk(ck);
       if (c === null) {
         byKey.delete(ck);
-        // A chunk without cells keeps no paint.
+        // A chunk without cells keeps no paint and no scatter.
         this.paints.delete(ck);
         this.wallPaints.delete(ck);
+        this.scatters.delete(ck);
       } else byKey.set(ck, c);
     }
     const chunks = [...byKey.values()].sort((a, b) => a.cz - b.cz || a.cx - b.cx);
@@ -817,13 +837,22 @@ export type BlockEdit =
    */
   | { kind: 'paint'; at: number[]; radius: number; strength: number; channel: number; falloff?: BrushFalloff; erase?: boolean; target?: PaintTarget; y?: number }
   /** Edge pieces (`block-edges.ts`): set (or remove with null) the edges at `at` (x, y, z, axis, …) or on and inside `box`; `keep`: only where none stands. */
-  | EdgesEdit;
+  | EdgesEdit
+  /**
+   * A scatter brush stroke (`scatter.ts`): put scatter rule `rule`'s copies
+   * on the tops under dabs `at` (x, z, x, z, … in columns) of `radius`
+   * cells, or take them off (`erase`). Applied with the layer's scatter
+   * after the other edits (`block-scatter.ts`).
+   */
+  | { kind: 'scatter'; rule: string; at: number[]; radius: number; erase?: boolean }
+  /** Bake the layer's scatter rules into every chunk again (after a change of the rules). */
+  | { kind: 'bakeScatter' };
 
 /** What a paint dab paints: the tops' lattice, the walls' points (a layer with wall paint), or both. */
 export type PaintTarget = 'tops' | 'walls' | 'both';
 export const PAINT_TARGETS: readonly PaintTarget[] = ['tops', 'walls', 'both'];
 
-export const BLOCK_EDIT_KINDS = ['fill', 'cells', 'array', 'replace', 'meta', 'flood', 'column', 'stamp', 'copy', 'region', 'heightmap', 'surface', 'sculpt', 'paint', 'edges'] as const;
+export const BLOCK_EDIT_KINDS = ['fill', 'cells', 'array', 'replace', 'meta', 'flood', 'column', 'stamp', 'copy', 'region', 'heightmap', 'surface', 'sculpt', 'paint', 'edges', 'scatter', 'bakeScatter'] as const;
 
 const EDIT_KEYS: Record<(typeof BLOCK_EDIT_KINDS)[number], { required: string[]; optional: string[] }> = {
   fill: { required: ['box', 'cell'], optional: ['mode'] },
@@ -841,6 +870,8 @@ const EDIT_KEYS: Record<(typeof BLOCK_EDIT_KINDS)[number], { required: string[];
   sculpt: { required: ['op', 'at', 'radius', 'strength'], optional: ['height', 'cell'] },
   paint: { required: ['at', 'radius', 'strength', 'channel'], optional: ['falloff', 'erase', 'target', 'y'] },
   edges: { required: ['edge'], optional: ['at', 'box', 'mode'] },
+  scatter: { required: ['rule', 'at', 'radius'], optional: ['erase'] },
+  bakeScatter: { required: [], optional: [] },
 };
 
 /**
@@ -879,6 +910,14 @@ export function blockEditsShapeError(edits: unknown): { path: string; message: s
     if (e['mirror'] !== undefined && e['mirror'] !== 'x' && e['mirror'] !== 'z') return bad('mirror', 'mirror is "x" or "z"');
     for (const k of ['move', 'occupiedOnly', 'keepAbove', 'erase']) if (e[k] !== undefined && typeof e[k] !== 'boolean') return bad(k, `${k} is a boolean`);
     switch (kind) {
+      case 'scatter': {
+        if (typeof e['rule'] !== 'string') return bad('rule', 'rule is a scatter rule id of the layer');
+        const at = e['at'];
+        if (!Array.isArray(at) || at.length === 0 || at.length % 2 !== 0 || !at.every((v) => typeof v === 'number' && Number.isFinite(v) && Math.abs(v) <= BLOCK_LIMITS.coordinateXZ)) return bad('at', 'at is the dabs\' centres x, z, x, z, … in columns');
+        const r = e['radius'];
+        if (typeof r !== 'number' || !Number.isFinite(r) || r <= 0 || r > BLOCK_LIMITS.coordinateXZ) return bad('radius', 'radius is cells (above 0)');
+        break;
+      }
       case 'edges': {
         const ee = edgesEditShapeError(e);
         if (ee !== null) return bad(ee.key, ee.message);
@@ -1497,6 +1536,10 @@ export function applyBlockEdits(g: BlockGrid, edits: readonly BlockEdit[], ctx: 
         }
         break;
       }
+      case 'scatter':
+      case 'bakeScatter':
+        // The layer's scatter is the command's to bake, after the cells are final (`block-scatter.ts`).
+        break;
       case 'paint': {
         // The layer's surface paint (the cells stay as they are).
         if (g.metadataOnly) return fail(p, 'a metadata-only layer has no surface to paint');

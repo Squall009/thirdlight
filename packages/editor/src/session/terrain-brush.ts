@@ -13,7 +13,8 @@
 import { TERRAIN_BRUSH_LIMITS, terrainDabSamples, type BrushFalloff } from '@thirdlight/runtime';
 import type { TerrainBrushKind, TerrainPreviewDab } from '@thirdlight/three-adapter';
 
-export type TerrainToolId = TerrainBrushKind;
+/** The sculpt and paint tools (previewed on the GPU) and the scatter brush (its copies come with the stored edit). */
+export type TerrainToolId = TerrainBrushKind | 'scatter';
 
 export const TERRAIN_TOOLS: readonly { id: TerrainToolId; label: string; title: string }[] = Object.freeze([
   { id: 'raise', label: 'Raise', title: 'Raise the ground under the brush (Ctrl: lower)' },
@@ -24,6 +25,7 @@ export const TERRAIN_TOOLS: readonly { id: TerrainToolId; label: string; title: 
   { id: 'ramp', label: 'Ramp', title: 'Drag from one point to another: the ground between them takes the straight slope' },
   { id: 'paint', label: 'Paint', title: 'Paint the chosen layer (Ctrl: take hand paint back)' },
   { id: 'holes', label: 'Holes', title: 'Cut holes in the ground (Ctrl: fill them)' },
+  { id: 'scatter', label: 'Scatter', title: "Put the chosen scatter rule's copies under the brush whatever its conditions (Ctrl: take them off); a bake keeps both" },
 ]);
 
 /** The brush's settings (one set for every tool; each reads its own). */
@@ -40,9 +42,11 @@ export interface TerrainBrushState {
   /** noise: the bumps' size (metres) and seed. */
   scale: number;
   seed: number;
+  /** scatter: the scatter rule whose copies the brush edits ('': none chosen). */
+  rule: string;
 }
 
-export const DEFAULT_TERRAIN_BRUSH: TerrainBrushState = Object.freeze({ radius: 8, height: 0.5, blend: 0.5, falloff: 'smooth', layer: 1, scale: 16, seed: 1 }) as TerrainBrushState;
+export const DEFAULT_TERRAIN_BRUSH: TerrainBrushState = Object.freeze({ radius: 8, height: 0.5, blend: 0.5, falloff: 'smooth', layer: 1, scale: 16, seed: 1, rule: '' }) as TerrainBrushState;
 
 /** The settings' bounds in the panel (the command's per-request bounds cap them). */
 export const TERRAIN_BRUSH_UI = Object.freeze({ radiusMin: 0.25, radiusMax: TERRAIN_BRUSH_LIMITS.radiusMax, heightMax: TERRAIN_BRUSH_LIMITS.heightStrengthMax, scaleMax: TERRAIN_BRUSH_LIMITS.noiseScaleMax });
@@ -85,9 +89,10 @@ export interface StrokeExtra {
 
 const r4 = (v: number): number => Math.round(v * 1e4) / 1e4;
 
-/** One dab of the preview, as the stroke stores it. */
-export function previewDab(tool: TerrainToolId, b: TerrainBrushState, at: readonly [number, number], invert: boolean, extra: StrokeExtra): TerrainPreviewDab {
+/** One dab of the preview, as the stroke stores it (null: the tool has no preview — the scatter brush). */
+export function previewDab(tool: TerrainToolId, b: TerrainBrushState, at: readonly [number, number], invert: boolean, extra: StrokeExtra): TerrainPreviewDab | null {
   const kind = strokeKind(tool, invert);
+  if (kind === 'scatter') return null;
   const base = { kind, at: [r4(at[0]), r4(at[1])] as [number, number], radius: b.radius, falloff: b.falloff };
   switch (kind) {
     case 'raise':
@@ -128,5 +133,7 @@ export function strokeArgs(entityId: string, tool: TerrainToolId, b: TerrainBrus
       return { entityId, kind, dabs: points, radius: b.radius, strength: b.blend, falloff: b.falloff, layer: b.layer, ...(invert ? { erase: true } : {}) };
     case 'holes':
       return { entityId, kind, dabs: points, radius: b.radius, ...(invert ? { erase: true } : {}) };
+    case 'scatter':
+      return { entityId, kind, rule: b.rule, dabs: points, radius: b.radius, ...(invert ? { erase: true } : {}) };
   }
 }

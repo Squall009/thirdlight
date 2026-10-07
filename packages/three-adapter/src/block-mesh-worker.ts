@@ -20,6 +20,7 @@ import { chunkModelKey, chunkResultBuffers, meshChunkForDrawing, StandInShapes, 
 
 // The same worker script packs terrain tiles (a separate worker of it: see terrain-tile-store.ts).
 export { runTerrainPackWorker } from './terrain-pack-worker';
+export { runCoverWorker } from './cover-worker';
 
 /** Page → worker. */
 export type MeshWorkerRequest =

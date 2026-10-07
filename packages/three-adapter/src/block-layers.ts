@@ -56,6 +56,7 @@
  * chunk's lightmap on when the chunk's layout is the one the bake was made
  * for (a chunk changed since is drawn without it).
  */
+import type { ScatterSink } from './scatter-view';
 import * as THREE from 'three';
 import {
   BlockGrid,
@@ -162,6 +163,8 @@ export interface BlockLayerViewDeps {
   precompile?(object: THREE.Object3D): void;
   /** A restyle began (true) or its last chunk is in (false): the host holds its cached static shadow meanwhile. */
   restyling?(on: boolean): void;
+  /** Where the layers' scatter copies go as their chunks arrive (`scatter-view.ts`). */
+  scatter?: ScatterSink;
 }
 
 /** A restyle's timing: how long its chunks took to arrive and the frames drawn meanwhile. */
@@ -419,6 +422,7 @@ export class BlockLayerView {
     if (JSON.stringify([...next.entries()]) === JSON.stringify([...this.types.entries()])) return;
     this.types = next;
     this.sendTypes();
+    this.deps.scatter?.setTypes?.(types);
     for (const layer of this.layers.values()) {
       layer.looksAsked = 0;
       layer.view = blockKitView(layer.grid, this.kitsOf(layer), this.types);
@@ -523,6 +527,7 @@ export class BlockLayerView {
     this.cut.setLayer(entityId, component, layer.grid.regions, origin);
     for (const ck of layer.grid.chunkKeys()) layer.dirty.add(ck);
     for (const ck of layer.chunks.keys()) layer.dirty.add(ck);
+    this.deps.scatter?.setBlockLayer(entityId, component, origin, data?.chunks ?? []);
     // The workers mesh with the kits it shows (the game's, when a script set them).
     if (component.metadataOnly !== true && this.startPool()) this.pool!.broadcast({ t: 'layer', entityId, serial: layer.serial, component: layer.gameKits === null ? component : { ...component, kits: [...layer.gameKits] }, data });
   }
@@ -538,6 +543,7 @@ export class BlockLayerView {
     g.set(origin[0] ?? 0, origin[1] ?? 0, origin[2] ?? 0);
     layer.group.updateMatrixWorld(true);
     this.cut.setOrigin(entityId, origin);
+    this.deps.scatter?.setOrigin(entityId, origin);
     // Material rules read world heights and positions: the layer is painted again where it now stands.
     if ((layer.component.rules?.length ?? 0) > 0) this.restyleLayer(layer);
     if (!layer.hidden) for (const chunk of layer.chunks.values()) this.deps.place?.(chunk, true);
@@ -550,6 +556,7 @@ export class BlockLayerView {
     layer.hidden = hidden;
     layer.group.visible = !hidden;
     for (const chunk of layer.chunks.values()) this.deps.place?.(chunk, !hidden);
+    this.deps.scatter?.setHidden(entityId, hidden);
   }
 
   hasLayer(entityId: string): boolean {
@@ -566,6 +573,7 @@ export class BlockLayerView {
     if (layer === undefined) return;
     const painted = layer.grid.hasPaint();
     for (const c of chunks) layer.grid.replaceChunk(c.cx, c.cz, c.chunk);
+    this.deps.scatter?.replaceBlockChunks(entityId, chunks);
     if (this.pool !== null && layer.component.metadataOnly !== true) this.pool.broadcast({ t: 'chunks', entityId, chunks: chunks.map((c) => ({ cx: c.cx, cz: c.cz, chunk: c.chunk })) });
     for (const k of layer.grid.takeDirty().mesh) {
       layer.dirty.add(k);
@@ -596,6 +604,7 @@ export class BlockLayerView {
     if (layer === undefined) return;
     for (const [ck, g] of layer.chunks) this.dropChunk(entityId, layer, ck, g);
     this.cut.removeLayer(entityId);
+    this.deps.scatter?.remove(entityId);
     layer.group.removeFromParent();
     this.layers.delete(entityId);
     this.pool?.broadcast({ t: 'drop', entityId });

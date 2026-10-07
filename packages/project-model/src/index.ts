@@ -1215,6 +1215,7 @@ export {
   SURFACE_RULE_LIMITS,
   SurfaceRuleSet,
   canonicalSurfaceRules,
+  ruleConditionsAt,
   ruleNoise,
   ruleRangeAt,
   validateSurfaceRules,
@@ -1223,6 +1224,48 @@ export {
   type SurfaceRule,
 } from './surface-rules';
 export { bakeTerrainRules, terrainBakeMargin, terrainBakeRect, type TerrainSampleRect } from './terrain-rules';
+// Rule scatter: models placed by rules on terrain (copies baked per tile) and block layers (per chunk).
+export {
+  FOLIAGE_NEAR_METRES,
+  SCATTER_BAKE_MAX_CANDIDATES,
+  SCATTER_BLOB_DISTANCE,
+  SCATTER_BLOB_MAGIC,
+  SCATTER_CHUNK_METERS_DEFAULT,
+  SCATTER_COPY_FLOATS,
+  SCATTER_COVER_DISTANCE_DEFAULT,
+  SCATTER_LIMITS,
+  SCATTER_RULE_FIELDS,
+  bakeScatterCell,
+  canonicalScatterRules,
+  chunkScatterError,
+  coverScatterRules,
+  decodeChunkScatter,
+  decodeScatterCell,
+  encodeChunkScatter,
+  encodeScatterCell,
+  sameScatterCell,
+  scatterCellBytes,
+  scatterCellCopies,
+  scatterReach,
+  scatterRuleAssets,
+  scatterStrokeRect,
+  storedScatterRules,
+  strokeScatterEdits,
+  validateScatterRules,
+  withScatterEdits,
+  type ScatterBakeResult,
+  type ScatterCell,
+  type ScatterCopies,
+  type ScatterGround,
+  type ScatterLayerCondition,
+  type ScatterRect,
+  type ScatterRule,
+  type ScatterStroke,
+  type ScatterSurface,
+} from './scatter';
+export { blockScatterSurface, regionExcluder, terrainScatterSurface, type BlockScatterSource, type ScatterRegionLayer } from './scatter-surfaces';
+export { bakeTerrainScatter, isScatterBlob, scatterBlobOf, scatterCellOfBlob, terrainChangedSamples, terrainTileRect } from './terrain-scatter';
+export { bakeBlockScatter, blockChunkRect, type BlockScatterContext, type BlockScatterStroke } from './block-scatter';
 export { blockChunkStorageOf, maxSlopeClimbOf } from './content-settings';
 export { chunkLightmapLayout, type ChunkLightmapLayout } from './block-lightmap';
 // The instance brush (paint and erase copies of an instance set on a surface).

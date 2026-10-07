@@ -60,6 +60,7 @@ import {
   toolFreehand,
   toolRect,
   toolDabs,
+  scatterEdit,
   type BlockToolId,
   type BrushState,
   type Cell3,
@@ -191,7 +192,7 @@ export class BlockEditor {
   private previewMs = 0;
   private target: { cell: Cell3; value: BlockCell | null } | null = null;
   /** A terrain brush stroke: its dabs (sent on release), the last dab's centre (columns) and the flatten height (rows). */
-  private sculpt: { tool: 'height' | 'smooth' | 'flatten' | 'paint'; dabs: BlockEdit[]; last: [number, number, number]; level: number; invert: boolean } | null = null;
+  private sculpt: { tool: 'height' | 'smooth' | 'flatten' | 'paint' | 'scatter'; dabs: BlockEdit[]; last: [number, number, number]; level: number; invert: boolean } | null = null;
   private readonly ring: THREE.LineLoop;
   /** An edge stroke in flight: its row, its press and current corner (line, rectangle), the edges it collected (paint, erase) and the last point (cells). */
   private edgeStroke: { tool: BlockToolId; row: number; start: [number, number]; end: [number, number]; edges: Edge4[]; seen: Set<string>; last: [number, number] } | null = null;
@@ -394,6 +395,10 @@ export class BlockEditor {
       this.previewMs = 0;
       this.previewChunks.clear();
       this.scratch = null;
+      if (this.opts.tool === 'scatter' && this.opts.brush.scatterRule === '') {
+        this.cb.onRefused('Choose a scatter rule to paint (make one with Scatter…).');
+        return true;
+      }
       if (this.opts.tool === 'paint' && this.opts.brush.paintTarget !== 'tops' && this.layer?.component.wallPaint !== true) {
         this.cb.onRefused('This layer\'s walls show the paint of the tops above them: turn on Wall paint in its Block layer settings to paint walls.');
         return true;
@@ -688,7 +693,7 @@ export class BlockEditor {
     // The brush block grows empty ground (raising where nothing stands yet).
     const cell = brushCell(b, b.block !== null ? this.types.get(b.block) : undefined);
     // The paint tool paints the surface under the paint brush (invert: erase).
-    const dab = k.tool === 'paint' ? paintEdit([x, z], b.paint, k.invert, b.paintTarget, rows) : sculptEdit(k.tool, [x, z], b, k.invert, k.level, cell);
+    const dab = k.tool === 'paint' ? paintEdit([x, z], b.paint, k.invert, b.paintTarget, rows) : k.tool === 'scatter' ? scatterEdit([x, z], b, k.invert) : sculptEdit(k.tool, [x, z], b, k.invert, k.level, cell);
     k.dabs.push(dab);
     this.previewEdits([dab]);
   }

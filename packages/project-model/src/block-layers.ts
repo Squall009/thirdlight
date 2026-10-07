@@ -42,6 +42,7 @@ import { canonicalBlockConnect, composeBlockConnect, validateBlockConnect, type 
 import { canonicalBlockCutaway, validateBlockCutaway, type BlockCutaway } from './block-cutaway';
 import { canonicalBlockLayerWalk, validateBlockLayerWalk, type BlockLayerWalk } from './block-walk-settings';
 import { canonicalSurfaceRules, validateSurfaceRules, type SurfaceRule } from './surface-rules';
+import { canonicalScatterRules, chunkScatterError, validateScatterRules, type ScatterRule } from './scatter';
 import { canonicalBlockTypeKits, canonicalLayerKits, composeBlockTypeKits, validateBlockTypeKits, validateLayerKits, type BlockKitSwap, type BlockLayerKit } from './block-kit';
 
 // ---- types -----------------------------------------------------------------------
@@ -91,6 +92,12 @@ export interface BlockChunk {
    * no wall point painted.
    */
   wallPaint?: string;
+  /**
+   * The scatter rules' copies on this chunk's columns and their hand edits
+   * (`scatter.ts`): base64 of the cell's bytes, written by the layer's
+   * edits when it has scatter rules. Absent: none.
+   */
+  scatter?: string;
   /** The edge pieces' values (`block-edges.ts`); present with `edges`. */
   edgePalette?: BlockEdge[];
   /** The chunk's edge pieces: `[lx, lz, y, axis, p]` rows (p an `edgePalette` index); absent: none. */
@@ -185,6 +192,12 @@ export interface BlockLayerComponent {
    * point's layer 1) shows the rules (absent: the paint alone, as before).
    */
   rules?: SurfaceRule[];
+  /**
+   * Scatter rules (`scatter.ts`, layers 0-3): models placed on the layer's
+   * tops by rules, their copies baked per chunk by its edits (a
+   * `bakeScatter` edit bakes every chunk). Absent: none.
+   */
+  scatter?: ScatterRule[];
 }
 
 export type BlockShape = 'full' | 'half' | 'ramp' | 'stairs' | 'custom' | 'none';
@@ -833,7 +846,7 @@ export function canonicalBlockStamps(list: readonly BlockStamp[]): BlockStamp[] 
 export const BLOCK_LAYER_DEFAULT: BlockLayerComponent = Object.freeze({ cellSize: [1, 1, 1], bounds: { min: [0, 0, 0], max: [64, 16, 64] } }) as BlockLayerComponent;
 
 /** The stored fields of the `blockLayer` component, in canonical order. */
-export const BLOCK_LAYER_FIELDS = ['cellSize', 'bounds', 'metadataOnly', 'collision', 'castShadow', 'receiveShadow', 'maxSlope', 'smoothAngle', 'topSubdivision', 'wallPaint', 'lightLayers', 'cutaway', 'kits', 'walk', 'vertexAO', 'rules'] as const;
+export const BLOCK_LAYER_FIELDS = ['cellSize', 'bounds', 'metadataOnly', 'collision', 'castShadow', 'receiveShadow', 'maxSlope', 'smoothAngle', 'topSubdivision', 'wallPaint', 'lightLayers', 'cutaway', 'kits', 'walk', 'vertexAO', 'rules', 'scatter'] as const;
 
 export function validateBlockLayerComponent(v: unknown, path: string, errors: ModelErrorV2[]): void {
   if (!isPlainObject(v)) return err(errors, 'field_type', path, 'blockLayer is an object', v, 'object');
@@ -877,6 +890,7 @@ export function validateBlockLayerComponent(v: unknown, path: string, errors: Mo
   const ao = v['vertexAO'];
   if (ao !== undefined && (!finite(ao) || ao < 0 || ao > 1)) err(errors, 'field_value', `${path}/vertexAO`, 'vertexAO is 0-1 (0: none)', ao);
   if (v['rules'] !== undefined) validateSurfaceRules(v['rules'], `${path}/rules`, errors, true);
+  if (v['scatter'] !== undefined) validateScatterRules(v['scatter'], `${path}/scatter`, errors, true);
 }
 
 export function canonicalBlockLayerComponent(c: BlockLayerComponent): BlockLayerComponent {
@@ -897,6 +911,7 @@ export function canonicalBlockLayerComponent(c: BlockLayerComponent): BlockLayer
     ...(canonicalBlockLayerWalk(c.walk) !== undefined ? { walk: canonicalBlockLayerWalk(c.walk)! } : {}),
     ...(c.vertexAO !== undefined && c.vertexAO > 0 ? { vertexAO: canonNum(c.vertexAO) } : {}),
     ...(c.rules !== undefined && c.rules.length > 0 ? { rules: canonicalSurfaceRules(c.rules) } : {}),
+    ...(c.scatter !== undefined && c.scatter.length > 0 ? { scatter: canonicalScatterRules(c.scatter) } : {}),
   };
 }
 
@@ -958,8 +973,12 @@ export function validateSceneBlocks(value: unknown, entities: readonly unknown[]
         const keys = new Set<string>();
         chunks.forEach((c, j) => {
           const cp = `${p}/chunks/${j}`;
-          if (!isPlainObject(c)) return err(errors, 'field_type', cp, 'a chunk is {cx, cz, palette, columns, edgePalette?, edges?, paint?, wallPaint?}', c, 'object');
-          onlyKeys(c, ['cx', 'cz', 'palette', 'columns', 'edgePalette', 'edges', 'paint', 'wallPaint'], cp, errors, 'chunk');
+          if (!isPlainObject(c)) return err(errors, 'field_type', cp, 'a chunk is {cx, cz, palette, columns, edgePalette?, edges?, paint?, wallPaint?, scatter?}', c, 'object');
+          onlyKeys(c, ['cx', 'cz', 'palette', 'columns', 'edgePalette', 'edges', 'paint', 'wallPaint', 'scatter'], cp, errors, 'chunk');
+          if (c['scatter'] !== undefined) {
+            const se = chunkScatterError(c['scatter']);
+            if (se !== null) err(errors, 'field_value', `${cp}/scatter`, se, typeof c['scatter'] === 'string' ? `${c['scatter'].length} characters` : c['scatter']);
+          }
           if (c['wallPaint'] !== undefined) {
             const we = wallPaintError(c['wallPaint']);
             if (we !== null) err(errors, 'field_value', `${cp}/wallPaint`, we, typeof c['wallPaint'] === 'string' ? `${c['wallPaint'].length} characters` : c['wallPaint']);
@@ -1044,7 +1063,7 @@ export function canonicalBlockChunk(c: BlockChunk): BlockChunk | null {
   // An all-unpainted lattice is not stored.
   const paint = c.paint !== undefined ? decodeChunkPaint(c.paint) : null;
   const wallPaint = canonicalWallPaint(c.wallPaint);
-  const out: BlockChunk = { cx: c.cx, cz: c.cz, palette: runs.palette, columns: runs.columns, ...(edges ?? {}), ...(paint !== null && !isUnpainted(paint) ? { paint: encodeChunkPaint(paint) } : {}), ...(wallPaint !== undefined ? { wallPaint } : {}) };
+  const out: BlockChunk = { cx: c.cx, cz: c.cz, palette: runs.palette, columns: runs.columns, ...(edges ?? {}), ...(paint !== null && !isUnpainted(paint) ? { paint: encodeChunkPaint(paint) } : {}), ...(wallPaint !== undefined ? { wallPaint } : {}), ...(c.scatter !== undefined ? { scatter: c.scatter } : {}) };
   canonicalChunks.add(out);
   return out;
 }

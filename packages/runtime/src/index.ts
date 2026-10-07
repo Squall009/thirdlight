@@ -260,6 +260,8 @@ export { TERRAIN_HEIGHT_STEPS, TERRAIN_PAINT_BYTES, TERRAIN_SAMPLE_LAYERS, TERRA
 // The terrain editing bounds and forms the editor's tools offer (the command checks them), and the noise hash its preview repeats.
 export { HEIGHTMAP_FORMATS, TERRAIN_BRUSH_LIMITS, TERRAIN_LAYER_MAX, TERRAIN_NOISE_HASH, TERRAIN_TILE_COORD_MAX, TERRAIN_TILE_SAMPLES_DEFAULT, terrainDabSamples, type HeightmapFormat } from '@thirdlight/project-model';
 export { terrainTileOf } from './terrain-blob';
+// Rule scatter's stored copies (terrain tiles' blobs, block chunks' text), read by the renderer and the colliders.
+export { FOLIAGE_NEAR_METRES, SCATTER_BLOB_DISTANCE, SCATTER_CHUNK_METERS_DEFAULT, SCATTER_COPY_FLOATS, SCATTER_COVER_DISTANCE_DEFAULT, SCATTER_LIMITS, bakeScatterCell, blockScatterSurface, coverScatterRules, decodeChunkScatter, encodeChunkScatter, regionExcluder, scatterBlobOf, scatterCellOfBlob, scatterCellBytes, scatterReach, storedScatterRules, terrainScatterSurface, type ScatterCell, type ScatterCopies, type ScatterGround, type ScatterRect, type ScatterRegionLayer, type ScatterRule, type ScatterSurface } from '@thirdlight/project-model';
 export { TERRAIN_COLLIDER_PATCH_CELLS, TerrainColliders, terrainColliderId, terrainColliderPieces, type TerrainCollisionDiagnostics, type TerrainCollisionTile, type TerrainColliderPiece, type TerrainTileData } from './terrain-collision';
 // Gunzip with the platform's DecompressionStream (a build's binary data ships gzip: block chunks, terrain tiles).
 export { gunzip } from './gunzip';

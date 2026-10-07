@@ -76,6 +76,7 @@ export const blockLayer: ComponentDescriptor = {
       bool('diagonal', 'Diagonal', 'Steps across cell corners too, where both ways round the corner walk.', { default: false }),
     ]),
     json('rules', 'Material rules', 'Layers 0-3 by slope, height, cavity, noise, top or wall, block type and cell metadata, painted at every vertex when chunks are meshed: [{layer, strength?, face?, height?, slope?, cavity?, noise?, weight?, blocks?, meta?}] (the Blocks tools\' Rules). Hand paint stays over them.'),
+    json('scatter', 'Scatter rules', 'Models placed on the tops by rules, their copies baked per chunk by the layer\'s edits: [{id, asset, density, spacing?, scale?, yaw?, align?, sink?, seed?, height?, slope?, cavity?, noise?, layers?, blocks?, meta?, exclude?, castShadow?, chunkSize?, density falloff, lodPerCopy?, collide?}] (the Blocks tools\' Scatter). The scatter brush\'s hand edits stay over them.'),
     num('vertexAO', 'Corner shading', "How dark the blocks' corners and creases get from per-vertex ambient occlusion: where neighbouring blocks close a corner in, that much of its indirect light is taken away. 0: none. Cheap (worked out when a chunk is meshed); a layer with baked lightmaps has its shading in the bake.", { min: 0, max: 1, step: 0.05, default: 0 }),
   ]),
   // 1 m cells over 64 × 16 × 64 — a common kit module over the interactive-editing target; no genre assumed.

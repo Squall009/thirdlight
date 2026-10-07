@@ -3,13 +3,17 @@
  * `{sceneId?}` lists them (component, tiles, stored and in-memory bytes);
  * `{entityId}` one terrain with each tile's digest and bytes; `points:
  * [[x, z], …]` (world) adds the surface there (height, normal, slope, hole,
- * layers) from the stored tiles, read the way a game reads them.
+ * layers) from the stored tiles, read the way a game reads them; `scatter:
+ * {box?: [x0, z0, x1, z1]}` adds its stored scatter: each rule's copies and
+ * hand edits over every tile, and with a box (world XZ) the copies in it —
+ * each with its address (the rule, its candidate cell), the same through
+ * every bake that keeps it.
  *
  * Memory is what the tiles take decoded (a game holds them so for its
  * renderer and colliders): a terrain has no tile cap, so this is what bounds
  * it.
  */
-import { TerrainField, flatTerrainTile, terrainFlatStep, terrainTileBlobBytes, terrainTileBytes, terrainTileKey, type SceneV4, type TerrainComponent, type TerrainTile } from '@thirdlight/project-model';
+import { TerrainField, flatTerrainTile, scatterCellOfBlob, terrainFlatStep, terrainTileBlobBytes, terrainTileBytes, terrainTileKey, type SceneV4, type TerrainComponent, type TerrainTile } from '@thirdlight/project-model';
 
 import { readSourceBlob } from './content-store';
 import { entityNotFound, fieldTypeError, fieldUnexpected, fieldValueType, pointerSegment } from './errors';
@@ -20,6 +24,8 @@ import type { QueryResult } from './types';
 
 /** The most points one query asks about. */
 export const TERRAIN_QUERY_POINTS_MAX = 1024;
+/** The most scatter copies one query lists (a box holding more is refused: ask for a smaller one). */
+export const TERRAIN_QUERY_COPIES_MAX = 16_384;
 
 function failure(projectId: string, error: import('@thirdlight/commands').CommandError): QueryResult {
   return { ok: false, op: 'queryTerrain', projectId, error } as unknown as QueryResult;
@@ -27,7 +33,7 @@ function failure(projectId: string, error: import('@thirdlight/commands').Comman
 
 export function serveQueryTerrain(core: Core, s: ProjectSession, projectId: string, a: Record<string, unknown>): QueryResult {
   const state = s.v4!;
-  for (const k of Object.keys(a)) if (!['sceneId', 'entityId', 'points'].includes(k)) return failure(projectId, fieldUnexpected(`/args/${pointerSegment(k)}`, k, 'sceneId, entityId, points'));
+  for (const k of Object.keys(a)) if (!['sceneId', 'entityId', 'points', 'scatter'].includes(k)) return failure(projectId, fieldUnexpected(`/args/${pointerSegment(k)}`, k, 'sceneId, entityId, points, scatter'));
   const ctx = contentCtx(s);
   const terrainsOf = (sc: SceneV4): { entityId: string; sceneId: string; component: TerrainComponent; origin: number[] }[] =>
     sc.entities
@@ -111,6 +117,39 @@ export function serveQueryTerrain(core: Core, s: ProjectSession, projectId: stri
       return smp === null ? { x, z, height: null, hole: field.holeAt(x!, z!) } : { x, z, ...smp, hole: false };
     });
     out['loadedBytes'] = [...loaded.values()].reduce((n, tile) => n + terrainTileBytes(tile), 0);
+  }
+  const scatter = a['scatter'];
+  if (scatter !== undefined) {
+    const sc = scatter as { box?: unknown };
+    const box = sc.box;
+    if (typeof scatter !== 'object' || scatter === null || Object.keys(scatter).some((k) => k !== 'box') || (box !== undefined && !(Array.isArray(box) && box.length === 4 && box.every((v) => typeof v === 'number' && Number.isFinite(v))))) {
+      return failure(projectId, fieldValueType('/args/scatter', scatter, '{box?: [x0, z0, x1, z1]}', 'scatter is {box?}: the world XZ box whose copies are listed'));
+    }
+    const o = t.origin;
+    const rules: Record<string, { copies: number; added: number; erased: number }> = {};
+    const copies: { rule: string; x: number; y: number; z: number; cell: [number, number] }[] = [];
+    for (const ref of t.component.tiles) {
+      if (ref.scatter === undefined) continue;
+      const r = readSourceBlob(core, ctx, { digest: ref.scatter });
+      if (!r.ok) return failure(projectId, r.error);
+      const cell = scatterCellOfBlob(r.bytes);
+      for (const [id, c] of cell) {
+        const row = (rules[id] ??= { copies: 0, added: 0, erased: 0 });
+        row.copies += c.cells.length / 2;
+        row.added += c.added.length / 2;
+        row.erased += c.erased.length / 2;
+        if (box === undefined) continue;
+        const [x0, z0, x1, z1] = box as number[];
+        for (let i = 0; i < c.cells.length / 2; i++) {
+          const x = (o[0] ?? 0) + c.copies[i * 10]!;
+          const z = (o[2] ?? 0) + c.copies[i * 10 + 2]!;
+          if (x < x0! || x >= x1! || z < z0! || z >= z1!) continue;
+          if (copies.length >= TERRAIN_QUERY_COPIES_MAX) return failure(projectId, fieldValueType('/args/scatter/box', box, `a box holding at most ${TERRAIN_QUERY_COPIES_MAX} copies`, 'the box holds more copies than one answer lists: ask for a smaller box'));
+          copies.push({ rule: id, x, y: (o[1] ?? 0) + c.copies[i * 10 + 1]!, z, cell: [c.cells[i * 2]!, c.cells[i * 2 + 1]!] });
+        }
+      }
+    }
+    out['scatter'] = { rules, ...(box !== undefined ? { copies } : {}) };
   }
   return out as unknown as QueryResult;
 }

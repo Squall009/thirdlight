@@ -76,6 +76,65 @@ function err(errors: ModelErrorV2[], code: string, path: string, message: string
   errors.push({ code, path, message, ...(found !== undefined ? { found } : {}) } as ModelErrorV2);
 }
 
+/**
+ * Validate the range condition `r[key]` (absent: nothing to check): {min?, max?, fade?} plus `keys` the
+ * condition adds, which `extra` checks. Material rules and scatter rules share it.
+ */
+export function validateRuleRange(r: Record<string, unknown>, key: string, p: string, errors: ModelErrorV2[], extra: (o: Record<string, unknown>, q: string) => void = () => undefined, keys: readonly string[] = []): void {
+  const L = SURFACE_RULE_LIMITS;
+  const v = r[key];
+  if (v === undefined) return;
+  const q = `${p}/${key}`;
+  if (!isObj(v)) return err(errors, 'field_type', q, `${key} is {min?, max?, fade?${keys.map((k) => `, ${k}`).join('')}}`, v);
+  for (const k of Object.keys(v)) if (!['min', 'max', 'fade', ...keys].includes(k)) err(errors, 'field_unexpected', `${q}/${k}`, `unknown ${key} field "${k}"`, k);
+  for (const k of ['min', 'max'] as const) if (v[k] !== undefined && !(finite(v[k]) && Math.abs(v[k] as number) <= L.value)) err(errors, 'field_value', `${q}/${k}`, `${k} is a number within ±${L.value}`, v[k]);
+  if (finite(v['min']) && finite(v['max']) && (v['min'] as number) > (v['max'] as number)) err(errors, 'field_value', q, `${key}: min is at most max`, v);
+  if (v['fade'] !== undefined && !(finite(v['fade']) && v['fade'] >= 0 && v['fade'] <= L.value)) err(errors, 'field_value', `${q}/fade`, `fade is 0-${L.value}`, v['fade']);
+  extra(v, q);
+}
+
+/** A range condition in canonical form (min, max, then `extra` in that order; a zero fade left out). */
+export function canonicalRuleRange<T extends RuleRange>(v: T | undefined, extra: (keyof T)[] = []): T | undefined {
+  if (v === undefined) return undefined;
+  const out: Record<string, unknown> = {};
+  for (const k of ['min', 'max', ...extra] as string[]) if ((v as Record<string, unknown>)[k] !== undefined) out[k] = (v as Record<string, unknown>)[k];
+  if (v.fade !== undefined && v.fade > 0) out['fade'] = v.fade;
+  return out as T;
+}
+
+/** The conditions material and scatter rules share: height, slope, cavity, noise, and on block layers block types and cell metadata. */
+export interface RuleConditions {
+  height?: RuleRange;
+  slope?: RuleRange;
+  cavity?: RuleRange & { radius?: number };
+  noise?: RuleRange & { scale: number; seed?: number };
+  blocks?: string[];
+  meta?: Record<string, CellMetaValue>;
+}
+
+/** Validate the shared conditions of rule `r` at `p`; `blocks`: a block layer's (block types and metadata allowed). */
+export function validateRuleConditions(r: Record<string, unknown>, p: string, errors: ModelErrorV2[], blocks: boolean): void {
+  const L = SURFACE_RULE_LIMITS;
+  const range = (key: string, extra: (o: Record<string, unknown>, q: string) => void = () => undefined, keys: readonly string[] = []): void => validateRuleRange(r, key, p, errors, extra, keys);
+  range('height');
+  range('slope');
+  range('cavity', (v, q) => {
+    if (v['radius'] !== undefined && !(finite(v['radius']) && v['radius'] > 0 && v['radius'] <= L.cavityRadiusMax)) err(errors, 'field_value', `${q}/radius`, `radius is metres in (0, ${L.cavityRadiusMax}]`, v['radius']);
+  }, ['radius']);
+  range('noise', (v, q) => {
+    if (!(finite(v['scale']) && v['scale'] >= L.noiseScaleMin && v['scale'] <= L.noiseScaleMax)) err(errors, 'field_value', `${q}/scale`, `scale is metres, ${L.noiseScaleMin}-${L.noiseScaleMax}`, v['scale']);
+    if (v['seed'] !== undefined && !Number.isSafeInteger(v['seed'])) err(errors, 'field_value', `${q}/seed`, 'seed is a whole number', v['seed']);
+  }, ['scale', 'seed']);
+  if (r['blocks'] !== undefined) {
+    if (!blocks) err(errors, 'field_unexpected', `${p}/blocks`, 'blocks are a block layer\'s condition (a terrain has no block types)', r['blocks']);
+    else if (!(Array.isArray(r['blocks']) && r['blocks'].every((b) => typeof b === 'string' && b.length >= 1 && b.length <= 64))) err(errors, 'field_value', `${p}/blocks`, 'blocks is a list of block type ids', r['blocks']);
+  }
+  if (r['meta'] !== undefined) {
+    if (!blocks) err(errors, 'field_unexpected', `${p}/meta`, 'meta is a block layer\'s condition (a terrain has no cells)', r['meta']);
+    else if (!(isObj(r['meta']) && Object.values(r['meta']).every((m) => typeof m === 'boolean' || typeof m === 'string' || finite(m)))) err(errors, 'field_value', `${p}/meta`, 'meta is {field key: value} (true/false, a number or a string)', r['meta']);
+  }
+}
+
 /** Validate a rule list; `blocks`: a block layer's (layers 0-3, block conditions allowed). */
 export function validateSurfaceRules(value: unknown, path: string, errors: ModelErrorV2[], blocks: boolean): void {
   if (!Array.isArray(value)) {
@@ -83,7 +142,6 @@ export function validateSurfaceRules(value: unknown, path: string, errors: Model
     return;
   }
   const layerMax = blocks ? SURFACE_RULE_BLOCK_LAYERS - 1 : SURFACE_RULE_LAYER_MAX;
-  const L = SURFACE_RULE_LIMITS;
   value.forEach((r, i) => {
     const p = `${path}/${i}`;
     if (!isObj(r)) return err(errors, 'field_type', p, 'a rule is an object {layer, …conditions}', r);
@@ -93,49 +151,17 @@ export function validateSurfaceRules(value: unknown, path: string, errors: Model
     const s = r['strength'];
     if (s !== undefined && !(finite(s) && s >= 0 && s <= 1)) err(errors, 'field_value', `${p}/strength`, 'strength is 0-1', s);
     if (r['face'] !== undefined && r['face'] !== 'top' && r['face'] !== 'wall') err(errors, 'field_value', `${p}/face`, 'face is top or wall (absent: both)', r['face']);
-    const range = (key: string, extra: (o: Record<string, unknown>, q: string) => void = () => undefined, keys: readonly string[] = []): void => {
-      const v = r[key];
-      if (v === undefined) return;
-      const q = `${p}/${key}`;
-      if (!isObj(v)) return err(errors, 'field_type', q, `${key} is {min?, max?, fade?${keys.map((k) => `, ${k}`).join('')}}`, v);
-      for (const k of Object.keys(v)) if (!['min', 'max', 'fade', ...keys].includes(k)) err(errors, 'field_unexpected', `${q}/${k}`, `unknown ${key} field "${k}"`, k);
-      for (const k of ['min', 'max'] as const) if (v[k] !== undefined && !(finite(v[k]) && Math.abs(v[k] as number) <= L.value)) err(errors, 'field_value', `${q}/${k}`, `${k} is a number within ±${L.value}`, v[k]);
-      if (finite(v['min']) && finite(v['max']) && (v['min'] as number) > (v['max'] as number)) err(errors, 'field_value', q, `${key}: min is at most max`, v);
-      if (v['fade'] !== undefined && !(finite(v['fade']) && v['fade'] >= 0 && v['fade'] <= L.value)) err(errors, 'field_value', `${q}/fade`, `fade is 0-${L.value}`, v['fade']);
-      extra(v, q);
-    };
-    range('height');
-    range('slope');
-    range('cavity', (v, q) => {
-      if (v['radius'] !== undefined && !(finite(v['radius']) && v['radius'] > 0 && v['radius'] <= L.cavityRadiusMax)) err(errors, 'field_value', `${q}/radius`, `radius is metres in (0, ${L.cavityRadiusMax}]`, v['radius']);
-    }, ['radius']);
-    range('noise', (v, q) => {
-      if (!(finite(v['scale']) && v['scale'] >= L.noiseScaleMin && v['scale'] <= L.noiseScaleMax)) err(errors, 'field_value', `${q}/scale`, `scale is metres, ${L.noiseScaleMin}-${L.noiseScaleMax}`, v['scale']);
-      if (v['seed'] !== undefined && !Number.isSafeInteger(v['seed'])) err(errors, 'field_value', `${q}/seed`, 'seed is a whole number', v['seed']);
-    }, ['scale', 'seed']);
+    const range = (key: string, extra: (o: Record<string, unknown>, q: string) => void = () => undefined, keys: readonly string[] = []): void => validateRuleRange(r, key, p, errors, extra, keys);
+    validateRuleConditions(r, p, errors, blocks);
     range('weight', (v, q) => {
       if (!(Number.isInteger(v['layer']) && (v['layer'] as number) >= 0 && (v['layer'] as number) <= layerMax)) err(errors, 'field_value', `${q}/layer`, `layer is 0-${layerMax}`, v['layer']);
     }, ['layer']);
-    if (r['blocks'] !== undefined) {
-      if (!blocks) err(errors, 'field_unexpected', `${p}/blocks`, 'blocks are a block layer\'s condition (a terrain has no block types)', r['blocks']);
-      else if (!(Array.isArray(r['blocks']) && r['blocks'].every((b) => typeof b === 'string' && b.length >= 1 && b.length <= 64))) err(errors, 'field_value', `${p}/blocks`, 'blocks is a list of block type ids', r['blocks']);
-    }
-    if (r['meta'] !== undefined) {
-      if (!blocks) err(errors, 'field_unexpected', `${p}/meta`, 'meta is a block layer\'s condition (a terrain has no cells)', r['meta']);
-      else if (!(isObj(r['meta']) && Object.values(r['meta']).every((m) => typeof m === 'boolean' || typeof m === 'string' || finite(m)))) err(errors, 'field_value', `${p}/meta`, 'meta is {field key: value} (true/false, a number or a string)', r['meta']);
-    }
   });
 }
 
 /** Rules in canonical form (fields in order, defaults left out). */
 export function canonicalSurfaceRules(rules: readonly SurfaceRule[]): SurfaceRule[] {
-  const range = <T extends RuleRange>(v: T | undefined, extra: (keyof T)[] = []): T | undefined => {
-    if (v === undefined) return undefined;
-    const out: Record<string, unknown> = {};
-    for (const k of ['min', 'max', ...extra] as string[]) if ((v as Record<string, unknown>)[k] !== undefined) out[k] = (v as Record<string, unknown>)[k];
-    if (v.fade !== undefined && v.fade > 0) out['fade'] = v.fade;
-    return out as T;
-  };
+  const range = canonicalRuleRange;
   return rules.map((r) => {
     const out: SurfaceRule = { layer: r.layer };
     if (r.strength !== undefined && r.strength !== 1) out.strength = r.strength;
@@ -234,6 +260,26 @@ export function ruleNoise(x: number, y: number, z: number, seed: number): number
 }
 
 /**
+ * How much a point meets a rule's shared conditions (0-1, each range's fade
+ * multiplied in; 0 at once where the block type or metadata does not match).
+ * `blocks`: the rule's block types as a set (null: any); `cavity` measures
+ * the point's cavity at a radius (asked only when the rule reads it).
+ */
+export function ruleConditionsAt(r: RuleConditions, p: SurfacePoint, blocks: ReadonlySet<string> | null, cavity: (radius: number) => number): number {
+  if (blocks !== null && (p.block === undefined || !blocks.has(p.block))) return 0;
+  if (r.meta !== undefined) {
+    if (p.meta === undefined) return 0;
+    for (const k in r.meta) if (p.meta(k) !== r.meta[k]) return 0;
+  }
+  let f = 1;
+  if (r.height !== undefined) f *= ruleRangeAt(r.height, p.y);
+  if (f > 0 && r.slope !== undefined) f *= ruleRangeAt(r.slope, p.slope);
+  if (f > 0 && r.cavity !== undefined) f *= ruleRangeAt(r.cavity, cavity(r.cavity.radius ?? SURFACE_RULE_CAVITY_RADIUS));
+  if (f > 0 && r.noise !== undefined) f *= ruleRangeAt(r.noise, ruleNoise(p.x / r.noise.scale, p.y / r.noise.scale, p.z / r.noise.scale, r.noise.seed ?? 0));
+  return f;
+}
+
+/**
  * A rule list ready to evaluate many points: the scratch weights it reuses
  * and what its rules read (a source skips measuring what no rule reads).
  */
@@ -253,6 +299,17 @@ export class SurfaceRuleSet {
   private readonly cavityRadii = new Float64Array(8);
   private readonly cavityValues = new Float64Array(8);
   private cavityCount = 0;
+  /** The point being evaluated (its cavities are measured once per radius). */
+  private point: SurfacePoint | null = null;
+  private readonly cavityAt = (radius: number): number => {
+    for (let k = 0; k < this.cavityCount; k++) if (this.cavityRadii[k] === radius) return this.cavityValues[k]!;
+    const c = this.point!.cavity(radius);
+    if (this.cavityCount < this.cavityRadii.length) {
+      this.cavityRadii[this.cavityCount] = radius;
+      this.cavityValues[this.cavityCount++] = c;
+    }
+    return c;
+  };
 
   constructor(rules: readonly SurfaceRule[]) {
     this.rules = rules;
@@ -275,32 +332,13 @@ export class SurfaceRuleSet {
     active[0] = 0;
     this.activeCount = 1;
     this.cavityCount = 0;
+    this.point = p;
     for (let i = 0; i < this.rules.length; i++) {
       const r = this.rules[i]!;
       let f = r.strength ?? 1;
       if (f <= 0) continue;
       if (r.face !== undefined && (r.face === 'wall') !== p.wall) continue;
-      const set = this.blockSets[i]!;
-      if (set !== null && (p.block === undefined || !set.has(p.block))) continue;
-      if (r.meta !== undefined) {
-        let ok = p.meta !== undefined;
-        for (const k in r.meta) if (ok && p.meta!(k) !== r.meta[k]) ok = false;
-        if (!ok) continue;
-      }
-      if (r.height !== undefined) f *= ruleRangeAt(r.height, p.y);
-      if (f > 0 && r.slope !== undefined) f *= ruleRangeAt(r.slope, p.slope);
-      if (f > 0 && r.cavity !== undefined) {
-        const radius = r.cavity.radius ?? SURFACE_RULE_CAVITY_RADIUS;
-        let at = -1;
-        for (let k = 0; k < this.cavityCount; k++) if (this.cavityRadii[k] === radius) at = k;
-        const c = at >= 0 ? this.cavityValues[at]! : p.cavity(radius);
-        if (at < 0 && this.cavityCount < this.cavityRadii.length) {
-          this.cavityRadii[this.cavityCount] = radius;
-          this.cavityValues[this.cavityCount++] = c;
-        }
-        f *= ruleRangeAt(r.cavity, c);
-      }
-      if (f > 0 && r.noise !== undefined) f *= ruleRangeAt(r.noise, ruleNoise(p.x / r.noise.scale, p.y / r.noise.scale, p.z / r.noise.scale, r.noise.seed ?? 0));
+      f *= ruleConditionsAt(r, p, this.blockSets[i]!, this.cavityAt);
       if (f > 0 && r.weight !== undefined) f *= ruleRangeAt(r.weight, w[r.weight.layer]!);
       if (f <= 0) continue;
       if (f > 1) f = 1;

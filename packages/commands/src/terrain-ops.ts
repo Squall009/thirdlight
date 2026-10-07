@@ -49,16 +49,33 @@ import {
   type TerrainSculptKind,
   type TerrainTile,
   type TerrainTileRef,
+  TerrainField,
+  bakeTerrainScatter,
+  canonicalScatterRules,
+  regionExcluder,
+  scatterReach,
+  scatterStrokeRect,
+  storedScatterRules,
+  strokeScatterEdits,
+  terrainChangedSamples,
+  terrainScatterSurface,
+  terrainTileRect,
+  validateScatterRules,
+  withScatterEdits,
+  type ScatterCell,
+  type ScatterRect,
+  type ScatterRule,
 } from '@thirdlight/project-model';
 
 import { blockTypesOf, layerDataOf } from './block-ops';
+import { sceneRegionLayers, scatterBakeTooLarge, scatterRuleOf } from './scatter-ops';
 import { applySetComponent, type OpInput } from './content-ops';
 import { componentMissing, entityNotFound, fieldMissing, fieldUnexpected, fieldValue, noChangeContent, type CommandError } from './errors';
 import type { OpOutcome } from './ops';
 import type { ContentDocument, SceneDocument } from './types';
 
-export type EditTerrainKind = TerrainSculptKind | 'ramp' | 'paint' | 'holes' | 'import' | 'fromBlocks' | 'bake';
-export const EDIT_TERRAIN_KINDS: readonly EditTerrainKind[] = [...TERRAIN_SCULPT_KINDS, 'ramp', 'paint', 'holes', 'import', 'fromBlocks', 'bake'];
+export type EditTerrainKind = TerrainSculptKind | 'ramp' | 'paint' | 'holes' | 'import' | 'fromBlocks' | 'bake' | 'scatter';
+export const EDIT_TERRAIN_KINDS: readonly EditTerrainKind[] = [...TERRAIN_SCULPT_KINDS, 'ramp', 'paint', 'holes', 'import', 'fromBlocks', 'bake', 'scatter'];
 
 /** `editTerrain` args (which keys a kind takes: `EDIT_TERRAIN_KEYS`). */
 export interface EditTerrainArgs {
@@ -81,8 +98,10 @@ export interface EditTerrainArgs {
   to?: [number, number, number];
   /** paint: the material layer painted (0–255). */
   layer?: number;
-  /** paint: take hand paint back toward the baked layers; holes: fill holes back. */
+  /** paint: take hand paint back toward the baked layers; holes: fill holes back; scatter: take the rule's copies off. */
   erase?: boolean;
+  /** scatter: the scatter rule whose copies the stroke puts on (or, with erase, takes off). */
+  rule?: string;
   /** import: the staged file, its form, (raw16) its size and byte order, the tile it starts at, and the heights its 0 and 65535 stand for (metres above the terrain object; absent: the terrain's range). */
   stageId?: string;
   format?: HeightmapFormat;
@@ -92,8 +111,10 @@ export interface EditTerrainArgs {
   range?: [number, number];
   /** fromBlocks: the block layer object converted. */
   source?: string;
-  /** bake: the material rules set and baked (absent: the terrain's own baked again; empty: none, every sample layer 0 again). */
+  /** bake: the material rules set and baked (absent: the terrain's own baked again — unless only `scatter` is given; empty: none, every sample layer 0 again). */
   rules?: SurfaceRule[];
+  /** bake: the scatter rules set and baked (absent: the terrain's own baked again; empty: none, their copies and hand edits gone). */
+  scatter?: ScatterRule[];
 }
 
 const BRUSH_KEYS = ['dabs', 'radius', 'strength', 'falloff'];
@@ -109,7 +130,8 @@ export const EDIT_TERRAIN_KEYS: Readonly<Record<EditTerrainKind, readonly string
   holes: ['dabs', 'radius', 'erase'],
   import: ['stageId', 'format', 'size', 'byteOrder', 'at', 'range'],
   fromBlocks: ['source'],
-  bake: ['rules'],
+  bake: ['rules', 'scatter'],
+  scatter: ['dabs', 'radius', 'rule', 'erase'],
 });
 
 /** The host's result: the terrain's new value and what the edit did. */
@@ -122,6 +144,8 @@ export interface PreparedTerrainEdit {
   /** Samples (cells for holes) changed; heights clamped to the range by an import or conversion. */
   changed: number;
   clamped?: number;
+  /** Tiles whose scatter changed ([x, z]). */
+  scatter?: [number, number][];
 }
 
 const finite = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
@@ -174,6 +198,12 @@ export function validateEditTerrainArgs(args: Record<string, unknown>): { ok: tr
     validateSurfaceRules(args['rules'], '/args/rules', errors, false);
     if (errors.length > 0) return { ok: false, error: fieldValue(errors[0]!.path, (errors[0] as { found?: unknown }).found, 'material rules', errors[0]!.message) };
   }
+  if (args['scatter'] !== undefined) {
+    const errors: ModelErrorV2[] = [];
+    validateScatterRules(args['scatter'], '/args/scatter', errors, false);
+    if (errors.length > 0) return { ok: false, error: fieldValue(errors[0]!.path, (errors[0] as { found?: unknown }).found, 'scatter rules', errors[0]!.message) };
+  }
+  if (kind === 'scatter' && typeof args['rule'] !== 'string') return bad('rule', 'a scatter rule id', 'rule names the scatter rule whose copies the stroke edits');
   return { ok: true, args: args as unknown as EditTerrainArgs };
 }
 
@@ -181,6 +211,8 @@ type SceneEntity = { id: string; components: Record<string, unknown> };
 
 /** A tile's data as the host read it (decoded), or why not. */
 export type TerrainTileRead = (digest: string) => { ok: true; tile: TerrainTile } | { ok: false; error: CommandError };
+/** A tile's scatter as the host read it (decoded), or why not. */
+export type TerrainScatterRead = (digest: string) => { ok: true; cell: ScatterCell } | { ok: false; error: CommandError };
 
 /** The edit planned: the tiles it changed or added (data), the component's tiles before, and the counts. */
 export interface TerrainEditPlan {
@@ -190,6 +222,10 @@ export interface TerrainEditPlan {
   tiles: Map<string, TerrainTile>;
   /** A bake's rules for the component (an empty list: none). */
   rules?: SurfaceRule[];
+  /** Every tile whose scatter the edit changed, by "x,z" (null: none left). */
+  scatter: Map<string, ScatterCell | null>;
+  /** A bake's scatter rules for the component (an empty list: none). */
+  scatterRules?: ScatterRule[];
   added: [number, number][];
   changed: number;
   clamped?: number;
@@ -205,7 +241,7 @@ function positionOf(e: SceneEntity): [number, number, number] {
  * the import's decoded file (the host reads and decodes the stage). An
  * error is a refusal; `no_change` when the edit changes nothing.
  */
-export function planTerrainEdit(scene: SceneDocument, content: ContentDocument | undefined, args: EditTerrainArgs, read: TerrainTileRead, heightmap?: Heightmap): { ok: true; plan: TerrainEditPlan } | { ok: false; error: CommandError } {
+export function planTerrainEdit(scene: SceneDocument, content: ContentDocument | undefined, args: EditTerrainArgs, read: TerrainTileRead, heightmap?: Heightmap, readScatter?: TerrainScatterRead): { ok: true; plan: TerrainEditPlan } | { ok: false; error: CommandError } {
   const entities = scene.entities as unknown as SceneEntity[];
   const entity = entities.find((e) => e.id === args.entityId);
   if (entity === undefined) return { ok: false, error: entityNotFound(args.entityId) };
@@ -244,13 +280,28 @@ export function planTerrainEdit(scene: SceneDocument, content: ContentDocument |
     grow(at[0] * size, at[1] * size, (at[0] + Math.max(1, Math.ceil((heightmap.width - 1) / (comp.tileSamples - 1)))) * size, (at[1] + Math.max(1, Math.ceil((heightmap.height - 1) / (comp.tileSamples - 1)))) * size);
   }
   // Material rules: a bake's, else the terrain's (baked again where the edit moves the ground; their reach is read too).
-  const rules = args.kind === 'bake' ? canonicalSurfaceRules(args.rules ?? comp.rules ?? []) : comp.rules;
-  const ruleSet = rules !== undefined && (rules.length > 0 || args.kind === 'bake') ? new SurfaceRuleSet(rules) : null;
+  // A bake naming only scatter rules leaves the material as it is.
+  const bakesMaterial = args.kind === 'bake' && (args.rules !== undefined || args.scatter === undefined);
+  const rules = bakesMaterial ? canonicalSurfaceRules(args.rules ?? comp.rules ?? []) : comp.rules;
+  const ruleSet = args.kind === 'bake' && !bakesMaterial ? null : rules !== undefined && (rules.length > 0 || bakesMaterial) ? new SurfaceRuleSet(rules) : null;
   const margin = ruleSet !== null ? terrainBakeMargin(ruleSet, sp) : 0;
+  // Scatter rules: a bake's, else the terrain's (baked again around what the edit changed: the reach read is twice theirs).
+  // (The rules a bake stores; ground cover among them is made at run time, never baked.)
+  const scatterRules = args.kind === 'bake' && args.scatter !== undefined ? canonicalScatterRules(args.scatter) : (comp.scatter ?? []);
+  const storedRules = storedScatterRules(scatterRules);
+  const scatterBakes = storedRules.length > 0 || (args.kind === 'bake' && args.scatter !== undefined);
+  let strokeRule: ScatterRule | null = null;
+  if (args.kind === 'scatter') {
+    const found = scatterRuleOf(storedScatterRules(comp.scatter), args.rule);
+    if (!found.ok) return found;
+    strokeRule = found.rule;
+  }
+  const scatterMargin = scatterBakes ? 2 * (scatterReach(storedRules) + 2 * sp) : 0;
   const reached = box as [number, number, number, number] | null;
-  if (ruleSet !== null && reached !== null) {
+  if ((ruleSet !== null || scatterBakes) && reached !== null) {
     const [bx0, bz0, bx1, bz1] = reached;
-    box = [bx0 - (margin + 1) * sp, bz0 - (margin + 1) * sp, bx1 + (margin + 1) * sp, bz1 + (margin + 1) * sp];
+    const g = (margin + 1) * sp + scatterMargin;
+    box = [bx0 - g, bz0 - g, bx1 + g, bz1 + g];
   }
   // The tiles under the box (with data: read; without: flat).
   const loaded = new Map<string, TerrainTile>();
@@ -331,27 +382,115 @@ export function planTerrainEdit(scene: SceneDocument, content: ContentDocument |
   for (const key of s.touched) tiles.set(key, s.all().get(key)!);
   const known = new Set(comp.tiles.map((t) => terrainTileKey(t.x, t.z)));
   const addedTiles = [...tiles.keys()].filter((k) => !known.has(k)).map((k) => k.split(',').map(Number) as [number, number]);
-  if (changed === 0 && addedTiles.length === 0 && !rulesChanged) return { ok: false, error: { ...noChangeContent(), message: 'the edit changes no sample of the terrain' } };
-  return { ok: true, plan: { entityId: args.entityId, component: comp, tiles, added: addedTiles, changed, ...(clamped !== undefined && clamped > 0 ? { clamped } : {}), ...(args.kind === 'bake' ? { rules: rules! } : {}) } };
+  // The scatter baked: everywhere for a bake, else over what the edit changed (the ground, or a stroke's rule) grown by the reach.
+  const scatter = new Map<string, ScatterCell | null>();
+  let scatterRulesChanged = false;
+  if (scatterBakes) {
+    const r = bakeScatterOf(comp, origin, s, loaded, tiles, storedRules, args, strokeRule, scene, readScatter);
+    if (!r.ok) return r;
+    for (const [k, v] of r.cells) scatter.set(k, v);
+    if (args.kind === 'bake' && args.scatter !== undefined) scatterRulesChanged = JSON.stringify(scatterRules) !== JSON.stringify(comp.scatter ?? []);
+  }
+  if (changed === 0 && addedTiles.length === 0 && !rulesChanged && scatter.size === 0 && !scatterRulesChanged) return { ok: false, error: { ...noChangeContent(), message: args.kind === 'scatter' ? 'the stroke changes no copy of the rule' : 'the edit changes no sample of the terrain' } };
+  return {
+    ok: true,
+    plan: {
+      entityId: args.entityId,
+      component: comp,
+      tiles,
+      scatter,
+      added: addedTiles,
+      changed,
+      ...(clamped !== undefined && clamped > 0 ? { clamped } : {}),
+      ...(bakesMaterial ? { rules: rules! } : {}),
+      ...(args.kind === 'bake' && args.scatter !== undefined ? { scatterRules } : {}),
+    },
+  };
+}
+
+/**
+ * Bake a terrain's scatter for an edit: a bake everywhere; a scatter stroke
+ * its hand edits, then over the stroke grown by the rule's reach; any other
+ * edit over the samples it changed grown by the rules' reach.
+ */
+function bakeScatterOf(
+  comp: TerrainComponent,
+  origin: [number, number, number],
+  s: TerrainSamples,
+  loaded: ReadonlyMap<string, TerrainTile>,
+  written: ReadonlyMap<string, TerrainTile>,
+  rules: readonly ScatterRule[],
+  args: EditTerrainArgs,
+  strokeRule: ScatterRule | null,
+  scene: SceneDocument,
+  readScatter: TerrainScatterRead | undefined,
+): { ok: true; cells: Map<string, ScatterCell | null> } | { ok: false; error: CommandError } {
+  const size = terrainTileSize(comp);
+  const n = comp.tileSamples - 1;
+  const sp = comp.spacing;
+  const reach = scatterReach(rules) + 2 * sp;
+  let rect: ScatterRect | null = null;
+  if (args.kind === 'scatter') rect = scatterStrokeRect({ rule: args.rule!, mode: args.erase === true ? 'erase' : 'paint', dabs: args.dabs!, radius: args.radius! }, scatterReach([strokeRule!]) + 2 * sp);
+  else if (args.kind !== 'bake') {
+    const changed = terrainChangedSamples(loaded, written, n);
+    if (changed === null) return { ok: true, cells: new Map() };
+    rect = [origin[0] + changed[0] * sp - reach, origin[2] + changed[1] * sp - reach, origin[0] + changed[2] * sp + reach, origin[2] + changed[3] * sp + reach];
+  }
+  // The tiles the bake may write (every tile the edit read, and those it made).
+  const keys = [...s.all().keys()];
+  const coords = keys.map((k) => k.split(',').map(Number) as [number, number]);
+  const tooLarge = scatterBakeTooLarge(rules, rect, keys.length * size * size);
+  if (tooLarge !== null) return { ok: false, error: tooLarge };
+  // Each tile's scatter now (read only where the bake reaches).
+  const refs = new Map(comp.tiles.map((t) => [terrainTileKey(t.x, t.z), t]));
+  const prev = new Map<string, ScatterCell>();
+  for (const [x, z] of coords) {
+    const digest = refs.get(terrainTileKey(x, z))?.scatter;
+    if (digest === undefined) continue;
+    const b = terrainTileRect(origin, size, x, z);
+    if (rect !== null && (rect[0] >= b[2] || rect[2] <= b[0] || rect[1] >= b[3] || rect[3] <= b[1])) continue;
+    if (readScatter === undefined) return { ok: false, error: fieldValue('/args', undefined, 'an edit the host prepared', 'the terrain\'s scatter is read through the project host') };
+    const got = readScatter(digest);
+    if (!got.ok) return got;
+    prev.set(terrainTileKey(x, z), got.cell);
+  }
+  // A stroke's hand edits first (each tile keeps the cells whose point lies on it); changes are told against what is stored.
+  const stored = new Map(prev);
+  if (args.kind === 'scatter') {
+    const stroke = { rule: args.rule!, mode: args.erase === true ? ('erase' as const) : ('paint' as const), dabs: args.dabs!, radius: args.radius! };
+    for (const [x, z] of coords) {
+      const key = terrainTileKey(x, z);
+      const edits = strokeScatterEdits(prev.get(key)?.get(stroke.rule), strokeRule!, stroke, terrainTileRect(origin, size, x, z));
+      if (edits !== null) prev.set(key, withScatterEdits(prev.get(key) ?? null, stroke.rule, edits));
+    }
+  }
+  // The ground: every tile the edit read, as it is after the edit.
+  const field = new TerrainField({ ...comp, tiles: coords.map(([x, z]) => ({ x, z, data: '' })) }, origin, s.all());
+  const surface = terrainScatterSurface(field, regionExcluder(sceneRegionLayers(scene)));
+  const baked = bakeTerrainScatter(rules, surface, origin, size, coords, prev, rect, stored);
+  return { ok: true, cells: baked.cells };
 }
 
 /**
  * The terrain's tiles after the edit, from the new tiles' digests (null: the
- * tile is flat and bare again, stored without data).
+ * tile is flat and bare again, stored without data) and their new scatter
+ * blobs' (null: no scatter left on it).
  */
-export function terrainTilesAfter(c: TerrainComponent, digests: ReadonlyMap<string, string | null>): TerrainTileRef[] {
+export function terrainTilesAfter(c: TerrainComponent, digests: ReadonlyMap<string, string | null>, scatter: ReadonlyMap<string, string | null> = new Map()): TerrainTileRef[] {
   const out: TerrainTileRef[] = [];
   const seen = new Set<string>();
+  const ref = (x: number, z: number, data: string | null, sc: string | null): TerrainTileRef => ({ x, z, ...(data !== null ? { data } : {}), ...(sc !== null ? { scatter: sc } : {}) });
   for (const t of c.tiles) {
     const key = terrainTileKey(t.x, t.z);
     seen.add(key);
     const d = digests.has(key) ? digests.get(key)! : (t.data ?? null);
-    out.push({ x: t.x, z: t.z, ...(d !== null ? { data: d } : {}) });
+    const sc = scatter.has(key) ? scatter.get(key)! : (t.scatter ?? null);
+    out.push(ref(t.x, t.z, d, sc));
   }
-  for (const [key, d] of digests) {
+  for (const key of new Set([...digests.keys(), ...scatter.keys()])) {
     if (seen.has(key)) continue;
     const [x, z] = key.split(',').map(Number) as [number, number];
-    out.push({ x, z, ...(d !== null ? { data: d } : {}) });
+    out.push(ref(x, z, digests.get(key) ?? null, scatter.get(key) ?? null));
   }
   out.sort((a, b) => a.z - b.z || a.x - b.x);
   return out;
@@ -362,7 +501,12 @@ export function applyEditTerrain(input: OpInput, args: EditTerrainArgs, prepared
   if (prepared === undefined || prepared.entityId !== args.entityId) {
     return { ok: false, error: fieldValue('/args', undefined, 'an edit the host prepared', 'editTerrain runs through the project host, which reads and writes the terrain\'s tiles') };
   }
-  // A bake stores its rules with the tiles (an empty list: none).
-  const rules = args.kind === 'bake' ? { rules: prepared.value.rules !== undefined && prepared.value.rules.length > 0 ? prepared.value.rules : null } : {};
-  return applySetComponent(input, { entityId: args.entityId, component: 'terrain', value: { tiles: prepared.value.tiles, ...rules } as never });
+  // A bake stores the rules it baked with the tiles (an empty list: none).
+  const v = prepared.value;
+  const extra: Record<string, unknown> = {};
+  if (args.kind === 'bake') {
+    if (args.rules !== undefined || args.scatter === undefined) extra['rules'] = v.rules !== undefined && v.rules.length > 0 ? v.rules : null;
+    if (args.scatter !== undefined) extra['scatter'] = v.scatter !== undefined && v.scatter.length > 0 ? v.scatter : null;
+  }
+  return applySetComponent(input, { entityId: args.entityId, component: 'terrain', value: { tiles: v.tiles, ...extra } as never });
 }

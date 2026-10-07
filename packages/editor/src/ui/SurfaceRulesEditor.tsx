@@ -16,25 +16,27 @@
 import { useEffect, useState, type JSX } from 'react';
 import { SURFACE_RULE_BLOCK_LAYERS, SURFACE_RULE_CAVITY_RADIUS, SURFACE_RULE_LAYER_MAX, type RuleRange, type SurfaceRule } from '@thirdlight/runtime';
 
-type Condition = 'height' | 'slope' | 'cavity' | 'noise' | 'weight';
-const CONDITIONS: readonly { key: Condition; label: string; unit: string; title: string; start: RuleRange & Record<string, number> }[] = [
+/** The conditions material and scatter rules share (`RuleConditions`). */
+export const SHARED_CONDITIONS: readonly ConditionSpec[] = [
   { key: 'height', label: 'Height', unit: 'm', title: 'World height in metres.', start: { min: 0, fade: 1 } },
   { key: 'slope', label: 'Slope', unit: '°', title: 'Degrees from level: 0 flat, 90 a wall.', start: { min: 35, fade: 5 } },
-  { key: 'cavity', label: 'Cavity', unit: 'm', title: 'How far the ground around (the radius away) lies above the point: positive in hollows, negative on ridges.', start: { min: 0.2, fade: 0.2, radius: SURFACE_RULE_CAVITY_RADIUS } },
-  { key: 'noise', label: 'Noise', unit: '', title: 'A noise mask (0-1) over world space; its bumps the size apart.', start: { min: 0.5, fade: 0.1, scale: 8, seed: 0 } },
-  { key: 'weight', label: 'Layer share', unit: '', title: 'How much (0-1) of a layer the rules before this one left there ("where rock is below 0.3").', start: { max: 0.3, fade: 0.1, layer: 1 } },
+  { key: 'cavity', label: 'Cavity', unit: 'm', title: 'How far the ground around (the radius away) lies above the point: positive in hollows, negative on ridges.', start: { min: 0.2, fade: 0.2, radius: SURFACE_RULE_CAVITY_RADIUS }, extra: [{ key: 'radius', label: 'radius', title: 'Metres around the point the ground is measured.' }] },
+  {
+    key: 'noise',
+    label: 'Noise',
+    unit: '',
+    title: 'A noise mask (0-1) over world space; its bumps the size apart.',
+    start: { min: 0.5, fade: 0.1, scale: 8, seed: 0 },
+    extra: [
+      { key: 'scale', label: 'size', title: "Metres between the noise's bumps." },
+      { key: 'seed', label: 'seed', title: 'Another seed, another pattern.', int: true },
+    ],
+  },
 ];
-/** A condition's own fields besides min, max and fade. */
-const EXTRA: Readonly<Record<Condition, readonly { key: string; label: string; title: string; int?: boolean }[]>> = {
-  height: [],
-  slope: [],
-  cavity: [{ key: 'radius', label: 'radius', title: 'Metres around the point the ground is measured.' }],
-  noise: [
-    { key: 'scale', label: 'size', title: 'Metres between the noise\'s bumps.' },
-    { key: 'seed', label: 'seed', title: 'Another seed, another pattern.', int: true },
-  ],
-  weight: [{ key: 'layer', label: 'of layer', title: 'The layer whose share is read.', int: true }],
-};
+const CONDITIONS: readonly ConditionSpec[] = [
+  ...SHARED_CONDITIONS,
+  { key: 'weight', label: 'Layer share', unit: '', title: 'How much (0-1) of a layer the rules before this one left there ("where rock is below 0.3").', start: { max: 0.3, fade: 0.1, layer: 1 }, extra: [{ key: 'layer', label: 'of layer', title: 'The layer whose share is read.', int: true }] },
+];
 
 interface Props {
   /** The rules stored now. */
@@ -46,12 +48,62 @@ interface Props {
   disabled?: boolean;
 }
 
-const num = (v: string): number | undefined => {
+export const num = (v: string): number | undefined => {
   const t = v.trim();
   if (t === '') return undefined;
   const n = Number(t);
   return Number.isFinite(n) ? n : undefined;
 };
+
+/** A condition the rule editors show: its key, label, unit, help and the range it starts from when ticked; `extra` its own fields. */
+export interface ConditionSpec {
+  key: string;
+  label: string;
+  unit: string;
+  title: string;
+  start: RuleRange & Record<string, number>;
+  extra?: readonly { key: string; label: string; title: string; int?: boolean }[];
+}
+
+/** One range condition of a rule: a tick to have it, its min, max and fade, and its own fields (material and scatter rules alike). */
+export function ConditionField(p: { condition: ConditionSpec; prefix: string; value: (RuleRange & Record<string, number>) | undefined; onChange: (v: (RuleRange & Record<string, number>) | undefined) => void }): JSX.Element {
+  const c = p.condition;
+  const v = p.value;
+  const set = (k: string, n: number | undefined): void => {
+    const range = { ...v } as Record<string, number>;
+    if (n === undefined) delete range[k];
+    else range[k] = n;
+    p.onChange(range as RuleRange & Record<string, number>);
+  };
+  return (
+    <span className="tl-blocks__opts">
+      <label title={c.title}>
+        <input type="checkbox" aria-label={`${p.prefix} ${c.key}`} checked={v !== undefined} onChange={(e) => p.onChange(e.target.checked ? { ...c.start } : undefined)} /> {c.label}
+      </label>
+      {v !== undefined &&
+        (['min', 'max', 'fade'] as const).map((k) => (
+          <label key={k} title={k === 'fade' ? 'How far past an end the rule fades out.' : `The range's ${k === 'min' ? 'low' : 'high'} end (empty: open).`}>
+            {k}{' '}
+            <input aria-label={`${p.prefix} ${c.key} ${k}`} type="number" className="tl-blocks__num" step="any" value={v[k] ?? ''} onChange={(e) => {
+              const n = num(e.target.value);
+              set(k, n === undefined || (k === 'fade' && n <= 0) ? undefined : k === 'fade' ? Math.max(0, n) : n);
+            }} />
+            {k !== 'fade' && c.unit}
+          </label>
+        ))}
+      {v !== undefined &&
+        (c.extra ?? []).map((f) => (
+          <label key={f.key} title={f.title}>
+            {f.label}{' '}
+            <input aria-label={`${p.prefix} ${c.key} ${f.label}`} type="number" className="tl-blocks__num" step={f.int === true ? 1 : 'any'} value={v[f.key] ?? ''} onChange={(e) => {
+              const n = num(e.target.value);
+              set(f.key, n === undefined ? undefined : f.int === true ? Math.round(n) : n);
+            }} />
+          </label>
+        ))}
+    </span>
+  );
+}
 
 export function SurfaceRulesEditor(p: Props): JSX.Element {
   const stored = JSON.stringify(p.rules);
@@ -104,49 +156,14 @@ export function SurfaceRulesEditor(p: Props): JSX.Element {
               <option value="wall">walls</option>
             </select>
           </label>
-          {CONDITIONS.map((c) => {
-            const v = r[c.key] as (RuleRange & Record<string, number>) | undefined;
-            return (
-              <span key={c.key} className="tl-blocks__opts">
-                <label title={c.title}>
-                  <input type="checkbox" aria-label={`rule ${i + 1} ${c.key}`} checked={v !== undefined} onChange={(e) => update(i, (x) => {
-                    const out = { ...x } as Record<string, unknown>;
-                    if (e.target.checked) out[c.key] = { ...c.start };
-                    else delete out[c.key];
-                    return out as unknown as SurfaceRule;
-                  })} />{' '}
-                  {c.label}
-                </label>
-                {v !== undefined &&
-                  (['min', 'max', 'fade'] as const).map((k) => (
-                    <label key={k} title={k === 'fade' ? 'How far past an end the rule fades out.' : `The range's ${k === 'min' ? 'low' : 'high'} end (empty: open).`}>
-                      {k}{' '}
-                      <input aria-label={`rule ${i + 1} ${c.key} ${k}`} type="number" className="tl-blocks__num" step="any" value={v[k] ?? ''} onChange={(e) => update(i, (x) => {
-                        const range = { ...(x[c.key] as Record<string, number>) };
-                        const n = num(e.target.value);
-                        if (n === undefined || (k === 'fade' && n <= 0)) delete range[k];
-                        else range[k] = k === 'fade' ? Math.max(0, n) : n;
-                        return { ...x, [c.key]: range } as SurfaceRule;
-                      })} />
-                      {k !== 'fade' && c.unit}
-                    </label>
-                  ))}
-                {v !== undefined &&
-                  EXTRA[c.key].map((f) => (
-                    <label key={f.key} title={f.title}>
-                      {f.label}{' '}
-                      <input aria-label={`rule ${i + 1} ${c.key} ${f.label}`} type="number" className="tl-blocks__num" step={f.int === true ? 1 : 'any'} value={v[f.key] ?? ''} onChange={(e) => update(i, (x) => {
-                        const n = num(e.target.value);
-                        const range = { ...(x[c.key] as Record<string, number>) };
-                        if (n === undefined) delete range[f.key];
-                        else range[f.key] = f.int === true ? Math.round(n) : n;
-                        return { ...x, [c.key]: range } as SurfaceRule;
-                      })} />
-                    </label>
-                  ))}
-              </span>
-            );
-          })}
+          {CONDITIONS.map((c) => (
+            <ConditionField key={c.key} condition={c} prefix={`rule ${i + 1}`} value={(r as unknown as Record<string, unknown>)[c.key] as (RuleRange & Record<string, number>) | undefined} onChange={(v) => update(i, (x) => {
+              const out = { ...x } as Record<string, unknown>;
+              if (v === undefined) delete out[c.key];
+              else out[c.key] = v;
+              return out as unknown as SurfaceRule;
+            })} />
+          ))}
           {p.blocks && (
             <label title="Only these block types (ids, comma-separated; empty: any).">
               Block types{' '}

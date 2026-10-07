@@ -1,13 +1,15 @@
 /**
  * The level-building perf classes without a browser: the plans are
  * deterministic and have the classes' shape, the landscape is the area plus
- * a far part that lies outside it, the terrain lies under the area and its
+ * a terrain whose scatter rules keep off it, the terrain lies under the area and its
  * heightmap covers its tiles, and the
  * measurement's target and far-cost rows read the report as the log says.
  */
 import { describe, expect, it } from 'vitest';
 
-import { levelHeightAt, levelPlan, levelTerrainHeight, levelTerrainOrigin, levelTerrainRaw, LEVEL_SPEC } from '../../tools/perf/level';
+import { validateScatterRules, type ModelErrorV2 } from '@thirdlight/project-model';
+
+import { levelHeightAt, levelPlan, levelTerrainHeight, levelTerrainOrigin, levelTerrainRaw, levelScatterBlocks, levelScatterTerrain, LEVEL_SPEC } from '../../tools/perf/level';
 import { farCostRows, levelTargetRows, LEVEL_FRAME_TARGET_MS, type LevelReport } from '../../tools/perf/level-run';
 import type { FrameRunResult } from '../../tools/perf/frame-run';
 
@@ -18,7 +20,7 @@ describe('the level classes', () => {
     const a = levelPlan('area');
     expect(JSON.stringify(levelPlan('area'))).toBe(JSON.stringify(a));
     const S = LEVEL_SPEC;
-    expect(a.counts).toMatchObject({ props: S.props, propColliders: S.propColliders, foliageSets: S.foliageSets, foliageCopies: S.foliageSets * S.foliageCopies, rooms: S.rooms, pointLights: S.pointLights, farSets: 0, terrainTiles: 0 });
+    expect(a.counts).toMatchObject({ props: S.props, propColliders: S.propColliders, foliageSets: S.foliageSets, foliageCopies: S.foliageSets * S.foliageCopies, rooms: S.rooms, pointLights: S.pointLights, terrainTiles: 0 });
     expect(new Set(ids(a)).size).toBe(ids(a).length);
     // Every column of the layer gets its corners; a command stays a single request's size.
     const columns = a.blockEdits.filter((e) => e['kind'] === 'surface').reduce((n, e) => n + (e['columns'] as number[]).length / 6, 0);
@@ -72,29 +74,28 @@ describe('the level classes', () => {
     expect({ ...swapped, kitSwap: false }).toEqual(plain);
   });
 
-  it('makes the landscape the area plus far rings outside it, under the far plane', () => {
+  it('makes the landscape the area plus a terrain whose scatter rules keep off the area, the layer with its own', () => {
     const a = levelPlan('area');
     const l = levelPlan('landscape');
-    const S = LEVEL_SPEC;
-    // The same area (same seed and order): its entities and edits come first and match.
+    // The same area (same seed and order): its entities and edits come first and match; the landscape adds the region its terrain scatter keeps clear.
     expect(ids(l).slice(0, ids(a).length)).toEqual(ids(a));
-    expect(JSON.stringify(l.blockEdits)).toBe(JSON.stringify(a.blockEdits));
+    expect(JSON.stringify(l.blockEdits.slice(0, a.blockEdits.length))).toBe(JSON.stringify(a.blockEdits));
+    const N = LEVEL_SPEC.areaSide;
+    expect(l.blockEdits.slice(a.blockEdits.length)).toEqual([{ kind: 'region', regionId: 'scatter-clear', op: 'set', boxes: [[0, 0, 0, N, 32, N]] }]);
     expect(l.camera).toEqual(a.camera);
-    expect(l.counts['farSets']).toBe(S.farRings.length * S.farSectors);
-    expect(l.counts['farCopies']).toBe(S.farRings.length * S.farSectors * S.farCopies);
-    const far = l.batches.flat().filter((e) => e.id.startsWith('far-'));
-    const outer = S.farRings[S.farRings.length - 1]![1];
-    for (const e of far) {
-      const [cx, , cz] = (e.components['transform'] as { position: number[] }).position as [number, number, number];
-      const f = l.buffers.find((b) => `far-${b.key.slice(4)}` === e.id)!.floats;
-      for (let i = 0; i < f.length; i += 10) {
-        const r = Math.hypot(cx + f[i]!, cz + f[i + 2]!);
-        // Outside the area's corner (half the diagonal), inside the far plane.
-        expect(r).toBeGreaterThan((S.areaSide / 2) * Math.SQRT2);
-        expect(r).toBeLessThanOrEqual(outer + 0.01);
-      }
+    for (const r of levelScatterTerrain()) expect(r['exclude']).toEqual(['scatter-clear']);
+    // Only the landscape's layer carries scatter rules (the area class stays as recorded).
+    expect((a.layer.components['blockLayer'] as { scatter?: unknown }).scatter).toBeUndefined();
+    expect((l.layer.components['blockLayer'] as { scatter?: unknown }).scatter).toEqual(levelScatterBlocks());
+    // With and without the foliage policy, valid rules; the switch changes only the scatter.
+    const off = levelPlan('landscape', undefined, 0, false, false, 'none', false, 0, false, 0, 0, 'off');
+    expect({ ...off, foliage: 'on', layer: l.layer }).toEqual(l);
+    const errors: ModelErrorV2[] = [];
+    for (const f of ['on', 'off'] as const) {
+      validateScatterRules(levelScatterTerrain(f), '/t', errors, false);
+      validateScatterRules(levelScatterBlocks(f), '/b', errors, true);
     }
-    expect(outer).toBeLessThan(S.farPlane);
+    expect(errors).toEqual([]);
   });
 
   it('keeps the terrain under the area\'s lowest ground, its tiles centred on the area and covered by the heightmap', () => {
@@ -108,10 +109,6 @@ describe('the level classes', () => {
     expect(levelTerrainOrigin()[0]).toBe(-(T.tiles * (T.tileSamples - 1) * T.spacing) / 2);
     const side = T.tiles * (T.tileSamples - 1) + 1;
     expect(levelTerrainRaw().length).toBe(side * side * 2);
-    // The far copies stand on it.
-    const far = levelPlan('landscape').batches.flat().find((e) => e.id === 'far-0-0')!;
-    const [cx, cy, cz] = (far.components['transform'] as { position: number[] }).position as [number, number, number];
-    expect(cy).toBeCloseTo(levelTerrainHeight(cx, cz), 2);
   });
 });
 

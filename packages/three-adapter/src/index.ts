@@ -237,6 +237,7 @@ export {
 } from './batching';
 export { isStaticCaster, SHADOW_CACHE_URL_PARAM, shadowCacheFromUrl, STATIC_CASTER_KEY } from './shadow-casters';
 export { TERRAIN_PAGE_LAYERS, TERRAIN_URL_PARAM, terrainFromUrl, type TerrainPreviewStats, type TerrainView, type TerrainViewDiagnostics } from './terrain-view';
+export { SCATTER_BUILD_MS, SCATTER_GROUP_METRES, SCATTER_URL_PARAM, scatterFromUrl, type ScatterView, type ScatterViewDiagnostics } from './scatter-view';
 export { brushDabOf, type PreviewDiff, type TerrainPreviewDab } from './terrain-preview';
 export type { TerrainBrushKind } from './terrain-brush-gpu';
 export { TERRAIN_DEFAULT_COLOURS } from './terrain-material';

@@ -189,6 +189,39 @@ export function scatterKitGlb(seed: number, names: readonly string[]): Buffer {
   );
 }
 
+/**
+ * Ground cover pieces (one per name): a single low tuft each — one ring of
+ * five sides, ten triangles, no levels — as a game's grass and pebbles are,
+ * so a few thousand near the camera cost what they would in a game.
+ */
+export function coverKitGlb(seed: number, names: readonly string[]): Buffer {
+  const rnd = prng(seed);
+  const g = new GlbData();
+  const meshes: Record<string, unknown>[] = [];
+  const nodes: Record<string, unknown>[] = [];
+  for (const name of names) {
+    const height = 0.15 + rnd() * 0.25;
+    const base = 0.08 + rnd() * 0.12;
+    meshes.push(latheMesh(g, name, lathe(1, 5, height, (t) => base * (1 - t * 0.9) + 0.01), height, 0));
+    nodes.push({ name, mesh: meshes.length - 1 });
+  }
+  const bin = g.bin();
+  return packGlb(
+    {
+      asset: { version: '2.0', generator: 'thirdlight perf cover kit' },
+      scene: 0,
+      scenes: [{ nodes: nodes.map((_, i) => i) }],
+      nodes,
+      meshes,
+      materials: [{ name: 'cover', pbrMetallicRoughness: { baseColorFactor: [0.35, 0.55, 0.2, 1], metallicFactor: 0, roughnessFactor: 0.95 } }],
+      accessors: g.accessors,
+      bufferViews: g.views,
+      buffers: [{ byteLength: bin.length }],
+    },
+    bin,
+  );
+}
+
 /** The figure's clip length (s). */
 export const FIGURE_CLIP_SECONDS = 2;
 

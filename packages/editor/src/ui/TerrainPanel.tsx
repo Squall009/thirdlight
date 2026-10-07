@@ -13,6 +13,9 @@
  *   terrain's samples.
  * - Material rules: layers by slope, height, cavity and noise, baked into
  *   the tiles (`editTerrain` bake); hand paint stays over them.
+ * - Scatter rules: models placed by density where their conditions hold,
+ *   baked into the tiles' scatter (`editTerrain` bake); the Scatter brush
+ *   puts a rule's copies under it or takes them off (Ctrl), over the rules.
  *
  * A stroke is one `editTerrain` (the Scene view's `TerrainEditor`), as is an
  * import or a conversion — one undo step each.
@@ -25,6 +28,7 @@ import { TERRAIN_DEFAULT_COLOURS } from '@thirdlight/three-adapter';
 import { DEFAULT_TERRAIN_BRUSH, TERRAIN_BRUSH_UI, TERRAIN_TOOLS, type TerrainBrushState, type TerrainToolId } from '../session/terrain-brush';
 import type { TerrainEditor } from '../viewport/terrain-editor';
 import { SurfaceRulesEditor } from './SurfaceRulesEditor';
+import { ScatterRulesEditor } from './ScatterRulesEditor';
 
 interface Props {
   editor: TerrainEditor | null;
@@ -54,6 +58,7 @@ export function TerrainPanel(p: Props): JSX.Element {
   const [invert, setInvert] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [rulesOpen, setRulesOpen] = useState(false);
+  const [scatterOpen, setScatterOpen] = useState(false);
   const [source, setSource] = useState('');
   const editor = p.editor;
   const c = p.component;
@@ -71,6 +76,13 @@ export function TerrainPanel(p: Props): JSX.Element {
   const size = terrainTileSize(c);
   const metres = tool === 'raise' || tool === 'lower' || tool === 'noise';
   const set = (patch: Partial<TerrainBrushState>): void => setBrush((b) => ({ ...b, ...patch }));
+  // The scatter brush paints a rule the terrain has (the first, until another is chosen).
+  // Ground cover is never stored: the brush edits the stored rules only.
+  const scatterIds = (c.scatter ?? []).filter((r) => r.cover !== true).map((r) => r.id);
+  useEffect(() => {
+    const ids = (c.scatter ?? []).filter((r) => r.cover !== true).map((r) => r.id);
+    if (!ids.includes(brush.rule)) setBrush((b) => ({ ...b, rule: ids[0] ?? '' }));
+  }, [c.scatter, brush.rule]);
   return (
     <div className="tl-blocks tl-terrain" aria-label="terrain tools">
       <div className="tl-blocks__head">
@@ -92,7 +104,7 @@ export function TerrainPanel(p: Props): JSX.Element {
         <label title="The brush's radius in metres.">
           Radius <input aria-label="terrain radius" type="number" className="tl-blocks__num" min={TERRAIN_BRUSH_UI.radiusMin} max={TERRAIN_BRUSH_UI.radiusMax} step={0.5} value={brush.radius} onChange={(e) => set({ radius: clampNum(Number(e.target.value), TERRAIN_BRUSH_UI.radiusMin, TERRAIN_BRUSH_UI.radiusMax, brush.radius) })} />
         </label>
-        {tool !== 'holes' &&
+        {tool !== 'holes' && tool !== 'scatter' &&
           (metres ? (
             <label title="Metres a dab moves the ground at its centre.">
               Strength <input aria-label="terrain strength" type="number" className="tl-blocks__num" min={0.01} max={TERRAIN_BRUSH_UI.heightMax} step={0.1} value={brush.height} onChange={(e) => set({ height: clampNum(Number(e.target.value), 0.01, TERRAIN_BRUSH_UI.heightMax, brush.height) })} />
@@ -102,7 +114,20 @@ export function TerrainPanel(p: Props): JSX.Element {
               Strength <input aria-label="terrain blend" type="number" className="tl-blocks__num" min={0.01} max={1} step={0.05} value={brush.blend} onChange={(e) => set({ blend: clampNum(Number(e.target.value), 0.01, 1, brush.blend) })} />
             </label>
           ))}
-        {tool !== 'holes' && (
+        {tool === 'scatter' && (
+          <label title="The scatter rule whose copies the brush puts on (Ctrl: takes off).">
+            Rule{' '}
+            <select aria-label="scatter brush rule" value={brush.rule} onChange={(e) => set({ rule: e.target.value })}>
+              {scatterIds.length === 0 && <option value="">(no scatter rules)</option>}
+              {scatterIds.map((id) => (
+                <option key={id} value={id}>
+                  {id}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+        {tool !== 'holes' && tool !== 'scatter' && (
           <label title="How the brush fades toward its edge: smooth, linear, or constant (a hard edge).">
             Falloff{' '}
             <select aria-label="terrain falloff" value={brush.falloff} onChange={(e) => set({ falloff: e.target.value as BrushFalloff })}>
@@ -124,7 +149,7 @@ export function TerrainPanel(p: Props): JSX.Element {
             </label>
           </>
         )}
-        <label title="Lower (raise), erase hand paint back toward the baked layers (paint) or fill holes (holes); Ctrl held flips it for one stroke.">
+        <label title="Lower (raise), erase hand paint back toward the baked layers (paint), fill holes (holes) or take copies off (scatter); Ctrl held flips it for one stroke.">
           <input type="checkbox" aria-label="terrain invert" checked={invert} onChange={(e) => setInvert(e.target.checked)} /> Lower / erase / fill
         </label>
       </div>
@@ -164,8 +189,12 @@ export function TerrainPanel(p: Props): JSX.Element {
         <button className="tl-btn tl-btn--small" aria-expanded={rulesOpen} title="Paint the material layers by slope, height, cavity and noise (baked into the tiles; hand paint stays over them)" onClick={() => setRulesOpen((o) => !o)}>
           Material rules{(c.rules?.length ?? 0) > 0 ? ` (${c.rules!.length})` : ''}…
         </button>
+        <button className="tl-btn tl-btn--small" aria-expanded={scatterOpen} title="Place models (trees, rocks) by density, slope, height, layer and noise (baked into the tiles; the Scatter brush's hand edits stay over them)" onClick={() => setScatterOpen((o) => !o)}>
+          Scatter rules{(c.scatter?.length ?? 0) > 0 ? ` (${c.scatter!.length})` : ''}…
+        </button>
       </div>
       {rulesOpen && <SurfaceRulesEditor rules={c.rules ?? []} blocks={false} disabled={p.locked} onApply={(rules) => p.run('Bake material rules', 'editTerrain', { entityId: p.entityId, kind: 'bake', rules })} />}
+      {scatterOpen && <ScatterRulesEditor rules={c.scatter ?? []} blocks={false} disabled={p.locked} onApply={(scatter) => p.run('Bake scatter rules', 'editTerrain', { entityId: p.entityId, kind: 'bake', scatter })} />}
       {importOpen && <HeightmapImport entityId={p.entityId} component={c} run={p.run} stage={p.stage} onDone={() => setImportOpen(false)} />}
     </div>
   );

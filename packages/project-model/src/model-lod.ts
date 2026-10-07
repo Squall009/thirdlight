@@ -78,6 +78,9 @@ export const INSTANCE_DENSITY_MIN_NEW = 0.25;
 /** The smallest screen size a density falloff may name (a hundredth of a percent: below a pixel on any screen). */
 export const INSTANCE_DENSITY_SIZE_MIN = 0.0001;
 
+/** The largest instance-set chunk size (m). */
+export const MAX_INSTANCE_CHUNK_SIZE = 4096;
+
 /** A model's LOD group settings (its import settings). */
 export interface ModelLodSettings {
   /** Below `screenSizes[i]` level i+1 takes over (decreasing, each in (0, 1]). */

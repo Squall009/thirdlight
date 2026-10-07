@@ -35,6 +35,7 @@ import type { BlockCell, BlockCutaway, BlockEdit, BlockLayerComponent, BlockRegi
 import { BRUSH_FALLOFFS, PAINT_BRUSH_LIMITS, SCULPT_LIMITS, blockKitNames, type BrushFalloff } from '@thirdlight/runtime';
 import { ObjectFields, type FieldContext } from './DescriptorFields';
 import { SurfaceRulesEditor } from './SurfaceRulesEditor';
+import { ScatterRulesEditor } from './ScatterRulesEditor';
 import { componentPatch } from '../session/descriptor-fields';
 import {
   BLOCK_TOOLS,
@@ -139,6 +140,7 @@ export function BlocksPanel(p: Props): JSX.Element {
   const setLayerId = p.onLayer;
   const [armed, setArmed] = useState(true);
   const [rulesOpen, setRulesOpen] = useState(false);
+  const [scatterOpen, setScatterOpen] = useState(false);
   const [tool, setTool] = useState<BlockToolId>('single');
   const [brush, setBrush] = useState<BrushState>(DEFAULT_BRUSH);
   const [invert, setInvert] = useState(false);
@@ -409,6 +411,9 @@ export function BlocksPanel(p: Props): JSX.Element {
             <button className={`tl-btn tl-btn--small${rulesOpen ? ' is-active' : ''}`} aria-expanded={rulesOpen} title="Paint the layer's material layers 0-3 by slope, height, cavity, noise and block type (hand paint stays over them)" onClick={() => setRulesOpen((o) => !o)}>
               Rules{(layer.component.rules?.length ?? 0) > 0 ? ` (${layer.component.rules!.length})` : ''}…
             </button>
+            <button className={`tl-btn tl-btn--small${scatterOpen ? ' is-active' : ''}`} aria-expanded={scatterOpen} title="Place models (trees, rocks) on the tops by density, slope, height, layer, block type and noise (baked into the chunks; the Scatter tool's hand edits stay over them)" onClick={() => setScatterOpen((o) => !o)}>
+              Scatter{(layer.component.scatter?.length ?? 0) > 0 ? ` (${layer.component.scatter!.length})` : ''}…
+            </button>
             <label title="Edit cells in the Scene view (Alt+drag or the right button orbits)">
               <input type="checkbox" aria-label="edit cells" checked={armed} onChange={(e) => setArmed(e.target.checked)} /> Edit cells
             </label>
@@ -425,6 +430,19 @@ export function BlocksPanel(p: Props): JSX.Element {
           blocks={true}
           disabled={layer.locked}
           onApply={(rules) => p.run(rules.length > 0 ? 'Set material rules' : 'Remove material rules', 'setComponent', { entityId: layer.entityId, component: 'blockLayer', value: { ...layer.component, rules } })}
+        />
+      )}
+      {layer !== null && scatterOpen && (
+        <ScatterRulesEditor
+          rules={layer.component.scatter ?? []}
+          blocks={true}
+          disabled={layer.locked}
+          onApply={async (scatter) => {
+            // The rules on the component, then every chunk baked with them (two undo steps: the bake is a cell edit).
+            const { scatter: _old, ...rest } = layer.component;
+            if (!(await p.run(scatter.length > 0 ? 'Set scatter rules' : 'Remove scatter rules', 'setComponent', { entityId: layer.entityId, component: 'blockLayer', value: scatter.length > 0 ? { ...rest, scatter } : rest }))) return false;
+            return p.run('Bake scatter', 'editBlocks', { entityId: layer.entityId, edits: [{ kind: 'bakeScatter' }] });
+          }}
         />
       )}
 
@@ -454,6 +472,24 @@ export function BlocksPanel(p: Props): JSX.Element {
         <label title="The box brush's height in cells.">
           Box height <input aria-label="box height" type="number" className="tl-blocks__num" min={1} max={256} value={brush.height} onChange={(e) => setBrush((b) => ({ ...b, height: Math.max(1, Math.min(256, Math.round(Number(e.target.value) || 1))) }))} />
         </label>
+        {tool === 'scatter' && layer !== null && (
+          <>
+            <label title="The scatter rule whose copies the brush puts on (Ctrl: takes off).">
+              Rule{' '}
+              <select aria-label="scatter brush rule" value={brush.scatterRule} onChange={(e) => setBrush((b) => ({ ...b, scatterRule: e.target.value }))}>
+                <option value="">(choose)</option>
+                {(layer.component.scatter ?? []).filter((r) => r.cover !== true).map((r) => (
+                  <option key={r.id} value={r.id}>
+                    {r.id}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label title="The scatter brush's radius in cells.">
+              Radius <input aria-label="scatter radius" type="number" className="tl-blocks__num" min={SCULPT_LIMITS.radiusMin} max={SCULPT_LIMITS.radiusMax} step={0.5} value={brush.radius} onChange={(e) => setBrush((b) => ({ ...b, radius: Math.max(SCULPT_LIMITS.radiusMin, Math.min(SCULPT_LIMITS.radiusMax, Number(e.target.value) || b.radius)) }))} />
+            </label>
+          </>
+        )}
         {(tool === 'height' || tool === 'smooth' || tool === 'flatten') && (
           <>
             <label title="The terrain brush's radius in cells.">

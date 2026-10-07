@@ -137,8 +137,8 @@ export function instanceStrokeError(stroke: unknown): { path: string; message: s
   return null;
 }
 
-/** A 32-bit mix of the seed, a cell and a salt (the same in every JavaScript engine: integer arithmetic only). */
-function hash(seed: number, ix: number, iz: number, salt: number): number {
+/** A 32-bit mix of the seed, a cell and a salt in [0, 1) (the same in every JavaScript engine: integer arithmetic only). */
+export function brushHash(seed: number, ix: number, iz: number, salt: number): number {
   let h = (seed | 0) ^ Math.imul(ix | 0, 0x27d4eb2d) ^ Math.imul(iz | 0, 0x165667b1) ^ Math.imul(salt + 1, 0x9e3779b1);
   h = Math.imul(h ^ (h >>> 16), 0x85ebca6b);
   h = Math.imul(h ^ (h >>> 13), 0xc2b2ae35);
@@ -183,8 +183,8 @@ export class StrokeCandidates {
       for (let ix = Math.floor((dab[0] - r) / c), x1 = Math.floor((dab[0] + r) / c); ix <= x1; ix++) {
         const key = `${ix},${iz}`;
         if (this.cells.has(key)) continue;
-        const x = (ix + hash(this.brush.seed, ix, iz, 0)) * c;
-        const z = (iz + hash(this.brush.seed, ix, iz, 1)) * c;
+        const x = (ix + brushHash(this.brush.seed, ix, iz, 0)) * c;
+        const z = (iz + brushHash(this.brush.seed, ix, iz, 1)) * c;
         if ((x - dab[0]) ** 2 + (z - dab[2]) ** 2 > r * r) continue;
         fresh.push({ ix, iz, x, z, dab: index });
         if (fresh.length > room) return false;
@@ -254,8 +254,8 @@ const apply4 = (m: readonly number[], x: number, y: number, z: number): BrushVec
   m[2]! * x + m[6]! * y + m[10]! * z + m[14]!,
 ];
 
-type Quat = [number, number, number, number];
-const qmul = (a: Quat, b: Quat): Quat => [
+export type Quat = [number, number, number, number];
+export const qmul = (a: Quat, b: Quat): Quat => [
   a[3] * b[0] + a[0] * b[3] + a[1] * b[2] - a[2] * b[1],
   a[3] * b[1] - a[0] * b[2] + a[1] * b[3] + a[2] * b[0],
   a[3] * b[2] + a[0] * b[1] - a[1] * b[0] + a[2] * b[3],
@@ -263,7 +263,7 @@ const qmul = (a: Quat, b: Quat): Quat => [
 ];
 
 /** A painted copy's world rotation: a random turn about up, then a lean toward the normal by `align`. */
-function copyRotation(nx: number, ny: number, nz: number, align: number, yawDeg: number): Quat {
+export function copyRotation(nx: number, ny: number, nz: number, align: number, yawDeg: number): Quat {
   const t = (yawDeg * Math.PI) / 180 / 2;
   const turn: Quat = [0, Math.sin(t), 0, Math.cos(t)];
   const across = Math.hypot(nx, nz);
@@ -355,8 +355,8 @@ export function applyInstanceStroke(floats: Float32Array, stroke: InstanceStroke
     if (ny < MIN_NORMAL_Y || y > span.top || y < span.bottom) return;
     if (crowded(c.x, c.z)) return;
     put(c.x, c.z);
-    const s = brush.scale[0] + hash(brush.seed, c.ix, c.iz, 2) * (brush.scale[1] - brush.scale[0]);
-    const q = qmul(toSet, copyRotation(nx, ny, nz, brush.align, hash(brush.seed, c.ix, c.iz, 3) * brush.yaw));
+    const s = brush.scale[0] + brushHash(brush.seed, c.ix, c.iz, 2) * (brush.scale[1] - brush.scale[0]);
+    const q = qmul(toSet, copyRotation(nx, ny, nz, brush.align, brushHash(brush.seed, c.ix, c.iz, 3) * brush.yaw));
     const p = apply4(space.toLocal, c.x, y, c.z);
     const ls = s / space.scale;
     made.push(p[0], p[1], p[2], q[0], q[1], q[2], q[3], ls, ls, ls);

@@ -189,6 +189,8 @@ export interface MaterialLibrary {
   /** The project materials and the material functions graph materials call. */
   setMaterials(defs: readonly MaterialDefLike[], functions?: readonly MaterialFunctionLike[]): void;
   setWind(wind: WindLike | null): void;
+  /** Where the view's camera is this frame (what reads distance in every pass: foliage's wind distance). */
+  setViewEye(x: number, y: number, z: number): void;
   /** The scene's wetness (0–1) the Scene wetness node reads. */
   setWetness(wetness: number): void;
   /** Advance the shared clock (seconds since start). */
@@ -258,6 +260,8 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
     gustFreq: TSL.uniform(DEFAULT_WIND_LIKE.gustFrequency).setGroup(TSL.renderGroup),
     turb: TSL.uniform(DEFAULT_WIND_LIKE.turbulence).setGroup(TSL.renderGroup),
     wetness: TSL.uniform(0).setGroup(TSL.renderGroup),
+    // The view's camera, the same in every pass (a shadow map's shapes then match the view's: wind only near it).
+    eye: TSL.uniform(new THREE.Vector3()).setGroup(TSL.renderGroup),
   };
   let defs = new Map<string, MaterialDefLike>();
   const reassigned = new Set<(root: THREE.Object3D) => void>();
@@ -495,21 +499,29 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
     const nm = m as unknown as MeshStandardNodeMaterial;
     // Instancing is applied before positionNode: positionLocal is already the
     // instance's, so modelWorldMatrix alone takes it to the world.
+    // Wind only near the camera (`windDistance`, 0: everywhere): past it a vertex skips the wind's work and stands still.
+    const windDistance = TSL.uniform(num(p['windDistance'], 0));
     nm.positionNode = TSL.Fn(() => {
       const local = TSL.positionLocal;
       const world = TSL.modelWorldMatrix.mul(TSL.vec4(local, 1)).xyz;
-      const tlBend = colour.r.mul(colour.r).mul(bend);
-      const phase = colour.g.mul(6.2831853);
-      const gust = TSL.sin(g.time.mul(g.gustFreq).mul(6.2831853).sub(world.x.mul(0.08).mul(g.turb.mul(3).add(1)))).mul(0.5).add(0.5);
-      const sway = TSL.sin(g.time.mul(1.7).add(phase).add(world.x.mul(0.4).mul(g.turb))).mul(0.35);
-      const strength = g.strength.add(g.gust.mul(gust));
-      const dir = TSL.length(g.windDir).greaterThan(0).select(TSL.normalize(g.windDir), TSL.vec2(1, 0));
-      const bent = TSL.vec3(dir.x, 0, dir.y).mul(strength).mul(sway.add(0.65)).mul(tlBend).mul(0.12);
-      const sagged = bent.sub(TSL.vec3(0, TSL.length(bent).mul(0.35), 0));
-      const normalWorld = TSL.normalize(TSL.modelWorldMatrix.mul(TSL.vec4(TSL.normalLocal, 0)).xyz);
-      const flutterAmount = TSL.sin(g.time.mul(flutterFreq).add(phase.mul(3)).add(world.x.mul(2.3))).mul(colour.b).mul(flutter).mul(0.015).mul(strength.add(0.5));
-      const offset = sagged.add(normalWorld.mul(flutterAmount));
-      return local.add(TSL.modelWorldMatrixInverse.mul(TSL.vec4(offset, 0)).xyz);
+      const out = TSL.vec3(local).toVar();
+      const away = TSL.length(g.eye.sub(world));
+      TSL.If(windDistance.lessThanEqual(0).or(away.lessThan(windDistance)), () => {
+        const near = windDistance.lessThanEqual(0).select(TSL.float(1), TSL.float(1).sub(TSL.smoothstep(windDistance.mul(0.8), windDistance, away)));
+        const tlBend = colour.r.mul(colour.r).mul(bend);
+        const phase = colour.g.mul(6.2831853);
+        const gust = TSL.sin(g.time.mul(g.gustFreq).mul(6.2831853).sub(world.x.mul(0.08).mul(g.turb.mul(3).add(1)))).mul(0.5).add(0.5);
+        const sway = TSL.sin(g.time.mul(1.7).add(phase).add(world.x.mul(0.4).mul(g.turb))).mul(0.35);
+        const strength = g.strength.add(g.gust.mul(gust)).mul(near);
+        const dir = TSL.length(g.windDir).greaterThan(0).select(TSL.normalize(g.windDir), TSL.vec2(1, 0));
+        const bent = TSL.vec3(dir.x, 0, dir.y).mul(strength).mul(sway.add(0.65)).mul(tlBend).mul(0.12);
+        const sagged = bent.sub(TSL.vec3(0, TSL.length(bent).mul(0.35), 0));
+        const normalWorld = TSL.normalize(TSL.modelWorldMatrix.mul(TSL.vec4(TSL.normalLocal, 0)).xyz);
+        const flutterAmount = TSL.sin(g.time.mul(flutterFreq).add(phase.mul(3)).add(world.x.mul(2.3))).mul(colour.b).mul(flutter).mul(0.015).mul(strength.add(near.mul(0.5)));
+        const offset = sagged.add(normalWorld.mul(flutterAmount));
+        out.assign(local.add(TSL.modelWorldMatrixInverse.mul(TSL.vec4(offset, 0)).xyz));
+      });
+      return out;
     })();
     const thin = TSL.varying(colour.a);
     nm.emissiveNode = TSL.materialEmissive.add(TSL.diffuseColor.rgb.mul(subsurface).mul(thin).mul(0.25));
@@ -927,6 +939,9 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
     onReassigned(listener) {
       reassigned.add(listener);
       return () => void reassigned.delete(listener);
+    },
+    setViewEye(x, y, z) {
+      (nodeGlobals.eye.value as THREE.Vector3).set(x, y, z);
     },
     setWind(wind) {
       const w = wind ?? DEFAULT_WIND_LIKE;

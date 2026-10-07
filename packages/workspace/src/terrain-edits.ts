@@ -15,7 +15,10 @@
  *
  * Any change that names tile digests (a `setComponent terrain` from MCP, an
  * undo) has them checked: each new one must be a stored tile blob of the
- * terrain's tile size.
+ * terrain's tile size, each new scatter digest a stored scatter blob.
+ *
+ * A tile's scatter (`terrain-scatter.ts`) is a blob of its own beside its
+ * data, so a stroke on the copies writes only it.
  */
 import { gunzipSync, gzipSync, inflateSync } from 'node:zlib';
 
@@ -25,10 +28,13 @@ import {
   decodeTerrainTile,
   encodeTerrainTile,
   readTerrainTileBlob,
+  scatterBlobOf,
+  scatterCellOfBlob,
   terrainFlatStep,
   terrainTileKey,
   wrapTerrainTile,
   type Heightmap,
+  type ScatterCell,
   type TerrainComponent,
   type TerrainTile,
 } from '@thirdlight/project-model';
@@ -66,6 +72,17 @@ function badTile(digest: string, message: string): CommandError {
   return { code: 'field_value', cls: 'validation', path: '/args', message: `terrain tile ${digest.slice(0, 12)}…: ${message}`.slice(0, 256), expected: 'a terrain tile blob' } as CommandError;
 }
 
+/** Read one tile's scatter blob by digest (verified), decoded. */
+function readScatter(core: Core, ctx: ContentContext, digest: string): { ok: true; cell: ScatterCell } | { ok: false; error: CommandError } {
+  const r = readSourceBlob(core, ctx, { digest });
+  if (!r.ok) return r;
+  try {
+    return { ok: true, cell: scatterCellOfBlob(r.bytes) };
+  } catch (e) {
+    return { ok: false, error: badTile(digest, e instanceof Error ? e.message : String(e)) };
+  }
+}
+
 /** Read one tile blob by digest (verified), decoded. */
 function readTile(core: Core, ctx: ContentContext, digest: string): { ok: true; tile: TerrainTile } | { ok: false; error: CommandError } {
   const r = readSourceBlob(core, ctx, { digest });
@@ -95,7 +112,7 @@ export function prepareTerrainEdit(core: Core, s: ProjectSession, scene: SceneDo
     if (!map.ok) return { ok: false, error: { code: 'field_value', cls: 'validation', path: '/args/stageId', message: `the heightmap cannot be read: ${map.message}`.slice(0, 256), expected: `a ${v.args.format} heightmap` } as CommandError };
     heightmap = map.map;
   }
-  const plan = planTerrainEdit(scene, content, v.args, (digest) => readTile(core, ctx, digest), heightmap);
+  const plan = planTerrainEdit(scene, content, v.args, (digest) => readTile(core, ctx, digest), heightmap, (digest) => readScatter(core, ctx, digest));
   if (!plan.ok) return plan;
   const comp = plan.plan.component;
   const flat = terrainFlatStep(comp.heightRange);
@@ -114,8 +131,30 @@ export function prepareTerrainEdit(core: Core, s: ProjectSession, scene: SceneDo
     if (old.get(key) !== digest || !old.has(key)) touched.push(key.split(',').map(Number) as [number, number]);
   }
   touched.sort((a, b) => a[1] - b[1] || a[0] - b[0]);
-  const value: TerrainComponent = { ...comp, tiles: terrainTilesAfter(comp, digests), ...(plan.plan.rules !== undefined ? { rules: plan.plan.rules } : {}) };
-  return { ok: true, prepared: { entityId: v.args.entityId, value, touched, added: plan.plan.added, changed: plan.plan.changed, ...(plan.plan.clamped !== undefined ? { clamped: plan.plan.clamped } : {}) }, blobs };
+  // Each tile's scatter the edit changed: a blob of its own (null: none left on it).
+  const scatterDigests = new Map<string, string | null>();
+  const oldScatter = new Map(comp.tiles.map((t) => [terrainTileKey(t.x, t.z), t.scatter ?? null]));
+  const scattered: [number, number][] = [];
+  for (const [key, cell] of plan.plan.scatter) {
+    const bytes = scatterBlobOf(cell);
+    const digest = bytes === null ? null : sha256Hex(bytes);
+    if (bytes !== null) blobs.push({ digest: digest!, bytes });
+    if ((oldScatter.get(key) ?? null) === digest) continue;
+    scatterDigests.set(key, digest);
+    scattered.push(key.split(',').map(Number) as [number, number]);
+  }
+  scattered.sort((a, b) => a[1] - b[1] || a[0] - b[0]);
+  const value: TerrainComponent = {
+    ...comp,
+    tiles: terrainTilesAfter(comp, digests, scatterDigests),
+    ...(plan.plan.rules !== undefined ? { rules: plan.plan.rules } : {}),
+    ...(plan.plan.scatterRules !== undefined ? { scatter: plan.plan.scatterRules } : {}),
+  };
+  return {
+    ok: true,
+    prepared: { entityId: v.args.entityId, value, touched, added: plan.plan.added, changed: plan.plan.changed, ...(plan.plan.clamped !== undefined ? { clamped: plan.plan.clamped } : {}), ...(scattered.length > 0 ? { scatter: scattered } : {}) },
+    blobs,
+  };
 }
 
 /** Publish an accepted edit's tiles (just before its change is written). */
@@ -143,7 +182,17 @@ export function verifyTerrainTiles(core: Core, s: ProjectSession, before: readon
     if (t === undefined) continue;
     const was = prior.get(e.id);
     const known = new Set(was !== undefined && was.tileSamples === t.tileSamples ? was.tiles.map((x) => x.data).filter((d) => d !== undefined) : []);
+    const knownScatter = new Set(was !== undefined ? was.tiles.map((x) => x.scatter).filter((d) => d !== undefined) : []);
     for (const tile of t.tiles) {
+      if (tile.scatter !== undefined && !knownScatter.has(tile.scatter) && !own.has(tile.scatter)) {
+        const r = readSourceBlob(core, ctx, { digest: tile.scatter });
+        if (!r.ok) return r.error;
+        try {
+          scatterCellOfBlob(r.bytes);
+        } catch (err) {
+          return badTile(tile.scatter, err instanceof Error ? err.message : String(err));
+        }
+      }
       if (tile.data === undefined || known.has(tile.data) || own.has(tile.data)) continue;
       const r = readSourceBlob(core, ctx, { digest: tile.data });
       if (!r.ok) return r.error;

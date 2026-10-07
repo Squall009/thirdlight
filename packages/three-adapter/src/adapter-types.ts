@@ -62,6 +62,8 @@ export interface SceneAdapterOptions {
   terrainTiles?: import('./terrain-tile-store').TerrainTileStore;
   /** Draw terrains (default true; false: none, a diagnostic comparison). */
   terrain?: boolean;
+  /** Draw the scatter rules' copies (default true; false: none, a diagnostic comparison). */
+  scatter?: boolean;
   /**
    * Something the next frame would draw differently arrived on its own (a
    * model, an instance set, a cookie): a host that draws on demand draws again.
@@ -324,6 +326,10 @@ export interface SceneAdapterDiagnostics {
   blocks?: BlockLayerViewDiagnostics;
   /** The terrains drawn (tiles, texture bytes, nodes selected and in view per level, draws, main-thread ms). */
   terrain?: TerrainViewDiagnostics;
+  /** Rule scatter's stored copies drawn (block layers' and terrains'). */
+  scatter?: import('./scatter-view').ScatterViewDiagnostics;
+  /** Ground cover made near the camera. */
+  cover?: import('./cover-view').CoverViewDiagnostics;
   /**
    * Graph materials — the compiled ones alive (objects with
    * different parameter values share one) and the objects carrying values
@@ -458,6 +464,10 @@ export interface SceneAdapter {
   terrainDiagnostics?(): TerrainViewDiagnostics | null;
   /** The terrains drawn: their fields (picking) and stroke previews (the editor's terrain tools). */
   terrains?(): import('./terrain-view').TerrainView;
+  /** The scatter rules' drawn copies (tests read their meshes). */
+  scatter?(): import('./scatter-view').ScatterView;
+  /** The ground cover near the camera (tests read it). */
+  cover?(): import('./cover-view').CoverView;
   /** The renderer drawing now (null before it is ready). */
   currentRenderer?(): AnyRenderer | null;
   /** The probe light the materials sample (its packed tiles; the editor's probe debug view draws them), or null without probes. */

@@ -73,6 +73,9 @@ export const MATERIAL_PARAMS: Readonly<Record<MaterialShader, Readonly<Record<st
     windFlutter: num(0, 4, 1),
     flutterFrequency: num(0, 30, 6),
     subsurface: num(0, 1, 0.3),
+    // Metres from the camera the wind moves it (the foliage policy: wind only near; past it the vertices do no wind
+    // work and stand still, fading out over the last fifth; 0: everywhere, the earlier look).
+    windDistance: num(0, 10000, 0),
   },
   // uv0.x += worldX / uvPeriod so the detail atlas flows across joins; a macro
   // normal on UV1 is blended over the detail normal (whiteout).

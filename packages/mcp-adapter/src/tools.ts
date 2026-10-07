@@ -253,8 +253,11 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       'kind fromBlocks {source: a block layer object} turns the layer\'s corner-height surface into tiles (cells over no column become holes, painted layers 0-3 come as hand paint). ' +
       'Material rules (terrain and block layers alike): [{layer, strength? 0-1, face? top|wall, height? (world m), slope? (degrees), cavity? (m the ground radius? m around lies above: + hollows), noise? {scale m, seed?}, weight? {layer} (its share 0-1 left by the rules before), ' +
       'blocks? [block type ids] and meta? {field: value} (block layers only)}], each condition a range {min?, max?, fade?} fading over fade past its ends; in order, each takes its share of every layer so far; where none applies, layer 0. ' +
-      'kind bake {rules?} sets a terrain\'s rules (absent: its own again; []: none) and bakes them into every tile; a sculpt, ramp, import or conversion bakes them again where it moves the ground; hand paint stays over them (a setComponent of rules alone does not bake). ' +
-      'The result names the tiles it wrote in terrain {tiles, added, changed, clamped?}; tl_content_query target="terrain" reads heights back. Models: createEntity kind "model" ' +
+      'kind bake {rules?, scatter?} sets a terrain\'s rules (absent: its own again — unless only scatter is given; []: none) and bakes them into every tile; a sculpt, ramp, import or conversion bakes them again where it moves the ground; hand paint stays over them (a setComponent of rules alone does not bake). ' +
+      'Scatter rules (terrain and block layers alike) place models where conditions hold, their copies baked per terrain tile (tiles[].scatter, a blob) or block chunk: [{id (1-32 of A-Z a-z 0-9 _ -), asset: {assetId, piece?}, density (candidates per m² where every condition holds fully), spacing? m (no two copies closer), scale? [min, max], yaw? degrees (default 360), align? 0-1 (lean to the normal), sink? m, seed?, ' +
+      'height?, slope?, cavity?, noise? (as material rules), layers? [{layer, min?, max?, fade?}] (the share 0-1 the ground shows of a material layer), blocks?/meta? (block layers), exclude? [block-layer region names kept clear], castShadow?, chunkSize? m (default 256), densityStart?/densityEnd?/densityMin? (as an instance set), lodPerCopy? (default true), collide? (each copy carries its model\'s _COL colliders)}]. ' +
+      'editTerrain bake {scatter} sets and bakes them (an edit of the ground or the paint bakes them again around itself, the same copies as a whole bake); kind scatter {rule, dabs, radius, erase?} is the scatter brush: the rule\'s candidate places under it get a copy whatever the conditions (erase: none), kept over every later bake. ' +
+      'The result names the tiles it wrote in terrain {tiles, added, changed, clamped?, scatter? (tiles whose scatter changed)}; tl_content_query target="terrain" reads heights back. Models: createEntity kind "model" ' +
       'takes model {asset:{assetId}, piece?} — piece names one piece of a multi-piece GLB (the base name of its <piece>_LOD0..n / ' +
       '<piece>_COL nodes, or a top-level node); LOD nodes switch by screen size and _COL nodes are never drawn. A folder create ' +
       'may carry children: [createEntity args without parentId] (up to 256, one undo). createEntity also takes active, visible, locked, static (booleans) ' +
@@ -418,7 +421,8 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       'kits? [{kit, region?}] (one for the whole layer, one per region at most: its blocks are drawn, collide and spawn as their types\' kit swaps without changing the cells — a dungeon and its burnt state share one layout; a region\'s kit wins where it swaps; scripts change them with ctx.grid.setKit(layer, kit | null, region?), saved with the grid), ' +
       'walk? {from? region, maxStep? m, maxDrop? m, headroom? m, field? (a bool cell field: only tops where it is true are walked), diagonal?} (the defaults of ctx.grid.walkNeighbours/path/reachable — places to stand are block tops with headroom on a walkable slope, steps rise or drop at most maxStep/maxDrop where two tops meet and never cross an edge piece that blocks; absent: half a cell height up and down, one cell height of headroom — and from: the region the Problems check walks from, listing places that cannot be walked to), ' +
       'vertexAO? 0-1 (corner shading: per-vertex ambient occlusion where neighbouring blocks close a corner in, taken from the indirect light; 0 or absent: none), ' +
-      'rules? [material rules, layers 0-3, see editTerrain] (painted at every vertex when chunks are meshed, walls and tops by their own slope; the paint\'s unpainted share — a top\'s layer 0, a wall point\'s layer 1 — shows them, hand paint stays over them)} ' +
+      'rules? [material rules, layers 0-3, see editTerrain] (painted at every vertex when chunks are meshed, walls and tops by their own slope; the paint\'s unpainted share — a top\'s layer 0, a wall point\'s layer 1 — shows them, hand paint stays over them), ' +
+      'scatter? [scatter rules, layers 0-3, see editTerrain] (copies on the highest tops, baked into each chunk\'s scatter by the layer\'s edits; editBlocks {kind: "bakeScatter"} bakes every chunk after the rules changed; {kind: "scatter", rule, at: [x, z, …] columns, radius cells, erase?} is the scatter brush)} ' +
       '(its position is the min corner of cell 0; a root at identity rotation and unit scale). A prop may carry setComponent "blockFootprint" {layer?: layer entity id, size?: [x,z] cells, set: {field: value}} ' +
       '(the metadata the cells beneath it take: any command that places, moves, turns or deletes the prop, or sets this component, writes it into the cells it now stands on and clears it from the cells it left, in the same undo step; ' +
       'its result change lists footprints: [{entityId, chunks, regions}] for the layers written). editBlocks {entityId, edits: [...]} edits one layer as one undo step ' +
@@ -510,7 +514,7 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       'form, box [x0,y0,z0,x1,y1,z1] its cells as [x,y,z,paletteIndex] with each value\'s effective metadata, or region (its ' +
       'boxes and cells). target="terrain" reads terrains: without entityId each terrain (tileSamples, spacing, heightRange, tiles, tilesWithData, ' +
       'storedBytes, memoryBytes = what its tiles take decoded in a game; sceneId optional), with entityId one terrain with tileRows [{x, z, data, storedBytes, memoryBytes}] and, ' +
-      'with points [[x, z], …] (world, up to 1024), the surface there {height, normal, slope, layers, weights, hole} (height null: off the terrain or a hole). target="materials" pages the materials {materialId, name, graph, problems: [{nodeId?, severity, message}]} - ' +
+      'with points [[x, z], …] (world, up to 1024), the surface there {height, normal, slope, layers, weights, hole} (height null: off the terrain or a hole), with scatter {box?} its stored scatter copies. target="materials" pages the materials {materialId, name, graph, problems: [{nodeId?, severity, message}]} - ' +
       'a graph material\'s compile problems as the editor\'s Problems tab shows them, checked by the backend when it loads the project and after every change ' +
       '(materialId: one; withProblems: only broken ones; total, withProblems counts). target="index" pages the project index: every asset, ' +
       'resource (prefab, material, behavior, library, graph, ui, uitheme, dialogue, timeline, effect, animator, envpreset — each its own file in the game folder) and scene ' +
@@ -542,6 +546,7 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
         sceneId: { type: 'string', description: 'target="blocks" / "terrain": the scene whose layers or terrains are listed' },
         entityId: { type: 'string', description: 'target="blocks": one block layer (the entity carrying blockLayer); target="terrain": one terrain' },
         points: { type: 'array', items: { type: 'array', items: { type: 'number' } }, description: 'target="terrain": [[x, z], …] world points to read the surface at' },
+        scatter: { type: 'object', description: 'target="terrain" with entityId: {box?: [x0, z0, x1, z1]} — its stored scatter per rule (copies, added, erased), and with a box the copies in it {rule, x, y, z, cell} (cell: the copy\'s address, kept through every bake)' },
         chunks: { type: 'array', items: { type: 'array', items: { type: 'integer' } }, description: 'target="blocks": [[cx, cz], …] chunks to read' },
         box: { type: 'array', items: { type: 'integer' }, description: 'target="blocks": [x0, y0, z0, x1, y1, z1] cells to read' },
         region: { type: 'string', description: 'target="blocks": a region id of the layer' },
@@ -1314,7 +1319,7 @@ async function contentQuery(ctx: McpContext, a: Record<string, unknown>): Promis
   // Terrains: tiles and their bytes, the surface at points.
   if (target === 'terrain') {
     const args: Record<string, unknown> = {};
-    for (const k of ['sceneId', 'entityId', 'points'] as const) if (a[k] !== undefined) args[k] = a[k];
+    for (const k of ['sceneId', 'entityId', 'points', 'scatter'] as const) if (a[k] !== undefined) args[k] = a[k];
     const res = await ctx.client.command(ctx.projectId, { op: 'queryTerrain', args });
     return isObj(res.body) && res.body.ok === true ? toolOk(res.body) : surfaceBackendError(res);
   }

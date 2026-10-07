@@ -888,7 +888,7 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
   if (input.scenes !== undefined && derived === null) {
     const start = new Set(input.startScenes ?? []);
     for (const doc of input.scenes) {
-      const sc = doc as { sceneId: string; entities: { components: { instances?: { buffer: string; count: number }; terrain?: { tiles: { data?: string }[] } } }[] };
+      const sc = doc as { sceneId: string; entities: { components: { instances?: { buffer: string; count: number }; terrain?: { tiles: { data?: string; scatter?: string }[] } } }[] };
       const bytes = new TextEncoder().encode(`${JSON.stringify(packer.pack(doc), null, 2)}\n`);
       const digest = hash(bytes);
       const path = `scenes/${sc.sceneId}.json`;
@@ -898,7 +898,11 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
         const inst = e.components.instances;
         if (inst !== undefined) buffers.set(inst.buffer, inst.count * 40);
         // A terrain's tile blobs ship as they are stored (gzip, which the page inflates natively).
-        for (const t of e.components.terrain?.tiles ?? []) if (t.data !== undefined && !buffers.has(t.data)) buffers.set(t.data, TERRAIN_TILE_SIZE_OF_BLOB);
+        for (const t of e.components.terrain?.tiles ?? []) {
+          if (t.data !== undefined && !buffers.has(t.data)) buffers.set(t.data, TERRAIN_TILE_SIZE_OF_BLOB);
+          // Its scatter's copies too (their own blob, read by the page's scatter view and the simulation).
+          if (t.scatter !== undefined && !buffers.has(t.scatter)) buffers.set(t.scatter, TERRAIN_TILE_SIZE_OF_BLOB);
+        }
       }
     }
   }

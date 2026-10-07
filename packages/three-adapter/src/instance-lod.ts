@@ -32,7 +32,7 @@ import { maxScaleOf, type CullView } from './view-cull';
 import type { InstanceFilter } from './attribute-instancing';
 
 /** tan of half the reference field of view: a sphere of radius r covers size s of the screen at r / (TAN · s). */
-const TAN_HALF_REFERENCE = Math.tan((LOD_REFERENCE_FOV_DEG * Math.PI) / 360);
+export const TAN_HALF_REFERENCE = Math.tan((LOD_REFERENCE_FOV_DEG * Math.PI) / 360);
 
 /** Not picked yet (before the first view). */
 const UNPICKED = 255;

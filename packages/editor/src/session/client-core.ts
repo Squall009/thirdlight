@@ -224,7 +224,7 @@ export interface CommandResultOk {
   /** The applied change (a folder import lists the assets it added). */
   change?: unknown;
   /** A terrain edit's report: the tiles it changed and added ([x, z]), the samples changed. */
-  terrain?: { tiles: [number, number][]; added: [number, number][]; changed: number; clamped?: number };
+  terrain?: { tiles: [number, number][]; added: [number, number][]; changed: number; clamped?: number; scatter?: [number, number][] };
 }
 export type CommandResult = CommandResultOk | { ok: false; response: MutationResponse };
 

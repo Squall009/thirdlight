@@ -21,6 +21,7 @@
  */
 import type { ModelErrorV2 } from './errors';
 import { canonicalSurfaceRules, validateSurfaceRules, type SurfaceRule } from './surface-rules';
+import { canonicalScatterRules, validateScatterRules, type ScatterRule } from './scatter';
 
 /** The tile sizes a terrain may use (samples per side, 2ⁿ + 1). */
 export const TERRAIN_TILE_SAMPLES: readonly number[] = Object.freeze([17, 33, 65, 129, 257, 513, 1025]);
@@ -61,6 +62,8 @@ export interface TerrainTileRef {
   z: number;
   /** SHA-256 of the tile's blob (absent: flat at 0 m, unpainted, no holes). */
   data?: string;
+  /** SHA-256 of the tile's scatter blob: the scatter rules' copies on it and their hand edits (`terrain-scatter.ts`; absent: none). */
+  scatter?: string;
 }
 
 export interface TerrainComponent {
@@ -84,10 +87,17 @@ export interface TerrainComponent {
    * the baked weights are left as they are (all layer 0 unless written).
    */
   rules?: SurfaceRule[];
+  /**
+   * Scatter rules (`scatter.ts`): models placed by rules, their copies baked
+   * per tile by `editTerrain` like the material rules (a `bake` sets and
+   * bakes them; an edit bakes again where it changed the ground); hand edits
+   * of the copies stay over them. Absent: none.
+   */
+  scatter?: ScatterRule[];
 }
 
 /** The component's fields in canonical order. */
-export const TERRAIN_FIELDS: readonly string[] = Object.freeze(['tileSamples', 'spacing', 'heightRange', 'tiles', 'lodDistance', 'collision', 'macroDistance', 'rules']);
+export const TERRAIN_FIELDS: readonly string[] = Object.freeze(['tileSamples', 'spacing', 'heightRange', 'tiles', 'lodDistance', 'collision', 'macroDistance', 'rules', 'scatter']);
 
 const DIGEST_RE = /^[0-9a-f]{64}$/;
 
@@ -102,7 +112,7 @@ export const terrainTileKey = (x: number, z: number): string => `${x},${z}`;
 
 export function validateTerrainComponent(value: unknown, path: string, errors: ModelErrorV2[]): void {
   if (!isObj(value)) {
-    err(errors, 'field_type', path, 'a terrain is an object { tileSamples, spacing, heightRange, tiles, lodDistance?, collision?, macroDistance?, rules? }', value);
+    err(errors, 'field_type', path, 'a terrain is an object { tileSamples, spacing, heightRange, tiles, lodDistance?, collision?, macroDistance?, rules?, scatter? }', value);
     return;
   }
   for (const k of Object.keys(value)) if (!TERRAIN_FIELDS.includes(k)) err(errors, 'field_unexpected', `${path}/${k}`, `unknown terrain field "${k}"`, k);
@@ -127,6 +137,7 @@ export function validateTerrainComponent(value: unknown, path: string, errors: M
     err(errors, 'field_value', `${path}/macroDistance`, `macroDistance is ${TERRAIN_MACRO_DISTANCE_LIMITS.min}-${TERRAIN_MACRO_DISTANCE_LIMITS.max} metres`, macro);
   }
   if (value['rules'] !== undefined) validateSurfaceRules(value['rules'], `${path}/rules`, errors, false);
+  if (value['scatter'] !== undefined) validateScatterRules(value['scatter'], `${path}/scatter`, errors, false);
   const tiles = value['tiles'];
   if (tiles === undefined) {
     err(errors, 'field_missing', `${path}/tiles`, 'tiles is required (a list of {x, z, data?})');
@@ -139,13 +150,14 @@ export function validateTerrainComponent(value: unknown, path: string, errors: M
   const seen = new Set<string>();
   tiles.forEach((t, i) => {
     const p = `${path}/tiles/${i}`;
-    if (!isObj(t)) return err(errors, 'field_type', p, 'a tile is {x, z, data?}', t);
-    for (const k of Object.keys(t)) if (k !== 'x' && k !== 'z' && k !== 'data') err(errors, 'field_unexpected', `${p}/${k}`, `unknown tile field "${k}"`, k);
+    if (!isObj(t)) return err(errors, 'field_type', p, 'a tile is {x, z, data?, scatter?}', t);
+    for (const k of Object.keys(t)) if (k !== 'x' && k !== 'z' && k !== 'data' && k !== 'scatter') err(errors, 'field_unexpected', `${p}/${k}`, `unknown tile field "${k}"`, k);
     for (const k of ['x', 'z'] as const) {
       const v = t[k];
       if (!(Number.isInteger(v) && Math.abs(v as number) <= TERRAIN_TILE_COORD_MAX)) err(errors, 'field_value', `${p}/${k}`, `${k} is a whole tile coordinate within ±${TERRAIN_TILE_COORD_MAX}`, v);
     }
     if (t['data'] !== undefined && (typeof t['data'] !== 'string' || !DIGEST_RE.test(t['data']))) err(errors, 'field_value', `${p}/data`, 'data is the SHA-256 of the tile\'s blob (64 lowercase hex)', t['data']);
+    if (t['scatter'] !== undefined && (typeof t['scatter'] !== 'string' || !DIGEST_RE.test(t['scatter']))) err(errors, 'field_value', `${p}/scatter`, 'scatter is the SHA-256 of the tile\'s scatter blob (64 lowercase hex)', t['scatter']);
     const key = terrainTileKey(t['x'] as number, t['z'] as number);
     if (seen.has(key)) err(errors, 'field_value', p, `tile [${key}] is listed twice`, key);
     seen.add(key);
@@ -154,9 +166,9 @@ export function validateTerrainComponent(value: unknown, path: string, errors: M
 
 /** The component in canonical form (fields in order, tiles sorted by z then x). */
 export function canonicalTerrain(c: TerrainComponent): TerrainComponent {
-  const tiles = c.tiles.map((t) => ({ x: t.x, z: t.z, ...(t.data !== undefined ? { data: t.data } : {}) }));
+  const tiles = c.tiles.map((t) => ({ x: t.x, z: t.z, ...(t.data !== undefined ? { data: t.data } : {}), ...(t.scatter !== undefined ? { scatter: t.scatter } : {}) }));
   tiles.sort((a, b) => a.z - b.z || a.x - b.x);
-  return { tileSamples: c.tileSamples, spacing: c.spacing, heightRange: [c.heightRange[0], c.heightRange[1]], tiles, ...(c.lodDistance !== undefined ? { lodDistance: c.lodDistance } : {}), ...(c.collision === false ? { collision: false } : {}), ...(c.macroDistance !== undefined ? { macroDistance: c.macroDistance } : {}), ...(c.rules !== undefined ? { rules: canonicalSurfaceRules(c.rules) } : {}) };
+  return { tileSamples: c.tileSamples, spacing: c.spacing, heightRange: [c.heightRange[0], c.heightRange[1]], tiles, ...(c.lodDistance !== undefined ? { lodDistance: c.lodDistance } : {}), ...(c.collision === false ? { collision: false } : {}), ...(c.macroDistance !== undefined ? { macroDistance: c.macroDistance } : {}), ...(c.rules !== undefined ? { rules: canonicalSurfaceRules(c.rules) } : {}), ...(c.scatter !== undefined ? { scatter: canonicalScatterRules(c.scatter) } : {}) };
 }
 
 /** Metres along one tile side. */

@@ -140,7 +140,7 @@ export class TerrainEditor {
 
   /** Have the tool's passes built ahead for the terrain (its first dab then builds none on its frame). */
   private warm(): void {
-    if (this.active && this.target !== null) this.host.terrains()?.previewWarm(this.target.entityId, this.opts.tool);
+    if (this.active && this.target !== null && this.opts.tool !== 'scatter') this.host.terrains()?.previewWarm(this.target.entityId, this.opts.tool);
   }
 
   isActive(): boolean {
@@ -186,9 +186,14 @@ export class TerrainEditor {
     }
     const at = this.surfaceUnder(e.clientX, e.clientY);
     this.drawCursor(at);
-    if (at === null || !view.previewBegin(t.entityId)) return true;
-    const invert = this.opts.invert !== (e.ctrlKey || e.metaKey);
     const tool = this.opts.tool;
+    if (tool === 'scatter' && this.opts.brush.rule === '') {
+      this.cb.onRefused('Choose a scatter rule to paint (make one with Scatter rules…).');
+      return true;
+    }
+    // The scatter brush has no preview: its copies come with the stored edit.
+    if (at === null || (tool !== 'scatter' && !view.previewBegin(t.entityId))) return true;
+    const invert = this.opts.invert !== (e.ctrlKey || e.metaKey);
     const point: [number, number] = [r4(at.x), r4(at.z)];
     this.stroke = { tool, invert, dabs: [], last: point, extra: tool === 'flatten' ? { height: r4(at.y) } : {}, limit: strokeDabLimit(this.opts.brush.radius, t.component.spacing), from: tool === 'ramp' ? [point[0], r4(at.y), point[1]] : null };
     this.lastStroke = { serial: ++this.strokes, tool: strokeKind(tool, invert), dabs: 0, commitMs: null, stored: null };
@@ -229,7 +234,7 @@ export class TerrainEditor {
     if (k === null) return false;
     this.stroke = null;
     this.rampLine.visible = false;
-    if (this.target !== null) this.host.terrains()?.previewEnd(this.target.entityId, null);
+    if (this.target !== null && k.tool !== 'scatter') this.host.terrains()?.previewEnd(this.target.entityId, null);
     this.host.requestRender();
     return true;
   }
@@ -260,7 +265,8 @@ export class TerrainEditor {
     }
     k.dabs.push(p);
     if (this.lastStroke !== null) this.lastStroke.dabs = k.dabs.length;
-    this.host.terrains()?.previewDab(t.entityId, previewDab(k.tool, this.opts.brush, p, k.invert, k.extra));
+    const dab = previewDab(k.tool, this.opts.brush, p, k.invert, k.extra);
+    if (dab !== null) this.host.terrains()?.previewDab(t.entityId, dab);
     this.host.requestRender();
   }
 
@@ -277,21 +283,22 @@ export class TerrainEditor {
       }
       k.extra = { from: k.from, to };
       k.dabs = [[to[0], to[2]]];
-      const dab: TerrainPreviewDab = previewDab('ramp', this.opts.brush, [to[0], to[2]], k.invert, k.extra);
+      const dab = previewDab('ramp', this.opts.brush, [to[0], to[2]], k.invert, k.extra) as TerrainPreviewDab;
       view.previewDab(t.entityId, dab);
     }
+    const previewed = k.tool !== 'scatter';
     const dabs = k.dabs.slice(0, k.limit);
     if (dabs.length === 0) {
-      view.previewEnd(t.entityId, null);
+      if (previewed) view.previewEnd(t.entityId, null);
       return;
     }
-    view.previewRelease(t.entityId, this.check);
+    if (previewed) view.previewRelease(t.entityId, this.check);
     this.host.requestRender();
     const t0 = performance.now();
     const serial = this.lastStroke?.serial ?? ++this.strokes;
     this.lastStroke = { serial, tool: strokeKind(k.tool, k.invert), dabs: dabs.length, commitMs: null, stored: null };
     const stored = await this.cb.onCommit(strokeArgs(t.entityId, k.tool, this.opts.brush, dabs, k.invert, k.extra));
-    view.previewEnd(t.entityId, stored);
+    if (previewed) view.previewEnd(t.entityId, stored);
     this.lastStroke = { ...this.lastStroke, commitMs: Math.round((performance.now() - t0) * 10) / 10, stored: stored !== null };
     this.host.requestRender();
   }

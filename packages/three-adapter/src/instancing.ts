@@ -32,7 +32,7 @@ import { createAttributeInstancedMesh, type AttributeInstancedMesh } from './att
 import type { CullView, ViewCullable } from './view-cull';
 import type { ModelInstance } from './visual';
 import { disposeObjectTree } from './dispose';
-import { ChunkLodPicker, copyRank, type CopyLodGroup } from './instance-lod';
+import { ChunkLodPicker, copyRank, TAN_HALF_REFERENCE, type CopyLodGroup } from './instance-lod';
 import { LOD_CULL_LEVEL_KEY, LodTuning } from './lod-switch';
 
 /** `mesh.userData[INSTANCE_SET_KEY]`: the mesh draws copies of an instance set (one chunk, one mesh and level). */
@@ -104,8 +104,16 @@ export interface InstanceSetStats {
  */
 export interface InstanceSetOptions {
   readonly chunkSize?: number;
+  /** Copies per chunk the count grid aims at (absent: {@link INSTANCE_CHUNK_COPIES}); a large value leaves the chunks to `chunkSize`. */
+  readonly copiesPerChunk?: number;
   readonly tuning?: LodTuning;
   readonly density?: InstanceDensity | null;
+  /**
+   * A density falloff by distance instead (metres at unit scale: all copies
+   * nearer than `start`, `min` of them from `end` on; a larger copy thins
+   * that much farther), over `density`.
+   */
+  readonly densityDistance?: { readonly start: number; readonly end: number; readonly min: number };
   readonly lodPerCopy?: boolean;
 }
 
@@ -208,8 +216,6 @@ export function buildInstanceSet(template: ModelInstance, floats: Float32Array, 
   walk(template.glbRoot, -1, 0);
   // Picks per copy when the model has levels or the set thins out; else every copy is drawn (no filter).
   const groups: CopyLodGroup[] = lods.map((l) => ({ distances: l.levels.map((v) => v.distance), culls: l.levels[l.levels.length - 1]?.object.userData[LOD_CULL_LEVEL_KEY] === true }));
-  const density = options.density !== undefined && options.density !== null && options.density.min < 1 ? options.density : null;
-  const perCopy = groups.length > 0 || density !== null;
   const tuning = options.tuning ?? new LodTuning();
   // The model's radius at its most detailed level (the density falloff's screen sizes are of it).
   const radius = ((): number => {
@@ -223,6 +229,11 @@ export function buildInstanceSet(template: ModelInstance, floats: Float32Array, 
     }
     return box.isEmpty() ? 0 : box.getBoundingSphere(new THREE.Sphere()).radius;
   })();
+  // A falloff by distance is the screen sizes the model's radius covers at those distances.
+  const dd = options.densityDistance;
+  const falloff: InstanceDensity | null | undefined = dd !== undefined && radius > 0 ? { start: radius / (TAN_HALF_REFERENCE * dd.start), end: radius / (TAN_HALF_REFERENCE * Math.max(dd.start, dd.end)), min: dd.min } : options.density;
+  const density = falloff !== undefined && falloff !== null && falloff.min < 1 ? falloff : null;
+  const perCopy = groups.length > 0 || density !== null;
 
   // Where each copy is, and its chunk.
   const pos = new THREE.Vector3();
@@ -237,7 +248,7 @@ export function buildInstanceSet(template: ModelInstance, floats: Float32Array, 
     positions[i * 3 + 2] = floats[o + 2]!;
   }
   // Also by extent when a chunk size is given (each chunk culled and LOD'd on its own).
-  const chunkOf = chunkCopies(positions, n, INSTANCE_CHUNK_COPIES, INSTANCE_MAX_CHUNKS, options.chunkSize);
+  const chunkOf = chunkCopies(positions, n, options.copiesPerChunk ?? INSTANCE_CHUNK_COPIES, INSTANCE_MAX_CHUNKS, options.chunkSize);
   let chunkCount = 0;
   for (let i = 0; i < n; i += 1) if (chunkOf[i]! + 1 > chunkCount) chunkCount = chunkOf[i]! + 1;
   /** `changed`: a copy moved since the chunk's draws were last culled. */

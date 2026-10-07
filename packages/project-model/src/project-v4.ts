@@ -21,6 +21,7 @@
  * logic (scripts). Pure: no I/O.
  */
 
+import type { ScatterRule } from './scatter';
 import { composeBlockLayers, type BlockContentView } from './block-layers';
 import { composeContentChecks, composeV3 } from './project-v3';
 import { derivedOf } from './content-helpers';
@@ -595,6 +596,15 @@ function composeSceneRules(s: SceneV4, content: ContentCatalogV4, errors: ModelE
     }
   }
   s.entities.forEach((e, i) => {
+    // The models scatter rules place.
+    for (const comp of ['terrain', 'blockLayer'] as const) {
+      ((e.components as Record<string, { scatter?: ScatterRule[] } | undefined>)[comp]?.scatter ?? []).forEach((r, k) => {
+        const record = assetById.get(r.asset.assetId);
+        const path = `/entities/${i}/components/${comp}/scatter/${k}/asset/assetId`;
+        if (record === undefined) errors.push(sceneError(s.sceneId, withFound({ code: 'asset_reference_missing', path, message: 'a scatter rule names no asset of the catalog', expected: 'an existing model assetId' }, r.asset.assetId)));
+        else if (record.kind !== 'model') errors.push(sceneError(s.sceneId, withFound({ code: 'asset_kind_mismatch', path, reason: 'model', message: 'a scatter rule places a model', expected: '"model"' }, record.kind)));
+      });
+    }
     const inst = e.components.instances;
     if (inst === undefined) return;
     const record = assetById.get(inst.asset.assetId);

@@ -33,6 +33,7 @@ import {
   digestBytes,
   digestEmittedClosure,
   fixedStepHzOf,
+  isScatterBlob,
   isTerrainTileBlob,
   manifestBuildIdInputV5,
   physicsDimensionOf,
@@ -350,9 +351,10 @@ export async function exportProjectM3(
     }
   }
   // The block layers' chunk data is the scene files' cells: their text (cell metadata) follows the same rules.
-  // Terrain tiles are numbers only (heights, layer weights, holes), checked by digest like instance buffers.
+  // Terrain tiles are numbers only (heights, layer weights, holes), checked by digest like instance buffers; so are
+  // their scatter blobs (copies and cells; the rule ids they carry are the scene file's, scanned with it).
   for (const b of closure.bufferArtifacts) {
-    if (isTerrainTileBlob(b.bytes)) {
+    if (isTerrainTileBlob(b.bytes) || isScatterBlob(b.bytes)) {
       if (digestBytes(b.bytes) !== b.digest) return fail('export_bundle_forbidden_content', 'internal', `terrain tile ${b.path} does not match its digest`);
       continue;
     }
@@ -499,7 +501,7 @@ async function writeOutput(
     const opened = ctx.service.openBlobFile(ctx.projectId, a.file);
     if (!opened.ok) return copyFailure(a.path, opened.error.code);
     const held: Uint8Array[] = [];
-    // A buffer keeps only its first bytes: a terrain tile says so in its header (an instance buffer has none).
+    // A buffer keeps only its first bytes: a terrain tile or its scatter says so in its header (an instance buffer has none).
     let head: Uint8Array | null = null;
     let n: number;
     try {
@@ -519,7 +521,7 @@ async function writeOutput(
       }
       for (const d of decodersNeeded([{ bytes, contentType: a.contentType }])) decoders.add(d);
       assetBytes += n;
-    } else if (n % 40 !== 0 && (head === null || !isTerrainTileBlob(head))) {
+    } else if (n % 40 !== 0 && (head === null || !(isTerrainTileBlob(head) || isScatterBlob(head)))) {
       return fail('scan_forbidden_content', 'internal', `an instance buffer does not match its size (${a.path})`);
     }
     entries.push({ path: a.path, digest: a.digest, byteLength: n });

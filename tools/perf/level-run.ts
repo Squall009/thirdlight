@@ -19,6 +19,9 @@
  *   --macro M                    the terrain's tiles past M metres drawn from their macro textures (default: none, as recorded)
  *   --rules                      material rules on the block layer and the terrain (baked), and per-layer settings for
  *                                every terrain layer (default: none, as recorded)
+ *   --foliage off                the landscape's scatter without the foliage policy: every tree, rock and shrub casts
+ *                                into the static shadow map, the wind moves foliage everywhere, nothing thins out
+ *                                (default: on, the engine's scatter defaults)
  *   --renderers webgpu,webgl2    (default both)
  *   --query 'a=b&c=d'            add to the export's page query
  *   --switches 'a=off,b=off'     measure each export again with each query added (one switch at a time)
@@ -67,6 +70,8 @@ export interface LevelReport {
   projection?: number;
   /** The terrain's macro distance (absent: none). */
   macro?: number;
+  /** The landscape's scatter without the foliage policy (absent: with it). */
+  foliage?: 'off';
   query: string;
   builds: Partial<Record<LevelKind, LevelBuild & { exportMs: number }>>;
   classes: Partial<Record<LevelKind, Partial<Record<FrameRenderer, FrameRunResult>>>>;
@@ -149,6 +154,8 @@ export async function runLevelCli(argv: readonly string[]): Promise<void> {
   const macro = Number(get('macro') ?? 0);
   if (!(Number.isFinite(macro) && macro >= 0)) throw new Error(`--macro: metres, not ${get('macro')}`);
   if (![0, 1, 2].includes(projection)) throw new Error(`--projection: 1 (by slope) or 2 (biplanar), not ${get('projection')}`);
+  const foliage = get('foliage') ?? 'on';
+  if (foliage !== 'on' && foliage !== 'off') throw new Error(`--foliage: on or off, not ${foliage}`);
 
   const startedAt = new Date().toISOString();
   const stamp = startedAt.replace(/[:.]/g, '-');
@@ -162,14 +169,14 @@ export async function runLevelCli(argv: readonly string[]): Promise<void> {
   } catch {
     /* not a git checkout */
   }
-  const report: LevelReport = { reportVersion: 1, startedAt, commit, machine: { cpu: cpus()[0]?.model ?? 'unknown', cores: cpus().length }, version: LEVEL_VERSION, seed: LEVEL_SEED, ...(liveDoors > 0 ? { liveDoors } : {}), ...(has('edge-walls') ? { edgeWalls: true } : {}), ...(has('wall-paint') ? { wallPaint: true } : {}), ...(roofs !== 'none' ? { roofs } : {}), ...(has('kit-swap') ? { kitSwap: true } : {}), ...(has('vertex-ao') ? { vertexAO: LEVEL_VERTEX_AO } : {}), ...(has('rules') ? { rules: true } : {}), ...(projection > 0 ? { projection } : {}), ...(macro > 0 ? { macro } : {}), query, builds: {}, classes: {}, errors: [] };
+  const report: LevelReport = { reportVersion: 1, startedAt, commit, machine: { cpu: cpus()[0]?.model ?? 'unknown', cores: cpus().length }, version: LEVEL_VERSION, seed: LEVEL_SEED, ...(liveDoors > 0 ? { liveDoors } : {}), ...(has('edge-walls') ? { edgeWalls: true } : {}), ...(has('wall-paint') ? { wallPaint: true } : {}), ...(roofs !== 'none' ? { roofs } : {}), ...(has('kit-swap') ? { kitSwap: true } : {}), ...(has('vertex-ao') ? { vertexAO: LEVEL_VERTEX_AO } : {}), ...(has('rules') ? { rules: true } : {}), ...(projection > 0 ? { projection } : {}), ...(macro > 0 ? { macro } : {}), ...(foliage === 'off' ? { foliage: 'off' as const } : {}), query, builds: {}, classes: {}, errors: [] };
 
   // Every class built and exported by one backend, then measured with it stopped (one backend or one browser at a time).
   const exportDirs: Partial<Record<LevelKind, string>> = {};
   const be = await startPerfBackend(join(runDir, 'data'), join(runDir, 'exports'));
   try {
     for (const kind of kinds) {
-      const b = await buildLevel(be, `level-${kind}`, levelPlan(kind, LEVEL_SEED, liveDoors, has('edge-walls'), has('wall-paint'), roofs, has('kit-swap'), has('vertex-ao') ? LEVEL_VERTEX_AO : 0, has('rules'), projection, macro), log);
+      const b = await buildLevel(be, `level-${kind}`, levelPlan(kind, LEVEL_SEED, liveDoors, has('edge-walls'), has('wall-paint'), roofs, has('kit-swap'), has('vertex-ao') ? LEVEL_VERTEX_AO : 0, has('rules'), projection, macro, foliage), log);
       const t = performance.now();
       const res = await be.post(`/api/v1/admin/projects/${b.projectId}/export`, {});
       if (res.status !== 200) throw new Error(`export failed: ${JSON.stringify(res.json).slice(0, 400)}`);

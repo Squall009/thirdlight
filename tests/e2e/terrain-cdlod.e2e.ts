@@ -58,6 +58,13 @@
  *   drawn from their baked macro textures (every tile baked, far nodes drawn
  *   from them throughout the frame taken: Play's diagnostics); the frames
  *   show the same layers, discs, ramp and hole, without a crack.
+ * - Scatter rules (first renderer, through the editor): on a disc painted
+ *   layer 2 (green), the terrain's Scatter rules place orange posts where the
+ *   ground is gentler than 30° (none on the disc's steep bumps, read back by
+ *   position) and white tufts as ground cover; the Scatter brush takes the
+ *   posts off a patch (undone after); a small block terrace's Scatter puts
+ *   posts on its flat tops, none on its sloped cell. Play and the export
+ *   (both renderers) show the posts and, near their camera, the tufts.
  */
 import { randomBytes } from 'node:crypto';
 import { createReadStream, existsSync, statSync } from 'node:fs';
@@ -67,7 +74,9 @@ import { extname, join, normalize } from 'node:path';
 import { expect, test, type Page } from './pw';
 
 import { layeredMaterial } from '../../packages/editor/src/session/material-graph';
-import { controls, startBackend, type E2EBackend } from './backend';
+import { controls, publishBytes, startBackend, type E2EBackend } from './backend';
+import { multiPieceGlb } from './multi-piece-glb';
+import { decodeChunkScatter } from '../../packages/project-model/src/scatter';
 import { gpuAvailable } from './browser-env.mjs';
 import { ALBEDO_HEIGHT_LAYERS, isBlue, isMagenta, isRed, materials, packNormalAndOrm, packTexture, publishLayerSources, publishTexture, useArrays, type Pred } from './painted-layers';
 import { makePng } from './png-make';
@@ -140,6 +149,14 @@ const STEEP_RULE = { layer: 3, slope: { min: STEEP_DEG, fade: 2 } };
 const MACRO_DISTANCE = 30;
 /** The 1,025² tile's terrain: far out of view (its uploads are what is measured). */
 const BIG_ORIGIN: V3 = [3000, 0, 3000];
+/** The disc painted layer 2 (green) the scatter rules read (after the first renderer's tools), clear of the other checks and the strokes. */
+const GROVE: [number, number] = [-2, 10];
+const GROVE_RADIUS = 3.5;
+/** The block terrace the block layer's scatter dresses: 4 × 2 × 4 cells, one sloped top. */
+const TERRACE_AT: V3 = [12, 3, 4];
+/** The scatter rules' models: an orange post, a white tuft. */
+const isOrange: Pred = (r, g, b) => r > 110 && g > 0.3 * r && g < 0.75 * r && b < 0.35 * r;
+const isWhite: Pred = (r, g, b) => Math.min(r, g, b) > 140 && Math.max(r, g, b) - Math.min(r, g, b) < 45;
 
 /** The heightmap as RAW 16-bit little-endian samples of the terrain's range. */
 function heightmap(): Uint8Array {
@@ -164,7 +181,7 @@ async function stage(bytes: Uint8Array): Promise<string> {
   return s.stageId;
 }
 
-async function buildTerrain(): Promise<{ ground: string; big: string; blocks: string }> {
+async function buildTerrain(): Promise<{ ground: string; big: string; blocks: string; terrace: string }> {
   await cmd('setSettings', { settings: { camera_far_m: 400 } });
   for (const id of ['model-0001', 'spawn-0001', 'box-0001', 'box-0002', 'box-0003', 'box-0004', 'model-0002']) await cmd('deleteEntity', { entityId: id }).catch(() => undefined);
   // The arrays (through the pack route) and the layered template, made as the Materials tab makes it.
@@ -192,6 +209,11 @@ async function buildTerrain(): Promise<{ ground: string; big: string; blocks: st
   await cmd('editTerrain', { entityId: ground, kind: 'import', stageId: await stage(heightmap()), format: 'raw16', at: [0, 0] });
   await cmd('editTerrain', { entityId: ground, kind: 'paint', dabs: [PAINTED], radius: 4, strength: 1, falloff: 'constant', layer: 2 });
   await cmd('editTerrain', { entityId: ground, kind: 'paint', dabs: [FIFTH], radius: 2.5, strength: 1, falloff: 'constant', layer: 4 });
+  // The models the scatter rules place, and the terrace a block layer's scatter dresses.
+  await publishBytes(be!, multiPieceGlb([{ name: 'post', lods: [[0.3, 1.4, 0.3]], colors: [[1, 0.35, 0.02]] }]), 'model', 'e2e-post', 'Post');
+  await publishBytes(be!, multiPieceGlb([{ name: 'tuft', lods: [[0.3, 0.5, 0.3]], colors: [[1, 1, 1]] }]), 'model', 'e2e-tuft', 'Tuft');
+  const terrace = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Terrace', transform: { position: TERRACE_AT } }))['createdId']);
+  await cmd('setComponent', { entityId: terrace, component: 'blockLayer', value: { cellSize: [1, 1, 1], bounds: { min: [0, 0, 0], max: [4, 4, 4] } } });
   // A strip the player walks along into the hole: flat (the bumps are steeper than it climbs).
   const strip: [number, number][] = [];
   for (let z = PLAYER[1] + 2; z >= HOLE[1] + 1; z -= 1) strip.push([PLAYER[0], z]);
@@ -211,7 +233,8 @@ async function buildTerrain(): Promise<{ ground: string; big: string; blocks: st
   const big = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Far', transform: { position: BIG_ORIGIN } }))['createdId']);
   await cmd('setComponent', { entityId: big, component: 'terrain', value: { tileSamples: 1025, spacing: 1, heightRange: [-64, 64], tiles: [{ x: 0, z: 0 }] } });
   await bigNoise(big, 7);
-  return { ground, big, blocks };
+  await cmd('editBlocks', { entityId: terrace, edits: [{ kind: 'fill', box: [0, 0, 0, 4, 2, 4], cell: { block: 'rock' } }, { kind: 'cells', at: [0, 1, 0], cell: { block: 'rock', corners: [0, 1, 1, 0] } }] });
+  return { ground, big, blocks, terrace };
 }
 
 /** Noise over the whole 1,025² tile (a new tile: read, packed and uploaded again). */
@@ -274,13 +297,15 @@ function skyPixels(img: Image, near = 0.08): { n: number; away: number } {
 /** Layers and the hole in a frame from the scene camera: red and blue ground, and the sky only through the hole (no crack). */
 function frameOk(img: Image): boolean {
   const sky = skyPixels(img);
-  return count(img, isRed) / ((img.width * img.height) / 4) > 0.5 && count(img, isBlue) > 20 && count(img, isYellow) > 20 && count(img, isMagenta) > 60 && sky.n > 40 && sky.away === 0;
+  return count(img, isRed) / ((img.width * img.height) / 4) > 0.5 && count(img, isBlue) > 20 && count(img, isYellow) > 20 && count(img, isMagenta) > 60 && count(img, isOrange) > 15 && count(img, isWhite) > 15 && sky.n > 40 && sky.away === 0;
 }
 function expectFrame(img: Image, what: string): void {
   expect(count(img, isRed) / ((img.width * img.height) / 4), `${what}: red ground`).toBeGreaterThan(0.5);
   expect(count(img, isBlue), `${what}: the painted disc`).toBeGreaterThan(20);
   expect(count(img, isYellow), `${what}: the disc of the fifth layer`).toBeGreaterThan(20);
   expect(count(img, isMagenta), `${what}: the steep ramp and the block walls painted by the slope rule`).toBeGreaterThan(60);
+  expect(count(img, isOrange), `${what}: the scatter rules' posts`).toBeGreaterThan(15);
+  expect(count(img, isWhite), `${what}: the ground cover's tufts near the camera`).toBeGreaterThan(15);
   const sky = skyPixels(img);
   expect(sky.n, `${what}: the sky through the hole`).toBeGreaterThan(40);
   expect(sky.away, `${what}: sky pixels away from the hole (a crack between levels or tiles)`).toBe(0);
@@ -400,7 +425,7 @@ test('terrain: CDLOD heights, layered material, paint and a hole in the Scene vi
   test.skip(test.info().project.name === 'webgpu', 'one pass covers both renderers');
   test.setTimeout(420_000);
   be = await startBackend('terrain-cdlod');
-  const { ground, big, blocks } = await buildTerrain();
+  const { ground, big, blocks, terrace } = await buildTerrain();
   const plain = await surface(ground, ...PLAIN);
   const painted = await surface(ground, ...PAINTED);
   const holeAt: V3 = [HOLE[0], (await surface(ground, ...HOLE))[1], HOLE[1]];
@@ -467,6 +492,7 @@ test('terrain: CDLOD heights, layered material, paint and a hole in the Scene vi
       // The terrain tools (their previews against the stored tiles), then the material rules from the editor.
       await terrainTools(page, renderer, ground, big, true);
       await materialRules(page, ground, blocks);
+      await scatterRules(page, ground, terrace);
     } else {
       // The rules baked on the first renderer: the steep ramp and the block walls magenta, the hand-painted disc on
       // the ramp blue, the layer's flat top red (layer 0). The view zooms out until they are all in it, then back.
@@ -529,6 +555,23 @@ test('terrain: CDLOD heights, layered material, paint and a hole in the Scene vi
         .toBe(true);
       test.info().annotations.push({ type: `${renderer} Play macro`, description: JSON.stringify(m) });
       console.log(`${renderer} Play macro: ${JSON.stringify(m)}`);
+    }
+    {
+      // The scatter: the posts drawn from their stored copies, the tufts made near the camera (on the view worker).
+      let d: Record<string, unknown> | undefined;
+      await expect
+        .poll(async () => {
+          d = (((await relay(`${psid}/diagnostics`, {})).json as { diagnostics?: { renderer?: Record<string, unknown> } }).diagnostics ?? {}).renderer;
+          const sc = d?.['scatter'] as { copies?: number } | undefined;
+          const cv = d?.['cover'] as { copies?: number } | undefined;
+          return (sc?.copies ?? 0) > 10 && (cv?.copies ?? 0) > 10;
+        }, { timeout: 60_000, message: `${renderer} Play: the scatter drawn and the ground cover made` })
+        .toBe(true)
+        .catch((e: Error) => {
+          console.log(`${renderer} Play scatter: ${JSON.stringify({ scatter: d?.['scatter'], cover: d?.['cover'] })}`);
+          throw e;
+        });
+      console.log(`${renderer} Play scatter: ${JSON.stringify({ scatter: d?.['scatter'], cover: d?.['cover'] })}`);
     }
     let last: Image | null = null;
     // A frame counts only while every tile's bake is current and far nodes are drawn from them throughout.
@@ -655,6 +698,8 @@ function spots(away: readonly V3[]): [number, number][] {
 }
 
 async function terrainTools(page: Page, renderer: string, ground: string, big: string, first: boolean): Promise<void> {
+  // Once the scatter rules dress the green disc (after the first renderer's tools), the strokes keep off it.
+  const grove: V3[] = first ? [] : [[GROVE[0], 0, GROVE[1]], [GROVE[0] + 2, 0, GROVE[1]], [GROVE[0] - 2, 0, GROVE[1]], [GROVE[0], 0, GROVE[1] + 2], [GROVE[0], 0, GROVE[1] - 2]];
   const height = async (x: number, z: number): Promise<number> => ((await query('queryTerrain', { entityId: ground, points: [[x, z]] }))['points'] as { height: number }[])[0]!.height;
   await selectEntity(page, ground);
   await expect(terrainPanel(page).getByLabel('terrain size')).toContainText(`${TILES * TILES} tiles of ${CELLS * SPACING} m`);
@@ -665,7 +710,7 @@ async function terrainTools(page: Page, renderer: string, ground: string, big: s
   await expect(viewport(page)).toHaveAttribute('data-terrain-tool', 'raise');
   await setNumber(page, 'terrain radius', 1.5);
   await setNumber(page, 'terrain strength', 0.4);
-  const raiseAt = await visibleSpot(page, ground, spots([]));
+  const raiseAt = await visibleSpot(page, ground, spots([...grove]));
   const h0 = await height(raiseAt[0], raiseAt[2]);
   // The cursor sits on the ground under the pointer (the stored surface).
   const cursor = await cursorAt(page, await screenOf(page, raiseAt));
@@ -688,7 +733,7 @@ async function terrainTools(page: Page, renderer: string, ground: string, big: s
   await setNumber(page, 'terrain radius', 1.2);
   await setNumber(page, 'terrain blend', 0.6);
   await terrainPanel(page).getByLabel('terrain falloff').selectOption('constant');
-  const paintAt = await visibleSpot(page, ground, spots([raiseAt]));
+  const paintAt = await visibleSpot(page, ground, spots([...grove, raiseAt]));
   const paint = await terrainStroke(page, [[paintAt[0] - 0.3, paintAt[1], paintAt[2]], [paintAt[0] + 0.3, paintAt[1], paintAt[2]]], paintAt, 30);
   expect(share(paint.before, isRed), `${renderer}: red before the paint`).toBeGreaterThan(0.6);
   expect(share(paint.preview, isBlue), `${renderer}: the paint previewed`).toBeGreaterThan(0.6);
@@ -716,7 +761,7 @@ async function terrainTools(page: Page, renderer: string, ground: string, big: s
   // ---- holes: one click, the sky through it.
   await terrainTool(page, 'Holes').click();
   await setNumber(page, 'terrain radius', 1);
-  const holeAt = await visibleSpot(page, ground, spots([raiseAt, paintAt]));
+  const holeAt = await visibleSpot(page, ground, spots([...grove, raiseAt, paintAt]));
   const hole = await terrainStroke(page, [holeAt], holeAt, 16);
   expect(share(hole.before, isSky), `${renderer}: ground before the hole`).toBeLessThan(0.05);
   expect(share(hole.preview, isSky), `${renderer}: the hole previewed`).toBeGreaterThan(0.5);
@@ -962,4 +1007,121 @@ async function checkCrossings(page: Page, ground: string): Promise<number> {
     if (now !== 0) side = now;
   }
   return n;
+}
+
+/**
+ * The scatter rules from the editor (see the file's header): the terrain's posts (stored) and tufts (ground cover)
+ * on the green disc, the brush taking posts off a patch (undone), the terrace's posts on its flat tops.
+ */
+async function scatterRules(page: Page, ground: string, terrace: string): Promise<void> {
+  type Copy = { rule: string; x: number; y: number; z: number; cell: [number, number] };
+  const box: [number, number, number, number] = [GROVE[0] - GROVE_RADIUS - 1, GROVE[1] - GROVE_RADIUS - 1, GROVE[0] + GROVE_RADIUS + 1, GROVE[1] + GROVE_RADIUS + 1];
+  const copies = async (): Promise<Copy[]> => (((await query('queryTerrain', { entityId: ground, scatter: { box } }))['scatter'] as { copies: Copy[] } | undefined)?.copies ?? []);
+  const fill = async (scope: ReturnType<Page['getByRole']>, label: string, value: number | string): Promise<void> => {
+    const f = scope.getByLabel(label, { exact: true });
+    await f.fill(String(value));
+    await f.blur();
+  };
+  // The disc the rules read (layer 2, green), painted now: the first renderer's tools ran on the ground as it was.
+  await cmd('editTerrain', { entityId: ground, kind: 'paint', dabs: [GROVE], radius: GROVE_RADIUS, strength: 1, falloff: 'constant', layer: 1 });
+  await selectEntity(page, ground);
+  await terrainPanel(page).getByRole('button', { name: /^Scatter rules/ }).click();
+  const rules = terrainPanel(page).getByRole('group', { name: 'scatter rules' });
+  // Posts: on the disc (layer 2's share over 0.5), on ground gentler than 30°.
+  await rules.getByRole('button', { name: 'add scatter rule' }).click();
+  await fill(rules, 'scatter 1 name', 'posts');
+  await rules.getByLabel('scatter 1 model', { exact: true }).selectOption('e2e-post');
+  await fill(rules, 'scatter 1 density', 1.5);
+  await fill(rules, 'scatter 1 spacing', 0.6);
+  await fill(rules, 'scatter 1 slope max', 30);
+  await fill(rules, 'scatter 1 slope fade', 0.5);
+  await rules.getByLabel('scatter 1 layers', { exact: true }).check();
+  await fill(rules, 'scatter 1 layers of layer', 1);
+  // Tufts: ground cover on the same disc, reaching the Play camera (about 45 m away).
+  await rules.getByRole('button', { name: 'add scatter rule' }).click();
+  await fill(rules, 'scatter 2 name', 'tufts');
+  await rules.getByLabel('scatter 2 model', { exact: true }).selectOption('e2e-tuft');
+  await fill(rules, 'scatter 2 density', 6);
+  await fill(rules, 'scatter 2 spacing', 0);
+  await fill(rules, 'scatter 2 slope max', 40);
+  await rules.getByLabel('scatter 2 layers', { exact: true }).check();
+  await fill(rules, 'scatter 2 layers of layer', 1);
+  await rules.getByLabel('scatter 2 cover', { exact: true }).check();
+  await fill(rules, 'scatter 2 cover distance', 100);
+  const rev0 = Number((await query('queryProject')).revision);
+  await rules.getByRole('button', { name: 'apply scatter rules' }).click();
+  await expect.poll(async () => (await copies()).length, { timeout: 30_000, message: 'the posts baked' }).toBeGreaterThan(10);
+  expect(Number((await query('queryProject')).revision), 'one command for the bake').toBe(rev0 + 1);
+  // Every post on the disc and on gentle ground (its slope read where it stands); ground cover is never stored.
+  const posts = await copies();
+  expect(posts.every((c) => c.rule === 'posts')).toBe(true);
+  const slopes = ((await query('queryTerrain', { entityId: ground, points: posts.map((c) => [c.x, c.z]) }))['points'] as { slope: number; layers: number[] }[]);
+  slopes.forEach((p, i) => {
+    expect(p.slope, `post ${i} stands on ground under 30.5°`).toBeLessThan(30.5);
+    expect(p.layers[0], `post ${i} stands on the disc`).toBe(1);
+  });
+  // Some of the disc is steeper than that (its bumps): those places carry none.
+  const grid: [number, number][] = [];
+  for (let z = GROVE[1] - 3; z <= GROVE[1] + 3; z += 0.5) for (let x = GROVE[0] - 3; x <= GROVE[0] + 3; x += 0.5) grid.push([x, z]);
+  const steep = ((await query('queryTerrain', { entityId: ground, points: grid }))['points'] as { slope: number }[]).filter((p) => p.slope > 35).length;
+  expect(steep, 'the disc has steep places').toBeGreaterThan(5);
+  test.info().annotations.push({ type: 'terrain scatter', description: JSON.stringify({ posts: posts.length, steepSamples: steep }) });
+
+  // The Scatter brush (Ctrl: take off) over a patch of the disc: no post left there; undone, they are back. The view
+  // frames a marker on the disc first (the tools left it over the far tile), and the marker goes before the stroke.
+  const marker = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'box', name: 'Grove', transform: { position: [GROVE[0], (await surface(ground, ...GROVE))[1] + 1, GROVE[1]] }, box: { size: [6, 2, 6], material: { color: '#00ff00' } } }))['createdId']);
+  await page.locator(`.tl-hierarchy__list li[data-entity-id="${marker}"]`).click();
+  await page.keyboard.press('f');
+  await page.waitForTimeout(300);
+  await cmd('deleteEntity', { entityId: marker });
+  await selectEntity(page, ground);
+  await terrainTool(page, 'Scatter').click();
+  await expect(terrainPanel(page).getByLabel('scatter brush rule')).toHaveValue('posts');
+  await setNumber(page, 'terrain radius', 1.5);
+  const center = await visibleSpot(page, ground, posts.slice(0, 12).map((c) => [c.x, c.z] as [number, number]));
+  const s = await screenOf(page, center);
+  const near = (list: Copy[]): number => list.filter((c) => Math.hypot(c.x - center[0], c.z - center[2]) < 1.2).length;
+  expect(near(posts), 'posts under the brush before').toBeGreaterThan(0);
+  await page.keyboard.down('Control');
+  await page.mouse.move(s.x, s.y);
+  await page.mouse.down();
+  await page.mouse.move(s.x + 2, s.y, { steps: 3 });
+  await page.mouse.up();
+  await page.keyboard.up('Control');
+  await expect.poll(async () => near(await copies()), { timeout: 30_000, message: 'the brush took the posts off' }).toBe(0);
+  await cmd('undo', {});
+  await expect.poll(async () => near(await copies()), { timeout: 30_000, message: 'undone: the posts are back' }).toBe(near(posts));
+  await terrainTool(page, 'Raise').click();
+
+  // The terrace's Scatter: posts on its flat tops (rows 2), none over its sloped cell (0, 1, 0).
+  await page.locator(`.tl-hierarchy__list li[data-entity-id="${terrace}"]`).click();
+  await openWindow(page, 'Blocks');
+  const panel = page.getByLabel('blocks panel');
+  await expect(panel.getByLabel('block layer')).toHaveValue(terrace);
+  await panel.getByRole('button', { name: /^Scatter.*…$/ }).click();
+  const blockRules = panel.getByRole('group', { name: 'scatter rules' });
+  await blockRules.getByRole('button', { name: 'add scatter rule' }).click();
+  await fill(blockRules, 'scatter 1 name', 'posts');
+  await blockRules.getByLabel('scatter 1 model', { exact: true }).selectOption('e2e-post');
+  await fill(blockRules, 'scatter 1 density', 2);
+  await fill(blockRules, 'scatter 1 spacing', 0.4);
+  await fill(blockRules, 'scatter 1 slope max', 10);
+  await blockRules.getByRole('button', { name: 'apply scatter rules' }).click();
+  type Chunk = { chunk: { scatter?: string } | null };
+  const terraceCopies = async (): Promise<[number, number, number][]> => {
+    const chunks = ((await query('queryBlocks', { entityId: terrace }))['chunks'] as Chunk[] | undefined) ?? [];
+    const out: [number, number, number][] = [];
+    for (const c of chunks) {
+      const cell = decodeChunkScatter(c.chunk?.scatter);
+      const t = cell?.get('posts');
+      for (let i = 0; i < (t?.copies.length ?? 0); i += 10) out.push([t!.copies[i]!, t!.copies[i + 1]!, t!.copies[i + 2]!]);
+    }
+    return out;
+  };
+  await expect.poll(async () => (await terraceCopies()).length, { timeout: 30_000, message: 'the terrace\'s posts baked' }).toBeGreaterThan(8);
+  for (const [x, y, z] of await terraceCopies()) {
+    expect(x >= 1 || z >= 1, `a post at (${x}, ${z}) not over the sloped cell`).toBe(true);
+    expect(y, 'a post on the flat tops').toBeCloseTo(2, 3);
+  }
+  await page.locator('.tl-hierarchy__list li[data-entity-id="' + ground + '"]').click();
 }

@@ -533,8 +533,8 @@ function validateRecordResult(
   if (op === 'editTerrain' && 'terrain' in result) {
     const t = result['terrain'];
     const pairs = (v: unknown): boolean => Array.isArray(v) && v.every((p) => Array.isArray(p) && p.length === 2 && p.every((n) => isSafeInt(n)));
-    if (!isPlainObject(t) || !pairs(t['tiles']) || !pairs(t['added']) || !isSafeInt(t['changed']) || (t['clamped'] !== undefined && !isSafeInt(t['clamped'])) || Object.keys(t).some((k) => !['tiles', 'added', 'changed', 'clamped'].includes(k))) {
-      return rerr('recorded result terrain must be {tiles, added, changed, clamped?}', undefined, '/result/terrain');
+    if (!isPlainObject(t) || !pairs(t['tiles']) || !pairs(t['added']) || !isSafeInt(t['changed']) || (t['clamped'] !== undefined && !isSafeInt(t['clamped'])) || (t['scatter'] !== undefined && !pairs(t['scatter'])) || Object.keys(t).some((k) => !['tiles', 'added', 'changed', 'clamped', 'scatter'].includes(k))) {
+      return rerr('recorded result terrain must be {tiles, added, changed, clamped?, scatter?}', undefined, '/result/terrain');
     }
   }
   if (op === 'createEntity') {

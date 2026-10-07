@@ -14,10 +14,11 @@
  *   apart: 6 km square), flat under the area and rising into hills away from
  *   it (an uploaded RAW heightmap), wearing a height-blended layers material
  *   (four layers of noise textures packed into texture arrays) with discs of
- *   the other three layers painted over it; and rings of large instanced
- *   copies (trees and rocks) standing on it, under the same fog, the camera's
- *   far plane pushed out. The rings stand in for rule scatter until the
- *   engine places it.
+ *   the other three layers painted over it; trees, pines and rocks placed on
+ *   it by scatter rules (slope, height, noise; the block area kept clear by
+ *   a region) and shrubs on the block layer's soil by a rule of its own, and
+ *   ground cover (grass, flowers) on both near the camera, under the same
+ *   fog, the camera's far plane pushed out.
  *
  * Either class can carry `liveDoors` live door cells on the ground outside the
  * rooms (`--live N`; none by default, so the classes' numbers stay
@@ -55,17 +56,17 @@
  * `levelPlan` is a pure function of the kind and the seed; `buildLevel`
  * applies it through the real command API, like the village.
  */
-import { INSTANCE_DENSITY_MIN_NEW } from '@thirdlight/project-model';
+import { FOLIAGE_NEAR_METRES, INSTANCE_DENSITY_MIN_NEW } from '@thirdlight/project-model';
 
 import { layeredMaterial } from '../../packages/editor/src/session/material-graph';
 import { makePng } from '../../tests/e2e/png-make';
 import { publishBehaviorVia, publishBufferVia, publishFileVia, splitBySize } from './build';
 import type { PerfBackend } from './backend';
 import { prng, type BehaviorPlan, type EntityValue } from './generate';
-import { propGlb, scatterKitGlb, type PropSpec } from './village-assets';
+import { coverKitGlb, propGlb, scatterKitGlb, type PropSpec } from './village-assets';
 
 /** Bump when the generated content changes. */
-export const LEVEL_VERSION = 2;
+export const LEVEL_VERSION = 3;
 export const LEVEL_SEED = 30;
 
 export type LevelKind = 'area' | 'landscape';
@@ -83,19 +84,6 @@ export const LEVEL_SPEC = {
   foliageSets: 40,
   foliageCopies: 150,
   pointLights: 6,
-  /** The landscape's far rings: [inner, outer] radius (m) from the area's centre; then sectors (one instance set each) per ring and copies per set. */
-  farRings: [
-    [150, 400],
-    [400, 900],
-    [900, 1800],
-    [1800, 3000],
-  ] as readonly (readonly [number, number])[],
-  farSectors: 16,
-  farCopies: 500,
-  /** Far copies are scaled up from the scatter kit's pieces (0.2–0.8 m) to tree and boulder size. */
-  farScale: [8, 16] as const,
-  /** Instance chunk size of the far sets (m): coarse, as a game sets for distant scatter. */
-  farChunk: 256,
   /** The camera's far plane in the landscape (m). */
   farPlane: 4000,
   /** The landscape's terrain: tiles per side (centred on the area), samples per tile side, metres between samples, its height range (m). */
@@ -110,8 +98,51 @@ const PROP_FILE = (i: number): string => `level-prop-${String(i + 1).padStart(2,
 const FOLIAGE_KIT = 'level-foliage';
 const FOLIAGE_PIECES = ['tuft', 'fern', 'flower', 'shrub'] as const;
 const FAR_KIT = 'level-far';
+const COVER_KIT = 'level-cover';
+const COVER_PIECES = ['grass', 'flower'] as const;
 const FAR_PIECES = ['tree', 'pine', 'boulder'] as const;
+/** The block layer's region the terrain's scatter keeps clear (the whole area). */
+const SCATTER_CLEAR = 'scatter-clear';
+
+/** The foliage policy the landscape's scatter follows (`--foliage off`: every copy casts, sways and stays, no blobs). */
+export type LevelFoliage = 'on' | 'off';
+
+
+/**
+ * The landscape's terrain scatter: trees in clumps (noise) on gentle ground,
+ * pines up high, rocks on the steep parts, none on the block area; the far
+ * kit's pieces (0.2–0.8 m) scaled to tree and boulder size; about as many
+ * copies as the far rings they replace (32,000). Ground cover (grass, a few
+ * flowers) near the camera. Under the foliage policy (the engine's default
+ * for scatter) the big copies cast only within FOLIAGE_NEAR_METRES, a blob
+ * under each near one, and thin out with distance; off, every copy casts
+ * into the static map and none thins out.
+ */
+export function levelScatterTerrain(foliage: LevelFoliage = 'on'): Record<string, unknown>[] {
+  const big = foliage === 'on' ? { castShadow: true, shadowDistance: FOLIAGE_NEAR_METRES, blobShadow: 0.6, densityMin: INSTANCE_DENSITY_MIN_NEW } : { castShadow: true };
+  return [
+    { id: 'trees', asset: { assetId: FAR_KIT, piece: 'tree' }, density: 0.0012, spacing: 10, scale: [8, 16], slope: { max: 22, fade: 6 }, noise: { scale: 300, seed: 3, min: 0.35, fade: 0.15 }, exclude: [SCATTER_CLEAR], ...big },
+    { id: 'pines', asset: { assetId: FAR_KIT, piece: 'pine' }, density: 0.0008, spacing: 10, scale: [8, 16], height: { min: 40, fade: 20 }, slope: { max: 30, fade: 5 }, exclude: [SCATTER_CLEAR], ...big },
+    { id: 'rocks', asset: { assetId: FAR_KIT, piece: 'boulder' }, density: 0.0005, spacing: 6, scale: [6, 12], align: 0.5, slope: { min: 15, fade: 5 }, exclude: [SCATTER_CLEAR], ...big },
+    // Ground cover near the camera (never stored): grass tufts and a few flowers on gentle ground.
+    { id: 'grass', asset: { assetId: COVER_KIT, piece: 'grass' }, density: 2, scale: [1, 2], align: 0.7, slope: { max: 30, fade: 5 }, exclude: [SCATTER_CLEAR], cover: true, coverDistance: 40, ...(foliage === 'off' ? { densityMin: 1 } : {}) },
+    { id: 'flowers', asset: { assetId: COVER_KIT, piece: 'flower' }, density: 0.3, scale: [1, 2], slope: { max: 20, fade: 5 }, noise: { scale: 20, seed: 9, min: 0.5, fade: 0.1 }, exclude: [SCATTER_CLEAR], cover: true, coverDistance: 30, ...(foliage === 'off' ? { densityMin: 1 } : {}) },
+  ];
+}
+
+/** The landscape's block-layer scatter: shrubs on the soil tops (not the rock walls), a few metres apart, and grass. */
+export function levelScatterBlocks(foliage: LevelFoliage = 'on'): Record<string, unknown>[] {
+  return [
+    { id: 'shrubs', asset: { assetId: FOLIAGE_KIT, piece: 'shrub' }, density: 0.05, spacing: 2.5, scale: [2, 4], blocks: ['soil'], slope: { max: 35, fade: 5 }, ...(foliage === 'on' ? { blobShadow: 0.4, densityMin: INSTANCE_DENSITY_MIN_NEW } : { castShadow: true }) },
+    // Ground cover on the soil (never stored).
+    { id: 'grass', asset: { assetId: COVER_KIT, piece: 'grass' }, density: 2, scale: [1, 2], align: 0.7, blocks: ['soil'], slope: { max: 35, fade: 5 }, cover: true, coverDistance: 40, ...(foliage === 'off' ? { densityMin: 1 } : {}) },
+  ];
+}
+
+/** The scatter kits wear a foliage material: the wind sways them near the camera only under the policy (everywhere off). */
+const FOLIAGE_MATERIAL = 'mat-level-foliage';
 const TERRAIN_MATERIAL = 'mat-level-terrain';
+
 /** The starter's objects the classes do without (player, spawn, boxes, pillar). */
 const STARTER_REMOVED = ['model-0001', 'spawn-0001', 'box-0001', 'box-0002', 'box-0003', 'box-0004', 'model-0002'];
 const PASTE_MAX = 256;
@@ -217,6 +248,8 @@ export interface LevelPlan {
   projection: number;
   /** The terrain's macro distance (m; 0: none, the layers everywhere). */
   macro: number;
+  /** The foliage policy the landscape's scatter follows. */
+  foliage: LevelFoliage;
 }
 
 /**
@@ -300,12 +333,12 @@ function copies(n: number, at: (i: number) => { x: number; y: number; z: number;
   return f;
 }
 
-export function levelPlan(kind: LevelKind, seed = LEVEL_SEED, liveDoorCount = 0, edgeWalls = false, wallPaint = false, roofs: LevelRoofs = 'none', kitSwap = false, vertexAO = 0, rules = false, projection = 0, macro = 0): LevelPlan {
+export function levelPlan(kind: LevelKind, seed = LEVEL_SEED, liveDoorCount = 0, edgeWalls = false, wallPaint = false, roofs: LevelRoofs = 'none', kitSwap = false, vertexAO = 0, rules = false, projection = 0, macro = 0, foliage: LevelFoliage = 'on'): LevelPlan {
   const S = LEVEL_SPEC;
   const N = S.areaSide;
   const rnd = prng(seed * 104729 + N);
   const half = N / 2;
-  const counts: Record<string, number> = { props: 0, propColliders: 0, foliageSets: 0, foliageCopies: 0, rooms: 0, pointLights: 0, farSets: 0, farCopies: 0, terrainTiles: 0 };
+  const counts: Record<string, number> = { props: 0, propColliders: 0, foliageSets: 0, foliageCopies: 0, rooms: 0, pointLights: 0, terrainTiles: 0 };
   const props = Array.from({ length: S.propFiles }, (_, i) => {
     const u = rnd();
     return { assetId: PROP_FILE(i), seed: Math.floor(rnd() * 2 ** 31), spec: { parts: u < 0.5 ? 1 : u < 0.85 ? 2 : 3, rings: 6 + Math.floor(rnd() * 4), sides: 10 + Math.floor(rnd() * 6), textureSize: i % 3 === 0 ? 256 : 0 } };
@@ -461,32 +494,10 @@ export function levelPlan(kind: LevelKind, seed = LEVEL_SEED, liveDoorCount = 0,
     const [tx, ty, tz] = levelTerrainOrigin();
     entities.push({ id: 'terrain', name: 'Terrain', static: true, components: { transform: T(tx, ty, tz), terrain: { tileSamples: TS.tileSamples, spacing: TS.spacing, heightRange: [...TS.heightRange], tiles, ...(macro > 0 ? { macroDistance: macro } : {}) }, materials: { '*': TERRAIN_MATERIAL } } });
     counts.terrainTiles = tiles.length;
-    // The far rings: one set per sector, copies spread over the sector's area evenly by area, standing on the terrain.
-    S.farRings.forEach(([r0, r1], ring) => {
-      for (let s = 0; s < S.farSectors; s += 1) {
-        const a0 = (s / S.farSectors) * Math.PI * 2;
-        const a1 = ((s + 1) / S.farSectors) * Math.PI * 2;
-        const am = (a0 + a1) / 2;
-        const rm = (r0 + r1) / 2;
-        const cx = Math.cos(am) * rm;
-        const cz = Math.sin(am) * rm;
-        const key = `far-${ring}-${s}`;
-        buffers.push({
-          key,
-          floats: copies(S.farCopies, () => {
-            const a = a0 + rnd() * (a1 - a0);
-            const r = Math.sqrt(r0 * r0 + rnd() * (r1 * r1 - r0 * r0));
-            const x = Math.cos(a) * r;
-            const z = Math.sin(a) * r;
-            return { x: x - cx, y: levelTerrainHeight(x, z) - levelTerrainHeight(cx, cz), z: z - cz, yaw: rnd() * Math.PI * 2, s: S.farScale[0] + rnd() * (S.farScale[1] - S.farScale[0]) };
-          }),
-        });
-        entities.push({ id: key, name: `Far ${ring + 1}.${s + 1}`, components: { transform: T(cx, levelTerrainHeight(cx, cz), cz), instances: { asset: { assetId: FAR_KIT, piece: FAR_PIECES[(ring + s) % FAR_PIECES.length] }, buffer: `$buffer:${key}`, count: S.farCopies, castShadow: false, densityMin: INSTANCE_DENSITY_MIN_NEW, chunkSize: S.farChunk } } });
-        counts.farSets! += 1;
-        counts.farCopies! += S.farCopies;
-      }
-    });
   }
+
+  // The landscape's terrain scatter keeps off the whole block area (a region of the layer's every column).
+  if (kind === 'landscape') blockEdits.push({ kind: 'region', regionId: SCATTER_CLEAR, op: 'set', boxes: [[0, 0, 0, N, 32, N]] });
 
   // Live doors on free ground columns outside the rooms, a row above the column's highest corner (its own
   // generator, so the classes' content does not change with the count).
@@ -504,11 +515,11 @@ export function levelPlan(kind: LevelKind, seed = LEVEL_SEED, liveDoorCount = 0,
 
   const batches: EntityValue[][] = [];
   for (let i = 0; i < entities.length; i += PASTE_MAX) batches.push(entities.slice(i, i + PASTE_MAX));
-  const layer: EntityValue = { id: 'ground', name: 'Ground', components: { transform: T(-half, 0, -half), blockLayer: { cellSize: [1, S.cellHeight, 1], bounds: { min: [0, 0, 0], max: [N, 32, N] }, maxSlope: 60, smoothAngle: 40, topSubdivision: 2, ...(wallPaint ? { wallPaint: true } : {}), ...(vertexAO > 0 ? { vertexAO } : {}), ...(rules ? { rules: LEVEL_RULES } : {}), ...(roofs === 'cutaway' ? { cutaway: { regions: rooms.map((_, i) => ({ region: `roof-${i}` })) } } : {}) } } };
+  const layer: EntityValue = { id: 'ground', name: 'Ground', components: { transform: T(-half, 0, -half), blockLayer: { cellSize: [1, S.cellHeight, 1], bounds: { min: [0, 0, 0], max: [N, 32, N] }, maxSlope: 60, smoothAngle: 40, topSubdivision: 2, ...(wallPaint ? { wallPaint: true } : {}), ...(vertexAO > 0 ? { vertexAO } : {}), ...(rules ? { rules: LEVEL_RULES } : {}), ...(kind === 'landscape' ? { scatter: levelScatterBlocks(foliage) } : {}), ...(roofs === 'cutaway' ? { cutaway: { regions: rooms.map((_, i) => ({ region: `roof-${i}` })) } } : {}) } } };
   // At the area's south edge, 8 m over its ground, looking north across it to the horizon.
   const pitch = -0.12;
   const camera: LevelPlan['camera'] = { position: [0, r3(groundY(half, N - 2) + 8), half - 2], rotation: [r6(Math.sin(pitch / 2)), 0, 0, r6(Math.cos(pitch / 2))] };
-  return { kind, version: LEVEL_VERSION, seed, props, buffers, layer, batches, blockEdits, rooms, camera, counts, liveDoors, edgeWalls, wallPaint, roofs, kitSwap, rules, projection, macro };
+  return { kind, version: LEVEL_VERSION, seed, props, buffers, layer, batches, blockEdits, rooms, camera, counts, liveDoors, edgeWalls, wallPaint, roofs, kitSwap, rules, projection, macro, foliage };
 }
 
 /**
@@ -563,6 +574,10 @@ export async function buildLevel(be: PerfBackend, projectId: string, plan: Level
   await publishFileVia(be, projectId, cmd, { assetId: FOLIAGE_KIT, kind: 'model', displayName: 'Level foliage', bytes: scatterKitGlb(plan.seed, FOLIAGE_PIECES) });
   if (plan.kind === 'landscape') {
     await publishFileVia(be, projectId, cmd, { assetId: FAR_KIT, kind: 'model', displayName: 'Level far scatter', bytes: scatterKitGlb(plan.seed + 1, FAR_PIECES) });
+    await publishFileVia(be, projectId, cmd, { assetId: COVER_KIT, kind: 'model', displayName: 'Level ground cover', bytes: coverKitGlb(plan.seed + 2, COVER_PIECES) });
+    // The kits' foliage material: its wind distance is the policy's (0 off: the wind's work in every vertex).
+    await cmd('setMaterial', { material: { materialId: FOLIAGE_MATERIAL, name: 'Level foliage', shader: 'foliage', params: { color: '#5a8a3a', roughness: 0.9, windDistance: plan.foliage === 'on' ? FOLIAGE_NEAR_METRES : 0 }, textures: {} } });
+    for (const [assetId, name] of [[FAR_KIT, 'scatter'], [COVER_KIT, 'cover']] as const) await cmd('setAssetOptions', { assetId, materials: { [name]: FOLIAGE_MATERIAL } });
     // The terrain's layered material: four layers of albedo (height in alpha), normal and ORM arrays packed from plain textures.
     const sources = levelTerrainTextures(plan.seed, LEVEL_SPEC.terrainTexture);
     for (const t of sources) await publishFileVia(be, projectId, cmd, { assetId: t.assetId, kind: 'texture', displayName: t.assetId, bytes: t.png });
@@ -655,6 +670,10 @@ export async function buildLevel(be: PerfBackend, projectId: string, plan: Level
       await cmd('editTerrain', { entityId: terrainId, kind: 'bake', rules: LEVEL_RULES });
       log(`level ${plan.kind}: rules baked into ${plan.counts['terrainTiles']} tiles in ${Math.round(performance.now() - t)} ms (the command's round trip)`);
     }
+    // The scatter rules, baked into every tile (the block area's region is set by now).
+    const ts = performance.now();
+    const baked = (await cmd('editTerrain', { entityId: terrainId, kind: 'bake', scatter: levelScatterTerrain(plan.foliage) }))['terrain'] as { scatter?: unknown[] } | undefined;
+    log(`level ${plan.kind}: scatter baked into ${baked?.scatter?.length ?? 0} tiles in ${Math.round(performance.now() - ts)} ms (the command's round trip)`);
   }
   log(`level ${plan.kind}: ${JSON.stringify(plan.counts)}`);
 

@@ -10,6 +10,7 @@
  * before any capture. Pure: no I/O, no filesystem, no three.js.
  */
 
+import { scatterRuleAssets, type ScatterRule } from './scatter';
 import { timelineRefs, type TimelineAsset } from './timelines';
 import { uiAssetRefs, type UiDocument, type UiTheme } from './ui-documents';
 import { dialogueAssetRefs, type DialogueDocument, type DialogueSpeaker } from './dialogue';
@@ -117,6 +118,9 @@ export function collectAssetRefsV3(
     // An instance set places one model.
     const instances = (e.components as { instances?: { asset: { assetId: string } } }).instances;
     if (instances) setRef(instances.asset.assetId);
+    // The models scatter rules place on a terrain or a block layer.
+    const scatter = e.components as { terrain?: { scatter?: ScatterRule[] }; blockLayer?: { scatter?: ScatterRule[] } };
+    for (const id of scatterRuleAssets([...(scatter.terrain?.scatter ?? []), ...(scatter.blockLayer?.scatter ?? [])])) setRef(id);
     // An audio source's sound.
     const source = (e.components as { audioSource?: { assetId: string } }).audioSource;
     if (source) setRef(source.assetId);

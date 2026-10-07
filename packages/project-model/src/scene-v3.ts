@@ -14,6 +14,7 @@
  * renumbered or reinterpreted). Pure and total: same input → same
  * result, never throws, never reads files.
  */
+import { MAX_INSTANCE_CHUNK_SIZE } from './model-lod';
 import { MAX_LOCAL_LIGHTS } from './local-lights';
 import { SHADOW_MAP_SIZES } from './quality-levels';
 import { INSTANCE_DENSITY_SIZE_MIN } from './model-lod';
@@ -105,6 +106,8 @@ import { isRemovedComponent, removedComponentMessage } from './upgrade-v24';
 import { effectiveEntityFlags, nearestObjectAncestor } from './hierarchy-v3';
 import { canonicalBlockFootprint, validateBlockFootprintComponent, type BlockFootprintComponent } from './block-layers';
 import { canonicalBlockLayerComponent, canonicalSceneBlocks, validateBlockLayerComponent, validateSceneBlocks, type BlockLayerComponent, type BlockLayerData } from './block-layers';
+
+export { MAX_INSTANCE_CHUNK_SIZE };
 
 export const COLOR_RE_V3 = /^#[0-9a-fA-F]{6}$/;
 export const MAX_ABS_V3 = 1e6; // numbers bound
@@ -248,8 +251,6 @@ function optionalColor(v: unknown, path: string, dflt: string, errors: ModelErro
  * buffer stored by SHA-256 (asset and buffer existence are checked against
  * the content block and the blob store elsewhere).
  */
-/** The largest instance-set chunk size (m). */
-export const MAX_INSTANCE_CHUNK_SIZE = 4096;
 
 /** The keys of an `instances` component. */
 const INSTANCES_KEYS = new Set(['asset', 'buffer', 'count', 'castShadow', 'receiveShadow', 'chunkSize', 'lightLayers', 'densityStart', 'densityEnd', 'densityMin', 'lodPerCopy', 'localLights']);

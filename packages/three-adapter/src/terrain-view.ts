@@ -51,6 +51,7 @@
  * removal waits until the next update, and a terrain set again before it
  * only reads the tiles whose digests changed.
  */
+import type { ScatterSink } from './scatter-view';
 import * as THREE from 'three';
 import type { WebGPURenderer } from 'three/webgpu';
 import { flatTerrainTile, TerrainField, terrainFlatStep, terrainHeightOf, terrainTileBytes, terrainTileKey, type TerrainComponent, type TerrainTile } from '@thirdlight/runtime';
@@ -109,6 +110,8 @@ export interface TerrainViewDeps {
   changed(): void;
   /** The LOD bias in force (the project's and the quality level's). */
   lodBias(): number;
+  /** Where the terrains' scatter copies go (`scatter-view.ts`). */
+  scatter?: ScatterSink;
 }
 
 /** What `setTerrain` dresses the terrain with: its entity's components (materials, render flags). */
@@ -399,12 +402,14 @@ export class TerrainView {
     }
     this.placeAll(rec, at);
     this.dress(rec);
+    this.deps.scatter?.setTerrain(id, component, at);
   }
 
   /** The terrain of entity `id` goes (at the next update, unless it is set again first). */
   removeTerrain(id: string): void {
     const rec = this.terrains.get(id);
     if (rec !== undefined) rec.leaving = true;
+    this.deps.scatter?.remove(id);
   }
 
   /** Hide or show a terrain (its object is inactive or hidden). */
@@ -413,6 +418,7 @@ export class TerrainView {
     if (rec === undefined || rec.hidden === hidden) return;
     rec.hidden = hidden;
     for (const p of rec.pages) this.list(p, !hidden);
+    this.deps.scatter?.setHidden(id, hidden);
   }
 
   private list(p: Page, on: boolean): void {

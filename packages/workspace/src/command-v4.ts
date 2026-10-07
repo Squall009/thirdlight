@@ -199,14 +199,14 @@ export function runCommandV4(core: Core, s: ProjectSession, sent: unknown, D: st
   }
   // A terrain edit: the tiles it reaches read and planned here; its new tiles are published once the command passed.
   let terrainBlobs: TerrainBlob[] = [];
-  let terrainReport: { tiles: [number, number][]; added: [number, number][]; changed: number; clamped?: number } | null = null;
+  let terrainReport: { tiles: [number, number][]; added: [number, number][]; changed: number; clamped?: number; scatter?: [number, number][] } | null = null;
   if (op === 'editTerrain') {
     const prepared = prepareTerrainEdit(core, s, carrier, commandState.content, args);
     if (!prepared.ok) return failRequest(request, prepared.error);
     commandState.preparedTerrainEdit = prepared.prepared;
     terrainBlobs = prepared.blobs;
     const p = prepared.prepared;
-    terrainReport = { tiles: p.touched, added: p.added, changed: p.changed, ...(p.clamped !== undefined ? { clamped: p.clamped } : {}) };
+    terrainReport = { tiles: p.touched, added: p.added, changed: p.changed, ...(p.clamped !== undefined ? { clamped: p.clamped } : {}), ...(p.scatter !== undefined ? { scatter: p.scatter } : {}) };
   }
   // A collider from the object's model: the host reads the model file and makes the shape.
   if (op === 'colliderFromModel') {

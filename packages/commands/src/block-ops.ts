@@ -19,7 +19,9 @@
  */
 import {
   applyBlockEdits,
+  bakeBlockScatter,
   BlockGrid,
+  storedScatterRules,
   CHUNK_SIZE,
   canonicalBlockStamp,
   canonicalBlockTypes,
@@ -36,6 +38,7 @@ import {
 } from '@thirdlight/project-model';
 
 import { layerPatch, patchDelta, patchIsEmpty } from './block-patch';
+import { sceneRegionLayers, scatterBakeTooLarge } from './scatter-ops';
 import { entityNotFound, fieldValue, noChangeContent, type CommandError } from './errors';
 import { contentOf, type OpInput } from './content-ops';
 import { deepClone, gateResultState, type OpOutcome } from './ops';
@@ -84,7 +87,25 @@ export function applyEditBlocks(input: OpInput, args: { entityId: string; edits:
     stamps: new Map(blockStampsOf(content).map((s) => [s.stampId, s])),
   });
   if (!res.ok) return { ok: false, error: fieldValue(res.path, undefined, 'an edit that fits the layer', res.message) };
-  const dirty = grid.takeDirty();
+  let dirty = grid.takeDirty();
+  // The layer's scatter: baked again over the chunks the edits wrote, then the strokes and a whole bake asked for.
+  const strokes = args.edits.flatMap((e, i) => (e.kind === 'scatter' ? [{ e, i }] : []));
+  const whole = args.edits.some((e) => e.kind === 'bakeScatter');
+  if (storedScatterRules(lc.comp.scatter).length > 0 || strokes.length > 0 || whole) {
+    const entity = scene.entities.find((x) => x.id === args.entityId)!;
+    const origin = (entity.components as { transform?: { position?: number[] } }).transform?.position ?? [0, 0, 0];
+    if (whole) {
+      const b = lc.comp.bounds;
+      const tooLarge = scatterBakeTooLarge(storedScatterRules(lc.comp.scatter), null, (b.max[0] - b.min[0]) * lc.comp.cellSize[0] * (b.max[2] - b.min[2]) * lc.comp.cellSize[2]);
+      if (tooLarge !== null) return { ok: false, error: tooLarge };
+    }
+    const types = new Map(blockTypesOf(content).map((t) => [t.blockId, t]));
+    const others = sceneRegionLayers(scene, args.entityId);
+    const baked = bakeBlockScatter(grid, { component: lc.comp, types, origin, otherRegions: others }, whole ? null : dirty.chunks, strokes.map(({ e }) => e as Extract<BlockEdit, { kind: 'scatter' }>));
+    if (!baked.ok) return { ok: false, error: fieldValue(`/args/edits/${strokes[baked.stroke]!.i}/rule`, undefined, 'a scatter rule of the layer', baked.message) };
+    const more = grid.takeDirty();
+    dirty = { ...dirty, chunks: [...new Set([...dirty.chunks, ...more.chunks])] };
+  }
   const next = grid.toData(args.entityId, previous, dirty.chunks);
   if (patchIsEmpty(layerPatch(args.entityId, previous, next, dirty.chunks))) return { ok: false, error: noChangeContent() };
   const result = { ...withLayerData(scene, args.entityId, next), revision: scene.revision + 1 };

@@ -49,6 +49,7 @@ import { BlockLayerView, blockLookFromObject, type BlockLayerViewDiagnostics, ty
 import { createCutawayFollower } from './block-cutaway-follow';
 import { createBrowserMeshWorker } from './block-mesh-pool';
 import { TERRAIN_ENTITY_KEY, TerrainView } from './terrain-view';
+import { createScatterHost } from './scatter-host';
 import { TerrainTileStore } from './terrain-tile-store';
 import { RuntimeMaterialView, type MaterialRenderChangeLike, type RuntimeMaterialsDiagnostics } from './runtime-materials';
 import { MaterialSwapView, type MaterialMappingLike } from './material-swaps';
@@ -477,7 +478,25 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   // Block layers — merged chunk meshes per block look (the same view as the editor's Scene view).
   const blockPrefabs = (opts.snapshot as { prefabs?: readonly { prefabId: string; entities: readonly { parentLocalId?: string; components: Record<string, unknown> }[] }[] }).prefabs ?? [];
   const blockLooks = new Map<string, BlockModelLook | null>();
+  const assetMaterialsOf = (assetId: string): Readonly<Record<string, string>> | undefined => (opts.models?.assets.find((a) => a.assetId === assetId) ?? opts.models?.rowOf?.(assetId))?.materials;
+  // Rule scatter on block layers and terrains: stored copies and ground cover (scatter-host.ts).
+  const scatter = createScatterHost({
+    template: (assetId, piece, onReady) => realization?.blockInstance?.(assetId, piece, onReady) ?? null,
+    dress: (root, assetId) => {
+      const mapping = assetMaterialsOf(assetId);
+      return materialLibrary !== null && mapping !== undefined && Object.keys(mapping).length > 0 ? materialLibrary.apply(root, mapping, null) : null;
+    },
+    read: opts.resolveBuffer ?? opts.models?.resolveBuffer ?? null,
+    place: (root, shown) => (shown ? graph.listStatic(root) : graph.unlistStatic(root)),
+    shapeChanged: () => staticShadows?.bump(),
+    tile: (digest) => (opts.terrainTiles ?? ownTiles)?.tile(digest),
+    ...(opts.meshWorkerUrl !== undefined ? { worker: () => createBrowserMeshWorker(opts.meshWorkerUrl!, 'thirdlight-cover') } : {}),
+    tuning: graph.lodTuning,
+    changed: () => opts.onChange?.(),
+    drawn: opts.scatter !== false,
+  });
   const blockView = new BlockLayerView({
+    ...(scatter.sink !== undefined ? { scatter: scatter.sink } : {}),
     modelLook: (assetId, piece, onReady) => {
       const key = `${assetId}|${piece ?? ''}`;
       if (blockLooks.has(key)) return blockLooks.get(key) ?? null;
@@ -498,7 +517,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     },
     applyMaterials: (mesh, type, assetId) => {
       if (materialLibrary === null) return;
-      const base = (opts.models?.assets.find((a) => a.assetId === assetId) ?? (assetId !== null ? opts.models?.rowOf?.(assetId) : undefined))?.materials;
+      const base = assetId !== null ? assetMaterialsOf(assetId) : undefined;
       const mapping = { ...(base ?? {}), ...(type.materials ?? {}) };
       if (Object.keys(mapping).length > 0) materialLibrary.apply(mesh, mapping, null);
     },
@@ -530,6 +549,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     shapeChanged: () => staticShadows?.bump(),
     materials: materialLibrary, changed: () => opts.onChange?.(),
     lodBias: () => graph.lodTuning.bias,
+    ...(scatter.sink !== undefined ? { scatter: scatter.sink } : {}),
   });
   /** The block layers realized from their documents (a host may drive layers of its own through `blockLayers()`). */
   const docLayers = new Set<string>();
@@ -1414,6 +1434,8 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     const gridChanges = (opts.runtime as { takeGridChanges?: () => GridRenderChange[] }).takeGridChanges?.() ?? [];
     if (gridChanges.length > 0) blockView.applyRuntimeChanges(gridChanges);
     blockView.update();
+    // (The near shadows follow the last frame's eye: the view is culled for this one further down.)
+    scatter.stored.update(viewCull.view);
     if (cutaways.wanted()) cutaways.follow();
     // The light values scripts wrote, then the environment preset blend
     // (the running game's, or the editor's preview) before the draw.
@@ -1443,6 +1465,9 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     viewCull.update(camera!);
     // The terrains' nodes for this view (only when it or their tiles changed), and tiles that arrived uploaded.
     terrains.update(viewCull.view, renderer as never);
+    // Ground cover around the view's eye, and the eye every pass reads distance from (foliage's wind distance).
+    scatter.cover.update(viewCull.view);
+    materialLibrary?.setViewEye(viewCull.view.eye[0]!, viewCull.view.eye[1]!, viewCull.view.eye[2]!);
     // Merged cells still building in the background, or a moved static object waiting to rejoin its cell: a host drawing on demand draws again.
     if (batcher?.pending() === true) opts.onChange?.();
     // Shadows on before the draw (and before the precompile below, so the programs are built with
@@ -1608,6 +1633,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     }
     if (!disposed && blockView.layerIds().length > 0) d.blocks = blockView.diagnostics();
     if (!disposed && terrains.ids().length > 0) d.terrain = terrains.diagnostics();
+    if (!disposed) scatter.diagnostics(d);
     if (!disposed && materialLibrary !== null && runtimeMaterials !== null) d.materials = { graphMaterials: materialLibrary.graphMaterialCount(), ...(materialSwaps !== null && (materialSwaps.applied > 0 || materialSwaps.pending() > 0) ? { swapsApplied: materialSwaps.applied, swapsPending: materialSwaps.pending() } : {}), ...runtimeMaterials.diagnostics() };
     const envDiagnostics = environmentRenderer !== null && !disposed ? environmentRenderer.diagnostics() : null;
     if (envDiagnostics !== null) d.environment = envDiagnostics;
@@ -1680,6 +1706,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     viewCull.dispose();
     blockView.dispose();
     terrains.dispose();
+    scatter.dispose();
     ownTiles?.dispose();
     for (const rec of boxMaterials.values()) rec.material.dispose();
     boxMaterials.clear();
@@ -1867,6 +1894,8 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     blockLayers: () => blockView,
     terrainDiagnostics: () => (terrains.ids().length > 0 ? terrains.diagnostics() : null),
     terrains: () => terrains,
+    scatter: () => scatter.stored,
+    cover: () => scatter.cover,
     currentRenderer: () => (disposed ? null : (owned.renderer?.current() ?? null)),
     frameSkipped: () => lastFrameSkipped || precompileRun !== null,
     lastFrame: () => ({ drawCalls: lastFrameCounts.drawCalls, triangles: lastFrameCounts.triangles, samples: msaaMark, batching: batcher !== null && lastFrameDrawn ? batcher.diagnostics() : null }),
