@@ -11,6 +11,7 @@
  * rotation. Pure and deterministic.
  */
 import { blockTypeSlopes, rotatedFootprint, type BlockCell, type BlockType } from './block-layers';
+import { resolveCellLook } from './block-connect';
 
 /** Corner heights of a cell's top: −x−z, +x−z, +x+z, −x+z, fractions of the cell height. */
 export type CellCorners = readonly [number, number, number, number];
@@ -198,6 +199,11 @@ export function surfaceBelow(g: SurfaceGrid, types: ReadonlyMap<string, BlockTyp
     }
     const t = types.get(cell.block!);
     if (t === undefined) return null;
+    // A connected piece stands turned the way its neighbours resolve it.
+    if (t.connect !== undefined && cell.variant === undefined) {
+      const rot = resolveCellLook(g, t, cell, anchor[0], anchor[1], anchor[2], 0).rot;
+      if (rot !== (cell.rot ?? 0)) cell = { ...cell, rot: rot as BlockCell['rot'] };
+    }
     const f = rotatedFootprint(t, cell.rot);
     const ox = (anchor[0] + f[0] / 2) * cs[0]!;
     const oz = (anchor[2] + f[2] / 2) * cs[2]!;

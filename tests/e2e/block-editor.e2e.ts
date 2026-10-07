@@ -12,7 +12,10 @@
  * (a wall) as the brush, the rectangle draws a room's outline on the cell
  * edges, the brush and eraser take the edges dragged over and the line runs
  * along a grid line (turned end for end), each one undo step; the block type
- * form turns a block type into an edge piece. The Edit menu's snapping
+ * form turns a block type into an edge piece. The form gives a block type
+ * connection pieces (straight, end): a line of it draws straight pieces ended
+ * by end pieces, and erasing a cell in the run makes two more ends (pixels in
+ * the Scene view). The Edit menu's snapping
  * settings change the gizmo's step, and with cell-top snapping on a prop
  * dragged over the layer lands on the cells and its block footprint writes
  * its metadata beneath it, in the same undo step as the move (undo and redo
@@ -301,6 +304,40 @@ test('the Blocks panel paints, fills, picks, replaces, selects, stamps and paint
   await blockButton(page, 'door').click();
   await panel(page).getByLabel('block type form').getByLabel('blockType placement', { exact: true }).selectOption('edge');
   await expect.poll(async () => ((await query('queryGameConfig')) as { blockTypes?: { blockId: string; placement?: string }[] }).blockTypes?.find((t) => t.blockId === 'door')?.placement).toBe('edge');
+
+  // ---- auto-connect: the block type form gives a rampart its straight (yellow) and end (red) pieces; a line of it
+  //      draws yellow runs ended in red, and erasing a cell in the middle makes two more ends.
+  await cmd('setBlockType', { block: { blockId: 'rampart', name: 'Rampart', variants: [{ color: '#404040' }, { color: '#f0e000' }, { color: '#e01010' }], shape: 'full' } });
+  await blockButton(page, 'rampart').click();
+  const form = panel(page).getByLabel('block type form');
+  await form.getByRole('button', { name: 'add blockType connect', exact: true }).click();
+  type Connect = { pieces: Record<string, { variant: number }> };
+  const connectOf = async (): Promise<Connect | undefined> => ((await query('queryGameConfig')) as { blockTypes?: { blockId: string; connect?: Connect }[] }).blockTypes?.find((t) => t.blockId === 'rampart')?.connect;
+  await expect.poll(connectOf).toEqual({ pieces: {} });
+  for (const [piece, variant] of [['straight', '1'], ['end', '2']] as const) {
+    await form.getByRole('button', { name: `add blockType connect pieces ${piece}`, exact: true }).click();
+    const field = form.getByLabel(`blockType connect pieces ${piece} variant`, { exact: true });
+    await field.fill(variant);
+    await field.press('Enter');
+  }
+  await expect.poll(connectOf).toEqual({ pieces: { end: { variant: 2 }, straight: { variant: 1 } } });
+  const yellow = (r: number, g: number, b: number): boolean => r > 120 && g > 110 && b < Math.min(r, g) * 0.4 && Math.abs(r - g) < 60;
+  // The end pieces' red, lit or in shade.
+  const endRed = (r: number, g: number, b: number): boolean => r > 90 && g < r * 0.3 && b < r * 0.3;
+  const shot = async (f: (r: number, g: number, b: number) => boolean): Promise<number> => countPixels(decodePng(await view(page).screenshot()), f);
+  const redBefore = await shot(endRed);
+  await tool(page, 'Line').click();
+  await stroke(page, [await aim(page, top(7, 7, 10), [7, 8, 10]), await screen(page, top(11, 7, 10))]);
+  await expect.poll(async () => [...(await cells(layer, [7, 8, 10, 12, 9, 11])).values()].filter((c) => c.block === 'rampart').length).toBe(5);
+  await expect.poll(() => shot(yellow), { timeout: 20_000, message: 'the straight pieces (yellow) in the Scene view' }).toBeGreaterThan(100);
+  const endsRed = await shot(endRed);
+  expect(endsRed).toBeGreaterThan(redBefore + 20);
+  await tool(page, 'Erase').click();
+  await aim(page, top(9, 8, 10), [9, 8, 10]);
+  await page.mouse.down();
+  await page.mouse.up();
+  await expect.poll(() => blockAt(layer, 9, 8, 10)).toBeNull();
+  await expect.poll(() => shot(endRed), { timeout: 20_000, message: 'two more end pieces (red) beside the gap' }).toBeGreaterThan(endsRed + 20);
 
   // ---- metadata paint (a rectangle of hazard = true) and its overlay.
   await panel(page).getByLabel('metadata field').selectOption('hazard');

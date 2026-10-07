@@ -24,6 +24,10 @@
  * line, and a live gate whose prefab's orange leaf is an object of the
  * game; both are seen in Play and the export on both renderers.
  *
+ * A connected wall resolves its pieces from its neighbours: its straight
+ * runs, its corner and its T-join each show their own look (yellow, red,
+ * blue) in Play and the export on both renderers.
+ *
  * A new project stores the chunk as a binary file; turning the project's
  * `block_chunk_storage` to 0 rewrites it as JSON text (the same cells
  * through queryBlocks). The export ships the cells as binary chunk data the
@@ -172,6 +176,50 @@ function orangePixels(img: Image): number {
 const WALL_EDGES: readonly number[] = [3, 4].flatMap((y) => [3, 4, 5, 6, 7, 8].flatMap((z) => [1, y, z, 0]));
 const GATE_EDGE: readonly number[] = [10, 5, 14, 1];
 
+/** Yellow pixels (red and green high, blue low): the connected wall's straight pieces. */
+function yellowPixels(img: Image): number {
+  let n = 0;
+  for (let y = 0; y < img.height; y += 2) {
+    for (let x = 0; x < img.width; x += 2) {
+      const [r, g, b] = img.pixel(x, y);
+      if (r > 120 && g > 110 && b < Math.min(r, g) * 0.4 && Math.abs(r - g) < 60) n += 1;
+    }
+  }
+  return n;
+}
+
+/** Red pixels (green and blue well below red): the connected wall's corner. */
+function redPixels(img: Image): number {
+  let n = 0;
+  for (let y = 0; y < img.height; y += 2) {
+    for (let x = 0; x < img.width; x += 2) {
+      const [r, g, b] = img.pixel(x, y);
+      if (r > 100 && g < r * 0.3 && b < r * 0.3) n += 1;
+    }
+  }
+  return n;
+}
+
+/** Deep blue pixels (red and green well below blue): the connected wall's T-join. */
+function bluePixels(img: Image): number {
+  let n = 0;
+  for (let y = 0; y < img.height; y += 2) {
+    for (let x = 0; x < img.width; x += 2) {
+      const [r, g, b] = img.pixel(x, y);
+      if (b > 100 && r < b * 0.3 && g < b * 0.4) n += 1;
+    }
+  }
+  return n;
+}
+
+/**
+ * A connected wall three rows high over the far side of the map (rows 9-11, where neither it nor its shadow hides
+ * the other pieces): a run along z = 2 from x = 2 to 8 that turns toward +z at x = 2 (a corner) and branches toward
+ * +z at x = 5 (a T-join). Its straight pieces are yellow, the corner red, the T blue;
+ * its ordinary look (the ends here, and what every cell would show unresolved: the pieces weigh almost nothing) is grey.
+ */
+const RAMPART: readonly number[] = [9, 10, 11].flatMap((y) => ([[2, 2], [3, 2], [4, 2], [5, 2], [6, 2], [7, 2], [8, 2], [2, 3], [2, 4], [5, 3], [5, 4]] as const).flatMap(([x, z]) => [x, y, z]));
+
 /**
  * Beacon cells on the grass tops (row = the column's height): one in the dug column under the player, two
  * elsewhere. Each spawns the beacon prefab in the game: its root's base model is merged into the chunk, its
@@ -200,6 +248,7 @@ async function buildMap(): Promise<{ layer: string; player: string }> {
   await cmd('createEntity', { sceneId: 'scene-kit', parentId: gate, kind: 'box', name: 'Gate leaf', transform: { position: [0, 0.45, 0] }, box: { size: [0.9, 0.9, 0.12], material: { color: '#ff8a00' } } });
   await cmd('createPrefab', { prefabId: 'gate', displayName: 'Gate', sourceEntityId: gate });
   await cmd('setBlockType', { block: { blockId: 'gate', name: 'Gate', variants: [{ prefab: 'gate' }], shape: 'full', placement: 'edge', live: true } });
+  await cmd('setBlockType', { block: { blockId: 'rampart', name: 'Rampart', variants: [{ color: '#303030', weight: 1000 }, { color: '#f0e000', weight: 0.001 }, { color: '#e01010', weight: 0.001 }, { color: '#1020ff', weight: 0.001 }], shape: 'full', connect: { pieces: { straight: { variant: 1 }, corner: { variant: 2 }, t: { variant: 3 } } } } });
   // The camera looks down at the map from its south side.
   const cam = ((await query('queryEntities', { limit: 100, offset: 0 })) as { entities: { id: string; components: Record<string, unknown> }[] }).entities.find((e) => e.components['virtualCamera'] !== undefined)!.id;
   const pitch = (-35 * Math.PI) / 180;
@@ -226,11 +275,21 @@ async function buildMap(): Promise<{ layer: string; player: string }> {
       ...BEACONS.map(([x, y, z]) => ({ kind: 'fill', box: [x, y, z, x + 1, y + 1, z + 1], cell: { block: 'beacon' } })),
       { kind: 'edges', at: [...WALL_EDGES], edge: { block: 'wall' } },
       { kind: 'edges', at: [...GATE_EDGE], edge: { block: 'gate' } },
+      { kind: 'cells', at: [...RAMPART], cell: { block: 'rampart' } },
     ],
   });
   expect((res.change as { chunks: number[][] }).chunks).toEqual([[0, 0]]);
   await script('digger', DIGGER, id('Digger'));
   return { layer: id('Ground'), player: id('Player') };
+}
+
+/** The connected wall's straight (yellow), corner (red) and T-join (blue) pieces in a full-size picture. */
+async function expectConnectedWall(shoot: () => Promise<Buffer>, where: string): Promise<void> {
+  const count = async (f: (img: Image) => number): Promise<number> => f(decodePng(await shoot()));
+  await expect.poll(() => count(yellowPixels), { timeout: 30_000, message: `the connected wall's straight pieces in ${where}` }).toBeGreaterThan(250);
+  await expect.poll(() => count(redPixels), { timeout: 30_000, message: `the connected wall's corner in ${where}` }).toBeGreaterThan(50);
+  await expect.poll(() => count(bluePixels), { timeout: 30_000, message: `the connected wall's T-join in ${where}` }).toBeGreaterThan(50);
+  console.log(`connected wall in ${where}: yellow ${await count(yellowPixels)}, red ${await count(redPixels)}, blue ${await count(bluePixels)}`);
 }
 
 function serveDir(dir: string): Promise<{ url: string; close: () => Promise<void> }> {
@@ -320,7 +379,8 @@ test('a block map built with bulk commands renders in the Scene view, Play and t
   await expect.poll(async () => JSON.parse((await viewport.getAttribute('data-block-layers')) ?? '{"meshes":0}').meshes as number, { timeout: 30_000 }).toBeGreaterThan(0);
   const stats = JSON.parse((await viewport.getAttribute('data-block-layers'))!) as { layers: number; chunks: number; meshes: number; triangles: number };
   expect(stats).toEqual(expect.objectContaining({ layers: 1, chunks: 1 }));
-  expect(stats.meshes).toBeLessThanOrEqual(4);
+  // One per look: stone, grass, the beacon base, the wall, and the connected wall's four pieces.
+  expect(stats.meshes).toBeLessThanOrEqual(8);
   // Hidden faces left out: far fewer triangles than 12 per cell.
   expect(stats.triangles).toBeLessThan(cells16 * 12 * 0.25);
 
@@ -370,6 +430,11 @@ test('a block map built with bulk commands renders in the Scene view, Play and t
   };
   await expect.poll(() => inPlay(cyanPixels), { timeout: 60_000, message: 'the edge wall in the Play screenshot' }).toBeGreaterThan(40);
   await expect.poll(() => inPlay(orangePixels), { timeout: 60_000, message: "the live gate's leaf in the Play screenshot" }).toBeGreaterThan(15);
+  // The connected wall: straight runs, the corner and the T-join each show their own piece.
+  await expect.poll(() => inPlay(yellowPixels), { timeout: 60_000, message: "the connected wall's straight pieces in the Play screenshot" }).toBeGreaterThan(20);
+  await expect.poll(() => inPlay(redPixels), { timeout: 60_000, message: "the connected wall's corner in the Play screenshot" }).toBeGreaterThan(3);
+  await expect.poll(() => inPlay(bluePixels), { timeout: 60_000, message: "the connected wall's T-join in the Play screenshot" }).toBeGreaterThan(3);
+  console.log(`connected wall in Play: yellow ${await inPlay(yellowPixels)}, red ${await inPlay(redPixels)}, blue ${await inPlay(bluePixels)}`);
   await expect
     .poll(async () => {
       const shot = await relay(`${psid}/screenshot`, { maxWidth: 480 });
@@ -421,6 +486,7 @@ test('a block map built with bulk commands renders in the Scene view, Play and t
     await expect.poll(async () => magentaPixels(decodePng(await canvas.screenshot())), { timeout: 30_000, message: 'the beacons\' posts in the export' }).toBeGreaterThan(30);
     await expect.poll(async () => cyanPixels(decodePng(await canvas.screenshot())), { timeout: 30_000, message: 'the edge wall in the export' }).toBeGreaterThan(80);
     await expect.poll(async () => orangePixels(decodePng(await canvas.screenshot())), { timeout: 30_000, message: 'the live gate in the export' }).toBeGreaterThan(30);
+    await expectConnectedWall(() => canvas.screenshot(), 'the export');
     await expectFallsThrough(observe, 'export').catch((e: Error) => {
       throw new Error(`${e.message}\nconsole: ${logs.slice(-20).join(' | ')}`);
     });
@@ -439,6 +505,7 @@ test('a block map built with bulk commands renders in the Scene view, Play and t
         await expect.poll(async () => magentaPixels(decodePng(await glCanvas.screenshot())), { timeout: 30_000, message: 'the beacons\' posts in the export on WebGL 2' }).toBeGreaterThan(30);
         await expect.poll(async () => cyanPixels(decodePng(await glCanvas.screenshot())), { timeout: 30_000, message: 'the edge wall in the export on WebGL 2' }).toBeGreaterThan(80);
         await expect.poll(async () => orangePixels(decodePng(await glCanvas.screenshot())), { timeout: 30_000, message: 'the live gate in the export on WebGL 2' }).toBeGreaterThan(30);
+        await expectConnectedWall(() => glCanvas.screenshot(), 'the export on WebGL 2');
         expect(errors).toEqual([]);
       } finally {
         await gl.close();

@@ -198,7 +198,7 @@ export function BlocksPanel(p: Props): JSX.Element {
 
   const copySelection = (move: boolean): void => {
     if (layer === null || selection === null || editor === null) return;
-    setClip({ layerId: layer.entityId, box: selection, array: arrayFromCells(selection, (x, y, z) => editor.cellAt(x, y, z)), move });
+    setClip({ layerId: layer.entityId, box: selection, array: arrayFromCells(selection, (x, y, z) => editor.cellAt(x, y, z), editor.edgesIn(selection)), move });
     setTool('paste');
   };
   const selectionEdit = async (what: string, e: BlockEdit, next: CellBox | null): Promise<void> => {

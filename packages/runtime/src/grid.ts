@@ -44,6 +44,8 @@ import {
   pickCell,
   regionCells,
   regionContains,
+  resolveCellLook,
+  resolveEdgeLook,
   rotatedFootprint,
   surfaceBelow,
   validateBlockCell,
@@ -78,10 +80,12 @@ export interface GridVec3 {
 /** A cell as scripts read it: its block (null: a metadata-only cell), rotation, variant and effective metadata. */
 export interface GridCell {
   readonly block: string | null;
-  /** Degrees about +Y: 0, 90, 180 or 270. */
+  /** Degrees about +Y the block is shown at: 0, 90, 180 or 270 (a connected block: the turn its neighbours resolve). */
   readonly rot: number;
-  /** The variant shown (an unset variant resolved from the weights and the position). */
+  /** The variant shown (an unset variant resolved from the weights and the position, or a connected block's piece). */
   readonly variant: number;
+  /** A connected block's piece (single, end, straight, corner, t, cross, base, cap); absent: not connected or no rule for it. */
+  readonly piece?: string;
   /** The effective metadata (schema defaults, then the block's defaults, then the cell's own values). */
   readonly meta: Readonly<Record<string, number | string | boolean>>;
   /** For a cell covered by a larger block's footprint: that block's anchor cell (absent otherwise). */
@@ -116,10 +120,12 @@ export interface GridCellInput {
 /** An edge piece as scripts read it (`ctx.grid.edge`): a wall, door or fence on a cell's side. */
 export interface GridEdge {
   readonly block: string;
-  /** 0, or 180: it faces the other way. */
+  /** 0, or 180: it faces the other way (a connected piece: the way its ends resolve). */
   readonly rot: number;
-  /** The look shown (an unset one resolved from the weights and the place). */
+  /** The look shown (an unset one resolved from the weights and the place, or a connected piece). */
   readonly variant: number;
+  /** A connected piece's piece (single, end, straight, corner, base, cap); absent: not connected or no rule for it. */
+  readonly piece?: string;
   /** Open (a door). */
   readonly open: boolean;
   /** Whether it blocks passage across the edge now (its type blocks, and it is not open). */
@@ -891,7 +897,8 @@ export class RuntimeGrid {
     if (e === null) return null;
     const t = this.types.get(e.block);
     const variant = e.variant ?? (t !== undefined ? edgeAutoVariant(t, x, y, z, axis) : 0);
-    return Object.freeze({ block: e.block, rot: e.rot ?? 0, variant, open: e.open === true, blocked: t !== undefined && edgeBlocks(t, e) });
+    const shown = t !== undefined ? resolveEdgeLook(layer.grid, t, e, x, y, z, axis, variant) : { variant, rot: e.rot ?? 0, piece: null };
+    return Object.freeze({ block: e.block, rot: shown.rot, variant: shown.variant, open: e.open === true, blocked: t !== undefined && edgeBlocks(t, e), ...(shown.piece !== null ? { piece: shown.piece } : {}) });
   }
 
   private view(layer: Layer, x: number, y: number, z: number): GridCell | null {
@@ -909,9 +916,10 @@ export class RuntimeGrid {
     if (cell === null) return null;
     const t = cell.block !== undefined ? this.types.get(cell.block) : undefined;
     const variant = cell.variant ?? (t !== undefined ? autoVariant(t, ax, ay, az) : 0);
+    const shown = t !== undefined ? resolveCellLook(layer.grid, t, cell, ax, ay, az, variant) : { variant, rot: cell.rot ?? 0, piece: null };
     const meta = Object.freeze(effectiveCellMeta(cell, this.types, this.fields));
     const corners = cellCorners(cell);
-    return Object.freeze({ block: cell.block ?? null, rot: cell.rot ?? 0, variant, meta, ...(anchor !== undefined ? { anchor } : {}), ...(corners !== null ? { corners: Object.freeze([...corners]) } : {}) });
+    return Object.freeze({ block: cell.block ?? null, rot: shown.rot, variant: shown.variant, meta, ...(anchor !== undefined ? { anchor } : {}), ...(corners !== null ? { corners: Object.freeze([...corners]) } : {}), ...(shown.piece !== null ? { piece: shown.piece } : {}) });
   }
 
   /** The ground of a layer at or below a world point (null: none). */
@@ -998,7 +1006,7 @@ export class RuntimeGrid {
         const l = layerOf(layer);
         const at = edgeOf(x, y, z, side);
         if (l === undefined || at === null || g.live === null) return null;
-        return g.live.edgeRootIdOf(l.entityId, ...at, l.grid.edgeAt(...at));
+        return g.live.edgeRootIdOf(l.entityId, l.grid, ...at, l.grid.edgeAt(...at));
       },
       get(layer, x, y, z) {
         const l = layerOf(layer);
@@ -1117,7 +1125,7 @@ export class RuntimeGrid {
           [ax, ay, az] = cellOfKey(a);
           cell = l.grid.get(ax, ay, az);
         }
-        return g.live.rootIdOf(l.entityId, ax, ay, az, cell);
+        return g.live.rootIdOf(l.entityId, l.grid, ax, ay, az, cell);
       },
       cellOf(entityId) {
         const c = typeof entityId === 'string' ? g.live?.cellOf(entityId) ?? null : null;

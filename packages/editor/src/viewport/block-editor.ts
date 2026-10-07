@@ -32,8 +32,8 @@
  * Browser-only (three.js); the maths is `session/block-brush.ts`.
  */
 import * as THREE from 'three';
-import { BLOCK_EDGE_THICKNESS, BLOCK_EDIT_MAX_EDITS, BlockGrid, applyBlockEdits, effectiveCellMeta, pickCell } from '@thirdlight/runtime';
-import type { BlockCell, BlockChunk, BlockEdit, BlockLayerComponent, BlockRegion, BlockStamp, BlockType, CellField } from '@thirdlight/project-model';
+import { BLOCK_EDGE_THICKNESS, BLOCK_EDIT_MAX_EDITS, BlockGrid, applyBlockEdits, edgeInBox, effectiveCellMeta, pickCell } from '@thirdlight/runtime';
+import type { BlockCell, BlockChunk, BlockEdge, BlockEdit, BlockLayerComponent, BlockRegion, BlockStamp, BlockType, CellField } from '@thirdlight/project-model';
 import type { BlockLayerView } from '@thirdlight/three-adapter';
 import {
   DEFAULT_BRUSH,
@@ -321,6 +321,26 @@ export class BlockEditor {
   /** A stored cell of the selected layer (null: empty). */
   cellAt(x: number, y: number, z: number): BlockCell | null {
     return this.grid?.get(x, y, z) ?? null;
+  }
+
+  /** The selected layer's edge pieces on and inside a box, as rows relative to its min corner (null: none). */
+  edgesIn(box: readonly number[]): { edgePalette: BlockEdge[]; edges: number[][] } | null {
+    const g = this.grid;
+    if (g === null || g.edgeCount === 0) return null;
+    const edgePalette: BlockEdge[] = [];
+    const edges: number[][] = [];
+    const at = new Map<number, number>();
+    g.forEachEdge((x, y, z, axis, idx) => {
+      if (!edgeInBox(box, x, y, z, axis)) return;
+      let p = at.get(idx);
+      if (p === undefined) {
+        p = edgePalette.length;
+        at.set(idx, p);
+        edgePalette.push({ ...g.edgeValueOf(idx) });
+      }
+      edges.push([x - box[0]!, z - box[2]!, y - box[1]!, axis, p]);
+    });
+    return edges.length > 0 ? { edgePalette, edges } : null;
   }
 
   /** The selected layer's column top (null: no block). */

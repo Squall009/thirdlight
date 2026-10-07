@@ -176,7 +176,8 @@ const ADJUST: Record<string, (o: Obj, v: number) => void> = {
 /** List count probes that cannot run in a minimal base (their items must resolve against other data). */
 const SKIP_COUNT = new Set(['startScenes:']);
 /** Optional fields of an exactly-one-of pair (removing the present one leaves none). */
-const ONE_OF_REMOVAL = new Set(['uiWidget:worldAnchor.point', 'uiWidget:image', 'uiWidget:saveSlot']);
+// Fields that come in pairs or one of a set: removing one alone is refused.
+const ONE_OF_REMOVAL = new Set(['uiWidget:worldAnchor.point', 'uiWidget:image', 'uiWidget:saveSlot', 'blockStamps:*.edgePalette', 'blockStamps:*.edges']);
 
 
 interface Ctx {
@@ -884,9 +885,11 @@ function runAllProbes(): void {
   probe('blockTypes[1]', (v) => errorsOf((e) => validateBlockTypes(v, '', e)), [{ blockId: 'odd', name: 'Odd', variants: [{ model: { assetId: 'model-a', piece: 'Rock' } }], shape: 'custom', boxes: [[0, 0, 0, 1, 0.5, 1]] }], '', block('blockTypes'), 'blockTypes:');
   probe('blockTypes[2]', (v) => errorsOf((e) => validateBlockTypes(v, '', e)), [{ blockId: 'door', name: 'Door', variants: [{ prefab: 'door' }], shape: 'none', live: true }], '', block('blockTypes'), 'blockTypes:');
   probe('blockTypes[3]', (v) => errorsOf((e) => validateBlockTypes(v, '', e)), [{ blockId: 'fence', name: 'Fence', variants: [{ color: '#886644' }], shape: 'half', placement: 'edge', blocking: false, rotations: [0, 180] }], '', block('blockTypes'), 'blockTypes:');
+  probe('blockTypes[4]', (v) => errorsOf((e) => validateBlockTypes(v, '', e)), [{ blockId: 'wall', name: 'Wall', variants: [{ color: '#888888' }, { color: '#999999' }], shape: 'full', connect: { with: ['gate'], pieces: { single: { variant: 0, rot: 90 }, end: { variant: 1, rot: 90 }, straight: { variant: 1, rot: 90 }, corner: { variant: 1, rot: 180 }, t: { variant: 1, rot: 90 }, cross: { variant: 1, rot: 90 }, base: { variant: 0, rot: 180 }, cap: { variant: 1, rot: 270 } } } }], '', block('blockTypes'), 'blockTypes:');
   probe('cellFields', (v) => errorsOf((e) => validateCellFields(v, '', e)), [{ key: 'terrain', type: 'enum', values: ['grass', 'rock'], color: '#aa5500', label: 'Terrain' }], '', block('cellFields'), 'cellFields:');
   probe('cellFields[1]', (v) => errorsOf((e) => validateCellFields(v, '', e)), [{ key: 'cost', type: 'int', default: 1, min: 0, max: 10 }], '', block('cellFields'), 'cellFields:');
   probe('blockStamps', (v) => errorsOf((e) => validateBlockStamps(v, '', e)), [{ stampId: 'hut', name: 'Hut', size: [2, 1, 2], palette: [{ block: 'grass' }], columns: [[0, 0, 0, 1, 0]] }], '', block('blockStamps'), 'blockStamps:');
+  probe('blockStamps[1]', (v) => errorsOf((e) => validateBlockStamps(v, '', e)), [{ stampId: 'room', name: 'Room', size: [2, 1, 2], palette: [{ block: 'grass' }], columns: [[0, 0, 0, 1, 0]], edgePalette: [{ block: 'wall' }], edges: [[2, 0, 0, 0, 0]] }], '', block('blockStamps'), 'blockStamps:');
   // UI documents and themes (json items).
   probe('uiDocuments', contentErrors, contentDoc({ uiDocuments: [{ uiDocumentId: 'hud', name: 'HUD', root: { type: 'panel' } }] }), '/uiDocuments', block('uiDocuments'), 'uiDocuments:');
   probe('uiThemes', contentErrors, contentDoc({ uiThemes: [{ uiThemeId: 'base', name: 'Base', styles: {} }] }), '/uiThemes', block('uiThemes'), 'uiThemes:');
@@ -1001,8 +1004,9 @@ describe('descriptor registry', () => {
     // it travels in every queryGameConfig: keep it small
     // (the UI document vocabulary is about 20 KB; environment presets, which repeat
     // the sky/fog/post descriptors, about 9 KB; a compound repeats the collider shapes, about 6 KB;
-    // a quality level repeats the bloom/AO/depth-of-field descriptors, about 3 KB)
-    expect(JSON.stringify(DESCRIPTORS).length).toBeLessThan(270_000);
+    // a quality level repeats the bloom/AO/depth-of-field descriptors, about 3 KB; a block type's connection pieces
+    // repeat their look and turn, about 3 KB)
+    expect(JSON.stringify(DESCRIPTORS).length).toBeLessThan(275_000);
     for (const c of DESCRIPTORS.components) expect(c.value.key).toBe(c.name);
   });
 

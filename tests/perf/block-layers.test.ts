@@ -26,7 +26,7 @@ import { setFlagsFromString } from 'node:v8';
 import { runInNewContext } from 'node:vm';
 
 import { describe, expect, it } from 'vitest';
-import { applyBlockEdits, BlockGrid, collisionMeshChunk, decodeBlockChunks, meshBlockChunk, shapeSource, type BlockType, type SceneV4 } from '@thirdlight/project-model';
+import { applyBlockEdits, BlockGrid, collisionMeshChunk, decodeBlockChunks, meshBlockChunk, resolveCellLook, resolveEdgeLook, shapeSource, type BlockType, type SceneV4 } from '@thirdlight/project-model';
 
 import { applyMutation, createCommandState, type CommandState } from '../../packages/commands/src/index';
 import { m2EnvelopeV4 } from '../../packages/commands/src/test-fixtures';
@@ -212,6 +212,70 @@ describe.skipIf(process.env['TL_PERF'] === undefined)('block layers: measurement
     record(`block-layers edges 40x40: ${JSON.stringify(numbers)}`);
     // An edge piece is a box of 12 triangles drawn whole.
     expect(numbers.mesh.with.count - numbers.mesh.without.count).toBe(numbers.edges * 12);
+  }, 300_000);
+
+  it('auto-connect: a 40 × 40 area of connected cell walls and edge fences meshes per chunk at about the cost of plain ones', () => {
+    const pieces = { single: { variant: 0 }, end: { variant: 1 }, straight: { variant: 2 }, corner: { variant: 3 }, t: { variant: 4 }, cross: { variant: 5 }, base: { variant: 6 }, cap: { variant: 7 } };
+    const looks8 = ['#605850', '#686058', '#706860', '#787068', '#807870', '#888078', '#908880', '#989088'].map((color) => ({ color }));
+    const plainWall: BlockType = { blockId: 'wall', name: 'Wall', variants: looks8, shape: 'custom', boxes: [[0.35, 0, 0, 0.65, 1, 1]] };
+    const plainFence: BlockType = { blockId: 'fence', name: 'Fence', variants: looks8.slice(0, 4), shape: 'half', placement: 'edge' };
+    const connected = (t: BlockType, edge: boolean): BlockType => ({ ...t, connect: { pieces: edge ? { single: pieces.single, end: pieces.end, straight: pieces.straight, corner: pieces.corner } : pieces } });
+    const typesOf = (c: boolean) => new Map([...TYPES, c ? connected(plainWall, false) : plainWall, c ? connected(plainFence, true) : plainFence].map((t) => [t.blockId, t]));
+    const comp = { cellSize: [1, 0.5, 1] as [number, number, number], bounds: { min: [0, 0, 0] as [number, number, number], max: [40, 16, 40] as [number, number, number] } };
+    const g = new BlockGrid(comp);
+    for (let x = 0; x < 40; x++) for (let z = 0; z < 40; z++) for (let y = 0; y < 3; y++) g.set(x, y, z, { block: y === 2 ? 'grass' : 'stone' });
+    // Rooms: cell walls 3 rows high on every sixth line (corners, T-joins and crosses where they meet), fences on the lines between.
+    const at: number[] = [];
+    for (let x = 0; x < 40; x++) for (let z = 0; z < 40; z++) if (x % 6 === 0 || z % 6 === 0) for (let y = 3; y < 6; y++) at.push(x, y, z);
+    const fences: number[] = [];
+    for (let line = 3; line < 40; line += 6) for (let i = 0; i < 40; i++) if (i % 6 !== 0) fences.push(line, 3, i, 0, i, 3, line, 1);
+    expect(applyBlockEdits(g, [{ kind: 'cells', at, cell: { block: 'wall' } }, { kind: 'edges', at: fences, edge: { block: 'fence' } }], { types: typesOf(false), stamps: new Map() }).ok).toBe(true);
+    const looks = { source: (t: BlockType, v: number, fm: [number, number, number]) => ({ key: `${t.blockId}:${v}`, source: shapeSource(t.shape === 'none' ? 'full' : t.shape, fm[0], fm[1], fm[2], t.boxes), uv: 'world' as const }) };
+    const keys = g.chunkKeys();
+    const time = (types: Map<string, BlockType>): { msPerChunk: number; parts: number } => {
+      const runs: number[] = [];
+      let parts = 0;
+      for (let rep = 0; rep < 9; rep++) {
+        parts = 0;
+        const t0 = performance.now();
+        for (const k of keys) {
+          const [cx, cz] = k.split(',').map(Number) as [number, number];
+          parts += meshBlockChunk(g, cx, cz, types, looks).length;
+        }
+        runs.push((performance.now() - t0) / keys.length);
+      }
+      return { msPerChunk: Math.round(median(runs) * 1000) / 1000, parts };
+    };
+    // One resolution: a cell's and an edge's look from their neighbours.
+    const wall = typesOf(true).get('wall')!;
+    const fence = typesOf(true).get('fence')!;
+    const N = 200_000;
+    let t0 = performance.now();
+    let sink = 0;
+    for (let i = 0; i < N; i++) sink += resolveCellLook(g, wall, { block: 'wall' }, (i % 40), 3 + (i % 3), 0, 0).variant;
+    const cellUs = ((performance.now() - t0) * 1000) / N;
+    t0 = performance.now();
+    for (let i = 0; i < N; i++) sink += resolveEdgeLook(g, fence, { block: 'fence' }, 3, 3, 1 + (i % 5), 0, 0).variant;
+    const edgeUs = ((performance.now() - t0) * 1000) / N;
+    // An edit at a chunk border: the chunks it re-meshes (its own and the neighbours whose looks it may change).
+    g.takeDirty();
+    g.set(16, 7, 7, { block: 'wall' });
+    const cellChunks = g.takeDirty().mesh.length;
+    g.setEdge(16, 4, 9, 1, { block: 'fence' });
+    const edgeChunks = g.takeDirty().mesh.length;
+    const numbers = {
+      chunks: keys.length,
+      wallCells: at.length / 3,
+      fenceEdges: g.edgeCount,
+      mesh: { plain: time(typesOf(false)), connected: time(typesOf(true)) },
+      resolveUs: { cell: Math.round(cellUs * 100) / 100, edge: Math.round(edgeUs * 100) / 100 },
+      chunksReMeshedByBorderEdit: { cell: cellChunks, edge: edgeChunks },
+    };
+    record(`block-layers auto-connect 40x40: ${JSON.stringify(numbers)}`);
+    expect(sink).toBeGreaterThan(0);
+    // Resolving looks costs little next to meshing them; a border edit re-meshes its chunk and the one across.
+    expect(numbers.mesh.connected.msPerChunk).toBeLessThan(numbers.mesh.plain.msPerChunk * 1.5);
+    expect(numbers.chunksReMeshedByBorderEdit).toEqual({ cell: 2, edge: 2 });
   }, 300_000);
 
   it('a 64 × 64 rolling sloped terrain meshes flat, smoothed and with subdivided tops', () => {

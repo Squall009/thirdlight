@@ -21,7 +21,8 @@
  */
 import { COLLIDER_3D_LIMITS } from './components';
 import { CHUNK_SIZE, blockTypeSolid, rotatedFootprint, type BlockCell, type BlockLayerComponent, type BlockShape, type BlockType, type BlockUvMode } from './block-layers';
-import { autoVariant, chunkKeyOf, edgeAutoVariant, type BlockGrid } from './block-grid';
+import { autoVariant, cellKeyOf, chunkKeyOf, edgeAutoVariant, type BlockGrid } from './block-grid';
+import { resolveCellLook, resolveEdgeLook } from './block-connect';
 import { blockTypeIsEdge, edgeCollides, edgeFrame, edgeLookMetres, type BlockEdge } from './block-edges';
 import { blockTopAt, cellCorners, cornerGradientAt, cornerHeightAt, diagonalSide, rotateXZ, subdividedGradientAt, subdividedHeightAt, topSubSquare, type CellCorners } from './block-surface';
 
@@ -763,7 +764,10 @@ export function meshBlockChunk(grid: BlockGrid, cx: number, cz: number, types: R
   const smoothAngle = options.smoothAngle ?? 0;
   const smoothing = smoothAngle > 0;
   const solidOf = (t: BlockType): boolean => (looks.solid !== undefined ? looks.solid(t) : blockTypeSolid(t));
+  // Looks that depend only on the cell value, by palette index; looks that also depend on the place (a variant
+  // picked by weight, a connected piece), by cell.
   const lookCache = new Map<number, CellLook | null>();
+  const placeCache = new Map<number, CellLook | null>();
   const lookOf = (x: number, y: number, z: number): CellLook | null => {
     const idx = grid.indexAt(x, y, z);
     if (idx < 0) return null;
@@ -771,15 +775,17 @@ export function meshBlockChunk(grid: BlockGrid, cx: number, cz: number, types: R
     if (cell.block === undefined) return null;
     const t = types.get(cell.block);
     if (t === undefined) return null;
-    const auto = cell.variant === undefined && t.variants.length > 1;
-    const cacheKey = auto ? -1 : idx;
-    if (!auto && lookCache.has(cacheKey)) return lookCache.get(cacheKey)!;
-    const variant = cell.variant ?? autoVariant(t, x, y, z);
+    const placed = cell.variant === undefined && (t.variants.length > 1 || t.connect !== undefined);
+    const cache = placed ? placeCache : lookCache;
+    const cacheKey = placed ? cellKeyOf(x, y, z) : idx;
+    if (cache.has(cacheKey)) return cache.get(cacheKey)!;
+    const resolved = resolveCellLook(grid, t, cell, x, y, z, cell.variant ?? autoVariant(t, x, y, z));
+    const variant = resolved.variant;
     const f = rotatedFootprint(t, 0);
     const fm: [number, number, number] = [f[0] * cs[0]!, f[1] * cs[1]!, f[2] * cs[2]!];
     const single = f[0] === 1 && f[1] === 1 && f[2] === 1;
     const src = looks.source(t, variant, fm);
-    const rot = cell.rot ?? 0;
+    const rot = resolved.rot;
     const corners = single ? cellCorners(cell) : null;
     const sloped = src !== null && corners !== null ? slopedLook(src.source, rot, fm[0], fm[1], fm[2], corners, subdivision) : null;
     const world = src?.uv === 'world';
@@ -788,7 +794,7 @@ export function meshBlockChunk(grid: BlockGrid, cx: number, cz: number, types: R
       sloped !== null
         ? { type: t, variant, rot: 0, single, solid: false, corners, classified: sloped.classified, key: src!.key, source: sloped.source, world, tangents }
         : { type: t, variant, rot, single, solid: corners === null && solidOf(t), corners: null, classified: src !== null && single ? classify(src.source, rot, fm[0], fm[1], fm[2]) : null, key: src?.key ?? null, source: src?.source ?? null, world, tangents };
-    if (!auto) lookCache.set(cacheKey, look);
+    cache.set(cacheKey, look);
     return look;
   };
   const place = (x: number, y: number, z: number, cell: BlockCell): PlacedCell | null => {
@@ -833,7 +839,8 @@ export function meshBlockChunk(grid: BlockGrid, cx: number, cz: number, types: R
     let top: number;
     if (c.look.corners !== null) top = subdividedHeightAt(c.look.corners, subdivision, Math.min(1, Math.max(0, mx / cs[0]! + 0.5)), Math.min(1, Math.max(0, mz / cs[2]! + 0.5))) * cs[1]!;
     else {
-      const sample = blockTopAt(c.look.type, c.cell, cs, mx, mz);
+      // A connected piece's top turns with the rotation it resolved to.
+      const sample = blockTopAt(c.look.type, c.look.rot === (c.cell.rot ?? 0) ? c.cell : { ...c.cell, rot: c.look.rot as BlockCell['rot'] }, cs, mx, mz);
       if (sample === null) return null;
       top = sample.height;
     }
@@ -943,10 +950,10 @@ export function meshBlockChunk(grid: BlockGrid, cx: number, cz: number, types: R
     const edge = grid.edgeValueOf(idx);
     const t = types.get(edge.block);
     if (t === undefined || !blockTypeIsEdge(t) || (looks.edge !== undefined && !looks.edge(t, edge))) return;
-    const variant = edge.variant ?? edgeAutoVariant(t, x, y, z, axis);
+    const { variant, rot } = resolveEdgeLook(grid, t, edge, x, y, z, axis, edge.variant ?? edgeAutoVariant(t, x, y, z, axis));
     const src = looks.source(t, variant, edgeLookMetres(t, cs));
     if (src === null) return;
-    const f = edgeFrame(cs, x, y, z, axis, edge.rot);
+    const f = edgeFrame(cs, x, y, z, axis, rot);
     const rotated = classifyUnculled(src.source, f.rot);
     const world = src.uv === 'world';
     for (const g of src.source.groups) {

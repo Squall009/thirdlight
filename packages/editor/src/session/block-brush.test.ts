@@ -158,6 +158,11 @@ describe('block brush maths', () => {
     expect(dst.get(6, 0, 6)).toEqual({ block: 'ramp', rot: 180 });
     expect(dst.get(6, 0, 5)).toEqual({ block: 'stone' });
     expect(dst.size).toBe(3);
+    // The selection's edge pieces go along (rows relative to its min corner, the outline included).
+    const walled = arrayFromCells([0, 0, 0, 2, 1, 2], (x, y, z) => src.get(x, y, z), { edgePalette: [{ block: 'wall', rot: 180 }], edges: [[2, 1, 0, 0, 0]] });
+    const dst2 = new BlockGrid(LAYER);
+    expect(applyBlockEdits(dst2, [pasteEdit(walled, [5, 0, 5])], { types, stamps: new Map() }).ok).toBe(true);
+    expect(dst2.edgeAt(7, 0, 6, 0)).toEqual({ block: 'wall', rot: 180 });
   });
 
   it('moves the slice with PageUp/PageDown and ] / [ within the bounds', () => {

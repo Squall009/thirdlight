@@ -23,7 +23,9 @@ import {
   autoVariant,
   blockTypeIsEdge,
   blockTypeLive,
+  cellConnectNeighbours,
   edgeAutoVariant,
+  edgeConnectNeighbours,
   cellKeyOf,
   cellOfKey,
   liveBlockIds,
@@ -32,6 +34,8 @@ import {
   liveBlockRootId,
   liveEdgePlacement,
   liveEdgeRootId,
+  resolveCellLook,
+  resolveEdgeLook,
   rotatedFootprint,
   type BlockCell,
   type BlockEdge,
@@ -93,11 +97,15 @@ export class LiveBlocks {
   private readonly byId = new Map<string, { readonly layer: string; readonly key: number; readonly axis: number }>();
   /** Objects whose layer left (the runtime removes them at once). */
   private gone: string[] = [];
+  /** A live type resolves its look from its neighbours: a write is looked at again around it too. */
+  private readonly connected: boolean;
 
   constructor(
     private readonly types: ReadonlyMap<string, BlockType>,
     private readonly prefabs: ReadonlyMap<string, PrefabDefinition>,
-  ) {}
+  ) {
+    this.connected = [...types.values()].some((t) => blockTypeLive(t) && t.connect !== undefined);
+  }
 
   /** Whether any of these block types is live (a project without one keeps no bookkeeping). */
   static anyLive(types: Iterable<BlockType>): boolean {
@@ -145,14 +153,21 @@ export class LiveBlocks {
 
   /** A written cell: looked at again at the next sync when its block before or after is live. */
   written(layerId: string, x: number, y: number, z: number, before: BlockCell | null, after: BlockCell | null): void {
+    const l = this.layers.get(layerId);
+    if (l === undefined) return;
+    // A connected live neighbour may now be another piece (a different prefab or turn): it follows in the same sync.
+    if (this.connected) for (const [nx, ny, nz] of cellConnectNeighbours(x, y, z)) l.dirty.add(cellKeyOf(nx, ny, nz));
     if (!this.isLive(before) && !this.isLive(after)) return;
-    this.layers.get(layerId)?.dirty.add(cellKeyOf(x, y, z));
+    l.dirty.add(cellKeyOf(x, y, z));
   }
 
   /** A written edge: looked at again at the next sync when its piece before or after is live. */
   writtenEdge(layerId: string, x: number, y: number, z: number, axis: number, before: BlockEdge | null, after: BlockEdge | null): void {
+    const l = this.layers.get(layerId);
+    if (l === undefined) return;
+    if (this.connected) for (const [nx, ny, nz, na] of edgeConnectNeighbours(x, y, z, axis)) l.dirtyEdges.add(edgeKeyOf(nx, ny, nz, na));
     if (!this.isLive(before) && !this.isLive(after)) return;
-    this.layers.get(layerId)?.dirtyEdges.add(edgeKeyOf(x, y, z, axis));
+    l.dirtyEdges.add(edgeKeyOf(x, y, z, axis));
   }
 
   /**
@@ -202,13 +217,13 @@ export class LiveBlocks {
   }
 
   /** The root id a cell's live block has (whether or not it is spawned yet), or null when the cell shows no live prefab look. */
-  rootIdOf(layerId: string, x: number, y: number, z: number, cell: BlockCell | null): string | null {
-    return this.wanted(cell, x, y, z) === null ? null : liveBlockRootId(layerId, x, y, z);
+  rootIdOf(layerId: string, grid: BlockGrid, x: number, y: number, z: number, cell: BlockCell | null): string | null {
+    return this.wanted(grid, cell, x, y, z) === null ? null : liveBlockRootId(layerId, x, y, z);
   }
 
   /** The root id an edge's live piece has, or null when the edge shows no live prefab look. */
-  edgeRootIdOf(layerId: string, x: number, y: number, z: number, axis: number, edge: BlockEdge | null): string | null {
-    return this.wantedEdge(edge, x, y, z, axis) === null ? null : liveEdgeRootId(layerId, x, y, z, axis);
+  edgeRootIdOf(layerId: string, grid: BlockGrid, x: number, y: number, z: number, axis: number, edge: BlockEdge | null): string | null {
+    return this.wantedEdge(grid, edge, x, y, z, axis) === null ? null : liveEdgeRootId(layerId, x, y, z, axis);
   }
 
   /**
@@ -236,7 +251,7 @@ export class LiveBlocks {
           src.grid.forEach((x, y, z, idx) => {
             if (live[idx] !== true) return;
             const k = cellKeyOf(x, y, z);
-            if (this.wanted(src.grid.valueOf(idx), x, y, z) !== null) {
+            if (this.wanted(src.grid, src.grid.valueOf(idx), x, y, z) !== null) {
               seen.add(k);
               keys.push(k);
             }
@@ -250,7 +265,7 @@ export class LiveBlocks {
         const seen = new Set<number>();
         if (src.grid.edgeCount > 0) {
           src.grid.forEachEdge((x, y, z, axis, idx) => {
-            if (this.wantedEdge(src.grid.edgeValueOf(idx), x, y, z, axis) === null) return;
+            if (this.wantedEdge(src.grid, src.grid.edgeValueOf(idx), x, y, z, axis) === null) return;
             const k = edgeKeyOf(x, y, z, axis);
             seen.add(k);
             edgeKeys.push(k);
@@ -275,11 +290,11 @@ export class LiveBlocks {
       };
       for (const k of keys) {
         const [x, y, z] = cellOfKey(k);
-        follow(l.cells, k, -1, this.wanted(src.grid.get(x, y, z), x, y, z));
+        follow(l.cells, k, -1, this.wanted(src.grid, src.grid.get(x, y, z), x, y, z));
       }
       for (const k of edgeKeys) {
         const [x, y, z, axis] = edgeOfKey(k);
-        follow(l.edges, k, axis, this.wantedEdge(src.grid.edgeAt(x, y, z, axis), x, y, z, axis));
+        follow(l.edges, k, axis, this.wantedEdge(src.grid, src.grid.edgeAt(x, y, z, axis), x, y, z, axis));
       }
     }
     for (const s of spawns) {
@@ -303,23 +318,25 @@ export class LiveBlocks {
   }
 
   /** The prefab a cell spawns, or null (no live block, or its look is not a prefab of this game). */
-  private wanted(cell: BlockCell | null, x: number, y: number, z: number): { type: BlockType; def: PrefabDefinition; rot: number } | null {
+  private wanted(grid: BlockGrid, cell: BlockCell | null, x: number, y: number, z: number): { type: BlockType; def: PrefabDefinition; rot: number } | null {
     if (cell?.block === undefined) return null;
     const type = this.types.get(cell.block);
     if (type === undefined || !blockTypeLive(type)) return null;
-    const look = type.variants[cell.variant ?? autoVariant(type, x, y, z)];
+    const shown = resolveCellLook(grid, type, cell, x, y, z, cell.variant ?? autoVariant(type, x, y, z));
+    const look = type.variants[shown.variant];
     const def = look?.prefab !== undefined ? this.prefabs.get(look.prefab) : undefined;
-    return def === undefined ? null : { type, def, rot: cell.rot ?? 0 };
+    return def === undefined ? null : { type, def, rot: shown.rot };
   }
 
   /** The prefab an edge spawns, or null (no live edge piece, or its look is not a prefab of this game). */
-  private wantedEdge(edge: BlockEdge | null, x: number, y: number, z: number, axis: number): { type: BlockType; def: PrefabDefinition; rot: number } | null {
+  private wantedEdge(grid: BlockGrid, edge: BlockEdge | null, x: number, y: number, z: number, axis: number): { type: BlockType; def: PrefabDefinition; rot: number } | null {
     if (edge === null) return null;
     const type = this.types.get(edge.block);
     if (type === undefined || !blockTypeIsEdge(type) || !blockTypeLive(type)) return null;
-    const look = type.variants[edge.variant ?? edgeAutoVariant(type, x, y, z, axis)];
+    const shown = resolveEdgeLook(grid, type, edge, x, y, z, axis, edge.variant ?? edgeAutoVariant(type, x, y, z, axis));
+    const look = type.variants[shown.variant];
     const def = look?.prefab !== undefined ? this.prefabs.get(look.prefab) : undefined;
-    return def === undefined ? null : { type, def, rot: edge.rot ?? 0 };
+    return def === undefined ? null : { type, def, rot: shown.rot };
   }
 
   private isLive(cell: BlockCell | BlockEdge | null): boolean {

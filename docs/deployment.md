@@ -4576,12 +4576,55 @@ brushes, overlays and stamp UI are below (23.6).
   - `editBlocks` edit `{kind: 'edges', at: [x, y, z, axis, …] | box, edge |
     null, mode?: 'set' | 'keep'}` (a box takes every edge on its outline and
     inside it); `queryBlocks` with a box lists the edges in it.
-  - Not yet: copy, move, mirror, stamps and paste carry cells only; an edge on
-    sloped ground stands at its row's bottom (it does not follow the slope).
+  - Copy, move, rotate, mirror, stamps (saved from a selection or placed) and
+    paste into another layer carry the edge pieces on and inside the box with
+    the cells, turned and mirrored with them; a piece whose type allows only
+    one rotation keeps facing that way. A stamp stores them as `edgePalette` +
+    `edges` rows `[x, z, y, axis, p]`; an `array` edit takes the same optional
+    keys. Not yet: an edge on sloped ground stands at its row's bottom (it
+    does not follow the slope).
   - Measured (30.4, Node, 40 × 40 terrain with walls 4 rows high on every
     fourth grid line, 356 edges a chunk): meshing 12.4 → 17.0 ms a chunk
     (about 13 µs an edge), collider 3.1 → 7.4 ms a chunk; an edge takes 28
     bytes of memory (`runtime.blockMemory` counts `edges`).
+- **Auto-connect** (30.5): a block type's **Connections** (`connect`) make
+  its look follow its neighbours, so painting "wall" draws the right pieces.
+  - `connect.pieces` names the look (variant) of each piece and an optional
+    extra turn (`rot`) for looks made facing another way; `connect.with`
+    lists other block types (of the same placement) that count as connected
+    (the type itself always does).
+  - Cells: the four horizontal neighbours pick `single`, `end`, `straight`,
+    `corner`, `t` or `cross`. Unturned, the pieces connect toward (the
+    block's own frame, +Z the way ramps rise) `end` +Z; `straight` −Z, +Z;
+    `corner` +X, +Z; `t` −X, +X, +Z; `cross` all four. The rotation that
+    fits is used; where several fit (a straight run, a single post) the
+    cell's own rotation is kept.
+  - Edge pieces: each end of the edge is open, continues in a line, or turns
+    (only edges across it meet there). `single` (both ends open), `end`
+    (joined at its +X end only), `straight` (both joined), `corner` (a turn at
+    its +X end, so the look can fill the corner; without one the straight
+    piece is used). T-joins and crosses happen where several edges meet, so
+    an edge piece has no `t` or `cross`. An end or corner piece faces the way
+    its joined end decides.
+  - Vertically, `base` (a connected one above, none below) and `cap` (one
+    below, none above) win over the horizontal piece and keep its turn.
+  - A piece not named keeps the ordinary look (weighted, or the cell's
+    variant) and rotation. A cell or edge that names a variant is pinned and
+    never resolved: paint connected blocks with **Random look** on.
+  - Nothing is stored per cell: the look is resolved from the layer wherever
+    it is needed (the mesher on the page and in the mesh workers, the
+    collider, live blocks, `ctx.grid.get` / `edge`, which report the shown
+    `variant` and `rot` and the `piece`), so a rule change shows at once and
+    replays and saves need nothing new. A write re-resolves only its
+    neighbours: their chunks re-mesh (an edge piece at a chunk border marks
+    the next chunk too, opening or closing one does not), and a `ctx.grid`
+    write re-resolves live neighbours in the same step (a live piece whose
+    prefab or turn changes is respawned). A connected block fills one cell (no
+    larger footprint).
+  - Measured (30.5, Node, a 40 × 40 area with 1,533 connected wall cells and
+    463 connected fence edges in 9 chunks): resolving a look takes about
+    0.8 µs a cell or edge; meshing 7.5 → 7.9 ms a chunk against the same walls
+    unconnected; the level `area` class is unchanged on both renderers.
 - **Lightmaps** (25.20): a block layer object marked **Static** is baked
   like a static box or model — each chunk gets its own lightmap (one entry
   per chunk in the bake, browser preview and Blender final alike); a chunk
@@ -4690,7 +4733,9 @@ stroke or button is one undo step, and MCP can do the same.
 - **Brush**: Rotate (Q) steps through the block type's allowed rotations (an
   edge piece: 0 and 180);
   "Random look" lets every cell show a look picked by the variants' weights
-  (stable by position); off paints the chosen look.
+  (stable by position), or a connected block's pieces; off paints the chosen
+  look (pinned: a connected block's cell then does not follow its
+  neighbours).
 - **Palette**: the project's block types as colour swatches (a model's
   thumbnail when it has one); + Block type makes one; clicking a type opens
   its form (looks, collision shape, footprint, rotations, default metadata,

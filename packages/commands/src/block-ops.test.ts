@@ -130,6 +130,23 @@ describe('block layer commands', () => {
     expect((s.content as { blockStamps?: unknown[] }).blockStamps).toBeUndefined();
   });
 
+  it('a stamp saved from a selection keeps its edge pieces (the outline too) and places them turned', () => {
+    let s = setup();
+    const id = (s as { layerId?: string }).layerId!;
+    s = ok(s, 'setBlockType', { block: { blockId: 'fence', name: 'Fence', variants: [{ color: '#664422' }], shape: 'half', placement: 'edge' } }).state;
+    s = ok(s, 'editBlocks', { entityId: id, edits: [{ kind: 'fill', box: [0, 0, 0, 2, 1, 1], cell: { block: 'stone' } }, { kind: 'edges', at: [2, 0, 0, 0, 0, 0, 1, 1, 9, 0, 9, 0], edge: { block: 'fence' } }] }).state;
+    s = ok(s, 'setBlockStamp', { stampId: 'pen', name: 'Pen', entityId: id, box: [0, 0, 0, 2, 1, 1] }).state;
+    const stamp = (s.content as { blockStamps?: { edgePalette?: unknown[]; edges?: number[][] }[] }).blockStamps![0]!;
+    expect(stamp.edgePalette).toEqual([{ block: 'fence' }]);
+    expect(stamp.edges).toEqual([[2, 0, 0, 0, 0], [0, 1, 0, 1, 0]]);
+    // An edges-only selection is a stamp too.
+    s = ok(s, 'setBlockStamp', { stampId: 'post', name: 'Post', entityId: id, box: [9, 0, 9, 10, 1, 10] }).state;
+    s = ok(s, 'editBlocks', { entityId: id, edits: [{ kind: 'stamp', stampId: 'pen', at: [10, 0, 10], rot: 180 }] }).state;
+    const edges = (layerOf(s, id)?.chunks ?? []).flatMap((c) => (c.edges ?? []).map((r) => [c.cx * 16 + r[0]!, r[2], c.cz * 16 + r[1]!, r[3]]));
+    // Turned half round within the 2 × 1 extent: the x = 2 line edge to x = 10, the z = 1 line edge over x 0-1 to z = 10 over x 11-12.
+    expect(edges).toEqual(expect.arrayContaining([[10, 0, 10, 0], [11, 0, 10, 1]]));
+  });
+
   it('deleting a layer takes its cells; undo brings them back', () => {
     const s0 = setup();
     const id = (s0 as { layerId?: string }).layerId!;

@@ -345,7 +345,7 @@ export interface StrokeContext {
 
 export type PasteSource =
   | { kind: 'copy'; box: CellBox; move?: boolean }
-  | { kind: 'array'; size: [number, number, number]; palette: (BlockCell | null)[]; data: number[] };
+  | { kind: 'array'; size: [number, number, number]; palette: (BlockCell | null)[]; data: number[]; edgePalette?: BlockEdge[]; edges?: number[][] };
 
 /** Flatten cells to `at` (x, y, z, …), keeping those inside the bounds. */
 function flat(cells: readonly Cell3[], bounds: BlockLayerComponent['bounds']): number[] {
@@ -442,7 +442,7 @@ export function strokeEdits(s: Stroke, ctx: StrokeContext): BlockEdit[] | null {
 /** Paste a copied selection with its min corner at `at`. */
 export function pasteEdit(p: PasteSource, at: Cell3): BlockEdit {
   if (p.kind === 'copy') return { kind: 'copy', box: [...p.box], to: [...at], ...(p.move === true ? { move: true } : {}) };
-  return { kind: 'array', origin: [...at], size: [...p.size], palette: p.palette.map((c) => (c === null ? null : { ...c })), data: [...p.data] };
+  return { kind: 'array', origin: [...at], size: [...p.size], palette: p.palette.map((c) => (c === null ? null : { ...c })), data: [...p.data], ...(p.edges !== undefined && p.edgePalette !== undefined ? { edgePalette: p.edgePalette.map((e) => ({ ...e })), edges: p.edges.map((r) => [...r]) } : {}) };
 }
 
 /** Move the selected cells so the box's min corner lands at `to`. */
@@ -475,9 +475,10 @@ export function movedBox(box: CellBox, to: Cell3): CellBox {
 /**
  * A copied selection as an `array` edit's cells (another layer: `copy` works
  * within one layer). Cells run x fastest, then z, then y; −1 leaves a target
- * cell as it is (so empty source cells do not erase).
+ * cell as it is (so empty source cells do not erase). The selection's edge
+ * pieces (rows relative to its min corner) go with it.
  */
-export function arrayFromCells(box: CellBox, get: (x: number, y: number, z: number) => BlockCell | null): PasteSource & { kind: 'array' } {
+export function arrayFromCells(box: CellBox, get: (x: number, y: number, z: number) => BlockCell | null, edges?: { edgePalette: BlockEdge[]; edges: number[][] } | null): PasteSource & { kind: 'array' } {
   const palette: (BlockCell | null)[] = [];
   const keys = new Map<string, number>();
   const data: number[] = [];
@@ -512,7 +513,7 @@ export function arrayFromCells(box: CellBox, get: (x: number, y: number, z: numb
   if (count > 0) data.push(count, run);
   // `array` needs at least one palette entry even when every cell is left as it is.
   if (palette.length === 0) palette.push(null);
-  return { kind: 'array', size: [box[3] - box[0], box[4] - box[1], box[5] - box[2]], palette, data };
+  return { kind: 'array', size: [box[3] - box[0], box[4] - box[1], box[5] - box[2]], palette, data, ...(edges !== undefined && edges !== null ? { edgePalette: edges.edgePalette, edges: edges.edges } : {}) };
 }
 
 // ---- keys ------------------------------------------------------------------------------

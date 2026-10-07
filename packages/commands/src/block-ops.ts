@@ -25,6 +25,7 @@ import {
   canonicalBlockTypes,
   canonicalCellFields,
   canonicalBlockStamps,
+  edgeInBox,
   type BlockEdit,
   type BlockLayerComponent,
   type BlockLayerData,
@@ -172,7 +173,21 @@ export function applySetBlockStamp(input: OpInput, args: { stamp?: BlockStamp; s
     grid.forEach((x, y, z, idx) => {
       if (x >= x0! && x < x1! && y >= y0! && y < y1! && z >= z0! && z < z1!) cells.push({ x: x - x0!, y: y - y0!, z: z - z0!, idx });
     });
-    if (cells.length === 0) return { ok: false, error: fieldValue('/args/box', args.box, 'a box holding cells', 'the selection holds no cells') };
+    // The edge pieces on and inside the box go with it (a room's walls).
+    const edgePalette: import('@thirdlight/project-model').BlockEdge[] = [];
+    const edges: number[][] = [];
+    const eIndex = new Map<number, number>();
+    grid.forEachEdge((x, y, z, axis, idx) => {
+      if (!edgeInBox(args.box as number[], x, y, z, axis)) return;
+      let p = eIndex.get(idx);
+      if (p === undefined) {
+        p = edgePalette.length;
+        eIndex.set(idx, p);
+        edgePalette.push(deepClone(grid.edgeValueOf(idx)));
+      }
+      edges.push([x - x0!, z - z0!, y - y0!, axis, p]);
+    });
+    if (cells.length === 0 && edges.length === 0) return { ok: false, error: fieldValue('/args/box', args.box, 'a box holding cells', 'the selection holds no cells') };
     // Encode as run columns (x, z, then runs up y).
     const byColumn = new Map<string, { x: number; z: number; ys: { y: number; p: number }[] }>();
     const palette: import('@thirdlight/project-model').BlockCell[] = [];
@@ -193,7 +208,7 @@ export function applySetBlockStamp(input: OpInput, args: { stamp?: BlockStamp; s
       col.ys.push({ y: c.y, p });
     }
     const columns = [...byColumn.values()].map((c) => [c.x, c.z, ...c.ys.flatMap((v) => [v.y, 1, v.p])]);
-    stamp = canonicalBlockStamp({ stampId: args.stampId as string, name: args.name as string, size: [x1! - x0!, y1! - y0!, z1! - z0!], palette, columns });
+    stamp = canonicalBlockStamp({ stampId: args.stampId as string, name: args.name as string, size: [x1! - x0!, y1! - y0!, z1! - z0!], palette, columns, ...(edges.length > 0 ? { edgePalette, edges } : {}) });
   }
   const previous = blockStampsOf(content).find((s) => s.stampId === stamp.stampId) ?? null;
   const next = withBlockStamp(content, stamp.stampId, stamp);

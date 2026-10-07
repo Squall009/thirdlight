@@ -26,6 +26,9 @@ const TYPES: BlockType[] = [
   // Edge pieces: a stand-in wall and a model gate.
   { blockId: 'wall', name: 'Wall', variants: [{ color: '#aa8866' }], shape: 'full', placement: 'edge' },
   { blockId: 'gate', name: 'Gate', variants: [{ model: { assetId: 'kit' } }], shape: 'half', placement: 'edge' },
+  // Connected: a cell wall and an edge fence whose pieces follow their neighbours (across the chunk border too).
+  { blockId: 'rampart', name: 'Rampart', variants: [{ color: '#101010' }, { color: '#202020' }, { color: '#303030' }], shape: 'custom', boxes: [[0.3, 0, 0, 0.7, 1, 1]], connect: { pieces: { end: { variant: 1 }, straight: { variant: 2 }, corner: { variant: 1, rot: 90 } } } },
+  { blockId: 'fence', name: 'Fence', variants: [{ color: '#404040' }, { color: '#505050' }, { color: '#606060' }], shape: 'half', placement: 'edge', connect: { pieces: { end: { variant: 1 }, corner: { variant: 2 } } } },
 ];
 const LAYER: BlockLayerComponent = { cellSize: [1, 0.5, 1], bounds: { min: [0, 0, 0], max: [32, 24, 32] }, smoothAngle: 40, topSubdivision: 2 } as BlockLayerComponent;
 const q = (v: number): number => Math.round(v * 16) / 16;
@@ -46,6 +49,10 @@ function groundData(): { entityId: string; chunks: ReturnType<BlockGrid['encodeC
   // A wall along an x line across two chunks, and gates (some turned, some open) along a z line.
   for (let z = 0; z < 32; z++) g.setEdge(16, 20, z, 0, { block: 'wall' });
   for (let x = 0; x < 32; x += 2) g.setEdge(x, 21, 16, 1, { block: 'gate', ...(x % 4 === 0 ? { rot: 180 as const, open: true } : {}) });
+  for (let x = 12; x < 20; x++) g.set(x, 22, 12, { block: 'rampart' });
+  for (let z = 13; z < 15; z++) g.set(12, 22, z, { block: 'rampart' });
+  for (let z = 12; z < 20; z++) g.setEdge(20, 22, z, 0, { block: 'fence' });
+  for (let x = 14; x < 20; x++) g.setEdge(x, 22, 20, 1, { block: 'fence' });
   return { entityId: 'ground', chunks: g.chunkKeys().map((k) => g.encodeChunk(k)) };
 }
 
@@ -148,6 +155,8 @@ describe('block view: meshing in workers', () => {
     // The edge pieces are drawn in their chunks: the wall's stand-in and the gate's model part.
     expect(drawn(page).some((m) => m.includes('block:c:wall'))).toBe(true);
     expect(drawn(page).some((m) => m.includes(':gate#'))).toBe(true);
+    // The connected pieces: each look of the wall and the fence is drawn (ends, straight runs, corners).
+    for (const k of ['rampart:1', 'rampart:2', 'fence:0', 'fence:1', 'fence:2']) expect(drawn(page).some((m) => m.includes(k)), k).toBe(true);
     // World-mapped looks (the stone stand-ins, the tile's first variant) carry tangents; model-mapped ones none.
     const tangents = drawn(page).filter((m) => m.split('|')[3] !== '-');
     expect(tangents.some((m) => m.includes('block:c:stone'))).toBe(true);

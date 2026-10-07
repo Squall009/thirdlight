@@ -34,7 +34,8 @@ import { decodeBase64, decodePngRgba } from './png-decode';
 import { SCULPT_LIMITS, SCULPT_OPS, sculptHeights, setColumnSurface, type SculptOp } from './block-sculpt';
 import { PAINT_CHANNELS, decodeChunkPaint, encodeChunkPaint, isUnpainted, paintDab, unpaintedChunk, type PaintSurface } from './block-paint';
 import { paintBrushError, type BrushFalloff } from './paint-brush';
-import { canonicalBlockEdge, edgeInBounds, edgeLocalKey, edgesEditShapeError, edgesEditTargets, type BlockEdge, type EdgesEdit } from './block-edges';
+import { edgeConnectNeighbours } from './block-connect';
+import { canonicalBlockEdge, edgeInBounds, edgeInBox, transformEdge, validatePatternEdges, edgeLocalKey, edgesEditShapeError, edgesEditTargets, type BlockEdge, type EdgesEdit } from './block-edges';
 
 // ---- keys ---------------------------------------------------------------------------
 
@@ -292,6 +293,13 @@ export class BlockGrid {
     }
     this.dirty.add(ck);
     this.meshDirty.add(ck);
+    // A piece that came or went changes the connected looks of the edges meeting it (`block-connect.ts`): at a chunk
+    // border some of those are the next chunk's. Opening or closing a piece changes no look.
+    const lx = x - cx * CHUNK_SIZE;
+    const lz = z - cz * CHUNK_SIZE;
+    if ((lx === 0 || lx === CHUNK_SIZE - 1 || lz === 0 || lz === CHUNK_SIZE - 1) && (before < 0 || index < 0 || this.edgeValueOf(before).block !== this.edgeValueOf(index).block)) {
+      for (const [nx, , nz] of edgeConnectNeighbours(x, y, z, axis)) this.meshDirty.add(chunkKeyOf(chunkIndex(nx), chunkIndex(nz)));
+    }
     return true;
   }
 
@@ -686,7 +694,7 @@ export type BlockEdit =
    * then y; `data` = run-length pairs [count, index, …] into `palette`
    * (null entries erase; index −1 leaves a cell as it is).
    */
-  | { kind: 'array'; origin: number[]; size: number[]; palette: (BlockCell | null)[]; data: number[] }
+  | { kind: 'array'; origin: number[]; size: number[]; palette: (BlockCell | null)[]; data: number[]; edgePalette?: BlockEdge[]; edges?: number[][] }
   /** Replace the block of every cell matching `match` (metadata overrides kept); in `box` or the whole layer. */
   | { kind: 'replace'; match: { block: string | null; rot?: BlockRotation; variant?: number }; cell: BlockCell | null; box?: number[] }
   /** Paint metadata: set (or remove with null) fields on cells of `box` / `at`; empty cells become metadata-only cells unless `occupiedOnly`. */
@@ -741,7 +749,7 @@ export const BLOCK_EDIT_KINDS = ['fill', 'cells', 'array', 'replace', 'meta', 'f
 const EDIT_KEYS: Record<(typeof BLOCK_EDIT_KINDS)[number], { required: string[]; optional: string[] }> = {
   fill: { required: ['box', 'cell'], optional: ['mode'] },
   cells: { required: ['at', 'cell'], optional: [] },
-  array: { required: ['origin', 'size', 'palette', 'data'], optional: [] },
+  array: { required: ['origin', 'size', 'palette', 'data'], optional: ['edgePalette', 'edges'] },
   replace: { required: ['match', 'cell'], optional: ['box'] },
   meta: { required: ['set'], optional: ['box', 'at', 'occupiedOnly'] },
   flood: { required: ['at', 'cell'], optional: ['connectivity'] },
@@ -817,6 +825,10 @@ export function blockEditsShapeError(edits: unknown): { path: string; message: s
         }
         const data = e['data'];
         if (!ints(data) || (data as number[]).length % 2 !== 0 || (data as number[]).some((v, k) => (k % 2 === 0 ? v < 1 : v < -1))) return bad('data', 'data is run-length pairs [count >= 1, palette index (or -1: leave the cell)]');
+        // The array's edge pieces (a selection pasted into another layer carries its walls).
+        const edgeErrors: import('./errors').ModelErrorV2[] = [];
+        validatePatternEdges(e['edgePalette'], e['edges'], '', e['size'] as number[], edgeErrors);
+        if (edgeErrors.length > 0) return { path: `${p}${edgeErrors[0]!.path}`, message: edgeErrors[0]!.message, code: 'field_value' };
         break;
       }
       case 'replace': {
@@ -1144,6 +1156,12 @@ export function applyBlockEdits(g: BlockGrid, edits: readonly BlockEdit[], ctx: 
           }
         }
         if (n !== total) return fail(`${p}/data`, `the runs cover ${n} cells; size holds ${total}`);
+        if (e.edges !== undefined && e.edgePalette !== undefined) {
+          const over2 = budget(e.edges.length, p);
+          if (over2) return over2;
+          const values = e.edgePalette.map((v) => g.internEdge(v));
+          for (const r of e.edges) if (g.setEdgeIndex(ox + r[0]!, oy + r[2]!, oz + r[1]!, r[3]!, values[r[4]!]!)) changed += 1;
+        }
         break;
       }
       case 'replace': {
@@ -1279,6 +1297,8 @@ export function applyBlockEdits(g: BlockGrid, edits: readonly BlockEdit[], ctx: 
       case 'copy': {
         const rot = (e.rot ?? 0) as BlockRotation;
         let cells: { lx: number; ly: number; lz: number; cell: BlockCell }[] = [];
+        // The edge pieces go with the cells (those on the box's outline too), turned and mirrored with them.
+        let edges: { lx: number; ly: number; lz: number; axis: number; edge: BlockEdge }[] = [];
         let w: number;
         let d: number;
         if (e.kind === 'stamp') {
@@ -1286,6 +1306,7 @@ export function applyBlockEdits(g: BlockGrid, edits: readonly BlockEdit[], ctx: 
           if (s === undefined) return fail(`${p}/stampId`, `no stamp "${e.stampId}" in content.blockStamps`);
           [w, , d] = s.size;
           for (const col of s.columns) for (let r = 2; r < col.length; r += 3) for (let y = col[r]!; y < col[r]! + col[r + 1]!; y++) cells.push({ lx: col[0]!, ly: y, lz: col[1]!, cell: s.palette[col[r + 2]!]! });
+          if (s.edgePalette !== undefined) for (const r of s.edges ?? []) edges.push({ lx: r[0]!, lz: r[1]!, ly: r[2]!, axis: r[3]!, edge: s.edgePalette[r[4]!]! });
         } else {
           const bc = boxCheck(g, e.box, `${p}/box`);
           if (!bc.ok) return bc;
@@ -1295,9 +1316,17 @@ export function applyBlockEdits(g: BlockGrid, edits: readonly BlockEdit[], ctx: 
           g.forEach((x, y, z, idx) => {
             if (boxContains(bc.box, x, y, z)) cells.push({ lx: x - x0, ly: y - y0, lz: z - z0, cell: g.valueOf(idx) });
           });
-          if (e.move === true) for (const c of cells) put(c.lx + x0, c.ly + y0, c.lz + z0, null);
+          if (g.edgeCount > 0) {
+            g.forEachEdge((x, y, z, axis, idx) => {
+              if (edgeInBox(bc.box, x, y, z, axis)) edges.push({ lx: x - x0, ly: y - y0, lz: z - z0, axis, edge: g.edgeValueOf(idx) });
+            });
+          }
+          if (e.move === true) {
+            for (const c of cells) put(c.lx + x0, c.ly + y0, c.lz + z0, null);
+            for (const c of edges) if (g.setEdgeIndex(c.lx + x0, c.ly + y0, c.lz + z0, c.axis, -1)) changed += 1;
+          }
         }
-        const over = budget(cells.length, p);
+        const over = budget(cells.length + edges.length, p);
         if (over) return over;
         const [ax, ay, az] = e.kind === 'stamp' ? (e.at as [number, number, number]) : (e.to as [number, number, number]);
         const placed = cells.map((c) => {
@@ -1310,7 +1339,21 @@ export function applyBlockEdits(g: BlockGrid, edits: readonly BlockEdit[], ctx: 
           if (e.mode === 'keep' && g.indexAt(c.x, c.y, c.z) >= 0) continue;
           put(c.x, c.y, c.z, c.cell);
         }
+        for (const c of edges) {
+          const t = transformEdge(c.lx, c.lz, c.axis, c.edge.rot, w, d, rot, e.mirror);
+          const x = ax + t.x;
+          const y = ay + c.ly;
+          const z = az + t.z;
+          if (!g.edgeInBounds(x, y, z, t.axis)) return fail(e.kind === 'stamp' ? `${p}/at` : `${p}/to`, `edge [${x}, ${y}, ${z}, ${t.axis}] lies outside the layer's bounds`);
+          if (e.mode === 'keep' && g.edgeIndexAt(x, y, z, t.axis) >= 0) continue;
+          // A piece that may only face one way keeps facing it.
+          const allowed = ctx.types.get(c.edge.block)?.rotations ?? [0, 180];
+          const turned = allowed.includes(t.rot) ? t.rot : (c.edge.rot ?? 0);
+          const { rot: _r, ...rest } = c.edge;
+          if (g.setEdge(x, y, z, t.axis, turned === 180 ? { ...rest, rot: 180 } : rest)) changed += 1;
+        }
         cells = [];
+        edges = [];
         break;
       }
       case 'region': {

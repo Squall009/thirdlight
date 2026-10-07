@@ -67,6 +67,24 @@ describe('live blocks on the runtime grid', () => {
     expect(grid.takeLive(() => false)).toBeNull();
   });
 
+  it('a connected live block re-resolves its neighbours in the same step: a run grown by one turns its old end into a straight piece', () => {
+    const pipe: BlockType = { blockId: 'pipe', name: 'Pipe', variants: [{ prefab: 'lamp' }, { prefab: 'torch' }], shape: 'none', live: true, connect: { pieces: { end: { variant: 1 }, straight: { variant: 0 } } } };
+    const grid = new RuntimeGrid([...TYPES, pipe], [], false, 45, undefined, PREFABS);
+    grid.addLayers([layer('g', (g) => void applyBlockEdits(g, [{ kind: 'fill', box: [1, 0, 1, 3, 1, 2], cell: { block: 'pipe' } }], { types: new Map([[pipe.blockId, pipe]]), stamps: new Map() }))]);
+    // Two ends facing each other: torches turned toward +x and −x.
+    const first = grid.takeLive(() => false)!;
+    expect(ids(first.add)).toEqual(['g-1_0_1', 'g-2_0_1']);
+    expect(grid.api.get('g', 2, 0, 1)).toMatchObject({ variant: 1, rot: 270, piece: 'end' });
+    grid.api.set('g', 3, 0, 1, { block: 'pipe' });
+    // Read in the same step: the old end is a straight piece now.
+    expect(grid.api.get('g', 2, 0, 1)).toMatchObject({ variant: 0, rot: 90, piece: 'straight' });
+    const next = grid.takeLive((id) => id === 'g-1_0_1' || id === 'g-2_0_1')!;
+    expect(next.remove).toEqual(['g-2_0_1']);
+    expect(ids(next.add)).toEqual(['g-2_0_1', 'g-2_0_1-1', 'g-3_0_1']);
+    // The far end did not change: its torch stays.
+    expect(next.remove).not.toContain('g-1_0_1');
+  });
+
   it('a game without live block types keeps no bookkeeping', () => {
     const grid = new RuntimeGrid([TYPES[0]!], [], false, 45, undefined, PREFABS);
     grid.addLayers([layer('g', (g) => edits(g, [{ kind: 'fill', box: [0, 0, 0, 2, 1, 1], cell: { block: 'stone' } }]))]);

@@ -1096,6 +1096,7 @@ export {
   edgeCollides,
   edgeFrame,
   edgeInBounds,
+  edgeInBox,
   edgeLookMetres,
   edgeOfSide,
   liveEdgePlacement,
@@ -1105,8 +1106,25 @@ export {
   type BlockEdgeAxis,
   type BlockEdgeSide,
   type BlockPlacement,
+  transformEdge,
   type EdgesEdit,
 } from './block-edges';
+export {
+  BLOCK_CONNECT_PIECES,
+  BLOCK_CONNECT_WITH_MAX,
+  BLOCK_EDGE_CONNECT_PIECES,
+  blockTypeConnects,
+  cellConnectNeighbours,
+  edgeConnectNeighbours,
+  edgeEnds,
+  resolveCellLook,
+  resolveEdgeLook,
+  type BlockConnect,
+  type BlockConnectLook,
+  type BlockConnectPiece,
+  type ConnectedLook,
+  type ConnectGrid,
+} from './block-connect';
 export { LIVE_BLOCK_PREFAB_REFUSED, LIVE_BLOCK_ROOT_MERGED, LIVE_BLOCK_ROOT_REFUSED, blockTypeLive, liveBlockIds, liveBlockPlacement, liveBlockPrefabProblem, liveBlockPrefix, liveBlockRootId, liveEdgeRootId } from './block-live';
 export { BLOCK_PAINT_LAYOUT, PAINT_BYTES, PAINT_CHANNELS, PAINT_CHUNK_SIZE, PAINT_VERTICES, PAINT_WETNESS_CHANNEL, chunkPaintColors, chunkPaintError, chunksOfVertex, decodeChunkPaint, encodeChunkPaint, isUnpainted, paintDab, paintOffset, unpaintedChunk, type PaintSurface } from './block-paint';
 export { BLOCK_CHUNK_COMPRESSION, BLOCK_CHUNK_DATA_KEY, BLOCK_CHUNK_HEADER_BYTES, decodeBlockChunks, encodeBlockChunks, readBlockChunkData, wrapBlockChunkData, type BlockChunkCompression } from './block-chunk-binary';

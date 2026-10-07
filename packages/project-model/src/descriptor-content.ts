@@ -34,6 +34,7 @@ import { DIALOGUE_LIMITS } from './dialogue';
 import { TIMELINE_LIMITS } from './timelines';
 import { SCRIPT_LIBRARY_LIMITS } from './script-libraries';
 import { BLOCK_LIMITS, BLOCK_UV_MODES } from './block-layers';
+import { BLOCK_CONNECT_WITH_MAX } from './block-connect';
 import { DEFAULT_WIND, SKY_ROTATION_MAX, MATERIAL_PARAMS, MATERIAL_SHADERS, MATERIAL_TEXTURE_SLOTS, MAX_MATERIAL_PARAMETERS, MAX_MATERIAL_SLOTS, type MaterialParamType } from './materials';
 import { MATERIAL_DATA_MAX, MATERIAL_PARAMETER_TYPES } from './material-graph-kinds';
 import { MODE_LIMITS } from './modes';
@@ -428,6 +429,10 @@ const SETTINGS: FieldDescriptor = obj('settings', 'Gameplay settings', 'The play
   });
 }), { required: true, default: {}, rules: ['min_slope_slide_deg ≤ max_slope_climb_deg'] });
 
+/** One piece of a connected block type: the look it shows and a turn added for looks made facing another way. */
+const connectPiece = (key: string, label: string, tooltip: string): FieldDescriptor =>
+  obj(key, label, tooltip, [int('variant', 'Look', 'Variant index.', { required: true, min: 0, max: BLOCK_LIMITS.variants - 1, default: 0 }), int('rot', 'Extra turn', 'Degrees (edges: 0, 180).', { values: [0, 90, 180, 270], default: 0, omitDefault: true })]);
+
 export const CONTENT: readonly ContentBlockDescriptor[] = [
   { key: 'environment', label: 'Environment', tooltip: 'The quality levels, the default level and the environment presets (each scene has its own look).', required: false, value: ENVIRONMENT, ops: ['setEnvironment'] },
   { key: 'input', label: 'Input', tooltip: 'Actions and their bindings.', required: false, value: INPUT, ops: ['setInput'] },
@@ -459,6 +464,19 @@ export const CONTENT: readonly ContentBlockDescriptor[] = [
       bool('live', 'Live', "In the running game each cell showing a prefab look spawns that prefab as real objects (scripts, movers, lights, children), placed, removed and saved with the cell; the root's model stays merged with the blocks."),
       enm('placement', 'Placement', 'Cell: the block fills cells. Edge: it stands on the edge between two cells (a wall, door, window, fence), drawn along the edge and facing across it; its shape is a thin slab (full, half), boxes or none.', ['cell', 'edge'], { default: 'cell', labels: { cell: 'Cell', edge: 'Edge' } }),
       bool('blocking', 'Blocks passage', 'An edge piece blocks moving across its edge (grid movement and pathfinding read it); an open one (a door) never does.', { default: true, when: when('placement', 'edge') }),
+      obj('connect', 'Connections', "The look follows the neighbours: paint the block and each cell (or edge) shows the straight, corner, T-join, cross, end, base or cap piece its neighbours call for, turned to fit. A piece not set keeps the ordinary look; a cell that names a variant keeps it.", [
+        list('with', 'Connects with', 'Other block types (of the same placement) that count as connected; the block itself always does.', str('*', 'Block type', 'A block type id.', { ...ID }), { maxItems: BLOCK_CONNECT_WITH_MAX, unique: true, default: [] }),
+        obj('pieces', 'Pieces', 'The look of each piece (unturned neighbours in its own frame).', [
+          connectPiece('single', 'Single', 'No neighbour.'),
+          connectPiece('end', 'End', 'One neighbour (+Z unturned); an edge piece: joined at +X only.'),
+          connectPiece('straight', 'Straight', 'Two opposite (−Z, +Z); an edge piece: both ends joined.'),
+          connectPiece('corner', 'Corner', 'Two at a right angle (+X, +Z); an edge piece: a turn at +X.'),
+          connectPiece('t', 'T-join', 'Three (−X, +X, +Z). Cells only.'),
+          connectPiece('cross', 'Cross', 'All four. Cells only.'),
+          connectPiece('base', 'Base', 'One above, none below.'),
+          connectPiece('cap', 'Cap', 'One below, none above.'),
+        ], { required: true, default: {} }),
+      ]),
     ]), { default: [] }),
     ops: ['setBlockType', 'deleteBlockType'],
   },
@@ -490,6 +508,8 @@ export const CONTENT: readonly ContentBlockDescriptor[] = [
       vec3('size', 'Size', 'The pattern\'s extent in cells.', { required: true, min: 1, max: BLOCK_LIMITS.stampSize, step: 1, labels: ['x', 'y', 'z'] }),
       json('palette', 'Palette', 'The cell values the runs name.', { required: true, readOnly: true }),
       json('columns', 'Cells', `Run-length columns [x, z, y, n, p, …] (at most ${BLOCK_LIMITS.stampCells} cells).`, { required: true, readOnly: true }),
+      json('edgePalette', 'Edge pieces', 'The edge values the edge rows name.', { readOnly: true }),
+      json('edges', 'Edges', 'Edge rows [x, z, y, axis, p] (the outline included).', { readOnly: true }),
     ]), { default: [] }),
     ops: ['setBlockStamp', 'deleteBlockStamp'],
   },

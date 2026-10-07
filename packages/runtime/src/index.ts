@@ -384,7 +384,7 @@ export type { BehaviorDebug, DebugCommandArgs, DebugCommandArgSpec, DebugCommand
 // Block layers — ctx.grid, the runtime grid, and the pure grid/meshing helpers the renderer shares.
 export { GRID_WRITES_PER_STEP, RuntimeGrid, gridColliderId, type BehaviorGrid, type GridCell, type GridCellInput, type GridChange, type GridDiff, type GridEdge, type GridEdgeInput, type GridPick, type GridRenderChange, type GridSurface, type GridVec3 } from './grid';
 // Edge pieces: the editor's edge brush snaps and checks edges with the backend's rules.
-export { BLOCK_EDGE_THICKNESS, edgeInBounds, type BlockEdge } from '@thirdlight/project-model';
+export { BLOCK_CONNECT_PIECES, BLOCK_EDGE_THICKNESS, edgeInBounds, edgeInBox, type BlockConnect, type BlockConnectPiece, type BlockEdge } from '@thirdlight/project-model';
 // The editor previews a block stroke locally with the same edit code the backend runs (then commits one editBlocks).
 export { BLOCK_EDIT_MAX_EDITS, SCULPT_LIMITS, chunkLightmapLayout, applyBlockEdits, effectiveCellMeta, pickCell, surfaceBelow, type BlockEdit, type BlockStamp } from '@thirdlight/project-model';
 // The instance brush's places and surface drop (the editor finds the surface under the same places the backend plans).

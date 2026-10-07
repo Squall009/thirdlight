@@ -36,7 +36,8 @@ import { ID_RE } from './validate';
 import type { ModelErrorV2 } from './errors';
 import { chunkPaintError, decodeChunkPaint, encodeChunkPaint, isUnpainted } from './block-paint';
 import { liveBlockPrefabProblem } from './block-live';
-import { canonicalChunkEdges, composeChunkEdges, validateBlockPlacement, validateChunkEdges, type BlockEdge, type BlockPlacement } from './block-edges';
+import { canonicalChunkEdges, canonicalPatternEdges, composeChunkEdges, validateBlockPlacement, validateChunkEdges, validatePatternEdges, type BlockEdge, type BlockPlacement } from './block-edges';
+import { canonicalBlockConnect, composeBlockConnect, validateBlockConnect, type BlockConnect } from './block-connect';
 
 // ---- types -----------------------------------------------------------------------
 
@@ -188,6 +189,8 @@ export interface BlockType {
   placement?: BlockPlacement;
   /** An edge piece blocks passage across its edge (absent: true; stored only when false). An open edge never does. */
   blocking?: boolean;
+  /** Connection rules: the look follows the neighbours (straight, corner, T, cross, end, base, cap; `block-connect.ts`); absent: none. */
+  connect?: BlockConnect;
 }
 
 export type CellFieldType = 'bool' | 'enum' | 'int' | 'float' | 'string';
@@ -216,6 +219,10 @@ export interface BlockStamp {
   palette: BlockCell[];
   /** `[x, z, y0, n0, p0, …]` runs, as a chunk's columns (coordinates within `size`). */
   columns: number[][];
+  /** Its edge pieces' values (`block-edges.ts`); present with `edges`. */
+  edgePalette?: BlockEdge[];
+  /** Its edge pieces: `[x, z, y, axis, p]` rows within `size` (its outline included); absent: none. */
+  edges?: number[][];
 }
 
 // ---- limits ------------------------------------------------------------------------
@@ -527,8 +534,9 @@ export function validateBlockTypes(value: unknown, path: string, errors: ModelEr
 
 export function validateBlockType(t: unknown, p: string, errors: ModelErrorV2[]): void {
   if (!isPlainObject(t)) return err(errors, 'field_type', p, 'a block type is an object', t, 'object');
-  onlyKeys(t, ['blockId', 'name', 'variants', 'shape', 'boxes', 'solid', 'footprint', 'rotations', 'metadata', 'materials', 'uv', 'live', 'placement', 'blocking'], p, errors, 'block type');
+  onlyKeys(t, ['blockId', 'name', 'variants', 'shape', 'boxes', 'solid', 'footprint', 'rotations', 'metadata', 'materials', 'uv', 'live', 'placement', 'blocking', 'connect'], p, errors, 'block type');
   validateBlockPlacement(t, p, errors);
+  validateBlockConnect(t['connect'], `${p}/connect`, errors, t['placement'] === 'edge');
   if (t['live'] !== undefined) {
     if (typeof t['live'] !== 'boolean') err(errors, 'field_type', `${p}/live`, 'live is a boolean', t['live'], 'boolean');
     else if (t['live'] && (!Array.isArray(t['variants']) || !t['variants'].some((v) => isPlainObject(v) && v['prefab'] !== undefined))) err(errors, 'field_value', `${p}/live`, 'a live block spawns its prefab looks: give it a prefab look', t['live']);
@@ -601,6 +609,8 @@ export function canonicalBlockType(t: BlockType): BlockType {
   if (t.live === true) out.live = true;
   if (t.placement === 'edge') out.placement = 'edge';
   if (t.placement === 'edge' && t.blocking === false) out.blocking = false;
+  const connect = canonicalBlockConnect(t.connect);
+  if (connect !== null) out.connect = connect;
   return out;
 }
 
@@ -718,7 +728,7 @@ export function canonicalCellFields(list: readonly CellField[]): CellField[] {
 
 export function validateBlockStamp(s: unknown, p: string, errors: ModelErrorV2[]): void {
   if (!isPlainObject(s)) return err(errors, 'field_type', p, 'a stamp is an object', s, 'object');
-  onlyKeys(s, ['stampId', 'name', 'size', 'palette', 'columns'], p, errors, 'stamp');
+  onlyKeys(s, ['stampId', 'name', 'size', 'palette', 'columns', 'edgePalette', 'edges'], p, errors, 'stamp');
   if (typeof s['stampId'] !== 'string' || !ID_RE.test(s['stampId'])) err(errors, 'id_invalid', `${p}/stampId`, 'stampId uses the id syntax', s['stampId']);
   if (typeof s['name'] !== 'string' || s['name'].length < 1 || s['name'].length > 128 || /[\u0000-\u001f]/.test(s['name'])) err(errors, 'field_value', `${p}/name`, 'name is 1-128 characters', s['name']);
   const size = s['size'];
@@ -730,6 +740,7 @@ export function validateBlockStamp(s: unknown, p: string, errors: ModelErrorV2[]
   if (errors.length > before) return;
   const n = validateColumns(s['columns'], `${p}/columns`, errors, size[0], size[2], 0, size[1], palette.length);
   if (n > BLOCK_LIMITS.stampCells) err(errors, 'limits_exceeded', `${p}/columns`, `a stamp holds at most ${BLOCK_LIMITS.stampCells} cells`, n);
+  validatePatternEdges(s['edgePalette'], s['edges'], p, size, errors);
 }
 
 export function validateBlockStamps(value: unknown, path: string, errors: ModelErrorV2[]): void {
@@ -746,7 +757,8 @@ export function validateBlockStamps(value: unknown, path: string, errors: ModelE
 
 export function canonicalBlockStamp(s: BlockStamp): BlockStamp {
   const runs = canonicalRuns(s.palette, s.columns);
-  return { stampId: s.stampId, name: s.name, size: [s.size[0], s.size[1], s.size[2]], palette: runs.palette, columns: runs.columns };
+  const edges = canonicalPatternEdges(s.edgePalette, s.edges);
+  return { stampId: s.stampId, name: s.name, size: [s.size[0], s.size[1], s.size[2]], palette: runs.palette, columns: runs.columns, ...(edges ?? {}) };
 }
 
 export function canonicalBlockStamps(list: readonly BlockStamp[]): BlockStamp[] {
@@ -985,8 +997,10 @@ export function composeBlockContent(content: BlockContentView, errors: ModelErro
   const prefabs = new Map((content.prefabs ?? []).map((p) => [p.prefabId, p]));
   const materials = new Set((content.materials ?? []).map((m) => m.materialId));
   const fields = new Map((content.cellFields ?? []).map((f) => [f.key, f]));
+  const typeMap = new Map((content.blockTypes ?? []).map((t) => [t.blockId, t]));
   (content.blockTypes ?? []).forEach((t, i) => {
     const p = `/blockTypes/${i}`;
+    composeBlockConnect(t, p, typeMap, errors);
     t.variants.forEach((v, j) => {
       if (v.model !== undefined && assets.get(v.model.assetId) !== 'model') err(errors, 'asset_reference_missing', `${p}/variants/${j}/model/assetId`, 'a block variant names a model asset of this project', v.model.assetId);
       if (v.prefab !== undefined) {
@@ -1010,7 +1024,10 @@ export function composeBlockContent(content: BlockContentView, errors: ModelErro
       }
     }
   });
-  (content.blockStamps ?? []).forEach((s, i) => composeCells(s.palette, `/blockStamps/${i}/palette`, content, errors, false));
+  (content.blockStamps ?? []).forEach((s, i) => {
+    composeCells(s.palette, `/blockStamps/${i}/palette`, content, errors, false);
+    composeChunkEdges(s.edgePalette, `/blockStamps/${i}/edgePalette`, typeMap, errors);
+  });
 }
 
 function composeCells(palette: readonly BlockCell[], path: string, content: BlockContentView, errors: ModelErrorV2[], metadataOnly: boolean): void {

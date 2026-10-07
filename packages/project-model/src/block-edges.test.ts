@@ -8,7 +8,7 @@ import { describe, expect, it } from 'vitest';
 import { BlockGrid, applyBlockEdits, blockEditsShapeError } from './block-grid';
 import { canonicalBlockType, composeBlockLayers, validateBlockType, validateSceneBlocks, type BlockLayerComponent, type BlockType } from './block-layers';
 import { decodeBlockChunks, encodeBlockChunks } from './block-chunk-binary';
-import { BLOCK_EDGE_THICKNESS, edgeFrame, edgeOfSide } from './block-edges';
+import { BLOCK_EDGE_THICKNESS, edgeFrame, edgeInBox, edgeOfSide } from './block-edges';
 import { collisionMeshChunk, meshBlockChunk, shapeSource } from './block-mesh';
 import type { ModelErrorV2 } from './errors';
 
@@ -152,5 +152,57 @@ describe('edge pieces', () => {
     applyBlockEdits(g, [{ kind: 'edges', at: [5, 0, 6, 1], edge: { block: 'door', open: true } }], ctx);
     expect(tris()).toBe(12);
     expect(meshBlockChunk(g, 0, 0, TYPES, looks).find((p) => p.blockId === 'door')).toBeDefined();
+  });
+
+  it('copy, move, turn, mirror, stamp and array edits carry the edges with the cells, each between the same two cells and facing the same one', () => {
+    // A 3 × 2 room of numbered cells, walled on every edge, one inner edge a door facing −x (rot 180).
+    const make = (): BlockGrid => {
+      const g = new BlockGrid(LAYER);
+      for (let x = 2; x < 5; x++) for (let z = 2; z < 4; z++) g.set(x, 0, z, { block: 'stone', meta: { n: (x - 2) * 10 + (z - 2) } });
+      applyBlockEdits(g, [{ kind: 'edges', box: [2, 0, 2, 5, 1, 4], edge: { block: 'wall' } }, { kind: 'edges', at: [3, 0, 2, 0], edge: { block: 'door', rot: 180 } }], ctx);
+      g.takeDirty();
+      return g;
+    };
+    /** Each edge as the cells it separates: [the cell it faces, the cell behind it] by number (null: no cell), and its block. */
+    const sides = (g: BlockGrid, box: number[]): string[] => {
+      const n = (x: number, z: number): number | null => (g.get(x, 0, z)?.meta?.['n'] as number | undefined) ?? null;
+      const out: string[] = [];
+      g.forEachEdge((x, y, z, axis, idx) => {
+        if (!edgeInBox(box, x, y, z, axis)) return;
+        const e = g.edgeValueOf(idx);
+        const [plus, minus] = axis === 0 ? [n(x, z), n(x - 1, z)] : [n(x, z), n(x, z - 1)];
+        out.push(`${e.block}:${e.rot === 180 ? minus : plus}|${e.rot === 180 ? plus : minus}`);
+      });
+      return out.sort();
+    };
+    const before = sides(make(), [2, 0, 2, 5, 1, 4]);
+    // Every edge on or inside the box: 4 × 2 x-line and 3 × 3 z-line edges.
+    expect(before).toHaveLength(17);
+    for (const rot of [0, 90, 180, 270] as const) {
+      for (const mirror of [undefined, 'x', 'z'] as const) {
+        const g = make();
+        const r = applyBlockEdits(g, [{ kind: 'copy', box: [2, 0, 2, 5, 1, 4], to: [10, 0, 10], rot, ...(mirror !== undefined ? { mirror } : {}), move: true }], ctx);
+        expect(r.ok).toBe(true);
+        expect(g.edgeCount, `rot ${rot} mirror ${mirror}`).toBe(17);
+        expect(sides(g, [10, 0, 10, 14, 1, 14]), `rot ${rot} mirror ${mirror}`).toEqual(before);
+      }
+    }
+    // A turned copy of a piece that may face one way only keeps facing it.
+    const oneWay = new Map([...TYPES, ['door', { ...DOOR, rotations: [180] }]]);
+    const g1 = make();
+    applyBlockEdits(g1, [{ kind: 'copy', box: [3, 0, 2, 4, 1, 3], to: [20, 0, 20], mirror: 'x' }], { types: oneWay, stamps: new Map() });
+    expect(g1.edgeAt(21, 0, 20, 0)).toEqual({ block: 'door', rot: 180 });
+    // A stamp and an array (a paste into another layer) carry their edges the same way.
+    const g2 = new BlockGrid(LAYER);
+    const stamp = { stampId: 'room', name: 'Room', size: [3, 1, 2] as [number, number, number], palette: [{ block: 'stone' }], columns: [[0, 0, 0, 1, 0]], edgePalette: [{ block: 'wall' }], edges: [[3, 0, 0, 0, 0], [0, 2, 0, 1, 0]] };
+    expect(applyBlockEdits(g2, [{ kind: 'stamp', stampId: 'room', at: [6, 0, 6], rot: 90 }, { kind: 'array', origin: [20, 0, 20], size: [2, 1, 2], palette: [{ block: 'stone' }], data: [4, 0], edgePalette: [{ block: 'door', rot: 180 }], edges: [[2, 1, 0, 0, 0]] }], { types: TYPES, stamps: new Map([['room', stamp]]) })).toEqual({ ok: true, cells: 1 + 2 + 4 + 1 });
+    // Turned a quarter (x' = z, z' = 3 - x): the stamp's x = 3 line edge (facing +x) runs along x at z = 6, facing −z;
+    // its z = 2 line edge over x 0-1 stands on the x = 8 line; the stamp's cell (0, 0) lands at (6, 8).
+    expect(g2.edgeAt(6, 0, 6, 1)).toEqual({ block: 'wall', rot: 180 });
+    expect(g2.edgeAt(8, 0, 8, 0)).toEqual({ block: 'wall' });
+    expect(g2.get(6, 0, 8)).toEqual({ block: 'stone', rot: 90 });
+    expect(g2.edgeAt(22, 0, 21, 0)).toEqual({ block: 'door', rot: 180 });
+    // The edits' shape: edge rows lie within the array (its outline included).
+    expect(blockEditsShapeError([{ kind: 'array', origin: [0, 0, 0], size: [2, 1, 2], palette: [null], data: [4, -1], edgePalette: [{ block: 'wall' }], edges: [[3, 0, 0, 0, 0]] }])?.message).toContain('within the pattern');
   });
 });

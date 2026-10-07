@@ -220,10 +220,19 @@ export function edgeLocalKey(lx: number, lz: number, y: number, axis: number): n
 
 /** A chunk's edges in canonical form: palette entries merged and reindexed by first use, rows ordered (null: none). */
 export function canonicalChunkEdges(palette: readonly BlockEdge[] | undefined, rows: readonly (readonly number[])[] | undefined): { edgePalette: BlockEdge[]; edges: number[][] } | null {
+  return canonicalEdgeRows(palette, rows, (a, b) => edgeLocalKey(a[0]!, a[1]!, a[2]!, a[3]!) - edgeLocalKey(b[0]!, b[1]!, b[2]!, b[3]!));
+}
+
+/** Pattern edge rows (a stamp's, an array edit's: `[x, z, y, axis, p]` within the pattern) in canonical form (y, axis, z, x ascending). */
+export function canonicalPatternEdges(palette: readonly BlockEdge[] | undefined, rows: readonly (readonly number[])[] | undefined): { edgePalette: BlockEdge[]; edges: number[][] } | null {
+  return canonicalEdgeRows(palette, rows, (a, b) => a[2]! - b[2]! || a[3]! - b[3]! || a[1]! - b[1]! || a[0]! - b[0]!);
+}
+
+function canonicalEdgeRows(palette: readonly BlockEdge[] | undefined, rows: readonly (readonly number[])[] | undefined, order: (a: readonly number[], b: readonly number[]) => number): { edgePalette: BlockEdge[]; edges: number[][] } | null {
   if (palette === undefined || rows === undefined || rows.length === 0) return null;
   const canon = palette.map(canonicalBlockEdge);
   const keyOf = canon.map((e) => JSON.stringify(e));
-  const sorted = rows.map((r) => [...r]).sort((a, b) => edgeLocalKey(a[0]!, a[1]!, a[2]!, a[3]!) - edgeLocalKey(b[0]!, b[1]!, b[2]!, b[3]!));
+  const sorted = rows.map((r) => [...r]).sort(order);
   const byKey = new Map<string, number>();
   const edgePalette: BlockEdge[] = [];
   const edges = sorted.map((r) => {
@@ -306,4 +315,66 @@ export function edgesEditTargets(g: Pick<BlockGrid, 'min' | 'max'>, e: EdgesEdit
     for (let z = z0; z <= z1; z++) for (let x = x0; x < x1; x++) out.push([x, y, z, 1]);
   }
   return out;
+}
+
+// ---- patterns: copies, stamps and arrays carry their edges ----------------------------------
+
+/** Whether an edge lies on or inside a box `[x0, y0, z0, x1, y1, z1]` (max exclusive for cells: the box's outline edges count). */
+export function edgeInBox(b: readonly number[], x: number, y: number, z: number, axis: number): boolean {
+  return edgeInBounds([b[0]!, b[1]!, b[2]!], [b[3]!, b[4]!, b[5]!], x, y, z, axis);
+}
+
+/**
+ * An edge moved by a pattern transform within a `w` × `d` extent: turned
+ * `turn` degrees counter-clockwise seen from above (as cells turn: x' = z,
+ * z' = w − x), then mirrored; its place (the edge's lower grid point and its
+ * axis) and the way it faces follow.
+ */
+export function transformEdge(lx: number, lz: number, axis: number, rot: number | undefined, w: number, d: number, turn: number, mirror: 'x' | 'z' | undefined): { x: number; z: number; axis: BlockEdgeAxis; rot: 0 | 180 } {
+  let a: [number, number] = [lx, lz];
+  let b: [number, number] = axis === 0 ? [lx, lz + 1] : [lx + 1, lz];
+  // The way it faces (+x for an x-line edge, +z for a z-line one; rot 180 the other way).
+  let f: [number, number] = axis === 0 ? [1, 0] : [0, 1];
+  if (rot === 180) f = [-f[0], -f[1]];
+  let W = w;
+  let D = d;
+  for (let i = 0; i < ((turn / 90) | 0); i++) {
+    a = [a[1], W - a[0]];
+    b = [b[1], W - b[0]];
+    f = [f[1], -f[0]];
+    [W, D] = [D, W];
+  }
+  if (mirror === 'x') {
+    a = [W - a[0], a[1]];
+    b = [W - b[0], b[1]];
+    f = [-f[0], f[1]];
+  } else if (mirror === 'z') {
+    a = [a[0], D - a[1]];
+    b = [b[0], D - b[1]];
+    f = [f[0], -f[1]];
+  }
+  const nextAxis: BlockEdgeAxis = a[0] === b[0] ? 0 : 1;
+  const facesPlus = nextAxis === 0 ? f[0] > 0 : f[1] > 0;
+  return { x: Math.min(a[0], b[0]), z: Math.min(a[1], b[1]), axis: nextAxis, rot: facesPlus ? 0 : 180 };
+}
+
+/** The rules of a pattern's edge rows (`[x, z, y, axis, p]` within `size`, the outline included; an `edgePalette` index). */
+export function validatePatternEdges(palette: unknown, rows: unknown, path: string, size: readonly number[], errors: ModelErrorV2[]): void {
+  if (palette === undefined && rows === undefined) return;
+  if (!Array.isArray(palette) || palette.length < 1 || palette.length > BLOCK_LIMITS.chunkPalette) return err(errors, 'field_value', `${path}/edgePalette`, `edgePalette is a list of 1-${BLOCK_LIMITS.chunkPalette} edges (with edges)`, Array.isArray(palette) ? palette.length : palette);
+  const before = errors.length;
+  palette.forEach((e, i) => validateBlockEdge(e, `${path}/edgePalette/${i}`, errors));
+  if (errors.length > before) return;
+  if (!Array.isArray(rows) || rows.length < 1) return err(errors, 'field_value', `${path}/edges`, 'edges is a non-empty list of [x, z, y, axis, p] rows (with an edgePalette)', rows);
+  const seen = new Set<string>();
+  for (let i = 0; i < rows.length; i++) {
+    const r = rows[i];
+    const p = `${path}/edges/${i}`;
+    if (!Array.isArray(r) || r.length !== EDGE_ROW_LENGTH || !r.every(isInt)) return err(errors, 'field_value', p, 'an edge row is [x, z, y, axis, p] integers', r);
+    const [x, z, y, axis, pi] = r as number[];
+    if ((axis !== 0 && axis !== 1) || pi! < 0 || pi! >= palette.length || !edgeInBounds([0, 0, 0], size, x!, y!, z!, axis)) return err(errors, 'field_value', p, `an edge row lies within the pattern (its outline included), axis 0 or 1, with an edgePalette index`, r);
+    const k = `${x},${z},${y},${axis}`;
+    if (seen.has(k)) return err(errors, 'field_value', p, 'an edge appears twice', r);
+    seen.add(k);
+  }
 }
