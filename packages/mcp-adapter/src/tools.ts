@@ -244,7 +244,7 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       `erase removes the copies within the radius across and ${INSTANCE_BRUSH_REACH} radii up and down of any dab (a set keeps one copy). ` +
       'The copies stay in the set\'s chunks. ' +
       'A terrain is setComponent "terrain" {tileSamples: 17|33|65|129|257|513|1025 (2^n+1 samples a tile side), spacing (m between samples), heightRange: [low, high] (m above the object; 16-bit steps), ' +
-      'tiles: [{x, z, data?}]} (the object\'s position is the min corner of tile [0, 0]; a tile without data is flat at 0 m; data digests are written by editTerrain). ' +
+      'tiles: [{x, z, data?}], lodDistance? m, collision?, macroDistance? m (past it, tiles are drawn from a baked top-down albedo and normal per tile: two texture reads instead of the material\'s), rules? (see bake)} (the object\'s position is the min corner of tile [0, 0]; a tile without data is flat at 0 m; data digests are written by editTerrain). ' +
       `editTerrain {entityId, kind, ...} is one edit, one undo: kind raise|lower|smooth|flatten|noise with dabs [[x, z] world points, 1-${TERRAIN_BRUSH_LIMITS.dabs}], radius (m), strength (raise/lower/noise: m at the centre; smooth/flatten: blend 0-1], ` +
       'falloff? smooth|linear|constant, flatten height (world y), noise scale? (m) and seed?; kind ramp {from, to: [x, y, z] world, radius (half width m), strength 0-1, falloff?}; ' +
       'kind paint {dabs, radius, strength 0-1, layer 0-255, erase? (true: back to the baked layers)} paints hand paint over the rule-baked layer weights (each sample blends its strongest four layers); ' +

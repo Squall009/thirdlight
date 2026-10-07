@@ -195,6 +195,38 @@ export class PageNodes {
   }
 }
 
+/**
+ * Move the nodes wholly past `distance` metres across from the eye (x, z in
+ * the terrain's frame) whose tile `farOk` says can be drawn from far (its
+ * macro texture baked: by the node's texture layer) from `near` to `far`,
+ * each list keeping its nodes in view first. The far ones draw the per-tile
+ * macro texture instead of the layer stack.
+ */
+export function splitFarNodes(near: PageNodes, far: PageNodes, eye: readonly [number, number], spacing: number, distance: number, farOk: (layer: number) => boolean): void {
+  far.begin();
+  const d = near.data;
+  const F = TERRAIN_NODE_FLOATS;
+  let keep = 0;
+  let keepInView = 0;
+  const d2 = distance * distance;
+  for (let i = 0; i < near.count; i++) {
+    const o = i * F;
+    const size = d[o + 2]! * spacing;
+    const dx = Math.max(d[o]! - eye[0], 0, eye[0] - d[o]! - size);
+    const dz = Math.max(d[o + 1]! - eye[1], 0, eye[1] - d[o + 1]! - size);
+    if (dx * dx + dz * dz > d2 && farOk(d[o + 3]!)) {
+      far.push(i < near.inView, d[o]!, d[o + 1]!, d[o + 2]!, d[o + 3]!, d[o + 4]!, d[o + 5]!, d[o + 6]!, d[o + 7]!);
+      continue;
+    }
+    if (keep !== i) d.copyWithin(keep * F, o, o + F);
+    keep += 1;
+    if (i < near.inView) keepInView += 1;
+  }
+  near.count = keep;
+  near.inView = keepInView;
+  far.end();
+}
+
 function grow(a: Float32Array<ArrayBuffer>): Float32Array<ArrayBuffer> {
   const b = new Float32Array(a.length * 2);
   b.set(a);

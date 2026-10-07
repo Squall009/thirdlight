@@ -5143,11 +5143,28 @@ edited with the editor's Terrain tools.
   from the shadow). Light layers and local-light modes come from the
   object's components as for any object; the terrain casts into the cached
   static shadow and receives the scene's probes and ambient occlusion.
+- **Far ground** (`macroDistance`, metres; optional, absent: the material's
+  layers everywhere): each tile's look is baked from straight above into a
+  small **macro texture** — its albedo and world normal (heights and normal
+  maps together), at most 128 texels a side (a smaller tile: one a cell) —
+  once its texels are up, again whenever it changes or its material does,
+  on the GPU, within 2 ms of the page's time a frame. Nodes wholly past the
+  distance whose tile is baked are drawn by a second mesh per page from it:
+  two texture reads instead of the material's dozen (one more draw per
+  page). Both draw the same vertices, so they meet without a crack; the
+  look switches where a node crosses the distance (put it where fog or
+  distance hides the difference). Measured (Iris Xe, 1080p, the landscape
+  perf class's 144 tiles of 512 m, `macroDistance` 400): scene pass
+  6.30–6.39 → 5.90 ms, GPU 15.5 → 14.8 ms, +1 draw. The macro textures take
+  128² × 8 bytes a tile on the GPU (no mipmaps: the far ground can shimmer
+  a little where texels shrink under a pixel).
 - **Diagnostics**: the adapter's `terrain` block (tiles drawn, texture bytes,
   `cpuBytes` — the page's decoded tiles, one copy —, nodes selected and in
   view per level, draws, main-thread ms of the last selection and uploads and
   the most a frame spent and uploaded lately, the last tile's decode and pack
-  ms on the worker, tiles that failed to read); the runtime's
+  ms on the worker, tiles that failed to read, and with far ground `macro`:
+  tiles baked and waiting, bakes and their main-thread ms, far nodes and
+  draws); the runtime's
   `terrainMemory` in Play (the simulation's tile data and bytes, colliders,
   tiles with colliders, the last build's tiles and ms, tiles still waiting);
   `?terrain=off` on a game page draws none (to measure what a terrain

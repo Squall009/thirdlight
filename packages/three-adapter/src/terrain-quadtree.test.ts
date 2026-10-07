@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { PageNodes, selectTerrainNodes, terrainLodLayout, terrainLodRanges, terrainMinLodDistance, TERRAIN_NODE_FLOATS, tileHeightBounds, type SelectStats, type SelectTile } from './terrain-quadtree';
+import { PageNodes, selectTerrainNodes, splitFarNodes, terrainLodLayout, terrainLodRanges, terrainMinLodDistance, TERRAIN_NODE_FLOATS, tileHeightBounds, type SelectStats, type SelectTile } from './terrain-quadtree';
 
 /** A rolling heightfield in steps (one step = 1 cm), sample (gx, gz) of the whole terrain. */
 const stepAt = (gx: number, gz: number): number => Math.round(3000 + 1500 * Math.sin(gx / 37) * Math.cos(gz / 23) + 400 * Math.sin((gx + gz) / 7));
@@ -63,6 +63,26 @@ describe('terrain CDLOD selection', () => {
     // Finer near the eye, coarser far away; the farthest tiles are drawn as their root.
     expect(stats.perLevel[0]).toBeGreaterThan(0);
     expect(stats.perLevel[layout.levels - 1]).toBeGreaterThan(0);
+  });
+
+  it('splits off the nodes wholly past a distance (whose tiles have a macro texture), each list in view first', () => {
+    const { layout, tiles } = terrain(4, 129);
+    const near = new PageNodes();
+    const stats: SelectStats = { nodes: 0, inView: 0, perLevel: [] };
+    const eye = [100, 40, 130] as const;
+    selectTerrainNodes(tiles, { layout, ranges: terrainLodRanges(layout, undefined, 1), eye, heightOf: metres, inView: (x) => x < 256 }, [near], stats);
+    const all = nodesOf(near);
+    const far = new PageNodes();
+    // Tile layer 15 (the far corner) has no macro texture yet: its nodes stay near however far.
+    splitFarNodes(near, far, [eye[0], eye[2]], 1, 200, (layer) => layer !== 15);
+    const n = nodesOf(near);
+    const f = nodesOf(far);
+    expect(n.length + f.length).toBe(all.length);
+    const gap = (x: Node): number => Math.hypot(Math.max(x.x0 - eye[0], 0, eye[0] - x.x0 - x.size), Math.max(x.z0 - eye[2], 0, eye[2] - x.z0 - x.size));
+    expect(f.length).toBeGreaterThan(0);
+    for (const x of f) expect(gap(x)).toBeGreaterThan(200);
+    for (const x of n) expect(gap(x) <= 200 || (x.x0 >= 384 && x.z0 >= 384)).toBe(true);
+    for (const [list, p] of [[n, near], [f, far]] as const) for (let i = 0; i < list.length; i++) expect(list[i]!.x0 + list[i]!.size / 2 < 256 || i >= p.inView, `node ${i}`).toBe(true);
   });
 
   it('meets without cracks: neighbours differ by at most one level, the finer fully morphed and the coarser not at all along their edge', () => {

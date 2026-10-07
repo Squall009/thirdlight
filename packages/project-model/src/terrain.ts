@@ -48,6 +48,13 @@ export const TERRAIN_HEIGHT_STEPS = 65535;
  */
 export const TERRAIN_LOD_DISTANCE_LIMITS = Object.freeze({ min: 1, max: 100_000 });
 
+/**
+ * Metres from the camera past which the terrain draws each tile's macro
+ * texture (its look baked from above, albedo and normal) instead of its
+ * layer stack: two texture reads instead of the material's.
+ */
+export const TERRAIN_MACRO_DISTANCE_LIMITS = Object.freeze({ min: 1, max: 100_000 });
+
 /** One tile of the grid: its coordinates and, when it is not flat and bare, its data blob's digest. */
 export interface TerrainTileRef {
   x: number;
@@ -68,6 +75,8 @@ export interface TerrainComponent {
   lodDistance?: number;
   /** The tiles are heightfield colliders in a 3D project (absent: true; stored only when false — scenery-only terrain). */
   collision?: boolean;
+  /** Metres past which tiles draw their baked macro texture ({@link TERRAIN_MACRO_DISTANCE_LIMITS}; absent: the layer stack everywhere). */
+  macroDistance?: number;
   /**
    * Material rules (`surface-rules.ts`) baked into the tiles' baked weights
    * by `editTerrain` (a `bake` sets them and bakes every tile; a sculpt bakes
@@ -78,7 +87,7 @@ export interface TerrainComponent {
 }
 
 /** The component's fields in canonical order. */
-export const TERRAIN_FIELDS: readonly string[] = Object.freeze(['tileSamples', 'spacing', 'heightRange', 'tiles', 'lodDistance', 'collision', 'rules']);
+export const TERRAIN_FIELDS: readonly string[] = Object.freeze(['tileSamples', 'spacing', 'heightRange', 'tiles', 'lodDistance', 'collision', 'macroDistance', 'rules']);
 
 const DIGEST_RE = /^[0-9a-f]{64}$/;
 
@@ -93,7 +102,7 @@ export const terrainTileKey = (x: number, z: number): string => `${x},${z}`;
 
 export function validateTerrainComponent(value: unknown, path: string, errors: ModelErrorV2[]): void {
   if (!isObj(value)) {
-    err(errors, 'field_type', path, 'a terrain is an object { tileSamples, spacing, heightRange, tiles, lodDistance?, collision?, rules? }', value);
+    err(errors, 'field_type', path, 'a terrain is an object { tileSamples, spacing, heightRange, tiles, lodDistance?, collision?, macroDistance?, rules? }', value);
     return;
   }
   for (const k of Object.keys(value)) if (!TERRAIN_FIELDS.includes(k)) err(errors, 'field_unexpected', `${path}/${k}`, `unknown terrain field "${k}"`, k);
@@ -113,6 +122,10 @@ export function validateTerrainComponent(value: unknown, path: string, errors: M
     err(errors, 'field_value', `${path}/lodDistance`, `lodDistance is ${TERRAIN_LOD_DISTANCE_LIMITS.min}-${TERRAIN_LOD_DISTANCE_LIMITS.max} metres`, lod);
   }
   if (value['collision'] !== undefined && typeof value['collision'] !== 'boolean') err(errors, 'field_type', `${path}/collision`, 'collision is a boolean', value['collision']);
+  const macro = value['macroDistance'];
+  if (macro !== undefined && !(finite(macro) && macro >= TERRAIN_MACRO_DISTANCE_LIMITS.min && macro <= TERRAIN_MACRO_DISTANCE_LIMITS.max)) {
+    err(errors, 'field_value', `${path}/macroDistance`, `macroDistance is ${TERRAIN_MACRO_DISTANCE_LIMITS.min}-${TERRAIN_MACRO_DISTANCE_LIMITS.max} metres`, macro);
+  }
   if (value['rules'] !== undefined) validateSurfaceRules(value['rules'], `${path}/rules`, errors, false);
   const tiles = value['tiles'];
   if (tiles === undefined) {
@@ -143,7 +156,7 @@ export function validateTerrainComponent(value: unknown, path: string, errors: M
 export function canonicalTerrain(c: TerrainComponent): TerrainComponent {
   const tiles = c.tiles.map((t) => ({ x: t.x, z: t.z, ...(t.data !== undefined ? { data: t.data } : {}) }));
   tiles.sort((a, b) => a.z - b.z || a.x - b.x);
-  return { tileSamples: c.tileSamples, spacing: c.spacing, heightRange: [c.heightRange[0], c.heightRange[1]], tiles, ...(c.lodDistance !== undefined ? { lodDistance: c.lodDistance } : {}), ...(c.collision === false ? { collision: false } : {}), ...(c.rules !== undefined ? { rules: canonicalSurfaceRules(c.rules) } : {}) };
+  return { tileSamples: c.tileSamples, spacing: c.spacing, heightRange: [c.heightRange[0], c.heightRange[1]], tiles, ...(c.lodDistance !== undefined ? { lodDistance: c.lodDistance } : {}), ...(c.collision === false ? { collision: false } : {}), ...(c.macroDistance !== undefined ? { macroDistance: c.macroDistance } : {}), ...(c.rules !== undefined ? { rules: canonicalSurfaceRules(c.rules) } : {}) };
 }
 
 /** Metres along one tile side. */

@@ -54,6 +54,10 @@ describe('terrain component', () => {
     expect(errs({ ...COMP, tiles: [{ x: 0, z: 0 }, { x: 0, z: 0 }] }).map((e) => e.path)).toEqual(['/t/tiles/1']);
     expect(errs({ ...COMP, tiles: [{ x: 0.5, z: 0, data: 'nope' }] }).map((e) => e.path)).toEqual(['/t/tiles/0/x', '/t/tiles/0/data']);
     expect(errs({ ...COMP, extra: 1 }).map((e) => e.path)).toEqual(['/t/extra']);
+    // Optional: far ground past a distance, and material rules (a terrain's: no block conditions).
+    expect(errs({ ...COMP, macroDistance: 400, rules: [{ layer: 7, slope: { min: 30, fade: 5 } }] })).toEqual([]);
+    expect(errs({ ...COMP, macroDistance: 0, rules: [{ layer: 1, blocks: ['x'] }] }).map((e) => e.path)).toEqual(['/t/macroDistance', '/t/rules/0/blocks']);
+    expect(canonicalTerrain({ ...COMP, rules: [{ layer: 2, strength: 1 }], macroDistance: 300 })).toEqual({ ...canonicalTerrain(COMP), macroDistance: 300, rules: [{ layer: 2 }] });
     expect(canonicalTerrain({ ...COMP, tiles: [{ x: 1, z: 1 }, { x: 0, z: 0 }] }).tiles).toEqual([{ x: 0, z: 0 }, { x: 1, z: 1 }]);
   });
 

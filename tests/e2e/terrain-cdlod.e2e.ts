@@ -54,6 +54,10 @@
  *   beside the blue disc and red tops; along the ramp layer 3's checker
  *   repeats about three times as often projected by slope (the side plane:
  *   the ramp's 9 m height) or biplanar as from the top (its 3 m depth).
+ * - Far ground: in Play and the export the ground's tiles past 30 m are
+ *   drawn from their baked macro textures (every tile baked, far nodes drawn
+ *   from them throughout the frame taken: Play's diagnostics); the frames
+ *   show the same layers, discs, ramp and hole, without a crack.
  */
 import { randomBytes } from 'node:crypto';
 import { createReadStream, existsSync, statSync } from 'node:fs';
@@ -86,7 +90,7 @@ async function cmd(op: string, args: Record<string, unknown>): Promise<Record<st
   return res;
 }
 type Observation = { state: string; stepIndex?: number; player?: { x: number; y: number; z: number } };
-type TerrainDiag = { tilesDrawn: number; draws: number; perLevel: number[]; errors: string[]; uploadMsPeak?: number; uploadBytesPeak?: number; tilesUploaded?: number; cpuBytes?: number; decodeMs?: number; packMs?: number };
+type TerrainDiag = { tilesDrawn: number; draws: number; perLevel: number[]; errors: string[]; uploadMsPeak?: number; uploadBytesPeak?: number; tilesUploaded?: number; cpuBytes?: number; decodeMs?: number; packMs?: number; macro?: { baked: number; waiting: number; bakes: number; bakeMsTotal: number; bakeMs: number; farNodes: number; draws: number } };
 type Diagnostics = { renderer?: { terrain?: TerrainDiag }; runtime?: { terrainMemory?: { tiles: number; bytes: number; colliders: number; tilesWithColliders: number; lastBuild: { tiles: number; ms: number } | null; waiting: number } } };
 
 async function relay(path: string, body: unknown): Promise<{ status: number; json: Record<string, unknown> }> {
@@ -132,6 +136,8 @@ const STEEP_DEG = 62;
 const BLOCKS_AT: V3 = [-16, 3, -9];
 /** The bumps' steepest (on the 0.5 m grid) is about 51°: the rule's threshold is well past it. */
 const STEEP_RULE = { layer: 3, slope: { min: STEEP_DEG, fade: 2 } };
+/** Past this (m) the ground draws its tiles' macro textures in Play and the export: most of the frame there. */
+const MACRO_DISTANCE = 30;
 /** The 1,025² tile's terrain: far out of view (its uploads are what is measured). */
 const BIG_ORIGIN: V3 = [3000, 0, 3000];
 
@@ -506,17 +512,38 @@ test('terrain: CDLOD heights, layered material, paint and a hole in the Scene vi
       await terrainTools(page, renderer, ground, big, false);
     }
 
+    // In Play (and the export), tiles past MACRO_DISTANCE are drawn from their baked macro textures.
+    await cmd('setComponent', { entityId: ground, component: 'terrain', value: { macroDistance: MACRO_DISTANCE } });
     // Play: the scene camera's frame.
     const started = page.waitForResponse((r) => r.request().method() === 'POST' && r.url().endsWith('/play'));
     await page.getByTitle('Start an isolated play preview').click();
     const psid = String(((await (await started).json()) as { playSessionId: string }).playSessionId);
+    {
+      // Every tile of the ground baked, and the far nodes drawn from them, before the frame is judged.
+      let m: TerrainDiag['macro'] | undefined;
+      await expect
+        .poll(async () => {
+          m = (((await relay(`${psid}/diagnostics`, {})).json as { diagnostics?: Diagnostics }).diagnostics ?? {}).renderer?.terrain?.macro;
+          return m !== undefined && m.baked >= TILES * TILES && m.farNodes > 0;
+        }, { timeout: 60_000, message: `${renderer} Play: the macro textures baked and drawn` })
+        .toBe(true);
+      test.info().annotations.push({ type: `${renderer} Play macro`, description: JSON.stringify(m) });
+      console.log(`${renderer} Play macro: ${JSON.stringify(m)}`);
+    }
     let last: Image | null = null;
+    // A frame counts only while every tile's bake is current and far nodes are drawn from them throughout.
+    const macroNow = async (): Promise<string> => {
+      const m = (((await relay(`${psid}/diagnostics`, {})).json as { diagnostics?: Diagnostics }).diagnostics ?? {}).renderer?.terrain?.macro;
+      return m !== undefined && m.waiting === 0 && m.baked >= TILES * TILES && m.farNodes > 0 ? `${m.bakes}` : 'not drawn from macro textures';
+    };
     await expect
       .poll(async () => {
+        const before = await macroNow();
         // Full size: a crack is a pixel wide.
         const shot = await relay(`${psid}/screenshot`, { maxWidth: 2048 });
         if (shot.status !== 200) return false;
         last = decodePng(Buffer.from(String(shot.json['dataUrl'] ?? '').split(',')[1] ?? '', 'base64'));
+        if (before.startsWith('not') || (await macroNow()) !== before) return false;
         return frameOk(last);
       }, { timeout: 90_000, message: `${renderer} Play: the terrain with its layers and hole` })
       .toBe(true)
@@ -575,6 +602,8 @@ test('terrain: CDLOD heights, layered material, paint and a hole in the Scene vi
     await expect.poll(async () => (await read())?.player?.y ?? Infinity, { timeout: 30_000, message: `${renderer} Play: fell through the hole` }).toBeLessThan(STRIP_HEIGHT - 3);
     const fell = (await read())!.player!;
     expect(fell.z, `${renderer} Play: it went forward into the hole`).toBeLessThan(HOLE[1] + 3.5);
+    // The next renderer's Scene view draws the layers everywhere again (its checks count one draw per page); the last keeps far ground for the export.
+    if (renderer !== BACKENDS[BACKENDS.length - 1]) await cmd('setComponent', { entityId: ground, component: 'terrain', value: { macroDistance: null } });
   }
 
   // The static export with the backend stopped, on each renderer.

@@ -215,6 +215,8 @@ export interface LevelPlan {
   rules: boolean;
   /** Every terrain layer's projection (0 top, 1 by slope, 2 biplanar). */
   projection: number;
+  /** The terrain's macro distance (m; 0: none, the layers everywhere). */
+  macro: number;
 }
 
 /**
@@ -298,7 +300,7 @@ function copies(n: number, at: (i: number) => { x: number; y: number; z: number;
   return f;
 }
 
-export function levelPlan(kind: LevelKind, seed = LEVEL_SEED, liveDoorCount = 0, edgeWalls = false, wallPaint = false, roofs: LevelRoofs = 'none', kitSwap = false, vertexAO = 0, rules = false, projection = 0): LevelPlan {
+export function levelPlan(kind: LevelKind, seed = LEVEL_SEED, liveDoorCount = 0, edgeWalls = false, wallPaint = false, roofs: LevelRoofs = 'none', kitSwap = false, vertexAO = 0, rules = false, projection = 0, macro = 0): LevelPlan {
   const S = LEVEL_SPEC;
   const N = S.areaSide;
   const rnd = prng(seed * 104729 + N);
@@ -457,7 +459,7 @@ export function levelPlan(kind: LevelKind, seed = LEVEL_SEED, liveDoorCount = 0,
     const tiles: { x: number; z: number }[] = [];
     for (let z = 0; z < TS.tiles; z += 1) for (let x = 0; x < TS.tiles; x += 1) tiles.push({ x, z });
     const [tx, ty, tz] = levelTerrainOrigin();
-    entities.push({ id: 'terrain', name: 'Terrain', static: true, components: { transform: T(tx, ty, tz), terrain: { tileSamples: TS.tileSamples, spacing: TS.spacing, heightRange: [...TS.heightRange], tiles }, materials: { '*': TERRAIN_MATERIAL } } });
+    entities.push({ id: 'terrain', name: 'Terrain', static: true, components: { transform: T(tx, ty, tz), terrain: { tileSamples: TS.tileSamples, spacing: TS.spacing, heightRange: [...TS.heightRange], tiles, ...(macro > 0 ? { macroDistance: macro } : {}) }, materials: { '*': TERRAIN_MATERIAL } } });
     counts.terrainTiles = tiles.length;
     // The far rings: one set per sector, copies spread over the sector's area evenly by area, standing on the terrain.
     S.farRings.forEach(([r0, r1], ring) => {
@@ -506,7 +508,7 @@ export function levelPlan(kind: LevelKind, seed = LEVEL_SEED, liveDoorCount = 0,
   // At the area's south edge, 8 m over its ground, looking north across it to the horizon.
   const pitch = -0.12;
   const camera: LevelPlan['camera'] = { position: [0, r3(groundY(half, N - 2) + 8), half - 2], rotation: [r6(Math.sin(pitch / 2)), 0, 0, r6(Math.cos(pitch / 2))] };
-  return { kind, version: LEVEL_VERSION, seed, props, buffers, layer, batches, blockEdits, rooms, camera, counts, liveDoors, edgeWalls, wallPaint, roofs, kitSwap, rules, projection };
+  return { kind, version: LEVEL_VERSION, seed, props, buffers, layer, batches, blockEdits, rooms, camera, counts, liveDoors, edgeWalls, wallPaint, roofs, kitSwap, rules, projection, macro };
 }
 
 /**

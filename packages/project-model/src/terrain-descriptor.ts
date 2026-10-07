@@ -7,7 +7,7 @@
  */
 import { bool, int, json, num, obj, vec2 } from './descriptor-builders';
 import type { ComponentDescriptor } from './descriptor-types';
-import { TERRAIN_HEIGHT_LIMIT, TERRAIN_LOD_DISTANCE_LIMITS, TERRAIN_SPACING_LIMITS, TERRAIN_TILE_SAMPLES, TERRAIN_TILE_SAMPLES_DEFAULT } from './terrain';
+import { TERRAIN_HEIGHT_LIMIT, TERRAIN_LOD_DISTANCE_LIMITS, TERRAIN_MACRO_DISTANCE_LIMITS, TERRAIN_SPACING_LIMITS, TERRAIN_TILE_SAMPLES, TERRAIN_TILE_SAMPLES_DEFAULT } from './terrain';
 
 export const terrain: ComponentDescriptor = {
   name: 'terrain',
@@ -21,6 +21,7 @@ export const terrain: ComponentDescriptor = {
     json('tiles', 'Tiles', 'The tiles: [{x, z, data?}], data the SHA-256 of the tile\'s heights, layers, holes and paint (written by the terrain commands; absent: flat at 0 m).', { required: true, readOnly: true }),
     num('lodDistance', 'Detail distance', 'Metres the finest level of detail reaches from the camera; each coarser level reaches twice as far (a quality level\'s LOD bias divides it). Empty: the nearest the tile size allows, also the least it takes.', { min: TERRAIN_LOD_DISTANCE_LIMITS.min, max: TERRAIN_LOD_DISTANCE_LIMITS.max, step: 1, unit: 'm' }),
     bool('collision', 'Collision', 'The tiles are heightfield colliders in a 3D project; off for scenery the player never reaches.', { default: true }),
+    num('macroDistance', 'Macro distance', 'Metres past which each tile is drawn from its macro texture — its look baked from above (albedo and normal, a few metres a texel) — instead of its material\'s layers: two texture reads instead of a dozen for the far ground. Empty: the layers everywhere.', { min: TERRAIN_MACRO_DISTANCE_LIMITS.min, max: TERRAIN_MACRO_DISTANCE_LIMITS.max, step: 10, unit: 'm' }),
     json('rules', 'Material rules', 'Layers by slope, height, cavity and noise, baked into the tiles: [{layer, strength?, face?, height?, slope?, cavity?, noise?, weight?}] (set and baked by Material rules in the terrain tools, or editTerrain bake; hand paint stays over them).', { readOnly: true }),
   ]),
   add: { kind: 'tool', tool: 'terrain commands (editTerrain)' },

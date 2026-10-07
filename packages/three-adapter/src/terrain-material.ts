@@ -46,7 +46,7 @@ import { STEADY_SHAPE_KEY } from './shadow-casters';
 
 /** TSL untyped: three's typings lag the node API used here. */
 const TSL: N = TSLTyped;
-const { Fn, attribute, clamp, dot, float, floor, fract, int, ivec2, length, max, min, mix, modelWorldMatrix, normalLocal, normalize, positionGeometry, renderGroup, select, sqrt, tangentLocal, texture, textureLoad, uniform, uniformArray, varyingProperty, vec2, vec3, vec4 } = TSL;
+const { Fn, attribute, cameraViewMatrix, clamp, dot, float, floor, fract, int, ivec2, length, max, min, mix, modelWorldMatrix, normalLocal, normalize, positionGeometry, renderGroup, select, sqrt, tangentLocal, texture, textureLoad, uniform, uniformArray, varyingProperty, vec2, vec3, vec4 } = TSL;
 
 /** The instanced attributes of a drawn node (`terrain-quadtree.ts`'s eight floats). */
 export const TERRAIN_NODE_ATTRIBUTE = 'tlTerrainNode';
@@ -75,6 +75,12 @@ export function terrainUniforms(): TerrainUniforms {
 /** The default look of a terrain without a graph material: its four channels as plain colours (sRGB; layer L shows channel L % 4's). */
 export const TERRAIN_DEFAULT_COLOURS: readonly string[] = Object.freeze(['#6f8a4a', '#8a6f4f', '#8a8580', '#c8b98a']);
 
+/** A page's surface as the terrain's own materials read it too: a pixel's place in its tile (0-1, +u along x, +v along z) and its tile's texture layer. */
+export interface TerrainSurface extends GraphSurface {
+  readonly tileUv: N;
+  readonly tileLayer: N;
+}
+
 /** Decode a texel's 16-bit step (R high byte, G low byte). */
 const stepOf = (t: N): N => floor(t.r.mul(255).add(0.5)).mul(256).add(floor(t.g.mul(255).add(0.5)));
 
@@ -84,7 +90,7 @@ const stepOf = (t: N): N => floor(t.r.mul(255).add(0.5)).mul(256).add(floor(t.g.
  * naming it (a page's textures replaced by larger ones take a new key, so a
  * new compile).
  */
-export function terrainSurface(key: string, heights: THREE.DataArrayTexture, layers: THREE.DataArrayTexture, indices: THREE.DataArrayTexture, u: TerrainUniforms): GraphSurface {
+export function terrainSurface(key: string, heights: THREE.DataArrayTexture, layers: THREE.DataArrayTexture, indices: THREE.DataArrayTexture, u: TerrainUniforms): TerrainSurface {
   const vSample = varyingProperty('vec2', 'tlTerrainSample');
   const vLayer = varyingProperty('float', 'tlTerrainLayer');
   const vUv = varyingProperty('vec2', 'tlTerrainUv');
@@ -167,7 +173,34 @@ export function terrainSurface(key: string, heights: THREE.DataArrayTexture, lay
     mask,
     arrayLayer,
     perLayer,
+    tileUv: vSample.div(u.samples.sub(1)),
+    tileLayer: pixelLayer,
   };
+}
+
+/** WebGL 2 draws a target bottom-up: a macro texture baked there holds its rows from +z (1 there, 0 on WebGPU). */
+export const terrainMacroFlip: N = uniform(0);
+
+/**
+ * A terrain's look past its macro distance: each tile's baked albedo and
+ * world normal (`terrain-macro.ts`) instead of the layer stack — two texture
+ * reads besides the hole — lit as the layered ground is (rough, not metal).
+ */
+export function terrainMacroMaterial(surface: TerrainSurface, albedo: THREE.DataArrayTexture, normal: THREE.DataArrayTexture): THREE.Material {
+  const m = new MeshStandardNodeMaterial();
+  const uv = vec2(surface.tileUv.x, mix(surface.tileUv.y, float(1).sub(surface.tileUv.y), terrainMacroFlip));
+  const a = texture(albedo, uv).depth(surface.tileLayer);
+  const n = normalize(texture(normal, uv).depth(surface.tileLayer).xyz.mul(2).sub(1));
+  m.colorNode = vec4(a.rgb, 1);
+  // The baked normal is in world space; the material's normal is the view's.
+  m.normalNode = normalize(cameraViewMatrix.mul(vec4(n, 0)).xyz);
+  m.positionNode = surface.position;
+  m.maskNode = surface.mask;
+  m.roughness = 0.9;
+  m.metalness = 0;
+  m.name = 'terrain-macro';
+  m.userData[STEADY_SHAPE_KEY] = true;
+  return m as unknown as THREE.Material;
 }
 
 /** A terrain's look without a graph material: its drawn layers' default colours mixed by their weights. */

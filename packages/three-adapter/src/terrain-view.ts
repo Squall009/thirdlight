@@ -30,6 +30,13 @@
  * at each pixel's layers); with none, or one that is not a graph, it shows
  * its four weight channels as plain colours.
  *
+ * Far ground (a terrain with `macroDistance`): each tile's look is baked from
+ * above into a small macro texture (`terrain-macro.ts`) once its texels are
+ * up and whenever its material changes, a few tiles a frame; nodes wholly
+ * past the distance whose tile is baked are drawn by a second mesh per page
+ * that reads it (two texture reads instead of the material's), the rest as
+ * before. Both share the vertex stage, so they meet without a crack.
+ *
  * Picking: a page's mesh answers a ray from its terrain's `TerrainField`
  * (the grid three would test is flat).
  *
@@ -53,8 +60,10 @@ import { applyEntityRenderFlags } from './entity-render-flags';
 import { GRAPH_SURFACE_KEY, type MaterialLibrary, type MaterialOverridesLike } from './material-library';
 import type { GraphSurface } from './material-graph';
 import { STATIC_CASTER_KEY } from './shadow-casters';
-import { defaultTerrainMaterial, TERRAIN_NODE_ATTRIBUTE, TERRAIN_SUB_ATTRIBUTE, terrainEye, terrainSurface, terrainUniforms, type TerrainUniforms } from './terrain-material';
-import { PageNodes, selectTerrainNodes, terrainLodLayout, terrainLodRanges, TERRAIN_NODE_FLOATS, tileHeightBounds, type SelectStats, type SelectTile, type TerrainLodLayout, type TileHeightBounds } from './terrain-quadtree';
+import { defaultTerrainMaterial, terrainEye, terrainMacroMaterial, terrainSurface, terrainUniforms, type TerrainSurface, type TerrainUniforms } from './terrain-material';
+import { sameMacroSource, TerrainMacroBaker, terrainMacroArrays, terrainMacroSize, terrainMacroSource, type TerrainMacroArrays } from './terrain-macro';
+import { gridGeometry, nodeGeometry } from './terrain-grid';
+import { PageNodes, selectTerrainNodes, splitFarNodes, terrainLodLayout, terrainLodRanges, TERRAIN_NODE_FLOATS, tileHeightBounds, type SelectStats, type SelectTile, type TerrainLodLayout, type TileHeightBounds } from './terrain-quadtree';
 import { metresPerStep, packFlat, packHeightNormalBorder, TERRAIN_TEXEL_BYTES } from './terrain-texels';
 import { TerrainBrushGpu, terrainBrushParts, type TerrainBrushKind, type TerrainBrushPart, type TerrainBrushTile } from './terrain-brush-gpu';
 import { boxTiles, brushDabOf, brushSampleBox, compareRect, emptyDiff, rectUnion, tileRect, type PreviewDiff, type TerrainPreviewDab } from './terrain-preview';
@@ -78,6 +87,9 @@ export const TERRAIN_UPLOAD_BUDGET_MS = 2;
 
 /** Texel bytes uploaded per frame at most (at least one layer texture: a 1,025² tile's is 4.2 MB). */
 export const TERRAIN_UPLOAD_BUDGET_BYTES = 4 * 1024 * 1024;
+
+/** Main-thread time per frame spent baking macro textures (at least one tile a frame while any wait). */
+export const TERRAIN_MACRO_BUDGET_MS = 2;
 
 /** Frames whose upload times the diagnostics' peak covers. */
 const UPLOAD_PEAK_FRAMES = 240;
@@ -132,6 +144,8 @@ export interface TerrainViewDiagnostics {
   cpuBytes: number;
   /** Tiles that failed to read (digest, message). */
   errors: string[];
+  /** Far ground (terrains with a macro distance): tiles baked, waiting, bakes made and their main-thread ms in all, the last bake frame's ms, far nodes drawn and their draws. */
+  macro?: { baked: number; waiting: number; bakes: number; bakeMsTotal: number; bakeMs: number; farNodes: number; draws: number };
 }
 
 interface TileRec {
@@ -217,6 +231,24 @@ interface Page {
   /** The view and stamp its leading nodes were selected for. */
   view: CullView | null;
   stamp: number;
+  /** Its far ground (a terrain with a macro distance), else null. */
+  macro: PageMacro | null;
+}
+
+/** A page's far ground: the tiles' macro textures and the mesh that draws the far nodes from them. */
+interface PageMacro {
+  arrays: TerrainMacroArrays;
+  material: THREE.Material;
+  mesh: THREE.Mesh;
+  geometry: THREE.InstancedBufferGeometry;
+  buffer: THREE.InstancedInterleavedBuffer;
+  own: THREE.InterleavedBufferAttribute[];
+  nodes: PageNodes;
+  listed: boolean;
+  /** Per texture layer: its macro texture holds the tile's look now. */
+  baked: Uint8Array;
+  /** The page material (and its nodes) those bakes drew: another one, every tile baked again. */
+  bakedWith: readonly unknown[] | null;
 }
 
 interface TerrainRec {
@@ -246,48 +278,12 @@ interface TerrainRec {
   reach: number;
   /** The stroke kind whose passes are to be built ahead (null: none, or built). */
   warm: TerrainBrushKind | null;
+  /** Tiles whose macro texture is to be baked (a terrain with a macro distance). */
+  bakes: Set<TileRec>;
   /** A stroke being previewed, one settling, and the last one's figures. */
   stroke: StrokeRec | null;
   settle: SettleRec | null;
   lastStroke: TerrainPreviewStats | null;
-}
-
-/** The shared grid mesh: `grid`² quads over [0, 1]² in x and z, facing up (normal and tangent the vertex shader replaces). */
-function gridGeometry(grid: number): THREE.BufferGeometry {
-  const n = grid + 1;
-  const pos = new Float32Array(n * n * 3);
-  const nor = new Float32Array(n * n * 3);
-  const tan = new Float32Array(n * n * 4);
-  for (let z = 0; z < n; z++) {
-    for (let x = 0; x < n; x++) {
-      const i = z * n + x;
-      pos[i * 3] = x / grid;
-      pos[i * 3 + 2] = z / grid;
-      nor[i * 3 + 1] = 1;
-      tan[i * 4] = 1;
-      tan[i * 4 + 3] = 1;
-    }
-  }
-  const idx = new Uint16Array(grid * grid * 6);
-  let o = 0;
-  for (let z = 0; z < grid; z++) {
-    for (let x = 0; x < grid; x++) {
-      const a = z * n + x;
-      // Counter-clockwise seen from above (+y).
-      idx[o++] = a;
-      idx[o++] = a + n;
-      idx[o++] = a + 1;
-      idx[o++] = a + 1;
-      idx[o++] = a + n;
-      idx[o++] = a + n + 1;
-    }
-  }
-  const g = new THREE.BufferGeometry();
-  g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-  g.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
-  g.setAttribute('tangent', new THREE.BufferAttribute(tan, 4));
-  g.setIndex(new THREE.BufferAttribute(idx, 1));
-  return g;
 }
 
 function arrayTexture(samples: number, capacity: number, filter: THREE.MagnificationTextureFilter): THREE.DataArrayTexture {
@@ -332,6 +328,11 @@ export class TerrainView {
   /** How many tiles of all terrains draw each digest (a tile no terrain draws is let go by the store). */
   private readonly digestUse = new Map<string, number>();
   private readonly errors: string[] = [];
+  /** The macro bakes (made with the renderer that draws them), and the last frame's bake time. */
+  private baker: TerrainMacroBaker | null = null;
+  private bakerRenderer: WebGPURenderer | null = null;
+  private lastBakeMs = 0;
+  private bakeMsTotal = 0;
   /** The strokes' GPU passes (made with the renderer that draws them). */
   private brush: TerrainBrushGpu | null = null;
   private brushRenderer: WebGPURenderer | null = null;
@@ -344,14 +345,14 @@ export class TerrainView {
   setTerrain(id: string, component: TerrainComponent, origin: readonly number[], look: TerrainLook): void {
     const at: [number, number, number] = [origin[0] ?? 0, origin[1] ?? 0, origin[2] ?? 0];
     let rec = this.terrains.get(id);
-    if (rec !== undefined && (rec.component.tileSamples !== component.tileSamples || rec.component.spacing !== component.spacing)) {
-      // Another tile layout: built again from nothing.
+    if (rec !== undefined && (rec.component.tileSamples !== component.tileSamples || rec.component.spacing !== component.spacing || (rec.component.macroDistance === undefined) !== (component.macroDistance === undefined))) {
+      // Another tile layout (or far ground on or off): built again from nothing.
       this.drop(rec);
       rec = undefined;
     }
     if (rec === undefined) {
       const layout = terrainLodLayout(component.tileSamples, component.spacing);
-      rec = { id, component, origin: at, look, layout, uniforms: terrainUniforms(), tiles: new Map(), pages: [], hidden: false, leaving: false, dirty: true, uploads: new Set(), reheights: new Set(), serial: ++this.serials, reach: Number.NaN, field: null, stats: { nodes: 0, inView: 0, perLevel: [] }, stroke: null, settle: null, lastStroke: null, warm: null };
+      rec = { id, component, origin: at, look, layout, uniforms: terrainUniforms(), tiles: new Map(), pages: [], hidden: false, leaving: false, dirty: true, uploads: new Set(), reheights: new Set(), serial: ++this.serials, reach: Number.NaN, field: null, stats: { nodes: 0, inView: 0, perLevel: [] }, bakes: new Set(), stroke: null, settle: null, lastStroke: null, warm: null };
       this.terrains.set(id, rec);
     }
     rec.leaving = false;
@@ -415,9 +416,15 @@ export class TerrainView {
   }
 
   private list(p: Page, on: boolean): void {
-    if (p.listed === on) return;
-    p.listed = on;
-    this.deps.place(p.mesh, on);
+    if (p.listed !== on) {
+      p.listed = on;
+      this.deps.place(p.mesh, on);
+    }
+    const m = p.macro;
+    if (m !== null && m.listed !== on) {
+      m.listed = on;
+      this.deps.place(m.mesh, on);
+    }
   }
 
   ids(): string[] {
@@ -710,12 +717,20 @@ export class TerrainView {
             t.ready = true;
             rec.dirty = true;
           }
+          // Its macro texture shows what it was: drawn from its layers until baked again.
+          const macro = rec.pages[t.page]?.macro ?? null;
+          if (macro !== null) {
+            macro.baked[t.layer] = 0;
+            rec.bakes.add(t);
+          }
         }
       }
       if (rec.uploads.size > 0 || rec.reheights.size > 0) this.deps.changed();
     }
+    const tu = performance.now();
+    this.lastUploadMs = tu - t0;
+    this.bakeMacros(renderer ?? null);
     const t1 = performance.now();
-    this.lastUploadMs = t1 - t0;
     this.uploadMsRing[this.ringAt] = this.lastUploadMs;
     this.uploadBytesRing[this.ringAt] = bytes;
     this.ringAt = (this.ringAt + 1) % UPLOAD_PEAK_FRAMES;
@@ -742,6 +757,22 @@ export class TerrainView {
       for (const p of rec.pages) {
         gpuBytes += p.heights.image.data!.byteLength + p.layers.image.data!.byteLength + p.indices.image.data!.byteLength;
         if (p.nodes.count > 0) draws += 1;
+        if (p.macro !== null) {
+          gpuBytes += p.macro.arrays.albedo.image.data!.byteLength + p.macro.arrays.normal.image.data!.byteLength;
+          if (p.macro.nodes.count > 0) draws += 1;
+        }
+      }
+    }
+    let macro: TerrainViewDiagnostics['macro'];
+    for (const rec of this.terrains.values()) {
+      if (rec.component.macroDistance === undefined) continue;
+      macro ??= { baked: 0, waiting: 0, bakes: this.baker?.bakes ?? 0, bakeMsTotal: Math.round(this.bakeMsTotal * 100) / 100, bakeMs: Math.round(this.lastBakeMs * 1000) / 1000, farNodes: 0, draws: 0 };
+      macro.waiting += rec.bakes.size;
+      for (const p of rec.pages) {
+        if (p.macro === null) continue;
+        for (const l of p.used) macro.baked += p.macro.baked[l] ?? 0;
+        macro.farNodes += p.macro.nodes.count;
+        if (p.macro.nodes.count > 0) macro.draws += 1;
       }
     }
     // Every terrain's last selection, level by level (leaf first).
@@ -762,13 +793,15 @@ export class TerrainView {
       peakMs = Math.max(peakMs, this.uploadMsRing[i]!);
       peakBytes = Math.max(peakBytes, this.uploadBytesRing[i]!);
     }
-    return { terrains: this.terrains.size, tilesDrawn, tilesListed, gpuBytes, nodes, inView, perLevel, draws, selectMs: r3(this.lastSelectMs), uploadMs: r3(this.lastUploadMs), uploadMsPeak: r3(peakMs), uploadBytesPeak: peakBytes, tilesUploaded: this.tilesUploaded, decodeMs: r3(this.lastDecodeMs), packMs: r3(this.lastPackMs), cpuBytes, errors: this.errors.slice(-8) };
+    return { terrains: this.terrains.size, tilesDrawn, tilesListed, gpuBytes, nodes, inView, perLevel, draws, selectMs: r3(this.lastSelectMs), uploadMs: r3(this.lastUploadMs), uploadMsPeak: r3(peakMs), uploadBytesPeak: peakBytes, tilesUploaded: this.tilesUploaded, decodeMs: r3(this.lastDecodeMs), packMs: r3(this.lastPackMs), cpuBytes, errors: this.errors.slice(-8), ...(macro !== undefined ? { macro } : {}) };
   }
 
   dispose(): void {
     this.disposed = true;
     this.brush?.dispose();
     this.brush = null;
+    this.baker?.dispose();
+    this.baker = null;
     for (const rec of [...this.terrains.values()]) this.drop(rec);
     for (const g of this.grids.values()) g.dispose();
     this.grids.clear();
@@ -921,6 +954,9 @@ export class TerrainView {
 
   private release(rec: TerrainRec, t: TileRec): void {
     rec.uploads.delete(t);
+    rec.bakes.delete(t);
+    const macro = rec.pages[t.page]?.macro ?? null;
+    if (macro !== null) macro.baked[t.layer] = 0;
     rec.reheights.delete(t);
     rec.field = null;
     rec.pages[t.page]?.used.delete(t.layer);
@@ -946,7 +982,8 @@ export class TerrainView {
     mesh.userData[STATIC_CASTER_KEY] = true;
     mesh.userData[GRAPH_SURFACE_KEY] = surface;
     mesh.userData[TERRAIN_ENTITY_KEY] = rec.id;
-    const page: Page = { heights, layers, indices, capacity, used: new Set(), surface, fallback, mesh, geometry, buffer, own, nodes: new PageNodes(), listed: false, undoMaterial: null, view: null, stamp: -1 };
+    const page: Page = { heights, layers, indices, capacity, used: new Set(), surface, fallback, mesh, geometry, buffer, own, nodes: new PageNodes(), listed: false, undoMaterial: null, view: null, stamp: -1, macro: null };
+    if (rec.component.macroDistance !== undefined) page.macro = this.makeMacro(rec, page, surface, capacity);
     // Picking reads the terrain's heights (the grid three would test is flat); its first page answers for it.
     mesh.raycast = (raycaster, hits) => {
       if (rec.pages[0] !== page || this.terrains.get(rec.id) !== rec) return;
@@ -988,7 +1025,131 @@ export class TerrainView {
     old.fallback = fallback;
     old.mesh.material = fallback;
     old.mesh.userData[GRAPH_SURFACE_KEY] = surface;
+    if (old.macro !== null) {
+      // New arrays (the baked looks live on the GPU only): every tile of the page baked again.
+      const was = old.macro;
+      const listed = was.listed;
+      this.listMacro(old, false);
+      this.disposeMacro(was);
+      old.macro = this.makeMacro(rec, old, surface, capacity);
+      old.macro.mesh.position.copy(old.mesh.position);
+      old.macro.mesh.updateMatrix();
+      old.macro.mesh.matrixWorld.copy(old.mesh.matrixWorld);
+      if (listed) this.listMacro(old, true);
+      for (const t of rec.tiles.values()) if (t.page === i && t.ready) rec.bakes.add(t);
+    }
     this.dressPage(rec, old);
+  }
+
+  /** A page's far ground: its macro arrays, the material reading them, and the mesh drawing the far nodes. */
+  private makeMacro(rec: TerrainRec, page: Page, surface: TerrainSurface, capacity: number): PageMacro {
+    const arrays = terrainMacroArrays(terrainMacroSize(rec.component.tileSamples), capacity);
+    const material = terrainMacroMaterial(surface, arrays.albedo, arrays.normal);
+    const grid = this.grids.get(rec.layout.grid)!;
+    const made = nodeGeometry(grid, 64);
+    const mesh = new THREE.Mesh(made.geometry, material);
+    mesh.name = `terrain-macro:${rec.id}`;
+    mesh.frustumCulled = false;
+    mesh.matrixAutoUpdate = false;
+    mesh.userData[STATIC_CASTER_KEY] = true;
+    // Picking stays with the page's own mesh (it answers from the terrain's field).
+    mesh.raycast = () => undefined;
+    const macro: PageMacro = { arrays, material, mesh, ...made, nodes: new PageNodes(), listed: false, baked: new Uint8Array(capacity), bakedWith: null };
+    mesh.onBeforeRender = (_r, _s, camera) => {
+      macro.geometry.instanceCount = page.view !== null && page.stamp === page.view.stamp && page.view.is(camera) ? macro.nodes.inView : macro.nodes.count;
+    };
+    made.geometry.instanceCount = 0;
+    applyEntityRenderFlags(mesh, rec.look.components);
+    return macro;
+  }
+
+  private listMacro(p: Page, on: boolean): void {
+    const m = p.macro;
+    if (m === null || m.listed === on) return;
+    m.listed = on;
+    this.deps.place(m.mesh, on);
+  }
+
+  private disposeMacro(m: PageMacro): void {
+    (m.mesh as unknown as { dispose?: () => void }).dispose?.();
+    disposeSharingGeometry(m.geometry, m.own);
+    m.arrays.albedo.dispose();
+    m.arrays.normal.dispose();
+    m.material.dispose();
+  }
+
+  /**
+   * Bake the tiles waiting for a macro texture, within the frame's budget
+   * (at least one while any wait): a page whose material changed bakes every
+   * tile again. A bake waiting for its programs to compile stops the frame's.
+   */
+  private bakeMacros(renderer: WebGPURenderer | null): void {
+    this.lastBakeMs = 0;
+    if (renderer === null) return;
+    const t0 = performance.now();
+    let baked = 0;
+    for (const rec of this.terrains.values()) {
+      if (rec.component.macroDistance === undefined || rec.hidden) continue;
+      for (const p of rec.pages) {
+        const m = p.macro;
+        if (m === null) continue;
+        const source = terrainMacroSource(p.mesh.material as THREE.Material);
+        if (sameMacroSource(m.bakedWith, source)) continue;
+        m.bakedWith = source;
+        m.baked.fill(0);
+        for (const t of rec.tiles.values()) if (t.page === rec.pages.indexOf(p) && t.ready) rec.bakes.add(t);
+        rec.dirty = true;
+      }
+      if (rec.bakes.size === 0) continue;
+      const baker = this.bakerFor(renderer);
+      const size = (rec.component.tileSamples - 1) * rec.component.spacing;
+      for (const t of [...rec.bakes]) {
+        if (baked > 0 && performance.now() - t0 >= TERRAIN_MACRO_BUDGET_MS) break;
+        const p = rec.pages[t.page];
+        if (p?.macro == null || t.tile === null) {
+          rec.bakes.delete(t);
+          continue;
+        }
+        // Its texels up first (a bake draws what the page holds).
+        if (!t.ready || t.pending !== null) continue;
+        const range = rec.component.heightRange;
+        // The tile's height span: its root node's bounds (the last level's only node).
+        const root = (b: readonly Uint16Array[] | undefined, d: number): number => b?.[b.length - 1]?.[0] ?? d;
+        const done = baker.bake({
+          x: t.x * size,
+          z: t.z * size,
+          size,
+          layer: t.layer,
+          layout: rec.layout,
+          matrixWorld: p.mesh.matrixWorld,
+          low: terrainHeightOf(range, root(t.bounds?.min, 0)),
+          high: terrainHeightOf(range, root(t.bounds?.max, 65535)),
+          material: p.mesh.material as THREE.Material,
+          userData: p.mesh.userData,
+          arrays: p.macro.arrays,
+        });
+        if (!done) {
+          this.deps.changed();
+          break;
+        }
+        p.macro.baked[t.layer] = 1;
+        rec.bakes.delete(t);
+        rec.dirty = true;
+        baked += 1;
+      }
+      if (rec.bakes.size > 0) this.deps.changed();
+    }
+    this.lastBakeMs = performance.now() - t0;
+    if (baked > 0) this.bakeMsTotal += this.lastBakeMs;
+  }
+
+  private bakerFor(renderer: WebGPURenderer): TerrainMacroBaker {
+    if (this.baker === null || this.bakerRenderer !== renderer) {
+      this.baker?.dispose();
+      this.baker = new TerrainMacroBaker(renderer, this.grids);
+      this.bakerRenderer = renderer;
+    }
+    return this.baker;
   }
 
   /** Put each page's mesh where the terrain is (listed in the scene unless hidden). */
@@ -1008,6 +1169,10 @@ export class TerrainView {
       m.updateMatrix();
       m.matrixWorld.copy(m.matrix);
       m.userData[PLACED_KEY] = true;
+      if (p.macro !== null) {
+        p.macro.mesh.matrix.copy(m.matrix);
+        p.macro.mesh.matrixWorld.copy(m.matrix);
+      }
       if (!rec.hidden) this.list(p, true);
     }
     if (moved) {
@@ -1023,6 +1188,7 @@ export class TerrainView {
 
   private dressPage(rec: TerrainRec, p: Page): void {
     applyEntityRenderFlags(p.mesh, rec.look.components);
+    if (p.macro !== null) applyEntityRenderFlags(p.macro.mesh, rec.look.components);
     p.undoMaterial?.();
     p.undoMaterial = null;
     const lib = this.deps.materials;
@@ -1039,6 +1205,7 @@ export class TerrainView {
       p.layers.dispose();
       p.indices.dispose();
       p.fallback.dispose();
+      if (p.macro !== null) this.disposeMacro(p.macro);
     }
     rec.pages = [];
     for (const t of rec.tiles.values()) this.useDigest(t.digest, null);
@@ -1070,41 +1237,38 @@ export class TerrainView {
       rec.pages.map((p) => p.nodes),
       rec.stats,
     );
+    const far = rec.component.macroDistance;
     for (const p of rec.pages) {
-      const need = p.nodes.count * TERRAIN_NODE_FLOATS;
-      if (need > p.buffer.array.length) {
-        const old = p.geometry;
-        const oldOwn = p.own;
-        const grid = this.grids.get(rec.layout.grid)!;
-        const made = nodeGeometry(grid, pow2AtLeast(p.nodes.count));
-        p.geometry = made.geometry;
-        p.buffer = made.buffer;
-        p.own = made.own;
-        p.mesh.geometry = made.geometry;
-        disposeSharingGeometry(old, oldOwn);
+      // Nodes wholly past the macro distance whose tile is baked: drawn from the macro texture.
+      if (p.macro !== null && far !== undefined) {
+        const baked = p.macro.baked;
+        splitFarNodes(p.nodes, p.macro.nodes, [view.eye[0]! - ox, view.eye[2]! - oz], rec.component.spacing, far, (layer) => baked[layer] === 1);
+        this.upload(rec, p.macro, p.macro.nodes);
       }
-      (p.buffer.array as Float32Array).set(p.nodes.data.subarray(0, need));
-      p.buffer.clearUpdateRanges();
-      p.buffer.addUpdateRange(0, need);
-      p.buffer.needsUpdate = true;
-      p.geometry.instanceCount = p.nodes.count;
+      this.upload(rec, p, p.nodes);
       p.view = view;
       p.stamp = view.stamp;
     }
   }
-}
 
-/** The grid drawn instanced: its attributes shared, plus the nodes' two vec4 per instance. */
-function nodeGeometry(grid: THREE.BufferGeometry, capacity: number): { geometry: THREE.InstancedBufferGeometry; buffer: THREE.InstancedInterleavedBuffer; own: THREE.InterleavedBufferAttribute[] } {
-  const g = new THREE.InstancedBufferGeometry();
-  g.index = grid.index;
-  for (const name of ['position', 'normal', 'tangent']) g.setAttribute(name, grid.getAttribute(name));
-  // Static usage, uploaded when the selection changes (three's WebGPU renderer uploads a dynamic-usage buffer every draw).
-  const buffer = new THREE.InstancedInterleavedBuffer(new Float32Array(capacity * TERRAIN_NODE_FLOATS), TERRAIN_NODE_FLOATS, 1);
-  const own = [new THREE.InterleavedBufferAttribute(buffer, 4, 0), new THREE.InterleavedBufferAttribute(buffer, 4, 4)];
-  g.setAttribute(TERRAIN_NODE_ATTRIBUTE, own[0]!);
-  g.setAttribute(TERRAIN_SUB_ATTRIBUTE, own[1]!);
-  g.instanceCount = 0;
-  g.boundingSphere = new THREE.Sphere(new THREE.Vector3(), Infinity);
-  return { geometry: g, buffer, own };
+  /** A mesh's instance buffer filled with its nodes (a larger buffer made when they no longer fit). */
+  private upload(rec: TerrainRec, target: { geometry: THREE.InstancedBufferGeometry; buffer: THREE.InstancedInterleavedBuffer; own: THREE.InterleavedBufferAttribute[]; mesh: THREE.Mesh }, nodes: PageNodes): void {
+    const need = nodes.count * TERRAIN_NODE_FLOATS;
+    if (need > target.buffer.array.length) {
+      const old = target.geometry;
+      const oldOwn = target.own;
+      const grid = this.grids.get(rec.layout.grid)!;
+      const made = nodeGeometry(grid, pow2AtLeast(nodes.count));
+      target.geometry = made.geometry;
+      target.buffer = made.buffer;
+      target.own = made.own;
+      target.mesh.geometry = made.geometry;
+      disposeSharingGeometry(old, oldOwn);
+    }
+    (target.buffer.array as Float32Array).set(nodes.data.subarray(0, need));
+    target.buffer.clearUpdateRanges();
+    target.buffer.addUpdateRange(0, need);
+    target.buffer.needsUpdate = true;
+    target.geometry.instanceCount = nodes.count;
+  }
 }
