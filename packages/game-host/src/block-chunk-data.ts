@@ -7,9 +7,7 @@
  * the entry's `chunks`. A document with its cells inline (Play's start
  * snapshot) passes through unchanged.
  */
-import { BLOCK_CHUNK_DATA_KEY as CHUNK_DATA_KEY, decodeBlockChunks, readBlockChunkData } from '@thirdlight/runtime';
-
-import { gunzip } from './gunzip';
+import { BLOCK_CHUNK_DATA_KEY as CHUNK_DATA_KEY, decodeBlockChunks, gunzip, readBlockChunkData } from '@thirdlight/runtime';
 
 /** A blob's chunks. */
 async function chunksOf(blob: ArrayBuffer): Promise<unknown[]> {

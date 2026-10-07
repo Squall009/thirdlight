@@ -9,6 +9,8 @@
  * - Blob sizes of a 513² tile: rolling hills, the same painted with four layers, with holes.
  * - A 4k heightmap import: a 4097² 16-bit PNG and a 4096² RAW (decode, lay onto 513² tiles, encode and gzip
  *   every tile).
+ * - The renderer's page-side work for the landscape class's terrain (144 tiles of 257² at 2 m): packing a tile's
+ *   texels (heights and normals, layers) and its height bounds, and a CDLOD selection with the camera flying over it.
  * The numbers go to ~/.cache/thirdlight-perf/terrain.jsonl and the phase plan's progress table.
  */
 import { appendFileSync, mkdirSync } from 'node:fs';
@@ -20,6 +22,8 @@ import { describe, expect, it } from 'vitest';
 import { TerrainSamples, decodeHeightmap, flatTerrainTile, holeTerrain, importHeightmap, paintTerrain, sculptTerrain, terrainFlatStep, terrainNoise, terrainTileKey, type TerrainComponent, type TerrainSculptKind, type TerrainTile } from '@thirdlight/project-model';
 
 import { terrainBlobOf, terrainTileOfBlob } from '../../packages/workspace/src/terrain-edits';
+import { PageNodes, selectTerrainNodes, terrainLodLayout, terrainLodRanges, tileHeightBounds, type SelectStats, type SelectTile } from '../../packages/three-adapter/src/terrain-quadtree';
+import { packHeightNormal, packLayers, TERRAIN_TEXEL_BYTES } from '../../packages/three-adapter/src/terrain-texels';
 
 const ON = process.env['TL_PERF'] === '1';
 function record(line: string): void {
@@ -167,4 +171,45 @@ describe.runIf(ON)('terrain data perf', () => {
       record(JSON.stringify({ case: 'import', format, size: [map.map.width, map.map.height], fileBytes: bytes.length, tiles: laid.added, ms: { decode: Math.round(b - a), lay: Math.round(c - b), encodeGzip: Math.round(d - c), total: Math.round(d - a) }, storedBytes: stored, pngMadeMs: format === 'png16' ? made : undefined }));
     }
   }, 600_000);
+
+  it('the renderer\'s page-side work: tile texels, height bounds, and selection while flying', () => {
+    const samples = 257;
+    const layout = terrainLodLayout(samples, 2);
+    const tile = flatTerrainTile(samples, 0);
+    for (let z = 0; z < samples; z++) for (let x = 0; x < samples; x++) tile.heights[z * samples + x] = 20000 + Math.round(3000 * Math.sin(x / 17) * Math.cos(z / 23));
+    tile.weights = new Uint8Array(samples * samples * 8);
+    for (let i = 0; i < samples * samples; i++) tile.weights.set([i % 4, (i + 1) % 4, 0, 0, 200, 55, 0, 0], i * 8);
+    const out = new Uint8Array(samples * samples * TERRAIN_TEXEL_BYTES);
+    const heightsMs: number[] = [];
+    const layersMs: number[] = [];
+    const boundsMs: number[] = [];
+    for (let k = 0; k < 12; k++) {
+      let t0 = performance.now();
+      packHeightNormal(out, tile, () => tile, 512 / 65535, 2);
+      heightsMs.push(ms(t0));
+      t0 = performance.now();
+      packLayers(out, tile);
+      layersMs.push(ms(t0));
+      t0 = performance.now();
+      tileHeightBounds(tile.heights, layout);
+      boundsMs.push(ms(t0));
+    }
+    const bounds = tileHeightBounds(tile.heights, layout);
+    const tiles: SelectTile[] = [];
+    for (let z = 0; z < 12; z++) for (let x = 0; x < 12; x++) tiles.push({ x, z, page: 0, layer: z * 12 + x, bounds });
+    const page = new PageNodes();
+    const stats: SelectStats = { nodes: 0, inView: 0, perLevel: [] };
+    const ranges = terrainLodRanges(layout, undefined, 1);
+    const selectMs: number[] = [];
+    // A flight across the middle, 8 m up, a frustum of half the sky (in view: ahead of the camera along −z).
+    for (let f = 0; f < 600; f++) {
+      const eye: [number, number, number] = [3072 + f * 0.5, 160, 3072 - f * 0.25];
+      const t0 = performance.now();
+      selectTerrainNodes(tiles, { layout, ranges, eye, heightOf: (s) => -64 + (s / 65535) * 256, inView: (x, _y, z, r) => z - r < eye[2] && Math.abs(x - eye[0]) < (eye[2] - z) + r }, [page], stats);
+      selectMs.push(performance.now() - t0);
+    }
+    const sel = selectMs.slice(100);
+    record(`terrain page-side: 257² tile pack heights+normals ${median(heightsMs)} ms, layers ${median(layersMs)} ms, bounds ${median(boundsMs)} ms; selection over 144 tiles ${Math.round(median(sel) * 1000) / 1000} ms median, ${Math.round([...sel].sort((a, b) => a - b)[Math.floor(sel.length * 0.95)]! * 1000) / 1000} ms p95 (${stats.nodes} nodes, ${stats.inView} in view, per level ${stats.perLevel.join('/')})`);
+    expect(stats.nodes).toBeGreaterThan(144);
+  });
 });

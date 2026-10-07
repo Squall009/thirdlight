@@ -1,5 +1,5 @@
 /**
- * Gunzip on the page with the browser's own DecompressionStream (a build's
+ * Gunzip with the platform's own DecompressionStream (a page, a worker, Node) (a build's
  * binary data ships gzip: block chunks, terrain tiles), refusing to inflate
  * past the size the data's header states.
  */

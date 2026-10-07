@@ -1025,7 +1025,8 @@ export class Viewport {
     // nothing else draws unless something asked for a frame (render on demand).
     const animated = this.assets.materialLibrary.animated();
     // While the block tools are on, the view-projection matrix (tests map cells to the screen).
-    if (this.blockEditorInst?.isActive() === true || this.instanceBrush.active(this.selectedId)) {
+    const terrain = adapter.terrainDiagnostics?.() ?? null;
+    if (this.blockEditorInst?.isActive() === true || this.instanceBrush.active(this.selectedId) || terrain !== null) {
       this.camera.updateMatrixWorld();
       const vp = new THREE.Matrix4().multiplyMatrices(this.camera.projectionMatrix, this.camera.matrixWorldInverse);
       this.root.setAttribute('data-view-proj', JSON.stringify(vp.elements.map((v) => Math.round(v * 1e6) / 1e6)));
@@ -1041,6 +1042,9 @@ export class Viewport {
     // The block layers drawn (once the project's layers were handed over; tests read them).
     const blocks = adapter.blockLayers?.();
     if (blocks !== undefined && this.blockInput !== null) this.root.setAttribute('data-block-layers', JSON.stringify(blocks.diagnostics()));
+    // The terrains drawn (tests read the tiles drawn and the nodes selected).
+    if (terrain !== null) this.root.setAttribute('data-terrain', JSON.stringify(adapter.terrainDiagnostics?.() ?? terrain));
+    else this.root.removeAttribute('data-terrain');
     const f = adapter.lastFrame?.();
     this.root.setAttribute('data-frames', String(this.framesDrawn));
     // The renderer's live resource counts after the frame (the leak tests read them).

@@ -4943,10 +4943,9 @@ stroke or button is one undo step, and MCP can do the same.
 ## Terrain
 
 A `terrain` component makes an object a heightfield of square tiles for
-landscape (block layers stay the tool for authored structure). Drawing and
-collision come with the renderer item after this one; today a terrain is data
-that is edited, saved, played and exported, and that scripts' and tools'
-queries can read.
+landscape (block layers stay the tool for authored structure). It is drawn in
+the Scene view, Play and an export alike; collision comes with the next item
+(a terrain has none yet), and the editor's Terrain tools after that.
 
 - **The component** `{tileSamples, spacing, heightRange: [low, high], tiles:
   [{x, z, data?}]}`: each tile holds `tileSamples × tileSamples` samples
@@ -5005,6 +5004,37 @@ queries can read.
   `manifest.buffers` row, `content/sha256/<digest>`); the game page inflates
   it with the browser's own decompression and the runtime's terrain field
   answers heights, normals, slopes, holes and layers.
+- **Drawing** (CDLOD): each tile is a quadtree whose nodes are one shared
+  16 × 16 grid drawn instanced, raised in the vertex shader from the tile's
+  heights and morphed between levels by distance, so levels meet without
+  cracks or pops; a page of up to 256 tiles (`TERRAIN_PAGE_LAYERS`, the
+  texture-array layers both renderers guarantee) is one draw. The finest
+  level reaches **`lodDistance`** metres (optional; each coarser level twice
+  as far; absent or smaller: the least the tile size allows, 4.5 × 16 cells ×
+  `spacing`); a quality level's or the project's **LOD bias** divides it. Past
+  the coarsest level each tile is one node, so a terrain reaches the horizon
+  (put fog there). A sculpt, paint or holes edit uploads only the changed
+  tiles again; the sun's cached static shadow is drawn again once.
+- **Material**: give the object a `materials` component with `"*"` naming a
+  graph material — the **height-blended layers** template draws the
+  terrain's layers 0–3 (layer weights stand in for its painted vertex
+  colours; texture coordinates are metres from the terrain's corner, +u along
+  x, +v along z, as block layers' tops). Layers past the fourth are not drawn
+  yet (the four drawn share their weight). Without a graph material the four
+  layers show as plain colours (green, brown, grey, sand). Holes are cut away
+  (also from the shadow). Light layers and local-light modes come from the
+  object's components as for any object; the terrain casts into the cached
+  static shadow and receives the scene's probes and ambient occlusion.
+- **Diagnostics**: the adapter's `terrain` block (tiles drawn, texture bytes,
+  nodes selected and in view per level, draws, main-thread ms of the last
+  selection and uploads, tiles that failed to read); `?terrain=off` on a game
+  page draws none (to measure what a terrain costs).
+- **Measured** (landscape perf class: 12 × 12 tiles of 257² at 2 m, the
+  layered material, Iris Xe at 1080p): the terrain adds 0.9 ms of GPU time,
+  one draw and 0.5 ms (WebGPU) to 0.9 ms (WebGL 2) of main-thread time per
+  frame; a CDLOD selection over its 144 tiles takes about 0.05 ms when the
+  camera moves; a 257² tile's upload about 4.3 ms of packing (one tile or
+  more within 3 ms a frame).
 - **Measured** (this host, Node): a dab on a 513² tile at 1 m costs 0.1–0.2 ms
   at 8 m radius, about 0.9 ms at 32 m and 3.7 ms at 64 m (paint 0.5 / 5.5 /
   23 ms); a 32-dab stroke as the backend runs it (read the tile, plan, encode,

@@ -48,9 +48,10 @@ import { syncCellUv } from './block-cell-uv';
 import { BlockLayerView, blockLookFromObject, type BlockLayerViewDiagnostics, type BlockModelLook } from './block-layers';
 import { createCutawayFollower } from './block-cutaway-follow';
 import { createBrowserMeshWorker } from './block-mesh-pool';
+import { TerrainView } from './terrain-view';
 import { RuntimeMaterialView, type MaterialRenderChangeLike, type RuntimeMaterialsDiagnostics } from './runtime-materials';
 import { MaterialSwapView, type MaterialMappingLike } from './material-swaps';
-import type { BlockLayerComponent, BlockLayerData, BlockType, GridRenderChange } from '@thirdlight/runtime';
+import type { BlockLayerComponent, BlockLayerData, BlockType, GridRenderChange, TerrainComponent } from '@thirdlight/runtime';
 import type { Runtime, RuntimeSnapshot } from '@thirdlight/runtime';
 import { instanceDensityOf, type EnvironmentBlendView } from '@thirdlight/runtime';
 import { adapterError, type AdapterError } from './errors';
@@ -519,6 +520,15 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       }
     },
   });
+  // Terrains — CDLOD over their tiles' texture arrays (terrain-view.ts).
+  const terrains = new TerrainView({
+    readBlob: opts.resolveBuffer ?? opts.models?.resolveBuffer ?? null,
+    materials: materialLibrary,
+    place: (mesh, shown) => (shown ? graph.listStatic(mesh) : graph.unlistStatic(mesh)),
+    shapeChanged: () => staticShadows?.bump(),
+    changed: () => opts.onChange?.(),
+    lodBias: () => graph.lodTuning.bias,
+  });
   /** The block layers realized from their documents (a host may drive layers of its own through `blockLayers()`). */
   const docLayers = new Set<string>();
   // Cut-aways follow their subject; their fade copies are compiled ahead.
@@ -584,6 +594,8 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       docLayers.add(e.id);
       blockView.setLayer(e.id, layer, t.position, layer.data ?? null);
     }
+    const terrain = (e.components as { terrain?: TerrainComponent }).terrain;
+    if (terrain !== undefined && opts.terrain !== false) terrains.setTerrain(e.id, terrain, t.position, { components: e.components, materials: effectiveMaterials(e.id, (e.components as { materials?: Record<string, string> }).materials) ?? null, overrides: materialParamsOf(e.components) });
     if ((e.components as { fogVolume?: unknown }).fogVolume !== undefined) fogVolumeIds.add(e.id);
     const node = graph.node(e.id);
     const boxMaterials = effectiveMaterials(e.id, (e.components as { materials?: Record<string, string> }).materials);
@@ -606,6 +618,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   };
   const releaseEntity = (id: string): void => {
     if (docLayers.delete(id)) blockView.removeLayer(id);
+    terrains.removeTerrain(id);
     runtimeMaterials?.release(id);
     if (effects !== null) {
       effects.detach(id);
@@ -1259,6 +1272,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       hiddenIds = graph.setHidden(hiddenOwn);
       // A hidden block layer's chunks leave the scene (they hang on no entity node).
       for (const id of docLayers) blockView.setHidden(id, hiddenIds.has(id));
+      for (const id of terrains.ids()) terrains.setHidden(id, hiddenIds.has(id));
       let lightsTouched = false;
       for (const id of before) if (!hiddenIds.has(id) && lights.has(id)) lightsTouched = true;
       for (const id of hiddenIds) if (!before.has(id) && lights.has(id)) lightsTouched = true;
@@ -1423,6 +1437,8 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     }
     // Then what each batch, chunk and merged cell has in view leads its draw.
     viewCull.update(camera!);
+    // The terrains' nodes for this view (only when it or their tiles changed), and tiles that arrived uploaded.
+    terrains.update(viewCull.view);
     // Merged cells still building in the background, or a moved static object waiting to rejoin its cell: a host drawing on demand draws again.
     if (batcher?.pending() === true) opts.onChange?.();
     // Shadows on before the draw (and before the precompile below, so the programs are built with
@@ -1587,6 +1603,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       d.lod = { bias: t.bias, hysteresis: t.hysteresis, switches: t.switches, copySwitches: t.copySwitches, instances: realization?.instanceStats() ?? { copies: 0, inView: 0, byLevel: [], culled: 0, thinned: 0 } };
     }
     if (!disposed && blockView.layerIds().length > 0) d.blocks = blockView.diagnostics();
+    if (!disposed && terrains.ids().length > 0) d.terrain = terrains.diagnostics();
     if (!disposed && materialLibrary !== null && runtimeMaterials !== null) d.materials = { graphMaterials: materialLibrary.graphMaterialCount(), ...(materialSwaps !== null && (materialSwaps.applied > 0 || materialSwaps.pending() > 0) ? { swapsApplied: materialSwaps.applied, swapsPending: materialSwaps.pending() } : {}), ...runtimeMaterials.diagnostics() };
     const envDiagnostics = environmentRenderer !== null && !disposed ? environmentRenderer.diagnostics() : null;
     if (envDiagnostics !== null) d.environment = envDiagnostics;
@@ -1658,6 +1675,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     batcher?.dispose();
     viewCull.dispose();
     blockView.dispose();
+    terrains.dispose();
     for (const rec of boxMaterials.values()) rec.material.dispose();
     boxMaterials.clear();
     boxMaterialKeys.clear();
@@ -1841,6 +1859,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     instanceBuffer: (digest) => realization?.instanceBuffer(digest),
     modelFailures: () => realization?.failures() ?? new Map(),
     blockLayers: () => blockView,
+    terrainDiagnostics: () => (terrains.ids().length > 0 ? terrains.diagnostics() : null),
     currentRenderer: () => (disposed ? null : (owned.renderer?.current() ?? null)),
     frameSkipped: () => lastFrameSkipped || precompileRun !== null,
     lastFrame: () => ({ drawCalls: lastFrameCounts.drawCalls, triangles: lastFrameCounts.triangles, samples: msaaMark, batching: batcher !== null && lastFrameDrawn ? batcher.diagnostics() : null }),

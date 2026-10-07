@@ -777,15 +777,15 @@ function validateEntityComponentsV3(
   if (comps['materials'] !== undefined) {
     // Which project material each of the object's materials uses.
     validateMaterialMapping(comps['materials'], `${path}/materials`, errors);
-    if (comps['model'] === undefined && comps['box'] === undefined && comps['instances'] === undefined) {
-      errors.push(componentMissing(`${path}/materials`, 'model|box|instances', 'a materials component sits only on an entity with a model, a box or an instance set'));
+    if (comps['model'] === undefined && comps['box'] === undefined && comps['instances'] === undefined && comps['terrain'] === undefined) {
+      errors.push(componentMissing(`${path}/materials`, 'model|box|instances|terrain', 'a materials component sits only on an entity with a model, a box, an instance set or a terrain'));
     }
   }
   if (comps['materialParams'] !== undefined) {
     // Overrides of the object's graph materials' public parameters.
     validateMaterialParamsComponent(comps['materialParams'], `${path}/materialParams`, errors);
-    if (comps['model'] === undefined && comps['box'] === undefined && comps['instances'] === undefined) {
-      errors.push(componentMissing(`${path}/materialParams`, 'model|box|instances', 'material parameter overrides sit only on an entity with a model, a box or an instance set'));
+    if (comps['model'] === undefined && comps['box'] === undefined && comps['instances'] === undefined && comps['terrain'] === undefined) {
+      errors.push(componentMissing(`${path}/materialParams`, 'model|box|instances|terrain', 'material parameter overrides sit only on an entity with a model, a box, an instance set or a terrain'));
     }
   }
   // A visual effect played from the entity (any entity may carry one).

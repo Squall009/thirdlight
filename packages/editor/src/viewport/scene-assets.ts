@@ -117,7 +117,8 @@ export function createSceneViewAssets(o: {
       return rowOf(assetId);
     },
     resolveBytes: async (assetId, version) => ownBuffer(await client.assetBytes(assetId, version)),
-    resolveBuffer: async (digest) => ownBuffer(await client.instanceBufferBytes(digest)),
+    // Raw bytes: instance sets read them as floats, terrain tiles as their blobs.
+    resolveBuffer: (digest) => client.bufferBytes(digest),
     loadTexture,
     ...(o.onSetBuilt !== undefined ? { onInstanceSetBuilt: o.onSetBuilt } : {}),
   };

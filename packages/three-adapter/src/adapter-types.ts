@@ -9,6 +9,7 @@ import type { MaterialDefLike, MaterialLibrary, WindLike } from './material-libr
 import type { LightingBakeLike } from './lightmaps';
 import type { EnvironmentLayerLike, EnvironmentLike, QualityLevel } from './environment';
 import type { BlockLayerView, BlockLayerViewDiagnostics } from './block-layers';
+import type { TerrainViewDiagnostics } from './terrain-view';
 import type { BuiltInstanceSet, InstanceSetStats } from './instancing';
 import type { ViewCullDiagnostics } from './view-cull';
 import type { RuntimeMaterialsDiagnostics } from './runtime-materials';
@@ -46,6 +47,14 @@ export interface SceneAdapterOptions {
    * on the page.
    */
   meshWorkerUrl?: string;
+  /**
+   * A build's or the project's binary buffer by digest (terrain tiles; the
+   * game page's verified `manifest.buffers`, the editor's content route).
+   * Absent: the models' `resolveBuffer`, if any.
+   */
+  resolveBuffer?: (digest: string) => Promise<ArrayBuffer>;
+  /** Draw terrains (default true; false: none, a diagnostic comparison). */
+  terrain?: boolean;
   /**
    * Something the next frame would draw differently arrived on its own (a
    * model, an instance set, a cookie): a host that draws on demand draws again.
@@ -306,6 +315,8 @@ export interface SceneAdapterDiagnostics {
   quality?: QualityDiagnostics & { keyShadowMapSize?: number };
   /** The block layers drawn (layers, chunk meshes, triangles). */
   blocks?: BlockLayerViewDiagnostics;
+  /** The terrains drawn (tiles, texture bytes, nodes selected and in view per level, draws, main-thread ms). */
+  terrain?: TerrainViewDiagnostics;
   /**
    * Graph materials — the compiled ones alive (objects with
    * different parameter values share one) and the objects carrying values
@@ -436,6 +447,8 @@ export interface SceneAdapter {
   modelFailures?(): ReadonlyMap<string, { readonly code: string; readonly message: string }>;
   /** The block layers drawn (a host drives layers of its own through it: the editor's block tools). */
   blockLayers?(): BlockLayerView;
+  /** The terrains drawn (null: none): tiles, texture bytes, the nodes selected per level, draws. */
+  terrainDiagnostics?(): TerrainViewDiagnostics | null;
   /** The renderer drawing now (null before it is ready). */
   currentRenderer?(): AnyRenderer | null;
   /** The probe light the materials sample (its packed tiles; the editor's probe debug view draws them), or null without probes. */

@@ -10,7 +10,7 @@ import { describe, expect, it } from 'vitest';
 import { buildGraphMaterial, COMPILER_NODES, compileMaterialGraph, handDecodedNormals, LIGHTING_TYPES, digestOf, materialGraphCanonical, materialGraphProblems, OVERRIDES_KEY, resolveMaterialGraphPorts, type GraphCompileEnv, type MaterialFunctionLike, type MaterialGraphLike } from './material-graph';
 import { createResourceManager } from '@thirdlight/runtime';
 
-import { createMaterialLibrary, MATERIAL_NO_SHADOW_KEY, type MaterialDefLike } from './material-library';
+import { createMaterialLibrary, GRAPH_SURFACE_KEY, MATERIAL_NO_SHADOW_KEY, type MaterialDefLike } from './material-library';
 
 const tex = new THREE.DataTexture(new Uint8Array([255, 255, 255, 255]), 1, 1);
 const env = (fns: MaterialFunctionLike[] = [], extra: Partial<GraphCompileEnv> = {}): GraphCompileEnv => ({
@@ -468,5 +468,82 @@ describe('material graph compiler: old kit graphs', () => {
     const compiled = compileMaterialGraph({ graph: old }, env());
     expect(compiled.problems.filter((p) => p.severity === 'error')).toEqual([]);
     expect(isNode(compiled.slots.normal)).toBe(true);
+  });
+});
+
+describe('material graph compiler: a surface that places its own vertices', () => {
+  const graph: MaterialGraphLike = {
+    nodes: [
+      { id: 'out', type: 'pbr', position: [400, 0] },
+      { id: 'vo', type: 'vertexOffset', position: [400, 200] },
+      { id: 'uv', type: 'uv', position: [0, 0] },
+      { id: 'paint', type: 'vertexColor', position: [0, 100], data: { absent: 'first' } },
+      { id: 'wet', type: 'vertexColor', position: [0, 200], data: { set: 'COLOR_1', absent: 'zero' } },
+      { id: 's', type: 'sampleTexture', position: [200, 0], data: { texture: 'tex' } },
+      { id: 'add', type: 'add', position: [300, 100] },
+    ],
+    edges: [
+      { id: 'e1', from: { node: 'uv', port: 'uv' }, to: { node: 's', port: 'uv' } },
+      { id: 'e2', from: { node: 'paint', port: 'rgb' }, to: { node: 'add', port: 'a' } },
+      { id: 'e3', from: { node: 'wet', port: 'rgb' }, to: { node: 'add', port: 'b' } },
+      { id: 'e4', from: { node: 'add', port: 'out' }, to: { node: 'out', port: 'baseColor' } },
+      { id: 'e5', from: { node: 's', port: 'rgb' }, to: { node: 'out', port: 'emissive' } },
+      { id: 'e6', from: { node: 'paint', port: 'rgb' }, to: { node: 'vo', port: 'offset' } },
+    ],
+  };
+
+  it('reads its UVs and vertex colours, takes its position and mask, and leaves the graph\'s vertex offset out', () => {
+    const asked: string[] = [];
+    const surface = {
+      key: 'terrain:test',
+      uv: (set: 0 | 1) => {
+        asked.push(`uv${set}`);
+        return TSL.vec2(0.25, 0.75);
+      },
+      vertexColor: (name: 'color' | 'color_1') => {
+        asked.push(name);
+        return name === 'color' ? TSL.vec4(0, 1, 0, 0) : null;
+      },
+      position: TSL.vec3(1, 2, 3),
+      mask: TSL.bool(true),
+    };
+    const c = compileMaterialGraph({ graph }, env([], { surface }));
+    expect(c.slots.position).toBe(surface.position);
+    expect(c.slots.mask).toBe(surface.mask);
+    expect(c.steadyShape).toBe(true);
+    expect(asked.sort()).toEqual(['color', 'color_1', 'uv0']);
+    expect(c.problems.some((p) => p.nodeId === 'vo' && p.severity === 'warning' && /places its own vertices/.test(p.message))).toBe(true);
+    const m = buildGraphMaterial(c, 'terrain') as unknown as { positionNode: unknown; maskNode: unknown; userData: Record<string, unknown> };
+    expect(m.positionNode).toBe(surface.position);
+    expect(m.maskNode).toBe(surface.mask);
+    // Its shape is the surface's data, not the clock: it casts into the cached static shadow.
+    expect(Object.values(m.userData)).toContain(true);
+    // Without a surface: no mask, the graph's own vertex offset.
+    const plain = compileMaterialGraph({ graph }, env());
+    expect(plain.slots.mask).toBeNull();
+    expect(plain.steadyShape).toBe(false);
+    expect(isNode(plain.slots.position)).toBe(true);
+  });
+
+  it('the library compiles a graph material once per surface and leaves a surface mesh its own material for one that is not a graph', () => {
+    const lib = createMaterialLibrary({ loadTexture: async () => null });
+    const layered: MaterialDefLike = { materialId: 'm-graph', name: 'layers', shader: 'standard', params: {}, textures: {}, graph };
+    const plainDef: MaterialDefLike = { materialId: 'm-plain', name: 'plain', shader: 'standard', params: {}, textures: {} };
+    lib.setMaterials([layered, plainDef]);
+    const surface = { key: 'terrain:a', uv: () => TSL.vec2(0), vertexColor: () => null, position: TSL.vec3(0), mask: null };
+    const own = new THREE.MeshStandardMaterial();
+    const onSurface = new THREE.Mesh(new THREE.BufferGeometry(), own);
+    onSurface.userData[GRAPH_SURFACE_KEY] = surface;
+    const ordinary = new THREE.Mesh(new THREE.BufferGeometry(), new THREE.MeshStandardMaterial());
+    lib.apply(onSurface, { '*': 'm-graph' });
+    lib.apply(ordinary, { '*': 'm-graph' });
+    expect(onSurface.material).not.toBe(own);
+    expect(onSurface.material).not.toBe(ordinary.material);
+    expect((onSurface.material as unknown as { positionNode: unknown }).positionNode).toBe(surface.position);
+    expect(lib.graphMaterialCount()).toBe(2);
+    const undo = lib.apply(onSurface, { '*': 'm-plain' });
+    expect(onSurface.material).toBe(own);
+    undo();
+    lib.dispose();
   });
 });

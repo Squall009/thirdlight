@@ -1,12 +1,13 @@
 /**
  * The level-building perf classes without a browser: the plans are
  * deterministic and have the classes' shape, the landscape is the area plus
- * a far part that lies outside it, the ground plane is a valid GLB, and the
+ * a far part that lies outside it, the terrain lies under the area and its
+ * heightmap covers its tiles, and the
  * measurement's target and far-cost rows read the report as the log says.
  */
 import { describe, expect, it } from 'vitest';
 
-import { groundPlaneGlb, levelHeightAt, levelPlan, LEVEL_SPEC } from '../../tools/perf/level';
+import { levelHeightAt, levelPlan, levelTerrainHeight, levelTerrainOrigin, levelTerrainRaw, LEVEL_SPEC } from '../../tools/perf/level';
 import { farCostRows, levelTargetRows, LEVEL_FRAME_TARGET_MS, type LevelReport } from '../../tools/perf/level-run';
 import type { FrameRunResult } from '../../tools/perf/frame-run';
 
@@ -17,7 +18,7 @@ describe('the level classes', () => {
     const a = levelPlan('area');
     expect(JSON.stringify(levelPlan('area'))).toBe(JSON.stringify(a));
     const S = LEVEL_SPEC;
-    expect(a.counts).toMatchObject({ props: S.props, propColliders: S.propColliders, foliageSets: S.foliageSets, foliageCopies: S.foliageSets * S.foliageCopies, rooms: S.rooms, pointLights: S.pointLights, farSets: 0, groundPlane: 0 });
+    expect(a.counts).toMatchObject({ props: S.props, propColliders: S.propColliders, foliageSets: S.foliageSets, foliageCopies: S.foliageSets * S.foliageCopies, rooms: S.rooms, pointLights: S.pointLights, farSets: 0, terrainTiles: 0 });
     expect(new Set(ids(a)).size).toBe(ids(a).length);
     // Every column of the layer gets its corners; a command stays a single request's size.
     const columns = a.blockEdits.filter((e) => e['kind'] === 'surface').reduce((n, e) => n + (e['columns'] as number[]).length / 6, 0);
@@ -96,21 +97,21 @@ describe('the level classes', () => {
     expect(outer).toBeLessThan(S.farPlane);
   });
 
-  it('keeps the far ground under the area\'s lowest ground', () => {
+  it('keeps the terrain under the area\'s lowest ground, its tiles centred on the area and covered by the heightmap', () => {
     let lo = Infinity;
+    const half = LEVEL_SPEC.areaSide / 2;
     for (let x = 0; x <= LEVEL_SPEC.areaSide; x += 1) for (let z = 0; z <= LEVEL_SPEC.areaSide; z += 1) lo = Math.min(lo, levelHeightAt(x, z) * LEVEL_SPEC.cellHeight);
-    const plane = levelPlan('landscape').batches.flat().find((e) => e.id === 'ground-plane')!;
-    expect((plane.components['transform'] as { position: number[] }).position[1]).toBeLessThan(lo);
-  });
-
-  it('makes a valid ground plane GLB', () => {
-    const glb = groundPlaneGlb(6000, 8);
-    expect(glb.readUInt32LE(0)).toBe(0x46546c67);
-    expect(glb.readUInt32LE(8)).toBe(glb.length);
-    const json = JSON.parse(glb.subarray(20, 20 + glb.readUInt32LE(12)).toString('utf8')) as { accessors: { count: number; max?: number[] }[] };
-    expect(json.accessors[0]!.count).toBe(81);
-    expect(json.accessors[3]!.count).toBe(8 * 8 * 6);
-    expect(json.accessors[0]!.max).toEqual([3000, 0, 3000]);
+    for (let x = -half; x <= half; x += 5) for (let z = -half; z <= half; z += 5) expect(levelTerrainHeight(x, z)).toBeLessThan(lo);
+    const T = LEVEL_SPEC.terrain;
+    const terrain = levelPlan('landscape').batches.flat().find((e) => e.id === 'terrain')!;
+    expect((terrain.components['terrain'] as { tiles: unknown[] }).tiles.length).toBe(T.tiles * T.tiles);
+    expect(levelTerrainOrigin()[0]).toBe(-(T.tiles * (T.tileSamples - 1) * T.spacing) / 2);
+    const side = T.tiles * (T.tileSamples - 1) + 1;
+    expect(levelTerrainRaw().length).toBe(side * side * 2);
+    // The far copies stand on it.
+    const far = levelPlan('landscape').batches.flat().find((e) => e.id === 'far-0-0')!;
+    const [cx, cy, cz] = (far.components['transform'] as { position: number[] }).position as [number, number, number];
+    expect(cy).toBeCloseTo(levelTerrainHeight(cx, cz), 2);
   });
 });
 

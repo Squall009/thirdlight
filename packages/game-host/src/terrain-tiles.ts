@@ -6,16 +6,9 @@
  * tiles become a `TerrainField` to ask for heights, normals, holes and
  * layers. A tile named by several terrains (or twice) is read once.
  */
-import { TerrainField, decodeTerrainTile, readTerrainTileBlob, terrainTileKey, type TerrainComponent, type TerrainTile } from '@thirdlight/runtime';
+import { TerrainField, terrainTileKey, terrainTileOf, type TerrainComponent, type TerrainTile } from '@thirdlight/runtime';
 
-import { gunzip } from './gunzip';
-
-/** One tile blob's data. */
-export async function terrainTileOf(blob: ArrayBuffer): Promise<TerrainTile> {
-  const { compression, rawLength, stored } = readTerrainTileBlob(new Uint8Array(blob));
-  if (compression === 'zstd') throw new Error('terrain tile: zstd is not read in a game (tiles are stored gzip)');
-  return decodeTerrainTile(compression === 'gzip' ? await gunzip(stored, rawLength, 'terrain tile') : stored);
-}
+export { terrainTileOf };
 
 /**
  * A terrain's tiles loaded (all of them; streaming by distance loads a ring

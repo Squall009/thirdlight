@@ -46,6 +46,14 @@ export const MOVING_CASTER_KEY = '__tlMovingCaster';
 export const CHANGING_ALPHA_KEY = '__tlChangingAlpha';
 
 /**
+ * `material.userData[STEADY_SHAPE_KEY]`: its position node places vertices
+ * from data its owner reports changing (a terrain's height textures, whose
+ * owner redraws the static map after a sculpt), not from the clock: it casts
+ * into the static map like a mesh that never moves.
+ */
+export const STEADY_SHAPE_KEY = '__tlSteadyShape';
+
+/**
  * A material whose shadow can change every frame on its own: it moves its
  * vertices in its own shader (wind, a vertex offset) or its alpha changes with
  * time.
@@ -53,7 +61,8 @@ export const CHANGING_ALPHA_KEY = '__tlChangingAlpha';
 function changesOwnShadow(m: THREE.Material | null | undefined): boolean {
   if (m === null || m === undefined) return false;
   const n = m as { positionNode?: unknown; castShadowPositionNode?: unknown };
-  return (n.positionNode !== null && n.positionNode !== undefined) || (n.castShadowPositionNode !== null && n.castShadowPositionNode !== undefined) || m.userData[CHANGING_ALPHA_KEY] === true;
+  const moves = m.userData[STEADY_SHAPE_KEY] !== true && ((n.positionNode !== null && n.positionNode !== undefined) || (n.castShadowPositionNode !== null && n.castShadowPositionNode !== undefined));
+  return moves || m.userData[CHANGING_ALPHA_KEY] === true;
 }
 
 /** Whether `o` is drawn into the cached static shadow map (else into the dynamic one). */

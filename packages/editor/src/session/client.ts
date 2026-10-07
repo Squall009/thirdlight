@@ -403,11 +403,16 @@ export class SessionClient extends SessionClientCore {
 
   /** The bytes of an instance-set buffer (the viewport draws the copies from them). */
   async instanceBufferBytes(digest: string): Promise<Float32Array> {
+    return new Float32Array(await this.bufferBytes(digest));
+  }
+
+  /** A stored buffer's bytes by digest (an instance set's copies, a terrain tile). */
+  async bufferBytes(digest: string): Promise<ArrayBuffer> {
     const res = await fetch(`${this.cfg.authoringOrigin}/api/v1/projects/${this.cfg.projectId}/content/buffers/${digest}`, {
       headers: { authorization: `Bearer ${this.cfg.authoringToken}`, origin: this.cfg.authoringOrigin },
     });
-    if (!res.ok) throw new Error(`instance buffer read failed (HTTP ${res.status})`);
-    return new Float32Array(await res.arrayBuffer());
+    if (!res.ok) throw new Error(`buffer read failed (HTTP ${res.status})`);
+    return res.arrayBuffer();
   }
 
   /** The cached tile thumbnail of one asset version (and piece), or null when none is cached yet. */

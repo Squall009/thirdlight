@@ -38,6 +38,15 @@ export const TERRAIN_TILE_COORD_MAX = 4096;
 /** The largest stored height step (16 bits). */
 export const TERRAIN_HEIGHT_STEPS = 65535;
 
+/**
+ * Metres a terrain's finest level reaches from the camera (each coarser level
+ * twice as far): the renderer's level-of-detail distance. Absent: the
+ * nearest the renderer allows for the tile size, which is also the floor a
+ * smaller value is raised to (its levels must stay within one of their
+ * neighbours' to meet without cracks).
+ */
+export const TERRAIN_LOD_DISTANCE_LIMITS = Object.freeze({ min: 1, max: 100_000 });
+
 /** One tile of the grid: its coordinates and, when it is not flat and bare, its data blob's digest. */
 export interface TerrainTileRef {
   x: number;
@@ -54,10 +63,12 @@ export interface TerrainComponent {
   /** The heights the 16-bit samples span, metres above the object [low, high]. */
   heightRange: [number, number];
   tiles: TerrainTileRef[];
+  /** Metres the finest level of detail reaches ({@link TERRAIN_LOD_DISTANCE_LIMITS}; absent: the renderer's nearest). */
+  lodDistance?: number;
 }
 
 /** The component's fields in canonical order. */
-export const TERRAIN_FIELDS: readonly string[] = Object.freeze(['tileSamples', 'spacing', 'heightRange', 'tiles']);
+export const TERRAIN_FIELDS: readonly string[] = Object.freeze(['tileSamples', 'spacing', 'heightRange', 'tiles', 'lodDistance']);
 
 const DIGEST_RE = /^[0-9a-f]{64}$/;
 
@@ -72,7 +83,7 @@ export const terrainTileKey = (x: number, z: number): string => `${x},${z}`;
 
 export function validateTerrainComponent(value: unknown, path: string, errors: ModelErrorV2[]): void {
   if (!isObj(value)) {
-    err(errors, 'field_type', path, 'a terrain is an object { tileSamples, spacing, heightRange, tiles }', value);
+    err(errors, 'field_type', path, 'a terrain is an object { tileSamples, spacing, heightRange, tiles, lodDistance? }', value);
     return;
   }
   for (const k of Object.keys(value)) if (!TERRAIN_FIELDS.includes(k)) err(errors, 'field_unexpected', `${path}/${k}`, `unknown terrain field "${k}"`, k);
@@ -86,6 +97,10 @@ export function validateTerrainComponent(value: unknown, path: string, errors: M
   if (range === undefined) err(errors, 'field_missing', `${path}/heightRange`, 'heightRange is required');
   else if (!(Array.isArray(range) && range.length === 2 && range.every((v) => finite(v) && Math.abs(v) <= TERRAIN_HEIGHT_LIMIT) && (range[0] as number) < (range[1] as number))) {
     err(errors, 'field_value', `${path}/heightRange`, `heightRange is [low, high] metres (low < high, within ±${TERRAIN_HEIGHT_LIMIT})`, range);
+  }
+  const lod = value['lodDistance'];
+  if (lod !== undefined && !(finite(lod) && lod >= TERRAIN_LOD_DISTANCE_LIMITS.min && lod <= TERRAIN_LOD_DISTANCE_LIMITS.max)) {
+    err(errors, 'field_value', `${path}/lodDistance`, `lodDistance is ${TERRAIN_LOD_DISTANCE_LIMITS.min}-${TERRAIN_LOD_DISTANCE_LIMITS.max} metres`, lod);
   }
   const tiles = value['tiles'];
   if (tiles === undefined) {
@@ -116,7 +131,7 @@ export function validateTerrainComponent(value: unknown, path: string, errors: M
 export function canonicalTerrain(c: TerrainComponent): TerrainComponent {
   const tiles = c.tiles.map((t) => ({ x: t.x, z: t.z, ...(t.data !== undefined ? { data: t.data } : {}) }));
   tiles.sort((a, b) => a.z - b.z || a.x - b.x);
-  return { tileSamples: c.tileSamples, spacing: c.spacing, heightRange: [c.heightRange[0], c.heightRange[1]], tiles };
+  return { tileSamples: c.tileSamples, spacing: c.spacing, heightRange: [c.heightRange[0], c.heightRange[1]], tiles, ...(c.lodDistance !== undefined ? { lodDistance: c.lodDistance } : {}) };
 }
 
 /** Metres along one tile side. */

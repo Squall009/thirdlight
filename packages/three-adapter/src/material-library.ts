@@ -59,6 +59,7 @@ import {
   type RuntimeValuesLike,
   type CompiledMaterialGraph,
   type GraphProblem,
+  type GraphSurface,
   type MaterialFunctionLike,
   type MaterialGraphLike,
   type MaterialParameterLike,
@@ -152,6 +153,13 @@ export function resolveMaterialInstancesLike(list: readonly MaterialDefLike[]): 
 
 /** An object's values for public parameters, by materialId then parameter key. */
 export type MaterialOverridesLike = Readonly<Record<string, Readonly<Record<string, number | readonly number[] | string>>>>;
+
+/**
+ * `mesh.userData[GRAPH_SURFACE_KEY]`: the mesh makes its own vertices (a
+ * terrain's grid, `GraphSurface`): a graph material is compiled for it with
+ * the surface's inputs; a material that is not a graph leaves the mesh's own.
+ */
+export const GRAPH_SURFACE_KEY = '__tlGraphSurface';
 
 /** Marks a mesh whose graph material does not cast shadows (the shadow flags respect it). */
 export const MATERIAL_NO_SHADOW_KEY = '__tlMaterialNoShadow';
@@ -613,6 +621,7 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
     readonly canonical: string;
     readonly digest: string;
     readonly def: MaterialDefLike;
+    readonly surface: GraphSurface | undefined;
     readonly material: THREE.Material;
     compiled: CompiledMaterialGraph;
   }
@@ -672,14 +681,14 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
 
   /** The textures each compile samples (a node graph's textures are not material properties; the texture streamer reads them). */
   const sampledBy = new WeakMap<CompiledMaterialGraph, THREE.Texture[]>();
-  const compileEntry = (def: MaterialDefLike, digest: string): CompiledMaterialGraph => {
+  const compileEntry = (def: MaterialDefLike, digest: string, surface: GraphSurface | undefined): CompiledMaterialGraph => {
     const sampledNow: THREE.Texture[] = [];
     const texture = (assetId: string, sampler: SamplerLike): THREE.Texture | 'loading' | null => {
       const t = samplerTexture(assetId, sampler);
       if (t instanceof THREE.Texture) sampledNow.push(t);
       return t;
     };
-    const compiled = compileMaterialGraph({ graph: def.graph!, ...(def.parameters !== undefined ? { parameters: def.parameters } : {}) }, { globals: nodeGlobals, texture, fn: fnOf, overrideKey: digest });
+    const compiled = compileMaterialGraph({ graph: def.graph!, ...(def.parameters !== undefined ? { parameters: def.parameters } : {}) }, { globals: nodeGlobals, texture, fn: fnOf, overrideKey: digest, ...(surface !== undefined ? { surface } : {}) });
     sampledBy.set(compiled, sampledNow);
     return compiled;
   };
@@ -701,7 +710,7 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
   };
   function recompile(e: GraphEntry): void {
     const old = e.compiled;
-    e.compiled = compileEntry(e.def, e.digest);
+    e.compiled = compileEntry(e.def, e.digest, e.surface);
     holdGraphTextures(e);
     applyGraphNodes(e.material as unknown as MeshStandardNodeMaterial, e.compiled);
     markSampled(e);
@@ -714,16 +723,16 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
     for (const t of e.compiled.ownedTextures) t.dispose();
   };
 
-  /** The shared compiled material of a graph material (a texture override makes a variant). */
-  const graphMaterial = (def: MaterialDefLike): GraphEntry => {
+  /** The shared compiled material of a graph material (a texture override, or a surface, makes a variant). */
+  const graphMaterial = (def: MaterialDefLike, surface?: GraphSurface): GraphEntry => {
     const canonical = materialGraphCanonical({ graph: def.graph!, ...(def.parameters !== undefined ? { parameters: def.parameters } : {}) }, fnOf);
-    const digest = digestOf(canonical);
+    const digest = surface === undefined ? digestOf(canonical) : `${digestOf(canonical)}|${surface.key}`;
     const have = graphEntries.get(digest);
     if (have !== undefined && have.canonical === canonical) return have;
     if (have !== undefined) disposeEntry(have);
-    const compiled = compileEntry(def, digest);
+    const compiled = compileEntry(def, digest, surface);
     const material = buildGraphMaterial(compiled, def.name);
-    const e: GraphEntry = { canonical, digest, def, material, compiled };
+    const e: GraphEntry = { canonical, digest, def, surface, material, compiled };
     graphEntries.set(digest, e);
     markSampled(e);
     holdGraphTextures(e);
@@ -808,6 +817,7 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
       const data = mesh.userData as Record<string, unknown>;
       /** The run-time values scripts set on this object (texture ones choose a variant). */
       const runtime = data[RUNTIME_VALUES_KEY] as RuntimeValuesLike | undefined;
+      const surface = data[GRAPH_SURFACE_KEY] as GraphSurface | undefined;
       const ids: Record<string, string> = {};
       const original = (data[SOURCE] as THREE.Material | THREE.Material[] | undefined) ?? mesh.material;
       const list = Array.isArray(original) ? original : [original];
@@ -823,7 +833,7 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
         if (def?.graph !== undefined) {
           const own = overrides?.[def.materialId];
           const live = runtime?.values[def.materialId];
-          const e = graphMaterial(textureVariant(def, live !== undefined ? { ...(own ?? {}), ...live } : own) ?? def);
+          const e = graphMaterial(textureVariant(def, live !== undefined ? { ...(own ?? {}), ...live } : own) ?? def, surface);
           usedDigests.add(e.digest);
           digests.push(e.digest);
           ids[e.digest] = def.materialId;
@@ -832,6 +842,8 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
           changed = true;
           return e.material;
         }
+        // A surface draws only graph materials (they read its inputs); another keeps the mesh's own.
+        if (surface !== undefined) return src;
         const derived = derivesTangentFrame(mesh.geometry);
         const m = id === undefined ? null : materialFor(id, src, derived);
         if (m !== null) {

@@ -10,11 +10,14 @@
  *   falloff), a few point lights in the rooms, a shadowed sun, exp2 fog and
  *   the post stack a 3D game uses.
  * - `landscape`: the same area plus what stands around it out to
- *   the outer far ring (3 km): a flat ground plane and rings of large instanced copies
- *   (trees and rocks) under the same fog, the camera's far plane pushed out.
- *   The plane and the rings stand in for terrain and its scatter until the
- *   engine has a terrain component; the plan grows a `terrain` part then and
- *   drops the plane, keeping the rings' layout so the numbers stay comparable.
+ *   the outer far ring (3 km): a terrain of 12 × 12 tiles (257 samples 2 m
+ *   apart: 6 km square), flat under the area and rising into hills away from
+ *   it (an uploaded RAW heightmap), wearing a height-blended layers material
+ *   (four layers of noise textures packed into texture arrays) with discs of
+ *   the other three layers painted over it; and rings of large instanced
+ *   copies (trees and rocks) standing on it, under the same fog, the camera's
+ *   far plane pushed out. The rings stand in for rule scatter until the
+ *   engine places it.
  *
  * Either class can carry `liveDoors` live door cells on the ground outside the
  * rooms (`--live N`; none by default, so the classes' numbers stay
@@ -54,14 +57,15 @@
  */
 import { INSTANCE_DENSITY_MIN_NEW } from '@thirdlight/project-model';
 
-import { packGlb } from './assets';
+import { layeredMaterial } from '../../packages/editor/src/session/material-graph';
+import { makePng } from '../../tests/e2e/png-make';
 import { publishBehaviorVia, publishBufferVia, publishFileVia, splitBySize } from './build';
 import type { PerfBackend } from './backend';
 import { prng, type BehaviorPlan, type EntityValue } from './generate';
 import { propGlb, scatterKitGlb, type PropSpec } from './village-assets';
 
 /** Bump when the generated content changes. */
-export const LEVEL_VERSION = 1;
+export const LEVEL_VERSION = 2;
 export const LEVEL_SEED = 30;
 
 export type LevelKind = 'area' | 'landscape';
@@ -94,6 +98,12 @@ export const LEVEL_SPEC = {
   farChunk: 256,
   /** The camera's far plane in the landscape (m). */
   farPlane: 4000,
+  /** The landscape's terrain: tiles per side (centred on the area), samples per tile side, metres between samples, its height range (m). */
+  terrain: { tiles: 12, tileSamples: 257, spacing: 2, heightRange: [-64, 192] as [number, number] },
+  /** The terrain is flat at `terrainBase` within the first radius of the area's centre and fully hilly past the second (m). */
+  terrainFlat: [72, 400] as const,
+  /** Layer textures' side (texels). */
+  terrainTexture: 256,
 } as const;
 
 const PROP_FILE = (i: number): string => `level-prop-${String(i + 1).padStart(2, '0')}`;
@@ -101,12 +111,12 @@ const FOLIAGE_KIT = 'level-foliage';
 const FOLIAGE_PIECES = ['tuft', 'fern', 'flower', 'shrub'] as const;
 const FAR_KIT = 'level-far';
 const FAR_PIECES = ['tree', 'pine', 'boulder'] as const;
-const GROUND_PLANE = 'level-ground-plane';
+const TERRAIN_MATERIAL = 'mat-level-terrain';
 /** The starter's objects the classes do without (player, spawn, boxes, pillar). */
 const STARTER_REMOVED = ['model-0001', 'spawn-0001', 'box-0001', 'box-0002', 'box-0003', 'box-0004', 'model-0002'];
 const PASTE_MAX = 256;
-/** The far ground's height (m): under the area's lowest ground (levelHeightAt's minimum, 4 rows = 2 m), so the plane never shows through it. */
-const FAR_GROUND_Y = 1.5;
+/** The terrain's height under the area (m): under the area's lowest ground (levelHeightAt's minimum, 4 rows = 2 m), so it never shows through it. */
+const TERRAIN_BASE = 1.5;
 /** Columns per `surface` edit (a command is at most 64 KiB). */
 const SURFACE_PER_EDIT = 1500;
 
@@ -117,6 +127,54 @@ const T = (x: number, y: number, z: number, yaw = 0, s = 1): Record<string, unkn
 
 /** Ground height (rows) at a layer corner: gentle hills, quantised to 1/16 row as a brush leaves it. */
 export const levelHeightAt = (x: number, z: number): number => Math.round((8 + 3 * Math.sin(x / 13) * Math.cos(z / 17) + Math.sin(x / 5.3 + z / 6.1)) * 16) / 16;
+
+/**
+ * The landscape terrain's height (world m) at world (x, z): `TERRAIN_BASE` under the area, rising smoothly
+ * past `terrainFlat[0]` into hills of a few tens of metres (fully past `terrainFlat[1]`).
+ */
+export function levelTerrainHeight(x: number, z: number): number {
+  const [r0, r1] = LEVEL_SPEC.terrainFlat;
+  const t = Math.min(1, Math.max(0, (Math.hypot(x, z) - r0) / (r1 - r0)));
+  const s = t * t * (3 - 2 * t);
+  const hills = 55 * (0.5 + 0.5 * Math.sin(x / 410 + 1.3) * Math.cos(z / 530)) + 22 * Math.sin(x / 170) * Math.sin(z / 230) + 5 * Math.sin(x / 37 + z / 53) + 1.5 * Math.sin(x / 7.3) * Math.cos(z / 9.1);
+  return TERRAIN_BASE + s * hills;
+}
+
+/** The terrain object's position: its tile [0, 0]'s min corner, so the tiles lie centred on the area. */
+export const levelTerrainOrigin = (): [number, number, number] => {
+  const T = LEVEL_SPEC.terrain;
+  const half = (T.tiles * (T.tileSamples - 1) * T.spacing) / 2;
+  return [-half, 0, -half];
+};
+
+/** The terrain's heights as a RAW heightmap (16-bit little-endian steps of its range, one per sample, rows +z). */
+export function levelTerrainRaw(): Uint8Array {
+  const T = LEVEL_SPEC.terrain;
+  const side = T.tiles * (T.tileSamples - 1) + 1;
+  const [ox, , oz] = levelTerrainOrigin();
+  const [lo, hi] = T.heightRange;
+  const out = new Uint8Array(side * side * 2);
+  const dv = new DataView(out.buffer);
+  for (let j = 0; j < side; j += 1) {
+    for (let i = 0; i < side; i += 1) {
+      const h = levelTerrainHeight(ox + i * T.spacing, oz + j * T.spacing);
+      dv.setUint16((j * side + i) * 2, Math.max(0, Math.min(65535, Math.round(((h - lo) / (hi - lo)) * 65535))), true);
+    }
+  }
+  return out;
+}
+
+/** The painted discs over the terrain: layer, centre (world x, z) and radius (m); layer 0 elsewhere. */
+export function levelTerrainPaint(seed: number): { layer: number; at: [number, number]; radius: number }[] {
+  const rnd = prng(seed * 7151 + 3);
+  const out: { layer: number; at: [number, number]; radius: number }[] = [];
+  for (let i = 0; i < 24; i += 1) {
+    const a = rnd() * Math.PI * 2;
+    const r = 90 + rnd() * 2400;
+    out.push({ layer: 1 + (i % 3), at: [r3(Math.cos(a) * r), r3(Math.sin(a) * r)], radius: r3(40 + rnd() * 220) });
+  }
+  return out;
+}
 
 /** World ground height (m) at area-local column coordinates (the layer's origin is its corner on y = 0). */
 const groundY = (x: number, z: number): number => levelHeightAt(x, z) * LEVEL_SPEC.cellHeight;
@@ -230,7 +288,7 @@ export function levelPlan(kind: LevelKind, seed = LEVEL_SEED, liveDoorCount = 0,
   const N = S.areaSide;
   const rnd = prng(seed * 104729 + N);
   const half = N / 2;
-  const counts: Record<string, number> = { props: 0, propColliders: 0, foliageSets: 0, foliageCopies: 0, rooms: 0, pointLights: 0, farSets: 0, farCopies: 0, groundPlane: 0 };
+  const counts: Record<string, number> = { props: 0, propColliders: 0, foliageSets: 0, foliageCopies: 0, rooms: 0, pointLights: 0, farSets: 0, farCopies: 0, terrainTiles: 0 };
   const props = Array.from({ length: S.propFiles }, (_, i) => {
     const u = rnd();
     return { assetId: PROP_FILE(i), seed: Math.floor(rnd() * 2 ** 31), spec: { parts: u < 0.5 ? 1 : u < 0.85 ? 2 : 3, rings: 6 + Math.floor(rnd() * 4), sides: 10 + Math.floor(rnd() * 6), textureSize: i % 3 === 0 ? 256 : 0 } };
@@ -379,10 +437,14 @@ export function levelPlan(kind: LevelKind, seed = LEVEL_SEED, liveDoorCount = 0,
   }
 
   if (kind === 'landscape') {
-    // The ground plane under everything, a little below the area's lowest ground.
-    entities.push({ id: 'ground-plane', name: 'Ground plane', static: true, components: { transform: T(0, FAR_GROUND_Y, 0), model: { asset: { assetId: GROUND_PLANE } } } });
-    counts.groundPlane = 1;
-    // The far rings: one set per sector, copies spread over the sector's area evenly by area.
+    // The terrain (its tiles' heights and paint come by `editTerrain` once it exists).
+    const TS = S.terrain;
+    const tiles: { x: number; z: number }[] = [];
+    for (let z = 0; z < TS.tiles; z += 1) for (let x = 0; x < TS.tiles; x += 1) tiles.push({ x, z });
+    const [tx, ty, tz] = levelTerrainOrigin();
+    entities.push({ id: 'terrain', name: 'Terrain', static: true, components: { transform: T(tx, ty, tz), terrain: { tileSamples: TS.tileSamples, spacing: TS.spacing, heightRange: [...TS.heightRange], tiles }, materials: { '*': TERRAIN_MATERIAL } } });
+    counts.terrainTiles = tiles.length;
+    // The far rings: one set per sector, copies spread over the sector's area evenly by area, standing on the terrain.
     S.farRings.forEach(([r0, r1], ring) => {
       for (let s = 0; s < S.farSectors; s += 1) {
         const a0 = (s / S.farSectors) * Math.PI * 2;
@@ -397,10 +459,12 @@ export function levelPlan(kind: LevelKind, seed = LEVEL_SEED, liveDoorCount = 0,
           floats: copies(S.farCopies, () => {
             const a = a0 + rnd() * (a1 - a0);
             const r = Math.sqrt(r0 * r0 + rnd() * (r1 * r1 - r0 * r0));
-            return { x: Math.cos(a) * r - cx, y: 0, z: Math.sin(a) * r - cz, yaw: rnd() * Math.PI * 2, s: S.farScale[0] + rnd() * (S.farScale[1] - S.farScale[0]) };
+            const x = Math.cos(a) * r;
+            const z = Math.sin(a) * r;
+            return { x: x - cx, y: levelTerrainHeight(x, z) - levelTerrainHeight(cx, cz), z: z - cz, yaw: rnd() * Math.PI * 2, s: S.farScale[0] + rnd() * (S.farScale[1] - S.farScale[0]) };
           }),
         });
-        entities.push({ id: key, name: `Far ${ring + 1}.${s + 1}`, components: { transform: T(cx, FAR_GROUND_Y, cz), instances: { asset: { assetId: FAR_KIT, piece: FAR_PIECES[(ring + s) % FAR_PIECES.length] }, buffer: `$buffer:${key}`, count: S.farCopies, castShadow: false, densityMin: INSTANCE_DENSITY_MIN_NEW, chunkSize: S.farChunk } } });
+        entities.push({ id: key, name: `Far ${ring + 1}.${s + 1}`, components: { transform: T(cx, levelTerrainHeight(cx, cz), cz), instances: { asset: { assetId: FAR_KIT, piece: FAR_PIECES[(ring + s) % FAR_PIECES.length] }, buffer: `$buffer:${key}`, count: S.farCopies, castShadow: false, densityMin: INSTANCE_DENSITY_MIN_NEW, chunkSize: S.farChunk } } });
         counts.farSets! += 1;
         counts.farCopies! += S.farCopies;
       }
@@ -431,60 +495,30 @@ export function levelPlan(kind: LevelKind, seed = LEVEL_SEED, liveDoorCount = 0,
 }
 
 /**
- * A flat square ground model of `size` m (`segments`² quads, centred on the
- * origin, facing up): what the landscape's far ground covers on screen until
- * terrain exists.
+ * The terrain material's sources: per layer an albedo noise PNG in its own
+ * tint with a noise height in alpha, one normal map of gentle noise and one
+ * ORM (occlusion 1, rough, not metal) — plain textures the pack route turns
+ * into the three texture arrays the layered template reads.
  */
-export function groundPlaneGlb(size: number, segments: number): Buffer {
-  const n = segments + 1;
-  const pos = new Float32Array(n * n * 3);
-  const nrm = new Float32Array(n * n * 3);
-  const uv = new Float32Array(n * n * 2);
-  for (let j = 0; j < n; j += 1) {
-    for (let i = 0; i < n; i += 1) {
-      const k = j * n + i;
-      pos.set([(i / segments - 0.5) * size, 0, (j / segments - 0.5) * size], k * 3);
-      nrm.set([0, 1, 0], k * 3);
-      uv.set([(i / segments) * size * 0.25, (j / segments) * size * 0.25], k * 2);
-    }
-  }
-  const idx = new Uint32Array(segments * segments * 6);
-  let t = 0;
-  for (let j = 0; j < segments; j += 1) {
-    for (let i = 0; i < segments; i += 1) {
-      const a = j * n + i;
-      idx.set([a, a + n, a + 1, a + 1, a + n, a + n + 1], t);
-      t += 6;
-    }
-  }
-  const parts = [pos, nrm, uv, idx].map((a) => Buffer.from(a.buffer, a.byteOffset, a.byteLength));
-  let offset = 0;
-  const views = parts.map((p, i) => {
-    const v = { buffer: 0, byteOffset: offset, byteLength: p.length, target: i === 3 ? 34963 : 34962 };
-    offset += p.length;
-    return v;
+export function levelTerrainTextures(seed: number, size: number): { assetId: string; png: Buffer }[] {
+  const tints = [
+    [0.42, 0.55, 0.26],
+    [0.5, 0.4, 0.28],
+    [0.55, 0.54, 0.52],
+    [0.78, 0.72, 0.52],
+  ];
+  const out: { assetId: string; png: Buffer }[] = [];
+  tints.forEach((tint, i) => {
+    const rnd = prng(seed * 31 + i);
+    out.push({ assetId: `level-terrain-albedo-${i + 1}`, png: makePng(size, size, () => {
+      const n = 0.7 + 0.3 * rnd();
+      return [Math.floor(255 * tint[0]! * n), Math.floor(255 * tint[1]! * n), Math.floor(255 * tint[2]! * n), Math.floor(255 * rnd())];
+    }) });
   });
-  const bin = Buffer.concat(parts);
-  const h = size / 2;
-  return packGlb(
-    {
-      asset: { version: '2.0', generator: 'thirdlight perf level ground plane' },
-      scene: 0,
-      scenes: [{ nodes: [0] }],
-      nodes: [{ name: 'ground', mesh: 0 }],
-      meshes: [{ name: 'ground', primitives: [{ attributes: { POSITION: 0, NORMAL: 1, TEXCOORD_0: 2 }, indices: 3, material: 0 }] }],
-      materials: [{ name: 'ground', pbrMetallicRoughness: { baseColorFactor: [0.36, 0.42, 0.26, 1], metallicFactor: 0, roughnessFactor: 0.95 } }],
-      accessors: [
-        { bufferView: 0, componentType: 5126, count: n * n, type: 'VEC3', min: [-h, 0, -h], max: [h, 0, h] },
-        { bufferView: 1, componentType: 5126, count: n * n, type: 'VEC3' },
-        { bufferView: 2, componentType: 5126, count: n * n, type: 'VEC2' },
-        { bufferView: 3, componentType: 5125, count: idx.length, type: 'SCALAR' },
-      ],
-      bufferViews: views,
-      buffers: [{ byteLength: bin.length }],
-    },
-    bin,
-  );
+  const rn = prng(seed * 31 + 9);
+  out.push({ assetId: 'level-terrain-normal', png: makePng(size, size, () => [Math.floor(128 + 40 * (rn() - 0.5)), Math.floor(128 + 40 * (rn() - 0.5)), 250, 255]) });
+  out.push({ assetId: 'level-terrain-orm', png: makePng(size, size, () => [255, 230, 0, 255]) });
+  return out;
 }
 
 export interface LevelBuild {
@@ -512,7 +546,22 @@ export async function buildLevel(be: PerfBackend, projectId: string, plan: Level
   await publishFileVia(be, projectId, cmd, { assetId: FOLIAGE_KIT, kind: 'model', displayName: 'Level foliage', bytes: scatterKitGlb(plan.seed, FOLIAGE_PIECES) });
   if (plan.kind === 'landscape') {
     await publishFileVia(be, projectId, cmd, { assetId: FAR_KIT, kind: 'model', displayName: 'Level far scatter', bytes: scatterKitGlb(plan.seed + 1, FAR_PIECES) });
-    await publishFileVia(be, projectId, cmd, { assetId: GROUND_PLANE, kind: 'model', displayName: 'Level ground plane', bytes: groundPlaneGlb(LEVEL_SPEC.farRings[LEVEL_SPEC.farRings.length - 1]![1] * 2, 64) });
+    // The terrain's layered material: four layers of albedo (height in alpha), normal and ORM arrays packed from plain textures.
+    const sources = levelTerrainTextures(plan.seed, LEVEL_SPEC.terrainTexture);
+    for (const t of sources) await publishFileVia(be, projectId, cmd, { assetId: t.assetId, kind: 'texture', displayName: t.assetId, bytes: t.png });
+    const pack = async (assetId: string, encoding: 'color' | 'normal' | 'data', layers: { assetId: string; channel: 'r' | 'g' | 'b' | 'a' }[][]): Promise<void> => {
+      const packed = await be.post(`/api/v1/projects/${projectId}/content/textures/pack`, { layers, encoding, displayName: assetId });
+      const proposal = packed.json['proposal'] as Record<string, unknown> | undefined;
+      if (packed.json['ok'] !== true || proposal?.['status'] !== 'ok') throw new Error(`pack ${assetId}: ${JSON.stringify(packed.json).slice(0, 400)}`);
+      await cmd('publishAsset', { mode: 'create', assetId, kind: 'texture', displayName: assetId, sourceDigest: proposal['sourceDigest'], sourceByteLength: proposal['sourceByteLength'], packedFrom: packed.json['packedFrom'], importRecipe: proposal['importRecipe'], metrics: proposal['metrics'], importedAt: new Date().toISOString().replace(/\.\d{3}Z$/, 'Z') });
+    };
+    const rgba = (id: string): { assetId: string; channel: 'r' | 'g' | 'b' | 'a' }[] => (['r', 'g', 'b', 'a'] as const).map((channel) => ({ assetId: id, channel }));
+    await pack('level-terrain-albedo', 'color', [1, 2, 3, 4].map((i) => rgba(`level-terrain-albedo-${i}`)));
+    await pack('level-terrain-normals', 'normal', [1, 2, 3, 4].map(() => rgba('level-terrain-normal')));
+    await pack('level-terrain-orms', 'data', [1, 2, 3, 4].map(() => rgba('level-terrain-orm')));
+    const mat = layeredMaterial(TERRAIN_MATERIAL, 'Level terrain');
+    const arrays: Record<string, string> = { albedoHeight: 'level-terrain-albedo', normals: 'level-terrain-normals', orm: 'level-terrain-orms' };
+    await cmd('setMaterial', { material: { ...mat, parameters: (mat.parameters ?? []).map((p) => (arrays[p.key] !== undefined ? { ...p, default: arrays[p.key] } : p)) } });
   }
   // With a kit swap, each type's burnt twin first (a swap names a type that exists), same shape, darker colours.
   const burnt = (blockId: string): Record<string, unknown> => (plan.kitSwap ? { kits: { burnt: { block: `${blockId}-burnt` } } } : {});
@@ -571,6 +620,16 @@ export async function buildLevel(be: PerfBackend, projectId: string, plan: Level
     return { ...e, components: { ...e.components, instances: { ...inst, buffer: digests.get(inst.buffer.slice('$buffer:'.length)) } } };
   };
   for (const batch of plan.batches) for (const part of splitBySize(batch.map(resolve))) await cmd('pasteEntities', { sceneId: 'scene-main', entities: part });
+  if (plan.kind === 'landscape') {
+    // The terrain's heights (an uploaded RAW heightmap) and its painted discs.
+    const listedNow = (await p.query('queryEntities', { limit: 2000, offset: 0 }))['entities'] as { id: string; components: Record<string, unknown> }[];
+    const terrainId = listedNow.find((e) => e.components['terrain'] !== undefined)?.id;
+    if (terrainId === undefined) throw new Error('level: the terrain was not created');
+    const stageId = await be.stage(projectId, levelTerrainRaw());
+    await cmd('editTerrain', { entityId: terrainId, kind: 'import', stageId, format: 'raw16', at: [0, 0] });
+    await be.discardStage(projectId, stageId);
+    for (const d of levelTerrainPaint(plan.seed)) await cmd('editTerrain', { entityId: terrainId, kind: 'paint', dabs: [d.at], radius: d.radius, strength: 1, falloff: 'smooth', layer: d.layer });
+  }
   log(`level ${plan.kind}: ${JSON.stringify(plan.counts)}`);
 
   await cmd('setTransform', { entityId: 'cam-main', transform: { position: plan.camera.position, rotation: plan.camera.rotation } });

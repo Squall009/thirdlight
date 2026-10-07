@@ -59,6 +59,7 @@ import { MeshBasicNodeMaterial, MeshStandardNodeMaterial, TextureNode } from 'th
 import { LIT, litMainDirectionWorld, MeshCustomLitNodeMaterial } from './custom-lit';
 import { instanceOrigin, normalGreenSign } from './node-materials';
 import { LOCAL_LIGHTS_KEY } from './local-lights';
+import { STEADY_SHAPE_KEY } from './shadow-casters';
 import { localLightModeOf, type LocalLightMode } from '@thirdlight/runtime';
 
 // TSL's typings do not follow values whose width is known only at run time.
@@ -137,6 +138,28 @@ export interface GraphCompileEnv {
    * absent = parameters are plain uniforms.
    */
   readonly overrideKey?: string;
+  /** A surface that makes its own vertices (a terrain): its inputs stand in for the mesh's attributes. */
+  readonly surface?: GraphSurface;
+}
+
+/**
+ * A drawn surface whose vertices are made in its own vertex shader (a
+ * terrain's grid placed and raised from its height textures), not read from
+ * vertex attributes: what a graph reads as mesh data comes from it instead.
+ * The graph's own vertex offset is not applied (the surface places the
+ * vertices).
+ */
+export interface GraphSurface {
+  /** Tells compiles for different surfaces apart (part of the compile's key). */
+  readonly key: string;
+  /** UV set 0 and 1 (vec2). */
+  uv(set: 0 | 1): N;
+  /** A vertex colour set (`color`: COLOR_0, `color_1`: COLOR_1) as vec4, or null where the surface has none. */
+  vertexColor(name: 'color' | 'color_1'): N | null;
+  /** The local position the vertex shader places (the material's position node). */
+  readonly position: N;
+  /** False where a pixel is cut away (the material's mask node), or null. */
+  readonly mask: N | null;
 }
 
 export interface GraphProblem {
@@ -159,6 +182,8 @@ export interface CompiledMaterialGraph {
     readonly opacity: N | null;
     readonly alphaTest: N | null;
     readonly position: N | null;
+    /** False where a pixel is cut away (a surface's holes), or null. */
+    readonly mask: N | null;
     /** Custom-lit: the graph's colour and emissive (computed after the lights are gathered). */
     readonly litColor: N | null;
     readonly litEmissive: N | null;
@@ -174,6 +199,8 @@ export interface CompiledMaterialGraph {
   readonly objectFrame: boolean;
   /** Reads mesh UVs in block cells (see {@link readsCellUv}). */
   readonly cellUv: boolean;
+  /** Compiled for a surface that places its own vertices from data it reports changing ({@link GraphSurface}). */
+  readonly steadyShape: boolean;
   /** Reads a Lighting input under a Custom-lit output. */
   readonly usesLight: boolean;
   /** Texture assets it samples (loaded or not). */
@@ -732,9 +759,9 @@ export function compileMaterialGraph(input: { graph: MaterialGraphLike; paramete
   const builtin = (scope: Scope, nodeId: string, name: string, stage: Stage): N => {
     switch (name) {
       case 'uv0':
-        return T.uv(0);
+        return env.surface?.uv(0) ?? T.uv(0);
       case 'uv1':
-        return T.uv(1);
+        return env.surface?.uv(1) ?? T.uv(1);
       case 'positionWorld':
         return posWorld(stage);
       case 'positionObject':
@@ -947,13 +974,19 @@ export function compileMaterialGraph(input: { graph: MaterialGraphLike; paramete
       case 'time':
         animated = true;
         return one('time', g.time);
-      case 'uv':
-        return one('uv', T.uv(str(field(node, 'set'), 'uv0') === 'uv1' ? 1 : 0));
+      case 'uv': {
+        const set = str(field(node, 'set'), 'uv0') === 'uv1' ? 1 : 0;
+        return one('uv', env.surface?.uv(set) ?? T.uv(set));
+      }
       case 'vertexColor': {
         const absent = str(field(node, 'absent'), 'white');
         // COLOR_1 is three's `color_1` (glTF's second set; a painted block layer's wetness).
         const name = str(field(node, 'set'), 'COLOR_0') === 'COLOR_1' ? 'color_1' : 'color';
         const missing = (): N => (absent === 'zero' ? T.vec4(0, 0, 0, 1) : absent === 'first' ? T.vec4(1, 0, 0, 0) : T.vec4(1, 1, 1, 1));
+        if (env.surface !== undefined) {
+          const own = env.surface.vertexColor(name) ?? missing();
+          return { rgba: { t: 'vec4', n: own }, rgb: { t: 'vec3', n: own.xyz }, alpha: { t: 'float', n: own.w } };
+        }
         const c = T.Fn((builder: { geometry?: THREE.BufferGeometry }) => (builder.geometry?.hasAttribute(name) === true ? T.attribute(name, 'vec4') : missing()))();
         return { rgba: { t: 'vec4', n: c }, rgb: { t: 'vec3', n: c.xyz }, alpha: { t: 'float', n: c.w } };
       }
@@ -1330,8 +1363,9 @@ export function compileMaterialGraph(input: { graph: MaterialGraphLike; paramete
   // Custom-lit alpha that reads lighting inputs is applied after the lights are gathered (both values together).
   const litAlpha = lit && (readsLight(surfaceNode!.id, 'opacity') || readsLight(surfaceNode!.id, 'alphaClip'));
   const vertex = input.graph.nodes.find((n) => n.type === 'vertexOffset');
-  let position: N | null = null;
-  if (vertex !== undefined && connected(top, vertex.id, 'offset')) {
+  let position: N | null = env.surface?.position ?? null;
+  if (env.surface !== undefined && vertex !== undefined && connected(top, vertex.id, 'offset')) problems.push({ nodeId: vertex.id, severity: 'warning', message: 'this surface places its own vertices (a terrain): the vertex offset is not applied' });
+  else if (vertex !== undefined && connected(top, vertex.id, 'offset')) {
     const port = top.ports.get(vertex.id)!.inputs[0]!;
     const offset = v(inputOf(top, vertex, port, 'vertex'));
     if (str(field(vertex, 'space'), 'object') !== 'world') objectFrame = true;
@@ -1349,6 +1383,7 @@ export function compileMaterialGraph(input: { graph: MaterialGraphLike; paramete
     opacity: litAlpha ? null : slot('opacity', true),
     alphaTest: litAlpha ? null : slot('alphaClip', true),
     position,
+    mask: env.surface?.mask ?? null,
     litColor: lit ? slot('color', false) : null,
     litEmissive: lit ? slot('emissive', true) : null,
     litOpacity: litAlpha ? slot('opacity', true) : null,
@@ -1362,6 +1397,7 @@ export function compileMaterialGraph(input: { graph: MaterialGraphLike; paramete
     animated,
     objectFrame,
     cellUv: readsCellUv(input.graph),
+    steadyShape: env.surface !== undefined,
     usesLight,
     textures: [...textures].sort(),
     pending: [...pending].sort(),
@@ -1408,6 +1444,10 @@ export function applyGraphNodes(material: MeshBasicNodeMaterial | MeshStandardNo
   m.opacityNode = c.slots.opacity;
   m.alphaTestNode = c.slots.alphaTest;
   m.positionNode = c.slots.position;
+  // A surface's holes (other masks — a cut-away's fade — are set on copies, never here).
+  if (c.slots.mask !== null) m.maskNode = c.slots.mask;
+  if (c.steadyShape) m.userData[STEADY_SHAPE_KEY] = true;
+  else delete m.userData[STEADY_SHAPE_KEY];
   if ((material as MeshStandardNodeMaterial).isMeshStandardNodeMaterial === true) {
     m.metalnessNode = c.slots.metalness;
     m.roughnessNode = c.slots.roughness;

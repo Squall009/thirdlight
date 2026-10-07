@@ -678,7 +678,7 @@ export const materials: ComponentDescriptor = {
   value: map('materials', 'Materials', 'Material slot → project material.', 'Slot', ref('*', 'Material', 'A project material.', 'material'), { keyFormat: 'materialSlot', minEntries: 1, maxEntries: MAX_MATERIAL_SLOTS }),
   add: { kind: 'pick', value: {}, pick: ['*'] },
   handles: [],
-  requiresAnyOf: { components: ['model', 'box', 'instances'], reason: 'materials dress a model, a box or an instance set' },
+  requiresAnyOf: { components: ['model', 'box', 'instances', 'terrain'], reason: 'materials dress a model, a box, an instance set or a terrain (its layered material: "*")' },
   excludes: [],
   prefab: true,
 };
@@ -699,7 +699,7 @@ export const materialParams: ComponentDescriptor = {
   ),
   add: { kind: 'tool', tool: 'the Materials section of the Inspector (override a public parameter)' },
   handles: [],
-  requiresAnyOf: { components: ['model', 'box', 'instances'], reason: 'material parameters belong to the materials of a model, a box or an instance set' },
+  requiresAnyOf: { components: ['model', 'box', 'instances', 'terrain'], reason: 'material parameters belong to the materials of a model, a box, an instance set or a terrain' },
   excludes: [],
   prefab: true,
 };
