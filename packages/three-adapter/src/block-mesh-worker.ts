@@ -3,7 +3,7 @@
  *
  * It keeps a copy of what the page's block view meshes from — the block
  * types (with each variant's model resolved by the page, which knows the
- * prefabs), the models' geometry, and every layer's cells, kept current by
+ * prefabs), the models' geometry, every layer's cells and the kits it shows, kept current by
  * the same chunk replacements the view gets — and answers mesh requests with
  * the chunk's parts, their arrays handed over (transferred, not copied).
  *
@@ -14,7 +14,7 @@
  * This module imports no three.js: the worker bundle stays small. The page
  * side is `block-mesh-pool.ts`.
  */
-import { BlockGrid, type BlockChunk, type BlockLayerComponent, type BlockLayerData, type BlockType } from '@thirdlight/runtime';
+import { BlockGrid, blockKitView, type BlockChunk, type BlockGridReader, type BlockLayerComponent, type BlockLayerData, type BlockLayerKit, type BlockType } from '@thirdlight/runtime';
 
 import { chunkModelKey, chunkResultBuffers, meshChunkForDrawing, StandInShapes, type ChunkLooks, type ChunkMeshResult, type ChunkModelGeometry, type ChunkModelRef } from './block-chunk-mesh';
 
@@ -24,8 +24,10 @@ export type MeshWorkerRequest =
   | { t: 'types'; types: BlockType[]; variantModels: [string, (ChunkModelRef | null)[]][] }
   /** A model's geometry (copied: the page keeps meshing with it too). */
   | { t: 'model'; key: string; geometry: ChunkModelGeometry }
-  /** A layer's cells, whole (a new layer, or one replaced: `serial` names this version). */
+  /** A layer's cells, whole (a new layer, or one replaced: `serial` names this version); `component.kits` are the kits it shows. */
   | { t: 'layer'; entityId: string; serial: number; component: BlockLayerComponent; data: BlockLayerData | null }
+  /** The kits a layer shows now (a game's script changed them). */
+  | { t: 'kits'; entityId: string; kits: BlockLayerKit[] }
   /** Some chunks of a layer replaced (stored form; null empties one). */
   | { t: 'chunks'; entityId: string; chunks: { cx: number; cz: number; chunk: BlockChunk | null }[] }
   | { t: 'drop'; entityId: string }
@@ -56,6 +58,8 @@ interface WorkerLayer {
   serial: number;
   component: BlockLayerComponent;
   grid: BlockGrid;
+  /** The grid as its kits show it (what it is meshed from). */
+  view: BlockGridReader;
 }
 
 /** Run the mesh worker on an endpoint (the worker's global scope); `stop` ends it (a worker on the page, in tests). */
@@ -99,7 +103,7 @@ export function runBlockMeshWorker(endpoint: MeshEndpoint): { stop(): void; trac
     const layer = layers.get(req.entityId);
     if (layer === undefined || layer.serial !== req.serial) return;
     const t0 = performance.now();
-    const result = meshChunkForDrawing(layer.grid, layer.component, types, looks, standIns, { cx: req.cx, cz: req.cz, uv: req.uv });
+    const result = meshChunkForDrawing(layer.view, layer.component, types, looks, standIns, { cx: req.cx, cz: req.cz, uv: req.uv });
     const reply: MeshWorkerReply = { t: 'meshed', entityId: req.entityId, serial: req.serial, cx: req.cx, cz: req.cz, gen: req.gen, ms: performance.now() - t0, result };
     endpoint.post(reply, chunkResultBuffers(result));
   };
@@ -110,13 +114,24 @@ export function runBlockMeshWorker(endpoint: MeshEndpoint): { stop(): void; trac
       case 'types':
         types = new Map(m.types.map((t) => [t.blockId, t]));
         variantModels = new Map(m.variantModels);
+        // The kits' swaps are the types'.
+        for (const layer of layers.values()) layer.view = blockKitView(layer.grid, layer.component.kits, types);
         break;
       case 'model':
         models.set(m.key, m.geometry);
         break;
-      case 'layer':
-        layers.set(m.entityId, { serial: m.serial, component: m.component, grid: BlockGrid.from(m.component, m.data) });
+      case 'layer': {
+        const grid = BlockGrid.from(m.component, m.data);
+        layers.set(m.entityId, { serial: m.serial, component: m.component, grid, view: blockKitView(grid, m.component.kits, types) });
         break;
+      }
+      case 'kits': {
+        const layer = layers.get(m.entityId);
+        if (layer === undefined) break;
+        layer.component = { ...layer.component, kits: m.kits };
+        layer.view = blockKitView(layer.grid, m.kits, types);
+        break;
+      }
       case 'chunks': {
         const layer = layers.get(m.entityId);
         if (layer === undefined) break;

@@ -542,7 +542,7 @@ export class FrameMirror {
   effects: unknown[] = [];
   /** The resolved camera of the last frame (null: no virtual camera). */
   cam: { readonly pose: readonly number[]; readonly view: CameraViewInfo } | null = null;
-  /** Block-layer chunk changes not taken yet, the latest per chunk (bounded by the chunks). */
+  /** Block-layer chunk and kit changes not taken yet, the latest per chunk and per layer's kits (bounded by the chunks). */
   grid = new Map<string, import('@thirdlight/runtime').GridRenderChange>();
   /** The latest material change per object, material and parameter, until the adapter takes them. */
   mat = new Map<string, import('@thirdlight/runtime').MaterialRenderChange>();
@@ -810,7 +810,8 @@ export class FrameMirror {
     if (s.saveReq !== undefined) for (const r of s.saveReq) this.saveReq.push(r);
     if (s.assetReq !== undefined) for (const r of s.assetReq) this.assetReq.push(r);
     if (s.problems !== undefined) for (const p of s.problems) this.problems.push(p);
-    if (s.grid !== undefined) for (const g of s.grid) this.grid.set(`${g.entityId}|${g.cx},${g.cz}`, g);
+    // A layer's kits and each chunk: the latest of each (kits keyed apart from any chunk).
+    if (s.grid !== undefined) for (const g of s.grid) this.grid.set('kits' in g ? `${g.entityId}|kits` : `${g.entityId}|${g.cx},${g.cz}`, g);
     if (s.mat !== undefined) {
       for (const c of s.mat) {
         const k = materialChangeKey(c);

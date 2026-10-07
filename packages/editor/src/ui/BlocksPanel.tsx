@@ -13,7 +13,11 @@
  *   the chosen type's form (its content descriptor, as the Inspector draws
  *   it); the cell fields' forms; the metadata brush with the overlay toggles
  *   and legend; the selection (copy, paste, move, mirror, rotate, delete,
- *   save as stamp); the stamp library; the layer's named regions.
+ *   save as stamp); the stamp library; the layer's named regions (each can
+ *   be cut away and show a kit).
+ * - Kits: the kit the layer shows, and one per region (the block types'
+ *   kit swaps; the cells stay as they are). A region renamed or deleted here
+ *   takes the layer's cut-aways and kits with it.
  *
  * Every change is a command through the App (`run` / `edit`): block types,
  * fields and stamps are content ops, cells and regions `editBlocks` edits —
@@ -26,7 +30,7 @@ import type { TileThumbnails } from '../viewport/thumbnails';
 import { useTileUrl } from './assets/TileImage';
 import { useAssetSummaries } from './catalog/catalog-context';
 import type { BlockCell, BlockCutaway, BlockEdit, BlockLayerComponent, BlockRegion, BlockStamp, BlockType, CellField, CellMetaValue, DescriptorRegistry, ObjectFieldDescriptor, PaintTarget } from '@thirdlight/project-model';
-import { BRUSH_FALLOFFS, PAINT_BRUSH_LIMITS, SCULPT_LIMITS, type BrushFalloff } from '@thirdlight/runtime';
+import { BRUSH_FALLOFFS, PAINT_BRUSH_LIMITS, SCULPT_LIMITS, blockKitNames, type BrushFalloff } from '@thirdlight/runtime';
 import { ObjectFields, type FieldContext } from './DescriptorFields';
 import { componentPatch } from '../session/descriptor-fields';
 import {
@@ -177,6 +181,38 @@ export function BlocksPanel(p: Props): JSX.Element {
     const component: BlockLayerComponent = { ...l.component, cutaway };
     if (!on && cutPreview.has(previewKey(l.entityId, regionId))) previewCut(l.entityId, regionId, false);
     void p.run(on ? 'Cut away region' : 'Stop cutting region away', 'setComponent', { entityId: l.entityId, component: 'blockLayer', value: component });
+  };
+  /** The project's kits (the names its block types swap by). */
+  const kitNames = useMemo(() => blockKitNames(p.types), [p.types]);
+  /** Show a kit over the layer (region null) or one region ('': none there): the layer's `kits`, one setComponent. */
+  const setKit = (l: BlockLayerRow, regionId: string | null, kit: string): void => {
+    const kits = (l.component.kits ?? []).filter((k) => (k.region ?? null) !== regionId);
+    if (kit !== '') kits.push({ kit, ...(regionId !== null ? { region: regionId } : {}) });
+    // A component's fields are set one by one: an empty list is stored as none.
+    const component: BlockLayerComponent = { ...l.component, kits };
+    void p.run(kit === '' ? 'Take kit off' : `Show kit ${kit}`, 'setComponent', { entityId: l.entityId, component: 'blockLayer', value: component });
+  };
+  /**
+   * A region renamed (`to`) or deleted (null): the layer's cut-aways and
+   * kits that name it follow it, or let it go (a second setComponent, after
+   * the region edit).
+   */
+  const followRegion = (l: BlockLayerRow, from: string, to: string | null): void => {
+    const c = l.component;
+    const regions = (c.cutaway?.regions ?? []).flatMap((r) => {
+      if (r.region === from || r.when === from) return to === null ? [] : [{ region: r.region === from ? to : r.region, ...(r.when !== undefined ? { when: r.when === from ? to : r.when } : {}) }];
+      return [r];
+    });
+    const kits = (c.kits ?? []).flatMap((k) => (k.region !== from ? [k] : to === null ? [] : [{ kit: k.kit, region: to }]));
+    if (JSON.stringify(regions) === JSON.stringify(c.cutaway?.regions ?? []) && JSON.stringify(kits) === JSON.stringify(c.kits ?? [])) return;
+    const component: BlockLayerComponent = { ...c, kits };
+    if (c.cutaway !== undefined) {
+      const cutaway: BlockCutaway = { ...c.cutaway, regions };
+      if (regions.length === 0) delete cutaway.regions;
+      component.cutaway = cutaway;
+    }
+    if (to === null && cutPreview.has(previewKey(l.entityId, from))) previewCut(l.entityId, from, false);
+    void p.run(to === null ? 'Forget deleted region' : 'Follow renamed region', 'setComponent', { entityId: l.entityId, component: 'blockLayer', value: component });
   };
   const typeOf = useMemo(() => new Map(p.types.map((t) => [t.blockId, t])), [p.types]);
   const field = p.fields.find((f) => f.key === metaField) ?? null;
@@ -346,6 +382,19 @@ export function BlocksPanel(p: Props): JSX.Element {
                 +
               </button>
             </label>
+            {kitNames.length > 0 && (
+              <label title="The kit the layer shows: its blocks drawn (and colliding, and spawning) as each block type's swap under the kit, the cells unchanged. A region can show its own (Regions).">
+                Kit{' '}
+                <select aria-label="layer kit" value={(layer.component.kits ?? []).find((k) => k.region === undefined)?.kit ?? ''} onChange={(e) => setKit(layer, null, e.target.value)}>
+                  <option value="">(authored)</option>
+                  {kitNames.map((k) => (
+                    <option key={k} value={k}>
+                      {k}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
             <label title="Edit cells in the Scene view (Alt+drag or the right button orbits)">
               <input type="checkbox" aria-label="edit cells" checked={armed} onChange={(e) => setArmed(e.target.checked)} /> Edit cells
             </label>
@@ -473,7 +522,10 @@ export function BlocksPanel(p: Props): JSX.Element {
                   const patch = componentPatch(typeDesc, editing as unknown as Record<string, unknown>, path, next);
                   if (patch === null) return;
                   if (patch['blockId'] !== undefined) return setError('A block type keeps its id (cells name it); make a new type instead.');
-                  void p.run('Edit block type', 'setBlockType', { block: applyPatch(editing, patch) });
+                  const block = applyPatch(editing, patch);
+                  // A kit added in the form starts as a swap to the type itself (it keeps the layout); its Block is picked next.
+                  if (block.kits !== undefined) block.kits = Object.fromEntries(Object.entries(block.kits).map(([k, v]) => [k, typeOf.has(v.block) ? v : { ...v, block: editing.blockId }]));
+                  void p.run('Edit block type', 'setBlockType', { block });
                 }}
               />
             </div>
@@ -693,7 +745,12 @@ export function BlocksPanel(p: Props): JSX.Element {
                       const to = renameDraft.to.trim();
                       setRenameDraft(null);
                       if (to === '' || to === r.regionId) return;
-                      void p.edit('Rename region', layer.entityId, [{ kind: 'region', regionId: r.regionId, op: 'rename', to }]).then((ok) => ok && region === r.regionId && setRegion(to));
+                      const l = layer;
+                      void p.edit('Rename region', l.entityId, [{ kind: 'region', regionId: r.regionId, op: 'rename', to }]).then((ok) => {
+                        if (!ok) return;
+                        if (region === r.regionId) setRegion(to);
+                        followRegion(l, r.regionId, to);
+                      });
                     }}
                   />
                 ) : (
@@ -715,10 +772,24 @@ export function BlocksPanel(p: Props): JSX.Element {
                     Preview
                   </button>
                 )}
+                {layer !== null && kitNames.length > 0 && (
+                  <select aria-label={`kit ${r.regionId}`} title="The kit this region shows (over the layer's)" value={(layer.component.kits ?? []).find((k) => k.region === r.regionId)?.kit ?? ''} onChange={(e) => setKit(layer, r.regionId, e.target.value)}>
+                    <option value="">kit: (layer's)</option>
+                    {kitNames.map((k) => (
+                      <option key={k} value={k}>
+                        kit: {k}
+                      </option>
+                    ))}
+                  </select>
+                )}
                 <button className="tl-btn tl-btn--small" aria-label={`rename ${r.regionId}`} onClick={() => setRenameDraft({ id: r.regionId, to: r.regionId })}>
                   Rename
                 </button>
-                <button className="tl-btn tl-btn--small tl-btn--danger" aria-label={`delete region ${r.regionId}`} onClick={() => layer !== null && void p.edit('Delete region', layer.entityId, [{ kind: 'region', regionId: r.regionId, op: 'delete' }])}>
+                <button className="tl-btn tl-btn--small tl-btn--danger" aria-label={`delete region ${r.regionId}`} onClick={() => {
+                    if (layer === null) return;
+                    const l = layer;
+                    void p.edit('Delete region', l.entityId, [{ kind: 'region', regionId: r.regionId, op: 'delete' }]).then((ok) => ok && followRegion(l, r.regionId, null));
+                  }}>
                   ✕
                 </button>
               </li>

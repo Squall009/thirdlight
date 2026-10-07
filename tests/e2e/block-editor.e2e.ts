@@ -23,7 +23,9 @@
  * under a moved group snaps and writes its footprint where it stands in the
  * world. The Inspector edits the layer's cell size with x and z as one value
  * (cells are square from above); a command with x ≠ z is refused. A region marked cut away in the Blocks panel
- * is hidden in the Scene view while its preview is on (pixels). Every result is read back from the backend
+ * is hidden in the Scene view while its preview is on (pixels). The layer's Kit (Blocks panel) shows the grass as its
+ * burnt swap in the Scene view (pixels) without changing a cell; a region's kit, and its cut-away, follow the region
+ * when it is renamed and go when it is deleted. Every result is read back from the backend
  * (`queryBlocks`, `queryEntity`); the stroke latency is measured.
  */
 import { randomBytes } from 'node:crypto';
@@ -398,6 +400,50 @@ test('the Blocks panel paints, fills, picks, replaces, selects, stamps and paint
   await expect.poll(async () => countPixels(decodePng(await view(page).screenshot()), grass), { timeout: 20_000, message: 'the grass back after the preview' }).toBeGreaterThan(200);
   await cutBox.click();
   await expect.poll(async () => ((await entity(layer)).components.blockLayer as { cutaway?: unknown } | undefined)?.cutaway).toBeUndefined();
+
+  // ---- kits: the block type form gives grass a burnt swap (violet ash); the layer's Kit shows it in the Scene view, the
+  // cells stay grass.
+  await cmd('setBlockType', { block: { blockId: 'ash', name: 'Ash', variants: [{ color: '#5a00b4' }], shape: 'full' } });
+  await blockButton(page, 'grass').click();
+  const typeForm = panel(page).getByLabel('block type form');
+  await typeForm.getByLabel('new blockType kits kit', { exact: true }).fill('burnt');
+  await typeForm.getByRole('button', { name: 'add blockType kits', exact: true }).click();
+  type Kits = Record<string, { block: string }>;
+  const grassKits = async (): Promise<Kits | undefined> => ((await query('queryGameConfig')) as { blockTypes?: { blockId: string; kits?: Kits }[] }).blockTypes?.find((t) => t.blockId === 'grass')?.kits;
+  // A new kit starts as a swap to the type itself; then its Block is picked.
+  await expect.poll(grassKits).toEqual({ burnt: { block: 'grass' } });
+  const kitBlock = typeForm.getByLabel('blockType kits burnt block', { exact: true });
+  await kitBlock.fill('ash');
+  await kitBlock.press('Enter');
+  await expect.poll(grassKits).toEqual({ burnt: { block: 'ash' } });
+  const violet = (r: number, g: number, b: number): boolean => b > 80 && r > b * 0.3 && r < b * 0.75 && g < b * 0.25;
+  const layerKit = panel(page).getByLabel('layer kit', { exact: true });
+  await expect(layerKit).toHaveValue('');
+  const blockLayerOf = async (): Promise<{ cutaway?: unknown; kits?: unknown }> => ((await entity(layer)).components.blockLayer ?? {}) as { cutaway?: unknown; kits?: unknown };
+  await layerKit.selectOption('burnt');
+  await expect.poll(async () => (await blockLayerOf()).kits).toEqual([{ kit: 'burnt' }]);
+  await expect.poll(async () => countPixels(decodePng(await view(page).screenshot()), violet), { timeout: 20_000, message: 'the grass shown burnt' }).toBeGreaterThan(200);
+  expect(countPixels(decodePng(await view(page).screenshot()), grass)).toBeLessThan(grassShown / 5);
+  const stored = [...(await cells(layer, [0, 0, 0, 64, 16, 64])).values()].map((c) => c.block);
+  expect(stored).toContain('grass');
+  expect(stored).not.toContain('ash');
+  await expect.poll(async () => JSON.parse((await view(page).getAttribute('data-block-layers')) ?? '{}').restyles, { timeout: 20_000 }).toEqual(expect.objectContaining({ active: false, count: expect.any(Number) }));
+  // A region's kit and cut-away follow the region renamed in the panel, and go with it deleted.
+  await cutBox.click();
+  await panel(page).getByLabel('kit upper', { exact: true }).selectOption('burnt');
+  await expect.poll(async () => blockLayerOf()).toEqual(expect.objectContaining({ cutaway: { regions: [{ region: 'upper' }] }, kits: [{ kit: 'burnt' }, { kit: 'burnt', region: 'upper' }] }));
+  await panel(page).getByRole('button', { name: 'rename upper', exact: true }).click();
+  const renameInput = panel(page).getByLabel('rename region upper', { exact: true });
+  await renameInput.fill('top');
+  await renameInput.press('Enter');
+  await expect.poll(async () => blockLayerOf()).toEqual(expect.objectContaining({ cutaway: { regions: [{ region: 'top' }] }, kits: [{ kit: 'burnt' }, { kit: 'burnt', region: 'top' }] }));
+  await panel(page).getByRole('button', { name: 'delete region top', exact: true }).click();
+  await expect.poll(async () => { const c = await blockLayerOf(); return [c.cutaway, c.kits]; }).toEqual([undefined, [{ kit: 'burnt' }]]);
+  // The authored looks again.
+  await layerKit.selectOption('');
+  await expect.poll(async () => (await blockLayerOf()).kits).toBeUndefined();
+  await expect.poll(async () => countPixels(decodePng(await view(page).screenshot()), grass), { timeout: 20_000, message: 'the grass back without the kit' }).toBeGreaterThan(200);
+  expect(countPixels(decodePng(await view(page).screenshot()), violet)).toBeLessThan(20);
 
   // ---- snapping settings: a 1 m move step moves an object in whole metres.
   await projectWindow(page);

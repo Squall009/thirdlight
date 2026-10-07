@@ -37,6 +37,11 @@ import {
   cellOfKey,
   canonicalBlockCell,
   cutawayZoneKeys,
+  blockKitNames,
+  blockKitView,
+  canonicalLayerKits,
+  kitKey,
+  kitSwapCollides,
   cellCenter,
   cellFieldValueError,
   cellKeyOf,
@@ -56,7 +61,9 @@ import {
   type BlockEdge,
   type BlockEdgeSide,
   type BlockLayerComponent,
+  type BlockGridReader,
   type BlockLayerData,
+  type BlockLayerKit,
   type BlockLayerMemory,
   type BlockType,
   type CellField,
@@ -87,6 +94,8 @@ export interface GridCell {
   readonly variant: number;
   /** A connected block's piece (single, end, straight, corner, t, cross, base, cap); absent: not connected or no rule for it. */
   readonly piece?: string;
+  /** The block a kit draws in its place (`setKit`; rot, variant and piece are that block's); absent: no kit swaps it. `block` stays the cell's own. */
+  readonly kitBlock?: string;
   /** The effective metadata (schema defaults, then the block's defaults, then the cell's own values). */
   readonly meta: Readonly<Record<string, number | string | boolean>>;
   /** For a cell covered by a larger block's footprint: that block's anchor cell (absent otherwise). */
@@ -127,6 +136,8 @@ export interface GridEdge {
   readonly variant: number;
   /** A connected piece's piece (single, end, straight, corner, base, cap); absent: not connected or no rule for it. */
   readonly piece?: string;
+  /** The edge piece a kit draws in its place (rot, variant, piece and blocked are that piece's); absent: no kit swaps it. */
+  readonly kitBlock?: string;
   /** Open (a door). */
   readonly open: boolean;
   /** Whether it blocks passage across the edge now (its type blocks, and it is not open). */
@@ -202,6 +213,8 @@ export interface GridDiff {
   }[];
   /** The block types' material swaps (block id → slot → material over the type's own mapping); absent: none. */
   readonly types?: Readonly<Record<string, Readonly<Record<string, string>>>>;
+  /** The kits scripts set (`setKit`): [layer, region (null: the whole layer), kit (null: none)]; absent: none. */
+  readonly kits?: readonly (readonly [string, string | null, string | null])[];
 }
 
 /**
@@ -335,6 +348,15 @@ export interface BehaviorGrid {
    */
   setCutawayPoint(point: readonly number[]): boolean;
   /**
+   * Show a kit over a layer (no region) or one of its regions: its block types are drawn, collide and spawn as each type's swap under the kit, without changing the cells (a dungeon burnt in place). Null shows no kit there (the authored one included); the layer re-meshes in the background, the old look drawn until the new is ready. False when refused (an unknown layer, kit or region). Saved with the grid.
+   */
+  setKit(layer: string, kit: string | null, region?: string): boolean;
+  /**
+   * The kit a layer (no region) or one of its regions shows now (null: none).
+   * @graphPure
+   */
+  kit(layer: string, region?: string): string | null;
+  /**
    * The edge piece on a side of a cell (a wall, door or fence between it and its neighbour), or null when none stands there.
    * @graphPure
    * @graphNode Get edge
@@ -397,12 +419,21 @@ export interface BehaviorGrid {
 }
 
 /** One chunk the renderer re-meshes (its cells now; null: it holds none). */
-export interface GridRenderChange {
+export interface GridChunkChange {
   readonly entityId: string;
   readonly cx: number;
   readonly cz: number;
   readonly chunk: BlockChunk | null;
 }
+
+/** A layer whose kits scripts changed: the kits it shows now (the renderer re-meshes it in the background). */
+export interface GridKitChange {
+  readonly entityId: string;
+  readonly kits: readonly BlockLayerKit[];
+}
+
+/** What the renderer follows: a chunk's cells, or a layer's kits. */
+export type GridRenderChange = GridChunkChange | GridKitChange;
 
 /** What scripts set for the layers' cut-aways (`setCutaway`, `setCutawaySubject`, `setCutawayPoint`); the renderer reads it. */
 export interface GridCutawayState {
@@ -431,6 +462,10 @@ interface Layer {
   readonly origin: GridVec3;
   readonly authored: BlockLayerData | null;
   grid: BlockGrid;
+  /** The kits it shows now (the authored ones, changed by scripts). */
+  kits: readonly BlockLayerKit[] | undefined;
+  /** The grid as its kits show it (`grid` itself without one): what meshing, collision, live blocks and queries read. */
+  shown: BlockGridReader;
   /** Footprint coverage: covered cell key → anchor key. */
   covers: Map<number, number>;
   /** Cells written since the run started (for the diff). */
@@ -460,6 +495,12 @@ export class RuntimeGrid {
   private cutawaySubject: string | readonly [number, number, number] | null = null;
   /** What `cutawayState` hands out: a new object only after a change (readers compare it by identity). */
   private cutawayView: GridCutawayState = NO_CUTAWAY;
+  /** The kits scripts set: layer → region ('' the whole layer) → kit (null: none there). */
+  private readonly kitOverrides = new Map<string, Map<string, string | null>>();
+  /** Layers whose kits changed since the renderer last took its changes. */
+  private kitDirty = new Set<string>();
+  /** Every kit name the block types use. */
+  private readonly kitNames: ReadonlySet<string>;
   private readonly materialIds: ReadonlySet<string> | null;
   private readonly collide: boolean;
   private collisionDirty = new Map<string, Set<string>>();
@@ -480,6 +521,7 @@ export class RuntimeGrid {
   constructor(types: readonly BlockType[], fields: readonly CellField[], collide: boolean, defaultMaxSlope = 45, materialIds?: readonly string[], prefabs?: ReadonlyMap<string, PrefabDefinition>) {
     this.materialIds = materialIds !== undefined ? new Set(materialIds) : null;
     this.types = new Map(types.map((t) => [t.blockId, t]));
+    this.kitNames = new Set(blockKitNames(types));
     this.live = prefabs !== undefined && LiveBlocks.anyLive(types) ? new LiveBlocks(this.types, prefabs) : null;
     this.fields = fields;
     this.fieldByKey = new Map(fields.map((f) => [f.key, f]));
@@ -546,7 +588,9 @@ export class RuntimeGrid {
       if (comp === undefined || this.layerMap.has(e.id)) continue;
       const p = e.components.transform?.position ?? [0, 0, 0];
       const data = comp.data ?? null;
-      const layer: Layer = { entityId: e.id, component: comp, origin: freezeVec(p[0], p[1], p[2]), authored: data, grid: BlockGrid.from(comp, data), covers: new Map(), touched: new Set(), touchedEdges: new Set(), colliders: new Map() };
+      const grid = BlockGrid.from(comp, data);
+      const layer: Layer = { entityId: e.id, component: comp, origin: freezeVec(p[0], p[1], p[2]), authored: data, grid, kits: comp.kits, shown: grid, covers: new Map(), touched: new Set(), touchedEdges: new Set(), colliders: new Map() };
+      this.reshow(layer);
       this.rebuildCovers(layer);
       this.layerMap.set(e.id, layer);
       this.live?.addLayer(e.id);
@@ -567,6 +611,8 @@ export class RuntimeGrid {
       this.live?.removeLayer(id);
       this.collisionDirty.delete(id);
       this.renderDirty.delete(id);
+      this.kitOverrides.delete(id);
+      this.kitDirty.delete(id);
       let forced = false;
       for (const k of this.cutawayForced.keys()) if (k.startsWith(`${id}\u0000`)) forced = this.cutawayForced.delete(k) || forced;
       if (forced) this.cutawayChanged();
@@ -597,8 +643,11 @@ export class RuntimeGrid {
       layer.touched.clear();
       layer.touchedEdges.clear();
       this.rebuildCovers(layer);
+      this.reshow(layer);
       this.markAll(layer);
     }
+    // The authored kits again.
+    for (const id of [...this.kitOverrides.keys()]) this.setKits(id, new Map());
     this.current = [];
     this.previous = Object.freeze([]);
     this.writes = 0;
@@ -639,6 +688,8 @@ export class RuntimeGrid {
     if (typeof d !== 'object' || d === null || d.version !== 1 || !Array.isArray(d.layers)) return 'the grid section is not a grid diff (version 1)';
     const typesProblem = this.typesProblem(d.types);
     if (typesProblem !== null) return typesProblem;
+    const kitsProblem = this.kitsProblem(d.kits);
+    if (kitsProblem !== null) return kitsProblem;
     for (const entry of d.layers) {
       if (typeof entry !== 'object' || entry === null || typeof entry.layer !== 'string' || !Array.isArray(entry.cells)) return 'a grid diff layer is { layer, cells }';
       if (!this.layerMap.has(entry.layer)) return `block layer "${entry.layer.slice(0, 64)}" is not loaded`;
@@ -656,6 +707,7 @@ export class RuntimeGrid {
       l.touched = new Set();
       l.touchedEdges = new Set();
       this.rebuildCovers(l);
+      this.reshow(l);
     }
     const writes = this.writes;
     const changes = this.current.length;
@@ -698,13 +750,96 @@ export class RuntimeGrid {
         l.touched = st.touched;
         l.touchedEdges = st.touchedEdges;
         l.grid.takeDirty();
+        this.reshow(l);
       }
       this.current.length = changes;
       return problem;
     }
     for (const id of involved) this.markAll(this.layerMap.get(id)!);
     this.setTypeSwaps(d.types);
+    this.setAllKits(d.kits);
     return null;
+  }
+
+  // ---- kits ------------------------------------------------------------------------------
+
+  /** The view a layer's kits give (the grid itself without one); a new grid or new kits make a new view. */
+  private reshow(layer: Layer): void {
+    layer.shown = blockKitView(layer.grid, layer.kits, this.types);
+  }
+
+  /** The kits a layer shows: the authored ones with the scripts' changes (by region; '' the whole layer). */
+  private effectiveKits(layer: Layer, overrides: ReadonlyMap<string, string | null>): BlockLayerKit[] | undefined {
+    const out: BlockLayerKit[] = [];
+    const seen = new Set<string>();
+    for (const k of layer.component.kits ?? []) {
+      const key = k.region ?? '';
+      seen.add(key);
+      const kit = overrides.has(key) ? overrides.get(key)! : k.kit;
+      if (kit !== null) out.push({ kit, ...(k.region !== undefined ? { region: k.region } : {}) });
+    }
+    for (const [key, kit] of overrides) if (!seen.has(key) && kit !== null) out.push({ kit, ...(key !== '' ? { region: key } : {}) });
+    return canonicalLayerKits(out);
+  }
+
+  /** A layer's kit changes become exactly these: it is shown again, its colliders (where a swap changes them) and live blocks follow. */
+  private setKits(layerId: string, overrides: Map<string, string | null>): void {
+    const layer = this.layerMap.get(layerId);
+    if (layer === undefined) return;
+    if (overrides.size === 0) this.kitOverrides.delete(layerId);
+    else this.kitOverrides.set(layerId, overrides);
+    const next = this.effectiveKits(layer, overrides);
+    if (kitKey(next) === kitKey(layer.kits)) return;
+    const before = layer.kits;
+    layer.kits = next;
+    this.reshow(layer);
+    this.kitDirty.add(layerId);
+    this.live?.markFull(layerId);
+    // Colliders are rebuilt only when a swap that came or went changes a shape.
+    const names = new Set([...(before ?? []), ...(next ?? [])].map((k) => k.kit));
+    let collides = false;
+    for (const t of this.types.values()) {
+      for (const name of names) {
+        const s = t.kits?.[name];
+        const to = s !== undefined ? this.types.get(s.block) : undefined;
+        if (to !== undefined && kitSwapCollides(t, to)) collides = true;
+      }
+    }
+    if (collides) {
+      const keys = new Set([...layer.grid.chunkKeys(), ...layer.colliders.keys()]);
+      if (keys.size > 0) this.collisionDirty.set(layerId, new Set([...(this.collisionDirty.get(layerId) ?? []), ...keys]));
+    }
+  }
+
+  /** Why a kit cannot be set (null: it can). */
+  private kitProblem(layer: Layer | undefined, kit: unknown, region: unknown): string | null {
+    if (layer === undefined) return 'an unknown layer';
+    if (kit !== null && (typeof kit !== 'string' || !this.kitNames.has(kit))) return `no block type has the kit ${JSON.stringify(String(kit)).slice(0, 64)}`;
+    if (region !== undefined && region !== null && (typeof region !== 'string' || !layer.grid.regions.has(region))) return `the layer has no region ${JSON.stringify(String(region)).slice(0, 64)}`;
+    return null;
+  }
+
+  /** A save's kits (the grid diff's `kits`): why they cannot be restored, or null. */
+  private kitsProblem(kits: unknown): string | null {
+    if (kits === undefined) return null;
+    if (!Array.isArray(kits)) return "the grid diff's kits is a list of [layer, region | null, kit | null]";
+    for (const k of kits) {
+      if (!Array.isArray(k) || k.length !== 3) return "the grid diff's kits is a list of [layer, region | null, kit | null]";
+      const problem = this.kitProblem(typeof k[0] === 'string' ? this.layerMap.get(k[0]) : undefined, k[2], k[1]);
+      if (problem !== null) return `kit of layer ${JSON.stringify(String(k[0])).slice(0, 64)}: ${problem}`;
+    }
+    return null;
+  }
+
+  /** Every layer's kit changes become exactly a save's (checked with `kitsProblem`). */
+  private setAllKits(kits: GridDiff['kits']): void {
+    const next = new Map<string, Map<string, string | null>>();
+    for (const [layer, region, kit] of kits ?? []) {
+      let m = next.get(layer);
+      if (m === undefined) next.set(layer, (m = new Map()));
+      m.set(region ?? '', kit);
+    }
+    for (const id of new Set([...this.kitOverrides.keys(), ...next.keys()])) this.setKits(id, next.get(id) ?? new Map());
   }
 
   /** At the start of a step: the last step's writes become the visible changes. */
@@ -730,7 +865,7 @@ export class RuntimeGrid {
         const old = layer.colliders.get(ck);
         if (old !== undefined) remove.push(...old);
         const [cx, cz] = ck.split(',').map(Number) as [number, number];
-        const pieces = collisionMeshChunk(layer.grid, cx, cz, this.types);
+        const pieces = collisionMeshChunk(layer.shown, cx, cz, this.types);
         const ids: string[] = [];
         pieces.forEach((p, i) => {
           const id = gridColliderId(entityId, ck, i);
@@ -753,8 +888,14 @@ export class RuntimeGrid {
 
   /** The chunks to re-mesh since the last call, with their cells now. */
   takeRenderChanges(): GridRenderChange[] {
-    if (this.renderDirty.size === 0) return [];
+    if (this.renderDirty.size === 0 && this.kitDirty.size === 0) return [];
     const out: GridRenderChange[] = [];
+    // A layer's kits first: its chunks below are meshed with them.
+    for (const id of [...this.kitDirty].sort()) {
+      const layer = this.layerMap.get(id);
+      if (layer !== undefined) out.push({ entityId: id, kits: layer.kits ?? [] });
+    }
+    this.kitDirty = new Set();
     for (const [entityId, keys] of this.renderDirty) {
       const layer = this.layerMap.get(entityId);
       if (layer === undefined) continue;
@@ -773,7 +914,10 @@ export class RuntimeGrid {
    */
   takeLive(taken: (id: string) => boolean, entityRefKeys?: (behaviorId: string) => readonly string[] | undefined): LiveBlockChanges | null {
     if (this.live === null || !this.live.pending) return null;
-    return this.live.sync((id) => this.layerMap.get(id), taken, entityRefKeys);
+    return this.live.sync((id) => {
+      const l = this.layerMap.get(id);
+      return l === undefined ? undefined : { grid: l.shown, origin: l.origin };
+    }, taken, entityRefKeys);
   }
 
   /** The live objects of layers that left the game since the last call (removed at once). */
@@ -898,11 +1042,13 @@ export class RuntimeGrid {
     const normalized = next !== null && next.block === undefined && next.meta === undefined ? null : next;
     if (this.refusal(layer, x, y, z, normalized) !== null) return false;
     const before = layer.grid.get(x, y, z);
+    const shownBefore = layer.shown === layer.grid ? before : layer.shown.get(x, y, z);
     if (!layer.grid.set(x, y, z, normalized)) return false;
     this.writes += 1;
     this.removeCover(layer, x, y, z, before);
     this.addCover(layer, x, y, z, normalized);
-    this.live?.written(layerId, x, y, z, before, normalized);
+    // Live blocks follow the shown cell (a kit may swap a live block in or out).
+    this.live?.written(layerId, x, y, z, shownBefore, layer.shown === layer.grid ? normalized : layer.shown.get(x, y, z));
     layer.touched.add(cellKeyOf(x, y, z));
     this.markWritten(layer);
     this.current.push(Object.freeze({ layer: layerId, x, y, z, before: before?.block ?? null, after: normalized?.block ?? null, stepIndex: this.stepIndex }));
@@ -934,9 +1080,10 @@ export class RuntimeGrid {
     if (this.edgeRefusal(layer, x, y, z, axis, edge) !== null) return false;
     const next = edge === null ? null : canonicalBlockEdge(edge);
     const before = layer.grid.edgeAt(x, y, z, axis);
+    const shownBefore = layer.shown === layer.grid ? before : layer.shown.edgeAt(x, y, z, axis);
     if (!layer.grid.setEdge(x, y, z, axis, next)) return false;
     this.writes += 1;
-    this.live?.writtenEdge(layerId, x, y, z, axis, before, next);
+    this.live?.writtenEdge(layerId, x, y, z, axis, shownBefore, layer.shown === layer.grid ? next : layer.shown.edgeAt(x, y, z, axis));
     layer.touchedEdges.add(edgeKeyOf(x, y, z, axis));
     this.markWritten(layer);
     this.current.push(Object.freeze({ layer: layerId, x, y, z, before: before?.block ?? null, after: next?.block ?? null, stepIndex: this.stepIndex, side: axis === 0 ? '-x' as const : '-z' as const }));
@@ -944,12 +1091,14 @@ export class RuntimeGrid {
   }
 
   private edgeView(layer: Layer, x: number, y: number, z: number, axis: number): GridEdge | null {
-    const e = layer.grid.edgeAt(x, y, z, axis);
-    if (e === null) return null;
+    const stored = layer.grid.edgeAt(x, y, z, axis);
+    if (stored === null) return null;
+    // The look and passage are the shown piece's (a kit may swap it), the block the stored one.
+    const e = layer.shown === layer.grid ? stored : layer.shown.edgeAt(x, y, z, axis)!;
     const t = this.types.get(e.block);
     const variant = e.variant ?? (t !== undefined ? edgeAutoVariant(t, x, y, z, axis) : 0);
-    const shown = t !== undefined ? resolveEdgeLook(layer.grid, t, e, x, y, z, axis, variant) : { variant, rot: e.rot ?? 0, piece: null };
-    return Object.freeze({ block: e.block, rot: shown.rot, variant: shown.variant, open: e.open === true, blocked: t !== undefined && edgeBlocks(t, e), ...(shown.piece !== null ? { piece: shown.piece } : {}) });
+    const shown = t !== undefined ? resolveEdgeLook(layer.shown, t, e, x, y, z, axis, variant) : { variant, rot: e.rot ?? 0, piece: null };
+    return Object.freeze({ block: stored.block, rot: shown.rot, variant: shown.variant, open: e.open === true, blocked: t !== undefined && edgeBlocks(t, e), ...(shown.piece !== null ? { piece: shown.piece } : {}), ...(e.block !== stored.block ? { kitBlock: e.block } : {}) });
   }
 
   private view(layer: Layer, x: number, y: number, z: number): GridCell | null {
@@ -965,18 +1114,20 @@ export class RuntimeGrid {
       }
     }
     if (cell === null) return null;
-    const t = cell.block !== undefined ? this.types.get(cell.block) : undefined;
-    const variant = cell.variant ?? (t !== undefined ? autoVariant(t, ax, ay, az) : 0);
-    const shown = t !== undefined ? resolveCellLook(layer.grid, t, cell, ax, ay, az, variant) : { variant, rot: cell.rot ?? 0, piece: null };
+    // The look is the shown cell's (a kit may swap it); the block and metadata the stored ones.
+    const look = layer.shown === layer.grid ? cell : (layer.shown.get(ax, ay, az) ?? cell);
+    const t = look.block !== undefined ? this.types.get(look.block) : undefined;
+    const variant = look.variant ?? (t !== undefined ? autoVariant(t, ax, ay, az) : 0);
+    const shown = t !== undefined ? resolveCellLook(layer.shown, t, look, ax, ay, az, variant) : { variant, rot: look.rot ?? 0, piece: null };
     const meta = Object.freeze(effectiveCellMeta(cell, this.types, this.fields));
     const corners = cellCorners(cell);
-    return Object.freeze({ block: cell.block ?? null, rot: shown.rot, variant: shown.variant, meta, ...(anchor !== undefined ? { anchor } : {}), ...(corners !== null ? { corners: Object.freeze([...corners]) } : {}), ...(shown.piece !== null ? { piece: shown.piece } : {}) });
+    return Object.freeze({ block: cell.block ?? null, rot: shown.rot, variant: shown.variant, meta, ...(anchor !== undefined ? { anchor } : {}), ...(corners !== null ? { corners: Object.freeze([...corners]) } : {}), ...(shown.piece !== null ? { piece: shown.piece } : {}), ...(look.block !== cell.block && look.block !== undefined ? { kitBlock: look.block } : {}) });
   }
 
   /** The ground of a layer at or below a world point (null: none). */
   private surfaceOf(layer: Layer, x: number, y: number, z: number): GridSurface | null {
     const o = layer.origin;
-    const hit = surfaceBelow(layer.grid, this.types, x - o.x, y - o.y, z - o.z, (cx, cy, cz) => {
+    const hit = surfaceBelow(layer.shown, this.types, x - o.x, y - o.y, z - o.z, (cx, cy, cz) => {
       const a = layer.covers.get(cellKeyOf(cx, cy, cz));
       return a === undefined ? null : cellOfKey(a);
     });
@@ -1057,7 +1208,7 @@ export class RuntimeGrid {
         const l = layerOf(layer);
         const at = edgeOf(x, y, z, side);
         if (l === undefined || at === null || g.live === null) return null;
-        return g.live.edgeRootIdOf(l.entityId, l.grid, ...at, l.grid.edgeAt(...at));
+        return g.live.edgeRootIdOf(l.entityId, l.shown, ...at, l.shown.edgeAt(...at));
       },
       get(layer, x, y, z) {
         const l = layerOf(layer);
@@ -1176,7 +1327,7 @@ export class RuntimeGrid {
           [ax, ay, az] = cellOfKey(a);
           cell = l.grid.get(ax, ay, az);
         }
-        return g.live.rootIdOf(l.entityId, l.grid, ax, ay, az, cell);
+        return g.live.rootIdOf(l.entityId, l.shown, ax, ay, az, l.shown === l.grid ? cell : l.shown.get(ax, ay, az));
       },
       cellOf(entityId) {
         const c = typeof entityId === 'string' ? g.live?.cellOf(entityId) ?? null : null;
@@ -1208,7 +1359,9 @@ export class RuntimeGrid {
           if (cells.length > 0 || edges.length > 0) layers.push({ layer: l.entityId, cells, ...(edges.length > 0 ? { edges } : {}) });
         }
         const types = g.typeSwaps.size === 0 ? undefined : Object.freeze(Object.fromEntries([...g.typeSwaps].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))));
-        return Object.freeze({ version: 1 as const, layers: Object.freeze(layers), ...(types !== undefined ? { types } : {}) });
+        const kits: (readonly [string, string | null, string | null])[] = [];
+        for (const id of [...g.kitOverrides.keys()].sort()) for (const [region, kit] of [...g.kitOverrides.get(id)!].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) kits.push(Object.freeze([id, region === '' ? null : region, kit] as const));
+        return Object.freeze({ version: 1 as const, layers: Object.freeze(layers), ...(types !== undefined ? { types } : {}), ...(kits.length > 0 ? { kits: Object.freeze(kits) } : {}) });
       },
       setTypeMaterials(blockId, materials) {
         if (g.typeSwapProblem(blockId, materials) !== null) return false;
@@ -1243,6 +1396,22 @@ export class RuntimeGrid {
         }
         return true;
       },
+      setKit(layer, kit, region) {
+        const l = layerOf(layer);
+        if (g.kitProblem(l, kit, region) !== null) return false;
+        if (!g.unlimited && g.writes >= GRID_WRITES_PER_STEP) return false;
+        g.writes += 1;
+        const next = new Map(g.kitOverrides.get(l!.entityId) ?? []);
+        next.set(region ?? '', kit);
+        g.setKits(l!.entityId, next);
+        return true;
+      },
+      kit(layer, region) {
+        const l = layerOf(layer);
+        if (l === undefined) return null;
+        const key = typeof region === 'string' ? region : undefined;
+        return (l.kits ?? []).find((k) => k.region === key)?.kit ?? null;
+      },
       typeMaterials(blockId) {
         const type = typeof blockId === 'string' ? g.types.get(blockId) : undefined;
         if (type === undefined) return null;
@@ -1251,7 +1420,7 @@ export class RuntimeGrid {
       },
       applyDiff(diff) {
         if (typeof diff !== 'object' || diff === null || diff.version !== 1 || !Array.isArray(diff.layers)) return false;
-        if (g.typesProblem(diff.types) !== null) return false;
+        if (g.typesProblem(diff.types) !== null || g.kitsProblem(diff.kits) !== null) return false;
         for (const entry of diff.layers) {
           if (!layerOf(entry?.layer) || !Array.isArray(entry.cells)) return false;
           for (const c of entry.cells) {
@@ -1278,6 +1447,7 @@ export class RuntimeGrid {
           ok = g.writeEdge(entry.layer, c[0], c[1], c[2], c[3], c[4]) && ok;
         }
         g.setTypeSwaps(diff.types);
+        if (diff.kits !== undefined) g.setAllKits(diff.kits);
         return ok;
       },
     };

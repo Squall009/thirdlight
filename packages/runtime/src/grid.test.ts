@@ -6,7 +6,7 @@
 import { describe, expect, it } from 'vitest';
 import { BLOCK_COLUMN_BYTES, BlockGrid, applyBlockEdits, type BlockLayerComponent, type BlockType, type CellField, type EntityV3 } from '@thirdlight/project-model';
 
-import { RuntimeGrid } from './grid';
+import { RuntimeGrid, type GridChunkChange } from './grid';
 import type { PhysicsPort3D, StaticColliderSpec3D } from './ports';
 
 const COMP: BlockLayerComponent = { cellSize: [1, 0.5, 1], bounds: { min: [0, 0, 0], max: [32, 8, 32] } };
@@ -169,10 +169,10 @@ describe('runtime grid', () => {
   it('render changes name the written chunks and their neighbours; the diff round-trips; reset restores', () => {
     const grid = new RuntimeGrid(TYPES, FIELDS, true);
     grid.addLayers([layerEntity('ground', [0, 0, 0], floor)]);
-    expect(grid.takeRenderChanges().map((c) => `${c.cx},${c.cz}`)).toEqual(['0,0']);
+    expect((grid.takeRenderChanges() as GridChunkChange[]).map((c) => `${c.cx},${c.cz}`)).toEqual(['0,0']);
     grid.beginStep(1);
     grid.api.clear('ground', 15, 0, 3);
-    const ch = grid.takeRenderChanges();
+    const ch = grid.takeRenderChanges() as GridChunkChange[];
     expect(ch.map((c) => `${c.cx},${c.cz}`).sort()).toEqual(['0,0', '1,0']);
     expect(ch.find((c) => c.cx === 1)!.chunk).toBeNull();
     grid.api.set('ground', 1, 1, 1, { block: 'grass' });
@@ -325,5 +325,47 @@ describe('ctx.grid cut-aways', () => {
     grid.api.setCutaway('house', 'roof', true);
     grid.removeLayers(new Set(['house']));
     expect(grid.cutawayState().forced).toEqual([]);
+  });
+
+  it('kits: setKit swaps what collides, is drawn and read without changing the cells; saved, restored and reset', () => {
+    const types: BlockType[] = [
+      ...TYPES.map((t) => (t.blockId === 'stone' ? { ...t, kits: { burnt: { block: 'slab' }, tinted: { block: 'grass' } } } : t)),
+    ];
+    const grid = new RuntimeGrid(types, FIELDS, true);
+    grid.addLayers([layerEntity('ground', [0, 0, 0], floor)]);
+    const port = fakePort();
+    grid.flushCollision(port);
+    grid.takeRenderChanges();
+    const full = port.added.map((s) => (s.shape as { vertices: number[] }).vertices.length);
+    // Refused: an unknown layer, kit or region.
+    expect(grid.api.setKit('nope', 'burnt')).toBe(false);
+    expect(grid.api.setKit('ground', 'lava')).toBe(false);
+    expect(grid.api.setKit('ground', 'burnt', 'no.such.region')).toBe(false);
+    // A kit that keeps the shapes rebuilds no collider; one that changes them rebuilds the layer's.
+    expect(grid.api.setKit('ground', 'tinted')).toBe(true);
+    grid.flushCollision(port);
+    expect(port.added.length).toBe(full.length);
+    expect(grid.api.get('ground', 3, 0, 3)).toMatchObject({ block: 'stone', kitBlock: 'grass' });
+    expect(grid.takeRenderChanges()).toEqual([{ entityId: 'ground', kits: [{ kit: 'tinted' }] }]);
+    expect(grid.api.setKit('ground', 'burnt')).toBe(true);
+    grid.flushCollision(port);
+    expect(port.added.length).toBe(full.length * 2);
+    // Half-height slabs: the surface is half a cell lower.
+    expect(grid.api.surface('ground', [3.5, 5, 3.5])!.height).toBeCloseTo(0.25);
+    expect(grid.api.kit('ground')).toBe('burnt');
+    // Saved and restored with the grid; a new run goes back to the authored kits.
+    const diff = grid.api.diff();
+    expect(diff.kits).toEqual([['ground', null, 'burnt']]);
+    expect(diff.layers).toEqual([]);
+    grid.reset();
+    expect(grid.api.kit('ground')).toBeNull();
+    expect(grid.api.get('ground', 3, 0, 3)?.kitBlock).toBeUndefined();
+    expect(grid.takeRenderChanges().filter((c) => 'kits' in c)).toEqual([{ entityId: 'ground', kits: [] }]);
+    expect(grid.restoreDiff(diff)).toBeNull();
+    expect(grid.api.get('ground', 3, 0, 3)?.kitBlock).toBe('slab');
+    expect(grid.restoreDiff({ version: 1, layers: [], kits: [['ground', null, 'lava']] })).toMatch(/no block type has the kit "lava"/);
+    // A region's kit beside the layer's.
+    expect(grid.api.setKit('ground', 'tinted', 'deploy.a')).toBe(true);
+    expect(grid.api.diff().kits).toEqual([['ground', null, 'burnt'], ['ground', 'deploy.a', 'tinted']]);
   });
 });

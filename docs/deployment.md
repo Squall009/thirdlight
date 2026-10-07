@@ -4503,8 +4503,9 @@ brushes, overlays and stamp UI are below (23.6).
   `neighbours`, `regions` / `region` / `inRegion`, `changes` (last step's
   writes), `setTypeMaterials` / `typeMaterials` (a block type's material
   swap, shown once the material has loaded), `setCutaway` /
-  `setCutawaySubject` / `setCutawayPoint` (cut-aways, below), `diff` / `applyDiff` (plain
-  data for a save, the type swaps included). Writes are refused
+  `setCutawaySubject` / `setCutawayPoint` (cut-aways, below), `setKit` / `kit`
+  (kit swaps, below), `diff` / `applyDiff` (plain
+  data for a save, the type swaps and kits included). Writes are refused
   (`false`) when they do not fit; at most 4,096 per step. Visual-script nodes
   exist for the calls.
 - **Live blocks** (30.3): a block type marked **Live** (`live: true`, the
@@ -4729,6 +4730,52 @@ brushes, overlays and stamp UI are below (23.6).
     ms against 6.5/9.3 with the same roofs never cut, GPU 10.33 vs 10.32 ms,
     main thread 6.62 vs 6.54 ms; WebGL 2 2.8/6.7 vs 2.6/6.9 ms; one shadow
     draw a frame throughout (the static map never drawn again).
+- **Kit swaps** (30.8): one layout, several looks — a dungeon and its burnt
+  or ruined state share their cells.
+  - A block type's `kits` (Blocks panel type form **Kits**, MCP
+    `setBlockType`) maps a kit name to what it shows under that kit:
+    `{block, variant?, variants?}` — another block type of the same placement
+    (cell or edge) and footprint (checked: a kit keeps the layout), and
+    optionally its look (`variant`, or `variants`: one per look of this type).
+    Without a look the cell keeps its own when the target has it, else one is
+    picked by the target's weights, and a connected target resolves its
+    pieces from its (swapped) neighbours. A kit is every type's entry under
+    one name; a type without an entry keeps its look.
+  - A layer's `kits: [{kit, region?}]` (Blocks panel **Kit** on the layer bar
+    and per region, Inspector, MCP `setComponent blockLayer`) — one for the
+    whole layer and one per region at most; a region's kit wins where it
+    swaps a block (edge pieces on the region's outline go with it). The cells,
+    saves, undo and `ctx.grid.get(…).block` stay the authored ones; what is
+    drawn, collides (where the target's shape differs), spawns as a live
+    block and answers surface queries is the swap (`get`/`edge` report it as
+    `kitBlock`, with its rotation, look and piece; an edge's `blocked` is the
+    swap's).
+  - Scripts: `ctx.grid.setKit(layer, kit | null, region?)` shows a kit (null:
+    none there, the authored one included), `ctx.grid.kit(layer, region?)`
+    reads it; saved in the grid section (`diff().kits`), back to the authored
+    kits on a new run. Live blocks respawn where the swap changes their
+    prefab or turn (the same prefab keeps its objects and state).
+  - Drawing a swap is a *restyle*: every chunk of the layer re-meshes in the
+    mesh workers, each drawing its old meshes until its new ones arrive (a
+    swap shows over a few frames, not in one), and the cached static shadow
+    is held meanwhile and drawn again once, when the last chunk is in (until
+    then the old chunks' shadow stays in it and the new chunks are drawn by
+    the dynamic map). A block-type change (an edit, a script's
+    `setTypeMaterials`) is a restyle too. Each is timed in the renderer's
+    `blocks.restyles` diagnostics and a `tl:blocks:restyle` mark.
+  - Measured (30.8, `node tools/perf/run.mjs level --classes area
+    --kit-swap`: every block type has a burnt twin, a script shows and takes
+    off the kit over the whole 100 × 100 m layer every 2 s; Iris Xe, 1080p):
+    a swap re-meshes the layer's 49 chunks in 300–415 ms (two workers), the
+    page's own work at most 4 ms a frame; frames over 16.7 ms during swaps
+    0.7 % on WebGPU and 2.4 % on WebGL 2, the class's rate without swaps
+    (1.3 % / 2.4 %); whole run WebGPU p50/p95 6.6/9.8 ms, GPU 10.4 ms, main
+    6.59 ms, 259 draws. A layer with no kit is meshed as before (byte for
+    byte).
+  - Problems (Play, export): a layer whose cut-aways or kits name a region it
+    does not have, or a kit no block type has, is a warning. Renaming a
+    region in the Blocks panel renames it in the layer's cut-aways and kits
+    (a second undo step); deleting it there removes those entries.
 - **Per-layer settings** (28b.4): the template's four layers each have a
   **tiling** (metres per repeat of the layer's textures, 1 by default), a
   **normal strength** (0: flat), and a **height contrast** and **height
@@ -4819,7 +4866,10 @@ stroke or button is one undo step, and MCP can do the same.
   marks a region cut away in the game (the layer's `cutaway.regions`, one
   undo step); **Preview** then shows the Scene view as the game does while
   it is cut (it fades out; editor only, nothing stored). The Scene view has
-  no camera target, so nothing is cut there unless previewed.
+  no camera target, so nothing is cut there unless previewed. **Kit** (a
+  region's, and the layer's on the bar) shows a kit there (the layer's
+  `kits`, one undo step); the Scene view re-meshes with it. Rename and delete
+  take the region's cut-away and kit along.
 - **Props on blocks**: Edit → Snapping settings… sets the move, rotate and
   scale steps (per project, in this browser; defaults 0.25 m, 15°, 0.25) and
   "Snap objects to block cell tops": moved and dropped objects land on the

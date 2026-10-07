@@ -20,7 +20,7 @@ import {
   chunkMeshPaint,
   meshBlockChunk,
   shapeSource,
-  type BlockGrid,
+  type BlockGridReader,
   type BlockLayerComponent,
   type BlockMeshSource,
   type BlockType,
@@ -101,7 +101,7 @@ export function variantModelOf(type: BlockType, variant: number, prefabModel: (p
 }
 
 /** Mesh one chunk of a layer (see the module comment). */
-export function meshChunkForDrawing(grid: BlockGrid, component: BlockLayerComponent, types: ReadonlyMap<string, BlockType>, looks: ChunkLooks, standIns: StandInShapes, req: ChunkMeshRequest): ChunkMeshResult {
+export function meshChunkForDrawing(grid: BlockGridReader, component: BlockLayerComponent, types: ReadonlyMap<string, BlockType>, looks: ChunkLooks, standIns: StandInShapes, req: ChunkMeshRequest): ChunkMeshResult {
   const { cx, cz } = req;
   const used = new Map<string, ChunkLookUse & { levels: ChunkModelGeometry['levels'] }>();
   const missing = new Map<string, ChunkModelRef>();

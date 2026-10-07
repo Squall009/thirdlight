@@ -85,6 +85,38 @@ describe('live blocks on the runtime grid', () => {
     expect(next.remove).not.toContain('g-1_0_1');
   });
 
+  it('a kit swap respawns the live blocks whose prefab it changes, keeps those it does not, and takes them away where it swaps in a plain block', () => {
+    const lamp: BlockType = { ...TYPES[1]!, kits: { dim: { block: 'lamp', variants: [1, 1, 2] }, same: { block: 'lamp' }, off: { block: 'stone' } } };
+    const grid = new RuntimeGrid([TYPES[0]!, lamp], [], false, 45, undefined, PREFABS);
+    grid.addLayers([layer('g', (g) => edits(g, [{ kind: 'fill', box: [0, 0, 0, 2, 1, 1], cell: { block: 'lamp', variant: 0 } }, { kind: 'region', regionId: 'left', op: 'set', boxes: [[0, 0, 0, 1, 1, 1]] }]))]);
+    expect(ids(grid.takeLive(() => false)!.add)).toEqual(['g-0_0_0', 'g-0_0_0-1', 'g-1_0_0', 'g-1_0_0-1']);
+    const taken = (id: string): boolean => grid.isLive(id);
+    // The same prefab: nothing goes or comes.
+    expect(grid.api.setKit('g', 'same')).toBe(true);
+    expect(grid.takeLive(taken)).toEqual({ remove: [], add: [], refused: [] });
+    // Torches in the left region only: its lamp is replaced, the other kept; reads show the swap, the cell stays a lamp.
+    expect(grid.api.setKit('g', 'dim', 'left')).toBe(true);
+    const dim = grid.takeLive(taken)!;
+    expect([dim.remove, ids(dim.add)]).toEqual([['g-0_0_0', 'g-0_0_0-1'], ['g-0_0_0']]);
+    expect(grid.api.get('g', 0, 0, 0)).toMatchObject({ block: 'lamp', variant: 1 });
+    expect(grid.api.get('g', 0, 0, 0)?.kitBlock).toBeUndefined();
+    expect(grid.api.kit('g', 'left')).toBe('dim');
+    // Off over the whole layer: the right lamp's objects go (the left region keeps its own kit).
+    grid.api.setKit('g', 'off');
+    const off = grid.takeLive(taken)!;
+    expect([off.remove, ids(off.add)]).toEqual([['g-1_0_0', 'g-1_0_0-1'], []]);
+    expect(grid.api.get('g', 1, 0, 0)).toMatchObject({ block: 'lamp', kitBlock: 'stone' });
+    expect(grid.api.entity('g', 1, 0, 0)).toBeNull();
+    // A write under the kit spawns as the kit shows it.
+    grid.api.set('g', 0, 0, 0, { block: 'lamp', variant: 0 });
+    expect(grid.takeLive(taken)).toBeNull();
+    // Taken off: back to the authored lamps.
+    grid.api.setKit('g', null, 'left');
+    grid.api.setKit('g', null);
+    const back = grid.takeLive(taken)!;
+    expect([back.remove, ids(back.add)]).toEqual([['g-0_0_0'], ['g-0_0_0', 'g-0_0_0-1', 'g-1_0_0', 'g-1_0_0-1']]);
+  });
+
   it('a game without live block types keeps no bookkeeping', () => {
     const grid = new RuntimeGrid([TYPES[0]!], [], false, 45, undefined, PREFABS);
     grid.addLayers([layer('g', (g) => edits(g, [{ kind: 'fill', box: [0, 0, 0, 2, 1, 1], cell: { block: 'stone' } }]))]);

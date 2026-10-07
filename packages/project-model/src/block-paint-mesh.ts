@@ -18,7 +18,7 @@
  * bottoms keep the lattice.
  */
 import { blockTypeSlopes, rotatedFootprint, type BlockType } from './block-layers';
-import type { BlockGrid } from './block-grid';
+import type { BlockGridReader } from './block-grid';
 import { chunkPaintColors, PAINT_CHANNELS, PAINT_CHUNK_SIZE } from './block-paint';
 import { blockTopAt, cellCorners, subdividedHeightAt, type CellCorners } from './block-surface';
 import { projectionOf } from './block-mesh';
@@ -44,7 +44,7 @@ export interface PaintedGeometry {
 }
 
 /** The paint colours of one mesh part of chunk (cx, cz) (see the module comment). */
-export function chunkMeshPaint(grid: BlockGrid, types: ReadonlyMap<string, BlockType>, cx: number, cz: number, options: ChunkPaintOptions, part: PaintedGeometry): { weights: Uint8Array; wetness: Uint8Array } {
+export function chunkMeshPaint(grid: BlockGridReader, types: ReadonlyMap<string, BlockType>, cx: number, cz: number, options: ChunkPaintOptions, part: PaintedGeometry): { weights: Uint8Array; wetness: Uint8Array } {
   const cs = grid.cellSize;
   const out = chunkPaintColors(grid.chunkPaint(cx, cz), cx, cz, cs, part.positions);
   if (!options.wallPaint) return out;
@@ -134,7 +134,7 @@ function pointAt(points: WallPaint | null, lx: number, lz: number, side: number,
  * looked at for one reaching the centroid. Runs found are kept: the many
  * vertices of one wall ask for the same one.
  */
-function createRunTops(grid: BlockGrid, types: ReadonlyMap<string, BlockType>, subdivision: number, x0: number, z0: number): { top(x: number, z: number, mx: number, my: number, mz: number, px: number, pz: number): number | null } {
+function createRunTops(grid: BlockGridReader, types: ReadonlyMap<string, BlockType>, subdivision: number, x0: number, z0: number): { top(x: number, z: number, mx: number, my: number, mz: number, px: number, pz: number): number | null } {
   const cs = grid.cellSize;
   /** The run's top cell: its row and how its top is measured (a flat height, or corners). */
   interface RunTop {

@@ -437,7 +437,8 @@ export class CachedShadowNode extends ShadowBaseNodeBase {
     const intensity = this.light.shadow.intensity;
     this.staticLight.shadow.intensity = intensity;
     this.dynamicLight.shadow.intensity = intensity;
-    if (renderer !== this.drawnBy || this.revision.value !== this.drawnRevision || d.missed || s.drawnWith.changed()) this.staticDirty = true;
+    // A static caster the map misses is drawn by the dynamic pass meanwhile; while changes are held it waits for their one redraw.
+    if (renderer !== this.drawnBy || this.revision.value !== this.drawnRevision || (d.missed && !this.revision.holding) || s.drawnWith.changed()) this.staticDirty = true;
     d.missed = false;
     if (this.staticDirty) {
       s.draw(frame);

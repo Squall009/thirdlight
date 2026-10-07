@@ -62,6 +62,10 @@ export const blockLayer: ComponentDescriptor = {
       list('planes', 'Height planes', 'Rows: every cell from the row up is hidden while the subject is below it (the floors above a level).', int('*', 'Row', 'A row of the layer.', { step: 1, min: -BLOCK_LIMITS.coordinateY, max: BLOCK_LIMITS.coordinateY }), { maxItems: BLOCK_LIMITS.layerHeight, unique: true }),
       num('fade', 'Fade', 'Seconds a cut-away takes to fade out or back in (0: at once).', { min: CUTAWAY_FADE_RANGE.min, max: CUTAWAY_FADE_RANGE.max, step: 0.05, unit: 's', default: CUTAWAY_FADE_SECONDS }),
     ]),
+    list('kits', 'Kits', "The kits it shows: its block types drawn as each type's swap under the kit (the Kits of the block type), without changing the cells — a dungeon and its burnt state share one layout. One kit for the whole layer and one per region at most; a region's wins where it swaps a block. Scripts change them with ctx.grid.setKit.", obj('*', 'Kit', 'A kit shown over the layer or a region.', [
+      str('kit', 'Kit', 'A kit name the block types swap by.', { required: true, format: 'id', minLength: 1, maxLength: 64 }),
+      str('region', 'Region', 'The region it covers (empty: the whole layer).', { minLength: 1, maxLength: 64 }),
+    ]), { maxItems: BLOCK_LIMITS.regions + 1 }),
   ]),
   // 1 m cells over 64 × 16 × 64 — a common kit module over the interactive-editing target; no genre assumed.
   add: { kind: 'menu', value: { cellSize: [1, 1, 1], bounds: { min: [0, 0, 0], max: [64, 16, 64] } } },

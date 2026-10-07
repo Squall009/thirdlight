@@ -575,7 +575,7 @@ const COMPONENT_BASES: Record<string, J[]> = {
   prefab: [{ prefabId: 'pre-a', localId: 'root' }],
   folder: [{}],
   // A block layer (every optional flag set to its non-default value).
-  blockLayer: [{ cellSize: [1, 0.5, 1], bounds: { min: [0, 0, 0], max: [8, 8, 8] }, metadataOnly: true, collision: false, castShadow: false, receiveShadow: false, maxSlope: 30, smoothAngle: 40, topSubdivision: 2, wallPaint: true, lightLayers: 128, cutaway: { regions: [{ region: 'roof', when: 'room' }], planes: [4], fade: 0.5 } }],
+  blockLayer: [{ cellSize: [1, 0.5, 1], bounds: { min: [0, 0, 0], max: [8, 8, 8] }, metadataOnly: true, collision: false, castShadow: false, receiveShadow: false, maxSlope: 30, smoothAngle: 40, topSubdivision: 2, wallPaint: true, lightLayers: 128, cutaway: { regions: [{ region: 'roof', when: 'room' }], planes: [4], fade: 0.5 }, kits: [{ kit: 'ruined', region: 'hall' }] }],
   // A prop's block footprint.
   blockFootprint: [{ layer: 'layer-a', size: [2, 3], set: { blocked: true, cost: 4 } }],
 };
@@ -887,6 +887,7 @@ function runAllProbes(): void {
   probe('blockTypes[2]', (v) => errorsOf((e) => validateBlockTypes(v, '', e)), [{ blockId: 'door', name: 'Door', variants: [{ prefab: 'door' }], shape: 'none', live: true }], '', block('blockTypes'), 'blockTypes:');
   probe('blockTypes[3]', (v) => errorsOf((e) => validateBlockTypes(v, '', e)), [{ blockId: 'fence', name: 'Fence', variants: [{ color: '#886644' }], shape: 'half', placement: 'edge', blocking: false, rotations: [0, 180] }], '', block('blockTypes'), 'blockTypes:');
   probe('blockTypes[4]', (v) => errorsOf((e) => validateBlockTypes(v, '', e)), [{ blockId: 'wall', name: 'Wall', variants: [{ color: '#888888' }, { color: '#999999' }], shape: 'full', connect: { with: ['gate'], pieces: { single: { variant: 0, rot: 90 }, end: { variant: 1, rot: 90 }, straight: { variant: 1, rot: 90 }, corner: { variant: 1, rot: 180 }, t: { variant: 1, rot: 90 }, cross: { variant: 1, rot: 90 }, base: { variant: 0, rot: 180 }, cap: { variant: 1, rot: 270 } } } }], '', block('blockTypes'), 'blockTypes:');
+  probe('blockTypes[5]', (v) => errorsOf((e) => validateBlockTypes(v, '', e)), [{ blockId: 'wall', name: 'Wall', variants: [{ color: '#888888' }, { color: '#999999' }], shape: 'full', kits: { burnt: { block: 'wall-burnt', variant: 1, variants: [0, 1] } } }], '', block('blockTypes'), 'blockTypes:');
   probe('cellFields', (v) => errorsOf((e) => validateCellFields(v, '', e)), [{ key: 'terrain', type: 'enum', values: ['grass', 'rock'], color: '#aa5500', label: 'Terrain' }], '', block('cellFields'), 'cellFields:');
   probe('cellFields[1]', (v) => errorsOf((e) => validateCellFields(v, '', e)), [{ key: 'cost', type: 'int', default: 1, min: 0, max: 10 }], '', block('cellFields'), 'cellFields:');
   probe('blockStamps', (v) => errorsOf((e) => validateBlockStamps(v, '', e)), [{ stampId: 'hut', name: 'Hut', size: [2, 1, 2], palette: [{ block: 'grass' }], columns: [[0, 0, 0, 1, 0]] }], '', block('blockStamps'), 'blockStamps:');
@@ -1006,8 +1007,9 @@ describe('descriptor registry', () => {
     // (the UI document vocabulary is about 20 KB; environment presets, which repeat
     // the sky/fog/post descriptors, about 9 KB; a compound repeats the collider shapes, about 6 KB;
     // a quality level repeats the bloom/AO/depth-of-field descriptors, about 3 KB; a block type's connection pieces
-    // repeat their look and turn, about 3 KB; a block layer's cut-away, about 1.6 KB)
-    expect(JSON.stringify(DESCRIPTORS).length).toBeLessThan(278_000);
+    // repeat their look and turn, about 3 KB; a block layer's cut-away, about 1.6 KB; kits on block types and layers,
+    // about 2 KB)
+    expect(JSON.stringify(DESCRIPTORS).length).toBeLessThan(280_000);
     for (const c of DESCRIPTORS.components) expect(c.value.key).toBe(c.name);
   });
 

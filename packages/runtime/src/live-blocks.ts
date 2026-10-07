@@ -39,7 +39,7 @@ import {
   rotatedFootprint,
   type BlockCell,
   type BlockEdge,
-  type BlockGrid,
+  type BlockGridReader,
   type BlockType,
   type EntityV3,
   type PrefabDefinition,
@@ -78,7 +78,7 @@ const edgeOfKey = (k: number): [number, number, number, number] => {
 
 /** What a sync reads of a layer. */
 export interface LiveLayerSource {
-  readonly grid: BlockGrid;
+  readonly grid: BlockGridReader;
   readonly origin: { readonly x: number; readonly y: number; readonly z: number };
 }
 
@@ -217,12 +217,12 @@ export class LiveBlocks {
   }
 
   /** The root id a cell's live block has (whether or not it is spawned yet), or null when the cell shows no live prefab look. */
-  rootIdOf(layerId: string, grid: BlockGrid, x: number, y: number, z: number, cell: BlockCell | null): string | null {
+  rootIdOf(layerId: string, grid: BlockGridReader, x: number, y: number, z: number, cell: BlockCell | null): string | null {
     return this.wanted(grid, cell, x, y, z) === null ? null : liveBlockRootId(layerId, x, y, z);
   }
 
   /** The root id an edge's live piece has, or null when the edge shows no live prefab look. */
-  edgeRootIdOf(layerId: string, grid: BlockGrid, x: number, y: number, z: number, axis: number, edge: BlockEdge | null): string | null {
+  edgeRootIdOf(layerId: string, grid: BlockGridReader, x: number, y: number, z: number, axis: number, edge: BlockEdge | null): string | null {
     return this.wantedEdge(grid, edge, x, y, z, axis) === null ? null : liveEdgeRootId(layerId, x, y, z, axis);
   }
 
@@ -318,7 +318,7 @@ export class LiveBlocks {
   }
 
   /** The prefab a cell spawns, or null (no live block, or its look is not a prefab of this game). */
-  private wanted(grid: BlockGrid, cell: BlockCell | null, x: number, y: number, z: number): { type: BlockType; def: PrefabDefinition; rot: number } | null {
+  private wanted(grid: BlockGridReader, cell: BlockCell | null, x: number, y: number, z: number): { type: BlockType; def: PrefabDefinition; rot: number } | null {
     if (cell?.block === undefined) return null;
     const type = this.types.get(cell.block);
     if (type === undefined || !blockTypeLive(type)) return null;
@@ -329,7 +329,7 @@ export class LiveBlocks {
   }
 
   /** The prefab an edge spawns, or null (no live edge piece, or its look is not a prefab of this game). */
-  private wantedEdge(grid: BlockGrid, edge: BlockEdge | null, x: number, y: number, z: number, axis: number): { type: BlockType; def: PrefabDefinition; rot: number } | null {
+  private wantedEdge(grid: BlockGridReader, edge: BlockEdge | null, x: number, y: number, z: number, axis: number): { type: BlockType; def: PrefabDefinition; rot: number } | null {
     if (edge === null) return null;
     const type = this.types.get(edge.block);
     if (type === undefined || !blockTypeIsEdge(type) || !blockTypeLive(type)) return null;

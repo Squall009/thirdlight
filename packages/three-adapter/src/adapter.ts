@@ -46,10 +46,11 @@ import { createRenderControl } from './render-control';
 import * as THREE from 'three';
 import { syncCellUv } from './block-cell-uv';
 import { BlockLayerView, blockLookFromObject, type BlockLayerViewDiagnostics, type BlockModelLook } from './block-layers';
+import { createCutawayFollower } from './block-cutaway-follow';
 import { createBrowserMeshWorker } from './block-mesh-pool';
 import { RuntimeMaterialView, type MaterialRenderChangeLike, type RuntimeMaterialsDiagnostics } from './runtime-materials';
 import { MaterialSwapView, type MaterialMappingLike } from './material-swaps';
-import type { BlockLayerComponent, BlockLayerData, BlockType, GridCutawayState, GridRenderChange } from '@thirdlight/runtime';
+import type { BlockLayerComponent, BlockLayerData, BlockType, GridRenderChange } from '@thirdlight/runtime';
 import type { Runtime, RuntimeSnapshot } from '@thirdlight/runtime';
 import { instanceDensityOf, type EnvironmentBlendView } from '@thirdlight/runtime';
 import { adapterError, type AdapterError } from './errors';
@@ -505,14 +506,9 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     lightmapped: (id) => lightmaps?.hasChunks(id) === true,
     chunkBuilt: (id, cx, cz, group, layout) => lightmaps?.applyChunk(id, cx, cz, layout, group),
     chunkDropped: (id, cx, cz) => lightmaps?.releaseChunk(id, cx, cz),
-    // A cut-away's fade copy waits in the scene (fully faded) for the next precompile, so its first fade does not stall a frame.
-    precompile: (probe) => {
-      scene.add(probe);
-      cutawayProbes.push(probe);
-      cutawayProbeFrames = 0;
-      precompileWanted ??= 'scene';
-      opts.onChange?.();
-    },
+    precompile: (probe) => cutaways.probe(probe),
+    // A restyle's chunks arrive over several frames: the cached static shadow is drawn again once, after the last.
+    restyling: (on) => staticShadows?.hold(on),
     // The chunks' drawables join the scene on their own (the view's layer and chunk groups stay outside it).
     place: (chunk, shown) => {
       // Chunks change only by being meshed again (new meshes listed): they cast into the static shadow map.
@@ -525,42 +521,16 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   });
   /** The block layers realized from their documents (a host may drive layers of its own through `blockLayers()`). */
   const docLayers = new Set<string>();
-  /** Cut-away fade copies waiting to be compiled, and the frames drawn with them since the last one came. */
-  const cutawayProbes: THREE.Object3D[] = [];
-  let cutawayProbeFrames = 0;
-  /** The scripts' cut-away state last handed to the view, when the last frame followed the subject, and scratch. */
-  let cutawaySeen: unknown = null;
-  let cutawayAt: number | null = null;
-  const cutawayPos: number[] = [0, 0, 0];
-  const cutawaySubject = new THREE.Vector3();
-  /**
-   * Block layers' cut-aways follow their subject: a point or object scripts
-   * named, else the drawn camera's target (none: only forced zones are cut).
-   */
-  function followCutaways(): void {
-    // The fade copies compiled ahead have been drawn once a precompile settled: they leave the scene.
-    if (cutawayProbes.length > 0 && precompileWanted === null && precompileRun === null && ++cutawayProbeFrames > 1) {
-      for (const p of cutawayProbes) scene.remove(p);
-      cutawayProbes.length = 0;
-    }
-    const rt = opts.runtime as { blockCutaways?: () => GridCutawayState; cameraView?: () => { target?: string } | null };
-    const st = rt.blockCutaways?.();
-    if (st !== undefined && st !== cutawaySeen) {
-      cutawaySeen = st;
-      blockView.setGameCutaways(st.forced);
-    }
-    const now = performance.now();
-    const dt = cutawayAt === null ? 0 : Math.min(ANIMATION_MAX_DELTA_SECONDS, Math.max(0, (now - cutawayAt) / 1000));
-    cutawayAt = now;
-    const named = st?.subject ?? null;
-    let subject: THREE.Vector3 | null = null;
-    if (Array.isArray(named)) subject = cutawaySubject.set(named[0]!, named[1]!, named[2]!);
-    else {
-      const id = typeof named === 'string' ? named : (rt.cameraView?.()?.target ?? null);
-      if (id !== null && graph.world.position(id, cutawayPos)) subject = cutawaySubject.set(cutawayPos[0]!, cutawayPos[1]!, cutawayPos[2]!);
-    }
-    if (blockView.updateCutaways(dt, subject)) opts.onChange?.();
-  }
+  // Cut-aways follow their subject; their fade copies are compiled ahead.
+  const cutaways = createCutawayFollower({
+    view: blockView,
+    scene,
+    runtime: opts.runtime,
+    position: (id, out) => graph.world.position(id, out),
+    precompileIdle: () => precompileWanted === null && precompileRun === null,
+    requestPrecompile: () => void (precompileWanted ??= 'scene'),
+    ...(opts.onChange !== undefined ? { onChange: () => opts.onChange!() } : {}),
+  });
   /** What a host hangs on entities (the editor's icons and outlines): it rides on the entity's node. */
   const overlays = new Map<string, Set<THREE.Object3D>>();
   const authoredBlockTypes = ((opts.snapshot as { blockTypes?: readonly BlockType[] }).blockTypes ?? []) as BlockType[];
@@ -1426,7 +1396,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     const gridChanges = (opts.runtime as { takeGridChanges?: () => GridRenderChange[] }).takeGridChanges?.() ?? [];
     if (gridChanges.length > 0) blockView.applyRuntimeChanges(gridChanges);
     blockView.update();
-    if (blockView.hasCutaways() || cutawayProbes.length > 0) followCutaways();
+    if (cutaways.wanted()) cutaways.follow();
     // The light values scripts wrote, then the environment preset blend
     // (the running game's, or the editor's preview) before the draw.
     applyLightOverrides();

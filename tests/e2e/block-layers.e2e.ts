@@ -35,6 +35,10 @@
  * into the pit the lavender roof is gone and the pink one stays — in Play and
  * the export, on both renderers.
  *
+ * A white banner (a slab beside the pink roof) has a burnt kit: the digger
+ * shows the kit over the layer when it digs, and the banner turns violet —
+ * re-meshed in the background, in Play and the export, on both renderers.
+ *
  * A new project stores the chunk as a binary file; turning the project's
  * `block_chunk_storage` to 0 rewrites it as JSON text (the same cells
  * through queryBlocks). The export ships the cells as binary chunk data the
@@ -123,6 +127,7 @@ const DIGGER = [
   '      const top = ctx.grid.columnTop(layer, c.x, c.z);',
   "      if (top !== null) for (let y = top; y >= 0; y--) ctx.grid.clear(layer, c.x, y, c.z);",
   "      ctx.log('info', `dug ${c.x},${c.z} below ${top}: walkable ${ctx.grid.meta(layer, c.x, 0, c.z, 'walkable')}`);",
+  "      ctx.grid.setKit(layer, 'burnt');",
   '    }',
   '  },',
   '};',
@@ -246,6 +251,18 @@ function lavenderPixels(img: Image): number {
   return n;
 }
 
+/** Violet pixels (blue high, red about half of it, no green): the banner under the burnt kit. */
+function violetPixels(img: Image): number {
+  let n = 0;
+  for (let y = 0; y < img.height; y += 2) {
+    for (let x = 0; x < img.width; x += 2) {
+      const [r, g, b] = img.pixel(x, y);
+      if (b > 80 && r > b * 0.3 && r < b * 0.75 && g < b * 0.25) n += 1;
+    }
+  }
+  return n;
+}
+
 /** Pale pink pixels (red high, green below blue): the roof elsewhere. */
 function pinkPixels(img: Image): number {
   let n = 0;
@@ -265,6 +282,8 @@ function pinkPixels(img: Image): number {
  */
 const ROOF_A = [6, 15, 6, 10, 16, 10];
 const ROOF_B = [12, 15, 13, 15, 16, 16];
+/** The banner: a white slab level with the pink roof, on the map's other side (violet under the burnt kit). */
+const BANNER = [2, 15, 13, 5, 16, 16];
 const PIT = [0, -16, 0, 24, 0, 24];
 
 /** The map: stone under grass, raised by a heightmap, a lower floor 5 m below, a player above the middle. */
@@ -290,6 +309,8 @@ async function buildMap(): Promise<{ layer: string; player: string }> {
   await cmd('setBlockType', { block: { blockId: 'gate', name: 'Gate', variants: [{ prefab: 'gate' }], shape: 'full', placement: 'edge', live: true } });
   await cmd('setBlockType', { block: { blockId: 'roof-a', name: 'Roof A', variants: [{ color: '#9090ff' }], shape: 'full' } });
   await cmd('setBlockType', { block: { blockId: 'roof-b', name: 'Roof B', variants: [{ color: '#ffb4d2' }], shape: 'full' } });
+  await cmd('setBlockType', { block: { blockId: 'banner-burnt', name: 'Banner (burnt)', variants: [{ color: '#5a00b4' }], shape: 'full' } });
+  await cmd('setBlockType', { block: { blockId: 'banner', name: 'Banner', variants: [{ color: '#f2f2f2' }], shape: 'full', kits: { burnt: { block: 'banner-burnt' } } } });
   await cmd('setBlockType', { block: { blockId: 'rampart', name: 'Rampart', variants: [{ color: '#303030', weight: 1000 }, { color: '#f0e000', weight: 0.001 }, { color: '#e01010', weight: 0.001 }, { color: '#1020ff', weight: 0.001 }], shape: 'full', connect: { pieces: { straight: { variant: 1 }, corner: { variant: 2 }, t: { variant: 3 } } } } });
   // The camera looks down at the map from its south side.
   const camEntity = ((await query('queryEntities', { limit: 100, offset: 0 })) as { entities: { id: string; components: Record<string, unknown> }[] }).entities.find((e) => e.components['virtualCamera'] !== undefined)!;
@@ -324,6 +345,7 @@ async function buildMap(): Promise<{ layer: string; player: string }> {
       { kind: 'cells', at: [...RAMPART], cell: { block: 'rampart' } },
       { kind: 'fill', box: [...ROOF_A], cell: { block: 'roof-a' } },
       { kind: 'fill', box: [...ROOF_B], cell: { block: 'roof-b' } },
+      { kind: 'fill', box: [...BANNER], cell: { block: 'banner' } },
       { kind: 'region', regionId: 'roof.a', op: 'set', boxes: [[...ROOF_A]] },
       { kind: 'region', regionId: 'roof.b', op: 'set', boxes: [[...ROOF_B]] },
       { kind: 'region', regionId: 'pit', op: 'set', boxes: [[...PIT]] },
@@ -394,6 +416,12 @@ async function expectFallsThrough(read: () => Promise<Observation | null>, what:
  * The roofs once the player lies in the pit: the lavender one fades out (the counts on the way are logged) and the pink
  * one stays. Before the dig both were drawn when a picture made it in time (`before`: the lavender count then).
  */
+/** After the dig the burnt kit is shown: the banner is violet (none was before: `before` the count then, null: not seen in time). */
+async function expectBurntBanner(shoot: () => Promise<Buffer>, where: string): Promise<void> {
+  await expect.poll(async () => violetPixels(decodePng(await shoot())), { timeout: 30_000, message: `the banner under the burnt kit in ${where}` }).toBeGreaterThan(30);
+  console.log(`kit in ${where}: violet banner ${violetPixels(decodePng(await shoot()))}`);
+}
+
 async function expectRoofsCut(shoot: () => Promise<Buffer>, where: string, before: number | null): Promise<void> {
   const counts: number[] = [];
   await expect
@@ -461,9 +489,9 @@ test('a block map built with bulk commands renders in the Scene view, Play and t
   await expect.poll(async () => JSON.parse((await viewport.getAttribute('data-block-layers')) ?? '{"meshes":0}').meshes as number, { timeout: 30_000 }).toBeGreaterThan(0);
   const stats = JSON.parse((await viewport.getAttribute('data-block-layers'))!) as { layers: number; chunks: number; meshes: number; triangles: number };
   expect(stats).toEqual(expect.objectContaining({ layers: 1, chunks: 1 }));
-  // One per look: stone, grass, the beacon base, the wall, the connected wall's four pieces and the two roofs (each
-  // a cut-away zone's own mesh).
-  expect(stats.meshes).toBeLessThanOrEqual(10);
+  // One per look: stone, grass, the beacon base, the wall, the connected wall's four pieces, the two roofs (each
+  // a cut-away zone's own mesh) and the banner.
+  expect(stats.meshes).toBeLessThanOrEqual(11);
   // The Scene view has no camera target: nothing is cut.
   expect((stats as { cutaway?: unknown }).cutaway).toEqual({ zones: 2, cut: 0, fading: 0, meshes: 2 });
   // Hidden faces left out: far fewer triangles than 12 per cell.
@@ -510,6 +538,12 @@ test('a block map built with bulk commands renders in the Scene view, Play and t
     return Buffer.from(String(shot.json.dataUrl ?? '').split(',')[1] ?? '', 'base64');
   };
   const roofInPlay = await roofBeforeDig(playShot, read);
+  // Before the dig no kit is shown: the banner is white. The cached static shadow's draws so far (the kit's restyle
+  // draws it once more).
+  const staticDraws = async (): Promise<number | undefined> => ((await relay(`${psid}/diagnostics`, {})).json as { diagnostics?: { renderer?: { shadowMaps?: { staticTotal?: number } } } }).diagnostics?.renderer?.shadowMaps?.staticTotal;
+  const beforeDig = ((await read())?.stepIndex ?? DIG_STEP) < DIG_STEP - 60;
+  const staticBefore = beforeDig ? await staticDraws() : undefined;
+  if (beforeDig) expect(violetPixels(decodePng(await playShot()))).toBeLessThan(5);
   // Each beacon cell spawned its prefab (a root and its post) as objects of the game, the posts drawn.
   const liveObjects = async (): Promise<number | undefined> => ((await relay(`${psid}/diagnostics`, {})).json as { diagnostics?: { runtime?: { blockMemory?: { liveObjects?: number } } } }).diagnostics?.runtime?.blockMemory?.liveObjects;
   // …and the gate its root and leaf.
@@ -543,6 +577,14 @@ test('a block map built with bulk commands renders in the Scene view, Play and t
     .toBeGreaterThan(500);
   await expectFallsThrough(read, 'Play');
   await expectRoofsCut(playShot, 'Play', roofInPlay);
+  await expectBurntBanner(playShot, 'Play');
+  // The kit was one restyle of the layer's chunk, in the background.
+  const restyles = async (): Promise<unknown> => ((await relay(`${psid}/diagnostics`, {})).json as { diagnostics?: { renderer?: { blocks?: { restyles?: unknown } } } }).diagnostics?.renderer?.blocks?.restyles;
+  await expect.poll(restyles, { timeout: 30_000 }).toEqual(expect.objectContaining({ count: 1, active: false, last: expect.objectContaining({ chunks: 1 }) }));
+  const staticAfter = await staticDraws();
+  console.log(`restyle in Play: ${JSON.stringify(await restyles())}; static shadow drawn ${staticBefore ?? '?'} → ${staticAfter ?? '?'} times`);
+  // The dig's chunk and the kit's restyle draw the cached static shadow once (held while the chunk was re-meshed).
+  if (staticBefore !== undefined && staticAfter !== undefined) expect(staticAfter - staticBefore).toBe(1);
   const cutawayDiag = async (): Promise<unknown> => ((await relay(`${psid}/diagnostics`, {})).json as { diagnostics?: { renderer?: { blocks?: { cutaway?: unknown } } } }).diagnostics?.renderer?.blocks?.cutaway;
   await expect.poll(cutawayDiag, { timeout: 30_000 }).toEqual({ zones: 2, cut: 1, fading: 0, meshes: 2 });
   // The dug column's beacon went with its cell.
@@ -585,6 +627,7 @@ test('a block map built with bulk commands renders in the Scene view, Play and t
       throw new Error(`${e.message}\nconsole: ${logs.slice(-20).join(' | ')}`);
     });
     await expectRoofsCut(() => canvas.screenshot(), 'the export', roofInExport);
+    await expectBurntBanner(() => canvas.screenshot(), 'the export');
     expect(errors).toEqual([]);
     // The other renderer reads the same chunk data (on a GPU the default above is WebGPU).
     if (gpuAvailable()) {
@@ -605,6 +648,7 @@ test('a block map built with bulk commands renders in the Scene view, Play and t
         await expectConnectedWall(() => glCanvas.screenshot(), 'the export on WebGL 2');
         await expectFallsThrough(glObserve, 'export (WebGL 2)');
         await expectRoofsCut(() => glCanvas.screenshot(), 'the export on WebGL 2', roofOnWebGl);
+        await expectBurntBanner(() => glCanvas.screenshot(), 'the export on WebGL 2');
         expect(errors).toEqual([]);
       } finally {
         await gl.close();

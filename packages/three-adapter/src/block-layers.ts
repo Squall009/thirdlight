@@ -43,6 +43,14 @@
  * wetness (`chunkMeshPaint`, made with the meshing) — unless their material
  * draws vertex colours as a tint.
  *
+ * Kits: a layer is meshed as its kits show it (`block-kit.ts`; the authored
+ * `kits`, or the game's when a script changed them). A kit or block-type
+ * change is a restyle: every chunk of the layers it touches re-meshes in the
+ * workers, each drawing its old meshes until its new ones arrive, and the
+ * cached static shadow is held (`restyling`) so it is drawn again once when
+ * the last chunk is in, not once a frame. A restyle is timed (its frames over
+ * a 60 Hz frame counted) for diagnostics and a `tl:blocks:restyle` mark.
+ *
  * Baked lighting: the chunks of a layer a bake covers get lightmap UVs (one
  * square layout per chunk, `chunkLightmapLayout`), and the host puts each
  * chunk's lightmap on when the chunk's layout is the one the bake was made
@@ -52,10 +60,14 @@ import * as THREE from 'three';
 import {
   BlockGrid,
   CHUNK_SIZE,
+  blockKitView,
+  kitKey,
   LIGHT_LAYERS_ALL,
   lightLayerMaskOf,
   type BlockChunk,
+  type BlockGridReader,
   type BlockLayerComponent,
+  type BlockLayerKit,
   type BlockLayerData,
   type BlockMeshSource,
   type BlockType,
@@ -92,6 +104,15 @@ export const MESH_APPLY_BUDGET_MS = 4;
  * ~2.5 s).
  */
 export const MESH_WORKER_STALL_MS = 10_000;
+/** A frame interval over this during a restyle counts as a long frame (a 60 Hz frame). */
+export const RESTYLE_LONG_FRAME_MS = 1000 / 60;
+/**
+ * A restyle still meshing after this long lets the cached static shadow go
+ * anyway (edits arriving all the while, a model that keeps loading): the
+ * shadow is never held for more than a moment. Far above a whole layer's
+ * restyle (~0.4 s for 49 chunks on two workers).
+ */
+export const RESTYLE_HOLD_MAX_MS = 5000;
 
 /** A model look: its LOD0 geometry in the block frame and its materials (by the source's material index). */
 export interface BlockModelLook {
@@ -138,6 +159,23 @@ export interface BlockLayerViewDeps {
   now?: () => number;
   /** Compile an object's pipelines in the background (a cut-away's fade copy, before its first fade). */
   precompile?(object: THREE.Object3D): void;
+  /** A restyle began (true) or its last chunk is in (false): the host holds its cached static shadow meanwhile. */
+  restyling?(on: boolean): void;
+}
+
+/** A restyle's timing: how long its chunks took to arrive and the frames drawn meanwhile. */
+export interface BlockRestyleTiming {
+  /** From the change to the last chunk in (ms). */
+  ms: number;
+  /** Chunks re-meshed. */
+  chunks: number;
+  /** Frames drawn meanwhile, those longer than {@link RESTYLE_LONG_FRAME_MS}, and the longest (ms). */
+  frames: number;
+  longFrames: number;
+  longestFrameMs: number;
+  /** Which frame was the longest (1: the first after the change), and the longest the view's own update took meanwhile (ms). */
+  longestFrameAt: number;
+  longestUpdateMs: number;
 }
 
 /** A chunk's lightmap target: its meshes with UV1 and the layout they follow. */
@@ -159,6 +197,10 @@ interface LayerState {
   readonly group: THREE.Group;
   component: BlockLayerComponent;
   grid: BlockGrid;
+  /** The kits a script set (null: the component's). */
+  gameKits: readonly BlockLayerKit[] | null;
+  /** The grid as its kits show it (`grid` itself without one): what it is meshed from. */
+  view: BlockGridReader;
   /** This version of the layer's cells (a worker's result for an older one is dropped). */
   serial: number;
   readonly chunks: Map<string, THREE.Group>;
@@ -205,6 +247,8 @@ export interface BlockLayerViewDiagnostics {
   };
   /** The layers' cut-away zones (absent: no layer has any). */
   cutaway?: CutawayDiagnostics;
+  /** Restyles (kit or block-type changes): how many, whether one is under way, and the last one's timing. */
+  restyles?: { count: number; active: boolean; last: BlockRestyleTiming | null };
 }
 
 /**
@@ -356,6 +400,9 @@ export class BlockLayerView {
   /** The layers' cut-away zones: which chunk meshes they hold and how far each is faded. */
   private readonly cut: CutawayDrawing;
   private readonly stats = { meshedHere: 0, meshedInWorkers: 0, lastUpdate: { here: 0, applied: 0, ms: 0 }, longestUpdateMs: 0 };
+  /** The restyle under way (null: none): when it began, its chunks, the last update's time and its frames. */
+  private restyle: { startedAt: number; chunks: number; lastFrameAt: number; frames: number; longFrames: number; longestFrameMs: number; longestFrameAt: number; longestUpdateMs: number } | null = null;
+  private restyles = { count: 0, last: null as BlockRestyleTiming | null };
   private disposed = false;
 
   constructor(deps: BlockLayerViewDeps = {}) {
@@ -371,9 +418,80 @@ export class BlockLayerView {
     if (JSON.stringify([...next.entries()]) === JSON.stringify([...this.types.entries()])) return;
     this.types = next;
     this.sendTypes();
-    for (const layer of this.layers.values()) layer.looksAsked = 0;
-    for (const layer of this.layers.values()) for (const ck of layer.grid.chunkKeys()) layer.dirty.add(ck);
-    for (const layer of this.layers.values()) for (const ck of layer.chunks.keys()) layer.dirty.add(ck);
+    for (const layer of this.layers.values()) {
+      layer.looksAsked = 0;
+      layer.view = blockKitView(layer.grid, this.kitsOf(layer), this.types);
+    }
+    for (const layer of this.layers.values()) this.restyleLayer(layer);
+  }
+
+  /**
+   * The kits a game's scripts set for a layer (null: back to the
+   * component's): the layer re-meshes in the background if what it shows
+   * changes.
+   */
+  setGameKits(entityId: string, kits: readonly BlockLayerKit[] | null): void {
+    const layer = this.layers.get(entityId);
+    if (layer === undefined) return;
+    const before = kitKey(this.kitsOf(layer));
+    layer.gameKits = kits;
+    const now = this.kitsOf(layer);
+    if (kitKey(now) === before) return;
+    layer.view = blockKitView(layer.grid, now, this.types);
+    if (layer.component.metadataOnly !== true) this.pool?.broadcast({ t: 'kits', entityId, kits: [...(now ?? [])] });
+    this.restyleLayer(layer);
+  }
+
+  /** The kits a layer shows: the game's, else its component's. */
+  private kitsOf(layer: Pick<LayerState, 'gameKits' | 'component'>): readonly BlockLayerKit[] | undefined {
+    return layer.gameKits ?? layer.component.kits;
+  }
+
+  /** Every chunk of a layer re-meshes in the background (not as an edit): a restyle begins, or takes these chunks in. */
+  private restyleLayer(layer: LayerState): void {
+    const keys = new Set([...layer.grid.chunkKeys(), ...layer.chunks.keys()]);
+    if (keys.size === 0) return;
+    for (const ck of keys) layer.dirty.add(ck);
+    // Only what is already drawn is restyled (a layer's first meshing is its load, not a restyle).
+    if (layer.chunks.size === 0) return;
+    if (this.restyle === null) {
+      const now = performance.now();
+      this.restyle = { startedAt: now, chunks: 0, lastFrameAt: now, frames: 0, longFrames: 0, longestFrameMs: 0, longestFrameAt: 0, longestUpdateMs: 0 };
+      this.deps.restyling?.(true);
+    }
+    this.restyle.chunks += keys.size;
+  }
+
+  /** The restyle is done once nothing waits to be meshed or swapped in: timed, marked, and the shadow let go. */
+  private followRestyle(updateStartedAt: number): void {
+    const r = this.restyle;
+    if (r === null) return;
+    const now = performance.now();
+    const frame = now - r.lastFrameAt;
+    r.lastFrameAt = now;
+    r.frames += 1;
+    if (frame > RESTYLE_LONG_FRAME_MS) r.longFrames += 1;
+    if (frame > r.longestFrameMs) {
+      r.longestFrameMs = frame;
+      r.longestFrameAt = r.frames;
+    }
+    r.longestUpdateMs = Math.max(r.longestUpdateMs, now - updateStartedAt);
+    if (now - r.startedAt < RESTYLE_HOLD_MAX_MS) {
+      if (this.results.length > 0) return;
+      for (const layer of this.layers.values()) if (layer.dirty.size > 0 || layer.pending.size > 0) return;
+    }
+    this.endRestyle(now);
+  }
+
+  private endRestyle(now: number): void {
+    const r = this.restyle;
+    if (r === null) return;
+    this.restyle = null;
+    const round = (v: number): number => Math.round(v * 10) / 10;
+    const timing: BlockRestyleTiming = { ms: round(now - r.startedAt), chunks: r.chunks, frames: r.frames, longFrames: r.longFrames, longestFrameMs: round(r.longestFrameMs), longestFrameAt: r.longestFrameAt, longestUpdateMs: round(r.longestUpdateMs) };
+    this.restyles = { count: this.restyles.count + 1, last: timing };
+    globalThis.performance?.mark?.('tl:blocks:restyle', { detail: timing });
+    this.deps.restyling?.(false);
   }
 
   /** Show (or replace) a layer: its component, origin and stored cells. */
@@ -383,11 +501,15 @@ export class BlockLayerView {
       const group = new THREE.Group();
       group.name = `block-layer:${entityId}`;
       this.root.add(group);
-      layer = { group, component, grid: BlockGrid.from(component, data), serial: ++this.serials, chunks: new Map(), dirty: new Set(), edited: new Set(), gens: new Map(), pending: new Map(), meshMs: -1, looksAsked: 0, lightmapLayouts: new Map(), hidden: false };
+      const grid = BlockGrid.from(component, data);
+      layer = { group, component, grid, gameKits: null, view: blockKitView(grid, component.kits, this.types), serial: ++this.serials, chunks: new Map(), dirty: new Set(), edited: new Set(), gens: new Map(), pending: new Map(), meshMs: -1, looksAsked: 0, lightmapLayouts: new Map(), hidden: false };
       this.layers.set(entityId, layer);
     } else {
+      // Another kit on drawn chunks is a restyle (the shadow held until they are in).
+      if (kitKey(this.kitsOf(layer)) !== kitKey(layer.gameKits ?? component.kits)) this.restyleLayer(layer);
       layer.component = component;
       layer.grid = BlockGrid.from(component, data);
+      layer.view = blockKitView(layer.grid, this.kitsOf(layer), this.types);
       layer.serial = ++this.serials;
       layer.looksAsked = 0;
       // Whatever a worker was meshing was for the cells replaced here: it is asked again.
@@ -400,7 +522,8 @@ export class BlockLayerView {
     this.cut.setLayer(entityId, component, layer.grid.regions, origin);
     for (const ck of layer.grid.chunkKeys()) layer.dirty.add(ck);
     for (const ck of layer.chunks.keys()) layer.dirty.add(ck);
-    if (component.metadataOnly !== true && this.startPool()) this.pool!.broadcast({ t: 'layer', entityId, serial: layer.serial, component, data });
+    // The workers mesh with the kits it shows (the game's, when a script set them).
+    if (component.metadataOnly !== true && this.startPool()) this.pool!.broadcast({ t: 'layer', entityId, serial: layer.serial, component: layer.gameKits === null ? component : { ...component, kits: [...layer.gameKits] }, data });
   }
 
   /** Move a layer (its entity moved in the editor). */
@@ -454,7 +577,10 @@ export class BlockLayerView {
   /** The simulation's chunk changes (the runtime's `takeGridChanges`). */
   applyRuntimeChanges(changes: readonly GridRenderChange[]): void {
     const byLayer = new Map<string, { cx: number; cz: number; chunk: BlockChunk | null }[]>();
+    // A layer's kits first: its chunks are meshed with them.
+    for (const c of changes) if ('kits' in c) this.setGameKits(c.entityId, c.kits);
     for (const c of changes) {
+      if ('kits' in c) continue;
       let list = byLayer.get(c.entityId);
       if (list === undefined) byLayer.set(c.entityId, (list = []));
       list.push(c);
@@ -505,6 +631,7 @@ export class BlockLayerView {
     }
     // More results than one frame's slice: the host draws again for the rest.
     if (this.results.length > 0) this.deps.meshed?.();
+    this.followRestyle(t0);
     const ms = performance.now() - t0;
     this.stats.lastUpdate = { here, applied, ms };
     this.stats.meshedHere += here;
@@ -558,7 +685,8 @@ export class BlockLayerView {
     const round = (v: number): number => Math.round(v * 100) / 100;
     const meshing = { workers: this.pool?.size ?? 0, queued, meshedHere: this.stats.meshedHere, meshedInWorkers: this.stats.meshedInWorkers, lastUpdate: { ...this.stats.lastUpdate, ms: round(this.stats.lastUpdate.ms) }, longestUpdateMs: round(this.stats.longestUpdateMs), chunkMs: chunkMs < 0 ? -1 : round(chunkMs) };
     const cutaway = this.cut.diagnostics();
-    return { layers: this.layers.size, chunks, meshes, triangles, ...(lodChunks > 0 ? { lods: { chunks: lodChunks, shown } } : {}), meshing, ...(cutaway !== null ? { cutaway } : {}) };
+    const restyles = this.restyles.count > 0 || this.restyle !== null ? { restyles: { count: this.restyles.count, active: this.restyle !== null, last: this.restyles.last } } : {};
+    return { layers: this.layers.size, chunks, meshes, triangles, ...(lodChunks > 0 ? { lods: { chunks: lodChunks, shown } } : {}), meshing, ...(cutaway !== null ? { cutaway } : {}), ...restyles };
   }
 
   /** Whether any layer has cut-away zones (the host finds the subject only then). */
@@ -642,6 +770,10 @@ export class BlockLayerView {
     this.pool = null;
     this.results.length = 0;
     for (const id of [...this.layers.keys()]) this.removeLayer(id);
+    if (this.restyle !== null) {
+      this.restyle = null;
+      this.deps.restyling?.(false);
+    }
     this.cut.dispose();
     for (const m of this.colorMaterials.values()) m.dispose();
     this.colorMaterials.clear();
@@ -729,7 +861,8 @@ export class BlockLayerView {
    * every loaded one before it meshes (and a chunk is not meshed twice).
    */
   private askLooks(entityId: string, layer: LayerState): void {
-    const cells = layer.grid.paletteCells();
+    // The view's palette: the looks its kits swap in are asked for too.
+    const cells = layer.view.paletteCells();
     for (; layer.looksAsked < cells.length; layer.looksAsked++) {
       const cell = cells[layer.looksAsked]!;
       const type = cell.block === undefined ? undefined : this.types.get(cell.block);
@@ -793,7 +926,7 @@ export class BlockLayerView {
     this.meshingLayer = entityId;
     let result: ChunkMeshResult;
     try {
-      result = meshChunkForDrawing(layer.grid, layer.component, this.types, this.pageLooks, this.standIns, { cx, cz, uv: this.uvFor(entityId) });
+      result = meshChunkForDrawing(layer.view, layer.component, this.types, this.pageLooks, this.standIns, { cx, cz, uv: this.uvFor(entityId) });
     } finally {
       this.meshingLayer = null;
     }

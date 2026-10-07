@@ -1,7 +1,8 @@
 /**
  * The rules checked when a game starts (Play, the export), not per edit:
  * a view exists, one player controller, a player only in a start scene, a
- * kept object is one object, a kept flag under an object that is not kept.
+ * kept object is one object, a kept flag under an object that is not kept,
+ * a block layer naming regions or kits it does not have.
  */
 import { describe, expect, it } from 'vitest';
 
@@ -38,5 +39,19 @@ describe('play checks', () => {
     const folder = { id: 'f0', components: { folder: {} } };
     expect(codes([scene('a', [shot('c1'), folder, { ...under, parentId: 'f0' }])], ['a'])).toEqual([]);
     expect(codes([scene('a', [shot('c1'), kept('p0'), under])], ['a'])).toEqual([]);
+  });
+
+  it('a block layer whose cut-aways or kits name a region it does not have, or a kit no block type has, is a warning', () => {
+    const layer = (blockLayer: Record<string, unknown>) => ({ id: 'ground', components: { transform: T, blockLayer: { cellSize: [1, 1, 1], bounds: { min: [0, 0, 0], max: [8, 8, 8] }, ...blockLayer } } });
+    const withRegions = (s: SceneV4, ids: string[]): SceneV4 => ({ ...s, blocks: [{ entityId: 'ground', regions: ids.map((regionId) => ({ regionId, boxes: [[0, 0, 0, 1, 1, 1]] })) }] } as unknown as SceneV4);
+    const content = { blockTypes: [{ blockId: 'stone', name: 'Stone', variants: [{ color: '#808080' }], shape: 'full', kits: { burnt: { block: 'stone' } } }] };
+    const fine = withRegions(scene('a', [shot('c1'), layer({ cutaway: { regions: [{ region: 'roof', when: 'room' }] }, kits: [{ kit: 'burnt', region: 'room' }] })]), ['roof', 'room']);
+    expect(playChecks(content, [fine], ['a'])).toEqual([]);
+    // The room renamed: the cut-away's when and the kit's region name it still; the layer's kit is one no type has.
+    const stale = withRegions(scene('a', [shot('c1'), layer({ cutaway: { regions: [{ region: 'roof', when: 'room' }] }, kits: [{ kit: 'burnt', region: 'room' }, { kit: 'winter' }] })]), ['roof', 'hall']);
+    const checks = playChecks(content, [stale], ['a']);
+    expect(checks.map((c) => [c.code, c.refuse])).toEqual([['block_names_missing', false], ['block_names_missing', false]]);
+    expect(checks[0]!.message).toMatch(/names a region it does not have: "room"/);
+    expect(checks[1]!.message).toMatch(/kit no block type has: "winter"/);
   });
 });

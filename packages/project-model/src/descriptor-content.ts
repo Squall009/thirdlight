@@ -480,6 +480,11 @@ export const CONTENT: readonly ContentBlockDescriptor[] = [
           connectPiece('cap', 'Cap', 'One below, none above.'),
         ], { required: true, default: {} }),
       ]),
+      map('kits', 'Kits', "What the block shows under each kit (a burnt, ruined or winter set): a layer, or a region of it, that shows the kit draws this block type instead, without changing the cells. The target keeps the layout: the same placement and footprint. A kit is every block's entry under one name.", 'Kit', obj('*', 'Swap', 'The block shown under this kit.', [
+        str('block', 'Block', 'The block type drawn instead (the same placement and footprint).', { ...ID, required: true }),
+        int('variant', 'Look', "The target's look (absent: the cell's own when the target has it, else one picked by the target's weights; a connected target keeps resolving its pieces).", { min: 0, max: BLOCK_LIMITS.variants - 1 }),
+        list('variants', 'Look per look', "Per look of this block (in order): the target's look shown. Wins over Look.", int('*', 'Look', 'Variant index of the target.', { min: 0, max: BLOCK_LIMITS.variants - 1 }), { maxItems: BLOCK_LIMITS.variants }),
+      ]), { keyFormat: 'id', minEntries: 1 }),
     ]), { default: [] }),
     ops: ['setBlockType', 'deleteBlockType'],
   },

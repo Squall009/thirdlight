@@ -40,6 +40,13 @@
  * drawn every two seconds, so the measurement holds cut roofs, drawn roofs and
  * fades (`--roofs` alone is the same roofs never cut).
  *
+ * Either class can swap its kit while it runs (`--kit-swap`; none by default,
+ * as recorded): every block type (soil, rock, the edge walls) has a `burnt`
+ * twin of the same shape in other colours, and a script shows the burnt kit
+ * over the whole layer and takes it off again every two seconds, so the
+ * measurement holds whole-layer restyles (the page marks each one's time
+ * and its long frames, `tl:blocks:restyle`).
+ *
  * Both classes share the camera (at the area's edge, looking across it to the
  * horizon) and the environment, so the landscape's extra cost is the far part.
  * `levelPlan` is a pure function of the kind and the seed; `buildLevel`
@@ -144,7 +151,27 @@ export interface LevelPlan {
   wallPaint: boolean;
   /** The rooms' roofs: none, roofs, or roofs that are cut-aways driven by a script. */
   roofs: LevelRoofs;
+  /** A script swaps the layer's kit every two seconds. */
+  kitSwap: boolean;
 }
+
+/** The kit swap's script: the burnt kit over the whole layer every other 240 steps (2 s), off in between. */
+const KIT_BEHAVIOR: BehaviorPlan = {
+  behaviorId: 'level-kit',
+  displayName: 'Level kit swap',
+  ownedTransforms: [],
+  declaration: { properties: [] },
+  source: [
+    'export default {',
+    '  instantiate() { return {}; },',
+    '  step(state: any, ctx: any) {',
+    "    if (ctx.phase !== 'intent' || ctx.stepIndex % 240 !== 1) return;",
+    '    const layer = ctx.grid.layers()[0];',
+    "    ctx.grid.setKit(layer, Math.floor(ctx.stepIndex / 240) % 2 === 0 ? 'burnt' : null);",
+    '  },',
+    '};',
+  ].join('\n'),
+};
 
 export type LevelRoofs = 'none' | 'roofs' | 'cutaway';
 
@@ -198,7 +225,7 @@ function copies(n: number, at: (i: number) => { x: number; y: number; z: number;
   return f;
 }
 
-export function levelPlan(kind: LevelKind, seed = LEVEL_SEED, liveDoorCount = 0, edgeWalls = false, wallPaint = false, roofs: LevelRoofs = 'none'): LevelPlan {
+export function levelPlan(kind: LevelKind, seed = LEVEL_SEED, liveDoorCount = 0, edgeWalls = false, wallPaint = false, roofs: LevelRoofs = 'none', kitSwap = false): LevelPlan {
   const S = LEVEL_SPEC;
   const N = S.areaSide;
   const rnd = prng(seed * 104729 + N);
@@ -400,7 +427,7 @@ export function levelPlan(kind: LevelKind, seed = LEVEL_SEED, liveDoorCount = 0,
   // At the area's south edge, 8 m over its ground, looking north across it to the horizon.
   const pitch = -0.12;
   const camera: LevelPlan['camera'] = { position: [0, r3(groundY(half, N - 2) + 8), half - 2], rotation: [r6(Math.sin(pitch / 2)), 0, 0, r6(Math.cos(pitch / 2))] };
-  return { kind, version: LEVEL_VERSION, seed, props, buffers, layer, batches, blockEdits, rooms, camera, counts, liveDoors, edgeWalls, wallPaint, roofs };
+  return { kind, version: LEVEL_VERSION, seed, props, buffers, layer, batches, blockEdits, rooms, camera, counts, liveDoors, edgeWalls, wallPaint, roofs, kitSwap };
 }
 
 /**
@@ -487,11 +514,17 @@ export async function buildLevel(be: PerfBackend, projectId: string, plan: Level
     await publishFileVia(be, projectId, cmd, { assetId: FAR_KIT, kind: 'model', displayName: 'Level far scatter', bytes: scatterKitGlb(plan.seed + 1, FAR_PIECES) });
     await publishFileVia(be, projectId, cmd, { assetId: GROUND_PLANE, kind: 'model', displayName: 'Level ground plane', bytes: groundPlaneGlb(LEVEL_SPEC.farRings[LEVEL_SPEC.farRings.length - 1]![1] * 2, 64) });
   }
-  await cmd('setBlockType', { block: { blockId: 'soil', name: 'Soil', variants: [{ color: '#6f8a4a' }, { color: '#7a9050' }], shape: 'full' } });
-  await cmd('setBlockType', { block: { blockId: 'rock', name: 'Rock', variants: [{ color: '#8a8580' }, { color: '#7d7872' }], shape: 'full' } });
+  // With a kit swap, each type's burnt twin first (a swap names a type that exists), same shape, darker colours.
+  const burnt = (blockId: string): Record<string, unknown> => (plan.kitSwap ? { kits: { burnt: { block: `${blockId}-burnt` } } } : {});
+  const blockType = async (block: Record<string, unknown>, burntColors: string[]): Promise<void> => {
+    if (plan.kitSwap) await cmd('setBlockType', { block: { ...block, blockId: `${String(block['blockId'])}-burnt`, name: `${String(block['name'])} (burnt)`, variants: burntColors.map((color) => ({ color })) } });
+    await cmd('setBlockType', { block: { ...block, ...burnt(String(block['blockId'])) } });
+  };
+  await blockType({ blockId: 'soil', name: 'Soil', variants: [{ color: '#6f8a4a' }, { color: '#7a9050' }], shape: 'full' }, ['#3a3430', '#2e2a26']);
+  await blockType({ blockId: 'rock', name: 'Rock', variants: [{ color: '#8a8580' }, { color: '#7d7872' }], shape: 'full' }, ['#4a4440', '#3d3832']);
   if (plan.edgeWalls) {
-    await cmd('setBlockType', { block: { blockId: 'rock-wall', name: 'Rock wall', variants: [{ color: '#8a8580' }, { color: '#7d7872' }], shape: 'full', placement: 'edge' } });
-    await cmd('setBlockType', { block: { blockId: 'rock-door', name: 'Rock door', variants: [{ color: '#6b4a2b' }], shape: 'full', placement: 'edge' } });
+    await blockType({ blockId: 'rock-wall', name: 'Rock wall', variants: [{ color: '#8a8580' }, { color: '#7d7872' }], shape: 'full', placement: 'edge' }, ['#4a4440', '#3d3832']);
+    await blockType({ blockId: 'rock-door', name: 'Rock door', variants: [{ color: '#6b4a2b' }], shape: 'full', placement: 'edge' }, ['#2b1a0b']);
   }
 
   await cmd('pasteEntities', { sceneId: 'scene-main', entities: [plan.layer] });
@@ -515,6 +548,12 @@ export async function buildLevel(be: PerfBackend, projectId: string, plan: Level
     await cmd('setBlockType', { block: { blockId: 'door', name: 'Door', variants: [{ prefab: 'level-door' }], shape: 'none', live: true } });
     const doors = plan.liveDoors.map(([x, y, z]) => ({ kind: 'fill', box: [x, y, z, x + 1, y + 1, z + 1], cell: { block: 'door' } }));
     for (let i = 0; i < doors.length; i += 256) await cmd('editBlocks', { entityId: layerId, edits: doors.slice(i, i + 256) });
+  }
+
+  if (plan.kitSwap) {
+    await publishBehaviorVia(be, p, cmd, KIT_BEHAVIOR);
+    const driver = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Kit driver', transform: { position: [0, 0, 0] } }))['createdId']);
+    await cmd('setBehaviorProperties', { entityId: driver, behaviorId: KIT_BEHAVIOR.behaviorId, values: {} });
   }
 
   if (plan.roofs === 'cutaway') {

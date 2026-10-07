@@ -21,7 +21,7 @@
  */
 import { COLLIDER_3D_LIMITS } from './components';
 import { CHUNK_SIZE, blockTypeSolid, rotatedFootprint, type BlockCell, type BlockLayerComponent, type BlockShape, type BlockType, type BlockUvMode } from './block-layers';
-import { autoVariant, cellKeyOf, chunkKeyOf, edgeAutoVariant, type BlockGrid } from './block-grid';
+import { autoVariant, cellKeyOf, chunkKeyOf, edgeAutoVariant, type BlockGridReader } from './block-grid';
 import { resolveCellLook, resolveEdgeLook } from './block-connect';
 import { blockTypeIsEdge, edgeCollides, edgeFrame, edgeLookMetres, type BlockEdge } from './block-edges';
 import { cutWallPolygon, type CutVertex } from './block-wall-cut';
@@ -776,7 +776,7 @@ class SeenVertices {
  * too, so both chunks give a point on their shared edge the same normal (no
  * seam). Walls and other faces keep their own normals.
  */
-export function meshBlockChunk(grid: BlockGrid, cx: number, cz: number, types: ReadonlyMap<string, BlockType>, looks: BlockLookResolver, options: BlockTopOptions = {}): ChunkMeshPart[] {
+export function meshBlockChunk(grid: BlockGridReader, cx: number, cz: number, types: ReadonlyMap<string, BlockType>, looks: BlockLookResolver, options: BlockTopOptions = {}): ChunkMeshPart[] {
   const cs = grid.cellSize;
   const subdivision = Math.max(1, Math.floor(options.topSubdivision ?? 1));
   const wallSteps = options.wallSteps;
@@ -1191,7 +1191,7 @@ export const COLLISION_PIECE_LIMITS = Object.freeze({ vertices: COLLIDER_3D_LIMI
  * a full single-cell shape, or the same face profile), vertices merged, split
  * into pieces within the port's mesh limits. Empty: nothing to collide with.
  */
-export function collisionMeshChunk(grid: BlockGrid, cx: number, cz: number, types: ReadonlyMap<string, BlockType>): CollisionMeshPiece[] {
+export function collisionMeshChunk(grid: BlockGridReader, cx: number, cz: number, types: ReadonlyMap<string, BlockType>): CollisionMeshPiece[] {
   const parts = meshBlockChunk(grid, cx, cz, types, {
     source: (t, _v, fm) => {
       const s = collisionSourceOf(t, fm);

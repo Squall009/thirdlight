@@ -63,6 +63,14 @@ describe('the level classes', () => {
     expect(roofed.batches).toEqual(plain.batches);
   });
 
+  it('can swap the kit while it runs, leaving the plan as it was', () => {
+    const plain = levelPlan('area');
+    const swapped = levelPlan('area', undefined, 0, false, false, 'none', true);
+    expect(plain.kitSwap).toBe(false);
+    expect(swapped.kitSwap).toBe(true);
+    expect({ ...swapped, kitSwap: false }).toEqual(plain);
+  });
+
   it('makes the landscape the area plus far rings outside it, under the far plane', () => {
     const a = levelPlan('area');
     const l = levelPlan('landscape');

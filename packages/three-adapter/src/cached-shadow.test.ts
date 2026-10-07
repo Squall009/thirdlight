@@ -176,6 +176,33 @@ describe('the cached static shadow map', () => {
     expect(frame()).toBe(0);
   });
 
+  it('changes held back (a restyle arriving over several frames) draw the map nothing until the last hold goes, then once', () => {
+    const revision = new StaticShadowRevision();
+    const all = (): boolean => true;
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1));
+    mesh.updateMatrixWorld(true);
+    revision.hold(true);
+    revision.hold(true);
+    expect(revision.holding).toBe(true);
+    for (let frame = 0; frame < 3; frame += 1) {
+      revision.touched(mesh);
+      expect(revision.drain(all)).toBe(false);
+    }
+    revision.hold(false);
+    expect(revision.drain(all)).toBe(false);
+    revision.hold(false);
+    expect(revision.holding).toBe(false);
+    // Every change made while held, drained at once: one redraw, then nothing.
+    expect(revision.drain(all)).toBe(true);
+    expect(revision.drain(all)).toBe(false);
+    // Without a cached map (no reach) the held changes are forgotten as usual.
+    revision.hold(true);
+    revision.touched(mesh);
+    expect(revision.drain(null)).toBe(false);
+    revision.hold(false);
+    expect(revision.drain(all)).toBe(false);
+  });
+
   it('marks an instanced batch a static caster only while every member is static', () => {
     const scene = new THREE.Scene();
     const revision = new StaticShadowRevision();

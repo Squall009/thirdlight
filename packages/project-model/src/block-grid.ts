@@ -80,6 +80,19 @@ export interface BlockLayerMemory {
   bytes: number;
 }
 
+/**
+ * What meshing, collision, paint colours, surface queries and live blocks read
+ * of a layer: a {@link BlockGrid}, or a view of one (its kits swapped,
+ * `block-kit.ts`). Palette indices are the grid's either way.
+ */
+export type BlockGridReader = Pick<
+  BlockGrid,
+  | 'min' | 'max' | 'cellSize' | 'metadataOnly' | 'regions' | 'size' | 'edgeCount'
+  | 'inBounds' | 'edgeInBounds' | 'valueOf' | 'edgeValueOf' | 'paletteCells' | 'indexAt' | 'get' | 'edgeIndexAt' | 'edgeAt'
+  | 'forEach' | 'forEachInChunk' | 'forEachInColumn' | 'forEachEdgeInChunk' | 'forEachEdge' | 'columnTop' | 'chunkKeys'
+  | 'chunkPaint' | 'chunkWallPaint' | 'hasPaint' | 'memory'
+>;
+
 /** An edge's local key (`edgeLocalKey`) back to lx, lz, y, axis. */
 function edgeOfLocalKey(k: number): [number, number, number, number] {
   const lx = k % CHUNK_SIZE;

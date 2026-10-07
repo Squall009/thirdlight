@@ -120,6 +120,23 @@ export class StaticShadowRevision {
   /** World bounds of the changes reported where they happened, since the last `drain` (the first `used`). */
   private readonly spheres: THREE.Sphere[] = [];
   private used = 0;
+  /** Holds in force (`hold`): changes are kept, not drained, until the last is let go. */
+  private holds = 0;
+
+  /**
+   * Hold the changes back (true) or let them go (false; holds count): while
+   * held, reported changes and static casters the map does not hold yet draw
+   * the map nothing, and when the last hold goes they draw it once. A bulk
+   * re-mesh (a kit swapped) holds while its chunks arrive over several
+   * frames, so the map is drawn once, not once a frame.
+   */
+  hold(on: boolean): void {
+    this.holds = Math.max(0, this.holds + (on ? 1 : -1));
+  }
+
+  get holding(): boolean {
+    return this.holds > 0;
+  }
 
   /** A change anywhere. */
   bump(): void {
@@ -150,6 +167,7 @@ export class StaticShadowRevision {
 
   /** Whether a change reported where it happened lies within `reach`, and forget them. */
   drain(reach: ((s: THREE.Sphere) => boolean) | null): boolean {
+    if (this.holds > 0 && reach !== null) return false;
     let hit = false;
     if (reach !== null) for (let i = 0; i < this.used && !hit; i += 1) hit = reach(this.spheres[i]!);
     this.used = 0;

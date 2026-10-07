@@ -13,10 +13,12 @@
 import { effectiveEntityFlags } from './hierarchy-v3';
 import type { ContentCatalogV4, SceneEntityV3, SceneV4 } from './types-v3';
 import { isFolderEntity } from './types-v3';
+import type { BlockLayerComponent, BlockType } from './block-layers';
+import { blockKitNames } from './block-kit';
 
 export interface PlayCheck {
   /** Stable code (Problems line kind). */
-  code: 'view_missing' | 'player_scene' | 'kept_twice' | 'kept_ignored' | 'collider_model';
+  code: 'view_missing' | 'player_scene' | 'kept_twice' | 'kept_ignored' | 'collider_model' | 'block_names_missing';
   /** True: the start is refused; false: a warning (the game starts). */
   refuse: boolean;
   message: string;
@@ -41,7 +43,7 @@ function inGame(entities: readonly SceneEntityV3[]): SceneEntityV3[] {
  * The problems of a start: `startScenes` are the scenes the game starts with
  * (the project's start scenes, or a test start's).
  */
-export function playChecks(_content: ContentCatalogV4 | Record<string, unknown>, scenes: readonly SceneV4[], startScenes: readonly string[]): PlayCheck[] {
+export function playChecks(content: ContentCatalogV4 | Record<string, unknown>, scenes: readonly SceneV4[], startScenes: readonly string[]): PlayCheck[] {
   const checks: PlayCheck[] = [];
   const start = new Set(startScenes);
   const started = scenes.filter((s) => start.has(s.sceneId));
@@ -68,6 +70,22 @@ export function playChecks(_content: ContentCatalogV4 | Record<string, unknown>,
       const other = keptIn.get(e.id);
       if (other !== undefined && other !== s.sceneId) checks.push({ code: 'kept_twice', refuse: true, message: `"${e.id}" keeps loaded in scene "${other}" and in scene "${s.sceneId}": a kept object is one object (give one of them another id)` });
       else keptIn.set(e.id, s.sceneId);
+    }
+  }
+  // A block layer's cut-aways and kits name its regions and kits its block types have (a region renamed or deleted
+  // since, or a kit no type has any more, cuts or swaps nothing).
+  const kitNames = new Set(blockKitNames((content as { blockTypes?: readonly BlockType[] }).blockTypes ?? []));
+  for (const s of scenes) {
+    const regionsOf = new Map(((s as { blocks?: readonly { entityId: string; regions?: readonly { regionId: string }[] }[] }).blocks ?? []).map((b) => [b.entityId, new Set((b.regions ?? []).map((r) => r.regionId))]));
+    for (const e of inGame(s.entities)) {
+      const bl = (e.components as { blockLayer?: BlockLayerComponent }).blockLayer;
+      if (bl === undefined) continue;
+      const have = regionsOf.get(e.id) ?? new Set<string>();
+      const named = [...(bl.cutaway?.regions ?? []).flatMap((r) => [r.region, ...(r.when !== undefined ? [r.when] : [])]), ...(bl.kits ?? []).flatMap((k) => (k.region !== undefined ? [k.region] : []))];
+      const missing = [...new Set(named.filter((r) => !have.has(r)))];
+      if (missing.length > 0) checks.push({ code: 'block_names_missing', refuse: false, message: `block layer "${e.id}" (scene "${s.sceneId}") names ${missing.length === 1 ? 'a region it does not have' : 'regions it does not have'}: ${missing.slice(0, 4).map((r) => `"${r}"`).join(', ')} (renamed or deleted?): its cut-aways and kits there cut and swap nothing` });
+      const kits = [...new Set((bl.kits ?? []).map((k) => k.kit).filter((k) => !kitNames.has(k)))];
+      if (kits.length > 0) checks.push({ code: 'block_names_missing', refuse: false, message: `block layer "${e.id}" (scene "${s.sceneId}") shows ${kits.length === 1 ? 'a kit' : 'kits'} no block type has: ${kits.slice(0, 4).map((k) => `"${k}"`).join(', ')}: nothing is swapped` });
     }
   }
   if (!shot) {

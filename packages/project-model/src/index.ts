@@ -1065,6 +1065,7 @@ export {
   type BlockEdit,
   type BlockEditContext,
   type BlockEditResult,
+  type BlockGridReader,
   type BlockLayerMemory,
   type BlockPick,
   type BlockRotation,
@@ -1132,6 +1133,8 @@ export { chunkMeshPaint, type ChunkPaintOptions, type PaintedGeometry } from './
 export { UNPAINTED_WALL, WALL_PAINT_MAX_STEPS, WALL_PAINT_STEP_METRES, WALL_POINT_BYTES, WALL_SIDE_AXES, canonicalWallPaint, decodeWallPaint, encodeWallPaint, wallPaintDab, wallPaintError, wallPaintSteps, wallPointKey, wallPointOfKey, type WallPaint, type WallPaintSurface, type WallSteps } from './block-wall-paint';
 export { cutWallPolygon, type CutVertex } from './block-wall-cut';
 export { CUTAWAY_FADE_RANGE, CUTAWAY_FADE_SECONDS, canonicalBlockCutaway, cutawayCuts, cutawayPlaneKey, cutawaySeams, cutawayZoneKeys, cutawayZones, validateBlockCutaway, type BlockCutaway, type BlockCutawayRegion, type CutawayBox, type CutawayZone } from './block-cutaway';
+export { blockKitNames, canonicalBlockTypeKits, canonicalLayerKits, composeBlockTypeKits, kitKey, kitRegionsMissing, kitSwapCollides, kitZones, validateBlockTypeKits, validateLayerKits, type BlockKitSwap, type BlockLayerKit, type KitZone } from './block-kit';
+export { BlockKitView, blockKitView, swapBlockCell, swapBlockEdge } from './block-kit-view';
 export { BLOCK_PAINT_LAYOUT, PAINT_BYTES, PAINT_CHANNELS, PAINT_CHUNK_SIZE, PAINT_VERTICES, PAINT_WETNESS_CHANNEL, chunkPaintColors, chunkPaintError, chunksOfVertex, decodeChunkPaint, encodeChunkPaint, isUnpainted, paintDab, paintOffset, unpaintedChunk, type PaintSurface } from './block-paint';
 export { BLOCK_CHUNK_COMPRESSION, BLOCK_CHUNK_DATA_KEY, BLOCK_CHUNK_HEADER_BYTES, decodeBlockChunks, encodeBlockChunks, readBlockChunkData, wrapBlockChunkData, type BlockChunkCompression } from './block-chunk-binary';
 export { blockChunkStorageOf } from './content-settings';

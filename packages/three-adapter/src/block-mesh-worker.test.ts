@@ -192,6 +192,55 @@ describe('block view: meshing in workers', () => {
     page.dispose();
   });
 
+  it('a kit a game swaps in is a restyle: every chunk re-meshes in the workers, drawn as before until its new meshes arrive, byte for byte what the page draws, the shadow held once', async () => {
+    const kitTypes: BlockType[] = TYPES.map((t) => {
+      const kits: Record<string, BlockType['kits']> = {
+        grass: { burnt: { block: 'stone' } },
+        crate: { burnt: { block: 'tile', variant: 0 } },
+        wall: { burnt: { block: 'gate' } },
+        rampart: { burnt: { block: 'rampart', variant: 0 } },
+      };
+      return kits[t.blockId] !== undefined ? { ...t, kits: kits[t.blockId] } : t;
+    });
+    const data = { ...groundData(), regions: [{ regionId: 'west', boxes: [[0, 0, 0, 16, 24, 32]] }] };
+    const kits = [{ kit: 'burnt' }, { kit: 'burnt', region: 'west' }];
+    // The page meshes the layer authored with the kits; the workers get them from the game after the layer is drawn.
+    const page = makeView();
+    page.setTypes(kitTypes);
+    page.setLayer('ground', { ...LAYER, kits }, [0, 0, 0], data as never);
+    page.update();
+    const holds: boolean[] = [];
+    const worker = makeView({ meshWorkers: () => portWorker(), restyling: (on) => holds.push(on) });
+    worker.setTypes(kitTypes);
+    worker.setLayer('ground', LAYER, [0, 0, 0], data as never);
+    await settle(worker);
+    const before = drawn(worker);
+    expect(before).not.toEqual(drawn(page));
+    // The layer's first meshing is its load, not a restyle.
+    expect(holds).toEqual([]);
+    worker.applyRuntimeChanges([{ entityId: 'ground', kits }]);
+    worker.update();
+    expect(worker.diagnostics().meshing).toMatchObject({ queued: 4, meshedHere: 0 });
+    expect(drawn(worker)).toEqual(before);
+    expect(holds).toEqual([true]);
+    await settle(worker);
+    worker.update();
+    expect(drawn(worker)).toEqual(drawn(page));
+    expect(holds).toEqual([true, false]);
+    const r = worker.diagnostics().restyles!;
+    expect(r).toMatchObject({ count: 1, active: false, last: { chunks: 4 } });
+    expect(r.last!.frames).toBeGreaterThan(0);
+    expect(drawn(page).some((m) => m.includes('block:c:grass'))).toBe(false);
+    // Back to the component's kits (none): the authored looks again.
+    worker.applyRuntimeChanges([{ entityId: 'ground', kits: [] }]);
+    await settle(worker);
+    worker.update();
+    expect(drawn(worker)).toEqual(before);
+    expect(holds).toEqual([true, false, true, false]);
+    worker.dispose();
+    page.dispose();
+  });
+
   it('a chunk keeps its old meshes until the new ones arrive; a result for a chunk changed since is dropped', async () => {
     const v = makeView({ meshWorkers: () => portWorker() });
     v.setTypes(TYPES);

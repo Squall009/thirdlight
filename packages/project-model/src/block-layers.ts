@@ -40,6 +40,7 @@ import { liveBlockPrefabProblem } from './block-live';
 import { canonicalChunkEdges, canonicalPatternEdges, composeChunkEdges, validateBlockPlacement, validateChunkEdges, validatePatternEdges, type BlockEdge, type BlockPlacement } from './block-edges';
 import { canonicalBlockConnect, composeBlockConnect, validateBlockConnect, type BlockConnect } from './block-connect';
 import { canonicalBlockCutaway, validateBlockCutaway, type BlockCutaway } from './block-cutaway';
+import { canonicalBlockTypeKits, canonicalLayerKits, composeBlockTypeKits, validateBlockTypeKits, validateLayerKits, type BlockKitSwap, type BlockLayerKit } from './block-kit';
 
 // ---- types -----------------------------------------------------------------------
 
@@ -155,6 +156,12 @@ export interface BlockLayerComponent {
    * (`block-cutaway.ts`). Drawing only (absent: nothing is cut).
    */
   cutaway?: BlockCutaway;
+  /**
+   * The kits it shows (`block-kit.ts`): one over the whole layer and one per
+   * region at most, each a kit name its block types swap by (absent: the
+   * authored looks).
+   */
+  kits?: BlockLayerKit[];
 }
 
 export type BlockShape = 'full' | 'half' | 'ramp' | 'stairs' | 'custom' | 'none';
@@ -214,6 +221,8 @@ export interface BlockType {
   blocking?: boolean;
   /** Connection rules: the look follows the neighbours (straight, corner, T, cross, end, base, cap; `block-connect.ts`); absent: none. */
   connect?: BlockConnect;
+  /** What it shows under each kit (kit name → the block type drawn instead, and the look; `block-kit.ts`); absent: none. */
+  kits?: Record<string, BlockKitSwap>;
 }
 
 export type CellFieldType = 'bool' | 'enum' | 'int' | 'float' | 'string';
@@ -557,7 +566,8 @@ export function validateBlockTypes(value: unknown, path: string, errors: ModelEr
 
 export function validateBlockType(t: unknown, p: string, errors: ModelErrorV2[]): void {
   if (!isPlainObject(t)) return err(errors, 'field_type', p, 'a block type is an object', t, 'object');
-  onlyKeys(t, ['blockId', 'name', 'variants', 'shape', 'boxes', 'solid', 'footprint', 'rotations', 'metadata', 'materials', 'uv', 'live', 'placement', 'blocking', 'connect'], p, errors, 'block type');
+  onlyKeys(t, ['blockId', 'name', 'variants', 'shape', 'boxes', 'solid', 'footprint', 'rotations', 'metadata', 'materials', 'uv', 'live', 'placement', 'blocking', 'connect', 'kits'], p, errors, 'block type');
+  validateBlockTypeKits(t['kits'], `${p}/kits`, errors);
   validateBlockPlacement(t, p, errors);
   validateBlockConnect(t['connect'], `${p}/connect`, errors, t['placement'] === 'edge');
   if (t['live'] !== undefined) {
@@ -634,6 +644,8 @@ export function canonicalBlockType(t: BlockType): BlockType {
   if (t.placement === 'edge' && t.blocking === false) out.blocking = false;
   const connect = canonicalBlockConnect(t.connect);
   if (connect !== null) out.connect = connect;
+  const kits = canonicalBlockTypeKits(t.kits);
+  if (kits !== null) out.kits = kits;
   return out;
 }
 
@@ -798,7 +810,7 @@ export function canonicalBlockStamps(list: readonly BlockStamp[]): BlockStamp[] 
 export const BLOCK_LAYER_DEFAULT: BlockLayerComponent = Object.freeze({ cellSize: [1, 1, 1], bounds: { min: [0, 0, 0], max: [64, 16, 64] } }) as BlockLayerComponent;
 
 /** The stored fields of the `blockLayer` component, in canonical order. */
-export const BLOCK_LAYER_FIELDS = ['cellSize', 'bounds', 'metadataOnly', 'collision', 'castShadow', 'receiveShadow', 'maxSlope', 'smoothAngle', 'topSubdivision', 'wallPaint', 'lightLayers', 'cutaway'] as const;
+export const BLOCK_LAYER_FIELDS = ['cellSize', 'bounds', 'metadataOnly', 'collision', 'castShadow', 'receiveShadow', 'maxSlope', 'smoothAngle', 'topSubdivision', 'wallPaint', 'lightLayers', 'cutaway', 'kits'] as const;
 
 export function validateBlockLayerComponent(v: unknown, path: string, errors: ModelErrorV2[]): void {
   if (!isPlainObject(v)) return err(errors, 'field_type', path, 'blockLayer is an object', v, 'object');
@@ -837,6 +849,7 @@ export function validateBlockLayerComponent(v: unknown, path: string, errors: Mo
   if (ts !== undefined && !BLOCK_TOP_SUBDIVISIONS.includes(ts as number)) err(errors, 'field_value', `${path}/topSubdivision`, `topSubdivision is one of ${BLOCK_TOP_SUBDIVISIONS.join(', ')}`, ts);
   validateLightLayerMask(v['lightLayers'], `${path}/lightLayers`, errors, 1);
   validateBlockCutaway(v['cutaway'], `${path}/cutaway`, errors);
+  validateLayerKits(v['kits'], `${path}/kits`, errors);
 }
 
 export function canonicalBlockLayerComponent(c: BlockLayerComponent): BlockLayerComponent {
@@ -853,6 +866,7 @@ export function canonicalBlockLayerComponent(c: BlockLayerComponent): BlockLayer
     ...(c.wallPaint === true ? { wallPaint: true as const } : {}),
     ...(c.lightLayers !== undefined ? { lightLayers: c.lightLayers } : {}),
     ...(canonicalBlockCutaway(c.cutaway) !== undefined ? { cutaway: canonicalBlockCutaway(c.cutaway)! } : {}),
+    ...(canonicalLayerKits(c.kits) !== undefined ? { kits: canonicalLayerKits(c.kits)! } : {}),
   };
 }
 
@@ -1032,6 +1046,7 @@ export function composeBlockContent(content: BlockContentView, errors: ModelErro
   (content.blockTypes ?? []).forEach((t, i) => {
     const p = `/blockTypes/${i}`;
     composeBlockConnect(t, p, typeMap, errors);
+    composeBlockTypeKits(t, p, typeMap, errors);
     t.variants.forEach((v, j) => {
       if (v.model !== undefined && assets.get(v.model.assetId) !== 'model') err(errors, 'asset_reference_missing', `${p}/variants/${j}/model/assetId`, 'a block variant names a model asset of this project', v.model.assetId);
       if (v.prefab !== undefined) {
