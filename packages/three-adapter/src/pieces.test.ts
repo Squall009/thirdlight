@@ -110,6 +110,18 @@ describe('applyLodGroups', () => {
     expect(two.levels[1]!.distance).toBeCloseTo(lodSwitchDistance(r, 1), 6);
     // Single-level pieces get a LOD for the cull too.
     expect(other.children.find((c) => c.name === 'bush_LOD') as THREE.LOD | undefined).toBeDefined();
+    // A mesh outside every LOD group is culled with the model, where its first group is (as an instance set's
+    // copies are): the flower is in a LOD of its own, empty past the nearest group's cull distance.
+    const groupCulls = (other.children.filter((c) => (c as THREE.LOD).isLOD === true && c.name !== 'flower_cullLOD') as THREE.LOD[]).map((l) => l.levels.at(-1)!.distance);
+    const flower = other.children.find((c) => c.name === 'flower_cullLOD') as THREE.LOD;
+    expect(flower.levels.map((l) => l.object.name)).toEqual(['flower', 'LOD_cull']);
+    expect(flower.levels[1]!.object.userData[LOD_CULL_LEVEL_KEY]).toBe(true);
+    expect(flower.levels[1]!.distance).toBeCloseTo(Math.min(...groupCulls), 6);
+    // Without a cull size nothing outside the groups changes.
+    const plain = kit();
+    stripCollisionNodes(plain);
+    applyLodGroups(plain, { screenSizes: [0.2, 0.1] });
+    expect(plain.children.some((c) => c.name === 'flower')).toBe(true);
   });
 
   it('a model without levels is culled below its cull size through one LOD around all of it', () => {

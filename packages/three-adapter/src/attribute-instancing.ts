@@ -166,7 +166,7 @@ export function createAttributeInstancedMesh(source: THREE.BufferGeometry, mater
   // What the GPU reads: the same matrices, those the view sees first (`array` keeps its slots for writers).
   const drawn = new Float32Array(capacity * 16);
   // Static usage: three's WebGPURenderer uploads a dynamic-usage buffer on every draw whatever its version
-  // (Skyforge's village: ~100 instance buffers a frame); this one is uploaded when `markChanged` bumps it.
+  // (a scene of many instance sets: a hundred buffers a frame); this one is uploaded when `markChanged` bumps it.
   const buffer = new THREE.InstancedInterleavedBuffer(drawn, 16, 1);
   const columns = COLUMNS.map((name, i) => {
     const column = new THREE.InterleavedBufferAttribute(buffer, 4, i * 4);

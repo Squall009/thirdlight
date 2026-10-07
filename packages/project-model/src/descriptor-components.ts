@@ -4,7 +4,7 @@
  */
 
 import { DEFAULT_PROBE_SPACING, PROBE_SPACING_MAX, PROBE_SPACING_MIN } from './probe-grids';
-import { INSTANCE_DENSITY_END_DEFAULT, INSTANCE_DENSITY_MIN_DEFAULT, INSTANCE_DENSITY_SIZE_MIN, INSTANCE_DENSITY_START_DEFAULT } from './model-lod';
+import { INSTANCE_DENSITY_END_DEFAULT, INSTANCE_DENSITY_MIN_NEW, INSTANCE_DENSITY_SIZE_MIN, INSTANCE_DENSITY_START_DEFAULT } from './model-lod';
 import { LOOK_AT_LIMITS, MAX_ANIMATOR_PARAMETERS } from './animator';
 import { BLOCK_DEFAULTS, BLOCK_TUNING_LIMITS, HITBOX_SHAPES, GRAVITY_SCALE, MOVER_EASINGS, MOVER_MODES, PATROL_MODES, PRIMITIVE_DEFAULTS, PRIMITIVE_LIMITS, SWITCH_MODES, SWITCH_DEFAULT_ACTION, FACE_MOVEMENT_MODES, MAX_TRANSITION_FADE, MAX_TRANSITION_UNLOADS, TRIGGER_HEIGHT, TRIGGER_MODES, TRIGGER_RADIUS, TRIGGER_SHAPES } from './blocks';
 import {
@@ -650,10 +650,11 @@ export const instances: ComponentDescriptor = {
     num('chunkSize', 'Chunk size', 'The copies are drawn in chunks about this wide, each hidden when out of view (absent: the project\'s Instance chunk size). Each chunk draws one level of detail for its copies unless "Level per copy" is on.', { min: 1, max: 4096, step: 1, unit: 'm' }),
     // Off by default: a chunk straddling a switch point draws once per level when on (performance first).
     bool('lodPerCopy', 'Level per copy', 'Each copy picks its own level of detail by its own distance and size, instead of the level its chunk picks at its centre: truer where a chunk spans a switch point, at one more draw per level in each such chunk.', { default: false, omitDefault: true }),
-    // Absent = the engine's density falloff (model-lod.ts): far copies thin out where they are a few pixels across.
+    // Thinning is off unless densityMin is set (model-lod.ts): sets made before it existed keep every copy; the
+    // scatter dialog makes new sets with it on.
     num('densityStart', 'Thinning starts at', `Copies start thinning out where they cover less than this share of the screen height (absent: ${INSTANCE_DENSITY_START_DEFAULT}).`, { min: INSTANCE_DENSITY_SIZE_MIN, max: 1, step: 0.001 }),
     num('densityEnd', 'Thinnest at', `Below this share of the screen height only the "Thinnest density" share of copies is drawn (absent: ${INSTANCE_DENSITY_END_DEFAULT}).`, { min: INSTANCE_DENSITY_SIZE_MIN, max: 1, step: 0.001 }),
-    num('densityMin', 'Thinnest density', `The share of copies drawn where they are smallest (1: no thinning; absent: ${INSTANCE_DENSITY_MIN_DEFAULT}).`, { min: 0, max: 1, step: 0.05 }),
+    num('densityMin', 'Thinnest density', `The share of copies drawn where they are smallest (1 or absent: no thinning; new sets from the scatter dialog start at ${INSTANCE_DENSITY_MIN_NEW}).`, { min: 0, max: 1, step: 0.05 }),
   ]),
   add: { kind: 'tool', tool: 'instance brush or instance import' },
   handles: [],

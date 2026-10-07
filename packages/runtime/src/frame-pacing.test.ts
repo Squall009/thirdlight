@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { displayControlOf, FramePacer, frameRateCapFromUrl } from './frame-pacing';
+import { displayControlOf, FramePacer, frameRateCapFromUrl, frameTargetMs } from './frame-pacing';
 
 /** A seeded jitter in [-1, 1) (the same run every time). */
 function jitter(seed: number): () => number {
@@ -161,5 +161,15 @@ describe('frame pacing', () => {
     expect(frameRateCapFromUrl('?frameRateCap=30&renderer=webgl2')).toBe(30);
     expect(frameRateCapFromUrl('?frameRateCap=45')).toBeUndefined();
     expect(frameRateCapFromUrl('?project=p')).toBeUndefined();
+  });
+
+  it('the frame time to budget against: the paced cap (a pin over the game\'s), never under the display\'s refresh', () => {
+    expect(frameTargetMs(null)).toBeCloseTo(1000 / 60);
+    expect(frameTargetMs({ frameRateCap: 30, displayMs: 16.7 })).toBeCloseTo(1000 / 30);
+    expect(frameTargetMs({ frameRateCap: null, pinned: 30, displayMs: 16.7 })).toBeCloseTo(1000 / 30);
+    expect(frameTargetMs({ frameRateCap: 30, pinned: 'none', displayMs: 16.7 })).toBeCloseTo(16.7);
+    expect(frameTargetMs({ frameRateCap: 120, displayMs: 1000 / 60 })).toBeCloseTo(1000 / 60);
+    expect(frameTargetMs({ frameRateCap: null, displayMs: 20 })).toBe(20);
+    expect(frameTargetMs({ frameRateCap: 120, displayMs: 1000 / 144 })).toBeCloseTo(1000 / 120);
   });
 });

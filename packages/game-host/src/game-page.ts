@@ -62,6 +62,7 @@ import {
   type PhysicsInitConfig3D,
   type FramePacingStats,
   frameRateCapFromUrl,
+  frameTargetMs,
 } from '@thirdlight/runtime';
 import {
   AssetReadError,
@@ -893,8 +894,9 @@ export async function startGamePage(o: GamePageOptions): Promise<GamePageHandle>
           renderer: { ...resolveRendererPreference({ url: pageSearch(), setting: settings.render_backend }), depthBuffer: depthBufferOf(settings), trackTimestamp: o.measureGpu === true || statsOverlayModeOf(settings) !== 'off' || renderSettings.dynamicResolution || pinnedRender.dynamicResolution === true || qualityLevels.some((l) => l.dynamicResolution === true) || manifest.saveSchema?.settings?.some((f) => f.engine === 'dynamicResolution') === true },
           // The project's AO kind, render scale and dynamic resolution (the quality level's, then a player's settings
           // fields apply over them), the page's ?ao=, ?renderScale=, ?dynamicResolution= (over all of them),
-          // ?upscale=bilinear and ?slowFrames= diagnostics, and the frame budget from the frame-rate cap.
-          render: { ...renderSettings, pinned: pinnedRender, upscale: upscaleFilterFromUrl(pageSearch()), slowFramesMs: slowFramesFromUrl(pageSearch()), frameBudgetMs: () => 1000 / (host.runtime?.frameRateCap?.() ?? 60) },
+          // ?upscale=bilinear and ?slowFrames= diagnostics, and the frame budget from the pacing (the cap the frames
+          // are paced by, a page pin included, never under the display's refresh).
+          render: { ...renderSettings, pinned: pinnedRender, upscale: upscaleFilterFromUrl(pageSearch()), slowFramesMs: slowFramesFromUrl(pageSearch()), frameBudgetMs: () => frameTargetMs(host.runtime?.framePacing?.()) },
           // The page's ?quality= pins a level (a diagnostic comparison).
           qualityPinned: pinnedQuality,
           // Repeated objects drawn instanced unless the page says ?batching=off (a diagnostic comparison).

@@ -398,6 +398,9 @@ export function validateLightComponent(c: unknown, path: string, errors: ModelEr
       errors.push(fieldValue(`${path}/castShadow`, c['castShadow'], 'absent on an ambient light', 'only a directional light casts shadows'));
     }
   }
+  // An importance has no effect on a directional or ambient light (only local lights are shaded per vertex), and
+  // is dropped when the scene is normalized; its value is still checked, as on any light.
+  if (version === 4) validateLightImportance(c['importance'], `${path}/importance`, errors);
   for (const k of Object.keys(c)) {
     if (version === 4 && (k === 'mode' || k === 'lightMask' || k === 'shadowCasterMask' || k === 'importance')) continue;
     if (!KNOWN_LIGHT_FIELDS.has(k)) errors.push(unexpectedField(`${path}/${pointerSegment(k)}`, k, 'type, color, intensity, direction, castShadow, shadowMapSize, shadowBias, shadowNormalBias, shadowExtent'));

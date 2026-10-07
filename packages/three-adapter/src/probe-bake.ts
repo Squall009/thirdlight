@@ -43,6 +43,7 @@ import { PROBE_FILLED, PROBE_MOVED, PROBE_VALID, PROBE_VALIDITY_THRESHOLD, probe
 import { aimBakeDirectional, bakeLocalLight, fittedBakeDirectional, readFloatTarget, type BakeLightInput } from './lightmap-baker';
 import { packProbeTexels } from './probe-artifact';
 import type { ProbeUploadRenderer } from './probe-atlas';
+import { LOCAL_LIGHTS_IGNORED_KEY } from './local-lights';
 import { ProbeLighting } from './probe-lighting';
 import { packProbeTile } from './probe-pack';
 import { mergeLayout, mergeWorldGeometry, OBJECT_FRAME_KEY } from './static-merge';
@@ -267,6 +268,8 @@ export async function bakeProbeGrids(input: ProbeBakeInput): Promise<ProbeBakeRe
   const disposables: { dispose(): void }[] = [];
   const scene = new THREE.Scene();
   scene.matrixWorldAutoUpdate = false;
+  // Every surface bounces every baked light, whatever local lights its material or object takes when drawn.
+  scene.userData[LOCAL_LIGHTS_IGNORED_KEY] = true;
   const bounds = new THREE.Box3();
   // A lightmapped copy shows its baked light (and may skip ambient light): the bake draws the surface without it.
   const withoutLightmaps = new Map<THREE.Material, THREE.Material>();

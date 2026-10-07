@@ -207,9 +207,10 @@ async function main(): Promise<void> {
     },
   });
   env.resize(WIDTH, HEIGHT);
-  // ?ao=off|ssao|gtao: the kind of ambient occlusion (absent: the default, SSAO).
+  // ?ao=off|ssao|gtao: the kind of ambient occlusion (absent: SSAO, what a new project draws; the parity cases'
+  // references hold its passes).
   const ao = q.get('ao');
-  if (ao === 'off' || ao === 'ssao' || ao === 'gtao') env.setRender({ ao });
+  env.setRender({ ao: ao === 'off' || ao === 'gtao' ? ao : 'ssao' });
   env.setKeyLightDirection(SUN_DIR);
   const turn = q.get('skyRotation');
   env.set(turn !== null && c.env.sky !== undefined ? { ...c.env, sky: { ...c.env.sky, rotation: Number(turn) } } : c.env);

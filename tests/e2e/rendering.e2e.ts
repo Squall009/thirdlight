@@ -485,9 +485,13 @@ test('render scale: 0.5 draws at half resolution, FSR 1 upscales sharper than bi
     // EASU keeps edges sharp and RCAS sharpens: more edge energy than a bilinear stretch of the same picture.
     expect(shots['fsr1']!).toBeGreaterThan(shots['bilinear']! * 1.1);
 
-    // Dynamic resolution: three seconds of forced slow frames step the scale down; after them it comes back to 1.
+    // Dynamic resolution: six seconds of forced slow frames step the scale down (the window outlasts the start's
+    // compiles, so two slow decision windows always fall in it); after them it comes back to 1.
+    // A mid-grey colour sky: under dynamic resolution it is still shown as its own display colour, not tone mapped
+    // (as the Scene view, always at full resolution, shows it, and as before render scales existed).
+    await command('setEnvironment', { sceneId: 'scene-main', environment: { sky: { mode: 'color', color: '#7a8aa0' } } });
     await command('setSettings', { settings: { render_scale: 1, dynamic_resolution: 1 } });
-    const { psid } = await play(editorUrlFor(be.editorUrl, variant).replace('#', '&slowFrames=3#'), variant);
+    const { psid } = await play(editorUrlFor(be.editorUrl, variant).replace('#', '&slowFrames=6#'), variant);
     await expect.poll(async () => (await render(psid))?.dynamic?.stepsDown ?? 0, { timeout: 30_000, message: 'stepped down' }).toBeGreaterThan(0);
     const down = (await render(psid))!;
     expect(down.scale).toBeLessThan(1);
@@ -496,7 +500,11 @@ test('render scale: 0.5 draws at half resolution, FSR 1 upscales sharper than bi
     console.log(`[render scale] ${backendOf(variant)} dynamic: down to ${down.scale} (${down.dynamic?.source}), back to ${up.scale}: ${JSON.stringify(up.dynamic)}`);
     expect(up.dynamic!.stepsUp).toBeGreaterThan(0);
     expect(up.internal?.[0]).toBeGreaterThan(down.internal?.[0] ?? 0);
+    const sky = (await settledShot(page.frameLocator('iframe.tl-app__preview-frame').locator('canvas').first(), `${variant}-dynamic-sky`)).pixel(4, 4);
+    console.log(`[render scale] ${backendOf(variant)} dynamic: sky ${JSON.stringify(sky)} (the colour is 122,138,160)`);
+    for (const [i, want] of [122, 138, 160].entries()) expect(Math.abs(sky[i]! - want), `sky channel ${i}`).toBeLessThanOrEqual(3);
     await stop();
+    await command('setEnvironment', { sceneId: 'scene-main', environment: { sky: { mode: 'color', color: '#101418' } } });
   }
 });
 

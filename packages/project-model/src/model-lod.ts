@@ -55,15 +55,20 @@ export const LOD_HYSTERESIS_DEFAULT = 0.1;
 export const LOD_HYSTERESIS_MAX = 0.5;
 
 /**
- * Instance-set density falloff defaults: full density down to 2 % of the
- * screen height, a quarter of the copies at 0.5 % and smaller. A 0.5 m grass
- * tuft starts thinning at ~27 m and reaches a quarter at ~107 m; a 6 m tree
- * at ~320 m — so near and mid ground look as before and only what is a few
- * pixels across thins.
+ * Instance-set density falloff: full density down to 2 % of the screen
+ * height, a quarter of the copies at 0.5 % and smaller. A 0.5 m grass tuft
+ * starts thinning at ~27 m and reaches a quarter at ~107 m; a 6 m tree at
+ * ~320 m — so near and mid ground look the same and only what is a few
+ * pixels across thins. A set that does not set `densityMin` draws every copy
+ * (sets made before thinning existed keep their look); new sets are made
+ * with {@link INSTANCE_DENSITY_MIN_NEW} written out.
  */
 export const INSTANCE_DENSITY_START_DEFAULT = 0.02;
 export const INSTANCE_DENSITY_END_DEFAULT = 0.005;
-export const INSTANCE_DENSITY_MIN_DEFAULT = 0.25;
+/** The share kept where copies are smallest when a set does not set it: all (no thinning). */
+export const INSTANCE_DENSITY_MIN_DEFAULT = 1;
+/** The share new instance sets are made with (the scatter dialog writes it into the component). */
+export const INSTANCE_DENSITY_MIN_NEW = 0.25;
 /** The smallest screen size a density falloff may name (a hundredth of a percent: below a pixel on any screen). */
 export const INSTANCE_DENSITY_SIZE_MIN = 0.0001;
 

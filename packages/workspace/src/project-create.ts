@@ -8,7 +8,7 @@ import { chmodSync, mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
 import type { ContentCatalogV3, ContentCatalogV4, Manifest, SceneV3 } from '@thirdlight/project-model';
-import { glbClipDurations, normalizeManifest, parseDocumentBytes, validateProjectV3 } from '@thirdlight/project-model';
+import { glbClipDurations, NEW_PROJECT_SETTINGS, normalizeManifest, parseDocumentBytes, validateProjectV3 } from '@thirdlight/project-model';
 
 import { ID_RE } from './envelope';
 import { publishBlob, type ContentContext } from './content-store';
@@ -140,6 +140,11 @@ export function createProjectFrom(core: Core, projectId: string, name: string, s
     assets?: { versions?: { publishedRevision?: number }[] }[];
     behaviors?: { publishedRevision?: number; source?: { publishedRevision?: number } | null }[];
   } | null;
+  // A new project writes out the settings whose engine default changed (the template's own win).
+  if (sourceContent !== null && typeof sourceContent === 'object') {
+    const c = sourceContent as { settings?: Record<string, unknown> };
+    c.settings = { ...NEW_PROJECT_SETTINGS, ...(c.settings ?? {}) };
+  }
   for (const a of sourceContent?.assets ?? []) for (const v of a.versions ?? []) v.publishedRevision = 0;
   for (const b of sourceContent?.behaviors ?? []) {
     b.publishedRevision = 0;

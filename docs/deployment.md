@@ -896,10 +896,11 @@ detail. Copies have no ids, colliders or scripts.
   skipped. Copies thin out where they are small on screen: from
   **Thinning starts at** (`densityStart`, a share of the screen height,
   default 0.02) to **Thinnest at** (`densityEnd`, default 0.005) the share
-  drawn falls to **Thinnest density** (`densityMin`, default 0.25; 1 = no
-  thinning), linearly with distance, each copy keeping its place in the
-  order (Inspector → Instance set). A 0.5 m tuft starts thinning at ~27 m, a
-  6 m tree at ~320 m. Play diagnostics (`renderer.lod`) count the copies
+  drawn falls to **Thinnest density** (`densityMin`; 1 or absent = no
+  thinning, so a set made before thinning existed draws every copy as it
+  did; the scatter dialog makes new sets with 0.25), linearly with distance,
+  each copy keeping its place in the order (Inspector → Instance set). At
+  0.25 a 0.5 m tuft starts thinning at ~27 m, a 6 m tree at ~320 m. Play diagnostics (`renderer.lod`) count the copies
   drawn, by level, culled and thinned, and the level switches of the last
   frame.
 
@@ -916,7 +917,9 @@ does not move it) and scaled with the object's (or copy's) size.
   settings): `screenSizes` lists where LOD1, LOD2, … take over, largest
   first, each in (0, 1] (absent: 0.08, 0.03, 0.012, 0.005 — the engine's
   sizes before); `cullSize` is the size below which the model is not drawn
-  (absent: never). A model without levels and a cull size is culled as one.
+  (absent: never). A model without levels and a cull size is culled as one;
+  a model with levels culls its other parts (meshes outside its `_LOD`
+  groups) where its first group is culled, as an instance set's copies are.
   Block layers use the switch points but never cull (a chunk holds many models).
 - **Project** (Project Settings → Rendering): **LOD bias** (`lod_bias`,
   0.25–4, default 1) divides every switch point and cull size — 2 keeps every
@@ -3373,12 +3376,19 @@ performance harness always runs with `none`.
 settings a game sets in **Project Settings → Quality → Rendering** and a
 player may change:
 
-- **Ambient occlusion** (`ambient_occlusion`: 0 off, 1 SSAO — the default —,
-  2 GTAO) is the kind drawn where a scene's look turns AO on (Post →
-  Ambient occlusion, its radius and intensity). It darkens only the
-  *indirect* light — ambient, sky and probe light, and reflections — in
-  creases and corners; the sun and lamps are never dimmed (before, the AO
-  darkened the whole finished picture, sunlit walls included). SSAO is
+- **Ambient occlusion** (`ambient_occlusion`: 0 off, 1 SSAO, 2 GTAO) is the
+  kind drawn where a scene's look turns AO on (Post → Ambient occlusion, its
+  radius and intensity). A project that does not set it draws GTAO, the only
+  kind before the setting existed, so an existing game keeps its look; new
+  projects (empty or from a template) are made with SSAO written into their
+  settings. It darkens only the *indirect* light — ambient, sky and probe
+  light, reflections, and local lights shaded per vertex (they join the
+  ambient light) — in creases and corners; the sun and per-pixel lamps are
+  never dimmed (before, the AO darkened the whole finished picture, sunlit
+  walls included). With AO off (the look, a quality level or the setting) no
+  lit pixel samples the occlusion; turning it on or off while a game runs
+  builds the lit shaders again on the next frame (a short hitch, as a shadow
+  map size change). SSAO is
   three's fast screen-space AO at half resolution; GTAO is darker and more
   exact, at about twice its cost. Each frame uses the occlusion computed from
   the previous one, reprojected (a surface just uncovered gets none for one
@@ -3387,11 +3397,16 @@ player may change:
   Play and the export at that share of the screen's resolution — 0.75 draws
   about half the pixels, the post effects included — and upscales it with AMD
   FidelityFX Super Resolution 1 (an edge-adaptive upscale, then sharpening).
-  The Scene view always draws at full resolution.
+  The Scene view always draws at full resolution. A colour sky is shown as
+  its colour (not tone mapped) under a render scale or dynamic resolution
+  as at full resolution, so Play and the Scene view agree; an image sky under
+  a render scale is tone mapped with the scene.
 - **Dynamic resolution** (`dynamic_resolution`, 0 off — the default — or 1)
   lowers the render scale, down to 0.5, while the GPU takes longer than a
-  frame (the frame-rate cap's, else 60 fps) and raises it again, up to the
-  render scale, when it has room. It reads the GPU's time from timestamp
+  frame and raises it again, up to the render scale, when it has room. A
+  frame is the interval of the cap the frames are paced by (a page's
+  `?frameRateCap=` pin over the game's; no cap: 60 fps), never shorter than
+  the display's refresh (a 50 Hz display, or a cap of 120 on a 60 Hz one). It reads the GPU's time from timestamp
   queries (turned on for it); where the browser has none it reads the time
   between frames and only acts when the page's own work is well inside the
   frame (fewer pixels do not help a frame slow on the CPU). Decisions are
@@ -3623,8 +3638,14 @@ always per pixel.
   (always, a cheap fill light). A spot light with a cookie stays per pixel.
   An effect's *Lights* block has the same **Importance**.
 - Per-vertex light joins a surface's ambient light (Custom-lit graphs read it
-  in their Ambient input); light layers and flicker (a script's or effect's
-  changing intensity) work as per pixel.
+  in their Ambient input), so ambient occlusion darkens it as it darkens the
+  ambient light (Unity's built-in pipeline does the same with its vertex
+  lights); per-pixel lamps are direct light and are not darkened. Light
+  layers and flicker (a script's or effect's changing intensity) work as per
+  pixel. A transparent double-sided surface is lit per vertex from the side
+  each of its two passes shows. The probe bake ignores every object's and
+  material's mode: a lamp's bounce off a surface set to **None** still
+  reaches the probes.
 - **When it pays** — per vertex costs per vertex instead of per pixel, so it
   is cheaper where a mesh has fewer vertices than the pixels it covers: big,
   coarse or close geometry (a grass field at your feet, large leaves, low-poly

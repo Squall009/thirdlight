@@ -105,6 +105,7 @@ export { lightImportanceOf, localLightModeOf, validateLightImportance, validateL
 
 export {
   M2_SETTINGS_KEYS,
+  NEW_PROJECT_SETTINGS,
   RENDERING_SETTINGS_GROUP,
   fixedStepHzOf,
   AUDIO_VOICE_CAP,
@@ -164,6 +165,7 @@ export {
   canonicalModelLod,
   INSTANCE_DENSITY_END_DEFAULT,
   INSTANCE_DENSITY_MIN_DEFAULT,
+  INSTANCE_DENSITY_MIN_NEW,
   INSTANCE_DENSITY_START_DEFAULT,
   instanceDensityOf,
   LOD_BIAS_DEFAULT,
@@ -1150,6 +1152,8 @@ export { FRAME_RATE_CAP_CHOICES, FRAME_RATE_CAPS, frameRateCapOf, projectFrameRa
 export {
   AMBIENT_OCCLUSION_DEFAULT,
   AMBIENT_OCCLUSION_KINDS,
+  AMBIENT_OCCLUSION_NEW_PROJECT,
+  ambientOcclusionSettingValue,
   AMBIENT_OCCLUSION_SETTING_VALUES,
   ambientOcclusionOf,
   RENDER_SCALE_DEFAULT,

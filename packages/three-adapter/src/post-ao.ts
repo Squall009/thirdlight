@@ -12,7 +12,8 @@
  *
  * How the occlusion reaches every lit material: as a light. A
  * `ScreenSpaceOcclusion` light in the scene (one per environment renderer,
- * added with its first AO stack and kept) has a light node that multiplies
+ * there while its stack draws AO: with AO off no lit pixel samples its
+ * history) has a light node that multiplies
  * the context's `ambientOcclusion` by the occlusion — what three's `AONode`
  * does for a material's AO map. three's own route, `builtinAOContext` on the
  * scene pass, marks every material as holding nodes, so every object's

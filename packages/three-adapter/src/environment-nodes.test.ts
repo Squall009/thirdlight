@@ -111,16 +111,17 @@ describe('environment renderer on WebGPURenderer', () => {
     expect(built).toHaveLength(1);
     const plan = built[0]!.plan;
     expect(plan.bloom).toEqual({ strength: 1.5, radius: 0.4, threshold: 0.85 });
-    expect(plan.ao).toEqual({ kind: 'ssao', radius: 0.3, intensity: 1 });
+    // The project sets no AO kind: GTAO, as before the setting existed.
+    expect(plan.ao).toEqual({ kind: 'gtao', radius: 0.3, intensity: 1 });
     expect(plan.upscale).toBeNull();
     expect(plan.dof).toEqual({ focus: 4, aperture: 0.002, maxBlur: 0.01 });
     expect(plan.grading).toMatchObject({ lift: 0.2, gamma: 1, gain: 1, vignette: 0.7 });
     expect(plan.aa).toBe('smaa');
     expect(plan.samples).toBe(0); // like the archived EffectComposer: no MSAA in the post stack
-    expect(plan.displayBackground).toBe(false);
+    expect(plan.displayBackground).toBeNull();
     expect(built[0]!.renders).toBe(5);
     expect(renderer.render).not.toHaveBeenCalled();
-    expect(env.diagnostics()).toMatchObject({ post: true, passes: ['render', 'ssao', 'dof', 'bloom', 'output', 'grading', 'smaa'], fallback: null });
+    expect(env.diagnostics()).toMatchObject({ post: true, passes: ['render', 'gtao', 'dof', 'bloom', 'output', 'grading', 'smaa'], fallback: null });
     expect(renderer.toneMapping).toBe(THREE.ACESFilmicToneMapping);
 
     // Low quality: bloom, AO, depth of field and anti-aliasing drop out; grading stays.
@@ -135,20 +136,31 @@ describe('environment renderer on WebGPURenderer', () => {
 
   it('render settings: the AO kind and a render scale rebuild the stack; under dynamic resolution a scale change only moves it', () => {
     const renderer = nodeRenderer();
-    const env = createEnvironmentRenderer(renderer, new THREE.Scene(), { loadTexture: async () => null });
+    const sceneOf = new THREE.Scene();
+    const occlusionLights = (): number => sceneOf.children.filter((c) => (c as { isScreenSpaceOcclusion?: boolean }).isScreenSpaceOcclusion === true).length;
+    const env = createEnvironmentRenderer(renderer, sceneOf, { loadTexture: async () => null });
     const camera = new THREE.PerspectiveCamera();
     env.set({ quality: 'high', post: { ssao: { enabled: true } } });
     env.render(camera);
-    expect(built.at(-1)!.plan.ao).toMatchObject({ kind: 'ssao' });
-    // GTAO: a new stack; off: no AO (and here no stack: nothing else is on).
-    env.setRender({ ao: 'gtao' });
-    env.render(camera);
     expect(built.at(-1)!.plan.ao).toMatchObject({ kind: 'gtao' });
+    // SSAO: a new stack; off: no AO (and here no stack: nothing else is on).
+    env.setRender({ ao: 'ssao' });
+    env.render(camera);
+    expect(built.at(-1)!.plan.ao).toMatchObject({ kind: 'ssao' });
+    expect(occlusionLights()).toBe(1);
     const n = built.length;
     env.setRender({ ao: 'off' });
     env.render(camera);
     expect(built).toHaveLength(n);
     expect(env.diagnostics().passes).toEqual([]);
+    // Off: the occlusion light left the scene (lit programs no longer sample its history); on again: back.
+    expect(occlusionLights()).toBe(0);
+    env.setRender({ ao: 'gtao' });
+    env.render(camera);
+    expect(occlusionLights()).toBe(1);
+    env.setRender({ ao: 'off' });
+    env.render(camera);
+    expect(occlusionLights()).toBe(0);
     // A render scale below 1 draws through a stack that upscales (no effects: not counted as post).
     env.setRender({ scale: 0.75 });
     env.render(camera);
@@ -307,7 +319,7 @@ describe('environment renderer on WebGPURenderer', () => {
     env.set({ sky: { mode: 'color', color: '#7ec8ff' } }); // AgX by default
     env.render(camera);
     expect(built).toHaveLength(1);
-    expect(built[0]!.plan).toMatchObject({ displayBackground: true, samples: 4, bloom: null, grading: null, aa: 'none', fogVolumes: false });
+    expect(built[0]!.plan).toMatchObject({ displayBackground: 'color', samples: 4, bloom: null, grading: null, aa: 'none', fogVolumes: false });
     expect(env.diagnostics()).toMatchObject({ post: false, passes: [] });
     // No tone mapping: the renderer draws the frame itself.
     env.set({ sky: { mode: 'color', color: '#7ec8ff' }, post: { toneMapping: 'none' } });
@@ -319,7 +331,17 @@ describe('environment renderer on WebGPURenderer', () => {
     env.setQuality('low');
     env.render(camera);
     expect(built).toHaveLength(2);
-    expect(built[1]!.plan).toMatchObject({ samples: 0, displayBackground: false });
+    expect(built[1]!.plan).toMatchObject({ samples: 0, displayBackground: null });
+    // Under a render scale or dynamic resolution (even at scale 1) a colour sky stays a display colour, as the
+    // Scene view (always at full resolution) shows it.
+    env.setQuality(null);
+    env.set({ sky: { mode: 'color', color: '#7ec8ff' } });
+    env.setRender({ scale: 1, dynamic: true });
+    env.render(camera);
+    expect(built.at(-1)!.plan).toMatchObject({ displayBackground: 'color', upscale: { scale: 1 } });
+    env.setRender({ scale: 0.5, dynamic: false });
+    env.render(camera);
+    expect(built.at(-1)!.plan).toMatchObject({ displayBackground: 'color' });
     env.dispose();
   });
 });

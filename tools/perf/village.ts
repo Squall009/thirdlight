@@ -17,6 +17,8 @@
  * `buildVillage` applies the plan through the real command API, like the
  * editor or MCP would (the same helpers as the benchmark classes).
  */
+import { INSTANCE_DENSITY_MIN_NEW } from '@thirdlight/project-model';
+
 import { BENCH_BEHAVIORS, prng, type BehaviorPlan, type EntityValue } from './generate';
 import { publishBehaviorVia, publishBufferVia, publishFileVia, splitBySize } from './build';
 import type { PerfBackend } from './backend';
@@ -182,7 +184,7 @@ export function villagePlan(seed = VILLAGE_SEED): VillagePlan {
     const key = `set-${i}`;
     buffers.push({ key, floats });
     // Ground cover: recoloured per set, casting no shadow, as a game's scatter is.
-    into({ id: `inst-${i}`, name: `Scatter ${i + 1}`, components: { transform: T(x, GROUND_Y, z), instances: { asset: { assetId: KIT_ASSET, piece: KIT_PIECES[i % KIT_PIECES.length] }, buffer: `$buffer:${key}`, count: S.copiesPerSet, castShadow: false }, materials: { '*': materials[(i * 7) % materials.length]!.materialId } } });
+    into({ id: `inst-${i}`, name: `Scatter ${i + 1}`, components: { transform: T(x, GROUND_Y, z), instances: { asset: { assetId: KIT_ASSET, piece: KIT_PIECES[i % KIT_PIECES.length] }, buffer: `$buffer:${key}`, count: S.copiesPerSet, castShadow: false, densityMin: INSTANCE_DENSITY_MIN_NEW }, materials: { '*': materials[(i * 7) % materials.length]!.materialId } } });
     counts.instanceSets! += 1;
     counts.copies! += S.copiesPerSet;
   }

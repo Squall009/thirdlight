@@ -16,16 +16,30 @@
 
 /**
  * The kinds of ambient occlusion. `ssao`: fast screen-space occlusion at half
- * resolution (the default); `gtao`: ground-truth AO, darker and more exact in
- * creases, about twice the cost; `off`: none. Either darkens only the
- * indirect light (ambient, sky and probe light), never the direct light of
- * the sun and lamps, and only where a scene's look turns ambient occlusion on.
+ * resolution (what new projects are made with); `gtao`: ground-truth AO,
+ * darker and more exact in creases, about twice the cost (what a project that
+ * does not set the kind draws, as every project did before the setting
+ * existed); `off`: none. Either darkens only the indirect light (ambient, sky
+ * and probe light, and per-vertex local light, which joins it), never the
+ * direct light of the sun and per-pixel lamps, and only where a scene's look
+ * turns ambient occlusion on.
  */
 export const AMBIENT_OCCLUSION_KINDS = ['off', 'ssao', 'gtao'] as const;
 export type AmbientOcclusionKind = (typeof AMBIENT_OCCLUSION_KINDS)[number];
 /** The `ambient_occlusion` setting's values, in `AMBIENT_OCCLUSION_KINDS` order. */
 export const AMBIENT_OCCLUSION_SETTING_VALUES = [0, 1, 2] as const;
-export const AMBIENT_OCCLUSION_DEFAULT: AmbientOcclusionKind = 'ssao';
+/**
+ * The kind a project that does not set `ambient_occlusion` draws: GTAO, the
+ * only kind before the setting existed, so an existing game keeps its look.
+ */
+export const AMBIENT_OCCLUSION_DEFAULT: AmbientOcclusionKind = 'gtao';
+/** The kind new projects are made with (written into their settings): SSAO, about half GTAO's cost. */
+export const AMBIENT_OCCLUSION_NEW_PROJECT: AmbientOcclusionKind = 'ssao';
+
+/** An AO kind as its `ambient_occlusion` setting value. */
+export function ambientOcclusionSettingValue(kind: AmbientOcclusionKind): number {
+  return AMBIENT_OCCLUSION_SETTING_VALUES[AMBIENT_OCCLUSION_KINDS.indexOf(kind)]!;
+}
 
 /**
  * The render scale's range. Below half the resolution FSR 1 can no longer

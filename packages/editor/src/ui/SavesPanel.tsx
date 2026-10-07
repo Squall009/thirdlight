@@ -10,7 +10,7 @@
 import { useEffect, useState, type JSX } from 'react';
 
 import type { SaveSchema, SaveSection, SettingsField } from '@thirdlight/project-model';
-import { AMBIENT_OCCLUSION_KINDS, FRAME_RATE_CAP_CHOICES, RENDER_SCALE_MAX, RENDER_SCALE_MIN, SETTINGS_ENGINE_BINDINGS } from '@thirdlight/project-model/limits';
+import { AMBIENT_OCCLUSION_KINDS, AMBIENT_OCCLUSION_NEW_PROJECT, FRAME_RATE_CAP_CHOICES, RENDER_SCALE_MAX, RENDER_SCALE_MIN, SETTINGS_ENGINE_BINDINGS } from '@thirdlight/project-model/limits';
 
 interface Props {
   schema: SaveSchema | null;
@@ -205,7 +205,7 @@ export function SavesPanel({ schema, error, onSave, onClearPlaySave, note }: Pro
                   v === 'frameRateCap'
                     ? { type: 'enum' as const, values: [...FRAME_RATE_CAP_CHOICES], default: 'none' }
                     : v === 'ambientOcclusion'
-                      ? { type: 'enum' as const, values: [...AMBIENT_OCCLUSION_KINDS], default: 'ssao' }
+                      ? { type: 'enum' as const, values: [...AMBIENT_OCCLUSION_KINDS], default: AMBIENT_OCCLUSION_NEW_PROJECT }
                       : v === 'renderScale'
                         ? { type: 'number' as const, min: RENDER_SCALE_MIN, max: RENDER_SCALE_MAX, default: RENDER_SCALE_MAX }
                         : v === 'dynamicResolution'

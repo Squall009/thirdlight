@@ -5,7 +5,9 @@
   "revision": 0,
   "content": {
     "assets": [],
-    "settings": {},
+    "settings": {
+      "ambient_occlusion": 1
+    },
     "behaviorTrust": {
       "entries": []
     },

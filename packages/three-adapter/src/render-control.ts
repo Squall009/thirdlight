@@ -9,7 +9,7 @@
  * each drawn frame, and draws through the environment renderer while
  * `needsEnvironment()` says the scale needs its pipeline.
  */
-import { RENDER_SCALE_MAX, RENDER_SCALE_MIN, renderScaleOf } from '@thirdlight/runtime';
+import { AMBIENT_OCCLUSION_DEFAULT, frameTargetMs, RENDER_SCALE_MAX, RENDER_SCALE_MIN, renderScaleOf } from '@thirdlight/runtime';
 
 import { DynamicResolution, type DynamicResolutionState } from './dynamic-resolution';
 import type { EnvironmentRenderer } from './environment';
@@ -34,7 +34,7 @@ export interface RenderControlOptions extends RenderSettingsLike {
   readonly upscale?: UpscaleFilter;
   /** A forced overload for dynamic resolution's first `slowFramesMs` (a diagnostic, `?slowFrames=`). */
   readonly slowFramesMs?: number;
-  /** The frame's budget in ms (the frame-rate cap's; absent: 60 fps). */
+  /** The frame's budget in ms (the pacing's frame time, `frameTargetMs`; absent: 60 fps). */
   readonly frameBudgetMs?: () => number;
 }
 
@@ -63,7 +63,6 @@ export interface RenderControl {
   diagnostics(): RenderControlDiagnostics;
 }
 
-const FRAME_BUDGET_60_FPS_MS = 1000 / 60;
 
 /**
  * Page flags over the project's render settings (a diagnostic comparison, as
@@ -100,7 +99,7 @@ export function createRenderControl(opts: RenderControlOptions = {}): RenderCont
   const fixed: RenderSettingsLike = opts.fixedScale === true ? { renderScale: RENDER_SCALE_MAX, dynamicResolution: false } : {};
   const resolved = (): RenderSettingsLike => ({ ...project, ...level, ...player, ...pinned, ...fixed });
   const first = resolved();
-  let ao: 'off' | 'ssao' | 'gtao' = first.ambientOcclusion ?? 'ssao';
+  let ao: 'off' | 'ssao' | 'gtao' = first.ambientOcclusion ?? AMBIENT_OCCLUSION_DEFAULT;
   let renderScale = renderScaleOf(first.renderScale) ?? RENDER_SCALE_MAX;
   let dynamic = first.dynamicResolution === true;
   const upscale: UpscaleFilter = opts.upscale ?? 'fsr1';
@@ -113,7 +112,7 @@ export function createRenderControl(opts: RenderControlOptions = {}): RenderCont
   /** Take the layers' settings now (a change of scale or of dynamic resolution starts dynamic resolution over). */
   const update = (): void => {
     const next = resolved();
-    const kind = next.ambientOcclusion ?? 'ssao';
+    const kind = next.ambientOcclusion ?? AMBIENT_OCCLUSION_DEFAULT;
     const s = renderScaleOf(next.renderScale) ?? RENDER_SCALE_MAX;
     const d = next.dynamicResolution === true;
     if (kind === ao && s === renderScale && d === dynamic) return;
@@ -151,7 +150,7 @@ export function createRenderControl(opts: RenderControlOptions = {}): RenderCont
       lastFrameAt = now;
       if (!dynamic || env === null) return;
       const before = drs.current();
-      const s = drs.frame({ now, gpuMs: gpu.recent(), measuresGpu: gpu.measuring(), intervalMs: interval, cpuMs, budgetMs: opts.frameBudgetMs?.() ?? FRAME_BUDGET_60_FPS_MS });
+      const s = drs.frame({ now, gpuMs: gpu.recent(), measuresGpu: gpu.measuring(), intervalMs: interval, cpuMs, budgetMs: opts.frameBudgetMs?.() ?? frameTargetMs(null) });
       if (s !== before) env.setRender({ scale: s });
     },
     diagnostics: () => ({ ambientOcclusion: ao, renderScale, dynamicResolution: dynamic, scale: scaleNow(), upscale, dynamic: dynamic ? drs.state() : null }),

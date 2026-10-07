@@ -131,6 +131,9 @@ export function applyLodGroups(root: THREE.Object3D, lod?: ModelLodSettings): nu
   // Radii and node scales below are measured in the model's own frame.
   root.updateMatrixWorld(true);
   let made = 0;
+  const groups = new Set<THREE.Object3D>();
+  /** The nearest distance a group of the model is culled at (its meshes outside the groups go with it). */
+  let firstCull = Number.POSITIVE_INFINITY;
   for (const [parent, byBase] of sets) {
     for (const [base, list] of byBase) {
       if (list.length < 2 && cullSize <= 0) continue;
@@ -143,9 +146,14 @@ export function applyLodGroups(root: THREE.Object3D, lod?: ModelLodSettings): nu
       addLevels(group, list.map((l) => l.object), radius, sizes, cullSize);
       group.userData[LOD_MODEL_SCALE_KEY] = maxScaleOf(parent.matrixWorld.elements);
       parent.add(group);
+      groups.add(group);
+      if (cullSize > 0) firstCull = Math.min(firstCull, lodDistanceForSize(radius, cullSize));
       made += 1;
     }
   }
+  // The model's meshes outside its LOD groups are culled with it, as an instance set's copies are: past the
+  // distance its first group is culled at (else a model of levels and plain parts left the plain parts drawn).
+  if (made > 0 && Number.isFinite(firstCull)) cullOutsideGroups(root, groups, firstCull);
   if (made === 0 && cullSize > 0 && root.children.length > 0) {
     // No levels of its own: the whole model is level 0, culled below its cull size.
     const all = new THREE.Group();
@@ -160,6 +168,47 @@ export function applyLodGroups(root: THREE.Object3D, lod?: ModelLodSettings): nu
     made = 1;
   }
   return made;
+}
+
+/**
+ * Put each largest subtree under `root` that holds drawables but no LOD group
+ * (nor a bone: a skeleton stays where its skinned meshes find it) in a LOD of
+ * its own, culled past `cullAt`.
+ */
+function cullOutsideGroups(root: THREE.Object3D, groups: ReadonlySet<THREE.Object3D>, cullAt: number): void {
+  const holds = (o: THREE.Object3D, test: (x: THREE.Object3D) => boolean): boolean => {
+    let found = false;
+    o.traverse((x) => {
+      if (!found && test(x)) found = true;
+    });
+    return found;
+  };
+  const visit = (parent: THREE.Object3D): void => {
+    for (const child of [...parent.children]) {
+      if (groups.has(child)) continue;
+      const inner = holds(child, (x) => groups.has(x) || (x as THREE.Bone).isBone === true);
+      if (inner) {
+        visit(child);
+        continue;
+      }
+      if (!holds(child, (x) => (x as THREE.Mesh).isMesh === true || (x as THREE.Points).isPoints === true || (x as THREE.Line).isLine === true)) continue;
+      const lod = new THREE.LOD();
+      lod.name = `${child.name}_cullLOD`;
+      const at = parent.children.indexOf(child);
+      parent.remove(child);
+      lod.addLevel(child, 0);
+      const none = new THREE.Group();
+      none.name = 'LOD_cull';
+      none.userData[LOD_CULL_LEVEL_KEY] = true;
+      lod.addLevel(none, cullAt);
+      lod.userData[LOD_MODEL_SCALE_KEY] = maxScaleOf(parent.matrixWorld.elements);
+      parent.add(lod);
+      // Keep the child order (a renderer's tie-break, and what a file's reader expects).
+      parent.children.splice(parent.children.indexOf(lod), 1);
+      parent.children.splice(at, 0, lod);
+    }
+  };
+  visit(root);
 }
 
 /** The levels of one LOD group, then its empty cull level (when its cull size leaves room for one). */

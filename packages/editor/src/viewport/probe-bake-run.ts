@@ -152,5 +152,11 @@ export function withoutLightmaps(bake: LightingBake): LightingBake | null {
  */
 export function probesAreStale(probes: ProbeBake, sceneEntities: readonly ProjectedEntity[], cellsOf: Parameters<typeof bakeHashEntity>[1], skyTurn = 0): boolean {
   const h = bakeHashes(sceneEntities.map((e) => bakeHashEntity(e, cellsOf)));
-  return h.staticsHash !== probes.staticsHash || h.lightsHash !== probes.lightsHash || Math.abs((probes.skyRotation ?? 0) - skyTurn) > 1e-6;
+  return h.staticsHash !== probes.staticsHash || h.lightsHash !== probes.lightsHash || !sameTurn(probes.skyRotation ?? 0, skyTurn);
+}
+
+/** Two turns in degrees are the same turn (0 and 360, 180 and −180 are). */
+export function sameTurn(a: number, b: number): boolean {
+  const d = (((a - b) % 360) + 360) % 360;
+  return Math.min(d, 360 - d) < 1e-6;
 }

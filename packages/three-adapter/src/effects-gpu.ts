@@ -87,10 +87,10 @@ export function cpuSystemReason(s: SystemProgram): string | null {
 
 /**
  * Engine tuning: the particle capacity below which a system of an effect
- * that already simulates systems on the CPU joins them there. Measured on
- * this host's Iris Xe (WebGPU, main thread per system and frame): a GPU
- * system costs 0.045–0.08 ms of dispatch whatever its size, the CPU step
- * 0.01 ms + ~0.17 µs a particle — even at about 400 particles.
+ * that already simulates systems on the CPU joins them there. On an
+ * integrated GPU (WebGPU, main thread per system and frame) a GPU system
+ * costs 0.045–0.08 ms of dispatch whatever its size, the CPU step 0.01 ms +
+ * ~0.17 µs a particle — even at about 400 particles.
  */
 export const GPU_MIN_PARTICLES = 512;
 

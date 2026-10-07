@@ -5,7 +5,7 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { canonicalModelLod, instanceDensityOf, LOD_SCREEN_SIZES_DEFAULT, lodCullSizeOf, lodScreenSizesFor, lodTuningOf, modelLodProblems } from './model-lod';
+import { canonicalModelLod, INSTANCE_DENSITY_MIN_NEW, instanceDensityOf, LOD_SCREEN_SIZES_DEFAULT, lodCullSizeOf, lodScreenSizesFor, lodTuningOf, modelLodProblems } from './model-lod';
 
 describe('model LOD settings', () => {
   it('the defaults are the engine-wide sizes; levels past the list keep the last', () => {
@@ -34,7 +34,9 @@ describe('model LOD settings', () => {
   it('the project tuning clamps to its ranges; an instance set fills its falloff from the defaults', () => {
     expect(lodTuningOf({})).toEqual({ bias: 1, hysteresis: 0.1 });
     expect(lodTuningOf({ lod_bias: 10, lod_hysteresis: 0 })).toEqual({ bias: 4, hysteresis: 0 });
-    expect(instanceDensityOf(undefined)).toEqual({ start: 0.02, end: 0.005, min: 0.25 });
+    // A set that does not set densityMin keeps every copy (as sets did before thinning); new sets write 0.25.
+    expect(instanceDensityOf(undefined)).toEqual({ start: 0.02, end: 0.005, min: 1 });
+    expect(instanceDensityOf({ densityMin: INSTANCE_DENSITY_MIN_NEW })).toEqual({ start: 0.02, end: 0.005, min: 0.25 });
     expect(instanceDensityOf({ densityMin: 1, densityEnd: 0.5 })).toEqual({ start: 0.02, end: 0.02, min: 1 });
   });
 });

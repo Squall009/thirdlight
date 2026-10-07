@@ -14,7 +14,11 @@
  *   their diffuse light (N·L × colour × falloff, at the vertex, interpolated)
  *   to the surface's ambient irradiance — every lighting model (standard,
  *   kit, foliage, water, graph PBR, Custom-lit's Ambient input) takes it
- *   without a hook; there are no highlights and no shadows, as in Unity. The
+ *   without a hook; there are no highlights and no shadows, as in Unity.
+ *   Joined to the ambient light it is darkened by ambient occlusion where a
+ *   look has it (as Unity's built-in pipeline adds its vertex lights to the
+ *   ambient term), while per-pixel lamps are direct light and are not: a lamp
+ *   shaded per vertex is fill light, cheap and soft. The
  *   light's colour uniform still changes every frame (flicker shows) and
  *   carries the light-layer test (light-layers.ts) like a per-pixel light's.
  *   The effect light pool (effect-lights.ts) is a local light too.
@@ -194,9 +198,18 @@ type RenderObjectFn = (object: THREE.Object3D, scene: THREE.Scene, camera: THREE
 const enabledRenderers = new WeakSet<object>();
 
 /**
+ * `scene.userData[LOCAL_LIGHTS_IGNORED_KEY]`: the scene draws every object
+ * with its material as it is, whatever its or the material's mode (the probe
+ * bake: a lamp's bounce off a surface that takes no local light itself is
+ * still light in the room).
+ */
+export const LOCAL_LIGHTS_IGNORED_KEY = 'tlLocalLightsIgnored';
+
+/**
  * Draw each object with the variant of its mode. Shadow and other override
  * passes draw with their own material and are left alone; unlit materials
- * have no lights to split.
+ * have no lights to split; a scene marked {@link LOCAL_LIGHTS_IGNORED_KEY}
+ * draws every object per pixel.
  */
 export function installLocalLightModes(renderer: { renderObject: RenderObjectFn }, enabled: boolean): void {
   if (!enabled) return;
@@ -204,7 +217,7 @@ export function installLocalLightModes(renderer: { renderObject: RenderObjectFn 
   installVertexLightStage();
   const base = renderer.renderObject;
   renderer.renderObject = function renderObjectWithMode(this: unknown, object, scene, camera, geometry, material, ...rest) {
-    if (scene.overrideMaterial === null && isLit(material)) {
+    if (scene.overrideMaterial === null && scene.userData[LOCAL_LIGHTS_IGNORED_KEY] !== true && isLit(material)) {
       const mode = drawMode(object, material);
       if (mode !== 'pixel') {
         const v = localLightVariant(material, mode);
@@ -393,7 +406,9 @@ export function markVertexLightsSummed(builder: object): void {
  * effect light pool loops over the slots in use) can only go in the vertex
  * stage's own flow, which is why this runs here rather than with the lights.
  * Double-sided surfaces (leaves, grass cards) take a light from either side:
- * a vertex can't tell which face the pixel shows.
+ * a vertex can't tell which face the pixel shows. A back-face draw (a
+ * transparent double-sided material's first pass, or a back-sided one) is lit
+ * from the side it shows.
  */
 function sumVertexLights(builder: N): void {
   const material = builder.material as THREE.Material | undefined;
@@ -402,8 +417,10 @@ function sumVertexLights(builder: N): void {
   // The scene's lights (their light nodes are set up with the fragment stage's lighting, later).
   const lights = (builder.lightsNode.getLights() as THREE.Light[]).filter((l) => (isPool(l) ? mode !== 'none' && poolVertexStart(mode, l) !== null : shading(mode, l) === true));
   if (lights.length === 0) return;
-  const twoSided = material.side === THREE.DoubleSide;
-  const normal = transformNormalToView(normalLocal).normalize().toVar('tlVertexNormal');
+  const faces = vertexLightFaces(material.side);
+  const twoSided = faces === 'both';
+  const facing = transformNormalToView(normalLocal).normalize();
+  const normal = (faces === 'back' ? facing.negate() : facing).toVar('tlVertexNormal');
   const position = positionView.toVar('tlVertexPosition');
   let total: N = vec3(0);
   for (const l of lights) {
@@ -411,6 +428,16 @@ function sumVertexLights(builder: N): void {
   }
   VERTEX_LIGHTS.assign(total);
   markVertexLightsSummed(builder);
+}
+
+/**
+ * Which side of its vertex normals a build's per-vertex light comes from, by
+ * `side` as the build draws it: three draws a transparent double-sided
+ * material twice, its back faces (side BackSide, a program of its own) then
+ * its front faces, and back faces face away from their normals.
+ */
+export function vertexLightFaces(side: THREE.Side): 'front' | 'back' | 'both' {
+  return side === THREE.DoubleSide ? 'both' : side === THREE.BackSide ? 'back' : 'front';
 }
 
 let stageInstalled = false;

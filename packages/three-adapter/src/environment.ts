@@ -32,7 +32,7 @@
  */
 import * as THREE from 'three';
 import { PMREMGenerator as NodePMREMGenerator, type WebGPURenderer } from 'three/webgpu';
-import { levelPost, qualityLevelOf, qualityLevelsOf, type QualityLevelConfig } from '@thirdlight/runtime';
+import { AMBIENT_OCCLUSION_DEFAULT, levelPost, qualityLevelOf, qualityLevelsOf, type QualityLevelConfig } from '@thirdlight/runtime';
 
 import { ScreenSpaceOcclusion } from './post-ao';
 import type { UpscaleFilter } from './post-upscale';
@@ -189,7 +189,7 @@ export interface RenderOptions {
   readonly dynamic: boolean;
   readonly upscale: UpscaleFilter;
 }
-export const RENDER_OPTIONS_DEFAULT: RenderOptions = Object.freeze({ ao: 'ssao', scale: 1, dynamic: false, upscale: 'fsr1' });
+export const RENDER_OPTIONS_DEFAULT: RenderOptions = Object.freeze({ ao: AMBIENT_OCCLUSION_DEFAULT, scale: 1, dynamic: false, upscale: 'fsr1' });
 
 export interface EnvironmentRendererOptions {
   loadTexture: (assetId: string) => Promise<THREE.Texture | null>;
@@ -789,11 +789,13 @@ export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE
     const upscaling = render.scale < 1 || render.dynamic;
     // Without a post stack a colour or sRGB image background is shown as it is (not tone mapped,
     // as the archived WebGL renderer drew it); WebGPURenderer tone maps the whole frame, so the
-    // background gets its own pass. Not under a render scale: drawn at the scale into its own target
-    // that pass comes out black (both backends), so an upscaled frame draws its background as a post
-    // stack does (tone mapped with the scene).
+    // background is laid under the picture: a colour as a uniform (at any render scale, so Play under a
+    // render scale or dynamic resolution shows the sky the Scene view does), an image in its own pass.
+    // Not yet an image under a render scale (no pixel test of it there): an upscaled frame draws an image
+    // background as a post stack does (tone mapped).
     const bg = scene.background as (THREE.Color | THREE.Texture | null) & { isColor?: boolean; isTexture?: boolean };
-    const displayBackground = !isPost && !upscaling && renderer.toneMapping !== THREE.NoToneMapping && bg !== null && (bg.isColor === true || (bg.isTexture === true && (bg as THREE.Texture).colorSpace === THREE.SRGBColorSpace));
+    const bgKind = bg === null ? null : bg.isColor === true ? 'color' : bg.isTexture === true && (bg as THREE.Texture).colorSpace === THREE.SRGBColorSpace ? 'image' : null;
+    const displayBackground = !isPost && renderer.toneMapping !== THREE.NoToneMapping && bgKind !== null && !(bgKind === 'image' && upscaling) ? bgKind : null;
     const post = postNow();
     // The numbers the passes take as uniforms (grading, vignette, bloom) are not part of
     // the key (nor the exposure, a renderer setting): a blend or an edit of them updates the built stack
@@ -806,8 +808,16 @@ export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE
     if (key === composerKey) return;
     composerKey = key;
     disposePipeline();
+    // AO switched off (the look, the level or the setting): the occlusion light leaves the scene, so lit
+    // programs no longer sample its history per pixel. Its coming and going changes the lights' program key:
+    // the lit programs build again on the next frame, as for a shadow map size change.
+    if (!(w.ssao && camera instanceof THREE.PerspectiveCamera) && aoLight !== null) {
+      scene.remove(aoLight);
+      aoLight.dispose();
+      aoLight = null;
+    }
     samplesNow = renderer.samples;
-    if (!isPost && !noMsaa && !displayBackground && !upscaling) return;
+    if (!isPost && !noMsaa && displayBackground === null && !upscaling) return;
     const g = post?.grading;
     const perspective = camera instanceof THREE.PerspectiveCamera;
     const plan: PostPlan = {

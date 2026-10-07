@@ -16,7 +16,7 @@ import { EffectLights } from './effect-lights';
 import { INSTANCE_SET_KEY } from './instancing';
 import { applyEntityRenderFlags } from './entity-render-flags';
 import { createSceneLights } from './lights-shadows';
-import { drawMode, installLocalLightModes, LIGHT_IMPORTANCE_KEY, localLightsCacheKey, localLightVariant, LOCAL_LIGHTS_KEY, markVertexLightsSummed, setLightImportance, splitLocalLights, vertexLightsFromUrl } from './local-lights';
+import { drawMode, installLocalLightModes, LIGHT_IMPORTANCE_KEY, localLightsCacheKey, localLightVariant, LOCAL_LIGHTS_IGNORED_KEY, LOCAL_LIGHTS_KEY, markVertexLightsSummed, setLightImportance, splitLocalLights, vertexLightFaces, vertexLightsFromUrl } from './local-lights';
 import { StaticShadowRevision } from './shadow-casters';
 
 const lit = () => new THREE.MeshStandardNodeMaterial();
@@ -108,6 +108,19 @@ describe('local-light modes', () => {
     scene.overrideMaterial = null;
     const plain = new THREE.MeshStandardMaterial();
     expect(Object.getPrototypeOf(draw(plain))).toBe(plain);
+    // The probe bake's scene draws every material as it is: a material without local lights still bounces a lamp.
+    m.userData[LOCAL_LIGHTS_KEY] = 'none';
+    delete mesh.userData[LOCAL_LIGHTS_KEY];
+    expect(Object.getPrototypeOf(draw(m))).toBe(m);
+    scene.userData[LOCAL_LIGHTS_IGNORED_KEY] = true;
+    expect(draw(m)).toBe(m);
+  });
+
+  it('per-vertex light comes from the side a build draws: both for double-sided, the back for a back-face pass', () => {
+    expect(vertexLightFaces(THREE.FrontSide)).toBe('front');
+    expect(vertexLightFaces(THREE.DoubleSide)).toBe('both');
+    // three's first pass of a transparent double-sided material draws its back faces with side BackSide.
+    expect(vertexLightFaces(THREE.BackSide)).toBe('back');
   });
 
   it('a build splits its local lights by its mode and each light\'s importance; the sun, ambient light and other lights stay per pixel', () => {

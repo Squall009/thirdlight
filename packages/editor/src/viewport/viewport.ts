@@ -49,7 +49,7 @@ import {
 import { createGltfLoaderPort } from '@thirdlight/three-adapter/gltf-loader';
 import type { BlockChunk, BlockLayerComponent, BlockType, InstanceBrush, InstanceStroke } from '@thirdlight/project-model';
 import * as THREE from 'three';
-import { VIEW_LENS_DEFAULTS, type EnvironmentBlendView } from '@thirdlight/runtime';
+import { AMBIENT_OCCLUSION_DEFAULT, VIEW_LENS_DEFAULTS, type EnvironmentBlendView } from '@thirdlight/runtime';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { disposeOrbitControls, releaseControlKeyListeners } from './controls';
 import { TransformControls } from 'three/examples/jsm/controls/TransformControls.js';
@@ -317,7 +317,7 @@ export class Viewport {
   private instanceChunk: number | undefined = undefined;
   /** The project's LOD bias and hysteresis (null: the defaults), kept for an adapter made again. */
   private lodTuning: { bias: number; hysteresis: number } | null = null;
-  private aoKind: 'off' | 'ssao' | 'gtao' = 'ssao';
+  private aoKind: 'off' | 'ssao' | 'gtao' = AMBIENT_OCCLUSION_DEFAULT;
 
   // ---- The scene adapter -------------------------------------------------
   /** The project environment, the bakes and the lighting mode as last set (a new adapter takes them). */

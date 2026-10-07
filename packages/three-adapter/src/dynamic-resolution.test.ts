@@ -1,16 +1,18 @@
 import { describe, expect, it } from 'vitest';
 
+import { frameTargetMs } from '@thirdlight/runtime';
+
 import { DRS_HOLD_MS, DRS_UP_WINDOWS, DRS_WINDOW_MS, DynamicResolution, slowFramesFromUrl } from './dynamic-resolution';
 
 const BUDGET = 1000 / 60;
 
 /** Frames 16 ms apart for `ms`, each with `gpu(scale)` ms of GPU time (null: not measured). */
-function run(d: DynamicResolution, from: number, ms: number, gpu: ((scale: number) => number) | null, extra: { interval?: number; cpu?: number } = {}): { now: number; scales: number[] } {
+function run(d: DynamicResolution, from: number, ms: number, gpu: ((scale: number) => number) | null, extra: { interval?: number; cpu?: number; budget?: number } = {}): { now: number; scales: number[] } {
   const scales: number[] = [];
   let now = from;
   const interval = extra.interval ?? 16;
   for (; now < from + ms; now += interval) {
-    const s = d.frame({ now, gpuMs: gpu === null ? null : gpu(d.current()), measuresGpu: gpu !== null, intervalMs: interval, cpuMs: extra.cpu ?? 2, budgetMs: BUDGET });
+    const s = d.frame({ now, gpuMs: gpu === null ? null : gpu(d.current()), measuresGpu: gpu !== null, intervalMs: interval, cpuMs: extra.cpu ?? 2, budgetMs: extra.budget ?? BUDGET });
     if (scales.at(-1) !== s) scales.push(s);
   }
   return { now, scales };
@@ -52,6 +54,26 @@ describe('dynamic resolution', () => {
     // Changes per minute stay few (a window is 250 ms: thrashing would be a change every few windows).
     expect(scales.length).toBeLessThan(20);
     expect(d.state().upWait).toBeGreaterThan(DRS_UP_WINDOWS);
+  });
+
+  it('without GPU timing, budgeted from the pacing\'s frame time: a 30 cap or a 50 Hz display is not slow, and it recovers', () => {
+    // A 30 cap (pinned by the page or the game's): frames 33 ms apart are on time.
+    const capped = new DynamicResolution(0.5, 1);
+    run(capped, 0, 5000, null, { interval: 33.3, cpu: 3, budget: frameTargetMs({ frameRateCap: 30, displayMs: 16.7 }) });
+    expect(capped.current()).toBe(1);
+    const pinned = new DynamicResolution(0.5, 1);
+    run(pinned, 0, 5000, null, { interval: 33.3, cpu: 3, budget: frameTargetMs({ frameRateCap: null, pinned: 30, displayMs: 16.7 }) });
+    expect(pinned.current()).toBe(1);
+    // A 50 Hz display, uncapped or a cap of 60 or 120 above it.
+    const slowDisplay = new DynamicResolution(0.5, 1);
+    run(slowDisplay, 0, 5000, null, { interval: 20, cpu: 3, budget: frameTargetMs({ frameRateCap: 120, displayMs: 20 }) });
+    expect(slowDisplay.current()).toBe(1);
+    // Forced slow frames step it down; after them it comes back to the most.
+    slowDisplay.stress(2000);
+    const down = run(slowDisplay, 5000, 2500, null, { interval: 20, cpu: 3, budget: 20 });
+    expect(Math.min(...down.scales)).toBeLessThan(1);
+    run(slowDisplay, 7500, 30_000, null, { interval: 20, cpu: 3, budget: 20 });
+    expect(slowDisplay.current()).toBe(1);
   });
 
   it('without GPU timing reads the frame interval, and leaves CPU-bound frames alone', () => {

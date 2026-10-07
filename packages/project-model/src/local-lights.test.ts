@@ -40,5 +40,9 @@ describe('local lights (v4)', () => {
     expect(validateSceneV4(scene([{ type: 'point', color: '#ffffff', intensity: 5, mode: 'sometimes' }])).ok).toBe(false);
     expect(validateSceneV4(scene(Array.from({ length: 17 }, () => ({ type: 'point', color: '#ffffff', intensity: 5 })))).ok).toBe(false);
     expect(validateSceneV4(scene([{ type: 'hemisphere', color: '#ffffff', intensity: 1 }, { type: 'hemisphere', color: '#ffffff', intensity: 1 }])).ok).toBe(false);
+    // An importance on a directional or ambient light is checked like any (and dropped: it has no effect there).
+    expect(validateSceneV4(scene([{ type: 'directional', color: '#ffffff', intensity: 1, direction: [0, -1, 0], importance: 'loud' }])).ok).toBe(false);
+    expect(validateSceneV4(scene([{ type: 'ambient', color: '#ffffff', intensity: 1, importance: 7 }])).ok).toBe(false);
+    expect(ok([{ type: 'ambient', color: '#ffffff', intensity: 1, importance: 'vertex' }]).normalized.entities[0]!.components).not.toHaveProperty('light.importance');
   });
 });

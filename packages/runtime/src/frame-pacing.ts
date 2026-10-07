@@ -172,6 +172,22 @@ export class FramePacer {
   }
 }
 
+/** The frame rate a frame's time is measured against when nothing caps it (and the display's rate is not known). */
+export const UNCAPPED_TARGET_FPS = 60;
+
+/**
+ * The time a drawn frame has (ms) under the pacing: the interval of the cap
+ * the frames are paced by (a pinned one over the game's; none: 60 fps), and
+ * never less than the display's refresh (a 50 Hz display, or a cap of 120 on
+ * a 60 Hz one, draws no faster than the display). Dynamic resolution budgets
+ * from it: measured against a shorter one, every frame of a capped or slower
+ * display would look slow.
+ */
+export function frameTargetMs(stats: Pick<FramePacingStats, 'frameRateCap' | 'pinned' | 'displayMs'> | null | undefined): number {
+  const cap = stats === null || stats === undefined ? null : stats.pinned !== undefined ? (stats.pinned === 'none' ? null : stats.pinned) : stats.frameRateCap;
+  return Math.max(1000 / (cap ?? UNCAPPED_TARGET_FPS), stats?.displayMs ?? 0);
+}
+
 /**
  * A page URL flag that pins the frame-rate cap whatever the game sets
  * (`?frameRateCap=none|30|60|120`; Play passes the editor's on): measurements

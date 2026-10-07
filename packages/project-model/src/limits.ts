@@ -27,12 +27,12 @@ export { MATERIAL_DATA_MAX } from './material-graph-kinds';
 export { SAVE_LIMITS, SCRIPT_SAVE_LIMITS, SETTINGS_ENGINE_BINDINGS } from './save-schema';
 // The frame-rate caps (the Saves panel's settings field and the UI action's choices).
 export { FRAME_RATE_CAP_CHOICES } from './frame-rate-cap';
-export { AMBIENT_OCCLUSION_KINDS, RENDER_SCALE_MAX, RENDER_SCALE_MIN, renderSettingsOf } from './render-settings';
+export { AMBIENT_OCCLUSION_DEFAULT, AMBIENT_OCCLUSION_KINDS, AMBIENT_OCCLUSION_NEW_PROJECT, RENDER_SCALE_MAX, RENDER_SCALE_MIN, renderSettingsOf } from './render-settings';
 export { ENVIRONMENT_PRESET_LIMITS } from './environment-presets';
 export { DEFAULT_QUALITY_LEVELS, MSAA_SAMPLE_COUNTS, PIXEL_RATIO_CAP_MAX, PIXEL_RATIO_CAP_MIN, QUALITY_LEVEL_ID_RE, qualityLevelsOf, SHADOW_MAP_SIZES } from './quality-levels';
 export { MAX_TRANSITION_FADE, MAX_TRANSITION_UNLOADS } from './blocks';
 export { MAX_INPUT_ACTIONS, MAX_INPUT_BINDINGS } from './input';
-export { MAX_FOG_VOLUMES, MAX_MATERIAL_INSTANCE_DEPTH } from './materials';
+export { MAX_FOG_VOLUMES, MAX_MATERIAL_INSTANCE_DEPTH, SKY_ROTATION_MAX } from './materials';
 export { MAX_LOCAL_LIGHTS } from './local-lights';
 export { LIGHT_LAYER_COUNT, LIGHT_LAYERS_ALL, MAX_LIGHT_LAYER_NAME, lightLayerLabel } from './light-layers';
 export { INSTANCES_LOCAL_LIGHTS_DEFAULT, LIGHT_IMPORTANCES, LOCAL_LIGHT_MODES, MATERIAL_LOCAL_LIGHT_MODES } from './local-lights';
@@ -40,7 +40,7 @@ export { COLLIDER_3D_LIMITS, CONVEX_TOL, MAX_COLLIDER_EXTENT, MAX_POLYGON_VERTIC
 // The audio load-type defaults and the browser-support rules (pure data rules the editor applies too).
 export { AUDIO_DECODE_ON_LOAD_BELOW_MS, AUDIO_FORMATS, AUDIO_LOAD_TYPES, AUDIO_PIPELINE_NAME, AUDIO_PIPELINE_VERSION, AUDIO_STREAM_ABOVE_MS, audioLoadOf, audioPlaybackGaps, audioSummaryOf, defaultAudioLoadType } from './audio-assets';
 export { TEXTURE_BUDGET_DEFAULT_MB, TEXTURE_BUDGET_MAX_MB, TEXTURE_BUDGET_MIN_MB, TEXTURE_STREAM_TAIL_PX, TEXTURE_STREAMING_DEFAULT_ABOVE_PX, textureBudgetBytesOf, textureHasStreamableChain, textureStreamingOf } from './texture-streaming';
-export { LOD_SCREEN_SIZES_DEFAULT, lodTuningOf } from './model-lod';
+export { INSTANCE_DENSITY_END_DEFAULT, INSTANCE_DENSITY_MIN_DEFAULT, INSTANCE_DENSITY_MIN_NEW, INSTANCE_DENSITY_START_DEFAULT, LOD_BIAS_DEFAULT, LOD_BIAS_MAX, LOD_BIAS_MIN, LOD_HYSTERESIS_DEFAULT, LOD_HYSTERESIS_MAX, LOD_SCREEN_SIZES_DEFAULT, lodTuningOf } from './model-lod';
 // The settings group the editor shows with the quality (Project Settings → Quality).
 export { RENDERING_SETTINGS_GROUP, extractTexturesEverywhere } from './content-settings';
 export { RUNTIME_CONTENT_MANIFEST_MAX_BYTES } from './manifest';

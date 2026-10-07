@@ -80,6 +80,7 @@ import {
   type BlockLayerData,
   type ClipDurationOf,
   ID_RE,
+  NEW_PROJECT_SETTINGS,
 } from '@thirdlight/project-model';
 
 import { sha256Hex } from './digest';
@@ -1352,7 +1353,8 @@ export function defaultProjectFilesV4(
     ],
   });
   if (!scene.ok) return { ok: false, message: `the default scene failed v3 validation: ${scene.errors[0]?.message ?? 'unknown'}` };
-  const content = validateContentV3({ assets: [], prefabs: [], behaviors: [], settings: {}, behaviorTrust: { entries: [] }, game: null });
+  // The settings whose engine default changed are written out at their new value (NEW_PROJECT_SETTINGS).
+  const content = validateContentV3({ assets: [], prefabs: [], behaviors: [], settings: { ...NEW_PROJECT_SETTINGS }, behaviorTrust: { entries: [] }, game: null });
   if (!content.ok) return { ok: false, message: `the empty content block failed v3 validation: ${content.errors[0]?.message ?? 'unknown'}` };
   const manifest: Manifest = {
     schemaVersion: 1,

@@ -19,7 +19,7 @@ import { TEXTURE_BUDGET_DEFAULT_MB, TEXTURE_BUDGET_MAX_MB, TEXTURE_BUDGET_MIN_MB
 import { LOD_BIAS_DEFAULT, LOD_BIAS_MAX, LOD_BIAS_MIN, LOD_HYSTERESIS_DEFAULT, LOD_HYSTERESIS_MAX } from './model-lod';
 import { VIEW_LENS_DEFAULTS, VIRTUAL_CAMERA_LIMITS } from './cameras';
 import { FRAME_RATE_CAPS } from './frame-rate-cap';
-import { AMBIENT_OCCLUSION_SETTING_VALUES, RENDER_SCALE_DEFAULT, RENDER_SCALE_MAX, RENDER_SCALE_MIN } from './render-settings';
+import { AMBIENT_OCCLUSION_DEFAULT, AMBIENT_OCCLUSION_NEW_PROJECT, AMBIENT_OCCLUSION_SETTING_VALUES, ambientOcclusionSettingValue, RENDER_SCALE_DEFAULT, RENDER_SCALE_MAX, RENDER_SCALE_MIN } from './render-settings';
 
 // ---- settings registry ------------------------------------------
 
@@ -139,8 +139,8 @@ export const M2_SETTINGS_KEYS: readonly SettingsKeySpec[] = [
   // gets a panner per source with the listener on the active camera. 1 and 2
   // force one or the other (a 2D game may want stereo panning).
   // The size (m) of an instance set's spatial chunks, each culled on its own
-  // (a set's own chunkSize overrides it; each copy picks its own level of
-  // detail). 32 m: a few seconds' walk for the default 1.8 m character and
+  // (a set's own chunkSize overrides it; each chunk draws one level of detail
+  // for its copies unless the set asks for a level per copy). 32 m: a few seconds' walk for the default 1.8 m character and
   // small next to a usual view distance, so chunks out of view are culled
   // (three-adapter INSTANCE_CHUNK_METERS, the same value).
   { key: 'instance_chunk_m', type: 'number', default: 32, min: 1, max: 4096, unit: 'm', optional: true, group: RENDERING_SETTINGS_GROUP, label: 'Instance chunk size', tooltip: 'Instance sets are drawn in square chunks of about this size (m), each hidden when out of view. Smaller: finer culling, more draw calls. A set can set its own.' },
@@ -176,11 +176,23 @@ export const M2_SETTINGS_KEYS: readonly SettingsKeySpec[] = [
   { key: 'lod_bias', type: 'number', default: LOD_BIAS_DEFAULT, min: LOD_BIAS_MIN, max: LOD_BIAS_MAX, unit: '×', optional: true, group: RENDERING_SETTINGS_GROUP, label: 'LOD bias', tooltip: 'Scales where every model switches to its coarser levels and stops being drawn: 2 keeps each level twice as far, 0.5 switches at half the distance (cheaper). Each model sets its own switch points in its import settings.' },
   { key: 'lod_hysteresis', type: 'number', default: LOD_HYSTERESIS_DEFAULT, min: 0, max: LOD_HYSTERESIS_MAX, unit: '', optional: true, group: RENDERING_SETTINGS_GROUP, label: 'LOD hysteresis', tooltip: 'A model switches back to its finer level only this share of the switch distance closer than where it switched, so one standing at a switch point does not flicker.' },
   // Ambient occlusion, render scale and dynamic resolution (render-settings.ts, where the reasons are). AO:
-  // SSAO by default (half resolution, the cheap kind), drawn only where a scene's look turns it on.
-  { key: 'ambient_occlusion', type: 'number', default: 1, values: [...AMBIENT_OCCLUSION_SETTING_VALUES], valueLabels: ['Off', 'SSAO (fast, half resolution)', 'GTAO (quality)'], integer: true, unit: '', optional: true, group: RENDERING_SETTINGS_GROUP, label: 'Ambient occlusion', tooltip: 'The kind of ambient occlusion drawn where a scene\'s look turns it on (Post → Ambient occlusion). It darkens only the indirect light (ambient, sky and probe light) in creases and corners, never the sun or lamps. SSAO is the fast default; GTAO is darker and more exact, at about twice the cost. A player\'s settings field bound to ambientOcclusion overrides it.' },
+  // unset, GTAO (what every game drew before the setting, so none changes look); new projects are made with
+  // SSAO (NEW_PROJECT_SETTINGS); drawn only where a scene's look turns it on.
+  { key: 'ambient_occlusion', type: 'number', default: ambientOcclusionSettingValue(AMBIENT_OCCLUSION_DEFAULT), values: [...AMBIENT_OCCLUSION_SETTING_VALUES], valueLabels: ['Off', 'SSAO (fast, half resolution)', 'GTAO (quality)'], integer: true, unit: '', optional: true, group: RENDERING_SETTINGS_GROUP, label: 'Ambient occlusion', tooltip: 'The kind of ambient occlusion drawn where a scene\'s look turns it on (Post → Ambient occlusion). It darkens only the indirect light (ambient, sky and probe light, and per-vertex local light) in creases and corners, never the sun or per-pixel lamps. SSAO is the fast one new projects start with; GTAO is darker and more exact, at about twice the cost, and what a project draws when it does not set this. A player\'s settings field bound to ambientOcclusion overrides it.' },
   { key: 'render_scale', type: 'number', default: RENDER_SCALE_DEFAULT, min: RENDER_SCALE_MIN, max: RENDER_SCALE_MAX, unit: '×', optional: true, group: RENDERING_SETTINGS_GROUP, label: 'Render scale', tooltip: 'The share of the screen\'s resolution Play and the export draw the 3D view at (0.5–1), upscaled to the screen with AMD FSR 1 (edge-adaptive upscaling and sharpening). 0.75 draws about half the pixels. The Scene view always draws at full resolution. A player\'s settings field bound to renderScale overrides it.' },
   { key: 'dynamic_resolution', type: 'number', default: 0, values: [0, 1], valueLabels: ['Off', 'On'], integer: true, unit: '', optional: true, group: RENDERING_SETTINGS_GROUP, label: 'Dynamic resolution', tooltip: 'Lowers the render scale (down to 0.5) while the GPU takes longer than a frame (the frame-rate cap, else 60 fps) and raises it again, up to the render scale, when it has room. It changes slowly and waits longer after a change that did not hold, so it does not flicker. A player\'s settings field bound to dynamicResolution overrides it.' },
 ];
+
+/**
+ * The settings a new project is made with (an empty one, or one from a
+ * template, under the template's own): a setting whose default changed keeps
+ * its old value for projects that do not set it, so an existing game never
+ * changes look or behaviour on an engine update; new projects get the new
+ * value written out.
+ */
+export const NEW_PROJECT_SETTINGS: Readonly<Record<string, number>> = Object.freeze({
+  ambient_occlusion: ambientOcclusionSettingValue(AMBIENT_OCCLUSION_NEW_PROJECT),
+});
 
 /** The simulation's dimension (the `physics_dimension` setting's values). */
 export type PhysicsDimension = 2 | 3;

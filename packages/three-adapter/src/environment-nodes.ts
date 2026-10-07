@@ -178,10 +178,11 @@ export interface PostPlan {
    * The scene's background (a colour or an sRGB sky image) is shown as a
    * display colour, not tone mapped — what the WebGL renderer does when it
    * draws straight to the canvas (no post stack). WebGPURenderer tone maps
-   * the whole frame, so the background is drawn in its own pass and laid
-   * under the tone-mapped picture.
+   * the whole frame, so the background is laid under the tone-mapped
+   * picture: an image drawn in its own pass, a colour as a uniform (no pass,
+   * so it also holds under a render scale). Null: drawn with the scene.
    */
-  displayBackground: boolean;
+  displayBackground: 'color' | 'image' | null;
   /** MSAA samples of the scene pass (0: none). */
   samples: number;
   /** Drawn at a share of the screen's resolution and upscaled (null: at the screen's; `scale` is the first frame's, `setScale` moves it). */
@@ -378,12 +379,35 @@ export function buildPostPipeline(renderer: WebGPURenderer, scene: THREE.Scene, 
   passes.push('output');
 
   // The background as a display colour under the picture (premultiplied "over").
-  const bgScene = plan.displayBackground ? new THREE.Scene() : null;
+  if (plan.displayBackground !== null) {
+    // The scene pass draws on transparent black (its alpha says where the background shows). Set for its own
+    // draw: a pass drawn inside another node's render (an RTT, as the render scale's chain has) finds the clear
+    // colour three's RTT reset to opaque black, and the background would never show.
+    const draw = scenePass.updateBefore.bind(scenePass) as (frame: unknown) => unknown;
+    const clear = new THREE.Color();
+    scenePass.updateBefore = (frame: unknown): unknown => {
+      renderer.getClearColor(clear);
+      const alpha = renderer.getClearAlpha();
+      renderer.setClearColor(0x000000, 0);
+      try {
+        return draw(frame);
+      } finally {
+        renderer.setClearColor(clear, alpha);
+      }
+    };
+  }
+  const bgScene = plan.displayBackground === 'image' ? new THREE.Scene() : null;
+  // A colour background: the scene's colour (working space, as three clears with it), set each frame.
+  const bgColor: N = plan.displayBackground === 'color' ? uniform(new THREE.Color()) : null;
   let bgPass: N = null;
-  if (bgScene !== null) {
-    bgPass = pass(bgScene, camera, { depthBuffer: false });
-    disposables.push(bgPass);
-    const bg: N = renderOutput(bgPass.getTextureNode('output'), THREE.NoToneMapping);
+  if (plan.displayBackground !== null) {
+    let source: N;
+    if (bgScene !== null) {
+      bgPass = pass(bgScene, camera, { depthBuffer: false });
+      disposables.push(bgPass);
+      source = bgPass.getTextureNode('output');
+    } else source = vec4(bgColor, 1);
+    const bg: N = renderOutput(source, THREE.NoToneMapping);
     const fg = color;
     color = vec4(fg.rgb.add(bg.rgb.mul(float(1).sub(fg.a))), fg.a.add(bg.a.mul(float(1).sub(fg.a))));
   }
@@ -560,18 +584,20 @@ export function buildPostPipeline(renderer: WebGPURenderer, scene: THREE.Scene, 
   };
 
   function drawFrame(): void {
-    if (bgScene === null) {
+    if (plan.displayBackground === null) {
       pipeline.render();
       return;
     }
-    // The scene pass draws on transparent black without the background; the background pass draws only it.
+    // The scene pass draws on transparent black without the background; the background pass (or colour) is only it.
     const s = scene as THREE.Scene & { backgroundIntensity: number; backgroundBlurriness: number };
-    const b = bgScene as THREE.Scene & { backgroundIntensity: number; backgroundBlurriness: number };
     const background = s.background;
-    b.background = background;
-    b.backgroundIntensity = s.backgroundIntensity;
-    b.backgroundBlurriness = s.backgroundBlurriness;
-    b.backgroundRotation.copy(s.backgroundRotation);
+    const b = bgScene as (THREE.Scene & { backgroundIntensity: number; backgroundBlurriness: number }) | null;
+    if (b !== null) {
+      b.background = background;
+      b.backgroundIntensity = s.backgroundIntensity;
+      b.backgroundBlurriness = s.backgroundBlurriness;
+      b.backgroundRotation.copy(s.backgroundRotation);
+    } else if ((background as THREE.Color | null)?.isColor === true) (bgColor.value as THREE.Color).copy(background as THREE.Color);
     const clear = renderer.getClearColor(new THREE.Color());
     const alpha = renderer.getClearAlpha();
     s.background = null;
@@ -580,7 +606,7 @@ export function buildPostPipeline(renderer: WebGPURenderer, scene: THREE.Scene, 
       pipeline.render();
     } finally {
       s.background = background;
-      b.background = null;
+      if (b !== null) b.background = null;
       renderer.setClearColor(clear, alpha);
     }
   }

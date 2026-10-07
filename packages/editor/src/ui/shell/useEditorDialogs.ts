@@ -4,6 +4,7 @@
  * game mode), the instance-set scatter and the snapping settings' draft.
  */
 import { useCallback, useState } from 'react';
+import { INSTANCE_DENSITY_MIN_NEW } from '@thirdlight/project-model/limits';
 import { SessionClient } from '../../session/client';
 import { scatterProblem, scatterTransforms } from '../../session/instances';
 import { editorWorkers } from '../../workers/editor-workers';
@@ -88,7 +89,7 @@ export function useEditorDialogs(deps: EditorDialogsDeps) {
       return;
     }
     const name = `${c.content.getAsset(scatter.assetId)?.displayName ?? 'Model'} ×${published.count}`;
-    await createEntityAt('Instance set', { kind: 'group', name, components: { instances: { asset: { assetId: scatter.assetId }, buffer: published.digest, count: published.count } } });
+    await createEntityAt('Instance set', { kind: 'group', name, components: { instances: { asset: { assetId: scatter.assetId }, buffer: published.digest, count: published.count, densityMin: INSTANCE_DENSITY_MIN_NEW } } });
     setScatter((f) => ({ ...f, busy: false }));
     setDialog(null);
   }, [clientRef, scatter.count, scatter.width, scatter.depth, scatter.scaleMin, scatter.scaleMax, scatter.randomYaw, scatter.seed, scatter.assetId, createEntityAt]);

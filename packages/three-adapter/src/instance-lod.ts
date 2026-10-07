@@ -6,10 +6,9 @@
  * against the model's switch distances scaled by size). A set with
  * `lodPerCopy` has every copy pick its own level by its own distance and
  * size instead: a 32 m chunk then no longer switches all its grass at once,
- * but a chunk straddling a switch point draws once per level it holds —
- * on Skyforge's farm (many small sets of copies of varied size) that was 23
- * more draws and +0.35 ms of main thread a frame on WebGL 2, so it is the
- * set's choice. Either way copies thin out where they are small on screen
+ * but a chunk straddling a switch point draws once per level it holds — a
+ * draw more per level in every such chunk, which many small sets of copies of
+ * varied size pay in main-thread time on WebGL 2, so it is the set's choice. Either way copies thin out where they are small on screen
  * (the set's density falloff). The chunk keeps one draw per mesh and level;
  * each draw leaves out the copies that are not at its level
  * (`InstanceFilter`), so a pick costs no draw call.
@@ -18,8 +17,8 @@
  * them) and only when the chunk's place or the tuning changed, or the eye
  * moved more than {@link REPICK_MOVE_FRACTION} of its distance to the
  * chunk's nearest copy since the last pick: picks depend on distance only, so
- * a camera turning or drifting a little leaves them as they are (each frame
- * the camera moved used to loop over every copy of every chunk). A chunk
+ * a camera turning or drifting a little leaves them as they are (re-picking
+ * on every camera move would loop over every copy of every chunk each frame). A chunk
  * wholly nearer than its first switch and its density falloff, or wholly
  * past its cull distance, is decided at once without a loop over its copies.
  * Each draw reads the list of the copies at its level (made once per change

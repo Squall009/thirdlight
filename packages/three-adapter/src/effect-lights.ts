@@ -3,10 +3,10 @@
  * shaded in a loop bounded by the number in use.
  *
  * Every three.js light in the scene is unrolled into every lit material's
- * shader and keys its program, so the pool used to sit in the scene as
- * `EFFECT_LIGHT_LIMIT` dark point lights: a fixed light count (no recompile
- * when an effect light turns on) at the price of shading all of them in
- * every lit pixel, dark or not (measured: +4.3 ms GPU on the village class).
+ * shader and keys its program. A pool of `EFFECT_LIGHT_LIMIT` dark point
+ * lights in the scene would keep the light count fixed (no recompile when an
+ * effect light turns on) at the price of shading all of them in every lit
+ * pixel, dark or not (measured: +4.3 ms GPU on the village class).
  * Here the pool is a single `EffectLights` object with its own light node:
  * the shader is built once for the whole pool (its arrays sized to the
  * limit), and the loop runs only over the slots in use, so a dark slot
