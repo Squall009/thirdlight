@@ -425,10 +425,13 @@ export const TEMPLATE_LAYERS = 4;
  * are COLOR_0 (a painted block layer's paint, a mesh's vertex colours;
  * without them all first layer), shaped by the layers' heights through a
  * Height blend (`blendDepth`); every layer value is a Weighted mix. Wetness —
- * COLOR_1.r (painted) or the `wetness` parameter (rain on everything), the
- * larger — darkens the albedo and smooths the surface (wet ground: the
- * albedo × 0.55, roughness toward 0.1). Per-layer values change no texture
- * reads: twelve samples, as with one shared value.
+ * COLOR_1.r (painted) or the `wetness` parameter (rain on this material), the
+ * larger, plus the scene's (its Environment wetness) — pools in the low parts
+ * of the blended height first (`wetPooling`: 0 even, 1 the cracks fill well
+ * before the tops), darkens the albedo and smooths the surface (wet ground:
+ * the albedo × 0.55, roughness toward 0.1) and flattens the normal maps
+ * (`wetFlatten`). Per-layer values and wetness change no texture reads:
+ * twelve samples, as with one shared value.
  */
 export function layeredMaterial(materialId: string, name: string): MaterialDef {
   const b = new GraphBuilder([]);
@@ -476,11 +479,26 @@ export function layeredMaterial(materialId: string, name: string): MaterialDef {
     return [m, 'out'];
   };
   const albedo = mix('albedoMix', albedos.map((s) => [s, 'rgb'] as Out));
+  // Wetness: the painted one or the parameter (rain on this material), whichever is larger, plus the scene's.
+  const wetLocal = b.op('max', 'wet', [wetSplit, 'x'], b.param('wetness', 'float', 0));
+  const wetAll = b.add('wetTotal', 'saturate');
+  b.wire(b.op('add', 'wetWithScene', wetLocal, [b.add('sceneWet', 'sceneWetness'), 'wetness']), wetAll, 'in');
+  // Pooling: water fills the low parts of the blended height first (wet + (wet − height) × pooling).
+  const height = b.add('wetHeight', 'dot');
+  b.wire([blend, 'weights'], height, 'a');
+  b.wire([heights, 'xyzw'], height, 'b');
+  const pooled = b.op('multiply', 'wetPool', b.op('subtract', 'wetAboveHeight', [wetAll, 'out'], [height, 'out']), b.param('wetPooling', 'float', 0.5));
+  const wetPixel = b.add('wetPooled', 'saturate');
+  b.wire(b.op('add', 'wetPooledSum', [wetAll, 'out'], pooled), wetPixel, 'in');
+  const wet: Out = [wetPixel, 'out'];
+  // Normal flattening: water fills the bumps, so a wet surface's normal maps fade.
+  const flat = b.add('wetFlat', 'oneMinus');
+  b.wire(b.op('multiply', 'wetFlatAmount', wet, b.param('wetFlatten', 'float', 0.7)), flat, 'in');
   const normals = layers.map((i) => {
     const n = b.add(`normal${i + 1}`, 'normalMap');
     b.wire(normalArr, n, 'tex');
     b.wire(uvs[i]!, n, 'uv');
-    b.wire([strength, comp[i]!], n, 'strength');
+    b.wire(b.op('multiply', `strength${i + 1}`, [strength, comp[i]!], [flat, 'out']), n, 'strength');
     b.wire(layerIndex(i), n, 'layer');
     return [n, 'normal'] as Out;
   });
@@ -493,8 +511,6 @@ export function layeredMaterial(materialId: string, name: string): MaterialDef {
   });
   const orm = b.add('ormSplit', 'split');
   b.wire(mix('ormMix', orms), orm, 'in');
-  // Wetness: the painted one or the parameter (rain), whichever is larger.
-  const wet = b.op('max', 'wet', [wetSplit, 'x'], b.param('wetness', 'float', 0));
   const darken = b.add('wetDarken', 'lerp');
   b.wire(b.float('dry', 1), darken, 'a');
   b.wire(b.float('wetAlbedo', 0.55), darken, 'b');

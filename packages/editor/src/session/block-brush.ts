@@ -32,7 +32,7 @@
  * Pure: no DOM, no three.js.
  */
 import { edgeInBounds } from '@thirdlight/runtime';
-import type { BlockCell, BlockEdge, BlockEdit, BlockLayerComponent, BlockRotation, BlockType, CellMetaValue, PaintBrush } from '@thirdlight/project-model';
+import type { BlockCell, BlockEdge, BlockEdit, BlockLayerComponent, BlockRotation, BlockType, CellMetaValue, PaintBrush, PaintTarget } from '@thirdlight/project-model';
 
 export type Cell3 = [number, number, number];
 
@@ -163,13 +163,15 @@ export interface BrushState {
   strength: number;
   /** The paint brush (radius in cells, strength 0-1, falloff, channel 0-3 a material layer, 4 wetness). */
   paint: PaintBrush;
+  /** What the paint brush paints: the tops, the walls (a layer with wall paint) or both. */
+  paintTarget: PaintTarget;
 }
 
 /** A 3-cell brush raising a quarter cell per dab: a few drags make a hill, one pass a gentle bump. */
 /** A 3-cell soft brush, a third of the way per dab: a drag or two covers a patch, one pass blends its edge. */
 export const DEFAULT_PAINT_BRUSH: PaintBrush = { radius: 3, strength: 0.35, falloff: 'smooth', channel: 1 };
 
-export const DEFAULT_BRUSH: BrushState = { block: null, rot: 0, variant: null, randomize: true, height: 2, radius: 3, strength: 0.25, paint: DEFAULT_PAINT_BRUSH };
+export const DEFAULT_BRUSH: BrushState = { block: null, rot: 0, variant: null, randomize: true, height: 2, radius: 3, strength: 0.25, paint: DEFAULT_PAINT_BRUSH, paintTarget: 'tops' };
 
 /** One terrain brush dab at `at` (columns): the `sculpt` edit; `level` is the flatten height (rows). */
 export function sculptEdit(tool: 'height' | 'smooth' | 'flatten', at: readonly [number, number], brush: BrushState, invert: boolean, level: number, cell: BlockCell | null): BlockEdit {
@@ -178,9 +180,22 @@ export function sculptEdit(tool: 'height' | 'smooth' | 'flatten', at: readonly [
   return { kind: 'sculpt', op, at: [at[0], at[1]], radius: brush.radius, strength, ...(op === 'flatten' ? { height: level } : {}), ...(cell !== null && op !== 'lower' ? { cell } : {}) };
 }
 
-/** One paint dab at `at` (columns): the `paint` edit (`erase` takes the channel away). */
-export function paintEdit(at: readonly [number, number], brush: PaintBrush, erase: boolean): BlockEdit {
-  return { kind: 'paint', at: [at[0], at[1]], radius: brush.radius, strength: brush.strength, channel: brush.channel, ...(brush.falloff !== 'smooth' ? { falloff: brush.falloff } : {}), ...(erase ? { erase: true } : {}) };
+/**
+ * One paint dab at `at` (columns): the `paint` edit (`erase` takes the
+ * channel away). Walls (or both) are painted around the point at `rows`
+ * (the height the pointer hit).
+ */
+export function paintEdit(at: readonly [number, number], brush: PaintBrush, erase: boolean, target: PaintTarget = 'tops', rows = 0): BlockEdit {
+  return {
+    kind: 'paint',
+    at: [at[0], at[1]],
+    radius: brush.radius,
+    strength: brush.strength,
+    channel: brush.channel,
+    ...(brush.falloff !== 'smooth' ? { falloff: brush.falloff } : {}),
+    ...(erase ? { erase: true } : {}),
+    ...(target !== 'tops' ? { target, y: Math.round(rows * 1000) / 1000 } : {}),
+  };
 }
 
 /** How far the brush centre moves (columns) before the next dab: a quarter of the radius, at least half a column. */

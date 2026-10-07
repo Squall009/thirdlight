@@ -38,7 +38,8 @@ import { BATCH_KEY, createAutoBatcher, markBatchable, unitBoxGeometry, type Auto
 import { markStatic, STATIC_KEY } from './static-merge';
 import { compileIntoTarget, type Precompile } from './environment-nodes';
 import { INSTANCE_MATRIX_ATTRIBUTE } from './attribute-instancing';
-import { createEnvironmentRenderer, environmentHasLook, environmentTextureIds, layerEnvironment, renderPixelRatio, type EnvironmentLayerLike, type EnvironmentLike, type EnvironmentRenderer, type FogVolumeLike, type QualityLevel } from './environment';
+import { createEnvironmentRenderer, environmentTextureIds, renderPixelRatio, type EnvironmentLike, type EnvironmentRenderer, type FogVolumeLike, type QualityLevel } from './environment';
+import { ENV_STALE, EnvironmentLook } from './environment-look';
 import { createQualityControl } from './quality-control';
 import { createGpuTiming } from './gpu-timing';
 import { createRenderControl } from './render-control';
@@ -50,7 +51,7 @@ import { RuntimeMaterialView, type MaterialRenderChangeLike, type RuntimeMateria
 import { MaterialSwapView, type MaterialMappingLike } from './material-swaps';
 import type { BlockLayerComponent, BlockLayerData, BlockType, GridRenderChange } from '@thirdlight/runtime';
 import type { Runtime, RuntimeSnapshot } from '@thirdlight/runtime';
-import { blendEnvironment, blendEnvironmentOver, blendTouchesLights, instanceDensityOf, type EnvironmentBlendView } from '@thirdlight/runtime';
+import { instanceDensityOf, type EnvironmentBlendView } from '@thirdlight/runtime';
 import { adapterError, type AdapterError } from './errors';
 import { createFrameCapture, type ScreenshotResult } from './capture';
 export type { ScreenshotResult } from './capture';
@@ -117,7 +118,6 @@ interface OwnedResources {
 }
 
 /** An environment preset (project-model's, as the runtime's blend maths takes it). */
-type PresetOf = Parameters<typeof blendEnvironment>[1] extends ReadonlyMap<string, infer P> ? P : never;
 
 /** An entity's `materialParams` component (overrides of its graph materials' public parameters). */
 function materialParamsOf(components: unknown): MaterialOverridesLike | null {
@@ -160,7 +160,6 @@ function modelRefsOf(entities: readonly { id: string; components: unknown }[]): 
 
 const NO_HIDDEN: ReadonlySet<string> = new Set();
 /** An applied-blend key no blend has: the next frame applies the blend (or its end) again. */
-const ENV_STALE = '\u0000stale';
 
 /** What a particle material holder wears until the project material library dresses it. */
 const EFFECT_MATERIAL_PLACEHOLDER = new THREE.MeshBasicMaterial();
@@ -263,29 +262,23 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   let environmentSize: [number, number] | null = null;
   /** The scenes' looks (absent: the environment's value is the whole look). */
   const sceneLooks = opts.environment?.scenes ?? null;
-  /** The scene whose look is laid over the project environment now, and that look (null: none). */
-  let layerScene: string | null = sceneLooks?.start ?? null;
-  let environmentLayer: EnvironmentLayerLike | null = layerScene !== null ? (sceneLooks?.look(layerScene) ?? null) : null;
-  /** The environment blend last applied (its key). */
-  let envAppliedKey = '';
-  /** The editor's preview of a blend (null: the running game's). */
-  let envPreview: EnvironmentBlendView | null = null;
-  let envBlendActive = false;
-  const envPresets = new Map<string, PresetOf>();
-  /** The project environment (an editing host replaces it, `setEnvironment`). */
-  let environmentValue: EnvironmentLike | null = opts.environment?.value ?? null;
-  const readPresets = (): void => {
-    envPresets.clear();
-    for (const p of (environmentValue?.presets ?? []) as unknown as readonly PresetOf[]) envPresets.set(p.presetId, p);
-  };
-  readPresets();
-  const envTagBits = new Map<string, number>();
-  for (const t of (opts.snapshot as { tags?: readonly { bit: number; name: string }[] }).tags ?? []) envTagBits.set(t.name.toLowerCase(), t.bit);
-  /** What the renderer draws: the project environment with the layered look over it (null when nothing is drawn, as without an environment). */
-  const effectiveEnvironment = (): EnvironmentLike | null => {
-    const v = layerEnvironment(environmentValue, environmentLayer);
-    return environmentHasLook(v) ? v : null;
-  };
+  /** The look drawn: the project environment (an editing host replaces it, `setEnvironment`), the active scene's look, a blend. */
+  const envLook = new EnvironmentLook(
+    {
+      sceneLooks,
+      readBlend: () => (opts.runtime as { readEnvironmentBlend?: () => EnvironmentBlendView | null }).readEnvironmentBlend?.() ?? null,
+      renderer: () => environmentRenderer,
+      lights: () => lights,
+      lightmaps: () => lightmaps,
+      materials: materialLibrary,
+      defaultWind: opts.materials?.wind ?? null,
+    },
+    opts.environment?.value ?? null,
+    (opts.snapshot as { tags?: readonly { bit: number; name: string }[] }).tags ?? [],
+  );
+  const envTagBits = envLook.tagBits;
+  const effectiveEnvironment = (): EnvironmentLike | null => envLook.effective();
+  const applyEnvironmentBlend = (): void => envLook.apply();
   const fogVolumeIds = new Set<string>();
   const tmpWorld: number[] = [0, 0, 0];
   const tmpSize = new THREE.Vector2();
@@ -977,7 +970,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       environment: () => environmentRenderer,
       changed: () => opts.onChange?.(),
     },
-    { project: environmentValue, ...(opts.lod !== undefined ? { lod: opts.lod } : {}), pinned: opts.qualityPinned ?? null },
+    { project: envLook.value, ...(opts.lod !== undefined ? { lod: opts.lod } : {}), pinned: opts.qualityPinned ?? null },
   );
   /** The probe tiles follow the realized scenes (a host without a scene set draws its snapshot's scene). */
   function followProbeScenes(): void {
@@ -1112,57 +1105,6 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   }
 
   /**
-   * Draw the environment blend — the look (sky, fog, post) on the
-   * environment renderer, the lights' colours/intensities/directions, the
-   * lightmap multiplier. Only when the blend or the light set changed; back to
-   * the authored look when the blend ends (a new run).
-   */
-  function applyEnvironmentBlend(): void {
-    const view = envPreview ?? ((opts.runtime as { readEnvironmentBlend?: () => EnvironmentBlendView | null }).readEnvironmentBlend?.() ?? null);
-    followActiveScene(view);
-    // Only the active scene's look, no preset: the look is drawn as it is (no blend).
-    const fading = view?.scene !== undefined && view.scene.from !== null && view.scene.weight < 1;
-    const plain = view === null || (!fading && view.weights.length === 1 && view.weights[0]![0] === '' && Object.keys(view.overrides).length === 0);
-    const layerKey = JSON.stringify(environmentLayer);
-    const key = plain ? '' : `${JSON.stringify(view.weights)}|${JSON.stringify(view.overrides)}|${JSON.stringify(view.scene ?? null)}|${lights.revision}|${layerKey}`;
-    if (key === envAppliedKey) return;
-    envAppliedKey = key;
-    if (plain) {
-      if (!envBlendActive) return;
-      envBlendActive = false;
-      environmentRenderer?.setBlend(null);
-      lights.restore();
-      lightmaps?.setLook(1, '#ffffff');
-      return;
-    }
-    envBlendActive = true;
-    const base = layerEnvironment(environmentValue, environmentLayer) ?? {};
-    // While the active scene's look blends in, every key resolves over both scenes' looks.
-    const from = fading ? (layerEnvironment(environmentValue, sceneLooks?.look(view.scene!.from!) ?? null) ?? {}) : null;
-    const look = from === null ? blendEnvironment(base as never, envPresets, view) : blendEnvironmentOver([[from as never, 1 - view.scene!.weight], [base as never, view.scene!.weight]], envPresets, view);
-    environmentRenderer?.setBlend(look as never);
-    lightmaps?.setLook(look.lightmap.intensity, look.lightmap.tint);
-    if (!blendTouchesLights(base as never, envPresets, view)) {
-      lights.restore();
-      return;
-    }
-    lights.applyBlend(base as never, envPresets, view);
-  }
-  /**
-   * The active scene's look laid over the project environment: a new active
-   * scene (the view names it) replaces the layer, the drawn environment and
-   * the wind at once; its blend from the look before is `applyEnvironmentBlend`'s.
-   */
-  function followActiveScene(view: EnvironmentBlendView | null): void {
-    if (sceneLooks === null) return;
-    const active = view?.scene?.active ?? sceneLooks.start;
-    if (active === layerScene || active === null) return;
-    layerScene = active;
-    environmentLayer = sceneLooks.look(active);
-    environmentRenderer?.set(effectiveEnvironment());
-    if (materialLibrary !== null) materialLibrary.setWind(((environmentLayer?.wind as WindLike | undefined) ?? opts.materials?.wind ?? null) as WindLike | null);
-  }
-  /**
    * The light values scripts wrote (`ctx.entity(id).set('light',
    * …)`): colour and intensity become the light's authored values (presets
    * blend from them; a new run's empty list restores the document's), range
@@ -1177,9 +1119,9 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     if (key === lightOverridesKey) return;
     lightOverridesKey = key;
     // A light a mask turned plain or layered was realized again: the lights that are on are picked again.
-    if (lights.applyOverrides(ov, envBlendActive, (id) => (entityDocs.get(id)?.components as { light?: { range?: number } } | undefined)?.light?.range ?? 0)) selectLights();
+    if (lights.applyOverrides(ov, envLook.blendActive, (id) => (entityDocs.get(id)?.components as { light?: { range?: number } } | undefined)?.light?.range ?? 0)) selectLights();
     // A running blend blends from the written values.
-    if (envBlendActive) envAppliedKey = '';
+    if (envLook.blendActive) envLook.appliedKey = '';
     if (ov.size === 0) lightOverridesKey = '';
   }
 
@@ -1478,7 +1420,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       // draws through a plain pass), so the environment renderer draws then too.
       // With the scenes' looks given, only once there is something to draw (a look, presets, a blend):
       // a game whose scenes set no look renders as one without an environment.
-      const wanted = opts.environment !== undefined && (sceneLooks === null || effectiveEnvironment() !== null || envPresets.size > 0 || envBlendActive);
+      const wanted = opts.environment !== undefined && (sceneLooks === null || effectiveEnvironment() !== null || envLook.presets.size > 0 || envLook.blendActive);
       if ((wanted || qualityControl.needsEnvironment() || renderControl.needsEnvironment()) && environmentRenderer === null) {
         // The sky, its faces and the grading LUT are held for the environment's life. They are the same
         // decoded textures materials draw with (the environment builds its cube, equirect copy and LUT
@@ -1490,8 +1432,8 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
         environmentRenderer.set(effectiveEnvironment());
         qualityControl.applyEnvironment(environmentRenderer);
         // A blend already running goes onto the new environment renderer.
-        envAppliedKey = '';
-        envBlendActive = false;
+        envLook.appliedKey = '';
+        envLook.blendActive = false;
         applyEnvironmentBlend();
       }
       if (environmentRenderer !== null) {
@@ -1774,12 +1716,12 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       return true;
     },
     previewEnvironmentBlend(view: EnvironmentBlendView | null, tagBits?: ReadonlyMap<string, number>): void {
-      envPreview = view;
+      envLook.preview = view;
       // The editor previews with the project's tags as they are now (presets name lights by tag).
       if (tagBits !== undefined) {
         envTagBits.clear();
         for (const [name, bit] of tagBits) envTagBits.set(name.toLowerCase(), bit);
-        envAppliedKey = ENV_STALE;
+        envLook.appliedKey = ENV_STALE;
       }
     },
     prepareScene(sceneId, entities, textures) {
@@ -1823,11 +1765,9 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     },
     setEnvironment(value: EnvironmentLike | null): void {
       if (disposed) return;
-      const texturesBefore = JSON.stringify(environmentTextureIds(environmentValue));
-      environmentValue = value;
-      readPresets();
+      const texturesBefore = JSON.stringify(environmentTextureIds(envLook.value));
+      envLook.setValue(value);
       qualityControl.setProject(value);
-      envAppliedKey = ENV_STALE;
       if (JSON.stringify(environmentTextureIds(value)) !== texturesBefore && environmentRenderer !== null) {
         // Other textures: a new environment renderer holds them, and the ones only the old one named are let go.
         environmentRenderer.dispose();

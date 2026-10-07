@@ -1,6 +1,6 @@
 /**
  * The Environment window's panel — the active scene's look (sky, fog,
- * post-processing, wind; the window names the scene). The Scene view previews it with
+ * post-processing, wind, wetness; the window names the scene). The Scene view previews it with
  * game lighting (the same renderer Play and export use). Each control
  * commits on release as one `setEnvironment` (one undo): `{sceneId}` for the
  * scene's look, without for the presets. The quality is the player's
@@ -302,7 +302,7 @@ function Toggle(props: { label: string; name: string; value: boolean; onCommit: 
 }
 
 export function EnvironmentPanel(p: Props): JSX.Element {
-  // The project's presets; the scene's look (sky, fog, post, wind).
+  // The project's presets; the scene's look (sky, fog, post, wind, wetness).
   const project: EnvironmentConfig = p.environment ?? {};
   const saveProject = (patch: Partial<EnvironmentConfig>): void => p.onSave({ ...project, ...patch });
   const env: SceneEnvironment = p.look ?? {};
@@ -319,7 +319,7 @@ export function EnvironmentPanel(p: Props): JSX.Element {
 
   return (
     <div className="tl-panel tl-environment">
-      <p className="tl-inspector__hint">Each scene has its own sky, fog, post-processing and wind; the active scene's applies. The Scene view shows it with game lighting (toolbar “light: game”); Play and the export use the same.</p>
+      <p className="tl-inspector__hint">Each scene has its own sky, fog, post-processing, wind and wetness; the active scene's applies. The Scene view shows it with game lighting (toolbar “light: game”); Play and the export use the same.</p>
       <div className="tl-environment__grid">
         <section className="tl-inspector__section" aria-label="sky">
           <div className="tl-subhead">Sky</div>
@@ -429,6 +429,11 @@ export function EnvironmentPanel(p: Props): JSX.Element {
           <Slider label="gusts per second" name="wind gustFrequency" value={wind.gustFrequency} min={0} max={10} step={0.05} onCommit={(v) => setWind({ gustFrequency: v })} />
           <Slider label="turbulence" name="wind turbulence" value={wind.turbulence} min={0} max={1} step={0.01} onCommit={(v) => setWind({ turbulence: v })} />
           </>
+        </section>
+
+        <section className="tl-inspector__section" aria-label="wetness">
+          <div className="tl-subhead">Wetness (rain: materials with a Scene wetness node, e.g. painted terrain, look wet)</div>
+          <Slider label="wetness" name="scene wetness" value={env.wetness ?? 0} min={0} max={1} step={0.05} onCommit={(v) => save({ wetness: v })} />
         </section>
       </div>
       {p.presets !== undefined && <PresetsSection env={project} look={env} lights={p.presets.lights} save={saveProject} onPreview={p.presets.onPreview} />}

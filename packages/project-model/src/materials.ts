@@ -738,6 +738,12 @@ export interface SceneEnvironment {
   sky?: SkyConfig;
   fog?: FogConfig;
   post?: PostConfig;
+  /**
+   * How wet the scene is (0 dry – 1 soaked; rain): materials that read the
+   * Scene wetness node (the height-blended layers template) add it to their
+   * painted wetness. Presets blend it (absent: 0).
+   */
+  wetness?: number;
 }
 
 /**
@@ -756,7 +762,7 @@ export interface EnvironmentConfig {
 }
 
 /** The fields of a scene's look (the rest of the environment is the project's). */
-export const SCENE_ENVIRONMENT_FIELDS: readonly (keyof SceneEnvironment)[] = ['wind', 'sky', 'fog', 'post'];
+export const SCENE_ENVIRONMENT_FIELDS: readonly (keyof SceneEnvironment)[] = ['wind', 'sky', 'fog', 'post', 'wetness'];
 
 /** The wind when a project sets none — a light breeze along +X (0.5 with 0.4 gusts every ~3 s, a little turbulence): foliage moves a little in any scene; 0 strength stills it. */
 export const DEFAULT_WIND: Readonly<WindConfig> = Object.freeze({ direction: [1, 0] as [number, number], strength: 0.5, gust: 0.4, gustFrequency: 0.3, turbulence: 0.3 });
@@ -830,20 +836,26 @@ export function validateQualityLevels(value: unknown, path: string, errors: Mode
   });
 }
 
-/** A scene's look: `{ sky?, fog?, post?, wind? }`. */
+/** A scene's look: `{ sky?, fog?, post?, wind?, wetness? }`. */
 export function validateSceneEnvironment(value: unknown, path: string, errors: ModelErrorV2[]): void {
   if (!isPlainObject(value)) {
-    err(errors, 'field_type', path, 'a scene environment is an object { sky?, fog?, post?, wind? }', value);
+    err(errors, 'field_type', path, 'a scene environment is an object { sky?, fog?, post?, wind?, wetness? }', value);
     return;
   }
   for (const k of Object.keys(value)) {
-    if (k === 'quality' || k === 'presets') err(errors, 'field_unexpected', `${path}/${k}`, `"${k}" is the project's, not a scene's (setEnvironment without a sceneId)`, k, 'sky, fog, post, wind');
-    else if (!(SCENE_ENVIRONMENT_FIELDS as readonly string[]).includes(k)) err(errors, 'field_unexpected', `${path}/${k}`, `unknown scene environment field "${k}"`, k, 'sky, fog, post, wind');
+    if (k === 'quality' || k === 'presets') err(errors, 'field_unexpected', `${path}/${k}`, `"${k}" is the project's, not a scene's (setEnvironment without a sceneId)`, k, 'sky, fog, post, wind, wetness');
+    else if (!(SCENE_ENVIRONMENT_FIELDS as readonly string[]).includes(k)) err(errors, 'field_unexpected', `${path}/${k}`, `unknown scene environment field "${k}"`, k, 'sky, fog, post, wind, wetness');
   }
   if (value['sky'] !== undefined) validateSky(value['sky'], `${path}/sky`, errors);
   if (value['fog'] !== undefined) validateFog(value['fog'], `${path}/fog`, errors);
   if (value['post'] !== undefined) validatePost(value['post'], `${path}/post`, errors);
   if (value['wind'] !== undefined) validateWind(value['wind'], `${path}/wind`, errors);
+  validateWetness(value['wetness'], `${path}/wetness`, errors);
+}
+
+/** A scene's (or a preset's) wetness: absent, or a number 0–1. */
+export function validateWetness(v: unknown, path: string, errors: ModelErrorV2[]): void {
+  if (v !== undefined && (typeof v !== 'number' || !Number.isFinite(v) || v < 0 || v > 1)) err(errors, 'field_value', path, 'wetness is a number in [0, 1] (0 dry, 1 soaked)', v);
 }
 
 /** A scene's look in its stored form (fixed part order, sorted keys inside, lowercase colours). */
@@ -855,6 +867,7 @@ export function canonicalSceneEnvironment(e: SceneEnvironment): SceneEnvironment
     ...(e.sky !== undefined ? { sky: canonicalObject(e.sky) } : {}),
     ...(e.fog !== undefined ? { fog: canonicalObject(e.fog) } : {}),
     ...(e.post !== undefined ? { post: canonicalObject(e.post) } : {}),
+    ...(e.wetness !== undefined ? { wetness: e.wetness } : {}),
   };
 }
 

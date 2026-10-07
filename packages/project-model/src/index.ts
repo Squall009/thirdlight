@@ -1043,6 +1043,7 @@ export {
   BLOCK_COLUMN_BYTES,
   BLOCK_EDGE_BYTES,
   BLOCK_EDIT_MAX_EDITS,
+  PAINT_TARGETS,
   SURFACE_EDIT_MAX_COLUMNS,
   blockEditsShapeError,
   BlockGrid,
@@ -1067,6 +1068,7 @@ export {
   type BlockLayerMemory,
   type BlockPick,
   type BlockRotation,
+  type PaintTarget,
   type Vec3Like,
 } from './block-grid';
 export {
@@ -1126,6 +1128,9 @@ export {
   type ConnectGrid,
 } from './block-connect';
 export { LIVE_BLOCK_PREFAB_REFUSED, LIVE_BLOCK_ROOT_MERGED, LIVE_BLOCK_ROOT_REFUSED, blockTypeLive, liveBlockIds, liveBlockPlacement, liveBlockPrefabProblem, liveBlockPrefix, liveBlockRootId, liveEdgeRootId } from './block-live';
+export { chunkMeshPaint, type ChunkPaintOptions, type PaintedGeometry } from './block-paint-mesh';
+export { UNPAINTED_WALL, WALL_PAINT_MAX_STEPS, WALL_PAINT_STEP_METRES, WALL_POINT_BYTES, WALL_SIDE_AXES, canonicalWallPaint, decodeWallPaint, encodeWallPaint, wallPaintDab, wallPaintError, wallPaintSteps, wallPointKey, wallPointOfKey, type WallPaint, type WallPaintSurface, type WallSteps } from './block-wall-paint';
+export { cutWallPolygon, type CutVertex } from './block-wall-cut';
 export { BLOCK_PAINT_LAYOUT, PAINT_BYTES, PAINT_CHANNELS, PAINT_CHUNK_SIZE, PAINT_VERTICES, PAINT_WETNESS_CHANNEL, chunkPaintColors, chunkPaintError, chunksOfVertex, decodeChunkPaint, encodeChunkPaint, isUnpainted, paintDab, paintOffset, unpaintedChunk, type PaintSurface } from './block-paint';
 export { BLOCK_CHUNK_COMPRESSION, BLOCK_CHUNK_DATA_KEY, BLOCK_CHUNK_HEADER_BYTES, decodeBlockChunks, encodeBlockChunks, readBlockChunkData, wrapBlockChunkData, type BlockChunkCompression } from './block-chunk-binary';
 export { blockChunkStorageOf } from './content-settings';

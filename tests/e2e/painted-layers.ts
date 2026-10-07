@@ -137,7 +137,7 @@ export async function useArrays(be: E2EBackend, materialId: string, arrays: { al
 
 // ---- reading the pictures ----------------------------------------------------------
 
-type Pred = (r: number, g: number, b: number) => boolean;
+export type Pred = (r: number, g: number, b: number) => boolean;
 /** Layer 1 (red), wet or dry. */
 export const isRed: Pred = (r, g, b) => r > 45 && r > 2.2 * g && r > 2.2 * b;
 export const isBlue: Pred = (r, g, b) => b > 60 && b > 1.6 * r && b > 1.6 * g;

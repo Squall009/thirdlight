@@ -51,6 +51,7 @@ export const blockLayer: ComponentDescriptor = {
       valueLabels: BLOCK_TOP_SUBDIVISIONS.map((n) => `${n} × ${n}`),
       default: 1,
     }),
+    bool('wallPaint', 'Wall paint', "Walls have paint of their own (Paint mode, Walls): an unpainted wall shows material layer 2, the top's paint wraps over the lip and fades one row down, and wall faces get vertices about every 0.5 m so the paint shows. Off: walls show the paint of the top above them.", { default: false }),
     lightLayerMask('lightLayers', 'Light layers', 'The light layers its blocks are in: only lights whose light mask shares one of them light the blocks, and the blocks cast shadows only for lights whose shadow caster mask shares one.', 1),
   ]),
   // 1 m cells over 64 × 16 × 64 — a common kit module over the interactive-editing target; no genre assumed.

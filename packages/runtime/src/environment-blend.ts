@@ -16,6 +16,7 @@
  *   density = 2 / far, far = 2 / density); a contributor without fog thins
  *   it (linear: the far distance stretches by 1 / weight; exp2: the density
  *   scales by the weight);
+ * - wetness: linearly (a look without it is dry);
  * - post: exposure, bloom strength/radius/threshold, grading and vignette
  *   numbers blend (a contributor without the effect counts as its neutral
  *   value); tone mapping, anti-aliasing, AO, depth of field and the LUT image
@@ -54,6 +55,8 @@ export interface EnvironmentBaseLook {
   readonly sky?: SkyConfig;
   readonly fog?: FogConfig;
   readonly post?: PostConfig;
+  /** The scene's wetness (absent: 0, dry). */
+  readonly wetness?: number;
 }
 
 /** The blended look (sky / fog / post in the environment's own shapes). */
@@ -66,6 +69,8 @@ export interface BlendedEnvironment {
   readonly post?: PostConfig;
   /** The lightmap multiplier (1, "#ffffff" = the bake as it is). */
   readonly lightmap: { readonly intensity: number; readonly tint: string };
+  /** The scene's wetness (0–1). */
+  readonly wetness: number;
 }
 
 /** A scene light's values (authored, or blended). */
@@ -183,6 +188,7 @@ interface ResolvedParts {
   post?: PostConfig;
   lights: readonly EnvironmentPresetLight[];
   lightmap: { intensity?: number; tint?: string };
+  wetness?: number;
 }
 
 const mergePost = (base: PostConfig | undefined, over: PostConfig | undefined, deep: boolean): PostConfig | undefined => {
@@ -205,14 +211,16 @@ export function resolveEnvironmentKey(key: string, base: EnvironmentBaseLook, pr
       ...(mergePost(r.post, p.post, true) !== undefined ? { post: mergePost(r.post, p.post, true)! } : {}),
       lights: [...r.lights, ...(p.lights ?? [])],
       lightmap: { ...r.lightmap, ...(p.lightmap ?? {}) },
+      ...((p.wetness ?? r.wetness) !== undefined ? { wetness: p.wetness ?? r.wetness } : {}),
     };
   }
   const preset = key === '' ? undefined : presets.get(key);
-  if (preset === undefined) return { ...(base.sky !== undefined ? { sky: base.sky } : {}), ...(base.fog !== undefined ? { fog: base.fog } : {}), ...(base.post !== undefined ? { post: base.post } : {}), lights: [], lightmap: {} };
+  if (preset === undefined) return { ...(base.sky !== undefined ? { sky: base.sky } : {}), ...(base.fog !== undefined ? { fog: base.fog } : {}), ...(base.post !== undefined ? { post: base.post } : {}), lights: [], lightmap: {}, ...(base.wetness !== undefined ? { wetness: base.wetness } : {}) };
   const sky = preset.sky ?? base.sky;
   const fog = preset.fog ?? base.fog;
   const post = mergePost(base.post, preset.post, false);
-  return { ...(sky !== undefined ? { sky } : {}), ...(fog !== undefined ? { fog } : {}), ...(post !== undefined ? { post } : {}), lights: preset.lights ?? [], lightmap: preset.lightmap ?? {} };
+  const wetness = preset.wetness ?? base.wetness;
+  return { ...(sky !== undefined ? { sky } : {}), ...(fog !== undefined ? { fog } : {}), ...(post !== undefined ? { post } : {}), lights: preset.lights ?? [], lightmap: preset.lightmap ?? {}, ...(wetness !== undefined ? { wetness } : {}) };
 }
 
 // ---- blending -------------------------------------------------------------------------
@@ -365,7 +373,8 @@ export function blendEnvironmentOver(bases: readonly (readonly [EnvironmentBaseL
     intensity: mixNumbers(parts.map(([r, w]) => [r.lightmap.intensity ?? 1, w])),
     tint: mixColors(parts.map(([r, w]) => [r.lightmap.tint ?? '#ffffff', w])),
   };
-  return { ...skyPart, ...(fog !== undefined ? { fog } : {}), ...(post !== undefined ? { post } : {}), lightmap };
+  const wetness = mixNumbers(parts.map(([r, w]) => [r.wetness ?? 0, w]));
+  return { ...skyPart, ...(fog !== undefined ? { fog } : {}), ...(post !== undefined ? { post } : {}), lightmap, wetness };
 }
 
 /** Does a preset light entry match this light? (a tag entry needs the project's tag registry: name → bit) */

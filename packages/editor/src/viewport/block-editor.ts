@@ -191,7 +191,7 @@ export class BlockEditor {
   private previewMs = 0;
   private target: { cell: Cell3; value: BlockCell | null } | null = null;
   /** A terrain brush stroke: its dabs (sent on release), the last dab's centre (columns) and the flatten height (rows). */
-  private sculpt: { tool: 'height' | 'smooth' | 'flatten' | 'paint'; dabs: BlockEdit[]; last: [number, number]; level: number; invert: boolean } | null = null;
+  private sculpt: { tool: 'height' | 'smooth' | 'flatten' | 'paint'; dabs: BlockEdit[]; last: [number, number, number]; level: number; invert: boolean } | null = null;
   private readonly ring: THREE.LineLoop;
   /** An edge stroke in flight: its row, its press and current corner (line, rectangle), the edges it collected (paint, erase) and the last point (cells). */
   private edgeStroke: { tool: BlockToolId; row: number; start: [number, number]; end: [number, number]; edges: Edge4[]; seen: Set<string>; last: [number, number] } | null = null;
@@ -382,8 +382,12 @@ export class BlockEditor {
       this.previewMs = 0;
       this.previewChunks.clear();
       this.scratch = null;
-      this.sculpt = { tool: this.opts.tool, dabs: [], last: [at.x, at.z], level: at.rows, invert: this.strokeInvert };
-      this.addDab(at.x, at.z);
+      if (this.opts.tool === 'paint' && this.opts.brush.paintTarget !== 'tops' && this.layer?.component.wallPaint !== true) {
+        this.cb.onRefused('This layer\'s walls show the paint of the tops above them: turn on Wall paint in its Block layer settings to paint walls.');
+        return true;
+      }
+      this.sculpt = { tool: this.opts.tool, dabs: [], last: [at.x, at.z, at.rows], level: at.rows, invert: this.strokeInvert };
+      this.addDab(at.x, at.z, at.rows);
       this.drawRing(at);
       return true;
     }
@@ -423,9 +427,12 @@ export class BlockEditor {
       const step = dabSpacing(this.brushRadius());
       const dx = at.x - k.last[0];
       const dz = at.z - k.last[1];
-      const n = Math.floor(Math.hypot(dx, dz) / step);
-      for (let i = 1; i <= n; i++) this.addDab(k.last[0] + (dx * i) / n, k.last[1] + (dz * i) / n);
-      if (n > 0) k.last = [at.x, at.z];
+      // Up a wall the drag moves in height (rows, in cell widths for the spacing).
+      const dy = at.rows - k.last[2];
+      const dyCells = k.tool === 'paint' && this.opts.brush.paintTarget !== 'tops' && this.layer !== null ? (dy * this.layer.component.cellSize[1]) / this.layer.component.cellSize[0] : 0;
+      const n = Math.floor(Math.hypot(dx, dz, dyCells) / step);
+      for (let i = 1; i <= n; i++) this.addDab(k.last[0] + (dx * i) / n, k.last[1] + (dz * i) / n, k.last[2] + (dy * i) / n);
+      if (n > 0) k.last = [at.x, at.z, at.rows];
       return true;
     }
     if (this.edgeStroke !== null || this.edgeMode()) {
@@ -662,14 +669,14 @@ export class BlockEditor {
   }
 
   /** One dab of the terrain brush in flight: previewed on the layer copy at once, sent with the others on release. */
-  private addDab(x: number, z: number): void {
+  private addDab(x: number, z: number, rows: number): void {
     const k = this.sculpt;
     if (k === null || k.dabs.length >= BLOCK_EDIT_MAX_EDITS) return;
     const b = this.opts.brush;
     // The brush block grows empty ground (raising where nothing stands yet).
     const cell = brushCell(b, b.block !== null ? this.types.get(b.block) : undefined);
     // The paint tool paints the surface under the paint brush (invert: erase).
-    const dab = k.tool === 'paint' ? paintEdit([x, z], b.paint, k.invert) : sculptEdit(k.tool, [x, z], b, k.invert, k.level, cell);
+    const dab = k.tool === 'paint' ? paintEdit([x, z], b.paint, k.invert, b.paintTarget, rows) : sculptEdit(k.tool, [x, z], b, k.invert, k.level, cell);
     k.dabs.push(dab);
     this.previewEdits([dab]);
   }

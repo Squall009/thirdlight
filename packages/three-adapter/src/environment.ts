@@ -104,11 +104,13 @@ export interface EnvironmentLayerLike {
   readonly fog?: FogLike;
   readonly post?: PostLike;
   readonly wind?: unknown;
+  /** The scene's wetness (0–1; the materials' Scene wetness node). */
+  readonly wetness?: number;
 }
 
 /**
  * The project environment with a scene's look laid over it: each part
- * the look gives — `sky`, `fog` and `wind` replace the project's part whole
+ * the look gives — `sky`, `fog`, `wind` and `wetness` replace the project's part whole
  * (a sky mode's fields only make sense together), `post` merges per effect
  * (a layer may change only its bloom or its grading). No layer: the base
  * unchanged.
@@ -119,6 +121,7 @@ export function layerEnvironment<T extends EnvironmentLike & { readonly wind?: u
   if (layer.sky !== undefined) out['sky'] = layer.sky;
   if (layer.fog !== undefined) out['fog'] = layer.fog;
   if (layer.wind !== undefined) out['wind'] = layer.wind;
+  if (layer.wetness !== undefined) out['wetness'] = layer.wetness;
   if (layer.post !== undefined) out['post'] = { ...(base?.post ?? {}), ...layer.post };
   return out as T;
 }

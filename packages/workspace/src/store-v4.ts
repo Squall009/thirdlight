@@ -106,8 +106,8 @@ const SCENE_FILE_KEYS = ['storageVersion', 'type', 'projectId', 'scene', 'retry'
 /** A scene file lists its block chunk files and names their form (only when it has some; chunk-files.ts). */
 const SCENE_FILE_OPTIONAL_KEYS = ['blockChunks', SCENE_CHUNK_FORMAT_KEY] as const;
 const CHUNK_FILE_KEYS = ['storageVersion', 'type', 'projectId', 'sceneId', 'entityId', 'cx', 'cz', 'palette', 'columns'] as const;
-/** A painted chunk's paint (block-paint.ts); a chunk's edge pieces (block-edges.ts). */
-const CHUNK_FILE_OPTIONAL_KEYS = ['edgePalette', 'edges', 'paint'] as const;
+/** A painted chunk's paint (block-paint.ts) and wall paint (block-wall-paint.ts); a chunk's edge pieces (block-edges.ts). */
+const CHUNK_FILE_OPTIONAL_KEYS = ['edgePalette', 'edges', 'paint', 'wallPaint'] as const;
 
 /*
  * One block-layer chunk per file (chunk-files.ts). The scene file lists
@@ -769,6 +769,7 @@ export function joinChunkFiles(
         ...('edgePalette' in f.value ? { edgePalette: f.value['edgePalette'] } : {}),
         ...('edges' in f.value ? { edges: f.value['edges'] } : {}),
         ...('paint' in f.value ? { paint: f.value['paint'] } : {}),
+        ...('wallPaint' in f.value ? { wallPaint: f.value['wallPaint'] } : {}),
       };
       bytes = f.bytes;
     }

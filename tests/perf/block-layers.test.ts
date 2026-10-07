@@ -12,6 +12,9 @@
  *   triangles after hidden-face removal, meshing and collision-building time.
  * - A 64 × 64 rolling terrain of sloped cells: meshing time flat (the
  *   default), with smoothed tops and with subdivided tops.
+ * - Wall paint: the same rolling terrain with rooms of walls, painted on
+ *   tops and walls: meshing and paint colours per chunk, vertices and
+ *   triangles, without wall paint and with it (walls cut at the points).
  * - A one-cell edit on a 512 × 512 layer (262,144 cells, 1,024 chunks): the
  *   heap an undo step keeps, the chunk bytes it holds (binary, and the same
  *   chunks as JSON text), and the edit, undo and redo times.
@@ -26,7 +29,7 @@ import { setFlagsFromString } from 'node:v8';
 import { runInNewContext } from 'node:vm';
 
 import { describe, expect, it } from 'vitest';
-import { applyBlockEdits, BlockGrid, collisionMeshChunk, decodeBlockChunks, meshBlockChunk, resolveCellLook, resolveEdgeLook, shapeSource, type BlockType, type SceneV4 } from '@thirdlight/project-model';
+import { applyBlockEdits, BlockGrid, blockTopOptions, chunkMeshPaint, collisionMeshChunk, decodeBlockChunks, meshBlockChunk, resolveCellLook, resolveEdgeLook, shapeSource, WALL_POINT_BYTES, type BlockType, type SceneV4 } from '@thirdlight/project-model';
 
 import { applyMutation, createCommandState, type CommandState } from '../../packages/commands/src/index';
 import { m2EnvelopeV4 } from '../../packages/commands/src/test-fixtures';
@@ -305,6 +308,60 @@ describe.skipIf(process.env['TL_PERF'] === undefined)('block layers: measurement
     const numbers = { cells: g.size, chunks: keys.length, flat: run(), smooth: run({ smoothAngle: 45 }), subdivided: run({ smoothAngle: 45, topSubdivision: 2 }) };
     record(`block-layers sloped 64x64: ${JSON.stringify(numbers)}`);
     expect(numbers.flat.triangles).toBeGreaterThan(0);
+  }, 300_000);
+
+  it('wall paint: a 64 × 64 sloped terrain with rooms meshes and colours per chunk with its walls cut at the points', () => {
+    const g = slopedTerrain(64);
+    const types = new Map(TYPES.map((t) => [t.blockId, t]));
+    // Rooms: stone walls 6 rows over the ground on every 16th line, so every chunk has walls besides the slopes' sides.
+    const walls: { kind: 'fill'; box: number[]; cell: { block: string } }[] = [];
+    for (let line = 8; line < 64; line += 16) {
+      walls.push({ kind: 'fill', box: [line, 0, 0, line + 1, 20, 64], cell: { block: 'stone' } }, { kind: 'fill', box: [0, 0, line, 64, 20, line + 1], cell: { block: 'stone' } });
+    }
+    const dabs = [];
+    for (let i = 0; i < 64; i += 4) dabs.push({ kind: 'paint' as const, at: [8.5, i], y: 14, target: 'both' as const, radius: 3, strength: 0.6, channel: 2 }, { kind: 'paint' as const, at: [i, 24.5], y: 12, target: 'walls' as const, radius: 3, strength: 0.6, channel: 4 });
+    expect(applyBlockEdits(g, [...walls, ...dabs], { types, stamps: new Map() }).ok).toBe(true);
+    const looks = { source: (t: BlockType, v: number, fm: [number, number, number]) => ({ key: `${t.blockId}:${v}`, source: shapeSource(t.shape, fm[0], fm[1], fm[2]), uv: 'world' as const, tangents: true }) };
+    const keys = g.chunkKeys();
+    const run = (wallPaint: boolean): { msPerChunk: number; paintMsPerChunk: number; vertices: number; triangles: number } => {
+      const tops = blockTopOptions({ smoothAngle: 40, topSubdivision: 2, wallPaint, cellSize: g.cellSize });
+      const mesh: number[] = [];
+      const paint: number[] = [];
+      let vertices = 0;
+      let triangles = 0;
+      for (let rep = 0; rep < 5; rep++) {
+        vertices = 0;
+        triangles = 0;
+        let m = 0;
+        let c = 0;
+        for (const k of keys) {
+          const [cx, cz] = k.split(',').map(Number) as [number, number];
+          const t0 = performance.now();
+          const parts = meshBlockChunk(g, cx, cz, types, looks, tops);
+          const t1 = performance.now();
+          for (const p of parts) chunkMeshPaint(g, types, cx, cz, { wallPaint, topSubdivision: 2 }, p);
+          c += performance.now() - t1;
+          m += t1 - t0;
+          for (const p of parts) {
+            vertices += p.positions.length / 3;
+            triangles += p.indices.length / 3;
+          }
+        }
+        mesh.push(m / keys.length);
+        paint.push(c / keys.length);
+      }
+      const r = (v: number): number => Math.round(v * 1000) / 1000;
+      return { msPerChunk: r(median(mesh)), paintMsPerChunk: r(median(paint)), vertices, triangles };
+    };
+    let points = 0;
+    for (const k of keys) {
+      const [cx, cz] = k.split(',').map(Number) as [number, number];
+      points += g.chunkWallPaint(cx, cz)?.size ?? 0;
+    }
+    const numbers = { chunks: keys.length, wallPoints: points, wallPointBytes: points * WALL_POINT_BYTES, without: run(false), with: run(true) };
+    record(`block-layers wall paint 64x64: ${JSON.stringify(numbers)}`);
+    expect(points).toBeGreaterThan(0);
+    expect(numbers.with.vertices).toBeGreaterThan(numbers.without.vertices);
   }, 300_000);
 });
 

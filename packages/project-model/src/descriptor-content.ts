@@ -57,6 +57,8 @@ const WIND = obj('wind', 'Wind', 'The global wind foliage and cloth sway in.', [
   num('turbulence', 'Turbulence', 'Small-scale variation over space.', { required: true, min: 0, max: 1, step: 0.05, default: DEFAULT_WIND.turbulence }),
 ]);
 
+const WETNESS = num('wetness', 'Wetness', 'How wet the scene is (rain): materials with a Scene wetness node (the height-blended layers template) darken and shine as if wet, water pooling in low parts first. Presets blend it.', { min: 0, max: 1, step: 0.05, default: 0 });
+
 // The sky defaults are the three.js Sky example's physically based
 // clear day (haze 6, Rayleigh 1.5, Mie 0.005 / 0.8), the sun from the scene's
 // key light (else 35° up), and plain blues for the gradient and colour modes;
@@ -141,7 +143,7 @@ const PRESET_LIGHT = obj('*', 'Light', 'The values this preset gives the lights 
   vec3('direction', 'Direction', 'Where a directional or spot light shines (not all 0).', { min: -1, max: 1, step: 0.05, nonZero: true }),
   color('groundColor', 'Ground colour', 'A hemisphere light\'s ground colour.'),
 ], { rules: ['A light entry names at most one of entity, tag or type (none: every light).'] });
-const PRESET = obj('*', 'Preset', 'A named look: sky, fog, post-processing, light values and a lightmap multiplier.', [
+const PRESET = obj('*', 'Preset', 'A named look: sky, fog, post-processing, light values, a lightmap multiplier and the wetness.', [
   str('presetId', 'Id', 'A stable id scripts use: a-z, 0-9, _ or -.', { required: true, format: 'identifier', minLength: 1, maxLength: 64 }),
   str('name', 'Name', 'Shown in the editor.', { required: true, minLength: 1, maxLength: 128 }),
   SKY,
@@ -152,6 +154,7 @@ const PRESET = obj('*', 'Preset', 'A named look: sky, fog, post-processing, ligh
     num('intensity', 'Intensity', 'Multiplies the baked light (1: as baked).', { min: 0, max: 8, step: 0.05, default: 1 }),
     color('tint', 'Tint', 'Tints the baked light (white: as baked).', { default: '#ffffff' }),
   ]),
+  WETNESS,
 ], { rules: ['Preset ids are unique.'] });
 
 /**
@@ -190,7 +193,7 @@ const ENVIRONMENT: FieldDescriptor = obj('environment', 'Environment', 'The qual
 ]);
 
 /** A scene's look (`SceneV4.environment`): with several scenes loaded the active scene's applies. */
-export const SCENE_ENVIRONMENT: ObjectFieldDescriptor = obj('environment', 'Scene environment', 'This scene\'s sky, fog, post-processing and wind.', [SKY, FOG, POST, WIND]);
+export const SCENE_ENVIRONMENT: ObjectFieldDescriptor = obj('environment', 'Scene environment', 'This scene\'s sky, fog, post-processing, wind and wetness.', [SKY, FOG, POST, WIND, WETNESS]);
 
 const KEY_CODE = { format: 'keyCode' as const, minLength: 1, maxLength: 32 };
 const BINDING_KINDS = ['key', 'gamepadButton', 'gamepadAxis', 'keys1d', 'keys2d', 'gamepadButtons1d', 'gamepadStick', 'pointerButton', 'pointerPosition', 'pointerDelta', 'pointerAxis'] as const;

@@ -10,7 +10,7 @@
  */
 import * as THREE from 'three';
 import { afterEach, describe, expect, it } from 'vitest';
-import { BlockGrid, type BlockLayerComponent, type BlockType } from '@thirdlight/runtime';
+import { applyBlockEdits, BlockGrid, type BlockLayerComponent, type BlockType } from '@thirdlight/runtime';
 
 import { BlockLayerView, blockLookFromObject, MESH_WORKER_STALL_MS, SYNC_MESH_BUDGET_MS, type BlockLayerViewDeps } from './block-layers';
 import type { MeshWorkerPort } from './block-mesh-pool';
@@ -128,7 +128,7 @@ function drawn(v: BlockLayerView): string[] {
     const m = o as THREE.Mesh;
     if (m.isMesh !== true) return;
     const g = m.geometry as THREE.BufferGeometry;
-    const arrays = ['position', 'normal', 'uv', 'tangent', 'uv1'].map((n) => g.getAttribute(n)?.array as Float32Array | undefined);
+    const arrays = ['position', 'normal', 'uv', 'tangent', 'uv1', 'color', 'color_1'].map((n) => g.getAttribute(n)?.array as Float32Array | undefined);
     out.push(`${m.parent?.name}/${m.name}:${arrays.map((a) => (a === undefined ? '-' : bytesDigest(a))).join('|')}|${bytesDigest(g.getIndex()!.array as Uint32Array)}`);
   });
   return out.sort();
@@ -162,6 +162,32 @@ describe('block view: meshing in workers', () => {
     expect(tangents.some((m) => m.includes('block:c:stone'))).toBe(true);
     expect(tangents.some((m) => m.includes(':tile:w#'))).toBe(true);
     expect(tangents.some((m) => m.includes(':crate#') || m.includes(':tile#'))).toBe(false);
+    worker.dispose();
+    page.dispose();
+  });
+
+  it('a layer with wall paint, painted on tops and walls: the workers draw its cut walls and paint colours byte for byte as the page does', async () => {
+    const layer = { ...LAYER, wallPaint: true } as BlockLayerComponent;
+    const g = BlockGrid.from(layer, groundData() as never);
+    const r = applyBlockEdits(g, [
+      { kind: 'paint', at: [10, 10], radius: 4, strength: 0.6, channel: 2 },
+      { kind: 'paint', at: [16, 12], y: 21, target: 'both', radius: 3, strength: 0.8, channel: 3 },
+      { kind: 'paint', at: [15.5, 20], y: 18, target: 'walls', radius: 6, strength: 0.5, channel: 4 },
+    ], { types: new Map(TYPES.map((t) => [t.blockId, t])), stamps: new Map() });
+    expect(r.ok).toBe(true);
+    const data = { entityId: 'ground', chunks: g.chunkKeys().map((k) => g.encodeChunk(k)) };
+    expect(data.chunks.some((c) => c?.wallPaint !== undefined)).toBe(true);
+    const page = makeView();
+    page.setTypes(TYPES);
+    page.setLayer('ground', layer, [0, 0, 0], data as never);
+    page.update();
+    const worker = makeView({ meshWorkers: () => portWorker() });
+    worker.setTypes(TYPES);
+    worker.setLayer('ground', layer, [0, 0, 0], data as never);
+    await settle(worker);
+    expect(drawn(worker)).toEqual(drawn(page));
+    // Every chunk mesh carries the paint (the stone stand-ins too).
+    expect(drawn(page).filter((m) => m.includes('block:c:stone')).every((m) => m.split('|')[5] !== '-')).toBe(true);
     worker.dispose();
     page.dispose();
   });

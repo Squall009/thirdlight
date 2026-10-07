@@ -181,6 +181,8 @@ export interface MaterialLibrary {
   /** The project materials and the material functions graph materials call. */
   setMaterials(defs: readonly MaterialDefLike[], functions?: readonly MaterialFunctionLike[]): void;
   setWind(wind: WindLike | null): void;
+  /** The scene's wetness (0–1) the Scene wetness node reads. */
+  setWetness(wetness: number): void;
   /** Advance the shared clock (seconds since start). */
   tick(seconds: number): void;
   /** Whether any applied material animates (the host keeps rendering). */
@@ -247,6 +249,7 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
     gust: TSL.uniform(DEFAULT_WIND_LIKE.gust).setGroup(TSL.renderGroup),
     gustFreq: TSL.uniform(DEFAULT_WIND_LIKE.gustFrequency).setGroup(TSL.renderGroup),
     turb: TSL.uniform(DEFAULT_WIND_LIKE.turbulence).setGroup(TSL.renderGroup),
+    wetness: TSL.uniform(0).setGroup(TSL.renderGroup),
   };
   let defs = new Map<string, MaterialDefLike>();
   const reassigned = new Set<(root: THREE.Object3D) => void>();
@@ -920,6 +923,9 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
       nodeGlobals.gust.value = w.gust;
       nodeGlobals.gustFreq.value = w.gustFrequency;
       nodeGlobals.turb.value = w.turbulence;
+    },
+    setWetness(wetness) {
+      nodeGlobals.wetness.value = Math.max(0, Math.min(1, Number.isFinite(wetness) ? wetness : 0));
     },
     tick(seconds) {
       nodeGlobals.time.value = seconds;

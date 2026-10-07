@@ -337,7 +337,7 @@ window), **Console** and **Problems** (Window menu lists just those).
   is selected; **GameObject → Create prefab from selection** (also the
   Hierarchy's right-click menu); an audio asset's load type, preload and
   listening are in its Inspector.
-- **Each scene has its own look** (sky, fog, post, wind, in its scene file;
+- **Each scene has its own look** (sky, fog, post, wind, wetness, in its scene file;
   `setEnvironment {sceneId}`); the quality level and environment presets
   stay the project's. With several scenes loaded the **active scene's** look
   applies: the first start scene, or the one `ctx.scenes.setActive(id,
@@ -1987,7 +1987,8 @@ colours used as data — or `first`, all weight on the first channel — for
 layer weights), Position and Normal (object/world/view), View
 direction, Object position (the object's or instance's origin in the
 world), Camera distance, Screen UV, Instance index, Global wind (direction,
-strength with gusts travelling across the world, turbulence); *Lighting*
+strength with gusts travelling across the world, turbulence), Scene wetness
+(the active scene's look's `wetness`, 0–1, as presets blend it); *Lighting*
 — Main light, Shadow, Diffuse light, Ambient light (Custom-lit only, see
 above); *Maths* — add, subtract, multiply, divide, min, max,
 power, dot, cross, normalize, length, lerp, clamp, saturate, smoothstep,
@@ -3543,7 +3544,10 @@ preset is project content (`environment.presets`, at most 64) with any of:
   names: by `entity` id, by `tag` name or by light `type` (e.g. every
   `ambient` or `hemisphere` light), every light when it names none; later
   entries win per field;
-- `lightmap: { intensity?, tint? }` — a multiplier on baked lightmaps.
+- `lightmap: { intensity?, tint? }` — a multiplier on baked lightmaps;
+- `wetness` (0–1) — the scene's wetness under the preset (rain), blended
+  linearly (a look without it is dry): materials with a **Scene wetness**
+  node (the height-blended layers template) add it to their painted wetness.
 
 A part a preset does not set is the **base look**'s: the active scene's look, and the lights as authored.
 
@@ -4665,6 +4669,28 @@ brushes, overlays and stamp UI are below (23.6).
   script). Map it to a block type with **Materials** `*` → the material —
   since 25.21 a coloured stand-in takes the `*` material too. The paint is
   visual: scripts do not read it, replays do not depend on it.
+- **Wall paint and wetness** (30.6): a block layer with **Wall paint**
+  (`blockLayer.wallPaint: true`; off by default, then walls show the paint of
+  the top above them as before) gives walls paint of their own: points
+  about 0.5 m apart on the exposed wall faces (per cell side `round(cell
+  width / 0.5)` steps across, per row `round(row height / 0.5)` up, 1–16
+  each), stored sparsely with the chunk (`wallPaint`, 9 bytes a painted
+  point, in JSON and binary chunk files). An unpainted wall shows material
+  layer 2, an unpainted top layer 1; the top's paint wraps over the lip onto
+  the wall's top row of points and fades to the wall's own one row of
+  points down; wall faces are drawn cut at the points (more vertices: the
+  paint shows between cell corners). `paint` edits take `target: "walls"`
+  or `"both"` (absent: tops) and the brush centre's height `y` (rows): every
+  exposed wall point within the radius, by distance in metres. In the
+  editor: Paint texture, **On** Tops / Walls / Tops and walls, dragged over
+  the wall's face. Wall points stay where they are when heights change.
+  Templates made since 30.6 add the scene's **wetness** (the scene look's
+  `wetness`, 0–1, rain; presets blend it) to the painted one, let water pool
+  in the low parts of the blended height first (`wetPooling`, 0.5: 0 even, 1
+  the cracks fill well before the tops) and flatten the normal maps where
+  wet (`wetFlatten`, 0.7) — no extra texture read. A layered material made
+  before keeps its graph and look (make a new one from the template for
+  these).
 - **Per-layer settings** (28b.4): the template's four layers each have a
   **tiling** (metres per repeat of the layer's textures, 1 by default), a
   **normal strength** (0: flat), and a **height contrast** and **height
@@ -4720,7 +4746,8 @@ stroke or button is one undo step, and MCP can do the same.
   evens it out, Flatten levels it to the height where the drag starts; a
   drag is one undo step), Paint texture (the Paint mode, 25.21: a round
   brush painting material layer 1–4 or wetness with Radius, Strength and
-  Falloff; Ctrl or "Lower / remove" erases; a drag is one undo step), Pick (the eyedropper takes a
+  Falloff, **On** the tops, the walls (a layer with Wall paint) or both;
+  Ctrl or "Lower / remove" erases; a drag is one undo step), Pick (the eyedropper takes a
   cell's block, rotation and look), Replace all (every block of the clicked
   type becomes the brush block), Metadata, Select, Paste, Stamp and Region.
   Adding tools place on the face under the pointer. A stroke previews at once

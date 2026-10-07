@@ -10,6 +10,7 @@
  *   --classes area,landscape     (default both)
  *   --live N                     N live door cells in each class (default 0: the classes as recorded)
  *   --edge-walls                 the rooms' walls as edge pieces (default: cell walls, as recorded)
+ *   --wall-paint                 the layer with wall paint, the rooms' front walls painted (default: none, as recorded)
  *   --renderers webgpu,webgl2    (default both)
  *   --query 'a=b&c=d'            add to the export's page query
  *   --switches 'a=off,b=off'     measure each export again with each query added (one switch at a time)
@@ -41,6 +42,8 @@ export interface LevelReport {
   liveDoors?: number;
   /** The rooms' walls are edge pieces (absent: cell walls). */
   edgeWalls?: boolean;
+  /** The layer has wall paint and painted walls (absent: none). */
+  wallPaint?: boolean;
   query: string;
   builds: Partial<Record<LevelKind, LevelBuild & { exportMs: number }>>;
   classes: Partial<Record<LevelKind, Partial<Record<FrameRenderer, FrameRunResult>>>>;
@@ -131,14 +134,14 @@ export async function runLevelCli(argv: readonly string[]): Promise<void> {
   } catch {
     /* not a git checkout */
   }
-  const report: LevelReport = { reportVersion: 1, startedAt, commit, machine: { cpu: cpus()[0]?.model ?? 'unknown', cores: cpus().length }, version: LEVEL_VERSION, seed: LEVEL_SEED, ...(liveDoors > 0 ? { liveDoors } : {}), ...(has('edge-walls') ? { edgeWalls: true } : {}), query, builds: {}, classes: {}, errors: [] };
+  const report: LevelReport = { reportVersion: 1, startedAt, commit, machine: { cpu: cpus()[0]?.model ?? 'unknown', cores: cpus().length }, version: LEVEL_VERSION, seed: LEVEL_SEED, ...(liveDoors > 0 ? { liveDoors } : {}), ...(has('edge-walls') ? { edgeWalls: true } : {}), ...(has('wall-paint') ? { wallPaint: true } : {}), query, builds: {}, classes: {}, errors: [] };
 
   // Every class built and exported by one backend, then measured with it stopped (one backend or one browser at a time).
   const exportDirs: Partial<Record<LevelKind, string>> = {};
   const be = await startPerfBackend(join(runDir, 'data'), join(runDir, 'exports'));
   try {
     for (const kind of kinds) {
-      const b = await buildLevel(be, `level-${kind}`, levelPlan(kind, LEVEL_SEED, liveDoors, has('edge-walls')), log);
+      const b = await buildLevel(be, `level-${kind}`, levelPlan(kind, LEVEL_SEED, liveDoors, has('edge-walls'), has('wall-paint')), log);
       const t = performance.now();
       const res = await be.post(`/api/v1/admin/projects/${b.projectId}/export`, {});
       if (res.status !== 200) throw new Error(`export failed: ${JSON.stringify(res.json).slice(0, 400)}`);

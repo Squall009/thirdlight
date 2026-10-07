@@ -7,14 +7,24 @@
  * stored as one `editBlocks` of `paint` dabs (the chunk's paint lattice), the
  * Scene view shows blue; a Ctrl drag erases part of it; undo and redo step
  * through the strokes one each; a reload shows the stored paint again.
+ *
+ * Walls: a block 3 m tall stands on the ground and the layer gets wall
+ * paint (`wallPaint`): its wall facing the camera shows layer 2 (green) with
+ * the top's layer 1 (red) over the lip; Paint on "Walls" dragged up that
+ * face paints layer 3 (blue moss) there — stored as the chunk's wall points,
+ * drawn blue — and the scene's wetness (rain, the Environment window's
+ * slider) darkens the ground.
+ *
+ * Runs per renderer variant (renderer-variants.ts).
  */
 import { randomBytes } from 'node:crypto';
 
 import { expect, test, type Page } from './pw';
 
 import { startBackend, type E2EBackend } from './backend';
-import { ALBEDO_HEIGHT_LAYERS, count, isBlue, materials, packNormalAndOrm, packTexture, publishLayerSources, useArrays } from './painted-layers';
+import { ALBEDO_HEIGHT_LAYERS, count, isBlue, isGreenish, isRed, materials, packNormalAndOrm, packTexture, publishLayerSources, reds, useArrays, type Pred } from './painted-layers';
 import { decodePng } from './png';
+import { editorUrlFor, expectRendererBackend, onlyInItsProject, RENDERER_VARIANTS } from './renderer-variants';
 import { openWindow, closeEditor, createItem } from './ui';
 
 let be: E2EBackend | null = null;
@@ -79,25 +89,52 @@ function vertex(p: Record<string, string>, x: number, z: number): number[] {
   return [...bytes.subarray(o, o + 5)];
 }
 const revision = async (): Promise<number> => Number((await query('queryProject')).revision);
-/** Blue pixels around a world point in the Scene view (a 120 px square). */
-async function blueNear(page: Page, p: V3): Promise<number> {
+/** Pixels passing `test` around a world point in the Scene view (a square of `size` px). */
+async function near(page: Page, p: V3, test: Pred, size = 120): Promise<number> {
   const s = await screen(page, p);
   const box = (await view(page).boundingBox())!;
-  const img = decodePng(await page.screenshot({ clip: { x: Math.max(box.x, s.x - 60), y: Math.max(box.y, s.y - 60), width: 120, height: 120 } }));
-  return count(img, isBlue);
+  const img = decodePng(await page.screenshot({ clip: { x: Math.max(box.x, s.x - size / 2), y: Math.max(box.y, s.y - size / 2), width: size, height: size } }));
+  return count(img, test);
+}
+const blueNear = (page: Page, p: V3): Promise<number> => near(page, p, isBlue);
+/** The median red of the view's layer-1 (red) pixels. */
+async function medianRed(page: Page): Promise<number> {
+  const r = reds(decodePng(await view(page).screenshot()));
+  return r[Math.floor(r.length / 2)] ?? 0;
+}
+/** The Scene view camera's position, from its published view-projection (the point every view ray starts at). */
+async function cameraAt(page: Page): Promise<V3> {
+  const m = JSON.parse((await view(page).getAttribute('data-view-proj'))!) as number[];
+  // Rows x, y and w of the clip transform are 0 at the eye: three equations in x, y, z (Cramer's rule).
+  const row = (r: number): number[] => [m[r]!, m[4 + r]!, m[8 + r]!, -m[12 + r]!];
+  const [a, b, c] = [row(0), row(1), row(3)];
+  const det = (u: number[], v: number[], w: number[]): number => u[0]! * (v[1]! * w[2]! - v[2]! * w[1]!) - u[1]! * (v[0]! * w[2]! - v[2]! * w[0]!) + u[2]! * (v[0]! * w[1]! - v[1]! * w[0]!);
+  const d = det(a!, b!, c!);
+  const col = (i: number): number[][] => [a!, b!, c!].map((r) => r.map((v, k) => (k === i ? r[3]! : v)));
+  return [0, 1, 2].map((i) => det(...(col(i) as [number[], number[], number[]])) / d) as V3;
 }
 
-test('Paint mode: a drag paints a layer (one undo step), Ctrl erases, undo/redo, the paint survives a reload', async ({ page }) => {
+/** The wall paint points stored for the layer (base64 per chunk key). */
+async function wallPaint(layer: string): Promise<Record<string, string>> {
+  const chunks = ((await query('queryBlocks', { entityId: layer })) as { chunks: { cx: number; cz: number; chunk: { wallPaint?: string } | null }[] }).chunks;
+  const out: Record<string, string> = {};
+  for (const c of chunks) if (c.chunk?.wallPaint !== undefined) out[`${c.cx},${c.cz}`] = c.chunk.wallPaint;
+  return out;
+}
+
+for (const variant of RENDERER_VARIANTS) test(`Paint mode: a drag paints a layer (one undo step), Ctrl erases, undo/redo, the paint survives a reload; walls painted up their face; wetness (${variant})`, async ({ page }) => {
+  onlyInItsProject(variant);
   test.setTimeout(300_000);
-  be = await startBackend('terrain-paint-e2e');
+  be = await startBackend(`terrain-paint-${variant}`);
   // The arrays (through the pack route) and the layered material (the template, as the Materials tab makes it).
   await publishLayerSources(be);
   await packNormalAndOrm(be);
   await packTexture(be, ALBEDO_HEIGHT_LAYERS, 'color', 'terrain-albedo');
   await cmd('setEnvironment', { sceneId: 'scene-main', environment: { sky: { mode: 'color', color: '#303030' } } });
 
-  await page.goto(be.editorUrl);
+  await page.goto(editorUrlFor(be.editorUrl, variant));
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
+  await expectRendererBackend(page.locator('canvas.tl-viewport'), variant);
   await createItem(page, ['Graph material', 'Height-blended layers (painted terrain)'], 'Graph material 1');
   await expect.poll(async () => (await materials(be!)).filter((m) => JSON.stringify(m.graph ?? {}).includes('heightBlend')).length, { timeout: 15_000 }).toBe(1);
   const mat = (await materials(be)).find((m) => JSON.stringify(m.graph ?? {}).includes('heightBlend'))!.materialId;
@@ -167,4 +204,48 @@ test('Paint mode: a drag paints a layer (one undo step), Ctrl erases, undo/redo,
   await expect(view(page)).toHaveAttribute('data-view-proj', /\[/);
   await expect.poll(() => blueNear(page, ground(17, 16)), { timeout: 30_000 }).toBeGreaterThan(20);
   expect(await paint(layer)).toEqual(erased);
+
+  // ---- Walls: a block 3 m tall (6 × 6 columns) left of the view's middle and away from the paint; the layer's walls get paint of their own.
+  const vbox = (await view(page).boundingBox())!;
+  let best: { x: number; z: number; d: number } | null = null;
+  for (let x = 1; x <= 25; x++) {
+    for (let z = 1; z <= 25; z++) {
+      if (Math.hypot(x + 3 - 16, z + 3 - 16) < 10) continue;
+      const sp = await screen(page, ground(x + 3, z + 3));
+      const d = Math.hypot(sp.x - (vbox.x + 0.3 * vbox.width), sp.y - (vbox.y + 0.55 * vbox.height));
+      if (best === null || d < best.d) best = { x, z, d };
+    }
+  }
+  const bx = best!.x;
+  const bz = best!.z;
+  await cmd('editBlocks', { entityId: layer, edits: [{ kind: 'fill', box: [bx, 4, bz, bx + 6, 10, bz + 6], cell: { block: 'soil' } }] });
+  await cmd('setComponent', { entityId: layer, component: 'blockLayer', value: { cellSize: [1, 0.5, 1], bounds: { min: [0, 0, 0], max: [32, 16, 32] }, wallPaint: true } });
+  // The block's z side the camera looks at, at its x middle; the ground in front of it.
+  const eye = await cameraAt(page);
+  const faceZ = eye[2] > ORIGIN[2] + bz + 6 ? bz + 6 : bz;
+  const wall = (rows: number): V3 => [ORIGIN[0] + bx + 3, ORIGIN[1] + rows * 0.5, ORIGIN[2] + faceZ];
+  // Unpainted: layer 2 (green) up the wall, the top's layer 1 (red) wrapped over the lip.
+  await expect.poll(() => near(page, wall(6), isGreenish, 24), { timeout: 30_000 }).toBeGreaterThan(40);
+  expect(await near(page, wall(9.7), isRed, 12)).toBeGreaterThan(4);
+  // Paint on Walls: layer 3 dragged up the face from its foot (the panel's brush starts afresh after the reload).
+  await tool(page, 'Paint texture').click();
+  await panel(page).getByLabel('paint channel').selectOption('2');
+  await panel(page).getByLabel('paint target').selectOption('walls');
+  await panel(page).getByLabel('paint radius').fill('1');
+  await panel(page).getByLabel('paint strength').fill('1');
+  await panel(page).getByLabel('paint falloff').selectOption('constant');
+  const r1 = await revision();
+  await drag(page, [wall(4.6), wall(6), wall(7.4)]);
+  await expect.poll(async () => Object.keys(await wallPaint(layer)).length, { timeout: 20_000 }).toBe(1);
+  expect(await revision()).toBe(r1 + 1);
+  // The moss shows on the wall; the tops keep their paint (one stroke on the walls only).
+  await expect.poll(() => near(page, wall(6), isBlue, 24), { timeout: 30_000 }).toBeGreaterThan(40);
+  expect(await paint(layer)).toEqual(erased);
+  // Rain: the scene's wetness darkens the ground (the template adds the scene's wetness to the painted one).
+  const dry = await medianRed(page);
+  await openWindow(page, 'Environment');
+  await page.getByRole('slider', { name: 'scene wetness' }).focus();
+  await page.keyboard.press('End');
+  await expect.poll(async () => JSON.stringify((await query('queryProject', { environments: true }))['scenes']), { timeout: 15_000 }).toContain('"wetness":1');
+  await expect.poll(() => medianRed(page), { timeout: 30_000 }).toBeLessThan(dry * 0.86);
 });

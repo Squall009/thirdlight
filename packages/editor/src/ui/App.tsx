@@ -220,6 +220,7 @@ function EditorApp(): JSX.Element {
     if (!c) return;
     const shown = c.getShownEnvironment() as unknown as (EnvironmentLike & { wind?: unknown }) | null;
     materialLibraryRef.current?.setWind(((shown as { wind?: WindLike } | null)?.wind ?? null) as WindLike | null);
+    materialLibraryRef.current?.setWetness((shown as { wetness?: number } | null)?.wetness ?? 0);
     const envKey = JSON.stringify(shown);
     if (envKey !== environmentKeyRef.current && loadTextureRef.current !== null) {
       environmentKeyRef.current = envKey;

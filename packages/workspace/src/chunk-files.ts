@@ -89,6 +89,8 @@ export function chunkFileBytes(projectId: string, sceneId: string, entityId: str
         : []),
       // The chunk's paint (one base64 line), when painted.
       ...(chunk.paint !== undefined ? [`  "paint": ${JSON.stringify(chunk.paint)}`] : []),
+      // Its wall paint points (one base64 line), when any is painted.
+      ...(chunk.wallPaint !== undefined ? [`  "wallPaint": ${JSON.stringify(chunk.wallPaint)}`] : []),
     ];
     bytes = new TextEncoder().encode(`{\n${head.join(',\n')}\n}\n`);
   }

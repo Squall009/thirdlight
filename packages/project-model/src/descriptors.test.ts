@@ -575,7 +575,7 @@ const COMPONENT_BASES: Record<string, J[]> = {
   prefab: [{ prefabId: 'pre-a', localId: 'root' }],
   folder: [{}],
   // A block layer (every optional flag set to its non-default value).
-  blockLayer: [{ cellSize: [1, 0.5, 1], bounds: { min: [0, 0, 0], max: [8, 8, 8] }, metadataOnly: true, collision: false, castShadow: false, receiveShadow: false, maxSlope: 30, smoothAngle: 40, topSubdivision: 2, lightLayers: 128 }],
+  blockLayer: [{ cellSize: [1, 0.5, 1], bounds: { min: [0, 0, 0], max: [8, 8, 8] }, metadataOnly: true, collision: false, castShadow: false, receiveShadow: false, maxSlope: 30, smoothAngle: 40, topSubdivision: 2, wallPaint: true, lightLayers: 128 }],
   // A prop's block footprint.
   blockFootprint: [{ layer: 'layer-a', size: [2, 3], set: { blocked: true, cost: 4 } }],
 };
@@ -594,7 +594,7 @@ const POST_FULL = {
 const WIND_FULL = { direction: [1, 0], strength: 0.5, gust: 0.4, gustFrequency: 0.3, turbulence: 0.3 };
 // A scene's look.
 const SCENE_ENV_BASES: J[] = [
-  { sky: SKY_PROCEDURAL, fog: { mode: 'linear', color: '#c8d2dc', near: 10, far: 120 }, post: POST_FULL, wind: WIND_FULL },
+  { sky: SKY_PROCEDURAL, fog: { mode: 'linear', color: '#c8d2dc', near: 10, far: 120 }, post: POST_FULL, wind: WIND_FULL, wetness: 0.4 },
   { sky: { mode: 'gradient', topColor: '#3d7cd6', horizonColor: '#bfe3ff', bottomColor: '#6b7b5a', intensity: 1 }, fog: { mode: 'exp2', color: '#c8d2dc', density: 0.01 } },
   { sky: { mode: 'texture', texture: 'tex-a', cube: ['px', 'nx', 'py', 'ny', 'pz', 'nz'], rotation: 90 }, fog: { mode: 'none', color: '#c8d2dc' } },
   { sky: { mode: 'color', color: '#7ec8ff' } },
@@ -636,6 +636,7 @@ const ENV_BASES: J[] = [
           { type: 'ambient', color: '#101020' },
         ],
         lightmap: { intensity: 0.25, tint: '#8090ff' },
+        wetness: 0.7,
       },
     ],
   },

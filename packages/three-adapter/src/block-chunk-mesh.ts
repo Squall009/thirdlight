@@ -8,12 +8,14 @@
  * (each with the distance it takes over at), its lightmap layout when asked
  * for one, the looks its parts draw, and the models it needed but did not
  * have (still loading, or never sent to this worker): the page loads them and
- * meshes the chunk again.
+ * meshes the chunk again. A painted layer's parts carry their paint colours
+ * (`chunkMeshPaint`), made here so the workers make them too.
  */
 import {
   blockTopOptions,
   blockVariantUv,
   chunkLightmapLayout,
+  chunkMeshPaint,
   meshBlockChunk,
   shapeSource,
   type BlockGrid,
@@ -150,6 +152,17 @@ export function meshChunkForDrawing(grid: BlockGrid, component: BlockLayerCompon
     for (const c of coarse) c.parts = chunkLightmapLayout(c.parts, grid.cellSize, lm).parts;
     lightmap = { layout: lm.layout, area: lm.area, side: lm.side };
   }
+  // A painted layer (or one whose walls have paint of their own) carries its paint on every chunk, so chunks match at the seams.
+  if (component.wallPaint === true || grid.hasPaint()) {
+    const options = { wallPaint: component.wallPaint === true, topSubdivision: tops.topSubdivision ?? 1 };
+    const paint = (p: ChunkMeshPart): void => {
+      const c = chunkMeshPaint(grid, types, cx, cz, options, p);
+      p.weights = c.weights;
+      p.wetness = c.wetness;
+    };
+    parts.forEach(paint);
+    for (const c of coarse) c.parts.forEach(paint);
+  }
   return { parts, coarse, lightmap, looks: [...used.values()].map(({ key, blockId, model, color }) => ({ key, blockId, model, color })), missing: [...missing.values()] };
 }
 
@@ -157,7 +170,7 @@ export function meshChunkForDrawing(grid: BlockGrid, component: BlockLayerCompon
 export function chunkResultBuffers(result: ChunkMeshResult): ArrayBuffer[] {
   const out = new Set<ArrayBuffer>();
   const add = (p: ChunkMeshPart): void => {
-    for (const a of [p.positions, p.normals, p.uvs, p.tangents, p.indices, p.uv1]) if (a !== undefined) out.add(a.buffer as ArrayBuffer);
+    for (const a of [p.positions, p.normals, p.uvs, p.tangents, p.indices, p.uv1, p.weights, p.wetness]) if (a !== undefined) out.add(a.buffer as ArrayBuffer);
   };
   for (const p of result.parts) add(p);
   for (const c of result.coarse) for (const p of c.parts) add(p);

@@ -40,6 +40,8 @@ export interface PaintBrush {
 export interface PaintLayout {
   channels: number;
   weights: number;
+  /** The weight channel an unpainted point is all of: erasing the only weight gives it back there (absent: the first). */
+  rest?: number;
 }
 
 /**
@@ -79,10 +81,11 @@ export function paintPoint(values: Uint8Array, offset: number, layout: PaintLayo
     // Toward all weight on channel c.
     for (let k = 0; k < n; k++) want[k] = before[k]! + ((k === c ? 255 : 0) - before[k]!) * t;
   } else {
-    // Channel c gives the part it loses to the others, in proportion to theirs (all zero: to the first other channel).
+    // Channel c gives the part it loses to the others, in proportion to theirs (all zero: to the unpainted one, else the first other).
     const lost = before[c]! * t;
     const others = before.reduce((s, v, k) => (k === c ? s : s + v), 0);
-    const fallback = c === 0 ? 1 : 0;
+    const rest = layout.rest ?? 0;
+    const fallback = c === rest ? (rest === 0 ? 1 : 0) : rest;
     for (let k = 0; k < n; k++) {
       if (k === c) want[k] = before[k]! - lost;
       else want[k] = before[k]! + (others > 0 ? (lost * before[k]!) / others : k === fallback ? lost : 0);

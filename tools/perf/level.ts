@@ -27,6 +27,12 @@
  * pieces on the room's outline from the ground up, the door gap two closed
  * door pieces, so the two runs compare walls of cells with walls of edges.
  *
+ * Either class can give its layer wall paint (`--wall-paint`; none by
+ * default, as recorded): walls with paint of their own (cut at the points),
+ * each room's front wall painted with a patch of layer 3 and wetness up its
+ * face from the ground, and the tops around it, so the chunks carry paint
+ * colours and the cut walls.
+ *
  * Both classes share the camera (at the area's edge, looking across it to the
  * horizon) and the environment, so the landscape's extra cost is the far part.
  * `levelPlan` is a pure function of the kind and the seed; `buildLevel`
@@ -127,6 +133,8 @@ export interface LevelPlan {
   liveDoors: [number, number, number][];
   /** The rooms' walls are edge pieces (`rock-wall`, the door gap `rock-door`). */
   edgeWalls: boolean;
+  /** The layer has wall paint, and the rooms' front walls are painted. */
+  wallPaint: boolean;
 }
 
 /** The live door's script: it finds its cell once, then reads the cell's `open` field every step. */
@@ -160,7 +168,7 @@ function copies(n: number, at: (i: number) => { x: number; y: number; z: number;
   return f;
 }
 
-export function levelPlan(kind: LevelKind, seed = LEVEL_SEED, liveDoorCount = 0, edgeWalls = false): LevelPlan {
+export function levelPlan(kind: LevelKind, seed = LEVEL_SEED, liveDoorCount = 0, edgeWalls = false, wallPaint = false): LevelPlan {
   const S = LEVEL_SPEC;
   const N = S.areaSide;
   const rnd = prng(seed * 104729 + N);
@@ -242,6 +250,16 @@ export function levelPlan(kind: LevelKind, seed = LEVEL_SEED, liveDoorCount = 0,
     counts.rooms! += 1;
   }
   blockEdits.push(...walls);
+  if (wallPaint) {
+    // Each room's front (z0) wall: layer 3 and wetness up its face from the ground at both ends of the door, and the tops before it.
+    for (const r of rooms) {
+      for (const x of [r.box[0] + 2, r.box[2] - 2]) {
+        const y = Math.floor(levelHeightAt(x, r.box[1])) + 2;
+        blockEdits.push({ kind: 'paint', at: [x, r.box[1]], y, target: 'both', radius: 3, strength: 0.8, channel: 2 }, { kind: 'paint', at: [x, r.box[1]], y: y - 1, target: 'walls', radius: 2, strength: 0.6, channel: 4 });
+      }
+    }
+    counts.wallPaintDabs = rooms.length * 4;
+  }
 
   const inRoom = (x: number, z: number): boolean => rooms.some((r) => x >= r.box[0] - 0.5 && x < r.box[2] + 0.5 && z >= r.box[1] - 0.5 && z < r.box[3] + 0.5);
   const entities: EntityValue[] = [];
@@ -340,11 +358,11 @@ export function levelPlan(kind: LevelKind, seed = LEVEL_SEED, liveDoorCount = 0,
 
   const batches: EntityValue[][] = [];
   for (let i = 0; i < entities.length; i += PASTE_MAX) batches.push(entities.slice(i, i + PASTE_MAX));
-  const layer: EntityValue = { id: 'ground', name: 'Ground', components: { transform: T(-half, 0, -half), blockLayer: { cellSize: [1, S.cellHeight, 1], bounds: { min: [0, 0, 0], max: [N, 32, N] }, maxSlope: 60, smoothAngle: 40, topSubdivision: 2 } } };
+  const layer: EntityValue = { id: 'ground', name: 'Ground', components: { transform: T(-half, 0, -half), blockLayer: { cellSize: [1, S.cellHeight, 1], bounds: { min: [0, 0, 0], max: [N, 32, N] }, maxSlope: 60, smoothAngle: 40, topSubdivision: 2, ...(wallPaint ? { wallPaint: true } : {}) } } };
   // At the area's south edge, 8 m over its ground, looking north across it to the horizon.
   const pitch = -0.12;
   const camera: LevelPlan['camera'] = { position: [0, r3(groundY(half, N - 2) + 8), half - 2], rotation: [r6(Math.sin(pitch / 2)), 0, 0, r6(Math.cos(pitch / 2))] };
-  return { kind, version: LEVEL_VERSION, seed, props, buffers, layer, batches, blockEdits, rooms, camera, counts, liveDoors, edgeWalls };
+  return { kind, version: LEVEL_VERSION, seed, props, buffers, layer, batches, blockEdits, rooms, camera, counts, liveDoors, edgeWalls, wallPaint };
 }
 
 /**

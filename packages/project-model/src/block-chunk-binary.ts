@@ -7,7 +7,7 @@
  * (columns hold small run lengths, heights and palette indices, mostly one
  * byte each), the cell values every chunk's palette names are written once
  * per blob as JSON text (a layer repeats the same few cells in every chunk),
- * and paint is its raw lattice bytes. The result is then compressed by the
+ * and paint (tops and walls) is its raw bytes. The result is then compressed by the
  * caller (zstd in the editor's files, gzip in an export, which the browser
  * decodes natively); the header says which, so a reader takes any of them.
  *
@@ -26,13 +26,15 @@ import { decodeBase64, encodeBase64 } from './png-decode';
 /** The first bytes of a binary chunk blob ("TLBK"). */
 export const BLOCK_CHUNK_MAGIC = Object.freeze([0x54, 0x4c, 0x42, 0x4b]);
 /**
- * The payload layout this module writes (the payload's first number): 2
- * adds each chunk's edge pieces after its columns. A payload without edge
- * pieces is written as 1, byte for byte what it was before edges existed, so
- * existing files and builds keep their digests; both are read.
+ * The newest payload layout (the payload's first number): 2 adds each
+ * chunk's edge pieces after its columns, 3 its wall paint after those. A
+ * payload is written in the oldest layout that holds it (without edge pieces
+ * or wall paint: 1, byte for byte what it was before either existed), so
+ * existing files and builds keep their digests; all three are read.
  */
-export const BLOCK_CHUNK_BINARY_VERSION = 2;
+export const BLOCK_CHUNK_BINARY_VERSION = 3;
 const LAYOUT_WITHOUT_EDGES = 1;
+const LAYOUT_WITH_EDGES = 2;
 /** The header layout (its fifth byte). */
 export const BLOCK_CHUNK_CONTAINER_VERSION = 1;
 /** How a blob's payload is compressed (the header's byte). */
@@ -50,6 +52,27 @@ export const BLOCK_CHUNK_HEADER_BYTES = 12;
 const PAINT_NONE = 0;
 const PAINT_BYTES_FORM = 1;
 const PAINT_TEXT_FORM = 2;
+
+/** A base64 field as its bytes, or as its text when base64 would not write it back the same. */
+function writeBase64Field(w: Writer, v: string | undefined): void {
+  if (v === undefined) return w.uint(PAINT_NONE);
+  const raw = decodeBase64(v);
+  if (raw !== null && encodeBase64(raw) === v) {
+    w.uint(PAINT_BYTES_FORM);
+    w.bytes(raw);
+  } else {
+    w.uint(PAINT_TEXT_FORM);
+    w.bytes(utf8.encode(v));
+  }
+}
+
+function readBase64Field(r: Reader, what: string): string | undefined {
+  const form = r.uint();
+  if (form === PAINT_BYTES_FORM) return encodeBase64(r.bytes());
+  if (form === PAINT_TEXT_FORM) return fromUtf8.decode(r.bytes());
+  if (form !== PAINT_NONE) throw new Error(`block chunk binary: ${what} has an unknown form ${form}`);
+  return undefined;
+}
 
 class Writer {
   private buf = new Uint8Array(4096);
@@ -143,7 +166,7 @@ export function encodeBlockChunks(chunks: readonly BlockChunk[]): Uint8Array {
   const palettes = chunks.map((c) => paletteOf(c.palette));
   // Edge values go in the same table (they are JSON objects like cells).
   const edgePalettes = chunks.map((c) => (c.edges !== undefined && c.edges.length > 0 ? paletteOf((c.edgePalette ?? []) as unknown as BlockCell[]) : null));
-  const layout = edgePalettes.some((p) => p !== null) ? BLOCK_CHUNK_BINARY_VERSION : LAYOUT_WITHOUT_EDGES;
+  const layout = chunks.some((c) => c.wallPaint !== undefined) ? BLOCK_CHUNK_BINARY_VERSION : edgePalettes.some((p) => p !== null) ? LAYOUT_WITH_EDGES : LAYOUT_WITHOUT_EDGES;
   const w = new Writer();
   w.uint(layout);
   w.uint(cells.length);
@@ -155,17 +178,7 @@ export function encodeBlockChunks(chunks: readonly BlockChunk[]): Uint8Array {
     const p = palettes[k]!;
     w.uint(p.length);
     for (const i of p) w.uint(i);
-    if (c.paint === undefined) w.uint(PAINT_NONE);
-    else {
-      const raw = decodeBase64(c.paint);
-      if (raw !== null && encodeBase64(raw) === c.paint) {
-        w.uint(PAINT_BYTES_FORM);
-        w.bytes(raw);
-      } else {
-        w.uint(PAINT_TEXT_FORM);
-        w.bytes(utf8.encode(c.paint));
-      }
-    }
+    writeBase64Field(w, c.paint);
     w.uint(c.columns.length);
     for (const col of c.columns) {
       w.uint(col.length);
@@ -173,14 +186,14 @@ export function encodeBlockChunks(chunks: readonly BlockChunk[]): Uint8Array {
     }
     if (layout === LAYOUT_WITHOUT_EDGES) return;
     const ep = edgePalettes[k];
-    if (ep === null || ep === undefined) {
-      w.uint(0);
-      return;
+    if (ep === null || ep === undefined) w.uint(0);
+    else {
+      w.uint(ep.length);
+      for (const i of ep) w.uint(i);
+      w.uint(c.edges!.length);
+      for (const r of c.edges!) for (const v of r) w.int(v);
     }
-    w.uint(ep.length);
-    for (const i of ep) w.uint(i);
-    w.uint(c.edges!.length);
-    for (const r of c.edges!) for (const v of r) w.int(v);
+    if (layout === BLOCK_CHUNK_BINARY_VERSION) writeBase64Field(w, c.wallPaint);
   });
   return w.done();
 }
@@ -189,7 +202,7 @@ export function encodeBlockChunks(chunks: readonly BlockChunk[]): Uint8Array {
 export function decodeBlockChunks(payload: Uint8Array): BlockChunk[] {
   const r = new Reader(payload);
   const version = r.uint();
-  if (version !== BLOCK_CHUNK_BINARY_VERSION && version !== LAYOUT_WITHOUT_EDGES) throw new Error(`block chunk binary: layout ${version} is newer than this engine reads (${BLOCK_CHUNK_BINARY_VERSION})`);
+  if (version !== BLOCK_CHUNK_BINARY_VERSION && version !== LAYOUT_WITH_EDGES && version !== LAYOUT_WITHOUT_EDGES) throw new Error(`block chunk binary: layout ${version} is newer than this engine reads (${BLOCK_CHUNK_BINARY_VERSION})`);
   const cellCount = r.count(1);
   const cells: BlockCell[] = [];
   for (let i = 0; i < cellCount; i++) {
@@ -216,11 +229,7 @@ export function decodeBlockChunks(payload: Uint8Array): BlockChunk[] {
       // Each chunk gets its own objects, as a parsed JSON chunk has.
       palette.push(structuredCloneCell(cell));
     }
-    const paintForm = r.uint();
-    let paint: string | undefined;
-    if (paintForm === PAINT_BYTES_FORM) paint = encodeBase64(r.bytes());
-    else if (paintForm === PAINT_TEXT_FORM) paint = fromUtf8.decode(r.bytes());
-    else if (paintForm !== PAINT_NONE) throw new Error(`block chunk binary: chunk ${cx},${cz} has an unknown paint form ${paintForm}`);
+    const paint = readBase64Field(r, `chunk ${cx},${cz}'s paint`);
     const cn = r.count(1);
     const columns: number[][] = new Array(cn);
     for (let i = 0; i < cn; i++) {
@@ -246,8 +255,9 @@ export function decodeBlockChunks(payload: Uint8Array): BlockChunk[] {
         edges = { edgePalette, edges: rows };
       }
     }
+    const wallPaint = version === BLOCK_CHUNK_BINARY_VERSION ? readBase64Field(r, `chunk ${cx},${cz}'s wall paint`) : undefined;
     // Key order as a JSON chunk file has it.
-    out.push({ cx, cz, palette, columns, ...(edges ?? {}), ...(paint !== undefined ? { paint } : {}) });
+    out.push({ cx, cz, palette, columns, ...(edges ?? {}), ...(paint !== undefined ? { paint } : {}), ...(wallPaint !== undefined ? { wallPaint } : {}) });
   }
   if (r.left !== 0) throw new Error('block chunk binary: bytes after the last chunk');
   return out;

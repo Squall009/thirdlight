@@ -160,6 +160,14 @@ const INPUT_NODES: readonly GraphNodeDef[] = [
     inputs: [],
     outputs: [port('direction', 'direction', 'vec3'), port('strength', 'strength', 'float'), port('turbulence', 'turbulence', 'float')],
   },
+  {
+    type: 'sceneWetness',
+    label: 'Scene wetness',
+    category: 'Inputs',
+    description: 'How wet the scene is (its Environment wetness, 0 dry – 1 soaked: rain), as environment presets blend it.',
+    inputs: [],
+    outputs: [port('wetness', 'wetness', 'float')],
+  },
 ];
 
 /**

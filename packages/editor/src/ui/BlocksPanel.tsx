@@ -25,7 +25,7 @@ import { useEffect, useMemo, useState, type JSX } from 'react';
 import type { TileThumbnails } from '../viewport/thumbnails';
 import { useTileUrl } from './assets/TileImage';
 import { useAssetSummaries } from './catalog/catalog-context';
-import type { BlockCell, BlockEdit, BlockLayerComponent, BlockRegion, BlockStamp, BlockType, CellField, CellMetaValue, DescriptorRegistry, ObjectFieldDescriptor } from '@thirdlight/project-model';
+import type { BlockCell, BlockEdit, BlockLayerComponent, BlockRegion, BlockStamp, BlockType, CellField, CellMetaValue, DescriptorRegistry, ObjectFieldDescriptor, PaintTarget } from '@thirdlight/project-model';
 import { BRUSH_FALLOFFS, PAINT_BRUSH_LIMITS, SCULPT_LIMITS, type BrushFalloff } from '@thirdlight/runtime';
 import { ObjectFields, type FieldContext } from './DescriptorFields';
 import { componentPatch } from '../session/descriptor-fields';
@@ -378,6 +378,14 @@ export function BlocksPanel(p: Props): JSX.Element {
                 <option value={2}>Layer 3</option>
                 <option value={3}>Layer 4</option>
                 <option value={4}>Wetness</option>
+              </select>
+            </label>
+            <label title="Where the brush paints: the tops, the walls (points about 0.5 m apart up the exposed wall faces, by distance from the point you drag over; the layer needs Wall paint on) or both.">
+              On{' '}
+              <select aria-label="paint target" value={brush.paintTarget} onChange={(e) => setBrush((b) => ({ ...b, paintTarget: e.target.value as PaintTarget }))}>
+                <option value="tops">Tops</option>
+                <option value="walls">Walls</option>
+                <option value="both">Tops and walls</option>
               </select>
             </label>
             <label title="The paint brush's radius in cells.">

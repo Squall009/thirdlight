@@ -14,7 +14,8 @@
  *   field; a light no entry matches keeps its authored values;
  * - `lightmap`: an intensity and tint multiplier on baked lightmaps: a bake
  *   holds the light of the moment it was baked, so a preset
- *   that darkens the lights darkens the baked surfaces with this.
+ *   that darkens the lights darkens the baked surfaces with this;
+ * - `wetness`: the scene's wetness (rain) under this look.
  *
  * A patch (`ctx.environment.set(id, { override })`) is the same shape
  * without id and name; its parts merge one level deep over the preset's.
@@ -23,7 +24,7 @@
  */
 import { ID_RE } from './validate';
 import type { ModelErrorV2 } from './errors';
-import { canonicalSceneEnvironment, validateFog, validatePost, validateSky, type FogConfig, type PostConfig, type SkyConfig } from './materials';
+import { canonicalSceneEnvironment, validateFog, validatePost, validateSky, validateWetness, type FogConfig, type PostConfig, type SkyConfig } from './materials';
 
 /** Engine limits of environment presets (documented in deployment.md). */
 export const ENVIRONMENT_PRESET_LIMITS = Object.freeze({
@@ -65,6 +66,8 @@ export interface EnvironmentLookParts {
   post?: PostConfig;
   lights?: EnvironmentPresetLight[];
   lightmap?: EnvironmentPresetLightmap;
+  /** The scene's wetness under this look (0–1; absent: the base look's). */
+  wetness?: number;
 }
 
 export interface EnvironmentPreset extends EnvironmentLookParts {
@@ -74,7 +77,7 @@ export interface EnvironmentPreset extends EnvironmentLookParts {
 const COLOR_RE = /^#[0-9a-f]{6}$/;
 /** A tag name (content.ts TAG_NAME_RE). */
 const TAG_RE = /^[A-Za-z][A-Za-z0-9_-]{0,31}$/;
-const PART_KEYS = ['sky', 'fog', 'post', 'lights', 'lightmap'] as const;
+const PART_KEYS = ['sky', 'fog', 'post', 'lights', 'lightmap', 'wetness'] as const;
 
 function isPlainObject(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -111,6 +114,7 @@ function validateParts(value: Record<string, unknown>, path: string, errors: Mod
   if (value['sky'] !== undefined) validateSky(value['sky'], `${path}/sky`, errors);
   if (value['fog'] !== undefined) validateFog(value['fog'], `${path}/fog`, errors);
   if (value['post'] !== undefined) validatePost(value['post'], `${path}/post`, errors);
+  validateWetness(value['wetness'], `${path}/wetness`, errors);
   const lights = value['lights'];
   if (lights !== undefined) {
     if (!Array.isArray(lights) || lights.length > ENVIRONMENT_PRESET_LIMITS.lights) err(errors, 'field_value', `${path}/lights`, `lights is a list of at most ${ENVIRONMENT_PRESET_LIMITS.lights} entries`, Array.isArray(lights) ? lights.length : lights);
@@ -137,7 +141,7 @@ export function validateEnvironmentPresets(value: unknown, path: string, errors:
   value.forEach((p, i) => {
     const at = `${path}/${i}`;
     if (!isPlainObject(p)) {
-      err(errors, 'field_type', at, 'a preset is an object { presetId, name, sky?, fog?, post?, lights?, lightmap? }', p);
+      err(errors, 'field_type', at, 'a preset is an object { presetId, name, sky?, fog?, post?, lights?, lightmap?, wetness? }', p);
       return;
     }
     for (const k of Object.keys(p)) if (k !== 'presetId' && k !== 'name' && !(PART_KEYS as readonly string[]).includes(k)) err(errors, 'field_unexpected', `${at}/${k}`, `unknown preset field "${k}"`, k, `presetId, name, ${PART_KEYS.join(', ')}`);
@@ -187,6 +191,7 @@ function canonicalParts(p: EnvironmentLookParts): EnvironmentLookParts {
     ...(p.lightmap !== undefined
       ? { lightmap: { ...(p.lightmap.intensity !== undefined ? { intensity: p.lightmap.intensity } : {}), ...(p.lightmap.tint !== undefined ? { tint: p.lightmap.tint.toLowerCase() } : {}) } }
       : {}),
+    ...(p.wetness !== undefined ? { wetness: p.wetness } : {}),
   };
 }
 

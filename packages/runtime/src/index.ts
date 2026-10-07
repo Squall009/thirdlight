@@ -390,7 +390,7 @@ export { BLOCK_EDIT_MAX_EDITS, SCULPT_LIMITS, chunkLightmapLayout, applyBlockEdi
 // The instance brush's places and surface drop (the editor finds the surface under the same places the backend plans).
 export { INSTANCE_BRUSH_DEFAULTS, INSTANCE_BRUSH_LIMITS, StrokeCandidates, candidateDrop, dropOntoBlockLayers, instanceStrokeError } from '@thirdlight/project-model';
 // The paint brush and block-layer paint (the editor's Paint mode, the renderer's paint colours).
-export { BRUSH_FALLOFFS, PAINT_BRUSH_LIMITS, PAINT_CHANNELS, chunkPaintColors, type BrushFalloff, type PaintBrush } from '@thirdlight/project-model';
+export { BRUSH_FALLOFFS, PAINT_BRUSH_LIMITS, PAINT_CHANNELS, chunkMeshPaint, chunkPaintColors, type BrushFalloff, type PaintBrush } from '@thirdlight/project-model';
 // A prop's block footprint: the editor snaps props and writes footprints with the backend's geometry.
 export { footprintCells, footprintEdits, footprintMinCell, footprintPlaces, overLayer, placeInWorld, pointInParent, turnedSize, yawQuarterTurns, type FootprintLayer, type FootprintNode } from '@thirdlight/project-model';
 export { BlockGrid, CHUNK_SIZE, autoVariant, blockTopOptions, blockTypeSolid, blockVariantUv, chunkKeyOf, collisionMeshChunk, compareChunkKeys, meshBlockChunk, rotatedFootprint, shapeSource, type BlockCell, type BlockChunk, type BlockLayerComponent, type BlockLayerData, type BlockLookResolver, type BlockMeshSource, type BlockTopOptions, type BlockType, type BlockUvMode, type BlockVariant, type CellField, type ChunkMeshPart } from '@thirdlight/project-model';

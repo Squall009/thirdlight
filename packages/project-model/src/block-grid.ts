@@ -15,6 +15,7 @@ import {
   CHUNK_SIZE,
   REGION_ID_RE,
   blockTypeSlopes,
+  blockTypeSolid,
   validateBlockCell,
   blockCellKey,
   canonicalBlockCell,
@@ -34,6 +35,7 @@ import { decodeBase64, decodePngRgba } from './png-decode';
 import { SCULPT_LIMITS, SCULPT_OPS, sculptHeights, setColumnSurface, type SculptOp } from './block-sculpt';
 import { PAINT_CHANNELS, decodeChunkPaint, encodeChunkPaint, isUnpainted, paintDab, unpaintedChunk, type PaintSurface } from './block-paint';
 import { paintBrushError, type BrushFalloff } from './paint-brush';
+import { WALL_POINT_BYTES, decodeWallPaint, encodeWallPaint, wallPaintDab, type WallPaint, type WallPaintSurface } from './block-wall-paint';
 import { edgeConnectNeighbours } from './block-connect';
 import { canonicalBlockEdge, edgeInBounds, edgeInBox, transformEdge, validatePatternEdges, edgeLocalKey, edgesEditShapeError, edgesEditTargets, type BlockEdge, type EdgesEdit } from './block-edges';
 
@@ -109,6 +111,8 @@ export class BlockGrid {
   readonly regions = new Map<string, number[][]>();
   /** Each chunk's paint lattice (`block-paint.ts`); absent: unpainted. */
   private readonly paints = new Map<string, Uint8Array>();
+  /** Each chunk's wall paint points (`block-wall-paint.ts`); absent: none painted. */
+  private readonly wallPaints = new Map<string, WallPaint>();
   /** Each chunk's edge pieces: edge local key (`edgeLocalKey`) → palette index (edge values share the palette). */
   private readonly edgeChunks = new Map<string, Map<number, number>>();
   private edgeTotal = 0;
@@ -155,6 +159,8 @@ export class BlockGrid {
       }
       const paint = decodeChunkPaint(c.paint);
       if (paint !== null) g.paints.set(ck, paint);
+      const wall = decodeWallPaint(c.wallPaint);
+      if (wall !== null) g.wallPaints.set(ck, wall);
       if (c.edges !== undefined && c.edgePalette !== undefined && c.edges.length > 0) {
         const values = c.edgePalette.map((e) => g.internEdge(e));
         const map = new Map<number, number>();
@@ -410,6 +416,14 @@ export class BlockGrid {
       this.dirty.add(ck);
       this.meshDirty.add(ck);
     }
+    const wall = chunk !== null ? (encodeWallPaint(decodeWallPaint(chunk.wallPaint)) ?? null) : null;
+    if (wall !== (encodeWallPaint(this.wallPaints.get(ck)) ?? null)) {
+      if (wall === null) this.wallPaints.delete(ck);
+      else this.wallPaints.set(ck, decodeWallPaint(wall)!);
+      this.dirty.add(ck);
+      // Wall points on a chunk's + borders are also drawn by the next chunk's edge pieces.
+      for (const k of [ck, chunkKeyOf(cx + 1, cz), chunkKeyOf(cx, cz + 1)]) this.meshDirty.add(k);
+    }
   }
 
   // ---- Paint ------------------------------------------------------------
@@ -419,10 +433,53 @@ export class BlockGrid {
     return this.paints.get(chunkKeyOf(cx, cz)) ?? null;
   }
 
-  /** Whether any chunk of the layer is painted (its chunk meshes then carry paint colours). */
+  /** A chunk's wall paint points (null: none painted). */
+  chunkWallPaint(cx: number, cz: number): WallPaint | null {
+    return this.wallPaints.get(chunkKeyOf(cx, cz)) ?? null;
+  }
+
+  /** Whether any chunk of the layer is painted, tops or walls (its chunk meshes then carry paint colours). */
   hasPaint(): boolean {
     for (const p of this.paints.values()) if (!isUnpainted(p)) return true;
+    for (const w of this.wallPaints.values()) if (w.size > 0) return true;
     return false;
+  }
+
+  /**
+   * The wall paint surface of `wallPaintDab`: chunks holding cells or edge
+   * pieces, their points made on first write. `solid` says which blocks hide
+   * a neighbour's face (absent: every flat one).
+   */
+  wallPaintSurface(solid?: (cell: BlockCell) => boolean): WallPaintSurface {
+    return {
+      cellSize: this.cellSize,
+      minX: this.min[0],
+      maxX: this.max[0],
+      minY: this.min[1],
+      maxY: this.max[1],
+      minZ: this.min[2],
+      maxZ: this.max[2],
+      blockAt: (x, y, z) => {
+        const cell = this.get(x, y, z);
+        if (cell === null || cell.block === undefined) return 0;
+        return cell.corners !== undefined || (solid !== undefined && !solid(cell)) ? 2 : 1;
+      },
+      edgeAt: (x, y, z, axis) => this.edgeIndexAt(x, y, z, axis) >= 0,
+      points: (cx, cz) => {
+        const ck = chunkKeyOf(cx, cz);
+        if (!this.chunkHasCells(ck) && !this.edgeChunks.has(ck)) return null;
+        let w = this.wallPaints.get(ck);
+        if (w === undefined) this.wallPaints.set(ck, (w = new Map()));
+        return w;
+      },
+      touched: (cx, cz, lx, lz, side) => {
+        const ck = chunkKeyOf(cx, cz);
+        this.dirty.add(ck);
+        this.meshDirty.add(ck);
+        if (side === 0 && lx === CHUNK_SIZE - 1) this.meshDirty.add(chunkKeyOf(cx + 1, cz));
+        if (side === 2 && lz === CHUNK_SIZE - 1) this.meshDirty.add(chunkKeyOf(cx, cz + 1));
+      },
+    };
   }
 
   /** The paint surface of `paintDab`: chunks with cells, their lattices made on first write. */
@@ -497,6 +554,7 @@ export class BlockGrid {
       for (const col of chunk.values()) bytes += col.data.byteLength;
     }
     for (const paint of this.paints.values()) bytes += paint.byteLength;
+    for (const wall of this.wallPaints.values()) bytes += wall.size * WALL_POINT_BYTES;
     for (const ck of this.edgeChunks.keys()) if ((this.chunks.get(ck)?.size ?? 0) === 0) chunks += 1;
     return { chunks, columns, cells: this.count, edges: this.edgeTotal, bytes: bytes + columns * BLOCK_COLUMN_BYTES + this.edgeTotal * BLOCK_EDGE_BYTES };
   }
@@ -552,7 +610,8 @@ export class BlockGrid {
     const edges = this.encodeEdges(ck);
     if (columns.length === 0 && edges === null) return null;
     const paint = this.paints.get(ck);
-    return markCanonicalChunk({ cx, cz, palette, columns, ...(edges ?? {}), ...(paint !== undefined && !isUnpainted(paint) ? { paint: encodeChunkPaint(paint) } : {}) });
+    const wallPaint = encodeWallPaint(this.wallPaints.get(ck));
+    return markCanonicalChunk({ cx, cz, palette, columns, ...(edges ?? {}), ...(paint !== undefined && !isUnpainted(paint) ? { paint: encodeChunkPaint(paint) } : {}), ...(wallPaint !== undefined ? { wallPaint } : {}) });
   }
 
   /** A chunk's edge pieces in the canonical stored form (rows in local key order, palette by first use; null: none). */
@@ -603,6 +662,7 @@ export class BlockGrid {
         byKey.delete(ck);
         // A chunk without cells keeps no paint.
         this.paints.delete(ck);
+        this.wallPaints.delete(ck);
       } else byKey.set(ck, c);
     }
     const chunks = [...byKey.values()].sort((a, b) => a.cz - b.cz || a.cx - b.cx);
@@ -738,11 +798,17 @@ export type BlockEdit =
    * 4 the wetness; `erase` takes it away. At `at` (x, z in columns;
    * lattice vertices at whole numbers), `radius` cells, `strength` the blend
    * toward the target per dab at the centre (0-1], `falloff` smooth (default),
-   * linear or constant. Only chunks holding cells are painted.
+   * linear or constant. Only chunks holding cells are painted. `target`
+   * walls (or both) paints the wall points (`block-wall-paint.ts`) within the
+   * radius of the point (`at`, `y` rows) by distance in metres.
    */
-  | { kind: 'paint'; at: number[]; radius: number; strength: number; channel: number; falloff?: BrushFalloff; erase?: boolean }
+  | { kind: 'paint'; at: number[]; radius: number; strength: number; channel: number; falloff?: BrushFalloff; erase?: boolean; target?: PaintTarget; y?: number }
   /** Edge pieces (`block-edges.ts`): set (or remove with null) the edges at `at` (x, y, z, axis, …) or on and inside `box`; `keep`: only where none stands. */
   | EdgesEdit;
+
+/** What a paint dab paints: the tops' lattice, the walls' points (a layer with wall paint), or both. */
+export type PaintTarget = 'tops' | 'walls' | 'both';
+export const PAINT_TARGETS: readonly PaintTarget[] = ['tops', 'walls', 'both'];
 
 export const BLOCK_EDIT_KINDS = ['fill', 'cells', 'array', 'replace', 'meta', 'flood', 'column', 'stamp', 'copy', 'region', 'heightmap', 'surface', 'sculpt', 'paint', 'edges'] as const;
 
@@ -760,7 +826,7 @@ const EDIT_KEYS: Record<(typeof BLOCK_EDIT_KINDS)[number], { required: string[];
   heightmap: { required: ['png', 'origin', 'y', 'scale', 'cell'], optional: ['keepAbove', 'colors'] },
   surface: { required: ['columns'], optional: ['cell'] },
   sculpt: { required: ['op', 'at', 'radius', 'strength'], optional: ['height', 'cell'] },
-  paint: { required: ['at', 'radius', 'strength', 'channel'], optional: ['falloff', 'erase'] },
+  paint: { required: ['at', 'radius', 'strength', 'channel'], optional: ['falloff', 'erase', 'target', 'y'] },
   edges: { required: ['edge'], optional: ['at', 'box', 'mode'] },
 };
 
@@ -891,6 +957,10 @@ export function blockEditsShapeError(edits: unknown): { path: string; message: s
         const be = paintBrushError(e);
         if (be !== null) return bad(be.field, be.message);
         if (!Number.isInteger(e['channel']) || (e['channel'] as number) < 0 || (e['channel'] as number) >= PAINT_CHANNELS) return bad('channel', 'channel is 0-3 (a material layer) or 4 (wetness)');
+        if (e['target'] !== undefined && !PAINT_TARGETS.includes(e['target'] as PaintTarget)) return bad('target', `target is ${PAINT_TARGETS.join(', ')} (absent: tops)`);
+        const walls = e['target'] === 'walls' || e['target'] === 'both';
+        if (walls && (typeof e['y'] !== 'number' || !Number.isFinite(e['y']) || Math.abs(e['y']) > BLOCK_LIMITS.coordinateY)) return { path: `${p}/y`, message: 'painting walls needs y: the brush centre\'s height (rows)', code: 'field_missing' };
+        if (!walls && e['y'] !== undefined) return { path: `${p}/y`, message: 'y belongs to a dab that paints walls (target walls or both)', code: 'field_unexpected' };
         break;
       }
       case 'heightmap': {
@@ -1417,7 +1487,15 @@ export function applyBlockEdits(g: BlockGrid, edits: readonly BlockEdit[], ctx: 
       case 'paint': {
         // The layer's surface paint (the cells stay as they are).
         if (g.metadataOnly) return fail(p, 'a metadata-only layer has no surface to paint');
-        changed += paintDab(g.paintSurface(), [e.at[0]!, e.at[1]!], { radius: e.radius, strength: e.strength, falloff: e.falloff ?? 'smooth', channel: e.channel, ...(e.erase === true ? { erase: true } : {}) });
+        const brush = { radius: e.radius, strength: e.strength, falloff: e.falloff ?? 'smooth', channel: e.channel, ...(e.erase === true ? { erase: true } : {}) } as const;
+        if (e.target !== 'walls') changed += paintDab(g.paintSurface(), [e.at[0]!, e.at[1]!], brush);
+        if (e.target === 'walls' || e.target === 'both') {
+          const solid = (cell: BlockCell): boolean => {
+            const t = cell.block !== undefined ? ctx.types.get(cell.block) : undefined;
+            return t !== undefined && blockTypeSolid(t);
+          };
+          changed += wallPaintDab(g.wallPaintSurface(solid), [e.at[0]!, e.y!, e.at[1]!], brush);
+        }
         break;
       }
       case 'sculpt': {

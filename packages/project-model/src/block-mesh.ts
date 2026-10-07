@@ -24,6 +24,8 @@ import { CHUNK_SIZE, blockTypeSolid, rotatedFootprint, type BlockCell, type Bloc
 import { autoVariant, cellKeyOf, chunkKeyOf, edgeAutoVariant, type BlockGrid } from './block-grid';
 import { resolveCellLook, resolveEdgeLook } from './block-connect';
 import { blockTypeIsEdge, edgeCollides, edgeFrame, edgeLookMetres, type BlockEdge } from './block-edges';
+import { cutWallPolygon, type CutVertex } from './block-wall-cut';
+import { wallPaintSteps, type WallSteps } from './block-wall-paint';
 import { blockTopAt, cellCorners, cornerGradientAt, cornerHeightAt, diagonalSide, rotateXZ, subdividedGradientAt, subdividedHeightAt, topSubSquare, type CellCorners } from './block-surface';
 
 /** Indexed triangles in the block-local frame; `groups` split the index list by material. */
@@ -595,6 +597,10 @@ export interface ChunkMeshPart {
   /** Lightmap UVs, when a lightmap layout was made for the chunk (`chunkLightmapLayout`). */
   uv1?: Float32Array;
   indices: Uint32Array;
+  /** A painted layer's paint (`block-paint-mesh.ts`): COLOR_0, the four layer weights, normalized bytes. */
+  weights?: Uint8Array;
+  /** COLOR_1: the wetness in r (alpha 255), normalized bytes; present with `weights`. */
+  wetness?: Uint8Array;
 }
 
 /** What the mesher needs per block cell: the source to draw (null: nothing), and a key naming it. */
@@ -648,11 +654,17 @@ export interface BlockTopOptions {
   readonly smoothAngle?: number;
   /** Sloped tops cut n × n (1: the corners' two triangles). */
   readonly topSubdivision?: number;
+  /** Walls of world-mapped looks cut at the wall paint points (`block-wall-cut.ts`; a layer with `wallPaint`). */
+  readonly wallSteps?: WallSteps;
 }
 
 /** A layer component's top options. */
-export function blockTopOptions(c: Pick<BlockLayerComponent, 'smoothAngle' | 'topSubdivision'>): BlockTopOptions {
-  return { ...(c.smoothAngle !== undefined && c.smoothAngle > 0 ? { smoothAngle: c.smoothAngle } : {}), ...(c.topSubdivision !== undefined && c.topSubdivision > 1 ? { topSubdivision: c.topSubdivision } : {}) };
+export function blockTopOptions(c: Pick<BlockLayerComponent, 'smoothAngle' | 'topSubdivision' | 'wallPaint'> & { readonly cellSize?: readonly number[] }): BlockTopOptions {
+  return {
+    ...(c.smoothAngle !== undefined && c.smoothAngle > 0 ? { smoothAngle: c.smoothAngle } : {}),
+    ...(c.topSubdivision !== undefined && c.topSubdivision > 1 ? { topSubdivision: c.topSubdivision } : {}),
+    ...(c.wallPaint === true && c.cellSize !== undefined ? { wallSteps: wallPaintSteps(c.cellSize) } : {}),
+  };
 }
 
 /** A block cell placed for meshing: its look, its turned geometry, its origin and which of its sides are hidden. */
@@ -761,6 +773,9 @@ class SeenVertices {
 export function meshBlockChunk(grid: BlockGrid, cx: number, cz: number, types: ReadonlyMap<string, BlockType>, looks: BlockLookResolver, options: BlockTopOptions = {}): ChunkMeshPart[] {
   const cs = grid.cellSize;
   const subdivision = Math.max(1, Math.floor(options.topSubdivision ?? 1));
+  const wallSteps = options.wallSteps;
+  /** Cut wall vertices of the cell being emitted, by projection, place across and height: [plane, vertex] pairs (cleared per cell, as `remap` is). */
+  const cutRemap = new Map<number, number[]>();
   const smoothAngle = options.smoothAngle ?? 0;
   const smoothing = smoothAngle > 0;
   const solidOf = (t: BlockType): boolean => (looks.solid !== undefined ? looks.solid(t) : blockTypeSolid(t));
@@ -876,14 +891,84 @@ export function meshBlockChunk(grid: BlockGrid, cx: number, cz: number, types: R
   const uv: number[] = [0, 0];
   const wx = worldUvWrap(cx * CHUNK_SIZE * cs[0]!);
   const wz = worldUvWrap(cz * CHUNK_SIZE * cs[2]!);
+  /** A triangle of a world-mapped look that is a wall (vertical, facing ±X or ±Z): cut at the wall paint points. */
+  const cutsWall = (rotated: Classified, worldLook: boolean, t: number): boolean => {
+    const proj = rotated.proj[t]!;
+    return wallSteps !== undefined && worldLook && Math.abs(rotated.face[t * 3 + 1]!) < 1e-6 && (proj < 2 || proj > 3);
+  };
+  /**
+   * The face triangle `i` makes with the next one, `j` (the two triangles of
+   * one quad: the same plane, an edge shared the other way round), as the
+   * quad's four source vertices in order; null when they are not one face.
+   */
+  const quadOf = (src: BlockMeshSource, rotated: Classified, i: number, j: number): number[] | null => {
+    const t = i / 3;
+    const u = j / 3;
+    if (rotated.proj[t] !== rotated.proj[u] || Math.abs(rotated.face[t * 3]! * rotated.face[u * 3]! + rotated.face[t * 3 + 1]! * rotated.face[u * 3 + 1]! + rotated.face[t * 3 + 2]! * rotated.face[u * 3 + 2]! - 1) > 1e-6) return null;
+    const a = [src.indices[i]!, src.indices[i + 1]!, src.indices[i + 2]!];
+    const b = [src.indices[j]!, src.indices[j + 1]!, src.indices[j + 2]!];
+    for (let k = 0; k < 3; k++) {
+      const p = a[k]!;
+      const q = a[(k + 1) % 3]!;
+      for (let m = 0; m < 3; m++) {
+        if (b[m] !== q || b[(m + 1) % 3] !== p) continue;
+        const extra = b[(m + 2) % 3]!;
+        // On the same plane: the extra corner lies on the first triangle's plane.
+        const P = rotated.positions;
+        const d = (P[extra * 3]! - P[p * 3]!) * rotated.face[t * 3]! + (P[extra * 3 + 1]! - P[p * 3 + 1]!) * rotated.face[t * 3 + 1]! + (P[extra * 3 + 2]! - P[p * 3 + 2]!) * rotated.face[t * 3 + 2]!;
+        return Math.abs(d) < 1e-6 ? [p, extra, q, a[(k + 2) % 3]!] : null;
+      }
+    }
+    return null;
+  };
   /**
    * One triangle of a placed look (source index `i`, triangle `t`) into its
    * part. A source vertex with world uvs becomes one vertex per projection of
    * the triangles using it (`remap` keys v·7 + 1 + projection; own uvs: v·7).
+   * A wall cut at the wall paint points takes the next triangle (`next`, the
+   * source index of one that is drawn, or −1) along when the two are one quad:
+   * returns whether it did.
    */
-  const emitTriangle = (part: Part, remap: Map<number, number>, src: BlockMeshSource, rotated: Classified, worldLook: boolean, i: number, t: number, ox: number, oy: number, oz: number): void => {
+  const emitTriangle = (part: Part, remap: Map<number, number>, src: BlockMeshSource, rotated: Classified, worldLook: boolean, i: number, t: number, ox: number, oy: number, oz: number, next = -1): boolean => {
     const acc = part.acc;
     const proj = rotated.proj[t]!;
+    // A wall of a world-mapped look, cut at the wall paint points (its texture coordinates follow its positions).
+    if (cutsWall(rotated, worldLook, t)) {
+      const quad = next >= 0 && cutsWall(rotated, worldLook, next / 3) ? quadOf(src, rotated, i, next) : null;
+      const poly: CutVertex[] = [];
+      for (const v of quad ?? [src.indices[i]!, src.indices[i + 1]!, src.indices[i + 2]!]) {
+        poly.push([rotated.positions[v * 3]! + ox, rotated.positions[v * 3 + 1]! + oy, rotated.positions[v * 3 + 2]! + oz, rotated.normals[v * 3]!, rotated.normals[v * 3 + 1]!, rotated.normals[v * 3 + 2]!]);
+      }
+      const across = proj < 2 ? 2 : 0;
+      for (const piece of cutWallPolygon(poly, across, cs[across]! / wallSteps!.along, cs[1]! / wallSteps!.up)) {
+        for (const c of piece) {
+          // Pieces of one cell's walls share vertices where they meet: the same place (0.1 mm, from the cell's origin) on
+          // the same plane, which faces of one projection share only when they are one plane.
+          const along = Math.round((c[across]! - (across === 0 ? ox : oz)) * 1e4);
+          const plane = Math.round((c[2 - across]! - (across === 0 ? oz : ox)) * 1e4);
+          const key = (proj * 2_097_152 + along + 1_048_576) * 2_097_152 + Math.round((c[1] - oy) * 1e4) + 1_048_576;
+          let list = cutRemap.get(key);
+          let out = -1;
+          if (list !== undefined) for (let q = 0; q < list.length && out < 0; q += 2) if (list[q] === plane) out = list[q + 1]!;
+          if (out < 0) {
+            out = acc.positions.length / 3;
+            if (list === undefined) cutRemap.set(key, (list = []));
+            list.push(plane, out);
+            const len = Math.hypot(c[3], c[4], c[5]) || 1;
+            const nx = c[3] / len;
+            const ny = c[4] / len;
+            const nz = c[5] / len;
+            acc.positions.push(c[0], c[1], c[2]);
+            acc.normals.push(nx, ny, nz);
+            worldUv(proj, c[0], c[1], c[2], wx, wz, uv, 0);
+            acc.uvs.push(uv[0]!, uv[1]!);
+            if (part.tangents) worldTangent(proj, rotated.face[t * 3]!, rotated.face[t * 3 + 1]!, rotated.face[t * 3 + 2]!, nx, ny, nz, acc.tangents);
+          }
+          acc.indices.push(out);
+        }
+      }
+      return quad !== null;
+    }
     for (let k = 0; k < 3; k++) {
       const v = src.indices[i + k]!;
       const world = worldLook || !hasOwnUv(src, v);
@@ -908,6 +993,7 @@ export function meshBlockChunk(grid: BlockGrid, cx: number, cz: number, types: R
       }
       acc.indices.push(out);
     }
+    return false;
   };
   grid.forEachInChunk(chunkKeyOf(cx, cz), (x, y, z, idx) => {
     const cell: BlockCell = grid.valueOf(idx);
@@ -918,6 +1004,7 @@ export function meshBlockChunk(grid: BlockGrid, cx: number, cz: number, types: R
     for (const g of src.groups) {
       const part = partOf(look.key!, g.material, look.tangents, look.type.blockId, look.variant);
       const remap = new Map<number, number>();
+      cutRemap.clear();
       for (let i = g.start; i < g.start + g.count; i += 3) {
         const t = i / 3;
         const s = look.classified !== null ? look.classified.side[t]! : -1;
@@ -941,7 +1028,11 @@ export function meshBlockChunk(grid: BlockGrid, cx: number, cz: number, types: R
             continue;
           }
         }
-        emitTriangle(part, remap, src, rotated, look.world, i, t, ox, oy, oz);
+        // The next triangle, when it is drawn (a wall's quad cuts as one).
+        const j = i + 3;
+        const sj = j < g.start + g.count && look.classified !== null ? look.classified.side[j / 3]! : -1;
+        const next = j < g.start + g.count && !(sj >= 0 && hidden[sj]) ? j : -1;
+        if (emitTriangle(part, remap, src, rotated, look.world, i, t, ox, oy, oz, next)) i += 3;
       }
     }
   });
@@ -959,7 +1050,8 @@ export function meshBlockChunk(grid: BlockGrid, cx: number, cz: number, types: R
     for (const g of src.source.groups) {
       const part = partOf(src.key, g.material, world && src.tangents === true, t.blockId, variant);
       const remap = new Map<number, number>();
-      for (let i = g.start; i < g.start + g.count; i += 3) emitTriangle(part, remap, src.source, rotated, world, i, i / 3, f.ox, f.oy, f.oz);
+      cutRemap.clear();
+      for (let i = g.start; i < g.start + g.count; i += 3) if (emitTriangle(part, remap, src.source, rotated, world, i, i / 3, f.ox, f.oy, f.oz, i + 3 < g.start + g.count ? i + 3 : -1)) i += 3;
     }
   });
   if (smoothing && tops.length > 0) {

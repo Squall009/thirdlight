@@ -15,7 +15,7 @@ import { createMaterialLibrary, type MaterialDefLike } from './material-library'
 import { RuntimeMaterialView } from './runtime-materials';
 
 const env = (extra: Partial<GraphCompileEnv> = {}): GraphCompileEnv => ({
-  globals: { time: TSL.uniform(0), windDir: TSL.uniform(new THREE.Vector2(1, 0)), strength: TSL.uniform(1), gust: TSL.uniform(0), gustFreq: TSL.uniform(0), turb: TSL.uniform(0) },
+  globals: { time: TSL.uniform(0), windDir: TSL.uniform(new THREE.Vector2(1, 0)), strength: TSL.uniform(1), gust: TSL.uniform(0), gustFreq: TSL.uniform(0), turb: TSL.uniform(0), wetness: TSL.uniform(0) },
   texture: () => null,
   fn: () => null,
   ...extra,

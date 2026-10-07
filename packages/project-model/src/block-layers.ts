@@ -35,6 +35,7 @@ import { validateLightLayerMask } from './light-layers';
 import { ID_RE } from './validate';
 import type { ModelErrorV2 } from './errors';
 import { chunkPaintError, decodeChunkPaint, encodeChunkPaint, isUnpainted } from './block-paint';
+import { canonicalWallPaint, wallPaintError } from './block-wall-paint';
 import { liveBlockPrefabProblem } from './block-live';
 import { canonicalChunkEdges, canonicalPatternEdges, composeChunkEdges, validateBlockPlacement, validateChunkEdges, validatePatternEdges, type BlockEdge, type BlockPlacement } from './block-edges';
 import { canonicalBlockConnect, composeBlockConnect, validateBlockConnect, type BlockConnect } from './block-connect';
@@ -80,6 +81,12 @@ export interface BlockChunk {
    * (all first layer, dry).
    */
   paint?: string;
+  /**
+   * The wall paint points of this chunk's columns (`block-wall-paint.ts`):
+   * base64 of 9-byte points, read when the layer has `wallPaint`. Absent:
+   * no wall point painted.
+   */
+  wallPaint?: string;
   /** The edge pieces' values (`block-edges.ts`); present with `edges`. */
   edgePalette?: BlockEdge[];
   /** The chunk's edge pieces: `[lx, lz, y, axis, p]` rows (p an `edgePalette` index); absent: none. */
@@ -132,6 +139,15 @@ export interface BlockLayerComponent {
   smoothAngle?: number;
   /** How finely sloped tops are cut, one of `BLOCK_TOP_SUBDIVISIONS` (absent: 1; stored only when above 1). */
   topSubdivision?: number;
+  /**
+   * Walls have paint of their own (`block-wall-paint.ts`): an unpainted wall
+   * shows the second material layer, the top's paint wraps over the lip
+   * onto the wall's top row of points and fades one row down, and wall faces
+   * are drawn cut at the points so the paint shows between cell corners
+   * (absent or false: walls show their column's top paint; stored only
+   * when true).
+   */
+  wallPaint?: boolean;
 }
 
 export type BlockShape = 'full' | 'half' | 'ramp' | 'stairs' | 'custom' | 'none';
@@ -775,7 +791,7 @@ export function canonicalBlockStamps(list: readonly BlockStamp[]): BlockStamp[] 
 export const BLOCK_LAYER_DEFAULT: BlockLayerComponent = Object.freeze({ cellSize: [1, 1, 1], bounds: { min: [0, 0, 0], max: [64, 16, 64] } }) as BlockLayerComponent;
 
 /** The stored fields of the `blockLayer` component, in canonical order. */
-export const BLOCK_LAYER_FIELDS = ['cellSize', 'bounds', 'metadataOnly', 'collision', 'castShadow', 'receiveShadow', 'maxSlope', 'smoothAngle', 'topSubdivision', 'lightLayers'] as const;
+export const BLOCK_LAYER_FIELDS = ['cellSize', 'bounds', 'metadataOnly', 'collision', 'castShadow', 'receiveShadow', 'maxSlope', 'smoothAngle', 'topSubdivision', 'wallPaint', 'lightLayers'] as const;
 
 export function validateBlockLayerComponent(v: unknown, path: string, errors: ModelErrorV2[]): void {
   if (!isPlainObject(v)) return err(errors, 'field_type', path, 'blockLayer is an object', v, 'object');
@@ -805,7 +821,7 @@ export function validateBlockLayerComponent(v: unknown, path: string, errors: Mo
       if (w > BLOCK_LIMITS.layerWidth || d > BLOCK_LIMITS.layerWidth || h > BLOCK_LIMITS.layerHeight) err(errors, 'limits_exceeded', `${path}/bounds`, `a layer spans at most ${BLOCK_LIMITS.layerWidth} × ${BLOCK_LIMITS.layerHeight} × ${BLOCK_LIMITS.layerWidth} cells`, [w, h, d]);
     }
   }
-  for (const k of ['metadataOnly', 'collision', 'castShadow', 'receiveShadow']) if (v[k] !== undefined && typeof v[k] !== 'boolean') err(errors, 'field_type', `${path}/${k}`, `${k} is a boolean`, v[k], 'boolean');
+  for (const k of ['metadataOnly', 'collision', 'castShadow', 'receiveShadow', 'wallPaint']) if (v[k] !== undefined && typeof v[k] !== 'boolean') err(errors, 'field_type', `${path}/${k}`, `${k} is a boolean`, v[k], 'boolean');
   const ms = v['maxSlope'];
   if (ms !== undefined && (!finite(ms) || ms < BLOCK_MAX_SLOPE_RANGE.min || ms > BLOCK_MAX_SLOPE_RANGE.max)) err(errors, 'field_value', `${path}/maxSlope`, `maxSlope is degrees in ${BLOCK_MAX_SLOPE_RANGE.min}-${BLOCK_MAX_SLOPE_RANGE.max}`, ms);
   const sa = v['smoothAngle'];
@@ -826,6 +842,7 @@ export function canonicalBlockLayerComponent(c: BlockLayerComponent): BlockLayer
     ...(c.maxSlope !== undefined ? { maxSlope: canonNum(c.maxSlope) } : {}),
     ...(c.smoothAngle !== undefined && c.smoothAngle > 0 ? { smoothAngle: canonNum(c.smoothAngle) } : {}),
     ...(c.topSubdivision !== undefined && c.topSubdivision > 1 ? { topSubdivision: c.topSubdivision } : {}),
+    ...(c.wallPaint === true ? { wallPaint: true as const } : {}),
     ...(c.lightLayers !== undefined ? { lightLayers: c.lightLayers } : {}),
   };
 }
@@ -888,8 +905,12 @@ export function validateSceneBlocks(value: unknown, entities: readonly unknown[]
         const keys = new Set<string>();
         chunks.forEach((c, j) => {
           const cp = `${p}/chunks/${j}`;
-          if (!isPlainObject(c)) return err(errors, 'field_type', cp, 'a chunk is {cx, cz, palette, columns, edgePalette?, edges?, paint?}', c, 'object');
-          onlyKeys(c, ['cx', 'cz', 'palette', 'columns', 'edgePalette', 'edges', 'paint'], cp, errors, 'chunk');
+          if (!isPlainObject(c)) return err(errors, 'field_type', cp, 'a chunk is {cx, cz, palette, columns, edgePalette?, edges?, paint?, wallPaint?}', c, 'object');
+          onlyKeys(c, ['cx', 'cz', 'palette', 'columns', 'edgePalette', 'edges', 'paint', 'wallPaint'], cp, errors, 'chunk');
+          if (c['wallPaint'] !== undefined) {
+            const we = wallPaintError(c['wallPaint']);
+            if (we !== null) err(errors, 'field_value', `${cp}/wallPaint`, we, typeof c['wallPaint'] === 'string' ? `${c['wallPaint'].length} characters` : c['wallPaint']);
+          }
           // The chunk's paint lattice.
           if (c['paint'] !== undefined) {
             const pe = chunkPaintError(c['paint']);
@@ -969,7 +990,8 @@ export function canonicalBlockChunk(c: BlockChunk): BlockChunk | null {
   if (runs.columns.length === 0 && edges === null) return null;
   // An all-unpainted lattice is not stored.
   const paint = c.paint !== undefined ? decodeChunkPaint(c.paint) : null;
-  const out: BlockChunk = { cx: c.cx, cz: c.cz, palette: runs.palette, columns: runs.columns, ...(edges ?? {}), ...(paint !== null && !isUnpainted(paint) ? { paint: encodeChunkPaint(paint) } : {}) };
+  const wallPaint = canonicalWallPaint(c.wallPaint);
+  const out: BlockChunk = { cx: c.cx, cz: c.cz, palette: runs.palette, columns: runs.columns, ...(edges ?? {}), ...(paint !== null && !isUnpainted(paint) ? { paint: encodeChunkPaint(paint) } : {}), ...(wallPaint !== undefined ? { wallPaint } : {}) };
   canonicalChunks.add(out);
   return out;
 }

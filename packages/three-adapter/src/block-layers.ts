@@ -38,9 +38,10 @@
  * and cut the same way; a change of either re-meshes the layer (it is a
  * component change).
  *
- * Paint: the chunks of a painted layer carry its paint as vertex
- * colours — COLOR_0 the four layer weights, COLOR_1.r the wetness
- * (`chunkPaintColors`) — unless their material draws vertex colours as a tint.
+ * Paint: the chunks of a painted layer (or one with wall paint) carry its
+ * paint as vertex colours — COLOR_0 the four layer weights, COLOR_1.r the
+ * wetness (`chunkMeshPaint`, made with the meshing) — unless their material
+ * draws vertex colours as a tint.
  *
  * Baked lighting: the chunks of a layer a bake covers get lightmap UVs (one
  * square layout per chunk, `chunkLightmapLayout`), and the host puts each
@@ -51,7 +52,6 @@ import * as THREE from 'three';
 import {
   BlockGrid,
   CHUNK_SIZE,
-  chunkPaintColors,
   LIGHT_LAYERS_ALL,
   lightLayerMaskOf,
   type BlockChunk,
@@ -809,9 +809,6 @@ export class BlockLayerView {
     }
     const group = new THREE.Group();
     group.name = `block-chunk:${entityId}:${ck}`;
-    // A painted layer's chunks carry the paint as vertex colours (every chunk, so they match at the seams).
-    const painted = layer.grid.hasPaint();
-    const lattice = painted ? layer.grid.chunkPaint(cx, cz) : null;
     const build = (p: ChunkMeshPart, level: number): THREE.Mesh | null => {
       const look = looks.get(p.key.slice(0, p.key.lastIndexOf('#')));
       if (look === undefined) return null;
@@ -842,11 +839,10 @@ export class BlockLayerView {
         keepMetreUv(m, layer.grid.cellSize);
         syncCellUv(m);
       }
-      // A material that tints by vertex colours would be tinted by the paint: its chunks keep none.
-      if (painted && (m.material as THREE.Material & { vertexColors?: boolean }).vertexColors !== true) {
-        const colours = chunkPaintColors(lattice, cx, cz, layer.grid.cellSize, p.positions);
-        geometry.setAttribute('color', new THREE.BufferAttribute(colours.weights, 4, true));
-        geometry.setAttribute('color_1', new THREE.BufferAttribute(colours.wetness, 4, true));
+      // A painted layer's paint (made with the meshing); a material that tints by vertex colours would be tinted by it: its chunks keep none.
+      if (p.weights !== undefined && p.wetness !== undefined && (m.material as THREE.Material & { vertexColors?: boolean }).vertexColors !== true) {
+        geometry.setAttribute('color', new THREE.BufferAttribute(p.weights, 4, true));
+        geometry.setAttribute('color_1', new THREE.BufferAttribute(p.wetness, 4, true));
       }
       return m;
     };

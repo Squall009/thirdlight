@@ -111,7 +111,7 @@ export interface SamplerLike {
   readonly filter: 'linear' | 'nearest';
 }
 
-/** The shared uniforms every graph material reads (the library's clock and wind). */
+/** The shared uniforms every graph material reads (the library's clock, wind and the scene's wetness). */
 export interface GraphGlobals {
   readonly time: N;
   readonly windDir: N;
@@ -119,6 +119,7 @@ export interface GraphGlobals {
   readonly gust: N;
   readonly gustFreq: N;
   readonly turb: N;
+  readonly wetness: N;
 }
 
 export interface GraphCompileEnv {
@@ -365,6 +366,7 @@ export const COMPILER_NODES: Readonly<Record<string, NodeSpec>> = {
   screenUV: { inputs: [], outputs: [P('uv', 'vec2')] },
   instanceIndex: { inputs: [], outputs: [P('index', 'float')] },
   wind: { inputs: [], outputs: [P('direction', 'vec3'), P('strength', 'float'), P('turbulence', 'float')] },
+  sceneWetness: { inputs: [], outputs: [P('wetness', 'float')] },
   mainLight: { inputs: [], outputs: [P('direction', 'vec3'), P('color', 'vec3'), P('ndotl', 'float')] },
   lightShadow: { inputs: [], outputs: [P('shadow', 'float')] },
   diffuseLight: { inputs: [], outputs: [P('total', 'vec3'), P('luminance', 'float'), P('direct', 'vec3')] },
@@ -997,6 +999,8 @@ export function compileMaterialGraph(input: { graph: MaterialGraphLike; paramete
         animated = true;
         return { direction: { t: 'vec3', n: T.vec3(dir.x, 0, dir.y) }, strength: { t: 'float', n: windStrength(stage) }, turbulence: { t: 'float', n: g.turb } };
       }
+      case 'sceneWetness':
+        return one('wetness', g.wetness);
       // ---- lighting
       case 'mainLight':
       case 'lightShadow':
@@ -1369,7 +1373,7 @@ export function compileMaterialGraph(input: { graph: MaterialGraphLike; paramete
 
 /** Uniforms standing in for the library's clock and wind (a compile for its problems only). */
 function detachedGlobals(): GraphGlobals {
-  return { time: T.uniform(0), windDir: T.uniform(new THREE.Vector2(1, 0)), strength: T.uniform(0), gust: T.uniform(0), gustFreq: T.uniform(0), turb: T.uniform(0) };
+  return { time: T.uniform(0), windDir: T.uniform(new THREE.Vector2(1, 0)), strength: T.uniform(0), gust: T.uniform(0), gustFreq: T.uniform(0), turb: T.uniform(0), wetness: T.uniform(0) };
 }
 
 /**

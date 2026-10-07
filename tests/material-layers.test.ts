@@ -6,7 +6,8 @@
  * parameters at no extra texture read; the sampling nodes
  * read a texture array at their layer (a depth read, clamped to the array)
  * and a plain texture ignores it; the Vertex colour node reads COLOR_1 and
- * its "first" fallback.
+ * its "first" fallback; wetness adds the scene's, pools by height and
+ * flattens the normal maps without another read.
  */
 import * as THREE from 'three';
 import * as TSL from 'three/tsl';
@@ -19,7 +20,7 @@ import { arrayLayers, compileMaterialGraph, isArrayTexture, readsCellUv, type Gr
 const array = new THREE.DataArrayTexture(new Uint8Array(4 * 4), 1, 1, 4);
 const plain = new THREE.DataTexture(new Uint8Array([255, 255, 255, 255]), 1, 1);
 const env = (): GraphCompileEnv => ({
-  globals: { time: TSL.uniform(0), windDir: TSL.uniform(new THREE.Vector2(1, 0)), strength: TSL.uniform(1), gust: TSL.uniform(0), gustFreq: TSL.uniform(0), turb: TSL.uniform(0) },
+  globals: { time: TSL.uniform(0), windDir: TSL.uniform(new THREE.Vector2(1, 0)), strength: TSL.uniform(1), gust: TSL.uniform(0), gustFreq: TSL.uniform(0), turb: TSL.uniform(0), wetness: TSL.uniform(0) },
   texture: (id) => (id === 'arr' ? array : id === 'tex' ? plain : null),
   fn: () => null,
 });
@@ -52,7 +53,7 @@ describe('height-blended layers', () => {
     validateMaterials([m], '', errors, materialGraphContext(m.parameters, undefined));
     expect(errors).toEqual([]);
     expect(canonicalMaterials(canonicalMaterials([m]))).toEqual(canonicalMaterials([m]));
-    expect(m.parameters!.map((p) => `${p.key}:${p.type}`)).toEqual(['albedoHeight:texture', 'normals:texture', 'orm:texture', 'layerTiling:vec4', 'layerNormalStrength:vec4', 'blendDepth:float', 'layerContrast:vec4', 'layerOffset:vec4', 'wetness:float']);
+    expect(m.parameters!.map((p) => `${p.key}:${p.type}`)).toEqual(['albedoHeight:texture', 'normals:texture', 'orm:texture', 'layerTiling:vec4', 'layerNormalStrength:vec4', 'blendDepth:float', 'layerContrast:vec4', 'layerOffset:vec4', 'wetness:float', 'wetPooling:float', 'wetFlatten:float']);
     // Per-layer settings: one vec4 each, every layer filled alike (the editor's layer table edits the components).
     for (const s of LAYER_SETTINGS) expect(m.parameters!.find((p) => p.key === s.key)!.default).toEqual([s.fill, s.fill, s.fill, s.fill]);
     const types = m.graph!.nodes.map((n) => n.type);
@@ -65,6 +66,11 @@ describe('height-blended layers', () => {
     expect(into('normal2', 'uv')).toBe(into('albedo2', 'uv'));
     expect(into('heightBlend', 'contrast')).toBe('layerContrast');
     expect(into('heightBlend', 'offset')).toBe('layerOffset');
+    // Wetness: the scene's is added, it pools by the blended height and flattens every layer's normal map.
+    expect(types).toContain('sceneWetness');
+    expect(into('wetHeight', 'a')).toBe('heightBlend');
+    for (const i of [1, 2, 3, 4]) expect(into(`normal${i}`, 'strength')).toBe(`strength${i}`);
+    expect(into('wetDarken', 't')).toBe('wetPooled');
     expect(readsCellUv(m.graph as MaterialGraphLike)).toBe(false);
     // With the three arrays set, every sample reads its layer.
     const withArrays = { ...m, parameters: m.parameters!.map((p) => (p.type === 'texture' ? { ...p, default: 'arr' } : p)) };
