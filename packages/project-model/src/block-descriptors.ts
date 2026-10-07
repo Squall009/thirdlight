@@ -8,6 +8,7 @@
  */
 import { lightLayerMask, list, str } from './descriptor-builders';
 import { CUTAWAY_FADE_RANGE, CUTAWAY_FADE_SECONDS } from './block-cutaway';
+import { WALK_METRES_RANGE } from './block-walk-settings';
 import { BLOCK_LIMITS, BLOCK_MAX_SLOPE_RANGE, BLOCK_SMOOTH_ANGLE_RANGE, BLOCK_TOP_SUBDIVISIONS } from './block-layers';
 import type { BoolFieldDescriptor, ComponentDescriptor, EntityRefFieldDescriptor, FieldDescriptor, IntFieldDescriptor, JsonFieldDescriptor, NumberFieldDescriptor, ObjectFieldDescriptor, VecFieldDescriptor } from './descriptors';
 
@@ -66,6 +67,15 @@ export const blockLayer: ComponentDescriptor = {
       str('kit', 'Kit', 'A kit name the block types swap by.', { required: true, format: 'id', minLength: 1, maxLength: 64 }),
       str('region', 'Region', 'The region it covers (empty: the whole layer).', { minLength: 1, maxLength: 64 }),
     ]), { maxItems: BLOCK_LIMITS.regions + 1 }),
+    obj('walk', 'Walk', "How the layer is walked by ctx.grid's walk queries (walkNeighbours, path, reachable) unless a query sets its own, and the region the Problems check walks from: places to stand there that cannot be walked to are listed.", [
+      str('from', 'From region', 'The region the Problems check walks from (empty: no check).', { format: 'identifier', minLength: 1, maxLength: 64 }),
+      num('maxStep', 'Step up', 'How far a step may rise where two tops meet (absent: half a cell height).', { min: WALK_METRES_RANGE.min, max: WALK_METRES_RANGE.max, step: 0.05, unit: 'm' }),
+      num('maxDrop', 'Step down', 'How far a step may drop (absent: half a cell height).', { min: WALK_METRES_RANGE.min, max: WALK_METRES_RANGE.max, step: 0.05, unit: 'm' }),
+      num('headroom', 'Headroom', 'The free height a place to stand needs above it, and under which no wall or closed door may stand across a step (absent: one cell height).', { min: WALK_METRES_RANGE.min, max: WALK_METRES_RANGE.max, step: 0.05, unit: 'm' }),
+      str('field', 'Walkable field', 'A yes/no cell field: only tops whose cell has it on are walked (empty: every top).', { format: 'identifier', minLength: 1, maxLength: 32 }),
+      bool('diagonal', 'Diagonal', 'Steps across cell corners too, where both ways round the corner walk.', { default: false }),
+    ]),
+    num('vertexAO', 'Corner shading', "How dark the blocks' corners and creases get from per-vertex ambient occlusion: where neighbouring blocks close a corner in, that much of its indirect light is taken away. 0: none. Cheap (worked out when a chunk is meshed); a layer with baked lightmaps has its shading in the bake.", { min: 0, max: 1, step: 0.05, default: 0 }),
   ]),
   // 1 m cells over 64 × 16 × 64 — a common kit module over the interactive-editing target; no genre assumed.
   add: { kind: 'menu', value: { cellSize: [1, 1, 1], bounds: { min: [0, 0, 0], max: [64, 16, 64] } } },

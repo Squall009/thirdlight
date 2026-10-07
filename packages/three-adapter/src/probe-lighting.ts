@@ -46,6 +46,7 @@ import * as TSLTyped from 'three/tsl';
 import { PROBE_ATLAS_PADDING } from '@thirdlight/runtime';
 
 import type { N } from './effects-tsl';
+import { applyBlockOcclusion } from './block-ao-lighting';
 import { buildVertexLights, localLightsCacheKey, splitLocalLights } from './local-lights';
 import { ProbeTileStore, type ResidentProbeTile } from './probe-atlas';
 import { PROBE_INDEX_WIDTH, probeRowAt } from './probe-index';
@@ -380,6 +381,8 @@ class ProbeOrderedLightsNode extends (THREE.LightsNode as unknown as new () => {
     // Local lights shaded per vertex (or left out) for this build's mode: they add to the irradiance the probes keep.
     const { pixel: nodes, vertex } = splitLocalLights(builder, all);
     buildVertexLights(builder, vertex);
+    // A block chunk's corner shading darkens the indirect light whatever lights it.
+    applyBlockOcclusion(builder);
     const probe = nodes.find((n) => n.isProbeLightingNode === true);
     if (probe === undefined) {
       super.setupLights(builder, nodes);

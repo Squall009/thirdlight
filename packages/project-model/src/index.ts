@@ -1130,14 +1130,18 @@ export {
 } from './block-connect';
 export { LIVE_BLOCK_PREFAB_REFUSED, LIVE_BLOCK_ROOT_MERGED, LIVE_BLOCK_ROOT_REFUSED, blockTypeLive, liveBlockIds, liveBlockPlacement, liveBlockPrefabProblem, liveBlockPrefix, liveBlockRootId, liveEdgeRootId } from './block-live';
 export { chunkMeshPaint, type ChunkPaintOptions, type PaintedGeometry } from './block-paint-mesh';
+export { chunkMeshAO, type AoGeometry } from './block-ao';
 export { UNPAINTED_WALL, WALL_PAINT_MAX_STEPS, WALL_PAINT_STEP_METRES, WALL_POINT_BYTES, WALL_SIDE_AXES, canonicalWallPaint, decodeWallPaint, encodeWallPaint, wallPaintDab, wallPaintError, wallPaintSteps, wallPointKey, wallPointOfKey, type WallPaint, type WallPaintSurface, type WallSteps } from './block-wall-paint';
 export { cutWallPolygon, type CutVertex } from './block-wall-cut';
 export { CUTAWAY_FADE_RANGE, CUTAWAY_FADE_SECONDS, canonicalBlockCutaway, cutawayCuts, cutawayPlaneKey, cutawaySeams, cutawayZoneKeys, cutawayZones, validateBlockCutaway, type BlockCutaway, type BlockCutawayRegion, type CutawayBox, type CutawayZone } from './block-cutaway';
 export { blockKitNames, canonicalBlockTypeKits, canonicalLayerKits, composeBlockTypeKits, kitKey, kitRegionsMissing, kitSwapCollides, kitZones, validateBlockTypeKits, validateLayerKits, type BlockKitSwap, type BlockLayerKit, type KitZone } from './block-kit';
 export { BlockKitView, blockKitView, swapBlockCell, swapBlockEdge } from './block-kit-view';
+export { BlockWalkGraph, WALK_QUERY_MAX_NODES, findWalkPath, footprintAnchors, walkReach, type WalkGraphOptions, type WalkPathResult, type WalkPlace, type WalkSearchOptions, type WalkSettings, type WalkStep } from './block-walk';
+export { WALK_METRES_RANGE, canonicalBlockLayerWalk, defaultWalkSettings, validateBlockLayerWalk, walkSettingsOf, type BlockLayerWalk } from './block-walk-settings';
+export { BLOCK_CHECK_EXAMPLES, blockLayerChecks, type BlockCheckCode, type BlockLayerCheck } from './block-checks';
 export { BLOCK_PAINT_LAYOUT, PAINT_BYTES, PAINT_CHANNELS, PAINT_CHUNK_SIZE, PAINT_VERTICES, PAINT_WETNESS_CHANNEL, chunkPaintColors, chunkPaintError, chunksOfVertex, decodeChunkPaint, encodeChunkPaint, isUnpainted, paintDab, paintOffset, unpaintedChunk, type PaintSurface } from './block-paint';
 export { BLOCK_CHUNK_COMPRESSION, BLOCK_CHUNK_DATA_KEY, BLOCK_CHUNK_HEADER_BYTES, decodeBlockChunks, encodeBlockChunks, readBlockChunkData, wrapBlockChunkData, type BlockChunkCompression } from './block-chunk-binary';
-export { blockChunkStorageOf } from './content-settings';
+export { blockChunkStorageOf, maxSlopeClimbOf } from './content-settings';
 export { chunkLightmapLayout, type ChunkLightmapLayout } from './block-lightmap';
 // The instance brush (paint and erase copies of an instance set on a surface).
 export {
@@ -1163,6 +1167,7 @@ export {
 } from './instance-brush';
 export {
   FLAT_CORNERS,
+  anchoredTopAt,
   blockTopAt,
   cellCorners,
   cornerGradientAt,

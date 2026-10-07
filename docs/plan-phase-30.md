@@ -246,7 +246,8 @@ cause and a follow-up, never a reason to throw an item away (owner,
 | 30.6 | done 2026-10-07: `blockLayer.wallPaint` (opt-in; absent = the old bytes and look): wall points ~0.5 m apart stored per chunk (`wallPaint`, JSON and binary layout 3, round-trip tested), unpainted walls layer 2, the lip wraps the top's paint one point down, wall faces cut at the points; `paint` `target: walls\|both` + `y`; editor Paint texture **On** Tops/Walls/Both; scene/preset `wetness` + Scene wetness node + Environment slider; template pooling by height and normal flattening (12 reads still). Paint colours now made with the meshing (workers = page, byte-tested). Measured (`TL_PERF=1 … block-layers -t "wall paint"`, 64 × 64 sloped terrain, smoothed 2 × 2 tops, 20-row walls on every 16th line, 12k painted points = 108 KB): meshing 30.0 → 34.4 ms/chunk, paint colours 0.3 → 5.6 ms/chunk (workers), vertices 142k → 190k, triangles 93k → 162k. `level --classes area` (no wall paint) unchanged vs 30.5: WebGPU 6.5/9.3 ms, GPU 10.33 ms, main 6.57 ms, 259 draws, 271k tris; WebGL 2 2.6/6.8, main 6.79. `--wall-paint`: WebGPU 6.6/9.6 ms, GPU 10.47 ms (scene 4.15 → 4.25), main 6.58 ms, 259 draws, 316k tris; WebGL 2 2.5/6.6, main 6.68. `blocks` before/after: Scene view type change p95 17.5/17.5 ms, export grid writes p95 6.3 → 6.7 ms (WebGPU), WebGL 2 load worst 457 → 402 ms (its known stalls). Within §5. Pixels: wall green with red lip, blue moss up the face, wet ground darker — Scene view, WebGPU and WebGL 2 (terrain-paint e2e); Play/export of wall paint unverified by pixels (same adapter path). |
 | 30.7 | done 2026-10-07: `blockLayer.cutaway` {`regions: [{region, when?}]`, `planes: [row]`, `fade`} (`block-cutaway.ts`; Inspector, Blocks panel **Cut** + Scene-view **Preview** per region, MCP docs): a region hides while the subject is under it (`when`: inside another region), a plane hides its rows and up while the subject is below; subject = the live camera's target (`CameraViewInfo.target`, page side, per drawn frame) or `ctx.grid.setCutawaySubject/setCutawayPoint`; `ctx.grid.setCutaway(layer, zone, true\|false\|null)` forces (mirrored worker → page). Drawing: a zone's triangles are their own meshes (index split on the page, shared vertex buffers; faces between zone and rest kept by the mesher, page = worker); cut = off the view's camera layer, still in the shadow cameras' (layer 31); fade = a child copy with one dithered `maskNode` variant per material (per-object uniform), precompiled at load. Measured `level --classes area --roofs` vs `--cutaway` (10 roofs, half held cut, half swapped every 2 s): WebGPU p50/p95 6.5/9.3 → 6.6/9.7 ms, GPU 10.32 → 10.33 ms, main 6.54 → 6.62 ms, draws 259 → 259 (scene pass 237 → 255 at the sample); WebGL 2 p50/p95 2.6/6.9 → 2.8/6.7, main 6.73 → 6.67, draws 260 → 277; shadow draws 1/frame max in both (the static map never redrawn by cuts or fades). Within §5. Pixels: Play, export WebGPU and WebGL 2 (roof drawn before, dithered while fading, gone after; the other roof stays — block-layers e2e); Scene view preview (block-editor e2e). Unverified: the owner's laptop; the first-fade precompile on a slow device. |
 | 30.8 | done 2026-10-07: block type `kits` {name: {block, variant?, variants?}} (same placement and footprint, checked) and layer `kits` [{kit, region?}] (Blocks panel Kit on the layer bar and per region, type form Kits, Inspector, MCP); resolved where a look is needed through a read-only view of the grid (`block-kit-view.ts`: meshing page = workers, byte-tested; collision; connected pieces; live blocks; surface queries), cells/saves/undo unchanged; `ctx.grid.setKit/kit`, `kitBlock` in `get`/`edge`, kits in the grid diff; a kit or block-type change is a restyle: every chunk re-meshes in the workers (old meshes drawn until the new arrive), the cached static shadow held and drawn once (Play e2e: static draws 1 → 2 across a dig + kit swap); Problems warn on cut-aways/kits naming missing regions or kits, and the Blocks panel's region rename/delete takes them along (30.7's gap). Measured `level --classes area --kit-swap` (whole 100 × 100 m layer swapped every 2 s, 49 chunks): swap 300–394 ms WebGPU / 339–415 ms WebGL 2 (two workers), page's own work ≤ 3.8 ms a frame; frames over 16.7 ms during swaps 3/408 = 0.7 % WebGPU, 9/368 = 2.4 % WebGL 2 vs the class without swaps 1.3 % / 2.4 % (§5 "none" is missed by the class's background, not the swap); whole run WebGPU p50/p95 6.6/9.8 ms, GPU 10.43, main 6.59, 259 draws; WebGL 2 2.8/7.3, main 6.34. Without kits (`level --classes area`): WebGPU 6.5/9.5 ms, GPU 10.31, main 6.58, 259 draws; WebGL 2 2.6/6.8, main 6.62 (unchanged vs 30.7). Pixels: Scene view (block-editor e2e), Play, export WebGPU and WebGL 2 (block-layers e2e). Unverified: the owner's laptop; real kit models. |
-| 30.9–30.27 | — |
+| 30.9 | done 2026-10-07 (Part A done): all three extras kept (§7). **Walk graph** (`block-walk.ts`, `ctx.grid.walkNeighbours/path/reachable`, layer `walk` {from, maxStep, maxDrop, headroom, field, diagonal}; options costField, avoid): A* and reach respect step/drop/headroom, walls and closed doors, kits; unit-tested (doors, steps, ramps, stairs, headroom, diagonals, footprints, avoid, cost field). Measured on the area class layer (`TL_PERF=1 npx vitest run tests/perf/block-walk.test.ts`, Node): corner to corner 191 places, 8,172 visited, cold 37–83 ms, warm (graph kept until a write) 18–25 ms; into a room through its door 0.02 ms; reach 20 m (746 places) 1.6 ms; walkNeighbours 3.7–4.3 µs. **Problems** (backend, after edits settle; `block_floating`, `block_region_empty`, `block_unreachable`): whole-layer checks 131–149 ms (10,000 places), off the frame; block-editor e2e. **Corner shading** (`vertexAO`, opt-in): +2.8 ms/chunk meshing with cell walls, +5.0 with edge walls (21.7–23.2 ms/chunk without; workers), 4 B a vertex; `level --classes area` without it unchanged (WebGPU 6.6/9.6 ms, GPU 10.35 ms, main 6.57 ms, 259 draws; WebGL 2 2.6/6.8, main 6.62); `--vertex-ao`: WebGPU 6.6/9.7, GPU 10.34, main 6.6, 259 draws, 30 pipelines (29); WebGL 2 2.6/6.8, main 6.63. Pixels: Scene view crease with the sun off 46–52 % darker on WebGPU and WebGL 2, open ground unchanged (terrain-paint e2e). Unverified: the look (in the sunlit area class the difference is under 0.1 % of pixels; it shows where indirect light dominates — interiors, shade); the owner's laptop. |
+| 30.10–30.27 | — |
 
 (30.1's before numbers and 30.20's after numbers.)
 
@@ -457,6 +458,48 @@ cause and a follow-up, never a reason to throw an item away (owner,
     other paths (MCP) get a Problems warning (`block_names_missing`) instead.
   - The descriptor registry guard moved from 278,000 to 280,000 bytes (kits on block types and layers).
   - The adapter's cut-away following moved into `block-cutaway-follow.ts` (adapter.ts 1,893 → 1,863 lines) before it grew.
+- 2026-10-07 (30.9): block extras. Each kept; default chosen, owner to confirm:
+  - **Kept, all three.** 30.1's area class gives no "need" number for any of them (none is a frame cost); they are kept
+    because each is cheap and generic: the walk graph is the one shape both a game's movement and the editor's
+    reachability check need (a tactics game's move range is `reachable`); the Problems checks cost nothing per frame;
+    corner shading costs no GPU time (measured) and darkens creases that 29's probes (a probe every metre or more) and a
+    quality level without SSAO leave flat. In the sunlit area class it is barely visible (direct light dominates and
+    SSAO is on); it shows where indirect light is all there is. It is opt-in (`vertexAO` absent: no attribute, the old
+    bytes).
+  - **Walk graph** (project-model `block-walk.ts`, one module for scripts and the check): a place is a block top with
+    free headroom on a walkable slope, named by the cell whose top it is (a walker's own cell names the top under it); a
+    step goes to the four neighbouring columns (eight with `diagonal`, only where both ways round the corner walk) when
+    the tops differ by at most the step up or drop down *where they meet* (the middle of the shared side: a ramp's low end
+    meets the floor at 0, a stair's front at half a row), both columns are free to the higher top plus the headroom, and
+    no blocking edge piece stands on the shared side in the rows passed through. Cost: metres (height included) × a
+    cost field the query names (≤ 0: impassable); `avoid` lists occupied cells. Defaults: half a cell height up and down,
+    one cell height of headroom, the layer's `maxSlope` (else the project's); the layer's `walk` sets its own. How units
+    move, who occupies a cell and turn order stay the game's.
+  - A query expands at most 65,536 places (`WALK_QUERY_MAX_NODES`, a per-call bound like the per-step write limit). The
+    graph is kept between queries until the layer is written (a cell, an edge, a door) or its kits change; a kept graph
+    that has read 65,536 columns is dropped. A path across the whole area visits most of it (the four-way grid's ties:
+    every place in the bounding box is as cheap), 18–25 ms warm: a game paths on an order, not every step. Follow-up
+    when a game needs long paths often: a coarse graph over chunks (hierarchical search) or a search spread over steps.
+  - **Problems** run on the backend 250 ms after the last block-relevant change (block edits, types, fields, components,
+    objects), kept per layer by what they read, and log a line when a layer's result appears or changes (the log is
+    append-only: a fixed problem stops being logged, its old line stays). Floating: blocks and edge pieces not joined to
+    the layer's lowest row holding blocks (a layer built above another is grounded on its own bottom; edge pieces join
+    the blocks beside, under and over them, so a roof on edge walls stands). A region with no cells: no box inside the
+    layer's bounds (the format already refuses empty boxes). Unreachable: places to stand that the walk from
+    `walk.from` (a region's tops, or the cells above them) cannot reach; wall tops and roofs are places too, so a game
+    marks walkable cells with `walk.field`. A walk region the layer does not have is the Play check's
+    `block_names_missing`, and the Blocks panel's region rename/delete takes `walk.from` along.
+  - **Corner shading**: per vertex, four samples half a cell out along the normal, in the plane across it, tested for
+    "under a block's top" (full cells, half blocks, ramps, sloped tops — a planar slope never shades itself, a wall
+    standing in a hill does), full edge pieces counting half; three of four closed is full strength. Made with the
+    meshing (workers = page, byte-tested) as a float per vertex; the renderer's lights node multiplies three's
+    `ambientOcclusion` (indirect light only) by it on any lit build whose geometry has the attribute — no material
+    variants, so lightmapped copies, cut-away fades and swapped materials keep it (a layer with a lightmap bake has
+    occlusion in the bake and should leave this off). Float32, not one byte: WebGPU's single-byte vertex format is an
+    optional feature the engine does not assume, and three pads a byte pair to four anyway. Larger blocks' footprints
+    and model looks' own shapes do not occlude (cells only).
+  - Additive optional fields, no schema bump (`walk`, `vertexAO` on `blockLayer`); neither game needs a change. The
+    descriptor registry guard moved from 280,000 to 282,000 bytes.
 - 2026-10-03: Skyforge's requests mapped (the engine never reads the game
   repo; the ids only trace them back):
 

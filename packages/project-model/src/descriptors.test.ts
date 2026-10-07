@@ -575,7 +575,7 @@ const COMPONENT_BASES: Record<string, J[]> = {
   prefab: [{ prefabId: 'pre-a', localId: 'root' }],
   folder: [{}],
   // A block layer (every optional flag set to its non-default value).
-  blockLayer: [{ cellSize: [1, 0.5, 1], bounds: { min: [0, 0, 0], max: [8, 8, 8] }, metadataOnly: true, collision: false, castShadow: false, receiveShadow: false, maxSlope: 30, smoothAngle: 40, topSubdivision: 2, wallPaint: true, lightLayers: 128, cutaway: { regions: [{ region: 'roof', when: 'room' }], planes: [4], fade: 0.5 }, kits: [{ kit: 'ruined', region: 'hall' }] }],
+  blockLayer: [{ cellSize: [1, 0.5, 1], bounds: { min: [0, 0, 0], max: [8, 8, 8] }, metadataOnly: true, collision: false, castShadow: false, receiveShadow: false, maxSlope: 30, smoothAngle: 40, topSubdivision: 2, wallPaint: true, lightLayers: 128, cutaway: { regions: [{ region: 'roof', when: 'room' }], planes: [4], fade: 0.5 }, kits: [{ kit: 'ruined', region: 'hall' }], walk: { from: 'spawn', maxStep: 0.5, maxDrop: 1, headroom: 1.8, field: 'walkable', diagonal: true }, vertexAO: 0.6 }],
   // A prop's block footprint.
   blockFootprint: [{ layer: 'layer-a', size: [2, 3], set: { blocked: true, cost: 4 } }],
 };
@@ -1008,8 +1008,8 @@ describe('descriptor registry', () => {
     // the sky/fog/post descriptors, about 9 KB; a compound repeats the collider shapes, about 6 KB;
     // a quality level repeats the bloom/AO/depth-of-field descriptors, about 3 KB; a block type's connection pieces
     // repeat their look and turn, about 3 KB; a block layer's cut-away, about 1.6 KB; kits on block types and layers,
-    // about 2 KB)
-    expect(JSON.stringify(DESCRIPTORS).length).toBeLessThan(280_000);
+    // about 2 KB; a block layer's walk and corner shading, about 1.7 KB)
+    expect(JSON.stringify(DESCRIPTORS).length).toBeLessThan(282_000);
     for (const c of DESCRIPTORS.components) expect(c.value.key).toBe(c.name);
   });
 

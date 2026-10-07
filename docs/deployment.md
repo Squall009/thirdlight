@@ -4504,7 +4504,8 @@ brushes, overlays and stamp UI are below (23.6).
   writes), `setTypeMaterials` / `typeMaterials` (a block type's material
   swap, shown once the material has loaded), `setCutaway` /
   `setCutawaySubject` / `setCutawayPoint` (cut-aways, below), `setKit` / `kit`
-  (kit swaps, below), `diff` / `applyDiff` (plain
+  (kit swaps, below), `walkNeighbours` / `path` / `reachable` (walking the
+  layer, below), `diff` / `applyDiff` (plain
   data for a save, the type swaps and kits included). Writes are refused
   (`false`) when they do not fit; at most 4,096 per step. Visual-script nodes
   exist for the calls.
@@ -4776,6 +4777,53 @@ brushes, overlays and stamp UI are below (23.6).
     does not have, or a kit no block type has, is a warning. Renaming a
     region in the Blocks panel renames it in the layer's cut-aways and kits
     (a second undo step); deleting it there removes those entries.
+- **Walking a layer** (30.9): `ctx.grid.walkNeighbours(layer, [x, y, z],
+  options?)`, `ctx.grid.path(layer, from, to, options?)` and
+  `ctx.grid.reachable(layer, from, maxCost, options?)` (visual-script nodes
+  Walk neighbours / Walk path / Walk reach). A *place* is a block top with
+  free headroom over it on a walkable slope, named by the cell whose top it
+  is (a walker's own cell names the top under it). A step goes to one of the
+  four neighbouring columns (eight with `diagonal`, only where both ways
+  round the corner walk) when the tops rise at most `maxStep` or drop at
+  most `maxDrop` where they meet (a ramp's low end meets the floor, a stair's
+  front is half a row), both columns are free to the higher top plus the
+  `headroom`, and no edge piece that blocks (a wall, a closed door; under a
+  kit, the swapped piece) stands between them in the rows passed through.
+  Each result is a list of `{x, y, z, point, cost}` (the world point on the
+  top at the cell's centre; the cost so far in metres). Options: `maxStep`,
+  `maxDrop`, `headroom` (m), `maxSlope` (degrees), `diagonal`, `field` (a
+  yes/no cell field: only tops where it is on are walked), `costField` (a
+  number field: entering a cell costs its value per metre, 0 or less: never
+  entered), `avoid` (cells taken, e.g. by units). Defaults come from the
+  layer's **Walk** (Inspector, MCP `setComponent blockLayer` `walk`:
+  `{from?, maxStep?, maxDrop?, headroom?, field?, diagonal?}`), else half a
+  cell height up and down, one cell height of headroom and the layer's (or
+  project's) slope limit. A query expands at most 65,536 places (`path` is
+  null past it). The graph is kept between queries until the layer is
+  written or its kits change, so asking again is cheap; measured on a
+  100 × 100 m hilly layer: a path into a room 0.02 ms, a 20 m move range
+  1.6 ms, a path across the whole layer 18–25 ms (37–83 ms the first time):
+  path on an order, not every step. How units move along it is the game's.
+- **Level checks in Problems** (30.9): after block edits settle, the backend
+  checks each layer and lists, once per change: blocks that float
+  (`block_floating`: not joined, through blocks or edge pieces, to the
+  layer's lowest blocks), regions with no cell inside the layer's bounds
+  (`block_region_empty`), and — when the layer's Walk names a **From region**
+  — places to stand a walk from that region cannot reach
+  (`block_unreachable`; wall tops and roofs are places too: mark walkable
+  cells with a yes/no field and set it as the Walk's **Walkable field**).
+  The editor's Problems window and `tl_diagnostics` show them; a whole
+  100 × 100 m layer checks in about 0.15 s, off the editor's frame.
+- **Corner shading** (30.9): a layer's `vertexAO` (Inspector **Corner
+  shading**, 0–1; off by default) darkens corners and creases closed in by
+  neighbouring blocks — the foot of a wall, an inside corner, where a hill
+  meets a wall, the floor beside walls made of edge pieces — taking that
+  much of their indirect light (sun light is not touched; shadows do that).
+  It is worked out when a chunk is meshed (in the mesh workers: about 3–5 ms
+  more a 16 × 16 chunk, 4 bytes a vertex) and costs no GPU time measured
+  (the area class 6.6/9.7 ms with it, 6.6/9.6 without). Use it where
+  indirect light dominates (interiors, shade, a quality level without SSAO);
+  a layer with baked lightmaps has its occlusion in the bake already.
 - **Per-layer settings** (28b.4): the template's four layers each have a
   **tiling** (metres per repeat of the layer's textures, 1 by default), a
   **normal strength** (0: flat), and a **height contrast** and **height

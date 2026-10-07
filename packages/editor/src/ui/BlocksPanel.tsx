@@ -193,9 +193,9 @@ export function BlocksPanel(p: Props): JSX.Element {
     void p.run(kit === '' ? 'Take kit off' : `Show kit ${kit}`, 'setComponent', { entityId: l.entityId, component: 'blockLayer', value: component });
   };
   /**
-   * A region renamed (`to`) or deleted (null): the layer's cut-aways and
-   * kits that name it follow it, or let it go (a second setComponent, after
-   * the region edit).
+   * A region renamed (`to`) or deleted (null): the layer's cut-aways, kits
+   * and walk that name it follow it, or let it go (a second setComponent,
+   * after the region edit).
    */
   const followRegion = (l: BlockLayerRow, from: string, to: string | null): void => {
     const c = l.component;
@@ -204,8 +204,15 @@ export function BlocksPanel(p: Props): JSX.Element {
       return [r];
     });
     const kits = (c.kits ?? []).flatMap((k) => (k.region !== from ? [k] : to === null ? [] : [{ kit: k.kit, region: to }]));
-    if (JSON.stringify(regions) === JSON.stringify(c.cutaway?.regions ?? []) && JSON.stringify(kits) === JSON.stringify(c.kits ?? [])) return;
+    const walkFollows = c.walk?.from === from;
+    if (JSON.stringify(regions) === JSON.stringify(c.cutaway?.regions ?? []) && JSON.stringify(kits) === JSON.stringify(c.kits ?? []) && !walkFollows) return;
     const component: BlockLayerComponent = { ...c, kits };
+    if (walkFollows) {
+      const { from: _from, ...rest } = c.walk!;
+      const walk = to === null ? rest : { ...rest, from: to };
+      // A walk left with nothing is removed (null takes a component's optional field away).
+      component.walk = (Object.keys(walk).length > 0 ? walk : null) as BlockLayerComponent['walk'];
+    }
     if (c.cutaway !== undefined) {
       const cutaway: BlockCutaway = { ...c.cutaway, regions };
       if (regions.length === 0) delete cutaway.regions;

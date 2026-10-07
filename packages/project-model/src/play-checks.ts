@@ -72,7 +72,7 @@ export function playChecks(content: ContentCatalogV4 | Record<string, unknown>, 
       else keptIn.set(e.id, s.sceneId);
     }
   }
-  // A block layer's cut-aways and kits name its regions and kits its block types have (a region renamed or deleted
+  // A block layer's cut-aways, kits and walk name its regions and kits its block types have (a region renamed or deleted
   // since, or a kit no type has any more, cuts or swaps nothing).
   const kitNames = new Set(blockKitNames((content as { blockTypes?: readonly BlockType[] }).blockTypes ?? []));
   for (const s of scenes) {
@@ -81,9 +81,9 @@ export function playChecks(content: ContentCatalogV4 | Record<string, unknown>, 
       const bl = (e.components as { blockLayer?: BlockLayerComponent }).blockLayer;
       if (bl === undefined) continue;
       const have = regionsOf.get(e.id) ?? new Set<string>();
-      const named = [...(bl.cutaway?.regions ?? []).flatMap((r) => [r.region, ...(r.when !== undefined ? [r.when] : [])]), ...(bl.kits ?? []).flatMap((k) => (k.region !== undefined ? [k.region] : []))];
+      const named = [...(bl.cutaway?.regions ?? []).flatMap((r) => [r.region, ...(r.when !== undefined ? [r.when] : [])]), ...(bl.kits ?? []).flatMap((k) => (k.region !== undefined ? [k.region] : [])), ...(bl.walk?.from !== undefined ? [bl.walk.from] : [])];
       const missing = [...new Set(named.filter((r) => !have.has(r)))];
-      if (missing.length > 0) checks.push({ code: 'block_names_missing', refuse: false, message: `block layer "${e.id}" (scene "${s.sceneId}") names ${missing.length === 1 ? 'a region it does not have' : 'regions it does not have'}: ${missing.slice(0, 4).map((r) => `"${r}"`).join(', ')} (renamed or deleted?): its cut-aways and kits there cut and swap nothing` });
+      if (missing.length > 0) checks.push({ code: 'block_names_missing', refuse: false, message: `block layer "${e.id}" (scene "${s.sceneId}") names ${missing.length === 1 ? 'a region it does not have' : 'regions it does not have'}: ${missing.slice(0, 4).map((r) => `"${r}"`).join(', ')} (renamed or deleted?): its cut-aways, kits and walk check there cut, swap and check nothing` });
       const kits = [...new Set((bl.kits ?? []).map((k) => k.kit).filter((k) => !kitNames.has(k)))];
       if (kits.length > 0) checks.push({ code: 'block_names_missing', refuse: false, message: `block layer "${e.id}" (scene "${s.sceneId}") shows ${kits.length === 1 ? 'a kit' : 'kits'} no block type has: ${kits.slice(0, 4).map((k) => `"${k}"`).join(', ')}: nothing is swapped` });
     }

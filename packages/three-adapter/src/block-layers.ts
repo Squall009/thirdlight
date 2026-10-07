@@ -81,6 +81,7 @@ import { chunkModelKey, meshChunkForDrawing, StandInShapes, variantModelOf, type
 import { MeshWorkerPool, meshWorkerCount, type MeshWorkerFactory } from './block-mesh-pool';
 import type { MeshWorkerReply } from './block-mesh-worker';
 import { LIGHT_LAYERS_KEY } from './light-layers';
+import { BLOCK_AO_ATTRIBUTE } from './block-ao-lighting';
 import { currentLodLevel, LOD_CULL_LEVEL_KEY } from './lod-switch';
 
 /**
@@ -1044,6 +1045,8 @@ export class BlockLayerView {
         geometry.setAttribute('color', attr('color', p.weights, 4, true));
         geometry.setAttribute('color_1', attr('color_1', p.wetness, 4, true));
       }
+      // The layer's corner shading (made with the meshing), read by the renderer's lighting.
+      if (p.ao !== undefined) geometry.setAttribute(BLOCK_AO_ATTRIBUTE, attr(BLOCK_AO_ATTRIBUTE, p.ao, 1));
       return m;
     };
     const detailed = new THREE.Group();

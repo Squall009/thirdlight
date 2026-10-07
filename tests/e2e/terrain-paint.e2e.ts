@@ -13,7 +13,8 @@
  * the top's layer 1 (red) over the lip; Paint on "Walls" dragged up that
  * face paints layer 3 (blue moss) there — stored as the chunk's wall points,
  * drawn blue — and the scene's wetness (rain, the Environment window's
- * slider) darkens the ground.
+ * slider) darkens the ground. Corner shading (the layer's `vertexAO`)
+ * darkens the crease at the block's foot and leaves open ground as it was.
  *
  * Runs per renderer variant (renderer-variants.ts).
  */
@@ -97,6 +98,17 @@ async function near(page: Page, p: V3, test: Pred, size = 120): Promise<number> 
   return count(img, test);
 }
 const blueNear = (page: Page, p: V3): Promise<number> => near(page, p, isBlue);
+/** The mean luminance (0-255) of a small square of the Scene view around a world point. */
+async function luminanceNear(page: Page, p: V3, size = 8): Promise<number> {
+  const s = await screen(page, p);
+  const img = decodePng(await page.screenshot({ clip: { x: s.x - size / 2, y: s.y - size / 2, width: size, height: size } }));
+  let sum = 0;
+  for (let y = 0; y < img.height; y++) for (let x = 0; x < img.width; x++) {
+    const [r, g, b] = img.pixel(x, y);
+    sum += 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  }
+  return sum / (img.width * img.height);
+}
 /** The median red of the view's layer-1 (red) pixels. */
 async function medianRed(page: Page): Promise<number> {
   const r = reds(decodePng(await view(page).screenshot()));
@@ -122,7 +134,7 @@ async function wallPaint(layer: string): Promise<Record<string, string>> {
   return out;
 }
 
-for (const variant of RENDERER_VARIANTS) test(`Paint mode: a drag paints a layer (one undo step), Ctrl erases, undo/redo, the paint survives a reload; walls painted up their face; wetness (${variant})`, async ({ page }) => {
+for (const variant of RENDERER_VARIANTS) test(`Paint mode: a drag paints a layer (one undo step), Ctrl erases, undo/redo, the paint survives a reload; walls painted up their face; wetness; corner shading (${variant})`, async ({ page }) => {
   onlyInItsProject(variant);
   test.setTimeout(300_000);
   be = await startBackend(`terrain-paint-${variant}`);
@@ -248,4 +260,26 @@ for (const variant of RENDERER_VARIANTS) test(`Paint mode: a drag paints a layer
   await page.keyboard.press('End');
   await expect.poll(async () => JSON.stringify((await query('queryProject', { environments: true }))['scenes']), { timeout: 15_000 }).toContain('"wetness":1');
   await expect.poll(() => medianRed(page), { timeout: 30_000 }).toBeLessThan(dry * 0.86);
+
+  // ---- Corner shading: the layer's vertexAO darkens the crease at the block's foot (its indirect light), not the open
+  // ground; off again, the crease is as before. Seen with the sun off: what is left is the indirect light it shades.
+  const sun = ((await query('queryEntities', { limit: 200, offset: 0 })) as { entities: { id: string; components: Record<string, unknown> }[] }).entities.find((e) => (e.components['light'] as { type?: string } | undefined)?.type === 'directional')!;
+  await cmd('updateEntity', { entityId: sun.id, active: false });
+  const toCamera = faceZ === bz + 6 ? 1 : -1;
+  const crease: V3 = [ORIGIN[0] + bx + 3, 0, ORIGIN[2] + faceZ + toCamera * 0.12];
+  const open: V3 = [ORIGIN[0] + bx + 3, 0, ORIGIN[2] + faceZ + toCamera * 3.5];
+  const layerValue = { cellSize: [1, 0.5, 1], bounds: { min: [0, 0, 0], max: [32, 16, 32] }, wallPaint: true };
+  const meshed = async (): Promise<number> => JSON.parse((await view(page).getAttribute('data-block-layers')) ?? '{"meshes":0}').meshes as number;
+  // The sun's light gone from the view (the open ground darker than it was lit) before the reading.
+  await page.waitForTimeout(500);
+  const unshaded = { crease: await luminanceNear(page, crease), open: await luminanceNear(page, open) };
+  await cmd('setComponent', { entityId: layer, component: 'blockLayer', value: { ...layerValue, vertexAO: 1 } });
+  await expect.poll(async () => (await luminanceNear(page, crease)) / unshaded.crease, { timeout: 30_000, message: 'the crease darkened by the corner shading' }).toBeLessThan(0.75);
+  expect(await meshed()).toBeGreaterThan(0);
+  const shaded = { crease: await luminanceNear(page, crease), open: await luminanceNear(page, open) };
+  console.log(`corner shading (${variant}): crease ${unshaded.crease.toFixed(1)} → ${shaded.crease.toFixed(1)}, open ground ${unshaded.open.toFixed(1)} → ${shaded.open.toFixed(1)}`);
+  expect(Math.abs(shaded.open - unshaded.open)).toBeLessThan(unshaded.open * 0.03 + 1);
+  await page.screenshot({ path: test.info().outputPath(`corner-shading-${variant}.png`) });
+  await cmd('setComponent', { entityId: layer, component: 'blockLayer', value: { ...layerValue, vertexAO: 0 } });
+  await expect.poll(async () => Math.abs((await luminanceNear(page, crease)) - unshaded.crease), { timeout: 30_000, message: 'the crease back without corner shading' }).toBeLessThan(unshaded.crease * 0.03 + 1);
 });

@@ -74,6 +74,7 @@ import {
 } from '@thirdlight/project-model';
 
 import { LiveBlocks, edgeKeyOf, type LiveBlockChanges } from './live-blocks';
+import { walkNeighboursQuery, walkPathQuery, walkReachQuery, type GridWalkOptions, type GridWalkPlace, type WalkGraphCache, type WalkLayer } from './grid-walk';
 import type { PhysicsPort3D, StaticColliderSpec3D } from './ports';
 
 // ---- the script API types (public: `ctx.grid`) -------------------------------------
@@ -304,6 +305,28 @@ export interface BehaviorGrid {
    */
   neighbours(layer: string, x: number, y: number, z: number, diagonal?: boolean): readonly GridVec3[];
   /**
+   * The places one step away from the place a cell names (the top it is, or the top a walker in that cell stands on): to the four neighbouring columns (eight with diagonal), within the step, drop and headroom limits, not across a wall or closed door; each with its cost (metres, times any cost field).
+   * @graphPure
+   * @graphNode Walk neighbours
+   * @graphType cell list
+   */
+  walkNeighbours(layer: string, cell: readonly number[], options?: GridWalkOptions): readonly GridWalkPlace[];
+  /**
+   * The cheapest walk between the places two cells name ([x, y, z] each), start and end included, each with the cost so far; null when there is none (or the search passes 65,536 places).
+   * @graphPure
+   * @graphNode Walk path
+   * @graphType from list
+   * @graphType to list
+   */
+  path(layer: string, from: readonly number[], to: readonly number[], options?: GridWalkOptions): readonly GridWalkPlace[] | null;
+  /**
+   * The places reachable from the place a cell names within a cost (metres, times any cost field), cheapest first, the start included (at most 65,536).
+   * @graphPure
+   * @graphNode Walk reach
+   * @graphType from list
+   */
+  reachable(layer: string, from: readonly number[], maxCost: number, options?: GridWalkOptions): readonly GridWalkPlace[];
+  /**
    * The region ids of a layer.
    * @graphPure
    * @graphNode Regions
@@ -474,6 +497,8 @@ interface Layer {
   touchedEdges: Set<number>;
   /** The collider ids per chunk key. */
   colliders: Map<string, string[]>;
+  /** Counts the layer's cell and edge writes: walk graphs kept from an earlier query are for an older count. */
+  writeCount: number;
 }
 
 const freezeVec = (x: number, y: number, z: number): GridVec3 => Object.freeze({ x, y, z });
@@ -517,6 +542,8 @@ export class RuntimeGrid {
   private readonly defaultMaxSlope: number;
   /** The live blocks' objects (null: no block type of this game is live). */
   private readonly live: LiveBlocks | null;
+  /** Walk graphs kept between queries, per grid as shown (a new grid or kit view starts afresh; `walkGraphFor`). */
+  private readonly walkGraphs: WalkGraphCache = new WeakMap();
 
   constructor(types: readonly BlockType[], fields: readonly CellField[], collide: boolean, defaultMaxSlope = 45, materialIds?: readonly string[], prefabs?: ReadonlyMap<string, PrefabDefinition>) {
     this.materialIds = materialIds !== undefined ? new Set(materialIds) : null;
@@ -589,7 +616,7 @@ export class RuntimeGrid {
       const p = e.components.transform?.position ?? [0, 0, 0];
       const data = comp.data ?? null;
       const grid = BlockGrid.from(comp, data);
-      const layer: Layer = { entityId: e.id, component: comp, origin: freezeVec(p[0], p[1], p[2]), authored: data, grid, kits: comp.kits, shown: grid, covers: new Map(), touched: new Set(), touchedEdges: new Set(), colliders: new Map() };
+      const layer: Layer = { entityId: e.id, component: comp, origin: freezeVec(p[0], p[1], p[2]), authored: data, grid, kits: comp.kits, shown: grid, covers: new Map(), touched: new Set(), touchedEdges: new Set(), colliders: new Map(), writeCount: 0 };
       this.reshow(layer);
       this.rebuildCovers(layer);
       this.layerMap.set(e.id, layer);
@@ -1045,6 +1072,7 @@ export class RuntimeGrid {
     const shownBefore = layer.shown === layer.grid ? before : layer.shown.get(x, y, z);
     if (!layer.grid.set(x, y, z, normalized)) return false;
     this.writes += 1;
+    layer.writeCount += 1;
     this.removeCover(layer, x, y, z, before);
     this.addCover(layer, x, y, z, normalized);
     // Live blocks follow the shown cell (a kit may swap a live block in or out).
@@ -1083,6 +1111,7 @@ export class RuntimeGrid {
     const shownBefore = layer.shown === layer.grid ? before : layer.shown.edgeAt(x, y, z, axis);
     if (!layer.grid.setEdge(x, y, z, axis, next)) return false;
     this.writes += 1;
+    layer.writeCount += 1;
     this.live?.writtenEdge(layerId, x, y, z, axis, shownBefore, layer.shown === layer.grid ? next : layer.shown.edgeAt(x, y, z, axis));
     layer.touchedEdges.add(edgeKeyOf(x, y, z, axis));
     this.markWritten(layer);
@@ -1122,6 +1151,21 @@ export class RuntimeGrid {
     const meta = Object.freeze(effectiveCellMeta(cell, this.types, this.fields));
     const corners = cellCorners(cell);
     return Object.freeze({ block: cell.block ?? null, rot: shown.rot, variant: shown.variant, meta, ...(anchor !== undefined ? { anchor } : {}), ...(corners !== null ? { corners: Object.freeze([...corners]) } : {}), ...(shown.piece !== null ? { piece: shown.piece } : {}), ...(look.block !== cell.block && look.block !== undefined ? { kitBlock: look.block } : {}) });
+  }
+
+  /** What the walk queries read of a layer. */
+  private walkLayer(layer: Layer): WalkLayer {
+    return {
+      component: layer.component,
+      origin: layer.origin,
+      shown: layer.shown,
+      writeCount: layer.writeCount,
+      graphs: this.walkGraphs,
+      anchorOf: (x, y, z) => {
+        const a = layer.covers.get(cellKeyOf(x, y, z));
+        return a === undefined ? null : cellOfKey(a);
+      },
+    };
   }
 
   /** The ground of a layer at or below a world point (null: none). */
@@ -1302,6 +1346,18 @@ export class RuntimeGrid {
               if (l.grid.inBounds(x + dx, y + dy, z + dz)) out.push(freezeVec(x + dx, y + dy, z + dz));
             }
         return Object.freeze(out);
+      },
+      walkNeighbours(layer, cell, options) {
+        const l = layerOf(layer);
+        return l === undefined || l.component.metadataOnly === true ? Object.freeze([]) : walkNeighboursQuery(g.walkLayer(l), g.types, g.fieldByKey, g.defaultMaxSlope, cell, options);
+      },
+      path(layer, from, to, options) {
+        const l = layerOf(layer);
+        return l === undefined || l.component.metadataOnly === true ? null : walkPathQuery(g.walkLayer(l), g.types, g.fieldByKey, g.defaultMaxSlope, from, to, options);
+      },
+      reachable(layer, from, maxCost, options) {
+        const l = layerOf(layer);
+        return l === undefined || l.component.metadataOnly === true ? Object.freeze([]) : walkReachQuery(g.walkLayer(l), g.types, g.fieldByKey, g.defaultMaxSlope, from, maxCost, options);
       },
       regions(layer) {
         const l = layerOf(layer);

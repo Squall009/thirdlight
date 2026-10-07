@@ -601,6 +601,8 @@ export interface ChunkMeshPart {
   weights?: Uint8Array;
   /** COLOR_1: the wetness in r (alpha 255), normalized bytes; present with `weights`. */
   wetness?: Uint8Array;
+  /** Per-vertex ambient occlusion, a factor of the indirect light (`block-ao.ts`): a layer with `vertexAO`. */
+  ao?: Float32Array;
 }
 
 /** What the mesher needs per block cell: the source to draw (null: nothing), and a key naming it. */

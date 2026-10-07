@@ -15,6 +15,7 @@ import { applyBlockEdits, BlockGrid, type BlockLayerComponent, type BlockType } 
 import { BlockLayerView, blockLookFromObject, MESH_WORKER_STALL_MS, SYNC_MESH_BUDGET_MS, type BlockLayerViewDeps } from './block-layers';
 import type { MeshWorkerPort } from './block-mesh-pool';
 import { runBlockMeshWorker } from './block-mesh-worker';
+import { BLOCK_AO_ATTRIBUTE } from './block-ao-lighting';
 
 const TYPES: BlockType[] = [
   // A mapped material: its world-mapped stand-in carries tangents.
@@ -128,7 +129,7 @@ function drawn(v: BlockLayerView): string[] {
     const m = o as THREE.Mesh;
     if (m.isMesh !== true) return;
     const g = m.geometry as THREE.BufferGeometry;
-    const arrays = ['position', 'normal', 'uv', 'tangent', 'uv1', 'color', 'color_1'].map((n) => g.getAttribute(n)?.array as Float32Array | undefined);
+    const arrays = ['position', 'normal', 'uv', 'tangent', 'uv1', 'color', 'color_1', BLOCK_AO_ATTRIBUTE].map((n) => g.getAttribute(n)?.array as Float32Array | undefined);
     out.push(`${m.parent?.name}/${m.name}:${arrays.map((a) => (a === undefined ? '-' : bytesDigest(a))).join('|')}|${bytesDigest(g.getIndex()!.array as Uint32Array)}`);
   });
   return out.sort();
@@ -190,6 +191,37 @@ describe('block view: meshing in workers', () => {
     expect(drawn(page).filter((m) => m.includes('block:c:stone')).every((m) => m.split('|')[5] !== '-')).toBe(true);
     worker.dispose();
     page.dispose();
+  });
+
+  it('a layer with corner shading: the workers draw its per-vertex occlusion byte for byte as the page does; without it the meshes carry none', async () => {
+    const layer = { ...LAYER, vertexAO: 0.7 } as BlockLayerComponent;
+    const data = groundData();
+    const page = makeView();
+    page.setTypes(TYPES);
+    page.setLayer('ground', layer, [0, 0, 0], data as never);
+    page.update();
+    const worker = makeView({ meshWorkers: () => portWorker() });
+    worker.setTypes(TYPES);
+    worker.setLayer('ground', layer, [0, 0, 0], data as never);
+    await settle(worker);
+    expect(drawn(worker)).toEqual(drawn(page));
+    // Every chunk mesh carries it, and some corners are shaded (the wall's foot, the crates on the rows).
+    const shaded: number[] = [];
+    page.root.traverse((o) => {
+      const a = ((o as THREE.Mesh).geometry as THREE.BufferGeometry | undefined)?.getAttribute(BLOCK_AO_ATTRIBUTE);
+      if ((o as THREE.Mesh).isMesh === true) shaded.push(a === undefined ? -1 : Math.min(...(a.array as Float32Array)));
+    });
+    expect(shaded.length).toBeGreaterThan(0);
+    expect(shaded.every((v) => v >= 0.3 - 1e-6)).toBe(true);
+    expect(Math.min(...shaded)).toBeCloseTo(0.3, 5);
+    const plain = makeView();
+    plain.setTypes(TYPES);
+    plain.setLayer('ground', LAYER, [0, 0, 0], data as never);
+    plain.update();
+    expect(drawn(plain).every((m) => m.split('|')[7] === '-')).toBe(true);
+    worker.dispose();
+    page.dispose();
+    plain.dispose();
   });
 
   it('a kit a game swaps in is a restyle: every chunk re-meshes in the workers, drawn as before until its new meshes arrive, byte for byte what the page draws, the shadow held once', async () => {

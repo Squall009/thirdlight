@@ -225,7 +225,7 @@ function copies(n: number, at: (i: number) => { x: number; y: number; z: number;
   return f;
 }
 
-export function levelPlan(kind: LevelKind, seed = LEVEL_SEED, liveDoorCount = 0, edgeWalls = false, wallPaint = false, roofs: LevelRoofs = 'none', kitSwap = false): LevelPlan {
+export function levelPlan(kind: LevelKind, seed = LEVEL_SEED, liveDoorCount = 0, edgeWalls = false, wallPaint = false, roofs: LevelRoofs = 'none', kitSwap = false, vertexAO = 0): LevelPlan {
   const S = LEVEL_SPEC;
   const N = S.areaSide;
   const rnd = prng(seed * 104729 + N);
@@ -423,7 +423,7 @@ export function levelPlan(kind: LevelKind, seed = LEVEL_SEED, liveDoorCount = 0,
 
   const batches: EntityValue[][] = [];
   for (let i = 0; i < entities.length; i += PASTE_MAX) batches.push(entities.slice(i, i + PASTE_MAX));
-  const layer: EntityValue = { id: 'ground', name: 'Ground', components: { transform: T(-half, 0, -half), blockLayer: { cellSize: [1, S.cellHeight, 1], bounds: { min: [0, 0, 0], max: [N, 32, N] }, maxSlope: 60, smoothAngle: 40, topSubdivision: 2, ...(wallPaint ? { wallPaint: true } : {}), ...(roofs === 'cutaway' ? { cutaway: { regions: rooms.map((_, i) => ({ region: `roof-${i}` })) } } : {}) } } };
+  const layer: EntityValue = { id: 'ground', name: 'Ground', components: { transform: T(-half, 0, -half), blockLayer: { cellSize: [1, S.cellHeight, 1], bounds: { min: [0, 0, 0], max: [N, 32, N] }, maxSlope: 60, smoothAngle: 40, topSubdivision: 2, ...(wallPaint ? { wallPaint: true } : {}), ...(vertexAO > 0 ? { vertexAO } : {}), ...(roofs === 'cutaway' ? { cutaway: { regions: rooms.map((_, i) => ({ region: `roof-${i}` })) } } : {}) } } };
   // At the area's south edge, 8 m over its ground, looking north across it to the horizon.
   const pitch = -0.12;
   const camera: LevelPlan['camera'] = { position: [0, r3(groundY(half, N - 2) + 8), half - 2], rotation: [r6(Math.sin(pitch / 2)), 0, 0, r6(Math.cos(pitch / 2))] };

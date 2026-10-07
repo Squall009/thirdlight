@@ -25,7 +25,8 @@
  * (cells are square from above); a command with x ≠ z is refused. A region marked cut away in the Blocks panel
  * is hidden in the Scene view while its preview is on (pixels). The layer's Kit (Blocks panel) shows the grass as its
  * burnt swap in the Scene view (pixels) without changing a cell; a region's kit, and its cut-away, follow the region
- * when it is renamed and go when it is deleted. Every result is read back from the backend
+ * when it is renamed and go when it is deleted. The Problems window lists a block left floating and the places a walk
+ * from the layer's start region cannot reach (the backend's checks once edits settle). Every result is read back from the backend
  * (`queryBlocks`, `queryEntity`); the stroke latency is measured.
  */
 import { randomBytes } from 'node:crypto';
@@ -138,6 +139,25 @@ test('the Blocks panel paints, fills, picks, replaces, selects, stamps and paint
   await expect(panel(page).getByLabel('block layer')).toHaveValue(layer);
   await expect(view(page)).toHaveAttribute('data-block-tool', 'single');
   await expect(view(page)).toHaveAttribute('data-view-proj', /\[/);
+
+  // ---- Problems: the backend checks the layer once its edits settle (off the editor's frame). A block left floating
+  // is listed with its cell; with a walk region, the places a walk from it cannot reach (a pillar too tall to step
+  // onto) are listed. Cleared again, the layer is as it was.
+  await openWindow(page, 'Problems');
+  const problemLine = (code: string) => page.locator(`.tl-problem__message[title^="${code} "]`);
+  await cmd('editBlocks', { entityId: layer, edits: [{ kind: 'cells', at: [60, 13, 60], cell: { block: 'stone' } }] });
+  await expect(problemLine('block_floating')).toHaveCount(1, { timeout: 15_000 });
+  await expect(problemLine('block_floating')).toHaveText(`block layer "${layer}": 1 block in 1 group floats (nothing joins it to the layer's lowest blocks), at [60, 13, 60] (scene "scene-main")`);
+  const layerValue = { cellSize: [1, 1, 1], bounds: { min: [0, 0, 0], max: [64, 16, 64] } };
+  await cmd('editBlocks', { entityId: layer, edits: [{ kind: 'cells', at: [60, 13, 60], cell: null }, { kind: 'fill', box: [30, 8, 30, 33, 12, 33], cell: { block: 'stone' } }, { kind: 'region', regionId: 'start', op: 'set', boxes: [[0, 8, 0, 4, 9, 4]] }] });
+  await cmd('setComponent', { entityId: layer, component: 'blockLayer', value: { ...layerValue, walk: { from: 'start' } } });
+  await expect(problemLine('block_unreachable')).toHaveCount(1, { timeout: 15_000 });
+  await expect(problemLine('block_unreachable')).toContainText('9 of 4096 places to stand cannot be walked to from region "start"');
+  await expect(problemLine('block_unreachable')).toContainText('at [30, 11, 30], [30, 11, 31], [30, 11, 32], [31, 11, 30], …');
+  await cmd('setComponent', { entityId: layer, component: 'blockLayer', value: { ...layerValue, walk: null } });
+  await cmd('editBlocks', { entityId: layer, edits: [{ kind: 'fill', box: [30, 8, 30, 33, 12, 33], cell: null }, { kind: 'region', regionId: 'start', op: 'delete' }] });
+  expect(await cellCount(layer)).toBe(32_768);
+  await openWindow(page, 'Blocks');
 
   // ---- single-cell brush: a drag over three tops paints three cells in one command.
   await blockButton(page, 'grass').click();
@@ -419,7 +439,7 @@ test('the Blocks panel paints, fills, picks, replaces, selects, stamps and paint
   const violet = (r: number, g: number, b: number): boolean => b > 80 && r > b * 0.3 && r < b * 0.75 && g < b * 0.25;
   const layerKit = panel(page).getByLabel('layer kit', { exact: true });
   await expect(layerKit).toHaveValue('');
-  const blockLayerOf = async (): Promise<{ cutaway?: unknown; kits?: unknown }> => ((await entity(layer)).components.blockLayer ?? {}) as { cutaway?: unknown; kits?: unknown };
+  const blockLayerOf = async (): Promise<{ cutaway?: unknown; kits?: unknown; walk?: unknown }> => ((await entity(layer)).components.blockLayer ?? {}) as { cutaway?: unknown; kits?: unknown; walk?: unknown };
   await layerKit.selectOption('burnt');
   await expect.poll(async () => (await blockLayerOf()).kits).toEqual([{ kit: 'burnt' }]);
   await expect.poll(async () => countPixels(decodePng(await view(page).screenshot()), violet), { timeout: 20_000, message: 'the grass shown burnt' }).toBeGreaterThan(200);
@@ -428,17 +448,20 @@ test('the Blocks panel paints, fills, picks, replaces, selects, stamps and paint
   expect(stored).toContain('grass');
   expect(stored).not.toContain('ash');
   await expect.poll(async () => JSON.parse((await view(page).getAttribute('data-block-layers')) ?? '{}').restyles, { timeout: 20_000 }).toEqual(expect.objectContaining({ active: false, count: expect.any(Number) }));
-  // A region's kit and cut-away follow the region renamed in the panel, and go with it deleted.
+  // A region's kit, cut-away and walk follow the region renamed in the panel, and go with it deleted.
   await cutBox.click();
   await panel(page).getByLabel('kit upper', { exact: true }).selectOption('burnt');
   await expect.poll(async () => blockLayerOf()).toEqual(expect.objectContaining({ cutaway: { regions: [{ region: 'upper' }] }, kits: [{ kit: 'burnt' }, { kit: 'burnt', region: 'upper' }] }));
+  await cmd('setComponent', { entityId: layer, component: 'blockLayer', value: { walk: { from: 'upper', maxStep: 1 } } });
+  await expect.poll(async () => (await blockLayerOf()).walk).toEqual({ from: 'upper', maxStep: 1 });
   await panel(page).getByRole('button', { name: 'rename upper', exact: true }).click();
   const renameInput = panel(page).getByLabel('rename region upper', { exact: true });
   await renameInput.fill('top');
   await renameInput.press('Enter');
-  await expect.poll(async () => blockLayerOf()).toEqual(expect.objectContaining({ cutaway: { regions: [{ region: 'top' }] }, kits: [{ kit: 'burnt' }, { kit: 'burnt', region: 'top' }] }));
+  await expect.poll(async () => blockLayerOf()).toEqual(expect.objectContaining({ cutaway: { regions: [{ region: 'top' }] }, kits: [{ kit: 'burnt' }, { kit: 'burnt', region: 'top' }], walk: { from: 'top', maxStep: 1 } }));
   await panel(page).getByRole('button', { name: 'delete region top', exact: true }).click();
-  await expect.poll(async () => { const c = await blockLayerOf(); return [c.cutaway, c.kits]; }).toEqual([undefined, [{ kit: 'burnt' }]]);
+  await expect.poll(async () => { const c = await blockLayerOf(); return [c.cutaway, c.kits, c.walk]; }).toEqual([undefined, [{ kit: 'burnt' }], { maxStep: 1 }]);
+  await cmd('setComponent', { entityId: layer, component: 'blockLayer', value: { walk: null } });
   // The authored looks again.
   await layerKit.selectOption('');
   await expect.poll(async () => (await blockLayerOf()).kits).toBeUndefined();

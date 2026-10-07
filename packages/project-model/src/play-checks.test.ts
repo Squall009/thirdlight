@@ -41,7 +41,7 @@ describe('play checks', () => {
     expect(codes([scene('a', [shot('c1'), kept('p0'), under])], ['a'])).toEqual([]);
   });
 
-  it('a block layer whose cut-aways or kits name a region it does not have, or a kit no block type has, is a warning', () => {
+  it('a block layer whose cut-aways, kits or walk name a region it does not have, or a kit no block type has, is a warning', () => {
     const layer = (blockLayer: Record<string, unknown>) => ({ id: 'ground', components: { transform: T, blockLayer: { cellSize: [1, 1, 1], bounds: { min: [0, 0, 0], max: [8, 8, 8] }, ...blockLayer } } });
     const withRegions = (s: SceneV4, ids: string[]): SceneV4 => ({ ...s, blocks: [{ entityId: 'ground', regions: ids.map((regionId) => ({ regionId, boxes: [[0, 0, 0, 1, 1, 1]] })) }] } as unknown as SceneV4);
     const content = { blockTypes: [{ blockId: 'stone', name: 'Stone', variants: [{ color: '#808080' }], shape: 'full', kits: { burnt: { block: 'stone' } } }] };
@@ -53,5 +53,8 @@ describe('play checks', () => {
     expect(checks.map((c) => [c.code, c.refuse])).toEqual([['block_names_missing', false], ['block_names_missing', false]]);
     expect(checks[0]!.message).toMatch(/names a region it does not have: "room"/);
     expect(checks[1]!.message).toMatch(/kit no block type has: "winter"/);
+    // A walk that starts in a region the layer does not have.
+    const walk = withRegions(scene('a', [shot('c1'), layer({ walk: { from: 'spawn' } })]), ['roof']);
+    expect(playChecks(content, [walk], ['a']).map((c) => c.message)).toEqual([expect.stringMatching(/names a region it does not have: "spawn".*walk check/)]);
   });
 });

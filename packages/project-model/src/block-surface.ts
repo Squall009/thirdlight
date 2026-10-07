@@ -173,6 +173,30 @@ export interface SurfaceHit {
 }
 
 /**
+ * The top of the block stored at `anchor` (a cell holding a block) over a
+ * layer-local point (x, z in metres): the block's top row and its top's
+ * sample there (height above the block's base); null when the block has no
+ * surface there (an unknown type, shape `none`, a custom shape with no box
+ * over the point). A connected piece is sampled turned the way its
+ * neighbours resolve it.
+ */
+export function anchoredTopAt(g: SurfaceGrid, types: ReadonlyMap<string, BlockType>, anchor: readonly [number, number, number], cell: BlockCell, lx: number, lz: number): { top: number; sample: BlockTopSample } | null {
+  const t = cell.block !== undefined ? types.get(cell.block) : undefined;
+  if (t === undefined) return null;
+  const cs = g.cellSize;
+  // A connected piece stands turned the way its neighbours resolve it.
+  if (t.connect !== undefined && cell.variant === undefined) {
+    const rot = resolveCellLook(g, t, cell, anchor[0], anchor[1], anchor[2], 0).rot;
+    if (rot !== (cell.rot ?? 0)) cell = { ...cell, rot: rot as BlockCell['rot'] };
+  }
+  const f = rotatedFootprint(t, cell.rot);
+  const ox = (anchor[0] + f[0] / 2) * cs[0]!;
+  const oz = (anchor[2] + f[2] / 2) * cs[2]!;
+  const sample = blockTopAt(t, cell, cs, lx - ox, lz - oz);
+  return sample === null ? null : { top: anchor[1] + f[1] - 1, sample };
+}
+
+/**
  * The top of the blocks at or below a layer-local point, straight down (a
  * point inside the blocks gives the top of the blocks around it); null when
  * the column holds no block with a surface there. `anchorOf` names the anchor
@@ -197,18 +221,8 @@ export function surfaceBelow(g: SurfaceGrid, types: ReadonlyMap<string, BlockTyp
       anchor = a;
       if (cell?.block === undefined) return null;
     }
-    const t = types.get(cell.block!);
-    if (t === undefined) return null;
-    // A connected piece stands turned the way its neighbours resolve it.
-    if (t.connect !== undefined && cell.variant === undefined) {
-      const rot = resolveCellLook(g, t, cell, anchor[0], anchor[1], anchor[2], 0).rot;
-      if (rot !== (cell.rot ?? 0)) cell = { ...cell, rot: rot as BlockCell['rot'] };
-    }
-    const f = rotatedFootprint(t, cell.rot);
-    const ox = (anchor[0] + f[0] / 2) * cs[0]!;
-    const oz = (anchor[2] + f[2] / 2) * cs[2]!;
-    const sample = blockTopAt(t, cell, cs, lx - ox, lz - oz);
-    return sample === null ? null : { anchor, top: anchor[1] + f[1] - 1, sample };
+    const hit = anchoredTopAt(g, types, anchor, cell, lx, lz);
+    return hit === null ? null : { anchor, ...hit };
   };
   for (let y = start; y >= g.min[1]!; y--) {
     let hit = blockAt(y);

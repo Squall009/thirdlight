@@ -87,3 +87,5 @@ export type { ResourceCheckReport } from './resource-check';
 // The ids scripts name in string literals (the delete guard, the loadability Problem, the upgrade).
 export { literalsIn, scriptNamedAssets, scriptsNaming } from './script-names';
 export { SCRIPT_NAMED_LABEL } from './upgrade-loadable';
+// A block layer's level checks (the backend's Problems after block edits).
+export { layerLevelChecks, type BlockCheckContent, type BlockLayerCheck } from './block-checks';

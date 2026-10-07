@@ -317,3 +317,8 @@ export function canonicalSettings(s: SettingsMap): SettingsMap {
   }
   return out;
 }
+/** The project's steepest walkable slope in degrees (`max_slope_climb_deg`; absent: its default). */
+export function maxSlopeClimbOf(settings: unknown): number {
+  const v = typeof settings === 'object' && settings !== null ? (settings as Record<string, unknown>)['max_slope_climb_deg'] : undefined;
+  return typeof v === 'number' && Number.isFinite(v) ? v : (SETTINGS_BY_KEY.get('max_slope_climb_deg')!.default as number);
+}

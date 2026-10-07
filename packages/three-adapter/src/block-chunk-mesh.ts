@@ -9,7 +9,8 @@
  * for one, the looks its parts draw, and the models it needed but did not
  * have (still loading, or never sent to this worker): the page loads them and
  * meshes the chunk again. A painted layer's parts carry their paint colours
- * (`chunkMeshPaint`), made here so the workers make them too.
+ * (`chunkMeshPaint`), and a layer with corner shading its per-vertex
+ * occlusion (`chunkMeshAO`), made here so the workers make them too.
  */
 import {
   blockTopOptions,
@@ -17,6 +18,7 @@ import {
   cutawayZones,
   blockVariantUv,
   chunkLightmapLayout,
+  chunkMeshAO,
   chunkMeshPaint,
   meshBlockChunk,
   shapeSource,
@@ -167,6 +169,15 @@ export function meshChunkForDrawing(grid: BlockGridReader, component: BlockLayer
     parts.forEach(paint);
     for (const c of coarse) c.parts.forEach(paint);
   }
+  // Corner shading (the layer's vertexAO): a factor of the indirect light per vertex, read by the renderer's lighting.
+  const ao = component.vertexAO ?? 0;
+  if (ao > 0) {
+    const shade = (p: ChunkMeshPart): void => {
+      p.ao = chunkMeshAO(grid, types, p, ao);
+    };
+    parts.forEach(shade);
+    for (const c of coarse) c.parts.forEach(shade);
+  }
   return { parts, coarse, lightmap, looks: [...used.values()].map(({ key, blockId, model, color }) => ({ key, blockId, model, color })), missing: [...missing.values()] };
 }
 
@@ -174,7 +185,7 @@ export function meshChunkForDrawing(grid: BlockGridReader, component: BlockLayer
 export function chunkResultBuffers(result: ChunkMeshResult): ArrayBuffer[] {
   const out = new Set<ArrayBuffer>();
   const add = (p: ChunkMeshPart): void => {
-    for (const a of [p.positions, p.normals, p.uvs, p.tangents, p.indices, p.uv1, p.weights, p.wetness]) if (a !== undefined) out.add(a.buffer as ArrayBuffer);
+    for (const a of [p.positions, p.normals, p.uvs, p.tangents, p.indices, p.uv1, p.weights, p.wetness, p.ao]) if (a !== undefined) out.add(a.buffer as ArrayBuffer);
   };
   for (const p of result.parts) add(p);
   for (const c of result.coarse) for (const p of c.parts) add(p);
