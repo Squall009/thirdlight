@@ -40,6 +40,7 @@ interface ModelRecordLike {
   assetId: string;
   kind?: string;
   currentVersion: number;
+  extractTextures?: true;
   textures?: Record<string, string>;
   versions: { version: number; sourceDigest: string; sourcePath?: string; convertedFrom?: { format?: string; sourceDigest: string; sourcePath?: string }; metrics?: { images?: number } }[];
 }
@@ -56,6 +57,8 @@ export function heldImageModels(content: unknown): HeldImagesRow[] {
     if (v === undefined || held <= 0) continue;
     const c = v.convertedFrom;
     if (c === undefined && v.sourcePath !== undefined && /\.glb$/i.test(v.sourcePath)) rows.push({ assetId: a.assetId, held, file: v.sourcePath, digest: v.sourceDigest });
+    // Converted only for its generated levels: its images were never taken out, and can be (its levels are made again).
+    else if (c?.format === 'glb' && a.extractTextures !== true && c.sourcePath !== undefined) rows.push({ assetId: a.assetId, held, file: c.sourcePath, digest: c.sourceDigest });
     else if (c?.format === 'glb') rows.push({ assetId: a.assetId, held, digest: c.sourceDigest, reason: 'some of its images could not be extracted (its import report says why)' });
     else if (c !== undefined) rows.push({ assetId: a.assetId, held, digest: c.sourceDigest, reason: `converted from ${String(c.format).toUpperCase()}: its images stay in the converted file` });
     else rows.push({ assetId: a.assetId, held, digest: v.sourceDigest, reason: 'its file is not in the game folder: import it again from a file' });

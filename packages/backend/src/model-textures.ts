@@ -35,10 +35,11 @@ import { createHash, randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 
 import { DEFAULT_ASSET_FOLDER, assetNameOfFile, fileStem, importKeyOfConverted, type PreparedImportFile, type StageInspector, type WorkspaceService } from '@thirdlight/workspace';
-import { imageDimensions, type ImportJobPort } from '@thirdlight/asset-pipeline';
-import { extractTexturesEverywhere } from '@thirdlight/project-model/limits';
+import { imageDimensions, loadMeshSimplifier, type ImportJobPort } from '@thirdlight/asset-pipeline';
+import { MESH_LOD_RATIOS_DEFAULT, extractTexturesEverywhere } from '@thirdlight/project-model/limits';
 
 import { readGlbImages, stripGlbImages, type GlbImage } from './glb-images';
+import { generateGlbLods, type GlbLodReport } from './glb-lods';
 import { KTX2_ENCODER, type Ktx2Mode, type TextureEncoder } from './texture-encode';
 
 /**
@@ -71,6 +72,8 @@ export interface TextureExtractionReport {
   images: ExtractedImage[];
   /** Texture assets this import created. */
   created: string[];
+  /** The levels of detail generated (the "generate LODs" setting), or why none were. */
+  lods?: GlbLodReport | { error: string };
 }
 
 /** The facts the model's publish records. */
@@ -79,7 +82,7 @@ export interface ExtractedModelFacts {
   sourceByteLength: number;
   importRecipe: unknown;
   metrics: unknown;
-  convertedFrom: { format: 'glb'; sourceDigest: string; sourceByteLength: number; sourcePath?: string; converter: { name: string; version: string } };
+  convertedFrom: { format: 'glb'; sourceDigest: string; sourceByteLength: number; sourcePath?: string; converter: { name: string; version: string }; lods?: number[] };
 }
 
 export interface ExtractionPlan {
@@ -140,7 +143,7 @@ interface TextureRecordLike {
   assetId: string;
   kind?: string;
   currentVersion: number;
-  versions: { version: number; sourceDigest: string; sourcePath?: string; convertedFrom?: { format?: string; sourceDigest: string; sourcePath?: string; encoding?: string } }[];
+  versions: { version: number; sourceDigest: string; sourcePath?: string; convertedFrom?: { format?: string; sourceDigest: string; sourcePath?: string; encoding?: string; lods?: number[] } }[];
 }
 
 /** Every texture asset by the bytes of its file and how it was encoded (`<digest>|<encoding or "plain">`), with its file. */
@@ -221,14 +224,68 @@ export function createTextureExtraction(deps: TextureExtractionDeps) {
    */
   async function plan(
     projectId: string,
-    input: { glb: Uint8Array; original: { sourceDigest: string; sourceByteLength: number; sourcePath?: string }; folder: string; stem: string },
+    input: {
+      glb: Uint8Array;
+      original: { sourceDigest: string; sourceByteLength: number; sourcePath?: string };
+      folder: string;
+      stem: string;
+      /** Take the images out (absent: yes). */
+      extract?: boolean;
+      /** Generate levels of detail at these triangle shares (absent or null: none). */
+      lods?: readonly number[] | null;
+    },
   ): Promise<{ ok: true; plan: ExtractionPlan } | { ok: false; code: string; message: string }> {
     const read = readGlbImages(input.glb);
     if (!read.ok) return { ok: false, code: 'import_rejected', message: `the model's images could not be read: ${read.message}` };
     const folder = `${input.folder}/${input.stem}_textures`;
     const report: TextureExtractionReport = { images: [], created: [] };
     const empty: ExtractionPlan = { model: null, folder, files: [], imagePaths: {}, written: [], report };
-    if (read.images.length === 0) return { ok: true, plan: empty };
+    const lods = input.lods ?? null;
+    /**
+     * The model file converted: the extracted images taken out, then the levels generated; stored in the import
+     * cache and inspected. Null model: nothing to convert (the file is published as it is).
+     */
+    const convert = async (extracted: ReadonlySet<number>, made: Omit<ExtractionPlan, 'model' | 'report' | 'folder'>, abandon: (message: string) => { ok: true; plan: ExtractionPlan }): Promise<{ ok: true; plan: ExtractionPlan }> => {
+      const stripped = extracted.size > 0 ? stripGlbImages(input.glb, read.images, extracted) : input.glb;
+      if (stripped === null) return abandon('the file\'s binary layout shares an image\'s bytes with other data: the images stay inside');
+      // With levels first; a model the importer refuses with them (over its triangle limit) comes in without.
+      const tries: { bytes: Uint8Array; lods: readonly number[] | null }[] = [];
+      if (lods !== null) {
+        const generated = generateGlbLods(stripped, await loadMeshSimplifier(), lods);
+        report.lods = generated.report;
+        if (generated.glb !== null) tries.push({ bytes: generated.glb, lods });
+      }
+      if (extracted.size > 0) tries.push({ bytes: stripped, lods: null });
+      for (const t of tries) {
+        const convertedFrom: ExtractedModelFacts['convertedFrom'] = {
+          format: 'glb',
+          sourceDigest: input.original.sourceDigest,
+          sourceByteLength: input.original.sourceByteLength,
+          ...(input.original.sourcePath !== undefined ? { sourcePath: input.original.sourcePath } : {}),
+          converter: { name: TEXTURE_EXTRACT.name, version: TEXTURE_EXTRACT.version },
+          ...(t.lods !== null ? { lods: [...t.lods] } : {}),
+        };
+        const facts = inspect(t.bytes, 'model');
+        if (!('sourceDigest' in facts)) {
+          if (t.lods !== null) {
+            report.lods = { error: `the model with its generated levels was not accepted: ${facts.message}` };
+            continue;
+          }
+          return abandon(`the model without its images was not accepted: ${facts.message}`);
+        }
+        const stored = service.writeImportedArtifact(projectId, importKeyOfConverted(convertedFrom), t.bytes);
+        if (!stored.ok) return abandon(`the converted model could not be stored: ${stored.error.message ?? stored.error.code}`);
+        return { ok: true, plan: { model: { ...facts, convertedFrom }, folder, ...made, report } };
+      }
+      return { ok: true, plan: { ...empty, report } };
+    };
+    if (input.extract === false || read.images.length === 0) {
+      if (lods === null) return { ok: true, plan: empty };
+      return convert(new Set(), { files: [], imagePaths: {}, written: [] }, (message) => {
+        report.lods = { error: message };
+        return { ok: true, plan: { ...empty, report } };
+      });
+    }
     const captured = service.readCapturedV3(projectId);
     if (!captured.ok) return { ok: false, code: captured.error.code, message: captured.error.message ?? captured.error.code };
     const assets = ((captured.read as unknown as { content?: { assets?: TextureRecordLike[] } }).content?.assets ?? []) as TextureRecordLike[];
@@ -320,21 +377,7 @@ export function createTextureExtraction(deps: TextureExtractionDeps) {
       }
       return { ok: true, plan: empty };
     };
-    if (extracted.size === 0) return { ok: true, plan: { ...empty, report } };
-    const stripped = stripGlbImages(input.glb, read.images, extracted);
-    if (stripped === null) return abandon('the file\'s binary layout shares an image\'s bytes with other data: the images stay inside');
-    const convertedFrom: ExtractedModelFacts['convertedFrom'] = {
-      format: 'glb',
-      sourceDigest: input.original.sourceDigest,
-      sourceByteLength: input.original.sourceByteLength,
-      ...(input.original.sourcePath !== undefined ? { sourcePath: input.original.sourcePath } : {}),
-      converter: { name: TEXTURE_EXTRACT.name, version: TEXTURE_EXTRACT.version },
-    };
-    const stored = service.writeImportedArtifact(projectId, importKeyOfConverted(convertedFrom), stripped);
-    if (!stored.ok) return abandon(`the model without its images could not be stored: ${stored.error.message ?? stored.error.code}`);
-    const facts = inspect(stripped, 'model');
-    if (!('sourceDigest' in facts)) return abandon(`the model without its images was not accepted: ${facts.message}`);
-    return { ok: true, plan: { model: { ...facts, convertedFrom }, folder, files, imagePaths, written, report } };
+    return convert(extracted, { files, imagePaths, written }, abandon);
   }
 
   /**
@@ -400,12 +443,19 @@ export function createTextureExtraction(deps: TextureExtractionDeps) {
     const create = args['mode'] === 'create';
     const isModel = create ? (args['kind'] ?? 'model') === 'model' && record === undefined : record?.kind === 'model';
     if (!isModel) return null;
+    const current = record?.versions.find((v) => v.version === record.currentVersion);
     // An older model keeps its images on a re-import unless the project extracts every model's.
     const on = typeof args['extractTextures'] === 'boolean' ? args['extractTextures'] : create ? EXTRACT_TEXTURES_ON_NEW_IMPORT : record?.extractTextures === true || extractTexturesEverywhere(content?.settings);
-    if (!on) return null;
-    // A model converted from another format (an FBX) keeps its images: its stored GLB is the converter's.
+    // Generated levels: as the args say (at the engine's shares), else a re-import makes them again at the shares its
+    // current version has them; a new model has none unless asked (an absent setting keeps the model as authored).
+    const asked = args['generateLods'];
+    const lods = typeof asked === 'boolean' ? (asked ? MESH_LOD_RATIOS_DEFAULT : null) : create ? null : (current?.convertedFrom?.lods ?? null);
+    // The command layer never sees the setting: what it asks for is in the facts sent on.
+    const { generateLods: _lods, ...sent } = args;
+    if (!on && lods === null) return asked === undefined ? null : { ok: true, plan: null, args: sent };
+    // A model converted from another format (an FBX) keeps its images and gets no levels: its stored GLB is the converter's.
     if (args['convertedFrom'] !== undefined) {
-      const { extractTextures: _setting, ...rest } = args;
+      const { extractTextures: _setting, ...rest } = sent;
       return { ok: true, plan: null, args: rest };
     }
     const sourcePath = typeof args['sourcePath'] === 'string' ? args['sourcePath'] : undefined;
@@ -415,20 +465,20 @@ export function createTextureExtraction(deps: TextureExtractionDeps) {
     const glb = sourcePath !== undefined ? readModelFile(projectId, sourcePath, digest) : service.readHeldBytes(projectId, digest);
     // Bytes that are not there are the command's to refuse.
     if (glb === null) return null;
-    const current = record?.versions.find((v) => v.version === record.currentVersion);
     const existingFile = current?.convertedFrom?.sourcePath ?? current?.sourcePath;
     const dirOf = (p: string): string => p.slice(0, Math.max(0, p.lastIndexOf('/')));
     const folder = sourcePath !== undefined ? dirOf(sourcePath) : typeof args['folder'] === 'string' ? args['folder'] : existingFile !== undefined ? dirOf(existingFile) : DEFAULT_ASSET_FOLDER;
     const name = sourcePath !== undefined ? sourcePath.slice(sourcePath.lastIndexOf('/') + 1).replace(/\.[^.]+$/, '') : typeof args['displayName'] === 'string' ? args['displayName'] : (record?.displayName ?? assetId);
-    const planned = await plan(projectId, { glb, original: { sourceDigest: digest, sourceByteLength: length, ...(sourcePath !== undefined ? { sourcePath } : {}) }, folder: folder === '' ? DEFAULT_ASSET_FOLDER : folder, stem: fileStem(name, assetId) });
+    const planned = await plan(projectId, { glb, original: { sourceDigest: digest, sourceByteLength: length, ...(sourcePath !== undefined ? { sourcePath } : {}) }, folder: folder === '' ? DEFAULT_ASSET_FOLDER : folder, stem: fileStem(name, assetId), extract: on, lods });
     if (!planned.ok) return planned;
     const p = planned.plan;
-    if (p.model === null) return { ok: true, plan: p, args: { ...args, extractTextures: true } };
-    const { sourcePath: _path, ...rest } = args;
+    const setting = on ? { extractTextures: true } : {};
+    if (p.model === null) return { ok: true, plan: p, args: { ...sent, ...setting } };
+    const { sourcePath: _path, ...rest } = sent;
     return {
       ok: true,
       plan: p,
-      args: { ...rest, sourceDigest: p.model.sourceDigest, sourceByteLength: p.model.sourceByteLength, importRecipe: p.model.importRecipe, metrics: p.model.metrics, convertedFrom: p.model.convertedFrom, extractTextures: true },
+      args: { ...rest, sourceDigest: p.model.sourceDigest, sourceByteLength: p.model.sourceByteLength, importRecipe: p.model.importRecipe, metrics: p.model.metrics, convertedFrom: p.model.convertedFrom, ...setting },
     };
   }
 
@@ -464,7 +514,7 @@ export function createTextureExtraction(deps: TextureExtractionDeps) {
       return r;
     });
     if (!committed.ok) return committed;
-    service.preparePublish(projectId, requestId, { args: { ...prep.args, textures: committed.textures }, expectedRevision: expected });
+    service.preparePublish(projectId, requestId, { args: { ...prep.args, ...(Object.keys(committed.textures).length > 0 ? { textures: committed.textures } : {}) }, expectedRevision: expected });
     return { ok: true, report: p.report };
   }
 

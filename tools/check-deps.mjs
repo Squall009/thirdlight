@@ -73,6 +73,9 @@ export const PINS = {
   // libwebp's decoder (WASM) for WebP sources: a WebP texture or a model's
   // WebP image is encoded to KTX2 like a PNG.
   '@jsquash/webp': '1.5.0',
+  // Generated levels of detail: meshoptimizer's simplifier (its bundled WASM
+  // build), for models without authored levels and meshes the engine makes.
+  meshoptimizer: '1.1.1',
   // `npm run lint` (root dev only): ESLint's flat config, typescript-eslint for
   // the typed rules, and the React hooks rules for the editor.
   eslint: '10.11.0',
@@ -111,6 +114,7 @@ const PIN_CONSUMERS = {
   'ktx2-encoder': 'backend (phase 25.19: KTX2 encoding on import, in a worker thread; never in a browser bundle; decision 0006)',
   'jpeg-js': 'backend (phase 25.19: decodes JPEG sources for KTX2 encoding; decision 0006)',
   '@jsquash/webp': 'backend (decodes WebP sources for KTX2 encoding, in the encoder worker; never in a browser bundle; decision 0006)',
+  meshoptimizer: 'asset-pipeline (the mesh simplifier: generated levels of detail at import; loaded on first use)',
   eslint: 'workspace lint (root dev; never in a bundle)',
   'typescript-eslint': 'workspace lint (root dev; never in a bundle)',
   'eslint-plugin-react-hooks': 'workspace lint (root dev; never in a bundle)',

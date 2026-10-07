@@ -33,7 +33,7 @@ export interface GlbImage {
   readonly roles: ReadonlySet<GlbImageRole>;
 }
 
-interface GlbParts {
+export interface GlbParts {
   readonly json: Record<string, unknown>;
   readonly bin: Uint8Array | null;
 }
@@ -42,7 +42,7 @@ const GLB_MAGIC = 0x46546c67;
 const CHUNK_JSON = 0x4e4f534a;
 const CHUNK_BIN = 0x004e4942;
 
-function readGlb(glb: Uint8Array): GlbParts | string {
+export function readGlb(glb: Uint8Array): GlbParts | string {
   if (glb.byteLength < 20) return 'the file is shorter than a GLB header';
   const view = new DataView(glb.buffer, glb.byteOffset, glb.byteLength);
   if (view.getUint32(0, true) !== GLB_MAGIC || view.getUint32(4, true) !== 2) return 'not a GLB (version 2)';
@@ -258,7 +258,7 @@ export function stripGlbImages(glb: Uint8Array, images: readonly GlbImage[], ext
   return writeGlb(json, newBin);
 }
 
-function writeGlb(json: Record<string, unknown>, bin: Uint8Array): Uint8Array {
+export function writeGlb(json: Record<string, unknown>, bin: Uint8Array): Uint8Array {
   const text = new TextEncoder().encode(JSON.stringify(json));
   const jsonLength = align4(text.length);
   const total = 12 + 8 + jsonLength + (bin.length > 0 ? 8 + bin.length : 0);

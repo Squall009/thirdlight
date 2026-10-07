@@ -184,7 +184,7 @@ export interface AssetFileEntry {
   /** The digest of the bytes on disk, when they changed. */
   foundDigest?: string;
   /** A converted asset: its conversion and whether the import cache holds the result. */
-  converted?: { format: string; encoding?: string; converter: { name: string; version: string }; imported: 'ok' | 'missing' };
+  converted?: { format: string; encoding?: string; lods?: number[]; converter: { name: string; version: string }; imported: 'ok' | 'missing' };
   /** A packed texture (its file is the packed KTX2; its sources are other assets). */
   packed?: true;
   /** A model a legacy `modelAnimation` binding names (a re-import needs its role mapping). */
@@ -283,6 +283,7 @@ export function contentOps(core: Core) {
         entry.converted = {
           format: c.format,
           ...(c.encoding !== undefined ? { encoding: c.encoding } : {}),
+          ...(c.lods !== undefined ? { lods: [...c.lods] } : {}),
           converter: { name: c.converter.name, version: c.converter.version },
           imported: hasImported(ctx, importKeyOfConverted(c), v.sourceDigest, v.sourceByteLength) ? 'ok' : 'missing',
         };

@@ -300,15 +300,21 @@ export type ConvertedFrom =
     }
   | {
       /**
-       * A GLB whose images were extracted into texture assets at import (the
-       * model's `textures` names them): the stored GLB is the file with each
-       * image replaced by a one-pixel stand-in.
+       * A GLB converted at import: its images extracted into texture assets
+       * (the model's `textures` names them; the stored GLB has a one-pixel
+       * stand-in for each), and/or levels of detail generated (`lods`).
        */
       format: 'glb';
       sourceDigest: string;
       sourceByteLength: number;
       sourcePath?: string;
       converter: { name: 'texture-extract'; version: string };
+      /**
+       * The triangle shares levels 1… were generated at by the mesh
+       * simplifier (the "generate LODs" import setting; absent: none were). A
+       * re-import of the file generates them again.
+       */
+      lods?: number[];
     }
   | {
       /** A PNG, JPEG or WebP texture encoded to KTX2 at import. */

@@ -20,12 +20,13 @@
 import { randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 
-import { AUDIO_TOOLCHAIN, FONT_TOOLCHAIN, IMAGE_TOOLCHAIN, M2_GLTF_TOOLCHAIN, type ImportJobPort } from '@thirdlight/asset-pipeline';
+import { AUDIO_TOOLCHAIN, FONT_TOOLCHAIN, IMAGE_TOOLCHAIN, M2_GLTF_TOOLCHAIN, loadMeshSimplifier, type ImportJobPort } from '@thirdlight/asset-pipeline';
 import { extractTexturesEverywhere } from '@thirdlight/project-model/limits';
 import { DEFAULT_ASSET_FOLDER, importKeyOfConverted, type AssetFileEntry, type ImportHeader, type MutationSuccess, type ResourceCheckReport, type StageInspector, type WorkspaceService } from '@thirdlight/workspace';
 
 import type { FbxConverter } from './fbx';
 import { readGlbImages, stripGlbImages } from './glb-images';
+import { generateGlbLods } from './glb-lods';
 import type { TextureExtraction } from './model-textures';
 import { KTX2_ENCODER, type Ktx2Mode, type TextureEncoder } from './texture-encode';
 
@@ -229,8 +230,10 @@ export function createAssetFileCheck(deps: AssetFileCheckDeps) {
    */
   const reextract = async (projectId: string, e: AssetFileEntry, file: string): Promise<{ args: Record<string, unknown>; newDigest: string } | { code: string; message: string } | null> => {
     if (deps.textures === undefined || e.kind !== 'model' || (e.converted !== undefined && e.converted.format !== 'glb')) return null;
-    if (e.extract === undefined && !(e.converted === undefined && /\.glb$/i.test(file) && extractsEveryModel(projectId))) return null;
-    return await extractFromFile(projectId, file);
+    const lods = e.converted?.lods ?? null;
+    const extract = e.extract !== undefined || (e.converted === undefined && /\.glb$/i.test(file) && extractsEveryModel(projectId));
+    if (!extract && lods === null) return null;
+    return await extractFromFile(projectId, file, { extract, lods });
   };
 
   /** Whether the project's setting extracts every model's images, older imports included. */
@@ -239,8 +242,8 @@ export function createAssetFileCheck(deps: AssetFileCheckDeps) {
     return captured.ok && extractTexturesEverywhere((captured.read.content as { settings?: unknown } | null)?.settings);
   };
 
-  /** Extract a GLB file's images: the publish args of its model with them taken out. */
-  const extractFromFile = async (projectId: string, file: string): Promise<{ args: Record<string, unknown>; newDigest: string } | { code: string; message: string }> => {
+  /** Convert a GLB file (its images extracted, its levels generated): the publish args of its model. */
+  const extractFromFile = async (projectId: string, file: string, settings: { extract: boolean; lods: readonly number[] | null }): Promise<{ args: Record<string, unknown>; newDigest: string } | { code: string; message: string }> => {
     const textures = deps.textures;
     if (textures === undefined) return { code: 'converter_unavailable', message: 'texture extraction is not available here' };
     const src = service.conversionSource(projectId, file);
@@ -249,12 +252,13 @@ export function createAssetFileCheck(deps: AssetFileCheckDeps) {
     if (glb === null) return { code: 'asset_source_changed', message: `${file} changed while it was read; the next check imports it` };
     const slash = file.lastIndexOf('/');
     const stem = file.slice(slash + 1).replace(/\.[^.]+$/, '');
-    const planned = await textures.plan(projectId, { glb, original: { sourceDigest: src.digest, sourceByteLength: src.byteLength, sourcePath: file }, folder: slash > 0 ? file.slice(0, slash) : DEFAULT_ASSET_FOLDER, stem });
+    const planned = await textures.plan(projectId, { glb, original: { sourceDigest: src.digest, sourceByteLength: src.byteLength, sourcePath: file }, folder: slash > 0 ? file.slice(0, slash) : DEFAULT_ASSET_FOLDER, stem, ...settings });
     if (!planned.ok) return planned;
     const p = planned.plan;
+    const setting = settings.extract ? { extractTextures: true } : {};
     if (p.model === null) {
       const f = inspectFile(projectId, file, 'model', src.digest);
-      return 'code' in f ? f : { args: { sourcePath: file, ...factsArgs(f), extractTextures: true }, newDigest: f.sourceDigest };
+      return 'code' in f ? f : { args: { sourcePath: file, ...factsArgs(f), ...setting }, newDigest: f.sourceDigest };
     }
     const committed = textures.commit(projectId, p, (op, a) => {
       const r = command(projectId, op, a);
@@ -262,7 +266,8 @@ export function createAssetFileCheck(deps: AssetFileCheckDeps) {
     });
     if (!committed.ok) return committed;
     const m = p.model;
-    return { args: { convertedFrom: m.convertedFrom, sourceDigest: m.sourceDigest, sourceByteLength: m.sourceByteLength, importRecipe: m.importRecipe, metrics: m.metrics, textures: committed.textures, extractTextures: true }, newDigest: src.digest };
+    const images = Object.keys(committed.textures).length > 0 ? { textures: committed.textures } : {};
+    return { args: { convertedFrom: m.convertedFrom, sourceDigest: m.sourceDigest, sourceByteLength: m.sourceByteLength, importRecipe: m.importRecipe, metrics: m.metrics, ...images, ...setting }, newDigest: src.digest };
   };
 
   /**
@@ -272,8 +277,15 @@ export function createAssetFileCheck(deps: AssetFileCheckDeps) {
    */
   async function extractModels(projectId: string, models: readonly { assetId: string; file: string }[]): Promise<{ extracted: string[]; failed: { assetId: string; message: string }[] }> {
     const out: { extracted: string[]; failed: { assetId: string; message: string }[] } = { extracted: [], failed: [] };
+    // A model with generated levels keeps them (made again at its shares).
+    const captured = service.readCapturedV3(projectId);
+    const assets = captured.ok ? ((captured.read.content as { assets?: { assetId: string; currentVersion: number; versions: { version: number; convertedFrom?: { lods?: number[] } }[] }[] } | null)?.assets ?? []) : [];
+    const lodsOf = (assetId: string): number[] | null => {
+      const a = assets.find((x) => x.assetId === assetId);
+      return a?.versions.find((v) => v.version === a.currentVersion)?.convertedFrom?.lods ?? null;
+    };
     for (const m of models) {
-      const made = await extractFromFile(projectId, m.file);
+      const made = await extractFromFile(projectId, m.file, { extract: true, lods: lodsOf(m.assetId) });
       if ('code' in made) {
         out.failed.push({ assetId: m.assetId, message: made.message });
         continue;
@@ -285,17 +297,24 @@ export function createAssetFileCheck(deps: AssetFileCheckDeps) {
     return out;
   }
 
-  /** The model file without its extracted images again (the cache lost it; the file is unchanged). */
-  const restrip = (projectId: string, e: AssetFileEntry): { convertedFrom: Record<string, unknown>; facts: Facts } | { code: string; message: string } => {
+  /** The model file converted again: without its extracted images, with its generated levels (the cache lost it; the file is unchanged). */
+  const restrip = async (projectId: string, e: AssetFileEntry): Promise<{ convertedFrom: Record<string, unknown>; facts: Facts } | { code: string; message: string }> => {
     const file = e.file!;
     const src = service.conversionSource(projectId, file);
     if (!src.ok) return { code: src.error.code, message: src.error.message ?? src.error.code };
     const glb = new Uint8Array(readFileSync(src.real));
     const read = readGlbImages(glb);
     if (!read.ok) return { code: 'conversion_failed', message: read.message };
-    const stripped = stripGlbImages(glb, read.images, new Set(Object.keys(e.extract?.textures ?? {}).map(Number)));
+    const extracted = new Set(Object.keys(e.extract?.textures ?? {}).map(Number));
+    let stripped = extracted.size > 0 ? stripGlbImages(glb, read.images, extracted) : glb;
     if (stripped === null) return { code: 'conversion_failed', message: `${file}: its images could not be taken out again` };
-    const convertedFrom = { format: 'glb', sourceDigest: src.digest, sourceByteLength: src.byteLength, sourcePath: file, converter: { ...e.converted!.converter } };
+    const lods = e.converted!.lods;
+    if (lods !== undefined) {
+      const made = generateGlbLods(stripped, await loadMeshSimplifier(), lods);
+      if (made.glb === null) return { code: 'conversion_failed', message: `${file}: its levels of detail could not be made again${'error' in made.report ? ` (${made.report.error})` : ''}` };
+      stripped = made.glb;
+    }
+    const convertedFrom = { format: 'glb', sourceDigest: src.digest, sourceByteLength: src.byteLength, sourcePath: file, converter: { ...e.converted!.converter }, ...(lods !== undefined ? { lods: [...lods] } : {}) };
     const stored = service.writeImportedArtifact(projectId, importKeyOfConverted(convertedFrom), stripped);
     if (!stored.ok) return { code: stored.error.code, message: stored.error.message ?? stored.error.code };
     const facts = inspectBytes(stripped, 'model');
@@ -333,7 +352,7 @@ export function createAssetFileCheck(deps: AssetFileCheckDeps) {
 
   /** Make a converted asset's cached data again; bytes that differ from the recorded ones are a re-import. */
   const rebuild = async (projectId: string, e: AssetFileEntry, report: AssetFileCheckReport): Promise<void> => {
-    const c = e.converted!.format === 'glb' ? restrip(projectId, e) : await convertFile(projectId, e.file!, e.converted!, e.kind as Kind);
+    const c = e.converted!.format === 'glb' ? await restrip(projectId, e) : await convertFile(projectId, e.file!, e.converted!, e.kind as Kind);
     if ('code' in c) {
       report.failed.push({ assetId: e.assetId, file: e.file, code: c.code, message: `the imported data could not be made again: ${c.message}` });
       return;

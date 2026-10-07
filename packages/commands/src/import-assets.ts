@@ -28,6 +28,8 @@ export interface ImportAssetsArgs {
   ktx2?: 'color' | 'normal' | 'data';
   /** Whether new models' images are extracted into texture assets (absent: yes; read by the host that prepares the files). */
   extractTextures?: boolean;
+  /** Whether new GLB models without authored levels get generated ones (absent: no; read by the host that prepares the files). */
+  generateLods?: boolean;
 }
 
 /** One file's prepared facts: a `publishAsset` create's, plus its labels. */
@@ -53,10 +55,10 @@ export interface ImportAssetsInverse {
   assetIds: string[];
 }
 
-const KNOWN = 'folder, labels (optional), ktx2 (optional), extractTextures (optional)';
+const KNOWN = 'folder, labels (optional), ktx2 (optional), extractTextures (optional), generateLods (optional)';
 
 export function validateImportAssetsArgs(args: Record<string, unknown>): { ok: true; args: ImportAssetsArgs } | { ok: false; error: CommandError } {
-  for (const k of Object.keys(args)) if (k !== 'folder' && k !== 'labels' && k !== 'ktx2' && k !== 'extractTextures') return { ok: false, error: fieldUnexpected(`/args/${k}`, k, KNOWN) };
+  for (const k of Object.keys(args)) if (k !== 'folder' && k !== 'labels' && k !== 'ktx2' && k !== 'extractTextures' && k !== 'generateLods') return { ok: false, error: fieldUnexpected(`/args/${k}`, k, KNOWN) };
   if (args['folder'] === undefined) return { ok: false, error: fieldMissing('/args/folder', 'folder') };
   if (typeof args['folder'] !== 'string') return { ok: false, error: fieldType('/args/folder', args['folder'], 'string (a folder of the game folder)') };
   const out: ImportAssetsArgs = { folder: args['folder'] };
@@ -76,6 +78,10 @@ export function validateImportAssetsArgs(args: Record<string, unknown>): { ok: t
   if (args['extractTextures'] !== undefined) {
     if (typeof args['extractTextures'] !== 'boolean') return { ok: false, error: fieldType('/args/extractTextures', args['extractTextures'], 'boolean') };
     out.extractTextures = args['extractTextures'];
+  }
+  if (args['generateLods'] !== undefined) {
+    if (typeof args['generateLods'] !== 'boolean') return { ok: false, error: fieldType('/args/generateLods', args['generateLods'], 'boolean') };
+    out.generateLods = args['generateLods'];
   }
   return { ok: true, args: out };
 }

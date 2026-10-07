@@ -35,6 +35,12 @@ import { fieldType, fieldValue, isPlainObject, unexpectedField } from './validat
  * had their own.
  */
 export const LOD_SCREEN_SIZES_DEFAULT: readonly number[] = [0.08, 0.03, 0.012, 0.005];
+/**
+ * The triangle shares of the levels 1, 2, 3 the "generate LODs" import
+ * setting makes for a model without authored levels: each half the one
+ * before, as the default screen sizes roughly halve from level to level.
+ */
+export const MESH_LOD_RATIOS_DEFAULT: readonly number[] = [0.5, 0.25, 0.125];
 /** The vertical field of view screen sizes are measured in (degrees). */
 export const LOD_REFERENCE_FOV_DEG = 50;
 /** Most switch points a model's settings may list (levels beyond use the last). */

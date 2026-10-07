@@ -90,3 +90,7 @@ export type {
   ImportRecipe,
   PrepareImportOptions,
 } from './types';
+
+// Generated levels of detail: the mesh simplifier (the backend's import makes a model's levels with it).
+export { MESH_LOD_KEEP_SHARE, MESH_SIMPLIFY_ERROR_DEFAULT, loadMeshSimplifier } from './simplify';
+export type { MeshSimplifier, SimplifiedMesh, SimplifyMeshInput, SimplifyOptions } from './simplify';

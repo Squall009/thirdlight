@@ -31,7 +31,7 @@ import { ID_RE_V2 } from './components';
 import type { AssetRecordV3, AssetVersionV3 } from './types-v3';
 import { AUDIO_PIPELINE_NAME, AUDIO_PIPELINE_VERSION, canonicalAudioMetrics, validateAudioLoadFields, validateAudioMetrics, validateAudioRecipe, type AudioMetrics } from './audio-assets';
 import { validateTextureStreamingField } from './texture-streaming';
-import { canonicalModelLod, validateModelLodField } from './model-lod';
+import { LOD_SCREEN_SIZES_MAX, canonicalModelLod, validateModelLodField } from './model-lod';
 import {
   ASSET_LABEL_RE,
   ADDRESS_RE,
@@ -401,7 +401,13 @@ function validateAssetVersion(v: unknown, path: string, errors: ModelErrorV2[], 
       if (!isPlainObject(c) || c['name'] !== converterName || typeof c['version'] !== 'string' || !/^\d+\.\d+(\.\d+)?$/.test(c['version']) || Object.keys(c).length !== 2) {
         errors.push(fieldValue(`${cpath}/converter`, c, `{ name: "${converterName}", version: "X.Y.Z" }`, `the converter must name ${converterName} and its exact version`));
       }
-      const known = texture ? ['format', 'sourceDigest', 'sourceByteLength', 'sourcePath', 'converter', 'encoding'] : ['format', 'sourceDigest', 'sourceByteLength', 'sourcePath', 'converter'];
+      if (converted['lods'] !== undefined) {
+        const lods = converted['lods'];
+        const shares = Array.isArray(lods) && lods.length >= 1 && lods.length <= LOD_SCREEN_SIZES_MAX && lods.every((r, i) => typeof r === 'number' && r > 0 && r < 1 && (i === 0 || r < (lods[i - 1] as number)));
+        if (converted['format'] !== 'glb') errors.push(unexpectedField(`${cpath}/lods`, 'lods', 'only a GLB gets generated levels'));
+        else if (!shares) errors.push(fieldValue(`${cpath}/lods`, lods, `1-${LOD_SCREEN_SIZES_MAX} decreasing triangle shares in (0, 1)`, 'lods lists the triangle share of each generated level'));
+      }
+      const known = texture ? ['format', 'sourceDigest', 'sourceByteLength', 'sourcePath', 'converter', 'encoding'] : ['format', 'sourceDigest', 'sourceByteLength', 'sourcePath', 'converter', 'lods'];
       for (const k of Object.keys(converted)) {
         if (!known.includes(k)) {
           errors.push(unexpectedField(`${cpath}/${pointerSegment(k)}`, k, known.join(', ')));
@@ -628,8 +634,9 @@ function canonicalConvertedFrom(c: ConvertedFrom): ConvertedFrom {
     sourceByteLength: c.sourceByteLength,
     ...(c.sourcePath !== undefined ? { sourcePath: c.sourcePath } : {}),
     converter: { name: c.converter.name, version: c.converter.version },
-    // A KTX2 texture's encoding.
+    // A KTX2 texture's encoding; a GLB's generated levels.
     ...('encoding' in c ? { encoding: c.encoding } : {}),
+    ...('lods' in c && c.lods !== undefined ? { lods: [...c.lods] } : {}),
   } as ConvertedFrom;
 }
 

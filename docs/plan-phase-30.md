@@ -239,7 +239,8 @@ cause and a follow-up, never a reason to throw an item away (owner,
 |---|---|
 | 30.0 | done 2026-10-03 (plan only; the release checks run when the phase starts) |
 | 30.1 | done 2026-10-07: `node tools/perf/run.mjs level [--classes area,landscape]` (tools/perf/level.ts, level-run.ts; vitest tests/perf/level.test.ts). **area**: 100 × 100 m block layer (corner-height hills, 10 walled rooms), 300 static props, 40 foliage sets (6,000 copies, no shadow, density falloff), 6 point lights, shadowed sun, exp2 fog, SSAO/bloom/SMAA. **landscape**: the area plus placeholder far part (a 6 km ground plane and 64 instance sets, 32,000 tree/rock copies in 4 rings to 3 km, 256 m chunks, far plane 4 km) until 30.10/30.11: the plan grows a terrain part then, drops the plane and keeps the rings. Iris Xe, 1080p, uncapped, before numbers (p50/p95/p99 ms, draws, main thread ms/frame, WebGPU pass GPU ms): area WebGPU 6.5/9.4/23.5, 259 draws, main 6.6, GPU 10.3 (scene 4.2, SSAO 1.4, SMAA 1.1); area WebGL 2 2.5/6.5/192.7 (p99 = the known WebGL 2 uncapped GPU-process stalls), 260 draws, main 6.6. Landscape WebGPU 7.1/10.3/15.1, 474 draws, main 7.3, GPU 11.7 (scene 5.2); WebGL 2 4.9/7.9/57.2, 475 draws, main 7.4. Whole-frame p95 within 16.7 ms on both; the far placeholder adds 0.6 ms p50 / 1.4 ms GPU / 215 draws on WebGPU (2.4 ms p50 on WebGL 2). Not measurable yet: terrain GPU time and draws, ground cover, streaming hitches (no terrain, scatter rules or world streaming); WebGL 2 gives no pass timings; the owner's Ryzen APU laptop is not recorded (not on this host). |
-| 30.2–30.27 | — |
+| 30.2 | part A done 2026-10-07 (undo per chunk, no cell caps, simplifier; binary chunk data is part B). **Undo** (`TL_PERF=1 npx vitest run tests/perf/block-layers.test.ts`, 512 × 512 layer, 262,144 cells in 1,024 chunks, one-cell edit, before → after): undo step 19.9 → 12.4 KB retained (the rest is the two JSON chunks themselves; part B's binary chunks shrink it), edit 223 → 77 ms, undo 175 → 21 ms, redo 181 → 21 ms (the no-change check compares chunks instead of serializing the scene twice; the edit's rest is decoding and validating the whole layer, O(layer)). **No cell caps**: two 1,048,576-cell layers fill, edit, undo, save and reopen through the workspace; `runtime.blockMemory` in Play diagnostics: 4 B a cell + ~270 B a column measured on V8 (1,024² columns ≈ 280 MB; area, not depth, costs). **Simplifier** (meshoptimizer 1.1.1): levels at 50/25/12.5 % of a 3,968 / 65,024 / 261,120-triangle mesh in 3 / 35 / 139 ms; import setting `generateLods` (off unless asked). Unverified: generated levels switching in a real browser (only the file and import are tested). |
+| 30.3–30.27 | — |
 
 (30.1's before numbers and 30.20's after numbers.)
 
@@ -280,6 +281,16 @@ cause and a follow-up, never a reason to throw an item away (owner,
   land, the class swaps the plane for a terrain and keeps the rings, and bumps `LEVEL_VERSION`. Default chosen,
   owner to confirm: the area and the landscape share camera and environment, so the landscape minus the area is the
   far part's cost (the run logs it as a row).
+- 2026-10-07 (30.2 part A): no block cell caps; the per-layer bound left is its bounds (1,024 × 256 × 1,024 cells), a
+  dimension rather than a count, kept with the 16 layers per scene. A layer's memory is shown, not capped: the streaming
+  budget of 30.16 is what will bound it. Default chosen, owner to confirm.
+- 2026-10-07 (30.2 part A): generated LODs are made at import into the stored GLB (`<name>_LOD0…3` beside each mesh
+  node, the authored-level naming), not at load: the runtime only reads results. The setting is off unless an import asks
+  (`generateLods: true`); a re-import keeps a model's levels through its version's `convertedFrom.lods`, so no new
+  record field. Levels at 50/25/12.5 % of the triangles, each allowed 1/2/4 % of the mesh's size of error; a level that
+  cannot drop below 80 % of the one before ends the chain. Skinned, animated, morphing, parented and compressed nodes and FBX
+  conversions get none. The converter record keeps the name `texture-extract` (a GLB conversion; renaming it would be a
+  schema change). Default chosen, owner to confirm.
 - 2026-10-03: Skyforge's requests mapped (the engine never reads the game
   repo; the ids only trace them back):
 

@@ -68,6 +68,10 @@ describe('public surface', () => {
         'FONT_TABLES_MAX',
         'FONT_TOOLCHAIN',
         'inspectFont',
+        // Generated levels of detail (the mesh simplifier)
+        'MESH_LOD_KEEP_SHARE',
+        'MESH_SIMPLIFY_ERROR_DEFAULT',
+        'loadMeshSimplifier',
         'M2_GLTF_EXTENSION_ALLOWLIST',
         'M2_GLTF_IMAGE_BYTES',
         'M2_GLTF_INSPECTION_ENTRIES',

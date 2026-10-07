@@ -239,7 +239,10 @@ export const NODE_SIDE_ALLOWED = {
   // model are types only (the importer parses its own JSON and hashes bytes).
   'asset-pipeline': {
     packages: ['project-model'],
-    external: [],
+    // meshoptimizer's simplifier only (the `simplifier` subpath, loaded on
+    // first use): generated levels of detail.
+    external: ['meshoptimizer'],
+    externalSubpaths: { meshoptimizer: ['simplifier'] },
     node: [],
     typesOnly: { 'project-model': true },
     // The importer checks the model's own limits (plain constants) and decodes

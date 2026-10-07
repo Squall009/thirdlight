@@ -157,6 +157,8 @@ describe('check 6 — dependency pinning', () => {
       'ktx2-encoder': '0.6.0',
       'jpeg-js': '0.4.4',
       '@jsquash/webp': '1.5.0',
+      // Generated levels of detail on import (the mesh simplifier).
+      meshoptimizer: '1.1.1',
       // The lint toolchain (root dev only).
       eslint: '10.11.0',
       'typescript-eslint': '8.71.0',

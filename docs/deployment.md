@@ -1394,6 +1394,26 @@ holding images and why (`models_hold_images`: no file in the game folder,
 converted from FBX, the extraction's own reason). With 0 a model may keep
 its images on purpose (`extractTextures: false`).
 
+### Generated levels of detail
+
+**Generate LODs** (a model import setting, off unless the import asks for
+it: `publishAsset {…, generateLods: true}` or `importAssets {folder,
+generateLods: true}`) gives a GLB model without authored `<piece>_LOD<n>`
+levels three coarser levels at 50 %, 25 % and 12.5 % of its triangles
+(meshoptimizer's simplifier; each level may move the surface by at most 1 %,
+2 % and 4 % of the mesh's size, and stops early where the shape would
+suffer). Each mesh node becomes `<name>_LOD0` with `<name>_LOD1…` beside it,
+sharing its vertex data, so the levels switch at the model's screen sizes
+like authored ones and nothing is simplified at load. The stored model is
+converted (`convertedFrom.lods` lists the shares; the file in the game folder
+is unchanged); a re-import of the file and a rebuilt import cache make the
+levels again. A model with authored levels, and nodes that are skinned or
+animated, have morph targets or children, or hold compressed geometry, keep
+what they have; the result's `textureExtraction.lods` says what was made
+(triangles per level, the largest error) and what was skipped. A model
+converted from FBX gets no levels. Without the setting a model is stored as
+it was before it existed.
+
 Standard-shader project materials share one prepared texture per (texture,
 colour space, wrap, UV channel, tiling and offset) across every model file
 that uses them, freed with the last: one material on 14 model files holds

@@ -64,6 +64,7 @@ import {
   LOD_HYSTERESIS_DEFAULT,
   LOD_HYSTERESIS_MAX,
   LOD_SCREEN_SIZES_DEFAULT,
+  MESH_LOD_RATIOS_DEFAULT,
   MSAA_SAMPLE_COUNTS,
   PIXEL_RATIO_CAP_MAX,
   PIXEL_RATIO_CAP_MIN,
@@ -262,7 +263,8 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       'the GLB\'s images become texture assets in <model folder>/<model>_textures/ (a PNG, JPEG or WebP encoded to KTX2 with mips — colour, normal map or data by what its materials sample it as — from a lossless PNG of the image\'s name and size beside the model (or in its textures/ folder) when the image is lossy; a KTX2 as it is; ' +
       'an image some texture asset already holds is that asset), the model names them in textures {image index: assetId}, and they count and stream like any texture; ' +
       'the result\'s textureExtraction lists each image. ' +
-      'importAssets {folder, labels?: [label], ktx2?: "color"|"normal"|"data", extractTextures?: bool} imports every supported file of a game-folder folder, subfolders ' +
+      `Generate LODs (a model import setting, off unless asked; publishAsset or importAssets generateLods: true; a reimport keeps a model's levels): a GLB without _LOD<n> levels gets _LOD1… at ${MESH_LOD_RATIOS_DEFAULT.join(', ')} of its triangles from the mesh simplifier, stored in the converted model (convertedFrom.lods); textureExtraction.lods reports the triangles per level and the nodes skipped. ` +
+      'importAssets {folder, labels?: [label], ktx2?: "color"|"normal"|"data", extractTextures?: bool, generateLods?: bool} imports every supported file of a game-folder folder, subfolders ' +
       'included, in one command and one undo: each becomes an asset named after its file (assets/audio/voice/line-001.ogg → "line-001"; the id is the ' +
       'name made id-safe, -2, -3 … when taken; a file whose sidecar names an unused id keeps it), with the labels on every one (a label: a letter or ' +
       'digit, then letters, digits, _ - . /). Files already imported are skipped, and the result\'s ' +
