@@ -724,6 +724,11 @@ cause and a follow-up, never a reason to throw an item away (owner,
   - The bake mesh sets its own matrix (a scene update would otherwise reset its world matrix: the cause of the first
     black bakes), and a material counts as changed when its nodes change (graph materials compile again in place).
   - The descriptor registry guard moved from 284,000 to 286,000 bytes (rules and macro distance).
+- 2026-10-07: D192 rechecked against the plain three.js page. The class/plain WebGPU p50 ratio went from 0.86–0.92 (29.7 to
+  part A's 17:53 gate) to 1.03–1.14 (from 19:03), but ed1b037b and HEAD b6664e94 built side by side and interleaved measure
+  the same (class 6.4–7.5 against 6.3–7.2 ms, plain 6.3–6.5) with byte-for-byte the same frame work (draws, tris, pipeline
+  sets, buffer writes). The ratio itself swung 0.92 → 1.24 within an hour on 10-06 with no code change, so it is not a
+  drift control here; nothing in 30.12 runs per frame or compiles into the village's materials. Host drift, baseline kept.
 - 2026-10-07: D191 closed as host drift. WebGL 2 village p50, idle host, 3 runs each: HEAD 37719af2 4.9/4.8/4.8, fc210485
   4.8/5.0/4.9, 6f38f3fb (phase 29 end) 4.9/4.7/4.7 ms; interleaved HEAD 4.7/4.6/4.6 against 6f38f3fb 4.5/4.6/4.6. Phase 30 adds
   nothing measurable to the village (WebGPU 5.5–5.8 ms, means ~6.0 ms as at the baseline). Baseline kept at 4.4 ms.
