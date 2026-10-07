@@ -16,6 +16,7 @@
  *   scale [options]                the scale bench instead (tools/perf/scale-run.ts lists its options)
  *   ports [options]                parallel backend starts (tools/perf/port-stress.ts lists its options)
  *   village [options]              the village class's export against plain three.js (tools/perf/village-run.ts lists its options)
+ *   level [options]                the level-building classes, block area and landscape (tools/perf/level-run.ts lists its options)
  *   blocks [options]               block meshing hitches on the blocks class (tools/perf/blocks-run.ts lists its options)
  *   probe-bake [options]           the editor's probe bake on the village or blocks class (tools/perf/probe-bake-run.ts)
  *   export-size [options]          what an export downloads, raw/gzip/brotli (tools/perf/export-size.ts lists its options)
@@ -34,6 +35,11 @@ if (argv[0] === 'scale') {
 if (argv[0] === 'village') {
   const { runVillageCli } = await import('./village-run');
   await runVillageCli(argv.slice(1));
+  process.exit(process.exitCode ?? 0);
+}
+if (argv[0] === 'level') {
+  const { runLevelCli } = await import('./level-run');
+  await runLevelCli(argv.slice(1));
   process.exit(process.exitCode ?? 0);
 }
 if (argv[0] === 'probe-bake') {

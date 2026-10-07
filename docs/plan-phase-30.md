@@ -238,7 +238,8 @@ cause and a follow-up, never a reason to throw an item away (owner,
 | Item | Status |
 |---|---|
 | 30.0 | done 2026-10-03 (plan only; the release checks run when the phase starts) |
-| 30.1–30.27 | — |
+| 30.1 | done 2026-10-07: `node tools/perf/run.mjs level [--classes area,landscape]` (tools/perf/level.ts, level-run.ts; vitest tests/perf/level.test.ts). **area**: 100 × 100 m block layer (corner-height hills, 10 walled rooms), 300 static props, 40 foliage sets (6,000 copies, no shadow, density falloff), 6 point lights, shadowed sun, exp2 fog, SSAO/bloom/SMAA. **landscape**: the area plus placeholder far part (a 6 km ground plane and 64 instance sets, 32,000 tree/rock copies in 4 rings to 3 km, 256 m chunks, far plane 4 km) until 30.10/30.11: the plan grows a terrain part then, drops the plane and keeps the rings. Iris Xe, 1080p, uncapped, before numbers (p50/p95/p99 ms, draws, main thread ms/frame, WebGPU pass GPU ms): area WebGPU 6.5/9.4/23.5, 259 draws, main 6.6, GPU 10.3 (scene 4.2, SSAO 1.4, SMAA 1.1); area WebGL 2 2.5/6.5/192.7 (p99 = the known WebGL 2 uncapped GPU-process stalls), 260 draws, main 6.6. Landscape WebGPU 7.1/10.3/15.1, 474 draws, main 7.3, GPU 11.7 (scene 5.2); WebGL 2 4.9/7.9/57.2, 475 draws, main 7.4. Whole-frame p95 within 16.7 ms on both; the far placeholder adds 0.6 ms p50 / 1.4 ms GPU / 215 draws on WebGPU (2.4 ms p50 on WebGL 2). Not measurable yet: terrain GPU time and draws, ground cover, streaming hitches (no terrain, scatter rules or world streaming); WebGL 2 gives no pass timings; the owner's Ryzen APU laptop is not recorded (not on this host). |
+| 30.2–30.27 | — |
 
 (30.1's before numbers and 30.20's after numbers.)
 
@@ -272,6 +273,13 @@ cause and a follow-up, never a reason to throw an item away (owner,
   - With Part D the phase has 28 items. 30.0's re-check may split Part D
     into its own phase if the gate budget or size calls for it (owner
     decides).
+- 2026-10-07: phase start release check: three.js 0.186.1 is still the latest (no update). Rapier: pinned 0.20.0, 0.21.0 is out;
+  upgraded only if a terrain item needs it (heightfield holes for 30.11), as its own item after reading its release notes.
+- 2026-10-07 (30.1): the landscape class is built now with a placeholder far part (a flat 6 km ground plane and
+  rings of large instanced copies under fog), so the harness and the far cost exist before terrain; when 30.10/30.11
+  land, the class swaps the plane for a terrain and keeps the rings, and bumps `LEVEL_VERSION`. Default chosen,
+  owner to confirm: the area and the landscape share camera and environment, so the landscape minus the area is the
+  far part's cost (the run logs it as a row).
 - 2026-10-03: Skyforge's requests mapped (the engine never reads the game
   repo; the ids only trace them back):
 
