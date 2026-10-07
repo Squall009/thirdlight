@@ -336,6 +336,17 @@ const TEXTURE_NODES: readonly GraphNodeDef[] = [
     fields: SAMPLER_FIELDS,
   },
   {
+    // A ground layer read without stretching on steep slopes: the plane it faces, or two blended (no triplanar).
+    type: 'projectedSample',
+    label: 'Projected sample',
+    category: 'Textures',
+    description:
+      'Reads a texture (of a texture array, the given layer) the way a ground layer wants it, scale metres per repeat. Mode 0: at the UV (on terrain and block tops, world XZ). Mode 1: on the world plane the surface faces most — the top, or the side wall plane on steep ground — one read, no stretching on cliffs (a seam where a slope turns past 45°). Mode 2: biplanar — the top and the side plane blended by the slope (sharpness), two reads, only within near metres of the camera (past it, mode 1). Decode normal: reads a tangent-space normal map and turns a side-projected one into the surface\'s frame, scaled by strength. The mode may differ per pixel (a per-layer setting on terrain).',
+    inputs: [TEX_IN, port('uv', 'uv', 'vec2', 'uv0'), port('scale', 'scale', 'float', 1), port('mode', 'mode', 'float', 0), port('sharpness', 'sharpness', 'float', 4), port('near', 'near', 'float', 60), port('strength', 'strength', 'float', 1), port('position', 'position', 'vec3', 'positionWorld'), port('normal', 'normal', 'vec3', 'normalWorld'), LAYER_IN],
+    outputs: [...SAMPLE_OUTPUTS, port('normal', 'normal', 'vec3')],
+    fields: [...SAMPLER_FIELDS, { key: 'decode', label: 'Decode', type: 'enum', options: ['color', 'normal'], default: 'color' }],
+  },
+  {
     // Layers mixed by their height maps (terrain, trim sheets: clean → dirt → moss).
     type: 'heightBlend',
     label: 'Height blend',

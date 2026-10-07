@@ -113,10 +113,10 @@ class GraphBuilder {
    * the plain constant when the material already declares that key for
    * something else.
    */
-  param(key: string, type: 'float' | 'vec2' | 'vec4' | 'color', value: number | number[] | string): Out {
+  param(key: string, type: 'float' | 'vec2' | 'vec4' | 'color', value: number | number[] | string, visibility: 'public' | 'private' = 'public'): Out {
     if (this.taken.has(key)) return type === 'float' ? this.float(key, value as number) : type === 'color' ? this.color(key, value as string) : [this.add(key, type, { value: value as number[] }), 'value'];
     this.taken.add(key);
-    this.parameters.push({ key, type, default: value });
+    this.parameters.push({ key, type, default: value, ...(visibility === 'private' ? { visibility } : {}) });
     return [this.add(key, 'parameter', { key }), 'value'];
   }
   /** A public texture parameter (a texture array for the layered template); '' = none yet. */
@@ -408,10 +408,29 @@ export const LAYER_SETTINGS = [
   { key: 'layerNormalStrength', label: 'normal strength', title: 'How strongly the layer\'s normal map bends the light (0: flat)', fill: 1, min: null },
   { key: 'layerContrast', label: 'height contrast', title: 'Stretches the layer\'s height around its middle: above 1 its peaks and cracks stand further apart in the blend', fill: 1, min: null },
   { key: 'layerOffset', label: 'height offset', title: 'Lifts the layer\'s height in the blend (it shows over the others sooner)', fill: 0, min: null },
+  {
+    key: 'layerProjection',
+    label: 'projection',
+    title: 'How the layer\'s textures lie on the ground: top (world XZ, stretched on steep slopes), by slope (the world plane it faces most: cliffs without stretching, one read), or biplanar (top and side blended by the slope: two reads within the biplanar distance)',
+    fill: 0,
+    min: 0,
+    options: [
+      { value: 0, label: 'top' },
+      { value: 1, label: 'by slope' },
+      { value: 2, label: 'biplanar' },
+    ],
+  },
 ] as const;
+
+/** The extra texture reads a pixel of a biplanar layer pays where both planes show, within the biplanar distance (albedo, normal, ORM). */
+export const BIPLANAR_EXTRA_READS = 3;
+/** The texture reads a pixel of the layered template (three per layer). */
+export const TEMPLATE_READS = 12;
 
 /** The number of layers of the layered template (the four components of its weights). */
 export const TEMPLATE_LAYERS = 4;
+/** Metres from the camera a biplanar layer reads both planes within (past it: the plane the ground faces most). */
+export const BIPLANAR_DISTANCE = 60;
 
 /**
  * The height-blended layers template — a painted terrain (or a
@@ -419,9 +438,12 @@ export const TEMPLATE_LAYERS = 4;
  * texture arrays (public texture parameters `albedoHeight`: albedo RGB with
  * the height in A, colour; `normals`: normal maps; `orm`: occlusion,
  * roughness, metalness, data), layer i sampled at array layer i. Per layer
- * (the components of {@link LAYER_SETTINGS}' vec4 parameters): UV0 ÷ its
- * tiling (metres per repeat: block layers' UVs are metres), its normal
- * strength, and its height's contrast and offset in the blend. The weights
+ * (the components of {@link LAYER_SETTINGS}' vec4 parameters): its tiling
+ * (metres per repeat: block layers' and terrain UVs are metres), its
+ * projection (Projected sample nodes: top at UV0, by slope — the world plane
+ * the ground faces most, one read — or biplanar, two reads within
+ * `biplanarDistance` metres), its normal strength, and its height's contrast
+ * and offset in the blend. The weights
  * are COLOR_0 (a painted block layer's paint, a mesh's vertex colours;
  * without them all first layer), shaped by the layers' heights through a
  * Height blend (`blendDepth`); every layer value is a Weighted mix. Wetness —
@@ -431,7 +453,8 @@ export const TEMPLATE_LAYERS = 4;
  * before the tops), darkens the albedo and smooths the surface (wet ground:
  * the albedo × 0.55, roughness toward 0.1) and flattens the normal maps
  * (`wetFlatten`). Per-layer values and wetness change no texture reads:
- * twelve samples, as with one shared value.
+ * twelve samples, as with one shared value — but a biplanar layer reads
+ * three more where both its planes show near the camera.
  */
 export function layeredMaterial(materialId: string, name: string): MaterialDef {
   const b = new GraphBuilder([]);
@@ -439,17 +462,19 @@ export function layeredMaterial(materialId: string, name: string): MaterialDef {
   const albedoArr = b.textureParam('albedoHeight');
   const normalArr = b.textureParam('normals');
   const ormArr = b.textureParam('orm');
+  // The projection is the material's own (private): the compile reads it, so a layer that never leaves the top reads once.
   const setting = (key: (typeof LAYER_SETTINGS)[number]['key']): Out => {
     const s = LAYER_SETTINGS.find((x) => x.key === key)!;
-    return b.param(key, 'vec4', Array.from({ length: TEMPLATE_LAYERS }, () => s.fill));
+    return b.param(key, 'vec4', Array.from({ length: TEMPLATE_LAYERS }, () => s.fill), key === 'layerProjection' ? 'private' : 'public');
   };
   const layers = [0, 1, 2, 3];
   const comp = ['x', 'y', 'z', 'w'] as const;
-  // Per layer: UV0 ÷ its tiling, kept above the smallest tiling the editor takes (a 0 from a script stays finite).
+  // Per layer: its tiling (kept above the smallest the editor takes: a 0 from a script stays finite) and projection.
   const tiling = b.add('tilingSplit', 'split');
   b.wire(b.op('max', 'tilingFloor', setting('layerTiling'), b.float('tilingMin', LAYER_SETTINGS[0].min)), tiling, 'in');
-  const uv0: Out = [b.add('uv', 'uv'), 'uv'];
-  const uvs = layers.map((i) => b.op('divide', `uv${i + 1}`, uv0, [tiling, comp[i]!]));
+  const projection = b.add('projectionSplit', 'split');
+  b.wire(setting('layerProjection'), projection, 'in');
+  const near: Out = b.param('biplanarDistance', 'float', BIPLANAR_DISTANCE);
   const strength = b.add('strengthSplit', 'split');
   b.wire(setting('layerNormalStrength'), strength, 'in');
   const weights: Out = [b.add('paint', 'vertexColor', { absent: 'first' }), 'rgba'];
@@ -457,13 +482,17 @@ export function layeredMaterial(materialId: string, name: string): MaterialDef {
   b.wire([b.add('paintWet', 'vertexColor', { set: 'COLOR_1', absent: 'zero' }), 'rgba'], wetSplit, 'in');
   const layerNodes = layers.map((i) => b.float(`layer${i + 1}`, i));
   const layerIndex = (i: number): Out => layerNodes[i]!;
-  const albedos = layers.map((i) => {
-    const s = b.add(`albedo${i + 1}`, 'sampleTexture');
-    b.wire(albedoArr, s, 'tex');
-    b.wire(uvs[i]!, s, 'uv');
+  /** Layer i of an array, read as its projection says (UV0 ÷ tiling at the top). */
+  const read = (id: string, arr: Out, i: number, data: Record<string, string> = {}): string => {
+    const s = b.add(id, 'projectedSample', data);
+    b.wire(arr, s, 'tex');
+    b.wire([tiling, comp[i]!], s, 'scale');
+    b.wire([projection, comp[i]!], s, 'mode');
+    b.wire(near, s, 'near');
     b.wire(layerIndex(i), s, 'layer');
     return s;
-  });
+  };
+  const albedos = layers.map((i) => read(`albedo${i + 1}`, albedoArr, i));
   const heights = b.add('heights', 'combine');
   comp.forEach((c, i) => b.wire([albedos[i]!, 'a'], heights, c));
   const blend = b.add('heightBlend', 'heightBlend');
@@ -495,20 +524,11 @@ export function layeredMaterial(materialId: string, name: string): MaterialDef {
   const flat = b.add('wetFlat', 'oneMinus');
   b.wire(b.op('multiply', 'wetFlatAmount', wet, b.param('wetFlatten', 'float', 0.7)), flat, 'in');
   const normals = layers.map((i) => {
-    const n = b.add(`normal${i + 1}`, 'normalMap');
-    b.wire(normalArr, n, 'tex');
-    b.wire(uvs[i]!, n, 'uv');
+    const n = read(`normal${i + 1}`, normalArr, i, { decode: 'normal', colorSpace: 'linear' });
     b.wire(b.op('multiply', `strength${i + 1}`, [strength, comp[i]!], [flat, 'out']), n, 'strength');
-    b.wire(layerIndex(i), n, 'layer');
     return [n, 'normal'] as Out;
   });
-  const orms = layers.map((i) => {
-    const s = b.add(`orm${i + 1}`, 'sampleTexture', { colorSpace: 'linear' });
-    b.wire(ormArr, s, 'tex');
-    b.wire(uvs[i]!, s, 'uv');
-    b.wire(layerIndex(i), s, 'layer');
-    return [s, 'rgb'] as Out;
-  });
+  const orms = layers.map((i) => [read(`orm${i + 1}`, ormArr, i, { colorSpace: 'linear' }), 'rgb'] as Out);
   const orm = b.add('ormSplit', 'split');
   b.wire(mix('ormMix', orms), orm, 'in');
   const darken = b.add('wetDarken', 'lerp');

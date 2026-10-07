@@ -23,7 +23,7 @@ const isNode = (n: unknown): boolean => (n as { isNode?: boolean } | null)?.isNo
 
 /** Node types that are outputs, interfaces or need a declaration (tested on their own). */
 const SPECIAL = new Set(['pbr', 'unlit', 'customLit', 'vertexOffset', 'functionInput', 'functionOutput', 'call', 'parameter']);
-const SAMPLING = new Set(['sampleTexture', 'normalMap', 'triplanar']);
+const SAMPLING = new Set(['sampleTexture', 'normalMap', 'triplanar', 'projectedSample']);
 
 describe('material graph compiler: every node kind', () => {
   for (const type of Object.keys(COMPILER_NODES).filter((t) => !SPECIAL.has(t))) {

@@ -4848,7 +4848,21 @@ brushes, overlays and stamp UI are below (23.6).
   as a **Layers** table above the exposed parameters; they are four vec4
   parameters (`layerTiling`, `layerNormalStrength`, `layerContrast`,
   `layerOffset`, one component per layer), so instances, objects and scripts
-  override them like any public parameter. A terrain draws more than four
+  override them like any public parameter. **Projection** (`layerProjection`,
+  templates made from now on; older ones read at the top as before): **top**
+  (the UV: world XZ on terrain and block tops — stretched on steep ground),
+  **by slope** (the world plane the surface faces most: the top, or the side
+  wall plane on steep ground — cliffs without stretching, still one read; a
+  seam where a slope turns past 45°), or **biplanar** (the top and the side
+  plane blended by the slope: two reads, only within `biplanarDistance`
+  metres of the camera, 60 by default, past it by slope). No layer is
+  triplanar. The table states the cost: 12 texture reads a pixel, 3 more
+  for a biplanar layer where both its planes show near the camera. The
+  projection is the material's own (objects cannot override it; instances
+  can), so a layer left at the top compiles to the plain read and costs what
+  it did. Measured (Iris Xe, 1080p, the landscape class with every terrain
+  layer projected): the scene pass +0.13 ms by slope, +0.54 ms biplanar. A
+  terrain draws more than four
   layers: **Add layer** in the table gives layer 5 on settings of its own
   (`extraLayers` on each of the four parameters; without a column, layer L
   takes column L % 4's). They are uniforms: still twelve

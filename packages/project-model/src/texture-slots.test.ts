@@ -36,6 +36,10 @@ describe('texture slots', () => {
     // Triplanar reads with its own colour space too.
     expect(textureSlotMode(graph({ type: 'triplanar', data: { colorSpace: 'linear' } }), 'tex')).toBe('data');
     expect(textureSlotMode(graph({ type: 'triplanar' }), 'tex')).toBe('color');
+    // A projected sample: by its decode and colour space.
+    expect(textureSlotMode(graph({ type: 'projectedSample', data: { decode: 'normal', colorSpace: 'linear' } }), 'tex')).toBe('normal');
+    expect(textureSlotMode(graph({ type: 'projectedSample', data: { colorSpace: 'linear' } }), 'tex')).toBe('data');
+    expect(textureSlotMode(graph({ type: 'projectedSample' }), 'tex')).toBe('color');
   });
 
   it('a set key reads back as its set; other strings are not keys', () => {

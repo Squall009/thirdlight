@@ -49,8 +49,11 @@
  *   by hand on it stays blue, through a second bake too; the block layer's
  *   Rules paint the same rule onto its walls and a steep top while its flat
  *   top keeps layer 0 (red). The layer table gives layer 5 settings of its
- *   own. Then the Scene view (second renderer), Play and the export (both)
- *   show the magenta ramp and walls beside the blue disc and red tops.
+ *   own and sets layer 3's projection. Then the Scene view (second
+ *   renderer), Play and the export (both) show the magenta ramp and walls
+ *   beside the blue disc and red tops; along the ramp layer 3's checker
+ *   repeats about three times as often projected by slope (the side plane:
+ *   the ramp's 9 m height) or biplanar as from the top (its 3 m depth).
  */
 import { randomBytes } from 'node:crypto';
 import { createReadStream, existsSync, statSync } from 'node:fs';
@@ -163,7 +166,10 @@ async function buildTerrain(): Promise<{ ground: string; big: string; blocks: st
   await publishTexture(be!, new Uint8Array(makePng(16, 16, () => [230, 200, 40, 255])), 'alb-5', 'Albedo 5');
   await publishTexture(be!, new Uint8Array(makePng(16, 16, () => [230, 230, 230, 255])), 'hgt-5', 'Height 5');
   await packNormalAndOrm(be!);
-  const five = [...ALBEDO_HEIGHT_LAYERS, [{ assetId: 'alb-5', channel: 'r' as const }, { assetId: 'alb-5', channel: 'g' as const }, { assetId: 'alb-5', channel: 'b' as const }, { assetId: 'hgt-5', channel: 'r' as const }]];
+  // Layer 3 (magenta, the slope rule's) a checker of two magentas: how its projection lies on the steep ramp shows.
+  await publishTexture(be!, new Uint8Array(makePng(16, 16, (x, y) => (((x >> 3) + (y >> 3)) % 2 === 0 ? [230, 40, 230, 255] : [140, 24, 140, 255]))), 'alb-4c', 'Albedo 4 checker');
+  const checker = [{ assetId: 'alb-4c', channel: 'r' as const }, { assetId: 'alb-4c', channel: 'g' as const }, { assetId: 'alb-4c', channel: 'b' as const }, ALBEDO_HEIGHT_LAYERS[3]![3]!];
+  const five = [...ALBEDO_HEIGHT_LAYERS.slice(0, 3), checker, [{ assetId: 'alb-5', channel: 'r' as const }, { assetId: 'alb-5', channel: 'g' as const }, { assetId: 'alb-5', channel: 'b' as const }, { assetId: 'hgt-5', channel: 'r' as const }]];
   await packTexture(be!, five, 'color', 'terrain-albedo');
   const mat = layeredMaterial('mat-terrain', 'Terrain layers');
   await cmd('setMaterial', { material: mat });
@@ -483,6 +489,16 @@ test('terrain: CDLOD heights, layered material, paint and a hole in the Scene vi
       for (const [what, p, test] of checks) {
         await expect.poll(() => shareNear(page, p, test, 6), { timeout: 30_000, message: `${renderer} Scene view: ${what}` }).toBeGreaterThan(0.6);
       }
+      // Layer 3's projection on the ramp: checks counted along its middle, top against by slope and biplanar.
+      const crossings: Record<string, number> = {};
+      for (const [name, mode] of [['top', 0], ['by slope', 1], ['biplanar', 2]] as const) {
+        await setLayer3(mode, 2);
+        let n = -1;
+        await expect.poll(async () => (n = await checkCrossings(page, ground)), { timeout: 30_000, message: `${renderer} Scene view: the ramp's checker, ${name}` }).toBeGreaterThan(name === 'top' ? 0 : 2 * Math.max(1, crossings['top'] ?? 1));
+        crossings[name] = n;
+      }
+      test.info().annotations.push({ type: `${renderer} layer 3 checker crossings along the ramp`, description: JSON.stringify(crossings) });
+      console.log(`${renderer} layer 3 checker crossings along the ramp: ${JSON.stringify(crossings)}`);
       for (let i = 0; i < zoomed; i++) {
         await page.mouse.wheel(0, -200);
         await page.waitForTimeout(80);
@@ -869,5 +885,52 @@ async function materialRules(page: Page, ground: string, blocks: string): Promis
   await tiling.blur();
   const tilingParam = async (): Promise<unknown> => ((await materials(be!)).find((m) => m.materialId === 'mat-terrain')?.parameters as { key: string; extraLayers?: number[] }[] | undefined)?.find((x) => x.key === 'layerTiling')?.extraLayers ?? null;
   await expect.poll(tilingParam, { timeout: 15_000 }).toEqual([2]);
+  // Layer 4 (index 3) projected by slope; then biplanar, whose cost the table states.
+  const projectionParam = async (): Promise<unknown> => ((await materials(be!)).find((m) => m.materialId === 'mat-terrain')?.parameters ?? []).find((x) => x.key === 'layerProjection')?.default ?? null;
+  await expect(doc.getByLabel('texture reads')).toHaveText('Texture reads a pixel: 12.');
+  await doc.getByLabel('layer 4 projection', { exact: true }).selectOption('by slope');
+  await expect.poll(projectionParam, { timeout: 15_000 }).toEqual([0, 0, 0, 1]);
+  await doc.getByLabel('layer 4 projection', { exact: true }).selectOption('biplanar');
+  await expect.poll(projectionParam, { timeout: 15_000 }).toEqual([0, 0, 0, 2]);
+  await expect(doc.getByLabel('texture reads')).toContainText('within 60 m, 3 more for it (1 biplanar layer: up to 15)');
   await closeEditor(page);
+}
+
+/** Layer 3's projection (0 top, 1 by slope, 2 biplanar) and tiling (m) on the terrain's material. */
+async function setLayer3(mode: number, tiling: number): Promise<void> {
+  const m = (await materials(be!)).find((x) => x.materialId === 'mat-terrain')!;
+  const parameters = (m.parameters ?? []).map((p) => {
+    if (p.key === 'layerProjection') return { ...p, default: [0, 0, 0, mode] };
+    if (p.key === 'layerTiling') return { ...p, default: [1, 1, 1, tiling] };
+    return p;
+  });
+  await cmd('setMaterial', { material: { ...m, parameters } });
+}
+
+/**
+ * Light–dark changes of layer 3's checker along the ramp's middle line in the Scene view (its magenta pixels only;
+ * a change counted where the brightness crosses the line's running mean by a margin).
+ */
+async function checkCrossings(page: Page, ground: string): Promise<number> {
+  const a = await screenOf(page, await surface(ground, RAMP_X, RAMP.from[2] - 0.2));
+  const b = await screenOf(page, await surface(ground, RAMP_X, RAMP.to[2] + 0.2));
+  const x0 = Math.min(a.x, b.x) - 2;
+  const y0 = Math.min(a.y, b.y) - 2;
+  const img = decodePng(await page.screenshot({ clip: { x: x0, y: y0, width: Math.abs(a.x - b.x) + 4, height: Math.abs(a.y - b.y) + 4 } }));
+  const values: number[] = [];
+  for (let i = 0; i <= 200; i++) {
+    const t = i / 200;
+    const [r, g, bl] = img.pixel(Math.round(a.x - x0 + (b.x - a.x) * t), Math.round(a.y - y0 + (b.y - a.y) * t));
+    if (isMagenta(r, g, bl)) values.push(r + bl);
+  }
+  let n = 0;
+  let side = 0;
+  for (let i = 0; i < values.length; i++) {
+    const w = values.slice(Math.max(0, i - 12), i + 13);
+    const mean = w.reduce((x, y) => x + y, 0) / w.length;
+    const now = values[i]! > mean * 1.08 ? 1 : values[i]! < mean * 0.92 ? -1 : 0;
+    if (now !== 0 && side !== 0 && now !== side) n += 1;
+    if (now !== 0) side = now;
+  }
+  return n;
 }

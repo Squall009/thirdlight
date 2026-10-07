@@ -58,9 +58,9 @@ export function textureSlotMode(graph: GraphData | undefined, key: string): Ktx2
   for (const e of graph.edges) {
     if (!params.has(e.from.node)) continue;
     const to = graph.nodes.find((n) => n.id === e.to.node);
-    if (to?.type === 'normalMap') return 'normal';
-    // Both read the texture with their own colour space field.
-    if ((to?.type === 'sampleTexture' || to?.type === 'triplanar') && to.data?.['colorSpace'] === 'linear') mode = 'data';
+    if (to?.type === 'normalMap' || (to?.type === 'projectedSample' && to.data?.['decode'] === 'normal')) return 'normal';
+    // These read the texture with their own colour space field.
+    if ((to?.type === 'sampleTexture' || to?.type === 'triplanar' || to?.type === 'projectedSample') && to.data?.['colorSpace'] === 'linear') mode = 'data';
   }
   return mode;
 }

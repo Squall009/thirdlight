@@ -15,7 +15,7 @@ import { useEffect, useRef, useState, type JSX } from 'react';
 import type { MaterialDef, MaterialParameter } from '@thirdlight/project-model';
 import { MATERIAL_EXTRA_LAYERS_MAX } from '@thirdlight/runtime';
 
-import { LAYER_SETTINGS, TEMPLATE_LAYERS } from '../../session/material-graph';
+import { BIPLANAR_DISTANCE, BIPLANAR_EXTRA_READS, LAYER_SETTINGS, TEMPLATE_LAYERS, TEMPLATE_READS } from '../../session/material-graph';
 
 type Setting = (typeof LAYER_SETTINGS)[number];
 
@@ -82,13 +82,24 @@ export function LayerSettings({ material, onSave }: { material: MaterialDef; onS
               </th>
               {layers.map((i) => (
                 <td key={i}>
-                  <LayerCell label={`layer ${i + 1} ${setting.label}`} title={setting.title} value={layerValue(param, i, setting.fill)} min={setting.min} onCommit={(v) => set(setting.key, i, v)} />
+                  {'options' in setting ? (
+                    <select aria-label={`layer ${i + 1} ${setting.label}`} title={setting.title} value={layerValue(param, i, setting.fill)} onChange={(e) => set(setting.key, i, Number(e.target.value))}>
+                      {setting.options.map((o) => (
+                        <option key={o.value} value={o.value}>
+                          {o.label}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <LayerCell label={`layer ${i + 1} ${setting.label}`} title={setting.title} value={layerValue(param, i, setting.fill)} min={setting.min} onCommit={(v) => set(setting.key, i, v)} />
+                  )}
                 </td>
               ))}
             </tr>
           ))}
         </tbody>
       </table>
+      <ReadCost material={material} columns={columns} />
       <div className="tl-inspector__modes">
         <button className="tl-btn tl-btn--small" aria-label="add layer column" title="Settings of its own for one more texture-array layer (a terrain draws any number of layers; without its own column, layer L takes column L % 4's)" disabled={columns >= TEMPLATE_LAYERS + MATERIAL_EXTRA_LAYERS_MAX} onClick={() => save(columns + 1)}>
           Add layer
@@ -100,6 +111,22 @@ export function LayerSettings({ material, onSave }: { material: MaterialDef; onS
         )}
       </div>
     </div>
+  );
+}
+
+/** The texture reads a pixel costs: the template's, and what its biplanar layers add near the camera. */
+function ReadCost({ material, columns }: { material: MaterialDef; columns: number }): JSX.Element | null {
+  const projection = material.parameters?.find((p) => p.key === 'layerProjection' && p.type === 'vec4' && Array.isArray(p.default));
+  if (projection === undefined) return null;
+  const biplanar = Array.from({ length: columns }, (_, i) => layerValue(projection, i, 0)).filter((v) => v === 2).length;
+  const near = material.parameters?.find((p) => p.key === 'biplanarDistance')?.default;
+  const metres = typeof near === 'number' ? near : BIPLANAR_DISTANCE;
+  return (
+    <p className="tl-inspector__hint" aria-label="texture reads">
+      {biplanar === 0
+        ? `Texture reads a pixel: ${TEMPLATE_READS}.`
+        : `Texture reads a pixel: ${TEMPLATE_READS}; where a biplanar layer shows both planes within ${metres} m, ${BIPLANAR_EXTRA_READS} more for it (${biplanar} biplanar layer${biplanar === 1 ? '' : 's'}: up to ${TEMPLATE_READS + BIPLANAR_EXTRA_READS * Math.min(biplanar, TEMPLATE_LAYERS)}).`}
+    </p>
   );
 }
 

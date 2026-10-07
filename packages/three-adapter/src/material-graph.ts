@@ -60,7 +60,7 @@ import { LIT, litMainDirectionWorld, MeshCustomLitNodeMaterial } from './custom-
 import { instanceOrigin, normalGreenSign } from './node-materials';
 import { LOCAL_LIGHTS_KEY } from './local-lights';
 import { STEADY_SHAPE_KEY } from './shadow-casters';
-import { localLightModeOf, type LocalLightMode } from '@thirdlight/runtime';
+import { localLightModeOf, WORLD_UV_PERIOD_METRES, type LocalLightMode } from '@thirdlight/runtime';
 
 // TSL's typings do not follow values whose width is known only at run time.
 type N = any;
@@ -444,6 +444,10 @@ export const COMPILER_NODES: Readonly<Record<string, NodeSpec>> = {
   sampleData: { inputs: [P('data', 'data'), P('uv', 'vec2', 'uv0'), P('cell', 'vec2', [0, 0])], outputs: SAMPLE_OUT },
   normalMap: { inputs: [P('tex', 'texture'), P('uv', 'vec2', 'uv0'), P('strength', 'float', 1), P('layer', 'float', 0)], outputs: [P('normal', 'vec3')] },
   triplanar: { inputs: [P('tex', 'texture'), P('position', 'vec3', 'positionWorld'), P('normal', 'vec3', 'normalWorld'), P('scale', 'float', 1), P('sharpness', 'float', 4), P('layer', 'float', 0)], outputs: [P('rgba', 'vec4'), P('rgb', 'vec3')] },
+  projectedSample: {
+    inputs: [P('tex', 'texture'), P('uv', 'vec2', 'uv0'), P('scale', 'float', 1), P('mode', 'float', 0), P('sharpness', 'float', 4), P('near', 'float', 60), P('strength', 'float', 1), P('position', 'vec3', 'positionWorld'), P('normal', 'vec3', 'normalWorld'), P('layer', 'float', 0)],
+    outputs: [...SAMPLE_OUT, P('normal', 'vec3')],
+  },
   heightBlend: { inputs: [P('weights', 'vec4', [1, 0, 0, 0]), P('heights', 'vec4', [0, 0, 0, 0]), P('depth', 'float', 0.2), P('contrast', 'vec4', [1, 1, 1, 1]), P('offset', 'vec4', [0, 0, 0, 0])], outputs: [P('weights', 'vec4')] },
   flipbook: { inputs: [P('uv', 'vec2', 'uv0'), P('frame', 'float', 0)], outputs: [P('uv', 'vec2')] },
   noise: { inputs: [P('uv', 'vec2', 'uv0'), P('scale', 'float', 10)], outputs: [P('value', 'float'), P('cell', 'float')] },
@@ -487,6 +491,7 @@ export const COMPILER_FIELD_DEFAULTS: Readonly<Record<string, Readonly<Record<st
   sampleData: { address: 'uv' },
   normalMap: { texture: '', wrap: 'repeat', filter: 'linear' },
   triplanar: { texture: '', wrap: 'repeat', filter: 'linear', colorSpace: 'srgb' },
+  projectedSample: { texture: '', wrap: 'repeat', filter: 'linear', colorSpace: 'srgb', decode: 'color' },
   flipbook: { columns: 4, rows: 4 },
   noise: { noise: 'gradient' },
   gradient: { shape: 'linear' },
@@ -834,6 +839,30 @@ export function compileMaterialGraph(input: { graph: MaterialGraphLike; paramete
     return { t: port.t, n: constant(d ?? 0, port.t) };
   };
   const connected = (scope: Scope, nodeId: string, portId: string): boolean => scope.incoming.get(nodeId)?.has(portId) === true;
+  /**
+   * The values a Projected sample's mode can take, when the graph fixes them:
+   * unwired (its default), or a component of a Split of a private parameter
+   * (objects cannot override it) — that component's value and, on a surface
+   * that draws more layers through each slot, the values of the layers drawn
+   * in that slot (`extraLayers` at L % 4). Null: anything (a public parameter,
+   * any other wire). A mode that can only be 0 compiles to the plain read.
+   */
+  const modesOf = (scope: Scope, nodeId: string): Set<number> | null => {
+    const round = (x: number): number => Math.max(0, Math.min(2, Math.round(x)));
+    const e = scope.incoming.get(nodeId)?.get('mode');
+    if (e === undefined) return new Set([0]);
+    const split = scope.byId.get(e.from.node);
+    const k = ['x', 'y', 'z', 'w'].indexOf(e.from.port);
+    if (split?.type !== 'split' || k < 0) return null;
+    const pe = scope.incoming.get(split.id)?.get('in');
+    const pn = pe === undefined ? undefined : scope.byId.get(pe.from.node);
+    if (pn?.type !== 'parameter') return null;
+    const p = parameters.find((x) => x.key === str(field(pn, 'key'), ''));
+    if (p === undefined || p.visibility !== 'private' || !Array.isArray(p.default)) return null;
+    const out = new Set([round(Number((p.default as number[])[k] ?? 0))]);
+    if (env.surface?.perLayer !== undefined) (p.extraLayers ?? []).forEach((x, i) => (i + 4) % 4 === k && out.add(round(x)));
+    return out;
+  };
 
   const outputsOf = (scope: Scope, nodeId: string, stage: Stage): Record<string, Val> | undefined => {
     const key = `${scope.key}|${stage}|${nodeId}`;
@@ -902,6 +931,17 @@ export function compileMaterialGraph(input: { graph: MaterialGraphLike; paramete
       s = s.depth(T.int(T.clamp(T.floor(slot.add(0.5)), 0, last)));
     }
     return stage === 'vertex' ? s.level(0) : s;
+  };
+  /** A fragment read with its UV's screen derivatives given (a UV chosen per pixel keeps its mip level across the switch). */
+  const sampleGrad = (t: THREE.Texture, uv: N, dx: N, dy: N, layer?: N): N => {
+    let s = T.texture(t, uv).grad(dx, dy);
+    if (isArrayTexture(t)) {
+      const last = Math.max(0, arrayLayers(t) - 1);
+      const want = layer ?? T.float(0);
+      const slot = env.surface?.arrayLayer !== undefined ? env.surface.arrayLayer(want) : want;
+      s = s.depth(T.int(T.clamp(T.floor(slot.add(0.5)), 0, last)));
+    }
+    return s;
   };
 
   const windStrength = (stage: Stage): N => {
@@ -1196,6 +1236,82 @@ export function compileMaterialGraph(input: { graph: MaterialGraphLike; paramete
         const layer = v(inp['layer']);
         const s = sample(t, p.zy, stage, layer).mul(w.x).add(sample(t, p.xz, stage, layer).mul(w.y)).add(sample(t, p.xy, stage, layer).mul(w.z));
         return { rgba: { t: 'vec4', n: s }, rgb: { t: 'vec3', n: s.xyz } };
+      }
+      case 'projectedSample': {
+        const normalMap = str(field(node, 'decode'), 'color') === 'normal';
+        const t = textureFor(scope, node, inp, !normalMap);
+        const outputs = (c: N, normal: N): Record<string, Val> => ({ rgba: { t: 'vec4', n: c }, rgb: { t: 'vec3', n: c.xyz }, r: { t: 'float', n: c.x }, g: { t: 'float', n: c.y }, b: { t: 'float', n: c.z }, a: { t: 'float', n: c.w }, normal: { t: 'vec3', n: normal } });
+        if (t === null) return outputs(T.vec4(1, 1, 1, 1), T.vec3(0, 0, 1));
+        // As the Normal map node: decode, scale xy by the strength; read in the mesh's own frame, the green turned
+        // around where that frame comes from its texture coordinates (normalGreenSign).
+        const decodeIn = (c: N, meshFrame: boolean): N => {
+          const n = c.xyz.mul(2).sub(1);
+          const xy = n.xy.mul(v(inp['strength']));
+          return T.vec3(meshFrame ? xy.mul(T.vec2(1, normalGreenSign())) : xy, n.z);
+        };
+        const decode = (c: N): N => decodeIn(c, true);
+        const layer = v(inp['layer']);
+        const scale = v(inp['scale']);
+        if (stage === 'vertex') {
+          const c = sample(t, v(inp['uv']).div(scale), stage, layer);
+          return outputs(c, decode(c));
+        }
+        // Only the top read where the mode can only be 0 (the cost of a plain read); no biplanar branch where it is never 2.
+        const modes = modesOf(scope, node.id);
+        if (modes !== null && modes.size === 1 && modes.has(0)) {
+          const c = sample(t, v(inp['uv']).div(scale), stage, layer);
+          return outputs(c, decode(c));
+        }
+        const biplanar = modes === null || modes.has(2);
+        // World metres less whole periods (precision far from the origin, as block and terrain UVs are).
+        const pw = v(inp['position']);
+        const period = T.float(WORLD_UV_PERIOD_METRES);
+        const p = pw.sub(T.floor(pw.div(period)).mul(period));
+        const n = T.normalize(v(inp['normal']));
+        const an = T.abs(n);
+        const mode = T.floor(v(inp['mode']).add(0.5));
+        const k = T.max(v(inp['sharpness']), 1);
+        const wTop = T.pow(an.y, k);
+        const wSide = T.pow(T.max(an.x, an.z), k);
+        // The side plane: the wall plane the surface faces most (x-facing: z across; z-facing: x across), v down the wall.
+        const xFacing = an.x.greaterThan(an.z);
+        const uvSide = xFacing.select(T.vec2(p.z, p.y.negate()), T.vec2(p.x, p.y.negate())).div(scale);
+        // Mode 0 reads the UV it is given; modes 1 and 2 the world top plane.
+        const uvTop = mode.lessThan(0.5).select(v(inp['uv']), p.xz).div(scale);
+        const useSide = mode.greaterThan(0.5).and(wSide.greaterThan(wTop));
+        // Derivatives from the unwrapped position (a period's wrap is not a jump in mip level), so the plane chosen per
+        // pixel keeps its mip level across the switch.
+        const dx = T.dFdx(pw);
+        const dy = T.dFdy(pw);
+        const tx = mode.lessThan(0.5).select(T.dFdx(v(inp['uv'])), dx.xz).div(scale);
+        const ty = mode.lessThan(0.5).select(T.dFdy(v(inp['uv'])), dy.xz).div(scale);
+        const sx = xFacing.select(T.vec2(dx.z, dx.y.negate()), T.vec2(dx.x, dx.y.negate())).div(scale);
+        const sy = xFacing.select(T.vec2(dy.z, dy.y.negate()), T.vec2(dy.x, dy.y.negate())).div(scale);
+        const main = sampleGrad(t, useSide.select(uvSide, uvTop), useSide.select(sx, tx), useSide.select(sy, ty), layer);
+        // A side-projected normal map turned into the surface's frame: the map's +x along the plane's u, its +y (up in
+        // the image: v runs down the wall) world up.
+        const frameOf = (c: N, side: N): N => {
+          const tp = decodeIn(c, false);
+          const u = xFacing.select(T.vec3(0, 0, 1), T.vec3(1, 0, 0));
+          const w = u.mul(tp.x).add(T.vec3(0, 1, 0).mul(tp.y)).add(n.mul(tp.z));
+          return side.select(T.vec3(T.dot(w, T.tangentWorld), T.dot(w, T.bitangentWorld), T.dot(w, n)), decode(c));
+        };
+        // Biplanar near the camera: the other plane's share of the slope, and its read — only taken (a branch) where it shows.
+        if (!biplanar) return outputs(main, normalMap ? frameOf(main, useSide) : decode(main));
+        const share = useSide.select(wTop, wSide).div(wTop.add(wSide).add(1e-5));
+        const both = mode.greaterThan(1.5).and(share.greaterThan(0.01)).and(T.length(T.positionWorld.sub(T.cameraPosition)).lessThan(v(inp['near'])));
+        const other = both.select(share, 0);
+        const second = T.Fn(() => {
+          const c = T.vec4(0, 0, 0, 0).toVar();
+          T.If(both, () => {
+            c.assign(sampleGrad(t, useSide.select(uvTop, uvSide), useSide.select(tx, sx), useSide.select(ty, sy), layer));
+          });
+          return c;
+        })();
+        const rgba = T.mix(main, second, other);
+        if (!normalMap) return outputs(rgba, decode(rgba));
+        const normal = T.normalize(T.mix(frameOf(main, useSide), frameOf(second, useSide.not()), other));
+        return outputs(rgba, normal);
       }
       case 'flipbook': {
         const cols = Math.max(1, Math.round(numOf(field(node, 'columns'), 4)));

@@ -26,14 +26,14 @@ const env = (): GraphCompileEnv => ({
 });
 
 /** Every texture node under a compiled slot, with whether it reads an array layer. */
-function textureReads(root: unknown): { array: boolean; depth: boolean }[] {
-  const out: { array: boolean; depth: boolean }[] = [];
+function textureReads(root: unknown): { array: boolean; depth: boolean; grad: boolean }[] {
+  const out: { array: boolean; depth: boolean; grad: boolean }[] = [];
   const seen = new Set<unknown>();
   const visit = (n: unknown): void => {
     if (n === null || typeof n !== 'object' || seen.has(n)) return;
     seen.add(n);
-    const node = n as { isTextureNode?: boolean; value?: THREE.Texture; depthNode?: unknown };
-    if (node.isTextureNode === true && node.value !== undefined) out.push({ array: isArrayTexture(node.value), depth: node.depthNode != null });
+    const node = n as { isTextureNode?: boolean; value?: THREE.Texture; depthNode?: unknown; gradNode?: unknown };
+    if (node.isTextureNode === true && node.value !== undefined) out.push({ array: isArrayTexture(node.value), depth: node.depthNode != null, grad: node.gradNode != null });
     // A layer read is a clone of the plain read, which it keeps as its reference (not part of the tree).
     for (const [k, v] of Object.entries(n as Record<string, unknown>)) {
       if (k === 'referenceNode') continue;
@@ -53,17 +53,24 @@ describe('height-blended layers', () => {
     validateMaterials([m], '', errors, materialGraphContext(m.parameters, undefined));
     expect(errors).toEqual([]);
     expect(canonicalMaterials(canonicalMaterials([m]))).toEqual(canonicalMaterials([m]));
-    expect(m.parameters!.map((p) => `${p.key}:${p.type}`)).toEqual(['albedoHeight:texture', 'normals:texture', 'orm:texture', 'layerTiling:vec4', 'layerNormalStrength:vec4', 'blendDepth:float', 'layerContrast:vec4', 'layerOffset:vec4', 'wetness:float', 'wetPooling:float', 'wetFlatten:float']);
+    expect(m.parameters!.map((p) => `${p.key}:${p.type}`)).toEqual(['albedoHeight:texture', 'normals:texture', 'orm:texture', 'layerTiling:vec4', 'layerProjection:vec4', 'biplanarDistance:float', 'layerNormalStrength:vec4', 'blendDepth:float', 'layerContrast:vec4', 'layerOffset:vec4', 'wetness:float', 'wetPooling:float', 'wetFlatten:float']);
     // Per-layer settings: one vec4 each, every layer filled alike (the editor's layer table edits the components).
     for (const s of LAYER_SETTINGS) expect(m.parameters!.find((p) => p.key === s.key)!.default).toEqual([s.fill, s.fill, s.fill, s.fill]);
     const types = m.graph!.nodes.map((n) => n.type);
-    for (const t of ['heightBlend', 'weightedMix', 'vertexColor', 'sampleTexture', 'normalMap']) expect(types).toContain(t);
-    // Twelve texture reads (three arrays × four layers), as with one shared value: per-layer values are uniforms.
-    expect(types.filter((t) => t === 'sampleTexture' || t === 'normalMap').length).toBe(12);
-    // Each layer reads its own UV (UV0 ÷ its tiling); the blend takes the contrast and offset; metres, not cells.
-    const into = (node: string, port: string): string | undefined => m.graph!.edges.find((e) => e.to.node === node && e.to.port === port)?.from.node;
-    expect(new Set(['albedo1', 'albedo2', 'albedo3', 'albedo4'].map((id) => into(id, 'uv'))).size).toBe(4);
-    expect(into('normal2', 'uv')).toBe(into('albedo2', 'uv'));
+    for (const t of ['heightBlend', 'weightedMix', 'vertexColor', 'projectedSample']) expect(types).toContain(t);
+    // Twelve texture reads (three arrays × four layers), as with one shared value: per-layer values are uniforms (a
+    // biplanar layer reads its second plane only near the camera, inside a branch).
+    expect(types.filter((t) => t === 'projectedSample').length).toBe(12);
+    // Each layer reads at its own tiling and projection (UV0 at the top); the blend takes the contrast and offset; metres, not cells.
+    const edgeInto = (node: string, port: string) => m.graph!.edges.find((e) => e.to.node === node && e.to.port === port);
+    const into = (node: string, port: string): string | undefined => edgeInto(node, port)?.from.node;
+    expect(new Set(['albedo1', 'albedo2', 'albedo3', 'albedo4'].map((id) => edgeInto(id, 'scale')?.from.port)).size).toBe(4);
+    expect(edgeInto('normal2', 'scale')).toEqual({ ...edgeInto('albedo2', 'scale')!, id: edgeInto('normal2', 'scale')!.id, to: { node: 'normal2', port: 'scale' } });
+    for (const i of [1, 2, 3, 4]) for (const id of [`albedo${i}`, `normal${i}`, `orm${i}`]) {
+      expect(into(id, 'mode')).toBe('projectionSplit');
+      expect(into(id, 'near')).toBe('biplanarDistance');
+    }
+    expect(m.graph!.nodes.find((n) => n.id === 'normal1')!.data).toEqual({ decode: 'normal', colorSpace: 'linear' });
     expect(into('heightBlend', 'contrast')).toBe('layerContrast');
     expect(into('heightBlend', 'offset')).toBe('layerOffset');
     // Wetness: the scene's is added, it pools by the blended height and flattens every layer's normal map.
@@ -80,6 +87,16 @@ describe('height-blended layers', () => {
     const reads = [...textureReads(c.slots.color), ...textureReads(c.slots.normal), ...textureReads(c.slots.roughness)];
     expect(reads.length).toBeGreaterThanOrEqual(12);
     expect(reads.every((r) => r.array && r.depth)).toBe(true);
+    // Every layer at the top: plain reads, as before projections existed (the projection is the material's own, private).
+    expect(m.parameters!.find((p) => p.key === 'layerProjection')!.visibility).toBe('private');
+    expect(reads.every((r) => !r.grad)).toBe(true);
+    // A layer by slope reads with its UV's derivatives (the plane may change per pixel); the others stay plain.
+    const projected = { ...withArrays, parameters: withArrays.parameters.map((p) => (p.key === 'layerProjection' ? { ...p, default: [0, 0, 0, 1] } : p)) };
+    const c2 = compileMaterialGraph({ graph: projected.graph as MaterialGraphLike, parameters: projected.parameters }, env());
+    expect(c2.problems).toEqual([]);
+    const reads2 = textureReads(c2.slots.color);
+    expect(reads2.filter((r) => r.grad).length).toBe(1);
+    expect(reads2.filter((r) => !r.grad).length).toBe(3);
   });
 
   it('a sampling node reads its layer of an array; a plain texture has one layer and ignores it', () => {
@@ -96,8 +113,8 @@ describe('height-blended layers', () => {
         { id: 'e2', from: { node: 'l', port: 'value' }, to: { node: 's', port: 'layer' } },
       ],
     });
-    expect(textureReads(compileMaterialGraph({ graph: graph('arr') }, env()).slots.color)).toEqual([{ array: true, depth: true }]);
-    expect(textureReads(compileMaterialGraph({ graph: graph('tex') }, env()).slots.color)).toEqual([{ array: false, depth: false }]);
+    expect(textureReads(compileMaterialGraph({ graph: graph('arr') }, env()).slots.color)).toEqual([{ array: true, depth: true, grad: false }]);
+    expect(textureReads(compileMaterialGraph({ graph: graph('tex') }, env()).slots.color)).toEqual([{ array: false, depth: false, grad: false }]);
   });
 
   it('Vertex colour: COLOR_1 and the "first" fallback compile', () => {
