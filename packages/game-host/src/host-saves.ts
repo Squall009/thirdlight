@@ -90,9 +90,19 @@ export function shellSaves(service: () => ProjectSaveService | null, schema: Sav
   return {
     slotCount: schema.slots,
     slots: () => service()?.slots() ?? [],
-    save: (slot, meta) => {
+    save: (slot, meta, done) => {
       const r = rt.requestSave?.(slot, meta);
-      return r === undefined ? 'this runtime cannot save' : r.ok ? null : r.error.message;
+      const problem = r === undefined ? 'this runtime cannot save' : r.ok ? null : r.error.message;
+      const saves = service();
+      if (problem === null && done !== undefined && saves !== null) {
+        // The simulation answers the request a frame or more later; the first outcome for this slot is this save's.
+        const off = saves.onSaved((a) => {
+          if (a.slot !== slot) return;
+          off();
+          done(a.ok ? null : (a.reason ?? 'storage refused the save'));
+        });
+      }
+      return problem;
     },
     load: (slot) => void service()?.loadSlot(slot),
   };

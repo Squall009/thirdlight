@@ -67,8 +67,8 @@ export interface ShellDeps {
   readonly saves: {
     readonly slotCount: number;
     slots(): readonly ShellSlotLike[];
-    /** Make a save now (null: asked; else why not). */
-    save(slot: number, meta: { title: string; location: string; thumbnail: boolean }): string | null;
+    /** Make a save now (null: asked; else why not); `done` hears whether it was stored (null) or why not. */
+    save(slot: number, meta: { title: string; location: string; thumbnail: boolean }, done?: (problem: string | null) => void): string | null;
     load(slot: number): void;
   } | null;
   /** Whether the pause may open now (a game mode may forbid it). */
@@ -255,9 +255,15 @@ export function createShellController(deps: ShellDeps): ShellController {
   const save = (slot: number): void => {
     if (deps.saves === null) return;
     const i = deps.listedScene();
-    const problem = deps.saves.save(slot, { title: '', location: listedId(i) ?? '', thumbnail: true });
-    note = problem === null ? `Saved to slot ${slot}` : `Not saved: ${problem}`;
-    if (problem !== null) deps.log(`save to slot ${slot}: ${problem}`);
+    // "Saved" only once the write committed: a player who closes the page on "Saved" must find the save.
+    const stored = (problem: string | null): void => {
+      if (disposed) return;
+      note = problem === null ? `Saved to slot ${slot}` : `Not saved: ${problem}`;
+      if (problem !== null) deps.log(`save to slot ${slot}: ${problem}`);
+    };
+    const problem = deps.saves.save(slot, { title: '', location: listedId(i) ?? '', thumbnail: true }, stored);
+    if (problem === null) note = `Saving to slot ${slot}…`;
+    else stored(problem);
   };
   const setVolume = (k: 'music' | 'sfx' | 'ui', v: number): void => {
     volumes = { ...volumes, [k]: Math.round(Math.min(1, Math.max(0, v)) * 100) / 100 };

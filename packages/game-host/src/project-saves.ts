@@ -128,6 +128,11 @@ export interface ProjectSaveService {
   storageInfo(): SaveStorageInfo;
   /** Whether persistent storage was asked for (at the first save). */
   persistAsked(): boolean;
+  /**
+   * Hear each save's outcome once its write committed or was refused (the game shell's note says
+   * "Saved" only then: a page closed before the commit keeps no save). Returns the unsubscribe.
+   */
+  onSaved(listener: (answer: { readonly slot: number; readonly ok: boolean; readonly reason?: string }) => void): () => void;
 }
 
 const metaKey = (ns: string, slot: number): string => `${ns}:slot:${slot}:meta`;
@@ -137,15 +142,25 @@ const settingsKey = (ns: string): string => `${ns}:project-settings`;
 
 /** The stored project settings document (defaults for fields it lacks), read synchronously at start. */
 export function readProjectSettings(schema: SaveSchema, storage: SaveStorage | undefined, namespace: string): Record<string, SettingsFieldValue> {
-  let stored: unknown = null;
+  return settingsDocumentOf(schema.settings ?? [], readStoredSettings(storage, namespace));
+}
+
+/** The stored settings as kept (only what the player set), or null. */
+function readStoredSettings(storage: SaveStorage | undefined, namespace: string): unknown {
   try {
     const raw = storage?.get(settingsKey(namespace)) ?? null;
-    if (raw !== null && raw.length <= 65_536) stored = JSON.parse(raw) as unknown;
+    return raw !== null && raw.length <= 65_536 ? (JSON.parse(raw) as unknown) : null;
   } catch {
-    stored = null;
+    return null;
   }
-  return settingsDocumentOf(schema.settings ?? [], stored);
 }
+
+/**
+ * Bindings whose field default applies at start (the volumes, the frame-rate cap). The quality and
+ * the render bindings have the project's quality level and render settings under them, which a
+ * field's default must not hide: only a value the player set overrides those.
+ */
+const DEFAULT_APPLIES: ReadonlySet<SettingsEngineBinding> = new Set(['music', 'sfx', 'ui', 'frameRateCap']);
 
 function slotOf(m: StoredMeta): ProjectSlotObservation {
   return { slot: m.slot, title: m.title, chapter: m.chapter, location: m.location, playSeconds: m.playSeconds, savedAt: m.savedAt, version: m.version, bytes: m.bytes, meta: { ...(m.meta ?? {}) }, ...(m.thumbnail !== undefined ? { thumbnail: m.thumbnail } : {}) };
@@ -175,7 +190,11 @@ export function createProjectSaveService(cfg: ProjectSaveServiceConfig): Project
   const known = new Map<number, ProjectSlotObservation>();
   const damaged = new Map<number, string>();
   let chain: Promise<void> = Promise.resolve();
-  let settingsDoc = readProjectSettings(schema, cfg.settingsStorage, ns);
+  const storedSettings = readStoredSettings(cfg.settingsStorage, ns);
+  let settingsDoc = settingsDocumentOf(schema.settings ?? [], storedSettings);
+  // The fields the player set (kept across runs: the stored document holds only these).
+  const playerSet = new Set<string>();
+  if (typeof storedSettings === 'object' && storedSettings !== null) for (const f of schema.settings ?? []) if (Object.prototype.hasOwnProperty.call(storedSettings, f.key) && settingsDoc[f.key] === (storedSettings as Record<string, unknown>)[f.key]) playerSet.add(f.key);
   let info: SaveStorageInfo = { persisted: null, usage: null, quota: null };
   let asked = false;
   /** Ask the browser how much the site uses (and whether it keeps it), then tell the simulation. Never in the save chain: a browser that asks the player must not hold the saves up. */
@@ -201,6 +220,13 @@ export function createProjectSaveService(cfg: ProjectSaveServiceConfig): Project
     cfg.queue({ kind: 'storage', ...info });
   };
   const thumb = { ...SAVE_THUMBNAIL_DEFAULT, ...(schema.thumbnail ?? {}) };
+
+  const savedListeners = new Set<(answer: { readonly slot: number; readonly ok: boolean; readonly reason?: string }) => void>();
+  /** A save's outcome: to the simulation, then to the page's listeners. */
+  const answerSaved = (answer: Extract<SaveEvent, { kind: 'saved' }>): void => {
+    cfg.queue(answer);
+    for (const l of [...savedListeners]) l({ slot: answer.slot, ok: answer.ok, ...(answer.reason !== undefined ? { reason: answer.reason } : {}) });
+  };
 
   const held: SaveRequest[] = [];
   const enqueue = (job: () => Promise<void>): void => {
@@ -234,7 +260,7 @@ export function createProjectSaveService(cfg: ProjectSaveServiceConfig): Project
 
   const applyEngineSettings = (values: Readonly<Record<string, SettingsFieldValue>>): void => {
     if (cfg.applyEngine === undefined) return;
-    for (const f of schema.settings ?? []) if (f.engine !== undefined && values[f.key] !== undefined) cfg.applyEngine(f.engine, values[f.key]!);
+    for (const f of schema.settings ?? []) if (f.engine !== undefined && values[f.key] !== undefined && (playerSet.has(f.key) || DEFAULT_APPLIES.has(f.engine))) cfg.applyEngine(f.engine, values[f.key]!);
   };
   applyEngineSettings(settingsDoc);
 
@@ -261,7 +287,7 @@ export function createProjectSaveService(cfg: ProjectSaveServiceConfig): Project
     enqueue(async () => {
       const bytes = utf8Length(r.text);
       if (bytes > SAVE_LIMITS.documentBytes) {
-        cfg.queue({ kind: 'saved', slot: r.slot, ok: false, reason: `the save is larger than ${SAVE_LIMITS.documentBytes} bytes` });
+        answerSaved({ kind: 'saved', slot: r.slot, ok: false, reason: `the save is larger than ${SAVE_LIMITS.documentBytes} bytes` });
         return;
       }
       const type = picture !== null ? picture.dataUrl.slice(5, picture.dataUrl.indexOf(';')) : '';
@@ -288,12 +314,12 @@ export function createProjectSaveService(cfg: ProjectSaveServiceConfig): Project
       } catch (e) {
         const why = refusal(e, 'storage refused the save');
         log(`save slot ${r.slot} was not stored (${why.code}): ${why.reason}`);
-        cfg.queue({ kind: 'saved', slot: r.slot, ok: false, ...why });
+        answerSaved({ kind: 'saved', slot: r.slot, ok: false, ...why });
         return;
       }
       known.set(r.slot, slotOf(meta));
       damaged.delete(r.slot);
-      cfg.queue({ kind: 'saved', slot: r.slot, ok: true });
+      answerSaved({ kind: 'saved', slot: r.slot, ok: true });
       sendSlots();
       void refreshStorage(false);
     });
@@ -359,6 +385,10 @@ export function createProjectSaveService(cfg: ProjectSaveServiceConfig): Project
     storage: backend.kind,
     storageInfo: () => info,
     persistAsked: () => asked,
+    onSaved(listener) {
+      savedListeners.add(listener);
+      return () => void savedListeners.delete(listener);
+    },
     async start() {
       enqueue(async () => {
         for (let s = 1; s <= schema.slots; s += 1) await readSlot(s);
@@ -383,11 +413,15 @@ export function createProjectSaveService(cfg: ProjectSaveServiceConfig): Project
           case 'delete':
             remove(r.slot);
             break;
-          case 'settings':
-            settingsDoc = settingsDocumentOf(schema.settings ?? [], r.values);
+          case 'settings': {
+            // A game writes its whole document; what the player set is what changed (and what was set before).
+            const next = settingsDocumentOf(schema.settings ?? [], r.values);
+            for (const f of schema.settings ?? []) if (next[f.key] !== settingsDoc[f.key]) playerSet.add(f.key);
+            settingsDoc = next;
             if (cfg.settingsStorage !== undefined) {
               // Refused (full, or no storage): the settings still apply for this session; the game is told.
-              const refused = writeStored(cfg.settingsStorage, settingsKey(ns), JSON.stringify(settingsDoc));
+              const kept = Object.fromEntries([...playerSet].map((k) => [k, settingsDoc[k]]));
+              const refused = writeStored(cfg.settingsStorage, settingsKey(ns), JSON.stringify(kept));
               if (refused !== null) {
                 log(`the settings document was not kept (${refused.code}): ${refused.reason}`);
                 cfg.queue({ kind: 'settings', ok: false, ...refused });
@@ -395,6 +429,7 @@ export function createProjectSaveService(cfg: ProjectSaveServiceConfig): Project
             }
             applyEngineSettings(settingsDoc);
             break;
+          }
         }
       }
     },

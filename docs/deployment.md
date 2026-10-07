@@ -3383,9 +3383,14 @@ player may change:
 A player's setting: a field of the save schema's settings document bound to
 the engine with `engine: 'ambientOcclusion'` (an enum of `off`, `ssao`,
 `gtao`), `'renderScale'` (a number field with `min` ≥ 0.5 and `max` ≤ 1) or
-`'dynamicResolution'` (a bool) applies its value from the start and whenever
-the document is written — the game's settings screen, or a script's
-`ctx.saves.setSetting`. The Saves panel gives a new binding its shape.
+`'dynamicResolution'` (a bool) applies the value the player set — from the
+start and whenever the document is written (the game's settings screen, or a
+script's `ctx.saves.setSetting`). A field the player never changed leaves the
+quality level and the project's setting alone: its default is what the
+settings screen shows, not an override (the same for a `quality` field and
+the project's starting level; volume and `frameRateCap` fields apply their
+default from the start). The stored settings document keeps only the fields
+the player set. The Saves panel gives a new binding its shape.
 Play diagnostics report `renderer.render` (`ambientOcclusion`, `renderScale`,
 `dynamicResolution`, the `scale` drawn now, `internal`: the scene's size in
 pixels, and dynamic resolution's state: its source `gpu` or `frame`, the last
@@ -3414,8 +3419,8 @@ sets:
   to it), `localLights` (0–16 point and spot lights drawn at once),
   `ambientOcclusion` (off/ssao/gtao), `lodBias` (0.25–4, over `lod_bias`) and
   `dynamicResolution`. What a level leaves out is the project's setting; a
-  player's settings field bound to `renderScale`, `ambientOcclusion` or
-  `dynamicResolution` lays over the level, and the page flags (`?ao=`,
+  value the player set in a settings field bound to `renderScale`,
+  `ambientOcclusion` or `dynamicResolution` lays over the level, and the page flags (`?ao=`,
   `?renderScale=`, `?dynamicResolution=`) over everything.
 
 The player's quality setting picks the level: a settings field bound with

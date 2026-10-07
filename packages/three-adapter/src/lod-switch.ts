@@ -55,6 +55,15 @@ export function pickLodLevel(levels: readonly { readonly distance: number; reado
  */
 export const LOD_CULL_LEVEL_KEY = '__tlLodCull';
 
+/**
+ * `lod.userData[LOD_MODEL_SCALE_KEY]`: the scale of the model's own nodes above
+ * a LOD made from its `_LOD<n>` nodes (an FBX unit node of 0.01, say). Its
+ * switch distances come from a radius measured with those scales already in,
+ * so a pick divides the camera distance only by the scale on top of them (the
+ * object's, as an instance-set copy does), not by that one again.
+ */
+export const LOD_MODEL_SCALE_KEY = '__tlLodModelScale';
+
 /** `scene.userData[LOD_TUNING_KEY]`: the adapter's {@link LodTuning} (its frame's switch counts for tools reading the scene). */
 export const LOD_TUNING_KEY = 'tlLodTuning';
 

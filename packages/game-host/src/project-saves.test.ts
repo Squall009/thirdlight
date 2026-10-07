@@ -95,6 +95,9 @@ describe('project saves: refused writes', () => {
     let full = false;
     const events: SaveEvent[] = [];
     const svc = createProjectSaveService({ schema: { version: 1, slots: 3 }, backend: refusingBackend(map, () => (full ? quota() : null)), namespace: 'n', queue: (e) => void events.push(e), now: () => '2026-10-03T00:00:00.000Z' });
+    // The page hears the same outcomes, after the write (the slot is stored by then).
+    const heard: unknown[] = [];
+    svc.onSaved((a) => heard.push({ ...a, stored: map.has('n:slot:1:meta') }));
     await svc.start();
     svc.handle([{ op: 'save', slot: 1, meta: plainMeta, text: docOf(1) }]);
     await svc.idle();
@@ -104,6 +107,10 @@ describe('project saves: refused writes', () => {
     expect(events.filter((e) => e.kind === 'saved')).toEqual([
       { kind: 'saved', slot: 1, ok: true },
       { kind: 'saved', slot: 1, ok: false, reason: 'The quota has been exceeded.', code: 'storage_full' },
+    ]);
+    expect(heard).toEqual([
+      { slot: 1, ok: true, stored: true },
+      { slot: 1, ok: false, reason: 'The quota has been exceeded.', stored: true },
     ]);
     expect(svc.slots()[0]?.title).toBe('A');
     await svc.loadSlot(1);
@@ -154,5 +161,39 @@ describe('project saves: refused writes', () => {
     expect(svc.persistAsked()).toBe(true);
     expect(svc.storageInfo()).toEqual({ persisted: true, usage: 900, quota: 5000 });
     expect(events.filter((e) => e.kind === 'storage').at(-1)).toEqual({ kind: 'storage', persisted: true, usage: 900, quota: 5000 });
+  });
+});
+
+describe('project saves: engine-bound settings fields', () => {
+  it("a field's default does not override the quality level or the project's render settings; only what the player set does, also on the next run", async () => {
+    const kv = new Map<string, string>();
+    const storage = { get: (k: string) => kv.get(k) ?? null, set: (k: string, v: string) => void kv.set(k, v), remove: (k: string) => void kv.delete(k) };
+    const schema = {
+      version: 1,
+      slots: 1,
+      settings: [
+        { key: 'quality', type: 'enum' as const, default: 'high', values: ['low', 'medium', 'high'], engine: 'quality' as const },
+        { key: 'scale', type: 'number' as const, default: 1, min: 0.5, max: 1, engine: 'renderScale' as const },
+        { key: 'music', type: 'number' as const, default: 0.8, engine: 'music' as const },
+      ],
+    };
+    const start = () => {
+      const applied: [string, unknown][] = [];
+      const svc = createProjectSaveService({ schema, backend: memoryProjectSaveBackend(), namespace: 'n', settingsStorage: storage, queue: () => undefined, applyEngine: (b, v) => void applied.push([b, v]) });
+      return { svc, applied };
+    };
+    // First run, nothing stored: only the volume's default applies (it has nothing under it).
+    const a = start();
+    expect(a.applied).toEqual([['music', 0.8]]);
+    // The game writes its whole document with the player's new scale: only that one is the player's.
+    a.applied.length = 0;
+    a.svc.handle([{ op: 'settings', values: { quality: 'high', scale: 0.75, music: 0.8 } }]);
+    expect(a.applied).toEqual([['renderScale', 0.75], ['music', 0.8]]);
+    expect(JSON.parse(kv.get('n:project-settings')!)).toEqual({ scale: 0.75 });
+    expect(a.svc.settings()).toEqual({ quality: 'high', scale: 0.75, music: 0.8 });
+    // The next run applies the scale the player set; the quality field's default still leaves the level alone.
+    const b = start();
+    expect(b.applied).toEqual([['renderScale', 0.75], ['music', 0.8]]);
+    expect(b.svc.settings()).toEqual({ quality: 'high', scale: 0.75, music: 0.8 });
   });
 });

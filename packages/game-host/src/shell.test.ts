@@ -129,6 +129,20 @@ describe('the game shell controller', () => {
     expect([ctl.screen, state.paused, state.panel]).toEqual(['playing', false, false]);
   });
 
+  it('the note says "Saved" only once the write is stored, else why not', () => {
+    const answers: ((problem: string | null) => void)[] = [];
+    const saves: NonNullable<ShellDeps['saves']> = { slotCount: 3, slots: () => [], save: (_slot, _meta, done) => (answers.push(done!), null), load: () => undefined };
+    const { ctl } = harness({ scenes: [{ scene: 'a' }] }, { saves });
+    ctl.start();
+    ctl.engine({ do: 'engine', action: 'save', slot: '1' });
+    expect(ctl.values()['note']).toBe('Saving to slot 1…');
+    answers[0]!(null);
+    expect(ctl.values()['note']).toBe('Saved to slot 1');
+    ctl.engine({ do: 'engine', action: 'save', slot: '2' });
+    answers[1]!('The quota has been exceeded.');
+    expect(ctl.values()['note']).toBe('Not saved: The quota has been exceeded.');
+  });
+
   it('saves and loads numbered slots; Continue loads the newest; the slots are UI values', () => {
     const { ctl, log } = harness({ scenes: [{ scene: 'a' }] });
     ctl.start();

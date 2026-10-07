@@ -23,6 +23,17 @@ import { ProbeLighting } from './probe-lighting';
 /** A bake record as the adapter carries it (`LightingBake.probes`, structurally). */
 export interface ProbeBakeLike {
   readonly grids: readonly ProbeGridRecord[];
+  /** When it was baked: a bake again in the editor publishes its tiles under the same asset ids. */
+  readonly createdAt?: string;
+}
+
+/**
+ * A tile's resource key: its file, the bake that wrote it and its probe count. A re-bake keeps the asset
+ * ids (the files are replaced in place), so the file alone would hand back the old bake's decoded probes,
+ * packed with the new tile's resolution.
+ */
+export function probeTileKey(grid: ProbeGridRecord, bake: ProbeBakeLike): string {
+  return `probes:${grid.asset}@${bake.createdAt ?? ''}:${grid.resolution.join('x')}`;
 }
 
 export interface LoadedProbeTile {
@@ -84,7 +95,8 @@ export function createProbeGridSet(
   const drop = (sceneId: string): void => {
     const rec = followed.get(sceneId);
     if (rec === undefined) return;
-    for (const g of bakes[sceneId]?.grids ?? []) resources.release('texture', `probes:${g.asset}`, holder);
+    const bake = bakes[sceneId];
+    for (const g of bake?.grids ?? []) resources.release('texture', probeTileKey(g, bake!), holder);
     followed.delete(sceneId);
     if (rec.tiles.length > 0 && !disposed) onChange?.();
   };
@@ -97,9 +109,10 @@ export function createProbeGridSet(
         if (followed.has(sceneId)) continue;
         const rec = { tiles: [] as LoadedProbeTile[], pending: 0 };
         followed.set(sceneId, rec);
-        for (const grid of bakes[sceneId]!.grids) {
+        const bake = bakes[sceneId]!;
+        for (const grid of bake.grids) {
           rec.pending++;
-          resources.acquire<Decoded>('texture', `probes:${grid.asset}`, holder, load(grid)).then(
+          resources.acquire<Decoded>('texture', probeTileKey(grid, bake), holder, load(grid)).then(
             (d) => {
               rec.pending--;
               if (disposed || followed.get(sceneId) !== rec) return;

@@ -13,7 +13,8 @@
 import { COLLIDER_3D_LIMITS, LOD_REFERENCE_FOV_DEG, LOD_SCREEN_SIZES_DEFAULT, MAX_COLLIDER_EXTENT, MAX_POLYGON_VERTICES, colliderFromTriangles, convexFromPoints, convexHull2, lodCullSizeOf, lodScreenSizesFor, polygonFromPoints, roundMm, type ModelLodSettings } from '@thirdlight/runtime';
 import * as THREE from 'three';
 
-import { LOD_CULL_LEVEL_KEY } from './lod-switch';
+import { LOD_CULL_LEVEL_KEY, LOD_MODEL_SCALE_KEY } from './lod-switch';
+import { maxScaleOf } from './view-cull';
 
 const LOD_RE = /^(.*)_LOD(\d+)$/i;
 const COL_RE = /^(.*)_COL$/i;
@@ -127,6 +128,8 @@ export function applyLodGroups(root: THREE.Object3D, lod?: ModelLodSettings): nu
     byBase.set(base, list);
   });
   const cullSize = lodCullSizeOf(lod);
+  // Radii and node scales below are measured in the model's own frame.
+  root.updateMatrixWorld(true);
   let made = 0;
   for (const [parent, byBase] of sets) {
     for (const [base, list] of byBase) {
@@ -138,6 +141,7 @@ export function applyLodGroups(root: THREE.Object3D, lod?: ModelLodSettings): nu
       group.name = `${base}_LOD`;
       for (const l of list) parent.remove(l.object);
       addLevels(group, list.map((l) => l.object), radius, sizes, cullSize);
+      group.userData[LOD_MODEL_SCALE_KEY] = maxScaleOf(parent.matrixWorld.elements);
       parent.add(group);
       made += 1;
     }
@@ -151,6 +155,7 @@ export function applyLodGroups(root: THREE.Object3D, lod?: ModelLodSettings): nu
     const group = new THREE.LOD();
     group.name = 'model_LOD';
     addLevels(group, [all], radius, [], cullSize);
+    group.userData[LOD_MODEL_SCALE_KEY] = maxScaleOf(root.matrixWorld.elements);
     root.add(group);
     made = 1;
   }

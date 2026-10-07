@@ -329,6 +329,11 @@ test('quality levels: the engine\'s low draws without MSAA in the Scene view and
   };
   const diagnostics = async (psid: string): Promise<Diag> => ((await relay(`${psid}/diagnostics`)).json['diagnostics'] as { renderer?: Diag } | undefined)?.renderer ?? {};
   const level = async (psid: string, id: string): Promise<{ status: number; json: Record<string, unknown> }> => relay(`${psid}/control`, { command: 'setQuality', level: id });
+  // Player settings fields for the render scale and the AO, never touched: their defaults (1, ssao) leave the levels' own.
+  await command('setSaveSchema', { schema: { version: 1, slots: 1, settings: [
+    { key: 'scale', type: 'number', min: 0.5, max: 1, default: 1, engine: 'renderScale' },
+    { key: 'ao', type: 'enum', values: ['off', 'ssao', 'gtao'], default: 'ssao', engine: 'ambientOcclusion' },
+  ] } });
   for (const variant of ['auto', 'webgl2'] as const) {
     await page.goto(editorUrlFor(be.editorUrl, variant));
     await expect(page.locator('.tl-statusbar')).toContainText('connected');

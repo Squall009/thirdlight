@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
 
 import { BATCH_KEY, createAutoBatcher } from './batching';
+import { applyLodGroups } from './pieces';
 import { RenderGraph } from './render-graph';
 import { STATIC_KEY } from './static-merge';
 
@@ -215,6 +216,55 @@ describe('RenderGraph: only what moved, one LOD level, flat model files', () => 
     holder.removeFromParent();
     expect(scene.children).toEqual([]);
     expect(graph.counts().lodSwitches).toBe(0);
+  });
+
+  it('a model whose LOD nodes sit under a scaled unit node switches where the same model unscaled does, moved out by the object scale only', () => {
+    /** The model as a file holds it: `unit` scales `size`-metre LOD nodes to the same 1 m box either way. */
+    const model = (unit: number): THREE.Group => {
+      const root = new THREE.Group();
+      const holder = new THREE.Group();
+      holder.scale.setScalar(unit);
+      for (const n of [0, 1]) {
+        const m = new THREE.Mesh(new THREE.BoxGeometry(1 / unit, 1 / unit, 1 / unit), new THREE.MeshBasicMaterial());
+        m.name = `Box_LOD${n}`;
+        holder.add(m);
+      }
+      root.add(holder);
+      expect(applyLodGroups(root)).toBe(1);
+      return root;
+    };
+    /** Where level 1 takes over for a model placed at `objectScale`, found by walking the camera out. */
+    const switchAt = (unit: number, objectScale: number): { at: number; levelDistance: number } => {
+      const scene = new THREE.Scene();
+      const graph = new RenderGraph(scene, () => false);
+      graph.addEntity('m', null);
+      graph.world.setLocal('m', [0, 0, 0], [0, 0, 0, 1], [objectScale, objectScale, objectScale]);
+      const root = model(unit);
+      let lod: THREE.LOD | null = null;
+      root.traverse((o) => {
+        if ((o as THREE.LOD).isLOD === true) lod = o as THREE.LOD;
+      });
+      graph.nodeFor('m')!.add(root);
+      graph.update();
+      const camera = new THREE.PerspectiveCamera();
+      const lod0 = lod!.levels[0]!.object;
+      for (let z = 0.5; z < 1000; z += 0.25) {
+        camera.position.set(0, 0, z);
+        graph.updateLods(camera);
+        if (!scene.children.includes(lod0 as THREE.Mesh)) return { at: z, levelDistance: lod!.levels[1]!.distance };
+      }
+      return { at: Number.NaN, levelDistance: lod!.levels[1]!.distance };
+    };
+    const flat = switchAt(1, 1);
+    const unitScaled = switchAt(0.01, 1);
+    expect(flat.at).toBeGreaterThan(1);
+    // The 0.01 unit node is not counted a second time: the same switch point.
+    expect(unitScaled.at).toBe(flat.at);
+    expect(unitScaled.levelDistance).toBeCloseTo(flat.levelDistance, 6);
+    // The object's scale moves it out (twice the size: twice as far), as an instance-set copy's level distance × its scale.
+    const doubled = switchAt(0.01, 2);
+    expect(doubled.at).toBeGreaterThanOrEqual(2 * unitScaled.levelDistance);
+    expect(doubled.at).toBeLessThan(2 * unitScaled.levelDistance + 0.25 + 1e-9);
   });
 
   it("moves a static mesh's child nodes beside it (their offset baked) and puts them back when the model leaves", () => {

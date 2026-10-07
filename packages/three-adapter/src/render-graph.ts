@@ -58,7 +58,7 @@ import * as THREE from 'three';
 import { WorldMatrices } from '@thirdlight/runtime';
 
 import type { BatchMembership } from './batching';
-import { LOD_LEVEL_KEY, LOD_OWNER_KEY, LodTuning, pickLodLevel } from './lod-switch';
+import { LOD_LEVEL_KEY, LOD_MODEL_SCALE_KEY, LOD_OWNER_KEY, LodTuning, pickLodLevel } from './lod-switch';
 import { maxScaleOf } from './view-cull';
 import { isStaticCaster, MOVING_CASTER_KEY } from './shadow-casters';
 
@@ -114,6 +114,8 @@ interface LodSwitch {
   readonly root: THREE.Object3D;
   /** The LOD's offset from the entity (null: its matrixWorld is kept right by the hierarchy or its owner). */
   readonly offset: THREE.Matrix4 | null;
+  /** The model's node scales its switch distances already hold ({@link LOD_MODEL_SCALE_KEY}; 1: none recorded). */
+  readonly modelScale: number;
   /** The level drawn (-1: none picked yet). */
   active: number;
   readonly parts: Part[];
@@ -452,9 +454,9 @@ export class RenderGraph {
       const dx = cam.x - e[12]!;
       const dy = cam.y - e[13]!;
       const dz = cam.z - e[14]!;
-      // A scaled model covers more of the screen: its switch points move out with its scale (screen sizes, as
-      // instance-set copies pick them).
-      const distance = (Math.sqrt(dx * dx + dy * dy + dz * dz) * scale) / (maxScaleOf(e) || 1);
+      // A scaled object covers more of the screen: its switch points move out with its scale (screen sizes, as
+      // instance-set copies pick them). The model's own node scales are in its switch distances already.
+      const distance = (Math.sqrt(dx * dx + dy * dy + dz * dz) * scale) / (maxScaleOf(e) / sw.modelScale || 1);
       const level = pickLodLevel(sw.lod.levels, distance, sw.active, tuning.hysteresis);
       if (level === sw.active) continue;
       if (sw.active >= 0) tuning.switches += 1;
@@ -571,7 +573,8 @@ export class RenderGraph {
     const visit = (o: THREE.Object3D, gates: readonly Gate[]): void => {
       const lod = o as THREE.LOD;
       if (lod.isLOD === true) {
-        const sw: LodSwitch = { lod, owner: sub, root, offset: baked ? offsetOf(lod) : null, active: -1, parts: [] };
+        const ms = lod.userData[LOD_MODEL_SCALE_KEY] as unknown;
+        const sw: LodSwitch = { lod, owner: sub, root, offset: baked ? offsetOf(lod) : null, modelScale: typeof ms === 'number' && ms > 0 ? ms : 1, active: -1, parts: [] };
         h.switches.push(sw);
         this.switches.add(sw);
         this.lodsDirty = true;

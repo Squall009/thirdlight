@@ -148,6 +148,8 @@ test('Play diagnostics: the audio block before and after the unlock, and the mes
   try {
     // Before any gesture in the game: locked, the music waits, the short sounds are dropped for the unlock.
     await expect.poll(async () => (await http())?.audio?.skipped['locked'] ?? 0, { timeout: 60_000, message: 'a short sound dropped while locked' }).toBeGreaterThan(0);
+    // The burst is sent at step 30, after the first dropped sound (step 0): wait for it too.
+    await expect.poll(async () => (await http())?.runtime?.messageQueue?.refused ?? 0, { timeout: 30_000, message: 'the burst refused' }).toBeGreaterThan(0);
     const before = (await http())!;
     const a0 = before.audio!;
     expect(a0.unlock).toMatchObject({ state: 'locked', reason: 'waiting_for_gesture', context: 'none', muted: false });
