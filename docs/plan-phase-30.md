@@ -710,7 +710,8 @@ cause and a follow-up, never a reason to throw an item away (owner,
   - The fast gate's village perf check missed on WebGPU from 18:30 on (p50 6.7–7.2 ms against 6.16; the plain three.js
     page unchanged at 6.3–6.5 ms) with the host's load average at 3–6 from outside the project; the commit before
     30.12 (ed1b037b, built in a worktree) measured 6.9 ms in the same hour, part A alone 7.1 ms, so host drift, not
-    this item (part A's gate at 17:53 measured 5.7 ms). WebGL 2 stayed within its limit.
+    this item (part A's gate at 17:53 measured 5.7 ms). WebGL 2 stayed within its limit. Parts B and C committed with
+    the rest of their fast gate green and the perf check red on that drift: D192.
 - 2026-10-07 (30.12 part C): the macro texture. Default chosen, owner to confirm:
   - Opt-in per terrain (`macroDistance`, additive optional, no schema bump; GameObject → Terrain does not set it).
     Baked on the page's GPU from the material the terrain draws with (whatever graph: no separate "macro material"
