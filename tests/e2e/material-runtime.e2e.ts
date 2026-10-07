@@ -261,8 +261,9 @@ for (const variant of VARIANTS) test(`a script sets one object's colour and writ
   const before = (await diag())!;
   expect(before.materials).toEqual({ graphMaterials: 1, objects: 2, dataTextures: 1 });
   expect(before.gpu!.programs).toBeGreaterThan(0);
-  // Six value changes at 120 steps per second: a recompile per value would show by now.
-  await page.waitForTimeout(600);
+  // 2.5 s (25 value changes): a recompile per value, which can land a second or more after the change on a busy
+  // host, would show by now.
+  await page.waitForTimeout(2_500);
   const after = (await diag())!;
   console.log(`[material-runtime] ${variant} play: programs ${before.gpu!.programs} → ${after.gpu!.programs}, draw calls ${before.frame?.drawCalls} → ${after.frame?.drawCalls}`);
   expect(after.materials).toEqual({ graphMaterials: 1, objects: 2, dataTextures: 1 });

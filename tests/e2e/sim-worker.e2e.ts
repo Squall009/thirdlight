@@ -230,8 +230,8 @@ test('Play never waits on the simulation: it draws at the display rate with a sl
     await page.waitForTimeout(500);
     const d0 = await diagnostics(psid);
     const t0 = Date.now();
-    // Three seconds: a frame (33 ms) and a diagnostics round trip at each end are under 3 % of it, inside the ±7 % below.
-    await page.waitForTimeout(3000);
+    // Four seconds: a frame (33 ms) and a diagnostics round trip at each end are about 2 % of it, well inside the ±7 % below.
+    await page.waitForTimeout(4000);
     const d1 = await diagnostics(psid);
     const seconds = (Date.now() - t0) / 1000;
     const p0 = d0.simulation.pipeline!;
@@ -323,10 +323,10 @@ test('the export: the worker by default (messages; shared memory under COOP/COEP
       // Equal windows standing and moving: walking scrolls the view well past what standing changes in the same time.
       await game.waitForTimeout(500);
       const still0 = await game.screenshot();
-      await game.waitForTimeout(750);
+      await game.waitForTimeout(1500);
       const still1 = await game.screenshot();
       await game.keyboard.down('d');
-      await game.waitForTimeout(750);
+      await game.waitForTimeout(1500);
       await game.keyboard.up('d');
       const moved = await game.screenshot();
       const idle = diff(still0, still1);

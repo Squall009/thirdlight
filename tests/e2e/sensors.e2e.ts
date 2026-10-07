@@ -10,7 +10,7 @@
  *   "here"); a magenta door beside the player carries a script whose
  *   entityRef property names the trigger. On the trigger's `enter` event
  *   (ctx.events) it starts a 0.5 s timer that hides the door, which comes back
- *   2 s later (ctx.timers.after/fired); an `every` timer counts ticks and the
+ *   4 s later (ctx.timers.after/fired); an `every` timer counts ticks and the
  *   stay signal counts every step inside. Observed through the game counters
  *   and as magenta pixels (door shown, gone, shown again).
  */
@@ -92,8 +92,9 @@ async function script(behaviorId: string, source: string, entityId: string, valu
 
 /**
  * The timed door: the step after the player enters its sensor it waits half a
- * second, hides itself, and shows itself again two seconds later (short, so the
- * run is brief; long enough to see the open door in pixels).
+ * second, hides itself, and shows itself again four seconds later (long enough
+ * that the open door is seen in pixels and the "not closed yet" check holds on
+ * a busy host).
  */
 const DOOR = [
   'export default {',
@@ -107,7 +108,7 @@ const DOOR = [
   '    for (const e of ctx.events) {',
   "      if (e.type === 'enter' && e.trigger === ctx.properties.sensor) { ctx.game.add('entered', 1); ctx.timers.after('open', 0.5); }",
   '    }',
-  "    if (ctx.timers.fired('open')) { ctx.game.setVisible(ctx.entityId, false); ctx.game.add('opened', 1); ctx.timers.after('close', 2); }",
+  "    if (ctx.timers.fired('open')) { ctx.game.setVisible(ctx.entityId, false); ctx.game.add('opened', 1); ctx.timers.after('close', 4); }",
   "    if (ctx.timers.fired('close')) { ctx.game.setVisible(ctx.entityId, true); ctx.game.add('closed', 1); }",
   '  },',
   '  dispose() {},',
@@ -198,7 +199,7 @@ test('a circle trigger in the Inspector and the Scene view; a timed door script 
   // The player starts inside the circle: one enter event, the stay signal every step.
   await expect.poll(async () => counter('entered'), { timeout: 30_000 }).toBe(1);
   await expect.poll(async () => counter('stayed'), { timeout: 30_000 }).toBeGreaterThan(30);
-  // Half a second later the door opens (hidden: no magenta), two seconds after that it closes again.
+  // Half a second later the door opens (hidden: no magenta), four seconds after that it closes again.
   await expect.poll(async () => counter('opened'), { timeout: 30_000 }).toBe(1);
   expect(await counter('closed')).toBe(0);
   await expect.poll(async () => magenta(frame), { timeout: 10_000 }).toBeLessThan(4);

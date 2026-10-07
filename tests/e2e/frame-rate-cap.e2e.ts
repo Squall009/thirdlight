@@ -58,12 +58,15 @@ const DRIVER = [
 ].join('\n');
 
 /**
- * Each rate is measured over 3 s (90 frames at 30, 360 steps): a frame or step either way, or the
- * diagnostics round trips' jitter at the window's ends, stays well inside the bounds below.
+ * Each rate is measured over 5 s (150 frames at 30, 600 steps): a frame or step either way, or the
+ * diagnostics round trips' jitter at the window's ends, stays well inside the bounds below (at 60 fps the
+ * upper bound is 4 % over: 3 s windows left a frame and a round trip of jitter barely inside it). The kept
+ * and player settings are checked over 3 s: their reading only has to tell 30 from 60.
  */
-const WINDOW_S = 3;
+const WINDOW_S = 5;
+const SHORT_WINDOW_S = 3;
 /** After the cap reads back, the frames already queued at the old rate are drawn before a window starts. */
-const SWITCH_MS = 250;
+const SWITCH_MS = 500;
 
 type Diagnostics = { runtime: { stepIndex: number; droppedSteps: number; frameCount: number }; simulation: { pipeline: { frames: number; ticksSkipped: number; framesWithoutWorkerFrame: number; workerRoundTripMs: unknown; inputToDrawMs: unknown } | null }; framePacing: { frameRateCap: number | null; drawnFrames: number; skippedFrames: number; displayMs: number } | null };
 
@@ -148,7 +151,7 @@ test('the frame-rate cap: project setting, script and player setting change the 
   await run(psid, 'setting', { value: '30' });
   await expect.poll(() => observeCap(psid), { timeout: 15_000 }).toBe(30);
   await page.waitForTimeout(SWITCH_MS);
-  const player30 = await measure(psid, WINDOW_S, 'player setting 30');
+  const player30 = await measure(psid, SHORT_WINDOW_S, 'player setting 30');
   expect(player30.fps).toBeGreaterThan(27);
   expect(player30.fps).toBeLessThan(31.5);
   steady(player30.steps);
@@ -161,7 +164,7 @@ test('the frame-rate cap: project setting, script and player setting change the 
   await expect.poll(() => observeCap(psid), { timeout: 15_000 }).toBe(60);
   expect((await diagnostics(psid)).framePacing!.frameRateCap).toBe(60);
   await page.waitForTimeout(SWITCH_MS);
-  const kept = await measure(psid, WINDOW_S, 'kept player setting 60');
+  const kept = await measure(psid, SHORT_WINDOW_S, 'kept player setting 60');
   expect(kept.fps).toBeGreaterThan(55);
   expect(kept.fps).toBeLessThan(62.5);
   steady(kept.steps);
