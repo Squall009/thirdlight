@@ -221,7 +221,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   let lightmaps: LightmapSet | null = lightmapSetOf(opts.lighting?.bakes ?? null);
   lightmapsLive = lightmaps;
   /** The loaded scenes' baked probe tiles (they follow the realized scenes) and the probe light every material samples. */
-  const probes = createProbeLightingHost(scene, resources, opts.lighting?.loadBytes, () => opts.onChange?.());
+  const probes = createProbeLightingHost(scene, resources, opts.lighting?.loadBytes, { onChange: () => opts.onChange?.(), ...(opts.lighting?.onProblem !== undefined ? { onProblem: opts.lighting.onProblem } : {}) });
   probes.setBakes(opts.lighting?.bakes ?? null);
   /** Entities the runtime hides (`ctx.game.setVisible`, a collected collectible), with their children. */
   let hiddenIds: ReadonlySet<string> = NO_HIDDEN;
@@ -1472,6 +1472,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     // them); the first frame with the key light's shadow is its probe: if it throws, shadows go off
     // (soft degradation: the `shadows`/`shadowReason` pair is the diagnostic) and it is drawn again without.
     const probing = lights.beforeFrame(renderer);
+    probes.beforeFrame(renderer as unknown as Parameters<typeof probes.beforeFrame>[0], camera!);
     try {
       // A quality level also applies without a project environment (a level without MSAA
       // draws through a plain pass), so the environment renderer draws then too.

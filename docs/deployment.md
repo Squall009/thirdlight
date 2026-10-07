@@ -1650,6 +1650,26 @@ probes.
 - The probes hold first-order light (soft directional indirect light; four
   texture reads a pixel). Where tiles meet, the first tile of the scene
   holds the shared face (both hold the same probes there).
+- **Large worlds stream their probes.** Only the tiles nearest the camera
+  are loaded and on the GPU, as many as the probe memory budget holds
+  (128 MB, `PROBE_RESIDENT_BYTES`; the tiles of every loaded scene compete
+  by distance, never by scene order); surfaces beyond them get the flat
+  ambient light, fading over one spacing past the last resident tile. As the
+  camera moves, tiles ahead load and tiles behind are dropped: an arriving
+  tile is uploaded into its own place of the shared texture and nothing else
+  is touched. When the budget leaves tiles out the Problems list says so
+  once (`probe_budget`; a tile that cannot be read: `probe_load`). Play
+  diagnostics `renderer.probes`: `tiles` (of the loaded scenes), `resident`,
+  `beyondBudget`, `loaded`, `budgetBytes`, `textureBytes` (the textures as
+  allocated), `indexCells`/`indexEntries` (the lookup grid), `uploads` /
+  `uploadedBytes`, `unplaced` (0 unless the texture's 2,048-texel edge is
+  reached). Measured on this host's Iris Xe at 1920 × 1080: a synthetic
+  2 km × 2 km world (512 tiles, 14 million probes, 663 MB if all were on the
+  GPU) keeps 98 tiles resident in 128 MB, has them on the GPU 2.8 s after
+  the page opened, and costs WebGPU 1.6 ms a frame over no probes (every
+  pixel probe-lit); a tile's arrival costs the main thread 20–30 ms
+  (34,000 probes: undoing the PNG row filters and packing; the file
+  inflates natively, off the JavaScript thread).
 - Light layers: the probes light every layer (they are indirect light).
 - A light with mode `baked` that a lightmap bake holds is off for moving
   objects too: they get its bounce from the probes, not its direct light;
@@ -3783,7 +3803,7 @@ its reason (the same line is next to its constant in the code):
 | Light layers | 8 (`LIGHT_LAYER_COUNT`) | Masks are small integers kept per object and per light; the names are labels in Project Settings |
 | Fog volumes | 16 per scene | A fixed-size uniform array in the shader |
 | Lightmaps | 16 atlases and 4,096 entries per scene bake, 64 baked lights | The bake's own format |
-| Probe grids | Tiles of at most 64 intervals a side (`PROBE_TILE_INTERVALS`; any number of tiles), at most 8 bounces; loaded tiles share one 3D texture of at most 2,048 texels a side (`PROBE_PACK_MAX_EDGE`; tiles past it are listed as `unplaced` in diagnostics and lit by the flat ambient light) | One tile is one texture file; 2,048 is WebGPU's default 3D texture limit, and one texture for all tiles keeps a pixel's probe lookup to one table |
+| Probe grids | Tiles of at most 64 intervals a side (`PROBE_TILE_INTERVALS`; any number of tiles), at most 8 bounces; the tiles nearest the camera are resident within 128 MB of GPU memory (`PROBE_RESIDENT_BYTES`; the textures may take 1.25× for gaps, `PROBE_ATLAS_SLACK`), the rest are not loaded (flat ambient light there; `beyondBudget` in diagnostics and a `probe_budget` problem); one 3D texture of at most 2,048 texels a side (`PROBE_PACK_MAX_EDGE`) holds the resident tiles | A world of any size streams its probes like its scenes; 128 MB holds about 1 km² of 2 m probes 16 m high; 2,048 is WebGPU's default 3D texture limit, above the budget's need. A pixel finds its tile through a grid index in constant time however many tiles are resident |
 | Texture arrays | 256 layers | What WebGL 2 and WebGPU both guarantee |
 | Texture edge | 4,096 px | Kept after streaming: the KTX2 encoder makes at most about 3,500² (12 Mpix), WebGL 2 promises only 2,048 and many devices stop at 4,096, and a streamed texture close to the camera still needs its full-size level |
 | Texture budget | 512 MiB by default (`texture_budget_mb`, 1–65,536) | A runtime budget: streamed textures' mips fit it, the least needed dropped first; the mip tails and textures that do not stream are counted, never dropped |

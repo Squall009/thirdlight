@@ -2,9 +2,9 @@ import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
 import { PROBE_ARTIFACT_ROW_PROBES, PROBE_FILLED, PROBE_GPU_TEXELS, PROBE_MOVED, PROBE_SH_TEXELS, PROBE_TEXELS, PROBE_VALID, probeGridGpuBytes } from '@thirdlight/runtime';
 
-import { atlasFromSamples, decodeProbeArtifact, encodePng16, packProbeTexels } from './probe-artifact';
+import { atlasFromSamples, decodeProbeArtifact, decodeProbeSamples, encodePng16, packProbeTexels } from './probe-artifact';
 import { edgeWalls } from './probe-bake';
-import { packProbeTiles, PROBE_WEIGHT_FILLED, PROBE_WEIGHT_MOVED } from './probe-lighting';
+import { packProbeTile, PROBE_WEIGHT_FILLED, PROBE_WEIGHT_MOVED } from './probe-pack';
 
 const half = (v: number): number => THREE.DataUtils.fromHalfFloat(THREE.DataUtils.toHalfFloat(v));
 
@@ -45,12 +45,21 @@ describe('probe artifact', () => {
     expect(atlasAt(2, 2, padded - 1, 0)).toBe(atlasAt(2, 2, padded - 2, 0));
     expect(decoded.atlas.byteLength).toBe(nx * ny * PROBE_TEXELS * padded * 8);
     expect(probeGridGpuBytes({ resolution })).toBe(nx * ny * PROBE_GPU_TEXELS * padded * 8);
+    // The streaming read (native inflate) gives the file's samples exactly.
+    const streamed = await decodeProbeSamples(png, { resolution });
+    expect(streamed.ok).toBe(true);
+    if (!streamed.ok) return;
+    expect(streamed.samples).toEqual(packed.samples);
+    expect(Array.from(streamed.validity)).toEqual(Array.from(validity));
   });
 
   it('refuses a file of the wrong size', async () => {
     const packed = packProbeTexels(new Float32Array(8 * 27), new Float32Array(8));
     const png = await encodePng16(packed.width, packed.height, packed.samples);
     expect(decodeProbeArtifact(png, { resolution: [3, 3, 3] }).ok).toBe(false);
+    expect((await decodeProbeSamples(png, { resolution: [3, 3, 3] })).ok).toBe(false);
+    // A file cut short does not inflate to its image.
+    expect((await decodeProbeSamples(png.subarray(0, png.length - 20), { resolution: [2, 2, 2] })).ok).toBe(false);
   });
 });
 
@@ -77,7 +86,7 @@ describe('probe walls', () => {
 });
 
 describe('probe packing', () => {
-  it('packs tiles side by side: first-order light weighted by validity, the weight, the walls as they are', () => {
+  it('packs a tile on its own: first-order light weighted by validity, the weight, the walls as they are', () => {
     const tile = (resolution: [number, number, number], value: number, validity: number) => {
       const n = resolution[0] * resolution[1] * resolution[2];
       // Coefficient c's channels: value × (c + 1), so each lands where it should.
@@ -85,29 +94,25 @@ describe('probe packing', () => {
       const v = new Float32Array(n).fill(validity);
       // Every edge cut at its middle (cut flag 1, share 0.5).
       const walls = new Float32Array(n * 6).map((_, i) => (i % 2 === 0 ? 1 : 0.5));
-      const grid = { min: [0, 0, 0] as [number, number, number], max: [2, 2, 2] as [number, number, number], resolution, asset: 'a' };
-      return { grid, atlas: atlasFromSamples(packProbeTexels(sh, v, walls).samples, resolution), validity: v };
+      return packProbeTile({ resolution }, packProbeTexels(sh, v, walls).samples, v);
     };
-    const packed = packProbeTiles([tile([2, 2, 2], 1, PROBE_VALID), tile([3, 2, 3], 2, PROBE_MOVED), tile([2, 3, 2], 4, PROBE_FILLED)], 5);
-    // Two fit the first row (2 + 3 ≤ 5), the third starts a second.
-    expect(packed.count).toBe(3);
-    expect([packed.width, packed.height, packed.depth]).toEqual([5, 2 + 3, PROBE_GPU_TEXELS * (3 + 2)]);
-    const at = (x: number, y: number, slice: number, ch: number): number => THREE.DataUtils.fromHalfFloat(packed.data[((slice * packed.height + y) * packed.width + x) * 4 + ch]!);
-    const row = (k: number): number[] => Array.from(packed.table.subarray(k * 12, k * 12 + 12));
-    expect(row(1).slice(8)).toEqual([3, 2, 2, 0]);
-    expect(row(2).slice(8)).toEqual([2, 3, 0, 2]);
-    // Texel 0: band 0 × weight, the weight; texel 1: the y term, the z term's red; texel 3: the x term's blue.
-    expect([at(0, 0, 1, 0), at(0, 0, 1, 3)]).toEqual([1, 1]);
-    expect(at(0, 0, 4 + 1, 0)).toBe(2);
-    expect(at(0, 0, 4 + 1, 3)).toBe(3);
-    expect(at(0, 0, 3 * 4 + 1, 0)).toBe(4);
-    expect(at(2, 0, 1, 0)).toBeCloseTo(2 * PROBE_WEIGHT_MOVED, 3);
-    expect(at(2, 0, 1, 3)).toBeCloseTo(PROBE_WEIGHT_MOVED, 3);
-    expect(at(0, 2, 1, 0)).toBeCloseTo(4 * PROBE_WEIGHT_FILLED, 3);
+    const valid = tile([2, 2, 2], 1, PROBE_VALID);
+    expect([valid.nx, valid.ny, valid.depth]).toEqual([2, 2, PROBE_GPU_TEXELS * (2 + 2)]);
+    expect(valid.data.length).toBe(probeGridGpuBytes({ resolution: [2, 2, 2] }) / 2);
+    const at = (p: { data: Uint16Array; nx: number; ny: number }, x: number, y: number, slice: number, ch: number): number => THREE.DataUtils.fromHalfFloat(p.data[((slice * p.ny + y) * p.nx + x) * 4 + ch]!);
+    // Texel 0: band 0 × weight, the weight; texel 1: the y term, the z term's red; texel 3: the x term's blue (4 slices a sub-volume).
+    expect([at(valid, 0, 0, 1, 0), at(valid, 0, 0, 1, 3)]).toEqual([1, 1]);
+    expect(at(valid, 0, 0, 4 + 1, 0)).toBe(2);
+    expect(at(valid, 0, 0, 4 + 1, 3)).toBe(3);
+    expect(at(valid, 0, 0, 3 * 4 + 1, 0)).toBe(4);
+    const moved = tile([3, 2, 3], 2, PROBE_MOVED);
+    expect(at(moved, 2, 0, 1, 0)).toBeCloseTo(2 * PROBE_WEIGHT_MOVED, 3);
+    expect(at(moved, 2, 0, 1, 3)).toBeCloseTo(PROBE_WEIGHT_MOVED, 3);
+    const filled = tile([2, 3, 2], 4, PROBE_FILLED);
+    expect(at(filled, 0, 2, 1, 0)).toBeCloseTo(4 * PROBE_WEIGHT_FILLED, 3);
     // The walls (texels 4 and 5) unweighted; the padding slices copy the edge layers.
-    expect([at(2, 0, 4 * 5 + 1, 0), at(2, 0, 4 * 5 + 1, 1)]).toEqual([1, 0.5]);
-    expect(at(2, 0, 4 * 5, 0)).toBe(1);
-    // A tile wider than the texture is left out.
-    expect(packProbeTiles([tile([6, 2, 2], 1, PROBE_VALID)], 5)).toMatchObject({ count: 0, unplaced: 1 });
+    expect([at(moved, 2, 0, 4 * 5 + 1, 0), at(moved, 2, 0, 4 * 5 + 1, 1)]).toEqual([1, 0.5]);
+    expect(at(moved, 2, 0, 4 * 5, 0)).toBe(1);
+    expect(at(moved, 2, 0, 4 * 5 + 4, 0)).toBe(1);
   });
 });

@@ -284,7 +284,9 @@ export { bakeLightmapsInBrowser, type BakedAtlas, type BakeLightInput, type Bake
 // Probe grids: the bake (the editor's Scene view), the tile files, and the loaded tiles (Play, export, the Scene view).
 export { bakeProbeGrids, type BakedProbeTile, type ProbeBakeInput, type ProbeBakeMesh, type ProbeBakeResult } from './probe-bake';
 export { atlasFromSamples, decodeProbeArtifact, encodePng16, packProbeTexels } from './probe-artifact';
-export { createProbeGridSet, createProbeLightingHost, type LoadedProbeTile, type ProbeBakeLike, type ProbeGridSet, type ProbeGridsObservation, type ProbeLightingHost } from './probe-grids';
+export { createProbeGridSet, createProbeLightingHost, type LoadedProbeTile, type ProbeBakeLike, type ProbeGridSet, type ProbeGridsObservation, type ProbeLightingHost, type ProbeTileEntry } from './probe-grids';
+export { PROBE_ATLAS_SLACK, PROBE_RESIDENT_BYTES } from './probe-residency';
+export { PROBE_PACK_MAX_EDGE } from './probe-atlas';
 // Poses a model from an animator pose (the Animator window's live preview).
 export { createAnimatorPlayer, type AnimatorPlayer, type AnimatorPlayerOptions, type AnimatorPoseLike, type RenderedNodePose } from './animator-player';
 // Visual effects — the player (Play, exports, the Scene view's edit-mode preview) and its executors.
@@ -315,7 +317,8 @@ export { disposeObjectTree, disposeSharingGeometry, installProgramRelease, insta
 export { BlockLayerView, MESH_APPLY_BUDGET_MS, SYNC_MESH_BUDGET_MS, blockChunkKey, blockLookFromObject, type BlockChunkLightmapTarget, type BlockLayerViewDeps, type BlockLayerViewDiagnostics, type BlockModelLook } from './block-layers';
 export { MESH_WORKERS_MAX, createBrowserMeshWorker, meshWorkerCount, type MeshWorkerFactory, type MeshWorkerPort } from './block-mesh-pool';
 // Probe lighting: the probe light every lit material samples, and the editor's probe debug view.
-export { isProbeLighting, packProbeTiles, PROBES_URL_PARAM, probesFromUrl, PROBE_WEIGHT_FILLED, PROBE_WEIGHT_MOVED, PROBE_WEIGHT_VALID, ProbeLighting, probeWeight, type PackedProbes } from './probe-lighting';
+export { isProbeLighting, PROBES_URL_PARAM, probesFromUrl, ProbeLighting } from './probe-lighting';
+export { packProbeTile, PROBE_WEIGHT_FILLED, PROBE_WEIGHT_MOVED, PROBE_WEIGHT_VALID, probeWeight, type PackedProbeTile } from './probe-pack';
 export { createProbeDebugView, type ProbeDebugView } from './probe-debug';
 // Local lights per vertex: an object's or material's mode, a light's importance.
 export { applyObjectLightLayers } from './light-layers';

@@ -139,6 +139,18 @@ export function atlasFromSamples(samples: Uint16Array, resolution: readonly numb
   return atlas;
 }
 
+/** Each probe's validity from the file's samples. */
+function validityOf(samples: Uint16Array, width: number, probes: number): Float32Array {
+  const validity = new Float32Array(probes);
+  for (let p = 0; p < probes; p++) {
+    const base = (Math.floor(p / PROBE_ARTIFACT_ROW_PROBES) * width + (p % PROBE_ARTIFACT_ROW_PROBES) * PROBE_TEXELS) * 4;
+    validity[p] = THREE.DataUtils.fromHalfFloat(samples[base + VALIDITY]!);
+  }
+  return validity;
+}
+
+const wrongSize = (size: { width: number; height: number }): { ok: false; message: string } => ({ ok: false, message: `the probe file is not a ${size.width} × ${size.height} 16-bit RGBA image (an older layout: bake the probes again)` });
+
 /** A tile's 3D texture data from its file, and each probe's validity. */
 export function decodeProbeArtifact(bytes: Uint8Array, grid: Pick<ProbeGridBox, 'resolution'>): { ok: true; atlas: Uint16Array; validity: Float32Array } | { ok: false; message: string } {
   const decoded = decodePngRgba(bytes, { keep16: true, maxPixels: MAX_TEXTURE_EDGE * MAX_TEXTURE_EDGE });
@@ -146,11 +158,117 @@ export function decodeProbeArtifact(bytes: Uint8Array, grid: Pick<ProbeGridBox, 
   const src = decoded.png.rgba16;
   const probes = probeCount(grid);
   const size = probeArtifactSize(probes);
-  if (src === undefined || decoded.png.width !== size.width || decoded.png.height !== size.height) return { ok: false, message: `the probe file is not a ${size.width} × ${size.height} 16-bit RGBA image (an older layout: bake the probes again)` };
-  const validity = new Float32Array(probes);
-  for (let p = 0; p < probes; p++) {
-    const base = (Math.floor(p / PROBE_ARTIFACT_ROW_PROBES) * size.width + (p % PROBE_ARTIFACT_ROW_PROBES) * PROBE_TEXELS) * 4;
-    validity[p] = THREE.DataUtils.fromHalfFloat(src[base + VALIDITY]!);
+  if (src === undefined || decoded.png.width !== size.width || decoded.png.height !== size.height) return wrongSize(size);
+  return { ok: true, atlas: atlasFromSamples(src, grid.resolution), validity: validityOf(src, size.width, probes) };
+}
+
+/** The 16-bit RGBA PNG's header and its compressed image data, or null for any other PNG (the general decoder reads those). */
+function probePngParts(bytes: Uint8Array): { width: number; height: number; idat: Uint8Array } | null {
+  if (bytes.length < 8 || bytes[0] !== 0x89 || bytes[1] !== 0x50) return null;
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const parts: Uint8Array[] = [];
+  let header: { width: number; height: number } | null = null;
+  for (let at = 8; at + 12 <= bytes.length; ) {
+    const length = view.getUint32(at);
+    const type = String.fromCharCode(bytes[at + 4]!, bytes[at + 5]!, bytes[at + 6]!, bytes[at + 7]!);
+    const body = bytes.subarray(at + 8, at + 8 + length);
+    if (body.length !== length) return null;
+    if (type === 'IHDR') {
+      // 16 bits, RGBA, no interlace.
+      if (length < 13 || body[8] !== 16 || body[9] !== 6 || body[12] !== 0) return null;
+      header = { width: view.getUint32(at + 8), height: view.getUint32(at + 12) };
+    } else if (type === 'IDAT') parts.push(body);
+    else if (type === 'IEND') break;
+    at += 12 + length;
   }
-  return { ok: true, atlas: atlasFromSamples(src, grid.resolution), validity };
+  if (header === null || parts.length === 0) return null;
+  const idat = new Uint8Array(parts.reduce((n, b) => n + b.length, 0));
+  let o = 0;
+  for (const b of parts) {
+    idat.set(b, o);
+    o += b.length;
+  }
+  return { ...header, idat };
+}
+
+/** Inflate a zlib stream natively (off the main thread's JavaScript), refusing more than `max` bytes. */
+async function inflateNative(z: Uint8Array, max: number): Promise<Uint8Array | null> {
+  const reader = new Blob([z as BlobPart]).stream().pipeThrough(new DecompressionStream('deflate')).getReader();
+  const out = new Uint8Array(max);
+  let n = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    if (n + value.length > max) {
+      await reader.cancel();
+      return null;
+    }
+    out.set(value, n);
+    n += value.length;
+  }
+  return n === max ? out : null;
+}
+
+/** Undo the PNG row filters of 16-bit RGBA rows (8 bytes a pixel) into big-endian samples. */
+function unfilterRgba16(raw: Uint8Array, width: number, height: number): Uint16Array | null {
+  const stride = width * 8;
+  const samples = new Uint16Array(width * height * 4);
+  let prev = new Uint8Array(stride);
+  let cur = new Uint8Array(stride);
+  for (let y = 0; y < height; y++) {
+    const at = y * (stride + 1);
+    const f = raw[at]!;
+    if (f > 4) return null;
+    for (let i = 0; i < stride; i++) {
+      const x = raw[at + 1 + i]!;
+      const a = i >= 8 ? cur[i - 8]! : 0;
+      const b = prev[i]!;
+      let v: number;
+      if (f === 0) v = x;
+      else if (f === 1) v = x + a;
+      else if (f === 2) v = x + b;
+      else if (f === 3) v = x + ((a + b) >> 1);
+      else {
+        const c = i >= 8 ? prev[i - 8]! : 0;
+        const p = a + b - c;
+        const pa = Math.abs(p - a);
+        const pb = Math.abs(p - b);
+        const pc = Math.abs(p - c);
+        v = x + (pa <= pb && pa <= pc ? a : pb <= pc ? b : c);
+      }
+      cur[i] = v & 0xff;
+    }
+    const row = y * width * 4;
+    for (let i = 0; i < width * 4; i++) samples[row + i] = (cur[i * 2]! << 8) | cur[i * 2 + 1]!;
+    const t = prev;
+    prev = cur;
+    cur = t;
+  }
+  return samples;
+}
+
+/**
+ * A tile's file as its samples (the file's layout: `PROBE_TEXELS` texels a
+ * probe) and each probe's validity. The engine's own files (16-bit RGBA, no
+ * interlace) inflate natively and asynchronously where the platform has
+ * `DecompressionStream` — a streamed tile's arrival then costs the main
+ * thread only the row filters, not the inflate; any other PNG goes through
+ * the general decoder.
+ */
+export async function decodeProbeSamples(bytes: Uint8Array, grid: Pick<ProbeGridBox, 'resolution'>): Promise<{ ok: true; samples: Uint16Array; validity: Float32Array } | { ok: false; message: string }> {
+  const probes = probeCount(grid);
+  const size = probeArtifactSize(probes);
+  const parts = typeof DecompressionStream === 'function' ? probePngParts(bytes) : null;
+  if (parts !== null) {
+    if (parts.width !== size.width || parts.height !== size.height) return wrongSize(size);
+    const raw = await inflateNative(parts.idat, (size.width * 8 + 1) * size.height).catch(() => null);
+    const samples = raw === null ? null : unfilterRgba16(raw, size.width, size.height);
+    if (samples === null) return { ok: false, message: 'the probe file does not inflate to its image' };
+    return { ok: true, samples, validity: validityOf(samples, size.width, probes) };
+  }
+  const decoded = decodePngRgba(bytes, { keep16: true, maxPixels: MAX_TEXTURE_EDGE * MAX_TEXTURE_EDGE });
+  if (!decoded.ok) return decoded;
+  const src = decoded.png.rgba16;
+  if (src === undefined || decoded.png.width !== size.width || decoded.png.height !== size.height) return wrongSize(size);
+  return { ok: true, samples: src, validity: validityOf(src, size.width, probes) };
 }

@@ -126,6 +126,8 @@ export interface SceneAdapterOptions {
     readonly loadTexture: (assetId: string) => Promise<THREE.Texture | null>;
     /** An asset's verified bytes, as stored (the probe tiles' files are data, not images to decode); rejects with why not. Absent: no probe grids. */
     readonly loadBytes?: (assetId: string) => Promise<Uint8Array>;
+    /** A problem for the game's author (probe tiles left out by the probe memory budget, a tile that failed to load), once per kind. */
+    readonly onProblem?: (code: string, message: string) => void;
   };
   /**
    * Which renderer backend to use and where that choice came

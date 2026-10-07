@@ -102,6 +102,8 @@ export interface FrameRunResult {
   profile: ProfileSplit | null;
   busy?: ThreadBusy;
   dump?: DumpSummary | string;
+  /** The engine's user-timing marks (`tl:…`) seen by the end of the run. */
+  marks?: PageSample['marks'];
   errors: string[];
 }
 
@@ -257,6 +259,7 @@ export async function measurePage(browser: Browser, opts: FrameRunOptions): Prom
       gpu,
       profile,
       ...(busy !== undefined ? { busy } : {}),
+      ...(sample.marks.length > 0 ? { marks: sample.marks } : {}),
       errors,
     };
     if (opts.dump === true) out.dump = await page.evaluate(dumpScene);

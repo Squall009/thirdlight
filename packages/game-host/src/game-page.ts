@@ -540,7 +540,7 @@ function materialTexturesOf(manifest: GamePageManifest): (materialId: string) =>
 }
 
 /** The adapter's materials, environment, lighting and light options (textures from the verified bytes). */
-function materialsOptionOf(manifest: GamePageManifest, env: GamePageManifest['environment'], scenes: { start: string | null; look(sceneId: string): SceneLookLike | null } | null, loadTexture: NonNullable<SceneAdapterOptions['materials']>['loadTexture'], streamer: TextureStreamer, loadBytes: (assetId: string) => Promise<Uint8Array>): { materials?: SceneAdapterOptions['materials']; environment?: SceneAdapterOptions['environment']; lighting?: SceneAdapterOptions['lighting']; lights: NonNullable<SceneAdapterOptions['lights']> } {
+function materialsOptionOf(manifest: GamePageManifest, env: GamePageManifest['environment'], scenes: { start: string | null; look(sceneId: string): SceneLookLike | null } | null, loadTexture: NonNullable<SceneAdapterOptions['materials']>['loadTexture'], streamer: TextureStreamer, loadBytes: (assetId: string) => Promise<Uint8Array>, onProblem?: (code: string, message: string) => void): { materials?: SceneAdapterOptions['materials']; environment?: SceneAdapterOptions['environment']; lighting?: SceneAdapterOptions['lighting']; lights: NonNullable<SceneAdapterOptions['lights']> } {
   // A sky, a cookie or a lightmap is not a mesh's surface whose size on screen says what it needs: a streamed texture they draw is kept at full size.
   const loadWhole: typeof loadTexture = (assetId) =>
     loadTexture(assetId).then((t) => {
@@ -559,7 +559,7 @@ function materialsOptionOf(manifest: GamePageManifest, env: GamePageManifest['en
         ? { environment: { value: env ?? {}, loadTexture: loadWhole } }
         : {}),
     // The baked probes light the scene unless the page says ?probes=off (a diagnostic comparison).
-    ...(manifest.lighting !== undefined ? { lighting: { bakes: manifest.lighting, loadTexture: loadWhole, ...(probesFromUrl(pageSearch()) ? { loadBytes } : {}) } } : {}),
+    ...(manifest.lighting !== undefined ? { lighting: { bakes: manifest.lighting, loadTexture: loadWhole, ...(probesFromUrl(pageSearch()) ? { loadBytes } : {}), ...(onProblem !== undefined ? { onProblem } : {}) } } : {}),
     materials: { defs: manifest.materials ?? [], functions: manifest.materialFunctions ?? [], wind: env?.wind ?? null, loadTexture, textureRefs: materialTexturesOf(manifest) },
   };
 }
@@ -909,7 +909,7 @@ export async function startGamePage(o: GamePageOptions): Promise<GamePageHandle>
           ...(timings !== undefined ? { onFrameDrawn: (f: FrameDrawnInfo) => timings.frame(f) } : {}),
           // A model's extracted images draw from their texture assets, streamed like a material's.
           ...(models !== null ? { models: { ...models, loadTexture: pageTextures }, modelsLoader: loader() } : {}),
-          ...materialsOptionOf(manifest, environment, catalog0 !== null ? { start: firstStart ?? null, look: (sceneId) => sceneLooks.get(sceneId) ?? null } : null, pageTextures, textureStreamer, pageAssetBytes(assetReader, content.catalog)),
+          ...materialsOptionOf(manifest, environment, catalog0 !== null ? { start: firstStart ?? null, look: (sceneId) => sceneLooks.get(sceneId) ?? null } : null, pageTextures, textureStreamer, pageAssetBytes(assetReader, content.catalog), o.onProblem),
           textureStreamer,
           // The visual effects (textures and models from the verified bytes).
           ...(manifest.effects !== undefined && manifest.effects.length > 0

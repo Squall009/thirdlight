@@ -27,7 +27,7 @@ describe('probe grid set', () => {
     first.follow(['s']);
     await settle();
     expect(first.tiles()).toHaveLength(1);
-    const oldBytes = first.tiles()[0]!.atlas.byteLength;
+    const oldBytes = first.tiles()[0]!.packed.data.byteLength;
 
     // The editor's setBakes: the old set lets go and the new one takes its tiles in the same tick.
     file = await tileFile([3, 2, 2], 2);
@@ -37,13 +37,13 @@ describe('probe grid set', () => {
     await settle();
     expect(reads).toBe(2);
     expect(second.observe()).toMatchObject({ loaded: 1, failed: 0 });
-    expect(second.tiles()[0]!.atlas.byteLength).toBe((oldBytes * 3) / 2);
+    expect(second.tiles()[0]!.packed.data.byteLength).toBe((oldBytes * 3) / 2);
 
     // The same bake followed again shares the decoded tile (no read).
     const third = createProbeGridSet({ s: { grids: [grid([3, 2, 2])], createdAt: '2026-10-06T10:05:00.000Z' } }, loadBytes, resources);
     third.follow(['s']);
     await settle();
     expect(reads).toBe(2);
-    expect(third.tiles()[0]!.atlas).toBe(second.tiles()[0]!.atlas);
+    expect(third.tiles()[0]!.packed).toBe(second.tiles()[0]!.packed);
   });
 });

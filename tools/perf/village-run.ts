@@ -29,6 +29,9 @@
  *                                local lights over foliage, per pixel against per vertex with --switches vertexLights=off
  *   --probes                     bake the class's probes in the editor (WebGPU) before the export: the export then
  *                                draws with probe lighting (its cost against a run without)
+ *   --synthetic-probes N         record about N synthetic probe tiles (probe-synthetic.ts: a 2 m grid over a square
+ *                                around the village, ~2 km a side for 512) as the scene's probe bake: probe streaming
+ *                                at world scale (its frame time against --switches probes=off, the tiles' arrival)
  *   --gate                       the fast gate's check: frames only (no GPU passes or profile); the plain page is
  *                                measured too and the class's frame reported against it (`plainPageRows`), not gated
  *   --check FILE                 compare the export's frame time with a recorded baseline: exit 1 when the median (the
@@ -50,6 +53,7 @@ import * as esbuild from 'esbuild';
 import { PERF_ROOT, REPO, startPerfBackend } from './backend';
 import { launchGpuBrowser, measurePage, serveStatic, sourcesOf, type FrameRenderer, type FrameRunResult, type PageStep } from './frame-run';
 import { bakeProbesInEditor } from './probe-bake-run';
+import { addSyntheticProbes } from './probe-synthetic';
 import { measureSceneView, sceneViewLine, type SceneViewResult } from './scene-view-run';
 import { FRAME_HISTOGRAM_EDGES_MS } from './stats';
 import { addVillageLamps, buildVillage, VILLAGE_SEED, VILLAGE_VERSION, type VillageBuild } from './village';
@@ -283,6 +287,7 @@ export async function runVillageCli(argv: readonly string[]): Promise<void> {
       projectId = reg.json['projectId'];
     }
     if (has('probes')) report.probes = await bakeProbesInEditor(be, projectId, log);
+    if (get('synthetic-probes') !== undefined) report.probes = { synthetic: await addSyntheticProbes(be, projectId, 'scene-main', Number(get('synthetic-probes')), log) };
     if (sceneView) {
       const browser = await launchGpuBrowser({ vsync: has('vsync') });
       try {
@@ -316,6 +321,7 @@ export async function runVillageCli(argv: readonly string[]): Promise<void> {
         const res = await measurePage(browser, { url: `${site!.url}?renderer=${r}${query}`, warmupMs, recordMs, gpuMs, profileMs, steps, sourceOf: sourcesOf(site!), dump: bare && i === 0, shot: join(runDir, `export-${r}.png`), busyMs });
         report.export[r] = res;
         log(frameLine(`export ${r}`, res));
+        for (const m of res.marks ?? []) log(`mark ${r} ${m.name} at ${m.at} ms (first frame ${res.firstFrameMs ?? '-'} ms)${m.detail !== null ? ` ${JSON.stringify(m.detail)}` : ''}`);
         if (res.busy !== undefined) log(busyLine(`busy ${r}`, res));
         for (const sw of switches) {
           const off = await measurePage(browser, { url: `${site!.url}?renderer=${r}${query}&${sw}`, warmupMs, recordMs, gpuMs, profileMs: 0, steps, sourceOf: sourcesOf(site!), shot: join(runDir, `export-${r}-${sw.replace(/[^a-z0-9]+/gi, '_')}.png`), busyMs });

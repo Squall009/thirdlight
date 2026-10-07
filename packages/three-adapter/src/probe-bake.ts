@@ -41,8 +41,10 @@ import { CubeRenderTarget, MeshBasicNodeMaterial, NodeMaterial, QuadMesh, type W
 import { PROBE_FILLED, PROBE_MOVED, PROBE_VALID, PROBE_VALIDITY_THRESHOLD, probeCount, type ProbeGridBox, type ProbeGridRecord } from '@thirdlight/runtime';
 
 import { aimBakeDirectional, bakeLocalLight, fittedBakeDirectional, readFloatTarget, type BakeLightInput } from './lightmap-baker';
-import { atlasFromSamples, packProbeTexels } from './probe-artifact';
+import { packProbeTexels } from './probe-artifact';
+import type { ProbeUploadRenderer } from './probe-atlas';
 import { ProbeLighting } from './probe-lighting';
+import { packProbeTile } from './probe-pack';
 import { mergeLayout, mergeWorldGeometry, OBJECT_FRAME_KEY } from './static-merge';
 
 export interface ProbeBakeMesh {
@@ -506,9 +508,13 @@ export async function bakeProbeGrids(input: ProbeBakeInput): Promise<ProbeBakeRe
           bounceLight = new ProbeLighting();
           scene.add(bounceLight);
         }
-        bounceLight.setTiles(
-          tiles.map((t, i) => ({ sceneId: '', grid: { ...t.grid, asset: String(i) } as ProbeGridRecord, atlas: atlasFromSamples(packProbeTexels(t.sh, t.validity, t.walls).samples, t.grid.resolution), validity: t.validity })),
-        );
+        // Each pass's probes are new tiles (their own keys): the last pass's give their places back.
+        const next = tiles.map((t, i) => {
+          const grid = { ...t.grid, asset: String(i) } as ProbeGridRecord;
+          return { key: `bounce:${pass}:${i}`, sceneId: '', grid, packed: packProbeTile(grid, packProbeTexels(t.sh, t.validity, t.walls).samples, t.validity), validity: t.validity };
+        });
+        bounceLight.store.sync(next, new Set(next.map((t) => t.key)), renderer as unknown as ProbeUploadRenderer, Infinity);
+        bounceLight.rebind();
       }
     }
     input.onProgress?.('done', 1);

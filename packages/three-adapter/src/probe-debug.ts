@@ -5,18 +5,18 @@
  * materials sample — with its validity as a rim: none for a valid probe,
  * yellow for one moved out of geometry, red for one filled from its
  * neighbours. Those sit inside geometry, so they are drawn over it (a second
- * instanced draw without the depth test). Rebuilt when the packed tiles
- * change.
+ * instanced draw without the depth test). Rebuilt when the resident tiles
+ * change (only the tiles near the camera are resident in a large world).
  */
 import * as THREE from 'three/webgpu';
 import * as TSLTyped from 'three/tsl';
 import { PROBE_FILLED, PROBE_VALID } from '@thirdlight/runtime';
 
 import type { N } from './effects-tsl';
-import { packedIrradiance, probeTextureNodes, samplePackedProbes, type ProbeLighting } from './probe-lighting';
+import { packedIrradiance, probeTextureNodes, samplePackedProbes, tableTexel, type ProbeLighting } from './probe-lighting';
 
 const TSL: N = TSLTyped;
-const { Fn, abs, attribute, float, int, ivec2, mix, normalView, normalWorld, select, vec3 } = TSL;
+const { Fn, abs, attribute, float, int, mix, normalView, normalWorld, select, vec3 } = TSL;
 
 /** A probe sphere's radius as a share of its tile's smallest spacing. */
 const SPHERE_SHARE = 0.15;
@@ -43,9 +43,8 @@ export function createProbeDebugView(light: ProbeLighting): ProbeDebugView {
   const at = attribute('tlProbeAt', 'vec4');
   const validity = attribute('tlProbeValidity', 'float');
   const colour = Fn(() => {
-    const base = int(at.x).mul(3);
-    const of = t.table.load(ivec2(base.add(1), int(0)));
-    const rs = t.table.load(ivec2(base.add(2), int(0)));
+    const of = tableTexel(t, int(at.x), 1);
+    const rs = tableTexel(t, int(at.x), 2);
     // Diffuse light off a white surface: the irradiance over π.
     const lit = packedIrradiance(samplePackedProbes(t, at.yzw, of, rs), normalWorld).div(Math.PI);
     const rim = float(1).sub(abs(normalView.z)).greaterThan(RIM_FROM).and(validity.lessThan(PROBE_VALID));
@@ -77,7 +76,7 @@ export function createProbeDebugView(light: ProbeLighting): ProbeDebugView {
       { material: inside, at: [], validity: [], matrices: [] },
     ];
     const matrix = new THREE.Matrix4();
-    light.tiles.forEach((tile, row) => {
+    for (const tile of light.tiles) {
       const { min, max, resolution: r } = tile.grid;
       const step = [0, 1, 2].map((a) => (max[a]! - min[a]!) / (r[a]! - 1));
       const radius = Math.min(...step) * SPHERE_SHARE;
@@ -88,12 +87,12 @@ export function createProbeDebugView(light: ProbeLighting): ProbeDebugView {
             const k = kinds[v === PROBE_VALID ? 0 : 1]!;
             matrix.makeScale(radius, radius, radius).setPosition(min[0] + ix * step[0]!, min[1] + iy * step[1]!, min[2] + iz * step[2]!);
             for (const e of matrix.elements) k.matrices.push(e);
-            k.at.push(row, ix, iy, iz);
+            k.at.push(tile.row, ix, iy, iz);
             k.validity.push(v);
           }
         }
       }
-    });
+    }
     for (const k of kinds) {
       const n = k.validity.length;
       if (n === 0) continue;

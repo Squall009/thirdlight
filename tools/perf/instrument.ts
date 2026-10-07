@@ -471,6 +471,8 @@ export interface PageSample {
   gpuCallsPerFrame: GpuCalls | null;
   /** WebGPU shader modules made so far: how many distinct, and their WGSL sizes (characters). */
   shaderModules: { distinct: number; made: number; totalChars: number; maxChars: number } | null;
+  /** The engine's user-timing marks (`tl:…`): when (ms since the page started) and their detail. */
+  marks: { name: string; at: number; detail: unknown }[];
 }
 
 /** In the page: stop recording and read everything (garbage-collected heap where `gc` is exposed). */
@@ -508,6 +510,10 @@ export async function readSample(stop: boolean): Promise<PageSample> {
     nav: navEntry !== undefined ? { domContentLoaded: navEntry.domContentLoadedEventEnd, load: navEntry.loadEventEnd } : null,
     fetches: { ...P.fetches },
     gpuCallsPerFrame: P.gpuCalls.setPipeline === 0 ? null : (Object.fromEntries(Object.entries(P.gpuCalls).map(([k, v]) => [k, Math.round((v / Math.max(1, P.frameDraws.length)) * 10) / 10])) as unknown as GpuCalls),
+    marks: performance
+      .getEntriesByType('mark')
+      .filter((m) => m.name.startsWith('tl:'))
+      .map((m) => ({ name: m.name, at: Math.round(m.startTime), detail: (m as PerformanceMark).detail ?? null })),
     shaderModules: P.shaders.size === 0 ? null : { distinct: P.shaders.size, made: [...P.shaders.values()].reduce((a, b) => a + b, 0), totalChars: [...P.shaders.keys()].reduce((a, c) => a + c.length, 0), maxChars: Math.max(...[...P.shaders.keys()].map((c) => c.length)) },
   };
 }
