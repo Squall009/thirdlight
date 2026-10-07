@@ -4,7 +4,10 @@
  *
  * - `instantiatePrefab` in a v4 scene is bounded by the v4 per-scene cap
  *   (16384 entities, as createEntity/pasteEntities), not the old 1024;
- * - a content.json without `behaviorTrust` reports the missing key once.
+ * - a content.json without `behaviorTrust` reports the missing key once;
+ * - block layers have no cell cap: two layers of 1,048,576 cells each (above
+ *   any count the engine once capped a layer or a scene at) are filled,
+ *   edited, undone, saved and opened again.
  */
 
 import { readFileSync, writeFileSync } from 'node:fs';
@@ -95,4 +98,34 @@ describe('v4 limits through the service', () => {
     expect(trust[0]!.code).toBe('field_missing');
     svc2.dispose();
   });
+
+  it('block layers past the old cell caps fill, edit, undo, save and open again', () => {
+    const root = makeRoot('v4-limits-blocks');
+    const svc = open(root);
+    expect(svc.createProject(PROJECT_ID, 'Limits').ok).toBe(true);
+    expect(send(svc, 'setBlockType', { block: { blockId: 'stone', name: 'Stone', variants: [{ color: '#888888' }], shape: 'full' } }).ok).toBe(true);
+    const ids: string[] = [];
+    for (const name of ['North', 'South']) {
+      const made = send(svc, 'createEntity', { sceneId: 'scene-main', kind: 'group', name }) as MutationResult & { ok: true; createdId: string };
+      expect(made.ok, JSON.stringify(made)).toBe(true);
+      ids.push(made.createdId);
+      const comp = send(svc, 'setComponent', { entityId: made.createdId, component: 'blockLayer', value: { cellSize: [1, 0.25, 1], bounds: { min: [0, 0, 0], max: [64, 256, 64] } } });
+      expect(comp.ok, JSON.stringify(comp)).toBe(true);
+      // 1,048,576 cells: one command's most, and four times what a layer once held (a scene: once 1,048,576 in all).
+      const fill = send(svc, 'editBlocks', { entityId: made.createdId, edits: [{ kind: 'fill', box: [0, 0, 0, 64, 256, 64], cell: { block: 'stone' } }] });
+      expect(fill.ok, JSON.stringify(fill).slice(0, 400)).toBe(true);
+    }
+    const one = send(svc, 'editBlocks', { entityId: ids[0], edits: [{ kind: 'cells', at: [5, 255, 5], cell: null }] }) as MutationResult & { ok: true; change: { chunks: number[][] } };
+    expect(one.ok, JSON.stringify(one).slice(0, 400)).toBe(true);
+    expect(one.change.chunks).toEqual([[0, 0]]);
+    expect(send(svc, 'undo', {}).ok).toBe(true);
+    expect(send(svc, 'redo', {}).ok).toBe(true);
+    svc.dispose();
+
+    const svc2 = open(root);
+    const layers = (svc2.query({ op: 'queryBlocks', projectId: PROJECT_ID, args: {} }) as unknown as { layers: { entityId: string; cells: number }[] }).layers;
+    expect(Object.fromEntries(layers.map((l) => [l.entityId, l.cells]))).toEqual({ [ids[0]!]: 1_048_575, [ids[1]!]: 1_048_576 });
+    expect(send(svc2, 'editBlocks', { entityId: ids[1], edits: [{ kind: 'cells', at: [63, 0, 63], cell: null }] }).ok).toBe(true);
+    svc2.dispose();
+  }, 120_000);
 });

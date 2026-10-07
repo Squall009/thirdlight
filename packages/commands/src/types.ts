@@ -573,12 +573,11 @@ export interface EditBlocksChange {
   rebased?: number;
 }
 
-/** undo/redo of `editBlocks` — the layer's whole entry before and after (null = none). */
+/** undo/redo of `editBlocks` — the chunks and regions the edit changed, before and after. */
 export interface EditBlocksInverse {
   kind: 'editBlocks';
   entityId: string;
-  restore: import('@thirdlight/project-model').BlockLayerData | null;
-  next: import('@thirdlight/project-model').BlockLayerData | null;
+  patch: import('./block-patch').BlockLayerPatch;
 }
 
 /** `setBlockType`/`deleteBlockType` change data. */
@@ -1364,8 +1363,8 @@ export interface HistoryEntry {
   change: ForwardChange;
   /** Inverse spec. */
   inverse: InverseSpec;
-  /** The block layers props' footprints were written to with the command, before and after. */
-  footprints?: import('./footprint-ops').FootprintLayerEntry[];
+  /** The chunks and regions props' footprints changed with the command, before and after. */
+  footprints?: import('./block-patch').BlockLayerPatch[];
   /**
    * The scene the entry edited in a v4 project (set by the
    * workspace; absent for content-only entries and in v1–v3).

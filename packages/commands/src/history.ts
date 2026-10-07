@@ -36,7 +36,8 @@ import { behaviorGroupsOf, eventCuesOf, modesOf, shellOf, withBehaviorGroups, wi
 import { timelineOf, withTimeline } from './timeline-ops';
 import { scriptLibrariesOf, withBehaviorRecords, withScriptLibrary } from './script-library-ops';
 import { withFootprintChunks, withFootprintLayers } from './footprint-ops';
-import { blockStampsOf, blockTypesOf, cellFieldsOf, layerDataOf, layerDelta, withBlockStamp, withBlockType, withCellFields, withLayerData, withoutLayersOf } from './block-ops';
+import { patchDelta, patchedLayer } from './block-patch';
+import { blockStampsOf, blockTypesOf, cellFieldsOf, layerDataOf, withBlockStamp, withBlockType, withCellFields, withLayerData, withoutLayersOf } from './block-ops';
 import type { GraphDocument } from '@thirdlight/project-model';
 import type {
   BehaviorComponent,
@@ -686,12 +687,11 @@ function applyInverse(state: CommandState<SceneDocument>, entry: HistoryEntry): 
     return finish(state, bumped(scene), nextContent, change, entry.requestId);
   }
 
-  // Block layers (cells restored as whole layer entries; content items by id).
+  // Block layers (the changed chunks put back; content items by id).
   if (inv.kind === 'editBlocks') {
-    const before = layerDataOf(scene, inv.entityId);
-    const delta = layerDelta(before, inv.restore);
+    const delta = patchDelta(inv.patch);
     const change: ChangeData = { type: 'editBlocks', entityId: inv.entityId, chunks: delta.chunks, regions: delta.regions, cells: 0 };
-    return finish(state, { ...withLayerData(scene, inv.entityId, inv.restore), revision: scene.revision + 1 }, state.content, change, entry.requestId);
+    return finish(state, { ...withLayerData(scene, inv.entityId, patchedLayer(layerDataOf(scene, inv.entityId), inv.patch, 'restore')), revision: scene.revision + 1 }, state.content, change, entry.requestId);
   }
   if (inv.kind === 'setBlockType') {
     const before = blockTypesOf(content).find((t) => t.blockId === inv.blockId) ?? null;
@@ -1228,10 +1228,9 @@ function applyForward(state: CommandState<SceneDocument>, entry: HistoryEntry): 
   // Block layers — redo re-applies the recorded layer entry / content item.
   if (f.type === 'editBlocks') {
     const inv = entry.inverse as import('./types').EditBlocksInverse;
-    const before = layerDataOf(scene, f.entityId);
-    const delta = layerDelta(before, inv.next);
+    const delta = patchDelta(inv.patch);
     const change: ChangeData = { type: 'editBlocks', entityId: f.entityId, chunks: delta.chunks, regions: delta.regions, cells: f.cells };
-    return finish(state, { ...withLayerData(scene, f.entityId, inv.next), revision: scene.revision + 1 }, state.content, change, entry.requestId);
+    return finish(state, { ...withLayerData(scene, f.entityId, patchedLayer(layerDataOf(scene, f.entityId), inv.patch, 'next')), revision: scene.revision + 1 }, state.content, change, entry.requestId);
   }
   if (f.type === 'setBlockType') {
     const before = blockTypesOf(content).find((t) => t.blockId === f.blockId) ?? null;

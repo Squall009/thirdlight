@@ -20,6 +20,7 @@ import {
   isNormalizedContent,
   composeContentChecks,
   composeSceneV4,
+  type BlockLayerData,
   type SceneV4,
   type ContentCatalogV4,
   validateProjectV3,
@@ -176,16 +177,41 @@ function cameraIdOf(scene: SceneDocument): string | null {
  * with `revision` masked to `0` and byte-compare. Only `setTransform` can
  * reach this (create/delete change structure; undo/redo always restore a
  * different state), but the pipeline runs the check uniformly.
+ *
+ * Block cells are compared apart from the rest: both scenes are canonical, so
+ * equal values are equal bytes, and a chunk an edit left alone is the same
+ * object in both. Serializing every chunk of a large layer twice per command
+ * cost more than the edit itself.
  */
 export function isNoChange(current: SceneDocument, result: SceneDocument): boolean {
+  if (!sameBlocks((current as SceneV4).blocks, (result as SceneV4).blocks)) return false;
   const a = maskedSceneBytes(current);
   const b = maskedSceneBytes(result);
   if (a === null || b === null) return false; // unreachable: both documents are valid
   return bytesEqual(a, b);
 }
 
+function sameBlocks(a: readonly BlockLayerData[] | undefined, b: readonly BlockLayerData[] | undefined): boolean {
+  if (a === b) return true;
+  const x = a ?? [];
+  const y = b ?? [];
+  if (x.length !== y.length) return false;
+  for (let i = 0; i < x.length; i++) {
+    const p = x[i]!;
+    const q = y[i]!;
+    if (p === q) continue;
+    if (p.entityId !== q.entityId || JSON.stringify(p.regions ?? null) !== JSON.stringify(q.regions ?? null)) return false;
+    const pc = p.chunks ?? [];
+    const qc = q.chunks ?? [];
+    if (pc.length !== qc.length) return false;
+    for (let j = 0; j < pc.length; j++) if (pc[j] !== qc[j] && JSON.stringify(pc[j]) !== JSON.stringify(qc[j])) return false;
+  }
+  return true;
+}
+
 /**
- * The canonical bytes of a scene with `revision` masked, cached
+ * The canonical bytes of a scene with `revision` masked and its block cells
+ * left out (`isNoChange` compares those itself), cached
  * per entity array. Scene documents are immutable values here: an edit builds
  * a new entity array, so the scene a command starts from is usually the one
  * the previous command produced (and serialized) — its bytes are not built
@@ -195,12 +221,13 @@ const sceneBytesCache = new WeakMap<object, { head: string; bytes: Uint8Array }>
 function maskedSceneBytes(scene: SceneDocument): Uint8Array | null {
   const entities = (scene as { entities?: unknown }).entities;
   const cacheable = Array.isArray(entities);
-  const head = cacheable ? JSON.stringify({ ...scene, entities: null, revision: 0 }) : '';
+  const head = cacheable ? JSON.stringify({ ...scene, entities: null, blocks: null, revision: 0 }) : '';
   if (cacheable) {
     const hit = sceneBytesCache.get(entities);
     if (hit !== undefined && hit.head === head) return hit.bytes;
   }
-  const s = serializeCanonical({ ...scene, revision: 0 });
+  const { blocks: _cells, ...rest } = scene as SceneV4;
+  const s = serializeCanonical({ ...rest, revision: 0 });
   if (!s.ok) return null;
   if (cacheable) sceneBytesCache.set(entities, { head, bytes: s.bytes });
   return s.bytes;

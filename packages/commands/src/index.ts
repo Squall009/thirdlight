@@ -248,8 +248,9 @@ export type {
   DeleteBlockStampArgs,
 } from './types';
 // Block-layer commands and the helpers queries and projections share.
-export { blockStampsOf, blockTypesOf, cellFieldsOf, layerDataOf, layerDelta, withLayerData } from './block-ops';
-export type { FootprintChunks, FootprintLayerEntry } from './footprint-ops';
+export { blockStampsOf, blockTypesOf, cellFieldsOf, layerDataOf, withLayerData } from './block-ops';
+export type { FootprintChunks } from './footprint-ops';
+export type { BlockChunkSwap, BlockLayerPatch, BlockRegionSwap } from './block-patch';
 export { instanceFloatsOf, planInstanceStroke, validatePaintInstancesArgs, type PaintInstancesArgs, type PreparedInstanceStroke } from './instance-stroke-ops';
 export { planModelCollider, validateColliderFromModelArgs, type ColliderFromModelArgs, type PreparedModelCollider } from './collider-model-ops';
 // Graph commands (owner kinds and the shared apply used by undo/redo).

@@ -853,6 +853,7 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       'runtime.errors holds the last script logs (code behavior_log) and errors; an entry with a compiled position (at, frames) also has source (and sources) ' +
       '{behaviorId | libraryId, path, line, column}: the place in the project\'s own script or library file. ' +
       'runtime.messageQueue (present once a ctx.messages.send was refused) {refused, firstRefusedStep, lastRefusedStep, perStepLimit, warning}. ' +
+      'runtime.blockMemory (while a block layer is loaded) {bytes, layers: [{entityId, chunks, columns, cells, bytes}] largest first}: what the layers\' cells take in memory (a layer has no cell cap; this bounds it). ' +
       'audio is why a play is silent: unlock {state locked|unlocked|blocked|unsupported, reason?, context none|suspended|running|closed, muted, hidden} (locked until the player\'s first key press or click in the game), ' +
       'playing {music {assetId, playing, waitingFor? unlock|muted|file}, voices, byBus, loops, pending, list}, started (by bus), skipped (by why: muted, locked, not_ready, decode_failed, not_registered, voice_cap, context_closed, stale_run), late {started, dropped, recent} and notes (the newest, naming the sound). ' +
       'A play that ended answers play_not_found with ended {reason, presented, at, detail?} and why in the message; one that ended before it was presented is also in the problems.',

@@ -56,6 +56,22 @@ export function cellOfKey(k: number): [number, number, number] {
 const chunkIndex = (v: number): number => Math.floor(v / CHUNK_SIZE);
 export const chunkKeyOf = (cx: number, cz: number): string => `${cx},${cz}`;
 
+/**
+ * The memory a column takes besides its cells' 4 bytes each: its record, its
+ * typed array's header and the chunk map's entry (measured on V8: 250-275
+ * bytes a column on layers of 64 to 1,024 chunks). A layer's memory grows with
+ * its columns more than its depth.
+ */
+export const BLOCK_COLUMN_BYTES = 270;
+
+/** A layer's cells in memory (`BlockGrid.memory`). */
+export interface BlockLayerMemory {
+  chunks: number;
+  columns: number;
+  cells: number;
+  bytes: number;
+}
+
 /** A column's cells: palette indices (−1 empty) from `y0` up. */
 interface Column {
   y0: number;
@@ -335,6 +351,24 @@ export class BlockGrid {
     const col = this.column(x, z, false);
     if (col === undefined) return;
     for (let i = 0; i < col.data.length; i++) if (col.data[i]! >= 0) cb(col.y0 + i, col.data[i]!);
+  }
+
+  /**
+   * What the layer's cells take in memory: its chunks, columns and cells, and
+   * the bytes (the columns' cell arrays and paint lattices, plus
+   * {@link BLOCK_COLUMN_BYTES} of bookkeeping per column).
+   */
+  memory(): BlockLayerMemory {
+    let chunks = 0;
+    let columns = 0;
+    let bytes = 0;
+    for (const chunk of this.chunks.values()) {
+      if (chunk.size > 0) chunks += 1;
+      columns += chunk.size;
+      for (const col of chunk.values()) bytes += col.data.byteLength;
+    }
+    for (const paint of this.paints.values()) bytes += paint.byteLength;
+    return { chunks, columns, cells: this.count, bytes: bytes + columns * BLOCK_COLUMN_BYTES };
   }
 
   /** The chunk keys holding cells, sorted (cz, cx). */

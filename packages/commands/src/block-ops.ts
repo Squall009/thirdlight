@@ -34,6 +34,7 @@ import {
   type SceneV4,
 } from '@thirdlight/project-model';
 
+import { layerPatch, patchDelta, patchIsEmpty } from './block-patch';
 import { entityNotFound, fieldValue, noChangeContent, type CommandError } from './errors';
 import { contentOf, type OpInput } from './content-ops';
 import { deepClone, gateResultState, type OpOutcome } from './ops';
@@ -61,29 +62,6 @@ export function withLayerData(scene: SceneDocument, entityId: string, data: Bloc
   return out as SceneDocument;
 }
 
-function chunkSet(d: BlockLayerData | null): Map<string, unknown> {
-  return new Map((d?.chunks ?? []).map((c) => [`${c.cx},${c.cz}`, c]));
-}
-
-/** The chunks (and regions) that differ between two layer entries. */
-export function layerDelta(a: BlockLayerData | null, b: BlockLayerData | null): { chunks: [number, number][]; regions: string[] } {
-  const ca = chunkSet(a);
-  const cb = chunkSet(b);
-  const keys = new Set([...ca.keys(), ...cb.keys()]);
-  const chunks: [number, number][] = [];
-  for (const k of keys) {
-    const x = ca.get(k);
-    const y = cb.get(k);
-    if (x === y || (x !== undefined && y !== undefined && JSON.stringify(x) === JSON.stringify(y))) continue;
-    chunks.push(k.split(',').map(Number) as [number, number]);
-  }
-  chunks.sort((p, q) => p[1] - q[1] || p[0] - q[0]);
-  const ra = new Map((a?.regions ?? []).map((r) => [r.regionId, JSON.stringify(r.boxes)]));
-  const rb = new Map((b?.regions ?? []).map((r) => [r.regionId, JSON.stringify(r.boxes)]));
-  const regions = [...new Set([...ra.keys(), ...rb.keys()])].filter((id) => ra.get(id) !== rb.get(id)).sort();
-  return { chunks, regions };
-}
-
 function layerComponent(scene: SceneDocument, entityId: string): { ok: true; comp: BlockLayerComponent } | { ok: false; error: CommandError } {
   const e = scene.entities.find((x) => x.id === entityId);
   if (e === undefined) return { ok: false, error: entityNotFound(entityId) };
@@ -107,14 +85,15 @@ export function applyEditBlocks(input: OpInput, args: { entityId: string; edits:
   if (!res.ok) return { ok: false, error: fieldValue(res.path, undefined, 'an edit that fits the layer', res.message) };
   const dirty = grid.takeDirty();
   const next = grid.toData(args.entityId, previous, dirty.chunks);
-  const delta = layerDelta(previous, next);
-  if (delta.chunks.length === 0 && delta.regions.length === 0) return { ok: false, error: noChangeContent() };
+  if (patchIsEmpty(layerPatch(args.entityId, previous, next, dirty.chunks))) return { ok: false, error: noChangeContent() };
   const result = { ...withLayerData(scene, args.entityId, next), revision: scene.revision + 1 };
   const gate = gateResultState({ scene, content: input.content, manifest: input.manifest }, result, input.content);
   if (!gate.ok) return gate;
-  const stored = layerDataOf(gate.scene, args.entityId);
+  // The undo step keeps the changed chunks only (as stored: the gate's canonical values).
+  const patch = layerPatch(args.entityId, previous, layerDataOf(gate.scene, args.entityId), dirty.chunks);
+  const delta = patchDelta(patch);
   const change: EditBlocksChange = { type: 'editBlocks', entityId: args.entityId, chunks: delta.chunks, regions: delta.regions, cells: res.cells, ...(res.rebased !== undefined ? { rebased: res.rebased } : {}) };
-  return { ok: true, op: { scene: gate.scene, change, inverse: { kind: 'editBlocks', entityId: args.entityId, restore: previous, next: stored } } };
+  return { ok: true, op: { scene: gate.scene, change, inverse: { kind: 'editBlocks', entityId: args.entityId, patch } } };
 }
 
 function commitContent(input: OpInput, next: ContentDocument, change: SetBlockTypeChange | SetCellFieldsChange | SetBlockStampChange, inverse: import('./types').InverseSpec): OpOutcome {

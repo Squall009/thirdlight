@@ -12,6 +12,8 @@
  *   triangles after hidden-face removal, meshing and collision-building time.
  * - A 64 × 64 rolling terrain of sloped cells: meshing time flat (the
  *   default), with smoothed tops and with subdivided tops.
+ * - A one-cell edit on a 512 × 512 layer (262,144 cells, 1,024 chunks): the
+ *   heap an undo step keeps, and the edit, undo and redo times.
  * The numbers are printed (and recorded in docs/plan-phase-23.md); the
  * assertions are the budgets (interactive: an edit under 50 ms; a few draws
  * per chunk).
@@ -19,6 +21,8 @@
 import { appendFileSync, mkdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { setFlagsFromString } from 'node:v8';
+import { runInNewContext } from 'node:vm';
 
 import { describe, expect, it } from 'vitest';
 import { applyBlockEdits, BlockGrid, collisionMeshChunk, meshBlockChunk, shapeSource, type BlockType, type SceneV4 } from '@thirdlight/project-model';
@@ -73,6 +77,49 @@ describe.skipIf(process.env['TL_PERF'] === undefined)('block layers: measurement
     expect(numbers.oneCellMs).toBeLessThan(50);
     expect(numbers.strokeMs).toBeLessThan(50);
   });
+
+  it('a one-cell edit on a 512 × 512 layer keeps a small undo step', () => {
+    const before = m2EnvelopeV4('contracts/commands/prefab-scenario.before.json');
+    let s = createCommandState(structuredClone(before.scene), structuredClone(before.content)) as CommandState<SceneV4>;
+    let n = 0;
+    const run = (op: string, args: Record<string, unknown>): number => {
+      n += 1;
+      const t0 = performance.now();
+      const out = applyMutation(s, { op, projectId: before.projectId, expectedRevision: s.scene.revision, requestId: `req-${(0x50000 + n).toString(16).padStart(32, '0')}`, args });
+      const ms = performance.now() - t0;
+      if (!out.result.ok) throw new Error(JSON.stringify(out.result).slice(0, 300));
+      s = (out as { state: CommandState<SceneV4> }).state;
+      return ms;
+    };
+    for (const t of TYPES) run('setBlockType', { block: t });
+    const created = applyMutation(s, { op: 'createEntity', projectId: before.projectId, expectedRevision: s.scene.revision, requestId: `req-${'d'.repeat(32)}`, args: { kind: 'group', name: 'Ground' } });
+    s = (created as { state: CommandState<SceneV4> }).state;
+    const id = (created.result as { createdId: string }).createdId;
+    run('setComponent', { entityId: id, component: 'blockLayer', value: { cellSize: [1, 0.5, 1], bounds: { min: [0, 0, 0], max: [512, 4, 512] } } });
+    // A varied surface (every chunk holds two block types), 262,144 cells in 1,024 chunks.
+    run('editBlocks', { entityId: id, edits: [{ kind: 'fill', box: [0, 0, 0, 512, 1, 512], cell: { block: 'stone' } }] });
+    for (let i = 0; i < 4; i++) run('editBlocks', { entityId: id, edits: [{ kind: 'fill', box: [i * 128, 0, 0, i * 128 + 64, 1, 512], cell: { block: 'grass' } }] });
+    // A full collection before each heap reading: the measure is the bytes the history keeps.
+    setFlagsFromString('--expose-gc');
+    const gc = runInNewContext('gc') as () => void;
+    const heap = (): number => {
+      gc();
+      gc();
+      return process.memoryUsage().heapUsed;
+    };
+    const EDITS = 40;
+    const h0 = heap();
+    const edit: number[] = [];
+    for (let i = 0; i < EDITS; i++) edit.push(run('editBlocks', { entityId: id, edits: [{ kind: 'cells', at: [7 + i * 11, 0, 300], cell: i % 2 === 0 ? null : { block: 'dirt' } }] }));
+    const perStep = (heap() - h0) / EDITS;
+    const undo: number[] = [];
+    const redo: number[] = [];
+    for (let i = 0; i < 10; i++) undo.push(run('undo', {}));
+    for (let i = 0; i < 10; i++) redo.push(run('redo', {}));
+    const numbers = { cells: 512 * 512, chunks: 1024, undoBytesPerOneCellEdit: Math.round(perStep), editMs: median(edit), undoMs: median(undo), redoMs: median(redo) };
+    record(`block-layers undo 512x512: ${JSON.stringify(numbers)}`);
+    expect(numbers.editMs).toBeGreaterThan(0);
+  }, 300_000);
 
   it('a 40 × 40 × 12 terrain draws a few merged meshes per chunk', () => {
     const g = new BlockGrid({ cellSize: [1, 0.5, 1], bounds: { min: [0, 0, 0], max: [40, 12, 40] } });

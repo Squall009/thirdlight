@@ -380,5 +380,11 @@ export interface RuntimeDiagnostics {
    * once a send was refused.
    */
   messageQueue?: { refused: number; firstRefusedStep: number; lastRefusedStep: number; perStepLimit: number; warning: string };
+  /**
+   * What the loaded block layers' cells take in memory: bytes in all, and per
+   * layer (largest first) its chunks, columns, cells and bytes. Present while
+   * a layer is loaded; a layer has no cell cap, so this is what bounds it.
+   */
+  blockMemory?: import('./grid').BlockMemoryDiagnostics;
 
 }

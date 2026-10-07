@@ -210,10 +210,11 @@ export const CHUNK_SIZE = 16;
  * Engine limits (they protect the runtime and keep requests under the 64 KiB
  * command cap): block types of 8 variants, 32 metadata fields, stamps of at
  * most 16,384 cells, 16 layers per scene, a layer up to 1,024 × 256 × 1,024
- * cells holding at most 262,144 cells (1,048,576 per scene), coordinates within
- * ±4,096 horizontally and ±1,024 vertically, 256 regions of 1,024 boxes. A
- * project has as many block types and stamps as it needs (each is edited
- * alone; cells name a type by id through a per-chunk palette).
+ * cells, coordinates within ±4,096 horizontally and ±1,024 vertically, 256
+ * regions of 1,024 boxes. A project has as many block types and stamps as it
+ * needs (each is edited alone; cells name a type by id through a per-chunk
+ * palette), and a layer as many cells as its bounds hold: what bounds a layer
+ * is memory (diagnostics show each layer's), never a cell count.
  */
 export const BLOCK_LIMITS = Object.freeze({
   variants: 8,
@@ -229,8 +230,6 @@ export const BLOCK_LIMITS = Object.freeze({
   layerHeight: 256,
   coordinateXZ: 4096,
   coordinateY: 1024,
-  layerCells: 262_144,
-  sceneCells: 1_048_576,
   chunkPalette: 4096,
   regions: 256,
   regionBoxes: 1024,
@@ -819,7 +818,7 @@ export function validateBlockRegion(r: unknown, p: string, errors: ModelErrorV2[
  * The scene document's own block rules: structure, every layer entry names a
  * scene entity carrying `blockLayer` (at most one entry per layer, 16 layers
  * per scene), every cell lies within its layer's bounds, a metadata-only layer
- * holds no blocks, the cell limits. Block types and metadata fields are the
+ * holds no blocks. Block types and metadata fields are the
  * content's (`composeBlockLayers`).
  */
 export function validateSceneBlocks(value: unknown, entities: readonly unknown[], errors: ModelErrorV2[], merged = false): void {
@@ -833,7 +832,6 @@ export function validateSceneBlocks(value: unknown, entities: readonly unknown[]
   }
   if (!merged && value.length > BLOCK_LIMITS.layersPerScene) err(errors, 'limits_exceeded', path, `a scene holds at most ${BLOCK_LIMITS.layersPerScene} block layers with cells`, value.length);
   const seen = new Set<string>();
-  let sceneCells = 0;
   value.forEach((entry, i) => {
     const p = `${path}/${i}`;
     if (!isPlainObject(entry)) return err(errors, 'field_type', p, 'a layer entry is {entityId, chunks?, regions?}', entry, 'object');
@@ -847,7 +845,6 @@ export function validateSceneBlocks(value: unknown, entities: readonly unknown[]
     const b = isPlainObject(comp) && isPlainObject(comp.bounds) ? comp.bounds : null;
     const min = b !== null && Array.isArray(b.min) ? b.min : [0, 0, 0];
     const max = b !== null && Array.isArray(b.max) ? b.max : [0, 0, 0];
-    let layerCells = 0;
     const chunks = entry['chunks'];
     if (chunks !== undefined) {
       if (!Array.isArray(chunks)) err(errors, 'field_type', `${p}/chunks`, 'chunks is an array', chunks, 'array');
@@ -879,7 +876,6 @@ export function validateSceneBlocks(value: unknown, entities: readonly unknown[]
           }
           const n = validateColumns(c['columns'], `${cp}/columns`, errors, CHUNK_SIZE, CHUNK_SIZE, BLOCK_LIMITS.coordinateY * -1, BLOCK_LIMITS.coordinateY, palette.length);
           if (n < 0) return;
-          layerCells += n;
           // Every cell within the layer's bounds.
           for (const col of c['columns'] as number[][]) {
             const x = (cx as number) * CHUNK_SIZE + col[0]!;
@@ -894,8 +890,6 @@ export function validateSceneBlocks(value: unknown, entities: readonly unknown[]
         });
       }
     }
-    if (layerCells > BLOCK_LIMITS.layerCells) err(errors, 'limits_exceeded', p, `a layer holds at most ${BLOCK_LIMITS.layerCells} cells`, layerCells);
-    sceneCells += layerCells;
     const regions = entry['regions'];
     if (regions !== undefined) {
       if (!Array.isArray(regions) || regions.length > BLOCK_LIMITS.regions) err(errors, 'field_value', `${p}/regions`, `regions is a list of at most ${BLOCK_LIMITS.regions}`, Array.isArray(regions) ? regions.length : regions);
@@ -911,7 +905,6 @@ export function validateSceneBlocks(value: unknown, entities: readonly unknown[]
       }
     }
   });
-  if (!merged && sceneCells > BLOCK_LIMITS.sceneCells) err(errors, 'limits_exceeded', path, `a scene holds at most ${BLOCK_LIMITS.sceneCells} cells`, sceneCells);
 }
 
 /** The canonical `blocks` list: entries by entityId, chunks by (cz, cx), regions by id; empty entries dropped (null: none left). */

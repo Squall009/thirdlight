@@ -40,6 +40,7 @@ import {
   type BlockChunk,
   type BlockLayerComponent,
   type BlockLayerData,
+  type BlockLayerMemory,
   type BlockType,
   type CellField,
   type CellMetaValue,
@@ -290,6 +291,12 @@ export interface GridRenderChange {
 /** At most this many script writes per step (an engine limit protecting the step budget). */
 export const GRID_WRITES_PER_STEP = 4096;
 
+/** The block layers' memory in a play's diagnostics (`runtime.blockMemory`), largest first. */
+export interface BlockMemoryDiagnostics {
+  bytes: number;
+  layers: ({ entityId: string } & BlockLayerMemory)[];
+}
+
 interface Layer {
   readonly entityId: string;
   readonly component: BlockLayerComponent;
@@ -409,6 +416,16 @@ export class RuntimeGrid {
       this.renderDirty.delete(id);
     }
     return colliders;
+  }
+
+  /**
+   * What the loaded layers' cells take in memory, per layer (null: none
+   * loaded). A layer has no cell cap: this figure is what bounds it.
+   */
+  memory(): BlockMemoryDiagnostics | null {
+    if (this.layerMap.size === 0) return null;
+    const layers = [...this.layerMap.values()].map((l) => ({ entityId: l.entityId, ...l.grid.memory() })).sort((a, b) => b.bytes - a.bytes);
+    return { bytes: layers.reduce((n, l) => n + l.bytes, 0), layers };
   }
 
   /** A new run (start, replay): every layer back to its authored cells. */

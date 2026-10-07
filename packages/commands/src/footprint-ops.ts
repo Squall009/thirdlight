@@ -8,10 +8,10 @@
  * now, in one revision and one undo step, for the browser and MCP alike.
  * A prop moved to another scene leaves its cells as they are.
  *
- * The history entry keeps each touched layer's entry before and after the
- * footprint writes; undo puts the "before" back ahead of the command's own
- * inverse (the reverse order of the forward step), redo puts the "after"
- * back once the command is re-applied. The change names the chunks so
+ * The history entry keeps the chunks of each touched layer the footprint
+ * writes changed, before and after; undo puts the "before" back ahead of the
+ * command's own inverse (the reverse order of the forward step), redo puts
+ * the "after" back once the command is re-applied. The change names the chunks so
  * clients re-read them as they do for `editBlocks`.
  */
 import {
@@ -31,19 +31,13 @@ import {
   type Manifest,
 } from '@thirdlight/project-model';
 
-import { blockStampsOf, blockTypesOf, cellFieldsOf, layerDataOf, layerDelta, withLayerData } from './block-ops';
+import { blockStampsOf, blockTypesOf, cellFieldsOf, layerDataOf, withLayerData } from './block-ops';
+import { layerPatch, patchDelta, patchedLayer, patchIsEmpty, type BlockLayerPatch } from './block-patch';
 import { contentOf } from './content-ops';
 import { fieldValue, type CommandError } from './errors';
 import { gateResultState } from './ops';
 import { deepEqual } from './properties';
 import type { ChangeData, ContentDocument, SceneDocument } from './types';
-
-/** One layer's entry before and after a command's footprint writes (null = none). */
-export interface FootprintLayerEntry {
-  entityId: string;
-  restore: BlockLayerData | null;
-  next: BlockLayerData | null;
-}
 
 /** The chunks (and regions) of one layer a command's footprint writes changed. */
 export interface FootprintChunks {
@@ -74,7 +68,7 @@ function cellsOn(layerId: string, layer: FootprintLayer | undefined, p: Footprin
 }
 
 export type FootprintOutcome =
-  | { ok: true; scene: SceneDocument; layers: FootprintLayerEntry[]; chunks: FootprintChunks[] }
+  | { ok: true; scene: SceneDocument; layers: BlockLayerPatch[]; chunks: FootprintChunks[] }
   | { ok: true; scene: null }
   | { ok: false; error: CommandError };
 
@@ -147,7 +141,7 @@ export function writeFootprints(before: SceneDocument, after: SceneDocument, con
   const c = contentOf(content);
   const ctx = { types: new Map(blockTypesOf(c).map((t) => [t.blockId, t])), stamps: new Map(blockStampsOf(c).map((s) => [s.stampId, s])) };
   let scene = after;
-  const touched: { entityId: string; restore: BlockLayerData | null }[] = [];
+  const touched: { entityId: string; restore: BlockLayerData | null; written: string[] }[] = [];
   for (const [layerId, layer] of now.layers) {
     // One prop's edits per call: the per-command cell budget holds for each footprint, not for all of them together.
     const steps = [...(clears.get(layerId) ?? []), ...(rewrites.get(layerId) ?? []), ...(writes.get(layerId) ?? [])];
@@ -158,16 +152,16 @@ export function writeFootprints(before: SceneDocument, after: SceneDocument, con
       const r = applyBlockEdits(grid, edits, ctx);
       if (!r.ok) return { ok: false, error: fieldValue('/args', undefined, 'a block footprint that fits its layer', `a prop's block footprint on layer ${layerId}: ${r.message}`) };
     }
-    const next = grid.toData(layerId, previous, grid.takeDirty().chunks);
-    const delta = layerDelta(previous, next);
-    if (delta.chunks.length === 0 && delta.regions.length === 0) continue;
+    const written = grid.takeDirty().chunks;
+    const next = grid.toData(layerId, previous, written);
+    if (patchIsEmpty(layerPatch(layerId, previous, next, written))) continue;
     scene = withLayerData(scene, layerId, next);
-    touched.push({ entityId: layerId, restore: previous });
+    touched.push({ entityId: layerId, restore: previous, written });
   }
   if (touched.length === 0) return { ok: true, scene: null };
   const gate = gateResultState({ scene: before, content, manifest }, scene, content);
   if (!gate.ok) return gate;
-  const layers = touched.map((t) => ({ entityId: t.entityId, restore: t.restore, next: layerDataOf(gate.scene, t.entityId) }));
+  const layers = touched.map((t) => layerPatch(t.entityId, t.restore, layerDataOf(gate.scene, t.entityId), t.written));
   return { ok: true, scene: gate.scene, layers, chunks: footprintChunks(layers) };
 }
 
@@ -178,18 +172,18 @@ function addCell(cells: Map<string, Set<string>>, layerId: string, at: readonly 
 }
 
 /** The chunks each layer entry changes (the same in both directions). */
-export function footprintChunks(layers: readonly FootprintLayerEntry[]): FootprintChunks[] {
-  return layers.map((l) => ({ entityId: l.entityId, ...layerDelta(l.restore, l.next) }));
+export function footprintChunks(layers: readonly BlockLayerPatch[]): FootprintChunks[] {
+  return layers.map((l) => ({ entityId: l.entityId, ...patchDelta(l) }));
 }
 
 /** The scene with each layer's footprint entry put back (`restore` for undo, `next` for redo). */
-export function withFootprintLayers(scene: SceneDocument, layers: readonly FootprintLayerEntry[], side: 'restore' | 'next'): SceneDocument {
+export function withFootprintLayers(scene: SceneDocument, layers: readonly BlockLayerPatch[], side: 'restore' | 'next'): SceneDocument {
   let out = scene;
-  for (const l of layers) out = withLayerData(out, l.entityId, l[side]);
+  for (const l of layers) out = withLayerData(out, l.entityId, patchedLayer(layerDataOf(out, l.entityId), l, side));
   return out;
 }
 
 /** The change with the footprint chunks named (clients re-read them). */
-export function withFootprintChunks<C extends ChangeData>(change: C, layers: readonly FootprintLayerEntry[]): C {
+export function withFootprintChunks<C extends ChangeData>(change: C, layers: readonly BlockLayerPatch[]): C {
   return { ...change, footprints: footprintChunks(layers) };
 }

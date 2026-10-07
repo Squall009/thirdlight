@@ -4,7 +4,7 @@
  * the diff for saves, and the chunk colliders rebuilt on the 3D port.
  */
 import { describe, expect, it } from 'vitest';
-import { BlockGrid, applyBlockEdits, type BlockLayerComponent, type BlockType, type CellField, type EntityV3 } from '@thirdlight/project-model';
+import { BLOCK_COLUMN_BYTES, BlockGrid, applyBlockEdits, type BlockLayerComponent, type BlockType, type CellField, type EntityV3 } from '@thirdlight/project-model';
 
 import { RuntimeGrid } from './grid';
 import type { PhysicsPort3D, StaticColliderSpec3D } from './ports';
@@ -50,6 +50,21 @@ const floor = (g: BlockGrid): void => {
 };
 
 describe('runtime grid', () => {
+  it('reports each loaded layer\'s memory (what bounds a layer), largest first, and follows writes', () => {
+    const grid = new RuntimeGrid(TYPES, FIELDS, true);
+    expect(grid.memory()).toBeNull();
+    grid.addLayers([layerEntity('ground', [0, 0, 0], floor), layerEntity('small', [40, 0, 0], (g) => g.set(0, 0, 0, { block: 'stone' }))]);
+    const m = grid.memory()!;
+    expect(m.layers.map((l) => l.entityId)).toEqual(['ground', 'small']);
+    const ground = m.layers[0]!;
+    // A 16 × 16 floor one cell deep: one chunk of 256 columns, each one 4-byte cell and its bookkeeping.
+    expect(ground).toMatchObject({ chunks: 1, columns: 256, cells: 256 });
+    expect(ground.bytes).toBe(256 * (4 + BLOCK_COLUMN_BYTES));
+    expect(m.bytes).toBe(ground.bytes + m.layers[1]!.bytes);
+    grid.api.set('ground', 20, 0, 20, { block: 'stone' });
+    expect(grid.memory()!.layers[0]).toMatchObject({ chunks: 2, columns: 257, cells: 257 });
+  });
+
   it('reads cells with effective metadata, writes and clears them, and validates writes', () => {
     const grid = new RuntimeGrid(TYPES, FIELDS, true);
     grid.addLayers([layerEntity('ground', [10, 0, -4], floor)]);

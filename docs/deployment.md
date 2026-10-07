@@ -3843,6 +3843,7 @@ its reason (the same line is next to its constant in the code):
 | Instance sets | 65,536 copies per set | One buffer file and one draw set |
 | Instance brush | 256 dabs and 1,536 places per stroke (`INSTANCE_BRUSH_LIMITS`); no count of strokes or painted copies beyond a set's | One stroke with its surface is one 64 KiB command; a longer drag is the next stroke |
 | Block edits | 1,048,576 cells per edit | One command's work; a layer is stored in chunks |
+| Block layers | 1,024 × 256 × 1,024 cells of bounds per layer, 16 layers with cells per scene; no count of cells in a layer or a scene | A layer's memory (`runtime.blockMemory` in Play diagnostics), not a cell count, bounds it |
 | WebSocket message to the editor | 1 MiB (a larger Play snapshot is fetched over HTTP; a larger change makes the editor re-read the project; anything else over it is dropped and listed under Problems) | One frame |
 
 ### Engine defaults
@@ -4393,7 +4394,13 @@ brushes, overlays and stamp UI are below (23.6).
   collision and shadow flags. The object's position is the min corner of cell
   `[0, 0, 0]`; a layer is a root (a folder may hold it) at identity rotation
   and unit scale. Deleting the layer object deletes its cells (undo restores
-  them). Several layers per scene (up to 16 with cells).
+  them). Several layers per scene (up to 16 with cells). There is no count of
+  cells: a layer holds as many as its bounds hold, and what bounds it is
+  memory. Play diagnostics (`tl_diagnostics` with a play) show it as
+  `runtime.blockMemory`: bytes in all, and per layer its chunks, columns,
+  cells and bytes (4 bytes a cell plus about 270 bytes a column, so a layer's
+  memory grows with its area more than its depth: 1,024 × 1,024 columns take
+  about 280 MB). An undo step keeps only the chunks its edit changed.
 - **Storage**: each chunk of 16 × 16 columns is its own diff-friendly file,
   `scenes/<sceneId>.blocks/<entityId>.<cx>.<cz>.json` (the palette and one
   run-length column per line); the scene file lists them. External-edit

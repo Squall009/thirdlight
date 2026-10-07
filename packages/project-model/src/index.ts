@@ -1040,6 +1040,7 @@ export {
 export {
   BLOCK_EDIT_KINDS,
   BLOCK_EDIT_MAX_CELLS,
+  BLOCK_COLUMN_BYTES,
   BLOCK_EDIT_MAX_EDITS,
   SURFACE_EDIT_MAX_COLUMNS,
   blockEditsShapeError,
@@ -1061,6 +1062,7 @@ export {
   type BlockEdit,
   type BlockEditContext,
   type BlockEditResult,
+  type BlockLayerMemory,
   type BlockPick,
   type BlockRotation,
   type Vec3Like,

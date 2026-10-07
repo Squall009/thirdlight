@@ -7,7 +7,7 @@ import { describe, expect, it } from 'vitest';
 import type { BlockLayerData, SceneV4 } from '@thirdlight/project-model';
 
 import { applyMutation, createCommandState } from './index';
-import type { CommandState, EditBlocksChange, MutationSuccess } from './index';
+import type { CommandState, EditBlocksChange, EditBlocksInverse, MutationSuccess } from './index';
 import { m2EnvelopeV4 } from './test-fixtures';
 
 const BEFORE = m2EnvelopeV4('contracts/commands/prefab-scenario.before.json');
@@ -68,6 +68,24 @@ describe('block layer commands', () => {
     expect((undone.change as EditBlocksChange).chunks.length).toBe(4);
     const redone = ok(undone.state, 'redo');
     expect(layerOf(redone.state, id)).toEqual(layerOf(r.state, id));
+  });
+
+  it('an undo step keeps only the chunks and regions the edit changed; undo and redo put them back into the layer as it is', () => {
+    const s0 = setup();
+    const id = (s0 as { layerId?: string }).layerId!;
+    const s1 = ok(s0, 'editBlocks', { entityId: id, edits: [{ kind: 'fill', box: [0, 0, 0, 32, 2, 32], cell: { block: 'stone' } }, { kind: 'region', regionId: 'a', op: 'set', boxes: [[0, 0, 0, 1, 1, 1]] }] }).state;
+    const s2 = ok(s1, 'editBlocks', { entityId: id, edits: [{ kind: 'cells', at: [17, 1, 3], cell: null }, { kind: 'region', regionId: 'b', op: 'set', boxes: [[1, 1, 1, 2, 2, 2]] }] }).state;
+    const inverse = s2.history.entries.at(-1)!.inverse as EditBlocksInverse;
+    expect(inverse.patch.chunks.map((c) => [c.cx, c.cz, c.restore !== null, c.next !== null])).toEqual([[1, 0, true, true]]);
+    expect(inverse.patch.regions).toEqual([{ regionId: 'b', restore: null, next: { regionId: 'b', boxes: [[1, 1, 1, 2, 2, 2]] } }]);
+    // An edit in another chunk after it: undoing the earlier step (after undoing this one) keeps the rest of the layer.
+    const s3 = ok(s2, 'editBlocks', { entityId: id, edits: [{ kind: 'cells', at: [2, 1, 30], cell: null }] }).state;
+    const u1 = ok(s3, 'undo').state;
+    const u2 = ok(u1, 'undo').state;
+    expect(layerOf(u2, id)).toEqual(layerOf(s1, id));
+    const r2 = ok(ok(u2, 'redo').state, 'redo').state;
+    expect(layerOf(r2, id)).toEqual(layerOf(s3, id));
+    expect(cellsIn(layerOf(r2, id))).toBe(32 * 32 * 2 - 2);
   });
 
   it('an edit that changes nothing is no_change; bad edits are field errors', () => {
