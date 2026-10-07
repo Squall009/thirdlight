@@ -336,4 +336,28 @@ half is 29.4, 29.9 and 29.10.
 - 2026-10-07 (review M8, default chosen, owner to confirm): the cached static shadow map keeps drawing every copy of a casting instance set at LOD0, thinned and culled ones included: the map is drawn once and seen from wherever the camera goes, so thinning it by one view's distances would pop when the camera moves or force redraws. Cost: none in practice today — instance sets cast no shadow unless set, and neither Skyforge (248 sets, 9,360 copies) nor Sprout nor the village class has a casting set; a casting set pays its full LOD0 copy count once per static redraw. D190.
 - 2026-10-07 (review M9): the probe bake draws every surface per pixel whatever its or its material's `localLights` (a scene flag, `LOCAL_LIGHTS_IGNORED_KEY`), so a `none` surface still bounces lamp light into the probes. Per-vertex light reads the build's `side`: three draws a transparent double-sided material's back faces first with side BackSide, which now takes the light from the face shown. AO and per-vertex light: kept and documented — per-vertex light joins the ambient light, so AO darkens it as it darkens ambient (Unity's built-in pipeline adds its vertex lights to the ambient term); per-pixel lamps are direct light and are not darkened.
 - 2026-10-07 (review M10): timing windows restored where the trim weakened what a test proves: frame-rate-cap 5 s windows at the 30/60/none switches (3 s for the kept and player settings, which only tell 30 from 60) and 500 ms after a switch; sim-worker's 30 fps window 4 s and the export's still/walk windows 1.5 s; the sensors door stays open 4 s; material-runtime waits 2.5 s for a late recompile; the dynamic-resolution slow window is 6 s (outlasts the start's compiles). pw.ts's faster polls are kept (D189 watch).
+- 2026-10-07, phase end: full gate `--both-renderers` (21 min, still over the
+  15 min budget, D181) red on two real failures (an export save reported
+  before it was written; a test race made visible by faster polling) and one
+  flake (D184); fixed in 29.14 part A, `gate.sh rerun` green. Independent
+  review (fresh read-only agent, `~/.cache/thirdlight-phase29/review.md`):
+  - **High, fixed in 29.14 A:** LOD distance divided by a model's scale twice;
+    a re-bake kept the old probes in the editor; a settings field's default
+    beat the quality level.
+  - **Medium, fixed in 29.14 B/C:** probes didn't scale past a few tiles (now
+    incremental, streamed by distance within a budget, O(1) lookup); silent
+    look changes in existing games (absent settings now keep the old look);
+    dynamic resolution's budget, the AO light left after AO off, cull size
+    on non-LOD parts, the probe bake honouring `localLights`, back-face
+    per-vertex light, shortened e2e timing windows. M8 kept and logged.
+  - **Clean:** no new per-project caps, runtime boundaries hold, no schema
+    bump, no file past 2,000 lines, no history comments.
+  - **Owner look:** laptop numbers; the AO look (GTAO kept unless chosen) and
+    Skyforge's options (`ambient_occlusion` 1 and `densityMin` win back
+    ~1.2 ms there); LOD switches on scaled models; probes in a real interior
+    and streaming pop-in; per-vertex and importance modes; the Quality,
+    Light layers and sky rotation panels and "align sun"; FSR sharpness;
+    dynamic resolution pacing on a real display; the §7 defaults.
+- 2026-10-07: during 29.14 C one fast-gate rerun was started outside the
+  memory cap and peaked at 13.2 GB (no harm). Every later run was capped.
 
