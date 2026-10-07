@@ -653,6 +653,9 @@ cause and a follow-up, never a reason to throw an item away (owner,
     preview back and compares it with the stored tiles once settled (test-only cost).
   - The fast gate's village perf check misses on WebGL 2 (p50 4.9 vs 4.84 ms) with or without this change (HEAD
     9bd926bd measured with it stashed): D191.
+- 2026-10-07: D191 closed as host drift. WebGL 2 village p50, idle host, 3 runs each: HEAD 37719af2 4.9/4.8/4.8, fc210485
+  4.8/5.0/4.9, 6f38f3fb (phase 29 end) 4.9/4.7/4.7 ms; interleaved HEAD 4.7/4.6/4.6 against 6f38f3fb 4.5/4.6/4.6. Phase 30 adds
+  nothing measurable to the village (WebGPU 5.5–5.8 ms, means ~6.0 ms as at the baseline). Baseline kept at 4.4 ms.
 - 2026-10-03: Skyforge's requests mapped (the engine never reads the game
   repo; the ids only trace them back):
 
