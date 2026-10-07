@@ -21,6 +21,7 @@ export const terrain: ComponentDescriptor = {
     json('tiles', 'Tiles', 'The tiles: [{x, z, data?}], data the SHA-256 of the tile\'s heights, layers, holes and paint (written by the terrain commands; absent: flat at 0 m).', { required: true, readOnly: true }),
     num('lodDistance', 'Detail distance', 'Metres the finest level of detail reaches from the camera; each coarser level reaches twice as far (a quality level\'s LOD bias divides it). Empty: the nearest the tile size allows, also the least it takes.', { min: TERRAIN_LOD_DISTANCE_LIMITS.min, max: TERRAIN_LOD_DISTANCE_LIMITS.max, step: 1, unit: 'm' }),
     bool('collision', 'Collision', 'The tiles are heightfield colliders in a 3D project; off for scenery the player never reaches.', { default: true }),
+    json('rules', 'Material rules', 'Layers by slope, height, cavity and noise, baked into the tiles: [{layer, strength?, face?, height?, slope?, cavity?, noise?, weight?}] (set and baked by Material rules in the terrain tools, or editTerrain bake; hand paint stays over them).', { readOnly: true }),
   ]),
   add: { kind: 'tool', tool: 'terrain commands (editTerrain)' },
   handles: [],

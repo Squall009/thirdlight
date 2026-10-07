@@ -8,7 +8,8 @@
  * - export, load: from the first drawn frame for `--load-ms` (the layer meshed, the kit model arriving);
  * - export, grid writes: a script writing a cell every other step, after the load settled;
  * - Scene view, block type change: the soil's colour changed through a command (the whole layer meshed again);
- * - Scene view, kit model arrival: the kit type switched to a file not loaded yet (meshed without it, then with it).
+ * - Scene view, kit model arrival: the kit type switched to a file not loaded yet (meshed without it, then with it);
+ * - Scene view, material rules change: the layer's rules set (every chunk painted again as it is meshed).
  *
  *   --renderers webgpu,webgl2    (default both)
  *   --no-export / --no-scene-view
@@ -27,7 +28,7 @@ import { join } from 'node:path';
 import type { Browser, Page } from '@playwright/test';
 
 import { PERF_ROOT, REPO, startPerfBackend, type PerfBackend } from './backend';
-import { buildBlocks, changeBlocksType, setBlocksStream, switchBlocksKit, BLOCKS_VERSION, type BlocksBuild } from './blocks';
+import { buildBlocks, changeBlocksRules, changeBlocksType, setBlocksStream, switchBlocksKit, BLOCKS_VERSION, type BlocksBuild } from './blocks';
 import { FRAME_VIEWPORT, launchGpuBrowser, serveStatic, uncappedUrl, type FrameRenderer } from './frame-run';
 import { installFrameProbe } from './frame-probe';
 import { installPerfInstrumentation } from './instrument';
@@ -51,7 +52,7 @@ export interface BlocksReport {
   version: number;
   query: string;
   export: Partial<Record<FrameRenderer, { load: HitchWindow; gridWrites: HitchWindow }>>;
-  sceneView: Partial<Record<FrameRenderer, { typeChange: HitchWindow; kitArrival: HitchWindow }>>;
+  sceneView: Partial<Record<FrameRenderer, { typeChange: HitchWindow; kitArrival: HitchWindow; rulesChange: HitchWindow }>>;
   errors: string[];
 }
 
@@ -141,7 +142,7 @@ async function exportWindows(browser: Browser, url: string, loadMs: number, reco
   }
 }
 
-async function sceneViewWindows(browser: Browser, be: PerfBackend, b: BlocksBuild, renderer: FrameRenderer, query: string, recordMs: number, errors: string[]): Promise<{ typeChange: HitchWindow; kitArrival: HitchWindow }> {
+async function sceneViewWindows(browser: Browser, be: PerfBackend, b: BlocksBuild, renderer: FrameRenderer, query: string, recordMs: number, errors: string[]): Promise<{ typeChange: HitchWindow; kitArrival: HitchWindow; rulesChange: HitchWindow }> {
   const context = await browser.newContext({ viewport: { ...FRAME_VIEWPORT }, deviceScaleFactor: 1 });
   await context.addInitScript(installFrameClock);
   await context.addInitScript(installFrameProbe, { timestamps: false });
@@ -175,7 +176,9 @@ async function sceneViewWindows(browser: Browser, be: PerfBackend, b: BlocksBuil
     // Back to the first kit for the next renderer (loaded: no arrival then).
     await switchBlocksKit(be, b, false);
     await settled();
-    return { typeChange, kitArrival };
+    const rulesChange = await windowAround(() => changeBlocksRules(be, b, renderer === 'webgpu' ? 1 : 2));
+    await settled();
+    return { typeChange, kitArrival, rulesChange };
   } finally {
     await context.close();
   }
@@ -219,6 +222,7 @@ export async function runBlocksCli(argv: readonly string[]): Promise<void> {
           report.sceneView[r] = res;
           log(line(`scene view ${r}, block type change`, res.typeChange));
           log(line(`scene view ${r}, kit model arrival`, res.kitArrival));
+          log(line(`scene view ${r}, material rules change`, res.rulesChange));
         }
       } finally {
         await browser.close();

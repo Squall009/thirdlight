@@ -401,6 +401,10 @@ export { BLOCK_EDIT_MAX_EDITS, SCULPT_LIMITS, chunkLightmapLayout, applyBlockEdi
 export { INSTANCE_BRUSH_DEFAULTS, INSTANCE_BRUSH_LIMITS, StrokeCandidates, candidateDrop, dropOntoBlockLayers, instanceStrokeError } from '@thirdlight/project-model';
 // The paint brush and block-layer paint (the editor's Paint mode, the renderer's paint colours).
 export { BRUSH_FALLOFFS, PAINT_BRUSH_LIMITS, PAINT_CHANNELS, chunkMeshAO, chunkMeshPaint, chunkPaintColors, type BrushFalloff, type PaintBrush } from '@thirdlight/project-model';
+// Material rules (block chunks evaluate them when meshed; the editor edits them).
+export { SURFACE_RULE_BLOCK_LAYERS, SURFACE_RULE_CAVITY_RADIUS, SURFACE_RULE_LAYER_MAX, SurfaceRuleSet, type RuleRange, type SurfaceRule } from '@thirdlight/project-model';
+// The layers past a vec4 a per-layer material setting holds values for (the editor's layer table).
+export { MATERIAL_EXTRA_LAYERS_MAX } from '@thirdlight/project-model';
 // A prop's block footprint: the editor snaps props and writes footprints with the backend's geometry.
 export { footprintCells, footprintEdits, footprintMinCell, footprintPlaces, overLayer, placeInWorld, pointInParent, turnedSize, yawQuarterTurns, type FootprintLayer, type FootprintNode } from '@thirdlight/project-model';
 export { BlockGrid, blockKitNames, blockKitView, kitKey, type BlockGridReader, type BlockLayerKit, CHUNK_SIZE, CUTAWAY_FADE_SECONDS, cutawayCuts, cutawaySeams, cutawayZones, type CutawayZone, autoVariant, blockTopOptions, blockTypeSolid, blockVariantUv, chunkKeyOf, collisionMeshChunk, compareChunkKeys, meshBlockChunk, rotatedFootprint, shapeSource, type BlockCell, type BlockChunk, type BlockLayerComponent, type BlockLayerData, type BlockLookResolver, type BlockMeshSource, type BlockTopOptions, type BlockType, type BlockUvMode, type BlockVariant, type CellField, type ChunkMeshPart } from '@thirdlight/project-model';

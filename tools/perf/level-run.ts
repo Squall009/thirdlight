@@ -15,6 +15,8 @@
  *   --cutaway                    the roofs as cut-aways, half held cut, half swapped every 2 s by a script (implies --roofs)
  *   --kit-swap                   a script swaps the layer's kit (burnt twins of every block type) on and off every 2 s
  *   --vertex-ao                  the layer with corner shading (vertexAO 0.6; default: none, as recorded)
+ *   --rules                      material rules on the block layer and the terrain (baked), and per-layer settings for
+ *                                every terrain layer (default: none, as recorded)
  *   --renderers webgpu,webgl2    (default both)
  *   --query 'a=b&c=d'            add to the export's page query
  *   --switches 'a=off,b=off'     measure each export again with each query added (one switch at a time)
@@ -57,6 +59,8 @@ export interface LevelReport {
   kitSwap?: boolean;
   /** The layer's corner shading (absent: none). */
   vertexAO?: number;
+  /** Material rules on the layer and the terrain (absent: none). */
+  rules?: boolean;
   query: string;
   builds: Partial<Record<LevelKind, LevelBuild & { exportMs: number }>>;
   classes: Partial<Record<LevelKind, Partial<Record<FrameRenderer, FrameRunResult>>>>;
@@ -148,14 +152,14 @@ export async function runLevelCli(argv: readonly string[]): Promise<void> {
   } catch {
     /* not a git checkout */
   }
-  const report: LevelReport = { reportVersion: 1, startedAt, commit, machine: { cpu: cpus()[0]?.model ?? 'unknown', cores: cpus().length }, version: LEVEL_VERSION, seed: LEVEL_SEED, ...(liveDoors > 0 ? { liveDoors } : {}), ...(has('edge-walls') ? { edgeWalls: true } : {}), ...(has('wall-paint') ? { wallPaint: true } : {}), ...(roofs !== 'none' ? { roofs } : {}), ...(has('kit-swap') ? { kitSwap: true } : {}), ...(has('vertex-ao') ? { vertexAO: LEVEL_VERTEX_AO } : {}), query, builds: {}, classes: {}, errors: [] };
+  const report: LevelReport = { reportVersion: 1, startedAt, commit, machine: { cpu: cpus()[0]?.model ?? 'unknown', cores: cpus().length }, version: LEVEL_VERSION, seed: LEVEL_SEED, ...(liveDoors > 0 ? { liveDoors } : {}), ...(has('edge-walls') ? { edgeWalls: true } : {}), ...(has('wall-paint') ? { wallPaint: true } : {}), ...(roofs !== 'none' ? { roofs } : {}), ...(has('kit-swap') ? { kitSwap: true } : {}), ...(has('vertex-ao') ? { vertexAO: LEVEL_VERTEX_AO } : {}), ...(has('rules') ? { rules: true } : {}), query, builds: {}, classes: {}, errors: [] };
 
   // Every class built and exported by one backend, then measured with it stopped (one backend or one browser at a time).
   const exportDirs: Partial<Record<LevelKind, string>> = {};
   const be = await startPerfBackend(join(runDir, 'data'), join(runDir, 'exports'));
   try {
     for (const kind of kinds) {
-      const b = await buildLevel(be, `level-${kind}`, levelPlan(kind, LEVEL_SEED, liveDoors, has('edge-walls'), has('wall-paint'), roofs, has('kit-swap'), has('vertex-ao') ? LEVEL_VERTEX_AO : 0), log);
+      const b = await buildLevel(be, `level-${kind}`, levelPlan(kind, LEVEL_SEED, liveDoors, has('edge-walls'), has('wall-paint'), roofs, has('kit-swap'), has('vertex-ao') ? LEVEL_VERTEX_AO : 0, has('rules')), log);
       const t = performance.now();
       const res = await be.post(`/api/v1/admin/projects/${b.projectId}/export`, {});
       if (res.status !== 200) throw new Error(`export failed: ${JSON.stringify(res.json).slice(0, 400)}`);

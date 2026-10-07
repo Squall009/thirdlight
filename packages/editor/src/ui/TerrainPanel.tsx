@@ -11,6 +11,8 @@
  *   tiles from a tile on, with the heights its 0 and 65535 stand for.
  * - Convert a block layer: its surface (corner heights) and paint become the
  *   terrain's samples.
+ * - Material rules: layers by slope, height, cavity and noise, baked into
+ *   the tiles (`editTerrain` bake); hand paint stays over them.
  *
  * A stroke is one `editTerrain` (the Scene view's `TerrainEditor`), as is an
  * import or a conversion — one undo step each.
@@ -22,6 +24,7 @@ import { BRUSH_FALLOFFS, HEIGHTMAP_FORMATS, TERRAIN_LAYER_MAX, TERRAIN_TILE_COOR
 import { TERRAIN_DEFAULT_COLOURS } from '@thirdlight/three-adapter';
 import { DEFAULT_TERRAIN_BRUSH, TERRAIN_BRUSH_UI, TERRAIN_TOOLS, type TerrainBrushState, type TerrainToolId } from '../session/terrain-brush';
 import type { TerrainEditor } from '../viewport/terrain-editor';
+import { SurfaceRulesEditor } from './SurfaceRulesEditor';
 
 interface Props {
   editor: TerrainEditor | null;
@@ -50,6 +53,7 @@ export function TerrainPanel(p: Props): JSX.Element {
   const [brush, setBrush] = useState<TerrainBrushState>(DEFAULT_TERRAIN_BRUSH);
   const [invert, setInvert] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
+  const [rulesOpen, setRulesOpen] = useState(false);
   const [source, setSource] = useState('');
   const editor = p.editor;
   const c = p.component;
@@ -156,6 +160,12 @@ export function TerrainPanel(p: Props): JSX.Element {
           Convert
         </button>
       </div>
+      <div className="tl-blocks__opts">
+        <button className="tl-btn tl-btn--small" aria-expanded={rulesOpen} title="Paint the material layers by slope, height, cavity and noise (baked into the tiles; hand paint stays over them)" onClick={() => setRulesOpen((o) => !o)}>
+          Material rules{(c.rules?.length ?? 0) > 0 ? ` (${c.rules!.length})` : ''}…
+        </button>
+      </div>
+      {rulesOpen && <SurfaceRulesEditor rules={c.rules ?? []} blocks={false} disabled={p.locked} onApply={(rules) => p.run('Bake material rules', 'editTerrain', { entityId: p.entityId, kind: 'bake', rules })} />}
       {importOpen && <HeightmapImport entityId={p.entityId} component={c} run={p.run} stage={p.stage} onDone={() => setImportOpen(false)} />}
     </div>
   );

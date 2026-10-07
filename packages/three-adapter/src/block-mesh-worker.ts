@@ -35,7 +35,7 @@ export type MeshWorkerRequest =
   | { t: 'chunks'; entityId: string; chunks: { cx: number; cz: number; chunk: BlockChunk | null }[] }
   | { t: 'drop'; entityId: string }
   /** Mesh a chunk; `gen` is the page's generation of it (a later request or `cancel` supersedes it). */
-  | { t: 'mesh'; entityId: string; serial: number; cx: number; cz: number; gen: number; uv: boolean }
+  | { t: 'mesh'; entityId: string; serial: number; cx: number; cz: number; gen: number; uv: boolean; origin?: readonly number[] }
   /** The chunk was meshed elsewhere since (on the page): requests up to `gen` are not wanted. */
   | { t: 'cancel'; entityId: string; cx: number; cz: number; gen: number };
 
@@ -106,7 +106,7 @@ export function runBlockMeshWorker(endpoint: MeshEndpoint): { stop(): void; trac
     const layer = layers.get(req.entityId);
     if (layer === undefined || layer.serial !== req.serial) return;
     const t0 = performance.now();
-    const result = meshChunkForDrawing(layer.view, layer.component, types, looks, standIns, { cx: req.cx, cz: req.cz, uv: req.uv });
+    const result = meshChunkForDrawing(layer.view, layer.component, types, looks, standIns, { cx: req.cx, cz: req.cz, uv: req.uv, ...(req.origin !== undefined ? { origin: req.origin } : {}) });
     const reply: MeshWorkerReply = { t: 'meshed', entityId: req.entityId, serial: req.serial, cx: req.cx, cz: req.cz, gen: req.gen, ms: performance.now() - t0, result };
     endpoint.post(reply, chunkResultBuffers(result));
   };

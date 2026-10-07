@@ -114,7 +114,7 @@ export function prepareTerrainEdit(core: Core, s: ProjectSession, scene: SceneDo
     if (old.get(key) !== digest || !old.has(key)) touched.push(key.split(',').map(Number) as [number, number]);
   }
   touched.sort((a, b) => a[1] - b[1] || a[0] - b[0]);
-  const value: TerrainComponent = { ...comp, tiles: terrainTilesAfter(comp, digests) };
+  const value: TerrainComponent = { ...comp, tiles: terrainTilesAfter(comp, digests), ...(plan.plan.rules !== undefined ? { rules: plan.plan.rules } : {}) };
   return { ok: true, prepared: { entityId: v.args.entityId, value, touched, added: plan.plan.added, changed: plan.plan.changed, ...(plan.plan.clamped !== undefined ? { clamped: plan.plan.clamped } : {}) }, blobs };
 }
 

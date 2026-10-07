@@ -11,6 +11,8 @@
  *   every tile).
  * - The renderer's page-side work for the landscape class's terrain (144 tiles of 257² at 2 m): packing a tile's
  *   texels (heights and normals, layers) and its height bounds, and a CDLOD selection with the camera flying over it.
+ * - Material rules baked into a tile (slope, cavity, a noise mask over what the rules before left, height): a
+ *   257² and a 1,025² tile whole, and the part a 16 m raise bakes again.
  * The numbers go to ~/.cache/thirdlight-perf/terrain.jsonl and the phase plan's progress table.
  */
 import { appendFileSync, mkdirSync } from 'node:fs';
@@ -19,7 +21,7 @@ import { join } from 'node:path';
 import { deflateSync, inflateSync } from 'node:zlib';
 
 import { describe, expect, it } from 'vitest';
-import { TerrainSamples, decodeHeightmap, flatTerrainTile, holeTerrain, importHeightmap, paintTerrain, sculptTerrain, terrainFlatStep, terrainNoise, terrainTileKey, type TerrainComponent, type TerrainSculptKind, type TerrainTile } from '@thirdlight/project-model';
+import { SurfaceRuleSet, TerrainSamples, bakeTerrainRules, terrainBakeMargin, terrainBakeRect, cloneTerrainTile, decodeHeightmap, flatTerrainTile, holeTerrain, importHeightmap, paintTerrain, sculptTerrain, terrainFlatStep, terrainNoise, terrainTileKey, type TerrainComponent, type TerrainSculptKind, type TerrainTile } from '@thirdlight/project-model';
 
 import { terrainBlobOf, terrainTileOfBlob } from '../../packages/workspace/src/terrain-edits';
 import { PageNodes, selectTerrainNodes, terrainLodLayout, terrainLodRanges, tileHeightBounds, type SelectStats, type SelectTile } from '../../packages/three-adapter/src/terrain-quadtree';
@@ -134,6 +136,42 @@ describe.runIf(ON)('terrain data perf', () => {
     }
     record(JSON.stringify({ case: 'stroke', tile: 513, dabs: 32, radius: 16, ms: Object.fromEntries(Object.entries(runs).map(([k, v]) => [k, Math.round(median(v) * 100) / 100])) }));
   });
+
+  it('material rules baked into a tile: whole, and the part a sculpt moved', () => {
+    const rules = new SurfaceRuleSet([
+      { layer: 3, slope: { min: 35, fade: 8 } },
+      { layer: 2, cavity: { min: 0.4, fade: 0.4, radius: 4 } },
+      { layer: 4, noise: { scale: 12, seed: 2, min: 0.6, fade: 0.1 }, weight: { layer: 3, max: 0.3 } },
+      { layer: 5, height: { min: 50, fade: 10 } },
+    ]);
+    for (const samples of [257, 1025]) {
+      const comp: TerrainComponent = { tileSamples: samples, spacing: 1, heightRange: [-200, 600], tiles: [{ x: 0, z: 0 }] };
+      const tile = flatTerrainTile(samples, terrainFlatStep(comp.heightRange));
+      const s0 = new TerrainSamples(comp, new Map([[terrainTileKey(0, 0), tile]]));
+      for (let z = 0; z < samples; z++) for (let x = 0; x < samples; x++) tile.heights[z * samples + x] = s0.stepOf(hills(x, z));
+      const whole: number[] = [];
+      let baked: TerrainTile = tile;
+      for (let r = 0; r < 5; r++) {
+        const s = new TerrainSamples(comp, new Map([[terrainTileKey(0, 0), cloneTerrainTile(tile)]]));
+        const t0 = performance.now();
+        bakeTerrainRules(s, rules, [0, 0, 0], null);
+        whole.push(performance.now() - t0);
+        baked = s.tile(0, 0)!;
+      }
+      const part: number[] = [];
+      for (let r = 0; r < 5; r++) {
+        const before = new Map([[terrainTileKey(0, 0), baked]]);
+        const s = new TerrainSamples(comp, new Map([[terrainTileKey(0, 0), cloneTerrainTile(baked)]]));
+        for (let i = 0; i < 8; i++) sculptTerrain(s, { kind: 'raise', at: [100 + i * 2, 120], radius: 16, strength: 0.5, falloff: 'smooth' });
+        const t0 = performance.now();
+        const rect = terrainBakeRect(before, new Map([[terrainTileKey(0, 0), s.tile(0, 0)!]]), samples - 1, terrainBakeMargin(rules, 1));
+        bakeTerrainRules(s, rules, [0, 0, 0], rect);
+        part.push(performance.now() - t0);
+      }
+      const r2 = (v: number): number => Math.round(v * 100) / 100;
+      record(JSON.stringify({ case: 'rule bake', tile: samples, rules: rules.rules.length, wholeMs: r2(median(whole)), nsPerSample: r2((median(whole) * 1e6) / (samples * samples)), raise16mMs: r2(median(part)) }));
+    }
+  }, 120_000);
 
   it('blob sizes of a 513² tile', () => {
     const t = hillTile();

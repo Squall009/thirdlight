@@ -506,8 +506,8 @@ export class BlockLayerView {
       layer = { group, component, grid, gameKits: null, view: blockKitView(grid, component.kits, this.types), serial: ++this.serials, chunks: new Map(), dirty: new Set(), edited: new Set(), gens: new Map(), pending: new Map(), meshMs: -1, looksAsked: 0, lightmapLayouts: new Map(), hidden: false };
       this.layers.set(entityId, layer);
     } else {
-      // Another kit on drawn chunks is a restyle (the shadow held until they are in).
-      if (kitKey(this.kitsOf(layer)) !== kitKey(layer.gameKits ?? component.kits)) this.restyleLayer(layer);
+      // Another kit or other material rules on drawn chunks is a restyle (the shadow held until they are in).
+      if (kitKey(this.kitsOf(layer)) !== kitKey(layer.gameKits ?? component.kits) || JSON.stringify(layer.component.rules ?? []) !== JSON.stringify(component.rules ?? [])) this.restyleLayer(layer);
       layer.component = component;
       layer.grid = BlockGrid.from(component, data);
       layer.view = blockKitView(layer.grid, this.kitsOf(layer), this.types);
@@ -538,6 +538,8 @@ export class BlockLayerView {
     g.set(origin[0] ?? 0, origin[1] ?? 0, origin[2] ?? 0);
     layer.group.updateMatrixWorld(true);
     this.cut.setOrigin(entityId, origin);
+    // Material rules read world heights and positions: the layer is painted again where it now stands.
+    if ((layer.component.rules?.length ?? 0) > 0) this.restyleLayer(layer);
     if (!layer.hidden) for (const chunk of layer.chunks.values()) this.deps.place?.(chunk, true);
   }
 
@@ -910,7 +912,15 @@ export class BlockLayerView {
     const gen = this.nextGen(layer, ck);
     layer.pending.set(ck, gen);
     const [cx, cz] = ck.split(',').map(Number) as [number, number];
-    this.pool!.send({ t: 'mesh', entityId, serial: layer.serial, cx, cz, gen, uv: this.uvFor(entityId) });
+    const origin = this.rulesOrigin(layer);
+    this.pool!.send({ t: 'mesh', entityId, serial: layer.serial, cx, cz, gen, uv: this.uvFor(entityId), ...(origin !== undefined ? { origin } : {}) });
+  }
+
+  /** Where a layer with material rules stands (they read world positions); undefined without rules. */
+  private rulesOrigin(layer: LayerState): [number, number, number] | undefined {
+    if ((layer.component.rules?.length ?? 0) === 0) return undefined;
+    const g = layer.group.position;
+    return [g.x, g.y, g.z];
   }
 
   /** Mesh a chunk here and now. */
@@ -927,7 +937,8 @@ export class BlockLayerView {
     this.meshingLayer = entityId;
     let result: ChunkMeshResult;
     try {
-      result = meshChunkForDrawing(layer.view, layer.component, this.types, this.pageLooks, this.standIns, { cx, cz, uv: this.uvFor(entityId) });
+      const origin = this.rulesOrigin(layer);
+      result = meshChunkForDrawing(layer.view, layer.component, this.types, this.pageLooks, this.standIns, { cx, cz, uv: this.uvFor(entityId), ...(origin !== undefined ? { origin } : {}) });
     } finally {
       this.meshingLayer = null;
     }

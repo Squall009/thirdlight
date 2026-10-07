@@ -89,6 +89,9 @@ export interface BlocksBuild {
   ms: number;
 }
 
+/** The blocks layer's component as built (a rules change keeps the rest). */
+const GROUND_LAYER = { cellSize: [1, CELL_HEIGHT, 1], bounds: { min: [0, 0, 0], max: [SIDE, 32, SIDE] }, maxSlope: 60, smoothAngle: 40, topSubdivision: 2 };
+
 /** Build the blocks class into a new project through the backend's command API. */
 export async function buildBlocks(be: PerfBackend, projectId: string, log: (s: string) => void = () => undefined): Promise<BlocksBuild> {
   const t0 = performance.now();
@@ -107,7 +110,7 @@ export async function buildBlocks(be: PerfBackend, projectId: string, log: (s: s
   await cmd('pasteEntities', {
     sceneId: 'scene-main',
     entities: [
-      { id: 'ground', name: 'Ground', components: { transform: { position: [-SIDE / 2, 0, -SIDE / 2], rotation: [0, 0, 0, 1], scale: [1, 1, 1] }, blockLayer: { cellSize: [1, CELL_HEIGHT, 1], bounds: { min: [0, 0, 0], max: [SIDE, 32, SIDE] }, maxSlope: 60, smoothAngle: 40, topSubdivision: 2 } } },
+      { id: 'ground', name: 'Ground', components: { transform: { position: [-SIDE / 2, 0, -SIDE / 2], rotation: [0, 0, 0, 1], scale: [1, 1, 1] }, blockLayer: { ...GROUND_LAYER } } },
       { id: 'stream', name: 'Grid stream', components: { transform: { position: [0, 0, 0], rotation: [0, 0, 0, 1], scale: [1, 1, 1] }, behavior: { behaviorId: STREAM_BEHAVIOR, values: { stream: false } } } },
     ],
   });
@@ -138,6 +141,19 @@ export async function setBlocksStream(be: PerfBackend, b: BlocksBuild, on: boole
 export async function changeBlocksType(be: PerfBackend, b: BlocksBuild, n: number): Promise<void> {
   const shade = (40 + ((n * 37) % 60)).toString(16).padStart(2, '0');
   await be.project(b.projectId).command('setBlockType', { block: { blockId: 'soil', name: 'Soil', variants: [{ color: `#6f${shade}4a` }, { color: '#7a9050' }], shape: 'full' } });
+}
+
+/**
+ * Material rules set on the layer (every chunk painted again where it is meshed: in the mesh workers): rock on
+ * slopes past a threshold that differs with `n`, a second layer in hollows, a noise patch.
+ */
+export async function changeBlocksRules(be: PerfBackend, b: BlocksBuild, n: number): Promise<void> {
+  const rules = [
+    { layer: 2, slope: { min: 20 + (n % 20), fade: 8 } },
+    { layer: 1, cavity: { min: 0.2, fade: 0.2, radius: 2 }, face: 'top' },
+    { layer: 3, noise: { scale: 6, seed: n, min: 0.6, fade: 0.1 } },
+  ];
+  await be.project(b.projectId).command('setComponent', { entityId: b.layerId, component: 'blockLayer', value: { ...GROUND_LAYER, rules } });
 }
 
 /** Switch the kit blocks to the other kit file: the layer meshes without it, then again when it has loaded. */

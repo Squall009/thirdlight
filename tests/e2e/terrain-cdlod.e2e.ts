@@ -43,6 +43,14 @@
  *   layer converted (each undone). Then a 64 m raise on the 1,025² tile: the
  *   preview's main-thread time per frame, the page's frames meanwhile, the
  *   commit's round trip and how long until the stored tile replaced it.
+ * - Material rules (first renderer, through the editor): the terrain's
+ *   Material rules paint layer 3 (magenta) where the ground is steeper than
+ *   the bumps ever get, so a steep ramp turns magenta while the disc painted
+ *   by hand on it stays blue, through a second bake too; the block layer's
+ *   Rules paint the same rule onto its walls and a steep top while its flat
+ *   top keeps layer 0 (red). The layer table gives layer 5 settings of its
+ *   own. Then the Scene view (second renderer), Play and the export (both)
+ *   show the magenta ramp and walls beside the blue disc and red tops.
  */
 import { randomBytes } from 'node:crypto';
 import { createReadStream, existsSync, statSync } from 'node:fs';
@@ -54,10 +62,10 @@ import { expect, test, type Page } from './pw';
 import { layeredMaterial } from '../../packages/editor/src/session/material-graph';
 import { controls, startBackend, type E2EBackend } from './backend';
 import { gpuAvailable } from './browser-env.mjs';
-import { ALBEDO_HEIGHT_LAYERS, isBlue, isRed, packNormalAndOrm, packTexture, publishLayerSources, publishTexture, useArrays, type Pred } from './painted-layers';
+import { ALBEDO_HEIGHT_LAYERS, isBlue, isMagenta, isRed, materials, packNormalAndOrm, packTexture, publishLayerSources, publishTexture, useArrays, type Pred } from './painted-layers';
 import { makePng } from './png-make';
 import { decodePng, type Image } from './png';
-import { menu } from './ui';
+import { closeEditor, editorPane, menu, openEditor, openWindow } from './ui';
 import { expectRendererBackend } from './renderer-variants';
 
 let be: E2EBackend | null = null;
@@ -107,6 +115,20 @@ const isYellow: Pred = (r, g, b) => r > 80 && g > 70 && b < 0.65 * g && Math.abs
 /** The player's start (on a strip flattened to 2.1 m) and the way it walks (−z) into the hole. */
 const PLAYER: [number, number] = [2, -5];
 const STRIP_HEIGHT = 2.1;
+/**
+ * A ramp steeper than the bumps ever get (rising 11 m over 3 m toward −z, so it faces the cameras), with a disc
+ * painted by hand on it; and a block layer of 4 × 3 × 2 cells, its wall facing +z and a steep top cell. The
+ * slope rule paints both layer 3 (magenta).
+ */
+const RAMP_X = -13;
+const RAMP: { from: V3; to: V3 } = { from: [RAMP_X, 1, -13], to: [RAMP_X, 10, -16] };
+const RAMP_DISC: [number, number] = [RAMP_X, -15.2];
+const RAMP_MID: [number, number] = [RAMP_X, -13.8];
+const STEEP_DEG = 62;
+/** Left of the painted disc (in every camera's view), clear of the tools' strokes. */
+const BLOCKS_AT: V3 = [-16, 3, -9];
+/** The bumps' steepest (on the 0.5 m grid) is about 51°: the rule's threshold is well past it. */
+const STEEP_RULE = { layer: 3, slope: { min: STEEP_DEG, fade: 2 } };
 /** The 1,025² tile's terrain: far out of view (its uploads are what is measured). */
 const BIG_ORIGIN: V3 = [3000, 0, 3000];
 
@@ -133,7 +155,7 @@ async function stage(bytes: Uint8Array): Promise<string> {
   return s.stageId;
 }
 
-async function buildTerrain(): Promise<{ ground: string; big: string }> {
+async function buildTerrain(): Promise<{ ground: string; big: string; blocks: string }> {
   await cmd('setSettings', { settings: { camera_far_m: 400 } });
   for (const id of ['model-0001', 'spawn-0001', 'box-0001', 'box-0002', 'box-0003', 'box-0004', 'model-0002']) await cmd('deleteEntity', { entityId: id }).catch(() => undefined);
   // The arrays (through the pack route) and the layered template, made as the Materials tab makes it.
@@ -162,6 +184,13 @@ async function buildTerrain(): Promise<{ ground: string; big: string }> {
   const strip: [number, number][] = [];
   for (let z = PLAYER[1] + 2; z >= HOLE[1] + 1; z -= 1) strip.push([PLAYER[0], z]);
   await cmd('editTerrain', { entityId: ground, kind: 'flatten', dabs: strip, radius: 2.5, strength: 1, falloff: 'constant', height: STRIP_HEIGHT });
+  // The steep ramp with a hand-painted disc (layer 2, blue) on it, and the block layer (the rules come later, from the editor).
+  await cmd('editTerrain', { entityId: ground, kind: 'ramp', from: RAMP.from, to: RAMP.to, radius: 1.5, strength: 1, falloff: 'constant' });
+  await cmd('editTerrain', { entityId: ground, kind: 'paint', dabs: [RAMP_DISC], radius: 0.5, strength: 1, falloff: 'constant', layer: 2 });
+  await cmd('setBlockType', { block: { blockId: 'rock', name: 'Rock', variants: [{ color: '#808080' }], shape: 'full', materials: { '*': 'mat-terrain' } } });
+  const blocks = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Blocks', transform: { position: BLOCKS_AT } }))['createdId']);
+  await cmd('setComponent', { entityId: blocks, component: 'blockLayer', value: { cellSize: [1, 1, 1], bounds: { min: [0, 0, 0], max: [4, 4, 2] } } });
+  await cmd('editBlocks', { entityId: blocks, edits: [{ kind: 'fill', box: [0, 0, 0, 4, 3, 2], cell: { block: 'rock' } }, { kind: 'cells', at: [1, 3, 0], cell: { block: 'rock', corners: [3, 3, 0, 0] } }] });
   // A 3D game with a player on the strip (its capsule's 0.9 m half height over the ground).
   await cmd('setSettings', { settings: { physics_dimension: 3 } });
   const player = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Player', transform: { position: [PLAYER[0], STRIP_HEIGHT + 0.95, PLAYER[1]] } }))['createdId']);
@@ -170,7 +199,7 @@ async function buildTerrain(): Promise<{ ground: string; big: string }> {
   const big = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Far', transform: { position: BIG_ORIGIN } }))['createdId']);
   await cmd('setComponent', { entityId: big, component: 'terrain', value: { tileSamples: 1025, spacing: 1, heightRange: [-64, 64], tiles: [{ x: 0, z: 0 }] } });
   await bigNoise(big, 7);
-  return { ground, big };
+  return { ground, big, blocks };
 }
 
 /** Noise over the whole 1,025² tile (a new tile: read, packed and uploaded again). */
@@ -233,12 +262,13 @@ function skyPixels(img: Image, near = 0.08): { n: number; away: number } {
 /** Layers and the hole in a frame from the scene camera: red and blue ground, and the sky only through the hole (no crack). */
 function frameOk(img: Image): boolean {
   const sky = skyPixels(img);
-  return count(img, isRed) / ((img.width * img.height) / 4) > 0.5 && count(img, isBlue) > 20 && count(img, isYellow) > 20 && sky.n > 40 && sky.away === 0;
+  return count(img, isRed) / ((img.width * img.height) / 4) > 0.5 && count(img, isBlue) > 20 && count(img, isYellow) > 20 && count(img, isMagenta) > 60 && sky.n > 40 && sky.away === 0;
 }
 function expectFrame(img: Image, what: string): void {
   expect(count(img, isRed) / ((img.width * img.height) / 4), `${what}: red ground`).toBeGreaterThan(0.5);
   expect(count(img, isBlue), `${what}: the painted disc`).toBeGreaterThan(20);
   expect(count(img, isYellow), `${what}: the disc of the fifth layer`).toBeGreaterThan(20);
+  expect(count(img, isMagenta), `${what}: the steep ramp and the block walls painted by the slope rule`).toBeGreaterThan(60);
   const sky = skyPixels(img);
   expect(sky.n, `${what}: the sky through the hole`).toBeGreaterThan(40);
   expect(sky.away, `${what}: sky pixels away from the hole (a crack between levels or tiles)`).toBe(0);
@@ -358,7 +388,7 @@ test('terrain: CDLOD heights, layered material, paint and a hole in the Scene vi
   test.skip(test.info().project.name === 'webgpu', 'one pass covers both renderers');
   test.setTimeout(420_000);
   be = await startBackend('terrain-cdlod');
-  const { ground, big } = await buildTerrain();
+  const { ground, big, blocks } = await buildTerrain();
   const plain = await surface(ground, ...PLAIN);
   const painted = await surface(ground, ...PAINTED);
   const holeAt: V3 = [HOLE[0], (await surface(ground, ...HOLE))[1], HOLE[1]];
@@ -421,7 +451,44 @@ test('terrain: CDLOD heights, layered material, paint and a hole in the Scene vi
     expect(after.uploadMsPeak!, 'the most a frame spent uploading').toBeLessThan(8);
     expect(after.errors).toEqual([]);
 
-    await terrainTools(page, renderer, ground, big, renderer === BACKENDS[0]);
+    if (renderer === BACKENDS[0]) {
+      // The terrain tools (their previews against the stored tiles), then the material rules from the editor.
+      await terrainTools(page, renderer, ground, big, true);
+      await materialRules(page, ground, blocks);
+    } else {
+      // The rules baked on the first renderer: the steep ramp and the block walls magenta, the hand-painted disc on
+      // the ramp blue, the layer's flat top red (layer 0). The view zooms out until they are all in it, then back.
+      const checks: [string, V3, Pred][] = [
+        ['the steep ramp', [RAMP_MID[0], (await surface(ground, ...RAMP_MID))[1], RAMP_MID[1]], isMagenta],
+        ['the disc painted by hand on the ramp', [RAMP_DISC[0], (await surface(ground, ...RAMP_DISC))[1], RAMP_DISC[1]], isBlue],
+        ['the block wall', [BLOCKS_AT[0] + 2.5, BLOCKS_AT[1] + 2.4, BLOCKS_AT[2] + 2], isMagenta],
+        ['the block layer\'s steep top', [BLOCKS_AT[0] + 1.5, BLOCKS_AT[1] + 4.5, BLOCKS_AT[2] + 0.5], isMagenta],
+        ['the block layer\'s flat top', [BLOCKS_AT[0] + 3, BLOCKS_AT[1] + 3, BLOCKS_AT[2] + 1], isRed],
+      ];
+      const box = (await viewport(page).boundingBox())!;
+      const inView = async (): Promise<boolean> => {
+        for (const [, p] of checks) {
+          const q = await screenOf(page, p);
+          if (!(q.x > box.x + 12 && q.x < box.x + box.width - 12 && q.y > box.y + 12 && q.y < box.y + box.height - 12)) return false;
+        }
+        return true;
+      };
+      await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+      let zoomed = 0;
+      for (; zoomed < 30 && !(await inView()); zoomed++) {
+        await page.mouse.wheel(0, 200);
+        await page.waitForTimeout(80);
+      }
+      expect(await inView(), `${renderer} Scene view: the ramp and the block layer in view`).toBe(true);
+      for (const [what, p, test] of checks) {
+        await expect.poll(() => shareNear(page, p, test, 6), { timeout: 30_000, message: `${renderer} Scene view: ${what}` }).toBeGreaterThan(0.6);
+      }
+      for (let i = 0; i < zoomed; i++) {
+        await page.mouse.wheel(0, -200);
+        await page.waitForTimeout(80);
+      }
+      await terrainTools(page, renderer, ground, big, false);
+    }
 
     // Play: the scene camera's frame.
     const started = page.waitForResponse((r) => r.request().method() === 'POST' && r.url().endsWith('/play'));
@@ -742,4 +809,65 @@ async function terrainTools(page: Page, renderer: string, ground: string, big: s
   expect(st.msMax, `${renderer}: the preview's main-thread time per frame`).toBeLessThan(16.7);
   expect(st.msMean).toBeLessThan(4);
   expect(st.diff!.stepsMax, `${renderer} 64 m raise: preview against stored ${JSON.stringify(st.diff)}`).toBeLessThanOrEqual(1);
+}
+
+/**
+ * The material rules from the editor (see the file's header): the terrain's baked twice (the hand paint on the ramp
+ * survives both), the block layer's stored on its component, and layer 5's own settings in the layer table.
+ */
+async function materialRules(page: Page, ground: string, blocks: string): Promise<void> {
+  type Point = { layers: number[]; weights: number[] };
+  const layersAt = async (p: [number, number]): Promise<Point> => ((await query('queryTerrain', { entityId: ground, points: [p] }))['points'] as Point[])[0]!;
+  await selectEntity(page, ground);
+  await terrainPanel(page).getByRole('button', { name: /^Material rules/ }).click();
+  const rules = terrainPanel(page).getByRole('group', { name: 'material rules' });
+  await rules.getByRole('button', { name: 'add rule' }).click();
+  const fill = async (scope: typeof rules, label: string, value: number): Promise<void> => {
+    const f = scope.getByLabel(label, { exact: true });
+    await f.fill(String(value));
+    await f.blur();
+  };
+  await fill(rules, 'rule 1 layer', STEEP_RULE.layer);
+  await fill(rules, 'rule 1 slope min', STEEP_RULE.slope.min);
+  await fill(rules, 'rule 1 slope fade', 1);
+  const rev0 = Number((await query('queryProject')).revision);
+  await rules.getByRole('button', { name: 'apply rules' }).click();
+  await expect.poll(async () => (await layersAt(RAMP_MID)).layers, { timeout: 30_000, message: 'the steep ramp baked layer 3' }).toEqual([STEEP_RULE.layer]);
+  expect(Number((await query('queryProject')).revision), 'one command for the bake').toBe(rev0 + 1);
+  expect(await layersAt(RAMP_DISC), 'the hand paint over the rules').toMatchObject({ layers: [2], weights: [255] });
+  expect((await layersAt(PLAIN)).layers, 'gentle ground keeps layer 0').toEqual([0]);
+  // A second bake (the fade changed): the hand paint is still there.
+  await fill(rules, 'rule 1 slope fade', STEEP_RULE.slope.fade);
+  await rules.getByRole('button', { name: 'apply rules' }).click();
+  const terrainRules = async (): Promise<unknown> => (((await query('queryEntities', { limit: 200, offset: 0 })) as { entities: { id: string; components: { terrain?: { rules?: unknown } } }[] }).entities.find((e) => e.id === ground)?.components.terrain?.rules ?? null);
+  await expect.poll(terrainRules, { timeout: 30_000 }).toEqual([STEEP_RULE]);
+  expect(await layersAt(RAMP_DISC), 'the hand paint after a second bake').toMatchObject({ layers: [2], weights: [255] });
+  expect((await layersAt(RAMP_MID)).layers).toEqual([STEEP_RULE.layer]);
+
+  // The block layer's Rules: the same slope rule.
+  await page.locator(`.tl-hierarchy__list li[data-entity-id="${blocks}"]`).click();
+  await openWindow(page, 'Blocks');
+  const panel = page.getByLabel('blocks panel');
+  await expect(panel.getByLabel('block layer')).toHaveValue(blocks);
+  await panel.getByRole('button', { name: /^Rules/ }).click();
+  const blockRules = panel.getByRole('group', { name: 'material rules' });
+  await blockRules.getByRole('button', { name: 'add rule' }).click();
+  await fill(blockRules, 'rule 1 layer', STEEP_RULE.layer);
+  await fill(blockRules, 'rule 1 slope min', STEEP_RULE.slope.min);
+  await fill(blockRules, 'rule 1 slope fade', STEEP_RULE.slope.fade);
+  await blockRules.getByRole('button', { name: 'apply rules' }).click();
+  const blockRulesStored = async (): Promise<unknown> => (((await query('queryEntities', { limit: 200, offset: 0 })) as { entities: { id: string; components: { blockLayer?: { rules?: unknown } } }[] }).entities.find((e) => e.id === blocks)?.components.blockLayer?.rules ?? null);
+  await expect.poll(blockRulesStored, { timeout: 30_000 }).toEqual([STEEP_RULE]);
+
+  // Layer 5 (index 4) gets settings of its own in the material's layer table.
+  await openEditor(page, 'Material', 'Terrain layers');
+  const doc = editorPane(page, 'Material', 'Terrain layers');
+  await doc.getByRole('button', { name: 'add layer column' }).click();
+  const tiling = doc.getByLabel('layer 5 tiling (m)', { exact: true });
+  await expect(tiling).toHaveValue('1');
+  await tiling.fill('2');
+  await tiling.blur();
+  const tilingParam = async (): Promise<unknown> => ((await materials(be!)).find((m) => m.materialId === 'mat-terrain')?.parameters as { key: string; extraLayers?: number[] }[] | undefined)?.find((x) => x.key === 'layerTiling')?.extraLayers ?? null;
+  await expect.poll(tilingParam, { timeout: 15_000 }).toEqual([2]);
+  await closeEditor(page);
 }

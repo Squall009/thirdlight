@@ -16,11 +16,19 @@
  * top's paint above it and fades to the wall's own one wall-point step down
  * (unpainted, that is grass wrapping over the edge onto rock). Tops and
  * bottoms keep the lattice.
+ *
+ * With material rules (`blockLayer.rules`, `surface-rules.ts`) every vertex
+ * is a surface point — its world position, the slope and box-mapping side of
+ * its normal, the cell of its first triangle, and for tops the cavity from
+ * the layer's tops around it — and the rules' layers fill the paint's
+ * unpainted share: a top's layer 0, a wall point's layer 1. Hand paint stays
+ * over the rules; erasing it gives the ground back to them.
  */
-import { blockTypeSlopes, rotatedFootprint, type BlockType } from './block-layers';
+import { blockTypeSlopes, rotatedFootprint, type BlockCell, type BlockType, type CellMetaValue } from './block-layers';
 import type { BlockGridReader } from './block-grid';
 import { chunkPaintColors, PAINT_CHANNELS, PAINT_CHUNK_SIZE } from './block-paint';
-import { blockTopAt, cellCorners, subdividedHeightAt, type CellCorners } from './block-surface';
+import { blockTopAt, cellCorners, subdividedHeightAt, surfaceBelow, type CellCorners } from './block-surface';
+import type { SurfacePoint, SurfaceRuleSet } from './surface-rules';
 import { projectionOf } from './block-mesh';
 import { UNPAINTED_WALL, wallPaintSteps, wallPointKey, type WallPaint } from './block-wall-paint';
 
@@ -34,6 +42,10 @@ export interface ChunkPaintOptions {
   readonly wallPaint: boolean;
   /** The layer's top subdivision (a lip follows the cut top). */
   readonly topSubdivision: number;
+  /** The layer's material rules (absent: the paint alone). */
+  readonly rules?: SurfaceRuleSet;
+  /** The layer object's world position (the rules read world heights and positions; absent: the origin). */
+  readonly origin?: readonly number[];
 }
 
 /** A mesh part's geometry (layer-local metres). */
@@ -47,12 +59,26 @@ export interface PaintedGeometry {
 export function chunkMeshPaint(grid: BlockGridReader, types: ReadonlyMap<string, BlockType>, cx: number, cz: number, options: ChunkPaintOptions, part: PaintedGeometry): { weights: Uint8Array; wetness: Uint8Array } {
   const cs = grid.cellSize;
   const out = chunkPaintColors(grid.chunkPaint(cx, cz), cx, cz, cs, part.positions);
-  if (!options.wallPaint) return out;
+  if (!options.wallPaint && options.rules === undefined) return out;
   const { positions: p, normals: n, indices } = part;
   const count = p.length / 3;
   // Each vertex's first triangle.
   const first = new Int32Array(count).fill(-1);
   for (let t = 0; t < indices.length; t += 3) for (let k = 0; k < 3; k++) if (first[indices[t + k]!]! < 0) first[indices[t + k]!] = t;
+  // The paint's unpainted share per vertex, that the rules fill: the tops' layer 0 (and on a painted wall its points' layer 1).
+  const share0 = options.rules !== undefined ? new Float32Array(count) : null;
+  const share1 = options.rules !== undefined ? new Float32Array(count) : null;
+  if (share0 !== null) for (let i = 0; i < count; i++) share0[i] = out.weights[i * 4]!;
+  if (options.wallPaint) paintWalls(grid, types, cx, cz, options, part, first, out, share0, share1);
+  if (options.rules !== undefined) applyRules(grid, types, options.rules, options.origin ?? [0, 0, 0], part, first, out, share0!, share1!);
+  return out;
+}
+
+/** The wall points over the wall vertices, the top's paint wrapping over the lip (see the module comment). */
+function paintWalls(grid: BlockGridReader, types: ReadonlyMap<string, BlockType>, cx: number, cz: number, options: ChunkPaintOptions, part: PaintedGeometry, first: Int32Array, out: { weights: Uint8Array; wetness: Uint8Array }, share0: Float32Array | null, share1: Float32Array | null): void {
+  const cs = grid.cellSize;
+  const { positions: p, normals: n, indices } = part;
+  const count = p.length / 3;
   const st = wallPaintSteps(cs);
   const stepY = cs[1]! / st.up;
   const value = new Float64Array(PAINT_CHANNELS);
@@ -113,10 +139,110 @@ export function chunkMeshPaint(grid: BlockGridReader, types: ReadonlyMap<string,
     // Over the lip: the top's paint (the lattice value already there) down to one step below the run's top.
     const top = runs.top(ox, oz, mx, my, mz, px, pz);
     const f = top === null ? 1 : Math.max(0, Math.min(1, (top - py) / stepY));
+    if (share0 !== null) {
+      share0[i] = out.weights[i * 4]! * (1 - f);
+      share1![i] = value[1]! * f;
+    }
     for (let ch = 0; ch < 4; ch++) out.weights[i * 4 + ch] = Math.round(out.weights[i * 4 + ch]! * (1 - f) + value[ch]! * f);
     out.wetness[i * 4] = Math.round(out.wetness[i * 4]! * (1 - f) + value[4]! * f);
   }
-  return out;
+}
+
+/**
+ * The rules at every vertex poured into the paint's unpainted share
+ * (`share0` of layer 0, `share1` of layer 1, out of 255): the weights become
+ * the hand paint plus the share split by the rules, bytes summing to 255.
+ */
+function applyRules(grid: BlockGridReader, types: ReadonlyMap<string, BlockType>, rules: SurfaceRuleSet, origin: readonly number[], part: PaintedGeometry, first: Int32Array, out: { weights: Uint8Array; wetness: Uint8Array }, share0: Float32Array, share1: Float32Array): void {
+  const cs = grid.cellSize;
+  const { positions: p, normals: n, indices } = part;
+  const count = p.length / 3;
+  const layers: number[] = [];
+  const weights: number[] = [];
+  const rule = new Float64Array(4);
+  const mixed = new Float64Array(4);
+  let i = 0;
+  let cell: BlockCell | null | undefined;
+  /** The cell of the vertex's first triangle (its centroid, nudged into the block against its normal). */
+  const cellOf = (): BlockCell | null => {
+    if (cell !== undefined) return cell;
+    const t = first[i]!;
+    if (t < 0) return (cell = null);
+    let mx = 0;
+    let my = 0;
+    let mz = 0;
+    for (let k = 0; k < 3; k++) {
+      const v = indices[t + k]! * 3;
+      mx += p[v]! / 3;
+      my += p[v + 1]! / 3;
+      mz += p[v + 2]! / 3;
+    }
+    const e = 0.01 * Math.min(cs[0]!, cs[1]!);
+    return (cell = grid.get(Math.floor((mx - n[i * 3]! * e) / cs[0]!), Math.floor((my - n[i * 3 + 1]! * e) / cs[1]!), Math.floor((mz - n[i * 3 + 2]! * e) / cs[2]!)));
+  };
+  const point: SurfacePoint = {
+    x: 0,
+    y: 0,
+    z: 0,
+    slope: 0,
+    wall: false,
+    // The tops around (straight down from a little above): how far they lie above this vertex; walls and bottoms have none.
+    cavity: (radius) => {
+      if (point.wall || n[i * 3 + 1]! <= 0) return 0;
+      const px = p[i * 3]!;
+      const py = p[i * 3 + 1]!;
+      const pz = p[i * 3 + 2]!;
+      let sum = 0;
+      let k = 0;
+      for (const [dx, dz] of [[-radius, 0], [radius, 0], [0, -radius], [0, radius]] as const) {
+        const hit = surfaceBelow(grid, types, px + dx, py + 2 * radius, pz + dz);
+        if (hit === null) continue;
+        sum += hit.height;
+        k += 1;
+      }
+      return k === 0 ? 0 : sum / k - py;
+    },
+  };
+  if (rules.readsCell) {
+    point.meta = (key: string): CellMetaValue | undefined => {
+      const c = cellOf();
+      if (c === null) return undefined;
+      return c.meta?.[key] ?? (c.block !== undefined ? types.get(c.block)?.metadata?.[key] : undefined);
+    };
+  }
+  for (i = 0; i < count; i++) {
+    cell = undefined;
+    const nx = n[i * 3]!;
+    const ny = n[i * 3 + 1]!;
+    const nz = n[i * 3 + 2]!;
+    point.x = origin[0]! + p[i * 3]!;
+    point.y = origin[1]! + p[i * 3 + 1]!;
+    point.z = origin[2]! + p[i * 3 + 2]!;
+    point.slope = (Math.acos(Math.max(-1, Math.min(1, ny / (Math.sqrt(nx * nx + ny * ny + nz * nz) || 1)))) * 180) / Math.PI;
+    point.wall = PROJ_SIDE[projectionOf(nx, ny, nz)]! >= 0;
+    if (rules.readsCell) {
+      const c = cellOf();
+      if (c?.block !== undefined) point.block = c.block;
+      else delete point.block;
+    }
+    const k = rules.evaluate(point, layers, weights);
+    rule.fill(0);
+    for (let j = 0; j < k; j++) if (layers[j]! < 4) rule[layers[j]!] = rule[layers[j]!]! + weights[j]! / 255;
+    const s0 = share0[i]!;
+    const s1 = share1[i]!;
+    const share = s0 + s1;
+    for (let ch = 0; ch < 4; ch++) mixed[ch] = out.weights[i * 4 + ch]! - (ch === 0 ? s0 : ch === 1 ? s1 : 0) + share * rule[ch]!;
+    // Bytes summing to 255: rounded, the remainder to the largest.
+    let sum = 0;
+    let big = 0;
+    for (let ch = 0; ch < 4; ch++) {
+      const b = Math.max(0, Math.min(255, Math.round(mixed[ch]!)));
+      out.weights[i * 4 + ch] = b;
+      sum += b;
+      if (b > out.weights[i * 4 + big]!) big = ch;
+    }
+    out.weights[i * 4 + big] = Math.max(0, Math.min(255, out.weights[i * 4 + big]! + 255 - sum));
+  }
 }
 
 /** A wall point's bytes (unpainted when not stored). */

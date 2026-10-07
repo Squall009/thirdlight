@@ -856,6 +856,7 @@ export {
   materialTextureRefs,
   graphForRuntime,
   MAX_MATERIAL_PARAMETERS,
+  MATERIAL_EXTRA_LAYERS_MAX,
   validateMaterialGraph,
   validateMaterialParameters,
   canonicalMaterialParams,
@@ -1204,6 +1205,23 @@ export {
 } from './terrain-edit';
 export { HEIGHTMAP_FORMATS, HEIGHTMAP_MAX_SAMPLES, blockLayerToTerrain, decodeHeightmap, importHeightmap, type BlockLayerSource, type Heightmap, type HeightmapFormat, type HeightmapOptions } from './terrain-import';
 export { TerrainField, terrainCellStep, type TerrainSample } from './terrain-field';
+// Material rules: one rule list paints terrain (baked into tiles by its edits) and block layers (at meshing).
+export {
+  SURFACE_RULE_BLOCK_LAYERS,
+  SURFACE_RULE_CAVITY_RADIUS,
+  SURFACE_RULE_FIELDS,
+  SURFACE_RULE_LAYER_MAX,
+  SURFACE_RULE_LIMITS,
+  SurfaceRuleSet,
+  canonicalSurfaceRules,
+  ruleNoise,
+  ruleRangeAt,
+  validateSurfaceRules,
+  type RuleRange,
+  type SurfacePoint,
+  type SurfaceRule,
+} from './surface-rules';
+export { bakeTerrainRules, terrainBakeMargin, terrainBakeRect, type TerrainSampleRect } from './terrain-rules';
 export { blockChunkStorageOf, maxSlopeClimbOf } from './content-settings';
 export { chunkLightmapLayout, type ChunkLightmapLayout } from './block-lightmap';
 // The instance brush (paint and erase copies of an instance set on a surface).

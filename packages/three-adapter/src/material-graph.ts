@@ -91,6 +91,8 @@ export interface MaterialParameterLike {
   readonly visibility?: string;
   /** Data parameters: the grid's cells [width, height]. */
   readonly size?: readonly number[];
+  /** A vec4 per-layer setting's values for layers 4, 5, … (read through {@link GraphSurface.perLayer}). */
+  readonly extraLayers?: readonly number[];
 }
 /** A standalone graph document (only `material-function` ones are called). */
 export interface MaterialFunctionLike {
@@ -166,6 +168,13 @@ export interface GraphSurface {
    * draws through four slots); absent: the graph's layer as it is.
    */
   readonly arrayLayer?: (slot: N) => N;
+  /**
+   * A per-layer setting (a vec4 parameter, one component per layer slot,
+   * with values for layers past the fourth) as the slots read it at a pixel:
+   * each slot takes the value of the layer it draws there. Absent: the
+   * vector as it is.
+   */
+  readonly perLayer?: (value: N, extra: readonly number[]) => N;
 }
 
 export interface GraphProblem {
@@ -737,7 +746,9 @@ export function compileMaterialGraph(input: { graph: MaterialGraphLike; paramete
           return undefined;
         });
       }
-      v = { t, n: u };
+      // A per-layer setting on a surface that draws any number of layers: each slot reads its layer's own value.
+      const extra = p.extraLayers ?? [];
+      v = { t, n: t === 'vec4' && extra.length > 0 && env.surface?.perLayer !== undefined ? env.surface.perLayer(u, extra) : u };
     }
     uniforms.set(key, v);
     return v;

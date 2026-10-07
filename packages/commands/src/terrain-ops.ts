@@ -22,7 +22,13 @@ import {
   TERRAIN_SCULPT_KINDS,
   TERRAIN_TILE_COORD_MAX,
   TerrainSamples,
+  SurfaceRuleSet,
+  bakeTerrainRules,
   blockLayerToTerrain,
+  canonicalSurfaceRules,
+  terrainBakeMargin,
+  terrainBakeRect,
+  validateSurfaceRules,
   flatTerrainTile,
   holeTerrain,
   importHeightmap,
@@ -37,6 +43,8 @@ import {
   type BrushFalloff,
   type Heightmap,
   type HeightmapFormat,
+  type ModelErrorV2,
+  type SurfaceRule,
   type TerrainComponent,
   type TerrainSculptKind,
   type TerrainTile,
@@ -49,8 +57,8 @@ import { componentMissing, entityNotFound, fieldMissing, fieldUnexpected, fieldV
 import type { OpOutcome } from './ops';
 import type { ContentDocument, SceneDocument } from './types';
 
-export type EditTerrainKind = TerrainSculptKind | 'ramp' | 'paint' | 'holes' | 'import' | 'fromBlocks';
-export const EDIT_TERRAIN_KINDS: readonly EditTerrainKind[] = [...TERRAIN_SCULPT_KINDS, 'ramp', 'paint', 'holes', 'import', 'fromBlocks'];
+export type EditTerrainKind = TerrainSculptKind | 'ramp' | 'paint' | 'holes' | 'import' | 'fromBlocks' | 'bake';
+export const EDIT_TERRAIN_KINDS: readonly EditTerrainKind[] = [...TERRAIN_SCULPT_KINDS, 'ramp', 'paint', 'holes', 'import', 'fromBlocks', 'bake'];
 
 /** `editTerrain` args (which keys a kind takes: `EDIT_TERRAIN_KEYS`). */
 export interface EditTerrainArgs {
@@ -84,6 +92,8 @@ export interface EditTerrainArgs {
   range?: [number, number];
   /** fromBlocks: the block layer object converted. */
   source?: string;
+  /** bake: the material rules set and baked (absent: the terrain's own baked again; empty: none, every sample layer 0 again). */
+  rules?: SurfaceRule[];
 }
 
 const BRUSH_KEYS = ['dabs', 'radius', 'strength', 'falloff'];
@@ -99,6 +109,7 @@ export const EDIT_TERRAIN_KEYS: Readonly<Record<EditTerrainKind, readonly string
   holes: ['dabs', 'radius', 'erase'],
   import: ['stageId', 'format', 'size', 'byteOrder', 'at', 'range'],
   fromBlocks: ['source'],
+  bake: ['rules'],
 });
 
 /** The host's result: the terrain's new value and what the edit did. */
@@ -158,6 +169,11 @@ export function validateEditTerrainArgs(args: Record<string, unknown>): { ok: tr
     if (args['range'] !== undefined && !(point(args['range'], 2) && (args['range'] as number[])[0]! < (args['range'] as number[])[1]!)) return bad('range', '[low, high] metres', 'range is the heights 0 and 65535 stand for (metres above the terrain object)');
   }
   if (kind === 'fromBlocks' && typeof args['source'] !== 'string') return bad('source', 'a block layer object id', 'source names the block layer converted');
+  if (args['rules'] !== undefined) {
+    const errors: ModelErrorV2[] = [];
+    validateSurfaceRules(args['rules'], '/args/rules', errors, false);
+    if (errors.length > 0) return { ok: false, error: fieldValue(errors[0]!.path, (errors[0] as { found?: unknown }).found, 'material rules', errors[0]!.message) };
+  }
   return { ok: true, args: args as unknown as EditTerrainArgs };
 }
 
@@ -172,6 +188,8 @@ export interface TerrainEditPlan {
   component: TerrainComponent;
   /** Every tile the edit wrote, by "x,z" (its new data). */
   tiles: Map<string, TerrainTile>;
+  /** A bake's rules for the component (an empty list: none). */
+  rules?: SurfaceRule[];
   added: [number, number][];
   changed: number;
   clamped?: number;
@@ -224,6 +242,15 @@ export function planTerrainEdit(scene: SceneDocument, content: ContentDocument |
     if (heightmap === undefined) return { ok: false, error: fieldValue('/args/stageId', args.stageId, 'a heightmap the host read', 'editTerrain import runs through the project host, which reads the uploaded file') };
     const at = args.at ?? [0, 0];
     grow(at[0] * size, at[1] * size, (at[0] + Math.max(1, Math.ceil((heightmap.width - 1) / (comp.tileSamples - 1)))) * size, (at[1] + Math.max(1, Math.ceil((heightmap.height - 1) / (comp.tileSamples - 1)))) * size);
+  }
+  // Material rules: a bake's, else the terrain's (baked again where the edit moves the ground; their reach is read too).
+  const rules = args.kind === 'bake' ? canonicalSurfaceRules(args.rules ?? comp.rules ?? []) : comp.rules;
+  const ruleSet = rules !== undefined && (rules.length > 0 || args.kind === 'bake') ? new SurfaceRuleSet(rules) : null;
+  const margin = ruleSet !== null ? terrainBakeMargin(ruleSet, sp) : 0;
+  const reached = box as [number, number, number, number] | null;
+  if (ruleSet !== null && reached !== null) {
+    const [bx0, bz0, bx1, bz1] = reached;
+    box = [bx0 - (margin + 1) * sp, bz0 - (margin + 1) * sp, bx1 + (margin + 1) * sp, bz1 + (margin + 1) * sp];
   }
   // The tiles under the box (with data: read; without: flat).
   const loaded = new Map<string, TerrainTile>();
@@ -288,13 +315,24 @@ export function planTerrainEdit(scene: SceneDocument, content: ContentDocument |
       clamped = r2.clamped;
       break;
     }
+    case 'bake':
+      break;
+  }
+  // The rules baked: everywhere for a bake, else around the samples whose height the edit changed.
+  let rulesChanged = false;
+  if (ruleSet !== null) {
+    const written = new Map<string, TerrainTile>();
+    for (const key of s.touched) written.set(key, s.all().get(key)!);
+    const rect = args.kind === 'bake' ? null : terrainBakeRect(loaded, written, comp.tileSamples - 1, margin);
+    if (args.kind === 'bake' || rect !== null) changed += bakeTerrainRules(s, ruleSet, origin, rect);
+    if (args.kind === 'bake') rulesChanged = JSON.stringify(rules) !== JSON.stringify(comp.rules ?? []);
   }
   const tiles = new Map<string, TerrainTile>();
   for (const key of s.touched) tiles.set(key, s.all().get(key)!);
   const known = new Set(comp.tiles.map((t) => terrainTileKey(t.x, t.z)));
   const addedTiles = [...tiles.keys()].filter((k) => !known.has(k)).map((k) => k.split(',').map(Number) as [number, number]);
-  if (changed === 0 && addedTiles.length === 0) return { ok: false, error: { ...noChangeContent(), message: 'the edit changes no sample of the terrain' } };
-  return { ok: true, plan: { entityId: args.entityId, component: comp, tiles, added: addedTiles, changed, ...(clamped !== undefined && clamped > 0 ? { clamped } : {}) } };
+  if (changed === 0 && addedTiles.length === 0 && !rulesChanged) return { ok: false, error: { ...noChangeContent(), message: 'the edit changes no sample of the terrain' } };
+  return { ok: true, plan: { entityId: args.entityId, component: comp, tiles, added: addedTiles, changed, ...(clamped !== undefined && clamped > 0 ? { clamped } : {}), ...(args.kind === 'bake' ? { rules: rules! } : {}) } };
 }
 
 /**
@@ -324,5 +362,7 @@ export function applyEditTerrain(input: OpInput, args: EditTerrainArgs, prepared
   if (prepared === undefined || prepared.entityId !== args.entityId) {
     return { ok: false, error: fieldValue('/args', undefined, 'an edit the host prepared', 'editTerrain runs through the project host, which reads and writes the terrain\'s tiles') };
   }
-  return applySetComponent(input, { entityId: args.entityId, component: 'terrain', value: { tiles: prepared.value.tiles } });
+  // A bake stores its rules with the tiles (an empty list: none).
+  const rules = args.kind === 'bake' ? { rules: prepared.value.rules !== undefined && prepared.value.rules.length > 0 ? prepared.value.rules : null } : {};
+  return applySetComponent(input, { entityId: args.entityId, component: 'terrain', value: { tiles: prepared.value.tiles, ...rules } as never });
 }

@@ -75,6 +75,7 @@ export const blockLayer: ComponentDescriptor = {
       str('field', 'Walkable field', 'A yes/no cell field: only tops whose cell has it on are walked (empty: every top).', { format: 'identifier', minLength: 1, maxLength: 32 }),
       bool('diagonal', 'Diagonal', 'Steps across cell corners too, where both ways round the corner walk.', { default: false }),
     ]),
+    json('rules', 'Material rules', 'Layers 0-3 by slope, height, cavity, noise, top or wall, block type and cell metadata, painted at every vertex when chunks are meshed: [{layer, strength?, face?, height?, slope?, cavity?, noise?, weight?, blocks?, meta?}] (the Blocks tools\' Rules). Hand paint stays over them.'),
     num('vertexAO', 'Corner shading', "How dark the blocks' corners and creases get from per-vertex ambient occlusion: where neighbouring blocks close a corner in, that much of its indirect light is taken away. 0: none. Cheap (worked out when a chunk is meshed); a layer with baked lightmaps has its shading in the bake.", { min: 0, max: 1, step: 0.05, default: 0 }),
   ]),
   // 1 m cells over 64 × 16 × 64 — a common kit module over the interactive-editing target; no genre assumed.

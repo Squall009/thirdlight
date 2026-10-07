@@ -20,6 +20,7 @@
  * Pure.
  */
 import type { ModelErrorV2 } from './errors';
+import { canonicalSurfaceRules, validateSurfaceRules, type SurfaceRule } from './surface-rules';
 
 /** The tile sizes a terrain may use (samples per side, 2ⁿ + 1). */
 export const TERRAIN_TILE_SAMPLES: readonly number[] = Object.freeze([17, 33, 65, 129, 257, 513, 1025]);
@@ -67,10 +68,17 @@ export interface TerrainComponent {
   lodDistance?: number;
   /** The tiles are heightfield colliders in a 3D project (absent: true; stored only when false — scenery-only terrain). */
   collision?: boolean;
+  /**
+   * Material rules (`surface-rules.ts`) baked into the tiles' baked weights
+   * by `editTerrain` (a `bake` sets them and bakes every tile; a sculpt bakes
+   * again where it changed the ground); hand paint stays over them. Absent:
+   * the baked weights are left as they are (all layer 0 unless written).
+   */
+  rules?: SurfaceRule[];
 }
 
 /** The component's fields in canonical order. */
-export const TERRAIN_FIELDS: readonly string[] = Object.freeze(['tileSamples', 'spacing', 'heightRange', 'tiles', 'lodDistance', 'collision']);
+export const TERRAIN_FIELDS: readonly string[] = Object.freeze(['tileSamples', 'spacing', 'heightRange', 'tiles', 'lodDistance', 'collision', 'rules']);
 
 const DIGEST_RE = /^[0-9a-f]{64}$/;
 
@@ -85,7 +93,7 @@ export const terrainTileKey = (x: number, z: number): string => `${x},${z}`;
 
 export function validateTerrainComponent(value: unknown, path: string, errors: ModelErrorV2[]): void {
   if (!isObj(value)) {
-    err(errors, 'field_type', path, 'a terrain is an object { tileSamples, spacing, heightRange, tiles, lodDistance?, collision? }', value);
+    err(errors, 'field_type', path, 'a terrain is an object { tileSamples, spacing, heightRange, tiles, lodDistance?, collision?, rules? }', value);
     return;
   }
   for (const k of Object.keys(value)) if (!TERRAIN_FIELDS.includes(k)) err(errors, 'field_unexpected', `${path}/${k}`, `unknown terrain field "${k}"`, k);
@@ -105,6 +113,7 @@ export function validateTerrainComponent(value: unknown, path: string, errors: M
     err(errors, 'field_value', `${path}/lodDistance`, `lodDistance is ${TERRAIN_LOD_DISTANCE_LIMITS.min}-${TERRAIN_LOD_DISTANCE_LIMITS.max} metres`, lod);
   }
   if (value['collision'] !== undefined && typeof value['collision'] !== 'boolean') err(errors, 'field_type', `${path}/collision`, 'collision is a boolean', value['collision']);
+  if (value['rules'] !== undefined) validateSurfaceRules(value['rules'], `${path}/rules`, errors, false);
   const tiles = value['tiles'];
   if (tiles === undefined) {
     err(errors, 'field_missing', `${path}/tiles`, 'tiles is required (a list of {x, z, data?})');
@@ -134,7 +143,7 @@ export function validateTerrainComponent(value: unknown, path: string, errors: M
 export function canonicalTerrain(c: TerrainComponent): TerrainComponent {
   const tiles = c.tiles.map((t) => ({ x: t.x, z: t.z, ...(t.data !== undefined ? { data: t.data } : {}) }));
   tiles.sort((a, b) => a.z - b.z || a.x - b.x);
-  return { tileSamples: c.tileSamples, spacing: c.spacing, heightRange: [c.heightRange[0], c.heightRange[1]], tiles, ...(c.lodDistance !== undefined ? { lodDistance: c.lodDistance } : {}), ...(c.collision === false ? { collision: false } : {}) };
+  return { tileSamples: c.tileSamples, spacing: c.spacing, heightRange: [c.heightRange[0], c.heightRange[1]], tiles, ...(c.lodDistance !== undefined ? { lodDistance: c.lodDistance } : {}), ...(c.collision === false ? { collision: false } : {}), ...(c.rules !== undefined ? { rules: canonicalSurfaceRules(c.rules) } : {}) };
 }
 
 /** Metres along one tile side. */

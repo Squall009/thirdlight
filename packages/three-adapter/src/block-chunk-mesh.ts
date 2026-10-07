@@ -9,7 +9,7 @@
  * for one, the looks its parts draw, and the models it needed but did not
  * have (still loading, or never sent to this worker): the page loads them and
  * meshes the chunk again. A painted layer's parts carry their paint colours
- * (`chunkMeshPaint`), and a layer with corner shading its per-vertex
+ * (`chunkMeshPaint`, the layer's material rules evaluated there too), and a layer with corner shading its per-vertex
  * occlusion (`chunkMeshAO`), made here so the workers make them too.
  */
 import {
@@ -22,6 +22,7 @@ import {
   chunkMeshPaint,
   meshBlockChunk,
   shapeSource,
+  SurfaceRuleSet,
   type BlockGridReader,
   type BlockLayerComponent,
   type BlockMeshSource,
@@ -66,6 +67,8 @@ export interface ChunkMeshRequest {
   readonly cz: number;
   /** Build lightmap UVs (one square layout per chunk). */
   readonly uv: boolean;
+  /** The layer object's world position (its material rules read world heights; absent: the origin). */
+  readonly origin?: readonly number[];
 }
 
 export interface ChunkMeshResult {
@@ -158,9 +161,10 @@ export function meshChunkForDrawing(grid: BlockGridReader, component: BlockLayer
     for (const c of coarse) c.parts = chunkLightmapLayout(c.parts, grid.cellSize, lm).parts;
     lightmap = { layout: lm.layout, area: lm.area, side: lm.side };
   }
-  // A painted layer (or one whose walls have paint of their own) carries its paint on every chunk, so chunks match at the seams.
-  if (component.wallPaint === true || grid.hasPaint()) {
-    const options = { wallPaint: component.wallPaint === true, topSubdivision: tops.topSubdivision ?? 1 };
+  // A painted layer (or one whose walls have paint of their own, or with material rules) carries its paint on every chunk, so chunks match at the seams.
+  const rules = component.rules !== undefined && component.rules.length > 0 ? new SurfaceRuleSet(component.rules) : undefined;
+  if (component.wallPaint === true || grid.hasPaint() || rules !== undefined) {
+    const options = { wallPaint: component.wallPaint === true, topSubdivision: tops.topSubdivision ?? 1, ...(rules !== undefined ? { rules, origin: req.origin ?? [0, 0, 0] } : {}) };
     const paint = (p: ChunkMeshPart): void => {
       const c = chunkMeshPaint(grid, types, cx, cz, options, p);
       p.weights = c.weights;

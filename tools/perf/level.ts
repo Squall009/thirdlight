@@ -211,7 +211,20 @@ export interface LevelPlan {
   roofs: LevelRoofs;
   /** A script swaps the layer's kit every two seconds. */
   kitSwap: boolean;
+  /** Material rules on the block layer and the terrain (baked), and per-layer settings for every terrain layer. */
+  rules: boolean;
 }
+
+/**
+ * The material rules `--rules` gives the landscape's terrain (baked into its tiles) and the block layer (layers
+ * 0-3): rock on steep ground, a second layer in hollows, a noise patch where little rock is, a fourth up high.
+ */
+export const LEVEL_RULES = [
+  { layer: 2, slope: { min: 30, fade: 8 } },
+  { layer: 1, cavity: { min: 0.3, fade: 0.3, radius: 3 }, face: 'top' },
+  { layer: 3, noise: { scale: 24, seed: 5, min: 0.65, fade: 0.1 }, weight: { layer: 2, max: 0.3 } },
+  { layer: 3, height: { min: 40, fade: 10 }, strength: 0.6 },
+];
 
 /** The kit swap's script: the burnt kit over the whole layer every other 240 steps (2 s), off in between. */
 const KIT_BEHAVIOR: BehaviorPlan = {
@@ -283,7 +296,7 @@ function copies(n: number, at: (i: number) => { x: number; y: number; z: number;
   return f;
 }
 
-export function levelPlan(kind: LevelKind, seed = LEVEL_SEED, liveDoorCount = 0, edgeWalls = false, wallPaint = false, roofs: LevelRoofs = 'none', kitSwap = false, vertexAO = 0): LevelPlan {
+export function levelPlan(kind: LevelKind, seed = LEVEL_SEED, liveDoorCount = 0, edgeWalls = false, wallPaint = false, roofs: LevelRoofs = 'none', kitSwap = false, vertexAO = 0, rules = false): LevelPlan {
   const S = LEVEL_SPEC;
   const N = S.areaSide;
   const rnd = prng(seed * 104729 + N);
@@ -487,11 +500,11 @@ export function levelPlan(kind: LevelKind, seed = LEVEL_SEED, liveDoorCount = 0,
 
   const batches: EntityValue[][] = [];
   for (let i = 0; i < entities.length; i += PASTE_MAX) batches.push(entities.slice(i, i + PASTE_MAX));
-  const layer: EntityValue = { id: 'ground', name: 'Ground', components: { transform: T(-half, 0, -half), blockLayer: { cellSize: [1, S.cellHeight, 1], bounds: { min: [0, 0, 0], max: [N, 32, N] }, maxSlope: 60, smoothAngle: 40, topSubdivision: 2, ...(wallPaint ? { wallPaint: true } : {}), ...(vertexAO > 0 ? { vertexAO } : {}), ...(roofs === 'cutaway' ? { cutaway: { regions: rooms.map((_, i) => ({ region: `roof-${i}` })) } } : {}) } } };
+  const layer: EntityValue = { id: 'ground', name: 'Ground', components: { transform: T(-half, 0, -half), blockLayer: { cellSize: [1, S.cellHeight, 1], bounds: { min: [0, 0, 0], max: [N, 32, N] }, maxSlope: 60, smoothAngle: 40, topSubdivision: 2, ...(wallPaint ? { wallPaint: true } : {}), ...(vertexAO > 0 ? { vertexAO } : {}), ...(rules ? { rules: LEVEL_RULES } : {}), ...(roofs === 'cutaway' ? { cutaway: { regions: rooms.map((_, i) => ({ region: `roof-${i}` })) } } : {}) } } };
   // At the area's south edge, 8 m over its ground, looking north across it to the horizon.
   const pitch = -0.12;
   const camera: LevelPlan['camera'] = { position: [0, r3(groundY(half, N - 2) + 8), half - 2], rotation: [r6(Math.sin(pitch / 2)), 0, 0, r6(Math.cos(pitch / 2))] };
-  return { kind, version: LEVEL_VERSION, seed, props, buffers, layer, batches, blockEdits, rooms, camera, counts, liveDoors, edgeWalls, wallPaint, roofs, kitSwap };
+  return { kind, version: LEVEL_VERSION, seed, props, buffers, layer, batches, blockEdits, rooms, camera, counts, liveDoors, edgeWalls, wallPaint, roofs, kitSwap, rules };
 }
 
 /**
@@ -561,7 +574,9 @@ export async function buildLevel(be: PerfBackend, projectId: string, plan: Level
     await pack('level-terrain-orms', 'data', [1, 2, 3, 4].map(() => rgba('level-terrain-orm')));
     const mat = layeredMaterial(TERRAIN_MATERIAL, 'Level terrain');
     const arrays: Record<string, string> = { albedoHeight: 'level-terrain-albedo', normals: 'level-terrain-normals', orm: 'level-terrain-orms' };
-    await cmd('setMaterial', { material: { ...mat, parameters: (mat.parameters ?? []).map((p) => (arrays[p.key] !== undefined ? { ...p, default: arrays[p.key] } : p)) } });
+    // With rules, every per-layer setting holds values of its own for four more layers (the per-pixel lookup is drawn).
+    const extra = (p: { type: string; default: unknown }): Record<string, unknown> => (plan.rules && p.type === 'vec4' && Array.isArray(p.default) ? { extraLayers: [...(p.default as number[])] } : {});
+    await cmd('setMaterial', { material: { ...mat, parameters: (mat.parameters ?? []).map((p) => (arrays[p.key] !== undefined ? { ...p, default: arrays[p.key] } : { ...p, ...extra(p) })) } });
   }
   // With a kit swap, each type's burnt twin first (a swap names a type that exists), same shape, darker colours.
   const burnt = (blockId: string): Record<string, unknown> => (plan.kitSwap ? { kits: { burnt: { block: `${blockId}-burnt` } } } : {});
@@ -629,6 +644,11 @@ export async function buildLevel(be: PerfBackend, projectId: string, plan: Level
     await cmd('editTerrain', { entityId: terrainId, kind: 'import', stageId, format: 'raw16', at: [0, 0] });
     await be.discardStage(projectId, stageId);
     for (const d of levelTerrainPaint(plan.seed)) await cmd('editTerrain', { entityId: terrainId, kind: 'paint', dabs: [d.at], radius: d.radius, strength: 1, falloff: 'smooth', layer: d.layer });
+    if (plan.rules) {
+      const t = performance.now();
+      await cmd('editTerrain', { entityId: terrainId, kind: 'bake', rules: LEVEL_RULES });
+      log(`level ${plan.kind}: rules baked into ${plan.counts['terrainTiles']} tiles in ${Math.round(performance.now() - t)} ms (the command's round trip)`);
+    }
   }
   log(`level ${plan.kind}: ${JSON.stringify(plan.counts)}`);
 

@@ -3868,7 +3868,7 @@ its reason (the same line is next to its constant in the code):
 | Instance brush | 256 dabs and 1,536 places per stroke (`INSTANCE_BRUSH_LIMITS`); no count of strokes or painted copies beyond a set's | One stroke with its surface is one 64 KiB command; a longer drag is the next stroke |
 | Block edits | 1,048,576 cells per edit | One command's work; a layer is stored in chunks |
 | Block layers | 1,024 × 256 × 1,024 cells of bounds per layer, 16 layers with cells per scene; no count of cells in a layer or a scene | A layer's memory (`runtime.blockMemory` in Play diagnostics), not a cell count, bounds it |
-| Terrain | Tiles of 17–1,025 samples a side (2^n + 1), coordinates within ±4,096 tiles, 256 material layers (one byte an index; each sample blends its strongest four); no count of tiles | A tile is one blob and one decode; what the tiles take decoded is shown (`queryTerrain` `memoryBytes`), not capped |
+| Terrain | Tiles of 17–1,025 samples a side (2^n + 1), coordinates within ±4,096 tiles, 256 material layers (one byte an index; each sample blends its strongest four; a material's per-layer settings hold values for all of them, `extraLayers` ≤ 252 past the vec4's four); no count of tiles or material rules | A tile is one blob and one decode; what the tiles take decoded is shown (`queryTerrain` `memoryBytes`), not capped |
 | Terrain edit | 1,024 dabs, 2,048 m radius, dabs covering at most 16,777,216 samples together (`TERRAIN_BRUSH_LIMITS`); a heightmap import of at most 8,193² samples (`HEIGHTMAP_MAX_SAMPLES`; a RAW file also within the 32 MiB upload) | One command's work in the backend's memory; a longer drag is the next stroke |
 | WebSocket message to the editor | 1 MiB (a larger Play snapshot is fetched over HTTP; a larger change makes the editor re-read the project; anything else over it is dropped and listed under Problems) | One frame |
 
@@ -4826,6 +4826,19 @@ brushes, overlays and stamp UI are below (23.6).
   (the area class 6.6/9.7 ms with it, 6.6/9.6 without). Use it where
   indirect light dominates (interiors, shade, a quality level without SSAO);
   a layer with baked lightmaps has its occlusion in the bake already.
+- **Material rules** (`blockLayer.rules`, the Blocks panel's **Rules…**):
+  the terrain's rule list (see Terrain), for layers 0-3, plus **block types**
+  and **cell metadata** conditions; evaluated at every vertex when a chunk is
+  meshed (in the mesh workers) — walls and steep tops by their own slope,
+  top or wall by the face's box-mapping side. Hand paint stays over them: a
+  top's layer-0 share and a wall point's layer-1 share (the unpainted
+  defaults) show the rules, so painting another layer covers them and
+  erasing gives them back (painting layer 0 itself by hand also shows the
+  rules there). Changing the rules or moving the layer re-meshes it in the
+  workers like a kit swap. Measured: +16 ms a chunk of paint work in the
+  workers (64 × 64 sloped rooms, 4 rules with cavity and noise; meshing
+  itself ~31 ms); the Scene view while a 128 × 128 layer's rules change
+  draws as during a block type change (worst 18.4 ms, none over 33 ms).
 - **Per-layer settings** (28b.4): the template's four layers each have a
   **tiling** (metres per repeat of the layer's textures, 1 by default), a
   **normal strength** (0: flat), and a **height contrast** and **height
@@ -4835,7 +4848,10 @@ brushes, overlays and stamp UI are below (23.6).
   as a **Layers** table above the exposed parameters; they are four vec4
   parameters (`layerTiling`, `layerNormalStrength`, `layerContrast`,
   `layerOffset`, one component per layer), so instances, objects and scripts
-  override them like any public parameter. They are uniforms: still twelve
+  override them like any public parameter. A terrain draws more than four
+  layers: **Add layer** in the table gives layer 5 on settings of its own
+  (`extraLayers` on each of the four parameters; without a column, layer L
+  takes column L % 4's). They are uniforms: still twelve
   texture reads. The Height blend node takes `contrast` and `offset` as
   inputs of its own (unwired: the heights as they are). A layered material
   made before them keeps its one `tiling`, `blendDepth` and
@@ -4997,6 +5013,27 @@ edited with the editor's Terrain tools.
   changed (samples, or hole cells), clamped? (heights outside the range)}`.
   The same stroke gives the same tiles every time (squared distances and
   16-bit steps only).
+- **Material rules** (`terrain.rules`; the terrain tools' **Material
+  rules…**, MCP `editTerrain` kind `bake {rules}`): a list of rules, each a
+  material layer, a strength (0-1), top or wall faces and conditions —
+  **height** (world metres), **slope** (degrees), **cavity** (metres the
+  ground `radius` metres around lies above the point: positive in hollows),
+  a **noise** mask (0-1, its bumps `scale` metres apart, a seed) and the
+  **share** another layer has from the rules before it — each a range
+  (min, max, either open) with a **fade** past its ends. They apply in
+  order, each taking its share of every layer so far; where none applies the
+  ground is layer 0. **Apply** bakes them into every tile's baked weights
+  (one command, one undo); a sculpt, ramp, import or conversion bakes them
+  again where it moved the ground, in the same command. Hand paint is a map
+  of its own and stays over the rules through every bake; erasing it shows
+  the rules again. The game only reads the baked weights (no rule runs per
+  frame). The same rules paint block layers (below); positions and heights
+  are world ones, so a block area and the terrain round it match. A
+  `setComponent` of `rules` alone stores them without baking. Measured (one
+  backend, 4 rules with cavity and noise): about 0.4-0.8 µs a sample — a
+  257² tile 54 ms, a 1,025² tile 0.45 s, a 16 m sculpt's re-bake 7-16 ms; the
+  landscape perf class's 144 tiles 7.3 s for an Apply. Drawing cost: none
+  (`level --rules`: GPU 12.8-13.0 ms with and without).
 - **Reading**: `queryTerrain` (MCP `tl_content_query target="terrain"`)
   lists each terrain with its tiles, `storedBytes` and `memoryBytes` (what
   its tiles take decoded in a game: a terrain has no tile cap, its memory is
@@ -5076,10 +5113,14 @@ edited with the editor's Terrain tools.
   **height-blended layers** template draws any number of the terrain's
   layers: layer L is read from its texture arrays' layer L (put one array
   layer per terrain layer), through the template's four slots — a layer goes
-  in slot L % 4 and takes that slot's per-layer settings (tiling, normal
-  strength, height contrast and offset). Number layers that meet so they
-  fall in different slots: two layers of one slot at neighbouring samples
-  meet at a hard edge (at one sample, the stronger shows). Layer weights
+  in slot L % 4. Its per-layer settings (tiling, normal strength, height
+  contrast and offset) are its own once the material's layer table has a
+  column for it (**Add layer**: the settings' `extraLayers`, values for
+  layers 4, 5, … read per pixel from a uniform array, no extra texture
+  read); a layer without its own column takes column L % 4's. Number layers
+  that meet so they fall in different slots: two layers of one slot at
+  neighbouring samples meet at a hard edge (at one sample, the stronger
+  shows). Layer weights
   stand in for the template's painted vertex colours; texture coordinates are
   metres from the terrain's corner, +u along x, +v along z, as block layers'
   tops. The terrain's own reads are three a pixel (weights, layer indices,

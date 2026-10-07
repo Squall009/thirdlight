@@ -27,8 +27,10 @@
  * twelve come on top (fifteen in all).
  *
  * A layer slot's settings (tiling, normal strength, height contrast and
- * offset: the template's vec4 per-layer parameters) are its channel's:
- * layer L takes those of layer L % 4.
+ * offset: the template's vec4 per-layer parameters) are its layer's own: a
+ * setting with values for layers past the fourth (`extraLayers`) keeps them
+ * in a uniform array, and each slot picks its layer's (no texture read);
+ * without them layer L takes the vector's component L % 4.
  *
  * The camera position the morph reads is the view's for every pass of the
  * frame, so a shadow map holds the same shape as the view.
@@ -44,7 +46,7 @@ import { STEADY_SHAPE_KEY } from './shadow-casters';
 
 /** TSL untyped: three's typings lag the node API used here. */
 const TSL: N = TSLTyped;
-const { Fn, attribute, clamp, dot, float, floor, fract, int, ivec2, length, max, min, mix, modelWorldMatrix, normalLocal, normalize, positionGeometry, renderGroup, select, sqrt, tangentLocal, texture, textureLoad, uniform, varyingProperty, vec2, vec3, vec4 } = TSL;
+const { Fn, attribute, clamp, dot, float, floor, fract, int, ivec2, length, max, min, mix, modelWorldMatrix, normalLocal, normalize, positionGeometry, renderGroup, select, sqrt, tangentLocal, texture, textureLoad, uniform, uniformArray, varyingProperty, vec2, vec3, vec4 } = TSL;
 
 /** The instanced attributes of a drawn node (`terrain-quadtree.ts`'s eight floats). */
 export const TERRAIN_NODE_ATTRIBUTE = 'tlTerrainNode';
@@ -141,6 +143,22 @@ export function terrainSurface(key: string, heights: THREE.DataArrayTexture, lay
     // A layer a graph reads past the four slots is its own.
     return select(s.lessThan(3.5), mapped, slot);
   };
+  const perLayer = (value: N, extra: readonly number[]): N => {
+    // Four layers' values a vec4 (uniform arrays pad each element to a vec4).
+    const packed: THREE.Vector4[] = [];
+    for (let i = 0; i < extra.length; i += 4) packed.push(new THREE.Vector4(extra[i] ?? 0, extra[i + 1] ?? 0, extra[i + 2] ?? 0, extra[i + 3] ?? 0));
+    const values = uniformArray(packed, 'vec4');
+    const count = float(extra.length);
+    const slot = (k: number, own: N): N => {
+      const past = ids[(['x', 'y', 'z', 'w'] as const)[k]!].sub(4);
+      const el = values.element(int(clamp(floor(past.div(4)), 0, packed.length - 1)));
+      const c = past.sub(floor(past.div(4)).mul(4));
+      const v = select(c.lessThan(0.5), el.x, select(c.lessThan(1.5), el.y, select(c.lessThan(2.5), el.z, el.w)));
+      // Layers 0-3 and those past the list take the vector's component (layer L is drawn through slot L % 4).
+      return select(past.greaterThanEqual(0).and(past.lessThan(count)), v, own);
+    };
+    return vec4(slot(0, value.x), slot(1, value.y), slot(2, value.z), slot(3, value.w));
+  };
   return {
     key,
     uv: () => vUv,
@@ -148,6 +166,7 @@ export function terrainSurface(key: string, heights: THREE.DataArrayTexture, lay
     position,
     mask,
     arrayLayer,
+    perLayer,
   };
 }
 

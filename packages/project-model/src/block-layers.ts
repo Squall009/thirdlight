@@ -41,6 +41,7 @@ import { canonicalChunkEdges, canonicalPatternEdges, composeChunkEdges, validate
 import { canonicalBlockConnect, composeBlockConnect, validateBlockConnect, type BlockConnect } from './block-connect';
 import { canonicalBlockCutaway, validateBlockCutaway, type BlockCutaway } from './block-cutaway';
 import { canonicalBlockLayerWalk, validateBlockLayerWalk, type BlockLayerWalk } from './block-walk-settings';
+import { canonicalSurfaceRules, validateSurfaceRules, type SurfaceRule } from './surface-rules';
 import { canonicalBlockTypeKits, canonicalLayerKits, composeBlockTypeKits, validateBlockTypeKits, validateLayerKits, type BlockKitSwap, type BlockLayerKit } from './block-kit';
 
 // ---- types -----------------------------------------------------------------------
@@ -177,6 +178,13 @@ export interface BlockLayerComponent {
    * above 0).
    */
   vertexAO?: number;
+  /**
+   * Material rules (`surface-rules.ts`, layers 0-3): evaluated at every
+   * vertex when a chunk is meshed — tops and walls by their own slope —
+   * under the hand paint, whose unpainted share (a top's layer 0, a wall
+   * point's layer 1) shows the rules (absent: the paint alone, as before).
+   */
+  rules?: SurfaceRule[];
 }
 
 export type BlockShape = 'full' | 'half' | 'ramp' | 'stairs' | 'custom' | 'none';
@@ -825,7 +833,7 @@ export function canonicalBlockStamps(list: readonly BlockStamp[]): BlockStamp[] 
 export const BLOCK_LAYER_DEFAULT: BlockLayerComponent = Object.freeze({ cellSize: [1, 1, 1], bounds: { min: [0, 0, 0], max: [64, 16, 64] } }) as BlockLayerComponent;
 
 /** The stored fields of the `blockLayer` component, in canonical order. */
-export const BLOCK_LAYER_FIELDS = ['cellSize', 'bounds', 'metadataOnly', 'collision', 'castShadow', 'receiveShadow', 'maxSlope', 'smoothAngle', 'topSubdivision', 'wallPaint', 'lightLayers', 'cutaway', 'kits', 'walk', 'vertexAO'] as const;
+export const BLOCK_LAYER_FIELDS = ['cellSize', 'bounds', 'metadataOnly', 'collision', 'castShadow', 'receiveShadow', 'maxSlope', 'smoothAngle', 'topSubdivision', 'wallPaint', 'lightLayers', 'cutaway', 'kits', 'walk', 'vertexAO', 'rules'] as const;
 
 export function validateBlockLayerComponent(v: unknown, path: string, errors: ModelErrorV2[]): void {
   if (!isPlainObject(v)) return err(errors, 'field_type', path, 'blockLayer is an object', v, 'object');
@@ -868,6 +876,7 @@ export function validateBlockLayerComponent(v: unknown, path: string, errors: Mo
   validateBlockLayerWalk(v['walk'], `${path}/walk`, errors);
   const ao = v['vertexAO'];
   if (ao !== undefined && (!finite(ao) || ao < 0 || ao > 1)) err(errors, 'field_value', `${path}/vertexAO`, 'vertexAO is 0-1 (0: none)', ao);
+  if (v['rules'] !== undefined) validateSurfaceRules(v['rules'], `${path}/rules`, errors, true);
 }
 
 export function canonicalBlockLayerComponent(c: BlockLayerComponent): BlockLayerComponent {
@@ -887,6 +896,7 @@ export function canonicalBlockLayerComponent(c: BlockLayerComponent): BlockLayer
     ...(canonicalLayerKits(c.kits) !== undefined ? { kits: canonicalLayerKits(c.kits)! } : {}),
     ...(canonicalBlockLayerWalk(c.walk) !== undefined ? { walk: canonicalBlockLayerWalk(c.walk)! } : {}),
     ...(c.vertexAO !== undefined && c.vertexAO > 0 ? { vertexAO: canonNum(c.vertexAO) } : {}),
+    ...(c.rules !== undefined && c.rules.length > 0 ? { rules: canonicalSurfaceRules(c.rules) } : {}),
   };
 }
 

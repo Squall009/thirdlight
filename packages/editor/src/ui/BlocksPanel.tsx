@@ -18,6 +18,8 @@
  * - Kits: the kit the layer shows, and one per region (the block types'
  *   kit swaps; the cells stay as they are). A region renamed or deleted here
  *   takes the layer's cut-aways and kits with it.
+ * - Material rules: layers 0-3 by slope, height, cavity, noise and block
+ *   type, painted when chunks are meshed (one setComponent).
  *
  * Every change is a command through the App (`run` / `edit`): block types,
  * fields and stamps are content ops, cells and regions `editBlocks` edits —
@@ -32,6 +34,7 @@ import { useAssetSummaries } from './catalog/catalog-context';
 import type { BlockCell, BlockCutaway, BlockEdit, BlockLayerComponent, BlockRegion, BlockStamp, BlockType, CellField, CellMetaValue, DescriptorRegistry, ObjectFieldDescriptor, PaintTarget } from '@thirdlight/project-model';
 import { BRUSH_FALLOFFS, PAINT_BRUSH_LIMITS, SCULPT_LIMITS, blockKitNames, type BrushFalloff } from '@thirdlight/runtime';
 import { ObjectFields, type FieldContext } from './DescriptorFields';
+import { SurfaceRulesEditor } from './SurfaceRulesEditor';
 import { componentPatch } from '../session/descriptor-fields';
 import {
   BLOCK_TOOLS,
@@ -135,6 +138,7 @@ export function BlocksPanel(p: Props): JSX.Element {
   const layerId = p.layerId;
   const setLayerId = p.onLayer;
   const [armed, setArmed] = useState(true);
+  const [rulesOpen, setRulesOpen] = useState(false);
   const [tool, setTool] = useState<BlockToolId>('single');
   const [brush, setBrush] = useState<BrushState>(DEFAULT_BRUSH);
   const [invert, setInvert] = useState(false);
@@ -402,6 +406,9 @@ export function BlocksPanel(p: Props): JSX.Element {
                 </select>
               </label>
             )}
+            <button className={`tl-btn tl-btn--small${rulesOpen ? ' is-active' : ''}`} aria-expanded={rulesOpen} title="Paint the layer's material layers 0-3 by slope, height, cavity, noise and block type (hand paint stays over them)" onClick={() => setRulesOpen((o) => !o)}>
+              Rules{(layer.component.rules?.length ?? 0) > 0 ? ` (${layer.component.rules!.length})` : ''}…
+            </button>
             <label title="Edit cells in the Scene view (Alt+drag or the right button orbits)">
               <input type="checkbox" aria-label="edit cells" checked={armed} onChange={(e) => setArmed(e.target.checked)} /> Edit cells
             </label>
@@ -411,6 +418,15 @@ export function BlocksPanel(p: Props): JSX.Element {
           </>
         )}
       </div>
+
+      {layer !== null && rulesOpen && (
+        <SurfaceRulesEditor
+          rules={layer.component.rules ?? []}
+          blocks={true}
+          disabled={layer.locked}
+          onApply={(rules) => p.run(rules.length > 0 ? 'Set material rules' : 'Remove material rules', 'setComponent', { entityId: layer.entityId, component: 'blockLayer', value: { ...layer.component, rules } })}
+        />
+      )}
 
       <div className="tl-blocks__tools" role="toolbar" aria-label="block tools">
         {BLOCK_TOOLS.map((t) => (

@@ -193,6 +193,33 @@ describe('block view: meshing in workers', () => {
     page.dispose();
   });
 
+  it('a layer with material rules: the workers paint them byte for byte as the page does, where the layer stands; moved, it is painted again', async () => {
+    const layer = { ...LAYER, rules: [{ layer: 3, slope: { min: 45 } }, { layer: 1, height: { max: 21 }, noise: { scale: 3, min: 0.4, fade: 0.2 }, face: 'top' }] } as BlockLayerComponent;
+    const data = groundData();
+    const page = makeView();
+    page.setTypes(TYPES);
+    page.setLayer('ground', layer, [3, 2, -5], data as never);
+    page.update();
+    const worker = makeView({ meshWorkers: () => portWorker() });
+    worker.setTypes(TYPES);
+    worker.setLayer('ground', layer, [3, 2, -5], data as never);
+    await settle(worker);
+    expect(drawn(worker)).toEqual(drawn(page));
+    // Unpainted, the layer still carries colours (the rules'), and walls take layer 3.
+    expect(drawn(page).filter((m) => m.includes('block:c:stone')).every((m) => m.split('|')[5] !== '-')).toBe(true);
+    const before = drawn(worker);
+    // Moved 40 m up past the height rule's reach: painted again where it stands.
+    worker.setOrigin('ground', [3, 42, -5]);
+    await settle(worker);
+    expect(drawn(worker)).not.toEqual(before);
+    page.setOrigin('ground', [3, 42, -5]);
+    page.update();
+    await settle(page);
+    expect(drawn(worker)).toEqual(drawn(page));
+    worker.dispose();
+    page.dispose();
+  });
+
   it('a layer with corner shading: the workers draw its per-vertex occlusion byte for byte as the page does; without it the meshes carry none', async () => {
     const layer = { ...LAYER, vertexAO: 0.7 } as BlockLayerComponent;
     const data = groundData();

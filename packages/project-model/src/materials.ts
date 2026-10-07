@@ -20,6 +20,7 @@ import { canonicalEnvironmentPresets, validateEnvironmentPresets, type Environme
 import { MATERIAL_DATA_MAX, MATERIAL_GRAPH_KIND, MATERIAL_PARAMETER_TYPES, type MaterialParameterType } from './material-graph-kinds';
 import { isTextureSlots, textureSlotsError } from './texture-slots';
 import { MATERIAL_LOCAL_LIGHT_MODES, MAX_LOCAL_LIGHTS } from './local-lights';
+import { TERRAIN_LAYER_MAX } from './terrain-tile';
 import { LOD_BIAS_MAX, LOD_BIAS_MIN } from './model-lod';
 import { MSAA_SAMPLE_COUNTS, PIXEL_RATIO_CAP_MAX, PIXEL_RATIO_CAP_MIN, QUALITY_LEVEL_ID_RE, QUALITY_POST_EFFECTS, qualityLevelsOf, SHADOW_MAP_SIZES, type QualityLevelConfig } from './quality-levels';
 import { AMBIENT_OCCLUSION_KINDS, RENDER_SCALE_MAX, RENDER_SCALE_MIN } from './render-settings';
@@ -164,6 +165,13 @@ export interface MaterialParameter {
   max?: number;
   /** Like script properties: public (absent) = objects may override it; private = the material's own value only. */
   visibility?: 'public' | 'private';
+  /**
+   * vec4 only, a per-layer setting (one component per layer of a layered
+   * material): the values of texture-array layers 4, 5, … — a terrain draws
+   * any number of layers through four slots and reads each layer's own value
+   * (absent, or past its end: layer L takes component L % 4).
+   */
+  extraLayers?: number[];
   label?: string;
   group?: string;
   tooltip?: string;
@@ -174,6 +182,8 @@ export type MaterialParameterValue = number | number[] | string;
 /** A material's or an instance's value of a parameter: an override's, or per-layer texture slots (`texture-slots.ts`). */
 export type MaterialValue = MaterialParameterValue | string[];
 
+/** Layers past a vec4's four a per-layer setting holds values for: every layer a terrain sample can name. */
+export const MATERIAL_EXTRA_LAYERS_MAX = TERRAIN_LAYER_MAX + 1 - 4;
 /** Most exposed parameters of one material. */
 export const MAX_MATERIAL_PARAMETERS = 64;
 /** A parameter key — an identifier (it names the value in the graph and in overrides). */
@@ -273,7 +283,7 @@ export function validateMaterialParameters(value: unknown, path: string, errors:
   value.forEach((p, i) => {
     const pp = `${path}/${i}`;
     if (!isPlainObject(p)) return err(errors, 'field_type', pp, 'a parameter is { key, type, default, min?, max?, size?, visibility?, label?, group?, tooltip? }', p);
-    const allowed = ['key', 'type', 'default', 'min', 'max', 'size', 'visibility', 'label', 'group', 'tooltip'];
+    const allowed = ['key', 'type', 'default', 'min', 'max', 'size', 'visibility', 'label', 'group', 'tooltip', 'extraLayers'];
     for (const k of Object.keys(p)) if (!allowed.includes(k)) err(errors, 'field_unexpected', `${pp}/${k}`, `unknown parameter field "${k}"`, k, allowed.join(', '));
     const key = p['key'];
     if (typeof key !== 'string' || !MATERIAL_PARAMETER_KEY_RE.test(key)) err(errors, 'field_value', `${pp}/key`, 'a parameter key is an identifier (a letter or _, then letters, digits or _; 1-32 characters)', key);
@@ -304,6 +314,13 @@ export function validateMaterialParameters(value: unknown, path: string, errors:
       if (bad !== null) err(errors, 'field_value', `${pp}/default`, `the default is ${bad}`, p['default'], bad);
     }
     if (p['visibility'] !== undefined && p['visibility'] !== 'public' && p['visibility'] !== 'private') err(errors, 'field_value', `${pp}/visibility`, 'visibility is public or private', p['visibility']);
+    const extra = p['extraLayers'];
+    if (extra !== undefined) {
+      if (type !== 'vec4') err(errors, 'field_unexpected', `${pp}/extraLayers`, 'extraLayers belong to a vec4 per-layer setting', 'extraLayers');
+      else if (!Array.isArray(extra) || extra.length > MATERIAL_EXTRA_LAYERS_MAX || !extra.every((v) => typeof v === 'number' && Number.isFinite(v) && Math.abs(v) <= PARAM_BOUND && (typeof p['min'] !== 'number' || v >= p['min']) && (typeof p['max'] !== 'number' || v <= p['max']))) {
+        err(errors, 'field_value', `${pp}/extraLayers`, `extraLayers is a list of at most ${MATERIAL_EXTRA_LAYERS_MAX} numbers (layers 4 on) within the parameter's range`, extra);
+      }
+    }
     for (const [k, max] of [['label', 64], ['group', 64], ['tooltip', 256]] as const) {
       if (p[k] !== undefined && !shortText(p[k], max)) err(errors, 'field_value', `${pp}/${k}`, `${k} is 1-${max} characters without control characters`, p[k]);
     }
@@ -555,6 +572,7 @@ export function canonicalMaterialParameters(list: readonly MaterialParameter[]):
     ...(p.label !== undefined ? { label: p.label } : {}),
     ...(p.group !== undefined ? { group: p.group } : {}),
     ...(p.tooltip !== undefined ? { tooltip: p.tooltip } : {}),
+    ...(p.extraLayers !== undefined && p.extraLayers.length > 0 ? { extraLayers: [...p.extraLayers] } : {}),
   }));
 }
 

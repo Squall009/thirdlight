@@ -29,7 +29,7 @@ import { setFlagsFromString } from 'node:v8';
 import { runInNewContext } from 'node:vm';
 
 import { describe, expect, it } from 'vitest';
-import { applyBlockEdits, BlockGrid, blockTopOptions, chunkMeshPaint, collisionMeshChunk, decodeBlockChunks, meshBlockChunk, resolveCellLook, resolveEdgeLook, shapeSource, WALL_POINT_BYTES, type BlockType, type SceneV4 } from '@thirdlight/project-model';
+import { applyBlockEdits, BlockGrid, blockTopOptions, chunkMeshPaint, collisionMeshChunk, decodeBlockChunks, meshBlockChunk, resolveCellLook, resolveEdgeLook, shapeSource, SurfaceRuleSet, WALL_POINT_BYTES, type BlockType, type SceneV4 } from '@thirdlight/project-model';
 
 import { applyMutation, createCommandState, type CommandState } from '../../packages/commands/src/index';
 import { m2EnvelopeV4 } from '../../packages/commands/src/test-fixtures';
@@ -323,7 +323,14 @@ describe.skipIf(process.env['TL_PERF'] === undefined)('block layers: measurement
     expect(applyBlockEdits(g, [...walls, ...dabs], { types, stamps: new Map() }).ok).toBe(true);
     const looks = { source: (t: BlockType, v: number, fm: [number, number, number]) => ({ key: `${t.blockId}:${v}`, source: shapeSource(t.shape, fm[0], fm[1], fm[2]), uv: 'world' as const, tangents: true }) };
     const keys = g.chunkKeys();
-    const run = (wallPaint: boolean): { msPerChunk: number; paintMsPerChunk: number; vertices: number; triangles: number } => {
+    // Material rules as a level uses them: rock on steep faces, moss in hollows, a noise patch, mud on low ground.
+    const rules = new SurfaceRuleSet([
+      { layer: 3, slope: { min: 40, fade: 10 } },
+      { layer: 2, cavity: { min: 0.3, fade: 0.3, radius: 2 }, face: 'top' },
+      { layer: 1, noise: { scale: 6, min: 0.6, fade: 0.1 }, weight: { layer: 3, max: 0.3 } },
+      { layer: 1, height: { max: 5, fade: 1 }, strength: 0.5 },
+    ]);
+    const run = (wallPaint: boolean, withRules = false): { msPerChunk: number; paintMsPerChunk: number; vertices: number; triangles: number } => {
       const tops = blockTopOptions({ smoothAngle: 40, topSubdivision: 2, wallPaint, cellSize: g.cellSize });
       const mesh: number[] = [];
       const paint: number[] = [];
@@ -339,7 +346,7 @@ describe.skipIf(process.env['TL_PERF'] === undefined)('block layers: measurement
           const t0 = performance.now();
           const parts = meshBlockChunk(g, cx, cz, types, looks, tops);
           const t1 = performance.now();
-          for (const p of parts) chunkMeshPaint(g, types, cx, cz, { wallPaint, topSubdivision: 2 }, p);
+          for (const p of parts) chunkMeshPaint(g, types, cx, cz, { wallPaint, topSubdivision: 2, ...(withRules ? { rules, origin: [0, 0, 0] } : {}) }, p);
           c += performance.now() - t1;
           m += t1 - t0;
           for (const p of parts) {
@@ -358,7 +365,7 @@ describe.skipIf(process.env['TL_PERF'] === undefined)('block layers: measurement
       const [cx, cz] = k.split(',').map(Number) as [number, number];
       points += g.chunkWallPaint(cx, cz)?.size ?? 0;
     }
-    const numbers = { chunks: keys.length, wallPoints: points, wallPointBytes: points * WALL_POINT_BYTES, without: run(false), with: run(true) };
+    const numbers = { chunks: keys.length, wallPoints: points, wallPointBytes: points * WALL_POINT_BYTES, without: run(false), with: run(true), rules: run(false, true), wallPaintAndRules: run(true, true) };
     record(`block-layers wall paint 64x64: ${JSON.stringify(numbers)}`);
     expect(points).toBeGreaterThan(0);
     expect(numbers.with.vertices).toBeGreaterThan(numbers.without.vertices);

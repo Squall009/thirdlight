@@ -112,6 +112,39 @@ describe('editTerrain', () => {
     expect(notTerrain.ok).toBe(false);
   });
 
+  it('bake: sets the rules and paints every tile; a sculpt bakes again where it moved the ground', () => {
+    const rules = [{ layer: 6, slope: { min: 30 } }];
+    const bake = planTerrainEdit(state().scene, BEFORE.content, { entityId: 'group-0902', kind: 'bake', rules }, read);
+    expect(bake.ok).toBe(true);
+    if (!bake.ok) return;
+    expect(bake.plan.rules).toEqual(rules);
+    // The ridge's flanks are steep (up to about 50°): layer 6 there; the flat neighbour stays as it was.
+    const t = bake.plan.tiles.get('0,0')!;
+    expect(t.weights).not.toBeNull();
+    expect([...bake.plan.tiles.keys()]).toEqual(['0,0']);
+    // Stored: the rules with the tiles in one change; a bake of the same rules again changes nothing.
+    const s = state();
+    s.preparedTerrainEdit = { entityId: 'group-0902', value: { ...TERRAIN, tiles: [{ x: 0, z: 0, data: NEW_A }, { x: 1, z: 0 }], rules }, touched: [[0, 0]], added: [], changed: bake.plan.changed };
+    const r = applyMutation(s, request('editTerrain', { entityId: 'group-0902', kind: 'bake', rules }, s.scene.revision));
+    expect(r.ok === false ? r.result : null).toBeNull();
+    if (!r.ok) return;
+    const terrain = (r.state.scene.entities.find((e) => e.id === 'group-0902')!.components as { terrain: TerrainComponent }).terrain;
+    expect(terrain.rules).toEqual(rules);
+    const readBaked = (digest: string) => (digest === NEW_A ? { ok: true as const, tile: t } : read(digest));
+    const again = planTerrainEdit(r.state.scene, BEFORE.content, { entityId: 'group-0902', kind: 'bake' }, readBaked);
+    expect(again.ok === false && again.error.code).toBe('no_change');
+    // A raise on the flat tile: its slope rule paints the new bump's flanks there.
+    const raise = planTerrainEdit(r.state.scene, BEFORE.content, { entityId: 'group-0902', kind: 'raise', dabs: [[24, 8]], radius: 2, strength: 3 }, readBaked);
+    expect(raise.ok).toBe(true);
+    if (!raise.ok) return;
+    expect(raise.plan.rules).toBeUndefined();
+    expect(raise.plan.tiles.get('1,0')!.weights).not.toBeNull();
+    // Paint moves no ground: nothing baked.
+    const paint = planTerrainEdit(r.state.scene, BEFORE.content, { entityId: 'group-0902', kind: 'paint', dabs: [[24, 8]], radius: 1, strength: 1, layer: 2 }, readBaked);
+    expect(paint.ok && paint.plan.tiles.get('1,0')!.weights).toBeNull();
+    expect(applyMutation(state(), request('editTerrain', { entityId: 'group-0902', kind: 'bake', rules: [{ layer: 1, blocks: ['x'] }] }, 1)).ok).toBe(false);
+  });
+
   it('names new tiles in order, drops data from tiles flat and bare again', () => {
     const digests = new Map<string, string | null>([[terrainTileKey(0, 0), null], [terrainTileKey(1, 0), NEW_A], [terrainTileKey(-1, 3), NEW_B]]);
     expect(terrainTilesAfter(TERRAIN, digests)).toEqual([{ x: 0, z: 0 }, { x: 1, z: 0, data: NEW_A }, { x: -1, z: 3, data: NEW_B }]);
