@@ -899,6 +899,8 @@ export {
   type MaterialParamValue,
   type MaterialShader,
   type WindConfig,
+  WET_ALBEDO_SCALE,
+  WET_ROUGHNESS,
 } from './materials';
 // Per-layer texture slots of graph materials (Play and the export assemble arrays from them).
 export { hasTextureSlots, isTextureSlots, materialSlotTextureRefs, materialTextureSlotSets, parseTextureSlotSetKey, textureSlotLayers, textureSlotMode, textureSlotSetKey, textureSlotsError, withAssembledSlots, type TextureSlotSet } from './texture-slots';
@@ -1137,7 +1139,46 @@ export {
 export { LIVE_BLOCK_PREFAB_REFUSED, LIVE_BLOCK_ROOT_MERGED, LIVE_BLOCK_ROOT_REFUSED, blockTypeLive, liveBlockIds, liveBlockPlacement, liveBlockPrefabProblem, liveBlockPrefix, liveBlockRootId, liveEdgeRootId } from './block-live';
 export { chunkMeshPaint, type ChunkPaintOptions, type PaintedGeometry } from './block-paint-mesh';
 export { chunkMeshAO, type AoGeometry } from './block-ao';
-export { UNPAINTED_WALL, WALL_PAINT_MAX_STEPS, WALL_PAINT_STEP_METRES, WALL_POINT_BYTES, WALL_SIDE_AXES, canonicalWallPaint, decodeWallPaint, encodeWallPaint, wallPaintDab, wallPaintError, wallPaintSteps, wallPointKey, wallPointOfKey, type WallPaint, type WallPaintSurface, type WallSteps } from './block-wall-paint';
+export { UNPAINTED_WALL, WALL_PAINT_MAX_STEPS, WALL_PAINT_STEP_METRES, WALL_POINT_BYTES, WALL_SIDE_AXES, canonicalWallPaint, decodeWallPaint, encodeWallPaint, wallPaintAt, wallPaintDab, wallPaintError, wallPaintSteps, wallPointKey, wallPointOfKey, type WallPaint, type WallPaintSurface, type WallSteps } from './block-wall-paint';
+// Trim sheets: the trim material's row table, strip coordinates, mip bounds, padding checks; generated meshes' paint.
+export {
+  TRIM_COLOUR_GRIME,
+  TRIM_COLOUR_OCCLUSION,
+  TRIM_COLOUR_WETNESS,
+  TRIM_DENSITY_MAX,
+  TRIM_DENSITY_MIN,
+  TRIM_PADDING_MAX,
+  TRIM_SHEET_DEFAULTS,
+  TRIM_SHEET_SIZE_MAX,
+  TRIM_STARTER_LAYOUT,
+  canonicalTrimSheet,
+  defaultTrimSheet,
+  equalTrimRows,
+  trimLayoutMissing,
+  trimMaxFootprint,
+  trimPaddingProblems,
+  trimRowDensity,
+  trimRowMetres,
+  trimRowOf,
+  trimRowV,
+  trimSafeMipLevel,
+  trimSheetErrors,
+  trimSheetFromLayout,
+  trimSheetMipLevels,
+  trimSheetProblems,
+  trimSheetSafeMipLevel,
+  trimU,
+  trimV,
+  writeTrimStripUvs,
+  writeTrimVertexColour,
+  type TrimLayoutImport,
+  type TrimPaddingProblem,
+  type TrimRow,
+  type TrimSheet,
+  type TrimSheetError,
+  type TrimSheetProblem,
+} from './trim-sheet';
+export { TRIM_GRIME_PAINT_LAYER, trimColoursFromWallPaint, type TrimWallPaintOptions } from './trim-paint';
 export { cutWallPolygon, type CutVertex } from './block-wall-cut';
 export { CUTAWAY_FADE_RANGE, CUTAWAY_FADE_SECONDS, canonicalBlockCutaway, cutawayCuts, cutawayPlaneKey, cutawaySeams, cutawayZoneKeys, cutawayZones, validateBlockCutaway, type BlockCutaway, type BlockCutawayRegion, type CutawayBox, type CutawayZone } from './block-cutaway';
 export { blockKitNames, canonicalBlockTypeKits, canonicalLayerKits, composeBlockTypeKits, kitKey, kitRegionsMissing, kitSwapCollides, kitZones, validateBlockTypeKits, validateLayerKits, type BlockKitSwap, type BlockLayerKit, type KitZone } from './block-kit';

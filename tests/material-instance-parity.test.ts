@@ -26,12 +26,16 @@ const LIST: MaterialDef[] = [
   { materialId: 'mat-s', name: 'Shader', shader: 'kit', params: { roughness: 0.4, uvPeriod: 2 }, textures: { map: 'tex-a', normalMap: 'tex-n' } },
   { materialId: 'mi-s', name: 'Shader rough', shader: 'kit', params: { roughness: 1 }, textures: { map: 'tex-b' }, instanceOf: 'mat-s' },
   { materialId: 'mi-broken', name: 'Broken', shader: 'standard', params: {}, textures: {}, instanceOf: 'mat-missing' },
+  { materialId: 'mat-t', name: 'Trim', shader: 'trim', params: { grime: 0.5 }, textures: { map: 'tex-a' }, trim: { size: [256, 256], texelDensity: 128, padding: 4, rows: [{ slot: 'floor', top: 4, bottom: 124 }] } },
+  { materialId: 'mi-t', name: 'Trim wet', shader: 'trim', params: { wetness: 1 }, textures: {}, instanceOf: 'mat-t' },
 ];
 
 describe('material instance resolution', () => {
   it('folds the chain: the root graph and parameters, the nearer values, params and textures win', () => {
     const r = resolveMaterialInstances(LIST);
-    expect(r.map((m) => m.materialId)).toEqual(['mat-g', 'mi-red', 'mi-red-dull', 'mat-s', 'mi-s']);
+    expect(r.map((m) => m.materialId)).toEqual(['mat-g', 'mi-red', 'mi-red-dull', 'mat-s', 'mi-s', 'mat-t', 'mi-t']);
+    // A trim instance draws with its root's row table.
+    expect(r.find((m) => m.materialId === 'mi-t')!.trim).toBe(LIST[6]!.trim);
     const dull = r.find((m) => m.materialId === 'mi-red-dull')!;
     expect(dull.instanceOf).toBeUndefined();
     expect(dull.graph).toBe(LIST[0]!.graph);

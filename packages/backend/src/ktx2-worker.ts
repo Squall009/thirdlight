@@ -7,13 +7,18 @@
 import { parentPort } from 'node:worker_threads';
 
 import { makeImageThumbnail } from './image-thumbnail';
-import { encodeKtx2, packKtx2, type Ktx2Mode, type PackLayer } from './texture-encode';
+import { decodeTextureRgba, encodeKtx2, packKtx2, type Ktx2Mode, type PackLayer } from './texture-encode';
 
 let queue: Promise<void> = Promise.resolve();
 // `{id, pack: {sources, layers, lossless}, mode}` packs several images into one KTX2;
-// `{id, thumbnail: bytes}` makes an image's tile thumbnail (a PNG).
-parentPort?.on('message', (m: { id: number; bytes?: Uint8Array; pack?: { sources: Uint8Array[]; layers: PackLayer[]; lossless?: (Uint8Array | null)[] }; thumbnail?: Uint8Array; mode: Ktx2Mode }) => {
+// `{id, thumbnail: bytes}` makes an image's tile thumbnail (a PNG); `{id, decode: {bytes, maxPixels}}` an image's RGBA.
+parentPort?.on('message', (m: { id: number; bytes?: Uint8Array; pack?: { sources: Uint8Array[]; layers: PackLayer[]; lossless?: (Uint8Array | null)[] }; thumbnail?: Uint8Array; decode?: { bytes: Uint8Array; maxPixels: number }; mode: Ktx2Mode }) => {
   queue = queue.then(async () => {
+    if (m.decode !== undefined) {
+      const r = await decodeTextureRgba(m.decode.bytes, m.decode.maxPixels);
+      parentPort!.postMessage({ id: m.id, result: r }, r.ok ? [r.data.buffer as ArrayBuffer] : []);
+      return;
+    }
     if (m.thumbnail !== undefined) {
       const png = await makeImageThumbnail(m.thumbnail);
       parentPort!.postMessage({ id: m.id, result: { thumbnail: png } }, png !== null ? [png.buffer as ArrayBuffer] : []);

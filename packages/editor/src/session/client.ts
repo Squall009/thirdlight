@@ -39,7 +39,17 @@ import {
   type CompileDiagnosticView,
 } from './behavior-publication';
 import type { ContentJobView } from '@thirdlight/protocol';
-import type { MissingAssetFile, PropertyDeclaration } from '@thirdlight/project-model';
+import type { MissingAssetFile, PropertyDeclaration, TrimPaddingProblem, TrimSheet } from '@thirdlight/project-model';
+
+/** The backend's check of a trim sheet's image: its size, whether it was read from a lossy KTX2, the padding rows that differ. */
+export interface TrimCheckView {
+  ok: true;
+  width: number;
+  height: number;
+  sizeMatches: boolean;
+  transcoded: boolean;
+  problems: TrimPaddingProblem[];
+}
 import { type ProjectFileListing, type IntegrityEntryView, type FileCheckView, makeAssetId, SessionClientCore } from './client-core';
 
 export * from './client-core';
@@ -825,6 +835,19 @@ export class SessionClient extends SessionClientCore {
     });
     if (!res.ok) throw { status: res.status, body: null };
     return new Uint8Array(await res.arrayBuffer());
+  }
+
+  /** A trim sheet's image checked against its row table on the backend (its padding, its size). */
+  async checkTrimSheet(texture: string, trim: TrimSheet): Promise<TrimCheckView | { ok: false; error: { code: string; message: string } }> {
+    try {
+      return await this.request<TrimCheckView>(`/projects/${this.cfg.projectId}/content/textures/trim-check`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ texture, trim }),
+      });
+    } catch (e) {
+      return { ok: false, error: this.describeError(e) };
+    }
   }
 
   /**

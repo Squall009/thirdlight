@@ -232,3 +232,61 @@ export function wallPaintDab(surface: WallPaintSurface, at: readonly [number, nu
   }
   return changed;
 }
+
+/** A wall point's bytes (unpainted when not stored). */
+function wallPointAt(points: WallPaint | null, lx: number, lz: number, side: number, j: number, k: number): readonly number[] | Uint8Array {
+  if (points === null || points.size === 0) return UNPAINTED_WALL;
+  return points.get(wallPointKey(lx, lz, side, j, k)) ?? UNPAINTED_WALL;
+}
+
+/** Snaps a coordinate that lies on a point line to it (float positions a hair off a whole step). */
+const snapToLine = (v: number): number => (Math.abs(v - Math.round(v)) < 1e-4 ? Math.round(v) : v);
+
+/**
+ * The wall paint at (px, py, pz) (layer metres) on a wall facing `side`
+ * (0 +X, 1 −X, 2 +Z, 3 −Z), into `out` (the five channels, 0–255, not
+ * rounded): bilinear between the two points across and the two in height
+ * around it, on the column-border plane nearest the point. The column whose
+ * side it is holds (mx, mz) — a point inside the face; the points at a
+ * side's two ends are written alike for both columns sharing them. The block
+ * mesher reads its wall vertices with it, and so may any mesh laid along a
+ * layer's walls (generated architecture), so paint stays where it was
+ * painted when the mesh is made again. `points(cx, cz)`: a chunk's points
+ * (null: none).
+ */
+export function wallPaintAt(points: (cx: number, cz: number) => WallPaint | null, cellSize: readonly number[], side: number, px: number, py: number, pz: number, mx: number, mz: number, out: Float64Array): void {
+  const cs = cellSize;
+  const st = wallPaintSteps(cs);
+  const stepY = cs[1]! / st.up;
+  // The wall's plane (the nearest column border), the column whose side it is, and the place across it.
+  let ox: number;
+  let oz: number;
+  let across: number;
+  if (side < 2) {
+    const plane = Math.round(px / cs[0]!);
+    ox = side === 0 ? plane - 1 : plane;
+    oz = Math.floor(mz / cs[2]!);
+    across = snapToLine((pz / cs[2]! - oz) * st.along);
+  } else {
+    const plane = Math.round(pz / cs[2]!);
+    oz = side === 2 ? plane - 1 : plane;
+    ox = Math.floor(mx / cs[0]!);
+    across = snapToLine((px / cs[0]! - ox) * st.along);
+  }
+  across = Math.max(0, Math.min(st.along, across));
+  const up = snapToLine(py / stepY);
+  const j0 = Math.min(st.along - 1, Math.floor(across));
+  const k0 = Math.floor(up);
+  const fj = across - j0;
+  const fk = up - k0;
+  const occ = Math.floor(ox / CHUNK_SIZE);
+  const ocz = Math.floor(oz / CHUNK_SIZE);
+  const chunk = points(occ, ocz);
+  const lx = ox - occ * CHUNK_SIZE;
+  const lz = oz - ocz * CHUNK_SIZE;
+  const p00 = wallPointAt(chunk, lx, lz, side, j0, k0);
+  const p10 = wallPointAt(chunk, lx, lz, side, Math.min(st.along, j0 + 1), k0);
+  const p01 = wallPointAt(chunk, lx, lz, side, j0, k0 + 1);
+  const p11 = wallPointAt(chunk, lx, lz, side, Math.min(st.along, j0 + 1), k0 + 1);
+  for (let ch = 0; ch < PAINT_CHANNELS; ch++) out[ch] = (p00[ch]! * (1 - fj) + p10[ch]! * fj) * (1 - fk) + (p01[ch]! * (1 - fj) + p11[ch]! * fj) * fk;
+}

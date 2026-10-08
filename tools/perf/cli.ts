@@ -20,6 +20,7 @@
  *   blocks [options]               block meshing hitches on the blocks class (tools/perf/blocks-run.ts lists its options)
  *   probe-bake [options]           the editor's probe bake on the village or blocks class (tools/perf/probe-bake-run.ts)
  *   export-size [options]          what an export downloads, raw/gzip/brotli (tools/perf/export-size.ts lists its options)
+ *   trim [options]                 the trim material's GPU cost against the standard material on one mesh (tools/perf/trim-run.ts)
  */
 import { readFileSync, writeFileSync } from 'node:fs';
 
@@ -50,6 +51,11 @@ if (argv[0] === 'probe-bake') {
 if (argv[0] === 'blocks') {
   const { runBlocksCli } = await import('./blocks-run');
   await runBlocksCli(argv.slice(1));
+  process.exit(process.exitCode ?? 0);
+}
+if (argv[0] === 'trim') {
+  const { runTrimCli } = await import('./trim-run');
+  await runTrimCli(argv.slice(1));
   process.exit(process.exitCode ?? 0);
 }
 if (argv[0] === 'export-size') {

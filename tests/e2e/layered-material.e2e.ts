@@ -22,6 +22,19 @@
  * strength set to 0 there flattens the painted terrain (both suns light it
  * alike), the other surfaces keep their bump.
  *
+ * Trim sheets (the same page, one backend): a trim sheet material made from
+ * the Create menu, its row table read from a Texture Designer layout.json
+ * and edited in the Inspector's table (an overlapping row refused, a row's
+ * own density saved), its albedo set and its padding checked on the
+ * backend. Then Play looks along a floor of strips, one patch per row of a
+ * test sheet (`trim-strips.ts`: solid rows of unequal height, each padding
+ * its own colour) from 4 to 30 m away: every patch shows only its row's
+ * colour at every distance — the grazing angle that asks for the deepest
+ * mips. The same strips with the standard material and the same sheet
+ * (no footprint cap) show their neighbours' colours far away, so the
+ * picture can see a bleed. A strip patch with vertex grime takes the grime
+ * colour, one with vertex wetness is darker, with no texture of their own.
+ *
  * TL_LAYERED_DIR=<dir> keeps the pictures.
  */
 import { randomBytes, randomUUID } from 'node:crypto';
@@ -30,12 +43,13 @@ import { join } from 'node:path';
 
 import { expect, test, type Locator, type Page } from './pw';
 
-import { startBackend, type E2EBackend } from './backend';
+import { publishBytes, startBackend, type E2EBackend } from './backend';
 import { materials, packTexture, publishTexture, useArrays } from './painted-layers';
 import { decodePng, type Image } from './png';
 import { makePng } from './png-make';
-import { editorUrlFor, expectRendererBackend, onlyInItsProject, RENDERER_VARIANTS } from './renderer-variants';
-import { closeEditor, createItem, editorPane, menu, openEditor, openWindow } from './ui';
+import { stripPatchCentre, TEST_TRIM_COLOURS, TEST_TRIM_SHEET, testTrimLayoutJson, testTrimSheetPng, trimStripsGlb } from './trim-strips';
+import { editorUrlFor, expectRendererBackend, onlyInItsProject, RENDERER_VARIANTS, type RendererVariant } from './renderer-variants';
+import { closeEditor, createItem, editorPane, inspector, menu, openEditor, openWindow } from './ui';
 
 let be: E2EBackend | null = null;
 test.afterEach(async () => {
@@ -165,9 +179,9 @@ function bumpSides(lean: readonly number[], skip: readonly string[] = []): strin
   return bad.length === 0 ? null : bad.join('; ');
 }
 
-for (const variant of RENDERER_VARIANTS) test(`normal maps light from the right side on painted terrain and plain materials; the layered material's per-layer settings (${variant})`, async ({ page }) => {
+for (const variant of RENDERER_VARIANTS) test(`normal maps light from the right side on painted terrain and plain materials; the layered material's per-layer settings; a trim sheet's rows without bleeding (${variant})`, async ({ page }) => {
   onlyInItsProject(variant, RENDERER_VARIANTS);
-  test.setTimeout(300_000);
+  test.setTimeout(420_000);
   be = await startBackend(`layered-${randomUUID().slice(0, 8)}`);
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
@@ -280,5 +294,140 @@ for (const variant of RENDERER_VARIANTS) test(`normal maps light from the right 
   expect(Math.abs(flat.lean[0]!), `terrain lean ${flat.lean[0]} with layer 1's normal strength 0`).toBeLessThan(4);
   expect(bumpSides(flat.lean, ['painted terrain'])).toBeNull();
 
+  await trimSheetChecks(page, variant);
   expect(errors).toEqual([]);
 });
+
+/** The trim patches in Play: the material's six (four rows, then floor with vertex grime, floor with vertex wetness), the standard material's four. */
+const TRIM_PATCHES = [{ slot: 'floor' }, { slot: 'baseboard' }, { slot: 'crown' }, { slot: 'lower_wall' }, { slot: 'floor', colour: [0, 1, 0] as const }, { slot: 'floor', colour: [0, 0, 1] as const }];
+/** Where the strips lie (world): the trim model's and the standard model's corners, the eye, its pitch and lens. */
+const TRIM_AT = [196, 0, 0] as const;
+const STANDARD_AT = [200.3, 0, 0] as const;
+const EYE = [200, 1.2, 1.5] as const;
+const PITCH = (-12 * Math.PI) / 180;
+const FOV_Y = 50;
+/** Distances along the strips the patches are read at (metres from their near edge): near, middle, far. */
+const TRIM_DEPTHS = [4, 10, 30] as const;
+
+/** A world point on the Play picture (`w` × `h`) of the fixed camera at EYE, pitched down by PITCH. */
+function onPlay(p: readonly number[], w: number, h: number): { x: number; y: number } {
+  const d = [p[0]! - EYE[0], p[1]! - EYE[1], p[2]! - EYE[2]];
+  const fwd = [0, Math.sin(PITCH), -Math.cos(PITCH)];
+  const up = [0, Math.cos(PITCH), Math.sin(PITCH)];
+  const z = d[0]! * fwd[0]! + d[1]! * fwd[1]! + d[2]! * fwd[2]!;
+  const t = Math.tan((FOV_Y * Math.PI) / 360);
+  return { x: ((d[0]! / (z * t * (w / h)) + 1) / 2) * w, y: ((1 - (d[0]! * up[0]! + d[1]! * up[1]! + d[2]! * up[2]!) / (z * t)) / 2) * h };
+}
+
+/** The mean colour of the 3 × 3 pixels at a point. */
+function colourAt(img: Image, at: { x: number; y: number }): [number, number, number] {
+  const sum = [0, 0, 0];
+  for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+    const [r, g, b] = img.pixel(Math.round(at.x) + dx, Math.round(at.y) + dy);
+    sum[0] += r;
+    sum[1] += g;
+    sum[2] += b;
+  }
+  return sum.map((v) => v / 9) as [number, number, number];
+}
+
+/** Whether a reading has its row's hue: each of the row's strong channels clearly over each of its weak ones (lit, tone mapped). */
+function rowHue(slot: string, c: readonly number[]): boolean {
+  const ref = TEST_TRIM_COLOURS[slot]!;
+  return ref.every((v, k) => v < 128 || ref.every((w, j) => w >= 128 || c[k]! > c[j]! * 1.5));
+}
+
+/** Whether two readings are the same colour: their channel shares within 0.04 and their brightness within −30 % / +40 %. */
+function sameColour(a: readonly number[], b: readonly number[]): boolean {
+  const sa = a[0]! + a[1]! + a[2]!;
+  const sb = b[0]! + b[1]! + b[2]!;
+  return sa > 0 && sb > 0 && sa / sb > 0.7 && sa / sb < 1.4 && a.every((v, k) => Math.abs(v / sa - b[k]! / sb) < 0.04);
+}
+
+async function trimSheetChecks(page: Page, variant: RendererVariant): Promise<void> {
+  type TrimMat = { materialId: string; shader: string; textures: Record<string, string>; trim?: { size: number[]; padding: number; rows: { slot: string; top: number; bottom: number; texelDensity?: number }[] } };
+  const trimMaterial = async (): Promise<TrimMat | undefined> => ((await materials(be!)) as unknown as TrimMat[]).find((m) => m.shader === 'trim');
+  await publishTexture(be!, new Uint8Array(testTrimSheetPng()), 'trim-sheet', 'Trim sheet');
+
+  // ---- The editor: a trim sheet material from the Create menu, its rows from layout.json, edited in the table.
+  await createItem(page, 'Trim sheet material', 'Trim');
+  await expect.poll(async () => (await trimMaterial())?.trim?.rows.length, { timeout: 15_000 }).toBe(9);
+  const table = inspector(page).getByRole('table', { name: 'trim rows' });
+  await expect(table).toBeVisible();
+  await inspector(page).getByLabel('trim layout file').setInputFiles({ name: 'layout.json', mimeType: 'application/json', buffer: Buffer.from(testTrimLayoutJson()) });
+  await expect.poll(async () => (await trimMaterial())?.trim).toEqual(TEST_TRIM_SHEET);
+  await expect(inspector(page).getByLabel('trim check')).toContainText('left out: signs');
+  const cell = (label: string) => table.getByLabel(label, { exact: true });
+  // Row 2 reaching into row 3 is refused (the field shows the stored value again); row 4's own density is saved.
+  await cell('row 2 bottom').fill('101');
+  await cell('row 2 bottom').press('Enter');
+  await expect(inspector(page).getByLabel('trim table error')).toContainText('overlaps');
+  await expect(cell('row 2 bottom')).toHaveValue('92');
+  await cell('row 4 texel density').fill('64');
+  await cell('row 4 texel density').press('Enter');
+  await expect.poll(async () => (await trimMaterial())?.trim?.rows[3]?.texelDensity).toBe(64);
+  await expect(table.getByLabel('row 1 safe mip level')).toHaveText(/^[1-9]$/);
+  // The albedo, then its padding checked against the table on the backend.
+  await inspector(page).getByRole('combobox', { name: 'texture map' }).selectOption({ label: 'Trim sheet' });
+  await expect.poll(async () => (await trimMaterial())?.textures['map']).toBe('trim-sheet');
+  await inspector(page).getByRole('button', { name: 'Check padding' }).click();
+  await expect(inspector(page).getByLabel('trim check')).toContainText('Padding OK', { timeout: 15_000 });
+  const trimId = (await trimMaterial())!.materialId;
+
+  // ---- Play: the strips at a grazing angle, the trim material's and the standard material's.
+  await cmd('setMaterial', { material: { materialId: 'mat-trim-std', name: 'Trim sheet, standard', shader: 'standard', params: { roughness: 1 }, textures: { map: 'trim-sheet' } } });
+  await publishBytes(be!, new Uint8Array(trimStripsGlb(TEST_TRIM_SHEET, TRIM_PATCHES, 32)), 'model', 'trim-strips', 'Trim strips');
+  for (const [at, mat, name] of [[TRIM_AT, trimId, 'Trim strips'], [STANDARD_AT, 'mat-trim-std', 'Standard strips']] as const) {
+    const id = String((await cmd('createEntity', { sceneId: 'scene-main', kind: 'model', name, model: { asset: { assetId: 'trim-strips' } }, transform: { position: [...at] } }))['createdId']);
+    await cmd('setComponent', { entityId: id, component: 'materials', value: { '*': mat } });
+  }
+  await cmd('setEnvironment', { sceneId: 'scene-main', environment: { sky: { mode: 'color', color: '#000000', intensity: 1, environmentIntensity: 0 }, fog: { mode: 'none', color: '#000000' } } });
+  await cmd('setComponent', { entityId: 'light-0001', component: 'light', value: { type: 'directional', color: '#ffffff', intensity: 1.5, direction: [0.3, -1, -0.4], castShadow: false } });
+  await cmd('setComponent', { entityId: 'light-0002', component: 'light', value: { type: 'ambient', color: '#ffffff', intensity: 0.6 } });
+  await cmd('setTransform', { entityId: 'cam-main', transform: { position: [...EYE], rotation: [Math.sin(PITCH / 2), 0, 0, Math.cos(PITCH / 2)] } });
+  const lens = ((await query('queryEntity', { entityId: 'cam-main' }))['entity'] as { components: { virtualCamera?: Record<string, unknown> } }).components.virtualCamera;
+  await cmd('setComponent', { entityId: 'cam-main', component: 'virtualCamera', value: { ...(lens ?? {}), rig: 'fixed', fovY: FOV_Y, near: 0.1, far: 200 } });
+
+  await page.getByTitle('Start an isolated play preview').click();
+  const canvas = page.frameLocator('iframe.tl-app__preview-frame').locator('canvas').first();
+  await expectRendererBackend(canvas, variant);
+  let reading = '';
+  const judge = (img: Image): { trimClean: boolean; standardBleeds: boolean; grime: boolean; wet: boolean } => {
+    const read = (corner: readonly number[], i: number, depth: number): [number, number, number] => colourAt(img, onPlay([corner[0]! + stripPatchCentre(i), 0, corner[2]! - depth], img.width, img.height));
+    const trim = TRIM_DEPTHS.map((d) => [0, 1, 2, 3].map((i) => read(TRIM_AT, i, d)));
+    const standard = TRIM_DEPTHS.map((d) => [0, 1, 2, 3].map((i) => read(STANDARD_AT, i, d)));
+    const plain = read(TRIM_AT, 0, TRIM_DEPTHS[0]);
+    const grimed = read(TRIM_AT, 4, TRIM_DEPTHS[0]);
+    const wet = read(TRIM_AT, 5, TRIM_DEPTHS[0]);
+    const lum = (c: readonly number[]): number => c[0]! + c[1]! + c[2]!;
+    const fmt = (c: readonly number[]): string => c.map((v) => v.toFixed(0)).join(',');
+    reading = `trim ${trim.map((row, k) => `${TRIM_DEPTHS[k]} m: ${row.map(fmt).join(' ')}`).join('; ')} | standard ${standard.map((row, k) => `${TRIM_DEPTHS[k]} m: ${row.map(fmt).join(' ')}`).join('; ')} | plain ${fmt(plain)} grime ${fmt(grimed)} wet ${fmt(wet)}`;
+    const near = trim[0]!;
+    return {
+      // Each patch its row's hue near, and the same colour at every distance.
+      trimClean: near.every((c, i) => rowHue(TRIM_PATCHES[i]!.slot, c)) && trim.every((row) => row.every((c, i) => sameColour(c, near[i]!))),
+      // Near, the standard material shows the same rows; far, at least two of red, green and blue take their neighbours' colours.
+      standardBleeds: standard[0]!.every((c, i) => sameColour(c, near[i]!)) && standard[2]!.slice(0, 3).filter((c, i) => !sameColour(c, near[i]!)).length >= 2,
+      // Grime: the dark brown grime colour, no longer the row's red; wetness: the red row, darker.
+      grime: !rowHue('floor', grimed) && lum(grimed) < lum(plain),
+      wet: rowHue('floor', wet) && lum(wet) < lum(plain) * 0.8,
+    };
+  };
+  let last: Buffer | null = null;
+  await expect
+    .poll(async () => {
+      const png = await canvas.screenshot();
+      last = png;
+      const j = judge(decodePng(png));
+      if (j.trimClean && j.standardBleeds && j.grime && j.wet) keep('trim-strips', png);
+      return j;
+    }, { timeout: 45_000, intervals: [1000], message: 'the Play picture of the strips' })
+    .toEqual({ trimClean: true, standardBleeds: true, grime: true, wet: true })
+    .catch((e: unknown) => {
+      console.log(`trim strips ${variant} (failed): ${reading}`);
+      if (last !== null) keep('trim-strips-failed', last);
+      throw e;
+    });
+  console.log(`trim strips ${variant}: ${reading}`);
+  await page.getByTitle('Stop the play preview').click();
+}

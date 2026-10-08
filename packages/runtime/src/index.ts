@@ -401,6 +401,11 @@ export {
   type LocalLightMode,
   MAX_MATERIAL_INSTANCE_DEPTH,
   MAX_POLYGON_VERTICES,
+  // The trim material's sampling cap and the wet look the renderer draws (trim-sheet.ts, materials.ts).
+  trimMaxFootprint,
+  type TrimSheet,
+  WET_ALBEDO_SCALE,
+  WET_ROUGHNESS,
   MAX_SOURCE_BYTES,
   M2_GLTF_EXTENSION_ALLOWLIST,
   MODEL_JSON_CHUNK_BYTES_MAX,

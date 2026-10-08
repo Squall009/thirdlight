@@ -30,7 +30,7 @@ import { chunkPaintColors, PAINT_CHANNELS, PAINT_CHUNK_SIZE } from './block-pain
 import { blockTopAt, cellCorners, subdividedHeightAt, surfaceBelow, type CellCorners } from './block-surface';
 import type { SurfacePoint, SurfaceRuleSet } from './surface-rules';
 import { projectionOf } from './block-mesh';
-import { UNPAINTED_WALL, wallPaintSteps, wallPointKey, type WallPaint } from './block-wall-paint';
+import { wallPaintAt, wallPaintSteps, type WallPaint } from './block-wall-paint';
 
 const CHUNK_SIZE = PAINT_CHUNK_SIZE;
 /** Box-mapping projection (+X, −X, +Y, −Y, +Z, −Z) → wall side (+X, −X, +Z, −Z); −1 for tops and bottoms. */
@@ -87,8 +87,13 @@ function paintWalls(grid: BlockGridReader, types: ReadonlyMap<string, BlockType>
   /** The wall points of the last column's chunk (a chunk's walls are mostly its own columns'). */
   let pointsKey = Number.NaN;
   let points: WallPaint | null = null;
-  /** Snaps a coordinate that lies on a point line to it (float positions a hair off a whole step). */
-  const snap = (v: number): number => (Math.abs(v - Math.round(v)) < 1e-4 ? Math.round(v) : v);
+  const pointsOf = (occ: number, ocz: number): WallPaint | null => {
+    if (occ * 65536 + ocz !== pointsKey) {
+      pointsKey = occ * 65536 + ocz;
+      points = grid.chunkWallPaint(occ, ocz);
+    }
+    return points;
+  };
   for (let i = 0; i < count; i++) {
     const side = PROJ_SIDE[projectionOf(n[i * 3]!, n[i * 3 + 1]!, n[i * 3 + 2]!)]!;
     if (side < 0 || first[i]! < 0) continue;
@@ -102,40 +107,10 @@ function paintWalls(grid: BlockGridReader, types: ReadonlyMap<string, BlockType>
     const px = p[i * 3]!;
     const py = p[i * 3 + 1]!;
     const pz = p[i * 3 + 2]!;
-    // The wall's plane (the nearest column border), the column whose side it is, and the place across it.
-    let ox: number;
-    let oz: number;
-    let across: number;
-    if (side < 2) {
-      const plane = Math.round(px / cs[0]!);
-      ox = side === 0 ? plane - 1 : plane;
-      oz = Math.floor(mz / cs[2]!);
-      across = snap((pz / cs[2]! - oz) * st.along);
-    } else {
-      const plane = Math.round(pz / cs[2]!);
-      oz = side === 2 ? plane - 1 : plane;
-      ox = Math.floor(mx / cs[0]!);
-      across = snap((px / cs[0]! - ox) * st.along);
-    }
-    across = Math.max(0, Math.min(st.along, across));
-    const up = snap(py / stepY);
-    const j0 = Math.min(st.along - 1, Math.floor(across));
-    const k0 = Math.floor(up);
-    const fj = across - j0;
-    const fk = up - k0;
-    const occ = Math.floor(ox / CHUNK_SIZE);
-    const ocz = Math.floor(oz / CHUNK_SIZE);
-    if (occ * 65536 + ocz !== pointsKey) {
-      pointsKey = occ * 65536 + ocz;
-      points = grid.chunkWallPaint(occ, ocz);
-    }
-    const lx = ox - occ * CHUNK_SIZE;
-    const lz = oz - ocz * CHUNK_SIZE;
-    const p00 = pointAt(points, lx, lz, side, j0, k0);
-    const p10 = pointAt(points, lx, lz, side, Math.min(st.along, j0 + 1), k0);
-    const p01 = pointAt(points, lx, lz, side, j0, k0 + 1);
-    const p11 = pointAt(points, lx, lz, side, Math.min(st.along, j0 + 1), k0 + 1);
-    for (let ch = 0; ch < PAINT_CHANNELS; ch++) value[ch] = (p00[ch]! * (1 - fj) + p10[ch]! * fj) * (1 - fk) + (p01[ch]! * (1 - fj) + p11[ch]! * fj) * fk;
+    wallPaintAt(pointsOf, cs, side, px, py, pz, mx, mz, value);
+    // The column whose side it is (as wallPaintAt finds it): the lip below reads that column's run.
+    const ox = side < 2 ? Math.round(px / cs[0]!) - (side === 0 ? 1 : 0) : Math.floor(mx / cs[0]!);
+    const oz = side < 2 ? Math.floor(mz / cs[2]!) : Math.round(pz / cs[2]!) - (side === 2 ? 1 : 0);
     // Over the lip: the top's paint (the lattice value already there) down to one step below the run's top.
     const top = runs.top(ox, oz, mx, my, mz, px, pz);
     const f = top === null ? 1 : Math.max(0, Math.min(1, (top - py) / stepY));
@@ -243,12 +218,6 @@ function applyRules(grid: BlockGridReader, types: ReadonlyMap<string, BlockType>
     }
     out.weights[i * 4 + big] = Math.max(0, Math.min(255, out.weights[i * 4 + big]! + 255 - sum));
   }
-}
-
-/** A wall point's bytes (unpainted when not stored). */
-function pointAt(points: WallPaint | null, lx: number, lz: number, side: number, j: number, k: number): readonly number[] | Uint8Array {
-  if (points === null || points.size === 0) return UNPAINTED_WALL;
-  return points.get(wallPointKey(lx, lz, side, j, k)) ?? UNPAINTED_WALL;
 }
 
 /**

@@ -27,6 +27,8 @@ import { resolveMaterialInstancesLike, type MaterialDefLike } from '@thirdlight/
 import { ASSET_DRAG_TYPE, parseAssetDrag } from '../../session/placement';
 import { CONVERTIBLE_SHADERS, convertToGraph } from '../../session/material-graph';
 import { RefPicker, TEXTURE_KINDS, useEntryName } from '../catalog/RefPicker';
+import { defaultTrimSheet } from '@thirdlight/project-model/trim-sheet';
+import { TrimSheetTable, type TrimCheck } from './TrimSheetTable';
 import { OpenItemButton } from '../catalog/item-opener';
 
 /** The DataTransfer type a dragged material carries (dropped onto an object in the Scene view). */
@@ -34,6 +36,8 @@ export const MATERIAL_DRAG_TYPE = 'application/x-thirdlight-material';
 
 interface Props {
   onSave: (material: MaterialDef) => void;
+  /** A trim sheet's albedo checked against its row table on the backend (absent: not connected). */
+  onCheckTrim?: TrimCheck;
   onDelete: (materialId: string) => void;
   /** Open a graph material in the editor window. */
   onOpen: (materialId: string) => void;
@@ -74,7 +78,7 @@ function selfAndDescendants(list: readonly MaterialDef[], id: string): Set<strin
  * material's or an instance's values, a graph material's summary with "Open
  * graph"; "New instance" makes an instance of it and shows that.
  */
-export function MaterialItemInspector(p: { materialId: string; materials: readonly MaterialDef[]; onSave: Props['onSave']; onDelete: Props['onDelete']; onOpen: Props['onOpen']; onShow: (materialId: string) => void }): JSX.Element {
+export function MaterialItemInspector(p: { materialId: string; materials: readonly MaterialDef[]; onSave: Props['onSave']; onDelete: Props['onDelete']; onOpen: Props['onOpen']; onShow: (materialId: string) => void; onCheckTrim?: TrimCheck }): JSX.Element {
   const selected = p.materials.find((m) => m.materialId === p.materialId) ?? null;
   if (selected === null) return <p className="tl-inspector__hint">Reading the material…</p>;
   const resolved = resolvedMaterials(p.materials);
@@ -101,7 +105,7 @@ export function MaterialItemInspector(p: { materialId: string; materials: readon
           </button>
         </div>
       ) : (
-        <MaterialInspector key={selected.materialId} material={selected} onSave={p.onSave} onDelete={p.onDelete} onOpen={p.onOpen} />
+        <MaterialInspector key={selected.materialId} material={selected} onSave={p.onSave} onDelete={p.onDelete} onOpen={p.onOpen} {...(p.onCheckTrim !== undefined ? { onCheckTrim: p.onCheckTrim } : {})} />
       )}
       <button className="tl-btn tl-btn--small" onClick={createInstance} title="A material instance of this material: its look, with the values you change in it">
         + new instance
@@ -110,7 +114,7 @@ export function MaterialItemInspector(p: { materialId: string; materials: readon
   );
 }
 
-function MaterialInspector(props: { material: MaterialDef; onSave: Props['onSave']; onDelete: Props['onDelete']; onOpen: Props['onOpen'] }): JSX.Element {
+function MaterialInspector(props: { material: MaterialDef; onSave: Props['onSave']; onDelete: Props['onDelete']; onOpen: Props['onOpen']; onCheckTrim?: TrimCheck }): JSX.Element {
   const m = props.material;
   const schema = MATERIAL_PARAMS[m.shader];
   const slots = MATERIAL_TEXTURE_SLOTS[m.shader];
@@ -153,7 +157,9 @@ function MaterialInspector(props: { material: MaterialDef; onSave: Props['onSave
             const shader = e.target.value as MaterialShader;
             const params = Object.fromEntries(Object.entries(m.params).filter(([k]) => MATERIAL_PARAMS[shader][k] !== undefined));
             const textures = Object.fromEntries(Object.entries(m.textures).filter(([k]) => MATERIAL_TEXTURE_SLOTS[shader].includes(k)));
-            save({ shader, params, textures });
+            // A trim material has a row table (the starter layout to begin with); no other shader has one.
+            const { trim, ...rest } = m;
+            props.onSave({ ...rest, shader, params, textures, ...(shader === 'trim' ? { trim: trim ?? defaultTrimSheet() } : {}) });
           }}
         >
           {MATERIAL_SHADERS.map((s) => (
@@ -187,6 +193,7 @@ function MaterialInspector(props: { material: MaterialDef; onSave: Props['onSave
           <RefPicker aria={`texture ${slot}`} kinds={TEXTURE_KINDS} value={m.textures[slot] ?? ''} none="— none —" onPick={(id) => setTexture(slot, id === '' ? null : id)} />
         </label>
       ))}
+      {m.shader === 'trim' && <TrimSheetTable material={m} onSave={props.onSave} {...(props.onCheckTrim !== undefined ? { onCheck: props.onCheckTrim } : {})} />}
       <button
         className="tl-btn tl-btn--small"
         disabled={!CONVERTIBLE_SHADERS.includes(m.shader)}

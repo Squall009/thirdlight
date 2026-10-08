@@ -13,6 +13,7 @@
  *   the shader rendering).
  */
 import type { GraphContext, GraphData, GraphDocument, GraphEdge, GraphKindDef, GraphNode, MaterialDef, MaterialParameter } from '@thirdlight/project-model';
+import { WET_ALBEDO_SCALE, WET_ROUGHNESS } from '@thirdlight/project-model/limits';
 
 /** The port type a parameter feeds into a graph (a colour is a vec3) — project-model `materialParameterPortType`. */
 export function parameterPortType(type: string): string | null {
@@ -534,12 +535,12 @@ export function layeredMaterial(materialId: string, name: string): MaterialDef {
   b.wire(mix('ormMix', orms), orm, 'in');
   const darken = b.add('wetDarken', 'lerp');
   b.wire(b.float('dry', 1), darken, 'a');
-  b.wire(b.float('wetAlbedo', 0.55), darken, 'b');
+  b.wire(b.float('wetAlbedo', WET_ALBEDO_SCALE), darken, 'b');
   b.wire(wet, darken, 't');
   b.wire(b.op('multiply', 'wetColour', albedo, [darken, 'out']), out, 'baseColor');
   const gloss = b.add('wetGloss', 'lerp');
   b.wire([orm, 'y'], gloss, 'a');
-  b.wire(b.float('wetRoughness', 0.1), gloss, 'b');
+  b.wire(b.float('wetRoughness', WET_ROUGHNESS), gloss, 'b');
   b.wire(wet, gloss, 't');
   b.wire([gloss, 'out'], out, 'roughness');
   b.wire([orm, 'z'], out, 'metalness');

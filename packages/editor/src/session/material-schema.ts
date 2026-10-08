@@ -7,7 +7,7 @@
  */
 import type { MaterialParamType, MaterialShader, WindConfig } from '@thirdlight/project-model';
 
-export const MATERIAL_SHADERS: readonly MaterialShader[] = ['standard', 'foliage', 'kit', 'unlit', 'water'];
+export const MATERIAL_SHADERS: readonly MaterialShader[] = ['standard', 'foliage', 'kit', 'unlit', 'water', 'trim'];
 
 const num = (min: number, max: number, d: number): MaterialParamType => ({ kind: 'number', min, max, default: d });
 const color = (d: string): MaterialParamType => ({ kind: 'color', default: d });
@@ -75,6 +75,23 @@ export const MATERIAL_PARAMS: Readonly<Record<MaterialShader, Readonly<Record<st
     fresnel: num(0, 10, 3),
     doubleSided: bool(false),
   },
+  // A trim sheet: three reads, the footprint capped at the sheet's safe mip level; COLOR_0 R occlusion, G grime, B wetness.
+  trim: {
+    color: color('#ffffff'),
+    roughness: num(0, 1, 1),
+    metalness: num(0, 1, 1),
+    normalScale: num(0, 4, 1),
+    aoIntensity: num(0, 2, 1),
+    occlusion: num(0, 1, 1),
+    grimeColor: color('#3b3328'),
+    grime: num(0, 2, 1),
+    wetness: num(0, 1, 0),
+    wetFlatten: num(0, 1, 0.7),
+    alphaMode: { kind: 'enum', values: ['opaque', 'cutout'], default: 'opaque' },
+    alphaCutoff: num(0, 1, 0.5),
+    doubleSided: bool(false),
+    localLights: { kind: 'enum', values: ['object', 'pixel', 'vertex', 'none'], default: 'object' },
+  },
 };
 
 /** The texture slots of every shader type (values: texture asset ids). */
@@ -84,6 +101,7 @@ export const MATERIAL_TEXTURE_SLOTS: Readonly<Record<MaterialShader, readonly st
   kit: ['map', 'normalMap', 'ormMap', 'emissiveMap', 'macroNormalMap'],
   unlit: ['map'],
   water: ['normalMap'],
+  trim: ['map', 'normalMap', 'ormMap'],
 };
 
 

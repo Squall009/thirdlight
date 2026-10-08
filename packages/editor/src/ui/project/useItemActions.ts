@@ -14,6 +14,7 @@
 import { useCallback, useMemo, useState, type Dispatch } from 'react';
 import type { AnimatorController, MaterialDef } from '@thirdlight/project-model';
 import { DIALOGUE_LIMITS, NAME_MAX, RESOURCE_KIND_TABLE, SCRIPT_LIBRARY_LIMITS, TIMELINE_LIMITS, UI_LIMITS } from '@thirdlight/project-model/limits';
+import { defaultTrimSheet } from '@thirdlight/project-model/trim-sheet';
 
 import { docKey, type WorkspaceAction } from '../../session/editor-window';
 import { newEffect } from '../../session/effect-edit';
@@ -118,6 +119,7 @@ export function useItemActions(deps: ItemActionsDeps): ItemActions {
     const graphKindIds = Object.keys(graphKinds).filter((k) => graphKinds[k]!.owner === undefined);
     return [
       { key: 'material', label: 'Material', defaultName: 'New material' },
+      { key: 'trim-material', label: 'Trim sheet material', defaultName: 'New trim sheet' },
       ...GRAPH_MATERIAL_TEMPLATES.map((t) => ({ key: `graph-material:${t.value}`, label: t.label, defaultName: t.value === '' ? 'New graph material' : `New ${t.label.toLowerCase()} material`, group: 'Graph material' })),
       { key: 'animator', label: 'Animator controller', defaultName: 'New animator' },
       { key: 'animator-locomotion', label: 'Animator controller: character locomotion', defaultName: 'Character locomotion' },
@@ -136,7 +138,7 @@ export function useItemActions(deps: ItemActionsDeps): ItemActions {
       const c = clientRef.current;
       if (c === null) return 'not connected';
       const [head, arg = ''] = key.includes(':') ? [key.slice(0, key.indexOf(':')), key.slice(key.indexOf(':') + 1)] : [key, ''];
-      const kind = head === 'graph-material' ? 'material' : head === 'animator-locomotion' ? 'animator' : head;
+      const kind = head === 'graph-material' || head === 'trim-material' ? 'material' : head === 'animator-locomotion' ? 'animator' : head;
       const name = rawName.trim().slice(0, nameMaxOf(kind));
       if (name === '') return 'give it a name';
       const id = await freeItemId(name, kind, (ids) => c.catalog.taken(ids, [kind]));
@@ -145,6 +147,10 @@ export function useItemActions(deps: ItemActionsDeps): ItemActions {
       switch (head) {
         case 'material':
           err = await run('setMaterial', { material: { materialId: id, name, shader: 'standard', params: {}, textures: {} } satisfies MaterialDef });
+          break;
+        case 'trim-material':
+          // One sheet in the engine's starter layout (equal rows); its textures and rows are set in the Inspector.
+          err = await run('setMaterial', { material: { materialId: id, name, shader: 'trim', params: {}, textures: {}, trim: defaultTrimSheet() } satisfies MaterialDef });
           break;
         case 'graph-material':
           err = await run('setMaterial', { material: arg === '' ? ({ materialId: id, name, shader: 'standard', params: {}, textures: {}, graph: newMaterialGraph() } satisfies MaterialDef) : templateMaterial(arg, id, name) });

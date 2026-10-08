@@ -2067,6 +2067,70 @@ overrides; functions are `setGraph` with kind `material-function`. The
 catalogues are in `tl_content_query target="game" includeDescriptors`
 (`graphKinds.material`, `graphKinds["material-function"]`).
 
+### Trim sheets (30.20)
+
+A **trim sheet** is one 2D texture set — albedo, normal and ORM, three reads
+a pixel — whose rows are strips that tile along u (floors, wall bands,
+baseboards, crowns, frames, columns, bevels). Generated architecture draws
+every row as its own strip of geometry, so one sheet restyles a whole level
+for a fraction of a texture array's memory, and rows may differ in height.
+Create → **Trim sheet material** makes one (shader type `trim`) in the
+engine's starter layout; its Inspector has the usual values and textures and
+the **Trim sheet** table:
+
+- the sheet's size (pixels), texel density (pixels per metre along a strip)
+  and **padding** (pixels above and below every row that repeat its edge —
+  the Texture Designer's gutter, 8 px by default);
+- one line per row: its **slot** (`floor`, `lower_wall`, `upper_wall`,
+  `baseboard`, `crown`, `frame`, `column`, `bevel`, `emissive` in the starter
+  layout; any id), its pixel bounds **top**/**bottom** from the image's top
+  (rows equal by default, any heights allowed, never overlapping), its own
+  density (empty: the sheet's) and **tiles v** (its padding continues its
+  wrap); the row's height in metres and the deepest mip level it reads
+  cleanly are shown;
+- **Equal rows** splits the sheet again (bands aligned to the padding's
+  power of two), **Import layout.json** reads a Texture Designer trim
+  export's table (strip layers become rows; decal cells are left out and
+  named), **Check padding** compares the albedo's padding pixels with each
+  row's edge on the backend (a PNG as imported, a KTX2's lossless original,
+  else the KTX2 transcoded with a looser tolerance) and says which row and
+  side differ. A table the model refuses is not saved; warnings (no or thin
+  padding, a shallow safe mip level, a size that is not a power of two,
+  missing starter slots) are listed under it.
+
+Any sheet with the slots a generator asks for swaps in for another.
+Bleeding is handled three ways: the padding, a half-texel inset of v at the
+row's edges (the generator's coordinates), and the material, which caps
+each read's footprint at the sheet's safe mip level (distant trims alias a
+little rather than read their neighbours; more padding raises the cap) and
+interpolates the coordinates at the centroid (a far strip covering part of a
+multisampled pixel never reads past its row). Textures are sampled without
+anisotropy.
+
+The mesh's COLOR_0 is data: **R occlusion** (0 open), **G grime**, **B
+wetness** (a mesh without it is clean and dry). The material blends them
+with no texture read of its own: grime takes the **grimeColor** and roughens
+(crevices of the ORM's occlusion first; **grime** scales it), wetness — the
+vertex's or the material's **wetness**, the larger, plus the scene's —
+darkens the albedo ×0.55, smooths toward roughness 0.1 and flattens the
+normal map (**wetFlatten**), occlusion darkens the indirect light
+(**occlusion** strength). **roughness**/**metalness** scale the ORM's (1:
+the sheet's own). No lightmaps: probes and the generator's vertex occlusion
+light it. Generated meshes on a block layer take the layer's wall paint
+(30.6) at their vertices each time they are made (grime from the third
+paint layer by default, the painted wetness), so paint survives
+regeneration.
+
+Cost (`node tools/perf/run.mjs trim`, one mesh of strips filling ~85 % of a
+1920 × 1080 view on the Iris Xe): WebGPU scene pass 2.76 ms against 2.51 ms
+for the standard material with the same three textures (+0.25 ms, +10 %);
+WebGL 2 4.33 against 4.18 ms per frame (no pass timings there).
+
+MCP: `setMaterial {material: {shader: "trim", textures: {map, normalMap,
+ormMap}, trim: {size, texelDensity, padding, rows: [{slot, top, bottom,
+texelDensity?, tileV?}]}}}`; `POST …/content/textures/trim-check {texture,
+trim}` is the padding check.
+
 ## Visual scripts
 
 A behavior can be written as a node graph instead of TypeScript (phase

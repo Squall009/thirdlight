@@ -67,6 +67,8 @@ import type { BehaviorCompiler } from '@thirdlight/behavior-build';
 import { importKeyOfConverted, type CommandError, type IntegrityPage, type MutationSuccess, type StageInspector, type WorkspaceService } from '@thirdlight/workspace';
 import { isFbx, type FbxConverter } from './fbx';
 import { KTX2_ENCODER, KTX2_MODES, type Ktx2Mode, type PackLayer, type PackSource, type TextureEncoder } from './texture-encode';
+import { checkTrimSheetTexture } from './trim-check';
+import { trimSheetErrors, type TrimSheet } from '@thirdlight/project-model/trim-sheet';
 import type { SlotLayer, TextureSlotAssembler } from './texture-slots';
 import { losslessOriginal, textureVersionsOf } from './texture-originals';
 import type { AssetFileCheck } from './asset-files';
@@ -630,6 +632,12 @@ export class ContentRoutes {
     if (n === 7 && parts[5] === 'textures' && parts[6] === 'slots') {
       if (method !== 'POST') return this.methodNotAllowed(res, 'POST');
       await this.slotArray(req, res, projectId);
+      return true;
+    }
+    // POST /api/v1/projects/:projectId/content/textures/trim-check (a trim sheet's image against its row table)
+    if (n === 7 && parts[5] === 'textures' && parts[6] === 'trim-check') {
+      if (method !== 'POST') return this.methodNotAllowed(res, 'POST');
+      await this.trimCheck(req, res, projectId);
       return true;
     }
     // POST /api/v1/projects/:projectId/content/job-exports/inspect (an asset tool's job export: a GLB + manifest.json)
@@ -1496,6 +1504,20 @@ export class ContentRoutes {
     res.setHeader('x-thirdlight-digest', made.file.digest);
     res.statusCode = 200;
     res.end(Buffer.concat(parts));
+  }
+
+  private async trimCheck(req: IncomingMessage, res: ServerResponse, projectId: string): Promise<void> {
+    const auth = this.deps.requireAuth(req, projectId, false);
+    if (auth !== null) return this.deps.sendError(res, auth);
+    const body = await this.readJsonBody(req, res);
+    if (body === null) return;
+    const b = body as { texture?: unknown; trim?: unknown };
+    if (typeof b.texture !== 'string' || !ID_RE.test(b.texture)) return this.deps.sendError(res, sessionError('field_value', 'validation', 'texture names a texture asset id', { path: '/texture' }));
+    const bad = trimSheetErrors(b.trim)[0];
+    if (bad !== undefined) return this.deps.sendError(res, sessionError('field_value', 'validation', `trim${bad.path}: ${bad.message}`.slice(0, 256), { path: `/trim${bad.path}` }));
+    const r = await checkTrimSheetTexture({ service: this.deps.service, encoder: this.deps.textureEncoder }, projectId, b.texture, b.trim as TrimSheet);
+    if (!r.ok) return this.deps.sendError(res, sessionError(r.code, r.code === 'converter_unavailable' ? 'unavailable' : 'validation', r.message.slice(0, 256), { path: '/texture' }));
+    this.deps.sendJson(res, 200, r);
   }
 
   // ---- bounded content queries ----------------------------------------------

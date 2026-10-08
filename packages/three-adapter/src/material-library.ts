@@ -14,6 +14,9 @@
  *   instance, so the detail atlas flows across joins); a macro normal on UV1 is
  *   blended over the detail normal (whiteout). AO stays on its own UV set.
  * - water: a scrolling normal map and a fresnel mix of two colours.
+ * - trim: a trim sheet's three maps, each read once with the footprint capped
+ *   at the sheet's safe mip level; COLOR_0 as occlusion, grime and wetness
+ *   (`trim-material.ts`).
  * - unlit: MeshBasicMaterial.
  *
  * Wind and time are one shared uniform block updated by `tick()`.
@@ -41,7 +44,7 @@
  * Pure three.js: textures come from an injected loader (the host resolves
  * bytes; nothing here fetches).
  */
-import { MAX_MATERIAL_INSTANCE_DEPTH, localLightModeOf } from '@thirdlight/runtime';
+import { MAX_MATERIAL_INSTANCE_DEPTH, localLightModeOf, type TrimSheet } from '@thirdlight/runtime';
 import * as THREE from 'three';
 import * as TSL from 'three/tsl';
 import { MeshBasicNodeMaterial, type MeshStandardNodeMaterial, type NodeBuilder } from 'three/webgpu';
@@ -66,6 +69,7 @@ import {
   type SamplerLike,
 } from './material-graph';
 import { derivesTangentFrame, instanceOrigin, standardNodeMaterialFrom } from './node-materials';
+import { installTrimNodes, type TrimTextures } from './trim-material';
 import { decodeKtx2, isKtx2 } from './ktx2';
 import { textureHolds, type TextureHolds } from './texture-holds';
 import { SAMPLED_TEXTURES_KEY } from './texture-streaming';
@@ -75,7 +79,7 @@ import { LOCAL_LIGHTS_KEY } from './local-lights';
 import { KEEP_MATERIAL_KEY } from './material-keys';
 import type { ResourceManager } from '@thirdlight/runtime';
 
-export type MaterialShaderName = 'standard' | 'foliage' | 'kit' | 'unlit' | 'water';
+export type MaterialShaderName = 'standard' | 'foliage' | 'kit' | 'unlit' | 'water' | 'trim';
 
 /** The adapter's structural copy of a project material (project-model `MaterialDef`). */
 export interface MaterialDefLike {
@@ -92,6 +96,8 @@ export interface MaterialDefLike {
   readonly instanceOf?: string;
   /** An instance's values for its root graph material's parameters. */
   readonly values?: Readonly<Record<string, number | readonly number[] | string>>;
+  /** A trim material's row table (an instance draws with its root's). */
+  readonly trim?: TrimSheet;
 }
 
 /** The longest instance chain (the model's). */
@@ -147,6 +153,7 @@ export function resolveMaterialInstancesLike(list: readonly MaterialDefLike[]): 
       textures,
       ...(root.parameters !== undefined ? { parameters: root.parameters.map((p) => (values[p.key] !== undefined ? { ...p, default: values[p.key]! } : p)) } : {}),
       ...(root.graph !== undefined ? { graph: root.graph } : {}),
+      ...(root.trim !== undefined ? { trim: root.trim } : {}),
     });
   }
   return out;
@@ -422,6 +429,7 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
     m.normalScale.set(scale, (derived ? -1 : 1) * scale);
     if (p['doubleSided'] !== undefined || def.shader === 'foliage') m.side = p['doubleSided'] === false ? THREE.FrontSide : p['doubleSided'] === true || def.shader === 'foliage' ? THREE.DoubleSide : m.side;
     applyAlpha(m, p);
+    if (def.shader === 'trim') return buildTrim(m, def);
     // The file's textures take the material's tiling too (clones: the file's stay as they are).
     if (p['tiling'] !== undefined || p['offset'] !== undefined) {
       for (const slot of ['map', 'normalMap', 'roughnessMap', 'metalnessMap', 'emissiveMap'] as const) {
@@ -449,6 +457,24 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
     else if (def.shader === 'water') installWaterNodes(m, p);
     return m;
   };
+
+  /** A trim material: its three textures read by explicit nodes (`trim-material.ts`), rebuilt as each arrives. */
+  function buildTrim(m: THREE.MeshStandardMaterial, def: MaterialDefLike): THREE.Material {
+    const textures: TrimTextures = { map: null, normalMap: null, ormMap: null };
+    const refresh = installTrimNodes(m, { params: def.params, trim: def.trim, vertexData, sceneWetness: nodeGlobals.wetness }, textures);
+    for (const slot of ['map', 'normalMap', 'ormMap'] as const) {
+      const id = def.textures[slot];
+      if (id === undefined) continue;
+      void texture(id, m).then((t) => {
+        if (t === null || disposed || retired.has(m)) return;
+        textures[slot] = prepared(m, t, slot === 'map', def, 0);
+        refresh();
+        m.needsUpdate = true;
+        options.onChange?.();
+      });
+    }
+    return m;
+  }
 
   function applyAlpha(m: THREE.Material, p: MaterialDefLike['params']): void {
     const mode = p['alphaMode'];

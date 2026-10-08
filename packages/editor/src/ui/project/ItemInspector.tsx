@@ -19,6 +19,7 @@ import { AssetInspector, type AssetInspectorProps } from '../assets/AssetInspect
 import { useCatalog } from '../catalog/catalog-context';
 import { LoadableFields } from '../LoadableFields';
 import { MaterialItemInspector } from '../material/MaterialInspector';
+import type { TrimCheck } from '../material/TrimSheetTable';
 import { PrefabInspector, type PrefabInspectorProps } from '../PrefabInspector';
 import type { LoadingNameActions } from '../useLoadingNames';
 import type { ItemActions } from './useItemActions';
@@ -34,7 +35,7 @@ export interface ItemInspectorProps {
   openDocument: (kind: string, id: string) => void;
   loading?: LoadingNameActions;
   asset: Omit<AssetInspectorProps, 'assetId' | 'loading' | 'onDelete' | 'deleteError'>;
-  materials: { list: readonly MaterialDef[]; save: (material: MaterialDef, base: MaterialDef | null) => void; error: string | null };
+  materials: { list: readonly MaterialDef[]; save: (material: MaterialDef, base: MaterialDef | null) => void; error: string | null; checkTrim?: TrimCheck };
   prefab: Omit<PrefabInspectorProps, 'prefabId' | 'definition' | 'onDelete' | 'deleteError'> & { definitions: readonly PrefabSummaryView[] };
 }
 
@@ -141,6 +142,7 @@ function ResourceInspector(p: ItemInspectorProps & { deleteError: string | null 
           onDelete={() => void actions.remove(item)}
           onOpen={(id) => p.openDocument('material', id)}
           onShow={(id) => p.inspect({ kind: 'material', id })}
+          {...(p.materials.checkTrim !== undefined ? { onCheckTrim: p.materials.checkTrim } : {})}
         />
       )}
       {e.kind === 'material' && p.materials.error !== null && (

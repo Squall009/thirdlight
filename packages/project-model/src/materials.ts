@@ -24,8 +24,9 @@ import { TERRAIN_LAYER_MAX } from './terrain-tile';
 import { LOD_BIAS_MAX, LOD_BIAS_MIN } from './model-lod';
 import { MSAA_SAMPLE_COUNTS, PIXEL_RATIO_CAP_MAX, PIXEL_RATIO_CAP_MIN, QUALITY_LEVEL_ID_RE, QUALITY_POST_EFFECTS, qualityLevelsOf, SHADOW_MAP_SIZES, type QualityLevelConfig } from './quality-levels';
 import { AMBIENT_OCCLUSION_KINDS, RENDER_SCALE_MAX, RENDER_SCALE_MIN } from './render-settings';
+import { canonicalTrimSheet, trimSheetErrors, type TrimSheet } from './trim-sheet';
 
-export const MATERIAL_SHADERS = ['standard', 'foliage', 'kit', 'unlit', 'water'] as const;
+export const MATERIAL_SHADERS = ['standard', 'foliage', 'kit', 'unlit', 'water', 'trim'] as const;
 export type MaterialShader = (typeof MATERIAL_SHADERS)[number];
 
 export type MaterialParamType =
@@ -105,6 +106,29 @@ export const MATERIAL_PARAMS: Readonly<Record<MaterialShader, Readonly<Record<st
     fresnel: num(0, 10, 3),
     doubleSided: bool(false),
   },
+  // A trim sheet (`trim-sheet.ts`): its three maps read once each, the footprint capped at the sheet's safe mip
+  // level; COLOR_0 is data — R occlusion, G grime, B wetness — blended with no read of its own. Roughness and
+  // metalness scale the ORM's (1: the sheet's own).
+  trim: {
+    color: color('#ffffff'),
+    roughness: num(0, 1, 1),
+    metalness: num(0, 1, 1),
+    normalScale: num(0, 4, 1),
+    aoIntensity: num(0, 2, 1),
+    // How much of the vertex occlusion (R) darkens the indirect light.
+    occlusion: num(0, 1, 1),
+    grimeColor: color('#3b3328'),
+    // Scales the vertex grime (G); crevices (the ORM's occlusion) take it first.
+    grime: num(0, 2, 1),
+    // Rain on this material, over the vertex wetness (B); the scene's wetness adds to both.
+    wetness: num(0, 1, 0),
+    // How much wetness flattens the normal map.
+    wetFlatten: num(0, 1, 0.7),
+    alphaMode: { kind: 'enum', values: ['opaque', 'cutout'], default: 'opaque' },
+    alphaCutoff: num(0, 1, 0.5),
+    doubleSided: bool(false),
+    localLights: { kind: 'enum', values: MATERIAL_LOCAL_LIGHT_MODES, default: 'object' },
+  },
 };
 
 /** The texture slots of every shader type (values: texture asset ids). */
@@ -114,7 +138,15 @@ export const MATERIAL_TEXTURE_SLOTS: Readonly<Record<MaterialShader, readonly st
   kit: ['map', 'normalMap', 'ormMap', 'emissiveMap', 'macroNormalMap'],
   unlit: ['map'],
   water: ['normalMap'],
+  trim: ['map', 'normalMap', 'ormMap'],
 };
+
+/**
+ * The wet look (the layered template and the trim material): the albedo darkens by this factor and the
+ * roughness goes toward this value as wetness reaches 1.
+ */
+export const WET_ALBEDO_SCALE = 0.55;
+export const WET_ROUGHNESS = 0.1;
 
 export interface MaterialDef {
   materialId: string;
@@ -148,6 +180,11 @@ export interface MaterialDef {
   instanceOf?: string;
   /** Instances of graph materials: parameter key → value (see `MaterialParameter.default`). */
   values?: Record<string, MaterialValue>;
+  /**
+   * A trim material's row table (`shader: 'trim'`, required there and only there; `trim-sheet.ts`). An
+   * instance uses its root's table: a sheet laid out differently is a material of its own.
+   */
+  trim?: TrimSheet;
 }
 
 /** An exposed parameter of a graph material. */
@@ -371,12 +408,12 @@ export function validateMaterials(value: unknown, path: string, errors: ModelErr
       return;
     }
     for (const k of Object.keys(m)) {
-      if (!['materialId', 'name', 'shader', 'params', 'textures', 'parameters', 'graph', 'instanceOf', 'values'].includes(k)) err(errors, 'field_unexpected', `${p}/${k}`, `unknown material field "${k}"`, k, 'materialId, name, shader, params, textures, parameters, graph, instanceOf, values');
+      if (!['materialId', 'name', 'shader', 'params', 'textures', 'parameters', 'graph', 'instanceOf', 'values', 'trim'].includes(k)) err(errors, 'field_unexpected', `${p}/${k}`, `unknown material field "${k}"`, k, 'materialId, name, shader, params, textures, parameters, graph, instanceOf, values, trim');
     }
     // A material instance (its parent is checked with the whole list, `validateMaterialInstances`).
     if (m['instanceOf'] !== undefined) {
       if (typeof m['instanceOf'] !== 'string' || !ID_RE.test(m['instanceOf'])) err(errors, 'id_invalid', `${p}/instanceOf`, 'instanceOf names the parent materialId', m['instanceOf']);
-      for (const k of ['graph', 'parameters'] as const) if (m[k] !== undefined) err(errors, 'field_unexpected', `${p}/${k}`, `a material instance has no ${k} of its own (it uses its parent's)`, k, 'instanceOf, values');
+      for (const k of ['graph', 'parameters', 'trim'] as const) if (m[k] !== undefined) err(errors, 'field_unexpected', `${p}/${k}`, `a material instance has no ${k} of its own (it uses its parent's)`, k, 'instanceOf, values');
     }
     // Shape here; "values only on an instance" with the whole list (validateMaterialInstances).
     if (m['values'] !== undefined) validateMaterialInstanceValues(m['values'], `${p}/values`, errors);
@@ -389,6 +426,15 @@ export function validateMaterials(value: unknown, path: string, errors: ModelErr
     if (typeof shader !== 'string' || !(MATERIAL_SHADERS as readonly string[]).includes(shader)) {
       err(errors, 'field_value', `${p}/shader`, `shader must be one of ${MATERIAL_SHADERS.join(', ')}`, shader);
       return;
+    }
+    // A trim material's row table: required on a trim root, refused elsewhere.
+    if (m['trim'] !== undefined && shader !== 'trim') err(errors, 'field_unexpected', `${p}/trim`, 'only a trim material has a row table (trim)', 'trim', 'shader "trim"');
+    else if (shader === 'trim' && m['instanceOf'] === undefined && m['trim'] === undefined) err(errors, 'field_missing', `${p}/trim`, 'a trim material has a row table (trim: {size, texelDensity, padding, rows})', undefined, 'trim');
+    else if (m['trim'] !== undefined) {
+      for (const e of trimSheetErrors(m['trim'])) {
+        if (e.allowed !== undefined) err(errors, 'field_unexpected', `${p}/trim${e.path}`, e.message, e.path.slice(e.path.lastIndexOf('/') + 1), e.allowed.join(', '));
+        else err(errors, 'field_value', `${p}/trim${e.path}`, e.message);
+      }
     }
     const schema = MATERIAL_PARAMS[shader as MaterialShader];
     const params = m['params'];
@@ -542,6 +588,7 @@ function resolveFrom(byId: ReadonlyMap<unknown, MaterialLike>, start: MaterialLi
     textures,
     ...(root.parameters !== undefined ? { parameters: root.parameters.map((p) => (values[p.key] !== undefined ? { ...p, default: values[p.key]! } : p)) } : {}),
     ...(root.graph !== undefined ? { graph: root.graph } : {}),
+    ...(root.trim !== undefined ? { trim: root.trim } : {}),
   };
 }
 
@@ -598,6 +645,7 @@ export function canonicalMaterials(list: readonly MaterialDef[]): MaterialDef[] 
       ...(m.instanceOf !== undefined && m.values !== undefined && Object.keys(m.values).length > 0
         ? { values: Object.fromEntries(Object.keys(m.values).sort().map((k) => { const v = m.values![k]!; return [k, Array.isArray(v) ? ([...v] as MaterialValue) : typeof v === 'string' && COLOR_RE.test(v.toLowerCase()) ? v.toLowerCase() : v]; })) }
         : {}),
+      ...(m.trim !== undefined ? { trim: canonicalTrimSheet(m.trim) } : {}),
     }));
 }
 

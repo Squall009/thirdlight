@@ -9,6 +9,7 @@
     "./png": "./src/png-decode.ts",
     "./limits": "./src/limits.ts",
     "./texture-slots": "./src/texture-slots.ts",
+    "./trim-sheet": "./src/trim-sheet.ts",
     "./meshopt": "./src/meshopt.ts"
   },
   "sideEffects": false

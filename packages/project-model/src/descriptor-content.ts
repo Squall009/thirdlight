@@ -37,6 +37,7 @@ import { BLOCK_LIMITS, BLOCK_UV_MODES } from './block-layers';
 import { BLOCK_CONNECT_WITH_MAX } from './block-connect';
 import { DEFAULT_WIND, HEIGHT_FOG_DEFAULTS, HEIGHT_FOG_LIMITS, SKY_ROTATION_MAX, MATERIAL_PARAMS, MATERIAL_SHADERS, MATERIAL_TEXTURE_SLOTS, MAX_MATERIAL_PARAMETERS, MAX_MATERIAL_SLOTS, type MaterialParamType } from './materials';
 import { MATERIAL_DATA_MAX, MATERIAL_PARAMETER_TYPES } from './material-graph-kinds';
+import { TRIM_DENSITY_MAX, TRIM_DENSITY_MIN, TRIM_PADDING_MAX, TRIM_SHEET_DEFAULTS, TRIM_SHEET_SIZE_MAX, TRIM_STARTER_LAYOUT } from './trim-sheet';
 import { MODE_LIMITS } from './modes';
 import { MAX_LOCAL_LIGHTS } from './local-lights';
 import { LOD_BIAS_MAX, LOD_BIAS_MIN } from './model-lod';
@@ -271,7 +272,7 @@ function paramField(key: string, t: MaterialParamType, shader: string): FieldDes
 const MATERIAL_ITEM = obj('*', 'Material', 'A project material: a shader and overrides.', [
   str('materialId', 'Id', 'The stable material id.', { ...ID, required: true }),
   str('name', 'Name', 'Shown in pickers.', { ...NAME, required: true }),
-  enm('shader', 'Shader', 'Standard, foliage (wind), kit (world-space detail), unlit or water.', MATERIAL_SHADERS, { required: true, default: 'standard' }),
+  enm('shader', 'Shader', 'Standard, foliage (wind), kit (world-space detail), unlit, water or trim (a trim sheet: its row table in trim).', MATERIAL_SHADERS, { required: true, default: 'standard' }),
   obj('params', 'Parameters', 'Shader parameter overrides.', MATERIAL_SHADERS.flatMap((s) => Object.entries(MATERIAL_PARAMS[s]).map(([k, t]) => paramField(k, t, s))), { required: true, default: {} }),
   obj('textures', 'Textures', 'Texture slots.', MATERIAL_SHADERS.flatMap((s) => MATERIAL_TEXTURE_SLOTS[s].map((slot) => asset(slot, slot.replace(/([A-Z])/g, ' $1').replace(/^./, (c) => c.toUpperCase()), `The ${s} shader\'s ${slot} texture.`, ['texture'], { when: when('../shader', s) }))), { required: true, default: {} }),
   // A graph material's exposed parameters and its node graph.
@@ -292,6 +293,19 @@ const MATERIAL_ITEM = obj('*', 'Material', 'A project material: a shader and ove
   // A material instance (its parent's look with some values changed).
   str('instanceOf', 'Instance of', 'A material instance: the parent material (or instance) whose look it takes.', { ...ID }),
   json('values', 'Parameter values', "An instance of a graph material: its values for the parent's parameters (parameter key → value)."),
+  // A trim material's row table (trim-sheet.ts).
+  obj('trim', 'Trim sheet', 'A trim material\'s row table: where each row (a strip that tiles along u) lies on the sheet, in pixels from the image\'s top. Generated architecture asks for rows by slot.', [
+    vec2('size', 'Size', 'The sheet\'s width and height in pixels (its textures\' level 0).', { required: true, labels: ['width', 'height'], min: 1, max: TRIM_SHEET_SIZE_MAX, step: 1, unit: 'px', default: [...TRIM_SHEET_DEFAULTS.size] }),
+    num('texelDensity', 'Texel density', 'Pixels per metre along a strip (each row may set its own).', { required: true, min: TRIM_DENSITY_MIN, max: TRIM_DENSITY_MAX, step: 1, unit: 'px', default: TRIM_SHEET_DEFAULTS.texelDensity }),
+    int('padding', 'Padding', 'Pixels above and below every row that repeat its edge (or continue its wrap), so filtering and mips read only the row.', { required: true, min: 0, max: TRIM_PADDING_MAX, unit: 'px', default: TRIM_SHEET_DEFAULTS.padding }),
+    list('rows', 'Rows', 'The rows, each a slot and its pixel bounds; rows do not overlap.', obj('*', 'Row', 'A row of the sheet.', [
+      str('slot', 'Slot', `The semantic slot it fills (the starter layout: ${TRIM_STARTER_LAYOUT.join(', ')}); unique on the sheet.`, { ...ID, required: true }),
+      int('top', 'Top', 'Its first pixel row (inside the sheet).', { required: true, min: 0, unit: 'px' }),
+      int('bottom', 'Bottom', 'The pixel row below its last (exclusive; inside the sheet, below top).', { required: true, min: 1, unit: 'px' }),
+      num('texelDensity', 'Texel density', 'Its own pixels per metre (absent: the sheet\'s).', { min: TRIM_DENSITY_MIN, max: TRIM_DENSITY_MAX, step: 1, unit: 'px' }),
+      bool('tileV', 'Tiles in v', 'It tiles in v too: its padding continues its wrap.', { default: false, omitDefault: true }),
+    ]), { required: true }),
+  ], { required: true, when: when('shader', 'trim') }),
 ]);
 
 // A visual effect (systems of particles, each a graph of kind "effect").

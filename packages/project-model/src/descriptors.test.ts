@@ -690,7 +690,15 @@ const EFFECT_BASES: J[] = [
 ];
 const MATERIAL_BASES: J[] = [
   ...MATERIAL_SHADERS.map((s) => [
-    { materialId: 'mat-a', name: 'Material', shader: s, params: Object.fromEntries(Object.entries(MATERIAL_PARAMS[s]).map(([k, t]) => [k, clone(t.default)])), textures: Object.fromEntries(MATERIAL_TEXTURE_SLOTS[s].map((slot) => [slot, 'tex-a'])) },
+    {
+      materialId: 'mat-a',
+      name: 'Material',
+      shader: s,
+      params: Object.fromEntries(Object.entries(MATERIAL_PARAMS[s]).map(([k, t]) => [k, clone(t.default)])),
+      textures: Object.fromEntries(MATERIAL_TEXTURE_SLOTS[s].map((slot) => [slot, 'tex-a'])),
+      // A one-pixel row at the top: every size, density and padding in range keeps it valid.
+      ...(s === 'trim' ? { trim: { size: [256, 256], texelDensity: 128, padding: 4, rows: [{ slot: 'floor', top: 0, bottom: 1, texelDensity: 64, tileV: true }] } } : {}),
+    },
   ]),
   // A graph material with an exposed parameter.
   [
@@ -1013,8 +1021,8 @@ describe('descriptor registry', () => {
     // repeat their look and turn, about 3 KB; a block layer's cut-away, about 1.6 KB; kits on block types and layers,
     // about 2 KB; a block layer's walk and corner shading, about 1.7 KB; the terrain and its exclusions, about 1.6 KB; material rules and far ground, about 1 KB; the spline, its terrain
     // settings, mesh and pieces, about 8.7 KB; streaming rings on terrains and block layers, about 2.4 KB; height fog in the look
-    // and in presets, about 2.6 KB)
-    expect(JSON.stringify(DESCRIPTORS).length).toBeLessThan(302_000);
+    // and in presets, about 2.6 KB; the trim material's parameters and row table, about 6 KB)
+    expect(JSON.stringify(DESCRIPTORS).length).toBeLessThan(310_000);
     for (const c of DESCRIPTORS.components) expect(c.value.key).toBe(c.name);
   });
 

@@ -250,7 +250,12 @@ export function InspectorDock(props: InspectorDockProps): JSX.Element {
             ) : undefined,
           listen: { status: cueOwner?.status() ?? { state: 'unsupported' }, diagnostics: cueOwner?.diagnostics() ?? [], onUnlock: props.cue.unlockPreview, onListen: (id) => void props.cue.previewCue(id) },
         }}
-        materials={{ list: materials, save: (m, base) => void props.docCmds.saveMaterial(m, base), error: props.docCmds.materialError }}
+        materials={{
+          list: materials,
+          save: (m, base) => void props.docCmds.saveMaterial(m, base),
+          error: props.docCmds.materialError,
+          checkTrim: async (texture, trim) => props.clientRef.current?.checkTrimSheet(texture, trim) ?? { ok: false, error: { code: 'network', message: 'not connected' } },
+        }}
         prefab={{
           definitions: props.content.prefabSummaries,
           targets: props.prefab.overrideTargets,

@@ -82,7 +82,23 @@ export interface TextureEncoder {
    * a KTX2 source when the layers have to be encoded.
    */
   pack(sources: readonly Uint8Array[], layers: readonly PackLayer[], mode: Ktx2Mode, lossless?: readonly (Uint8Array | null)[]): Promise<Ktx2PackResult>;
+  /** An image's pixels (PNG, JPEG, WebP, or a single-image KTX2 transcoded: its top level) as 8-bit RGBA, at most `maxPixels`. */
+  decode(bytes: Uint8Array, maxPixels: number): Promise<TextureDecodeResult>;
   dispose?(): void;
+}
+
+export type TextureDecodeResult = { ok: true; width: number; height: number; data: Uint8Array; transcoded: boolean } | { ok: false; message: string };
+
+/** Decode in this thread (the worker runs this too). */
+export async function decodeTextureRgba(bytes: Uint8Array, maxPixels: number): Promise<TextureDecodeResult> {
+  const format = sourceFormat(bytes);
+  if (format === null) return { ok: false, message: 'not a PNG, JPEG, WebP or KTX2 image' };
+  try {
+    const img = format === 'ktx2' ? await transcodeKtx2Rgba(bytes, maxPixels) : await decodeImage(bytes, format, maxPixels);
+    return { ok: true, width: img.width, height: img.height, data: img.data, transcoded: format === 'ktx2' };
+  } catch (e) {
+    return { ok: false, message: e instanceof Error ? e.message : String(e) };
+  }
 }
 
 /** Encode one PNG, JPEG or WebP to KTX2 in this thread (the worker runs this too). */
@@ -329,7 +345,7 @@ export const KTX2_WORKER_LIMITS = { maxOldGenerationSizeMb: 512, maxYoungGenerat
 
 /** In this thread (tests; a busy encode holds the event loop). */
 export function createInlineTextureEncoder(): TextureEncoder {
-  return { encode: encodeKtx2, pack: (sources, layers, mode, lossless) => packKtx2(sources, layers, mode, lossless), thumbnail: (bytes) => makeImageThumbnail(bytes) };
+  return { encode: encodeKtx2, pack: (sources, layers, mode, lossless) => packKtx2(sources, layers, mode, lossless), thumbnail: (bytes) => makeImageThumbnail(bytes), decode: decodeTextureRgba };
 }
 
 /**
@@ -352,7 +368,7 @@ export function createWorkerTextureEncoder(workerUrl: URL, options: { idleMs?: n
   let worker: Worker | null = null;
   let idle: ReturnType<typeof setTimeout> | null = null;
   let next = 1;
-  const pending = new Map<number, (r: Ktx2EncodeResult | Ktx2PackResult | { thumbnail: Uint8Array | null }) => void>();
+  const pending = new Map<number, (r: Ktx2EncodeResult | Ktx2PackResult | TextureDecodeResult | { thumbnail: Uint8Array | null }) => void>();
   const failAll = (message: string): void => {
     for (const done of pending.values()) done({ ok: false, code: 'texture_encode_failed', message });
     pending.clear();
@@ -375,7 +391,7 @@ export function createWorkerTextureEncoder(workerUrl: URL, options: { idleMs?: n
     // pixel limit, not by these.
     const w = new Worker(workerUrl, { resourceLimits: KTX2_WORKER_LIMITS });
     w.unref();
-    w.on('message', (m: { id: number; result: Ktx2EncodeResult | Ktx2PackResult | { thumbnail: Uint8Array | null } }) => {
+    w.on('message', (m: { id: number; result: Ktx2EncodeResult | Ktx2PackResult | TextureDecodeResult | { thumbnail: Uint8Array | null } }) => {
       const done = pending.get(m.id);
       pending.delete(m.id);
       done?.(m.result);
@@ -405,7 +421,7 @@ export function createWorkerTextureEncoder(workerUrl: URL, options: { idleMs?: n
       const w = start();
       const id = next++;
       return new Promise((resolve) => {
-        pending.set(id, resolve as (r: Ktx2EncodeResult | Ktx2PackResult | { thumbnail: Uint8Array | null }) => void);
+        pending.set(id, resolve as (r: Ktx2EncodeResult | Ktx2PackResult | TextureDecodeResult | { thumbnail: Uint8Array | null }) => void);
         const copy = bytes.slice();
         w.postMessage({ id, bytes: copy, mode }, [copy.buffer]);
       });
@@ -414,7 +430,7 @@ export function createWorkerTextureEncoder(workerUrl: URL, options: { idleMs?: n
       const w = start();
       const id = next++;
       return new Promise((resolve) => {
-        pending.set(id, resolve as (r: Ktx2EncodeResult | Ktx2PackResult | { thumbnail: Uint8Array | null }) => void);
+        pending.set(id, resolve as (r: Ktx2EncodeResult | Ktx2PackResult | TextureDecodeResult | { thumbnail: Uint8Array | null }) => void);
         const copies = sources.map((b) => b.slice());
         const originals = lossless.map((b) => (b === null ? null : b.slice()));
         const moved = [...copies, ...originals.flatMap((b) => (b === null ? [] : [b]))].map((c) => c.buffer);
@@ -428,6 +444,16 @@ export function createWorkerTextureEncoder(workerUrl: URL, options: { idleMs?: n
         pending.set(id, (r) => resolve('thumbnail' in r ? r.thumbnail : null));
         const copy = bytes.slice();
         w.postMessage({ id, thumbnail: copy }, [copy.buffer]);
+      });
+    },
+    decode(bytes, maxPixels) {
+      const w = start();
+      const id = next++;
+      return new Promise((resolve) => {
+        // A stopped worker answers the encoder's failure shape: its message is the reason.
+        pending.set(id, (r) => resolve('width' in r || ('ok' in r && r.ok === false) ? (r as TextureDecodeResult) : { ok: false, message: 'the decoder answered something else' }));
+        const copy = bytes.slice();
+        w.postMessage({ id, decode: { bytes: copy, maxPixels } }, [copy.buffer]);
       });
     },
     dispose() {

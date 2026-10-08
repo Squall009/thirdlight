@@ -222,9 +222,10 @@ export const NODE_SIDE_ALLOWED = {
     node: ['http', 'fs', 'path', 'crypto', 'child_process', 'worker_threads', 'zlib'],
     typesOnly: { 'project-model': true },
     // The shared PNG decoder (pure; texture sources for KTX2 encoding and
-    // packing) and the model's limits are the project-model values the
-    // backend runs.
-    valueSubpaths: { 'project-model': ['png', 'limits'] },
+    // packing), the model's limits and the trim-sheet rules (a sheet image's
+    // padding checked against its row table) are the project-model values
+    // the backend runs.
+    valueSubpaths: { 'project-model': ['png', 'limits', 'trim-sheet'] },
   },
   // "imports workspace types only"; the
   // project-model/protocol value edges are not injection-only service edges.
@@ -338,8 +339,10 @@ export const NODE_SIDE_ALLOWED = {
     typesOnly: { 'project-model': true, commands: true },
     // The model's limits (plain constants): the editor checks the same bounds
     // before it sends a command. The texture-slot rules (pure functions over
-    // material data): the views draw a material's slots as Play does.
-    valueSubpaths: { 'project-model': ['limits', 'texture-slots'] },
+    // material data): the views draw a material's slots as Play does. The
+    // trim-sheet rules (pure functions over a material's row table): the
+    // trim table editor checks and splits rows as the model does.
+    valueSubpaths: { 'project-model': ['limits', 'texture-slots', 'trim-sheet'] },
   },
 };
 
