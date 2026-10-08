@@ -28,6 +28,11 @@ export interface ArchMeshArrays {
   farIndices: Uint32Array;
 }
 
+/** The levels a triangle goes in ({@link ArchMeshWriter.triangleIn}): near, far, both. */
+export const NEAR = 1;
+export const FAR = 2;
+export const BOTH = 3;
+
 export class ArchMeshWriter {
   vertexCount = 0;
   indexCount = 0;
@@ -94,8 +99,19 @@ export class ArchMeshWriter {
 
   /** A triangle, wound so its face looks along (nx, ny, nz). */
   triangle(a: number, b: number, c: number, nx: number, ny: number, nz: number): void {
-    if (this.indexCount + 3 > this.idx.length) this.idx = grown(this.idx, this.indexCount + 3);
-    if (!this.detail && this.farCount + 3 > this.far.length) this.far = grown(this.far, this.farCount + 3);
+    this.triangleIn(this.detail ? NEAR : BOTH, a, b, c, nx, ny, nz);
+  }
+
+  /**
+   * A triangle in the near level only (NEAR), the far only (FAR: written
+   * when the far level stands in for finer near triangles with fewer, over
+   * the same vertices; nothing when detail), or both.
+   */
+  triangleIn(levels: number, a: number, b: number, c: number, nx: number, ny: number, nz: number): void {
+    if (this.detail) levels &= NEAR;
+    if (levels === 0) return;
+    if ((levels & NEAR) !== 0 && this.indexCount + 3 > this.idx.length) this.idx = grown(this.idx, this.indexCount + 3);
+    if ((levels & FAR) !== 0 && this.farCount + 3 > this.far.length) this.far = grown(this.far, this.farCount + 3);
     const p = this.pos;
     const e1x = p[b * 3]! - p[a * 3]!;
     const e1y = p[b * 3 + 1]! - p[a * 3 + 1]!;
@@ -108,19 +124,21 @@ export class ArchMeshWriter {
     const cz = e1x * e2y - e1y * e2x;
     // Counter-clockwise faces the viewer (three.js and glTF front faces).
     const flip = cx * nx + cy * ny + cz * nz < 0;
-    this.idx[this.indexCount++] = a;
-    this.idx[this.indexCount++] = flip ? c : b;
-    this.idx[this.indexCount++] = flip ? b : c;
-    if (this.detail) return;
+    if ((levels & NEAR) !== 0) {
+      this.idx[this.indexCount++] = a;
+      this.idx[this.indexCount++] = flip ? c : b;
+      this.idx[this.indexCount++] = flip ? b : c;
+    }
+    if ((levels & FAR) === 0) return;
     this.far[this.farCount++] = a;
     this.far[this.farCount++] = flip ? c : b;
     this.far[this.farCount++] = flip ? b : c;
   }
 
   /** A triangle, wound so its face looks along the sum of its vertices' normals. */
-  triangleFacing(a: number, b: number, c: number): void {
+  triangleFacing(a: number, b: number, c: number, levels = BOTH): void {
     const n = this.nrm;
-    this.triangle(a, b, c, n[a * 3]! + n[b * 3]! + n[c * 3]!, n[a * 3 + 1]! + n[b * 3 + 1]! + n[c * 3 + 1]!, n[a * 3 + 2]! + n[b * 3 + 2]! + n[c * 3 + 2]!);
+    this.triangleIn(levels, a, b, c, n[a * 3]! + n[b * 3]! + n[c * 3]!, n[a * 3 + 1]! + n[b * 3 + 1]! + n[c * 3 + 1]!, n[a * 3 + 2]! + n[b * 3 + 2]! + n[c * 3 + 2]!);
   }
 
   /** Copy another writer's triangles in, each vertex turned by the yaw (cos, sin about +Y) and moved by (tx, ty, tz). */
@@ -413,6 +431,15 @@ export interface PlanarFillOptions {
   aoLoops?: readonly ArrayLike<number>[];
 }
 
+/** The vertex written at exactly (x, y) of a band's cells (`seen`: their points in order; `cells`: first vertex, count), or -1. */
+function vertexOf(seen: readonly number[], cells: readonly number[], x: number, y: number): number {
+  let at = 0;
+  for (let q = 0; q < cells.length; q += 2) {
+    for (let k = 0; k < cells[q + 1]!; k++, at++) if (seen[at * 2] === x && seen[at * 2 + 1] === y) return cells[q]! + k;
+  }
+  return -1;
+}
+
 /**
  * Fill a planar polygon (2D xy pairs in the frame's a/b coordinates) into
  * `w`: triangulated, cut into strips one row tall across b (aligned to
@@ -445,14 +472,20 @@ export function fillPlanarPolygon(w: ArchMeshWriter, poly: ArrayLike<number>, f:
       const lo = bi * h;
       const band = clipHalf(clipHalf(tri, 0, 1, lo), 0, -1, -(lo + h));
       if (band.length < 6) continue;
+      // The far level: the band (convex) as one fan over the cells' vertices at its corners (the same places, UVs
+      // and AO: UVs follow the place); the cells' own triangles if a corner is in no cell (a sliver left out).
+      const seen: number[] = [];
+      const cells: number[] = [];
       for (let ai = Math.floor(amin / cell); ai * cell < amax; ai++) {
         const cellPoly = clipHalf(clipHalf(band, 1, 0, ai * cell), -1, 0, -(ai + 1) * cell);
         const m = cellPoly.length / 2;
         if (m < 3 || Math.abs(polygonArea2(cellPoly)) < 1e-10) continue;
         const first = w.vertexCount;
+        cells.push(first, m);
         for (let k = 0; k < m; k++) {
           const x = cellPoly[k * 2]!;
           const y = cellPoly[k * 2 + 1]!;
+          seen.push(x, y);
           let across = (y - lo) / h;
           across = across < 0 ? 0 : across > 1 ? 1 : across;
           let dEdge = opt.aoStrength > 0 ? distanceToEdges(x, y, edges) : 0;
@@ -460,8 +493,20 @@ export function fillPlanarPolygon(w: ArchMeshWriter, poly: ArrayLike<number>, f:
           const occ = opt.aoStrength > 0 ? opt.aoStrength * Math.max(0, 1 - dEdge / opt.aoRadius) : 0;
           w.vertex(f.o[0]! + f.a[0]! * x + f.b[0]! * y, f.o[1]! + f.a[1]! * x + f.b[1]! * y, f.o[2]! + f.a[2]! * x + f.b[2]! * y, nx, ny, nz, x * su, v0 + (v1 - v0) * across, occ);
         }
-        for (let k = 1; k < m - 1; k++) w.triangle(first, first + k, first + k + 1, nx, ny, nz);
+        for (let k = 1; k < m - 1; k++) w.triangleIn(NEAR, first, first + k, first + k + 1, nx, ny, nz);
       }
+      const fan: number[] = [];
+      for (let k = 0; k < band.length / 2; k++) {
+        const v = vertexOf(seen, cells, band[k * 2]!, band[k * 2 + 1]!);
+        if (v < 0) {
+          fan.length = 0;
+          break;
+        }
+        if (fan[fan.length - 1] !== v) fan.push(v);
+      }
+      while (fan.length > 1 && fan[fan.length - 1] === fan[0]) fan.pop();
+      if (fan.length >= 3) for (let k = 1; k < fan.length - 1; k++) w.triangleIn(FAR, fan[0]!, fan[k]!, fan[k + 1]!, nx, ny, nz);
+      else for (let q = 0; q < cells.length; q += 2) for (let k = 1; k < cells[q + 1]! - 1; k++) w.triangleIn(FAR, cells[q]!, cells[q]! + k, cells[q]! + k + 1, nx, ny, nz);
     }
   }
 }

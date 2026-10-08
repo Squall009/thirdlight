@@ -41,6 +41,28 @@ function triangles(chunks: readonly ArchitectureChunk[], level: 0 | 1, material?
   for (const c of chunks) for (const m of c.meshes) if (material === undefined || m.material === material) n += (level === 0 ? m.mesh.indices : m.mesh.farIndices).length / 3;
   return n;
 }
+/** The area a level's triangles cover, in space and in the sheet's UVs (the far level stands in for the near with fewer). */
+function areas(chunks: readonly ArchitectureChunk[], level: 0 | 1): [number, number] {
+  let space = 0;
+  let uv = 0;
+  for (const c of chunks) {
+    for (const m of c.meshes) {
+      const l = m.mesh;
+      const idx = level === 0 ? l.indices : l.farIndices;
+      for (let i = 0; i < idx.length; i += 3) {
+        const [a, b, d] = [idx[i]!, idx[i + 1]!, idx[i + 2]!];
+        const e = (k: number, q: number): number => l.positions[q * 3 + k]! - l.positions[a * 3 + k]!;
+        const cx = e(1, b) * e(2, d) - e(2, b) * e(1, d);
+        const cy = e(2, b) * e(0, d) - e(0, b) * e(2, d);
+        const cz = e(0, b) * e(1, d) - e(1, b) * e(0, d);
+        space += Math.sqrt(cx * cx + cy * cy + cz * cz) / 2;
+        const u = (k: number, q: number): number => l.uvs[q * 2 + k]! - l.uvs[a * 2 + k]!;
+        uv += Math.abs(u(0, b) * u(1, d) - u(1, b) * u(0, d)) / 2;
+      }
+    }
+  }
+  return [space, uv];
+}
 /** All near-level triangles as [a, b, c] point triples with their vertex normals and uvs. */
 function eachTriangle(chunks: readonly ArchitectureChunk[], f: (p: number[][], n: number[][], uv: number[][]) => void): void {
   for (const c of chunks)
@@ -72,10 +94,14 @@ describe('architecture generator', () => {
     const a = generateArchitecture(c, SHEETS);
     const b = generateArchitecture(c, SHEETS);
     expect(digest(a)).toBe(digest(b));
-    // Cut finer, the same triangles are made (each by exactly one chunk).
+    // Cut finer, the same triangles are made (each by exactly one chunk); the far level covers the same, its runs
+    // cut at the chunks' sides.
     const fine = generateArchitecture(testArchitecture(4), SHEETS);
     expect(fine.length).toBeGreaterThan(a.length);
-    for (const level of [0, 1] as const) expect(triangles(fine, level)).toBe(triangles(a, level));
+    expect(triangles(fine, 0)).toBe(triangles(a, 0));
+    expect(triangles(fine, 1)).toBeGreaterThanOrEqual(triangles(a, 1));
+    const [far, farFine] = [areas(a, 1), areas(fine, 1)];
+    for (const k of [0, 1]) expect(Math.abs(farFine[k]! - far[k]!)).toBeLessThan(1e-6 * far[k]!);
     expect(a.every((c) => c.problems.length === 0)).toBe(true);
   });
 
@@ -129,8 +155,11 @@ describe('architecture generator', () => {
       if (Math.abs(n[0]![2]! - 1) < 1e-6 && p.every((q) => q[2]! > 0.05 && q[2]! < 0.15)) for (const q of uv) expect(q[1]! >= v0 - 1e-6 && q[1]! <= v1 + 1e-6).toBe(true);
     });
     expect(corner).toBeGreaterThan(0);
-    // A wall is no detail: its far level is all of its triangles (an index list over the same vertices).
-    expect(triangles(chunks, 1)).toBe(triangles(chunks, 0));
+    // A wall is no detail: its far level covers all of it, in space and in the sheet (an index list over the same
+    // vertices), with a quad per row along each side instead of one per cell.
+    expect(triangles(chunks, 1)).toBeLessThan(triangles(chunks, 0) / 3);
+    const [near, far] = [areas(chunks, 0), areas(chunks, 1)];
+    for (const k of [0, 1]) expect(Math.abs(far[k]! - near[k]!)).toBeLessThan(1e-4 * near[k]!);
   });
 
   it('openings: no wall face inside the hole, reveals and a frame round it', () => {
@@ -191,6 +220,9 @@ describe('architecture generator', () => {
     const floor = generateArchitecture({ elements: [{ id: 'f', kind: 'fill', path: { points: room, closed: true }, shape: 'flat', slot: 'floor' }] }, SHEETS);
     expect(Math.abs(area(floor) - 48)).toBeLessThan(1e-3);
     eachTriangle(floor, (_p, n) => expect(n[0]![1]).toBe(1));
+    // Its far level: each row's band one fan over the same vertices, the same area in space and in the sheet.
+    expect(triangles(floor, 1)).toBeLessThan(triangles(floor, 0) / 3);
+    for (const k of [0, 1]) expect(Math.abs(areas(floor, 1)[k]! - areas(floor, 0)[k]!)).toBeLessThan(1e-4 * areas(floor, 0)[k]!);
     // An L-shaped floor: its area too.
     const ell: [number, number, number][] = [[0, 0, 0], [6, 0, 0], [6, 0, 2], [2, 0, 2], [2, 0, 5], [0, 0, 5]];
     expect(Math.abs(area(generateArchitecture({ elements: [{ id: 'f', kind: 'fill', path: { points: ell, closed: true }, shape: 'flat', slot: 'floor' }] }, SHEETS)) - 18)).toBeLessThan(1e-3);

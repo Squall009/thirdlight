@@ -6,10 +6,10 @@
  */
 import * as THREE from 'three';
 import { afterEach, describe, expect, it } from 'vitest';
-import { architectureChunkInput, architectureChunkKeys, encodeArchitectureChunks, generateArchitectureChunk, type ArchitectureComponent } from '@thirdlight/runtime';
+import { architectureChunkInput, architectureChunkKeys, architectureStylesOf, encodeArchitectureChunks, expandArchitecture, generateArchitectureChunk, type ArchitectureComponent } from '@thirdlight/runtime';
 
 import { answerArchitectureJob, runArchitectureWorker, type ArchitectureJobReply } from './architecture-worker';
-import { ArchitectureView, type ArchitectureViewDeps } from './architecture-view';
+import { ARCHITECTURE_CHUNK_MARK, ArchitectureView, type ArchitectureViewDeps } from './architecture-view';
 import type { MeshWorkerPort } from './block-mesh-pool';
 
 // A neutral test style: two rooms' walls 40 m apart (two chunks each side), a crown moulding (detail) and a floor.
@@ -202,6 +202,57 @@ describe('generated architecture on the page', () => {
   });
 });
 
+describe('a heavy chunk made in parts', () => {
+  /** A block of 4 × 4 rooms 4 m wide sharing walls (one 16 m chunk), the wall x = `wall` between two of them moved. */
+  const block = (wall = 8): ArchitectureComponent => {
+    const outlines: NonNullable<ArchitectureComponent['outlines']> = [];
+    for (let i = 0; i < 4; i++) {
+      for (let j = 0; j < 4; j++) {
+        const x0 = j === 1 && i === 2 ? wall : i * 4;
+        const x1 = j === 1 && i === 1 ? wall : i * 4 + 4;
+        outlines.push({ id: `r${i}${j}`, preset: 'starter-room', path: { points: [[x0, 0, j * 4], [x1, 0, j * 4], [x1, 0, j * 4 + 4], [x0, 0, j * 4 + 4]], closed: true }, openings: [{ id: 'door', at: 2, width: 1, bottom: 0, top: 2.1 }] });
+      }
+    }
+    return { elements: [], chunkSize: 16, outlines };
+  };
+  const partJobs = (): number => performance.getEntriesByName(ARCHITECTURE_CHUNK_MARK).filter((m) => (m as PerformanceMark).detail?.part === true).length;
+
+  it('its parts are jobs on the workers, joined into the bytes of the chunk made whole; a wall drag re-makes only the parts it changed', async () => {
+    const expanded = expandArchitecture(block(), [0, 0, 0], architectureStylesOf([])).component;
+    const keys = [...architectureChunkKeys(expanded, {}).values()];
+    expect(keys.some((k) => (k.parts?.length ?? 0) > 1)).toBe(true);
+    const jobs0 = partJobs();
+    const { view, root } = makeView({ worker: portWorker });
+    view.set('block', block(), [0, 0, 0]);
+    await settle(view);
+    const atLoad = partJobs() - jobs0;
+    expect(atLoad).toBe(keys.reduce((n, k) => n + (k.parts?.length ?? 0), 0));
+    expect(view.diagnostics().made.worker + view.diagnostics().made.page).toBe(keys.length);
+    // The same meshes as the chunks made whole (an export's, drawn as they are).
+    const blob = encodeArchitectureChunks(keys.map((k) => generateArchitectureChunk(architectureChunkInput(expanded, k), {}, k.cx, k.cz)));
+    const whole = makeView({ read: () => Promise.resolve(blob.slice().buffer) });
+    whole.view.set('block', { ...expanded, baked: 'b'.repeat(64) }, [0, 0, 0]);
+    for (let i = 0; i < 500 && whole.view.diagnostics().made.baked === 0; i++) await tick();
+    await settle(whole.view);
+    expect(drawn(root).length).toBeGreaterThan(0);
+    expect(drawn(root)).toEqual(drawn(whole.root));
+    // A shared wall dragged: fewer part jobs than the chunk has parts.
+    const jobs1 = partJobs();
+    view.set('block', block(8.5), [0, 0, 0]);
+    await settle(view);
+    const dragged = partJobs() - jobs1;
+    expect(dragged).toBeGreaterThan(0);
+    expect(dragged).toBeLessThan(atLoad);
+    // Back: every part and chunk from memory.
+    const jobs2 = partJobs();
+    view.set('block', block(), [0, 0, 0]);
+    await settle(view);
+    expect(partJobs()).toBe(jobs2);
+    expect(drawn(root)).toEqual(drawn(whole.root));
+    view.dispose();
+    whole.view.dispose();
+  });
+});
 
 describe('a scene prepared ahead of its load', () => {
   it('makes its chunks into the cache, not drawn; the object that then loads draws them from memory at once', async () => {

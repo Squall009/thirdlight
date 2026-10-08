@@ -16,7 +16,7 @@
  * Pure; writes into an {@link ArchMeshWriter}.
  */
 import { len2, len3 } from './arch-math';
-import { type ArchMeshWriter, fillPlanarPolygon } from './arch-mesh';
+import { type ArchMeshWriter, BOTH, FAR, fillPlanarPolygon, NEAR } from './arch-mesh';
 import type { PathSamples } from './arch-path';
 import type { ArchitectureProfile } from './architecture';
 import type { TrimRow, TrimSheet } from './trim-sheet';
@@ -558,17 +558,44 @@ export function sweepProfile(w: ArchMeshWriter, s: PathSamples, p: SweepProfile,
       cache[k] = i;
       return i;
     };
+    // The far level: a run of whole cells along one path segment (no opening near, all the chunk's) is one quad
+    // per row there, over the run's end vertices (positions and UVs run straight along a segment, so the quad
+    // shows the same texture; only the vertex AO between its ends is lost). Cells an opening reaches keep theirs.
+    let runFrom = -1;
+    const endRun = (to: number): void => {
+      if (runFrom < 0) return;
+      for (let m = 0; m + 1 < nr; m++) {
+        const stack = cellStack[m]!;
+        const a = vertexAt(runFrom, m, stack);
+        const b = vertexAt(to, m, stack);
+        const cc = vertexAt(to, m + 1, stack);
+        const d = vertexAt(runFrom, m + 1, stack);
+        w.triangleFacing(a, b, cc, FAR);
+        w.triangleFacing(a, cc, d, FAR);
+      }
+      runFrom = -1;
+    };
     for (let c = 0; c + 1 < nc; c++) {
       const A = cols[c]!;
       const B = cols[c + 1]!;
+      if (A.seg !== B.seg || B.d - A.d < 1e-9 || (runFrom >= 0 && cols[runFrom]!.seg !== A.seg)) endRun(c);
       if (A.seg !== B.seg || B.d - A.d < 1e-9) continue;
-      if (segOk !== null && !segOk.has(A.seg)) continue;
+      if (segOk !== null && !segOk.has(A.seg)) {
+        endRun(c);
+        continue;
+      }
       const dm = (A.d + B.d) / 2;
       if (o.own !== undefined) {
         const mx = (cp[c * 3]! + cp[c * 3 + 3]!) / 2;
         const mz = (cp[c * 3 + 2]! + cp[c * 3 + 5]!) / 2;
-        if (!o.own(mx, mz)) continue;
+        if (!o.own(mx, mz)) {
+          endRun(c);
+          continue;
+        }
       }
+      const opened = cuts.some((q) => dm > q.a && dm < q.b);
+      if (opened) endRun(c);
+      else if (runFrom < 0) runFrom = c;
       if (cuts.some((q) => q.bottom === undefined && dm > q.a && dm < q.b)) continue;
       for (let m = 0; m + 1 < nr; m++) {
         const ym = (ry[m]! + ry[m + 1]!) / 2;
@@ -580,10 +607,11 @@ export function sweepProfile(w: ArchMeshWriter, s: PathSamples, p: SweepProfile,
         const b = vertexAt(c + 1, m, stack);
         const cc = vertexAt(c + 1, m + 1, stack);
         const d = vertexAt(c, m + 1, stack);
-        w.triangleFacing(a, b, cc);
-        w.triangleFacing(a, cc, d);
+        w.triangleFacing(a, b, cc, opened ? BOTH : NEAR);
+        w.triangleFacing(a, cc, d, opened ? BOTH : NEAR);
       }
     }
+    endRun(nc - 1);
   }
 }
 

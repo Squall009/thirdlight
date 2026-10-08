@@ -36,7 +36,9 @@ import {
   decodeArchitectureChunks,
   expandArchitecture,
   encodeArchitectureChunks,
+  joinArchitectureChunkParts,
   type ArchitectureChunk,
+  type ArchitectureChunkPart,
   type ArchitectureComponent,
   type ArchitectureGraphLike,
   type ArchitecturePaint,
@@ -149,6 +151,8 @@ interface ChunkRec {
   cz: number;
   key: string;
   elements: number[];
+  /** A heavy chunk's parts (absent: made whole): each a job, joined once all are made. */
+  parts?: ArchitectureChunkPart[] | undefined;
   built: BuiltChunk | null;
   builtKey: string | null;
 }
@@ -183,7 +187,7 @@ interface Rec {
 /** Objects of a scene prepared ahead of its load: their chunks being made into the cache, not drawn. */
 interface Prep {
   component: ArchitectureComponent;
-  chunks: Map<string, { cx: number; cz: number; key: string; elements: number[] }>;
+  chunks: Map<string, { cx: number; cz: number; key: string; elements: number[]; parts?: ArchitectureChunkPart[] | undefined }>;
   /** The keys still being made. */
   pending: Set<string>;
   done: () => void;
@@ -195,7 +199,10 @@ const prepId = (id: string): string => `\u0000${id}`;
 interface Job {
   id: string;
   ck: string;
+  /** The chunk's key, or a part's. */
   key: string;
+  /** A part's job: the key of the chunk it is part of. */
+  chunk?: string;
   d: number;
 }
 
@@ -368,11 +375,14 @@ export class ArchitectureView {
         const id = prepId(o.id);
         const prep: Prep = { component: x.component, chunks: new Map(), pending: new Set(), done: () => undefined };
         for (const [ck, k] of architectureChunkKeys(x.component, sheets)) {
-          prep.chunks.set(ck, { cx: k.cx, cz: k.cz, key: k.key, elements: k.elements });
+          prep.chunks.set(ck, { cx: k.cx, cz: k.cz, key: k.key, elements: k.elements, parts: k.parts });
           if (this.cache.has(k.key) || prep.pending.has(k.key)) continue;
+          if (k.parts !== undefined && k.parts.every((p) => this.cache.has(p.key))) {
+            this.remember(k.key, joinArchitectureChunkParts(k.parts.map((p) => this.cache.get(p.key)!.chunk)));
+            continue;
+          }
           prep.pending.add(k.key);
-          this.sheetsOf.set(k.key, sheets);
-          this.enqueue({ id, ck, key: k.key, d: 0 });
+          this.enqueueChunk(id, ck, k, sheets);
         }
         if (prep.pending.size === 0) continue;
         waits.push(new Promise<void>((resolve) => (prep.done = resolve)));
@@ -601,12 +611,14 @@ export class ArchitectureView {
       const have = rec.chunks.get(ck);
       if (have !== undefined && have.key === k.key) {
         have.elements = k.elements;
+        have.parts = k.parts;
         continue;
       }
       changed = true;
       const ch: ChunkRec = have ?? { cx: k.cx, cz: k.cz, key: k.key, elements: k.elements, built: null, builtKey: null };
       ch.key = k.key;
       ch.elements = k.elements;
+      ch.parts = k.parts;
       rec.chunks.set(ck, ch);
       this.want(id, ck, ch, sheets);
     }
@@ -627,11 +639,11 @@ export class ArchitectureView {
       this.ready.push({ id, ck, key: ch.key, chunk: hit.chunk });
       return;
     }
-    const job: Job = { id, ck, key: ch.key, d: 0 };
-    this.sheetsOf.set(ch.key, sheets);
+    // Its parts all made before (an edit elsewhere in a heavy chunk, undone): joined now.
+    if (this.joinParts(id, ck, ch, 'memory')) return;
     // Generated now and looked up in the store at once: the store answers first for chunks far down the queue (a
     // second visit), the generator first for the spawn's (opening IndexedDB takes a while on a cold start).
-    this.enqueue(job);
+    this.enqueueChunk(id, ck, ch, sheets);
     const store = this.deps.store;
     if (store === undefined || store === null || this.looking.has(ch.key)) return;
     this.looking.add(ch.key);
@@ -642,7 +654,7 @@ export class ArchitectureView {
         const chunk = this.decodeOne(bytes);
         const now = this.recs.get(id)?.chunks.get(ck);
         if (chunk === null || now === undefined || now.key !== ch.key || now.builtKey === ch.key || this.cache.has(ch.key)) return;
-        this.queue = this.queue.filter((j) => j.key !== ch.key);
+        this.queue = this.queue.filter((j) => j.key !== ch.key && j.chunk !== ch.key);
         this.remember(ch.key, chunk);
         this.made.store += 1;
         this.ready.push({ id, ck, key: ch.key, chunk });
@@ -663,6 +675,42 @@ export class ArchitectureView {
     }
   }
 
+  /** A chunk's jobs: the chunk whole, or each of its parts not made yet. */
+  private enqueueChunk(id: string, ck: string, k: { key: string; parts?: ArchitectureChunkPart[] | undefined }, sheets: ArchitectureSheets): void {
+    if (k.parts === undefined) {
+      this.sheetsOf.set(k.key, sheets);
+      this.enqueue({ id, ck, key: k.key, d: 0 });
+      return;
+    }
+    for (const p of k.parts) {
+      if (this.cache.has(p.key)) continue;
+      this.sheetsOf.set(p.key, sheets);
+      this.enqueue({ id, ck, key: p.key, chunk: k.key, d: 0 });
+    }
+  }
+
+  /**
+   * A heavy chunk whose parts are all made: joined (the bytes of the chunk
+   * made whole), kept and stored by the chunk's key and drawn (or, prepared,
+   * counted done). False while a part is missing.
+   */
+  private joinParts(id: string, ck: string, ch: { key: string; parts?: ArchitectureChunkPart[] | undefined }, where: 'worker' | 'page' | 'memory'): boolean {
+    if (ch.parts === undefined) return false;
+    const made: ArchitectureChunk[] = [];
+    for (const p of ch.parts) {
+      const hit = this.cache.get(p.key);
+      if (hit === undefined) return false;
+      made.push(hit.chunk);
+    }
+    const chunk = joinArchitectureChunkParts(made);
+    this.made[where] += 1;
+    this.remember(ch.key, chunk);
+    if (where !== 'memory') this.deps.store?.put(ch.key, encodeArchitectureChunks([chunk]));
+    if (this.preparing.has(id)) this.prepared({ id, ck, key: ch.key, d: 0 });
+    else this.ready.push({ id, ck, key: ch.key, chunk });
+    return true;
+  }
+
   private enqueue(job: Job): void {
     if (this.queue.some((j) => j.key === job.key && j.id === job.id && j.ck === job.ck)) return;
     this.queue.push(job);
@@ -674,13 +722,15 @@ export class ArchitectureView {
   private request(job: Job): ArchitectureJobRequest | null {
     const rec = this.recs.get(job.id) ?? this.preparing.get(job.id);
     const ch = rec?.chunks.get(job.ck);
-    if (rec === undefined || ch === undefined || ch.key !== job.key) return null;
+    if (rec === undefined || ch === undefined || ch.key !== (job.chunk ?? job.key)) return null;
     // Made meanwhile for an object that loaded (a prepared chunk whose scene arrived first).
-    if (this.preparing.has(job.id) && this.cache.has(job.key)) {
-      this.prepared(job);
+    if (this.preparing.has(job.id) && this.cache.has(ch.key)) {
+      this.prepared({ ...job, key: ch.key });
       return null;
     }
-    return { t: 'archGenerate', job: this.nextJob++, component: architectureChunkInput(rec.component, ch), sheets: this.sheetsOf.get(job.key) ?? {}, cx: ch.cx, cz: ch.cz };
+    const part = job.chunk !== undefined ? ch.parts?.find((p) => p.key === job.key) : undefined;
+    if (job.chunk !== undefined && part === undefined) return null;
+    return { t: 'archGenerate', job: this.nextJob++, component: architectureChunkInput(rec.component, { cx: ch.cx, cz: ch.cz, elements: part?.elements ?? ch.elements }), sheets: this.sheetsOf.get(job.key) ?? {}, cx: ch.cx, cz: ch.cz };
   }
 
   /** A prepared object's chunk is in the cache (or failed): its preparation is done once all are. */
@@ -771,7 +821,7 @@ export class ArchitectureView {
     for (const w of this.workers ?? []) w.port.terminate();
     this.workers = [];
     // Their jobs are made on the page.
-    for (const j of this.jobs.values()) this.queue.push({ id: j.id, ck: j.ck, key: j.key, d: 0 });
+    for (const j of this.jobs.values()) this.queue.push({ id: j.id, ck: j.ck, key: j.key, ...(j.chunk !== undefined ? { chunk: j.chunk } : {}), d: 0 });
     this.jobs.clear();
     this.queueSorted = false;
     this.deps.changed();
@@ -780,17 +830,24 @@ export class ArchitectureView {
   private receive(job: Job, reply: ArchitectureJobReply, where: 'worker' | 'page'): void {
     if (!reply.ok) {
       this.fail(`architecture ${job.id}: chunk ${job.ck}: ${reply.message}`);
-      this.prepared(job);
+      this.prepared({ ...job, key: job.chunk ?? job.key });
       return;
     }
     const m = this.ms[where];
     m[0] = m[0]! + 1;
     m[1] = m[1]! + reply.ms;
     m[2] = Math.max(m[2]!, reply.ms);
-    this.made[where] += 1;
-    performance.mark(ARCHITECTURE_CHUNK_MARK, { detail: { object: job.id, chunk: job.ck, ms: reply.ms, where } });
+    performance.mark(ARCHITECTURE_CHUNK_MARK, { detail: { object: job.id, chunk: job.ck, ms: reply.ms, where, ...(job.chunk !== undefined ? { part: true } : {}) } });
     this.remember(job.key, reply.chunk);
     this.sheetsOf.delete(job.key);
+    if (job.chunk !== undefined) {
+      // A part: the chunk is joined once its last part is in (the part is kept: an edit beside it re-makes only its neighbours).
+      const ch = (this.recs.get(job.id) ?? this.preparing.get(job.id))?.chunks.get(job.ck);
+      if (ch !== undefined && ch.key === job.chunk) this.joinParts(job.id, job.ck, ch, where);
+      else if (this.preparing.has(job.id)) this.prepared({ ...job, key: job.chunk });
+      return;
+    }
+    this.made[where] += 1;
     this.deps.store?.put(job.key, encodeArchitectureChunks([reply.chunk]));
     if (this.preparing.has(job.id)) this.prepared(job);
     else this.ready.push({ id: job.id, ck: job.ck, key: job.key, chunk: reply.chunk });

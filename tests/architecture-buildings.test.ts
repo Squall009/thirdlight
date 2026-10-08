@@ -15,7 +15,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { architectureDoorLinks, buildingInteriorId, withBuildingInteriors } from '../packages/project-model/src/arch-buildings';
-import { architectureChunkKeys, generateArchitecture, generateArchitectureChunk, type ArchitectureChunk } from '../packages/project-model/src/arch-generate';
+import { architectureChunkInput, architectureChunkKeys, generateArchitecture, generateArchitectureChunk, type ArchitectureChunk } from '../packages/project-model/src/arch-generate';
 import { pointInPolygon } from '../packages/project-model/src/arch-mesh';
 import { largestRectangles } from '../packages/project-model/src/arch-roof';
 import { expandArchitecture } from '../packages/project-model/src/arch-rooms';
@@ -260,18 +260,30 @@ describe('buildings', () => {
     const keys = [...architectureChunkKeys(village, SHEETS).values()];
     generateArchitectureChunk(village, SHEETS, keys[0]!.cx, keys[0]!.cz);
     const times: number[] = [];
+    // The jobs the page sends: a heavy chunk's parts each one.
+    const jobs: number[] = [];
     let draws = 0;
     let tris = 0;
+    let far = 0;
     for (const k of keys) {
       const t0 = performance.now();
       const chunk = generateArchitectureChunk(village, SHEETS, k.cx, k.cz);
       times.push(performance.now() - t0);
+      for (const p of k.parts ?? [k]) {
+        const t1 = performance.now();
+        generateArchitectureChunk(architectureChunkInput(village, { ...p, cx: k.cx, cz: k.cz }), SHEETS, k.cx, k.cz);
+        jobs.push(performance.now() - t1);
+      }
       // One draw per chunk per material.
       expect(new Set(chunk.meshes.map((m) => m.material)).size).toBe(chunk.meshes.length);
       draws += chunk.meshes.length;
-      for (const m of chunk.meshes) tris += m.mesh.indices.length / 3;
+      for (const m of chunk.meshes) {
+        tris += m.mesh.indices.length / 3;
+        far += m.mesh.farIndices.length / 3;
+      }
     }
     times.sort((a, b) => a - b);
+    jobs.sort((a, b) => a - b);
     // One interior, as the page makes it when its scene loads: expand, key and make its chunks (serially, here).
     const inner: number[] = [];
     for (let r = 0; r < 5; r++) {
@@ -281,7 +293,7 @@ describe('buildings', () => {
       inner.push(performance.now() - t0);
     }
     inner.sort((a, b) => a - b);
-    if (process.env['TL_PERF'] === '1') console.log(`buildings: 16 two-storey L exteriors in ${keys.length} chunks (16 m): ${times[Math.floor(times.length / 2)]!.toFixed(2)} ms median, ${times[times.length - 1]!.toFixed(2)} ms worst per chunk; ${draws} draws, ${tris} triangles; one interior made whole ${inner[2]!.toFixed(2)} ms median`);
+    if (process.env['TL_PERF'] === '1') console.log(`buildings: 16 two-storey L exteriors in ${keys.length} chunks (16 m): ${times[Math.floor(times.length / 2)]!.toFixed(2)} ms median, ${times[times.length - 1]!.toFixed(2)} ms worst per chunk; ${draws} draws, ${tris} triangles near, ${far} far; ${jobs.length} jobs ${jobs[Math.floor(jobs.length / 2)]!.toFixed(2)} ms median, ${jobs[jobs.length - 1]!.toFixed(2)} ms worst; one interior made whole ${inner[2]!.toFixed(2)} ms median`);
     expect(times[Math.floor(times.length / 2)]!).toBeLessThan(200);
   });
 });

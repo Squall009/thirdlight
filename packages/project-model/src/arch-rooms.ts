@@ -35,6 +35,7 @@
  * Pure and deterministic (plain arithmetic), like the rest of the generator.
  */
 import { buildingFloorPlan, floorPlanOutlines, propElement } from './arch-building-plan';
+import { architectureOutlineGroups, groupContextText, internElements, rememberedGroups } from './arch-groups';
 import { furnishLights, furnishRoom, type FurnishedLight, type FurnishedProp, type FurnishOpening, type FurnishRoom } from './arch-furnish';
 import { pointInPolygon } from './arch-mesh';
 import { pathPointAt, samplePath } from './arch-path';
@@ -372,6 +373,12 @@ function stairElement(id: string, s: ArchitectureStair, material: string | null)
  * the rooms are drawn on) for the faces to read. `origin` is the object's
  * world position (masks read world noise and heights). A component without
  * outlines is itself.
+ *
+ * The outlines expand in groups that do not meet (`arch-groups.ts`), each
+ * remembered by its own inputs: an edit expands again only the groups it
+ * changed, and the rest keep the very element objects they made (the chunk
+ * keys hash only new ones). What it makes does not depend on what was
+ * remembered.
  */
 export function expandArchitecture(c: ArchitectureComponent, origin: readonly number[], table: ArchitectureStyles, opts: { swaps?: Readonly<Record<string, string>> | null; preview?: ArchitecturePreview | null; paint?: ArchitecturePaint | null } = {}): ArchitectureExpansion {
   const buildings = c.buildings ?? [];
@@ -382,6 +389,75 @@ export function expandArchitecture(c: ArchitectureComponent, origin: readonly nu
     const { outlines: _o, masks: _m, buildings: _b, interiorOf: _i, ...rest } = c;
     return { component: paint !== null ? { ...rest, paint } : rest, materials: NO_MATERIALS, problems: [], presets: NO_SET, rooms: [] };
   }
+  const own = c.outlines?.length ?? 0;
+  const flags = outlines.map((_o, i) => buildings.length > 0 && i >= own);
+  const groups = architectureOutlineGroups(outlines, flags);
+  const memo = rememberedGroups<GroupExpansion>(table);
+  const context = groupContextText(c, origin, opts.swaps);
+  const preview = opts.preview ?? null;
+  const previewText = preview !== null ? `\npreview ${JSON.stringify(preview)}` : '';
+  const profiles: Record<string, ArchitectureProfile> = { ...(c.profiles ?? {}) };
+  const elements: ArchitectureElement[] = [...c.elements];
+  const materials: Record<string, string> = {};
+  const problems: string[] = [];
+  const presets = new Set<string>();
+  const rooms: ArchitectureRoomPlan[] = [];
+  const props: FurnishedProp[] = [];
+  const lights: FurnishedLight[] = [];
+  const planRooms: ArchitectureOutline[] = [];
+  const append = <T>(to: T[], from: readonly T[]): void => {
+    for (const v of from) to.push(v);
+  };
+  for (const g of groups) {
+    let key = context;
+    for (const i of g) key += `\n${flags[i] ? 'B' : 'O'}${JSON.stringify(outlines[i])}`;
+    // A preview reaches a group only through the presets it resolves through.
+    let x = memo.get(key);
+    if (x !== undefined && preview !== null && x.presets.has(preview.preset)) x = memo.get(key + previewText);
+    if (x === undefined) {
+      const made = expandGroup(
+        c,
+        g.map((i) => outlines[i]!),
+        g.map((i) => flags[i]!),
+        origin,
+        table,
+        opts,
+      );
+      // Outlines that meet expand together: an edit to one makes the others' elements again, the same ones.
+      x = g.length > 1 ? { ...made, elements: internElements(table, made.elements, elements.length + made.elements.length * groups.length) } : made;
+      memo.set(preview !== null && x.presets.has(preview.preset) ? key + previewText : key, x, groups.length);
+    }
+    append(elements, x.elements);
+    for (const name in x.profiles) profiles[name] ??= x.profiles[name]!;
+    Object.assign(materials, x.materials);
+    append(problems, x.problems);
+    for (const p of x.presets) presets.add(p);
+    append(rooms, x.rooms);
+    append(props, x.props);
+    append(lights, x.lights);
+    append(planRooms, x.planRooms);
+  }
+  const { outlines: _o, masks: _m, buildings: _b, interiorOf: _i, ...rest } = c;
+  return { component: { ...rest, elements, profiles, ...(paint !== null ? { paint } : {}) }, materials, problems: [...new Set(problems)], presets, rooms, ...(props.length > 0 ? { props } : {}), ...(lights.length > 0 ? { lights } : {}), ...(planRooms.length > 0 ? { planRooms } : {}) };
+}
+
+/** One group's share of an expansion, in its own order (remembered: never changed once made). */
+interface GroupExpansion {
+  elements: readonly ArchitectureElement[];
+  /** The profiles it made (not the component's own). */
+  profiles: Readonly<Record<string, ArchitectureProfile>>;
+  materials: Readonly<Record<string, string>>;
+  problems: readonly string[];
+  presets: ReadonlySet<string>;
+  rooms: readonly ArchitectureRoomPlan[];
+  props: readonly FurnishedProp[];
+  lights: readonly FurnishedLight[];
+  planRooms: readonly ArchitectureOutline[];
+}
+
+/** A group of outlines (`flags`: which are buildings) expanded: the whole expansion's steps over only these. */
+function expandGroup(c: ArchitectureComponent, outlines: readonly ArchitectureOutline[], flags: readonly boolean[], origin: readonly number[], table: ArchitectureStyles, opts: { swaps?: Readonly<Record<string, string>> | null; preview?: ArchitecturePreview | null }): GroupExpansion {
+  const buildings = outlines.filter((_o, i) => flags[i]) as ArchitectureBuilding[];
   const ownBuildings = new Set<ArchitectureOutline>(buildings);
   const profiles: Record<string, ArchitectureProfile> = { ...(c.profiles ?? {}) };
   const materials: Record<string, string> = {};
@@ -683,7 +759,7 @@ export function expandArchitecture(c: ArchitectureComponent, origin: readonly nu
   }
 
   // The walls: one per shared stretch (the owner's, its face toward the other room in that room's rows), the rest in runs.
-  const elements: ArchitectureElement[] = [...c.elements];
+  const elements: ArchitectureElement[] = [];
   for (const X of insts) {
     const W = X.wall;
     if (W === null) {
@@ -707,8 +783,9 @@ export function expandArchitecture(c: ArchitectureComponent, origin: readonly nu
     }
   }
   elements.push(...stairs.filter((e) => !exteriorOnly.has(e)), ...exterior, ...roofs(styled, insts, planOf), ...props.map(propElement));
-  const { outlines: _o, masks: _m, buildings: _b, interiorOf: _i, ...rest } = c;
-  return { component: { ...rest, elements, profiles, ...(paint !== null ? { paint } : {}) }, materials, problems: [...new Set(problems)], presets, rooms, ...(props.length > 0 ? { props } : {}), ...(lights.length > 0 ? { lights } : {}), ...(planRooms.length > 0 ? { planRooms } : {}) };
+  const made: Record<string, ArchitectureProfile> = {};
+  for (const name in profiles) if (profiles[name] !== c.profiles?.[name]) made[name] = profiles[name]!;
+  return { elements, profiles: made, materials, problems, presets, rooms, props, lights, planRooms };
 }
 
 /** A pinned prop as placed (standing in `room`, "" for none). */

@@ -52,7 +52,7 @@ import { canonicalJsonText, sha256HexOfText } from './sha256';
 import { defaultTrimSheet, type TrimRow, type TrimSheet, trimRowOf } from './trim-sheet';
 
 /** Bumped whenever the generator's output for the same parameters changes: part of every cache key. */
-export const ARCHITECTURE_GENERATOR_VERSION = 1;
+export const ARCHITECTURE_GENERATOR_VERSION = 2;
 /** The most metres between a sweep's cross-sections (its vertex density for AO and paint). */
 export const ARCHITECTURE_SWEEP_CELL = 1;
 /** Floats per kit copy: position, rotation quaternion, scale (an instance set's layout). */
@@ -230,31 +230,159 @@ export function architectureChunkKeys(c: ArchitectureComponent, sheets: Architec
   // The profiles go with the elements that use them: a profile changed (a slider) re-keys only those elements' chunks.
   const common = canonicalJsonText({ v: ARCHITECTURE_GENERATOR_VERSION, size, seed: c.seed ?? 0, ao: c.ao ?? null, sheets });
   const commonHash = sha256HexOfText(common);
-  const per = new Map<string, { hashes: string[]; elements: number[] }>();
+  const per = new Map<string, { hashes: string[]; elements: number[]; weights: number[] }>();
   const overrides = new Map<string, unknown[]>();
   for (const o of c.overrides ?? []) overrides.set(o.element, [...(overrides.get(o.element) ?? []), o]);
   c.elements.forEach((e, index) => {
-    const profiles: Record<string, unknown> = {};
-    for (const name of elementProfiles(e)) profiles[name] = c.profiles?.[name] ?? null;
-    const h = hashText64(canonicalJsonText({ e, own: overrides.get(e.id) ?? [], profiles }));
-    for (const [cx, cz] of chunksOf(elementBounds(e, c), size)) {
-      const k = keyOf(cx, cz);
+    const { h, chunks, weight } = elementKey(e, c, size, overrides.get(e.id));
+    for (const k of chunks) {
       const list = per.get(k);
-      if (list === undefined) per.set(k, { hashes: [h], elements: [index] });
+      if (list === undefined) per.set(k, { hashes: [h], elements: [index], weights: [weight] });
       else {
         list.hashes.push(h);
         list.elements.push(index);
+        list.weights.push(weight);
       }
     }
   });
   const out = new Map<string, ArchitectureChunkKey>();
-  for (const [k, { hashes, elements }] of per) {
+  for (const [k, { hashes, elements, weights }] of per) {
     const [cx, cz] = k.split(',').map(Number) as [number, number];
     // The layer's wall paint the chunk's faces may read goes into its key: a stroke re-makes only the chunks under it.
     const paint = c.paint === undefined ? '' : `|${paintKeyFor(c.paint, cx, cz, size)}`;
-    out.set(k, { cx, cz, key: sha256HexOfText(`${commonHash}|${k}|${hashes.join(',')}${paint}`), elements });
+    const { key, cuts, partKeys } = chunkKeysOf(`${commonHash}|${k}`, paint, hashes, weights);
+    if (cuts.length === 0) {
+      out.set(k, { cx, cz, key, elements });
+      continue;
+    }
+    const parts: ArchitectureChunkPart[] = [];
+    for (let p = 0; p <= cuts.length; p++) parts.push({ key: partKeys[p]!, elements: elements.slice(p === 0 ? 0 : cuts[p - 1]!, p < cuts.length ? cuts[p]! : elements.length) });
+    out.set(k, { cx, cz, key, elements, parts });
   }
   return out;
+}
+
+/** A chunk's key, its part cuts and the parts' keys, made from its elements' hashes. */
+interface ChunkKeys {
+  hashes: readonly string[];
+  key: string;
+  cuts: number[];
+  partKeys: string[];
+}
+
+/**
+ * The last keys made per chunk place (with the settings and paint): keying
+ * an object again after an edit finds a chunk none of whose elements changed
+ * by comparing its hashes, not hashing them again. A few per place (objects
+ * sharing a place take turns); a cache's bound, not a project's.
+ */
+const chunkKeysMemo = new Map<string, ChunkKeys[]>();
+const CHUNK_KEYS_PER_PLACE = 4;
+/** Chunk places remembered before the oldest go. */
+const CHUNK_PLACES_KEPT = 65536;
+
+function chunkKeysOf(place: string, paint: string, hashes: readonly string[], weights: readonly number[]): ChunkKeys {
+  const at = place + paint;
+  const list = chunkKeysMemo.get(at);
+  if (list !== undefined) {
+    for (const known of list) if (known.hashes.length === hashes.length && known.hashes.every((h, i) => h === hashes[i])) return known;
+  }
+  const cuts = partCuts(hashes, weights);
+  const partKeys: string[] = [];
+  for (let p = 0; cuts.length > 0 && p <= cuts.length; p++) partKeys.push(sha256HexOfText(`${place}|part|${hashes.slice(p === 0 ? 0 : cuts[p - 1]!, p < cuts.length ? cuts[p]! : hashes.length).join(',')}${paint}`));
+  const made: ChunkKeys = { hashes, key: sha256HexOfText(`${place}|${hashes.join(',')}${paint}`), cuts, partKeys };
+  const next = [made, ...(list ?? [])].slice(0, CHUNK_KEYS_PER_PLACE);
+  chunkKeysMemo.delete(at);
+  chunkKeysMemo.set(at, next);
+  if (chunkKeysMemo.size > CHUNK_PLACES_KEPT) chunkKeysMemo.delete(chunkKeysMemo.keys().next().value!);
+  return made;
+}
+
+/**
+ * A chunk is made in parts once its elements weigh more than this: each part
+ * a job of its own (spread over the workers), kept by its own key, so an
+ * edit re-makes only the parts holding changed elements. About 2 ms of
+ * making on this host's page; a cold worker takes up to twice that.
+ */
+export const ARCHITECTURE_PART_WEIGHT_MAX = 32;
+/** A part ends no sooner than this weight, and then at an element whose hash picks it (one in {@link PART_CUT_EVERY}). */
+const PART_WEIGHT_MIN = 12;
+const PART_CUT_EVERY = 6;
+
+/**
+ * Where a chunk's elements (their hashes and weights, in order) are cut into
+ * parts (indices each part starts at; none: one part). The cuts follow the
+ * elements' hashes, not their count, so an edit moves only the cuts beside
+ * what it changed and the other parts keep their keys; a part never weighs
+ * more than {@link ARCHITECTURE_PART_WEIGHT_MAX} (unless one element does).
+ */
+function partCuts(hashes: readonly string[], weights: readonly number[]): number[] {
+  let total = 0;
+  for (const w of weights) total += w;
+  if (total <= ARCHITECTURE_PART_WEIGHT_MAX) return [];
+  const cuts: number[] = [];
+  let acc = 0;
+  for (let i = 0; i < weights.length; i++) {
+    const w = weights[i]!;
+    const picked = acc >= PART_WEIGHT_MIN && parseInt(hashes[i]!.slice(0, 8), 16) % PART_CUT_EVERY === 0;
+    if (i > 0 && acc > 0 && (picked || acc + w > ARCHITECTURE_PART_WEIGHT_MAX)) {
+      cuts.push(i);
+      acc = 0;
+    }
+    acc += w;
+  }
+  return cuts;
+}
+
+/**
+ * About what making an element's share of a chunk costs: a sweep or a fill
+ * about one unit and more with its length (strips and rows run its whole
+ * length), a kit copy next to nothing, stamped pieces by their count.
+ */
+function elementWeight(e: ArchitectureElement, s: PathSamples): number {
+  if (e.kind === 'sweep') return 1 + s.length / 40 + (e.openings?.length ?? 0) * 0.25;
+  if (e.kind === 'fill') return 1.5 + s.length / 40;
+  if (!('elements' in e.piece)) return 0.05;
+  const places = Math.min(256, 1 + s.length / Math.max(0.1, e.spacing));
+  return 0.1 + places * 0.05 * e.piece.elements.length;
+}
+
+/** An element's hash and the chunks it reaches (`"cx,cz"`), and what they were made from. */
+interface ElementKey {
+  size: number;
+  names: string[];
+  profiles: (ArchitectureProfile | null)[];
+  h: string;
+  chunks: string[];
+  /** What making its share of a chunk costs, about (in {@link elementWeight}'s units). */
+  weight: number;
+}
+
+/**
+ * Element keys kept per element object: an expansion keeps the elements of
+ * the outlines an edit did not reach (`arch-groups.ts`), so keying the
+ * component again hashes only the new ones. Kept as long as the element is.
+ */
+const elementKeys = new WeakMap<ArchitectureElement, ElementKey>();
+
+/** An element's hash (with its overrides and the profiles it sweeps) and its chunks, remembered while those stay the same. */
+function elementKey(e: ArchitectureElement, c: ArchitectureComponent, size: number, own: unknown[] | undefined): ElementKey {
+  const known = own === undefined ? elementKeys.get(e) : undefined;
+  if (known !== undefined && known.size === size && known.names.every((n, i) => sameProfile(c.profiles?.[n] ?? null, known.profiles[i]!))) return known;
+  const names = elementProfiles(e);
+  const list = names.map((n) => c.profiles?.[n] ?? null);
+  const profiles: Record<string, unknown> = {};
+  names.forEach((n, i) => (profiles[n] = list[i]));
+  const h = hashText64(canonicalJsonText({ e, own: own ?? [], profiles }));
+  const samples = samplePath(e.path);
+  const made: ElementKey = { size, names, profiles: list, h, chunks: chunksOf(elementBounds(e, c, samples), size).map(([cx, cz]) => keyOf(cx, cz)), weight: elementWeight(e, samples) };
+  if (own === undefined) elementKeys.set(e, made);
+  return made;
+}
+
+/** Whether a profile is the one an element was keyed with (the same object, or the same points and slots). */
+function sameProfile(a: ArchitectureProfile | null, b: ArchitectureProfile | null): boolean {
+  return a === b || (a !== null && b !== null && JSON.stringify(a) === JSON.stringify(b));
 }
 
 /** Metres past a chunk's sides its faces may reach (a sweep cell's half and a wall's thickness, with room). */
@@ -309,6 +437,14 @@ function elementProfiles(e: ArchitectureElement): string[] {
 export interface ArchitectureChunkKey {
   cx: number;
   cz: number;
+  key: string;
+  elements: number[];
+  /** A heavy chunk's parts, in order (absent: made whole): made apart and joined ({@link joinArchitectureChunkParts}). */
+  parts?: ArchitectureChunkPart[];
+}
+
+/** Part of a chunk: a run of its elements, made as a job of its own and kept by its own key. */
+export interface ArchitectureChunkPart {
   key: string;
   elements: number[];
 }
@@ -656,6 +792,74 @@ export function generateArchitectureChunk(c: ArchitectureComponent, sheets: Arch
     meshes.push({ material, mesh });
   }
   return { cx, cz, meshes, copies: copies.finish(), problems: [...st.problems].sort() };
+}
+
+/**
+ * A chunk from its parts (each made from its run of the chunk's elements, in
+ * order): each material's arrays one after another, the copies of a model
+ * one set. The same bytes as the chunk made whole: the generator writes each
+ * element on its own (nothing in a mesh depends on the elements before it).
+ */
+export function joinArchitectureChunkParts(parts: readonly ArchitectureChunk[]): ArchitectureChunk {
+  if (parts.length === 1) return parts[0]!;
+  const byMaterial = new Map<string, ArchMeshArrays[]>();
+  for (const p of parts) for (const m of p.meshes) byMaterial.set(m.material, [...(byMaterial.get(m.material) ?? []), m.mesh]);
+  const meshes: ArchitectureChunkMesh[] = [...byMaterial]
+    .sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0))
+    .map(([material, list]) => ({ material, mesh: list.length === 1 ? list[0]! : joinMeshes(list) }));
+  const sets = new Map<string, { model: ArchitectureModelRef; collide: boolean; ids: string[]; t: Float32Array[] }>();
+  for (const p of parts) {
+    for (const c of p.copies) {
+      const k = `${c.model.assetId}|${c.model.piece ?? ''}|${c.collide ? 1 : 0}`;
+      const have = sets.get(k);
+      if (have === undefined) sets.set(k, { model: c.model, collide: c.collide, ids: [...c.ids], t: [c.transforms] });
+      else {
+        for (const id of c.ids) have.ids.push(id);
+        have.t.push(c.transforms);
+      }
+    }
+  }
+  const copies: ArchitectureCopySet[] = [...sets.values()].map((s) => ({ model: s.model, collide: s.collide, ids: s.ids, transforms: s.t.length === 1 ? s.t[0]! : concatFloats(s.t) }));
+  const problems = [...new Set(parts.flatMap((p) => p.problems))].sort();
+  return { cx: parts[0]!.cx, cz: parts[0]!.cz, meshes, copies, problems };
+}
+
+function concatFloats(list: readonly Float32Array[]): Float32Array {
+  let n = 0;
+  for (const a of list) n += a.length;
+  const out = new Float32Array(n);
+  let at = 0;
+  for (const a of list) {
+    out.set(a, at);
+    at += a.length;
+  }
+  return out;
+}
+
+/** Meshes of one material one after another (indices moved by the vertices before). */
+function joinMeshes(list: readonly ArchMeshArrays[]): ArchMeshArrays {
+  let v = 0;
+  let i = 0;
+  let f = 0;
+  for (const m of list) {
+    v += m.positions.length / 3;
+    i += m.indices.length;
+    f += m.farIndices.length;
+  }
+  const out: ArchMeshArrays = { positions: new Float32Array(v * 3), normals: new Float32Array(v * 3), uvs: new Float32Array(v * 2), colors: new Uint8Array(v * 4), indices: new Uint32Array(i), farIndices: new Uint32Array(f) };
+  let base = 0;
+  let ia = 0;
+  let fa = 0;
+  for (const m of list) {
+    out.positions.set(m.positions, base * 3);
+    out.normals.set(m.normals, base * 3);
+    out.uvs.set(m.uvs, base * 2);
+    out.colors.set(m.colors, base * 4);
+    for (let k = 0; k < m.indices.length; k++) out.indices[ia++] = m.indices[k]! + base;
+    for (let k = 0; k < m.farIndices.length; k++) out.farIndices[fa++] = m.farIndices[k]! + base;
+    base += m.positions.length / 3;
+  }
+  return out;
 }
 
 /** Every chunk of a component (an export that ships meshes; tests). */
