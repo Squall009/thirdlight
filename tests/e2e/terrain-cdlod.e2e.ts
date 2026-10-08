@@ -65,6 +65,15 @@
  *   posts off a patch (undone after); a small block terrace's Scatter puts
  *   posts on its flat tops, none on its sloped cell. Play and the export
  *   (both renderers) show the posts and, near their camera, the tufts.
+ * - Scatter copies in the game (Play, both renderers): the posts collide
+ *   (their model's `_COL`, the rule's Collides box): posts put by hand across
+ *   the player's strip stop the player walking into them; a script names the
+ *   copies by address (`ctx.scatter.near`) and hides them on a key (the posts
+ *   leave the frame, the simulation's and the renderer's counts follow), then
+ *   shows them again. A second Play draws every terrain post as its impostor
+ *   (the rule's Impostor below, set in the dialog): baked once, the copies at
+ *   the impostor's level, the posts' pixels as many and as orange as the
+ *   meshes'.
  */
 import { randomBytes } from 'node:crypto';
 import { createReadStream, existsSync, statSync } from 'node:fs';
@@ -74,7 +83,7 @@ import { extname, join, normalize } from 'node:path';
 import { expect, test, type Page } from './pw';
 
 import { layeredMaterial } from '../../packages/editor/src/session/material-graph';
-import { controls, publishBytes, startBackend, type E2EBackend } from './backend';
+import { controls, publishBytes, publishScript, startBackend, type E2EBackend } from './backend';
 import { multiPieceGlb } from './multi-piece-glb';
 import { decodeChunkScatter } from '../../packages/project-model/src/scatter';
 import { gpuAvailable } from './browser-env.mjs';
@@ -157,6 +166,23 @@ const TERRACE_AT: V3 = [12, 3, 4];
 /** The scatter rules' models: an orange post, a white tuft. */
 const isOrange: Pred = (r, g, b) => r > 110 && g > 0.3 * r && g < 0.75 * r && b < 0.35 * r;
 const isWhite: Pred = (r, g, b) => Math.min(r, g, b) > 140 && Math.max(r, g, b) - Math.min(r, g, b) < 45;
+/** The posts' impostor size from the dialog: far smaller than they are on any screen here (meshes, until a Play sets 1). */
+const POST_IMPOSTOR_SIZE = 0.001;
+/** Hides every scatter copy near the middle on the jump key, by address; shows them again on the next. */
+const SCATTER_HIDE_SCRIPT = [
+  'export default {',
+  '  instantiate() { return { hidden: [] }; },',
+  '  step(state: any, ctx: any) {',
+  "    if (ctx.phase !== 'intent' || ctx.scatter === undefined || !ctx.input.pressed('jump')) return;",
+  '    if (state.hidden.length === 0) {',
+  '      for (const c of ctx.scatter.near([0, 0, 0], 200, { limit: 1024 })) if (ctx.scatter.hide(c.address)) state.hidden.push(c.address);',
+  '    } else {',
+  '      for (const a of state.hidden) ctx.scatter.show(a);',
+  '      state.hidden = [];',
+  '    }',
+  '  },',
+  '};',
+].join('\n');
 
 /** The heightmap as RAW 16-bit little-endian samples of the terrain's range. */
 function heightmap(): Uint8Array {
@@ -210,7 +236,7 @@ async function buildTerrain(): Promise<{ ground: string; big: string; blocks: st
   await cmd('editTerrain', { entityId: ground, kind: 'paint', dabs: [PAINTED], radius: 4, strength: 1, falloff: 'constant', layer: 2 });
   await cmd('editTerrain', { entityId: ground, kind: 'paint', dabs: [FIFTH], radius: 2.5, strength: 1, falloff: 'constant', layer: 4 });
   // The models the scatter rules place, and the terrace a block layer's scatter dresses.
-  await publishBytes(be!, multiPieceGlb([{ name: 'post', lods: [[0.3, 1.4, 0.3]], colors: [[1, 0.35, 0.02]] }]), 'model', 'e2e-post', 'Post');
+  await publishBytes(be!, multiPieceGlb([{ name: 'post', lods: [[0.3, 1.4, 0.3]], col: [0.3, 1.4, 0.3], colors: [[1, 0.35, 0.02]] }]), 'model', 'e2e-post', 'Post');
   await publishBytes(be!, multiPieceGlb([{ name: 'tuft', lods: [[0.3, 0.5, 0.3]], colors: [[1, 1, 1]] }]), 'model', 'e2e-tuft', 'Tuft');
   const terrace = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Terrace', transform: { position: TERRACE_AT } }))['createdId']);
   await cmd('setComponent', { entityId: terrace, component: 'blockLayer', value: { cellSize: [1, 1, 1], bounds: { min: [0, 0, 0], max: [4, 4, 4] } } });
@@ -234,7 +260,35 @@ async function buildTerrain(): Promise<{ ground: string; big: string; blocks: st
   await cmd('setComponent', { entityId: big, component: 'terrain', value: { tileSamples: 1025, spacing: 1, heightRange: [-64, 64], tiles: [{ x: 0, z: 0 }] } });
   await bigNoise(big, 7);
   await cmd('editBlocks', { entityId: terrace, edits: [{ kind: 'fill', box: [0, 0, 0, 4, 2, 4], cell: { block: 'rock' } }, { kind: 'cells', at: [0, 1, 0], cell: { block: 'rock', corners: [0, 1, 1, 0] } }] });
+  // The script that names the scatter copies by address and hides them on the jump key (shows them on the next).
+  const switcher = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Scatter switch', transform: { position: [0, 0, 0] } }))['createdId']);
+  await publishScript(be!, 'e2e-scatter-hide', SCATTER_HIDE_SCRIPT, switcher);
   return { ground, big, blocks, terrace };
+}
+
+/**
+ * A band of posts put by hand across the player's strip behind it (the brush's stroke, as a command: every candidate
+ * under it, whatever the conditions), three rows too close for the player to walk between; or taken off again (the
+ * Scene view's tools then see the ground there). Returns the band's z range.
+ */
+async function postBand(ground: string, on: boolean): Promise<[number, number]> {
+  type Copy = { rule: string; x: number; y: number; z: number };
+  const dabs: [number, number][] = [];
+  for (const z of [-3.4, -2.6, -1.8]) for (let x = PLAYER[0] - 1.5; x <= PLAYER[0] + 1.5; x += 0.5) dabs.push([x, z]);
+  await cmd('editTerrain', { entityId: ground, kind: 'scatter', rule: 'posts', dabs, radius: 0.5, ...(on ? {} : { erase: true }) });
+  const band = (((await query('queryTerrain', { entityId: ground, scatter: { box: [PLAYER[0] - 2.5, -4.2, PLAYER[0] + 2.5, -1] } }))['scatter'] as { copies: Copy[] } | undefined)?.copies ?? []);
+  if (!on) {
+    expect(band.length, 'the band taken off').toBe(0);
+    return [0, 0];
+  }
+  expect(band.length, 'posts across the strip').toBeGreaterThan(8);
+  return [Math.min(...band.map((c) => c.z)), Math.max(...band.map((c) => c.z))];
+}
+
+/** The posts rule's impostor size (the rules baked again: the same copies). */
+async function setPostsImpostor(ground: string, size: number): Promise<void> {
+  const rules = (((await query('queryEntity', { entityId: ground })) as { entity: { components: { terrain: { scatter: Record<string, unknown>[] } } } }).entity.components.terrain.scatter);
+  await cmd('editTerrain', { entityId: ground, kind: 'bake', scatter: rules.map((r) => (r['id'] === 'posts' ? { ...r, impostorSize: size } : r)) });
 }
 
 /** Noise over the whole 1,025² tile (a new tile: read, packed and uploaded again). */
@@ -540,6 +594,8 @@ test('terrain: CDLOD heights, layered material, paint and a hole in the Scene vi
 
     // In Play (and the export), tiles past MACRO_DISTANCE are drawn from their baked macro textures.
     await cmd('setComponent', { entityId: ground, component: 'terrain', value: { macroDistance: MACRO_DISTANCE } });
+    // The posts across the player's strip, for this renderer's Plays.
+    const band = await postBand(ground, true);
     // Play: the scene camera's frame.
     const started = page.waitForResponse((r) => r.request().method() === 'POST' && r.url().endsWith('/play'));
     await page.getByTitle('Start an isolated play preview').click();
@@ -612,7 +668,55 @@ test('terrain: CDLOD heights, layered material, paint and a hole in the Scene vi
     expect(diag.renderer!.terrain!.cpuBytes!).toBeGreaterThan(1025 * 1025 * 2);
     expect(diag.renderer!.terrain!.uploadMsPeak!).toBeLessThan(8);
 
-    // The player stands on the terrain, walks forward (−z) into the hole and falls through it.
+    // The script names the scatter copies by address and hides them (the jump key): the posts leave the frame (the
+    // pixels orange before and not after are theirs), the simulation and the renderer count them hidden; the key
+    // again shows them.
+    const frameNow = async (sid: string): Promise<Image | null> => {
+      const s = await relay(`${sid}/screenshot`, { maxWidth: 1024 });
+      return s.status === 200 ? decodePng(Buffer.from(String(s.json['dataUrl'] ?? '').split(',')[1] ?? '', 'base64')) : null;
+    };
+    const jump = async (sid: string): Promise<void> => {
+      const r = await relay(`${sid}/input`, { mode: 'exclusive-test', frames: [{ stepOffset: 0, ...controls(0, 'pressed') }] });
+      expect(r.status, JSON.stringify(r.json)).toBe(200);
+    };
+    type ScatterDiag = { runtime?: { scatterCopies?: { hidden: number; colliders: number; copies: number } }; renderer?: { scatter?: { hidden: number; copies: number; instances: { byLevel: number[] }; impostors?: { baked: number; bytes: number; bakeMsMax: number } } } };
+    const sdiag = async (sid: string): Promise<ScatterDiag> => ((await relay(`${sid}/diagnostics`, {})).json as { diagnostics?: ScatterDiag }).diagnostics ?? {};
+    /** The posts' pixels: orange with them shown, not with them hidden (the frame's other orange stays), and their mean colour. */
+    const posts = async (sid: string, what: string): Promise<{ n: number; tint: [number, number, number] }> => {
+      const shownImg = (await frameNow(sid))!;
+      await jump(sid);
+      let d: ScatterDiag = {};
+      await expect.poll(async () => {
+        d = await sdiag(sid);
+        return (d.runtime?.scatterCopies?.hidden ?? 0) > 0 && d.renderer?.scatter?.hidden === d.runtime?.scatterCopies?.hidden;
+      }, { timeout: 30_000, message: `${what}: the hidden copies counted by the simulation and the renderer` }).toBe(true);
+      let out = { n: 0, tint: [0, 0, 0] as [number, number, number] };
+      await expect.poll(async () => {
+        const hiddenImg = await frameNow(sid);
+        if (hiddenImg === null) return 0;
+        const sum = [0, 0, 0];
+        let n = 0;
+        for (let y = 0; y < shownImg.height; y++) for (let x = 0; x < shownImg.width; x++) {
+          const p = shownImg.pixel(x, y);
+          if (!isOrange(...p) || isOrange(...hiddenImg.pixel(x, y))) continue;
+          sum[0] += p[0];
+          sum[1] += p[1];
+          sum[2] += p[2];
+          n += 1;
+        }
+        out = { n, tint: [sum[0]! / Math.max(1, n), sum[1]! / Math.max(1, n), sum[2]! / Math.max(1, n)] };
+        return n;
+      }, { timeout: 30_000, message: `${what}: the script hid the posts` }).toBeGreaterThan(60);
+      test.info().annotations.push({ type: `${what} scatter hidden`, description: JSON.stringify({ postPixels: out.n, runtime: d.runtime?.scatterCopies, renderer: d.renderer?.scatter?.hidden }) });
+      console.log(`${what}: the script hid ${d.runtime?.scatterCopies?.hidden} copies by address (the renderer ${d.renderer?.scatter?.hidden}), ${out.n} post pixels left the frame`);
+      await jump(sid);
+      await expect.poll(async () => (await sdiag(sid)).renderer?.scatter?.hidden ?? -1, { timeout: 30_000, message: `${what}: the script showed the posts again` }).toBe(0);
+      return out;
+    };
+    const meshPosts = await posts(psid, `${renderer} Play`);
+
+    // The player stands on the terrain, walks back (+z) into the posts across the strip (they collide), then forward
+    // (−z) into the hole and falls through it.
     const read = async (): Promise<Observation | null> => {
       const r = await relay(`${psid}/observe`, {});
       return r.status === 200 ? (r.json as unknown as Observation) : null;
@@ -629,6 +733,24 @@ test('terrain: CDLOD heights, layered material, paint and a hole in the Scene vi
       .toBe(true);
     const at = standing.o!.player!;
     expect(Math.abs(at.y - (STRIP_HEIGHT + 0.9)), `${renderer} Play: standing on the terrain (at y ${at.y})`).toBeLessThan(0.05);
+    {
+      // Two seconds back toward the band of posts (a second a request: the relay's body bound): about 8 m at the
+      // walking speed, through it were it not solid.
+      const back = Array.from({ length: 120 }, (_, k) => ({ stepOffset: k, ...controls(0, 'none', -1) }));
+      for (let leg = 0; leg < 2; leg++) {
+        const r = await relay(`${psid}/input`, { mode: 'exclusive-test', frames: back });
+        expect(r.status, JSON.stringify(r.json)).toBe(200);
+        await page.waitForTimeout(1200);
+      }
+      await expect.poll(async () => (await read())?.player?.z ?? at.z, { timeout: 30_000, message: `${renderer} Play: walking back` }).toBeGreaterThan(at.z + 0.5);
+      await page.waitForTimeout(1000);
+      const stopped = (await read())!.player!;
+      const colliders = (await sdiag(psid)).runtime?.scatterCopies?.colliders ?? 0;
+      test.info().annotations.push({ type: `${renderer} Play scatter collision`, description: JSON.stringify({ from: at.z, stopped: stopped.z, band, colliders }) });
+      console.log(`${renderer} Play scatter collision: from z ${at.z.toFixed(2)} stopped at ${stopped.z.toFixed(2)}, the band z ${band[0].toFixed(2)}–${band[1].toFixed(2)}, ${colliders} copy colliders`);
+      expect(stopped.z, `${renderer} Play: the posts across the strip (z ${band[0].toFixed(2)}–${band[1].toFixed(2)}) stopped the player`).toBeLessThan(band[1]);
+      expect(colliders, `${renderer} Play: the posts' colliders`).toBeGreaterThan(8);
+    }
     // A second of forward a request (the relay's body bound), until it is in the hole (about 5 m at the walking speed).
     const frames = Array.from({ length: 120 }, (_, k) => ({ stepOffset: k, ...controls(0, 'none', 1) }));
     for (let leg = 0; leg < 4 && ((await read())?.player?.y ?? 0) > STRIP_HEIGHT - 0.5; leg++) {
@@ -645,6 +767,40 @@ test('terrain: CDLOD heights, layered material, paint and a hole in the Scene vi
     await expect.poll(async () => (await read())?.player?.y ?? Infinity, { timeout: 30_000, message: `${renderer} Play: fell through the hole` }).toBeLessThan(STRIP_HEIGHT - 3);
     const fell = (await read())!.player!;
     expect(fell.z, `${renderer} Play: it went forward into the hole`).toBeLessThan(HOLE[1] + 3.5);
+
+    // A second Play with every post drawn as its impostor (the rule's size 1: smaller than the whole view, so at any
+    // distance): baked once, every copy at the impostor's level, the posts' pixels as many and as orange as the
+    // meshes' were (both found the same way: shown against hidden by the script).
+    await setPostsImpostor(ground, 1);
+    await page.getByTitle('Stop the play preview').click();
+    await expect(page.getByTitle('Start an isolated play preview')).toBeVisible({ timeout: 30_000 });
+    const restarted = page.waitForResponse((r) => r.request().method() === 'POST' && r.url().endsWith('/play'));
+    await page.getByTitle('Start an isolated play preview').click();
+    const psid2 = String(((await (await restarted).json()) as { playSessionId: string }).playSessionId);
+    let far: ScatterDiag = {};
+    await expect
+      .poll(async () => {
+        far = await sdiag(psid2);
+        const sc = far.renderer?.scatter;
+        // The terrain's posts at the impostor's level (the terrace's own rule keeps its meshes).
+        return (sc?.impostors?.baked ?? 0) >= 1 && (sc?.instances.byLevel[1] ?? 0) > 10;
+      }, { timeout: 60_000, message: `${renderer} Play: the posts drawn as impostors` })
+      .toBe(true)
+      .catch((e: Error) => {
+        console.log(`${renderer} Play impostors: ${JSON.stringify(far.renderer?.scatter)}`);
+        throw e;
+      });
+    // The frame once the impostors are in (settled: two frames alike).
+    await page.waitForTimeout(1000);
+    const farPosts = await posts(psid2, `${renderer} Play (impostors)`);
+    const ratio = farPosts.n / meshPosts.n;
+    test.info().annotations.push({ type: `${renderer} Play impostors`, description: JSON.stringify({ meshPixels: meshPosts.n, impostorPixels: farPosts.n, meshTint: meshPosts.tint.map(Math.round), impostorTint: farPosts.tint.map(Math.round), impostors: far.renderer?.scatter?.impostors }) });
+    console.log(`${renderer} Play impostors: post pixels ${meshPosts.n} → ${farPosts.n}, tint ${meshPosts.tint.map(Math.round)} → ${farPosts.tint.map(Math.round)}, ${JSON.stringify(far.renderer?.scatter?.impostors)}`);
+    expect(ratio, `${renderer} Play: the impostors' posts' pixels against the meshes'`).toBeGreaterThan(0.6);
+    expect(ratio, `${renderer} Play: the impostors' posts' pixels against the meshes'`).toBeLessThan(1.6);
+    for (let k = 0; k < 3; k++) expect(Math.abs(farPosts.tint[k]! - meshPosts.tint[k]!), `${renderer} Play: the impostors' orange against the meshes' (channel ${k})`).toBeLessThan(40);
+    await setPostsImpostor(ground, POST_IMPOSTOR_SIZE);
+    await postBand(ground, false);
     // The next renderer's Scene view draws the layers everywhere again (its checks count one draw per page); the last keeps far ground for the export.
     if (renderer !== BACKENDS[BACKENDS.length - 1]) await cmd('setComponent', { entityId: ground, component: 'terrain', value: { macroDistance: null } });
   }
@@ -1037,6 +1193,9 @@ async function scatterRules(page: Page, ground: string, terrace: string): Promis
   await fill(rules, 'scatter 1 slope fade', 0.5);
   await rules.getByLabel('scatter 1 layers', { exact: true }).check();
   await fill(rules, 'scatter 1 layers of layer', 1);
+  // Each post carries its model's collider; far below the test's screen sizes it would turn into its impostor.
+  await rules.getByLabel('scatter 1 collide', { exact: true }).check();
+  await fill(rules, 'scatter 1 impostor size', POST_IMPOSTOR_SIZE);
   // Tufts: ground cover on the same disc, reaching the Play camera (about 45 m away).
   await rules.getByRole('button', { name: 'add scatter rule' }).click();
   await fill(rules, 'scatter 2 name', 'tufts');
@@ -1052,6 +1211,8 @@ async function scatterRules(page: Page, ground: string, terrace: string): Promis
   await rules.getByRole('button', { name: 'apply scatter rules' }).click();
   await expect.poll(async () => (await copies()).length, { timeout: 30_000, message: 'the posts baked' }).toBeGreaterThan(10);
   expect(Number((await query('queryProject')).revision), 'one command for the bake').toBe(rev0 + 1);
+  const stored = (((await query('queryEntity', { entityId: ground })) as { entity: { components: { terrain: { scatter: Record<string, unknown>[] } } } }).entity.components.terrain.scatter);
+  expect(stored[0], 'the dialog wrote the collider and the impostor size').toMatchObject({ id: 'posts', collide: true, impostorSize: POST_IMPOSTOR_SIZE });
   // Every post on the disc and on gentle ground (its slope read where it stands); ground cover is never stored.
   const posts = await copies();
   expect(posts.every((c) => c.rule === 'posts')).toBe(true);
@@ -1123,5 +1284,6 @@ async function scatterRules(page: Page, ground: string, terrace: string): Promis
     expect(x >= 1 || z >= 1, `a post at (${x}, ${z}) not over the sloped cell`).toBe(true);
     expect(y, 'a post on the flat tops').toBeCloseTo(2, 3);
   }
+
   await page.locator('.tl-hierarchy__list li[data-entity-id="' + ground + '"]').click();
 }

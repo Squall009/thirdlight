@@ -45,6 +45,9 @@ export function uncappedUrl(url: string): string {
 
 export type FrameRenderer = 'webgpu' | 'webgl2';
 
+/** A frame longer than this (ms) missed 60 Hz (the soft targets count them while streaming and re-baking). */
+export const LONG_FRAME_MS = 16.7;
+
 /** A step before measuring (a game copy reaches its view this way). */
 export type PageStep = { wait: number } | { key: string } | { click: [number, number] };
 
@@ -65,6 +68,8 @@ export interface FrameRunOptions {
   shot?: string;
   /** Trace this long (ms) for each thread's busy time (0 or absent: no trace). */
   busyMs?: number;
+  /** The longest wait (ms) for the scene to settle (absent: 90 s; a flying camera's scene never stops changing). */
+  settleMs?: number;
 }
 
 /**
@@ -88,7 +93,7 @@ export interface FrameRunResult {
   apis: string[];
   firstFrameMs: number | null;
   settledMs: number;
-  frames: { n: number; fps: number; p50: number; p95: number; p99: number; mean: number; max?: number; /** Share of frames per `FRAME_HISTOGRAM_EDGES_MS` bucket. */ histogram?: number[] };
+  frames: { n: number; fps: number; p50: number; p95: number; p99: number; mean: number; max?: number; /** Share of frames per `FRAME_HISTOGRAM_EDGES_MS` bucket. */ histogram?: number[]; /** Frames longer than a 60 Hz frame ({@link LONG_FRAME_MS}), and those that missed a 60 Hz display's next refresh (half a frame longer: a vsync interval's jitter is not a miss). */ long?: number; missed?: number };
   draws: Summary;
   tris: Summary;
   mainThread: { taskMsPerFrame: number; busyShare: number };
@@ -215,7 +220,7 @@ export async function measurePage(browser: Browser, opts: FrameRunOptions): Prom
       if ('click' in st) await page.mouse.click(st.click[0], st.click[1]);
     }
     await page.evaluate(probeSetGpuTiming, false);
-    const settledMs = await settle(page, 90_000);
+    const settledMs = await settle(page, opts.settleMs ?? 90_000);
     await new Promise((r) => setTimeout(r, opts.warmupMs));
 
     const cdp = await context.newCDPSession(page);
@@ -248,7 +253,7 @@ export async function measurePage(browser: Browser, opts: FrameRunOptions): Prom
       apis: sample.apis,
       firstFrameMs: first === null ? null : Math.round(first),
       settledMs,
-      frames: { n: s.n, fps: s.mean > 0 ? Math.round((1000 / s.mean) * 10) / 10 : 0, p50: s.p50, p95: s.p95, p99: s.p99, mean: s.mean, max: s.max, histogram: histogram(sample.frames) },
+      frames: { n: s.n, fps: s.mean > 0 ? Math.round((1000 / s.mean) * 10) / 10 : 0, p50: s.p50, p95: s.p95, p99: s.p99, mean: s.mean, max: s.max, histogram: histogram(sample.frames), long: sample.frames.filter((f) => f > LONG_FRAME_MS).length, missed: sample.frames.filter((f) => f > LONG_FRAME_MS * 1.5).length },
       draws: summarize(sample.frameDraws),
       tris: summarize(sample.frameTris),
       mainThread: { taskMsPerFrame: Math.round((taskMs / nFrames) * 100) / 100, busyShare: Math.round((taskMs / Math.max(1, wall)) * 1000) / 1000 },

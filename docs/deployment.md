@@ -5212,7 +5212,11 @@ area and the terrain around it are dressed alike.
   condition fades past its ends; a place is kept with the probability its
   conditions give, and where no kept place of the rule within the spacing
   ranks higher. Copies stand on the highest top of a block layer's column
-  or on the terrain's surface.
+  or on the terrain's surface. Two more fields: `collide` (**Collides**:
+  each copy carries its model's `_COL` colliders in the game, see below) and
+  `impostorSize` (**Impostor below**: far copies smaller on screen than this
+  share of the view's height draw as an impostor, see below; empty: their
+  meshes all the way).
 - **Stored copies**: a terrain bakes each tile's copies into a blob of its own
   (`tiles[].scatter`), a block layer into each chunk (`scatter`, written
   with the chunk's file). **Apply** (MCP `editTerrain bake {scatter}`; on a
@@ -5250,13 +5254,63 @@ area and the terrain around it are dressed alike.
   are one instance set, 2,048 m chunks by default (`chunkSize`), each copy
   at its own level of detail (`lodPerCopy`, default on for scatter) and
   culled one by one inside its draw — a few draws per rule for a whole
-  landscape. A re-bake rebuilds only its square, a rule a frame. Density
-  falloff and levels of detail work as for instance sets. Play and an
-  export ship the tiles' scatter blobs with the tiles.
+  landscape. A re-bake makes only its square's sets again: their arithmetic
+  (every copy's matrix, the bounds, the level inputs) on a worker, the draws
+  on the page within 4 ms a frame, the old set drawn until the new one is
+  in, so a re-bake never stalls a frame (a 2,048 m square of 16,000 copies:
+  about 9 ms on the worker, 3.5 ms on the page). Density falloff and levels
+  of detail work as for instance sets. Play and an export ship the tiles'
+  scatter blobs with the tiles.
+- **Far copies as impostors** (`impostorSize`, a screen size as the
+  density falloff's: 0.03 is a good start for trees): a copy smaller on
+  screen than that draws one camera-facing quad showing the model from the
+  side it is seen from instead of its meshes — two triangles. The page bakes
+  each model once, when a rule first asks for it: its most detailed meshes,
+  in the project's materials, drawn from 64 directions over the upper half
+  into a 1024² atlas of colour and normal (both renderers; about 10-25 ms
+  once, 11 MB of GPU memory per model). The quad blends the three nearest
+  directions and is lit by the atlas's normals (the meshes' surface normals:
+  normal maps are below a far copy's pixels). It casts no shadow. Measured
+  with the landscape perf class (`--impostors 0.03`): 542k → 452k triangles
+  a frame, GPU 15.2 → 14.6 ms, no more draws; a merged mesh per tile (HLOD)
+  would keep at least the coarsest level's triangles and add draws.
 - `?scatter=off` on a game page draws no scatter (to measure what it
   costs); the adapter's diagnostics carry `scatter` (sources, cells,
-  groups, sets, copies, bytes, build ms) and `cover` (squares, sets,
-  copies, mean worker ms).
+  groups, sets, copies, bytes, sets being prepared, worker and page ms,
+  hidden and removed copies, `impostors`: baked, bytes, the longest bake)
+  and `cover` (squares, sets, copies, mean worker ms); the simulation's
+  carry `scatterCopies` (copies held, colliders, hidden, removed, the last
+  build's time).
+
+### Scatter copies in the game (`ctx.scatter`)
+
+Every stored copy has an address, `<object>#scatter:<rule>:<ix>,<iz>` (its
+terrain or block layer, its rule and candidate cell), the same through
+every bake that keeps it. A script finds and changes copies by it; what that
+means (felling a tree, picking a flower, a fence that breaks) is the game's.
+
+- `ctx.scatter.near(position, radius, {rule?, source?, hidden?, limit?})`:
+  the copies within `radius` m across the ground, nearest first (default
+  64, at most 1,024 a call), each `{address, source, rule, cell, position,
+  rotation, scale, hidden}`; `get(address)` one copy.
+- `hide(address)` / `show(address)`: not drawn and no collider until shown
+  again (the renderer shrinks the copy to nothing in place: cheap, any
+  number); `remove(address)`: gone for the run (its square's sets are made
+  again on the worker). A new run brings every copy back. `changed()` lists
+  the copies hidden or removed this run — a game that keeps felled trees
+  keeps that list in its own save and puts it back with `hide`/`remove`.
+- **Colliders**: the copies of a rule with `collide` each carry their
+  model's `_COL` parts (the same as an object's `{type: "model"}` collider;
+  a model without `_COL` gives none), one static collider per copy at its
+  place, turn and size, added and removed in batches with the terrain's and
+  block layers' colliders. Its id is the copy's address: a ray that hits one
+  reports its object and `scatter: address` (`ctx.physics.raycast3d`,
+  `pickAt`), so a script can name the tree the player aims at. Every tile
+  and chunk has them for now; tile streaming will keep them within its
+  collision ring.
+- The page reads and decodes a terrain's scatter blobs and hands them to the
+  simulation (which never touches the network); a block layer's copies come
+  with its chunks.
 
 ### Foliage best practice (the foliage policy)
 
@@ -5289,7 +5343,10 @@ copies and ground cover; `level --classes landscape` against `--foliage
 off`): 542k against 641k triangles a frame, the moving shadow pass 0.26
 against 0.38 ms a frame and a redraw of the cached static map 0.81 against
 1.69 ms; all scatter and cover together cost 2.7 ms of GPU time and about 50
-draws (WebGPU).
+draws (WebGPU). With the camera flying a 60 s loop over the class 6 m above
+the ground (`level --classes landscape --flight`, at the display's 60 Hz,
+scripts hiding and removing copies on the way): no refresh missed on either
+renderer, the page's main thread 5.6-5.9 ms a frame.
 
 ## Sockets (objects on model nodes)
 

@@ -116,6 +116,7 @@ import { pageAudio } from './page-audio';
 import { mipPartsOf } from './asset-reader';
 import { withBlockChunkData } from './block-chunk-data';
 import { feedTerrainCollision, preloadTerrainTiles } from './terrain-tiles';
+import { PageScatterBlobs } from './scatter-blobs';
 import { composeOverlay } from './overlay-capture';
 import { statsOverlayModeOf } from './stats-overlay';
 
@@ -783,6 +784,9 @@ export async function startGamePage(o: GamePageOptions): Promise<GamePageHandle>
     const terrainDrawn = terrainFromUrl(pageSearch());
     // A tile that cannot be read is reported by the renderer (and has no collider); the game still starts.
     await preloadTerrainTiles(snapshot.scene.entities, terrainTiles, terrainDrawn).catch((e: unknown) => console.warn(`terrain tiles: ${e instanceof Error ? e.message : String(e)}`));
+    // The terrains' stored scatter for the simulation (the copies scripts name, their colliders), read before it starts.
+    const scatterBlobs = new PageScatterBlobs(readBuffer ?? null);
+    await scatterBlobs.preload(snapshot.scene.entities);
     const models = buildModelsBlock(manifest, snapshot, assetReader, o.read, content);
 
     let remote: RemoteSimulation | null = null;
@@ -1004,7 +1008,7 @@ export async function startGamePage(o: GamePageOptions): Promise<GamePageHandle>
     if (!mount.ok) throw new GamePageError('play_content_not_ready', 'manifest', `host mount failed: ${JSON.stringify(mount.error)}`);
     // The simulation's terrain colliders: the tiles decoded so far, then each one as it arrives (a scene loaded later).
     const simulation = host.runtime;
-    if (simulation?.addTerrainTiles !== undefined) releases.push(feedTerrainCollision(terrainTiles, (t) => simulation.addTerrainTiles!(t)));
+    if (simulation?.addTerrainTiles !== undefined) releases.push(feedTerrainCollision(terrainTiles, (t) => simulation.addTerrainTiles!(t)), scatterBlobs.feed((b) => simulation.addTerrainTiles!(b)));
     // The page's ?frameRateCap= flag pins the pacing whatever the game sets (measurements run uncapped).
     const pinnedCap = frameRateCapFromUrl(pageSearch());
     if (pinnedCap !== undefined) host.runtime?.pinFrameRateCap?.(pinnedCap);
@@ -1013,7 +1017,7 @@ export async function startGamePage(o: GamePageOptions): Promise<GamePageHandle>
       pageScenePreparation({
         adapter: () => adapterRef.current,
         // Its terrains' tiles before the simulation gets it (their colliders on its first step there).
-        terrain: (entities) => preloadTerrainTiles(entities, terrainTiles, terrainDrawn).catch((e: unknown) => console.warn(`terrain tiles: ${e instanceof Error ? e.message : String(e)}`)),
+        terrain: (entities) => Promise.all([preloadTerrainTiles(entities, terrainTiles, terrainDrawn).catch((e: unknown) => console.warn(`terrain tiles: ${e instanceof Error ? e.message : String(e)}`)), scatterBlobs.preload(entities)]).then(() => undefined),
         reader: assetReader,
         catalog: content.catalog,
         resources,

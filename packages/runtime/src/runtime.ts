@@ -19,7 +19,7 @@
  *   action sampling and fail-stop with no rollback.
  */
 import { RuntimeGrid, type GridCutawayState, type GridRenderChange } from './grid';
-import type { TerrainTileData } from './terrain-collision';
+import type { TerrainSimData } from './scatter-copies';
 import { fail, isPhysicsPort, isPlainObject, parseConfig, PHYSICS_PORT_REASON } from './runtime-config';
 import { RuntimeMaterials, type MaterialRenderChange, type RuntimeMaterialCatalog } from './material-params';
 import { MAX_FRAME_ASSET_ANSWERS, RuntimeAssetHandles, validateAssetAnswers, type AssetHandleAnswer, type AssetHandleRequest } from './asset-handles';
@@ -1275,7 +1275,7 @@ class RuntimeInstance implements Runtime {
     });
     this.spawnControl = this.spawnRequests.control();
     // The start scenes' block layers; in 3D their chunks collide (a 2D plane draws them only).
-    this.grid = new RuntimeGrid(args.blockTypes, args.cellFields, args.physics3d !== undefined, args.settings.max_slope_climb_deg, args.materialIds, this.prefabs);
+    this.grid = new RuntimeGrid(args.blockTypes, args.cellFields, args.physics3d !== undefined, args.settings.max_slope_climb_deg, args.materialIds, this.prefabs, args.modelColliders);
     this.grid.addLayers(args.initialEntities);
     this.grid.flushCollision(args.physics3d);
     // The start set's graph materials (the values scripts set per object).
@@ -1464,9 +1464,9 @@ class RuntimeInstance implements Runtime {
     return this.grid.takeRenderChanges();
   }
 
-  /** Terrain tiles decoded on the page (by digest): their terrains' colliders are built now (between steps). */
-  addTerrainTiles(tiles: readonly TerrainTileData[]): void {
-    this.grid.terrain.addTiles(tiles);
+  /** Terrain tiles and scatter blobs decoded on the page (by digest): their colliders are built now (between steps). */
+  addTerrainTiles(tiles: readonly TerrainSimData[]): void {
+    this.grid.addTerrainData(tiles);
     this.grid.flushCollision(this.physics3d);
   }
 
@@ -3943,8 +3943,8 @@ class RuntimeInstance implements Runtime {
       // Debug commands (this phase's calls; the behavior host adds the handler).
       const debugCommands = this.debugCommands;
       fields['debug'] = { value: Object.freeze({ command: (name: string, options?: DebugCommandOptions) => debugCommands.declare(name, options, phase === 'intent') }), enumerable: true };
-      // The block layers.
-      fields['grid'] = { value: this.grid.api, enumerable: true };
+      // The block layers, and the terrains' and layers' scatter copies.
+      Object.assign(fields, { grid: { value: this.grid.api, enumerable: true }, scatter: { value: this.grid.scatter.api, enumerable: true } });
       // Graph-material parameters per object.
       fields['materials'] = { value: this.materials.api, enumerable: true };
       // Generic component access (the behavior host names the writing script) and the shell's scene list.
@@ -4391,13 +4391,9 @@ class RuntimeInstance implements Runtime {
     if (hit === null) return null;
     const p = hit.point ?? { x: origin[0]! + u[0]! * hit.distance, y: origin[1]! + u[1]! * hit.distance, z: origin[2]! + u[2]! * hit.distance };
     const entityId = colliderEntityOf(hit.entityId);
-    // A block layer's chunk: the layer, and the cell just inside the surface the ray hit (1 mm behind it).
-    let cell: [number, number, number] | undefined;
-    if (entityId !== hit.entityId) {
-      const c = this.grid.api.worldToCell(entityId, [p.x - hit.normal.x * 1e-3, p.y - hit.normal.y * 1e-3, p.z - hit.normal.z * 1e-3]);
-      if (c !== null) cell = [c.x, c.y, c.z];
-    }
-    return Object.freeze({ entityId, point: [p.x, p.y, p.z], normal: [hit.normal.x, hit.normal.y, hit.normal.z], distance: hit.distance, ...(cell !== undefined ? { cell } : {}) }) as PhysicsHit;
+    // A block layer's chunk: the layer, and the cell just inside the surface the ray hit (1 mm behind it); a scatter copy: its address.
+    const detail = entityId !== hit.entityId ? this.grid.hitDetail(entityId, hit.entityId, [p.x - hit.normal.x * 1e-3, p.y - hit.normal.y * 1e-3, p.z - hit.normal.z * 1e-3]) : {};
+    return Object.freeze({ entityId, point: [p.x, p.y, p.z], normal: [hit.normal.x, hit.normal.y, hit.normal.z], distance: hit.distance, ...detail }) as PhysicsHit;
   }
 
   /** A filtered 3D overlap (sorted ids, at most 64). */
@@ -4596,8 +4592,8 @@ class RuntimeInstance implements Runtime {
     const ea = this.entityAccess;
     if (ea.applied + ea.refused + ea.conflicts > 0) m2.entityWrites = { applied: ea.applied, refused: ea.refused, conflicts: ea.conflicts, inactive: ea.inactive().size };
     // Script messages refused at the per-step limit (only once one was: the warning); block layers' memory (with layers).
-    const queue = this.blocks?.messageQueueView() ?? null, blockMemory = this.grid.memory(), terrainMemory = this.grid.terrain.memory();
-    Object.assign(m2, queue !== null ? { messageQueue: queue } : {}, blockMemory !== null ? { blockMemory } : {}, terrainMemory !== null ? { terrainMemory } : {});
+    const queue = this.blocks?.messageQueueView() ?? null, blockMemory = this.grid.memory(), terrainMemory = this.grid.terrain.memory(), scatterCopies = this.grid.scatter.diagnostics();
+    Object.assign(m2, queue !== null ? { messageQueue: queue } : {}, blockMemory !== null ? { blockMemory } : {}, terrainMemory !== null ? { terrainMemory } : {}, scatterCopies !== null ? { scatterCopies } : {});
     if (this.failedModuleId !== undefined) m2.failedModuleId = this.failedModuleId;
     if (this.failedPhase !== undefined) m2.failedPhase = this.failedPhase;
     if (this.failedStepIndex !== undefined) m2.failedStepIndex = this.failedStepIndex;

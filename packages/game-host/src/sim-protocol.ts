@@ -125,8 +125,8 @@ export type SimCommand =
   | { readonly op: 'assetAnswer'; readonly answer: import('@thirdlight/runtime').AssetHandleAnswer }
   // The player's save from the game shell (made in the worker now, between steps).
   | { readonly op: 'requestSave'; readonly slot: number; readonly meta?: import('@thirdlight/runtime').SaveMeta }
-  /** Terrain tiles decoded on the page (heights and holes, by digest): the worker's runtime builds their colliders between steps. */
-  | { readonly op: 'terrainTiles'; readonly tiles: readonly import('@thirdlight/runtime').TerrainTileData[] }
+  /** Terrain tiles (heights and holes) and scatter blobs decoded on the page, by digest: the worker's runtime builds their colliders between steps. */
+  | { readonly op: 'terrainTiles'; readonly tiles: readonly import('@thirdlight/runtime').TerrainSimData[] }
   /** A UI event, queued in the worker's runtime for its next sampled frame. */
   | { readonly op: 'uiEvent'; readonly event: UiEventRecord }
   /** A dialogue input, queued in the worker's runtime for its next sampled frame. */

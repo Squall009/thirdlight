@@ -23,6 +23,7 @@ import * as THREE from 'three';
 import { attribute, Fn, mat4, normalLocal, positionLocal, positionPrevious, transformNormal, type vec3 } from 'three/tsl';
 import { NodeMaterial, type NodeBuilder } from 'three/webgpu';
 import { disposeSharingGeometry } from './dispose';
+import { instanceSphereBounds } from './instance-prepare';
 import { maxScaleOf, SphereSide, STATIC_SHADOW_CAMERA_KEY, VIEW_CULL_KEY, type CullView, type ViewCullable } from './view-cull';
 
 /** The name prefix of the four instance-matrix columns (`…0` to `…3`, `vec4` each). */
@@ -134,8 +135,12 @@ export interface AttributeInstancedMesh extends ViewCullable {
   readonly inView: number;
   /** Instances any other pass draws (a shadow map): those the filter keeps (`count` without one). */
   readonly included: number;
-  /** Upload the matrices, draw `count` instances and refit the bounds (for culling). */
-  markChanged(): void;
+  /**
+   * Upload the matrices, draw `count` instances and refit the bounds (for
+   * culling); `bounds` (centre xyz, radius; radius < 0: empty) when they are
+   * known already (made on a worker, or unchanged).
+   */
+  markChanged(bounds?: ArrayLike<number>): void;
   /** Instance `i`'s matrix (mesh space). */
   getMatrixAt(i: number, out: THREE.Matrix4): THREE.Matrix4;
   /**
@@ -145,15 +150,61 @@ export interface AttributeInstancedMesh extends ViewCullable {
   dispose(): void;
 }
 
+/**
+ * Slots per culling block: a block's sphere is tested first and decides its
+ * slots when it is wholly in or out of view (a large set's slots are in
+ * spatial order, `instance-prepare.ts`, so its blocks are compact).
+ */
+export const CULL_BLOCK = 64;
+/** Instances put in order exactly up to this many; past it by depth buckets (front to back closely enough, in linear time). */
+const SORT_EXACT_MAX = 512;
+const DEPTH_BUCKETS = 256;
+const bucketCounts = new Uint32Array(DEPTH_BUCKETS + 1);
+
+/** Put the first `k` slots of `order` nearest first by `depths` (see {@link SORT_EXACT_MAX}). */
+export function orderByDepth(order: Uint32Array, k: number, depths: Float32Array, scratch: Uint32Array): void {
+  if (k <= SORT_EXACT_MAX) {
+    order.subarray(0, k).sort((a, b) => depths[a]! - depths[b]!);
+    return;
+  }
+  let lo = Infinity;
+  let hi = -Infinity;
+  for (let j = 0; j < k; j += 1) {
+    const d = depths[order[j]!]!;
+    if (d < lo) lo = d;
+    if (d > hi) hi = d;
+  }
+  if (!(hi > lo)) return;
+  const scale = (DEPTH_BUCKETS - 1) / (hi - lo);
+  bucketCounts.fill(0);
+  for (let j = 0; j < k; j += 1) bucketCounts[((depths[order[j]!]! - lo) * scale) | 0]! += 1;
+  // Each bucket's start, then the slots in, each bucket in slot order.
+  let at = 0;
+  for (let b = 0; b < DEPTH_BUCKETS; b += 1) {
+    const c = bucketCounts[b]!;
+    bucketCounts[b] = at;
+    at += c;
+  }
+  for (let j = 0; j < k; j += 1) {
+    const i = order[j]!;
+    const b = ((depths[i]! - lo) * scale) | 0;
+    scratch[bucketCounts[b]!] = i;
+    bucketCounts[b]! += 1;
+  }
+  order.set(scratch.subarray(0, k));
+}
+
 const tmpMatrix = new THREE.Matrix4();
-const tmpSphere = new THREE.Sphere();
+const tmpCenter = new THREE.Vector3();
+const sphereSource = new Float64Array(4);
+const sphereOut = new Float64Array(4);
 
 /**
  * A mesh drawing `capacity` instances of `source` with `material` through
  * instance-matrix columns. The source geometry's attributes, index, groups
  * and draw range are shared, not copied.
  */
-export function createAttributeInstancedMesh(source: THREE.BufferGeometry, material: THREE.Material, capacity: number, options: { readonly raycast?: boolean; readonly filter?: InstanceFilter; readonly group?: ViewCullable } = {}): AttributeInstancedMesh {
+export function createAttributeInstancedMesh(source: THREE.BufferGeometry, material: THREE.Material, capacity: number, options: { readonly raycast?: boolean; readonly filter?: InstanceFilter; readonly group?: ViewCullable; /** The slots' matrices, written already (`capacity × 16`; taken, not copied). */ readonly matrices?: Float32Array } = {}): AttributeInstancedMesh {
   const filter = options.filter;
   installAttributeInstancing();
   const geometry = new THREE.InstancedBufferGeometry();
@@ -162,7 +213,7 @@ export function createAttributeInstancedMesh(source: THREE.BufferGeometry, mater
   if (source.index !== null) geometry.setIndex(source.index);
   for (const g of source.groups) geometry.addGroup(g.start, g.count, g.materialIndex);
   geometry.setDrawRange(source.drawRange.start, source.drawRange.count);
-  const array = new Float32Array(capacity * 16);
+  const array = options.matrices !== undefined && options.matrices.length >= capacity * 16 ? options.matrices : new Float32Array(capacity * 16);
   // What the GPU reads: the same matrices, those the view sees first (`array` keeps its slots for writers).
   const drawn = new Float32Array(capacity * 16);
   // Static usage: three's WebGPURenderer uploads a dynamic-usage buffer on every draw whatever its version
@@ -194,6 +245,10 @@ export function createAttributeInstancedMesh(source: THREE.BufferGeometry, mater
   const world = new Float64Array(16);
   /** Each instance's world sphere (centre xyz, radius), and whether the matrices or the world moved since. */
   const spheres = new Float32Array(capacity * 4);
+  /** Each block of {@link CULL_BLOCK} slots' sphere (world), and its side of the view in the current cull (-1: not tested yet). */
+  const blocks = new Float32Array(Math.ceil(capacity / CULL_BLOCK) * 4);
+  const blockSides = new Int8Array(Math.ceil(capacity / CULL_BLOCK));
+  const sortScratch = new Uint32Array(capacity);
   /** The drawn order (slots), and each slot's depth in the view when it was put in order. */
   const order = new Uint32Array(capacity);
   const depths = new Float32Array(capacity);
@@ -219,19 +274,35 @@ export function createAttributeInstancedMesh(source: THREE.BufferGeometry, mater
    * Write the drawn buffer in `order`: its first `drawnCount` slots, or only those drawn at all where no pass
    * draws the others (a filter not drawn whole in the cached static shadow map).
    */
+  /**
+   * Whether the drawn buffer holds every instance, those the filter leaves out
+   * last: only where a cached static shadow map draws the whole group (its
+   * filter's first level, a mesh that casts). Else the rest are never
+   * written, nor uploaded.
+   */
+  const holdsAll = (): boolean => filter === undefined || (filter.full && mesh.castShadow);
+  /** What the drawn buffer held when it was last written. */
+  let wroteAll = false;
   const writeOrder = (): void => {
-    const len = filter !== undefined && !filter.full ? includedCount : drawnCount;
+    wroteAll = holdsAll();
+    const len = wroteAll ? drawnCount : includedCount;
+    // Sixteen floats a copy by hand: a view of each slot would be an allocation per copy per cull.
     for (let at = 0; at < len; at += 1) {
-      const i = order[at]!;
-      drawn.set(array.subarray(i * 16, i * 16 + 16), at * 16);
+      const from = order[at]! * 16;
+      const to = at * 16;
+      for (let k = 0; k < 16; k += 1) drawn[to + k] = array[from + k]!;
     }
+    // Only what was written goes to the GPU (a large group's view moves every frame).
+    buffer.addUpdateRange(0, len * 16);
     buffer.needsUpdate = true;
   };
   const copySlotOrder = (): void => {
     if (filter === undefined) {
       drawn.set(array.subarray(0, drawnCount * 16));
+      buffer.addUpdateRange(0, drawnCount * 16);
       buffer.needsUpdate = true;
       includedCount = drawnCount;
+      wroteAll = true;
       return;
     }
     // Not culled yet: the filter's last decisions, those it keeps first.
@@ -246,14 +317,14 @@ export function createAttributeInstancedMesh(source: THREE.BufferGeometry, mater
       seen[i] = 2;
     }
     includedCount = k;
-    if (filter.full) for (let i = 0; i < drawnCount; i += 1) if (seen[i] === 0) order[k++] = i;
+    if (holdsAll()) for (let i = 0; i < drawnCount; i += 1) if (seen[i] === 0) order[k++] = i;
     writeOrder();
     showIfDrawn();
   };
   // Per pass: the view draws those in view, any other camera (a shadow map) all that are drawn.
   mesh.onBeforeRender = (_r, _s, camera) => {
     if (culledFor !== null && culledStamp === culledFor.stamp && culledFor.is(camera)) geometry.instanceCount = inView;
-    else if (filter !== undefined && camera.userData[STATIC_SHADOW_CAMERA_KEY] === true) geometry.instanceCount = filter.full ? drawnCount : 0;
+    else if (filter !== undefined && camera.userData[STATIC_SHADOW_CAMERA_KEY] === true) geometry.instanceCount = filter.full && wroteAll ? drawnCount : 0;
     else geometry.instanceCount = includedCount;
   };
   /**
@@ -332,10 +403,30 @@ export function createAttributeInstancedMesh(source: THREE.BufferGeometry, mater
           spheres[i * 4 + 2] = w[2]! * lx + w[6]! * ly + w[10]! * lz + w[14]!;
           spheres[i * 4 + 3] = src.radius * maxScaleOf(array, o) * ws;
         }
+        // Each block of slots' sphere: around its instances' centres, grown by the largest of their radii.
+        for (let b = 0; b * CULL_BLOCK < n; b += 1) {
+          let x0 = Infinity, y0 = Infinity, z0 = Infinity, x1 = -Infinity, y1 = -Infinity, z1 = -Infinity, r = 0;
+          for (let i = b * CULL_BLOCK; i < Math.min(n, (b + 1) * CULL_BLOCK); i += 1) {
+            const x = spheres[i * 4]!, y = spheres[i * 4 + 1]!, z = spheres[i * 4 + 2]!;
+            if (x < x0) x0 = x;
+            if (x > x1) x1 = x;
+            if (y < y0) y0 = y;
+            if (y > y1) y1 = y;
+            if (z < z0) z0 = z;
+            if (z > z1) z1 = z;
+            if (spheres[i * 4 + 3]! > r) r = spheres[i * 4 + 3]!;
+          }
+          blocks[b * 4] = (x0 + x1) / 2;
+          blocks[b * 4 + 1] = (y0 + y1) / 2;
+          blocks[b * 4 + 2] = (z0 + z1) / 2;
+          blocks[b * 4 + 3] = Math.hypot(x1 - x0, y1 - y0, z1 - z0) / 2 + r;
+        }
         spheresStale = false;
       }
+      // A block wholly in or out of view decides its instances without a test each (worked out when first needed).
+      blockSides.fill(-1);
       // Not culled since the matrices changed: the order is the slots', whatever was seen before.
-      let changed = wasFor === null;
+      let changed = wasFor === null || holdsAll() !== wroteAll;
       let count = 0;
       // The slots drawn at all: every one, or the filter's list (a draw of one level loops over its own copies only).
       const slots = filter !== undefined ? filter.slots() : null;
@@ -345,9 +436,16 @@ export function createAttributeInstancedMesh(source: THREE.BufferGeometry, mater
         changed = true;
       }
       if (slots !== null) while (m > 0 && slots[m - 1]! >= n) m -= 1;
+      const blockSide = (i: number): number => {
+        const b = Math.floor(i / CULL_BLOCK);
+        let s = blockSides[b]!;
+        if (s < 0) blockSides[b] = s = view.side(blocks[b * 4]!, blocks[b * 4 + 1]!, blocks[b * 4 + 2]!, blocks[b * 4 + 3]!);
+        return s;
+      };
       for (let j = 0; j < m; j += 1) {
         const i = slots !== null ? slots[j]! : j;
-        const v = side === SphereSide.Outside ? 2 : side === SphereSide.Inside || view.side(spheres[i * 4]!, spheres[i * 4 + 1]!, spheres[i * 4 + 2]!, spheres[i * 4 + 3]!) !== SphereSide.Outside ? 1 : 2;
+        const bs = side === SphereSide.Crossing ? blockSide(i) : side;
+        const v = bs === SphereSide.Outside ? 2 : bs === SphereSide.Inside || view.side(spheres[i * 4]!, spheres[i * 4 + 1]!, spheres[i * 4 + 2]!, spheres[i * 4 + 3]!) !== SphereSide.Outside ? 1 : 2;
         if (seen[i] !== v) {
           seen[i] = v;
           changed = true;
@@ -367,19 +465,19 @@ export function createAttributeInstancedMesh(source: THREE.BufferGeometry, mater
         depths[i] = view.depth(spheres[i * 4]!, spheres[i * 4 + 1]!, spheres[i * 4 + 2]!);
         k += 1;
       }
-      order.subarray(0, k).sort((a, b) => depths[a]! - depths[b]!);
+      orderByDepth(order, k, depths, sortScratch);
       for (let j = 0; j < m; j += 1) {
         const i = slots !== null ? slots[j]! : j;
         if (seen[i] === 2) order[k++] = i;
       }
       includedCount = k;
-      if (filter === undefined || filter.full) for (let i = 0; i < n; i += 1) if (seen[i] === 0) order[k++] = i;
+      if (holdsAll()) for (let i = 0; i < n; i += 1) if (seen[i] === 0) order[k++] = i;
       writeOrder();
       showIfDrawn();
       sortAt(count > 0 ? order[0]! : -1);
       return true;
     },
-    markChanged() {
+    markChanged(known) {
       const n = Math.max(0, Math.min(capacity, handle.count));
       geometry.instanceCount = n;
       drawnCount = n;
@@ -389,11 +487,15 @@ export function createAttributeInstancedMesh(source: THREE.BufferGeometry, mater
       spheresStale = true;
       // The bounds of every instance (three culls the mesh by its geometry's sphere).
       const src = source.boundingSphere!;
-      bounds.makeEmpty();
-      for (let i = 0; i < n; i += 1) {
-        tmpMatrix.fromArray(array, i * 16);
-        bounds.union(tmpSphere.copy(src).applyMatrix4(tmpMatrix));
-      }
+      if (known === undefined) {
+        sphereSource[0] = src.center.x;
+        sphereSource[1] = src.center.y;
+        sphereSource[2] = src.center.z;
+        sphereSource[3] = src.radius;
+        instanceSphereBounds(array, n, sphereSource, sphereOut);
+      } else for (let k = 0; k < 4; k += 1) sphereOut[k] = known[k]!;
+      if (sphereOut[3]! < 0) bounds.makeEmpty();
+      else bounds.set(tmpCenter.set(sphereOut[0]!, sphereOut[1]!, sphereOut[2]!), sphereOut[3]!);
       geometry.boundingSphere!.copy(bounds);
       // The box around that sphere (bounds of the whole group; conservative, like the sphere).
       if (bounds.isEmpty()) geometry.boundingBox!.makeEmpty();

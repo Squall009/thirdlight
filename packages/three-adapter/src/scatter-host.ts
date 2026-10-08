@@ -4,8 +4,10 @@
  * terrain views hand their sources to, which feeds both.
  */
 import type * as THREE from 'three';
+import type { WebGPURenderer } from 'three/webgpu';
 
 import type { MeshWorkerPort } from './block-mesh-pool';
+import { ImpostorStore } from './impostor';
 import { CoverView } from './cover-view';
 import type { LodTuning } from './lod-switch';
 import { ScatterView, type ScatterSink } from './scatter-view';
@@ -20,8 +22,13 @@ export interface ScatterHostDeps {
   place(root: THREE.Object3D, shown: boolean): void;
   shapeChanged(): void;
   tile(digest: string): TerrainTile | undefined;
+  /** Makes ground cover's worker. */
   worker?: () => MeshWorkerPort | null;
+  /** Makes the worker the stored copies' sets are prepared on. */
+  scatterWorker?: () => MeshWorkerPort | null;
   tuning: LodTuning;
+  /** The page's renderer the models' impostors are baked with (absent or null: none yet). */
+  renderer?: () => WebGPURenderer | null;
   changed(): void;
   /** False: no scatter is drawn (a diagnostic comparison). */
   drawn: boolean;
@@ -38,7 +45,9 @@ export interface ScatterHost {
 }
 
 export function createScatterHost(deps: ScatterHostDeps): ScatterHost {
-  const stored = new ScatterView({ template: deps.template, dress: deps.dress, read: deps.read, place: deps.place, shapeChanged: deps.shapeChanged, tuning: deps.tuning, changed: deps.changed });
+  // The models' impostors (far copies), baked with the page's renderer when a rule first asks for one.
+  const impostors = new ImpostorStore({ renderer: () => deps.renderer?.() ?? null, template: deps.template, dress: deps.dress });
+  const stored = new ScatterView({ template: deps.template, dress: deps.dress, read: deps.read, place: deps.place, shapeChanged: deps.shapeChanged, tuning: deps.tuning, changed: deps.changed, impostors, ...(deps.scatterWorker !== undefined ? { worker: deps.scatterWorker } : {}) });
   const cover = new CoverView({ template: deps.template, dress: deps.dress, place: deps.place, tile: deps.tile, ...(deps.worker !== undefined ? { worker: deps.worker } : {}), tuning: deps.tuning, changed: deps.changed });
   const sink: ScatterSink | undefined = !deps.drawn
     ? undefined
@@ -69,18 +78,21 @@ export function createScatterHost(deps: ScatterHostDeps): ScatterHost {
           cover.remove(id);
         },
         setTypes: (types) => cover.setTypes(types),
+        // Ground cover is never stored: only the stored copies have addresses scripts name.
+        setCopyStates: (changes) => stored.setCopyStates(changes),
       };
   return {
     stored,
     cover,
     sink,
     diagnostics(d): void {
-      if (stored.ids().length > 0) d.scatter = stored.diagnostics();
+      if (stored.ids().length > 0) d.scatter = { ...stored.diagnostics(), impostors: impostors.diagnostics() };
       if (cover.ids().length > 0) d.cover = cover.diagnostics();
     },
     dispose(): void {
       stored.dispose();
       cover.dispose();
+      impostors.dispose();
     },
   };
 }

@@ -4,7 +4,8 @@
  * slope, cavity and noise (the material rules' conditions), the share of a
  * material layer, and on a block layer its block types — no two closer
  * than the spacing, with a random scale and turn, kept off named regions.
- * Drawing settings: the shadow it casts, the collider each copy carries. A
+ * Drawing settings: the shadow it casts, the collider each copy carries, the
+ * screen size its far copies turn into impostors below. A
  * ground cover rule is never stored: it is made near the camera at run time.
  *
  * Rules are edited as a draft and applied in one step: a terrain bakes them
@@ -142,6 +143,11 @@ export function ScatterRulesEditor(p: Props): JSX.Element {
             ) : (
               <label title="Each copy carries its model's colliders (`_COL`) in the game.">
                 <input type="checkbox" aria-label={`${pre} collide`} checked={r.collide === true} onChange={(e) => field(i, 'collide', e.target.checked ? true : undefined)} /> Collides
+              </label>
+            )}
+            {r.cover !== true && (
+              <label title="Far copies smaller on screen than this (the share of the view's height the model covers) draw as an impostor: one quad baked from the model, two triangles instead of its meshes. Empty: the meshes all the way.">
+                Impostor below <input aria-label={`${pre} impostor size`} type="number" className="tl-blocks__num" min={SCATTER_LIMITS.impostorSize.min} max={SCATTER_LIMITS.impostorSize.max} step={0.005} value={r.impostorSize ?? ''} onChange={(e) => field(i, 'impostorSize', num(e.target.value) === undefined ? undefined : Math.max(SCATTER_LIMITS.impostorSize.min, Math.min(SCATTER_LIMITS.impostorSize.max, num(e.target.value)!)))} /> of the view
               </label>
             )}
             <span className="tl-inspector__modes">

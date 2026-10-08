@@ -70,13 +70,15 @@ import {
   type CellMetaValue,
   type EntityV3,
   type ModelErrorV2,
+  type ModelColliderTable,
   type PrefabDefinition,
 } from '@thirdlight/project-model';
 
 import { LiveBlocks, edgeKeyOf, type LiveBlockChanges } from './live-blocks';
 import { walkNeighboursQuery, walkPathQuery, walkReachQuery, type GridWalkOptions, type GridWalkPlace, type WalkGraphCache, type WalkLayer } from './grid-walk';
 import type { PhysicsPort3D, StaticColliderSpec3D } from './ports';
-import { TerrainColliders } from './terrain-collision';
+import { TerrainColliders, type TerrainTileData } from './terrain-collision';
+import { RuntimeScatter, type ScatterCopyChange, type TerrainScatterData, type TerrainSimData } from './scatter-copies';
 
 // ---- the script API types (public: `ctx.grid`) -------------------------------------
 
@@ -456,8 +458,8 @@ export interface GridKitChange {
   readonly kits: readonly BlockLayerKit[];
 }
 
-/** What the renderer follows: a chunk's cells, or a layer's kits. */
-export type GridRenderChange = GridChunkChange | GridKitChange;
+/** What the renderer follows: a chunk's cells, a layer's kits, or a scatter copy scripts hid, showed or removed. */
+export type GridRenderChange = GridChunkChange | GridKitChange | ScatterCopyChange;
 
 /** What scripts set for the layers' cut-aways (`setCutaway`, `setCutawaySubject`, `setCutawayPoint`); the renderer reads it. */
 export interface GridCutawayState {
@@ -546,7 +548,8 @@ export class RuntimeGrid {
   /** Walk graphs kept between queries, per grid as shown (a new grid or kit view starts afresh; `walkGraphFor`). */
   private readonly walkGraphs: WalkGraphCache = new WeakMap();
 
-  constructor(types: readonly BlockType[], fields: readonly CellField[], collide: boolean, defaultMaxSlope = 45, materialIds?: readonly string[], prefabs?: ReadonlyMap<string, PrefabDefinition>) {
+  constructor(types: readonly BlockType[], fields: readonly CellField[], collide: boolean, defaultMaxSlope = 45, materialIds?: readonly string[], prefabs?: ReadonlyMap<string, PrefabDefinition>, modelColliders?: ModelColliderTable) {
+    this.scatter = new RuntimeScatter(collide, modelColliders);
     this.materialIds = materialIds !== undefined ? new Set(materialIds) : null;
     this.types = new Map(types.map((t) => [t.blockId, t]));
     this.kitNames = new Set(blockKitNames(types));
@@ -610,9 +613,27 @@ export class RuntimeGrid {
 
   /** The terrains' colliders (flushed with the chunks', in the same batch points). */
   readonly terrain = new TerrainColliders();
+  /** The terrains' and layers' scatter copies (`ctx.scatter`; their colliders flushed with the chunks'). */
+  readonly scatter: RuntimeScatter;
+
+  /** Terrain data decoded on the page (by digest): tiles for their colliders, scatter blobs for their copies. */
+  addTerrainData(items: readonly TerrainSimData[]): void {
+    const tiles = items.filter((t): t is TerrainTileData => !('scatter' in t));
+    if (tiles.length > 0) this.terrain.addTiles(tiles);
+    if (tiles.length < items.length) this.scatter.addBlobs(items.filter((t): t is TerrainScatterData => 'scatter' in t));
+  }
+
+  /** A ray's hit on a collider that is not an object's own (`colliderId` names its object `entityId`): a layer's cell just inside the surface (`inside`: a point there), or a scatter copy's address. */
+  hitDetail(entityId: string, colliderId: string, inside: readonly [number, number, number]): { cell?: [number, number, number]; scatter?: string } {
+    const scatter = this.scatter.addressOfCollider(colliderId);
+    if (scatter !== undefined) return { scatter };
+    const c = this.api.worldToCell(entityId, inside);
+    return c !== null ? { cell: [c.x, c.y, c.z] } : {};
+  }
 
   /** The layers of entities that carry `blockLayer` (their cells from the resolved component's `data`), and their terrains; returns both's ids. */
   addLayers(entities: readonly EntityV3[]): string[] {
+    this.scatter.add(entities);
     const added: string[] = this.collide ? this.terrain.add(entities) : [];
     for (const e of entities) {
       const comp = (e.components as { blockLayer?: BlockLayerComponent & { data?: BlockLayerData } }).blockLayer;
@@ -633,7 +654,7 @@ export class RuntimeGrid {
 
   /** Forget unloaded layers; returns their collider ids (the caller removes them from the port). */
   removeLayers(ids: ReadonlySet<string>): string[] {
-    const colliders: string[] = this.terrain.remove(ids);
+    const colliders: string[] = [...this.terrain.remove(ids), ...this.scatter.remove(ids)];
     for (const id of ids) {
       const layer = this.layerMap.get(id);
       if (layer === undefined) continue;
@@ -668,6 +689,7 @@ export class RuntimeGrid {
    */
   reset(): string[] {
     const live = this.live?.restart() ?? [];
+    this.scatter.reset();
     for (const layer of this.layerMap.values()) {
       if (layer.touched.size === 0 && layer.touchedEdges.size === 0) continue;
       layer.grid = BlockGrid.from(layer.component, layer.authored);
@@ -884,6 +906,7 @@ export class RuntimeGrid {
   /** Rebuild the colliders of the chunks written since the last flush (batched: one remove, one add). */
   flushCollision(port: PhysicsPort3D | undefined): void {
     if (this.collide) this.terrain.flush(port);
+    this.scatter.flush(this.collide ? port : undefined);
     if (this.collisionDirty.size === 0) return;
     const dirty = this.collisionDirty;
     this.collisionDirty = new Map();
@@ -920,8 +943,9 @@ export class RuntimeGrid {
 
   /** The chunks to re-mesh since the last call, with their cells now. */
   takeRenderChanges(): GridRenderChange[] {
-    if (this.renderDirty.size === 0 && this.kitDirty.size === 0) return [];
-    const out: GridRenderChange[] = [];
+    const copies = this.scatter.takeChanges();
+    if (this.renderDirty.size === 0 && this.kitDirty.size === 0) return copies;
+    const out: GridRenderChange[] = [...copies];
     // A layer's kits first: its chunks below are meshed with them.
     for (const id of [...this.kitDirty].sort()) {
       const layer = this.layerMap.get(id);

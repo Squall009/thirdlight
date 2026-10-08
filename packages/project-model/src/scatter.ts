@@ -87,6 +87,14 @@ export interface ScatterRule extends RuleConditions {
   densityMin?: number;
   /** Drawing: each copy picks its own level of detail (absent: true for scatter, whose chunks are large). */
   lodPerCopy?: boolean;
+  /**
+   * Drawing: a copy smaller on screen than this (the share of the view's
+   * height its model covers, as the model's own levels switch: a larger copy
+   * switches that much farther) is an octahedral impostor — one quad showing
+   * the model from the side it is seen from, baked from the model once per
+   * page — instead of its meshes (absent: its meshes all the way).
+   */
+  impostorSize?: number;
   /** Each copy carries the colliders of its model's `_COL` (absent: false; not with `cover`). */
   collide?: boolean;
   /**
@@ -103,7 +111,7 @@ export interface ScatterRule extends RuleConditions {
 export const SCATTER_RULE_FIELDS: readonly string[] = Object.freeze([
   'id', 'asset', 'density', 'spacing', 'scale', 'yaw', 'align', 'sink', 'seed',
   'height', 'slope', 'cavity', 'noise', 'layers', 'blocks', 'meta', 'exclude',
-  'castShadow', 'shadowDistance', 'blobShadow', 'chunkSize', 'densityStart', 'densityEnd', 'densityMin', 'lodPerCopy', 'collide', 'cover', 'coverDistance',
+  'castShadow', 'shadowDistance', 'blobShadow', 'chunkSize', 'densityStart', 'densityEnd', 'densityMin', 'lodPerCopy', 'impostorSize', 'collide', 'cover', 'coverDistance',
 ]);
 
 /** Bounds of a rule's values (dimensions of a value, not counts). */
@@ -117,6 +125,8 @@ export const SCATTER_LIMITS = Object.freeze({
   coverDistance: Object.freeze({ min: 1, max: 1000 }),
   shadowDistance: Object.freeze({ min: 1, max: 10_000 }),
   blobShadow: Object.freeze({ min: 0.05, max: 100 }),
+  /** A screen size, as the density falloff's. */
+  impostorSize: Object.freeze({ min: INSTANCE_DENSITY_SIZE_MIN, max: 1 }),
 });
 
 /** How far (m) from the camera blob shadows are drawn (thinning out over the last part). */
@@ -204,6 +214,8 @@ export function validateScatterRules(value: unknown, path: string, errors: Model
     num('coverDistance', L.coverDistance.min, L.coverDistance.max, 'metres ground cover reaches from the camera');
     num('shadowDistance', L.shadowDistance.min, L.shadowDistance.max, 'metres from the camera the copies cast within');
     num('blobShadow', L.blobShadow.min, L.blobShadow.max, 'metres of the disc under each copy');
+    num('impostorSize', L.impostorSize.min, L.impostorSize.max, 'the screen size below which a copy is an impostor');
+    if (r['impostorSize'] !== undefined && r['cover'] === true) err(errors, 'field_unexpected', `${p}/impostorSize`, 'ground cover never draws far enough for impostors (it thins out near the camera)', r['impostorSize']);
     if (r['shadowDistance'] !== undefined && r['castShadow'] !== true) err(errors, 'field_unexpected', `${p}/shadowDistance`, 'shadowDistance belongs to a rule whose copies cast (castShadow: true)', r['shadowDistance']);
     if (r['cover'] === true && r['collide'] === true) err(errors, 'field_value', `${p}/collide`, 'ground cover carries no colliders (it is made near the camera, never stored)', true);
     if (r['coverDistance'] !== undefined && r['cover'] !== true) err(errors, 'field_unexpected', `${p}/coverDistance`, 'coverDistance belongs to a ground cover rule (cover: true)', r['coverDistance']);
@@ -261,6 +273,7 @@ export function canonicalScatterRules(rules: readonly ScatterRule[]): ScatterRul
     if (r.densityEnd !== undefined) out.densityEnd = r.densityEnd;
     if (r.densityMin !== undefined) out.densityMin = r.densityMin;
     if (r.lodPerCopy !== undefined) out.lodPerCopy = r.lodPerCopy;
+    if (r.impostorSize !== undefined) out.impostorSize = r.impostorSize;
     if (r.collide === true) out.collide = true;
     if (r.cover === true) out.cover = true;
     if (r.coverDistance !== undefined) out.coverDistance = r.coverDistance;

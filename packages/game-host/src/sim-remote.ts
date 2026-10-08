@@ -28,7 +28,7 @@
  * worker computes one frame per drawn frame. With `driver: 'manual'` (Node,
  * tests) `tick(now)` resolves once the frame is applied and `onFrame` ran.
  */
-import { debugCallRefusal, ENGINE_DEBUG_COMMANDS, FramePacer, frameRateCapOf, projectFrameRateCap, validateAssetAnswers, validateDebugCommandCall, validateSaveEvents, type AssetHandleAnswer, type SaveEvent, type TerrainTileData } from '@thirdlight/runtime';
+import { debugCallRefusal, ENGINE_DEBUG_COMMANDS, FramePacer, frameRateCapOf, projectFrameRateCap, validateAssetAnswers, validateDebugCommandCall, validateSaveEvents, type AssetHandleAnswer, type SaveEvent, type TerrainSimData } from '@thirdlight/runtime';
 import { cameraBlendOf, engineStatsOf, fixedStepHzOf, interpolateCameraPose, uiViewOf, validateDialogueInput, validateUiEvent, type DialogueInputRecord } from '@thirdlight/runtime';
 import type {
   UiEventRecord,
@@ -618,9 +618,9 @@ export function startRemoteSimulation(opts: RemoteSimulationOptions): Promise<Re
       return true;
     },
     pinFrameRateCap: (fps: unknown): boolean => !gone() && pacer.pinCap(fps),
-    // Only what collision reads (heights, holes), copied: the page keeps its tiles for drawing.
-    addTerrainTiles: (tiles: readonly TerrainTileData[]): void => {
-      if (!gone() && tiles.length > 0) command({ op: 'terrainTiles', tiles: tiles.map((t) => ({ digest: t.digest, samples: t.samples, heights: t.heights, holes: t.holes })) });
+    // Only what collision reads (heights, holes; a scatter blob's copies), copied: the page keeps its tiles for drawing.
+    addTerrainTiles: (tiles: readonly TerrainSimData[]): void => {
+      if (!gone() && tiles.length > 0) command({ op: 'terrainTiles', tiles: tiles.map((t) => ('scatter' in t ? { digest: t.digest, scatter: t.scatter } : { digest: t.digest, samples: t.samples, heights: t.heights, holes: t.holes })) });
     },
     framePacing: () => pacer.stats(),
     setStats: (stats: unknown): boolean => {

@@ -7,10 +7,12 @@ import * as THREE from 'three';
 import { describe, expect, it, vi } from 'vitest';
 
 import { INSTANCE_MATRIX_ATTRIBUTE, withEmptyInstanceDraws, type AttributeInstancedMesh } from './attribute-instancing';
-import { ChunkLodPicker, REPICK_MOVE_FRACTION } from './instance-lod';
+import { ChunkLodPicker, REPICK_MOVE_FRACTION, TAN_HALF_REFERENCE } from './instance-lod';
+import { hemiOctDecode, hemiOctEncode } from './impostor';
 import { LOD_CULL_LEVEL_KEY, LodTuning } from './lod-switch';
 import { CullView, STATIC_SHADOW_CAMERA_KEY, VIEW_CULL_KEY, ViewCuller } from './view-cull';
-import { buildInstanceSet, chunkCopies, INSTANCE_BUFFER_FLOATS, INSTANCE_CHUNK_COPIES, INSTANCE_MAX_CHUNKS, INSTANCE_MAX_SPATIAL_CHUNKS } from './instancing';
+import { buildInstanceSet, chunkCopies, instanceSetPlan, INSTANCE_BUFFER_FLOATS, INSTANCE_CHUNK_COPIES, INSTANCE_MAX_CHUNKS, INSTANCE_MAX_SPATIAL_CHUNKS } from './instancing';
+import { prepareInstanceSet } from './instance-prepare';
 import type { ModelInstance } from './visual';
 
 function copies(n: number, spread: number): Float32Array {
@@ -181,9 +183,18 @@ describe('instance chunks', () => {
     expect(stats.culled).toBe(5000 - expectNear - expectFar);
     // The first picks are no switches (nothing was drawn at another level yet).
     expect(tuning.copySwitches).toBe(0);
-    // A cached static shadow map (drawn rarely, kept) draws every copy at the detailed level whatever the view; a
-    // draw with no copy in any pass leaves three's walks.
+    // A cached static shadow map (drawn rarely, kept) draws every copy of a set that casts at the detailed level
+    // whatever the view; a draw with no copy in any pass leaves three's walks. A set that casts nothing never
+    // writes (nor uploads) the copies the view does not draw.
     const staticCam = new THREE.OrthographicCamera();
+    staticCam.userData[STATIC_SHADOW_CAMERA_KEY] = true;
+    {
+      const m = set.meshes.find((x) => draws(x, near) && (x.userData[VIEW_CULL_KEY] as AttributeInstancedMesh).included > 0)!;
+      m.onBeforeRender(null as never, null as never, staticCam, m.geometry, m.material as THREE.Material, null as never);
+      expect(countOf(m)).toBe(0);
+    }
+    for (const m of set.meshes) m.castShadow = true;
+    view(set, eye, [100, 0, 50.5]);
     staticCam.userData[STATIC_SHADOW_CAMERA_KEY] = true;
     const countFor = (m: THREE.Mesh, c: THREE.Camera): number => {
       m.onBeforeRender(null as never, null as never, c, m.geometry, m.material as THREE.Material, null as never);
@@ -369,5 +380,95 @@ describe('instance chunks', () => {
     set.dispose();
     expect(chunkDisposed).toBe(1);
     expect(modelGeometryDisposed).toBe(0);
+  });
+});
+
+describe('instance set arithmetic (the worker\'s and the page\'s)', () => {
+  it('equals three\'s compose × offset per copy, and three\'s sphere union per draw', () => {
+    // Turned, scaled copies of a model whose mesh sits off its origin, turned itself.
+    const root = new THREE.Group();
+    const mesh = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.5, 2, 7), new THREE.MeshBasicMaterial());
+    mesh.position.set(0.25, 1, -0.5);
+    mesh.quaternion.setFromEuler(new THREE.Euler(0.2, 0.7, -0.1));
+    root.add(mesh);
+    const n = 300;
+    const f = new Float32Array(n * INSTANCE_BUFFER_FLOATS);
+    for (let i = 0; i < n; i += 1) {
+      const q = new THREE.Quaternion().setFromEuler(new THREE.Euler(i * 0.01, i * 0.37, 0));
+      // Not quite unit: the build normalizes as three does.
+      f.set([i * 3.7, Math.sin(i) * 4, (i % 17) * 5.1, q.x * 1.001, q.y * 1.001, q.z * 1.001, q.w * 1.001, 1 + (i % 5) * 0.3, 1 + (i % 5) * 0.3, 1 + (i % 5) * 0.3], i * INSTANCE_BUFFER_FLOATS);
+    }
+    const template = { glbRoot: root } as unknown as ModelInstance;
+    const plan = instanceSetPlan(template, { chunkSize: 200 });
+    const prepared = prepareInstanceSet(f, n, plan.prepareParts, plan.prepareOptions);
+    expect(prepared.chunks.length).toBeGreaterThan(1);
+    root.updateMatrixWorld(true);
+    const local = new THREE.Matrix4().copy(root.matrixWorld).invert().multiply(mesh.matrixWorld);
+    const expected = new Float32Array(16);
+    for (const chunk of prepared.chunks) {
+      const center = new THREE.Vector3();
+      for (const i of chunk.copies) center.add(new THREE.Vector3(f[i * 10]!, f[i * 10 + 1]!, f[i * 10 + 2]!));
+      center.divideScalar(chunk.copies.length);
+      expect([...chunk.center]).toEqual([center.x, center.y, center.z]);
+      const sphere = new THREE.Sphere();
+      sphere.makeEmpty();
+      chunk.copies.forEach((i, slot) => {
+        const o = i * 10;
+        const place = new THREE.Matrix4().compose(new THREE.Vector3(f[o]! - center.x, f[o + 1]! - center.y, f[o + 2]! - center.z), new THREE.Quaternion(f[o + 3]!, f[o + 4]!, f[o + 5]!, f[o + 6]!).normalize(), new THREE.Vector3(f[o + 7]!, f[o + 8]!, f[o + 9]!));
+        new THREE.Matrix4().multiplyMatrices(place, local).toArray(expected);
+        expect([...chunk.matrices[0]!.subarray(slot * 16, slot * 16 + 16)]).toEqual([...expected]);
+        sphere.union(mesh.geometry.boundingSphere!.clone().applyMatrix4(new THREE.Matrix4().fromArray(chunk.matrices[0]!, slot * 16)));
+      });
+      expect([...chunk.bounds]).toEqual([sphere.center.x, sphere.center.y, sphere.center.z, sphere.radius]);
+    }
+    // A set built from the prepared arithmetic draws the same matrices as one built on the page.
+    const a = buildInstanceSet(template, f, n, 'a', { chunkSize: 200 });
+    const b = buildInstanceSet(template, f, n, 'b', { chunkSize: 200, prepared: prepareInstanceSet(f, n, plan.prepareParts, plan.prepareOptions) });
+    expect(a.meshes.map((m) => [...(m.userData[VIEW_CULL_KEY] as AttributeInstancedMesh).array])).toEqual(b.meshes.map((m) => [...(m.userData[VIEW_CULL_KEY] as AttributeInstancedMesh).array]));
+    a.dispose();
+    b.dispose();
+  });
+});
+
+describe('an impostor as a set\'s far level', () => {
+  const quad = (): THREE.Mesh => new THREE.Mesh(new THREE.PlaneGeometry(2, 2), new THREE.MeshBasicMaterial());
+
+  it('takes over below its screen size: the levels past it go, a cull level past it stays', () => {
+    const { template, near } = lodTemplate(400);
+    const plain = instanceSetPlan(template);
+    expect(plain.groups).toEqual([{ distances: [0, 30, 400], culls: true }]);
+    // Its distance: where the model's radius covers the size (as the model's own levels switch).
+    const at = (size: number): number => plain.radius / (TAN_HALF_REFERENCE * size);
+    const mesh = quad();
+    // Past the second level: both levels kept, the impostor third, then the cull.
+    const far = instanceSetPlan(template, { impostor: { mesh, size: plain.radius / (TAN_HALF_REFERENCE * 100) } });
+    expect(far.groups[0]!.distances.map(Math.round)).toEqual([0, 30, 100, 400]);
+    expect(far.parts.map((p) => [p.mesh === mesh ? 'impostor' : p.mesh.geometry === near ? 'near' : 'far', p.level])).toEqual([['near', 0], ['far', 1], ['impostor', 2]]);
+    // Before the second level: it goes.
+    const early = instanceSetPlan(template, { impostor: { mesh, size: plain.radius / (TAN_HALF_REFERENCE * 20) } });
+    expect(early.groups[0]!.distances.map(Math.round)).toEqual([0, 20, 400]);
+    expect(early.groups[0]!.culls).toBe(true);
+    expect(at(0.05)).toBeCloseTo(plain.radius / (TAN_HALF_REFERENCE * 0.05), 9);
+    expect(early.parts.map((p) => [p.mesh === mesh ? 'impostor' : p.mesh.geometry === near ? 'near' : 'far', p.level])).toEqual([['near', 0], ['impostor', 1]]);
+    // A model without levels: its meshes near, the impostor far.
+    const root = new THREE.Group();
+    root.add(new THREE.Mesh(new THREE.BoxGeometry(1, 2, 1), new THREE.MeshBasicMaterial()));
+    const single = instanceSetPlan({ glbRoot: root } as unknown as ModelInstance, { impostor: { mesh, size: 0.05 } });
+    expect(single.groups).toEqual([{ distances: [0, single.radius / (TAN_HALF_REFERENCE * 0.05)], culls: false }]);
+    expect(single.parts.map((p) => [p.lod, p.level])).toEqual([[0, 0], [0, 1]]);
+  });
+
+  it('the bake\'s directions and the draw\'s agree (the hemi-octahedral grid)', () => {
+    for (const [u, v] of [[0, 0], [1, 1], [0.3, 0.7], [0.5, 0.1], [1 / 7, 4 / 7]] as const) {
+      const d = hemiOctDecode(u, v);
+      expect(Math.hypot(...d)).toBeCloseTo(1, 6);
+      expect(d[1]).toBeGreaterThanOrEqual(0);
+      const [eu, ev] = hemiOctEncode(...d);
+      expect(eu).toBeCloseTo(u, 6);
+      expect(ev).toBeCloseTo(v, 6);
+    }
+    // Straight up is the middle; the edges are the horizon.
+    expect(hemiOctEncode(0, 1, 0)).toEqual([0.5, 0.5]);
+    expect(hemiOctDecode(1, 0.5)[1]).toBeCloseTo(0, 6);
   });
 });

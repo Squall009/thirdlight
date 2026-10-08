@@ -231,6 +231,8 @@ export interface PhysicsHit {
    * [x, y, z] in `ctx.grid` coordinates — the cell just inside the surface.
    */
   cell?: [number, number, number];
+  /** A scatter copy's address when the ray hit one (then `entityId` is the terrain or layer it stands on; `ctx.scatter` takes it). */
+  scatter?: string;
 }
 
 /** The result of a spawn clearance probe/reset placement. */

@@ -74,6 +74,7 @@ import {
   type BlockType,
   type ChunkMeshPart,
   type GridRenderChange,
+  type ScatterCopyChange,
 } from '@thirdlight/runtime';
 
 import { keepMetreUv, syncCellUv } from './block-cell-uv';
@@ -588,10 +589,13 @@ export class BlockLayerView {
   /** The simulation's chunk changes (the runtime's `takeGridChanges`). */
   applyRuntimeChanges(changes: readonly GridRenderChange[]): void {
     const byLayer = new Map<string, { cx: number; cz: number; chunk: BlockChunk | null }[]>();
+    // Scatter copies scripts hid, showed or removed (a terrain's or a layer's) go to the scatter view.
+    const copies = changes.filter((c): c is ScatterCopyChange => 'rule' in c);
+    if (copies.length > 0) this.deps.scatter?.setCopyStates(copies);
     // A layer's kits first: its chunks are meshed with them.
     for (const c of changes) if ('kits' in c) this.setGameKits(c.entityId, c.kits);
     for (const c of changes) {
-      if ('kits' in c) continue;
+      if ('kits' in c || 'rule' in c) continue;
       let list = byLayer.get(c.entityId);
       if (list === undefined) byLayer.set(c.entityId, (list = []));
       list.push(c);

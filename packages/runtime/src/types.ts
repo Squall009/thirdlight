@@ -90,7 +90,7 @@ export interface Runtime {
   /** The block cells changed since the run started (plain data). */
   gridDiff?(): import('./grid').GridDiff;
   /** Terrain tiles decoded on the page (by digest): their terrains' colliders are built (between steps). */
-  addTerrainTiles?(tiles: readonly import('./terrain-collision').TerrainTileData[]): void;
+  addTerrainTiles?(tiles: readonly import('./scatter-copies').TerrainSimData[]): void;
   /** The material parameters scripts changed since the last call (one change per parameter); the adapter applies them. */
   takeMaterialChanges?(): import('./material-params').MaterialRenderChange[];
   /** The material parameters scripts set, as digest text (null while none is set). */
@@ -392,5 +392,7 @@ export interface RuntimeDiagnostics {
   blockMemory?: import('./grid').BlockMemoryDiagnostics;
   /** What terrain collision holds (tiles' heights and holes, colliders, the last build's time). Present while a terrain with collision is loaded. */
   terrainMemory?: import('./terrain-collision').TerrainCollisionDiagnostics;
+  /** The terrains' and block layers' scatter copies: held, hidden, removed, their colliders and the last build's time. Present while one with stored scatter rules is loaded. */
+  scatterCopies?: import('./scatter-copies').ScatterCopiesDiagnostics;
 
 }

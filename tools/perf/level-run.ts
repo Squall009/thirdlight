@@ -19,6 +19,12 @@
  *   --macro M                    the terrain's tiles past M metres drawn from their macro textures (default: none, as recorded)
  *   --rules                      material rules on the block layer and the terrain (baked), and per-layer settings for
  *                                every terrain layer (default: none, as recorded)
+ *   --flight                     the camera flies a 60 s loop over the class (a script; it hides, shows and removes
+ *                                scatter copies on the way), recorded for 60 s at the display's rate (--uncapped:
+ *                                not): the frames over 16.7 ms are counted (default: the still camera, as recorded)
+ *   --vsync                      draw at the display's rate (a player's browser) instead of uncapped
+ *   --impostors S                the landscape's trees, pines and rocks drawn as impostors below screen size S (default:
+ *                                their meshes all the way, as recorded)
  *   --foliage off                the landscape's scatter without the foliage policy: every tree, rock and shrub casts
  *                                into the static shadow map, the wind moves foliage everywhere, nothing thins out
  *                                (default: on, the engine's scatter defaults)
@@ -35,12 +41,15 @@ import { cpus } from 'node:os';
 import { join } from 'node:path';
 
 import { PERF_ROOT, REPO, startPerfBackend } from './backend';
-import { launchGpuBrowser, measurePage, serveStatic, sourcesOf, type FrameRenderer, type FrameRunResult } from './frame-run';
-import { buildLevel, levelPlan, LEVEL_KINDS, LEVEL_SEED, LEVEL_VERSION, type LevelBuild, type LevelKind, type LevelRoofs } from './level';
+import { launchGpuBrowser, LONG_FRAME_MS, measurePage, serveStatic, sourcesOf, type FrameRenderer, type FrameRunResult } from './frame-run';
+import { buildLevel, FLIGHT_SECONDS, levelPlan, LEVEL_KINDS, LEVEL_SEED, LEVEL_VERSION, type LevelBuild, type LevelKind, type LevelRoofs } from './level';
 import { frameLine } from './village-run';
 
 /** The corner shading `--vertex-ao` gives the layer. */
 const LEVEL_VERTEX_AO = 0.6;
+
+/** How long a flight waits for its scene to load before it is measured (the scene never settles while the camera flies). */
+const FLIGHT_SETTLE_MS = 20_000;
 
 /** The soft whole-frame target (ms): 60 fps, on the frame interval's p95, the GPU's time and the main thread's. */
 export const LEVEL_FRAME_TARGET_MS = 16.7;
@@ -72,6 +81,10 @@ export interface LevelReport {
   macro?: number;
   /** The landscape's scatter without the foliage policy (absent: with it). */
   foliage?: 'off';
+  /** The camera flew a loop (absent: still). */
+  flight?: boolean;
+  /** The screen size below which the landscape's trees, pines and rocks were impostors (absent: none). */
+  impostorSize?: number;
   query: string;
   builds: Partial<Record<LevelKind, LevelBuild & { exportMs: number }>>;
   classes: Partial<Record<LevelKind, Partial<Record<FrameRenderer, FrameRunResult>>>>;
@@ -141,7 +154,13 @@ export async function runLevelCli(argv: readonly string[]): Promise<void> {
   for (const k of kinds) if (!LEVEL_KINDS.includes(k)) throw new Error(`--classes: ${LEVEL_KINDS.join(' or ')}, not ${k}`);
   const renderers = (get('renderers') ?? 'webgpu,webgl2').split(',') as FrameRenderer[];
   for (const r of renderers) if (r !== 'webgpu' && r !== 'webgl2') throw new Error(`--renderers: webgpu or webgl2, not ${r}`);
-  const recordMs = Number(get('record-ms') ?? 10000);
+  const flight = has('flight');
+  const impostorSize = Number(get('impostors') ?? 0);
+  if (!(Number.isFinite(impostorSize) && impostorSize >= 0 && impostorSize <= 1)) throw new Error(`--impostors: a screen size (0-1), not ${get('impostors')}`);
+  // A flight draws at the display's rate as a player's browser does (a dropped frame shows as a long interval);
+  // uncapped, a GPU-bound page runs ahead and then waits, so its intervals alternate whatever it costs.
+  const vsync = has('vsync') || (flight && !has('uncapped'));
+  const recordMs = Number(get('record-ms') ?? (flight ? FLIGHT_SECONDS * 1000 : 10000));
   const warmupMs = Number(get('warmup-ms') ?? 3000);
   const gpuMs = Number(get('gpu-ms') ?? 3000);
   const profileMs = Number(get('profile-ms') ?? 5000);
@@ -169,14 +188,14 @@ export async function runLevelCli(argv: readonly string[]): Promise<void> {
   } catch {
     /* not a git checkout */
   }
-  const report: LevelReport = { reportVersion: 1, startedAt, commit, machine: { cpu: cpus()[0]?.model ?? 'unknown', cores: cpus().length }, version: LEVEL_VERSION, seed: LEVEL_SEED, ...(liveDoors > 0 ? { liveDoors } : {}), ...(has('edge-walls') ? { edgeWalls: true } : {}), ...(has('wall-paint') ? { wallPaint: true } : {}), ...(roofs !== 'none' ? { roofs } : {}), ...(has('kit-swap') ? { kitSwap: true } : {}), ...(has('vertex-ao') ? { vertexAO: LEVEL_VERTEX_AO } : {}), ...(has('rules') ? { rules: true } : {}), ...(projection > 0 ? { projection } : {}), ...(macro > 0 ? { macro } : {}), ...(foliage === 'off' ? { foliage: 'off' as const } : {}), query, builds: {}, classes: {}, errors: [] };
+  const report: LevelReport = { reportVersion: 1, startedAt, commit, machine: { cpu: cpus()[0]?.model ?? 'unknown', cores: cpus().length }, version: LEVEL_VERSION, seed: LEVEL_SEED, ...(liveDoors > 0 ? { liveDoors } : {}), ...(has('edge-walls') ? { edgeWalls: true } : {}), ...(has('wall-paint') ? { wallPaint: true } : {}), ...(roofs !== 'none' ? { roofs } : {}), ...(has('kit-swap') ? { kitSwap: true } : {}), ...(has('vertex-ao') ? { vertexAO: LEVEL_VERTEX_AO } : {}), ...(has('rules') ? { rules: true } : {}), ...(projection > 0 ? { projection } : {}), ...(macro > 0 ? { macro } : {}), ...(foliage === 'off' ? { foliage: 'off' as const } : {}), ...(flight ? { flight: true } : {}), ...(impostorSize > 0 ? { impostorSize } : {}), query, builds: {}, classes: {}, errors: [] };
 
   // Every class built and exported by one backend, then measured with it stopped (one backend or one browser at a time).
   const exportDirs: Partial<Record<LevelKind, string>> = {};
   const be = await startPerfBackend(join(runDir, 'data'), join(runDir, 'exports'));
   try {
     for (const kind of kinds) {
-      const b = await buildLevel(be, `level-${kind}`, levelPlan(kind, LEVEL_SEED, liveDoors, has('edge-walls'), has('wall-paint'), roofs, has('kit-swap'), has('vertex-ao') ? LEVEL_VERTEX_AO : 0, has('rules'), projection, macro, foliage), log);
+      const b = await buildLevel(be, `level-${kind}`, levelPlan(kind, LEVEL_SEED, liveDoors, has('edge-walls'), has('wall-paint'), roofs, has('kit-swap'), has('vertex-ao') ? LEVEL_VERTEX_AO : 0, has('rules'), projection, macro, foliage, flight, impostorSize), log);
       const t = performance.now();
       const res = await be.post(`/api/v1/admin/projects/${b.projectId}/export`, {});
       if (res.status !== 200) throw new Error(`export failed: ${JSON.stringify(res.json).slice(0, 400)}`);
@@ -188,17 +207,22 @@ export async function runLevelCli(argv: readonly string[]): Promise<void> {
     await be.stop();
   }
 
-  const browser = await launchGpuBrowser();
+  const browser = await launchGpuBrowser({ vsync });
   try {
     for (const kind of kinds) {
       const site = await serveStatic(exportDirs[kind]!);
       try {
         for (const r of renderers) {
-          const res = await measurePage(browser, { url: `${site.url}?renderer=${r}${query}`, warmupMs, recordMs, gpuMs, profileMs, sourceOf: sourcesOf(site), shot: join(runDir, `${kind}-${r}.png`) });
+          const res = await measurePage(browser, { url: `${site.url}?renderer=${r}${query}`, warmupMs, recordMs, gpuMs, profileMs, sourceOf: sourcesOf(site), shot: join(runDir, `${kind}-${r}.png`), ...(flight ? { settleMs: FLIGHT_SETTLE_MS } : {}) });
           (report.classes[kind] ??= {})[r] = res;
           log(frameLine(`level ${kind} ${r}`, res));
           // Each restyle (a kit swapped) the page timed: its chunks, how long they took to arrive, its frames and long frames.
           const restyles = (res.marks ?? []).filter((m) => m.name === 'tl:blocks:restyle').map((m) => m.detail as { ms: number; chunks: number; frames: number; longFrames: number; longestFrameMs: number; longestFrameAt: number; longestUpdateMs: number });
+          // Each scatter set made (a copy removed on the way, a re-bake): its main-thread and worker time.
+          const made = (res.marks ?? []).filter((m) => m.name === 'tl:scatter:made').map((m) => m.detail as { ms: number; prepareMs: number; copies: number });
+          if (made.length > 0) log(`level ${kind} ${r} scatter sets made: ${made.length}, main thread ≤ ${Math.max(...made.map((d) => d.ms)).toFixed(2)} ms (mean ${(made.reduce((a, d) => a + d.ms, 0) / made.length).toFixed(2)}), prepared on the worker ≤ ${Math.max(...made.map((d) => d.prepareMs)).toFixed(2)} ms, ≤ ${Math.max(...made.map((d) => d.copies))} copies`);
+          // At the display's rate a frame over 16.7 ms is one that missed a refresh (the intervals' jitter is not); uncapped, every interval over it counts.
+          if (flight) log(`level ${kind} ${r} flight: ${res.frames.n} frames in ${Math.round(recordMs / 1000)} s, ${vsync ? `${res.frames.missed ?? 0} missed a 60 Hz refresh (vsync)` : `${res.frames.long ?? 0} over ${LONG_FRAME_MS} ms (uncapped)`}, longest ${res.frames.max ?? '-'} ms`);
           if (restyles.length > 0) log(`level ${kind} ${r} restyles: ${restyles.length}, ${restyles.map((d) => `${d.chunks} chunks ${d.ms} ms ${d.frames} frames (${d.longFrames} over 16.7 ms, longest ${d.longestFrameMs} ms at frame ${d.longestFrameAt}, view update ≤ ${d.longestUpdateMs} ms)`).join('; ')}`);
           for (const sw of switches) {
             const off = await measurePage(browser, { url: `${site.url}?renderer=${r}${query}&${sw}`, warmupMs, recordMs, gpuMs, profileMs: 0, sourceOf: sourcesOf(site) });

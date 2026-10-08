@@ -5,8 +5,9 @@
  *
  * - Baking (the backend's side): a 257² tile at 2 m (512 m square) of rolling hills with the landscape class's
  *   three tree and rock rules, whole, and the part a 16 m raise bakes again (as dense as the class, and 16 times).
- * - Drawing (the page's main thread): a 2,048 m group's instance sets built from its stored copies (what an
- *   edit's re-bake costs a frame), a ground cover square made (the worker's share) and built.
+ * - Drawing: a 2,048 m group's instance sets built from its stored copies (what an edit's re-bake costs), on the
+ *   page alone and split as the scatter view runs it (the arithmetic on its worker, the draws on the page's main
+ *   thread), a ground cover square made (the worker's share) and built.
  * The numbers go to ~/.cache/thirdlight-perf/scatter.jsonl and the phase plan's progress table.
  */
 import { appendFileSync, mkdirSync } from 'node:fs';
@@ -17,7 +18,8 @@ import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
 import { TerrainField, bakeTerrainScatter, flatTerrainTile, scatterCellCopies, scatterReach, terrainFlatStep, terrainScatterSurface, terrainTileKey, type ScatterCell, type ScatterRule, type TerrainComponent, type TerrainTile } from '@thirdlight/project-model';
 
-import { buildInstanceSet } from '../../packages/three-adapter/src/instancing';
+import { buildInstanceSet, instanceSetPlan } from '../../packages/three-adapter/src/instancing';
+import { prepareInstanceSet } from '../../packages/three-adapter/src/instance-prepare';
 import { CoverGenerator } from '../../packages/three-adapter/src/cover-worker';
 import type { ModelInstance } from '../../packages/three-adapter/src/visual';
 
@@ -78,6 +80,8 @@ describe.skipIf(!ON)('rule scatter costs', () => {
     const template = kit();
     const perRule = (id: string): Float32Array => cell.get(id)!.copies;
     const times: number[] = [];
+    const worker: number[] = [];
+    const page: number[] = [];
     let n = 0;
     for (const r of RULES) {
       const one = perRule(r.id);
@@ -90,15 +94,25 @@ describe.skipIf(!ON)('rule scatter costs', () => {
           big[(i * k + c) * 10 + 2] = big[(i * k + c) * 10 + 2]! + Math.floor(i / 4) * 512;
         }
       }
+      const opts = { chunkSize: 2048, copiesPerChunk: 1 << 20, density: { start: 0.02, end: 0.005, min: 0.25 }, lodPerCopy: true };
       // Warm (the page has built sets before: its code is compiled by then).
-      buildInstanceSet(template, big, k * 16, 'perf', { chunkSize: 2048, copiesPerChunk: 1 << 20, density: { start: 0.02, end: 0.005, min: 0.25 }, lodPerCopy: true }).dispose();
+      buildInstanceSet(template, big, k * 16, 'perf', opts).dispose();
       t0 = performance.now();
-      const set = buildInstanceSet(template, big, k * 16, 'perf', { chunkSize: 2048, copiesPerChunk: 1 << 20, density: { start: 0.02, end: 0.005, min: 0.25 }, lodPerCopy: true });
+      const set = buildInstanceSet(template, big, k * 16, 'perf', opts);
       times.push(ms(t0));
       n += k * 16;
       set.dispose();
+      // Split as the scatter view runs it: the arithmetic on the worker, the draws on the page.
+      const plan = instanceSetPlan(template, opts);
+      t0 = performance.now();
+      const prepared = prepareInstanceSet(big, k * 16, plan.prepareParts, plan.prepareOptions);
+      worker.push(ms(t0));
+      t0 = performance.now();
+      const made = buildInstanceSet(template, big, k * 16, 'perf', { ...opts, prepared });
+      page.push(ms(t0));
+      made.dispose();
     }
-    record(`scatter group build (density ×${dense}; 2,048 m, 3 rules, ${n} copies): ${times.join(' + ')} ms`);
+    record(`scatter group build (density ×${dense}; 2,048 m, 3 rules, ${n} copies): ${times.join(' + ')} ms on the page alone; prepared on the worker ${worker.join(' + ')} ms, then the page ${page.join(' + ')} ms`);
   });
 
   it('makes and builds a ground cover square', () => {

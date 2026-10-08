@@ -177,6 +177,14 @@ export function recordingContext(calls: string[], phase: 'intent' | 'transform',
       diff: rec('grid.diff', { version: 1, layers: [] }),
       applyDiff: rec('grid.applyDiff', true),
     },
+    scatter: {
+      near: rec('scatter.near', () => [{ address: 'ground#scatter:trees:1,2', source: 'ground', rule: 'trees', cell: [1, 2], position: [1, 0, 2], rotation: [0, 0, 0, 1], scale: 1, hidden: false }]),
+      get: rec('scatter.get', { address: 'ground#scatter:trees:1,2', source: 'ground', rule: 'trees', cell: [1, 2], position: [1, 0, 2], rotation: [0, 0, 0, 1], scale: 1, hidden: false }),
+      hide: rec('scatter.hide', true),
+      show: rec('scatter.show', true),
+      remove: rec('scatter.remove', true),
+      changed: rec('scatter.changed', () => []),
+    },
     spawn: rec('spawn', 'spawn-1'),
     destroy: rec('destroy', true),
     emit: rec('emit'),
@@ -499,6 +507,8 @@ describe('the visual-script catalogue (every node type compiles and runs)', () =
       'random.pick',
       'random.stream().pick',
       'saves.migration',
+      // The scatter copies scripts hid or removed are read as data (a save keeps them).
+      'scatter.changed',
       // The timeline events as a list (Timeline ended / marker check one).
       'timeline.events',
     ]);

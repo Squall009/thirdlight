@@ -28,6 +28,7 @@
  */
 import { ID_RE } from '@thirdlight/project-model';
 import type { BehaviorGrid } from './grid';
+import type { BehaviorScatter } from './scatter-copies';
 import { EntityAccessError, type BehaviorEntityHandle } from './entity-access';
 import type { BehaviorMaterials } from './material-params';
 import type { BehaviorSaves } from './project-saves';
@@ -224,6 +225,12 @@ export interface BehaviorContext {
    * metadata, pick a cell with a ray, neighbours, named regions, change events, a diff for saves.
    */
   readonly grid?: BehaviorGrid;
+  /**
+   * The trees, rocks and other copies the terrains' and block layers' scatter
+   * rules placed — find them by place, read them by address, hide, show or
+   * remove one (a ray that hits one names it: `PhysicsHit.scatter`).
+   */
+  readonly scatter?: BehaviorScatter;
   /**
    * Copy a project prefab into the running game; returns the new root id (or null at an engine limit).
    * @graphNode Spawn prefab
@@ -1143,6 +1150,7 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
         if (src.debug !== undefined) fields['debug'] = { value: debugOf(src.debug), enumerable: true };
         // The block layers.
         if (src.grid !== undefined) fields['grid'] = { value: src.grid, enumerable: true };
+        if (src.scatter !== undefined) fields['scatter'] = { value: src.scatter, enumerable: true };
         // Graph-material parameters per object.
         if (src.materials !== undefined) fields['materials'] = { value: src.materials, enumerable: true };
         // Project saves.

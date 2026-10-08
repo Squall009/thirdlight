@@ -32,30 +32,16 @@ import { createAttributeInstancedMesh, type AttributeInstancedMesh } from './att
 import type { CullView, ViewCullable } from './view-cull';
 import type { ModelInstance } from './visual';
 import { disposeObjectTree } from './dispose';
-import { ChunkLodPicker, copyRank, TAN_HALF_REFERENCE, type CopyLodGroup } from './instance-lod';
+import { ChunkLodPicker, TAN_HALF_REFERENCE, type CopyLodGroup } from './instance-lod';
+import { INSTANCE_BUFFER_FLOATS, INSTANCE_CHUNK_COPIES, prepareInstanceSet, writeCopyMatrices, type PreparedInstanceSet, type PrepareOptions, type PrepareParts } from './instance-prepare';
+
+export { chunkCopies, INSTANCE_BUFFER_FLOATS, INSTANCE_CHUNK_COPIES, INSTANCE_MAX_CHUNKS, INSTANCE_MAX_SPATIAL_CHUNKS } from './instance-prepare';
 import { LOD_CULL_LEVEL_KEY, LodTuning } from './lod-switch';
+import { KEEP_MATERIAL_KEY } from './material-keys';
 
 /** `mesh.userData[INSTANCE_SET_KEY]`: the mesh draws copies of an instance set (one chunk, one mesh and level). */
 export const INSTANCE_SET_KEY = 'tlInstanceSet';
 
-/** Floats per copy in an instance buffer. */
-export const INSTANCE_BUFFER_FLOATS = 10;
-/**
- * Copies per chunk the grid aims at (a chunk is one draw per mesh: large
- * enough to keep draws few and its matrices above three's uniform-buffer
- * limit, small enough to cull locally).
- */
-export const INSTANCE_CHUNK_COPIES = 2048;
-/** Most chunks per set (bounds the draws of a very large set; 64 chunks × a few meshes stays well under any draw budget). */
-export const INSTANCE_MAX_CHUNKS = 64;
-/**
- * Most chunks per set when it is also chunked by spatial extent.
- * Chunks out of view are culled, so more of them cost draws only where they
- * are seen; 256 cells keep a set seen whole (from above) at a few hundred
- * draws per mesh. A set larger than 256 cells of its chunk size gets larger
- * cells.
- */
-export const INSTANCE_MAX_SPATIAL_CHUNKS = 256;
 /**
  * The engine default chunk size (m) of an instance set (the
  * project's `instance_chunk_m`, overridable per set). 32 m: a few seconds'
@@ -71,6 +57,8 @@ export interface BuiltInstanceSet {
   readonly meshes: readonly THREE.Mesh[];
   /** Editor preview: redraw copy `index` at a transform (position xyz, quaternion xyzw, scale xyz). */
   setCopy(index: number, transform: readonly number[]): void;
+  /** Redraw several copies at once (each draw uploaded once; a copy scaled to 0 is drawn as nothing and leaves the bounds as they are). */
+  setCopies(changes: readonly { readonly index: number; readonly transform: readonly number[] }[]): void;
   /** The copy an instance of one of the set's meshes draws (a picked `instanceId`), or null. */
   copyOf(mesh: THREE.Object3D, instanceId: number): number | null;
   /** A copy's bounds in world space (its most detailed level; the group's world matrix must be current), or null. */
@@ -115,6 +103,18 @@ export interface InstanceSetOptions {
    */
   readonly densityDistance?: { readonly start: number; readonly end: number; readonly min: number };
   readonly lodPerCopy?: boolean;
+  /**
+   * The set's arithmetic made ahead (`instance-prepare.ts`, on a worker) from
+   * these copies and {@link instanceSetPlan}'s parts and options; absent: made here.
+   */
+  readonly prepared?: PreparedInstanceSet;
+  /**
+   * A far level drawn as an impostor (`impostor.ts`): its quad mesh (at the
+   * model's origin) and the screen size it takes over below (the share of the
+   * view's height the model covers, as the model's own levels switch): the
+   * model's levels from there on are left out (its cull level, past it, stays).
+   */
+  readonly impostor?: { readonly mesh: THREE.Mesh; readonly size: number };
 }
 
 /** One mesh of the template: its offset in the model, and its LOD (index into `lods`, level) if it has one. */
@@ -125,80 +125,22 @@ interface Part {
   readonly level: number;
 }
 
-/**
- * The chunk grid for copy positions: cells along the two widest axes. Pure (unit-tested).
- * By count (about `target` copies per chunk, at most `maxChunks`) and,
- * with `chunkSize` (m), also by extent: no cell is wider than
- * `chunkSize` along either axis (at most {@link INSTANCE_MAX_SPATIAL_CHUNKS}
- * cells; past that the cells grow). The finer of the two grids wins per axis.
- */
-export function chunkCopies(positions: Float32Array | readonly number[], count: number, target = INSTANCE_CHUNK_COPIES, maxChunks = INSTANCE_MAX_CHUNKS, chunkSize?: number): Int32Array {
-  const out = new Int32Array(count);
-  if (count === 0) return out;
-  const min = [Infinity, Infinity, Infinity];
-  const max = [-Infinity, -Infinity, -Infinity];
-  for (let i = 0; i < count; i += 1) {
-    for (let a = 0; a < 3; a += 1) {
-      const v = positions[i * 3 + a]!;
-      if (v < min[a]!) min[a] = v;
-      if (v > max[a]!) max[a] = v;
-    }
-  }
-  const chunks = Math.max(1, Math.min(maxChunks, Math.ceil(count / target)));
-  const ext = [0, 1, 2].map((a) => Math.max(1e-6, max[a]! - min[a]!));
-  const axes = [0, 1, 2].sort((p, q) => ext[q]! - ext[p]!);
-  const a0 = axes[0]!;
-  const a1 = axes[1]!;
-  let n0 = chunks === 1 ? 1 : Math.max(1, Math.min(chunks, Math.round(Math.sqrt((chunks * ext[a0]!) / ext[a1]!))));
-  let n1 = chunks === 1 ? 1 : Math.max(1, Math.floor(chunks / n0));
-  if (chunkSize !== undefined && Number.isFinite(chunkSize) && chunkSize > 0) {
-    // No cell wider than chunkSize (the cells grow when the set would need more than the cap).
-    let size = chunkSize;
-    const cells = (s: number): [number, number] => [Math.max(1, Math.ceil(ext[a0]! / s - 1e-9)), Math.max(1, Math.ceil(ext[a1]! / s - 1e-9))];
-    let [s0, s1] = cells(size);
-    while (s0 * s1 > INSTANCE_MAX_SPATIAL_CHUNKS) {
-      size *= Math.sqrt((s0 * s1) / INSTANCE_MAX_SPATIAL_CHUNKS) * 1.001;
-      [s0, s1] = cells(size);
-    }
-    n0 = Math.max(n0, s0);
-    n1 = Math.max(n1, s1);
-    while (n0 * n1 > INSTANCE_MAX_SPATIAL_CHUNKS) {
-      if (n0 >= n1) n0 -= 1;
-      else n1 -= 1;
-    }
-  }
-  if (n0 * n1 === 1) return out;
-  for (let i = 0; i < count; i += 1) {
-    const c0 = Math.min(n0 - 1, Math.floor(((positions[i * 3 + a0]! - min[a0]!) / ext[a0]!) * n0));
-    const c1 = Math.min(n1 - 1, Math.floor(((positions[i * 3 + a1]! - min[a1]!) / ext[a1]!) * n1));
-    out[i] = c0 * n1 + c1;
-  }
-  // Only the cells that hold copies become chunks: number them densely.
-  const dense = new Map<number, number>();
-  for (let i = 0; i < count; i += 1) {
-    const c = out[i]!;
-    let d = dense.get(c);
-    if (d === undefined) {
-      d = dense.size;
-      dense.set(c, d);
-    }
-    out[i] = d;
-  }
-  return out;
+/** How a set of a template is made: its meshes and levels, the density falloff it draws with, and what its arithmetic reads. */
+export interface InstanceSetPlan {
+  readonly parts: readonly Part[];
+  readonly groups: readonly CopyLodGroup[];
+  /** The model's radius at its most detailed level (the density falloff's screen sizes are of it). */
+  readonly radius: number;
+  readonly density: InstanceDensity | null;
+  /** The arithmetic's inputs (`prepareInstanceSet`). */
+  readonly prepareParts: PrepareParts;
+  readonly prepareOptions: PrepareOptions;
 }
 
-/**
- * Build the instanced meshes of `template` (a model instance that is not
- * attached anywhere; it stays alive while the set is shown) for the first
- * `count` copies of `floats`.
- */
-export function buildInstanceSet(template: ModelInstance, floats: Float32Array, count: number, name = 'instances', options: InstanceSetOptions = {}): BuiltInstanceSet {
+/** The plan of a set of `template` with `options` (cheap: the template's meshes, not its copies). */
+export function instanceSetPlan(template: ModelInstance, options: InstanceSetOptions = {}): InstanceSetPlan {
   template.glbRoot.updateMatrixWorld(true);
   const rootInverse = new THREE.Matrix4().copy(template.glbRoot.matrixWorld).invert();
-  const group = new THREE.Group();
-  group.name = name;
-  const n = Math.max(0, Math.min(count, Math.floor(floats.length / INSTANCE_BUFFER_FLOATS)));
-
   // The template's meshes, each with its LOD and level (the nearest LOD above it).
   const lods: THREE.LOD[] = [];
   const parts: Part[] = [];
@@ -215,9 +157,7 @@ export function buildInstanceSet(template: ModelInstance, floats: Float32Array, 
   };
   walk(template.glbRoot, -1, 0);
   // Picks per copy when the model has levels or the set thins out; else every copy is drawn (no filter).
-  const groups: CopyLodGroup[] = lods.map((l) => ({ distances: l.levels.map((v) => v.distance), culls: l.levels[l.levels.length - 1]?.object.userData[LOD_CULL_LEVEL_KEY] === true }));
-  const tuning = options.tuning ?? new LodTuning();
-  // The model's radius at its most detailed level (the density falloff's screen sizes are of it).
+  let groups: CopyLodGroup[] = lods.map((l) => ({ distances: l.levels.map((v) => v.distance), culls: l.levels[l.levels.length - 1]?.object.userData[LOD_CULL_LEVEL_KEY] === true }));
   const radius = ((): number => {
     const box = new THREE.Box3();
     const b = new THREE.Box3();
@@ -229,103 +169,114 @@ export function buildInstanceSet(template: ModelInstance, floats: Float32Array, 
     }
     return box.isEmpty() ? 0 : box.getBoundingSphere(new THREE.Sphere()).radius;
   })();
+  const imp = options.impostor;
+  if (imp !== undefined && radius > 0) {
+    // Its distance is where the model's radius covers its screen size (as the model's own levels switch).
+    const impDistance = radius / (TAN_HALF_REFERENCE * imp.size);
+    // The impostor joins the first LOD group as the level at its distance (a model without levels gets one group:
+    // all its meshes near, the impostor far); the levels it replaces go, a cull level past it stays.
+    if (groups.length === 0) {
+      for (let k = 0; k < parts.length; k++) if (parts[k]!.lod < 0) parts[k] = { ...parts[k]!, lod: 0, level: 0 };
+      groups = [{ distances: [0, impDistance], culls: false }];
+      parts.push({ mesh: imp.mesh, local: new THREE.Matrix4(), lod: 0, level: 1 });
+    } else {
+      const g = groups[0]!;
+      const cull = g.culls && g.distances[g.distances.length - 1]! > impDistance;
+      const kept = g.distances.filter((d, l) => l === 0 || (d < impDistance && !(g.culls && l === g.distances.length - 1)));
+      const at = kept.length;
+      const distances = [...kept, impDistance, ...(cull ? [g.distances[g.distances.length - 1]!] : [])];
+      const last = g.distances.length - 1;
+      const remap = (level: number): number => (level < at ? level : g.culls && level === last && cull ? at + 1 : -1);
+      for (let k = parts.length - 1; k >= 0; k--) {
+        const p = parts[k]!;
+        if (p.lod !== 0) continue;
+        const level = remap(p.level);
+        if (level < 0) parts.splice(k, 1);
+        else parts[k] = { ...p, level };
+      }
+      parts.push({ mesh: imp.mesh, local: new THREE.Matrix4(), lod: 0, level: at });
+      groups[0] = { distances, culls: cull };
+    }
+  }
   // A falloff by distance is the screen sizes the model's radius covers at those distances.
   const dd = options.densityDistance;
   const falloff: InstanceDensity | null | undefined = dd !== undefined && radius > 0 ? { start: radius / (TAN_HALF_REFERENCE * dd.start), end: radius / (TAN_HALF_REFERENCE * Math.max(dd.start, dd.end)), min: dd.min } : options.density;
   const density = falloff !== undefined && falloff !== null && falloff.min < 1 ? falloff : null;
-  const perCopy = groups.length > 0 || density !== null;
+  const locals = new Float64Array(parts.length * 16);
+  const spheres = new Float64Array(parts.length * 4);
+  parts.forEach((p, k) => {
+    p.local.toArray(locals, k * 16);
+    const g = p.mesh.geometry;
+    if (g.boundingSphere === null) g.computeBoundingSphere();
+    spheres.set([g.boundingSphere!.center.x, g.boundingSphere!.center.y, g.boundingSphere!.center.z, g.boundingSphere!.radius], k * 4);
+  });
+  return {
+    parts,
+    groups,
+    radius,
+    density,
+    prepareParts: { locals, spheres },
+    prepareOptions: { perCopy: groups.length > 0 || density !== null, copiesPerChunk: options.copiesPerChunk ?? INSTANCE_CHUNK_COPIES, ...(options.chunkSize !== undefined ? { chunkSize: options.chunkSize } : {}) },
+  };
+}
 
-  // Where each copy is, and its chunk.
-  const pos = new THREE.Vector3();
-  const rot = new THREE.Quaternion();
-  const scl = new THREE.Vector3();
-  const place = new THREE.Matrix4();
-  const positions = new Float32Array(n * 3);
-  for (let i = 0; i < n; i += 1) {
-    const o = i * INSTANCE_BUFFER_FLOATS;
-    positions[i * 3] = floats[o]!;
-    positions[i * 3 + 1] = floats[o + 1]!;
-    positions[i * 3 + 2] = floats[o + 2]!;
-  }
-  // Also by extent when a chunk size is given (each chunk culled and LOD'd on its own).
-  const chunkOf = chunkCopies(positions, n, options.copiesPerChunk ?? INSTANCE_CHUNK_COPIES, INSTANCE_MAX_CHUNKS, options.chunkSize);
-  let chunkCount = 0;
-  for (let i = 0; i < n; i += 1) if (chunkOf[i]! + 1 > chunkCount) chunkCount = chunkOf[i]! + 1;
+/**
+ * Build the instanced meshes of `template` (a model instance that is not
+ * attached anywhere; it stays alive while the set is shown) for the first
+ * `count` copies of `floats`.
+ */
+export function buildInstanceSet(template: ModelInstance, floats: Float32Array, count: number, name = 'instances', options: InstanceSetOptions = {}): BuiltInstanceSet {
+  const plan = instanceSetPlan(template, options);
+  const { parts, groups, radius, density } = plan;
+  const tuning = options.tuning ?? new LodTuning();
+  const prepared = options.prepared ?? prepareInstanceSet(floats, count, plan.prepareParts, plan.prepareOptions);
+  const n = prepared.count;
+  const chunkOf = prepared.chunkOf;
+  const group = new THREE.Group();
+  group.name = name;
   /** `changed`: a copy moved since the chunk's draws were last culled. */
-  interface Chunk { copies: number[]; center: THREE.Vector3; node: THREE.Group; meshes: AttributeInstancedMesh[]; picker: ChunkLodPicker | null; changed: boolean; culler: ViewCullable }
+  interface Chunk { copies: Uint32Array; center: Float64Array; node: THREE.Group; meshes: AttributeInstancedMesh[]; picker: ChunkLodPicker | null; changed: boolean; culler: ViewCullable }
   const chunks: Chunk[] = [];
-  for (let c = 0; c < chunkCount; c += 1) {
-    const chunk: Omit<Chunk, 'culler'> & { culler?: ViewCullable } = { copies: [], center: new THREE.Vector3(), node: new THREE.Group(), meshes: [], picker: null, changed: true };
-    chunk.culler = chunkCuller(chunk, tuning);
-    chunks.push(chunk as Chunk);
-  }
-  for (let i = 0; i < n; i += 1) chunks[chunkOf[i]!]!.copies.push(i);
-  /** Copy → its chunk and slot. */
+  /** Copy → its slot in its chunk. */
   const slotOf = new Int32Array(n);
   const meshes: THREE.Mesh[] = [];
   /** A chunk mesh → its chunk, part, the copy index of each slot, and its instances. */
-  const meta = new Map<THREE.Object3D, { chunk: Chunk; part: Part; copies: readonly number[]; inst: AttributeInstancedMesh }>();
-  /** A copy's placement relative to its chunk's centre (the translation less the centre; affine, so that is all). */
-  const placeCopy = (center: THREE.Vector3, t: ArrayLike<number>, offset: number): void => {
-    pos.set(t[offset]! - center.x, t[offset + 1]! - center.y, t[offset + 2]! - center.z);
-    rot.set(t[offset + 3]!, t[offset + 4]!, t[offset + 5]!, t[offset + 6]!).normalize();
-    scl.set(t[offset + 7]!, t[offset + 8]!, t[offset + 9]!);
-    place.compose(pos, rot, scl);
-  };
-  const relative = new THREE.Matrix4();
-  const writeCopy = (inst: AttributeInstancedMesh, slot: number, part: Part): void => {
-    relative.multiplyMatrices(place, part.local).toArray(inst.array, slot * 16);
-  };
-  for (const chunk of chunks.filter((c) => c.copies.length > 0)) {
-    for (const i of chunk.copies) chunk.center.add(pos.set(positions[i * 3]!, positions[i * 3 + 1]!, positions[i * 3 + 2]!));
-    chunk.center.divideScalar(chunk.copies.length);
-    chunk.copies.forEach((copy, slot) => {
+  const meta = new Map<THREE.Object3D, { chunk: Chunk; part: Part; copies: Uint32Array; inst: AttributeInstancedMesh }>();
+  for (const pc of prepared.chunks) {
+    const chunk: Omit<Chunk, 'culler'> & { culler?: ViewCullable } = { copies: pc.copies, center: pc.center, node: new THREE.Group(), meshes: [], picker: null, changed: true };
+    chunk.culler = chunkCuller(chunk, tuning);
+    chunks.push(chunk as Chunk);
+    if (pc.copies.length === 0) continue;
+    pc.copies.forEach((copy, slot) => {
       slotOf[copy] = slot;
     });
     chunk.node.name = `${name}:chunk`;
-    chunk.node.position.copy(chunk.center);
-    if (perCopy) {
-      const k = chunk.copies.length;
-      const origins = new Float32Array(k * 3);
-      const scales = new Float32Array(k);
-      const ranks = new Float32Array(k);
-      chunk.copies.forEach((copy, slot) => {
-        const o = copy * INSTANCE_BUFFER_FLOATS;
-        origins[slot * 3] = floats[o]! - chunk.center.x;
-        origins[slot * 3 + 1] = floats[o + 1]! - chunk.center.y;
-        origins[slot * 3 + 2] = floats[o + 2]! - chunk.center.z;
-        scales[slot] = Math.max(Math.abs(floats[o + 7]!), Math.abs(floats[o + 8]!), Math.abs(floats[o + 9]!));
-        ranks[slot] = copyRank(copy);
-      });
-      chunk.picker = new ChunkLodPicker({ origins, scales, ranks, count: k }, groups, density !== null ? { radius, falloff: density } : null, tuning, options.lodPerCopy === true);
+    chunk.node.position.set(pc.center[0]!, pc.center[1]!, pc.center[2]!);
+    if (plan.prepareOptions.perCopy && pc.origins !== null && pc.scales !== null && pc.ranks !== null) {
+      chunk.picker = new ChunkLodPicker({ origins: pc.origins, scales: pc.scales, ranks: pc.ranks, count: pc.copies.length }, groups, density !== null ? { radius, falloff: density } : null, tuning, options.lodPerCopy === true, pc.stats ?? undefined);
     }
-    const made = parts.map((part) => {
+    parts.forEach((part, k) => {
       const filter = chunk.picker?.filter(part.lod, part.level);
-      const inst = createAttributeInstancedMesh(part.mesh.geometry, part.mesh.material as THREE.Material, chunk.copies.length, { raycast: true, group: chunk.culler, ...(filter !== undefined ? { filter } : {}) });
-      inst.count = chunk.copies.length;
+      const inst = createAttributeInstancedMesh(part.mesh.geometry, part.mesh.material as THREE.Material, pc.copies.length, { raycast: true, group: chunk.culler!, matrices: pc.matrices[k]!, ...(filter !== undefined ? { filter } : {}) });
+      inst.count = pc.copies.length;
       inst.mesh.name = part.mesh.name;
       // Tools counting instance-set copies (the perf harness's scene walk) find the chunk draws by it.
       inst.mesh.userData[INSTANCE_SET_KEY] = true;
+      // A part whose material is its own (an impostor's quad) keeps it when the set is dressed.
+      if (part.mesh.userData[KEEP_MATERIAL_KEY] === true) inst.mesh.userData[KEEP_MATERIAL_KEY] = true;
       // The set's own flags go on when it is attached (an instance set casts only when it says so).
       inst.mesh.castShadow = false;
       inst.mesh.receiveShadow = true;
-      return inst;
-    });
-    // Each copy placed once, then offset per mesh of the model.
-    chunk.copies.forEach((copy, slot) => {
-      placeCopy(chunk.center, floats, copy * INSTANCE_BUFFER_FLOATS);
-      for (let k = 0; k < parts.length; k += 1) writeCopy(made[k]!, slot, parts[k]!);
-    });
-    parts.forEach((part, k) => {
-      const inst = made[k]!;
-      inst.markChanged();
+      inst.markChanged(pc.bounds.subarray(k * 4, k * 4 + 4));
       chunk.node.add(inst.mesh);
       chunk.meshes.push(inst);
       meshes.push(inst.mesh);
-      meta.set(inst.mesh, { chunk, part, copies: chunk.copies, inst });
+      meta.set(inst.mesh, { chunk: chunk as Chunk, part, copies: pc.copies, inst });
     });
     group.add(chunk.node);
   }
+  const place = new Float64Array(16);
+  const keep = [0, 0, 0, -1];
   const box = new THREE.Box3();
   const m = new THREE.Matrix4();
   // One mesh per level stands for its copies in the counts (of the first LOD group; the first mesh without one).
@@ -355,15 +306,34 @@ export function buildInstanceSet(template: ModelInstance, floats: Float32Array, 
       return { copies: n, inView, byLevel, culled, thinned };
     },
     setCopy(index: number, t: readonly number[]): void {
-      if (index < 0 || index >= n || t.length < INSTANCE_BUFFER_FLOATS) return;
-      const chunk = chunks[chunkOf[index]!]!;
-      placeCopy(chunk.center, t, 0);
-      chunk.picker?.moveCopy(slotOf[index]!, t[0]! - chunk.center.x, t[1]! - chunk.center.y, t[2]! - chunk.center.z, Math.max(Math.abs(t[7]!), Math.abs(t[8]!), Math.abs(t[9]!)));
-      chunk.changed = true;
-      for (const inst of chunk.meshes) {
-        const info = meta.get(inst.mesh)!;
-        writeCopy(inst, slotOf[index]!, info.part);
-        inst.markChanged();
+      this.setCopies([{ index, transform: t }]);
+    },
+    setCopies(changes): void {
+      /** Per chunk touched: whether every copy written there shrank to nothing. */
+      const touched = new Map<Chunk, boolean>();
+      for (const { index, transform: t } of changes) {
+        if (index < 0 || index >= n || t.length < INSTANCE_BUFFER_FLOATS) continue;
+        const chunk = chunks[chunkOf[index]!]!;
+        const c = chunk.center;
+        const slot = slotOf[index]!;
+        const size = Math.max(Math.abs(t[7]!), Math.abs(t[8]!), Math.abs(t[9]!));
+        chunk.picker?.moveCopy(slot, t[0]! - c[0]!, t[1]! - c[1]!, t[2]! - c[2]!, size);
+        chunk.changed = true;
+        writeCopyMatrices(t, 0, c, plan.prepareParts, chunk.meshes.map((inst) => inst.array), slot, place);
+        touched.set(chunk, (touched.get(chunk) ?? true) && size === 0);
+      }
+      for (const [chunk, shrunk] of touched) {
+        for (const inst of chunk.meshes) {
+          // Copies shrunk to nothing (hidden) leave the bounds as they are: still around every copy drawn.
+          const s = inst.mesh.geometry.boundingSphere;
+          if (shrunk && s !== null) {
+            keep[0] = s.center.x;
+            keep[1] = s.center.y;
+            keep[2] = s.center.z;
+            keep[3] = s.isEmpty() ? -1 : s.radius;
+            inst.markChanged(keep);
+          } else inst.markChanged();
+        }
       }
     },
     copyOf(mesh: THREE.Object3D, instanceId: number): number | null {

@@ -72,6 +72,7 @@ import { SAMPLED_TEXTURES_KEY } from './texture-streaming';
 import { OBJECT_FRAME_KEY } from './static-merge';
 import { CHANGING_ALPHA_KEY } from './shadow-casters';
 import { LOCAL_LIGHTS_KEY } from './local-lights';
+import { KEEP_MATERIAL_KEY } from './material-keys';
 import type { ResourceManager } from '@thirdlight/runtime';
 
 export type MaterialShaderName = 'standard' | 'foliage' | 'kit' | 'unlit' | 'water';
@@ -824,7 +825,7 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
   const assignMesh = (o: THREE.Object3D, mapping: Readonly<Record<string, string>> | null, overrides: MaterialOverridesLike | null): void => {
     {
       const mesh = o as THREE.Mesh;
-      if (!mesh.isMesh) return;
+      if (!mesh.isMesh || mesh.userData[KEEP_MATERIAL_KEY] === true) return;
       meshApply.set(mesh, { mapping, overrides });
       const data = mesh.userData as Record<string, unknown>;
       /** The run-time values scripts set on this object (texture ones choose a variant). */

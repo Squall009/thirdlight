@@ -4,6 +4,7 @@
  * budget. A bad argument is a script error naming what it should be.
  */
 import type { PhysicsQuat } from './ports';
+import { SCATTER_ADDRESS_TAG } from './scatter-copies';
 
 /**
  * At most this many physics queries (rays, overlaps, picks; 2D and 3D) a
@@ -43,7 +44,9 @@ export function colliderEntityOf(colliderId: string): string {
   const i = colliderId.indexOf('#blocks:');
   if (i > 0) return colliderId.slice(0, i);
   const t = colliderId.indexOf('#terrain:');
-  return t > 0 ? colliderId.slice(0, t) : colliderId;
+  if (t > 0) return colliderId.slice(0, t);
+  const s = colliderId.indexOf(SCATTER_ADDRESS_TAG);
+  return s > 0 ? colliderId.slice(0, s) : colliderId;
 }
 
 /** A query's reach (absent: `fallback`; at most 10 km). */

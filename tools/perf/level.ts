@@ -51,12 +51,20 @@
  * measurement holds whole-layer restyles (the page marks each one's time
  * and its long frames, `tl:blocks:restyle`).
  *
+ * Either class can fly its camera (`--flight`; still by default, as recorded):
+ * a script flies it round a loop of {@link FLIGHT_RADIUS} m about the area
+ * in {@link FLIGHT_SECONDS} s, a few metres over the ground it reads with a
+ * ray, and on the way hides the nearest scatter copy every half second
+ * (shown again a second later) and removes one every two seconds (its group's
+ * set made again, as a re-bake makes it): ground cover, near shadows and set
+ * builds all happen while frames are counted.
+ *
  * Both classes share the camera (at the area's edge, looking across it to the
  * horizon) and the environment, so the landscape's extra cost is the far part.
  * `levelPlan` is a pure function of the kind and the seed; `buildLevel`
  * applies it through the real command API, like the village.
  */
-import { FOLIAGE_NEAR_METRES, INSTANCE_DENSITY_MIN_NEW } from '@thirdlight/project-model';
+import { DEFAULT_FIXED_STEP_HZ, FOLIAGE_NEAR_METRES, INSTANCE_DENSITY_MIN_NEW } from '@thirdlight/project-model';
 
 import { layeredMaterial } from '../../packages/editor/src/session/material-graph';
 import { makePng } from '../../tests/e2e/png-make';
@@ -118,8 +126,8 @@ export type LevelFoliage = 'on' | 'off';
  * under each near one, and thin out with distance; off, every copy casts
  * into the static map and none thins out.
  */
-export function levelScatterTerrain(foliage: LevelFoliage = 'on'): Record<string, unknown>[] {
-  const big = foliage === 'on' ? { castShadow: true, shadowDistance: FOLIAGE_NEAR_METRES, blobShadow: 0.6, densityMin: INSTANCE_DENSITY_MIN_NEW } : { castShadow: true };
+export function levelScatterTerrain(foliage: LevelFoliage = 'on', impostorSize = 0): Record<string, unknown>[] {
+  const big = { ...(foliage === 'on' ? { castShadow: true, shadowDistance: FOLIAGE_NEAR_METRES, blobShadow: 0.6, densityMin: INSTANCE_DENSITY_MIN_NEW } : { castShadow: true }), ...(impostorSize > 0 ? { impostorSize } : {}) };
   return [
     { id: 'trees', asset: { assetId: FAR_KIT, piece: 'tree' }, density: 0.0012, spacing: 10, scale: [8, 16], slope: { max: 22, fade: 6 }, noise: { scale: 300, seed: 3, min: 0.35, fade: 0.15 }, exclude: [SCATTER_CLEAR], ...big },
     { id: 'pines', asset: { assetId: FAR_KIT, piece: 'pine' }, density: 0.0008, spacing: 10, scale: [8, 16], height: { min: 40, fade: 20 }, slope: { max: 30, fade: 5 }, exclude: [SCATTER_CLEAR], ...big },
@@ -250,6 +258,10 @@ export interface LevelPlan {
   macro: number;
   /** The foliage policy the landscape's scatter follows. */
   foliage: LevelFoliage;
+  /** The camera flies a loop (`FLIGHT_BEHAVIOR`) instead of standing still. */
+  flight: boolean;
+  /** The terrain's trees, pines and rocks draw as impostors below this screen size (0: their meshes all the way). */
+  impostorSize: number;
 }
 
 /**
@@ -282,6 +294,53 @@ const KIT_BEHAVIOR: BehaviorPlan = {
 };
 
 export type LevelRoofs = 'none' | 'roofs' | 'cutaway';
+
+/** The flight's loop: its radius about the area's middle (m), a lap's time (s), the camera's height over the ground (m) and its look down (radians). */
+export const FLIGHT_RADIUS = 400;
+export const FLIGHT_SECONDS = 60;
+const FLIGHT_HEIGHT = 6;
+const FLIGHT_PITCH = 0.12;
+
+/** The flight's script, on the camera: its transform each step, scatter copies hidden, shown and removed on the way. */
+const FLIGHT_BEHAVIOR: BehaviorPlan = {
+  behaviorId: 'level-flight',
+  displayName: 'Level flight',
+  ownedTransforms: ['@self'],
+  declaration: { properties: [] },
+  source: [
+    'export default {',
+    '  instantiate() { return { y: null, hidden: [] }; },',
+    '  step(state: any, ctx: any) {',
+    `    const lap = ${FLIGHT_SECONDS * DEFAULT_FIXED_STEP_HZ};`,
+    '    const t = ((ctx.stepIndex % lap) / lap) * Math.PI * 2;',
+    `    const x = Math.cos(t) * ${FLIGHT_RADIUS};`,
+    `    const z = Math.sin(t) * ${FLIGHT_RADIUS};`,
+    "    if (ctx.phase === 'intent') {",
+    '      if (ctx.scatter === undefined) return;',
+    '      // The nearest copy hidden every half second, shown again a second later; one removed every two seconds.',
+    '      if (ctx.stepIndex % 60 === 0) {',
+    '        const near = ctx.scatter.near([x, 0, z], 80, { limit: 1 })[0];',
+    '        if (near !== undefined && ctx.scatter.hide(near.address)) state.hidden.push([near.address, ctx.stepIndex]);',
+    '      }',
+    '      while (state.hidden.length > 0 && ctx.stepIndex - state.hidden[0][1] >= 120) ctx.scatter.show(state.hidden.shift()[0]);',
+    '      if (ctx.stepIndex % 240 === 120) {',
+    '        const near = ctx.scatter.near([x, 0, z], 80, { limit: 1 })[0];',
+    '        if (near !== undefined) ctx.scatter.remove(near.address);',
+    '      }',
+    '      return;',
+    '    }',
+    "    if (ctx.phase !== 'transform') return;",
+    '    const hit = ctx.physics.raycast3d([x, 1000, z], [0, -1, 0], 2000);',
+    '    const ground = hit === null ? 0 : hit.point[1];',
+    '    state.y = state.y === null ? ground : state.y + (ground - state.y) * 0.05;',
+    '    // Along the loop (three cameras look down -z), pitched down a little.',
+    '    const yaw = Math.PI - t;',
+    `    const a = Math.sin(yaw / 2), b = Math.cos(yaw / 2), c = Math.sin(-${FLIGHT_PITCH} / 2), d = Math.cos(-${FLIGHT_PITCH} / 2);`,
+    `    ctx.emit({ kind: 'transform', entityId: ctx.entityId, position: { x, y: Math.max(state.y, ground) + ${FLIGHT_HEIGHT}, z }, quaternion: [b * c, a * d, -a * c, b * d] });`,
+    '  },',
+    '};',
+  ].join('\n'),
+};
 
 /** The roofs' script: every odd roof cut, the even ones swapped between cut and drawn every 240 steps (2 s). */
 const CUTAWAY_BEHAVIOR = (rooms: number): BehaviorPlan => ({
@@ -333,7 +392,7 @@ function copies(n: number, at: (i: number) => { x: number; y: number; z: number;
   return f;
 }
 
-export function levelPlan(kind: LevelKind, seed = LEVEL_SEED, liveDoorCount = 0, edgeWalls = false, wallPaint = false, roofs: LevelRoofs = 'none', kitSwap = false, vertexAO = 0, rules = false, projection = 0, macro = 0, foliage: LevelFoliage = 'on'): LevelPlan {
+export function levelPlan(kind: LevelKind, seed = LEVEL_SEED, liveDoorCount = 0, edgeWalls = false, wallPaint = false, roofs: LevelRoofs = 'none', kitSwap = false, vertexAO = 0, rules = false, projection = 0, macro = 0, foliage: LevelFoliage = 'on', flight = false, impostorSize = 0): LevelPlan {
   const S = LEVEL_SPEC;
   const N = S.areaSide;
   const rnd = prng(seed * 104729 + N);
@@ -519,7 +578,7 @@ export function levelPlan(kind: LevelKind, seed = LEVEL_SEED, liveDoorCount = 0,
   // At the area's south edge, 8 m over its ground, looking north across it to the horizon.
   const pitch = -0.12;
   const camera: LevelPlan['camera'] = { position: [0, r3(groundY(half, N - 2) + 8), half - 2], rotation: [r6(Math.sin(pitch / 2)), 0, 0, r6(Math.cos(pitch / 2))] };
-  return { kind, version: LEVEL_VERSION, seed, props, buffers, layer, batches, blockEdits, rooms, camera, counts, liveDoors, edgeWalls, wallPaint, roofs, kitSwap, rules, projection, macro, foliage };
+  return { kind, version: LEVEL_VERSION, seed, props, buffers, layer, batches, blockEdits, rooms, camera, counts, liveDoors, edgeWalls, wallPaint, roofs, kitSwap, rules, projection, macro, foliage, flight, impostorSize };
 }
 
 /**
@@ -672,12 +731,16 @@ export async function buildLevel(be: PerfBackend, projectId: string, plan: Level
     }
     // The scatter rules, baked into every tile (the block area's region is set by now).
     const ts = performance.now();
-    const baked = (await cmd('editTerrain', { entityId: terrainId, kind: 'bake', scatter: levelScatterTerrain(plan.foliage) }))['terrain'] as { scatter?: unknown[] } | undefined;
+    const baked = (await cmd('editTerrain', { entityId: terrainId, kind: 'bake', scatter: levelScatterTerrain(plan.foliage, plan.impostorSize) }))['terrain'] as { scatter?: unknown[] } | undefined;
     log(`level ${plan.kind}: scatter baked into ${baked?.scatter?.length ?? 0} tiles in ${Math.round(performance.now() - ts)} ms (the command's round trip)`);
   }
   log(`level ${plan.kind}: ${JSON.stringify(plan.counts)}`);
 
   await cmd('setTransform', { entityId: 'cam-main', transform: { position: plan.camera.position, rotation: plan.camera.rotation } });
+  if (plan.flight) {
+    await publishBehaviorVia(be, p, cmd, FLIGHT_BEHAVIOR);
+    await cmd('setBehaviorProperties', { entityId: 'cam-main', behaviorId: FLIGHT_BEHAVIOR.behaviorId, values: {} });
+  }
   await cmd('setComponent', { entityId: 'light-0001', component: 'light', value: { type: 'directional', color: '#ffe2bd', intensity: 2, direction: [0.5, -0.55, -0.65], castShadow: true } });
   await cmd('setEnvironment', {
     sceneId: 'scene-main',

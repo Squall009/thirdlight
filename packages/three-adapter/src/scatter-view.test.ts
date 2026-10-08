@@ -6,12 +6,15 @@
  */
 import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
-import { bakeScatterCell, encodeChunkScatter, scatterBlobOf, type BlockChunk, type BlockLayerComponent, type ScatterGround, type ScatterRule, type ScatterSurface, type TerrainComponent } from '@thirdlight/runtime';
+import { bakeScatterCell, decodeChunkScatter, encodeChunkScatter, scatterBlobOf, type BlockChunk, type BlockLayerComponent, type ScatterGround, type ScatterRule, type ScatterSurface, type TerrainComponent } from '@thirdlight/runtime';
 
+import type { AttributeInstancedMesh } from './attribute-instancing';
 import { CUTAWAY_LAYER } from './block-cutaway-view';
+import type { MeshWorkerPort } from './block-mesh-pool';
+import { runScatterWorker } from './scatter-worker';
 import { ScatterView } from './scatter-view';
 import { SHADOW_RING_METRES } from './scatter-shadows';
-import { CullView } from './view-cull';
+import { CullView, VIEW_CULL_KEY } from './view-cull';
 import type { ModelInstance } from './visual';
 
 const RULE: ScatterRule = { id: 'trees', asset: { assetId: 'tree' }, density: 0.25, castShadow: true };
@@ -138,5 +141,88 @@ describe('scatter view', () => {
     const after = [...listed].filter((r) => r.name.startsWith('scatter-shadow:')).map((r) => r.name);
     expect(after.some((n) => !before.has(n))).toBe(true);
     expect([...before].some((n) => !after.includes(n))).toBe(true);
+  });
+});
+
+describe('scatter view: sets prepared on a worker, copies a game hides', () => {
+  const comp = { cellSize: [1, 1, 1], bounds: { min: [0, 0, 0], max: [64, 8, 64] }, scatter: [{ ...RULE, blobShadow: 0.5 }] } as unknown as BlockLayerComponent;
+
+  /** A worker on the page: the scatter worker's own code behind a message port pair, answering later as a worker does. */
+  function pagedWorker(): { factory: () => MeshWorkerPort; jobs: () => number } {
+    let jobs = 0;
+    const factory = (): MeshWorkerPort => {
+      const toPage = new Set<(m: unknown) => void>();
+      const toWorker = new Set<(m: unknown) => void>();
+      runScatterWorker({ post: (m) => setTimeout(() => toPage.forEach((l) => l(m)), 0), listen: (l) => void toWorker.add(l) });
+      return {
+        post: (m) => {
+          jobs += 1;
+          // A worker gets a copy (the page's buffers move): structured clone stands in for the transfer.
+          const copy = structuredClone(m);
+          setTimeout(() => toWorker.forEach((l) => l(copy)), 0);
+        },
+        listen: (l) => void toPage.add(l),
+        onError: () => undefined,
+        terminate: () => undefined,
+      };
+    };
+    return { factory, jobs: () => jobs };
+  }
+
+  it('prepares each rule\'s set and its blobs on the worker; the old set stays drawn until the new one replaces it', async () => {
+    const listed = new Set<THREE.Object3D>();
+    const t = template();
+    const w = pagedWorker();
+    const view = new ScatterView({ template: () => t, read: null, place: (root, shown) => void (shown ? listed.add(root) : listed.delete(root)), worker: w.factory });
+    view.setBlockLayer('layer', comp, [0, 0, 0], [chunk(0, 0, 16), chunk(1, 0, 16)]);
+    // Sent, not built: nothing drawn yet.
+    expect(view.update()).toBe(false);
+    expect(w.jobs()).toBe(2);
+    expect(view.diagnostics()).toMatchObject({ preparing: 2, sets: 0 });
+    await new Promise((r) => setTimeout(r, 5));
+    expect(view.update()).toBe(true);
+    const d = view.diagnostics();
+    expect(d).toMatchObject({ sets: 2, preparing: 0, prepared: 0, preparedSets: 2, onWorker: true });
+    const before = view.meshes();
+    // A chunk changed: prepared again; until the answer the old set is still drawn.
+    view.replaceBlockChunks('layer', [{ cx: 1, cz: 0, chunk: { cx: 1, cz: 0, palette: [], columns: [] } }]);
+    view.update();
+    expect(view.meshes()).toEqual(before);
+    await new Promise((r) => setTimeout(r, 5));
+    view.update();
+    expect(view.meshes()).not.toEqual(before);
+    expect(view.diagnostics().copies).toBeLessThan(d.copies);
+    view.dispose();
+  });
+
+  it('a hidden copy shrinks to nothing in place (its blob too), shows again, and a removed one leaves the set', () => {
+    const { view } = host();
+    view.setBlockLayer('layer', { ...comp } as BlockLayerComponent, [0, 0, 0], [chunk(0, 0, 16)]);
+    view.update();
+    const copies = view.diagnostics().copies;
+    const cell = decodeChunkScatter(chunk(0, 0, 16).scatter)!.get('trees')!;
+    const at: [number, number] = [cell.cells[0]!, cell.cells[1]!];
+    const drawnScale = (): number[] =>
+      view.meshes().map((m) => {
+        const inst = m.userData[VIEW_CULL_KEY] as AttributeInstancedMesh;
+        // The copy's slot: the first copy of the only chunk (slot order is the copies' order).
+        return new THREE.Vector3().setFromMatrixScale(inst.getMatrixAt(0, new THREE.Matrix4())).length();
+      });
+    expect(drawnScale().every((s) => s > 0)).toBe(true);
+    view.setCopyStates([{ entityId: 'layer', key: '0,0', rule: 'trees', cell: at, state: 'hidden' }]);
+    // In place: no set made again, the copy (and its blob) drawn at nothing.
+    expect(view.diagnostics()).toMatchObject({ pending: 0, hidden: 1, copies });
+    expect(drawnScale()).toEqual([0, 0]);
+    view.setCopyStates([{ entityId: 'layer', key: '0,0', rule: 'trees', cell: at, state: 'shown' }]);
+    expect(drawnScale().every((s) => s > 0)).toBe(true);
+    view.setCopyStates([{ entityId: 'layer', key: '0,0', rule: 'trees', cell: at, state: 'removed' }]);
+    expect(view.diagnostics().pending).toBe(1);
+    view.update();
+    // The copy and its blob disc.
+    expect(view.diagnostics()).toMatchObject({ pending: 0, removed: 1, copies: copies - 2 });
+    // A new run: shown again (the set made again with it).
+    view.setCopyStates([{ entityId: 'layer', key: '0,0', rule: 'trees', cell: at, state: 'shown' }]);
+    view.update();
+    expect(view.diagnostics()).toMatchObject({ removed: 0, copies });
   });
 });

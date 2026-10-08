@@ -490,8 +490,8 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     place: (root, shown) => (shown ? graph.listStatic(root) : graph.unlistStatic(root)),
     shapeChanged: () => staticShadows?.bump(),
     tile: (digest) => (opts.terrainTiles ?? ownTiles)?.tile(digest),
-    ...(opts.meshWorkerUrl !== undefined ? { worker: () => createBrowserMeshWorker(opts.meshWorkerUrl!, 'thirdlight-cover') } : {}),
-    tuning: graph.lodTuning,
+    ...(opts.meshWorkerUrl !== undefined ? { worker: () => createBrowserMeshWorker(opts.meshWorkerUrl!, 'thirdlight-cover'), scatterWorker: () => createBrowserMeshWorker(opts.meshWorkerUrl!, 'thirdlight-scatter') } : {}),
+    tuning: graph.lodTuning, renderer: () => owned.renderer?.current() ?? null,
     changed: () => opts.onChange?.(),
     drawn: opts.scatter !== false,
   });

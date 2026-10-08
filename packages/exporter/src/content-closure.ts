@@ -1180,7 +1180,8 @@ function usesSockets(scenes: readonly unknown[] | undefined, prefabs: readonly P
 
 /**
  * The models (and pieces, '' for a model shown whole) whose `_COL` parts a
- * collider `{type: 'model'}` of a scene or a prefab is made of.
+ * collider `{type: 'model'}` of a scene or a prefab is made of, and those of the scatter rules
+ * whose copies collide.
  */
 function modelColliderUses(scenes: readonly unknown[] | undefined, prefabs: readonly PrefabDefinition[]): Map<string, Set<string>> {
   const out = new Map<string, Set<string>>();
@@ -1188,12 +1189,19 @@ function modelColliderUses(scenes: readonly unknown[] | undefined, prefabs: read
     if (!Array.isArray(entities)) return;
     for (const e of entities) {
       const c = (e as { components?: Record<string, unknown> } | null)?.components;
+      const use = (assetId: unknown, piece: unknown): void => {
+        if (typeof assetId !== 'string') return;
+        const pieces = out.get(assetId) ?? new Set<string>();
+        pieces.add(typeof piece === 'string' ? piece : '');
+        out.set(assetId, pieces);
+      };
+      // The scatter rules whose copies collide (a terrain's or a block layer's): each copy carries its model's parts.
+      for (const holder of [c?.['terrain'], c?.['blockLayer']] as ({ scatter?: { asset?: { assetId?: unknown; piece?: unknown }; collide?: unknown; cover?: unknown }[] } | undefined)[]) {
+        for (const r of holder?.scatter ?? []) if (r.collide === true && r.cover !== true) use(r.asset?.assetId, r.asset?.piece);
+      }
       const shape = (c?.['collider'] as { shape?: { type?: unknown } } | undefined)?.shape;
       const model = c?.['model'] as { asset?: { assetId?: unknown }; piece?: unknown } | undefined;
-      if (shape?.type !== 'model' || typeof model?.asset?.assetId !== 'string') continue;
-      const pieces = out.get(model.asset.assetId) ?? new Set<string>();
-      pieces.add(typeof model.piece === 'string' ? model.piece : '');
-      out.set(model.asset.assetId, pieces);
+      if (shape?.type === 'model') use(model?.asset?.assetId, model?.piece);
     }
   };
   for (const sc of scenes ?? []) visit((sc as { entities?: unknown }).entities);

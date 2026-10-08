@@ -30,6 +30,9 @@ import { LOD_REFERENCE_FOV_DEG, type InstanceDensity } from '@thirdlight/runtime
 import type { LodTuning } from './lod-switch';
 import { maxScaleOf, type CullView } from './view-cull';
 import type { InstanceFilter } from './attribute-instancing';
+import { pickBlocks, PICK_BLOCK, type PreparedPickStats } from './instance-prepare';
+
+export { copyRank } from './instance-prepare';
 
 /** tan of half the reference field of view: a sphere of radius r covers size s of the screen at r / (TAN · s). */
 export const TAN_HALF_REFERENCE = Math.tan((LOD_REFERENCE_FOV_DEG * Math.PI) / 360);
@@ -72,15 +75,6 @@ export interface ChunkLodCounts {
   readonly thinned: number;
 }
 
-/** A copy's place in the thinning order: a hash of its index, so neighbours thin evenly and the order never changes. */
-export function copyRank(index: number): number {
-  let h = Math.imul(index ^ 0x9e3779b9, 0x85ebca6b);
-  h ^= h >>> 13;
-  h = Math.imul(h, 0xc2b2ae35);
-  h ^= h >>> 16;
-  return (h >>> 0) / 4294967296;
-}
-
 /** The share of copies drawn at `distance` for a copy whose falloff runs from `from` to `to` (distances; `min` past it). */
 export function densityAt(distance: number, from: number, to: number, min: number): number {
   if (distance <= from) return 1;
@@ -115,8 +109,18 @@ export class ChunkLodPicker {
   private maxScale: number;
   /** The copies' mean scale (a chunk's level is picked for it), and per LOD group the level the chunk picked (-1: none yet). */
   private meanScale: number;
+  private scaleSum: number;
   private readonly chunkLevels: Int16Array;
   private counts: ChunkLodCounts;
+  /**
+   * Per block of {@link PICK_BLOCK} copies: its sphere in the chunk node's space
+   * (centre xyz, radius), and the eye its picks were made at (NaN: to be made) — a
+   * block the eye moved little toward, for its distance, keeps its picks.
+   */
+  private readonly blocks: Float32Array;
+  private readonly blockEyes: Float64Array;
+  /** The blocks' eyes hold for the current world matrix, zoom and tuning (else every block picks again). */
+  private blocksValid = false;
 
   constructor(
     private readonly copies: ChunkCopies,
@@ -126,22 +130,35 @@ export class ChunkLodPicker {
     private readonly tuning: LodTuning,
     /** Each copy picks its own level; else the chunk's level for all of them. */
     private readonly perCopy = false,
+    /** The copies' reach and sizes, worked out ahead (`instance-prepare.ts`); absent: worked out here. */
+    stats?: PreparedPickStats,
   ) {
     this.levels = groups.map(() => new Uint8Array(copies.count).fill(UNPICKED));
     this.kept = new Uint8Array(copies.count).fill(1);
-    let reach = 0;
-    let lo = Number.POSITIVE_INFINITY;
-    let hi = 0;
-    for (let i = 0; i < copies.count; i += 1) {
-      const o = copies.origins;
-      reach = Math.max(reach, Math.hypot(o[i * 3]!, o[i * 3 + 1]!, o[i * 3 + 2]!));
-      lo = Math.min(lo, copies.scales[i]!);
-      hi = Math.max(hi, copies.scales[i]!);
+    this.scaleSum = 0;
+    for (let i = 0; i < copies.count; i += 1) this.scaleSum += copies.scales[i]!;
+    if (stats !== undefined) {
+      this.reach = stats.reach;
+      this.minScale = stats.minScale;
+      this.maxScale = stats.maxScale;
+      this.meanScale = stats.meanScale;
+    } else {
+      let reach = 0;
+      let lo = Number.POSITIVE_INFINITY;
+      let hi = 0;
+      for (let i = 0; i < copies.count; i += 1) {
+        const o = copies.origins;
+        reach = Math.max(reach, Math.hypot(o[i * 3]!, o[i * 3 + 1]!, o[i * 3 + 2]!));
+        lo = Math.min(lo, copies.scales[i]!);
+        hi = Math.max(hi, copies.scales[i]!);
+      }
+      this.reach = reach;
+      this.minScale = Number.isFinite(lo) ? lo : 1;
+      this.maxScale = hi;
+      this.meanScale = copies.count > 0 ? this.scaleSum / copies.count : 1;
     }
-    this.reach = reach;
-    this.minScale = Number.isFinite(lo) ? lo : 1;
-    this.maxScale = hi;
-    this.meanScale = this.scaleMean();
+    this.blocks = stats?.blocks ?? pickBlocks(copies.origins, copies.count);
+    this.blockEyes = new Float64Array((this.blocks.length / 4) * 3).fill(Number.NaN);
     this.chunkLevels = new Int16Array(groups.length).fill(-1);
     this.counts = { byLevel: [], culled: 0, thinned: 0 };
     this.lists = [...groups.map((g) => g.distances.map(() => new Uint32Array(copies.count))), [new Uint32Array(copies.count)]];
@@ -181,19 +198,18 @@ export class ChunkLodPicker {
     o[copy * 3] = x;
     o[copy * 3 + 1] = y;
     o[copy * 3 + 2] = z;
+    this.scaleSum += scale - this.copies.scales[copy]!;
     this.copies.scales[copy] = scale;
     this.reach = Math.max(this.reach, Math.hypot(x, y, z));
     this.minScale = Math.min(this.minScale, scale);
     this.maxScale = Math.max(this.maxScale, scale);
-    this.meanScale = this.scaleMean();
+    this.meanScale = this.copies.count > 0 ? this.scaleSum / this.copies.count : 1;
+    // Its block's sphere grows to hold it (still around all of the block's copies).
+    const b = Math.floor(copy / PICK_BLOCK) * 4;
+    const bl = this.blocks;
+    bl[b + 3] = Math.max(bl[b + 3]!, Math.hypot(x - bl[b]!, y - bl[b + 1]!, z - bl[b + 2]!));
     this.pickedZoom = Number.NaN;
     this.stamp = -1;
-  }
-
-  private scaleMean(): number {
-    let sum = 0;
-    for (let i = 0; i < this.copies.count; i += 1) sum += this.copies.scales[i]!;
-    return this.copies.count > 0 ? sum / this.copies.count : 1;
   }
 
   /** What the picks hold now. */
@@ -227,6 +243,7 @@ export class ChunkLodPicker {
       const dz = view.eye[2]! - this.pickedEye[2]!;
       if (dx * dx + dy * dy + dz * dz <= this.moveSq) return this.version;
     }
+    if (!worldSame || revision !== this.revision || view.zoom !== this.pickedZoom) this.blocksValid = false;
     this.revision = revision;
     if (!worldSame) for (let k = 0; k < 16; k += 1) world[k] = w[k]!;
     this.pickedEye.set(view.eye);
@@ -266,6 +283,8 @@ export class ChunkLodPicker {
     let allCulled = groups.length > 0;
     for (const g of groups) if (!g.culls || near < g.distances[g.distances.length - 1]! * sHi) allCulled = false;
     if (allNear || allCulled) {
+      // Every copy decided at once: the blocks pick afresh when they are needed again.
+      this.blocksValid = false;
       let changed = false;
       for (let gi = 0; gi < groups.length; gi += 1) {
         const target = allNear ? 0 : groups[gi]!.distances.length - 1;
@@ -312,7 +331,22 @@ export class ChunkLodPicker {
       }
     }
     const w0 = w[0]!, w1 = w[1]!, w2 = w[2]!, w4 = w[4]!, w5 = w[5]!, w6 = w[6]!, w8 = w[8]!, w9 = w[9]!, w10 = w[10]!;
-    for (let i = 0; i < count; i += 1) {
+    const bl = this.blocks;
+    const be = this.blockEyes;
+    const fresh = !this.blocksValid;
+    this.blocksValid = true;
+    for (let b = 0; b * PICK_BLOCK < count; b += 1) {
+      // A block the eye moved toward by less than the margin of its nearest copy's distance keeps its picks.
+      const bx = bl[b * 4]!, by = bl[b * 4 + 1]!, bz = bl[b * 4 + 2]!;
+      const near = Math.max(0, Math.hypot(ex - (w0 * bx + w4 * by + w8 * bz + w[12]!), ey - (w1 * bx + w5 * by + w9 * bz + w[13]!), ez - (w2 * bx + w6 * by + w10 * bz + w[14]!)) - bl[b * 4 + 3]! * ws);
+      if (!fresh) {
+        const mx = ex - be[b * 3]!, my = ey - be[b * 3 + 1]!, mz = ez - be[b * 3 + 2]!;
+        if (mx * mx + my * my + mz * mz <= (near * REPICK_MOVE_FRACTION) ** 2) continue;
+      }
+      be[b * 3] = ex;
+      be[b * 3 + 1] = ey;
+      be[b * 3 + 2] = ez;
+    for (let i = b * PICK_BLOCK; i < Math.min(count, (b + 1) * PICK_BLOCK); i += 1) {
       const ox = origins[i * 3]!;
       const oy = origins[i * 3 + 1]!;
       const oz = origins[i * 3 + 2]!;
@@ -345,6 +379,7 @@ export class ChunkLodPicker {
           changed = true;
         }
       }
+    }
     }
     if (changed) this.count();
     return changed;

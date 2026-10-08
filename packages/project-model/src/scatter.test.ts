@@ -59,6 +59,11 @@ describe('scatter rules', () => {
     expect(errors.map((e) => e.path)).toEqual(['/scatter/1/id', '/scatter/1/density', '/scatter/2/layers/0', '/scatter/2/layers/0/layer']);
     expect(canonicalScatterRules([{ ...TREES, yaw: 360, align: 0, seed: 0 }])).toEqual([{ id: 'trees', asset: { assetId: 'tree' }, density: 0.05, spacing: 3, scale: [0.8, 1.2], slope: { max: 30 } }]);
     expect(scatterReach([TREES, { ...ROCKS, cavity: { min: 0, radius: 4 } }])).toBe(4);
+    // Far copies as impostors below a screen size; never for ground cover (it never draws that far).
+    const far: ModelErrorV2[] = [];
+    validateScatterRules([{ ...TREES, impostorSize: 0.03 }, { ...ROCKS, impostorSize: 2 }, { id: 'grass', asset: { assetId: 'tuft' }, density: 2, cover: true, impostorSize: 0.03 }], '/scatter', far, false);
+    expect(far.map((e) => e.path)).toEqual(['/scatter/1/impostorSize', '/scatter/2/impostorSize']);
+    expect(canonicalScatterRules([{ ...TREES, impostorSize: 0.03, collide: true }])[0]).toMatchObject({ impostorSize: 0.03, collide: true });
   });
 
   it('places copies only where the conditions hold, never closer than the spacing', () => {

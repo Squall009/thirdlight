@@ -301,6 +301,8 @@ export interface StepContext {
   readonly debug?: { command(name: string, options?: DebugCommandOptions): readonly DebugCommandArgs[] };
   /** The block layers of the loaded scenes (`ctx.grid`). */
   readonly grid?: import('./grid').BehaviorGrid;
+  /** The terrains' and block layers' scatter copies (`ctx.scatter`). */
+  readonly scatter?: import('./scatter-copies').BehaviorScatter;
   /** Graph-material parameters per object (`ctx.materials`). */
   readonly materials?: import('./material-params').BehaviorMaterials;
   /** Project saves (`ctx.saves`). */
