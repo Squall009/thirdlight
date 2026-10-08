@@ -22,6 +22,7 @@ import { chunkModelKey, chunkResultBuffers, meshChunkForDrawing, StandInShapes, 
 export { runTerrainPackWorker } from './terrain-pack-worker';
 export { runCoverWorker } from './cover-worker';
 export { runScatterWorker } from './scatter-worker';
+export { runArchitectureWorker } from './architecture-worker';
 
 /** Page → worker. */
 export type MeshWorkerRequest =

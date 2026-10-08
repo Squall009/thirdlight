@@ -26,6 +26,7 @@ import { dialogueForRuntime, type DialogueDocument, type DialogueSettings, type 
 import type { GameMode } from '@thirdlight/project-model';
 import type { EventCue, GameShell, TimelineAsset } from '@thirdlight/project-model';
 import type { AnimatorController, EnvironmentConfig, PrefabDefinition, InputConfig, LightingMap, MaterialDef, UiDocument, UiTheme } from '@thirdlight/project-model';
+import { architectureCopies, architectureShipsMeshesOf, type ArchitectureComponent } from '@thirdlight/project-model';
 import { animatorsForRuntime, effectsForRuntime, type EffectDef, materialFunctionsForRuntime, materialsForRuntime, type GraphDocument, captureContentViewV3, captureManifestV5, restampManifestV5, type CatalogFile, dependencyTables, scanDependencies, M3_ENGINE_PINS, resolveMediaIdentityV3, sha256Hex, type GameplaySettings, type ManifestAssetInputV2, type ManifestAssetInputV5, type ManifestBehaviorInput, type MediaBlock, type RuntimeContentManifestV5, type ManifestSceneRow, physicsDimensionOf, resolveRequiredModules, materialsInUse, resolveMaterialInstances, hasTextureSlots, withAssembledSlots, textureSlotSetKey, loadableAssetIds, loadableResourceIds, loadableRows, scriptLibraryContainerText, scriptLibraryDigest, type ScriptLibrary } from '@thirdlight/project-model';
 import { playChecks, projectWideRoots, startDrawSet, type MissingPlayFile, type PlayCheck, type SceneV4 } from '@thirdlight/project-model';
 import { ASSET_QUERY_PAGE_MAX, audioLoadOf, COLLIDER_3D_LIMITS, MODEL_RIG_LIMITS, modelCollisionParts, sceneColliderPoints, readModelGeometry, readModelRig, textureStreamingOf, type AudioLoadType, type ManifestMipPart, type ModelRig } from '@thirdlight/project-model';
@@ -34,6 +35,7 @@ import type { BlobFile, WorkspaceService } from '@thirdlight/workspace';
 import { closureSlotArrays, type ClosureSlotArrays, type ClosureTextureSlots } from './closure-texture-slots';
 import { blockDataPacker, type GzipPort } from './block-chunk-data';
 import { overviewsIn, terrainOverviewPacker } from './terrain-overview-data';
+import { architectureMeshPacker } from './architecture-meshes';
 
 /** The injected compiler port (structural; no behavior-build edge). */
 export interface ContentClosureCompilerPort {
@@ -922,7 +924,9 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
     if (!r.ok) throw new Error(`terrain tile ${digest.slice(0, 12)}…: ${r.error.message}`);
     return r.bytes;
   });
-  const packScene = (doc: unknown): unknown => overviews.pack(packer.pack(doc));
+  // Generated architecture's meshes, made here when the project ships them (else its parameters ship alone).
+  const archMeshes = architectureMeshPacker(architectureShipsMeshesOf((input.content as { settings?: unknown } | null)?.settings), () => usedMaterialsOf(), hash);
+  const packScene = (doc: unknown): unknown => overviews.pack(packer.pack(archMeshes.pack(doc)));
   if (input.scenes !== undefined && derived === null) {
     const start = new Set(input.startScenes ?? []);
     for (const doc of input.scenes) {
@@ -1042,7 +1046,7 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
   }
   const sceneDigest = derived !== null ? derived.sceneDigest : hash(sceneBytes);
   // The block layers' chunk data and the streamed terrains' overviews: blobs this build made (read like the instance buffers).
-  const blockData: readonly ClosureArtifact[] = derived !== null ? derived.blockData : [...packer.blobs(), ...overviews.blobs()].map((b) => ({ path: `content/sha256/${b.digest}`, bytes: b.bytes, digest: b.digest, contentType: 'application/octet-stream' }));
+  const blockData: readonly ClosureArtifact[] = derived !== null ? derived.blockData : [...packer.blobs(), ...overviews.blobs(), ...archMeshes.blobs()].map((b) => ({ path: `content/sha256/${b.digest}`, bytes: b.bytes, digest: b.digest, contentType: 'application/octet-stream' }));
   // Read with the instance buffers (manifest.buffers), served from the build.
   for (const a of blockData) if (!buffers.has(a.digest)) bufferArtifacts.push(a);
   let remember: DerivedCapture | null = null;
@@ -1259,6 +1263,9 @@ function modelColliderUses(scenes: readonly unknown[] | undefined, prefabs: read
       for (const holder of [c?.['terrain'], c?.['blockLayer']] as ({ scatter?: { asset?: { assetId?: unknown; piece?: unknown }; collide?: unknown; cover?: unknown }[] } | undefined)[]) {
         for (const r of holder?.scatter ?? []) if (r.collide === true && r.cover !== true) use(r.asset?.assetId, r.asset?.piece);
       }
+      // Generated architecture's kit copies that collide (a repeat's models, overridden segments, openings' models).
+      const arch = c?.['architecture'] as ArchitectureComponent | undefined;
+      if (arch !== undefined && Array.isArray(arch.elements)) for (const set of architectureCopies(arch)) if (set.collide) use(set.model.assetId, set.model.piece);
       // A spline's pieces that collide (the default): each copy carries its model's parts.
       for (const p of (c?.['spline'] as { pieces?: { asset?: { assetId?: unknown; piece?: unknown }; collide?: unknown }[] } | undefined)?.pieces ?? []) if (p.collide !== false) use(p.asset?.assetId, p.asset?.piece);
       const shape = (c?.['collider'] as { shape?: { type?: unknown } } | undefined)?.shape;

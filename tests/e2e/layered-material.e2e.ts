@@ -35,6 +35,15 @@
  * picture can see a bleed. A strip patch with vertex grime takes the grime
  * colour, one with vertex wetness is darker, with no texture of their own.
  *
+ * Generated architecture on the same sheet (one object, only parameters
+ * stored): a profile swept along a path (a moulding: a wall face, a bevel,
+ * a band, a bevel) and a row of columns (a profile swept round a small
+ * square, made once and stamped every 3 m), generated at load on the
+ * generator workers. In Play each wears its rows' colours (magenta face,
+ * blue band, green column); the static export, served with the backend
+ * stopped, generates them again and shows the same colours. The chunk and
+ * ready marks give the generation times.
+ *
  * TL_LAYERED_DIR=<dir> keeps the pictures.
  */
 import { randomBytes, randomUUID } from 'node:crypto';
@@ -48,7 +57,8 @@ import { materials, packTexture, publishTexture, useArrays } from './painted-lay
 import { decodePng, type Image } from './png';
 import { makePng } from './png-make';
 import { stripPatchCentre, TEST_TRIM_COLOURS, TEST_TRIM_SHEET, testTrimLayoutJson, testTrimSheetPng, trimStripsGlb } from './trim-strips';
-import { editorUrlFor, expectRendererBackend, onlyInItsProject, RENDERER_VARIANTS, type RendererVariant } from './renderer-variants';
+import { editorUrlFor, expectRendererBackend, exportQueryFor, onlyInItsProject, RENDERER_VARIANTS, type RendererVariant } from './renderer-variants';
+import { serveDir } from './frame-reading';
 import { closeEditor, createItem, editorPane, inspector, menu, openEditor, openWindow } from './ui';
 
 let be: E2EBackend | null = null;
@@ -344,6 +354,45 @@ function sameColour(a: readonly number[], b: readonly number[]): boolean {
   return sa > 0 && sb > 0 && sa / sb > 0.7 && sa / sb < 1.4 && a.every((v, k) => Math.abs(v / sa - b[k]! / sb) < 0.04);
 }
 
+/** Generated architecture beside the strips (world points; the object at the origin): a swept moulding left of them, columns right of them. */
+const ARCHITECTURE = {
+  profiles: {
+    // Up the wall face, a bevel out, a band, a bevel back (faces look right of travel: toward the camera).
+    moulding: { points: [[0, 0], [0, 1], [0.15, 1.15], [0.15, 1.45], [0, 1.6]], slots: ['lower_wall', 'baseboard', 'crown', 'baseboard'] },
+    // A column's face, drawn down so it looks out of the square it is swept round.
+    shaft: { points: [[0, 2.2], [0, 0]], slots: ['baseboard'] },
+  },
+  elements: [
+    { id: 'moulding', kind: 'sweep', path: { points: [[193.5, 0, -6], [193.5, 0, -16]] }, profile: 'moulding' },
+    { id: 'columns', kind: 'repeat', path: { points: [[204.5, 0, -8], [204.5, 0, -14]] }, spacing: 3, piece: { elements: [{ id: 'shaft', kind: 'sweep', path: { points: [[-0.2, 0, -0.2], [0.2, 0, -0.2], [0.2, 0, 0.2], [-0.2, 0, 0.2]], closed: true }, profile: 'shaft' }] } },
+  ],
+};
+/** Where the architecture is read: the moulding's wall face and band, the middle column's front face. */
+const ARCH_READS = [
+  { slot: 'lower_wall', at: [193.5, 0.6, -11] },
+  { slot: 'crown', at: [193.65, 1.3, -11] },
+  { slot: 'baseboard', at: [204.5, 1.1, -10.79] },
+] as const;
+
+/** The architecture's colours in a picture of the fixed camera, and whether each has its row's hue. */
+function readArchitecture(img: Image): { colours: [number, number, number][]; ok: boolean } {
+  const colours = ARCH_READS.map((r) => colourAt(img, onPlay(r.at, img.width, img.height)));
+  return { colours, ok: colours.every((c, i) => rowHue(ARCH_READS[i]!.slot, c)) };
+}
+
+/** The page's generated-architecture marks: chunks made (where, ms) and objects ready (ms from their parameters to drawn). */
+async function architectureMarks(target: Locator | Page): Promise<{ chunks: { ms: number; where: string }[]; ready: { ms: number; first: boolean }[] }> {
+  const read = (): { chunks: { ms: number; where: string }[]; ready: { ms: number; first: boolean }[] } => {
+    const marks = performance.getEntriesByType('mark') as PerformanceMark[];
+    return {
+      chunks: marks.filter((m) => m.name === 'tl:arch:chunk').map((m) => ({ ...(m.detail as { ms: number; where: string }), at: Math.round(m.startTime) })),
+      ready: marks.filter((m) => m.name === 'tl:arch:ready').map((m) => ({ ...(m.detail as { ms: number; first: boolean }), at: Math.round(m.startTime) })),
+    };
+  };
+  // A locator evaluates in its frame (Play's iframe), a page in its own.
+  return (target as Page).evaluate(read);
+}
+
 async function trimSheetChecks(page: Page, variant: RendererVariant): Promise<void> {
   type TrimMat = { materialId: string; shader: string; textures: Record<string, string>; trim?: { size: number[]; padding: number; rows: { slot: string; top: number; bottom: number; texelDensity?: number }[] } };
   const trimMaterial = async (): Promise<TrimMat | undefined> => ((await materials(be!)) as unknown as TrimMat[]).find((m) => m.shader === 'trim');
@@ -388,6 +437,11 @@ async function trimSheetChecks(page: Page, variant: RendererVariant): Promise<vo
   const lens = ((await query('queryEntity', { entityId: 'cam-main' }))['entity'] as { components: { virtualCamera?: Record<string, unknown> } }).components.virtualCamera;
   await cmd('setComponent', { entityId: 'cam-main', component: 'virtualCamera', value: { ...(lens ?? {}), rig: 'fixed', fovY: FOV_Y, near: 0.1, far: 200 } });
 
+  // Generated architecture wearing the trim material: parameters only, made at load.
+  const archId = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Architecture', transform: { position: [0, 0, 0] } }))['createdId']);
+  await cmd('setComponent', { entityId: archId, component: 'architecture', value: ARCHITECTURE });
+  await cmd('setComponent', { entityId: archId, component: 'materials', value: { '*': trimId } });
+
   await page.getByTitle('Start an isolated play preview').click();
   const canvas = page.frameLocator('iframe.tl-app__preview-frame').locator('canvas').first();
   await expectRendererBackend(canvas, variant);
@@ -429,5 +483,39 @@ async function trimSheetChecks(page: Page, variant: RendererVariant): Promise<vo
       throw e;
     });
   console.log(`trim strips ${variant}: ${reading}`);
+  // The architecture: generated on the workers, each part its row's colour.
+  let arch: { colours: [number, number, number][]; ok: boolean } = { colours: [], ok: false };
+  await expect.poll(async () => (arch = readArchitecture(decodePng(await canvas.screenshot()))).ok, { timeout: 30_000, intervals: [500], message: 'the Play picture of the architecture' }).toBe(true);
+  const playMarks = await architectureMarks(canvas);
+  console.log(`architecture ${variant} Play: ${arch.colours.map((c) => c.map((v) => v.toFixed(0)).join(',')).join(' ')}; chunks ${JSON.stringify(playMarks.chunks)}; ready ${JSON.stringify(playMarks.ready)}`);
+  expect(playMarks.chunks.length).toBeGreaterThan(0);
+  expect(playMarks.chunks.every((c) => c.where === 'worker' || c.where === 'page')).toBe(true);
   await page.getByTitle('Stop the play preview').click();
+
+  // ---- The static export, served with the backend stopped: the parameters ship, the game generates the same picture.
+  const res = await be!.admin(`projects/${be!.projectId}/export`);
+  expect(res.status, JSON.stringify(res.json)).toBe(200);
+  const out = join(be!.exportRoot, String(res.json['outputDir']));
+  await page.goto('about:blank');
+  await be!.halt();
+  const site = await serveDir(out);
+  const game = await page.context().newPage();
+  const errors: string[] = [];
+  game.on('pageerror', (e) => errors.push(e.message));
+  try {
+    await game.goto(`${site.url}${exportQueryFor(variant)}`);
+    const exported = game.locator('canvas').first();
+    await expectRendererBackend(exported, variant);
+    let shown: { colours: [number, number, number][]; ok: boolean } = { colours: [], ok: false };
+    await expect.poll(async () => (shown = readArchitecture(decodePng(await exported.screenshot()))).ok && shown.colours.every((c, i) => sameColour(c, arch.colours[i]!)), { timeout: 45_000, intervals: [500], message: 'the export picture of the architecture' }).toBe(true);
+    const marks = await architectureMarks(game);
+    console.log(`architecture ${variant} export: ${shown.colours.map((c) => c.map((v) => v.toFixed(0)).join(',')).join(' ')}; chunks ${JSON.stringify(marks.chunks)}; ready ${JSON.stringify(marks.ready)}`);
+    // Generated, not shipped: on the workers, or on the page while they were starting.
+    expect(marks.chunks.length).toBeGreaterThan(0);
+    expect(marks.chunks.every((c) => c.where === 'worker' || c.where === 'page')).toBe(true);
+    expect(errors).toEqual([]);
+  } finally {
+    await game.close();
+    await site.close();
+  }
 }

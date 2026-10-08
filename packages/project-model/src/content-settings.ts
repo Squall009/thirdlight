@@ -192,6 +192,10 @@ export const M2_SETTINGS_KEYS: readonly SettingsKeySpec[] = [
   // The memory streamed terrain tiles and block chunks may take in Play and the export (MiB; project-model
   // STREAMING_BUDGET_DEFAULT_MB, where the default's reason is).
   { key: 'streaming_budget_mb', type: 'number', default: STREAMING_BUDGET_DEFAULT_MB, min: STREAMING_BUDGET_MIN_MB, max: STREAMING_BUDGET_MAX_MB, integer: true, unit: 'MiB', optional: true, group: RENDERING_SETTINGS_GROUP, label: 'Streaming budget', tooltip: 'Memory (MiB) the streamed terrain tiles and block chunks (those with Streaming rings) may take in Play and the export: tiles and chunks kept past their rings are let go first when it is full. Rings that alone need more are reported as a problem, never cut.' },
+  // Generated architecture in an export (architecture.ts): 0, the parameters ship and the game generates the
+  // meshes at load (small downloads; what any project gets unless it asks); 1, the export also ships the meshes
+  // the same generator made, for a game that would rather download than generate.
+  { key: 'architecture_ship_meshes', type: 'number', default: 0, values: [0, 1], valueLabels: ['Generate at load', 'Ship generated meshes'], integer: true, unit: '', optional: true, group: 'Engine', label: 'Generated architecture', tooltip: 'Exports ship generated architecture as its parameters and the game generates the meshes when a scene loads (small, fast on a worker), or also ship the meshes the same generator made (larger download, nothing to generate).' },
 ];
 
 /**
@@ -242,6 +246,11 @@ export function extractTexturesEverywhere(settings: unknown): boolean {
 /** How the editor writes block chunk files (`block_chunk_storage`; absent or 0: JSON text, 1: binary). */
 export function blockChunkStorageOf(settings: unknown): 'json' | 'binary' {
   return typeof settings === 'object' && settings !== null && (settings as Record<string, unknown>)['block_chunk_storage'] === 1 ? 'binary' : 'json';
+}
+
+/** Whether an export ships generated architecture's meshes beside its parameters (`architecture_ship_meshes` 1). */
+export function architectureShipsMeshesOf(settings: unknown): boolean {
+  return typeof settings === 'object' && settings !== null && (settings as Record<string, unknown>)['architecture_ship_meshes'] === 1;
 }
 
 /** The project's instance-set chunk size (m) when it sets `instance_chunk_m`, else undefined (the engine default, 32 m). */

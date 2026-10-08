@@ -237,6 +237,10 @@ export interface MaterialLibrary {
    * unsubscribe. A host that groups meshes by material regroups those.
    */
   onReassigned?(listener: (root: THREE.Object3D) => void): () => void;
+  /** A trim material's row table (an instance answers with its root's; null: no such material, or not a trim material). */
+  trimSheetOf?(materialId: string): TrimSheet | null;
+  /** Call `listener` after the definitions change (`setMaterials`); returns the unsubscribe. */
+  onDefinitions?(listener: () => void): () => void;
   dispose(): void;
 }
 
@@ -273,6 +277,8 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
   };
   let defs = new Map<string, MaterialDefLike>();
   const reassigned = new Set<(root: THREE.Object3D) => void>();
+  /** Listeners told when the definitions change (generated architecture re-reads its sheets). */
+  const definitionListeners = new Set<() => void>();
   /** Built materials by `${materialId}|${source uuid or "none"}`. */
   const built = new Map<string, { material: THREE.Material; defKey: string; animated: boolean }>();
   /**
@@ -961,7 +967,16 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
       }
       // Compiled graphs no applied mesh uses any more (a later apply recompiles).
       for (const digest of [...graphEntries.keys()]) if (!usedDigests.has(digest)) dropGraph(digest);
+      for (const l of definitionListeners) l();
       options.onChange?.();
+    },
+    trimSheetOf(materialId) {
+      const d = defs.get(materialId);
+      return d?.shader === 'trim' && d.trim !== undefined ? d.trim : null;
+    },
+    onDefinitions(listener) {
+      definitionListeners.add(listener);
+      return () => void definitionListeners.delete(listener);
     },
     onReassigned(listener) {
       reassigned.add(listener);

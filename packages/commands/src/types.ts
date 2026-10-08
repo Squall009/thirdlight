@@ -246,7 +246,9 @@ export type V3OwnedComponent =
   /** v4 scenes only: a heightfield of tiles. */
   | 'terrain'
   /** v4 scenes only: a curve through points (roads, rivers, rails). */
-  | 'spline';
+  | 'spline'
+  /** v4 scenes only: generated architecture (parameters; geometry made at load). */
+  | 'architecture';
 
 /** Every `setComponent`-owned component (the base five plus the six v3 ones). */
 export type OwnedComponent =

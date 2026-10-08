@@ -22,6 +22,7 @@
  */
 
 import type { ScatterRule } from './scatter';
+import { architectureModelAssets } from './architecture';
 import { composeBlockLayers, type BlockContentView } from './block-layers';
 import { composeContentChecks, composeV3 } from './project-v3';
 import { derivedOf } from './content-helpers';
@@ -612,6 +613,13 @@ function composeSceneRules(s: SceneV4, content: ContentCatalogV4, errors: ModelE
       if (record === undefined) errors.push(sceneError(s.sceneId, withFound({ code: 'asset_reference_missing', path, message: 'a spline\'s pieces name no asset of the catalog', expected: 'an existing model assetId' }, p.asset.assetId)));
       else if (record.kind !== 'model') errors.push(sceneError(s.sceneId, withFound({ code: 'asset_kind_mismatch', path, reason: 'model', message: 'a spline repeats a model', expected: '"model"' }, record.kind)));
     });
+    // The kit models generated architecture places.
+    for (const id of architectureModelAssets(e.components.architecture)) {
+      const record = assetById.get(id);
+      const path = `/entities/${i}/components/architecture`;
+      if (record === undefined) errors.push(sceneError(s.sceneId, withFound({ code: 'asset_reference_missing', path, message: 'generated architecture names a kit model that is not in the catalog', expected: 'an existing model assetId' }, id)));
+      else if (record.kind !== 'model') errors.push(sceneError(s.sceneId, withFound({ code: 'asset_kind_mismatch', path, reason: 'model', message: 'generated architecture places a model', expected: '"model"' }, record.kind)));
+    }
     const inst = e.components.instances;
     if (inst === undefined) return;
     const record = assetById.get(inst.asset.assetId);

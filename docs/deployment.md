@@ -5542,6 +5542,105 @@ terrain and make a mesh along themselves; scripts read any spline as a path
   triangles, copies, blobs read), the simulation's `splines` (colliders,
   splines whose data has not arrived, the last build).
 
+## Generated architecture
+
+The **architecture** component stores only parameters; the meshes are made
+when a scene loads (and again when the parameters change), on generator
+workers, a chunk at a time nearest the camera first. Two primitives and
+fills build everything (MCP `setComponent "architecture"`; the Inspector
+shows its fields as JSON until style presets with sliders arrive):
+
+- **Paths** `{points: [[x, y, z], …] (m from the object's position; its
+  rotation and scale are not used), closed?, bulges? (per segment: an arc,
+  tan of a quarter of its angle, + bulges right of travel; 1 = a half
+  circle), curve? (a smooth curve through the points, as a spline), step?
+  (m between samples on arcs and curves, default 0.5), offset? (m to the
+  right, corners mitred), chamfer? (m cut off each corner)}`.
+- **Profiles** (`profiles: {name: {points: [[across, up], …], slots: [one
+  trim row per segment, "" leaves it open], closed?, smooth? (round
+  mouldings drawn with many points), chamfer?}}`): faces look to the right
+  of each segment's direction (a wall drawn bottom to top faces +across);
+  across is to the right of the path's travel.
+- **Sweep** `{id, kind: "sweep", path, profile, openings?, material?,
+  detail?, collide?}`: the profile carried along the path, placed on the
+  mitre plane at every corner, so mouldings meet at corners, T-junctions
+  and frames. Each profile segment is a strip of its row: u along it in
+  metres, v spanning the row once (a taller segment stacks strips; smooth
+  segments of one row are one strip). **Openings** `[{id, at (m along),
+  width, bottom, top, reveal? (slot, default "frame"; "" none), frame?
+  (a profile swept round it, mitred), frameSides? outer|inner|both,
+  model? (a kit model instead of reveals and frame)}]` cut the strips.
+- **Repeat** `{id, kind: "repeat", path, spacing, start?, end?, corners?,
+  align? (default true: +X along the path), offset? [across, up], yaw?,
+  jitter? {yaw?, along?} (seeded by `seed`), piece}`: `piece: {elements:
+  [sweeps and fills]}` is made once in the copy's frame and stamped at every
+  copy (a column: a profile swept round a small square); `piece: {model:
+  {assetId, piece?}}` places a kit model's copies (instances; `_COL`
+  colliders).
+- **Fill** `{id, kind: "fill", path (closed), shape, slot, trimSlot?,
+  height?, rise?, face?, axis?, cell?, depth?, overhang?, breakRise?,
+  inset?}`: `flat` (any polygon: floors face up, `face: "down"` for a
+  ceiling), `coffered` (a ceiling and beams every `cell` m, `depth` deep),
+  `barrel` and `groin` vaults (`rise` above `height`; vaults face in),
+  `gable`, `hip`, `mansard` roofs (eaves at `height`, `overhang`; gable ends
+  wear `trimSlot`). Vaults and roofs need a rectangular path (four corners
+  at right angles); any other is reported and left unfilled.
+- **Overrides** `[{element, segment | corner, reach?, model, stretch?}]`: a
+  kit model UV'd against the row layout in place of a segment (made 1 m
+  long along +X, stretched to the segment unless `stretch: false`) or a
+  corner (the sweep left out `reach` m either side).
+- **The rest**: `chunkSize` (m, default 32: one worker job and one draw per
+  material per chunk), `seed`, `ao: {strength? (0.6), radius? (0.5 m)}`
+  (vertex occlusion baked into COLOR_0 red: inside corners of profiles and
+  paths, where walls meet the ground, fill edges; 0 turns it off),
+  `lodDistance` (m, default 40: past it a chunk draws its far level — the
+  same vertices without detail elements, opening frames and coffer beams),
+  `castShadow`, `receiveShadow`.
+- **Materials.** Every element wears a material slot (`material`, default
+  `architecture`); the object's Materials map it (`{"architecture": id}` or
+  `{"*": id}`), and a trim material's row table lays the strips out —
+  swapping the sheet (or the material) restyles the geometry without
+  touching the parameters. A slot without a trim material is laid out on
+  the engine's starter sheet.
+- **Deterministic.** The generator is plain arithmetic with its own trig
+  (no `Math.sin`, `hypot`, …): the same parameters give the same bytes on
+  the page, in a worker and in another browser. Generated objects' ids are
+  stable (element id and place: `wall:seg2`, `columns:7`).
+- **Cached by a hash of the parameters.** Each chunk's key hashes the
+  generator version, the sheets, the profiles and only the elements that
+  reach it, so changing one room re-makes only its chunks; made chunks stay
+  in memory (64 MiB) and, in an exported game, in the player's IndexedDB
+  (`thirdlight-architecture`), so a second visit draws without generating.
+  The old meshes stay drawn until the new ones are in.
+- **Colliders** are made by the simulation from the same parameters: a box
+  per wall segment (cut round openings, closing outer corners), meshes for
+  floors (`collide` on roofs and vaults adds theirs), a box per stamped
+  piece copy, kit copies' `_COL` parts.
+- **Exports** ship the parameters; the game generates at load. Project
+  setting `architecture_ship_meshes` 1 (Settings → Engine, **Generated
+  architecture**) ships the meshes the same generator made too (one blob
+  per object, named by the component's `baked`; larger download, nothing to
+  generate).
+- **Measured** (Iris Xe; Node for the generator alone, warm): a village of 64
+  test rooms (walls with a door and a window, frames, a crown moulding, a
+  floor, a barrel vault, four stamped columns; 240,000 triangles) in 32 m
+  chunks: 9 draws, 5.0 ms median / 7.2 ms worst per chunk; in 16 m chunks 36
+  draws, 1.4 / 2.9 ms; keying every chunk 3.7 ms on the page; one room
+  changed (its chunks keyed and made again) 10 ms (16 m chunks: 5.5 ms); a
+  shipped-meshes blob of 16.8 MB. In the browser (layered-material e2e, both
+  renderers): a chunk 1.5–11 ms on a cold worker, the spawn's chunks drawn
+  42–74 ms after the scene's parameters were set (of which 32–67 ms is the
+  wait for the first frame); while the workers are still loading their
+  script the page makes the chunks round the camera itself.
+- Not yet: wall paint read onto generated vertices (rooms on block layers),
+  straight-skeleton roofs over any footprint, style presets and sliders.
+- `?architecture=off` on a game page draws nothing generated (to measure
+  what it costs); the adapter's diagnostics carry `architecture` (chunks,
+  draws, triangles, queued, made on workers/the page/memory/the store,
+  generation ms), the simulation's `architecture` (colliders, last build).
+  Each chunk made marks `tl:arch:chunk` and each object drawn whole
+  `tl:arch:ready` (detail: ms) in the page's performance timeline.
+
 ## Terrain edit layers, stamps and erosion
 
 A terrain's heights are a stack of **edit layers** combined offline over the

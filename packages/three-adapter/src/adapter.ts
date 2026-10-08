@@ -53,11 +53,12 @@ import { createBrowserMeshWorker } from './block-mesh-pool';
 import { TERRAIN_ENTITY_KEY, TerrainView } from './terrain-view';
 import { createScatterHost } from './scatter-host';
 import { SplineView } from './spline-view';
+import { ArchitectureView } from './architecture-view';
 import { TerrainTileStore } from './terrain-tile-store';
 import { RuntimeMaterialView, type MaterialRenderChangeLike, type RuntimeMaterialsDiagnostics } from './runtime-materials';
 import { MaterialSwapView, type MaterialMappingLike } from './material-swaps';
 import { materialParamsOf, modelRefsOf } from './entity-refs';
-import type { BlockLayerComponent, BlockLayerData, BlockType, GridRenderChange, SplineComponent, TerrainComponent } from '@thirdlight/runtime';
+import { architectureSheets, type ArchitectureComponent, type BlockLayerComponent, type BlockLayerData, type BlockType, type GridRenderChange, type SplineComponent, type TerrainComponent } from '@thirdlight/runtime';
 import type { Runtime, RuntimeSnapshot } from '@thirdlight/runtime';
 import type { EnvironmentBlendView } from '@thirdlight/runtime';
 import { adapterError, type AdapterError } from './errors';
@@ -482,6 +483,24 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     changed: () => opts.onChange?.(),
     drawn: opts.splines !== false,
   });
+  // Generated architecture: made at load from its parameters on generator workers, a chunk at a time nearest the eye.
+  const objectMaterials = (id: string): Readonly<Record<string, string>> | undefined => effectiveMaterials(id, (entityDocs.get(id)?.components as { materials?: Record<string, string> } | undefined)?.materials);
+  const architecture = new ArchitectureView({
+    sheets: (id, c) => architectureSheets(c, objectMaterials(id), (m) => materialLibrary?.trimSheetOf?.(m) ?? null),
+    materials: (root, id) => (materialLibrary !== null && objectMaterials(id) !== undefined ? materialLibrary.apply(root, objectMaterials(id)!, materialParamsOf(entityDocs.get(id)?.components)) : null),
+    template: (assetId, piece, onReady) => realization?.blockInstance?.(assetId, piece, onReady) ?? null,
+    dress: (root, assetId) => (materialLibrary !== null && Object.keys(assetMaterialsOf(assetId) ?? {}).length > 0 ? materialLibrary.apply(root, assetMaterialsOf(assetId)!, null) : null),
+    read: opts.resolveBuffer ?? opts.models?.resolveBuffer ?? null,
+    place: (root, shown) => (shown ? graph.listStatic(root) : graph.unlistStatic(root)),
+    shapeChanged: () => staticShadows?.bump(),
+    changed: () => opts.onChange?.(),
+    ...(opts.meshWorkerUrl !== undefined ? { worker: () => createBrowserMeshWorker(opts.meshWorkerUrl!, 'thirdlight-architecture') } : {}),
+    store: opts.architectureStore ?? null,
+    arrival: stream !== null ? { left: () => stream.arrivalLeft(), spent: (ms) => stream.arrived(ms) } : null,
+    tuning: graph.lodTuning,
+    drawn: opts.architecture !== false,
+  });
+  const stopDefinitions = materialLibrary?.onDefinitions?.(() => architecture.restyleAll());
   // Block layers and terrains (level-views.ts), streamed round the camera on a game page.
   const { blockView, terrains, ownTiles } = createLevelViews({
     blockInstance: (assetId, piece, onReady) => realization?.blockInstance?.(assetId, piece, onReady) ?? null,
@@ -561,6 +580,8 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     const terrain = (e.components as { terrain?: TerrainComponent }).terrain;
     const spline = (e.components as { spline?: SplineComponent }).spline;
     if (spline !== undefined) splines.set(e.id, spline, t.position);
+    const arch = (e.components as { architecture?: ArchitectureComponent }).architecture;
+    if (arch !== undefined) architecture.set(e.id, arch, t.position);
     if (terrain !== undefined && opts.terrain !== false) terrains.setTerrain(e.id, terrain, t.position, { components: e.components, materials: effectiveMaterials(e.id, (e.components as { materials?: Record<string, string> }).materials) ?? null, overrides: materialParamsOf(e.components) });
     if ((e.components as { fogVolume?: unknown }).fogVolume !== undefined) fogVolumeIds.add(e.id);
     const node = graph.node(e.id);
@@ -586,6 +607,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     if (docLayers.delete(id)) blockView.removeLayer(id);
     terrains.removeTerrain(id);
     splines.remove(id);
+    architecture.remove(id);
     runtimeMaterials?.release(id);
     if (effects !== null) {
       effects.detach(id);
@@ -734,6 +756,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
         const e = entityDocs.get(entityId);
         // A spline's mesh wears it (drawn by the spline view, no entity node of its own).
         if (e !== undefined && !disposed && (e.components as { spline?: unknown }).spline !== undefined) return splines.restyle(entityId);
+        if (e !== undefined && !disposed && (e.components as { architecture?: unknown }).architecture !== undefined) return architecture.restyle(entityId);
         // A terrain's pages wear it (no entity node of its own).
         if (e !== undefined && !disposed && (e.components as { terrain?: unknown }).terrain !== undefined) return terrains.restyle(entityId, effectiveMaterials(entityId, (e.components as { materials?: Record<string, string> }).materials) ?? null, materialParamsOf(e.components));
         const obj = graph.node(entityId);
@@ -1245,6 +1268,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       for (const id of docLayers) blockView.setHidden(id, hiddenIds.has(id));
       for (const id of terrains.ids()) terrains.setHidden(id, hiddenIds.has(id));
       for (const id of splines.ids()) splines.setHidden(id, hiddenIds.has(id));
+      for (const id of architecture.ids()) architecture.setHidden(id, hiddenIds.has(id));
       let lightsTouched = false;
       for (const id of before) if (!hiddenIds.has(id) && lights.has(id)) lightsTouched = true;
       for (const id of hiddenIds) if (!before.has(id) && lights.has(id)) lightsTouched = true;
@@ -1385,6 +1409,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     blockView.update(viewCull.view.eye);
     // Splines released and not realized again go now (one realized again kept drawing until its new data is in).
     splines.update();
+    architecture.update(viewCull.view.eye);
     // (The near shadows follow the last frame's eye: the view is culled for this one further down.)
     scatter.stored.update(viewCull.view);
     if (cutaways.wanted()) cutaways.follow();
@@ -1586,6 +1611,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     if (!disposed && terrains.ids().length > 0) d.terrain = terrains.diagnostics();
     if (!disposed && stream !== null) d.streaming = stream.diagnostics();
     if (!disposed && splines.ids().length > 0) d.splines = splines.diagnostics();
+    if (!disposed && architecture.ids().length > 0) d.architecture = architecture.diagnostics();
     if (!disposed) scatter.diagnostics(d);
     if (!disposed && materialLibrary !== null && runtimeMaterials !== null) d.materials = { graphMaterials: materialLibrary.graphMaterialCount(), ...(materialSwaps !== null && (materialSwaps.applied > 0 || materialSwaps.pending() > 0) ? { swapsApplied: materialSwaps.applied, swapsPending: materialSwaps.pending() } : {}), ...runtimeMaterials.diagnostics() };
     const envDiagnostics = environmentRenderer !== null && !disposed ? environmentRenderer.diagnostics() : null;
@@ -1660,6 +1686,8 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     blockView.dispose();
     terrains.dispose();
     splines.dispose();
+    stopDefinitions?.();
+    architecture.dispose();
     scatter.dispose();
     ownTiles?.dispose();
     for (const rec of boxMaterials.values()) rec.material.dispose();

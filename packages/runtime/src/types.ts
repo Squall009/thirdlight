@@ -396,6 +396,8 @@ export interface RuntimeDiagnostics {
   scatterCopies?: import('./scatter-copies').ScatterCopiesDiagnostics;
   /** The splines' colliders (what they make): built, waiting for their data, the last build. Present while a spline is loaded. */
   splines?: import('./splines').SplineCollisionDiagnostics;
+  /** Generated architecture's colliders: objects, colliders, the last build. Present while an object with architecture is loaded. */
+  architecture?: import('./architecture').ArchitectureCollisionDiagnostics;
   /** World streaming in the simulation: its sources, the tiles and chunks in the collision and live rings and those waiting. Present while a streamed terrain or block layer is loaded. */
   worldStream?: import('./world-stream').SimStreamDiagnostics;
 

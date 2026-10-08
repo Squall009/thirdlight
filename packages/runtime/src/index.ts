@@ -271,6 +271,28 @@ export { STREAM_CHUNK_COST, STREAM_COLLIDER_SAMPLES_PER_STEP, STREAM_LIVE_SPAWNS
 export { FOLIAGE_NEAR_METRES, SCATTER_BLOB_DISTANCE, SCATTER_CHUNK_METERS_DEFAULT, SCATTER_COPY_FLOATS, SCATTER_COVER_DISTANCE_DEFAULT, SCATTER_LIMITS, bakeScatterCell, blockScatterSurface, coverScatterRules, decodeChunkScatter, encodeChunkScatter, regionExcluder, scatterBlobOf, scatterCellOfBlob, scatterCellBytes, scatterReach, storedScatterRules, terrainScatterSurface, type ScatterCell, type ScatterCopies, type ScatterGround, type ScatterRect, type ScatterRegionLayer, type ScatterRule, type ScatterSurface } from '@thirdlight/project-model';
 export { TERRAIN_COLLIDER_PATCH_CELLS, TerrainColliders, terrainColliderId, terrainColliderPieces, type TerrainCollisionDiagnostics, type TerrainCollisionTile, type TerrainColliderPiece, type TerrainLayerData, type TerrainSimTile, type TerrainTileData } from './terrain-collision';
 export { RuntimeSurface, type BehaviorSurface, type SurfaceInfo } from './surface';
+export { RuntimeArchitecture, type ArchitectureCollisionDiagnostics } from './architecture';
+// Generated architecture: the generator the page's workers run, its blob and keys (made at load from parameters).
+export {
+  ARCHITECTURE_CHUNK_DEFAULT,
+  ARCHITECTURE_COPY_FLOATS,
+  ARCHITECTURE_LOD_DISTANCE_DEFAULT,
+  ARCHITECTURE_MATERIAL_SLOT,
+  architectureChunkInput,
+  architectureSheets,
+  architectureChunkKeys,
+  architectureCopies,
+  architectureMaterialSlots,
+  decodeArchitectureChunks,
+  encodeArchitectureChunks,
+  generateArchitectureChunk,
+  isArchitectureBlob,
+  type ArchitectureChunk,
+  type ArchitectureChunkKey,
+  type ArchitectureComponent,
+  type ArchitectureCopySet,
+  type ArchitectureSheets,
+} from '@thirdlight/project-model';
 export { RuntimeSplines, type BehaviorSplines, type SplineCollisionDiagnostics, type SplineNearestInfo, type SplinePose, type SplineSimData } from './splines';
 // Splines' curves and their bands (the renderer's ground cover keeps clear of them; spline meshes are drawn along them).
 export { SPLINE_MATERIAL_SLOT, SPLINE_WIDTH_DEFAULT, SplineCurve, SplineScatterBands, decodeSplineMade, isSplineMadeBlob, newSplineFrame, splineScatterRect, terrainSplineInputs, type SplineComponent, type SplineFrame, type SplineMade, type SplineMeshPiece, type SplinePoint } from '@thirdlight/project-model';

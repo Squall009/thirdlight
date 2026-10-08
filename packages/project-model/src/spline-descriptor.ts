@@ -93,6 +93,6 @@ export const spline: ComponentDescriptor = {
     { label: 'River', menu: 'Level', value: { points: POINTS_NEW, width: 10, terrain: { shape: 'carve', depth: 2, falloff: 6 }, scatter: { margin: 2 }, mesh: { kind: 'water', offset: -0.3 } }, dimension: 3 },
   ],
   handles: [{ kind: 'spline', label: 'Spline', bind: { points: 'points' }, space: 'local', loop: when('closed', true) }],
-  excludes: ['blockLayer', 'terrain'].map((c) => ({ component: c, reason: 'a spline is its own object beside the level geometry it shapes' })),
+  excludes: ['blockLayer', 'terrain', 'architecture'].map((c) => ({ component: c, reason: 'a spline is its own object beside the level geometry it shapes' })),
   prefab: false,
 };

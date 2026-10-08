@@ -90,6 +90,8 @@ async function main(): Promise<void> {
       assetUrl: (path) => new URL(path, document.baseURI).href,
       workerUrl: new URL(EXPORT_SIM_WORKER_PATH, document.baseURI).href,
       meshWorkerUrl: new URL(EXPORT_MESH_WORKER_PATH, document.baseURI).href,
+      // Generated architecture's chunks kept in the player's browser: a second visit draws without generating.
+      keepGeneratedArchitecture: true,
       physics3dUrl: new URL(EXPORT_PHYSICS_3D_PATH, location.href).href,
       physics2d: () => loadPhysics2D(new URL(EXPORT_PHYSICS_2D_PATH, location.href).href),
       decoderBase: EXPORT_DECODER_BASE,

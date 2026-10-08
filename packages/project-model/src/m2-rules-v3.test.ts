@@ -309,6 +309,8 @@ describe('gameplay settings resolution', () => {
       'dynamic_resolution',
       // The memory streamed world cells may take (MiB; absent: 768).
       'streaming_budget_mb',
+      // Exports ship generated architecture's meshes too (0 no, 1 yes).
+      'architecture_ship_meshes',
     ]);
     // Every optional key the registry has may follow the six in a manifest, in registry order.
     expect([...M3_OPTIONAL_SETTINGS_KEYS]).toEqual(M2_SETTINGS_KEYS.filter((k) => k.optional === true).map((k) => k.key));

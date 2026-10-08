@@ -34,7 +34,7 @@ import { audioSpatialOf, dependencyTables, depthBufferOf, instanceChunkSizeOf, l
 import { assetVersionKey, createResourceManager, fixedStepHzOf, EMBEDDED_TEXTURES_LISTED, embeddedTextureBytes, qualityLevelOf, qualityLevelsOf, renderSettingsOf, type ResourceManager, type ResourceObservation } from '@thirdlight/runtime';
 import { attachBrowserInput, DEFAULT_INPUT_CONFIG, DEFAULT_INPUT_CONFIG_3D, focusGameSurface, type InputConfigLike } from '@thirdlight/input';
 import type { RapierPhysicsInitConfig, RapierPhysicsPort, RapierStaticColliderSpec } from '@thirdlight/physics-rapier';
-import { batchingFromUrl, createBrowserMeshWorker, scatterFromUrl, splinesFromUrl, terrainFromUrl, terrainHorizonFromUrl, TerrainTileStore, createSceneAdapter, createTextureStreamer, decodeTexture, effectsOptionFrom, environmentHasLook, mergingFromUrl, pageSearch, probesFromUrl, qualityFromUrl, resolveRendererPreference, setKtx2DecoderBase, renderSettingsFromUrl, shadowCacheFromUrl, slowFramesFromUrl, upscaleFilterFromUrl } from '@thirdlight/three-adapter';
+import { architectureFromUrl, batchingFromUrl, createBrowserMeshWorker, scatterFromUrl, splinesFromUrl, terrainFromUrl, terrainHorizonFromUrl, TerrainTileStore, createSceneAdapter, createTextureStreamer, decodeTexture, effectsOptionFrom, environmentHasLook, mergingFromUrl, pageSearch, probesFromUrl, qualityFromUrl, resolveRendererPreference, setKtx2DecoderBase, renderSettingsFromUrl, shadowCacheFromUrl, slowFramesFromUrl, upscaleFilterFromUrl } from '@thirdlight/three-adapter';
 import { createGltfLoaderPort } from '@thirdlight/three-adapter/gltf-loader';
 import type { EffectDefLike, EnvironmentLike, FrameDrawnInfo, TextureStreamer, LightingBakeLike, MaterialDefLike, MaterialFunctionLike, SceneAdapter, SceneAdapterModels, SceneAdapterOptions, WindLike } from '@thirdlight/three-adapter';
 import {
@@ -119,6 +119,7 @@ import { feedTerrainCollision, preloadTerrainTiles } from './terrain-tiles';
 import { PageScatterBlobs } from './scatter-blobs';
 import { composeOverlay } from './overlay-capture';
 import { statsOverlayModeOf } from './stats-overlay';
+import { browserArchitectureStore } from './architecture-store';
 
 /** The runtime-content manifest as a game page reads it (the catalog's blocks already folded in by `openRuntimeContent`). */
 export interface GamePageManifest {
@@ -217,6 +218,8 @@ export interface GamePageOptions {
   readonly physics2d: () => Promise<Physics2DModule>;
   /** The block mesh worker's script (absent: block chunks mesh on the page). */
   readonly meshWorkerUrl?: string;
+  /** Keep generated architecture's chunks in the player's browser between visits (an exported game). */
+  readonly keepGeneratedArchitecture?: boolean;
   /** Where three's Draco and Basis decoders are served (ends in `/`). */
   readonly decoderBase: string;
   /** The simulation module specs this page links. */
@@ -927,6 +930,9 @@ export async function startGamePage(o: GamePageOptions): Promise<GamePageHandle>
           // The scatter rules' copies drawn unless the page says ?scatter=off (a diagnostic comparison).
           scatter: scatterFromUrl(pageSearch()),
           splines: splinesFromUrl(pageSearch()),
+          // Generated architecture drawn unless the page says ?architecture=off; an export keeps its chunks between visits.
+          architecture: architectureFromUrl(pageSearch()),
+          ...(o.keepGeneratedArchitecture === true ? ((store) => (store !== null ? { architectureStore: store } : {}))(browserArchitectureStore()) : {}),
           ...(readBuffer !== undefined ? { resolveBuffer: readBuffer } : {}),
           // The project's LOD bias and hysteresis.
           lod: lodTuningOf(settings),

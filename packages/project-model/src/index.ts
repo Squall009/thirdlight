@@ -1413,7 +1413,58 @@ export { blockScatterSurface, regionExcluder, terrainScatterSurface, type BlockS
 export { SURFACE_TIE_METRES, surfaceAt, type SurfaceAt, type SurfaceBlockSource, type SurfaceSource, type SurfaceTerrainSource } from './surface-query';
 export { bakeTerrainScatter, isScatterBlob, scatterBlobOf, scatterCellOfBlob, terrainChangedSamples, terrainTileRect } from './terrain-scatter';
 export { bakeBlockScatter, blockChunkRect, type BlockScatterContext, type BlockScatterStroke } from './block-scatter';
-export { blockChunkStorageOf, maxSlopeClimbOf } from './content-settings';
+export { architectureShipsMeshesOf, blockChunkStorageOf, maxSlopeClimbOf } from './content-settings';
+// Generated architecture: parameters in the scene, geometry made at load (sweeps, repeats and fills on a trim sheet).
+export {
+  ARCHITECTURE_AO_DEFAULTS,
+  ARCHITECTURE_CHUNK_DEFAULT,
+  ARCHITECTURE_ELEMENT_KINDS,
+  ARCHITECTURE_FIELDS,
+  ARCHITECTURE_FILL_SHAPES,
+  ARCHITECTURE_LIMITS,
+  ARCHITECTURE_LOD_DISTANCE_DEFAULT,
+  ARCHITECTURE_MATERIAL_SLOT,
+  ARCHITECTURE_STEP_DEFAULT,
+  architectureMaterialSlots,
+  architectureModelAssets,
+  canonicalArchitecture,
+  validateArchitectureComponent,
+  type ArchitectureComponent,
+  type ArchitectureElement,
+  type ArchitectureFill,
+  type ArchitectureFillShape,
+  type ArchitectureModelRef,
+  type ArchitectureOpening,
+  type ArchitectureOverride,
+  type ArchitecturePath,
+  type ArchitectureProfile,
+  type ArchitectureRepeat,
+  type ArchitectureSweep,
+} from './architecture';
+export {
+  ARCHITECTURE_COPY_FLOATS,
+  ARCHITECTURE_GENERATOR_VERSION,
+  ARCHITECTURE_SWEEP_CELL,
+  architectureChunkInput,
+  architectureSheets,
+  architectureChunkKeys,
+  architectureChunks,
+  architectureColliders,
+  architectureCopies,
+  generateArchitecture,
+  generateArchitectureChunk,
+  sheetFor,
+  trimSheetOfMaterial,
+  type ArchitectureChunk,
+  type ArchitectureChunkKey,
+  type ArchitectureChunkMesh,
+  type ArchitectureCollider,
+  type ArchitectureCopySet,
+  type ArchitectureMeshBounds,
+  type ArchitectureSheets,
+} from './arch-generate';
+export { ARCHITECTURE_BLOB_LAYOUT, ARCHITECTURE_BLOB_MAGIC, decodeArchitectureChunks, encodeArchitectureChunks, isArchitectureBlob } from './arch-blob';
+export type { ArchMeshArrays } from './arch-mesh';
 export { chunkLightmapLayout, type ChunkLightmapLayout } from './block-lightmap';
 // The instance brush (paint and erase copies of an instance set on a surface).
 export {

@@ -4592,8 +4592,8 @@ class RuntimeInstance implements Runtime {
     const ea = this.entityAccess;
     if (ea.applied + ea.refused + ea.conflicts > 0) m2.entityWrites = { applied: ea.applied, refused: ea.refused, conflicts: ea.conflicts, inactive: ea.inactive().size };
     // Script messages refused at the per-step limit (only once one was: the warning); block layers' memory (with layers).
-    const queue = this.blocks?.messageQueueView() ?? null, blockMemory = this.grid.memory(), terrainMemory = this.grid.terrain.memory(), scatterCopies = this.grid.scatter.diagnostics(), splines = this.grid.splines.diagnostics(), worldStream = this.grid.stream.diagnostics();
-    Object.assign(m2, queue !== null ? { messageQueue: queue } : {}, blockMemory !== null ? { blockMemory } : {}, terrainMemory !== null ? { terrainMemory } : {}, scatterCopies !== null ? { scatterCopies } : {}, splines !== null ? { splines } : {}, worldStream !== null ? { worldStream } : {});
+    const queue = this.blocks?.messageQueueView() ?? null, blockMemory = this.grid.memory(), terrainMemory = this.grid.terrain.memory(), scatterCopies = this.grid.scatter.diagnostics(), splines = this.grid.splines.diagnostics(), architecture = this.grid.architecture.diagnostics(), worldStream = this.grid.stream.diagnostics();
+    Object.assign(m2, queue !== null ? { messageQueue: queue } : {}, blockMemory !== null ? { blockMemory } : {}, terrainMemory !== null ? { terrainMemory } : {}, scatterCopies !== null ? { scatterCopies } : {}, splines !== null ? { splines } : {}, architecture !== null ? { architecture } : {}, worldStream !== null ? { worldStream } : {});
     if (this.failedModuleId !== undefined) m2.failedModuleId = this.failedModuleId;
     if (this.failedPhase !== undefined) m2.failedPhase = this.failedPhase;
     if (this.failedStepIndex !== undefined) m2.failedStepIndex = this.failedStepIndex;

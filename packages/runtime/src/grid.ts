@@ -83,6 +83,7 @@ import { TerrainColliders, type TerrainLayerData, type TerrainTileData } from '.
 import { RuntimeSurface, type SurfaceLayerView } from './surface';
 import { RuntimeScatter, type ScatterCopyChange, type TerrainScatterData, type TerrainSimData } from './scatter-copies';
 import { RuntimeSplines, type SplineSimData } from './splines';
+import { RuntimeArchitecture } from './architecture';
 import { SimWorldStream } from './world-stream';
 
 export { worldStreamSources } from './world-stream';
@@ -562,6 +563,7 @@ export class RuntimeGrid {
     this.terrain = new TerrainColliders(collisionRing);
     this.scatter = new RuntimeScatter(collide, modelColliders, collisionRing);
     this.splines = new RuntimeSplines(collide, modelColliders);
+    this.architecture = new RuntimeArchitecture(collide, modelColliders);
     this.materialIds = materialIds !== undefined ? new Set(materialIds) : null;
     this.types = new Map(types.map((t) => [t.blockId, t]));
     this.surface = new RuntimeSurface(() => this.surfaceLayers(), this.types, this.terrain);
@@ -633,6 +635,8 @@ export class RuntimeGrid {
   readonly scatter: RuntimeScatter;
   /** The loaded splines (`ctx.splines`; what they make collides, flushed with the chunks'). */
   readonly splines: RuntimeSplines;
+  /** Generated architecture's colliders (made from its parameters here; flushed with the chunks'). */
+  readonly architecture: RuntimeArchitecture;
   /** The ground of the block layers and terrains, whichever is there (`ctx.surface`). */
   readonly surface: RuntimeSurface;
 
@@ -677,6 +681,7 @@ export class RuntimeGrid {
   addLayers(entities: readonly EntityV3[]): string[] {
     this.scatter.add(entities);
     this.splines.add(entities);
+    this.architecture.add(entities);
     this.surface.add(entities);
     for (const e of entities) {
       const t = (e.components as { terrain?: TerrainComponent }).terrain;
@@ -703,7 +708,7 @@ export class RuntimeGrid {
 
   /** Forget unloaded layers; returns their collider ids (the caller removes them from the port). */
   removeLayers(ids: ReadonlySet<string>): string[] {
-    const colliders: string[] = [...this.terrain.remove(ids), ...this.scatter.remove(ids), ...this.splines.remove(ids)];
+    const colliders: string[] = [...this.terrain.remove(ids), ...this.scatter.remove(ids), ...this.splines.remove(ids), ...this.architecture.remove(ids)];
     this.surface.remove(ids);
     for (const id of ids) this.stream.remove(id);
     for (const id of ids) {
@@ -980,6 +985,7 @@ export class RuntimeGrid {
     if (this.collide) this.terrain.flush(port);
     this.scatter.flush(this.collide ? port : undefined);
     this.splines.flush(this.collide ? port : undefined);
+    this.architecture.flush(this.collide ? port : undefined);
     if (this.collisionDirty.size === 0) return;
     const dirty = this.collisionDirty;
     this.collisionDirty = new Map();

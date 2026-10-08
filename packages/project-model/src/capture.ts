@@ -12,6 +12,7 @@
 
 import { scatterRuleAssets, type ScatterRule } from './scatter';
 import { splinePieceAssets, type SplineComponent } from './spline';
+import { architectureModelAssets, type ArchitectureComponent } from './architecture';
 import { timelineRefs, type TimelineAsset } from './timelines';
 import { uiAssetRefs, type UiDocument, type UiTheme } from './ui-documents';
 import { dialogueAssetRefs, type DialogueDocument, type DialogueSpeaker } from './dialogue';
@@ -124,6 +125,8 @@ export function collectAssetRefsV3(
     for (const id of scatterRuleAssets([...(scatter.terrain?.scatter ?? []), ...(scatter.blockLayer?.scatter ?? [])])) setRef(id);
     // The models a spline repeats along it.
     for (const id of splinePieceAssets((e.components as { spline?: SplineComponent }).spline)) setRef(id);
+    // The kit models generated architecture places.
+    for (const id of architectureModelAssets((e.components as { architecture?: ArchitectureComponent }).architecture)) setRef(id);
     // An audio source's sound.
     const source = (e.components as { audioSource?: { assetId: string } }).audioSource;
     if (source) setRef(source.assetId);

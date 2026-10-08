@@ -239,6 +239,7 @@ export { isStaticCaster, SHADOW_CACHE_URL_PARAM, shadowCacheFromUrl, STATIC_CAST
 export { TERRAIN_HORIZON_URL_PARAM, TERRAIN_PAGE_LAYERS, TERRAIN_URL_PARAM, terrainFromUrl, terrainHorizonFromUrl, type TerrainPreviewStats, type TerrainView, type TerrainViewDiagnostics } from './terrain-view';
 export { SCATTER_BUILD_MS, SCATTER_GROUP_METRES, SCATTER_URL_PARAM, scatterFromUrl, type ScatterView, type ScatterViewDiagnostics } from './scatter-view';
 export { SPLINES_URL_PARAM, splinesFromUrl, type SplineViewDiagnostics } from './spline-view';
+export { ARCHITECTURE_URL_PARAM, architectureFromUrl, type ArchitectureChunkStore, type ArchitectureViewDiagnostics } from './architecture-view';
 export { brushDabOf, type PreviewDiff, type TerrainPreviewDab } from './terrain-preview';
 export type { TerrainBrushKind } from './terrain-brush-gpu';
 export { TERRAIN_DEFAULT_COLOURS } from './terrain-material';

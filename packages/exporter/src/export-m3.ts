@@ -33,6 +33,7 @@ import {
   digestBytes,
   digestEmittedClosure,
   fixedStepHzOf,
+  isArchitectureBlob,
   isScatterBlob,
   isSplineMadeBlob,
   isTerrainOverviewBlob,
@@ -244,19 +245,19 @@ export async function exportProjectM3(
   // The workers and the physics backend, each its own script next to the bootstrap's (same directory, same rules).
   const here = ctx.fs.join(m3BootstrapEntry, '..');
   const read = (path: string): Uint8Array => ctx.fs.read(path);
-  // The view's worker (block chunks meshed, terrain tiles packed), for a game with block layers or terrain (a scene or a prefab names one);
-  // without it chunks mesh and tiles pack on the page.
+  // The view's worker (block chunks meshed, terrain tiles packed, architecture generated), for a game with block layers, terrain or
+  // generated architecture (a scene or a prefab names one); without it chunks mesh, tiles pack and architecture generates on the page.
   const decoder = new TextDecoder();
   const hasBlockLayers = [closure.sceneBytes, ...closure.sceneArtifacts.map((a) => a.bytes), ...closure.contentFileArtifacts.map((a) => a.bytes)].some((b) => {
     const text = decoder.decode(b);
-    return text.includes('"blockLayer"') || text.includes('"tileSamples"');
+    return text.includes('"blockLayer"') || text.includes('"tileSamples"') || text.includes('"architecture"');
   });
   // Only the physics engine the project's dimension uses: a game on the 2D plane ships rapier2d, a 3D game with physics rapier3d.
   const threeD = closure.moduleIds.includes(PHYSICS_3D_MODULE);
   const twoD = physicsDimensionOf(closure.manifest.settings) === 2;
   const planned: { name: string; entry: string; what: string; moduleIds?: readonly string[]; wasm?: true }[] = [
     { name: WORKER_BUNDLE_NAME, entry: ctx.fs.join(here, 'export-sim-worker.ts'), what: 'simulation worker', moduleIds: closure.moduleIds },
-    ...(hasBlockLayers ? [{ name: MESH_WORKER_BUNDLE_NAME, entry: ctx.fs.join(here, 'export-mesh-worker.ts'), what: 'block mesh and terrain worker' }] : []),
+    ...(hasBlockLayers ? [{ name: MESH_WORKER_BUNDLE_NAME, entry: ctx.fs.join(here, 'export-mesh-worker.ts'), what: 'block mesh, terrain and architecture worker' }] : []),
     ...(twoD ? [{ name: PHYSICS_2D_BUNDLE_NAME, entry: ctx.fs.join(here, 'export-physics-2d.ts'), what: '2D physics', wasm: true as const }] : []),
     ...(threeD ? [{ name: PHYSICS_3D_BUNDLE_NAME, entry: ctx.fs.join(here, 'export-physics-3d.ts'), what: '3D physics', wasm: true as const }] : []),
   ];
@@ -355,10 +356,11 @@ export async function exportProjectM3(
   // The block layers' chunk data is the scene files' cells: their text (cell metadata) follows the same rules.
   // Terrain tiles are numbers only (heights, layer weights, holes), checked by digest like instance buffers; so are
   // their scatter blobs (copies and cells; the rule ids they carry are the scene file's, scanned with it), a streamed
-  // terrain's overview (its tiles at their coarsest level) and what a spline makes (its meshes and piece copies:
-  // numbers; the piece assets are named in the scene file).
+  // terrain's overview (its tiles at their coarsest level), what a spline makes (its meshes and piece copies:
+  // numbers; the piece assets are named in the scene file) and generated architecture's shipped meshes (numbers, and
+  // the material slots, model ids and element ids the scene file names).
   for (const b of closure.bufferArtifacts) {
-    if (isTerrainTileBlob(b.bytes) || isTerrainOverviewBlob(b.bytes) || isScatterBlob(b.bytes) || isSplineMadeBlob(b.bytes)) {
+    if (isTerrainTileBlob(b.bytes) || isTerrainOverviewBlob(b.bytes) || isScatterBlob(b.bytes) || isSplineMadeBlob(b.bytes) || isArchitectureBlob(b.bytes)) {
       if (digestBytes(b.bytes) !== b.digest) return fail('export_bundle_forbidden_content', 'internal', `terrain tile ${b.path} does not match its digest`);
       continue;
     }
@@ -525,7 +527,7 @@ async function writeOutput(
       }
       for (const d of decodersNeeded([{ bytes, contentType: a.contentType }])) decoders.add(d);
       assetBytes += n;
-    } else if (n % 40 !== 0 && (head === null || !(isTerrainTileBlob(head) || isTerrainOverviewBlob(head) || isScatterBlob(head) || isSplineMadeBlob(head)))) {
+    } else if (n % 40 !== 0 && (head === null || !(isTerrainTileBlob(head) || isTerrainOverviewBlob(head) || isScatterBlob(head) || isSplineMadeBlob(head) || isArchitectureBlob(head)))) {
       return fail('scan_forbidden_content', 'internal', `an instance buffer does not match its size (${a.path})`);
     }
     entries.push({ path: a.path, digest: a.digest, byteLength: n });

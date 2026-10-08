@@ -678,7 +678,7 @@ export const materials: ComponentDescriptor = {
   value: map('materials', 'Materials', 'Material slot → project material.', 'Slot', ref('*', 'Material', 'A project material.', 'material'), { keyFormat: 'materialSlot', minEntries: 1, maxEntries: MAX_MATERIAL_SLOTS }),
   add: { kind: 'pick', value: {}, pick: ['*'] },
   handles: [],
-  requiresAnyOf: { components: ['model', 'box', 'instances', 'terrain', 'spline'], reason: 'materials dress a model, a box, an instance set, a terrain (its layered material: "*") or a spline\'s mesh ("spline")' },
+  requiresAnyOf: { components: ['model', 'box', 'instances', 'terrain', 'spline', 'architecture'], reason: 'materials dress a model, a box, an instance set, a terrain (its layered material: "*"), a spline\'s mesh ("spline") or generated architecture (its trim material: "architecture")' },
   excludes: [],
   prefab: true,
 };
@@ -699,7 +699,7 @@ export const materialParams: ComponentDescriptor = {
   ),
   add: { kind: 'tool', tool: 'the Materials section of the Inspector (override a public parameter)' },
   handles: [],
-  requiresAnyOf: { components: ['model', 'box', 'instances', 'terrain', 'spline'], reason: 'material parameters belong to the materials of a model, a box, an instance set, a terrain or a spline' },
+  requiresAnyOf: { components: ['model', 'box', 'instances', 'terrain', 'spline', 'architecture'], reason: 'material parameters belong to the materials of a model, a box, an instance set, a terrain, a spline or generated architecture' },
   excludes: [],
   prefab: true,
 };

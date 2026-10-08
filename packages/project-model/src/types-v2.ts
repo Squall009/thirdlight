@@ -593,6 +593,8 @@ export interface GameplaySettings {
   dynamic_resolution?: number;
   /** The memory streamed terrain tiles and block chunks may take in Play and the export, MiB (absent: `STREAMING_BUDGET_DEFAULT_MB`). */
   streaming_budget_mb?: number;
+  /** Exports ship generated architecture's meshes too (0 no, 1 yes; absent: no, generated at load). */
+  architecture_ship_meshes?: number;
 }
 
 // ---- content block and captured view ---------------------------------

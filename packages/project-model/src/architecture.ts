@@ -1,0 +1,483 @@
+/**
+ * The `architecture` component: generated architecture stored as the
+ * parameters it is made from, never as meshes. Elements are built from two
+ * primitives and fills:
+ * - `sweep`: a 2D profile swept along a path (walls, mouldings, rails,
+ *   frames), mitred at corners, cut by openings;
+ * - `repeat`: something placed along a path every so many metres (columns
+ *   made from other elements once and stamped, or a kit model's copies);
+ * - `fill`: a closed path filled (flat, coffered, barrel and groin vaults;
+ *   flat, gable, hip and mansard roofs).
+ * Paths are polylines with optional arcs (`bulges`) or a smooth curve
+ * through their points (the spline component's curve), open or closed,
+ * with the offset and chamfer operators applied in that order.
+ *
+ * Every face wears a row of a trim sheet: a profile names a slot per
+ * segment and a fill names its slot; the row table comes from the trim
+ * material the element's material slot is dressed with
+ * (`materials: {"architecture": id}`), so swapping the sheet restyles the
+ * geometry without touching the parameters.
+ *
+ * Points are metres from the object's position (no rotation or scale, as a
+ * spline or a terrain is placed). Absent optional fields mean the defaults
+ * below; `baked` is written by an export that ships the generated meshes
+ * (`architecture_ship_meshes`), never by the editor.
+ *
+ * Pure.
+ */
+import type { ModelErrorV2 } from './errors';
+import { ID_RE } from './validate';
+
+/** Bounds of one component's values: coordinates and sizes, so a request cannot ask for unbounded geometry. */
+export const ARCHITECTURE_LIMITS = Object.freeze({
+  /** Metres either way for a point. */
+  coordinate: 100_000,
+  /** Metres for sizes, offsets and heights. */
+  distanceMax: 1000,
+  /** The finest spacing between repeated copies and between samples on arcs and curves (metres). */
+  stepMin: 0.05,
+  /** The smallest cell of a fill's tessellation (metres). */
+  cellMin: 0.1,
+  /** Chunk sides (metres). */
+  chunkMin: 4,
+  chunkMax: 1024,
+  /** Points of one profile. */
+  profilePoints: 256,
+  /** Elements one repeated piece is made of (a piece is made once and stamped, so it stays small). */
+  pieceElements: 16,
+  /** The largest bulge: tan of a quarter of the arc's angle (1 = a half circle; 2.4 is about 270°). */
+  bulgeMax: 2.4,
+});
+
+/** The material slot elements wear unless they name another (`materials: {"architecture": id}` or `{"*": id}`). */
+export const ARCHITECTURE_MATERIAL_SLOT = 'architecture';
+/** Metres a chunk side covers: what one worker job makes and one draw per material shows. */
+export const ARCHITECTURE_CHUNK_DEFAULT = 32;
+/** Metres between samples on arcs and curves. */
+export const ARCHITECTURE_STEP_DEFAULT = 0.5;
+/** Vertex AO: how dark a right-angled inside corner gets (0–1) and how far (m) the darkening reaches. */
+export const ARCHITECTURE_AO_DEFAULTS = Object.freeze({ strength: 0.6, radius: 0.5 });
+/** Metres from the camera past which the far level (no detail elements, no chamfers) is drawn. */
+export const ARCHITECTURE_LOD_DISTANCE_DEFAULT = 40;
+
+export const ARCHITECTURE_ELEMENT_KINDS = ['sweep', 'repeat', 'fill'] as const;
+export type ArchitectureElementKind = (typeof ARCHITECTURE_ELEMENT_KINDS)[number];
+export const ARCHITECTURE_FILL_SHAPES = ['flat', 'coffered', 'barrel', 'groin', 'gable', 'hip', 'mansard'] as const;
+export type ArchitectureFillShape = (typeof ARCHITECTURE_FILL_SHAPES)[number];
+/** Fills that need a rectangular path (four corners at right angles). */
+export const ARCHITECTURE_RECT_FILLS: readonly ArchitectureFillShape[] = ['barrel', 'groin', 'gable', 'hip', 'mansard'];
+
+/** A path: points with straight segments, arcs or a smooth curve; open or closed. */
+export interface ArchitecturePath {
+  /** Metres from the object's position. */
+  points: [number, number, number][];
+  /** Back from the last point to the first (absent: false). */
+  closed?: boolean;
+  /** Per segment (point i to i+1; closed: also last to first): an arc bulging to the right of travel when positive, the left when negative, as tan of a quarter of its angle (1 = a half circle; absent or 0: straight). */
+  bulges?: number[];
+  /** A smooth curve through the points (Hermite with Catmull-Rom tangents, as a spline) instead of straight segments (absent: false; bulges are then ignored). */
+  curve?: boolean;
+  /** Metres between samples on arcs and the curve (absent: {@link ARCHITECTURE_STEP_DEFAULT}). */
+  step?: number;
+  /** The offset operator: metres to the right of travel, corners mitred (absent: 0). */
+  offset?: number;
+  /** The chamfer operator: metres cut off each sharp corner (absent: 0). */
+  chamfer?: number;
+}
+
+/** A 2D cross-section: [across, up] metres in the path's frame, across to the right of travel. */
+export interface ArchitectureProfile {
+  /** Faces look to the right of the direction from one point to the next (a wall drawn bottom to top faces +across). */
+  points: [number, number][];
+  /** The trim row slot each segment wears (one per segment; "" leaves the segment open). */
+  slots: string[];
+  /** Back from the last point to the first (absent: false). */
+  closed?: boolean;
+  /** Normals averaged at inner points, for round mouldings drawn with many points (absent: false, hard edges). */
+  smooth?: boolean;
+  /** The chamfer operator: metres cut off each corner (absent: 0; the far level keeps the sharp corners). */
+  chamfer?: number;
+}
+
+/** A kit model placed by the generator (copies of it are instances). */
+export interface ArchitectureModelRef {
+  assetId: string;
+  piece?: string;
+}
+
+/** An opening cut through a sweep: a door, window or arch. */
+export interface ArchitectureOpening {
+  id: string;
+  /** Metres along the path to the opening's middle. */
+  at: number;
+  width: number;
+  /** Heights (m, in the profile's up) of the opening's sill and head. */
+  bottom: number;
+  top: number;
+  /** The slot the reveals wear (absent: `frame`). */
+  reveal?: string;
+  /** A profile swept round the opening on the outer face, mitred at its corners (absent: none). */
+  frame?: string;
+  /** Faces the frame goes on (absent: outer). */
+  frameSides?: 'outer' | 'inner' | 'both';
+  /** A kit model placed at the opening instead of its reveals and frame (the hole is still cut). */
+  model?: ArchitectureModelRef;
+}
+
+interface ElementBase {
+  id: string;
+  /** The material slot (absent: {@link ARCHITECTURE_MATERIAL_SLOT}). */
+  material?: string;
+  /** Detail: left out of the far level (mouldings, bevels; absent: false). */
+  detail?: boolean;
+  /** Colliders (absent: true, but false for detail elements). */
+  collide?: boolean;
+}
+
+export interface ArchitectureSweep extends ElementBase {
+  kind: 'sweep';
+  path: ArchitecturePath;
+  /** A profile name from the component's `profiles`. */
+  profile: string;
+  openings?: ArchitectureOpening[];
+}
+
+export interface ArchitectureRepeat extends ElementBase {
+  kind: 'repeat';
+  path: ArchitecturePath;
+  /** Metres between copies along the path. */
+  spacing: number;
+  /** Metres from the path's start to the first copy (absent: 0) and the last place one may stand (absent: the end). */
+  start?: number;
+  end?: number;
+  /** Also a copy at every sharp corner of the path (absent: false). */
+  corners?: boolean;
+  /** Copies turn to face along the path, their +X along it (absent: true). */
+  align?: boolean;
+  /** [across, up] metres from the path (absent: on it). */
+  offset?: [number, number];
+  /** Degrees each copy turns about up past facing along (absent: 0). */
+  yaw?: number;
+  /** Seeded variation per copy: degrees of turn and metres of shift along, either way (absent: none). */
+  jitter?: { yaw?: number; along?: number };
+  /** What is repeated: elements made once in the copy's frame and stamped, or a kit model's copies. */
+  piece: { elements: (ArchitectureSweep | ArchitectureFill)[] } | { model: ArchitectureModelRef };
+}
+
+export interface ArchitectureFill extends ElementBase {
+  kind: 'fill';
+  /** A closed path (its points' heights are averaged into the fill's base). */
+  path: ArchitecturePath;
+  shape: ArchitectureFillShape;
+  /** The slot the surface wears. */
+  slot: string;
+  /** The slot beams, ridges and gable ends wear (absent: `slot`). */
+  trimSlot?: string;
+  /** Metres above the path the surface (a ceiling's, a vault's springing, a roof's eaves) lies (absent: 0). */
+  height?: number;
+  /** Metres a vault or roof rises above `height` (absent: half the span for a vault, a quarter for a roof). */
+  rise?: number;
+  /** Which way a flat or coffered surface faces (absent: up for flat, down for coffered and vaults; roofs face out). */
+  face?: 'up' | 'down';
+  /** The vault's or ridge's axis: along the longer or the shorter side (absent: long). */
+  axis?: 'long' | 'short';
+  /** Metres between coffer beams (absent: 1.5) and their depth (absent: 0.2). */
+  cell?: number;
+  depth?: number;
+  /** Metres a roof's eaves reach past the path (absent: 0). */
+  overhang?: number;
+  /** Mansard: the lower slope's height share of the rise (absent: 0.7) and metres it steps in (absent: a sixth of the span). */
+  breakRise?: number;
+  inset?: number;
+}
+
+export type ArchitectureElement = ArchitectureSweep | ArchitectureRepeat | ArchitectureFill;
+
+/** A segment or corner of a sweep (or a repeat's copy) made by a kit model instead. */
+export interface ArchitectureOverride {
+  /** The element's id. */
+  element: string;
+  /** The path segment (point i to i+1) replaced; or */
+  segment?: number;
+  /** the corner at point i, replaced `reach` metres either side (absent: 0.5). */
+  corner?: number;
+  reach?: number;
+  model: ArchitectureModelRef;
+  /** A segment's model is stretched along to the segment's length (made 1 m long along +X; absent: true). */
+  stretch?: boolean;
+}
+
+export interface ArchitectureComponent {
+  elements: ArchitectureElement[];
+  /** Named profiles the sweeps use. */
+  profiles?: Record<string, ArchitectureProfile>;
+  overrides?: ArchitectureOverride[];
+  /** Metres a chunk side covers (absent: {@link ARCHITECTURE_CHUNK_DEFAULT}). */
+  chunkSize?: number;
+  /** The seed of jitter and variation (absent: 0). */
+  seed?: number;
+  /** Vertex AO baked by the generator (absent: {@link ARCHITECTURE_AO_DEFAULTS}; strength 0: none). */
+  ao?: { strength?: number; radius?: number };
+  /** Metres to the far level (absent: {@link ARCHITECTURE_LOD_DISTANCE_DEFAULT}). */
+  lodDistance?: number;
+  castShadow?: boolean;
+  receiveShadow?: boolean;
+  /** SHA-256 of the generated meshes a build ships (written by the export; absent: generated at load). */
+  baked?: string;
+}
+
+/** The component's fields in canonical order. */
+export const ARCHITECTURE_FIELDS: readonly string[] = Object.freeze(['elements', 'profiles', 'overrides', 'chunkSize', 'seed', 'ao', 'lodDistance', 'castShadow', 'receiveShadow', 'baked']);
+const PATH_FIELDS = ['points', 'closed', 'bulges', 'curve', 'step', 'offset', 'chamfer'];
+const PROFILE_FIELDS = ['points', 'slots', 'closed', 'smooth', 'chamfer'];
+const BASE_FIELDS = ['id', 'kind', 'material', 'detail', 'collide'];
+const SWEEP_FIELDS = [...BASE_FIELDS, 'path', 'profile', 'openings'];
+const REPEAT_FIELDS = [...BASE_FIELDS, 'path', 'spacing', 'start', 'end', 'corners', 'align', 'offset', 'yaw', 'jitter', 'piece'];
+const FILL_FIELDS = [...BASE_FIELDS, 'path', 'shape', 'slot', 'trimSlot', 'height', 'rise', 'face', 'axis', 'cell', 'depth', 'overhang', 'breakRise', 'inset'];
+const OPENING_FIELDS = ['id', 'at', 'width', 'bottom', 'top', 'reveal', 'frame', 'frameSides', 'model'];
+const OVERRIDE_FIELDS = ['element', 'segment', 'corner', 'reach', 'model', 'stretch'];
+const DIGEST_RE = /^[0-9a-f]{64}$/;
+
+const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
+const finite = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
+const within = (v: unknown, lo: number, hi: number): boolean => finite(v) && v >= lo && v <= hi;
+const vec = (v: unknown, n: number, lo: number, hi: number): boolean => Array.isArray(v) && v.length === n && v.every((x) => within(x, lo, hi));
+const isId = (v: unknown): v is string => typeof v === 'string' && ID_RE.test(v);
+
+function err(errors: ModelErrorV2[], code: string, path: string, message: string, found?: unknown): void {
+  errors.push({ code, path, message, ...(found !== undefined ? { found } : {}) } as ModelErrorV2);
+}
+function only(v: Record<string, unknown>, keys: readonly string[], path: string, errors: ModelErrorV2[], what: string): void {
+  for (const k of Object.keys(v)) if (!keys.includes(k)) err(errors, 'field_unexpected', `${path}/${k}`, `unknown ${what} field "${k}"`, k);
+}
+function num(v: Record<string, unknown>, key: string, path: string, errors: ModelErrorV2[], lo: number, hi: number, what: string): void {
+  if (v[key] !== undefined && !within(v[key], lo, hi)) err(errors, 'field_value', `${path}/${key}`, `${key} is ${what}`, v[key]);
+}
+function bool(v: Record<string, unknown>, key: string, path: string, errors: ModelErrorV2[]): void {
+  if (v[key] !== undefined && typeof v[key] !== 'boolean') err(errors, 'field_type', `${path}/${key}`, `${key} is true or false`, v[key]);
+}
+function oneOf(v: Record<string, unknown>, key: string, path: string, errors: ModelErrorV2[], values: readonly string[]): void {
+  if (v[key] !== undefined && !values.includes(v[key] as string)) err(errors, 'field_value', `${path}/${key}`, `${key} is ${values.join(', ')}`, v[key]);
+}
+function slotName(v: unknown, allowEmpty: boolean): boolean {
+  return typeof v === 'string' && ((allowEmpty && v === '') || ID_RE.test(v));
+}
+
+function validatePath(p: unknown, path: string, errors: ModelErrorV2[], closedRequired: boolean): void {
+  const L = ARCHITECTURE_LIMITS;
+  if (!isObj(p)) return err(errors, 'field_type', path, 'a path is {points, closed?, bulges?, curve?, step?, offset?, chamfer?}', p);
+  only(p, PATH_FIELDS, path, errors, 'path');
+  const pts = p['points'];
+  if (!Array.isArray(pts) || pts.length < 2 || !pts.every((q) => vec(q, 3, -L.coordinate, L.coordinate))) {
+    err(errors, 'field_value', `${path}/points`, `points is a list of at least 2 [x, y, z] metres from the object, within ±${L.coordinate}`, Array.isArray(pts) ? pts.length : pts);
+  }
+  bool(p, 'closed', path, errors);
+  bool(p, 'curve', path, errors);
+  const closed = p['closed'] === true;
+  if (closedRequired && !closed) err(errors, 'field_value', `${path}/closed`, 'a fill\'s path is closed', p['closed']);
+  if (closed && Array.isArray(pts) && pts.length < 3) err(errors, 'field_value', `${path}/closed`, 'a closed path has at least 3 points', pts.length);
+  const b = p['bulges'];
+  if (b !== undefined) {
+    const segs = Array.isArray(pts) ? (closed ? pts.length : pts.length - 1) : 0;
+    if (!Array.isArray(b) || b.length !== segs || !b.every((x) => within(x, -L.bulgeMax, L.bulgeMax))) err(errors, 'field_value', `${path}/bulges`, `bulges has one number per segment (${segs}), each within ±${L.bulgeMax}`, b);
+  }
+  num(p, 'step', path, errors, L.stepMin, 100, `${L.stepMin}-100 metres`);
+  num(p, 'offset', path, errors, -L.distanceMax, L.distanceMax, `metres within ±${L.distanceMax}`);
+  num(p, 'chamfer', path, errors, 0, L.distanceMax, `0-${L.distanceMax} metres`);
+}
+
+function validateModel(m: unknown, path: string, errors: ModelErrorV2[]): void {
+  if (!isObj(m)) return err(errors, 'field_type', path, 'a model is {assetId, piece?}', m);
+  only(m, ['assetId', 'piece'], path, errors, 'model');
+  if (!isId(m['assetId'])) err(errors, 'field_value', `${path}/assetId`, 'assetId names a model asset', m['assetId']);
+  if (m['piece'] !== undefined && !(typeof m['piece'] === 'string' && m['piece'].length >= 1 && m['piece'].length <= 128)) err(errors, 'field_value', `${path}/piece`, 'piece is 1-128 characters: a named piece of the file', m['piece']);
+}
+
+function validateElement(e: unknown, path: string, errors: ModelErrorV2[], profiles: Record<string, unknown> | null, ids: Set<string>, inPiece: boolean): void {
+  const L = ARCHITECTURE_LIMITS;
+  const hasProfiles = profiles !== null;
+  if (!isObj(e)) return err(errors, 'field_type', path, 'an element is {id, kind: sweep|repeat|fill, …}', e);
+  const kind = e['kind'];
+  const kinds = inPiece ? ['sweep', 'fill'] : (ARCHITECTURE_ELEMENT_KINDS as readonly string[]);
+  if (typeof kind !== 'string' || !kinds.includes(kind)) return err(errors, 'field_value', `${path}/kind`, `kind is ${kinds.join(', ')}`, kind);
+  only(e, kind === 'sweep' ? SWEEP_FIELDS : kind === 'repeat' ? REPEAT_FIELDS : FILL_FIELDS, path, errors, kind);
+  if (!isId(e['id'])) err(errors, 'field_value', `${path}/id`, 'id uses the id syntax [a-z0-9][a-z0-9_-]{0,63}', e['id']);
+  else if (ids.has(e['id'])) err(errors, 'field_value', `${path}/id`, `id "${e['id']}" is used twice`, e['id']);
+  else ids.add(e['id']);
+  if (e['material'] !== undefined && !isId(e['material'])) err(errors, 'field_value', `${path}/material`, 'material names a material slot (id syntax)', e['material']);
+  bool(e, 'detail', path, errors);
+  bool(e, 'collide', path, errors);
+  validatePath(e['path'], `${path}/path`, errors, kind === 'fill');
+  if (kind === 'sweep') {
+    // The named profile must exist when the component lists its profiles (without any, the generator reports it).
+    if (!isId(e['profile']) || (hasProfiles && profiles![e['profile']] === undefined)) err(errors, 'field_value', `${path}/profile`, 'profile names one of the component\'s profiles', e['profile']);
+    const ops = e['openings'];
+    if (ops !== undefined) {
+      if (!Array.isArray(ops)) err(errors, 'field_type', `${path}/openings`, 'openings is a list', ops);
+      else {
+        const seen = new Set<string>();
+        ops.forEach((o, i) => {
+          const p = `${path}/openings/${i}`;
+          if (!isObj(o)) return err(errors, 'field_type', p, 'an opening is {id, at, width, bottom, top, reveal?, frame?, frameSides?, model?}', o);
+          only(o, OPENING_FIELDS, p, errors, 'opening');
+          if (!isId(o['id']) || seen.has(o['id'])) err(errors, 'field_value', `${p}/id`, 'id is unique within the element (id syntax)', o['id']);
+          else seen.add(o['id']);
+          if (!within(o['at'], 0, L.coordinate)) err(errors, 'field_value', `${p}/at`, 'at is metres along the path', o['at']);
+          if (!within(o['width'], 0.01, L.distanceMax)) err(errors, 'field_value', `${p}/width`, `width is 0.01-${L.distanceMax} metres`, o['width']);
+          if (!within(o['bottom'], -L.distanceMax, L.distanceMax)) err(errors, 'field_value', `${p}/bottom`, 'bottom is metres up the profile', o['bottom']);
+          if (!within(o['top'], -L.distanceMax, L.distanceMax) || !(finite(o['bottom']) && (o['top'] as number) > o['bottom'])) err(errors, 'field_value', `${p}/top`, 'top is metres up the profile, above bottom', o['top']);
+          if (o['reveal'] !== undefined && !slotName(o['reveal'], true)) err(errors, 'field_value', `${p}/reveal`, 'reveal names a trim slot ("" for none)', o['reveal']);
+          if (o['frame'] !== undefined && (!isId(o['frame']) || (hasProfiles && profiles![o['frame']] === undefined))) err(errors, 'field_value', `${p}/frame`, 'frame names one of the component\'s profiles', o['frame']);
+          oneOf(o, 'frameSides', p, errors, ['outer', 'inner', 'both']);
+          if (o['model'] !== undefined) validateModel(o['model'], `${p}/model`, errors);
+        });
+      }
+    }
+  } else if (kind === 'repeat') {
+    if (!within(e['spacing'], L.stepMin, L.distanceMax)) err(errors, 'field_value', `${path}/spacing`, `spacing is ${L.stepMin}-${L.distanceMax} metres between copies`, e['spacing']);
+    num(e, 'start', path, errors, 0, L.coordinate, `0-${L.coordinate} metres`);
+    num(e, 'end', path, errors, 0, L.coordinate, `0-${L.coordinate} metres`);
+    bool(e, 'corners', path, errors);
+    bool(e, 'align', path, errors);
+    if (e['offset'] !== undefined && !vec(e['offset'], 2, -L.distanceMax, L.distanceMax)) err(errors, 'field_value', `${path}/offset`, `offset is [across, up] metres within ±${L.distanceMax}`, e['offset']);
+    num(e, 'yaw', path, errors, -360, 360, '-360 to 360 degrees');
+    const j = e['jitter'];
+    if (j !== undefined) {
+      if (!isObj(j)) err(errors, 'field_type', `${path}/jitter`, 'jitter is {yaw?, along?}', j);
+      else {
+        only(j, ['yaw', 'along'], `${path}/jitter`, errors, 'jitter');
+        num(j, 'yaw', `${path}/jitter`, errors, 0, 180, '0-180 degrees');
+        num(j, 'along', `${path}/jitter`, errors, 0, L.distanceMax, `0-${L.distanceMax} metres`);
+      }
+    }
+    const piece = e['piece'];
+    if (!isObj(piece)) err(errors, 'field_type', `${path}/piece`, 'piece is {elements: [...]} or {model: {assetId, piece?}}', piece);
+    else if (piece['model'] !== undefined) {
+      only(piece, ['model'], `${path}/piece`, errors, 'piece');
+      validateModel(piece['model'], `${path}/piece/model`, errors);
+    } else {
+      only(piece, ['elements'], `${path}/piece`, errors, 'piece');
+      const els = piece['elements'];
+      if (!Array.isArray(els) || els.length < 1 || els.length > L.pieceElements) err(errors, 'field_value', `${path}/piece/elements`, `elements is 1-${L.pieceElements} sweeps or fills made once and stamped`, els);
+      else {
+        const inner = new Set<string>();
+        els.forEach((x, i) => validateElement(x, `${path}/piece/elements/${i}`, errors, profiles, inner, true));
+      }
+    }
+  } else {
+    if (typeof e['shape'] !== 'string' || !(ARCHITECTURE_FILL_SHAPES as readonly string[]).includes(e['shape'])) err(errors, 'field_value', `${path}/shape`, `shape is ${ARCHITECTURE_FILL_SHAPES.join(', ')}`, e['shape']);
+    if (!isId(e['slot'])) err(errors, 'field_value', `${path}/slot`, 'slot names the trim row the surface wears', e['slot']);
+    if (e['trimSlot'] !== undefined && !isId(e['trimSlot'])) err(errors, 'field_value', `${path}/trimSlot`, 'trimSlot names a trim row', e['trimSlot']);
+    num(e, 'height', path, errors, -L.distanceMax, L.distanceMax, `metres within ±${L.distanceMax}`);
+    num(e, 'rise', path, errors, 0, L.distanceMax, `0-${L.distanceMax} metres`);
+    oneOf(e, 'face', path, errors, ['up', 'down']);
+    oneOf(e, 'axis', path, errors, ['long', 'short']);
+    num(e, 'cell', path, errors, L.cellMin * 2, L.distanceMax, `${L.cellMin * 2}-${L.distanceMax} metres`);
+    num(e, 'depth', path, errors, 0, L.distanceMax, `0-${L.distanceMax} metres`);
+    num(e, 'overhang', path, errors, 0, L.distanceMax, `0-${L.distanceMax} metres`);
+    num(e, 'breakRise', path, errors, 0.05, 0.95, '0.05-0.95 of the rise');
+    num(e, 'inset', path, errors, 0, L.distanceMax, `0-${L.distanceMax} metres`);
+  }
+}
+
+export function validateArchitectureComponent(value: unknown, path: string, errors: ModelErrorV2[]): void {
+  const L = ARCHITECTURE_LIMITS;
+  if (!isObj(value)) return err(errors, 'field_type', path, 'architecture is an object { elements, profiles?, overrides?, … }', value);
+  only(value, ARCHITECTURE_FIELDS, path, errors, 'architecture');
+  const profiles = value['profiles'];
+  const named: Record<string, unknown> = {};
+  if (profiles !== undefined) {
+    if (!isObj(profiles)) err(errors, 'field_type', `${path}/profiles`, 'profiles is {name: {points, slots, closed?, smooth?, chamfer?}}', profiles);
+    else {
+      for (const [name, pr] of Object.entries(profiles)) {
+        const p = `${path}/profiles/${name}`;
+        if (!ID_RE.test(name)) err(errors, 'field_value', p, 'a profile name uses the id syntax', name);
+        if (!isObj(pr)) {
+          err(errors, 'field_type', p, 'a profile is {points, slots, closed?, smooth?, chamfer?}', pr);
+          continue;
+        }
+        named[name] = pr;
+        only(pr, PROFILE_FIELDS, p, errors, 'profile');
+        const pts = pr['points'];
+        const ok = Array.isArray(pts) && pts.length >= 2 && pts.length <= L.profilePoints && pts.every((q) => vec(q, 2, -L.distanceMax, L.distanceMax));
+        if (!ok) err(errors, 'field_value', `${p}/points`, `points is 2-${L.profilePoints} [across, up] metres`, Array.isArray(pts) ? pts.length : pts);
+        bool(pr, 'closed', p, errors);
+        bool(pr, 'smooth', p, errors);
+        num(pr, 'chamfer', p, errors, 0, L.distanceMax, `0-${L.distanceMax} metres`);
+        const segs = Array.isArray(pts) ? (pr['closed'] === true ? pts.length : pts.length - 1) : 0;
+        const slots = pr['slots'];
+        if (!Array.isArray(slots) || slots.length !== segs || !slots.every((s) => slotName(s, true))) err(errors, 'field_value', `${p}/slots`, `slots names one trim row per segment (${segs}; "" for an open segment)`, slots);
+      }
+    }
+  }
+  const els = value['elements'];
+  const ids = new Set<string>();
+  if (!Array.isArray(els)) err(errors, 'field_type', `${path}/elements`, 'elements is a list of sweeps, repeats and fills', els);
+  else els.forEach((e, i) => validateElement(e, `${path}/elements/${i}`, errors, profiles === undefined ? null : named, ids, false));
+  const ovs = value['overrides'];
+  if (ovs !== undefined) {
+    if (!Array.isArray(ovs)) err(errors, 'field_type', `${path}/overrides`, 'overrides is a list', ovs);
+    else {
+      ovs.forEach((o, i) => {
+        const p = `${path}/overrides/${i}`;
+        if (!isObj(o)) return err(errors, 'field_type', p, 'an override is {element, segment? | corner?, reach?, model, stretch?}', o);
+        only(o, OVERRIDE_FIELDS, p, errors, 'override');
+        if (!isId(o['element']) || !ids.has(o['element'])) err(errors, 'field_value', `${p}/element`, 'element names one of the elements', o['element']);
+        const hasSeg = o['segment'] !== undefined;
+        const hasCorner = o['corner'] !== undefined;
+        if (hasSeg === hasCorner) err(errors, 'field_value', p, 'an override names a segment or a corner (one of them)');
+        for (const k of ['segment', 'corner']) if (o[k] !== undefined && !(Number.isInteger(o[k]) && (o[k] as number) >= 0 && (o[k] as number) < 1_000_000)) err(errors, 'field_value', `${p}/${k}`, `${k} is a point index`, o[k]);
+        num(o, 'reach', p, errors, 0.01, L.distanceMax, `0.01-${L.distanceMax} metres`);
+        validateModel(o['model'], `${p}/model`, errors);
+        bool(o, 'stretch', p, errors);
+      });
+    }
+  }
+  num(value, 'chunkSize', path, errors, L.chunkMin, L.chunkMax, `${L.chunkMin}-${L.chunkMax} metres`);
+  if (value['seed'] !== undefined && !(Number.isInteger(value['seed']) && (value['seed'] as number) >= 0 && (value['seed'] as number) <= 0xffffffff)) err(errors, 'field_value', `${path}/seed`, 'seed is a whole number 0-4294967295', value['seed']);
+  const ao = value['ao'];
+  if (ao !== undefined) {
+    if (!isObj(ao)) err(errors, 'field_type', `${path}/ao`, 'ao is {strength?, radius?}', ao);
+    else {
+      only(ao, ['strength', 'radius'], `${path}/ao`, errors, 'ao');
+      num(ao, 'strength', `${path}/ao`, errors, 0, 1, '0-1');
+      num(ao, 'radius', `${path}/ao`, errors, 0.01, 10, '0.01-10 metres');
+    }
+  }
+  num(value, 'lodDistance', path, errors, 0, 100_000, '0-100000 metres');
+  bool(value, 'castShadow', path, errors);
+  bool(value, 'receiveShadow', path, errors);
+  if (value['baked'] !== undefined && (typeof value['baked'] !== 'string' || !DIGEST_RE.test(value['baked']))) err(errors, 'field_value', `${path}/baked`, 'baked is the SHA-256 of the shipped meshes (64 lowercase hex), written by an export', value['baked']);
+}
+
+/** The component in canonical form: fields in order; nested objects as given (validation fixed their fields). */
+export function canonicalArchitecture(c: ArchitectureComponent): ArchitectureComponent {
+  const src = c as unknown as Record<string, unknown>;
+  const out: Record<string, unknown> = {};
+  for (const k of ARCHITECTURE_FIELDS) if (src[k] !== undefined) out[k] = src[k];
+  return out as unknown as ArchitectureComponent;
+}
+
+/** The material slots a component's elements wear (sorted; repeated pieces' elements too). */
+export function architectureMaterialSlots(c: Pick<ArchitectureComponent, 'elements'>): string[] {
+  const out = new Set<string>();
+  const visit = (e: ArchitectureElement, inherited: string): void => {
+    const slot = e.material ?? inherited;
+    if (e.kind === 'repeat') {
+      if ('elements' in e.piece) for (const x of e.piece.elements) visit(x, slot);
+    } else out.add(slot);
+  };
+  for (const e of c.elements) visit(e, ARCHITECTURE_MATERIAL_SLOT);
+  return [...out].sort();
+}
+
+/** The kit models an architecture component places (repeated pieces, overrides, openings). */
+export function architectureModelAssets(c: Pick<ArchitectureComponent, 'elements' | 'overrides'> | undefined): string[] {
+  const out = new Set<string>();
+  for (const e of c?.elements ?? []) {
+    if (e.kind === 'repeat' && 'model' in e.piece) out.add(e.piece.model.assetId);
+    if (e.kind === 'sweep') for (const o of e.openings ?? []) if (o.model !== undefined) out.add(o.model.assetId);
+  }
+  for (const o of c?.overrides ?? []) out.add(o.model.assetId);
+  return [...out];
+}

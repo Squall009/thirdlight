@@ -489,6 +489,7 @@ const COMPONENT_BASES: Record<string, J[]> = {
   instances: [{ asset: { assetId: 'model-a', piece: 'Rock' }, buffer: 'a'.repeat(64), count: 10, castShadow: false, receiveShadow: false, chunkSize: 24, lightLayers: 4, densityStart: 0.03, densityEnd: 0.01, densityMin: 0.5, lodPerCopy: true , localLights: 'pixel' }],
   fogVolume: [{ size: [6, 3, 4], density: 0.25, color: '#dfe7ef', falloff: 0.5, heightFalloff: 0.3 }],
   probeVolume: [{ size: [16, 6, 16], spacing: 1.5 }],
+  architecture: [{ elements: [{ id: 'wall', kind: 'sweep', path: { points: [[0, 0, 0], [6, 0, 0]] }, profile: 'wall' }], profiles: { wall: { points: [[0, 0], [0, 3]], slots: ['lower_wall'] } }, overrides: [{ element: 'wall', segment: 0, model: { assetId: 'model-a' } }], chunkSize: 16, seed: 7, ao: { strength: 0.5, radius: 0.4 }, lodDistance: 30, castShadow: false, receiveShadow: false, baked: 'd'.repeat(64) }],
   spline: [{ points: [{ at: [0, 0, 0], tangent: [1, 0, 0], width: 6, roll: 5 }, { at: [10, 1, 0] }, { at: [20, 0, 5] }], closed: true, width: 8, terrain: { shape: 'carve', falloff: 3, depth: 1, offset: 0.2, paint: { layer: 2, strength: 0.5, width: 6, falloff: 1 }, order: 1 }, scatter: { margin: 2, rules: ['trees'] }, mesh: { kind: 'water', profile: [[-1, 0], [1, 0]], offset: -0.3, tiling: 8, step: 2, collision: false, castShadow: false, receiveShadow: false, flow: 2, foam: 1 }, pieces: [{ asset: { assetId: 'model-a', piece: 'Post' }, spacing: 3, start: 1, offset: [2, 0], yaw: 90, upright: false, collide: false, castShadow: false }], data: 'c'.repeat(64) }],
   terrain: [{ tileSamples: 129, spacing: 2, heightRange: [-10, 90], tiles: [{ x: 0, z: 0 }, { x: 1, z: -1, data: 'b'.repeat(64) }], lodDistance: 300, collision: false, macroDistance: 400, streaming: { render: 1200, collision: 96, scatter: 800, hysteresis: 32 }, overview: 'c'.repeat(64), uvOrigin: [16, -8] }],
   collider: [
@@ -876,7 +877,7 @@ function runAllProbes(): void {
   EFFECT_BASES.forEach((b, i) => probe(`effects[${i}]`, (v) => errorsOf((e) => validateEffects(v, '', e)), b, '', block('effects'), 'effects:'));
   ANIMATOR_BASES.forEach((b, i) => probe(`animators[${i}]`, (v) => errorsOf((e) => validateAnimators(v, '', e)), b, '', block('animators'), 'animators:'));
   probe('tags', (v) => errorsOf((e) => validateTagRegistry(v, '', e)), [{ bit: 3, name: 'walker' }], '', block('tags'), 'tags:');
-  probe('settings', contentErrors, contentDoc({ settings: { gravity_y: -19.62, run_speed: 4, jump_velocity: 7, max_fall_speed: -30, max_slope_climb_deg: 45, min_slope_slide_deg: 30, fixed_step_hz: 240, audio_voices: 12, music_fade_s: 2, animation_crossfade_s: 0.3, render_backend: 1, physics_dimension: 3, sim_thread: 2, debug_console: 1, random_seed: 7, depth_buffer: 2, audio_spatial: 2, instance_chunk_m: 16, texture_budget_mb: 256, camera_fov_deg: 50, camera_near_m: 0.3, camera_far_m: 400, import_extract_textures: 1, block_chunk_storage: 1, stats_overlay: 2, frame_rate_cap: 30, lod_bias: 1.5, lod_hysteresis: 0.2, ambient_occlusion: 2, render_scale: 0.75, dynamic_resolution: 1, streaming_budget_mb: 512 } }), '/settings', block('settings'), 'settings:');
+  probe('settings', contentErrors, contentDoc({ settings: { gravity_y: -19.62, run_speed: 4, jump_velocity: 7, max_fall_speed: -30, max_slope_climb_deg: 45, min_slope_slide_deg: 30, fixed_step_hz: 240, audio_voices: 12, music_fade_s: 2, animation_crossfade_s: 0.3, render_backend: 1, physics_dimension: 3, sim_thread: 2, debug_console: 1, random_seed: 7, depth_buffer: 2, audio_spatial: 2, instance_chunk_m: 16, texture_budget_mb: 256, camera_fov_deg: 50, camera_near_m: 0.3, camera_far_m: 400, import_extract_textures: 1, block_chunk_storage: 1, stats_overlay: 2, frame_rate_cap: 30, lod_bias: 1.5, lod_hysteresis: 0.2, ambient_occlusion: 2, render_scale: 0.75, dynamic_resolution: 1, streaming_budget_mb: 512, architecture_ship_meshes: 1 } }), '/settings', block('settings'), 'settings:');
   probe('scenes', contentErrors, contentDoc(), '/scenes', block('scenes'), 'scenes:');
   probe('startScenes', contentErrors, contentDoc(), '/startScenes', block('startScenes'), 'startScenes:');
   const anims = { ...MODEL_ASSET, assetId: 'anims-0001', displayName: 'Anims', vertexColors: 'tint', materials: { '*': 'mat-a' }, extractTextures: true, textures: { '0': 'tex-albedo' }, clipsFor: MODEL_ASSET['assetId'], labels: ['level-3', 'voice'], address: 'anims/walk' };
@@ -1021,8 +1022,8 @@ describe('descriptor registry', () => {
     // repeat their look and turn, about 3 KB; a block layer's cut-away, about 1.6 KB; kits on block types and layers,
     // about 2 KB; a block layer's walk and corner shading, about 1.7 KB; the terrain and its exclusions, about 1.6 KB; material rules and far ground, about 1 KB; the spline, its terrain
     // settings, mesh and pieces, about 8.7 KB; streaming rings on terrains and block layers, about 2.4 KB; height fog in the look
-    // and in presets, about 2.6 KB; the trim material's parameters and row table, about 6 KB)
-    expect(JSON.stringify(DESCRIPTORS).length).toBeLessThan(310_000);
+    // and in presets, about 2.6 KB; the trim material's parameters and row table, about 6 KB; generated architecture, about 3 KB)
+    expect(JSON.stringify(DESCRIPTORS).length).toBeLessThan(313_000);
     for (const c of DESCRIPTORS.components) expect(c.value.key).toBe(c.name);
   });
 

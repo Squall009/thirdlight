@@ -18,6 +18,7 @@ import { CAMERA_PATH_FIELDS, CAMERA_REGION_FIELDS, VIRTUAL_CAMERA_FIELDS, valida
 import { BLOCK_LAYER_FIELDS, validateBlockLayerComponent, validateBlockFootprintComponent } from '@thirdlight/project-model';
 import { validateBehaviorGroupComponent } from '@thirdlight/project-model';
 import { SPLINE_FIELDS, TERRAIN_FIELDS, validateSplineComponent, validateTerrainComponent } from '@thirdlight/project-model';
+import { ARCHITECTURE_FIELDS, validateArchitectureComponent } from '@thirdlight/project-model';
 import { SOCKET_ATTACH_FIELDS, validateSocketAttachComponent } from '@thirdlight/project-model';
 import { BLOCK_COMPONENTS, validateAnimatorComponent, validateFogVolumeComponent, validateMaterialMapping, validateMaterialParamsComponent, validateEffectComponent } from '@thirdlight/project-model';
 import {
@@ -84,6 +85,7 @@ export const COMPONENT_FIELD_ORDER_V3: Record<V3OwnedComponent, readonly string[
   probeVolume: ['size', 'spacing'],
   terrain: TERRAIN_FIELDS,
   spline: SPLINE_FIELDS,
+  architecture: ARCHITECTURE_FIELDS,
 };
 
 /**
@@ -158,6 +160,7 @@ export const V3_COMPONENTS: readonly V3OwnedComponent[] = [
   // v4 scenes only.
   'terrain',
   'spline',
+  'architecture',
 ];
 
 /** Every component `setComponent` may address. */
@@ -252,6 +255,9 @@ export function validateV3ComponentValue(
       break;
     case 'spline':
       validateSplineComponent(value, path, errors as unknown as Parameters<typeof validateSplineComponent>[2]);
+      break;
+    case 'architecture':
+      validateArchitectureComponent(value, path, errors as unknown as Parameters<typeof validateArchitectureComponent>[2]);
       break;
     case 'socketAttach':
       validateSocketAttachComponent(value, path, errors as unknown as Parameters<typeof validateSocketAttachComponent>[2]);

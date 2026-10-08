@@ -75,6 +75,10 @@ export interface SceneAdapterOptions {
   scatter?: boolean;
   /** Draw what splines make, their meshes and pieces (default true; false: none, a diagnostic comparison). */
   splines?: boolean;
+  /** Draw generated architecture (default true; false: none, a diagnostic comparison). */
+  architecture?: boolean;
+  /** Where made architecture chunks are kept across visits (an exported game's IndexedDB; absent: memory only). */
+  architectureStore?: import('./architecture-view').ArchitectureChunkStore;
   /**
    * Something the next frame would draw differently arrived on its own (a
    * model, an instance set, a cookie): a host that draws on demand draws again.
@@ -341,6 +345,8 @@ export interface SceneAdapterDiagnostics {
   streaming?: import('./world-stream').PageStreamDiagnostics;
   /** The splines' made meshes and pieces (present while an object carries a spline). */
   splines?: import('./spline-view').SplineViewDiagnostics;
+  /** Generated architecture: chunks drawn and being made, where they were made, generation times. */
+  architecture?: import('./architecture-view').ArchitectureViewDiagnostics;
   /** Rule scatter's stored copies drawn (block layers' and terrains'). */
   scatter?: import('./scatter-view').ScatterViewDiagnostics;
   /** Ground cover made near the camera. */
