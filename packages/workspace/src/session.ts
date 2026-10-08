@@ -15,6 +15,7 @@
  */
 
 import { serveQueryTerrain } from './terrain-query';
+import { serveQuerySurface } from './surface-query';
 import type { PreparedImportFile } from './folder-import';
 import { resolveEntry, type RegisteredProject } from './registry';
 import { mkdirSync, chmodSync, realpathSync } from 'node:fs';
@@ -1310,6 +1311,8 @@ const QUERY_OPS = [
   'queryIndex',
   // Terrains: tiles, their bytes, the surface at points.
   'queryTerrain',
+  // The ground at points from whichever block layer or terrain is there.
+  'querySurface',
 ] as const;
 type QueryOp = (typeof QUERY_OPS)[number];
 
@@ -1362,5 +1365,6 @@ export function serveQuery(
     return queryFailure(op, projectId, projectUnavailable('envelope_invalid', null, []));
   }
   if (op === 'queryTerrain') return serveQueryTerrain(core, s, projectId, args ?? {});
+  if (op === 'querySurface') return serveQuerySurface(core, s, projectId, args ?? {});
   return serveQueryV4(s, op, projectId, args, workspaceBlock(s));
 }

@@ -14,7 +14,7 @@
  */
 import { decodeSplineMade, scatterCellOfBlob, storedScatterRules, type ScatterCell, type SplineComponent, type SplineMade, type TerrainComponent, type TerrainSimData } from '@thirdlight/runtime';
 
-type BlobData = Exclude<TerrainSimData, { heights: Uint16Array } | { dropped: true }>;
+type BlobData = Exclude<TerrainSimData, { heights: Uint16Array } | { dropped: true } | { layer: string }>;
 
 export class PageScatterBlobs {
   private readonly cells = new Map<string, ScatterCell | SplineMade>();

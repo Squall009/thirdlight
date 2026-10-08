@@ -104,8 +104,8 @@ export interface TerrainDataDropped {
   readonly dropped: true;
 }
 
-/** What the page hands the simulation of its level: terrain tiles (for their colliders), scatter blobs (for their copies), splines' made data (for theirs), and tiles it let go of. */
-export type TerrainSimData = TerrainTileData | TerrainScatterData | import('./splines').SplineSimData | TerrainDataDropped;
+/** What the page hands the simulation of its level: terrain tiles (for their colliders and the surface query) and their layers, scatter blobs (for their copies), splines' made data (for theirs), and tiles it let go of. */
+export type TerrainSimData = TerrainTileData | import('./terrain-collision').TerrainLayerData | TerrainScatterData | import('./splines').SplineSimData | TerrainDataDropped;
 
 /**
  * Rule scatter's stored copies — trees, rocks, anything the terrains' and

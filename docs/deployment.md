@@ -5667,6 +5667,43 @@ layer**, or MCP `setComponent terrain {layers}`) makes the ground meet it:
   meets (the block types are); a block type's shape changed in the content
   reaches the terrain at the next edit there.
 
+## The ground at a point (`ctx.surface`)
+
+One query answers what ground is at a world point, from whichever block
+layer or terrain is there — for footsteps, effects, decals and placing
+things. Scripts ask `ctx.surface`; tools and MCP ask the backend's
+`querySurface` (MCP `tl_content_query target="surface"`); both read the
+same way, from the same cells and tiles, so they agree.
+
+- `ctx.surface.at([x, y, z])`: the ground at or below the point (a point
+  inside blocks gives their top); `ctx.surface.top(x, z)`: the highest
+  ground there. Null where nothing has ground (a hole, off the level, a
+  streamed tile not loaded yet). Graph nodes: **Surface at**, **Top
+  surface**.
+- The answer: `source` (`'blocks'` or `'terrain'`) and `object` (its id),
+  `height` and `point`, `normal`, `slope` (degrees), `layers` and `weights`
+  (the material layers showing there, strongest first, weights 0–1 summing
+  to 1), `wetness` (block paint's, 0–1; 0 on terrain), and on blocks `cell`
+  and `block` (read its metadata with `ctx.grid.meta`/`get`).
+- Which one answers: the highest ground at or below the point; a block
+  layer wins a tie and terrain within 1 cm above a block top
+  (`SURFACE_TIE_METRES`: terrain heights are 16-bit steps). A block area on
+  terrain therefore answers on its tops and the terrain round it; a bridge
+  answers only from above it.
+- Weights: on blocks, the paint the chunk's mesh shows there (hand paint
+  over the layer's material rules); on terrain, the nearest sample's layers
+  (baked rules under hand paint) — what the ground is drawn with.
+- `ctx.grid.surface` / `columnSurface` stay: they ask one block layer by
+  cell.
+- In a game the simulation (its worker) reads the terrain tiles the page
+  decoded: heights and holes at once (collision), the layer weights and hand
+  paint after them within 4 MiB a frame (a tile answers layer 0 until they
+  arrive, a frame or two). The weights take 8 bytes a sample (the heights
+  2; a 257² tile: 0.5 MB) and hand paint 9 more where a tile has it;
+  Play's diagnostics show them (`terrainMemory.layerBytes`). A query costs
+  about 2 µs on terrain and 11 µs on a block layer with material rules
+  (Node, `TL_PERF=1 npx vitest run tests/perf/surface-query.test.ts`).
+
 ## Sockets (objects on model nodes)
 
 Since phase 23.11 an object can ride on a named node — a bone or any node —

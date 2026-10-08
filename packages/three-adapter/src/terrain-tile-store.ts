@@ -2,8 +2,9 @@
  * The page's decoded terrain tiles, one copy of each by digest, shared by
  * the renderer (which packs them into its texture arrays), the page's
  * terrain queries and picking (`TerrainField`), and the simulation's
- * colliders (handed the same objects when it runs on the page; their
- * heights and holes copied to its worker otherwise).
+ * colliders and surface queries (handed the same objects when it runs on
+ * the page; their heights, holes, layer weights and paint copied to its
+ * worker otherwise).
  *
  * A tile is read by digest (the build's buffers, the editor's content
  * route), then inflated, decoded and — for drawing — packed into its texels

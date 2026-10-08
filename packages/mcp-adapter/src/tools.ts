@@ -524,7 +524,8 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       'form, box [x0,y0,z0,x1,y1,z1] its cells as [x,y,z,paletteIndex] with each value\'s effective metadata, or region (its ' +
       'boxes and cells). target="terrain" reads terrains: without entityId each terrain (tileSamples, spacing, heightRange, tiles, tilesWithData, ' +
       'storedBytes, memoryBytes = what its tiles take decoded in a game; sceneId optional), with entityId one terrain with tileRows [{x, z, data, storedBytes, memoryBytes}] and, ' +
-      'with points [[x, z], …] (world, up to 1024), the surface there {height, normal, slope, layers, weights, hole} (height null: off the terrain or a hole), with scatter {box?} its stored scatter copies. target="materials" pages the materials {materialId, name, graph, problems: [{nodeId?, severity, message}]} - ' +
+      'with points [[x, z], …] (world, up to 1024), the surface there {height, normal, slope, layers, weights, hole} (height null: off the terrain or a hole), with scatter {box?} its stored scatter copies. target="surface" reads the ground at points [[x, z] (the top) or [x, y, z] (at or below), …] (sceneId optional: absent, every scene) from whichever block layer or terrain is there, ' +
+      'as a game\'s ctx.surface reads it: {source: blocks|terrain, object, height, point, normal, slope, layers, weights (0-1, strongest first), wetness, cell?, block?} or null. target="materials" pages the materials {materialId, name, graph, problems: [{nodeId?, severity, message}]} - ' +
       'a graph material\'s compile problems as the editor\'s Problems tab shows them, checked by the backend when it loads the project and after every change ' +
       '(materialId: one; withProblems: only broken ones; total, withProblems counts). target="index" pages the project index: every asset, ' +
       'resource (prefab, material, behavior, library, graph, ui, uitheme, dialogue, timeline, effect, animator, envpreset — each its own file in the game folder) and scene ' +
@@ -535,7 +536,7 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
     inputSchema: {
       type: 'object',
       properties: {
-        target: { type: 'string', enum: ['assets', 'asset', 'prefabs', 'behaviors', 'integrity', 'game', 'projectFiles', 'blocks', 'materials', 'index', 'terrain'] },
+        target: { type: 'string', enum: ['assets', 'asset', 'prefabs', 'behaviors', 'integrity', 'game', 'projectFiles', 'blocks', 'materials', 'index', 'terrain', 'surface'] },
         kind: { type: 'string', description: 'target="index": one kind (an asset kind, a resource kind such as prefab or material, or scene)' },
         id: { type: 'string', description: 'target="index": one id' },
         label: { type: 'string', description: 'target="index": only entries with this label' },
@@ -553,9 +554,9 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
         check: { type: 'boolean', description: 'target="integrity": check the game folder first (moved files, changed files imported again)' },
         problems: { type: 'boolean', description: 'target="integrity": only the entries that are not ok (limit and offset page them; total counts them)' },
         withProblems: { type: 'boolean', description: 'target="materials": only materials whose graph has problems' },
-        sceneId: { type: 'string', description: 'target="blocks" / "terrain": the scene whose layers or terrains are listed' },
+        sceneId: { type: 'string', description: 'target="blocks" / "terrain": the scene whose layers or terrains are listed; target="surface": the scene asked (absent: every scene)' },
         entityId: { type: 'string', description: 'target="blocks": one block layer (the entity carrying blockLayer); target="terrain": one terrain' },
-        points: { type: 'array', items: { type: 'array', items: { type: 'number' } }, description: 'target="terrain": [[x, z], …] world points to read the surface at' },
+        points: { type: 'array', items: { type: 'array', items: { type: 'number' } }, description: 'target="terrain": [[x, z], …] world points to read the surface at; target="surface": [[x, z] | [x, y, z], …]' },
         scatter: { type: 'object', description: 'target="terrain" with entityId: {box?: [x0, z0, x1, z1]} — its stored scatter per rule (copies, added, erased), and with a box the copies in it {rule, x, y, z, cell} (cell: the copy\'s address, kept through every bake)' },
         chunks: { type: 'array', items: { type: 'array', items: { type: 'integer' } }, description: 'target="blocks": [[cx, cz], …] chunks to read' },
         box: { type: 'array', items: { type: 'integer' }, description: 'target="blocks": [x0, y0, z0, x1, y1, z1] cells to read' },
@@ -1331,6 +1332,13 @@ async function contentQuery(ctx: McpContext, a: Record<string, unknown>): Promis
     const args: Record<string, unknown> = {};
     for (const k of ['sceneId', 'entityId', 'points', 'scatter'] as const) if (a[k] !== undefined) args[k] = a[k];
     const res = await ctx.client.command(ctx.projectId, { op: 'queryTerrain', args });
+    return isObj(res.body) && res.body.ok === true ? toolOk(res.body) : surfaceBackendError(res);
+  }
+  // The ground at points from whichever block layer or terrain is there.
+  if (target === 'surface') {
+    const args: Record<string, unknown> = {};
+    for (const k of ['sceneId', 'points'] as const) if (a[k] !== undefined) args[k] = a[k];
+    const res = await ctx.client.command(ctx.projectId, { op: 'querySurface', args });
     return isObj(res.body) && res.body.ok === true ? toolOk(res.body) : surfaceBackendError(res);
   }
   // The project index: every asset, resource and scene (file, name, labels, what it references).

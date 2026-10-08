@@ -23,7 +23,7 @@
  * A terrain with `collision: false` has none (scenery the player never
  * reaches); neither has any terrain without a 3D port.
  */
-import { terrainFlatStep, terrainHeightOf, terrainTileKey, terrainTileSize, type EntityV3, type TerrainComponent } from '@thirdlight/project-model';
+import { TERRAIN_PAINT_BYTES, TERRAIN_WEIGHT_BYTES, terrainFlatStep, terrainHeightOf, terrainTileKey, terrainTileSize, type EntityV3, type TerrainComponent } from '@thirdlight/project-model';
 
 import type { PhysicsPort3D, StaticColliderSpec3D } from './ports';
 
@@ -39,9 +39,33 @@ export interface TerrainCollisionTile {
   readonly holes: Uint8Array | null;
 }
 
-/** A terrain's tiles' collision on the page's way to the simulation: the tile data by digest. */
+/**
+ * A terrain's tile on the page's way to the simulation, by digest: what
+ * collision reads, and the layer weights and hand paint `ctx.surface`
+ * answers from (absent or null: none, all layer 0).
+ */
 export interface TerrainTileData extends TerrainCollisionTile {
   readonly digest: string;
+  readonly weights?: Uint8Array | null;
+  readonly paint?: Uint8Array | null;
+}
+
+/**
+ * A tile's layer weights or hand paint handed over after its heights (a
+ * page handing tiles to a worker spreads these larger arrays over frames;
+ * the tile answers as all layer 0 until they arrive). Ignored for a tile
+ * not held.
+ */
+export interface TerrainLayerData {
+  readonly digest: string;
+  readonly layer: 'weights' | 'paint';
+  readonly bytes: Uint8Array;
+}
+
+/** A tile as the simulation holds it (a `TerrainTile`'s shape: the surface query reads it as one). */
+export interface TerrainSimTile extends TerrainCollisionTile {
+  weights: Uint8Array | null;
+  paint: Uint8Array | null;
 }
 
 /** One collider of a tile: its shape and where its origin sits from the tile's min corner (metres, the terrain's frame). */
@@ -157,9 +181,10 @@ export function terrainColliderId(entityId: string, x: number, z: number, piece:
 
 /** Terrain collision in a play's diagnostics (`runtime.terrainMemory`). */
 export interface TerrainCollisionDiagnostics {
-  /** Tiles' data the simulation holds (heights and holes) and their bytes. */
+  /** Tiles' data the simulation holds (heights, holes, layer weights and paint) and their bytes; of those, the weights' and paint's. */
   tiles: number;
   bytes: number;
+  layerBytes: number;
   /** Colliders on the port, and the tiles they make up. */
   colliders: number;
   tilesWithColliders: number;
@@ -179,8 +204,9 @@ interface TerrainState {
 
 export class TerrainColliders {
   private readonly terrains = new Map<string, TerrainState>();
-  private readonly tiles = new Map<string, TerrainCollisionTile>();
+  private readonly tiles = new Map<string, TerrainSimTile>();
   private dirty = new Set<string>();
+  private tileChanges = 0;
   private lastBuild: { tiles: number; ms: number } | null = null;
 
   /**
@@ -218,17 +244,42 @@ export class TerrainColliders {
     // Only the removed terrains' tiles: tiles sent ahead for a scene still loading stay.
     for (const s of this.terrains.values()) for (const r of s.component.tiles) if (r.data !== undefined) gone.delete(r.data);
     for (const d of gone) this.tiles.delete(d);
+    if (gone.size > 0) this.tileChanges += 1;
     return out;
+  }
+
+  /** The tile data held for a digest (the surface query reads the same tiles collision does). */
+  tileOf(digest: string): TerrainSimTile | undefined {
+    return this.tiles.get(digest);
+  }
+
+  /** Counts changes to the tiles held: a reader keeping something made from them makes it again when this moves. */
+  get tileVersion(): number {
+    return this.tileChanges;
   }
 
   /** Decoded tiles arrived (by digest): terrains naming them get their colliders at the next flush. */
   addTiles(tiles: readonly TerrainTileData[]): void {
     const got = new Set<string>();
     for (const t of tiles) {
-      this.tiles.set(t.digest, { samples: t.samples, heights: t.heights, holes: t.holes });
+      this.tiles.set(t.digest, { samples: t.samples, heights: t.heights, holes: t.holes, weights: t.weights ?? null, paint: t.paint ?? null });
       got.add(t.digest);
     }
+    if (tiles.length > 0) this.tileChanges += 1;
     for (const s of this.terrains.values()) if (s.component.tiles.some((r) => r.data !== undefined && got.has(r.data))) this.dirty.add(s.entityId);
+  }
+
+  /** Layer weights or paint of tiles held arrived (by digest). */
+  addLayerData(items: readonly TerrainLayerData[]): void {
+    let changed = false;
+    for (const d of items) {
+      const t = this.tiles.get(d.digest);
+      const n = t === undefined ? 0 : t.samples * t.samples;
+      if (t === undefined || d.bytes.length !== n * (d.layer === 'weights' ? TERRAIN_WEIGHT_BYTES : TERRAIN_PAINT_BYTES)) continue;
+      t[d.layer] = d.bytes;
+      changed = true;
+    }
+    if (changed) this.tileChanges += 1;
   }
 
   /**
@@ -237,6 +288,7 @@ export class TerrainColliders {
    */
   dropTiles(digests: readonly string[]): void {
     for (const d of digests) this.tiles.delete(d);
+    if (digests.length > 0) this.tileChanges += 1;
   }
 
   /** A terrain's collision ring changed: its tiles are looked at again at the next flush. */
@@ -302,7 +354,12 @@ export class TerrainColliders {
   memory(): TerrainCollisionDiagnostics | null {
     if (this.terrains.size === 0 && this.tiles.size === 0) return null;
     let bytes = 0;
-    for (const t of this.tiles.values()) bytes += t.heights.byteLength + (t.holes?.byteLength ?? 0);
+    let layerBytes = 0;
+    for (const t of this.tiles.values()) {
+      const layers = (t.weights?.byteLength ?? 0) + (t.paint?.byteLength ?? 0);
+      bytes += t.heights.byteLength + (t.holes?.byteLength ?? 0) + layers;
+      layerBytes += layers;
+    }
     let colliders = 0;
     let tilesWithColliders = 0;
     let waiting = 0;
@@ -313,7 +370,7 @@ export class TerrainColliders {
       }
       for (const r of s.component.tiles) if (r.data !== undefined && !this.tiles.has(r.data) && !s.built.has(terrainTileKey(r.x, r.z)) && (this.ring === null || this.ring(s.entityId, r.x, r.z))) waiting += 1;
     }
-    return { tiles: this.tiles.size, bytes, colliders, tilesWithColliders, lastBuild: this.lastBuild, waiting };
+    return { tiles: this.tiles.size, bytes, layerBytes, colliders, tilesWithColliders, lastBuild: this.lastBuild, waiting };
   }
 }
 

@@ -256,6 +256,18 @@ describe('terrain over HTTP', () => {
     // Undo takes both back.
     expect((await command('undo', {})).status).toBe(200);
     expect(await heightAt(143, -30)).toBeCloseTo(4, 2);
+    // One surface query: the area's tops where the ground is cut away under them, the terrain round them (as a game's ctx.surface).
+    const surface = async (args: Json): Promise<{ status: number; json: Json }> => (await api(`${tb.authUrl}/api/v1/projects/${PID}/commands`, { body: { op: 'querySurface', projectId: PID, args }, token: tb.adminToken, origin: null })) as { status: number; json: Json };
+    const asked = await surface({ points: [[143.5, -27.5], [148.5, -27.5], [143.5, 3, -27.5], [143.5, 0, -27.5]] });
+    expect(asked.status, JSON.stringify(asked.json)).toBe(200);
+    const pts = asked.json['points'] as { surface: { source: string; object: string; height: number; layers: number[]; weights: number[]; cell?: number[]; block?: string } | null }[];
+    expect(pts[0]!.surface).toMatchObject({ source: 'blocks', object: area, height: 4, cell: [3, 1, 2], block: 'rock', layers: [0], weights: [1] });
+    expect(pts[1]!.surface).toMatchObject({ source: 'terrain', object: ground });
+    expect(pts[1]!.surface!.height).toBeCloseTo((await heightAt(148.5, -27.5))!, 6);
+    expect(pts[2]!.surface, 'inside the blocks: their top').toMatchObject({ source: 'blocks', height: 4 });
+    expect(pts[3]!.surface, 'under the area, in the cut-away ground: none').toBeNull();
+    expect((await surface({ points: [[1, 2, 3, 4]] })).status).toBe(400);
+    expect((await surface({ points: [[0, 0]], sceneId: 'no-such-scene' })).status).toBe(400);
     // The export: the blocks layer ships (its settings only, for the ground cover), the other layers and hand-made tiles do not.
     const r = await api(`${tb.authUrl}/api/v1/admin/projects/${PID}/export`, { body: {}, token: tb.adminToken, origin: null });
     expect(r.status, JSON.stringify(r.json)).toBe(200);

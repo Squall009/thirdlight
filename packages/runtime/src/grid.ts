@@ -79,7 +79,8 @@ import {
 import { LiveBlocks, edgeKeyOf, type LiveBlockChanges } from './live-blocks';
 import { walkNeighboursQuery, walkPathQuery, walkReachQuery, type GridWalkOptions, type GridWalkPlace, type WalkGraphCache, type WalkLayer } from './grid-walk';
 import type { PhysicsPort3D, StaticColliderSpec3D } from './ports';
-import { TerrainColliders, type TerrainTileData } from './terrain-collision';
+import { TerrainColliders, type TerrainLayerData, type TerrainTileData } from './terrain-collision';
+import { RuntimeSurface, type SurfaceLayerView } from './surface';
 import { RuntimeScatter, type ScatterCopyChange, type TerrainScatterData, type TerrainSimData } from './scatter-copies';
 import { RuntimeSplines, type SplineSimData } from './splines';
 import { SimWorldStream } from './world-stream';
@@ -563,6 +564,7 @@ export class RuntimeGrid {
     this.splines = new RuntimeSplines(collide, modelColliders);
     this.materialIds = materialIds !== undefined ? new Set(materialIds) : null;
     this.types = new Map(types.map((t) => [t.blockId, t]));
+    this.surface = new RuntimeSurface(() => this.surfaceLayers(), this.types, this.terrain);
     this.kitNames = new Set(blockKitNames(types));
     const liveStream = { streams: (id: string) => this.stream.streams(id), inRing: (id: string, x: number, z: number) => this.stream.has(id, 'live', chunkKeyOf(Math.floor(x / CHUNK_SIZE), Math.floor(z / CHUNK_SIZE))), spawnsLeft: () => this.stream.liveSpawnsLeft(), spent: (n: number) => this.stream.spent(n) };
     this.live = prefabs !== undefined && LiveBlocks.anyLive(types) ? new LiveBlocks(this.types, prefabs, liveStream) : null;
@@ -631,13 +633,32 @@ export class RuntimeGrid {
   readonly scatter: RuntimeScatter;
   /** The loaded splines (`ctx.splines`; what they make collides, flushed with the chunks'). */
   readonly splines: RuntimeSplines;
+  /** The ground of the block layers and terrains, whichever is there (`ctx.surface`). */
+  readonly surface: RuntimeSurface;
 
-  /** Terrain data decoded on the page (by digest): tiles for their colliders, scatter blobs for their copies, splines' made data for theirs; tiles it let go of. */
+  private *surfaceLayers(): Iterable<SurfaceLayerView> {
+    for (const l of this.layerMap.values()) {
+      yield {
+        entityId: l.entityId,
+        component: l.component,
+        origin: l.origin,
+        shown: l.shown,
+        anchorOf: (x, y, z) => {
+          const a = l.covers.get(cellKeyOf(x, y, z));
+          return a === undefined ? null : cellOfKey(a);
+        },
+      };
+    }
+  }
+
+  /** Terrain data decoded on the page (by digest): tiles for their colliders and the surface query (their layers maybe later), scatter blobs for their copies, splines' made data for theirs; tiles it let go of. */
   addTerrainData(items: readonly TerrainSimData[]): void {
     const dropped = items.flatMap((t) => ('dropped' in t ? [t.digest] : []));
     if (dropped.length > 0) this.terrain.dropTiles(dropped);
-    const tiles = items.filter((t): t is TerrainTileData => !('scatter' in t) && !('spline' in t) && !('dropped' in t));
+    const tiles = items.filter((t): t is TerrainTileData => !('scatter' in t) && !('spline' in t) && !('dropped' in t) && !('layer' in t));
     if (tiles.length > 0) this.terrain.addTiles(tiles);
+    const layers = items.filter((t): t is TerrainLayerData => 'layer' in t);
+    if (layers.length > 0) this.terrain.addLayerData(layers);
     const blobs = items.filter((t): t is TerrainScatterData => 'scatter' in t);
     if (blobs.length > 0) this.scatter.addBlobs(blobs);
     const made = items.filter((t): t is SplineSimData => 'spline' in t);
@@ -656,6 +677,7 @@ export class RuntimeGrid {
   addLayers(entities: readonly EntityV3[]): string[] {
     this.scatter.add(entities);
     this.splines.add(entities);
+    this.surface.add(entities);
     for (const e of entities) {
       const t = (e.components as { terrain?: TerrainComponent }).terrain;
       if (t !== undefined) this.stream.addTerrain(e.id, t, e.components.transform?.position ?? [0, 0, 0], this.collide && t.collision !== false);
@@ -682,6 +704,7 @@ export class RuntimeGrid {
   /** Forget unloaded layers; returns their collider ids (the caller removes them from the port). */
   removeLayers(ids: ReadonlySet<string>): string[] {
     const colliders: string[] = [...this.terrain.remove(ids), ...this.scatter.remove(ids), ...this.splines.remove(ids)];
+    this.surface.remove(ids);
     for (const id of ids) this.stream.remove(id);
     for (const id of ids) {
       const layer = this.layerMap.get(id);

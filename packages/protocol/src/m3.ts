@@ -152,7 +152,8 @@ export const V3_MUTATION_OPS: readonly V3MutationOp[] = ['applySurfacePreset', '
 // queryBlocks reads block-layer cells and regions.
 // queryIndex reads the project index (assets, resources and scenes, what references what).
 // queryTerrain reads terrains (tiles and their bytes, the surface at points).
-export const V3_QUERY_OPS: readonly string[] = ['queryGameConfig', 'queryBlocks', 'queryIndex', 'queryTerrain'];
+// querySurface reads the ground at points from whichever block layer or terrain is there.
+export const V3_QUERY_OPS: readonly string[] = ['queryGameConfig', 'queryBlocks', 'queryIndex', 'queryTerrain', 'querySurface'];
 
 /** The change-record types a v3 `mutation.applied` frame may carry. */
 export const CHANGE_TYPES = [

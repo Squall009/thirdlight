@@ -97,8 +97,8 @@ export async function preloadTerrainTiles(entities: readonly EntityLike[], tiles
   await Promise.all(work);
 }
 
-/** What collision reads of a decoded tile (the same arrays: a simulation on the page shares them; its worker gets a copy). */
-export const terrainTileData = (digest: string, tile: TerrainTile): TerrainTileData => ({ digest, samples: tile.samples, heights: tile.heights, holes: tile.holes });
+/** What the simulation reads of a decoded tile — collision's heights and holes, `ctx.surface`'s layer weights and paint (the same arrays: a simulation on the page shares them; its worker gets a copy). */
+export const terrainTileData = (digest: string, tile: TerrainTile): TerrainTileData => ({ digest, samples: tile.samples, heights: tile.heights, holes: tile.holes, weights: tile.weights, paint: tile.paint });
 
 /**
  * Hand the page's decoded tiles to a simulation's colliders: those decoded

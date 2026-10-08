@@ -305,6 +305,8 @@ export interface StepContext {
   readonly scatter?: import('./scatter-copies').BehaviorScatter;
   /** The loaded splines (`ctx.splines`). */
   readonly splines?: import('./splines').BehaviorSplines;
+  /** The ground of block layers and terrains (`ctx.surface`). */
+  readonly surface?: import('./surface').BehaviorSurface;
   /** Graph-material parameters per object (`ctx.materials`). */
   readonly materials?: import('./material-params').BehaviorMaterials;
   /** Project saves (`ctx.saves`). */

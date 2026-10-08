@@ -3943,8 +3943,8 @@ class RuntimeInstance implements Runtime {
       // Debug commands (this phase's calls; the behavior host adds the handler).
       const debugCommands = this.debugCommands;
       fields['debug'] = { value: Object.freeze({ command: (name: string, options?: DebugCommandOptions) => debugCommands.declare(name, options, phase === 'intent') }), enumerable: true };
-      // The block layers, the terrains' and layers' scatter copies, and the splines.
-      Object.assign(fields, { grid: { value: this.grid.api, enumerable: true }, scatter: { value: this.grid.scatter.api, enumerable: true }, splines: { value: this.grid.splines.api, enumerable: true } });
+      // The block layers, the terrains' and layers' scatter copies, the splines, and the ground of both.
+      Object.assign(fields, { grid: { value: this.grid.api, enumerable: true }, scatter: { value: this.grid.scatter.api, enumerable: true }, splines: { value: this.grid.splines.api, enumerable: true }, surface: { value: this.grid.surface.api, enumerable: true } });
       // Graph-material parameters per object.
       fields['materials'] = { value: this.materials.api, enumerable: true };
       // Generic component access (the behavior host names the writing script) and the shell's scene list.

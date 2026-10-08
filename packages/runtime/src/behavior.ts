@@ -30,6 +30,7 @@ import { ID_RE } from '@thirdlight/project-model';
 import type { BehaviorGrid } from './grid';
 import type { BehaviorScatter } from './scatter-copies';
 import type { BehaviorSplines } from './splines';
+import type { BehaviorSurface } from './surface';
 import { EntityAccessError, type BehaviorEntityHandle } from './entity-access';
 import type { BehaviorMaterials } from './material-params';
 import type { BehaviorSaves } from './project-saves';
@@ -234,6 +235,8 @@ export interface BehaviorContext {
   readonly scatter?: BehaviorScatter;
   /** The splines of the loaded scenes — a place and cross-section along one, its length, the nearest place on it. */
   readonly splines?: BehaviorSplines;
+  /** The ground at a point from whichever block layer or terrain is there — height, normal, slope, material layer weights (footsteps, effects, placing things). */
+  readonly surface?: BehaviorSurface;
   /**
    * Copy a project prefab into the running game; returns the new root id (or null at an engine limit).
    * @graphNode Spawn prefab
@@ -1155,6 +1158,7 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
         if (src.grid !== undefined) fields['grid'] = { value: src.grid, enumerable: true };
         if (src.scatter !== undefined) fields['scatter'] = { value: src.scatter, enumerable: true };
         if (src.splines !== undefined) fields['splines'] = { value: src.splines, enumerable: true };
+        if (src.surface !== undefined) fields['surface'] = { value: src.surface, enumerable: true };
         // Graph-material parameters per object.
         if (src.materials !== undefined) fields['materials'] = { value: src.materials, enumerable: true };
         // Project saves.

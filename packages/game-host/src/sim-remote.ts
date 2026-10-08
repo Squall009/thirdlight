@@ -28,7 +28,7 @@
  * worker computes one frame per drawn frame. With `driver: 'manual'` (Node,
  * tests) `tick(now)` resolves once the frame is applied and `onFrame` ran.
  */
-import { debugCallRefusal, ENGINE_DEBUG_COMMANDS, FramePacer, frameRateCapOf, projectFrameRateCap, validateAssetAnswers, validateDebugCommandCall, validateSaveEvents, type AssetHandleAnswer, type SaveEvent, type TerrainSimData } from '@thirdlight/runtime';
+import { debugCallRefusal, ENGINE_DEBUG_COMMANDS, FramePacer, frameRateCapOf, projectFrameRateCap, validateAssetAnswers, validateDebugCommandCall, validateSaveEvents, type AssetHandleAnswer, type SaveEvent, type TerrainLayerData, type TerrainSimData } from '@thirdlight/runtime';
 import { cameraBlendOf, engineStatsOf, fixedStepHzOf, interpolateCameraPose, uiViewOf, validateDialogueInput, validateUiEvent, type DialogueInputRecord } from '@thirdlight/runtime';
 import type {
   UiEventRecord,
@@ -54,6 +54,15 @@ import { CAMERA_POSE_FLOATS, type FrameState, type MainToWorker, type SceneEntit
 import type { RelayPage, SimAccess } from './sim-access';
 import type { UiHitTarget } from './ui-hit';
 import type { RunDigests, RunNow } from './run-probe';
+
+/**
+ * Terrain layer bytes handed to the simulation's worker a turn (about a
+ * millisecond of copying on the page), and the turns' spacing (a frame):
+ * tiles' heights go at once for their colliders, their larger layer weights
+ * and paint follow without holding a frame.
+ */
+const TERRAIN_LAYER_HANDOVER_BYTES = 4 * 1024 * 1024;
+const LAYER_HANDOVER_FRAME_MS = 16;
 
 export interface RemoteSimulationOptions {
   readonly worker: SimWorkerHandle;
@@ -201,6 +210,23 @@ export function startRemoteSimulation(opts: RemoteSimulationOptions): Promise<Re
     if (!disposed || m.t === 'dispose') worker.post(m, transfer);
   };
   const command = (c: SimCommand): void => post({ t: 'cmd', command: c });
+  /** Terrain tiles' layer weights and paint waiting to be handed to the worker, and the timer sending them. */
+  const layerQueue: TerrainLayerData[] = [];
+  let layerTimer: ReturnType<typeof setTimeout> | null = null;
+  const sendLayers = (): void => {
+    layerTimer = null;
+    if (disposed) return;
+    const batch: TerrainLayerData[] = [];
+    let bytes = 0;
+    // At least one array a turn, however large (a 1,025² tile's paint is 9.5 MB: about 2 ms to copy).
+    while (layerQueue.length > 0 && (batch.length === 0 || bytes + layerQueue[0]!.bytes.byteLength <= TERRAIN_LAYER_HANDOVER_BYTES)) {
+      const d = layerQueue.shift()!;
+      batch.push(d);
+      bytes += d.bytes.byteLength;
+    }
+    command({ op: 'terrainTiles', tiles: batch });
+    if (layerQueue.length > 0) layerTimer = setTimeout(sendLayers, LAYER_HANDOVER_FRAME_MS);
+  };
   const ask = (q: SimQuery): Promise<unknown> => {
     if (disposed) return Promise.resolve(null);
     const id = (queryId += 1);
@@ -618,9 +644,17 @@ export function startRemoteSimulation(opts: RemoteSimulationOptions): Promise<Re
       return true;
     },
     pinFrameRateCap: (fps: unknown): boolean => !gone() && pacer.pinCap(fps),
-    // Only what collision reads (heights, holes; a scatter blob's copies; what a spline made; tiles let go of), copied: the page keeps its tiles for drawing.
+    // Only what the simulation reads (heights, holes; a scatter blob's copies; what a spline made; tiles let go of), copied: the page keeps its tiles for drawing.
+    // A tile's layer weights and paint (four to nine times its heights' bytes) follow within a byte budget a frame.
     addTerrainTiles: (tiles: readonly TerrainSimData[]): void => {
-      if (!gone() && tiles.length > 0) command({ op: 'terrainTiles', tiles: tiles.map((t) => ('dropped' in t ? t : 'scatter' in t ? { digest: t.digest, scatter: t.scatter } : 'spline' in t ? { digest: t.digest, spline: t.spline } : { digest: t.digest, samples: t.samples, heights: t.heights, holes: t.holes })) });
+      if (gone() || tiles.length === 0) return;
+      command({ op: 'terrainTiles', tiles: tiles.map((t) => ('dropped' in t || 'layer' in t ? t : 'scatter' in t ? { digest: t.digest, scatter: t.scatter } : 'spline' in t ? { digest: t.digest, spline: t.spline } : { digest: t.digest, samples: t.samples, heights: t.heights, holes: t.holes })) });
+      for (const t of tiles) {
+        if ('dropped' in t || 'layer' in t || 'scatter' in t || 'spline' in t) continue;
+        if (t.weights !== null && t.weights !== undefined) layerQueue.push({ digest: t.digest, layer: 'weights', bytes: t.weights });
+        if (t.paint !== null && t.paint !== undefined) layerQueue.push({ digest: t.digest, layer: 'paint', bytes: t.paint });
+      }
+      if (layerQueue.length > 0 && layerTimer === null) layerTimer = setTimeout(sendLayers, LAYER_HANDOVER_FRAME_MS);
     },
     framePacing: () => pacer.stats(),
     setStats: (stats: unknown): boolean => {

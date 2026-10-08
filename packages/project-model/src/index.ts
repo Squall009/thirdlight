@@ -1365,6 +1365,7 @@ export {
   type ScatterSurface,
 } from './scatter';
 export { blockScatterSurface, regionExcluder, terrainScatterSurface, type BlockScatterSource, type ScatterRegionLayer } from './scatter-surfaces';
+export { SURFACE_TIE_METRES, surfaceAt, type SurfaceAt, type SurfaceBlockSource, type SurfaceSource, type SurfaceTerrainSource } from './surface-query';
 export { bakeTerrainScatter, isScatterBlob, scatterBlobOf, scatterCellOfBlob, terrainChangedSamples, terrainTileRect } from './terrain-scatter';
 export { bakeBlockScatter, blockChunkRect, type BlockScatterContext, type BlockScatterStroke } from './block-scatter';
 export { blockChunkStorageOf, maxSlopeClimbOf } from './content-settings';

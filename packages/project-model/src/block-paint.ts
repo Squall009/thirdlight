@@ -17,8 +17,9 @@
  * graph material reads them with Vertex colour nodes (the Height blend node
  * mixes layers by them).
  *
- * The paint is visual: the simulation carries it with the cells but no rule
- * reads it (no script API), so play and replays do not depend on it.
+ * The simulation carries the paint with the cells; scripts read it only as
+ * the layer weights and wetness at a point (`ctx.surface`), from the same
+ * cells in every run, so replays still agree.
  *
  * Pure and deterministic (the brush is `paint-brush.ts`).
  */

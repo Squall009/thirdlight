@@ -163,7 +163,7 @@ export function echoProjectId(v: unknown): string | undefined {
 export function validateQueryRequest(request: unknown):
   | {
       ok: true;
-      op: 'queryProject' | 'queryEntity' | 'queryEntities' | 'queryAssets' | 'queryPrefabs' | 'queryBehaviors' | 'queryGameConfig' | 'queryBlocks' | 'queryIndex' | 'queryTerrain';
+      op: 'queryProject' | 'queryEntity' | 'queryEntities' | 'queryAssets' | 'queryPrefabs' | 'queryBehaviors' | 'queryGameConfig' | 'queryBlocks' | 'queryIndex' | 'queryTerrain' | 'querySurface';
       projectId: string;
       args: Record<string, unknown> | undefined;
     }
@@ -194,11 +194,12 @@ export function validateQueryRequest(request: unknown):
     op !== 'queryGameConfig' &&
     op !== 'queryBlocks' &&
     op !== 'queryIndex' &&
-    op !== 'queryTerrain'
+    op !== 'queryTerrain' &&
+    op !== 'querySurface'
   ) {
     return {
       ok: false,
-      error: invalidRequest('/op', op, 'one of: queryProject, queryEntity, queryEntities, queryAssets, queryPrefabs, queryBehaviors, queryGameConfig, queryBlocks, queryIndex, queryTerrain', typeof op !== 'string' ? 'op must be a string query op' : 'op is not one of the accepted query ops'),
+      error: invalidRequest('/op', op, 'one of: queryProject, queryEntity, queryEntities, queryAssets, queryPrefabs, queryBehaviors, queryGameConfig, queryBlocks, queryIndex, queryTerrain, querySurface', typeof op !== 'string' ? 'op must be a string query op' : 'op is not one of the accepted query ops'),
     };
   }
   const projectId = req['projectId'];
