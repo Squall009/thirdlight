@@ -51,6 +51,9 @@
  * measurement holds whole-layer restyles (the page marks each one's time
  * and its long frames, `tl:blocks:restyle`).
  *
+ * The interior class (`--classes interior`, level-interior.ts) is a building of
+ * generated rooms on a flat block layer, doors between them, seen from inside.
+ *
  * The world class (`--classes world`) is the landscape grown to 8 × 8 km of
  * terrain with a square kilometre of block fields beside the area, everything
  * streamed round the camera; its flight's loop is 600 m round the area.
@@ -89,10 +92,14 @@ import { coverKitGlb, propGlb, scatterKitGlb, type PropSpec } from './village-as
 export const LEVEL_VERSION = 4;
 export const LEVEL_SEED = 30;
 
-export type LevelKind = 'area' | 'landscape' | 'world';
-/** The classes measured unless `--classes` names others (`world` is measured when asked for). */
+/** The classes `levelPlan` makes (the interior has a plan of its own, `levelInteriorPlan`). */
+export type LevelOutdoorKind = 'area' | 'landscape' | 'world';
+export type LevelKind = LevelOutdoorKind | 'interior';
+/** The classes measured unless `--classes` names others (`world` and `interior` are measured when asked for). */
 export const LEVEL_KINDS: readonly LevelKind[] = ['area', 'landscape'];
-export const LEVEL_ALL_KINDS: readonly LevelKind[] = ['area', 'landscape', 'world'];
+export const LEVEL_ALL_KINDS: readonly LevelKind[] = ['area', 'landscape', 'world', 'interior'];
+/** The classes with a terrain (and the far plane, scatter kits and terrain material it needs). */
+const hasTerrain = (kind: LevelKind): boolean => kind === 'landscape' || kind === 'world';
 
 /** The classes' sizes (the plan fills them exactly). */
 export const LEVEL_SPEC = {
@@ -191,6 +198,22 @@ const r3 = (v: number): number => Math.round(v * 1000) / 1000;
 const r6 = (v: number): number => Math.round(v * 1e6) / 1e6;
 const yawQ = (rad: number): [number, number, number, number] => [0, r6(Math.sin(rad / 2)), 0, r6(Math.cos(rad / 2))];
 const T = (x: number, y: number, z: number, yaw = 0, s = 1): Record<string, unknown> => ({ position: [r3(x), r3(y), r3(z)], rotation: yawQ(yaw), scale: [r3(s), r3(s), r3(s)] });
+export { T as levelTransform, yawQ as levelYaw };
+
+/** The level's prop files: the plan's first draws from its generator, so every class that takes them gets the same files. */
+export function levelPropFiles(rnd: () => number): { assetId: string; spec: PropSpec; seed: number }[] {
+  return Array.from({ length: LEVEL_SPEC.propFiles }, (_, i) => {
+    const u = rnd();
+    return { assetId: PROP_FILE(i), seed: Math.floor(rnd() * 2 ** 31), spec: { parts: u < 0.5 ? 1 : u < 0.85 ? 2 : 3, rings: 6 + Math.floor(rnd() * 4), sides: 10 + Math.floor(rnd() * 6), textureSize: i % 3 === 0 ? 256 : 0 } };
+  });
+}
+
+/** A static prop of one of the level's files at world (x, y, z), with a box collider its size when `collide`. */
+export function levelProp(i: number, assetId: string, x: number, y: number, z: number, yaw: number, s: number, collide: boolean): EntityValue {
+  const components: Record<string, unknown> = { transform: T(x, y, z, yaw, s), model: { asset: { assetId } } };
+  if (collide) components['collider'] = { shape: { type: 'box', hx: r3(0.5 * s), hy: r3(1 * s), hz: r3(0.5 * s) } };
+  return { id: `prop-${i}`, name: `Prop ${i + 1}`, static: true, components };
+}
 
 /** Ground height (rows) at a layer corner: gentle hills, quantised to 1/16 row as a brush leaves it. */
 export const levelHeightAt = (x: number, z: number): number => Math.round((8 + 3 * Math.sin(x / 13) * Math.cos(z / 17) + Math.sin(x / 5.3 + z / 6.1)) * 16) / 16;
@@ -307,6 +330,11 @@ export interface LevelPlan {
   blocksSeam: boolean;
   /** The world's second block layer (pasted alone after the area's) and its edits; null: none. */
   fields: { layer: EntityValue; edits: Record<string, unknown>[] } | null;
+  /**
+   * The interior's building: the generated-architecture component (made at the block layer's place, its `layer`
+   * set to the layer's id once created) and the edge block type its doors are (absent: no building).
+   */
+  interior?: { architecture: Record<string, unknown>; doorType: Record<string, unknown> };
 }
 
 /** The landscape's road and river: their objects' places (world) and spline components (points as offsets). */
@@ -459,16 +487,13 @@ function copies(n: number, at: (i: number) => { x: number; y: number; z: number;
   return f;
 }
 
-export function levelPlan(kind: LevelKind, seed = LEVEL_SEED, liveDoorCount = 0, edgeWalls = false, wallPaint = false, roofs: LevelRoofs = 'none', kitSwap = false, vertexAO = 0, rules = false, projection = 0, macro = 0, foliage: LevelFoliage = 'on', flight = false, impostorSize = 0, splines = true, flightOps = true, blocksSeam = false): LevelPlan {
+export function levelPlan(kind: LevelOutdoorKind, seed = LEVEL_SEED, liveDoorCount = 0, edgeWalls = false, wallPaint = false, roofs: LevelRoofs = 'none', kitSwap = false, vertexAO = 0, rules = false, projection = 0, macro = 0, foliage: LevelFoliage = 'on', flight = false, impostorSize = 0, splines = true, flightOps = true, blocksSeam = false): LevelPlan {
   const S = LEVEL_SPEC;
   const N = S.areaSide;
   const rnd = prng(seed * 104729 + N);
   const half = N / 2;
   const counts: Record<string, number> = { props: 0, propColliders: 0, foliageSets: 0, foliageCopies: 0, rooms: 0, pointLights: 0, terrainTiles: 0 };
-  const props = Array.from({ length: S.propFiles }, (_, i) => {
-    const u = rnd();
-    return { assetId: PROP_FILE(i), seed: Math.floor(rnd() * 2 ** 31), spec: { parts: u < 0.5 ? 1 : u < 0.85 ? 2 : 3, rings: 6 + Math.floor(rnd() * 4), sides: 10 + Math.floor(rnd() * 6), textureSize: i % 3 === 0 ? 256 : 0 } };
-  });
+  const props = levelPropFiles(rnd);
 
   // Ground: every column's four corners.
   const blockEdits: Record<string, unknown>[] = [];
@@ -576,12 +601,8 @@ export function levelPlan(kind: LevelKind, seed = LEVEL_SEED, liveDoorCount = 0,
     const file = props[Math.floor(rnd() * props.length)]!;
     const s = 0.7 + rnd() * 0.6;
     const [wx, wy, wz] = at(x, z);
-    const components: Record<string, unknown> = { transform: T(wx, wy, wz, rnd() * Math.PI * 2, s), model: { asset: { assetId: file.assetId } } };
-    if (i % 2 === 0) {
-      components['collider'] = { shape: { type: 'box', hx: r3(0.5 * s), hy: r3(1 * s), hz: r3(0.5 * s) } };
-      counts.propColliders! += 1;
-    }
-    entities.push({ id: `prop-${i}`, name: `Prop ${i + 1}`, static: true, components });
+    entities.push(levelProp(i, file.assetId, wx, wy, wz, rnd() * Math.PI * 2, s, i % 2 === 0));
+    if (i % 2 === 0) counts.propColliders! += 1;
     counts.props! += 1;
   }
   // Foliage: sets of 10 × 10 m patches on the ground, copies following its height.
@@ -736,10 +757,11 @@ export async function buildLevel(be: PerfBackend, projectId: string, plan: Level
     return p.command(op, args);
   };
   for (const id of STARTER_REMOVED) await cmd('deleteEntity', { entityId: id }).catch(() => undefined);
-  await cmd('setSettings', { settings: { physics_dimension: 3, ...(plan.kind !== 'area' ? { camera_far_m: LEVEL_SPEC.farPlane } : {}) } });
+  await cmd('setSettings', { settings: { physics_dimension: 3, ...(hasTerrain(plan.kind) ? { camera_far_m: LEVEL_SPEC.farPlane } : {}) } });
   for (const f of plan.props) await publishFileVia(be, projectId, cmd, { assetId: f.assetId, kind: 'model', displayName: f.assetId, bytes: propGlb(f.seed, f.spec) });
-  await publishFileVia(be, projectId, cmd, { assetId: FOLIAGE_KIT, kind: 'model', displayName: 'Level foliage', bytes: scatterKitGlb(plan.seed, FOLIAGE_PIECES) });
-  if (plan.kind !== 'area') {
+  // The interior has no foliage: the kit would only be shipped unused.
+  if (plan.interior === undefined) await publishFileVia(be, projectId, cmd, { assetId: FOLIAGE_KIT, kind: 'model', displayName: 'Level foliage', bytes: scatterKitGlb(plan.seed, FOLIAGE_PIECES) });
+  if (hasTerrain(plan.kind)) {
     await publishFileVia(be, projectId, cmd, { assetId: FAR_KIT, kind: 'model', displayName: 'Level far scatter', bytes: scatterKitGlb(plan.seed + 1, FAR_PIECES) });
     await publishFileVia(be, projectId, cmd, { assetId: COVER_KIT, kind: 'model', displayName: 'Level ground cover', bytes: coverKitGlb(plan.seed + 2, COVER_PIECES) });
     // The kits' foliage material: its wind distance is the policy's (0 off: the wind's work in every vertex).
@@ -778,6 +800,7 @@ export async function buildLevel(be: PerfBackend, projectId: string, plan: Level
     await blockType({ blockId: 'rock-wall', name: 'Rock wall', variants: [{ color: '#8a8580' }, { color: '#7d7872' }], shape: 'full', placement: 'edge' }, ['#4a4440', '#3d3832']);
     await blockType({ blockId: 'rock-door', name: 'Rock door', variants: [{ color: '#6b4a2b' }], shape: 'full', placement: 'edge' }, ['#2b1a0b']);
   }
+  if (plan.interior !== undefined) await cmd('setBlockType', { block: plan.interior.doorType });
 
   await cmd('pasteEntities', { sceneId: 'scene-main', entities: [plan.layer] });
   const listed = (await p.query('queryEntities', { limit: 100, offset: 0 }))['entities'] as { id: string; components: Record<string, unknown> }[];
@@ -788,6 +811,11 @@ export async function buildLevel(be: PerfBackend, projectId: string, plan: Level
   for (let i = 0; i < fills.length; i += 64) await cmd('editBlocks', { entityId: layerId, edits: fills.slice(i, i + 64) });
   // A room's edges per command (each a few kilobytes of edge lists).
   for (const e of plan.blockEdits.filter((x) => x['kind'] === 'edges' && (x['at'] as number[]).length > 0)) await cmd('editBlocks', { entityId: layerId, edits: [e] });
+  if (plan.interior !== undefined) {
+    // The building is drawn on the layer as its Rooms tool draws it: one object at the layer's place naming the layer.
+    const position = (plan.layer.components['transform'] as { position: number[] }).position;
+    await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Building', transform: { position: [...position] }, components: { architecture: { ...plan.interior.architecture, layer: layerId } } });
+  }
   if (plan.liveDoors.length > 0) {
     // The door prefab, kept in a scene the game never loads; the block type spawns it per cell.
     await cmd('setCellFields', { fields: [{ key: 'open', type: 'bool' }] });
@@ -833,7 +861,7 @@ export async function buildLevel(be: PerfBackend, projectId: string, plan: Level
     for (let i = 0; i < plan.fields.edits.length; i += 64) await cmd('editBlocks', { entityId: fieldsId, edits: plan.fields.edits.slice(i, i + 64) });
     log(`level ${plan.kind}: fields (${plan.fields.edits.length} edits) in ${Math.round(performance.now() - t)} ms`);
   }
-  if (plan.kind !== 'area') {
+  if (hasTerrain(plan.kind)) {
     // The terrain's heights (an uploaded RAW heightmap) and its painted discs.
     const listedNow = (await p.query('queryEntities', { limit: 2000, offset: 0 }))['entities'] as { id: string; components: Record<string, unknown> }[];
     const terrainId = listedNow.find((e) => e.components['terrain'] !== undefined)?.id;

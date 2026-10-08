@@ -163,28 +163,53 @@ function verticalRuns(lo: number, hi: number, spacing: number): { lo: number; hi
   return [...axisRuns(lo, top, fine), ...axisRuns(top, top + above * spacing, spacing)];
 }
 
-/** Tiles over one box at one horizontal spacing. */
-export function probeTilesOver(min: readonly number[], max: readonly number[], spacing: number): ProbeGridBox[] {
+/** The step at most `step` that divides [lo, hi] into whole intervals (the probes on its ends exactly). */
+function fitted(lo: number, hi: number, step: number): number {
+  return (hi - lo) / Math.max(1, Math.ceil((hi - lo) / step - 1e-6));
+}
+
+/**
+ * Tiles over one box at one horizontal spacing. `exact`: the outer probes on
+ * the box's faces (the spacing shrunk to fit), not a little outside it — a
+ * room's probes stay inside its walls.
+ */
+export function probeTilesOver(min: readonly number[], max: readonly number[], spacing: number, exact = false): ProbeGridBox[] {
   const s = Math.min(PROBE_SPACING_MAX, Math.max(PROBE_SPACING_MIN, spacing));
-  const xs = axisRuns(min[0]!, max[0]!, s);
-  const zs = axisRuns(min[2]!, max[2]!, s);
-  const ys = verticalRuns(min[1]!, max[1]!, s);
+  const xs = axisRuns(min[0]!, max[0]!, exact ? fitted(min[0]!, max[0]!, s) : s);
+  const zs = axisRuns(min[2]!, max[2]!, exact ? fitted(min[2]!, max[2]!, s) : s);
+  // A room no higher than the ground band: fine layers fitted from its floor to its top.
+  const fine = s / PROBE_GROUND_DENSITY;
+  const ys = exact && max[1]! - min[1]! <= PROBE_GROUND_BAND * s + 1e-6 ? axisRuns(min[1]!, max[1]!, fitted(min[1]!, max[1]!, fine)) : verticalRuns(min[1]!, max[1]!, s);
   const out: ProbeGridBox[] = [];
   for (const y of ys) for (const z of zs) for (const x of xs) out.push({ min: [x.lo, y.lo, z.lo], max: [x.hi, y.hi, z.hi], resolution: [x.probes, y.probes, z.probes] });
   return out;
 }
 
 /**
+ * Metres a room's probe volume keeps from its walls, floor and top: its
+ * outer probes stand in the room's air, not in the walls (where they would
+ * be moved or filled).
+ */
+export const ROOM_PROBE_INSET = 0.25;
+
+/**
  * Where a scene's probes go: each volume's tiles, or (no volumes) tiles over
  * the static objects' bounds, raised half a spacing above their top so the
  * tops of roofs and walls have probes over them. Null bounds and no volumes:
  * nothing to bake.
+ *
+ * Rooms of generated architecture (`rooms`: their boxes, inset by
+ * {@link ROOM_PROBE_INSET}) each get tiles of their own, listed first: a
+ * point in a room reads its room's probes (the first tile holding a point
+ * wins), which see that room only, so no light reaches it from the probes
+ * of the room behind its wall.
  */
-export function placeProbeGrids(staticBounds: { min: readonly number[]; max: readonly number[] } | null, spacing: number, volumes: readonly ProbeVolumeBox[] = []): ProbeGridBox[] {
-  if (volumes.length > 0) return volumes.flatMap((v) => probeTilesOver(v.min, v.max, v.spacing ?? spacing));
-  if (staticBounds === null) return [];
+export function placeProbeGrids(staticBounds: { min: readonly number[]; max: readonly number[] } | null, spacing: number, volumes: readonly ProbeVolumeBox[] = [], rooms: readonly ProbeVolumeBox[] = []): ProbeGridBox[] {
+  const own = rooms.flatMap((r) => probeTilesOver(r.min, r.max, r.spacing ?? spacing, true));
+  if (volumes.length > 0) return [...own, ...volumes.flatMap((v) => probeTilesOver(v.min, v.max, v.spacing ?? spacing))];
+  if (staticBounds === null) return own;
   const top = [staticBounds.max[0]!, staticBounds.max[1]! + spacing / 2, staticBounds.max[2]!];
-  return probeTilesOver(staticBounds.min, top, spacing);
+  return [...own, ...probeTilesOver(staticBounds.min, top, spacing)];
 }
 
 // ---- Validation ------------------------------------------------------------------------

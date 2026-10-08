@@ -48,7 +48,6 @@ import { syncCellUv } from './block-cell-uv';
 import { type BlockLayerViewDiagnostics } from './block-layers';
 import { createLevelViews } from './level-views';
 import { PageWorldStream, STREAMING_KEY } from './world-stream';
-import { createCutawayFollower } from './block-cutaway-follow';
 import { createBrowserMeshWorker } from './block-mesh-pool';
 import { TERRAIN_ENTITY_KEY, TerrainView } from './terrain-view';
 import { createScatterHost } from './scatter-host';
@@ -376,6 +375,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       opts.onChange?.();
     },
     tagBits: envTagBits,
+    localShadows: { roomSeen: (k) => archHost.rooms.roomSeen(k), movers: () => archHost.rooms.movers() },
   });
 
   // --- scene graph construction (fixed component table; read-only over the
@@ -427,8 +427,6 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   // The world matrices are brought up to date right before every render (the batcher's update, else here, so the
   // view culls with them): the renderer's own pass is left out.
   scene.matrixWorldAutoUpdate = false;
-  // They hear what enters and leaves the scene and what moved from the render graph (neither walks the scene).
-  graph.setMembership(bothMemberships(batcher, viewCull));
   /** An entity's look, material or flags changed outside its realization: its meshes are grouped again. */
   const regroupEntity = (id: string): void => {
     const node = batcher === null ? undefined : graph.node(id);
@@ -489,13 +487,17 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     template: (assetId, piece, onReady) => realization?.blockInstance?.(assetId, piece, onReady) ?? null, read: opts.resolveBuffer ?? opts.models?.resolveBuffer ?? null,
     graph, staticShadows, arrival: stream !== null ? { left: () => stream.arrivalLeft(), spent: (ms) => stream.arrived(ms) } : null, meshWorkerUrl: opts.meshWorkerUrl,
     store: opts.architectureStore ?? null, styles: opts.architectureStyles, drawn: opts.architecture !== false, changed: () => opts.onChange?.(),
+    rooms: { scene, blocks: () => blockView, regroup: (o) => batcher?.touch(o), roomLights: (on) => lights.setRoomLights(on), culling: opts.portals !== false, canvas: canvas as { setAttribute?(k: string, v: string): void } | null },
   });
   const architecture = archHost.view;
-  // Block layers and terrains (level-views.ts), streamed round the camera on a game page.
-  const { blockView, terrains, ownTiles } = createLevelViews({
+  // They hear what enters and leaves the scene and what moved from the render graph (none walks the scene); rooms first
+  // (the room is part of a batch's key).
+  graph.setMembership(bothMemberships(archHost.rooms, bothMemberships(batcher, viewCull)));
+  // Block layers and terrains (level-views.ts), streamed round the camera on a game page; cut-aways follow their subject.
+  const { blockView, terrains, ownTiles, cutaways } = createLevelViews({
     blockInstance: (assetId, piece, onReady) => realization?.blockInstance?.(assetId, piece, onReady) ?? null,
     prefabs: blockPrefabs, assetMaterials: assetMaterialsOf, materials: materialLibrary, lightmaps: () => lightmaps,
-    precompile: (probe) => cutaways.probe(probe),
+    scene, runtime: opts.runtime, position: (id, out) => graph.world.position(id, out), precompileIdle: () => precompileWanted === null && precompileRun === null, requestPrecompile: () => void (precompileWanted ??= 'scene'),
     staticShadows, listStatic: (o) => graph.listStatic(o), unlistStatic: (o) => graph.unlistStatic(o), lodBias: () => graph.lodTuning.bias,
     scatter: scatter.sink, stream, meshWorkerUrl: opts.meshWorkerUrl, tiles: opts.terrainTiles, read: opts.resolveBuffer ?? opts.models?.resolveBuffer ?? null, onChange: () => opts.onChange?.(),
     // The key light shines along its direction: toward it is the other way.
@@ -504,16 +506,6 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   });
   /** The block layers realized from their documents (a host may drive layers of its own through `blockLayers()`). */
   const docLayers = new Set<string>();
-  // Cut-aways follow their subject; their fade copies are compiled ahead.
-  const cutaways = createCutawayFollower({
-    view: blockView,
-    scene,
-    runtime: opts.runtime,
-    position: (id, out) => graph.world.position(id, out),
-    precompileIdle: () => precompileWanted === null && precompileRun === null,
-    requestPrecompile: () => void (precompileWanted ??= 'scene'),
-    ...(opts.onChange !== undefined ? { onChange: () => opts.onChange!() } : {}),
-  });
   /** What a host hangs on entities (the editor's icons and outlines): it rides on the entity's node. */
   const overlays = new Map<string, Set<THREE.Object3D>>();
   const authoredBlockTypes = ((opts.snapshot as { blockTypes?: readonly BlockType[] }).blockTypes ?? []) as BlockType[];
@@ -1428,8 +1420,10 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       scene.updateMatrixWorld();
       if (camera!.parent === null && camera!.matrixWorldAutoUpdate) camera!.updateMatrixWorld();
     }
-    // Then what each batch, chunk and merged cell has in view leads its draw.
+    // Then what each batch, chunk and merged cell has in view leads its draw, and what the rooms' portals show.
     viewCull.update(camera!);
+    archHost.rooms.update(camera!);
+    lights.budgetShadows(camera!);
     // The terrains' nodes for this view (only when it or their tiles changed), and tiles that arrived uploaded.
     terrains.update(viewCull.view, renderer as never);
     // Ground cover around the view's eye, and the eye every pass reads distance from (foliage's wind distance).
@@ -1602,7 +1596,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     if (!disposed && terrains.ids().length > 0) d.terrain = terrains.diagnostics();
     if (!disposed && stream !== null) d.streaming = stream.diagnostics();
     if (!disposed && splines.ids().length > 0) d.splines = splines.diagnostics();
-    if (!disposed && architecture.ids().length > 0) d.architecture = architecture.diagnostics();
+    if (!disposed && architecture.ids().length > 0) [d.architecture, d.rooms] = [architecture.diagnostics(), archHost.rooms.diagnostics()];
     if (!disposed) scatter.diagnostics(d);
     if (!disposed && materialLibrary !== null && runtimeMaterials !== null) d.materials = { graphMaterials: materialLibrary.graphMaterialCount(), ...(materialSwaps !== null && (materialSwaps.applied > 0 || materialSwaps.pending() > 0) ? { swapsApplied: materialSwaps.applied, swapsPending: materialSwaps.pending() } : {}), ...runtimeMaterials.diagnostics() };
     const envDiagnostics = environmentRenderer !== null && !disposed ? environmentRenderer.diagnostics() : null;
@@ -1844,6 +1838,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       out.fromArray(graph.world.world, i * 16);
       return true;
     },
+    architectureBake: () => ({ meshes: (id) => architecture.meshes(id), rooms: (inset) => archHost.rooms.roomBoxes(inset) }),
     entityObject: (entityId, create) => (disposed ? null : ((create === true ? graph.nodeFor(entityId) : graph.node(entityId)) ?? null)),
     entityOf(object): string | null {
       for (let o: THREE.Object3D | null = object; o !== null; o = o.parent) if (o instanceof EntityNode) return o.entityId;

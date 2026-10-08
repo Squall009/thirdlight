@@ -111,6 +111,19 @@ describe('probe bake records', () => {
   });
 });
 
+describe('rooms\' probe volumes', () => {
+  it('each room\'s tiles come first, its outer probes on its inset box (inside its walls), the rest as before', () => {
+    const room = { min: [-1.75, 0.25, -9.35], max: [1.75, 2.75, -6.65] };
+    const grids = placeProbeGrids({ min: [-10, -0.5, -10], max: [10, 3, 6] }, 2, [], [room]);
+    expect(grids[0]).toEqual({ min: room.min, max: room.max, resolution: [3, 4, 3] });
+    // The static bounds' tile follows, as without rooms.
+    expect(grids.slice(1)).toEqual(placeProbeGrids({ min: [-10, -0.5, -10], max: [10, 3, 6] }, 2));
+    // Rooms only (no statics, no volumes): their tiles alone; with volumes, rooms then volumes.
+    expect(placeProbeGrids(null, 2, [], [room])).toHaveLength(1);
+    expect(placeProbeGrids(null, 2, [{ min: [0, 0, 0], max: [4, 2, 4] }], [room])[0]).toEqual(grids[0]);
+  });
+});
+
 describe('probe tiles ship with the build', () => {
   it('a build takes each scene\'s probe files with its lightmaps', () => {
     const content = { assets: [], behaviors: [], prefabs: [], lighting: { main: { atlases: ['lm-1'], probes: { grids: [{ asset: 'probes-1' }, { asset: 'probes-2' }] } }, other: { atlases: [], probes: { grids: [{ asset: 'probes-3' }] } } } };

@@ -62,6 +62,7 @@ import {
   BlockGrid,
   CHUNK_SIZE,
   blockKitView,
+  edgeBlocks,
   kitKey,
   LIGHT_LAYERS_ALL,
   lightLayerMaskOf,
@@ -71,7 +72,9 @@ import {
   type BlockLayerKit,
   type BlockLayerData,
   type BlockMeshSource,
+  type BlockRegion,
   type BlockType,
+  type CutawayZone,
   type ChunkMeshPart,
   type GridRenderChange,
   type ScatterCopyChange,
@@ -86,6 +89,7 @@ import { chunkModelKey, meshChunkForDrawing, StandInShapes, variantModelOf, type
 import { MeshWorkerPool, meshWorkerCount, type MeshWorkerFactory } from './block-mesh-pool';
 import type { MeshWorkerReply } from './block-mesh-worker';
 import { LIGHT_LAYERS_KEY } from './light-layers';
+import { ROOM_TAG_KEY } from './room-culling';
 import { BLOCK_AO_ATTRIBUTE } from './block-ao-lighting';
 import { currentLodLevel, LOD_CULL_LEVEL_KEY } from './lod-switch';
 import { askingRing, eyeMoved, recheckMetres, type PageWorldStream, type StreamCell } from './world-stream';
@@ -421,6 +425,9 @@ export class BlockLayerView {
   private serials = 0;
   /** The layers' cut-away zones: which chunk meshes they hold and how far each is faded. */
   private readonly cut: CutawayDrawing;
+  /** Rooms drawn on each layer: their storeys' regions, per architecture object. */
+  private readonly roomRegions = new Map<string, Map<string, readonly BlockRegion[]>>();
+  private readonly zoneListeners = new Set<(layerId: string) => void>();
   private readonly stats = { meshedHere: 0, meshedInWorkers: 0, lastUpdate: { here: 0, applied: 0, ms: 0 }, longestUpdateMs: 0 };
   /** The restyle under way (null: none): when it began, its chunks, the last update's time and its frames. */
   private restyle: { startedAt: number; chunks: number; lastFrameAt: number; frames: number; longFrames: number; longestFrameMs: number; longestFrameAt: number; longestUpdateMs: number } | null = null;
@@ -545,7 +552,9 @@ export class BlockLayerView {
     layer.group.position.set(origin[0] ?? 0, origin[1] ?? 0, origin[2] ?? 0);
     layer.group.updateMatrixWorld(true);
     // Its cut-away zones (the chunks are split by them when they are meshed again, below).
-    this.cut.setLayer(entityId, component, layer.grid.regions, origin);
+    const zonesBefore = JSON.stringify(this.cut.zonesOf(entityId));
+    this.cut.setLayer(entityId, component, this.regionsOf(entityId, layer), origin);
+    if (JSON.stringify(this.cut.zonesOf(entityId)) !== zonesBefore) for (const fn of this.zoneListeners) fn(entityId);
     for (const ck of layer.grid.chunkKeys()) layer.dirty.add(ck);
     for (const ck of layer.chunks.keys()) layer.dirty.add(ck);
     this.deps.scatter?.setBlockLayer(entityId, component, origin, data?.chunks ?? []);
@@ -746,6 +755,75 @@ export class BlockLayerView {
     const cutaway = this.cut.diagnostics();
     const restyles = this.restyles.count > 0 || this.restyle !== null ? { restyles: { count: this.restyles.count, active: this.restyle !== null, last: this.restyles.last } } : {};
     return { layers: this.layers.size, chunks, meshes, triangles, ...(lodChunks > 0 ? { lods: { chunks: lodChunks, shown } } : {}), meshing, ...(cutaway !== null ? { cutaway } : {}), ...restyles };
+  }
+
+  /**
+   * The regions an architecture object's rooms make on a layer (null: none any
+   * more): its cut-aways may name a room as they name a region, and they cut
+   * the rooms' generated walls as they cut the layer's cells.
+   */
+  setRoomRegions(layerId: string, objectId: string, regions: readonly BlockRegion[] | null): void {
+    let byObject = this.roomRegions.get(layerId);
+    if (regions === null || regions.length === 0) {
+      if (byObject?.delete(objectId) !== true) return;
+      if (byObject.size === 0) this.roomRegions.delete(layerId);
+    } else {
+      if (byObject === undefined) this.roomRegions.set(layerId, (byObject = new Map()));
+      const had = byObject.get(objectId);
+      if (had !== undefined && JSON.stringify(had) === JSON.stringify(regions)) return;
+      byObject.set(objectId, regions);
+    }
+    const layer = this.layers.get(layerId);
+    if (layer === undefined || layer.component.cutaway === undefined) return;
+    const before = JSON.stringify(this.cut.zonesOf(layerId));
+    const g = layer.group.position;
+    this.cut.setLayer(layerId, layer.component, this.regionsOf(layerId, layer), [g.x, g.y, g.z]);
+    if (JSON.stringify(this.cut.zonesOf(layerId)) === before) return;
+    // Other zones: every chunk is split again.
+    for (const ck of layer.chunks.keys()) layer.dirty.add(ck);
+    for (const fn of this.zoneListeners) fn(layerId);
+  }
+
+  /** A layer's cut-away zones changed (generated architecture on it is split again). */
+  onCutawayZones(fn: (layerId: string) => void): () => void {
+    this.zoneListeners.add(fn);
+    return () => void this.zoneListeners.delete(fn);
+  }
+
+  /** A layer's cut-away zones and where its cells are (null: it has none): what other meshes on it are split by. */
+  cutawayOf(layerId: string): { readonly zones: readonly CutawayZone[]; readonly cellSize: readonly number[]; readonly origin: readonly number[] } | null {
+    const layer = this.layers.get(layerId);
+    const zones = this.cut.zonesOf(layerId);
+    if (layer === undefined || zones.length === 0) return null;
+    const g = layer.group.position;
+    return { zones, cellSize: layer.grid.cellSize, origin: [g.x, g.y, g.z] };
+  }
+
+  /** Meshes of a layer's zones made elsewhere (generated architecture's, under their own key): they fade and hide with the zones. */
+  registerCutaway(layerId: string, key: string, meshes: readonly { mesh: THREE.Mesh; zones: readonly number[] }[]): void {
+    this.cut.register(layerId, key, meshes);
+  }
+
+  dropCutaway(layerId: string, key: string): void {
+    this.cut.drop(layerId, key);
+  }
+
+  /** A layer's regions with the rooms drawn on it (a stored region of the same id wins). */
+  private regionsOf(layerId: string, layer: LayerState): ReadonlyMap<string, readonly (readonly number[])[]> {
+    const rooms = this.roomRegions.get(layerId);
+    if (rooms === undefined) return layer.grid.regions;
+    const out = new Map<string, readonly (readonly number[])[]>(layer.grid.regions);
+    for (const list of rooms.values()) for (const r of list) if (!out.has(r.regionId)) out.set(r.regionId, r.boxes);
+    return out;
+  }
+
+  /** Whether a closed piece that blocks passage stands on a layer's cell edge (a shut door: rooms are not seen through it). */
+  edgeClosed(entityId: string, x: number, y: number, z: number, axis: number): boolean {
+    const layer = this.layers.get(entityId);
+    const e = layer?.grid.edgeAt(x, y, z, axis) ?? null;
+    if (e === null) return false;
+    const t = this.types.get(e.block);
+    return t !== undefined && edgeBlocks(t, e);
   }
 
   /** Whether any layer has cut-away zones (the host finds the subject only then). */
@@ -1095,6 +1173,8 @@ export class BlockLayerView {
       const material = look.color !== null ? this.colorMaterial(look.color) : (look.materials[p.material] ?? look.materials[0] ?? this.colorMaterial('#b0b0b0'));
       const m = new THREE.Mesh(geometry, material);
       m.name = `block:${p.key}`;
+      // Rooms drawn on the layer stand on its cells: each face is lit by the room it looks into (room-culling.ts).
+      m.userData[ROOM_TAG_KEY] = entityId;
       m.castShadow = layer.component.castShadow !== false;
       m.receiveShadow = layer.component.receiveShadow !== false;
       // The layer's light layers (light-layers.ts; absent: every layer).

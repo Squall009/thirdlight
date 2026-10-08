@@ -1,8 +1,9 @@
 /**
  * One probe bake of a scene, from the editor ("Bake probes").
  *
- * The tiles go over the scene's probe volumes, or over its static objects
- * when it has none (`placeProbeGrids`) — and past a block area as far as a
+ * The tiles go over each room of generated architecture, then the scene's
+ * probe volumes, or over its static objects when it has none
+ * (`placeProbeGrids`) — and past a block area as far as a
  * terrain meeting it blends its ground (a blocks edit layer), so the ground
  * on both sides of the seam reads the same probes; the Scene view's renderer bakes them
  * (`bakeProbeGrids`, WebGPU); each tile's probes are published as a texture
@@ -14,7 +15,7 @@
  */
 import { bakeHashes, type BakeHashEntity } from '@thirdlight/protocol';
 import { bakeProbeGrids, encodePng16, packProbeTexels, skyTurnDegrees, type ProbeBakeResult } from '@thirdlight/three-adapter';
-import { DEFAULT_PROBE_BOUNCES, DEFAULT_PROBE_SPACING, TERRAIN_BLOCKS_BLEND_DEFAULT, placeProbeGrids, probeGridGpuBytes, type TerrainComponent } from '@thirdlight/runtime';
+import { DEFAULT_PROBE_BOUNCES, DEFAULT_PROBE_SPACING, ROOM_PROBE_INSET, TERRAIN_BLOCKS_BLEND_DEFAULT, placeProbeGrids, probeGridGpuBytes, type TerrainComponent } from '@thirdlight/runtime';
 import type { LightingBake, ProbeBake } from '@thirdlight/project-model';
 import type * as THREE from 'three';
 import type { WebGPURenderer } from 'three/webgpu';
@@ -57,6 +58,8 @@ export async function runProbeBake(deps: ProbeBakeDeps): Promise<ProbeBakeRunRes
   const statics = new Set(
     sceneEntities
       .filter((e) => {
+        // Generated architecture never moves: it is baked whether marked static or not.
+        if (e.active && e.components['architecture'] !== undefined) return true;
         if (!e.static || !e.active) return false;
         const layer = e.components['blockLayer'] as { metadataOnly?: boolean } | undefined;
         return e.kind === 'box' || e.kind === 'model' || (layer !== undefined && layer.metadataOnly !== true);
@@ -69,7 +72,9 @@ export async function runProbeBake(deps: ProbeBakeDeps): Promise<ProbeBakeRunRes
   if (unavailable !== null || ctx.renderer === null) return { ok: false, message: unavailable ?? 'the Scene view has no renderer yet' };
   const { meshes, bounds } = gatherProbeMeshes(ctx.host, statics);
   const volumes = probeVolumesOf(ctx.host, sceneEntities);
-  const grids = placeProbeGrids(seamBounds(bounds, sceneEntities, settings.spacing), settings.spacing, volumes);
+  // A volume per room of generated architecture (first: a point in a room reads its own room's probes).
+  const rooms = ctx.host.architecture?.rooms(ROOM_PROBE_INSET) ?? [];
+  const grids = placeProbeGrids(seamBounds(bounds, sceneEntities, settings.spacing), settings.spacing, volumes, rooms);
   if (grids.length === 0) return { ok: false, message: 'nothing to bake: mark boxes, models or block layers as Static, or add a probe volume' };
   const live = ctx.scene;
   const sky = {

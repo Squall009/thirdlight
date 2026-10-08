@@ -240,6 +240,7 @@ export { TERRAIN_HORIZON_URL_PARAM, TERRAIN_PAGE_LAYERS, TERRAIN_URL_PARAM, terr
 export { SCATTER_BUILD_MS, SCATTER_GROUP_METRES, SCATTER_URL_PARAM, scatterFromUrl, type ScatterView, type ScatterViewDiagnostics } from './scatter-view';
 export { SPLINES_URL_PARAM, splinesFromUrl, type SplineViewDiagnostics } from './spline-view';
 export { ARCHITECTURE_URL_PARAM, architectureFromUrl, type ArchitectureChunkStore, type ArchitectureViewDiagnostics } from './architecture-view';
+export { PORTALS_URL_PARAM, portalsFromUrl, type RoomCullingDiagnostics } from './room-culling';
 export { brushDabOf, type PreviewDiff, type TerrainPreviewDab } from './terrain-preview';
 export type { TerrainBrushKind } from './terrain-brush-gpu';
 export { TERRAIN_DEFAULT_COLOURS } from './terrain-material';

@@ -30,13 +30,14 @@ import { CUTAWAY_FADE_SECONDS, cutawayCuts, cutawayZones, type BlockLayerCompone
 
 import type { N } from './effects-tsl';
 import { LIGHT_LAYERS_KEY } from './light-layers';
+import { HIDDEN_BY_CUTAWAY, hideFromView, OFF_VIEW_LAYER } from './view-hidden';
 
 /** TSL untyped: three's typings lag the node API used here. */
 const TSL: N = TSLTyped;
 const { uniform, screenCoordinate, vec2, float } = TSL;
 
 /** The three.js layer a cut mesh is moved to: the shadow cameras see it, the view's camera does not. */
-export const CUTAWAY_LAYER = 31;
+export const CUTAWAY_LAYER = OFF_VIEW_LAYER;
 
 /** Cells a zone's columns reach past its sides when sorting triangles (edge pieces on its outline are 1/8 cell thick). */
 export const CUTAWAY_EDGE_MARGIN = 0.2;
@@ -53,6 +54,8 @@ export function shadowSeesCutaways(camera: THREE.Camera): void {
   camera.layers.enable(CUTAWAY_LAYER);
 }
 
+const NO_OFFSET: readonly number[] = [0, 0, 0];
+
 /** The triangles of one index split by zone: those in none, and per set of zones (indices into `zones`) those in it. */
 export interface CutawaySplit {
   readonly base: Uint32Array;
@@ -60,16 +63,19 @@ export interface CutawaySplit {
 }
 
 /**
- * Sort a mesh part's triangles (positions in the layer's metres) by the zones
- * they lie in. Null when none is in any zone (the part draws as it is).
+ * Sort a mesh part's triangles (positions in the layer's metres, after
+ * `offset`: generated architecture standing on the layer is in its object's
+ * frame) by the zones they lie in. Null when none is in any zone (the part
+ * draws as it is).
  */
-export function splitByCutaway(positions: ArrayLike<number>, indices: ArrayLike<number>, zones: readonly CutawayZone[], cellSize: readonly number[]): CutawaySplit | null {
+export function splitByCutaway(positions: ArrayLike<number>, indices: ArrayLike<number>, zones: readonly CutawayZone[], cellSize: readonly number[], offset: readonly number[] = NO_OFFSET): CutawaySplit | null {
   if (zones.length === 0) return null;
   const [sx, sy, sz] = [cellSize[0]!, cellSize[1]!, cellSize[2]!];
+  const [ox, oy, oz] = [offset[0] ?? 0, offset[1] ?? 0, offset[2] ?? 0];
   // Only the zones whose boxes reach the part's bounds are tested per triangle.
   let x0 = Infinity, y0 = Infinity, z0 = Infinity, x1 = -Infinity, y1 = -Infinity, z1 = -Infinity;
   for (let i = 0; i < positions.length; i += 3) {
-    const x = positions[i]! / sx, y = positions[i + 1]! / sy, z = positions[i + 2]! / sz;
+    const x = (positions[i]! + ox) / sx, y = (positions[i + 1]! + oy) / sy, z = (positions[i + 2]! + oz) / sz;
     if (x < x0) x0 = x;
     if (x > x1) x1 = x;
     if (y < y0) y0 = y;
@@ -100,9 +106,9 @@ export function splitByCutaway(positions: ArrayLike<number>, indices: ArrayLike<
       nz /= len;
     }
     // The centre in cells, moved a quarter cell into the cell the face bounds.
-    const px = (ax + (ux + vx) / 3) / sx - nx * NUDGE;
-    const py = (ay + (uy + vy) / 3) / sy - ny * NUDGE;
-    const pz = (az + (uz + vz) / 3) / sz - nz * NUDGE;
+    const px = (ax + ox + (ux + vx) / 3) / sx - nx * NUDGE;
+    const py = (ay + oy + (uy + vy) / 3) / sy - ny * NUDGE;
+    const pz = (az + oz + (uz + vz) / 3) / sz - nz * NUDGE;
     inZones.length = 0;
     for (const zi of local) {
       for (const bx of zones[zi]!.boxes) {
@@ -360,13 +366,11 @@ export class CutawayDrawing {
   private apply(c: CutMesh, f: number): void {
     const m = c.mesh;
     if (f <= 0) {
-      m.layers.enable(0);
-      m.layers.disable(CUTAWAY_LAYER);
+      hideFromView(m, HIDDEN_BY_CUTAWAY, false);
       this.removeCopy(c);
     } else {
       // Out of the view's draws, still in the shadow cameras'.
-      m.layers.disable(0);
-      m.layers.enable(CUTAWAY_LAYER);
+      hideFromView(m, HIDDEN_BY_CUTAWAY, true);
       if (f >= 1) this.removeCopy(c);
       else {
         const copy = this.copyOf(c);

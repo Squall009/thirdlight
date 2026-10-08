@@ -193,6 +193,7 @@ const QUALITY_LEVEL = obj('level', 'Quality level', 'Graphics settings players p
   int('msaa', 'MSAA', 'Multisampling without a post stack (absent: 4).', { values: [...MSAA_SAMPLE_COUNTS], valueLabels: MSAA_SAMPLE_COUNTS.map((n) => (n === 0 ? 'Off' : `${n}×`)) }),
   int('shadowMapSize', 'Largest shadow map', 'Larger light shadow maps are lowered to it (absent: each light\'s own).', { values: [...SHADOW_MAP_SIZES] }),
   int('localLights', 'Local lights', `Point and spot lights drawn at once (absent: ${MAX_LOCAL_LIGHTS}).`, { min: 0, max: MAX_LOCAL_LIGHTS }),
+  int('shadowedLights', 'Shadowed lights', 'Point and spot lights drawing their shadow at once: largest on screen first, spot before point, fading with distance (absent: every one).', { min: 0, max: MAX_LOCAL_LIGHTS }),
   enm('ambientOcclusion', 'Ambient occlusion', 'Where a look has AO (absent: ambient_occlusion).', [...AMBIENT_OCCLUSION_KINDS], { labels: { off: 'Off', ssao: 'SSAO', gtao: 'GTAO' } }),
   num('lodBias', 'LOD bias', 'Above 1 keeps finer LODs further (absent: lod_bias).', { min: LOD_BIAS_MIN, max: LOD_BIAS_MAX, step: 0.05 }),
   bool('dynamicResolution', 'Dynamic resolution', 'Lower the scale while the GPU is over budget (absent: dynamic_resolution).'),

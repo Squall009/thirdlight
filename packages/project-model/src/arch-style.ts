@@ -129,6 +129,28 @@ export interface ArchitectureRoomPlan {
   /** The storey's floor and the top of its walls (metres, object frame). */
   floor: number;
   top: number;
+  /**
+   * The holes its walls' openings make (object frame): the stretch of the
+   * outline each spans on the ground and its sill and head heights. Only the
+   * openings the room itself lists (one cut through a shared wall is listed
+   * by one of the two rooms): what the rooms see each other through.
+   */
+  openings: ArchitectureRoomOpening[];
+  /** Something closes the room overhead: its style's ceiling or roof, or the floor of the storey above. */
+  covered: boolean;
+  /** Holes in its floor (corners on the ground; stairs' footprints included): what it sees the storey below through. */
+  holes: [number, number][][];
+}
+
+/** An opening in a room's walls as the rooms' portals read it. */
+export interface ArchitectureRoomOpening {
+  id: string;
+  /** Its ends along the outline (x, z). */
+  from: [number, number];
+  to: [number, number];
+  /** Sill and head (metres, object frame). */
+  bottom: number;
+  top: number;
 }
 
 /** A graph as the table reads it (a content graph document or a shipped one). */

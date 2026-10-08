@@ -473,7 +473,8 @@ export interface PageSample {
   firstDrawEpoch: number | null;
   heap: { usedMiB: number; totalMiB: number; source: string } | null;
   uasm: string;
-  renderer: { requested?: string; backend?: string; state?: string; reason?: string } | null;
+  /** What drew: the canvas's data-tl-renderer attributes, and its rooms' (`data-tl-rooms`: rooms seen, draws hidden, mesh–light pairs lit). */
+  renderer: { requested?: string; backend?: string; state?: string; reason?: string; rooms?: string } | null;
   nav: { domContentLoaded: number; load: number } | null;
   fetches: PerfPageState['fetches'];
   /** WebGPU calls per drawn frame over the window (null: no WebGPU work seen). */
@@ -501,7 +502,7 @@ export async function readSample(stop: boolean): Promise<PageSample> {
       : 'available';
   const canvas = [...document.querySelectorAll('canvas[data-tl-renderer]')].sort((a, b) => b.clientWidth * b.clientHeight - a.clientWidth * a.clientHeight)[0] as HTMLCanvasElement | undefined;
   const renderer = canvas !== undefined
-    ? { requested: canvas.dataset['tlRendererRequested'], backend: canvas.dataset['tlRenderer'], state: canvas.dataset['tlRendererState'], reason: canvas.dataset['tlRendererReason'] }
+    ? { requested: canvas.dataset['tlRendererRequested'], backend: canvas.dataset['tlRenderer'], state: canvas.dataset['tlRendererState'], reason: canvas.dataset['tlRendererReason'], ...(canvas.dataset['tlRooms'] !== undefined ? { rooms: canvas.dataset['tlRooms'] } : {}) }
     : null;
   const navEntry = performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming | undefined;
   return {

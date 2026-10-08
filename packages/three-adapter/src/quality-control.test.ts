@@ -9,7 +9,7 @@ function harness(project: QualityProjectLike | null, o: { pinned?: string; lod?:
   const renderControl = createRenderControl(o.render ?? {});
   const lodTuning = new LodTuning();
   if (o.lod !== undefined) lodTuning.set(o.lod);
-  const limits: { shadowMapSize: number | null; localLights: number | null }[] = [];
+  const limits: { shadowMapSize: number | null; localLights: number | null; shadowedLights: number | null }[] = [];
   const caps: number[] = [];
   let reselects = 0;
   let changes = 0;
@@ -37,7 +37,7 @@ function harness(project: QualityProjectLike | null, o: { pinned?: string; lod?:
 const LEVELS: QualityProjectLike = {
   quality: 'mid',
   qualityLevels: [
-    { id: 'potato', renderScale: 0.5, ambientOcclusion: 'off', msaa: 0, shadowMapSize: 512, localLights: 2, lodBias: 0.5, pixelRatio: 1 },
+    { id: 'potato', renderScale: 0.5, ambientOcclusion: 'off', msaa: 0, shadowMapSize: 512, localLights: 2, shadowedLights: 1, lodBias: 0.5, pixelRatio: 1 },
     { id: 'mid', ambientOcclusion: 'ssao' },
     { id: 'ultra', ambientOcclusion: 'gtao', shadowMapSize: 4096, pixelRatio: 2, dynamicResolution: true },
   ],
@@ -50,7 +50,7 @@ describe('quality control', () => {
     expect(h.q.needsEnvironment()).toBe(false);
     expect(h.renderControl.diagnostics()).toMatchObject({ ambientOcclusion: 'gtao', renderScale: 0.75, dynamicResolution: false });
     expect(h.lodTuning.bias).toBe(2);
-    expect(h.limits).toEqual([{ shadowMapSize: null, localLights: null }]);
+    expect(h.limits).toEqual([{ shadowMapSize: null, localLights: null, shadowedLights: null }]);
     expect(h.reselects()).toBe(0);
     expect(h.caps).toEqual([]);
     expect(h.q.diagnostics()).toMatchObject({ level: 'high', levels: ['low', 'medium', 'high'], source: 'highest', pixelRatioCap: 1, shadowMapSize: null, localLights: null, lodBias: 2 });
@@ -70,7 +70,7 @@ describe('quality control', () => {
     expect(h.renderControl.diagnostics()).toMatchObject({ ambientOcclusion: 'off', renderScale: 0.5 });
     expect(h.lodTuning.bias).toBe(0.5);
     expect(h.lodTuning.hysteresis).toBe(0.2);
-    expect(h.limits[h.limits.length - 1]).toEqual({ shadowMapSize: 512, localLights: 2 });
+    expect(h.limits[h.limits.length - 1]).toEqual({ shadowMapSize: 512, localLights: 2, shadowedLights: 1 });
     expect(h.reselects()).toBe(1);
     // A player's field lays over the level.
     h.renderControl.set({ renderScale: 0.75 });

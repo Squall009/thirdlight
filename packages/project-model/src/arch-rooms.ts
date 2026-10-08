@@ -25,7 +25,7 @@
  *
  * Pure and deterministic (plain arithmetic), like the rest of the generator.
  */
-import { samplePath } from './arch-path';
+import { pathPointAt, samplePath } from './arch-path';
 import {
   architectureProfileName,
   evaluateStyle,
@@ -34,6 +34,7 @@ import {
   resolveArchitecturePreset,
   type ArchitectureExpansion,
   type ArchitecturePreview,
+  type ArchitectureRoomOpening,
   type ArchitectureRoomPlan,
   type ArchitectureStyles,
   type ResolvedArchitecturePreset,
@@ -453,11 +454,22 @@ export function expandArchitecture(c: ArchitectureComponent, origin: readonly nu
   }
   // Only rooms that both have a wall on the outline share one (a style without one keeps its own pieces).
   for (const X of insts) X.spans = X.spans.filter((sp) => X.wall !== null && sp.other.wall !== null);
-  // The rooms' floor plans: regions of the layer they are drawn on.
+  // The rooms' floor plans: regions of the layer they are drawn on, and what the rooms see each other through.
+  const planOf = new Map<Inst, ArchitectureRoomPlan>();
   for (const X of insts) {
     if (X.s.o.path.closed !== true || X.s.o.path.points.length < 3) continue;
     const top = wallTop(X.elements, X.path, profiles) ?? (X.s.o.storeyHeight ?? ARCHITECTURE_STOREY_HEIGHT_FALLBACK);
-    rooms.push({ id: X.id, outline: X.s.o.id, storey: X.storey, points: X.s.o.path.points.map((q) => [q[0], q[2]] as [number, number]), floor: X.base, top: r6(X.base + top) });
+    const ceil = r6(X.base + top);
+    const plan: ArchitectureRoomPlan = { id: X.id, outline: X.s.o.id, storey: X.storey, points: X.s.o.path.points.map((q) => [q[0], q[2]] as [number, number]), floor: X.base, top: ceil, openings: roomOpenings(X, ceil), covered: hasFill(X, (y, up) => !up || y > X.base + 0.5), holes: [] };
+    rooms.push(plan);
+    planOf.set(X, plan);
+  }
+  // A storey's floor covers the storey below it.
+  for (const X of insts) {
+    const plan = planOf.get(X);
+    if (plan === undefined || plan.covered) continue;
+    const above = insts.find((i) => i.s === X.s && i.storey === X.storey + 1);
+    if (above !== undefined && hasFill(above, (y, up) => up && Math.abs(y - above.base) < 0.5)) plan.covered = true;
   }
 
   // Stairs and holes: the floors (flat fills facing up) of each storey cut by the room's holes and the stairs reaching them.
@@ -487,6 +499,8 @@ export function expandArchitecture(c: ArchitectureComponent, origin: readonly nu
   }
   for (const [i, holes] of holesOf) {
     i.elements = i.elements.map((e) => (e.kind === 'fill' && e.shape === 'flat' && (e.face ?? 'up') === 'up' ? ({ ...e, holes: [...(e.holes ?? []), ...holes] } as ArchitectureFill) : e));
+    const plan = planOf.get(i);
+    if (plan !== undefined) plan.holes = holes.map((h) => h.points.map((q) => [q[0], q[2]] as [number, number]));
   }
 
   // The outside presets' walls (their inner faces dress this room's outer faces) and trims along the open stretches.
@@ -545,6 +559,42 @@ function wallTop(elements: readonly ArchitectureElement[], outline: Architecture
   const y0 = outline.points[0]![1];
   for (const e of elements) if (e.kind === 'sweep' && e.wall === true) top = Math.max(top, profileTop(profiles[e.profile]) + e.path.points[0]![1] - y0);
   return top === -Infinity ? null : top;
+}
+
+/**
+ * The holes a room's own openings make in its walls: each opening's stretch
+ * of the outline (its ends on the ground) and its sill and head, kept
+ * between the room's floor and the top of its walls.
+ */
+function roomOpenings(X: Inst, top: number): ArchitectureRoomOpening[] {
+  if (X.openings.length === 0) return [];
+  const s = samplePath(X.path);
+  const p: number[] = [0, 0, 0];
+  const t: number[] = [0, 0, 0];
+  const out: ArchitectureRoomOpening[] = [];
+  for (const o of X.openings) {
+    const bottom = Math.max(X.base, X.base + o.bottom);
+    const head = Math.min(top, X.base + o.top);
+    if (head <= bottom || o.width <= 0) continue;
+    pathPointAt(s, o.at - o.width / 2, p, t);
+    const from: [number, number] = [r6(p[0]!), r6(p[2]!)];
+    pathPointAt(s, o.at + o.width / 2, p, t);
+    out.push({ id: o.id, from, to: [r6(p[0]!), r6(p[2]!)], bottom: r6(bottom), top: r6(head) });
+  }
+  return out;
+}
+
+/** Whether a room's (or storey's) elements hold a fill `test` accepts (its height above the object, facing up). */
+function hasFill(X: Inst, test: (y: number, up: boolean) => boolean): boolean {
+  for (const e of X.elements) {
+    if (e.kind !== 'fill') continue;
+    let y = 0;
+    for (const q of e.path.points) y += q[1];
+    y = y / Math.max(1, e.path.points.length) + (e.height ?? 0);
+    const up = (e.shape === 'flat' && (e.face ?? 'up') === 'up') || (e.shape === 'coffered' && e.face === 'up');
+    if (test(y, up)) return true;
+  }
+  return false;
 }
 
 /** Whether an element's path is the outline itself (the same points, no offset). */

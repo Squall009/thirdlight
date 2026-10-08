@@ -72,16 +72,27 @@ export function playChecks(content: ContentCatalogV4 | Record<string, unknown>, 
       else keptIn.set(e.id, s.sceneId);
     }
   }
-  // A block layer's cut-aways, kits and walk name its regions and kits its block types have (a region renamed or deleted
-  // since, or a kit no type has any more, cuts or swaps nothing).
+  // A block layer's cut-aways, kits and walk name its regions (rooms drawn on it included) and kits its block types have
+  // (a region renamed or deleted since, or a kit no type has any more, cuts or swaps nothing).
   const kitNames = new Set(blockKitNames((content as { blockTypes?: readonly BlockType[] }).blockTypes ?? []));
   for (const s of scenes) {
     const regionsOf = new Map(((s as { blocks?: readonly { entityId: string; regions?: readonly { regionId: string }[] }[] }).blocks ?? []).map((b) => [b.entityId, new Set((b.regions ?? []).map((r) => r.regionId))]));
+    // Rooms drawn on a layer are regions its cut-aways may name (each storey: the outline's id, `-s<storey>` above the ground).
+    const roomsOf = new Map<string, Set<string>>();
+    for (const e of s.entities) {
+      const a = (e.components as { architecture?: { layer?: string; outlines?: readonly { id: string; path: { closed?: boolean }; storeys?: number }[] } }).architecture;
+      if (a?.layer === undefined) continue;
+      let have = roomsOf.get(a.layer);
+      if (have === undefined) roomsOf.set(a.layer, (have = new Set()));
+      for (const o of a.outlines ?? []) if (o.path.closed === true) for (let k = 0; k < (o.storeys ?? 1); k++) have.add(k === 0 ? o.id : `${o.id}-s${k}`);
+    }
     for (const e of inGame(s.entities)) {
       const bl = (e.components as { blockLayer?: BlockLayerComponent }).blockLayer;
       if (bl === undefined) continue;
       const have = regionsOf.get(e.id) ?? new Set<string>();
-      const named = [...(bl.cutaway?.regions ?? []).flatMap((r) => [r.region, ...(r.when !== undefined ? [r.when] : [])]), ...(bl.kits ?? []).flatMap((k) => (k.region !== undefined ? [k.region] : [])), ...(bl.walk?.from !== undefined ? [bl.walk.from] : [])];
+      const rooms = roomsOf.get(e.id) ?? new Set<string>();
+      const cut = (bl.cutaway?.regions ?? []).flatMap((r) => [r.region, ...(r.when !== undefined ? [r.when] : [])]).filter((r) => !rooms.has(r));
+      const named = [...cut, ...(bl.kits ?? []).flatMap((k) => (k.region !== undefined ? [k.region] : [])), ...(bl.walk?.from !== undefined ? [bl.walk.from] : [])];
       const missing = [...new Set(named.filter((r) => !have.has(r)))];
       if (missing.length > 0) checks.push({ code: 'block_names_missing', refuse: false, message: `block layer "${e.id}" (scene "${s.sceneId}") names ${missing.length === 1 ? 'a region it does not have' : 'regions it does not have'}: ${missing.slice(0, 4).map((r) => `"${r}"`).join(', ')} (renamed or deleted?): its cut-aways, kits and walk check there cut, swap and check nothing` });
       const kits = [...new Set((bl.kits ?? []).map((k) => k.kit).filter((k) => !kitNames.has(k)))];

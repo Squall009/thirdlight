@@ -42,7 +42,7 @@ export interface QualityTargets {
   readonly renderControl: RenderControl;
   readonly lodTuning: { readonly bias: number; set(t: { readonly bias?: number; readonly hysteresis?: number }): boolean };
   /** The scene lights' limits; true when the lights that are on must be selected again. */
-  readonly setLightLimits: (limits: { readonly shadowMapSize: number | null; readonly localLights: number | null }) => boolean;
+  readonly setLightLimits: (limits: { readonly shadowMapSize: number | null; readonly localLights: number | null; readonly shadowedLights: number | null }) => boolean;
   readonly reselectLights: () => void;
   /** The most drawing-buffer pixels per CSS pixel. */
   readonly setPixelRatioCap: (cap: number) => void;
@@ -61,6 +61,8 @@ export interface QualityDiagnostics {
   /** The largest shadow map (null: each light's own size) and the point/spot light budget (null: the scenes'). */
   readonly shadowMapSize: number | null;
   readonly localLights: number | null;
+  /** The shadowed point and spot lights' budget (null: every one). */
+  readonly shadowedLights: number | null;
   /** The LOD bias drawn with (the level's, else the project's). */
   readonly lodBias: number;
 }
@@ -108,7 +110,7 @@ export function createQualityControl(targets: QualityTargets, o: { readonly proj
       ...(l.dynamicResolution !== undefined ? { dynamicResolution: l.dynamicResolution } : {}),
     });
     targets.lodTuning.set({ ...projectLod, ...(l.lodBias !== undefined ? { bias: l.lodBias } : {}) });
-    if (targets.setLightLimits({ shadowMapSize: l.shadowMapSize ?? null, localLights: l.localLights ?? null })) targets.reselectLights();
+    if (targets.setLightLimits({ shadowMapSize: l.shadowMapSize ?? null, localLights: l.localLights ?? null, shadowedLights: l.shadowedLights ?? null })) targets.reselectLights();
     const nextCap = l.pixelRatio ?? MAX_RENDER_PIXEL_RATIO;
     if (nextCap !== cap) {
       cap = nextCap;
@@ -150,6 +152,7 @@ export function createQualityControl(targets: QualityTargets, o: { readonly proj
         pixelRatioCap: cap,
         shadowMapSize: l.shadowMapSize ?? null,
         localLights: l.localLights ?? null,
+        shadowedLights: l.shadowedLights ?? null,
         lodBias: targets.lodTuning.bias,
       };
     },

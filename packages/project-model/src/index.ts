@@ -1487,6 +1487,7 @@ export {
   type ArchitectureMaskBinding,
   type ArchitecturePresetDef,
   type ArchitecturePreview,
+  type ArchitectureRoomOpening,
   type ArchitectureRoomPlan,
   type ArchitectureStyleDef,
   type ArchitectureStyleParam,
@@ -1496,6 +1497,7 @@ export {
 // Rooms and runs (closed and open outlines): shared walls, storeys, stairs; what a block layer reads of them.
 export { ARCHITECTURE_FLOOR_ON_CELLS, ARCHITECTURE_STAIR_SLOTS, ARCHITECTURE_STOREY_HEIGHT_FALLBACK, expandArchitecture, reversedPath } from './arch-rooms';
 export { architecturePaintOf, architectureRoomRegions, architectureWallEdges } from './arch-room-grid';
+export { buildRoomGraph, portalDistance, portalRect, RoomGraph, roomVisibility, ROOM_OUTSIDE, walkRooms, type GraphPortal, type GraphPortalKind, type GraphRoom, type RoomGraphObject, type RoomVisibility, type ViewProjection } from './arch-portals';
 export { chunkLightmapLayout, type ChunkLightmapLayout } from './block-lightmap';
 // The instance brush (paint and erase copies of an instance set on a surface).
 export {

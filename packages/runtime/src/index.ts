@@ -315,11 +315,14 @@ export {
   type ArchitectureExpansion,
   type ArchitectureGraphLike,
   type ArchitecturePreview,
+  type ArchitectureRoomOpening,
   type ArchitectureRoomPlan,
   type ArchitectureStyleParam,
   type ArchitectureStyles,
   type ResolvedArchitecturePreset,
 } from '@thirdlight/project-model';
+// Rooms and their portals: what the page draws and lights per room (rooms that cannot be seen are skipped).
+export { buildRoomGraph, portalDistance, portalRect, RoomGraph, roomVisibility, ROOM_OUTSIDE, walkRooms, type GraphPortal, type GraphPortalKind, type GraphRoom, type RoomGraphObject, type RoomVisibility, type ViewProjection } from '@thirdlight/project-model';
 export { RuntimeSplines, type BehaviorSplines, type SplineCollisionDiagnostics, type SplineNearestInfo, type SplinePose, type SplineSimData } from './splines';
 // Splines' curves and their bands (the renderer's ground cover keeps clear of them; spline meshes are drawn along them).
 export { SPLINE_MATERIAL_SLOT, SPLINE_WIDTH_DEFAULT, SplineCurve, SplineScatterBands, decodeSplineMade, isSplineMadeBlob, newSplineFrame, splineScatterRect, terrainSplineInputs, type SplineComponent, type SplineFrame, type SplineMade, type SplineMeshPiece, type SplinePoint } from '@thirdlight/project-model';
@@ -477,7 +480,7 @@ export { SURFACE_RULE_BLOCK_LAYERS, SURFACE_RULE_CAVITY_RADIUS, SURFACE_RULE_LAY
 export { MATERIAL_EXTRA_LAYERS_MAX } from '@thirdlight/project-model';
 // A prop's block footprint: the editor snaps props and writes footprints with the backend's geometry.
 export { footprintCells, footprintEdits, footprintMinCell, footprintPlaces, overLayer, placeInWorld, pointInParent, turnedSize, yawQuarterTurns, type FootprintLayer, type FootprintNode } from '@thirdlight/project-model';
-export { BlockGrid, blockKitNames, blockKitView, cellKeyOf, cellOfKey, kitKey, type BlockGridReader, type BlockLayerKit, CHUNK_SIZE, CUTAWAY_FADE_SECONDS, cutawayCuts, cutawaySeams, cutawayZones, type CutawayZone, autoVariant, blockTopOptions, blockTypeSolid, blockVariantUv, chunkKeyOf, collisionMeshChunk, compareChunkKeys, meshBlockChunk, rotatedFootprint, shapeSource, type BlockCell, type BlockChunk, type BlockLayerComponent, type BlockLayerData, type BlockLookResolver, type BlockMeshSource, type BlockTopOptions, type BlockType, type BlockUvMode, type BlockVariant, type CellField, type ChunkMeshPart } from '@thirdlight/project-model';
+export { BlockGrid, blockKitNames, blockKitView, cellKeyOf, edgeBlocks, cellOfKey, kitKey, type BlockGridReader, type BlockLayerKit, CHUNK_SIZE, CUTAWAY_FADE_SECONDS, cutawayCuts, cutawaySeams, cutawayZones, type CutawayZone, autoVariant, blockTopOptions, blockTypeSolid, blockVariantUv, chunkKeyOf, collisionMeshChunk, compareChunkKeys, meshBlockChunk, rotatedFootprint, shapeSource, type BlockCell, type BlockChunk, type BlockLayerComponent, type BlockLayerData, type BlockLookResolver, type BlockRegion, type BlockMeshSource, type BlockTopOptions, type BlockType, type BlockUvMode, type BlockVariant, type CellField, type ChunkMeshPart } from '@thirdlight/project-model';
 // The audio intent log (script sound handles, music, duck) and the positional maths the host shares.
 export { AUDIO_BUS_NAMES, AUDIO_MAX_HANDLES, AUDIO_MAX_QUEUED_COMMANDS, AUDIO_MAX_PLAYS_PER_STEP, AUDIO_PITCH_MAX, AUDIO_PITCH_MIN, AUDIO_SPATIAL_DEFAULTS, AudioMixer, STINGER_DEFAULTS, distanceGain, lateBoundOf, listenerRelative, ownerModeOf, spatialOf, type AudioOwner, type AudioOwnerMode, type AudioBusName, type AudioCommand, type AudioDistanceModel, type AudioSpatial } from './audio-mixer';
 // Graph-material parameters per object — ctx.materials, the catalogue and the renderer's changes.
@@ -599,6 +602,7 @@ export {
   PROBE_TEXELS,
   PROBE_VALID,
   PROBE_VALIDITY_THRESHOLD,
+  ROOM_PROBE_INSET,
   decodePngRgba,
   placeProbeGrids,
   probeArtifactSize,

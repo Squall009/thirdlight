@@ -64,6 +64,11 @@
  * wall's front face through the arch, the back room through the door and a
  * fence post each show their colour.
  *
+ * Rooms light and cull by room (`rooms-lighting.ts`): a lamp without a
+ * shadow in one room lights its floor and not the floor of the room across
+ * the wall (Play and the export); a room behind a closed door is not seen
+ * and its box is not drawn (Play's diagnostics, the export's canvas).
+ *
  * TL_LAYERED_DIR=<dir> keeps the pictures.
  */
 import { randomBytes, randomUUID } from 'node:crypto';
@@ -81,6 +86,7 @@ import { editorUrlFor, expectRendererBackend, exportQueryFor, onlyInItsProject, 
 import { serveDir } from './frame-reading';
 import { closeEditor, createItem, editorPane, inspector, menu, openEditor, openWindow } from './ui';
 import { drawRooms, ROOM_READS } from './rooms-drawing';
+import { expectCulled, judgeLitRooms, makeLitRooms } from './rooms-lighting';
 
 let be: E2EBackend | null = null;
 test.afterEach(async () => {
@@ -617,8 +623,11 @@ async function trimSheetChecks(page: Page, variant: RendererVariant): Promise<vo
   const rooms = await drawRooms(page, cmd, query, trimId);
   console.log(`rooms ${variant} editor: draw → visible ${rooms.timings.drawToVisible.toFixed(1)} ms; wall drag ${rooms.timings.drag.regenerations} regenerations, input → drawn ${rooms.timings.drag.median.toFixed(1)} / ${rooms.timings.drag.worst.toFixed(1)} ms, a chunk ${rooms.timings.drag.madeMedian.toFixed(2)} ms median, other objects made again ${rooms.timings.drag.others}`);
   expect(rooms.timings.drag.others).toBe(0);
+  await makeLitRooms(cmd, trimId);
 
+  const started = page.waitForResponse((r) => r.request().method() === 'POST' && r.url().endsWith('/play'));
   await page.getByTitle('Start an isolated play preview').click();
+  const psid = String(((await (await started).json()) as { playSessionId: string }).playSessionId);
   const canvas = page.frameLocator('iframe.tl-app__preview-frame').locator('canvas').first();
   await expectRendererBackend(canvas, variant);
   let reading = '';
@@ -683,6 +692,25 @@ async function trimSheetChecks(page: Page, variant: RendererVariant): Promise<vo
   });
   if (roomsPng !== null) keep('rooms', roomsPng);
   console.log(`rooms ${variant} Play: ${fmtRooms(roomsPlay.colours)}`);
+  // The lamp lights its room and not the next one through the wall; the room behind the closed door is not drawn.
+  let lit = judgeLitRooms(() => [0, 0, 0]);
+  let litPng: Buffer | null = null;
+  await expect.poll(async () => {
+    const img = decodePng((litPng = await canvas.screenshot()));
+    return (lit = judgeLitRooms((p) => colourAt(img, onPlay(p, img.width, img.height)))).ok;
+  }, { timeout: 30_000, intervals: [500], message: 'the Play picture of the lit rooms' }).toBe(true).catch((e: unknown) => {
+    console.log(`lit rooms ${variant} Play (failed): ${JSON.stringify(lit.lum)}`);
+    if (litPng !== null) keep('lit-rooms-failed', litPng);
+    throw e;
+  });
+  if (litPng !== null) keep('lit-rooms', litPng);
+  const diagnostics = async (): Promise<Record<string, unknown>> => {
+    const r = await fetch(`${be!.origin}/api/v1/projects/${be!.projectId}/play/${psid}/diagnostics`, { method: 'POST', headers: { authorization: `Bearer ${be!.token}`, 'content-type': 'application/json', origin: be!.origin }, body: '{}' });
+    return ((await r.json()) as { diagnostics?: { renderer?: Record<string, unknown> } }).diagnostics?.renderer ?? {};
+  };
+  const renderer = await diagnostics();
+  console.log(`lit rooms ${variant} Play: ${JSON.stringify(lit.lum)}; rooms ${JSON.stringify(renderer['rooms'])}; local shadows ${JSON.stringify((renderer['lights'] as Record<string, unknown> | undefined)?.['localShadows'] ?? null)}`);
+  expectCulled(renderer['rooms'] as never);
   await page.getByTitle('Stop the play preview').click();
 
   // ---- The static export, served with the backend stopped: the parameters ship, the game generates the same picture.
@@ -713,6 +741,21 @@ async function trimSheetChecks(page: Page, variant: RendererVariant): Promise<vo
       throw e;
     });
     console.log(`rooms ${variant} export: ${fmtRooms(roomsExport.colours)}`);
+    let litExport = judgeLitRooms(() => [0, 0, 0]);
+    await expect.poll(async () => {
+      const img = decodePng(await exported.screenshot());
+      return (litExport = judgeLitRooms((p) => colourAt(img, onPlay(p, img.width, img.height)))).ok;
+    }, { timeout: 30_000, intervals: [500], message: 'the export picture of the lit rooms' }).toBe(true).catch((e: unknown) => {
+      console.log(`lit rooms ${variant} export (failed): ${JSON.stringify(litExport.lum)}`);
+      throw e;
+    });
+    // The room behind the closed door is not seen and its box not drawn: "<rooms seen>/<rooms> <draws hidden>".
+    const mark = String(await exported.getAttribute('data-tl-rooms'));
+    console.log(`lit rooms ${variant} export: ${JSON.stringify(litExport.lum)}; data-tl-rooms ${mark}`);
+    const [seenOf, hiddenDraws] = mark.split(' ');
+    const [seenRooms, allRooms] = (seenOf ?? '').split('/').map(Number);
+    expect(seenRooms!).toBeLessThan(allRooms!);
+    expect(Number(hiddenDraws)).toBeGreaterThan(0);
     const marks = await architectureMarks(game);
     console.log(`architecture ${variant} export: ${shown.colours.map((c) => c.map((v) => v.toFixed(0)).join(',')).join(' ')}; chunks ${JSON.stringify(marks.chunks)}; ready ${JSON.stringify(marks.ready)}`);
     // Generated, not shipped: on the workers, or on the page while they were starting.

@@ -882,7 +882,7 @@ export function validateEnvironment(value: unknown, path: string, errors: ModelE
 /** `environment.qualityLevels`: at least one level, unique ids, each field in its range (quality-levels.ts). */
 export function validateQualityLevels(value: unknown, path: string, errors: ModelErrorV2[]): void {
   if (!Array.isArray(value) || value.length === 0) {
-    err(errors, 'field_type', path, 'qualityLevels is a list of at least one level { id, name?, post?, renderScale?, pixelRatio?, msaa?, shadowMapSize?, localLights?, ambientOcclusion?, lodBias?, dynamicResolution? }, lowest first', value);
+    err(errors, 'field_type', path, 'qualityLevels is a list of at least one level { id, name?, post?, renderScale?, pixelRatio?, msaa?, shadowMapSize?, localLights?, shadowedLights?, ambientOcclusion?, lodBias?, dynamicResolution? }, lowest first', value);
     return;
   }
   const seen = new Set<string>();
@@ -900,6 +900,7 @@ export function validateQualityLevels(value: unknown, path: string, errors: Mode
         msaa: { kind: 'other' },
         shadowMapSize: { kind: 'other' },
         localLights: { kind: 'other' },
+        shadowedLights: { kind: 'other' },
         ambientOcclusion: { kind: 'enum', values: AMBIENT_OCCLUSION_KINDS },
         lodBias: { kind: 'num', min: LOD_BIAS_MIN, max: LOD_BIAS_MAX },
         dynamicResolution: { kind: 'bool' },
@@ -918,6 +919,8 @@ export function validateQualityLevels(value: unknown, path: string, errors: Mode
     if (v['shadowMapSize'] !== undefined && !(SHADOW_MAP_SIZES as readonly unknown[]).includes(v['shadowMapSize'])) err(errors, 'field_value', `${at}/shadowMapSize`, `shadowMapSize is one of ${SHADOW_MAP_SIZES.join(', ')}`, v['shadowMapSize'], SHADOW_MAP_SIZES.join(' | '));
     const ll = v['localLights'];
     if (ll !== undefined && !(typeof ll === 'number' && Number.isInteger(ll) && ll >= 0 && ll <= MAX_LOCAL_LIGHTS)) err(errors, 'field_value', `${at}/localLights`, `localLights is a whole number 0–${MAX_LOCAL_LIGHTS}`, ll);
+    const sl = v['shadowedLights'];
+    if (sl !== undefined && !(typeof sl === 'number' && Number.isInteger(sl) && sl >= 0 && sl <= MAX_LOCAL_LIGHTS)) err(errors, 'field_value', `${at}/shadowedLights`, `shadowedLights is a whole number 0–${MAX_LOCAL_LIGHTS}`, sl);
     if (v['post'] !== undefined) {
       const post = v['post'];
       if (isPlainObject(post)) {

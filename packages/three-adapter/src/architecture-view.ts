@@ -41,14 +41,18 @@ import {
   type ArchitectureGraphLike,
   type ArchitecturePaint,
   type ArchitecturePreview,
+  type ArchitectureRoomPlan,
   type ArchitectureSheets,
   type ArchitectureStyles,
+  type CutawayZone,
 } from '@thirdlight/runtime';
 
 import { answerArchitectureJob, type ArchitectureJobReply, type ArchitectureJobRequest } from './architecture-worker';
 import type { MeshWorkerPort } from './block-mesh-pool';
+import { splitByCutaway } from './block-cutaway-view';
 import { buildInstanceSet, type BuiltInstanceSet } from './instancing';
 import type { LodTuning } from './lod-switch';
+import { ROOM_TAG_KEY } from './room-culling';
 import { STATIC_CASTER_KEY } from './shadow-casters';
 import type { ModelInstance } from './visual';
 import { STREAM_ARRIVAL_MS } from './world-stream';
@@ -113,10 +117,24 @@ export interface ArchitectureViewDeps {
   tuning?: LodTuning;
   /** False: nothing is drawn (a diagnostic comparison). */
   drawn?: boolean;
+  /**
+   * The cut-away zones of the block layer an object is drawn on (by
+   * reference: a new list is new zones; null: none), and where its cut meshes
+   * go to fade and hide with them (block-cutaway-view.ts).
+   */
+  cutaway?: {
+    of(layerId: string): { readonly zones: readonly CutawayZone[]; readonly cellSize: readonly number[]; readonly origin: readonly number[] } | null;
+    register(layerId: string, key: string, meshes: readonly { mesh: THREE.Mesh; zones: readonly number[] }[]): void;
+    drop(layerId: string, key: string): void;
+  };
+  /** An object's rooms as expanded (null: it is gone or has none): the page's rooms and portals. */
+  rooms?: ((id: string, origin: readonly number[], component: ArchitectureComponent, rooms: readonly ArchitectureRoomPlan[] | null) => void) | undefined;
 }
 
 interface BuiltChunk {
   readonly group: THREE.Group;
+  /** Its meshes of cut-away zones, registered with its layer under this key (null: none). */
+  readonly cut: { readonly layer: string; readonly key: string } | null;
   readonly geometries: THREE.BufferGeometry[];
   readonly sets: BuiltInstanceSet[];
   readonly undo: (() => void)[];
@@ -156,6 +174,8 @@ interface Rec {
   everReady: boolean;
   /** The first frame's time after `since` (null: none yet). */
   firstFrame: number | null;
+  /** The cut-away zones its chunks were split by (the layer's list; null: none). */
+  zones: readonly CutawayZone[] | null;
 }
 
 interface Job {
@@ -291,6 +311,7 @@ export class ArchitectureView {
     rec.materials = x.materials;
     rec.presets = x.presets;
     for (const p of x.problems) this.problems.add(`${id}: ${p}`);
+    this.deps.rooms?.(id, rec.origin, rec.raw, x.rooms);
   }
 
   /** An object carrying `architecture` was realized (or realized again), at `origin`. */
@@ -298,7 +319,7 @@ export class ArchitectureView {
     const o: [number, number, number] = [origin[0] ?? 0, origin[1] ?? 0, origin[2] ?? 0];
     let rec = this.recs.get(id);
     if (rec === undefined) {
-      rec = { raw: component, component, materials: {}, presets: new Set(), origin: o, hidden: false, chunks: new Map(), stale: [], leaving: false, baked: null, bakedDigest: null, reading: null, since: performance.now(), waiting: true, everReady: false, firstFrame: null };
+      rec = { raw: component, component, materials: {}, presets: new Set(), origin: o, hidden: false, chunks: new Map(), stale: [], leaving: false, baked: null, bakedDigest: null, reading: null, since: performance.now(), waiting: true, everReady: false, firstFrame: null, zones: null };
       this.recs.set(id, rec);
     }
     rec.leaving = false;
@@ -346,16 +367,47 @@ export class ArchitectureView {
     return [...this.recs.keys()];
   }
 
+  /** An object's drawn meshes at full detail (its chunks' near levels; kit copies left out): what a probe bake sees of it. */
+  meshes(id: string): THREE.Mesh[] {
+    const out: THREE.Mesh[] = [];
+    const visit = (o: THREE.Object3D): void => {
+      if ((o as THREE.LOD).isLOD === true) {
+        const first = (o as THREE.LOD).levels[0]?.object;
+        if (first !== undefined) visit(first);
+        return;
+      }
+      const m = o as THREE.Mesh;
+      if (m.isMesh === true && (m as THREE.InstancedMesh).isInstancedMesh !== true) out.push(m);
+      for (const c of o.children) visit(c);
+    };
+    for (const ch of this.recs.get(id)?.chunks.values() ?? []) if (ch.built !== null) visit(ch.built.group);
+    return out;
+  }
+
   /** Once a frame before the draw: drop released objects, send jobs nearest `eye` first, draw arrived chunks within the frame's arrival time. */
   update(eye: ArrayLike<number>): void {
     for (const [id, rec] of [...this.recs]) {
       if (!rec.leaving) continue;
       this.recs.delete(id);
+      this.deps.rooms?.(id, rec.origin, rec.raw, null);
       for (const c of rec.chunks.values()) if (c.built !== null) this.dropBuilt(c.built);
       for (const b of rec.stale) this.dropBuilt(b);
     }
     const now = performance.now();
     for (const rec of this.recs.values()) rec.firstFrame ??= now;
+    // Its layer's cut-away zones changed (a room or region edited, cut-aways set): its chunks are split again.
+    for (const [id, rec] of this.recs) {
+      const zones = rec.raw.layer !== undefined ? (this.deps.cutaway?.of(rec.raw.layer)?.zones ?? null) : null;
+      if (zones === rec.zones) continue;
+      rec.zones = zones;
+      for (const [ck, ch] of rec.chunks) {
+        if (ch.built === null || ch.builtKey === null) continue;
+        ch.builtKey = null;
+        const hit = this.cache.get(ch.key) ?? (rec.baked !== null ? { chunk: rec.baked.get(ck)! } : undefined);
+        if (hit?.chunk !== undefined) this.ready.push({ id, ck, key: ch.key, chunk: hit.chunk });
+        else this.want(id, ck, ch, this.deps.sheets(id, rec.component, rec.materials));
+      }
+    }
     if (eye[0] !== this.eye[0] || eye[1] !== this.eye[1] || eye[2] !== this.eye[2]) {
       this.eye = [eye[0] ?? 0, eye[1] ?? 0, eye[2] ?? 0];
       this.queueSorted = false;
@@ -750,6 +802,11 @@ export class ArchitectureView {
     const geometries: THREE.BufferGeometry[] = [];
     let triangles = 0;
     let draws = 0;
+    // Drawn on a layer with cut-away zones: each level's triangles in a zone are meshes of their own (fading and hiding with it).
+    const layerCut = rec.raw.layer !== undefined ? (this.deps.cutaway?.of(rec.raw.layer) ?? null) : null;
+    rec.zones = layerCut?.zones ?? null;
+    const cutOffset = layerCut === null ? null : rec.origin.map((v, i) => v - (layerCut.origin[i] ?? 0));
+    const cutMeshes: { mesh: THREE.Mesh; zones: readonly number[] }[] = [];
     for (const m of chunk.meshes) {
       const material = this.surface(m.material);
       const l = m.mesh;
@@ -776,25 +833,40 @@ export class ArchitectureView {
         geometries.push(g);
         const mesh = new THREE.Mesh(g, material);
         mesh.name = `architecture:${id}:${ck}:${m.material}:lod${level}`;
+        // A chunk spans rooms: each face is lit by the room it looks into and drawn while that room is seen (room-culling.ts).
+        mesh.userData[ROOM_TAG_KEY] = true;
         mesh.castShadow = cast;
         mesh.receiveShadow = receive;
         if (cast) mesh.userData[STATIC_CASTER_KEY] = true;
         return mesh;
       };
+      /** A level: one mesh, or (in a layer's cut-away zones) the triangles in none and a mesh per set of zones. */
+      const levelOf = (indices: Uint32Array, level: number): THREE.Object3D => {
+        const split = layerCut === null ? null : splitByCutaway(l.positions, indices, layerCut.zones, layerCut.cellSize, cutOffset!);
+        if (split === null) return meshOf(indices, level);
+        const g = new THREE.Group();
+        if (split.base.length > 0) g.add(meshOf(split.base, level));
+        for (const c of split.cut) {
+          const cm = meshOf(c.indices, level);
+          g.add(cm);
+          cutMeshes.push({ mesh: cm, zones: c.zones });
+        }
+        return g;
+      };
       triangles += l.indices.length / 3;
       draws += 1;
       if (l.farIndices.length === l.indices.length) {
-        group.add(meshOf(l.indices, 0));
+        group.add(levelOf(l.indices, 0));
         continue;
       }
       // The near level and, past the LOD distance from the chunk's middle, the far one (detail left out).
       const lod = new THREE.LOD();
       lod.name = `architecture:${id}:${ck}:${m.material}`;
       lod.position.copy(centre);
-      const a = meshOf(l.indices, 0);
+      const a = levelOf(l.indices, 0);
       a.position.copy(centre).negate();
       lod.addLevel(a, 0);
-      const b = l.farIndices.length > 0 ? meshOf(l.farIndices, 1) : new THREE.Object3D();
+      const b = l.farIndices.length > 0 ? levelOf(l.farIndices, 1) : new THREE.Object3D();
       b.position.copy(centre).negate();
       lod.addLevel(b, lodDistance);
       group.add(lod);
@@ -820,7 +892,9 @@ export class ArchitectureView {
     undo.unshift(this.deps.materials(group, id, rec.materials) ?? ((): void => undefined));
     group.updateMatrixWorld(true);
     if (ch.built !== null) this.dropBuilt(ch.built);
-    ch.built = { group, geometries, sets, undo, triangles, draws };
+    const cut = cutMeshes.length > 0 ? { layer: rec.raw.layer!, key: `architecture:${id}:${ck}` } : null;
+    if (cut !== null) this.deps.cutaway?.register(cut.layer, cut.key, cutMeshes);
+    ch.built = { group, geometries, sets, undo, triangles, draws, cut };
     ch.builtKey = key;
     if (!rec.hidden) this.deps.place(group, true);
     this.deps.shapeChanged();
@@ -852,6 +926,7 @@ export class ArchitectureView {
   }
 
   private dropBuilt(b: BuiltChunk): void {
+    if (b.cut !== null) this.deps.cutaway?.drop(b.cut.layer, b.cut.key);
     this.deps.place(b.group, false);
     for (const u of b.undo) u();
     for (const s of b.sets) s.dispose();

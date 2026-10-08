@@ -3537,6 +3537,8 @@ sets:
   multisamples at 4 only; absent: the renderer's), `shadowMapSize` (512–4096:
   the largest shadow map any light draws; a light's larger own size is lowered
   to it), `localLights` (0–16 point and spot lights drawn at once),
+  `shadowedLights` (0–16 point and spot lights drawing their shadow at once;
+  absent: every one that casts — see *Interior lighting best practice*),
   `ambientOcclusion` (off/ssao/gtao), `lodBias` (0.25–4, over `lod_bias`) and
   `dynamicResolution`. What a level leaves out is the project's setting; a
   value the player set in a settings field bound to `renderScale`,
@@ -3554,7 +3556,7 @@ a level the project lacks is refused) — to compare levels in one session.
 Scripts read the level drawn in `ctx.stats.quality` (UI documents:
 `$flow.stats.quality`). Play diagnostics report `renderer.quality` (`level`,
 `levels`, `source` page/chosen/project/highest, `pixelRatioCap`,
-`shadowMapSize`, `localLights`, `lodBias`, `keyShadowMapSize`: the key light's
+`shadowMapSize`, `localLights`, `shadowedLights`, `lodBias`, `keyShadowMapSize`: the key light's
 map as drawn) beside `renderer.render` and `renderer.environment` (passes,
 samples). The page flag `?quality=<id>` pins a level (the perf harness's
 `--switches quality=low`). The Scene view draws the starting level at full
@@ -3732,6 +3734,11 @@ mask, bit n = layer n + 1, 255 = every layer.
   every layer to fewer (or back) rebuilds the lit shaders once, as adding a
   light does. Batching, static merging and instancing keep objects of
   different layers in different draws.
+- **Rooms** — generated rooms are a light layer of their own, set by the
+  engine, not one of the 8 (see *Rooms drive culling and lighting*): a lamp
+  in a room lights only that room. A drawable a light leaves out skips the
+  light's work altogether (a branch on the draw's own test), so layers and
+  rooms make lit pixels cheaper, not dearer.
 
 ## Local lights per pixel or per vertex
 
@@ -5777,6 +5784,86 @@ its regions, its wall paint shows on their faces.
 - **Glass and emissive**: panes go on the `glass` material slot; a style
   element may name any slot (`emissive`…): each slot is one draw per chunk.
 - **Measured**: see the phase plan's progress table (30.23).
+
+## Rooms drive culling and lighting
+
+The rooms of generated architecture (every room storey of every object
+with outlines, *Rooms and paths*) and their openings make a **portal
+graph** the page reads each drawn frame. Nothing is stored: it is made from
+the outlines at load, in the editor's Scene view, Play and the export alike.
+
+- **Portals** — a door, window or arch opening (between the room and what
+  lies across it: another room, or the outside), a hole in a floor (the room
+  below; stairs cut one), and the top of a room nothing covers (no ceiling,
+  no roof, no storey above: the sky). A **closed door piece** (an edge piece
+  of the layer that blocks passage, `open` false) standing across a
+  doorway's foot shuts it; an open one, or none, lets sight through.
+- **Culling** — from the room the eye is in (or the outside), through every
+  open portal whose picture still overlaps what is seen of the portal before
+  it, and only from the side the sight comes from: the rooms reached are
+  seen. A drawable in a room not seen (its bounds' middle in the room), or
+  outside while the outside is not seen, is not drawn by the view — it still
+  casts its shadow. A chunk of generated walls or of the layer under the
+  rooms is drawn while any room its faces look into is seen. Lights are
+  never switched off (that would rebuild every lit shader): a lamp in a
+  room not seen lights only that room's drawables, which are not drawn. The
+  walk runs when the view moves or a door opens or shuts (about 0.1 ms).
+  `?portals=off` on a game page draws everything (a diagnostic comparison;
+  the lights' room test stays). Instanced copies (instance sets, scatter)
+  belong to no room: they are culled by the view only.
+- **Lighting by room** — rooms are a light layer of their own, beside the 8
+  named ones: every point and spot light on a page with rooms is bound to
+  the room it stands in (the outside: room 0), and lights only drawables of
+  that room; a chunk spanning rooms is lit per face by the room each face
+  looks into. So a lamp without a shadow stops at its room's walls, and a
+  street lamp does not light the rooms behind the walls it stands by. The
+  sun, the ambient and the hemisphere light light every room. Each room has
+  its own key: any number of rooms, no two sharing a layer. An object
+  spanning rooms counts as in the room of its middle; a moving one follows
+  the rooms it walks through.
+- **Probes** — a probe bake gives each room a probe volume of its own
+  (inside its walls, listed first: a point in a room reads its room's
+  probes) and bakes the generated walls, so a room's indirect light is not
+  read through a wall from the next room's probes.
+- **Cut-aways** — a block layer's cut-aways (`blockLayer.cutaway.regions`)
+  may name the rooms drawn on it as regions (the outline's id, `-s1`,
+  `-s2`… for the storeys above): e.g. `{region: "hall-s1"}` hides the
+  hall's upper storey while the camera's target is below it. They cut the
+  generated walls, floors and ceilings in the zone as they cut cells.
+- **Diagnostics** — Play's `renderer.rooms`: rooms, portals, doors (closed),
+  the eye's room, rooms seen and whether the outside is, draws hidden, the
+  walk's and sweep's time, meshes with rooms per vertex, lamps in rooms not
+  seen, and the mesh–light pairs lit (with the rooms, and as without them).
+  The canvas' `data-tl-rooms` = `<rooms seen>/<rooms> <draws hidden>
+  <pairs lit>/<pairs without rooms>` (an export's only diagnostics surface).
+- **Measured**: the `interior` level class (`node tools/perf/run.mjs level
+  --classes interior --switches portals=off`): see the phase plan's
+  progress table (30.24).
+
+### Interior lighting best practice (shadow rules)
+
+Interiors are lit by many small lamps, and a lamp's shadow is the dearest
+thing it does (a point light's is six views of the scene, a spot's one).
+The engine follows these rules, and games should too:
+
+- **No shadow by default.** A light casts only when its `castShadow` says
+  so. Rooms keep an unshadowed lamp's light inside its room (above), so most
+  lamps need no shadow at all.
+- **A budget of shadowed lamps per view.** A quality level's
+  `shadowedLights` (2–4 is a good start; absent: every lamp that casts)
+  keeps the shadows of the lamps largest on screen (their reach over their
+  distance), in rooms that are seen and in view; the rest draw none. A spot
+  ranks ahead of a point light of the same size: prefer spots where a shadow
+  matters.
+- **Fade with distance.** Budgeted shadows fade out between 30 and 40 m
+  (`LOCAL_SHADOW_DISTANCE`), so a lamp leaving the budget far away does not
+  pop.
+- **Cached maps.** A budgeted lamp's map is drawn when it enters the
+  budget, when it moves, when the static casters change, and while
+  something that moves is within its reach; a lamp in a still room draws its
+  map once. The sun's shadow keeps its cached static map and dynamic map.
+- Play diagnostics: `renderer.lights.localShadows` {budget, casting,
+  shadowed, drawn (maps drawn this frame)}.
 
 ## Terrain edit layers, stamps and erosion
 

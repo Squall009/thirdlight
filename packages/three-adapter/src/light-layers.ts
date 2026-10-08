@@ -25,6 +25,19 @@
  * added. Batching, static merging and instancing keep drawables of different
  * layers apart (the layers are part of their keys), so a merged draw has one
  * mask.
+ *
+ * Rooms are a light layer of their own, kept apart from the eight named ones
+ * (a project's names keep their meaning) and as many as there are rooms: a
+ * drawable in a room carries the room's key (`ROOM_KEY`, a number; 0: the
+ * outside), and so does a light in a room. A room-bound light lights only
+ * drawables of its room, so a lamp without a shadow stops at its room's
+ * walls; a light bound to no room (the sun, the ambient light, a level
+ * without rooms) lights every room. A drawable spanning rooms (a chunk of
+ * generated walls or of a block layer) carries its room per vertex instead
+ * (`ROOM_ATTRIBUTE`, the room each face looks into), tested per pixel against
+ * the light's room; on the CPU it counts as in every room its vertices name
+ * (`ROOM_VERTEX_KEYS`). The test is exact for any number of rooms: no
+ * colouring onto the eight bits, no room shares a key.
  */
 import * as THREE from 'three/webgpu';
 import * as TSLTyped from 'three/tsl';
@@ -34,10 +47,36 @@ import type { N } from './effects-tsl';
 
 /** TSL untyped: three's typings lag the node API used here. */
 const TSL: N = TSLTyped;
-const { uniform } = TSL;
+const { uniform, attribute, select, If } = TSL;
 
 /** `object.userData[LIGHT_LAYERS_KEY]`: the light layers a drawable is in (absent: every layer). */
 export const LIGHT_LAYERS_KEY = '__tlLightLayers';
+
+/**
+ * `object.userData[ROOM_KEY]`: the room a drawable or a light is in (0: the
+ * outside; absent: no room test — a drawable every light lights, a light
+ * that lights every drawable).
+ */
+export const ROOM_KEY = '__tlRoom';
+/** `object.userData[ROOM_VERTEX_KEYS]`: the rooms a drawable's vertices look into (its `ROOM_ATTRIBUTE`), a `ReadonlySet<number>`. */
+export const ROOM_VERTEX_KEYS = '__tlRoomKeys';
+/** The vertex attribute holding the room each vertex looks into (0: the outside). */
+export const ROOM_ATTRIBUTE = 'tlRoom';
+
+/** The room key a light or drawable carries (undefined: none). */
+export function roomKeyOf(o: THREE.Object3D): number | undefined {
+  return o.userData[ROOM_KEY] as number | undefined;
+}
+
+/** Whether a light's room lets it light `o`: no room on either, the same room, or (per vertex) one of `o`'s rooms. */
+export function roomLetsLight(light: THREE.Object3D, o: THREE.Object3D): boolean {
+  const l = light.userData[ROOM_KEY] as number | undefined;
+  if (l === undefined) return true;
+  const keys = o.userData[ROOM_VERTEX_KEYS] as ReadonlySet<number> | undefined;
+  if (keys !== undefined) return keys.has(l);
+  const k = o.userData[ROOM_KEY] as number | undefined;
+  return k === undefined || k === l;
+}
 
 /** The light layers a drawable is in. */
 export function objectLightLayers(o: THREE.Object3D): number {
@@ -100,9 +139,9 @@ export function castsShadowFor(light: THREE.Object3D, o: THREE.Object3D): boolea
   return !isLayeredLight(light) || (objectLightLayers(o) & light.shadowCasterMask) !== 0;
 }
 
-/** Whether `light` lights `o` (a plain light: every object). */
+/** Whether `light` lights `o` (a plain light: every object): its layers and its room. */
 export function lightsObject(light: THREE.Object3D, o: THREE.Object3D): boolean {
-  return !isLayeredLight(light) || (objectLightLayers(o) & light.lightMask) !== 0;
+  return !isLayeredLight(light) || ((objectLightLayers(o) & light.lightMask) !== 0 && roomLetsLight(light, o));
 }
 
 export class LayeredDirectionalLight extends THREE.DirectionalLight implements Layered {
@@ -174,18 +213,50 @@ function casterFiltered(Base: ShadowNodeClass): ShadowNodeClass {
 const LayeredShadowNode = casterFiltered(THREE.ShadowNode as unknown as ShadowNodeClass);
 const LayeredPointShadowNode = casterFiltered(THREE.PointShadowNode as unknown as ShadowNodeClass);
 
-type AnalyticNodeClass = new (light: THREE.Light) => { colorNode: N; light: THREE.Light; setupShadowNode(): unknown };
+/** Per light: 1 where the vertex's room is the light's (or the light is bound to none), else 0. */
+const roomFactors = new WeakMap<THREE.Light, N>();
+function roomVertexFactor(light: THREE.Light): N {
+  let f = roomFactors.get(light);
+  if (f === undefined) {
+    const lightRoom = uniform(-1).onRenderUpdate(() => (light.userData[ROOM_KEY] as number | undefined) ?? -1);
+    const v = attribute(ROOM_ATTRIBUTE, 'float');
+    f = select(lightRoom.lessThan(-0.5).or(v.sub(lightRoom).abs().lessThan(0.5)), 1, 0);
+    roomFactors.set(light, f);
+  }
+  return f;
+}
+
+type AnalyticNodeClass = new (light: THREE.Light) => { colorNode: N; light: THREE.Light; setup(builder: unknown): void; setupShadowNode(): unknown; setupDirect(builder: unknown): { lightColor: N } | undefined };
 
 /** A light node whose colour carries the per-object layer test and whose shadow filters its casters. */
 function layeredAnalytic(Base: AnalyticNodeClass, Shadow: ShadowNodeClass): AnalyticNodeClass {
   return class extends Base {
+    private readonly factor: N;
     constructor(light: THREE.Light) {
       super(light);
       // The colour uniform (written from the light each frame) times the object's test.
-      this.colorNode = this.colorNode.mul(lightFactor(light));
+      this.factor = lightFactor(light);
+      this.colorNode = this.colorNode.mul(this.factor);
+    }
+    /**
+     * A drawable the light does not light (another room's, another layer's)
+     * skips the light altogether: the test is one value for the whole draw, so
+     * the branch costs nothing per pixel, and a room's lamps are evaluated
+     * only where they can light.
+     */
+    override setup(builder: unknown): void {
+      If(this.factor.greaterThan(0.5), () => {
+        super.setup(builder);
+      });
     }
     override setupShadowNode(): unknown {
       return new Shadow(this.light);
+    }
+    override setupDirect(builder: unknown): { lightColor: N } | undefined {
+      const d = super.setupDirect(builder);
+      // A drawable spanning rooms: the light reaches only the faces that look into its room.
+      if (d !== undefined && (builder as { hasGeometryAttribute(name: string): boolean }).hasGeometryAttribute(ROOM_ATTRIBUTE)) d.lightColor = d.lightColor.mul(roomVertexFactor(this.light));
+      return d;
     }
   };
 }

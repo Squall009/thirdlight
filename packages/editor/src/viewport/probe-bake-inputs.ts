@@ -1,8 +1,8 @@
 /**
  * What the probe bake of a scene sees, gathered from the Scene view in world
- * space: the static boxes', models' and block layers' meshes with their
- * materials (a model's most detailed level), and the scene's probe volumes
- * as world boxes.
+ * space: the static boxes', models', block layers' and generated
+ * architecture's meshes with their materials (a model's most detailed
+ * level), and the scene's probe volumes as world boxes.
  *
  * Browser-only (three.js).
  */
@@ -17,11 +17,13 @@ export interface ProbeBakeHost {
   /** A box's or model's drawn object, null otherwise; its meshes' world matrices are current. */
   rootOf(e: ProjectedEntity): THREE.Object3D | null;
   readonly blockView: BlockLayerView | null;
+  /** Generated architecture: an object's meshes at full detail, each room's box (world, inset; null: none drawn). */
+  readonly architecture: { meshes(entityId: string): THREE.Mesh[]; rooms(inset: number): { min: number[]; max: number[] }[] } | null;
   /** An entity's world matrix (false: not realized). */
   worldMatrix(entityId: string, out: THREE.Matrix4): boolean;
 }
 
-/** The static objects' meshes (`entityIds`: static boxes, models and block layers) and their world bounds (null: none). */
+/** The static objects' meshes (`entityIds`: static boxes, models, block layers and generated architecture) and their world bounds (null: none). */
 export function gatherProbeMeshes(host: ProbeBakeHost, entityIds: ReadonlySet<string>): { meshes: ProbeBakeMesh[]; bounds: { min: number[]; max: number[] } | null } {
   const meshes: ProbeBakeMesh[] = [];
   const box = new THREE.Box3();
@@ -54,6 +56,8 @@ export function gatherProbeMeshes(host: ProbeBakeHost, entityIds: ReadonlySet<st
     view.flush();
     for (const id of view.layerIds()) if (entityIds.has(id)) for (const mesh of view.layerMeshes(id)) add(mesh);
   }
+  // Generated architecture: its walls are what keeps one room's light out of the next room's probes.
+  if (host.architecture !== null) for (const e of host.projected) if (entityIds.has(e.id) && e.components['architecture'] !== undefined) for (const mesh of host.architecture.meshes(e.id)) add(mesh);
   return { meshes, bounds: box.isEmpty() ? null : { min: box.min.toArray(), max: box.max.toArray() } };
 }
 

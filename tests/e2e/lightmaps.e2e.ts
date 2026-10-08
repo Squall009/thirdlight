@@ -330,6 +330,8 @@ test('Bake final runs Blender Cycles on the bake host; its lightmap shows the sh
  * - Inside the closed room the probes see no light: its walls stay dark,
  *   also next to the wall whose outside the sun lights (no light leaks
  *   through it), where the flat ambient light lit them before the bake.
+ * - A closed room of generated architecture gets a probe volume of its own
+ *   (inside its walls, first in the bake's tiles): its probes are dark.
  * - The cube in the open and under the canopy: its front face (never in
  *   sunlight) is about as bright in both places with the flat ambient light,
  *   and darker under the canopy with the probes (indirect light changes as it
@@ -360,6 +362,10 @@ test('probe grids light every object in place of the flat ambient light: no leak
   // The canopy: a roof 1.2 m up over x −8…0, z −7…1, open on every side.
   await box('canopy', [8, 0.2, 8], [-4, 1.3, -3]);
   const mover = await box('mover', [0.8, 0.8, 0.8], [-4, 0.4, 3], false);
+  // A closed room of generated architecture north of the yard (the engine's starter room: walls, floor, ceiling, no
+  // opening): its own probe volume, inside its walls, which the bake sees.
+  const archRoom = String((await cmd('createEntity', { sceneId: 'scene-main', kind: 'group', name: 'arch room', transform: { position: [0, 0, 0] } }))['createdId']);
+  await cmd('setComponent', { entityId: archRoom, component: 'architecture', value: { elements: [], outlines: [{ id: 'closed', preset: 'starter-room', path: { points: [[-2, 0, -9.6], [2, 0, -9.6], [2, 0, -6.4], [-2, 0, -6.4]], closed: true } }] } });
   // The sun comes from the north (behind the room's north wall, never onto the cube's front face).
   await cmd('setComponent', { entityId: 'light-0001', component: 'light', value: { type: 'directional', color: '#ffffff', intensity: 2, direction: [0.3, -1, 0.6], castShadow: true, mode: 'mixed' } });
   await cmd('setComponent', { entityId: 'light-0002', component: 'light', value: { type: 'ambient', color: '#8090a8', intensity: 0.8, mode: 'mixed' } });
@@ -425,6 +431,24 @@ test('probe grids light every object in place of the flat ambient light: no leak
   await expect(page.locator('[aria-label="probe status"]')).toContainText('Probes from', { timeout: 120_000 });
   console.log(`[probe lighting] ${await page.getByRole('status').textContent()}`);
   const probes = (await bakeOf()).probes!;
+  // The generated room's tile comes first (a point in it reads it): inset from its walls, its probes see only its dark
+  // inside — no light leaks in from the sunlit yard (the walls are in the bake), where the yard's tile is lit.
+  const roomTile = probes.grids[0]!;
+  expect([roomTile.min[0], roomTile.min[2], roomTile.max[0], roomTile.max[2]].map((v) => Math.round(v * 100) / 100)).toEqual([-1.75, -9.35, 1.75, -6.65]);
+  const tileDc = async (g: (typeof probes.grids)[number]): Promise<number[]> => {
+    const r = await fetch(`${be.origin}/api/v1/projects/${be.projectId}/content/assets/${g.asset}/versions/1/bytes`, { headers: { authorization: `Bearer ${be.token}`, origin: be.origin } });
+    const d = decodeProbeArtifact(new Uint8Array(await r.arrayBuffer()), g);
+    if (!d.ok) throw new Error(d.message);
+    const [nx, ny, nz] = g.resolution;
+    const out: number[] = [];
+    for (let iz = 0; iz < nz; iz++) for (let iy = 0; iy < ny; iy++) for (let ix = 0; ix < nx; ix++) out.push(THREE.DataUtils.fromHalfFloat(d.atlas[(((1 + iz) * ny + iy) * nx + ix) * 4]!));
+    return out;
+  };
+  const roomDc = await tileDc(roomTile);
+  const yardDc = await tileDc(probes.grids[1]!);
+  console.log(`[probe lighting] generated room's probes (SH DC, red): max ${Math.max(...roomDc).toFixed(4)} of ${roomDc.length}; the yard tile's max ${Math.max(...yardDc).toFixed(3)}`);
+  expect(Math.max(...yardDc)).toBeGreaterThan(0.1);
+  expect(Math.max(...roomDc)).toBeLessThan(Math.max(...yardDc) * 0.25);
 
   // The debug view: a sphere per probe while on.
   const view = page.locator('canvas.tl-viewport');

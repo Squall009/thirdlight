@@ -3,12 +3,14 @@
  * terrains (`terrain-view.ts`) — made with what they need from the adapter:
  * the scene's static drawables, model looks for block cells, materials,
  * baked lightmaps, the cached static shadow, the scatter sink and, on a game
- * page, world streaming.
+ * page, world streaming — and the block layers' cut-aways following their
+ * subject.
  *
  * Kept apart from the adapter so the level's views grow in one place.
  */
 import * as THREE from 'three';
 
+import { createCutawayFollower, type CutawayFollower } from './block-cutaway-follow';
 import { BlockLayerView, blockLookFromObject, type BlockModelLook } from './block-layers';
 import { createBrowserMeshWorker } from './block-mesh-pool';
 import type { LightmapSet } from './lightmaps';
@@ -30,8 +32,13 @@ export interface LevelViewsDeps {
   readonly materials: MaterialLibrary | null;
   /** The baked lightmaps now (they change when a bake is applied). */
   lightmaps(): LightmapSet | null;
-  /** Compile a cut-away's fade copy in the background. */
-  precompile(probe: THREE.Object3D): void;
+  /** The scene cut-aways' fade copies wait in until compiled, the running game (its scripts' cut-away state and the camera's target), an object's drawn position. */
+  readonly scene: THREE.Scene;
+  readonly runtime: unknown;
+  position(id: string, out: number[]): boolean;
+  /** No precompile wanted or running; ask for one (a cut-away's fade copy compiled in the background). */
+  precompileIdle(): boolean;
+  requestPrecompile(): void;
   readonly staticShadows: StaticShadowRevision | null;
   /** The scene's static drawables. */
   listStatic(o: THREE.Object3D): void;
@@ -51,8 +58,8 @@ export interface LevelViewsDeps {
   onChange(): void;
 }
 
-/** The block layers' view, the terrains' view, and the tile store the adapter made for itself (null: the page's). */
-export function createLevelViews(d: LevelViewsDeps): { blockView: BlockLayerView; terrains: TerrainView; ownTiles: TerrainTileStore | null } {
+/** The block layers' view, the terrains' view, the tile store the adapter made for itself (null: the page's), and the cut-aways' follower. */
+export function createLevelViews(d: LevelViewsDeps): { blockView: BlockLayerView; terrains: TerrainView; ownTiles: TerrainTileStore | null; cutaways: CutawayFollower } {
   const blockLooks = new Map<string, BlockModelLook | null>();
   const blockView = new BlockLayerView({
     ...(d.scatter !== undefined ? { scatter: d.scatter } : {}),
@@ -86,7 +93,7 @@ export function createLevelViews(d: LevelViewsDeps): { blockView: BlockLayerView
     lightmapped: (id) => d.lightmaps()?.hasChunks(id) === true,
     chunkBuilt: (id, cx, cz, group, layout) => d.lightmaps()?.applyChunk(id, cx, cz, layout, group),
     chunkDropped: (id, cx, cz) => d.lightmaps()?.releaseChunk(id, cx, cz),
-    precompile: (probe) => d.precompile(probe),
+    precompile: (probe) => cutaways.probe(probe),
     // A restyle's chunks arrive over several frames: the cached static shadow is drawn again once, after the last.
     restyling: (on) => d.staticShadows?.hold(on),
     // The chunks' drawables join the scene on their own (the view's layer and chunk groups stay outside it).
@@ -114,5 +121,7 @@ export function createLevelViews(d: LevelViewsDeps): { blockView: BlockLayerView
     horizon: d.horizon,
     ...(d.scatter !== undefined ? { scatter: d.scatter } : {}),
   });
-  return { blockView, terrains, ownTiles };
+  // Cut-aways follow their subject; their fade copies are compiled ahead.
+  const cutaways = createCutawayFollower({ view: blockView, scene: d.scene, runtime: d.runtime, position: (id, out) => d.position(id, out), precompileIdle: () => d.precompileIdle(), requestPrecompile: () => d.requestPrecompile(), onChange: () => d.onChange() });
+  return { blockView, terrains, ownTiles, cutaways };
 }

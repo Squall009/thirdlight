@@ -2,14 +2,16 @@
  * The level-building perf classes without a browser: the plans are
  * deterministic and have the classes' shape, the landscape is the area plus
  * a terrain whose scatter rules keep off it, the terrain lies under the area and its
- * heightmap covers its tiles, and the
+ * heightmap covers its tiles, the interior is a building of rooms sharing
+ * walls with half its doors closed, seen from inside, and the
  * measurement's target and far-cost rows read the report as the log says.
  */
 import { describe, expect, it } from 'vitest';
 
-import { validateScatterRules, type ModelErrorV2 } from '@thirdlight/project-model';
+import { architectureStylesOf, expandArchitecture, MAX_LOCAL_LIGHTS, validateScatterRules, type ArchitectureComponent, type ModelErrorV2 } from '@thirdlight/project-model';
 
 import { levelHeightAt, levelPlan, levelTerrainHeight, levelTerrainOrigin, levelTerrainRaw, levelScatterBlocks, levelScatterTerrain, LEVEL_SPEC } from '../../tools/perf/level';
+import { levelInteriorPlan, LEVEL_INTERIOR_SPEC } from '../../tools/perf/level-interior';
 import { farCostRows, levelTargetRows, LEVEL_FRAME_TARGET_MS, type LevelReport } from '../../tools/perf/level-run';
 import type { FrameRunResult } from '../../tools/perf/frame-run';
 
@@ -109,6 +111,96 @@ describe('the level classes', () => {
     expect(levelTerrainOrigin()[0]).toBe(-(T.tiles * (T.tileSamples - 1) * T.spacing) / 2);
     const side = T.tiles * (T.tileSamples - 1) + 1;
     expect(levelTerrainRaw().length).toBe(side * side * 2);
+  });
+});
+
+describe('the interior class', () => {
+  const p = levelInteriorPlan();
+  const I = LEVEL_INTERIOR_SPEC;
+  const arch = p.interior!.architecture as unknown as ArchitectureComponent;
+  const layerAt = (p.layer.components['transform'] as { position: number[] }).position;
+  /** The room (layer columns) a world point stands in, at least `margin` m from its walls (null: none). */
+  const roomOf = (x: number, z: number, margin: number): number => p.rooms.findIndex((r) => x - layerAt[0]! >= r.box[0] + margin && x - layerAt[0]! <= r.box[2] - margin && z - layerAt[2]! >= r.box[1] + margin && z - layerAt[2]! <= r.box[3] - margin);
+
+  it('is the same plan every time: 40 rooms side by side, sharing walls, in the starter room preset', () => {
+    expect(JSON.stringify(levelInteriorPlan())).toBe(JSON.stringify(p));
+    expect(p.kind).toBe('interior');
+    expect(arch.outlines).toHaveLength(40);
+    for (const o of arch.outlines!) {
+      expect(o.preset).toBe('starter-room');
+      expect(o.path.closed).toBe(true);
+      for (const q of o.path.points) expect([q[0], q[2]].every((v) => Number.isInteger(v))).toBe(true);
+    }
+    // Expanded with the engine's starters on a layer: one storey each, every opening cut, nothing refused.
+    const ex = expandArchitecture({ ...arch, layer: 'ground' }, layerAt, architectureStylesOf([]));
+    expect(ex.problems).toEqual([]);
+    expect(ex.rooms).toHaveLength(40);
+    // Shared walls are made once: fewer wall sweeps' outlines than four sides a room.
+    const walls = ex.component.elements.filter((e) => e.kind === 'sweep' && e.wall === true);
+    expect(walls.length).toBeGreaterThan(0);
+    const listed = arch.outlines!.reduce((n, o) => n + (o.openings?.length ?? 0), 0);
+    const cut = walls.reduce((n, w) => n + ((w as { openings?: unknown[] }).openings?.length ?? 0), 0);
+    expect(cut).toBeGreaterThanOrEqual(listed);
+  });
+
+  it('has a closed door in half of the doorways and nothing in the other half, and the counts it reports', () => {
+    const c = p.counts;
+    const { cols, rows } = I.grid;
+    const inner = rows * (cols - 1) + I.rowDoorColumns.length * (rows - 1);
+    expect(c).toMatchObject({ rooms: 40, doorways: inner + 1, windows: 6, props: 40 * I.propsPerRoom });
+    expect(c['closedDoors']! + c['openDoorways']!).toBe(c['doorways']);
+    expect(c['closedDoors']).toBe(c['openDoorways']);
+    // Only closed doors are pieces (an edge piece draws the same open or closed): one edit, nothing open in it.
+    const edges = p.blockEdits.filter((e) => e['kind'] === 'edges');
+    expect(edges).toHaveLength(1);
+    const closed = edges[0]!;
+    expect(closed['edge']).toEqual({ block: p.interior!.doorType['blockId'] });
+    // Each door is the edges its 1 m opening covers, a cell wide, in the rows whose middles lie between the sill (0)
+    // and the head (2.1 m) over the floor: four half-metre rows.
+    const rowsHigh = 4;
+    expect((closed['at'] as number[]).length / 4).toBe(c['closedDoors']! * rowsHigh);
+    expect(c['doorEdges']).toBe(c['closedDoors']! * rowsHigh);
+    expect(JSON.stringify(closed).length).toBeLessThan(64 * 1024);
+    // The doors' rows stand on the slab (row 0) and every edge lies on a room's outline.
+    const at = closed['at'] as number[];
+    for (let k = 0; k < at.length; k += 4) {
+      expect(at[k + 1]).toBeGreaterThanOrEqual(1);
+      const [x, z, axis] = [at[k]!, at[k + 2]!, at[k + 3]!];
+      expect(p.rooms.some((r) => (axis === 0 ? (x === r.box[0] || x === r.box[2]) && z >= r.box[1] && z < r.box[3] : (z === r.box[1] || z === r.box[3]) && x >= r.box[0] && x < r.box[2]))).toBe(true);
+    }
+    expect(p.interior!.doorType).toMatchObject({ placement: 'edge' });
+  });
+
+  it('keeps its lamps within the local-light budget, two shadowed spots among them', () => {
+    const lights = p.batches.flat().map((e) => e.components['light'] as { type: string; castShadow?: boolean; range: number } | undefined).filter((l) => l !== undefined);
+    expect(lights.length).toBeLessThanOrEqual(MAX_LOCAL_LIGHTS);
+    expect(lights).toHaveLength(p.counts['lamps']!);
+    expect(lights.filter((l) => l.type === 'spot' && l.castShadow === true)).toHaveLength(2);
+    expect(lights.filter((l) => l.type === 'point')).toHaveLength(14);
+    for (const l of lights) expect(l.range).toBe(I.lampRange);
+  });
+
+  it('stands its props on the rooms\' floors clear of the walls, and the camera inside a room looking along its row', () => {
+    const models = p.batches.flat().filter((e) => e.components['model'] !== undefined);
+    expect(models).toHaveLength(p.counts['props']!);
+    const floor = 0.5;
+    for (const m of models) {
+      const [x, y, z] = (m.components['transform'] as { position: number[] }).position as [number, number, number];
+      expect(roomOf(x, z, I.propMargin - 1e-6)).toBeGreaterThanOrEqual(0);
+      expect(y).toBeGreaterThanOrEqual(floor);
+      expect(y).toBeLessThan(floor + 0.1);
+    }
+    const [x, y, z] = p.camera.position;
+    const room = roomOf(x, z, 0.5);
+    expect(room).toBe(I.cameraRoom[1] * I.grid.cols + I.cameraRoom[0]);
+    expect(y).toBeCloseTo(floor + 0.01 + I.eye, 3);
+    // Looking +x (a turn of −90° about up from three's −z).
+    const q = p.camera.rotation;
+    expect(q[0]).toBe(0);
+    expect(q[2]).toBe(0);
+    expect(q[1]).toBeCloseTo(-Math.SQRT1_2, 5);
+    // The other classes are untouched by it: still only area and landscape by default.
+    expect(levelPlan('area').interior).toBeUndefined();
   });
 });
 

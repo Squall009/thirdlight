@@ -15,8 +15,8 @@
  *   off (each scene's look stays the author's).
  * - renderer settings: the render scale, the most drawing-buffer pixels per
  *   CSS pixel, MSAA, the largest shadow map, how many point and spot lights
- *   are drawn, the kind of ambient occlusion, the LOD bias and dynamic
- *   resolution. Each one a level leaves out is the project's setting.
+ *   are drawn and how many of them draw their shadow, the kind of ambient
+ *   occlusion, the LOD bias and dynamic resolution. Each one a level leaves out is the project's setting.
  *
  * A player's settings field bound to one of those renderer settings (`renderScale`,
  * `ambientOcclusion`, `dynamicResolution`) lays over the level: a player's own
@@ -77,6 +77,13 @@ export interface QualityLevelConfig {
   shadowMapSize?: number;
   /** How many point and spot lights the loaded scenes draw at once (0 – the scenes' budget). */
   localLights?: number;
+  /**
+   * How many point and spot lights draw their shadow at once (0 – the scenes'
+   * budget; absent: every one that casts, every frame): the ones largest on
+   * screen, spot before point, fading out with distance, their maps drawn
+   * again only when something in reach changed.
+   */
+  shadowedLights?: number;
   ambientOcclusion?: AmbientOcclusionKind;
   /** 0.25–4: divides every LOD switch point and cull size (over the project's `lod_bias`). */
   lodBias?: number;

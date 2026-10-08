@@ -30,6 +30,7 @@ import { shadowSeesCutaways } from './block-cutaway-view';
 import { decideShadows, deriveShadowCamera, directionalShadowSettings, planSceneLights, SHADOW_PROFILE, type AuthoredLight, type ShadowOutcome, type ShadowPlan, type ShadowReason, type ShadowRegion } from './lighting';
 import { selectSceneLights, type SceneLightEntry, type SceneLightKind, type SceneLightSelection } from './scene-lights';
 import type { StaticShadowRevision } from './shadow-casters';
+import { ShadowBudget, type ShadowBudgetDeps, type ShadowBudgetDiagnostics } from './shadow-budget';
 import { textureHolds } from './texture-holds';
 import { markProbeHeld } from './probe-lighting';
 import { setLightImportance } from './local-lights';
@@ -101,6 +102,8 @@ export interface SceneLightsOptions {
    * (`cached-shadow.ts`). Null: one map of every caster, drawn every frame.
    */
   readonly staticShadows: StaticShadowRevision | null;
+  /** What the shadowed point and spot lights' budget reads of the view: the rooms seen and what moved (absent: rooms not known, nothing moves). */
+  readonly localShadows?: Pick<ShadowBudgetDeps, 'roomSeen' | 'movers'>;
 }
 
 type KeyRec = {
@@ -127,6 +130,8 @@ export interface LightsDiagnostics {
   /** The key light's static and dynamic shadow-map draws (absent: not cached, or no key light shadow). */
   shadowMaps?: CachedShadowCounts;
   lights?: { directional: string | null; ambient: string | null; hemisphere: string | null; local: number; localOn: number; cookies: number };
+  /** The shadowed point and spot lights' budget this frame (absent: no point or spot light casts a shadow). */
+  localShadows?: ShadowBudgetDiagnostics;
 }
 
 /** What a script may write over a realized light. */
@@ -182,7 +187,15 @@ export interface SceneLights {
    * (null: no limit beyond the lights' own sizes and the scenes' budget). True when the lights that are on must
    * be selected again (the shadow-casting lights were realized again at their new size, or the budget changed).
    */
-  setLimits(limits: { readonly shadowMapSize: number | null; readonly localLights: number | null }): boolean;
+  setLimits(limits: { readonly shadowMapSize: number | null; readonly localLights: number | null; readonly shadowedLights?: number | null }): boolean;
+  /** Rank, fade and cache the shadowed point and spot lights for the frame's view (shadow-budget.ts; after the rooms' walk). */
+  budgetShadows(camera: THREE.Camera): void;
+  /**
+   * The page has rooms (or none any more): point and spot lights are realized
+   * as layered lights, whose room test (light-layers.ts) keeps them in their
+   * room. Realized again only when that changes (once, when rooms first load).
+   */
+  setRoomLights(on: boolean): void;
   diagnostics(): LightsDiagnostics;
   dispose(): void;
 }
@@ -230,11 +243,18 @@ export function createSceneLights(o: SceneLightsOptions): SceneLights {
       () => undefined,
     );
   };
+  const shadowBudget = new ShadowBudget({ roomSeen: (k) => o.localShadows?.roomSeen(k) ?? true, movers: () => o.localShadows?.movers() ?? [], staticRevision: () => o.staticShadows?.value ?? 0 });
+  /** The page has rooms: point and spot lights are layered (their room test). */
+  let roomLights = false;
+  /** The last selection's inputs (lights realized again are switched as it said). */
+  let lastSelect: { rankOf: (entityId: string) => number; hidden: ReadonlySet<string> } | null = null;
+  /** Whether a light is realized as a layered light: its masks narrow it, or it is a point or spot light on a page with rooms. */
+  const wantsLayered = (l: { type: string }, masks: LightMasks): boolean => needsLayeredLight(masks) || (roomLights && (l.type === 'point' || l.type === 'spot'));
   /** A point, spot or hemisphere light for an entity (null otherwise, or when a bake holds it). */
   const localLightOf = (id: string, l: LightLike, masks: LightMasks): THREE.Light | null => {
     if (bakedAway(id, l)) return null;
     const colour = new THREE.Color(l.color);
-    const layered = needsLayeredLight(masks);
+    const layered = wantsLayered(l, masks);
     if (l.type === 'hemisphere') {
       const h = new (layered ? LayeredHemisphereLight : THREE.HemisphereLight)(colour, new THREE.Color(l.groundColor ?? '#444444'), l.intensity);
       setLightMasks(h, masks);
@@ -470,6 +490,7 @@ function releaseLight(entityId: string): void {
     has: (entityId) => switchable.has(entityId),
 
     select(rankOf, hidden): void {
+      lastSelect = { rankOf, hidden };
       if (!o.v3) return;
       const entries: SceneLightEntry[] = [];
       let order = 0;
@@ -578,7 +599,7 @@ function releaseLight(entityId: string): void {
         const l = (realizedFrom.get(id)!.components as { light?: LightLike }).light;
         if (lit === undefined || l === undefined) continue;
         const masks = masksOf(id, l);
-        if (needsLayeredLight(masks) !== isLayeredLight(lit.light)) {
+        if (wantsLayered(l, masks) !== isLayeredLight(lit.light)) {
           replaceLight(id);
           replaced = true;
           continue;
@@ -603,7 +624,27 @@ function releaseLight(entityId: string): void {
       return replaced;
     },
 
+    setRoomLights(on): void {
+      if (on === roomLights) return;
+      roomLights = on;
+      const ids = [...switchable].filter(([, r]) => r.kind === 'point' || r.kind === 'spot').map(([id]) => id);
+      for (const id of ids) {
+        const l = (realizedFrom.get(id)?.components as { light?: LightLike } | undefined)?.light;
+        if (l !== undefined && wantsLayered(l, masksOf(id, l)) !== isLayeredLight(switchable.get(id)!.light)) replaceLight(id);
+      }
+      // Before the first selection the scene is still being realized: its programs are built after it anyway.
+      if (lastSelect === null) return;
+      this.select(lastSelect.rankOf, lastSelect.hidden);
+      o.shadingChanged();
+    },
+
+    budgetShadows(camera): void {
+      if (localShadowLights === 0) return;
+      shadowBudget.update(camera, [...switchable.values()].map((r) => r.light));
+    },
+
     setLimits(limits): boolean {
+      shadowBudget.setBudget(limits.shadowedLights ?? null);
       const cap = limits.shadowMapSize;
       const budget = limits.localLights;
       const capChanged = cap !== shadowMapCap;
@@ -624,6 +665,7 @@ function releaseLight(entityId: string): void {
       // `shadowReason` is present iff `shadows === 'off'`.
       if (shadowState.shadows === 'off' && shadowState.reason !== undefined) d.shadowReason = shadowState.reason;
       if (shadowState.shadows === 'on' && keyRec?.cached != null && keyRec.light.castShadow) d.shadowMaps = keyRec.cached.diagnostics();
+      if (localShadowLights > 0) d.localShadows = shadowBudget.diagnostics();
       if (selection !== null && !disposed) d.lights = { directional: selection.directional, ambient: selection.ambient, hemisphere: selection.hemisphere, local: selection.localTotal, localOn: selection.localOn, cookies: cookies.size };
       return d;
     },

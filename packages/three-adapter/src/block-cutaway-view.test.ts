@@ -201,4 +201,26 @@ describe('block view: cut-aways', () => {
     expect(splitByCutaway(positions, new Uint32Array([0, 1, 2, 3, 4, 5]), [], [1, 1, 1])).toBeNull();
     expect(built({ cellSize: [1, 1, 1], bounds: LAYER.bounds }).diagnostics().cutaway).toBeUndefined();
   });
+
+  it('rooms drawn on a layer are regions its cut-aways name; meshes made elsewhere split by its zones with their offset', () => {
+    // The layer names a room no stored region has: no zone until the rooms object gives its regions.
+    const v = built({ ...LAYER, cutaway: { regions: [{ region: 'hall-s1' }] } });
+    expect(v.cutawayOf('house')).toBeNull();
+    const seen: string[] = [];
+    v.onCutawayZones((id) => seen.push(id));
+    v.setRoomRegions('house', 'rooms', [{ regionId: 'hall-s1', boxes: [[4, 4, 4, 10, 7, 10]] }]);
+    expect(v.cutawayOf('house')?.zones.map((z) => z.key)).toEqual(['hall-s1']);
+    expect(seen).toEqual(['house']);
+    // The same regions again change nothing; a stored region of the same id wins over the room's.
+    v.setRoomRegions('house', 'rooms', [{ regionId: 'hall-s1', boxes: [[4, 4, 4, 10, 7, 10]] }]);
+    expect(seen).toEqual(['house']);
+    // A triangle of generated architecture in its object's frame (2 m below the layer's): split once offset.
+    const zones = v.cutawayOf('house')!.zones;
+    const tri = new Float32Array([5, 3, 5, 6, 3, 5, 5, 3, 6]);
+    expect(splitByCutaway(tri, new Uint32Array([0, 1, 2]), zones, [1, 1, 1])).toBeNull();
+    expect(splitByCutaway(tri, new Uint32Array([0, 1, 2]), zones, [1, 1, 1], [0, 2, 0])?.cut.length).toBe(1);
+    v.setRoomRegions('house', 'rooms', null);
+    expect(v.cutawayOf('house')).toBeNull();
+    expect(seen).toEqual(['house', 'house']);
+  });
 });

@@ -77,6 +77,8 @@ export interface SceneAdapterOptions {
   splines?: boolean;
   /** Draw generated architecture (default true; false: none, a diagnostic comparison). */
   architecture?: boolean;
+  /** Leave out what the rooms' portals do not show (default true; false: drawn anyway, a diagnostic comparison). */
+  portals?: boolean;
   /** Where made architecture chunks are kept across visits (an exported game's IndexedDB; absent: memory only). */
   architectureStore?: import('./architecture-view').ArchitectureChunkStore;
   /** The style and preset graphs generated architecture's outlines are made by (absent: the engine's starters only). */
@@ -349,6 +351,8 @@ export interface SceneAdapterDiagnostics {
   splines?: import('./spline-view').SplineViewDiagnostics;
   /** Generated architecture: chunks drawn and being made, where they were made, generation times. */
   architecture?: import('./architecture-view').ArchitectureViewDiagnostics;
+  /** The rooms generated architecture makes: rooms and portals, what the view sees, draws hidden, lights per room. */
+  rooms?: import('./room-culling').RoomCullingDiagnostics;
   /** Rule scatter's stored copies drawn (block layers' and terrains'). */
   scatter?: import('./scatter-view').ScatterViewDiagnostics;
   /** Ground cover made near the camera. */
@@ -462,6 +466,8 @@ export interface SceneAdapter {
   setArchitectureStyles?(graphs: readonly import('@thirdlight/runtime').ArchitectureGraphLike[] | null): void;
   /** A slider being dragged: values over one preset and those derived from it (null: the stored values). How many objects are made again. */
   previewArchitecture?(preview: import('@thirdlight/runtime').ArchitecturePreview | null): number;
+  /** What a probe bake reads of generated architecture: an object's meshes at full detail, and each room's box inset `inset` metres (world). */
+  architectureBake?(): { meshes(entityId: string): THREE.Mesh[]; rooms(inset: number): { min: number[]; max: number[] }[] };
   /** The host's material library changed a material in place: the lightmapped copies follow it. */
   materialsChanged?(): void;
   /** Bring the scene set, transforms, world matrices and hidden objects up to date now, without drawing. */

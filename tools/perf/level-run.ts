@@ -7,7 +7,10 @@
  * The log ends with each class against the soft frame target and what the
  * landscape's far part adds to the area.
  *
- *   --classes area,landscape     (default both; `world`: the landscape at 8 × 8 km with block fields, all streamed)
+ *   --classes area,landscape     (default both; `world`: the landscape at 8 × 8 km with block fields, all streamed;
+ *                                `interior`: 40 generated rooms on a block layer, half the doorways closed by a door, half open, the
+ *                                camera inside looking along a row through the doorways — level-interior.ts; the
+ *                                options below that shape rooms, roofs, terrain or a flight leave it as it is)
  *   --live N                     N live door cells in each class (default 0: the classes as recorded)
  *   --edge-walls                 the rooms' walls as edge pieces (default: cell walls, as recorded)
  *   --wall-paint                 the layer with wall paint, the rooms' front walls painted (default: none, as recorded)
@@ -51,6 +54,8 @@
  *   --renderers webgpu,webgl2    (default both)
  *   --query 'a=b&c=d'            add to the export's page query
  *   --switches 'a=off,b=off'     measure each export again with each query added (one switch at a time)
+ *                                (`--classes interior --switches portals=off`: the interior again with room/portal
+ *                                culling off, what the culling saves)
  *   --record-ms N --warmup-ms N --gpu-ms N --profile-ms N --out FILE --keep
  *
  * The report goes to ~/.cache/thirdlight-perf/reports/level-<time>.json (latest-level.json too).
@@ -64,6 +69,7 @@ import { PERF_ROOT, REPO, startPerfBackend } from './backend';
 import { moduleIndex } from './profile';
 import { launchGpuBrowser, LONG_FRAME_MS, measurePage, serveStatic, sourcesOf, type FrameRenderer, type FrameRunResult } from './frame-run';
 import { buildLevel, FLIGHT_SECONDS, LEVEL_HEIGHT_FOG, LEVEL_LOOK, levelPlan, LEVEL_ALL_KINDS, LEVEL_KINDS, LEVEL_SEED, LEVEL_VERSION, type LevelBuild, type LevelKind, type LevelRoofs } from './level';
+import { levelInteriorPlan } from './level-interior';
 import { frameLine } from './village-run';
 import { hitches, installFrameClock, pageNow, rafTimes, type HitchWindow } from './blocks-run';
 import { FRAME_VIEWPORT } from './frame-run';
@@ -76,6 +82,12 @@ const LEVEL_VERTEX_AO = 0.6;
 
 /** How long a flight waits for its scene to load before it is measured (the scene never settles while the camera flies). */
 const FLIGHT_SETTLE_MS = 20_000;
+
+/** The rooms' mark of a run's page (`data-tl-rooms`: rooms seen of all, draws hidden, mesh–light pairs lit / without rooms), or nothing. */
+function roomsNote(r: FrameRunResult): string {
+  const m = r.rendererChoice?.rooms;
+  return m === undefined ? '' : `, rooms ${m} (seen/all, draws hidden, mesh-light pairs lit/without rooms)`;
+}
 
 /** The soft whole-frame target (ms): 60 fps, on the frame interval's p95, the GPU's time and the main thread's. */
 export const LEVEL_FRAME_TARGET_MS = 16.7;
@@ -235,7 +247,8 @@ export async function runLevelCli(argv: readonly string[]): Promise<void> {
   const be = await startPerfBackend(join(runDir, 'data'), join(runDir, 'exports'));
   try {
     for (const kind of kinds) {
-      const b = await buildLevel(be, `level-${kind}`, levelPlan(kind, LEVEL_SEED, liveDoors, has('edge-walls'), has('wall-paint'), roofs, has('kit-swap'), has('vertex-ao') ? LEVEL_VERTEX_AO : 0, has('rules'), projection, macro, foliage, flight, impostorSize, splines === 'on', !has('flight-plain'), has('blocks-seam')), log);
+      const plan = kind === 'interior' ? levelInteriorPlan(LEVEL_SEED) : levelPlan(kind, LEVEL_SEED, liveDoors, has('edge-walls'), has('wall-paint'), roofs, has('kit-swap'), has('vertex-ao') ? LEVEL_VERTEX_AO : 0, has('rules'), projection, macro, foliage, flight, impostorSize, splines === 'on', !has('flight-plain'), has('blocks-seam'));
+      const b = await buildLevel(be, `level-${kind}`, plan, log);
       if (has('height-fog')) await be.project(b.projectId).command('setEnvironment', { sceneId: 'scene-main', environment: { ...LEVEL_LOOK, heightFog: LEVEL_HEIGHT_FOG } });
       if (has('spline-edit') && kind === 'landscape' && splines === 'on') report.splineEdit = await editWindows(be, b.projectId, renderers, 'spline', log, has('edit-profile'));
       if (has('sculpt-edit') && kind === 'landscape') report.sculptEdit = await editWindows(be, b.projectId, renderers, 'sculpt', log, has('edit-profile'));
@@ -262,7 +275,7 @@ export async function runLevelCli(argv: readonly string[]): Promise<void> {
         for (const r of renderers) {
           const res = await measurePage(browser, { url: `${site.url}?renderer=${r}${query}`, warmupMs, recordMs, gpuMs, profileMs, sourceOf: sourcesOf(site), shot: join(runDir, `${kind}-${r}.png`), ...(flight ? { settleMs: FLIGHT_SETTLE_MS } : {}) });
           (report.classes[kind] ??= {})[r] = res;
-          log(frameLine(`level ${kind} ${r}`, res));
+          log(frameLine(`level ${kind} ${r}`, res) + roomsNote(res));
           // Each restyle (a kit swapped) the page timed: its chunks, how long they took to arrive, its frames and long frames.
           const restyles = (res.marks ?? []).filter((m) => m.name === 'tl:blocks:restyle').map((m) => m.detail as { ms: number; chunks: number; frames: number; longFrames: number; longestFrameMs: number; longestFrameAt: number; longestUpdateMs: number });
           // Each scatter set made (a copy removed on the way, a re-bake): its main-thread and worker time.
@@ -283,7 +296,7 @@ export async function runLevelCli(argv: readonly string[]): Promise<void> {
           for (const sw of switches) {
             const off = await measurePage(browser, { url: `${site.url}?renderer=${r}${query}&${sw}`, warmupMs, recordMs, gpuMs, profileMs: 0, sourceOf: sourcesOf(site) });
             (((report.switches ??= {})[kind] ??= {})[sw] ??= {})[r] = off;
-            log(frameLine(`level ${kind} ${r} ${sw}`, off));
+            log(frameLine(`level ${kind} ${r} ${sw}`, off) + roomsNote(off));
           }
         }
       } finally {

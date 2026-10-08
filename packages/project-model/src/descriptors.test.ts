@@ -617,6 +617,7 @@ const ENV_BASES: J[] = [
         msaa: 0,
         shadowMapSize: 1024,
         localLights: 4,
+        shadowedLights: 2,
         ambientOcclusion: 'ssao',
         lodBias: 0.5,
         dynamicResolution: true,

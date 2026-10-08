@@ -641,6 +641,7 @@ export class Viewport {
       projected: this.projected,
       rootOf: (e) => (e.kind === 'model' || e.kind === 'box' ? (this.adapter.entityObject?.(e.id) ?? null) : null),
       blockView: this.adapter.blockLayers?.() ?? null,
+      architecture: this.adapter.architectureBake?.() ?? null,
       worldMatrix: (id, out) => this.adapter.worldMatrix?.(id, out) === true,
     };
     return { host, lights: gatherBakeLights({ projected: this.projected, nodeOf: (id) => this.frameOf(id) ?? undefined }), renderer: this.adapter.currentRenderer?.() ?? null, scene: this.adapter.threeScene?.() ?? null };
