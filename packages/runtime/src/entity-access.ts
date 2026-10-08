@@ -249,7 +249,7 @@ export class EntityAccess {
   swapNow(id: string, patch: unknown): string | null {
     const doc = this.host.doc(id);
     if (doc === undefined) return `object "${id}" is not loaded`;
-    if (!wearsMaterials(doc)) return `object "${id}" has no model, box or instance set to wear materials`;
+    if (!wearsMaterials(doc)) return `object "${id}" has no model, box, instance set or architecture to wear materials`;
     const problem = this.swapProblem(id, doc, patch);
     if (problem !== null) return problem.message;
     this.applySwap(id, patch as Readonly<Record<string, string | null>>);
@@ -341,7 +341,7 @@ export class EntityAccess {
     if (name === SCRIPT_OBJECT_COMPONENT) current = this.objectValue(doc);
     else if (name === 'materialParams') current = {};
     else if (name === 'materials') {
-      if (!wearsMaterials(doc)) return this.refuse(writer, name, 'component_missing', `object "${id}" has no model, box or instance set to wear materials`);
+      if (!wearsMaterials(doc)) return this.refuse(writer, name, 'component_missing', `object "${id}" has no model, box, instance set or architecture to wear materials`);
       current = {};
     } else {
       const v = c[name] as Readonly<Record<string, unknown>> | undefined;
@@ -697,5 +697,6 @@ const OK: EntityWriteResult = Object.freeze({ ok: true, field: '', code: '', mes
 /** Whether the object has something that wears materials (a model, a box or an instance set). */
 function wearsMaterials(doc: EntityV3): boolean {
   const c = doc.components as unknown as Record<string, unknown>;
-  return c['model'] !== undefined || c['box'] !== undefined || c['instances'] !== undefined;
+  // Generated architecture wears its trim sheets by slot (a swap restyles it).
+  return c['model'] !== undefined || c['box'] !== undefined || c['instances'] !== undefined || c['architecture'] !== undefined;
 }

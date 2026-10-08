@@ -74,6 +74,8 @@ import {
   type ModelColliderTable,
   type PrefabDefinition,
   type TerrainComponent,
+  type ArchitectureGraphLike,
+  ID_RE,
 } from '@thirdlight/project-model';
 
 import { LiveBlocks, edgeKeyOf, type LiveBlockChanges } from './live-blocks';
@@ -227,6 +229,8 @@ export interface GridDiff {
   readonly types?: Readonly<Record<string, Readonly<Record<string, string>>>>;
   /** The kits scripts set (`setKit`): [layer, region (null: the whole layer), kit (null: none)]; absent: none. */
   readonly kits?: readonly (readonly [string, string | null, string | null])[];
+  /** The architecture presets scripts swapped (`setArchitecturePreset`): [preset, the one shown in its place]; absent: none. */
+  readonly architecturePresets?: readonly (readonly [string, string])[];
 }
 
 /**
@@ -391,6 +395,17 @@ export interface BehaviorGrid {
    */
   kit(layer: string, region?: string): string | null;
   /**
+   * Restyle generated architecture: every outline styled by preset `from` is made by preset `to` instead (its style, values and trim sheet), in every loaded and later loaded scene, without touching the outlines; null puts `from` back. The page makes the changed chunks in the background, the old ones drawn until the new are in, and the colliders follow. False when refused (not preset ids, `to` not a preset of the game). Saved with the grid.
+   * @graphNode Set architecture preset
+   */
+  setArchitecturePreset(from: string, to: string | null): boolean;
+  /**
+   * The preset shown in place of `from` now (null: `from` itself).
+   * @graphPure
+   * @graphNode Architecture preset
+   */
+  architecturePreset(from: string): string | null;
+  /**
    * The edge piece on a side of a cell (a wall, door or fence between it and its neighbour), or null when none stands there.
    * @graphPure
    * @graphNode Get edge
@@ -466,8 +481,13 @@ export interface GridKitChange {
   readonly kits: readonly BlockLayerKit[];
 }
 
-/** What the renderer follows: a chunk's cells, a layer's kits, or a scatter copy scripts hid, showed or removed. */
-export type GridRenderChange = GridChunkChange | GridKitChange | ScatterCopyChange;
+/** The architecture presets scripts swapped, all of them now (the renderer makes the outlines they style again). */
+export interface GridArchitectureChange {
+  readonly architecturePresets: Readonly<Record<string, string>>;
+}
+
+/** What the renderer follows: a chunk's cells, a layer's kits, a scatter copy scripts hid, showed or removed, or the architecture presets swapped. */
+export type GridRenderChange = GridChunkChange | GridKitChange | ScatterCopyChange | GridArchitectureChange;
 
 /** What scripts set for the layers' cut-aways (`setCutaway`, `setCutawaySubject`, `setCutawayPoint`); the renderer reads it. */
 export interface GridCutawayState {
@@ -535,6 +555,9 @@ export class RuntimeGrid {
   private readonly kitOverrides = new Map<string, Map<string, string | null>>();
   /** Layers whose kits changed since the renderer last took its changes. */
   private kitDirty = new Set<string>();
+  /** The architecture presets scripts swapped (preset → the one shown in its place), and whether the renderer has them. */
+  private archSwaps = new Map<string, string>();
+  private archDirty = false;
   /** Every kit name the block types use. */
   private readonly kitNames: ReadonlySet<string>;
   private readonly materialIds: ReadonlySet<string> | null;
@@ -557,13 +580,13 @@ export class RuntimeGrid {
   private readonly walkGraphs: WalkGraphCache = new WeakMap();
 
   /** `streamSources` gives world streaming's sources at a step boundary (absent: streamed objects stream around nothing). */
-  constructor(types: readonly BlockType[], fields: readonly CellField[], collide: boolean, defaultMaxSlope = 45, materialIds?: readonly string[], prefabs?: ReadonlyMap<string, PrefabDefinition>, modelColliders?: ModelColliderTable, streamSources?: () => number[][]) {
+  constructor(types: readonly BlockType[], fields: readonly CellField[], collide: boolean, defaultMaxSlope = 45, materialIds?: readonly string[], prefabs?: ReadonlyMap<string, PrefabDefinition>, modelColliders?: ModelColliderTable, streamSources?: () => number[][], architectureStyles?: readonly ArchitectureGraphLike[]) {
     this.stream = new SimWorldStream(streamSources ?? null);
     const collisionRing = (entityId: string, x: number, z: number): boolean => this.stream.has(entityId, 'collision', `${x},${z}`);
     this.terrain = new TerrainColliders(collisionRing);
     this.scatter = new RuntimeScatter(collide, modelColliders, collisionRing);
     this.splines = new RuntimeSplines(collide, modelColliders);
-    this.architecture = new RuntimeArchitecture(collide, modelColliders);
+    this.architecture = new RuntimeArchitecture(collide, modelColliders, architectureStyles);
     this.materialIds = materialIds !== undefined ? new Set(materialIds) : null;
     this.types = new Map(types.map((t) => [t.blockId, t]));
     this.surface = new RuntimeSurface(() => this.surfaceLayers(), this.types, this.terrain);
@@ -757,6 +780,7 @@ export class RuntimeGrid {
     }
     // The authored kits again.
     for (const id of [...this.kitOverrides.keys()]) this.setKits(id, new Map());
+    this.setArchSwaps([]);
     this.current = [];
     this.previous = Object.freeze([]);
     this.writes = 0;
@@ -797,7 +821,7 @@ export class RuntimeGrid {
     if (typeof d !== 'object' || d === null || d.version !== 1 || !Array.isArray(d.layers)) return 'the grid section is not a grid diff (version 1)';
     const typesProblem = this.typesProblem(d.types);
     if (typesProblem !== null) return typesProblem;
-    const kitsProblem = this.kitsProblem(d.kits);
+    const kitsProblem = this.kitsProblem(d.kits) ?? this.archSwapsProblem(d.architecturePresets);
     if (kitsProblem !== null) return kitsProblem;
     for (const entry of d.layers) {
       if (typeof entry !== 'object' || entry === null || typeof entry.layer !== 'string' || !Array.isArray(entry.cells)) return 'a grid diff layer is { layer, cells }';
@@ -867,6 +891,7 @@ export class RuntimeGrid {
     for (const id of involved) this.markAll(this.layerMap.get(id)!);
     this.setTypeSwaps(d.types);
     this.setAllKits(d.kits);
+    this.setArchSwaps(d.architecturePresets ?? []);
     return null;
   }
 
@@ -951,6 +976,34 @@ export class RuntimeGrid {
     for (const id of new Set([...this.kitOverrides.keys(), ...next.keys()])) this.setKits(id, next.get(id) ?? new Map());
   }
 
+  /** Why a preset swap is refused (null: it is not). */
+  private archSwapProblem(from: unknown, to: unknown): string | null {
+    if (typeof from !== 'string' || !ID_RE.test(from)) return 'a preset id';
+    if (to !== null && (typeof to !== 'string' || !this.architecture.hasPreset(to))) return `"${String(to).slice(0, 64)}" is not a preset of the game`;
+    return null;
+  }
+
+  /** A save's architecture preset swaps (the grid diff's `architecturePresets`): why they cannot be restored, or null. */
+  private archSwapsProblem(swaps: unknown): string | null {
+    if (swaps === undefined) return null;
+    if (!Array.isArray(swaps)) return "the grid diff's architecturePresets is a list of [preset, preset]";
+    for (const s of swaps) {
+      if (!Array.isArray(s) || s.length !== 2) return "the grid diff's architecturePresets is a list of [preset, preset]";
+      const problem = this.archSwapProblem(s[0], s[1]);
+      if (problem !== null) return `architecture preset swap: ${problem}`;
+    }
+    return null;
+  }
+
+  /** The architecture preset swaps become exactly these (checked). */
+  private setArchSwaps(swaps: readonly (readonly [string, string])[]): void {
+    const next = new Map(swaps.map(([from, to]) => [from, to] as const));
+    if (next.size === this.archSwaps.size && [...next].every(([k, v]) => this.archSwaps.get(k) === v)) return;
+    this.archSwaps = next;
+    this.archDirty = true;
+    this.architecture.setSwaps(Object.fromEntries(next));
+  }
+
   /** At the start of a step: the last step's writes become the visible changes. */
   beginStep(stepIndex: number): void {
     this.previous = Object.freeze(this.current);
@@ -1027,7 +1080,11 @@ export class RuntimeGrid {
 
   /** The chunks to re-mesh since the last call, with their cells now. */
   takeRenderChanges(): GridRenderChange[] {
-    const copies = this.scatter.takeChanges();
+    let copies: GridRenderChange[] = this.scatter.takeChanges();
+    if (this.archDirty) {
+      this.archDirty = false;
+      copies = [...copies, { architecturePresets: Object.freeze(Object.fromEntries(this.archSwaps)) }];
+    }
     if (this.renderDirty.size === 0 && this.kitDirty.size === 0) return copies;
     const out: GridRenderChange[] = [...copies];
     // A layer's kits first: its chunks below are meshed with them.
@@ -1530,7 +1587,8 @@ export class RuntimeGrid {
         const types = g.typeSwaps.size === 0 ? undefined : Object.freeze(Object.fromEntries([...g.typeSwaps].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))));
         const kits: (readonly [string, string | null, string | null])[] = [];
         for (const id of [...g.kitOverrides.keys()].sort()) for (const [region, kit] of [...g.kitOverrides.get(id)!].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) kits.push(Object.freeze([id, region === '' ? null : region, kit] as const));
-        return Object.freeze({ version: 1 as const, layers: Object.freeze(layers), ...(types !== undefined ? { types } : {}), ...(kits.length > 0 ? { kits: Object.freeze(kits) } : {}) });
+        const presets = [...g.archSwaps].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)).map(([from, to]) => Object.freeze([from, to] as const));
+        return Object.freeze({ version: 1 as const, layers: Object.freeze(layers), ...(types !== undefined ? { types } : {}), ...(kits.length > 0 ? { kits: Object.freeze(kits) } : {}), ...(presets.length > 0 ? { architecturePresets: Object.freeze(presets) } : {}) });
       },
       setTypeMaterials(blockId, materials) {
         if (g.typeSwapProblem(blockId, materials) !== null) return false;
@@ -1581,6 +1639,19 @@ export class RuntimeGrid {
         const key = typeof region === 'string' ? region : undefined;
         return (l.kits ?? []).find((k) => k.region === key)?.kit ?? null;
       },
+      setArchitecturePreset(from, to) {
+        if (g.archSwapProblem(from, to) !== null) return false;
+        if (!g.unlimited && g.writes >= GRID_WRITES_PER_STEP) return false;
+        g.writes += 1;
+        const next = new Map(g.archSwaps);
+        if (to === null || to === from) next.delete(from);
+        else next.set(from, to);
+        g.setArchSwaps([...next]);
+        return true;
+      },
+      architecturePreset(from) {
+        return typeof from === 'string' ? g.archSwaps.get(from) ?? null : null;
+      },
       typeMaterials(blockId) {
         const type = typeof blockId === 'string' ? g.types.get(blockId) : undefined;
         if (type === undefined) return null;
@@ -1589,7 +1660,7 @@ export class RuntimeGrid {
       },
       applyDiff(diff) {
         if (typeof diff !== 'object' || diff === null || diff.version !== 1 || !Array.isArray(diff.layers)) return false;
-        if (g.typesProblem(diff.types) !== null || g.kitsProblem(diff.kits) !== null) return false;
+        if (g.typesProblem(diff.types) !== null || g.kitsProblem(diff.kits) !== null || g.archSwapsProblem(diff.architecturePresets) !== null) return false;
         for (const entry of diff.layers) {
           if (!layerOf(entry?.layer) || !Array.isArray(entry.cells)) return false;
           for (const c of entry.cells) {
@@ -1617,6 +1688,7 @@ export class RuntimeGrid {
         }
         g.setTypeSwaps(diff.types);
         if (diff.kits !== undefined) g.setAllKits(diff.kits);
+        if (diff.architecturePresets !== undefined) g.setArchSwaps(diff.architecturePresets);
         return ok;
       },
     };

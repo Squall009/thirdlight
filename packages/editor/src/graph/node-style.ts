@@ -56,6 +56,11 @@ export const FAMILY_OF_CATEGORY: Readonly<Record<string, NodeFamily>> = {
   Lines: 'state',
   Debug: 'note',
   Organisation: 'note',
+  // Generated architecture's styles and presets.
+  Paths: 'math',
+  Profiles: 'input',
+  Elements: 'render',
+  Preset: 'state',
 };
 
 /** A category's family. */

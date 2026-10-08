@@ -174,4 +174,31 @@ describe('generated architecture on the page', () => {
     expect(d.made.baked).toBe(chunks.length);
     expect(d.made.worker + d.made.page).toBe(0);
   });
+
+  it('a preset being dragged makes again only the objects its outlines reach, only their changed chunks, and the stored values come back from memory', async () => {
+    const { view } = makeView();
+    const room = (preset: string, x: number): ArchitectureComponent => ({ elements: [], chunkSize: 16, outlines: [{ id: 'r', preset, path: { points: [[x, 0, 0], [x + 8, 0, 0], [x + 8, 0, 6], [x, 0, 6]], closed: true } }] });
+    view.set('east', room('starter-room', 0), [0, 0, 0]);
+    view.set('west', room('starter-hall', 0), [100, 0, 0]);
+    await settle(view);
+    const made = (): number => view.diagnostics().made.page;
+    const before = made();
+    expect(view.diagnostics().chunks).toBeGreaterThan(0);
+    // The room's slider: the hall is another preset, so only the room is made again.
+    expect(view.preview({ preset: 'starter-room', values: { ceiling_height: 4.5 } })).toBe(1);
+    await settle(view);
+    const changed = made() - before;
+    expect(changed).toBeGreaterThan(0);
+    // Back to the stored values: every chunk is found in memory, nothing generated.
+    expect(view.preview(null)).toBe(1);
+    await settle(view);
+    expect(made()).toBe(before + changed);
+    expect(view.diagnostics().made.memory).toBeGreaterThanOrEqual(changed);
+    // A swap (a script's) reaches the objects of the swapped preset.
+    view.setSwaps({ 'starter-hall': 'starter-room' });
+    await settle(view);
+    expect(view.diagnostics().problems).toEqual([]);
+    view.dispose();
+  });
 });
+

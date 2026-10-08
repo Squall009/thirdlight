@@ -1,8 +1,9 @@
 /**
  * The descriptor of the `architecture` component (its own file, beside its
  * format). Elements, profiles and overrides are JSON fields: their shape is
- * a small language of operators (validated by `validateArchitectureComponent`);
- * style presets with sliders build on them.
+ * a small language of operators (validated by `validateArchitectureComponent`).
+ * Outlines styled by presets have their own Inspector panel (the presets'
+ * sliders) beside the JSON.
  *
  * Pure data.
  */
@@ -27,6 +28,8 @@ export const architecture: ComponentDescriptor = {
     json('elements', 'Elements', 'Sweeps {id, kind: "sweep", path, profile, openings?}, repeats {id, kind: "repeat", path, spacing, piece} and fills {id, kind: "fill", path, shape, slot}.', { required: true }),
     json('profiles', 'Profiles', 'Named cross-sections {points: [[across, up], …], slots: [row per segment], closed?, smooth?, chamfer?}.'),
     json('overrides', 'Overrides', 'Kit models in place of a segment or a corner: [{element, segment | corner, model: {assetId}}].'),
+    json('outlines', 'Outlines', 'Outlines styled by presets: [{id, path, preset, openings?}] (the preset\'s style graph makes their elements).'),
+    json('masks', 'Masks', 'Painted masks presets read: {name: {points: [[x, z, radius, weight], …]}}.'),
     num('chunkSize', 'Chunk size', 'Metres a generated chunk covers (one draw per material each).', { min: L.chunkMin, max: L.chunkMax, step: 1, unit: 'm', default: ARCHITECTURE_CHUNK_DEFAULT }),
     int('seed', 'Seed', 'Seeds the variation of repeated copies.', { min: 0, max: 0xffffffff, default: 0 }),
     obj('ao', 'Baked AO', 'Vertex ambient occlusion in inside corners and where walls meet the ground.', [

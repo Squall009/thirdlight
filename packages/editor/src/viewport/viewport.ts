@@ -49,7 +49,7 @@ import {
 import { createGltfLoaderPort } from '@thirdlight/three-adapter/gltf-loader';
 import type { BlockChunk, BlockLayerComponent, BlockRegion, BlockType, InstanceBrush, InstanceStroke } from '@thirdlight/project-model';
 import * as THREE from 'three';
-import { AMBIENT_OCCLUSION_DEFAULT, VIEW_LENS_DEFAULTS, type EnvironmentBlendView } from '@thirdlight/runtime';
+import { AMBIENT_OCCLUSION_DEFAULT, VIEW_LENS_DEFAULTS, type ArchitectureGraphLike, type ArchitecturePreview, type EnvironmentBlendView } from '@thirdlight/runtime';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { disposeOrbitControls, releaseControlKeyListeners } from './controls';
 import { TransformControls } from 'three/examples/jsm/controls/TransformControls.js';
@@ -326,6 +326,8 @@ export class Viewport {
   private environmentValue: EnvironmentLike | null = null;
   private environmentSet = false;
   private bakes: Readonly<Record<string, LightingBakeLike>> | null = null;
+  /** Generated architecture's style and preset graphs (kept for a new adapter). */
+  private archStyles: readonly ArchitectureGraphLike[] | null = null;
   private lighting: { mode: 'editor' | 'game'; chosen: boolean } = { mode: 'editor', chosen: false };
   private envPreview: EnvironmentBlendView | null = null;
   private envPreviewTags: ReadonlyMap<string, number> | undefined;
@@ -366,6 +368,7 @@ export class Viewport {
       environment: { value: {}, loadTexture: assets.loadTexture },
       lights: { loadTexture: assets.loadTexture },
       lighting: { bakes: {}, loadTexture: assets.loadTexture, loadBytes: assets.loadBytes },
+      ...(this.archStyles !== null ? { architectureStyles: this.archStyles } : {}),
     });
     adapter.threeScene?.().add(this.overlay);
     this.entityOverlays.attachAll(adapter);
@@ -564,6 +567,20 @@ export class Viewport {
   private projected: readonly ProjectedEntity[] = [];
 
   /** The project's bakes (sceneId → bake); null clears them. They show with game lighting. */
+  /** The project's architecture style and preset graphs changed: outlines are made again where their elements changed. */
+  setArchitectureStyles(graphs: readonly ArchitectureGraphLike[]): void {
+    this.archStyles = graphs;
+    this.adapter.setArchitectureStyles?.(graphs);
+    this.requestRender();
+  }
+
+  /** A preset's slider being dragged (null: the stored values again); how many objects are made again. */
+  previewArchitecture(preview: ArchitecturePreview | null): number {
+    const n = this.adapter.previewArchitecture?.(preview) ?? 0;
+    this.requestRender();
+    return n;
+  }
+
   setLightmaps(bakes: Readonly<Record<string, LightingBakeLike>> | null): void {
     this.bakes = bakes;
     if (this.lighting.mode === 'game') this.adapter.setBakes?.(bakes);

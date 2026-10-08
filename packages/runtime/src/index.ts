@@ -293,6 +293,23 @@ export {
   type ArchitectureCopySet,
   type ArchitectureSheets,
 } from '@thirdlight/project-model';
+// Architecture styles and presets: outlines made into elements by their presets' style graphs (page, workers, simulation alike).
+export {
+  ARCHITECTURE_PRESET_KIND,
+  ARCHITECTURE_STARTER_GRAPHS,
+  ARCHITECTURE_STYLE_KIND,
+  architectureGraphTemplate,
+  architectureGraphsOf,
+  architectureStylesOf,
+  expandArchitecture,
+  resolveArchitecturePreset,
+  type ArchitectureExpansion,
+  type ArchitectureGraphLike,
+  type ArchitecturePreview,
+  type ArchitectureStyleParam,
+  type ArchitectureStyles,
+  type ResolvedArchitecturePreset,
+} from '@thirdlight/project-model';
 export { RuntimeSplines, type BehaviorSplines, type SplineCollisionDiagnostics, type SplineNearestInfo, type SplinePose, type SplineSimData } from './splines';
 // Splines' curves and their bands (the renderer's ground cover keeps clear of them; spline meshes are drawn along them).
 export { SPLINE_MATERIAL_SLOT, SPLINE_WIDTH_DEFAULT, SplineCurve, SplineScatterBands, decodeSplineMade, isSplineMadeBlob, newSplineFrame, splineScatterRect, terrainSplineInputs, type SplineComponent, type SplineFrame, type SplineMade, type SplineMeshPiece, type SplinePoint } from '@thirdlight/project-model';
@@ -434,7 +451,7 @@ export {
 } from '@thirdlight/project-model';
 export type { BehaviorDebug, DebugCommandArgs, DebugCommandArgSpec, DebugCommandArgType, DebugCommandOptions, DebugCommandSpec, DebugCommandState } from './types';
 // Block layers — ctx.grid, the runtime grid, and the pure grid/meshing helpers the renderer shares.
-export { GRID_WRITES_PER_STEP, RuntimeGrid, gridColliderId, type BehaviorGrid, type GridCell, type GridCellInput, type GridChange, type GridChunkChange, type GridCutawayState, type GridDiff, type GridKitChange, type GridEdge, type GridEdgeInput, type GridPick, type GridRenderChange, type GridSurface, type GridVec3 } from './grid';
+export { GRID_WRITES_PER_STEP, RuntimeGrid, gridColliderId, type BehaviorGrid, type GridCell, type GridCellInput, type GridChange, type GridChunkChange, type GridCutawayState, type GridDiff, type GridKitChange, type GridArchitectureChange, type GridEdge, type GridEdgeInput, type GridPick, type GridRenderChange, type GridSurface, type GridVec3 } from './grid';
 export { type GridWalkOptions, type GridWalkPlace } from './grid-walk';
 // Edge pieces: the editor's edge brush snaps and checks edges with the backend's rules.
 export { BLOCK_CONNECT_PIECES, BLOCK_EDGE_THICKNESS, edgeInBounds, edgeInBox, type BlockConnect, type BlockConnectPiece, type BlockEdge } from '@thirdlight/project-model';

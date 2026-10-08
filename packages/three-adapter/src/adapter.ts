@@ -53,12 +53,12 @@ import { createBrowserMeshWorker } from './block-mesh-pool';
 import { TERRAIN_ENTITY_KEY, TerrainView } from './terrain-view';
 import { createScatterHost } from './scatter-host';
 import { SplineView } from './spline-view';
-import { ArchitectureView } from './architecture-view';
+import { createAdapterArchitecture } from './architecture-adapter';
 import { TerrainTileStore } from './terrain-tile-store';
 import { RuntimeMaterialView, type MaterialRenderChangeLike, type RuntimeMaterialsDiagnostics } from './runtime-materials';
 import { MaterialSwapView, type MaterialMappingLike } from './material-swaps';
 import { materialParamsOf, modelRefsOf } from './entity-refs';
-import { architectureSheets, type ArchitectureComponent, type BlockLayerComponent, type BlockLayerData, type BlockType, type GridRenderChange, type SplineComponent, type TerrainComponent } from '@thirdlight/runtime';
+import { type ArchitectureComponent, type BlockLayerComponent, type BlockLayerData, type BlockType, type GridRenderChange, type SplineComponent, type TerrainComponent } from '@thirdlight/runtime';
 import type { Runtime, RuntimeSnapshot } from '@thirdlight/runtime';
 import type { EnvironmentBlendView } from '@thirdlight/runtime';
 import { adapterError, type AdapterError } from './errors';
@@ -484,23 +484,14 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     drawn: opts.splines !== false,
   });
   // Generated architecture: made at load from its parameters on generator workers, a chunk at a time nearest the eye.
-  const objectMaterials = (id: string): Readonly<Record<string, string>> | undefined => effectiveMaterials(id, (entityDocs.get(id)?.components as { materials?: Record<string, string> } | undefined)?.materials);
-  const architecture = new ArchitectureView({
-    sheets: (id, c) => architectureSheets(c, objectMaterials(id), (m) => materialLibrary?.trimSheetOf?.(m) ?? null),
-    materials: (root, id) => (materialLibrary !== null && objectMaterials(id) !== undefined ? materialLibrary.apply(root, objectMaterials(id)!, materialParamsOf(entityDocs.get(id)?.components)) : null),
-    template: (assetId, piece, onReady) => realization?.blockInstance?.(assetId, piece, onReady) ?? null,
-    dress: (root, assetId) => (materialLibrary !== null && Object.keys(assetMaterialsOf(assetId) ?? {}).length > 0 ? materialLibrary.apply(root, assetMaterialsOf(assetId)!, null) : null),
-    read: opts.resolveBuffer ?? opts.models?.resolveBuffer ?? null,
-    place: (root, shown) => (shown ? graph.listStatic(root) : graph.unlistStatic(root)),
-    shapeChanged: () => staticShadows?.bump(),
-    changed: () => opts.onChange?.(),
-    ...(opts.meshWorkerUrl !== undefined ? { worker: () => createBrowserMeshWorker(opts.meshWorkerUrl!, 'thirdlight-architecture') } : {}),
-    store: opts.architectureStore ?? null,
-    arrival: stream !== null ? { left: () => stream.arrivalLeft(), spent: (ms) => stream.arrived(ms) } : null,
-    tuning: graph.lodTuning,
-    drawn: opts.architecture !== false,
+  const archHost = createAdapterArchitecture({
+    objectMaterials: (id) => effectiveMaterials(id, (entityDocs.get(id)?.components as { materials?: Record<string, string> } | undefined)?.materials),
+    materialParams: (id) => materialParamsOf(entityDocs.get(id)?.components), materialLibrary, assetMaterials: assetMaterialsOf,
+    template: (assetId, piece, onReady) => realization?.blockInstance?.(assetId, piece, onReady) ?? null, read: opts.resolveBuffer ?? opts.models?.resolveBuffer ?? null,
+    graph, staticShadows, arrival: stream !== null ? { left: () => stream.arrivalLeft(), spent: (ms) => stream.arrived(ms) } : null, meshWorkerUrl: opts.meshWorkerUrl,
+    store: opts.architectureStore ?? null, styles: opts.architectureStyles, drawn: opts.architecture !== false, changed: () => opts.onChange?.(),
   });
-  const stopDefinitions = materialLibrary?.onDefinitions?.(() => architecture.restyleAll());
+  const architecture = archHost.view;
   // Block layers and terrains (level-views.ts), streamed round the camera on a game page.
   const { blockView, terrains, ownTiles } = createLevelViews({
     blockInstance: (assetId, piece, onReady) => realization?.blockInstance?.(assetId, piece, onReady) ?? null,
@@ -1403,7 +1394,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       (opts.runtime as { setCameraViewport?: (w: number, h: number) => boolean }).setCameraViewport?.(w, h);
     }
     // The block chunks the simulation changed, re-meshed before the draw.
-    const gridChanges = (opts.runtime as { takeGridChanges?: () => GridRenderChange[] }).takeGridChanges?.() ?? [];
+    const gridChanges = archHost.takeSwaps((opts.runtime as { takeGridChanges?: () => GridRenderChange[] }).takeGridChanges?.() ?? []);
     if (gridChanges.length > 0) blockView.applyRuntimeChanges(gridChanges);
     if (stream !== null) stream.beginFrame(viewCull.view.eye);
     blockView.update(viewCull.view.eye);
@@ -1686,8 +1677,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     blockView.dispose();
     terrains.dispose();
     splines.dispose();
-    stopDefinitions?.();
-    architecture.dispose();
+    archHost.dispose();
     scatter.dispose();
     ownTiles?.dispose();
     for (const rec of boxMaterials.values()) rec.material.dispose();
@@ -1835,6 +1825,12 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       probes.setBakes(bakes);
       for (const id of blockView.layerIds()) blockView.setLightmapUv(id, lightmaps?.hasChunks(id) === true);
       blockView.remeshAll();
+    },
+    setArchitectureStyles(graphs): void {
+      if (!disposed) architecture.setStyles(graphs);
+    },
+    previewArchitecture(preview): number {
+      return disposed ? 0 : architecture.preview(preview);
     },
     materialsChanged(): void {
       lightmaps?.refresh();

@@ -42,7 +42,7 @@ import { editorRendererChoice, setEditorRendererChoice } from '../viewport/rende
 import type { EffectComponent, MaterialDef } from '@thirdlight/project-model';
 import { lodTuningOf, renderSettingsOf } from '@thirdlight/project-model/limits';
 import { withSlotTextureKeys } from '../session/texture-slots';
-import { viewLensOf } from '@thirdlight/runtime';
+import { ARCHITECTURE_PRESET_KIND, ARCHITECTURE_STYLE_KIND, viewLensOf } from '@thirdlight/runtime';
 import { Hierarchy, type SceneAction, type SceneHeaderView } from './Hierarchy';
 import { Toolbar } from './Toolbar';
 import { StatusBar } from './StatusBar';
@@ -189,6 +189,7 @@ function EditorApp(): JSX.Element {
   const materialsKeyRef = useRef('');
   const environmentKeyRef = useRef('');
   const lightingKeyRef = useRef('');
+  const architectureKeyRef = useRef('');
   const loadTextureRef = useRef<((assetId: string) => Promise<THREE.Texture | null>) | null>(null);
   /** The selected copy of the selected instance set, and the instance brush. */
   const [selectedCopy, setSelectedCopy] = useState<number | null>(null);
@@ -272,6 +273,13 @@ function EditorApp(): JSX.Element {
       materialLibraryRef.current?.setMaterials(withSlotTextureKeys(mats as unknown as MaterialDef[]) as unknown as MaterialDefLike[], libFunctions as unknown as MaterialFunctionLike[]);
       // A material that animates (wind, water) keeps the Scene view drawing from this frame on.
       viewportRef.current?.requestRender();
+    }
+    // Generated architecture's styles and presets: outlines are made again where their elements changed.
+    const archGraphs = c.getGraphs().filter((g) => g.kind === ARCHITECTURE_STYLE_KIND || g.kind === ARCHITECTURE_PRESET_KIND);
+    const archKey = JSON.stringify(archGraphs);
+    if (archKey !== architectureKeyRef.current) {
+      architectureKeyRef.current = archKey;
+      viewportRef.current?.setArchitectureStyles(archGraphs);
     }
     // The project environment (wind included).
     applyEnvironmentView();

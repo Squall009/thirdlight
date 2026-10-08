@@ -24,6 +24,8 @@ import { architectureChunkInput, architectureChunkKeys, generateArchitectureChun
 import type { ArchitectureComponent, ArchitectureElement, ArchitecturePath } from '../../packages/project-model/src/architecture';
 import { defaultTrimSheet } from '../../packages/project-model/src/trim-sheet';
 import { testArchitecture } from '../arch-test-style';
+import { ARCHITECTURE_PRESET_KIND } from '../../packages/project-model/src/arch-style-kinds';
+import { architectureStylesOf, expandArchitecture } from '../../packages/project-model/src/arch-style';
 
 const ON = process.env['TL_PERF'] === '1';
 function record(line: string): void {
@@ -116,4 +118,58 @@ describe.skipIf(!ON)('architecture generation cost', () => {
     );
     expect(pct(chunkMs, 0.5)).toBeLessThan(50);
   });
+
+  it.each([32, 16])('a village of 64 styled rooms in %i m chunks: a preset slider dragged over one room (expand, keys, its changed chunks)', (chunkSize) => {
+    // 64 outlines; room 27 alone wears a preset derived from the starter room (its slider is the one dragged).
+    const graphs = [{ graphId: 'one', kind: ARCHITECTURE_PRESET_KIND, name: 'One', graph: { nodes: [{ id: 'preset', type: 'preset', position: [0, 0] as [number, number], data: { style: '', base: 'starter-room', sheet: '' } }], edges: [] } }];
+    const outlines = Array.from({ length: 64 }, (_, i) => {
+      const x = (i % 8) * 12;
+      const z = Math.floor(i / 8) * 12;
+      return { id: `r${i}`, preset: i === 27 ? 'one' : 'starter-room', path: { points: [[x, 0, z], [x + 8, 0, z], [x + 8, 0, z + 6], [x, 0, z + 6]] as [number, number, number][], closed: true }, openings: [{ id: 'door', at: 4, width: 1.2, bottom: 0, top: 2.2, frameSides: 'both' as const }] };
+    });
+    const raw: ArchitectureComponent = { elements: [], chunkSize, outlines };
+    const table = architectureStylesOf(graphs);
+    const base = expandArchitecture(raw, [0, 0, 0], table).component;
+    const keys = [...architectureChunkKeys(base, SHEETS).values()];
+    const chunkMs: number[] = [];
+    for (let i = 0; i < 2; i++) for (const k of keys) generateArchitectureChunk(architectureChunkInput(base, k), SHEETS, k.cx, k.cz);
+    let draws = 0;
+    for (const k of keys) {
+      const t0 = performance.now();
+      const chunk = generateArchitectureChunk(architectureChunkInput(base, k), SHEETS, k.cx, k.cz);
+      chunkMs.push(performance.now() - t0);
+      draws += chunk.meshes.length;
+    }
+    const before = new Set(keys.map((k) => k.key));
+    const expandMs: number[] = [];
+    const regen: number[] = [];
+    let made = 0;
+    for (let i = 0; i < 20; i++) {
+      const t0 = performance.now();
+      const edited = expandArchitecture(raw, [0, 0, 0], table, { preview: { preset: 'one', values: { ceiling_height: 3 + 0.05 * (i + 1), moulding_depth: 0.08 + 0.005 * i } } }).component;
+      expandMs.push(performance.now() - t0);
+      made = 0;
+      for (const k of architectureChunkKeys(edited, SHEETS).values()) {
+        if (before.has(k.key)) continue;
+        generateArchitectureChunk(architectureChunkInput(edited, k), SHEETS, k.cx, k.cz);
+        made += 1;
+      }
+      regen.push(performance.now() - t0);
+      expect(made).toBeGreaterThan(0);
+      expect(made).toBeLessThanOrEqual(4);
+    }
+    record(
+      JSON.stringify({
+        styledRooms: 64,
+        chunkSize,
+        elements: base.elements.length,
+        chunks: keys.length,
+        draws,
+        chunkMs: { median: round(pct(chunkMs, 0.5)), p95: round(pct(chunkMs, 0.95)), max: round(Math.max(...chunkMs)) },
+        expandMs: round(pct(expandMs, 0.5)),
+        sliderRoomMs: { median: round(pct(regen, 0.5)), max: round(Math.max(...regen)), chunksMade: made },
+      }),
+    );
+  });
 });
+

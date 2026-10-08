@@ -44,6 +44,17 @@
  * stopped, generates them again and shows the same colours. The chunk and
  * ready marks give the generation times.
  *
+ * Architecture styles and presets: two wall styles (graphs) and presets
+ * deriving from each other, the trim sheet named by the preset, outlines
+ * styled by them. In the editor, a preset from the Create menu shows its
+ * sliders; dragging one in the object's Inspector regenerates only the
+ * room its preset styles (ready marks timed from each input), the release
+ * stores the value, and the Inspector's restyle swaps the outline's preset
+ * without touching it. In Play and the export: a painted mask drives the
+ * walls' height (every other wall 3 m tall, the rest 1 m), and a script's
+ * `ctx.grid.setArchitecturePreset` swaps the last two walls' preset for one
+ * with another style (another row of the sheet).
+ *
  * TL_LAYERED_DIR=<dir> keeps the pictures.
  */
 import { randomBytes, randomUUID } from 'node:crypto';
@@ -52,7 +63,7 @@ import { join } from 'node:path';
 
 import { expect, test, type Locator, type Page } from './pw';
 
-import { publishBytes, startBackend, type E2EBackend } from './backend';
+import { publishBytes, publishScript, startBackend, type E2EBackend } from './backend';
 import { materials, packTexture, publishTexture, useArrays } from './painted-layers';
 import { decodePng, type Image } from './png';
 import { makePng } from './png-make';
@@ -393,7 +404,142 @@ async function architectureMarks(target: Locator | Page): Promise<{ chunks: { ms
   return (target as Page).evaluate(read);
 }
 
+/** A style of one wall swept along its outline, its height a parameter, every face on `slot`. */
+function wallStyle(slot: string): Record<string, unknown> {
+  return {
+    nodes: [
+      { id: 'outline', type: 'outline', position: [0, 0] },
+      { id: 'height', type: 'parameter', position: [0, 150], data: { name: 'height', default: 1, min: 0.5, max: 3 } },
+      { id: 'wall', type: 'wall', position: [260, 0], data: { thickness: 0.2, inside: slot, outside: slot, top: slot, lower: slot } },
+      { id: 'sweep', type: 'sweep', position: [520, 0] },
+      { id: 'output', type: 'output', position: [780, 0] },
+    ],
+    edges: [
+      { id: 'e1', from: { node: 'height', port: 'value' }, to: { node: 'wall', port: 'height' } },
+      { id: 'e2', from: { node: 'outline', port: 'path' }, to: { node: 'sweep', port: 'path' } },
+      { id: 'e3', from: { node: 'wall', port: 'profile' }, to: { node: 'sweep', port: 'profile' } },
+      { id: 'e4', from: { node: 'sweep', port: 'element' }, to: { node: 'output', port: 'elements' } },
+    ],
+  };
+}
+const presetGraph = (style: string, base: string, sheet: string, extra: Record<string, unknown>[] = []): Record<string, unknown> => ({ nodes: [{ id: 'preset', type: 'preset', position: [0, 0], data: { style, base, sheet } }, ...extra], edges: [] });
+/** Six 1.4 m walls in a row 45 m in front of the camera; the painted mask "tall" over the second, fourth and sixth. */
+const STYLED_WALLS = [0, 1, 2, 3, 4, 5].map((i) => ({ x0: 194.6 + i * 1.8, x1: 196 + i * 1.8 }));
+const STYLED_Z = -45;
+/** Swaps the walls' second preset for the third on the first step (the game's own restyle, at run time). */
+const RESTYLE_SCRIPT = [
+  'export default {',
+  '  instantiate() { return { swapped: false }; },',
+  '  step(state, ctx) {',
+  "    if (ctx.phase !== 'intent' || state.swapped) return;",
+  "    state.swapped = ctx.grid.setArchitecturePreset('e2e-c', 'e2e-b');",
+  "    ctx.log('info', `restyled ${state.swapped} ${ctx.grid.architecturePreset('e2e-c')}`);",
+  '  },',
+  '};',
+].join('\n');
+
+/**
+ * Styles and presets made in the project, and styled outlines: the walls (presets deriving from presets, the trim
+ * sheet named by the preset, a painted mask driving the height, a script swapping a preset at run time) and a room
+ * whose preset's slider is dragged in the Inspector while the Scene view regenerates it.
+ */
+async function styledArchitecture(page: Page, trimId: string): Promise<void> {
+  await cmd('setGraph', { graph: { graphId: 'e2e-wall-a', kind: 'architecture-style', name: 'Wall A', graph: wallStyle('lower_wall') } });
+  await cmd('setGraph', { graph: { graphId: 'e2e-wall-b', kind: 'architecture-style', name: 'Wall B', graph: wallStyle('crown') } });
+  // a: style A on the trim sheet, its height driven by the painted mask "tall"; c derives from a; b derives from a with style B.
+  await cmd('setGraph', { graph: { graphId: 'e2e-a', kind: 'architecture-preset', name: 'A', graph: presetGraph('e2e-wall-a', '', trimId, [{ id: 'm', type: 'mask', position: [0, 150], data: { parameter: 'height', to: 3, source: 'painted', mask: 'tall', low: 0, high: 1 } }]) } });
+  await cmd('setGraph', { graph: { graphId: 'e2e-c', kind: 'architecture-preset', name: 'C', graph: presetGraph('', 'e2e-a', '') } });
+  await cmd('setGraph', { graph: { graphId: 'e2e-b', kind: 'architecture-preset', name: 'B', graph: presetGraph('e2e-wall-b', 'e2e-a', '') } });
+  const walls = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Styled walls', transform: { position: [0, 0, 0] } }))['createdId']);
+  await cmd('setComponent', {
+    entityId: walls,
+    component: 'architecture',
+    value: {
+      elements: [],
+      outlines: STYLED_WALLS.map((w, i) => ({ id: `w${i}`, preset: i < 4 ? 'e2e-a' : 'e2e-c', path: { points: [[w.x0, 0, STYLED_Z], [w.x1, 0, STYLED_Z]] } })),
+      masks: { tall: { points: [1, 3, 5].map((i) => [(STYLED_WALLS[i]!.x0 + STYLED_WALLS[i]!.x1) / 2, STYLED_Z, 0.9, 1]) } },
+    },
+  });
+  await publishScript(be!, 'restyle', RESTYLE_SCRIPT, walls);
+
+  // ---- The editor: a preset from the Create menu (it derives from the starter room), its sliders in the Inspector.
+  await createItem(page, ['Graph', 'Architecture preset'], 'Slider room');
+  const graphsOf = async (): Promise<{ graphId: string; name: string; graph: { nodes: { type: string; data?: Record<string, unknown> }[] } }[]> => ((await query('queryGameConfig'))['graphs'] ?? []) as never;
+  await expect.poll(async () => (await graphsOf()).some((g) => g.name === 'Slider room'), { timeout: 15_000 }).toBe(true);
+  const sliderPreset = (await graphsOf()).find((g) => g.name === 'Slider room')!.graphId;
+  await expect(inspector(page).getByLabel('ceiling_height slider')).toBeVisible();
+  await closeEditor(page);
+  const room = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Slider room', transform: { position: [0, 0, 0] } }))['createdId']);
+  await cmd('setComponent', { entityId: room, component: 'architecture', value: { elements: [], outlines: [{ id: 'room', preset: sliderPreset, path: { points: [[150, 0, -80], [158, 0, -80], [158, 0, -74], [150, 0, -74]], closed: true } }] } });
+  await page.locator(`.tl-hierarchy__list li[data-entity-id="${room}"]`).click();
+  const slider = inspector(page).getByLabel('ceiling_height slider');
+  await expect(slider).toBeVisible();
+  // Both objects drawn whole once before the drag (the room's and the walls' ready marks).
+  await expect.poll(async () => new Set((await architectureMarks(page)).ready.map((r) => (r as { object?: string }).object)).size, { timeout: 30_000 }).toBeGreaterThanOrEqual(2);
+  await slider.scrollIntoViewIfNeeded();
+  const box = (await slider.boundingBox())!;
+  const t0 = await page.evaluate(() => {
+    const w = window as unknown as { __tlSliderInputs: number[] };
+    w.__tlSliderInputs = [];
+    document.addEventListener('input', (e) => (e.target as HTMLElement).getAttribute('aria-label') === 'ceiling_height slider' && w.__tlSliderInputs.push(performance.now()), true);
+    return performance.now();
+  });
+  await page.mouse.move(box.x + box.width * 0.1, box.y + box.height / 2);
+  await page.mouse.down();
+  for (let i = 1; i <= 16; i++) {
+    await page.mouse.move(box.x + box.width * (0.1 + 0.05 * i), box.y + box.height / 2);
+    await page.waitForTimeout(60);
+  }
+  await page.mouse.up();
+  // Stored on release: one value node over the starter room's.
+  await expect.poll(async () => Number((await graphsOf()).find((g) => g.graphId === sliderPreset)?.graph.nodes.find((n) => n.type === 'value' && n.data?.['parameter'] === 'ceiling_height')?.data?.['value'] ?? 0), { timeout: 15_000 }).toBeGreaterThan(8);
+  const marks = await page.evaluate((since) => {
+    const inputs = (window as unknown as { __tlSliderInputs: number[] }).__tlSliderInputs;
+    return (performance.getEntriesByType('mark') as PerformanceMark[])
+      .filter((m) => m.name === 'tl:arch:ready' && m.startTime > since)
+      .map((m) => {
+        const d = m.detail as { object: string; ms: number; chunks: number };
+        const input = inputs.filter((t) => t <= m.startTime).pop() ?? since;
+        return { object: d.object, ms: d.ms, chunks: d.chunks, fromInput: m.startTime - input };
+      });
+  }, t0);
+  const roomMarks = marks.filter((m) => m.object === room);
+  // The page's share of each step (expanding the outlines, keying the chunks) and the workers' (each chunk made).
+  const work = await page.evaluate((since) => {
+    const all = (performance.getEntriesByType('mark') as PerformanceMark[]).filter((m) => m.startTime > since);
+    return { page: all.filter((m) => m.name === 'tl:arch:preview').map((m) => (m.detail as { ms: number }).ms), chunks: all.filter((m) => m.name === 'tl:arch:chunk').map((m) => (m.detail as { ms: number }).ms) };
+  }, t0);
+  const median = (xs: number[]): number => [...xs].sort((a, b) => a - b)[Math.floor(xs.length / 2)] ?? NaN;
+  console.log(`architecture ${variantOf(page)} slider drag: ${roomMarks.length} regenerations of the room, chunks ${median(roomMarks.map((m) => m.chunks))}; made ${median(roomMarks.map((m) => m.ms)).toFixed(1)} ms median / ${Math.max(...roomMarks.map((m) => m.ms)).toFixed(1)} worst; input → drawn ${median(roomMarks.map((m) => m.fromInput)).toFixed(1)} / ${Math.max(...roomMarks.map((m) => m.fromInput)).toFixed(1)} ms; other objects made again: ${marks.filter((m) => m.object !== room).length}; page per step ${median(work.page).toFixed(2)} / ${Math.max(...work.page).toFixed(2)} ms; a chunk on a worker ${median(work.chunks).toFixed(2)} / ${Math.max(...work.chunks).toFixed(2)} ms`);
+  expect(roomMarks.length).toBeGreaterThanOrEqual(4);
+  // Only the room the preset styles was made again.
+  expect(marks.filter((m) => m.object !== room)).toEqual([]);
+  // The Inspector's restyle: every outline of the slider's preset takes the starter hall (the outline stays).
+  const outlinesPanel = inspector(page).getByLabel('architecture outlines');
+  await outlinesPanel.getByLabel('restyle to').selectOption('starter-hall');
+  await outlinesPanel.getByRole('button', { name: 'Restyle', exact: true }).click();
+  const outlineNow = async (): Promise<{ preset: string; path: unknown }> => ((await query('queryEntity', { entityId: room }))['entity'] as { components: { architecture: { outlines: { preset: string; path: unknown }[] } } }).components.architecture.outlines[0]!;
+  await expect.poll(async () => (await outlineNow()).preset, { timeout: 15_000 }).toBe('starter-hall');
+  expect((await outlineNow()).path).toEqual({ points: [[150, 0, -80], [158, 0, -80], [158, 0, -74], [150, 0, -74]], closed: true });
+}
+const variants = new WeakMap<Page, string>();
+const variantOf = (page: Page): string => variants.get(page) ?? '';
+
+/** The styled walls in a picture of the fixed camera: low (0.7 m) and high (2 m) on each wall's middle. */
+function readStyled(img: Image): { low: [number, number, number][]; high: [number, number, number][]; ok: boolean } {
+  const at = (w: { x0: number; x1: number }, y: number): [number, number, number] => colourAt(img, onPlay([(w.x0 + w.x1) / 2, y, STYLED_Z + 0.1], img.width, img.height));
+  const low = STYLED_WALLS.map((w) => at(w, 0.7));
+  const high = STYLED_WALLS.map((w) => at(w, 2));
+  // Low: the first four magenta (preset a, its sheet's lower_wall row), the last two blue (c swapped for b: crown).
+  const lowOk = low.every((c, i) => rowHue(i < 4 ? 'lower_wall' : 'crown', c));
+  // High: the masked walls (1, 3, 5) reach 3 m, the others stop at 1 m (the black sky shows above them).
+  const highOk = high.every((c, i) => (i % 2 === 1 ? rowHue(i < 4 ? 'lower_wall' : 'crown', c) : c[0] + c[1] + c[2] < 60));
+  return { low, high, ok: lowOk && highOk };
+}
+const fmtColours = (cs: readonly (readonly number[])[]): string => cs.map((c) => c.map((v) => v.toFixed(0)).join(',')).join(' ');
+
 async function trimSheetChecks(page: Page, variant: RendererVariant): Promise<void> {
+  variants.set(page, variant);
   type TrimMat = { materialId: string; shader: string; textures: Record<string, string>; trim?: { size: number[]; padding: number; rows: { slot: string; top: number; bottom: number; texelDensity?: number }[] } };
   const trimMaterial = async (): Promise<TrimMat | undefined> => ((await materials(be!)) as unknown as TrimMat[]).find((m) => m.shader === 'trim');
   await publishTexture(be!, new Uint8Array(testTrimSheetPng()), 'trim-sheet', 'Trim sheet');
@@ -441,6 +587,7 @@ async function trimSheetChecks(page: Page, variant: RendererVariant): Promise<vo
   const archId = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Architecture', transform: { position: [0, 0, 0] } }))['createdId']);
   await cmd('setComponent', { entityId: archId, component: 'architecture', value: ARCHITECTURE });
   await cmd('setComponent', { entityId: archId, component: 'materials', value: { '*': trimId } });
+  await styledArchitecture(page, trimId);
 
   await page.getByTitle('Start an isolated play preview').click();
   const canvas = page.frameLocator('iframe.tl-app__preview-frame').locator('canvas').first();
@@ -490,6 +637,13 @@ async function trimSheetChecks(page: Page, variant: RendererVariant): Promise<vo
   console.log(`architecture ${variant} Play: ${arch.colours.map((c) => c.map((v) => v.toFixed(0)).join(',')).join(' ')}; chunks ${JSON.stringify(playMarks.chunks)}; ready ${JSON.stringify(playMarks.ready)}`);
   expect(playMarks.chunks.length).toBeGreaterThan(0);
   expect(playMarks.chunks.every((c) => c.where === 'worker' || c.where === 'page')).toBe(true);
+  // The styled walls: the mask varies the height across them, the script's swap restyled the last two.
+  let styled = readStyled(decodePng(await canvas.screenshot()));
+  await expect.poll(async () => (styled = readStyled(decodePng(await canvas.screenshot()))).ok, { timeout: 30_000, intervals: [500], message: 'the Play picture of the styled walls' }).toBe(true).catch((e: unknown) => {
+    console.log(`styled walls ${variant} Play (failed): low ${fmtColours(styled.low)} high ${fmtColours(styled.high)}`);
+    throw e;
+  });
+  console.log(`styled walls ${variant} Play: low ${fmtColours(styled.low)} high ${fmtColours(styled.high)}`);
   await page.getByTitle('Stop the play preview').click();
 
   // ---- The static export, served with the backend stopped: the parameters ship, the game generates the same picture.
@@ -508,6 +662,12 @@ async function trimSheetChecks(page: Page, variant: RendererVariant): Promise<vo
     await expectRendererBackend(exported, variant);
     let shown: { colours: [number, number, number][]; ok: boolean } = { colours: [], ok: false };
     await expect.poll(async () => (shown = readArchitecture(decodePng(await exported.screenshot()))).ok && shown.colours.every((c, i) => sameColour(c, arch.colours[i]!)), { timeout: 45_000, intervals: [500], message: 'the export picture of the architecture' }).toBe(true);
+    let styledExport = readStyled(decodePng(await exported.screenshot()));
+    await expect.poll(async () => (styledExport = readStyled(decodePng(await exported.screenshot()))).ok, { timeout: 30_000, intervals: [500], message: 'the export picture of the styled walls' }).toBe(true).catch((e: unknown) => {
+      console.log(`styled walls ${variant} export (failed): low ${fmtColours(styledExport.low)} high ${fmtColours(styledExport.high)}`);
+      throw e;
+    });
+    console.log(`styled walls ${variant} export: low ${fmtColours(styledExport.low)} high ${fmtColours(styledExport.high)}`);
     const marks = await architectureMarks(game);
     console.log(`architecture ${variant} export: ${shown.colours.map((c) => c.map((v) => v.toFixed(0)).join(',')).join(' ')}; chunks ${JSON.stringify(marks.chunks)}; ready ${JSON.stringify(marks.ready)}`);
     // Generated, not shipped: on the workers, or on the page while they were starting.

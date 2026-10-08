@@ -161,6 +161,7 @@ export const CATALOG_BLOCK_KEYS = [
   'timelines',
   'eventCues',
   'shell',
+  'architectureStyles',
   'materials',
   'materialFunctions',
   'uiDocuments',
@@ -584,7 +585,7 @@ export function catalogRootProblem(doc: unknown): string | null {
 }
 
 /** The blocks that are lists (their parts concatenate). */
-const LIST_BLOCKS: ReadonlySet<string> = new Set(['tags', 'effects', 'animators', 'prefabs', 'blockTypes', 'cellFields', 'collisionLayers', 'uiThemes', 'modes', 'timelines', 'eventCues', 'materials', 'materialFunctions', 'uiDocuments', 'buffers', 'media', 'behaviors', 'loadable', 'facts', 'dependencies']);
+const LIST_BLOCKS: ReadonlySet<string> = new Set(['architectureStyles', 'tags', 'effects', 'animators', 'prefabs', 'blockTypes', 'cellFields', 'collisionLayers', 'uiThemes', 'modes', 'timelines', 'eventCues', 'materials', 'materialFunctions', 'uiDocuments', 'buffers', 'media', 'behaviors', 'loadable', 'facts', 'dependencies']);
 
 /** Why a list of catalog entries is not one (null: it is): shape, ascending ids. */
 export function catalogEntriesProblem(v: unknown): string | null {

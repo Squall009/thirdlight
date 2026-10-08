@@ -79,6 +79,8 @@ export interface SceneAdapterOptions {
   architecture?: boolean;
   /** Where made architecture chunks are kept across visits (an exported game's IndexedDB; absent: memory only). */
   architectureStore?: import('./architecture-view').ArchitectureChunkStore;
+  /** The style and preset graphs generated architecture's outlines are made by (absent: the engine's starters only). */
+  architectureStyles?: readonly import('@thirdlight/runtime').ArchitectureGraphLike[];
   /**
    * Something the next frame would draw differently arrived on its own (a
    * model, an instance set, a cookie): a host that draws on demand draws again.
@@ -456,6 +458,10 @@ export interface SceneAdapter {
   setEnvironment?(value: EnvironmentLike | null): void;
   /** Replace the bakes (lightmaps, and the lights they hold leave realtime): the scenes are realized again. Needs the `lighting` option. */
   setBakes?(bakes: Readonly<Record<string, LightingBakeLike>> | null): void;
+  /** Replace the architecture style and preset graphs (an edit): outlines are made again where their elements changed. */
+  setArchitectureStyles?(graphs: readonly import('@thirdlight/runtime').ArchitectureGraphLike[] | null): void;
+  /** A slider being dragged: values over one preset and those derived from it (null: the stored values). How many objects are made again. */
+  previewArchitecture?(preview: import('@thirdlight/runtime').ArchitecturePreview | null): number;
   /** The host's material library changed a material in place: the lightmapped copies follow it. */
   materialsChanged?(): void;
   /** Bring the scene set, transforms, world matrices and hidden objects up to date now, without drawing. */

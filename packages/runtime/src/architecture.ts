@@ -4,12 +4,15 @@
  * same pure generator the page draws with), so nothing crosses from the
  * page: boxes along each wall segment cut round openings, meshes for floors
  * (and roofs and vaults that ask), a box per stamped piece copy, and each
- * kit copy that collides as its model's `_COL` parts. Built in the grid's
- * collision batches when an object loads or its parameters change.
+ * kit copy that collides as its model's `_COL` parts. Outlines are made by
+ * their presets' styles first (`expandArchitecture`, with the game's style
+ * graphs and the presets scripts swapped), as the page makes them. Built in
+ * the grid's collision batches when an object loads, its parameters change
+ * or a preset swap reaches it.
  *
  * Pure simulation state.
  */
-import { COLLIDER_3D_LIMITS, architectureColliders, canonicalJsonText, type ArchitectureComponent, type EntityV3, type ModelColliderTable } from '@thirdlight/project-model';
+import { COLLIDER_3D_LIMITS, architectureColliders, architectureStylesOf, canonicalJsonText, expandArchitecture, type ArchitectureComponent, type ArchitectureGraphLike, type ArchitectureStyles, type EntityV3, type ModelColliderTable } from '@thirdlight/project-model';
 
 import { colliderShape3DOf } from './collider-specs';
 import type { PhysicsPort3D, StaticColliderSpec3D } from './ports';
@@ -36,11 +39,28 @@ export class RuntimeArchitecture {
   private readonly held = new Map<string, Held>();
   private dirty = new Set<string>();
   private lastBuild: ArchitectureCollisionDiagnostics['lastBuild'] = null;
+  private readonly styles: ArchitectureStyles;
+  /** Presets scripts swapped (`setArchitecturePreset`): preset → the one shown in its place. */
+  private swaps: Readonly<Record<string, string>> = {};
 
   constructor(
     private readonly collide = false,
     private readonly modelColliders?: ModelColliderTable,
-  ) {}
+    styleGraphs?: readonly ArchitectureGraphLike[],
+  ) {
+    this.styles = architectureStylesOf(styleGraphs);
+  }
+
+  /** Whether a preset is the game's (or one of the engine's starters). */
+  hasPreset(id: string): boolean {
+    return this.styles.presets.has(id);
+  }
+
+  /** The presets shown in place of others; objects with outlines build their colliders again. */
+  setSwaps(swaps: Readonly<Record<string, string>>): void {
+    this.swaps = swaps;
+    for (const [id, h] of this.held) if ((h.component.outlines?.length ?? 0) > 0) this.dirty.add(id);
+  }
 
   /** Loaded objects carrying `architecture` (their colliders at the next flush when new or changed). */
   add(entities: readonly EntityV3[]): void {
@@ -79,12 +99,13 @@ export class RuntimeArchitecture {
     for (const id of dirty) {
       const h = this.held.get(id);
       if (h === undefined) continue;
-      const from = canonicalJsonText({ c: h.component, o: h.origin });
+      const expanded = expandArchitecture(h.component, h.origin, this.styles, { swaps: this.swaps }).component;
+      const from = canonicalJsonText({ c: expanded, o: h.origin });
       if (h.builtFrom === from) continue;
       remove.push(...h.built);
       h.built = [];
       h.builtFrom = from;
-      for (const spec of this.collidersOf(id, h)) {
+      for (const spec of this.collidersOf(id, expanded, h.origin)) {
         add.push(spec);
         h.built.push(spec.entityId);
       }
@@ -102,11 +123,10 @@ export class RuntimeArchitecture {
     return { objects: this.held.size, colliders, lastBuild: this.lastBuild };
   }
 
-  private collidersOf(id: string, h: Held): StaticColliderSpec3D[] {
+  private collidersOf(id: string, component: ArchitectureComponent, o: readonly [number, number, number]): StaticColliderSpec3D[] {
     const out: StaticColliderSpec3D[] = [];
-    const o = h.origin;
     // Rows come from the material's sheet only on the page; colliders follow surfaces, which no sheet moves.
-    for (const c of architectureColliders(h.component, {}, { vertices: COLLIDER_3D_LIMITS.meshVertices, triangles: COLLIDER_3D_LIMITS.meshTriangles })) {
+    for (const c of architectureColliders(component, {}, { vertices: COLLIDER_3D_LIMITS.meshVertices, triangles: COLLIDER_3D_LIMITS.meshTriangles })) {
       if (c.kind === 'box') {
         out.push({ entityId: colliderId(id, c.id), shape: { type: 'box', hx: c.half[0], hy: c.half[1], hz: c.half[2] }, position: { x: o[0] + c.center[0], y: o[1] + c.center[1], z: o[2] + c.center[2] }, rotation: { x: c.rotation[0], y: c.rotation[1], z: c.rotation[2], w: c.rotation[3] } });
       } else if (c.kind === 'mesh') {

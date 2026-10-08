@@ -29,11 +29,16 @@ import {
   ARCHITECTURE_MATERIAL_SLOT,
   architectureChunkInput,
   architectureChunkKeys,
+  architectureStylesOf,
   decodeArchitectureChunks,
+  expandArchitecture,
   encodeArchitectureChunks,
   type ArchitectureChunk,
   type ArchitectureComponent,
+  type ArchitectureGraphLike,
+  type ArchitecturePreview,
   type ArchitectureSheets,
+  type ArchitectureStyles,
 } from '@thirdlight/runtime';
 
 import { answerArchitectureJob, type ArchitectureJobReply, type ArchitectureJobRequest } from './architecture-worker';
@@ -55,6 +60,8 @@ const COPY_CHUNK_METRES = 32;
 /** Performance marks: each chunk made (detail {object, ms, where}) and each object whose chunks are all drawn (detail {object, ms, chunks, first}). */
 export const ARCHITECTURE_CHUNK_MARK = 'tl:arch:chunk';
 export const ARCHITECTURE_READY_MARK = 'tl:arch:ready';
+/** Performance mark: a slider's preview (detail {ms: the page's expanding and keying, objects made again}). */
+export const ARCHITECTURE_PREVIEW_MARK = 'tl:arch:preview';
 
 /** The page query that leaves generated architecture out (`?architecture=off`: a diagnostic comparison). */
 export const ARCHITECTURE_URL_PARAM = 'architecture';
@@ -72,10 +79,12 @@ export interface ArchitectureChunkStore {
 }
 
 export interface ArchitectureViewDeps {
-  /** The row tables the object's material slots wear (its `materials`). */
-  sheets(entityId: string, component: ArchitectureComponent): ArchitectureSheets;
-  /** Put the object's materials on a chunk (the undo; null: none). */
-  materials(root: THREE.Object3D, entityId: string): (() => void) | null;
+  /** The row tables the object's material slots wear (its `materials`, over `extra`: the trim sheets its presets name). */
+  sheets(entityId: string, component: ArchitectureComponent, extra: Readonly<Record<string, string>>): ArchitectureSheets;
+  /** Put the object's materials (over `extra`) on a chunk (the undo; null: none). */
+  materials(root: THREE.Object3D, entityId: string, extra: Readonly<Record<string, string>>): (() => void) | null;
+  /** The style and preset graphs outlines are made by (absent: the engine's starters only). */
+  styles?: readonly ArchitectureGraphLike[] | null;
   /** A kit model's template for instance sets (null: still loading; `onReady` once it is in). */
   template(assetId: string, piece: string | undefined, onReady: () => void): ModelInstance | null;
   /** Put a model's own materials on an instance set (the undo; null: none). */
@@ -119,7 +128,12 @@ interface ChunkRec {
 }
 
 interface Rec {
+  /** The component as given, and as the generator makes it (outlines made by their presets' styles). */
+  raw: ArchitectureComponent;
   component: ArchitectureComponent;
+  /** The trim sheets its presets name (slot → material) and the presets its outlines resolved through. */
+  materials: Readonly<Record<string, string>>;
+  presets: ReadonlySet<string>;
   origin: [number, number, number];
   hidden: boolean;
   chunks: Map<string, ChunkRec>;
@@ -199,21 +213,83 @@ export class ArchitectureView {
   private readonly errors: string[] = [];
   private eye: ArrayLike<number> = [0, 0, 0];
   private disposed = false;
+  private styles: ArchitectureStyles;
+  private swaps: Readonly<Record<string, string>> = {};
+  private previewing: ArchitecturePreview | null = null;
 
-  constructor(private readonly deps: ArchitectureViewDeps) {}
+  constructor(private readonly deps: ArchitectureViewDeps) {
+    this.styles = architectureStylesOf(deps.styles ?? undefined);
+  }
+
+  /** The style and preset graphs changed: objects with outlines are made again (unchanged chunks keep their keys). */
+  setStyles(graphs: readonly ArchitectureGraphLike[] | null): void {
+    this.styles = architectureStylesOf(graphs ?? undefined);
+    this.remake(() => true);
+  }
+
+  /** The presets a script swapped (preset → the one shown in its place), all of them. */
+  setSwaps(swaps: Readonly<Record<string, string>>): void {
+    this.swaps = swaps;
+    this.remake(() => true);
+  }
+
+  /**
+   * A slider being dragged: `values` over preset `preview.preset` and every
+   * preset derived from it (null: the stored values again). Only objects
+   * whose outlines that preset reaches are made again. Returns how many.
+   */
+  preview(preview: ArchitecturePreview | null): number {
+    const t0 = performance.now();
+    const before = this.previewing;
+    this.previewing = preview;
+    const objects = this.remake((rec) => (before !== null && rec.presets.has(before.preset)) || (preview !== null && rec.presets.has(preview.preset)));
+    performance.mark(ARCHITECTURE_PREVIEW_MARK, { detail: { ms: performance.now() - t0, objects } });
+    return objects;
+  }
+
+  /** Expand again the objects with outlines that `which` picks, and ask for the chunks that changed. */
+  private remake(which: (rec: Rec) => boolean): number {
+    let n = 0;
+    for (const [id, rec] of this.recs) {
+      if (rec.leaving || (rec.raw.outlines?.length ?? 0) === 0 || !which(rec)) continue;
+      const sheetsBefore = JSON.stringify(rec.materials);
+      this.expand(id, rec);
+      n += 1;
+      if (this.deps.drawn === false) continue;
+      if (JSON.stringify(rec.materials) !== sheetsBefore) for (const c of rec.chunks.values()) if (c.built !== null) this.redress(id, c.built);
+      this.refresh(id, rec);
+    }
+    if (n > 0) this.dispatch();
+    return n;
+  }
+
+  /** The component the generator makes from the one given (outlines made by their presets' styles). */
+  private expand(id: string, rec: Rec): void {
+    const x = expandArchitecture(rec.raw, rec.origin, this.styles, { swaps: this.swaps, preview: this.previewing });
+    // Shipped meshes are of the stored presets: a swapped or previewed one is generated here.
+    const restyled = rec.raw.baked !== undefined && (rec.raw.outlines ?? []).some((o) => this.swaps[o.preset] !== undefined || (this.previewing !== null && x.presets.has(this.previewing.preset)));
+    if (restyled) {
+      const { baked: _baked, ...rest } = x.component;
+      rec.component = rest;
+    } else rec.component = x.component;
+    rec.materials = x.materials;
+    rec.presets = x.presets;
+    for (const p of x.problems) this.problems.add(`${id}: ${p}`);
+  }
 
   /** An object carrying `architecture` was realized (or realized again), at `origin`. */
   set(id: string, component: ArchitectureComponent, origin: readonly number[]): void {
     const o: [number, number, number] = [origin[0] ?? 0, origin[1] ?? 0, origin[2] ?? 0];
     let rec = this.recs.get(id);
     if (rec === undefined) {
-      rec = { component, origin: o, hidden: false, chunks: new Map(), stale: [], leaving: false, baked: null, bakedDigest: null, reading: null, since: performance.now(), waiting: true, everReady: false, firstFrame: null };
+      rec = { raw: component, component, materials: {}, presets: new Set(), origin: o, hidden: false, chunks: new Map(), stale: [], leaving: false, baked: null, bakedDigest: null, reading: null, since: performance.now(), waiting: true, everReady: false, firstFrame: null };
       this.recs.set(id, rec);
     }
     rec.leaving = false;
     const moved = rec.origin.some((v, i) => v !== o[i]);
-    rec.component = component;
+    rec.raw = component;
     rec.origin = o;
+    this.expand(id, rec);
     if (moved) for (const c of rec.chunks.values()) if (c.built !== null) this.moveBuilt(rec, c.built);
     if (this.deps.drawn === false) return;
     this.refresh(id, rec);
@@ -381,7 +457,7 @@ export class ArchitectureView {
       this.loadBaked(id, rec, c.baked);
       return;
     }
-    const sheets = this.deps.sheets(id, c);
+    const sheets = this.deps.sheets(id, c, rec.materials);
     const keys = architectureChunkKeys(c, sheets);
     let changed = false;
     for (const [ck, ch] of [...rec.chunks]) {
@@ -725,7 +801,7 @@ export class ArchitectureView {
       draws += built.meshes.length;
     });
     // The object's materials on the meshes (the first undo: a restyle replaces it).
-    undo.unshift(this.deps.materials(group, id) ?? ((): void => undefined));
+    undo.unshift(this.deps.materials(group, id, rec.materials) ?? ((): void => undefined));
     group.updateMatrixWorld(true);
     if (ch.built !== null) this.dropBuilt(ch.built);
     ch.built = { group, geometries, sets, undo, triangles, draws };
@@ -748,7 +824,7 @@ export class ArchitectureView {
 
   private redress(id: string, b: BuiltChunk): void {
     b.undo[0]?.();
-    b.undo[0] = this.deps.materials(b.group, id) ?? ((): void => undefined);
+    b.undo[0] = this.deps.materials(b.group, id, this.recs.get(id)?.materials ?? {}) ?? ((): void => undefined);
   }
 
   private moveBuilt(rec: Rec, b: BuiltChunk): void {

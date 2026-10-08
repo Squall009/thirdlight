@@ -53,6 +53,8 @@ import { canonicalLighting, validateLighting, type LightingMap } from './lightin
 import { sha256Hex, sha256HexOfText } from './sha256';
 import { canonicalGraphDocuments, graphDocumentsContext, validateGraphDocuments, type GraphDocument } from './graph';
 import { GRAPH_KINDS } from './graph-kinds';
+import { ARCHITECTURE_PRESET_KIND, ARCHITECTURE_STYLE_KIND } from './arch-style-kinds';
+import { validateArchitectureGraphs } from './arch-style';
 import { canonicalEffects, validateEffects, type EffectDef } from './effects';
 import { canonicalUiDocuments, canonicalUiThemes, validateUiDocuments, validateUiThemes, type UiDocument, type UiTheme } from './ui-documents';
 import { canonicalModes, validateModes, type GameMode } from './modes';
@@ -139,7 +141,7 @@ export interface ManifestSceneRow {
 }
 
 /** Keys present only when they apply: tags, scenes, buffers. */
-const OPTIONAL_MANIFEST_KEYS = new Set(['tags', 'effects', 'environment', 'lighting', 'animators', 'rigs', 'modelColliders', 'prefabs', 'blockTypes', 'cellFields', 'input', 'collisionLayers', 'saveSchema', 'uiThemes', 'timelines', 'eventCues', 'shell', 'modes', 'scenes', 'contentFiles', 'libraries', 'loadable']);
+const OPTIONAL_MANIFEST_KEYS = new Set(['tags', 'effects', 'environment', 'lighting', 'animators', 'rigs', 'modelColliders', 'prefabs', 'blockTypes', 'cellFields', 'input', 'collisionLayers', 'saveSchema', 'uiThemes', 'timelines', 'eventCues', 'shell', 'modes', 'architectureStyles', 'scenes', 'contentFiles', 'libraries', 'loadable']);
 
 /** The v2 manifest keys in their exact canonical order (`buildId` last). */
 export const MANIFEST_KEYS_V2 = [
@@ -184,6 +186,8 @@ export const MANIFEST_KEYS_V2 = [
   'eventCues',
   // The game shell (menus and HUD documents, the ordered scene list; only when the project has one).
   'shell',
+  // Generated architecture's styles and presets (graphs; only when the project has some — the engine's starters are its own).
+  'architectureStyles',
   // The scene artifacts (dialogue data is a content file, under `contentFiles`).
   'scenes',
   // The blocks in their own content files (materials, materialFunctions, uiDocuments, dialogue, buffers).
@@ -365,6 +369,8 @@ export interface RuntimeContentManifestV2 {
   eventCues?: EventCue[];
   /** The game shell (present only when the project has one). */
   shell?: GameShell;
+  /** Generated architecture's style and preset graphs (present only when the project has some). */
+  architectureStyles?: GraphDocument[];
   /** The prefab definitions scripts spawn. */
   prefabs?: PrefabDefinition[];
   /** A v4 project's scene artifacts. */
@@ -758,6 +764,8 @@ export interface CaptureManifestV2Input {
   modelColliders?: ModelColliderTable;
   /** The prefab definitions scripts spawn (only when there are some). */
   prefabs?: readonly PrefabDefinition[];
+  /** Generated architecture's style and preset graphs (only when the project has some). */
+  architectureStyles?: readonly GraphDocument[];
   /** The block types and cell fields (only when there are some). */
   blockTypes?: readonly BlockType[];
   cellFields?: readonly CellField[];
@@ -894,6 +902,7 @@ export function canonicalManifestBlocks(input: Omit<CaptureManifestV2Input, 'ass
     ...(input.timelines !== undefined && input.timelines.length > 0 ? { timelines: canonicalTimelines(input.timelines) } : {}),
     ...(input.eventCues !== undefined && input.eventCues.length > 0 ? { eventCues: canonicalEventCues(input.eventCues) } : {}),
     ...(input.shell !== undefined ? { shell: canonicalShell(input.shell) } : {}),
+    ...(input.architectureStyles !== undefined && input.architectureStyles.length > 0 ? { architectureStyles: canonicalGraphDocuments(input.architectureStyles) } : {}),
   };
   const files: Partial<Record<ManifestContentFileKey, unknown>> = {
     ...(input.materials !== undefined && input.materials.length > 0 ? { materials: canonicalMaterials(input.materials) } : {}),
@@ -1209,6 +1218,13 @@ export function manifestBlocksProblem(d: Readonly<Record<string, unknown>>): Man
       const why = validateModelRig(v);
       if (why !== null) return manifestError('manifest_invalid', `rigs["${k}"]: ${why}`.slice(0, 256), 'field_value');
     }
+  }
+  if (d['architectureStyles'] !== undefined) {
+    const v = d['architectureStyles'];
+    const graphErrors: ModelErrorV2[] = [];
+    validateGraphDocuments(GRAPH_KINDS, v, '/architectureStyles', graphErrors);
+    if (graphErrors.length === 0) validateArchitectureGraphs(v, '/architectureStyles', graphErrors);
+    if (graphErrors.length > 0 || !(v as { kind?: unknown }[]).every((g) => g.kind === ARCHITECTURE_STYLE_KIND || g.kind === ARCHITECTURE_PRESET_KIND)) return manifestError('manifest_invalid', 'architectureStyles holds valid architecture styles and presets only', 'field_value');
   }
   if (d['modelColliders'] !== undefined) {
     const why = validateModelColliderTable(d['modelColliders']);

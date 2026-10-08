@@ -15,6 +15,7 @@ import { useCallback, useMemo, useState, type Dispatch } from 'react';
 import type { AnimatorController, MaterialDef } from '@thirdlight/project-model';
 import { DIALOGUE_LIMITS, NAME_MAX, RESOURCE_KIND_TABLE, SCRIPT_LIBRARY_LIMITS, TIMELINE_LIMITS, UI_LIMITS } from '@thirdlight/project-model/limits';
 import { defaultTrimSheet } from '@thirdlight/project-model/trim-sheet';
+import { architectureGraphTemplate } from '@thirdlight/runtime';
 
 import { docKey, type WorkspaceAction } from '../../session/editor-window';
 import { newEffect } from '../../session/effect-edit';
@@ -180,7 +181,8 @@ export function useItemActions(deps: ItemActionsDeps): ItemActions {
         }
         case 'graph':
           if (graphKinds[arg] === undefined) return `no graph kind ${arg}`;
-          err = await run('setGraph', { graph: { graphId: id, kind: arg, name, graph: { nodes: [], edges: [] } } });
+          // An architecture style starts with its Outline and Output, a preset deriving from the starter room.
+          err = await run('setGraph', { graph: { graphId: id, kind: arg, name, graph: architectureGraphTemplate(arg) } });
           break;
         case 'effect':
           err = await run('setEffect', { effect: newEffect(id, name) });

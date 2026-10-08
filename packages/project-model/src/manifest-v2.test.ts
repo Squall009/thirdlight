@@ -54,12 +54,12 @@ describe('manifest-v2: captureManifestV2 assembly', () => {
     if (!res.ok) return;
     const keys = Object.keys(res.manifest);
     // `tags` is present only when the project defines tags.
-    expect(keys).toEqual(MANIFEST_KEYS_V2.filter((k) => k !== 'tags' && k !== 'effects' && k !== 'environment' && k !== 'lighting' && k !== 'animators' && k !== 'rigs' && k !== 'modelColliders' && k !== 'prefabs' && k !== 'blockTypes' && k !== 'cellFields' && k !== 'input' && k !== 'collisionLayers' && k !== 'saveSchema' && k !== 'uiThemes' && k !== 'timelines' && k !== 'eventCues' && k !== 'shell' && k !== 'modes' && k !== 'scenes' && k !== 'contentFiles' && k !== 'libraries' && k !== 'loadable'));
+    expect(keys).toEqual(MANIFEST_KEYS_V2.filter((k) => k !== 'tags' && k !== 'effects' && k !== 'environment' && k !== 'lighting' && k !== 'animators' && k !== 'rigs' && k !== 'modelColliders' && k !== 'prefabs' && k !== 'blockTypes' && k !== 'cellFields' && k !== 'input' && k !== 'collisionLayers' && k !== 'saveSchema' && k !== 'uiThemes' && k !== 'timelines' && k !== 'eventCues' && k !== 'shell' && k !== 'architectureStyles' && k !== 'modes' && k !== 'scenes' && k !== 'contentFiles' && k !== 'libraries' && k !== 'loadable'));
     expect(keys[keys.length - 1]).toBe('buildId');
     const tagged = captureManifestV2({ ...(v2Input() as object), tags: [{ bit: 3, name: 'walker' }] } as never);
     expect(tagged.ok).toBe(true);
     if (tagged.ok) {
-      expect(Object.keys(tagged.manifest)).toEqual(MANIFEST_KEYS_V2.filter((k) => k !== 'effects' && k !== 'environment' && k !== 'lighting' && k !== 'animators' && k !== 'rigs' && k !== 'modelColliders' && k !== 'prefabs' && k !== 'blockTypes' && k !== 'cellFields' && k !== 'input' && k !== 'collisionLayers' && k !== 'saveSchema' && k !== 'uiThemes' && k !== 'timelines' && k !== 'eventCues' && k !== 'shell' && k !== 'modes' && k !== 'scenes' && k !== 'contentFiles' && k !== 'libraries' && k !== 'loadable'));
+      expect(Object.keys(tagged.manifest)).toEqual(MANIFEST_KEYS_V2.filter((k) => k !== 'effects' && k !== 'environment' && k !== 'lighting' && k !== 'animators' && k !== 'rigs' && k !== 'modelColliders' && k !== 'prefabs' && k !== 'blockTypes' && k !== 'cellFields' && k !== 'input' && k !== 'collisionLayers' && k !== 'saveSchema' && k !== 'uiThemes' && k !== 'timelines' && k !== 'eventCues' && k !== 'shell' && k !== 'architectureStyles' && k !== 'modes' && k !== 'scenes' && k !== 'contentFiles' && k !== 'libraries' && k !== 'loadable'));
       expect(validateManifestV2(tagged.manifest).ok).toBe(true);
     }
     expect(res.manifest.manifestVersion).toBe(RUNTIME_CONTENT_MANIFEST_VERSION_4);
@@ -349,7 +349,7 @@ describe('manifest-v2: version-compat rule', () => {
 
 describe('manifest-v2: contract constants', () => {
   it('the v2 key order carries the six added keys and buildId last', () => {
-    expect(MANIFEST_KEYS_V2).toHaveLength(42); // the blocks that grow with a project (materials, materialFunctions, uiDocuments, dialogue, buffers) are under contentFiles
+    expect(MANIFEST_KEYS_V2).toHaveLength(43); // the blocks that grow with a project (materials, materialFunctions, uiDocuments, dialogue, buffers) are under contentFiles
     expect(MANIFEST_KEYS_V2).not.toContain('gameDigest');
     expect(MANIFEST_KEYS_V2).toContain('settingsDigest');
     expect(MANIFEST_KEYS_V2).toContain('mediaDigest');

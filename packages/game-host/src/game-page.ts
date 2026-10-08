@@ -30,7 +30,7 @@
  *
  * Browser-only (DOM, WebGL/WebGPU, Web Audio, Web Crypto).
  */
-import { audioSpatialOf, dependencyTables, depthBufferOf, instanceChunkSizeOf, lodTuningOf, type ModelLodSettings, materialTextureRefs, physicsDimensionOf, scanDependencies, sha256HexAsync, streamingBudgetBytesOf, textureBudgetBytesOf, type MaterialDef, type ModelColliderTable, type SaveSchema } from '@thirdlight/project-model';
+import { audioSpatialOf, dependencyTables, depthBufferOf, instanceChunkSizeOf, lodTuningOf, type ModelLodSettings, materialTextureRefs, physicsDimensionOf, scanDependencies, sha256HexAsync, streamingBudgetBytesOf, textureBudgetBytesOf, type MaterialDef, type ModelColliderTable, type SaveSchema, type GraphDocument } from '@thirdlight/project-model';
 import { assetVersionKey, createResourceManager, fixedStepHzOf, EMBEDDED_TEXTURES_LISTED, embeddedTextureBytes, qualityLevelOf, qualityLevelsOf, renderSettingsOf, type ResourceManager, type ResourceObservation } from '@thirdlight/runtime';
 import { attachBrowserInput, DEFAULT_INPUT_CONFIG, DEFAULT_INPUT_CONFIG_3D, focusGameSurface, type InputConfigLike } from '@thirdlight/input';
 import type { RapierPhysicsInitConfig, RapierPhysicsPort, RapierStaticColliderSpec } from '@thirdlight/physics-rapier';
@@ -157,6 +157,8 @@ export interface GamePageManifest {
   rigs?: Record<string, unknown>;
   /** The models' `_COL` parts (colliders `{type: 'model'}` are made of them). */
   modelColliders?: ModelColliderTable;
+  /** Generated architecture's style and preset graphs. */
+  architectureStyles?: GraphDocument[];
   /** The prefab definitions scripts spawn. */
   prefabs?: unknown[];
   /** The block types and cell fields block layers use. */
@@ -596,6 +598,8 @@ function runtimeSnapshotOf(authored: RuntimeSnapshot, content: RuntimeContent<Ga
     ...(manifest.rigs !== undefined ? { rigs: manifest.rigs } : {}),
     // The models' collision parts colliders `{type: 'model'}` are made of.
     ...(manifest.modelColliders !== undefined ? { modelColliders: manifest.modelColliders } : {}),
+    // The style and preset graphs generated architecture's outlines are made by (its colliders too).
+    ...(manifest.architectureStyles !== undefined ? { architectureStyles: manifest.architectureStyles } : {}),
     // The graph materials' parameters scripts set per object (ctx.materials).
     ...(materialCatalog !== undefined ? { materialCatalog } : {}),
     // The materials a swap may name (every material the game ships).
@@ -933,6 +937,8 @@ export async function startGamePage(o: GamePageOptions): Promise<GamePageHandle>
           // Generated architecture drawn unless the page says ?architecture=off; an export keeps its chunks between visits.
           architecture: architectureFromUrl(pageSearch()),
           ...(o.keepGeneratedArchitecture === true ? ((store) => (store !== null ? { architectureStore: store } : {}))(browserArchitectureStore()) : {}),
+          // The style and preset graphs outlines are made by.
+          ...(manifest.architectureStyles !== undefined ? { architectureStyles: manifest.architectureStyles } : {}),
           ...(readBuffer !== undefined ? { resolveBuffer: readBuffer } : {}),
           // The project's LOD bias and hysteresis.
           lod: lodTuningOf(settings),

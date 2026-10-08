@@ -9,6 +9,7 @@
  * file, so its bytes are governed by the envelope's strict parse.
  */
 
+import { validateArchitectureGraphs } from './arch-style';
 import { canonicalEventCues, validateEventCueReferences, validateEventCues } from './event-cues';
 import { canonicalShell, validateShell, validateShellReferences, type GameShell } from './shell';
 import { canonicalLoadable, ENV_PRESETS_LIST, RESOURCE_KIND_TABLE, validateLoadable } from './loadable';
@@ -252,7 +253,11 @@ function validateContentV3Value(doc: Record<string, unknown>, version: 3 | 4 = 3
   // The level flow was deleted (the game shell, content.shell, is the generic menus and scene list).
   if (doc['flow'] !== undefined) errors.push(withFound({ code: 'field_unexpected', path: '/flow', message: `content.flow (the level flow and its menus) was ${REMOVED_FROM_ENGINE} (menus: the game shell, content.shell)`, expected: 'no flow' } as ModelErrorV2, 'flow'));
   // Standalone graph documents.
-  if (doc['graphs'] !== undefined && !same('graphs')) validateGraphDocuments(GRAPH_KINDS, doc['graphs'], '/graphs', errors);
+  if (doc['graphs'] !== undefined && !same('graphs')) {
+    validateGraphDocuments(GRAPH_KINDS, doc['graphs'], '/graphs', errors);
+    // Architecture presets never derive from each other in a cycle.
+    validateArchitectureGraphs(doc['graphs'], '/graphs', errors);
+  }
   // Visual effects.
   if (doc['effects'] !== undefined && !same('effects')) validateEffects(doc['effects'], '/effects', errors, trusted('effects'));
   // Shared script libraries (v4) and the behavior pins that name them.

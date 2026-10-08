@@ -39,6 +39,7 @@ import {
   type ArchitectureElement,
   type ArchitectureFill,
   type ArchitectureModelRef,
+  type ArchitectureProfile,
   type ArchitectureRepeat,
   type ArchitectureSweep,
   architectureMaterialSlots,
@@ -216,19 +217,22 @@ export function trimSheetOfMaterial(defs: readonly { materialId: string; shader?
 
 /**
  * Each chunk's cache key: SHA-256 of the generator version, the chunk, the
- * settings that shape geometry, the sheets and profiles, and the elements
- * (and their overrides) whose bounds reach the chunk — so changing one room
+ * settings that shape geometry, the sheets, and the elements (with the
+ * profiles they sweep and their overrides) whose bounds reach the chunk — so changing one room
  * re-makes only that room's chunks.
  */
 export function architectureChunkKeys(c: ArchitectureComponent, sheets: ArchitectureSheets): Map<string, ArchitectureChunkKey> {
   const size = chunkSizeOf(c);
-  const common = canonicalJsonText({ v: ARCHITECTURE_GENERATOR_VERSION, size, seed: c.seed ?? 0, ao: c.ao ?? null, profiles: c.profiles ?? {}, sheets });
+  // The profiles go with the elements that use them: a profile changed (a slider) re-keys only those elements' chunks.
+  const common = canonicalJsonText({ v: ARCHITECTURE_GENERATOR_VERSION, size, seed: c.seed ?? 0, ao: c.ao ?? null, sheets });
   const commonHash = sha256HexOfText(common);
   const per = new Map<string, { hashes: string[]; elements: number[] }>();
   const overrides = new Map<string, unknown[]>();
   for (const o of c.overrides ?? []) overrides.set(o.element, [...(overrides.get(o.element) ?? []), o]);
   c.elements.forEach((e, index) => {
-    const h = hashText64(canonicalJsonText({ e, own: overrides.get(e.id) ?? [] }));
+    const profiles: Record<string, unknown> = {};
+    for (const name of elementProfiles(e)) profiles[name] = c.profiles?.[name] ?? null;
+    const h = hashText64(canonicalJsonText({ e, own: overrides.get(e.id) ?? [], profiles }));
     for (const [cx, cz] of chunksOf(elementBounds(e, c), size)) {
       const k = keyOf(cx, cz);
       const list = per.get(k);
@@ -247,6 +251,19 @@ export function architectureChunkKeys(c: ArchitectureComponent, sheets: Architec
   return out;
 }
 
+/** The profiles an element sweeps (its own, its openings' frames, its piece's), sorted. */
+function elementProfiles(e: ArchitectureElement): string[] {
+  const out = new Set<string>();
+  const visit = (x: ArchitectureElement): void => {
+    if (x.kind === 'sweep') {
+      out.add(x.profile);
+      for (const o of x.openings ?? []) if (o.frame !== undefined) out.add(o.frame);
+    } else if (x.kind === 'repeat' && 'elements' in x.piece) for (const y of x.piece.elements) visit(y);
+  };
+  visit(e);
+  return [...out].sort();
+}
+
 /** A chunk's place, cache key and the elements (indices into `elements`) whose bounds reach it. */
 export interface ArchitectureChunkKey {
   cx: number;
@@ -257,7 +274,12 @@ export interface ArchitectureChunkKey {
 
 /** The component with only the elements that reach a chunk: what a chunk's job needs (it makes the same chunk). */
 export function architectureChunkInput(c: ArchitectureComponent, k: Pick<ArchitectureChunkKey, 'elements'>): ArchitectureComponent {
-  return { ...c, elements: k.elements.map((i) => c.elements[i]!) };
+  const elements = k.elements.map((i) => c.elements[i]!);
+  if (c.profiles === undefined) return { ...c, elements };
+  // Only the profiles these elements sweep travel with the job.
+  const profiles: Record<string, ArchitectureProfile> = {};
+  for (const e of elements) for (const name of elementProfiles(e)) if (c.profiles[name] !== undefined) profiles[name] = c.profiles[name]!;
+  return { ...c, elements, profiles };
 }
 
 /** Copies being gathered for one chunk (or the whole component). */

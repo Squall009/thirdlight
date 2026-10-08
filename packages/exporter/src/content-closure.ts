@@ -26,7 +26,7 @@ import { dialogueForRuntime, type DialogueDocument, type DialogueSettings, type 
 import type { GameMode } from '@thirdlight/project-model';
 import type { EventCue, GameShell, TimelineAsset } from '@thirdlight/project-model';
 import type { AnimatorController, EnvironmentConfig, PrefabDefinition, InputConfig, LightingMap, MaterialDef, UiDocument, UiTheme } from '@thirdlight/project-model';
-import { architectureCopies, architectureShipsMeshesOf, type ArchitectureComponent } from '@thirdlight/project-model';
+import { architectureCopies, architectureGraphsOf, architectureShipsMeshesOf, architectureStylesOf, expandArchitecture, graphForRuntime, type ArchitectureComponent, type ArchitectureStyles } from '@thirdlight/project-model';
 import { animatorsForRuntime, effectsForRuntime, type EffectDef, materialFunctionsForRuntime, materialsForRuntime, type GraphDocument, captureContentViewV3, captureManifestV5, restampManifestV5, type CatalogFile, dependencyTables, scanDependencies, M3_ENGINE_PINS, resolveMediaIdentityV3, sha256Hex, type GameplaySettings, type ManifestAssetInputV2, type ManifestAssetInputV5, type ManifestBehaviorInput, type MediaBlock, type RuntimeContentManifestV5, type ManifestSceneRow, physicsDimensionOf, resolveRequiredModules, materialsInUse, resolveMaterialInstances, hasTextureSlots, withAssembledSlots, textureSlotSetKey, loadableAssetIds, loadableResourceIds, loadableRows, scriptLibraryContainerText, scriptLibraryDigest, type ScriptLibrary } from '@thirdlight/project-model';
 import { playChecks, projectWideRoots, startDrawSet, type MissingPlayFile, type PlayCheck, type SceneV4 } from '@thirdlight/project-model';
 import { ASSET_QUERY_PAGE_MAX, audioLoadOf, COLLIDER_3D_LIMITS, MODEL_RIG_LIMITS, modelCollisionParts, sceneColliderPoints, readModelGeometry, readModelRig, textureStreamingOf, type AudioLoadType, type ManifestMipPart, type ModelRig } from '@thirdlight/project-model';
@@ -856,6 +856,9 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
   }
   // Only the materials the game uses (an object, a prefab, a shipped model's default mapping,
   // a block type, an effect or a timeline names them), resolved; found once, when first needed.
+  // Generated architecture's style and preset graphs (the starters are the engine's).
+  const archGraphs = architectureGraphsOf((input.content as { graphs?: GraphDocument[] } | null)?.graphs).map((g) => ({ graphId: g.graphId, kind: g.kind, name: g.name, graph: graphForRuntime(g.graph) }));
+  const archStyles = (): ReturnType<typeof architectureStylesOf> => architectureStylesOf(archGraphs);
   const allMaterials = (input.content as { materials?: MaterialDef[] } | null)?.materials;
   let usedMemo: MaterialDef[] | undefined | null = null;
   const usedMaterialsOf = (): MaterialDef[] | undefined => {
@@ -875,6 +878,8 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
           });
           // A loadable material ships too (a script may load it by name).
           for (const id of loadableResourceIds(input.content, 'material')) used.add(id);
+          // The trim sheets architecture presets name (any preset may be swapped in at run time).
+          for (const p of archStyles().presets.values()) if (p.sheet !== '') used.add(p.sheet);
           // A named instance ships resolved (its chain's graph, parameters and values folded
           // in), so the runtime never sees an instance; its parents ship only when something names them.
           return resolveMaterialInstances(allMaterials).filter((m) => used.has(m.materialId));
@@ -925,7 +930,7 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
     return r.bytes;
   });
   // Generated architecture's meshes, made here when the project ships them (else its parameters ship alone).
-  const archMeshes = architectureMeshPacker(architectureShipsMeshesOf((input.content as { settings?: unknown } | null)?.settings), () => usedMaterialsOf(), hash);
+  const archMeshes = architectureMeshPacker(architectureShipsMeshesOf((input.content as { settings?: unknown } | null)?.settings), () => usedMaterialsOf(), hash, archStyles);
   const packScene = (doc: unknown): unknown => overviews.pack(packer.pack(archMeshes.pack(doc)));
   if (input.scenes !== undefined && derived === null) {
     const start = new Set(input.startScenes ?? []);
@@ -997,7 +1002,7 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
   // 5d. The models' `_COL` parts, only when a collider in a scene or prefab is `{type: 'model'}`
   //     (resolved here, so the runtime never reads a model; a model without readable parts is a warning).
   let modelColliders: Record<string, Record<string, number[][][]>> | undefined;
-  const uses = modelColliderUses(input.scenes, prefabDefs);
+  const uses = modelColliderUses(input.scenes, prefabDefs, archStyles);
   for (const [assetId, pieces] of [...uses.entries()].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) {
     const a = view.assets.find((x) => x.assetId === assetId && x.kind === 'model');
     if (a === undefined || placeholders.some((p) => p.assetId === assetId)) continue;
@@ -1130,6 +1135,8 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
       // material functions they call — without editor-only graph text (comments, groups). The used ones only (6b).
       ...(runtimeMaterials !== undefined ? { materials: runtimeMaterials } : {}),
       ...(runtimeFunctions !== undefined ? { materialFunctions: runtimeFunctions } : {}),
+      // Generated architecture's style and preset graphs (outlines are made by them at load).
+      ...(archGraphs.length > 0 ? { architectureStyles: archGraphs } : {}),
       // The visual effects (particle system graphs without editor-only text); the runtime's executors compile them.
       ...(runtimeEffects !== undefined ? { effects: runtimeEffects } : {}),
       ...(content['environment'] !== undefined ? { environment: content['environment'] as EnvironmentConfig } : {}),
@@ -1247,7 +1254,7 @@ function usesSockets(scenes: readonly unknown[] | undefined, prefabs: readonly P
  * collider `{type: 'model'}` of a scene or a prefab is made of, and those of the scatter rules
  * whose copies collide.
  */
-function modelColliderUses(scenes: readonly unknown[] | undefined, prefabs: readonly PrefabDefinition[]): Map<string, Set<string>> {
+function modelColliderUses(scenes: readonly unknown[] | undefined, prefabs: readonly PrefabDefinition[], archStyles: () => ArchitectureStyles): Map<string, Set<string>> {
   const out = new Map<string, Set<string>>();
   const visit = (entities: unknown): void => {
     if (!Array.isArray(entities)) return;
@@ -1265,7 +1272,7 @@ function modelColliderUses(scenes: readonly unknown[] | undefined, prefabs: read
       }
       // Generated architecture's kit copies that collide (a repeat's models, overridden segments, openings' models).
       const arch = c?.['architecture'] as ArchitectureComponent | undefined;
-      if (arch !== undefined && Array.isArray(arch.elements)) for (const set of architectureCopies(arch)) if (set.collide) use(set.model.assetId, set.model.piece);
+      if (arch !== undefined && Array.isArray(arch.elements)) for (const set of architectureCopies(expandArchitecture(arch, [0, 0, 0], archStyles()).component)) if (set.collide) use(set.model.assetId, set.model.piece);
       // A spline's pieces that collide (the default): each copy carries its model's parts.
       for (const p of (c?.['spline'] as { pieces?: { asset?: { assetId?: unknown; piece?: unknown }; collide?: unknown }[] } | undefined)?.pieces ?? []) if (p.collide !== false) use(p.asset?.assetId, p.asset?.piece);
       const shape = (c?.['collider'] as { shape?: { type?: unknown } } | undefined)?.shape;

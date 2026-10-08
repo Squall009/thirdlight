@@ -646,7 +646,7 @@ export function instantiateRuntime(
     modelBounds: snap.modelBounds,
     audioDurations: snap.audioDurations,
     ...(snap.rigs !== undefined ? { rigs: snap.rigs } : {}),
-    ...(snap.modelColliders !== undefined ? { modelColliders: snap.modelColliders } : {}),
+    ...(snap.modelColliders !== undefined ? { modelColliders: snap.modelColliders } : {}), ...(snap.architectureStyles !== undefined ? { architectureStyles: snap.architectureStyles } : {}),
     ...(variables !== undefined ? { variables } : {}),
     blockTypes: snap.blockTypes,
     cellFields: snap.cellFields,
@@ -724,8 +724,8 @@ interface RuntimeArgs {
   audioDurations: Readonly<Record<string, number>>;
   /** Model rigs (sockets are resolved on them). */
   rigs?: Readonly<Record<string, import('@thirdlight/project-model').ModelRig>>;
-  /** The models' `_COL` parts (colliders `{type: 'model'}` are made of them). */
-  modelColliders?: import('@thirdlight/project-model').ModelColliderTable;
+  /** The models' `_COL` parts (colliders `{type: 'model'}` are made of them); generated architecture's style and preset graphs. */
+  modelColliders?: import('@thirdlight/project-model').ModelColliderTable; architectureStyles?: readonly import('@thirdlight/project-model').ArchitectureGraphLike[];
   /** Injected script variables (validated; ctx.save from step 0). */
   variables?: Readonly<Record<string, unknown>>;
   /** The block types and cell fields of the project's block layers. */
@@ -1275,7 +1275,7 @@ class RuntimeInstance implements Runtime {
     });
     this.spawnControl = this.spawnRequests.control();
     // The start scenes' block layers; in 3D their chunks collide (a 2D plane draws them only).
-    this.grid = new RuntimeGrid(args.blockTypes, args.cellFields, args.physics3d !== undefined, args.settings.max_slope_climb_deg, args.materialIds, this.prefabs, args.modelColliders, () => worldStreamSources(this.views.main.hasView() ? this.views.main.view() : null, this.controllers.ids, (id) => this.curr.get(id)?.position));
+    this.grid = new RuntimeGrid(args.blockTypes, args.cellFields, args.physics3d !== undefined, args.settings.max_slope_climb_deg, args.materialIds, this.prefabs, args.modelColliders, () => worldStreamSources(this.views.main.hasView() ? this.views.main.view() : null, this.controllers.ids, (id) => this.curr.get(id)?.position), args.architectureStyles);
     this.grid.addLayers(args.initialEntities);
     this.grid.flushCollision(args.physics3d);
     // The start set's graph materials (the values scripts set per object).

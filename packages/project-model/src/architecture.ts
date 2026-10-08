@@ -52,7 +52,7 @@ export const ARCHITECTURE_LIMITS = Object.freeze({
 /** The material slot elements wear unless they name another (`materials: {"architecture": id}` or `{"*": id}`). */
 export const ARCHITECTURE_MATERIAL_SLOT = 'architecture';
 /** Metres a chunk side covers: what one worker job makes and one draw per material shows. */
-export const ARCHITECTURE_CHUNK_DEFAULT = 32;
+export const ARCHITECTURE_CHUNK_DEFAULT = 16;
 /** Metres between samples on arcs and curves. */
 export const ARCHITECTURE_STEP_DEFAULT = 0.5;
 /** Vertex AO: how dark a right-angled inside corner gets (0–1) and how far (m) the darkening reaches. */
@@ -207,11 +207,35 @@ export interface ArchitectureOverride {
   stretch?: boolean;
 }
 
+/**
+ * An outline drawn on the object and the preset that styles it: the preset's
+ * style graph makes its elements from the outline at load (`arch-style.ts`),
+ * so restyling swaps the preset and never touches the outline.
+ */
+export interface ArchitectureOutline {
+  /** Unique among the component's outlines; the generated elements' ids start with it. */
+  id: string;
+  path: ArchitecturePath;
+  /** An architecture preset (a project's graph or one of the engine's starters). */
+  preset: string;
+  /** Doors, windows and arches the style's sweeps that take openings cut (their frames: the style's, unless named). */
+  openings?: ArchitectureOpening[];
+}
+
+/** A painted world mask: soft dabs [x, z, radius, weight] in metres from the object (its value at a point: the strongest dab there). */
+export interface ArchitectureMask {
+  points: [number, number, number, number][];
+}
+
 export interface ArchitectureComponent {
   elements: ArchitectureElement[];
   /** Named profiles the sweeps use. */
   profiles?: Record<string, ArchitectureProfile>;
   overrides?: ArchitectureOverride[];
+  /** Outlines styled by presets (absent: none). */
+  outlines?: ArchitectureOutline[];
+  /** Painted masks presets read by name to vary a parameter across the level (absent: none). */
+  masks?: Record<string, ArchitectureMask>;
   /** Metres a chunk side covers (absent: {@link ARCHITECTURE_CHUNK_DEFAULT}). */
   chunkSize?: number;
   /** The seed of jitter and variation (absent: 0). */
@@ -227,7 +251,7 @@ export interface ArchitectureComponent {
 }
 
 /** The component's fields in canonical order. */
-export const ARCHITECTURE_FIELDS: readonly string[] = Object.freeze(['elements', 'profiles', 'overrides', 'chunkSize', 'seed', 'ao', 'lodDistance', 'castShadow', 'receiveShadow', 'baked']);
+export const ARCHITECTURE_FIELDS: readonly string[] = Object.freeze(['elements', 'profiles', 'overrides', 'outlines', 'masks', 'chunkSize', 'seed', 'ao', 'lodDistance', 'castShadow', 'receiveShadow', 'baked']);
 const PATH_FIELDS = ['points', 'closed', 'bulges', 'curve', 'step', 'offset', 'chamfer'];
 const PROFILE_FIELDS = ['points', 'slots', 'closed', 'smooth', 'chamfer'];
 const BASE_FIELDS = ['id', 'kind', 'material', 'detail', 'collide'];
@@ -236,6 +260,9 @@ const REPEAT_FIELDS = [...BASE_FIELDS, 'path', 'spacing', 'start', 'end', 'corne
 const FILL_FIELDS = [...BASE_FIELDS, 'path', 'shape', 'slot', 'trimSlot', 'height', 'rise', 'face', 'axis', 'cell', 'depth', 'overhang', 'breakRise', 'inset'];
 const OPENING_FIELDS = ['id', 'at', 'width', 'bottom', 'top', 'reveal', 'frame', 'frameSides', 'model'];
 const OVERRIDE_FIELDS = ['element', 'segment', 'corner', 'reach', 'model', 'stretch'];
+const OUTLINE_FIELDS = ['id', 'path', 'preset', 'openings'];
+/** An outline id leaves room for the generated elements' suffixes within the id syntax's 64 characters. */
+const OUTLINE_ID_RE = /^[a-z0-9][a-z0-9_-]{0,47}$/;
 const DIGEST_RE = /^[0-9a-f]{64}$/;
 
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -293,6 +320,30 @@ function validateModel(m: unknown, path: string, errors: ModelErrorV2[]): void {
   if (m['piece'] !== undefined && !(typeof m['piece'] === 'string' && m['piece'].length >= 1 && m['piece'].length <= 128)) err(errors, 'field_value', `${path}/piece`, 'piece is 1-128 characters: a named piece of the file', m['piece']);
 }
 
+/** A sweep's (or an outline's) openings. */
+function validateOpenings(ops: unknown, path: string, errors: ModelErrorV2[], profiles: Record<string, unknown> | null): void {
+  const L = ARCHITECTURE_LIMITS;
+  const hasProfiles = profiles !== null;
+  if (ops === undefined) return;
+  if (!Array.isArray(ops)) return err(errors, 'field_type', path, 'openings is a list', ops);
+  const seen = new Set<string>();
+  ops.forEach((o, i) => {
+    const p = `${path}/${i}`;
+    if (!isObj(o)) return err(errors, 'field_type', p, 'an opening is {id, at, width, bottom, top, reveal?, frame?, frameSides?, model?}', o);
+    only(o, OPENING_FIELDS, p, errors, 'opening');
+    if (!isId(o['id']) || seen.has(o['id'])) err(errors, 'field_value', `${p}/id`, 'id is unique within the element (id syntax)', o['id']);
+    else seen.add(o['id']);
+    if (!within(o['at'], 0, L.coordinate)) err(errors, 'field_value', `${p}/at`, 'at is metres along the path', o['at']);
+    if (!within(o['width'], 0.01, L.distanceMax)) err(errors, 'field_value', `${p}/width`, `width is 0.01-${L.distanceMax} metres`, o['width']);
+    if (!within(o['bottom'], -L.distanceMax, L.distanceMax)) err(errors, 'field_value', `${p}/bottom`, 'bottom is metres up the profile', o['bottom']);
+    if (!within(o['top'], -L.distanceMax, L.distanceMax) || !(finite(o['bottom']) && (o['top'] as number) > o['bottom'])) err(errors, 'field_value', `${p}/top`, 'top is metres up the profile, above bottom', o['top']);
+    if (o['reveal'] !== undefined && !slotName(o['reveal'], true)) err(errors, 'field_value', `${p}/reveal`, 'reveal names a trim slot ("" for none)', o['reveal']);
+    if (o['frame'] !== undefined && (!isId(o['frame']) || (hasProfiles && profiles![o['frame']] === undefined))) err(errors, 'field_value', `${p}/frame`, 'frame names one of the component\'s profiles', o['frame']);
+    oneOf(o, 'frameSides', p, errors, ['outer', 'inner', 'both']);
+    if (o['model'] !== undefined) validateModel(o['model'], `${p}/model`, errors);
+  });
+}
+
 function validateElement(e: unknown, path: string, errors: ModelErrorV2[], profiles: Record<string, unknown> | null, ids: Set<string>, inPiece: boolean): void {
   const L = ARCHITECTURE_LIMITS;
   const hasProfiles = profiles !== null;
@@ -311,28 +362,7 @@ function validateElement(e: unknown, path: string, errors: ModelErrorV2[], profi
   if (kind === 'sweep') {
     // The named profile must exist when the component lists its profiles (without any, the generator reports it).
     if (!isId(e['profile']) || (hasProfiles && profiles![e['profile']] === undefined)) err(errors, 'field_value', `${path}/profile`, 'profile names one of the component\'s profiles', e['profile']);
-    const ops = e['openings'];
-    if (ops !== undefined) {
-      if (!Array.isArray(ops)) err(errors, 'field_type', `${path}/openings`, 'openings is a list', ops);
-      else {
-        const seen = new Set<string>();
-        ops.forEach((o, i) => {
-          const p = `${path}/openings/${i}`;
-          if (!isObj(o)) return err(errors, 'field_type', p, 'an opening is {id, at, width, bottom, top, reveal?, frame?, frameSides?, model?}', o);
-          only(o, OPENING_FIELDS, p, errors, 'opening');
-          if (!isId(o['id']) || seen.has(o['id'])) err(errors, 'field_value', `${p}/id`, 'id is unique within the element (id syntax)', o['id']);
-          else seen.add(o['id']);
-          if (!within(o['at'], 0, L.coordinate)) err(errors, 'field_value', `${p}/at`, 'at is metres along the path', o['at']);
-          if (!within(o['width'], 0.01, L.distanceMax)) err(errors, 'field_value', `${p}/width`, `width is 0.01-${L.distanceMax} metres`, o['width']);
-          if (!within(o['bottom'], -L.distanceMax, L.distanceMax)) err(errors, 'field_value', `${p}/bottom`, 'bottom is metres up the profile', o['bottom']);
-          if (!within(o['top'], -L.distanceMax, L.distanceMax) || !(finite(o['bottom']) && (o['top'] as number) > o['bottom'])) err(errors, 'field_value', `${p}/top`, 'top is metres up the profile, above bottom', o['top']);
-          if (o['reveal'] !== undefined && !slotName(o['reveal'], true)) err(errors, 'field_value', `${p}/reveal`, 'reveal names a trim slot ("" for none)', o['reveal']);
-          if (o['frame'] !== undefined && (!isId(o['frame']) || (hasProfiles && profiles![o['frame']] === undefined))) err(errors, 'field_value', `${p}/frame`, 'frame names one of the component\'s profiles', o['frame']);
-          oneOf(o, 'frameSides', p, errors, ['outer', 'inner', 'both']);
-          if (o['model'] !== undefined) validateModel(o['model'], `${p}/model`, errors);
-        });
-      }
-    }
+    validateOpenings(e['openings'], `${path}/openings`, errors, profiles);
   } else if (kind === 'repeat') {
     if (!within(e['spacing'], L.stepMin, L.distanceMax)) err(errors, 'field_value', `${path}/spacing`, `spacing is ${L.stepMin}-${L.distanceMax} metres between copies`, e['spacing']);
     num(e, 'start', path, errors, 0, L.coordinate, `0-${L.coordinate} metres`);
@@ -433,6 +463,41 @@ export function validateArchitectureComponent(value: unknown, path: string, erro
       });
     }
   }
+  const outlines = value['outlines'];
+  if (outlines !== undefined) {
+    if (!Array.isArray(outlines)) err(errors, 'field_type', `${path}/outlines`, 'outlines is a list of {id, path, preset, openings?}', outlines);
+    else {
+      const seen = new Set<string>();
+      outlines.forEach((o, i) => {
+        const p = `${path}/outlines/${i}`;
+        if (!isObj(o)) return err(errors, 'field_type', p, 'an outline is {id, path, preset, openings?}', o);
+        only(o, OUTLINE_FIELDS, p, errors, 'outline');
+        if (typeof o['id'] !== 'string' || !OUTLINE_ID_RE.test(o['id']) || seen.has(o['id'])) err(errors, 'field_value', `${p}/id`, 'id is unique among the outlines (id syntax, at most 48 characters)', o['id']);
+        else seen.add(o['id']);
+        validatePath(o['path'], `${p}/path`, errors, false);
+        if (!isId(o['preset'])) err(errors, 'field_value', `${p}/preset`, 'preset names an architecture preset', o['preset']);
+        validateOpenings(o['openings'], `${p}/openings`, errors, profiles === undefined ? null : named);
+      });
+    }
+  }
+  const masks = value['masks'];
+  if (masks !== undefined) {
+    if (!isObj(masks)) err(errors, 'field_type', `${path}/masks`, 'masks is {name: {points: [[x, z, radius, weight], …]}}', masks);
+    else {
+      for (const [name, m] of Object.entries(masks)) {
+        const p = `${path}/masks/${name}`;
+        if (!ID_RE.test(name)) err(errors, 'field_value', p, 'a mask name uses the id syntax', name);
+        if (!isObj(m)) {
+          err(errors, 'field_type', p, 'a mask is {points: [[x, z, radius, weight], …]}', m);
+          continue;
+        }
+        only(m, ['points'], p, errors, 'mask');
+        const pts = m['points'];
+        const ok = Array.isArray(pts) && pts.every((q) => Array.isArray(q) && q.length === 4 && within(q[0], -L.coordinate, L.coordinate) && within(q[1], -L.coordinate, L.coordinate) && within(q[2], 0.01, L.distanceMax) && within(q[3], 0, 1));
+        if (!ok) err(errors, 'field_value', `${p}/points`, `points is a list of [x, z, radius 0.01-${L.distanceMax}, weight 0-1] (metres from the object)`, Array.isArray(pts) ? pts.length : pts);
+      }
+    }
+  }
   num(value, 'chunkSize', path, errors, L.chunkMin, L.chunkMax, `${L.chunkMin}-${L.chunkMax} metres`);
   if (value['seed'] !== undefined && !(Number.isInteger(value['seed']) && (value['seed'] as number) >= 0 && (value['seed'] as number) <= 0xffffffff)) err(errors, 'field_value', `${path}/seed`, 'seed is a whole number 0-4294967295', value['seed']);
   const ao = value['ao'];
@@ -472,12 +537,13 @@ export function architectureMaterialSlots(c: Pick<ArchitectureComponent, 'elemen
 }
 
 /** The kit models an architecture component places (repeated pieces, overrides, openings). */
-export function architectureModelAssets(c: Pick<ArchitectureComponent, 'elements' | 'overrides'> | undefined): string[] {
+export function architectureModelAssets(c: Pick<ArchitectureComponent, 'elements' | 'overrides' | 'outlines'> | undefined): string[] {
   const out = new Set<string>();
   for (const e of c?.elements ?? []) {
     if (e.kind === 'repeat' && 'model' in e.piece) out.add(e.piece.model.assetId);
     if (e.kind === 'sweep') for (const o of e.openings ?? []) if (o.model !== undefined) out.add(o.model.assetId);
   }
+  for (const r of c?.outlines ?? []) for (const o of r.openings ?? []) if (o.model !== undefined) out.add(o.model.assetId);
   for (const o of c?.overrides ?? []) out.add(o.model.assetId);
   return [...out];
 }

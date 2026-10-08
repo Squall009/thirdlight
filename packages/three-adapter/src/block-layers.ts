@@ -618,7 +618,7 @@ export class BlockLayerView {
     // A layer's kits first: its chunks are meshed with them.
     for (const c of changes) if ('kits' in c) this.setGameKits(c.entityId, c.kits);
     for (const c of changes) {
-      if ('kits' in c || 'rule' in c) continue;
+      if ('kits' in c || 'rule' in c || 'architecturePresets' in c) continue;
       let list = byLayer.get(c.entityId);
       if (list === undefined) byLayer.set(c.entityId, (list = []));
       list.push(c);

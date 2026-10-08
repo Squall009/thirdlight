@@ -19,6 +19,8 @@ import { MaterialMappingEditor } from '../material/MaterialInspector';
 import { AnimatorInspector } from '../animator/AnimatorInspector';
 import { PlayDebugView } from '../PlayDebugView';
 import { GraphInspector } from '../../graph/GraphInspector';
+import { ArchitectureOutlines, PresetSliders, type PresetSlidersProps } from '../architecture/ArchitecturePanels';
+import { ARCHITECTURE_PRESET_KIND, type ArchitecturePreview } from '@thirdlight/runtime';
 import { effectPortContext, shownSystem } from '../effect/EffectDocument';
 import { functionName as scriptFunctionName } from '../../session/visual-debug';
 import { behaviorPortContext } from '../../session/behavior-graph';
@@ -44,7 +46,7 @@ import type { ProjectSettings } from './useProjectSettings';
 import type { DocumentState } from '../workspace/useDocumentState';
 import type { DocumentCommands } from '../workspace/useDocumentCommands';
 import type { AnimatorTools } from './useAnimatorTools';
-import type { TerrainComponent } from '@thirdlight/project-model';
+import type { ArchitectureComponent, GraphOp, TerrainComponent } from '@thirdlight/project-model';
 import type { BlockLayers } from './useBlockLayers';
 import type { TerrainTools } from './useTerrainTools';
 import type { PlaySession } from './usePlaySession';
@@ -98,6 +100,40 @@ export interface InspectorDockProps {
   sceneInFront: boolean;
 }
 
+/** Generated architecture in the Inspector: presets' sliders preview in the Scene view while dragged and are stored on release. */
+function architectureInspector(props: InspectorDockProps): {
+  archProps: Omit<PresetSlidersProps, 'presetId'>;
+  setArchitecture: (entityId: string, next: ArchitectureComponent) => Promise<void>;
+  derivePreset: (entityId: string, base: string) => Promise<void>;
+} {
+  const { graphs, materials } = props.content;
+  const { sendGraphEdit } = props.docCmds;
+  const archProps = {
+    graphs,
+    sheets: materials.filter((m) => m.shader === 'trim').map((m) => [m.materialId, m.name ?? m.materialId] as const),
+    onEdit: (graphId: string, ops: GraphOp[]) => sendGraphEdit({ kind: 'graph', id: graphId }, ops),
+    onPreview: (p: ArchitecturePreview | null) => void props.viewportRef.current?.previewArchitecture(p),
+  };
+  const setArchitecture = async (entityId: string, next: ArchitectureComponent): Promise<void> => {
+    const c = props.clientRef.current;
+    if (c) props.reportFailure('Architecture', await c.setComponent(entityId, 'architecture', next, c.projection.revision));
+  };
+  // A project preset deriving from a starter; the object's outlines of the starter take it (its sliders are the project's).
+  const derivePreset = async (entityId: string, base: string): Promise<void> => {
+    const c = props.clientRef.current;
+    if (!c) return;
+    const ids = new Set(graphs.map((g) => g.graphId));
+    let id = `${base}-1`;
+    for (let i = 2; ids.has(id); i++) id = `${base}-${i}`;
+    const made = await c.command('setGraph', { graph: { graphId: id, kind: ARCHITECTURE_PRESET_KIND, name: id, graph: { nodes: [{ id: 'preset', type: 'preset', position: [0, 0], data: { style: '', base, sheet: '' } }], edges: [] } } }, c.projection.revision);
+    if (!made.ok) return props.reportFailure('Derive a preset', made);
+    for (let i = 0; i < 100 && c.projection.revision < made.revision; i++) await new Promise((r) => setTimeout(r, 20));
+    const arch = c.projection.getEntity(entityId)?.components['architecture'] as ArchitectureComponent | undefined;
+    if (arch !== undefined) await setArchitecture(entityId, { ...arch, outlines: (arch.outlines ?? []).map((o) => (o.preset === base ? { ...o, preset: id } : o)) });
+  };
+  return { archProps, setArchitecture, derivePreset };
+}
+
 export function InspectorDock(props: InspectorDockProps): JSX.Element {
   const { width, selected, placement } = props;
   const { animators, behaviorViews, dialogues, effects, graphKinds, graphs, materials } = props.content;
@@ -108,6 +144,7 @@ export function InspectorDock(props: InspectorDockProps): JSX.Element {
   const { observeEntity, playInfo, playing } = props.play;
   const activeVisual = activeVisualId !== null ? (behaviorViews.find((b) => b.behaviorId === activeVisualId) ?? null) : null;
   const cueOwner = props.cue.previewOwnerRef.current;
+  const { archProps } = architectureInspector(props);
   const item = props.inspectedItem;
   return (
     <div className={placement === 'dock' ? 'tl-dock tl-dock--right' : 'tl-dock tl-editor-window__inspector'} data-tl-inspector={placement} style={{ width: width }}>
@@ -160,6 +197,7 @@ export function InspectorDock(props: InspectorDockProps): JSX.Element {
     ) : openGraph !== null && graphKinds[openGraph.kind] !== undefined ? (
       <div className="tl-inspector">
         <div className="tl-panel__title">Inspector</div>
+        {openGraph.kind === ARCHITECTURE_PRESET_KIND && <PresetSliders presetId={openGraph.graphId} {...archProps} />}
         <GraphInspector
           kind={graphKinds[openGraph.kind]!}
           graph={openGraph.graph}
@@ -278,6 +316,7 @@ export function InspectorDock(props: InspectorDockProps): JSX.Element {
 /** The Inspector of the selected object (several selected: the primary one). */
 function EntityInspector(props: InspectorDockProps): JSX.Element {
   const { clientRef, viewportRef, entities, selected, selection, hierarchyFlags, fieldContext, gizmoMode, setGizmoMode, instanceChunks, selectedCopy, setSelectedCopy, instanceBrush, reportFailure, setNotice } = props;
+  const { archProps, setArchitecture, derivePreset } = architectureInspector(props);
   const { declarations, materials, prefabSummaries, registry } = props.content;
   const { settings, tags } = props.settings;
   const { addComponentTo, applyPreset, colliderFromModel, colliderFromModel3D, componentError, editComponent, editProperty, fitCapsuleToModel, propertyError, selectedSourceMaterials, setEntityMaterialParams, setEntityMaterials } = props.entity;
@@ -387,6 +426,15 @@ function EntityInspector(props: InspectorDockProps): JSX.Element {
                   onCreateLayer={() => void createBlockLayer()}
                   onSetFlag={(id, flag, value) => void setFlag(id, flag, value)}
                   onNotice={setNotice}
+                />
+              ),
+              // An architecture object's outlines, their presets and the presets' sliders.
+              architecture: (
+                <ArchitectureOutlines
+                  {...archProps}
+                  component={selected.components['architecture'] as ArchitectureComponent}
+                  onChange={(next) => void setArchitecture(selected.id, next)}
+                  onDerive={(base) => void derivePreset(selected.id, base)}
                 />
               ),
               // The selected terrain's tools: they edit it in the Scene view.

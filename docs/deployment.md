@@ -5548,7 +5548,8 @@ The **architecture** component stores only parameters; the meshes are made
 when a scene loads (and again when the parameters change), on generator
 workers, a chunk at a time nearest the camera first. Two primitives and
 fills build everything (MCP `setComponent "architecture"`; the Inspector
-shows its fields as JSON until style presets with sliders arrive):
+shows its fields as JSON, and outlines styled by presets with their
+sliders — see "Architecture styles and presets" below):
 
 - **Paths** `{points: [[x, y, z], …] (m from the object's position; its
   rotation and scale are not used), closed?, bulges? (per segment: an arc,
@@ -5589,8 +5590,9 @@ shows its fields as JSON until style presets with sliders arrive):
   kit model UV'd against the row layout in place of a segment (made 1 m
   long along +X, stretched to the segment unless `stretch: false`) or a
   corner (the sweep left out `reach` m either side).
-- **The rest**: `chunkSize` (m, default 32: one worker job and one draw per
-  material per chunk), `seed`, `ao: {strength? (0.6), radius? (0.5 m)}`
+- **The rest**: `chunkSize` (m, default 16: one worker job and one draw per
+  material per chunk; 32 halves the draws again, its dense chunks take
+  longer than 5 ms to make), `seed`, `ao: {strength? (0.6), radius? (0.5 m)}`
   (vertex occlusion baked into COLOR_0 red: inside corners of profiles and
   paths, where walls meet the ground, fill edges; 0 turns it off),
   `lodDistance` (m, default 40: past it a chunk draws its far level — the
@@ -5607,8 +5609,8 @@ shows its fields as JSON until style presets with sliders arrive):
   the page, in a worker and in another browser. Generated objects' ids are
   stable (element id and place: `wall:seg2`, `columns:7`).
 - **Cached by a hash of the parameters.** Each chunk's key hashes the
-  generator version, the sheets, the profiles and only the elements that
-  reach it, so changing one room re-makes only its chunks; made chunks stay
+  generator version, the sheets, and only the elements that reach it (with
+  the profiles they sweep), so changing one room re-makes only its chunks; made chunks stay
   in memory (64 MiB) and, in an exported game, in the player's IndexedDB
   (`thirdlight-architecture`), so a second visit draws without generating.
   The old meshes stay drawn until the new ones are in.
@@ -5633,13 +5635,79 @@ shows its fields as JSON until style presets with sliders arrive):
   wait for the first frame); while the workers are still loading their
   script the page makes the chunks round the camera itself.
 - Not yet: wall paint read onto generated vertices (rooms on block layers),
-  straight-skeleton roofs over any footprint, style presets and sliders.
+  straight-skeleton roofs over any footprint.
 - `?architecture=off` on a game page draws nothing generated (to measure
   what it costs); the adapter's diagnostics carry `architecture` (chunks,
   draws, triangles, queued, made on workers/the page/memory/the store,
   generation ms), the simulation's `architecture` (colliders, last build).
   Each chunk made marks `tl:arch:chunk` and each object drawn whole
   `tl:arch:ready` (detail: ms) in the page's performance timeline.
+
+## Architecture styles and presets
+
+Outlines (`architecture.outlines: [{id (at most 48 characters), path,
+preset, openings?}]`) are made by their preset's **style**: a graph of the
+generator's operators, so restyling a level swaps presets (and the trim
+sheet a preset names) and never touches an outline.
+
+- **A style** is a standalone graph (Create → Graph → **Architecture
+  style**, MCP `setGraph` kind `architecture-style`, opened in the graph
+  editor): **Outline** (the path it is drawn on), **Parameter** (an exposed
+  slider: name, default, min, max), Constant, Add, Multiply, Mix, paths
+  (**Offset** to the right of travel, **Raise**, **Chamfer**, a **Square**
+  round a repeated piece's middle), profiles (**Wall**: thickness, height,
+  dado, chamfer, inside/outside/lower/top slots; **Band**: a baseboard or
+  rail on a face; **Cove**: a cove moulding under a ceiling; **Shaft**: a
+  column's face; **Frame**: round openings), elements (**Sweep**, with
+  Openings on: the outline's doors and windows framed by its frame input;
+  **Repeat** of pieces; **Fill**) and one **Output**. Every number field
+  has an input port of its key: a wire replaces the field. A profile of 0
+  depth or height makes nothing (a slider at 0 leaves a moulding out).
+- **A preset** is a standalone graph too (Create → Graph → **Architecture
+  preset**, kind `architecture-preset`; a new one derives from the starter
+  room): one **Preset** node (its style, the preset it **derives from**, the
+  **trim sheet** material it wears) and a node per value it sets (**Value**
+  {parameter, value}) or drives (**Mask** {parameter, to, source noise |
+  height | painted, mask, scale, seed, low, high}). A preset's values sit
+  over its base's (prefab-variant style): a change to the base reaches
+  every preset derived from it. Presets deriving from each other in a
+  cycle are refused.
+- **Masks** vary one slider across the level, read at each outline's
+  middle: world noise (the material rules' lattice noise, `scale` m),
+  the middle's world height, or a **painted mask** on the object
+  (`architecture.masks: {name: {points: [[x, z, radius, weight], …]}}`, soft
+  dabs). The value goes from the preset's where the mask is 0 (`low`) to
+  `to` where it is 1 (`high`), within the parameter's range.
+- **The engine's starters** are in every project (neutral, no game look):
+  `starter-room` (walls with a dado, baseboard, cove crown, floor, flat
+  ceiling), `starter-room-tall` (derives from it), `starter-hall` (a barrel
+  vault and pilasters; a rectangular outline) and `starter-rail` (posts and
+  a rail along any path), with their `-style` graphs. A project's graph of
+  the same id replaces one; a project preset may derive from them.
+- **The Inspector**: an architecture object's **Outlines** (each outline's
+  preset; **Add room outline**; **Restyle** every outline of one preset with
+  another) and the sliders of the presets it uses; a preset open in the
+  graph editor shows the same sliders, its style, base and trim sheet. While
+  a slider is dragged the Scene view regenerates only the objects whose
+  outlines the preset reaches (and of those only the chunks whose elements
+  changed); releasing stores the value (one undo); ↺ takes the preset's own
+  value away. A starter's sliders are read-only: **Derive a preset** makes a
+  project preset from it and moves the object's outlines onto it.
+- **At run time**: `ctx.grid.setArchitecturePreset(from, to | null)` shows
+  preset `to` wherever an outline names `from` (style, values and trim
+  sheet), level-wide, in the background (old chunks drawn until the new are
+  in), the colliders following; saved with the grid (`diff()`), undone by
+  `null`, read with `ctx.grid.architecturePreset(from)`. A script may also
+  swap the object's own sheet with a material swap (`set("materials", …)`).
+  Exports ship the project's style and preset graphs (`architectureStyles`
+  in the catalog) and the trim sheets presets name; an export that ships
+  meshes generates a swapped preset at run time.
+- **Measured** (Node, warm; 64 styled starter rooms with a door, 320
+  elements): expanding every outline 2.0 ms (16 m chunks) – 2.8 ms; one
+  preset's slider moved over one room (expand, keys, its changed chunk made)
+  7.3 ms median / 7.9 ms worst in 16 m chunks, 12.8 / 14.7 ms in 32 m chunks
+  (§5's soft target: 16 ms). In the editor (layered-material e2e): see the
+  phase plan's progress table.
 
 ## Terrain edit layers, stamps and erosion
 

@@ -75,6 +75,8 @@ export interface RuntimeSnapshot {
   rigs?: Readonly<Record<string, import('@thirdlight/project-model').ModelRig>>;
   /** The models' `_COL` parts by asset and piece (a build's; colliders `{type: 'model'}` are made of them). */
   modelColliders?: import('@thirdlight/project-model').ModelColliderTable;
+  /** Optional: generated architecture's style and preset graphs (outlines are made by them; the engine's starters are its own). */
+  architectureStyles?: readonly import('@thirdlight/project-model').GraphDocument[];
   /** v4 only, optional: the block types block layers use (`content.blockTypes`). */
   blockTypes?: readonly import('@thirdlight/project-model').BlockType[];
   /** v4 only, optional: the cell metadata schema (`content.cellFields`). */

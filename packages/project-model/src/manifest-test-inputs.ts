@@ -88,6 +88,7 @@ export function everyOptionalKey(): Record<string, unknown> {
     timelines: [{ timelineId: 'tl-a', name: 'Tl', duration: 1, tracks: [] }],
     eventCues: [{ on: 'signal', name: 'tick', assetId: 'asset-1' }],
     shell: { hud: ['hud'] },
+    architectureStyles: [{ graphId: 'arch-p', kind: 'architecture-preset', name: 'P', graph: { nodes: [{ id: 'preset', type: 'preset', position: [0, 0], data: { style: '', base: 'starter-room', sheet: '' } }], edges: [] } }],
     scenes: [{ sceneId: 'scene-a', path: 'scenes/scene-a.json', digest: 'e'.repeat(64), byteLength: 10, start: true }],
     buffers: [{ digest: 'f'.repeat(64), byteLength: 48 }],
     // The shared script library modules.

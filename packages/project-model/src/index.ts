@@ -1435,6 +1435,8 @@ export {
   type ArchitectureFillShape,
   type ArchitectureModelRef,
   type ArchitectureOpening,
+  type ArchitectureMask,
+  type ArchitectureOutline,
   type ArchitectureOverride,
   type ArchitecturePath,
   type ArchitectureProfile,
@@ -1465,6 +1467,27 @@ export {
 } from './arch-generate';
 export { ARCHITECTURE_BLOB_LAYOUT, ARCHITECTURE_BLOB_MAGIC, decodeArchitectureChunks, encodeArchitectureChunks, isArchitectureBlob } from './arch-blob';
 export type { ArchMeshArrays } from './arch-mesh';
+// Architecture styles (graphs of the generator's operators) and presets (a style plus values, deriving from presets).
+export { ARCHITECTURE_GRAPH_NODES, ARCHITECTURE_MASK_SOURCES, ARCHITECTURE_PRESET_GRAPH_KIND, ARCHITECTURE_PRESET_KIND, ARCHITECTURE_STYLE_GRAPH_KIND, ARCHITECTURE_STYLE_KIND } from './arch-style-kinds';
+export { ARCHITECTURE_STARTER_GRAPHS, architectureGraphTemplate, type ArchitectureStarterGraph } from './arch-style-starters';
+export {
+  architectureGraphsOf,
+  architectureStylesOf,
+  expandArchitecture,
+  maskWeight,
+  paintedMaskAt,
+  resolveArchitecturePreset,
+  validateArchitectureGraphs,
+  type ArchitectureExpansion,
+  type ArchitectureGraphLike,
+  type ArchitectureMaskBinding,
+  type ArchitecturePresetDef,
+  type ArchitecturePreview,
+  type ArchitectureStyleDef,
+  type ArchitectureStyleParam,
+  type ArchitectureStyles,
+  type ResolvedArchitecturePreset,
+} from './arch-style';
 export { chunkLightmapLayout, type ChunkLightmapLayout } from './block-lightmap';
 // The instance brush (paint and erase copies of an instance set on a surface).
 export {

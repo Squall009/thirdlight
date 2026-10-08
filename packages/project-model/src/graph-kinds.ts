@@ -3,7 +3,8 @@
  *
  * A graph kind is its node catalogue, port types, conversions and rules
  * (see graph.ts). Each kind registers here: the animator state graph,
- * material graphs, visual scripts and effect graphs.
+ * material graphs, visual scripts, effect graphs, conversations, and
+ * generated architecture's styles and presets.
  *
  * `test` is the framework's own neutral kind: a small numeric data-flow graph
  * (constants, maths, a vector, a select, one output) that exercises every
@@ -19,6 +20,7 @@ import { MATERIAL_FUNCTION_GRAPH_KIND, MATERIAL_GRAPH_KIND } from './material-gr
 import { BEHAVIOR_FUNCTION_GRAPH_KIND, BEHAVIOR_LIBRARY_GRAPH_KIND } from './behavior-graph-nodes';
 import { EFFECT_GRAPH_KIND } from './effect-graph-kinds';
 import { DIALOGUE_GRAPH_KIND } from './dialogue';
+import { ARCHITECTURE_PRESET_GRAPH_KIND, ARCHITECTURE_STYLE_GRAPH_KIND } from './arch-style-kinds';
 import { MAX_BLEND_GROUND_SPEED } from './animator';
 
 export const TEST_GRAPH_KIND: GraphKindDef = {
@@ -169,4 +171,7 @@ export const GRAPH_KINDS: Readonly<Record<string, GraphKindDef>> = {
   [EFFECT_GRAPH_KIND.kind]: EFFECT_GRAPH_KIND,
   // A conversation (owner kind `dialogue`).
   [DIALOGUE_GRAPH_KIND.kind]: DIALOGUE_GRAPH_KIND,
+  // Generated architecture's styles and presets (standalone graphs).
+  [ARCHITECTURE_STYLE_GRAPH_KIND.kind]: ARCHITECTURE_STYLE_GRAPH_KIND,
+  [ARCHITECTURE_PRESET_GRAPH_KIND.kind]: ARCHITECTURE_PRESET_GRAPH_KIND,
 };

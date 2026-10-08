@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { ArchitectureComponent, EntityV3 } from '@thirdlight/project-model';
 
 import { RuntimeArchitecture } from './architecture';
+import { RuntimeGrid } from './grid';
 import type { PhysicsPort3D, StaticColliderSpec3D } from './ports';
 
 // A wall with a door and a floor (a neutral test style).
@@ -46,5 +47,31 @@ describe('generated architecture in the simulation', () => {
     expect(p.added.length).toBe(2 * n);
     expect(arch.remove(new Set(['arch'])).length).toBe(n);
     expect(arch.diagnostics()).toBeNull();
+  });
+
+  it('makes styled outlines by their presets; a script swaps a preset through ctx.grid, saved with the grid and followed by the renderer', () => {
+    const grid = new RuntimeGrid([], [], true);
+    const p = port();
+    const styled: ArchitectureComponent = { elements: [], outlines: [{ id: 'room', preset: 'starter-room', path: { points: [[0, 0, 0], [8, 0, 0], [8, 0, 6], [0, 0, 6]], closed: true } }] };
+    grid.addLayers([entity(styled)]);
+    grid.flushCollision(p.port);
+    const room = p.added.length;
+    expect(room).toBeGreaterThan(4);
+    expect(grid.api.setArchitecturePreset('starter-room', 'nope')).toBe(false);
+    expect(grid.api.setArchitecturePreset('starter-room', 'starter-hall')).toBe(true);
+    expect(grid.api.architecturePreset('starter-room')).toBe('starter-hall');
+    grid.flushCollision(p.port);
+    // The hall's pilasters collide: more colliders, the room's all gone.
+    expect(p.removed.length).toBe(room);
+    expect(p.added.length - room).toBeGreaterThan(room);
+    expect(grid.takeRenderChanges()).toEqual([{ architecturePresets: { 'starter-room': 'starter-hall' } }]);
+    const saved = grid.api.diff();
+    expect(saved.architecturePresets).toEqual([['starter-room', 'starter-hall']]);
+    expect(grid.api.setArchitecturePreset('starter-room', null)).toBe(true);
+    expect(grid.api.architecturePreset('starter-room')).toBeNull();
+    expect(grid.api.applyDiff(saved)).toBe(true);
+    expect(grid.api.architecturePreset('starter-room')).toBe('starter-hall');
+    grid.reset();
+    expect(grid.api.architecturePreset('starter-room')).toBeNull();
   });
 });
