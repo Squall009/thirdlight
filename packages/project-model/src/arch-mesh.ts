@@ -233,7 +233,11 @@ export function triangulatePolygon(p: ArrayLike<number>): number[] {
       let inside = false;
       for (const q of idx) {
         if (q === a || q === b || q === c) continue;
-        if (inTriangle(p[q * 2]!, p[q * 2 + 1]!, ax, ay, bx, by, cx, cy)) {
+        const qx = p[q * 2]!;
+        const qy = p[q * 2 + 1]!;
+        // A hole's bridge repeats two points: a copy of the ear's own corner is not inside it.
+        if ((qx === ax && qy === ay) || (qx === bx && qy === by) || (qx === cx && qy === cy)) continue;
+        if (inTriangle(qx, qy, ax, ay, bx, by, cx, cy)) {
           inside = true;
           break;
         }
@@ -251,6 +255,98 @@ export function triangulatePolygon(p: ArrayLike<number>): number[] {
   }
   if (idx.length === 3) out.push(idx[0]!, idx[1]!, idx[2]!);
   return out;
+}
+
+/**
+ * One polygon from an outer polygon and holes inside it (xy pairs each): each
+ * hole joined to the outline by a bridge (there and back along one line) from
+ * its rightmost point to a point of the outline it can see, so ear clipping
+ * fills the outline round the holes. The outline comes out counter-clockwise.
+ * A hole not inside the outline is left out.
+ */
+export function bridgeHoles(outer: ArrayLike<number>, holes: readonly ArrayLike<number>[]): number[] {
+  let poly: number[] = Array.from(outer);
+  if (polygonArea2(poly) < 0) poly = reversed(poly);
+  const hs = holes
+    .map((h) => (polygonArea2(h) > 0 ? reversed(Array.from(h)) : Array.from(h)))
+    .filter((h) => h.length >= 6 && pointInPolygon(h[0]!, h[1]!, poly))
+    .map((h) => {
+      let m = 0;
+      for (let i = 1; i < h.length / 2; i++) if (h[i * 2]! > h[m * 2]! || (h[i * 2]! === h[m * 2]! && h[i * 2 + 1]! < h[m * 2 + 1]!)) m = i;
+      return { h, m };
+    })
+    .sort((a, b) => b.h[b.m * 2]! - a.h[a.m * 2]!);
+  for (const { h, m } of hs) {
+    const mx = h[m * 2]!;
+    const my = h[m * 2 + 1]!;
+    const n = poly.length / 2;
+    // The nearest crossing of the ray to +x with the outline, and the edge's end further along x.
+    let best = Infinity;
+    let pick = -1;
+    for (let i = 0; i < n; i++) {
+      const j = (i + 1) % n;
+      const ax = poly[i * 2]!;
+      const ay = poly[i * 2 + 1]!;
+      const bx = poly[j * 2]!;
+      const by = poly[j * 2 + 1]!;
+      if ((ay > my) === (by > my) && ay !== my && by !== my) continue;
+      if (ay === by) continue;
+      const t = (my - ay) / (by - ay);
+      if (t < 0 || t > 1) continue;
+      const x = ax + (bx - ax) * t;
+      if (x < mx || x >= best) continue;
+      best = x;
+      pick = ax > bx ? i : j;
+    }
+    if (pick < 0) continue;
+    // A point of the outline inside the triangle (M, crossing, pick) hides pick: take the one at the smallest angle.
+    const px = poly[pick * 2]!;
+    const py = poly[pick * 2 + 1]!;
+    let v = pick;
+    let bestAngle = Infinity;
+    let bestDist = Infinity;
+    for (let i = 0; i < n; i++) {
+      const qx = poly[i * 2]!;
+      const qy = poly[i * 2 + 1]!;
+      if (i !== pick && !(qx >= mx && inTriangle(qx, qy, mx, my, best, my, px, py))) continue;
+      // The angle off the ray as its tangent (candidates lie ahead of M): plain arithmetic, the same everywhere.
+      const angle = Math.abs(qy - my) / Math.max(1e-12, qx - mx);
+      const d = (qx - mx) * (qx - mx) + (qy - my) * (qy - my);
+      if (angle < bestAngle - 1e-12 || (Math.abs(angle - bestAngle) <= 1e-12 && d < bestDist)) {
+        bestAngle = angle;
+        bestDist = d;
+        v = i;
+      }
+    }
+    const hn = h.length / 2;
+    const ring: number[] = [];
+    for (let k = 0; k <= hn; k++) {
+      const q = (m + k) % hn;
+      ring.push(h[q * 2]!, h[q * 2 + 1]!);
+    }
+    poly = [...poly.slice(0, v * 2 + 2), ...ring, poly[v * 2]!, poly[v * 2 + 1]!, ...poly.slice(v * 2 + 2)];
+  }
+  return poly;
+}
+
+function reversed(p: number[]): number[] {
+  const out: number[] = [];
+  for (let i = p.length / 2 - 1; i >= 0; i--) out.push(p[i * 2]!, p[i * 2 + 1]!);
+  return out;
+}
+
+/** Whether a 2D point lies inside a polygon (xy pairs; even-odd). */
+export function pointInPolygon(x: number, y: number, p: ArrayLike<number>): boolean {
+  let inside = false;
+  const n = p.length / 2;
+  for (let i = 0, j = n - 1; i < n; j = i++) {
+    const xi = p[i * 2]!;
+    const yi = p[i * 2 + 1]!;
+    const xj = p[j * 2]!;
+    const yj = p[j * 2 + 1]!;
+    if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside;
+  }
+  return inside;
 }
 
 /** Clip a convex 2D polygon (xy pairs) to `a·x + b·y ≥ c`. */
@@ -313,6 +409,8 @@ export interface PlanarFillOptions {
   aoRadius: number;
   /** The polygon whose edges darken (absent: the filled one). */
   aoEdges?: ArrayLike<number>;
+  /** More polygons whose edges darken too (holes'). */
+  aoLoops?: readonly ArrayLike<number>[];
 }
 
 /**
@@ -357,7 +455,9 @@ export function fillPlanarPolygon(w: ArchMeshWriter, poly: ArrayLike<number>, f:
           const y = cellPoly[k * 2 + 1]!;
           let across = (y - lo) / h;
           across = across < 0 ? 0 : across > 1 ? 1 : across;
-          const occ = opt.aoStrength > 0 ? opt.aoStrength * Math.max(0, 1 - distanceToEdges(x, y, edges) / opt.aoRadius) : 0;
+          let dEdge = opt.aoStrength > 0 ? distanceToEdges(x, y, edges) : 0;
+          if (opt.aoStrength > 0) for (const loop of opt.aoLoops ?? []) dEdge = Math.min(dEdge, distanceToEdges(x, y, loop));
+          const occ = opt.aoStrength > 0 ? opt.aoStrength * Math.max(0, 1 - dEdge / opt.aoRadius) : 0;
           w.vertex(f.o[0]! + f.a[0]! * x + f.b[0]! * y, f.o[1]! + f.a[1]! * x + f.b[1]! * y, f.o[2]! + f.a[2]! * x + f.b[2]! * y, nx, ny, nz, x * su, v0 + (v1 - v0) * across, occ);
         }
         for (let k = 1; k < m - 1; k++) w.triangle(first, first + k, first + k + 1, nx, ny, nz);

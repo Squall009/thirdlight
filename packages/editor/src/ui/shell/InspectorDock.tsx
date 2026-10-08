@@ -20,6 +20,7 @@ import { AnimatorInspector } from '../animator/AnimatorInspector';
 import { PlayDebugView } from '../PlayDebugView';
 import { GraphInspector } from '../../graph/GraphInspector';
 import { ArchitectureOutlines, PresetSliders, type PresetSlidersProps } from '../architecture/ArchitecturePanels';
+import { useRoomsBinding } from '../architecture/useRoomsBinding';
 import { ARCHITECTURE_PRESET_KIND, type ArchitecturePreview } from '@thirdlight/runtime';
 import { effectPortContext, shownSystem } from '../effect/EffectDocument';
 import { functionName as scriptFunctionName } from '../../session/visual-debug';
@@ -322,6 +323,8 @@ function EntityInspector(props: InspectorDockProps): JSX.Element {
   const { addComponentTo, applyPreset, colliderFromModel, colliderFromModel3D, componentError, editComponent, editProperty, fitCapsuleToModel, propertyError, selectedSourceMaterials, setEntityMaterialParams, setEntityMaterials } = props.entity;
   const { editCopiesRef, editTransform, rename, setEntityTags, setFlag } = props.scene;
   const { writeFootprint, snapLocal, blockEditor, blockRows, blockTypes, cellFields, blockStamps, blockHandlersRef, blockRun, blockEdit, createBlockLayer } = props.blocks;
+  // The rooms drawn on the selected block layer (its Rooms tool).
+  const rooms = useRoomsBinding(selected !== null && selected.components['blockLayer'] !== undefined ? selected : null, entities, props.content.graphs, clientRef, viewportRef, reportFailure);
   return (
     <Inspector
       entity={selected}
@@ -426,6 +429,7 @@ function EntityInspector(props: InspectorDockProps): JSX.Element {
                   onCreateLayer={() => void createBlockLayer()}
                   onSetFlag={(id, flag, value) => void setFlag(id, flag, value)}
                   onNotice={setNotice}
+                  {...(rooms !== undefined ? { rooms } : {})}
                 />
               ),
               // An architecture object's outlines, their presets and the presets' sliders.

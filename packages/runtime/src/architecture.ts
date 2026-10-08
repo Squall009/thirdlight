@@ -8,11 +8,13 @@
  * their presets' styles first (`expandArchitecture`, with the game's style
  * graphs and the presets scripts swapped), as the page makes them. Built in
  * the grid's collision batches when an object loads, its parameters change
- * or a preset swap reaches it.
+ * or a preset swap reaches it. Objects drawn on a block layer
+ * (`architecture.layer`) also give that layer's grid their rooms' wall
+ * edges and regions (`roomsOn`).
  *
  * Pure simulation state.
  */
-import { COLLIDER_3D_LIMITS, architectureColliders, architectureStylesOf, canonicalJsonText, expandArchitecture, type ArchitectureComponent, type ArchitectureGraphLike, type ArchitectureStyles, type EntityV3, type ModelColliderTable } from '@thirdlight/project-model';
+import { COLLIDER_3D_LIMITS, architectureColliders, architectureRoomRegions, architectureStylesOf, architectureWallEdges, canonicalJsonText, expandArchitecture, type ArchitectureComponent, type ArchitectureGraphLike, type ArchitectureStyles, type EntityV3, type ModelColliderTable } from '@thirdlight/project-model';
 
 import { colliderShape3DOf } from './collider-specs';
 import type { PhysicsPort3D, StaticColliderSpec3D } from './ports';
@@ -23,6 +25,18 @@ export interface ArchitectureCollisionDiagnostics {
   colliders: number;
   lastBuild: { objects: number; colliders: number; ms: number } | null;
 }
+
+/**
+ * What the rooms drawn on a block layer give its grid (layer cells): the
+ * cell edges their walls stand on (`cellKeyOf × 2 + axis` → blocks; an
+ * opening's edges do not) and each room storey as a region.
+ */
+export interface ArchitectureLayerRooms {
+  readonly edges: ReadonlyMap<number, boolean>;
+  readonly regions: ReadonlyMap<string, readonly (readonly number[])[]>;
+}
+
+const NO_ROOMS: ArchitectureLayerRooms = Object.freeze({ edges: new Map(), regions: new Map() });
 
 /** A collider id of an object's generated architecture (stable: the element and the piece's place). */
 const colliderId = (id: string, part: string): string => `${id}#arch:${part}`;
@@ -42,6 +56,9 @@ export class RuntimeArchitecture {
   private readonly styles: ArchitectureStyles;
   /** Presets scripts swapped (`setArchitecturePreset`): preset → the one shown in its place. */
   private swaps: Readonly<Record<string, string>> = {};
+  /** Counts changes to rooms drawn on block layers (objects with `layer` added, removed or restyled). */
+  private roomsRevision = 0;
+  private readonly roomsCache = new Map<string, { revision: number; key: string; rooms: ArchitectureLayerRooms }>();
 
   constructor(
     private readonly collide = false,
@@ -60,6 +77,35 @@ export class RuntimeArchitecture {
   setSwaps(swaps: Readonly<Record<string, string>>): void {
     this.swaps = swaps;
     for (const [id, h] of this.held) if ((h.component.outlines?.length ?? 0) > 0) this.dirty.add(id);
+    this.roomsRevision += 1;
+  }
+
+  /** Changes whenever the rooms on any layer may have (walk graphs kept from before are stale). */
+  get revision(): number {
+    return this.roomsRevision;
+  }
+
+  /**
+   * The rooms drawn on a block layer (objects whose `layer` names it): their
+   * wall edges and regions in the layer's cells (`origin`, `cellSize`: the
+   * layer's). Kept until an object or a swap changes.
+   */
+  roomsOn(layerId: string, origin: readonly number[], cellSize: readonly number[]): ArchitectureLayerRooms {
+    const key = `${origin.join(',')}|${cellSize.join(',')}`;
+    const kept = this.roomsCache.get(layerId);
+    if (kept !== undefined && kept.revision === this.roomsRevision && kept.key === key) return kept.rooms;
+    const edges = new Map<number, boolean>();
+    const regions = new Map<string, readonly (readonly number[])[]>();
+    for (const [, h] of [...this.held].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) {
+      if (h.component.layer !== layerId) continue;
+      const x = expandArchitecture(h.component, h.origin, this.styles, { swaps: this.swaps });
+      const offset = [0, 1, 2].map((i) => h.origin[i]! - (origin[i] ?? 0));
+      for (const [k, v] of architectureWallEdges(x.component, offset, cellSize)) edges.set(k, (edges.get(k) ?? false) || v);
+      for (const r of architectureRoomRegions(x.rooms, offset, cellSize)) if (!regions.has(r.regionId)) regions.set(r.regionId, r.boxes);
+    }
+    const rooms = edges.size === 0 && regions.size === 0 ? NO_ROOMS : { edges, regions };
+    this.roomsCache.set(layerId, { revision: this.roomsRevision, key, rooms });
+    return rooms;
   }
 
   /** Loaded objects carrying `architecture` (their colliders at the next flush when new or changed). */
@@ -71,6 +117,7 @@ export class RuntimeArchitecture {
       const old = this.held.get(e.id);
       this.held.set(e.id, { component: c, origin: [p[0] ?? 0, p[1] ?? 0, p[2] ?? 0], builtFrom: old?.builtFrom ?? null, built: old?.built ?? [] });
       this.dirty.add(e.id);
+      if (c.layer !== undefined || old?.component.layer !== undefined) this.roomsRevision += 1;
     }
   }
 
@@ -80,6 +127,7 @@ export class RuntimeArchitecture {
     for (const id of ids) {
       const h = this.held.get(id);
       if (h !== undefined) out.push(...h.built);
+      if (h?.component.layer !== undefined) this.roomsRevision += 1;
       this.held.delete(id);
       this.dirty.delete(id);
     }

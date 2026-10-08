@@ -43,6 +43,8 @@ export const ARCHITECTURE_LIMITS = Object.freeze({
   chunkMax: 1024,
   /** Points of one profile. */
   profilePoints: 256,
+  /** Storeys of one outline and steps of one stair (their metres stay within `distanceMax` either way). */
+  storeys: 1000,
   /** Elements one repeated piece is made of (a piece is made once and stamped, so it stays small). */
   pieceElements: 16,
   /** The largest bulge: tan of a quarter of the arc's angle (1 = a half circle; 2.4 is about 270°). */
@@ -59,6 +61,8 @@ export const ARCHITECTURE_STEP_DEFAULT = 0.5;
 export const ARCHITECTURE_AO_DEFAULTS = Object.freeze({ strength: 0.6, radius: 0.5 });
 /** Metres from the camera past which the far level (no detail elements, no chamfers) is drawn. */
 export const ARCHITECTURE_LOD_DISTANCE_DEFAULT = 40;
+/** The material slot an opening's pane (glass) wears: a second material, so the walls stay one draw per chunk. */
+export const ARCHITECTURE_PANE_MATERIAL_SLOT = 'glass';
 
 export const ARCHITECTURE_ELEMENT_KINDS = ['sweep', 'repeat', 'fill'] as const;
 export type ArchitectureElementKind = (typeof ARCHITECTURE_ELEMENT_KINDS)[number];
@@ -97,6 +101,8 @@ export interface ArchitectureProfile {
   smooth?: boolean;
   /** The chamfer operator: metres cut off each corner (absent: 0; the far level keeps the sharp corners). */
   chamfer?: number;
+  /** A closed profile swept along an open path is closed at both ends with faces of this slot (absent: open ends). */
+  cap?: string;
 }
 
 /** A kit model placed by the generator (copies of it are instances). */
@@ -122,6 +128,10 @@ export interface ArchitectureOpening {
   frameSides?: 'outer' | 'inner' | 'both';
   /** A kit model placed at the opening instead of its reveals and frame (the hole is still cut). */
   model?: ArchitectureModelRef;
+  /** A room's storey the opening is in (outlines only; absent: 0, the ground storey). */
+  storey?: number;
+  /** A pane (glass) fills the hole, on the {@link ARCHITECTURE_PANE_MATERIAL_SLOT} material slot (absent: false). */
+  pane?: boolean;
 }
 
 interface ElementBase {
@@ -140,6 +150,16 @@ export interface ArchitectureSweep extends ElementBase {
   /** A profile name from the component's `profiles`. */
   profile: string;
   openings?: ArchitectureOpening[];
+  /**
+   * A room's wall (absent: false): where rooms on one outline set share a
+   * wall it is made once, and on a block layer (`layer`) it blocks grid
+   * walks across the cell edges it stands on and takes the layer's wall paint.
+   */
+  wall?: boolean;
+  /** Colliders: a box under each level face of the profile (stairs, terraces) instead of the profile's bounds (absent: false). */
+  stepped?: boolean;
+  /** Per path segment (its index as text): the profile's slots worn along it instead (one per profile segment; absent: the profile's). */
+  segmentSlots?: Record<string, string[]>;
 }
 
 export interface ArchitectureRepeat extends ElementBase {
@@ -189,6 +209,8 @@ export interface ArchitectureFill extends ElementBase {
   /** Mansard: the lower slope's height share of the rise (absent: 0.7) and metres it steps in (absent: a sixth of the span). */
   breakRise?: number;
   inset?: number;
+  /** Closed paths cut out of a flat or coffered fill (stairwells; absent: none). */
+  holes?: ArchitecturePath[];
 }
 
 export type ArchitectureElement = ArchitectureSweep | ArchitectureRepeat | ArchitectureFill;
@@ -207,24 +229,77 @@ export interface ArchitectureOverride {
   stretch?: boolean;
 }
 
+/** A flight of stairs in a room: steps from the foot's middle to the head's (object frame), as wide as given. */
+export interface ArchitectureStair {
+  id: string;
+  /** The middle of the bottom step's front edge and of the top step's back edge (metres from the object). */
+  from: [number, number, number];
+  to: [number, number, number];
+  width: number;
+  /** How many steps (absent: the rise in steps of about {@link ARCHITECTURE_STAIR_RISER} m). */
+  steps?: number;
+}
+
+/** A hole in a room's floor slab (a stairwell, a shaft). */
+export interface ArchitectureFloorHole {
+  /** The storey whose floor it is cut in (absent: 0). */
+  storey?: number;
+  /** A closed path (metres from the object; heights ignored). */
+  path: ArchitecturePath;
+}
+
 /**
  * An outline drawn on the object and the preset that styles it: the preset's
  * style graph makes its elements from the outline at load (`arch-style.ts`),
  * so restyling swaps the preset and never touches the outline.
+ *
+ * A closed outline is a room (drawn with its inside to the right of travel):
+ * its walls (the style's sweeps marked `wall`) are shared with the rooms
+ * beside it, each side styled by its own room; the room may have storeys,
+ * an outside preset, holes in its floors and stairs (`arch-rooms.ts`). An
+ * open outline is a run: a rail, a fence, a pipe.
  */
 export interface ArchitectureOutline {
   /** Unique among the component's outlines; the generated elements' ids start with it. */
   id: string;
   path: ArchitecturePath;
-  /** An architecture preset (a project's graph or one of the engine's starters). */
+  /** An architecture preset (a project's graph or one of the engine's starters): a room's inside. */
   preset: string;
   /** Doors, windows and arches the style's sweeps that take openings cut (their frames: the style's, unless named). */
   openings?: ArchitectureOpening[];
+  /** A room's outside: the preset whose wall faces and trims dress the walls' outer side (absent: the inside preset's own). */
+  outside?: string;
+  /** A room's storeys, stacked (absent: 1). */
+  storeys?: number;
+  /** Metres from one storey's floor to the next (absent: the top of the room's walls). */
+  storeyHeight?: number;
+  /** Holes in the room's floors (absent: none; stairs cut their own). */
+  holes?: ArchitectureFloorHole[];
+  /** Stairs in the room (absent: none). */
+  stairs?: ArchitectureStair[];
 }
+
+/** Metres a step rises when a stair names no step count. */
+export const ARCHITECTURE_STAIR_RISER = 0.18;
 
 /** A painted world mask: soft dabs [x, z, radius, weight] in metres from the object (its value at a point: the strongest dab there). */
 export interface ArchitectureMask {
   points: [number, number, number, number][];
+}
+
+/**
+ * A block layer's wall paint as the generator reads it (made by the
+ * expansion from the layer the rooms are drawn on, never stored): the
+ * layer's cell size, where the object's frame lies in the layer's
+ * (layer-local = object-local + `offset`), and the wall paint of the
+ * layer's chunks ("cx,cz" → `BlockChunk.wallPaint`).
+ */
+export interface ArchitecturePaint {
+  cellSize: readonly number[];
+  offset: readonly number[];
+  chunks: Readonly<Record<string, string>>;
+  /** A short hash of each chunk's wall paint (what the chunks' cache keys take instead of the bytes). */
+  hashes?: Readonly<Record<string, string>>;
 }
 
 export interface ArchitectureComponent {
@@ -248,19 +323,29 @@ export interface ArchitectureComponent {
   receiveShadow?: boolean;
   /** SHA-256 of the generated meshes a build ships (written by the export; absent: generated at load). */
   baked?: string;
+  /**
+   * The block layer (its object's id) the rooms and runs are drawn on
+   * (absent: none): their points snap to its cells, cell-aligned walls block
+   * its grid walks and openings let them through, rooms are regions of its
+   * grid queries, and its wall paint shows on the generated faces.
+   */
+  layer?: string;
+  /** The layer's wall paint, put here by the expansion (never stored). */
+  paint?: ArchitecturePaint;
 }
 
 /** The component's fields in canonical order. */
-export const ARCHITECTURE_FIELDS: readonly string[] = Object.freeze(['elements', 'profiles', 'overrides', 'outlines', 'masks', 'chunkSize', 'seed', 'ao', 'lodDistance', 'castShadow', 'receiveShadow', 'baked']);
+export const ARCHITECTURE_FIELDS: readonly string[] = Object.freeze(['elements', 'profiles', 'overrides', 'outlines', 'masks', 'chunkSize', 'seed', 'ao', 'lodDistance', 'castShadow', 'receiveShadow', 'baked', 'layer']);
 const PATH_FIELDS = ['points', 'closed', 'bulges', 'curve', 'step', 'offset', 'chamfer'];
-const PROFILE_FIELDS = ['points', 'slots', 'closed', 'smooth', 'chamfer'];
+const PROFILE_FIELDS = ['points', 'slots', 'closed', 'smooth', 'chamfer', 'cap'];
 const BASE_FIELDS = ['id', 'kind', 'material', 'detail', 'collide'];
-const SWEEP_FIELDS = [...BASE_FIELDS, 'path', 'profile', 'openings'];
+const SWEEP_FIELDS = [...BASE_FIELDS, 'path', 'profile', 'openings', 'wall', 'stepped', 'segmentSlots'];
 const REPEAT_FIELDS = [...BASE_FIELDS, 'path', 'spacing', 'start', 'end', 'corners', 'align', 'offset', 'yaw', 'jitter', 'piece'];
-const FILL_FIELDS = [...BASE_FIELDS, 'path', 'shape', 'slot', 'trimSlot', 'height', 'rise', 'face', 'axis', 'cell', 'depth', 'overhang', 'breakRise', 'inset'];
-const OPENING_FIELDS = ['id', 'at', 'width', 'bottom', 'top', 'reveal', 'frame', 'frameSides', 'model'];
+const FILL_FIELDS = [...BASE_FIELDS, 'path', 'shape', 'slot', 'trimSlot', 'height', 'rise', 'face', 'axis', 'cell', 'depth', 'overhang', 'breakRise', 'inset', 'holes'];
+const OPENING_FIELDS = ['id', 'at', 'width', 'bottom', 'top', 'reveal', 'frame', 'frameSides', 'model', 'storey', 'pane'];
 const OVERRIDE_FIELDS = ['element', 'segment', 'corner', 'reach', 'model', 'stretch'];
-const OUTLINE_FIELDS = ['id', 'path', 'preset', 'openings'];
+const OUTLINE_FIELDS = ['id', 'path', 'preset', 'openings', 'outside', 'storeys', 'storeyHeight', 'holes', 'stairs'];
+const STAIR_FIELDS = ['id', 'from', 'to', 'width', 'steps'];
 /** An outline id leaves room for the generated elements' suffixes within the id syntax's 64 characters. */
 const OUTLINE_ID_RE = /^[a-z0-9][a-z0-9_-]{0,47}$/;
 const DIGEST_RE = /^[0-9a-f]{64}$/;
@@ -341,7 +426,14 @@ function validateOpenings(ops: unknown, path: string, errors: ModelErrorV2[], pr
     if (o['frame'] !== undefined && (!isId(o['frame']) || (hasProfiles && profiles![o['frame']] === undefined))) err(errors, 'field_value', `${p}/frame`, 'frame names one of the component\'s profiles', o['frame']);
     oneOf(o, 'frameSides', p, errors, ['outer', 'inner', 'both']);
     if (o['model'] !== undefined) validateModel(o['model'], `${p}/model`, errors);
+    count(o, 'storey', p, errors, 0, L.storeys - 1);
+    bool(o, 'pane', p, errors);
   });
+}
+
+/** An optional whole number within [lo, hi]. */
+function count(v: Record<string, unknown>, key: string, path: string, errors: ModelErrorV2[], lo: number, hi: number): void {
+  if (v[key] !== undefined && !(Number.isInteger(v[key]) && (v[key] as number) >= lo && (v[key] as number) <= hi)) err(errors, 'field_value', `${path}/${key}`, `${key} is a whole number ${lo}-${hi}`, v[key]);
 }
 
 function validateElement(e: unknown, path: string, errors: ModelErrorV2[], profiles: Record<string, unknown> | null, ids: Set<string>, inPiece: boolean): void {
@@ -363,6 +455,13 @@ function validateElement(e: unknown, path: string, errors: ModelErrorV2[], profi
     // The named profile must exist when the component lists its profiles (without any, the generator reports it).
     if (!isId(e['profile']) || (hasProfiles && profiles![e['profile']] === undefined)) err(errors, 'field_value', `${path}/profile`, 'profile names one of the component\'s profiles', e['profile']);
     validateOpenings(e['openings'], `${path}/openings`, errors, profiles);
+    bool(e, 'wall', path, errors);
+    bool(e, 'stepped', path, errors);
+    const ss = e['segmentSlots'];
+    if (ss !== undefined) {
+      const ok = isObj(ss) && Object.entries(ss).every(([k, v]) => /^(0|[1-9][0-9]{0,5})$/.test(k) && Array.isArray(v) && v.length <= L.profilePoints && v.every((x) => slotName(x, true)));
+      if (!ok) err(errors, 'field_value', `${path}/segmentSlots`, 'segmentSlots is {segment index: [a trim slot per profile segment]}', ss);
+    }
   } else if (kind === 'repeat') {
     if (!within(e['spacing'], L.stepMin, L.distanceMax)) err(errors, 'field_value', `${path}/spacing`, `spacing is ${L.stepMin}-${L.distanceMax} metres between copies`, e['spacing']);
     num(e, 'start', path, errors, 0, L.coordinate, `0-${L.coordinate} metres`);
@@ -407,6 +506,51 @@ function validateElement(e: unknown, path: string, errors: ModelErrorV2[], profi
     num(e, 'overhang', path, errors, 0, L.distanceMax, `0-${L.distanceMax} metres`);
     num(e, 'breakRise', path, errors, 0.05, 0.95, '0.05-0.95 of the rise');
     num(e, 'inset', path, errors, 0, L.distanceMax, `0-${L.distanceMax} metres`);
+    const holes = e['holes'];
+    if (holes !== undefined) {
+      if (!Array.isArray(holes)) err(errors, 'field_type', `${path}/holes`, 'holes is a list of closed paths', holes);
+      else holes.forEach((h, i) => validatePath(h, `${path}/holes/${i}`, errors, true));
+      if (e['shape'] !== 'flat' && e['shape'] !== 'coffered') err(errors, 'field_value', `${path}/holes`, 'only a flat or coffered fill has holes', e['shape']);
+    }
+  }
+}
+
+/** A room's storeys, floor holes and stairs. */
+function validateRoom(o: Record<string, unknown>, p: string, errors: ModelErrorV2[]): void {
+  const L = ARCHITECTURE_LIMITS;
+  if (o['outside'] !== undefined && !isId(o['outside'])) err(errors, 'field_value', `${p}/outside`, 'outside names an architecture preset', o['outside']);
+  count(o, 'storeys', p, errors, 1, L.storeys);
+  num(o, 'storeyHeight', p, errors, 0.1, L.distanceMax, `0.1-${L.distanceMax} metres`);
+  const holes = o['holes'];
+  if (holes !== undefined) {
+    if (!Array.isArray(holes)) err(errors, 'field_type', `${p}/holes`, 'holes is a list of {storey?, path}', holes);
+    else
+      holes.forEach((h, i) => {
+        const q = `${p}/holes/${i}`;
+        if (!isObj(h)) return err(errors, 'field_type', q, 'a hole is {storey?, path}', h);
+        only(h, ['storey', 'path'], q, errors, 'hole');
+        count(h, 'storey', q, errors, 0, L.storeys - 1);
+        validatePath(h['path'], `${q}/path`, errors, true);
+      });
+  }
+  const stairs = o['stairs'];
+  if (stairs !== undefined) {
+    if (!Array.isArray(stairs)) return err(errors, 'field_type', `${p}/stairs`, 'stairs is a list of {id, from, to, width, steps?}', stairs);
+    const seen = new Set<string>();
+    stairs.forEach((s, i) => {
+      const q = `${p}/stairs/${i}`;
+      if (!isObj(s)) return err(errors, 'field_type', q, 'a stair is {id, from, to, width, steps?}', s);
+      only(s, STAIR_FIELDS, q, errors, 'stair');
+      if (!isId(s['id']) || seen.has(s['id'])) err(errors, 'field_value', `${q}/id`, 'id is unique among the room\'s stairs (id syntax)', s['id']);
+      else seen.add(s['id']);
+      for (const k of ['from', 'to']) if (!vec(s[k], 3, -L.coordinate, L.coordinate)) err(errors, 'field_value', `${q}/${k}`, `${k} is [x, y, z] metres from the object`, s[k]);
+      if (vec(s['from'], 3, -L.coordinate, L.coordinate) && vec(s['to'], 3, -L.coordinate, L.coordinate)) {
+        const [a, b] = [s['from'] as number[], s['to'] as number[]];
+        if (Math.abs(b[1]! - a[1]!) < 0.01 || Math.abs(b[0]! - a[0]!) + Math.abs(b[2]! - a[2]!) < 0.01) err(errors, 'field_value', `${q}/to`, 'a stair rises and runs (to differs from from in height and on the ground)', s['to']);
+      }
+      if (!within(s['width'], 0.1, L.distanceMax)) err(errors, 'field_value', `${q}/width`, `width is 0.1-${L.distanceMax} metres`, s['width']);
+      count(s, 'steps', q, errors, 1, L.storeys);
+    });
   }
 }
 
@@ -434,6 +578,7 @@ export function validateArchitectureComponent(value: unknown, path: string, erro
         bool(pr, 'closed', p, errors);
         bool(pr, 'smooth', p, errors);
         num(pr, 'chamfer', p, errors, 0, L.distanceMax, `0-${L.distanceMax} metres`);
+        if (pr['cap'] !== undefined && !slotName(pr['cap'], false)) err(errors, 'field_value', `${p}/cap`, 'cap names the trim slot the ends wear', pr['cap']);
         const segs = Array.isArray(pts) ? (pr['closed'] === true ? pts.length : pts.length - 1) : 0;
         const slots = pr['slots'];
         if (!Array.isArray(slots) || slots.length !== segs || !slots.every((s) => slotName(s, true))) err(errors, 'field_value', `${p}/slots`, `slots names one trim row per segment (${segs}; "" for an open segment)`, slots);
@@ -477,6 +622,7 @@ export function validateArchitectureComponent(value: unknown, path: string, erro
         validatePath(o['path'], `${p}/path`, errors, false);
         if (!isId(o['preset'])) err(errors, 'field_value', `${p}/preset`, 'preset names an architecture preset', o['preset']);
         validateOpenings(o['openings'], `${p}/openings`, errors, profiles === undefined ? null : named);
+        validateRoom(o, p, errors);
       });
     }
   }
@@ -513,6 +659,7 @@ export function validateArchitectureComponent(value: unknown, path: string, erro
   bool(value, 'castShadow', path, errors);
   bool(value, 'receiveShadow', path, errors);
   if (value['baked'] !== undefined && (typeof value['baked'] !== 'string' || !DIGEST_RE.test(value['baked']))) err(errors, 'field_value', `${path}/baked`, 'baked is the SHA-256 of the shipped meshes (64 lowercase hex), written by an export', value['baked']);
+  if (value['layer'] !== undefined && (typeof value['layer'] !== 'string' || value['layer'].length < 1 || value['layer'].length > 128)) err(errors, 'field_value', `${path}/layer`, 'layer names the block layer object the rooms are drawn on', value['layer']);
 }
 
 /** The component in canonical form: fields in order; nested objects as given (validation fixed their fields). */
@@ -523,7 +670,7 @@ export function canonicalArchitecture(c: ArchitectureComponent): ArchitectureCom
   return out as unknown as ArchitectureComponent;
 }
 
-/** The material slots a component's elements wear (sorted; repeated pieces' elements too). */
+/** The material slots a component's elements wear (sorted; repeated pieces' elements too, and openings' panes). */
 export function architectureMaterialSlots(c: Pick<ArchitectureComponent, 'elements'>): string[] {
   const out = new Set<string>();
   const visit = (e: ArchitectureElement, inherited: string): void => {
@@ -531,6 +678,7 @@ export function architectureMaterialSlots(c: Pick<ArchitectureComponent, 'elemen
     if (e.kind === 'repeat') {
       if ('elements' in e.piece) for (const x of e.piece.elements) visit(x, slot);
     } else out.add(slot);
+    if (e.kind === 'sweep' && (e.openings ?? []).some((o) => o.pane === true)) out.add(ARCHITECTURE_PANE_MATERIAL_SLOT);
   };
   for (const e of c.elements) visit(e, ARCHITECTURE_MATERIAL_SLOT);
   return [...out].sort();

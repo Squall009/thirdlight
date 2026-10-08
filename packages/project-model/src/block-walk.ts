@@ -20,7 +20,7 @@
  * hill's sloped cells at none — when both columns are free to the higher
  * top plus the headroom, and when no edge piece that blocks passage (a wall,
  * a closed door: `edgeBlocks`) stands on the shared side in the rows the
- * walker passes through. Its cost is the distance between the two places
+ * walker passes through (nor a room's wall drawn on the layer: `edges`). Its cost is the distance between the two places
  * (metres, the height difference included), times what the caller's `enter`
  * gives the place stepped onto.
  *
@@ -95,6 +95,12 @@ export interface WalkGraphOptions {
   readonly anchorOf?: (x: number, y: number, z: number) => readonly [number, number, number] | null;
   /** Whether a place can be stood on at all besides its shape (a game's "walkable" metadata); absent: every one. */
   readonly standable?: (x: number, y: number, z: number) => boolean;
+  /**
+   * Edges something else stands on where no edge piece does (rooms' walls
+   * drawn on the layer): `cellKeyOf × 2 + axis` → whether it blocks. An
+   * edge piece on the same edge decides instead (a door put in an opening).
+   */
+  readonly edges?: ReadonlyMap<number, boolean>;
 }
 
 /** The walk graph of one layer as it is now (places are found lazily and kept; build a new one after the grid changes). */
@@ -214,7 +220,8 @@ export class BlockWalkGraph {
   /** Whether an edge piece blocks passage across side `side` of column (x, z) between the heights lo and hi (m). */
   private sideBlocked(x: number, z: number, side: BlockEdgeSide, lo: number, hi: number): boolean {
     const g = this.grid;
-    if (g.edgeCount === 0) return false;
+    const extra = this.options.edges;
+    if (g.edgeCount === 0 && (extra === undefined || extra.size === 0)) return false;
     const h = g.cellSize[1]!;
     const r0 = Math.max(g.min[1]!, Math.floor((lo + EPS) / h));
     const r1 = Math.min(g.max[1]! - 1, Math.floor((hi - EPS) / h));
@@ -223,9 +230,9 @@ export class BlockWalkGraph {
       const k = cellKeyOf(ex, ey, ez) * 2 + axis;
       let blocked = this.edgeBlocked.get(k);
       if (blocked === undefined) {
-        const e = g.edgeAt(ex, ey, ez, axis);
+        const e = g.edgeCount > 0 ? g.edgeAt(ex, ey, ez, axis) : null;
         const t = e !== null ? this.types.get(e.block) : undefined;
-        blocked = e !== null && t !== undefined && edgeBlocks(t, e);
+        blocked = e !== null ? t !== undefined && edgeBlocks(t, e) : extra?.get(k) === true;
         this.edgeBlocked.set(k, blocked);
       }
       if (blocked) return true;

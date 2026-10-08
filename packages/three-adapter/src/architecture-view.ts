@@ -16,6 +16,9 @@
  *   `*`): the trim material reads the generator's COLOR_0 (baked AO).
  * - An export that ships meshes names its blob (`baked`): its chunks are
  *   drawn as they are, nothing is generated.
+ * - An object drawn on a block layer (`layer`) is made with the layer's
+ *   wall paint read onto its faces; when the layer is set again only the
+ *   chunks whose paint changed are made again (their keys hash it).
  * - What was drawn stays until what replaces it is in: an edit keeps a
  *   changed chunk's old meshes until its new ones are made, and an object
  *   released and realized again in the same frame (every edit) keeps all
@@ -36,6 +39,7 @@ import {
   type ArchitectureChunk,
   type ArchitectureComponent,
   type ArchitectureGraphLike,
+  type ArchitecturePaint,
   type ArchitecturePreview,
   type ArchitectureSheets,
   type ArchitectureStyles,
@@ -85,6 +89,8 @@ export interface ArchitectureViewDeps {
   materials(root: THREE.Object3D, entityId: string, extra: Readonly<Record<string, string>>): (() => void) | null;
   /** The style and preset graphs outlines are made by (absent: the engine's starters only). */
   styles?: readonly ArchitectureGraphLike[] | null;
+  /** The wall paint of the block layer an object's rooms are drawn on, for an object at `origin` (absent or null: none). */
+  paint?: ((layerId: string, origin: readonly number[]) => ArchitecturePaint | null) | undefined;
   /** A kit model's template for instance sets (null: still loading; `onReady` once it is in). */
   template(assetId: string, piece: string | undefined, onReady: () => void): ModelInstance | null;
   /** Put a model's own materials on an instance set (the undo; null: none). */
@@ -247,11 +253,20 @@ export class ArchitectureView {
     return objects;
   }
 
+  /**
+   * A block layer was set again (its cells or paint changed): objects drawn
+   * on it are expanded again with its wall paint; only the chunks whose
+   * paint changed are made again (their keys hash it).
+   */
+  layerChanged(layerId: string): number {
+    return this.remake((rec) => rec.raw.layer === layerId, true);
+  }
+
   /** Expand again the objects with outlines that `which` picks, and ask for the chunks that changed. */
-  private remake(which: (rec: Rec) => boolean): number {
+  private remake(which: (rec: Rec) => boolean, any = false): number {
     let n = 0;
     for (const [id, rec] of this.recs) {
-      if (rec.leaving || (rec.raw.outlines?.length ?? 0) === 0 || !which(rec)) continue;
+      if (rec.leaving || (!any && (rec.raw.outlines?.length ?? 0) === 0) || !which(rec)) continue;
       const sheetsBefore = JSON.stringify(rec.materials);
       this.expand(id, rec);
       n += 1;
@@ -265,7 +280,8 @@ export class ArchitectureView {
 
   /** The component the generator makes from the one given (outlines made by their presets' styles). */
   private expand(id: string, rec: Rec): void {
-    const x = expandArchitecture(rec.raw, rec.origin, this.styles, { swaps: this.swaps, preview: this.previewing });
+    const paint = rec.raw.layer !== undefined ? (this.deps.paint?.(rec.raw.layer, rec.origin) ?? null) : null;
+    const x = expandArchitecture(rec.raw, rec.origin, this.styles, { swaps: this.swaps, preview: this.previewing, paint });
     // Shipped meshes are of the stored presets: a swapped or previewed one is generated here.
     const restyled = rec.raw.baked !== undefined && (rec.raw.outlines ?? []).some((o) => this.swaps[o.preset] !== undefined || (this.previewing !== null && x.presets.has(this.previewing.preset)));
     if (restyled) {

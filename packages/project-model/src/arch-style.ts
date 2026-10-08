@@ -35,13 +35,13 @@
  */
 import { detSinCos } from './arch-math';
 import { hashString, hashText64 } from './arch-math';
-import { ARCHITECTURE_LIMITS, type ArchitectureComponent, type ArchitectureElement, type ArchitectureFill, type ArchitectureOutline, type ArchitecturePath, type ArchitectureProfile, type ArchitectureSweep } from './architecture';
+import { pathDistanceNear, pathPointAt, samplePath } from './arch-path';
+import { ARCHITECTURE_LIMITS, type ArchitectureComponent, type ArchitectureElement, type ArchitectureFill, type ArchitectureOpening, type ArchitectureOutline, type ArchitecturePath, type ArchitectureProfile, type ArchitectureSweep } from './architecture';
 import { ARCHITECTURE_PRESET_GRAPH_KIND, ARCHITECTURE_PRESET_KIND, ARCHITECTURE_STYLE_GRAPH_KIND, ARCHITECTURE_STYLE_KIND } from './arch-style-kinds';
 import { ARCHITECTURE_STARTER_GRAPHS } from './arch-style-starters';
 import type { ModelErrorV2 } from './errors';
 import type { GraphData, GraphKindDef, GraphNode, GraphValue } from './graph';
 import { ruleNoise } from './surface-rules';
-import { canonicalJsonText } from './sha256';
 
 /** A style's exposed parameter. */
 export interface ArchitectureStyleParam {
@@ -114,6 +114,21 @@ export interface ArchitectureExpansion {
   problems: readonly string[];
   /** The presets the outlines resolved through (the chains, after swaps). */
   presets: ReadonlySet<string>;
+  /** Each room's storeys' floor plans (object frame; `arch-rooms.ts`). */
+  rooms: readonly ArchitectureRoomPlan[];
+}
+
+/** A room storey's floor plan (object frame): what a block layer's regions and grid walks read. */
+export interface ArchitectureRoomPlan {
+  /** The region id: the outline's id, and `-s<storey>` above the ground storey. */
+  id: string;
+  outline: string;
+  storey: number;
+  /** The outline's corners on the ground (x, z). */
+  points: [number, number][];
+  /** The storey's floor and the top of its walls (metres, object frame). */
+  floor: number;
+  top: number;
 }
 
 /** A graph as the table reads it (a content graph document or a shipped one). */
@@ -271,7 +286,7 @@ export function resolveArchitecturePreset(table: ArchitectureStyles, id: string,
 }
 
 /** A parameter's value for one outline: the preset's (else the style's default), driven by its mask, within its range. */
-function paramValue(p: ArchitectureStyleParam, r: ResolvedArchitecturePreset, at: readonly number[], c: ArchitectureComponent, origin: readonly number[]): number {
+export function paramValue(p: ArchitectureStyleParam, r: ResolvedArchitecturePreset, at: readonly number[], c: ArchitectureComponent, origin: readonly number[]): number {
   const own = r.values[p.name];
   let v = isNum(own) ? own : p.default;
   const m = r.masks[p.name];
@@ -310,7 +325,7 @@ export function paintedMaskAt(points: readonly (readonly number[])[] | undefined
 }
 
 /** An outline's middle (object frame): the mean of its points. */
-function middleOf(p: ArchitecturePath): [number, number, number] {
+export function middleOf(p: ArchitecturePath): [number, number, number] {
   let x = 0;
   let y = 0;
   let z = 0;
@@ -340,16 +355,52 @@ const nodeTag = (nodeId: string): string => hashString(nodeId).toString(36);
 const r6 = (v: number): number => Math.round(v * 1e6) / 1e6;
 
 /**
+ * A profile's name among the expansion's profiles: a hash of its fields, so
+ * equal profiles are one entry. Profiles named here are built by the
+ * expansion's own code (fields always in one order), so the native
+ * serializer is canonical for them.
+ */
+export function architectureProfileName(p: ArchitectureProfile): string {
+  return `p${hashText64(JSON.stringify(p))}`;
+}
+
+const sameNumbers = (a: readonly number[] | undefined, b: readonly number[] | undefined): boolean => a === b || (a !== undefined && b !== undefined && a.length === b.length && a.every((v, i) => v === b[i]));
+
+/** Whether two paths are the same path (an element drawn on the outline itself). */
+function samePath(a: ArchitecturePath, b: ArchitecturePath): boolean {
+  if (a === b) return true;
+  if (a.points.length !== b.points.length || (a.closed === true) !== (b.closed === true) || (a.curve === true) !== (b.curve === true)) return false;
+  if ((a.offset ?? 0) !== (b.offset ?? 0) || (a.chamfer ?? 0) !== (b.chamfer ?? 0) || a.step !== b.step || !sameNumbers(a.bulges, b.bulges)) return false;
+  return a.points.every((q, i) => sameNumbers(q, b.points[i]));
+}
+
+/**
+ * Openings given along `outline` placed along `path` (a moulding inset from
+ * a room's walls): each at the point of the path nearest its middle.
+ */
+function openingsAlong(openings: readonly ArchitectureOpening[], outline: ArchitecturePath, path: ArchitecturePath): ArchitectureOpening[] {
+  if (openings.length === 0 || samePath(outline, path)) return [...openings];
+  const from = samplePath(outline);
+  const to = samplePath(path);
+  const p = [0, 0, 0];
+  const t = [0, 0, 0];
+  return openings.map((o) => {
+    pathPointAt(from, o.at, p, t);
+    return { ...o, at: r6(pathDistanceNear(to, p[0]!, p[2]!)) };
+  });
+}
+
+/**
  * One outline through its style: the elements (ids from the outline's) and
  * the profiles they use, into `elements`/`profiles`; problems into `problems`.
  */
-function evaluateStyle(style: ArchitectureStyleDef, value: (name: string) => number, outline: ArchitectureOutline, sheet: string | null, elements: ArchitectureElement[], profiles: Record<string, ArchitectureProfile>, problems: string[]): void {
+export function evaluateStyle(style: ArchitectureStyleDef, value: (name: string) => number, outline: ArchitectureOutline, sheet: string | null, elements: ArchitectureElement[], profiles: Record<string, ArchitectureProfile>, problems: string[]): void {
   const K = ARCHITECTURE_STYLE_GRAPH_KIND;
   const L = ARCHITECTURE_LIMITS;
   const memo = new Map<string, Value>();
   const visiting = new Set<string>();
   const profileName = (p: ArchitectureProfile): string => {
-    const name = `p${hashText64(canonicalJsonText(p))}`;
+    const name = architectureProfileName(p);
     profiles[name] ??= p;
     return name;
   };
@@ -458,6 +509,20 @@ function evaluateStyle(style: ArchitectureStyleDef, value: (name: string) => num
       }
       case 'shaft':
         return { points: [[0, num(n, 'height')], [0, 0]], slots: [str(K, n, 'slot')] };
+      case 'round': {
+        const radius = num(n, 'radius');
+        const lift = num(n, 'height');
+        const sides = Math.round(num(n, 'sides'));
+        const sl = str(K, n, 'slot');
+        // Counter-clockwise in (across, up): faces look right of each segment's direction, so out of the section.
+        const points: [number, number][] = [];
+        const sc: [number, number] = [0, 0];
+        for (let k = 0; k < sides; k++) {
+          detSinCos((k / sides) * Math.PI * 2, sc);
+          points.push([r6(radius * sc[1]), r6(lift + radius * sc[0])]);
+        }
+        return { points, slots: points.map(() => sl), closed: true, smooth: true, ...(sl !== '' ? { cap: sl } : {}) };
+      }
       case 'frame': {
         const w = num(n, 'width');
         const d = num(n, 'depth');
@@ -470,8 +535,8 @@ function evaluateStyle(style: ArchitectureStyleDef, value: (name: string) => num
         if (!isPath(path) || !isProfile(profile)) return null;
         const frame = input(n, 'frame');
         const frameName = isProfile(frame) ? profileName(frame) : undefined;
-        const openings = flag(n, 'openings') ? (outline.openings ?? []).map((o) => ({ ...o, ...(o.frame === undefined && frameName !== undefined ? { frame: frameName } : {}) })) : [];
-        return { node: n.id, element: { kind: 'sweep', path, profile: profileName(profile), ...(openings.length > 0 ? { openings } : {}), ...base(n) } };
+        const openings = flag(n, 'openings') ? openingsAlong(outline.openings ?? [], outline.path, path).map((o) => ({ ...o, ...(o.frame === undefined && frameName !== undefined ? { frame: frameName } : {}) })) : [];
+        return { node: n.id, element: { kind: 'sweep', path, profile: profileName(profile), ...(openings.length > 0 ? { openings } : {}), ...(flag(n, 'wall') ? { wall: true } : {}), ...base(n) } };
       }
       case 'fill': {
         const path = input(n, 'path');
@@ -564,54 +629,6 @@ function evaluateStyle(style: ArchitectureStyleDef, value: (name: string) => num
     while (elements.some((e) => e.id === id)) id = `${id}x`;
     elements.push({ ...v.element, id } as ArchitectureElement);
   }
-}
-
-const NO_MATERIALS: Readonly<Record<string, string>> = Object.freeze({});
-const NO_SET: ReadonlySet<string> = new Set();
-
-/**
- * The component the generator makes: its own elements and profiles plus
- * each outline's, made by its preset's style (a swap replacing the preset,
- * a preview's values over one). `origin` is the object's world position
- * (masks read world noise and heights). A component without outlines is
- * itself.
- */
-export function expandArchitecture(c: ArchitectureComponent, origin: readonly number[], table: ArchitectureStyles, opts: { swaps?: Readonly<Record<string, string>> | null; preview?: ArchitecturePreview | null } = {}): ArchitectureExpansion {
-  const outlines = c.outlines ?? [];
-  if (outlines.length === 0) {
-    if (c.outlines === undefined && c.masks === undefined) return { component: c, materials: NO_MATERIALS, problems: [], presets: NO_SET };
-    const { outlines: _o, masks: _m, ...rest } = c;
-    return { component: rest, materials: NO_MATERIALS, problems: [], presets: NO_SET };
-  }
-  const elements: ArchitectureElement[] = [...c.elements];
-  const profiles: Record<string, ArchitectureProfile> = { ...(c.profiles ?? {}) };
-  const materials: Record<string, string> = {};
-  const problems: string[] = [];
-  const presets = new Set<string>();
-  for (const o of outlines) {
-    const id = opts.swaps?.[o.preset] ?? o.preset;
-    const r = resolveArchitecturePreset(table, id, opts.preview);
-    for (const p of r.chain) presets.add(p);
-    if (r.problem !== null || r.style === null) {
-      problems.push(`outline ${o.id}: ${r.problem ?? 'no style'}`);
-      continue;
-    }
-    const style = r.style;
-    const at = middleOf(o.path);
-    const values = new Map<string, number>();
-    const value = (name: string): number => {
-      const known = values.get(name);
-      if (known !== undefined) return known;
-      const p = style.params.get(name);
-      const v = p === undefined ? 0 : paramValue(p, r, at, c, origin);
-      values.set(name, v);
-      return v;
-    };
-    if (r.sheet !== null) materials[r.sheet] = r.sheet;
-    evaluateStyle(style, value, o, r.sheet, elements, profiles, problems);
-  }
-  const { outlines: _o, masks: _m, ...rest } = c;
-  return { component: { ...rest, elements, profiles }, materials, problems, presets };
 }
 
 /**

@@ -81,14 +81,15 @@ const STYLE_NODES: GraphNodeDef[] = [
   profileNode('cove', 'Cove profile', 'A cove moulding under a ceiling on a face right of travel (0 depth or size: none).', [num('size', 'Size', 0.4, 0, 10), num('depth', 'Depth', 0.1, 0, 10), num('top', 'Top', 3, -L.distanceMax, L.distanceMax)], [slot('slot', 'Slot', 'crown')]),
   profileNode('shaft', 'Shaft profile', 'A column\'s face, swept round a square.', [num('height', 'Height', 2.5, 0.05, L.distanceMax)], [slot('slot', 'Slot', 'column')]),
   profileNode('frame', 'Frame profile', 'A flat frame round an opening.', [num('width', 'Width', 0.12, 0.01, 10), num('depth', 'Depth', 0.04, 0.001, 10)], [slot('slot', 'Slot', 'frame')]),
+  profileNode('round', 'Round profile', 'A closed round section centred on its path, lifted by its height: a pipe, a rail, a cable (its ends capped).', [num('radius', 'Radius', 0.05, 0.005, 10), num('height', 'Height', 0, -L.distanceMax, L.distanceMax), num('sides', 'Sides', 8, 3, 32)], [slot('slot', 'Slot', 'column')]),
   {
     type: 'sweep',
     label: 'Sweep',
     category: 'Elements',
-    description: 'A profile swept along a path, mitred at corners; with Openings on it cuts the outline\'s doors and windows (framed with the frame profile).',
+    description: 'A profile swept along a path, mitred at corners; with Openings on it cuts the outline\'s doors and windows (framed with the frame profile). A room\'s Wall is made once where rooms share it, each side dressed by its own room.',
     inputs: [port('path', 'path', 'path', { required: true }), port('profile', 'profile', 'profile', { required: true }), port('frame', 'frame', 'profile')],
     outputs: [port('element', 'element', 'element')],
-    fields: [{ key: 'openings', label: 'Openings', type: 'boolean', default: false }, ...ELEMENT_FIELDS],
+    fields: [{ key: 'openings', label: 'Openings', type: 'boolean', default: false }, { key: 'wall', label: 'Wall', type: 'boolean', default: false }, ...ELEMENT_FIELDS],
   },
   (() => {
     const w = wired([num('spacing', 'Spacing', 2, L.stepMin, L.distanceMax), num('start', 'Start', 0, 0, L.coordinate), num('jitterYaw', 'Jitter turn', 0, 0, 180), num('jitterAlong', 'Jitter along', 0, 0, L.distanceMax)]);

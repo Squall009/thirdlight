@@ -479,9 +479,24 @@ export class BlockGrid {
   /**
    * The wall paint surface of `wallPaintDab`: chunks holding cells or edge
    * pieces, their points made on first write. `solid` says which blocks hide
-   * a neighbour's face (absent: every flat one).
+   * a neighbour's face (absent: every flat one); `walls` are edges other
+   * things stand on (rooms' walls drawn on the layer: `cellKeyOf × 2 + axis`
+   * → a face stands there), painted as edge pieces are.
    */
-  wallPaintSurface(solid?: (cell: BlockCell) => boolean): WallPaintSurface {
+  wallPaintSurface(solid?: (cell: BlockCell) => boolean, walls?: ReadonlyMap<number, boolean>): WallPaintSurface {
+    let wallChunks: Set<string> | null = null;
+    const hasWalls = (ck: string): boolean => {
+      if (walls === undefined || walls.size === 0) return false;
+      if (wallChunks === null) {
+        wallChunks = new Set();
+        for (const [k, v] of walls) {
+          if (!v) continue;
+          const [x, , z] = cellOfKey(Math.floor(k / 2));
+          wallChunks.add(chunkKeyOf(chunkIndex(x), chunkIndex(z)));
+        }
+      }
+      return wallChunks.has(ck);
+    };
     return {
       cellSize: this.cellSize,
       minX: this.min[0],
@@ -495,10 +510,10 @@ export class BlockGrid {
         if (cell === null || cell.block === undefined) return 0;
         return cell.corners !== undefined || (solid !== undefined && !solid(cell)) ? 2 : 1;
       },
-      edgeAt: (x, y, z, axis) => this.edgeIndexAt(x, y, z, axis) >= 0,
+      edgeAt: (x, y, z, axis) => this.edgeIndexAt(x, y, z, axis) >= 0 || walls?.get(cellKeyOf(x, y, z) * 2 + axis) === true,
       points: (cx, cz) => {
         const ck = chunkKeyOf(cx, cz);
-        if (!this.chunkHasCells(ck) && !this.edgeChunks.has(ck)) return null;
+        if (!this.chunkHasCells(ck) && !this.edgeChunks.has(ck) && !hasWalls(ck)) return null;
         let w = this.wallPaints.get(ck);
         if (w === undefined) this.wallPaints.set(ck, (w = new Map()));
         return w;
@@ -1048,6 +1063,8 @@ export const BLOCK_EDIT_MAX_EDITS = 256;
 export interface BlockEditContext {
   types: ReadonlyMap<string, BlockType>;
   stamps: ReadonlyMap<string, BlockStamp>;
+  /** Walls of rooms drawn on the layer (`architectureWallEdges`): wall paint reaches their faces too (absent: none). */
+  walls?: ReadonlyMap<number, boolean>;
 }
 
 /** `rebased`: columns whose top row moved under `surface` / `sculpt` edits (absent: the command had none). */
@@ -1550,7 +1567,7 @@ export function applyBlockEdits(g: BlockGrid, edits: readonly BlockEdit[], ctx: 
             const t = cell.block !== undefined ? ctx.types.get(cell.block) : undefined;
             return t !== undefined && blockTypeSolid(t);
           };
-          changed += wallPaintDab(g.wallPaintSurface(solid), [e.at[0]!, e.y!, e.at[1]!], brush);
+          changed += wallPaintDab(g.wallPaintSurface(solid, ctx.walls), [e.at[0]!, e.y!, e.at[1]!], brush);
         }
         break;
       }

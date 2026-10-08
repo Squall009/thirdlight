@@ -85,7 +85,7 @@ import { TerrainColliders, type TerrainLayerData, type TerrainTileData } from '.
 import { RuntimeSurface, type SurfaceLayerView } from './surface';
 import { RuntimeScatter, type ScatterCopyChange, type TerrainScatterData, type TerrainSimData } from './scatter-copies';
 import { RuntimeSplines, type SplineSimData } from './splines';
-import { RuntimeArchitecture } from './architecture';
+import { RuntimeArchitecture, type ArchitectureLayerRooms } from './architecture';
 import { SimWorldStream } from './world-stream';
 
 export { worldStreamSources } from './world-stream';
@@ -342,7 +342,7 @@ export interface BehaviorGrid {
    */
   reachable(layer: string, from: readonly number[], maxCost: number, options?: GridWalkOptions): readonly GridWalkPlace[];
   /**
-   * The region ids of a layer.
+   * The region ids of a layer (each room drawn on it is one too: its outline's id, and "-s1", "-s2"… for its upper storeys).
    * @graphPure
    * @graphNode Regions
    */
@@ -412,7 +412,7 @@ export interface BehaviorGrid {
    */
   edge(layer: string, x: number, y: number, z: number, side: '-x' | '+x' | '-z' | '+z'): GridEdge | null;
   /**
-   * Whether an edge piece blocks moving from a cell across one of its sides (a wall or a closed door does; an open door, a non-blocking piece or no piece does not).
+   * Whether an edge piece blocks moving from a cell across one of its sides (a wall or a closed door does; an open door, a non-blocking piece or no piece does not). Where no piece stands, a room's wall drawn on the layer blocks (its doorways and windows do not).
    * @graphPure
    * @graphNode Edge blocked
    */
@@ -530,6 +530,8 @@ interface Layer {
   colliders: Map<string, string[]>;
   /** Counts the layer's cell and edge writes: walk graphs kept from an earlier query are for an older count. */
   writeCount: number;
+  /** The rooms' revision its walk graphs were kept at (a room drawn on it changing counts as a write). */
+  roomsRevision?: number;
 }
 
 const freezeVec = (x: number, y: number, z: number): GridVec3 => Object.freeze({ x, y, z });
@@ -1323,9 +1325,28 @@ export class RuntimeGrid {
     return Object.freeze({ block: cell.block ?? null, rot: shown.rot, variant: shown.variant, meta, ...(anchor !== undefined ? { anchor } : {}), ...(corners !== null ? { corners: Object.freeze([...corners]) } : {}), ...(shown.piece !== null ? { piece: shown.piece } : {}), ...(look.block !== cell.block && look.block !== undefined ? { kitBlock: look.block } : {}) });
   }
 
+  /** A layer's region by id: its own, else a room drawn on it. */
+  private regionBoxes(layer: Layer | undefined, regionId: string): readonly (readonly number[])[] | undefined {
+    if (layer === undefined) return undefined;
+    return layer.grid.regions.get(regionId) ?? this.roomsOf(layer).regions.get(regionId);
+  }
+
+  /** The rooms drawn on a layer (generated architecture naming it): their wall edges and regions. */
+  private roomsOf(layer: Layer): ArchitectureLayerRooms {
+    const o = layer.origin;
+    return this.architecture.roomsOn(layer.entityId, [o.x, o.y, o.z], layer.component.cellSize);
+  }
+
   /** What the walk queries read of a layer. */
   private walkLayer(layer: Layer): WalkLayer {
+    const rev = this.architecture.revision;
+    if (layer.roomsRevision !== rev) {
+      layer.roomsRevision = rev;
+      layer.writeCount += 1;
+    }
+    const rooms = this.roomsOf(layer);
     return {
+      ...(rooms.edges.size > 0 ? { roomEdges: rooms.edges } : {}),
       component: layer.component,
       origin: layer.origin,
       shown: layer.shown,
@@ -1398,7 +1419,10 @@ export class RuntimeGrid {
       blocked(layer, x, y, z, side) {
         const l = layerOf(layer);
         const at = edgeOf(x, y, z, side);
-        return l !== undefined && at !== null && g.edgeView(l, ...at)?.blocked === true;
+        if (l === undefined || at === null) return false;
+        const piece = g.edgeView(l, ...at);
+        // No piece there: a room's wall drawn on the layer may stand on the edge (its doorways let through).
+        return piece !== null ? piece.blocked === true : g.roomsOf(l).edges.get(cellKeyOf(at[0], at[1], at[2]) * 2 + at[3]) === true;
       },
       setEdge(layer, x, y, z, side, edge) {
         const at = edgeOf(x, y, z, side);
@@ -1531,16 +1555,16 @@ export class RuntimeGrid {
       },
       regions(layer) {
         const l = layerOf(layer);
-        return Object.freeze(l === undefined ? [] : [...l.grid.regions.keys()].sort());
+        return Object.freeze(l === undefined ? [] : [...new Set([...l.grid.regions.keys(), ...g.roomsOf(l).regions.keys()])].sort());
       },
       region(layer, regionId) {
-        const boxes = layerOf(layer)?.grid.regions.get(regionId);
+        const boxes = g.regionBoxes(layerOf(layer), regionId);
         if (boxes === undefined) return null;
         const cells = regionCells(boxes, 65_536);
         return cells === null ? null : Object.freeze(cells.map(([x, y, z]) => freezeVec(x, y, z)));
       },
       inRegion(layer, regionId, x, y, z) {
-        const boxes = layerOf(layer)?.grid.regions.get(regionId);
+        const boxes = g.regionBoxes(layerOf(layer), regionId);
         return boxes !== undefined && int(x) && int(y) && int(z) && regionContains(boxes, x, y, z);
       },
       entity(layer, x, y, z) {

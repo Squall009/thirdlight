@@ -567,6 +567,26 @@ export class Viewport {
   private projected: readonly ProjectedEntity[] = [];
 
   /** The project's bakes (sceneId → bake); null clears them. They show with game lighting. */
+  /**
+   * Draw an object with one component as given, without storing it (a room's
+   * wall being dragged): the adapter takes the patched document as an edit
+   * (generated architecture makes only the chunks that changed); null draws
+   * it as the projection has it.
+   */
+  previewComponent(entityId: string, component: string, value: unknown): boolean {
+    const i = this.projected.findIndex((e) => e.id === entityId);
+    if (i < 0) return false;
+    const e = this.projected[i]!;
+    const next = value === null ? e : ({ ...e, components: { ...e.components, [component]: value } } as ProjectedEntity);
+    this.source.sync(
+      this.projected.map((x, k) => (k === i ? next : x)),
+      [next],
+    );
+    this.adapter.sync?.();
+    this.requestRender();
+    return true;
+  }
+
   /** The project's architecture style and preset graphs changed: outlines are made again where their elements changed. */
   setArchitectureStyles(graphs: readonly ArchitectureGraphLike[]): void {
     this.archStyles = graphs;

@@ -57,6 +57,7 @@ import {
 } from '../session/block-brush';
 import { enumColors, fieldColor, overlayLegend, parseMetaValue } from '../session/block-overlay';
 import type { BlockEditor } from '../viewport/block-editor';
+import { RoomsPanel, type RoomsBinding } from './architecture/RoomsPanel';
 
 export interface BlockLayerRow {
   entityId: string;
@@ -102,6 +103,8 @@ interface Props {
   onCreateLayer: () => void;
   onSetFlag: (entityId: string, flag: 'active' | 'locked', value: boolean) => void;
   onNotice: (message: string) => void;
+  /** The rooms drawn on the layer (the Rooms tool; absent: no rooms tool). */
+  rooms?: RoomsBinding;
 }
 
 const newId = (base: string, taken: readonly string[]): string => {
@@ -298,6 +301,7 @@ export function BlocksPanel(p: Props): JSX.Element {
     onHover: (at, cell) => setHover(at === null ? '' : `${at.join(', ')}${cell?.block !== undefined ? ` · ${typeOf.get(cell.block)?.name ?? cell.block}${cell.rot !== undefined ? ` ${cell.rot}°` : ''}` : cell !== null ? ' · metadata' : ''}`),
     onKey: (e) => {
       if (!(p.visible && armed && layer !== null)) return false;
+      if (tool === 'room' && editor?.rooms.key(e) === true) return true;
       const s = sliceKey(e.key, slice, layer.component.bounds);
       if (s !== null) {
         setSlice(s);
@@ -453,7 +457,10 @@ export function BlocksPanel(p: Props): JSX.Element {
           </button>
         ))}
       </div>
-      <div className="tl-blocks__opts">
+      {tool === 'room' && layer !== null && p.rooms !== undefined && (
+        <RoomsPanel editor={editor} layerId={layer.entityId} layerOrigin={p.rooms.layerOrigin} cellSize={layer.component.cellSize} bounds={layer.component.bounds} binding={p.rooms} edgeTypes={p.types.filter((t) => t.placement === 'edge')} edit={(what, edits) => p.edit(what, layer.entityId, edits)} />
+      )}
+      <div className="tl-blocks__opts" hidden={tool === 'room'}>
         <button className="tl-btn tl-btn--small" aria-label="rotate brush" title="Turn the brush a quarter turn (Q)" onClick={() => setBrush((b) => ({ ...b, rot: nextRotation(b.rot, b.block !== null ? typeOf.get(b.block) : undefined) }))}>
           Rotate {brush.rot}°
         </button>

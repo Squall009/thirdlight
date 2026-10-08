@@ -76,6 +76,8 @@ export interface WalkLayer {
   readonly graphs: WalkGraphCache;
   /** The anchor of a cell a larger block covers (null: none). */
   anchorOf(x: number, y: number, z: number): readonly [number, number, number] | null;
+  /** The walls of rooms drawn on the layer (`BlockWalkGraph`'s `edges`; absent: none). */
+  readonly roomEdges?: ReadonlyMap<number, boolean>;
 }
 
 const num = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
@@ -118,6 +120,7 @@ export function walkGraphFor(layer: WalkLayer, types: ReadonlyMap<string, BlockT
     graph = new BlockWalkGraph(grid, types, settings, {
       anchorOf: (x, y, z) => layer.anchorOf(x, y, z),
       ...(field !== undefined ? { standable: (x: number, y: number, z: number) => metaOf(x, y, z)[field] === true } : {}),
+      ...(layer.roomEdges !== undefined && layer.roomEdges.size > 0 ? { edges: layer.roomEdges } : {}),
     });
     kept.graphs.set(key, graph);
   }

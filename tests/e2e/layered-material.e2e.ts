@@ -55,6 +55,15 @@
  * `ctx.grid.setArchitecturePreset` swaps the last two walls' preset for one
  * with another style (another row of the sheet).
  *
+ * Rooms and paths (`rooms-drawing.ts`): drawn with a block layer's Rooms
+ * tool on a floor of cells — two rooms sharing a wall, an arch in the
+ * front one and a door in the shared wall, a fence path — the door edited
+ * in the room inspector, a wall dragged (only the rooms object made again,
+ * timed from each input), grime painted on a wall with the Paint texture
+ * tool. In Play and the export: the front wall's rows, the grime, the shared
+ * wall's front face through the arch, the back room through the door and a
+ * fence post each show their colour.
+ *
  * TL_LAYERED_DIR=<dir> keeps the pictures.
  */
 import { randomBytes, randomUUID } from 'node:crypto';
@@ -71,6 +80,7 @@ import { stripPatchCentre, TEST_TRIM_COLOURS, TEST_TRIM_SHEET, testTrimLayoutJso
 import { editorUrlFor, expectRendererBackend, exportQueryFor, onlyInItsProject, RENDERER_VARIANTS, type RendererVariant } from './renderer-variants';
 import { serveDir } from './frame-reading';
 import { closeEditor, createItem, editorPane, inspector, menu, openEditor, openWindow } from './ui';
+import { drawRooms, ROOM_READS } from './rooms-drawing';
 
 let be: E2EBackend | null = null;
 test.afterEach(async () => {
@@ -538,6 +548,22 @@ function readStyled(img: Image): { low: [number, number, number][]; high: [numbe
 }
 const fmtColours = (cs: readonly (readonly number[])[]): string => cs.map((c) => c.map((v) => v.toFixed(0)).join(',')).join(' ');
 
+/** The rooms drawn with the Rooms tool in a picture of the fixed camera: each read's colour and whether all show what they should. */
+function readRooms(img: Image): { colours: Record<string, [number, number, number]>; ok: boolean } {
+  const colours = Object.fromEntries(Object.entries(ROOM_READS).map(([k, r]) => [k, colourAt(img, onPlay(r.at, img.width, img.height))])) as Record<keyof typeof ROOM_READS, [number, number, number]>;
+  const lum = (c: readonly number[]): number => c[0]! + c[1]! + c[2]!;
+  const ok =
+    rowHue(ROOM_READS.front.slot, colours.front) &&
+    // Painted grime: no longer the wall's magenta, darker.
+    !rowHue(ROOM_READS.grime.slot, colours.grime) &&
+    lum(colours.grime) < lum(colours.front) &&
+    rowHue(ROOM_READS.shared.slot, colours.shared) &&
+    rowHue(ROOM_READS.door.slot, colours.door) &&
+    rowHue(ROOM_READS.post.slot, colours.post);
+  return { colours, ok };
+}
+const fmtRooms = (c: Record<string, readonly number[]>): string => Object.entries(c).map(([k, v]) => `${k} ${v.map((x) => x.toFixed(0)).join(',')}`).join('; ');
+
 async function trimSheetChecks(page: Page, variant: RendererVariant): Promise<void> {
   variants.set(page, variant);
   type TrimMat = { materialId: string; shader: string; textures: Record<string, string>; trim?: { size: number[]; padding: number; rows: { slot: string; top: number; bottom: number; texelDensity?: number }[] } };
@@ -588,6 +614,9 @@ async function trimSheetChecks(page: Page, variant: RendererVariant): Promise<vo
   await cmd('setComponent', { entityId: archId, component: 'architecture', value: ARCHITECTURE });
   await cmd('setComponent', { entityId: archId, component: 'materials', value: { '*': trimId } });
   await styledArchitecture(page, trimId);
+  const rooms = await drawRooms(page, cmd, query, trimId);
+  console.log(`rooms ${variant} editor: draw → visible ${rooms.timings.drawToVisible.toFixed(1)} ms; wall drag ${rooms.timings.drag.regenerations} regenerations, input → drawn ${rooms.timings.drag.median.toFixed(1)} / ${rooms.timings.drag.worst.toFixed(1)} ms, a chunk ${rooms.timings.drag.madeMedian.toFixed(2)} ms median, other objects made again ${rooms.timings.drag.others}`);
+  expect(rooms.timings.drag.others).toBe(0);
 
   await page.getByTitle('Start an isolated play preview').click();
   const canvas = page.frameLocator('iframe.tl-app__preview-frame').locator('canvas').first();
@@ -644,6 +673,16 @@ async function trimSheetChecks(page: Page, variant: RendererVariant): Promise<vo
     throw e;
   });
   console.log(`styled walls ${variant} Play: low ${fmtColours(styled.low)} high ${fmtColours(styled.high)}`);
+  // The rooms: the shared wall made once with the door through it, the arch, the grime painted on the layer, the fence.
+  let roomsPlay = readRooms(decodePng(await canvas.screenshot()));
+  let roomsPng: Buffer | null = null;
+  await expect.poll(async () => (roomsPlay = readRooms(decodePng((roomsPng = await canvas.screenshot())))).ok, { timeout: 30_000, intervals: [500], message: 'the Play picture of the rooms' }).toBe(true).catch((e: unknown) => {
+    console.log(`rooms ${variant} Play (failed): ${fmtRooms(roomsPlay.colours)}`);
+    if (roomsPng !== null) keep('rooms-failed', roomsPng);
+    throw e;
+  });
+  if (roomsPng !== null) keep('rooms', roomsPng);
+  console.log(`rooms ${variant} Play: ${fmtRooms(roomsPlay.colours)}`);
   await page.getByTitle('Stop the play preview').click();
 
   // ---- The static export, served with the backend stopped: the parameters ship, the game generates the same picture.
@@ -668,6 +707,12 @@ async function trimSheetChecks(page: Page, variant: RendererVariant): Promise<vo
       throw e;
     });
     console.log(`styled walls ${variant} export: low ${fmtColours(styledExport.low)} high ${fmtColours(styledExport.high)}`);
+    let roomsExport = readRooms(decodePng(await exported.screenshot()));
+    await expect.poll(async () => (roomsExport = readRooms(decodePng(await exported.screenshot()))).ok, { timeout: 30_000, intervals: [500], message: 'the export picture of the rooms' }).toBe(true).catch((e: unknown) => {
+      console.log(`rooms ${variant} export (failed): ${fmtRooms(roomsExport.colours)}`);
+      throw e;
+    });
+    console.log(`rooms ${variant} export: ${fmtRooms(roomsExport.colours)}`);
     const marks = await architectureMarks(game);
     console.log(`architecture ${variant} export: ${shown.colours.map((c) => c.map((v) => v.toFixed(0)).join(',')).join(' ')}; chunks ${JSON.stringify(marks.chunks)}; ready ${JSON.stringify(marks.ready)}`);
     // Generated, not shipped: on the workers, or on the page while they were starting.

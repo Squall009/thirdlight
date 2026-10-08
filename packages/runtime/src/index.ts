@@ -271,14 +271,18 @@ export { STREAM_CHUNK_COST, STREAM_COLLIDER_SAMPLES_PER_STEP, STREAM_LIVE_SPAWNS
 export { FOLIAGE_NEAR_METRES, SCATTER_BLOB_DISTANCE, SCATTER_CHUNK_METERS_DEFAULT, SCATTER_COPY_FLOATS, SCATTER_COVER_DISTANCE_DEFAULT, SCATTER_LIMITS, bakeScatterCell, blockScatterSurface, coverScatterRules, decodeChunkScatter, encodeChunkScatter, regionExcluder, scatterBlobOf, scatterCellOfBlob, scatterCellBytes, scatterReach, storedScatterRules, terrainScatterSurface, type ScatterCell, type ScatterCopies, type ScatterGround, type ScatterRect, type ScatterRegionLayer, type ScatterRule, type ScatterSurface } from '@thirdlight/project-model';
 export { TERRAIN_COLLIDER_PATCH_CELLS, TerrainColliders, terrainColliderId, terrainColliderPieces, type TerrainCollisionDiagnostics, type TerrainCollisionTile, type TerrainColliderPiece, type TerrainLayerData, type TerrainSimTile, type TerrainTileData } from './terrain-collision';
 export { RuntimeSurface, type BehaviorSurface, type SurfaceInfo } from './surface';
-export { RuntimeArchitecture, type ArchitectureCollisionDiagnostics } from './architecture';
+export { RuntimeArchitecture, type ArchitectureCollisionDiagnostics, type ArchitectureLayerRooms } from './architecture';
 // Generated architecture: the generator the page's workers run, its blob and keys (made at load from parameters).
 export {
   ARCHITECTURE_CHUNK_DEFAULT,
   ARCHITECTURE_COPY_FLOATS,
   ARCHITECTURE_LOD_DISTANCE_DEFAULT,
   ARCHITECTURE_MATERIAL_SLOT,
+  ARCHITECTURE_PANE_MATERIAL_SLOT,
   architectureChunkInput,
+  architecturePaintOf,
+  architectureRoomRegions,
+  architectureWallEdges,
   architectureSheets,
   architectureChunkKeys,
   architectureCopies,
@@ -291,6 +295,11 @@ export {
   type ArchitectureChunkKey,
   type ArchitectureComponent,
   type ArchitectureCopySet,
+  type ArchitectureOpening,
+  type ArchitectureOutline,
+  type ArchitecturePaint,
+  type ArchitecturePath,
+  type ArchitectureStair,
   type ArchitectureSheets,
 } from '@thirdlight/project-model';
 // Architecture styles and presets: outlines made into elements by their presets' style graphs (page, workers, simulation alike).
@@ -306,6 +315,7 @@ export {
   type ArchitectureExpansion,
   type ArchitectureGraphLike,
   type ArchitecturePreview,
+  type ArchitectureRoomPlan,
   type ArchitectureStyleParam,
   type ArchitectureStyles,
   type ResolvedArchitecturePreset,
@@ -467,7 +477,7 @@ export { SURFACE_RULE_BLOCK_LAYERS, SURFACE_RULE_CAVITY_RADIUS, SURFACE_RULE_LAY
 export { MATERIAL_EXTRA_LAYERS_MAX } from '@thirdlight/project-model';
 // A prop's block footprint: the editor snaps props and writes footprints with the backend's geometry.
 export { footprintCells, footprintEdits, footprintMinCell, footprintPlaces, overLayer, placeInWorld, pointInParent, turnedSize, yawQuarterTurns, type FootprintLayer, type FootprintNode } from '@thirdlight/project-model';
-export { BlockGrid, blockKitNames, blockKitView, kitKey, type BlockGridReader, type BlockLayerKit, CHUNK_SIZE, CUTAWAY_FADE_SECONDS, cutawayCuts, cutawaySeams, cutawayZones, type CutawayZone, autoVariant, blockTopOptions, blockTypeSolid, blockVariantUv, chunkKeyOf, collisionMeshChunk, compareChunkKeys, meshBlockChunk, rotatedFootprint, shapeSource, type BlockCell, type BlockChunk, type BlockLayerComponent, type BlockLayerData, type BlockLookResolver, type BlockMeshSource, type BlockTopOptions, type BlockType, type BlockUvMode, type BlockVariant, type CellField, type ChunkMeshPart } from '@thirdlight/project-model';
+export { BlockGrid, blockKitNames, blockKitView, cellKeyOf, cellOfKey, kitKey, type BlockGridReader, type BlockLayerKit, CHUNK_SIZE, CUTAWAY_FADE_SECONDS, cutawayCuts, cutawaySeams, cutawayZones, type CutawayZone, autoVariant, blockTopOptions, blockTypeSolid, blockVariantUv, chunkKeyOf, collisionMeshChunk, compareChunkKeys, meshBlockChunk, rotatedFootprint, shapeSource, type BlockCell, type BlockChunk, type BlockLayerComponent, type BlockLayerData, type BlockLookResolver, type BlockMeshSource, type BlockTopOptions, type BlockType, type BlockUvMode, type BlockVariant, type CellField, type ChunkMeshPart } from '@thirdlight/project-model';
 // The audio intent log (script sound handles, music, duck) and the positional maths the host shares.
 export { AUDIO_BUS_NAMES, AUDIO_MAX_HANDLES, AUDIO_MAX_QUEUED_COMMANDS, AUDIO_MAX_PLAYS_PER_STEP, AUDIO_PITCH_MAX, AUDIO_PITCH_MIN, AUDIO_SPATIAL_DEFAULTS, AudioMixer, STINGER_DEFAULTS, distanceGain, lateBoundOf, listenerRelative, ownerModeOf, spatialOf, type AudioOwner, type AudioOwnerMode, type AudioBusName, type AudioCommand, type AudioDistanceModel, type AudioSpatial } from './audio-mixer';
 // Graph-material parameters per object — ctx.materials, the catalogue and the renderer's changes.

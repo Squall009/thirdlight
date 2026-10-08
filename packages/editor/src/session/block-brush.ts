@@ -39,7 +39,7 @@ export type Cell3 = [number, number, number];
 /** A box `[x0, y0, z0, x1, y1, z1]` (min inclusive, max exclusive), as edits take it. */
 export type CellBox = [number, number, number, number, number, number];
 
-export type BlockToolId = 'single' | 'line' | 'rect' | 'box' | 'flood' | 'column' | 'height' | 'smooth' | 'flatten' | 'paint' | 'scatter' | 'erase' | 'eyedropper' | 'replace' | 'meta' | 'select' | 'paste' | 'stamp' | 'region';
+export type BlockToolId = 'single' | 'line' | 'rect' | 'box' | 'flood' | 'column' | 'height' | 'smooth' | 'flatten' | 'paint' | 'scatter' | 'erase' | 'eyedropper' | 'replace' | 'meta' | 'select' | 'paste' | 'stamp' | 'region' | 'room';
 
 /** The block tools a block layer's Inspector offers (label, key, what it does). */
 export const BLOCK_TOOLS: readonly { id: BlockToolId; label: string; hint: string }[] = [
@@ -62,6 +62,7 @@ export const BLOCK_TOOLS: readonly { id: BlockToolId; label: string; hint: strin
   { id: 'paste', label: 'Paste', hint: 'Click to paste the copied cells with their min corner at the cell.' },
   { id: 'stamp', label: 'Stamp', hint: 'Click to place the chosen stamp with its min corner at the cell.' },
   { id: 'region', label: 'Region', hint: 'Drag a rectangle to add it to the chosen region (remove: Ctrl held).' },
+  { id: 'room', label: 'Rooms', hint: 'Draw rooms (rectangle, polygon with arcs) and paths (rails, fences, pipes) of generated architecture on the cells; put doors and windows on their walls; drag walls.' },
 ];
 
 /** Tools that add cells (their target is the empty cell in front of the face under the pointer). */
@@ -456,7 +457,9 @@ export function strokeEdits(s: Stroke, ctx: StrokeContext): BlockEdit[] | null {
     case 'flatten':
     case 'paint':
     case 'scatter':
-      // The terrain brushes send the dabs they collected (`sculptEdit`, `paintEdit`, `scatterEdit`), not cells.
+    case 'room':
+      // The terrain brushes send the dabs they collected (`sculptEdit`, `paintEdit`, `scatterEdit`), not cells; the Rooms
+      // tool stores generated architecture (`room-tool.ts`).
       return null;
   }
 }

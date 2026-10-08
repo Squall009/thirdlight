@@ -1,6 +1,6 @@
 /**
  * The engine's neutral starter styles and presets: a plain room, a vaulted
- * hall with pilasters, and a rail of posts — the operators shown at work
+ * hall with pilasters, a rail of posts (and a fence of it), and a pipe — the operators shown at work
  * on the starter row layout, with no game's look. Every project has them;
  * a project's graph of the same id replaces one, and a project's presets
  * may derive from them.
@@ -62,8 +62,8 @@ function roomStyle(vaulted: boolean): GraphData {
       ['coveProfile', 'cove', 2],
       ['frameProfile', 'frame', 2],
       ...(vaulted ? ([['shaftProfile', 'shaft', 2]] as [string, string, number][]) : []),
-      ['walls', 'sweep', 3, { openings: true }],
-      ['baseboards', 'sweep', 3, { detail: true }],
+      ['walls', 'sweep', 3, { openings: true, wall: true }],
+      ['baseboards', 'sweep', 3, { detail: true, openings: true }],
       ['crown', 'sweep', 3, { detail: true }],
       ['floor', 'fill', 3, { shape: 'flat', slot: 'floor' }],
       vaulted ? ['vault', 'fill', 3, { shape: 'barrel', slot: 'upper_wall', collide: 'no' }] : ['top', 'fill', 3, { shape: 'flat', slot: 'upper_wall', face: 'down', collide: 'no' }],
@@ -158,6 +158,27 @@ function railStyle(): GraphData {
   );
 }
 
+/** A pipe along an open or closed path: a round section lifted off it, its ends capped. */
+function pipeStyle(): GraphData {
+  return graph(
+    [
+      ['outline', 'outline', 0],
+      ['radius', 'parameter', 0, param('pipe_radius', 0.06, 0.01, 1)],
+      ['height', 'parameter', 0, param('pipe_height', 0.3, 0, 20)],
+      ['section', 'round', 2, { sides: 10, slot: 'column' }],
+      ['pipe', 'sweep', 3],
+      ['output', 'output', 4],
+    ],
+    [
+      ['radius.value', 'section.radius'],
+      ['height.value', 'section.height'],
+      ['outline.path', 'pipe.path'],
+      ['section.profile', 'pipe.profile'],
+      ['pipe.element', 'output.elements'],
+    ],
+  );
+}
+
 function preset(style: string, base: string, values: Record<string, number> = {}): GraphData {
   const nodes: GraphNode[] = [{ id: 'preset', type: 'preset', position: [0, 0], data: { style, base, sheet: '' } }];
   Object.entries(values).forEach(([parameter, value], i) => nodes.push({ id: `v-${parameter}`, type: 'value', position: [0, 150 * (i + 1)], data: { parameter, value } }));
@@ -169,10 +190,13 @@ export const ARCHITECTURE_STARTER_GRAPHS: readonly ArchitectureStarterGraph[] = 
   { graphId: 'starter-room-style', kind: ARCHITECTURE_STYLE_KIND, name: 'Room (starter)', graph: roomStyle(false) },
   { graphId: 'starter-hall-style', kind: ARCHITECTURE_STYLE_KIND, name: 'Vaulted hall (starter)', graph: roomStyle(true) },
   { graphId: 'starter-rail-style', kind: ARCHITECTURE_STYLE_KIND, name: 'Rail (starter)', graph: railStyle() },
+  { graphId: 'starter-pipe-style', kind: ARCHITECTURE_STYLE_KIND, name: 'Pipe (starter)', graph: pipeStyle() },
   { graphId: 'starter-room', kind: ARCHITECTURE_PRESET_KIND, name: 'Room (starter)', graph: preset('starter-room-style', '') },
   { graphId: 'starter-room-tall', kind: ARCHITECTURE_PRESET_KIND, name: 'Tall room (starter)', graph: preset('', 'starter-room', { ceiling_height: 4.2, dado_height: 1.2, moulding_depth: 0.14 }) },
   { graphId: 'starter-hall', kind: ARCHITECTURE_PRESET_KIND, name: 'Vaulted hall (starter)', graph: preset('starter-hall-style', '') },
   { graphId: 'starter-rail', kind: ARCHITECTURE_PRESET_KIND, name: 'Rail (starter)', graph: preset('starter-rail-style', '') },
+  { graphId: 'starter-fence', kind: ARCHITECTURE_PRESET_KIND, name: 'Fence (starter)', graph: preset('', 'starter-rail', { post_spacing: 2, rail_height: 1.1, post_size: 0.12 }) },
+  { graphId: 'starter-pipe', kind: ARCHITECTURE_PRESET_KIND, name: 'Pipe (starter)', graph: preset('starter-pipe-style', '') },
 ]);
 
 /** What a new style or preset graph starts as: a style with its Outline and Output; a preset deriving from the starter room. */

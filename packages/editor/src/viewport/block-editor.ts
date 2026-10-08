@@ -32,7 +32,7 @@
  * Browser-only (three.js); the maths is `session/block-brush.ts`.
  */
 import * as THREE from 'three';
-import { BLOCK_EDGE_THICKNESS, BLOCK_EDIT_MAX_EDITS, BlockGrid, applyBlockEdits, edgeInBox, effectiveCellMeta, pickCell } from '@thirdlight/runtime';
+import { BLOCK_EDGE_THICKNESS, BLOCK_EDIT_MAX_EDITS, BlockGrid, applyBlockEdits, cellOfKey, edgeInBox, effectiveCellMeta, pickCell } from '@thirdlight/runtime';
 import type { BlockCell, BlockChunk, BlockEdge, BlockEdit, BlockLayerComponent, BlockRegion, BlockStamp, BlockType, CellField } from '@thirdlight/project-model';
 import type { BlockLayerView } from '@thirdlight/three-adapter';
 import {
@@ -71,6 +71,7 @@ import {
   type StrokeContext,
 } from '../session/block-brush';
 import { overlayColor } from '../session/block-overlay';
+import { RoomTool, type RoomToolCallbacks } from './room-tool';
 
 /** What the panel sets (the tool, the brush and its options). */
 export interface BlockToolOptions {
@@ -198,6 +199,12 @@ export class BlockEditor {
   private edgeStroke: { tool: BlockToolId; row: number; start: [number, number]; end: [number, number]; edges: Edge4[]; seen: Set<string>; last: [number, number] } | null = null;
   /** Measured stroke timings (tests read them from the canvas). */
   private lastStroke: { tool: BlockToolId; cells: number; previewMs: number; commitMs: number | null } | null = null;
+  /** What the Rooms tool reports to (the panel sets it). */
+  readonly roomHandlers: { current: Omit<RoomToolCallbacks, 'onRefused'> | null } = { current: null };
+  /** The Rooms tool: rooms and paths of generated architecture drawn on the layer. */
+  readonly rooms: RoomTool;
+  /** The cell edges the walls of rooms drawn on the layer stand on (wall paint reaches their faces). */
+  private roomWalls: ReadonlyMap<number, boolean> | null = null;
 
   constructor(host: BlockEditorHost, cb: BlockEditorCallbacks) {
     this.host = host;
@@ -220,6 +227,23 @@ export class BlockEditor {
     this.ring.visible = false;
     this.root.add(this.hover, this.ghost, this.ghostEdges, this.selectionBox, this.ring);
     host.scene.add(this.root);
+    const rh = this.roomHandlers;
+    this.rooms = new RoomTool(
+      {
+        root: this.root,
+        canvas: host.canvas,
+        layer: () => this.layer,
+        slice: () => this.slice,
+        ray: (x, y) => this.ray(x, y),
+        requestRender: () => host.requestRender(),
+      },
+      {
+        onRooms: (layerId, next, what) => rh.current?.onRooms(layerId, next, what) ?? Promise.resolve(false),
+        onPreview: (id, next) => rh.current?.onPreview(id, next),
+        onPickRoom: (id) => rh.current?.onPickRoom(id),
+        onRefused: (m) => this.cb.onRefused(m),
+      },
+    );
   }
 
   // ---- state ------------------------------------------------------------------------
@@ -274,7 +298,14 @@ export class BlockEditor {
     this.host.requestRender();
   }
 
+  /** The walls of the rooms drawn on the edited layer (`architectureWallEdges`; null: none). */
+  setRoomWalls(walls: ReadonlyMap<number, boolean> | null): void {
+    this.roomWalls = walls !== null && walls.size > 0 ? walls : null;
+  }
+
   setOptions(o: BlockToolOptions): void {
+    if (o.tool !== 'room' && this.opts.tool === 'room') this.rooms.cancel();
+    if (o.tool === 'room') this.placeBox(this.hover, null);
     this.opts = o;
     // The terrain brushes show their round footprint instead of a cell.
     if (toolDabs(o.tool)) this.placeBox(this.hover, null);
@@ -388,6 +419,7 @@ export class BlockEditor {
       this.cb.onRefused('The layer is hidden (show it to edit it).');
       return true;
     }
+    if (this.opts.tool === 'room') return this.rooms.pointerDown(e);
     if (toolDabs(this.opts.tool)) {
       const at = this.surfaceUnder(e.clientX, e.clientY);
       if (at === null) return true;
@@ -435,6 +467,7 @@ export class BlockEditor {
 
   pointerMove(e: PointerEvent): boolean {
     if (!this.active) return false;
+    if (this.opts.tool === 'room') return this.rooms.pointerMove(e);
     if (toolDabs(this.opts.tool) || this.sculpt !== null) {
       const at = this.surfaceUnder(e.clientX, e.clientY);
       this.drawRing(at);
@@ -496,6 +529,7 @@ export class BlockEditor {
   }
 
   pointerUp(e: PointerEvent): boolean {
+    if (this.opts.tool === 'room' && this.rooms.pointerUp(e)) return true;
     const es = this.edgeStroke;
     if (es !== null) {
       this.edgeStroke = null;
@@ -518,6 +552,7 @@ export class BlockEditor {
 
   /** Esc: drop the stroke in flight (nothing is sent). */
   cancel(): boolean {
+    if (this.rooms.cancel()) return true;
     if (this.edgeStroke !== null) {
       this.edgeStroke = null;
       this.restorePreview();
@@ -537,7 +572,7 @@ export class BlockEditor {
   }
 
   strokeInFlight(): boolean {
-    return this.stroke !== null || this.sculpt !== null || this.edgeStroke !== null;
+    return this.stroke !== null || this.sculpt !== null || this.edgeStroke !== null || this.rooms.inFlight();
   }
 
   // ---- internals: edge pieces --------------------------------------------------------
@@ -655,6 +690,9 @@ export class BlockEditor {
     const cs = layer.component.cellSize;
     const hits = this.raycaster.intersectObjects(this.host.view().layerMeshes(layer.entityId), false);
     let p: THREE.Vector3 | null = hits[0]?.point ?? null;
+    // A room's wall in front of the blocks: the paint lands on it (its faces read the layer's wall points there).
+    const wall = this.roomWallHit(ray, o, cs);
+    if (wall !== null && (p === null || wall.distanceTo(ray.origin) < p.distanceTo(ray.origin))) p = wall;
     if (p === null) p = ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0, 1, 0), -(o.y + (this.slice + 1) * cs[1])), new THREE.Vector3());
     if (p === null) return null;
     const x = (p.x - o.x) / cs[0];
@@ -662,6 +700,33 @@ export class BlockEditor {
     const b = layer.component.bounds;
     if (x < b.min[0] || x > b.max[0] || z < b.min[2] || z > b.max[2]) return null;
     return { x, z, rows: (p.y - o.y) / cs[1] };
+  }
+
+  /** Where the ray first meets a wall of the rooms drawn on the layer (on the cell edge's plane; world), or null. */
+  private roomWallHit(ray: THREE.Ray, o: { x: number; y: number; z: number }, cs: readonly number[]): THREE.Vector3 | null {
+    const walls = this.roomWalls;
+    if (walls === null) return null;
+    let best = Infinity;
+    const d = ray.direction;
+    const r0 = [ray.origin.x - o.x, ray.origin.y - o.y, ray.origin.z - o.z];
+    for (const [k, blocks] of walls) {
+      if (!blocks) continue;
+      const axis = k % 2;
+      const [x, y, z] = cellOfKey(Math.floor(k / 2));
+      // Axis 0: the plane x = X (along z); axis 1: z = Z (along x).
+      const plane = axis === 0 ? x * cs[0]! : z * cs[2]!;
+      const dn = axis === 0 ? d.x : d.z;
+      if (Math.abs(dn) < 1e-9) continue;
+      const t = (plane - (axis === 0 ? r0[0]! : r0[2]!)) / dn;
+      if (t <= 0 || t >= best) continue;
+      const hy = r0[1]! + d.y * t;
+      const ha = axis === 0 ? r0[2]! + d.z * t : r0[0]! + d.x * t;
+      const lo = axis === 0 ? z * cs[2]! : x * cs[0]!;
+      const span = axis === 0 ? cs[2]! : cs[0]!;
+      if (hy < y * cs[1]! || hy > (y + 1) * cs[1]! || ha < lo || ha > lo + span) continue;
+      best = t;
+    }
+    return best === Infinity ? null : ray.at(best, new THREE.Vector3());
   }
 
   /** The round brush's radius in cells: the paint brush's for the paint tool, else the terrain brush's. */
@@ -803,7 +868,7 @@ export class BlockEditor {
     if (layer === null || layer.component.metadataOnly === true) return;
     const t0 = performance.now();
     if (this.scratch === null) this.scratch = BlockGrid.from(layer.component, { entityId: layer.entityId, chunks: [...layer.chunks.values()] });
-    const res = applyBlockEdits(this.scratch, edits, { types: this.types, stamps: this.stamps });
+    const res = applyBlockEdits(this.scratch, edits, { types: this.types, stamps: this.stamps, ...(this.roomWalls !== null ? { walls: this.roomWalls } : {}) });
     if (!res.ok) return;
     const dirty = this.scratch.takeDirty().chunks;
     const view = this.host.view();

@@ -86,7 +86,7 @@ describe('architecture generator', () => {
       expect(Math.abs(co - Math.cos(x))).toBeLessThan(2e-15);
     }
     const dir = join(__dirname, '../packages/project-model/src');
-    for (const f of ['arch-math.ts', 'arch-path.ts', 'arch-mesh.ts', 'arch-sweep.ts', 'arch-fill.ts', 'arch-opening.ts', 'arch-generate.ts']) {
+    for (const f of ['arch-math.ts', 'arch-path.ts', 'arch-mesh.ts', 'arch-sweep.ts', 'arch-fill.ts', 'arch-opening.ts', 'arch-generate.ts', 'arch-rooms.ts', 'arch-room-grid.ts', 'trim-paint.ts']) {
       const code = readFileSync(join(dir, f), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
       expect(code, f).not.toMatch(/Math\.(sin|cos|tan|atan2?|asin|acos|hypot|pow|exp|log\d*|cbrt)\b|\*\*/);
     }

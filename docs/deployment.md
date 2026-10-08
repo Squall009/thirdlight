@@ -5570,7 +5570,15 @@ sliders — see "Architecture styles and presets" below):
   segments of one row are one strip). **Openings** `[{id, at (m along),
   width, bottom, top, reveal? (slot, default "frame"; "" none), frame?
   (a profile swept round it, mitred), frameSides? outer|inner|both,
-  model? (a kit model instead of reveals and frame)}]` cut the strips.
+  model? (a kit model instead of reveals and frame), pane? (a glass quad
+  across the hole on the `glass` material slot: a second draw), storey?
+  (outlines' openings: the room storey they are in)}]` cut the strips.
+  `wall: true` marks a room's wall (shared between rooms, blocking grid
+  walks on a block layer); `stepped: true` gives a box under each level
+  face of the profile instead of one round it (stairs); `segmentSlots:
+  {"<segment>": [slot per profile segment]}` wears other rows along one
+  path segment. A profile's `cap` slot closes a closed profile's ends on
+  an open path (a stair's sides, a pipe's ends).
 - **Repeat** `{id, kind: "repeat", path, spacing, start?, end?, corners?,
   align? (default true: +X along the path), offset? [across, up], yaw?,
   jitter? {yaw?, along?} (seeded by `seed`), piece}`: `piece: {elements:
@@ -5585,7 +5593,8 @@ sliders — see "Architecture styles and presets" below):
   `barrel` and `groin` vaults (`rise` above `height`; vaults face in),
   `gable`, `hip`, `mansard` roofs (eaves at `height`, `overhang`; gable ends
   wear `trimSlot`). Vaults and roofs need a rectangular path (four corners
-  at right angles); any other is reported and left unfilled.
+  at right angles); any other is reported and left unfilled. `holes:
+  [closed paths]` cut a flat or coffered fill (a stairwell).
 - **Overrides** `[{element, segment | corner, reach?, model, stretch?}]`: a
   kit model UV'd against the row layout in place of a segment (made 1 m
   long along +X, stretched to the segment unless `stretch: false`) or a
@@ -5634,8 +5643,8 @@ sliders — see "Architecture styles and presets" below):
   42–74 ms after the scene's parameters were set (of which 32–67 ms is the
   wait for the first frame); while the workers are still loading their
   script the page makes the chunks round the camera itself.
-- Not yet: wall paint read onto generated vertices (rooms on block layers),
-  straight-skeleton roofs over any footprint.
+- Not yet: straight-skeleton roofs over any footprint. (Wall paint on
+  generated faces: rooms on block layers, below.)
 - `?architecture=off` on a game page draws nothing generated (to measure
   what it costs); the adapter's diagnostics carry `architecture` (chunks,
   draws, triangles, queued, made on workers/the page/memory/the store,
@@ -5708,6 +5717,66 @@ sheet a preset names) and never touches an outline.
   7.3 ms median / 7.9 ms worst in 16 m chunks, 12.8 / 14.7 ms in 32 m chunks
   (§5's soft target: 16 ms). In the editor (layered-material e2e): see the
   phase plan's progress table.
+
+## Rooms and paths
+
+Rooms and paths are outlines of generated architecture drawn on a **block
+layer** (`architecture.layer` names the layer's object; the object stands
+at the layer's place): a **room** is a closed outline (its inside to the
+right of travel), a **path** an open one (a rail, a fence, a pipe). The
+layer reads them back: their walls block its grid walks, the rooms are
+its regions, its wall paint shows on their faces.
+
+- **Drawing** (the layer's Inspector → **Rooms** tool; the slice sets the
+  floor drawn on): **Rectangle** (drag corner to corner), **Polygon**
+  (click the corners; the **arc bulge** makes the next side an arc; click
+  the first corner, double-click or Enter to close), **Path** (click the
+  points; double-click or Enter ends it), **Door**, **Window** (a pane)
+  and **Arch** (two cells, no door) put on the nearest straight wall,
+  whole cells wide; **Walls** drags a straight wall across itself by whole
+  cells (a wall two rooms share moves with both), the Scene view
+  regenerating only that object's changed chunks while dragging. Points
+  snap to cell corners. Every gesture is one command (one undo); the first
+  room makes the rooms object. Backspace takes a corner back, Esc drops it.
+- **The room inspector** (pick a room in the list or with Walls): its
+  inside **preset**, an **outside preset** (dresses the walls' outer faces
+  in its wall's inside rows and runs its trims — not its walls or fills —
+  along the stretches no other room shares), **storeys** and **storey
+  height** (absent: the walls' top), each opening's place, size and pane,
+  **stairs** (Add stair: a flight along the first wall rising a storey)
+  and floor **holes**; **door piece**: an edge block type put on the
+  layer's cell edges in an opening (a live type spawns its object; scripts
+  open and close it with `ctx.grid.setEdgeOpen`).
+- **Data** (`architecture.outlines[]`, additive): `outside?`, `storeys?`
+  (1-1000), `storeyHeight?`, `holes? [{storey?, path (closed)}]`, `stairs?
+  [{id, from [x, y, z], to [x, y, z], width, steps?}]` (the middle of the
+  bottom step's front and of the top step's back; steps of about 0.18 m
+  unless named), openings' `storey?` and `pane?`. A stair cuts the floor of
+  the storey it reaches; its treads wear `floor`, risers and sides
+  `lower_wall`, and it collides step by step.
+- **Shared walls**: where two rooms' outlines run along one line at one
+  height, the wall (the style's sweep marked **Wall**, drawn on the
+  outline) is made once, by the room listed first; its face toward the
+  other room wears that room's inside rows; the other room's wall stops at
+  its face. A door either room puts there is cut once, framed both sides,
+  and cuts both rooms' trims (a moulding inset from the walls takes an
+  opening at its nearest point). Only straight, level rooms share walls.
+- **On the block layer**: walls standing on cell lines block passage
+  across the edges they cover, in their rows (`ctx.grid` paths, reach and
+  `blocked`); a doorway lets passage through unless an edge piece stands
+  in it (a door: its own open state decides). Each room storey is a region
+  (`ctx.grid.regions/region/inRegion`: the outline's id, `-s1`, `-s2`… up).
+  A room's ground floor lies 1 cm over the cells it stands on. The layer's
+  **wall paint** (Paint texture, On: Walls) reaches the rooms' walls and is
+  read onto the generated vertices (paint layer 3 as grime, the wetness as
+  wetness), made again with them, so it stays where it was painted; a
+  chunk's key carries the paint it reads (a stroke re-makes only those).
+- **Starters**: `starter-fence` (posts and a rail) and `starter-pipe` (a
+  round section, capped) join the room, hall and rail; the style graph has
+  a **Round** profile and the Sweep's **Wall** flag.
+- **Glass and emissive**: panes go on the `glass` material slot; a style
+  element may name any slot (`emissive`…): each slot is one draw per chunk.
+- **Measured**: see the phase plan's progress table (30.23).
 
 ## Terrain edit layers, stamps and erosion
 

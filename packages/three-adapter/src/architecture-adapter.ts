@@ -7,7 +7,7 @@
  * grid changes).
  */
 import type * as THREE from 'three';
-import { architectureSheets, type ArchitectureGraphLike, type GridRenderChange } from '@thirdlight/runtime';
+import { architecturePaintOf, architectureSheets, type ArchitectureGraphLike, type BlockLayerComponent, type BlockLayerData, type GridRenderChange } from '@thirdlight/runtime';
 
 import { ArchitectureView, type ArchitectureChunkStore } from './architecture-view';
 import { createBrowserMeshWorker } from './block-mesh-pool';
@@ -17,9 +17,11 @@ import type { StaticShadowRevision } from './shadow-casters';
 import type { ModelInstance } from './visual';
 
 export interface AdapterArchitectureDeps {
+  /** A realized object's components (the layer rooms are drawn on: its cells and wall paint). */
+  components(entityId: string): object | undefined;
   /** The object's material mapping as worn now (its own with a script's swaps), and its graph materials' values. */
-  objectMaterials(entityId: string): Readonly<Record<string, string>> | undefined;
-  materialParams(entityId: string): Parameters<MaterialLibrary['apply']>[2];
+  effectiveMaterials(entityId: string, own: Readonly<Record<string, string>> | undefined): Readonly<Record<string, string>> | undefined;
+  materialParams(components: unknown): Parameters<MaterialLibrary['apply']>[2];
   materialLibrary: MaterialLibrary | null;
   assetMaterials(assetId: string): Readonly<Record<string, string>> | undefined;
   template(assetId: string, piece: string | undefined, onReady: () => void): ModelInstance | null;
@@ -44,14 +46,14 @@ export interface AdapterArchitecture {
 export function createAdapterArchitecture(d: AdapterArchitectureDeps): AdapterArchitecture {
   const lib = d.materialLibrary;
   const mapping = (id: string, extra: Readonly<Record<string, string>>): Readonly<Record<string, string>> | undefined => {
-    const own = d.objectMaterials(id);
+    const own = d.effectiveMaterials(id, (d.components(id) as { materials?: Record<string, string> } | undefined)?.materials);
     return Object.keys(extra).length === 0 ? own : { ...extra, ...(own ?? {}) };
   };
   const view = new ArchitectureView({
     sheets: (id, c, extra) => architectureSheets(c, mapping(id, extra), (m) => lib?.trimSheetOf?.(m) ?? null),
     materials: (root: THREE.Object3D, id, extra) => {
       const m = mapping(id, extra);
-      return lib !== null && m !== undefined ? lib.apply(root, m, d.materialParams(id)) : null;
+      return lib !== null && m !== undefined ? lib.apply(root, m, d.materialParams(d.components(id))) : null;
     },
     template: d.template,
     dress: (root, assetId) => (lib !== null && Object.keys(d.assetMaterials(assetId) ?? {}).length > 0 ? lib.apply(root, d.assetMaterials(assetId)!, null) : null),
@@ -65,6 +67,11 @@ export function createAdapterArchitecture(d: AdapterArchitectureDeps): AdapterAr
     tuning: d.graph.lodTuning,
     drawn: d.drawn,
     styles: d.styles ?? null,
+    // Rooms drawn on a block layer wear its wall paint (the layer object's cells ride on its component).
+    paint: (layerId, origin) => {
+      const c = d.components(layerId) as { blockLayer?: BlockLayerComponent & { data?: BlockLayerData }; transform?: { position?: number[] } } | undefined;
+      return c?.blockLayer === undefined ? null : architecturePaintOf(c.blockLayer, c.blockLayer.data?.chunks ?? [], c.transform?.position ?? [0, 0, 0], origin);
+    },
   });
   const stopDefinitions = lib?.onDefinitions?.(() => view.restyleAll());
   return {

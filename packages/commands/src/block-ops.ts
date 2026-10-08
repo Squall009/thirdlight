@@ -38,6 +38,7 @@ import {
 } from '@thirdlight/project-model';
 
 import { layerPatch, patchDelta, patchIsEmpty } from './block-patch';
+import { roomWallsOn } from './room-walls';
 import { sceneRegionLayers, scatterBakeTooLarge } from './scatter-ops';
 import { entityNotFound, fieldValue, noChangeContent, type CommandError } from './errors';
 import { contentOf, type OpInput } from './content-ops';
@@ -82,9 +83,13 @@ export function applyEditBlocks(input: OpInput, args: { entityId: string; edits:
   const content = contentOf(input.content);
   const previous = layerDataOf(scene, args.entityId);
   const grid = BlockGrid.from(lc.comp, previous);
+  // Wall paint reaches the faces of rooms drawn on the layer too.
+  const paintsWalls = args.edits.some((e) => e.kind === 'paint' && (e.target === 'walls' || e.target === 'both'));
+  const walls = paintsWalls ? roomWallsOn(scene, content, args.entityId) : null;
   const res = applyBlockEdits(grid, args.edits, {
     types: new Map(blockTypesOf(content).map((t) => [t.blockId, t])),
     stamps: new Map(blockStampsOf(content).map((s) => [s.stampId, s])),
+    ...(walls !== null ? { walls } : {}),
   });
   if (!res.ok) return { ok: false, error: fieldValue(res.path, undefined, 'an edit that fits the layer', res.message) };
   let dirty = grid.takeDirty();

@@ -115,4 +115,46 @@ describe('ctx.grid walk queries', () => {
     expect(api.walkNeighbours('g', [14, 3, 14])).toEqual([]);
     expect(api.reachable('g', [3, 0, 3], -1)).toEqual([]);
   });
+
+  it("walls of rooms drawn on the layer block walks; their doorways let through, a door piece put there decides; rooms are regions", () => {
+    const comp: BlockLayerComponent = { cellSize: [1, 1, 1], bounds: { min: [0, 0, 0], max: [16, 8, 16] } };
+    const g = new BlockGrid(comp);
+    applyBlockEdits(g, [{ kind: 'fill', box: [0, 0, 0, 12, 1, 8], cell: { block: 'stone' } }] as never, { types: new Map(TYPES.map((t) => [t.blockId, t])), stamps: new Map() });
+    const data = g.toData('g', null, g.takeDirty().chunks);
+    const floor = { id: 'g', components: { transform: T, blockLayer: { ...comp, ...(data !== null ? { data } : {}) } } } as unknown as EntityV3;
+    // Two rooms on the floor's top (1 m up), side by side at x 1-5 and 5-9; B's door on their shared wall at z 3-4.
+    const box = (x0: number, x1: number): [number, number, number][] => [[x0, 0, 1], [x1, 0, 1], [x1, 0, 5], [x0, 0, 5]];
+    const rooms = {
+      id: 'rooms',
+      components: {
+        transform: { ...T, position: [10, 1, 0] },
+        architecture: { elements: [], layer: 'g', outlines: [{ id: 'a', preset: 'starter-room', path: { points: box(1, 5), closed: true } }, { id: 'b', preset: 'starter-room', path: { points: box(5, 9), closed: true }, openings: [{ id: 'door', at: 13.5, width: 1, bottom: 0, top: 2.1 }] }] },
+      },
+    } as unknown as EntityV3;
+    const grid = new RuntimeGrid(TYPES, FIELDS, false);
+    grid.addLayers([floor, rooms]);
+    const api = grid.api;
+    // From inside A to inside B: only through the doorway (cell z 3 of the shared wall's line x = 5).
+    const p = api.path('g', [2, 0, 2], [7, 0, 2]);
+    expect(cells(p)).toContain('4,0,3 5,0,3');
+    expect(api.blocked('g', 4, 1, 2, '+x')).toBe(true);
+    expect(api.blocked('g', 4, 1, 3, '+x')).toBe(false);
+    // Outside the rooms' walls: none to cross from the open floor in (the outer wall at z = 1 blocks).
+    expect(api.blocked('g', 2, 1, 0, '+z')).toBe(true);
+    // A closed door piece in the doorway decides: blocked; a script opens it.
+    expect(api.setEdge('g', 5, 1, 3, '-x', { block: 'door' })).toBe(true);
+    expect(api.path('g', [2, 0, 2], [7, 0, 2])).toBeNull();
+    expect(api.setEdgeOpen('g', 5, 1, 3, '-x', true)).toBe(true);
+    expect(api.path('g', [2, 0, 2], [7, 0, 2])).not.toBeNull();
+    // The rooms are regions of the layer (their outlines' ids), over the floor's top.
+    expect(api.regions('g')).toEqual(['a', 'b']);
+    expect(api.inRegion('g', 'a', 2, 1, 2)).toBe(true);
+    expect(api.inRegion('g', 'a', 6, 1, 2)).toBe(false);
+    expect(api.inRegion('g', 'b', 6, 1, 2)).toBe(true);
+    expect(api.region('g', 'b')!.length).toBe(4 * 4 * 3);
+    // Unloaded: the walls go with them.
+    grid.removeLayers(new Set(['rooms']));
+    expect(api.blocked('g', 4, 1, 2, '+x')).toBe(false);
+    expect(cells(api.path('g', [2, 0, 2], [7, 0, 2]))).not.toContain('4,0,3 5,0,3');
+  });
 });

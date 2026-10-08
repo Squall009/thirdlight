@@ -1178,7 +1178,7 @@ export {
   type TrimSheetError,
   type TrimSheetProblem,
 } from './trim-sheet';
-export { TRIM_GRIME_PAINT_LAYER, trimColoursFromWallPaint, type TrimWallPaintOptions } from './trim-paint';
+export { TRIM_GRIME_PAINT_LAYER, paintArchitectureColours, trimColoursFromWallPaint, type TrimWallPaintOptions } from './trim-paint';
 export { cutWallPolygon, type CutVertex } from './block-wall-cut';
 export { CUTAWAY_FADE_RANGE, CUTAWAY_FADE_SECONDS, canonicalBlockCutaway, cutawayCuts, cutawayPlaneKey, cutawaySeams, cutawayZoneKeys, cutawayZones, validateBlockCutaway, type BlockCutaway, type BlockCutawayRegion, type CutawayBox, type CutawayZone } from './block-cutaway';
 export { blockKitNames, canonicalBlockTypeKits, canonicalLayerKits, composeBlockTypeKits, kitKey, kitRegionsMissing, kitSwapCollides, kitZones, validateBlockTypeKits, validateLayerKits, type BlockKitSwap, type BlockLayerKit, type KitZone } from './block-kit';
@@ -1424,6 +1424,8 @@ export {
   ARCHITECTURE_LIMITS,
   ARCHITECTURE_LOD_DISTANCE_DEFAULT,
   ARCHITECTURE_MATERIAL_SLOT,
+  ARCHITECTURE_PANE_MATERIAL_SLOT,
+  ARCHITECTURE_STAIR_RISER,
   ARCHITECTURE_STEP_DEFAULT,
   architectureMaterialSlots,
   architectureModelAssets,
@@ -1433,7 +1435,10 @@ export {
   type ArchitectureElement,
   type ArchitectureFill,
   type ArchitectureFillShape,
+  type ArchitectureFloorHole,
   type ArchitectureModelRef,
+  type ArchitecturePaint,
+  type ArchitectureStair,
   type ArchitectureOpening,
   type ArchitectureMask,
   type ArchitectureOutline,
@@ -1473,7 +1478,6 @@ export { ARCHITECTURE_STARTER_GRAPHS, architectureGraphTemplate, type Architectu
 export {
   architectureGraphsOf,
   architectureStylesOf,
-  expandArchitecture,
   maskWeight,
   paintedMaskAt,
   resolveArchitecturePreset,
@@ -1483,11 +1487,15 @@ export {
   type ArchitectureMaskBinding,
   type ArchitecturePresetDef,
   type ArchitecturePreview,
+  type ArchitectureRoomPlan,
   type ArchitectureStyleDef,
   type ArchitectureStyleParam,
   type ArchitectureStyles,
   type ResolvedArchitecturePreset,
 } from './arch-style';
+// Rooms and runs (closed and open outlines): shared walls, storeys, stairs; what a block layer reads of them.
+export { ARCHITECTURE_FLOOR_ON_CELLS, ARCHITECTURE_STAIR_SLOTS, ARCHITECTURE_STOREY_HEIGHT_FALLBACK, expandArchitecture, reversedPath } from './arch-rooms';
+export { architecturePaintOf, architectureRoomRegions, architectureWallEdges } from './arch-room-grid';
 export { chunkLightmapLayout, type ChunkLightmapLayout } from './block-lightmap';
 // The instance brush (paint and erase copies of an instance set on a surface).
 export {

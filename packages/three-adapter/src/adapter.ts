@@ -485,8 +485,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   });
   // Generated architecture: made at load from its parameters on generator workers, a chunk at a time nearest the eye.
   const archHost = createAdapterArchitecture({
-    objectMaterials: (id) => effectiveMaterials(id, (entityDocs.get(id)?.components as { materials?: Record<string, string> } | undefined)?.materials),
-    materialParams: (id) => materialParamsOf(entityDocs.get(id)?.components), materialLibrary, assetMaterials: assetMaterialsOf,
+    components: (id) => entityDocs.get(id)?.components, effectiveMaterials, materialParams: materialParamsOf, materialLibrary, assetMaterials: assetMaterialsOf,
     template: (assetId, piece, onReady) => realization?.blockInstance?.(assetId, piece, onReady) ?? null, read: opts.resolveBuffer ?? opts.models?.resolveBuffer ?? null,
     graph, staticShadows, arrival: stream !== null ? { left: () => stream.arrivalLeft(), spent: (ms) => stream.arrived(ms) } : null, meshWorkerUrl: opts.meshWorkerUrl,
     store: opts.architectureStore ?? null, styles: opts.architectureStyles, drawn: opts.architecture !== false, changed: () => opts.onChange?.(),
@@ -567,6 +566,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     if (layer !== undefined) {
       docLayers.add(e.id);
       blockView.setLayer(e.id, layer, t.position, layer.data ?? null);
+      architecture.layerChanged(e.id);
     }
     const terrain = (e.components as { terrain?: TerrainComponent }).terrain;
     const spline = (e.components as { spline?: SplineComponent }).spline;

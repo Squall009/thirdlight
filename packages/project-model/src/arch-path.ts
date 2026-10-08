@@ -309,3 +309,41 @@ export function pathPointAt(s: PathSamples, d: number, out: number[], tangent: n
   tangent[1] = dy / l;
   tangent[2] = dz / l;
 }
+
+/** The distance along the path of its point nearest (x, z) on the ground (heights ignored). */
+export function pathDistanceNear(s: PathSamples, x: number, z: number): number {
+  const segs = s.closed ? s.n : s.n - 1;
+  let best = Infinity;
+  let at = 0;
+  for (let i = 0; i < segs; i++) {
+    const j = (i + 1) % s.n;
+    const ax = s.pos[i * 3]!;
+    const az = s.pos[i * 3 + 2]!;
+    const dx = s.pos[j * 3]! - ax;
+    const dz = s.pos[j * 3 + 2]! - az;
+    const l2 = dx * dx + dz * dz;
+    let t = l2 > 0 ? ((x - ax) * dx + (z - az) * dz) / l2 : 0;
+    t = t < 0 ? 0 : t > 1 ? 1 : t;
+    const ex = ax + dx * t - x;
+    const ez = az + dz * t - z;
+    const d = ex * ex + ez * ez;
+    if (d < best - 1e-12) {
+      best = d;
+      at = s.dist[i]! + (s.dist[i + 1]! - s.dist[i]!) * t;
+    }
+  }
+  return at;
+}
+
+/** Per sample segment, the authored segment (point i to i + 1) it lies on. */
+export function authoredSegments(s: PathSamples): Int32Array {
+  const segs = s.closed ? s.n : s.n - 1;
+  const out = new Int32Array(Math.max(0, segs));
+  let k = 0;
+  for (let j = 0; j < segs; j++) {
+    const mid = (s.dist[j]! + s.dist[j + 1]!) / 2;
+    while (k + 1 < s.pointDist.length && s.pointDist[k + 1]! <= mid) k++;
+    out[j] = k;
+  }
+  return out;
+}

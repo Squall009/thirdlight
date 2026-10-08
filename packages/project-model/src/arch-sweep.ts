@@ -16,7 +16,7 @@
  * Pure; writes into an {@link ArchMeshWriter}.
  */
 import { len2, len3 } from './arch-math';
-import type { ArchMeshWriter } from './arch-mesh';
+import { type ArchMeshWriter, fillPlanarPolygon } from './arch-mesh';
 import type { PathSamples } from './arch-path';
 import type { ArchitectureProfile } from './architecture';
 import type { TrimRow, TrimSheet } from './trim-sheet';
@@ -31,6 +31,10 @@ export interface SweepProfile {
   fallback: string[];
   closed: boolean;
   smooth: boolean;
+  /** Per segment: the definition's segment it is (a chamfer face: -1), for slots given per path segment. */
+  source?: number[];
+  /** The slot the ends of a closed profile on an open path wear (absent: open ends). */
+  cap?: string;
 }
 
 /** The slot chamfer faces wear when the sheet has it. */
@@ -45,13 +49,16 @@ export function resolveProfile(def: ArchitectureProfile, chamfer: boolean): Swee
   const slots: string[] = [];
   const fallback: string[] = [];
   const segs = closed ? n : n - 1;
+  const source: number[] = [];
+  const cap = def.cap !== undefined && closed ? { cap: def.cap } : {};
   if (c <= 0) {
     for (const q of def.points) pts.push(q[0], q[1]);
     for (let k = 0; k < segs; k++) {
       slots.push(def.slots[k] ?? '');
       fallback.push(def.slots[k] ?? '');
+      source.push(k);
     }
-    return { pts, slots, fallback, closed, smooth: def.smooth === true };
+    return { pts, slots, fallback, closed, smooth: def.smooth === true, source, ...cap };
   }
   // Each corner (inner points; every point of a closed profile) becomes two points `c` either side.
   const at = (i: number): readonly [number, number] => def.points[((i % n) + n) % n]!;
@@ -63,6 +70,7 @@ export function resolveProfile(def: ArchitectureProfile, chamfer: boolean): Swee
       if (i < segs) {
         slots.push(def.slots[i] ?? '');
         fallback.push(def.slots[i] ?? '');
+        source.push(i);
       }
       continue;
     }
@@ -78,12 +86,14 @@ export function resolveProfile(def: ArchitectureProfile, chamfer: boolean): Swee
     // The chamfer face between them, then the segment leaving the corner.
     slots.push(BEVEL_SLOT);
     fallback.push(before === '' ? (def.slots[i] ?? '') : before);
+    source.push(-1);
     if (i < segs) {
       slots.push(def.slots[i] ?? '');
       fallback.push(def.slots[i] ?? '');
+      source.push(i);
     }
   }
-  return { pts, slots, fallback, closed, smooth: def.smooth === true };
+  return { pts, slots, fallback, closed, smooth: def.smooth === true, source, ...cap };
 }
 
 /** Cut ranges along the path: an opening (also a height range) or an overridden span. */
@@ -109,6 +119,8 @@ export interface SweepOptions {
   ground?: boolean;
   /** The most metres between cross-sections along a straight run (absent: only where the path or a cut needs one). */
   cell?: number;
+  /** Per path segment: the definition's slots worn along it instead of the profile's (absent or undefined: the profile's). */
+  segmentSlots?: (segment: number) => readonly string[] | undefined;
 }
 
 /** Per-sample frames along a path: the mitred axes the profile is placed with, and the faces' frames. */
@@ -370,11 +382,34 @@ export function sweepProfile(w: ArchMeshWriter, s: PathSamples, p: SweepProfile,
     }
     k = e;
   }
+  // A profile segment's slot along each path segment: the profile's, or the segment's own (a shared wall's other side).
+  const slotAlong = (k: number, seg: number): string => {
+    const src = p.source?.[k] ?? k;
+    const own = src >= 0 ? o.segmentSlots?.(seg)?.[src] : undefined;
+    return own ?? p.slots[k]!;
+  };
   for (let k = 0; k < psegs; k++) {
-    const slot = p.slots[k]!;
-    if (slot === '') continue;
-    const row = o.rowOf(slot) ?? (p.fallback[k] !== slot ? o.rowOf(p.fallback[k]!) : null);
-    if (row === null) continue;
+    if (o.segmentSlots === undefined) {
+      strip(k, p.slots[k]!, null);
+      continue;
+    }
+    // One strip per slot worn, each over the path segments wearing it.
+    const bySlot = new Map<string, Set<number>>();
+    for (let j = 0; j < segs; j++) {
+      const sl = slotAlong(k, j);
+      let set = bySlot.get(sl);
+      if (set === undefined) bySlot.set(sl, (set = new Set()));
+      set.add(j);
+    }
+    for (const [sl, set] of bySlot) strip(k, sl, bySlot.size === 1 ? null : set);
+  }
+  if (p.cap !== undefined && p.closed && !s.closed && nc > 0) writeCaps(w, s, p, o, cols, cp, cx, cy);
+
+  function strip(k: number, slot: string, segOk: ReadonlySet<number> | null): void {
+    if (slot === '') return;
+    const fb = p.fallback[k]!;
+    const row = o.rowOf(slot) ?? (fb !== slot && slot === p.slots[k] ? o.rowOf(fb) : null);
+    if (row === null) return;
     const i0 = k;
     const i1 = (k + 1) % np;
     const ax = p.pts[i0 * 2]!;
@@ -382,7 +417,7 @@ export function sweepProfile(w: ArchMeshWriter, s: PathSamples, p: SweepProfile,
     const bx = p.pts[i1 * 2]!;
     const by = p.pts[i1 * 2 + 1]!;
     const len = len2(bx - ax, by - ay);
-    if (len < 1e-9) continue;
+    if (len < 1e-9) return;
     const density = trimRowDensity(o.sheet, row);
     const rowMetres = (row.bottom - row.top) / density;
     const stacks = Math.max(1, Math.round(runLen[k]! / rowMetres));
@@ -527,6 +562,7 @@ export function sweepProfile(w: ArchMeshWriter, s: PathSamples, p: SweepProfile,
       const A = cols[c]!;
       const B = cols[c + 1]!;
       if (A.seg !== B.seg || B.d - A.d < 1e-9) continue;
+      if (segOk !== null && !segOk.has(A.seg)) continue;
       const dm = (A.d + B.d) / 2;
       if (o.own !== undefined) {
         const mx = (cp[c * 3]! + cp[c * 3 + 3]!) / 2;
@@ -548,6 +584,31 @@ export function sweepProfile(w: ArchMeshWriter, s: PathSamples, p: SweepProfile,
         w.triangleFacing(a, cc, d);
       }
     }
+  }
+}
+
+/**
+ * The ends of a closed profile swept along an open path (a stair's sides, a
+ * beam's ends): the profile's polygon on the end's cross-section, facing
+ * away along the path, wearing the cap slot in strips like any flat face.
+ */
+function writeCaps(w: ArchMeshWriter, s: PathSamples, p: SweepProfile, o: SweepOptions, cols: readonly Column[], cp: Float64Array, cx: Float64Array, cy: Float64Array): void {
+  const row = o.rowOf(p.cap!);
+  if (row === null) return;
+  const n = s.n;
+  const ends: [number, number, number][] = [
+    [0, 0, 1],
+    [cols.length - 1, n - 1, n - 2],
+  ];
+  for (const [c, at, from] of ends) {
+    if (o.own !== undefined && !o.own(cp[c * 3]!, cp[c * 3 + 2]!)) continue;
+    const tx = s.pos[at * 3]! - s.pos[from * 3]!;
+    const ty = s.pos[at * 3 + 1]! - s.pos[from * 3 + 1]!;
+    const tz = s.pos[at * 3 + 2]! - s.pos[from * 3 + 2]!;
+    const l = len3(tx, ty, tz);
+    if (l < 1e-9) continue;
+    const f = { o: [cp[c * 3]!, cp[c * 3 + 1]!, cp[c * 3 + 2]!], a: [cx[c * 3]!, cx[c * 3 + 1]!, cx[c * 3 + 2]!], b: [cy[c * 3]!, cy[c * 3 + 1]!, cy[c * 3 + 2]!], n: [tx / l, ty / l, tz / l] };
+    fillPlanarPolygon(w, p.pts, f, { sheet: o.sheet, row, aoStrength: 0, aoRadius: 1 });
   }
 }
 

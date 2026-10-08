@@ -26,14 +26,18 @@
  */
 import { len3, DEG, detSinCos, hashString, hashText64, quatFromBasis, seededRandom, yawQuat } from './arch-math';
 import { ArchChunkWriters, type ArchMeshArrays, ArchMeshWriter, triangulatePolygon } from './arch-mesh';
-import { type PathSamples, pathPointAt, samplePath } from './arch-path';
-import { fillBaseY, fillOutline, writeFill } from './arch-fill';
+import { authoredSegments, type PathSamples, pathPointAt, samplePath } from './arch-path';
+import { fillBaseY, fillOutline, fillPolygon, writeFill } from './arch-fill';
 import { openingSpan, writeFrame, writeReveals } from './arch-opening';
-import { profileBounds, resolveProfile, type SweepCut, sweepFrames, sweepProfile } from './arch-sweep';
+import { profileBounds, resolveProfile, type SweepCut, type SweepFrames, sweepFrames, sweepPointAt, sweepProfile } from './arch-sweep';
+import { CHUNK_SIZE as BLOCK_CHUNK_CELLS } from './block-layers';
+import { paintArchitectureColours } from './trim-paint';
 import {
   ARCHITECTURE_AO_DEFAULTS,
   ARCHITECTURE_CHUNK_DEFAULT,
   ARCHITECTURE_MATERIAL_SLOT,
+  ARCHITECTURE_PANE_MATERIAL_SLOT,
+  type ArchitecturePaint,
   ARCHITECTURE_STEP_DEFAULT,
   type ArchitectureComponent,
   type ArchitectureElement,
@@ -246,9 +250,46 @@ export function architectureChunkKeys(c: ArchitectureComponent, sheets: Architec
   const out = new Map<string, ArchitectureChunkKey>();
   for (const [k, { hashes, elements }] of per) {
     const [cx, cz] = k.split(',').map(Number) as [number, number];
-    out.set(k, { cx, cz, key: sha256HexOfText(`${commonHash}|${k}|${hashes.join(',')}`), elements });
+    // The layer's wall paint the chunk's faces may read goes into its key: a stroke re-makes only the chunks under it.
+    const paint = c.paint === undefined ? '' : `|${paintKeyFor(c.paint, cx, cz, size)}`;
+    out.set(k, { cx, cz, key: sha256HexOfText(`${commonHash}|${k}|${hashes.join(',')}${paint}`), elements });
   }
   return out;
+}
+
+/** Metres past a chunk's sides its faces may reach (a sweep cell's half and a wall's thickness, with room). */
+const PAINT_MARGIN = 2;
+
+/** The layer chunks ("cx,cz") the faces of chunk (cx, cz) may read paint from (overlapping it, with a margin) that hold some. */
+function paintChunkKeys(paint: ArchitecturePaint, cx: number, cz: number, size: number): string[] {
+  const out: string[] = [];
+  const span = (lo: number, axis: 0 | 2): [number, number] => {
+    const cell = (paint.cellSize[axis] ?? 1) * BLOCK_CHUNK_CELLS;
+    const o = paint.offset[axis] ?? 0;
+    return [Math.floor((lo - PAINT_MARGIN + o) / cell), Math.floor((lo + size + PAINT_MARGIN + o) / cell)];
+  };
+  const [x0, x1] = span(cx * size, 0);
+  const [z0, z1] = span(cz * size, 2);
+  for (let x = x0; x <= x1; x++) {
+    for (let z = z0; z <= z1; z++) {
+      const k = `${x},${z}`;
+      if (paint.chunks[k] !== undefined) out.push(k);
+    }
+  }
+  return out;
+}
+
+/** The wall paint chunks the faces of chunk (cx, cz) may read. */
+function paintChunksFor(paint: ArchitecturePaint, cx: number, cz: number, size: number): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const k of paintChunkKeys(paint, cx, cz, size)) out[k] = paint.chunks[k]!;
+  return out;
+}
+
+/** What a chunk's key takes of the paint it may read: each layer chunk's hash (made once with the paint) and place. */
+function paintKeyFor(paint: ArchitecturePaint, cx: number, cz: number, size: number): string {
+  const parts = paintChunkKeys(paint, cx, cz, size).map((k) => `${k}:${paint.hashes?.[k] ?? hashText64(paint.chunks[k]!)}`);
+  return `${paint.cellSize.join(',')}|${paint.offset.join(',')}|${parts.join(';')}`;
 }
 
 /** The profiles an element sweeps (its own, its openings' frames, its piece's), sorted. */
@@ -273,8 +314,13 @@ export interface ArchitectureChunkKey {
 }
 
 /** The component with only the elements that reach a chunk: what a chunk's job needs (it makes the same chunk). */
-export function architectureChunkInput(c: ArchitectureComponent, k: Pick<ArchitectureChunkKey, 'elements'>): ArchitectureComponent {
+export function architectureChunkInput(c: ArchitectureComponent, k: Pick<ArchitectureChunkKey, 'elements' | 'cx' | 'cz'>): ArchitectureComponent {
   const elements = k.elements.map((i) => c.elements[i]!);
+  if (c.paint !== undefined) {
+    // The job takes the paint its faces may read (no hashes: its key is made already).
+    const { hashes: _h, ...paint } = c.paint;
+    c = { ...c, paint: { ...paint, chunks: paintChunksFor(c.paint, k.cx, k.cz, chunkSizeOf(c)) } };
+  }
   if (c.profiles === undefined) return { ...c, elements };
   // Only the profiles these elements sweep travel with the job.
   const profiles: Record<string, ArchitectureProfile> = {};
@@ -519,7 +565,9 @@ function writeSweep(st: JobState, e: ArchitectureSweep, w: ArchChunkWriters, own
     }
   }
   const fr = sweepFrames(s);
-  sweepProfile(w.get(material), s, resolveProfile(def, true), { sheet, rowOf, cuts, ...(own !== undefined ? { own } : {}), aoStrength: st.ao.strength, aoRadius: st.ao.radius, cell: ARCHITECTURE_SWEEP_CELL });
+  const segSlots = e.segmentSlots;
+  const authored = segSlots !== undefined ? authoredSegments(s) : null;
+  sweepProfile(w.get(material), s, resolveProfile(def, true), { sheet, rowOf, cuts, ...(own !== undefined ? { own } : {}), aoStrength: st.ao.strength, aoRadius: st.ao.radius, cell: ARCHITECTURE_SWEEP_CELL, ...(segSlots !== undefined ? { segmentSlots: (seg: number) => segSlots[String(authored![seg] ?? seg)] } : {}) });
   const p = [0, 0, 0];
   const t = [0, 0, 0];
   for (const o of e.openings ?? []) {
@@ -528,6 +576,7 @@ function writeSweep(st: JobState, e: ArchitectureSweep, w: ArchChunkWriters, own
     if (own !== undefined && !own(p[0]!, p[2]!)) continue;
     const sp = openingSpan(o, s, wallPts);
     if (!(sp.b > sp.a && sp.top > sp.bottom)) continue;
+    if (o.pane === true) writePane(w.get(ARCHITECTURE_PANE_MATERIAL_SLOT), s, fr, sp);
     const revealSlot = o.reveal ?? 'frame';
     if (revealSlot !== '') {
       const row = rowOf(revealSlot);
@@ -542,6 +591,37 @@ function writeSweep(st: JobState, e: ArchitectureSweep, w: ArchChunkWriters, own
       for (const side of sides) writeFrame(w.get(material), s, fr, wallPts, sp, frame, side, sheet, rowOf);
       w.detail = was;
     }
+  }
+}
+
+/**
+ * An opening's pane: a quad across the hole in the wall's middle (the path),
+ * one each way, its texture once over it (a glass material, not a trim row).
+ */
+function writePane(w: ArchMeshWriter, s: PathSamples, fr: SweepFrames, sp: { a: number; b: number; bottom: number; top: number }): void {
+  const at = (d: number, y: number): number[] => {
+    const out = [0, 0, 0];
+    sweepPointAt(s, fr, d, 0, y, out);
+    return out;
+  };
+  const c = [at(sp.a, sp.bottom), at(sp.b, sp.bottom), at(sp.b, sp.top), at(sp.a, sp.top)];
+  const right = [0, 0, 0];
+  sweepPointAt(s, fr, (sp.a + sp.b) / 2, 1, sp.bottom, right);
+  const mid = at((sp.a + sp.b) / 2, sp.bottom);
+  const n = [right[0]! - mid[0]!, right[1]! - mid[1]!, right[2]! - mid[2]!];
+  const l = len3(n[0]!, n[1]!, n[2]!) || 1;
+  const uv = [
+    [0, 1],
+    [1, 1],
+    [1, 0],
+    [0, 0],
+  ];
+  for (const sign of [1, -1]) {
+    const [nx, ny, nz] = [(n[0]! / l) * sign, (n[1]! / l) * sign, (n[2]! / l) * sign];
+    const first = w.vertexCount;
+    for (let k = 0; k < 4; k++) w.vertex(c[k]![0]!, c[k]![1]!, c[k]![2]!, nx, ny, nz, sign > 0 ? uv[k]![0]! : 1 - uv[k]![0]!, uv[k]![1]!, 0);
+    w.triangle(first, first + 1, first + 2, nx, ny, nz);
+    w.triangle(first, first + 2, first + 3, nx, ny, nz);
   }
 }
 
@@ -570,7 +650,10 @@ export function generateArchitectureChunk(c: ArchitectureComponent, sheets: Arch
   const meshes: ArchitectureChunkMesh[] = [];
   for (const [material, writer] of [...w.map].sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0))) {
     if (writer.indexCount === 0) continue;
-    meshes.push({ material, mesh: writer.finish() });
+    const mesh = writer.finish();
+    // The block layer's wall paint at the faces' vertices: made again with the mesh, so it stays where it was painted.
+    if (c.paint !== undefined && Object.keys(c.paint.chunks).length > 0) paintArchitectureColours(mesh.positions, mesh.normals, mesh.colors, c.paint);
+    meshes.push({ material, mesh });
   }
   return { cx, cz, meshes, copies: copies.finish(), problems: [...st.problems].sort() };
 }
@@ -658,7 +741,10 @@ export function architectureColliders(c: ArchitectureComponent, sheets: Architec
   for (const e of c.elements) {
     const s = samplesOf(st, e);
     const collide = e.collide ?? e.detail !== true;
-    if (e.kind === 'sweep' && collide) {
+    if (e.kind === 'sweep' && collide && e.stepped === true) {
+      const def = c.profiles?.[e.profile];
+      if (def !== undefined) steppedColliders(e, def, s, out);
+    } else if (e.kind === 'sweep' && collide) {
       const def = c.profiles?.[e.profile];
       if (def === undefined) continue;
       const wall = resolveProfile(def, false).pts;
@@ -712,7 +798,7 @@ export function architectureColliders(c: ArchitectureComponent, sheets: Architec
       }
     } else if (e.kind === 'fill' && (e.collide ?? (e.shape === 'flat' && (e.face ?? 'up') === 'up'))) {
       if (e.shape === 'flat' || e.shape === 'coffered') {
-        const outline = fillOutline(s);
+        const outline = fillPolygon(e, s);
         const y = fillBaseY(s) + (e.height ?? 0);
         const tri = triangulatePolygon(outline);
         const pos: number[] = [];
@@ -755,6 +841,43 @@ export function architectureColliders(c: ArchitectureComponent, sheets: Architec
     }
   }
   return out;
+}
+
+/**
+ * A stepped sweep's colliders: per path segment, a box under each level
+ * face of the profile that looks up (a stair's treads), from the profile's
+ * foot to the face — the steps a walker climbs, not one box round the flight.
+ */
+function steppedColliders(e: ArchitectureSweep, def: ArchitectureProfile, s: PathSamples, out: ArchitectureCollider[]): void {
+  const pts = resolveProfile(def, false).pts;
+  const [, , y0] = profileBounds(pts);
+  const np = pts.length / 2;
+  const psegs = def.closed === true ? np : np - 1;
+  const segs = s.closed ? s.n : s.n - 1;
+  let n = 0;
+  for (let j = 0; j < segs; j++) {
+    const a = j;
+    const b = (j + 1) % s.n;
+    const t = [s.pos[b * 3]! - s.pos[a * 3]!, s.pos[b * 3 + 1]! - s.pos[a * 3 + 1]!, s.pos[b * 3 + 2]! - s.pos[a * 3 + 2]!];
+    const len = len3(t[0]!, t[1]!, t[2]!);
+    if (len < 1e-6) continue;
+    for (let k = 0; k < 3; k++) t[k]! /= len;
+    const p = [s.pos[a * 3]!, s.pos[a * 3 + 1]!, s.pos[a * 3 + 2]!];
+    for (let k = 0; k < psegs; k++) {
+      const k1 = (k + 1) % np;
+      const ax = pts[k * 2]!;
+      const ay = pts[k * 2 + 1]!;
+      const bx = pts[k1 * 2]!;
+      const by = pts[k1 * 2 + 1]!;
+      // Level and looking up: walked right to left (faces look right of their direction, rotated to up).
+      if (Math.abs(ay - by) > 1e-6 || !(bx < ax) || ay <= y0 + 1e-6) continue;
+      const box = boxCollider(`${e.id}:${n}`, p, t, len, bx, ax, y0, ay);
+      if (box !== null) {
+        out.push(box);
+        n++;
+      }
+    }
+  }
 }
 
 /** Every kit copy of a component (all chunks): the page draws them as instance sets. */

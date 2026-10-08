@@ -15,8 +15,8 @@
  * Pure.
  */
 import { len2, len3 } from './arch-math';
-import { type ArchMeshWriter, fillPlanarPolygon, type PlaneFrame } from './arch-mesh';
-import type { PathSamples } from './arch-path';
+import { type ArchMeshWriter, bridgeHoles, fillPlanarPolygon, type PlaneFrame } from './arch-mesh';
+import { type PathSamples, samplePath } from './arch-path';
 import { type SweepProfile, sweepProfile } from './arch-sweep';
 import type { ArchitectureFill } from './architecture';
 import { type TrimRow, type TrimSheet, trimRowDensity, trimRowMetres, trimRowV } from './trim-sheet';
@@ -57,6 +57,17 @@ export function fillOutline(s: PathSamples): number[] {
   const out: number[] = [];
   for (let i = 0; i < s.n; i++) out.push(s.pos[i * 3]!, s.pos[i * 3 + 2]!);
   return out;
+}
+
+/** A flat fill's holes in XZ (xy pairs each). */
+export function fillHoles(e: Pick<ArchitectureFill, 'holes'>): number[][] {
+  return (e.holes ?? []).map((h) => fillOutline(samplePath(h)));
+}
+
+/** A flat fill's polygon: its outline with its holes bridged in (ear clipping fills round them). */
+export function fillPolygon(e: Pick<ArchitectureFill, 'holes'>, s: PathSamples): number[] {
+  const outline = fillOutline(s);
+  return e.holes === undefined || e.holes.length === 0 ? outline : bridgeHoles(outline, fillHoles(e));
 }
 
 /** The rectangle a path draws (four samples at right angles, level), its axis along the longer or shorter side; or null. */
@@ -200,7 +211,9 @@ export function writeFill(w: ArchMeshWriter, trim: ArchMeshWriter, e: Architectu
     const outline = fillOutline(s);
     const faceDown = (e.face ?? (e.shape === 'coffered' ? 'down' : 'up')) === 'down';
     const n = faceDown ? [0, -1, 0] : [0, 1, 0];
-    fillPlanarPolygon(w, outline, { o: [0, base, 0], a: [1, 0, 0], b: [0, 0, 1], n }, { sheet: ctx.sheet, row, aoStrength: ctx.aoStrength, aoRadius: ctx.aoRadius });
+    const holes = e.holes !== undefined && e.holes.length > 0 ? fillHoles(e) : null;
+    const poly = holes === null ? outline : bridgeHoles(outline, holes);
+    fillPlanarPolygon(w, poly, { o: [0, base, 0], a: [1, 0, 0], b: [0, 0, 1], n }, { sheet: ctx.sheet, row, aoStrength: ctx.aoStrength, aoRadius: ctx.aoRadius, aoEdges: outline, ...(holes !== null ? { aoLoops: holes } : {}) });
     if (e.shape === 'coffered') {
       // The beams are detail: the far level keeps the flat ceiling.
       const was = trim.detail;

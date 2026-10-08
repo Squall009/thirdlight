@@ -25,7 +25,11 @@ import type { ArchitectureComponent, ArchitectureElement, ArchitecturePath } fro
 import { defaultTrimSheet } from '../../packages/project-model/src/trim-sheet';
 import { testArchitecture } from '../arch-test-style';
 import { ARCHITECTURE_PRESET_KIND } from '../../packages/project-model/src/arch-style-kinds';
-import { architectureStylesOf, expandArchitecture } from '../../packages/project-model/src/arch-style';
+import { expandArchitecture } from '../../packages/project-model/src/arch-rooms';
+import { architectureStylesOf } from '../../packages/project-model/src/arch-style';
+import { encodeWallPaint, wallPaintSteps, wallPointKey } from '../../packages/project-model/src/block-wall-paint';
+import { moveWall } from '../../packages/editor/src/session/room-draw';
+import { architecturePaintOf } from '../../packages/project-model/src/arch-room-grid';
 
 const ON = process.env['TL_PERF'] === '1';
 function record(line: string): void {
@@ -171,5 +175,91 @@ describe.skipIf(!ON)('architecture generation cost', () => {
       }),
     );
   });
-});
 
+  it('64 rooms sharing walls on a painted block layer (16 m chunks): expand, chunks with paint, a shared wall dragged (expand, keys, its changed chunks)', () => {
+    // 8 × 8 rooms of 8 × 6 m side by side (every inner wall shared), a door on each room's first side, on a layer
+    // with wall paint over every chunk (a painted stripe on each wall plane's points).
+    const outlines = Array.from({ length: 64 }, (_, i) => {
+      const x = (i % 8) * 8;
+      const z = Math.floor(i / 8) * 6;
+      return { id: `r${i}`, preset: 'starter-room', path: { points: [[x, 0, z], [x + 8, 0, z], [x + 8, 0, z + 6], [x, 0, z + 6]] as [number, number, number][], closed: true }, openings: [{ id: 'door', at: 4.5, width: 1, bottom: 0, top: 2.1 }] };
+    });
+    const st = wallPaintSteps([1, 1, 1]);
+    const chunksPaint: Record<string, string> = {};
+    for (let cx = 0; cx < 4; cx++) for (let cz = 0; cz < 3; cz++) {
+      const points = new Map<number, Uint8Array>();
+      for (let lx = 0; lx < 16; lx++) for (let lz = 0; lz < 16; lz++) for (let side = 0; side < 4; side++) for (let k = 0; k <= 3 * st.up; k += 2) points.set(wallPointKey(lx, lz, side, 1, k), Uint8Array.from([0, 0, 255, 0, 128]));
+      chunksPaint[`${cx},${cz}`] = encodeWallPaint(points)!;
+    }
+    const paint = architecturePaintOf({ cellSize: [1, 1, 1], wallPaint: true }, Object.entries(chunksPaint).map(([k, v]) => ({ cx: Number(k.split(',')[0]), cz: Number(k.split(',')[1]), wallPaint: v })), [0, 0, 0], [0, 0, 0])!;
+    const raw: ArchitectureComponent = { elements: [], chunkSize: 16, layer: 'floor', outlines };
+    const table = architectureStylesOf([]);
+    const expandMs: number[] = [];
+    let base = expandArchitecture(raw, [0, 0, 0], table, { paint }).component;
+    for (let i = 0; i < 10; i++) {
+      const t0 = performance.now();
+      base = expandArchitecture(raw, [0, 0, 0], table, { paint }).component;
+      expandMs.push(performance.now() - t0);
+    }
+    const walls = base.elements.filter((e) => e.kind === 'sweep' && e.wall === true).length;
+    const keys = [...architectureChunkKeys(base, SHEETS).values()];
+    for (let i = 0; i < 2; i++) for (const k of keys) generateArchitectureChunk(architectureChunkInput(base, k), SHEETS, k.cx, k.cz);
+    const chunkMs: number[] = [];
+    const plainMs: number[] = [];
+    let draws = 0;
+    let perMaterial = 0;
+    const plain = { ...base, paint: undefined };
+    for (const k of keys) {
+      let t0 = performance.now();
+      const chunk = generateArchitectureChunk(architectureChunkInput(base, k), SHEETS, k.cx, k.cz);
+      chunkMs.push(performance.now() - t0);
+      t0 = performance.now();
+      generateArchitectureChunk(architectureChunkInput(plain, k), SHEETS, k.cx, k.cz);
+      plainMs.push(performance.now() - t0);
+      draws += chunk.meshes.length;
+      perMaterial = Math.max(perMaterial, ...[...new Set(chunk.meshes.map((m) => m.material))].map((m) => chunk.meshes.filter((x) => x.material === m).length));
+    }
+    expect(perMaterial).toBeLessThanOrEqual(1);
+    // A wall dragged a cell at a time (room 27's east side, shared with room 28: both rooms move with it).
+    const drag = (withPaint: boolean): { ms: number[]; made: number; expandKeys: number[] } => {
+      const before = new Set([...architectureChunkKeys(withPaint ? base : plain, SHEETS).values()].map((k) => k.key));
+      const ms: number[] = [];
+      const expandKeys: number[] = [];
+      let made = 0;
+      for (let i = 1; i <= 8; i++) {
+        const t0 = performance.now();
+        const moved = moveWall(raw, 'r27', 1, -(1 + (i % 3)));
+        const edited = expandArchitecture(moved, [0, 0, 0], table, withPaint ? { paint } : {}).component;
+        const ks = [...architectureChunkKeys(edited, SHEETS).values()];
+        expandKeys.push(performance.now() - t0);
+        made = 0;
+        for (const k of ks) {
+          if (before.has(k.key)) continue;
+          generateArchitectureChunk(architectureChunkInput(edited, k), SHEETS, k.cx, k.cz);
+          made += 1;
+        }
+        ms.push(performance.now() - t0);
+      }
+      return { ms, made, expandKeys };
+    };
+    const painted = drag(true);
+    const unpainted = drag(false);
+    const regen = painted.ms;
+    const made = painted.made;
+    record(
+      JSON.stringify({
+        sharedRooms: 64,
+        chunkSize: 16,
+        wallPieces: walls,
+        elements: base.elements.length,
+        chunks: keys.length,
+        draws,
+        expandMs: { median: round(pct(expandMs, 0.5)), max: round(Math.max(...expandMs)) },
+        chunkMs: { median: round(pct(chunkMs, 0.5)), p95: round(pct(chunkMs, 0.95)), max: round(Math.max(...chunkMs)) },
+        unpaintedChunkMs: { median: round(pct(plainMs, 0.5)), max: round(Math.max(...plainMs)) },
+        wallDragMs: { median: round(pct(regen, 0.5)), max: round(Math.max(...regen)), chunksMade: made, pageShare: round(pct(painted.expandKeys, 0.5)) },
+        unpaintedWallDragMs: { median: round(pct(unpainted.ms, 0.5)), max: round(Math.max(...unpainted.ms)), pageShare: round(pct(unpainted.expandKeys, 0.5)) },
+      }),
+    );
+  });
+});
