@@ -122,6 +122,9 @@ export class DrawnCasters {
   }
 }
 
+/** Changes reported where they happened that are kept between two looks at most (more count as anywhere). */
+const CHANGES_KEPT = 4096;
+
 /** What changed among the static shadow casters since the map last looked. */
 export class StaticShadowRevision {
   /** Bumped by a change anywhere (the map compares it with the one it was drawn at). */
@@ -172,6 +175,20 @@ export class StaticShadowRevision {
     // Its radius scaled by the largest axis scale (three's own bound for a transformed sphere).
     s.copy(local).applyMatrix4(o.matrixWorld);
     if (!Number.isFinite(s.radius) || !Number.isFinite(s.center.x + s.center.y + s.center.z)) this.bump();
+  }
+
+  /** A change within the sphere at (x, y, z) of `radius` (world metres): a terrain tile's ground came, went or changed there. */
+  changedWithin(x: number, y: number, z: number, radius: number): void {
+    // Changes nothing drains (no cached map to draw) are not kept without end: past a few thousand, anywhere.
+    if (this.used >= CHANGES_KEPT) {
+      this.used = 0;
+      this.bump();
+      return;
+    }
+    const s = this.spheres[this.used] ?? (this.spheres[this.used] = new THREE.Sphere());
+    this.used += 1;
+    s.center.set(x, y, z);
+    s.radius = radius;
   }
 
   /** Whether a change reported where it happened lies within `reach`, and forget them. */

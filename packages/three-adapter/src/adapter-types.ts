@@ -62,6 +62,13 @@ export interface SceneAdapterOptions {
   terrainTiles?: import('./terrain-tile-store').TerrainTileStore;
   /** Draw terrains (default true; false: none, a diagnostic comparison). */
   terrain?: boolean;
+  /**
+   * World streaming (a game page): terrains and block layers with
+   * `streaming` keep only what is round the camera, within `budgetBytes`
+   * (the project's `streaming_budget_mb`); `onProblem` hears when the rings
+   * alone outgrow it. Absent (the editor's Scene view): everything loaded.
+   */
+  streaming?: { budgetBytes: number; onProblem?: (code: string, message: string) => void };
   /** Draw the scatter rules' copies (default true; false: none, a diagnostic comparison). */
   scatter?: boolean;
   /** Draw what splines make, their meshes and pieces (default true; false: none, a diagnostic comparison). */
@@ -328,6 +335,8 @@ export interface SceneAdapterDiagnostics {
   blocks?: BlockLayerViewDiagnostics;
   /** The terrains drawn (tiles, texture bytes, nodes selected and in view per level, draws, main-thread ms). */
   terrain?: TerrainViewDiagnostics;
+  /** World streaming (a game page): the budget, what is resident per kind, in the rings, kept past them and let go for the budget. */
+  streaming?: import('./world-stream').PageStreamDiagnostics;
   /** The splines' made meshes and pieces (present while an object carries a spline). */
   splines?: import('./spline-view').SplineViewDiagnostics;
   /** Rule scatter's stored copies drawn (block layers' and terrains'). */

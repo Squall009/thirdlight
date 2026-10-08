@@ -7,7 +7,7 @@
  * The log ends with each class against the soft frame target and what the
  * landscape's far part adds to the area.
  *
- *   --classes area,landscape     (default both)
+ *   --classes area,landscape     (default both; `world`: the landscape at 8 × 8 km with block fields, all streamed)
  *   --live N                     N live door cells in each class (default 0: the classes as recorded)
  *   --edge-walls                 the rooms' walls as edge pieces (default: cell walls, as recorded)
  *   --wall-paint                 the layer with wall paint, the rooms' front walls painted (default: none, as recorded)
@@ -23,6 +23,8 @@
  *                                scatter copies on the way), recorded for 60 s at the display's rate (--uncapped:
  *                                not): the frames over 16.7 ms are counted (default: the still camera, as recorded)
  *   --vsync                      draw at the display's rate (a player's browser) instead of uncapped
+ *   --flight-plain               the same flight without the scatter copies' hides, shows and removals (streaming alone)
+ *   --missed-marks               with --flight: each missed refresh's time and the engine's marks just before it
  *   --impostors S                the landscape's trees, pines and rocks drawn as impostors below screen size S (default:
  *                                their meshes all the way, as recorded)
  *   --splines off                the landscape without its road and river (default: with them)
@@ -58,7 +60,7 @@ import { join } from 'node:path';
 import { PERF_ROOT, REPO, startPerfBackend } from './backend';
 import { moduleIndex } from './profile';
 import { launchGpuBrowser, LONG_FRAME_MS, measurePage, serveStatic, sourcesOf, type FrameRenderer, type FrameRunResult } from './frame-run';
-import { buildLevel, FLIGHT_SECONDS, levelPlan, LEVEL_KINDS, LEVEL_SEED, LEVEL_VERSION, type LevelBuild, type LevelKind, type LevelRoofs } from './level';
+import { buildLevel, FLIGHT_SECONDS, levelPlan, LEVEL_ALL_KINDS, LEVEL_KINDS, LEVEL_SEED, LEVEL_VERSION, type LevelBuild, type LevelKind, type LevelRoofs } from './level';
 import { frameLine } from './village-run';
 import { hitches, installFrameClock, pageNow, rafTimes, type HitchWindow } from './blocks-run';
 import { FRAME_VIEWPORT } from './frame-run';
@@ -138,7 +140,7 @@ export interface LevelTargetRow {
 /** Each measured class and renderer against the whole-frame target. */
 export function levelTargetRows(report: Pick<LevelReport, 'classes'>, target = LEVEL_FRAME_TARGET_MS): LevelTargetRow[] {
   const rows: LevelTargetRow[] = [];
-  for (const kind of LEVEL_KINDS) {
+  for (const kind of LEVEL_ALL_KINDS) {
     for (const [renderer, r] of Object.entries(report.classes[kind] ?? {}) as [FrameRenderer, FrameRunResult][]) {
       const gpuMs = r.gpu?.available === true ? r.gpu.msPerFrame : null;
       rows.push({ kind, renderer, p50: r.frames.p50, p95: r.frames.p95, p99: r.frames.p99, gpuMs, mainThreadMs: r.mainThread.taskMsPerFrame, draws: r.draws.p50, within: { p95: r.frames.p95 <= target, gpu: gpuMs === null ? null : gpuMs <= target, mainThread: r.mainThread.taskMsPerFrame <= target } });
@@ -180,10 +182,10 @@ export async function runLevelCli(argv: readonly string[]): Promise<void> {
   const has = (name: string): boolean => argv.includes(`--${name}`);
   const log = (s: string): void => console.log(s);
   const kinds = (get('classes') ?? LEVEL_KINDS.join(',')).split(',') as LevelKind[];
-  for (const k of kinds) if (!LEVEL_KINDS.includes(k)) throw new Error(`--classes: ${LEVEL_KINDS.join(' or ')}, not ${k}`);
+  for (const k of kinds) if (!LEVEL_ALL_KINDS.includes(k)) throw new Error(`--classes: ${LEVEL_ALL_KINDS.join(', ')}, not ${k}`);
   const renderers = (get('renderers') ?? 'webgpu,webgl2').split(',') as FrameRenderer[];
   for (const r of renderers) if (r !== 'webgpu' && r !== 'webgl2') throw new Error(`--renderers: webgpu or webgl2, not ${r}`);
-  const flight = has('flight');
+  const flight = has('flight') || has('flight-plain');
   const impostorSize = Number(get('impostors') ?? 0);
   if (!(Number.isFinite(impostorSize) && impostorSize >= 0 && impostorSize <= 1)) throw new Error(`--impostors: a screen size (0-1), not ${get('impostors')}`);
   // A flight draws at the display's rate as a player's browser does (a dropped frame shows as a long interval);
@@ -226,7 +228,7 @@ export async function runLevelCli(argv: readonly string[]): Promise<void> {
   const be = await startPerfBackend(join(runDir, 'data'), join(runDir, 'exports'));
   try {
     for (const kind of kinds) {
-      const b = await buildLevel(be, `level-${kind}`, levelPlan(kind, LEVEL_SEED, liveDoors, has('edge-walls'), has('wall-paint'), roofs, has('kit-swap'), has('vertex-ao') ? LEVEL_VERTEX_AO : 0, has('rules'), projection, macro, foliage, flight, impostorSize, splines === 'on'), log);
+      const b = await buildLevel(be, `level-${kind}`, levelPlan(kind, LEVEL_SEED, liveDoors, has('edge-walls'), has('wall-paint'), roofs, has('kit-swap'), has('vertex-ao') ? LEVEL_VERTEX_AO : 0, has('rules'), projection, macro, foliage, flight, impostorSize, splines === 'on', !has('flight-plain')), log);
       if (has('spline-edit') && kind === 'landscape' && splines === 'on') report.splineEdit = await editWindows(be, b.projectId, renderers, 'spline', log, has('edit-profile'));
       if (has('sculpt-edit') && kind === 'landscape') report.sculptEdit = await editWindows(be, b.projectId, renderers, 'sculpt', log, has('edit-profile'));
       if (has('stamp-edit') && kind === 'landscape') report.stampEdit = await editWindows(be, b.projectId, renderers, 'stamp', log, has('edit-profile'));
@@ -260,6 +262,14 @@ export async function runLevelCli(argv: readonly string[]): Promise<void> {
           if (made.length > 0) log(`level ${kind} ${r} scatter sets made: ${made.length}, main thread ≤ ${Math.max(...made.map((d) => d.ms)).toFixed(2)} ms (mean ${(made.reduce((a, d) => a + d.ms, 0) / made.length).toFixed(2)}), prepared on the worker ≤ ${Math.max(...made.map((d) => d.prepareMs)).toFixed(2)} ms, ≤ ${Math.max(...made.map((d) => d.copies))} copies`);
           // At the display's rate a frame over 16.7 ms is one that missed a refresh (the intervals' jitter is not); uncapped, every interval over it counts.
           if (flight) log(`level ${kind} ${r} flight: ${res.frames.n} frames in ${Math.round(recordMs / 1000)} s, ${vsync ? `${res.frames.missed ?? 0} missed a 60 Hz refresh (vsync)` : `${res.frames.long ?? 0} over ${LONG_FRAME_MS} ms (uncapped)`}, longest ${res.frames.max ?? '-'} ms`);
+          // Each missed refresh and the engine's marks in the 50 ms before it (a set made, a node build): what it waited on.
+          if (flight && has('missed-marks')) for (const at of res.frames.missedAt ?? []) log(`level ${kind} ${r} missed at ${at} ms: ${(res.marks ?? []).filter((m) => m.at <= at && m.at >= at - 50).map((m) => `${m.name} ${JSON.stringify(m.detail)}`).join('; ') || 'no mark'}`);
+          // World streaming (a class that streams): what is resident against the budget, the deciding's main-thread time.
+          const st = res.scene.streaming as { budgetBytes: number; residentBytes: number; peakResidentBytes: number; ringBytes: number; overBudget: boolean; ms: { mean: number; max: number }; kinds: Record<string, { resident: number; bytes: number; inRing: number; kept: number; evicted: number }> } | undefined;
+          if (st !== undefined) {
+            const mb = (b: number): string => `${(b / (1024 * 1024)).toFixed(1)} MiB`;
+            log(`level ${kind} ${r} streaming: resident ${mb(st.residentBytes)} (peak ${mb(st.peakResidentBytes)}) of a ${mb(st.budgetBytes)} budget${st.overBudget ? ' (OVER)' : ''}, ${Object.entries(st.kinds).map(([k, v]) => `${k} ${v.resident} (${mb(v.bytes)}; in rings ${v.inRing}, kept ${v.kept}, let go for the budget ${v.evicted})`).join(', ')}; deciding ${st.ms.mean} ms a frame (most ${st.ms.max})`);
+          }
           if (restyles.length > 0) log(`level ${kind} ${r} restyles: ${restyles.length}, ${restyles.map((d) => `${d.chunks} chunks ${d.ms} ms ${d.frames} frames (${d.longFrames} over 16.7 ms, longest ${d.longestFrameMs} ms at frame ${d.longestFrameAt}, view update ≤ ${d.longestUpdateMs} ms)`).join('; ')}`);
           for (const sw of switches) {
             const off = await measurePage(browser, { url: `${site.url}?renderer=${r}${query}&${sw}`, warmupMs, recordMs, gpuMs, profileMs: 0, sourceOf: sourcesOf(site) });

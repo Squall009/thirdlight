@@ -45,7 +45,9 @@ import { createGpuTiming } from './gpu-timing';
 import { createRenderControl } from './render-control';
 import * as THREE from 'three';
 import { syncCellUv } from './block-cell-uv';
-import { BlockLayerView, blockLookFromObject, type BlockLayerViewDiagnostics, type BlockModelLook } from './block-layers';
+import { type BlockLayerViewDiagnostics } from './block-layers';
+import { createLevelViews } from './level-views';
+import { PageWorldStream, STREAMING_KEY } from './world-stream';
 import { createCutawayFollower } from './block-cutaway-follow';
 import { createBrowserMeshWorker } from './block-mesh-pool';
 import { TERRAIN_ENTITY_KEY, TerrainView } from './terrain-view';
@@ -439,10 +441,13 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   const entityDocs = new Map<string, (typeof opts.snapshot.scene.entities)[number]>();
   // Block layers — merged chunk meshes per block look (the same view as the editor's Scene view).
   const blockPrefabs = (opts.snapshot as { prefabs?: readonly { prefabId: string; entities: readonly { parentLocalId?: string; components: Record<string, unknown> }[] }[] }).prefabs ?? [];
-  const blockLooks = new Map<string, BlockModelLook | null>();
   const assetMaterialsOf = (assetId: string): Readonly<Record<string, string>> | undefined => (opts.models?.assets.find((a) => a.assetId === assetId) ?? opts.models?.rowOf?.(assetId))?.materials;
+  // World streaming (a game page): what streamed terrains, layers and scatter hold round the camera, within the budget.
+  const stream = opts.streaming !== undefined ? new PageWorldStream({ budgetBytes: opts.streaming.budgetBytes, resources, ...(opts.streaming.onProblem !== undefined ? { onProblem: opts.streaming.onProblem } : {}) }) : null;
+  if (stream !== null) scene.userData[STREAMING_KEY] = stream;
   // Rule scatter on block layers and terrains: stored copies and ground cover (scatter-host.ts).
   const scatter = createScatterHost({
+    stream,
     template: (assetId, piece, onReady) => realization?.blockInstance?.(assetId, piece, onReady) ?? null,
     dress: (root, assetId) => {
       const mapping = assetMaterialsOf(assetId);
@@ -477,61 +482,13 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     changed: () => opts.onChange?.(),
     drawn: opts.splines !== false,
   });
-  const blockView = new BlockLayerView({
-    ...(scatter.sink !== undefined ? { scatter: scatter.sink } : {}),
-    modelLook: (assetId, piece, onReady) => {
-      const key = `${assetId}|${piece ?? ''}`;
-      if (blockLooks.has(key)) return blockLooks.get(key) ?? null;
-      const inst =
-        realization?.blockInstance?.(assetId, piece, () => {
-          onReady();
-          opts.onChange?.();
-        }) ?? null;
-      if (inst === null) return null;
-      const look = blockLookFromObject(inst.root);
-      blockLooks.set(key, look);
-      return look;
-    },
-    prefabModel: (prefabId) => {
-      const root = blockPrefabs.find((p) => p.prefabId === prefabId)?.entities.find((e) => e.parentLocalId === undefined);
-      const m = root?.components['model'] as { asset?: { assetId?: string }; piece?: string } | undefined;
-      return typeof m?.asset?.assetId === 'string' ? { assetId: m.asset.assetId, ...(typeof m.piece === 'string' ? { piece: m.piece } : {}) } : null;
-    },
-    applyMaterials: (mesh, type, assetId) => {
-      if (materialLibrary === null) return;
-      const base = assetId !== null ? assetMaterialsOf(assetId) : undefined;
-      const mapping = { ...(base ?? {}), ...(type.materials ?? {}) };
-      if (Object.keys(mapping).length > 0) materialLibrary.apply(mesh, mapping, null);
-    },
-    ...(opts.meshWorkerUrl !== undefined ? { meshWorkers: () => createBrowserMeshWorker(opts.meshWorkerUrl!) } : {}),
-    meshed: () => opts.onChange?.(),
-    // Baked block-layer chunks: lightmap UVs, and the chunk's lightmap when its layout is the baked one.
-    lightmapped: (id) => lightmaps?.hasChunks(id) === true,
-    chunkBuilt: (id, cx, cz, group, layout) => lightmaps?.applyChunk(id, cx, cz, layout, group),
-    chunkDropped: (id, cx, cz) => lightmaps?.releaseChunk(id, cx, cz),
+  // Block layers and terrains (level-views.ts), streamed round the camera on a game page.
+  const { blockView, terrains, ownTiles } = createLevelViews({
+    blockInstance: (assetId, piece, onReady) => realization?.blockInstance?.(assetId, piece, onReady) ?? null,
+    prefabs: blockPrefabs, assetMaterials: assetMaterialsOf, materials: materialLibrary, lightmaps: () => lightmaps,
     precompile: (probe) => cutaways.probe(probe),
-    // A restyle's chunks arrive over several frames: the cached static shadow is drawn again once, after the last.
-    restyling: (on) => staticShadows?.hold(on),
-    // The chunks' drawables join the scene on their own (the view's layer and chunk groups stay outside it).
-    place: (chunk, shown) => {
-      // Chunks change only by being meshed again (new meshes listed): they cast into the static shadow map.
-      if (shown) chunk.traverse((o) => void ((o as THREE.Mesh).isMesh === true && (o.userData[STATIC_CASTER_KEY] = true)));
-      for (const o of chunk.children) {
-        if (shown) graph.listStatic(o);
-        else graph.unlistStatic(o);
-      }
-    },
-  });
-  // Terrains — CDLOD over their tiles' texture arrays (terrain-view.ts).
-  // The page's decoded tiles (a game page's, shared with collision), else the adapter's own.
-  const ownTiles = opts.terrainTiles === undefined ? new TerrainTileStore({ read: opts.resolveBuffer ?? opts.models?.resolveBuffer ?? null, worker: opts.meshWorkerUrl !== undefined ? () => createBrowserMeshWorker(opts.meshWorkerUrl!, 'thirdlight-terrain') : null }) : null;
-  const terrains = new TerrainView({
-    tiles: opts.terrainTiles ?? ownTiles!,
-    place: (mesh, shown) => (shown ? graph.listStatic(mesh) : graph.unlistStatic(mesh)),
-    shapeChanged: () => staticShadows?.bump(),
-    materials: materialLibrary, changed: () => opts.onChange?.(),
-    lodBias: () => graph.lodTuning.bias,
-    ...(scatter.sink !== undefined ? { scatter: scatter.sink } : {}),
+    staticShadows, listStatic: (o) => graph.listStatic(o), unlistStatic: (o) => graph.unlistStatic(o), lodBias: () => graph.lodTuning.bias,
+    scatter: scatter.sink, stream, meshWorkerUrl: opts.meshWorkerUrl, tiles: opts.terrainTiles, read: opts.resolveBuffer ?? opts.models?.resolveBuffer ?? null, onChange: () => opts.onChange?.(),
   });
   /** The block layers realized from their documents (a host may drive layers of its own through `blockLayers()`). */
   const docLayers = new Set<string>();
@@ -1421,7 +1378,8 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     // The block chunks the simulation changed, re-meshed before the draw.
     const gridChanges = (opts.runtime as { takeGridChanges?: () => GridRenderChange[] }).takeGridChanges?.() ?? [];
     if (gridChanges.length > 0) blockView.applyRuntimeChanges(gridChanges);
-    blockView.update();
+    if (stream !== null) stream.beginFrame(viewCull.view.eye);
+    blockView.update(viewCull.view.eye);
     // Splines released and not realized again go now (one realized again kept drawing until its new data is in).
     splines.update();
     // (The near shadows follow the last frame's eye: the view is culled for this one further down.)
@@ -1623,6 +1581,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     }
     if (!disposed && blockView.layerIds().length > 0) d.blocks = blockView.diagnostics();
     if (!disposed && terrains.ids().length > 0) d.terrain = terrains.diagnostics();
+    if (!disposed && stream !== null) d.streaming = stream.diagnostics();
     if (!disposed && splines.ids().length > 0) d.splines = splines.diagnostics();
     if (!disposed) scatter.diagnostics(d);
     if (!disposed && materialLibrary !== null && runtimeMaterials !== null) d.materials = { graphMaterials: materialLibrary.graphMaterialCount(), ...(materialSwaps !== null && (materialSwaps.applied > 0 || materialSwaps.pending() > 0) ? { swapsApplied: materialSwaps.applied, swapsPending: materialSwaps.pending() } : {}), ...runtimeMaterials.diagnostics() };

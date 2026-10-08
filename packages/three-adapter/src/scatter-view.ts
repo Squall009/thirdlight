@@ -25,7 +25,7 @@
  */
 import * as THREE from 'three';
 
-import { SCATTER_BLOB_DISTANCE, SCATTER_CHUNK_METERS_DEFAULT, SCATTER_COPY_FLOATS, decodeChunkScatter, instanceDensityOf, scatterCellBytes, scatterCellOfBlob, storedScatterRules, type BlockChunk, type BlockLayerComponent, type BlockType, type ScatterCell, type ScatterCopyChange, type ScatterRule, type TerrainComponent } from '@thirdlight/runtime';
+import { SCATTER_BLOB_DISTANCE, SCATTER_CHUNK_METERS_DEFAULT, SCATTER_COPY_FLOATS, decodeChunkScatter, instanceDensityOf, resolveStreamingRings, scatterCellBytes, scatterCellOfBlob, squareDistance, storedScatterRules, type BlockChunk, type BlockLayerComponent, type BlockType, type ScatterCell, type ScatterCopyChange, type ScatterRule, type StreamingRings, type StreamRing, type TerrainComponent } from '@thirdlight/runtime';
 
 import type { MeshWorkerPort } from './block-mesh-pool';
 import { COVER_FADE_START } from './cover-view';
@@ -37,6 +37,7 @@ import type { CullView } from './view-cull';
 import type { LodTuning } from './lod-switch';
 import { STATIC_CASTER_KEY } from './shadow-casters';
 import type { ModelInstance } from './visual';
+import { askingRing, eyeMoved, recheckMetres, type PageWorldStream, type StreamCell } from './world-stream';
 
 /** The width (m) of the squares a rule's copies are drawn together in: a few draws for a landscape, a bounded rebuild per edit. */
 export const SCATTER_GROUP_METRES = 2048;
@@ -74,6 +75,8 @@ export interface ScatterViewDeps {
   impostors?: Pick<ImpostorStore, 'get' | 'update'>;
   /** Something was built (a frame should be drawn). */
   changed?(): void;
+  /** World streaming (a game page): a streamed terrain's or layer's groups are drawn only within its scatter ring (absent: all). */
+  stream?: PageWorldStream | null;
 }
 
 /** What the block and terrain views tell the scatter view (their sources as they get them), and the copies a game's scripts hid, showed or removed. */
@@ -115,6 +118,8 @@ export interface ScatterViewDiagnostics {
 interface Cell {
   /** The stored form it was read from (a digest or the chunk's text); null: none. */
   ref: string | null;
+  /** A streamed source's blob not read because its group is past the scatter ring (read when it comes near). */
+  want: string | null;
   cell: ScatterCell | null;
   reading: string | null;
   group: string;
@@ -180,6 +185,14 @@ interface Source {
   readonly groups: Map<string, Group>;
   /** The world box of a cell key ("x,z"). */
   cellSize: number;
+  /** Its scatter ring when it streams (null: every group drawn), and the groups it holds. */
+  ring: StreamRing | null;
+  readonly held: Set<string>;
+  /** Where its groups were last streamed from (x, z; null: not yet), and whether its cells changed since. */
+  streamAt: number[] | null;
+  streamDirty: boolean;
+  /** Its cells by group, kept until a cell comes or goes (null: to be gathered again). */
+  groupCells: Map<string, Cell[]> | null;
 }
 
 const groupKeyOf = (src: Source, key: string): string => {
@@ -187,6 +200,12 @@ const groupKeyOf = (src: Source, key: string): string => {
   const per = Math.max(1, Math.floor(SCATTER_GROUP_METRES / src.cellSize));
   return `${Math.floor(x / per)},${Math.floor(z / per)}`;
 };
+
+/** A streamed group's scatter before its blobs are read (a few hundred copies' worth). */
+const SCATTER_BLOB_BYTES_GUESS = 64 * 1024;
+
+/** Whether a cell's stored form is a block chunk's text rather than a blob digest (64 hex). */
+const isChunkText = (ref: string): boolean => !/^[0-9a-f]{64}$/.test(ref);
 
 /** A copy's state key within a source: its rule and candidate cell. */
 const stateKey = (rule: string, ix: number, iz: number): string => `${rule}\u0000${ix},${iz}`;
@@ -214,6 +233,7 @@ export class ScatterView {
   setBlockLayer(id: string, component: BlockLayerComponent, origin: readonly number[], chunks: Iterable<BlockChunk>): void {
     const src = this.source(id, storedScatterRules(component.scatter), origin, 16 * component.cellSize[0]);
     if (src === null) return;
+    this.ringOf(src, component.streaming);
     const seen = new Set<string>();
     for (const c of chunks) {
       const key = `${c.cx},${c.cz}`;
@@ -234,6 +254,7 @@ export class ScatterView {
   setTerrain(id: string, component: TerrainComponent, origin: readonly number[]): void {
     const src = this.source(id, storedScatterRules(component.scatter), origin, (component.tileSamples - 1) * component.spacing);
     if (src === null) return;
+    this.ringOf(src, component.streaming);
     const seen = new Set<string>();
     for (const t of component.tiles) {
       const key = `${t.x},${t.z}`;
@@ -274,6 +295,9 @@ export class ScatterView {
   remove(id: string): void {
     const src = this.sources.get(id);
     if (src === undefined) return;
+    for (const gk of src.held) this.deps.stream?.forget('scatter-group', `${src.id}/${gk}`);
+    src.held.clear();
+    this.deps.stream?.forgetObject(`scatter:${src.id}`);
     for (const g of src.groups.values()) this.dropGroup(g);
     if (this.casts(src)) this.deps.shapeChanged?.();
     this.sources.delete(id);
@@ -352,6 +376,11 @@ export class ScatterView {
   update(view: CullView | null = null): boolean {
     if (this.disposed) return false;
     const start = performance.now();
+    // Streamed sources: the groups in their scatter ring are read and made, those past it go.
+    if (view !== null && this.deps.stream != null) {
+      for (const src of this.sources.values()) if (src.ring !== null) this.streamGroups(src, view.eye);
+      this.deps.stream.spent(performance.now() - start);
+    }
     // A model's impostor baked (one a frame, before the frame's draw: it draws with the page's renderer).
     let built = this.deps.impostors?.update() ?? false;
     let casts = false;
@@ -367,7 +396,7 @@ export class ScatterView {
           }
           for (const r of [...g.builds.keys()]) if (!ids.has(r)) g.builds.delete(r);
         }
-        if (g.dirty.size === 0 || !this.groupReady(src, g.key)) continue;
+        if (g.dirty.size === 0 || (src.ring !== null && !src.held.has(g.key)) || !this.groupReady(src, g.key)) continue;
         const rules = [...g.dirty];
         g.dirty.clear();
         for (const id of rules) {
@@ -478,7 +507,7 @@ export class ScatterView {
     let src = this.sources.get(id);
     if (src === undefined && rules.length === 0) return null;
     if (src === undefined) {
-      src = { id, rules, rulesKey: JSON.stringify(rules), origin: [origin[0] ?? 0, origin[1] ?? 0, origin[2] ?? 0], hidden: false, cells: new Map(), groups: new Map(), cellSize };
+      src = { id, rules, rulesKey: JSON.stringify(rules), origin: [origin[0] ?? 0, origin[1] ?? 0, origin[2] ?? 0], hidden: false, cells: new Map(), groups: new Map(), cellSize, ring: null, held: new Set(), streamAt: null, streamDirty: true, groupCells: null };
       this.sources.set(id, src);
       return src;
     }
@@ -496,11 +525,89 @@ export class ScatterView {
     return src;
   }
 
+  /** A source's scatter ring (a game page's streamed terrain or layer). */
+  private ringOf(src: Source, streaming: StreamingRings | undefined): void {
+    src.ring = this.deps.stream != null ? (resolveStreamingRings(streaming)?.scatter ?? null) : null;
+    // Its cells may have changed (the caller sets them next).
+    src.streamDirty = true;
+  }
+
+  /**
+   * A streamed source's groups for the eye: those in its scatter ring (or
+   * kept within its hysteresis) have their blobs read and their sets made;
+   * the rest are let go (dropped at the resource manager's settle).
+   */
+  private streamGroups(src: Source, eye: ArrayLike<number>): void {
+    if (!src.streamDirty && !eyeMoved(src.streamAt, eye, recheckMetres(src.ring!))) return;
+    src.streamDirty = false;
+    src.streamAt = [eye[0]!, eye[2]!];
+    const stream = this.deps.stream!;
+    const per = Math.max(1, Math.floor(SCATTER_GROUP_METRES / src.cellSize)) * src.cellSize;
+    if (src.groupCells === null) {
+      src.groupCells = new Map();
+      for (const c of src.cells.values()) {
+        let list = src.groupCells.get(c.group);
+        if (list === undefined) src.groupCells.set(c.group, (list = []));
+        list.push(c);
+      }
+    }
+    const groups = src.groupCells;
+    const bytesOf = (list: readonly Cell[]): number => list.reduce((n, c) => n + (c.cell !== null ? scatterCellBytes(c.cell) : c.want !== null ? SCATTER_BLOB_BYTES_GUESS : 0), 0);
+    const cells: StreamCell[] = [];
+    for (const [gk, list] of groups) {
+      const [gx, gz] = gk.split(',').map(Number) as [number, number];
+      const x0 = src.origin[0] + gx * per;
+      const z0 = src.origin[2] + gz * per;
+      cells.push({ key: `${src.id}/${gk}`, d: squareDistance(x0, z0, x0 + per, z0 + per, eye[0]!, eye[2]!), bytes: bytesOf(list), resident: src.held.has(gk) });
+    }
+    const hold = stream.residency('scatter-group', `scatter:${src.id}`, cells, askingRing(src.ring!));
+    for (const [gk, list] of groups) {
+      const k = `${src.id}/${gk}`;
+      if (hold.has(k)) {
+        if (!src.held.has(gk)) {
+          src.held.add(gk);
+          // Its blobs read now (they mark the group to be made as they arrive); a layer's chunks' copies are in already.
+          for (const [key, c] of src.cells) if (c.group === gk && c.want !== null) this.setDigest(src, key, c.want);
+          for (const c of list) if (c.cell !== null) this.touch(src, c);
+        }
+        if (!stream.holds('scatter-group', k)) stream.hold('scatter-group', k, bytesOf(list), () => this.evictGroup(src, gk));
+      } else if (src.held.has(gk) && stream.holds('scatter-group', k)) stream.release('scatter-group', k);
+    }
+  }
+
+  /** A streamed group let go: its sets go, and its blobs' copies (read again when it comes back). */
+  private evictGroup(src: Source, gk: string): void {
+    if (this.disposed || this.sources.get(src.id) !== src || !src.held.delete(gk)) return;
+    src.streamDirty = true;
+    const g = src.groups.get(gk);
+    if (g !== undefined) {
+      const casts = g.sets.some((x) => x.casts);
+      this.dropGroup(g);
+      src.groups.delete(gk);
+      if (casts) this.deps.shapeChanged?.();
+    }
+    for (const c of src.cells.values()) {
+      if (c.group !== gk || c.want !== null) continue;
+      // A blob's copies go (a layer's chunk text stays: the layer holds it anyway).
+      if (c.ref !== null && !isChunkText(c.ref)) {
+        c.want = c.ref;
+        c.ref = null;
+        c.cell = null;
+      } else if (c.reading !== null) {
+        c.want = c.reading;
+        c.reading = null;
+      }
+    }
+    this.deps.changed?.();
+  }
+
   private cellOf(src: Source, key: string): Cell {
     let c = src.cells.get(key);
     if (c === undefined) {
-      c = { ref: null, cell: null, reading: null, group: groupKeyOf(src, key) };
+      c = { ref: null, want: null, cell: null, reading: null, group: groupKeyOf(src, key) };
       src.cells.set(key, c);
+      src.groupCells = null;
+      src.streamDirty = true;
     }
     return c;
   }
@@ -535,6 +642,15 @@ export class ScatterView {
 
   private setDigest(src: Source, key: string, digest: string | null): void {
     const c = this.cellOf(src, key);
+    if (src.ring !== null && !src.held.has(c.group)) {
+      // Past the scatter ring: only remembered (read when the camera comes near).
+      c.want = digest;
+      c.ref = null;
+      c.cell = null;
+      c.reading = null;
+      return;
+    }
+    c.want = null;
     if (c.ref === digest && c.reading === null) return;
     if (digest === null) {
       c.ref = null;

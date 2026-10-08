@@ -30,7 +30,7 @@
  *
  * Browser-only (DOM, WebGL/WebGPU, Web Audio, Web Crypto).
  */
-import { audioSpatialOf, dependencyTables, depthBufferOf, instanceChunkSizeOf, lodTuningOf, type ModelLodSettings, materialTextureRefs, physicsDimensionOf, scanDependencies, sha256HexAsync, textureBudgetBytesOf, type MaterialDef, type ModelColliderTable, type SaveSchema } from '@thirdlight/project-model';
+import { audioSpatialOf, dependencyTables, depthBufferOf, instanceChunkSizeOf, lodTuningOf, type ModelLodSettings, materialTextureRefs, physicsDimensionOf, scanDependencies, sha256HexAsync, streamingBudgetBytesOf, textureBudgetBytesOf, type MaterialDef, type ModelColliderTable, type SaveSchema } from '@thirdlight/project-model';
 import { assetVersionKey, createResourceManager, fixedStepHzOf, EMBEDDED_TEXTURES_LISTED, embeddedTextureBytes, qualityLevelOf, qualityLevelsOf, renderSettingsOf, type ResourceManager, type ResourceObservation } from '@thirdlight/runtime';
 import { attachBrowserInput, DEFAULT_INPUT_CONFIG, DEFAULT_INPUT_CONFIG_3D, focusGameSurface, type InputConfigLike } from '@thirdlight/input';
 import type { RapierPhysicsInitConfig, RapierPhysicsPort, RapierStaticColliderSpec } from '@thirdlight/physics-rapier';
@@ -920,6 +920,8 @@ export async function startGamePage(o: GamePageOptions): Promise<GamePageHandle>
           // Terrains drawn unless the page says ?terrain=off (a diagnostic comparison); their tiles are the build's buffers.
           terrain: terrainDrawn,
           terrainTiles,
+          // Terrains and block layers with streaming rings keep what is round the camera, within the project's budget.
+          streaming: { budgetBytes: streamingBudgetBytesOf(settings as unknown as Readonly<Record<string, unknown>>), ...(o.onProblem !== undefined ? { onProblem: o.onProblem } : {}) },
           // The scatter rules' copies drawn unless the page says ?scatter=off (a diagnostic comparison).
           scatter: scatterFromUrl(pageSearch()),
           splines: splinesFromUrl(pageSearch()),

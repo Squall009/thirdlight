@@ -75,6 +75,9 @@ import {
   type ChunkMeshPart,
   type GridRenderChange,
   type ScatterCopyChange,
+  type StreamRing,
+  resolveStreamingRings,
+  squareDistance,
 } from '@thirdlight/runtime';
 
 import { keepMetreUv, syncCellUv } from './block-cell-uv';
@@ -85,6 +88,7 @@ import type { MeshWorkerReply } from './block-mesh-worker';
 import { LIGHT_LAYERS_KEY } from './light-layers';
 import { BLOCK_AO_ATTRIBUTE } from './block-ao-lighting';
 import { currentLodLevel, LOD_CULL_LEVEL_KEY } from './lod-switch';
+import { askingRing, eyeMoved, recheckMetres, type PageWorldStream, type StreamCell } from './world-stream';
 
 /**
  * An edit's chunks mesh on the page while their estimated cost (the layer's
@@ -166,6 +170,8 @@ export interface BlockLayerViewDeps {
   restyling?(on: boolean): void;
   /** Where the layers' scatter copies go as their chunks arrive (`scatter-view.ts`). */
   scatter?: ScatterSink;
+  /** World streaming (a game page): layers with `streaming` mesh and keep only the chunks round the camera (absent: every chunk, the editor). */
+  stream?: PageWorldStream | null;
 }
 
 /** A restyle's timing: how long its chunks took to arrive and the frames drawn meanwhile. */
@@ -224,6 +230,17 @@ interface LayerState {
   readonly lightmapLayouts: Map<string, { layout: string; area: number; side: number }>;
   /** Its object is hidden (inactive): its chunks are built but not placed in the scene. */
   hidden: boolean;
+  /** Its render ring when it streams (a game page; null: every chunk drawn). */
+  ring: StreamRing | null;
+  /** Chunks the ring holds, and changed chunks left unmeshed because it does not (meshed when it does again). */
+  held: Set<string>;
+  readonly outside: Set<string>;
+  /** Each built chunk's meshes' bytes; where its chunks were last streamed from (x, z; null: not yet) and whether they changed since. */
+  readonly bytes: Map<string, number>;
+  streamAt: number[] | null;
+  streamDirty: boolean;
+  /** Its chunks with cells and where they lie (layer cells), kept until its cells change (null: to be listed again). */
+  chunkList: { ck: string; cx: number; cz: number }[] | null;
 }
 
 export interface BlockLayerViewDiagnostics {
@@ -508,7 +525,7 @@ export class BlockLayerView {
       group.name = `block-layer:${entityId}`;
       this.root.add(group);
       const grid = BlockGrid.from(component, data);
-      layer = { group, component, grid, gameKits: null, view: blockKitView(grid, component.kits, this.types), serial: ++this.serials, chunks: new Map(), dirty: new Set(), edited: new Set(), gens: new Map(), pending: new Map(), meshMs: -1, looksAsked: 0, lightmapLayouts: new Map(), hidden: false };
+      layer = { group, component, grid, gameKits: null, view: blockKitView(grid, component.kits, this.types), serial: ++this.serials, chunks: new Map(), dirty: new Set(), edited: new Set(), gens: new Map(), pending: new Map(), meshMs: -1, looksAsked: 0, lightmapLayouts: new Map(), hidden: false, ring: null, held: new Set(), outside: new Set(), bytes: new Map(), streamAt: null, streamDirty: true, chunkList: null };
       this.layers.set(entityId, layer);
     } else {
       // Another kit or other material rules on drawn chunks is a restyle (the shadow held until they are in).
@@ -522,6 +539,9 @@ export class BlockLayerView {
       for (const ck of layer.pending.keys()) layer.dirty.add(ck);
       layer.pending.clear();
     }
+    layer.ring = this.deps.stream != null ? (resolveStreamingRings(component.streaming)?.render ?? null) : null;
+    layer.streamDirty = true;
+    layer.chunkList = null;
     layer.group.position.set(origin[0] ?? 0, origin[1] ?? 0, origin[2] ?? 0);
     layer.group.updateMatrixWorld(true);
     // Its cut-away zones (the chunks are split by them when they are meshed again, below).
@@ -574,6 +594,9 @@ export class BlockLayerView {
     if (layer === undefined) return;
     const painted = layer.grid.hasPaint();
     for (const c of chunks) layer.grid.replaceChunk(c.cx, c.cz, c.chunk);
+    // A chunk written where there was none (or emptied) changes what there is to stream.
+    layer.streamDirty = true;
+    layer.chunkList = null;
     this.deps.scatter?.replaceBlockChunks(entityId, chunks);
     if (this.pool !== null && layer.component.metadataOnly !== true) this.pool.broadcast({ t: 'chunks', entityId, chunks: chunks.map((c) => ({ cx: c.cx, cz: c.cz, chunk: c.chunk })) });
     for (const k of layer.grid.takeDirty().mesh) {
@@ -606,7 +629,11 @@ export class BlockLayerView {
   removeLayer(entityId: string): void {
     const layer = this.layers.get(entityId);
     if (layer === undefined) return;
-    for (const [ck, g] of layer.chunks) this.dropChunk(entityId, layer, ck, g);
+    for (const [ck, g] of layer.chunks) {
+      if (layer.ring !== null) this.deps.stream?.forget('block-chunk', `${entityId}/${ck}`);
+      this.dropChunk(entityId, layer, ck, g);
+    }
+    this.deps.stream?.forgetObject(`blocks:${entityId}`);
     this.cut.removeLayer(entityId);
     this.deps.scatter?.remove(entityId);
     layer.group.removeFromParent();
@@ -619,9 +646,14 @@ export class BlockLayerView {
    * a time slice), mesh an edit's chunks here while they fit the budget, and
    * send the rest to the workers. Returns whether any chunk was rebuilt.
    */
-  update(): boolean {
+  update(eye: ArrayLike<number> | null = null): boolean {
     if (this.disposed) return false;
     const t0 = performance.now();
+    // Streamed layers: the chunks round the eye are meshed, those past their ring go.
+    if (eye !== null && this.deps.stream != null) {
+      for (const [entityId, layer] of this.layers) if (layer.ring !== null) this.streamChunks(entityId, layer, eye);
+      this.deps.stream.spent(performance.now() - t0);
+    }
     this.checkStall();
     let applied = 0;
     while (this.results.length > 0 && (applied === 0 || performance.now() - t0 < MESH_APPLY_BUDGET_MS)) {
@@ -634,6 +666,11 @@ export class BlockLayerView {
       const keys = [...layer.dirty];
       layer.dirty.clear();
       for (const ck of keys) {
+        // A streamed layer's chunk outside its ring waits until the camera comes near.
+        if (layer.ring !== null && !layer.held.has(ck)) {
+          layer.outside.add(ck);
+          continue;
+        }
         const edited = layer.edited.has(ck);
         const estimate = Math.max(0, layer.meshMs);
         if (this.pool === null || this.meshAllHere || layer.component.metadataOnly === true || (edited && syncMs + estimate <= SYNC_MESH_BUDGET_MS)) {
@@ -649,6 +686,8 @@ export class BlockLayerView {
     if (this.results.length > 0) this.deps.meshed?.();
     this.followRestyle(t0);
     const ms = performance.now() - t0;
+    // Streamed chunks came in (measurements line them up with the frames).
+    if (applied > 0 && this.deps.stream != null) globalThis.performance?.mark?.('tl:blocks:streamed', { detail: { applied, ms: Math.round(ms * 100) / 100 } });
     this.stats.lastUpdate = { here, applied, ms };
     this.stats.meshedHere += here;
     this.stats.meshedInWorkers += applied;
@@ -994,7 +1033,10 @@ export class BlockLayerView {
     const old = layer.chunks.get(ck);
     if (old !== undefined) this.dropChunk(entityId, layer, ck, old);
     const { parts, coarse, lightmap } = result;
-    if (parts.length === 0) return;
+    if (parts.length === 0) {
+      if (layer.ring !== null) this.deps.stream?.forget('block-chunk', `${entityId}/${ck}`);
+      return;
+    }
     const looks = new Map<string, { materials: readonly THREE.Material[]; type: BlockType; assetId: string | null; color: string | null }>();
     for (const use of result.looks) {
       const type = this.types.get(use.blockId);
@@ -1110,6 +1152,12 @@ export class BlockLayerView {
     layer.group.add(group);
     group.updateMatrixWorld(true);
     layer.chunks.set(ck, group);
+    if (layer.ring !== null) {
+      const bytes = chunkBytes(group);
+      layer.bytes.set(ck, bytes);
+      layer.streamDirty = true;
+      this.deps.stream?.hold('block-chunk', `${entityId}/${ck}`, bytes, () => this.evictChunk(entityId, layer, ck));
+    }
     if (!layer.hidden) this.deps.place?.(group, true);
     if (lightmap !== null) {
       layer.lightmapLayouts.set(ck, lightmap);
@@ -1117,6 +1165,68 @@ export class BlockLayerView {
     }
     // Last: they take their zones' fade, and a fade variant of the material they wear now (lightmap included).
     this.cut.register(entityId, ck, cutMeshes);
+  }
+
+  /**
+   * A streamed layer's chunks for this frame's eye: those in its render ring
+   * (or kept within its hysteresis) are meshed if they are not, the rest let
+   * go (dropped at the resource manager's settle) — a chunk still meshing
+   * there is not waited for.
+   */
+  private streamChunks(entityId: string, layer: LayerState, eye: ArrayLike<number>): void {
+    if (!layer.streamDirty && !eyeMoved(layer.streamAt, eye, recheckMetres(layer.ring!))) return;
+    layer.streamDirty = false;
+    layer.streamAt = [eye[0]!, eye[2]!];
+    const stream = this.deps.stream!;
+    const size = CHUNK_SIZE * layer.grid.cellSize[0];
+    const o = layer.group.position;
+    if (layer.chunkList === null) {
+      layer.chunkList = [...new Set<string>([...layer.grid.chunkKeys(), ...layer.chunks.keys()])].map((ck) => {
+        const [cx, cz] = ck.split(',').map(Number) as [number, number];
+        return { ck, cx, cz };
+      });
+    }
+    const list = layer.chunkList;
+    let built = 0;
+    let builtBytes = 0;
+    for (const ck of layer.chunks.keys()) {
+      built += 1;
+      builtBytes += layer.bytes.get(ck) ?? 0;
+    }
+    // A chunk not meshed yet counts as the layer's mean so far (a first guess before any).
+    const guess = built > 0 ? builtBytes / built : CHUNK_BYTES_GUESS;
+    const cells: StreamCell[] = [];
+    for (const { ck, cx, cz } of list) {
+      const x0 = o.x + cx * size;
+      const z0 = o.z + cz * size;
+      const g = layer.chunks.get(ck);
+      cells.push({ key: ck, d: squareDistance(x0, z0, x0 + size, z0 + size, eye[0]!, eye[2]!), bytes: g !== undefined ? (layer.bytes.get(ck) ?? guess) : guess, resident: g !== undefined || layer.pending.has(ck) });
+    }
+    layer.held = stream.residency('block-chunk', `blocks:${entityId}`, cells, askingRing(layer.ring!));
+    for (const { ck } of list) {
+      const k = `${entityId}/${ck}`;
+      const g = layer.chunks.get(ck);
+      if (layer.held.has(ck)) {
+        if (g !== undefined) {
+          if (!stream.holds('block-chunk', k)) stream.hold('block-chunk', k, layer.bytes.get(ck) ?? guess, () => this.evictChunk(entityId, layer, ck));
+        } else if (layer.outside.delete(ck)) layer.dirty.add(ck);
+      } else if (g !== undefined) stream.release('block-chunk', k);
+      else if (layer.pending.has(ck)) {
+        this.cancelPending(entityId, layer, ck);
+        layer.outside.add(ck);
+      }
+    }
+  }
+
+  /** A streamed chunk let go (the resource manager's settle): its meshes go; it is meshed again when the camera comes back. */
+  private evictChunk(entityId: string, layer: LayerState, ck: string): void {
+    if (this.disposed || this.layers.get(entityId) !== layer) return;
+    const g = layer.chunks.get(ck);
+    if (g === undefined) return;
+    this.dropChunk(entityId, layer, ck, g);
+    layer.outside.add(ck);
+    layer.bytes.delete(ck);
+    layer.streamDirty = true;
   }
 
   private dropChunk(entityId: string, layer: LayerState, ck: string, group: THREE.Group): void {
@@ -1131,6 +1241,21 @@ export class BlockLayerView {
     layer.chunks.delete(ck);
   }
 }
+
+/** What a chunk's meshes take (their vertex and index buffers; shared buffers counted once per mesh). */
+function chunkBytes(group: THREE.Group): number {
+  let n = 0;
+  group.traverse((o) => {
+    const g = (o as THREE.Mesh).isMesh === true ? (o as THREE.Mesh).geometry : null;
+    if (g === null) return;
+    for (const a of Object.values(g.attributes)) n += (a as THREE.BufferAttribute).array.byteLength;
+    n += g.index?.array.byteLength ?? 0;
+  });
+  return n;
+}
+
+/** A streamed chunk's size before any of its layer's is meshed (a sloped 16 × 16 chunk's meshes are about this). */
+const CHUNK_BYTES_GUESS = 256 * 1024;
 
 /** The chunk key of a cell column (for callers mapping cells to chunks). */
 export const blockChunkKey = (x: number, z: number): string => `${Math.floor(x / CHUNK_SIZE)},${Math.floor(z / CHUNK_SIZE)}`;

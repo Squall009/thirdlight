@@ -441,6 +441,8 @@ export class CachedShadowNode extends ShadowBaseNodeBase {
     if (renderer !== this.drawnBy || this.revision.value !== this.drawnRevision || (d.missed && !this.revision.holding) || s.drawnWith.changed()) this.staticDirty = true;
     d.missed = false;
     if (this.staticDirty) {
+      // The static map drawn again (measurements line it up with the frames: a large map is a GPU frame's worth).
+      globalThis.performance?.mark?.('tl:shadow:static');
       s.draw(frame);
       this.staticDirty = false;
       this.drawnRevision = this.revision.value;

@@ -90,6 +90,13 @@
  *   and the Layers list switches the erosion off and on. On both renderers the
  *   pictures with each layer on and off differ where the mountain and its
  *   channels are; the layers are then switched off for Play and the export.
+ * - World streaming (the impostors' Play on both renderers, and the export): the
+ *   ground streams round the camera — only the tiles within its render ring
+ *   resident, the overview (every tile at its coarsest level, which the build
+ *   made) drawn past them without a crack; a player walks west across a tile
+ *   border with a 1 m collision ring and never sinks; the camera flies 400 m
+ *   off (every ground tile and block chunk let go, counted in the
+ *   diagnostics) and back, and the picture is the same as before.
  */
 import { randomBytes } from 'node:crypto';
 import { createReadStream, existsSync, statSync } from 'node:fs';
@@ -222,6 +229,31 @@ const SCATTER_HIDE_SCRIPT = [
   '};',
 ].join('\n');
 
+/**
+ * World streaming (the impostors' Play and the export): the ground's render ring (it reaches at least 72 m, where its
+ * 32 m tiles draw only their coarsest level, past which they are drawn from the overview), a 1 m collision ring (a
+ * tile's collider is built only as a player comes within a metre of it), the block layers' render ring.
+ */
+const STREAM = { render: 40, collision: 1, scatter: 200, hysteresis: 8 };
+const BLOCK_STREAM = { render: 60, hysteresis: 8 };
+/** The camera's place in the scene (and in Play), and far from the terrain (its nearest tile 272 m off). */
+const CAM_AT: V3 = [0, ORIGIN[1] + 22, 40];
+const AWAY: V3 = [0, ORIGIN[1] + 22, 400];
+/** A strip west from the player's start along z −5, across the tile border at x = 0. */
+const WEST_TO = -9;
+/** Moves an object on the `place {id, x, y, z}` debug command (the camera, flown away and back). */
+const PLACE_SCRIPT = [
+  'export default {',
+  '  instantiate() { return {}; },',
+  '  step(_state: any, ctx: any) {',
+  "    if (ctx.phase !== 'intent') return;",
+  "    for (const c of ctx.debug.command('place', { description: 'Move an object', args: [{ name: 'id', type: 'string' }, { name: 'x', type: 'number' }, { name: 'y', type: 'number' }, { name: 'z', type: 'number' }] })) {",
+  "      ctx.entity(String(c.id))?.set('transform', { position: [Number(c.x), Number(c.y), Number(c.z)] });",
+  '    }',
+  '  },',
+  '};',
+].join('\n');
+
 /** The heightmap as RAW 16-bit little-endian samples of the terrain's range. */
 function heightmap(): Uint8Array {
   const side = TILES * CELLS + 1;
@@ -269,7 +301,7 @@ async function buildTerrain(): Promise<{ ground: string; big: string; blocks: st
   await cmd('setEnvironment', { sceneId: 'scene-main', environment: { sky: { mode: 'color', color: SKY } } });
   // 22 m over the terrain, looking down at 45° along −z: the sky out of frame, 22–85 m of ground in view.
   const pitch = (-45 * Math.PI) / 180;
-  await cmd('setTransform', { entityId: 'cam-main', transform: { position: [0, ORIGIN[1] + 22, 40], rotation: [Math.sin(pitch / 2), 0, 0, Math.cos(pitch / 2)] } });
+  await cmd('setTransform', { entityId: 'cam-main', transform: { position: CAM_AT, rotation: [Math.sin(pitch / 2), 0, 0, Math.cos(pitch / 2)] } });
   const ground = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Ground', transform: { position: ORIGIN } }))['createdId']);
   const tiles: { x: number; z: number }[] = [];
   for (let z = 0; z < TILES; z++) for (let x = 0; x < TILES; x++) tiles.push({ x, z });
@@ -287,6 +319,10 @@ async function buildTerrain(): Promise<{ ground: string; big: string; blocks: st
   const strip: [number, number][] = [];
   for (let z = PLAYER[1] + 2; z >= HOLE[1] + 1; z -= 1) strip.push([PLAYER[0], z]);
   await cmd('editTerrain', { entityId: ground, kind: 'flatten', dabs: strip, radius: 2.5, strength: 1, falloff: 'constant', height: STRIP_HEIGHT });
+  // And one west across the tile border at x = 0 (the streamed Play walks it).
+  const west: [number, number][] = [];
+  for (let x = PLAYER[0]; x >= WEST_TO - 1; x -= 1) west.push([x, PLAYER[1]]);
+  await cmd('editTerrain', { entityId: ground, kind: 'flatten', dabs: west, radius: 1.5, strength: 1, falloff: 'constant', height: STRIP_HEIGHT });
   // The steep ramp with a hand-painted disc (layer 2, blue) on it, and the block layer (the rules come later, from the editor).
   await cmd('editTerrain', { entityId: ground, kind: 'ramp', from: RAMP.from, to: RAMP.to, radius: 1.5, strength: 1, falloff: 'constant' });
   await cmd('editTerrain', { entityId: ground, kind: 'paint', dabs: [RAMP_DISC], radius: 0.5, strength: 1, falloff: 'constant', layer: 2 });
@@ -306,6 +342,8 @@ async function buildTerrain(): Promise<{ ground: string; big: string; blocks: st
   // The script that names the scatter copies by address and hides them on the jump key (shows them on the next).
   const switcher = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Scatter switch', transform: { position: [0, 0, 0] } }))['createdId']);
   await publishScript(be!, 'e2e-scatter-hide', SCATTER_HIDE_SCRIPT, switcher);
+  const placer = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Placer', transform: { position: [0, 0, 0] } }))['createdId']);
+  await publishScript(be!, 'e2e-place', PLACE_SCRIPT, placer);
   // The road: its object placed, then its spline — the same command shapes the terrain under it.
   const road = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Road', transform: { position: ROAD_AT } }))['createdId']);
   const made = await cmd('setComponent', { entityId: road, component: 'spline', value: ROAD });
@@ -1096,6 +1134,8 @@ test('terrain: CDLOD heights, layered material, paint and a hole in the Scene vi
     // distance): baked once, every copy at the impostor's level, the posts' pixels as many and as orange as the
     // meshes' were (both found the same way: shown against hidden by the script).
     await setPostsImpostor(ground, 1);
+    // The second Play streams the ground and the block layers round the camera (the export does too).
+    await streamed([ground], [blocks, terrace], true);
     await page.getByTitle('Stop the play preview').click();
     await expect(page.getByTitle('Start an isolated play preview')).toBeVisible({ timeout: 30_000 });
     const restarted = page.waitForResponse((r) => r.request().method() === 'POST' && r.url().endsWith('/play'));
@@ -1123,6 +1163,9 @@ test('terrain: CDLOD heights, layered material, paint and a hole in the Scene vi
     expect(ratio, `${renderer} Play: the impostors' posts' pixels against the meshes'`).toBeGreaterThan(0.6);
     expect(ratio, `${renderer} Play: the impostors' posts' pixels against the meshes'`).toBeLessThan(1.6);
     for (let k = 0; k < 3; k++) expect(Math.abs(farPosts.tint[k]! - meshPosts.tint[k]!), `${renderer} Play: the impostors' orange against the meshes' (channel ${k})`).toBeLessThan(40);
+    await streamingPlay(psid2, renderer);
+    // The next renderer's first Play counts every tile and collider again; the last keeps streaming for the export.
+    if (renderer !== BACKENDS[BACKENDS.length - 1]) await streamed([ground], [blocks, terrace], false);
     await setPostsImpostor(ground, POST_IMPOSTOR_SIZE);
     await postBand(ground, false);
     // The next renderer's Scene view draws the layers everywhere again (its checks count one draw per page); the last keeps far ground for the export.
@@ -1167,6 +1210,151 @@ test('terrain: CDLOD heights, layered material, paint and a hole in the Scene vi
     await site.close();
   }
 });
+
+/** Streaming on (the rings above) or off for terrains and block layers. */
+async function streamed(terrains: readonly string[], layers: readonly string[], on: boolean): Promise<void> {
+  for (const id of terrains) await cmd('setComponent', { entityId: id, component: 'terrain', value: { streaming: on ? STREAM : null } });
+  for (const id of layers) await cmd('setComponent', { entityId: id, component: 'blockLayer', value: { streaming: on ? BLOCK_STREAM : null } });
+}
+
+type StreamDiag = {
+  renderer?: {
+    terrain?: TerrainDiag & { streamed?: { resident: number; overviewTiles: number; overviewDrawn: number; ringMetres: number } };
+    blocks?: { chunks: number };
+    streaming?: { budgetBytes: number; residentBytes: number; overBudget: boolean; kinds: Record<string, { resident: number; bytes: number; inRing: number; kept: number; evicted: number }> };
+  };
+  runtime?: { worldStream?: { sources: number; collision: { resident: number; pending: number } }; terrainMemory?: { tilesWithColliders: number; waiting: number } };
+};
+
+/**
+ * The streamed Play (both renderers): only the tiles round the camera are resident, the overview drawn past them;
+ * the player walks west across a tile border with a 1 m collision ring and never falls; the camera flies 400 m off
+ * (every ground tile and block chunk let go, as the diagnostics count) and back (the same picture).
+ */
+async function streamingPlay(psid: string, renderer: string): Promise<void> {
+  const diag = async (): Promise<StreamDiag> => ((await relay(`${psid}/diagnostics`, {})).json as { diagnostics?: StreamDiag }).diagnostics ?? {};
+  const read = async (): Promise<Observation | null> => {
+    const r = await relay(`${psid}/observe`, {});
+    return r.status === 200 ? (r.json as unknown as Observation) : null;
+  };
+  /** Settled round the camera: the ring's tiles all drawn, their macro textures baked, the overview everywhere else. */
+  const settled = async (): Promise<StreamDiag | null> => {
+    const d = await diag();
+    const t = d.renderer?.terrain;
+    const s = t?.streamed;
+    // Every resident tile drawn (and the far 1,025² tile, its own terrain, which does not stream).
+    return s !== undefined && s.resident > 0 && t!.tilesDrawn === s.resident + 1 && s.overviewTiles === TILES * TILES && s.overviewDrawn === TILES * TILES - s.resident && (t!.macro?.waiting ?? 0) === 0 && (d.renderer?.blocks?.chunks ?? 0) >= 2 ? d : null;
+  };
+  let first: StreamDiag | null = null;
+  await expect
+    .poll(async () => (first = await settled()) !== null, { timeout: 60_000, message: `${renderer} streamed Play: the ring's tiles drawn, the overview past it` })
+    .toBe(true)
+    .catch(async (e: Error) => {
+      const d = await diag();
+      console.log(`${renderer} streamed Play (not settled): ${JSON.stringify({ terrain: { ...d.renderer?.terrain, perLevel: undefined }, blocks: d.renderer?.blocks?.chunks, streaming: d.renderer?.streaming, sim: d.runtime?.worldStream })}`);
+      throw e;
+    });
+  const s0 = first!.renderer!.terrain!.streamed!;
+  test.info().annotations.push({ type: `${renderer} streamed Play`, description: JSON.stringify({ terrain: s0, streaming: first!.renderer!.streaming, sim: first!.runtime?.worldStream, colliders: first!.runtime?.terrainMemory }) });
+  console.log(`${renderer} streamed Play: ${JSON.stringify({ terrain: s0, streaming: first!.renderer!.streaming?.kinds, sim: first!.runtime?.worldStream })}`);
+  expect(s0.ringMetres, 'the ring reaches where tiles draw only their coarsest level').toBe(72);
+  expect(s0.resident).toBeLessThan(TILES * TILES);
+  expect(first!.renderer!.streaming!.overBudget).toBe(false);
+  expect(first!.runtime!.worldStream!.collision.resident).toBeLessThan(TILES * TILES);
+
+  // The player walks west along the strip, across the tile border at x = 0; the tile past it gets its collider only
+  // as the player comes within a metre. Sampled while it walks: it never sinks.
+  // At rest on the strip first (its tile's collider built round it before its first step).
+  let rest: Observation | null = null;
+  await expect
+    .poll(async () => {
+      const o = await read();
+      const same = o?.player !== undefined && rest?.player !== undefined && Math.abs(o.player.y - rest.player.y) < 1e-4 && (o.stepIndex ?? 0) > (rest.stepIndex ?? 0);
+      rest = o;
+      return same;
+    }, { timeout: 30_000, intervals: [250], message: `${renderer} streamed Play: the player at rest` })
+    .toBe(true);
+  const start = rest!.player!;
+  expect(Math.abs(start.y - (STRIP_HEIGHT + 0.9)), `${renderer} streamed Play: standing on the strip (at y ${start.y})`).toBeLessThan(0.05);
+  const west = Array.from({ length: 120 }, (_, k) => ({ stepOffset: k, ...controls(-1, 'none', 0) }));
+  let lowest = start.y;
+  for (let leg = 0; leg < 4 && ((await read())?.player?.x ?? 0) > WEST_TO + 2; leg++) {
+    const r = await relay(`${psid}/input`, { mode: 'exclusive-test', frames: west });
+    expect(r.status, JSON.stringify(r.json)).toBe(200);
+    for (let k = 0; k < 6; k++) {
+      await new Promise((done) => setTimeout(done, 200));
+      lowest = Math.min(lowest, (await read())?.player?.y ?? lowest);
+    }
+  }
+  const walked = (await read())!.player!;
+  const after = await diag();
+  test.info().annotations.push({ type: `${renderer} streamed Play: the walk west`, description: JSON.stringify({ from: start, to: walked, lowest, colliders: after.runtime?.terrainMemory, sim: after.runtime?.worldStream }) });
+  console.log(`${renderer} streamed Play: walked from x ${start.x.toFixed(2)} to ${walked.x.toFixed(2)} (across x = 0), lowest y ${lowest.toFixed(3)} (start ${start.y.toFixed(3)})`);
+  expect(walked.x, `${renderer} streamed Play: across the tile border`).toBeLessThan(-4);
+  expect(start.y - lowest, `${renderer} streamed Play: never fell through (lowest y ${lowest})`).toBeLessThan(0.1);
+  expect(after.runtime?.terrainMemory?.waiting ?? 0).toBe(0);
+
+  // The camera flies away: every ground tile and block chunk is let go (the overview drawn instead); then back.
+  // Full size: a crack between a full tile and the overview's is a pixel wide.
+  const frame = async (): Promise<Image | null> => {
+    const r = await relay(`${psid}/screenshot`, { maxWidth: 2048 });
+    return r.status === 200 ? decodePng(Buffer.from(String(r.json['dataUrl'] ?? '').split(',')[1] ?? '', 'base64')) : null;
+  };
+  const place = async (p: V3): Promise<void> => {
+    const r = await relay(`${psid}/control`, { command: 'debugCommand', name: 'place', args: { id: 'cam-main', x: p[0], y: p[1], z: p[2] } });
+    expect(r.status, JSON.stringify(r.json).slice(0, 300)).toBe(200);
+  };
+  /** Away: every ground tile and block chunk let go (the overview drawn everywhere). */
+  const flyAway = async (): Promise<StreamDiag> => {
+    await place(AWAY);
+    let away: StreamDiag = {};
+    await expect
+      .poll(async () => {
+        away = await diag();
+        return `${away.renderer?.terrain?.streamed?.resident} ${away.renderer?.streaming?.kinds['terrain-tile']?.resident} ${away.renderer?.blocks?.chunks}`;
+      }, { timeout: 60_000, message: `${renderer} streamed Play: flown away, the tiles and chunks let go` })
+      .toBe('0 0 0');
+    expect(away.renderer!.terrain!.streamed!.overviewDrawn).toBe(TILES * TILES);
+    return away;
+  };
+  /** Back: settled round the camera again, its picture. */
+  const flyBack = async (): Promise<Image> => {
+    await place(CAM_AT);
+    let img: Image | null = null;
+    await expect
+      .poll(async () => {
+        if ((await settled()) === null) return false;
+        img = await frame();
+        return img !== null;
+      }, { timeout: 60_000, message: `${renderer} streamed Play: back home, settled` })
+      .toBe(true);
+    return img!;
+  };
+  // The picture where the camera starts can hold a few more tiles at full detail (kept by the hysteresis from the
+  // first frames' eye); a return from far holds exactly the ring's: two returns are compared.
+  const away = await flyAway();
+  test.info().annotations.push({ type: `${renderer} streamed Play: flown away`, description: JSON.stringify({ terrain: away.renderer?.terrain?.streamed, streaming: away.renderer?.streaming }) });
+  console.log(`${renderer} streamed Play flown away: ${JSON.stringify(away.renderer?.streaming)}`);
+  const once = await flyBack();
+  // The ground as before streaming (its layers, discs, ramp, posts, tufts and hole), no crack where the ring's
+  // tiles meet the overview's.
+  expectFrame(once, `${renderer} streamed Play`);
+  await flyAway();
+  const twice = await flyBack();
+  // The same ground, scatter and blocks: what still differs is what moves with time (the river's flow, the wind).
+  const diff = meanDiff(once, twice);
+  let changed = 0;
+  for (let y = 0; y < once.height; y++) for (let x = 0; x < once.width; x++) {
+    const p = once.pixel(x, y);
+    const q = twice.pixel(x, y);
+    if (Math.max(Math.abs(p[0] - q[0]), Math.abs(p[1] - q[1]), Math.abs(p[2] - q[2])) > 48) changed += 1;
+  }
+  const share = changed / (once.width * once.height);
+  test.info().annotations.push({ type: `${renderer} streamed Play: back`, description: JSON.stringify({ meanDiff: diff, changedShare: share }) });
+  console.log(`${renderer} streamed Play back home: mean difference ${diff.toFixed(3)} (0–255), ${(share * 100).toFixed(3)} % of pixels changed by more than 48, between two returns`);
+  expect(diff, `${renderer} streamed Play: the same picture after each return`).toBeLessThan(1.5);
+  expect(share, `${renderer} streamed Play: the same picture after each return (pixels that changed)`).toBeLessThan(0.01);
+}
 
 /**
  * The Terrain tools in the Scene view (see the file's header). Leaves the ground as it was (every stroke undone) and

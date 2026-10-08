@@ -54,7 +54,7 @@
 import type { ScatterSink } from './scatter-view';
 import * as THREE from 'three';
 import type { WebGPURenderer } from 'three/webgpu';
-import { flatTerrainTile, TerrainField, terrainFlatStep, terrainHeightOf, terrainTileBytes, terrainTileKey, type TerrainComponent, type TerrainTile } from '@thirdlight/runtime';
+import { flatTerrainTile, resolveStreamingRings, squareDistance, TerrainField, terrainFlatStep, terrainHeightOf, terrainTileBytes, terrainTileKey, terrainTileSize, TERRAIN_OVERVIEW_SAMPLES, type ResolvedStreamingRings, type TerrainComponent, type TerrainTile } from '@thirdlight/runtime';
 
 import { disposeSharingGeometry } from './dispose';
 import { applyEntityRenderFlags } from './entity-render-flags';
@@ -68,7 +68,8 @@ import { PageNodes, selectTerrainNodes, splitFarNodes, terrainLodLayout, terrain
 import { metresPerStep, packFlat, packHeightNormalBorder, TERRAIN_TEXEL_BYTES } from './terrain-texels';
 import { TerrainBrushGpu, terrainBrushParts, type TerrainBrushKind, type TerrainBrushPart, type TerrainBrushTile } from './terrain-brush-gpu';
 import { boxTiles, brushDabOf, brushSampleBox, compareRect, emptyDiff, rectUnion, tileRect, type PreviewDiff, type TerrainPreviewDab } from './terrain-preview';
-import type { TerrainTexels } from './terrain-pack-worker';
+import { packTerrainTile, type TerrainTexels } from './terrain-pack-worker';
+import { askingRing, eyeMoved, recheckMetres, type PageWorldStream, type StreamCell } from './world-stream';
 import { terrainPackShape, type TerrainTileStore } from './terrain-tile-store';
 import { SphereSide, type CullView } from './view-cull';
 
@@ -106,12 +107,16 @@ export interface TerrainViewDeps {
   place(mesh: THREE.Mesh, shown: boolean): void;
   /** The terrain's shape changed (tiles arrived or were sculpted): the cached static shadow is drawn again. */
   shapeChanged(): void;
+  /** It changed only within this sphere (world metres; a tile streamed in or out): drawn again only if the map reaches it (absent: `shapeChanged`). */
+  shapeChangedWithin?(x: number, y: number, z: number, radius: number): void;
   /** Something arrived (a host drawing on demand draws again). */
   changed(): void;
   /** The LOD bias in force (the project's and the quality level's). */
   lodBias(): number;
   /** Where the terrains' scatter copies go (`scatter-view.ts`). */
   scatter?: ScatterSink;
+  /** World streaming (a game page): terrains with `streaming` keep only the tiles round the camera (absent: every tile, the editor). */
+  stream?: PageWorldStream | null;
 }
 
 /** What `setTerrain` dresses the terrain with: its entity's components (materials, render flags). */
@@ -147,6 +152,8 @@ export interface TerrainViewDiagnostics {
   cpuBytes: number;
   /** Tiles that failed to read (digest, message). */
   errors: string[];
+  /** Streamed terrains: tiles resident at full detail, the overview's tiles read and those drawn in place of a full tile, the render ring's reach (m). */
+  streamed?: { resident: number; overviewTiles: number; overviewDrawn: number; ringMetres: number; streamMs?: number };
   /** Far ground (terrains with a macro distance): tiles baked, waiting, bakes made and their main-thread ms in all, the last bake frame's ms, far nodes drawn and their draws. */
   macro?: { baked: number; waiting: number; bakes: number; bakeMsTotal: number; bakeMs: number; farNodes: number; draws: number };
 }
@@ -154,6 +161,8 @@ export interface TerrainViewDiagnostics {
 interface TileRec {
   readonly x: number;
   readonly z: number;
+  /** The digest the component names (null: flat): what a streamed tile reads when it comes back. */
+  want: string | null;
   /** The digest drawn (null: flat) and the one being read. */
   digest: string | null;
   reading: string | null;
@@ -289,6 +298,18 @@ interface TerrainRec {
   stroke: StrokeRec | null;
   settle: SettleRec | null;
   lastStroke: TerrainPreviewStats | null;
+  /** Its rings when it streams (a game page; null: every tile resident). */
+  rings: ResolvedStreamingRings | null;
+  /** A streamed terrain's overview drawn where its tiles are not (null: none), and the digest read into it. */
+  coarse: TerrainRec | null;
+  overview: string | null;
+  /** The terrain an overview draws for (null: a terrain of its own). */
+  parent: TerrainRec | null;
+  /** The render ring's reach the last frame (m). */
+  ringMetres: number;
+  /** Where its tiles were last streamed from (x, z; null: not yet), and whether they changed since. */
+  streamAt: number[] | null;
+  streamDirty: boolean;
 }
 
 function arrayTexture(samples: number, capacity: number, filter: THREE.MagnificationTextureFilter): THREE.DataArrayTexture {
@@ -309,10 +330,19 @@ function arrayTexture(samples: number, capacity: number, filter: THREE.Magnifica
 /** A stored stroke's tiles whose new data have not come by then are uploaded again from their copies (the preview is not left standing). */
 const SETTLE_TIMEOUT_MS = 15_000;
 
+/** Appended to a terrain's id for its overview's record (an entity id never holds a `#`). */
+const OVERVIEW_SUFFIX = '#overview';
+
 /** `mesh.userData[PLACED_KEY]`: the page's mesh has its world matrix (it was placed once). */
 const PLACED_KEY = '__tlTerrainPlaced';
 
 const pow2AtLeast = (n: number): number => 2 ** Math.ceil(Math.log2(Math.max(1, n)));
+
+/** The most tiles a streamed terrain's render ring (with its hysteresis) can hold: a square of tiles round it. */
+function ringTiles(rec: TerrainRec): number {
+  const across = Math.ceil((2 * (rec.ringMetres + rec.rings!.render.hysteresis)) / terrainTileSize(rec.component)) + 2;
+  return across * across;
+}
 
 export class TerrainView {
   private readonly deps: TerrainViewDeps;
@@ -323,6 +353,7 @@ export class TerrainView {
   private disposed = false;
   private lastSelectMs = 0;
   private lastUploadMs = 0;
+  private lastStreamMs = 0;
   /** The last frames' upload times and bytes (a ring; their peak is in the diagnostics). */
   private readonly uploadMsRing = new Float32Array(UPLOAD_PEAK_FRAMES);
   private readonly uploadBytesRing = new Float64Array(UPLOAD_PEAK_FRAMES);
@@ -348,19 +379,35 @@ export class TerrainView {
 
   /** The terrain of entity `id` (its component, its object's position, its look). */
   setTerrain(id: string, component: TerrainComponent, origin: readonly number[], look: TerrainLook): void {
+    const rec = this.realize(id, component, origin, look, null);
+    // A streamed terrain's overview: every tile at its coarsest level, drawn where a full tile is not (a build ships it).
+    if (rec.rings !== null && component.overview !== undefined) this.overviewOf(rec, component.overview);
+    else if (rec.coarse !== null) {
+      this.drop(rec.coarse);
+      rec.coarse = null;
+      rec.overview = null;
+    }
+    this.deps.scatter?.setTerrain(id, component, rec.origin);
+  }
+
+  /** Make or update a terrain's record (an overview's too: `parent`) and its tiles. */
+  private realize(id: string, component: TerrainComponent, origin: readonly number[], look: TerrainLook, parent: TerrainRec | null): TerrainRec {
     const at: [number, number, number] = [origin[0] ?? 0, origin[1] ?? 0, origin[2] ?? 0];
     let rec = this.terrains.get(id);
-    if (rec !== undefined && (rec.component.tileSamples !== component.tileSamples || rec.component.spacing !== component.spacing || (rec.component.macroDistance === undefined) !== (component.macroDistance === undefined))) {
-      // Another tile layout (or far ground on or off): built again from nothing.
+    const streams = parent === null && this.deps.stream != null && component.streaming !== undefined;
+    if (rec !== undefined && (rec.component.tileSamples !== component.tileSamples || rec.component.spacing !== component.spacing || (rec.component.macroDistance === undefined) !== (component.macroDistance === undefined) || (rec.rings !== null) !== streams)) {
+      // Another tile layout (or far ground or streaming on or off): built again from nothing.
       this.drop(rec);
       rec = undefined;
     }
     if (rec === undefined) {
       const layout = terrainLodLayout(component.tileSamples, component.spacing);
-      rec = { id, component, origin: at, look, layout, uniforms: terrainUniforms(), tiles: new Map(), pages: [], hidden: false, leaving: false, dirty: true, uploads: new Set(), reheights: new Set(), serial: ++this.serials, reach: Number.NaN, field: null, stats: { nodes: 0, inView: 0, perLevel: [] }, bakes: new Set(), stroke: null, settle: null, lastStroke: null, warm: null };
+      rec = { id, component, origin: at, look, layout, uniforms: terrainUniforms(), tiles: new Map(), pages: [], hidden: parent?.hidden ?? false, leaving: false, dirty: true, uploads: new Set(), reheights: new Set(), serial: ++this.serials, reach: Number.NaN, field: null, stats: { nodes: 0, inView: 0, perLevel: [] }, bakes: new Set(), stroke: null, settle: null, lastStroke: null, warm: null, rings: null, coarse: null, overview: null, parent, ringMetres: 0, streamAt: null, streamDirty: true };
       this.terrains.set(id, rec);
     }
     rec.leaving = false;
+    rec.rings = streams ? resolveStreamingRings(component.streaming) : null;
+    const streamed = rec.rings !== null;
     const rangeChanged = rec.component.heightRange[0] !== component.heightRange[0] || rec.component.heightRange[1] !== component.heightRange[1];
     rec.component = component;
     rec.look = look;
@@ -372,19 +419,23 @@ export class TerrainView {
     u.low.value = terrainHeightOf(component.heightRange, 0);
     u.step.value = metresPerStep(component.heightRange);
     u.grid.value = rec.layout.grid;
-    // The tiles: gone ones free their layers, new ones take one, changed ones are read again.
+    // The tiles: gone ones free their layers, new ones take one, changed ones are read again. A streamed
+    // terrain's tiles take a layer only when the camera comes near (`streamTiles`).
     const listed = new Set<string>();
     for (const ref of component.tiles) {
       const key = terrainTileKey(ref.x, ref.z);
       listed.add(key);
+      const want = ref.data ?? null;
       let t = rec.tiles.get(key);
       if (t === undefined) {
-        t = { x: ref.x, z: ref.z, digest: null, reading: null, tile: null, page: -1, layer: -1, bounds: null, pending: null, ready: false, preview: null };
+        t = { x: ref.x, z: ref.z, want, digest: null, reading: null, tile: null, page: -1, layer: -1, bounds: null, pending: null, ready: false, preview: null };
         rec.tiles.set(key, t);
+        if (streamed) continue;
         this.allocate(rec, t);
         if (ref.data === undefined) this.arriveFlat(rec, t);
       }
-      const want = ref.data ?? null;
+      t.want = want;
+      if (streamed && t.page < 0) continue;
       if (want === t.digest && t.tile !== null && !rangeChanged) {
         // Back to the data drawn before another read arrived (an undo right after an edit): that read is not wanted.
         t.reading = null;
@@ -398,13 +449,41 @@ export class TerrainView {
     for (const [key, t] of [...rec.tiles]) {
       if (listed.has(key)) continue;
       rec.tiles.delete(key);
+      if (streamed) this.deps.stream!.forget('terrain-tile', `${rec.id}/${key}`);
       this.release(rec, t);
       this.useDigest(t.digest, null);
       this.neighboursBorder(rec, t);
     }
     this.placeAll(rec, at);
     this.dress(rec);
-    this.deps.scatter?.setTerrain(id, component, at);
+    return rec;
+  }
+
+  /**
+   * A streamed terrain's overview: a terrain of its own drawn from every
+   * tile at its coarsest level (17 samples a side), read once; until it is
+   * in, its tiles are flat (the tiles near the camera come first anyway).
+   */
+  private overviewOf(rec: TerrainRec, digest: string): void {
+    const c = rec.component;
+    const size = terrainTileSize(c);
+    const component: TerrainComponent = { tileSamples: TERRAIN_OVERVIEW_SAMPLES, spacing: size / (TERRAIN_OVERVIEW_SAMPLES - 1), heightRange: c.heightRange, tiles: c.tiles.map((t) => ({ x: t.x, z: t.z })), ...(c.macroDistance !== undefined ? { macroDistance: c.macroDistance } : {}) };
+    const coarse = this.realize(`${rec.id}${OVERVIEW_SUFFIX}`, component, rec.origin, rec.look, rec);
+    rec.coarse = coarse;
+    if (rec.overview === digest) return;
+    rec.overview = digest;
+    const shape = terrainPackShape(component);
+    void this.deps.tiles.overview(digest).then(
+      (tiles) => {
+        if (this.disposed || rec.coarse !== coarse || rec.overview !== digest || this.terrains.get(coarse.id) !== coarse) return;
+        for (const o of tiles) {
+          const t = coarse.tiles.get(terrainTileKey(o.x, o.z));
+          if (t !== undefined && t.page >= 0) this.arrive(coarse, t, null, o.tile, packTerrainTile(o.tile, shape));
+        }
+        this.deps.changed();
+      },
+      (e: unknown) => this.error(`terrain ${rec.id}: its overview (${digest.slice(0, 12)}…) could not be read: ${e instanceof Error ? e.message : String(e)}`),
+    );
   }
 
   /** The terrain of entity `id` goes (at the next update, unless it is set again first). */
@@ -412,8 +491,10 @@ export class TerrainView {
     const rec = this.terrains.get(id);
     // Its scatter goes with it (at the next update): a terrain realized again (every edit) keeps its sets and
     // ground cover, and only what its new tiles changed is made again.
-    if (rec !== undefined) rec.leaving = true;
-    else this.deps.scatter?.remove(id);
+    if (rec !== undefined) {
+      rec.leaving = true;
+      if (rec.coarse !== null) rec.coarse.leaving = true;
+    } else this.deps.scatter?.remove(id);
   }
 
   /** Hide or show a terrain (its object is inactive or hidden). */
@@ -421,7 +502,10 @@ export class TerrainView {
     const rec = this.terrains.get(id);
     if (rec === undefined || rec.hidden === hidden) return;
     rec.hidden = hidden;
-    for (const p of rec.pages) this.list(p, !hidden);
+    for (const r of rec.coarse !== null ? [rec, rec.coarse] : [rec]) {
+      r.hidden = hidden;
+      for (const p of r.pages) this.list(p, !hidden);
+    }
     this.deps.scatter?.setHidden(id, hidden);
   }
 
@@ -438,7 +522,7 @@ export class TerrainView {
   }
 
   ids(): string[] {
-    return [...this.terrains.keys()];
+    return [...this.terrains.values()].filter((r) => r.parent === null).map((r) => r.id);
   }
 
   /** A run-time material swap on a terrain (its look's materials). */
@@ -447,6 +531,10 @@ export class TerrainView {
     if (rec === undefined) return;
     rec.look = { ...rec.look, materials, overrides };
     this.dress(rec);
+    if (rec.coarse !== null) {
+      rec.coarse.look = rec.look;
+      this.dress(rec.coarse);
+    }
   }
 
   /** The field over a terrain's decoded tiles (heights, holes, layers at a point), or null for no such terrain. */
@@ -677,6 +765,11 @@ export class TerrainView {
       this.lastUploadMs = 0;
       return;
     }
+    // Streamed terrains: the tiles round the camera come in (their reads start), those past their ring go.
+    const ts = performance.now();
+    for (const rec of this.terrains.values()) if (rec.rings !== null) this.streamTiles(rec, view.eye);
+    this.lastStreamMs = performance.now() - ts;
+    this.deps.stream?.spent(this.lastStreamMs);
     // Before the uploads: a tile with texels still to copy is left out of the dabs (its upload would cover them).
     for (const rec of this.terrains.values()) {
       if (rec.warm !== null && renderer != null && rec.pages.length > 0) {
@@ -698,6 +791,7 @@ export class TerrainView {
         if (t.layer < 0 || (t.pending?.heights ?? null) !== null) continue;
         bytes += this.markLayer(rec.pages[t.page]!, 'heights', t.layer, t.tile!.samples);
         parts += 1;
+        this.shapeChangedAt(rec, t);
       }
       for (const t of [...rec.uploads]) {
         const pend = t.pending;
@@ -717,6 +811,7 @@ export class TerrainView {
           bytes += this.markLayer(p, part, t.layer, t.tile.samples);
           parts += 1;
           pend[part] = null;
+          this.shapeChangedAt(rec, t);
         }
         if (pend.heights === null && pend.layers === null && pend.indices === null) {
           t.pending = null;
@@ -726,6 +821,12 @@ export class TerrainView {
           if (!t.ready) {
             t.ready = true;
             rec.dirty = true;
+            // Its overview's tile gives way to it in the same frame.
+            if (rec.coarse !== null) {
+              rec.coarse.dirty = true;
+              // A streamed tile in (measurements line it up with the frames).
+              globalThis.performance?.mark?.('tl:terrain:streamed', { detail: { tile: [t.x, t.z], uploadMs: Math.round((performance.now() - t0) * 100) / 100 } });
+            }
           }
           // Its macro texture shows what it was: drawn from its layers until baked again.
           const macro = rec.pages[t.page]?.macro ?? null;
@@ -744,7 +845,6 @@ export class TerrainView {
     this.uploadMsRing[this.ringAt] = this.lastUploadMs;
     this.uploadBytesRing[this.ringAt] = bytes;
     this.ringAt = (this.ringAt + 1) % UPLOAD_PEAK_FRAMES;
-    if (parts > 0) this.deps.shapeChanged();
     // The morph reads the view's camera in every pass.
     (terrainEye.value as THREE.Vector3).set(view.eye[0]!, view.eye[1]!, view.eye[2]!);
     for (const rec of this.terrains.values()) this.select(rec, view);
@@ -758,10 +858,26 @@ export class TerrainView {
     let gpuBytes = 0;
     let draws = 0;
     const held = new Set<TerrainTile>();
+    let streamed: TerrainViewDiagnostics['streamed'];
     for (const rec of this.terrains.values()) {
-      tilesListed += rec.tiles.size;
+      if (rec.parent !== null) {
+        // An overview: its tiles read, and those drawn because their terrain's own tile is not.
+        streamed ??= { resident: 0, overviewTiles: 0, overviewDrawn: 0, ringMetres: 0 };
+        for (const t of rec.tiles.values()) {
+          if (!t.ready) continue;
+          streamed.overviewTiles += 1;
+          if (rec.parent.tiles.get(terrainTileKey(t.x, t.z))?.ready !== true) streamed.overviewDrawn += 1;
+        }
+      } else {
+        tilesListed += rec.tiles.size;
+        if (rec.rings !== null) {
+          streamed ??= { resident: 0, overviewTiles: 0, overviewDrawn: 0, ringMetres: 0 };
+          streamed.ringMetres = Math.max(streamed.ringMetres, Math.round(rec.ringMetres));
+          for (const t of rec.tiles.values()) if (t.page >= 0) streamed.resident += 1;
+        }
+      }
       for (const t of rec.tiles.values()) {
-        if (t.ready) tilesDrawn += 1;
+        if (t.ready && rec.parent === null) tilesDrawn += 1;
         if (t.tile !== null && t.digest !== null) held.add(t.tile);
       }
       for (const p of rec.pages) {
@@ -803,7 +919,7 @@ export class TerrainView {
       peakMs = Math.max(peakMs, this.uploadMsRing[i]!);
       peakBytes = Math.max(peakBytes, this.uploadBytesRing[i]!);
     }
-    return { terrains: this.terrains.size, tilesDrawn, tilesListed, gpuBytes, nodes, inView, perLevel, draws, selectMs: r3(this.lastSelectMs), uploadMs: r3(this.lastUploadMs), uploadMsPeak: r3(peakMs), uploadBytesPeak: peakBytes, tilesUploaded: this.tilesUploaded, decodeMs: r3(this.lastDecodeMs), packMs: r3(this.lastPackMs), cpuBytes, errors: this.errors.slice(-8), ...(macro !== undefined ? { macro } : {}) };
+    return { terrains: this.ids().length, tilesDrawn, tilesListed, gpuBytes, nodes, inView, perLevel, draws, selectMs: r3(this.lastSelectMs), uploadMs: r3(this.lastUploadMs), uploadMsPeak: r3(peakMs), uploadBytesPeak: peakBytes, tilesUploaded: this.tilesUploaded, decodeMs: r3(this.lastDecodeMs), packMs: r3(this.lastPackMs), cpuBytes, errors: this.errors.slice(-8), ...(macro !== undefined ? { macro } : {}), ...(streamed !== undefined ? { streamed: { ...streamed, streamMs: r3(this.lastStreamMs) } } : {}) };
   }
 
   dispose(): void {
@@ -817,6 +933,97 @@ export class TerrainView {
     this.grids.clear();
   }
 
+  // ---- streaming -------------------------------------------------------------------------
+
+  /**
+   * A streamed terrain's tiles for this frame's eye: those in its render
+   * ring (and its collision ring: the simulation's colliders read the page's
+   * tiles) are read and uploaded, those past it and its hysteresis go — but
+   * only once the overview's tile is there to draw in their place (old until
+   * new). The ring reaches at least as far as the tiles' coarsest level
+   * starts, so a full tile meets the overview's where both draw that level:
+   * the same vertices, no crack, nothing that jumps when one replaces the
+   * other.
+   */
+  private streamTiles(rec: TerrainRec, eye: ArrayLike<number>): void {
+    const stream = this.deps.stream!;
+    const rings = rec.rings!;
+    const c = rec.component;
+    const size = terrainTileSize(c);
+    const ranges = terrainLodRanges(rec.layout, c.lodDistance, this.deps.lodBias());
+    const coarsest = rec.layout.levels >= 2 ? ranges[rec.layout.levels - 2]! : 0;
+    const radius = Math.max(rings.render.radius, rings.collision.radius, coarsest);
+    const ring = { radius, hysteresis: rings.render.hysteresis };
+    if (!rec.streamDirty && radius === rec.ringMetres && !eyeMoved(rec.streamAt, eye, recheckMetres(ring))) return;
+    rec.streamDirty = false;
+    rec.streamAt = [eye[0]!, eye[2]!];
+    rec.ringMetres = radius;
+    const gpu = 3 * c.tileSamples * c.tileSamples * TERRAIN_TEXEL_BYTES;
+    // A tile not read yet counts as heights and baked weights (paint, when it has some, is counted once it is in).
+    const estimate = c.tileSamples * c.tileSamples * 10 + gpu;
+    const cells: StreamCell[] = [];
+    const keyOf = (t: TileRec): string => `${rec.id}/${terrainTileKey(t.x, t.z)}`;
+    for (const t of rec.tiles.values()) {
+      const x0 = rec.origin[0] + t.x * size;
+      const z0 = rec.origin[2] + t.z * size;
+      cells.push({ key: keyOf(t), d: squareDistance(x0, z0, x0 + size, z0 + size, eye[0]!, eye[2]!), bytes: t.tile !== null ? terrainTileBytes(t.tile) + gpu : estimate, resident: t.page >= 0 });
+    }
+    const hold = stream.residency('terrain-tile', `terrain:${rec.id}`, cells, askingRing(ring));
+    for (const t of rec.tiles.values()) {
+      const k = keyOf(t);
+      if (hold.has(k)) {
+        if (t.page < 0) {
+          this.allocate(rec, t);
+          if (t.want === null) this.arriveFlat(rec, t);
+          else this.read(rec, t, t.want);
+          stream.hold('terrain-tile', k, estimate, () => this.evictTile(rec, t));
+        } else if (!stream.holds('terrain-tile', k)) stream.hold('terrain-tile', k, t.tile !== null ? terrainTileBytes(t.tile) + gpu : estimate, () => this.evictTile(rec, t));
+      } else if (t.page >= 0 && stream.holds('terrain-tile', k)) {
+        // Old until new: it goes once the overview's tile is drawn in its place (a terrain without one: at once).
+        const o = rec.coarse?.tiles.get(terrainTileKey(t.x, t.z));
+        if (rec.coarse !== null && o?.ready !== true) {
+          rec.streamDirty = true;
+          continue;
+        }
+        stream.release('terrain-tile', k);
+      }
+    }
+  }
+
+  /** A streamed tile let go (the resource manager's settle): its layer, its decoded copy and its texels go; the overview draws there again. */
+  private evictTile(rec: TerrainRec, t: TileRec): void {
+    if (this.disposed || this.terrains.get(rec.id) !== rec || rec.tiles.get(terrainTileKey(t.x, t.z)) !== t || t.page < 0) return;
+    this.release(rec, t);
+    this.useDigest(t.digest, null);
+    t.digest = null;
+    t.reading = null;
+    t.tile = null;
+    t.bounds = null;
+    t.pending = null;
+    t.ready = false;
+    t.preview = null;
+    // The neighbours' border normals no longer read it.
+    this.neighboursBorder(rec, t);
+    rec.streamDirty = true;
+    if (rec.coarse !== null) rec.coarse.dirty = true;
+    this.shapeChangedAt(rec, t);
+    this.deps.changed();
+  }
+
+  /** A tile's ground changed (its texels went up, it went): the cached static shadow there is drawn again. */
+  private shapeChangedAt(rec: TerrainRec, t: TileRec): void {
+    const within = this.deps.shapeChangedWithin;
+    if (within === undefined) {
+      this.deps.shapeChanged();
+      return;
+    }
+    const size = terrainTileSize(rec.component);
+    const [lo, hi] = rec.component.heightRange;
+    const half = size / 2;
+    // The tile's box (its whole height range: its bounds may be the old tile's), as a sphere round it.
+    within(rec.origin[0] + t.x * size + half, rec.origin[1] + (lo + hi) / 2, rec.origin[2] + t.z * size + half, Math.hypot(half, half, (hi - lo) / 2));
+  }
+
   // ---- tiles -----------------------------------------------------------------------------
 
   private read(rec: TerrainRec, t: TileRec, digest: string): void {
@@ -828,8 +1035,11 @@ export class TerrainView {
     const shape = terrainPackShape(rec.component);
     void this.deps.tiles.packed(digest, shape).then(
       (packed) => {
-        // Still wanted: the same terrain, tile and shape, not read again since.
-        if (this.disposed || this.terrains.get(rec.id) !== rec || rec.tiles.get(terrainTileKey(t.x, t.z)) !== t || t.reading !== digest) return;
+        // Still wanted: the same terrain, tile and shape, not read again since (a streamed tile gone meanwhile: its decoded copy goes too).
+        if (this.disposed || this.terrains.get(rec.id) !== rec || rec.tiles.get(terrainTileKey(t.x, t.z)) !== t || t.reading !== digest) {
+          if (!this.disposed && !this.digestUse.has(digest)) this.deps.tiles.release(digest);
+          return;
+        }
         if (metresPerStep(rec.component.heightRange) !== shape.metresPerStep || rec.component.spacing !== shape.spacing) return;
         t.reading = null;
         if (packed.tile.samples !== rec.component.tileSamples) {
@@ -868,6 +1078,7 @@ export class TerrainView {
     this.useDigest(t.digest, digest);
     t.digest = digest;
     t.tile = tile;
+    if (rec.rings !== null) this.deps.stream!.resize('terrain-tile', `${rec.id}/${terrainTileKey(t.x, t.z)}`, terrainTileBytes(tile) + 3 * tile.samples * tile.samples * TERRAIN_TEXEL_BYTES);
     t.bounds = texels.bounds;
     t.pending = { heights: texels.heights, layers: texels.layers, indices: texels.indices };
     rec.uploads.delete(t);
@@ -954,9 +1165,14 @@ export class TerrainView {
         return;
       }
     }
-    const want = Math.min(TERRAIN_PAGE_LAYERS, pow2AtLeast(rec.component.tiles.length - rec.pages.length * TERRAIN_PAGE_LAYERS));
+    // A streamed terrain holds only the tiles round the camera: its pages are as large as its ring needs (grown when it outgrows them).
+    const total = rec.rings !== null ? Math.min(rec.component.tiles.length, ringTiles(rec)) : rec.component.tiles.length;
+    const want = Math.min(TERRAIN_PAGE_LAYERS, pow2AtLeast(total - rec.pages.length * TERRAIN_PAGE_LAYERS));
     rec.pages.push(this.makePage(rec, want));
     const page = rec.pages[rec.pages.length - 1]!;
+    // A page made after its terrain was realized (a streamed tile came near) is placed and dressed here.
+    this.placePage(rec, page, false);
+    this.dressPage(rec, page);
     page.used.add(0);
     t.page = rec.pages.length - 1;
     t.layer = 0;
@@ -1167,29 +1383,32 @@ export class TerrainView {
   private placeAll(rec: TerrainRec, at: [number, number, number]): void {
     const moved = at[0] !== rec.origin[0] || at[1] !== rec.origin[1] || at[2] !== rec.origin[2];
     rec.origin = at;
-    for (const p of rec.pages) {
-      const m = p.mesh;
-      const placed = m.userData[PLACED_KEY] === true;
-      if (placed && !moved) {
-        if (!rec.hidden) this.list(p, true);
-        continue;
-      }
-      // A listed drawable's world matrix is taken as it is when listed: listed again where it is now.
-      this.list(p, false);
-      m.position.set(at[0], at[1], at[2]);
-      m.updateMatrix();
-      m.matrixWorld.copy(m.matrix);
-      m.userData[PLACED_KEY] = true;
-      if (p.macro !== null) {
-        p.macro.mesh.matrix.copy(m.matrix);
-        p.macro.mesh.matrixWorld.copy(m.matrix);
-      }
-      if (!rec.hidden) this.list(p, true);
-    }
+    for (const p of rec.pages) this.placePage(rec, p, moved);
     if (moved) {
       rec.dirty = true;
       rec.field = null;
     }
+  }
+
+  /** Put a page's mesh where its terrain is (again when it `moved`), listed in the scene unless hidden. */
+  private placePage(rec: TerrainRec, p: Page, moved: boolean): void {
+    const m = p.mesh;
+    const at = rec.origin;
+    if (m.userData[PLACED_KEY] === true && !moved) {
+      if (!rec.hidden) this.list(p, true);
+      return;
+    }
+    // A listed drawable's world matrix is taken as it is when listed: listed again where it is now.
+    this.list(p, false);
+    m.position.set(at[0], at[1], at[2]);
+    m.updateMatrix();
+    m.matrixWorld.copy(m.matrix);
+    m.userData[PLACED_KEY] = true;
+    if (p.macro !== null) {
+      p.macro.mesh.matrix.copy(m.matrix);
+      p.macro.mesh.matrixWorld.copy(m.matrix);
+    }
+    if (!rec.hidden) this.list(p, true);
   }
 
   /** The terrain's material and render flags on every page. */
@@ -1224,9 +1443,14 @@ export class TerrainView {
       if (p.macro !== null) this.disposeMacro(p.macro);
     }
     rec.pages = [];
-    for (const t of rec.tiles.values()) this.useDigest(t.digest, null);
+    for (const t of rec.tiles.values()) {
+      this.useDigest(t.digest, null);
+      if (rec.rings !== null && t.page >= 0) this.deps.stream?.forget('terrain-tile', `${rec.id}/${terrainTileKey(t.x, t.z)}`);
+    }
     this.terrains.delete(rec.id);
-    this.deps.scatter?.remove(rec.id);
+    if (rec.rings !== null) this.deps.stream?.forgetObject(`terrain:${rec.id}`);
+    if (rec.coarse !== null && this.terrains.get(rec.coarse.id) === rec.coarse) this.drop(rec.coarse);
+    if (rec.parent === null) this.deps.scatter?.remove(rec.id);
   }
 
   // ---- selection -------------------------------------------------------------------------
@@ -1240,7 +1464,9 @@ export class TerrainView {
     rec.reach = ranges[0]!;
     const [ox, oy, oz] = rec.origin;
     const tiles: SelectTile[] = [];
-    for (const t of rec.tiles.values()) if (t.ready && t.bounds !== null && t.page >= 0) tiles.push({ x: t.x, z: t.z, page: t.page, layer: t.layer, bounds: t.bounds });
+    // An overview draws only where its terrain's own tile is not drawn.
+    const covered = (t: TileRec): boolean => rec.parent?.tiles.get(terrainTileKey(t.x, t.z))?.ready === true;
+    for (const t of rec.tiles.values()) if (t.ready && t.bounds !== null && t.page >= 0 && !covered(t)) tiles.push({ x: t.x, z: t.z, page: t.page, layer: t.layer, bounds: t.bounds });
     const range = rec.component.heightRange;
     selectTerrainNodes(
       tiles,

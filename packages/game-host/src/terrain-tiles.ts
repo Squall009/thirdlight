@@ -11,7 +11,7 @@
  * there (`preloadTerrainTiles`, `feedTerrainCollision`); `loadTerrainField`
  * reads a terrain whole where no renderer runs.
  */
-import { TerrainField, terrainTileKey, terrainTileOf, type TerrainComponent, type TerrainTile, type TerrainTileData } from '@thirdlight/runtime';
+import { TerrainField, resolveStreamingRings, squareDistance, terrainTileKey, terrainTileOf, terrainTileSize, type TerrainComponent, type TerrainSimData, type TerrainTile, type TerrainTileData } from '@thirdlight/runtime';
 
 export { terrainTileOf };
 
@@ -41,23 +41,58 @@ export async function loadTerrainField(component: TerrainComponent, origin: read
 
 /** The page's decoded tiles as the game page uses them (three-adapter's `TerrainTileStore`). */
 export interface PageTerrainTiles {
-  preload(component: TerrainComponent, pack: boolean): Promise<void>;
+  preload(component: TerrainComponent, pack: boolean, only?: (x: number, z: number) => boolean): Promise<void>;
   tiles(): ReadonlyMap<string, TerrainTile>;
   onTile(listener: (digest: string, tile: TerrainTile) => void): () => void;
+  onRelease(listener: (digest: string) => void): () => void;
+}
+
+type EntityLike = { readonly components?: unknown };
+
+/**
+ * Where a game starts looking from, before its simulation has run: its
+ * cameras and characters (what world streaming's rings follow) in the start
+ * entities.
+ */
+export function startStreamSources(entities: readonly EntityLike[]): number[][] {
+  const out: number[][] = [];
+  for (const e of entities) {
+    const c = e.components as { transform?: { position?: readonly number[] }; camera?: unknown; virtualCamera?: unknown; controller?: unknown } | undefined;
+    const p = c?.transform?.position;
+    if (p !== undefined && (c?.camera !== undefined || c?.virtualCamera !== undefined || c?.controller !== undefined)) out.push([p[0] ?? 0, p[1] ?? 0, p[2] ?? 0]);
+  }
+  return out;
 }
 
 /**
  * Read the terrains of `entities` into the page's tiles before the
  * simulation gets them (their colliders are built on its first step): every
- * tile with data, packed for drawing too when terrains are drawn.
+ * tile with data — a streamed terrain's only within its collision ring of
+ * the start's cameras and characters (the rest stream in round the camera,
+ * drawn from the overview until then) — packed for drawing too when
+ * terrains are drawn.
  */
-export async function preloadTerrainTiles(entities: readonly { readonly components?: unknown }[], tiles: PageTerrainTiles, drawn: boolean): Promise<void> {
+export async function preloadTerrainTiles(entities: readonly EntityLike[], tiles: PageTerrainTiles, drawn: boolean): Promise<void> {
   const work: Promise<void>[] = [];
+  const sources = startStreamSources(entities);
   for (const e of entities) {
     const c = (e.components as { terrain?: TerrainComponent } | undefined)?.terrain;
     if (c === undefined || !c.tiles.some((t) => t.data !== undefined)) continue;
     if (!drawn && c.collision === false) continue;
-    work.push(tiles.preload(c, drawn));
+    const rings = resolveStreamingRings(c.streaming);
+    if (rings === null) {
+      work.push(tiles.preload(c, drawn));
+      continue;
+    }
+    const at = (e.components as { transform?: { position?: readonly number[] } }).transform?.position ?? [0, 0, 0];
+    const size = terrainTileSize(c);
+    const reach = rings.collision.radius + rings.collision.hysteresis;
+    const near = (x: number, z: number): boolean => {
+      const x0 = (at[0] ?? 0) + x * size;
+      const z0 = (at[2] ?? 0) + z * size;
+      return sources.some((p) => squareDistance(x0, z0, x0 + size, z0 + size, p[0]!, p[2]!) <= reach);
+    };
+    work.push(tiles.preload(c, drawn, near));
   }
   await Promise.all(work);
 }
@@ -65,9 +100,18 @@ export async function preloadTerrainTiles(entities: readonly { readonly componen
 /** What collision reads of a decoded tile (the same arrays: a simulation on the page shares them; its worker gets a copy). */
 export const terrainTileData = (digest: string, tile: TerrainTile): TerrainTileData => ({ digest, samples: tile.samples, heights: tile.heights, holes: tile.holes });
 
-/** Hand the page's decoded tiles to a simulation's colliders: those decoded now, and each one as it is; returns the stop. */
-export function feedTerrainCollision(tiles: PageTerrainTiles, add: (tiles: readonly TerrainTileData[]) => void): () => void {
+/**
+ * Hand the page's decoded tiles to a simulation's colliders: those decoded
+ * now, each one as it is, and each one the page lets go of (world streaming:
+ * the simulation lets go of its copy too); returns the stop.
+ */
+export function feedTerrainCollision(tiles: PageTerrainTiles, add: (tiles: readonly TerrainSimData[]) => void): () => void {
   const now = [...tiles.tiles()].map(([d, t]) => terrainTileData(d, t));
   if (now.length > 0) add(now);
-  return tiles.onTile((digest, tile) => add([terrainTileData(digest, tile)]));
+  const stopTiles = tiles.onTile((digest, tile) => add([terrainTileData(digest, tile)]));
+  const stopReleases = tiles.onRelease((digest) => add([{ digest, dropped: true }]));
+  return () => {
+    stopTiles();
+    stopReleases();
+  };
 }

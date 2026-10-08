@@ -20,6 +20,8 @@ export interface PerfPageState {
   tris: number;
   recording: boolean;
   frames: number[];
+  /** When (page ms) each recorded frame that missed a 60 Hz refresh ended (a flight lines them up with the engine's marks). */
+  missedAt: number[];
   frameDraws: number[];
   frameTris: number[];
   firstDrawAt: number | null;
@@ -87,6 +89,7 @@ export function installPerfInstrumentation(): void {
     gpuCalls: { renderPasses: 0, computePasses: 0, dispatches: 0, setPipeline: 0, setBindGroup: 0, createBindGroup: 0, writeBuffer: 0, writeBufferBytes: 0, textureUploads: 0, textureUploadBytes: 0, submits: 0 },
     shaders: new Map(),
     frames: [],
+    missedAt: [],
     frameDraws: [],
     frameTris: [],
     firstDrawAt: null,
@@ -429,7 +432,11 @@ export function installPerfInstrumentation(): void {
   const tick = (t: number): void => {
     if (P.draws !== lastDraws) {
       if (P.recording) {
-        if (lastT !== null) P.frames.push(t - lastT);
+        if (lastT !== null) {
+          P.frames.push(t - lastT);
+          // A 60 Hz refresh missed (half a frame late: the instrumentation's own threshold for `missed`).
+          if (t - lastT > 25) P.missedAt.push(Math.round(t));
+        }
         P.frameDraws.push(P.draws - lastDraws);
         P.frameTris.push(P.tris - lastTris);
       }
@@ -447,6 +454,7 @@ export function startRecording(): void {
   const P = (window as unknown as { __tlPerf?: PerfPageState }).__tlPerf;
   if (P === undefined) return;
   P.frames = [];
+  P.missedAt = [];
   P.frameDraws = [];
   P.frameTris = [];
   for (const k of Object.keys(P.gpuCalls) as (keyof GpuCalls)[]) P.gpuCalls[k] = 0;
@@ -455,6 +463,7 @@ export function startRecording(): void {
 
 export interface PageSample {
   frames: number[];
+  missedAt: number[];
   frameDraws: number[];
   frameTris: number[];
   live: PerfPageState['live'];
@@ -497,6 +506,7 @@ export async function readSample(stop: boolean): Promise<PageSample> {
   const navEntry = performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming | undefined;
   return {
     frames: P.frames.slice(),
+    missedAt: P.missedAt.slice(),
     frameDraws: P.frameDraws.slice(),
     frameTris: P.frameTris.slice(),
     live: { ...P.live },

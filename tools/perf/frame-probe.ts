@@ -45,6 +45,8 @@ export interface SceneCounts {
   lod: { switches: number; copySwitches: number; copiesInView: number };
   /** Main-thread ms per frame of the effects' update (three-adapter EFFECTS_CPU_KEY on the scene; null: no effects player). */
   effectsMs: number | null;
+  /** World streaming (three-adapter STREAMING_KEY on the scene; absent: a page that streams nothing): its diagnostics. */
+  streaming?: unknown;
 }
 
 export interface GpuPassTiming {
@@ -210,6 +212,8 @@ export function probeSceneCounts(): SceneCounts {
       out.lod.switches += t.switches ?? 0;
       out.lod.copySwitches += t.copySwitches ?? 0;
     }
+    const st = o.isScene === true ? (ud?.['tlStreaming'] as { diagnostics?: () => unknown } | undefined) : undefined;
+    if (typeof st?.diagnostics === 'function') out.streaming = st.diagnostics();
     const fx = o.isScene === true ? (ud?.['tlEffectsCpu'] as { ms?: number } | undefined) : undefined;
     if (fx?.ms !== undefined) out.effectsMs = Math.round(((out.effectsMs ?? 0) + fx.ms) * 1000) / 1000;
     if (o.isInstancedMesh === true) out.instancedMeshes += 1;

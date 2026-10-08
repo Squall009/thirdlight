@@ -13,7 +13,7 @@
  * packed ahead at a game's start (`preload`), held until the renderer takes
  * them.
  */
-import { terrainTileBytes, terrainTileOf, type TerrainComponent, type TerrainTile } from '@thirdlight/runtime';
+import { terrainOverviewOf, terrainTileBytes, terrainTileOf, type TerrainComponent, type TerrainOverviewTile, type TerrainTile } from '@thirdlight/runtime';
 
 import type { MeshWorkerPort } from './block-mesh-pool';
 import { packTerrainTile, type TerrainPackReply, type TerrainPackRequest, type TerrainPackShape, type TerrainTexels } from './terrain-pack-worker';
@@ -47,6 +47,8 @@ export class TerrainTileStore {
   /** Texels packed ahead (a game's start) until the renderer takes them. */
   private readonly ahead = new Map<string, Promise<PackedTerrainTile>>();
   private readonly listeners = new Set<(digest: string, tile: TerrainTile) => void>();
+  private readonly releaseListeners = new Set<(digest: string) => void>();
+  private readonly overviews = new Map<string, Promise<TerrainOverviewTile[]>>();
   private worker: MeshWorkerPort | null | undefined = undefined;
   private readonly jobs = new Map<number, (r: TerrainPackReply) => void>();
   private serial = 0;
@@ -75,6 +77,25 @@ export class TerrainTileStore {
   onTile(listener: (digest: string, tile: TerrainTile) => void): () => void {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
+  }
+
+  /** Called with every tile let go from now on (the simulation lets go of its copy too). */
+  onRelease(listener: (digest: string) => void): () => void {
+    this.releaseListeners.add(listener);
+    return () => this.releaseListeners.delete(listener);
+  }
+
+  /** A streamed terrain's overview (every tile at its coarsest level), read and decoded on the page (it is small). */
+  overview(digest: string): Promise<TerrainOverviewTile[]> {
+    let p = this.overviews.get(digest);
+    if (p === undefined) {
+      const read = this.o.read;
+      p = read === null ? Promise.reject(new Error('an overview cannot be read here')) : read(digest).then(terrainOverviewOf);
+      // Read once (a terrain realized again, the start's preload): a few kilobytes a tile, kept.
+      this.overviews.set(digest, p);
+      p.catch(() => this.overviews.delete(digest));
+    }
+    return p;
   }
 
   /** What the decoded tiles take in memory. */
@@ -111,13 +132,14 @@ export class TerrainTileStore {
   /**
    * Read a terrain's tiles before a game starts (its colliders need them
    * before the first step); `pack` also packs them for drawing, held until
-   * the renderer asks.
+   * the renderer asks, and reads a streamed terrain's overview. `only`: the
+   * tiles to read (a streamed terrain's near the start; absent: all).
    */
-  async preload(component: TerrainComponent, pack: boolean): Promise<void> {
+  async preload(component: TerrainComponent, pack: boolean, only?: (x: number, z: number) => boolean): Promise<void> {
     const shape = pack ? terrainPackShape(component) : null;
-    const digests = [...new Set(component.tiles.flatMap((t) => (t.data !== undefined ? [t.data] : [])))];
+    const digests = [...new Set(component.tiles.flatMap((t) => (t.data !== undefined && (only === undefined || only(t.x, t.z)) ? [t.data] : [])))];
     await Promise.all(
-      digests.map((d) => {
+      [...(pack && component.overview !== undefined ? [this.overview(component.overview)] : []), ...digests.map((d) => {
         if (shape === null) return this.decoded(d);
         const key = shapeKey(d, shape);
         let p = this.ahead.get(key);
@@ -126,13 +148,14 @@ export class TerrainTileStore {
           this.ahead.set(key, p);
         }
         return p;
-      }),
+      })],
     );
   }
 
   /** Forget a decoded tile no terrain draws any more. */
   release(digest: string): void {
-    this.decodedTiles.delete(digest);
+    if (!this.decodedTiles.delete(digest)) return;
+    for (const l of this.releaseListeners) l(digest);
   }
 
   dispose(): void {
@@ -144,6 +167,8 @@ export class TerrainTileStore {
     this.ahead.clear();
     this.decodedTiles.clear();
     this.listeners.clear();
+    this.releaseListeners.clear();
+    this.overviews.clear();
   }
 
   // ---- jobs ------------------------------------------------------------------------------
