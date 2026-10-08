@@ -393,6 +393,7 @@ export function convertToGraph(m: MaterialDef): { ok: true; material: MaterialDe
 /** A new graph material from a shader type's built-in template (the shader's defaults). */
 export function templateMaterial(shader: string, materialId: string, name: string): MaterialDef {
   if (shader === 'layers') return layeredMaterial(materialId, name);
+  if (shader === 'river') return riverMaterial(materialId, name);
   const base: MaterialDef = { materialId, name, shader: (CONVERTIBLE_SHADERS.includes(shader) ? shader : 'standard') as MaterialDef['shader'], params: {}, textures: {} };
   const r = convertToGraph(base);
   return r.ok ? r.material : { ...base, graph: newMaterialGraph() };
@@ -544,6 +545,79 @@ export function layeredMaterial(materialId: string, name: string): MaterialDef {
   b.wire([orm, 'z'], out, 'metalness');
   b.wire([orm, 'x'], out, 'ao');
   b.wire(mix('normalMix', normals), out, 'normal');
+  b.layout();
+  return { materialId, name, shader: 'standard', params: {}, textures: {}, parameters: b.parameters, graph: { nodes: b.nodes, edges: b.edges } };
+}
+
+/**
+ * The river template — for a spline's water mesh, which carries its flow
+ * along the curve (UV1: texture units a second) and its banks (COLOR_0 red:
+ * 1 at the edges). Ripples are gradient noise moved along the flow in two
+ * phases half a cycle apart, each faded out as it resets (`flowCycle`
+ * seconds), so the water runs without stretching or jumping (two-phase
+ * flow). Foam gathers at the banks and where the water is shallow (the
+ * Scene depth: how far the ground lies behind the surface, `foamDepth`
+ * metres), broken up by the ripples; the water fades out over `shoreFade`
+ * metres of depth, so it meets the ground without a hard line. Colours: deep
+ * water, shallow water toward the shores, foam.
+ */
+export function riverMaterial(materialId: string, name: string): MaterialDef {
+  const b = new GraphBuilder([]);
+  const out = b.add('output', 'pbr', { transparent: true });
+  const uv: Out = [b.add('uv', 'uv'), 'uv'];
+  const flow: Out = [b.add('flow', 'uv', { set: 'uv1' }), 'uv'];
+  const time: Out = [b.add('time', 'time'), 'time'];
+  const cycle = b.param('flowCycle', 'float', 2);
+  const phaseOf = (id: string, shift: number): Out => {
+    const f = b.add(id, 'fract');
+    b.wire(b.op('add', `${id}Shifted`, b.op('divide', `${id}Cycles`, time, cycle), b.float(`${id}Shift`, shift)), f, 'in');
+    return [f, 'out'];
+  };
+  const a = phaseOf('phaseA', 0);
+  const c = phaseOf('phaseB', 0.5);
+  const tiled = b.op('multiply', 'rippleUv', uv, b.param('rippleTiling', 'float', 3));
+  /** The ripples read along the flow by one phase (UV − flow × phase × cycle). */
+  const ripples = (id: string, phase: Out, offset: number): Out => {
+    const moved = b.op('subtract', `${id}Uv`, b.op('add', `${id}Offset`, tiled, b.float(`${id}Shift`, offset)), b.op('multiply', `${id}Drift`, flow, b.op('multiply', `${id}Seconds`, phase, cycle)));
+    const n = b.add(id, 'noise', { noise: 'gradient' });
+    b.wire(moved, n, 'uv');
+    b.wire(b.float(`${id}Scale`, 6), n, 'scale');
+    return [n, 'value'];
+  };
+  // Phase B shows as phase A resets: its weight |1 − 2 × phase A|.
+  const weight = b.add('phaseWeight', 'abs');
+  b.wire(b.op('subtract', 'phaseCentre', b.float('one', 1), b.op('multiply', 'phaseTwice', a, b.float('two', 2))), weight, 'in');
+  const mixed = b.add('ripples', 'lerp');
+  b.wire(ripples('ripplesA', a, 0), mixed, 'a');
+  b.wire(ripples('ripplesB', c, 0.5), mixed, 'b');
+  b.wire([weight, 'out'], mixed, 't');
+  // Shallow: where the ground lies close behind the surface (1 at the shore).
+  const depth = b.add('sceneDepth', 'sceneDepth');
+  const shallow = b.add('shallow', 'oneMinus');
+  const deepness = b.add('deepness', 'saturate');
+  b.wire(b.op('divide', 'depthOverFoam', [depth, 'behind'], b.param('foamDepth', 'float', 0.4)), deepness, 'in');
+  b.wire([deepness, 'out'], shallow, 'in');
+  const banks: Out = [b.add('banks', 'vertexColor', { absent: 'zero' }), 'rgb'];
+  const bankSplit = b.add('bankSplit', 'split');
+  b.wire(banks, bankSplit, 'in');
+  const edge = b.op('max', 'edge', [bankSplit, 'x'], [shallow, 'out']);
+  const foam = b.add('foam', 'saturate');
+  b.wire(b.op('multiply', 'foamSharp', b.op('add', 'foamBroken', b.op('subtract', 'foamEdge', edge, b.float('foamCut', 0.45)), b.op('multiply', 'foamNoise', [mixed, 'out'], b.float('foamNoiseAmount', 0.35))), b.float('foamGain', 3)), foam, 'in');
+  const water = b.add('waterColour', 'lerp');
+  b.wire(b.param('deepColor', 'color', '#123f57'), water, 'a');
+  b.wire(b.param('shallowColor', 'color', '#2f8a8f'), water, 'b');
+  b.wire([shallow, 'out'], water, 't');
+  const colour = b.add('colour', 'lerp');
+  b.wire([water, 'out'], colour, 'a');
+  b.wire(b.param('foamColor', 'color', '#e8f1f2'), colour, 'b');
+  b.wire([foam, 'out'], colour, 't');
+  b.wire([colour, 'out'], out, 'baseColor');
+  b.wire(b.op('add', 'roughness', b.float('roughWater', 0.06), b.op('multiply', 'roughFoam', [foam, 'out'], b.float('roughFoamAmount', 0.6))), out, 'roughness');
+  b.wire(b.float('metalness', 0), out, 'metalness');
+  // Soft shores: the water fades out where the ground comes up to its surface.
+  const shore = b.add('shore', 'saturate');
+  b.wire(b.op('divide', 'depthOverFade', [depth, 'behind'], b.param('shoreFade', 'float', 0.3)), shore, 'in');
+  b.wire(b.op('multiply', 'opacity', [shore, 'out'], b.op('max', 'opacityFoam', b.param('opacity', 'float', 0.85), [foam, 'out'])), out, 'opacity');
   b.layout();
   return { materialId, name, shader: 'standard', params: {}, textures: {}, parameters: b.parameters, graph: { nodes: b.nodes, edges: b.edges } };
 }

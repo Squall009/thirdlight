@@ -158,6 +158,10 @@ export interface ProjectSession {
   preparedPublishes?: Map<string, { args: Record<string, unknown>; expectedRevision: number }>;
   /** Resource and scene files the file check read for the next `importResources` (read once by the command). */
   preparedResources?: import('./resource-check').PreparedResourceFiles;
+  /** The last command's terrain re-bake after a spline change (diagnostics and the perf tools read it). */
+  lastSplineRebake?: import('./spline-follows').SplineRebakeReport;
+  /** The last command's spline meshes and pieces made (diagnostics and the perf tools read it). */
+  lastSplineMade?: { splines: number; ms: number };
   /** What the project's files hashed to, by their stamps (kept in the import cache between runs; file-stamps.ts). */
   fileStamps?: import('./file-stamps').FileStamps;
   /** The watch of the project's folders and what it saw change (made by the first file check; watched-assets.ts). */

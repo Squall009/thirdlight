@@ -44,6 +44,8 @@ export const GRAPH_MATERIAL_TEMPLATES: readonly { value: string; label: string }
   { value: 'kit', label: 'World-aligned kit' },
   { value: 'unlit', label: 'Unlit' },
   { value: 'water', label: 'Water' },
+  // For a spline's water mesh: two-phase flow along it, foam at its banks and in the shallows, soft shores.
+  { value: 'river', label: 'River (spline water)' },
   // Four PBR layers from texture arrays, mixed by vertex colours / painted terrain through a Height blend.
   { value: 'layers', label: 'Height-blended layers (painted terrain)' },
 ];

@@ -17,7 +17,7 @@ import { CONTROLLER_FIELDS } from '@thirdlight/project-model';
 import { CAMERA_PATH_FIELDS, CAMERA_REGION_FIELDS, VIRTUAL_CAMERA_FIELDS, validateCameraPathComponent, validateCameraRegionComponent, validateVirtualCameraComponent, validateProbeVolumeComponent } from '@thirdlight/project-model';
 import { BLOCK_LAYER_FIELDS, validateBlockLayerComponent, validateBlockFootprintComponent } from '@thirdlight/project-model';
 import { validateBehaviorGroupComponent } from '@thirdlight/project-model';
-import { TERRAIN_FIELDS, validateTerrainComponent } from '@thirdlight/project-model';
+import { SPLINE_FIELDS, TERRAIN_FIELDS, validateSplineComponent, validateTerrainComponent } from '@thirdlight/project-model';
 import { SOCKET_ATTACH_FIELDS, validateSocketAttachComponent } from '@thirdlight/project-model';
 import { BLOCK_COMPONENTS, validateAnimatorComponent, validateFogVolumeComponent, validateMaterialMapping, validateMaterialParamsComponent, validateEffectComponent } from '@thirdlight/project-model';
 import {
@@ -83,6 +83,7 @@ export const COMPONENT_FIELD_ORDER_V3: Record<V3OwnedComponent, readonly string[
   cameraRegion: CAMERA_REGION_FIELDS,
   probeVolume: ['size', 'spacing'],
   terrain: TERRAIN_FIELDS,
+  spline: SPLINE_FIELDS,
 };
 
 /**
@@ -156,6 +157,7 @@ export const V3_COMPONENTS: readonly V3OwnedComponent[] = [
   'probeVolume',
   // v4 scenes only.
   'terrain',
+  'spline',
 ];
 
 /** Every component `setComponent` may address. */
@@ -247,6 +249,9 @@ export function validateV3ComponentValue(
       break;
     case 'terrain':
       validateTerrainComponent(value, path, errors as unknown as Parameters<typeof validateTerrainComponent>[2]);
+      break;
+    case 'spline':
+      validateSplineComponent(value, path, errors as unknown as Parameters<typeof validateSplineComponent>[2]);
       break;
     case 'socketAttach':
       validateSocketAttachComponent(value, path, errors as unknown as Parameters<typeof validateSocketAttachComponent>[2]);

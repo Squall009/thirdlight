@@ -34,7 +34,7 @@ import { audioSpatialOf, dependencyTables, depthBufferOf, instanceChunkSizeOf, l
 import { assetVersionKey, createResourceManager, fixedStepHzOf, EMBEDDED_TEXTURES_LISTED, embeddedTextureBytes, qualityLevelOf, qualityLevelsOf, renderSettingsOf, type ResourceManager, type ResourceObservation } from '@thirdlight/runtime';
 import { attachBrowserInput, DEFAULT_INPUT_CONFIG, DEFAULT_INPUT_CONFIG_3D, focusGameSurface, type InputConfigLike } from '@thirdlight/input';
 import type { RapierPhysicsInitConfig, RapierPhysicsPort, RapierStaticColliderSpec } from '@thirdlight/physics-rapier';
-import { batchingFromUrl, createBrowserMeshWorker, scatterFromUrl, terrainFromUrl, TerrainTileStore, createSceneAdapter, createTextureStreamer, decodeTexture, effectsOptionFrom, environmentHasLook, mergingFromUrl, pageSearch, probesFromUrl, qualityFromUrl, resolveRendererPreference, setKtx2DecoderBase, renderSettingsFromUrl, shadowCacheFromUrl, slowFramesFromUrl, upscaleFilterFromUrl } from '@thirdlight/three-adapter';
+import { batchingFromUrl, createBrowserMeshWorker, scatterFromUrl, splinesFromUrl, terrainFromUrl, TerrainTileStore, createSceneAdapter, createTextureStreamer, decodeTexture, effectsOptionFrom, environmentHasLook, mergingFromUrl, pageSearch, probesFromUrl, qualityFromUrl, resolveRendererPreference, setKtx2DecoderBase, renderSettingsFromUrl, shadowCacheFromUrl, slowFramesFromUrl, upscaleFilterFromUrl } from '@thirdlight/three-adapter';
 import { createGltfLoaderPort } from '@thirdlight/three-adapter/gltf-loader';
 import type { EffectDefLike, EnvironmentLike, FrameDrawnInfo, TextureStreamer, LightingBakeLike, MaterialDefLike, MaterialFunctionLike, SceneAdapter, SceneAdapterModels, SceneAdapterOptions, WindLike } from '@thirdlight/three-adapter';
 import {
@@ -922,6 +922,7 @@ export async function startGamePage(o: GamePageOptions): Promise<GamePageHandle>
           terrainTiles,
           // The scatter rules' copies drawn unless the page says ?scatter=off (a diagnostic comparison).
           scatter: scatterFromUrl(pageSearch()),
+          splines: splinesFromUrl(pageSearch()),
           ...(readBuffer !== undefined ? { resolveBuffer: readBuffer } : {}),
           // The project's LOD bias and hysteresis.
           lod: lodTuningOf(settings),

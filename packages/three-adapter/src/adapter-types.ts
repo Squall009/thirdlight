@@ -64,6 +64,8 @@ export interface SceneAdapterOptions {
   terrain?: boolean;
   /** Draw the scatter rules' copies (default true; false: none, a diagnostic comparison). */
   scatter?: boolean;
+  /** Draw what splines make, their meshes and pieces (default true; false: none, a diagnostic comparison). */
+  splines?: boolean;
   /**
    * Something the next frame would draw differently arrived on its own (a
    * model, an instance set, a cookie): a host that draws on demand draws again.
@@ -326,6 +328,8 @@ export interface SceneAdapterDiagnostics {
   blocks?: BlockLayerViewDiagnostics;
   /** The terrains drawn (tiles, texture bytes, nodes selected and in view per level, draws, main-thread ms). */
   terrain?: TerrainViewDiagnostics;
+  /** The splines' made meshes and pieces (present while an object carries a spline). */
+  splines?: import('./spline-view').SplineViewDiagnostics;
   /** Rule scatter's stored copies drawn (block layers' and terrains'). */
   scatter?: import('./scatter-view').ScatterViewDiagnostics;
   /** Ground cover made near the camera. */

@@ -25,6 +25,11 @@
  *   --vsync                      draw at the display's rate (a player's browser) instead of uncapped
  *   --impostors S                the landscape's trees, pines and rocks drawn as impostors below screen size S (default:
  *                                their meshes all the way, as recorded)
+ *   --splines off                the landscape without its road and river (default: with them)
+ *   --spline-edit                the landscape's editor Scene view open while a script moves a road point 5 m back and
+ *                                forth every 4 s (6 edits; each one command that shapes the terrain again and makes
+ *                                the road's mesh again): each edit's round trip and the page's frames meanwhile,
+ *                                after three windows without an edit (the class's own slow frames)
  *   --foliage off                the landscape's scatter without the foliage policy: every tree, rock and shrub casts
  *                                into the static shadow map, the wind moves foliage everywhere, nothing thins out
  *                                (default: on, the engine's scatter defaults)
@@ -44,6 +49,9 @@ import { PERF_ROOT, REPO, startPerfBackend } from './backend';
 import { launchGpuBrowser, LONG_FRAME_MS, measurePage, serveStatic, sourcesOf, type FrameRenderer, type FrameRunResult } from './frame-run';
 import { buildLevel, FLIGHT_SECONDS, levelPlan, LEVEL_KINDS, LEVEL_SEED, LEVEL_VERSION, type LevelBuild, type LevelKind, type LevelRoofs } from './level';
 import { frameLine } from './village-run';
+import { hitches, installFrameClock, pageNow, rafTimes, type HitchWindow } from './blocks-run';
+import { FRAME_VIEWPORT } from './frame-run';
+import type { PerfBackend } from './backend';
 
 /** The corner shading `--vertex-ao` gives the layer. */
 const LEVEL_VERTEX_AO = 0.6;
@@ -85,6 +93,10 @@ export interface LevelReport {
   flight?: boolean;
   /** The screen size below which the landscape's trees, pines and rocks were impostors (absent: none). */
   impostorSize?: number;
+  /** The landscape without its road and river (absent: with them). */
+  splines?: 'off';
+  /** The scripted road edits in the editor's Scene view: each edit's round trip (ms) and the page's frames meanwhile. */
+  splineEdit?: Partial<Record<FrameRenderer, { roundTripMs: number[]; windows: (HitchWindow & { over16: number })[]; idle: (HitchWindow & { over16: number })[] }>>;
   query: string;
   builds: Partial<Record<LevelKind, LevelBuild & { exportMs: number }>>;
   classes: Partial<Record<LevelKind, Partial<Record<FrameRenderer, FrameRunResult>>>>;
@@ -173,6 +185,8 @@ export async function runLevelCli(argv: readonly string[]): Promise<void> {
   const macro = Number(get('macro') ?? 0);
   if (!(Number.isFinite(macro) && macro >= 0)) throw new Error(`--macro: metres, not ${get('macro')}`);
   if (![0, 1, 2].includes(projection)) throw new Error(`--projection: 1 (by slope) or 2 (biplanar), not ${get('projection')}`);
+  const splines = get('splines') ?? 'on';
+  if (splines !== 'on' && splines !== 'off') throw new Error(`--splines: on or off, not ${splines}`);
   const foliage = get('foliage') ?? 'on';
   if (foliage !== 'on' && foliage !== 'off') throw new Error(`--foliage: on or off, not ${foliage}`);
 
@@ -188,14 +202,15 @@ export async function runLevelCli(argv: readonly string[]): Promise<void> {
   } catch {
     /* not a git checkout */
   }
-  const report: LevelReport = { reportVersion: 1, startedAt, commit, machine: { cpu: cpus()[0]?.model ?? 'unknown', cores: cpus().length }, version: LEVEL_VERSION, seed: LEVEL_SEED, ...(liveDoors > 0 ? { liveDoors } : {}), ...(has('edge-walls') ? { edgeWalls: true } : {}), ...(has('wall-paint') ? { wallPaint: true } : {}), ...(roofs !== 'none' ? { roofs } : {}), ...(has('kit-swap') ? { kitSwap: true } : {}), ...(has('vertex-ao') ? { vertexAO: LEVEL_VERTEX_AO } : {}), ...(has('rules') ? { rules: true } : {}), ...(projection > 0 ? { projection } : {}), ...(macro > 0 ? { macro } : {}), ...(foliage === 'off' ? { foliage: 'off' as const } : {}), ...(flight ? { flight: true } : {}), ...(impostorSize > 0 ? { impostorSize } : {}), query, builds: {}, classes: {}, errors: [] };
+  const report: LevelReport = { reportVersion: 1, startedAt, commit, machine: { cpu: cpus()[0]?.model ?? 'unknown', cores: cpus().length }, version: LEVEL_VERSION, seed: LEVEL_SEED, ...(liveDoors > 0 ? { liveDoors } : {}), ...(has('edge-walls') ? { edgeWalls: true } : {}), ...(has('wall-paint') ? { wallPaint: true } : {}), ...(roofs !== 'none' ? { roofs } : {}), ...(has('kit-swap') ? { kitSwap: true } : {}), ...(has('vertex-ao') ? { vertexAO: LEVEL_VERTEX_AO } : {}), ...(has('rules') ? { rules: true } : {}), ...(projection > 0 ? { projection } : {}), ...(macro > 0 ? { macro } : {}), ...(foliage === 'off' ? { foliage: 'off' as const } : {}), ...(flight ? { flight: true } : {}), ...(impostorSize > 0 ? { impostorSize } : {}), ...(splines === 'off' ? { splines: 'off' as const } : {}), query, builds: {}, classes: {}, errors: [] };
 
   // Every class built and exported by one backend, then measured with it stopped (one backend or one browser at a time).
   const exportDirs: Partial<Record<LevelKind, string>> = {};
   const be = await startPerfBackend(join(runDir, 'data'), join(runDir, 'exports'));
   try {
     for (const kind of kinds) {
-      const b = await buildLevel(be, `level-${kind}`, levelPlan(kind, LEVEL_SEED, liveDoors, has('edge-walls'), has('wall-paint'), roofs, has('kit-swap'), has('vertex-ao') ? LEVEL_VERTEX_AO : 0, has('rules'), projection, macro, foliage, flight, impostorSize), log);
+      const b = await buildLevel(be, `level-${kind}`, levelPlan(kind, LEVEL_SEED, liveDoors, has('edge-walls'), has('wall-paint'), roofs, has('kit-swap'), has('vertex-ao') ? LEVEL_VERTEX_AO : 0, has('rules'), projection, macro, foliage, flight, impostorSize, splines === 'on'), log);
+      if (has('spline-edit') && kind === 'landscape' && splines === 'on') report.splineEdit = await splineEdits(be, b.projectId, renderers, log);
       const t = performance.now();
       const res = await be.post(`/api/v1/admin/projects/${b.projectId}/export`, {});
       if (res.status !== 200) throw new Error(`export failed: ${JSON.stringify(res.json).slice(0, 400)}`);
@@ -251,4 +266,70 @@ export async function runLevelCli(argv: readonly string[]): Promise<void> {
   for (const row of farCostRows(report)) log(`level far part ${row.renderer} (landscape − area): p50 ${row.p50Ms} ms, p95 ${row.p95Ms} ms, gpu ${row.gpuMs ?? '-'} ms, main thread ${row.mainThreadMs} ms, ${row.draws} draws`);
   for (const e of report.errors) log(`level: error: ${e}`);
   for (const [kind, byR] of Object.entries(report.classes)) for (const [r, res] of Object.entries(byR ?? {})) for (const e of res?.errors.slice(0, 3) ?? []) log(`level ${kind} ${r}: page error: ${e}`);
+}
+
+/** How long the Scene view is watched after each scripted road edit (ms), and how many edits. */
+const SPLINE_EDIT_WINDOW_MS = 4000;
+const SPLINE_EDITS = 6;
+const SPLINE_IDLE_WINDOWS = 3;
+
+/**
+ * The landscape's editor Scene view open while a road point moves 5 m back and forth (one `setComponent` each: the
+ * backend shapes the terrain under the road again and makes its mesh again; the page re-reads and uploads the tiles
+ * and draws the new mesh): each edit's round trip and the page's frames in the window after it.
+ */
+async function splineEdits(be: PerfBackend, projectId: string, renderers: readonly FrameRenderer[], log: (s: string) => void): Promise<Partial<Record<FrameRenderer, { roundTripMs: number[]; windows: (HitchWindow & { over16: number })[]; idle: (HitchWindow & { over16: number })[] }>>> {
+  const p = be.project(projectId);
+  const listed = ((await p.query('queryEntities', { limit: 4000, offset: 0 }))['entities'] as { id: string; name?: string; components: Record<string, unknown> }[]) ?? [];
+  const road = listed.find((e) => e.name === 'Road' && e.components['spline'] !== undefined);
+  if (road === undefined) throw new Error('spline edit: no road');
+  const base = road.components['spline'] as { points: { at: number[] }[] };
+  const out: Partial<Record<FrameRenderer, { roundTripMs: number[]; windows: (HitchWindow & { over16: number })[]; idle: (HitchWindow & { over16: number })[] }>> = {};
+  const browser = await launchGpuBrowser({ vsync: false });
+  try {
+    for (const r of renderers) {
+      const context = await browser.newContext({ viewport: { ...FRAME_VIEWPORT }, deviceScaleFactor: 1 });
+      await context.addInitScript(installFrameClock);
+      const page = await context.newPage();
+      try {
+        await page.goto(`${be.origin}/?project=${projectId}&renderer=${r}#token=${be.token}`);
+        await page.locator('.tl-statusbar').filter({ hasText: 'connected' }).waitFor({ timeout: 180_000 });
+        // Settled: the view stopped drawing for a few seconds (every tile, set and mesh in).
+        let last = '';
+        for (let same = 0, t0 = Date.now(); same < 3 && Date.now() - t0 < 180_000; ) {
+          const now = await page.evaluate(() => document.querySelector('canvas.tl-viewport')?.getAttribute('data-frames') ?? '');
+          same = now === last && now !== '' ? same + 1 : 0;
+          last = now;
+          await new Promise((res) => setTimeout(res, 1000));
+        }
+        const roundTripMs: number[] = [];
+        const windows: (HitchWindow & { over16: number })[] = [];
+        // Windows without an edit first: the class's own slow frames (uncapped, this GPU) to read the edits' against.
+        const idle: (HitchWindow & { over16: number })[] = [];
+        for (let k = -SPLINE_IDLE_WINDOWS; k < SPLINE_EDITS; k++) {
+          const points = base.points.map((p, i) => (i === 5 ? { ...p, at: [p.at[0]!, p.at[1]!, p.at[2]! + (k % 2 === 0 ? 5 : 0)] } : p));
+          const from = await pageNow(page);
+          if (k >= 0) {
+            const t = performance.now();
+            await p.command('setComponent', { entityId: road.id, component: 'spline', value: { points } });
+            roundTripMs.push(Math.round(performance.now() - t));
+          }
+          await new Promise((res) => setTimeout(res, SPLINE_EDIT_WINDOW_MS));
+          const times = await rafTimes(page);
+          const to = await pageNow(page);
+          let over16 = 0;
+          for (let i = 1; i < times.length; i++) if (times[i]! > from && times[i]! <= to && times[i]! - times[i - 1]! > 16.7) over16 += 1;
+          (k >= 0 ? windows : idle).push({ ...hitches(times, from, to), over16 });
+        }
+        out[r] = { roundTripMs, windows, idle };
+        const show = (ws: (HitchWindow & { over16: number })[]): string => ws.map((w) => `${w.frames} frames, ${w.over16 ?? 0} > 16.7 ms, worst ${w.worst} ms, p95 ${w.p95} ms`).join('; ');
+        log(`level landscape ${r} spline edits: round trips ${roundTripMs.join(', ')} ms; page frames per window: ${show(windows)}; without edits: ${show(idle)}`);
+      } finally {
+        await context.close();
+      }
+    }
+  } finally {
+    await browser.close();
+  }
+  return out;
 }

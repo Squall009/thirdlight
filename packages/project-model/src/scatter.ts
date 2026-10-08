@@ -304,6 +304,8 @@ export interface ScatterSurface {
   at(x: number, z: number): ScatterGround | null;
   /** Whether world point (x, z) lies in one of the named regions (absent: no regions). */
   excluded?(x: number, z: number, names: readonly string[]): boolean;
+  /** Whether a spline keeps world point (x, z) clear of rule `rule`'s copies (absent: none does). */
+  cleared?(x: number, z: number, rule: string): boolean;
 }
 
 /** A world XZ rectangle [x0, z0, x1, z1]: a point is inside when x0 ≤ x < x1 and z0 ≤ z < z1. */
@@ -412,7 +414,7 @@ class RulePlacer {
       const g = this.surface.at(x, z);
       if (g !== null && g.ny > MIN_NORMAL_Y) {
         if (this.added.has(key)) out = 1;
-        else if (this.rule.exclude === undefined || this.surface.excluded?.(x, z, this.rule.exclude) !== true) {
+        else if ((this.rule.exclude === undefined || this.surface.excluded?.(x, z, this.rule.exclude) !== true) && this.surface.cleared?.(x, z, this.rule.id) !== true) {
           let f = ruleConditionsAt(this.rule, g, this.blocks, (r) => g.cavity(r));
           for (const c of this.rule.layers ?? []) if (f > 0) f *= ruleRangeAt(c, g.layer(c.layer));
           if (f > 0 && brushHash(this.seed, ix, iz, 4) < f) out = 0.5;

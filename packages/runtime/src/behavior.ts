@@ -29,6 +29,7 @@
 import { ID_RE } from '@thirdlight/project-model';
 import type { BehaviorGrid } from './grid';
 import type { BehaviorScatter } from './scatter-copies';
+import type { BehaviorSplines } from './splines';
 import { EntityAccessError, type BehaviorEntityHandle } from './entity-access';
 import type { BehaviorMaterials } from './material-params';
 import type { BehaviorSaves } from './project-saves';
@@ -231,6 +232,8 @@ export interface BehaviorContext {
    * remove one (a ray that hits one names it: `PhysicsHit.scatter`).
    */
   readonly scatter?: BehaviorScatter;
+  /** The splines of the loaded scenes — a place and cross-section along one, its length, the nearest place on it. */
+  readonly splines?: BehaviorSplines;
   /**
    * Copy a project prefab into the running game; returns the new root id (or null at an engine limit).
    * @graphNode Spawn prefab
@@ -1151,6 +1154,7 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
         // The block layers.
         if (src.grid !== undefined) fields['grid'] = { value: src.grid, enumerable: true };
         if (src.scatter !== undefined) fields['scatter'] = { value: src.scatter, enumerable: true };
+        if (src.splines !== undefined) fields['splines'] = { value: src.splines, enumerable: true };
         // Graph-material parameters per object.
         if (src.materials !== undefined) fields['materials'] = { value: src.materials, enumerable: true };
         // Project saves.

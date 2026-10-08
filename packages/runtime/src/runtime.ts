@@ -3943,8 +3943,8 @@ class RuntimeInstance implements Runtime {
       // Debug commands (this phase's calls; the behavior host adds the handler).
       const debugCommands = this.debugCommands;
       fields['debug'] = { value: Object.freeze({ command: (name: string, options?: DebugCommandOptions) => debugCommands.declare(name, options, phase === 'intent') }), enumerable: true };
-      // The block layers, and the terrains' and layers' scatter copies.
-      Object.assign(fields, { grid: { value: this.grid.api, enumerable: true }, scatter: { value: this.grid.scatter.api, enumerable: true } });
+      // The block layers, the terrains' and layers' scatter copies, and the splines.
+      Object.assign(fields, { grid: { value: this.grid.api, enumerable: true }, scatter: { value: this.grid.scatter.api, enumerable: true }, splines: { value: this.grid.splines.api, enumerable: true } });
       // Graph-material parameters per object.
       fields['materials'] = { value: this.materials.api, enumerable: true };
       // Generic component access (the behavior host names the writing script) and the shell's scene list.
@@ -4592,8 +4592,8 @@ class RuntimeInstance implements Runtime {
     const ea = this.entityAccess;
     if (ea.applied + ea.refused + ea.conflicts > 0) m2.entityWrites = { applied: ea.applied, refused: ea.refused, conflicts: ea.conflicts, inactive: ea.inactive().size };
     // Script messages refused at the per-step limit (only once one was: the warning); block layers' memory (with layers).
-    const queue = this.blocks?.messageQueueView() ?? null, blockMemory = this.grid.memory(), terrainMemory = this.grid.terrain.memory(), scatterCopies = this.grid.scatter.diagnostics();
-    Object.assign(m2, queue !== null ? { messageQueue: queue } : {}, blockMemory !== null ? { blockMemory } : {}, terrainMemory !== null ? { terrainMemory } : {}, scatterCopies !== null ? { scatterCopies } : {});
+    const queue = this.blocks?.messageQueueView() ?? null, blockMemory = this.grid.memory(), terrainMemory = this.grid.terrain.memory(), scatterCopies = this.grid.scatter.diagnostics(), splines = this.grid.splines.diagnostics();
+    Object.assign(m2, queue !== null ? { messageQueue: queue } : {}, blockMemory !== null ? { blockMemory } : {}, terrainMemory !== null ? { terrainMemory } : {}, scatterCopies !== null ? { scatterCopies } : {}, splines !== null ? { splines } : {});
     if (this.failedModuleId !== undefined) m2.failedModuleId = this.failedModuleId;
     if (this.failedPhase !== undefined) m2.failedPhase = this.failedPhase;
     if (this.failedStepIndex !== undefined) m2.failedStepIndex = this.failedStepIndex;

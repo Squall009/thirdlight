@@ -21,7 +21,9 @@ import {
   bakeScatterCell,
   blockScatterSurface,
   regionExcluder,
+  SplineScatterBands,
   terrainScatterSurface,
+  terrainSplineInputs,
   type BlockChunk,
   type BlockLayerComponent,
   type BlockLayerData,
@@ -29,9 +31,17 @@ import {
   type ScatterRect,
   type ScatterRule,
   type ScatterSurface,
+  type SplineComponent,
   type TerrainComponent,
   type TerrainTile,
 } from '@thirdlight/runtime';
+
+/** A spline whose scatter band terrain cover keeps clear of: its object id, component and position. */
+export interface CoverSpline {
+  readonly id: string;
+  readonly component: SplineComponent;
+  readonly origin: readonly number[];
+}
 
 /** A source as the generator holds it. */
 export type CoverSource =
@@ -46,6 +56,7 @@ export type CoverRequest =
   | { readonly t: 'coverTile'; readonly digest: string; readonly tile: TerrainTile }
   | { readonly t: 'coverForget'; readonly digest: string }
   | { readonly t: 'coverDrop'; readonly id: string }
+  | { readonly t: 'coverSplines'; readonly splines: readonly CoverSpline[] }
   | { readonly t: 'coverMake'; readonly job: number; readonly id: string; readonly rect: ScatterRect };
 
 /** One square's copies per rule. */
@@ -69,6 +80,8 @@ export class CoverGenerator {
   private readonly sources = new Map<string, Held>();
   private readonly tiles = new Map<string, TerrainTile>();
   private types = new Map<string, BlockType>();
+  /** The splines' scatter bands (terrain cover keeps clear of them, as the stored scatter does). */
+  private bands: SplineScatterBands | null = null;
   /** Candidate places looked at so far (diagnostics). */
   looked = 0;
 
@@ -106,6 +119,12 @@ export class CoverGenerator {
       case 'coverDrop':
         this.sources.delete(m.id);
         break;
+      case 'coverSplines': {
+        const bands = new SplineScatterBands(terrainSplineInputs(m.splines.map((s) => ({ id: s.id, components: { spline: s.component, transform: { position: s.origin } } }))));
+        this.bands = bands.empty ? null : bands;
+        for (const h of this.sources.values()) if (h.source.kind === 'terrain') h.surface = null;
+        break;
+      }
     }
   }
 
@@ -143,7 +162,8 @@ export class CoverGenerator {
         const tile = t.data !== undefined ? this.tiles.get(t.data) : undefined;
         if (tile !== undefined) tiles.set(`${t.x},${t.z}`, tile);
       }
-      return terrainScatterSurface(new TerrainField(s.component, s.origin, tiles), excluded);
+      const bands = this.bands;
+      return terrainScatterSurface(new TerrainField(s.component, s.origin, tiles), excluded, bands === null ? undefined : (x, z, rule) => bands.cleared(x, z, rule));
     }
     const rules = s.component.rules;
     return blockScatterSurface({ grid: this.gridOf(h), types: this.types, origin: s.origin, topSubdivision: s.component.topSubdivision ?? 1, ...(rules !== undefined && rules.length > 0 ? { rules: new SurfaceRuleSet(rules) } : {}) }, excluded);

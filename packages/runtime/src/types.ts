@@ -394,5 +394,7 @@ export interface RuntimeDiagnostics {
   terrainMemory?: import('./terrain-collision').TerrainCollisionDiagnostics;
   /** The terrains' and block layers' scatter copies: held, hidden, removed, their colliders and the last build's time. Present while one with stored scatter rules is loaded. */
   scatterCopies?: import('./scatter-copies').ScatterCopiesDiagnostics;
+  /** The splines' colliders (what they make): built, waiting for their data, the last build. Present while a spline is loaded. */
+  splines?: import('./splines').SplineCollisionDiagnostics;
 
 }

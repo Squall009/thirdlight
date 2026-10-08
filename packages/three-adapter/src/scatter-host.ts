@@ -78,6 +78,7 @@ export function createScatterHost(deps: ScatterHostDeps): ScatterHost {
           cover.remove(id);
         },
         setTypes: (types) => cover.setTypes(types),
+        setSplines: (splines) => cover.setSplines(splines),
         // Ground cover is never stored: only the stored copies have addresses scripts name.
         setCopyStates: (changes) => stored.setCopyStates(changes),
       };

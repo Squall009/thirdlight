@@ -605,6 +605,13 @@ function composeSceneRules(s: SceneV4, content: ContentCatalogV4, errors: ModelE
         else if (record.kind !== 'model') errors.push(sceneError(s.sceneId, withFound({ code: 'asset_kind_mismatch', path, reason: 'model', message: 'a scatter rule places a model', expected: '"model"' }, record.kind)));
       });
     }
+    // The models a spline repeats along it.
+    (e.components.spline?.pieces ?? []).forEach((p, k) => {
+      const record = assetById.get(p.asset.assetId);
+      const path = `/entities/${i}/components/spline/pieces/${k}/asset/assetId`;
+      if (record === undefined) errors.push(sceneError(s.sceneId, withFound({ code: 'asset_reference_missing', path, message: 'a spline\'s pieces name no asset of the catalog', expected: 'an existing model assetId' }, p.asset.assetId)));
+      else if (record.kind !== 'model') errors.push(sceneError(s.sceneId, withFound({ code: 'asset_kind_mismatch', path, reason: 'model', message: 'a spline repeats a model', expected: '"model"' }, record.kind)));
+    });
     const inst = e.components.instances;
     if (inst === undefined) return;
     const record = assetById.get(inst.asset.assetId);

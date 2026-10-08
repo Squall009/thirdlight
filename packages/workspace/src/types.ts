@@ -132,6 +132,11 @@ export interface WorkspaceServiceConfig {
    * workspace holds only its type.
    */
   behaviorCompiler?: import('@thirdlight/behavior-build').BehaviorCompiler;
+  /**
+   * The injected mesh simplifier (`backend` loads `asset-pipeline`'s and fills it in before it serves): the
+   * levels of detail of the meshes made along splines. Empty (or absent): made with their finest level only.
+   */
+  meshSimplifier?: { current: import('@thirdlight/asset-pipeline').MeshSimplifier | null };
 }
 
 // ---- pending external change -------------------------------

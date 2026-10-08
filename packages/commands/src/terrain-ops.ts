@@ -68,6 +68,7 @@ import {
 } from '@thirdlight/project-model';
 
 import { blockTypesOf, layerDataOf } from './block-ops';
+import { combinedTile, putCombined, terrainSplineContext, type TerrainSplineContext } from './terrain-spline-ops';
 import { sceneRegionLayers, scatterBakeTooLarge, scatterRuleOf } from './scatter-ops';
 import { applySetComponent, type OpInput } from './content-ops';
 import { componentMissing, entityNotFound, fieldMissing, fieldUnexpected, fieldValue, noChangeContent, type CommandError } from './errors';
@@ -224,6 +225,8 @@ export interface TerrainEditPlan {
   rules?: SurfaceRule[];
   /** Every tile whose scatter the edit changed, by "x,z" (null: none left). */
   scatter: Map<string, ScatterCell | null>;
+  /** Every tile whose hand-made form beside its splines' changed, by "x,z" (null: no spline reaches it any more). */
+  bases: Map<string, TerrainTile | null>;
   /** A bake's scatter rules for the component (an empty list: none). */
   scatterRules?: ScatterRule[];
   added: [number, number][];
@@ -303,25 +306,34 @@ export function planTerrainEdit(scene: SceneDocument, content: ContentDocument |
     const g = (margin + 1) * sp + scatterMargin;
     box = [bx0 - g, bz0 - g, bx1 + g, bz1 + g];
   }
-  // The tiles under the box (with data: read; without: flat).
+  // The splines over the terrain: edits go to the hand-made tiles, the splines are applied over them again.
+  const splines = terrainSplineContext(scene, comp, origin);
+  // The tiles under the box (with data: read; without: flat), and, beside splines, their hand-made forms.
   const loaded = new Map<string, TerrainTile>();
+  const authored = new Map<string, TerrainTile>();
   const b = box as [number, number, number, number] | null;
   const flat = terrainFlatStep(comp.heightRange);
   for (const ref of comp.tiles) {
     if (b !== null && (ref.x * size > b[2] || (ref.x + 1) * size < b[0] || ref.z * size > b[3] || (ref.z + 1) * size < b[1])) continue;
-    if (ref.data === undefined) {
-      loaded.set(terrainTileKey(ref.x, ref.z), flatTerrainTile(comp.tileSamples, flat));
-      continue;
+    const key = terrainTileKey(ref.x, ref.z);
+    if (ref.data === undefined) loaded.set(key, flatTerrainTile(comp.tileSamples, flat));
+    else {
+      const got = read(ref.data);
+      if (!got.ok) return got;
+      if (got.tile.samples !== comp.tileSamples) return { ok: false, error: fieldValue('/args/entityId', args.entityId, 'tiles of the terrain\'s size', `tile [${ref.x}, ${ref.z}] holds ${got.tile.samples} samples a side, the terrain ${comp.tileSamples}`) };
+      loaded.set(key, got.tile);
     }
-    const got = read(ref.data);
-    if (!got.ok) return got;
-    if (got.tile.samples !== comp.tileSamples) return { ok: false, error: fieldValue('/args/entityId', args.entityId, 'tiles of the terrain\'s size', `tile [${ref.x}, ${ref.z}] holds ${got.tile.samples} samples a side, the terrain ${comp.tileSamples}`) };
-    loaded.set(terrainTileKey(ref.x, ref.z), got.tile);
+    if (ref.base === undefined) authored.set(key, loaded.get(key)!);
+    else {
+      const got = read(ref.base);
+      if (!got.ok) return got;
+      authored.set(key, got.tile);
+    }
   }
   // A per-request bound: the samples all dabs may cover together (nothing caps the terrain itself).
   const reach = (args.dabs?.length ?? 0) * terrainDabSamples(r, sp);
   if (reach > TERRAIN_BRUSH_LIMITS.samples) return { ok: false, error: fieldValue('/args/dabs', args.dabs?.length, `dabs covering at most ${TERRAIN_BRUSH_LIMITS.samples} samples`, `the stroke covers about ${reach} samples (radius over spacing, times the dabs): split it or use a smaller radius`) };
-  const s = new TerrainSamples(comp, loaded);
+  const s = new TerrainSamples(comp, splines.layered ? authored : loaded);
   const falloff = args.falloff ?? 'smooth';
   let changed = 0;
   let clamped: number | undefined;
@@ -369,29 +381,43 @@ export function planTerrainEdit(scene: SceneDocument, content: ContentDocument |
     case 'bake':
       break;
   }
-  // The rules baked: everywhere for a bake, else around the samples whose height the edit changed.
+  // Beside splines: the tiles the edit wrote, their splines applied again (what is drawn); else the edited tiles themselves.
+  const c = splines.layered ? combineEdited(splines, comp, loaded, s) : s;
+  // The rules baked (with the splines' paint over them): everywhere for a bake, else around the samples whose height the edit changed.
   let rulesChanged = false;
-  if (ruleSet !== null) {
+  const bakeSet = ruleSet ?? (splines.layered && (splines.paints || args.kind === 'bake') ? null : undefined);
+  if (bakeSet !== undefined) {
     const written = new Map<string, TerrainTile>();
-    for (const key of s.touched) written.set(key, s.all().get(key)!);
+    for (const key of c.touched) written.set(key, c.all().get(key)!);
     const rect = args.kind === 'bake' ? null : terrainBakeRect(loaded, written, comp.tileSamples - 1, margin);
-    if (args.kind === 'bake' || rect !== null) changed += bakeTerrainRules(s, ruleSet, origin, rect);
+    const over = splines.layered ? { paint: (tx: number, tz: number) => splines.layer.paint(tx, tz), base: (tx: number, tz: number) => s.tile(tx, tz) } : {};
+    if (args.kind === 'bake' || rect !== null) changed += bakeTerrainRules(c, bakeSet, origin, rect, over);
     if (args.kind === 'bake') rulesChanged = JSON.stringify(rules) !== JSON.stringify(comp.rules ?? []);
   }
   const tiles = new Map<string, TerrainTile>();
-  for (const key of s.touched) tiles.set(key, s.all().get(key)!);
+  for (const key of c.touched) tiles.set(key, c.all().get(key)!);
+  // The hand-made forms of the tiles the edit wrote: kept where a spline reaches, dropped where none does.
+  const bases = new Map<string, TerrainTile | null>();
+  if (splines.layered) {
+    const hadBase = new Set(comp.tiles.filter((t) => t.base !== undefined).map((t) => terrainTileKey(t.x, t.z)));
+    for (const key of s.touched) {
+      const [tx, tz] = key.split(',').map(Number) as [number, number];
+      if (splines.layer.reaches(tx, tz)) bases.set(key, s.all().get(key)!);
+      else if (hadBase.has(key)) bases.set(key, null);
+    }
+  }
   const known = new Set(comp.tiles.map((t) => terrainTileKey(t.x, t.z)));
   const addedTiles = [...tiles.keys()].filter((k) => !known.has(k)).map((k) => k.split(',').map(Number) as [number, number]);
   // The scatter baked: everywhere for a bake, else over what the edit changed (the ground, or a stroke's rule) grown by the reach.
   const scatter = new Map<string, ScatterCell | null>();
   let scatterRulesChanged = false;
   if (scatterBakes) {
-    const r = bakeScatterOf(comp, origin, s, loaded, tiles, storedRules, args, strokeRule, scene, readScatter);
+    const r = bakeScatterOf(comp, origin, c, loaded, tiles, storedRules, args, strokeRule, scene, readScatter, splines);
     if (!r.ok) return r;
     for (const [k, v] of r.cells) scatter.set(k, v);
     if (args.kind === 'bake' && args.scatter !== undefined) scatterRulesChanged = JSON.stringify(scatterRules) !== JSON.stringify(comp.scatter ?? []);
   }
-  if (changed === 0 && addedTiles.length === 0 && !rulesChanged && scatter.size === 0 && !scatterRulesChanged) return { ok: false, error: { ...noChangeContent(), message: args.kind === 'scatter' ? 'the stroke changes no copy of the rule' : 'the edit changes no sample of the terrain' } };
+  if (changed === 0 && addedTiles.length === 0 && !rulesChanged && scatter.size === 0 && !scatterRulesChanged && bases.size === 0) return { ok: false, error: { ...noChangeContent(), message: args.kind === 'scatter' ? 'the stroke changes no copy of the rule' : 'the edit changes no sample of the terrain' } };
   return {
     ok: true,
     plan: {
@@ -399,6 +425,7 @@ export function planTerrainEdit(scene: SceneDocument, content: ContentDocument |
       component: comp,
       tiles,
       scatter,
+      bases,
       added: addedTiles,
       changed,
       ...(clamped !== undefined && clamped > 0 ? { clamped } : {}),
@@ -406,6 +433,19 @@ export function planTerrainEdit(scene: SceneDocument, content: ContentDocument |
       ...(args.kind === 'bake' && args.scatter !== undefined ? { scatterRules } : {}),
     },
   };
+}
+
+/**
+ * The drawn tiles after an edit of the hand-made ones: each tile the edit
+ * wrote, the splines applied over it again (the rest as stored).
+ */
+function combineEdited(splines: TerrainSplineContext, comp: TerrainComponent, loaded: ReadonlyMap<string, TerrainTile>, s: TerrainSamples): TerrainSamples {
+  const c = new TerrainSamples(comp, loaded);
+  for (const key of s.touched) {
+    const [tx, tz] = key.split(',').map(Number) as [number, number];
+    putCombined(c, tx, tz, combinedTile(splines, tx, tz, s.all().get(key)!, loaded.get(key)));
+  }
+  return c;
 }
 
 /**
@@ -424,6 +464,7 @@ function bakeScatterOf(
   strokeRule: ScatterRule | null,
   scene: SceneDocument,
   readScatter: TerrainScatterRead | undefined,
+  splines: TerrainSplineContext,
 ): { ok: true; cells: Map<string, ScatterCell | null> } | { ok: false; error: CommandError } {
   const size = terrainTileSize(comp);
   const n = comp.tileSamples - 1;
@@ -466,31 +507,33 @@ function bakeScatterOf(
   }
   // The ground: every tile the edit read, as it is after the edit.
   const field = new TerrainField({ ...comp, tiles: coords.map(([x, z]) => ({ x, z, data: '' })) }, origin, s.all());
-  const surface = terrainScatterSurface(field, regionExcluder(sceneRegionLayers(scene)));
+  const surface = terrainScatterSurface(field, regionExcluder(sceneRegionLayers(scene)), splines.bands.empty ? undefined : (x, z, rule) => splines.bands.cleared(x, z, rule));
   const baked = bakeTerrainScatter(rules, surface, origin, size, coords, prev, rect, stored);
   return { ok: true, cells: baked.cells };
 }
 
 /**
  * The terrain's tiles after the edit, from the new tiles' digests (null: the
- * tile is flat and bare again, stored without data) and their new scatter
- * blobs' (null: no scatter left on it).
+ * tile is flat and bare again, stored without data), their new scatter
+ * blobs' (null: no scatter left on it) and their new hand-made forms' beside
+ * splines (null: none any more).
  */
-export function terrainTilesAfter(c: TerrainComponent, digests: ReadonlyMap<string, string | null>, scatter: ReadonlyMap<string, string | null> = new Map()): TerrainTileRef[] {
+export function terrainTilesAfter(c: TerrainComponent, digests: ReadonlyMap<string, string | null>, scatter: ReadonlyMap<string, string | null> = new Map(), bases: ReadonlyMap<string, string | null> = new Map()): TerrainTileRef[] {
   const out: TerrainTileRef[] = [];
   const seen = new Set<string>();
-  const ref = (x: number, z: number, data: string | null, sc: string | null): TerrainTileRef => ({ x, z, ...(data !== null ? { data } : {}), ...(sc !== null ? { scatter: sc } : {}) });
+  const ref = (x: number, z: number, data: string | null, sc: string | null, base: string | null): TerrainTileRef => ({ x, z, ...(data !== null ? { data } : {}), ...(sc !== null ? { scatter: sc } : {}), ...(base !== null ? { base } : {}) });
   for (const t of c.tiles) {
     const key = terrainTileKey(t.x, t.z);
     seen.add(key);
     const d = digests.has(key) ? digests.get(key)! : (t.data ?? null);
     const sc = scatter.has(key) ? scatter.get(key)! : (t.scatter ?? null);
-    out.push(ref(t.x, t.z, d, sc));
+    const b = bases.has(key) ? bases.get(key)! : (t.base ?? null);
+    out.push(ref(t.x, t.z, d, sc, b));
   }
-  for (const key of new Set([...digests.keys(), ...scatter.keys()])) {
+  for (const key of new Set([...digests.keys(), ...scatter.keys(), ...bases.keys()])) {
     if (seen.has(key)) continue;
     const [x, z] = key.split(',').map(Number) as [number, number];
-    out.push(ref(x, z, digests.get(key) ?? null, scatter.get(key) ?? null));
+    out.push(ref(x, z, digests.get(key) ?? null, scatter.get(key) ?? null, bases.get(key) ?? null));
   }
   out.sort((a, b) => a.z - b.z || a.x - b.x);
   return out;

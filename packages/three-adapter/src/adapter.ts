@@ -26,7 +26,7 @@
  * backend), never a throw.
  */
 import type { MaterialFunctionLike } from './material-graph';
-import { createMaterialLibrary, type MaterialDefLike, type MaterialLibrary, type MaterialOverridesLike, type WindLike } from './material-library';
+import { createMaterialLibrary, type MaterialDefLike, type MaterialLibrary, type WindLike } from './material-library';
 import { createAnimatorPlayer, type AnimatorPlayer, type AnimatorPoseLike } from './animator-player';
 import { addBoxLightmapUv, createLightmapSet, type LightingBakeLike, type LightmapSet } from './lightmaps';
 import { createProbeLightingHost } from './probe-grids';
@@ -50,19 +50,20 @@ import { createCutawayFollower } from './block-cutaway-follow';
 import { createBrowserMeshWorker } from './block-mesh-pool';
 import { TERRAIN_ENTITY_KEY, TerrainView } from './terrain-view';
 import { createScatterHost } from './scatter-host';
+import { SplineView } from './spline-view';
 import { TerrainTileStore } from './terrain-tile-store';
 import { RuntimeMaterialView, type MaterialRenderChangeLike, type RuntimeMaterialsDiagnostics } from './runtime-materials';
 import { MaterialSwapView, type MaterialMappingLike } from './material-swaps';
-import type { BlockLayerComponent, BlockLayerData, BlockType, GridRenderChange, TerrainComponent } from '@thirdlight/runtime';
+import { materialParamsOf, modelRefsOf } from './entity-refs';
+import type { BlockLayerComponent, BlockLayerData, BlockType, GridRenderChange, SplineComponent, TerrainComponent } from '@thirdlight/runtime';
 import type { Runtime, RuntimeSnapshot } from '@thirdlight/runtime';
-import { instanceDensityOf, type EnvironmentBlendView } from '@thirdlight/runtime';
+import type { EnvironmentBlendView } from '@thirdlight/runtime';
 import { adapterError, type AdapterError } from './errors';
 import { createFrameCapture, type ScreenshotResult } from './capture';
 export type { ScreenshotResult } from './capture';
 import { EntityNode, RenderGraph } from './render-graph';
 import {
   createModelsRealization,
-  type InstanceSetRef,
   type ModelsRealization,
   type ModelsSettledResult,
   type SceneAdapterModelAsset,
@@ -122,45 +123,6 @@ interface OwnedResources {
 }
 
 /** An environment preset (project-model's, as the runtime's blend maths takes it). */
-
-/** An entity's `materialParams` component (overrides of its graph materials' public parameters). */
-function materialParamsOf(components: unknown): MaterialOverridesLike | null {
-  const v = (components as { materialParams?: unknown } | undefined)?.materialParams;
-  return v !== null && typeof v === 'object' && !Array.isArray(v) ? (v as MaterialOverridesLike) : null;
-}
-
-/** The model, animation and instance-set references of some entities (structural reads). */
-function modelRefsOf(entities: readonly { id: string; components: unknown }[]): {
-  models: Map<string, string>;
-  pieces: Map<string, string>;
-  animations: Map<string, { readonly assetId: string; readonly version: number }>;
-  instances: Map<string, InstanceSetRef>;
-} {
-  const models = new Map<string, string>();
-  const pieces = new Map<string, string>();
-  const animations = new Map<string, { readonly assetId: string; readonly version: number }>();
-  const instances = new Map<string, InstanceSetRef>();
-  for (const e of entities) {
-    const comps = e.components as {
-      model?: { asset?: { assetId?: unknown }; piece?: unknown };
-      modelAnimation?: { assetId?: unknown; version?: unknown };
-      instances?: { asset?: { assetId?: unknown; piece?: unknown }; buffer?: unknown; count?: unknown; chunkSize?: unknown; densityStart?: unknown; densityEnd?: unknown; densityMin?: unknown; lodPerCopy?: unknown };
-    };
-    if (comps.model !== undefined && typeof comps.model.asset?.assetId === 'string') {
-      models.set(e.id, comps.model.asset.assetId);
-      if (typeof comps.model.piece === 'string') pieces.set(e.id, comps.model.piece);
-    }
-    if (comps.modelAnimation !== undefined && typeof comps.modelAnimation.assetId === 'string' && Number.isInteger(comps.modelAnimation.version)) {
-      animations.set(e.id, { assetId: comps.modelAnimation.assetId, version: comps.modelAnimation.version as number });
-    }
-    const inst = comps.instances;
-    if (inst !== undefined && typeof inst.asset?.assetId === 'string' && typeof inst.buffer === 'string' && Number.isInteger(inst.count)) {
-      const piece = typeof inst.asset.piece === 'string' ? inst.asset.piece : undefined;
-      instances.set(e.id, { assetId: inst.asset.assetId, ...(piece !== undefined ? { piece } : {}), buffer: inst.buffer, count: inst.count as number, ...(typeof inst.chunkSize === 'number' ? { chunkSize: inst.chunkSize } : {}), density: instanceDensityOf(inst), ...(inst.lodPerCopy === true ? { lodPerCopy: true } : {}) });
-    }
-  }
-  return { models, pieces, animations, instances };
-}
 
 const NO_HIDDEN: ReadonlySet<string> = new Set();
 /** An applied-blend key no blend has: the next frame applies the blend (or its end) again. */
@@ -495,6 +457,26 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     changed: () => opts.onChange?.(),
     drawn: opts.scatter !== false,
   });
+  // Splines: what they make (meshes, pieces' copies), and terrain ground cover kept clear of their scatter bands.
+  const splines = new SplineView({
+    cover: (list) => scatter.sink?.setSplines?.(list),
+    read: opts.resolveBuffer ?? opts.models?.resolveBuffer ?? null,
+    template: (assetId, piece, onReady) => realization?.blockInstance?.(assetId, piece, onReady) ?? null,
+    dress: (root, assetId) => {
+      const mapping = assetMaterialsOf(assetId);
+      return materialLibrary !== null && mapping !== undefined && Object.keys(mapping).length > 0 ? materialLibrary.apply(root, mapping, null) : null;
+    },
+    materials: (root, id) => {
+      const c = entityDocs.get(id)?.components as { materials?: Record<string, string> } | undefined;
+      const mapping = effectiveMaterials(id, c?.materials);
+      return materialLibrary !== null && mapping !== undefined ? materialLibrary.apply(root, mapping, materialParamsOf(c)) : null;
+    },
+    place: (root, shown) => (shown ? graph.listStatic(root) : graph.unlistStatic(root)),
+    shapeChanged: () => staticShadows?.bump(),
+    tuning: graph.lodTuning,
+    changed: () => opts.onChange?.(),
+    drawn: opts.splines !== false,
+  });
   const blockView = new BlockLayerView({
     ...(scatter.sink !== undefined ? { scatter: scatter.sink } : {}),
     modelLook: (assetId, piece, onReady) => {
@@ -617,6 +599,8 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       blockView.setLayer(e.id, layer, t.position, layer.data ?? null);
     }
     const terrain = (e.components as { terrain?: TerrainComponent }).terrain;
+    const spline = (e.components as { spline?: SplineComponent }).spline;
+    if (spline !== undefined) splines.set(e.id, spline, t.position);
     if (terrain !== undefined && opts.terrain !== false) terrains.setTerrain(e.id, terrain, t.position, { components: e.components, materials: effectiveMaterials(e.id, (e.components as { materials?: Record<string, string> }).materials) ?? null, overrides: materialParamsOf(e.components) });
     if ((e.components as { fogVolume?: unknown }).fogVolume !== undefined) fogVolumeIds.add(e.id);
     const node = graph.node(e.id);
@@ -641,6 +625,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   const releaseEntity = (id: string): void => {
     if (docLayers.delete(id)) blockView.removeLayer(id);
     terrains.removeTerrain(id);
+    splines.remove(id);
     runtimeMaterials?.release(id);
     if (effects !== null) {
       effects.detach(id);
@@ -787,6 +772,8 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       ...(materialLibrary.preloadTextures !== undefined ? { preload: (ids: readonly string[]) => materialLibrary.preloadTextures!(ids) } : {}),
       applyEntity: (entityId) => {
         const e = entityDocs.get(entityId);
+        // A spline's mesh wears it (drawn by the spline view, no entity node of its own).
+        if (e !== undefined && !disposed && (e.components as { spline?: unknown }).spline !== undefined) return splines.restyle(entityId);
         // A terrain's pages wear it (no entity node of its own).
         if (e !== undefined && !disposed && (e.components as { terrain?: unknown }).terrain !== undefined) return terrains.restyle(entityId, effectiveMaterials(entityId, (e.components as { materials?: Record<string, string> }).materials) ?? null, materialParamsOf(e.components));
         const obj = graph.node(entityId);
@@ -1297,6 +1284,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       // A hidden block layer's chunks leave the scene (they hang on no entity node).
       for (const id of docLayers) blockView.setHidden(id, hiddenIds.has(id));
       for (const id of terrains.ids()) terrains.setHidden(id, hiddenIds.has(id));
+      for (const id of splines.ids()) splines.setHidden(id, hiddenIds.has(id));
       let lightsTouched = false;
       for (const id of before) if (!hiddenIds.has(id) && lights.has(id)) lightsTouched = true;
       for (const id of hiddenIds) if (!before.has(id) && lights.has(id)) lightsTouched = true;
@@ -1633,6 +1621,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     }
     if (!disposed && blockView.layerIds().length > 0) d.blocks = blockView.diagnostics();
     if (!disposed && terrains.ids().length > 0) d.terrain = terrains.diagnostics();
+    if (!disposed && splines.ids().length > 0) d.splines = splines.diagnostics();
     if (!disposed) scatter.diagnostics(d);
     if (!disposed && materialLibrary !== null && runtimeMaterials !== null) d.materials = { graphMaterials: materialLibrary.graphMaterialCount(), ...(materialSwaps !== null && (materialSwaps.applied > 0 || materialSwaps.pending() > 0) ? { swapsApplied: materialSwaps.applied, swapsPending: materialSwaps.pending() } : {}), ...runtimeMaterials.diagnostics() };
     const envDiagnostics = environmentRenderer !== null && !disposed ? environmentRenderer.diagnostics() : null;
@@ -1706,6 +1695,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     viewCull.dispose();
     blockView.dispose();
     terrains.dispose();
+    splines.dispose();
     scatter.dispose();
     ownTiles?.dispose();
     for (const rec of boxMaterials.values()) rec.material.dispose();

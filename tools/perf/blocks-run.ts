@@ -57,7 +57,7 @@ export interface BlocksReport {
 }
 
 /** Records every animation frame's time from the page's start. */
-function installFrameClock(): void {
+export function installFrameClock(): void {
   const w = window as unknown as { __tlRaf: number[] };
   w.__tlRaf = [];
   const loop = (t: number): void => {
@@ -67,11 +67,11 @@ function installFrameClock(): void {
   requestAnimationFrame(loop);
 }
 
-const rafTimes = (page: Page): Promise<number[]> => page.evaluate(() => (window as unknown as { __tlRaf: number[] }).__tlRaf.slice());
-const pageNow = (page: Page): Promise<number> => page.evaluate(() => performance.now());
+export const rafTimes = (page: Page): Promise<number[]> => page.evaluate(() => (window as unknown as { __tlRaf: number[] }).__tlRaf.slice());
+export const pageNow = (page: Page): Promise<number> => page.evaluate(() => performance.now());
 
 /** The frame intervals that end inside [from, to] (page time, ms). */
-function hitches(times: readonly number[], from: number, to: number): HitchWindow {
+export function hitches(times: readonly number[], from: number, to: number): HitchWindow {
   const iv: number[] = [];
   for (let i = 1; i < times.length; i++) if (times[i]! > from && times[i]! <= to) iv.push(times[i]! - times[i - 1]!);
   const s = summarize(iv);

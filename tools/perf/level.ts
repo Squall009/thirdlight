@@ -59,6 +59,14 @@
  * set made again, as a re-bake makes it): ground cover, near shadows and set
  * builds all happen while frames are counted.
  *
+ * The landscape carries a road and a river (splines; `--splines off`: neither,
+ * the landscape as it was): a winding 8 m road about a kilometre north from
+ * the area's east side, flattened 0.1 m under its surface mesh, its verges
+ * painted, scatter kept 1 m clear; and a 14 m river west of the area,
+ * carved 2.5 m deep at its middle under water (the river template: flow,
+ * foam, soft shores), scatter kept 2 m clear. Both are made after the
+ * terrain's heights, paint and rules and before its scatter is baked.
+ *
  * Both classes share the camera (at the area's edge, looking across it to the
  * horizon) and the environment, so the landscape's extra cost is the far part.
  * `levelPlan` is a pure function of the kind and the seed; `buildLevel`
@@ -66,7 +74,7 @@
  */
 import { DEFAULT_FIXED_STEP_HZ, FOLIAGE_NEAR_METRES, INSTANCE_DENSITY_MIN_NEW } from '@thirdlight/project-model';
 
-import { layeredMaterial } from '../../packages/editor/src/session/material-graph';
+import { layeredMaterial, riverMaterial } from '../../packages/editor/src/session/material-graph';
 import { makePng } from '../../tests/e2e/png-make';
 import { publishBehaviorVia, publishBufferVia, publishFileVia, splitBySize } from './build';
 import type { PerfBackend } from './backend';
@@ -74,7 +82,7 @@ import { prng, type BehaviorPlan, type EntityValue } from './generate';
 import { coverKitGlb, propGlb, scatterKitGlb, type PropSpec } from './village-assets';
 
 /** Bump when the generated content changes. */
-export const LEVEL_VERSION = 3;
+export const LEVEL_VERSION = 4;
 export const LEVEL_SEED = 30;
 
 export type LevelKind = 'area' | 'landscape';
@@ -150,6 +158,8 @@ export function levelScatterBlocks(foliage: LevelFoliage = 'on'): Record<string,
 /** The scatter kits wear a foliage material: the wind sways them near the camera only under the policy (everywhere off). */
 const FOLIAGE_MATERIAL = 'mat-level-foliage';
 const TERRAIN_MATERIAL = 'mat-level-terrain';
+const ROAD_MATERIAL = 'mat-level-road';
+const RIVER_MATERIAL = 'mat-level-river';
 
 /** The starter's objects the classes do without (player, spawn, boxes, pillar). */
 const STARTER_REMOVED = ['model-0001', 'spawn-0001', 'box-0001', 'box-0002', 'box-0003', 'box-0004', 'model-0002'];
@@ -262,6 +272,29 @@ export interface LevelPlan {
   flight: boolean;
   /** The terrain's trees, pines and rocks draw as impostors below this screen size (0: their meshes all the way). */
   impostorSize: number;
+  /** The landscape's road and river (splines). */
+  splines: boolean;
+}
+
+/** The landscape's road and river: their objects' places (world) and spline components (points as offsets). */
+export function levelSplines(): { id: string; name: string; position: [number, number, number]; spline: Record<string, unknown>; material: string }[] {
+  // Points on the ground (the terrain's own heights), the road a little over it: it flattens a smooth grade between them.
+  const road: [number, number, number][] = [];
+  for (let k = 0; k <= 10; k += 1) {
+    const x = 70 + 60 * Math.sin(k / 2);
+    const z = -60 - k * 95;
+    road.push([r3(x), r3(levelTerrainHeight(x, z) + 0.3), r3(z)]);
+  }
+  const river: [number, number, number][] = [];
+  for (let k = 0; k <= 10; k += 1) {
+    const x = -130 - 40 * Math.sin(k / 1.5);
+    const z = -60 - k * 90;
+    river.push([r3(x), r3(levelTerrainHeight(x, z)), r3(z)]);
+  }
+  return [
+    { id: 'level-road', name: 'Road', position: [0, 0, 0], material: ROAD_MATERIAL, spline: { points: road.map((at) => ({ at })), width: 8, terrain: { falloff: 6, offset: 0.1, paint: { layer: 2, falloff: 2 } }, scatter: {}, mesh: { tiling: 8 } } },
+    { id: 'level-river', name: 'River', position: [0, 0, 0], material: RIVER_MATERIAL, spline: { points: river.map((at) => ({ at })), width: 14, terrain: { shape: 'carve', depth: 2.5, falloff: 6 }, scatter: { margin: 2 }, mesh: { kind: 'water', offset: -0.4, tiling: 14 } } },
+  ];
 }
 
 /**
@@ -392,7 +425,7 @@ function copies(n: number, at: (i: number) => { x: number; y: number; z: number;
   return f;
 }
 
-export function levelPlan(kind: LevelKind, seed = LEVEL_SEED, liveDoorCount = 0, edgeWalls = false, wallPaint = false, roofs: LevelRoofs = 'none', kitSwap = false, vertexAO = 0, rules = false, projection = 0, macro = 0, foliage: LevelFoliage = 'on', flight = false, impostorSize = 0): LevelPlan {
+export function levelPlan(kind: LevelKind, seed = LEVEL_SEED, liveDoorCount = 0, edgeWalls = false, wallPaint = false, roofs: LevelRoofs = 'none', kitSwap = false, vertexAO = 0, rules = false, projection = 0, macro = 0, foliage: LevelFoliage = 'on', flight = false, impostorSize = 0, splines = true): LevelPlan {
   const S = LEVEL_SPEC;
   const N = S.areaSide;
   const rnd = prng(seed * 104729 + N);
@@ -578,7 +611,8 @@ export function levelPlan(kind: LevelKind, seed = LEVEL_SEED, liveDoorCount = 0,
   // At the area's south edge, 8 m over its ground, looking north across it to the horizon.
   const pitch = -0.12;
   const camera: LevelPlan['camera'] = { position: [0, r3(groundY(half, N - 2) + 8), half - 2], rotation: [r6(Math.sin(pitch / 2)), 0, 0, r6(Math.cos(pitch / 2))] };
-  return { kind, version: LEVEL_VERSION, seed, props, buffers, layer, batches, blockEdits, rooms, camera, counts, liveDoors, edgeWalls, wallPaint, roofs, kitSwap, rules, projection, macro, foliage, flight, impostorSize };
+  if (kind === 'landscape' && splines) counts.splines = levelSplines().length;
+  return { kind, version: LEVEL_VERSION, seed, props, buffers, layer, batches, blockEdits, rooms, camera, counts, liveDoors, edgeWalls, wallPaint, roofs, kitSwap, rules, projection, macro, foliage, flight, impostorSize, splines: kind === 'landscape' && splines };
 }
 
 /**
@@ -728,6 +762,18 @@ export async function buildLevel(be: PerfBackend, projectId: string, plan: Level
       const t = performance.now();
       await cmd('editTerrain', { entityId: terrainId, kind: 'bake', rules: LEVEL_RULES });
       log(`level ${plan.kind}: rules baked into ${plan.counts['terrainTiles']} tiles in ${Math.round(performance.now() - t)} ms (the command's round trip)`);
+    }
+    // The road and the river: each spline shapes the terrain in its own command (its re-bake timed by the round trip).
+    if (plan.splines) {
+      await cmd('setMaterial', { material: { materialId: ROAD_MATERIAL, name: 'Level road', shader: 'standard', params: { color: '#3d3c38', roughness: 0.95 }, textures: {} } });
+      await cmd('setMaterial', { material: riverMaterial(RIVER_MATERIAL, 'Level river') });
+      for (const sp of levelSplines()) {
+        const id = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: sp.name, static: true, transform: { position: sp.position } }))['createdId']);
+        const t = performance.now();
+        await cmd('setComponent', { entityId: id, component: 'spline', value: sp.spline });
+        log(`level ${plan.kind}: ${sp.name.toLowerCase()} made and the terrain shaped under it in ${Math.round(performance.now() - t)} ms (the command's round trip)`);
+        await cmd('setComponent', { entityId: id, component: 'materials', value: { spline: sp.material } });
+      }
     }
     // The scatter rules, baked into every tile (the block area's region is set by now).
     const ts = performance.now();

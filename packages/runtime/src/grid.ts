@@ -79,6 +79,7 @@ import { walkNeighboursQuery, walkPathQuery, walkReachQuery, type GridWalkOption
 import type { PhysicsPort3D, StaticColliderSpec3D } from './ports';
 import { TerrainColliders, type TerrainTileData } from './terrain-collision';
 import { RuntimeScatter, type ScatterCopyChange, type TerrainScatterData, type TerrainSimData } from './scatter-copies';
+import { RuntimeSplines, type SplineSimData } from './splines';
 
 // ---- the script API types (public: `ctx.grid`) -------------------------------------
 
@@ -550,6 +551,7 @@ export class RuntimeGrid {
 
   constructor(types: readonly BlockType[], fields: readonly CellField[], collide: boolean, defaultMaxSlope = 45, materialIds?: readonly string[], prefabs?: ReadonlyMap<string, PrefabDefinition>, modelColliders?: ModelColliderTable) {
     this.scatter = new RuntimeScatter(collide, modelColliders);
+    this.splines = new RuntimeSplines(collide, modelColliders);
     this.materialIds = materialIds !== undefined ? new Set(materialIds) : null;
     this.types = new Map(types.map((t) => [t.blockId, t]));
     this.kitNames = new Set(blockKitNames(types));
@@ -615,12 +617,17 @@ export class RuntimeGrid {
   readonly terrain = new TerrainColliders();
   /** The terrains' and layers' scatter copies (`ctx.scatter`; their colliders flushed with the chunks'). */
   readonly scatter: RuntimeScatter;
+  /** The loaded splines (`ctx.splines`; what they make collides, flushed with the chunks'). */
+  readonly splines: RuntimeSplines;
 
-  /** Terrain data decoded on the page (by digest): tiles for their colliders, scatter blobs for their copies. */
+  /** Terrain data decoded on the page (by digest): tiles for their colliders, scatter blobs for their copies, splines' made data for theirs. */
   addTerrainData(items: readonly TerrainSimData[]): void {
-    const tiles = items.filter((t): t is TerrainTileData => !('scatter' in t));
+    const tiles = items.filter((t): t is TerrainTileData => !('scatter' in t) && !('spline' in t));
     if (tiles.length > 0) this.terrain.addTiles(tiles);
-    if (tiles.length < items.length) this.scatter.addBlobs(items.filter((t): t is TerrainScatterData => 'scatter' in t));
+    const blobs = items.filter((t): t is TerrainScatterData => 'scatter' in t);
+    if (blobs.length > 0) this.scatter.addBlobs(blobs);
+    const made = items.filter((t): t is SplineSimData => 'spline' in t);
+    if (made.length > 0) this.splines.addMade(made);
   }
 
   /** A ray's hit on a collider that is not an object's own (`colliderId` names its object `entityId`): a layer's cell just inside the surface (`inside`: a point there), or a scatter copy's address. */
@@ -634,6 +641,7 @@ export class RuntimeGrid {
   /** The layers of entities that carry `blockLayer` (their cells from the resolved component's `data`), and their terrains; returns both's ids. */
   addLayers(entities: readonly EntityV3[]): string[] {
     this.scatter.add(entities);
+    this.splines.add(entities);
     const added: string[] = this.collide ? this.terrain.add(entities) : [];
     for (const e of entities) {
       const comp = (e.components as { blockLayer?: BlockLayerComponent & { data?: BlockLayerData } }).blockLayer;
@@ -654,7 +662,7 @@ export class RuntimeGrid {
 
   /** Forget unloaded layers; returns their collider ids (the caller removes them from the port). */
   removeLayers(ids: ReadonlySet<string>): string[] {
-    const colliders: string[] = [...this.terrain.remove(ids), ...this.scatter.remove(ids)];
+    const colliders: string[] = [...this.terrain.remove(ids), ...this.scatter.remove(ids), ...this.splines.remove(ids)];
     for (const id of ids) {
       const layer = this.layerMap.get(id);
       if (layer === undefined) continue;
@@ -907,6 +915,7 @@ export class RuntimeGrid {
   flushCollision(port: PhysicsPort3D | undefined): void {
     if (this.collide) this.terrain.flush(port);
     this.scatter.flush(this.collide ? port : undefined);
+    this.splines.flush(this.collide ? port : undefined);
     if (this.collisionDirty.size === 0) return;
     const dirty = this.collisionDirty;
     this.collisionDirty = new Map();

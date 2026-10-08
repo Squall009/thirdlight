@@ -14,11 +14,61 @@
  * whose surroundings it changed (`terrainBakeRect`), which gives the same
  * bytes as baking everything again.
  *
+ * The splines' paint (`terrain-splines.ts`) goes over what the rules give,
+ * each as one more layer mixed in by its amount; a terrain without rules
+ * then starts from its hand-made tile's weights, so a spline moved away
+ * leaves the ground as it was.
+ *
  * Pure and deterministic.
  */
 import type { TerrainSamples } from './terrain-edit';
 import { TERRAIN_SAMPLE_LAYERS, TERRAIN_WEIGHT_BYTES, type TerrainTile } from './terrain-tile';
 import { SurfaceRuleSet, type SurfacePoint } from './surface-rules';
+import type { TerrainSplinePaint } from './terrain-splines';
+
+/** What goes over or under the rules in a bake: the splines' paint per tile, and the hand-made tiles (a terrain without rules starts from their weights). */
+export interface TerrainBakeOver {
+  paint?(tx: number, tz: number): readonly TerrainSplinePaint[] | null;
+  base?(tx: number, tz: number): TerrainTile | undefined;
+}
+
+/**
+ * Mix layer `layer` in by `a` (0-1) over `count` layers and byte weights
+ * summing to 255 (strongest first); returns the new count, the bytes again
+ * summing to 255, strongest first, equal ones by lower layer.
+ */
+function mixLayer(layers: number[], weights: number[], count: number, layer: number, a: number): number {
+  const f: number[] = [];
+  const l: number[] = [];
+  let seen = false;
+  for (let k = 0; k < count; k++) {
+    l.push(layers[k]!);
+    f.push((weights[k]! / 255) * (1 - a) + (layers[k] === layer ? a : 0));
+    if (layers[k] === layer) seen = true;
+  }
+  if (!seen) {
+    l.push(layer);
+    f.push(a);
+  }
+  const order = l.map((_, i) => i).sort((x, y) => f[y]! - f[x]! || l[x]! - l[y]!);
+  let n = 0;
+  let sum = 0;
+  for (const i of order) {
+    const q = Math.round(f[i]! * 255);
+    if (q <= 0) continue;
+    layers[n] = l[i]!;
+    weights[n] = q;
+    sum += q;
+    n += 1;
+  }
+  if (n === 0) {
+    layers[0] = layer;
+    weights[0] = 255;
+    return 1;
+  }
+  weights[0] = weights[0]! + (255 - sum);
+  return n;
+}
 
 /** A rectangle of global sample indices [x0, z0, x1, z1], inclusive. */
 export type TerrainSampleRect = [number, number, number, number];
@@ -67,13 +117,15 @@ function defaultWeights(n: number): Uint8Array {
 /**
  * Bake the rules over `rect` (null: every sample) of the terrain's tiles.
  * `origin` is the terrain object's position (world = origin + local).
- * Writes only the tiles whose bytes change. Returns the samples changed.
+ * `set` null: no rules, the hand-made tiles' weights under the splines'
+ * paint (`over`). Writes only the tiles whose bytes change. Returns the
+ * samples changed.
  */
-export function bakeTerrainRules(s: TerrainSamples, set: SurfaceRuleSet, origin: readonly number[], rect: TerrainSampleRect | null): number {
+export function bakeTerrainRules(s: TerrainSamples, set: SurfaceRuleSet | null, origin: readonly number[], rect: TerrainSampleRect | null, over: TerrainBakeOver = {}): number {
   const n = s.n;
   const S = n + 1;
   const sp = s.spacing;
-  const reachSamples = set.readsCavity ? Math.max(1, Math.ceil(set.reach / sp)) : 1;
+  const reachSamples = set?.readsCavity === true ? Math.max(1, Math.ceil(set.reach / sp)) : 1;
   const m = reachSamples;
   const P = S + 2 * m;
   const padded = new Float64Array(P * P);
@@ -92,9 +144,13 @@ export function bakeTerrainRules(s: TerrainSamples, set: SurfaceRuleSet, origin:
     const z1 = rect === null ? n : Math.min(n, rect[3] - gz0);
     if (x0 > x1 || z0 > z1) continue;
     const tile = s.tile(tx, tz)!;
+    const paint = over.paint?.(tx, tz) ?? null;
+    // Without rules: the hand-made tile's weights (all layer 0 without any).
+    const below = set === null ? (over.base?.(tx, tz) ?? tile) : null;
     // Heights (metres above the object) around the tile; NaN where the terrain has no sample.
-    for (let j = 0; j < P; j++) {
-      for (let i = 0; i < P; i++) {
+    // Only the part the rectangle's samples read (their neighbours and cavity reach).
+    for (let j = z0; j <= z1 + 2 * m; j++) {
+      for (let i = x0; i <= x1 + 2 * m; i++) {
         const li = i - m;
         const lj = j - m;
         const step = li >= 0 && li <= n && lj >= 0 && lj <= n ? tile.heights[lj * S + li]! : s.step(gx0 + li, gz0 + lj);
@@ -120,7 +176,8 @@ export function bakeTerrainRules(s: TerrainSamples, set: SurfaceRuleSet, origin:
         point.z = origin[2]! + (gz0 + pz) * sp;
         point.slope = (Math.atan(Math.sqrt(gx * gx + gz * gz)) * 180) / Math.PI;
         // The layers come strongest first; past the fourth they go to the strongest (the tile's canonical form).
-        const count = set.evaluate(point, layers, weights);
+        let count = set !== null ? set.evaluate(point, layers, weights) : baseLayers(below!, pz * S + px, layers, weights);
+        if (paint !== null) for (const p of paint) if (p.amount[pz * S + px]! > 0) count = mixLayer(layers, weights, count, p.layer, p.amount[pz * S + px]!);
         scratch.fill(0);
         let extra = 0;
         for (let k = TERRAIN_SAMPLE_LAYERS; k < count; k++) extra += weights[k]!;
@@ -144,6 +201,30 @@ export function bakeTerrainRules(s: TerrainSamples, set: SurfaceRuleSet, origin:
     }
   }
   return changed;
+}
+
+/** A sample's stored weights as layers and bytes, strongest first (all layer 0 without weights). */
+function baseLayers(t: TerrainTile, i: number, layers: number[], weights: number[]): number {
+  if (t.weights === null) {
+    layers[0] = 0;
+    weights[0] = 255;
+    return 1;
+  }
+  let n = 0;
+  const o = i * TERRAIN_WEIGHT_BYTES;
+  for (let k = 0; k < TERRAIN_SAMPLE_LAYERS; k++) {
+    const w = t.weights[o + TERRAIN_SAMPLE_LAYERS + k]!;
+    if (w === 0) continue;
+    layers[n] = t.weights[o + k]!;
+    weights[n] = w;
+    n += 1;
+  }
+  if (n === 0) {
+    layers[0] = 0;
+    weights[0] = 255;
+    return 1;
+  }
+  return n;
 }
 
 /** A sample as the rules read it: its place in the padded heights, and the cavity measured from them. */

@@ -144,9 +144,20 @@ export function prepareTerrainEdit(core: Core, s: ProjectSession, scene: SceneDo
     scattered.push(key.split(',').map(Number) as [number, number]);
   }
   scattered.sort((a, b) => a[1] - b[1] || a[0] - b[0]);
+  // Beside splines, each tile's hand-made form the edit changed: always a blob (null: no spline reaches it any more).
+  const baseDigests = new Map<string, string | null>();
+  for (const [key, tile] of plan.plan.bases) {
+    if (tile === null) {
+      baseDigests.set(key, null);
+      continue;
+    }
+    const blob = terrainBlobOf(tile);
+    blobs.push(blob);
+    baseDigests.set(key, blob.digest);
+  }
   const value: TerrainComponent = {
     ...comp,
-    tiles: terrainTilesAfter(comp, digests, scatterDigests),
+    tiles: terrainTilesAfter(comp, digests, scatterDigests, baseDigests),
     ...(plan.plan.rules !== undefined ? { rules: plan.plan.rules } : {}),
     ...(plan.plan.scatterRules !== undefined ? { scatter: plan.plan.scatterRules } : {}),
   };
@@ -181,7 +192,7 @@ export function verifyTerrainTiles(core: Core, s: ProjectSession, before: readon
     const t = e.components.terrain;
     if (t === undefined) continue;
     const was = prior.get(e.id);
-    const known = new Set(was !== undefined && was.tileSamples === t.tileSamples ? was.tiles.map((x) => x.data).filter((d) => d !== undefined) : []);
+    const known = new Set(was !== undefined && was.tileSamples === t.tileSamples ? was.tiles.flatMap((x) => [x.data, x.base]).filter((d) => d !== undefined) : []);
     const knownScatter = new Set(was !== undefined ? was.tiles.map((x) => x.scatter).filter((d) => d !== undefined) : []);
     for (const tile of t.tiles) {
       if (tile.scatter !== undefined && !knownScatter.has(tile.scatter) && !own.has(tile.scatter)) {
@@ -193,14 +204,16 @@ export function verifyTerrainTiles(core: Core, s: ProjectSession, before: readon
           return badTile(tile.scatter, err instanceof Error ? err.message : String(err));
         }
       }
-      if (tile.data === undefined || known.has(tile.data) || own.has(tile.data)) continue;
-      const r = readSourceBlob(core, ctx, { digest: tile.data });
-      if (!r.ok) return r.error;
-      try {
-        const h = readTerrainTileBlob(r.bytes);
-        if (h.samples !== t.tileSamples) return badTile(tile.data, `holds ${h.samples} samples a side, the terrain ${t.tileSamples}`);
-      } catch (err) {
-        return badTile(tile.data, err instanceof Error ? err.message : String(err));
+      for (const digest of [tile.data, tile.base]) {
+        if (digest === undefined || known.has(digest) || own.has(digest)) continue;
+        const r = readSourceBlob(core, ctx, { digest });
+        if (!r.ok) return r.error;
+        try {
+          const h = readTerrainTileBlob(r.bytes);
+          if (h.samples !== t.tileSamples) return badTile(digest, `holds ${h.samples} samples a side, the terrain ${t.tileSamples}`);
+        } catch (err) {
+          return badTile(digest, err instanceof Error ? err.message : String(err));
+        }
       }
     }
   }

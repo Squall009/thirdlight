@@ -644,8 +644,8 @@ function validateChangeShape(change: unknown, op: string, storageVersion: 3 | 4)
     }
     const optional = V2_CHANGE_OPTIONAL_KEYS[t] ?? [];
     for (const k of keys) {
-      // Any entity change may carry the block chunks its props' footprints were written to.
-      if (k === 'footprints') continue;
+      // Any entity change may carry the block chunks its props' footprints were written to, and the components the host wrote with it.
+      if (k === 'footprints' || k === 'follows') continue;
       if (!required.includes(k) && !optional.includes(k)) return rerr(`unknown field in recorded ${t} change`, k, `/result/change/${pointerSegment(k)}`);
     }
   }

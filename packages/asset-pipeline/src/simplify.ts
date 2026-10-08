@@ -37,6 +37,12 @@ export interface SimplifyMeshInput {
    * position's error.
    */
   attributes?: { data: Float32Array; stride: number; weights: readonly number[] };
+  /**
+   * Vertices that stay where they are (1 per vertex: kept), e.g. the rows
+   * where one piece of a mesh meets the next, so pieces meet at every level
+   * while their open sides still simplify (needs `attributes`).
+   */
+  locked?: Uint8Array;
 }
 
 export interface SimplifyOptions {
@@ -102,7 +108,7 @@ function simplifierOver(m: Meshopt): MeshSimplifier {
   const run = (input: SimplifyMeshInput, indices: Uint32Array, targetIndices: number, maxError: number, lockBorder: boolean): [Uint32Array, number] => {
     const flags: ('LockBorder' | 'ErrorAbsolute')[] = lockBorder ? ['LockBorder'] : [];
     const a = input.attributes;
-    if (a !== undefined && a.stride > 0) return m.simplifyWithAttributes(indices, input.positions, 3, a.data, a.stride, [...a.weights], null, targetIndices, maxError, flags);
+    if (a !== undefined && a.stride > 0) return m.simplifyWithAttributes(indices, input.positions, 3, a.data, a.stride, [...a.weights], input.locked ?? null, targetIndices, maxError, flags);
     return m.simplify(indices, input.positions, 3, targetIndices, maxError, flags);
   };
   const check = (input: SimplifyMeshInput, ratio: number): void => {

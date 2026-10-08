@@ -64,6 +64,13 @@ export interface TerrainTileRef {
   data?: string;
   /** SHA-256 of the tile's scatter blob: the scatter rules' copies on it and their hand edits (`terrain-scatter.ts`; absent: none). */
   scatter?: string;
+  /**
+   * SHA-256 of the tile as sculpted and painted by hand, before the splines
+   * that reach it carved, flattened and painted it (`terrain-splines.ts`;
+   * absent: no spline reaches it, `data` is the hand-made tile). Kept so a
+   * spline moved or removed gives the ground back; never drawn or shipped.
+   */
+  base?: string;
 }
 
 export interface TerrainComponent {
@@ -150,14 +157,15 @@ export function validateTerrainComponent(value: unknown, path: string, errors: M
   const seen = new Set<string>();
   tiles.forEach((t, i) => {
     const p = `${path}/tiles/${i}`;
-    if (!isObj(t)) return err(errors, 'field_type', p, 'a tile is {x, z, data?, scatter?}', t);
-    for (const k of Object.keys(t)) if (k !== 'x' && k !== 'z' && k !== 'data' && k !== 'scatter') err(errors, 'field_unexpected', `${p}/${k}`, `unknown tile field "${k}"`, k);
+    if (!isObj(t)) return err(errors, 'field_type', p, 'a tile is {x, z, data?, scatter?, base?}', t);
+    for (const k of Object.keys(t)) if (k !== 'x' && k !== 'z' && k !== 'data' && k !== 'scatter' && k !== 'base') err(errors, 'field_unexpected', `${p}/${k}`, `unknown tile field "${k}"`, k);
     for (const k of ['x', 'z'] as const) {
       const v = t[k];
       if (!(Number.isInteger(v) && Math.abs(v as number) <= TERRAIN_TILE_COORD_MAX)) err(errors, 'field_value', `${p}/${k}`, `${k} is a whole tile coordinate within ±${TERRAIN_TILE_COORD_MAX}`, v);
     }
     if (t['data'] !== undefined && (typeof t['data'] !== 'string' || !DIGEST_RE.test(t['data']))) err(errors, 'field_value', `${p}/data`, 'data is the SHA-256 of the tile\'s blob (64 lowercase hex)', t['data']);
     if (t['scatter'] !== undefined && (typeof t['scatter'] !== 'string' || !DIGEST_RE.test(t['scatter']))) err(errors, 'field_value', `${p}/scatter`, 'scatter is the SHA-256 of the tile\'s scatter blob (64 lowercase hex)', t['scatter']);
+    if (t['base'] !== undefined && (typeof t['base'] !== 'string' || !DIGEST_RE.test(t['base']))) err(errors, 'field_value', `${p}/base`, 'base is the SHA-256 of the tile as made by hand, before splines (64 lowercase hex)', t['base']);
     const key = terrainTileKey(t['x'] as number, t['z'] as number);
     if (seen.has(key)) err(errors, 'field_value', p, `tile [${key}] is listed twice`, key);
     seen.add(key);
@@ -166,7 +174,7 @@ export function validateTerrainComponent(value: unknown, path: string, errors: M
 
 /** The component in canonical form (fields in order, tiles sorted by z then x). */
 export function canonicalTerrain(c: TerrainComponent): TerrainComponent {
-  const tiles = c.tiles.map((t) => ({ x: t.x, z: t.z, ...(t.data !== undefined ? { data: t.data } : {}), ...(t.scatter !== undefined ? { scatter: t.scatter } : {}) }));
+  const tiles = c.tiles.map((t) => ({ x: t.x, z: t.z, ...(t.data !== undefined ? { data: t.data } : {}), ...(t.scatter !== undefined ? { scatter: t.scatter } : {}), ...(t.base !== undefined ? { base: t.base } : {}) }));
   tiles.sort((a, b) => a.z - b.z || a.x - b.x);
   return { tileSamples: c.tileSamples, spacing: c.spacing, heightRange: [c.heightRange[0], c.heightRange[1]], tiles, ...(c.lodDistance !== undefined ? { lodDistance: c.lodDistance } : {}), ...(c.collision === false ? { collision: false } : {}), ...(c.macroDistance !== undefined ? { macroDistance: c.macroDistance } : {}), ...(c.rules !== undefined ? { rules: canonicalSurfaceRules(c.rules) } : {}), ...(c.scatter !== undefined ? { scatter: canonicalScatterRules(c.scatter) } : {}) };
 }

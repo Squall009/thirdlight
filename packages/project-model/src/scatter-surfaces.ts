@@ -26,7 +26,7 @@ import type { TerrainField } from './terrain-field';
 import { CHUNK_SIZE } from './block-layers';
 
 /** A terrain as scatter reads it (only its loaded tiles have ground). */
-export function terrainScatterSurface(field: TerrainField, excluded?: ScatterSurface['excluded']): ScatterSurface {
+export function terrainScatterSurface(field: TerrainField, excluded?: ScatterSurface['excluded'], cleared?: ScatterSurface['cleared']): ScatterSurface {
   let layers: number[] = [];
   let weights: number[] = [];
   const g: ScatterGround = {
@@ -68,6 +68,7 @@ export function terrainScatterSurface(field: TerrainField, excluded?: ScatterSur
       return g;
     },
     ...(excluded !== undefined ? { excluded } : {}),
+    ...(cleared !== undefined ? { cleared } : {}),
   };
 }
 
@@ -83,7 +84,7 @@ export interface BlockScatterSource {
 }
 
 /** A block layer's tops as scatter reads them. */
-export function blockScatterSurface(src: BlockScatterSource, excluded?: ScatterSurface['excluded']): ScatterSurface {
+export function blockScatterSurface(src: BlockScatterSource, excluded?: ScatterSurface['excluded'], cleared?: ScatterSurface['cleared']): ScatterSurface {
   const { grid, types, origin } = src;
   const cs = grid.cellSize;
   const top = grid.max[1]! * cs[1]!;
@@ -140,6 +141,7 @@ export function blockScatterSurface(src: BlockScatterSource, excluded?: ScatterS
       return g;
     },
     ...(excluded !== undefined ? { excluded } : {}),
+    ...(cleared !== undefined ? { cleared } : {}),
   };
 }
 

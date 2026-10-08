@@ -489,6 +489,7 @@ const COMPONENT_BASES: Record<string, J[]> = {
   instances: [{ asset: { assetId: 'model-a', piece: 'Rock' }, buffer: 'a'.repeat(64), count: 10, castShadow: false, receiveShadow: false, chunkSize: 24, lightLayers: 4, densityStart: 0.03, densityEnd: 0.01, densityMin: 0.5, lodPerCopy: true , localLights: 'pixel' }],
   fogVolume: [{ size: [6, 3, 4], density: 0.25, color: '#dfe7ef', falloff: 0.5, heightFalloff: 0.3 }],
   probeVolume: [{ size: [16, 6, 16], spacing: 1.5 }],
+  spline: [{ points: [{ at: [0, 0, 0], tangent: [1, 0, 0], width: 6, roll: 5 }, { at: [10, 1, 0] }, { at: [20, 0, 5] }], closed: true, width: 8, terrain: { shape: 'carve', falloff: 3, depth: 1, offset: 0.2, paint: { layer: 2, strength: 0.5, width: 6, falloff: 1 }, order: 1 }, scatter: { margin: 2, rules: ['trees'] }, mesh: { kind: 'water', profile: [[-1, 0], [1, 0]], offset: -0.3, tiling: 8, step: 2, collision: false, castShadow: false, receiveShadow: false, flow: 2, foam: 1 }, pieces: [{ asset: { assetId: 'model-a', piece: 'Post' }, spacing: 3, start: 1, offset: [2, 0], yaw: 90, upright: false, collide: false, castShadow: false }], data: 'c'.repeat(64) }],
   terrain: [{ tileSamples: 129, spacing: 2, heightRange: [-10, 90], tiles: [{ x: 0, z: 0 }, { x: 1, z: -1, data: 'b'.repeat(64) }], lodDistance: 300, collision: false, macroDistance: 400 }],
   collider: [
     { shape: { type: 'box', hx: 0.5, hy: 0.25 }, oneWay: true },
@@ -1009,8 +1010,9 @@ describe('descriptor registry', () => {
     // the sky/fog/post descriptors, about 9 KB; a compound repeats the collider shapes, about 6 KB;
     // a quality level repeats the bloom/AO/depth-of-field descriptors, about 3 KB; a block type's connection pieces
     // repeat their look and turn, about 3 KB; a block layer's cut-away, about 1.6 KB; kits on block types and layers,
-    // about 2 KB; a block layer's walk and corner shading, about 1.7 KB; the terrain and its exclusions, about 1.6 KB; material rules and far ground, about 1 KB)
-    expect(JSON.stringify(DESCRIPTORS).length).toBeLessThan(286_000);
+    // about 2 KB; a block layer's walk and corner shading, about 1.7 KB; the terrain and its exclusions, about 1.6 KB; material rules and far ground, about 1 KB; the spline, its terrain
+    // settings, mesh and pieces, about 8.7 KB)
+    expect(JSON.stringify(DESCRIPTORS).length).toBeLessThan(296_000);
     for (const c of DESCRIPTORS.components) expect(c.value.key).toBe(c.name);
   });
 

@@ -184,6 +184,8 @@ export interface EntityComponentsV3 extends EntityComponentsV2 {
   probeVolume?: import('./probe-grids').ProbeVolumeComponent;
   /** v4 only: a heightfield of tiles (their data are blobs named by digest). */
   terrain?: import('./terrain').TerrainComponent;
+  /** v4 only: a curve through points (roads, rivers, rails) and what is made along it. */
+  spline?: import('./spline').SplineComponent;
   /** v4 only: rides on a named node of another entity's model (with an offset). */
   socketAttach?: import('./sockets').SocketAttachComponent;
   /** v4 only: the animator controller that plays the model's clips. */

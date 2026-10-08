@@ -435,6 +435,10 @@ export class Projection {
     const structureBefore = this.structureN;
     const kinds = new Map<string, ProjectedEntity['kind']>();
     const result = this.applyChangeInner(change, kinds);
+    // Components the project host wrote with the change (terrains shaped by splines): their values as written.
+    for (const f of (change as { follows?: readonly { entityId: string; component: string; next: unknown }[] }).follows ?? []) {
+      this.applyChangeInner({ type: 'setComponent', id: f.entityId, component: f.component, previous: null, next: f.next, changedFields: [] } as unknown as ChangeData, kinds);
+    }
     // A component added or removed can change what the tree shows (the kind icon).
     if (this.structureN === structureBefore) {
       for (const [id, k] of kinds) if (this.entities.get(id)?.kind !== k) this.structural();

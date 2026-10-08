@@ -5348,6 +5348,90 @@ the ground (`level --classes landscape --flight`, at the display's 60 Hz,
 scripts hiding and removing copies on the way): no refresh missed on either
 renderer, the page's main thread 5.6-5.9 ms a frame.
 
+## Splines (roads, paths, rivers)
+
+A **spline** is one generic curve component: points, each with an optional
+tangent, width and roll. Roads, paths and rivers are splines that shape the
+terrain and make a mesh along themselves; scripts read any spline as a path
+(`ctx.splines`), and camera rails and movers will read the same curves.
+
+- **The component** (`spline`; GameObject → Level → **Spline**, **Road**,
+  **River**; MCP `setComponent "spline"`): `points: [{at: [x, y, z], tangent?,
+  width?, roll?}]` (2 or more; metres from the object's position — only the
+  position places a spline, as it places a terrain), `closed?`, `width?`
+  (where a point names none; default 4 m). Each segment is a cubic Hermite
+  curve through its points; a point without a tangent takes the smooth
+  (Catmull-Rom) one. Width and roll go linearly from point to point; roll
+  turns the cross-section about the curve, right side up (a banked road).
+  Absent parts mean "not used": a spline with only points changes nothing.
+- **Scene-view handles** (select the object): each point has a grip on the
+  curve (drag across the ground), one above it (drag up and down: its
+  height), one at its right edge (its width) and one where its tangent pulls
+  (Alt+click takes the tangent off: smooth again); the small grips between
+  points add a point on the curve; Alt+click on a point deletes it. Each drag
+  is one command and one undo step (the terrain and the mesh follow in the
+  same step). Snapping follows the translate grid.
+- **Shaping terrain** (`terrain: {shape?: flatten|carve|raise|none, falloff?
+  (m, default 4), depth?, offset?, paint?: {layer, strength?, width?,
+  falloff?}, order?}`): within the half width the ground goes to the curve's
+  height (less `offset`; `depth` cuts a channel deepest at the middle; the
+  roll tilts it), fading out over `falloff` past it; `carve` only lowers,
+  `raise` only raises, `none` only paints. `paint` mixes a material layer in
+  along it — over the material rules, under hand paint. Splines apply in
+  `order`, then object id. A block layer is never changed: where its cells
+  are, the spline stops. The terrain keeps each tile it shapes as sculpted
+  by hand beside the drawn one (`tiles[].base`, never shipped): sculpting
+  and painting under a road edit the hand-made ground and the road holds;
+  moving or removing the road gives the ground back.
+- **Scatter kept clear** (`scatter: {margin? (m past the half width, default
+  1), rules?}`): no rule places a stored copy within the band, and terrain
+  ground cover keeps off it too (hand-placed copies stay). Block-layer
+  scatter is the layer's own and is not changed by splines.
+- **One command, only the band re-baked.** The command that adds, moves,
+  changes or removes a spline also shapes every terrain it crosses (heights,
+  the rules and the spline's paint, the scatter), in boxes along the curve
+  about 64 m long — before and after, and only round the segments a moved
+  point changed — and makes its mesh: one revision, one undo step (the
+  change's `follows` name the terrains and the spline written). Measured
+  (Node, a 1 km road over a 2 km terrain of 512 m tiles with four material
+  rules and three scatter rules): added 128 ms planning + 157 ms encoding
+  (5 tiles), a point moved 5 m 51 + 31 ms, removed 31 + 80 ms; in the
+  landscape perf class the whole command round trip is about 250 ms.
+- **A mesh along it** (`mesh: {kind?: surface|water, profile?, offset?,
+  tiling?, step?, collision?, castShadow?, receiveShadow?, flow?, foam?}`):
+  `surface` sweeps the `profile` (`[[across, up], …]`, across in half widths
+  −1…1, up in metres; default a flat strip) along the curve every `step` m
+  (default 1), `offset` m above the points (default 0.05: on the flattened
+  ground); `water` is a flat surface with points across that carries its
+  flow (UV1: `flow` m/s along the curve as texture units a second) and its
+  foam (COLOR_0 red: 1 at the banks, fading over `foam` m in). The backend
+  makes it, cut into pieces about 64 m long, each with coarser levels made by
+  the mesh simplifier (the pieces' ends kept, so they meet at every level),
+  stored as one blob the spline's `data` names and shipped with the game. A
+  surface collides (`collision`, default on; water off). It wears the
+  object's material for slot `spline` (Materials `{"spline": id}`); without
+  one a plain grey surface or a see-through blue water.
+- **Pieces along it** (`pieces: [{asset, spacing, start?, offset?: [across,
+  up], yaw?, upright?, collide?, castShadow?}]`): a model every `spacing` m
+  (fence sections, posts, wall segments), its +X along the curve, upright
+  unless told; drawn as an instance set, each copy carrying its model's
+  `_COL` colliders (`collide`, default on).
+- **Rivers**: the **River (spline water)** material template reads the
+  flow, the foam and the new **Scene depth** graph node (Inputs; pixels of a
+  transparent surface: metres from the camera to the scene behind and how
+  far behind the surface it lies): ripples move along the flow in two
+  phases half a cycle apart (no stretching), foam gathers at the banks and
+  in the shallows, and the water fades out where the ground comes up to it
+  (soft shores). The Scene depth node works on WebGPU and WebGL 2, with or
+  without MSAA (a logarithmic depth buffer is not supported by it).
+- **Scripts** (`ctx.splines`): `length(id)`, `at(id, distance)` (position,
+  tangent, right, up, width, roll), `nearest(id, position, {level?})`
+  (distance along, position, offset) — the loaded splines as placed.
+- `?splines=off` on a game page draws nothing splines make (to measure what
+  it costs); the adapter's diagnostics carry `splines` (mesh pieces,
+  triangles, copies, blobs read), the simulation's `splines` (colliders,
+  splines whose data has not arrived, the last build).
+
 ## Sockets (objects on model nodes)
 
 Since phase 23.11 an object can ride on a named node — a bone or any node —

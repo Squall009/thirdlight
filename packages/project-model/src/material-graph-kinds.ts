@@ -168,6 +168,14 @@ const INPUT_NODES: readonly GraphNodeDef[] = [
     inputs: [],
     outputs: [port('wetness', 'wetness', 'float')],
   },
+  {
+    type: 'sceneDepth',
+    label: 'Scene depth',
+    category: 'Inputs',
+    description: 'For a transparent surface (water): metres from the camera to the opaque scene behind the pixel, and how far behind the surface that scene lies — 0 where water meets the shore, for soft shorelines and foam. Pixels only.',
+    inputs: [],
+    outputs: [port('depth', 'depth', 'float'), port('behind', 'behind', 'float')],
+  },
 ];
 
 /**

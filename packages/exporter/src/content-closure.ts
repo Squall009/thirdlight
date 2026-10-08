@@ -154,6 +154,24 @@ const MISSING_CODES: ReadonlySet<string> = new Set(['asset_source_missing', 'blo
 export type ClosurePlaceholderMaker = (asset: { readonly assetId: string; readonly kind: string; readonly bounds?: unknown }) => Uint8Array | null;
 
 const DIGEST_RE = /^[0-9a-f]{64}$/;
+/**
+ * A scene as a game reads it: a terrain's tiles name only what is drawn and
+ * collides (`data`, `scatter`); the hand-made form beside a tile splines
+ * shaped (`base`) is the editor's and does not ship.
+ */
+function withoutHandMadeTiles<T>(doc: T): T {
+  const d = doc as unknown as { entities?: { components?: { terrain?: { tiles?: { base?: string }[] } } }[] };
+  if (!(d.entities ?? []).some((e) => e.components?.terrain?.tiles?.some((t) => t.base !== undefined) === true)) return doc;
+  return {
+    ...d,
+    entities: d.entities!.map((e) => {
+      const t = e.components?.terrain;
+      if (t?.tiles === undefined) return e;
+      return { ...e, components: { ...e.components, terrain: { ...t, tiles: t.tiles.map(({ base: _base, ...rest }) => rest) } } };
+    }),
+  } as unknown as T;
+}
+
 /** A buffer whose size is its blob's own (a terrain tile): no count says what it should be. */
 const TERRAIN_TILE_SIZE_OF_BLOB = -1;
 /** One page of the behavior query (its largest). */
@@ -888,8 +906,8 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
   if (input.scenes !== undefined && derived === null) {
     const start = new Set(input.startScenes ?? []);
     for (const doc of input.scenes) {
-      const sc = doc as { sceneId: string; entities: { components: { instances?: { buffer: string; count: number }; terrain?: { tiles: { data?: string; scatter?: string }[] } } }[] };
-      const bytes = new TextEncoder().encode(`${JSON.stringify(packer.pack(doc), null, 2)}\n`);
+      const sc = doc as { sceneId: string; entities: { components: { instances?: { buffer: string; count: number }; terrain?: { tiles: { data?: string; scatter?: string }[] }; spline?: { data?: string } } }[] };
+      const bytes = new TextEncoder().encode(`${JSON.stringify(packer.pack(withoutHandMadeTiles(doc)), null, 2)}\n`);
       const digest = hash(bytes);
       const path = `scenes/${sc.sceneId}.json`;
       sceneArtifacts.push({ path, bytes, digest, contentType: 'application/json' });
@@ -903,6 +921,9 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
           // Its scatter's copies too (their own blob, read by the page's scatter view and the simulation).
           if (t.scatter !== undefined && !buffers.has(t.scatter)) buffers.set(t.scatter, TERRAIN_TILE_SIZE_OF_BLOB);
         }
+        // What a spline made (its meshes and pieces' copies), drawn by the page and collided by the simulation.
+        const made = e.components.spline?.data;
+        if (made !== undefined && !buffers.has(made)) buffers.set(made, TERRAIN_TILE_SIZE_OF_BLOB);
       }
     }
   }
@@ -1199,6 +1220,8 @@ function modelColliderUses(scenes: readonly unknown[] | undefined, prefabs: read
       for (const holder of [c?.['terrain'], c?.['blockLayer']] as ({ scatter?: { asset?: { assetId?: unknown; piece?: unknown }; collide?: unknown; cover?: unknown }[] } | undefined)[]) {
         for (const r of holder?.scatter ?? []) if (r.collide === true && r.cover !== true) use(r.asset?.assetId, r.asset?.piece);
       }
+      // A spline's pieces that collide (the default): each copy carries its model's parts.
+      for (const p of (c?.['spline'] as { pieces?: { asset?: { assetId?: unknown; piece?: unknown }; collide?: unknown }[] } | undefined)?.pieces ?? []) if (p.collide !== false) use(p.asset?.assetId, p.asset?.piece);
       const shape = (c?.['collider'] as { shape?: { type?: unknown } } | undefined)?.shape;
       const model = c?.['model'] as { asset?: { assetId?: unknown }; piece?: unknown } | undefined;
       if (shape?.type === 'model') use(model?.asset?.assetId, model?.piece);

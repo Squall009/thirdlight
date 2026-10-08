@@ -409,6 +409,7 @@ export const COMPILER_NODES: Readonly<Record<string, NodeSpec>> = {
   instanceIndex: { inputs: [], outputs: [P('index', 'float')] },
   wind: { inputs: [], outputs: [P('direction', 'vec3'), P('strength', 'float'), P('turbulence', 'float')] },
   sceneWetness: { inputs: [], outputs: [P('wetness', 'float')] },
+  sceneDepth: { inputs: [], outputs: [P('depth', 'float'), P('behind', 'float')] },
   mainLight: { inputs: [], outputs: [P('direction', 'vec3'), P('color', 'vec3'), P('ndotl', 'float')] },
   lightShadow: { inputs: [], outputs: [P('shadow', 'float')] },
   diffuseLight: { inputs: [], outputs: [P('total', 'vec3'), P('luminance', 'float'), P('direct', 'vec3')] },
@@ -1095,6 +1096,16 @@ export function compileMaterialGraph(input: { graph: MaterialGraphLike; paramete
       }
       case 'sceneWetness':
         return one('wetness', g.wetness);
+      case 'sceneDepth': {
+        if (stage === 'vertex') {
+          problem(scope, node.id, 'warning', 'the scene behind a surface exists only for pixels (not in a vertex offset); far is used');
+          return { depth: { t: 'float', n: T.float(SCENE_DEPTH_FAR) }, behind: { t: 'float', n: T.float(SCENE_DEPTH_FAR) } };
+        }
+        // The scene's depth under this pixel as drawn before this surface (three copies the depth buffer right before
+        // the surface draws: the opaque scene, transparent surfaces drawing after it), along the view in metres.
+        const sceneZ = T.perspectiveDepthToViewZ(T.viewportDepthTexture().x, T.cameraNear, T.cameraFar);
+        return { depth: { t: 'float', n: sceneZ.negate() }, behind: { t: 'float', n: T.max(T.positionView.z.sub(sceneZ), 0) } };
+      }
       // ---- lighting
       case 'mainLight':
       case 'lightShadow':
@@ -1545,6 +1556,9 @@ export function compileMaterialGraph(input: { graph: MaterialGraphLike; paramete
 }
 
 /** Uniforms standing in for the library's clock and wind (a compile for its problems only). */
+/** What the Scene depth node reads in a vertex offset, where there is no scene behind (metres: nothing close behind). */
+const SCENE_DEPTH_FAR = 1e4;
+
 function detachedGlobals(): GraphGlobals {
   return { time: T.uniform(0), windDir: T.uniform(new THREE.Vector2(1, 0)), strength: T.uniform(0), gust: T.uniform(0), gustFreq: T.uniform(0), turb: T.uniform(0), wetness: T.uniform(0) };
 }

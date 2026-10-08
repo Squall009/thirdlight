@@ -549,7 +549,8 @@ export class HelperOverlay {
       const dir = tip.sub(at).normalize();
       ray.distanceSqToSegment(at.clone().addScaledVector(dir, -1e4), at.clone().addScaledVector(dir, 1e4), undefined, out);
     } else {
-      const normal = grip.drag === 'plane' ? new THREE.Vector3(0, 0, 1).transformDirection(frame) : this.camera.getWorldDirection(new THREE.Vector3());
+      // Across the ground: the world's horizontal plane through the grip (a spline lies on the ground whatever its frame).
+      const normal = grip.drag === 'plane' ? new THREE.Vector3(0, 0, 1).transformDirection(frame) : grip.drag === 'level' ? new THREE.Vector3(0, 1, 0) : this.camera.getWorldDirection(new THREE.Vector3());
       if (ray.intersectPlane(new THREE.Plane().setFromNormalAndCoplanarPoint(normal, at), out) === null) return null;
     }
     out.applyMatrix4(frame.clone().invert());

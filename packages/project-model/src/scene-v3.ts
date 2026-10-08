@@ -20,6 +20,7 @@ import { SHADOW_MAP_SIZES } from './quality-levels';
 import { INSTANCE_DENSITY_SIZE_MIN } from './model-lod';
 import { canonicalProbeVolume, validateProbeVolumeComponent, type ProbeVolumeComponent } from './probe-grids';
 import { canonicalTerrain, validateTerrainComponent, type TerrainComponent } from './terrain';
+import { canonicalSpline, validateSplineComponent, type SplineComponent } from './spline';
 import { ID_RE } from './validate';
 import { validateLightLayerMask } from './light-layers';
 import { validateLightImportance, validateLocalLightMode, type LightImportance, type LocalLightMode } from './local-lights';
@@ -139,7 +140,7 @@ const KNOWN_ENTITY_FIELDS = new Set(['id', 'name', 'parentId', ...ENTITY_FLAGS, 
 // `materialParams` (per-object overrides of graph-material parameters) is appended last.
 // `effect` (plays a visual effect from the entity) is appended after it.
 // No `camera`: the engine owns the view and scenes hold shots (`virtualCamera`); an older project's scene camera is upgraded on open.
-export const V4_REGISTRY: readonly string[] = [...V3_REGISTRY.filter((c) => c !== 'camera'), 'instances', 'materials', 'fogVolume', 'animator', ...BLOCK_COMPONENT_NAMES, 'materialParams', 'effect', 'virtualCamera', 'cameraPath', 'blockLayer', 'blockFootprint', 'socketAttach', 'behaviorGroup', 'cameraRegion', 'probeVolume', 'terrain'];
+export const V4_REGISTRY: readonly string[] = [...V3_REGISTRY.filter((c) => c !== 'camera'), 'instances', 'materials', 'fogVolume', 'animator', ...BLOCK_COMPONENT_NAMES, 'materialParams', 'effect', 'virtualCamera', 'cameraPath', 'blockLayer', 'blockFootprint', 'socketAttach', 'behaviorGroup', 'cameraRegion', 'probeVolume', 'terrain', 'spline'];
 // `terrain` (a heightfield of tiles) last.
 // `probeVolume` (a box the probe bake fills with probes) before it.
 // `cameraRegion` (a track camera's dead zone, bounds and distance while its target is inside) before it.
@@ -778,15 +779,15 @@ function validateEntityComponentsV3(
   if (comps['materials'] !== undefined) {
     // Which project material each of the object's materials uses.
     validateMaterialMapping(comps['materials'], `${path}/materials`, errors);
-    if (comps['model'] === undefined && comps['box'] === undefined && comps['instances'] === undefined && comps['terrain'] === undefined) {
-      errors.push(componentMissing(`${path}/materials`, 'model|box|instances|terrain', 'a materials component sits only on an entity with a model, a box, an instance set or a terrain'));
+    if (comps['model'] === undefined && comps['box'] === undefined && comps['instances'] === undefined && comps['terrain'] === undefined && comps['spline'] === undefined) {
+      errors.push(componentMissing(`${path}/materials`, 'model|box|instances|terrain|spline', 'a materials component sits only on an entity with a model, a box, an instance set, a terrain or a spline'));
     }
   }
   if (comps['materialParams'] !== undefined) {
     // Overrides of the object's graph materials' public parameters.
     validateMaterialParamsComponent(comps['materialParams'], `${path}/materialParams`, errors);
-    if (comps['model'] === undefined && comps['box'] === undefined && comps['instances'] === undefined && comps['terrain'] === undefined) {
-      errors.push(componentMissing(`${path}/materialParams`, 'model|box|instances|terrain', 'material parameter overrides sit only on an entity with a model, a box, an instance set or a terrain'));
+    if (comps['model'] === undefined && comps['box'] === undefined && comps['instances'] === undefined && comps['terrain'] === undefined && comps['spline'] === undefined) {
+      errors.push(componentMissing(`${path}/materialParams`, 'model|box|instances|terrain|spline', 'material parameter overrides sit only on an entity with a model, a box, an instance set, a terrain or a spline'));
     }
   }
   // A visual effect played from the entity (any entity may carry one).
@@ -803,6 +804,10 @@ function validateEntityComponentsV3(
     for (const other of ['model', 'box', 'collider', 'controller', 'instances', 'blockLayer'] as const) {
       if (comps[other] !== undefined) errors.push(collisionConflict(path, `terrain and ${other} are mutually exclusive on one entity`, ['terrain', other]));
     }
+  }
+  if (comps['spline'] !== undefined) {
+    validateSplineComponent(comps['spline'], `${path}/spline`, errors);
+    for (const other of ['blockLayer', 'terrain'] as const) if (comps[other] !== undefined) errors.push(collisionConflict(path, `spline and ${other} are mutually exclusive on one entity`, ['spline', other]));
   }
   // The entity rides on a node of another entity's model.
   if (comps['socketAttach'] !== undefined) validateSocketAttachComponent(comps['socketAttach'], `${path}/socketAttach`, errors);
@@ -1084,6 +1089,7 @@ function canonicalEntityV3(e: Record<string, unknown>): SceneEntityV3 {
   if (comps['cameraRegion'] !== undefined) (components as { cameraRegion?: CameraRegionComponent }).cameraRegion = canonicalCameraRegion(comps['cameraRegion'] as CameraRegionComponent);
   if (comps['probeVolume'] !== undefined) components.probeVolume = canonicalProbeVolume(comps['probeVolume'] as ProbeVolumeComponent);
   if (comps['terrain'] !== undefined) components.terrain = canonicalTerrain(comps['terrain'] as TerrainComponent);
+  if (comps['spline'] !== undefined) components.spline = canonicalSpline(comps['spline'] as SplineComponent);
   if (comps['instances'] !== undefined) {
     const i = comps['instances'] as { asset: { assetId: string; piece?: string }; buffer: string; count: number; castShadow?: boolean; receiveShadow?: boolean; chunkSize?: number; lightLayers?: number; densityStart?: number; densityEnd?: number; densityMin?: number; lodPerCopy?: boolean; localLights?: LocalLightMode };
     components.instances = {

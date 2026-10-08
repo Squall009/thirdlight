@@ -74,6 +74,14 @@
  *   (the rule's Impostor below, set in the dialog): baked once, the copies at
  *   the impostor's level, the posts' pixels as many and as orange as the
  *   meshes'.
+ * - Splines: a road (one command: the terrain flattened and painted under it,
+ *   the posts' scatter kept off it) and a river (the terrain's bed carved, its
+ *   water mesh made with the river template, posts along its bank). The
+ *   Scene view (both renderers), Play and the export show the road yellow with
+ *   no post on it and the river's water blue; Play draws the river's mesh and
+ *   posts and the simulation has the posts' colliders. On the first renderer
+ *   the road's point grip is dragged across the ground in the Scene view: one
+ *   command moves it and shapes the terrain again; one undo puts it back.
  */
 import { randomBytes } from 'node:crypto';
 import { createReadStream, existsSync, statSync } from 'node:fs';
@@ -82,7 +90,7 @@ import { extname, join, normalize } from 'node:path';
 
 import { expect, test, type Page } from './pw';
 
-import { layeredMaterial } from '../../packages/editor/src/session/material-graph';
+import { layeredMaterial, riverMaterial } from '../../packages/editor/src/session/material-graph';
 import { controls, publishBytes, publishScript, startBackend, type E2EBackend } from './backend';
 import { multiPieceGlb } from './multi-piece-glb';
 import { decodeChunkScatter } from '../../packages/project-model/src/scatter';
@@ -168,6 +176,23 @@ const isOrange: Pred = (r, g, b) => r > 110 && g > 0.3 * r && g < 0.75 * r && b 
 const isWhite: Pred = (r, g, b) => Math.min(r, g, b) > 140 && Math.max(r, g, b) - Math.min(r, g, b) < 45;
 /** The posts' impostor size from the dialog: far smaller than they are on any screen here (meshes, until a Play sets 1). */
 const POST_IMPOSTOR_SIZE = 0.001;
+/**
+ * A road (a spline) along the grove's north edge: the ground flattened to 2.6 m under its 2 m width (fading over
+ * 1.5 m), painted the fifth layer (yellow), scatter kept 1.5 m clear of it (the posts that would stand there).
+ */
+const ROAD_AT: V3 = [0, 2.6, 13];
+const ROAD = { points: [{ at: [-7, 0, 0] }, { at: [-2, 0, 0] }, { at: [3, 0, 0] }], width: 2, terrain: { falloff: 1.5, paint: { layer: 4, falloff: 0.3 } }, scatter: { margin: 1.5 } };
+/** Points on the road's middle the frames look at (clear of its ends and of its object's icon at its origin). */
+const ROAD_LOOK: readonly [number, number][] = [[-4.5, 13], [1.5, 13]];
+/**
+ * A river (a spline) east of the strip: its bed flattened 2 m below its points at the middle, banks at their height,
+ * water 0.3 m under the banks (the river template, its colours made blue), and posts (the scatter's post model,
+ * colliding) every 3 m along its west bank.
+ */
+const RIVER_AT: V3 = [14, 2, 0];
+const RIVER = { points: [{ at: [0, 0, -20] }, { at: [1, 0, -12] }, { at: [0, 0, -4] }], width: 5, terrain: { shape: 'flatten', depth: 2, falloff: 2 }, scatter: { margin: 1 }, mesh: { kind: 'water', offset: -0.3, foam: 1 }, pieces: [{ asset: { assetId: 'e2e-post' }, spacing: 3, offset: [3.6, 0] }] };
+/** On the river's middle, where the water is deepest. */
+const RIVER_LOOK: V3 = [15, RIVER_AT[1] - 0.3, -12];
 /** Hides every scatter copy near the middle on the jump key, by address; shows them again on the next. */
 const SCATTER_HIDE_SCRIPT = [
   'export default {',
@@ -207,7 +232,7 @@ async function stage(bytes: Uint8Array): Promise<string> {
   return s.stageId;
 }
 
-async function buildTerrain(): Promise<{ ground: string; big: string; blocks: string; terrace: string }> {
+async function buildTerrain(): Promise<{ ground: string; big: string; blocks: string; terrace: string; road: string }> {
   await cmd('setSettings', { settings: { camera_far_m: 400 } });
   for (const id of ['model-0001', 'spawn-0001', 'box-0001', 'box-0002', 'box-0003', 'box-0004', 'model-0002']) await cmd('deleteEntity', { entityId: id }).catch(() => undefined);
   // The arrays (through the pack route) and the layered template, made as the Materials tab makes it.
@@ -263,7 +288,124 @@ async function buildTerrain(): Promise<{ ground: string; big: string; blocks: st
   // The script that names the scatter copies by address and hides them on the jump key (shows them on the next).
   const switcher = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Scatter switch', transform: { position: [0, 0, 0] } }))['createdId']);
   await publishScript(be!, 'e2e-scatter-hide', SCATTER_HIDE_SCRIPT, switcher);
-  return { ground, big, blocks, terrace };
+  // The road: its object placed, then its spline — the same command shapes the terrain under it.
+  const road = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Road', transform: { position: ROAD_AT } }))['createdId']);
+  const made = await cmd('setComponent', { entityId: road, component: 'spline', value: ROAD });
+  expect((made['change'] as { follows?: { entityId: string; component: string }[] }).follows?.map((f) => `${f.entityId}:${f.component}`), 'the terrain shaped in the same command').toEqual([`${ground}:terrain`]);
+  // The river: its water wears the river template (deep and shallow colours blue), its mesh and posts made by the backend.
+  const river = riverMaterial('mat-river', 'River');
+  await cmd('setMaterial', { material: { ...river, parameters: river.parameters!.map((p) => (p.key === 'deepColor' || p.key === 'shallowColor' ? { ...p, default: '#1838ff' } : p)) } });
+  const riverId = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'River', transform: { position: RIVER_AT } }))['createdId']);
+  const flowing = await cmd('setComponent', { entityId: riverId, component: 'spline', value: RIVER });
+  expect((flowing['change'] as { follows?: { entityId: string; component: string }[] }).follows?.map((f) => `${f.entityId}:${f.component}`).sort(), 'the terrain shaped and the river\'s mesh and posts made in the same command').toEqual([`${ground}:terrain`, `${riverId}:spline`].sort());
+  await cmd('setComponent', { entityId: riverId, component: 'materials', value: { spline: 'mat-river' } });
+  return { ground, big, blocks, terrace, road };
+}
+
+/** The Play camera's view of world points: screen fractions [u, v] (null: behind it). */
+type CameraView = { position: number[]; rotation: number[]; fovY: number };
+function projectWith(cam: CameraView, aspect: number, p: V3): [number, number] | null {
+  const [qx, qy, qz, qw] = cam.rotation as [number, number, number, number];
+  const v = [p[0] - cam.position[0]!, p[1] - cam.position[1]!, p[2] - cam.position[2]!];
+  // The inverse rotation (the conjugate quaternion) takes the point into the camera's frame.
+  const [x, y, z] = [-qx, -qy, -qz];
+  const tx = 2 * (y * v[2]! - z * v[1]!);
+  const ty = 2 * (z * v[0]! - x * v[2]!);
+  const tz = 2 * (x * v[1]! - y * v[0]!);
+  const cx = v[0]! + qw * tx + (y * tz - z * ty);
+  const cy = v[1]! + qw * ty + (z * tx - x * tz);
+  const cz = v[2]! + qw * tz + (x * ty - y * tx);
+  if (cz >= -0.01) return null;
+  const f = 1 / Math.tan((cam.fovY * Math.PI) / 360);
+  return [((f / aspect) * (cx / -cz) + 1) / 2, (1 - f * (cy / -cz)) / 2];
+}
+/** The share of a square of a frame around a world point (as the camera sees it) passing `test`. */
+function frameShareNear(img: Image, cam: CameraView, p: V3, test: Pred, size = 8): number {
+  const uv = projectWith(cam, img.width / img.height, p);
+  if (uv === null) return 0;
+  const cx = Math.round(uv[0] * img.width);
+  const cy = Math.round(uv[1] * img.height);
+  let n = 0;
+  let all = 0;
+  for (let y = cy - size / 2; y < cy + size / 2; y++) for (let x = cx - size / 2; x < cx + size / 2; x++) {
+    if (x < 0 || y < 0 || x >= img.width || y >= img.height) continue;
+    all += 1;
+    if (test(...img.pixel(x, y))) n += 1;
+  }
+  return all === 0 ? 0 : n / all;
+}
+
+/**
+ * The road on the terrain: flattened to its height and painted under it, no post within its scatter band (read back
+ * from the stored tiles and copies); with a frame, yellow where the camera sees its middle, no post on it.
+ */
+async function expectRoad(ground: string | null, what: string, frame?: { img: Image; cam: CameraView }): Promise<void> {
+  if (ground === null) return expectRoadPixels(what, frame!);
+  const pts = ((await query('queryTerrain', { entityId: ground, points: ROAD_LOOK.map(([x, z]) => [x, z]) }))['points'] as { height: number; layers: number[] }[]);
+  for (const p of pts) {
+    expect(p.height, `${what}: the road flattened to its height`).toBeCloseTo(ROAD_AT[1], 2);
+    expect(p.layers[0], `${what}: the road painted the fifth layer`).toBe(4);
+  }
+  type Copy = { rule: string; x: number; z: number };
+  const band = (((await query('queryTerrain', { entityId: ground, scatter: { box: [-8, ROAD_AT[2] - 4, 4, ROAD_AT[2] + 4] } }))['scatter'] as { copies: Copy[] } | undefined)?.copies ?? []);
+  expect(band.filter((c) => Math.abs(c.z - ROAD_AT[2]) < 2.4 && c.x > -7 && c.x < 3), `${what}: no post on the road's band`).toEqual([]);
+  if (frame !== undefined) expectRoadPixels(what, frame);
+}
+
+/** The road in a frame: yellow where the camera sees its middle, no post on it. */
+function expectRoadPixels(what: string, frame: { img: Image; cam: CameraView }): void {
+  for (const [x, z] of ROAD_LOOK) {
+    expect(frameShareNear(frame.img, frame.cam, [x, ROAD_AT[1], z], isYellow), `${what}: the road yellow at (${x}, ${z})`).toBeGreaterThan(0.5);
+    expect(frameShareNear(frame.img, frame.cam, [x, ROAD_AT[1], z], isOrange), `${what}: no post on the road at (${x}, ${z})`).toBe(0);
+  }
+}
+
+/** The river in a frame: blue water over its deepest part. */
+function expectRiver(img: Image, cam: CameraView, what: string): void {
+  expect(frameShareNear(img, cam, RIVER_LOOK, isBlue), `${what}: the river's water`).toBeGreaterThan(0.5);
+}
+
+/**
+ * The road's Scene-view handle (first renderer): a point dragged across the ground is one command that moves the
+ * road and shapes the terrain again (flattened at the point's new place); one undo puts it back.
+ */
+async function roadHandle(page: Page, ground: string, road: string): Promise<void> {
+  type Grip = { component: string; kind: string; handle: string; x: number; y: number };
+  const height = async (x: number, z: number): Promise<number> => ((await query('queryTerrain', { entityId: ground, points: [[x, z]] }))['points'] as { height: number }[])[0]!.height;
+  await page.locator(`.tl-hierarchy__list li[data-entity-id="${road}"]`).click();
+  await page.keyboard.press('f');
+  const gripOf = async (handle: string): Promise<Grip | undefined> => (JSON.parse((await page.locator('canvas[data-size-handles]').getAttribute('data-size-handles')) ?? '[]') as Grip[]).find((g) => g.component === 'spline' && g.kind === 'spline' && g.handle === handle);
+  await expect.poll(async () => (await gripOf('p2')) !== undefined, { timeout: 30_000, message: 'the road\'s point grips' }).toBe(true);
+  // Close enough that the point's grips (its height, width and tangent beside it) are apart on screen.
+  const box = (await viewport(page).boundingBox())!;
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  for (let i = 0; i < 30; i++) {
+    const [a, b] = [await gripOf('p0'), await gripOf('p2')];
+    if (a !== undefined && b !== undefined && Math.hypot(a.x - b.x, a.y - b.y) > 300) break;
+    await page.mouse.wheel(0, -200);
+    await page.waitForTimeout(80);
+  }
+  await page.waitForTimeout(400);
+  const g = (await gripOf('p2'))!;
+  const rev0 = Number((await query('queryProject')).revision);
+  const oldEnd: [number, number] = [ROAD_AT[0] + 2.5, ROAD_AT[2]];
+  expect(await height(...oldEnd)).toBeCloseTo(ROAD_AT[1], 2);
+  await page.mouse.move(g.x, g.y);
+  await page.mouse.down();
+  for (let i = 1; i <= 8; i++) await page.mouse.move(g.x, g.y + (90 * i) / 8);
+  await page.mouse.up();
+  await expect.poll(async () => Number((await query('queryProject')).revision), { timeout: 30_000, message: 'the drag stored' }).toBe(rev0 + 1);
+  const moved = ((await query('queryEntity', { entityId: road })) as { entity: { components: { spline: { points: { at: number[] }[] } } } }).entity.components.spline.points[2]!.at;
+  expect(Math.hypot(moved[0]! - 3, moved[2]!), 'the point moved across the ground').toBeGreaterThan(1);
+  expect(moved[1], 'its height kept').toBe(0);
+  const newEnd: [number, number] = [ROAD_AT[0] + moved[0]!, ROAD_AT[2] + moved[2]!];
+  expect(await height(...newEnd), 'the ground flattened where the point went').toBeCloseTo(ROAD_AT[1], 2);
+  test.info().annotations.push({ type: 'road handle', description: JSON.stringify({ from: [3, 0, 0], to: moved, oldEndHeight: await height(...oldEnd) }) });
+  console.log(`road handle: p2 dragged from [3, 0, 0] to ${JSON.stringify(moved)}, one command; the ground flattened there`);
+  await cmd('undo', {});
+  await expect.poll(async () => ((await query('queryEntity', { entityId: road })) as { entity: { components: { spline: { points: { at: number[] }[] } } } }).entity.components.spline.points[2]!.at, { timeout: 30_000, message: 'undone: the road back' }).toEqual([3, 0, 0]);
+  await expect.poll(() => height(...oldEnd), { timeout: 30_000, message: 'undone: the ground flattened at the old end again' }).toBeCloseTo(ROAD_AT[1], 2);
+  await selectEntity(page, ground);
 }
 
 /**
@@ -312,6 +454,30 @@ async function screenOf(page: Page, p: V3): Promise<{ x: number; y: number }> {
   const ny = (m[1]! * x + m[5]! * y + m[9]! * z + m[13]!) / w;
   return { x: box.x + ((nx + 1) / 2) * box.width, y: box.y + ((1 - ny) / 2) * box.height };
 }
+/** Zoom the Scene view out until every point is in it (away from its edges), run `check`, and zoom back in. */
+async function zoomedOutTo(page: Page, points: readonly V3[], check: () => Promise<void>): Promise<void> {
+  const box = (await viewport(page).boundingBox())!;
+  const inView = async (): Promise<boolean> => {
+    for (const p of points) {
+      const q = await screenOf(page, p);
+      if (!(q.x > box.x + 12 && q.x < box.x + box.width - 12 && q.y > box.y + 12 && q.y < box.y + box.height - 12)) return false;
+    }
+    return true;
+  };
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  let zoomed = 0;
+  for (; zoomed < 30 && !(await inView()); zoomed++) {
+    await page.mouse.wheel(0, 200);
+    await page.waitForTimeout(80);
+  }
+  expect(await inView(), 'the points in the Scene view').toBe(true);
+  await check();
+  for (let i = 0; i < zoomed; i++) {
+    await page.mouse.wheel(0, -200);
+    await page.waitForTimeout(80);
+  }
+}
+
 /** The share of a small square of the Scene view around a world point passing `test`. */
 async function shareNear(page: Page, p: V3, test: Pred, size = 10): Promise<number> {
   const s = await screenOf(page, p);
@@ -479,12 +645,13 @@ test('terrain: CDLOD heights, layered material, paint and a hole in the Scene vi
   test.skip(test.info().project.name === 'webgpu', 'one pass covers both renderers');
   test.setTimeout(420_000);
   be = await startBackend('terrain-cdlod');
-  const { ground, big, blocks, terrace } = await buildTerrain();
+  const { ground, big, blocks, terrace, road } = await buildTerrain();
   const plain = await surface(ground, ...PLAIN);
   const painted = await surface(ground, ...PAINTED);
   const holeAt: V3 = [HOLE[0], (await surface(ground, ...HOLE))[1], HOLE[1]];
   const fifth = await surface(ground, ...FIFTH);
   let holed = false;
+  let roadCam: CameraView | null = null;
 
   for (const renderer of BACKENDS) {
     await page.goto(be.editorUrl.replace('#', `&renderer=${renderer}&terrainCheck=1#`));
@@ -512,6 +679,12 @@ test('terrain: CDLOD heights, layered material, paint and a hole in the Scene vi
     await expect.poll(() => shareNear(page, painted, isBlue), { timeout: 30_000, message: `${renderer} Scene view: the painted disc` }).toBeGreaterThan(0.8);
     // Layer index 4: past the template's four slots, drawn from the array's fifth layer.
     await expect.poll(() => shareNear(page, fifth, isYellow), { timeout: 30_000, message: `${renderer} Scene view: the fifth layer's disc` }).toBeGreaterThan(0.8);
+    // The road the spline flattened and painted (yellow), and the river's water (blue): the view zooms out until both are
+    // in it, then back.
+    await zoomedOutTo(page, [...ROAD_LOOK.map(([x, z]) => [x, ROAD_AT[1], z] as V3), RIVER_LOOK], async () => {
+      for (const [x, z] of ROAD_LOOK) await expect.poll(() => shareNear(page, [x, ROAD_AT[1], z], isYellow, 6), { timeout: 30_000, message: `${renderer} Scene view: the road at (${x}, ${z})` }).toBeGreaterThan(0.6);
+      await expect.poll(() => shareNear(page, RIVER_LOOK, isBlue, 6), { timeout: 30_000, message: `${renderer} Scene view: the river's water` }).toBeGreaterThan(0.6);
+    });
     if (!holed) {
       expect(await shareNear(page, holeAt, (r, g, b) => isRed(r, g, b) || isBlue(r, g, b))).toBeGreaterThan(0.8);
       // A holes stroke with the page open: its tile's layers are uploaded again and the ground there is cut away.
@@ -547,6 +720,8 @@ test('terrain: CDLOD heights, layered material, paint and a hole in the Scene vi
       await terrainTools(page, renderer, ground, big, true);
       await materialRules(page, ground, blocks);
       await scatterRules(page, ground, terrace);
+      await expectRoad(ground, `${renderer} (stored)`);
+      await roadHandle(page, ground, road);
     } else {
       // The rules baked on the first renderer: the steep ramp and the block walls magenta, the hand-painted disc on
       // the ramp blue, the layer's flat top red (layer 0). The view zooms out until they are all in it, then back.
@@ -651,6 +826,25 @@ test('terrain: CDLOD heights, layered material, paint and a hole in the Scene vi
         throw e;
       });
     expectFrame(last!, `${renderer} Play`);
+    // The road and the river in Play's frame, where the scene camera sees them.
+    roadCam = ((await relay(`${psid}/observe`, {})).json as { camera?: CameraView }).camera ?? null;
+    expect(roadCam, `${renderer} Play: the camera observed`).not.toBeNull();
+    await expectRoad(ground, `${renderer} Play`, { img: last!, cam: roadCam! });
+    expectRiver(last!, roadCam!, `${renderer} Play`);
+    {
+      // The river's mesh pieces and posts drawn, the posts' colliders in the simulation (the water has none).
+      type SplineDiag = { renderer?: { splines?: { meshPieces: number; triangles: number; copies: number; errors: string[] } }; runtime?: { splines?: { colliders: number; waiting: number } } };
+      let sd: SplineDiag = {};
+      await expect
+        .poll(async () => {
+          sd = ((await relay(`${psid}/diagnostics`, {})).json as { diagnostics?: SplineDiag }).diagnostics ?? {};
+          return `${(sd.renderer?.splines?.meshPieces ?? 0) > 0} ${sd.renderer?.splines?.copies ?? 0} ${sd.runtime?.splines?.colliders ?? 0}`;
+        }, { timeout: 30_000, message: `${renderer} Play: the river's mesh, posts and their colliders` })
+        .toBe('true 6 6');
+      const shown = { renderer: sd.renderer?.splines, runtime: sd.runtime?.splines };
+      test.info().annotations.push({ type: `${renderer} Play splines`, description: JSON.stringify(shown) });
+      console.log(`${renderer} Play splines: ${JSON.stringify(shown)}`);
+    }
 
     // Play's diagnostics: the tiles drawn (the far one too), the page's decoded copy, the simulation's colliders.
     let diag: Diagnostics = {};
@@ -831,6 +1025,9 @@ test('terrain: CDLOD heights, layered material, paint and a hole in the Scene vi
             throw e;
           });
         expectFrame(last!, `${renderer} export`);
+        // The backend is stopped: the export's frame alone.
+        await expectRoad(null, `${renderer} export`, { img: last!, cam: roadCam! });
+        expectRiver(last!, roadCam!, `${renderer} export`);
         expect(errors).toEqual([]);
       } finally {
         await game.close();

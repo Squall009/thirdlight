@@ -31,6 +31,7 @@ import { mergeTimeouts, parseBackendConfig, type BackendConfig } from './config'
 import { publishBehaviorSource } from './behavior';
 import { diagnosticsWithNodes, generateGraphSource, graphProblemsFailure } from '@thirdlight/behavior-build';
 import { ContentRoutes, createAssetInspector, createBehaviorCompilerPort } from './content';
+import { loadMeshSimplifier, type MeshSimplifier } from '@thirdlight/asset-pipeline';
 import { createAssetFileCheck, reimportProblemLines } from './asset-files';
 import { createHeldImagesChecker } from './held-images';
 import { createMissingFiles, makeMissingFilesRoute } from './missing-files';
@@ -139,6 +140,13 @@ export function createBackend(
   // the play build's deterministic behavior-output recompilation.
   const behaviorCompiler = createBehaviorCompilerPort(nowMs);
   const assetInspector = createAssetInspector();
+  // The mesh simplifier (its WebAssembly module) is in before the backend serves: what a spline makes gets the same
+  // levels of detail from the first command on.
+  const meshSimplifier: { current: MeshSimplifier | null } = { current: null };
+  const simplifierLoaded = loadMeshSimplifier().then(
+    (s) => void (meshSimplifier.current = s),
+    (e: unknown) => logStartup(`mesh simplifier unavailable (${e instanceof Error ? e.message : String(e)}): spline meshes get their finest level only`),
+  );
   const service: WorkspaceService = openWorkspaceService({
     root: config.dataRoot,
     backendId: config.backendId,
@@ -151,6 +159,7 @@ export function createBackend(
     // (`behavior-build`) and injects it — the workspace's preparation layer
     // drives it; the compiler never reads a path or executes project source.
     behaviorCompiler,
+    meshSimplifier,
     // The folder watch that lets file checks look only at changed files.
     ...(config.fileWatch !== undefined ? { fileWatch: config.fileWatch } : {}),
   });
@@ -1880,14 +1889,16 @@ export function createBackend(
       };
       authoringServer.once('error', fail);
       previewServer.once('error', fail);
-      authoringServer.listen(bindPort(config.authoringBind), bindHost(config.authoringBind), () => {
-        previewServer.listen(bindPort(config.previewBind), bindHost(config.previewBind), () => {
-          authoringServer.off('error', fail);
-          previewServer.off('error', fail);
-          logStartup('listening: both origins bound');
-          resolveP(backend);
-        });
-      });
+      void simplifierLoaded.then(() =>
+        authoringServer.listen(bindPort(config.authoringBind), bindHost(config.authoringBind), () => {
+          previewServer.listen(bindPort(config.previewBind), bindHost(config.previewBind), () => {
+            authoringServer.off('error', fail);
+            previewServer.off('error', fail);
+            logStartup('listening: both origins bound');
+            resolveP(backend);
+          });
+        }),
+      );
     }),
     get portAuthoring(): number {
       return (authoringServer.address() as { port: number } | null)?.port ?? 0;

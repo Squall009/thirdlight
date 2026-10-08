@@ -23,6 +23,7 @@ import type { DescriptorJson, DescriptorRegistry, FieldCondition, FieldDescripto
 import { applies, deepEqual, fieldAt, setAt, type FieldPath, type Level } from './descriptor-fields';
 import type { ProjectedEntity } from './projection';
 import { getSnapSettings } from './snapping';
+import { deleteSplineGrip, dragSplineGrip, insertSplinePoint, readSplineModel, splineGrips, splineLines, splinePointsValue, type SplineHandleModel } from './spline-handle';
 
 /** The size snapping step (m): fine enough for a character's or a trigger's size in any genre, still round numbers. */
 export const SNAP_SIZE_M = 0.05;
@@ -48,8 +49,8 @@ export interface P3 {
 export interface Grip {
   id: string;
   at: P3;
-  /** How the pointer moves it: on the frame's X/Y plane through it, along an axis through it, or on a camera-facing plane. */
-  drag: 'plane' | 'axis' | 'free';
+  /** How the pointer moves it: on the frame's X/Y plane through it, along an axis through it, on a camera-facing plane, or across the ground (a horizontal plane through it). */
+  drag: 'plane' | 'axis' | 'free' | 'level';
   axis?: P3;
   role: 'size' | 'vertex' | 'insert';
 }
@@ -68,7 +69,9 @@ export type HandleModel =
   /** A height `h` above `base` (the capsule's feet, or the origin), along the frame's Y; `r` the drawn ring's radius. */
   | { type: 'height'; base: P3; h: number; r: number }
   /** An axis-aligned box between two corners; `dims` 2 draws and drags it on the 2D plane (z kept). */
-  | { type: 'bounds'; min: P3; max: P3; dims: 2 | 3 };
+  | { type: 'bounds'; min: P3; max: P3; dims: 2 | 3 }
+  /** A spline's points (`spline-handle.ts`). */
+  | SplineHandleModel;
 
 export interface HandleShape {
   entityId: string;
@@ -305,6 +308,15 @@ function readShape(entityId: string, component: string, handleIndex: number, h: 
       }
       return { ...base, model: { type: 'height', base: feet, h: N(hv.v), r } };
     }
+    case 'spline': {
+      const l = at('points');
+      const f = l.f;
+      lim('points', f?.type === 'list' && f.item.type === 'object' ? (f.item.fields.find((x) => x.key === 'at') ?? null) : null);
+      lim('width', f?.type === 'list' && f.item.type === 'object' ? (f.item.fields.find((x) => x.key === 'width') ?? null) : null);
+      const closed = h.loop !== undefined && conditionsHold(root, value, h.loop);
+      const model = readSplineModel(l.v, effective(root, value, 'width').v, closed, f?.type === 'list' ? (f.minItems ?? 2) : 2, f?.type === 'list' ? (f.maxItems ?? 4096) : 4096);
+      return model === null ? null : { ...base, model };
+    }
     case 'bounds': {
       // Both corners set (one side alone has no box to draw).
       const lo = at('min');
@@ -384,6 +396,8 @@ export function gripsOf(s: HandleShape): Grip[] {
       return [{ id: 'point', at: m.p, drag: 'plane', role: 'vertex' }];
     case 'height':
       return [{ id: 'height', at: p3(m.base.x + m.r, m.base.y + m.h, m.base.z), drag: 'axis', axis: p3(0, 1, 0), role: 'size' }];
+    case 'spline':
+      return splineGrips(m);
     case 'bounds': {
       const z = m.dims === 2 ? planeZ(m) : null;
       const g: Grip[] = [
@@ -510,6 +524,8 @@ export function dragGrip(s: HandleShape, id: string, p: P3, snap: boolean): Hand
     }
     case 'height':
       return { ...s, model: { ...m, h: round3(clamp(size(p.y - m.base.y), L['height'])) } };
+    case 'spline':
+      return { ...s, model: dragSplineGrip(m, id, p, snap, getSnapSettings().translateM, L) };
     case 'bounds': {
       // Corners land on the translate grid, inside the fields' ranges, never past the other corner.
       const step = getSnapSettings().translateM;
@@ -529,6 +545,10 @@ export function dragGrip(s: HandleShape, id: string, p: P3, snap: boolean): Hand
  */
 export function insertPoint(s: HandleShape, gripId: string): { shape: HandleShape; grip: string } | null {
   const m = s.model;
+  if (m.type === 'spline') {
+    const made = insertSplinePoint(m, gripId);
+    return made === null ? null : { shape: { ...s, model: made.model }, grip: made.grip };
+  }
   if (m.type !== 'points' || !gripId.startsWith('i') || m.pts.length >= m.maxItems) return null;
   const k = Number(gripId.slice(1));
   const ends = segmentEnds(m, k);
@@ -542,6 +562,10 @@ export function insertPoint(s: HandleShape, gripId: string): { shape: HandleShap
 /** Delete a corner/point (Alt+click), or say why not. */
 export function deletePoint(s: HandleShape, gripId: string): { ok: true; shape: HandleShape } | { ok: false; message: string } {
   const m = s.model;
+  if (m.type === 'spline') {
+    const r = deleteSplineGrip(m, gripId, s.label);
+    return r.ok ? { ok: true, shape: { ...s, model: r.model } } : r;
+  }
   if (m.type !== 'points' || !gripId.startsWith('p')) return { ok: false, message: 'only a corner or a path point can be deleted' };
   if (m.pts.length <= m.minItems) return { ok: false, message: `${s.label} keeps at least ${m.minItems} point${m.minItems === 1 ? '' : 's'}` };
   const i = Number(gripId.slice(1));
@@ -580,6 +604,8 @@ function fieldWrites(s: HandleShape): [string, DescriptorJson][] {
       return [[b['height']!, round3(m.h)]];
     case 'bounds':
       return [[b['min']!, r3(m.min, 3)], [b['max']!, r3(m.max, 3)]];
+    case 'spline':
+      return [[b['points']!, splinePointsValue(m) as DescriptorJson]];
   }
 }
 
@@ -679,6 +705,8 @@ export function linesOf(s: HandleShape): P3[][] {
       const edges = [[a.x, a.y], [b.x, a.y], [b.x, b.y], [a.x, b.y]].map(([x, y]) => [p3(x!, y!, a.z), p3(x!, y!, b.z)]);
       return [front, back, ...edges];
     }
+    case 'spline':
+      return splineLines(m);
   }
 }
 

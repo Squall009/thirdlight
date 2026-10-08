@@ -618,9 +618,9 @@ export function startRemoteSimulation(opts: RemoteSimulationOptions): Promise<Re
       return true;
     },
     pinFrameRateCap: (fps: unknown): boolean => !gone() && pacer.pinCap(fps),
-    // Only what collision reads (heights, holes; a scatter blob's copies), copied: the page keeps its tiles for drawing.
+    // Only what collision reads (heights, holes; a scatter blob's copies; what a spline made), copied: the page keeps its tiles for drawing.
     addTerrainTiles: (tiles: readonly TerrainSimData[]): void => {
-      if (!gone() && tiles.length > 0) command({ op: 'terrainTiles', tiles: tiles.map((t) => ('scatter' in t ? { digest: t.digest, scatter: t.scatter } : { digest: t.digest, samples: t.samples, heights: t.heights, holes: t.holes })) });
+      if (!gone() && tiles.length > 0) command({ op: 'terrainTiles', tiles: tiles.map((t) => ('scatter' in t ? { digest: t.digest, scatter: t.scatter } : 'spline' in t ? { digest: t.digest, spline: t.spline } : { digest: t.digest, samples: t.samples, heights: t.heights, holes: t.holes })) });
     },
     framePacing: () => pacer.stats(),
     setStats: (stats: unknown): boolean => {

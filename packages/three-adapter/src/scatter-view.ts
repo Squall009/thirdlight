@@ -80,6 +80,8 @@ export interface ScatterViewDeps {
 export type ScatterSink = Pick<ScatterView, 'setBlockLayer' | 'replaceBlockChunks' | 'setTerrain' | 'setOrigin' | 'setHidden' | 'remove' | 'setCopyStates'> & {
   /** The block types (ground cover reads a block layer's tops by them). */
   setTypes?(types: readonly BlockType[]): void;
+  /** The splines whose scatter bands terrain ground cover keeps clear of (the stored copies are baked clear of them). */
+  setSplines?(splines: readonly import('./cover-worker').CoverSpline[]): void;
 };
 
 /** What the view holds (diagnostics). */

@@ -98,8 +98,8 @@ export interface TerrainScatterData {
   readonly scatter: ScatterCell;
 }
 
-/** What the page hands the simulation of its terrains: tiles (for their colliders) and scatter blobs (for their copies). */
-export type TerrainSimData = TerrainTileData | TerrainScatterData;
+/** What the page hands the simulation of its level: terrain tiles (for their colliders), scatter blobs (for their copies) and splines' made data (for theirs). */
+export type TerrainSimData = TerrainTileData | TerrainScatterData | import('./splines').SplineSimData;
 
 /**
  * Rule scatter's stored copies — trees, rocks, anything the terrains' and

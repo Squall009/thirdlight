@@ -244,7 +244,9 @@ export type V3OwnedComponent =
   /** v4 scenes only: a box the probe bake fills with probes. */
   | 'probeVolume'
   /** v4 scenes only: a heightfield of tiles. */
-  | 'terrain';
+  | 'terrain'
+  /** v4 scenes only: a curve through points (roads, rivers, rails). */
+  | 'spline';
 
 /** Every `setComponent`-owned component (the base five plus the six v3 ones). */
 export type OwnedComponent =
@@ -1235,6 +1237,8 @@ export interface HistoryEntry {
   inverse: InverseSpec;
   /** The chunks and regions props' footprints changed with the command, before and after. */
   footprints?: import('./block-patch').BlockLayerPatch[];
+  /** Components the project host wrote with the command (terrains shaped by splines, a spline's made mesh), before and after. */
+  follows?: import('./follow-ops').ComponentFollow[];
   /**
    * The scene the entry edited in a v4 project (set by the
    * workspace; absent for content-only entries and in v1–v3).

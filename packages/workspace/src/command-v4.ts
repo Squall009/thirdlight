@@ -26,6 +26,7 @@ import { envelopeRequestId, failRequest } from './request-envelope';
 import { scriptsNaming } from './script-names';
 import { prepareInstanceStroke, prepareModelCollider, publishStrokeBuffer, type StrokeBuffer } from './instance-strokes';
 import { prepareTerrainEdit, publishTerrainBlobs, verifyTerrainTiles, type TerrainBlob } from './terrain-edits';
+import { verifySplineData, withSplineFollows } from './spline-follows';
 import { catalogV4Of, commandContentOf, crossSceneEntities, projectRuleError, sceneMissing, sceneNotEmpty, sceneRequired, sceneV4Of } from './content-shapes';
 
 /**
@@ -214,8 +215,15 @@ export function runCommandV4(core: Core, s: ProjectSession, sent: unknown, D: st
     if (!prepared.ok) return failRequest(request, prepared.error);
     commandState.preparedModelCollider = prepared.prepared;
   }
-  const outcome = applyMutation(commandState, pureRequest);
+  let outcome = applyMutation(commandState, pureRequest);
   if (!outcome.ok) return outcome.result;
+  // What splines changed elsewhere (terrains shaped by them), in the same transaction; undo and redo replay what was written.
+  if (op !== 'undo' && op !== 'redo' && op !== 'editTerrain') {
+    const followed = withSplineFollows(core, s, carrier, outcome.state, outcome.result);
+    if (!followed.ok) return failRequest(request, followed.error);
+    outcome = { ...outcome, state: followed.state, result: followed.result };
+    terrainBlobs = [...terrainBlobs, ...followed.blobs];
+  }
   // A move (or its undo or redo) puts resource and scene files elsewhere; an undo or redo first checks its targets are free.
   const moveChange = outcome.result.change.type === 'moveResources' ? (outcome.result.change as MoveResourcesChange) : null;
   if (moveChange !== null) {
@@ -264,7 +272,7 @@ export function runCommandV4(core: Core, s: ProjectSession, sent: unknown, D: st
     if (!v.ok) return refuse(v.error);
   }
   // Terrain tiles a change names (a setComponent, an undo, an edit's own): stored tile blobs of the terrain's size.
-  const tileError = verifyTerrainTiles(core, s, carrier.entities, resultScene.entities, terrainBlobs);
+  const tileError = verifyTerrainTiles(core, s, carrier.entities, resultScene.entities, terrainBlobs) ?? verifySplineData(core, s, carrier.entities as never, resultScene.entities as never, terrainBlobs);
   if (tileError !== null) return refuse(tileError);
 
   // The whole resulting project: scenes (the index may have changed) and content.

@@ -106,6 +106,8 @@ export interface ContentConfig {
    * layer — no hidden global service, no source evaluation by the workspace.
    */
   behaviorCompiler?: BehaviorCompiler;
+  /** The injected mesh simplifier (see `WorkspaceConfig.meshSimplifier`). */
+  meshSimplifier?: { current: import('@thirdlight/asset-pipeline').MeshSimplifier | null };
   /** The folder watch of open projects (false: off; see `WorkspaceConfig.fileWatch`). */
   fileWatch?: false | { maxEventsPerTurn?: number };
 }

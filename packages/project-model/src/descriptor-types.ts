@@ -15,7 +15,7 @@ export type DescriptorScalar = string | number | boolean;
 export type DescriptorUnit = 'm' | 'm/s' | 'm/s²' | 's' | 'deg' | 'deg/s' | 'cd' | '1/m' | 'points' | 'points/s' | '×' | 'Hz' | 'voices' | 'px' | 'ms' | 'MiB';
 
 /** The Scene-view handle kinds (the Scene view draws and drags them). */
-export const HANDLE_KINDS = ['box2', 'box3', 'radius', 'capsule', 'cone', 'direction', 'path', 'polygon', 'point', 'height', 'bounds'] as const;
+export const HANDLE_KINDS = ['box2', 'box3', 'radius', 'capsule', 'cone', 'direction', 'path', 'polygon', 'point', 'height', 'bounds', 'spline'] as const;
 export type HandleKind = (typeof HANDLE_KINDS)[number];
 
 /**
@@ -38,6 +38,8 @@ export const HANDLE_ROLES: Readonly<Record<HandleKind, readonly (readonly string
   height: [['height']],
   // An axis-aligned box between two corners (a track camera's bounds), each corner dragged.
   bounds: [['min', 'max']],
+  // A curve's points ({at, tangent?, width?, roll?}), dragged across the ground, up and down, wider and turned.
+  spline: [['points']],
 };
 
 export const ASSET_KINDS = ['model', 'audio', 'texture', 'font'] as const;
@@ -273,7 +275,7 @@ export interface HandleDescriptor {
   readonly along?: 'x';
   /** `radius` along X: a field (pointer) giving the half height of the band drawn with it (read, not dragged). */
   readonly band?: string;
-  /** `path`: the path closes back to its start while this holds. */
+  /** `path`, `spline`: the path closes back to its start while this holds. */
   readonly loop?: FieldCondition;
   /** The project physics dimension the handle applies in (absent: both). */
   readonly dimension?: 2 | 3;

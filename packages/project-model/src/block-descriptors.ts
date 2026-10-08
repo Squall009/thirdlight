@@ -82,7 +82,7 @@ export const blockLayer: ComponentDescriptor = {
   // 1 m cells over 64 × 16 × 64 — a common kit module over the interactive-editing target; no genre assumed.
   add: { kind: 'menu', value: { cellSize: [1, 1, 1], bounds: { min: [0, 0, 0], max: [64, 16, 64] } } },
   handles: [],
-  excludes: ['model', 'box', 'collider', 'controller', 'instances', 'terrain'].map((c) => ({ component: c, reason: 'a block layer is its own level geometry' })),
+  excludes: ['model', 'box', 'collider', 'controller', 'instances', 'terrain', 'spline'].map((c) => ({ component: c, reason: 'a block layer is its own level geometry' })),
   prefab: false,
   rules: ['A block layer is a root object (a folder may hold it) at identity rotation and unit scale; at most 16 layers with cells per scene.'],
 };

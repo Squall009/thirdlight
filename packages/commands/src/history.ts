@@ -36,6 +36,7 @@ import { behaviorGroupsOf, eventCuesOf, modesOf, shellOf, withBehaviorGroups, wi
 import { timelineOf, withTimeline } from './timeline-ops';
 import { scriptLibrariesOf, withBehaviorRecords, withScriptLibrary } from './script-library-ops';
 import { withFootprintChunks, withFootprintLayers } from './footprint-ops';
+import { withFollowChange, withFollows, type ComponentFollow } from './follow-ops';
 import { patchDelta, patchedLayer } from './block-patch';
 import { blockStampsOf, blockTypesOf, cellFieldsOf, layerDataOf, withBlockStamp, withBlockType, withCellFields, withLayerData, withoutLayersOf } from './block-ops';
 import type { GraphDocument } from '@thirdlight/project-model';
@@ -1282,9 +1283,11 @@ export function executeUndo(
   const history = state.history;
   if (history.cursor === 0) return { ok: false, error: { ...historyEmpty('undo') } };
   const entry = history.entries[history.cursor - 1] as HistoryEntry;
-  // The footprint writes came after the command, so they go back first.
+  // The host's follow-ups and the footprint writes came after the command, so they go back first (in reverse).
   const fp = entry.footprints;
-  const applied = applyInverse(fp !== undefined ? { ...state, scene: withFootprintLayers(state.scene, fp, 'restore') } : state, entry);
+  const fl = entry.follows;
+  const unfollowed = fl !== undefined ? { ...state, scene: withFollows(state.scene, fl, 'restore') } : state;
+  const applied = applyInverse(fp !== undefined ? { ...unfollowed, scene: withFootprintLayers(unfollowed.scene, fp, 'restore') } : unfollowed, entry);
   if (!applied.ok) return applied;
   return {
     ok: true,
@@ -1293,7 +1296,7 @@ export function executeUndo(
       content: applied.applied.content,
       ...(applied.applied.otherScene !== undefined ? { otherScene: applied.applied.otherScene } : {}),
       history: { ...history, cursor: history.cursor - 1 },
-      change: fp !== undefined ? withFootprintChunks(applied.applied.change, fp) : applied.applied.change,
+      change: followed(fp !== undefined ? withFootprintChunks(applied.applied.change, fp) : applied.applied.change, fl, 'restore'),
       appliedOf: entry.requestId,
       originOfApplied: entry.origin,
     },
@@ -1315,18 +1318,25 @@ export function executeRedo(
   const applied = applyForward(state, entry);
   if (!applied.ok) return applied;
   const fp = entry.footprints;
+  const fl = entry.follows;
+  const stepped = fp !== undefined ? withFootprintLayers(applied.applied.scene, fp, 'next') : applied.applied.scene;
   return {
     ok: true,
     outcome: {
-      scene: fp !== undefined ? withFootprintLayers(applied.applied.scene, fp, 'next') : applied.applied.scene,
+      scene: fl !== undefined ? withFollows(stepped, fl, 'next') : stepped,
       content: applied.applied.content,
       ...(applied.applied.otherScene !== undefined ? { otherScene: applied.applied.otherScene } : {}),
       history: { ...history, cursor: history.cursor + 1 },
-      change: fp !== undefined ? withFootprintChunks(applied.applied.change, fp) : applied.applied.change,
+      change: followed(fp !== undefined ? withFootprintChunks(applied.applied.change, fp) : applied.applied.change, fl, 'next'),
       appliedOf: entry.requestId,
       originOfApplied: entry.origin,
     },
   };
+}
+
+/** The change naming the follow-ups' values on the side just applied (clients take them). */
+function followed<C>(change: C, follows: readonly ComponentFollow[] | undefined, side: 'restore' | 'next'): C {
+  return follows === undefined ? change : withFollowChange(change, follows.map((f) => ({ ...f, next: f[side] })));
 }
 
 /**

@@ -158,6 +158,7 @@ export function openWorkspaceService(config: WorkspaceServiceConfig): WorkspaceS
       // The injected behavior-source compiler (dependencies.md
       // `backend` constructs it; the workspace holds only its type).
       ...(config.behaviorCompiler !== undefined ? { behaviorCompiler: config.behaviorCompiler } : {}),
+      ...(config.meshSimplifier !== undefined ? { meshSimplifier: config.meshSimplifier } : {}),
       ...(config.fileWatch !== undefined ? { fileWatch: config.fileWatch } : {}),
     },
   };

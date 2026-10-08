@@ -21,7 +21,7 @@ import * as THREE from 'three';
 import { SCATTER_COVER_DISTANCE_DEFAULT, coverScatterRules, scatterReach, type BlockChunk, type BlockLayerComponent, type BlockLayerData, type BlockType, type ScatterRect, type ScatterRule, type TerrainComponent, type TerrainTile } from '@thirdlight/runtime';
 
 import type { MeshWorkerPort } from './block-mesh-pool';
-import { CoverGenerator, type CoverCopies, type CoverReply, type CoverRequest } from './cover-worker';
+import { CoverGenerator, type CoverCopies, type CoverReply, type CoverRequest, type CoverSpline } from './cover-worker';
 import { buildInstanceSet, type BuiltInstanceSet, type InstanceSetStats } from './instancing';
 import { blobCopies, blobShadowTemplate } from './scatter-shadows';
 import type { LodTuning } from './lod-switch';
@@ -122,6 +122,7 @@ export class CoverView {
   private buildMsMax = 0;
   private disposed = false;
   private types: readonly BlockType[] = [];
+  private splinesKey = '[]';
 
   constructor(private readonly deps: CoverViewDeps) {}
 
@@ -131,6 +132,15 @@ export class CoverView {
     this.types = types;
     this.send({ t: 'coverTypes', types });
     for (const src of this.sources.values()) if (src.kind === 'blocks') this.remakeAll(src);
+  }
+
+  /** The splines whose scatter bands terrain cover keeps clear of (all of them, each time any changes). */
+  setSplines(splines: readonly CoverSpline[]): void {
+    const key = JSON.stringify(splines);
+    if (key === this.splinesKey) return;
+    this.splinesKey = key;
+    this.send({ t: 'coverSplines', splines });
+    for (const src of this.sources.values()) if (src.kind === 'terrain') this.remakeAll(src);
   }
 
   setBlockLayer(id: string, component: BlockLayerComponent, origin: readonly number[], chunks: Iterable<BlockChunk>): void {

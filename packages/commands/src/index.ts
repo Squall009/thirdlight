@@ -253,7 +253,9 @@ export type { FootprintChunks } from './footprint-ops';
 export type { BlockChunkSwap, BlockLayerPatch, BlockRegionSwap } from './block-patch';
 export { instanceFloatsOf, planInstanceStroke, validatePaintInstancesArgs, type PaintInstancesArgs, type PreparedInstanceStroke } from './instance-stroke-ops';
 export { planModelCollider, validateColliderFromModelArgs, type ColliderFromModelArgs, type PreparedModelCollider } from './collider-model-ops';
-export { EDIT_TERRAIN_KEYS, EDIT_TERRAIN_KINDS, planTerrainEdit, terrainTilesAfter, validateEditTerrainArgs, type EditTerrainArgs, type EditTerrainKind, type PreparedTerrainEdit, type TerrainEditPlan, type TerrainTileRead } from './terrain-ops';
+export { EDIT_TERRAIN_KEYS, EDIT_TERRAIN_KINDS, planTerrainEdit, terrainTilesAfter, validateEditTerrainArgs, type EditTerrainArgs, type EditTerrainKind, type PreparedTerrainEdit, type TerrainEditPlan, type TerrainScatterRead, type TerrainTileRead } from './terrain-ops';
+export { SPLINE_REBAKE_PIECE, blockedArea, planTerrainSplineRebake, splineBandRects, splineRebakeRects, type TerrainSplinePlan } from './terrain-spline-ops';
+export { applyFollows, withFollows, type ComponentFollow, type FollowChange } from './follow-ops';
 // Graph commands (owner kinds and the shared apply used by undo/redo).
 export { GRAPH_OWNER_KINDS, GRAPH_OWNERS, editOwnerGraph, parseBehaviorOwnerId, type GraphOwnerAdapter } from './graph-ops';
 

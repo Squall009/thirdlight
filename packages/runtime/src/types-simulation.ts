@@ -303,6 +303,8 @@ export interface StepContext {
   readonly grid?: import('./grid').BehaviorGrid;
   /** The terrains' and block layers' scatter copies (`ctx.scatter`). */
   readonly scatter?: import('./scatter-copies').BehaviorScatter;
+  /** The loaded splines (`ctx.splines`). */
+  readonly splines?: import('./splines').BehaviorSplines;
   /** Graph-material parameters per object (`ctx.materials`). */
   readonly materials?: import('./material-params').BehaviorMaterials;
   /** Project saves (`ctx.saves`). */

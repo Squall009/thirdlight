@@ -1164,6 +1164,36 @@ export {
   type TerrainComponent,
   type TerrainTileRef,
 } from './terrain';
+// Splines: one curve component (roads, rivers, rails) and its curve in the world.
+export {
+  SPLINE_FALLOFF_DEFAULT,
+  SPLINE_FIELDS,
+  SPLINE_LIMITS,
+  SPLINE_MATERIAL_SLOT,
+  SPLINE_MESH_KINDS,
+  SPLINE_MESH_STEP_DEFAULT,
+  SPLINE_SCATTER_MARGIN_DEFAULT,
+  SPLINE_SURFACE_OFFSET_DEFAULT,
+  SPLINE_TERRAIN_SHAPES,
+  SPLINE_WATER_FLOW_DEFAULT,
+  SPLINE_WATER_FOAM_DEFAULT,
+  SPLINE_WIDTH_DEFAULT,
+  canonicalSpline,
+  splineMakesData,
+  splinePieceAssets,
+  validateSplineComponent,
+  type SplineComponent,
+  type SplineMeshKind,
+  type SplineMeshSettings,
+  type SplinePieceSettings,
+  type SplinePoint,
+  type SplineScatterSettings,
+  type SplineTerrainSettings,
+  type SplineTerrainShape,
+} from './spline';
+export { SPLINE_TABLE_STEP, SplineCurve, newSplineFrame, type SplineFrame, type SplineNearest } from './spline-curve';
+export { SPLINE_MADE_LAYOUT, SPLINE_MADE_MAGIC, SPLINE_MESH_PIECE_METRES, decodeSplineMade, encodeSplineMade, isSplineMadeBlob, makeSpline, splinePieceCopies, sweepSplineMesh, type SplineMade, type SplineMeshLevel, type SplineMeshPiece } from './spline-mesh';
+export { SplineScatterBands, TERRAIN_SPLINE_STEP, TerrainSplineLayer, rasterizeSpline, splineScatterReach, splineScatterRect, terrainSplineInputs, terrainSplineReach, terrainSplineRect, type SplineRaster, type TerrainSplineInput, type TerrainSplinePaint } from './terrain-splines';
 export {
   TERRAIN_LAYER_MAX,
   TERRAIN_PAINT_BYTES,
@@ -1223,7 +1253,7 @@ export {
   type SurfacePoint,
   type SurfaceRule,
 } from './surface-rules';
-export { bakeTerrainRules, terrainBakeMargin, terrainBakeRect, type TerrainSampleRect } from './terrain-rules';
+export { bakeTerrainRules, terrainBakeMargin, terrainBakeRect, type TerrainBakeOver, type TerrainSampleRect } from './terrain-rules';
 // Rule scatter: models placed by rules on terrain (copies baked per tile) and block layers (per chunk).
 export {
   FOLIAGE_NEAR_METRES,
