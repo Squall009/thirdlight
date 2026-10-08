@@ -16,6 +16,7 @@ import { join, resolve } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { loadTerrainField } from '../../../packages/game-host/src/terrain-tiles';
+import { terrainOverviewOf, terrainTileOf } from '../../../packages/runtime/src/terrain-blob';
 import { makePng } from '../../e2e/png-make';
 import { api, mkRequestId, startBackend, type TestBackend } from '../../../packages/backend/src/test-helpers';
 
@@ -191,5 +192,38 @@ describe('terrain over HTTP', () => {
     });
     for (const [x, z] of [[164, -30], [110, 30], [130, -10]] as const) expect(field.heightAt(x, z)).toBeCloseTo((await heightAt(x, z))!, 5);
     expect(field.memory().tiles).toBe(3);
+    // Not streamed: no overview.
+    expect((entity.components.terrain as { overview?: string }).overview).toBeUndefined();
+  }, 240_000);
+
+  it('a streamed terrain ships its overview (every tile at its coarsest level) beside its tiles; the editor stores none', async () => {
+    const set = await command('setComponent', { entityId: ground, component: 'terrain', value: { streaming: { render: 300, collision: 40 } } });
+    expect(set.status, JSON.stringify(set.json)).toBe(200);
+    const t = await terrainNow();
+    expect((t as { streaming?: unknown }).streaming).toEqual({ render: 300, collision: 40 });
+    expect((t as { overview?: string }).overview).toBeUndefined();
+    const r = await api(`${tb.authUrl}/api/v1/admin/projects/${PID}/export`, { body: {}, token: tb.adminToken, origin: null });
+    expect(r.status, JSON.stringify(r.json)).toBe(200);
+    const out = join(exportRoot, String((r.json as { outputDir: string }).outputDir));
+    const files = (r.json as { files: Record<string, number> }).files;
+    const sceneFile = readdirSync(join(out, 'scenes')).map((f) => JSON.parse(readFileSync(join(out, 'scenes', f), 'utf8')) as { entities: { id: string; components: { terrain?: Terrain & { overview?: string } } }[] }).find((s) => s.entities.some((e) => e.id === ground))!;
+    const shipped = sceneFile.entities.find((e) => e.id === ground)!.components.terrain!;
+    const digest = shipped.overview!;
+    expect(digest).toMatch(/^[0-9a-f]{64}$/);
+    const bytes = readFileSync(join(out, 'content', 'sha256', digest));
+    expect(files[`content/sha256/${digest}`]).toBe(bytes.length);
+    expect(sha(bytes)).toBe(digest);
+    // Read as the page reads it: one 17² tile per tile with data, its heights the full tile's every (65 − 1) / 16th sample.
+    const overview = await terrainOverviewOf(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer);
+    const withData = shipped.tiles.filter((x) => x.data !== undefined);
+    expect(overview.map((o) => `${o.x},${o.z}`).sort()).toEqual(withData.map((x) => `${x.x},${x.z}`).sort());
+    for (const o of overview) {
+      const d = withData.find((x) => x.x === o.x && x.z === o.z)!.data!;
+      const b = readFileSync(join(out, 'content', 'sha256', d));
+      const full = await terrainTileOf(b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength) as ArrayBuffer);
+      for (const [i, j] of [[0, 0], [16, 16], [5, 11]] as const) expect(o.tile.heights[j * 17 + i]).toBe(full.heights[j * 4 * 65 + i * 4]);
+    }
+    const off = await command('setComponent', { entityId: ground, component: 'terrain', value: { streaming: null } });
+    expect(off.status, JSON.stringify(off.json)).toBe(200);
   }, 240_000);
 });

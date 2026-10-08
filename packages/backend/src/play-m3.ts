@@ -100,6 +100,8 @@ export interface BuiltPlayContentM3 {
   placeholders: readonly MissingPlayFile[];
   /** The start's warnings (scene rules checked at Play). */
   checks: readonly PlayCheck[];
+  /** The merged start scene's streamed terrains' overviews (entity → digest; absent: none streams): the snapshot gets them. */
+  terrainOverviews?: Readonly<Record<string, string>>;
 }
 
 export type BuildPlayContentM3Result = { ok: true; built: BuiltPlayContentM3 } | { ok: false; error: SessionError };
@@ -227,6 +229,7 @@ export async function buildPlayContentM3(input: BuildPlayContentM3Input): Promis
       sourceMaps: closure.sourceMaps,
       placeholders: closure.placeholders,
       checks: closure.checks,
+      ...(closure.terrainOverviews !== undefined ? { terrainOverviews: closure.terrainOverviews } : {}),
     },
   };
 }

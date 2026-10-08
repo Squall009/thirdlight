@@ -33,6 +33,7 @@ import type { BlobFile, WorkspaceService } from '@thirdlight/workspace';
 
 import { closureSlotArrays, type ClosureSlotArrays, type ClosureTextureSlots } from './closure-texture-slots';
 import { blockDataPacker, type GzipPort } from './block-chunk-data';
+import { overviewsIn, terrainOverviewPacker } from './terrain-overview-data';
 
 /** The injected compiler port (structural; no behavior-build edge). */
 export interface ContentClosureCompilerPort {
@@ -290,6 +291,12 @@ export interface ContentClosureM3 {
   sceneDigest: string;
   /** The emitted `scene.json` bytes (the `manifest.sceneDigest` input). */
   sceneBytes: Uint8Array;
+  /**
+   * The streamed terrains of the merged start scene and their overviews'
+   * digests (absent: none streams): Play's snapshot is the captured scene,
+   * which carries none, so Play puts them on it.
+   */
+  terrainOverviews?: Readonly<Record<string, string>>;
   moduleIds: readonly string[];
   /** The missing files placeholders stand in for (Play only). */
   placeholders: readonly MissingPlayFile[];
@@ -538,6 +545,7 @@ interface DerivedCapture {
   readonly gzip: boolean;
   readonly sceneBytes: Uint8Array;
   readonly sceneDigest: string;
+  readonly terrainOverviews: Readonly<Record<string, string>> | undefined;
   /** Each scene's dependencies (the asset ids it needs), once derived. */
   sceneDependencies?: ReadonlyMap<string, readonly string[]>;
   /**
@@ -905,11 +913,24 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
   const buffers = new Map<string, number>(derived !== null ? derived.buffers.map((b) => [b.digest, b.byteLength] as const) : []);
   // The block layers' cells leave the scene files as binary chunk data (the same blob for a layer two files name).
   const packer = blockDataPacker(hash, input.gzip);
+  // Streamed terrains ship an overview (every tile at its coarsest level), made from their tiles' stored blobs.
+  const overviews = terrainOverviewPacker(hash, input.gzip, (digest) => {
+    const r = service.readSourceBlob(projectId, { digest });
+    if (!r.ok) throw new Error(`terrain tile ${digest.slice(0, 12)}…: ${r.error.message}`);
+    return r.bytes;
+  });
+  const packScene = (doc: unknown): unknown => overviews.pack(packer.pack(doc));
   if (input.scenes !== undefined && derived === null) {
     const start = new Set(input.startScenes ?? []);
     for (const doc of input.scenes) {
       const sc = doc as { sceneId: string; entities: { components: { instances?: { buffer: string; count: number }; terrain?: { tiles: { data?: string; scatter?: string }[] }; spline?: { data?: string } } }[] };
-      const bytes = new TextEncoder().encode(`${JSON.stringify(packer.pack(withoutHandMadeTiles(doc)), null, 2)}\n`);
+      let packed: unknown;
+      try {
+        packed = packScene(withoutHandMadeTiles(doc));
+      } catch (e) {
+        return { ok: false, error: { code: 'export_scene_invalid', cls: 'validation', reason: 'terrain_overview', message: `scene "${sc.sceneId}": a streamed terrain's overview could not be made: ${e instanceof Error ? e.message : String(e)}`.slice(0, 256) } };
+      }
+      const bytes = new TextEncoder().encode(`${JSON.stringify(packed, null, 2)}\n`);
       const digest = hash(bytes);
       const path = `scenes/${sc.sceneId}.json`;
       sceneArtifacts.push({ path, bytes, digest, contentType: 'application/json' });
@@ -1004,14 +1025,26 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
 
   stage('rigs');
   // 6. The emitted scene bytes + sceneDigest (the manifest's sceneDigest input).
-  const sceneBytes = derived !== null ? derived.sceneBytes : new TextEncoder().encode(`${JSON.stringify(packer.pack(input.scene), null, 2)}\n`);
+  let sceneBytes: Uint8Array;
+  let terrainOverviews: Readonly<Record<string, string>> | undefined = derived?.terrainOverviews;
+  try {
+    if (derived !== null) sceneBytes = derived.sceneBytes;
+    else {
+      const packed = packScene(input.scene);
+      terrainOverviews = overviewsIn(packed);
+      sceneBytes = new TextEncoder().encode(`${JSON.stringify(packed, null, 2)}\n`);
+    }
+  } catch (e) {
+    return { ok: false, error: { code: 'export_scene_invalid', cls: 'validation', reason: 'terrain_overview', message: `a streamed terrain's overview could not be made: ${e instanceof Error ? e.message : String(e)}`.slice(0, 256) } };
+  }
   const sceneDigest = derived !== null ? derived.sceneDigest : hash(sceneBytes);
-  const blockData: readonly ClosureArtifact[] = derived !== null ? derived.blockData : packer.blobs().map((b) => ({ path: `content/sha256/${b.digest}`, bytes: b.bytes, digest: b.digest, contentType: 'application/octet-stream' }));
+  // The block layers' chunk data and the streamed terrains' overviews: blobs this build made (read like the instance buffers).
+  const blockData: readonly ClosureArtifact[] = derived !== null ? derived.blockData : [...packer.blobs(), ...overviews.blobs()].map((b) => ({ path: `content/sha256/${b.digest}`, bytes: b.bytes, digest: b.digest, contentType: 'application/octet-stream' }));
   // Read with the instance buffers (manifest.buffers), served from the build.
   for (const a of blockData) if (!buffers.has(a.digest)) bufferArtifacts.push(a);
   let remember: DerivedCapture | null = null;
   if (derived === null && contentKey !== null && identities !== null) {
-    remember = { projectId, revision: input.revision, startScenes: startKey, identities, view, media, sceneArtifacts: [...sceneArtifacts], sceneRows: [...sceneRows], buffers: [...buffers.entries()].map(([digest, byteLength]) => ({ digest, byteLength })), blockData, gzip: input.gzip !== undefined, sceneBytes, sceneDigest };
+    remember = { projectId, revision: input.revision, startScenes: startKey, identities, view, media, sceneArtifacts: [...sceneArtifacts], sceneRows: [...sceneRows], buffers: [...buffers.entries()].map(([digest, byteLength]) => ({ digest, byteLength })), blockData, gzip: input.gzip !== undefined, sceneBytes, sceneDigest, terrainOverviews };
     derivedCaptures.set(contentKey, remember);
   }
 
@@ -1159,6 +1192,7 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
       snapshotId: `${projectId}@r${input.revision}`,
       sceneDigest,
       sceneBytes,
+      ...(terrainOverviews !== undefined ? { terrainOverviews } : {}),
       moduleIds,
       placeholders,
       checks,

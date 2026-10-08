@@ -404,6 +404,9 @@ export function makePlayRoutes(ctx: PlayRoutesContext) {
       // preview checks it against the manifest).
       const tags = (captured.read.content as { tags?: unknown[] }).tags;
       if (Array.isArray(tags) && tags.length > 0) (snapshot as { tags?: unknown }).tags = tags;
+      // The snapshot is the captured scene: its streamed terrains get the overviews the build made.
+      const overviews = builtM3.built.terrainOverviews;
+      if (overviews !== undefined) snapshot.scene = withTerrainOverviews(snapshot.scene, overviews);
       builtCore = {
         buildId: builtM3.built.buildId,
         contentDigest: builtM3.built.contentDigest,
@@ -894,4 +897,11 @@ export function makePlayRoutes(ctx: PlayRoutesContext) {
 
 
   return { playStartRoute, playStopRoute, playSnapshotRoute, relayRoute, inputRelayRoute, gameControlRoute, gameObserveRoute, warmPlay };
+}
+
+/** A scene whose terrains named in `overviews` (entity → digest) carry them (the others as they are). */
+function withTerrainOverviews<T>(scene: T, overviews: Readonly<Record<string, string>>): T {
+  const d = scene as unknown as { entities?: readonly { id?: string; components?: { terrain?: object } }[] };
+  if (d.entities === undefined) return scene;
+  return { ...d, entities: d.entities.map((e) => (e.id !== undefined && overviews[e.id] !== undefined && e.components?.terrain !== undefined ? { ...e, components: { ...e.components, terrain: { ...e.components.terrain, overview: overviews[e.id] } } } : e)) } as unknown as T;
 }

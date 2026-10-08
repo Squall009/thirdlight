@@ -35,6 +35,7 @@ import {
   fixedStepHzOf,
   isScatterBlob,
   isSplineMadeBlob,
+  isTerrainOverviewBlob,
   isTerrainTileBlob,
   manifestBuildIdInputV5,
   physicsDimensionOf,
@@ -353,10 +354,11 @@ export async function exportProjectM3(
   }
   // The block layers' chunk data is the scene files' cells: their text (cell metadata) follows the same rules.
   // Terrain tiles are numbers only (heights, layer weights, holes), checked by digest like instance buffers; so are
-  // their scatter blobs (copies and cells; the rule ids they carry are the scene file's, scanned with it) and what
-  // a spline makes (its meshes and piece copies: numbers; the piece assets are named in the scene file).
+  // their scatter blobs (copies and cells; the rule ids they carry are the scene file's, scanned with it), a streamed
+  // terrain's overview (its tiles at their coarsest level) and what a spline makes (its meshes and piece copies:
+  // numbers; the piece assets are named in the scene file).
   for (const b of closure.bufferArtifacts) {
-    if (isTerrainTileBlob(b.bytes) || isScatterBlob(b.bytes) || isSplineMadeBlob(b.bytes)) {
+    if (isTerrainTileBlob(b.bytes) || isTerrainOverviewBlob(b.bytes) || isScatterBlob(b.bytes) || isSplineMadeBlob(b.bytes)) {
       if (digestBytes(b.bytes) !== b.digest) return fail('export_bundle_forbidden_content', 'internal', `terrain tile ${b.path} does not match its digest`);
       continue;
     }
@@ -523,7 +525,7 @@ async function writeOutput(
       }
       for (const d of decodersNeeded([{ bytes, contentType: a.contentType }])) decoders.add(d);
       assetBytes += n;
-    } else if (n % 40 !== 0 && (head === null || !(isTerrainTileBlob(head) || isScatterBlob(head) || isSplineMadeBlob(head)))) {
+    } else if (n % 40 !== 0 && (head === null || !(isTerrainTileBlob(head) || isTerrainOverviewBlob(head) || isScatterBlob(head) || isSplineMadeBlob(head)))) {
       return fail('scan_forbidden_content', 'internal', `an instance buffer does not match its size (${a.path})`);
     }
     entries.push({ path: a.path, digest: a.digest, byteLength: n });
