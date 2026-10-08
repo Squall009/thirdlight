@@ -14,6 +14,7 @@ import type { ProjectedEntity } from '../../session/projection';
 import type { ClientRef, ReportFailure, ViewportRef } from '../shell/commands';
 import { presetChoices } from './ArchitecturePanels';
 import type { RoomsBinding } from './RoomsPanel';
+import { waitFor } from '../wait-for';
 
 const NO_POSITION: readonly number[] = Object.freeze([0, 0, 0]);
 
@@ -32,6 +33,7 @@ export function useRoomsBinding(layer: ProjectedEntity | null, entities: readonl
   const presets = useMemo(() => presetChoices(graphs), [graphs]);
   if (layer === null || comp === undefined) return undefined;
   const roomsId = rooms?.id ?? null;
+  const scenes = (clientRef.current?.projection.scenes ?? []).map((r) => [r.sceneId, r.name] as const);
   return {
     entityId: roomsId,
     component,
@@ -40,6 +42,20 @@ export function useRoomsBinding(layer: ProjectedEntity | null, entities: readonl
     plans: expanded?.rooms ?? [],
     walls,
     presets,
+    scenes,
+    sceneId: rooms?.sceneId ?? layer.sceneId ?? null,
+    async createScene(name) {
+      const c = clientRef.current;
+      if (!c) return null;
+      const base = name.toLowerCase().replace(/[^a-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 56) || 'interior';
+      const taken = new Set(c.projection.scenes.map((r) => r.sceneId));
+      let id = base;
+      for (let n = 2; taken.has(id); n++) id = `${base}-${n}`;
+      const r = await c.command('createScene', { sceneId: id, name }, c.projection.revision);
+      reportFailure('New interior scene', r);
+      // The index arrives with the change: the building is stored against the revision that has the scene.
+      return r.ok ? waitFor(() => (c.projection.scenes.some((x) => x.sceneId === id) ? id : null)) : null;
+    },
     async setRooms(next, what) {
       const c = clientRef.current;
       if (!c) return false;

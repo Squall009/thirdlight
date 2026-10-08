@@ -2,10 +2,10 @@
  * Fills: a closed path filled with a surface. Flat floors and ceilings,
  * coffered ceilings (a flat ceiling and beams swept along a grid), barrel
  * vaults (an arc swept along the room), groin vaults (two barrels, each
- * kept where it is the lower), and gable, hip and mansard roofs (planes
- * between the eaves and the ridge). Vaults and roofs ask for a rectangular
- * path; any other is reported and left unfilled (a straight skeleton for
- * any footprint is a follow-up). Flat and coffered fills take any simple
+ * kept where it is the lower), and gable, hip and mansard roofs
+ * (`arch-roof.ts`: rectangles, convex footprints and right-angled ones such
+ * as L and T shapes). Vaults ask for a rectangular path; any other is
+ * reported and left unfilled. Flat and coffered fills take any simple
  * polygon.
  *
  * Every plane goes through `fillPlanarPolygon` (strips one trim row tall),
@@ -15,7 +15,8 @@
  * Pure.
  */
 import { len2, len3 } from './arch-math';
-import { type ArchMeshWriter, bridgeHoles, fillPlanarPolygon, type PlaneFrame } from './arch-mesh';
+import { type ArchMeshWriter, bridgeHoles, fillPlanarPolygon } from './arch-mesh';
+import { ROOF_SHAPES, writeRoof } from './arch-roof';
 import { type PathSamples, samplePath } from './arch-path';
 import { type SweepProfile, sweepProfile } from './arch-sweep';
 import type { ArchitectureFill } from './architecture';
@@ -33,8 +34,6 @@ export interface FillContext {
 /** Coffer beams: metres apart and deep (and as wide as deep). */
 export const COFFER_CELL_DEFAULT = 1.5;
 export const COFFER_DEPTH_DEFAULT = 0.2;
-/** Mansard: the lower slope's share of the rise. */
-export const MANSARD_BREAK_DEFAULT = 0.7;
 
 /** A rectangle found in a path: a corner, the axis along (unit, level), the axis across, and their lengths. */
 export interface PathRect {
@@ -135,48 +134,6 @@ export function arcPoints2D(ax: number, ay: number, bx: number, by: number, bulg
   }
 }
 
-/** Fill a 3D planar polygon whose first edge is its along axis; the face looks to the side with `facing` (positive dot). */
-function plane(w: ArchMeshWriter, pts: readonly number[][], facing: readonly number[], ctx: FillContext, row: TrimRow, edgesAo: boolean): void {
-  const p0 = pts[0]!;
-  const p1 = pts[1]!;
-  const a = [p1[0]! - p0[0]!, p1[1]! - p0[1]!, p1[2]! - p0[2]!];
-  const la = len3(a[0]!, a[1]!, a[2]!);
-  if (la < 1e-9) return;
-  for (let k = 0; k < 3; k++) a[k]! /= la;
-  // The normal from the polygon's area vector (Newell), then the across axis in the plane.
-  let nx = 0;
-  let ny = 0;
-  let nz = 0;
-  for (let i = 0; i < pts.length; i++) {
-    const p = pts[i]!;
-    const q = pts[(i + 1) % pts.length]!;
-    nx += (p[1]! - q[1]!) * (p[2]! + q[2]!);
-    ny += (p[2]! - q[2]!) * (p[0]! + q[0]!);
-    nz += (p[0]! - q[0]!) * (p[1]! + q[1]!);
-  }
-  const nl = len3(nx, ny, nz);
-  if (nl < 1e-12) return;
-  nx /= nl;
-  ny /= nl;
-  nz /= nl;
-  if (nx * facing[0]! + ny * facing[1]! + nz * facing[2]! < 0) {
-    nx = -nx;
-    ny = -ny;
-    nz = -nz;
-  }
-  // b = n × a: across the strips, in the plane.
-  const b = [ny * a[2]! - nz * a[1]!, nz * a[0]! - nx * a[2]!, nx * a[1]! - ny * a[0]!];
-  const poly: number[] = [];
-  for (const p of pts) {
-    const dx = p[0]! - p0[0]!;
-    const dy = p[1]! - p0[1]!;
-    const dz = p[2]! - p0[2]!;
-    poly.push(dx * a[0]! + dy * a[1]! + dz * a[2]!, dx * b[0]! + dy * b[1]! + dz * b[2]!);
-  }
-  const f: PlaneFrame = { o: p0, a, b, n: [nx, ny, nz] };
-  fillPlanarPolygon(w, poly, f, { sheet: ctx.sheet, row, aoStrength: edgesAo ? ctx.aoStrength : 0, aoRadius: ctx.aoRadius });
-}
-
 /** Intervals of the line {z = c} (in the outline's xy) inside a polygon: x pairs. */
 function lineIntervals(poly: readonly number[], c: number, alongX: boolean): number[] {
   const n = poly.length / 2;
@@ -264,9 +221,9 @@ export function writeFill(w: ArchMeshWriter, trim: ArchMeshWriter, e: Architectu
     return null;
   }
   const r = pathRect(s, e.axis ?? 'long');
-  if (r === null) return `fill "${e.id}": a ${e.shape} needs a rectangular path (four corners at right angles)`;
-  const P = (a: number, b: number, y: number): number[] => [r.o[0] + r.a[0] * a + r.b[0] * b, y, r.o[2] + r.a[2] * a + r.b[2] * b];
-  if (e.shape === 'barrel') {
+  if (r === null && !ROOF_SHAPES.has(e.shape)) return `fill "${e.id}": a ${e.shape} needs a rectangular path (four corners at right angles)`;
+  if (e.shape === 'barrel' && r !== null) {
+    const P = (a: number, b: number, y: number): number[] => [r.o[0] + r.a[0] * a + r.b[0] * b, y, r.o[2] + r.a[2] * a + r.b[2] * b];
     const rise = Math.min(e.rise ?? r.lb / 2, r.lb / 2);
     const prof = arcProfile(r.lb, rise, e.slot, ctx.step);
     // Along the axis through the middle of the span; the path's right is +b or −b, the arc is symmetric either way.
@@ -275,75 +232,13 @@ export function writeFill(w: ArchMeshWriter, trim: ArchMeshWriter, e: Architectu
     sweepProfile(w, straightPath(p0, p1), prof, { sheet: ctx.sheet, rowOf: ctx.rowOf, aoStrength: ctx.aoStrength, aoRadius: ctx.aoRadius, ground: true });
     return null;
   }
-  if (e.shape === 'groin') {
+  if (e.shape === 'groin' && r !== null) {
     const rise = Math.min(e.rise ?? Math.min(r.la, r.lb) / 2, Math.min(r.la, r.lb) / 2);
     groin(w, r, base, rise, row, ctx);
     return null;
   }
   // Roofs: their eaves at the fill's height, faces looking out and up.
-  const overhang = e.overhang ?? 0;
-  const W = r.lb;
-  const L = r.la;
-  const rise = e.rise ?? W / 4;
-  if (e.shape === 'gable') {
-    const slope = rise / (W / 2);
-    const ye = base - overhang * slope;
-    const yr = base + rise;
-    plane(w, [P(-overhang, -overhang, ye), P(L + overhang, -overhang, ye), P(L + overhang, W / 2, yr), P(-overhang, W / 2, yr)], [0, 1, 0], ctx, row, false);
-    plane(w, [P(L + overhang, W + overhang, ye), P(-overhang, W + overhang, ye), P(-overhang, W / 2, yr), P(L + overhang, W / 2, yr)], [0, 1, 0], ctx, row, false);
-    const outA = [-r.a[0], 0, -r.a[2]];
-    plane(trim, [P(0, 0, base), P(0, W, base), P(0, W / 2, yr)], outA, ctx, trimRow, false);
-    plane(trim, [P(L, W, base), P(L, 0, base), P(L, W / 2, yr)], r.a, ctx, trimRow, false);
-    return null;
-  }
-  if (e.shape === 'hip') {
-    hip(w, P, 0, 0, L, W, base, rise, overhang, row, ctx);
-    return null;
-  }
-  // Mansard: a steep lower slope to an inset break line, then a shallow hip.
-  const inset = Math.min(e.inset ?? W / 6, W / 2 - 1e-3, L / 2 - 1e-3);
-  const lower = rise * (e.breakRise ?? MANSARD_BREAK_DEFAULT);
-  const slope = inset > 0 ? lower / inset : 0;
-  const ye = base - overhang * slope;
-  const yb = base + lower;
-  const eave = [P(-overhang, -overhang, ye), P(L + overhang, -overhang, ye), P(L + overhang, W + overhang, ye), P(-overhang, W + overhang, ye)];
-  const brk = [P(inset, inset, yb), P(L - inset, inset, yb), P(L - inset, W - inset, yb), P(inset, W - inset, yb)];
-  for (let i = 0; i < 4; i++) {
-    const j = (i + 1) % 4;
-    plane(w, [eave[i]!, eave[j]!, brk[j]!, brk[i]!], [0, 1, 0], ctx, row, false);
-  }
-  hip(w, P, inset, inset, L - 2 * inset, W - 2 * inset, yb, rise - lower, 0, row, ctx);
-  return null;
-}
-
-/** A hip roof over the rectangle [a0, a0 + L] × [b0, b0 + W], ridge along a. */
-function hip(w: ArchMeshWriter, P: (a: number, b: number, y: number) => number[], a0: number, b0: number, L: number, W: number, base: number, rise: number, overhang: number, row: TrimRow, ctx: FillContext): void {
-  if (L < W) {
-    // The ridge runs along the longer side: swap by walking the rectangle the other way round.
-    const Q = (a: number, b: number, y: number): number[] => P(a0 + (b - b0), b0 + (a - a0), y);
-    hipAligned(w, Q, a0, b0, W, L, base, rise, overhang, row, ctx);
-    return;
-  }
-  hipAligned(w, P, a0, b0, L, W, base, rise, overhang, row, ctx);
-}
-
-function hipAligned(w: ArchMeshWriter, P: (a: number, b: number, y: number) => number[], a0: number, b0: number, L: number, W: number, base: number, rise: number, overhang: number, row: TrimRow, ctx: FillContext): void {
-  const slope = W > 0 ? rise / (W / 2) : 0;
-  const ye = base - overhang * slope;
-  const yr = base + rise;
-  const o = overhang;
-  const e0 = P(a0 - o, b0 - o, ye);
-  const e1 = P(a0 + L + o, b0 - o, ye);
-  const e2 = P(a0 + L + o, b0 + W + o, ye);
-  const e3 = P(a0 - o, b0 + W + o, ye);
-  const r0 = P(a0 + W / 2, b0 + W / 2, yr);
-  const r1 = P(a0 + L - W / 2, b0 + W / 2, yr);
-  const up = [0, 1, 0];
-  const ridge = L - W > 1e-6;
-  plane(w, ridge ? [e0, e1, r1, r0] : [e0, e1, r0], up, ctx, row, false);
-  plane(w, [e1, e2, r1], up, ctx, row, false);
-  plane(w, ridge ? [e2, e3, r0, r1] : [e2, e3, r0], up, ctx, row, false);
-  plane(w, [e3, e0, r0], up, ctx, row, false);
+  return writeRoof(w, trim, e, fillOutline(s), r, base, row, trimRow, ctx);
 }
 
 /** A two-point straight path. */

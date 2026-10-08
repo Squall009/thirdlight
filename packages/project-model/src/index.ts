@@ -1427,6 +1427,11 @@ export {
   ARCHITECTURE_PANE_MATERIAL_SLOT,
   ARCHITECTURE_STAIR_RISER,
   ARCHITECTURE_STEP_DEFAULT,
+  ARCHITECTURE_DOOR_SILL_MAX,
+  ARCHITECTURE_DOOR_SPAWN_DISTANCE,
+  ARCHITECTURE_ROOF_OVERHANG_DEFAULT,
+  ARCHITECTURE_ROOF_SHAPES,
+  ARCHITECTURE_ROOF_SLOT_DEFAULT,
   architectureMaterialSlots,
   architectureModelAssets,
   canonicalArchitecture,
@@ -1447,7 +1452,15 @@ export {
   type ArchitectureProfile,
   type ArchitectureRepeat,
   type ArchitectureSweep,
+  type ArchitectureBuilding,
+  type ArchitectureBuildingInterior,
+  type ArchitectureInteriorOf,
+  type ArchitectureRoof,
+  type ArchitectureRoofShape,
 } from './architecture';
+// Buildings whose interiors are scenes of their own: the interior made there, the doors' links.
+export { architectureDoorLinks, buildingInteriorEntity, buildingInteriorId, isBuildingDoor, withBuildingInteriors, type ArchitectureDoorLink, type ArchitectureDoorSide, type BuildingSourceEntity } from './arch-buildings';
+export { largestRectangles } from './arch-roof';
 export {
   ARCHITECTURE_COPY_FLOATS,
   ARCHITECTURE_GENERATOR_VERSION,

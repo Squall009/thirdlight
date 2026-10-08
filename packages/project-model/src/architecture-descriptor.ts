@@ -29,6 +29,7 @@ export const architecture: ComponentDescriptor = {
     json('profiles', 'Profiles', 'Named cross-sections {points: [[across, up], …], slots: [row per segment], closed?, smooth?, chamfer?}.'),
     json('overrides', 'Overrides', 'Kit models in place of a segment or a corner: [{element, segment | corner, model: {assetId}}].'),
     json('outlines', 'Outlines', 'Rooms (closed) and runs (open) styled by presets: [{id, path, preset, openings?, outside?, storeys?, storeyHeight?, holes?, stairs?}] (the preset\'s style graph makes their elements; a block layer\'s Rooms tool draws them).'),
+    json('buildings', 'Buildings', 'Rooms with a roof: [{id, path, preset, outside?, storeys?, openings?, roof?: {shape, rise?, overhang?, slot?}, interior?: {scene, offset?}}] (the Rooms tool draws them).'),
     json('masks', 'Masks', 'Painted masks presets read: {name: {points: [[x, z, radius, weight], …]}}.'),
     num('chunkSize', 'Chunk size', 'Metres a generated chunk covers (one draw per material each).', { min: L.chunkMin, max: L.chunkMax, step: 1, unit: 'm', default: ARCHITECTURE_CHUNK_DEFAULT }),
     int('seed', 'Seed', 'Seeds the variation of repeated copies.', { min: 0, max: 0xffffffff, default: 0 }),

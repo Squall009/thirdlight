@@ -23,6 +23,15 @@
  *   capped, colliding step by step.
  * An open outline is a run (a rail, a fence, a pipe): its style alone.
  *
+ * Buildings (`buildings`) are rooms with a roof over their top storey (a
+ * fill over the footprint, `arch-roof.ts`). One whose interior is a scene of
+ * its own is made in two parts from the one definition: here the exterior
+ * (walls, floors and ceilings, so windows show rooms; the facade and the
+ * roof; no inside trims or stairs), and in that scene the interior (an
+ * object the build makes there, `interiorOf`: everything but the facade's
+ * trims and the roof). Their walls are the same sweep with the same
+ * openings, so windows and doors line up on both sides.
+ *
  * Pure and deterministic (plain arithmetic), like the rest of the generator.
  */
 import { pathPointAt, samplePath } from './arch-path';
@@ -40,7 +49,10 @@ import {
   type ResolvedArchitecturePreset,
 } from './arch-style';
 import {
+  ARCHITECTURE_ROOF_OVERHANG_DEFAULT,
+  ARCHITECTURE_ROOF_SLOT_DEFAULT,
   ARCHITECTURE_STAIR_RISER,
+  type ArchitectureBuilding,
   type ArchitectureComponent,
   type ArchitectureElement,
   type ArchitectureFill,
@@ -73,6 +85,15 @@ const NO_SET: ReadonlySet<string> = new Set();
 const r6 = (v: number): number => Math.round(v * 1e6) / 1e6;
 const sq = (v: number): number => v * v;
 
+/**
+ * What of a building an object makes: all of it (its interior in place),
+ * the exterior (its interior is a scene of its own: walls, floors and
+ * ceilings so the windows show rooms, the facade and the roof; no inside
+ * trims or stairs), or the interior (that scene's: everything but the
+ * facade's trims and the roof).
+ */
+type BuildingPart = 'whole' | 'exterior' | 'interior';
+
 /** An outline resolved: its preset (and outside preset) and its parameters' values. */
 interface Styled {
   o: ArchitectureOutline;
@@ -80,6 +101,9 @@ interface Styled {
   r: ResolvedArchitecturePreset;
   value: (name: string) => number;
   outside: { r: ResolvedArchitecturePreset; value: (name: string) => number } | null;
+  /** The building it is (null: a room or a run), and what of it this object makes. */
+  building: ArchitectureBuilding | null;
+  part: BuildingPart;
 }
 
 /** A stretch of a room's outline another room's runs along too. */
@@ -335,13 +359,15 @@ function stairElement(id: string, s: ArchitectureStair, material: string | null)
  * outlines is itself.
  */
 export function expandArchitecture(c: ArchitectureComponent, origin: readonly number[], table: ArchitectureStyles, opts: { swaps?: Readonly<Record<string, string>> | null; preview?: ArchitecturePreview | null; paint?: ArchitecturePaint | null } = {}): ArchitectureExpansion {
-  const outlines = c.outlines ?? [];
+  const buildings = c.buildings ?? [];
+  const outlines: ArchitectureOutline[] = buildings.length === 0 ? (c.outlines ?? []) : [...(c.outlines ?? []), ...buildings];
   const paint = opts.paint ?? null;
   if (outlines.length === 0) {
-    if (c.outlines === undefined && c.masks === undefined && paint === null) return { component: c, materials: NO_MATERIALS, problems: [], presets: NO_SET, rooms: [] };
-    const { outlines: _o, masks: _m, ...rest } = c;
+    if (c.outlines === undefined && c.masks === undefined && c.buildings === undefined && c.interiorOf === undefined && paint === null) return { component: c, materials: NO_MATERIALS, problems: [], presets: NO_SET, rooms: [] };
+    const { outlines: _o, masks: _m, buildings: _b, interiorOf: _i, ...rest } = c;
     return { component: paint !== null ? { ...rest, paint } : rest, materials: NO_MATERIALS, problems: [], presets: NO_SET, rooms: [] };
   }
+  const ownBuildings = new Set<ArchitectureOutline>(buildings);
   const profiles: Record<string, ArchitectureProfile> = { ...(c.profiles ?? {}) };
   const materials: Record<string, string> = {};
   const problems: string[] = [];
@@ -370,7 +396,9 @@ export function expandArchitecture(c: ArchitectureComponent, origin: readonly nu
     if (own === null) return;
     const room = o.path.closed === true && o.path.points.length >= 3;
     const outside = room && o.outside !== undefined ? resolve(o, o.outside) : null;
-    styled.push({ o, index, r: own.r, value: own.value, outside });
+    const building = ownBuildings.has(o) ? (o as ArchitectureBuilding) : null;
+    const part: BuildingPart = building === null ? 'whole' : c.interiorOf !== undefined ? 'interior' : building.interior !== undefined ? 'exterior' : 'whole';
+    styled.push({ o, index, r: own.r, value: own.value, outside, building, part });
   });
 
   // Storeys: each room's outline raised by its storey height once per storey.
@@ -464,16 +492,22 @@ export function expandArchitecture(c: ArchitectureComponent, origin: readonly nu
     rooms.push(plan);
     planOf.set(X, plan);
   }
-  // A storey's floor covers the storey below it.
+  // A storey's floor covers the storey below it; a building's roof covers its top storey.
   for (const X of insts) {
     const plan = planOf.get(X);
     if (plan === undefined || plan.covered) continue;
+    if (X.s.building?.roof !== undefined && X.s.part !== 'interior' && X.storey === (X.s.o.storeys ?? 1) - 1) {
+      plan.covered = true;
+      continue;
+    }
     const above = insts.find((i) => i.s === X.s && i.storey === X.storey + 1);
     if (above !== undefined && hasFill(above, (y, up) => up && Math.abs(y - above.base) < 0.5)) plan.covered = true;
   }
 
   // Stairs and holes: the floors (flat fills facing up) of each storey cut by the room's holes and the stairs reaching them.
   const stairs: ArchitectureElement[] = [];
+  /** Stairs of buildings whose interiors are scenes of their own: made there, not in the exterior. */
+  const exteriorOnly = new Set<ArchitectureElement>();
   const holesOf = new Map<Inst, ArchitecturePath[]>();
   for (const s of styled) {
     const mine = insts.filter((i) => i.s === s && i.poly !== null);
@@ -489,7 +523,9 @@ export function expandArchitecture(c: ArchitectureComponent, origin: readonly nu
       }
       const name = architectureProfileName(made.profile);
       profiles[name] ??= made.profile;
-      stairs.push({ ...made.element, profile: name });
+      const stair: ArchitectureElement = { ...made.element, profile: name };
+      stairs.push(stair);
+      if (s.part === 'exterior') exteriorOnly.add(stair);
       for (const i of mine) {
         const floor = i.base;
         if (i.storey === 0 || !(made.foot[1]! < floor - 0.01 && made.head[1]! >= floor - 0.05)) continue;
@@ -523,7 +559,8 @@ export function expandArchitecture(c: ArchitectureComponent, origin: readonly nu
         .filter((o) => whole || openingIn(o, run.a, run.b, L) || openingIn(o, run.a + L, run.b + L, 2 * L))
         .map((o) => ({ ...o, at: r6(whole ? (len - o.at + len) % len : len - unwrap(o.at - run.a, L)) }));
       const els = evaluate(out, { id: `${X.id}-x${k}`, path, preset: X.s.o.outside!, openings });
-      for (const e of els) if (e.kind !== 'fill' && !(e.kind === 'sweep' && e.wall === true)) exterior.push(e);
+      // A building's interior made in its own scene wears no facade trims.
+      if (X.s.part !== 'interior') for (const e of els) if (e.kind !== 'fill' && !(e.kind === 'sweep' && e.wall === true)) exterior.push(e);
     });
   }
 
@@ -544,13 +581,48 @@ export function expandArchitecture(c: ArchitectureComponent, origin: readonly nu
     }
     const walls = def === undefined ? [W] : wallPieces(X, W, baseDef!, profiles);
     for (const e of X.elements) {
-      if (e !== W) elements.push(e);
-      else elements.push(...walls);
+      if (e === W) elements.push(...walls);
+      // A building's exterior keeps the inside's walls and its floors and ceilings (rooms behind the windows), not its trims.
+      else if (X.s.part !== 'exterior' || e.kind === 'fill' || (e.kind === 'sweep' && e.wall === true)) elements.push(e);
     }
   }
-  elements.push(...stairs, ...exterior);
-  const { outlines: _o, masks: _m, ...rest } = c;
+  elements.push(...stairs.filter((e) => !exteriorOnly.has(e)), ...exterior, ...roofs(styled, insts, planOf));
+  const { outlines: _o, masks: _m, buildings: _b, interiorOf: _i, ...rest } = c;
   return { component: { ...rest, elements, profiles, ...(paint !== null ? { paint } : {}) }, materials, problems: [...new Set(problems)], presets, rooms };
+}
+
+/**
+ * The buildings' roofs: each a fill over its footprint at the top of its
+ * top storey's walls, wearing the facade's trim sheet (the inside's when it
+ * has none). Not in an interior made in its own scene.
+ */
+function roofs(styled: readonly Styled[], insts: readonly Inst[], planOf: ReadonlyMap<Inst, ArchitectureRoomPlan>): ArchitectureFill[] {
+  const out: ArchitectureFill[] = [];
+  for (const s of styled) {
+    const b = s.building;
+    const roof = b?.roof;
+    if (b === null || roof === undefined || s.part === 'interior' || b.path.closed !== true) continue;
+    const top = insts.find((i) => i.s === s && i.storey === (b.storeys ?? 1) - 1);
+    const plan = top !== undefined ? planOf.get(top) : undefined;
+    if (plan === undefined) continue;
+    const sheet = s.outside?.r.sheet ?? s.r.sheet;
+    const flat = roof.shape === 'flat';
+    out.push({
+      id: `${b.id}-roof`,
+      kind: 'fill',
+      path: { ...b.path, points: b.path.points.map((q) => [q[0], plan.top, q[2]] as [number, number, number]) },
+      shape: roof.shape,
+      slot: roof.slot ?? ARCHITECTURE_ROOF_SLOT_DEFAULT,
+      ...(roof.trimSlot !== undefined ? { trimSlot: roof.trimSlot } : {}),
+      ...(flat ? { face: 'up' as const } : { overhang: roof.overhang ?? ARCHITECTURE_ROOF_OVERHANG_DEFAULT }),
+      ...(roof.rise !== undefined ? { rise: roof.rise } : {}),
+      ...(roof.axis !== undefined ? { axis: roof.axis } : {}),
+      ...(roof.breakRise !== undefined ? { breakRise: roof.breakRise } : {}),
+      ...(roof.inset !== undefined ? { inset: roof.inset } : {}),
+      ...(sheet !== null ? { material: sheet } : {}),
+    });
+  }
+  return out;
 }
 
 /** The top of a room's walls above its outline (metres; null: its style made no wall). */

@@ -59,6 +59,8 @@ export function createAdapterArchitecture(d: AdapterArchitectureDeps): AdapterAr
   };
   const view = new ArchitectureView({
     sheets: (id, c, extra) => architectureSheets(c, mapping(id, extra), (m) => lib?.trimSheetOf?.(m) ?? null),
+    // An object not realized yet (a scene prepared ahead) wears its own mapping: no script has swapped it.
+    sheetsOf: (own, c, extra) => architectureSheets(c, Object.keys(extra).length === 0 ? own : { ...extra, ...(own ?? {}) }, (m) => lib?.trimSheetOf?.(m) ?? null),
     materials: (root: THREE.Object3D, id, extra) => {
       const m = mapping(id, extra);
       return lib !== null && m !== undefined ? lib.apply(root, m, d.materialParams(d.components(id))) : null;

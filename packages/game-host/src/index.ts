@@ -55,12 +55,13 @@ export { browserSaveStorage, createSettingsStore, saveChecksum, SAVE_MAX_BYTES, 
 export type { FlowUiEdges, HostDom, HostDomNode, UiEdges } from './dom';
 // The game shell (menus and HUD as UI documents) and the prompts generated from the input actions.
 export { createShellController, type ShellConfigLike, type ShellController, type ShellObservation, type ShellScreenKey, type ShellState } from './shell';
+// The scenes a page reads ahead (transitions' targets, the listed scene's next, the interiors behind doors near the camera).
+export { BUILDING_READ_AHEAD_METRES, scenesToReadAhead } from './scene-read-ahead';
 export {
   GAME_HOST_API_VERSION,
   GAME_CONTROL_ACTIONS,
   GAME_HOST_MESSAGES,
   createGameHost,
-  scenesToReadAhead,
   composeGameRuntime,
   type GameRuntimeArgs,
   linkBehaviorModules,

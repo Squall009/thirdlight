@@ -5865,6 +5865,69 @@ The engine follows these rules, and games should too:
 - Play diagnostics: `renderer.lights.localShadows` {budget, casting,
   shadowed, drawn (maps drawn this frame)}.
 
+## Buildings
+
+A **building** is a room outline with a facade and a roof whose interior is
+made from the same definition, in place or in a scene of its own
+(`architecture.buildings`, additive; drawn on a block layer like rooms).
+
+- **Drawing** — the layer's **Rooms** tool, **Building** mode: click the
+  footprint's corners (an L, a T, any polygon; click the first corner,
+  double-click or Enter to close). A new building wears the **new room
+  preset** inside, the **new facade preset** outside (none: the inside's own
+  outer faces) and a hip roof. Door, Window, Arch and Walls work on its
+  walls as on a room's; a window or door on an upper storey is put from the
+  slice at that storey's height.
+- **The building inspector** — inside and **facade preset**, **storeys**
+  and **storey height**, openings (place, size, pane), stairs and holes as a
+  room's; **roof shape** (none, flat, gable, hip, mansard), **roof rise**
+  (absent: half the footprint's deepest inset — a quarter of a rectangle's
+  width), **roof overhang** (absent: `ARCHITECTURE_ROOF_OVERHANG_DEFAULT`
+  0.3 m), **roof slot** (absent: `upper_wall`, as the starter row layout
+  has no roof row; a sheet with one names it); **interior**: in place or a
+  scene of the project (**New interior scene** makes one), and the
+  **interior offset** (metres the interior stands from the building).
+- **Roofs** over any footprint — a rectangle as before; any convex polygon
+  a hip (each eave's plane kept where it is lowest: the straight skeleton of
+  a convex polygon); a footprint with only right angles (L, T, U, stepped)
+  the roofs of its largest rectangles at one slope, which is its straight
+  skeleton roof for hips and mansards (gables cross: each wing's ridge runs
+  to its own gable). Other footprints (slanted concave sides) are reported in
+  the object's problems and get no roof. Plain fills (`kind: "fill"`,
+  `shape` gable/hip/mansard) take the same footprints.
+- **One definition, two sides** — with an interior scene the building's
+  object makes the exterior (walls, floors and ceilings so windows show
+  rooms, the facade and the roof; no inside trims or stairs) and the build
+  (Play, the export, and the editor's Scene view while that scene is open)
+  makes the interior into the interior scene: an object at the building's
+  place moved by the offset, carrying the building (`interiorOf`), wearing
+  the building object's materials (everything but the facade's trims and
+  the roof). Both are made from the same walls and openings, so windows,
+  doors and storeys line up. The interior is not stored: edit the building
+  and both sides follow; place props in the interior scene by hand. The
+  interior scene must be another scene of the project (a reference check).
+- **Doors and their links** — a ground-storey opening whose sill is at the
+  floor (`ARCHITECTURE_DOOR_SILL_MAX`, 5 cm) is a door. Scripts read
+  `ctx.grid.doorLinks()` (every loaded side) or `ctx.grid.doorLink(point,
+  reach = 2)` (the nearest): `{id ("<building>/<door>", the same both
+  sides), building, door, entity, scene, side ("outside" | "inside"),
+  position, spawn, facing, to: {scene, position, spawn, facing}}` — the
+  spawn stands `ARCHITECTURE_DOOR_SPAWN_DISTANCE` (1 m) in front of the door
+  on its side, `facing` turns +Z out of the door (degrees, as
+  `character_place`'s). What using a door does is the game's, e.g.
+  `ctx.scenes.load(link.to.scene, { unload: [link.scene], fade: 0.3 })`,
+  then placing its kept player at `link.to.spawn` once the scene is loaded.
+  The visual-script node is **Door link near**.
+- **Made before the door is used** — a game page reads ahead the interior
+  scenes of the doors within `BUILDING_READ_AHEAD_METRES` (50 m) of the
+  camera, nearest first (among the `SCENES_READ_AHEAD` scenes read ahead);
+  reading one ahead also makes its generated chunks on the generator
+  workers into the cache, so the frame the scene arrives in draws the
+  interior whole. Play's observation lists the scenes read ahead
+  (`scenes.preloaded`); its scene timings give a load's time from the
+  request to drawn.
+- **Measured**: see the phase plan's progress table (30.25).
+
 ## Terrain edit layers, stamps and erosion
 
 A terrain's heights are a stack of **edit layers** combined offline over the

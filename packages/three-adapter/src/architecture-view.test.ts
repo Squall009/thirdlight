@@ -202,3 +202,30 @@ describe('generated architecture on the page', () => {
   });
 });
 
+
+describe('a scene prepared ahead of its load', () => {
+  it('makes its chunks into the cache, not drawn; the object that then loads draws them from memory at once', async () => {
+    const { view, root } = makeView({ worker: portWorker });
+    const prep = view.prepare([{ id: 'house', component: STYLE, origin: [0, 0, 0] }]);
+    let done = false;
+    void prep.ready.then(() => (done = true));
+    for (let i = 0; i < 2000 && !done; i++) {
+      view.update([0, 0, 0]);
+      await tick();
+    }
+    expect(done).toBe(true);
+    const made = view.diagnostics();
+    expect(made.made.worker + made.made.page).toBe(architectureChunkKeys(STYLE, {}).size);
+    expect(made.objects).toBe(0);
+    expect(root.children.length).toBe(0);
+    // The scene arrives: every chunk comes from memory and is drawn in that frame.
+    view.set('house', STYLE, [0, 0, 0]);
+    view.update([0, 0, 0]);
+    const after = view.diagnostics();
+    expect(after.made.memory).toBe(architectureChunkKeys(STYLE, {}).size);
+    expect(after.made.worker + after.made.page).toBe(made.made.worker + made.made.page);
+    expect(after.chunks).toBe(architectureChunkKeys(STYLE, {}).size);
+    prep.release();
+    view.dispose();
+  });
+});

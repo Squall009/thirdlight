@@ -130,7 +130,8 @@ function architectureInspector(props: InspectorDockProps): {
     if (!made.ok) return props.reportFailure('Derive a preset', made);
     for (let i = 0; i < 100 && c.projection.revision < made.revision; i++) await new Promise((r) => setTimeout(r, 20));
     const arch = c.projection.getEntity(entityId)?.components['architecture'] as ArchitectureComponent | undefined;
-    if (arch !== undefined) await setArchitecture(entityId, { ...arch, outlines: (arch.outlines ?? []).map((o) => (o.preset === base ? { ...o, preset: id } : o)) });
+    const swap = <T extends { preset: string }>(o: T): T => (o.preset === base ? { ...o, preset: id } : o);
+    if (arch !== undefined) await setArchitecture(entityId, { ...arch, outlines: (arch.outlines ?? []).map(swap), ...(arch.buildings !== undefined ? { buildings: arch.buildings.map(swap) } : {}) });
   };
   return { archProps, setArchitecture, derivePreset };
 }

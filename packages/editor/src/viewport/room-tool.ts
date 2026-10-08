@@ -5,10 +5,12 @@
  * first room), snapped to cell corners on the slice's floor.
  *
  * - Rectangle: press a corner, drag to the other, release.
- * - Polygon / path: click corners (each click a corner; the Arc bulge makes
- *   the next segment an arc); click the first corner, double-click or press
- *   Enter to finish (a polygon closes, a path stays open); Backspace takes
- *   the last corner back, Esc drops the drawing.
+ * - Polygon / path / building: click corners (each click a corner; the Arc
+ *   bulge makes the next segment an arc); click the first corner,
+ *   double-click or press Enter to finish (a polygon or a building's
+ *   footprint closes, a path stays open); Backspace takes the last corner
+ *   back, Esc drops the drawing. A building wears the facade preset and a
+ *   hip roof.
  * - Door / window / arch: click a room's wall; the opening goes on the
  *   nearest straight side, whole cells wide.
  * - Walls: drag a straight side across itself by whole cells (a wall the
@@ -22,7 +24,7 @@
 import * as THREE from 'three';
 import type { ArchitectureComponent, BlockLayerComponent } from '@thirdlight/project-model';
 
-import { DEFAULT_ROOM_OPTIONS, moveWall, nearestSide, nextOutlineId, openingOn, rectPath, roomPath, sideDragOffset, snapCorner, straightSides, withOutline, withOutlineSet, type OutlineSide, type Point3, type RoomToolOptions } from '../session/room-draw';
+import { allOutlines, DEFAULT_ROOM_OPTIONS, moveWall, nearestSide, NEW_BUILDING_ROOF, nextOutlineId, openingOn, rectPath, roomPath, sideDragOffset, snapCorner, straightSides, withBuilding, withOutline, withOutlineSet, type OutlineSide, type Point3, type RoomToolOptions } from '../session/room-draw';
 
 /** The rooms object of the edited layer (null id and component: none yet). */
 export interface RoomsTarget {
@@ -127,10 +129,10 @@ export class RoomTool {
       this.drawGhost(at.corner);
       return true;
     }
-    if (m === 'polygon' || m === 'path') {
+    if (m === 'polygon' || m === 'path' || m === 'building') {
       const first = this.corners[0];
       const last = this.corners[this.corners.length - 1];
-      const enough = this.corners.length >= (m === 'polygon' ? 3 : 2);
+      const enough = this.corners.length >= (m === 'path' ? 2 : 3);
       // A click on the first corner closes a polygon (or ends a path); a second click on the last corner (a double click) finishes either.
       const onFirst = first !== undefined && at.corner[0] === first[0] && at.corner[2] === first[2];
       const onLast = last !== undefined && at.corner[0] === last[0] && at.corner[2] === last[2];
@@ -263,11 +265,18 @@ export class RoomTool {
     const l = this.host.layer();
     const pts = this.corners;
     const bulges = this.bulges;
-    const closed = this.opts.mode === 'polygon';
+    const closed = this.opts.mode === 'polygon' || this.opts.mode === 'building';
     this.corners = [];
     this.bulges = [];
     this.drawGhost(null);
     if (l === null || pts.length < (closed ? 3 : 2)) return;
+    if (this.opts.mode === 'building') {
+      const id = nextOutlineId(this.target.component, 'building');
+      const facade = this.opts.facadePreset;
+      await this.cb.onRooms(l.entityId, withBuilding(this.target.component, l.entityId, { id, preset: this.opts.roomPreset, ...(facade !== '' ? { outside: facade } : {}), path: roomPath(pts, [...bulges, 0]), roof: { ...NEW_BUILDING_ROOF } }), 'Draw building');
+      this.cb.onPickRoom(id);
+      return;
+    }
     if (closed) {
       const id = nextOutlineId(this.target.component, 'room');
       // The closing side is straight.
@@ -316,7 +325,7 @@ export class RoomTool {
 
   /** The straight sides of the edited rooms (tests read where walls stand). */
   sides(): OutlineSide[] {
-    return (this.target.component?.outlines ?? []).flatMap(straightSides);
+    return allOutlines(this.target.component).flatMap(straightSides);
   }
 
   dispose(): void {

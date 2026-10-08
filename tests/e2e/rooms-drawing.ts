@@ -95,7 +95,7 @@ export interface RoomsTimings {
 const view = (page: Page): Locator => page.locator('.tl-viewport');
 
 /** World → client pixels through the Scene view's view-projection matrix (null: behind the camera). */
-async function screen(page: Page, p: V3): Promise<{ x: number; y: number } | null> {
+export async function screen(page: Page, p: V3): Promise<{ x: number; y: number } | null> {
   const m = JSON.parse((await view(page).getAttribute('data-view-proj'))!) as number[];
   const box = (await view(page).boundingBox())!;
   const [x, y, z] = p;
@@ -107,7 +107,7 @@ async function screen(page: Page, p: V3): Promise<{ x: number; y: number } | nul
 }
 
 /** Zoom the Scene view (wheel over its middle) until every point is on screen with a margin, as close as that allows. */
-async function frameOn(page: Page, points: readonly V3[]): Promise<void> {
+export async function frameOn(page: Page, points: readonly V3[]): Promise<void> {
   const box = (await view(page).boundingBox())!;
   const fits = async (): Promise<boolean> => {
     for (const p of points) {
@@ -134,7 +134,7 @@ async function frameOn(page: Page, points: readonly V3[]): Promise<void> {
 }
 
 /** Hover a world point on the floor and wait until the Rooms tool snaps to `corner` (the rooms' frame). */
-async function aimCorner(page: Page, p: V3, corner: V3): Promise<{ x: number; y: number }> {
+export async function aimCorner(page: Page, p: V3, corner: V3): Promise<{ x: number; y: number }> {
   const s = (await screen(page, p))!;
   await page.mouse.move(s.x - 2, s.y - 2);
   await page.mouse.move(s.x, s.y);

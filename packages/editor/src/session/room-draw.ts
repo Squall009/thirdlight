@@ -4,9 +4,12 @@
  * corners.
  *
  * - Rectangle: two corners; polygon: corners clicked one by one (a segment
- *   may be an arc); path: an open run (a rail, a fence, a pipe). A room is
+ *   may be an arc); path: an open run (a rail, a fence, a pipe); building: a
+ *   footprint's corners clicked one by one, made a building (a room with a
+ *   facade and a roof, `architecture.buildings`). A room or building is
  *   stored with its inside to the right of travel (the generator's rule),
- *   whatever way it was drawn.
+ *   whatever way it was drawn. Openings, wall drags and the room inspector
+ *   treat buildings as rooms.
  * - Openings: a door, window or arch put on the wall nearest the pointer,
  *   whole cells wide, centred on the cells it covers.
  * - Wall drag: one straight side of an outline moved across itself by whole
@@ -15,9 +18,9 @@
  * Points are metres in the rooms object's frame (its position is the
  * layer's, so they are also layer metres); y is the floor height drawn on.
  */
-import type { ArchitectureComponent, ArchitectureOpening, ArchitectureOutline, ArchitecturePath } from '@thirdlight/project-model';
+import type { ArchitectureBuilding, ArchitectureComponent, ArchitectureOpening, ArchitectureOutline, ArchitecturePath } from '@thirdlight/project-model';
 
-export type RoomToolMode = 'rect' | 'polygon' | 'path' | 'door' | 'window' | 'arch' | 'walls';
+export type RoomToolMode = 'rect' | 'polygon' | 'path' | 'building' | 'door' | 'window' | 'arch' | 'walls';
 
 /** What the Rooms tool's options panel sets. */
 export interface RoomToolOptions {
@@ -25,11 +28,26 @@ export interface RoomToolOptions {
   /** The preset new rooms and new runs wear. */
   roomPreset: string;
   pathPreset: string;
+  /** The preset a new building's facade wears ("": its inside preset's own outer faces). */
+  facadePreset: string;
   /** The next polygon or path segment is an arc bulging this much (tan of a quarter of its angle; 0: straight). */
   bulge: number;
 }
 
-export const DEFAULT_ROOM_OPTIONS: RoomToolOptions = { mode: 'rect', roomPreset: 'starter-room', pathPreset: 'starter-fence', bulge: 0 };
+export const DEFAULT_ROOM_OPTIONS: RoomToolOptions = { mode: 'rect', roomPreset: 'starter-room', pathPreset: 'starter-fence', facadePreset: '', bulge: 0 };
+
+/** A new building: a hip roof over one storey (the inspector sets storeys, the roof and where the interior is). */
+export const NEW_BUILDING_ROOF = Object.freeze({ shape: 'hip' as const });
+
+/** A component's rooms, runs and buildings (buildings last), as the tool and the inspector edit them alike. */
+export function allOutlines(c: ArchitectureComponent | null): ArchitectureOutline[] {
+  return [...(c?.outlines ?? []), ...(c?.buildings ?? [])];
+}
+
+/** Whether an outline is one of the component's buildings. */
+export function isBuilding(c: ArchitectureComponent | null, id: string): boolean {
+  return (c?.buildings ?? []).some((b) => b.id === id);
+}
 
 /** The openings the tool puts on walls: cells wide, metres up from the wall's foot, a pane or not. */
 export const ROOM_OPENING_KINDS = Object.freeze({
@@ -84,9 +102,9 @@ export function rectPath(a: Point3, b: Point3): ArchitecturePath | null {
   );
 }
 
-/** The first free id `base-N` among the outlines. */
-export function nextOutlineId(c: ArchitectureComponent | null, base: 'room' | 'run'): string {
-  const taken = new Set((c?.outlines ?? []).map((o) => o.id));
+/** The first free id `base-N` among the outlines and buildings. */
+export function nextOutlineId(c: ArchitectureComponent | null, base: 'room' | 'run' | 'building'): string {
+  const taken = new Set(allOutlines(c).map((o) => o.id));
   for (let i = 1; ; i++) if (!taken.has(`${base}-${i}`)) return `${base}-${i}`;
 }
 
@@ -96,8 +114,19 @@ export function withOutline(c: ArchitectureComponent | null, layerId: string, o:
   return { ...base, outlines: [...(base.outlines ?? []), o] };
 }
 
-/** The component with one outline replaced (null removes it). */
+/** The component with one building added (a new component on the layer when there is none yet). */
+export function withBuilding(c: ArchitectureComponent | null, layerId: string, b: ArchitectureBuilding): ArchitectureComponent {
+  const base: ArchitectureComponent = c ?? { elements: [], layer: layerId };
+  return { ...base, buildings: [...(base.buildings ?? []), b] };
+}
+
+/** The component with one outline or building replaced (null removes it). */
 export function withOutlineSet(c: ArchitectureComponent, id: string, next: ArchitectureOutline | null): ArchitectureComponent {
+  if (isBuilding(c, id)) {
+    const buildings = (c.buildings ?? []).flatMap((o) => (o.id !== id ? [o] : next !== null ? [next as ArchitectureBuilding] : []));
+    const { buildings: _b, ...rest } = c;
+    return buildings.length > 0 ? { ...rest, buildings } : rest;
+  }
   const outlines = (c.outlines ?? []).flatMap((o) => (o.id !== id ? [o] : next !== null ? [next] : []));
   const { outlines: _o, ...rest } = c;
   return outlines.length > 0 ? { ...rest, outlines } : rest;
@@ -136,7 +165,7 @@ export function straightSides(o: ArchitectureOutline): OutlineSide[] {
 /** The side nearest a ground point (x, z) within `reach` metres, and where along it the point falls (metres). */
 export function nearestSide(c: ArchitectureComponent | null, x: number, z: number, reach: number, closedOnly: boolean): { side: OutlineSide; along: number; distance: number } | null {
   let best: { side: OutlineSide; along: number; distance: number } | null = null;
-  for (const o of c?.outlines ?? []) {
+  for (const o of allOutlines(c)) {
     if (closedOnly && o.path.closed !== true) continue;
     for (const s of straightSides(o)) {
       const dx = s.b[0] - s.a[0];
@@ -210,14 +239,14 @@ const samePoint = (p: readonly number[], q: readonly number[]): boolean => Math.
  * between the same two corners) moved with it, so a shared wall stays shared.
  */
 export function moveWall(c: ArchitectureComponent, id: string, index: number, offset: number): ArchitectureComponent {
-  const o = (c.outlines ?? []).find((x) => x.id === id);
+  const o = allOutlines(c).find((x) => x.id === id);
   const side = o === undefined ? undefined : straightSides(o).find((s) => s.index === index);
   if (o === undefined || side === undefined || offset === 0) return c;
   const moved = moveSide(o, index, offset);
   const a2 = moved.path.points[index]!;
   const b2 = moved.path.points[(index + 1) % moved.path.points.length]!;
-  const outlines = (c.outlines ?? []).map((x) => {
-    if (x.id === id) return moved;
+  const move = <T extends ArchitectureOutline>(x: T): T => {
+    if (x.id === id) return moved as T;
     const pts = x.path.points;
     const n = pts.length;
     const segs = x.path.closed === true ? n : n - 1;
@@ -233,8 +262,8 @@ export function moveWall(c: ArchitectureComponent, id: string, index: number, of
       return { ...x, path: { ...x.path, points: next } };
     }
     return x;
-  });
-  return { ...c, outlines };
+  };
+  return { ...c, ...(c.outlines !== undefined ? { outlines: c.outlines.map(move) } : {}), ...(c.buildings !== undefined ? { buildings: c.buildings.map(move) } : {}) };
 }
 
 /**

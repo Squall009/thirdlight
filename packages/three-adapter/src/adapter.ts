@@ -53,6 +53,7 @@ import { TERRAIN_ENTITY_KEY, TerrainView } from './terrain-view';
 import { createScatterHost } from './scatter-host';
 import { SplineView } from './spline-view';
 import { createAdapterArchitecture } from './architecture-adapter';
+import { createScenePreparations } from './scene-preparation';
 import { TerrainTileStore } from './terrain-tile-store';
 import { RuntimeMaterialView, type MaterialRenderChangeLike, type RuntimeMaterialsDiagnostics } from './runtime-materials';
 import { MaterialSwapView, type MaterialMappingLike } from './material-swaps';
@@ -985,7 +986,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   /** The scenes realized since the last drawn frame (for `onFrameDrawn`). */
   const frameRealized: string[] = [];
   /** Scenes prepared ahead of their load (released once realized). */
-  const sceneHolds = new Map<string, { release(): void }>();
+  const preparations = createScenePreparations({ disposed: () => disposed, realization: () => realization, materialLibrary, architecture });
   /** The scene set revision the last presented frame drew. */
   let presentedRevision = -1;
   function syncSceneSet(): void {
@@ -1055,8 +1056,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       realizedScenes.set(b.sceneId, { ids: new Set(entities.map((e) => e.id)), list: b.entities });
       realization?.addEntities(modelRefsOf(entities));
       // Its entities hold what the preparation held.
-      sceneHolds.get(b.sceneId)?.release();
-      sceneHolds.delete(b.sceneId);
+      preparations.realized(b.sceneId);
       frameRealized.push(b.sceneId);
       // The attached scene's programs are built before it is presented.
       precompileWanted ??= 'scene';
@@ -1628,7 +1628,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     probes.dispose();
     runtimeMaterials?.dispose();
     materialSwaps?.dispose();
-    sceneHolds.clear();
+    preparations.clear();
     if (ownLibrary) materialLibrary?.dispose();
     environmentRenderer?.dispose();
     environmentHolds?.releaseHolder('environment');
@@ -1756,40 +1756,10 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       }
     },
     prepareScene(sceneId, entities, textures) {
-      sceneHolds.get(sceneId)?.release();
-      sceneHolds.delete(sceneId);
-      if (disposed) return { ready: Promise.resolve(), release: () => undefined };
-      const refs = modelRefsOf(entities);
-      const assets = new Set([...refs.models.values(), ...[...refs.instances.values()].map((r) => r.assetId)]);
-      const held = realization?.hold?.(assets, [...refs.instances.values()].map((r) => r.buffer)) ?? null;
-      const decoded = textures !== undefined && textures.length > 0 && materialLibrary?.preloadTextures !== undefined ? materialLibrary.preloadTextures(textures) : null;
-      let released = false;
-      const handle = {
-        release: (): void => {
-          if (released) return;
-          released = true;
-          held?.release();
-          decoded?.release();
-          if (sceneHolds.get(sceneId) === handle) sceneHolds.delete(sceneId);
-        },
-      };
-      sceneHolds.set(sceneId, handle);
-      return { ready: Promise.all([held?.ready ?? Promise.resolve(), decoded?.ready.catch(() => undefined)]).then(() => undefined), release: handle.release };
+      return preparations.prepare(sceneId, entities, textures);
     },
     holdAssets(models, textures) {
-      if (disposed) return { ready: Promise.resolve(), release: () => undefined };
-      const held = models.length > 0 ? (realization?.hold?.(new Set(models), []) ?? null) : null;
-      const decoded = textures.length > 0 && materialLibrary?.preloadTextures !== undefined ? materialLibrary.preloadTextures(textures) : null;
-      let released = false;
-      return {
-        ready: Promise.all([held?.ready ?? Promise.resolve(), decoded?.ready.catch(() => undefined)]).then(() => undefined),
-        release: (): void => {
-          if (released) return;
-          released = true;
-          held?.release();
-          decoded?.release();
-        },
-      };
+      return preparations.hold(models, textures);
     },
     presentedSceneRevision(): number {
       return presentedRevision;

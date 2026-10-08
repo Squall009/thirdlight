@@ -1275,7 +1275,7 @@ class RuntimeInstance implements Runtime {
     });
     this.spawnControl = this.spawnRequests.control();
     // The start scenes' block layers; in 3D their chunks collide (a 2D plane draws them only).
-    this.grid = new RuntimeGrid(args.blockTypes, args.cellFields, args.physics3d !== undefined, args.settings.max_slope_climb_deg, args.materialIds, this.prefabs, args.modelColliders, () => worldStreamSources(this.views.main.hasView() ? this.views.main.view() : null, this.controllers.ids, (id) => this.curr.get(id)?.position), args.architectureStyles);
+    this.grid = new RuntimeGrid(args.blockTypes, args.cellFields, args.physics3d !== undefined, args.settings.max_slope_climb_deg, args.materialIds, this.prefabs, args.modelColliders, () => worldStreamSources(this.views.main.hasView() ? this.views.main.view() : null, this.controllers.ids, (id) => this.curr.get(id)?.position), args.architectureStyles, (id) => this.sceneOfEntity(id));
     this.grid.addLayers(args.initialEntities);
     this.grid.flushCollision(args.physics3d);
     // The start set's graph materials (the values scripts set per object).

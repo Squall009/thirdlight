@@ -142,6 +142,27 @@ export interface GridCellInput {
 }
 
 /** An edge piece as scripts read it (`ctx.grid.edge`): a wall, door or fence on a cell's side. */
+/** One side of a linked door (world metres; `facing`: degrees about +Y turning +Z toward the way out of the door on that side). */
+export interface GridDoorSide {
+  readonly position: readonly [number, number, number];
+  readonly spawn: readonly [number, number, number];
+  readonly facing: number;
+}
+
+/** A door of a building whose interior is a scene of its own, from one side (`ctx.grid.doorLinks`). */
+export interface GridDoorLink extends GridDoorSide {
+  /** `<building>/<door>`: the same on both sides. */
+  readonly id: string;
+  readonly building: string;
+  readonly door: string;
+  /** The object this side is drawn on, and its scene (null: none known). */
+  readonly entity: string;
+  readonly scene: string | null;
+  readonly side: 'outside' | 'inside';
+  /** The other side: the scene it is in, its door and where one arriving through it stands. */
+  readonly to: GridDoorSide & { readonly scene: string };
+}
+
 export interface GridEdge {
   readonly block: string;
   /** 0, or 180: it faces the other way (a connected piece: the way its ends resolve). */
@@ -406,6 +427,19 @@ export interface BehaviorGrid {
    */
   architecturePreset(from: string): string | null;
   /**
+   * The doors of the loaded buildings whose interiors are scenes of their own, from each side that is loaded: the door's place, where one arriving through it stands and the way out there (degrees, as `character_place`'s facing), and the same of the other side with its scene. Using a door is the game's: e.g. `ctx.scenes.load(link.to.scene, { unload: [link.scene] })`, then placing its player at `link.to.spawn` once that scene is loaded.
+   * @graphPure
+   * @graphNode skip a list of objects; scripts walk it, graphs use Door link near
+   */
+  doorLinks(): readonly GridDoorLink[];
+  /**
+   * The linked door nearest a world point within `reach` metres (absent: 2) on the ground, or null.
+   * @graphPure
+   * @graphNode Door link near
+   * @graphDefault reach 2
+   */
+  doorLink(point: readonly number[], reach?: number): GridDoorLink | null;
+  /**
    * The edge piece on a side of a cell (a wall, door or fence between it and its neighbour), or null when none stands there.
    * @graphPure
    * @graphNode Get edge
@@ -582,13 +616,13 @@ export class RuntimeGrid {
   private readonly walkGraphs: WalkGraphCache = new WeakMap();
 
   /** `streamSources` gives world streaming's sources at a step boundary (absent: streamed objects stream around nothing). */
-  constructor(types: readonly BlockType[], fields: readonly CellField[], collide: boolean, defaultMaxSlope = 45, materialIds?: readonly string[], prefabs?: ReadonlyMap<string, PrefabDefinition>, modelColliders?: ModelColliderTable, streamSources?: () => number[][], architectureStyles?: readonly ArchitectureGraphLike[]) {
+  constructor(types: readonly BlockType[], fields: readonly CellField[], collide: boolean, defaultMaxSlope = 45, materialIds?: readonly string[], prefabs?: ReadonlyMap<string, PrefabDefinition>, modelColliders?: ModelColliderTable, streamSources?: () => number[][], architectureStyles?: readonly ArchitectureGraphLike[], sceneOf?: (entityId: string) => string | undefined) {
     this.stream = new SimWorldStream(streamSources ?? null);
     const collisionRing = (entityId: string, x: number, z: number): boolean => this.stream.has(entityId, 'collision', `${x},${z}`);
     this.terrain = new TerrainColliders(collisionRing);
     this.scatter = new RuntimeScatter(collide, modelColliders, collisionRing);
     this.splines = new RuntimeSplines(collide, modelColliders);
-    this.architecture = new RuntimeArchitecture(collide, modelColliders, architectureStyles);
+    this.architecture = new RuntimeArchitecture(collide, modelColliders, architectureStyles, sceneOf);
     this.materialIds = materialIds !== undefined ? new Set(materialIds) : null;
     this.types = new Map(types.map((t) => [t.blockId, t]));
     this.surface = new RuntimeSurface(() => this.surfaceLayers(), this.types, this.terrain);
@@ -1675,6 +1709,12 @@ export class RuntimeGrid {
       },
       architecturePreset(from) {
         return typeof from === 'string' ? g.archSwaps.get(from) ?? null : null;
+      },
+      doorLinks() {
+        return g.architecture.doorLinks();
+      },
+      doorLink(point, reach) {
+        return g.architecture.doorLinkNear(point, reach);
       },
       typeMaterials(blockId) {
         const type = typeof blockId === 'string' ? g.types.get(blockId) : undefined;

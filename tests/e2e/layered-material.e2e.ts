@@ -69,6 +69,17 @@
  * the wall (Play and the export); a room behind a closed door is not seen
  * and its box is not drawn (Play's diagnostics, the export's canvas).
  *
+ * A building (`buildings.ts`): a two-storey L drawn with the Rooms tool's
+ * Building mode, a hip roof, its interior a scene of its own set in the
+ * building inspector. In Play and the export: the facade, the inner wall
+ * through both windows and the roof each show their row; the interior's
+ * scene is read ahead while its door is near the camera (Play's
+ * observation); a script goes through the door on a key (`ctx.grid.doorLink`
+ * → `ctx.scenes.load`) and the interior's camera shows the inner wall
+ * beside the windows and the sky through them, at the same place on the
+ * wall. Play's scene timings give the interior's time from the door to
+ * drawn.
+ *
  * TL_LAYERED_DIR=<dir> keeps the pictures.
  */
 import { randomBytes, randomUUID } from 'node:crypto';
@@ -87,6 +98,7 @@ import { serveDir } from './frame-reading';
 import { closeEditor, createItem, editorPane, inspector, menu, openEditor, openWindow } from './ui';
 import { drawRooms, ROOM_READS } from './rooms-drawing';
 import { expectCulled, judgeLitRooms, makeLitRooms } from './rooms-lighting';
+import { drawBuilding, ENTER_KEY, judgeInside, judgeOutside, onInterior } from './buildings';
 
 let be: E2EBackend | null = null;
 test.afterEach(async () => {
@@ -624,6 +636,7 @@ async function trimSheetChecks(page: Page, variant: RendererVariant): Promise<vo
   console.log(`rooms ${variant} editor: draw → visible ${rooms.timings.drawToVisible.toFixed(1)} ms; wall drag ${rooms.timings.drag.regenerations} regenerations, input → drawn ${rooms.timings.drag.median.toFixed(1)} / ${rooms.timings.drag.worst.toFixed(1)} ms, a chunk ${rooms.timings.drag.madeMedian.toFixed(2)} ms median, other objects made again ${rooms.timings.drag.others}`);
   expect(rooms.timings.drag.others).toBe(0);
   await makeLitRooms(cmd, trimId);
+  const building = await drawBuilding(page, cmd, query, trimId, (name, source, entityId) => publishScript(be!, name, source, entityId));
 
   const started = page.waitForResponse((r) => r.request().method() === 'POST' && r.url().endsWith('/play'));
   await page.getByTitle('Start an isolated play preview').click();
@@ -711,6 +724,44 @@ async function trimSheetChecks(page: Page, variant: RendererVariant): Promise<vo
   const renderer = await diagnostics();
   console.log(`lit rooms ${variant} Play: ${JSON.stringify(lit.lum)}; rooms ${JSON.stringify(renderer['rooms'])}; local shadows ${JSON.stringify((renderer['lights'] as Record<string, unknown> | undefined)?.['localShadows'] ?? null)}`);
   expectCulled(renderer['rooms'] as never);
+  // The building: the facade, the windows (the inner wall behind them) and the roof; its interior read ahead while its door is near.
+  let outside = judgeOutside(() => [0, 0, 0], rowHue);
+  await expect.poll(async () => {
+    const img = decodePng(await canvas.screenshot());
+    return (outside = judgeOutside((p) => colourAt(img, onPlay(p, img.width, img.height)), rowHue)).ok;
+  }, { timeout: 30_000, intervals: [500], message: 'the Play picture of the building' }).toBe(true).catch((e: unknown) => {
+    console.log(`building ${variant} Play (failed): ${fmtRooms(outside.colours)}`);
+    throw e;
+  });
+  // Read ahead while its door is near: the interior's chunks made on the workers before the door is used (not drawn).
+  await expect.poll(async () => canvas.evaluate(() => (performance.getEntriesByType('mark') as PerformanceMark[]).some((m) => m.name === 'tl:arch:chunk' && String((m.detail as { object: string }).object).startsWith('\u0000interior-'))), { timeout: 30_000, message: 'the interior made while its door is near' }).toBe(true);
+  // Through the door: the script loads the interior's scene from the door's link; its camera shows the front wall from inside.
+  const frameBox = (await page.locator('iframe.tl-app__preview-frame').boundingBox())!;
+  await page.mouse.click(frameBox.x + frameBox.width / 2, frameBox.y + frameBox.height / 2);
+  await page.keyboard.down(ENTER_KEY);
+  await page.waitForTimeout(200);
+  await page.keyboard.up(ENTER_KEY);
+  let inside = judgeInside(() => [0, 0, 0], rowHue);
+  let insidePng: Buffer | null = null;
+  await expect.poll(async () => {
+    const img = decodePng((insidePng = await canvas.screenshot()));
+    return (inside = judgeInside((p) => colourAt(img, onInterior(p, img.width, img.height)), rowHue)).ok;
+  }, { timeout: 30_000, intervals: [500], message: 'the Play picture of the interior' }).toBe(true).catch((e: unknown) => {
+    console.log(`building interior ${variant} Play (failed): ${fmtRooms(inside.colours)}`);
+    if (insidePng !== null) keep('building-inside-failed', insidePng);
+    throw e;
+  });
+  if (insidePng !== null) keep('building-inside', insidePng);
+  const loads = async (): Promise<{ sceneId: string; requestedMs: number; preparedMs: number | null; attachedMs: number | null; preloaded: boolean }[]> => {
+    const r = await fetch(`${be!.origin}/api/v1/projects/${be!.projectId}/play/${psid}/diagnostics`, { method: 'POST', headers: { authorization: `Bearer ${be!.token}`, 'content-type': 'application/json', origin: be!.origin }, body: '{}' });
+    return ((await r.json()) as { diagnostics?: { startTimings?: { sceneLoads?: never[] } } }).diagnostics?.startTimings?.sceneLoads ?? [];
+  };
+  await expect.poll(async () => (await loads()).find((l) => l.sceneId === building.interiorScene)?.attachedMs ?? null, { timeout: 15_000 }).not.toBeNull();
+  const door = (await loads()).find((l) => l.sceneId === building.interiorScene)!;
+  const interiorMarks = await canvas.evaluate(() => (performance.getEntriesByType('mark') as PerformanceMark[]).filter((m) => (m.name === 'tl:arch:ready' || m.name === 'tl:arch:chunk') && String((m.detail as { object: string }).object).includes('interior-')).map((m) => ({ name: m.name, at: Math.round(m.startTime), ...(m.detail as Record<string, unknown>) })));
+  const buildingDraws = ((renderer['architecture'] as { draws?: number } | undefined)?.draws ?? null);
+  console.log(`building ${variant} Play: outside ${fmtRooms(outside.colours)}; inside ${fmtRooms(inside.colours)}; through the door (read ahead ${door.preloaded}): requested → prepared ${door.preparedMs !== null ? (door.preparedMs - door.requestedMs).toFixed(1) : '-'} ms, → drawn ${((door.attachedMs ?? 0) - door.requestedMs).toFixed(1)} ms; interior marks ${JSON.stringify(interiorMarks)}; architecture draws ${buildingDraws}`);
+  expect(door.preloaded).toBe(true);
   await page.getByTitle('Stop the play preview').click();
 
   // ---- The static export, served with the backend stopped: the parameters ship, the game generates the same picture.
@@ -756,6 +807,29 @@ async function trimSheetChecks(page: Page, variant: RendererVariant): Promise<vo
     const [seenRooms, allRooms] = (seenOf ?? '').split('/').map(Number);
     expect(seenRooms!).toBeLessThan(allRooms!);
     expect(Number(hiddenDraws)).toBeGreaterThan(0);
+    // The building outside, then through its door (the key) to the interior's camera.
+    let outsideExport = judgeOutside(() => [0, 0, 0], rowHue);
+    await expect.poll(async () => {
+      const img = decodePng(await exported.screenshot());
+      return (outsideExport = judgeOutside((p) => colourAt(img, onPlay(p, img.width, img.height)), rowHue)).ok;
+    }, { timeout: 30_000, intervals: [500], message: 'the export picture of the building' }).toBe(true).catch((e: unknown) => {
+      console.log(`building ${variant} export (failed): ${fmtRooms(outsideExport.colours)}`);
+      throw e;
+    });
+    const gameBox = (await exported.boundingBox())!;
+    await game.mouse.click(gameBox.x + gameBox.width / 2, gameBox.y + gameBox.height / 2);
+    await game.keyboard.down(ENTER_KEY);
+    await game.waitForTimeout(200);
+    await game.keyboard.up(ENTER_KEY);
+    let insideExport = judgeInside(() => [0, 0, 0], rowHue);
+    await expect.poll(async () => {
+      const img = decodePng(await exported.screenshot());
+      return (insideExport = judgeInside((p) => colourAt(img, onInterior(p, img.width, img.height)), rowHue)).ok;
+    }, { timeout: 30_000, intervals: [500], message: 'the export picture of the interior' }).toBe(true).catch((e: unknown) => {
+      console.log(`building interior ${variant} export (failed): ${fmtRooms(insideExport.colours)}`);
+      throw e;
+    });
+    console.log(`building ${variant} export: outside ${fmtRooms(outsideExport.colours)}; inside ${fmtRooms(insideExport.colours)}`);
     const marks = await architectureMarks(game);
     console.log(`architecture ${variant} export: ${shown.colours.map((c) => c.map((v) => v.toFixed(0)).join(',')).join(' ')}; chunks ${JSON.stringify(marks.chunks)}; ready ${JSON.stringify(marks.ready)}`);
     // Generated, not shipped: on the workers, or on the page while they were starting.

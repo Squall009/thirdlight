@@ -89,6 +89,8 @@ export interface ArchitectureChunkStore {
 export interface ArchitectureViewDeps {
   /** The row tables the object's material slots wear (its `materials`, over `extra`: the trim sheets its presets name). */
   sheets(entityId: string, component: ArchitectureComponent, extra: Readonly<Record<string, string>>): ArchitectureSheets;
+  /** The same for an object not realized yet (a scene prepared ahead), from its own `materials` (absent: as `sheets` with no object). */
+  sheetsOf?(materials: Readonly<Record<string, string>> | undefined, component: ArchitectureComponent, extra: Readonly<Record<string, string>>): ArchitectureSheets;
   /** Put the object's materials (over `extra`) on a chunk (the undo; null: none). */
   materials(root: THREE.Object3D, entityId: string, extra: Readonly<Record<string, string>>): (() => void) | null;
   /** The style and preset graphs outlines are made by (absent: the engine's starters only). */
@@ -178,6 +180,18 @@ interface Rec {
   zones: readonly CutawayZone[] | null;
 }
 
+/** Objects of a scene prepared ahead of its load: their chunks being made into the cache, not drawn. */
+interface Prep {
+  component: ArchitectureComponent;
+  chunks: Map<string, { cx: number; cz: number; key: string; elements: number[] }>;
+  /** The keys still being made. */
+  pending: Set<string>;
+  done: () => void;
+}
+
+/** The job id of a prepared object (never an object id: those use the id syntax). */
+const prepId = (id: string): string => `\u0000${id}`;
+
 interface Job {
   id: string;
   ck: string;
@@ -221,6 +235,7 @@ const bytesOf = (c: ArchitectureChunk): number => {
 
 export class ArchitectureView {
   private readonly recs = new Map<string, Rec>();
+  private readonly preparing = new Map<string, Prep>();
   private readonly cache = new Map<string, { chunk: ArchitectureChunk; bytes: number }>();
   private cacheBytes = 0;
   private queue: Job[] = [];
@@ -333,6 +348,52 @@ export class ArchitectureView {
     // Jobs go out now, not at the next frame: the workers start (and load their script) while the scene's first frame is
     // still being prepared; the frame re-sorts what is left by the eye.
     this.dispatch();
+  }
+
+  /**
+   * Objects about to load (a scene prepared ahead of its load, `entities`
+   * as its document has them): their chunks made into the cache on the
+   * workers, not drawn, so the frame the scene arrives in draws them at
+   * once (their keys are found). `ready` once all are made (or failed);
+   * `release` drops what is still waiting.
+   */
+  prepare(objects: readonly { readonly id: string; readonly component: ArchitectureComponent; readonly origin: readonly number[]; readonly materials?: Readonly<Record<string, string>> }[]): { readonly ready: Promise<void>; release(): void } {
+    const ids: string[] = [];
+    const waits: Promise<void>[] = [];
+    if (this.deps.drawn !== false && !this.disposed) {
+      for (const o of objects) {
+        if (o.component.baked !== undefined) continue;
+        const x = expandArchitecture(o.component, o.origin, this.styles, { swaps: this.swaps });
+        const sheets = this.deps.sheetsOf?.(o.materials, x.component, x.materials) ?? this.deps.sheets('', x.component, x.materials);
+        const id = prepId(o.id);
+        const prep: Prep = { component: x.component, chunks: new Map(), pending: new Set(), done: () => undefined };
+        for (const [ck, k] of architectureChunkKeys(x.component, sheets)) {
+          prep.chunks.set(ck, { cx: k.cx, cz: k.cz, key: k.key, elements: k.elements });
+          if (this.cache.has(k.key) || prep.pending.has(k.key)) continue;
+          prep.pending.add(k.key);
+          this.sheetsOf.set(k.key, sheets);
+          this.enqueue({ id, ck, key: k.key, d: 0 });
+        }
+        if (prep.pending.size === 0) continue;
+        waits.push(new Promise<void>((resolve) => (prep.done = resolve)));
+        this.preparing.get(id)?.done();
+        this.preparing.set(id, prep);
+        ids.push(id);
+      }
+      this.dispatch();
+    }
+    return {
+      ready: Promise.all(waits).then(() => undefined),
+      release: () => {
+        for (const id of ids) {
+          const prep = this.preparing.get(id);
+          if (prep === undefined) continue;
+          this.preparing.delete(id);
+          prep.done();
+        }
+        this.queue = this.queue.filter((j) => this.recs.has(j.id) || this.preparing.has(j.id));
+      },
+    };
   }
 
   /** An object was released: it goes at the next {@link update} unless set again first. */
@@ -504,6 +565,8 @@ export class ArchitectureView {
 
   dispose(): void {
     this.disposed = true;
+    for (const p of this.preparing.values()) p.done();
+    this.preparing.clear();
     for (const rec of this.recs.values()) {
       for (const c of rec.chunks.values()) if (c.built !== null) this.dropBuilt(c.built);
       for (const b of rec.stale) this.dropBuilt(b);
@@ -609,10 +672,25 @@ export class ArchitectureView {
 
   /** The request a job sends (null: its chunk is no longer wanted under that key). */
   private request(job: Job): ArchitectureJobRequest | null {
-    const rec = this.recs.get(job.id);
+    const rec = this.recs.get(job.id) ?? this.preparing.get(job.id);
     const ch = rec?.chunks.get(job.ck);
     if (rec === undefined || ch === undefined || ch.key !== job.key) return null;
+    // Made meanwhile for an object that loaded (a prepared chunk whose scene arrived first).
+    if (this.preparing.has(job.id) && this.cache.has(job.key)) {
+      this.prepared(job);
+      return null;
+    }
     return { t: 'archGenerate', job: this.nextJob++, component: architectureChunkInput(rec.component, ch), sheets: this.sheetsOf.get(job.key) ?? {}, cx: ch.cx, cz: ch.cz };
+  }
+
+  /** A prepared object's chunk is in the cache (or failed): its preparation is done once all are. */
+  private prepared(job: Job): void {
+    const prep = this.preparing.get(job.id);
+    if (prep === undefined) return;
+    prep.pending.delete(job.key);
+    if (prep.pending.size > 0) return;
+    this.preparing.delete(job.id);
+    prep.done();
   }
 
   /** Whether a chunk at squared distance `d` is one of those round the eye (within one and a half chunks). */
@@ -702,6 +780,7 @@ export class ArchitectureView {
   private receive(job: Job, reply: ArchitectureJobReply, where: 'worker' | 'page'): void {
     if (!reply.ok) {
       this.fail(`architecture ${job.id}: chunk ${job.ck}: ${reply.message}`);
+      this.prepared(job);
       return;
     }
     const m = this.ms[where];
@@ -713,7 +792,8 @@ export class ArchitectureView {
     this.remember(job.key, reply.chunk);
     this.sheetsOf.delete(job.key);
     this.deps.store?.put(job.key, encodeArchitectureChunks([reply.chunk]));
-    this.ready.push({ id: job.id, ck: job.ck, key: job.key, chunk: reply.chunk });
+    if (this.preparing.has(job.id)) this.prepared(job);
+    else this.ready.push({ id: job.id, ck: job.ck, key: job.key, chunk: reply.chunk });
   }
 
   private remember(key: string, chunk: ArchitectureChunk): void {

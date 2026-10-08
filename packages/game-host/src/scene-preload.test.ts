@@ -89,7 +89,7 @@ describe('scene preloader', () => {
 
 describe('scenes to read ahead', () => {
   it('names the unloaded targets of loaded scene transitions and the next listed scene, once each', async () => {
-    const { scenesToReadAhead } = await import('./host');
+    const { scenesToReadAhead } = await import('./scene-read-ahead');
     const set = {
       revision: 3,
       status: { 'scene-main': 'loaded', 'scene-a': 'loaded', 'scene-b': 'unloaded', 'scene-c': 'loading', 'scene-d': 'unloaded', 'scene-e': 'unloaded' },

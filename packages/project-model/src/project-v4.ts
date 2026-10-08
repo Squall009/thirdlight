@@ -194,6 +194,20 @@ export function composeV4(
     }
   }
 
+  // Buildings whose interiors are scenes of their own: another scene of the project.
+  for (const s of scenes) {
+    s.entities.forEach((e, index) => {
+      const list = (e.components as { architecture?: { buildings?: { interior?: { scene?: unknown } }[] } }).architecture?.buildings;
+      list?.forEach((b, j) => {
+        const scene = b.interior?.scene;
+        if (scene === undefined) return;
+        const at = `/entities/${index}/components/architecture/buildings/${j}/interior/scene`;
+        if (typeof scene !== 'string' || !sceneIds.has(scene)) errors.push(sceneError(s.sceneId, withFound({ code: 'reference_missing', path: at, reason: 'scene', message: 'a building\'s interior names no scene of the project', expected: 'an existing scene id' }, scene)));
+        else if (scene === s.sceneId) errors.push(sceneError(s.sceneId, withFound({ code: 'field_value', path: at, reason: 'scene', message: 'a building\'s interior scene is another scene than the building\'s own (in place: no interior scene)', expected: 'another scene id' }, scene)));
+      });
+    });
+  }
+
   // Per-scene references against the content block, and the block's own rules once.
   for (const s of scenes) composeSceneV4(s, content, errors, projectRevision);
   composeContentChecks({ ...content, game: null }, errors, projectRevision);

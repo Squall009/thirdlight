@@ -321,6 +321,8 @@ export {
   type ArchitectureStyles,
   type ResolvedArchitecturePreset,
 } from '@thirdlight/project-model';
+// Buildings whose interiors are scenes of their own: their interiors made into those scenes, their doors' links.
+export { ARCHITECTURE_ROOF_SHAPES, architectureDoorLinks, buildingInteriorEntity, buildingInteriorId, withBuildingInteriors, type ArchitectureBuilding, type ArchitectureDoorLink } from '@thirdlight/project-model';
 // Rooms and their portals: what the page draws and lights per room (rooms that cannot be seen are skipped).
 export { buildRoomGraph, portalDistance, portalRect, RoomGraph, roomVisibility, ROOM_OUTSIDE, walkRooms, type GraphPortal, type GraphPortalKind, type GraphRoom, type RoomGraphObject, type RoomVisibility, type ViewProjection } from '@thirdlight/project-model';
 export { RuntimeSplines, type BehaviorSplines, type SplineCollisionDiagnostics, type SplineNearestInfo, type SplinePose, type SplineSimData } from './splines';
@@ -464,7 +466,7 @@ export {
 } from '@thirdlight/project-model';
 export type { BehaviorDebug, DebugCommandArgs, DebugCommandArgSpec, DebugCommandArgType, DebugCommandOptions, DebugCommandSpec, DebugCommandState } from './types';
 // Block layers — ctx.grid, the runtime grid, and the pure grid/meshing helpers the renderer shares.
-export { GRID_WRITES_PER_STEP, RuntimeGrid, gridColliderId, type BehaviorGrid, type GridCell, type GridCellInput, type GridChange, type GridChunkChange, type GridCutawayState, type GridDiff, type GridKitChange, type GridArchitectureChange, type GridEdge, type GridEdgeInput, type GridPick, type GridRenderChange, type GridSurface, type GridVec3 } from './grid';
+export { GRID_WRITES_PER_STEP, RuntimeGrid, gridColliderId, type BehaviorGrid, type GridCell, type GridCellInput, type GridChange, type GridChunkChange, type GridCutawayState, type GridDiff, type GridKitChange, type GridArchitectureChange, type GridDoorLink, type GridDoorSide, type GridEdge, type GridEdgeInput, type GridPick, type GridRenderChange, type GridSurface, type GridVec3 } from './grid';
 export { type GridWalkOptions, type GridWalkPlace } from './grid-walk';
 // Edge pieces: the editor's edge brush snaps and checks edges with the backend's rules.
 export { BLOCK_CONNECT_PIECES, BLOCK_EDGE_THICKNESS, edgeInBounds, edgeInBox, type BlockConnect, type BlockConnectPiece, type BlockEdge } from '@thirdlight/project-model';

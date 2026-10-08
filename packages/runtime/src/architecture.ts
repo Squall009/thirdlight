@@ -10,14 +10,19 @@
  * the grid's collision batches when an object loads, its parameters change
  * or a preset swap reaches it. Objects drawn on a block layer
  * (`architecture.layer`) also give that layer's grid their rooms' wall
- * edges and regions (`roomsOn`).
+ * edges and regions (`roomsOn`). Buildings whose interiors are scenes of
+ * their own link their doors' two sides (`doorLinks`, from the objects
+ * loaded: an exterior gives the outside of its doors, an interior the
+ * inside).
  *
  * Pure simulation state.
  */
-import { COLLIDER_3D_LIMITS, architectureColliders, architectureRoomRegions, architectureStylesOf, architectureWallEdges, canonicalJsonText, expandArchitecture, type ArchitectureComponent, type ArchitectureGraphLike, type ArchitectureStyles, type EntityV3, type ModelColliderTable } from '@thirdlight/project-model';
+import { COLLIDER_3D_LIMITS, architectureColliders, architectureDoorLinks, architectureRoomRegions, architectureStylesOf, architectureWallEdges, canonicalJsonText, expandArchitecture, type ArchitectureComponent, type ArchitectureGraphLike, type ArchitectureStyles, type EntityV3, type ModelColliderTable } from '@thirdlight/project-model';
 
 import { colliderShape3DOf } from './collider-specs';
+import type { GridDoorLink } from './grid';
 import type { PhysicsPort3D, StaticColliderSpec3D } from './ports';
+import { deepFreeze } from './snapshot';
 
 /** Generated architecture's colliders built and the last build (diagnostics). */
 export interface ArchitectureCollisionDiagnostics {
@@ -41,9 +46,14 @@ const NO_ROOMS: ArchitectureLayerRooms = Object.freeze({ edges: new Map(), regio
 /** A collider id of an object's generated architecture (stable: the element and the piece's place). */
 const colliderId = (id: string, part: string): string => `${id}#arch:${part}`;
 
+/** Metres a door link is looked for round a point when the script names no reach. */
+export const DOOR_LINK_REACH_DEFAULT = 2;
+
 interface Held {
   component: ArchitectureComponent;
   origin: [number, number, number];
+  /** Its door links (null: not read yet). */
+  doors: readonly GridDoorLink[] | null;
   /** The parameters' text the colliders were built from (null: not built). */
   builtFrom: string | null;
   built: string[];
@@ -64,6 +74,8 @@ export class RuntimeArchitecture {
     private readonly collide = false,
     private readonly modelColliders?: ModelColliderTable,
     styleGraphs?: readonly ArchitectureGraphLike[],
+    /** The scene a loaded object is in (absent: none known). */
+    private readonly sceneOf?: (entityId: string) => string | undefined,
   ) {
     this.styles = architectureStylesOf(styleGraphs);
   }
@@ -108,6 +120,37 @@ export class RuntimeArchitecture {
     return rooms;
   }
 
+  /** The door links of the loaded objects (objects in id order; frozen). */
+  doorLinks(): readonly GridDoorLink[] {
+    const out: GridDoorLink[] = [];
+    for (const [id, h] of [...this.held].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) {
+      if (h.component.buildings === undefined) continue;
+      h.doors ??= Object.freeze(
+        architectureDoorLinks(id, h.component, h.origin).map((l) => deepFreeze({ ...l, scene: this.sceneOf?.(id) ?? (l.side === 'inside' ? (h.component.buildings?.find((b) => b.id === l.building)?.interior?.scene ?? null) : null) })),
+      );
+      out.push(...h.doors);
+    }
+    return Object.freeze(out);
+  }
+
+  /** The door link nearest a world point within `reach` metres on the ground (null: none, or not a point). */
+  doorLinkNear(point: readonly number[], reach?: number): GridDoorLink | null {
+    if (!Array.isArray(point) || point.length !== 3 || !point.every((v) => typeof v === 'number' && Number.isFinite(v))) return null;
+    const r = typeof reach === 'number' && Number.isFinite(reach) && reach >= 0 ? reach : DOOR_LINK_REACH_DEFAULT;
+    let best: GridDoorLink | null = null;
+    let bestD = r * r;
+    for (const l of this.doorLinks()) {
+      const dx = l.position[0] - point[0]!;
+      const dz = l.position[2] - point[2]!;
+      const d = dx * dx + dz * dz;
+      if (d <= bestD) {
+        best = l;
+        bestD = d;
+      }
+    }
+    return best;
+  }
+
   /** Loaded objects carrying `architecture` (their colliders at the next flush when new or changed). */
   add(entities: readonly EntityV3[]): void {
     for (const e of entities) {
@@ -115,7 +158,7 @@ export class RuntimeArchitecture {
       if (c === undefined || !Array.isArray(c.elements)) continue;
       const p = e.components.transform?.position ?? [0, 0, 0];
       const old = this.held.get(e.id);
-      this.held.set(e.id, { component: c, origin: [p[0] ?? 0, p[1] ?? 0, p[2] ?? 0], builtFrom: old?.builtFrom ?? null, built: old?.built ?? [] });
+      this.held.set(e.id, { component: c, origin: [p[0] ?? 0, p[1] ?? 0, p[2] ?? 0], doors: null, builtFrom: old?.builtFrom ?? null, built: old?.built ?? [] });
       this.dirty.add(e.id);
       if (c.layer !== undefined || old?.component.layer !== undefined) this.roomsRevision += 1;
     }

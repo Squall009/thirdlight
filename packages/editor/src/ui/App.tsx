@@ -79,6 +79,7 @@ import type { ProjectItem } from '../session/project-items';
 import { useAssetActions } from './shell/useAssetActions';
 import { useLightingBake } from './shell/useLightingBake';
 import { useScripting } from './shell/useScripting';
+import { withSceneViewInteriors } from '../session/building-interiors';
 import { useAnimatorTools } from './shell/useAnimatorTools';
 import { editorMenus, hierarchyContextMenu } from './shell/menus';
 import { BottomDock } from './shell/BottomDock';
@@ -95,6 +96,11 @@ setKtx2DecoderBase('./decoders/');
 /** The first asset or index item of some kinds the catalog has read (a starting choice), if any. */
 function firstOfKinds(c: SessionClient | null, kinds: readonly string[]): string | undefined {
   return c?.catalog.firstOf(kinds);
+}
+
+/** What the Scene view draws: the open scenes' objects and the interiors buildings make into them. */
+function sceneViewEntities(c: SessionClient, visible: readonly ProjectedEntity[] = c.visibleEntities()): ProjectedEntity[] {
+  return withSceneViewInteriors(visible, c.projection.listEntities(), new Set(c.getSceneView().open)) as ProjectedEntity[];
 }
 
 /** The pickers' option per projected entity object (see fieldContextBase). */
@@ -375,7 +381,7 @@ function EditorApp(): JSX.Element {
         // (an accepted commit arrives as mutation.applied and refreshes it).
         const restore = (): void => {
           refreshEntities();
-          viewport.syncEntities(client.visibleEntities());
+          viewport.syncEntities(sceneViewEntities(client));
         };
         if (!g) return restore();
         g.setLocal(transform);
@@ -465,7 +471,7 @@ function EditorApp(): JSX.Element {
       setCatalogTick((t) => t + 1);
       if (client.catalog.loaded !== loadedSeen) {
         loadedSeen = client.catalog.loaded;
-        viewport.syncEntities(client.visibleEntities());
+        viewport.syncEntities(sceneViewEntities(client));
         // Conversations read by id (a tab opened, a preview's jumps).
         content.setDialogues(client.getDialogues());
       }
@@ -546,7 +552,8 @@ function EditorApp(): JSX.Element {
   const framedRef = useRef(false);
   useEffect(() => {
     // Only what changed since the last sync (the projection's dirty ids; a hydrate syncs all).
-    viewportRef.current?.syncEntities(entities, clientRef.current?.projection.takeDirty());
+    const c = clientRef.current;
+    viewportRef.current?.syncEntities(c !== null ? sceneViewEntities(c, entities) : entities, c?.projection.takeDirty());
     const lit = viewportRef.current?.getLighting();
     if (lit !== undefined) setLightingMode(lit);
     if (!framedRef.current && entities.length > 0) {

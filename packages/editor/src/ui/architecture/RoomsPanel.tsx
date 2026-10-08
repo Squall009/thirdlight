@@ -5,14 +5,17 @@
  * the layer, and the picked room's inspector — its inside and outside
  * presets, storeys, openings (a door piece put in an opening: the layer's
  * edge piece there, a live block if its type is one), stairs and floor
- * holes. The rooms are one generated-architecture object on the layer
+ * holes; a building's also its facade, its roof and where its interior is
+ * (in place, or a scene of its own: the interior is made there and its doors
+ * are linked). The rooms are one generated-architecture object on the layer
  * (`architecture.layer`), made with the first room; every change is one
- * command.
+ * command (a new interior scene is made first, then named).
  */
 import { useEffect, useState, type JSX } from 'react';
-import type { ArchitectureComponent, ArchitectureOpening, ArchitectureOutline, ArchitectureRoomPlan, BlockEdit, BlockType } from '@thirdlight/project-model';
+import type { ArchitectureBuilding, ArchitectureComponent, ArchitectureOpening, ArchitectureOutline, ArchitectureRoomPlan, BlockEdit, BlockType } from '@thirdlight/project-model';
+import { ARCHITECTURE_ROOF_SHAPES } from '@thirdlight/runtime';
 
-import { DEFAULT_ROOM_OPTIONS, openingEdges, withOutlineSet, type RoomToolMode, type RoomToolOptions } from '../../session/room-draw';
+import { allOutlines, DEFAULT_ROOM_OPTIONS, isBuilding, openingEdges, withOutlineSet, type RoomToolMode, type RoomToolOptions } from '../../session/room-draw';
 import { edgesEdit } from '../../session/block-brush';
 import type { BlockEditor } from '../../viewport/block-editor';
 
@@ -30,6 +33,11 @@ export interface RoomsBinding {
   walls: ReadonlyMap<number, boolean> | null;
   /** Every preset: [id, name]. */
   presets: readonly (readonly [string, string])[];
+  /** The project's scenes ([id, name]) and the one the rooms are in (a building's interior goes in another). */
+  scenes: readonly (readonly [string, string])[];
+  sceneId: string | null;
+  /** Make a new scene named so (resolves its id; null: refused). */
+  createScene(name: string): Promise<string | null>;
   /** Store the rooms (making the object on the first room). */
   setRooms(next: ArchitectureComponent, what: string): Promise<boolean>;
   /** Draw the object as `next` without storing it (null: as stored). */
@@ -52,6 +60,7 @@ const MODES: readonly [RoomToolMode, string, string][] = [
   ['rect', 'Rectangle', 'Drag a room from corner to corner on the slice\'s floor.'],
   ['polygon', 'Polygon', 'Click the corners (the Arc bulge makes the next side an arc); click the first corner, double-click or Enter to close.'],
   ['path', 'Path', 'Click the points of a rail, fence or pipe; double-click or Enter to finish.'],
+  ['building', 'Building', 'Click a building\'s footprint corners (an L or T too): it wears the facade preset outside and a hip roof; click the first corner, double-click or Enter to close.'],
   ['door', 'Door', 'Click a room\'s wall: a door one cell wide.'],
   ['window', 'Window', 'Click a room\'s wall: a window one cell wide with a pane.'],
   ['arch', 'Arch', 'Click a room\'s wall: an opening two cells wide, no door.'],
@@ -71,6 +80,20 @@ function Num(props: { label: string; value: number | undefined; min?: number; ma
     <label className="tl-field">
       <span className="tl-field__label">{props.label}</span>
       <input className="tl-input tl-input--num" aria-label={props.label} type="number" step={props.step ?? 0.1} placeholder={props.placeholder} value={draft} onChange={(e) => setDraft(e.target.value)} onBlur={commit} onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()} />
+    </label>
+  );
+}
+
+function Text(props: { label: string; value: string; placeholder?: string; onCommit: (v: string) => void }): JSX.Element {
+  const [draft, setDraft] = useState(props.value);
+  useEffect(() => setDraft(props.value), [props.value]);
+  const commit = (): void => {
+    if (draft.trim() !== props.value) props.onCommit(draft.trim());
+  };
+  return (
+    <label className="tl-field">
+      <span className="tl-field__label">{props.label}</span>
+      <input className="tl-input" aria-label={props.label} placeholder={props.placeholder} value={draft} onChange={(e) => setDraft(e.target.value)} onBlur={commit} onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()} />
     </label>
   );
 }
@@ -109,8 +132,9 @@ export function RoomsPanel(p: Props): JSX.Element {
       onPickRoom: (id) => setPicked(id),
     };
   }
-  const outlines = b.component?.outlines ?? [];
+  const outlines = allOutlines(b.component);
   const room = outlines.find((o) => o.id === picked) ?? null;
+  const building = room !== null && isBuilding(b.component, room.id) ? (room as ArchitectureBuilding) : null;
   const offset = [0, 1, 2].map((i) => (b.origin[i] ?? 0) - (p.layerOrigin[i] ?? 0));
   const set = (next: ArchitectureOutline | null, what: string): void => {
     if (b.component === null || room === null) return;
@@ -144,25 +168,26 @@ export function RoomsPanel(p: Props): JSX.Element {
       <div className="tl-blocks__opts">
         <Pick label="new room preset" value={opts.roomPreset} options={roomPresets} onCommit={(v) => setOpts((o) => ({ ...o, roomPreset: v }))} />
         <Pick label="new path preset" value={opts.pathPreset} options={roomPresets} onCommit={(v) => setOpts((o) => ({ ...o, pathPreset: v }))} />
+        <Pick label="new facade preset" value={opts.facadePreset} options={[['', '— the inside’s —'], ...roomPresets]} onCommit={(v) => setOpts((o) => ({ ...o, facadePreset: v }))} />
         <Num label="arc bulge" value={opts.bulge} min={-2.4} max={2.4} step={0.05} onCommit={(v) => setOpts((o) => ({ ...o, bulge: v ?? 0 }))} />
       </div>
       <div className="tl-rooms__list" aria-label="rooms">
         {outlines.length === 0 && <p className="tl-note">No rooms yet: draw one on the slice's floor.</p>}
         {outlines.map((o) => (
-          <button key={o.id} type="button" className={`tl-btn tl-btn--small${o.id === picked ? ' is-active' : ''}`} aria-label={`room ${o.id}`} aria-pressed={o.id === picked} onClick={() => setPicked(o.id)}>
+          <button key={o.id} type="button" className={`tl-btn tl-btn--small${o.id === picked ? ' is-active' : ''}`} aria-label={`${isBuilding(b.component, o.id) ? 'building' : 'room'} ${o.id}`} aria-pressed={o.id === picked} onClick={() => setPicked(o.id)}>
             {o.id}
             {o.path.closed === true ? '' : ' (path)'}
           </button>
         ))}
       </div>
       {room !== null && (
-        <div className="tl-rooms__inspector" aria-label={`room ${room.id} inspector`}>
-          <div className="tl-inspector__subtitle">{room.path.closed === true ? 'Room' : 'Path'} “{room.id}”</div>
+        <div className="tl-rooms__inspector" aria-label={`${building !== null ? 'building' : 'room'} ${room.id} inspector`}>
+          <div className="tl-inspector__subtitle">{building !== null ? 'Building' : room.path.closed === true ? 'Room' : 'Path'} “{room.id}”</div>
           <Pick label={room.path.closed === true ? 'inside preset' : 'preset'} value={room.preset} options={roomPresets} onCommit={(v) => set({ ...room, preset: v }, 'Room preset')} />
           {room.path.closed === true && (
             <>
               <Pick
-                label="outside preset"
+                label={building !== null ? 'facade preset' : 'outside preset'}
                 value={room.outside ?? ''}
                 options={[['', '— the inside’s —'], ...roomPresets]}
                 onCommit={(v) => {
@@ -194,6 +219,7 @@ export function RoomsPanel(p: Props): JSX.Element {
               />
             </>
           )}
+          {building !== null && <BuildingFields building={building} binding={b} onSet={(next, what) => set(next, what)} />}
           <div className="tl-inspector__subtitle">Openings</div>
           {p.edgeTypes.length > 0 && (
             <Pick label="door piece" value={piece} options={[['', '— none —'], ...p.edgeTypes.map((t) => [t.blockId, t.name] as const)]} onCommit={setPiece} />
@@ -284,11 +310,81 @@ export function RoomsPanel(p: Props): JSX.Element {
               )}
             </>
           )}
-          <button type="button" className="tl-btn tl-btn--small" aria-label={`delete ${room.id}`} onClick={() => set(null, room.path.closed === true ? 'Delete room' : 'Delete path')}>
-            Delete {room.path.closed === true ? 'room' : 'path'}
+          <button type="button" className="tl-btn tl-btn--small" aria-label={`delete ${room.id}`} onClick={() => set(null, building !== null ? 'Delete building' : room.path.closed === true ? 'Delete room' : 'Delete path')}>
+            Delete {building !== null ? 'building' : room.path.closed === true ? 'room' : 'path'}
           </button>
         </div>
       )}
     </div>
+  );
+}
+
+/** A building's roof and interior in the room inspector. */
+function BuildingFields(p: { building: ArchitectureBuilding; binding: RoomsBinding; onSet: (next: ArchitectureBuilding, what: string) => void }): JSX.Element {
+  const bld = p.building;
+  const roof = bld.roof;
+  const setRoof = (next: ArchitectureBuilding['roof'] | undefined, what: string): void => {
+    const { roof: _r, ...rest } = bld;
+    p.onSet(next === undefined ? rest : { ...rest, roof: next }, what);
+  };
+  const roofNum = (key: 'rise' | 'overhang', v: number | undefined): void => {
+    if (roof === undefined) return;
+    const { [key]: _k, ...rest } = roof;
+    setRoof(v === undefined ? rest : { ...rest, [key]: v }, `Roof ${key}`);
+  };
+  const scenes = p.binding.scenes.filter(([id]) => id !== p.binding.sceneId);
+  const setInterior = (scene: string): void => {
+    const { interior: _i, ...rest } = bld;
+    p.onSet(scene === '' ? rest : { ...rest, interior: { ...(bld.interior?.offset !== undefined ? { offset: bld.interior.offset } : {}), scene } }, 'Building interior');
+  };
+  const offset = bld.interior?.offset ?? [0, 0, 0];
+  const setOffset = (k: number, v: number | undefined): void => {
+    if (bld.interior === undefined) return;
+    const next: [number, number, number] = [offset[0], offset[1], offset[2]];
+    next[k] = v ?? 0;
+    const { offset: _o, ...inner } = bld.interior;
+    p.onSet({ ...bld, interior: next.every((x) => x === 0) ? inner : { ...inner, offset: next } }, 'Interior offset');
+  };
+  return (
+    <>
+      <div className="tl-inspector__subtitle">Roof</div>
+      <Pick label="roof shape" value={roof?.shape ?? ''} options={[['', '— none —'], ...ARCHITECTURE_ROOF_SHAPES.map((s) => [s, s] as const)]} onCommit={(v) => setRoof(v === '' ? undefined : { ...(roof ?? {}), shape: v as NonNullable<ArchitectureBuilding['roof']>['shape'] }, 'Roof shape')} />
+      {roof !== undefined && (
+        <>
+          <Num label="roof rise" value={roof.rise} min={0} placeholder="half the deepest inset" onCommit={(v) => roofNum('rise', v)} />
+          <Num label="roof overhang" value={roof.overhang} min={0} placeholder="0.3" onCommit={(v) => roofNum('overhang', v)} />
+          <Text
+            label="roof slot"
+            value={roof.slot ?? ''}
+            placeholder="upper_wall"
+            onCommit={(v) => {
+              const { slot: _s, ...rest } = roof;
+              setRoof(v === '' ? rest : { ...rest, slot: v }, 'Roof slot');
+            }}
+          />
+        </>
+      )}
+      <div className="tl-inspector__subtitle">Interior</div>
+      <Pick label="interior" value={bld.interior?.scene ?? ''} options={[['', 'in place'], ...scenes]} onCommit={setInterior} />
+      <button
+        type="button"
+        className="tl-btn tl-btn--small"
+        title="A new scene for the interior: it is made there from this building, its doors linked to the exterior's"
+        onClick={() => {
+          void p.binding.createScene(`${bld.id} interior`).then((id) => {
+            if (id !== null) setInterior(id);
+          });
+        }}
+      >
+        New interior scene
+      </button>
+      {bld.interior !== undefined && (
+        <>
+          <Num label="interior offset x" value={offset[0]} step={1} onCommit={(v) => setOffset(0, v)} />
+          <Num label="interior offset y" value={offset[1]} step={1} onCommit={(v) => setOffset(1, v)} />
+          <Num label="interior offset z" value={offset[2]} step={1} onCommit={(v) => setOffset(2, v)} />
+        </>
+      )}
+    </>
   );
 }

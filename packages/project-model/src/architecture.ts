@@ -282,6 +282,72 @@ export interface ArchitectureOutline {
 /** Metres a step rises when a stair names no step count. */
 export const ARCHITECTURE_STAIR_RISER = 0.18;
 
+export const ARCHITECTURE_ROOF_SHAPES = ['flat', 'gable', 'hip', 'mansard'] as const;
+export type ArchitectureRoofShape = (typeof ARCHITECTURE_ROOF_SHAPES)[number];
+/** The trim slot a roof wears when it names none (the starter row layout has no roof row; a sheet with one names it). */
+export const ARCHITECTURE_ROOF_SLOT_DEFAULT = 'upper_wall';
+/** Metres a building's eaves reach past its walls when its roof names no overhang. */
+export const ARCHITECTURE_ROOF_OVERHANG_DEFAULT = 0.3;
+/** An opening of a building's ground storey whose sill is at most this high over the floor (metres) is a door, linked to the interior when that is a scene of its own. */
+export const ARCHITECTURE_DOOR_SILL_MAX = 0.05;
+/** Metres in front of a door, on its side, where one arriving through it stands. */
+export const ARCHITECTURE_DOOR_SPAWN_DISTANCE = 1;
+
+/** A building's roof over its top storey, on its footprint. */
+export interface ArchitectureRoof {
+  shape: ArchitectureRoofShape;
+  /** The slot the roof wears (absent: {@link ARCHITECTURE_ROOF_SLOT_DEFAULT}) and its gable ends (absent: `slot`). */
+  slot?: string;
+  trimSlot?: string;
+  /** Metres the roof rises over its eaves (absent: half the footprint's deepest inset, a quarter of a rectangle's width). */
+  rise?: number;
+  /** Metres the eaves reach past the walls (absent: {@link ARCHITECTURE_ROOF_OVERHANG_DEFAULT}). */
+  overhang?: number;
+  /** The ridge along the longer or shorter side (absent: long). */
+  axis?: 'long' | 'short';
+  /** Mansard: the lower slope's share of the rise and metres it steps in. */
+  breakRise?: number;
+  inset?: number;
+}
+
+/**
+ * Where a building's interior is made when it is a scene of its own: that
+ * scene (not the building's) gets the interior at the building's place
+ * moved by `offset`, made by the build from this definition, so its walls,
+ * openings and storeys are the exterior's.
+ */
+export interface ArchitectureBuildingInterior {
+  scene: string;
+  /** Metres from the building's place to its interior's (absent: none: the interior stands where the building does). */
+  offset?: [number, number, number];
+}
+
+/**
+ * A building: a room outline (its footprint, drawn with the inside to the
+ * right of travel) with storeys, an inside preset (`preset`), a facade
+ * (`outside`), doors and windows (`openings`), stairs and floor holes, plus
+ * a roof over its top storey. One definition makes the exterior and the
+ * interior, so windows, doors and storey heights match on both sides. The
+ * interior is made in place (absent `interior`: cut-aways show it) or in a
+ * scene of its own, its doors linked to the exterior's both ways.
+ */
+export interface ArchitectureBuilding extends ArchitectureOutline {
+  /** The roof over the top storey (absent: none). */
+  roof?: ArchitectureRoof;
+  /** The interior is a scene of its own (absent: in place). */
+  interior?: ArchitectureBuildingInterior;
+}
+
+/**
+ * What a building's interior made into another scene carries (written by
+ * the build and the editor's view, never stored): the scene and the object
+ * the building is drawn on. Its one building is made as the interior.
+ */
+export interface ArchitectureInteriorOf {
+  scene: string;
+  entity: string;
+}
+
 /** A painted world mask: soft dabs [x, z, radius, weight] in metres from the object (its value at a point: the strongest dab there). */
 export interface ArchitectureMask {
   points: [number, number, number, number][];
@@ -309,6 +375,8 @@ export interface ArchitectureComponent {
   overrides?: ArchitectureOverride[];
   /** Outlines styled by presets (absent: none). */
   outlines?: ArchitectureOutline[];
+  /** Buildings: room outlines with a roof whose interior may be a scene of its own (absent: none). */
+  buildings?: ArchitectureBuilding[];
   /** Painted masks presets read by name to vary a parameter across the level (absent: none). */
   masks?: Record<string, ArchitectureMask>;
   /** Metres a chunk side covers (absent: {@link ARCHITECTURE_CHUNK_DEFAULT}). */
@@ -332,10 +400,12 @@ export interface ArchitectureComponent {
   layer?: string;
   /** The layer's wall paint, put here by the expansion (never stored). */
   paint?: ArchitecturePaint;
+  /** This object is a building's interior made into its own scene (written by the build, never stored by the editor). */
+  interiorOf?: ArchitectureInteriorOf;
 }
 
 /** The component's fields in canonical order. */
-export const ARCHITECTURE_FIELDS: readonly string[] = Object.freeze(['elements', 'profiles', 'overrides', 'outlines', 'masks', 'chunkSize', 'seed', 'ao', 'lodDistance', 'castShadow', 'receiveShadow', 'baked', 'layer']);
+export const ARCHITECTURE_FIELDS: readonly string[] = Object.freeze(['elements', 'profiles', 'overrides', 'outlines', 'buildings', 'masks', 'chunkSize', 'seed', 'ao', 'lodDistance', 'castShadow', 'receiveShadow', 'baked', 'layer', 'interiorOf']);
 const PATH_FIELDS = ['points', 'closed', 'bulges', 'curve', 'step', 'offset', 'chamfer'];
 const PROFILE_FIELDS = ['points', 'slots', 'closed', 'smooth', 'chamfer', 'cap'];
 const BASE_FIELDS = ['id', 'kind', 'material', 'detail', 'collide'];
@@ -346,6 +416,8 @@ const OPENING_FIELDS = ['id', 'at', 'width', 'bottom', 'top', 'reveal', 'frame',
 const OVERRIDE_FIELDS = ['element', 'segment', 'corner', 'reach', 'model', 'stretch'];
 const OUTLINE_FIELDS = ['id', 'path', 'preset', 'openings', 'outside', 'storeys', 'storeyHeight', 'holes', 'stairs'];
 const STAIR_FIELDS = ['id', 'from', 'to', 'width', 'steps'];
+const BUILDING_FIELDS = [...OUTLINE_FIELDS, 'roof', 'interior'];
+const ROOF_FIELDS = ['shape', 'slot', 'trimSlot', 'rise', 'overhang', 'axis', 'breakRise', 'inset'];
 /** An outline id leaves room for the generated elements' suffixes within the id syntax's 64 characters. */
 const OUTLINE_ID_RE = /^[a-z0-9][a-z0-9_-]{0,47}$/;
 const DIGEST_RE = /^[0-9a-f]{64}$/;
@@ -515,6 +587,21 @@ function validateElement(e: unknown, path: string, errors: ModelErrorV2[], profi
   }
 }
 
+/** A building's roof. */
+function validateRoof(r: unknown, p: string, errors: ModelErrorV2[]): void {
+  const L = ARCHITECTURE_LIMITS;
+  if (r === undefined) return;
+  if (!isObj(r)) return err(errors, 'field_type', p, 'a roof is {shape, slot?, rise?, overhang?, …}', r);
+  only(r, ROOF_FIELDS, p, errors, 'roof');
+  if (typeof r['shape'] !== 'string' || !(ARCHITECTURE_ROOF_SHAPES as readonly string[]).includes(r['shape'])) err(errors, 'field_value', `${p}/shape`, `shape is ${ARCHITECTURE_ROOF_SHAPES.join(', ')}`, r['shape']);
+  for (const k of ['slot', 'trimSlot']) if (r[k] !== undefined && !isId(r[k])) err(errors, 'field_value', `${p}/${k}`, `${k} names a trim row`, r[k]);
+  num(r, 'rise', p, errors, 0, L.distanceMax, `0-${L.distanceMax} metres`);
+  num(r, 'overhang', p, errors, 0, L.distanceMax, `0-${L.distanceMax} metres`);
+  oneOf(r, 'axis', p, errors, ['long', 'short']);
+  num(r, 'breakRise', p, errors, 0.05, 0.95, '0.05-0.95 of the rise');
+  num(r, 'inset', p, errors, 0, L.distanceMax, `0-${L.distanceMax} metres`);
+}
+
 /** A room's storeys, floor holes and stairs. */
 function validateRoom(o: Record<string, unknown>, p: string, errors: ModelErrorV2[]): void {
   const L = ARCHITECTURE_LIMITS;
@@ -626,6 +713,43 @@ export function validateArchitectureComponent(value: unknown, path: string, erro
       });
     }
   }
+  const buildings = value['buildings'];
+  if (buildings !== undefined) {
+    if (!Array.isArray(buildings)) err(errors, 'field_type', `${path}/buildings`, 'buildings is a list of {id, path, preset, roof?, interior?, …}', buildings);
+    else {
+      const taken = new Set(Array.isArray(outlines) ? outlines.map((o) => (isObj(o) ? o['id'] : undefined)) : []);
+      buildings.forEach((b, i) => {
+        const p = `${path}/buildings/${i}`;
+        if (!isObj(b)) return err(errors, 'field_type', p, 'a building is {id, path, preset, roof?, interior?, …}', b);
+        only(b, BUILDING_FIELDS, p, errors, 'building');
+        if (typeof b['id'] !== 'string' || !OUTLINE_ID_RE.test(b['id']) || taken.has(b['id'])) err(errors, 'field_value', `${p}/id`, 'id is unique among the outlines and buildings (id syntax, at most 48 characters)', b['id']);
+        else taken.add(b['id']);
+        validatePath(b['path'], `${p}/path`, errors, true);
+        if (!isId(b['preset'])) err(errors, 'field_value', `${p}/preset`, 'preset names an architecture preset (the inside)', b['preset']);
+        validateOpenings(b['openings'], `${p}/openings`, errors, profiles === undefined ? null : named);
+        validateRoom(b, p, errors);
+        validateRoof(b['roof'], `${p}/roof`, errors);
+        const inn = b['interior'];
+        if (inn !== undefined) {
+          if (!isObj(inn)) err(errors, 'field_type', `${p}/interior`, 'interior is {scene, offset?}', inn);
+          else {
+            only(inn, ['scene', 'offset'], `${p}/interior`, errors, 'interior');
+            if (!isId(inn['scene'])) err(errors, 'field_value', `${p}/interior/scene`, 'scene names the scene the interior is made in', inn['scene']);
+            if (inn['offset'] !== undefined && !vec(inn['offset'], 3, -L.coordinate, L.coordinate)) err(errors, 'field_value', `${p}/interior/offset`, `offset is [x, y, z] metres within ±${L.coordinate}`, inn['offset']);
+          }
+        }
+      });
+    }
+  }
+  const iof = value['interiorOf'];
+  if (iof !== undefined) {
+    if (!isObj(iof)) err(errors, 'field_type', `${path}/interiorOf`, 'interiorOf is {scene, entity}', iof);
+    else {
+      only(iof, ['scene', 'entity'], `${path}/interiorOf`, errors, 'interiorOf');
+      if (!isId(iof['scene'])) err(errors, 'field_value', `${path}/interiorOf/scene`, 'scene names the scene the building stands in', iof['scene']);
+      if (!isId(iof['entity'])) err(errors, 'field_value', `${path}/interiorOf/entity`, 'entity names the object the building is drawn on', iof['entity']);
+    }
+  }
   const masks = value['masks'];
   if (masks !== undefined) {
     if (!isObj(masks)) err(errors, 'field_type', `${path}/masks`, 'masks is {name: {points: [[x, z, radius, weight], …]}}', masks);
@@ -685,13 +809,13 @@ export function architectureMaterialSlots(c: Pick<ArchitectureComponent, 'elemen
 }
 
 /** The kit models an architecture component places (repeated pieces, overrides, openings). */
-export function architectureModelAssets(c: Pick<ArchitectureComponent, 'elements' | 'overrides' | 'outlines'> | undefined): string[] {
+export function architectureModelAssets(c: Pick<ArchitectureComponent, 'elements' | 'overrides' | 'outlines' | 'buildings'> | undefined): string[] {
   const out = new Set<string>();
   for (const e of c?.elements ?? []) {
     if (e.kind === 'repeat' && 'model' in e.piece) out.add(e.piece.model.assetId);
     if (e.kind === 'sweep') for (const o of e.openings ?? []) if (o.model !== undefined) out.add(o.model.assetId);
   }
-  for (const r of c?.outlines ?? []) for (const o of r.openings ?? []) if (o.model !== undefined) out.add(o.model.assetId);
+  for (const r of [...(c?.outlines ?? []), ...(c?.buildings ?? [])]) for (const o of r.openings ?? []) if (o.model !== undefined) out.add(o.model.assetId);
   for (const o of c?.overrides ?? []) out.add(o.model.assetId);
   return [...out];
 }

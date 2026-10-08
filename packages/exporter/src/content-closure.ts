@@ -28,7 +28,7 @@ import type { EventCue, GameShell, TimelineAsset } from '@thirdlight/project-mod
 import type { AnimatorController, EnvironmentConfig, PrefabDefinition, InputConfig, LightingMap, MaterialDef, UiDocument, UiTheme } from '@thirdlight/project-model';
 import { architectureCopies, architectureGraphsOf, architectureShipsMeshesOf, architectureStylesOf, expandArchitecture, graphForRuntime, type ArchitectureComponent, type ArchitectureStyles } from '@thirdlight/project-model';
 import { animatorsForRuntime, effectsForRuntime, type EffectDef, materialFunctionsForRuntime, materialsForRuntime, type GraphDocument, captureContentViewV3, captureManifestV5, restampManifestV5, type CatalogFile, dependencyTables, scanDependencies, M3_ENGINE_PINS, resolveMediaIdentityV3, sha256Hex, type GameplaySettings, type ManifestAssetInputV2, type ManifestAssetInputV5, type ManifestBehaviorInput, type MediaBlock, type RuntimeContentManifestV5, type ManifestSceneRow, physicsDimensionOf, resolveRequiredModules, materialsInUse, resolveMaterialInstances, hasTextureSlots, withAssembledSlots, textureSlotSetKey, loadableAssetIds, loadableResourceIds, loadableRows, scriptLibraryContainerText, scriptLibraryDigest, type ScriptLibrary } from '@thirdlight/project-model';
-import { playChecks, projectWideRoots, startDrawSet, type MissingPlayFile, type PlayCheck, type SceneV4 } from '@thirdlight/project-model';
+import { playChecks, projectWideRoots, startDrawSet, withBuildingInteriors, type MissingPlayFile, type PlayCheck, type SceneV4 } from '@thirdlight/project-model';
 import { ASSET_QUERY_PAGE_MAX, audioLoadOf, COLLIDER_3D_LIMITS, MODEL_RIG_LIMITS, modelCollisionParts, sceneColliderPoints, readModelGeometry, readModelRig, textureStreamingOf, type AudioLoadType, type ManifestMipPart, type ModelRig } from '@thirdlight/project-model';
 import type { BlobFile, WorkspaceService } from '@thirdlight/workspace';
 
@@ -643,7 +643,10 @@ function sameIdentities(a: readonly unknown[], b: readonly unknown[]): boolean {
  * Pure derivation + verified injected reads; no authoritative write, no
  * project source evaluation, no clock read (the caller supplies `capturedAt`).
  */
-export async function buildContentClosureM3(input: ContentClosureM3Input): Promise<{ ok: true; closure: ContentClosureM3 } | { ok: false; error: ContentClosureError }> {
+export async function buildContentClosureM3(given: ContentClosureM3Input): Promise<{ ok: true; closure: ContentClosureM3 } | { ok: false; error: ContentClosureError }> {
+  // Buildings whose interiors are scenes of their own: each interior is made into its scene here, for Play and the
+  // export alike (the stored scenes never hold it). A derivation remembered from an earlier build is keyed by the scenes given.
+  const input: ContentClosureM3Input = given.scenes !== undefined ? { ...given, scenes: withBuildingInteriors(given.scenes as readonly SceneV4[]) } : given;
   const { service, projectId } = input;
   // Stage times on the caller's clock (none when it gives none).
   let stageAt = input.timings?.now() ?? 0;
@@ -663,7 +666,7 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
   }
   // The derivation of this very capture, when a build before this one made it.
   const contentKey = typeof input.content === 'object' && input.content !== null && Object.isFrozen(input.content) ? (input.content as object) : null;
-  const identities = contentKey !== null ? captureIdentities(input.scene, input.scenes) : null;
+  const identities = contentKey !== null ? captureIdentities(given.scene, given.scenes) : null;
   const startKey = (input.startScenes ?? []).join('\u0000');
   const remembered = contentKey !== null && identities !== null ? derivedCaptures.get(contentKey) : undefined;
   const derived = remembered !== undefined && remembered.projectId === projectId && remembered.revision === input.revision && remembered.startScenes === startKey && remembered.gzip === (input.gzip !== undefined) && sameIdentities(remembered.identities, identities!) ? remembered : null;

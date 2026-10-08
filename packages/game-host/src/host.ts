@@ -62,7 +62,6 @@ import {
   type LoadedSceneBatch,
   type ModeView,
   type ProjectSaveFile,
-  type SceneSetView,
 } from '@thirdlight/runtime';
 import type { ScenePreloader } from './scene-preload';
 import type { ResourceManager } from '@thirdlight/runtime';
@@ -84,6 +83,7 @@ import { createUiLayer, pageUiView, type UiElementObservation, type UiLayer, typ
 import { hitUiTargets, type UiHitTarget } from './ui-hit';
 import { createPausePanel, type PausePanel } from './pause-panel';
 import { createShellController, type ShellConfigLike, type ShellController, type ShellObservation } from './shell';
+import { createReadAhead } from './scene-read-ahead';
 
 export const GAME_HOST_API_VERSION = 1;
 
@@ -624,19 +624,6 @@ function sceneFlowValues(rt: Runtime): { loading: boolean; scenes: readonly stri
  * scene transitions in its loaded scenes (in load order) and the shell's next
  * listed scene — that are not loaded.
  */
-export function scenesToReadAhead(set: SceneSetView, listed: readonly { readonly scene: string }[] | undefined, listedIndex: number): string[] {
-  const out: string[] = [];
-  const add = (id: unknown): void => {
-    if (typeof id === 'string' && set.status[id] === 'unloaded' && !out.includes(id)) out.push(id);
-  };
-  if (listed !== undefined && listed.length > 0) add(listed[Math.max(0, listedIndex + 1)]?.scene);
-  for (const b of set.batches) {
-    for (const e of b.entities as readonly { components?: { trigger?: { sceneTransition?: { scene?: unknown } } } }[]) add(e.components?.trigger?.sceneTransition?.scene);
-  }
-  for (const e of set.spawned as readonly { components?: { trigger?: { sceneTransition?: { scene?: unknown } } } }[]) add(e.components?.trigger?.sceneTransition?.scene);
-  return out;
-}
-
 function toControlError(error: RuntimeError): GameControlError {
   const out: GameControlError = { code: error.code, message: error.message };
   if (error.reason !== undefined) out.reason = error.reason;
@@ -1023,20 +1010,9 @@ export function createGameHost(config: GameHostConfig): GameHost {
     }
   };
 
-  /** Name the scenes to read ahead whenever the scene set or the listed scene changes. */
-  let readAheadSet: unknown = null;
-  let readAheadListed = -2;
-  const serviceReadAhead = (rt: Runtime): void => {
-    const preload = config.scenes;
-    if (preload === undefined) return;
-    const set = rt.sceneSet?.();
-    if (set === undefined) return;
-    const listed = rt.listedSceneIndex?.() ?? -1;
-    if (set === readAheadSet && listed === readAheadListed) return;
-    readAheadSet = set;
-    readAheadListed = listed;
-    preload.want(scenesToReadAhead(set, config.shell?.scenes, listed), set.status);
-  };
+  /** Name the scenes to read ahead whenever the scene set, the listed scene or the doors near the camera change. */
+  const readAhead = createReadAhead(config.scenes, config.shell?.scenes);
+  const serviceReadAhead = (rt: Runtime): void => readAhead.service(rt);
 
   /** One entity's interpolated transform into `out` (the allocation-free read when the runtime has it). */
   const playerAt = { position: [0, 0, 0], rotation: [0, 0, 0, 1], scale: [1, 1, 1] };

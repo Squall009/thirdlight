@@ -167,6 +167,8 @@ export function recordingContext(calls: string[], phase: 'intent' | 'transform',
       kit: rec('grid.kit', 'burnt'),
       setArchitecturePreset: rec('grid.setArchitecturePreset', true),
       architecturePreset: rec('grid.architecturePreset', 'starter-hall'),
+      doorLinks: rec('grid.doorLinks', []),
+      doorLink: rec('grid.doorLink', null),
       entity: rec('grid.entity', 'layer-1-1_0_2'),
       cellOf: rec('grid.cellOf', { layer: 'layer-1', x: 1, y: 0, z: 2 }),
       edge: rec('grid.edge', { block: 'door', rot: 0, variant: 0, open: false, blocked: true }),
@@ -505,6 +507,8 @@ describe('the visual-script catalogue (every node type compiles and runs)', () =
       'grid.applyDiff',
       'grid.changes',
       'grid.diff',
+      // The door links are a list scripts walk (graphs take the nearest).
+      'grid.doorLinks',
       // A block type's slot map is written and read in code.
       'grid.setTypeMaterials',
       'grid.typeMaterials',
