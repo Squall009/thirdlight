@@ -1216,6 +1216,34 @@ export {
   wrapTerrainTile,
   type TerrainTile,
 } from './terrain-tile';
+// A streamed terrain's overview: every tile at its coarsest level, one blob a build ships.
+export {
+  TERRAIN_OVERVIEW_SAMPLES,
+  decodeTerrainOverview,
+  encodeTerrainOverview,
+  isTerrainOverviewBlob,
+  readTerrainOverviewBlob,
+  terrainOverviewTile,
+  wrapTerrainOverview,
+  type TerrainOverviewTile,
+} from './terrain-overview';
+// World streaming: rings around the camera within which terrain tiles and block chunks are loaded, a memory budget.
+export {
+  STREAMING_BUDGET_DEFAULT_MB,
+  STREAMING_BUDGET_MAX_MB,
+  STREAMING_BUDGET_MIN_MB,
+  STREAMING_HYSTERESIS_SHARE,
+  STREAMING_RADIUS_LIMITS,
+  inStreamRing,
+  nearestSquareDistance,
+  resolveStreamingRings,
+  squareDistance,
+  streamingBudgetBytesOf,
+  validateStreamingRings,
+  type ResolvedStreamingRings,
+  type StreamingRings,
+  type StreamRing,
+} from './world-streaming';
 export {
   TERRAIN_BRUSH_LIMITS,
   TERRAIN_NOISE_HASH,

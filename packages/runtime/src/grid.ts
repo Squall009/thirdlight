@@ -24,6 +24,7 @@ import {
   validateMaterialMapping,
   BlockGrid,
   CHUNK_SIZE,
+  chunkKeyOf,
   autoVariant,
   blockTypeIsEdge,
   canonicalBlockEdge,
@@ -72,6 +73,7 @@ import {
   type ModelErrorV2,
   type ModelColliderTable,
   type PrefabDefinition,
+  type TerrainComponent,
 } from '@thirdlight/project-model';
 
 import { LiveBlocks, edgeKeyOf, type LiveBlockChanges } from './live-blocks';
@@ -80,6 +82,9 @@ import type { PhysicsPort3D, StaticColliderSpec3D } from './ports';
 import { TerrainColliders, type TerrainTileData } from './terrain-collision';
 import { RuntimeScatter, type ScatterCopyChange, type TerrainScatterData, type TerrainSimData } from './scatter-copies';
 import { RuntimeSplines, type SplineSimData } from './splines';
+import { SimWorldStream } from './world-stream';
+
+export { worldStreamSources } from './world-stream';
 
 // ---- the script API types (public: `ctx.grid`) -------------------------------------
 
@@ -549,13 +554,18 @@ export class RuntimeGrid {
   /** Walk graphs kept between queries, per grid as shown (a new grid or kit view starts afresh; `walkGraphFor`). */
   private readonly walkGraphs: WalkGraphCache = new WeakMap();
 
-  constructor(types: readonly BlockType[], fields: readonly CellField[], collide: boolean, defaultMaxSlope = 45, materialIds?: readonly string[], prefabs?: ReadonlyMap<string, PrefabDefinition>, modelColliders?: ModelColliderTable) {
-    this.scatter = new RuntimeScatter(collide, modelColliders);
+  /** `streamSources` gives world streaming's sources at a step boundary (absent: streamed objects stream around nothing). */
+  constructor(types: readonly BlockType[], fields: readonly CellField[], collide: boolean, defaultMaxSlope = 45, materialIds?: readonly string[], prefabs?: ReadonlyMap<string, PrefabDefinition>, modelColliders?: ModelColliderTable, streamSources?: () => number[][]) {
+    this.stream = new SimWorldStream(streamSources ?? null);
+    const collisionRing = (entityId: string, x: number, z: number): boolean => this.stream.has(entityId, 'collision', `${x},${z}`);
+    this.terrain = new TerrainColliders(collisionRing);
+    this.scatter = new RuntimeScatter(collide, modelColliders, collisionRing);
     this.splines = new RuntimeSplines(collide, modelColliders);
     this.materialIds = materialIds !== undefined ? new Set(materialIds) : null;
     this.types = new Map(types.map((t) => [t.blockId, t]));
     this.kitNames = new Set(blockKitNames(types));
-    this.live = prefabs !== undefined && LiveBlocks.anyLive(types) ? new LiveBlocks(this.types, prefabs) : null;
+    const liveStream = { streams: (id: string) => this.stream.streams(id), inRing: (id: string, x: number, z: number) => this.stream.has(id, 'live', chunkKeyOf(Math.floor(x / CHUNK_SIZE), Math.floor(z / CHUNK_SIZE))), spawnsLeft: () => this.stream.liveSpawnsLeft(), spent: (n: number) => this.stream.spent(n) };
+    this.live = prefabs !== undefined && LiveBlocks.anyLive(types) ? new LiveBlocks(this.types, prefabs, liveStream) : null;
     this.fields = fields;
     this.fieldByKey = new Map(fields.map((f) => [f.key, f]));
     this.collide = collide;
@@ -613,16 +623,20 @@ export class RuntimeGrid {
     return this.layerMap.size === 0;
   }
 
+  /** World streaming: which streamed tiles and chunks collide and which live blocks have objects. */
+  readonly stream: SimWorldStream;
   /** The terrains' colliders (flushed with the chunks', in the same batch points). */
-  readonly terrain = new TerrainColliders();
+  readonly terrain: TerrainColliders;
   /** The terrains' and layers' scatter copies (`ctx.scatter`; their colliders flushed with the chunks'). */
   readonly scatter: RuntimeScatter;
   /** The loaded splines (`ctx.splines`; what they make collides, flushed with the chunks'). */
   readonly splines: RuntimeSplines;
 
-  /** Terrain data decoded on the page (by digest): tiles for their colliders, scatter blobs for their copies, splines' made data for theirs. */
+  /** Terrain data decoded on the page (by digest): tiles for their colliders, scatter blobs for their copies, splines' made data for theirs; tiles it let go of. */
   addTerrainData(items: readonly TerrainSimData[]): void {
-    const tiles = items.filter((t): t is TerrainTileData => !('scatter' in t) && !('spline' in t));
+    const dropped = items.flatMap((t) => ('dropped' in t ? [t.digest] : []));
+    if (dropped.length > 0) this.terrain.dropTiles(dropped);
+    const tiles = items.filter((t): t is TerrainTileData => !('scatter' in t) && !('spline' in t) && !('dropped' in t));
     if (tiles.length > 0) this.terrain.addTiles(tiles);
     const blobs = items.filter((t): t is TerrainScatterData => 'scatter' in t);
     if (blobs.length > 0) this.scatter.addBlobs(blobs);
@@ -642,6 +656,10 @@ export class RuntimeGrid {
   addLayers(entities: readonly EntityV3[]): string[] {
     this.scatter.add(entities);
     this.splines.add(entities);
+    for (const e of entities) {
+      const t = (e.components as { terrain?: TerrainComponent }).terrain;
+      if (t !== undefined) this.stream.addTerrain(e.id, t, e.components.transform?.position ?? [0, 0, 0], this.collide && t.collision !== false);
+    }
     const added: string[] = this.collide ? this.terrain.add(entities) : [];
     for (const e of entities) {
       const comp = (e.components as { blockLayer?: BlockLayerComponent & { data?: BlockLayerData } }).blockLayer;
@@ -653,6 +671,7 @@ export class RuntimeGrid {
       this.reshow(layer);
       this.rebuildCovers(layer);
       this.layerMap.set(e.id, layer);
+      this.stream.addLayer(e.id, comp, p, () => layer.grid.chunkKeys());
       this.live?.addLayer(e.id);
       this.markAll(layer);
       added.push(e.id);
@@ -663,6 +682,7 @@ export class RuntimeGrid {
   /** Forget unloaded layers; returns their collider ids (the caller removes them from the port). */
   removeLayers(ids: ReadonlySet<string>): string[] {
     const colliders: string[] = [...this.terrain.remove(ids), ...this.scatter.remove(ids), ...this.splines.remove(ids)];
+    for (const id of ids) this.stream.remove(id);
     for (const id of ids) {
       const layer = this.layerMap.get(id);
       if (layer === undefined) continue;
@@ -909,6 +929,27 @@ export class RuntimeGrid {
     this.current = [];
     this.writes = 0;
     this.stepIndex = stepIndex;
+    this.followStream(stepIndex);
+  }
+
+  /** World streaming's rings at the step boundary: what entered and left them is built or taken off at the next flush. */
+  private followStream(stepIndex: number): void {
+    if (!this.stream.active) return;
+    this.stream.advance(stepIndex);
+    for (const c of this.stream.takeChanges()) {
+      const keys = [...c.entered, ...c.left];
+      if (c.ring === 'live') {
+        const layer = this.layerMap.get(c.entityId);
+        if (layer !== undefined) this.live?.markChunks(c.entityId, layer.shown, keys);
+        continue;
+      }
+      this.terrain.markDirty(c.entityId);
+      for (const k of keys) this.scatter.markDirty(c.entityId, k);
+      if (!this.layerMap.has(c.entityId)) continue;
+      let dirty = this.collisionDirty.get(c.entityId);
+      if (dirty === undefined) this.collisionDirty.set(c.entityId, (dirty = new Set()));
+      for (const k of keys) dirty.add(k);
+    }
   }
 
   /** Rebuild the colliders of the chunks written since the last flush (batched: one remove, one add). */
@@ -928,6 +969,11 @@ export class RuntimeGrid {
       for (const ck of [...keys].sort()) {
         const old = layer.colliders.get(ck);
         if (old !== undefined) remove.push(...old);
+        // A streamed layer's chunk outside its collision ring has none.
+        if (!this.stream.has(entityId, 'collision', ck)) {
+          layer.colliders.delete(ck);
+          continue;
+        }
         const [cx, cz] = ck.split(',').map(Number) as [number, number];
         const pieces = collisionMeshChunk(layer.shown, cx, cz, this.types);
         const ids: string[] = [];

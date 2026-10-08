@@ -18,7 +18,7 @@
  *   guard, transform-ownership validation, the settle pre-roll, per-step
  *   action sampling and fail-stop with no rollback.
  */
-import { RuntimeGrid, type GridCutawayState, type GridRenderChange } from './grid';
+import { RuntimeGrid, worldStreamSources, type GridCutawayState, type GridRenderChange } from './grid';
 import type { TerrainSimData } from './scatter-copies';
 import { fail, isPhysicsPort, isPlainObject, parseConfig, PHYSICS_PORT_REASON } from './runtime-config';
 import { RuntimeMaterials, type MaterialRenderChange, type RuntimeMaterialCatalog } from './material-params';
@@ -1275,7 +1275,7 @@ class RuntimeInstance implements Runtime {
     });
     this.spawnControl = this.spawnRequests.control();
     // The start scenes' block layers; in 3D their chunks collide (a 2D plane draws them only).
-    this.grid = new RuntimeGrid(args.blockTypes, args.cellFields, args.physics3d !== undefined, args.settings.max_slope_climb_deg, args.materialIds, this.prefabs, args.modelColliders);
+    this.grid = new RuntimeGrid(args.blockTypes, args.cellFields, args.physics3d !== undefined, args.settings.max_slope_climb_deg, args.materialIds, this.prefabs, args.modelColliders, () => worldStreamSources(this.views.main.hasView() ? this.views.main.view() : null, this.controllers.ids, (id) => this.curr.get(id)?.position));
     this.grid.addLayers(args.initialEntities);
     this.grid.flushCollision(args.physics3d);
     // The start set's graph materials (the values scripts set per object).
@@ -4592,8 +4592,8 @@ class RuntimeInstance implements Runtime {
     const ea = this.entityAccess;
     if (ea.applied + ea.refused + ea.conflicts > 0) m2.entityWrites = { applied: ea.applied, refused: ea.refused, conflicts: ea.conflicts, inactive: ea.inactive().size };
     // Script messages refused at the per-step limit (only once one was: the warning); block layers' memory (with layers).
-    const queue = this.blocks?.messageQueueView() ?? null, blockMemory = this.grid.memory(), terrainMemory = this.grid.terrain.memory(), scatterCopies = this.grid.scatter.diagnostics(), splines = this.grid.splines.diagnostics();
-    Object.assign(m2, queue !== null ? { messageQueue: queue } : {}, blockMemory !== null ? { blockMemory } : {}, terrainMemory !== null ? { terrainMemory } : {}, scatterCopies !== null ? { scatterCopies } : {}, splines !== null ? { splines } : {});
+    const queue = this.blocks?.messageQueueView() ?? null, blockMemory = this.grid.memory(), terrainMemory = this.grid.terrain.memory(), scatterCopies = this.grid.scatter.diagnostics(), splines = this.grid.splines.diagnostics(), worldStream = this.grid.stream.diagnostics();
+    Object.assign(m2, queue !== null ? { messageQueue: queue } : {}, blockMemory !== null ? { blockMemory } : {}, terrainMemory !== null ? { terrainMemory } : {}, scatterCopies !== null ? { scatterCopies } : {}, splines !== null ? { splines } : {}, worldStream !== null ? { worldStream } : {});
     if (this.failedModuleId !== undefined) m2.failedModuleId = this.failedModuleId;
     if (this.failedPhase !== undefined) m2.failedPhase = this.failedPhase;
     if (this.failedStepIndex !== undefined) m2.failedStepIndex = this.failedStepIndex;

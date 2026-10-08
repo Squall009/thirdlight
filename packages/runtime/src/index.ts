@@ -261,14 +261,19 @@ export { TERRAIN_HEIGHT_STEPS, TERRAIN_PAINT_BYTES, TERRAIN_SAMPLE_LAYERS, TERRA
 export { HEIGHTMAP_FORMATS, TERRAIN_BRUSH_LIMITS, TERRAIN_LAYER_MAX, TERRAIN_NOISE_HASH, TERRAIN_TILE_COORD_MAX, TERRAIN_TILE_SAMPLES_DEFAULT, terrainDabSamples, type HeightmapFormat } from '@thirdlight/project-model';
 // The edit layers and erosion settings the editor's terrain tools offer (the command checks them).
 export { EROSION_LIMITS, HYDRAULIC_DEFAULTS, TERRAIN_STAMP_FALLOFF_DEFAULT, TERRAIN_STAMP_MODES, THERMAL_DEFAULTS, terrainLayerOrder, type ErosionSettings, type TerrainLayer, type TerrainStamp, type TerrainStampMode } from '@thirdlight/project-model';
-export { terrainTileOf } from './terrain-blob';
+export { terrainOverviewOf, terrainTileOf } from './terrain-blob';
+// World streaming: rings around the camera (the page) and the simulation's sources within which tiles and chunks are loaded.
+export { STREAMING_BUDGET_DEFAULT_MB, TERRAIN_OVERVIEW_SAMPLES, inStreamRing, resolveStreamingRings, squareDistance, streamingBudgetBytesOf, type ResolvedStreamingRings, type StreamingRings, type StreamRing, type TerrainOverviewTile } from '@thirdlight/project-model';
+// A tile's and an overview's blobs made in memory (tests of the page's streaming; a build makes them with gzip).
+export { encodeTerrainOverview, encodeTerrainTile, terrainOverviewTile, wrapTerrainOverview, wrapTerrainTile } from '@thirdlight/project-model';
+export { STREAM_CHUNK_COST, STREAM_COLLIDER_SAMPLES_PER_STEP, STREAM_LIVE_SPAWNS_PER_STEP, STREAM_RECHECK_METRES, SimWorldStream, worldStreamSources, type SimStreamDiagnostics, type StreamRingChange } from './world-stream';
 // Rule scatter's stored copies (terrain tiles' blobs, block chunks' text), read by the renderer and the colliders.
 export { FOLIAGE_NEAR_METRES, SCATTER_BLOB_DISTANCE, SCATTER_CHUNK_METERS_DEFAULT, SCATTER_COPY_FLOATS, SCATTER_COVER_DISTANCE_DEFAULT, SCATTER_LIMITS, bakeScatterCell, blockScatterSurface, coverScatterRules, decodeChunkScatter, encodeChunkScatter, regionExcluder, scatterBlobOf, scatterCellOfBlob, scatterCellBytes, scatterReach, storedScatterRules, terrainScatterSurface, type ScatterCell, type ScatterCopies, type ScatterGround, type ScatterRect, type ScatterRegionLayer, type ScatterRule, type ScatterSurface } from '@thirdlight/project-model';
 export { TERRAIN_COLLIDER_PATCH_CELLS, TerrainColliders, terrainColliderId, terrainColliderPieces, type TerrainCollisionDiagnostics, type TerrainCollisionTile, type TerrainColliderPiece, type TerrainTileData } from './terrain-collision';
 export { RuntimeSplines, type BehaviorSplines, type SplineCollisionDiagnostics, type SplineNearestInfo, type SplinePose, type SplineSimData } from './splines';
 // Splines' curves and their bands (the renderer's ground cover keeps clear of them; spline meshes are drawn along them).
 export { SPLINE_MATERIAL_SLOT, SPLINE_WIDTH_DEFAULT, SplineCurve, SplineScatterBands, decodeSplineMade, isSplineMadeBlob, newSplineFrame, splineScatterRect, terrainSplineInputs, type SplineComponent, type SplineFrame, type SplineMade, type SplineMeshPiece, type SplinePoint } from '@thirdlight/project-model';
-export { RuntimeScatter, SCATTER_ADDRESS_TAG, SCATTER_NEAR_MAX, parseScatterAddress, scatterAddress, type BehaviorScatter, type ScatterCopiesDiagnostics, type ScatterCopyChange, type ScatterCopyInfo, type ScatterCopyState, type TerrainScatterData, type TerrainSimData } from './scatter-copies';
+export { RuntimeScatter, SCATTER_ADDRESS_TAG, SCATTER_NEAR_MAX, parseScatterAddress, scatterAddress, type BehaviorScatter, type ScatterCopiesDiagnostics, type ScatterCopyChange, type ScatterCopyInfo, type ScatterCopyState, type TerrainDataDropped, type TerrainScatterData, type TerrainSimData } from './scatter-copies';
 // Gunzip with the platform's DecompressionStream (a build's binary data ships gzip: block chunks, terrain tiles).
 export { gunzip } from './gunzip';
 // The project's lens (its camera settings) for the editor's camera previews.

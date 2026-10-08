@@ -7,6 +7,7 @@
  */
 import { bool, int, json, num, obj, vec2 } from './descriptor-builders';
 import type { ComponentDescriptor } from './descriptor-types';
+import { streamingField } from './world-streaming-descriptor';
 import { TERRAIN_HEIGHT_LIMIT, TERRAIN_LOD_DISTANCE_LIMITS, TERRAIN_MACRO_DISTANCE_LIMITS, TERRAIN_SPACING_LIMITS, TERRAIN_TILE_SAMPLES, TERRAIN_TILE_SAMPLES_DEFAULT } from './terrain';
 
 export const terrain: ComponentDescriptor = {
@@ -25,6 +26,8 @@ export const terrain: ComponentDescriptor = {
     json('rules', 'Material rules', 'Layers by slope, height, cavity and noise, baked into the tiles: [{layer, strength?, face?, height?, slope?, cavity?, noise?, weight?}] (set and baked by Material rules in the terrain tools, or editTerrain bake; hand paint stays over them).', { readOnly: true }),
     json('scatter', 'Scatter rules', 'Models placed by rules, their copies baked per tile: [{id, asset, density, spacing?, scale?, yaw?, align?, sink?, seed?, height?, slope?, cavity?, noise?, layers?, exclude?, castShadow?, chunkSize?, density falloff, lodPerCopy?, impostorSize?, collide?}] (set and baked by Scatter rules in the terrain tools, or editTerrain bake; the scatter brush\'s hand edits stay over them).', { readOnly: true }),
     json('layers', 'Edit layers', 'Layers over the hand-made ground, applied in order and combined into the tiles: [{id, kind: stamps|erosion|splines, name?, enabled?, strength?, stamps?: [{asset, at, size, rotation?, height, mode?, y?, falloff?}], tiles?, settings?}] (the Layers list in the terrain tools; erosion is run by editTerrain erode; absent: one base layer with the splines on top).', { readOnly: true }),
+    streamingField('tiles', false, 1500),
+    json('overview', 'Overview', 'The SHA-256 of every tile at its coarsest level, which a streamed terrain draws past its render ring (written by a build, never in the editor).', { readOnly: true }),
   ]),
   add: { kind: 'tool', tool: 'terrain commands (editTerrain)' },
   handles: [],

@@ -498,7 +498,7 @@ export const M3_SETTINGS_KEYS = [
  * when the project sets them), in registry order — a project that never sets
  * one keeps its exact settings block and digests.
  */
-export const M3_OPTIONAL_SETTINGS_KEYS = ['fixed_step_hz', 'audio_voices', 'music_fade_s', 'animation_crossfade_s', 'render_backend', 'physics_dimension', 'sim_thread', 'debug_console', 'random_seed', 'depth_buffer', 'instance_chunk_m', 'audio_spatial', 'texture_budget_mb', 'camera_fov_deg', 'camera_near_m', 'camera_far_m', 'import_extract_textures', 'block_chunk_storage', 'stats_overlay', 'frame_rate_cap', 'lod_bias', 'lod_hysteresis', 'ambient_occlusion', 'render_scale', 'dynamic_resolution'] as const;
+export const M3_OPTIONAL_SETTINGS_KEYS = ['fixed_step_hz', 'audio_voices', 'music_fade_s', 'animation_crossfade_s', 'render_backend', 'physics_dimension', 'sim_thread', 'debug_console', 'random_seed', 'depth_buffer', 'instance_chunk_m', 'audio_spatial', 'texture_budget_mb', 'camera_fov_deg', 'camera_near_m', 'camera_far_m', 'import_extract_textures', 'block_chunk_storage', 'stats_overlay', 'frame_rate_cap', 'lod_bias', 'lod_hysteresis', 'ambient_occlusion', 'render_scale', 'dynamic_resolution', 'streaming_budget_mb'] as const;
 
 // ---------------------------------------------------------------------------
 // Media identity (`media`)

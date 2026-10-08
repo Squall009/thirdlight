@@ -19,6 +19,7 @@
  * renderer's spawned list), where the root's model stays with the chunk mesh.
  */
 import {
+  CHUNK_SIZE,
   LIVE_BLOCK_ROOT_MERGED,
   autoVariant,
   blockTypeIsEdge,
@@ -91,6 +92,17 @@ export interface LiveBlockChanges {
 
 const CELL_PART = /^(m?\d+)_(m?\d+)_(m?\d+)[xz]?(-\d+)?$/;
 
+/** What live blocks ask of world streaming. */
+export interface LiveStreamPort {
+  /** Whether the layer streams (its spawns have a per-step budget). */
+  streams(layerId: string): boolean;
+  /** Whether the chunk holding cell (x, z) is in the layer's live ring. */
+  inRing(layerId: string, x: number, z: number): boolean;
+  /** Objects that may still spawn this step for streamed layers, and taking them. */
+  spawnsLeft(): number;
+  spent(objects: number): void;
+}
+
 export class LiveBlocks {
   private readonly layers = new Map<string, LiveLayer>();
   /** Every live object → its layer and anchor cell (or edge: `axis` 0 or 1, `key` the edge's). */
@@ -100,9 +112,16 @@ export class LiveBlocks {
   /** A live type resolves its look from its neighbours: a write is looked at again around it too. */
   private readonly connected: boolean;
 
+  /**
+   * `stream` (world streaming): which cells' objects are in the game (a cell
+   * of a streamed layer outside its live ring has none) and how many objects
+   * may still spawn this step for streamed layers; absent: every cell, at
+   * once.
+   */
   constructor(
     private readonly types: ReadonlyMap<string, BlockType>,
     private readonly prefabs: ReadonlyMap<string, PrefabDefinition>,
+    private readonly stream: LiveStreamPort | null = null,
   ) {
     this.connected = [...types.values()].some((t) => blockTypeLive(t) && t.connect !== undefined);
   }
@@ -149,6 +168,30 @@ export class LiveBlocks {
   markFull(layerId: string): void {
     const l = this.layers.get(layerId);
     if (l !== undefined) l.full = true;
+  }
+
+  /**
+   * Chunks of a layer entered or left its live ring: their live cells and
+   * edges (and the objects there now) are looked at again at the next sync.
+   */
+  markChunks(layerId: string, grid: BlockGridReader, chunks: readonly string[]): void {
+    const l = this.layers.get(layerId);
+    if (l === undefined || chunks.length === 0) return;
+    const live = grid.paletteCells().map((c) => this.isLive(c));
+    const wanted = new Set(chunks);
+    for (const ck of chunks) {
+      if (live.includes(true)) grid.forEachInChunk(ck, (x, y, z, idx) => void (live[idx] === true && l.dirty.add(cellKeyOf(x, y, z))));
+      if (grid.edgeCount > 0) grid.forEachEdgeInChunk(ck, (x, y, z, axis, idx) => void (this.isLive(grid.edgeValueOf(idx)) && l.dirtyEdges.add(edgeKeyOf(x, y, z, axis))));
+    }
+    const chunkOf = (x: number, z: number): string => `${Math.floor(x / CHUNK_SIZE)},${Math.floor(z / CHUNK_SIZE)}`;
+    for (const k of l.cells.keys()) {
+      const [x, , z] = cellOfKey(k);
+      if (wanted.has(chunkOf(x, z))) l.dirty.add(k);
+    }
+    for (const k of l.edges.keys()) {
+      const [x, , z] = edgeOfKey(k);
+      if (wanted.has(chunkOf(x, z))) l.dirtyEdges.add(k);
+    }
   }
 
   /** A written cell: looked at again at the next sync when its block before or after is live. */
@@ -288,17 +331,31 @@ export class LiveBlocks {
         }
         if (want !== null) spawns.push({ layerId, l, src, key: k, axis, want });
       };
+      // A streamed layer's cells outside its live ring have no objects.
+      const streamed = this.stream?.streams(layerId) === true;
+      const inRing = (x: number, z: number): boolean => !streamed || this.stream!.inRing(layerId, x, z);
       for (const k of keys) {
         const [x, y, z] = cellOfKey(k);
-        follow(l.cells, k, -1, this.wanted(src.grid, src.grid.get(x, y, z), x, y, z));
+        follow(l.cells, k, -1, inRing(x, z) ? this.wanted(src.grid, src.grid.get(x, y, z), x, y, z) : null);
       }
       for (const k of edgeKeys) {
         const [x, y, z, axis] = edgeOfKey(k);
-        follow(l.edges, k, axis, this.wantedEdge(src.grid, src.grid.edgeAt(x, y, z, axis), x, y, z, axis));
+        follow(l.edges, k, axis, inRing(x, z) ? this.wantedEdge(src.grid, src.grid.edgeAt(x, y, z, axis), x, y, z, axis) : null);
       }
     }
+    // Streamed layers spawn within the step's budget; the rest wait for the next sync (in the same order).
+    let left = this.stream?.spawnsLeft() ?? Infinity;
+    let spawned = 0;
     for (const s of spawns) {
       const edge = s.axis >= 0;
+      if (this.stream?.streams(s.layerId) === true) {
+        if (left < s.want.def.entities.length && spawned > 0) {
+          (edge ? s.l.dirtyEdges : s.l.dirty).add(s.key);
+          continue;
+        }
+        left -= s.want.def.entities.length;
+        spawned += s.want.def.entities.length;
+      }
       const [x, y, z] = edge ? edgeOfKey(s.key) : cellOfKey(s.key);
       const ids = liveBlockIds(edge ? liveEdgeRootId(s.layerId, x, y, z, s.axis) : liveBlockRootId(s.layerId, x, y, z), s.want.def.entities.length);
       if (ids.some((id) => taken(id) && !removing.has(id))) {
@@ -314,6 +371,7 @@ export class LiveBlocks {
       (edge ? s.l.edges : s.l.cells).set(s.key, { prefabId: s.want.def.prefabId, rot: s.want.rot, ids });
       for (const id of ids) this.byId.set(id, { layer: s.layerId, key: s.key, axis: s.axis });
     }
+    if (spawned > 0) this.stream?.spent(spawned);
     return { remove, add, refused };
   }
 

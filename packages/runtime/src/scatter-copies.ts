@@ -12,8 +12,8 @@
  * collider), one static collider per copy whose id is its address, added and
  * removed in the batches the block layers' and terrains' colliders use
  * (`RuntimeGrid.flushCollision`). Which tiles and chunks get them is a ring
- * (`ring`): every one for now, the collision ring of world streaming once
- * tiles stream. A hidden or removed copy has none.
+ * (`ring`): a streamed terrain's or layer's collision ring (`world-stream.ts`),
+ * every one otherwise. A hidden or removed copy has none.
  *
  * A block layer's copies come with its chunks; a terrain's tiles' scatter
  * blobs are read and decoded by the page and handed over by digest
@@ -98,8 +98,14 @@ export interface TerrainScatterData {
   readonly scatter: ScatterCell;
 }
 
-/** What the page hands the simulation of its level: terrain tiles (for their colliders), scatter blobs (for their copies) and splines' made data (for theirs). */
-export type TerrainSimData = TerrainTileData | TerrainScatterData | import('./splines').SplineSimData;
+/** A terrain tile the page let go of (world streaming): the simulation lets go of its data too. */
+export interface TerrainDataDropped {
+  readonly digest: string;
+  readonly dropped: true;
+}
+
+/** What the page hands the simulation of its level: terrain tiles (for their colliders), scatter blobs (for their copies), splines' made data (for theirs), and tiles it let go of. */
+export type TerrainSimData = TerrainTileData | TerrainScatterData | import('./splines').SplineSimData | TerrainDataDropped;
 
 /**
  * Rule scatter's stored copies — trees, rocks, anything the terrains' and
@@ -261,6 +267,11 @@ export class RuntimeScatter {
         this.dirty.add(`${s.entityId}\u0000${key}`);
       }
     }
+  }
+
+  /** A tile or chunk entered or left its collision ring: its copies' colliders are built again (or taken off) at the next flush. */
+  markDirty(entityId: string, key: string): void {
+    if (this.sources.has(entityId)) this.dirty.add(`${entityId}\u0000${key}`);
   }
 
   /** A new run: every copy back (the renderer shows them again, their colliders come back). */

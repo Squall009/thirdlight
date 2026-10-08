@@ -43,6 +43,7 @@ import { canonicalBlockCutaway, validateBlockCutaway, type BlockCutaway } from '
 import { canonicalBlockLayerWalk, validateBlockLayerWalk, type BlockLayerWalk } from './block-walk-settings';
 import { canonicalSurfaceRules, validateSurfaceRules, type SurfaceRule } from './surface-rules';
 import { canonicalScatterRules, chunkScatterError, validateScatterRules, type ScatterRule } from './scatter';
+import { canonicalStreamingRings, validateStreamingRings, type StreamingRings } from './world-streaming';
 import { canonicalBlockTypeKits, canonicalLayerKits, composeBlockTypeKits, validateBlockTypeKits, validateLayerKits, type BlockKitSwap, type BlockLayerKit } from './block-kit';
 
 // ---- types -----------------------------------------------------------------------
@@ -198,6 +199,12 @@ export interface BlockLayerComponent {
    * `bakeScatter` edit bakes every chunk). Absent: none.
    */
   scatter?: ScatterRule[];
+  /**
+   * Rings around the camera within which chunks are drawn, collide, show
+   * their scatter and have their live blocks' objects (`world-streaming.ts`;
+   * the cells themselves are always loaded). Absent: every chunk loaded.
+   */
+  streaming?: StreamingRings;
 }
 
 export type BlockShape = 'full' | 'half' | 'ramp' | 'stairs' | 'custom' | 'none';
@@ -846,7 +853,7 @@ export function canonicalBlockStamps(list: readonly BlockStamp[]): BlockStamp[] 
 export const BLOCK_LAYER_DEFAULT: BlockLayerComponent = Object.freeze({ cellSize: [1, 1, 1], bounds: { min: [0, 0, 0], max: [64, 16, 64] } }) as BlockLayerComponent;
 
 /** The stored fields of the `blockLayer` component, in canonical order. */
-export const BLOCK_LAYER_FIELDS = ['cellSize', 'bounds', 'metadataOnly', 'collision', 'castShadow', 'receiveShadow', 'maxSlope', 'smoothAngle', 'topSubdivision', 'wallPaint', 'lightLayers', 'cutaway', 'kits', 'walk', 'vertexAO', 'rules', 'scatter'] as const;
+export const BLOCK_LAYER_FIELDS = ['cellSize', 'bounds', 'metadataOnly', 'collision', 'castShadow', 'receiveShadow', 'maxSlope', 'smoothAngle', 'topSubdivision', 'wallPaint', 'lightLayers', 'cutaway', 'kits', 'walk', 'vertexAO', 'rules', 'scatter', 'streaming'] as const;
 
 export function validateBlockLayerComponent(v: unknown, path: string, errors: ModelErrorV2[]): void {
   if (!isPlainObject(v)) return err(errors, 'field_type', path, 'blockLayer is an object', v, 'object');
@@ -891,6 +898,7 @@ export function validateBlockLayerComponent(v: unknown, path: string, errors: Mo
   if (ao !== undefined && (!finite(ao) || ao < 0 || ao > 1)) err(errors, 'field_value', `${path}/vertexAO`, 'vertexAO is 0-1 (0: none)', ao);
   if (v['rules'] !== undefined) validateSurfaceRules(v['rules'], `${path}/rules`, errors, true);
   if (v['scatter'] !== undefined) validateScatterRules(v['scatter'], `${path}/scatter`, errors, true);
+  validateStreamingRings(v['streaming'], `${path}/streaming`, errors, true);
 }
 
 export function canonicalBlockLayerComponent(c: BlockLayerComponent): BlockLayerComponent {
@@ -912,6 +920,7 @@ export function canonicalBlockLayerComponent(c: BlockLayerComponent): BlockLayer
     ...(c.vertexAO !== undefined && c.vertexAO > 0 ? { vertexAO: canonNum(c.vertexAO) } : {}),
     ...(c.rules !== undefined && c.rules.length > 0 ? { rules: canonicalSurfaceRules(c.rules) } : {}),
     ...(c.scatter !== undefined && c.scatter.length > 0 ? { scatter: canonicalScatterRules(c.scatter) } : {}),
+    ...(c.streaming !== undefined ? { streaming: canonicalStreamingRings(c.streaming)! } : {}),
   };
 }
 

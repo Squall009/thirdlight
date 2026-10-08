@@ -17,8 +17,8 @@
  * digest: the page reads and decodes them, the simulation never touches the
  * network); a tile without data is flat. A terrain whose tile has not
  * arrived yet has no collider there until it does. Which tiles get colliders
- * is a ring (`ring`): every tile for now, the collision ring of world
- * streaming once tiles stream.
+ * is a ring (`ring`): a streamed terrain's collision ring (`world-stream.ts`),
+ * every tile of one that does not stream.
  *
  * A terrain with `collision: false` has none (scenery the player never
  * reaches); neither has any terrain without a 3D port.
@@ -165,7 +165,7 @@ export interface TerrainCollisionDiagnostics {
   tilesWithColliders: number;
   /** The last flush that built colliders: tiles built and milliseconds (shapes made and handed to the port). */
   lastBuild: { tiles: number; ms: number } | null;
-  /** Tiles named with data that have not arrived. */
+  /** Tiles named with data (in the collision ring, when the terrain streams) that have no collider because their data has not arrived. */
   waiting: number;
 }
 
@@ -185,7 +185,7 @@ export class TerrainColliders {
 
   /**
    * `ring` says which tiles have colliders (entity, tile x, z); absent:
-   * every tile (world streaming narrows it to the collision ring).
+   * every tile.
    */
   constructor(private readonly ring: ((entityId: string, x: number, z: number) => boolean) | null = null) {}
 
@@ -229,6 +229,19 @@ export class TerrainColliders {
       got.add(t.digest);
     }
     for (const s of this.terrains.values()) if (s.component.tiles.some((r) => r.data !== undefined && got.has(r.data))) this.dirty.add(s.entityId);
+  }
+
+  /**
+   * The page let go of tiles (by digest): their data goes. Colliders
+   * already built from it stay until their tile leaves the collision ring.
+   */
+  dropTiles(digests: readonly string[]): void {
+    for (const d of digests) this.tiles.delete(d);
+  }
+
+  /** A terrain's collision ring changed: its tiles are looked at again at the next flush. */
+  markDirty(entityId: string): void {
+    if (this.terrains.has(entityId)) this.dirty.add(entityId);
   }
 
   get pending(): boolean {
@@ -298,7 +311,7 @@ export class TerrainColliders {
         colliders += b.ids.length;
         tilesWithColliders += 1;
       }
-      for (const r of s.component.tiles) if (r.data !== undefined && !this.tiles.has(r.data)) waiting += 1;
+      for (const r of s.component.tiles) if (r.data !== undefined && !this.tiles.has(r.data) && !s.built.has(terrainTileKey(r.x, r.z)) && (this.ring === null || this.ring(s.entityId, r.x, r.z))) waiting += 1;
     }
     return { tiles: this.tiles.size, bytes, colliders, tilesWithColliders, lastBuild: this.lastBuild, waiting };
   }

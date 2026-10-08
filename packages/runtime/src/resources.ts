@@ -1,7 +1,8 @@
 /**
  * The resource manager: everything a game page loads from its assets (the
  * verified bytes, models, textures (the sky's and the grading LUT's too),
- * animation clips, audio (decoded, compressed or streamed), fonts, UI images, effect models) is held here by its holders
+ * animation clips, audio (decoded, compressed or streamed), fonts, UI images, effect models, and the
+ * terrain tiles, block chunks and scatter groups world streaming holds) is held here by its holders
  * and freed when the last one goes, as Godot frees a refcounted `Resource`.
  *
  * - A holder is a string naming who keeps the resource: a loaded scene, a
@@ -25,11 +26,14 @@
  * The kinds of resources a page loads from assets. Audio has three, one per
  * way a sound file is held: `audio` decoded buffers, `audio-bytes` the
  * compressed bytes of files decoded when played, `audio-stream` the media
- * elements of files streamed as they play.
+ * elements of files streamed as they play. World streaming holds its cells
+ * here too: `terrain-tile` a streamed terrain's tile (decoded and on the
+ * GPU), `block-chunk` a streamed block layer's chunk meshes, `scatter-group`
+ * a streamed object's scatter group.
  */
-export type ResourceKind = 'bytes' | 'model' | 'texture' | 'clip' | 'audio' | 'audio-bytes' | 'audio-stream' | 'font' | 'image' | 'effect-model';
+export type ResourceKind = 'bytes' | 'model' | 'texture' | 'clip' | 'audio' | 'audio-bytes' | 'audio-stream' | 'font' | 'image' | 'effect-model' | 'terrain-tile' | 'block-chunk' | 'scatter-group';
 
-export const RESOURCE_KINDS: readonly ResourceKind[] = Object.freeze(['bytes', 'model', 'texture', 'clip', 'audio', 'audio-bytes', 'audio-stream', 'font', 'image', 'effect-model']);
+export const RESOURCE_KINDS: readonly ResourceKind[] = Object.freeze(['bytes', 'model', 'texture', 'clip', 'audio', 'audio-bytes', 'audio-stream', 'font', 'image', 'effect-model', 'terrain-tile', 'block-chunk', 'scatter-group']);
 
 /** The key of one asset version's resource (its bytes, its parsed model or clips). Textures and the other decoded kinds are keyed by asset id. */
 export function assetVersionKey(assetId: string, version: number): string {

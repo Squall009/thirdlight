@@ -16,6 +16,7 @@ import { PROPERTY_KEY_RE } from './components';
 import { AUDIO_VOICE_CAP, AUDIO_VOICES_DEFAULT, MAX_SETTINGS_KEYS } from './content-limits';
 import { limitsError, sortedKeys } from './content-helpers';
 import { TEXTURE_BUDGET_DEFAULT_MB, TEXTURE_BUDGET_MAX_MB, TEXTURE_BUDGET_MIN_MB } from './texture-streaming';
+import { STREAMING_BUDGET_DEFAULT_MB, STREAMING_BUDGET_MAX_MB, STREAMING_BUDGET_MIN_MB } from './world-streaming';
 import { LOD_BIAS_DEFAULT, LOD_BIAS_MAX, LOD_BIAS_MIN, LOD_HYSTERESIS_DEFAULT, LOD_HYSTERESIS_MAX } from './model-lod';
 import { VIEW_LENS_DEFAULTS, VIRTUAL_CAMERA_LIMITS } from './cameras';
 import { FRAME_RATE_CAPS } from './frame-rate-cap';
@@ -188,6 +189,9 @@ export const M2_SETTINGS_KEYS: readonly SettingsKeySpec[] = [
   { key: 'ambient_occlusion', type: 'number', default: ambientOcclusionSettingValue(AMBIENT_OCCLUSION_DEFAULT), values: [...AMBIENT_OCCLUSION_SETTING_VALUES], valueLabels: ['Off', 'SSAO (fast, half resolution)', 'GTAO (quality)'], integer: true, unit: '', optional: true, group: RENDERING_SETTINGS_GROUP, label: 'Ambient occlusion', tooltip: 'The kind of ambient occlusion drawn where a scene\'s look turns it on (Post → Ambient occlusion). It darkens only the indirect light (ambient, sky and probe light, and per-vertex local light) in creases and corners, never the sun or per-pixel lamps. SSAO is the fast one new projects start with; GTAO is darker and more exact, at about twice the cost, and what a project draws when it does not set this. A player\'s settings field bound to ambientOcclusion overrides it.' },
   { key: 'render_scale', type: 'number', default: RENDER_SCALE_DEFAULT, min: RENDER_SCALE_MIN, max: RENDER_SCALE_MAX, unit: '×', optional: true, group: RENDERING_SETTINGS_GROUP, label: 'Render scale', tooltip: 'The share of the screen\'s resolution Play and the export draw the 3D view at (0.5–1), upscaled to the screen with AMD FSR 1 (edge-adaptive upscaling and sharpening). 0.75 draws about half the pixels. The Scene view always draws at full resolution. A player\'s settings field bound to renderScale overrides it.' },
   { key: 'dynamic_resolution', type: 'number', default: 0, values: [0, 1], valueLabels: ['Off', 'On'], integer: true, unit: '', optional: true, group: RENDERING_SETTINGS_GROUP, label: 'Dynamic resolution', tooltip: 'Lowers the render scale (down to 0.5) while the GPU takes longer than a frame (the frame-rate cap, else 60 fps) and raises it again, up to the render scale, when it has room. It changes slowly and waits longer after a change that did not hold, so it does not flicker. A player\'s settings field bound to dynamicResolution overrides it.' },
+  // The memory streamed terrain tiles and block chunks may take in Play and the export (MiB; project-model
+  // STREAMING_BUDGET_DEFAULT_MB, where the default's reason is).
+  { key: 'streaming_budget_mb', type: 'number', default: STREAMING_BUDGET_DEFAULT_MB, min: STREAMING_BUDGET_MIN_MB, max: STREAMING_BUDGET_MAX_MB, integer: true, unit: 'MiB', optional: true, group: RENDERING_SETTINGS_GROUP, label: 'Streaming budget', tooltip: 'Memory (MiB) the streamed terrain tiles and block chunks (those with Streaming rings) may take in Play and the export: tiles and chunks kept past their rings are let go first when it is full. Rings that alone need more are reported as a problem, never cut.' },
 ];
 
 /**
