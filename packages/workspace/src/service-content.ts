@@ -8,7 +8,7 @@
 import { existsSync, mkdirSync, realpathSync } from 'node:fs';
 import { basename, join, sep } from 'node:path';
 
-import type { CommandError } from '@thirdlight/commands';
+import type { CommandError, SceneDocument } from '@thirdlight/commands';
 import type { ContentCatalogV4, MissingAssetFile } from '@thirdlight/project-model';
 
 import { assetUsers, isValidSourcePath } from '@thirdlight/project-model';
@@ -90,6 +90,7 @@ import { FileStamps, FILE_STAMPS_NAME } from './file-stamps';
 import { assetRecordOf } from './catalog-lookup';
 import { isWithin } from './registry';
 import { WatchedAssets, type WatchedAssetsStats } from './watched-assets';
+import { erodeWorkInput } from './terrain-layer-reads';
 
 /** The session as the content-store operations need it. */
 /**
@@ -584,6 +585,31 @@ export function contentOps(core: Core) {
     writeAssetFolder,
     scanAssetFolder: scanFolder,
     prepareAssetImport,
+    erosionWork: (projectId: string, args: Record<string, unknown>) =>
+      withOpenSession(
+        projectId,
+        (s) => {
+          const state = s.v4;
+          const id = args['entityId'];
+          if (state === null || state === undefined || typeof id !== 'string') return null;
+          for (const sc of state.scenes.values()) {
+            if (!sc.entities.some((e) => e.id === id)) continue;
+            const work = erodeWorkInput(core, s, { ...sc, revision: state.revision } as unknown as SceneDocument, args);
+            return work === null ? null : { key: work.key, grid: work.input.grid, settings: work.input.settings };
+          }
+          return null;
+        },
+        () => null,
+      ),
+    prepareErosion: (projectId: string, key: string, heights: Float64Array): void =>
+      void withOpenSession(
+        projectId,
+        (s) => {
+          s.preparedErosion = { key, heights };
+          return null;
+        },
+        () => null,
+      ),
     takeUpgradeNotes,
     takeOpenProblems,
     writeUploadedFile: (projectId: string, path: string, bytes: Uint8Array) => run(projectId, (s) => writeUploadedFile(core, contentCtx(s), path, bytes)),

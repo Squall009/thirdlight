@@ -452,6 +452,14 @@ export interface WorkspaceService {
   importCacheDir(projectId: string): string | null;
   /** Every file of a folder of the game folder, recursively: what a folder import would bring in, skip or report. */
   scanAssetFolder(projectId: string, folder: string): { ok: true; scan: FolderImportScan } | { ok: false; error: CommandError };
+  /**
+   * An `editTerrain` erode's input, for the backend's worker (null: the
+   * command will refuse it and say why): the grid it erodes, its settings
+   * and the digest the eroded grid is handed back under.
+   */
+  erosionWork(projectId: string, args: Record<string, unknown>): { key: string; grid: import('@thirdlight/project-model').ErosionGrid; settings: import('@thirdlight/project-model').ErosionSettings } | null;
+  /** Keep a worker's eroded grid for the next erode whose input digest is `key`. */
+  prepareErosion(projectId: string, key: string, heights: Float64Array): void;
   /** Keep a folder's inspected files for the next `importAssets` of that folder (the command reads only these). */
   prepareAssetImport(projectId: string, folder: string, files: readonly PreparedImportFile[]): { ok: true } | { ok: false; error: CommandError };
   /** Write one uploaded file into a folder of the game folder (never over another file). */

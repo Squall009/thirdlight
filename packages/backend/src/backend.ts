@@ -40,10 +40,16 @@ import { createFbxConverter } from './fbx';
 import { createInlineTextureEncoder, createWorkerTextureEncoder } from './texture-encode';
 import { createTextureSlotAssembler, type TextureSlotAssembler } from './texture-slots';
 import { createTextureExtraction } from './model-textures';
+import { createErosionRunner } from './erosion-runner';
 
 /** The KTX2 encoder's worker script, when this runs as the built bundle. */
 const KTX2_WORKER: URL | null = (() => {
   const url = new URL('./ktx2-worker.mjs', import.meta.url);
+  return url.protocol === 'file:' && existsSync(decodeURIComponent(url.pathname)) ? url : null;
+})();
+/** The terrain erosion worker script beside the bundle (null from source: erosion runs in process). */
+const EROSION_WORKER: URL | null = (() => {
+  const url = new URL('./erosion-worker.mjs', import.meta.url);
   return url.protocol === 'file:' && existsSync(decodeURIComponent(url.pathname)) ? url : null;
 })();
 import { createThumbnailCache } from './thumbnails';
@@ -1879,7 +1885,7 @@ export function createBackend(
   const externalAnnounced = new Set<string>();
 
 
-  const { establishSession, listSessions, sessionLog, commandRoute } = makeSessionRoutes({ timeouts, nowMs, service, sessions, sendJson, sendError, bearerToken, tokenScope, requireAuth, readBody, fullState, workspaceError, sessionView, recordProblem, notifyMutationApplied, headless, folderImport, textures, onOwnerLost: (sessionId: string, detail?: string) => plays.onOwnerDisconnected(sessionId, detail) });
+  const { establishSession, listSessions, sessionLog, commandRoute } = makeSessionRoutes({ timeouts, nowMs, service, sessions, sendJson, sendError, bearerToken, tokenScope, requireAuth, readBody, fullState, workspaceError, sessionView, recordProblem, notifyMutationApplied, headless, folderImport, textures, erosion: createErosionRunner(EROSION_WORKER), onOwnerLost: (sessionId: string, detail?: string) => plays.onOwnerDisconnected(sessionId, detail) });
 
   const backend: Backend = {
     config,

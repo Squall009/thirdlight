@@ -82,6 +82,14 @@
  *   posts and the simulation has the posts' colliders. On the first renderer
  *   the road's point grip is dragged across the ground in the Scene view: one
  *   command moves it and shapes the terrain again; one undo puts it back.
+ * - Edit layers (Scene view, both renderers): on the first renderer through the
+ *   editor — the Stamp tool places a cone (a texture asset) 20 m high into a new
+ *   stamps layer with a click (one command: the mountain stands where it was
+ *   clicked, its steep flanks magenta from the rules baked after it), the Erode
+ *   tool erodes the square round it (one command, its result an erosion layer),
+ *   and the Layers list switches the erosion off and on. On both renderers the
+ *   pictures with each layer on and off differ where the mountain and its
+ *   channels are; the layers are then switched off for Play and the export.
  */
 import { randomBytes } from 'node:crypto';
 import { createReadStream, existsSync, statSync } from 'node:fs';
@@ -191,6 +199,11 @@ const ROAD_LOOK: readonly [number, number][] = [[-4.5, 13], [1.5, 13]];
  */
 const RIVER_AT: V3 = [14, 2, 0];
 const RIVER = { points: [{ at: [0, 0, -20] }, { at: [1, 0, -12] }, { at: [0, 0, -4] }], width: 5, terrain: { shape: 'flatten', depth: 2, falloff: 2 }, scatter: { margin: 1 }, mesh: { kind: 'water', offset: -0.3, foam: 1 }, pieces: [{ asset: { assetId: 'e2e-post' }, spacing: 3, offset: [3.6, 0] }] };
+/** A cone stamped beside the terrace (its side 16 m, 20 m high: flanks of 68°, past the slope rule's 62°), and the square eroded round it, clear of every other check. */
+const STAMP_AT: [number, number] = [22, 24];
+const STAMP_RADIUS = 8;
+const STAMP_HEIGHT = 20;
+const ERODE_RADIUS = 10;
 /** On the river's middle, where the water is deepest. */
 const RIVER_LOOK: V3 = [15, RIVER_AT[1] - 0.3, -12];
 /** Hides every scatter copy near the middle on the jump key, by address; shows them again on the next. */
@@ -245,6 +258,11 @@ async function buildTerrain(): Promise<{ ground: string; big: string; blocks: st
   const checker = [{ assetId: 'alb-4c', channel: 'r' as const }, { assetId: 'alb-4c', channel: 'g' as const }, { assetId: 'alb-4c', channel: 'b' as const }, ALBEDO_HEIGHT_LAYERS[3]![3]!];
   const five = [...ALBEDO_HEIGHT_LAYERS.slice(0, 3), checker, [{ assetId: 'alb-5', channel: 'r' as const }, { assetId: 'alb-5', channel: 'g' as const }, { assetId: 'alb-5', channel: 'b' as const }, { assetId: 'hgt-5', channel: 'r' as const }]];
   await packTexture(be!, five, 'color', 'terrain-albedo');
+  // The stamp's shape: a cone (white at its centre, black at its rim).
+  await publishTexture(be!, new Uint8Array(makePng(64, 64, (x, y) => {
+    const v = Math.round(Math.max(0, 1 - Math.hypot(x - 31.5, y - 31.5) / 31.5) * 255);
+    return [v, v, v, 255];
+  })), 'e2e-cone', 'Cone');
   const mat = layeredMaterial('mat-terrain', 'Terrain layers');
   await cmd('setMaterial', { material: mat });
   await useArrays(be!, 'mat-terrain', { albedoHeight: 'terrain-albedo', normals: 'terrain-normals', orm: 'terrain-orm' });
@@ -406,6 +424,116 @@ async function roadHandle(page: Page, ground: string, road: string): Promise<voi
   await expect.poll(async () => ((await query('queryEntity', { entityId: road })) as { entity: { components: { spline: { points: { at: number[] }[] } } } }).entity.components.spline.points[2]!.at, { timeout: 30_000, message: 'undone: the road back' }).toEqual([3, 0, 0]);
   await expect.poll(() => height(...oldEnd), { timeout: 30_000, message: 'undone: the ground flattened at the old end again' }).toBeCloseTo(ROAD_AT[1], 2);
   await selectEntity(page, ground);
+}
+
+type TerrainLayerValue = { id: string; kind: string; enabled?: boolean; stamps?: unknown[]; tiles?: unknown[] };
+const layersOf = async (ground: string): Promise<TerrainLayerValue[]> => (((await query('queryEntity', { entityId: ground })) as { entity: { components: { terrain: { layers?: TerrainLayerValue[] } } } }).entity.components.terrain.layers ?? []);
+
+/**
+ * The edit layers in the Scene view (see the file's head). `viaEditor`: the stamp placed, the square eroded and the
+ * erosion switched with the editor's tools; else the layers made on the first renderer are switched on by command.
+ * Each layer's picture on and off around the mountain; the layers are left off (Play and the export as before).
+ */
+async function editLayers(page: Page, renderer: string, ground: string, road: string, viaEditor: boolean): Promise<void> {
+  const height = async (x: number, z: number): Promise<number> => ((await query('queryTerrain', { entityId: ground, points: [[x, z]] }))['points'] as { height: number }[])[0]!.height;
+  const revision = async (): Promise<number> => Number((await query('queryProject')).revision);
+  const switchTo = async (on: Record<string, boolean>): Promise<void> => {
+    const layers = await layersOf(ground);
+    await cmd('setComponent', { entityId: ground, component: 'terrain', value: { layers: layers.map((l) => (on[l.id] === undefined ? l : { ...(({ enabled: _e, ...rest }) => rest)(l), ...(on[l.id] ? {} : { enabled: false }) })) } });
+  };
+  // The hand-made ground there (the layers off), then the layers this pass looks at.
+  const handMade = await height(...STAMP_AT);
+  if (!viaEditor) await switchTo({ stamps: true, erosion: true });
+  const centre: V3 = [STAMP_AT[0], handMade + (viaEditor ? 0 : STAMP_HEIGHT / 2), STAMP_AT[1]];
+  const look: V3 = [STAMP_AT[0], handMade + STAMP_HEIGHT / 2, STAMP_AT[1]];
+  const corners: V3[] = [[-1, -1], [1, -1], [-1, 1], [1, 1]].map(([dx, dz]) => [STAMP_AT[0] + dx! * ERODE_RADIUS, handMade, STAMP_AT[1] + dz! * ERODE_RADIUS]);
+  const figures: Record<string, unknown> = {};
+  // The view framed on the road (beside the mountain), then the terrain's tools.
+  await page.locator(`.tl-hierarchy__list li[data-entity-id="${road}"]`).click();
+  await page.keyboard.press('f');
+  await page.waitForTimeout(400);
+  await selectEntity(page, ground);
+  await zoomedOutTo(page, [centre, ...corners, [STAMP_AT[0], handMade + STAMP_HEIGHT, STAMP_AT[1]]], async () => {
+    if (viaEditor) {
+      await terrainPanel(page).getByRole('button', { name: /^Layers/ }).click();
+      const list = terrainPanel(page).getByRole('group', { name: 'terrain layers' });
+      await terrainTool(page, 'Stamp').click();
+      const opts = terrainPanel(page).getByRole('group', { name: 'stamp options' });
+      await opts.getByLabel('stamp heightmap', { exact: true }).selectOption('e2e-cone');
+      await opts.getByLabel('stamp height', { exact: true }).fill(String(STAMP_HEIGHT));
+      await opts.getByLabel('stamp falloff', { exact: true }).fill('0');
+      await setNumber(page, 'terrain radius', STAMP_RADIUS);
+      // One click: one command — the stamps layer made with the stamp, the ground combined again under it.
+      const rev0 = await revision();
+      const at = await screenOf(page, centre);
+      const t0 = Date.now();
+      await page.mouse.click(at.x, at.y);
+      await expect.poll(revision, { timeout: 30_000, message: 'the stamp stored' }).toBe(rev0 + 1);
+      figures['stampMs'] = Date.now() - t0;
+      const [layer] = await layersOf(ground);
+      expect(layer, 'a stamps layer with the stamp').toMatchObject({ id: 'stamps', kind: 'stamps', stamps: [{ asset: 'e2e-cone', size: 2 * STAMP_RADIUS, height: STAMP_HEIGHT }] });
+      // The cone's centre is where the brush stood; its top 20 m over the ground there.
+      const st = (layer!.stamps![0] as { at: [number, number] }).at;
+      expect(Math.hypot(st[0] - STAMP_AT[0], st[1] - STAMP_AT[1]), 'the stamp where it was clicked').toBeLessThan(0.6);
+      expect((await height(...st)) - handMade, 'the mountain\'s top').toBeGreaterThan(STAMP_HEIGHT - 1.5);
+      await expect(list.getByRole('listitem', { name: 'layer stamps' })).toBeVisible();
+      // The steep flanks painted by the slope rule, baked again after the stamp (on the side the view sees).
+      await expect.poll(async () => {
+        let best = 0;
+        for (const [dx, dz] of [[-1, 0], [1, 0], [0, -1], [0, 1]] as const) {
+          const p: [number, number] = [STAMP_AT[0] + (dx * STAMP_RADIUS) / 2, STAMP_AT[1] + (dz * STAMP_RADIUS) / 2];
+          best = Math.max(best, await shareNear(page, [p[0], await height(...p), p[1]], isMagenta, 6));
+        }
+        return (figures['flankMagenta'] = best);
+      }, { timeout: 30_000, message: `${renderer} Scene view: the stamped mountain's steep flanks painted by the rules` }).toBeGreaterThan(0.5);
+      // The Erode tool: the square round the mountain, one command (eroded on the backend's worker).
+      await terrainTool(page, 'Erode').click();
+      const erodeOpts = terrainPanel(page).getByRole('group', { name: 'erode options' });
+      await erodeOpts.getByLabel('erode droplets', { exact: true }).fill('2');
+      await erodeOpts.getByLabel('erode passes', { exact: true }).fill('20');
+      await setNumber(page, 'terrain radius', ERODE_RADIUS);
+      const probe: [number, number] = [STAMP_AT[0] + STAMP_RADIUS / 2, STAMP_AT[1]];
+      const stamped = await height(...probe);
+      const rev1 = await revision();
+      const t1 = Date.now();
+      await page.mouse.click(at.x, at.y);
+      await expect.poll(revision, { timeout: 60_000, message: 'the erosion stored' }).toBe(rev1 + 1);
+      figures['erodeMs'] = Date.now() - t1;
+      const erosion = (await layersOf(ground)).find((l) => l.kind === 'erosion');
+      expect(erosion?.id).toBe('erosion');
+      expect(erosion!.tiles!.length, 'the eroded tiles').toBeGreaterThan(0);
+      const eroded = await height(...probe);
+      expect(eroded, 'the flank eroded').not.toBe(stamped);
+      // The Layers list: the erosion off (the stamped flank back), and on again.
+      await list.getByLabel('layer erosion on', { exact: true }).click();
+      await expect.poll(() => height(...probe), { timeout: 30_000, message: 'erosion off' }).toBe(stamped);
+      // The switch shows the stored state (it follows the command's result).
+      await expect(list.getByLabel('layer erosion on', { exact: true })).not.toBeChecked();
+      await list.getByLabel('layer erosion on', { exact: true }).click();
+      await expect.poll(() => height(...probe), { timeout: 30_000, message: 'erosion on' }).toBe(eroded);
+      await terrainTool(page, 'Raise').click();
+      await terrainPanel(page).getByRole('button', { name: /^Layers/ }).click();
+    }
+    // The pictures with the layers on, then each layer off: the channels, then the mountain, leave the frame.
+    // The square round the eroded area as the view sees it (whatever the zoom).
+    const span = await Promise.all([...corners, [STAMP_AT[0], handMade + STAMP_HEIGHT, STAMP_AT[1]] as V3].map((c) => screenOf(page, c)));
+    const size = Math.max(48, Math.round(Math.max(Math.max(...span.map((q) => q.x)) - Math.min(...span.map((q) => q.x)), Math.max(...span.map((q) => q.y)) - Math.min(...span.map((q) => q.y)))));
+    figures['shotPx'] = size;
+    await page.waitForTimeout(500);
+    const on = await shot(page, look, size);
+    let diff = 0;
+    await switchTo({ erosion: false });
+    await expect.poll(async () => (diff = meanDiff(on, await shot(page, look, size))), { timeout: 30_000, message: `${renderer} Scene view: erosion off changes the mountain` }).toBeGreaterThan(3);
+    figures['erosionOnOff'] = diff;
+    await page.waitForTimeout(500);
+    const noErosion = await shot(page, look, size);
+    await switchTo({ stamps: false });
+    await expect.poll(async () => (diff = meanDiff(noErosion, await shot(page, look, size))), { timeout: 30_000, message: `${renderer} Scene view: the mountain gone` }).toBeGreaterThan(8);
+    figures['stampOnOff'] = diff;
+  });
+  test.info().annotations.push({ type: `${renderer} edit layers`, description: JSON.stringify(figures) });
+  console.log(`${renderer} edit layers: ${JSON.stringify(figures)}`);
+  expect(await height(...STAMP_AT), 'the layers off: the hand-made ground').toBe(handMade);
 }
 
 /**
@@ -722,6 +850,7 @@ test('terrain: CDLOD heights, layered material, paint and a hole in the Scene vi
       await scatterRules(page, ground, terrace);
       await expectRoad(ground, `${renderer} (stored)`);
       await roadHandle(page, ground, road);
+      await editLayers(page, renderer, ground, road, true);
     } else {
       // The rules baked on the first renderer: the steep ramp and the block walls magenta, the hand-painted disc on
       // the ramp blue, the layer's flat top red (layer 0). The view zooms out until they are all in it, then back.
@@ -765,6 +894,7 @@ test('terrain: CDLOD heights, layered material, paint and a hole in the Scene vi
         await page.waitForTimeout(80);
       }
       await terrainTools(page, renderer, ground, big, false);
+      await editLayers(page, renderer, ground, road, false);
     }
 
     // In Play (and the export), tiles past MACRO_DISTANCE are drawn from their baked macro textures.

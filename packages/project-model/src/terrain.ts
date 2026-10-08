@@ -22,6 +22,7 @@
 import type { ModelErrorV2 } from './errors';
 import { canonicalSurfaceRules, validateSurfaceRules, type SurfaceRule } from './surface-rules';
 import { canonicalScatterRules, validateScatterRules, type ScatterRule } from './scatter';
+import { canonicalTerrainLayers, validateTerrainLayers, type TerrainLayer } from './terrain-layers';
 
 /** The tile sizes a terrain may use (samples per side, 2ⁿ + 1). */
 export const TERRAIN_TILE_SAMPLES: readonly number[] = Object.freeze([17, 33, 65, 129, 257, 513, 1025]);
@@ -67,8 +68,9 @@ export interface TerrainTileRef {
   /**
    * SHA-256 of the tile as sculpted and painted by hand, before the splines
    * that reach it carved, flattened and painted it (`terrain-splines.ts`;
-   * absent: no spline reaches it, `data` is the hand-made tile). Kept so a
-   * spline moved or removed gives the ground back; never drawn or shipped.
+   * absent: no spline or edit layer reaches it, `data` is the hand-made
+   * tile). Kept so a spline moved or a layer changed gives the ground back;
+   * never drawn or shipped.
    */
   base?: string;
 }
@@ -101,10 +103,17 @@ export interface TerrainComponent {
    * of the copies stay over them. Absent: none.
    */
   scatter?: ScatterRule[];
+  /**
+   * Edit layers over the hand-made ground, in the order they apply
+   * (`terrain-layers.ts`): stamps, erosion and where the splines go. The
+   * tiles' `data` is their combined result; absent: the ground is one base
+   * layer with the splines over it.
+   */
+  layers?: TerrainLayer[];
 }
 
 /** The component's fields in canonical order. */
-export const TERRAIN_FIELDS: readonly string[] = Object.freeze(['tileSamples', 'spacing', 'heightRange', 'tiles', 'lodDistance', 'collision', 'macroDistance', 'rules', 'scatter']);
+export const TERRAIN_FIELDS: readonly string[] = Object.freeze(['tileSamples', 'spacing', 'heightRange', 'tiles', 'lodDistance', 'collision', 'macroDistance', 'rules', 'scatter', 'layers']);
 
 const DIGEST_RE = /^[0-9a-f]{64}$/;
 
@@ -119,7 +128,7 @@ export const terrainTileKey = (x: number, z: number): string => `${x},${z}`;
 
 export function validateTerrainComponent(value: unknown, path: string, errors: ModelErrorV2[]): void {
   if (!isObj(value)) {
-    err(errors, 'field_type', path, 'a terrain is an object { tileSamples, spacing, heightRange, tiles, lodDistance?, collision?, macroDistance?, rules?, scatter? }', value);
+    err(errors, 'field_type', path, 'a terrain is an object { tileSamples, spacing, heightRange, tiles, lodDistance?, collision?, macroDistance?, rules?, scatter?, layers? }', value);
     return;
   }
   for (const k of Object.keys(value)) if (!TERRAIN_FIELDS.includes(k)) err(errors, 'field_unexpected', `${path}/${k}`, `unknown terrain field "${k}"`, k);
@@ -145,6 +154,7 @@ export function validateTerrainComponent(value: unknown, path: string, errors: M
   }
   if (value['rules'] !== undefined) validateSurfaceRules(value['rules'], `${path}/rules`, errors, false);
   if (value['scatter'] !== undefined) validateScatterRules(value['scatter'], `${path}/scatter`, errors, false);
+  if (value['layers'] !== undefined) validateTerrainLayers(value['layers'], `${path}/layers`, errors);
   const tiles = value['tiles'];
   if (tiles === undefined) {
     err(errors, 'field_missing', `${path}/tiles`, 'tiles is required (a list of {x, z, data?})');
@@ -176,7 +186,7 @@ export function validateTerrainComponent(value: unknown, path: string, errors: M
 export function canonicalTerrain(c: TerrainComponent): TerrainComponent {
   const tiles = c.tiles.map((t) => ({ x: t.x, z: t.z, ...(t.data !== undefined ? { data: t.data } : {}), ...(t.scatter !== undefined ? { scatter: t.scatter } : {}), ...(t.base !== undefined ? { base: t.base } : {}) }));
   tiles.sort((a, b) => a.z - b.z || a.x - b.x);
-  return { tileSamples: c.tileSamples, spacing: c.spacing, heightRange: [c.heightRange[0], c.heightRange[1]], tiles, ...(c.lodDistance !== undefined ? { lodDistance: c.lodDistance } : {}), ...(c.collision === false ? { collision: false } : {}), ...(c.macroDistance !== undefined ? { macroDistance: c.macroDistance } : {}), ...(c.rules !== undefined ? { rules: canonicalSurfaceRules(c.rules) } : {}), ...(c.scatter !== undefined ? { scatter: canonicalScatterRules(c.scatter) } : {}) };
+  return { tileSamples: c.tileSamples, spacing: c.spacing, heightRange: [c.heightRange[0], c.heightRange[1]], tiles, ...(c.lodDistance !== undefined ? { lodDistance: c.lodDistance } : {}), ...(c.collision === false ? { collision: false } : {}), ...(c.macroDistance !== undefined ? { macroDistance: c.macroDistance } : {}), ...(c.rules !== undefined ? { rules: canonicalSurfaceRules(c.rules) } : {}), ...(c.scatter !== undefined ? { scatter: canonicalScatterRules(c.scatter) } : {}), ...(c.layers !== undefined && c.layers.length > 0 ? { layers: canonicalTerrainLayers(c.layers) } : {}) };
 }
 
 /** Metres along one tile side. */

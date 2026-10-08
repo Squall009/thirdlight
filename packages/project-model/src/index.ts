@@ -1236,6 +1236,46 @@ export {
 } from './terrain-edit';
 export { HEIGHTMAP_FORMATS, HEIGHTMAP_MAX_SAMPLES, blockLayerToTerrain, decodeHeightmap, importHeightmap, type BlockLayerSource, type Heightmap, type HeightmapFormat, type HeightmapOptions } from './terrain-import';
 export { TerrainField, terrainCellStep, type TerrainSample } from './terrain-field';
+// Edit layers: stamps, erosion and the splines combined over the hand-made ground into the drawn heights.
+export {
+  TERRAIN_LAYER_KINDS,
+  TERRAIN_SPLINES_LAYER_ID,
+  TERRAIN_STAMP_FALLOFF_DEFAULT,
+  TERRAIN_STAMP_MODES,
+  TERRAIN_STAMP_SIZE_LIMITS,
+  TerrainLayerStack,
+  canonicalTerrainLayers,
+  decodeTerrainDelta,
+  encodeTerrainDelta,
+  terrainLayerChangeRects,
+  terrainLayerOrder,
+  terrainLayerTileDigests,
+  terrainStampRect,
+  validateTerrainLayers,
+  type TerrainErosionLayer,
+  type TerrainLayer,
+  type TerrainLayerKind,
+  type TerrainLayerSources,
+  type TerrainLayerTileRef,
+  type TerrainSplinesLayer,
+  type TerrainStamp,
+  type TerrainStampMode,
+  type TerrainStampsLayer,
+} from './terrain-layers';
+export {
+  EROSION_FADE_SAMPLES,
+  EROSION_LIMITS,
+  EROSION_MARGIN_SAMPLES,
+  EROSION_MAX_SAMPLES,
+  HYDRAULIC_DEFAULTS,
+  THERMAL_DEFAULTS,
+  erodeGrid,
+  validateErosionSettings,
+  type ErosionGrid,
+  type ErosionSettings,
+  type HydraulicErosion,
+  type ThermalErosion,
+} from './terrain-erosion';
 // Material rules: one rule list paints terrain (baked into tiles by its edits) and block layers (at meshing).
 export {
   SURFACE_RULE_BLOCK_LAYERS,

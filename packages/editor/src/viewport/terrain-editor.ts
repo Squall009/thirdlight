@@ -28,7 +28,7 @@
 import * as THREE from 'three';
 import type { TerrainComponent } from '@thirdlight/project-model';
 import type { TerrainPreviewDab, TerrainPreviewStats, TerrainView } from '@thirdlight/three-adapter';
-import { DEFAULT_TERRAIN_BRUSH, dabsAlong, previewDab, strokeArgs, strokeDabLimit, strokeKind, terrainDabSpacing, type StrokeExtra, type TerrainBrushState, type TerrainToolId } from '../session/terrain-brush';
+import { DEFAULT_TERRAIN_BRUSH, PLACED_TERRAIN_TOOLS, dabsAlong, previewDab, previewedTool, strokeArgs, strokeDabLimit, strokeKind, terrainDabSpacing, type StrokeExtra, type TerrainBrushState, type TerrainToolId } from '../session/terrain-brush';
 
 /** The selected terrain as the editor holds it. */
 export interface TerrainEditTarget {
@@ -44,6 +44,8 @@ export interface TerrainToolOptions {
   brush: TerrainBrushState;
   /** Lower / erase / fill (the panel's toggle; Ctrl held inverts it for one stroke). */
   invert: boolean;
+  /** The placed tools (stamp, erode): what a click at world (x, z) does. */
+  place?: (at: [number, number]) => void;
 }
 
 export interface TerrainEditorCallbacks {
@@ -140,7 +142,8 @@ export class TerrainEditor {
 
   /** Have the tool's passes built ahead for the terrain (its first dab then builds none on its frame). */
   private warm(): void {
-    if (this.active && this.target !== null && this.opts.tool !== 'scatter') this.host.terrains()?.previewWarm(this.target.entityId, this.opts.tool);
+    const tool = this.opts.tool;
+    if (this.active && this.target !== null && previewedTool(tool)) this.host.terrains()?.previewWarm(this.target.entityId, tool);
   }
 
   isActive(): boolean {
@@ -187,12 +190,17 @@ export class TerrainEditor {
     const at = this.surfaceUnder(e.clientX, e.clientY);
     this.drawCursor(at);
     const tool = this.opts.tool;
+    // A placed tool: one click, one command (its result comes back as the stored tiles).
+    if (PLACED_TERRAIN_TOOLS.includes(tool)) {
+      if (at !== null) this.opts.place?.([r4(at.x), r4(at.z)]);
+      return true;
+    }
     if (tool === 'scatter' && this.opts.brush.rule === '') {
       this.cb.onRefused('Choose a scatter rule to paint (make one with Scatter rules…).');
       return true;
     }
     // The scatter brush has no preview: its copies come with the stored edit.
-    if (at === null || (tool !== 'scatter' && !view.previewBegin(t.entityId))) return true;
+    if (at === null || (previewedTool(tool) && !view.previewBegin(t.entityId))) return true;
     const invert = this.opts.invert !== (e.ctrlKey || e.metaKey);
     const point: [number, number] = [r4(at.x), r4(at.z)];
     this.stroke = { tool, invert, dabs: [], last: point, extra: tool === 'flatten' ? { height: r4(at.y) } : {}, limit: strokeDabLimit(this.opts.brush.radius, t.component.spacing), from: tool === 'ramp' ? [point[0], r4(at.y), point[1]] : null };

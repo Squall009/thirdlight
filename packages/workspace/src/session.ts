@@ -162,6 +162,12 @@ export interface ProjectSession {
   lastSplineRebake?: import('./spline-follows').SplineRebakeReport;
   /** The last command's spline meshes and pieces made (diagnostics and the perf tools read it). */
   lastSplineMade?: { splines: number; ms: number };
+  /** Stamps' shapes read for terrain edit layers, by the texture blob's digest (a few kept: decoding a large PNG is slow). */
+  stampShapes?: Map<string, import('@thirdlight/project-model').Heightmap>;
+  /** An erosion the backend ran on its worker, for the next `editTerrain` erode whose input matches `key`. */
+  preparedErosion?: { key: string; heights: Float64Array };
+  /** The last terrain erode's figures (diagnostics and the perf tools read them). */
+  lastErosion?: import('./terrain-layer-reads').ErosionReport;
   /** What the project's files hashed to, by their stamps (kept in the import cache between runs; file-stamps.ts). */
   fileStamps?: import('./file-stamps').FileStamps;
   /** The watch of the project's folders and what it saw change (made by the first file check; watched-assets.ts). */

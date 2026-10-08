@@ -289,6 +289,19 @@ if (existsSync(join(root, BACKEND_ENTRY))) {
     external: ['ktx2-encoder', 'jpeg-js', '@jsquash/webp'],
   });
   console.log('build: backend (KTX2 encoder worker): packages/backend/src/ktx2-worker.ts -> dist/backend/ktx2-worker.mjs');
+  // The terrain erosion worker thread, beside the bundle too.
+  await esbuild.build({
+    entryPoints: [join(root, 'packages/backend/src/erosion-worker.ts')],
+    outfile: join(root, 'dist/backend/erosion-worker.mjs'),
+    bundle: true,
+    platform: 'node',
+    format: 'esm',
+    packages: 'bundle',
+    treeShaking: true,
+    sourcemap: false,
+    minify: false,
+  });
+  console.log('build: backend (terrain erosion worker): packages/backend/src/erosion-worker.ts -> dist/backend/erosion-worker.mjs');
 } else {
   console.log(`build: backend: entry not present (${BACKEND_ENTRY}) — not built (packet 13)`);
 }

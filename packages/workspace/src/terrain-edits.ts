@@ -31,6 +31,7 @@ import {
   scatterBlobOf,
   scatterCellOfBlob,
   terrainFlatStep,
+  terrainLayerTileDigests,
   terrainTileKey,
   wrapTerrainTile,
   type Heightmap,
@@ -40,6 +41,7 @@ import {
 } from '@thirdlight/project-model';
 
 import { publishBlob, readSourceBlob, resolveStage, type ContentContext } from './content-store';
+import { deltaOfBlob, terrainLayerReads } from './terrain-layer-reads';
 import { sha256Hex } from './digest';
 import { contentCtx } from './service-content';
 import type { Core, ProjectSession } from './session';
@@ -73,7 +75,7 @@ function badTile(digest: string, message: string): CommandError {
 }
 
 /** Read one tile's scatter blob by digest (verified), decoded. */
-function readScatter(core: Core, ctx: ContentContext, digest: string): { ok: true; cell: ScatterCell } | { ok: false; error: CommandError } {
+export function readScatter(core: Core, ctx: ContentContext, digest: string): { ok: true; cell: ScatterCell } | { ok: false; error: CommandError } {
   const r = readSourceBlob(core, ctx, { digest });
   if (!r.ok) return r;
   try {
@@ -84,7 +86,7 @@ function readScatter(core: Core, ctx: ContentContext, digest: string): { ok: tru
 }
 
 /** Read one tile blob by digest (verified), decoded. */
-function readTile(core: Core, ctx: ContentContext, digest: string): { ok: true; tile: TerrainTile } | { ok: false; error: CommandError } {
+export function readTile(core: Core, ctx: ContentContext, digest: string): { ok: true; tile: TerrainTile } | { ok: false; error: CommandError } {
   const r = readSourceBlob(core, ctx, { digest });
   if (!r.ok) return r;
   try {
@@ -112,7 +114,7 @@ export function prepareTerrainEdit(core: Core, s: ProjectSession, scene: SceneDo
     if (!map.ok) return { ok: false, error: { code: 'field_value', cls: 'validation', path: '/args/stageId', message: `the heightmap cannot be read: ${map.message}`.slice(0, 256), expected: `a ${v.args.format} heightmap` } as CommandError };
     heightmap = map.map;
   }
-  const plan = planTerrainEdit(scene, content, v.args, (digest) => readTile(core, ctx, digest), heightmap, (digest) => readScatter(core, ctx, digest));
+  const plan = planTerrainEdit(scene, content, v.args, (digest) => readTile(core, ctx, digest), heightmap, (digest) => readScatter(core, ctx, digest), terrainLayerReads(core, s, content));
   if (!plan.ok) return plan;
   const comp = plan.plan.component;
   const flat = terrainFlatStep(comp.heightRange);
@@ -194,6 +196,19 @@ export function verifyTerrainTiles(core: Core, s: ProjectSession, before: readon
     const was = prior.get(e.id);
     const known = new Set(was !== undefined && was.tileSamples === t.tileSamples ? was.tiles.flatMap((x) => [x.data, x.base]).filter((d) => d !== undefined) : []);
     const knownScatter = new Set(was !== undefined ? was.tiles.map((x) => x.scatter).filter((d) => d !== undefined) : []);
+    // An erosion layer's differences: stored erosion blobs of the terrain's tile size.
+    const knownDeltas = new Set(was !== undefined ? terrainLayerTileDigests(was) : []);
+    for (const digest of terrainLayerTileDigests(t)) {
+      if (knownDeltas.has(digest) || own.has(digest)) continue;
+      const r = readSourceBlob(core, ctx, { digest });
+      if (!r.ok) return r.error;
+      try {
+        const d = deltaOfBlob(r.bytes);
+        if (d.samples !== t.tileSamples) return badTile(digest, `holds ${d.samples} samples a side, the terrain ${t.tileSamples}`);
+      } catch (err) {
+        return badTile(digest, err instanceof Error ? err.message : String(err));
+      }
+    }
     for (const tile of t.tiles) {
       if (tile.scatter !== undefined && !knownScatter.has(tile.scatter) && !own.has(tile.scatter)) {
         const r = readSourceBlob(core, ctx, { digest: tile.scatter });

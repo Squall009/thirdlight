@@ -33,6 +33,11 @@
  *                                built meanwhile (node programs and pipelines by object, scatter sets made)
  *   --sculpt-edit                the same with a script raising and lowering the ground beside the road every 4 s
  *                                (one `editTerrain` each: tiles and their scatter baked again)
+ *   --stamp-edit                 the same with a script placing and removing a 64 m heightmap stamp (a cone, 40 m
+ *                                high) beside the road every 4 s (one `setComponent` of the terrain's layers each:
+ *                                the ground under it combined again, its rules and scatter baked again)
+ *   --erode-edit                 the same with a script eroding a 64 m square beside the road every 4 s (one
+ *                                `editTerrain` erode each, on the backend's worker; the seed alternates)
  *   --edits-only                 only the editor edits (no export measured)
  *   --edit-profile               the edit windows' main thread by function (inclusive, a CPU profile each)
  *   --foliage off                the landscape's scatter without the foliage policy: every tree, rock and shrub casts
@@ -58,6 +63,8 @@ import { frameLine } from './village-run';
 import { hitches, installFrameClock, pageNow, rafTimes, type HitchWindow } from './blocks-run';
 import { FRAME_VIEWPORT } from './frame-run';
 import type { PerfBackend } from './backend';
+import { publishFileVia } from './build';
+import { makePng } from '../../tests/e2e/png-make';
 
 /** The corner shading `--vertex-ao` gives the layer. */
 const LEVEL_VERTEX_AO = 0.6;
@@ -105,6 +112,8 @@ export interface LevelReport {
   splineEdit?: Partial<Record<FrameRenderer, EditRun>>;
   /** The scripted terrain sculpts in the editor's Scene view, recorded the same way. */
   sculptEdit?: Partial<Record<FrameRenderer, EditRun>>;
+  stampEdit?: Partial<Record<FrameRenderer, EditRun>>;
+  erodeEdit?: Partial<Record<FrameRenderer, EditRun>>;
   query: string;
   builds: Partial<Record<LevelKind, LevelBuild & { exportMs: number }>>;
   classes: Partial<Record<LevelKind, Partial<Record<FrameRenderer, FrameRunResult>>>>;
@@ -220,6 +229,8 @@ export async function runLevelCli(argv: readonly string[]): Promise<void> {
       const b = await buildLevel(be, `level-${kind}`, levelPlan(kind, LEVEL_SEED, liveDoors, has('edge-walls'), has('wall-paint'), roofs, has('kit-swap'), has('vertex-ao') ? LEVEL_VERTEX_AO : 0, has('rules'), projection, macro, foliage, flight, impostorSize, splines === 'on'), log);
       if (has('spline-edit') && kind === 'landscape' && splines === 'on') report.splineEdit = await editWindows(be, b.projectId, renderers, 'spline', log, has('edit-profile'));
       if (has('sculpt-edit') && kind === 'landscape') report.sculptEdit = await editWindows(be, b.projectId, renderers, 'sculpt', log, has('edit-profile'));
+      if (has('stamp-edit') && kind === 'landscape') report.stampEdit = await editWindows(be, b.projectId, renderers, 'stamp', log, has('edit-profile'));
+      if (has('erode-edit') && kind === 'landscape') report.erodeEdit = await editWindows(be, b.projectId, renderers, 'erode', log, has('edit-profile'));
       if (has('edits-only')) continue;
       const t = performance.now();
       const res = await be.post(`/api/v1/admin/projects/${b.projectId}/export`, {});
@@ -297,6 +308,12 @@ export interface EditRun {
 /** A scripted sculpt's radius and height (m): it raises and lowers the ground under a stored tree near the road's edited point. */
 const SCULPT_RADIUS = 12;
 const SCULPT_METRES = 2;
+/** A scripted stamp's side and height, and a scripted erosion's square side (m), at the same place. */
+const STAMP_SIZE = 64;
+const STAMP_METRES = 40;
+const ERODE_SIDE = 64;
+/** The stamp's shape: a cone, 128² 8-bit. */
+const STAMP_ASSET = 'perf-stamp-cone';
 
 /**
  * The landscape's editor Scene view open while a script edits it every few seconds: `spline` moves a road point 5 m
@@ -305,7 +322,7 @@ const SCULPT_METRES = 2;
  * baked again); the page re-reads and uploads the tiles and draws what is new. Each edit's round trip, the page's
  * frames in the window after it, and what three built meanwhile (the page's marks).
  */
-async function editWindows(be: PerfBackend, projectId: string, renderers: readonly FrameRenderer[], kind: 'spline' | 'sculpt', log: (s: string) => void, profile = false): Promise<Partial<Record<FrameRenderer, EditRun>>> {
+async function editWindows(be: PerfBackend, projectId: string, renderers: readonly FrameRenderer[], kind: 'spline' | 'sculpt' | 'stamp' | 'erode', log: (s: string) => void, profile = false): Promise<Partial<Record<FrameRenderer, EditRun>>> {
   const p = be.project(projectId);
   const listed = ((await p.query('queryEntities', { limit: 4000, offset: 0 }))['entities'] as { id: string; name?: string; components: Record<string, unknown> }[]) ?? [];
   const road = listed.find((e) => e.name === 'Road' && e.components['spline'] !== undefined);
@@ -319,8 +336,21 @@ async function editWindows(be: PerfBackend, projectId: string, renderers: readon
     .filter((c) => c.d >= 30)
     .sort((a, b) => a.d - b.d)[0]?.c;
   const sculptAt: [number, number] = near !== undefined ? [near.x, near.z] : [px - 40, pz];
+  if (kind === 'stamp') {
+    const cone = makePng(128, 128, (x, y) => {
+      const v = Math.round(Math.max(0, 1 - Math.hypot(x - 63.5, y - 63.5) / 63.5) * 255);
+      return [v, v, v, 255];
+    });
+    await publishFileVia(be, projectId, (op, args) => p.command(op, args), { assetId: STAMP_ASSET, kind: 'texture', displayName: 'Stamp cone', bytes: cone });
+  }
   const edit = async (k: number): Promise<void> => {
-    if (kind === 'spline') {
+    if (kind === 'stamp') {
+      const layers = k % 2 === 0 ? [{ id: 'perf-stamps', kind: 'stamps', stamps: [{ asset: STAMP_ASSET, at: sculptAt, size: STAMP_SIZE, height: STAMP_METRES }] }] : null;
+      await p.command('setComponent', { entityId: terrain.id, component: 'terrain', value: { layers } });
+    } else if (kind === 'erode') {
+      const h = ERODE_SIDE / 2;
+      await p.command('editTerrain', { entityId: terrain.id, kind: 'erode', rect: [sculptAt[0] - h, sculptAt[1] - h, sculptAt[0] + h, sculptAt[1] + h], hydraulic: {}, thermal: {}, seed: k % 2 });
+    } else if (kind === 'spline') {
       const points = base.points.map((q, i) => (i === 5 ? { ...q, at: [q.at[0]!, q.at[1]!, q.at[2]! + (k % 2 === 0 ? 5 : 0)] } : q));
       await p.command('setComponent', { entityId: road.id, component: 'spline', value: { points } });
     } else {
@@ -399,7 +429,7 @@ async function editWindows(be: PerfBackend, projectId: string, renderers: readon
         }
         out[r] = { roundTripMs, windows, idle };
         const show = (ws: EditWindow[]): string => ws.map((w) => `${w.frames} frames, ${w.over16 ?? 0} > 16.7 ms, worst ${w.worst} ms, p95 ${w.p95} ms, ${w.nodeBuilds} builds ${w.nodeBuildMs} ms, ${w.pipelines} pipelines ${w.pipelineMs} ms, ${w.setsMade} sets ${w.setMs} ms`).join('; ');
-        if (kind === 'sculpt') log(`level landscape ${r} sculpt at ${sculptAt.map((v) => v.toFixed(1)).join(', ')} (road point ${px.toFixed(1)}, ${pz.toFixed(1)})`);
+        if (kind !== 'spline') log(`level landscape ${r} ${kind} at ${sculptAt.map((v) => v.toFixed(1)).join(', ')} (road point ${px.toFixed(1)}, ${pz.toFixed(1)})`);
         log(`level landscape ${r} ${kind} edits: round trips ${roundTripMs.join(', ')} ms; page frames per window: ${show(windows)}; without edits: ${show(idle)}`);
         const built = new Map<string, number>();
         for (const w of windows) for (const b of w.built ?? []) built.set(b, (built.get(b) ?? 0) + 1);

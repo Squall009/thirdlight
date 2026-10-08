@@ -5,9 +5,11 @@
  *
  * - Terrains: where a spline that shapes terrain or keeps scatter clear was
  *   added, moved, changed or removed, each terrain it reached or reaches is
- *   shaped again over the band round the curve before and after
- *   (`planTerrainSplineRebake`): new tile blobs (the drawn form and the
- *   hand-made one beside it) and scatter blobs.
+ *   shaped again over the band round the curve before and after; where a
+ *   terrain's edit layers changed (a stamp placed, a layer switched,
+ *   weighed or moved), over what they reach (`planTerrainSplineRebake`):
+ *   new tile blobs (the drawn form and the hand-made one beside it) and
+ *   scatter blobs.
  * - What a spline makes: when its curve, mesh or pieces changed (or it has
  *   none made yet), its mesh is swept and its pieces' copies placed again
  *   (`makeSpline`), each mesh piece given its coarser levels by the injected
@@ -27,6 +29,7 @@ import { sha256Hex } from './digest';
 import { contentCtx } from './service-content';
 import type { Core, ProjectSession } from './session';
 import { terrainBlobOf, terrainTileOfBlob, type TerrainBlob } from './terrain-edits';
+import { terrainLayerReads } from './terrain-layer-reads';
 
 /** One re-bake's figures: terrains and tiles shaped, scatter tiles, milliseconds. */
 export interface SplineRebakeReport {
@@ -65,7 +68,7 @@ export function planSplineFollows(core: Core, s: ProjectSession, before: SceneDo
   let tiles = 0;
   let scattered = 0;
   for (const [terrainId, list] of rects) {
-    const planned = planTerrainSplineRebake(after, terrainId, list, (d) => readTile(core, s, d), (d) => readScatter(core, s, d));
+    const planned = planTerrainSplineRebake(after, terrainId, list, (d) => readTile(core, s, d), (d) => readScatter(core, s, d), terrainLayerReads(core, s));
     if (!planned.ok) return planned;
     const plan = planned.plan;
     if (plan === null) continue;

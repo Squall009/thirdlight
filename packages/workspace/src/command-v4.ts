@@ -27,6 +27,7 @@ import { scriptsNaming } from './script-names';
 import { prepareInstanceStroke, prepareModelCollider, publishStrokeBuffer, type StrokeBuffer } from './instance-strokes';
 import { prepareTerrainEdit, publishTerrainBlobs, verifyTerrainTiles, type TerrainBlob } from './terrain-edits';
 import { verifySplineData, withSplineFollows } from './spline-follows';
+import { prepareErodeEdit } from './terrain-layer-reads';
 import { catalogV4Of, commandContentOf, crossSceneEntities, projectRuleError, sceneMissing, sceneNotEmpty, sceneRequired, sceneV4Of } from './content-shapes';
 
 /**
@@ -202,7 +203,7 @@ export function runCommandV4(core: Core, s: ProjectSession, sent: unknown, D: st
   let terrainBlobs: TerrainBlob[] = [];
   let terrainReport: { tiles: [number, number][]; added: [number, number][]; changed: number; clamped?: number; scatter?: [number, number][] } | null = null;
   if (op === 'editTerrain') {
-    const prepared = prepareTerrainEdit(core, s, carrier, commandState.content, args);
+    const prepared = args['kind'] === 'erode' ? prepareErodeEdit(core, s, carrier, commandState.content, args) : prepareTerrainEdit(core, s, carrier, commandState.content, args);
     if (!prepared.ok) return failRequest(request, prepared.error);
     commandState.preparedTerrainEdit = prepared.prepared;
     terrainBlobs = prepared.blobs;

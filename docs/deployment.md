@@ -5432,6 +5432,69 @@ terrain and make a mesh along themselves; scripts read any spline as a path
   triangles, copies, blobs read), the simulation's `splines` (colliders,
   splines whose data has not arrived, the last build).
 
+## Terrain edit layers, stamps and erosion
+
+A terrain's heights are a stack of **edit layers** combined offline over the
+ground as sculpted by hand. The Terrain tools' **Layers…** list shows it top
+first, the hand-made ground (**Base**: what Raise, Lower, Smooth, Flatten,
+Noise and Ramp edit) at the bottom.
+
+- **Layer kinds** (`terrain.layers: [{id, kind, name?, enabled?, strength?,
+  …}]`, applied in order): **stamps** — heightmap brushes; **erosion** — what
+  an erode run changed; **splines** — every spline that shapes the terrain
+  (on top when the list names no splines layer, as before layers existed).
+  Each layer can be switched off (`enabled: false`: it changes nothing) and
+  weighed (`strength` 0–1: the share of its change kept). ▲/▼ move a layer
+  (what it applies over changes), ✕ deletes it. A terrain without `layers`
+  is one base layer with the splines on top, exactly as before: nothing to
+  convert.
+- **Stamps** (`{kind: "stamps", stamps: [{asset, at: [x, z], size, rotation?,
+  height, mode?, y?, falloff?}]}`): a texture asset's first channel (a 16- or
+  8-bit greyscale PNG; a KTX2's original PNG) laid on the ground as a square
+  `size` m a side round `at`, turned `rotation`° about +y; white stands for
+  `height` m (negative digs), black for 0. `mode` **add** (default) raises
+  the ground by the shape, **max** raises it up to the shape standing on `y`
+  (world; default the terrain object's height), **min** cuts it down to it;
+  `falloff` (0–0.5 of the side, default 0.15) fades it in from its edges. The
+  **Stamp** tool: choose the heightmap, its height, turn, mode, edge fade and
+  layer, then click the terrain — a stamp of side twice the brush radius,
+  one command (into the chosen stamps layer, the first, or a new one).
+- **Erosion** (`editTerrain {kind: "erode", rect: [x0, z0, x1, z1], layerId?,
+  hydraulic?: {droplets?, erosion?, deposition?, capacity?, evaporation?,
+  inertia?, lifetime?, radius?}, thermal?: {iterations?, talus?, amount?},
+  seed?}`): hydraulic erosion (water droplets that take up ground running
+  downhill and drop it where they slow: channels and fans; `droplets` per
+  sample, default 0.5) and thermal erosion (ground slides off slopes steeper
+  than `talus`°, default 35: screes, softened ridges; `iterations` passes,
+  default 40) over the rectangle, read from the ground below the erosion
+  layer (layer `erosion` unless named; made on top, under the splines, when
+  missing). Its result is kept per tile as a difference (blobs the layer's
+  `tiles` name, never shipped), faded in over the rectangle's 8-sample
+  border: sculpting below keeps the channels on the new ground; running it
+  again over the same place replaces that place's result (the same settings
+  and seed give the same ground — it is deterministic). The **Erode** tool:
+  choose hydraulic and/or thermal and their settings, click the terrain — the
+  square of side twice the brush radius, one command. The backend erodes on
+  a worker thread before the command, so other requests are not held up; a
+  run is bounded at 2,049² samples (erode a larger area in parts).
+- **Only the changed rectangle is combined again**: a stamp placed, moved or
+  removed, a layer switched, weighed, moved or deleted, an erode — each is
+  one command and one undo step whose terrain heights, material rules and
+  scatter are made again only where the change reaches (a stamp's square,
+  the eroded tiles, all a moved layer reaches); the Scene view uploads the
+  changed tiles as for any edit. Tiles a layer reaches keep their hand-made
+  form beside the drawn one (`tiles[].base`).
+- **What ships**: only the combined heights (`data`). The layers, the
+  hand-made tiles and the erosion blobs stay in the project; the export and
+  Play leave them out. A texture asset a stamp reads, changed later, reaches
+  the ground at the next combine there (switch its layer off and on).
+- **Costs** (measured on this host, Node): combining a 1,025² tile through
+  four 300 m stamps 21 ms, through an erosion layer 4.6 ms; eroding a whole
+  1,025² tile 0.9 s hydraulic, 1.5 s thermal, 2.3 s both (on the backend's
+  worker); per tile the stack keeps the hand-made tile (a 1,025² tile of
+  hills: 0.8 MB stored, 2.1 MB read) and each erosion layer's difference
+  (0.66 MB stored, 2.1 MB read) — editor-side only.
+
 ## Sockets (objects on model nodes)
 
 Since phase 23.11 an object can ride on a named node — a bone or any node —

@@ -156,18 +156,20 @@ export type ClosurePlaceholderMaker = (asset: { readonly assetId: string; readon
 const DIGEST_RE = /^[0-9a-f]{64}$/;
 /**
  * A scene as a game reads it: a terrain's tiles name only what is drawn and
- * collides (`data`, `scatter`); the hand-made form beside a tile splines
- * shaped (`base`) is the editor's and does not ship.
+ * collides (`data`, `scatter`); the hand-made form beside a tile splines or
+ * edit layers shaped (`base`) and the edit layers themselves (stamps,
+ * erosion blobs) are the editor's and do not ship.
  */
 function withoutHandMadeTiles<T>(doc: T): T {
-  const d = doc as unknown as { entities?: { components?: { terrain?: { tiles?: { base?: string }[] } } }[] };
-  if (!(d.entities ?? []).some((e) => e.components?.terrain?.tiles?.some((t) => t.base !== undefined) === true)) return doc;
+  const d = doc as unknown as { entities?: { components?: { terrain?: { tiles?: { base?: string }[]; layers?: unknown } } }[] };
+  if (!(d.entities ?? []).some((e) => e.components?.terrain?.layers !== undefined || e.components?.terrain?.tiles?.some((t) => t.base !== undefined) === true)) return doc;
   return {
     ...d,
     entities: d.entities!.map((e) => {
       const t = e.components?.terrain;
       if (t?.tiles === undefined) return e;
-      return { ...e, components: { ...e.components, terrain: { ...t, tiles: t.tiles.map(({ base: _base, ...rest }) => rest) } } };
+      const { layers: _layers, ...rest } = t;
+      return { ...e, components: { ...e.components, terrain: { ...rest, tiles: t.tiles.map(({ base: _base, ...tile }) => tile) } } };
     }),
   } as unknown as T;
 }

@@ -3,9 +3,12 @@
  * setComponent, sculpted with editTerrain (the result names the tiles it
  * wrote; the tiles are content-addressed blobs read back by digest), read with
  * queryTerrain, undone and redone (the tiles' old digests come back), a RAW
- * heightmap uploaded and imported, a digest that is no tile refused, and the
- * export shipping the tile blobs in manifest.buffers, which the game page's
- * loader reads back to the same heights.
+ * heightmap uploaded and imported, a digest that is no tile refused, edit
+ * layers (a stamp from a texture asset placed by setComponent, the ground
+ * combined again; an erode on a rectangle stored as an erosion layer; undo),
+ * and the export shipping the tile blobs in manifest.buffers — the combined
+ * heights only, no layers or hand-made tiles — which the game page's loader
+ * reads back to the same heights.
  */
 import { createHash } from 'node:crypto';
 import { mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
@@ -13,13 +16,14 @@ import { join, resolve } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { loadTerrainField } from '../../../packages/game-host/src/terrain-tiles';
+import { makePng } from '../../e2e/png-make';
 import { api, mkRequestId, startBackend, type TestBackend } from '../../../packages/backend/src/test-helpers';
 
 const REPO = resolve(import.meta.dirname, '..', '..', '..');
 const PID = 'demo-0001';
 const sha = (b: Uint8Array): string => createHash('sha256').update(b).digest('hex');
 type Json = Record<string, unknown>;
-type Terrain = { tileSamples: number; spacing: number; heightRange: [number, number]; tiles: { x: number; z: number; data?: string }[] };
+type Terrain = { tileSamples: number; spacing: number; heightRange: [number, number]; tiles: { x: number; z: number; data?: string; base?: string }[]; layers?: { id: string; kind: string; tiles?: { data: string }[] }[] };
 
 describe('terrain over HTTP', () => {
   let tb: TestBackend;
@@ -109,6 +113,53 @@ describe('terrain over HTTP', () => {
     expect(JSON.stringify(bad.json)).toMatch(/blob_missing/);
   }, 120_000);
 
+  it('edit layers: a stamp raises the ground where it lies, an erode on a rectangle is kept as a layer, undo takes it back', async () => {
+    // A cone (64², 8-bit) as a texture asset: the stamp's shape.
+    const png = new Uint8Array(makePng(64, 64, (x, y) => {
+      const v = Math.round(Math.max(0, 1 - Math.hypot(x - 31.5, y - 31.5) / 31.5) * 255);
+      return [v, v, v, 255];
+    }));
+    const headers = { authorization: `Bearer ${tb.adminToken}` };
+    const stage = await api(`${tb.authUrl}/api/v1/projects/${PID}/content/stages`, { body: {}, token: tb.adminToken, origin: null });
+    const stageId = (stage.json as { stageId: string }).stageId;
+    await fetch(`${tb.authUrl}/api/v1/projects/${PID}/content/stages/${stageId}/bytes`, { method: 'PUT', headers: { ...headers, 'content-type': 'application/octet-stream', 'x-thirdlight-offset': '0', 'x-thirdlight-total': String(png.length) }, body: png });
+    const inspected = await api(`${tb.authUrl}/api/v1/projects/${PID}/content/stages/${stageId}/inspect`, { body: { kind: 'texture' }, token: tb.adminToken, origin: null });
+    const p = (inspected.json as { proposal: Json }).proposal;
+    const pub = await command('publishAsset', { mode: 'create', assetId: 'cone', kind: 'texture', displayName: 'Cone', sourceDigest: p['sourceDigest'], sourceByteLength: p['sourceByteLength'], importRecipe: p['importRecipe'], metrics: p['metrics'], importedAt: '2026-01-01T00:00:00Z' });
+    expect(pub.status, JSON.stringify(pub.json)).toBe(200);
+
+    const centre: [number, number] = [132, -8];
+    const ground0 = (await heightAt(...centre))!;
+    const far = (await heightAt(110, -30))!;
+    const r = await command('setComponent', { entityId: ground, component: 'terrain', value: { layers: [{ id: 'peaks', kind: 'stamps', stamps: [{ asset: 'cone', at: centre, size: 30, height: 20, falloff: 0 }] }] } });
+    expect(r.status, JSON.stringify(r.json)).toBe(200);
+    // One command: the layer and the ground combined again under it.
+    expect((await heightAt(...centre))! - ground0).toBeCloseTo(20, 0);
+    expect(await heightAt(110, -30)).toBe(far);
+    const t1 = await terrainNow();
+    expect(t1.tiles.filter((t) => t.base !== undefined).map((t) => [t.x, t.z])).toEqual([[0, 0]]);
+
+    // Erosion over a square on the cone's flank: stored as a layer, the ground changed only inside it.
+    const flank: [number, number] = [centre[0] + 8, centre[1]];
+    const before = await query({ entityId: ground, points: [flank, [centre[0] - 10, centre[1]], [centre[0] + 12, centre[1]]] });
+    const e = await command('editTerrain', { entityId: ground, kind: 'erode', rect: [centre[0] + 2, centre[1] - 8, centre[0] + 14, centre[1] + 8], hydraulic: { droplets: 2 }, thermal: { iterations: 20, talus: 30 }, seed: 3 });
+    expect(e.status, JSON.stringify(e.json)).toBe(200);
+    const t2 = await terrainNow();
+    const erosion = t2.layers!.find((l) => l.kind === 'erosion')!;
+    expect(erosion.id).toBe('erosion');
+    expect(erosion.tiles!.length).toBe(1);
+    const after = await query({ entityId: ground, points: [flank, [centre[0] - 10, centre[1]], [centre[0] + 12, centre[1]]] });
+    const hs = (q: Json): (number | null)[] => (q['points'] as { height: number | null }[]).map((x) => x.height);
+    expect(hs(after)[0]).not.toBe(hs(before)[0]);
+    expect(hs(after)[1]).toBe(hs(before)[1]);
+    // Undo: the erosion layer and its ground go; redo brings them back.
+    expect((await command('undo', {})).status).toBe(200);
+    expect((await terrainNow()).layers!.some((l) => l.kind === 'erosion')).toBe(false);
+    expect(hs(await query({ entityId: ground, points: [flank] }))[0]).toBe(hs(before)[0]);
+    expect((await command('redo', {})).status).toBe(200);
+    expect(hs(await query({ entityId: ground, points: [flank] }))[0]).toBe(hs(after)[0]);
+  }, 120_000);
+
   it('the export ships the tile blobs as buffers and the game page reads the same heights', async () => {
     const r = await api(`${tb.authUrl}/api/v1/admin/projects/${PID}/export`, { body: {}, token: tb.adminToken, origin: null });
     expect(r.status, JSON.stringify(r.json)).toBe(200);
@@ -120,6 +171,10 @@ describe('terrain over HTTP', () => {
     // Catalog block files are JSON stored under their digests too.
     const catalogText = Object.keys(files).filter((f) => f.startsWith('content/sha256/') && !tileDigests.includes(f.slice('content/sha256/'.length))).map((f) => readFileSync(join(out, f))).filter((b) => b[0] === 0x7b || b[0] === 0x5b).map((b) => b.toString('utf8')).join('\n');
     expect(tileDigests.length).toBe(3);
+    // The stack is the editor's: no hand-made tile or erosion blob ships.
+    const editorOnly = [...t.tiles.map((x) => x.base), ...(t.layers ?? []).flatMap((l) => (l.tiles ?? []).map((x) => x.data))].filter((d): d is string => d !== undefined);
+    expect(editorOnly.length).toBeGreaterThan(1);
+    for (const d of editorOnly) expect(files[`content/sha256/${d}`]).toBeUndefined();
     for (const d of tileDigests) {
       expect(catalogText).toContain(d);
       const bytes = readFileSync(join(out, 'content', 'sha256', d));
@@ -129,7 +184,7 @@ describe('terrain over HTTP', () => {
     // The scene file a game reads names the same tiles.
     const sceneFile = readdirSync(join(out, 'scenes')).map((f) => JSON.parse(readFileSync(join(out, 'scenes', f), 'utf8')) as { entities: { id: string; components: { terrain?: Terrain; transform?: { position: number[] } } }[] }).find((s) => s.entities.some((e) => e.id === ground))!;
     const entity = sceneFile.entities.find((e) => e.id === ground)!;
-    expect(entity.components.terrain).toEqual(t);
+    expect(entity.components.terrain).toEqual({ ...(({ layers: _l, ...rest }) => rest)(t), tiles: t.tiles.map(({ base: _b, ...tile }) => tile) });
     const field = await loadTerrainField(entity.components.terrain!, entity.components.transform!.position, async (digest) => {
       const b = readFileSync(join(out, 'content', 'sha256', digest));
       return b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength) as ArrayBuffer;

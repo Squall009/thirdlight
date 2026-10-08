@@ -1,13 +1,14 @@
 /**
- * Terrains follow the splines that shape them.
+ * Terrains follow the splines and edit layers that shape them.
  *
- * A terrain tile a spline reaches keeps two forms: `base`, as sculpted and
- * painted by hand, and `data`, with the splines applied over it
- * (`terrain-splines.ts`), the material rules baked with the splines' paint
- * and the scatter baked clear of their bands. Every edit of the hand-made
- * tile goes to `base` and makes `data` again; a spline added, moved,
- * changed or removed makes `data` again from `base` where it reached before
- * and reaches now. A tile no spline reaches any more drops its `base`.
+ * A terrain tile a spline or an edit layer (`terrain-layers.ts`: stamps,
+ * erosion) reaches keeps two forms: `base`, as sculpted and painted by
+ * hand, and `data`, with the layer stack applied over it, the material rules
+ * baked with the splines' paint and the scatter baked clear of their bands.
+ * Every edit of the hand-made tile goes to `base` and makes `data` again; a
+ * spline or layer added, moved, changed or removed makes `data` again from
+ * `base` where it reached before and reaches now. A tile nothing reaches any
+ * more drops its `base`.
  *
  * What a spline change re-bakes is the band round the curve, before and
  * after, as boxes along it about {@link SPLINE_REBAKE_PIECE} metres long —
@@ -22,6 +23,7 @@ import {
   SplineScatterBands,
   SurfaceRuleSet,
   TerrainField,
+  TerrainLayerStack,
   TerrainSamples,
   TerrainSplineLayer,
   bakeTerrainRules,
@@ -33,6 +35,7 @@ import {
   storedScatterRules,
   terrainBakeMargin,
   terrainFlatStep,
+  terrainLayerChangeRects,
   terrainScatterSurface,
   terrainSplineInputs,
   terrainSplineReach,
@@ -40,6 +43,7 @@ import {
   terrainTileRect,
   terrainTileSize,
   type BlockLayerComponent,
+  type Heightmap,
   type ScatterCell,
   type ScatterRect,
   type SplineComponent,
@@ -183,8 +187,9 @@ function terrainMoved(before: SceneEntity | undefined, after: SceneEntity): bool
 /**
  * The world boxes each terrain of `after` must shape again after a change
  * from `before` (by terrain id): where a spline that shapes terrain or keeps
- * scatter clear was added, removed, moved or changed, before and after; a
- * terrain moved or re-gridded, under every spline. Empty: nothing to do.
+ * scatter clear was added, removed, moved or changed, before and after;
+ * where its edit layers changed; a terrain moved or re-gridded, under every
+ * spline. Empty: nothing to do.
  */
 export function splineRebakeRects(before: SceneDocument, after: SceneDocument): Map<string, ScatterRect[]> {
   const a = splinesOf(before);
@@ -206,6 +211,15 @@ export function splineRebakeRects(before: SceneDocument, after: SceneDocument): 
     const moved = terrainMoved(beforeById.get(e.id), e) && (b.size > 0 || (beforeById.get(e.id)?.components['terrain'] as TerrainComponent | undefined)?.tiles.some((t) => t.base !== undefined) === true);
     const all = moved ? [...b.values()].flatMap((x) => reachRects(x.entity)) : [];
     const list = [...rects, ...all];
+    // Its edit layers changed (stamps, erosion, their order, switch or strength): where they reach, before and after.
+    const was = beforeById.get(e.id)?.components['terrain'] as TerrainComponent | undefined;
+    const now = e.components['terrain'] as TerrainComponent;
+    const size = terrainTileSize(now);
+    const o = positionOf(e);
+    const splineReach = (): ScatterRect[] => [...b.values()].flatMap((x) => reachRects(x.entity));
+    if (JSON.stringify(was?.layers ?? []) !== JSON.stringify(now.layers ?? [])) list.push(...terrainLayerChangeRects(was?.layers, now.layers, (x, z) => terrainTileRect(o, size, x, z), splineReach));
+    // A terrain moved or re-gridded under world-placed stamps: everything its layers reach now.
+    else if ((now.layers?.length ?? 0) > 0 && terrainMoved(beforeById.get(e.id), e)) list.push(...terrainLayerChangeRects(undefined, now.layers, (x, z) => terrainTileRect(o, size, x, z), splineReach));
     if (moved && (e.components['terrain'] as TerrainComponent).tiles.some((t) => t.base !== undefined)) {
       // Tiles shaped where the terrain was: their hand-made form comes back where no spline reaches now.
       const comp = e.components['terrain'] as TerrainComponent;
@@ -218,29 +232,67 @@ export function splineRebakeRects(before: SceneDocument, after: SceneDocument): 
   return out;
 }
 
-/** The splines over a terrain, ready to shape it. */
+/**
+ * What the host reads for a terrain's edit layers: a stamp's shape (a
+ * texture asset's first channel; null: none) and an erosion blob's steps.
+ */
+export interface TerrainLayerReads {
+  heightmap(asset: string): Heightmap | null;
+  delta(digest: string): { ok: true; delta: Int16Array } | { ok: false; error: CommandError };
+}
+
+/** Thrown inside a combine when a layer's blob cannot be read; the planners turn it into their refusal. */
+export class TerrainLayerUnread extends Error {
+  constructor(readonly error: CommandError) {
+    super(error.message);
+  }
+}
+
+/** The splines and edit layers over a terrain, ready to shape it. */
 export interface TerrainSplineContext {
   readonly layer: TerrainSplineLayer;
+  /** The whole stack (stamps, erosion, the splines in their place). */
+  readonly stack: TerrainLayerStack;
   readonly bands: SplineScatterBands;
-  /** Whether splines take part at all (any reaches it, or any tile still has its hand-made form beside). */
+  /** Whether layers take part at all (any reaches it, or any tile still has its hand-made form beside). */
   readonly layered: boolean;
   /** Whether any spline paints. */
   readonly paints: boolean;
 }
 
-export function terrainSplineContext(scene: SceneDocument, comp: TerrainComponent, origin: readonly number[]): TerrainSplineContext {
+export function terrainSplineContext(scene: SceneDocument, comp: TerrainComponent, origin: readonly number[], reads?: TerrainLayerReads, deltas?: ReadonlyMap<string, Int16Array>): TerrainSplineContext {
   const inputs = terrainSplineInputs(scene.entities as unknown as SceneEntity[]);
   const layer = new TerrainSplineLayer(inputs, comp, origin, blockedArea(scene));
   const bands = new SplineScatterBands(inputs);
-  return { layer, bands, layered: !layer.empty || comp.tiles.some((t) => t.base !== undefined), paints: layer.inputs.some((i) => i.terrain?.paint !== undefined) };
+  const shapes = new Map<string, Heightmap | null>();
+  const read = new Map<string, Int16Array>(deltas ?? []);
+  const sources = reads === undefined && deltas === undefined
+    ? null
+    : {
+        heightmap: (asset: string): Heightmap | null => {
+          if (!shapes.has(asset)) shapes.set(asset, reads?.heightmap(asset) ?? null);
+          return shapes.get(asset)!;
+        },
+        delta: (digest: string): Int16Array => {
+          let d = read.get(digest);
+          if (d !== undefined) return d;
+          const got = reads?.delta(digest) ?? { ok: false as const, error: fieldValue('/args', digest, 'an erosion blob', 'a terrain\'s erosion layer is read through the project host') };
+          if (!got.ok) throw new TerrainLayerUnread(got.error);
+          read.set(digest, (d = got.delta));
+          return d;
+        },
+      };
+  const stack = new TerrainLayerStack(comp, origin, layer, sources);
+  return { layer, stack, bands, layered: !stack.empty || comp.tiles.some((t) => t.base !== undefined), paints: layer.inputs.some((i) => i.terrain?.paint !== undefined) };
 }
 
 /**
- * The combined tile of a hand-made one (heights through the splines; holes
- * and paint the hand's; baked weights as `data` has them until the bake).
+ * The combined tile of a hand-made one (heights through the layer stack;
+ * holes and paint the hand's; baked weights as `data` has them until the
+ * bake).
  */
 export function combinedTile(ctx: TerrainSplineContext, tx: number, tz: number, authored: TerrainTile, data: TerrainTile | undefined): TerrainTile {
-  return { samples: authored.samples, heights: ctx.layer.heights(tx, tz, authored.heights), weights: data?.weights ?? authored.weights, holes: authored.holes, paint: authored.paint };
+  return { samples: authored.samples, heights: ctx.stack.heights(tx, tz, authored.heights), weights: data?.weights ?? authored.weights, holes: authored.holes, paint: authored.paint };
 }
 
 /** Write a combined tile into `c` where it differs from what `c` holds (or add it). */
@@ -282,7 +334,16 @@ function sampleRects(rects: readonly ScatterRect[], origin: readonly number[], s
  * baked there, the scatter baked there clear of the bands. Null: nothing
  * changes.
  */
-export function planTerrainSplineRebake(scene: SceneDocument, entityId: string, rects: readonly ScatterRect[], read: TerrainTileRead, readScatter: TerrainScatterRead): { ok: true; plan: TerrainSplinePlan | null } | { ok: false; error: CommandError } {
+export function planTerrainSplineRebake(scene: SceneDocument, entityId: string, rects: readonly ScatterRect[], read: TerrainTileRead, readScatter: TerrainScatterRead, layers?: TerrainLayerReads, deltas?: ReadonlyMap<string, Int16Array>): { ok: true; plan: TerrainSplinePlan | null } | { ok: false; error: CommandError } {
+  try {
+    return rebake(scene, entityId, rects, read, readScatter, layers, deltas);
+  } catch (e) {
+    if (e instanceof TerrainLayerUnread) return { ok: false, error: e.error };
+    throw e;
+  }
+}
+
+function rebake(scene: SceneDocument, entityId: string, rects: readonly ScatterRect[], read: TerrainTileRead, readScatter: TerrainScatterRead, layers: TerrainLayerReads | undefined, deltas: ReadonlyMap<string, Int16Array> | undefined): { ok: true; plan: TerrainSplinePlan | null } | { ok: false; error: CommandError } {
   const entity = (scene.entities as unknown as SceneEntity[]).find((e) => e.id === entityId);
   const comp = entity?.components['terrain'] as TerrainComponent | undefined;
   if (entity === undefined || comp === undefined) return { ok: true, plan: null };
@@ -290,7 +351,7 @@ export function planTerrainSplineRebake(scene: SceneDocument, entityId: string, 
   const size = terrainTileSize(comp);
   const n = comp.tileSamples - 1;
   const sp = comp.spacing;
-  const ctx = terrainSplineContext(scene, comp, origin);
+  const ctx = terrainSplineContext(scene, comp, origin, layers, deltas);
   const rules = comp.rules;
   const ruleSet = rules !== undefined && rules.length > 0 ? new SurfaceRuleSet(rules) : null;
   const margin = ruleSet !== null ? terrainBakeMargin(ruleSet, sp) : 1;
@@ -339,12 +400,12 @@ export function planTerrainSplineRebake(scene: SceneDocument, entityId: string, 
     const over = { paint: (tx: number, tz: number) => ctx.layer.paint(tx, tz), base: (tx: number, tz: number) => s.tile(tx, tz) };
     for (const r of sampleRects(rects, origin, sp, margin)) changed += bakeTerrainRules(c, ruleSet, origin, r, over);
   }
-  // The hand-made forms (a re-bake never changes them): stored beside where a spline reaches now, dropped where none does.
+  // The hand-made forms (a re-bake never changes them): stored beside where a spline or layer reaches now, dropped where none does.
   const bases = new Map<string, TerrainTile | null>();
   for (const key of shaped) {
     const [tx, tz] = key.split(',').map(Number) as [number, number];
     const had = comp.tiles.find((t) => t.x === tx && t.z === tz)?.base !== undefined;
-    const reaches = ctx.layer.reaches(tx, tz);
+    const reaches = ctx.stack.reaches(tx, tz);
     if (reaches && !had) bases.set(key, authored.get(key)!);
     else if (!reaches && had) bases.set(key, null);
   }

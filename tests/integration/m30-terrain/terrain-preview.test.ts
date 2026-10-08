@@ -9,8 +9,8 @@
  */
 import { describe, expect, it } from 'vitest';
 import { validateEditTerrainArgs } from '../../../packages/commands/src/index';
-import { TERRAIN_HEIGHT_STEPS, TerrainSamples, flatTerrainTile, holeTerrain, paintTerrain, rampTerrain, sculptTerrain, terrainHoleAt, terrainTileKey, type TerrainTile } from '../../../packages/project-model/src/index';
-import { TERRAIN_TOOLS, previewDab, strokeArgs, strokeDabLimit, dabsAlong, DEFAULT_TERRAIN_BRUSH, type TerrainToolId } from '../../../packages/editor/src/session/terrain-brush';
+import { TERRAIN_HEIGHT_STEPS, TerrainSamples, validateTerrainLayers, type ModelErrorV2, flatTerrainTile, holeTerrain, paintTerrain, rampTerrain, sculptTerrain, terrainHoleAt, terrainTileKey, type TerrainTile } from '../../../packages/project-model/src/index';
+import { DEFAULT_ERODE_TOOL, DEFAULT_STAMP_TOOL, PLACED_TERRAIN_TOOLS, TERRAIN_TOOLS, erodeArgs, layersWithStamp, previewDab, strokeArgs, strokeDabLimit, dabsAlong, DEFAULT_TERRAIN_BRUSH, type TerrainToolId } from '../../../packages/editor/src/session/terrain-brush';
 import { boxTiles, brushDabOf, brushSampleBox, compareRect, emptyDiff, tileRect } from '../../../packages/three-adapter/src/terrain-preview';
 
 const S = 33;
@@ -59,6 +59,8 @@ const shape = { origin: ORIGIN, heightRange: RANGE, spacing: SPACING };
 describe('terrain tools: strokes', () => {
   it('store args the command accepts, for every tool, inverted or not', () => {
     for (const t of TERRAIN_TOOLS) {
+      // The placed tools store no stroke (checked below).
+      if (PLACED_TERRAIN_TOOLS.includes(t.id)) continue;
       for (const invert of [false, true]) {
         const args = strokeArgs('ground', t.id, DEFAULT_TERRAIN_BRUSH, [[12, -14], [13, -14]], invert, { height: 5, from: [11, 4, -15], to: [20, 7, -10] });
         const v = validateEditTerrainArgs(args);
@@ -68,6 +70,16 @@ describe('terrain tools: strokes', () => {
     expect(strokeArgs('g', 'raise', DEFAULT_TERRAIN_BRUSH, [[0, 0]], true, {})['kind']).toBe('lower');
     expect(strokeArgs('g', 'paint', DEFAULT_TERRAIN_BRUSH, [[0, 0]], true, {})['erase']).toBe(true);
     expect(strokeArgs('g', 'holes', DEFAULT_TERRAIN_BRUSH, [[0, 0]], true, {})['erase']).toBe(true);
+    // The placed tools: an erode's args and the layers after a stamp are what the command and the model take.
+    const erode = validateEditTerrainArgs(erodeArgs('ground', DEFAULT_ERODE_TOOL, [12, -14], 8));
+    expect(erode.ok, JSON.stringify(erode)).toBe(true);
+    const layers = layersWithStamp(layersWithStamp([{ id: 'splines', kind: 'splines' }], { ...DEFAULT_STAMP_TOOL, asset: 'cone' }, [12, -14], 8), { ...DEFAULT_STAMP_TOOL, asset: 'cone', rotation: 30 }, [20, -14], 8);
+    const errors: ModelErrorV2[] = [];
+    validateTerrainLayers(layers, '/layers', errors);
+    expect(errors).toEqual([]);
+    // A new stamps layer goes under the splines; the second stamp joins it.
+    expect(layers.map((l) => l.id)).toEqual(['stamps', 'splines']);
+    expect((layers[0] as { stamps: unknown[] }).stamps).toHaveLength(2);
   });
 
   it('hold at most the dabs the command takes at their radius, dropped along the drag', () => {

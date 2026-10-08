@@ -1,6 +1,7 @@
 import type { FolderImport, FolderImportReport } from './folder-import';
 import type { TextureExtraction, TextureExtractionReport } from './model-textures';
 import type { HeadlessEditors } from './headless';
+import type { ErosionRunner } from './erosion-runner';
 import { type IncomingMessage, type ServerResponse } from 'node:http';
 import { parseCommandEnvelope, parseEstablishRequest, parseStrictJsonBytes, sessionError, statusFor, isMutationOp, type SessionError } from '@thirdlight/protocol';
 import { type CommandError, type QueryResult, type WorkspaceService } from '@thirdlight/workspace';
@@ -29,6 +30,8 @@ export interface SessionRoutesContext {
   readonly folderImport?: FolderImport;
   /** Extracts a model's images before its `publishAsset` (absent: models keep their images). */
   readonly textures?: TextureExtraction;
+  /** Erodes an `editTerrain` erode's grid on a worker before the command (absent: the command erodes in process). */
+  readonly erosion?: ErosionRunner;
   readonly notifyMutationApplied: (projectId: string, requestId: string, revision: number, origin: OriginDoc | null, change: unknown, sceneId?: string) => void;
   /** The backend's headless editors (the owner's browser evicts them). */
   readonly headless: HeadlessEditors;
@@ -37,7 +40,7 @@ export interface SessionRoutesContext {
 }
 
 export function makeSessionRoutes(ctx: SessionRoutesContext) {
-  const { timeouts, nowMs, service, sessions, sendJson, sendError, bearerToken, tokenScope, requireAuth, readBody, fullState, workspaceError, sessionView, recordProblem, notifyMutationApplied, headless, onOwnerLost, folderImport, textures } = ctx;
+  const { timeouts, nowMs, service, sessions, sendJson, sendError, bearerToken, tokenScope, requireAuth, readBody, fullState, workspaceError, sessionView, recordProblem, notifyMutationApplied, headless, onOwnerLost, folderImport, textures, erosion } = ctx;
 
   const establishSession = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
     const scope = tokenScope(bearerToken(req), req);
@@ -240,6 +243,10 @@ export function makeSessionRoutes(ctx: SessionRoutesContext) {
           return;
         }
         folderReport = prep.report;
+      }
+      // A terrain erode: its grid eroded on the worker first (the command takes the result when its input still matches).
+      if (envelope.op === 'editTerrain' && erosion !== undefined && typeof env.args === 'object' && env.args !== null && (env.args as Record<string, unknown>)['kind'] === 'erode') {
+        await erosion.prepare(service, projectId, env.args as Record<string, unknown>);
       }
       // A model publish with "extract textures" on: its images become texture assets first (their own command).
       let extraction: TextureExtractionReport | null = null;

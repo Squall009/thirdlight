@@ -65,18 +65,20 @@ import {
   type ScatterCell,
   type ScatterRect,
   type ScatterRule,
+  type ErosionSettings,
 } from '@thirdlight/project-model';
 
 import { blockTypesOf, layerDataOf } from './block-ops';
-import { combinedTile, putCombined, terrainSplineContext, type TerrainSplineContext } from './terrain-spline-ops';
+import { combinedTile, putCombined, terrainSplineContext, TerrainLayerUnread, type TerrainLayerReads, type TerrainSplineContext } from './terrain-spline-ops';
+import { erodeArgsError } from './terrain-erosion-ops';
 import { sceneRegionLayers, scatterBakeTooLarge, scatterRuleOf } from './scatter-ops';
 import { applySetComponent, type OpInput } from './content-ops';
 import { componentMissing, entityNotFound, fieldMissing, fieldUnexpected, fieldValue, noChangeContent, type CommandError } from './errors';
 import type { OpOutcome } from './ops';
 import type { ContentDocument, SceneDocument } from './types';
 
-export type EditTerrainKind = TerrainSculptKind | 'ramp' | 'paint' | 'holes' | 'import' | 'fromBlocks' | 'bake' | 'scatter';
-export const EDIT_TERRAIN_KINDS: readonly EditTerrainKind[] = [...TERRAIN_SCULPT_KINDS, 'ramp', 'paint', 'holes', 'import', 'fromBlocks', 'bake', 'scatter'];
+export type EditTerrainKind = TerrainSculptKind | 'ramp' | 'paint' | 'holes' | 'import' | 'fromBlocks' | 'bake' | 'scatter' | 'erode';
+export const EDIT_TERRAIN_KINDS: readonly EditTerrainKind[] = [...TERRAIN_SCULPT_KINDS, 'ramp', 'paint', 'holes', 'import', 'fromBlocks', 'bake', 'scatter', 'erode'];
 
 /** `editTerrain` args (which keys a kind takes: `EDIT_TERRAIN_KEYS`). */
 export interface EditTerrainArgs {
@@ -116,6 +118,11 @@ export interface EditTerrainArgs {
   rules?: SurfaceRule[];
   /** bake: the scatter rules set and baked (absent: the terrain's own baked again; empty: none, their copies and hand edits gone). */
   scatter?: ScatterRule[];
+  /** erode: the erosion layer written (absent: "erosion"), the world box [x0, z0, x1, z1], the runs (and `seed`). */
+  layerId?: string;
+  rect?: [number, number, number, number];
+  hydraulic?: ErosionSettings['hydraulic'];
+  thermal?: ErosionSettings['thermal'];
 }
 
 const BRUSH_KEYS = ['dabs', 'radius', 'strength', 'falloff'];
@@ -133,6 +140,7 @@ export const EDIT_TERRAIN_KEYS: Readonly<Record<EditTerrainKind, readonly string
   fromBlocks: ['source'],
   bake: ['rules', 'scatter'],
   scatter: ['dabs', 'radius', 'rule', 'erase'],
+  erode: ['layerId', 'rect', 'hydraulic', 'thermal', 'seed'],
 });
 
 /** The host's result: the terrain's new value and what the edit did. */
@@ -205,6 +213,10 @@ export function validateEditTerrainArgs(args: Record<string, unknown>): { ok: tr
     if (errors.length > 0) return { ok: false, error: fieldValue(errors[0]!.path, (errors[0] as { found?: unknown }).found, 'scatter rules', errors[0]!.message) };
   }
   if (kind === 'scatter' && typeof args['rule'] !== 'string') return bad('rule', 'a scatter rule id', 'rule names the scatter rule whose copies the stroke edits');
+  if (kind === 'erode') {
+    const e = erodeArgsError(args);
+    if (e !== null) return { ok: false, error: e };
+  }
   return { ok: true, args: args as unknown as EditTerrainArgs };
 }
 
@@ -244,7 +256,17 @@ function positionOf(e: SceneEntity): [number, number, number] {
  * the import's decoded file (the host reads and decodes the stage). An
  * error is a refusal; `no_change` when the edit changes nothing.
  */
-export function planTerrainEdit(scene: SceneDocument, content: ContentDocument | undefined, args: EditTerrainArgs, read: TerrainTileRead, heightmap?: Heightmap, readScatter?: TerrainScatterRead): { ok: true; plan: TerrainEditPlan } | { ok: false; error: CommandError } {
+export function planTerrainEdit(scene: SceneDocument, content: ContentDocument | undefined, args: EditTerrainArgs, read: TerrainTileRead, heightmap?: Heightmap, readScatter?: TerrainScatterRead, layers?: TerrainLayerReads): { ok: true; plan: TerrainEditPlan } | { ok: false; error: CommandError } {
+  if (args.kind === 'erode') return { ok: false, error: fieldValue('/args', undefined, 'an erosion the host prepared', 'editTerrain erode runs through the project host (planErosion)') };
+  try {
+    return planEdit(scene, content, args, read, heightmap, readScatter, layers);
+  } catch (e) {
+    if (e instanceof TerrainLayerUnread) return { ok: false, error: e.error };
+    throw e;
+  }
+}
+
+function planEdit(scene: SceneDocument, content: ContentDocument | undefined, args: EditTerrainArgs, read: TerrainTileRead, heightmap: Heightmap | undefined, readScatter: TerrainScatterRead | undefined, layers: TerrainLayerReads | undefined): { ok: true; plan: TerrainEditPlan } | { ok: false; error: CommandError } {
   const entities = scene.entities as unknown as SceneEntity[];
   const entity = entities.find((e) => e.id === args.entityId);
   if (entity === undefined) return { ok: false, error: entityNotFound(args.entityId) };
@@ -306,8 +328,8 @@ export function planTerrainEdit(scene: SceneDocument, content: ContentDocument |
     const g = (margin + 1) * sp + scatterMargin;
     box = [bx0 - g, bz0 - g, bx1 + g, bz1 + g];
   }
-  // The splines over the terrain: edits go to the hand-made tiles, the splines are applied over them again.
-  const splines = terrainSplineContext(scene, comp, origin);
+  // The splines and edit layers over the terrain: edits go to the hand-made tiles, the layers are applied over them again.
+  const splines = terrainSplineContext(scene, comp, origin, layers);
   // The tiles under the box (with data: read; without: flat), and, beside splines, their hand-made forms.
   const loaded = new Map<string, TerrainTile>();
   const authored = new Map<string, TerrainTile>();
@@ -396,13 +418,13 @@ export function planTerrainEdit(scene: SceneDocument, content: ContentDocument |
   }
   const tiles = new Map<string, TerrainTile>();
   for (const key of c.touched) tiles.set(key, c.all().get(key)!);
-  // The hand-made forms of the tiles the edit wrote: kept where a spline reaches, dropped where none does.
+  // The hand-made forms of the tiles the edit wrote: kept where a spline or layer reaches, dropped where none does.
   const bases = new Map<string, TerrainTile | null>();
   if (splines.layered) {
     const hadBase = new Set(comp.tiles.filter((t) => t.base !== undefined).map((t) => terrainTileKey(t.x, t.z)));
     for (const key of s.touched) {
       const [tx, tz] = key.split(',').map(Number) as [number, number];
-      if (splines.layer.reaches(tx, tz)) bases.set(key, s.all().get(key)!);
+      if (splines.stack.reaches(tx, tz)) bases.set(key, s.all().get(key)!);
       else if (hadBase.has(key)) bases.set(key, null);
     }
   }
@@ -551,5 +573,7 @@ export function applyEditTerrain(input: OpInput, args: EditTerrainArgs, prepared
     if (args.rules !== undefined || args.scatter === undefined) extra['rules'] = v.rules !== undefined && v.rules.length > 0 ? v.rules : null;
     if (args.scatter !== undefined) extra['scatter'] = v.scatter !== undefined && v.scatter.length > 0 ? v.scatter : null;
   }
+  // An erode stores its layer's new differences (and the layer, made when missing).
+  if (args.kind === 'erode') extra['layers'] = v.layers !== undefined && v.layers.length > 0 ? v.layers : null;
   return applySetComponent(input, { entityId: args.entityId, component: 'terrain', value: { tiles: v.tiles, ...extra } as never });
 }

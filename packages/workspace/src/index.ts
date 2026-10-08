@@ -9,6 +9,8 @@
 
 export * from './types';
 export { openWorkspaceService } from './service';
+// The erosion a terrain erode runs: the backend runs it on its worker thread ahead of the command.
+export { erodeGrid, type ErosionGrid, type ErosionSettings } from '@thirdlight/project-model';
 export { ERROR_CODES } from './errors';
 // Re-exported command/model surface so a consumer never reaches into
 // another package's internals (strict-boundary rule):
