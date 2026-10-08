@@ -105,6 +105,15 @@ interface Held {
   leaving: boolean;
 }
 
+/**
+ * Main-thread time (ms) a frame's streamed arrivals share: chunk meshes
+ * swapped in and scatter sets made. Each view has its own slice as well; on
+ * a game page they draw from this one, so arrivals of every kind landing on
+ * the same frame do not add up past what a 60 Hz frame spares (each still
+ * makes at least one piece a frame, so none waits on another for ever).
+ */
+export const STREAM_ARRIVAL_MS = 4;
+
 const mib = (b: number): string => `${Math.round(b / (1024 * 1024))} MiB`;
 
 export class PageWorldStream {
@@ -118,6 +127,8 @@ export class PageWorldStream {
   private peakResident = 0;
   /** This frame's deciding time, and the last frames' (a ring). */
   private frameMs = 0;
+  /** This frame's arrivals' time (see {@link STREAM_ARRIVAL_MS}). */
+  private arrivalMs = 0;
   private readonly msRing = new Float32Array(STREAM_MS_FRAMES);
   private msAt = 0;
   private msFrames = 0;
@@ -137,6 +148,7 @@ export class PageWorldStream {
     this.msAt = (this.msAt + 1) % STREAM_MS_FRAMES;
     this.msFrames = Math.min(STREAM_MS_FRAMES, this.msFrames + 1);
     this.frameMs = 0;
+    this.arrivalMs = 0;
     const over = this.ringBytes > this.o.budgetBytes;
     if (over && !this.over) {
       const msg = `world streaming: the rings around the camera need ${mib(this.ringBytes)}, over the streaming budget of ${mib(this.o.budgetBytes)} (streaming_budget_mb); nothing in a ring is let go, so memory grows past it — make the rings smaller or the budget larger`;
@@ -185,6 +197,16 @@ export class PageWorldStream {
     this.ringBytes += ringBytes - (was?.ring ?? 0);
     this.objects.set(object, { kind, used: mine, ring: ringBytes, inRing, kept: k });
     return hold;
+  }
+
+  /** What is left this frame of the arrivals' shared time (ms; 0: none, a view makes its one piece). */
+  arrivalLeft(): number {
+    return Math.max(0, STREAM_ARRIVAL_MS - this.arrivalMs);
+  }
+
+  /** Main-thread time a view spent on arrivals (counted into this frame's shared time). */
+  arrived(ms: number): void {
+    this.arrivalMs += ms;
   }
 
   /** Main-thread time a view spent deciding (counted into this frame's). */

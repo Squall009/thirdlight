@@ -656,9 +656,13 @@ export class BlockLayerView {
     }
     this.checkStall();
     let applied = 0;
-    while (this.results.length > 0 && (applied === 0 || performance.now() - t0 < MESH_APPLY_BUDGET_MS)) {
+    // A game page's streamed arrivals share their time with the scatter's (world-stream.ts).
+    const ta = performance.now();
+    const until = ta + Math.min(MESH_APPLY_BUDGET_MS - (ta - t0), this.deps.stream?.arrivalLeft() ?? Number.POSITIVE_INFINITY);
+    while (this.results.length > 0 && (applied === 0 || performance.now() < until)) {
       if (this.applyResult(this.results.shift()!)) applied += 1;
     }
+    if (applied > 0) this.deps.stream?.arrived(performance.now() - ta);
     let here = 0;
     let syncMs = 0;
     for (const [entityId, layer] of this.layers) {

@@ -5,7 +5,7 @@
  * copies where the stored data put them.
  */
 import * as THREE from 'three';
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { bakeScatterCell, decodeChunkScatter, encodeChunkScatter, scatterBlobOf, type BlockChunk, type BlockLayerComponent, type ScatterGround, type ScatterRule, type ScatterSurface, type TerrainComponent } from '@thirdlight/runtime';
 
 import type { AttributeInstancedMesh } from './attribute-instancing';
@@ -16,6 +16,16 @@ import { ScatterView } from './scatter-view';
 import { SHADOW_RING_METRES } from './scatter-shadows';
 import { CullView, VIEW_CULL_KEY } from './view-cull';
 import type { ModelInstance } from './visual';
+
+// The page's time per frame is a budget: a clock that stands still lets every update make all it can, as a fast
+// machine would, so a loaded test run never splits a set over frames the assertions do not expect.
+beforeEach(() => void vi.spyOn(performance, 'now').mockReturnValue(0));
+afterEach(() => void vi.restoreAllMocks());
+
+/** Until the worker answered every job sent (its answers come on later tasks). */
+async function answered(view: ScatterView): Promise<void> {
+  for (let i = 0; i < 1000 && view.diagnostics().preparing > 0; i++) await new Promise((r) => setTimeout(r, 0));
+}
 
 const RULE: ScatterRule = { id: 'trees', asset: { assetId: 'tree' }, density: 0.25, castShadow: true };
 
@@ -179,7 +189,7 @@ describe('scatter view: sets prepared on a worker, copies a game hides', () => {
     expect(view.update()).toBe(false);
     expect(w.jobs()).toBe(2);
     expect(view.diagnostics()).toMatchObject({ preparing: 2, sets: 0 });
-    await new Promise((r) => setTimeout(r, 5));
+    await answered(view);
     expect(view.update()).toBe(true);
     const d = view.diagnostics();
     expect(d).toMatchObject({ sets: 2, preparing: 0, prepared: 0, preparedSets: 2, onWorker: true });
@@ -187,15 +197,49 @@ describe('scatter view: sets prepared on a worker, copies a game hides', () => {
     // A chunk changed: prepared again; until the answer the old set is still drawn.
     view.replaceBlockChunks('layer', [{ cx: 1, cz: 0, chunk: { cx: 1, cz: 0, palette: [], columns: [] } }]);
     view.update();
-    expect(view.meshes()).toEqual(before);
-    await new Promise((r) => setTimeout(r, 5));
+    // The same draws (compared by identity: a deep comparison walks three's objects, whose node materials differ run to run).
+    const same = (a: readonly THREE.Mesh[], b: readonly THREE.Mesh[]): boolean => a.length === b.length && a.every((m, i) => m === b[i]);
+    expect(same(view.meshes(), before)).toBe(true);
+    await answered(view);
     view.update();
-    expect(view.meshes()).not.toEqual(before);
+    expect(view.meshes().some((m) => before.includes(m))).toBe(false);
     expect(view.diagnostics().copies).toBeLessThan(d.copies);
     view.dispose();
   });
 
-  it('a hidden copy shrinks to nothing in place (its blob too), shows again, and a removed one leaves the set', () => {
+  it('a set of many chunks is made over frames within the frame\'s time, shown once whole; the old one stays drawn until then', () => {
+    // A clock that moves 3 ms each time it is read: a frame's 4 ms make a chunk or two.
+    let t = 0;
+    vi.mocked(performance.now).mockImplementation(() => (t += 3));
+    const { view, listed } = host();
+    const small = { ...comp, scatter: [{ ...RULE, chunkSize: 8 }] } as unknown as BlockLayerComponent;
+    view.setBlockLayer('layer', small, [0, 0, 0], [chunk(0, 0, 16), chunk(1, 0, 16)]);
+    let frames = 0;
+    while (view.diagnostics().sets === 0 && frames < 100) {
+      view.update();
+      frames += 1;
+      // Nothing shown until the set (and its blobs) is whole.
+      if (view.diagnostics().sets === 0) expect(listed.size).toBe(0);
+    }
+    expect(frames).toBeGreaterThan(2);
+    expect(view.diagnostics().pending).toBe(0);
+    const before = view.meshes();
+    expect(before.length).toBeGreaterThan(4);
+    // Made again (its rule's settings changed): the old draws stay until the new set is whole, then all go.
+    view.setBlockLayer('layer', { ...comp, scatter: [{ ...RULE, chunkSize: 9 }] } as unknown as BlockLayerComponent, [0, 0, 0], [chunk(0, 0, 16), chunk(1, 0, 16)]);
+    let again = 0;
+    while (view.diagnostics().pending > 0 && again < 100) {
+      expect(view.meshes().every((m, i) => m === before[i])).toBe(true);
+      view.update();
+      again += 1;
+    }
+    expect(again).toBeGreaterThan(2);
+    expect(view.meshes().some((m) => before.includes(m))).toBe(false);
+    expect(listed.size).toBe(1);
+    view.dispose();
+  });
+
+  it('a hidden or removed copy shrinks to nothing in place (its blob too), a hidden one shows again, a removed one is left out when the set is next made', () => {
     const { view } = host();
     view.setBlockLayer('layer', { ...comp } as BlockLayerComponent, [0, 0, 0], [chunk(0, 0, 16)]);
     view.update();
@@ -215,10 +259,15 @@ describe('scatter view: sets prepared on a worker, copies a game hides', () => {
     expect(drawnScale()).toEqual([0, 0]);
     view.setCopyStates([{ entityId: 'layer', key: '0,0', rule: 'trees', cell: at, state: 'shown' }]);
     expect(drawnScale().every((s) => s > 0)).toBe(true);
+    const drawn = view.meshes();
     view.setCopyStates([{ entityId: 'layer', key: '0,0', rule: 'trees', cell: at, state: 'removed' }]);
-    expect(view.diagnostics().pending).toBe(1);
+    // In place too: the same draws, the copy at nothing, no set made again.
+    expect(view.diagnostics()).toMatchObject({ pending: 0, removed: 1, copies });
+    expect(view.meshes().every((m, i) => m === drawn[i])).toBe(true);
+    expect(drawnScale()).toEqual([0, 0]);
+    // The group made again for another reason (its rule's settings changed): the copy and its blob disc are left out.
+    view.setBlockLayer('layer', { ...comp, scatter: [{ ...RULE, blobShadow: 0.5, chunkSize: 32 }] } as BlockLayerComponent, [0, 0, 0], [chunk(0, 0, 16)]);
     view.update();
-    // The copy and its blob disc.
     expect(view.diagnostics()).toMatchObject({ pending: 0, removed: 1, copies: copies - 2 });
     // A new run: shown again (the set made again with it).
     view.setCopyStates([{ entityId: 'layer', key: '0,0', rule: 'trees', cell: at, state: 'shown' }]);

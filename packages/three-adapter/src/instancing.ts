@@ -33,7 +33,7 @@ import type { CullView, ViewCullable } from './view-cull';
 import type { ModelInstance } from './visual';
 import { disposeObjectTree } from './dispose';
 import { ChunkLodPicker, TAN_HALF_REFERENCE, type CopyLodGroup } from './instance-lod';
-import { INSTANCE_BUFFER_FLOATS, INSTANCE_CHUNK_COPIES, prepareInstanceSet, writeCopyMatrices, type PreparedInstanceSet, type PrepareOptions, type PrepareParts } from './instance-prepare';
+import { INSTANCE_BUFFER_FLOATS, INSTANCE_CHUNK_COPIES, prepareInstanceSet, writeCopyMatrices, type PreparedChunk, type PreparedInstanceSet, type PrepareOptions, type PrepareParts } from './instance-prepare';
 
 export { chunkCopies, INSTANCE_BUFFER_FLOATS, INSTANCE_CHUNK_COPIES, INSTANCE_MAX_CHUNKS, INSTANCE_MAX_SPATIAL_CHUNKS } from './instance-prepare';
 import { LOD_CULL_LEVEL_KEY, LodTuning } from './lod-switch';
@@ -226,6 +226,34 @@ export function instanceSetPlan(template: ModelInstance, options: InstanceSetOpt
  * `count` copies of `floats`.
  */
 export function buildInstanceSet(template: ModelInstance, floats: Float32Array, count: number, name = 'instances', options: InstanceSetOptions = {}): BuiltInstanceSet {
+  const b = beginInstanceSet(template, floats, count, name, options);
+  b.step(Number.POSITIVE_INFINITY);
+  return b.set;
+}
+
+/**
+ * An instance set made a few chunks at a time ({@link beginInstanceSet}): a
+ * large set (a landscape's scatter group: hundreds of chunks, a draw per mesh
+ * and level each) costs the page milliseconds to make, more than a frame
+ * spares, so its maker spreads it over frames and shows it once it is done.
+ */
+export interface InstanceSetBuilder {
+  /** The set (draw it, write it or ask it only once {@link step} said it is done). */
+  readonly set: BuiltInstanceSet;
+  /** Make chunks until `until` (a `performance.now()` time; at least one chunk or draw a call); returns whether every chunk is made. */
+  step(until: number): boolean;
+  /**
+   * Once made: cull its chunks for `view` ahead of being shown, at the place
+   * they will have under a parent at `parentWorld` (each copy's world sphere
+   * and level worked out, the drawn order written), until `until` (at least
+   * one draw a call); returns whether every chunk is culled. A large set
+   * shown all at once would do this for every copy in its first frame.
+   */
+  prime(view: CullView, parentWorld: THREE.Matrix4, until: number): boolean;
+}
+
+/** {@link buildInstanceSet} made a step at a time (see {@link InstanceSetBuilder}). */
+export function beginInstanceSet(template: ModelInstance, floats: Float32Array, count: number, name = 'instances', options: InstanceSetOptions = {}): InstanceSetBuilder {
   const plan = instanceSetPlan(template, options);
   const { parts, groups, radius, density } = plan;
   const tuning = options.tuning ?? new LodTuning();
@@ -242,11 +270,11 @@ export function buildInstanceSet(template: ModelInstance, floats: Float32Array, 
   const meshes: THREE.Mesh[] = [];
   /** A chunk mesh → its chunk, part, the copy index of each slot, and its instances. */
   const meta = new Map<THREE.Object3D, { chunk: Chunk; part: Part; copies: Uint32Array; inst: AttributeInstancedMesh }>();
-  for (const pc of prepared.chunks) {
+  const makeChunk = (pc: PreparedChunk): void => {
     const chunk: Omit<Chunk, 'culler'> & { culler?: ViewCullable } = { copies: pc.copies, center: pc.center, node: new THREE.Group(), meshes: [], picker: null, changed: true };
     chunk.culler = chunkCuller(chunk, tuning);
     chunks.push(chunk as Chunk);
-    if (pc.copies.length === 0) continue;
+    if (pc.copies.length === 0) return;
     pc.copies.forEach((copy, slot) => {
       slotOf[copy] = slot;
     });
@@ -255,37 +283,58 @@ export function buildInstanceSet(template: ModelInstance, floats: Float32Array, 
     if (plan.prepareOptions.perCopy && pc.origins !== null && pc.scales !== null && pc.ranks !== null) {
       chunk.picker = new ChunkLodPicker({ origins: pc.origins, scales: pc.scales, ranks: pc.ranks, count: pc.copies.length }, groups, density !== null ? { radius, falloff: density } : null, tuning, options.lodPerCopy === true, pc.stats ?? undefined);
     }
-    parts.forEach((part, k) => {
-      const filter = chunk.picker?.filter(part.lod, part.level);
-      const inst = createAttributeInstancedMesh(part.mesh.geometry, part.mesh.material as THREE.Material, pc.copies.length, { raycast: true, group: chunk.culler!, matrices: pc.matrices[k]!, ...(filter !== undefined ? { filter } : {}) });
-      inst.count = pc.copies.length;
-      inst.mesh.name = part.mesh.name;
-      // Tools counting instance-set copies (the perf harness's scene walk) find the chunk draws by it.
-      inst.mesh.userData[INSTANCE_SET_KEY] = true;
-      // A part whose material is its own (an impostor's quad) keeps it when the set is dressed.
-      if (part.mesh.userData[KEEP_MATERIAL_KEY] === true) inst.mesh.userData[KEEP_MATERIAL_KEY] = true;
-      // The set's own flags go on when it is attached (an instance set casts only when it says so).
-      inst.mesh.castShadow = false;
-      inst.mesh.receiveShadow = true;
-      inst.markChanged(pc.bounds.subarray(k * 4, k * 4 + 4));
-      chunk.node.add(inst.mesh);
-      chunk.meshes.push(inst);
-      meshes.push(inst.mesh);
-      meta.set(inst.mesh, { chunk: chunk as Chunk, part, copies: pc.copies, inst });
-    });
     group.add(chunk.node);
-  }
+  };
+  /** Mesh `k` of the model's draw in the chunk made last. */
+  const makePart = (pc: PreparedChunk, k: number): void => {
+    const chunk = chunks[chunks.length - 1]!;
+    const part = parts[k]!;
+    const filter = chunk.picker?.filter(part.lod, part.level);
+    const inst = createAttributeInstancedMesh(part.mesh.geometry, part.mesh.material as THREE.Material, pc.copies.length, { raycast: true, group: chunk.culler!, matrices: pc.matrices[k]!, ...(filter !== undefined ? { filter } : {}) });
+    inst.count = pc.copies.length;
+    inst.mesh.name = part.mesh.name;
+    // Tools counting instance-set copies (the perf harness's scene walk) find the chunk draws by it.
+    inst.mesh.userData[INSTANCE_SET_KEY] = true;
+    // A part whose material is its own (an impostor's quad) keeps it when the set is dressed.
+    if (part.mesh.userData[KEEP_MATERIAL_KEY] === true) inst.mesh.userData[KEEP_MATERIAL_KEY] = true;
+    // The set's own flags go on when it is attached (an instance set casts only when it says so).
+    inst.mesh.castShadow = false;
+    inst.mesh.receiveShadow = true;
+    inst.markChanged(pc.bounds.subarray(k * 4, k * 4 + 4));
+    chunk.node.add(inst.mesh);
+    chunk.meshes.push(inst);
+    meshes.push(inst.mesh);
+    meta.set(inst.mesh, { chunk, part, copies: pc.copies, inst });
+  };
+  /** Makes the chunks a draw at a time (a dense chunk's draws, each with buffers per copy, are a millisecond or more each). */
+  const making = (function* (): Generator<void, void, void> {
+    for (const pc of prepared.chunks) {
+      makeChunk(pc);
+      yield;
+      for (let k = 0; k < parts.length && pc.copies.length > 0; k += 1) {
+        makePart(pc, k);
+        yield;
+      }
+    }
+  })();
+  let made = prepared.chunks.length === 0;
+  /** Chunks culled ahead ({@link InstanceSetBuilder.prime}), and the set's world matrix there. */
+  let primed = 0;
+  let primedDraw = 0;
+  const groupWorld = new THREE.Matrix4();
   const place = new Float64Array(16);
   const keep = [0, 0, 0, -1];
   const box = new THREE.Box3();
   const m = new THREE.Matrix4();
   // One mesh per level stands for its copies in the counts (of the first LOD group; the first mesh without one).
   const counted = groups.length > 0 ? parts.flatMap((p, k) => (p.lod === 0 && parts.findIndex((q) => q.lod === 0 && q.level === p.level) === k ? [k] : [])) : parts.length > 0 ? [0] : [];
-  return {
+  const set: BuiltInstanceSet = {
     group,
     meshes,
     count: n,
-    chunks: chunks.filter((c) => c.copies.length > 0).length,
+    get chunks() {
+      return chunks.filter((c) => c.copies.length > 0).length;
+    },
     stats(): InstanceSetStats {
       let inView = 0;
       let culled = 0;
@@ -363,6 +412,38 @@ export function buildInstanceSet(template: ModelInstance, floats: Float32Array, 
       // and instance buffer (never the model's geometry).
       for (const c of chunks) for (const inst of c.meshes) inst.dispose();
       disposeObjectTree(group);
+    },
+  };
+  return {
+    set,
+    step(until: number): boolean {
+      while (!made) {
+        made = making.next().done === true;
+        if (performance.now() >= until) break;
+      }
+      return made;
+    },
+    prime(view: CullView, parentWorld: THREE.Matrix4, until: number): boolean {
+      // The world matrices three's updateMatrixWorld will give them once attached (the same products: a cull then
+      // finds them unchanged and keeps the copies' spheres).
+      group.updateMatrix();
+      groupWorld.multiplyMatrices(parentWorld, group.matrix);
+      // A draw at a time (a dense chunk's draws cost a millisecond or more each); its chunk's first places them all.
+      while (primed < chunks.length) {
+        const c = chunks[primed]!;
+        if (primedDraw === 0 && c.meshes.length > 0) {
+          c.node.updateMatrix();
+          c.node.matrixWorld.multiplyMatrices(groupWorld, c.node.matrix);
+          for (const inst of c.meshes) inst.mesh.matrixWorld.multiplyMatrices(c.node.matrixWorld, inst.mesh.matrix);
+        }
+        if (primedDraw < c.meshes.length) c.meshes[primedDraw++]!.cull(view);
+        if (primedDraw >= c.meshes.length) {
+          primed += 1;
+          primedDraw = 0;
+        }
+        if (performance.now() >= until) break;
+      }
+      return primed >= chunks.length;
     },
   };
 }

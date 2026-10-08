@@ -7,14 +7,14 @@
  * worth (the same chunks and copies) back when it returns.
  */
 import * as THREE from 'three';
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { BlockGrid, applyBlockEdits, bakeScatterCell, createResourceManager, scatterBlobOf, type BlockType, type ScatterGround, type ScatterRule, type ScatterSurface, type TerrainComponent } from '@thirdlight/runtime';
 
 import { BlockLayerView } from './block-layers';
 import { ScatterView, SCATTER_GROUP_METRES } from './scatter-view';
 import { CullView } from './view-cull';
 import type { ModelInstance } from './visual';
-import { PageWorldStream, WORLD_STREAM_HOLDER } from './world-stream';
+import { PageWorldStream, STREAM_ARRIVAL_MS, WORLD_STREAM_HOLDER } from './world-stream';
 
 const MB = 1024 * 1024;
 
@@ -76,6 +76,20 @@ describe('page world streaming', () => {
 
 const TYPES: BlockType[] = [{ blockId: 'soil', name: 'Soil', variants: [{ color: '#886644' }], shape: 'full' }];
 
+describe('arrivals share a frame\'s time', () => {
+  it('what one view spent on arrivals is what the next has left this frame; a new frame has all of it', () => {
+    const stream = new PageWorldStream({ budgetBytes: 64 * MB, resources: createResourceManager() });
+    stream.beginFrame([0, 0, 0]);
+    expect(stream.arrivalLeft()).toBe(STREAM_ARRIVAL_MS);
+    stream.arrived(STREAM_ARRIVAL_MS * 0.75);
+    expect(stream.arrivalLeft()).toBeCloseTo(STREAM_ARRIVAL_MS * 0.25);
+    stream.arrived(STREAM_ARRIVAL_MS);
+    expect(stream.arrivalLeft()).toBe(0);
+    stream.beginFrame([0, 0, 0]);
+    expect(stream.arrivalLeft()).toBe(STREAM_ARRIVAL_MS);
+  });
+});
+
 describe('block view streaming', () => {
   it('meshes only the chunks in the render ring round the eye, drops those it left at the settle, and meshes them again on return', async () => {
     // 8 × 1 chunks of 1 m cells along x (128 m), render ring 20 m (hysteresis 2 m).
@@ -114,6 +128,10 @@ const RULE: ScatterRule = { id: 'trees', asset: { assetId: 'tree' }, density: 0.
 const FLAT: ScatterSurface = { at: (x, z) => ({ x, y: 1, z, slope: 0, wall: false, nx: 0, ny: 1, nz: 0, cavity: () => 0, layer: () => 1 }) as ScatterGround };
 
 describe('scatter view streaming', () => {
+  // A clock that stands still: each update makes every set it can (a set is split over frames only by time).
+  beforeEach(() => void vi.spyOn(performance, 'now').mockReturnValue(0));
+  afterEach(() => void vi.restoreAllMocks());
+
   it('reads and draws only the groups in the scatter ring; a group left goes at the settle and comes back the same', async () => {
     const tile = 512;
     const blobs = new Map<string, Uint8Array>();

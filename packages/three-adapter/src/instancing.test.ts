@@ -11,7 +11,7 @@ import { ChunkLodPicker, REPICK_MOVE_FRACTION, TAN_HALF_REFERENCE } from './inst
 import { hemiOctDecode, hemiOctEncode } from './impostor';
 import { LOD_CULL_LEVEL_KEY, LodTuning } from './lod-switch';
 import { CullView, STATIC_SHADOW_CAMERA_KEY, VIEW_CULL_KEY, ViewCuller } from './view-cull';
-import { buildInstanceSet, chunkCopies, instanceSetPlan, INSTANCE_BUFFER_FLOATS, INSTANCE_CHUNK_COPIES, INSTANCE_MAX_CHUNKS, INSTANCE_MAX_SPATIAL_CHUNKS } from './instancing';
+import { beginInstanceSet, buildInstanceSet, chunkCopies, instanceSetPlan, INSTANCE_BUFFER_FLOATS, INSTANCE_CHUNK_COPIES, INSTANCE_MAX_CHUNKS, INSTANCE_MAX_SPATIAL_CHUNKS } from './instancing';
 import { prepareInstanceSet } from './instance-prepare';
 import type { ModelInstance } from './visual';
 
@@ -356,6 +356,77 @@ describe('instance chunks', () => {
     expect(set.meshes).toHaveLength(1);
     expect(countOf(set.meshes[0]!)).toBe(5);
     expect([0, 1, 2, 3, 4].map((i) => set.copyOf(set.meshes[0]!, i))).toEqual([0, 1, 2, 3, 4]);
+  });
+
+  it('a large set is made a chunk or more a step, until its time is up; made whole it equals one built at once', () => {
+    const { template } = lodTemplate();
+    const floats = copies(2000, 2);
+    const whole = buildInstanceSet(template, floats, 2000, 'whole', { chunkSize: 20 });
+    expect(whole.chunks).toBeGreaterThan(4);
+    const b = beginInstanceSet(template, floats, 2000, 'stepped', { chunkSize: 20 });
+    // A step whose time is already up still makes a chunk or one of its draws (it always moves on).
+    let steps = 0;
+    let drawsBefore = 0;
+    while (!b.step(Number.NEGATIVE_INFINITY)) {
+      steps += 1;
+      expect(b.set.meshes.length - drawsBefore).toBeLessThanOrEqual(1);
+      drawsBefore = b.set.meshes.length;
+    }
+    expect(steps).toBeGreaterThanOrEqual(whole.meshes.length);
+    expect(b.set.meshes.length).toBe(whole.meshes.length);
+    expect(b.set.count).toBe(whole.count);
+    // The same copies in the same slots.
+    const m = new THREE.Matrix4();
+    const n = new THREE.Matrix4();
+    b.set.meshes.forEach((mesh, k) => {
+      const a = mesh.userData[VIEW_CULL_KEY] as AttributeInstancedMesh;
+      const w = whole.meshes[k]!.userData[VIEW_CULL_KEY] as AttributeInstancedMesh;
+      expect(a.capacity).toBe(w.capacity);
+      for (let i = 0; i < a.capacity; i += 1) expect(a.getMatrixAt(i, m).equals(w.getMatrixAt(i, n))).toBe(true);
+    });
+    // With time to spare the rest is made in one step.
+    const c = beginInstanceSet(template, floats, 2000, 'at once', { chunkSize: 20 });
+    expect(c.step(Number.POSITIVE_INFINITY)).toBe(true);
+    expect(c.set.chunks).toBe(whole.chunks);
+    whole.dispose();
+    b.set.dispose();
+    c.set.dispose();
+  });
+
+  it('a made set is culled ahead, a draw or more a call, where it will stand: shown there, its first cull finds nothing to do', () => {
+    const { template } = lodTemplate();
+    const b = beginInstanceSet(template, copies(2000, 2), 2000, 'primed', { chunkSize: 20 });
+    b.step(Number.POSITIVE_INFINITY);
+    const parent = new THREE.Group();
+    parent.position.set(10, 0, -5);
+    parent.updateMatrixWorld(true);
+    const cam = new THREE.PerspectiveCamera(60, 1, 0.1, 5000);
+    cam.position.set(100, 30, 150);
+    cam.lookAt(100, 0, 0);
+    cam.updateMatrixWorld();
+    const v = new CullView();
+    v.set(cam);
+    let calls = 1;
+    while (!b.prime(v, parent.matrixWorld, Number.NEGATIVE_INFINITY)) calls += 1;
+    expect(calls).toBe(b.set.meshes.length);
+    // Attached and placed as three places it: the same world matrices, so the same view culls nothing again.
+    parent.add(b.set.group);
+    parent.updateMatrixWorld(true);
+    const insts = b.set.meshes.map((m) => m.userData[VIEW_CULL_KEY] as AttributeInstancedMesh);
+    expect(insts.some((i) => i.inView > 0)).toBe(true);
+    for (const i of insts) expect(i.cull(v)).toBe(false);
+    // What it drew as primed is what a cull from scratch draws.
+    const fresh = buildInstanceSet(template, copies(2000, 2), 2000, 'fresh', { chunkSize: 20 });
+    const other = new THREE.Group();
+    other.position.copy(parent.position);
+    other.add(fresh.group);
+    other.updateMatrixWorld(true);
+    fresh.meshes.forEach((m, k) => {
+      (m.userData[VIEW_CULL_KEY] as AttributeInstancedMesh).cull(v);
+      expect((m.userData[VIEW_CULL_KEY] as AttributeInstancedMesh).inView).toBe(insts[k]!.inView);
+    });
+    b.set.dispose();
+    fresh.dispose();
   });
 
   it('a ray picks one copy of a chunk mesh (its slot as instanceId); dispose frees the chunk geometry, never the model\'s', () => {
