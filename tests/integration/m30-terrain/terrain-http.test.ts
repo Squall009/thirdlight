@@ -8,7 +8,9 @@
  * combined again; an erode on a rectangle stored as an erosion layer; undo),
  * and the export shipping the tile blobs in manifest.buffers — the combined
  * heights only, no layers or hand-made tiles — which the game page's loader
- * reads back to the same heights.
+ * reads back to the same heights; and blocks on terrain (a blocks layer: the
+ * ground meets a block area, a block edit's follow-up re-bakes it in the same
+ * command and undo step, the export keeps the layer's settings).
  */
 import { createHash } from 'node:crypto';
 import { mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
@@ -225,5 +227,43 @@ describe('terrain over HTTP', () => {
     }
     const off = await command('setComponent', { entityId: ground, component: 'terrain', value: { streaming: null } });
     expect(off.status, JSON.stringify(off.json)).toBe(200);
+  }, 240_000);
+
+  it('blocks on terrain: a blocks layer meets a block area, a block edit at its border re-bakes the ground in the same command, the export keeps the layer\'s settings', async () => {
+    // A 6 × 6 block area two rows high (its top 2 m over the object at y 2, so 4 m), its corner on the terrain's samples.
+    const made = await command('createEntity', { sceneId: 'scene-main', kind: 'group', name: 'Area' });
+    expect(made.status, JSON.stringify(made.json)).toBe(200);
+    const area = (made.json as { createdId: string }).createdId;
+    expect((await command('setTransform', { entityId: area, transform: { position: [140, 2, -30] } })).status).toBe(200);
+    expect((await command('setBlockType', { block: { blockId: 'rock', name: 'Rock', variants: [{ color: '#808080' }], shape: 'full' } })).status).toBe(200);
+    expect((await command('setComponent', { entityId: area, component: 'blockLayer', value: { cellSize: [1, 1, 1], bounds: { min: [0, 0, 0], max: [8, 4, 8] } } })).status).toBe(200);
+    expect((await command('editBlocks', { entityId: area, edits: [{ kind: 'fill', box: [0, 0, 0, 6, 2, 6], cell: { block: 'rock' } }] })).status).toBe(200);
+    const before = await terrainNow();
+    // One command: the layer stored, the ground round the area and under it combined again.
+    const set = await command('setComponent', { entityId: ground, component: 'terrain', value: { layers: [...(before.layers ?? []), { id: 'blocks', kind: 'blocks', blockLayers: [area], blend: 3 }] } });
+    expect(set.status, JSON.stringify(set.json)).toBe(200);
+    expect(await heightAt(143, -30), 'the border: the area\'s top').toBeCloseTo(4, 2);
+    expect(await heightAt(146, -27), 'the +x border').toBeCloseTo(4, 2);
+    expect((await query({ entityId: ground, points: [[143, -27]] }))['points']).toEqual([expect.objectContaining({ height: null, hole: true })]);
+    const t1 = await terrainNow();
+    expect((t1 as { uvOrigin?: number[] }).uvOrigin, 'textures counted from the area\'s origin').toEqual([140, -30]);
+    // A column on the border raised a row: the same command follows the terrain there.
+    const edit = await command('editBlocks', { entityId: area, edits: [{ kind: 'fill', box: [2, 2, 0, 4, 3, 1], cell: { block: 'rock' } }] });
+    expect(edit.status, JSON.stringify(edit.json)).toBe(200);
+    expect((edit.json as { change: { follows?: { entityId: string; component: string }[] } }).change.follows?.map((f) => `${f.entityId}:${f.component}`)).toEqual([`${ground}:terrain`]);
+    expect(await heightAt(143, -30), 'the raised columns\' own border corner').toBeCloseTo(5, 2);
+    expect(await heightAt(142, -30), 'the corner they share with the low columns').toBeCloseTo(4, 2);
+    // Undo takes both back.
+    expect((await command('undo', {})).status).toBe(200);
+    expect(await heightAt(143, -30)).toBeCloseTo(4, 2);
+    // The export: the blocks layer ships (its settings only, for the ground cover), the other layers and hand-made tiles do not.
+    const r = await api(`${tb.authUrl}/api/v1/admin/projects/${PID}/export`, { body: {}, token: tb.adminToken, origin: null });
+    expect(r.status, JSON.stringify(r.json)).toBe(200);
+    const out = join(exportRoot, String((r.json as { outputDir: string }).outputDir));
+    const sceneFile = readdirSync(join(out, 'scenes')).map((f) => JSON.parse(readFileSync(join(out, 'scenes', f), 'utf8')) as { entities: { id: string; components: { terrain?: Terrain & { uvOrigin?: number[] } } }[] }).find((sc) => sc.entities.some((e) => e.id === ground))!;
+    const shipped = sceneFile.entities.find((e) => e.id === ground)!.components.terrain!;
+    expect(shipped.layers).toEqual([{ id: 'blocks', kind: 'blocks', blockLayers: [area], blend: 3 }]);
+    expect(shipped.uvOrigin).toEqual([140, -30]);
+    expect(shipped.tiles.every((x) => x.base === undefined)).toBe(true);
   }, 240_000);
 });

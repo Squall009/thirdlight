@@ -61,8 +61,8 @@ import { applyEntityRenderFlags } from './entity-render-flags';
 import { GRAPH_SURFACE_KEY, type MaterialLibrary, type MaterialOverridesLike } from './material-library';
 import type { GraphSurface } from './material-graph';
 import { STATIC_CASTER_KEY } from './shadow-casters';
-import { defaultTerrainMaterial, terrainEye, terrainMacroMaterial, terrainSurface, terrainUniforms, type TerrainSurface, type TerrainUniforms } from './terrain-material';
-import { sameMacroSource, TerrainMacroBaker, terrainMacroArrays, terrainMacroSize, terrainMacroSource, type TerrainMacroArrays } from './terrain-macro';
+import { defaultTerrainMaterial, terrainEye, terrainMacroMaterial, terrainSurface, terrainUniforms, terrainUvShift, type TerrainSurface, type TerrainUniforms } from './terrain-material';
+import { sameMacroSource, TERRAIN_HORIZON_METRES, TerrainMacroBaker, terrainMacroArrays, terrainMacroSize, terrainMacroSource, type TerrainMacroArrays } from './terrain-macro';
 import { gridGeometry, nodeGeometry } from './terrain-grid';
 import { PageNodes, selectTerrainNodes, splitFarNodes, terrainLodLayout, terrainLodRanges, TERRAIN_NODE_FLOATS, tileHeightBounds, type SelectStats, type SelectTile, type TerrainLodLayout, type TileHeightBounds } from './terrain-quadtree';
 import { metresPerStep, packFlat, packHeightNormalBorder, TERRAIN_TEXEL_BYTES } from './terrain-texels';
@@ -84,12 +84,22 @@ export function terrainFromUrl(search: string): boolean {
   return v !== 'off' && v !== '0' && v !== 'false';
 }
 
+/** The page flag that bakes the far ground without its horizon (`?terrainHorizon=off`: what the horizon's light does, by comparison). */
+export const TERRAIN_HORIZON_URL_PARAM = 'terrainHorizon';
+
+export function terrainHorizonFromUrl(search: string): boolean {
+  const v = new URLSearchParams(search).get(TERRAIN_HORIZON_URL_PARAM);
+  return v !== 'off' && v !== '0' && v !== 'false';
+}
+
 /** Main-thread time per frame spent copying arrived texels into the pages (at least one layer texture a frame). */
 export const TERRAIN_UPLOAD_BUDGET_MS = 2;
 
 /** Texel bytes uploaded per frame at most (at least one layer texture: a 1,025² tile's is 4.2 MB). */
 export const TERRAIN_UPLOAD_BUDGET_BYTES = 4 * 1024 * 1024;
 
+/** Degrees the sun turns before the far ground's horizon shadows are baked again (a day's sun: every few minutes). */
+const TERRAIN_SUN_TURN_DEGREES = 2;
 /** Main-thread time per frame spent baking macro textures (at least one tile a frame while any wait). */
 export const TERRAIN_MACRO_BUDGET_MS = 2;
 
@@ -117,6 +127,10 @@ export interface TerrainViewDeps {
   scatter?: ScatterSink;
   /** World streaming (a game page): terrains with `streaming` keep only the tiles round the camera (absent: every tile, the editor). */
   stream?: PageWorldStream | null;
+  /** The direction toward the key light (world; null or absent: none, straight up): the far ground's baked horizon shadows from it. */
+  sun?(): readonly [number, number, number] | null;
+  /** The far ground's horizon light (absent: on; false: its bakes see the whole sky and the sun everywhere, a diagnostic comparison). */
+  horizon?: boolean;
 }
 
 /** What `setTerrain` dresses the terrain with: its entity's components (materials, render flags). */
@@ -155,7 +169,7 @@ export interface TerrainViewDiagnostics {
   /** Streamed terrains: tiles resident at full detail, the overview's tiles read and those drawn in place of a full tile, the render ring's reach (m). */
   streamed?: { resident: number; overviewTiles: number; overviewDrawn: number; ringMetres: number; streamMs?: number };
   /** Far ground (terrains with a macro distance): tiles baked, waiting, bakes made and their main-thread ms in all, the last bake frame's ms, far nodes drawn and their draws. */
-  macro?: { baked: number; waiting: number; bakes: number; bakeMsTotal: number; bakeMs: number; farNodes: number; draws: number };
+  macro?: { baked: number; waiting: number; bakes: number; bakeMsTotal: number; bakeMs: number; bakeMsMax: number; farNodes: number; draws: number };
 }
 
 interface TileRec {
@@ -229,7 +243,7 @@ interface Page {
   indices: THREE.DataArrayTexture;
   capacity: number;
   used: Set<number>;
-  surface: GraphSurface;
+  surface: TerrainSurface;
   fallback: THREE.Material;
   mesh: THREE.Mesh;
   geometry: THREE.InstancedBufferGeometry;
@@ -366,9 +380,13 @@ export class TerrainView {
   private readonly errors: string[] = [];
   /** The macro bakes (made with the renderer that draws them), and the last frame's bake time. */
   private baker: TerrainMacroBaker | null = null;
+  /** The sun the far ground's horizon shadows were baked for (null: none yet). */
+  private bakedSun: [number, number, number] | null = null;
   private bakerRenderer: WebGPURenderer | null = null;
   private lastBakeMs = 0;
   private bakeMsTotal = 0;
+  /** The most a frame spent baking (the first bakes of a material include building its programs). */
+  private bakeMsMax = 0;
   /** The strokes' GPU passes (made with the renderer that draws them). */
   private brush: TerrainBrushGpu | null = null;
   private brushRenderer: WebGPURenderer | null = null;
@@ -419,6 +437,7 @@ export class TerrainView {
     u.low.value = terrainHeightOf(component.heightRange, 0);
     u.step.value = metresPerStep(component.heightRange);
     u.grid.value = rec.layout.grid;
+    u.uvShift.value.fromArray(terrainUvShift(rec.origin, component.uvOrigin));
     // The tiles: gone ones free their layers, new ones take one, changed ones are read again. A streamed
     // terrain's tiles take a layer only when the camera comes near (`streamTiles`).
     const listed = new Set<string>();
@@ -833,6 +852,8 @@ export class TerrainView {
           if (macro !== null) {
             macro.baked[t.layer] = 0;
             rec.bakes.add(t);
+            // Its neighbours' horizons read its heights: baked again too (drawn from their old bakes meanwhile).
+            for (const n of this.neighbourTiles(rec, t)) if (n !== null && n.ready) rec.bakes.add(n);
           }
         }
       }
@@ -892,7 +913,7 @@ export class TerrainView {
     let macro: TerrainViewDiagnostics['macro'];
     for (const rec of this.terrains.values()) {
       if (rec.component.macroDistance === undefined) continue;
-      macro ??= { baked: 0, waiting: 0, bakes: this.baker?.bakes ?? 0, bakeMsTotal: Math.round(this.bakeMsTotal * 100) / 100, bakeMs: Math.round(this.lastBakeMs * 1000) / 1000, farNodes: 0, draws: 0 };
+      macro ??= { baked: 0, waiting: 0, bakes: this.baker?.bakes ?? 0, bakeMsTotal: Math.round(this.bakeMsTotal * 100) / 100, bakeMs: Math.round(this.lastBakeMs * 1000) / 1000, bakeMsMax: Math.round(this.bakeMsMax * 100) / 100, farNodes: 0, draws: 0 };
       macro.waiting += rec.bakes.size;
       for (const p of rec.pages) {
         if (p.macro === null) continue;
@@ -1310,13 +1331,36 @@ export class TerrainView {
    * (at least one while any wait): a page whose material changed bakes every
    * tile again. A bake waiting for its programs to compile stops the frame's.
    */
+  /** The tiles round `t` on its page (3 × 3, rows from −z, `t` in the middle; null: none there, or on another page). */
+  private neighbourTiles(rec: TerrainRec, t: TileRec): (TileRec | null)[] {
+    const out: (TileRec | null)[] = [];
+    for (let dz = -1; dz <= 1; dz++)
+      for (let dx = -1; dx <= 1; dx++) {
+        const n = rec.tiles.get(terrainTileKey(t.x + dx, t.z + dz)) ?? null;
+        out.push(n !== null && n.page === t.page && n.page >= 0 ? n : null);
+      }
+    return out;
+  }
+
+  /** The direction toward the sun the far ground's horizon shadows are baked for (straight up without one). */
+  private sunNow(): [number, number, number] {
+    const d = this.deps.sun?.() ?? null;
+    const len = d === null ? 0 : Math.hypot(d[0], d[1], d[2]);
+    return d === null || len < 1e-9 ? [0, 1, 0] : [d[0] / len, d[1] / len, d[2] / len];
+  }
+
   private bakeMacros(renderer: WebGPURenderer | null): void {
     this.lastBakeMs = 0;
     if (renderer === null) return;
     const t0 = performance.now();
     let baked = 0;
+    // A turned sun: every far tile is baked again (its horizon shadow is the sun's), over frames as any bake.
+    const sun = this.sunNow();
+    const turned = this.bakedSun === null || sun[0] * this.bakedSun[0] + sun[1] * this.bakedSun[1] + sun[2] * this.bakedSun[2] < Math.cos(THREE.MathUtils.degToRad(TERRAIN_SUN_TURN_DEGREES));
+    if (turned) this.bakedSun = sun;
     for (const rec of this.terrains.values()) {
       if (rec.component.macroDistance === undefined || rec.hidden) continue;
+      if (turned) for (const t of rec.tiles.values()) if (t.ready && rec.pages[t.page]?.macro != null) rec.bakes.add(t);
       for (const p of rec.pages) {
         const m = p.macro;
         if (m === null) continue;
@@ -1354,6 +1398,10 @@ export class TerrainView {
           material: p.mesh.material as THREE.Material,
           userData: p.mesh.userData,
           arrays: p.macro.arrays,
+          surface: p.surface,
+          neighbours: this.neighbourTiles(rec, t).map((n) => (n !== null && n.ready ? n.layer : -1)),
+          sun: this.bakedSun ?? sun,
+          reach: Math.min(rec.component.tileSamples - 1, TERRAIN_HORIZON_METRES / rec.component.spacing),
         });
         if (!done) {
           this.deps.changed();
@@ -1368,12 +1416,13 @@ export class TerrainView {
     }
     this.lastBakeMs = performance.now() - t0;
     if (baked > 0) this.bakeMsTotal += this.lastBakeMs;
+    this.bakeMsMax = Math.max(this.bakeMsMax, this.lastBakeMs);
   }
 
   private bakerFor(renderer: WebGPURenderer): TerrainMacroBaker {
     if (this.baker === null || this.bakerRenderer !== renderer) {
       this.baker?.dispose();
-      this.baker = new TerrainMacroBaker(renderer, this.grids);
+      this.baker = new TerrainMacroBaker(renderer, this.grids, this.deps.horizon !== false);
       this.bakerRenderer = renderer;
     }
     return this.baker;
@@ -1383,6 +1432,7 @@ export class TerrainView {
   private placeAll(rec: TerrainRec, at: [number, number, number]): void {
     const moved = at[0] !== rec.origin[0] || at[1] !== rec.origin[1] || at[2] !== rec.origin[2];
     rec.origin = at;
+    rec.uniforms.uvShift.value.fromArray(terrainUvShift(at, rec.component.uvOrigin));
     for (const p of rec.pages) this.placePage(rec, p, moved);
     if (moved) {
       rec.dirty = true;

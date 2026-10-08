@@ -3,14 +3,16 @@
  * from, top first, with the hand-made ground (what the sculpt tools edit)
  * at the bottom. Each layer can be switched off, weighed (strength), moved
  * up or down and deleted; stamps layers list their stamps (each removable),
- * an erosion layer says how many tiles it changed. Every change is one
+ * an erosion layer says how many tiles it changed, a blocks layer (the
+ * ground meeting the scene's block layers) takes its mode, blend and whether
+ * the blocks' paint carries across. Every change is one
  * `setComponent terrain` of the layer list: the backend combines the ground
  * again where the change reaches (one undo step).
  *
  * Browser-only (React).
  */
 import { useState, type JSX } from 'react';
-import { terrainLayerOrder, type TerrainComponent, type TerrainLayer } from '@thirdlight/runtime';
+import { TERRAIN_BLOCKS_BLEND_DEFAULT, TERRAIN_BLOCKS_BLEND_LIMITS, terrainLayerOrder, type TerrainBlocksLayer, type TerrainComponent, type TerrainLayer } from '@thirdlight/runtime';
 import { freeLayerId } from '../session/terrain-brush';
 
 interface Props {
@@ -20,7 +22,7 @@ interface Props {
   run: (what: string, op: string, args: Record<string, unknown>) => Promise<boolean>;
 }
 
-const KIND_LABEL: Record<TerrainLayer['kind'], string> = { stamps: 'Stamps', erosion: 'Erosion', splines: 'Splines' };
+const KIND_LABEL: Record<TerrainLayer['kind'], string> = { stamps: 'Stamps', erosion: 'Erosion', splines: 'Splines', blocks: 'Blocks' };
 
 const clamp01 = (v: number, fallback: number): number => (Number.isFinite(v) ? Math.max(0, Math.min(1, v)) : fallback);
 
@@ -52,12 +54,17 @@ export function TerrainLayersPanel(p: Props): JSX.Element {
     [next[i], next[j]] = [next[j]!, next[i]!];
     void apply('Move layer', next);
   };
-  const add = (kind: 'stamps' | 'erosion'): void => {
+  const add = (kind: 'stamps' | 'erosion' | 'blocks'): void => {
+    // The ground meets the block layers over everything else (a road's end included); other new layers go under the splines.
+    if (kind === 'blocks') {
+      void apply('Add blocks layer', [...order, { id: freeLayerId(order, 'blocks'), kind }]);
+      return;
+    }
     const made: TerrainLayer = kind === 'stamps' ? { id: freeLayerId(order, 'stamps'), kind, stamps: [] } : { id: freeLayerId(order, 'erosion'), kind };
-    // New layers go on top of the others, under the splines.
     const at = order.findIndex((l) => l.kind === 'splines');
     void apply('Add layer', at < 0 ? [...order, made] : [...order.slice(0, at), made, ...order.slice(at)]);
   };
+  const setBlocks = (id: string, patch: Partial<TerrainBlocksLayer>, what: string): void => update(id, (x) => (x.kind === 'blocks' ? ({ ...x, ...patch } as TerrainLayer) : x), what);
   const off = p.disabled || busy;
   return (
     <div className="tl-blocks__form" role="group" aria-label="terrain layers">
@@ -115,6 +122,43 @@ export function TerrainLayersPanel(p: Props): JSX.Element {
                   {l.stamps.length === 0 && <li className="tl-inspector__hint">No stamps yet: the Stamp tool places them.</li>}
                 </ul>
               )}
+              {l.kind === 'blocks' && (
+                <span className="tl-terrain-layers__blocks">
+                  <label title="Under the blocks the ground is cut away (no hidden ground, no collider there) or flattened just below them (whole ground: scenery, or a stand-in where a streamed block area is not drawn)">
+                    Under{' '}
+                    <select aria-label={`layer ${l.id} mode`} disabled={off} value={l.mode ?? 'cut'} onChange={(e) => setBlocks(l.id, { mode: e.target.value === 'cut' ? undefined : 'flatten' }, 'Blocks layer mode')}>
+                      <option value="cut">cut away</option>
+                      <option value="flatten">flatten</option>
+                    </select>
+                  </label>{' '}
+                  <label title="Metres over which the ground round the blocks fades from their border's height and paint to its own">
+                    Blend{' '}
+                    <input
+                      aria-label={`layer ${l.id} blend`}
+                      type="number"
+                      className="tl-blocks__num"
+                      min={TERRAIN_BLOCKS_BLEND_LIMITS.min}
+                      max={TERRAIN_BLOCKS_BLEND_LIMITS.max}
+                      step={1}
+                      disabled={off}
+                      defaultValue={l.blend ?? TERRAIN_BLOCKS_BLEND_DEFAULT}
+                      key={`${l.id}:${l.blend ?? TERRAIN_BLOCKS_BLEND_DEFAULT}`}
+                      onBlur={(e) => {
+                        const v = Number(e.target.value);
+                        const now = l.blend ?? TERRAIN_BLOCKS_BLEND_DEFAULT;
+                        if (!Number.isFinite(v) || v === now) return;
+                        const clamped = Math.max(TERRAIN_BLOCKS_BLEND_LIMITS.min, Math.min(TERRAIN_BLOCKS_BLEND_LIMITS.max, v));
+                        setBlocks(l.id, { blend: clamped === TERRAIN_BLOCKS_BLEND_DEFAULT ? undefined : clamped }, 'Blocks layer blend');
+                      }}
+                    />{' '}
+                    m
+                  </label>{' '}
+                  <label title="The blocks' paint carries across the border onto the ground round them">
+                    <input type="checkbox" aria-label={`layer ${l.id} paint`} disabled={off} checked={l.paint !== false} onChange={(e) => setBlocks(l.id, { paint: e.target.checked ? undefined : false }, 'Blocks layer paint')} /> paint
+                  </label>{' '}
+                  <span className="tl-inspector__hint">{l.blockLayers === undefined ? 'every block layer' : l.blockLayers.join(', ')}</span>
+                </span>
+              )}
               {l.kind === 'erosion' && <span className="tl-inspector__hint">{(l.tiles?.length ?? 0) === 0 ? 'Nothing eroded yet: the Erode tool runs it.' : `${l.tiles!.length} tile${l.tiles!.length === 1 ? '' : 's'} eroded`}</span>}
             </li>
           );
@@ -129,6 +173,9 @@ export function TerrainLayersPanel(p: Props): JSX.Element {
         </button>
         <button className="tl-btn tl-btn--small" aria-label="add erosion layer" disabled={off} onClick={() => add('erosion')}>
           Add erosion layer
+        </button>
+        <button className="tl-btn tl-btn--small" aria-label="add blocks layer" title="The ground meets the scene's block layers: their border followed, cut away or flattened under them, their paint carried across" disabled={off || order.some((l) => l.kind === 'blocks')} onClick={() => add('blocks')}>
+          Add blocks layer
         </button>
       </div>
     </div>

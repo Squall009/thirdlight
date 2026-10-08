@@ -90,6 +90,14 @@
  *   and the Layers list switches the erosion off and on. On both renderers the
  *   pictures with each layer on and off differ where the mountain and its
  *   channels are; the layers are then switched off for Play and the export.
+ * - Blocks on terrain: a block area (the plaza: 8 × 8 cells, one row of sloped tops rising 1 m along +x) stands on
+ *   the terrain; on the first renderer the Layers list adds a blocks layer (one command: the ground round every
+ *   block layer follows its border over the blend, the cells under them cut away), sets its blend, switches it to
+ *   flatten (no holes, the ground just under the blocks) and back; it is then narrowed to the plaza by command (the
+ *   other block areas get their ground back) and the terrain's texture origin is the plaza's. In Play and the
+ *   export (both renderers) no sky shows round the plaza and the ground's colour just outside its border is the
+ *   blocks' just inside (the plaza's blue carried across, the same lighting and texture place); in the first Play a player put west of it walks
+ *   east across it and off again without sinking or catching on the seam.
  * - World streaming (the impostors' Play on both renderers, and the export): the
  *   ground streams round the camera — only the tiles within its render ring
  *   resident, the overview (every tile at its coarsest level, which the build
@@ -99,9 +107,7 @@
  *   diagnostics) and back, and the picture is the same as before.
  */
 import { randomBytes } from 'node:crypto';
-import { createReadStream, existsSync, statSync } from 'node:fs';
-import { createServer, type Server } from 'node:http';
-import { extname, join, normalize } from 'node:path';
+import { join } from 'node:path';
 
 import { expect, test, type Page } from './pw';
 
@@ -115,6 +121,7 @@ import { makePng } from './png-make';
 import { decodePng, type Image } from './png';
 import { closeEditor, editorPane, menu, openEditor, openWindow } from './ui';
 import { expectRendererBackend } from './renderer-variants';
+import { count, frameShareNear, meanDiff, projectWith, serveDir, share, type CameraView, type V3 } from './frame-reading';
 
 let be: E2EBackend | null = null;
 test.afterEach(async () => {
@@ -139,7 +146,6 @@ async function relay(path: string, body: unknown): Promise<{ status: number; jso
   return { status: r.status, json: (await r.json()) as Record<string, unknown> };
 }
 
-type V3 = [number, number, number];
 /** The terrain: 8 × 8 tiles of 64 cells, 0.5 m apart, its object at (−128, 0, −128). */
 const TILES = 8;
 const CELLS = 64;
@@ -241,7 +247,7 @@ const CAM_AT: V3 = [0, ORIGIN[1] + 22, 40];
 const AWAY: V3 = [0, ORIGIN[1] + 22, 400];
 /** A strip west from the player's start along z −5, across the tile border at x = 0. */
 const WEST_TO = -9;
-/** Moves an object on the `place {id, x, y, z}` debug command (the camera, flown away and back). */
+/** Moves an object on the `place {id, x, y, z}` debug command (the camera, flown away and back), the player on `player {x, y, z}`. */
 const PLACE_SCRIPT = [
   'export default {',
   '  instantiate() { return {}; },',
@@ -250,9 +256,30 @@ const PLACE_SCRIPT = [
   "    for (const c of ctx.debug.command('place', { description: 'Move an object', args: [{ name: 'id', type: 'string' }, { name: 'x', type: 'number' }, { name: 'y', type: 'number' }, { name: 'z', type: 'number' }] })) {",
   "      ctx.entity(String(c.id))?.set('transform', { position: [Number(c.x), Number(c.y), Number(c.z)] });",
   '    }',
+  "    for (const c of ctx.debug.command('player', { description: 'Place the player', args: [{ name: 'x', type: 'number' }, { name: 'y', type: 'number' }, { name: 'z', type: 'number' }] })) {",
+  "      ctx.emit({ kind: 'character_place', position: [Number(c.x), Number(c.y), Number(c.z)] });",
+  '    }',
   '  },',
   '};',
 ].join('\n');
+/**
+ * The plaza: a block layer of 8 × 8 cells of 1 m (its corner on the terrain's 2 m overview grid), one row whose sloped
+ * tops rise from 2 m at its −x edge to 3 m at its +x edge, painted layer 2 (blue) over the red ground, left of the
+ * cameras' view and clear of every other check (with its blend round it). The terrain's blocks layer meets it.
+ */
+const PLAZA_AT: V3 = [-28, 0, -4];
+const PLAZA_SIDE = 8;
+const PLAZA_BLEND = 4;
+/** The plaza's top at world x (its tops rise 1/8 of a cell a cell along +x). */
+const plazaTop = (x: number): number => 2 + Math.min(1, Math.max(0, (x - PLAZA_AT[0]) / PLAZA_SIDE));
+/** The most the ground's colour just outside the plaza may differ from the blocks' just inside (0–255 a channel): the mean over the points, the worst. */
+const SEAM_DELTA_MEAN = 12;
+const SEAM_DELTA_MAX = 18;
+/** The most the colour on the plaza's border may differ from the mean of the two sides round it (a lit or dark line along it). */
+const SEAM_LINE_MAX = 10;
+/** The far ground's mean luminance with its horizon light must be at least this much under the same frame's without (0–255); the near ground's within the other. */
+const HORIZON_FAR_DARKER = 0.3;
+const HORIZON_NEAR_SAME = 1;
 
 /** The heightmap as RAW 16-bit little-endian samples of the terrain's range. */
 function heightmap(): Uint8Array {
@@ -277,7 +304,7 @@ async function stage(bytes: Uint8Array): Promise<string> {
   return s.stageId;
 }
 
-async function buildTerrain(): Promise<{ ground: string; big: string; blocks: string; terrace: string; road: string }> {
+async function buildTerrain(): Promise<{ ground: string; big: string; blocks: string; terrace: string; road: string; plaza: string }> {
   await cmd('setSettings', { settings: { camera_far_m: 400 } });
   for (const id of ['model-0001', 'spawn-0001', 'box-0001', 'box-0002', 'box-0003', 'box-0004', 'model-0002']) await cmd('deleteEntity', { entityId: id }).catch(() => undefined);
   // The arrays (through the pack route) and the layered template, made as the Materials tab makes it.
@@ -339,6 +366,12 @@ async function buildTerrain(): Promise<{ ground: string; big: string; blocks: st
   await cmd('setComponent', { entityId: big, component: 'terrain', value: { tileSamples: 1025, spacing: 1, heightRange: [-64, 64], tiles: [{ x: 0, z: 0 }] } });
   await bigNoise(big, 7);
   await cmd('editBlocks', { entityId: terrace, edits: [{ kind: 'fill', box: [0, 0, 0, 4, 2, 4], cell: { block: 'rock' } }, { kind: 'cells', at: [0, 1, 0], cell: { block: 'rock', corners: [0, 1, 1, 0] } }] });
+  // The plaza: column strips whose corners rise 1/8 a cell along +x (2 m to 3 m over the row's cell).
+  const plaza = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Plaza', transform: { position: PLAZA_AT } }))['createdId']);
+  await cmd('setComponent', { entityId: plaza, component: 'blockLayer', value: { cellSize: [1, 1, 1], bounds: { min: [0, 0, 0], max: [PLAZA_SIDE, 4, PLAZA_SIDE] } } });
+  await cmd('editBlocks', { entityId: plaza, edits: Array.from({ length: PLAZA_SIDE }, (_, i) => ({ kind: 'fill', box: [i, 0, 0, i + 1, 1, PLAZA_SIDE], cell: { block: 'rock', corners: [2 + i / 8, 2 + (i + 1) / 8, 2 + (i + 1) / 8, 2 + i / 8] } })) });
+  // Its tops painted layer 2 (blue): the ground round it takes the paint across the border.
+  await cmd('editBlocks', { entityId: plaza, edits: [{ kind: 'paint', at: [PLAZA_SIDE / 2, PLAZA_SIDE / 2], radius: PLAZA_SIDE, strength: 1, falloff: 'constant', channel: 2 }] });
   // The script that names the scatter copies by address and hides them on the jump key (shows them on the next).
   const switcher = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Scatter switch', transform: { position: [0, 0, 0] } }))['createdId']);
   await publishScript(be!, 'e2e-scatter-hide', SCATTER_HIDE_SCRIPT, switcher);
@@ -355,41 +388,9 @@ async function buildTerrain(): Promise<{ ground: string; big: string; blocks: st
   const flowing = await cmd('setComponent', { entityId: riverId, component: 'spline', value: RIVER });
   expect((flowing['change'] as { follows?: { entityId: string; component: string }[] }).follows?.map((f) => `${f.entityId}:${f.component}`).sort(), 'the terrain shaped and the river\'s mesh and posts made in the same command').toEqual([`${ground}:terrain`, `${riverId}:spline`].sort());
   await cmd('setComponent', { entityId: riverId, component: 'materials', value: { spline: 'mat-river' } });
-  return { ground, big, blocks, terrace, road };
+  return { ground, big, blocks, terrace, road, plaza };
 }
 
-/** The Play camera's view of world points: screen fractions [u, v] (null: behind it). */
-type CameraView = { position: number[]; rotation: number[]; fovY: number };
-function projectWith(cam: CameraView, aspect: number, p: V3): [number, number] | null {
-  const [qx, qy, qz, qw] = cam.rotation as [number, number, number, number];
-  const v = [p[0] - cam.position[0]!, p[1] - cam.position[1]!, p[2] - cam.position[2]!];
-  // The inverse rotation (the conjugate quaternion) takes the point into the camera's frame.
-  const [x, y, z] = [-qx, -qy, -qz];
-  const tx = 2 * (y * v[2]! - z * v[1]!);
-  const ty = 2 * (z * v[0]! - x * v[2]!);
-  const tz = 2 * (x * v[1]! - y * v[0]!);
-  const cx = v[0]! + qw * tx + (y * tz - z * ty);
-  const cy = v[1]! + qw * ty + (z * tx - x * tz);
-  const cz = v[2]! + qw * tz + (x * ty - y * tx);
-  if (cz >= -0.01) return null;
-  const f = 1 / Math.tan((cam.fovY * Math.PI) / 360);
-  return [((f / aspect) * (cx / -cz) + 1) / 2, (1 - f * (cy / -cz)) / 2];
-}
-/** The share of a square of a frame around a world point (as the camera sees it) passing `test`. */
-function frameShareNear(img: Image, cam: CameraView, p: V3, test: Pred, size = 8): number {
-  const uv = projectWith(cam, img.width / img.height, p);
-  if (uv === null) return 0;
-  const cx = Math.round(uv[0] * img.width);
-  const cy = Math.round(uv[1] * img.height);
-  let n = 0;
-  let all = 0;
-  for (let y = cy - size / 2; y < cy + size / 2; y++) for (let x = cx - size / 2; x < cx + size / 2; x++) {
-    if (x < 0 || y < 0 || x >= img.width || y >= img.height) continue;
-    all += 1;
-    if (test(...img.pixel(x, y))) n += 1;
-  }
-  return all === 0 ? 0 : n / all;
-}
 
 /**
  * The road on the terrain: flattened to its height and painted under it, no post within its scatter band (read back
@@ -464,7 +465,7 @@ async function roadHandle(page: Page, ground: string, road: string): Promise<voi
   await selectEntity(page, ground);
 }
 
-type TerrainLayerValue = { id: string; kind: string; enabled?: boolean; stamps?: unknown[]; tiles?: unknown[] };
+type TerrainLayerValue = { id: string; kind: string; enabled?: boolean; stamps?: unknown[]; tiles?: unknown[]; blockLayers?: string[]; mode?: string; blend?: number };
 const layersOf = async (ground: string): Promise<TerrainLayerValue[]> => (((await query('queryEntity', { entityId: ground })) as { entity: { components: { terrain: { layers?: TerrainLayerValue[] } } } }).entity.components.terrain.layers ?? []);
 
 /**
@@ -472,7 +473,7 @@ const layersOf = async (ground: string): Promise<TerrainLayerValue[]> => (((awai
  * erosion switched with the editor's tools; else the layers made on the first renderer are switched on by command.
  * Each layer's picture on and off around the mountain; the layers are left off (Play and the export as before).
  */
-async function editLayers(page: Page, renderer: string, ground: string, road: string, viaEditor: boolean): Promise<void> {
+async function editLayers(page: Page, renderer: string, ground: string, road: string, viaEditor: boolean, plaza: string): Promise<void> {
   const height = async (x: number, z: number): Promise<number> => ((await query('queryTerrain', { entityId: ground, points: [[x, z]] }))['points'] as { height: number }[])[0]!.height;
   const revision = async (): Promise<number> => Number((await query('queryProject')).revision);
   const switchTo = async (on: Record<string, boolean>): Promise<void> => {
@@ -549,6 +550,7 @@ async function editLayers(page: Page, renderer: string, ground: string, road: st
       await expect(list.getByLabel('layer erosion on', { exact: true })).not.toBeChecked();
       await list.getByLabel('layer erosion on', { exact: true }).click();
       await expect.poll(() => height(...probe), { timeout: 30_000, message: 'erosion on' }).toBe(eroded);
+      await blocksLayer(list, ground, plaza);
       await terrainTool(page, 'Raise').click();
       await terrainPanel(page).getByRole('button', { name: /^Layers/ }).click();
     }
@@ -572,6 +574,126 @@ async function editLayers(page: Page, renderer: string, ground: string, road: st
   test.info().annotations.push({ type: `${renderer} edit layers`, description: JSON.stringify(figures) });
   console.log(`${renderer} edit layers: ${JSON.stringify(figures)}`);
   expect(await height(...STAMP_AT), 'the layers off: the hand-made ground').toBe(handMade);
+}
+
+/**
+ * The blocks layer through the Layers list (first renderer): added (one command: the ground meets every block layer),
+ * its blend set, flattened and cut again; then narrowed to the plaza by command (the list has no picker); the plaza's
+ * border, the cut under it and the texture origin read back.
+ */
+async function blocksLayer(list: ReturnType<Page['getByRole']>, ground: string, plaza: string): Promise<void> {
+  const revision = async (): Promise<number> => Number((await query('queryProject')).revision);
+  const at = async (x: number, z: number): Promise<{ height: number | null; hole: boolean }> => ((await query('queryTerrain', { entityId: ground, points: [[x, z]] }))['points'] as { height: number | null; hole: boolean }[])[0]!;
+  const centre: [number, number] = [PLAZA_AT[0] + PLAZA_SIDE / 2, PLAZA_AT[2] + PLAZA_SIDE / 2];
+  const edge: [number, number] = [PLAZA_AT[0] + PLAZA_SIDE / 2, PLAZA_AT[2] + PLAZA_SIDE];
+  const figures: Record<string, unknown> = { before: await at(...edge) };
+  const rev0 = await revision();
+  await list.getByLabel('add blocks layer', { exact: true }).click();
+  await expect.poll(revision, { timeout: 30_000, message: 'the blocks layer stored' }).toBe(rev0 + 1);
+  expect((await layersOf(ground)).find((l) => l.kind === 'blocks'), 'a blocks layer meeting every block layer').toEqual({ id: 'blocks', kind: 'blocks' });
+  await expect(list.getByRole('listitem', { name: 'layer blocks' })).toBeVisible();
+  // The plaza's border is its tops' height there, the cells under it cut away.
+  await expect.poll(async () => (await at(...edge)).height ?? 0, { timeout: 30_000, message: 'the ground meets the plaza\'s border' }).toBeCloseTo(plazaTop(edge[0]), 2);
+  expect(await at(...centre), 'cut away under the plaza').toMatchObject({ height: null, hole: true });
+  // The blend through the list.
+  const blend = list.getByLabel('layer blocks blend', { exact: true });
+  await blend.fill(String(PLAZA_BLEND));
+  await blend.blur();
+  await expect.poll(async () => (await layersOf(ground)).find((l) => l.kind === 'blocks')?.blend, { timeout: 30_000, message: 'the blend stored' }).toBe(PLAZA_BLEND);
+  // Flatten: whole ground just under the blocks; cut again.
+  await list.getByLabel('layer blocks mode', { exact: true }).selectOption('flatten');
+  await expect.poll(async () => (await at(...centre)).hole, { timeout: 30_000, message: 'flattened: no hole under the plaza' }).toBe(false);
+  figures['flattened'] = await at(...centre);
+  expect((await at(...centre)).height!, 'flattened just under the plaza').toBeCloseTo(plazaTop(centre[0]) - 0.02, 2);
+  await list.getByLabel('layer blocks mode', { exact: true }).selectOption('cut');
+  await expect.poll(async () => (await at(...centre)).hole, { timeout: 30_000, message: 'cut away again' }).toBe(true);
+  // Narrowed to the plaza: the other block areas' ground as it was made by hand.
+  await cmd('setComponent', { entityId: ground, component: 'terrain', value: { layers: (await layersOf(ground)).map((l) => (l.kind === 'blocks' ? { ...l, blockLayers: [plaza] } : l)) } });
+  expect(await at(...edge)).toMatchObject({ hole: false });
+  expect((await at(...edge)).height!).toBeCloseTo(plazaTop(edge[0]), 2);
+  const comp = ((await query('queryEntity', { entityId: ground })) as { entity: { components: { terrain: { uvOrigin?: number[] } } } }).entity.components.terrain;
+  expect(comp.uvOrigin, 'the terrain\'s textures count from the plaza\'s origin').toEqual([PLAZA_AT[0], PLAZA_AT[2]]);
+  test.info().annotations.push({ type: 'blocks layer', description: JSON.stringify(figures) });
+}
+
+/**
+ * The plaza's seam in a frame: the sky nowhere round it (no crack); the ground's colour just outside each border
+ * point against the blocks' just inside, and on the border itself against the two (a line along the seam: a lit
+ * edge, a dark rim) — the mean of a small square each. Returns the figures.
+ */
+function seamFigures(img: Image, cam: CameraView, outside: readonly { p: V3; q: V3; b: V3 }[]): { sky: number; deltas: number[]; mean: number; max: number; line: number[]; lineMax: number } {
+  // The plaza and its blend, as the frame sees it.
+  const corners = [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([dx, dz]) => projectWith(cam, img.width / img.height, [PLAZA_AT[0] + PLAZA_SIDE / 2 + (dx! * (PLAZA_SIDE + 2)) / 2, 2.5, PLAZA_AT[2] + PLAZA_SIDE / 2 + (dz! * (PLAZA_SIDE + 2)) / 2]));
+  let sky = 0;
+  if (corners.every((c) => c !== null)) {
+    const xs = corners.map((c) => c![0] * img.width);
+    const ys = corners.map((c) => c![1] * img.height);
+    for (let y = Math.max(0, Math.floor(Math.min(...ys))); y < Math.min(img.height, Math.ceil(Math.max(...ys))); y++)
+      for (let x = Math.max(0, Math.floor(Math.min(...xs))); x < Math.min(img.width, Math.ceil(Math.max(...xs))); x++) if (isSky(...img.pixel(x, y))) sky += 1;
+  }
+  const meanAt = (p: V3): [number, number, number] | null => {
+    const uv = projectWith(cam, img.width / img.height, p);
+    if (uv === null) return null;
+    const cx = Math.round(uv[0] * img.width);
+    const cy = Math.round(uv[1] * img.height);
+    let r = 0;
+    let g = 0;
+    let b = 0;
+    let n = 0;
+    for (let y = cy - 2; y <= cy + 2; y++) for (let x = cx - 2; x <= cx + 2; x++) {
+      if (x < 0 || y < 0 || x >= img.width || y >= img.height) continue;
+      const px = img.pixel(x, y);
+      r += px[0];
+      g += px[1];
+      b += px[2];
+      n += 1;
+    }
+    return n === 0 ? null : [r / n, g / n, b / n];
+  };
+  const deltas: number[] = [];
+  const line: number[] = [];
+  for (const { p, q, b } of outside) {
+    const a = meanAt(p);
+    const c = meanAt(q);
+    const m = meanAt(b);
+    if (a === null || c === null || m === null) continue;
+    deltas.push((Math.abs(a[0] - c[0]) + Math.abs(a[1] - c[1]) + Math.abs(a[2] - c[2])) / 3);
+    line.push((Math.abs(m[0] - (a[0] + c[0]) / 2) + Math.abs(m[1] - (a[1] + c[1]) / 2) + Math.abs(m[2] - (a[2] + c[2]) / 2)) / 3);
+  }
+  const r = (d: number): number => Math.round(d * 10) / 10;
+  return { sky, deltas: deltas.map(r), mean: deltas.reduce((x, y) => x + y, 0) / Math.max(1, deltas.length), max: Math.max(0, ...deltas), line: line.map(r), lineMax: Math.max(0, ...line) };
+}
+
+/**
+ * Points in pairs across the plaza's border (the +z side facing the cameras and the ±x sides): 0.6 m inside on its
+ * tops, 0.6 m outside on the ground (heights read from the stored terrain).
+ */
+async function seamPoints(ground: string): Promise<{ p: V3; q: V3; b: V3 }[]> {
+  const [x0, , z0] = PLAZA_AT;
+  const x1 = x0 + PLAZA_SIDE;
+  const z1 = z0 + PLAZA_SIDE;
+  const d = 0.6;
+  const pairs: [[number, number], [number, number], [number, number]][] = [];
+  for (const x of [x0 + 1.5, x0 + 3.5, x0 + 5.5, x0 + 6.5]) pairs.push([[x, z1 - d], [x, z1 + d], [x, z1]]);
+  for (const z of [z0 + 4, z0 + 6.5]) {
+    pairs.push([[x0 + d, z], [x0 - d, z], [x0, z]]);
+    pairs.push([[x1 - d, z], [x1 + d, z], [x1, z]]);
+  }
+  const out: { p: V3; q: V3; b: V3 }[] = [];
+  for (const [inside, outsideAt, on] of pairs) out.push({ p: [inside[0], plazaTop(inside[0]), inside[1]], q: await surface(ground, ...outsideAt), b: [on[0], plazaTop(on[0]), on[1]] });
+  return out;
+}
+
+/** The seam's figures asserted (and logged). */
+function expectSeam(img: Image, cam: CameraView, pts: readonly { p: V3; q: V3; b: V3 }[], what: string): void {
+  const f = seamFigures(img, cam, pts);
+  test.info().annotations.push({ type: `${what} seam`, description: JSON.stringify(f) });
+  console.log(`${what} seam: ${JSON.stringify(f)}`);
+  expect(f.deltas.length, `${what}: the seam's points in the frame`).toBe(pts.length);
+  expect(f.sky, `${what}: sky round the plaza (a crack at the seam)`).toBe(0);
+  expect(f.mean, `${what}: the ground's colour outside the seam against the blocks' inside (mean of the points, 0–255)`).toBeLessThan(SEAM_DELTA_MEAN);
+  expect(f.max, `${what}: the ground's colour outside the seam against the blocks' inside (the worst point)`).toBeLessThan(SEAM_DELTA_MAX);
+  expect(f.lineMax, `${what}: the colour on the seam against the two sides (a line along it)`).toBeLessThan(SEAM_LINE_MAX);
 }
 
 /**
@@ -653,18 +775,12 @@ async function shareNear(page: Page, p: V3, test: Pred, size = 10): Promise<numb
   return n / (img.width * img.height);
 }
 
-/** Pixels passing `test` (every second one). */
-function count(img: Image, test: Pred): number {
-  let n = 0;
-  for (let y = 0; y < img.height; y += 2) for (let x = 0; x < img.width; x += 2) if (test(...img.pixel(x, y))) n += 1;
-  return n;
-}
 
 /**
  * The sky pixels (every one: a crack is a pixel wide) and how many of them lie
  * away from the hole: further than `near` of the frame from their median.
  */
-function skyPixels(img: Image, near = 0.08): { n: number; away: number } {
+function skyPixels(img: Image, near = 0.08): { n: number; away: number; where: [number, number][] } {
   const xs: number[] = [];
   const ys: number[] = [];
   for (let y = 0; y < img.height; y++) for (let x = 0; x < img.width; x++) {
@@ -672,12 +788,17 @@ function skyPixels(img: Image, near = 0.08): { n: number; away: number } {
     xs.push(x);
     ys.push(y);
   }
-  if (xs.length === 0) return { n: 0, away: 0 };
+  if (xs.length === 0) return { n: 0, away: 0, where: [] };
   const mx = [...xs].sort((a, b) => a - b)[xs.length >> 1]!;
   const my = [...ys].sort((a, b) => a - b)[ys.length >> 1]!;
   let away = 0;
-  for (let i = 0; i < xs.length; i++) if (Math.abs(xs[i]! - mx) > near * img.width || Math.abs(ys[i]! - my) > near * img.height) away += 1;
-  return { n: xs.length, away };
+  const where: [number, number][] = [];
+  for (let i = 0; i < xs.length; i++) {
+    if (Math.abs(xs[i]! - mx) <= near * img.width && Math.abs(ys[i]! - my) <= near * img.height) continue;
+    away += 1;
+    if (where.length < 8) where.push([xs[i]! / img.width, ys[i]! / img.height].map((v) => Math.round(v * 1000) / 1000) as [number, number]);
+  }
+  return { n: xs.length, away, where };
 }
 
 /** Layers and the hole in a frame from the scene camera: red and blue ground, and the sky only through the hole (no crack). */
@@ -694,29 +815,9 @@ function expectFrame(img: Image, what: string): void {
   expect(count(img, isWhite), `${what}: the ground cover's tufts near the camera`).toBeGreaterThan(15);
   const sky = skyPixels(img);
   expect(sky.n, `${what}: the sky through the hole`).toBeGreaterThan(40);
-  expect(sky.away, `${what}: sky pixels away from the hole (a crack between levels or tiles)`).toBe(0);
+  expect(sky.away, `${what}: sky pixels away from the hole (a crack between levels or tiles; frame fractions ${JSON.stringify(sky.where)})`).toBe(0);
 }
 
-function serveDir(dir: string): Promise<{ url: string; close: () => Promise<void> }> {
-  const types: Record<string, string> = { '.html': 'text/html', '.js': 'text/javascript', '.json': 'application/json', '.wasm': 'application/wasm' };
-  const server: Server = createServer((req, res) => {
-    const rel = normalize(decodeURIComponent((req.url ?? '/').split('?')[0]!)).replace(/^\/+/, '') || 'index.html';
-    const file = join(dir, rel);
-    if (!file.startsWith(dir) || !existsSync(file) || !statSync(file).isFile()) {
-      res.statusCode = 404;
-      res.end();
-      return;
-    }
-    res.setHeader('content-type', types[extname(file)] ?? 'application/octet-stream');
-    createReadStream(file).pipe(res);
-  });
-  return new Promise((ok) => {
-    server.listen(0, '127.0.0.1', () => {
-      const port = (server.address() as { port: number }).port;
-      ok({ url: `http://127.0.0.1:${port}/`, close: () => new Promise((done) => server.close(() => done())) });
-    });
-  });
-}
 
 // ---- the Terrain tools ----------------------------------------------------------------------------
 
@@ -757,21 +858,6 @@ async function shot(page: Page, p: V3, size: number): Promise<Image> {
   const s = await screenOf(page, p);
   return decodePng(await page.screenshot({ clip: { x: s.x - size / 2, y: s.y - size / 2, width: size, height: size } }));
 }
-/** The mean absolute difference of two equal-sized pictures (0–255 per channel). */
-function meanDiff(a: Image, b: Image): number {
-  let sum = 0;
-  for (let y = 0; y < a.height; y++) for (let x = 0; x < a.width; x++) {
-    const p = a.pixel(x, y);
-    const q = b.pixel(x, y);
-    sum += Math.abs(p[0] - q[0]) + Math.abs(p[1] - q[1]) + Math.abs(p[2] - q[2]);
-  }
-  return sum / (a.width * a.height * 3);
-}
-function share(img: Image, test: Pred): number {
-  let n = 0;
-  for (let y = 0; y < img.height; y++) for (let x = 0; x < img.width; x++) if (test(...img.pixel(x, y))) n += 1;
-  return n / (img.width * img.height);
-}
 /**
  * A stroke through world points with the pointer held until every dab is drawn
  * (the preview's picture taken then), released, and stored: the stroke's
@@ -811,13 +897,14 @@ test('terrain: CDLOD heights, layered material, paint and a hole in the Scene vi
   test.skip(test.info().project.name === 'webgpu', 'one pass covers both renderers');
   test.setTimeout(420_000);
   be = await startBackend('terrain-cdlod');
-  const { ground, big, blocks, terrace, road } = await buildTerrain();
+  const { ground, big, blocks, terrace, road, plaza } = await buildTerrain();
   const plain = await surface(ground, ...PLAIN);
   const painted = await surface(ground, ...PAINTED);
   const holeAt: V3 = [HOLE[0], (await surface(ground, ...HOLE))[1], HOLE[1]];
   const fifth = await surface(ground, ...FIFTH);
   let holed = false;
   let roadCam: CameraView | null = null;
+  let seam: { p: V3; q: V3; b: V3 }[] | null = null;
 
   for (const renderer of BACKENDS) {
     await page.goto(be.editorUrl.replace('#', `&renderer=${renderer}&terrainCheck=1#`));
@@ -888,7 +975,7 @@ test('terrain: CDLOD heights, layered material, paint and a hole in the Scene vi
       await scatterRules(page, ground, terrace);
       await expectRoad(ground, `${renderer} (stored)`);
       await roadHandle(page, ground, road);
-      await editLayers(page, renderer, ground, road, true);
+      await editLayers(page, renderer, ground, road, true, plaza);
     } else {
       // The rules baked on the first renderer: the steep ramp and the block walls magenta, the hand-painted disc on
       // the ramp blue, the layer's flat top red (layer 0). The view zooms out until they are all in it, then back.
@@ -932,7 +1019,7 @@ test('terrain: CDLOD heights, layered material, paint and a hole in the Scene vi
         await page.waitForTimeout(80);
       }
       await terrainTools(page, renderer, ground, big, false);
-      await editLayers(page, renderer, ground, road, false);
+      await editLayers(page, renderer, ground, road, false, plaza);
     }
 
     // In Play (and the export), tiles past MACRO_DISTANCE are drawn from their baked macro textures.
@@ -999,6 +1086,9 @@ test('terrain: CDLOD heights, layered material, paint and a hole in the Scene vi
     expect(roadCam, `${renderer} Play: the camera observed`).not.toBeNull();
     await expectRoad(ground, `${renderer} Play`, { img: last!, cam: roadCam! });
     expectRiver(last!, roadCam!, `${renderer} Play`);
+    // The plaza's seam: no sky round it, the ground's colour across its border the blocks'.
+    seam ??= await seamPoints(ground);
+    expectSeam(last!, roadCam!, seam, `${renderer} Play`);
     {
       // The river's mesh pieces and posts drawn, the posts' colliders in the simulation (the water has none).
       type SplineDiag = { renderer?: { splines?: { meshPieces: number; triangles: number; copies: number; errors: string[] } }; runtime?: { splines?: { colliders: number; waiting: number } } };
@@ -1129,6 +1219,7 @@ test('terrain: CDLOD heights, layered material, paint and a hole in the Scene vi
     await expect.poll(async () => (await read())?.player?.y ?? Infinity, { timeout: 30_000, message: `${renderer} Play: fell through the hole` }).toBeLessThan(STRIP_HEIGHT - 3);
     const fell = (await read())!.player!;
     expect(fell.z, `${renderer} Play: it went forward into the hole`).toBeLessThan(HOLE[1] + 3.5);
+    if (renderer === BACKENDS[0]) await walkAcrossPlaza(psid, ground, renderer);
 
     // A second Play with every post drawn as its impostor (the rule's size 1: smaller than the whole view, so at any
     // distance): baked once, every copy at the impostor's level, the posts' pixels as many and as orange as the
@@ -1201,7 +1292,9 @@ test('terrain: CDLOD heights, layered material, paint and a hole in the Scene vi
         // The backend is stopped: the export's frame alone.
         await expectRoad(null, `${renderer} export`, { img: last!, cam: roadCam! });
         expectRiver(last!, roadCam!, `${renderer} export`);
+        expectSeam(last!, roadCam!, seam!, `${renderer} export`);
         expect(errors).toEqual([]);
+        await expectHorizonLight(game, site.url, renderer, roadCam!);
       } finally {
         await game.close();
       }
@@ -1210,6 +1303,104 @@ test('terrain: CDLOD heights, layered material, paint and a hole in the Scene vi
     await site.close();
   }
 });
+
+/**
+ * The far ground's horizon light (the export, each renderer): the frame with it (the page as loaded, its far tiles'
+ * bakes done) against the same export with `?terrainHorizon=off` — the far ground (past the macro distance) darker
+ * where its horizon hides sky and sun, the near ground (drawn from its layers) the same.
+ */
+async function expectHorizonLight(game: Page, url: string, renderer: string, cam: CameraView): Promise<void> {
+  const settled = async (p: Page): Promise<Image> => {
+    const c = p.locator('canvas').first();
+    await expect.poll(async () => frameOk(decodePng(await c.screenshot())), { timeout: 60_000, message: `${renderer} export: the frame drawn` }).toBe(true);
+    // Every far tile baked (a tile or more a frame).
+    await p.waitForTimeout(2500);
+    return decodePng(await c.screenshot());
+  };
+  const on = await settled(game);
+  const other = await game.context().newPage();
+  let off: Image;
+  try {
+    await other.goto(`${url}?renderer=${renderer}&terrainHorizon=off`);
+    await expectRendererBackend(other.locator('canvas').first(), renderer);
+    off = await settled(other);
+  } finally {
+    await other.close();
+  }
+  const rowOf = (ahead: number): number => Math.round(projectWith(cam, on.width / on.height, [0, STRIP_HEIGHT, CAM_AT[2] - ahead])![1] * on.height);
+  const luma = (img: Image, y0: number, y1: number): number => {
+    let sum = 0;
+    let n = 0;
+    for (let y = Math.max(0, y0); y < Math.min(img.height, y1); y += 2) for (let x = 0; x < img.width; x += 2) {
+      const [r, g, b] = img.pixel(x, y);
+      sum += 0.2126 * r + 0.7152 * g + 0.0722 * b;
+      n += 1;
+    }
+    return sum / Math.max(1, n);
+  };
+  // Near: the ground within 25 m ahead (from its layers); far: past 70 m ahead (from the macro textures past 30 m).
+  const nearRow = rowOf(25);
+  const farRow = rowOf(70);
+  const f = { near: [luma(on, nearRow, on.height), luma(off, nearRow, on.height)], far: [luma(on, 0, farRow), luma(off, 0, farRow)], rows: [nearRow, farRow] };
+  test.info().annotations.push({ type: `${renderer} export horizon light`, description: JSON.stringify(f) });
+  console.log(`${renderer} export horizon light (mean luminance 0-255, on / off): near ${f.near.map((v) => v.toFixed(2)).join(' / ')}, far ${f.far.map((v) => v.toFixed(2)).join(' / ')}`);
+  expect(f.far[1]! - f.far[0]!, `${renderer} export: the far ground darker with its horizon`).toBeGreaterThan(HORIZON_FAR_DARKER);
+  expect(Math.abs(f.near[1]! - f.near[0]!), `${renderer} export: the near ground the same`).toBeLessThan(HORIZON_NEAR_SAME);
+}
+
+/**
+ * The player put on the ground west of the plaza walks east across it and off again (Play): sampled as it walks, it
+ * never sinks below the ground under it (the terrain's, then the plaza's tops, then the terrain's) and is never
+ * caught at a seam (it gets past the plaza's far side).
+ */
+async function walkAcrossPlaza(psid: string, ground: string, renderer: string): Promise<void> {
+  const z = PLAZA_AT[2] + PLAZA_SIDE / 2;
+  const from = PLAZA_AT[0] - 4;
+  const to = PLAZA_AT[0] + PLAZA_SIDE + 3;
+  // The ground along the way: the stored terrain's, the plaza's tops where it is cut away.
+  const xs: number[] = [];
+  for (let x = from - 1; x <= to + 3; x += 0.25) xs.push(x);
+  const pts = ((await query('queryTerrain', { entityId: ground, points: xs.map((x) => [x, z]) }))['points'] as { height: number | null; hole: boolean }[]);
+  const groundAt = (x: number): number => {
+    const k = Math.max(0, Math.min(xs.length - 1, Math.round((x - xs[0]!) / 0.25)));
+    return pts[k]!.height ?? plazaTop(xs[k]!);
+  };
+  const read = async (): Promise<Observation | null> => {
+    const r = await relay(`${psid}/observe`, {});
+    return r.status === 200 ? (r.json as unknown as Observation) : null;
+  };
+  const placed = await relay(`${psid}/control`, { command: 'debugCommand', name: 'player', args: { x: from, y: groundAt(from) + 1.2, z } });
+  expect(placed.status, JSON.stringify(placed.json).slice(0, 300)).toBe(200);
+  let rest: Observation | null = null;
+  await expect
+    .poll(async () => {
+      const o = await read();
+      const same = o?.player !== undefined && rest?.player !== undefined && Math.abs(o.player.x - from) < 0.5 && Math.abs(o.player.y - rest.player.y) < 1e-4 && (o.stepIndex ?? 0) > (rest.stepIndex ?? 0);
+      rest = o;
+      return same;
+    }, { timeout: 30_000, intervals: [250], message: `${renderer} Play: the player put west of the plaza, at rest` })
+    .toBe(true);
+  const start = rest!.player!;
+  expect(Math.abs(start.y - 0.9 - groundAt(start.x)), `${renderer} Play: standing on the ground west of the plaza (y ${start.y})`).toBeLessThan(0.1);
+  // Short legs (a quarter second, about half a metre at the walking speed), the player read after each.
+  const east = Array.from({ length: 30 }, (_, k) => ({ stepOffset: k, ...controls(1, 'none', 0) }));
+  let worst = 0;
+  const samples: [number, number][] = [];
+  for (let leg = 0; leg < 48 && ((await read())?.player?.x ?? from) < to; leg++) {
+    const r = await relay(`${psid}/input`, { mode: 'exclusive-test', frames: east });
+    expect(r.status, JSON.stringify(r.json)).toBe(200);
+    await new Promise((done) => setTimeout(done, 300));
+    const p = (await read())?.player;
+    if (p === undefined) continue;
+    samples.push([Math.round(p.x * 100) / 100, Math.round((p.y - 0.9 - groundAt(p.x)) * 1000) / 1000]);
+    worst = Math.min(worst, p.y - 0.9 - groundAt(p.x));
+  }
+  const end = (await read())!.player!;
+  test.info().annotations.push({ type: `${renderer} Play: across the plaza`, description: JSON.stringify({ start, end, worst, samples }) });
+  console.log(`${renderer} Play across the plaza: x ${start.x.toFixed(2)} → ${end.x.toFixed(2)}, the most it sank below the ground ${(-worst).toFixed(3)} m; [x, above the ground] ${JSON.stringify(samples)}`);
+  expect(end.x, `${renderer} Play: across the plaza and off its far side (not caught at a seam)`).toBeGreaterThan(to - 1);
+  expect(-worst, `${renderer} Play: never sank below the ground crossing the seams`).toBeLessThan(0.1);
+}
 
 /** Streaming on (the rings above) or off for terrains and block layers. */
 async function streamed(terrains: readonly string[], layers: readonly string[], on: boolean): Promise<void> {
@@ -1304,7 +1495,7 @@ async function streamingPlay(psid: string, renderer: string): Promise<void> {
     const r = await relay(`${psid}/control`, { command: 'debugCommand', name: 'place', args: { id: 'cam-main', x: p[0], y: p[1], z: p[2] } });
     expect(r.status, JSON.stringify(r.json).slice(0, 300)).toBe(200);
   };
-  /** Away: every ground tile and block chunk let go (the overview drawn everywhere). */
+  /** Away: every ground tile and streamed block chunk let go (the overview drawn everywhere; the plaza, not streamed, keeps its one chunk). */
   const flyAway = async (): Promise<StreamDiag> => {
     await place(AWAY);
     let away: StreamDiag = {};
@@ -1313,7 +1504,7 @@ async function streamingPlay(psid: string, renderer: string): Promise<void> {
         away = await diag();
         return `${away.renderer?.terrain?.streamed?.resident} ${away.renderer?.streaming?.kinds['terrain-tile']?.resident} ${away.renderer?.blocks?.chunks}`;
       }, { timeout: 60_000, message: `${renderer} streamed Play: flown away, the tiles and chunks let go` })
-      .toBe('0 0 0');
+      .toBe('0 0 1');
     expect(away.renderer!.terrain!.streamed!.overviewDrawn).toBe(TILES * TILES);
     return away;
   };

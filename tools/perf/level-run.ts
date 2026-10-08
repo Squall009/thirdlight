@@ -28,6 +28,8 @@
  *   --impostors S                the landscape's trees, pines and rocks drawn as impostors below screen size S (default:
  *                                their meshes all the way, as recorded)
  *   --splines off                the landscape without its road and river (default: with them)
+ *   --blocks-seam                the terrain meets the block layers (a blocks layer: their border followed over 8 m,
+ *                                cut away under them) instead of lying under the area (default: under it, as recorded)
  *   --spline-edit                the landscape's editor Scene view open while a script moves a road point 5 m back and
  *                                forth every 4 s (6 edits; each one command that shapes the terrain again and makes
  *                                the road's mesh again): each edit's round trip and the page's frames meanwhile,
@@ -110,6 +112,8 @@ export interface LevelReport {
   impostorSize?: number;
   /** The landscape without its road and river (absent: with them). */
   splines?: 'off';
+  /** The terrain met the block layers (a blocks layer) instead of lying under the area. */
+  blocksSeam?: boolean;
   /** The scripted road edits in the editor's Scene view: each edit's round trip (ms) and the page's frames meanwhile. */
   splineEdit?: Partial<Record<FrameRenderer, EditRun>>;
   /** The scripted terrain sculpts in the editor's Scene view, recorded the same way. */
@@ -221,14 +225,14 @@ export async function runLevelCli(argv: readonly string[]): Promise<void> {
   } catch {
     /* not a git checkout */
   }
-  const report: LevelReport = { reportVersion: 1, startedAt, commit, machine: { cpu: cpus()[0]?.model ?? 'unknown', cores: cpus().length }, version: LEVEL_VERSION, seed: LEVEL_SEED, ...(liveDoors > 0 ? { liveDoors } : {}), ...(has('edge-walls') ? { edgeWalls: true } : {}), ...(has('wall-paint') ? { wallPaint: true } : {}), ...(roofs !== 'none' ? { roofs } : {}), ...(has('kit-swap') ? { kitSwap: true } : {}), ...(has('vertex-ao') ? { vertexAO: LEVEL_VERTEX_AO } : {}), ...(has('rules') ? { rules: true } : {}), ...(projection > 0 ? { projection } : {}), ...(macro > 0 ? { macro } : {}), ...(foliage === 'off' ? { foliage: 'off' as const } : {}), ...(flight ? { flight: true } : {}), ...(impostorSize > 0 ? { impostorSize } : {}), ...(splines === 'off' ? { splines: 'off' as const } : {}), query, builds: {}, classes: {}, errors: [] };
+  const report: LevelReport = { reportVersion: 1, startedAt, commit, machine: { cpu: cpus()[0]?.model ?? 'unknown', cores: cpus().length }, version: LEVEL_VERSION, seed: LEVEL_SEED, ...(liveDoors > 0 ? { liveDoors } : {}), ...(has('edge-walls') ? { edgeWalls: true } : {}), ...(has('wall-paint') ? { wallPaint: true } : {}), ...(roofs !== 'none' ? { roofs } : {}), ...(has('kit-swap') ? { kitSwap: true } : {}), ...(has('vertex-ao') ? { vertexAO: LEVEL_VERTEX_AO } : {}), ...(has('rules') ? { rules: true } : {}), ...(projection > 0 ? { projection } : {}), ...(macro > 0 ? { macro } : {}), ...(foliage === 'off' ? { foliage: 'off' as const } : {}), ...(flight ? { flight: true } : {}), ...(impostorSize > 0 ? { impostorSize } : {}), ...(splines === 'off' ? { splines: 'off' as const } : {}), ...(has('blocks-seam') ? { blocksSeam: true } : {}), query, builds: {}, classes: {}, errors: [] };
 
   // Every class built and exported by one backend, then measured with it stopped (one backend or one browser at a time).
   const exportDirs: Partial<Record<LevelKind, string>> = {};
   const be = await startPerfBackend(join(runDir, 'data'), join(runDir, 'exports'));
   try {
     for (const kind of kinds) {
-      const b = await buildLevel(be, `level-${kind}`, levelPlan(kind, LEVEL_SEED, liveDoors, has('edge-walls'), has('wall-paint'), roofs, has('kit-swap'), has('vertex-ao') ? LEVEL_VERTEX_AO : 0, has('rules'), projection, macro, foliage, flight, impostorSize, splines === 'on', !has('flight-plain')), log);
+      const b = await buildLevel(be, `level-${kind}`, levelPlan(kind, LEVEL_SEED, liveDoors, has('edge-walls'), has('wall-paint'), roofs, has('kit-swap'), has('vertex-ao') ? LEVEL_VERTEX_AO : 0, has('rules'), projection, macro, foliage, flight, impostorSize, splines === 'on', !has('flight-plain'), has('blocks-seam')), log);
       if (has('spline-edit') && kind === 'landscape' && splines === 'on') report.splineEdit = await editWindows(be, b.projectId, renderers, 'spline', log, has('edit-profile'));
       if (has('sculpt-edit') && kind === 'landscape') report.sculptEdit = await editWindows(be, b.projectId, renderers, 'sculpt', log, has('edit-profile'));
       if (has('stamp-edit') && kind === 'landscape') report.stampEdit = await editWindows(be, b.projectId, renderers, 'stamp', log, has('edit-profile'));

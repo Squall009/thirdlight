@@ -69,7 +69,7 @@ import {
 } from '@thirdlight/project-model';
 
 import { blockTypesOf, layerDataOf } from './block-ops';
-import { combinedTile, putCombined, terrainSplineContext, TerrainLayerUnread, type TerrainLayerReads, type TerrainSplineContext } from './terrain-spline-ops';
+import { combinedTile, putCombined, scatterCleared, terrainSplineContext, TerrainLayerUnread, type TerrainLayerReads, type TerrainSplineContext } from './terrain-spline-ops';
 import { erodeArgsError } from './terrain-erosion-ops';
 import { sceneRegionLayers, scatterBakeTooLarge, scatterRuleOf } from './scatter-ops';
 import { applySetComponent, type OpInput } from './content-ops';
@@ -412,7 +412,7 @@ function planEdit(scene: SceneDocument, content: ContentDocument | undefined, ar
     const written = new Map<string, TerrainTile>();
     for (const key of c.touched) written.set(key, c.all().get(key)!);
     const rect = args.kind === 'bake' ? null : terrainBakeRect(loaded, written, comp.tileSamples - 1, margin);
-    const over = splines.layered ? { paint: (tx: number, tz: number) => splines.layer.paint(tx, tz), base: (tx: number, tz: number) => s.tile(tx, tz) } : {};
+    const over = splines.layered ? { paint: (tx: number, tz: number) => splines.stack.paint(tx, tz), base: (tx: number, tz: number) => s.tile(tx, tz) } : {};
     if (args.kind === 'bake' || rect !== null) changed += bakeTerrainRules(c, bakeSet, origin, rect, over);
     if (args.kind === 'bake') rulesChanged = JSON.stringify(rules) !== JSON.stringify(comp.rules ?? []);
   }
@@ -529,7 +529,7 @@ function bakeScatterOf(
   }
   // The ground: every tile the edit read, as it is after the edit.
   const field = new TerrainField({ ...comp, tiles: coords.map(([x, z]) => ({ x, z, data: '' })) }, origin, s.all());
-  const surface = terrainScatterSurface(field, regionExcluder(sceneRegionLayers(scene)), splines.bands.empty ? undefined : (x, z, rule) => splines.bands.cleared(x, z, rule));
+  const surface = terrainScatterSurface(field, regionExcluder(sceneRegionLayers(scene)), scatterCleared(splines));
   const baked = bakeTerrainScatter(rules, surface, origin, size, coords, prev, rect, stored);
   return { ok: true, cells: baked.cells };
 }

@@ -8,7 +8,10 @@
  * before it asks for a square, the decoded tiles under it; a block layer's
  * chunks and the block types), then asks for squares one at a time; each
  * answer is the square's copies per rule (10 floats each, the source's
- * frame), handed over, not copied. It runs in the view's worker script
+ * frame), handed over, not copied. A terrain's cover keeps off the block
+ * layers its blocks layers meet (`TerrainBlockSeam.covered`, the test its
+ * stored scatter was baked with); the page hands those block layers over
+ * too. It runs in the view's worker script
  * beside the block mesher and the terrain packer, on its own worker; the
  * page falls back to the same `CoverGenerator` when no worker can run.
  *
@@ -17,6 +20,8 @@
 import {
   BlockGrid,
   SurfaceRuleSet,
+  TERRAIN_BLOCKS_BLEND_DEFAULT,
+  TerrainBlockSeam,
   TerrainField,
   bakeScatterCell,
   blockScatterSurface,
@@ -89,20 +94,22 @@ export class CoverGenerator {
     switch (m.t) {
       case 'coverSource':
         this.sources.set(m.id, { source: m.source, surface: null, grid: null });
+        // A block layer's footprint is what terrains' blocks layers keep their cover off.
+        if (m.source.kind === 'blocks') this.groundChanged();
         break;
       case 'coverChunks': {
         const h = this.sources.get(m.id);
         if (h === undefined || h.source.kind !== 'blocks') return;
         if (h.grid !== null) for (const c of m.chunks) h.grid.replaceChunk(c.cx, c.cz, c.chunk);
-        else {
-          const byKey = new Map((h.source.data?.chunks ?? []).map((c) => [`${c.cx},${c.cz}`, c]));
-          for (const c of m.chunks) {
-            if (c.chunk === null) byKey.delete(`${c.cx},${c.cz}`);
-            else byKey.set(`${c.cx},${c.cz}`, c.chunk);
-          }
-          h.source = { ...h.source, data: { entityId: m.id, chunks: [...byKey.values()], ...(h.source.data?.regions !== undefined ? { regions: h.source.data.regions } : {}) } };
+        // The stored form follows too (a terrain's seam reads it).
+        const byKey = new Map((h.source.data?.chunks ?? []).map((c) => [`${c.cx},${c.cz}`, c]));
+        for (const c of m.chunks) {
+          if (c.chunk === null) byKey.delete(`${c.cx},${c.cz}`);
+          else byKey.set(`${c.cx},${c.cz}`, c.chunk);
         }
+        h.source = { ...h.source, data: { entityId: m.id, chunks: [...byKey.values()], ...(h.source.data?.regions !== undefined ? { regions: h.source.data.regions } : {}) } };
         h.surface = null;
+        this.groundChanged();
         break;
       }
       case 'coverTypes':
@@ -117,6 +124,7 @@ export class CoverGenerator {
         this.tiles.delete(m.digest);
         break;
       case 'coverDrop':
+        if (this.sources.get(m.id)?.source.kind === 'blocks') this.groundChanged();
         this.sources.delete(m.id);
         break;
       case 'coverSplines': {
@@ -126,6 +134,27 @@ export class CoverGenerator {
         break;
       }
     }
+  }
+
+  /** A block layer changed: the terrains' surfaces (their seams with it) are made again. */
+  private groundChanged(): void {
+    for (const h of this.sources.values()) if (h.source.kind === 'terrain') h.surface = null;
+  }
+
+  /** Whether a world point is on the footprint of a block layer one of terrain `s`'s blocks layers meets (null: it has none). */
+  private coveredOf(s: Extract<CoverSource, { kind: 'terrain' }>): ((x: number, z: number) => boolean) | null {
+    const seams: TerrainBlockSeam[] = [];
+    for (const l of s.component.layers ?? []) {
+      if (l.kind !== 'blocks' || l.enabled === false || (l.strength ?? 1) <= 0) continue;
+      const sources = [...this.sources.entries()]
+        .filter(([id, o]) => o.source.kind === 'blocks' && (l.blockLayers === undefined || l.blockLayers.includes(id)))
+        .map(([id, o]) => {
+          const b = o.source as Extract<CoverSource, { kind: 'blocks' }>;
+          return { id, component: b.component, data: b.data, types: this.types, origin: b.origin };
+        });
+      if (sources.length > 0) seams.push(new TerrainBlockSeam(sources, { mode: l.mode ?? 'cut', blend: l.blend ?? TERRAIN_BLOCKS_BLEND_DEFAULT, paint: false }, s.component, s.origin));
+    }
+    return seams.length === 0 ? null : (x, z) => seams.some((seam) => seam.covered(x, z));
   }
 
   /** Whether the generator holds a tile's data. */
@@ -163,7 +192,9 @@ export class CoverGenerator {
         if (tile !== undefined) tiles.set(`${t.x},${t.z}`, tile);
       }
       const bands = this.bands;
-      return terrainScatterSurface(new TerrainField(s.component, s.origin, tiles), excluded, bands === null ? undefined : (x, z, rule) => bands.cleared(x, z, rule));
+      const covered = this.coveredOf(s);
+      const cleared = bands === null && covered === null ? undefined : (x: number, z: number, rule: string): boolean => (covered?.(x, z) ?? false) || (bands?.cleared(x, z, rule) ?? false);
+      return terrainScatterSurface(new TerrainField(s.component, s.origin, tiles), excluded, cleared);
     }
     const rules = s.component.rules;
     return blockScatterSurface({ grid: this.gridOf(h), types: this.types, origin: s.origin, topSubdivision: s.component.topSubdivision ?? 1, ...(rules !== undefined && rules.length > 0 ? { rules: new SurfaceRuleSet(rules) } : {}) }, excluded);

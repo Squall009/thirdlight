@@ -5148,7 +5148,25 @@ edited with the editor's Terrain tools.
   small **macro texture** — its albedo and world normal (heights and normal
   maps together), at most 128 texels a side (a smaller tile: one a cell) —
   once its texels are up, again whenever it changes or its material does,
-  on the GPU, within 2 ms of the page's time a frame. Nodes wholly past the
+  on the GPU, within 2 ms of the page's time a frame. Holes are baked
+  through (the ground's look under them; the far material cuts them itself),
+  so no dark rim shows round a hole or a block area standing in one.
+  **Horizon light**: each bake also measures the ground's horizon over the
+  heights of the tile and its neighbours on the page (8 directions and one
+  toward the sun, out to 256 m or a tile): the share of the sky a texel
+  sees darkens the far ground's ambient and probe light (ambient occlusion),
+  and the sun behind its horizon shadows it (with the shadow maps where they
+  reach) — mountains shade valleys and cast long evening shadows where no
+  shadow map goes. A tile's neighbours are baked again when it changes; a
+  sun turned by more than 2° bakes every far tile again (over frames, as any
+  bake). Free in the draw (the bakes' unused alpha channels); a bake's
+  measure runs as loops in the shader (built ahead with the bake's other
+  programs). Needs a key light that casts a shadow for its sun part.
+  `?terrainHorizon=off` on a game page bakes without it (a comparison).
+  Measured (terrain-cdlod e2e, export, the frame's far band): 1.3–1.9 of
+  255 darker on average with it, the near ground unchanged; the most a
+  frame spent baking at load 23–44 ms (the first bake's program use, as
+  before: 23–27 ms without the horizon). Nodes wholly past the
   distance whose tile is baked are drawn by a second mesh per page from it:
   two texture reads instead of the material's dozen (one more draw per
   page). Both draw the same vertices, so they meet without a crack; the
@@ -5572,6 +5590,82 @@ everything (editing needs every tile and chunk).
   the collision ring to how far characters move in a second or two plus a
   tile; keep scatter groups light (density falloff, impostors) where the
   camera moves fast; one terrain per landscape (each streams on its own).
+
+## Blocks on terrain
+
+A block area (a block layer: a village, a courtyard, a dungeon mouth) stands
+on a terrain that reaches the horizon. A **blocks** edit layer on the terrain
+(`terrain.layers` kind `blocks`; the terrain tools' **Layers… → Add blocks
+layer**, or MCP `setComponent terrain {layers}`) makes the ground meet it:
+
+- **Where it meets**: a block layer's footprint is its columns holding a
+  block with a surface (any shape but `none`; a larger block covers its
+  footprint's columns). Its **ground** in a column is the top of the
+  column's lowest run of blocks — a sloped top's corner heights, a ramp's
+  rise — so rock under grass meets the terrain at the grass and a cliff at
+  its top (a wall stacked of cells on the ground cells raises its column's
+  ground to the wall's top: build walls on a border from edge pieces, which
+  leave the ground alone). Where columns share an edge or corner the lowest
+  of their tops counts, so the terrain never stands above a block's top edge.
+- **The border**: the terrain's samples on the footprint's border take that
+  ground exactly (no step, no crack); outside, within **`blend`** metres
+  (default 8, 0–256), the ground fades from the nearest border point's
+  height back to its own (smoothstep: it leaves the border level, so slopes
+  meet smoothly).
+- **Under the blocks** (`mode`): **`cut`** (default) makes holes of the
+  terrain cells the footprint covers, a cell in from its border — that ring
+  stays, 2 cm under the tops, so the hole's edge is never on the border
+  itself (where the ground's last pixels, cut per pixel, would let the sky
+  through beside side faces facing away) — and nothing else is drawn or
+  collides under the blocks; **`flatten`** keeps the ground whole, 2 cm
+  under the tops (`TERRAIN_BLOCKS_SINK`, at least one height step): no
+  collider patches, and a stand-in for the block area where a streamed block
+  layer is not drawn. With `cut`, keep a streamed block layer's render ring
+  at least as far as the terrain is seen with the block area in it (past its
+  ring the block area is not drawn and the holes show what is behind them).
+- **Material**: the blocks' paint (the chunk's hand paint over the block
+  layer's material rules, as its tops show it) carries across the border by
+  the same fade (`paint: false` keeps it theirs); the terrain's own hand
+  paint stays over it. Give the terrain and the block layer's ground types
+  the same layered material: the terrain then counts its texture
+  coordinates from the first block layer's origin (`terrain.uvOrigin`,
+  written by the host whenever the blocks layer meets a block layer), so
+  the textures line up across the border whatever their repeat.
+- **Scatter**: the terrain's stored scatter and its ground cover keep off
+  the footprint (the export ships the blocks layer's settings for the ground
+  cover; the rest of the edit layers stays in the editor).
+- **Which block layers**: `blockLayers` names them (absent: every block
+  layer of the scene). Other settings: `enabled`, `strength` (the share of
+  its change kept) and its place in the layer list, as every edit layer.
+- **Edits re-bake round the edit**: a block edit (or a block layer moved,
+  re-gridded, given other rules) is followed in the same command and undo
+  step: the terrain is combined again (heights, holes, rules and paint,
+  scatter) over the columns whose cells changed — a whole chunk when its
+  paint changed — grown by 9 cells and the blend. Measured (this host, Node,
+  `TL_PERF=1 npx vitest run tests/perf/terrain-blocks.test.ts`: 2 × 2 tiles
+  of 257² at 1 m with the landscape's rules and scatter, a 100 × 100 m area):
+  adding the blocks layer 480 ms (4 tiles); a border column raised a row
+  162 ms (one tile, plan 144 ms, encode 17 ms); a 2 m repaint at the border
+  140 ms; an edit deep inside that moves no ground 113 ms, nothing written.
+  The backend does it: no frame of the editor or a game waits on it.
+- **Lighting**: both sides of the border are lit alike — the same
+  material, normals that read across the border (the ground under the
+  blocks is theirs within 2 cm), the same cached shadow, and the same
+  probes: a probe bake over a scene without probe volumes grows its tiles
+  past the static objects by the widest blend of a terrain's blocks layers
+  and a spacing (and down by the blend), so the blended ground reads the
+  block area's probes, not the flat ambient past them. The far ground uses
+  its baked horizon light (see Far ground). The terrain is not yet an
+  occluder or bounce surface in the probe bake (D198).
+- **Collision**: the terrain's edge is the blocks' top edge, so a character
+  walks from the ground onto the blocks and off again without a step or a
+  snag (terrain-cdlod e2e: a player crossing an 8 m area both ways never
+  sank more than 2 cm below the ground). Scenery-only ground: `collision:
+  false` on the terrain (gameplay queries, `ctx.grid`, stay on the block
+  layer either way).
+- **Not read**: kits — a kit's shapes are not the ground the terrain
+  meets (the block types are); a block type's shape changed in the content
+  reaches the terrain at the next edit there.
 
 ## Sockets (objects on model nodes)
 

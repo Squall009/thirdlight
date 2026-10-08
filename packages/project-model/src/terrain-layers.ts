@@ -14,7 +14,10 @@
  *   and the channels stay on it, and running it again over a rectangle
  *   replaces only that rectangle's result;
  * - **splines**: every spline that shapes the terrain (`terrain-splines.ts`;
- *   on top when the list names no splines layer, as before layers existed).
+ *   on top when the list names no splines layer, as before layers existed);
+ * - **blocks**: block layers standing on the terrain (`terrain-blocks.ts`):
+ *   the ground round them follows their border, the ground under them is
+ *   cut away or flattened below them, and their paint carries across.
  *
  * A layer can be switched off (`enabled: false`) and weighed (`strength`
  * 0–1: the share of its change kept). The combined heights are what is
@@ -33,12 +36,13 @@ import type { ModelErrorV2 } from './errors';
 import type { ScatterRect } from './scatter';
 import { validateErosionSettings, type ErosionSettings } from './terrain-erosion';
 import type { Heightmap } from './terrain-import';
-import type { TerrainSplineLayer } from './terrain-splines';
+import type { TerrainSplineLayer, TerrainSplinePaint } from './terrain-splines';
+import { TERRAIN_BLOCKS_BLEND_LIMITS, TERRAIN_BLOCKS_MODES, type TerrainBlockSeam, type TerrainBlocksMode } from './terrain-blocks';
 import { TERRAIN_HEIGHT_LIMIT, TERRAIN_TILE_COORD_MAX, terrainHeightOf, terrainStepOf, terrainTileKey, type TerrainComponent } from './terrain';
 import { ID_RE } from './validate';
 
-export type TerrainLayerKind = 'stamps' | 'erosion' | 'splines';
-export const TERRAIN_LAYER_KINDS: readonly TerrainLayerKind[] = ['stamps', 'erosion', 'splines'];
+export type TerrainLayerKind = 'stamps' | 'erosion' | 'splines' | 'blocks';
+export const TERRAIN_LAYER_KINDS: readonly TerrainLayerKind[] = ['stamps', 'erosion', 'splines', 'blocks'];
 export type TerrainStampMode = 'add' | 'max' | 'min';
 export const TERRAIN_STAMP_MODES: readonly TerrainStampMode[] = ['add', 'max', 'min'];
 /** Metres a stamp's side may span. */
@@ -104,7 +108,20 @@ export interface TerrainSplinesLayer extends LayerCommon {
   kind: 'splines';
 }
 
-export type TerrainLayer = TerrainStampsLayer | TerrainErosionLayer | TerrainSplinesLayer;
+/** Block layers standing on the terrain (`terrain-blocks.ts`). */
+export interface TerrainBlocksLayer extends LayerCommon {
+  kind: 'blocks';
+  /** The block layer objects the ground meets (absent: every block layer of the scene). */
+  blockLayers?: string[];
+  /** cut (absent): holes under the blocks; flatten: the ground kept, just under them. */
+  mode?: TerrainBlocksMode;
+  /** Metres over which the ground round them fades from their border's height and paint to its own (absent: `TERRAIN_BLOCKS_BLEND_DEFAULT`). */
+  blend?: number;
+  /** Stored only when false: the blocks' paint does not carry across the border. */
+  paint?: boolean;
+}
+
+export type TerrainLayer = TerrainStampsLayer | TerrainErosionLayer | TerrainSplinesLayer | TerrainBlocksLayer;
 
 const DIGEST_RE = /^[0-9a-f]{64}$/;
 const finite = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
@@ -117,6 +134,7 @@ const LAYER_KEYS: Readonly<Record<TerrainLayerKind, readonly string[]>> = {
   stamps: ['id', 'name', 'kind', 'enabled', 'strength', 'stamps'],
   erosion: ['id', 'name', 'kind', 'enabled', 'strength', 'tiles', 'settings'],
   splines: ['id', 'name', 'kind', 'enabled', 'strength'],
+  blocks: ['id', 'name', 'kind', 'enabled', 'strength', 'blockLayers', 'mode', 'blend', 'paint'],
 };
 const STAMP_KEYS = ['asset', 'at', 'size', 'rotation', 'height', 'mode', 'y', 'falloff'];
 
@@ -155,6 +173,14 @@ export function validateTerrainLayers(value: unknown, path: string, errors: Mode
     if (kind === 'stamps') {
       if (!Array.isArray(l['stamps'])) err(errors, 'field_type', `${p}/stamps`, 'stamps is a list of stamps', l['stamps']);
       else l['stamps'].forEach((s, j) => validateStamp(s, `${p}/stamps/${j}`, errors));
+    }
+    if (kind === 'blocks') {
+      const names = l['blockLayers'];
+      if (names !== undefined && !(Array.isArray(names) && names.length > 0 && names.every((x) => typeof x === 'string' && ID_RE.test(x)) && new Set(names).size === names.length)) err(errors, 'field_value', `${p}/blockLayers`, 'blockLayers names block layer objects (distinct entity ids; absent: every block layer)', names);
+      if (l['mode'] !== undefined && !TERRAIN_BLOCKS_MODES.includes(l['mode'] as TerrainBlocksMode)) err(errors, 'field_value', `${p}/mode`, `mode is ${TERRAIN_BLOCKS_MODES.join(' or ')}`, l['mode']);
+      const B = TERRAIN_BLOCKS_BLEND_LIMITS;
+      if (l['blend'] !== undefined && !(finite(l['blend']) && l['blend'] >= B.min && l['blend'] <= B.max)) err(errors, 'field_value', `${p}/blend`, `blend is ${B.min}-${B.max} metres`, l['blend']);
+      if (l['paint'] !== undefined && typeof l['paint'] !== 'boolean') err(errors, 'field_type', `${p}/paint`, 'paint is a boolean', l['paint']);
     }
     if (kind === 'erosion') {
       if (l['settings'] !== undefined) validateErosionSettings(l['settings'], `${p}/settings`, errors);
@@ -199,6 +225,9 @@ export function canonicalTerrainLayers(list: readonly TerrainLayer[]): TerrainLa
     if (l.kind === 'erosion') {
       const tiles = (l.tiles ?? []).map((t) => ({ x: t.x, z: t.z, data: t.data })).sort((a, b) => a.z - b.z || a.x - b.x);
       return { ...common, kind: 'erosion', ...(tiles.length > 0 ? { tiles } : {}), ...(l.settings !== undefined ? { settings: l.settings } : {}) } as TerrainErosionLayer;
+    }
+    if (l.kind === 'blocks') {
+      return { ...common, kind: 'blocks', ...(l.blockLayers !== undefined ? { blockLayers: [...l.blockLayers] } : {}), ...(l.mode !== undefined && l.mode !== 'cut' ? { mode: l.mode } : {}), ...(l.blend !== undefined ? { blend: l.blend } : {}), ...(l.paint === false ? { paint: false } : {}) } as TerrainBlocksLayer;
     }
     return { ...common, kind: 'splines' } as TerrainSplinesLayer;
   });
@@ -269,12 +298,15 @@ export class TerrainLayerStack {
   private readonly range: readonly number[];
   private readonly stampRects: Map<string, ScatterRect[]>;
   private readonly deltaRefs: Map<string, Map<string, string>>;
+  private readonly seams: Map<string, TerrainBlockSeam>;
 
+  /** `blocks`: a blocks layer's seam (the block layers it names, read by the caller; null: none to meet). */
   constructor(
     comp: Pick<TerrainComponent, 'tileSamples' | 'spacing' | 'heightRange' | 'layers'>,
     private readonly origin: readonly number[],
     private readonly splines: TerrainSplineLayer,
     private readonly sources: TerrainLayerSources | null,
+    blocks?: (layer: TerrainBlocksLayer) => TerrainBlockSeam | null,
   ) {
     this.order = terrainLayerOrder(comp);
     this.n = comp.tileSamples - 1;
@@ -283,11 +315,28 @@ export class TerrainLayerStack {
     this.range = comp.heightRange;
     this.stampRects = new Map(this.order.filter((l): l is TerrainStampsLayer => l.kind === 'stamps').map((l) => [l.id, l.stamps.map(terrainStampRect)]));
     this.deltaRefs = new Map(this.order.filter((l): l is TerrainErosionLayer => l.kind === 'erosion').map((l) => [l.id, new Map((l.tiles ?? []).map((t) => [terrainTileKey(t.x, t.z), t.data]))]));
+    this.seams = new Map();
+    for (const l of this.order) {
+      if (l.kind !== 'blocks' || blocks === undefined) continue;
+      const seam = blocks(l);
+      if (seam !== null && !seam.empty) this.seams.set(l.id, seam);
+    }
+  }
+
+  /** The layers that apply (on, with some strength). */
+  private live(until?: string): TerrainLayer[] {
+    const out: TerrainLayer[] = [];
+    for (const l of this.order) {
+      if (l.id === until) break;
+      if (l.enabled === false || (l.strength ?? 1) <= 0) continue;
+      out.push(l);
+    }
+    return out;
   }
 
   /** Whether no layer changes anything (splines included). */
   get empty(): boolean {
-    return this.splines.empty && [...this.stampRects.values()].every((r) => r.length === 0) && [...this.deltaRefs.values()].every((m) => m.size === 0);
+    return this.splines.empty && this.seams.size === 0 && [...this.stampRects.values()].every((r) => r.length === 0) && [...this.deltaRefs.values()].every((m) => m.size === 0);
   }
 
   private tileBox(tx: number, tz: number): ScatterRect {
@@ -303,6 +352,7 @@ export class TerrainLayerStack {
     for (const rects of this.stampRects.values()) if (rects.some((r) => r[0] <= b[2] && r[2] >= b[0] && r[1] <= b[3] && r[3] >= b[1])) return true;
     const key = terrainTileKey(tx, tz);
     for (const m of this.deltaRefs.values()) if (m.has(key)) return true;
+    for (const s of this.seams.values()) if (s.reaches(tx, tz)) return true;
     return false;
   }
 
@@ -322,9 +372,49 @@ export class TerrainLayerStack {
         const out = this.splines.heights(tx, tz, h);
         h = out === h || k >= 1 ? out : mix(h, out, k);
       } else if (l.kind === 'stamps') h = this.stamps(tx, tz, h, l, k);
+      else if (l.kind === 'blocks') h = this.seams.get(l.id)?.heights(tx, tz, h, k) ?? h;
       else h = this.erosion(tx, tz, h, l, k);
     }
     return h;
+  }
+
+  /** Tile (tx, tz)'s holes with the blocks layers' cuts over its hand-made ones (the same array, or null, when none). */
+  holes(tx: number, tz: number, authored: Uint8Array | null, until?: string): Uint8Array | null {
+    let out = authored;
+    for (const l of this.live(until)) if (l.kind === 'blocks') out = this.seams.get(l.id)?.holes(tx, tz, out) ?? out;
+    return out;
+  }
+
+  /**
+   * The paint the layers put over tile (tx, tz)'s material rules, in the
+   * order they apply: the splines' and the blocks layers' (null: none).
+   */
+  paint(tx: number, tz: number): TerrainSplinePaint[] | null {
+    let out: TerrainSplinePaint[] | null = null;
+    for (const l of this.order) {
+      // The splines paint wherever their layer stands (their paint is not weighed by it, as before layers existed).
+      if (l.kind === 'splines') {
+        const p = this.splines.paint(tx, tz);
+        if (p !== null) (out ??= []).push(...p);
+        continue;
+      }
+      if (l.kind !== 'blocks' || l.enabled === false) continue;
+      const p = this.seams.get(l.id)?.paint(tx, tz, l.strength ?? 1) ?? null;
+      if (p !== null) (out ??= []).push(...p);
+    }
+    return out;
+  }
+
+  /** Whether any blocks layer paints. */
+  get paints(): boolean {
+    return this.order.some((l) => l.kind === 'blocks' && l.enabled !== false && l.paint !== false && this.seams.has(l.id));
+  }
+
+  /** Whether a world point lies on or under the footprint of a blocks layer that applies (scatter keeps off it); null: no such layer. */
+  coveredTest(): ((x: number, z: number) => boolean) | null {
+    const seams = this.live().filter((l) => l.kind === 'blocks').map((l) => this.seams.get(l.id)).filter((s): s is TerrainBlockSeam => s !== undefined);
+    if (seams.length === 0) return null;
+    return (x, z) => seams.some((s) => s.covered(x, z));
   }
 
   private erosion(tx: number, tz: number, src: Uint16Array, l: TerrainErosionLayer, k: number): Uint16Array {
@@ -425,10 +515,10 @@ function mix(a: Uint16Array, b: Uint16Array, k: number): Uint16Array {
  * (all it reaches). `splineRects` are the boxes the splines reach (a
  * splines layer switched or moved).
  */
-export function terrainLayerChangeRects(before: readonly TerrainLayer[] | undefined, after: readonly TerrainLayer[] | undefined, tileRect: (x: number, z: number) => ScatterRect, splineRects: () => ScatterRect[]): ScatterRect[] {
+export function terrainLayerChangeRects(before: readonly TerrainLayer[] | undefined, after: readonly TerrainLayer[] | undefined, tileRect: (x: number, z: number) => ScatterRect, splineRects: () => ScatterRect[], blocksRects: (l: TerrainBlocksLayer) => ScatterRect[] = () => []): ScatterRect[] {
   const a = terrainLayerOrder({ layers: before === undefined ? undefined : [...before] });
   const b = terrainLayerOrder({ layers: after === undefined ? undefined : [...after] });
-  const extent = (l: TerrainLayer): ScatterRect[] => (l.kind === 'stamps' ? l.stamps.map(terrainStampRect) : l.kind === 'erosion' ? (l.tiles ?? []).map((t) => tileRect(t.x, t.z)) : splineRects());
+  const extent = (l: TerrainLayer): ScatterRect[] => (l.kind === 'stamps' ? l.stamps.map(terrainStampRect) : l.kind === 'erosion' ? (l.tiles ?? []).map((t) => tileRect(t.x, t.z)) : l.kind === 'blocks' ? blocksRects(l) : splineRects());
   const out: ScatterRect[] = [];
   const byId = new Map(a.map((l, i) => [l.id, { l, i }]));
   const ids = new Set(b.map((l) => l.id));
@@ -456,6 +546,9 @@ export function terrainLayerChangeRects(before: readonly TerrainLayer[] | undefi
       while (k < l.stamps.length && k < was.stamps.length && JSON.stringify(canonicalStamp(l.stamps[k]!)) === JSON.stringify(canonicalStamp(was.stamps[k]!))) k++;
       for (const s of was.stamps.slice(k)) out.push(terrainStampRect(s));
       for (const s of l.stamps.slice(k)) out.push(terrainStampRect(s));
+    } else if (l.kind === 'blocks' && was.kind === 'blocks') {
+      // Another set of block layers, mode, blend or paint: what it reached and reaches.
+      if (JSON.stringify(canonicalTerrainLayers([l])) !== JSON.stringify(canonicalTerrainLayers([was]))) out.push(...extent(was), ...extent(l));
     } else if (l.kind === 'erosion' && was.kind === 'erosion') {
       const old = new Map((was.tiles ?? []).map((t) => [terrainTileKey(t.x, t.z), t.data]));
       const now = new Map((l.tiles ?? []).map((t) => [terrainTileKey(t.x, t.z), t.data]));

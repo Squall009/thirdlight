@@ -303,6 +303,8 @@ export interface LevelPlan {
   impostorSize: number;
   /** The landscape's road and river (splines). */
   splines: boolean;
+  /** The terrain meets the block layers (a blocks edit layer: their border followed, cut away under them) instead of lying under them. */
+  blocksSeam: boolean;
   /** The world's second block layer (pasted alone after the area's) and its edits; null: none. */
   fields: { layer: EntityValue; edits: Record<string, unknown>[] } | null;
 }
@@ -457,7 +459,7 @@ function copies(n: number, at: (i: number) => { x: number; y: number; z: number;
   return f;
 }
 
-export function levelPlan(kind: LevelKind, seed = LEVEL_SEED, liveDoorCount = 0, edgeWalls = false, wallPaint = false, roofs: LevelRoofs = 'none', kitSwap = false, vertexAO = 0, rules = false, projection = 0, macro = 0, foliage: LevelFoliage = 'on', flight = false, impostorSize = 0, splines = true, flightOps = true): LevelPlan {
+export function levelPlan(kind: LevelKind, seed = LEVEL_SEED, liveDoorCount = 0, edgeWalls = false, wallPaint = false, roofs: LevelRoofs = 'none', kitSwap = false, vertexAO = 0, rules = false, projection = 0, macro = 0, foliage: LevelFoliage = 'on', flight = false, impostorSize = 0, splines = true, flightOps = true, blocksSeam = false): LevelPlan {
   const S = LEVEL_SPEC;
   const N = S.areaSide;
   const rnd = prng(seed * 104729 + N);
@@ -618,7 +620,7 @@ export function levelPlan(kind: LevelKind, seed = LEVEL_SEED, liveDoorCount = 0,
     const tiles: { x: number; z: number }[] = [];
     for (let z = 0; z < across; z += 1) for (let x = 0; x < across; x += 1) tiles.push({ x, z });
     const [tx, ty, tz] = levelTerrainOrigin(kind);
-    entities.push({ id: 'terrain', name: 'Terrain', static: true, components: { transform: T(tx, ty, tz), terrain: { tileSamples: TS.tileSamples, spacing: TS.spacing, heightRange: [...TS.heightRange], tiles, ...(macro > 0 ? { macroDistance: macro } : {}), ...(world ? { streaming: S.world.streaming.terrain } : {}) }, materials: { '*': TERRAIN_MATERIAL } } });
+    entities.push({ id: 'terrain', name: 'Terrain', static: true, components: { transform: T(tx, ty, tz), terrain: { tileSamples: TS.tileSamples, spacing: TS.spacing, heightRange: [...TS.heightRange], tiles, ...(macro > 0 ? { macroDistance: macro } : {}), ...(world ? { streaming: S.world.streaming.terrain } : {}), ...(blocksSeam ? { layers: [{ id: 'blocks', kind: 'blocks' }] } : {}) }, materials: { '*': TERRAIN_MATERIAL } } });
     counts.terrainTiles = tiles.length;
   }
 
@@ -648,7 +650,7 @@ export function levelPlan(kind: LevelKind, seed = LEVEL_SEED, liveDoorCount = 0,
   if (kind !== 'area' && splines) counts.splines = levelSplines().length;
   const fields = world ? levelFields(seed, foliage) : null;
   if (fields !== null) counts.fieldChunks = (S.world.fields.side / 16) ** 2;
-  return { kind, version: LEVEL_VERSION, seed, props, buffers, layer, batches, blockEdits, rooms, camera, counts, liveDoors, edgeWalls, wallPaint, roofs, kitSwap, rules, projection, macro, foliage, flight, flightOps, impostorSize, splines: kind !== 'area' && splines, fields };
+  return { kind, version: LEVEL_VERSION, seed, props, buffers, layer, batches, blockEdits, rooms, camera, counts, liveDoors, edgeWalls, wallPaint, roofs, kitSwap, rules, projection, macro, foliage, flight, flightOps, impostorSize, splines: kind !== 'area' && splines, blocksSeam: kind !== 'area' && blocksSeam, fields };
 }
 
 /**

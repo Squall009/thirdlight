@@ -21,7 +21,7 @@
  * once it passed. Each re-bake's milliseconds are kept on the session
  * (`lastSplineRebake`) for diagnostics and the perf tools.
  */
-import { applyFollows, planTerrainSplineRebake, splineRebakeRects, terrainTilesAfter, type CommandError, type CommandState, type ComponentFollow, type MutationSuccess, type SceneDocument } from '@thirdlight/commands';
+import { applyFollows, blocksUvOrigin, planTerrainSplineRebake, splineRebakeRects, terrainTilesAfter, type CommandError, type CommandState, type ComponentFollow, type ContentDocument, type MutationSuccess, type SceneDocument } from '@thirdlight/commands';
 import { MESH_LOD_RATIOS_DEFAULT, decodeSplineMade, encodeSplineMade, makeSpline, scatterBlobOf, scatterCellOfBlob, splineMakesData, terrainFlatStep, terrainTileKey, type ScatterCell, type SplineComponent, type SplineMade, type TerrainComponent, type TerrainTile } from '@thirdlight/project-model';
 
 import { readSourceBlob } from './content-store';
@@ -59,16 +59,21 @@ function readScatter(core: Core, s: ProjectSession, digest: string): { ok: true;
   }
 }
 
-/** The terrain follow-ups of a change from `before` to `after` (the edited scene), with the blobs they name. */
-export function planSplineFollows(core: Core, s: ProjectSession, before: SceneDocument, after: SceneDocument): { ok: true; follows: ComponentFollow[]; blobs: TerrainBlob[] } | { ok: false; error: CommandError } {
+/**
+ * The terrain follow-ups of a change from `before` to `after` (the edited
+ * scene), with the blobs they name; `content` the project's after the change
+ * (the block types a blocks layer reads).
+ */
+export function planSplineFollows(core: Core, s: ProjectSession, before: SceneDocument, after: SceneDocument, content?: ContentDocument | null): { ok: true; follows: ComponentFollow[]; blobs: TerrainBlob[] } | { ok: false; error: CommandError } {
   const started = performance.now();
   const rects = splineRebakeRects(before, after);
+  const reads = terrainLayerReads(core, s, content);
   const follows: ComponentFollow[] = [];
   const blobs: TerrainBlob[] = [];
   let tiles = 0;
   let scattered = 0;
   for (const [terrainId, list] of rects) {
-    const planned = planTerrainSplineRebake(after, terrainId, list, (d) => readTile(core, s, d), (d) => readScatter(core, s, d), terrainLayerReads(core, s));
+    const planned = planTerrainSplineRebake(after, terrainId, list, (d) => readTile(core, s, d), (d) => readScatter(core, s, d), reads);
     if (!planned.ok) return planned;
     const plan = planned.plan;
     if (plan === null) continue;
@@ -104,7 +109,7 @@ export function planSplineFollows(core: Core, s: ProjectSession, before: SceneDo
       scatterDigests.set(key, digest);
     }
     // A tile whose drawn form is flat and bare again and has no hand-made form beside it is stored without data.
-    const value: TerrainComponent = { ...comp, tiles: terrainTilesAfter(comp, digests, scatterDigests, bases) };
+    const value: TerrainComponent = withUvOrigin(after, { ...comp, tiles: terrainTilesAfter(comp, digests, scatterDigests, bases) });
     const old = new Map(comp.tiles.map((t) => [terrainTileKey(t.x, t.z), t]));
     const changed = value.tiles.some((t) => JSON.stringify(t) !== JSON.stringify(old.get(terrainTileKey(t.x, t.z))));
     if (!changed) continue;
@@ -112,8 +117,22 @@ export function planSplineFollows(core: Core, s: ProjectSession, before: SceneDo
     scattered += plan.scatter.size;
     follows.push({ entityId: terrainId, component: 'terrain', restore: comp, next: value });
   }
+  // A terrain meeting block layers counts its texture coordinates from the first one's origin (also with nothing to re-bake).
+  for (const e of after.entities as unknown as Entity[]) {
+    const comp = e.components['terrain'] as TerrainComponent | undefined;
+    if (comp === undefined || follows.some((f) => f.entityId === e.id)) continue;
+    const value = withUvOrigin(after, comp);
+    if (value !== comp) follows.push({ entityId: e.id, component: 'terrain', restore: comp, next: value });
+  }
   if (follows.length > 0) s.lastSplineRebake = { terrains: follows.length, tiles, scatter: scattered, ms: performance.now() - started };
   return { ok: true, follows, blobs };
+}
+
+/** The terrain with the texture origin its blocks layers ask for (the same object when it has it, or asks for none). */
+function withUvOrigin(scene: SceneDocument, comp: TerrainComponent): TerrainComponent {
+  const want = blocksUvOrigin(scene, comp);
+  if (want === null || (comp.uvOrigin !== undefined && comp.uvOrigin[0] === want[0] && comp.uvOrigin[1] === want[1])) return comp;
+  return { ...comp, uvOrigin: want };
 }
 
 type Entity = { id: string; components: Record<string, unknown> };
@@ -178,7 +197,7 @@ export function planSplineMade(core: Core, before: SceneDocument, after: SceneDo
 
 /** Plan and apply a command's follow-ups to its outcome (nothing to do: the same outcome). */
 export function withSplineFollows(core: Core, s: ProjectSession, before: SceneDocument, state: CommandState<SceneDocument>, result: MutationSuccess): { ok: true; state: CommandState<SceneDocument>; result: MutationSuccess; blobs: TerrainBlob[] } | { ok: false; error: CommandError } {
-  const planned = planSplineFollows(core, s, before, state.scene);
+  const planned = planSplineFollows(core, s, before, state.scene, state.content);
   if (!planned.ok) return planned;
   const made = planSplineMade(core, before, state.scene);
   if (made.follows.length > 0) s.lastSplineMade = { splines: made.follows.length, ms: made.ms };

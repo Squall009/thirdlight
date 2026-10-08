@@ -44,6 +44,10 @@ export interface LevelViewsDeps {
   /** A game page's decoded tiles (shared with collision), else the views read their own through `read`. */
   readonly tiles: TerrainTileStore | undefined;
   readonly read: ((digest: string) => Promise<ArrayBuffer>) | null;
+  /** The direction toward the key light (null: none): the far ground's horizon shadows. */
+  sun(): readonly [number, number, number] | null;
+  /** The far ground's horizon light (false: left out, a diagnostic comparison). */
+  readonly horizon: boolean;
   onChange(): void;
 }
 
@@ -106,6 +110,8 @@ export function createLevelViews(d: LevelViewsDeps): { blockView: BlockLayerView
     changed: () => d.onChange(),
     lodBias: () => d.lodBias(),
     stream: d.stream,
+    sun: () => d.sun(),
+    horizon: d.horizon,
     ...(d.scatter !== undefined ? { scatter: d.scatter } : {}),
   });
   return { blockView, terrains, ownTiles };

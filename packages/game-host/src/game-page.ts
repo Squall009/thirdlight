@@ -34,7 +34,7 @@ import { audioSpatialOf, dependencyTables, depthBufferOf, instanceChunkSizeOf, l
 import { assetVersionKey, createResourceManager, fixedStepHzOf, EMBEDDED_TEXTURES_LISTED, embeddedTextureBytes, qualityLevelOf, qualityLevelsOf, renderSettingsOf, type ResourceManager, type ResourceObservation } from '@thirdlight/runtime';
 import { attachBrowserInput, DEFAULT_INPUT_CONFIG, DEFAULT_INPUT_CONFIG_3D, focusGameSurface, type InputConfigLike } from '@thirdlight/input';
 import type { RapierPhysicsInitConfig, RapierPhysicsPort, RapierStaticColliderSpec } from '@thirdlight/physics-rapier';
-import { batchingFromUrl, createBrowserMeshWorker, scatterFromUrl, splinesFromUrl, terrainFromUrl, TerrainTileStore, createSceneAdapter, createTextureStreamer, decodeTexture, effectsOptionFrom, environmentHasLook, mergingFromUrl, pageSearch, probesFromUrl, qualityFromUrl, resolveRendererPreference, setKtx2DecoderBase, renderSettingsFromUrl, shadowCacheFromUrl, slowFramesFromUrl, upscaleFilterFromUrl } from '@thirdlight/three-adapter';
+import { batchingFromUrl, createBrowserMeshWorker, scatterFromUrl, splinesFromUrl, terrainFromUrl, terrainHorizonFromUrl, TerrainTileStore, createSceneAdapter, createTextureStreamer, decodeTexture, effectsOptionFrom, environmentHasLook, mergingFromUrl, pageSearch, probesFromUrl, qualityFromUrl, resolveRendererPreference, setKtx2DecoderBase, renderSettingsFromUrl, shadowCacheFromUrl, slowFramesFromUrl, upscaleFilterFromUrl } from '@thirdlight/three-adapter';
 import { createGltfLoaderPort } from '@thirdlight/three-adapter/gltf-loader';
 import type { EffectDefLike, EnvironmentLike, FrameDrawnInfo, TextureStreamer, LightingBakeLike, MaterialDefLike, MaterialFunctionLike, SceneAdapter, SceneAdapterModels, SceneAdapterOptions, WindLike } from '@thirdlight/three-adapter';
 import {
@@ -919,6 +919,8 @@ export async function startGamePage(o: GamePageOptions): Promise<GamePageHandle>
           batching: batchingFromUrl(pageSearch()),
           // Terrains drawn unless the page says ?terrain=off (a diagnostic comparison); their tiles are the build's buffers.
           terrain: terrainDrawn,
+          // The far ground's horizon light unless the page says ?terrainHorizon=off (a diagnostic comparison).
+          terrainHorizon: terrainHorizonFromUrl(pageSearch()),
           terrainTiles,
           // Terrains and block layers with streaming rings keep what is round the camera, within the project's budget.
           streaming: { budgetBytes: streamingBudgetBytesOf(settings as unknown as Readonly<Record<string, unknown>>), ...(o.onProblem !== undefined ? { onProblem: o.onProblem } : {}) },

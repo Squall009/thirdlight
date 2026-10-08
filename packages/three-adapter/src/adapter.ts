@@ -489,6 +489,9 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     precompile: (probe) => cutaways.probe(probe),
     staticShadows, listStatic: (o) => graph.listStatic(o), unlistStatic: (o) => graph.unlistStatic(o), lodBias: () => graph.lodTuning.bias,
     scatter: scatter.sink, stream, meshWorkerUrl: opts.meshWorkerUrl, tiles: opts.terrainTiles, read: opts.resolveBuffer ?? opts.models?.resolveBuffer ?? null, onChange: () => opts.onChange?.(),
+    // The key light shines along its direction: toward it is the other way.
+    sun: () => (([x, y, z]) => [-x, -y, -z] as const)(lights.keyDirection() ?? [0, 0, 0]),
+    horizon: opts.terrainHorizon !== false,
   });
   /** The block layers realized from their documents (a host may drive layers of its own through `blockLayers()`). */
   const docLayers = new Set<string>();

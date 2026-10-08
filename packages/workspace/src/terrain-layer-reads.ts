@@ -21,8 +21,8 @@
 import { createHash } from 'node:crypto';
 import { gunzipSync, gzipSync, inflateSync } from 'node:zlib';
 
-import { erosionInput, planErosion, planTerrainSplineRebake, terrainTilesAfter, validateEditTerrainArgs, type CommandError, type ContentDocument, type ErodeArgs, type ErosionInput, type PreparedTerrainEdit, type SceneDocument, type TerrainLayerReads } from '@thirdlight/commands';
-import { decodeHeightmap, decodeTerrainDelta, encodeTerrainDelta, scatterBlobOf, terrainFlatStep, terrainTileKey, type Heightmap, type TerrainComponent, type TerrainErosionLayer, type TerrainLayer } from '@thirdlight/project-model';
+import { blockTypesOf, erosionInput, planErosion, planTerrainSplineRebake, terrainTilesAfter, validateEditTerrainArgs, type CommandError, type ContentDocument, type ErodeArgs, type ErosionInput, type PreparedTerrainEdit, type SceneDocument, type TerrainLayerReads } from '@thirdlight/commands';
+import { decodeHeightmap, decodeTerrainDelta, encodeTerrainDelta, scatterBlobOf, terrainFlatStep, terrainTileKey, type BlockType, type Heightmap, type TerrainComponent, type TerrainErosionLayer, type TerrainLayer } from '@thirdlight/project-model';
 
 import { readBlob, readSourceBlob } from './content-store';
 import { sha256Hex } from './digest';
@@ -75,7 +75,12 @@ const inflate = (data: Uint8Array, maxOut: number): Uint8Array => new Uint8Array
 /** What the planners read for a terrain's layers, through this session's store. */
 export function terrainLayerReads(core: Core, s: ProjectSession, content?: ContentDocument | null): TerrainLayerReads {
   const ctx = contentCtx(s);
+  let types: Map<string, BlockType> | null = null;
   return {
+    blockTypes: () => {
+      const c = content ?? (s.content as unknown as ContentDocument | null);
+      return (types ??= new Map((c !== null && c !== undefined ? blockTypesOf(c) : []).map((t) => [t.blockId, t])));
+    },
     heightmap: (asset) => {
       const v = textureVersion(content ?? (s.content as unknown as ContentDocument | null), asset);
       if (v === null) return null;

@@ -2,7 +2,9 @@
  * One probe bake of a scene, from the editor ("Bake probes").
  *
  * The tiles go over the scene's probe volumes, or over its static objects
- * when it has none (`placeProbeGrids`); the Scene view's renderer bakes them
+ * when it has none (`placeProbeGrids`) — and past a block area as far as a
+ * terrain meeting it blends its ground (a blocks edit layer), so the ground
+ * on both sides of the seam reads the same probes; the Scene view's renderer bakes them
  * (`bakeProbeGrids`, WebGPU); each tile's probes are published as a texture
  * asset (a re-bake publishes new versions of the previous bake's files, tile
  * by tile) and `setLighting` records them in the scene's bake as `probes`,
@@ -12,7 +14,7 @@
  */
 import { bakeHashes, type BakeHashEntity } from '@thirdlight/protocol';
 import { bakeProbeGrids, encodePng16, packProbeTexels, skyTurnDegrees, type ProbeBakeResult } from '@thirdlight/three-adapter';
-import { DEFAULT_PROBE_BOUNCES, DEFAULT_PROBE_SPACING, placeProbeGrids, probeGridGpuBytes } from '@thirdlight/runtime';
+import { DEFAULT_PROBE_BOUNCES, DEFAULT_PROBE_SPACING, TERRAIN_BLOCKS_BLEND_DEFAULT, placeProbeGrids, probeGridGpuBytes, type TerrainComponent } from '@thirdlight/runtime';
 import type { LightingBake, ProbeBake } from '@thirdlight/project-model';
 import type * as THREE from 'three';
 import type { WebGPURenderer } from 'three/webgpu';
@@ -67,7 +69,7 @@ export async function runProbeBake(deps: ProbeBakeDeps): Promise<ProbeBakeRunRes
   if (unavailable !== null || ctx.renderer === null) return { ok: false, message: unavailable ?? 'the Scene view has no renderer yet' };
   const { meshes, bounds } = gatherProbeMeshes(ctx.host, statics);
   const volumes = probeVolumesOf(ctx.host, sceneEntities);
-  const grids = placeProbeGrids(bounds, settings.spacing, volumes);
+  const grids = placeProbeGrids(seamBounds(bounds, sceneEntities, settings.spacing), settings.spacing, volumes);
   if (grids.length === 0) return { ok: false, message: 'nothing to bake: mark boxes, models or block layers as Static, or add a probe volume' };
   const live = ctx.scene;
   const sky = {
@@ -129,6 +131,24 @@ export async function runProbeBake(deps: ProbeBakeDeps): Promise<ProbeBakeRunRes
   if (!res.ok) return { ok: false, message: `the probes were refused: ${(res.response as { message?: string }).message ?? 'unknown'}` };
   deps.onProgress('done', 1);
   return { ok: true, probes, millis: baked.millis, fileBytes };
+}
+
+/**
+ * The static objects' bounds grown to take in the ground a terrain blends to
+ * a block area (its blocks layers' widest blend, and a spacing): sideways,
+ * and down as far (the blended ground falls at most about one in one).
+ */
+export function seamBounds(bounds: { min: number[]; max: number[] } | null, entities: readonly ProjectedEntity[], spacing: number): { min: number[]; max: number[] } | null {
+  if (bounds === null) return null;
+  let blend = -1;
+  for (const e of entities) {
+    if (!e.active) continue;
+    const layers = (e.components['terrain'] as TerrainComponent | undefined)?.layers ?? [];
+    for (const l of layers) if (l.kind === 'blocks' && l.enabled !== false) blend = Math.max(blend, l.blend ?? TERRAIN_BLOCKS_BLEND_DEFAULT);
+  }
+  if (blend < 0) return bounds;
+  const g = blend + spacing;
+  return { min: [bounds.min[0]! - g, bounds.min[1]! - blend, bounds.min[2]! - g], max: [bounds.max[0]! + g, bounds.max[1]!, bounds.max[2]! + g] };
 }
 
 /** The scene's bake without its probes (null when nothing else is left). */

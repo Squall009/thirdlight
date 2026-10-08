@@ -490,7 +490,7 @@ const COMPONENT_BASES: Record<string, J[]> = {
   fogVolume: [{ size: [6, 3, 4], density: 0.25, color: '#dfe7ef', falloff: 0.5, heightFalloff: 0.3 }],
   probeVolume: [{ size: [16, 6, 16], spacing: 1.5 }],
   spline: [{ points: [{ at: [0, 0, 0], tangent: [1, 0, 0], width: 6, roll: 5 }, { at: [10, 1, 0] }, { at: [20, 0, 5] }], closed: true, width: 8, terrain: { shape: 'carve', falloff: 3, depth: 1, offset: 0.2, paint: { layer: 2, strength: 0.5, width: 6, falloff: 1 }, order: 1 }, scatter: { margin: 2, rules: ['trees'] }, mesh: { kind: 'water', profile: [[-1, 0], [1, 0]], offset: -0.3, tiling: 8, step: 2, collision: false, castShadow: false, receiveShadow: false, flow: 2, foam: 1 }, pieces: [{ asset: { assetId: 'model-a', piece: 'Post' }, spacing: 3, start: 1, offset: [2, 0], yaw: 90, upright: false, collide: false, castShadow: false }], data: 'c'.repeat(64) }],
-  terrain: [{ tileSamples: 129, spacing: 2, heightRange: [-10, 90], tiles: [{ x: 0, z: 0 }, { x: 1, z: -1, data: 'b'.repeat(64) }], lodDistance: 300, collision: false, macroDistance: 400, streaming: { render: 1200, collision: 96, scatter: 800, hysteresis: 32 }, overview: 'c'.repeat(64) }],
+  terrain: [{ tileSamples: 129, spacing: 2, heightRange: [-10, 90], tiles: [{ x: 0, z: 0 }, { x: 1, z: -1, data: 'b'.repeat(64) }], lodDistance: 300, collision: false, macroDistance: 400, streaming: { render: 1200, collision: 96, scatter: 800, hysteresis: 32 }, overview: 'c'.repeat(64), uvOrigin: [16, -8] }],
   collider: [
     { shape: { type: 'box', hx: 0.5, hy: 0.25 }, oneWay: true },
     { shape: { type: 'box', hx: 0.5, hy: 0.25, hz: 1 }, layers: ['default', 'props'] },

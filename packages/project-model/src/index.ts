@@ -1280,6 +1280,7 @@ export {
   terrainLayerTileDigests,
   terrainStampRect,
   validateTerrainLayers,
+  type TerrainBlocksLayer,
   type TerrainErosionLayer,
   type TerrainLayer,
   type TerrainLayerKind,
@@ -1290,6 +1291,8 @@ export {
   type TerrainStampMode,
   type TerrainStampsLayer,
 } from './terrain-layers';
+// Block layers on a terrain: the ground meets their border, is cut or flattened under them, their paint carries across.
+export { TERRAIN_BLOCKS_BLEND_DEFAULT, TERRAIN_BLOCKS_BLEND_LIMITS, TERRAIN_BLOCKS_MODES, TERRAIN_BLOCKS_SINK, TerrainBlockSeam, type BlockSeamSample, type TerrainBlocksMode, type TerrainBlocksSettings, type TerrainBlocksSource } from './terrain-blocks';
 export {
   EROSION_FADE_SAMPLES,
   EROSION_LIMITS,

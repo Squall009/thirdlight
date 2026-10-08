@@ -16,11 +16,14 @@
  * edit never blinks the cover away.
  *
  * The block and terrain views hand the sources over (`ScatterSink`), as they
- * do to the stored scatter's view.
+ * do to the stored scatter's view. A terrain's cover keeps off the block
+ * layers its blocks layers meet (as its stored scatter does): those block
+ * layers are handed to the generator too, rules or not, and an edit of one
+ * makes the terrain's squares round the edit again.
  */
 import * as THREE from 'three';
 
-import { SCATTER_COVER_DISTANCE_DEFAULT, coverScatterRules, scatterReach, splineScatterRect, terrainSplineInputs, type BlockChunk, type BlockLayerComponent, type BlockLayerData, type BlockType, type ScatterRect, type ScatterRule, type TerrainComponent, type TerrainTile } from '@thirdlight/runtime';
+import { CHUNK_SIZE, SCATTER_COVER_DISTANCE_DEFAULT, TERRAIN_BLOCKS_BLEND_DEFAULT, coverScatterRules, scatterReach, splineScatterRect, terrainSplineInputs, type BlockChunk, type BlockLayerComponent, type BlockLayerData, type BlockType, type ScatterRect, type ScatterRule, type TerrainComponent, type TerrainTile } from '@thirdlight/runtime';
 
 import type { MeshWorkerPort } from './block-mesh-pool';
 import { CoverGenerator, type CoverCopies, type CoverReply, type CoverRequest, type CoverSpline } from './cover-worker';
@@ -40,6 +43,8 @@ export const COVER_JOBS = 2;
 export const COVER_BUILD_MS = 2;
 /** Where a rule's copies begin to thin out, as a share of its reach. */
 export const COVER_FADE_START = 0.6;
+/** Cells round a changed block column whose footprint a terrain's cover reads (a larger block's reach and the corner it shares). */
+const BLOCK_CHANGE_CELLS = 9;
 
 export interface CoverViewDeps {
   /** A model instance to draw a rule's copies with (null while it loads; `onReady` then). */
@@ -116,6 +121,8 @@ export class CoverView {
   private readonly jobs = new Map<number, { src: Source; sq: Square }>();
   private readonly sentTiles = new Set<string>();
   private serial = 0;
+  /** Every block layer handed over, and whether the generator holds it (a rules source, or one a terrain's blocks layer meets). */
+  private readonly blockLayers = new Map<string, { component: BlockLayerComponent; origin: [number, number, number]; chunks: Map<string, BlockChunk>; sent: boolean }>();
   private made = 0;
   /** Candidate places the generator looked at so far. */
   private looked = 0;
@@ -163,21 +170,66 @@ export class CoverView {
     const b = component.bounds;
     const cs = component.cellSize;
     const o = [origin[0] ?? 0, origin[1] ?? 0, origin[2] ?? 0] as [number, number, number];
+    const list = [...chunks];
+    const held = { component, origin: o, chunks: new Map(list.map((c) => [`${c.cx},${c.cz}`, c])), sent: false };
+    const was = this.blockLayers.get(id);
+    this.blockLayers.set(id, held);
     const src = this.source(id, 'blocks', rules, o, [o[0] + b.min[0] * cs[0], o[2] + b.min[2] * cs[2], o[0] + b.max[0] * cs[0], o[2] + b.max[2] * cs[2]], Math.max(cs[0], cs[2]));
-    if (src === null) return;
-    src.chunkMetres = 16 * cs[0];
-    const data: BlockLayerData = { entityId: id, chunks: [...chunks] };
-    this.send({ t: 'coverSource', id, source: { kind: 'blocks', component, origin: o, rules, data } });
-    this.remakeAll(src);
+    if (src !== null) src.chunkMetres = CHUNK_SIZE * cs[0];
+    // The generator holds it for its own rules, or for a terrain keeping its cover off it.
+    if (src !== null || this.metBy(id).length > 0 || was?.sent === true) this.sendBlockLayer(id);
+    if (src !== null) this.remakeAll(src);
+    for (const t of this.metBy(id)) this.remakeAll(t);
+  }
+
+  /** The terrain sources (with cover rules) whose blocks layers meet block layer `id`. */
+  private metBy(id: string): Source[] {
+    const out: Source[] = [];
+    for (const src of this.sources.values()) {
+      if (src.kind !== 'terrain' || src.rules.length === 0) continue;
+      if ((src.terrain?.layers ?? []).some((l) => l.kind === 'blocks' && l.enabled !== false && (l.blockLayers === undefined || l.blockLayers.includes(id)))) out.push(src);
+    }
+    return out;
+  }
+
+  /** Hand a block layer (as last given) to the generator. */
+  private sendBlockLayer(id: string): void {
+    const held = this.blockLayers.get(id);
+    if (held === undefined) return;
+    held.sent = true;
+    const src = this.sources.get(id);
+    const data: BlockLayerData = { entityId: id, chunks: [...held.chunks.values()] };
+    this.send({ t: 'coverSource', id, source: { kind: 'blocks', component: held.component, origin: held.origin, rules: src?.kind === 'blocks' ? src.rules : [], data } });
+  }
+
+  /** The block layers terrain `src`'s blocks layers meet, handed to the generator (once). */
+  private sendMet(src: Source): void {
+    for (const [id, held] of this.blockLayers) if (!held.sent && this.metBy(id).includes(src)) this.sendBlockLayer(id);
   }
 
   replaceBlockChunks(id: string, chunks: readonly { cx: number; cz: number; chunk: BlockChunk | null }[]): void {
+    const held = this.blockLayers.get(id);
+    if (held !== undefined) {
+      for (const c of chunks) {
+        if (c.chunk === null) held.chunks.delete(`${c.cx},${c.cz}`);
+        else held.chunks.set(`${c.cx},${c.cz}`, c.chunk);
+      }
+      if (held.sent) this.send({ t: 'coverChunks', id, chunks });
+    }
     const src = this.sources.get(id);
-    if (src === undefined) return;
-    this.send({ t: 'coverChunks', id, chunks });
-    // The squares over the chunks (and the reach around them) are made again.
-    const w = src.chunkMetres;
-    for (const c of chunks) this.remakeRect(src, [src.origin[0] + c.cx * w, src.origin[2] + c.cz * w, src.origin[0] + (c.cx + 1) * w, src.origin[2] + (c.cz + 1) * w]);
+    if (src !== undefined) {
+      // The squares over the chunks (and the reach around them) are made again.
+      const w = src.chunkMetres;
+      for (const c of chunks) this.remakeRect(src, [src.origin[0] + c.cx * w, src.origin[2] + c.cz * w, src.origin[0] + (c.cx + 1) * w, src.origin[2] + (c.cz + 1) * w]);
+    }
+    if (held === undefined) return;
+    // Terrains keeping their cover off the layer: their squares round the chunks (a footprint reaches a few cells past one).
+    const [cw, , cd] = held.component.cellSize;
+    const o = held.origin;
+    for (const t of this.metBy(id)) {
+      const blend = Math.max(...(t.terrain?.layers ?? []).map((l) => (l.kind === 'blocks' ? (l.blend ?? TERRAIN_BLOCKS_BLEND_DEFAULT) : 0)));
+      for (const c of chunks) this.remakeRect(t, [o[0] + (c.cx * CHUNK_SIZE - BLOCK_CHANGE_CELLS) * cw - blend, o[2] + (c.cz * CHUNK_SIZE - BLOCK_CHANGE_CELLS) * cd - blend, o[0] + ((c.cx + 1) * CHUNK_SIZE + BLOCK_CHANGE_CELLS) * cw + blend, o[2] + ((c.cz + 1) * CHUNK_SIZE + BLOCK_CHANGE_CELLS) * cd + blend]);
+    }
   }
 
   setTerrain(id: string, component: TerrainComponent, origin: readonly number[]): void {
@@ -196,6 +248,13 @@ export class CoverView {
     if (src === null) return;
     src.terrain = component;
     this.send({ t: 'coverSource', id, source: { kind: 'terrain', component, origin: o, rules } });
+    // Its blocks layers: the block layers they meet handed over; another set of them makes every square again.
+    this.sendMet(src);
+    const blocksOf = (c: TerrainComponent | null): string => JSON.stringify((c?.layers ?? []).filter((l) => l.kind === 'blocks'));
+    if (before !== null && blocksOf(before) !== blocksOf(component)) {
+      this.remakeAll(src);
+      return;
+    }
     // A tile whose data changed: the squares over it are made again.
     const old = new Map((before?.tiles ?? []).map((t) => [`${t.x},${t.z}`, t.data]));
     for (const t of component.tiles) {
@@ -205,6 +264,12 @@ export class CoverView {
   }
 
   setOrigin(id: string, origin: readonly number[]): void {
+    const held = this.blockLayers.get(id);
+    if (held !== undefined && !held.origin.every((v, i) => v === (origin[i] ?? 0))) {
+      held.origin = [origin[0] ?? 0, origin[1] ?? 0, origin[2] ?? 0];
+      if (held.sent) this.sendBlockLayer(id);
+      for (const t of this.metBy(id)) this.remakeAll(t);
+    }
     const src = this.sources.get(id);
     if (src === undefined) return;
     if (src.origin.every((v, i) => v === (origin[i] ?? 0))) return;
@@ -221,6 +286,13 @@ export class CoverView {
   }
 
   remove(id: string): void {
+    const held = this.blockLayers.get(id);
+    if (held !== undefined) {
+      const met = this.metBy(id);
+      this.blockLayers.delete(id);
+      if (held.sent && !this.sources.has(id)) this.send({ t: 'coverDrop', id });
+      for (const t of met) this.remakeAll(t);
+    }
     const src = this.sources.get(id);
     if (src === undefined) return;
     for (const sq of src.squares.values()) this.drop(sq);

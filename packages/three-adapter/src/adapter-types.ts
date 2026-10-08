@@ -62,6 +62,8 @@ export interface SceneAdapterOptions {
   terrainTiles?: import('./terrain-tile-store').TerrainTileStore;
   /** Draw terrains (default true; false: none, a diagnostic comparison). */
   terrain?: boolean;
+  /** The far ground's baked horizon light (default true; false: left out, a diagnostic comparison). */
+  terrainHorizon?: boolean;
   /**
    * World streaming (a game page): terrains and block layers with
    * `streaming` keep only what is round the camera, within `budgetBytes`

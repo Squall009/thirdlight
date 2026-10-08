@@ -260,7 +260,7 @@ export { TERRAIN_HEIGHT_STEPS, TERRAIN_PAINT_BYTES, TERRAIN_SAMPLE_LAYERS, TERRA
 // The terrain editing bounds and forms the editor's tools offer (the command checks them), and the noise hash its preview repeats.
 export { HEIGHTMAP_FORMATS, TERRAIN_BRUSH_LIMITS, TERRAIN_LAYER_MAX, TERRAIN_NOISE_HASH, TERRAIN_TILE_COORD_MAX, TERRAIN_TILE_SAMPLES_DEFAULT, terrainDabSamples, type HeightmapFormat } from '@thirdlight/project-model';
 // The edit layers and erosion settings the editor's terrain tools offer (the command checks them).
-export { EROSION_LIMITS, HYDRAULIC_DEFAULTS, TERRAIN_STAMP_FALLOFF_DEFAULT, TERRAIN_STAMP_MODES, THERMAL_DEFAULTS, terrainLayerOrder, type ErosionSettings, type TerrainLayer, type TerrainStamp, type TerrainStampMode } from '@thirdlight/project-model';
+export { EROSION_LIMITS, HYDRAULIC_DEFAULTS, TERRAIN_STAMP_FALLOFF_DEFAULT, TERRAIN_STAMP_MODES, THERMAL_DEFAULTS, terrainLayerOrder, TERRAIN_BLOCKS_BLEND_DEFAULT, TERRAIN_BLOCKS_BLEND_LIMITS, TERRAIN_BLOCKS_MODES, TerrainBlockSeam, type ErosionSettings, type TerrainBlocksLayer, type TerrainBlocksMode, type TerrainLayer, type TerrainStamp, type TerrainStampMode } from '@thirdlight/project-model';
 export { terrainOverviewOf, terrainTileOf } from './terrain-blob';
 // World streaming: rings around the camera (the page) and the simulation's sources within which tiles and chunks are loaded.
 export { STREAMING_BUDGET_DEFAULT_MB, TERRAIN_OVERVIEW_SAMPLES, inStreamRing, resolveStreamingRings, squareDistance, streamingBudgetBytesOf, type ResolvedStreamingRings, type StreamingRings, type StreamRing, type TerrainOverviewTile } from '@thirdlight/project-model';

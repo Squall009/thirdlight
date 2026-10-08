@@ -159,7 +159,9 @@ const DIGEST_RE = /^[0-9a-f]{64}$/;
  * A scene as a game reads it: a terrain's tiles name only what is drawn and
  * collides (`data`, `scatter`); the hand-made form beside a tile splines or
  * edit layers shaped (`base`) and the edit layers themselves (stamps,
- * erosion blobs) are the editor's and do not ship.
+ * erosion blobs) are the editor's and do not ship. A blocks layer ships
+ * (its settings only): the ground cover made at run time keeps off the
+ * block layers it names.
  */
 function withoutHandMadeTiles<T>(doc: T): T {
   const d = doc as unknown as { entities?: { components?: { terrain?: { tiles?: { base?: string }[]; layers?: unknown } } }[] };
@@ -169,8 +171,9 @@ function withoutHandMadeTiles<T>(doc: T): T {
     entities: d.entities!.map((e) => {
       const t = e.components?.terrain;
       if (t?.tiles === undefined) return e;
-      const { layers: _layers, ...rest } = t;
-      return { ...e, components: { ...e.components, terrain: { ...rest, tiles: t.tiles.map(({ base: _base, ...tile }) => tile) } } };
+      const { layers, ...rest } = t;
+      const blocks = Array.isArray(layers) ? (layers as { kind?: string }[]).filter((l) => l.kind === 'blocks') : [];
+      return { ...e, components: { ...e.components, terrain: { ...rest, ...(blocks.length > 0 ? { layers: blocks } : {}), tiles: t.tiles.map(({ base: _base, ...tile }) => tile) } } };
     }),
   } as unknown as T;
 }
