@@ -1,7 +1,8 @@
 /**
  * Environment and post parity. The sky modes (colour, physical,
  * gradient, texture equirect and cube, each with its image-based lighting),
- * fog (linear, exp2), fog volumes (with the height falloff), shadows
+ * fog (linear, exp2), fog volumes (with the height falloff), height fog
+ * (no reference: against the plain picture and across the backends), shadows
  * (and the follow-camera shadow: the light moved with its target between
  * frames, 200 m from the origin),
  * tone mapping (ACES, Neutral, none; AgX everywhere else), grading +
@@ -29,6 +30,7 @@ import { expect, test, type Page } from './pw';
 
 import { diff, diffPng, serveHarness, show, STRICT, within, type Diff, type Tolerance } from './parity';
 import { decodePng, type Image } from './png';
+import { gpuAvailable } from './browser-env.mjs';
 
 const HERE = resolve(import.meta.dirname, 'env-parity');
 const REFS = join(HERE, 'refs');
@@ -304,3 +306,50 @@ for (const name of CASES) {
     expect(within(compare(name, backend, got), tolerance(name)), `${backend} ${name}`).toBe(true);
   });
 }
+
+/**
+ * Exponential height fog (no archived reference: the WebGL path had none). Against the plain picture
+ * (`sky-color`) on the project's backend: the far pillars take more of its red than the near boxes, their
+ * feet more than their tops (it thins with height), the sky towards the horizon is its colour; from a start
+ * distance the near objects are as without fog while the far pillars are fogged (its sun glow compiles and draws;
+ * the sun is behind the camera here, so its tint is not read). On a GPU host the other backend draws it alike (both backends, one picture).
+ */
+test('height fog: thick far off and low down, a start distance, the horizon in its colour, both backends alike', async ({ page }) => {
+  test.setTimeout(150_000);
+  const backend = project() === 'webgpu' ? 'webgpu' : 'webgl2';
+  const plain = await render(page, backend, 'sky-color');
+  const fog = await render(page, backend, 'height-fog');
+  const started = await render(page, backend, 'height-fog-start');
+  /** Redness (r − b) of a 5 × 5 patch, minus the plain picture's there. */
+  const red = (img: Image, [x, y]: readonly [number, number]): number => {
+    let s = 0;
+    for (let dy = -2; dy <= 2; dy++) {
+      for (let dx = -2; dx <= 2; dx++) {
+        const a = img.pixel(x + dx, y + dy);
+        const b = plain.img.pixel(x + dx, y + dy);
+        s += a[0]! - a[2]! - (b[0]! - b[2]!);
+      }
+    }
+    return s / 25;
+  };
+  const near: [number, number] = [70, 175];
+  const farFoot: [number, number] = [WIDTH / 2, 118];
+  const farTop: [number, number] = [WIDTH / 2, 92];
+  const horizon: [number, number] = [WIDTH - 12, 110];
+  const sky: [number, number] = [WIDTH - 12, 8];
+  const f = { near: red(fog.img, near), farFoot: red(fog.img, farFoot), farTop: red(fog.img, farTop), horizon: red(fog.img, horizon), sky: red(fog.img, sky), startNear: red(started.img, near), startFar: red(started.img, farFoot) };
+  console.log(`[env-parity] ${backend} height fog (redness over plain): ${JSON.stringify(f)}`);
+  test.info().annotations.push({ type: `${backend} height fog`, description: JSON.stringify(f) });
+  expect(f.farFoot, 'the far pillar\'s foot more fogged than the near box').toBeGreaterThan(f.near + 30);
+  expect(f.farFoot, 'the far pillar\'s foot more fogged than its top').toBeGreaterThan(f.farTop + 15);
+  expect(f.horizon, 'the sky towards the horizon in the fog\'s red').toBeGreaterThan(150);
+  expect(f.horizon, 'the sky up high clearer than at the horizon').toBeGreaterThan(f.sky + 30);
+  expect(Math.abs(f.startNear), 'nearer than the start: as without fog').toBeLessThan(3);
+  expect(f.startFar, 'past the start: fogged').toBeGreaterThan(30);
+  if (backend === 'webgl2' && gpuAvailable()) {
+    const other = await render(page, 'webgpu', 'height-fog-start');
+    const d = diff(other.img, started.img, FOG);
+    console.log(`[env-parity] height fog WebGPU vs WebGL 2: ${show(d, FOG)}`);
+    expect(within(d, FOG), 'WebGPU draws the height fog as WebGL 2 does').toBe(true);
+  }
+});

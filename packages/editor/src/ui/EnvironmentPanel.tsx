@@ -16,8 +16,8 @@
  * Browser-only (React).
  */
 import { useEffect, useState, type JSX } from 'react';
-import type { EnvironmentConfig, EnvironmentPreset, EnvironmentPresetLight, FogConfig, PostConfig, SceneEnvironment, SkyConfig, WindConfig } from '@thirdlight/project-model';
-import { wrapDegrees } from '@thirdlight/three-adapter';
+import type { EnvironmentConfig, EnvironmentPreset, EnvironmentPresetLight, FogConfig, HeightFogConfig, PostConfig, SceneEnvironment, SkyConfig, WindConfig } from '@thirdlight/project-model';
+import { HEIGHT_FOG_DEFAULTS, wrapDegrees } from '@thirdlight/three-adapter';
 import { DEFAULT_WIND } from '../session/material-schema';
 import type { SkyAlignResult } from '../viewport/sky-align';
 import { RefPicker, TEXTURE_KINDS } from './catalog/RefPicker';
@@ -73,6 +73,7 @@ export function capturePreset(env: SceneEnvironment, presets: readonly Environme
     name: name.trim().slice(0, 128) || 'Preset',
     ...(env.sky !== undefined ? { sky: copy(env.sky) } : {}),
     ...(env.fog !== undefined ? { fog: copy(env.fog) } : {}),
+    ...(env.heightFog !== undefined ? { heightFog: copy(env.heightFog) } : {}),
     ...(env.post !== undefined ? { post: copy(env.post) } : {}),
     ...(entries.length > 0 ? { lights: entries } : {}),
   };
@@ -311,6 +312,13 @@ export function EnvironmentPanel(p: Props): JSX.Element {
   const setSky = (patch: Partial<SkyConfig>): void => save({ sky: { ...sky, ...patch } });
   const fog: FogConfig = env.fog ?? { mode: 'none', color: '#c8d2dc' }; // the descriptor's default, so there is one value
   const setFog = (patch: Partial<FogConfig>): void => save({ fog: { ...fog, ...patch } });
+  // A height fog switched on starts as a light haze a few metres thick (the descriptor's defaults); off removes it.
+  const hf: HeightFogConfig | undefined = env.heightFog;
+  const setHeightFog = (patch: Partial<HeightFogConfig>): void => save({ heightFog: { ...(hf ?? { density: HEIGHT_FOG_DEFAULTS.density, color: HEIGHT_FOG_DEFAULTS.color }), ...patch } });
+  const heightFogOff = (): void => {
+    const { heightFog: _gone, ...rest } = env;
+    p.onSaveLook(rest);
+  };
   const post: PostConfig = env.post ?? {};
   const setPost = (patch: Partial<PostConfig>): void => save({ post: { ...post, ...patch } });
   const wind: WindConfig = env.wind ?? { ...DEFAULT_WIND, direction: [...DEFAULT_WIND.direction] as [number, number] };
@@ -377,6 +385,23 @@ export function EnvironmentPanel(p: Props): JSX.Element {
             </>
           )}
           {fog.mode === 'exp2' && <Slider label="density" name="fog density" value={fog.density ?? 0.01} min={0} max={0.2} step={0.001} onCommit={(v) => setFog({ density: v })} />}
+        </section>
+
+        <section className="tl-inspector__section" aria-label="height fog">
+          <div className="tl-subhead">Height fog (thick far off and low down; fades the horizon and the far edge)</div>
+          <Toggle label="height fog" name="height fog" value={hf !== undefined} onCommit={(on) => (on ? setHeightFog({}) : heightFogOff())} />
+          {hf !== undefined && (
+            <>
+              <Colour label="colour" name="height fog colour" value={hf.color} onCommit={(v) => setHeightFog({ color: v })} />
+              <Slider label="density (per m)" name="height fog density" value={hf.density} min={0} max={0.2} step={0.0005} onCommit={(v) => setHeightFog({ density: v })} />
+              <Slider label="falloff (per m)" name="height fog falloff" value={hf.falloff ?? HEIGHT_FOG_DEFAULTS.falloff} min={0} max={1} step={0.005} onCommit={(v) => setHeightFog({ falloff: v })} />
+              <Slider label="base height (m)" name="height fog height" value={hf.height ?? HEIGHT_FOG_DEFAULTS.height} min={-200} max={1000} step={1} onCommit={(v) => setHeightFog({ height: v })} />
+              <Slider label="starts at (m)" name="height fog start" value={hf.start ?? HEIGHT_FOG_DEFAULTS.start} min={0} max={2000} step={1} onCommit={(v) => setHeightFog({ start: v })} />
+              <Toggle label="sun glow" name="height fog sun glow" value={hf.inscatterColor !== undefined} onCommit={(on) => (on ? setHeightFog({ inscatterColor: '#ffd9a0' }) : save({ heightFog: Object.fromEntries(Object.entries(hf).filter(([k]) => k !== 'inscatterColor' && k !== 'inscatterExponent')) as unknown as HeightFogConfig }))} />
+              {hf.inscatterColor !== undefined && <Colour label="sun glow colour" name="height fog sun glow colour" value={hf.inscatterColor} onCommit={(v) => setHeightFog({ inscatterColor: v })} />}
+              {hf.inscatterColor !== undefined && <Slider label="sun glow size" name="height fog sun glow size" value={hf.inscatterExponent ?? HEIGHT_FOG_DEFAULTS.inscatterExponent} min={1} max={64} step={1} onCommit={(v) => setHeightFog({ inscatterExponent: v })} />}
+            </>
+          )}
         </section>
 
         <section className="tl-inspector__section" aria-label="post-processing">

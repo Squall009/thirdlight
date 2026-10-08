@@ -35,7 +35,7 @@ import { TIMELINE_LIMITS } from './timelines';
 import { SCRIPT_LIBRARY_LIMITS } from './script-libraries';
 import { BLOCK_LIMITS, BLOCK_UV_MODES } from './block-layers';
 import { BLOCK_CONNECT_WITH_MAX } from './block-connect';
-import { DEFAULT_WIND, SKY_ROTATION_MAX, MATERIAL_PARAMS, MATERIAL_SHADERS, MATERIAL_TEXTURE_SLOTS, MAX_MATERIAL_PARAMETERS, MAX_MATERIAL_SLOTS, type MaterialParamType } from './materials';
+import { DEFAULT_WIND, HEIGHT_FOG_DEFAULTS, HEIGHT_FOG_LIMITS, SKY_ROTATION_MAX, MATERIAL_PARAMS, MATERIAL_SHADERS, MATERIAL_TEXTURE_SLOTS, MAX_MATERIAL_PARAMETERS, MAX_MATERIAL_SLOTS, type MaterialParamType } from './materials';
 import { MATERIAL_DATA_MAX, MATERIAL_PARAMETER_TYPES } from './material-graph-kinds';
 import { MODE_LIMITS } from './modes';
 import { MAX_LOCAL_LIGHTS } from './local-lights';
@@ -95,6 +95,16 @@ const FOG = obj('fog', 'Fog', 'Distance fog.', [
   num('density', 'Density', 'Exponential fog density.', { when: when('mode', 'exp2'), min: 0, max: 1, step: 0.001, default: 0.01 }),
 ]);
 
+const HEIGHT_FOG = obj('heightFog', 'Height fog', 'Exponential height fog: thickens with distance and lies low, thinning with height; it fogs the sky towards the horizon too, so the far edge of a level fades into it. Presets blend it.', [
+  num('density', 'Density', 'Fog per metre at the base height.', { required: true, min: 0, max: HEIGHT_FOG_LIMITS.density, step: 0.0005, default: HEIGHT_FOG_DEFAULTS.density }),
+  color('color', 'Colour', 'The fog colour.', { required: true, default: HEIGHT_FOG_DEFAULTS.color }),
+  num('height', 'Base height', 'World height where the fog has its density.', { min: -HEIGHT_FOG_LIMITS.height, max: HEIGHT_FOG_LIMITS.height, step: 1, unit: 'm', default: HEIGHT_FOG_DEFAULTS.height }),
+  num('falloff', 'Falloff', 'How fast it thins with height (per metre: halves every 0.69 / falloff m).', { min: 0, max: HEIGHT_FOG_LIMITS.falloff, step: 0.005, default: HEIGHT_FOG_DEFAULTS.falloff }),
+  num('start', 'Start distance', 'No fog nearer than this to the camera.', { min: 0, max: HEIGHT_FOG_LIMITS.start, step: 1, unit: 'm', default: HEIGHT_FOG_DEFAULTS.start }),
+  color('inscatterColor', 'Sun glow', 'Added towards the sun (absent: no glow).'),
+  num('inscatterExponent', 'Sun glow size', 'Higher: a tighter glow round the sun.', { min: HEIGHT_FOG_LIMITS.inscatterExponentMin, max: HEIGHT_FOG_LIMITS.inscatterExponentMax, step: 1, default: HEIGHT_FOG_DEFAULTS.inscatterExponent }),
+]);
+
 const effect = (key: string, label: string, tooltip: string, fields: readonly FieldDescriptor[]): ObjectFieldDescriptor =>
   obj(key, label, tooltip, [bool('enabled', 'On', `Turns ${label.toLowerCase()} on.`, { required: true, default: true }), ...fields]);
 
@@ -148,6 +158,7 @@ const PRESET = obj('*', 'Preset', 'A named look: sky, fog, post-processing, ligh
   str('name', 'Name', 'Shown in the editor.', { required: true, minLength: 1, maxLength: 128 }),
   SKY,
   FOG,
+  HEIGHT_FOG,
   POST,
   list('lights', 'Lights', 'Light values (later entries win per field).', PRESET_LIGHT, { maxItems: 32 }),
   obj('lightmap', 'Lightmap', 'Multiplies baked lighting (a bake keeps the light of the moment it was baked).', [
@@ -193,7 +204,7 @@ const ENVIRONMENT: FieldDescriptor = obj('environment', 'Environment', 'The qual
 ]);
 
 /** A scene's look (`SceneV4.environment`): with several scenes loaded the active scene's applies. */
-export const SCENE_ENVIRONMENT: ObjectFieldDescriptor = obj('environment', 'Scene environment', 'This scene\'s sky, fog, post-processing, wind and wetness.', [SKY, FOG, POST, WIND, WETNESS]);
+export const SCENE_ENVIRONMENT: ObjectFieldDescriptor = obj('environment', 'Scene environment', 'This scene\'s sky, fog, height fog, post-processing, wind and wetness.', [SKY, FOG, HEIGHT_FOG, POST, WIND, WETNESS]);
 
 const KEY_CODE = { format: 'keyCode' as const, minLength: 1, maxLength: 32 };
 const BINDING_KINDS = ['key', 'gamepadButton', 'gamepadAxis', 'keys1d', 'keys2d', 'gamepadButtons1d', 'gamepadStick', 'pointerButton', 'pointerPosition', 'pointerDelta', 'pointerAxis'] as const;

@@ -733,6 +733,29 @@ export interface FogConfig {
   density?: number;
 }
 
+/**
+ * Exponential height fog (`heightFog` of a scene's look or a preset): fog of
+ * `density` per metre at world height `height`, thinning by e^(−falloff) per
+ * metre above it (thickening below), from `start` metres away from the
+ * camera, in `color`; `inscatterColor` adds a glow towards the sun, narrowed
+ * by `inscatterExponent`. It fogs the sky towards the horizon too, so the far
+ * edge of a level fades into it.
+ */
+export interface HeightFogConfig {
+  density: number;
+  color: string;
+  height?: number;
+  falloff?: number;
+  start?: number;
+  inscatterColor?: string;
+  inscatterExponent?: number;
+}
+
+/** What an absent height fog field means (the renderer and the preset blend read these); a new height fog starts at `density` and `color`. */
+export const HEIGHT_FOG_DEFAULTS = Object.freeze({ density: 0.02, color: '#c8d2dc', height: 0, falloff: 0.05, start: 0, inscatterExponent: 8 });
+/** The height fog's ranges (the validator and the descriptor share them). */
+export const HEIGHT_FOG_LIMITS = Object.freeze({ density: 1, height: 10000, falloff: 10, start: 10000, inscatterExponentMin: 1, inscatterExponentMax: 64 });
+
 export interface PostConfig {
   toneMapping?: 'none' | 'aces' | 'agx' | 'neutral';
   exposure?: number;
@@ -758,6 +781,8 @@ export interface SceneEnvironment {
   wind?: WindConfig;
   sky?: SkyConfig;
   fog?: FogConfig;
+  /** Exponential height fog over the distance fog (absent: none). */
+  heightFog?: HeightFogConfig;
   post?: PostConfig;
   /**
    * How wet the scene is (0 dry – 1 soaked; rain): materials that read the
@@ -783,7 +808,7 @@ export interface EnvironmentConfig {
 }
 
 /** The fields of a scene's look (the rest of the environment is the project's). */
-export const SCENE_ENVIRONMENT_FIELDS: readonly (keyof SceneEnvironment)[] = ['wind', 'sky', 'fog', 'post', 'wetness'];
+export const SCENE_ENVIRONMENT_FIELDS: readonly (keyof SceneEnvironment)[] = ['wind', 'sky', 'fog', 'post', 'wetness', 'heightFog'];
 
 /** The wind when a project sets none — a light breeze along +X (0.5 with 0.4 gusts every ~3 s, a little turbulence): foliage moves a little in any scene; 0 strength stills it. */
 export const DEFAULT_WIND: Readonly<WindConfig> = Object.freeze({ direction: [1, 0] as [number, number], strength: 0.5, gust: 0.4, gustFrequency: 0.3, turbulence: 0.3 });
@@ -857,18 +882,19 @@ export function validateQualityLevels(value: unknown, path: string, errors: Mode
   });
 }
 
-/** A scene's look: `{ sky?, fog?, post?, wind?, wetness? }`. */
+/** A scene's look: `{ sky?, fog?, heightFog?, post?, wind?, wetness? }`. */
 export function validateSceneEnvironment(value: unknown, path: string, errors: ModelErrorV2[]): void {
   if (!isPlainObject(value)) {
-    err(errors, 'field_type', path, 'a scene environment is an object { sky?, fog?, post?, wind?, wetness? }', value);
+    err(errors, 'field_type', path, 'a scene environment is an object { sky?, fog?, heightFog?, post?, wind?, wetness? }', value);
     return;
   }
   for (const k of Object.keys(value)) {
-    if (k === 'quality' || k === 'presets') err(errors, 'field_unexpected', `${path}/${k}`, `"${k}" is the project's, not a scene's (setEnvironment without a sceneId)`, k, 'sky, fog, post, wind, wetness');
-    else if (!(SCENE_ENVIRONMENT_FIELDS as readonly string[]).includes(k)) err(errors, 'field_unexpected', `${path}/${k}`, `unknown scene environment field "${k}"`, k, 'sky, fog, post, wind, wetness');
+    if (k === 'quality' || k === 'presets') err(errors, 'field_unexpected', `${path}/${k}`, `"${k}" is the project's, not a scene's (setEnvironment without a sceneId)`, k, 'sky, fog, heightFog, post, wind, wetness');
+    else if (!(SCENE_ENVIRONMENT_FIELDS as readonly string[]).includes(k)) err(errors, 'field_unexpected', `${path}/${k}`, `unknown scene environment field "${k}"`, k, 'sky, fog, heightFog, post, wind, wetness');
   }
   if (value['sky'] !== undefined) validateSky(value['sky'], `${path}/sky`, errors);
   if (value['fog'] !== undefined) validateFog(value['fog'], `${path}/fog`, errors);
+  if (value['heightFog'] !== undefined) validateHeightFog(value['heightFog'], `${path}/heightFog`, errors);
   if (value['post'] !== undefined) validatePost(value['post'], `${path}/post`, errors);
   if (value['wind'] !== undefined) validateWind(value['wind'], `${path}/wind`, errors);
   validateWetness(value['wetness'], `${path}/wetness`, errors);
@@ -889,6 +915,7 @@ export function canonicalSceneEnvironment(e: SceneEnvironment): SceneEnvironment
     ...(e.fog !== undefined ? { fog: canonicalObject(e.fog) } : {}),
     ...(e.post !== undefined ? { post: canonicalObject(e.post) } : {}),
     ...(e.wetness !== undefined ? { wetness: e.wetness } : {}),
+    ...(e.heightFog !== undefined ? { heightFog: canonicalObject(e.heightFog) } : {}),
   };
 }
 
@@ -1031,6 +1058,25 @@ export function validateFog(value: unknown, path: string, errors: ModelErrorV2[]
     path,
     { mode: { kind: 'enum', values: ['none', 'linear', 'exp2'] }, color: { kind: 'color' }, near: { kind: 'num', min: 0, max: 10000 }, far: { kind: 'num', min: 0, max: 10000 }, density: { kind: 'num', min: 0, max: 1 } },
     ['mode', 'color'],
+    errors,
+  );
+}
+
+export function validateHeightFog(value: unknown, path: string, errors: ModelErrorV2[]): void {
+  const L = HEIGHT_FOG_LIMITS;
+  checkFields(
+    value,
+    path,
+    {
+      density: { kind: 'num', min: 0, max: L.density },
+      color: { kind: 'color' },
+      height: { kind: 'num', min: -L.height, max: L.height },
+      falloff: { kind: 'num', min: 0, max: L.falloff },
+      start: { kind: 'num', min: 0, max: L.start },
+      inscatterColor: { kind: 'color' },
+      inscatterExponent: { kind: 'num', min: L.inscatterExponentMin, max: L.inscatterExponentMax },
+    },
+    ['density', 'color'],
     errors,
   );
 }

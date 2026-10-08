@@ -16,6 +16,9 @@
  *   density = 2 / far, far = 2 / density); a contributor without fog thins
  *   it (linear: the far distance stretches by 1 / weight; exp2: the density
  *   scales by the weight);
+ * - height fog: numbers and colours linearly over the contributors that
+ *   have one; a contributor without it thins it (the density scales by the
+ *   share that has it), and the sun glow fades the same way;
  * - wetness: linearly (a look without it is dry);
  * - post: exposure, bloom strength/radius/threshold, grading and vignette
  *   numbers blend (a contributor without the effect counts as its neutral
@@ -24,7 +27,7 @@
  *
  * Pure: no three.js, no I/O.
  */
-import type { EnvironmentLookParts, EnvironmentPreset, EnvironmentPresetLight, FogConfig, PostConfig, SkyConfig } from '@thirdlight/project-model';
+import { HEIGHT_FOG_DEFAULTS, type EnvironmentLookParts, type EnvironmentPreset, type EnvironmentPresetLight, type FogConfig, type HeightFogConfig, type PostConfig, type SkyConfig } from '@thirdlight/project-model';
 
 /** What the renderer reads each frame while a game has used `ctx.environment`. */
 export interface EnvironmentBlendView {
@@ -54,6 +57,7 @@ export interface EnvironmentOverride {
 export interface EnvironmentBaseLook {
   readonly sky?: SkyConfig;
   readonly fog?: FogConfig;
+  readonly heightFog?: HeightFogConfig;
   readonly post?: PostConfig;
   /** The scene's wetness (absent: 0, dry). */
   readonly wetness?: number;
@@ -66,6 +70,7 @@ export interface BlendedEnvironment {
   /** Several different skies cross-fading (null: no sky — the scene's background); weights sum to 1. */
   readonly skyLayers?: readonly { readonly sky: SkyConfig | null; readonly weight: number }[];
   readonly fog?: FogConfig;
+  readonly heightFog?: HeightFogConfig;
   readonly post?: PostConfig;
   /** The lightmap multiplier (1, "#ffffff" = the bake as it is). */
   readonly lightmap: { readonly intensity: number; readonly tint: string };
@@ -185,6 +190,7 @@ export function easeEnvironment(easing: EnvironmentEasing, t: number): number {
 interface ResolvedParts {
   sky?: SkyConfig;
   fog?: FogConfig;
+  heightFog?: HeightFogConfig;
   post?: PostConfig;
   lights: readonly EnvironmentPresetLight[];
   lightmap: { intensity?: number; tint?: string };
@@ -208,6 +214,7 @@ export function resolveEnvironmentKey(key: string, base: EnvironmentBaseLook, pr
     return {
       ...(p.sky !== undefined ? { sky: { ...(r.sky ?? { mode: 'gradient' }), ...p.sky } as SkyConfig } : r.sky !== undefined ? { sky: r.sky } : {}),
       ...(p.fog !== undefined ? { fog: { ...(r.fog ?? { mode: 'linear', color: '#ffffff' }), ...p.fog } as FogConfig } : r.fog !== undefined ? { fog: r.fog } : {}),
+      ...(p.heightFog !== undefined ? { heightFog: { ...(r.heightFog ?? { density: 0, color: '#ffffff' }), ...p.heightFog } as HeightFogConfig } : r.heightFog !== undefined ? { heightFog: r.heightFog } : {}),
       ...(mergePost(r.post, p.post, true) !== undefined ? { post: mergePost(r.post, p.post, true)! } : {}),
       lights: [...r.lights, ...(p.lights ?? [])],
       lightmap: { ...r.lightmap, ...(p.lightmap ?? {}) },
@@ -215,12 +222,13 @@ export function resolveEnvironmentKey(key: string, base: EnvironmentBaseLook, pr
     };
   }
   const preset = key === '' ? undefined : presets.get(key);
-  if (preset === undefined) return { ...(base.sky !== undefined ? { sky: base.sky } : {}), ...(base.fog !== undefined ? { fog: base.fog } : {}), ...(base.post !== undefined ? { post: base.post } : {}), lights: [], lightmap: {}, ...(base.wetness !== undefined ? { wetness: base.wetness } : {}) };
+  if (preset === undefined) return { ...(base.sky !== undefined ? { sky: base.sky } : {}), ...(base.fog !== undefined ? { fog: base.fog } : {}), ...(base.heightFog !== undefined ? { heightFog: base.heightFog } : {}), ...(base.post !== undefined ? { post: base.post } : {}), lights: [], lightmap: {}, ...(base.wetness !== undefined ? { wetness: base.wetness } : {}) };
   const sky = preset.sky ?? base.sky;
   const fog = preset.fog ?? base.fog;
+  const heightFog = preset.heightFog ?? base.heightFog;
   const post = mergePost(base.post, preset.post, false);
   const wetness = preset.wetness ?? base.wetness;
-  return { ...(sky !== undefined ? { sky } : {}), ...(fog !== undefined ? { fog } : {}), ...(post !== undefined ? { post } : {}), lights: preset.lights ?? [], lightmap: preset.lightmap ?? {}, ...(wetness !== undefined ? { wetness } : {}) };
+  return { ...(sky !== undefined ? { sky } : {}), ...(fog !== undefined ? { fog } : {}), ...(heightFog !== undefined ? { heightFog } : {}), ...(post !== undefined ? { post } : {}), lights: preset.lights ?? [], lightmap: preset.lightmap ?? {}, ...(wetness !== undefined ? { wetness } : {}) };
 }
 
 // ---- blending -------------------------------------------------------------------------
@@ -286,6 +294,24 @@ function blendFog(parts: readonly (readonly [FogConfig | undefined, number])[]):
   }
   const density = mixNumbers(foggy.map(([f, w]) => [fogAs(f, 'exp2').density, w])) * share;
   return { mode: 'exp2', color, density };
+}
+
+function blendHeightFog(parts: readonly (readonly [HeightFogConfig | undefined, number])[]): HeightFogConfig | undefined {
+  const foggy = parts.filter((p): p is readonly [HeightFogConfig, number] => p[0] !== undefined);
+  if (foggy.length === 0) return undefined;
+  const total = parts.reduce((s, p) => s + p[1], 0);
+  const share = total <= 0 ? 1 : foggy.reduce((s, p) => s + p[1], 0) / total;
+  const n = (f: (h: HeightFogConfig) => number): number => mixNumbers(foggy.map(([h, w]) => [f(h), w]));
+  const glows = foggy.some(([h]) => h.inscatterColor !== undefined);
+  return {
+    density: n((h) => h.density) * share,
+    color: mixColors(foggy.map(([h, w]) => [h.color, w])),
+    height: n((h) => h.height ?? HEIGHT_FOG_DEFAULTS.height),
+    falloff: n((h) => h.falloff ?? HEIGHT_FOG_DEFAULTS.falloff),
+    start: n((h) => h.start ?? HEIGHT_FOG_DEFAULTS.start),
+    // A contributor without a glow counts as a black one (the glow fades out with its share).
+    ...(glows ? { inscatterColor: mixColors(parts.map(([h, w]) => [h?.inscatterColor ?? '#000000', w])), inscatterExponent: n((h) => h.inscatterExponent ?? HEIGHT_FOG_DEFAULTS.inscatterExponent) } : {}),
+  };
 }
 
 function heaviestOf<T>(parts: readonly (readonly [T, number])[]): T | undefined {
@@ -368,13 +394,14 @@ export function blendEnvironmentOver(bases: readonly (readonly [EnvironmentBaseL
   const skyPart: Pick<BlendedEnvironment, 'sky' | 'skyLayers'> =
     layers.length === 1 ? (layers[0]!.sky !== null ? { sky: layers[0]!.sky } : {}) : { skyLayers: layers.map((l) => ({ sky: l.sky, weight: l.weight / total })) };
   const fog = blendFog(parts.map(([r, w]) => [r.fog, w]));
+  const heightFog = blendHeightFog(parts.map(([r, w]) => [r.heightFog, w]));
   const post = blendPost(parts.map(([r, w]) => [r.post, w]));
   const lightmap = {
     intensity: mixNumbers(parts.map(([r, w]) => [r.lightmap.intensity ?? 1, w])),
     tint: mixColors(parts.map(([r, w]) => [r.lightmap.tint ?? '#ffffff', w])),
   };
   const wetness = mixNumbers(parts.map(([r, w]) => [r.wetness ?? 0, w]));
-  return { ...skyPart, ...(fog !== undefined ? { fog } : {}), ...(post !== undefined ? { post } : {}), lightmap, wetness };
+  return { ...skyPart, ...(fog !== undefined ? { fog } : {}), ...(heightFog !== undefined ? { heightFog } : {}), ...(post !== undefined ? { post } : {}), lightmap, wetness };
 }
 
 /** Does a preset light entry match this light? (a tag entry needs the project's tag registry: name → bit) */

@@ -3507,6 +3507,34 @@ leave the image unchanged. A **fog volume** (Inspector) has *thins with
 height*: its density fades by e^(−k·height) above the box bottom (k per
 metre, 0–10; 0 = even fog, as before).
 
+## Height fog
+
+A scene's look (and an environment preset) can carry an exponential
+**height fog** (`heightFog`; Environment window → *Height fog*; MCP
+`setEnvironment {sceneId, environment: {heightFog}}`): fog of `density`
+per metre at the world height `height`, thinning by e^(−`falloff`) per
+metre above it and thickening below, from `start` metres away from the
+camera on, in `color`; `inscatterColor` adds a glow towards the sun (the
+key light's, else a physical sky's; `inscatterExponent` 1–64 narrows it).
+It thickens with distance and lies in valleys, and it fogs the sky towards
+the horizon too (a dome just inside the camera's far plane), so the far
+edge of a level — terrain at its coarsest level, the end of the streaming
+rings — fades into it: no separate vista ring is needed. With the classic
+linear/exp2 fog also set, both draw (the classic first). Presets blend it
+like the rest of the look (a look without one thins it). Absent: none, the
+look as before.
+
+- Defaults of absent fields: `height` 0, `falloff` 0.05 (halves every
+  14 m), `start` 0, `inscatterExponent` 8; a new height fog in the window
+  starts at density 0.02, `#c8d2dc`. Ranges: density 0–1, height ±10,000 m,
+  falloff 0–10, start 0–10,000 m.
+- Set the camera's far plane (`camera_far_m`) to where the level should end:
+  the sky takes the fog's colour at that distance.
+- Cost (this host's Iris Xe, 1080p, the landscape class with a valley haze
+  and sun glow over its exp2 fog, WebGPU): the scene pass +0.3–0.45 ms GPU,
+  +1 draw; the uncapped frame +0.4–0.6 ms on both renderers (about the added GPU
+  time; not split further).
+
 ## Sky rotation
 
 An image sky (`sky.mode` `texture`, an equirect or six cube faces) turns

@@ -3,8 +3,8 @@
  * game can switch or blend to at run time (`environment.presets`, project
  * content):
  *
- * - `sky`, `fog`: a whole sky / fog (the environment's own shapes; a
- *   preset without one keeps the base's — the active scene's look);
+ * - `sky`, `fog`, `heightFog`: a whole sky / fog (the environment's own
+ *   shapes; a preset without one keeps the base's — the active scene's look);
  * - `post`: merged per effect over the base's post (exposure, tone mapping,
  *   grading, bloom, vignette, …);
  * - `lights`: colour / intensity / direction / ground colour for the scene
@@ -24,7 +24,7 @@
  */
 import { ID_RE } from './validate';
 import type { ModelErrorV2 } from './errors';
-import { canonicalSceneEnvironment, validateFog, validatePost, validateSky, validateWetness, type FogConfig, type PostConfig, type SkyConfig } from './materials';
+import { canonicalSceneEnvironment, validateFog, validateHeightFog, validatePost, validateSky, validateWetness, type FogConfig, type HeightFogConfig, type PostConfig, type SkyConfig } from './materials';
 
 /** Engine limits of environment presets (documented in deployment.md). */
 export const ENVIRONMENT_PRESET_LIMITS = Object.freeze({
@@ -63,6 +63,7 @@ export interface EnvironmentPresetLightmap {
 export interface EnvironmentLookParts {
   sky?: SkyConfig;
   fog?: FogConfig;
+  heightFog?: HeightFogConfig;
   post?: PostConfig;
   lights?: EnvironmentPresetLight[];
   lightmap?: EnvironmentPresetLightmap;
@@ -77,7 +78,7 @@ export interface EnvironmentPreset extends EnvironmentLookParts {
 const COLOR_RE = /^#[0-9a-f]{6}$/;
 /** A tag name (content.ts TAG_NAME_RE). */
 const TAG_RE = /^[A-Za-z][A-Za-z0-9_-]{0,31}$/;
-const PART_KEYS = ['sky', 'fog', 'post', 'lights', 'lightmap', 'wetness'] as const;
+const PART_KEYS = ['sky', 'fog', 'heightFog', 'post', 'lights', 'lightmap', 'wetness'] as const;
 
 function isPlainObject(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -113,6 +114,7 @@ function validateLight(value: unknown, path: string, errors: ModelErrorV2[]): vo
 function validateParts(value: Record<string, unknown>, path: string, errors: ModelErrorV2[]): void {
   if (value['sky'] !== undefined) validateSky(value['sky'], `${path}/sky`, errors);
   if (value['fog'] !== undefined) validateFog(value['fog'], `${path}/fog`, errors);
+  if (value['heightFog'] !== undefined) validateHeightFog(value['heightFog'], `${path}/heightFog`, errors);
   if (value['post'] !== undefined) validatePost(value['post'], `${path}/post`, errors);
   validateWetness(value['wetness'], `${path}/wetness`, errors);
   const lights = value['lights'];
@@ -141,7 +143,7 @@ export function validateEnvironmentPresets(value: unknown, path: string, errors:
   value.forEach((p, i) => {
     const at = `${path}/${i}`;
     if (!isPlainObject(p)) {
-      err(errors, 'field_type', at, 'a preset is an object { presetId, name, sky?, fog?, post?, lights?, lightmap?, wetness? }', p);
+      err(errors, 'field_type', at, 'a preset is an object { presetId, name, sky?, fog?, heightFog?, post?, lights?, lightmap?, wetness? }', p);
       return;
     }
     for (const k of Object.keys(p)) if (k !== 'presetId' && k !== 'name' && !(PART_KEYS as readonly string[]).includes(k)) err(errors, 'field_unexpected', `${at}/${k}`, `unknown preset field "${k}"`, k, `presetId, name, ${PART_KEYS.join(', ')}`);
@@ -166,6 +168,7 @@ export function validateEnvironmentPatch(value: unknown, path: string, errors: M
   const filled: Record<string, unknown> = { ...value };
   if (isPlainObject(value['sky'])) filled['sky'] = { mode: 'gradient', ...value['sky'] };
   if (isPlainObject(value['fog'])) filled['fog'] = { mode: 'linear', color: '#ffffff', ...value['fog'] };
+  if (isPlainObject(value['heightFog'])) filled['heightFog'] = { density: 0, color: '#ffffff', ...value['heightFog'] };
   validateParts(filled, path, errors);
 }
 
@@ -182,10 +185,11 @@ function canonicalLight(l: EnvironmentPresetLight): EnvironmentPresetLight {
 }
 
 function canonicalParts(p: EnvironmentLookParts): EnvironmentLookParts {
-  const look = canonicalSceneEnvironment({ ...(p.sky !== undefined ? { sky: p.sky } : {}), ...(p.fog !== undefined ? { fog: p.fog } : {}), ...(p.post !== undefined ? { post: p.post } : {}) });
+  const look = canonicalSceneEnvironment({ ...(p.sky !== undefined ? { sky: p.sky } : {}), ...(p.fog !== undefined ? { fog: p.fog } : {}), ...(p.heightFog !== undefined ? { heightFog: p.heightFog } : {}), ...(p.post !== undefined ? { post: p.post } : {}) });
   return {
     ...(look.sky !== undefined ? { sky: look.sky } : {}),
     ...(look.fog !== undefined ? { fog: look.fog } : {}),
+    ...(look.heightFog !== undefined ? { heightFog: look.heightFog } : {}),
     ...(look.post !== undefined ? { post: look.post } : {}),
     ...(p.lights !== undefined ? { lights: p.lights.map(canonicalLight) } : {}),
     ...(p.lightmap !== undefined

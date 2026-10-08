@@ -150,6 +150,10 @@ const CASES: Record<string, Case> = {
       { center: [3, 2, -8], size: [8, 4, 6], density: 0.8, color: '#f0d8c0', falloff: 0.2, heightFalloff: 1.2 },
     ],
   },
+  // Height fog (no archived reference: checked against the plain picture and across the backends): red, thick low down.
+  'height-fog': { env: { sky: colour, heightFog: { density: 0.12, color: '#ff4020', height: 0, falloff: 0.6 } } },
+  // The same from 9 m on: the near objects clear, the far pillars and the horizon fogged; with a sun glow.
+  'height-fog-start': { env: { sky: colour, heightFog: { density: 0.12, color: '#ff4020', height: 0, falloff: 0.6, start: 9, inscatterColor: '#40ff40', inscatterExponent: 4 } } },
   shadow: { env: { sky: colour }, shadows: true },
   'shadow-follow': { env: { sky: colour }, shadows: true, follow: true },
   'tone-aces': { env: { sky: colour, post: { toneMapping: 'aces', exposure: 1.3 } } },

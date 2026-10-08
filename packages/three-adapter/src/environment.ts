@@ -37,6 +37,7 @@ import { AMBIENT_OCCLUSION_DEFAULT, levelPost, qualityLevelOf, qualityLevelsOf, 
 import { ScreenSpaceOcclusion } from './post-ao';
 import type { UpscaleFilter } from './post-upscale';
 import { applySkyRotation, skyRotationRadians } from './sky-rotation';
+import { createHeightFog, type HeightFogLike } from './height-fog';
 import { buildPostPipeline, compileIntoTarget, createSkyMesh, SETTLED_PRECOMPILE as settledPrecompile, type Precompile, gradientSkyMaterial, gradientSkyUniforms, imageSkyMaterial, MAX_FOG_VOLUMES, type FogVolumeBox, type PostPipeline, type PostPlan } from './environment-nodes';
 
 /** Structural copies of the project-model environment types. */
@@ -80,6 +81,7 @@ export interface PostLike {
 export interface EnvironmentLike {
   readonly sky?: SkyLike;
   readonly fog?: FogLike;
+  readonly heightFog?: HeightFogLike;
   readonly post?: PostLike;
   /** The level drawn, one of the levels' ids (absent: the highest). */
   readonly quality?: string;
@@ -102,6 +104,7 @@ export interface EnvironmentBlendLike extends EnvironmentLike {
 export interface EnvironmentLayerLike {
   readonly sky?: SkyLike;
   readonly fog?: FogLike;
+  readonly heightFog?: HeightFogLike;
   readonly post?: PostLike;
   readonly wind?: unknown;
   /** The scene's wetness (0–1; the materials' Scene wetness node). */
@@ -110,7 +113,7 @@ export interface EnvironmentLayerLike {
 
 /**
  * The project environment with a scene's look laid over it: each part
- * the look gives — `sky`, `fog`, `wind` and `wetness` replace the project's part whole
+ * the look gives — `sky`, `fog`, `heightFog`, `wind` and `wetness` replace the project's part whole
  * (a sky mode's fields only make sense together), `post` merges per effect
  * (a layer may change only its bloom or its grading). No layer: the base
  * unchanged.
@@ -120,6 +123,7 @@ export function layerEnvironment<T extends EnvironmentLike & { readonly wind?: u
   const out: Record<string, unknown> = { ...(base ?? {}) };
   if (layer.sky !== undefined) out['sky'] = layer.sky;
   if (layer.fog !== undefined) out['fog'] = layer.fog;
+  if (layer.heightFog !== undefined) out['heightFog'] = layer.heightFog;
   if (layer.wind !== undefined) out['wind'] = layer.wind;
   if (layer.wetness !== undefined) out['wetness'] = layer.wetness;
   if (layer.post !== undefined) out['post'] = { ...(base?.post ?? {}), ...layer.post };
@@ -127,8 +131,8 @@ export function layerEnvironment<T extends EnvironmentLike & { readonly wind?: u
 }
 
 /** True when an environment has anything the renderer draws (sky, fog, post, a quality level or the levels). */
-export function environmentHasLook(env: { readonly sky?: unknown; readonly fog?: unknown; readonly post?: unknown; readonly quality?: unknown; readonly qualityLevels?: unknown; readonly wind?: unknown } | null | undefined): boolean {
-  return env !== null && env !== undefined && (env.sky !== undefined || env.fog !== undefined || env.post !== undefined || env.quality !== undefined || env.qualityLevels !== undefined);
+export function environmentHasLook(env: { readonly sky?: unknown; readonly fog?: unknown; readonly heightFog?: unknown; readonly post?: unknown; readonly quality?: unknown; readonly qualityLevels?: unknown; readonly wind?: unknown } | null | undefined): boolean {
+  return env !== null && env !== undefined && (env.sky !== undefined || env.fog !== undefined || env.heightFog !== undefined || env.post !== undefined || env.quality !== undefined || env.qualityLevels !== undefined);
 }
 /**
  * The texture assets an environment may name (a sky, its faces, the grading
@@ -358,6 +362,7 @@ export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE
   let disposed = false;
   /** The scene's own background, put back when a sky goes (a look without a sky after one with a colour sky). */
   const baseBackground = scene.background;
+  const heightFog = createHeightFog(scene);
 
   const texture = (id: string): Promise<THREE.Texture | null> => {
     let p = textures.get(id);
@@ -740,6 +745,10 @@ export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE
   // ---- fog -----------------------------------------------------------------------
   const applyFog = (): void => {
     const f = env?.fog;
+    // The height fog (with the classic one in its node when both are on); its sun: the key light's, else a physical sky's.
+    const sky = env?.sky;
+    heightFog.setSun(keyLight !== null ? [-keyLight[0], -keyLight[1], -keyLight[2]] : sky?.mode === 'procedural' ? sunDirection(sky).toArray() : null);
+    heightFog.apply(f, env?.heightFog);
     if (f === undefined || f.mode === 'none') {
       scene.fog = null;
       return;
@@ -953,6 +962,7 @@ export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE
       const same = JSON.stringify(direction) === JSON.stringify(keyLight);
       keyLight = direction === null ? null : [direction[0], direction[1], direction[2]];
       if (same) return;
+      applyFog();
       // A sun that follows the light moves in place (no new sky; the lighting is re-baked a little later).
       const sky = env?.sky;
       if (sky !== undefined && sky.mode === 'procedural' && sky.sunFromLight !== false && skyMesh !== null && layers.size === 0) updateSkyInPlace(sky);
@@ -1031,6 +1041,7 @@ export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE
       }
       disposeLayers();
       clearSky();
+      heightFog.dispose();
       pmrem.dispose();
     },
   };

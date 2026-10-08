@@ -305,6 +305,8 @@ export type { BehaviorCamera, BehaviorCameraState, CameraBlendOptions } from './
 export { CameraBrain, MAX_SHAKE_IMPULSES, type CameraPathData, type CameraViewInfo, type CameraWorld, type VirtualCameraData, type VirtualCameraState } from './camera-brain';
 // Environment presets — the blend state (simulation) and the blended look (renderer, editor preview).
 export type { BehaviorEnvironment, EnvironmentChangeOptions } from './types';
+// Height fog's defaults (the renderer reads an absent field as the blend does).
+export { HEIGHT_FOG_DEFAULTS, type HeightFogConfig } from '@thirdlight/project-model';
 export { EnvironmentDirector, MAX_ENVIRONMENT_BLEND_SECONDS, type EnvironmentSaveState } from './environment-director';
 export {
   ENVIRONMENT_EASINGS,

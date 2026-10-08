@@ -716,6 +716,15 @@ export interface LevelBuild {
 }
 
 /** Build a level class into a new project through the backend's command API. */
+/** The classes' scene look (`--height-fog` adds {@link LEVEL_HEIGHT_FOG} to it). */
+export const LEVEL_LOOK = Object.freeze({
+  sky: { mode: 'color', color: '#b8c8e0' },
+  fog: { color: '#c9d3df', density: 0.0008, mode: 'exp2' },
+  post: { antialias: 'smaa', bloom: { enabled: true, radius: 0.4, strength: 0.25, threshold: 1.05 }, exposure: 1, grading: { contrast: 0.09, saturation: 0.05, tint: '#fff6ea' }, ssao: { enabled: true, intensity: 1, radius: 0.5 }, toneMapping: 'neutral' },
+});
+/** A landscape's height fog: a haze lying in the valleys, thinning over some 30 m of height, with a sun glow. */
+export const LEVEL_HEIGHT_FOG = Object.freeze({ density: 0.004, color: '#c9d3df', height: 0, falloff: 0.03, start: 40, inscatterColor: '#ffd9a0', inscatterExponent: 8 });
+
 export async function buildLevel(be: PerfBackend, projectId: string, plan: LevelPlan, log: (s: string) => void = () => undefined): Promise<LevelBuild> {
   const t0 = performance.now();
   const created = await be.post('/api/v1/admin/projects', { projectId, name: `Perf level ${plan.kind}` });
@@ -871,13 +880,6 @@ export async function buildLevel(be: PerfBackend, projectId: string, plan: Level
     await cmd('setBehaviorProperties', { entityId: 'cam-main', behaviorId: flight.behaviorId, values: {} });
   }
   await cmd('setComponent', { entityId: 'light-0001', component: 'light', value: { type: 'directional', color: '#ffe2bd', intensity: 2, direction: [0.5, -0.55, -0.65], castShadow: true } });
-  await cmd('setEnvironment', {
-    sceneId: 'scene-main',
-    environment: {
-      sky: { mode: 'color', color: '#b8c8e0' },
-      fog: { color: '#c9d3df', density: 0.0008, mode: 'exp2' },
-      post: { antialias: 'smaa', bloom: { enabled: true, radius: 0.4, strength: 0.25, threshold: 1.05 }, exposure: 1, grading: { contrast: 0.09, saturation: 0.05, tint: '#fff6ea' }, ssao: { enabled: true, intensity: 1, radius: 0.5 }, toneMapping: 'neutral' },
-    },
-  });
+  await cmd('setEnvironment', { sceneId: 'scene-main', environment: LEVEL_LOOK });
   return { projectId, kind: plan.kind, ms: Math.round(performance.now() - t0), commands, counts: plan.counts };
 }

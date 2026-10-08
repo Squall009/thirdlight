@@ -74,6 +74,18 @@ describe('environment sky, fog and post', () => {
   });
 });
 
+describe('height fog', () => {
+  it('accepts a height fog, refuses missing, unknown and out-of-range fields; a look without one keeps its bytes', () => {
+    const hf = { density: 0.02, color: '#C8D2DC', height: -5, falloff: 0.05, start: 30, inscatterColor: '#ffd9a0', inscatterExponent: 8 };
+    expect(check({ heightFog: hf })).toEqual([]);
+    expect(check({ heightFog: { color: '#ffffff' } })).toEqual(['/environment/heightFog/density']);
+    expect(check({ heightFog: { density: 2, color: '#ffffff', falloff: -1, inscatterExponent: 0, mist: 1 } }).sort()).toEqual(['/environment/heightFog/density', '/environment/heightFog/falloff', '/environment/heightFog/inscatterExponent', '/environment/heightFog/mist']);
+    expect(canonicalSceneEnvironment({ fog: { mode: 'exp2', color: '#ffffff' }, heightFog: hf } as SceneEnvironment).heightFog).toEqual({ ...hf, color: '#c8d2dc' });
+    const plain = { fog: { mode: 'exp2', color: '#ffffff' }, wetness: 0.2 } as SceneEnvironment;
+    expect(JSON.stringify(canonicalSceneEnvironment(plain))).toBe(JSON.stringify({ fog: { color: '#ffffff', mode: 'exp2' }, wetness: 0.2 }));
+  });
+});
+
 describe('fog volumes (v4)', () => {
   const T = { position: [0, 1, 0], rotation: [0, 0, 0, 1], scale: [1, 1, 1] };
   const scene = (fogVolume: unknown, count = 1) => ({

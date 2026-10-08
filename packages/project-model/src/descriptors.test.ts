@@ -596,7 +596,7 @@ const POST_FULL = {
 const WIND_FULL = { direction: [1, 0], strength: 0.5, gust: 0.4, gustFrequency: 0.3, turbulence: 0.3 };
 // A scene's look.
 const SCENE_ENV_BASES: J[] = [
-  { sky: SKY_PROCEDURAL, fog: { mode: 'linear', color: '#c8d2dc', near: 10, far: 120 }, post: POST_FULL, wind: WIND_FULL, wetness: 0.4 },
+  { sky: SKY_PROCEDURAL, fog: { mode: 'linear', color: '#c8d2dc', near: 10, far: 120 }, heightFog: { density: 0.02, color: '#c8d2dc', height: 4, falloff: 0.05, start: 20, inscatterColor: '#ffd9a0', inscatterExponent: 8 }, post: POST_FULL, wind: WIND_FULL, wetness: 0.4 },
   { sky: { mode: 'gradient', topColor: '#3d7cd6', horizonColor: '#bfe3ff', bottomColor: '#6b7b5a', intensity: 1 }, fog: { mode: 'exp2', color: '#c8d2dc', density: 0.01 } },
   { sky: { mode: 'texture', texture: 'tex-a', cube: ['px', 'nx', 'py', 'ny', 'pz', 'nz'], rotation: 90 }, fog: { mode: 'none', color: '#c8d2dc' } },
   { sky: { mode: 'color', color: '#7ec8ff' } },
@@ -631,6 +631,7 @@ const ENV_BASES: J[] = [
         name: 'Night',
         sky: { mode: 'color', color: '#000010' },
         fog: { mode: 'linear', color: '#101820', near: 5, far: 40 },
+        heightFog: { density: 0.01, color: '#101820', falloff: 0.1 },
         post: POST_FULL,
         lights: [
           { entity: 'light-0001', color: '#8090ff', intensity: 0.2, direction: [0, -1, 0], groundColor: '#101010' },
@@ -1011,8 +1012,9 @@ describe('descriptor registry', () => {
     // a quality level repeats the bloom/AO/depth-of-field descriptors, about 3 KB; a block type's connection pieces
     // repeat their look and turn, about 3 KB; a block layer's cut-away, about 1.6 KB; kits on block types and layers,
     // about 2 KB; a block layer's walk and corner shading, about 1.7 KB; the terrain and its exclusions, about 1.6 KB; material rules and far ground, about 1 KB; the spline, its terrain
-    // settings, mesh and pieces, about 8.7 KB; streaming rings on terrains and block layers, about 2.4 KB)
-    expect(JSON.stringify(DESCRIPTORS).length).toBeLessThan(299_000);
+    // settings, mesh and pieces, about 8.7 KB; streaming rings on terrains and block layers, about 2.4 KB; height fog in the look
+    // and in presets, about 2.6 KB)
+    expect(JSON.stringify(DESCRIPTORS).length).toBeLessThan(302_000);
     for (const c of DESCRIPTORS.components) expect(c.value.key).toBe(c.name);
   });
 

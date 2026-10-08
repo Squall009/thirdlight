@@ -98,6 +98,27 @@ describe('environment blend maths', () => {
     expect(f.density).toBeCloseTo(0.25 * (2 / 80) + 0.75 * 0.05, 12);
   });
 
+  it('height fog blends field by field, thins towards a look without it, its sun glow fades with its share; a patch merges over it', () => {
+    const HAZE: EnvironmentPreset = { presetId: 'haze', name: 'Haze', heightFog: { density: 0.04, color: '#ff0000', height: 10, falloff: 0.1, start: 20, inscatterColor: '#ffffff', inscatterExponent: 4 } };
+    const CLEAR: EnvironmentPreset = { presetId: 'clear', name: 'Clear', heightFog: { density: 0.02, color: '#0000ff' } };
+    const presets = new Map([HAZE, CLEAR, DAY].map((p) => [p.presetId, p]));
+    expect(blendEnvironment({}, presets, view([['haze', 1]])).heightFog).toEqual({ density: 0.04, color: '#ff0000', height: 10, falloff: 0.1, start: 20, inscatterColor: '#ffffff', inscatterExponent: 4 });
+    const mid = blendEnvironment({}, presets, view([['haze', 0.5], ['clear', 0.5]])).heightFog!;
+    expect(mid.density).toBeCloseTo(0.03, 9);
+    expect(mid.height).toBeCloseTo(5, 9);
+    expect(mid.falloff).toBeCloseTo(0.075, 9);
+    expect(mid.start).toBeCloseTo(10, 9);
+    expect(mid.color).toBe(mixColors([['#ff0000', 0.5], ['#0000ff', 0.5]]));
+    expect(mid.inscatterColor).toBe(mixColors([['#ffffff', 0.5], ['#000000', 0.5]]));
+    // Towards a look without one (DAY: none): it thins, then is gone.
+    expect(blendEnvironment({}, presets, view([['haze', 0.25], ['day', 0.75]])).heightFog!.density).toBeCloseTo(0.01, 9);
+    expect(blendEnvironment({}, presets, view([['day', 1]])).heightFog).toBeUndefined();
+    // The base look's height fog is a preset's without one.
+    expect(blendEnvironment({ heightFog: { density: 0.01, color: '#00ff00' } }, presets, view([['day', 1]])).heightFog).toMatchObject({ density: 0.01, color: '#00ff00' });
+    // A patch merges over the preset's.
+    expect(blendEnvironment({}, presets, view([['p', 1]], { p: { preset: 'haze', patch: { heightFog: { density: 0.1 } as never } } })).heightFog).toMatchObject({ density: 0.1, color: '#ff0000', start: 20 });
+  });
+
   it('lights: entries match by entity, tag or type; values blend, directions normalize', () => {
     const tags = new Map([['lamps', 3]]);
     const sun = { color: '#ffeedd', intensity: 1, direction: [0, -1, 0] as [number, number, number] };

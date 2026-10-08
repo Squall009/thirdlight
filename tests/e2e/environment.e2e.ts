@@ -3,8 +3,12 @@
  * background, the physical sky draws a sky, a vignette darkens the corners,
  * bloom brightens the view, a fog volume fills its box with fog (and thins
  * with height), an image sky turns (the rotation field, and "align the sky's
- * sun to the key light" finding the image's sun) — and Play and
- * the export render the same environment.
+ * sun to the key light" finding the image's sun), a height fog (its fields:
+ * on, colour, density, falloff, start, sun glow) turns the sky towards the
+ * horizon its colour and, with a start distance, leaves the near fog volume
+ * as it was — and Play and the export render the same environment
+ * (the export on both backends: the height fog's red horizon and the clear
+ * middle on WebGPU and WebGL 2 alike).
  *
  * WebGPURenderer with the TSL sky, fog volumes and post stack, on the
  * product's own renderer (renderer-variants.ts PRODUCT_RENDERER_VARIANTS):
@@ -19,7 +23,8 @@ import { expect, test, type Locator, type Page } from './pw';
 
 import { startBackend, type E2EBackend } from './backend';
 import { decodePng, type Image } from './png';
-import { editorUrlFor, expectRendererBackend, exportQueryFor, onlyInItsProject, PRODUCT_RENDERER_VARIANTS } from './renderer-variants';
+import { backendOf, editorUrlFor, expectRendererBackend, exportQueryFor, onlyInItsProject, PRODUCT_RENDERER_VARIANTS } from './renderer-variants';
+import { gpuAvailable } from './browser-env.mjs';
 import { menu, openWindow, toolWindowScene } from './ui';
 import { makePng } from './png-make';
 import { publishTexture } from './painted-layers';
@@ -55,11 +60,12 @@ interface Look {
   corner: [number, number, number];
   ok: boolean;
 }
+/** The Play and export frame: the top (the sky towards the horizon, seen through the fog volume) red, not blue: the height fog, the middle the fog volume's grey (nearer than the height fog's start), the corners darker (the vignette). */
 function look(img: Image): Look {
   const top = avg(img, 0.3, 0.02, 0.7, 0.1);
   const middle = avg(img, 0.35, 0.45, 0.65, 0.7);
   const corner = avg(img, 0, 0, 0.06, 0.08);
-  const ok = top[2] - top[0] > 15 && bright(middle) > 160 && Math.abs(middle[2] - middle[0]) < 15 && bright(corner) < bright(middle) - 50;
+  const ok = top[0] - top[2] > 10 && bright(middle) > 160 && Math.abs(middle[2] - middle[0]) < 15 && bright(corner) < bright(middle) - 50;
   return { top, middle, corner, ok };
 }
 const shot = async (t: Locator | Page): Promise<Image> => decodePng(await t.screenshot());
@@ -202,7 +208,45 @@ for (const variant of PRODUCT_RENDERER_VARIANTS) test(`sky, vignette, bloom and 
   await expect.poll(storedSky).toMatchObject({ mode: 'color' });
   await synced();
 
-  // Play: the sky colour and the fog volume are there.
+  // Height fog through the window's fields: on (a light haze), its colour, the densest, no falloff: the sky towards the
+  // horizon takes its red (the dense fog volume hides the box; env-parity checks distance, height and start by pixels).
+  const storedHeightFog = async (): Promise<unknown> => (await storedLook())['heightFog'];
+  const plain = await shot(viewport);
+  const plainTop = avg(plain, 0.05, 0.02, 0.95, 0.1);
+  await page.getByRole('checkbox', { name: 'height fog', exact: true }).check();
+  await expect.poll(storedHeightFog).toEqual({ density: 0.02, color: '#c8d2dc' });
+  await synced();
+  const fogColour = page.getByLabel('height fog colour', { exact: true });
+  await fogColour.fill('#ff4020');
+  await fogColour.blur();
+  await expect.poll(storedHeightFog).toMatchObject({ color: '#ff4020' });
+  await synced();
+  for (const [name, key, value] of [['height fog density', 'End', { density: 0.2 }], ['height fog falloff', 'Home', { falloff: 0 }]] as const) {
+    await page.getByRole('slider', { name, exact: true }).focus();
+    await page.keyboard.press(key);
+    await expect.poll(storedHeightFog).toMatchObject(value);
+    await synced();
+  }
+  const redness = (c: [number, number, number]): number => c[0] - c[2];
+  await expect.poll(async () => redness(avg(await shot(viewport), 0.05, 0.02, 0.95, 0.1)), { timeout: 10_000, message: 'the sky towards the horizon in the height fog' }).toBeGreaterThan(redness(plainTop) + 80);
+  await page.getByRole('slider', { name: 'height fog start', exact: true }).focus();
+  await page.keyboard.press('End');
+  await expect.poll(storedHeightFog).toMatchObject({ start: 2000 });
+  await synced();
+  // The sun glow: on (a warm colour stored), off again (gone).
+  await page.getByRole('checkbox', { name: 'height fog sun glow', exact: true }).check();
+  await expect.poll(storedHeightFog).toMatchObject({ inscatterColor: '#ffd9a0' });
+  await expect(page.getByRole('slider', { name: 'height fog sun glow size', exact: true })).toBeVisible();
+  await synced();
+  await page.getByRole('checkbox', { name: 'height fog sun glow', exact: true }).uncheck();
+  await expect.poll(async () => (await storedHeightFog()) as Record<string, unknown>).not.toHaveProperty('inscatterColor');
+  await synced();
+  // For Play and the export: a start past the box and the fog volume, nearer than the sky.
+  const lookNow = await storedLook();
+  await mcp('setEnvironment', { sceneId: 'scene-main', environment: { ...lookNow, heightFog: { density: 0.05, color: '#ff4020', falloff: 0, start: 30 } } });
+  await synced();
+
+  // Play: the sky colour, the height fog and the fog volume are there.
   await page.getByTitle('Start an isolated play preview').click();
   const frame = page.locator('iframe.tl-app__preview-frame');
   await expect(frame).toBeVisible();
@@ -233,6 +277,23 @@ for (const variant of PRODUCT_RENDERER_VARIANTS) test(`sky, vignette, bloom and 
     for (let i = 0; i < 3; i++) {
       expect(Math.abs(out!.top[i]! - play!.top[i]!)).toBeLessThan(12);
       expect(Math.abs(out!.middle[i]! - play!.middle[i]!)).toBeLessThan(12);
+    }
+    // The other backend draws the height fog alike (the export forced to WebGL 2 when this one is WebGPU, and back).
+    const other = backendOf(variant) === 'webgpu' ? 'webgl2' : 'webgpu';
+    if (other === 'webgl2' || gpuAvailable()) {
+      const second = await page.context().newPage();
+      second.on('pageerror', (e) => errors.push(e.message));
+      try {
+        await second.goto(`${site.url}${exportQueryFor(other)}`);
+        await expectRendererBackend(second.locator('canvas').first(), other);
+        let o: Look | null = null;
+        await expect.poll(async () => (o = look(await shot(second))).ok, { timeout: 20_000, message: `the export on ${other}` }).toBe(true);
+        test.info().annotations.push({ type: 'height fog export', description: JSON.stringify({ [backendOf(variant)]: out, [other]: o }) });
+        console.log(`height fog export: ${JSON.stringify({ [backendOf(variant)]: out, [other]: o })}`);
+        for (let i = 0; i < 3; i++) expect(Math.abs(o!.top[i]! - out!.top[i]!), `the height fog's horizon on ${other} against ${backendOf(variant)}`).toBeLessThan(12);
+      } finally {
+        await second.close();
+      }
     }
     expect(errors).toEqual([]);
   } finally {
