@@ -29,7 +29,12 @@
  *   --spline-edit                the landscape's editor Scene view open while a script moves a road point 5 m back and
  *                                forth every 4 s (6 edits; each one command that shapes the terrain again and makes
  *                                the road's mesh again): each edit's round trip and the page's frames meanwhile,
- *                                after three windows without an edit (the class's own slow frames)
+ *                                after three windows without an edit (the class's own slow frames), and what three
+ *                                built meanwhile (node programs and pipelines by object, scatter sets made)
+ *   --sculpt-edit                the same with a script raising and lowering the ground beside the road every 4 s
+ *                                (one `editTerrain` each: tiles and their scatter baked again)
+ *   --edits-only                 only the editor edits (no export measured)
+ *   --edit-profile               the edit windows' main thread by function (inclusive, a CPU profile each)
  *   --foliage off                the landscape's scatter without the foliage policy: every tree, rock and shrub casts
  *                                into the static shadow map, the wind moves foliage everywhere, nothing thins out
  *                                (default: on, the engine's scatter defaults)
@@ -41,11 +46,12 @@
  * The report goes to ~/.cache/thirdlight-perf/reports/level-<time>.json (latest-level.json too).
  */
 import { execFileSync } from 'node:child_process';
-import { copyFileSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { cpus } from 'node:os';
 import { join } from 'node:path';
 
 import { PERF_ROOT, REPO, startPerfBackend } from './backend';
+import { moduleIndex } from './profile';
 import { launchGpuBrowser, LONG_FRAME_MS, measurePage, serveStatic, sourcesOf, type FrameRenderer, type FrameRunResult } from './frame-run';
 import { buildLevel, FLIGHT_SECONDS, levelPlan, LEVEL_KINDS, LEVEL_SEED, LEVEL_VERSION, type LevelBuild, type LevelKind, type LevelRoofs } from './level';
 import { frameLine } from './village-run';
@@ -96,7 +102,9 @@ export interface LevelReport {
   /** The landscape without its road and river (absent: with them). */
   splines?: 'off';
   /** The scripted road edits in the editor's Scene view: each edit's round trip (ms) and the page's frames meanwhile. */
-  splineEdit?: Partial<Record<FrameRenderer, { roundTripMs: number[]; windows: (HitchWindow & { over16: number })[]; idle: (HitchWindow & { over16: number })[] }>>;
+  splineEdit?: Partial<Record<FrameRenderer, EditRun>>;
+  /** The scripted terrain sculpts in the editor's Scene view, recorded the same way. */
+  sculptEdit?: Partial<Record<FrameRenderer, EditRun>>;
   query: string;
   builds: Partial<Record<LevelKind, LevelBuild & { exportMs: number }>>;
   classes: Partial<Record<LevelKind, Partial<Record<FrameRenderer, FrameRunResult>>>>;
@@ -210,7 +218,9 @@ export async function runLevelCli(argv: readonly string[]): Promise<void> {
   try {
     for (const kind of kinds) {
       const b = await buildLevel(be, `level-${kind}`, levelPlan(kind, LEVEL_SEED, liveDoors, has('edge-walls'), has('wall-paint'), roofs, has('kit-swap'), has('vertex-ao') ? LEVEL_VERTEX_AO : 0, has('rules'), projection, macro, foliage, flight, impostorSize, splines === 'on'), log);
-      if (has('spline-edit') && kind === 'landscape' && splines === 'on') report.splineEdit = await splineEdits(be, b.projectId, renderers, log);
+      if (has('spline-edit') && kind === 'landscape' && splines === 'on') report.splineEdit = await editWindows(be, b.projectId, renderers, 'spline', log, has('edit-profile'));
+      if (has('sculpt-edit') && kind === 'landscape') report.sculptEdit = await editWindows(be, b.projectId, renderers, 'sculpt', log, has('edit-profile'));
+      if (has('edits-only')) continue;
       const t = performance.now();
       const res = await be.post(`/api/v1/admin/projects/${b.projectId}/export`, {});
       if (res.status !== 200) throw new Error(`export failed: ${JSON.stringify(res.json).slice(0, 400)}`);
@@ -225,6 +235,7 @@ export async function runLevelCli(argv: readonly string[]): Promise<void> {
   const browser = await launchGpuBrowser({ vsync });
   try {
     for (const kind of kinds) {
+      if (exportDirs[kind] === undefined) continue;
       const site = await serveStatic(exportDirs[kind]!);
       try {
         for (const r of renderers) {
@@ -273,18 +284,50 @@ const SPLINE_EDIT_WINDOW_MS = 4000;
 const SPLINE_EDITS = 6;
 const SPLINE_IDLE_WINDOWS = 3;
 
+/** An edit window's frames, and what the page built in it: node programs and pipelines (by object), scatter sets made. */
+export type EditWindow = HitchWindow & { over16: number; nodeBuilds?: number; nodeBuildMs?: number; pipelines?: number; pipelineMs?: number; built?: string[]; setsMade?: number; setMs?: number };
+
+/** What `--spline-edit` / `--sculpt-edit` record per renderer. */
+export interface EditRun {
+  roundTripMs: number[];
+  windows: EditWindow[];
+  idle: EditWindow[];
+}
+
+/** A scripted sculpt's radius and height (m): it raises and lowers the ground under a stored tree near the road's edited point. */
+const SCULPT_RADIUS = 12;
+const SCULPT_METRES = 2;
+
 /**
- * The landscape's editor Scene view open while a road point moves 5 m back and forth (one `setComponent` each: the
- * backend shapes the terrain under the road again and makes its mesh again; the page re-reads and uploads the tiles
- * and draws the new mesh): each edit's round trip and the page's frames in the window after it.
+ * The landscape's editor Scene view open while a script edits it every few seconds: `spline` moves a road point 5 m
+ * back and forth (one `setComponent` each: the backend shapes the terrain under the road again and makes its mesh
+ * again), `sculpt` raises and lowers the ground beside it (one `editTerrain` each: the tiles and their scatter
+ * baked again); the page re-reads and uploads the tiles and draws what is new. Each edit's round trip, the page's
+ * frames in the window after it, and what three built meanwhile (the page's marks).
  */
-async function splineEdits(be: PerfBackend, projectId: string, renderers: readonly FrameRenderer[], log: (s: string) => void): Promise<Partial<Record<FrameRenderer, { roundTripMs: number[]; windows: (HitchWindow & { over16: number })[]; idle: (HitchWindow & { over16: number })[] }>>> {
+async function editWindows(be: PerfBackend, projectId: string, renderers: readonly FrameRenderer[], kind: 'spline' | 'sculpt', log: (s: string) => void, profile = false): Promise<Partial<Record<FrameRenderer, EditRun>>> {
   const p = be.project(projectId);
   const listed = ((await p.query('queryEntities', { limit: 4000, offset: 0 }))['entities'] as { id: string; name?: string; components: Record<string, unknown> }[]) ?? [];
   const road = listed.find((e) => e.name === 'Road' && e.components['spline'] !== undefined);
-  if (road === undefined) throw new Error('spline edit: no road');
+  const terrain = listed.find((e) => e.components['terrain'] !== undefined);
+  if (road === undefined || terrain === undefined) throw new Error(`${kind} edit: no road or terrain`);
   const base = road.components['spline'] as { points: { at: number[] }[] };
-  const out: Partial<Record<FrameRenderer, { roundTripMs: number[]; windows: (HitchWindow & { over16: number })[]; idle: (HitchWindow & { over16: number })[] }>> = {};
+  // Where a sculpt bakes scatter again: the stored copy nearest the edited road point that is 30 m or more off it.
+  const [px, , pz] = base.points[5]!.at as [number, number, number];
+  const near = ((((await p.query('queryTerrain', { entityId: terrain.id, scatter: { box: [px - 150, pz - 150, px + 150, pz + 150] } }))['scatter'] as { copies?: { x: number; z: number }[] } | undefined)?.copies) ?? [])
+    .map((c) => ({ c, d: Math.hypot(c.x - px, c.z - pz) }))
+    .filter((c) => c.d >= 30)
+    .sort((a, b) => a.d - b.d)[0]?.c;
+  const sculptAt: [number, number] = near !== undefined ? [near.x, near.z] : [px - 40, pz];
+  const edit = async (k: number): Promise<void> => {
+    if (kind === 'spline') {
+      const points = base.points.map((q, i) => (i === 5 ? { ...q, at: [q.at[0]!, q.at[1]!, q.at[2]! + (k % 2 === 0 ? 5 : 0)] } : q));
+      await p.command('setComponent', { entityId: road.id, component: 'spline', value: { points } });
+    } else {
+      await p.command('editTerrain', { entityId: terrain.id, kind: k % 2 === 0 ? 'raise' : 'lower', dabs: [sculptAt], radius: SCULPT_RADIUS, strength: SCULPT_METRES, falloff: 'smooth' });
+    }
+  };
+  const out: Partial<Record<FrameRenderer, EditRun>> = {};
   const browser = await launchGpuBrowser({ vsync: false });
   try {
     for (const r of renderers) {
@@ -303,27 +346,65 @@ async function splineEdits(be: PerfBackend, projectId: string, renderers: readon
           await new Promise((res) => setTimeout(res, 1000));
         }
         const roundTripMs: number[] = [];
-        const windows: (HitchWindow & { over16: number })[] = [];
+        const windows: EditWindow[] = [];
         // Windows without an edit first: the class's own slow frames (uncapped, this GPU) to read the edits' against.
-        const idle: (HitchWindow & { over16: number })[] = [];
+        const idle: EditWindow[] = [];
+        // The edit windows' main thread by function (inclusive), with --edit-profile.
+        const cdp = profile ? await context.newCDPSession(page) : null;
+        const inclusive = new Map<string, number>();
         for (let k = -SPLINE_IDLE_WINDOWS; k < SPLINE_EDITS; k++) {
-          const points = base.points.map((p, i) => (i === 5 ? { ...p, at: [p.at[0]!, p.at[1]!, p.at[2]! + (k % 2 === 0 ? 5 : 0)] } : p));
+          if (cdp !== null && k >= 0) {
+            await cdp.send('Profiler.enable');
+            await cdp.send('Profiler.setSamplingInterval', { interval: 200 });
+            await cdp.send('Profiler.start');
+          }
           const from = await pageNow(page);
+          // The profile's clock is not the page's: its start taken as this moment (a few ms out at most).
+          const profiledFrom = from;
           if (k >= 0) {
             const t = performance.now();
-            await p.command('setComponent', { entityId: road.id, component: 'spline', value: { points } });
+            await edit(k);
             roundTripMs.push(Math.round(performance.now() - t));
           }
           await new Promise((res) => setTimeout(res, SPLINE_EDIT_WINDOW_MS));
           const times = await rafTimes(page);
+          if (cdp !== null && k >= 0) {
+            const { profile: prof } = (await cdp.send('Profiler.stop')) as unknown as { profile: EditProfile };
+            // Only the samples in the window's frames over 16.7 ms (what they did that the others did not).
+            const long: [number, number][] = [];
+            for (let i = 1; i < times.length; i++) if (times[i]! > from && times[i]! - times[i - 1]! > 16.7) long.push([times[i - 1]!, times[i]!]);
+            addInclusive(prof, inclusive, (t) => long.some(([a, b]) => t >= a - profiledFrom && t <= b - profiledFrom));
+          }
           const to = await pageNow(page);
           let over16 = 0;
           for (let i = 1; i < times.length; i++) if (times[i]! > from && times[i]! <= to && times[i]! - times[i - 1]! > 16.7) over16 += 1;
-          (k >= 0 ? windows : idle).push({ ...hitches(times, from, to), over16 });
+          const marks = await page.evaluate(
+            ([a, b]) =>
+              performance
+                .getEntriesByType('mark')
+                .filter((m) => m.startTime > a! && m.startTime <= b! && (m.name === 'tl:node-build' || m.name === 'tl:pipeline' || m.name === 'tl:scatter:made'))
+                .map((m) => ({ name: m.name, detail: (m as PerformanceMark).detail as { object?: string; material?: string; ms: number } })),
+            [from, to],
+          );
+          const nb = marks.filter((m) => m.name === 'tl:node-build');
+          const pl = marks.filter((m) => m.name === 'tl:pipeline');
+          const sets = marks.filter((m) => m.name === 'tl:scatter:made');
+          const sum = (xs: typeof marks): number => Math.round(xs.reduce((a, m) => a + m.detail.ms, 0) * 10) / 10;
+          const names = new Map<string, number>();
+          for (const m of [...nb, ...pl]) {
+            const key = `${m.name === 'tl:node-build' ? 'node' : 'pipe'} ${(m.detail.object ?? '').replace(/[0-9a-f]{8}-[0-9a-f-]{27}/g, '#')} [${m.detail.material ?? ''}]`;
+            names.set(key, (names.get(key) ?? 0) + 1);
+          }
+          (k >= 0 ? windows : idle).push({ ...hitches(times, from, to), over16, nodeBuilds: nb.length, nodeBuildMs: sum(nb), pipelines: pl.length, pipelineMs: sum(pl), built: [...names].map(([n, c]) => `${c}× ${n}`).slice(0, 24), setsMade: sets.length, setMs: sum(sets) });
         }
         out[r] = { roundTripMs, windows, idle };
-        const show = (ws: (HitchWindow & { over16: number })[]): string => ws.map((w) => `${w.frames} frames, ${w.over16 ?? 0} > 16.7 ms, worst ${w.worst} ms, p95 ${w.p95} ms`).join('; ');
-        log(`level landscape ${r} spline edits: round trips ${roundTripMs.join(', ')} ms; page frames per window: ${show(windows)}; without edits: ${show(idle)}`);
+        const show = (ws: EditWindow[]): string => ws.map((w) => `${w.frames} frames, ${w.over16 ?? 0} > 16.7 ms, worst ${w.worst} ms, p95 ${w.p95} ms, ${w.nodeBuilds} builds ${w.nodeBuildMs} ms, ${w.pipelines} pipelines ${w.pipelineMs} ms, ${w.setsMade} sets ${w.setMs} ms`).join('; ');
+        if (kind === 'sculpt') log(`level landscape ${r} sculpt at ${sculptAt.map((v) => v.toFixed(1)).join(', ')} (road point ${px.toFixed(1)}, ${pz.toFixed(1)})`);
+        log(`level landscape ${r} ${kind} edits: round trips ${roundTripMs.join(', ')} ms; page frames per window: ${show(windows)}; without edits: ${show(idle)}`);
+        const built = new Map<string, number>();
+        for (const w of windows) for (const b of w.built ?? []) built.set(b, (built.get(b) ?? 0) + 1);
+        if (built.size > 0) log(`level landscape ${r} ${kind} edits built (windows each was in): ${[...built].map(([b, c]) => `${b} (${c})`).join('; ')}`);
+        if (inclusive.size > 0) log(`level landscape ${r} ${kind} edits' frames over 16.7 ms, main thread by function (inclusive ms, ${SPLINE_EDITS} windows): ${[...inclusive].sort((x, y) => y[1] - x[1]).slice(0, 40).map(([f, ms]) => `${f} ${ms.toFixed(1)}`).join('; ')}`);
       } finally {
         await context.close();
       }
@@ -332,4 +413,61 @@ async function splineEdits(be: PerfBackend, projectId: string, renderers: readon
     await browser.close();
   }
   return out;
+}
+
+interface EditProfile {
+  nodes: { id: number; callFrame: { functionName: string; url: string; lineNumber: number }; children?: number[] }[];
+  samples: number[];
+  timeDeltas: number[];
+  startTime: number;
+}
+
+/** The editor page's bundles' module starts (read from dist/editor by URL path). */
+const editorModules = new Map<string, ReturnType<typeof moduleIndex> | null>();
+
+/**
+ * Add a profile's time per function (name and module, counted once per sample however deep it recurses) to `into`,
+ * of the samples `when` keeps (ms since the profile started).
+ */
+function addInclusive(profile: EditProfile, into: Map<string, number>, when: (ms: number) => boolean = () => true): void {
+  const parent = new Map<number, number>();
+  for (const n of profile.nodes) for (const c of n.children ?? []) parent.set(c, n.id);
+  const byId = new Map(profile.nodes.map((n) => [n.id, n]));
+  const moduleOf = (url: string, line: number): string => {
+    const path = url.replace(/^[a-z]+:\/\/[^/]+\//, '').split('?')[0]!;
+    if (!editorModules.has(path)) {
+      const file = join(REPO, 'dist', 'editor', path);
+      editorModules.set(path, path !== '' && existsSync(file) ? moduleIndex(readFileSync(file, 'utf8')) : null);
+    }
+    const idx = editorModules.get(path);
+    if (idx === null || idx === undefined) return path;
+    let k = -1;
+    for (let lo = 0, hi = idx.lines.length - 1; lo <= hi; ) {
+      const mid = (lo + hi) >> 1;
+      if (idx.lines[mid]! <= line) {
+        k = mid;
+        lo = mid + 1;
+      } else hi = mid - 1;
+    }
+    return k >= 0 ? idx.paths[k]!.replace(/^(packages|node_modules)\//, '') : path;
+  };
+  const keyOf = new Map<number, string>();
+  let at = 0;
+  for (let i = 0; i < profile.samples.length; i += 1) {
+    at += (profile.timeDeltas[i] ?? 0) / 1000;
+    const dt = (profile.timeDeltas[i + 1] ?? profile.timeDeltas[i] ?? 0) / 1000;
+    if (!when(at)) continue;
+    const seen = new Set<string>();
+    for (let id: number | undefined = profile.samples[i]; id !== undefined; id = parent.get(id)) {
+      let key = keyOf.get(id);
+      if (key === undefined) {
+        const n = byId.get(id)!;
+        key = `${n.callFrame.functionName || '(anonymous)'} ${n.callFrame.url === '' ? '' : moduleOf(n.callFrame.url, n.callFrame.lineNumber + 1)}`.trim();
+        keyOf.set(id, key);
+      }
+      if (key === '(idle)' || key === '(root)' || key === '(program)') break;
+      seen.add(key);
+    }
+    for (const key of seen) into.set(key, (into.get(key) ?? 0) + dt);
+  }
 }

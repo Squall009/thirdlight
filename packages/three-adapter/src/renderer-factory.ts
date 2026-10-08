@@ -35,6 +35,7 @@ import { registerScreenSpaceOcclusion } from './post-ao';
 import { registerProbeLighting } from './probe-lighting';
 import { installLocalLightModes, vertexLightsFromUrl } from './local-lights';
 import { installProgramRelease, installVaoSweep, trackRenderer, trackTextureListeners } from './dispose';
+import { installBuildMarks, installBuildReuse, type BuildReuse } from './node-builds';
 
 export type RendererPreference = 'auto' | 'webgpu' | 'webgl2';
 export type RendererPreferenceSource = 'default' | 'setting' | 'url';
@@ -405,6 +406,8 @@ export function createRenderer(o: CreateRendererOptions): RendererHandle {
   let nodeDevice: GpuDeviceLike | null = null;
   /** The live-renderer registration of `node` (dispose.ts releases per-object buffers in live renderers). */
   let untrackNode: (() => void) | null = null;
+  /** The released node builds the renderer keeps for a while (null: none installed). */
+  let buildReuse: BuildReuse | null = null;
   /** Removes `node`'s listeners from the textures it set up (see dispose.ts). */
   let releaseTextureListeners: (() => void) | null = null;
   let loseOnDispose = o.loseContextOnDispose === true;
@@ -430,6 +433,8 @@ export function createRenderer(o: CreateRendererOptions): RendererHandle {
     const oldDevice = nodeDevice;
     untrackNode?.();
     untrackNode = null;
+    buildReuse?.releaseAll();
+    buildReuse = null;
     node = null;
     nodeDevice = null;
     renderer = null;
@@ -516,6 +521,10 @@ export function createRenderer(o: CreateRendererOptions): RendererHandle {
         releaseTextureListeners = trackTextureListeners(r);
         // The WebGL 2 backend never deletes a released program or shader (see dispose.ts).
         installProgramRelease(r);
+        // Node programs and pipelines made from now on, as marks (what a changing scene still builds).
+        installBuildMarks(r);
+        // A re-bake's new objects reuse the builds of the ones they replace (after the WebGL 2 release above).
+        buildReuse = installBuildReuse(r);
         const onGpu = r.backend.isWebGPUBackend === true;
         publish({
           backend: onGpu ? 'webgpu' : 'webgl2',

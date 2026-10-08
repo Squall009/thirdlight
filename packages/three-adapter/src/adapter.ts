@@ -1422,6 +1422,8 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     const gridChanges = (opts.runtime as { takeGridChanges?: () => GridRenderChange[] }).takeGridChanges?.() ?? [];
     if (gridChanges.length > 0) blockView.applyRuntimeChanges(gridChanges);
     blockView.update();
+    // Splines released and not realized again go now (one realized again kept drawing until its new data is in).
+    splines.update();
     // (The near shadows follow the last frame's eye: the view is culled for this one further down.)
     scatter.stored.update(viewCull.view);
     if (cutaways.wanted()) cutaways.follow();

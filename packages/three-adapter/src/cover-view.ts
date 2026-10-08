@@ -10,15 +10,17 @@
  * the rule's `coverDistance` by distance; squares the camera left
  * ({@link COVER_KEEP_FRACTION} past the reach) are dropped. Squares are asked
  * nearest first, a few at a time, and built within {@link COVER_BUILD_MS} a
- * frame. An edit of the ground (a block chunk or a terrain tile changed)
- * makes the squares over it again.
+ * frame. An edit of the ground (a block chunk or a terrain tile changed, a
+ * spline's scatter band moved) makes the squares over it again; a square
+ * made again keeps drawing its old copies until its new ones are built, so an
+ * edit never blinks the cover away.
  *
  * The block and terrain views hand the sources over (`ScatterSink`), as they
  * do to the stored scatter's view.
  */
 import * as THREE from 'three';
 
-import { SCATTER_COVER_DISTANCE_DEFAULT, coverScatterRules, scatterReach, type BlockChunk, type BlockLayerComponent, type BlockLayerData, type BlockType, type ScatterRect, type ScatterRule, type TerrainComponent, type TerrainTile } from '@thirdlight/runtime';
+import { SCATTER_COVER_DISTANCE_DEFAULT, coverScatterRules, scatterReach, splineScatterRect, terrainSplineInputs, type BlockChunk, type BlockLayerComponent, type BlockLayerData, type BlockType, type ScatterRect, type ScatterRule, type TerrainComponent, type TerrainTile } from '@thirdlight/runtime';
 
 import type { MeshWorkerPort } from './block-mesh-pool';
 import { CoverGenerator, type CoverCopies, type CoverReply, type CoverRequest, type CoverSpline } from './cover-worker';
@@ -122,7 +124,8 @@ export class CoverView {
   private buildMsMax = 0;
   private disposed = false;
   private types: readonly BlockType[] = [];
-  private splinesKey = '[]';
+  /** The splines with a scatter band, by id: what each was (JSON) and the box its band keeps clear (null: none). */
+  private splines = new Map<string, { key: string; rect: ScatterRect | null }>();
 
   constructor(private readonly deps: CoverViewDeps) {}
 
@@ -134,13 +137,25 @@ export class CoverView {
     for (const src of this.sources.values()) if (src.kind === 'blocks') this.remakeAll(src);
   }
 
-  /** The splines whose scatter bands terrain cover keeps clear of (all of them, each time any changes). */
+  /**
+   * The splines whose scatter bands terrain cover keeps clear of (all of
+   * them, each time any changes): the squares under the bands of those that
+   * changed — where they were and where they are now — are made again.
+   */
   setSplines(splines: readonly CoverSpline[]): void {
-    const key = JSON.stringify(splines);
-    if (key === this.splinesKey) return;
-    this.splinesKey = key;
+    const next = new Map<string, { key: string; rect: ScatterRect | null }>();
+    for (const s of splines) {
+      const input = terrainSplineInputs([{ id: s.id, components: { spline: s.component, transform: { position: s.origin } } }])[0];
+      next.set(s.id, { key: JSON.stringify(s), rect: input === undefined ? null : splineScatterRect(input) });
+    }
+    const changed: ScatterRect[] = [];
+    for (const [id, was] of this.splines) if (next.get(id)?.key !== was.key && was.rect !== null) changed.push(was.rect);
+    for (const [id, now] of next) if (this.splines.get(id)?.key !== now.key && now.rect !== null) changed.push(now.rect);
+    const same = next.size === this.splines.size && [...next].every(([id, n]) => this.splines.get(id)?.key === n.key);
+    this.splines = next;
+    if (same) return;
     this.send({ t: 'coverSplines', splines });
-    for (const src of this.sources.values()) if (src.kind === 'terrain') this.remakeAll(src);
+    for (const src of this.sources.values()) if (src.kind === 'terrain') for (const r of changed) this.remakeRect(src, r);
   }
 
   setBlockLayer(id: string, component: BlockLayerComponent, origin: readonly number[], chunks: Iterable<BlockChunk>): void {
@@ -202,7 +217,7 @@ export class CoverView {
     const src = this.sources.get(id);
     if (src === undefined || src.hidden === hidden) return;
     src.hidden = hidden;
-    for (const sq of src.squares.values()) this.show(sq, !hidden && sq.built);
+    for (const sq of src.squares.values()) this.show(sq, !hidden && sq.sets.length > 0);
   }
 
   remove(id: string): void {
@@ -230,9 +245,9 @@ export class CoverView {
     for (const src of this.sources.values()) {
       if (src.rules.length === 0) continue;
       const keep = src.reach + S * COVER_KEEP_FRACTION;
-      // Drop the squares the camera left.
+      // Drop the squares the camera left (and any the source no longer covers).
       for (const sq of [...src.squares.values()]) {
-        if (distToRect(ex, ez, sq.rect) <= keep) continue;
+        if (distToRect(ex, ez, sq.rect) <= keep && overlaps(sq.rect, src.extent)) continue;
         this.drop(sq);
         src.squares.delete(sq.key);
       }
@@ -345,8 +360,7 @@ export class CoverView {
 
   /** Every square of a source is made again (its rules, origin or ground changed). */
   private remakeAll(src: Source): void {
-    for (const sq of src.squares.values()) this.drop(sq);
-    src.squares.clear();
+    for (const sq of src.squares.values()) this.remake(sq);
     this.deps.changed?.();
   }
 
@@ -354,12 +368,16 @@ export class CoverView {
   private remakeRect(src: Source, rect: ScatterRect): void {
     const m = src.margin;
     const grown: ScatterRect = [rect[0] - m, rect[1] - m, rect[2] + m, rect[3] + m];
-    for (const sq of [...src.squares.values()]) {
-      if (!overlaps(sq.rect, grown)) continue;
-      this.drop(sq);
-      src.squares.delete(sq.key);
-    }
+    for (const sq of src.squares.values()) if (overlaps(sq.rect, grown)) this.remake(sq);
     this.deps.changed?.();
+  }
+
+  /** A square is asked for again (an answer on the way is not wanted); its old copies stay drawn until the new ones are built. */
+  private remake(sq: Square): void {
+    if (sq.job >= 0) this.jobs.delete(sq.job);
+    sq.job = -1;
+    sq.made = null;
+    sq.built = false;
   }
 
   private ask(src: Source, sq: Square): void {
@@ -412,6 +430,11 @@ export class CoverView {
       return rule === undefined ? null : { rule, template: this.deps.template(rule.asset.assetId, rule.asset.piece, () => this.deps.changed?.()) };
     });
     if (templates.some((t) => t !== null && t.template === null)) return false;
+    // A square made again: its old copies give way to the new ones in the same frame.
+    if (sq.sets.length > 0) {
+      this.show(sq, false);
+      this.dropSets(sq);
+    }
     sq.root ??= new THREE.Group();
     sq.root.name = `cover:${src.id}:${sq.key}`;
     sq.root.position.set(...src.origin);
@@ -455,13 +478,17 @@ export class CoverView {
     this.deps.place(sq.root, on);
   }
 
-  private drop(sq: Square): void {
-    this.show(sq, false);
+  private dropSets(sq: Square): void {
     for (const s of sq.sets) {
       s.built.dispose();
       s.undress?.();
     }
     sq.sets = [];
+  }
+
+  private drop(sq: Square): void {
+    this.show(sq, false);
+    this.dropSets(sq);
     sq.built = false;
     sq.made = null;
     if (sq.job >= 0) this.jobs.delete(sq.job);

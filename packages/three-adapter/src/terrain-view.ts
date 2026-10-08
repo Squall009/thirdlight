@@ -231,6 +231,8 @@ interface Page {
   /** In the scene's list. */
   listed: boolean;
   undoMaterial: (() => void) | null;
+  /** The materials and values the page wears (null: none applied): the same again keeps them. */
+  dressedWith: string | null;
   /** The view and stamp its leading nodes were selected for. */
   view: CullView | null;
   stamp: number;
@@ -408,8 +410,10 @@ export class TerrainView {
   /** The terrain of entity `id` goes (at the next update, unless it is set again first). */
   removeTerrain(id: string): void {
     const rec = this.terrains.get(id);
+    // Its scatter goes with it (at the next update): a terrain realized again (every edit) keeps its sets and
+    // ground cover, and only what its new tiles changed is made again.
     if (rec !== undefined) rec.leaving = true;
-    this.deps.scatter?.remove(id);
+    else this.deps.scatter?.remove(id);
   }
 
   /** Hide or show a terrain (its object is inactive or hidden). */
@@ -988,7 +992,7 @@ export class TerrainView {
     mesh.userData[STATIC_CASTER_KEY] = true;
     mesh.userData[GRAPH_SURFACE_KEY] = surface;
     mesh.userData[TERRAIN_ENTITY_KEY] = rec.id;
-    const page: Page = { heights, layers, indices, capacity, used: new Set(), surface, fallback, mesh, geometry, buffer, own, nodes: new PageNodes(), listed: false, undoMaterial: null, view: null, stamp: -1, macro: null };
+    const page: Page = { heights, layers, indices, capacity, used: new Set(), surface, fallback, mesh, geometry, buffer, own, nodes: new PageNodes(), listed: false, undoMaterial: null, dressedWith: null, view: null, stamp: -1, macro: null };
     if (rec.component.macroDistance !== undefined) page.macro = this.makeMacro(rec, page, surface, capacity);
     // Picking reads the terrain's heights (the grid three would test is flat); its first page answers for it.
     mesh.raycast = (raycaster, hits) => {
@@ -1019,6 +1023,7 @@ export class TerrainView {
     const fallback = defaultTerrainMaterial(surface);
     old.undoMaterial?.();
     old.undoMaterial = null;
+    old.dressedWith = null;
     old.heights.dispose();
     old.layers.dispose();
     old.indices.dispose();
@@ -1195,10 +1200,15 @@ export class TerrainView {
   private dressPage(rec: TerrainRec, p: Page): void {
     applyEntityRenderFlags(p.mesh, rec.look.components);
     if (p.macro !== null) applyEntityRenderFlags(p.macro.mesh, rec.look.components);
+    const lib = this.deps.materials;
+    const want = lib !== null && rec.look.materials !== null ? JSON.stringify([rec.look.materials, rec.look.overrides]) : null;
+    // The terrain realized again with the same materials (every edit): taking them off and on would build its
+    // material, and its node programs, again (tens of milliseconds a re-bake); redefinitions reach it by the library.
+    if (want !== null && want === p.dressedWith) return;
     p.undoMaterial?.();
     p.undoMaterial = null;
-    const lib = this.deps.materials;
-    if (lib !== null && rec.look.materials !== null) p.undoMaterial = lib.apply(p.mesh, rec.look.materials, rec.look.overrides);
+    p.dressedWith = want;
+    if (want !== null) p.undoMaterial = lib!.apply(p.mesh, rec.look.materials!, rec.look.overrides);
   }
 
   private drop(rec: TerrainRec): void {
@@ -1216,6 +1226,7 @@ export class TerrainView {
     rec.pages = [];
     for (const t of rec.tiles.values()) this.useDigest(t.digest, null);
     this.terrains.delete(rec.id);
+    this.deps.scatter?.remove(rec.id);
   }
 
   // ---- selection -------------------------------------------------------------------------

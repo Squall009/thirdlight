@@ -1,7 +1,8 @@
 /**
  * Ground cover near the camera: squares within a rule's reach are made (on
  * the page here, the worker's generator), drawn one set per rule, dropped
- * once the camera leaves them, and made again where the ground changed;
+ * once the camera leaves them, and made again where the ground changed (the
+ * old copies drawn until the new ones are built);
  * nothing is made where the rule says none.
  */
 import * as THREE from 'three';
@@ -81,6 +82,9 @@ describe('ground cover', () => {
     const before = cover.diagnostics().copies;
     const rocky = chunks.filter((c) => c.cx < 2 && c.cz < 2).map((c) => ({ cx: c.cx, cz: c.cz, chunk: { ...c, palette: [{ block: 'rock' }, { block: 'rock' }] } }));
     cover.replaceBlockChunks('layer', rocky);
+    // The old copies stay drawn until the squares' new ones are built (an edit never blinks the cover away).
+    expect(cover.diagnostics().copies).toBe(before);
+    expect([...listed].length).toBeGreaterThan(0);
     for (let i = 0; i < 40; i++) {
       cover.update(view(20, 20));
       await flush();

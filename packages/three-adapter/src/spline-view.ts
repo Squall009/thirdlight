@@ -16,7 +16,8 @@
  *   Water carries its flow (UV set 1) and foam (vertex colour red) for a
  *   water material to read.
  * - A spline whose data changed keeps drawing what it had until the new
- *   blob is in.
+ *   blob is in (also when its object is released and realized again, as an
+ *   edit does: a release takes effect at the next frame's update).
  */
 import * as THREE from 'three';
 import { LOD_REFERENCE_FOV_DEG, SPLINE_MATERIAL_SLOT, decodeSplineMade, type SplineComponent, type SplineMade } from '@thirdlight/runtime';
@@ -68,7 +69,6 @@ export interface SplineViewDeps {
 interface Built {
   readonly root: THREE.Group;
   readonly geometries: THREE.BufferGeometry[];
-  readonly materials: THREE.Material[];
   readonly sets: BuiltInstanceSet[];
   readonly undo: (() => void)[];
   readonly triangles: number;
@@ -85,6 +85,8 @@ interface Rec {
   made: SplineMade | null;
   madeDigest: string | null;
   reading: string | null;
+  /** Released (its object realized again, or gone): dropped at the next update unless set again first. */
+  leaving: boolean;
 }
 
 /** What the view draws (diagnostics). */
@@ -103,6 +105,8 @@ export class SplineView {
   private readonly splines = new Map<string, Rec>();
   private readonly errors: string[] = [];
   private disposed = false;
+  private plain: THREE.MeshStandardMaterial | null = null;
+  private water: THREE.MeshStandardMaterial | null = null;
 
   constructor(private readonly deps: SplineViewDeps) {}
 
@@ -110,9 +114,10 @@ export class SplineView {
   set(id: string, component: SplineComponent, origin: readonly number[]): void {
     const o: [number, number, number] = [origin[0] ?? 0, origin[1] ?? 0, origin[2] ?? 0];
     const had = this.splines.get(id);
-    const rec: Rec = had ?? { component, origin: o, hidden: false, built: null, builtDigest: null, made: null, madeDigest: null, reading: null };
+    const rec: Rec = had ?? { component, origin: o, hidden: false, built: null, builtDigest: null, made: null, madeDigest: null, reading: null, leaving: false };
     const moved = had !== undefined && had.origin.some((v, i) => v !== o[i]);
     const coverBefore = had?.component.scatter !== undefined;
+    rec.leaving = false;
     rec.component = component;
     rec.origin = o;
     this.splines.set(id, rec);
@@ -139,12 +144,26 @@ export class SplineView {
     this.load(id, rec, digest);
   }
 
+  /**
+   * An object carrying `spline` was released: it goes at the next
+   * {@link update} unless it is set again first (an object realized again,
+   * every edit, keeps drawing what it made until its new data is in).
+   */
   remove(id: string): void {
     const rec = this.splines.get(id);
-    if (rec === undefined) return;
-    this.splines.delete(id);
-    this.drop(rec);
-    if (rec.component.scatter !== undefined) this.pushCover();
+    if (rec !== undefined) rec.leaving = true;
+  }
+
+  /** Drop the splines released and not set again (call once a frame, before the draw). */
+  update(): void {
+    let cover = false;
+    for (const [id, rec] of [...this.splines]) {
+      if (!rec.leaving) continue;
+      this.splines.delete(id);
+      this.drop(rec);
+      cover ||= rec.component.scatter !== undefined;
+    }
+    if (cover) this.pushCover();
   }
 
   setHidden(id: string, hidden: boolean): void {
@@ -233,15 +252,10 @@ export class SplineView {
     root.name = `spline:${id}`;
     root.position.set(...rec.origin);
     const geometries: THREE.BufferGeometry[] = [];
-    const materials: THREE.Material[] = [];
     let triangles = 0;
     if (made.pieces.length > 0) {
       const water = c.mesh?.kind === 'water';
-      const material = water
-        ? new THREE.MeshStandardMaterial({ color: 0x2b6f8f, roughness: 0.08, metalness: 0, transparent: true, opacity: 0.8, depthWrite: false })
-        : new THREE.MeshStandardMaterial({ color: 0x8a8a84, roughness: 0.9, metalness: 0 });
-      material.name = SPLINE_MATERIAL_SLOT;
-      materials.push(material);
+      const material = this.surface(water);
       const cast = c.mesh?.castShadow !== false && !water;
       const receive = c.mesh?.receiveShadow !== false;
       for (const p of made.pieces) {
@@ -301,11 +315,29 @@ export class SplineView {
     undo.unshift(this.deps.materials(root, id) ?? ((): void => undefined));
     root.updateMatrixWorld(true);
     this.drop(rec);
-    rec.built = { root, geometries, materials, sets, undo, triangles, pieces: made.pieces.length };
+    rec.built = { root, geometries, sets, undo, triangles, pieces: made.pieces.length };
     rec.builtDigest = rec.madeDigest;
     if (!rec.hidden) this.deps.place(root, true);
     this.deps.shapeChanged();
     this.deps.changed();
+  }
+
+  /**
+   * The plain surface a spline's mesh is made with (grey, or a see-through
+   * blue for water), one of each for every spline and every rebuild: the
+   * object's material put on it is then the same built material each time an
+   * edit makes the mesh again, not a new one to build and compile.
+   */
+  private surface(water: boolean): THREE.MeshStandardMaterial {
+    const have = water ? this.water : this.plain;
+    if (have !== null) return have;
+    const m = water
+      ? new THREE.MeshStandardMaterial({ color: 0x2b6f8f, roughness: 0.08, metalness: 0, transparent: true, opacity: 0.8, depthWrite: false })
+      : new THREE.MeshStandardMaterial({ color: 0x8a8a84, roughness: 0.9, metalness: 0 });
+    m.name = SPLINE_MATERIAL_SLOT;
+    if (water) this.water = m;
+    else this.plain = m;
+    return m;
   }
 
   private drop(rec: Rec): void {
@@ -317,7 +349,6 @@ export class SplineView {
     for (const u of b.undo) u();
     for (const s of b.sets) s.dispose();
     for (const g of b.geometries) g.dispose();
-    for (const m of b.materials) m.dispose();
     this.deps.shapeChanged();
   }
 
@@ -325,5 +356,7 @@ export class SplineView {
     this.disposed = true;
     for (const rec of this.splines.values()) this.drop(rec);
     this.splines.clear();
+    this.plain?.dispose();
+    this.water?.dispose();
   }
 }
