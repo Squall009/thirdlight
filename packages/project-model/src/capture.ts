@@ -25,6 +25,7 @@ import { environmentPresetTextureRefs, type EnvironmentPreset } from './environm
 import { animatorAssetIds, type AnimatorController } from './animator';
 import { graphAssetRefs, type GraphDocument } from './graph';
 import { MATERIAL_FUNCTION_GRAPH_KIND } from './material-graph-kinds';
+import { FURNISHING_SET_GRAPH_KIND, FURNISHING_SET_KIND } from './arch-plan-kinds';
 import { environmentTextureRefs, materialFunctionsForRuntime, materialTextureRefs, resolveMaterialInstances, type MaterialDef, type SceneEnvironment } from './materials';
 import { effectAssetRefs, type EffectDef } from './effects';
 import type { ModelErrorV2, ModelResultV2 } from './errors';
@@ -147,6 +148,10 @@ export function collectAssetRefsV3(
   for (const m of materialDefs) for (const id of materialTextureRefs(m)) setRef(id);
   for (const g of materialFunctionsForRuntime(materialDefs, (content as { graphs?: GraphDocument[] }).graphs ?? [])) {
     for (const r of graphAssetRefs(MATERIAL_FUNCTION_GRAPH_KIND, g.graph)) if (r.asset === 'texture') setRef(r.id);
+  }
+  // The kit models furnishing sets place in buildings.
+  for (const g of (content as { graphs?: GraphDocument[] }).graphs ?? []) {
+    if (g.kind === FURNISHING_SET_KIND) for (const r of graphAssetRefs(FURNISHING_SET_GRAPH_KIND, g.graph)) if (r.asset === 'model') setRef(r.id);
   }
   // The models block types show (prefab looks are captured with the prefabs above).
   for (const t of (content as { blockTypes?: { variants: { model?: { assetId: string } }[] }[] }).blockTypes ?? []) for (const v of t.variants) if (v.model !== undefined) setRef(v.model.assetId);

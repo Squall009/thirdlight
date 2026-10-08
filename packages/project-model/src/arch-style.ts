@@ -37,10 +37,12 @@ import { detSinCos } from './arch-math';
 import { hashString, hashText64 } from './arch-math';
 import { pathDistanceNear, pathPointAt, samplePath } from './arch-path';
 import { ARCHITECTURE_LIMITS, type ArchitectureComponent, type ArchitectureElement, type ArchitectureFill, type ArchitectureOpening, type ArchitectureOutline, type ArchitecturePath, type ArchitectureProfile, type ArchitectureSweep } from './architecture';
-import { ARCHITECTURE_PRESET_GRAPH_KIND, ARCHITECTURE_PRESET_KIND, ARCHITECTURE_STYLE_GRAPH_KIND, ARCHITECTURE_STYLE_KIND } from './arch-style-kinds';
+import { ARCHITECTURE_PRESET_GRAPH_KIND, ARCHITECTURE_PRESET_KIND, ARCHITECTURE_STYLE_GRAPH_KIND, ARCHITECTURE_STYLE_KIND, graphFieldOf, graphNum, graphStr } from './arch-style-kinds';
 import { ARCHITECTURE_STARTER_GRAPHS } from './arch-style-starters';
+import type { FurnishedLight, FurnishedProp } from './arch-furnish';
+import { FURNISHING_SET_KIND, furnishingSetDef, ROOM_PROGRAM_KIND, roomProgramDef, type FurnishingSetDef, type RoomProgramDef } from './arch-plan-kinds';
 import type { ModelErrorV2 } from './errors';
-import type { GraphData, GraphKindDef, GraphNode, GraphValue } from './graph';
+import type { GraphData, GraphNode } from './graph';
 import { ruleNoise } from './surface-rules';
 
 /** A style's exposed parameter. */
@@ -85,6 +87,9 @@ export interface ArchitecturePresetDef {
 export interface ArchitectureStyles {
   readonly styles: ReadonlyMap<string, ArchitectureStyleDef>;
   readonly presets: ReadonlyMap<string, ArchitecturePresetDef>;
+  /** The project's room programs and furnishing sets (games' data: the engine ships none). */
+  readonly programs: ReadonlyMap<string, RoomProgramDef>;
+  readonly furnishings: ReadonlyMap<string, FurnishingSetDef>;
 }
 
 /** A preset resolved through its bases. */
@@ -116,6 +121,12 @@ export interface ArchitectureExpansion {
   presets: ReadonlySet<string>;
   /** Each room's storeys' floor plans (object frame; `arch-rooms.ts`). */
   rooms: readonly ArchitectureRoomPlan[];
+  /** The props buildings' furnishing sets placed and pinned (object frame; absent: none). */
+  props?: readonly FurnishedProp[];
+  /** The lights buildings' furnishing sets placed (object frame; absent: none). */
+  lights?: readonly FurnishedLight[];
+  /** The rooms buildings' room programs made (what locking a plan stores; absent: none). */
+  planRooms?: readonly ArchitectureOutline[];
 }
 
 /** A room storey's floor plan (object frame): what a block layer's regions and grid walks read. */
@@ -124,6 +135,8 @@ export interface ArchitectureRoomPlan {
   id: string;
   outline: string;
   storey: number;
+  /** The room's type (a building's room; absent: none). */
+  type?: string;
   /** The outline's corners on the ground (x, z). */
   points: [number, number][];
   /** The storey's floor and the top of its walls (metres, object frame). */
@@ -163,19 +176,9 @@ export interface ArchitectureGraphLike {
 const isNum = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
 const clamp = (v: number, lo: number, hi: number): number => (v < lo ? lo : v > hi ? hi : v);
 
-function fieldOf(kind: GraphKindDef, node: GraphNode, key: string): GraphValue | undefined {
-  const v = node.data?.[key];
-  if (v !== undefined) return v;
-  return kind.nodes.find((d) => d.type === node.type)?.fields?.find((f) => f.key === key)?.default;
-}
-const str = (kind: GraphKindDef, n: GraphNode, key: string): string => {
-  const v = fieldOf(kind, n, key);
-  return typeof v === 'string' ? v : '';
-};
-const numField = (kind: GraphKindDef, n: GraphNode, key: string): number => {
-  const v = fieldOf(kind, n, key);
-  return isNum(v) ? v : 0;
-};
+const fieldOf = graphFieldOf;
+const str = graphStr;
+const numField = graphNum;
 
 function styleDef(id: string, graph: GraphData): ArchitectureStyleDef {
   const K = ARCHITECTURE_STYLE_GRAPH_KIND;
@@ -245,19 +248,26 @@ export function architectureStylesOf(graphs: readonly ArchitectureGraphLike[] | 
   if (known !== undefined) return known;
   const styles = new Map(STARTERS.styles);
   const presets = new Map(STARTERS.presets);
+  const programs = new Map<string, RoomProgramDef>();
+  const furnishings = new Map<string, FurnishingSetDef>();
   for (const g of list) {
     if (g === null || typeof g !== 'object' || typeof g.graphId !== 'string' || typeof g.graph !== 'object' || g.graph === null) continue;
     if (g.kind === ARCHITECTURE_STYLE_KIND) styles.set(g.graphId, styleDef(g.graphId, g.graph));
     else if (g.kind === ARCHITECTURE_PRESET_KIND) presets.set(g.graphId, presetDef(g.graphId, g.graph));
+    else if (g.kind === ROOM_PROGRAM_KIND) programs.set(g.graphId, roomProgramDef(g.graphId, g.graph));
+    else if (g.kind === FURNISHING_SET_KIND) furnishings.set(g.graphId, furnishingSetDef(g.graphId, g.graph));
   }
-  const out: ArchitectureStyles = { styles, presets };
+  const out: ArchitectureStyles = { styles, presets, programs, furnishings };
   tables.set(list, out);
   return out;
 }
 
-/** The style and preset graphs a game ships: those of the project (the starters are in the engine). */
+/** The graph kinds generated architecture reads: styles, presets, room programs and furnishing sets. */
+export const ARCHITECTURE_GRAPH_KINDS: readonly string[] = Object.freeze([ARCHITECTURE_STYLE_KIND, ARCHITECTURE_PRESET_KIND, ROOM_PROGRAM_KIND, FURNISHING_SET_KIND]);
+
+/** The graphs generated architecture reads that a game ships: those of the project (the starters are in the engine). */
 export function architectureGraphsOf<T extends { kind: string }>(graphs: readonly T[] | undefined): T[] {
-  return (graphs ?? []).filter((g) => g.kind === ARCHITECTURE_STYLE_KIND || g.kind === ARCHITECTURE_PRESET_KIND);
+  return (graphs ?? []).filter((g) => ARCHITECTURE_GRAPH_KINDS.includes(g.kind));
 }
 
 const resolved = new WeakMap<ArchitectureStyles, Map<string, ResolvedArchitecturePreset>>();

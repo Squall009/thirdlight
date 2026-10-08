@@ -53,8 +53,7 @@ import { canonicalLighting, validateLighting, type LightingMap } from './lightin
 import { sha256Hex, sha256HexOfText } from './sha256';
 import { canonicalGraphDocuments, graphDocumentsContext, validateGraphDocuments, type GraphDocument } from './graph';
 import { GRAPH_KINDS } from './graph-kinds';
-import { ARCHITECTURE_PRESET_KIND, ARCHITECTURE_STYLE_KIND } from './arch-style-kinds';
-import { validateArchitectureGraphs } from './arch-style';
+import { ARCHITECTURE_GRAPH_KINDS, validateArchitectureGraphs } from './arch-style';
 import { canonicalEffects, validateEffects, type EffectDef } from './effects';
 import { canonicalUiDocuments, canonicalUiThemes, validateUiDocuments, validateUiThemes, type UiDocument, type UiTheme } from './ui-documents';
 import { canonicalModes, validateModes, type GameMode } from './modes';
@@ -1224,7 +1223,7 @@ export function manifestBlocksProblem(d: Readonly<Record<string, unknown>>): Man
     const graphErrors: ModelErrorV2[] = [];
     validateGraphDocuments(GRAPH_KINDS, v, '/architectureStyles', graphErrors);
     if (graphErrors.length === 0) validateArchitectureGraphs(v, '/architectureStyles', graphErrors);
-    if (graphErrors.length > 0 || !(v as { kind?: unknown }[]).every((g) => g.kind === ARCHITECTURE_STYLE_KIND || g.kind === ARCHITECTURE_PRESET_KIND)) return manifestError('manifest_invalid', 'architectureStyles holds valid architecture styles and presets only', 'field_value');
+    if (graphErrors.length > 0 || !(v as { kind?: unknown }[]).every((g) => typeof g.kind === 'string' && ARCHITECTURE_GRAPH_KINDS.includes(g.kind))) return manifestError('manifest_invalid', 'architectureStyles holds valid architecture styles, presets, room programs and furnishing sets only', 'field_value');
   }
   if (d['modelColliders'] !== undefined) {
     const why = validateModelColliderTable(d['modelColliders']);

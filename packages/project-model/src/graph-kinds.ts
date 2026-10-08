@@ -21,6 +21,7 @@ import { BEHAVIOR_FUNCTION_GRAPH_KIND, BEHAVIOR_LIBRARY_GRAPH_KIND } from './beh
 import { EFFECT_GRAPH_KIND } from './effect-graph-kinds';
 import { DIALOGUE_GRAPH_KIND } from './dialogue';
 import { ARCHITECTURE_PRESET_GRAPH_KIND, ARCHITECTURE_STYLE_GRAPH_KIND } from './arch-style-kinds';
+import { FURNISHING_SET_GRAPH_KIND, ROOM_PROGRAM_GRAPH_KIND } from './arch-plan-kinds';
 import { MAX_BLEND_GROUND_SPEED } from './animator';
 
 export const TEST_GRAPH_KIND: GraphKindDef = {
@@ -174,4 +175,7 @@ export const GRAPH_KINDS: Readonly<Record<string, GraphKindDef>> = {
   // Generated architecture's styles and presets (standalone graphs).
   [ARCHITECTURE_STYLE_GRAPH_KIND.kind]: ARCHITECTURE_STYLE_GRAPH_KIND,
   [ARCHITECTURE_PRESET_GRAPH_KIND.kind]: ARCHITECTURE_PRESET_GRAPH_KIND,
+  // Buildings' room programs and furnishing sets (standalone graphs; games' data).
+  [ROOM_PROGRAM_GRAPH_KIND.kind]: ROOM_PROGRAM_GRAPH_KIND,
+  [FURNISHING_SET_GRAPH_KIND.kind]: FURNISHING_SET_GRAPH_KIND,
 };

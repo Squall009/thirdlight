@@ -24,6 +24,7 @@ export { exportProjectM3 } from './export-m3';
 export {
   buildContentClosureM3,
   closureCacheStats,
+  withProjectFurnishingLights,
   type ClosureArtifact,
   type ClosureLibraryModule,
   type ClosureSourceMap,

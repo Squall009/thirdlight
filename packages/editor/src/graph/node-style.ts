@@ -61,6 +61,11 @@ export const FAMILY_OF_CATEGORY: Readonly<Record<string, NodeFamily>> = {
   Profiles: 'input',
   Elements: 'render',
   Preset: 'state',
+  // Buildings' room programs and furnishing sets.
+  Program: 'state',
+  Rooms: 'input',
+  Furnishing: 'state',
+  Props: 'render',
 };
 
 /** A category's family. */

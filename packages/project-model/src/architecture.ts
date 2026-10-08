@@ -277,6 +277,10 @@ export interface ArchitectureOutline {
   holes?: ArchitectureFloorHole[];
   /** Stairs in the room (absent: none). */
   stairs?: ArchitectureStair[];
+  /** A room of a building (its id): its walls on the footprint are the building's, and the building furnishes it (absent: none). */
+  building?: string;
+  /** The room's type a building's furnishing set places props by (absent: none). */
+  roomType?: string;
 }
 
 /** Metres a step rises when a stair names no step count. */
@@ -336,6 +340,26 @@ export interface ArchitectureBuilding extends ArchitectureOutline {
   roof?: ArchitectureRoof;
   /** The interior is a scene of its own (absent: in place). */
   interior?: ArchitectureBuildingInterior;
+  /** A room program (a `room-program` graph) splitting the footprint into rooms at load (absent: one room; outlines naming the building as theirs replace it). */
+  program?: string;
+  /** A furnishing set (a `furnishing-set` graph) placing props and lights in the building's rooms at load (absent: none). */
+  furnishing?: string;
+  /** The seed of the floor plan and the furnishing (absent: 0). */
+  layoutSeed?: number;
+  /** Props pinned by hand: they stay where they are when the plan or furnishing is made again (absent: none). */
+  pins?: ArchitecturePin[];
+}
+
+/** A prop pinned in a building: a generated prop kept (same id) or one put there by hand. */
+export interface ArchitecturePin {
+  id: string;
+  model: ArchitectureModelRef;
+  /** Its foot (metres from the object). */
+  position: [number, number, number];
+  /** Degrees about +Y turning its front (+Z) toward +X. */
+  facing: number;
+  /** Its footprint, width along its X and depth along its Z (metres; absent: half a metre square). */
+  size?: [number, number];
 }
 
 /**
@@ -414,9 +438,10 @@ const REPEAT_FIELDS = [...BASE_FIELDS, 'path', 'spacing', 'start', 'end', 'corne
 const FILL_FIELDS = [...BASE_FIELDS, 'path', 'shape', 'slot', 'trimSlot', 'height', 'rise', 'face', 'axis', 'cell', 'depth', 'overhang', 'breakRise', 'inset', 'holes'];
 const OPENING_FIELDS = ['id', 'at', 'width', 'bottom', 'top', 'reveal', 'frame', 'frameSides', 'model', 'storey', 'pane'];
 const OVERRIDE_FIELDS = ['element', 'segment', 'corner', 'reach', 'model', 'stretch'];
-const OUTLINE_FIELDS = ['id', 'path', 'preset', 'openings', 'outside', 'storeys', 'storeyHeight', 'holes', 'stairs'];
+const OUTLINE_FIELDS = ['id', 'path', 'preset', 'openings', 'outside', 'storeys', 'storeyHeight', 'holes', 'stairs', 'building', 'roomType'];
 const STAIR_FIELDS = ['id', 'from', 'to', 'width', 'steps'];
-const BUILDING_FIELDS = [...OUTLINE_FIELDS, 'roof', 'interior'];
+const BUILDING_FIELDS = [...OUTLINE_FIELDS.filter((k) => k !== 'building'), 'roof', 'interior', 'program', 'furnishing', 'layoutSeed', 'pins'];
+const PIN_FIELDS = ['id', 'model', 'position', 'facing', 'size'];
 const ROOF_FIELDS = ['shape', 'slot', 'trimSlot', 'rise', 'overhang', 'axis', 'breakRise', 'inset'];
 /** An outline id leaves room for the generated elements' suffixes within the id syntax's 64 characters. */
 const OUTLINE_ID_RE = /^[a-z0-9][a-z0-9_-]{0,47}$/;
@@ -602,10 +627,30 @@ function validateRoof(r: unknown, p: string, errors: ModelErrorV2[]): void {
   num(r, 'inset', p, errors, 0, L.distanceMax, `0-${L.distanceMax} metres`);
 }
 
+/** A building's pinned props. */
+function validatePins(pins: unknown, p: string, errors: ModelErrorV2[]): void {
+  const L = ARCHITECTURE_LIMITS;
+  if (pins === undefined) return;
+  if (!Array.isArray(pins)) return err(errors, 'field_type', p, 'pins is a list of {id, model, position, facing, size?}', pins);
+  const seen = new Set<string>();
+  pins.forEach((pin, i) => {
+    const q = `${p}/${i}`;
+    if (!isObj(pin)) return err(errors, 'field_type', q, 'a pin is {id, model, position, facing, size?}', pin);
+    only(pin, PIN_FIELDS, q, errors, 'pin');
+    if (typeof pin['id'] !== 'string' || pin['id'].length < 1 || pin['id'].length > 128 || seen.has(pin['id'])) err(errors, 'field_value', `${q}/id`, 'id is 1-128 characters, unique among the building\'s pins', pin['id']);
+    else seen.add(pin['id']);
+    validateModel(pin['model'], `${q}/model`, errors);
+    if (!vec(pin['position'], 3, -L.coordinate, L.coordinate)) err(errors, 'field_value', `${q}/position`, `position is [x, y, z] metres from the object within ±${L.coordinate}`, pin['position']);
+    if (!within(pin['facing'], -360, 360)) err(errors, 'field_value', `${q}/facing`, 'facing is -360 to 360 degrees', pin['facing']);
+    if (pin['size'] !== undefined && !vec(pin['size'], 2, 0.01, L.distanceMax)) err(errors, 'field_value', `${q}/size`, `size is [width, depth] metres 0.01-${L.distanceMax}`, pin['size']);
+  });
+}
+
 /** A room's storeys, floor holes and stairs. */
 function validateRoom(o: Record<string, unknown>, p: string, errors: ModelErrorV2[]): void {
   const L = ARCHITECTURE_LIMITS;
   if (o['outside'] !== undefined && !isId(o['outside'])) err(errors, 'field_value', `${p}/outside`, 'outside names an architecture preset', o['outside']);
+  if (o['roomType'] !== undefined && !isId(o['roomType'])) err(errors, 'field_value', `${p}/roomType`, 'roomType names a room type (id syntax)', o['roomType']);
   count(o, 'storeys', p, errors, 1, L.storeys);
   num(o, 'storeyHeight', p, errors, 0.1, L.distanceMax, `0.1-${L.distanceMax} metres`);
   const holes = o['holes'];
@@ -729,6 +774,9 @@ export function validateArchitectureComponent(value: unknown, path: string, erro
         validateOpenings(b['openings'], `${p}/openings`, errors, profiles === undefined ? null : named);
         validateRoom(b, p, errors);
         validateRoof(b['roof'], `${p}/roof`, errors);
+        for (const k of ['program', 'furnishing']) if (b[k] !== undefined && !isId(b[k])) err(errors, 'field_value', `${p}/${k}`, `${k} names a ${k === 'program' ? 'room program' : 'furnishing set'} graph`, b[k]);
+        if (b['layoutSeed'] !== undefined && !(Number.isInteger(b['layoutSeed']) && (b['layoutSeed'] as number) >= 0 && (b['layoutSeed'] as number) <= 0xffffffff)) err(errors, 'field_value', `${p}/layoutSeed`, 'layoutSeed is a whole number 0-4294967295', b['layoutSeed']);
+        validatePins(b['pins'], `${p}/pins`, errors);
         const inn = b['interior'];
         if (inn !== undefined) {
           if (!isObj(inn)) err(errors, 'field_type', `${p}/interior`, 'interior is {scene, offset?}', inn);
@@ -740,6 +788,13 @@ export function validateArchitectureComponent(value: unknown, path: string, erro
         }
       });
     }
+  }
+  // A room naming its building names one of the component's buildings.
+  if (Array.isArray(outlines)) {
+    const owners = new Set(Array.isArray(buildings) ? buildings.map((b) => (isObj(b) ? b['id'] : undefined)) : []);
+    outlines.forEach((o, i) => {
+      if (isObj(o) && o['building'] !== undefined && !(typeof o['building'] === 'string' && owners.has(o['building']))) err(errors, 'field_value', `${path}/outlines/${i}/building`, 'building names one of the component\'s buildings', o['building']);
+    });
   }
   const iof = value['interiorOf'];
   if (iof !== undefined) {
@@ -816,6 +871,7 @@ export function architectureModelAssets(c: Pick<ArchitectureComponent, 'elements
     if (e.kind === 'sweep') for (const o of e.openings ?? []) if (o.model !== undefined) out.add(o.model.assetId);
   }
   for (const r of [...(c?.outlines ?? []), ...(c?.buildings ?? [])]) for (const o of r.openings ?? []) if (o.model !== undefined) out.add(o.model.assetId);
+  for (const b of c?.buildings ?? []) for (const p of b.pins ?? []) out.add(p.model.assetId);
   for (const o of c?.overrides ?? []) out.add(o.model.assetId);
   return [...out];
 }

@@ -132,6 +132,8 @@ export function buildingInteriorEntity(source: BuildingSourceEntity, sceneId: st
     elements: [],
     ...(c.profiles !== undefined ? { profiles: c.profiles } : {}),
     buildings: [building],
+    // The rooms of a locked plan stand in the interior with it.
+    ...((c.outlines ?? []).some((o) => o.building === building.id) ? { outlines: (c.outlines ?? []).filter((o) => o.building === building.id) } : {}),
     ...(c.masks !== undefined ? { masks: c.masks } : {}),
     ...(c.chunkSize !== undefined ? { chunkSize: c.chunkSize } : {}),
     ...(c.seed !== undefined ? { seed: c.seed } : {}),

@@ -80,6 +80,14 @@
  * wall. Play's scene timings give the interior's time from the door to
  * drawn.
  *
+ * Floor plans and furnishing (`floor-plans.ts`): a building split into
+ * rooms by a room program and furnished by a furnishing set picked in the
+ * building inspector, a prop pinned through a new seed and unpinned. In
+ * Play and the export, from above (a key loads a scene with a camera over
+ * it): the props stand where the generator put them, facing their rooms,
+ * the floor in front of each door between rooms is clear, the partitions
+ * stand between the rooms.
+ *
  * TL_LAYERED_DIR=<dir> keeps the pictures.
  */
 import { randomBytes, randomUUID } from 'node:crypto';
@@ -99,6 +107,7 @@ import { closeEditor, createItem, editorPane, inspector, menu, openEditor, openW
 import { drawRooms, ROOM_READS } from './rooms-drawing';
 import { expectCulled, judgeLitRooms, makeLitRooms } from './rooms-lighting';
 import { drawBuilding, ENTER_KEY, judgeInside, judgeOutside, onInterior } from './buildings';
+import { judgePlans, makeFloorPlans, onPlans, planReads, PLANS_KEY, type PlanReads } from './floor-plans';
 
 let be: E2EBackend | null = null;
 test.afterEach(async () => {
@@ -566,6 +575,26 @@ function readStyled(img: Image): { low: [number, number, number][]; high: [numbe
 }
 const fmtColours = (cs: readonly (readonly number[])[]): string => cs.map((c) => c.map((v) => v.toFixed(0)).join(',')).join(' ');
 
+/** The floor plan seen from above passes its reads (Play or the export); the failing reads are printed. */
+async function expectPlans(reads: PlanReads, shot: () => Promise<{ img: Image; png: Buffer }>, what: string): Promise<void> {
+  let got = judgePlans(reads, () => [0, 0, 0], rowHue);
+  let png: Buffer | null = null;
+  await expect
+    .poll(async () => {
+      const s = await shot();
+      png = s.png;
+      return (got = judgePlans(reads, (p) => colourAt(s.img, onPlans(p, s.img.width, s.img.height)), rowHue)).ok;
+    }, { timeout: 30_000, intervals: [500], message: `the ${what} picture of the floor plan` })
+    .toBe(true)
+    .catch((e: unknown) => {
+      console.log(`floor plans ${what} (failed): ${got.bad.join('; ')}`);
+      if (png !== null) keep('floor-plan-failed', png);
+      throw e;
+    });
+  if (png !== null) keep(`floor-plan-${what.replace(/\W+/g, '-')}`, png);
+  console.log(`floor plans ${what}: ${reads.props.length} props, ${reads.clearances.length} door clearance points, ${reads.partitions.length} partitions read`);
+}
+
 /** The rooms drawn with the Rooms tool in a picture of the fixed camera: each read's colour and whether all show what they should. */
 function readRooms(img: Image): { colours: Record<string, [number, number, number]>; ok: boolean } {
   const colours = Object.fromEntries(Object.entries(ROOM_READS).map(([k, r]) => [k, colourAt(img, onPlay(r.at, img.width, img.height))])) as Record<keyof typeof ROOM_READS, [number, number, number]>;
@@ -637,6 +666,10 @@ async function trimSheetChecks(page: Page, variant: RendererVariant): Promise<vo
   expect(rooms.timings.drag.others).toBe(0);
   await makeLitRooms(cmd, trimId);
   const building = await drawBuilding(page, cmd, query, trimId, (name, source, entityId) => publishScript(be!, name, source, entityId));
+  const plans = await makeFloorPlans(page, cmd, query, async (bytes, id) => void (await publishBytes(be!, bytes, 'model', id)), (name, source, entityId) => publishScript(be!, name, source, entityId));
+  console.log(`floor plans ${variant} editor: ${plans.editor.props} props, ${plans.editor.moved} moved by the new seed, the pinned one kept ${plans.editor.pinnedKept}`);
+  expect(plans.editor.pinnedKept).toBe(true);
+  const planRead = await planReads(query, plans.roomsId);
 
   const started = page.waitForResponse((r) => r.request().method() === 'POST' && r.url().endsWith('/play'));
   await page.getByTitle('Start an isolated play preview').click();
@@ -762,6 +795,18 @@ async function trimSheetChecks(page: Page, variant: RendererVariant): Promise<vo
   const buildingDraws = ((renderer['architecture'] as { draws?: number } | undefined)?.draws ?? null);
   console.log(`building ${variant} Play: outside ${fmtRooms(outside.colours)}; inside ${fmtRooms(inside.colours)}; through the door (read ahead ${door.preloaded}): requested → prepared ${door.preparedMs !== null ? (door.preparedMs - door.requestedMs).toFixed(1) : '-'} ms, → drawn ${((door.attachedMs ?? 0) - door.requestedMs).toFixed(1)} ms; interior marks ${JSON.stringify(interiorMarks)}; architecture draws ${buildingDraws}`);
   expect(door.preloaded).toBe(true);
+  // The floor plan from above (a key loads the plans scene): props, door clearances and partitions where the generator put them.
+  await page.keyboard.down(PLANS_KEY);
+  await page.waitForTimeout(200);
+  await page.keyboard.up(PLANS_KEY);
+  await expectPlans(planRead, async () => {
+    const png = await canvas.screenshot();
+    return { img: decodePng(png), png };
+  }, `${variant} Play`);
+  const planRenderer = await diagnostics();
+  console.log(`floor plans ${variant} Play: architecture ${JSON.stringify(planRenderer['architecture'] ?? null)}; lights ${JSON.stringify((planRenderer['lights'] as Record<string, unknown> | undefined)?.['local'] ?? null)} (furnishing lights ${planRead.lights})`);
+  // The furnishing's lights are lights of the start scene (made into its snapshot like the build's scene files).
+  expect((planRenderer['lights'] as { local?: number } | undefined)?.local ?? 0).toBeGreaterThanOrEqual(planRead.lights);
   await page.getByTitle('Stop the play preview').click();
 
   // ---- The static export, served with the backend stopped: the parameters ship, the game generates the same picture.
@@ -830,6 +875,13 @@ async function trimSheetChecks(page: Page, variant: RendererVariant): Promise<vo
       throw e;
     });
     console.log(`building ${variant} export: outside ${fmtRooms(outsideExport.colours)}; inside ${fmtRooms(insideExport.colours)}`);
+    await game.keyboard.down(PLANS_KEY);
+    await game.waitForTimeout(200);
+    await game.keyboard.up(PLANS_KEY);
+    await expectPlans(planRead, async () => {
+      const png = await exported.screenshot();
+      return { img: decodePng(png), png };
+    }, `${variant} export`);
     const marks = await architectureMarks(game);
     console.log(`architecture ${variant} export: ${shown.colours.map((c) => c.map((v) => v.toFixed(0)).join(',')).join(' ')}; chunks ${JSON.stringify(marks.chunks)}; ready ${JSON.stringify(marks.ready)}`);
     // Generated, not shipped: on the workers, or on the page while they were starting.

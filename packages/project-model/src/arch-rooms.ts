@@ -34,6 +34,9 @@
  *
  * Pure and deterministic (plain arithmetic), like the rest of the generator.
  */
+import { buildingFloorPlan, floorPlanOutlines, propElement } from './arch-building-plan';
+import { furnishLights, furnishRoom, type FurnishedLight, type FurnishedProp, type FurnishOpening, type FurnishRoom } from './arch-furnish';
+import { pointInPolygon } from './arch-mesh';
 import { pathPointAt, samplePath } from './arch-path';
 import {
   architectureProfileName,
@@ -49,6 +52,7 @@ import {
   type ResolvedArchitecturePreset,
 } from './arch-style';
 import {
+  ARCHITECTURE_DOOR_SILL_MAX,
   ARCHITECTURE_ROOF_OVERHANG_DEFAULT,
   ARCHITECTURE_ROOF_SLOT_DEFAULT,
   ARCHITECTURE_STAIR_RISER,
@@ -104,6 +108,8 @@ interface Styled {
   /** The building it is (null: a room or a run), and what of it this object makes. */
   building: ArchitectureBuilding | null;
   part: BuildingPart;
+  /** The building it is a room of (its program's, or naming it), whose part it takes. */
+  parent: Styled | null;
 }
 
 /** A stretch of a room's outline another room's runs along too. */
@@ -115,6 +121,8 @@ interface Span {
   owner: boolean;
   /** The same stretch along the other room. */
   twin: Span | null;
+  /** Both rooms lie on one side of the wall (a building and a room of it). */
+  same: boolean;
 }
 
 /** One storey of a room (or a run): the outline as evaluated. */
@@ -131,6 +139,8 @@ interface Inst {
   openings: ArchitectureOpening[];
   /** Openings of rooms beside it on shared stretches (along this outline). */
   extra: ArchitectureOpening[];
+  /** Of those, its building's (doors and windows in the building's walls): this room's own holes to the outside. */
+  parentExtra: ArchitectureOpening[];
   spans: Span[];
   elements: ArchitectureElement[];
   wall: ArchitectureSweep | null;
@@ -211,8 +221,8 @@ function pointAlong(poly: readonly (readonly number[])[], dist: readonly number[
 }
 
 /** Where two rooms' outlines run along one line: the stretches along each (distances), or none. */
-function sharedStretches(A: Inst, B: Inst): { a: [number, number]; b: [number, number] }[] {
-  const out: { a: [number, number]; b: [number, number] }[] = [];
+function sharedStretches(A: Inst, B: Inst): { a: [number, number]; b: [number, number]; same: boolean }[] {
+  const out: { a: [number, number]; b: [number, number]; same: boolean }[] = [];
   const pa = A.poly!;
   const pb = B.poly!;
   for (let i = 0; i < pa.length; i++) {
@@ -241,7 +251,8 @@ function sharedStretches(A: Inst, B: Inst): { a: [number, number]; b: [number, n
       const tb = (t: number): number => (t1 > t0 ? t - t0 : t0 - t);
       const sb0 = tb(lo);
       const sb1 = tb(hi);
-      out.push({ a: [A.dist[i]! + lo, A.dist[i]! + hi], b: [B.dist[j]! + Math.max(0, Math.min(lb, Math.min(sb0, sb1))), B.dist[j]! + Math.max(0, Math.min(lb, Math.max(sb0, sb1)))] });
+      // Rooms either side of a wall walk it opposite ways (each keeps its inside on its right); one inside the other, the same way.
+      out.push({ a: [A.dist[i]! + lo, A.dist[i]! + hi], b: [B.dist[j]! + Math.max(0, Math.min(lb, Math.min(sb0, sb1))), B.dist[j]! + Math.max(0, Math.min(lb, Math.max(sb0, sb1)))], same: t1 > t0 });
     }
   }
   return out;
@@ -260,8 +271,12 @@ function faceRows(def: ArchitectureProfile, side: 1 | -1): { y0: number; y1: num
   return out;
 }
 
-/** A wall profile's slots with its outer (left) faces wearing the rows another's inner (right) faces wear at their heights. */
-function slotsFacing(def: ArchitectureProfile, other: ArchitectureProfile): string[] | null {
+/**
+ * A wall profile's slots with its outer (left) faces — or, for a room inside
+ * the wall's own room (`side` 1), its inner faces — wearing the rows
+ * another's inner (right) faces wear at their heights.
+ */
+function slotsFacing(def: ArchitectureProfile, other: ArchitectureProfile, side: 1 | -1 = -1): string[] | null {
   const rows = faceRows(other, 1);
   if (rows.length === 0) return null;
   const n = def.points.length;
@@ -271,7 +286,7 @@ function slotsFacing(def: ArchitectureProfile, other: ArchitectureProfile): stri
   for (let k = 0; k < segs; k++) {
     const a = def.points[k]!;
     const b = def.points[(k + 1) % n]!;
-    if (!(a[0] < -EPS && b[0] < -EPS)) continue;
+    if (!(a[0] * side > EPS && b[0] * side > EPS)) continue;
     const ym = (a[1] + b[1]) / 2;
     let best = rows[0]!;
     let bestD = Infinity;
@@ -391,6 +406,7 @@ export function expandArchitecture(c: ArchitectureComponent, origin: readonly nu
 
   // The outlines and their presets.
   const styled: Styled[] = [];
+  const buildingStyled = new Map<string, Styled>();
   outlines.forEach((o, index) => {
     const own = resolve(o, o.preset);
     if (own === null) return;
@@ -398,8 +414,48 @@ export function expandArchitecture(c: ArchitectureComponent, origin: readonly nu
     const outside = room && o.outside !== undefined ? resolve(o, o.outside) : null;
     const building = ownBuildings.has(o) ? (o as ArchitectureBuilding) : null;
     const part: BuildingPart = building === null ? 'whole' : c.interiorOf !== undefined ? 'interior' : building.interior !== undefined ? 'exterior' : 'whole';
-    styled.push({ o, index, r: own.r, value: own.value, outside, building, part });
+    const st: Styled = { o, index, r: own.r, value: own.value, outside, building, part, parent: null };
+    styled.push(st);
+    if (building !== null) buildingStyled.set(building.id, st);
   });
+  // A storey's rise: its height, else the walls' top on the ground storey.
+  const rises = new Map<Styled, number>();
+  const storeyRise = (s: Styled): number => {
+    let h = rises.get(s);
+    if (h === undefined) {
+      h = s.o.storeyHeight ?? 0;
+      if (h <= 0) h = wallTop(evaluate(s, { ...s.o, openings: [] }), s.o.path, profiles) ?? ARCHITECTURE_STOREY_HEIGHT_FALLBACK;
+      rises.set(s, h);
+    }
+    return h;
+  };
+  // Rooms of buildings: those stored naming their building (a locked plan), else those its program splits the footprint into.
+  const locked = new Set<string>();
+  const planRooms: ArchitectureOutline[] = [];
+  for (const s of styled) {
+    const B = s.building === null && s.o.building !== undefined ? buildingStyled.get(s.o.building) : undefined;
+    if (B === undefined) continue;
+    s.parent = B;
+    s.part = B.part;
+    locked.add(B.o.id);
+  }
+  for (const B of [...buildingStyled.values()]) {
+    const b = B.building!;
+    if (b.program === undefined || locked.has(b.id)) continue;
+    const program = table.programs.get(b.program);
+    if (program === undefined) {
+      problems.push(`building ${b.id}: room program "${b.program}" is not in the project`);
+      continue;
+    }
+    const rise = (b.storeys ?? 1) > 1 ? storeyRise(B) : 0;
+    const plan = buildingFloorPlan(b, program, rise);
+    problems.push(...plan.problems);
+    for (const o of floorPlanOutlines(b, plan, rise)) {
+      planRooms.push(o);
+      const own = resolve(o, o.preset);
+      if (own !== null) styled.push({ o, index: styled.length, r: own.r, value: own.value, outside: null, building: null, part: B.part, parent: B });
+    }
+  }
 
   // Storeys: each room's outline raised by its storey height once per storey.
   const insts: Inst[] = [];
@@ -407,17 +463,22 @@ export function expandArchitecture(c: ArchitectureComponent, origin: readonly nu
   for (const s of styled) {
     const room = s.o.path.closed === true && s.o.path.points.length >= 3;
     const storeys = room ? (s.o.storeys ?? 1) : 1;
-    let height = s.o.storeyHeight ?? 0;
-    if (storeys > 1 && height <= 0) {
-      // The walls' top on the ground storey: what a storey rises when the outline names no height.
-      height = wallTop(evaluate(s, { ...s.o, openings: [] }), s.o.path, profiles) ?? ARCHITECTURE_STOREY_HEIGHT_FALLBACK;
-    }
+    const height = storeys > 1 ? storeyRise(s) : 0;
     for (let k = 0; k < storeys; k++) {
       const path = raised(s.o.path, r6(k * height));
       const poly = room ? straightPolygon(path) : null;
       const openings = (s.o.openings ?? []).filter((o) => (o.storey ?? 0) === k).map(({ storey: _s, ...rest }) => rest);
-      insts.push({ s, storey: k, id: k === 0 ? s.o.id : `${s.o.id}-s${k}`, path, base: path.points[0]![1], poly, dist: poly !== null ? cumulative(poly, true) : [], openings, extra: [], spans: [], elements: [], wall: null, half: 0 });
+      insts.push({ s, storey: k, id: k === 0 ? s.o.id : `${s.o.id}-s${k}`, path, base: path.points[0]![1], poly, dist: poly !== null ? cumulative(poly, true) : [], openings, extra: [], parentExtra: [], spans: [], elements: [], wall: null, half: 0 });
     }
+  }
+  const instsOf = new Map<Styled, Inst[]>();
+  for (const X of insts) instsOf.set(X.s, [...(instsOf.get(X.s) ?? []), X]);
+  // The storeys of buildings their rooms fill: there the building makes only its walls.
+  const planned = new Set<Inst>();
+  for (const X of insts) {
+    if (X.s.parent === null) continue;
+    const P = (instsOf.get(X.s.parent) ?? []).find((i) => Math.abs(i.base - X.base) < EPS);
+    if (P !== undefined) planned.add(P);
   }
 
   // Shared walls: rooms running along one line at one height (the room listed first makes the wall).
@@ -428,20 +489,33 @@ export function expandArchitecture(c: ArchitectureComponent, origin: readonly nu
     for (const q of i.poly!) [x0, z0, x1, z1] = [Math.min(x0, q[0]), Math.min(z0, q[2]), Math.max(x1, q[0]), Math.max(z1, q[2])];
     return [x0 - EPS, z0 - EPS, x1 + EPS, z1 + EPS];
   });
-  for (let x = 0; x < roomsInsts.length; x++) {
-    for (let y = x + 1; y < roomsInsts.length; y++) {
-      const A = roomsInsts[x]!;
-      const B = roomsInsts[y]!;
-      const [ba, bb] = [boxes[x]!, boxes[y]!];
-      if (ba[0]! > bb[2]! || bb[0]! > ba[2]! || ba[1]! > bb[3]! || bb[1]! > ba[3]!) continue;
-      if (A.s === B.s || Math.abs(A.base - B.base) > EPS) continue;
-      for (const st of sharedStretches(A, B)) {
-        const sa: Span = { a: st.a[0], b: st.a[1], other: B, owner: true, twin: null };
-        const sb: Span = { a: st.b[0], b: st.b[1], other: A, owner: false, twin: sa };
-        sa.twin = sb;
-        A.spans.push(sa);
-        B.spans.push(sb);
-      }
+  // The pairs whose boxes touch, found by a sweep along x (buildings split into rooms make hundreds), in list order.
+  const byX = roomsInsts.map((_r, i) => i).sort((p, q) => boxes[p]![0]! - boxes[q]![0]! || p - q);
+  const pairs: [number, number][] = [];
+  for (let k = 0; k < byX.length; k++) {
+    const i = byX[k]!;
+    const bi = boxes[i]!;
+    for (let m = k + 1; m < byX.length && boxes[byX[m]!]![0]! <= bi[2]!; m++) {
+      const j = byX[m]!;
+      const bj = boxes[j]!;
+      if (bi[1]! > bj[3]! || bj[1]! > bi[3]!) continue;
+      pairs.push(i < j ? [i, j] : [j, i]);
+    }
+  }
+  pairs.sort((p, q) => p[0] - q[0] || p[1] - q[1]);
+  for (const [x, y] of pairs) {
+    const A = roomsInsts[x]!;
+    const B = roomsInsts[y]!;
+    if (A.s === B.s || Math.abs(A.base - B.base) > EPS) continue;
+    for (const st of sharedStretches(A, B)) {
+      // A building makes the walls on its footprint for the rooms inside it, wherever they are listed.
+      const flip = st.same && A.s.parent === B.s;
+      const [O, N, so, sn] = flip ? [B, A, st.b, st.a] : [A, B, st.a, st.b];
+      const sa: Span = { a: so[0], b: so[1], other: N, owner: true, twin: null, same: st.same };
+      const sb: Span = { a: sn[0], b: sn[1], other: O, owner: false, twin: sa, same: st.same };
+      sa.twin = sb;
+      O.spans.push(sa);
+      N.spans.push(sb);
     }
   }
   // A door either room puts on a shared stretch is both rooms': cut into both rooms' trims, framed both sides.
@@ -464,7 +538,10 @@ export function expandArchitecture(c: ArchitectureComponent, origin: readonly nu
         const start = pointAlong(X.poly!, X.dist, true, sp.a);
         const at = r6(sp.a + Math.sqrt(sq(p[0] - start[0]) + sq(p[2] - start[2])));
         const dup = X.openings.some((q) => Math.abs(q.at - at) < (q.width + o.width) / 2 && q.bottom < o.top && o.bottom < q.top);
-        if (!dup && at <= LX) X.extra.push(both({ ...o, id: `${Y.s.o.id}-${o.id}`.slice(0, 64), at }));
+        if (dup || at > LX) continue;
+        const made = both({ ...o, id: `${Y.s.o.id}-${o.id}`.slice(0, 64), at });
+        X.extra.push(made);
+        if (Y.s === X.s.parent) X.parentExtra.push(made);
       }
     }
   }
@@ -488,19 +565,28 @@ export function expandArchitecture(c: ArchitectureComponent, origin: readonly nu
     if (X.s.o.path.closed !== true || X.s.o.path.points.length < 3) continue;
     const top = wallTop(X.elements, X.path, profiles) ?? (X.s.o.storeyHeight ?? ARCHITECTURE_STOREY_HEIGHT_FALLBACK);
     const ceil = r6(X.base + top);
-    const plan: ArchitectureRoomPlan = { id: X.id, outline: X.s.o.id, storey: X.storey, points: X.s.o.path.points.map((q) => [q[0], q[2]] as [number, number]), floor: X.base, top: ceil, openings: roomOpenings(X, ceil), covered: hasFill(X, (y, up) => !up || y > X.base + 0.5), holes: [] };
-    rooms.push(plan);
+    const type = X.s.o.roomType;
+    const plan: ArchitectureRoomPlan = { id: X.id, outline: X.s.o.id, storey: X.storey, ...(type !== undefined ? { type } : {}), points: X.s.o.path.points.map((q) => [q[0], q[2]] as [number, number]), floor: X.base, top: ceil, openings: roomOpenings(X, ceil, [...X.openings, ...X.parentExtra]), covered: hasFill(X, (y, up) => !up || y > X.base + 0.5), holes: [] };
+    // A building storey its rooms fill is no room of its own: they are.
+    if (!planned.has(X)) rooms.push(plan);
     planOf.set(X, plan);
   }
   // A storey's floor covers the storey below it; a building's roof covers its top storey.
   for (const X of insts) {
     const plan = planOf.get(X);
     if (plan === undefined || plan.covered) continue;
+    // A building's room: under the building's next storey, or its roof.
+    const P = X.s.parent;
+    if (P !== null) {
+      const top = (instsOf.get(P) ?? []).reduce((m, i) => Math.max(m, i.base), -Infinity);
+      plan.covered = X.base < top - EPS || (P.building?.roof !== undefined && P.part !== 'interior');
+      continue;
+    }
     if (X.s.building?.roof !== undefined && X.s.part !== 'interior' && X.storey === (X.s.o.storeys ?? 1) - 1) {
       plan.covered = true;
       continue;
     }
-    const above = insts.find((i) => i.s === X.s && i.storey === X.storey + 1);
+    const above = (instsOf.get(X.s) ?? []).find((i) => i.storey === X.storey + 1);
     if (above !== undefined && hasFill(above, (y, up) => up && Math.abs(y - above.base) < 0.5)) plan.covered = true;
   }
 
@@ -509,8 +595,10 @@ export function expandArchitecture(c: ArchitectureComponent, origin: readonly nu
   /** Stairs of buildings whose interiors are scenes of their own: made there, not in the exterior. */
   const exteriorOnly = new Set<ArchitectureElement>();
   const holesOf = new Map<Inst, ArchitecturePath[]>();
+  /** The stairs made: whose they are, foot, head and footprint (rooms keep them free of props). */
+  const flights: { s: Styled; foot: number[]; head: number[]; footprint: [number, number][] }[] = [];
   for (const s of styled) {
-    const mine = insts.filter((i) => i.s === s && i.poly !== null);
+    const mine = (instsOf.get(s) ?? []).filter((i) => i.poly !== null);
     for (const h of s.o.holes ?? []) {
       const at = mine.find((i) => i.storey === (h.storey ?? 0));
       if (at !== undefined) holesOf.set(at, [...(holesOf.get(at) ?? []), { ...h.path, closed: true }]);
@@ -525,6 +613,7 @@ export function expandArchitecture(c: ArchitectureComponent, origin: readonly nu
       profiles[name] ??= made.profile;
       const stair: ArchitectureElement = { ...made.element, profile: name };
       stairs.push(stair);
+      flights.push({ s, foot: made.foot, head: made.head, footprint: made.footprint });
       if (s.part === 'exterior') exteriorOnly.add(stair);
       for (const i of mine) {
         const floor = i.base;
@@ -537,6 +626,35 @@ export function expandArchitecture(c: ArchitectureComponent, origin: readonly nu
     i.elements = i.elements.map((e) => (e.kind === 'fill' && e.shape === 'flat' && (e.face ?? 'up') === 'up' ? ({ ...e, holes: [...(e.holes ?? []), ...holes] } as ArchitectureFill) : e));
     const plan = planOf.get(i);
     if (plan !== undefined) plan.holes = holes.map((h) => h.points.map((q) => [q[0], q[2]] as [number, number]));
+  }
+
+  // Buildings' furnishing: props and lights in their rooms, pinned props where they were pinned.
+  const props: FurnishedProp[] = [];
+  const lights: FurnishedLight[] = [];
+  for (const B of buildingStyled.values()) {
+    const b = B.building!;
+    const pins = b.pins ?? [];
+    if (B.part === 'exterior' || (b.furnishing === undefined && pins.length === 0)) continue;
+    const set = b.furnishing !== undefined ? (table.furnishings.get(b.furnishing) ?? null) : null;
+    if (b.furnishing !== undefined && set === null) problems.push(`building ${b.id}: furnishing set "${b.furnishing}" is not in the project`);
+    const placedPins = new Set<string>();
+    const furnished: FurnishRoom[] = [];
+    const first = props.length;
+    for (const X of insts) {
+      const plan = planOf.get(X);
+      if (X.s.parent !== B || X.poly === null || plan === undefined) continue;
+      const room = furnishRoomOf(X, plan, holesOf.get(X) ?? [], flights, c.layer !== undefined && X.storey === 0 ? ARCHITECTURE_FLOOR_ON_CELLS : 0);
+      const flat = X.poly.flatMap((q) => [q[0], q[2]]);
+      const mine = pins.filter((p) => !placedPins.has(p.id) && p.position[1] > X.base - 0.5 && p.position[1] < plan.top && pointInPolygon(p.position[0], p.position[2], flat));
+      for (const p of mine) placedPins.add(p.id);
+      if (set !== null && X.s.o.roomType !== undefined) {
+        furnished.push(room);
+        props.push(...furnishRoom(room, set, b.layoutSeed ?? 0, mine));
+      } else props.push(...mine.map((p) => pinnedProp(p, X.id)));
+    }
+    for (const p of pins) if (!placedPins.has(p.id)) props.push(pinnedProp(p, ''));
+    for (let i = first; i < props.length; i++) props[i] = { ...props[i]!, building: b.id };
+    if (set !== null) lights.push(...furnishLights(furnished, set));
   }
 
   // The outside presets' walls (their inner faces dress this room's outer faces) and trims along the open stretches.
@@ -569,7 +687,7 @@ export function expandArchitecture(c: ArchitectureComponent, origin: readonly nu
   for (const X of insts) {
     const W = X.wall;
     if (W === null) {
-      elements.push(...X.elements);
+      elements.push(...(planned.has(X) ? X.elements.filter((e) => e.kind === 'sweep' && e.wall === true) : X.elements));
       continue;
     }
     const def = profiles[W.profile];
@@ -582,13 +700,43 @@ export function expandArchitecture(c: ArchitectureComponent, origin: readonly nu
     const walls = def === undefined ? [W] : wallPieces(X, W, baseDef!, profiles);
     for (const e of X.elements) {
       if (e === W) elements.push(...walls);
+      // A storey its rooms fill: the rooms make the floors, ceilings and trims.
+      else if (planned.has(X)) continue;
       // A building's exterior keeps the inside's walls and its floors and ceilings (rooms behind the windows), not its trims.
       else if (X.s.part !== 'exterior' || e.kind === 'fill' || (e.kind === 'sweep' && e.wall === true)) elements.push(e);
     }
   }
-  elements.push(...stairs.filter((e) => !exteriorOnly.has(e)), ...exterior, ...roofs(styled, insts, planOf));
+  elements.push(...stairs.filter((e) => !exteriorOnly.has(e)), ...exterior, ...roofs(styled, insts, planOf), ...props.map(propElement));
   const { outlines: _o, masks: _m, buildings: _b, interiorOf: _i, ...rest } = c;
-  return { component: { ...rest, elements, profiles, ...(paint !== null ? { paint } : {}) }, materials, problems: [...new Set(problems)], presets, rooms };
+  return { component: { ...rest, elements, profiles, ...(paint !== null ? { paint } : {}) }, materials, problems: [...new Set(problems)], presets, rooms, ...(props.length > 0 ? { props } : {}), ...(lights.length > 0 ? { lights } : {}), ...(planRooms.length > 0 ? { planRooms } : {}) };
+}
+
+/** A pinned prop as placed (standing in `room`, "" for none). */
+function pinnedProp(p: NonNullable<ArchitectureBuilding['pins']>[number], room: string): FurnishedProp {
+  return { id: p.id, room, model: p.model, position: p.position, facing: p.facing, size: p.size ?? [0.5, 0.5], pinned: true };
+}
+
+/** A building's room storey as the furnishing reads it: its walls' inner faces, doors and windows, stairs and holes. */
+function furnishRoomOf(X: Inst, plan: ArchitectureRoomPlan, holes: readonly ArchitecturePath[], flights: readonly { s: Styled; foot: number[]; head: number[]; footprint: [number, number][] }[], raise: number): FurnishRoom {
+  const poly = X.poly!;
+  const openings: FurnishOpening[] = [...X.openings, ...X.extra].map((o) => {
+    const p = pointAlong(poly, X.dist, true, o.at);
+    return { at: [p[0], p[2]], width: o.width, sill: o.bottom, door: o.bottom <= ARCHITECTURE_DOOR_SILL_MAX };
+  });
+  const obstacles: [number, number][][] = holes.map((h) => h.points.map((q) => [q[0], q[2]] as [number, number]));
+  const anchors: [number, number][] = [];
+  for (const f of flights) {
+    if (f.s !== X.s) continue;
+    const dx = f.head[0]! - f.foot[0]!;
+    const dz = f.head[2]! - f.foot[2]!;
+    const l = Math.sqrt(dx * dx + dz * dz) || 1;
+    // The way onto a flight starting here, and off one arriving here (its landing).
+    if (Math.abs(f.foot[1]! - X.base) < 0.05) {
+      obstacles.push(f.footprint);
+      anchors.push([f.foot[0]! - (dx / l) * 0.5, f.foot[2]! - (dz / l) * 0.5]);
+    } else if (Math.abs(f.head[1]! - X.base) < 0.05) anchors.push([f.head[0]! + (dx / l) * 0.5, f.head[2]! + (dz / l) * 0.5]);
+  }
+  return { id: X.id, type: X.s.o.roomType ?? '', points: poly.map((q) => [q[0], q[2]] as [number, number]), half: X.half, floor: r6(X.base + raise), top: plan.top, openings, obstacles, anchors };
 }
 
 /**
@@ -638,13 +786,13 @@ function wallTop(elements: readonly ArchitectureElement[], outline: Architecture
  * of the outline (its ends on the ground) and its sill and head, kept
  * between the room's floor and the top of its walls.
  */
-function roomOpenings(X: Inst, top: number): ArchitectureRoomOpening[] {
-  if (X.openings.length === 0) return [];
+function roomOpenings(X: Inst, top: number, list: readonly ArchitectureOpening[]): ArchitectureRoomOpening[] {
+  if (list.length === 0) return [];
   const s = samplePath(X.path);
   const p: number[] = [0, 0, 0];
   const t: number[] = [0, 0, 0];
   const out: ArchitectureRoomOpening[] = [];
-  for (const o of X.openings) {
+  for (const o of list) {
     const bottom = Math.max(X.base, X.base + o.bottom);
     const head = Math.min(top, X.base + o.top);
     if (head <= bottom || o.width <= 0) continue;
@@ -747,7 +895,7 @@ function wallPieces(X: Inst, W: ArchitectureSweep, def: ArchitectureProfile, pro
   // The rows facing each room this wall is made for.
   const facing = owned.map((sp) => {
     const otherDef = sp.other.wall !== null ? profiles[sp.other.wall.profile] : undefined;
-    const slots = otherDef !== undefined ? slotsFacing(def, otherDef) : null;
+    const slots = otherDef !== undefined ? slotsFacing(def, otherDef, sp.same ? 1 : -1) : null;
     // Rows the wall wears anyway need no list of their own.
     return { sp, slots: slots !== null && slots.some((x, i) => x !== def.slots[i]) ? slots : null };
   });

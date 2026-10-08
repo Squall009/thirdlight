@@ -42,7 +42,7 @@ import { editorRendererChoice, setEditorRendererChoice } from '../viewport/rende
 import type { EffectComponent, MaterialDef } from '@thirdlight/project-model';
 import { lodTuningOf, renderSettingsOf } from '@thirdlight/project-model/limits';
 import { withSlotTextureKeys } from '../session/texture-slots';
-import { ARCHITECTURE_PRESET_KIND, ARCHITECTURE_STYLE_KIND, viewLensOf } from '@thirdlight/runtime';
+import { architectureGraphsOf, architectureStylesOf, viewLensOf, type ArchitectureStyles } from '@thirdlight/runtime';
 import { Hierarchy, type SceneAction, type SceneHeaderView } from './Hierarchy';
 import { Toolbar } from './Toolbar';
 import { StatusBar } from './StatusBar';
@@ -79,7 +79,7 @@ import type { ProjectItem } from '../session/project-items';
 import { useAssetActions } from './shell/useAssetActions';
 import { useLightingBake } from './shell/useLightingBake';
 import { useScripting } from './shell/useScripting';
-import { withSceneViewInteriors } from '../session/building-interiors';
+import { withSceneViewInteriors, withSceneViewLights } from '../session/building-interiors';
 import { useAnimatorTools } from './shell/useAnimatorTools';
 import { editorMenus, hierarchyContextMenu } from './shell/menus';
 import { BottomDock } from './shell/BottomDock';
@@ -98,9 +98,14 @@ function firstOfKinds(c: SessionClient | null, kinds: readonly string[]): string
   return c?.catalog.firstOf(kinds);
 }
 
-/** What the Scene view draws: the open scenes' objects and the interiors buildings make into them. */
+/** The architecture graphs' table of the Scene view, made again only when the project's graphs change. */
+let sceneTable: { graphs: readonly unknown[]; table: ArchitectureStyles } | null = null;
+
+/** What the Scene view draws: the open scenes' objects, the interiors buildings make into them and their furnishing lights. */
 function sceneViewEntities(c: SessionClient, visible: readonly ProjectedEntity[] = c.visibleEntities()): ProjectedEntity[] {
-  return withSceneViewInteriors(visible, c.projection.listEntities(), new Set(c.getSceneView().open)) as ProjectedEntity[];
+  const graphs = c.getGraphs();
+  if (sceneTable?.graphs !== graphs) sceneTable = { graphs, table: architectureStylesOf(architectureGraphsOf(graphs)) };
+  return withSceneViewLights(withSceneViewInteriors(visible, c.projection.listEntities(), new Set(c.getSceneView().open)), sceneTable.table) as ProjectedEntity[];
 }
 
 /** The pickers' option per projected entity object (see fieldContextBase). */
@@ -280,8 +285,8 @@ function EditorApp(): JSX.Element {
       // A material that animates (wind, water) keeps the Scene view drawing from this frame on.
       viewportRef.current?.requestRender();
     }
-    // Generated architecture's styles and presets: outlines are made again where their elements changed.
-    const archGraphs = c.getGraphs().filter((g) => g.kind === ARCHITECTURE_STYLE_KIND || g.kind === ARCHITECTURE_PRESET_KIND);
+    // Generated architecture's styles, presets, room programs and furnishing sets: outlines are made again where their elements changed.
+    const archGraphs = architectureGraphsOf(c.getGraphs());
     const archKey = JSON.stringify(archGraphs);
     if (archKey !== architectureKeyRef.current) {
       architectureKeyRef.current = archKey;

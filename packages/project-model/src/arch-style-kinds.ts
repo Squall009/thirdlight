@@ -19,7 +19,7 @@
  *
  * `arch-style.ts` evaluates them.
  */
-import type { GraphFieldDef, GraphKindDef, GraphNodeDef, GraphPortDef } from './graph';
+import type { GraphFieldDef, GraphKindDef, GraphNode, GraphNodeDef, GraphPortDef, GraphValue } from './graph';
 import { ARCHITECTURE_FILL_SHAPES, ARCHITECTURE_LIMITS } from './architecture';
 
 export const ARCHITECTURE_STYLE_KIND = 'architecture-style';
@@ -29,6 +29,25 @@ export const ARCHITECTURE_PRESET_KIND = 'architecture-preset';
 export const ARCHITECTURE_GRAPH_NODES = 512;
 
 const L = ARCHITECTURE_LIMITS;
+
+/** A node's field value: its data's, else the field's default in the kind. */
+export function graphFieldOf(kind: GraphKindDef, node: GraphNode, key: string): GraphValue | undefined {
+  const v = node.data?.[key];
+  if (v !== undefined) return v;
+  return kind.nodes.find((d) => d.type === node.type)?.fields?.find((f) => f.key === key)?.default;
+}
+/** A text field ("" when not text). */
+export const graphStr = (kind: GraphKindDef, n: GraphNode, key: string): string => {
+  const v = graphFieldOf(kind, n, key);
+  return typeof v === 'string' ? v : '';
+};
+/** A number field (0 when not a finite number). */
+export const graphNum = (kind: GraphKindDef, n: GraphNode, key: string): number => {
+  const v = graphFieldOf(kind, n, key);
+  return typeof v === 'number' && Number.isFinite(v) ? v : 0;
+};
+/** A true/false field (false when not one). */
+export const graphBool = (kind: GraphKindDef, n: GraphNode, key: string): boolean => graphFieldOf(kind, n, key) === true;
 /** A field naming an id (or "" for none). */
 const ID_OR_EMPTY = '|[a-z0-9][a-z0-9_-]{0,63}';
 const ID_PATTERN = '[a-z0-9][a-z0-9_-]{0,63}';

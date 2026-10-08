@@ -1457,6 +1457,7 @@ export {
   type ArchitectureInteriorOf,
   type ArchitectureRoof,
   type ArchitectureRoofShape,
+  type ArchitecturePin,
 } from './architecture';
 // Buildings whose interiors are scenes of their own: the interior made there, the doors' links.
 export { architectureDoorLinks, buildingInteriorEntity, buildingInteriorId, isBuildingDoor, withBuildingInteriors, type ArchitectureDoorLink, type ArchitectureDoorSide, type BuildingSourceEntity } from './arch-buildings';
@@ -1489,6 +1490,7 @@ export type { ArchMeshArrays } from './arch-mesh';
 export { ARCHITECTURE_GRAPH_NODES, ARCHITECTURE_MASK_SOURCES, ARCHITECTURE_PRESET_GRAPH_KIND, ARCHITECTURE_PRESET_KIND, ARCHITECTURE_STYLE_GRAPH_KIND, ARCHITECTURE_STYLE_KIND } from './arch-style-kinds';
 export { ARCHITECTURE_STARTER_GRAPHS, architectureGraphTemplate, type ArchitectureStarterGraph } from './arch-style-starters';
 export {
+  ARCHITECTURE_GRAPH_KINDS,
   architectureGraphsOf,
   architectureStylesOf,
   maskWeight,
@@ -1509,6 +1511,31 @@ export {
 } from './arch-style';
 // Rooms and runs (closed and open outlines): shared walls, storeys, stairs; what a block layer reads of them.
 export { ARCHITECTURE_FLOOR_ON_CELLS, ARCHITECTURE_STAIR_SLOTS, ARCHITECTURE_STOREY_HEIGHT_FALLBACK, expandArchitecture, reversedPath } from './arch-rooms';
+// Floor plans and furnishing: room programs and furnishing sets (games' graphs), the splitter and the placer.
+export {
+  FLOOR_PLAN_COUNT_MAX,
+  FLOOR_PLAN_GRAPH_NODES,
+  FURNISHING_SET_GRAPH_KIND,
+  FURNISHING_SET_KIND,
+  PROP_PLACES,
+  ROOM_PROGRAM_GRAPH_KIND,
+  ROOM_PROGRAM_KIND,
+  ROOM_STOREYS,
+  floorPlanGraphTemplate,
+  furnishingSetDef,
+  roomProgramDef,
+  type FurnishingLightDef,
+  type FurnishingPropDef,
+  type FurnishingSetDef,
+  type PropPlace,
+  type RoomProgramDef,
+  type RoomStoreys,
+  type RoomTypeDef,
+} from './arch-plan-kinds';
+export { FLOOR_PLAN_TRIES, footprintZones, splitFloorPlan, type FloorPlan, type FloorPlanDoor, type FloorPlanInput, type FloorPlanRoom, type FloorPlanStair, type PlanRect } from './arch-floor-plan';
+export { FURNISH_CELL, furnishLights, furnishRoom, facingDir, facingOf, type FurnishedLight, type FurnishedProp, type FurnishOpening, type FurnishPin, type FurnishRoom } from './arch-furnish';
+export { buildingFloorPlan, buildingFrontDoors, floorPlanOutlines, propElement } from './arch-building-plan';
+export { furnishingLightEntity, furnishingLightId, furnishingLightsOf, withFurnishingLights, type LightSourceEntity } from './arch-lights';
 export { architecturePaintOf, architectureRoomRegions, architectureWallEdges } from './arch-room-grid';
 export { buildRoomGraph, portalDistance, portalRect, RoomGraph, roomVisibility, ROOM_OUTSIDE, walkRooms, type GraphPortal, type GraphPortalKind, type GraphRoom, type RoomGraphObject, type RoomVisibility, type ViewProjection } from './arch-portals';
 export { chunkLightmapLayout, type ChunkLightmapLayout } from './block-lightmap';

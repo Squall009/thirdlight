@@ -9,6 +9,7 @@
  */
 import type { GraphData, GraphEdge, GraphNode, GraphValue } from './graph';
 import { ARCHITECTURE_PRESET_KIND, ARCHITECTURE_STYLE_KIND } from './arch-style-kinds';
+import { floorPlanGraphTemplate } from './arch-plan-kinds';
 
 export interface ArchitectureStarterGraph {
   graphId: string;
@@ -199,8 +200,10 @@ export const ARCHITECTURE_STARTER_GRAPHS: readonly ArchitectureStarterGraph[] = 
   { graphId: 'starter-pipe', kind: ARCHITECTURE_PRESET_KIND, name: 'Pipe (starter)', graph: preset('starter-pipe-style', '') },
 ]);
 
-/** What a new style or preset graph starts as: a style with its Outline and Output; a preset deriving from the starter room. */
+/** What a new style, preset, program or furnishing graph starts as: a style with its Outline and Output; a preset deriving from the starter room; a program or set with its head node. */
 export function architectureGraphTemplate(kind: string): GraphData {
+  const plan = floorPlanGraphTemplate(kind);
+  if (plan !== null) return plan;
   if (kind === ARCHITECTURE_STYLE_KIND) return { nodes: [{ id: 'outline', type: 'outline', position: [0, 0] }, { id: 'output', type: 'output', position: [780, 0] }], edges: [] };
   if (kind === ARCHITECTURE_PRESET_KIND) return preset('', 'starter-room');
   return { nodes: [], edges: [] };

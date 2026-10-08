@@ -5928,6 +5928,71 @@ made from the same definition, in place or in a scene of its own
   request to drawn.
 - **Measured**: see the phase plan's progress table (30.25).
 
+## Floor plans and furnishing
+
+A building's footprint can be split into rooms by a **room program** and the
+rooms furnished by a **furnishing set**, both made at load from the
+building's parameters (additive fields; nothing generated is stored).
+Programs and sets are **the game's data** — standalone graphs the project
+makes (Create → Graph → **Room program** / **Furnishing set**); the engine
+ships none.
+
+- **Room program** (graph kind `room-program`): one **Program** node —
+  **grid** (walls on it from the footprint's corner; default 1 m),
+  **smallest side** (2.4 m), **door width** / **height** (1 / 2.1 m),
+  **entrance room** (the type the front door opens into), **spare space**
+  (the type leftover parts become; default the first room's) — and a
+  **Room** node per room type: **type**, **share** of the storey's floor,
+  **count**, **storeys** (`ground`; `upper`: each storey above the ground,
+  the ground when there is none; `every`), **holds the stairs** (on every
+  storey in one place; flights along its longer side switching back storey
+  by storey) and its own **inside preset** (empty: the building's). A wire
+  between two Room nodes asks for a door between rooms of those types; every
+  room is joined to the entrance (upstairs: the stairs) by doors whether
+  wired or not. The footprint's sides must run along x and z (cell-drawn
+  ones do); others are reported in the object's problems and stay one room.
+- **Furnishing set** (graph kind `furnishing-set`): one **Furnishing**
+  node — **door clearance** (metres kept free in front of each door, both
+  sides; 1), **path width** (a walkable path this wide is kept joining each
+  room's doors and stairs; 0.8), **wall gap** (0.02) and **lights** (the
+  most one building gets, largest rooms first; 4) — **Prop** nodes (**room
+  type**, empty for any; a kit **model** and **piece**; **place**: `wall`
+  (its back to a wall, facing the room), `corner`, `centre` (facing the
+  room's first door); its footprint **width** along its X and **depth**
+  along its Z in metres (the model's pivot at its base's middle, its front
+  +Z), **height** (taller than a window's sill: not in front of it),
+  **count** and the **space round it**) and **Light** nodes (one point light
+  in each room of the type, **height** over the floor, **colour**,
+  **intensity**, **range**; no shadow).
+- **The building inspector** (Rooms tool → a building) — **room program**
+  and **furnishing set** pickers, **layout seed** and **New layout** (the
+  next seed: rooms and props laid out again), the props list with **Pin** /
+  **Unpin**: a pinned prop (`buildings[].pins [{id, model, position, facing,
+  size?}]`) stays where it is whatever is made again; the furnishing places
+  the rest around it. **Lock plan** stores the program's rooms as the
+  building's rooms (outlines with `building` and `roomType`: edited with
+  the Rooms tool like any room, furnished by type; the program no longer
+  runs); **Detach** also pins every prop; **Unlock plan** removes the stored
+  rooms.
+- **How it is made** — the rooms are room outlines inside the building: the
+  building makes its walls on the footprint once (each room's face of them
+  in the room's rows), partitions are shared walls (made once, a door cut
+  once and framed both sides), and on the storeys the rooms fill the
+  building makes only its walls (the rooms make floors, ceilings and trims).
+  Rooms are rooms everywhere else too: grid regions, portals and light
+  layers, cut-aways, with their type in `ArchitectureRoomPlan.type`. Props
+  are the generator's kit copies: one instance set per model per chunk,
+  with the model's colliders. Lights are light objects the build (Play and
+  the export) and the Scene view add as children of the building's object,
+  within the scene's budget of point and spot lights (`MAX_LOCAL_LIGHTS`,
+  16: the scene's own first) — many furnished buildings in one scene share
+  it; interiors in scenes of their own each get theirs.
+- **Generated at load, not baked**: a building's split takes about 0.08 ms
+  and its furnishing under 1 ms (see the phase plan's progress table), so
+  only the parameters ship; plans and furnished rooms are remembered while
+  their inputs stay the same (the editor's edits make only the building
+  they touch again).
+
 ## Terrain edit layers, stamps and erosion
 
 A terrain's heights are a stack of **edit layers** combined offline over the

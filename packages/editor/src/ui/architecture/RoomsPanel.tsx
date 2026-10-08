@@ -7,17 +7,19 @@
  * edge piece there, a live block if its type is one), stairs and floor
  * holes; a building's also its facade, its roof and where its interior is
  * (in place, or a scene of its own: the interior is made there and its doors
- * are linked). The rooms are one generated-architecture object on the layer
+ * are linked), its room program and furnishing set (`BuildingPlanFields`).
+ * The rooms are one generated-architecture object on the layer
  * (`architecture.layer`), made with the first room; every change is one
  * command (a new interior scene is made first, then named).
  */
 import { useEffect, useState, type JSX } from 'react';
-import type { ArchitectureBuilding, ArchitectureComponent, ArchitectureOpening, ArchitectureOutline, ArchitectureRoomPlan, BlockEdit, BlockType } from '@thirdlight/project-model';
+import type { ArchitectureBuilding, ArchitectureComponent, ArchitectureOpening, ArchitectureOutline, ArchitectureRoomPlan, BlockEdit, BlockType, FurnishedProp } from '@thirdlight/project-model';
 import { ARCHITECTURE_ROOF_SHAPES } from '@thirdlight/runtime';
 
 import { allOutlines, DEFAULT_ROOM_OPTIONS, isBuilding, openingEdges, withOutlineSet, type RoomToolMode, type RoomToolOptions } from '../../session/room-draw';
 import { edgesEdit } from '../../session/block-brush';
 import type { BlockEditor } from '../../viewport/block-editor';
+import { BuildingPlanFields } from './BuildingPlanFields';
 
 /** The rooms object of a layer as the Inspector binds it. */
 export interface RoomsBinding {
@@ -29,6 +31,12 @@ export interface RoomsBinding {
   layerOrigin: readonly number[];
   /** Each room storey's floor plan (expanded: floors and wall tops). */
   plans: readonly ArchitectureRoomPlan[];
+  /** Buildings' furnished and pinned props, and the rooms their programs made (expanded). */
+  props: readonly FurnishedProp[];
+  planRooms: readonly ArchitectureOutline[];
+  /** The project's room programs and furnishing sets: [id, name]. */
+  programs: readonly (readonly [string, string])[];
+  furnishings: readonly (readonly [string, string])[];
   /** The cell edges the rooms' walls stand on (the paint brush reaches their faces). */
   walls: ReadonlyMap<number, boolean> | null;
   /** Every preset: [id, name]. */
@@ -67,7 +75,7 @@ const MODES: readonly [RoomToolMode, string, string][] = [
   ['walls', 'Walls', 'Drag a straight wall across itself by whole cells (a shared wall moves with both rooms); click a room to pick it.'],
 ];
 
-function Num(props: { label: string; value: number | undefined; min?: number; max?: number; step?: number; placeholder?: string; onCommit: (v: number | undefined) => void }): JSX.Element {
+export function Num(props: { label: string; value: number | undefined; min?: number; max?: number; step?: number; placeholder?: string; onCommit: (v: number | undefined) => void }): JSX.Element {
   const [draft, setDraft] = useState(props.value === undefined ? '' : String(props.value));
   useEffect(() => setDraft(props.value === undefined ? '' : String(props.value)), [props.value]);
   const commit = (): void => {
@@ -98,7 +106,7 @@ function Text(props: { label: string; value: string; placeholder?: string; onCom
   );
 }
 
-function Pick(props: { label: string; value: string; options: readonly (readonly [string, string])[]; onCommit: (v: string) => void }): JSX.Element {
+export function Pick(props: { label: string; value: string; options: readonly (readonly [string, string])[]; onCommit: (v: string) => void }): JSX.Element {
   return (
     <label className="tl-field">
       <span className="tl-field__label">{props.label}</span>
@@ -219,7 +227,19 @@ export function RoomsPanel(p: Props): JSX.Element {
               />
             </>
           )}
+          {room.building !== undefined && (
+            <Text
+              label="room type"
+              value={room.roomType ?? ''}
+              placeholder="what the furnishing set reads"
+              onCommit={(v) => {
+                const { roomType: _t, ...rest } = room;
+                set(v === '' ? rest : { ...rest, roomType: v }, 'Room type');
+              }}
+            />
+          )}
           {building !== null && <BuildingFields building={building} binding={b} onSet={(next, what) => set(next, what)} />}
+          {building !== null && <BuildingPlanFields building={building} binding={b} onSet={(next, what) => set(next, what)} />}
           <div className="tl-inspector__subtitle">Openings</div>
           {p.edgeTypes.length > 0 && (
             <Pick label="door piece" value={piece} options={[['', '— none —'], ...p.edgeTypes.map((t) => [t.blockId, t.name] as const)]} onCommit={setPiece} />

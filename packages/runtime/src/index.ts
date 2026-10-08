@@ -323,6 +323,21 @@ export {
 } from '@thirdlight/project-model';
 // Buildings whose interiors are scenes of their own: their interiors made into those scenes, their doors' links.
 export { ARCHITECTURE_ROOF_SHAPES, architectureDoorLinks, buildingInteriorEntity, buildingInteriorId, withBuildingInteriors, type ArchitectureBuilding, type ArchitectureDoorLink } from '@thirdlight/project-model';
+// Floor plans and furnishing: buildings split into rooms by room programs, furnished by furnishing sets (games' graphs).
+export {
+  ARCHITECTURE_GRAPH_KINDS,
+  FURNISHING_SET_KIND,
+  PROP_PLACES,
+  ROOM_PROGRAM_KIND,
+  buildingFloorPlan,
+  floorPlanOutlines,
+  furnishingLightEntity,
+  furnishingLightsOf,
+  withFurnishingLights,
+  type ArchitecturePin,
+  type FurnishedLight,
+  type FurnishedProp,
+} from '@thirdlight/project-model';
 // Rooms and their portals: what the page draws and lights per room (rooms that cannot be seen are skipped).
 export { buildRoomGraph, portalDistance, portalRect, RoomGraph, roomVisibility, ROOM_OUTSIDE, walkRooms, type GraphPortal, type GraphPortalKind, type GraphRoom, type RoomGraphObject, type RoomVisibility, type ViewProjection } from '@thirdlight/project-model';
 export { RuntimeSplines, type BehaviorSplines, type SplineCollisionDiagnostics, type SplineNearestInfo, type SplinePose, type SplineSimData } from './splines';
