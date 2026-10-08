@@ -406,8 +406,9 @@ function planEdit(scene: SceneDocument, content: ContentDocument | undefined, ar
   // Beside splines: the tiles the edit wrote, their splines applied again (what is drawn); else the edited tiles themselves.
   const c = splines.layered ? combineEdited(splines, comp, loaded, s) : s;
   // The rules baked (with the splines' paint over them): everywhere for a bake, else around the samples whose height the edit changed.
+  // A bake of scatter rules alone bakes no material: a null set would copy the hand-made forms' weights over the rules' result.
   let rulesChanged = false;
-  const bakeSet = ruleSet ?? (splines.layered && (splines.paints || args.kind === 'bake') ? null : undefined);
+  const bakeSet = ruleSet ?? (splines.layered && splines.paints && args.kind !== 'bake' ? null : undefined);
   if (bakeSet !== undefined) {
     const written = new Map<string, TerrainTile>();
     for (const key of c.touched) written.set(key, c.all().get(key)!);

@@ -4,7 +4,8 @@
  * curve before and after) gives the same tiles as shaping everything again;
  * a sculpt beside a road edits the hand-made tile and the road holds; a
  * spline removed gives the hand-made ground back and drops the hand-made
- * forms; a block layer's cells stop the carve.
+ * forms; a block layer's cells stop the carve; a bake of scatter rules
+ * alone leaves the material the rules and the road painted.
  */
 import { describe, expect, it } from 'vitest';
 import { TerrainField, flatTerrainTile, terrainFlatStep, type BlockLayerData, type ScatterCell, type ScatterRule, type SceneV4, type SplineComponent, type TerrainComponent, type TerrainTile } from '@thirdlight/project-model';
@@ -171,6 +172,34 @@ describe('terrains shaped by splines', () => {
     s = follow(s, withSpline(s, moved), blobs).scene;
     const whole = planTerrainSplineRebake(s, GROUND, [[-100, -100, 200, 200]], readers(blobs).tile, readers(blobs).cell);
     expect(whole.ok && whole.plan).toBeNull();
+  });
+
+  it('a bake of scatter rules alone keeps the material the rules baked and the road painted (rules baked after the road)', () => {
+    const blobs: Blobs = { tiles: new Map(), cells: new Map() };
+    let scene = world(blobs);
+    // A road across, then layer 2 baked above 5 m (the rolling tops): the hand-made forms beside the drawn tiles predate the rules.
+    scene = follow(scene, withSpline(scene, ROAD_SPLINE), blobs).scene;
+    const HIGH = [{ layer: 2, height: { min: 5, fade: 0.1 } }];
+    const r0 = readers(blobs);
+    const rules = planTerrainEdit(scene, BEFORE.content, { entityId: GROUND, kind: 'bake', rules: HIGH }, r0.tile, undefined, r0.cell);
+    if (!rules.ok) throw new Error(JSON.stringify(rules.error));
+    scene = store(scene, { tiles: rules.plan.tiles, bases: rules.plan.bases ?? new Map(), scatter: new Map() }, blobs);
+    scene = { ...scene, entities: scene.entities.map((e) => (e.id === GROUND ? { ...e, components: { ...e.components, terrain: { ...terrainOf(scene), rules: HIGH } } } : e)) } as SceneV4;
+    const layersOf = (sc: SceneV4): number[] => {
+      const f = fieldOf(sc, blobs);
+      const out: number[] = [];
+      for (let z = 0; z < 32; z += 2) for (let x = 0; x < 64; x += 2) out.push(f.sample(x, z)!.layers[0]!);
+      return out;
+    };
+    const before = layersOf(scene);
+    expect(before.filter((l) => l === 2).length).toBeGreaterThan(20);
+    expect(before.filter((l) => l === 1).length).toBeGreaterThan(20);
+    // The trees baked alone: the ground's layers stay as the rules and the road left them.
+    const r1 = readers(blobs);
+    const trees = planTerrainEdit(scene, BEFORE.content, { entityId: GROUND, kind: 'bake', scatter: [TREES] }, r1.tile, undefined, r1.cell);
+    if (!trees.ok) throw new Error(JSON.stringify(trees.error));
+    const after = store(scene, { tiles: trees.plan.tiles, bases: new Map(), scatter: trees.plan.scatter }, blobs);
+    expect(layersOf(after)).toEqual(before);
   });
 
   it('a block layer\'s cells stop the carve at their border', () => {
