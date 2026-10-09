@@ -1314,3 +1314,7 @@ Against §5: whole frame (landscape) p95 11.9 / 7.3 ms ✓, main 11.5 ✓, GPU 1
     terrain answers only when nothing lies below the point.
   - Heightmap import: a new tile's samples past the image take the ground already there where they share an edge with a
     tile from before (no write outside the image's footprint), the image's edge elsewhere as before.
+- 2026-10-09: D199 checked against phase 29's end, not the parent: HEAD e6c538f2 and 6f38f3fb, each built in its own
+  worktree, `village --gate` interleaved 6 runs each in the same quarter hour: WebGPU p50 7.6–7.8 against 7.7–7.9 ms,
+  WebGL 2 4.4–4.6 against 4.4–4.6 ms. The phase adds nothing to the village's frame; the 7.8 ms is a host state (the
+  same commits read 5.5–5.7 ms in other hours, before phase 30 too). Baseline kept at 5.6 ms; not loosened.
