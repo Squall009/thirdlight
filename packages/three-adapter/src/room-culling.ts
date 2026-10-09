@@ -12,7 +12,10 @@
  *   (`ROOM_TAG_KEY`: chunks of generated walls and of the block layers rooms
  *   stand on) gets the room each vertex looks into instead (a vertex nudged
  *   along its normal; `ROOM_ATTRIBUTE`), unless all of them look into one.
- *   Instanced draws (copies spread over a level) stay in no room.
+ *   Generated architecture draws its kit copies (furniture) per room, each
+ *   draw naming a copy's foot (`ROOM_AT_KEY`), so a lamp stops at the
+ *   furniture's walls too and an unseen room's furniture is not drawn;
+ *   copies standing in a wall (doors, windows) are in no room.
  * - **Culling.** Once a drawn frame, when the view moved or a door opened or
  *   shut (a closed door piece on the cell edges across a doorway), the walk
  *   finds the rooms seen. A drawable in a room not seen, or outside while
@@ -34,6 +37,19 @@ import { HIDDEN_BY_ROOM, hideFromView } from './view-hidden';
 
 /** `mesh.userData[ROOM_TAG_KEY]`: the mesh spans rooms and takes their keys per vertex (true, or the block layer's id it belongs to). */
 export const ROOM_TAG_KEY = '__tlRoomTag';
+
+/**
+ * `mesh.userData[ROOM_AT_KEY]`: the world point (x, y, z) of the foot of a
+ * copy the draw holds, whose room is the draw's (copies drawn per room: an
+ * instanced draw's bounds can reach past its room), or null: the draw is in
+ * no room (copies standing in a wall: doors, windows).
+ */
+export const ROOM_AT_KEY = '__tlRoomAt';
+
+/** Metres over its foot a copy's room is looked up at (a foot on the floor may lie a hair below it). */
+const FOOT_LIFT = 0.1;
+/** A copy whose foot is within this of a room's wall stands in the wall (a door, a window): in no room. */
+const WALL_MARGIN = 0.15;
 
 /** The page query that leaves room culling out (`?portals=off`: a diagnostic comparison; the lights' room test stays). */
 export const PORTALS_URL_PARAM = 'portals';
@@ -59,7 +75,7 @@ export interface RoomCullingDeps {
   cutsOver?(x0: number, z0: number, x1: number, z1: number, floor: number): boolean;
   /** A drawable's room changed: its batch is made again. */
   regroup(o: THREE.Object3D): void;
-  /** Whether the page has rooms changed: point and spot lights become room-bound (or plain again). */
+  /** Whether the page has rooms changed (point and spot lights become room-bound when the first rooms arrive). */
   roomLights(on: boolean): void;
   /** Cull by rooms (false: `?portals=off`). */
   readonly culling: boolean;
@@ -151,6 +167,8 @@ export class RoomCulling implements BatchMembership {
   /** Spheres (x, y, z, r) of what moved this frame (the shadow budget redraws the maps they are in). */
   private moving: number[] = [];
   private movingFrame: number[] = [];
+  /** Whether `movers` looked at the animated drawables since the last drawn frame. */
+  private scanned = false;
   /** Where each dynamic drawable was last frame. */
   private readonly lastAt = new WeakMap<THREE.Object3D, THREE.Vector3>();
 
@@ -184,6 +202,24 @@ export class RoomCulling implements BatchMembership {
   roomBoxes(inset: number): { min: number[]; max: number[] }[] {
     if (this.dirty) this.rebuild();
     return (this.graph?.rooms ?? []).map((r) => ({ min: [r.box[0] + inset, r.floor + inset, r.box[1] + inset], max: [r.box[2] - inset, r.top - inset, r.box[3] - inset] })).filter((b) => b.max.every((v, i) => v > b.min[i]!));
+  }
+
+  /**
+   * The room a kit copy standing at a world point is in, to draw copies per
+   * room: the room's key ('' : the outside), null when it stands in a wall
+   * (within {@link WALL_MARGIN} of another room or the outside along x or
+   * z), undefined
+   * on a page without rooms.
+   */
+  copyRoomAt(x: number, y: number, z: number): string | null | undefined {
+    if (this.dirty) this.rebuild();
+    const g = this.graph;
+    if (g === null || g.rooms.length === 0) return undefined;
+    const h = y + FOOT_LIFT;
+    const i = g.roomAt(x, h, z);
+    // Stepped off its foot each way along x and z: still the same room, or the copy stands in a wall.
+    if (g.roomAt(x - WALL_MARGIN, h, z) !== i || g.roomAt(x + WALL_MARGIN, h, z) !== i || g.roomAt(x, h, z - WALL_MARGIN) !== i || g.roomAt(x, h, z + WALL_MARGIN) !== i) return null;
+    return i === ROOM_OUTSIDE ? '' : g.rooms[i]!.key;
   }
 
   /** Whether the page has rooms. */
@@ -227,17 +263,35 @@ export class RoomCulling implements BatchMembership {
 
   /** Spheres (x, y, z, r) of the drawables that moved since the last drawn frame. */
   movers(): ArrayLike<number> {
+    // The animated drawables are looked at only when asked (a page without shadowed lamps never asks).
+    if (!this.scanned) {
+      this.scanned = true;
+      for (const [o, t] of this.dynamics) {
+        if (t.kind !== 'mesh') continue;
+        const e = o.matrixWorld.elements;
+        const at = this.lastAt.get(o);
+        if (at !== undefined && at.x === e[12] && at.y === e[13] && at.z === e[14] && (o as THREE.SkinnedMesh).isSkinnedMesh !== true) continue;
+        if (at === undefined) this.lastAt.set(o, new THREE.Vector3(e[12], e[13], e[14]));
+        else at.set(e[12]!, e[13]!, e[14]!);
+        this.noteMover(o, this.moving);
+      }
+    }
     return this.moving;
   }
 
-  private noteMover(o: THREE.Object3D): void {
+  /** Spheres (x, y, z, r) of what moved outside the render graph's hearing (copies of an instance set written in place). */
+  noteMoved(spheres: ArrayLike<number>): void {
+    for (let i = 0; i < spheres.length; i++) this.movingFrame.push(spheres[i]!);
+  }
+
+  private noteMover(o: THREE.Object3D, into: number[] = this.movingFrame): void {
     const geo = (o as THREE.Mesh).geometry;
     if (geo === undefined) return;
     if (geo.boundingSphere === null) geo.computeBoundingSphere();
     const bs = geo.boundingSphere;
     if (bs === null) return;
     _v.copy(bs.center).applyMatrix4(o.matrixWorld);
-    this.movingFrame.push(_v.x, _v.y, _v.z, bs.radius * o.matrixWorld.getMaxScaleOnAxis());
+    into.push(_v.x, _v.y, _v.z, bs.radius * o.matrixWorld.getMaxScaleOnAxis());
   }
 
   dropped(o: THREE.Object3D): void {
@@ -250,18 +304,10 @@ export class RoomCulling implements BatchMembership {
   /** Once a drawn frame, after the world matrices are current: rooms rebuilt if they changed, the walk, the sweep. */
   update(camera: THREE.Camera): void {
     if (this.dirty) this.rebuild();
-    // What moved since the last frame: the parts moved with their objects (heard) and the animated ones (looked at).
-    for (const [o, t] of this.dynamics) {
-      if (t.kind !== 'mesh') continue;
-      const e = o.matrixWorld.elements;
-      const at = this.lastAt.get(o);
-      if (at !== undefined && at.x === e[12] && at.y === e[13] && at.z === e[14] && (o as THREE.SkinnedMesh).isSkinnedMesh !== true) continue;
-      if (at === undefined) this.lastAt.set(o, new THREE.Vector3(e[12], e[13], e[14]));
-      else at.set(e[12]!, e[13]!, e[14]!);
-      this.noteMover(o);
-    }
+    // What moved since the last frame: the parts moved with their objects (heard); the animated ones are looked at by `movers`.
     [this.moving, this.movingFrame] = [this.movingFrame, this.moving];
     this.movingFrame.length = 0;
+    this.scanned = false;
     const g = this.graph;
     if (g === null || g.rooms.length === 0) return;
     for (const [o, t] of this.dynamics) this.assign(o, t.kind);
@@ -366,6 +412,9 @@ export class RoomCulling implements BatchMembership {
     const e = o.matrixWorld.elements;
     if (kind === 'light') {
       [x, y, z] = [e[12]!, e[13]!, e[14]!];
+    } else if (Array.isArray(o.userData[ROOM_AT_KEY])) {
+      const at = o.userData[ROOM_AT_KEY] as readonly number[];
+      [x, y, z] = [at[0]!, at[1]! + FOOT_LIFT, at[2]!];
     } else {
       const geo = (o as THREE.Mesh).geometry;
       if (geo.boundingSphere === null) geo.computeBoundingSphere();
@@ -591,12 +640,12 @@ export class RoomCulling implements BatchMembership {
   }
 }
 
-/** What membership makes of a listed object: a mesh in one room, a spanning mesh, a light, or nothing (instanced draws, other kinds). */
+/** What membership makes of a listed object: a mesh in one room, a spanning mesh, a light, or nothing (three's instanced meshes, draws in no room, other kinds). */
 function kindOf(o: THREE.Object3D): Tracked['kind'] | null {
   const l = o as THREE.Light;
   if (l.isLight === true) return (l as THREE.PointLight).isPointLight === true || (l as THREE.SpotLight).isSpotLight === true ? 'light' : null;
   const m = o as THREE.Mesh;
-  if (m.isMesh !== true || (m as THREE.InstancedMesh).isInstancedMesh === true) return null;
+  if (m.isMesh !== true || (m as THREE.InstancedMesh).isInstancedMesh === true || m.userData[ROOM_AT_KEY] === null) return null;
   return m.userData[ROOM_TAG_KEY] !== undefined ? 'tagged' : 'mesh';
 }
 

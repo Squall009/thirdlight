@@ -89,6 +89,8 @@ export function createAdapterArchitecture(d: AdapterArchitectureDeps): AdapterAr
       rooms.setObject(id, origin, plans, layer?.blockLayer !== undefined ? { id: component.layer!, origin: at, cellSize: layer.blockLayer.cellSize } : null);
       if (layer?.blockLayer !== undefined) r.blocks().setRoomRegions(component.layer!, id, plans === null ? null : architectureRoomRegions(plans, origin.map((v, i) => v - (at[i] ?? 0)), layer.blockLayer.cellSize));
     },
+    // Kit copies (furniture) are drawn per room, so they light and cull with it.
+    copyRoomAt: (x, y, z) => rooms.copyRoomAt(x, y, z),
     cutaway: { of: (layer) => r.blocks().cutawayOf(layer), register: (layer, key, meshes) => r.blocks().registerCutaway(layer, key, meshes), drop: (layer, key) => r.blocks().dropCutaway(layer, key) },
   });
   const stopDefinitions = lib?.onDefinitions?.(() => view.restyleAll());

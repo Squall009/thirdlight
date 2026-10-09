@@ -349,6 +349,22 @@ describe('instance chunks', () => {
     expect(found).toBeGreaterThan(0);
   });
 
+  it('a copy written in place tells where its chunk was and is (a cached shadow near either is drawn again)', () => {
+    const root = new THREE.Group();
+    root.add(new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshBasicMaterial()));
+    const heard: number[][] = [];
+    const set = buildInstanceSet({ glbRoot: root } as unknown as ModelInstance, copies(5, 1), 5, 'moved', { moved: (s) => void heard.push([...s]) });
+    set.group.position.set(100, 0, 0);
+    set.group.updateMatrixWorld(true);
+    set.setCopy(4, [40, 0, 0, 0, 0, 0, 1, 1, 1, 1]);
+    expect(heard).toHaveLength(1);
+    const [before, after] = [heard[0]!.slice(0, 4), heard[0]!.slice(4, 8)];
+    const holds = (s: number[], x: number): boolean => Math.hypot(s[0]! - x, s[1]!, s[2]!) <= s[3]!;
+    // Before: the copies at x 0–4 (world 100–104); after: one of them at 40 (world 140).
+    expect(holds(before, 104) && !holds(before, 140)).toBe(true);
+    expect(holds(after, 140) && holds(after, 100)).toBe(true);
+  });
+
   it('a model without LODs keeps one instanced mesh per mesh per chunk', () => {
     const root = new THREE.Group();
     root.add(new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshBasicMaterial()));

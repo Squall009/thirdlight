@@ -54,7 +54,7 @@ import type { MeshWorkerPort } from './block-mesh-pool';
 import { splitByCutaway } from './block-cutaway-view';
 import { buildInstanceSet, type BuiltInstanceSet } from './instancing';
 import type { LodTuning } from './lod-switch';
-import { ROOM_TAG_KEY } from './room-culling';
+import { ROOM_AT_KEY, ROOM_TAG_KEY } from './room-culling';
 import { STATIC_CASTER_KEY } from './shadow-casters';
 import type { ModelInstance } from './visual';
 import { STREAM_ARRIVAL_MS } from './world-stream';
@@ -133,6 +133,12 @@ export interface ArchitectureViewDeps {
   };
   /** An object's rooms as expanded (null: it is gone or has none): the page's rooms and portals. */
   rooms?: ((id: string, origin: readonly number[], component: ArchitectureComponent, rooms: readonly ArchitectureRoomPlan[] | null) => void) | undefined;
+  /**
+   * The room a kit copy's foot (world) is in, so copies are drawn per room
+   * (room-culling.ts `copyRoomAt`: a key, '' the outside, null in a wall,
+   * undefined: no rooms on the page; absent: copies are not split).
+   */
+  copyRoomAt?: ((x: number, y: number, z: number) => string | null | undefined) | undefined;
 }
 
 interface BuiltChunk {
@@ -1013,17 +1019,21 @@ export class ArchitectureView {
     chunk.copies.forEach((s, i) => {
       const t = templates[i];
       if (t === null || t === undefined || s.transforms.length === 0) return;
-      const built = buildInstanceSet(t, s.transforms, s.transforms.length / ARCHITECTURE_COPY_FLOATS, `architecture:${id}:${ck}:${s.model.assetId}`, { chunkSize: COPY_CHUNK_METRES, ...(this.deps.tuning !== undefined ? { tuning: this.deps.tuning } : {}) });
-      for (const mesh of built.meshes) {
-        mesh.castShadow = cast;
-        mesh.receiveShadow = receive;
-        if (cast) mesh.userData[STATIC_CASTER_KEY] = true;
+      for (const part of this.copiesByRoom(rec.origin, s.transforms)) {
+        const name = `architecture:${id}:${ck}:${s.model.assetId}${part.at === undefined ? '' : `:${part.room}`}`;
+        const built = buildInstanceSet(t, part.transforms, part.transforms.length / ARCHITECTURE_COPY_FLOATS, name, { chunkSize: COPY_CHUNK_METRES, ...(this.deps.tuning !== undefined ? { tuning: this.deps.tuning } : {}) });
+        for (const mesh of built.meshes) {
+          mesh.castShadow = cast;
+          mesh.receiveShadow = receive;
+          if (cast) mesh.userData[STATIC_CASTER_KEY] = true;
+          if (part.at !== undefined) mesh.userData[ROOM_AT_KEY] = part.at;
+        }
+        const undress = this.deps.dress(built.group, s.model.assetId);
+        if (undress !== null) undo.push(undress);
+        group.add(built.group);
+        sets.push(built);
+        draws += built.meshes.length;
       }
-      const undress = this.deps.dress(built.group, s.model.assetId);
-      if (undress !== null) undo.push(undress);
-      group.add(built.group);
-      sets.push(built);
-      draws += built.meshes.length;
     });
     // The object's materials on the meshes (the first undo: a restyle replaces it).
     undo.unshift(this.deps.materials(group, id, rec.materials) ?? ((): void => undefined));
@@ -1036,6 +1046,34 @@ export class ArchitectureView {
     if (!rec.hidden) this.deps.place(group, true);
     this.deps.shapeChanged();
     this.deps.changed();
+  }
+
+  /**
+   * A copy set's copies split by the room each stands in (a draw per room
+   * lights and culls with its room; the copies keep their order within a
+   * room), each part with the foot of its first copy (null: copies in a
+   * wall, in no room). One part, unsplit, without rooms on the page.
+   */
+  private copiesByRoom(origin: readonly number[], transforms: Float32Array): { room: string; transforms: Float32Array; at?: readonly number[] | null }[] {
+    const roomOf = this.deps.copyRoomAt;
+    const n = transforms.length / ARCHITECTURE_COPY_FLOATS;
+    if (roomOf === undefined || n === 0) return [{ room: '', transforms }];
+    const parts = new Map<string, { copies: number[]; at: readonly number[] | null }>();
+    for (let i = 0; i < n; i++) {
+      const o = i * ARCHITECTURE_COPY_FLOATS;
+      const at = [transforms[o]! + origin[0]!, transforms[o + 1]! + origin[1]!, transforms[o + 2]! + origin[2]!];
+      const room = roomOf(at[0]!, at[1]!, at[2]!);
+      if (room === undefined) return [{ room: '', transforms }];
+      const key = room === null ? '\u0000' : room;
+      let p = parts.get(key);
+      if (p === undefined) parts.set(key, (p = { copies: [], at: room === null ? null : at }));
+      p.copies.push(i);
+    }
+    return [...parts].map(([room, p]) => {
+      const out = new Float32Array(p.copies.length * ARCHITECTURE_COPY_FLOATS);
+      p.copies.forEach((c, k) => out.set(transforms.subarray(c * ARCHITECTURE_COPY_FLOATS, (c + 1) * ARCHITECTURE_COPY_FLOATS), k * ARCHITECTURE_COPY_FLOATS));
+      return { room: room === '\u0000' ? 'wall' : room, transforms: out, at: p.at };
+    });
   }
 
   /** The plain surface a slot's meshes are made with (one per slot, shared: the object's material replaces it). */

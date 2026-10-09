@@ -193,7 +193,8 @@ export interface SceneLights {
   /**
    * The page has rooms (or none any more): point and spot lights are realized
    * as layered lights, whose room test (light-layers.ts) keeps them in their
-   * room. Realized again only when that changes (once, when rooms first load).
+   * room. Realized again once, when rooms first load; they stay layered when
+   * the rooms go (without a room they light everything).
    */
   setRoomLights(on: boolean): void;
   diagnostics(): LightsDiagnostics;
@@ -625,8 +626,11 @@ function releaseLight(entityId: string): void {
     },
 
     setRoomLights(on): void {
-      if (on === roomLights) return;
-      roomLights = on;
+      // Once layered, lights stay layered when the rooms go (a layered light with no room lights everything, as a
+      // plain one does): rooms streaming out, or a door swapping scenes, then rebuild no lit program, and rooms
+      // coming back find the lights as they left them.
+      if (!on || roomLights) return;
+      roomLights = true;
       const ids = [...switchable].filter(([, r]) => r.kind === 'point' || r.kind === 'spot').map(([id]) => id);
       for (const id of ids) {
         const l = (realizedFrom.get(id)?.components as { light?: LightLike } | undefined)?.light;

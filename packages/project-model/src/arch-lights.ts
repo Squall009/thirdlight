@@ -10,7 +10,8 @@
  * - The scene's budget of point and spot lights (`MAX_LOCAL_LIGHTS`) holds:
  *   a scene's own lights first, then generated ones in object order until
  *   the budget is spent (a furnishing set's light count bounds one
- *   building's share).
+ *   building's share). The lights past it are named to the caller (the
+ *   build writes them as a Problems line: their rooms stay dark).
  *
  * Pure.
  */
@@ -60,27 +61,41 @@ const isLocal = (e: { components: object }): boolean => {
   return t === 'point' || t === 'spot';
 };
 
+/** A scene's furnishing lights left out past its budget of point and spot lights (their names). */
+export interface DroppedFurnishingLights {
+  /** The scene document's `sceneId` ('' : a document without one). */
+  scene: string;
+  lights: string[];
+}
+
 /**
  * Scene documents with each one's furnishing lights added (within its
  * budget of point and spot lights). The same documents when none are made.
+ * `dropped` (when given) receives each scene's lights left out past the budget.
  */
-export function withFurnishingLights<D extends { entities: readonly LightSourceEntity[] }>(docs: readonly D[], table: ArchitectureStyles): D[] {
+export function withFurnishingLights<D extends { entities: readonly LightSourceEntity[] }>(docs: readonly D[], table: ArchitectureStyles, dropped?: DroppedFurnishingLights[]): D[] {
   let changed = false;
   const out = docs.map((d) => {
     let room = MAX_LOCAL_LIGHTS - d.entities.filter(isLocal).length;
     const ids = new Set(d.entities.map((e) => e.id));
     const added: LightSourceEntity[] = [];
+    const left: string[] = [];
     for (const e of d.entities) {
-      if (room <= 0) break;
+      // Past the budget only a caller that asks which lights are left out has the rest expanded.
+      if (room <= 0 && dropped === undefined) break;
       for (const l of furnishingLightsOf(e, table)) {
-        if (room <= 0) break;
         const made = furnishingLightEntity(e, l);
         if (ids.has(made.id)) continue;
         ids.add(made.id);
+        if (room <= 0) {
+          left.push(made.name);
+          continue;
+        }
         added.push(made);
         room--;
       }
     }
+    if (left.length > 0) dropped?.push({ scene: (d as { sceneId?: unknown }).sceneId === undefined ? '' : String((d as { sceneId?: unknown }).sceneId), lights: left });
     if (added.length === 0) return d;
     changed = true;
     return { ...d, entities: [...d.entities, ...added] } as D;

@@ -64,7 +64,7 @@
  * wall's front face through the arch, the back room through the door and a
  * fence post each show their colour.
  *
- * Rooms light and cull by room (`rooms-lighting.ts`): a lamp without a
+ * Rooms light and cull by room (`rooms-lighting.ts`, furniture too): a lamp without a
  * shadow in one room lights its floor and not the floor of the room across
  * the wall (Play and the export); a room behind a closed door is not seen
  * and its box is not drawn (Play's diagnostics, the export's canvas).
@@ -664,7 +664,7 @@ async function trimSheetChecks(page: Page, variant: RendererVariant): Promise<vo
   const rooms = await drawRooms(page, cmd, query, trimId);
   console.log(`rooms ${variant} editor: draw → visible ${rooms.timings.drawToVisible.toFixed(1)} ms; wall drag ${rooms.timings.drag.regenerations} regenerations, input → drawn ${rooms.timings.drag.median.toFixed(1)} / ${rooms.timings.drag.worst.toFixed(1)} ms, a chunk ${rooms.timings.drag.madeMedian.toFixed(2)} ms median, other objects made again ${rooms.timings.drag.others}`);
   expect(rooms.timings.drag.others).toBe(0);
-  await makeLitRooms(cmd, trimId);
+  await makeLitRooms(cmd, trimId, async (bytes, id) => void (await publishBytes(be!, bytes, 'model', id)));
   const building = await drawBuilding(page, cmd, query, trimId, (name, source, entityId) => publishScript(be!, name, source, entityId));
   const plans = await makeFloorPlans(page, cmd, query, async (bytes, id) => void (await publishBytes(be!, bytes, 'model', id)), (name, source, entityId) => publishScript(be!, name, source, entityId));
   console.log(`floor plans ${variant} editor: ${plans.editor.props} props, ${plans.editor.moved} moved by the new seed, the pinned one kept ${plans.editor.pinnedKept}`);

@@ -115,6 +115,13 @@ export interface InstanceSetOptions {
    * model's levels from there on are left out (its cull level, past it, stays).
    */
   readonly impostor?: { readonly mesh: THREE.Mesh; readonly size: number };
+  /**
+   * Copies written in place ({@link BuiltInstanceSet.setCopies}) moved: the
+   * world spheres (x, y, z, r) of the chunks they were and are in. Nothing
+   * else hears of such a move (the meshes stay where they are), so a cached
+   * shadow near them would keep showing them where they were.
+   */
+  readonly moved?: (spheres: readonly number[]) => void;
 }
 
 /** One mesh of the template: its offset in the model, and its LOD (index into `lods`, level) if it has one. */
@@ -326,6 +333,7 @@ export function beginInstanceSet(template: ModelInstance, floats: Float32Array, 
   const keep = [0, 0, 0, -1];
   const box = new THREE.Box3();
   const m = new THREE.Matrix4();
+  const worldSphere = new THREE.Sphere();
   // One mesh per level stands for its copies in the counts (of the first LOD group; the first mesh without one).
   const counted = groups.length > 0 ? parts.flatMap((p, k) => (p.lod === 0 && parts.findIndex((q) => q.lod === 0 && q.level === p.level) === k ? [k] : [])) : parts.length > 0 ? [0] : [];
   const set: BuiltInstanceSet = {
@@ -371,6 +379,18 @@ export function beginInstanceSet(template: ModelInstance, floats: Float32Array, 
         writeCopyMatrices(t, 0, c, plan.prepareParts, chunk.meshes.map((inst) => inst.array), slot, place);
         touched.set(chunk, (touched.get(chunk) ?? true) && size === 0);
       }
+      const moved = options.moved;
+      const spheres: number[] = [];
+      /** The world sphere of a chunk's first draw (its copies' bounds). */
+      const sphereOf = (chunk: Chunk): void => {
+        const inst = chunk.meshes[0];
+        const s = inst?.mesh.geometry.boundingSphere;
+        if (inst === undefined || s === null || s === undefined || s.isEmpty()) return;
+        inst.mesh.updateWorldMatrix(true, false);
+        worldSphere.copy(s).applyMatrix4(inst.mesh.matrixWorld);
+        spheres.push(worldSphere.center.x, worldSphere.center.y, worldSphere.center.z, worldSphere.radius);
+      };
+      if (moved !== undefined) for (const chunk of touched.keys()) sphereOf(chunk);
       for (const [chunk, shrunk] of touched) {
         for (const inst of chunk.meshes) {
           // Copies shrunk to nothing (hidden) leave the bounds as they are: still around every copy drawn.
@@ -383,6 +403,11 @@ export function beginInstanceSet(template: ModelInstance, floats: Float32Array, 
             inst.markChanged(keep);
           } else inst.markChanged();
         }
+      }
+      if (moved !== undefined) {
+        // The bounds before (taken above, before the refit) and after.
+        for (const chunk of touched.keys()) sphereOf(chunk);
+        if (spheres.length > 0) moved(spheres);
       }
     },
     copyOf(mesh: THREE.Object3D, instanceId: number): number | null {

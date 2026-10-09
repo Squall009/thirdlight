@@ -8,7 +8,7 @@ import { type BackendConfig } from './config';
 import { createBehaviorCompilerPort } from './content';
 import { PlayContentStore, sha256HexBytes, type PlayServed } from './play-content';
 import { buildPlayContentM3 } from './play-m3';
-import { withProjectFurnishingLights, type ClosureTextureSlots } from '@thirdlight/exporter';
+import { withProjectSceneDerivations, type ClosureTextureSlots } from '@thirdlight/exporter';
 import { SessionRegistry, type SessionRecord } from './sessions';
 import { PlayManager, type PlayRecord, type RelayOutcome, type InputRelayOutcome, type GameRelayOutcome, type GameRelayCode } from './play';
 import type { HeadlessEditors } from './headless';
@@ -370,9 +370,10 @@ export function makePlayRoutes(ctx: PlayRoutesContext) {
       // every scene for on-demand loading.
       const v4 = captured.read.scenes !== undefined;
       if (v4) snapshot.scene = captured.read.scene as RuntimeSnapshotDoc['scene'];
-      // Buildings' furnishing lights, made into the start scene as the build makes them into the scene files.
+      // Buildings' interiors and furnishing lights, made into the start scene as the build makes them into the scene files.
       type LitEntity = RuntimeSnapshotDoc['scene']['entities'][number] & { id: string; components: object };
-      snapshot.scene = { ...snapshot.scene, entities: withProjectFurnishingLights([{ entities: snapshot.scene.entities as readonly LitEntity[] }], captured.read.content)[0]!.entities };
+      const made = withProjectSceneDerivations({ entities: snapshot.scene.entities as readonly LitEntity[] }, v4 ? (captured.read.scenes as readonly { sceneId: string; entities: readonly LitEntity[] }[]) : undefined, captured.read.startScenes ?? [], captured.read.content);
+      snapshot.scene = { ...snapshot.scene, entities: made.merged.entities as RuntimeSnapshotDoc['scene']['entities'] };
       const closureTimings: Record<string, number> = {};
       const builtM3 = await buildPlayContentM3({
         service,

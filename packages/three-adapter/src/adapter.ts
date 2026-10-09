@@ -691,6 +691,8 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       holderFor: (entityId: string) => graph.nodeFor(entityId) ?? null,
       viewFor,
       lodTuning: graph.lodTuning,
+      // A copy dragged in place: the shadowed lamps near it draw their maps again.
+      copiesMoved: (spheres) => archHost.rooms.noteMoved(spheres),
       onAttached: (entityId: string, root: THREE.Object3D) => {
         // Models and instance sets cast and receive the key light's shadow (their data), in their light layers.
         applyEntityRenderFlags(root, entityDocs.get(entityId)?.components);

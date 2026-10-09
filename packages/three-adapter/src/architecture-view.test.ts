@@ -2,7 +2,8 @@
  * Generated architecture on the page: the generator workers answer byte for
  * byte what the page makes, the view draws one mesh per chunk per material
  * with its far level, and an edit keeps the old meshes until the new ones
- * are in, re-making only the chunks it touched.
+ * are in, re-making only the chunks it touched. Kit copies are drawn per
+ * room, so a lamp lights and the walk culls them with their room.
  */
 import * as THREE from 'three';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -11,6 +12,9 @@ import { architectureChunkInput, architectureChunkKeys, architectureStylesOf, en
 import { answerArchitectureJob, runArchitectureWorker, type ArchitectureJobReply } from './architecture-worker';
 import { ARCHITECTURE_CHUNK_MARK, ArchitectureView, type ArchitectureViewDeps } from './architecture-view';
 import type { MeshWorkerPort } from './block-mesh-pool';
+import { LayeredPointLight, lightsObject, ROOM_KEY } from './light-layers';
+import { RoomCulling, ROOM_AT_KEY } from './room-culling';
+import type { ModelInstance } from './visual';
 
 // A neutral test style: two rooms' walls 40 m apart (two chunks each side), a crown moulding (detail) and a floor.
 const STYLE: ArchitectureComponent = {
@@ -277,6 +281,68 @@ describe('a scene prepared ahead of its load', () => {
     expect(after.made.worker + after.made.page).toBe(made.made.worker + made.made.page);
     expect(after.chunks).toBe(architectureChunkKeys(STYLE, {}).size);
     prep.release();
+    view.dispose();
+  });
+
+});
+
+describe('kit copies and rooms', () => {
+  it('kit copies are drawn per room: each draw lit and culled with its room, copies in a wall in none', async () => {
+    const scene = new THREE.Scene();
+    const rooms = new RoomCulling({ scene, edgeClosed: () => false, regroup: () => undefined, roomLights: () => undefined, culling: true, changed: () => undefined });
+    const kit = new THREE.Group();
+    kit.add(new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.4, 0.4), new THREE.MeshStandardMaterial()));
+    const { view } = makeView({
+      template: () => ({ glbRoot: kit }) as unknown as ModelInstance,
+      rooms: (id, origin, _c, plans) => rooms.setObject(id, origin, plans),
+      copyRoomAt: (x, y, z) => rooms.copyRoomAt(x, y, z),
+      // Listed as the render graph lists a static root's drawables: each one among the scene's children.
+      place: (r, shown) => {
+        if (!shown) return;
+        r.updateMatrixWorld(true);
+        r.traverse((o) => {
+          if ((o as THREE.Mesh).isMesh !== true) return;
+          scene.children.push(o);
+          rooms.listed(o);
+        });
+      },
+    });
+    const square = (x0: number, z0: number, x1: number, z1: number): number[][] => [[x0, 0, z0], [x1, 0, z0], [x1, 0, z1], [x0, 0, z1]];
+    const copy = (id: string, x: number, z: number) => ({ id, kind: 'repeat' as const, path: { points: [[x, 0, z], [x + 1, 0, z]] }, spacing: 100, piece: { model: { assetId: 'kit' } } });
+    // Rooms a (x 0–4) and b (x 4–8) sharing a wall; a copy in each (one chunk: one copy set of the model), one in the shared wall, one outside.
+    const component = {
+      elements: [copy('in-a', 2, 2), copy('in-b', 6, 2), copy('in-wall', 4, 3), copy('outside', 6, -3)],
+      outlines: [{ id: 'a', preset: 'starter-room', path: { points: square(0, 0, 4, 4), closed: true } }, { id: 'b', preset: 'starter-room', path: { points: square(4, 0, 8, 4), closed: true } }],
+    } as unknown as ArchitectureComponent;
+    view.set('house', component, [0, 0, 0]);
+    await settle(view);
+    const copies = new Map<string, THREE.Mesh>();
+    for (const o of scene.children) {
+      if ((o as THREE.Mesh).isMesh !== true || o.userData[ROOM_AT_KEY] === undefined) continue;
+      // The set's name: architecture:<object>:<chunk>:<model>:<room>.
+      let set: THREE.Object3D | null = o;
+      while (set !== null && set.name.split(':').length < 5) set = set.parent;
+      copies.set(set!.name.split(':')[4]!, o as THREE.Mesh);
+    }
+    // One draw per room the copies stand in ('' : the outside), and the one in the wall.
+    expect([...copies.keys()].sort()).toEqual(['', 'house/a', 'house/b', 'wall']);
+    expect(['house/a', 'house/b', ''].map((k) => copies.get(k)!.userData[ROOM_KEY])).toEqual([1, 2, 0]);
+    // The one in the wall is in no room: every lamp lights it and no walk hides it.
+    expect(copies.get('wall')!.userData[ROOM_KEY]).toBeUndefined();
+    const lamp = new LayeredPointLight(0xffffff, 1, 6);
+    lamp.position.set(6, 2, 2);
+    lamp.updateMatrixWorld();
+    scene.children.push(lamp);
+    rooms.listed(lamp);
+    expect(['house/a', 'house/b', 'wall'].map((k) => lightsObject(lamp, copies.get(k)!))).toEqual([false, true, true]);
+    // In b looking away from a: a's copy is not drawn, b's and the wall's are.
+    const look = new THREE.PerspectiveCamera(60, 16 / 9, 0.1, 100);
+    look.position.set(5, 1.6, 2);
+    look.lookAt(20, 1.2, 2);
+    look.updateMatrixWorld();
+    rooms.update(look);
+    const inView = (k: string): boolean => copies.get(k)!.layers.isEnabled(0);
+    expect(['house/a', 'house/b', 'wall'].map(inView)).toEqual([false, true, true]);
     view.dispose();
   });
 });

@@ -18,7 +18,7 @@ import { blockKitNames } from './block-kit';
 
 export interface PlayCheck {
   /** Stable code (Problems line kind). */
-  code: 'view_missing' | 'player_scene' | 'kept_twice' | 'kept_ignored' | 'collider_model' | 'block_names_missing';
+  code: 'view_missing' | 'player_scene' | 'kept_twice' | 'kept_ignored' | 'collider_model' | 'block_names_missing' | 'lights_dropped';
   /** True: the start is refused; false: a warning (the game starts). */
   refuse: boolean;
   message: string;

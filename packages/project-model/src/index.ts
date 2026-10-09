@@ -1537,7 +1537,7 @@ export {
 export { FLOOR_PLAN_TRIES, footprintZones, splitFloorPlan, type FloorPlan, type FloorPlanDoor, type FloorPlanInput, type FloorPlanRoom, type FloorPlanStair, type PlanRect } from './arch-floor-plan';
 export { FURNISH_CELL, furnishLights, furnishRoom, facingDir, facingOf, type FurnishedLight, type FurnishedProp, type FurnishOpening, type FurnishPin, type FurnishRoom } from './arch-furnish';
 export { buildingFloorPlan, buildingFrontDoors, floorPlanOutlines, propElement } from './arch-building-plan';
-export { furnishingLightEntity, furnishingLightId, furnishingLightsOf, withFurnishingLights, type LightSourceEntity } from './arch-lights';
+export { furnishingLightEntity, furnishingLightId, furnishingLightsOf, withFurnishingLights, type DroppedFurnishingLights, type LightSourceEntity } from './arch-lights';
 export { architecturePaintOf, architectureRoomRegions, architectureWallEdges } from './arch-room-grid';
 export { buildRoomGraph, portalDistance, portalRect, RoomGraph, roomVisibility, ROOM_OUTSIDE, walkRooms, type GraphPortal, type GraphPortalKind, type GraphRoom, type RoomGraphObject, type RoomVisibility, type ViewProjection } from './arch-portals';
 export { chunkLightmapLayout, type ChunkLightmapLayout } from './block-lightmap';

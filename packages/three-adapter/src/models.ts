@@ -258,6 +258,8 @@ export interface ModelsRealizationContext {
   readonly viewFor: (entityId: string) => AnimationRoleView | null;
   /** The project's LOD bias and hysteresis, read by every instance set's per-copy picks (absent: the defaults). */
   readonly lodTuning?: LodTuning;
+  /** Copies of an instance set written in place moved (world spheres x, y, z, r: where they were and are). */
+  readonly copiesMoved?: (spheres: readonly number[]) => void;
 }
 
 /** The live realization state (owned and disposed by the adapter). */
@@ -913,6 +915,7 @@ export function createModelsRealization(ctx: ModelsRealizationContext): {
       density: ref.density ?? instanceDensityOf(undefined),
       lodPerCopy: ref.lodPerCopy === true,
       ...(ctx.lodTuning !== undefined ? { tuning: ctx.lodTuning } : {}),
+      ...(ctx.copiesMoved !== undefined ? { moved: ctx.copiesMoved } : {}),
     });
     holder.add(built.group);
     attachedSets.set(entityId, { entityId, template, built, undoMaterials: applyMaterials(entityId, ref.assetId, built.group) });

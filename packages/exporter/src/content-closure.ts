@@ -28,7 +28,7 @@ import type { EventCue, GameShell, TimelineAsset } from '@thirdlight/project-mod
 import type { AnimatorController, EnvironmentConfig, PrefabDefinition, InputConfig, LightingMap, MaterialDef, UiDocument, UiTheme } from '@thirdlight/project-model';
 import { architectureCopies, architectureGraphsOf, architectureShipsMeshesOf, architectureStylesOf, expandArchitecture, graphForRuntime, type ArchitectureComponent, type ArchitectureStyles } from '@thirdlight/project-model';
 import { animatorsForRuntime, effectsForRuntime, type EffectDef, materialFunctionsForRuntime, materialsForRuntime, type GraphDocument, captureContentViewV3, captureManifestV5, restampManifestV5, type CatalogFile, dependencyTables, scanDependencies, M3_ENGINE_PINS, resolveMediaIdentityV3, sha256Hex, type GameplaySettings, type ManifestAssetInputV2, type ManifestAssetInputV5, type ManifestBehaviorInput, type MediaBlock, type RuntimeContentManifestV5, type ManifestSceneRow, physicsDimensionOf, resolveRequiredModules, materialsInUse, resolveMaterialInstances, hasTextureSlots, withAssembledSlots, textureSlotSetKey, loadableAssetIds, loadableResourceIds, loadableRows, scriptLibraryContainerText, scriptLibraryDigest, type ScriptLibrary } from '@thirdlight/project-model';
-import { playChecks, projectWideRoots, startDrawSet, withBuildingInteriors, withFurnishingLights, type LightSourceEntity, type MissingPlayFile, type PlayCheck, type SceneV4 } from '@thirdlight/project-model';
+import { MAX_LOCAL_LIGHTS, playChecks, projectWideRoots, startDrawSet, withBuildingInteriors, withFurnishingLights, type DroppedFurnishingLights, type LightSourceEntity, type MissingPlayFile, type PlayCheck, type SceneV4 } from '@thirdlight/project-model';
 import { ASSET_QUERY_PAGE_MAX, audioLoadOf, COLLIDER_3D_LIMITS, MODEL_RIG_LIMITS, modelCollisionParts, sceneColliderPoints, readModelGeometry, readModelRig, textureStreamingOf, type AudioLoadType, type ManifestMipPart, type ModelRig } from '@thirdlight/project-model';
 import type { BlobFile, WorkspaceService } from '@thirdlight/workspace';
 
@@ -645,22 +645,62 @@ function sameIdentities(a: readonly unknown[], b: readonly unknown[]): boolean {
  */
 /**
  * Scene documents with their buildings' furnishing lights made into them,
- * the project's room programs and furnishing sets read from `content`: what
- * the build does to every scene file and the merged start scene, and Play's
- * start snapshot alike.
+ * the project's room programs and furnishing sets read from `content`
+ * (within each scene's budget of point and spot lights; `dropped` receives
+ * the lights left out past it).
  */
-export function withProjectFurnishingLights<D extends { entities: readonly LightSourceEntity[] }>(docs: readonly D[], content: unknown): D[] {
-  return withFurnishingLights(docs, architectureStylesOf(architectureGraphsOf((content as { graphs?: GraphDocument[] } | null)?.graphs)));
+function withProjectFurnishingLights<D extends { entities: readonly LightSourceEntity[] }>(docs: readonly D[], content: unknown, dropped?: DroppedFurnishingLights[]): D[] {
+  return withFurnishingLights(docs, architectureStylesOf(architectureGraphsOf((content as { graphs?: GraphDocument[] } | null)?.graphs)), dropped);
+}
+
+type DerivedEntity = LightSourceEntity & { components: object };
+
+/**
+ * What the build makes into the scenes from their buildings, for Play's start
+ * snapshot and the export alike: each interior that is a scene of its own
+ * made into that scene, then the furnishing lights into every scene; the
+ * start scenes merged into one (what the game loads first) get what each of
+ * their scenes got. Without `scenes` (one scene) only the merged scene's
+ * furnishing lights.
+ */
+export function withProjectSceneDerivations<M extends { entities: readonly DerivedEntity[] }>(
+  merged: M,
+  scenes: readonly { sceneId: string; entities: readonly DerivedEntity[] }[] | undefined,
+  startScenes: readonly string[],
+  content: unknown,
+  dropped?: DroppedFurnishingLights[],
+): { merged: M; scenes: readonly { sceneId: string; entities: readonly DerivedEntity[] }[] | undefined } {
+  if (scenes === undefined) return { merged: withProjectFurnishingLights([merged], content, dropped)[0]!, scenes };
+  const derived = withProjectFurnishingLights(withBuildingInteriors(scenes), content, dropped);
+  const stored = new Map(scenes.map((d) => [d.sceneId, d]));
+  const added: DerivedEntity[] = [];
+  for (const d of derived) {
+    const was = stored.get(d.sceneId);
+    if (!startScenes.includes(d.sceneId) || was === undefined || was === d) continue;
+    const had = new Set(was.entities.map((e) => e.id));
+    for (const e of d.entities) if (!had.has(e.id)) added.push(e);
+  }
+  return { merged: added.length === 0 ? merged : { ...merged, entities: [...merged.entities, ...added] }, scenes: derived };
+}
+
+/** The Problems lines of furnishing lights left out (one per scene, naming the first few). */
+export function droppedLightChecks(dropped: readonly DroppedFurnishingLights[]): PlayCheck[] {
+  return dropped.map((d) => ({
+    code: 'lights_dropped' as const,
+    refuse: false,
+    message: `scene "${d.scene}": ${d.lights.length} furnishing light${d.lights.length > 1 ? 's' : ''} past its ${MAX_LOCAL_LIGHTS} point and spot lights left out, their rooms unlit: ${d.lights.slice(0, 4).map((n) => `"${n}"`).join(', ')}${d.lights.length > 4 ? ', …' : ''}`.slice(0, 256),
+  }));
 }
 
 export async function buildContentClosureM3(given: ContentClosureM3Input): Promise<{ ok: true; closure: ContentClosureM3 } | { ok: false; error: ContentClosureError }> {
   // Buildings whose interiors are scenes of their own: each interior is made into its scene here, for Play and the
   // export alike (the stored scenes never hold it). A derivation remembered from an earlier build is keyed by the scenes given.
-  // Buildings' furnishing lights are made into their scenes the same way (within each scene's light budget), and into
-  // the start scenes merged into one (what the game loads first).
-  const withScenes: ContentClosureM3Input = given.scenes !== undefined ? { ...given, scenes: withProjectFurnishingLights(withBuildingInteriors(given.scenes as readonly SceneV4[]), given.content) } : given;
-  const merged = given.scene as { entities?: readonly LightSourceEntity[] } | null;
-  const input: ContentClosureM3Input = Array.isArray(merged?.entities) ? { ...withScenes, scene: withProjectFurnishingLights([merged as { entities: readonly LightSourceEntity[] }], given.content)[0] } : withScenes;
+  // Buildings' furnishing lights are made into their scenes the same way (within each scene's light budget), and the
+  // start scenes merged into one (what the game loads first) get what their scenes got.
+  const dropped: DroppedFurnishingLights[] = [];
+  const merged = given.scene as { entities?: readonly DerivedEntity[] } | null;
+  const made = withProjectSceneDerivations(Array.isArray(merged?.entities) ? (merged as { entities: readonly DerivedEntity[] }) : { entities: [] }, given.scenes as readonly SceneV4[] | undefined, given.startScenes ?? [], given.content, dropped);
+  const input: ContentClosureM3Input = { ...given, ...(made.scenes !== undefined ? { scenes: made.scenes } : {}), ...(Array.isArray(merged?.entities) ? { scene: made.merged } : {}) };
   const { service, projectId } = input;
   // Stage times on the caller's clock (none when it gives none).
   let stageAt = input.timings?.now() ?? 0;
@@ -673,7 +713,7 @@ export async function buildContentClosureM3(given: ContentClosureM3Input): Promi
 
   const hash = input.sha256 ?? sha256Hex;
   // The scene rules a start needs (checked here, for Play and the export alike, not per command).
-  const checks: PlayCheck[] = input.scenes !== undefined ? playChecks(input.content as Record<string, unknown>, input.scenes as readonly SceneV4[], input.drawnScenes ?? input.startScenes ?? []) : [];
+  const checks: PlayCheck[] = [...(input.scenes !== undefined ? playChecks(input.content as Record<string, unknown>, input.scenes as readonly SceneV4[], input.drawnScenes ?? input.startScenes ?? []) : []), ...droppedLightChecks(dropped)];
   const refused = checks.filter((c) => c.refuse);
   if (refused.length > 0) {
     return { ok: false, error: { code: 'play_check_refused', cls: 'validation', reason: refused[0]!.code, message: refused.map((c) => c.message).join('; ') } };
