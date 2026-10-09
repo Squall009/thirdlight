@@ -697,7 +697,7 @@ export const materialParams: ComponentDescriptor = {
     map('*', 'Parameters', 'Parameter → value (only public parameters).', 'Parameter', json('*', 'Value', 'A value of the parameter\'s type (number, 2–4 numbers, "#rrggbb" or a texture asset id).', { typedBy: 'materialParameter' }), { keyFormat: 'identifier', minEntries: 1, maxEntries: MAX_MATERIAL_PARAMETERS }),
     { keyRef: 'material', minEntries: 1, maxEntries: MAX_MATERIAL_SLOTS },
   ),
-  add: { kind: 'tool', tool: 'the Materials section of the Inspector (override a public parameter)' },
+  add: { kind: 'tool', tool: 'Materials section of the Inspector (override a public parameter)' },
   handles: [],
   requiresAnyOf: { components: ['model', 'box', 'instances', 'terrain', 'spline', 'architecture'], reason: 'material parameters belong to the materials of a model, a box, an instance set, a terrain, a spline or generated architecture' },
   excludes: [],

@@ -76,7 +76,7 @@ Which project material each of the object's materials uses ("*": all of them).
 This object's values for the public parameters of its graph materials (the materials keep their own values elsewhere).
 
 - Category: Rendering
-- Added: by a tool: the Materials section of the Inspector (override a public parameter)
+- Added: by a tool: Materials section of the Inspector (override a public parameter)
 - On prefab objects: yes
 - Needs one of [`model`](#component-model), [`box`](#component-box), [`instances`](#component-instances), [`terrain`](#component-terrain), [`spline`](#component-spline), [`architecture`](#component-architecture) on the same object: material parameters belong to the materials of a model, a box, an instance set, a terrain, a spline or generated architecture
 

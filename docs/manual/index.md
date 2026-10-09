@@ -46,18 +46,18 @@ Each guide gives the editor path and the API path, and says which one to
 use and why. Guides marked *planned* are not written yet; their page says
 where to look meanwhile.
 
-- [Which tool for which job](guides/which-tool.md) *(planned)*
+- [Which tool for which job](guides/which-tool.md)
 - Building worlds
-  - [Build a level with block layers](guides/block-layers.md) *(planned)*
-  - [Build terrain: sculpting, rule materials, scatter, splines and blocks on terrain](guides/terrain.md) *(planned)*
-  - [Dress a scene with instance sets](guides/instance-sets.md) *(planned)*
-  - [Generate rooms and buildings](guides/generated-architecture.md) *(planned)*
-  - [Lighting and baking](guides/lighting.md) *(planned)*
-  - [Sky, fog and environment presets](guides/environment.md) *(planned)*
+  - [Build a level with block layers](guides/block-layers.md)
+  - [Build terrain: sculpting, rule materials, scatter, splines and blocks on terrain](guides/terrain.md)
+  - [Dress a scene with instance sets](guides/instance-sets.md)
+  - [Generate rooms and buildings](guides/generated-architecture.md)
+  - [Lighting and baking](guides/lighting.md)
+  - [Sky, fog and environment presets](guides/environment.md)
 - Objects and look
   - [Make and spawn a prefab](guides/prefabs.md) *(planned)*
   - [Material graphs](guides/material-graphs.md) *(planned)*
-  - [Trim sheets](guides/trim-sheets.md) *(planned)*
+  - [Trim sheets](guides/trim-sheets.md)
   - [Effects](guides/effects.md) *(planned)*
   - [The animator](guides/animator.md) *(planned)*
   - [Cameras](guides/cameras.md) *(planned)*
@@ -76,15 +76,15 @@ where to look meanwhile.
   - [Audio](guides/audio.md) *(planned)*
 - Shipping
   - [Play-test with the headless runner](guides/playtesting.md) *(planned)*
-  - [Measure and budget performance](guides/performance.md) *(planned)*
+  - [Measure and budget performance](guides/performance.md)
   - [Export](guides/export.md) *(planned)*
-  - [Limits](guides/limits.md) *(planned)*
+  - [Limits](guides/limits.md)
 
 ## Features
 
-[Features](features/index.md) will hold the full description of each feature
-area, one page per area. Until it is filled, these descriptions are in
-[Deployment](../deployment.md).
+[Features](features/index.md) holds the full description of each feature
+area, one page per area. Areas not moved yet are still described in
+[Deployment](../deployment.md); the features page says which.
 
 ## Reference
 
