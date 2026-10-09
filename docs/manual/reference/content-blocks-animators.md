@@ -312,7 +312,7 @@ The menus around the game and its HUD, drawn with the project's UI documents: a 
 
 | Field | Type | Default | Range | Description |
 |---|---|---|---|---|
-| `screens` | object |  |  | **Screens.** The UI document drawn for each shell screen. Its buttons use the engine actions: new game, continue, resume, back, open a screen, save or load a slot, set a volume, rebind, next scene. |
+| `screens` | object |  |  | **Screens.** The UI document drawn for each shell screen. Its buttons use the engine actions: resume, continue, back, open a screen, save or load a slot, set a setting, rebind, next scene, load, unload or reload a scene. |
 | `screens.title` | uiDocument id |  |  | **Title.** Shown before play (the game waits behind it); absent: the game starts at once. |
 | `screens.pause` | uiDocument id |  |  | **Pause.** Shown while paused (absent: the engine's pause panel, with Resume only). |
 | `screens.settings` | uiDocument id |  |  | **Settings.** Opened by the settings or open action (volumes, quality). |
@@ -327,7 +327,7 @@ The menus around the game and its HUD, drawn with the project's UI documents: a 
 | `simulate.save` | enum: `pause`, `scripts` | `"pause"` |  | **Save.** What runs while the save screen shows. (choices: `pause` = Pause, `scripts` = Scripts run) |
 | `simulate.load` | enum: `pause`, `scripts` | `"pause"` |  | **Load.** What runs while the load screen shows. (choices: `pause` = Pause, `scripts` = Scripts run) |
 | `hud` | list of uiDocument id, ≤ 8 items, distinct |  |  | **HUD.** UI documents shown while the game plays (hidden behind the menus); bind to $flow.counters, $flow.health, $flow.prompts or script values. Up to 8. |
-| `scenes` | list of objects |  |  | **Scene list.** The game's scenes in order: New game begins a fresh run at the first, Next scene moves on to the next. |
+| `scenes` | list of objects |  |  | **Scene list.** The game's scenes in order, each with the spawn it starts at: Next scene moves on to the next. |
 | `scenes[].scene` | scene id |  |  | **Scene.** A scene of the project. (required) |
 | `scenes[].spawn` | object id (with `playerSpawn`), any scene |  |  | **Spawn.** The player spawn the character starts at (in that scene; absent: it stays where it is). |
 | `scenes[].fade` | number |  | 0 – 5, step 0.05 | **Fade.** Seconds the view fades out before a move to this scene and back in after it (absent or 0: no fade; the previous scene stays in view until this one is drawn). |

@@ -473,6 +473,9 @@ export class TimelineSystem {
   /** A new run: nothing plays, overlays cleared, play-on-start armed again (the brain resets its cameras itself). */
   reset(): void {
     this.instances = [];
+    // Handles count from 1 again: a script keeps the handle in its state, so a
+    // restarted run must hand out the same numbers to reach the same digest.
+    this.handleSerial = 0;
     this.visible = NO_EVENTS;
     this.building = [];
     this.startArmed = true;

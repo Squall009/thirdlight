@@ -392,6 +392,8 @@ export class DialogueRunner {
   /** A new run (start, replay): no conversation, variables and the seen set cleared, the UI empty. */
   resetRun(): void {
     this.conv = null;
+    // Conversation numbers count from 1 again (a script keeps them; the digest holds them).
+    this.serial = 0;
     this.requests = [];
     this.frameInputs = [];
     this.variables = new Map();

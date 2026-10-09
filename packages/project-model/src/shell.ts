@@ -14,7 +14,7 @@
  *   health (`$flow.health.<objectId>.current|max`) and the input prompts
  *   generated from the project's input actions (`$flow.prompts`).
  * - `scenes`: the game's scenes in order, each with the player spawn it
- *   starts at. New game begins a fresh run at the first; the `nextScene`
+ *   starts at (the deprecated `newGame` action restarts the run at the first); the `nextScene`
  *   action moves on to the next one (loading it, unloading the previous
  *   listed scene unless it is a start scene).
  * - `pause`: whether the pause input opens the pause screen (absent: true).

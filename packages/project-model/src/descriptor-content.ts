@@ -559,7 +559,7 @@ export const CONTENT: readonly ContentBlockDescriptor[] = [
     tooltip: 'The menus around the game and its HUD, drawn with the project\'s UI documents: a title before play, pause, settings, controls (rebinding) and the save and load screens (project saves), the HUD shown while playing, and the game\'s scenes in order for New game and Next scene.',
     required: false,
     value: obj('shell', 'Game shell', 'Menus, HUD and the scene list of a game without the game session.', [
-      obj('screens', 'Screens', 'The UI document drawn for each shell screen. Its buttons use the engine actions: new game, continue, resume, back, open a screen, save or load a slot, set a volume, rebind, next scene.', [
+      obj('screens', 'Screens', 'The UI document drawn for each shell screen. Its buttons use the engine actions: resume, continue, back, open a screen, save or load a slot, set a setting, rebind, next scene, load, unload or reload a scene.', [
         ref('title', 'Title', 'Shown before play (the game waits behind it); absent: the game starts at once.', 'uiDocument'),
         ref('pause', 'Pause', 'Shown while paused (absent: the engine\'s pause panel, with Resume only).', 'uiDocument'),
         ref('settings', 'Settings', 'Opened by the settings or open action (volumes, quality).', 'uiDocument'),
@@ -569,7 +569,7 @@ export const CONTENT: readonly ContentBlockDescriptor[] = [
       ]),
       obj('simulate', 'While shown', 'What runs under each screen: the engine pause (no steps), or the scripts outside behavior groups (physics and grouped scripts held) — a title or menu its scripts animate.', SHELL_SCREENS.map((k) => enm(k, k.charAt(0).toUpperCase() + k.slice(1), `What runs while the ${k} screen shows.`, SHELL_SIMULATE, { default: 'pause', labels: { pause: 'Pause', scripts: 'Scripts run' } }))),
       list('hud', 'HUD', `UI documents shown while the game plays (hidden behind the menus); bind to $flow.counters, $flow.health, $flow.prompts or script values. Up to ${SHELL_LIMITS.hud}.`, ref('*', 'Document', 'A UI document.', 'uiDocument'), { maxItems: SHELL_LIMITS.hud, unique: true }),
-      list('scenes', 'Scene list', `The game's scenes in order: New game begins a fresh run at the first, Next scene moves on to the next.`, obj('*', 'Listed scene', 'A scene and where the character starts in it.', [
+      list('scenes', 'Scene list', `The game's scenes in order, each with the spawn it starts at: Next scene moves on to the next.`, obj('*', 'Listed scene', 'A scene and where the character starts in it.', [
         scene('scene', 'Scene', 'A scene of the project.', { required: true }),
         entity('spawn', 'Spawn', 'The player spawn the character starts at (in that scene; absent: it stays where it is).', { component: 'playerSpawn', anyScene: true }),
         // The fade of a move to this scene.

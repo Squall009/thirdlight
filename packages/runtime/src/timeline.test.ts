@@ -272,6 +272,19 @@ describe('the system', () => {
     expect(sys.isPlaying('a')).toBe(true);
   });
 
+  it('a new run hands out the same handles again, so a restarted run reaches the same digest', () => {
+    const f = fakeHost();
+    const a = canonicalTimeline({ timelineId: 'a', name: 'A', duration: 1, tracks: [] });
+    const sys = new TimelineSystem([a], HZ, f.host);
+    const first = sys.play('a');
+    sys.step(1, null);
+    const digest = sys.digestState();
+    sys.reset();
+    expect(sys.play('a')).toBe(first);
+    sys.step(1, null);
+    expect(sys.digestState()).toBe(digest);
+  });
+
   it('mode keys switch the game mode; skip applies only the last remaining one (cut)', () => {
     const f = fakeHost();
     const tl = canonicalTimeline({ timelineId: 'm', name: 'M', duration: 2, tracks: [{ trackId: 'modes', type: 'mode', keys: [{ time: 0.5, mode: 'cutscene', blend: 'eased' }, { time: 1, mode: 'explore' }, { time: 1.5, mode: 'battle', blend: 'linear' }] }] });

@@ -366,6 +366,12 @@ export interface WorkspaceService {
   /** `discardStage` — non-authoritative cleanup. */
   discardStage(projectId: string, stageId: string): StageDiscardResult;
   /**
+   * `markStagePublished` — a publication made from the stage is committed:
+   * the stage stays for a retry of that publication but gives way to new
+   * uploads instead of holding an open-stage slot. Non-authoritative.
+   */
+  markStagePublished(projectId: string, stageId: string): StageDiscardResult;
+  /**
    * `inspectStage` — the injected bounded GLB inspector over the staged bytes:
    * non-authoritative proposal only, never an
    * authoring mutation; a rejected profile is `import_rejected`.

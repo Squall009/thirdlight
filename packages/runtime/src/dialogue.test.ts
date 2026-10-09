@@ -287,6 +287,9 @@ describe('dialogue runner', () => {
     expect(r.checkState({ variables: { 'bad name': 1 }, seen: [] })).not.toBeNull();
     r.resetRun();
     expect(r.api.get('met')).toBeNull();
+    // A new run numbers its conversations from 1 again, as the first run did (scripts keep the number).
+    expect(r.api.start('intro', { bindings: { name: 'C' } })).toBe(1);
+    r.resetRun();
     r.restoreState(saved);
     expect(r.api.get('met')).toBe('yes');
     expect(r.api.seen('intro/l1')).toBe(true);

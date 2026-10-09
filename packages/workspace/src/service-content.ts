@@ -47,6 +47,7 @@ import {
   contentIntegrity,
   conversionSource,
   discardStage,
+  markStagePublished,
   inspectProjectFile,
   inspectStage,
   listProjectFiles,
@@ -516,6 +517,7 @@ export function contentOps(core: Core) {
   return {
     stageContent: (projectId: string, request: StageRequest): StageResult => run(projectId, (s) => stageContent(core, contentCtx(s), request)),
     discardStage: (projectId: string, stageId: string): StageDiscardResult => run(projectId, (s) => discardStage(core, contentCtx(s), stageId)),
+    markStagePublished: (projectId: string, stageId: string): StageDiscardResult => run(projectId, (s) => markStagePublished(core, contentCtx(s), stageId)),
     /** The injected bounded inspector over the staged bytes; never mutates authoring state. */
     inspectStage: (projectId: string, stageId: string, options?: InspectStageOptions): InspectStageResult => run(projectId, (s) => inspectStage(core, contentCtx(s), stageId, options ?? {})),
     /** One folder of the game folder (importable files and subfolders). */

@@ -39,7 +39,7 @@ export function ShellPanel(p: Props): JSX.Element {
     <div className="tl-panel tl-shell" aria-label="game shell">
       <div className="tl-panel__title">Game shell</div>
       <p className="tl-tags__hint">
-        The menus around the game and its HUD, drawn with the project&apos;s UI documents (make them in the UI tab). A title shows before play; pause, settings, controls, save and load screens open from buttons with engine actions; the HUD documents show while the game plays and bind to <code>$flow.counters</code>, <code>$flow.health</code>, <code>$flow.prompts</code> or script values.
+        The menus around the game and its HUD, drawn with the project&apos;s UI documents (make them in the project window: create ▾ → UI document). A title shows before play; pause, settings, controls, save and load screens open from buttons with engine actions; the HUD documents show while the game plays and bind to <code>$flow.counters</code>, <code>$flow.health</code>, <code>$flow.prompts</code> or script values.
       </p>
       {shell === null ? (
         <button className="tl-btn" aria-label="add game shell" onClick={() => p.onSetShell({}, shell)}>

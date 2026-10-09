@@ -366,6 +366,73 @@ function removeExpiredStages(root: string, keep: string, nowMs: number): void {
   }
 }
 
+/** The marker a stage gets once a publication made from it is committed. */
+const STAGE_PUBLISHED_MARKER = 'published';
+
+function stageIsPublished(root: string, name: string): boolean {
+  try {
+    return lstatSync(join(root, name, STAGE_PUBLISHED_MARKER)).isFile();
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Make room for a new stage by removing published stages, oldest first,
+ * while the open-stage count or the staged bytes would pass their limits.
+ * A published stage's bytes already live in the project's immutable blobs;
+ * it is kept only so a retry of the same publication (a lost answer) finds
+ * it again, so it gives way to a new upload rather than refusing it.
+ */
+function evictPublishedStages(root: string, keep: string, incomingBytes: number): void {
+  const published = listStageDirs(root)
+    .filter((n) => n !== keep && stageIsPublished(root, n))
+    .map((n) => {
+      try {
+        return { name: n, mtimeMs: lstatSync(join(root, n)).mtimeMs };
+      } catch {
+        return { name: n, mtimeMs: 0 };
+      }
+    })
+    .sort((a, b) => a.mtimeMs - b.mtimeMs);
+  for (const stage of published) {
+    const existing = listStageDirs(root);
+    const alreadyStaged = (() => {
+      try {
+        return statSync(join(root, keep, 'source.bin')).size;
+      } catch {
+        return 0;
+      }
+    })();
+    const countFull = !existing.includes(keep) && existing.length >= MAX_OPEN_STAGES;
+    const bytesFull = stagedBytes(root) - alreadyStaged + incomingBytes > MAX_STAGED_BYTES_PER_PROJECT;
+    if (!countFull && !bytesFull) return;
+    try {
+      rmSync(join(root, stage.name), { recursive: true, force: true });
+    } catch {
+      // best effort
+    }
+  }
+}
+
+/**
+ * `markStagePublished(projectId, stageId)`: a publication made from this
+ * stage is committed, so the stage no longer holds an open-stage slot (see
+ * `evictPublishedStages`). Non-authoritative; an unknown stage is a no-op.
+ */
+export function markStagePublished(
+  core: { ops: WriteOps; content: ContentConfig },
+  ctx: ContentContext,
+  stageId: unknown,
+): StageDiscardResult {
+  if (typeof stageId !== 'string' || !ID_RE.test(stageId)) return { ok: false, error: stageNotFound(String(stageId)) };
+  const dirRes = verifyArtifactDir(ctx.dir, ['.thirdlight', 'staging', stageId], false);
+  if (!dirRes.ok) return { ok: true, discarded: false };
+  const wr = writeAtomic({ dir: dirRes.dir, target: join(dirRes.dir, STAGE_PUBLISHED_MARKER), bytes: new Uint8Array(0), allowedPreHashes: [], previousHash: null, ops: core.ops });
+  if (wr.failed || wr.unreadable || wr.external) return { ok: false, error: contentPublishFailed('write', wr.failed?.onDiskState, wr.failed?.errno) };
+  return { ok: true, discarded: false };
+}
+
 /** Sum the staged `source.bin` bytes under the staging root. */
 function stagedBytes(root: string): number {
   let total = 0;
@@ -453,6 +520,7 @@ export function stageContent(
   // the eight open-stage slots for the 24 h abandoned-stage retention, and a
   // few sessions' uploads locked the project out of staging for a day.
   removeExpiredStages(root, stageId, core.content.now());
+  evictPublishedStages(root, stageId, bytes.length);
   const existing = listStageDirs(root);
   if (!existing.includes(stageId) && existing.length >= MAX_OPEN_STAGES) {
     return { ok: false, error: stageLimitError('open_stages', existing.length + 1, MAX_OPEN_STAGES) };
