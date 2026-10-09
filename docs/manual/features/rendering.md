@@ -69,7 +69,7 @@ pixel per CSS pixel on any display, so a HiDPI or scaled screen costs no more
 than a plain one. Under a post stack the scene is drawn without MSAA (the
 stack's SMAA or FXAA anti-aliases) and ambient occlusion at half resolution
 (it darkens only the indirect light: see the render settings in
-[Deployment: Test and debug entry points](../../deployment.md#test-and-debug-entry-points-phase-238)).
+[Ambient occlusion, render scale and dynamic resolution](debugging.md#ambient-occlusion-render-scale-and-dynamic-resolution)).
 
 **Shadows.** Boxes, models and instance sets cast and receive
 the sun's (the directional light's) realtime shadow when the light has "Cast

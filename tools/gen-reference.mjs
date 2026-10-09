@@ -106,7 +106,7 @@ export async function generateReference() {
   const owners = constantOwners(program, ROOT, VALUE_PACKAGES);
   const pages = [
     ...descriptorPages(pm.DESCRIPTORS),
-    ...opPages(shapes, types, commands.MUTATION_OPS, pm.DESCRIPTORS, { request, results: `${success}\n\n${failure}` }),
+    ...opPages(shapes, types, commands.MUTATION_OPS, pm.DESCRIPTORS, { request, results: `${success}\n\n${failure}` }, values['workspace/scene-routing']),
     ...typePages(types),
     ...scriptPages(behaviorApiModel()),
     ...graphPages(pm.GRAPH_KINDS),

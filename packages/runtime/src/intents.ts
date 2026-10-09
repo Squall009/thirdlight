@@ -6,7 +6,9 @@
  * per-step `IntentSet`: it validates every intent in the contract's
  * exhaustive order, commits exactly one writer per control channel, applies
  * committed `transform` intents to the owned entity's `curr.position` axes,
- * and turns every rejection into a fail-stop (`module_error`) reason.
+ * and turns every rejection into a `BehaviorIntentError` with the contract's
+ * reason. `ctx.emit` catches it: the intent is dropped, `emit` returns false,
+ * the refusal is logged once, and the run goes on.
  *
  * Pure and closed: no I/O, no three.js, no Node builtins, no
  * editor/backend/workspace edge. The `IntentSet` is the runtime's own
@@ -307,8 +309,9 @@ export const BEHAVIOR_LOG_LEVELS: readonly BehaviorLogLevel[] = ['info', 'warn',
 export const BEHAVIOR_LOG_CODE = 'behavior_log';
 
 /**
- * An intent rejection (`module_error` fail-stop). The `reason`/`detail` pair
- * is the contract's rejection table; the message is bounded and log-safe.
+ * An intent rejection. The `reason`/`detail` pair is the contract's rejection
+ * table; the message is bounded and log-safe. `ctx.emit` turns it into a
+ * `false` return and one log line, so a refused intent never stops the run.
  */
 export class BehaviorIntentError extends Error {
   readonly code = 'module_error';

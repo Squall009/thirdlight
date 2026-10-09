@@ -119,9 +119,13 @@ function compileSystem(effect: EffectDef, system: EffectSystem, index: number, o
   }
   const chains = {} as Record<EffectContext, CompiledNode[]>;
   const onChain = new Set<string>();
+  // A context node is found by its type: the editor names it after the type, but a graph sent
+  // over the API may give it any id, and its chain must run all the same.
+  const contextIds = new Map<string, string>();
+  for (const n of graph.nodes) if ((EFFECT_CONTEXTS as readonly string[]).includes(n.type) && !contextIds.has(n.type)) contextIds.set(n.type, n.id);
   for (const c of EFFECT_CONTEXTS) {
     const list: CompiledNode[] = [];
-    let at = next.get(c);
+    let at = next.get(contextIds.get(c) ?? c);
     while (at !== undefined && !onChain.has(at)) {
       onChain.add(at);
       const n = nodes.get(at);

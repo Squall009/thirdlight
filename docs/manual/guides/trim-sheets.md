@@ -3,8 +3,7 @@
 **Goal:** one texture set whose rows are strips — floor, wall bands,
 baseboards, crowns, frames — that dresses every generated wall and room, so
 swapping the sheet restyles a whole level. The full description is in
-[Deployment: Trim sheets](../../deployment.md#trim-sheets-3020) (it moves to
-the material graphs feature page).
+[Material graphs: Trim sheets](../features/material-graphs.md#trim-sheets).
 
 A trim material (shader `trim`) reads three textures — albedo, normal and
 ORM (occlusion, roughness, metalness) — and a **row table**: each row is a

@@ -62,6 +62,8 @@ Arguments (`args`):
 { entities: (CreateEntityArgs & { ref?: string })[] }
 ```
 
+Also `sceneId?: string` (read before validation): The scene every new object goes into. Required unless the items' `parentId`s name objects (all of one scene, which must match a named scene). Missing both: refused with `field_missing` at `/args/sceneId`.
+
 Types: [`CreateEntityArgs`](types-a-d.md#type-create-entity-args).
 
 <a id="op-createEntity"></a>
@@ -104,6 +106,8 @@ interface CreateEntityArgs {
   children?: CreateEntityArgs[];
 }
 ```
+
+Also `sceneId?: string` (read before validation): The scene the new object goes into. Required unless `parentId` names an object (then the object's scene; naming both, they must match). Missing both: refused with `field_missing` at `/args/sceneId`.
 
 <a id="op-createFolder"></a>
 ## createFolder
@@ -476,6 +480,8 @@ interface InstantiatePrefabArgs {
 }
 ```
 
+Also `sceneId?: string` (read before validation): The scene the copy goes into. Required unless `parentId` names an object (then the object's scene; naming both, they must match). Missing both: refused with `field_missing` at `/args/sceneId`.
+
 <a id="op-moveEntities"></a>
 ## moveEntities
 
@@ -540,6 +546,8 @@ interface PasteEntitiesArgs {
   offset?: [number, number, number];
 }
 ```
+
+Also `sceneId?: string` (read before validation): The scene the pasted objects go into. Required unless `parentId` names an object (then the object's scene; naming both, they must match). Missing both: refused with `field_missing` at `/args/sceneId`.
 
 <a id="op-publishAsset"></a>
 ## publishAsset

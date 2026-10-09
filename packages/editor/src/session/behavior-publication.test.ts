@@ -42,6 +42,9 @@ describe('trust notice', () => {
     expect(text).toMatch(/not a sandbox/i);
     expect(text).toMatch(/no authoring credentials/i);
     expect(text).toMatch(/no project filesystem handle/i);
+    // Scripts run in the simulation worker by default; the notice names both threads.
+    expect(text).toMatch(/simulation worker/i);
+    expect(text).toMatch(/main thread/i);
     // It must not claim containment.
     expect(text).not.toMatch(/sandboxed|isolated from|safe to run untrusted/i);
   });

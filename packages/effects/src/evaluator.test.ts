@@ -81,6 +81,20 @@ describe('seeded determinism', () => {
   });
 });
 
+describe('context nodes', () => {
+  it('a chain runs from its context node whatever the node\'s id (a graph sent over the API)', () => {
+    const renamed = graph({ spawn: [{ type: 'spawn.rate', data: { rate: 10 } }], initialize: [{ type: 'init.lifetime', data: { min: 5, max: 5 } }], output: [{ type: 'output.billboard' }] });
+    const ids: Record<string, string> = { spawn: 'ctx-a', initialize: 'ctx-b', update: 'ctx-c', output: 'ctx-d' };
+    for (const n of renamed.nodes) if (ids[n.id] !== undefined) n.id = ids[n.id]!;
+    for (const e of renamed.edges) if (ids[e.from.node] !== undefined) e.from.node = ids[e.from.node]!;
+    const program = compileEffect(effect([{ graph: renamed }]));
+    expect(program.diagnostics.filter((d) => d.message.includes('not on its context')), JSON.stringify(program.diagnostics)).toEqual([]);
+    const inst = new EffectInstance(effect([{ graph: renamed }]));
+    run(inst, 1);
+    expect(inst.systems[0]!.count).toBe(10);
+  });
+});
+
 describe('spawn', () => {
   it('a constant rate carries fractions: 10/s for 1 s gives 10 particles', () => {
     const inst = new EffectInstance(effect([{ graph: graph({ spawn: [{ type: 'spawn.rate', data: { rate: 10 } }], initialize: [{ type: 'init.lifetime', data: { min: 100, max: 100 } }] }) }]));

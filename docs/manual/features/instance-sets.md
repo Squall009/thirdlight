@@ -67,7 +67,7 @@ detail. Copies have no ids, colliders or scripts.
   where many are in view. Play, the export and the Scene view chunk alike.
 - **Levels of detail and density**: each chunk draws one level of the
   model for all its copies, picked at its centre for the copies' mean size
-  (against the model's switch points: [Levels of detail](../../deployment.md#levels-of-detail-296)); **Level per copy**
+  (against the model's switch points: [Levels of detail](assets.md#levels-of-detail)); **Level per copy**
   (`lodPerCopy`, default off) has every copy pick its own level by its own
   distance and size instead — truer where a chunk spans a switch point, at
   one more draw per level in each such chunk (off by default: on one game's

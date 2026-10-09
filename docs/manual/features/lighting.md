@@ -1,6 +1,6 @@
 # Lighting
 
-How to light and bake a scene step by step: [the lighting guide](../guides/lighting.md). Quality levels, ambient occlusion and render scale are described with the other render settings in [Deployment: Test and debug entry points](../../deployment.md#test-and-debug-entry-points-phase-238).
+How to light and bake a scene step by step: [the lighting guide](../guides/lighting.md). Quality levels, ambient occlusion and render scale are described with the other render settings in [Testing, debugging and quality settings](debugging.md#ambient-occlusion-render-scale-and-dynamic-resolution).
 
 ## Baked lighting
 

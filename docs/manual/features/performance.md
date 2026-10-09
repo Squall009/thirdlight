@@ -317,7 +317,7 @@ page needs no extra headers for this (no SharedArrayBuffer is used). Numbers
   filtering); imported GLB files may carry KTX2/Basis textures (read by the
   importer and transcoded in the browser). The backend encodes PNG/JPEG
   textures to KTX2 on import and packs texture arrays; see
-  [KTX2 textures](../../deployment.md#ktx2-textures-phase-2519).
+  [KTX2 textures](assets.md#ktx2-textures).
 - *What the view reports.* The Scene view's canvas carries `data-frames`
   (frames drawn), `data-draw-calls` and `data-triangles` (the last frame),
   `data-batches` (instanced groups, objects drawn through them, marked

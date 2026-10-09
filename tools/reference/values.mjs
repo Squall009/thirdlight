@@ -18,6 +18,13 @@ import esbuild from 'esbuild';
 /** The packages whose public exports the reference reads (limits are gathered from these). */
 export const VALUE_PACKAGES = ['project-model', 'commands', 'runtime', 'protocol', 'behavior-build', 'asset-pipeline', 'game-host'];
 
+/**
+ * Single modules read beside the packages' entry points (not searched for
+ * limits): the workspace's scene routing names the argument it reads before
+ * the validator.
+ */
+export const VALUE_MODULES = { 'workspace/scene-routing': 'workspaceSceneRouting' };
+
 const ident = (pkg) => pkg.replace(/-(.)/g, (_, c) => c.toUpperCase());
 
 /** Package name → its module namespace. */
@@ -25,7 +32,10 @@ export async function loadValues(root) {
   const dir = join(root, 'node_modules', '.cache', 'gen-reference');
   mkdirSync(dir, { recursive: true });
   const out = join(dir, `values-${process.pid}.mjs`);
-  const contents = VALUE_PACKAGES.map((p) => `export * as ${ident(p)} from '@thirdlight/${p}';`).join('\n');
+  const contents = [
+    ...VALUE_PACKAGES.map((p) => `export * as ${ident(p)} from '@thirdlight/${p}';`),
+    ...Object.entries(VALUE_MODULES).map(([spec, name]) => `export * as ${name} from '@thirdlight/${spec}';`),
+  ].join('\n');
   await esbuild.build({
     stdin: { contents, resolveDir: root, loader: 'ts' },
     bundle: true,
@@ -44,7 +54,7 @@ export async function loadValues(root) {
   });
   try {
     const mod = await import(pathToFileURL(out).href);
-    return Object.fromEntries(VALUE_PACKAGES.map((p) => [p, mod[ident(p)]]));
+    return Object.fromEntries([...VALUE_PACKAGES.map((p) => [p, mod[ident(p)]]), ...Object.entries(VALUE_MODULES).map(([spec, name]) => [spec, mod[name]])]);
   } finally {
     rmSync(out, { force: true });
   }

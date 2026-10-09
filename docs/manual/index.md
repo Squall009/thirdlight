@@ -55,15 +55,15 @@ where to look meanwhile.
   - [Lighting and baking](guides/lighting.md)
   - [Sky, fog and environment presets](guides/environment.md)
 - Objects and look
-  - [Make and spawn a prefab](guides/prefabs.md) *(planned)*
-  - [Material graphs](guides/material-graphs.md) *(planned)*
+  - [Make and spawn a prefab](guides/prefabs.md)
+  - [Material graphs](guides/material-graphs.md)
   - [Trim sheets](guides/trim-sheets.md)
-  - [Effects](guides/effects.md) *(planned)*
-  - [The animator](guides/animator.md) *(planned)*
-  - [Cameras](guides/cameras.md) *(planned)*
+  - [Effects](guides/effects.md)
+  - [The animator](guides/animator.md)
+  - [Cameras](guides/cameras.md)
 - Game logic
-  - [Write a script and a shared library](guides/scripts.md) *(planned)*
-  - [Visual scripts](guides/visual-scripts.md) *(planned)*
+  - [Write a script and a shared library](guides/scripts.md)
+  - [Visual scripts](guides/visual-scripts.md)
   - [Title, new game, restart and scene changes](guides/game-flow.md) *(planned)*
   - [Game modes](guides/game-modes.md) *(planned)*
   - [Saves](guides/saves.md) *(planned)*
@@ -73,7 +73,7 @@ where to look meanwhile.
   - [A HUD and menus with UI documents](guides/ui-documents.md) *(planned)*
   - [Dialogue](guides/dialogue.md) *(planned)*
   - [A cutscene with a timeline](guides/timelines.md) *(planned)*
-  - [Audio](guides/audio.md) *(planned)*
+  - [Audio](guides/audio.md)
 - Shipping
   - [Play-test with the headless runner](guides/playtesting.md) *(planned)*
   - [Measure and budget performance](guides/performance.md)

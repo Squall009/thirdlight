@@ -27,6 +27,7 @@ import { scriptsNaming } from './script-names';
 import { prepareInstanceStroke, prepareModelCollider, publishStrokeBuffer, type StrokeBuffer } from './instance-strokes';
 import { prepareTerrainEdit, publishTerrainBlobs, verifyTerrainTiles, type TerrainBlob } from './terrain-edits';
 import { verifySplineData, withSplineFollows } from './spline-follows';
+import { SCENE_ROUTED_ARG, SCENE_ROUTED_CREATES } from './scene-routing';
 import { prepareErodeEdit } from './terrain-layer-reads';
 import { catalogV4Of, commandContentOf, crossSceneEntities, projectRuleError, sceneMissing, sceneNotEmpty, sceneRequired, sceneV4Of } from './content-shapes';
 
@@ -98,8 +99,8 @@ export function runCommandV4(core: Core, s: ProjectSession, sent: unknown, D: st
   if (!target.ok) return failRequest(request, target.error);
   // `sceneId` on a create names the scene; the pure layer never sees it.
   let pureRequest = request;
-  if ((op === 'createEntity' || op === 'instantiatePrefab' || op === 'pasteEntities' || op === 'createEntities') && 'sceneId' in args) {
-    const { sceneId: _s, ...rest } = args;
+  if (Object.hasOwn(SCENE_ROUTED_CREATES, op) && SCENE_ROUTED_ARG in args) {
+    const { [SCENE_ROUTED_ARG]: _s, ...rest } = args;
     pureRequest = { ...(request as object), args: rest };
   }
   // A move within its own scene names no other scene.

@@ -70,4 +70,21 @@ describe('generated reference (tools/gen-reference.mjs)', () => {
     const missing = expected.filter((t) => index.topics[t] === undefined);
     expect(missing, 'topics without a page').toEqual([]);
   });
+
+  it('prints every argument an op takes, including the scene the workspace reads before the validator', async () => {
+    const values = await loadValues(ROOT);
+    const routing = values['workspace/scene-routing'];
+    const routed = Object.keys(routing.SCENE_ROUTED_CREATES);
+    expect(routed.length).toBeGreaterThan(0);
+    const detail = [...generated].filter(([file]) => file.startsWith('ops-detail')).map(([, text]) => text).join('\n');
+    for (const op of routed) {
+      expect(values['commands'].MUTATION_OPS, op).toContain(op);
+      // The op's section runs from its anchor to the next one.
+      const at = detail.indexOf(`<a id="op-${op}"></a>`);
+      expect(at, op).toBeGreaterThanOrEqual(0);
+      const end = detail.indexOf('<a id="op-', at + 1);
+      const section = detail.slice(at, end === -1 ? undefined : end);
+      expect(section, `${op} does not show ${routing.SCENE_ROUTED_ARG}`).toContain(`${routing.SCENE_ROUTED_ARG}?: string`);
+    }
+  });
 });

@@ -1,12 +1,13 @@
 /**
  * Reference pages for the command ops: every op the validator accepts
  * (`MUTATION_OPS`), its request arguments as the validator's per-op union
- * types them and the content block it writes; and the type pages: the
+ * types them (plus the scene a creating op names, which the workspace reads
+ * before the validator) and the content block it writes; and the type pages: the
  * declarations those argument shapes and the descriptors' JSON shapes name.
  */
 import { code, fence, page, ref, section, splitPages, table, typeId } from './markdown.mjs';
 
-export function opPages(ops, types, mutationOps, descriptors, envelope) {
+export function opPages(ops, types, mutationOps, descriptors, envelope, routing) {
   const writes = new Map();
   for (const b of descriptors.content) for (const op of b.ops) writes.set(op, [...(writes.get(op) ?? []), b.key]);
   const sorted = [...mutationOps].sort((a, b) => a.localeCompare(b));
@@ -19,6 +20,9 @@ export function opPages(ops, types, mutationOps, descriptors, envelope) {
     lines.push('Arguments (`args`):', '');
     // A named argument type prints whole, its doc comment included; an inline shape as written.
     lines.push(fence(o.argsName !== undefined && types.has(o.argsName) ? types.get(o.argsName).text : o.argsText, 'ts'));
+    // The scene a new object goes into is read (and removed) by the workspace before the validator, so its types lack it.
+    const routed = routing.SCENE_ROUTED_CREATES[op];
+    if (routed !== undefined) lines.push(`Also ${code(`${routing.SCENE_ROUTED_ARG}?: string`)} (read before validation): ${routed}`, '');
     const named = o.types.filter((t) => t !== o.argsName && types.has(t));
     if (named.length > 0) lines.push(`Types: ${named.map((t) => ref(typeId(t), code(t))).join(', ')}.`);
     return section(`op-${op}`, op, lines.join('\n'), { topics: [`op.${op}`] });

@@ -28,14 +28,16 @@ import { MAX_BEHAVIOR_DIAGNOSTICS } from '@thirdlight/project-model/limits';
 export const COMPILE_DIAGNOSTIC_LIMIT = MAX_BEHAVIOR_DIAGNOSTICS;
 
 /**
- * The normative trust notice. The UI must render
- * every line before enabling the acknowledgment button. The wording states
- * the three limitations explicitly and makes no safety claim.
+ * The normative trust notice, defined here only: the editor is the one place
+ * a source is acknowledged (an export refuses an unacknowledged source rather
+ * than asking). The UI must render every line before enabling the
+ * acknowledgment button. The wording states the three limitations explicitly,
+ * covers both simulation threads and makes no safety claim.
  */
 export const BEHAVIOR_TRUST_NOTICE: readonly string[] = Object.freeze([
-  'Behavior code is trusted personal project code. It runs on the play page\u2019s main thread, in the same JavaScript context as the renderer and the runtime step loop.',
-  '1. There is NO hard runtime timeout. A same-thread infinite loop (for example while (true) {}) cannot be interrupted: no watchdog, no Stop button, no iframe removal and no dispose() call is claimed to preempt it. A hung behavior hangs the play tab until you close it.',
-  '2. There is NO hostile-code sandbox. A behavior can reach every global available in its game origin (window, document, fetch, XMLHttpRequest, WebSocket, Worker, storage, console) and can call them directly. The compiler\u2019s import/source checks and the preview CSP are defense in depth against accidental and structural mistakes, not a sandbox, and are trivially bypassable by design.',
+  'Behavior code is trusted personal project code. It runs in the game\u2019s simulation worker, or on the page\u2019s main thread when the project\u2019s Simulation thread setting or the page\u2019s ?threads=off says so, in the same JavaScript context as the runtime step loop. The same holds in Play and in an exported game.',
+  '1. There is NO hard runtime timeout. An infinite loop (for example while (true) {}) cannot be interrupted: no watchdog, no Stop button and no dispose() call is claimed to preempt it. A hung behavior stops the game; on the main thread it also hangs the tab until you close it.',
+  '2. There is NO hostile-code sandbox. A behavior can reach every global of its thread in its game origin (fetch, XMLHttpRequest, WebSocket, Worker, IndexedDB, console; on the main thread also window, document and storage) and can call them directly. The compiler\u2019s import/source checks and the preview CSP are defense in depth against accidental and structural mistakes, not a sandbox, and are trivially bypassable by design.',
   '3. Scripts observe their origin\u2019s globals. The preview page therefore exposes nothing sensitive: no authoring credentials, no authoring token, no /api/v1 access and no project filesystem handle ever enter the preview.',
 ]);
 
