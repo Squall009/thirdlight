@@ -161,3 +161,94 @@ describe.each([2, 3] as const)('two player controllers in one view (%iD)', (dim)
     expect(worker.digests).toEqual(single.digests);
   }, 120_000);
 });
+
+/**
+ * Counts the runs (a restart starts the scripts over, so its step count starts at 0) and,
+ * per run, walks both players apart, makes the second jump, and logs both players'
+ * exact positions and facings and their last physics results every 10 of its steps.
+ */
+const RUNNER = `
+export default {
+  instantiate() { return { n: 0, run: -1 }; },
+  step(s, ctx) {
+    if (ctx.phase !== 'intent') return;
+    if (s.n === 0) { s.run = ctx.save.get('runs') ?? 0; ctx.save.set('runs', s.run + 1); }
+    const n = s.n++;
+    if (n >= 20 && n < 80) ctx.emit({ kind: 'control_move', value: 1 });
+    if (n >= 40 && n < 120) ctx.emit({ kind: 'control_move', entityId: 'player-0002', value: -1 });
+    if (n === 90) ctx.emit({ kind: 'control_jump', entityId: 'player-0002', value: 'pressed' });
+    else if (n > 90 && n < 100) ctx.emit({ kind: 'control_jump', entityId: 'player-0002', value: 'held' });
+    if (n % 10 !== 0 || n > 200) return;
+    // One save key per run and 100 steps (a save value has a size limit).
+    const key = 'run' + s.run + '.' + Math.floor(n / 100);
+    const log = ctx.save.get(key) ?? [];
+    const at = (id) => { const t = ctx.world.transform(id); return t === undefined ? null : [...t.position, ...t.rotation]; };
+    // What the physics last reported for each (a run's first step: nothing yet, as at the first start).
+    const last = (id) => { const r = ctx.physics.characterResult(id); return r === undefined ? null : [r.grounded, r.applied.x, r.applied.y]; };
+    log.push([n, at('player-0001'), at('player-0002'), last('player-0001'), last('player-0002')]);
+    ctx.save.set(key, log);
+  },
+};
+`;
+
+async function restartedRuns(mode: Mode, dim: Dim, ticks: readonly number[]): Promise<{ logs: Any[][]; errors: Any[] }> {
+  // The second player starts in the air: the start's settle moves it, so a restart must put it back exactly.
+  const entities: Any[] = [
+    { id: 'player-0001', components: { transform: T([-1, 0.91, 0]), controller: {} } },
+    { id: 'player-0002', keepLoaded: true, components: { transform: T([5, 1.6, 0]), controller: { moveAction: 'move_p2', jumpAction: 'jump_p2' } } },
+    box(dim, 'floor-0001', [0, -0.5, 0], [30, 0.5, 4]),
+    { id: 'runner-0001', components: { transform: T([0, -5, 0]), behavior: { behaviorId: 'runner', values: {} } } },
+  ];
+  const settings = dim === 3 ? SETTINGS_3D : SETTINGS_2D;
+  const statics = entities.filter((e) => e.components.collider).map((e) => ({ entityId: e.id, shape: e.components.collider.shape, position: { x: e.components.transform.position[0], y: e.components.transform.position[1] }, rotationZ: 0 }));
+  const physics =
+    dim === 3
+      ? physics3DConfigOf(entities, SETTINGS_3D)
+      : { character: { x: -1, y: 0.91 }, characters: [{ id: 'player-0002', x: 5, y: 1.6 }], statics, solver: { hz: 120, gravityY: SETTINGS_2D.gravity_y }, controller: CONTROLLER_2D };
+  const h = await startHarness(mode, {
+    snapshot: { snapshotId: `coop-runs${dim}@r1`, projectId: `coop-runs${dim}`, revision: 1, scene: { schemaVersion: 4, sceneId: 'scene-main', revision: 1, entities }, scenes: [{ sceneId: 'scene-main', start: true, entityIds: entities.map((e) => e.id) }] },
+    storage: true,
+    settings,
+    physics,
+    ...(dim === 3 ? { modules: MODULES_3D } : {}),
+    behaviors: [behaviorModule('runner', RUNNER)],
+  });
+  try {
+    let now = 10;
+    // Each run so many frames of one step, then the host's replay (a restart, as each play-test run begins).
+    for (let r = 0; r < ticks.length; r += 1) {
+      for (let i = 0; i < ticks[r]!; i += 1) {
+        now += DT;
+        await h.tick(now);
+      }
+      if (r < ticks.length - 1) expect(h.host.control('replay').ok).toBe(true);
+    }
+    const d = (h.rt as Any).getDiagnostics();
+    const values = await h.storage();
+    return { logs: ticks.map((_, r) => [0, 1, 2].flatMap((k) => (values[`run${r}.${k}`] ?? []) as Any[])), errors: d.ok ? d.diagnostics.errors.filter((e: Any) => e.code !== 'behavior_log') : [d] };
+  } finally {
+    await h.dispose();
+  }
+}
+
+describe.each([2, 3] as const)('runs restarted in one play with two player controllers (%iD)', (dim) => {
+  it('every restarted run repeats the last one exactly, for both players, whatever the last one ended in; page and worker', async () => {
+    for (const mode of ['single', 'worker'] as const) {
+      // As a play-test: the first run restarts at once, the others after both players walked, turned and jumped.
+      const { logs, errors } = await restartedRuns(mode, dim, [12, 230, 230, 230]);
+      expect(errors).toEqual([]);
+      expect(logs[1]!.length).toBe(21);
+      // The second player walked and jumped (the run is not trivially at rest).
+      expect(logs[1]![15]![2][0]).toBeLessThan(4.5);
+      expect(Math.max(...logs[1]!.map((r: Any) => r[2][1]))).toBeGreaterThan(1.7);
+      for (let r = 2; r < logs.length; r += 1) expect(logs[r], `${mode} run ${r}`).toEqual(logs[1]);
+      // A restarted run is the first start again. On the 2D plane the first start's first sweep differs (the physics
+      // world's query pipeline is empty until its first step; a placement updates it), so there only the second player's
+      // run, which starts in the air, is the same.
+      const first = await restartedRuns(mode, dim, [230, 230]);
+      expect(first.errors).toEqual([]);
+      if (dim === 3) expect(first.logs[1], `${mode} first start`).toEqual(first.logs[0]);
+      else expect(first.logs[1]!.map((row: Any) => row[2]), `${mode} first start`).toEqual(first.logs[0]!.map((row: Any) => row[2]));
+    }
+  }, 120_000);
+});

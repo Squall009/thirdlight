@@ -116,16 +116,18 @@ export class CharacterPlacement {
     if (spawn !== undefined) this.arrival = { spawnId: spawn, waitFor: sceneId };
   }
 
-  /** A run restart: a save's placement and a spawn facing do not outlive the run. */
+  /**
+   * A run restart: nothing asked of the placement in the last run outlives it
+   * (a respawn or an arrival still waiting, a save's placement, a spawn's or
+   * a script's facing); the runtime puts the character where it started.
+   */
   restartRun(): void {
+    this.respawn = null;
+    this.arrival = null;
     this.restore = null;
     this.pendingYaw = null;
-  }
-
-  /** A restart's placement of the 3D character where it started: placed now, and again in the next intent phase. */
-  restartAt3D(p: readonly number[]): void {
-    this.host.place3D(p[0]!, p[1]!, p[2]!);
-    this.respawn = [p[0]!, p[1]!, p[2]!];
+    this.stepYaw = null;
+    this.placeYaw = null;
   }
 
   /** The start set is restored: arrivals, a save's placement and a spawn facing do not outlive the run. */

@@ -75,6 +75,16 @@ by the backend when it loads a project and after every change:
 `tl_content_query target="materials"` pages every material with its
 problems (`withProblems: true` for the broken ones only).
 
+## A run that failed
+
+`tl_game_observe`'s `state` is `running`, `paused` (the engine pause, a
+menu, a game mode) or `failed`: an error stopped the run (a script threw, a
+physics or module failure). A failed run takes no more steps, not even a
+replay; start a new play. Its observation adds `error` `{code, message}`
+(and, when known, `stepIndex` and `moduleId`), the error that stopped it; `tl_diagnostics`
+`runtime.errors` has the same entry with its source line. A play-test whose
+game fails ends with `playtest_game_failed` and that error.
+
 ## Headless play-tests
 
 `node tools/playtest.mjs <game folder>

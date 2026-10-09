@@ -1113,6 +1113,9 @@ function createAdapter(
       world.step();
       b.grounded = false;
       b.retainedSupport = { x: 0, y: 1 };
+      // From rest, as the body was made: no drop-through left and no last result.
+      b.dropSteps = 0;
+      b.last = undefined;
       return clearance;
     },
 

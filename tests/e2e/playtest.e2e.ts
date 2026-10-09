@@ -13,11 +13,12 @@
  *
  * Checked: the same input script twice gives the same run digests at the
  * same run steps, in the simulation worker and on a single thread (four runs
- * agree); an observation in the middle of a run is step-exact (the script
+ * agree; through MCP, with a second player controller, three runs in each); an observation in the middle of a run is step-exact (the script
  * is split into exercises that hold the game in between); the start's
  * variables apply at every start: each run's restart and a game shell's New
  * game; the driver's runs agree too; the two walks of one run, each from
- * rest, cover the same distance.
+ * rest, cover the same distance; a script that throws makes the observation
+ * say `failed` with its error, and a play-test end on it.
  */
 import { spawn } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
@@ -47,12 +48,17 @@ test.afterEach(async () => {
   rmSync(scratch, { recursive: true, force: true });
 });
 
-/** The probe: what ctx.save holds for `probe` this step (t.seen), then one more (so a run not begun with the start's variables sees more). */
+/**
+ * The probe: what ctx.save holds for `probe` this step (t.seen), then one more (so a run not begun with the start's
+ * variables sees more). With the start variable `boom` (a number) it throws after that many steps of a run.
+ */
 const PROBE = [
   'export default {',
-  '  instantiate() { return { shown: false }; },',
+  '  instantiate() { return { shown: false, n: 0 }; },',
   '  step(s: any, ctx: any) {',
   "    if (ctx.phase !== 'intent') return;",
+  "    const boom = ctx.save.get('boom');",
+  "    if (typeof boom === 'number' && ++s.n > boom) throw new Error('boom: the probe threw');",
   "    if (!s.shown) s.shown = ctx.ui.show('hud');",
   "    const v = ctx.save.get('probe');",
   "    ctx.ui.set('t.seen', typeof v === 'number' ? v : -1);",
@@ -257,11 +263,24 @@ test('tl_playtest through the MCP stdio adapter: a script whose run pauses and p
     expect(seen(end), JSON.stringify(end.fields)).toBe(6 + end.runStep);
     expect(end.fields['state']).toBe('running');
 
-    // The same input twice, both threading modes, through MCP: the same digests.
-    const plain = await call({ frames: [walk(0, 60), { stepOffset: 60, actions: { jump: { v: 1, p: 'pressed' } } }, walk(61, 60, -1)], threads: 'both', runs: 2, observe: { atSteps: [60] } });
+    // A second player controller as the co-op guide makes it (the Starter's character, animated, kept loaded; it reads the
+    // same actions, so it walks and jumps too): every restart must put it back exactly as the first start did.
+    const roles = { idle: { clipIndex: 0, clipName: 'Idle' }, run: { clipIndex: 1, clipName: 'Run' }, airborne: { clipIndex: 2, clipName: 'Airborne' } };
+    await api.cmd('createEntity', {
+      sceneId: 'scene-main',
+      parentId: null,
+      kind: 'model',
+      name: 'Player 2',
+      keepLoaded: true,
+      transform: { position: [0, 0.91, 0] },
+      model: { asset: { assetId: 'starter-character' } },
+      components: { controller: {}, modelAnimation: { assetId: 'starter-character', version: 1, roles } },
+    });
+    // The same input three times, both threading modes, through MCP: the same digests.
+    const plain = await call({ frames: [walk(0, 60), { stepOffset: 60, actions: { jump: { v: 1, p: 'pressed' } } }, walk(61, 60, -1)], threads: 'both', runs: 3, observe: { atSteps: [60] } });
     expect(plain.isError, JSON.stringify(plain.body).slice(0, 2000)).toBe(false);
     expect(plain.body.deterministic, JSON.stringify(plain.body.mismatches)).toBe(true);
-    expect(plain.body.runs.map((x) => x.simulation)).toEqual(['worker', 'worker', 'single', 'single']);
+    expect(plain.body.runs.map((x) => x.simulation)).toEqual(['worker', 'worker', 'worker', 'single', 'single', 'single']);
     expect(new Set(plain.body.runs.flatMap((x) => x.observations.map((o) => `${o.runStep}:${o.digest}`))).size).toBe(2);
     // Split into two exercises (held in between) or sent as one: the same run, step for step.
     const whole = await call({ frames: [walk(0, 60), { stepOffset: 60, actions: { jump: { v: 1, p: 'pressed' } } }, walk(61, 60, -1)], threads: 'worker', runs: 1 });
@@ -278,6 +297,26 @@ test('tl_playtest through the MCP stdio adapter: a script whose run pauses and p
     const overlapping = await call({ frames: [walk(0, 10), walk(5, 10)] });
     expect(overlapping.isError).toBe(true);
     expect(JSON.stringify(overlapping.body)).toContain('playtest_invalid');
+
+    // A script that throws stops the run: tl_game_observe says failed and names the error; a play-test ends on it.
+    const tool = async (name: string, args: Record<string, unknown>): Promise<Record<string, unknown>> => {
+      const res = (await mcp.callTool({ name, arguments: args })) as { content: Array<{ type: string; text: string }> };
+      return JSON.parse(res.content[0]!.text) as Record<string, unknown>;
+    };
+    const started = await tool('tl_play_start', { demo: false, variables: { boom: 30 } });
+    const playSessionId = String(started['playSessionId']);
+    await expect.poll(async () => (await tool('tl_game_observe', { playSessionId }))['state'], { timeout: 60_000 }).toBe('failed');
+    const failedObs = await tool('tl_game_observe', { playSessionId });
+    expect(failedObs['error'], JSON.stringify(failedObs).slice(0, 1500)).toMatchObject({ message: expect.stringContaining('boom: the probe threw') });
+    // It stays failed: no more steps.
+    const step = Number(failedObs['stepIndex']);
+    await new Promise((r) => setTimeout(r, 500));
+    expect((await tool('tl_game_observe', { playSessionId }))['stepIndex']).toBe(step);
+    await tool('tl_play_stop', { playSessionId });
+    // It fails in the start or in the run (whichever the play-test's restart comes after): the test ends on the error.
+    const boom = await call({ frames: [walk(0, 90)], variables: { boom: 60 }, threads: 'worker', runs: 1 });
+    expect(boom.isError).toBe(true);
+    expect(boom.body.error, JSON.stringify(boom.body).slice(0, 1500)).toMatchObject({ code: 'playtest_game_failed', message: expect.stringContaining('boom: the probe threw') });
   } finally {
     await mcp.close();
   }

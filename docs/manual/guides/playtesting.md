@@ -74,11 +74,10 @@ and listen.
   input: wall-clock time, `Math.random` instead of `ctx.random`, or state a
   script keeps outside its `state`. The `mismatches` say at which step the
   digests first differ; observe more fields there.
-- **A game with a second player controller does not repeat its digests
-  across restarts yet** (D225); compare observed fields meanwhile.
-- **A script that throws stops the run**, while `tl_game_observe` still
-  says `running` (D224). The result's `errors`, or `tl_diagnostics`'
-  `runtime.state` and `runtime.errors`, show it with its source line.
+- **A script that throws stops the run.** `tl_game_observe` then says
+  `state: "failed"` with the `error` that stopped it, and a play-test ends
+  with `playtest_game_failed`. `tl_diagnostics`' `runtime.errors` shows
+  the error with its source line.
 - **`ctx.log` lines are listed among the run's `errors`** (code
   `behavior_log`); look at `code` before you treat one as a failure.
 

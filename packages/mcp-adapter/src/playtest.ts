@@ -393,6 +393,12 @@ export async function runPlaytest(backend: PlaytestBackend, projectId: string, s
   };
   const pick = (o: Record<string, unknown>): Record<string, unknown> => Object.fromEntries(fields.map((p) => [p, pickPath(o, p)]));
 
+  /** A failed run's error (the observation's `error`; its source line is in the play's diagnostics). */
+  const gameFailed = (o: Record<string, unknown>, when: string): PlaytestError => {
+    const e = isObj(o['error']) ? o['error'] : {};
+    return new PlaytestError('playtest_game_failed', `the game failed ${when}: ${String(e['code'] ?? 'failed')}: ${String(e['message'] ?? '')}`.slice(0, 512), { error: e });
+  };
+
   /** One exercise with hold; resolves with the observation once the game holds right after its last step. */
   const exercise = async (playSessionId: string, fs: readonly PlaytestFrame[], restart: boolean): Promise<Record<string, unknown>> => {
     const span = fs.reduce((n, f) => Math.max(n, f.stepOffset + (f.steps ?? 1)), 0);
@@ -400,7 +406,12 @@ export async function runPlaytest(backend: PlaytestBackend, projectId: string, s
     if (left() < wait) throw new PlaytestError('playtest_timeout', `the play-test ran out of time (timeoutMs ${timeoutMs})`);
     const body = { mode: 'exclusive-test', frames: fs, hold: true, ...(restart ? { restart: true } : {}) };
     const res = await backend.inputRelay(playSessionId, body, wait);
-    if (!isObj(res.body) || res.body['ok'] !== true) throw backendError('input exercise', res);
+    if (!isObj(res.body) || res.body['ok'] !== true) {
+      // An exercise whose run failed never completes (its relay times out): the error that stopped the run is the answer.
+      const o = await backend.gameObserve(playSessionId, {});
+      if (isObj(o.body) && o.body['ok'] === true && o.body['state'] === 'failed') throw gameFailed(o.body, 'during the run');
+      throw backendError('input exercise', res);
+    }
     const to = Number(res.body['appliedToStep']);
     // The digest is taken right after the last step, where the game then holds.
     const until = Date.now() + 10_000;
@@ -408,6 +419,8 @@ export async function runPlaytest(backend: PlaytestBackend, projectId: string, s
       const o = await observe(playSessionId);
       const r = runOf(o);
       if (r.lastInput !== undefined && r.lastInput.toStep === to && r.lastInput.held === true) return o;
+      // A failed run never steps again: say why now instead of waiting for a hold that cannot come.
+      if (o['state'] === 'failed') throw gameFailed(o, 'during the run');
       if (Date.now() > until) throw new PlaytestError('playtest_hold_lost', `the game did not hold after step ${to} (another exercise or the debugger let it go?)`, { run: r });
       await sleep(25);
     }
@@ -441,6 +454,7 @@ export async function runPlaytest(backend: PlaytestBackend, projectId: string, s
         const res = await backend.gameObserve(playSessionId, {});
         if (isObj(res.body) && res.body['ok'] === true) {
           if (res.body['state'] === 'running') first = res.body;
+          else if (res.body['state'] === 'failed') throw gameFailed(res.body, 'before the play-test began');
           else if (res.body['state'] === 'paused') throw new PlaytestError('playtest_paused', 'the game starts paused (a title screen or a pause screen holds it): a run restarts the game and needs it running; start past it (sceneId) or give the shell no title screen for the test');
         } else if (isObj(res.body) && isObj(res.body['error']) && res.body['error']['code'] === 'play_not_found') {
           throw backendError('the play ended before it ran', res);

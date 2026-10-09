@@ -64,7 +64,7 @@ import {
   type ProjectSaveFile,
 } from '@thirdlight/runtime';
 import type { ScenePreloader } from './scene-preload';
-import type { ResourceManager } from '@thirdlight/runtime';
+import type { ResourceManager, RuntimeDiagnostics } from '@thirdlight/runtime';
 import { createHostAssets, type GameResourcesObservation, type HostAssets } from './host-assets';
 import { createHostAudio, type AudioRow, type HostAudio, type HostAudioConfig } from './host-audio';
 import type { MenuSample } from '@thirdlight/input';
@@ -210,10 +210,20 @@ export interface DialogueObservation {
 
 /**
  * The play state every game reports — the simulation runs, or the
- * engine pause holds it (a menu, the pause panel, a game mode's pause).
- * `stopped` is the play's end (a disposed host has nothing to observe).
+ * engine pause holds it (a menu, the pause panel, a game mode's pause), or
+ * an error stopped it (`failed`: a script threw, a physics or module
+ * failure; it never steps again until a fresh start). `stopped` is the
+ * play's end (a disposed host has nothing to observe).
  */
-export type PlayState = 'running' | 'paused' | 'stopped';
+export type PlayState = 'running' | 'paused' | 'failed' | 'stopped';
+
+/** The error that stopped a failed run, as the observation carries it (the source line: the run's diagnostics). */
+export interface PlayFailure {
+  readonly code: string;
+  readonly message: string;
+  readonly stepIndex?: number;
+  readonly moduleId?: string;
+}
 
 /** The environment preset blend as observed (the frame's interpolated weights). */
 export interface GameHostEnvironmentObservation {
@@ -237,6 +247,8 @@ export interface GameHostObservation {
   readonly simTime: number;
   /** The generic play state. */
   readonly state: PlayState;
+  /** A failed run: the error that stopped it. */
+  readonly error?: PlayFailure;
   readonly sound: GameHostSound;
   readonly inputMode: 'physical' | 'test';
   readonly player?: { readonly x: number; readonly y: number; readonly z: number };
@@ -527,7 +539,7 @@ export interface GameHost {
   uiElements?(max?: number): UiElementObservation[];
   /** `@font-face` rules of the UI's project fonts (a screenshot draws the UI outside the page). */
   uiFontRules?(): Promise<string>;
-  /** The play state now (running, or paused: the engine pause, a menu or the debugger hold the simulation). */
+  /** The play state now (running; paused: the engine pause, a menu or the debugger hold the simulation; failed: an error stopped the run). */
   playState?(): PlayState;
   /** The last stats window (`ctx.stats`; null before the first ends) — Play diagnostics carry it. */
   frameStats?(): BehaviorStats | null;
@@ -1281,8 +1293,27 @@ export function createGameHost(config: GameHostConfig): GameHost {
     assets.frameDone();
   };
 
-  /** The generic play state (the engine pause, a menu or the debugger hold the simulation). */
-  const playState = (): PlayState => (disposed ? 'stopped' : runtime?.isPaused === true || scenePaused ? 'paused' : 'running');
+  /** The generic play state (the engine pause, a menu or the debugger hold the simulation; a fail-stop ends the run). */
+  const playState = (): PlayState => {
+    if (disposed) return 'stopped';
+    const d = runtime?.getDiagnostics();
+    if (d?.ok === true && d.diagnostics.state === 'failed') return 'failed';
+    return runtime?.isPaused === true || scenePaused ? 'paused' : 'running';
+  };
+
+  /**
+   * The error that stopped a failed run: its fail-stop entry (the step it
+   * failed at; the last such, as nothing runs after it), else the last error
+   * that is not a log line (a simulation worker's own failure).
+   */
+  const failureOf = (d: RuntimeDiagnostics): PlayFailure | undefined => {
+    if (d.state !== 'failed') return undefined;
+    const errors = d.errors.filter((e) => e.code !== 'behavior_log' && e.code !== 'entity_write');
+    const atFail = d.failedStepIndex !== undefined ? errors.filter((e) => e.stepIndex === d.failedStepIndex) : [];
+    const e = atFail.at(-1) ?? errors.at(-1);
+    if (e === undefined) return { code: 'failed', message: 'the run stopped on an error (see the diagnostics)' };
+    return { code: e.code, message: e.message, ...(e.stepIndex !== undefined ? { stepIndex: e.stepIndex } : {}), ...(e.moduleId !== undefined ? { moduleId: e.moduleId } : {}) };
+  };
 
   const control = (action: GameControlAction): GameControlResult => {
     if (disposed) return { ok: false, error: { code: 'host_disposed', message: 'the host is disposed' } };
@@ -1654,6 +1685,7 @@ export function createGameHost(config: GameHostConfig): GameHost {
       return t !== undefined ? [{ id, x: t.position[0], y: t.position[1], z: t.position[2] }] : [];
     });
     const tr = placed[0]?.id === controllers[0] ? placed[0] : undefined;
+    const failure = d.ok ? failureOf(d.diagnostics) : undefined;
     return {
       ok: true,
       observation: {
@@ -1662,6 +1694,7 @@ export function createGameHost(config: GameHostConfig): GameHost {
         stepIndex: d.ok ? d.diagnostics.stepIndex : 0,
         simTime: d.ok ? d.diagnostics.simTime : 0,
         state: playState(),
+        ...(failure !== undefined ? { error: failure } : {}),
         sound: mapSoundStatus(config.audio),
         inputMode: 'physical',
         ...(tr !== undefined ? { player: { x: tr.x, y: tr.y, z: tr.z } } : {}),

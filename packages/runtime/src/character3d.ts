@@ -118,6 +118,14 @@ export function createCharacter3DModule(snapshot: RuntimeSnapshot, cfg: ModuleCo
         else if (phase === 'transform') one.transformStep(ctx);
       });
     },
+    /**
+     * The reset hook. A run restart starts every controller over as it was
+     * created, so a restarted run repeats the first start; a placement (a
+     * respawn, an arrival) reaches the controller as its `characterPlace`.
+     */
+    reset(ctx): void {
+      if (ctx.characterId === undefined) for (const one of all) one.restart();
+    },
     character3DStatus(id?: string): Character3DStatus | null {
       const one = id === undefined ? all[0] : all.find((x) => x.id === id);
       return one?.status() ?? null;
@@ -132,7 +140,7 @@ export function createCharacter3DModule(snapshot: RuntimeSnapshot, cfg: ModuleCo
 function createOne(
   found: { id: string; controller: unknown; rotation: readonly number[] },
   cfg: ModuleConfig,
-): { id: string; controllerStep(ctx: StepContext, intents: ControllerIntents): void; transformStep(ctx: StepContext): void; status(): Character3DStatus } {
+): { id: string; controllerStep(ctx: StepContext, intents: ControllerIntents): void; transformStep(ctx: StepContext): void; restart(): void; status(): Character3DStatus } {
   const { id: charId, controller, rotation } = found;
   const hz = cfg.fixedStepHz;
   const dt = 1 / hz;
@@ -474,10 +482,30 @@ function createOne(
     }
   };
 
+  /** A run restart: everything as when the module was created (the authored facing, the coyote window full, switched on). */
+  const restart = (): void => {
+    vx = 0;
+    vz = 0;
+    vy = 0;
+    yaw = yawOf(rotation);
+    coyote = coyoteSteps;
+    buffer = 0;
+    jumping = false;
+    enabled = true;
+    climb = null;
+    prev = undefined;
+    climbing = null;
+    wallNormal = null;
+    wallCoyote = 0;
+    wallJumped = false;
+    wallLockSteps = 0;
+  };
+
   return {
     id: charId,
     controllerStep,
     transformStep,
+    restart,
     status: (): Character3DStatus => ({ enabled, climbing: climb !== null, climbVolume: climbing, yaw }),
   };
 }

@@ -61,8 +61,5 @@ the API to check both players' moves in a play-test.
   stands*; see [saves](saves.md)).
 - **Visual-script nodes drive the first controller** unless they have a
   player input.
-- **Restarted runs with a second player do not reach the same digests**
-  (a known defect, D225): a multi-run play-test of such a game reports a
-  mismatch. Compare observed fields instead of digests meanwhile.
 
 Related: [input and rebinding](input.md), [cameras](cameras.md).

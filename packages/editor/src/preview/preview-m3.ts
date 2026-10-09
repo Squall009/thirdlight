@@ -31,6 +31,7 @@ import {
   type GameHost,
   type GameStartOptions,
   type HostDomNode,
+  type PlayState,
   type SimAccess,
   type StartTimings,
   createStartTimings,
@@ -513,6 +514,8 @@ export function bootstrapPreviewM3(): void {
       stepIndex: o.stepIndex,
       simTime: o.simTime,
       state: o.state,
+      // A failed run: the error that stopped it.
+      ...(o.error !== undefined ? { error: { ...o.error } } : {}),
       inputMode: h.access.inputTestActive ? 'test' : 'physical',
       ...(digests !== null ? { run: { stepIndex: digests.now.stepIndex, runStep: digests.now.runStep, digest: digests.now.digest, ...(digests.input !== null ? { lastInput: { ...digests.input } } : {}) } } : {}),
       sound: o.sound,
@@ -586,7 +589,7 @@ export function bootstrapPreviewM3(): void {
 
   const control = async (handle: M3PreviewHandle, body: ControlBody): Promise<void> => {
     // The step and play state of the answer.
-    const acceptedNow = (): { ok: true; state: 'running' | 'paused' | 'stopped'; acceptedAtStep: number } => {
+    const acceptedNow = (): { ok: true; state: PlayState; acceptedAtStep: number } => {
       const o = handle.host.observe();
       return o.ok ? { ok: true, state: o.observation.state, acceptedAtStep: o.observation.stepIndex } : { ok: true, state: 'running', acceptedAtStep: 0 };
     };
@@ -701,7 +704,7 @@ function modeDiagnostics(h: M3PreviewHandle): { mode?: { current: string; name: 
 }
 
 /** The play state the host reports now (null: it cannot say). */
-function playStateOf(h: M3PreviewHandle): 'running' | 'paused' | 'stopped' | null {
+function playStateOf(h: M3PreviewHandle): PlayState | null {
   const o = h.host.observe();
   return o.ok ? o.observation.state : null;
 }

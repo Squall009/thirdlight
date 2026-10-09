@@ -577,10 +577,11 @@ export const GAME_OBSERVE_TIMEOUT_DEFAULT_MS = 5_000;
 /**
  * The closed play-state set of an observation and a control
  * result — generic for every game: the simulation runs, or the engine pause
- * holds it (a menu, the pause panel, a game mode's pause). `stopped` is the
- * play's end (a stopped play has no observation to read).
+ * holds it (a menu, the pause panel, a game mode's pause), or an error
+ * stopped the run (`failed`; the observation's `error` names it). `stopped`
+ * is the play's end (a stopped play has no observation to read).
  */
-export const PLAY_STATES = ['running', 'paused', 'stopped'] as const;
+export const PLAY_STATES = ['running', 'paused', 'failed', 'stopped'] as const;
 export type PlayState = (typeof PLAY_STATES)[number];
 
 
@@ -831,6 +832,12 @@ export function validateGameObservation(value: unknown): FieldErrorResult {
   }
   if (value.inputMode !== 'physical' && value.inputMode !== 'test') {
     return fieldError('field_value', '/inputMode', 'inputMode must be "physical" or "test"');
+  }
+  if (value.error !== undefined) {
+    const e = value.error;
+    if (!isPlainObject(e) || typeof e.code !== 'string' || typeof e.message !== 'string') {
+      return fieldError('field_type', '/error', 'error must be { code, message } (a failed run\'s error)');
+    }
   }
   if (!isPlainObject(value.sound)) {
     return fieldError('field_type', '/sound', 'sound must be a status object');

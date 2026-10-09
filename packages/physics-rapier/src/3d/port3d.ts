@@ -1130,6 +1130,7 @@ function createAdapter(world: RAPIER.World, primary: CharacterBody3D, further: R
       b.grounded = false;
       b.retainedSupport = { x: 0, y: 1, z: 0 };
       b.stepping = null;
+      b.last = undefined;
       world.step();
       return computeClearance(b, origin);
     },

@@ -602,9 +602,11 @@ export function createControllerModule(
     transformOwners: ids,
     /**
      * The reset hook (a character was placed: a restart, an arrival, a
-     * respawn). A placement names its controller; a run restart resets
-     * every controller — the first at the reset centre, the others where
-     * they start (the restored transforms).
+     * respawn). A placement names its controller and starts it from rest
+     * (no coyote window: it was not standing anywhere). A run restart puts
+     * every controller back in the state it was created in (the coyote
+     * window full, as at the first start) where it starts (the restored
+     * transforms), so a restarted run repeats the first one exactly.
      */
     reset(ctx: ModuleResetContext): void {
       if (ctx.characterId !== undefined) {
@@ -613,8 +615,9 @@ export function createControllerModule(
         return;
       }
       controlled.forEach((c, i) => {
-        const t = i === 0 ? undefined : ctx.state.curr.get(c.id);
-        resetState(c.state, i === 0 || t === undefined ? (i === 0 ? ctx.playerCenter : { x: c.state.charX, y: c.state.charY }) : { x: t.position[0], y: t.position[1] });
+        const t = ctx.state.curr.get(c.id);
+        resetState(c.state, t !== undefined ? { x: t.position[0], y: t.position[1] } : i === 0 ? ctx.playerCenter : { x: c.state.charX, y: c.state.charY });
+        c.state.coyote = c.tuning.coyoteSteps;
       });
     },
     step(phase, ctx): void {

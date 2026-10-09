@@ -75,6 +75,7 @@ export {
   type GameStartOutcome,
   type GameHostObservation,
   type PlayState,
+  type PlayFailure,
   type GameHostEnvironmentObservation,
   type SocketObservation,
   type GameHostSound,

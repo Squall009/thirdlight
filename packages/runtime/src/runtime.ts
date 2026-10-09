@@ -2348,6 +2348,15 @@ export class RuntimeInstance implements Runtime {
     this.ui.resetRun();
     this.modes.beginRun(ordinal);
     this.activeSpawn = null;
+    // Each player controller's body from rest where it started, then every module's run reset: the
+    // controllers come back in the state they were created in (not a placement's, which starts a
+    // character from rest mid-run), so a restarted run repeats the first start for every player.
+    try {
+      this.controllers.restartRun(this.resetPort());
+    } catch (e) {
+      this.failStopFromError(e, this.stepIndex);
+      return false;
+    }
     const first = this.controllers.first !== undefined ? this.entities.get(this.controllers.first) : undefined;
     const start: Vec2 = first === undefined ? { x: 0, y: 0 } : { x: first.transform.position[0], y: first.transform.position[1] };
     for (const entry of this.entries) {
@@ -2357,19 +2366,6 @@ export class RuntimeInstance implements Runtime {
       this.currentModuleId = entry.id;
       try {
         instance.reset(this.buildResetContext('replay', ordinal, start, new Set(entry.owners)));
-      } catch (e) {
-        this.failStopFromError(e, this.stepIndex);
-        return false;
-      }
-    }
-    // Each player controller from rest where it started (its controller module sees the placement in the next intent phase);
-    // on the 2D plane too (else its port keeps the previous place and the next controller step fails its check).
-    for (const id of this.controllers.ids) {
-      const player = this.entities.get(id);
-      if (player === undefined || (this.physics3d === undefined && this.resetPort() === null)) continue;
-      try {
-        if (this.physics3d !== undefined) this.placement.of(id)?.restartAt3D(player.transform.position);
-        else this.placeCharacter2D(id, player.transform.position[0], player.transform.position[1], ordinal);
       } catch (e) {
         this.failStopFromError(e, this.stepIndex);
         return false;

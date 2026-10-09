@@ -203,4 +203,29 @@ describe('runPlaytest over a backend', () => {
     expect(r).toMatchObject({ ok: false, error: { code: 'playtest_paused' } });
     expect(calls[calls.length - 1]).toBe('stop play-1');
   });
+
+  it('a game that fails ends the test with its error at once, before or during a run, and its play stopped', async () => {
+    const error = { code: 'module_error', message: 'behavior "b" step threw: boom', stepIndex: 40 };
+    for (const when of ['before', 'during', 'relay'] as const) {
+      const { backend, calls } = fakeBackend();
+      let exercised = false;
+      const failing: PlaytestBackend = {
+        ...backend,
+        inputRelay: async (id, body) => {
+          exercised = true;
+          // The run failed inside the exercise: it never completes and the relay times out.
+          if (when === 'relay') return { status: 504, body: { ok: false, error: { code: 'input_relay_timeout', message: 'input relay timed out' } } };
+          return backend.inputRelay(id, body, 1000);
+        },
+        // The run fails before it holds after the exercise: the observation says so (no lastInput held).
+        gameObserve: async () => ({ status: 200, body: when === 'before' || exercised ? { ok: true, state: 'failed', error, run: { runStep: 3, digest: 'x' } } : { ok: true, state: 'running', run: { runStep: 0, digest: 'x' } } }),
+      };
+      const t0 = Date.now();
+      const r = await runPlaytest(failing, 'p', { frames: [walk(0, 10)] });
+      expect(r, when).toMatchObject({ ok: false, error: { code: 'playtest_game_failed', message: expect.stringContaining('boom') } });
+      expect(r.ok === false && r.error.message, when).toContain(when === 'before' ? 'before the play-test began' : 'during the run');
+      expect(Date.now() - t0).toBeLessThan(5_000);
+      expect(calls[calls.length - 1]).toBe('stop play-1');
+    }
+  });
 });

@@ -400,6 +400,30 @@ export class PlayerControllers {
     return true;
   }
 
+  /**
+   * A run restart: every controller whose object is in the game is put back
+   * where its transform now says (the runtime restored the authored one), from
+   * rest, and holds nothing of the last run (its last result, fall speed,
+   * impulse or staged move), as when the game started. On the 2D plane
+   * without a reset port the bodies stay. Throws a port failure.
+   */
+  restartRun(port2D: PhysicsResetPort | null): void {
+    this.clearImpulses();
+    this.clearStaged();
+    const curr = this.host.curr();
+    for (const id of this.ids) {
+      const c = this.byId.get(id)!;
+      c.last2D = undefined;
+      c.last3D = undefined;
+      c.fallSpeed3d = 0;
+      const t = curr.get(id);
+      if (t === undefined) continue;
+      const [x, y, z] = [t.position[0], t.position[1], t.position[2]];
+      if (this.host.physics3d !== undefined) this.place3D(id, x, y, z);
+      else this.place2D(id, port2D, x, y);
+    }
+  }
+
   /** A timeline moves a 3D controller: its body goes with it, from rest. Returns whether it was one. */
   moveWithTimeline3D(id: string, position: readonly number[]): boolean {
     const port = this.host.physics3d;
