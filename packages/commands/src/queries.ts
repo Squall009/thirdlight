@@ -324,8 +324,10 @@ export function queryBehaviors(
   const parsed = parseQueryRequest('queryBehaviors', request);
   if (!parsed.ok) return { ok: false, projectId: parsed.projectId, error: parsed.error };
   const { projectId, args } = parsed.base;
-  const page = parsePageArgs(args, ['limit', 'offset', 'includeDeclaration', 'behaviorId', 'ids']);
+  const page = parsePageArgs(args, ['limit', 'offset', 'includeDeclaration', 'includeTrust', 'behaviorId', 'ids']);
   if (!page.ok) return { ok: false, op: 'queryBehaviors', projectId, error: page.error };
+  const withTrust = parseBooleanArg(args, 'includeTrust');
+  if (!withTrust.ok) return { ok: false, op: 'queryBehaviors', projectId, error: withTrust.error };
   const idsArg = parseIdsArg(args);
   if (!idsArg.ok) return { ok: false, op: 'queryBehaviors', projectId, error: idsArg.error };
   const inc = parseBooleanArg(args, 'includeDeclaration');
@@ -367,6 +369,8 @@ export function queryBehaviors(
     limit: page.limit,
     behaviors,
     ...(byIds !== null ? { missing: byIds.missing } : {}),
+    // The trust list is small next to the records it vouches for (one entry per acknowledged version), so it is not paged.
+    ...(withTrust.value ? { trust: content.behaviorTrust.entries.map((e) => ({ ...e })) } : {}),
   };
 }
 

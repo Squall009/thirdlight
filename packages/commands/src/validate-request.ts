@@ -212,7 +212,13 @@ export const MUTATION_OPS: readonly MutationOp[] = [
   'colliderFromModel',
   // A terrain edit (one stroke, import or conversion)
   'editTerrain',
+  // Script deletion and trust withdrawal
+  'deleteBehavior',
+  'revokeBehaviorTrust',
 ];
+
+/** The one id key of each op whose only argument names the record it removes. */
+const SINGLE_ID_KEY = { deleteAsset: 'assetId', deletePrefab: 'prefabId', deleteBehavior: 'behaviorId', revokeBehaviorTrust: 'sourceDigest' } as const;
 
 const ORIGIN_KINDS = ['browser', 'mcp', 'admin'] as const;
 
@@ -235,9 +241,12 @@ export const CREATE_MADE_BY_KIND: readonly string[] = ['box', 'model'];
  */
 export const CREATE_COMPONENTS: readonly string[] = SET_COMPONENT_NAMES.filter((c) => !CREATE_MADE_BY_KIND.includes(c));
 
+/** The `expected` text of an unknown op: the list itself, so a new op is named without a second copy. */
+export const MUTATION_OPS_EXPECTED = `one of: ${MUTATION_OPS.join(', ')}`;
+
 /** Expected-text constants (the `expected` strings are log-safe, stable). */
 const EXPECT = {
-  op: 'one of: createEntity, setTransform, deleteEntity, undo, redo, publishAsset, publishBehavior, setBehaviorProperties, setComponent, setSettings, acknowledgeBehaviorTrust, createPrefab, instantiatePrefab, applySurfacePreset, updateEntity, moveEntities, setTags, setAssetOptions, pasteEntities, setMaterial, deleteMaterial, setEnvironment, setLighting, setAnimator, deleteAnimator, setInput, setCollisionLayers, setLightLayers, setSaveSchema, createScene, renameScene, deleteScene, setStartScenes, setGraph, deleteGraph, graphEdit, setEffect, deleteEffect, renameEffect, setScriptLibrary, deleteScriptLibrary, editBlocks, setBlockType, deleteBlockType, setCellFields, setBlockStamp, deleteBlockStamp, setUiDocument, deleteUiDocument, setUiTheme, deleteUiTheme, setTimeline, deleteTimeline, setModes, setBehaviorGroups, setEventCues, setShell, setDialogue, deleteDialogue, setSpeaker, deleteSpeaker, setDialogueSettings, deleteAsset, deletePrefab, importAssets, importResources, createEntities, commitScriptLibraryStage, setLabels, setAddress, moveResources, renameFolder, createFolder, paintInstances, colliderFromModel, editTerrain',
+  op: MUTATION_OPS_EXPECTED,
   projectId: 'project-model ID syntax: [a-z0-9][a-z0-9_-]{0,63}',
   expectedRevision: 'integer, 0 <= v <= 2^53-1',
   requestId: 'req- + 32 lowercase hex chars: ^req-[0-9a-f]{32}$',
@@ -1326,6 +1335,8 @@ export type ValidatedOpArgs =
   | { op: 'importAssets'; args: ImportAssetsArgs }
   | { op: 'importResources'; args: ImportResourcesArgs }
   | { op: 'deletePrefab'; args: { prefabId: string } }
+  | { op: 'deleteBehavior'; args: { behaviorId: string } }
+  | { op: 'revokeBehaviorTrust'; args: { sourceDigest: string } }
   | { op: 'createEntities'; args: { entities: (CreateEntityArgs & { ref?: string })[] } }
   | { op: 'setLabels'; args: SetLabelsArgs }
   | { op: 'setAddress'; args: SetAddressArgs }
@@ -1503,9 +1514,11 @@ export function validateOpArgs(
       return { ok: true, validated: { op: 'importResources', args: r.args } };
     }
     case 'deleteAsset':
-    case 'deletePrefab': {
-      // deleteAsset {assetId}; deletePrefab {prefabId}.
-      const key = op === 'deleteAsset' ? 'assetId' : 'prefabId';
+    case 'deletePrefab':
+    case 'deleteBehavior':
+    case 'revokeBehaviorTrust': {
+      // deleteAsset {assetId}; deletePrefab {prefabId}; deleteBehavior {behaviorId}; revokeBehaviorTrust {sourceDigest}.
+      const key = SINGLE_ID_KEY[op];
       for (const k of Object.keys(args)) if (k !== key) return { ok: false, error: fieldUnexpected(`/args/${pointerSegment(k)}`, k, key) };
       if (args[key] === undefined) return { ok: false, error: fieldMissing(`/args/${key}`, key) };
       if (typeof args[key] !== 'string') return { ok: false, error: fieldType(`/args/${key}`, args[key], `string (${key})`) };

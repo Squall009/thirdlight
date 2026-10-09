@@ -1,10 +1,12 @@
 /**
- * Deleting an asset or a prefab, in the editor and over MCP, the
+ * Deleting an asset, a prefab or a script, in the editor and over MCP, the
  * same command against the real backend. The editor's delete is refused (and
  * says why) while an object uses the record; an unused one is removed, and
  * an MCP undo brings it back in the editor. MCP's `tl_command` gets the same
- * refusal (`reference_in_use`) and the same deletion. A
- * `createEntities` batch over MCP is one revision and one undo, and the
+ * refusal (`reference_in_use`) and the same deletion. Project Settings →
+ * Script trust lists the acknowledged sources as the backend has them (read
+ * at load) and revokes one, refused while a published script still uses it.
+ * A `createEntities` batch over MCP is one revision and one undo, and the
  * editor shows its objects.
  */
 import { join, resolve } from 'node:path';
@@ -13,8 +15,8 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { expect, test } from './pw';
 
-import { publishWav, startBackend, STARTER, type E2EBackend } from './backend';
-import { projectWindow, chooseItem, closeEditor } from './ui';
+import { publishScript, publishWav, startBackend, STARTER, type E2EBackend } from './backend';
+import { projectWindow, chooseItem, closeEditor, closeProjectSettings, openProjectSettings, settingsWindow } from './ui';
 
 const REPO = resolve(import.meta.dirname, '..', '..');
 
@@ -48,8 +50,10 @@ async function command(op: string, args: Record<string, unknown>): Promise<{ isE
   return call('tl_command', { op, expectedRevision: await rev(), args });
 }
 
-// One backend, MCP client and editor for both kinds: the prefab part uses the ground, which the asset part leaves alone.
-test('assets: the editor refuses a used one and deletes an unused one; MCP gets the same command and undoes it; prefabs: refused while a copy is placed, deleted after; createEntities is one revision and one undo', async ({ page }) => {
+const SPINNER = ['export default {', '  instantiate() { return {}; },', '  step() {},', '};'].join('\n');
+
+// One backend, MCP client and editor for every kind: the prefab and script parts use the ground, which the asset part leaves alone.
+test('assets: the editor refuses a used one and deletes an unused one; MCP gets the same command and undoes it; prefabs: refused while a copy is placed, deleted after; scripts and script trust likewise; createEntities is one revision and one undo', async ({ page }) => {
   await publishWav(be, 'cue-goal.wav', 'sfx-ping', 'ping');
   await page.goto(be.editorUrl);
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
@@ -106,6 +110,40 @@ test('assets: the editor refuses a used one and deletes an unused one; MCP gets 
   await expect(tile).toHaveCount(0);
   expect((await command('undo', {})).isError).toBe(false);
   await expect(tile).toHaveCount(1);
+
+  // Scripts: a published script on the ground. The page is read again so the trust list comes from the backend at load.
+  await publishScript(be, 'spinner', SPINNER, STARTER.groundId);
+  const listed = await call('tl_content_query', { target: 'behaviors', behaviorId: 'spinner', includeDeclaration: true, includeTrust: true });
+  const digest = String((listed.body.behaviors as { source?: { sourceDigest?: string } }[] | undefined)?.[0]?.source?.sourceDigest ?? '');
+  expect(digest, JSON.stringify(listed.body).slice(0, 400)).toMatch(/^[0-9a-f]{64}$/);
+  expect((listed.body.trust as { sourceDigest: string }[]).map((e) => e.sourceDigest)).toContain(digest);
+  await page.reload();
+  await expect(page.locator('.tl-statusbar')).toContainText('connected');
+  await chooseItem(page, 'behavior', 'spinner');
+  await page.getByRole('button', { name: 'delete behavior spinner' }).click();
+  await expect(page.getByTestId('item-delete-error')).toContainText('behavior "spinner" is still used');
+  expect(JSON.stringify((await command('deleteBehavior', { behaviorId: 'spinner' })).body)).toContain('reference_in_use');
+
+  // The trust list: the script's source, used by it, so a revoke is refused and says why.
+  await openProjectSettings(page, 'Script trust');
+  const row = settingsWindow(page).locator(`li[data-digest="${digest}"]`);
+  await expect(row).toContainText('used by script spinner');
+  await row.getByRole('button', { name: `revoke trust ${digest.slice(0, 12)}` }).click();
+  await expect(row.getByTestId('trust-revoke-error')).toContainText('is still used');
+  await closeProjectSettings(page);
+
+  // Off the ground, the script goes; then its source can be revoked; an MCP undo brings the entry back.
+  expect((await command('setBehaviorProperties', { entityId: STARTER.groundId, behaviorId: null })).isError).toBe(false);
+  await chooseItem(page, 'behavior', 'spinner');
+  await page.getByRole('button', { name: 'delete behavior spinner' }).click();
+  await expect(page.locator('.tl-project__item[data-item-kind="behavior"][data-item-id="spinner"]')).toHaveCount(0);
+  await openProjectSettings(page, 'Script trust');
+  await expect(row).toContainText('not used by a published script');
+  await row.getByRole('button', { name: `revoke trust ${digest.slice(0, 12)}` }).click();
+  await expect(row).toHaveCount(0);
+  expect((await command('undo', {})).isError).toBe(false);
+  await expect(row).toHaveCount(1);
+  await closeProjectSettings(page);
 
   // Bulk building over MCP: one revision, the editor shows every object, one undo removes them all.
   const before = await rev();

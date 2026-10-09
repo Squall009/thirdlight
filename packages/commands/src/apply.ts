@@ -63,7 +63,7 @@ import { applyDeleteUi, applySetUiDocument, applySetUiTheme } from './ui-ops';
 import { applyDeleteDialogueValue, applySetDialogue, applySetDialogueSettings, applySetSpeaker } from './dialogue-ops';
 import { applySetBehaviorGroups, applySetEventCues, applySetModes, applySetShell } from './mode-ops';
 import { applyDeleteTimeline, applySetTimeline } from './timeline-ops';
-import { applyDeleteAsset, applyDeletePrefab } from './delete-content-ops';
+import { applyDeleteAsset, applyDeleteBehavior, applyDeletePrefab, applyRevokeBehaviorTrust } from './delete-content-ops';
 import { applyImportAssets } from './import-assets';
 import { applySetAddress, applySetLabels } from './loadable-ops';
 import { applyImportResources } from './import-resources';
@@ -86,6 +86,7 @@ import type {
 import {
   checkRequestBytes,
   echoField,
+  MUTATION_OPS_EXPECTED,
   validateOpArgs,
   validateRequestEnvelope,
 } from './validate-request';
@@ -334,9 +335,19 @@ export function applyMutation<S extends SceneDocument>(
       return completeForward(state, 'importResources', envelope.projectId, envelope.requestId, revision, envelope.origin, r.op);
     }
     case 'deleteAsset':
-    case 'deletePrefab': {
-      // Remove a catalog record (refused while anything references it).
-      const r = va.validated.op === 'deleteAsset' ? applyDeleteAsset(input, va.validated.args) : applyDeletePrefab(input, va.validated.args);
+    case 'deletePrefab':
+    case 'deleteBehavior':
+    case 'revokeBehaviorTrust': {
+      // Remove a catalog record or a trust entry (refused while anything references it).
+      const v = va.validated;
+      const r =
+        v.op === 'deleteAsset'
+          ? applyDeleteAsset(input, v.args)
+          : v.op === 'deletePrefab'
+            ? applyDeletePrefab(input, v.args)
+            : v.op === 'deleteBehavior'
+              ? applyDeleteBehavior(input, v.args)
+              : applyRevokeBehaviorTrust(input, v.args);
       if (!r.ok) return { ok: false, result: failure(request, r.error) };
       return completeForward(state, va.validated.op, envelope.projectId, envelope.requestId, revision, envelope.origin, r.op);
     }
@@ -723,7 +734,7 @@ export function applyMutation<S extends SceneDocument>(
           path: '/op',
           message: 'op is not one of the implemented mutation ops',
           expected:
-            'one of: createEntity, setTransform, deleteEntity, undo, redo, publishAsset, publishBehavior, setBehaviorProperties, setComponent, setSettings, acknowledgeBehaviorTrust, createPrefab, instantiatePrefab, applySurfacePreset, updateEntity, moveEntities, setTags, setAssetOptions, pasteEntities, setMaterial, deleteMaterial, setEnvironment, setLighting, setAnimator, deleteAnimator, setInput, setCollisionLayers, setLightLayers, setSaveSchema, createScene, renameScene, deleteScene, setStartScenes, setGraph, deleteGraph, graphEdit, setEffect, deleteEffect, renameEffect, setScriptLibrary, deleteScriptLibrary, editBlocks, setBlockType, deleteBlockType, setCellFields, setBlockStamp, deleteBlockStamp, setUiDocument, deleteUiDocument, setUiTheme, deleteUiTheme, setTimeline, deleteTimeline, setModes, setBehaviorGroups, setEventCues, setShell, setDialogue, deleteDialogue, setSpeaker, deleteSpeaker, setDialogueSettings, deleteAsset, deletePrefab, importAssets, importResources, createEntities, commitScriptLibraryStage, setLabels, setAddress, moveResources, renameFolder, createFolder, paintInstances, colliderFromModel, editTerrain',
+            MUTATION_OPS_EXPECTED,
         }),
       };
     }

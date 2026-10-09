@@ -73,6 +73,7 @@ function nameMaxOf(kind: string): number {
 const DELETE_OP: Readonly<Record<string, string>> = {
   material: 'deleteMaterial',
   prefab: 'deletePrefab',
+  behavior: 'deleteBehavior',
   animator: 'deleteAnimator',
   graph: 'deleteGraph',
   effect: 'deleteEffect',

@@ -8,7 +8,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type Dispatch } from 'react';
 import type { BehaviorDeclarationView } from '../../session/prefab-projection';
 import { initialPublicationState, publicationFailed, published, sourceStaged, trustObserved, type BehaviorPublicationState } from '../../session/behavior-publication';
-import type { ScriptLibrary, PropertyDeclaration } from '@thirdlight/project-model';
+import type { ScriptLibrary, PropertyDeclaration, TrustEntry } from '@thirdlight/project-model';
 import type { BehaviorPanelProps } from '../BehaviorPanel';
 import type { ScriptCheckResult, ScriptDraft, ScriptPublishOutcome } from '../script/ScriptDocument';
 import { publishScriptSource } from '../../session/script-publish';
@@ -31,15 +31,33 @@ export interface ScriptingDeps {
   workspaceDispatch: Dispatch<WorkspaceAction>;
   openDocument: (kind: string, id: string) => void;
   playInfo: PlayInfo | null;
+  /** The acknowledged script sources (the backend's list). */
+  trustEntries: readonly TrustEntry[];
 }
 
 export function useScripting(deps: ScriptingDeps) {
-  const { clientRef, behaviorViews, scriptLibraries, refreshEntities, workspace, workspaceDispatch, openDocument, playInfo } = deps;
+  const { clientRef, behaviorViews, scriptLibraries, refreshEntities, workspace, workspaceDispatch, openDocument, playInfo, trustEntries } = deps;
   const [libraryError, setLibraryError] = useState<string | null>(null);
   const [selectedBehaviorId, setSelectedBehaviorId] = useState<string | null>(null);
   const [publication, setPublication] = useState<BehaviorPublicationState>(() => initialPublicationState());
   const [sourceDraft, setSourceDraft] = useState('');
   const [behaviorError, setBehaviorError] = useState<UiError | null>(null);
+  const [trustError, setTrustError] = useState<{ sourceDigest: string; message: string } | null>(null);
+
+  // The publish controls ask for an acknowledgment only when the project's list lacks the digest
+  // (a revocation, or a list read at a full state, replaces what this page saw acknowledged).
+  useEffect(() => setPublication((s) => trustObserved(s, trustEntries)), [trustEntries]);
+
+  /** Withdraw an acknowledged source (refused while a published script uses it; one undo brings it back). */
+  const revokeTrust = useCallback(
+    async (sourceDigest: string): Promise<void> => {
+      const c = clientRef.current;
+      if (!c) return;
+      const err = refusal(await c.command('revokeBehaviorTrust', { sourceDigest }, c.projection.revision));
+      setTrustError(err === null ? null : { sourceDigest, message: err });
+    },
+    [clientRef],
+  );
 
   const stageBehaviorSource = useCallback(async () => {
     const c = clientRef.current;
@@ -417,7 +435,7 @@ export function useScripting(deps: ScriptingDeps) {
   return {
     selectedBehaviorId, publication, behaviorError, behaviorProps, scriptDrafts, checkScript, publishScript, libraryDrafts, libraryDependents, libraryCommand, libraryError,
     saveLibrary, sourceFocus, openSource, libraryDraftsVersion, onLibraryDraftChange, saveAllOutcome, dirtyLibraries, saveAllLibraries, saveDeclaration,
-    checkVisualScript, publishVisualScript, createVisualScript,
+    checkVisualScript, publishVisualScript, createVisualScript, revokeTrust, trustError,
   };
 }
 

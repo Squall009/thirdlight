@@ -128,12 +128,17 @@ export class PrefabProjection {
   }
 
   /**
-   * The acknowledged trust digests observed in this session. No
-   * accepted query returns `content.behaviorTrust`, so this is advanced ONLY by
-   * `acknowledgeBehaviorTrust` change records; it deliberately survives a
-   * hydrate (a resync must not forget what the user just acknowledged).
+   * The acknowledged script sources: read with the scripts at a full state
+   * (`queryBehaviors` with `includeTrust`) and advanced by
+   * `acknowledgeBehaviorTrust` change records (an acknowledgment, a
+   * revocation, their undo), which carry the whole list.
    */
   private trust: TrustEntry[] = [];
+
+  /** The list a full state read. */
+  hydrateTrust(entries: readonly TrustEntry[]): void {
+    this.trust = entries.map((e) => ({ ...e }));
+  }
 
   listTrust(): TrustEntry[] {
     return this.trust.map((e) => ({ ...e }));

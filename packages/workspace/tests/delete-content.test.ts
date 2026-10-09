@@ -7,7 +7,7 @@
  * and tags and `createEntities` is one revision and one undo.
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
@@ -120,6 +120,33 @@ describe('deleteAsset / deletePrefab (phase 25.7c)', () => {
     expect(prefabIds(svc)).toEqual(['crate']);
     ok(svc, 'redo', {});
     expect(prefabIds(svc)).toEqual([]);
+    svc.dispose();
+  });
+
+  it('refuses a behavior while an object in another scene carries it; removes it otherwise, undo brings it back', () => {
+    const { root, svc } = setup('delete-behavior');
+    const behaviors = (): string[] => ((svc.query({ op: 'queryBehaviors', projectId: PROJECT_ID, args: { limit: 128, offset: 0 } }) as { behaviors: { behaviorId: string }[] }).behaviors ?? []).map((b) => b.behaviorId);
+    // Each script is its own resource file in the game folder.
+    const stored = (): string[] => (readdirSync(root, { recursive: true }) as string[]).filter((f) => f.endsWith('.behavior.json')).map((f) => (JSON.parse(readFileSync(join(root, f), 'utf8')) as { id: string }).id);
+    ok(svc, 'publishBehavior', { behaviorId: 'spinner', displayName: 'Spinner', mode: 'declaration-create', declaration: { properties: [] } });
+    ok(svc, 'createScene', { sceneId: 'scene-b', name: 'B' });
+    const carrier = ok(svc, 'createEntity', { sceneId: 'scene-b', kind: 'box', name: 'top' });
+    ok(svc, 'setBehaviorProperties', { entityId: carrier.createdId!, behaviorId: 'spinner', values: {} });
+    const other = refused(svc, 'deleteBehavior', { behaviorId: 'spinner' });
+    expect(other.code).toBe('reference_in_use');
+    expect(other.details?.[0]?.sceneId).toBe('scene-b');
+    expect(other.message).toContain('behavior "spinner" is still used');
+
+    ok(svc, 'deleteEntity', { entityId: carrier.createdId! });
+    const del = ok(svc, 'deleteBehavior', { behaviorId: 'spinner' });
+    expect(del.change).toMatchObject({ type: 'publishBehavior', behaviorId: 'spinner', next: null });
+    expect(behaviors()).toEqual([]);
+    expect(stored()).toEqual([]);
+    ok(svc, 'undo', {});
+    expect(behaviors()).toEqual(['spinner']);
+    expect(stored()).toEqual(['spinner']);
+    ok(svc, 'redo', {});
+    expect(stored()).toEqual([]);
     svc.dispose();
   });
 

@@ -42,7 +42,7 @@ import { type Transform } from './gesture';
 import { type CompileDiagnosticView } from './behavior-publication';
 import { fromWireChange, RESOURCE_CREATING_OPS } from '@thirdlight/protocol';
 import { CHANGE_FEED_CATCH_UP_MS, CHANGE_FEED_POLL_MS, OwnCommands, WHOLE_DOCUMENT_OPS } from './own-commands';
-import type { BehaviorRecord, PrefabDefinition } from '@thirdlight/project-model';
+import type { BehaviorRecord, PrefabDefinition, TrustEntry } from '@thirdlight/project-model';
 import { ASSET_QUERY_PAGE_MAX } from '@thirdlight/project-model/limits';
 
 export interface ClientConfig {
@@ -211,6 +211,8 @@ export interface BehaviorQueryResult {
   offset: number;
   limit: number;
   behaviors: BehaviorRecord[];
+  /** With `includeTrust`: every acknowledged script source. */
+  trust?: TrustEntry[];
 }
 
 /** A command's answer (a staged library commit also says which scripts it recompiled). */
@@ -650,8 +652,9 @@ export class SessionClientCore {
     this.content.hydrate(null);
     try {
       // The scripts' declarations are the schema of every behavior component: all of them, page by page.
-      const behaviors = await this.allBehaviors();
+      const { behaviors, trust } = await this.allBehaviors();
       this.prefabs.hydrate([], behaviors);
+      this.prefabs.hydrateTrust(trust);
     } catch (e) {
       // Never a partial list (a script missing from it would read as having no properties): said, and
       // resolved by the next full state.
@@ -664,17 +667,19 @@ export class SessionClientCore {
     this.ensureSceneRecords();
   }
 
-  /** Every published script's record, read a page at a time. */
-  private async allBehaviors(): Promise<BehaviorRecord[]> {
+  /** Every published script's record, read a page at a time, and the acknowledged sources (with the first page). */
+  private async allBehaviors(): Promise<{ behaviors: BehaviorRecord[]; trust: TrustEntry[] }> {
     const out: BehaviorRecord[] = [];
+    let trust: TrustEntry[] = [];
     for (let offset = 0; ; ) {
-      const page = await this.queryBehaviors({ limit: ASSET_QUERY_PAGE_MAX, offset, includeDeclaration: true });
+      const page = await this.queryBehaviors({ limit: ASSET_QUERY_PAGE_MAX, offset, includeDeclaration: true, includeTrust: offset === 0 });
       if ((page as { ok: boolean }).ok !== true) throw new Error('a page of scripts could not be read');
+      if (offset === 0) trust = page.trust ?? [];
       out.push(...page.behaviors);
       offset += page.behaviors.length;
       if (page.behaviors.length === 0 || offset >= page.total) break;
     }
-    return out;
+    return { behaviors: out, trust };
   }
 
   /**
@@ -1802,7 +1807,7 @@ export class SessionClientCore {
    * property controls are derived from. Source bytes are never returned.
    */
   async queryBehaviors(
-    options: { limit?: number; offset?: number; includeDeclaration?: boolean; behaviorId?: string } = {},
+    options: { limit?: number; offset?: number; includeDeclaration?: boolean; includeTrust?: boolean; behaviorId?: string } = {},
   ): Promise<BehaviorQueryResult> {
     return this.api<BehaviorQueryResult>(`/projects/${this.cfg.projectId}/commands`, {
       op: 'queryBehaviors',
@@ -1810,6 +1815,7 @@ export class SessionClientCore {
       args: {
         ...planAssetQuery({ limit: options.limit, offset: options.offset }),
         ...(options.includeDeclaration ? { includeDeclaration: true } : {}),
+        ...(options.includeTrust === true ? { includeTrust: true } : {}),
         ...(options.behaviorId ? { behaviorId: options.behaviorId } : {}),
       },
     });

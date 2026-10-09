@@ -6,7 +6,7 @@
  * every applied change; the backend stays the sole authority.
  */
 import { useCallback, useState } from 'react';
-import type { AnimatorController, DescriptorRegistry, DialogueDocument as DialogueDoc, DialogueSettings, DialogueSpeaker, EffectDef, EnvironmentConfig, GraphDocument, SceneEnvironment, LightingBake, MaterialDef, PropertyDeclaration, ScriptLibrary, TimelineAsset, UiDocument, UiTheme, UiDocument as ProjectUiDocument, UiTheme as ProjectUiTheme } from '@thirdlight/project-model';
+import type { AnimatorController, DescriptorRegistry, DialogueDocument as DialogueDoc, DialogueSettings, DialogueSpeaker, EffectDef, EnvironmentConfig, GraphDocument, SceneEnvironment, LightingBake, MaterialDef, PropertyDeclaration, ScriptLibrary, TimelineAsset, TrustEntry, UiDocument, UiTheme, UiDocument as ProjectUiDocument, UiTheme as ProjectUiTheme } from '@thirdlight/project-model';
 import type { SessionClient } from '../../session/client';
 import type { BehaviorDeclarationView, PrefabSummaryView } from '../../session/prefab-projection';
 import type { GraphKindDef } from '../../graph/model';
@@ -54,12 +54,15 @@ export function useProjectContent() {
   const [declarations, setDeclarations] = useState<Map<string, PropertyDeclaration>>(() => new Map());
   // The published behaviors (scripts and visual scripts).
   const [behaviorViews, setBehaviorViews] = useState<BehaviorDeclarationView[]>([]);
+  // The acknowledged script sources (the trust list Project Settings → Scripts shows).
+  const [trustEntries, setTrustEntries] = useState<readonly TrustEntry[]>([]);
 
   /** Copies the content from the client; returns what the Scene view also draws with. */
   const receive = useCallback((c: SessionClient, stable: Stable) => {
     setPrefabSummaries(stable('prefabSummaries', c.prefabs.listSummaries()));
     setDeclarations(stable('declarations', c.prefabs.declarationMap()));
     setBehaviorViews(stable('behaviorViews', [...c.prefabs.listDeclarations()]));
+    setTrustEntries(stable('trustEntries', c.prefabs.listTrust()));
     setRegistry(c.getDescriptors());
     const mats = stable('materials', c.getMaterials());
     const env = stable('environment', c.getEnvironment());
@@ -93,7 +96,7 @@ export function useProjectContent() {
 
   return {
     graphs, graphKinds, graphsLoaded, materials, environment, sceneLook, shownEnvironment, lighting, animators, effects, dialogues, setDialogues, speakers, dialogueSettings, projectUiDocs, projectUiThemes,
-    timelines, scriptLibraries, uiDocuments, uiThemes, registry, prefabSummaries, declarations, behaviorViews, receive,
+    timelines, scriptLibraries, uiDocuments, uiThemes, registry, prefabSummaries, declarations, behaviorViews, trustEntries, receive,
   };
 }
 

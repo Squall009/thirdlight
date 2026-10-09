@@ -764,6 +764,10 @@ input.tl-inspector__name:hover, input.tl-inspector__name:focus { border-color: v
 .tl-settings-window__tab:hover { background: var(--surface-2); color: var(--text); }
 .tl-settings-window__tab.is-active { background: var(--surface-2); color: var(--text); border-left-color: var(--accent); }
 .tl-settings-window__panel { flex: 1; min-width: 0; overflow: auto; padding: 8px 12px; }
+.tl-trust__list { list-style: none; margin: 6px 0 0 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.tl-trust__row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 4px 6px; border-radius: var(--radius); background: var(--surface-1); }
+.tl-trust__digest { font-family: ui-monospace, monospace; }
+.tl-trust__uses { flex: 1; min-width: 160px; color: var(--text-dim); }
 .tl-quality__level { margin-bottom: 8px; }
 .tl-quality__levels { margin-bottom: 12px; }
 .tl-quality__card { border: 1px solid var(--tl-border, #3a3f47); border-radius: 4px; padding: 6px 8px; margin: 6px 0; }

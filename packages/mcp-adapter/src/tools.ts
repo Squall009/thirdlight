@@ -283,7 +283,9 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       '(a later item\'s parentId may name an earlier item\'s ref; the change lists the created entities in order). deleteAsset {assetId} and ' +
       'deletePrefab {prefabId} remove a record; refused (reference_in_use, the uses in details) while any object, prefab, asset, material, document ' +
       'or a script\'s string literal still names it; deleteAsset also deletes the asset\'s file and its .tlasset sidecar from the game folder ' +
-      '(one undo restores all of it). setAssetOptions {assetId, vertexColors: ' +
+      '(one undo restores all of it). deleteBehavior {behaviorId} removes a script (and its file) the same way, refused while an object or prefab ' +
+      'carries it. revokeBehaviorTrust {sourceDigest} withdraws an acknowledgment (refused while a published script was built from that source or ' +
+      'against that library version; the next publish of it asks again). setAssetOptions {assetId, vertexColors: ' +
       '"data"|"tint"}: COLOR_0 is shader data by default, "tint" multiplies it into the base colour; setAssetOptions {assetId, sourcePath} ' +
       'moves the asset\'s file (with its sidecar) to that path of the game folder, or records a move already made there; the id and ' +
       'every reference stay. Audio is one kind, any length: Ogg Vorbis/Opus, MP3, WAV (PCM or float, any rate, channels, bits) or FLAC; ' +
@@ -515,7 +517,7 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       `Bounded, read-only content queries. target="assets" pages the asset catalog (limit ≤ ${CONTENT_ASSETS_LIMIT_MAX}, default ${CONTENT_ASSETS_LIMIT_DEFAULT}); ` +
       'target="asset" returns one record with assetId (includeVersions optional); target="prefabs" pages prefab ' +
       'summaries (includeEntities optional); target="behaviors" pages behavior summaries (includeDeclaration ' +
-      'optional); target="integrity" returns the bounded content-integrity report (each asset\'s file in the game folder is ' +
+      'optional; includeTrust adds trust: every acknowledged script source digest with its revision); target="integrity" returns the bounded content-integrity report (each asset\'s file in the game folder is ' +
       'ok / changed / missing); with check=true the backend first brings the catalog in step with the game folder, as the editor\'s ' +
       '"check files" does (a file moved together with its .tlasset sidecar keeps its asset, a changed file is imported again, the ' +
       'import cache is made whole; the changes are ordinary undoable commands) and returns what it did as `check`; it checks the resource and scene files too ' +
@@ -578,6 +580,7 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
         includeVersions: { type: 'boolean' },
         includeEntities: { type: 'boolean' },
         includeDeclaration: { type: 'boolean' },
+        includeTrust: { type: 'boolean', description: 'target="behaviors": also return the acknowledged script sources' },
         includeDescriptors: { type: 'boolean', description: 'target="game": also return the descriptor registry' },
       },
       required: ['target'],
@@ -1322,6 +1325,10 @@ async function contentQuery(ctx: McpContext, a: Record<string, unknown>): Promis
     if (a.includeDeclaration !== undefined) {
       if (typeof a.includeDeclaration !== 'boolean') return toolError('includeDeclaration must be a boolean');
       args.includeDeclaration = a.includeDeclaration;
+    }
+    if (a.includeTrust !== undefined) {
+      if (typeof a.includeTrust !== 'boolean') return toolError('includeTrust must be a boolean');
+      args.includeTrust = a.includeTrust;
     }
     const paged = pageArgs(a);
     if (!paged.ok) return paged.error;

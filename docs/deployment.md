@@ -328,7 +328,8 @@ window), **Console** and **Problems** (Window menu lists just those).
 - **File → Project Settings…** is one full window with sub-tabs: Gameplay,
   Input, Tags, Collision layers, Quality (the quality levels, the starting level and the texture
   budget), Audio (event sounds), Dialogue (speakers, dialogue settings),
-  Saves, Game modes, Game shell and Scripts (trust and publication). Its
+  Saves, Game modes, Game shell, Scripts (trust and publication) and Script
+  trust (the acknowledged sources, revoke). Its
   search filters the sub-tabs by name and by the settings they hold.
 - **Window → Lighting** and **Window → Environment** float over the Scene
   view (they preview in it): moved by the title bar, resized by the corner,
@@ -944,6 +945,23 @@ the button. Remove those first (a placed copy is deleted like any object).
 A deleted record's stored bytes stay in the project's content store, so one
 undo brings it back as it was; a file referenced in a game folder is never
 touched.
+
+A script is deleted the same way: project window → choose the script →
+**delete** in its Inspector (or Delete in its context menu; MCP:
+`deleteBehavior {behaviorId}`). It is refused while an object in any scene
+or a prefab (and so a live block type) carries it; the script's resource
+file leaves the game folder, and one undo brings it back.
+
+**Script trust.** File → Project Settings… → **Script trust** lists every
+acknowledged script source (the digest of a script's source or of a script
+library version), the revision it was acknowledged at and the published
+scripts that use it. **revoke** withdraws one (MCP: `revokeBehaviorTrust
+{sourceDigest}`); the next publication of that exact source asks again. It
+is refused (`reference_in_use`, naming the scripts) while a published script
+was built from that source or against that library version: delete the
+script or publish another version first. One undo restores the entry. MCP
+reads the list with `tl_content_query target="behaviors" includeTrust:
+true`.
 
 ## MCP (coding harness)
 

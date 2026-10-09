@@ -122,7 +122,11 @@ export type V3MutationOp =
   // An object's collider made from its model file (one undo)
   | 'colliderFromModel'
   // A terrain's tiles sculpted, painted, cut, imported or converted (one edit, one undo)
-  | 'editTerrain';
+  | 'editTerrain'
+  // Remove a script record (refused while anything references it)
+  | 'deleteBehavior'
+  // Withdraw an acknowledged script source (refused while a published script uses it)
+  | 'revokeBehaviorTrust';
 
 /** Every implemented mutation op. */
 export type MutationOp = M1MutationOp | ContentMutationOp | PrefabMutationOp | V3MutationOp;

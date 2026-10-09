@@ -34,8 +34,9 @@ import type { PlaySession } from '../shell/usePlaySession';
 import { QualityPanel } from './QualityPanel';
 import { AudioPanel } from './AudioPanel';
 import { DialogueSettingsPanel } from './DialogueSettingsPanel';
+import { TrustPanel } from './TrustPanel';
 
-export type SettingsSection = 'gameplay' | 'input' | 'tags' | 'layers' | 'lightLayers' | 'quality' | 'audio' | 'dialogue' | 'saves' | 'modes' | 'shell' | 'scripts';
+export type SettingsSection = 'gameplay' | 'input' | 'tags' | 'layers' | 'lightLayers' | 'quality' | 'audio' | 'dialogue' | 'saves' | 'modes' | 'shell' | 'scripts' | 'trust';
 
 /**
  * The sub-tabs in the order the window lists them, with the words the search
@@ -55,6 +56,7 @@ export const SETTINGS_SECTIONS: ReadonlyArray<{ id: SettingsSection; label: stri
   { id: 'modes', label: 'Game modes', keywords: ['modes', 'behavior groups', 'pause'] },
   { id: 'shell', label: 'Game shell', keywords: ['menus', 'hud', 'title', 'scenes', 'ui documents'] },
   { id: 'scripts', label: 'Scripts', keywords: ['behaviors', 'trust', 'publish', 'source', 'declarations', 'visual scripts'] },
+  { id: 'trust', label: 'Script trust', keywords: ['trust', 'acknowledged', 'sources', 'digests', 'revoke', 'security'] },
 ];
 
 /** The settings' labels and keys by group (Gameplay: all but Rendering; Quality: Rendering). */
@@ -267,5 +269,14 @@ function Section(props: ProjectSettingsWindowProps & { id: SettingsSection }): J
       return <ShellPanel registry={registry} shell={s.shell} fieldContext={props.fieldContext} error={s.shellError} onSetShell={(next, base) => void s.saveShell(next, base)} />;
     case 'scripts':
       return <BehaviorPanel {...props.scripting.behaviorProps} />;
+    case 'trust':
+      return (
+        <TrustPanel
+          entries={props.content.trustEntries}
+          behaviors={props.content.behaviorViews}
+          error={props.scripting.trustError}
+          onRevoke={(digest) => void props.scripting.revokeTrust(digest)}
+        />
+      );
   }
 }

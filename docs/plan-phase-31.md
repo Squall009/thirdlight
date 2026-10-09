@@ -73,7 +73,8 @@ engine repo. Phase 31 starts after phase 30 (level building).
 | Item | Status |
 |---|---|
 | 31.0 | done 2026-09-28 |
-| 31.1–31.8 | — |
+| 31.1 | done 2026-10-09: `deleteBehavior` (refused while an object in any scene or a prefab carries the script; one undo), Project Settings → Script trust (list read at load via `queryBehaviors includeTrust`, `revokeBehaviorTrust` refused while a published script uses the source or library version), `tests/editor-op-reach.test.ts` (78 ops; 2 API-only by design). `deleteAsset`/`deletePrefab` (25.7c) verified present. |
+| 31.2–31.8 | — |
 
 ## 5. Decision log
 
@@ -102,3 +103,17 @@ engine repo. Phase 31 starts after phase 30 (level building).
 - 2026-10-03: renumbered again, 30 → 31: level building (blocks completed,
   terrain, the handoff; `docs/plan-phase-30.md`, owner) is phase 30, so the
   manual documents both. 31.4 gains a terrain guide.
+- 2026-10-09 (31.1): §1's "the editor sends all 62 command ops" no longer
+  held: there are 78 ops, and the editor sends all but `importResources`
+  (issued by the backend's file check, which the editor starts) and
+  `createEntities` (bulk creation for build scripts and agents; the editor
+  makes objects one at a time). Both are on the op-reach test's API-only
+  list with these reasons — default chosen, owner to confirm.
+- 2026-10-09 (31.1): revoking trust is refused while a published script was
+  built from that source or against that library version (rather than
+  allowed with the script left running): every published source stays
+  acknowledged, and a revocation means "ask me again next time". Delete or
+  republish the script first — default chosen, owner to confirm. A
+  behavior's uses are its `behavior` components only (scenes, prefabs and
+  so live block types): no script call takes a behavior id, so unlike
+  assets and prefabs a string literal in a script does not block the delete.

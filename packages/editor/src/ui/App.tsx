@@ -723,7 +723,7 @@ function EditorApp(): JSX.Element {
   const activeScene = sceneHeaders?.find((h) => h.active) ?? null;
   const bake = useLightingBake(clientRef, viewportRef, activeScene, refreshEntities, toolWindows.isOpen('lighting'), sceneRenderer?.api ?? null);
 
-  const scripting = useScripting({ clientRef, behaviorViews, scriptLibraries: content.scriptLibraries, refreshEntities, workspace, workspaceDispatch, openDocument, playInfo });
+  const scripting = useScripting({ clientRef, behaviorViews, scriptLibraries: content.scriptLibraries, refreshEntities, workspace, workspaceDispatch, openDocument, playInfo, trustEntries: content.trustEntries });
 
   // A rejected token is forgotten and asked for again; an unknown project
   // goes back to the picker.

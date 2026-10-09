@@ -7,7 +7,7 @@
  */
 
 import { applyMutation, contentInUse, FILE_MOVE_OPS } from '@thirdlight/commands';
-import type { AdoptedScene, CommandError, CommandState, ContentDocument, HistoryEntry, HistoryState, MoveResourcesChange, MutationResult, MutationSuccess, SceneDocument } from '@thirdlight/commands';
+import type { AdoptedScene, CommandError, DeletedKind, CommandState, ContentDocument, HistoryEntry, HistoryState, MoveResourcesChange, MutationResult, MutationSuccess, SceneDocument } from '@thirdlight/commands';
 import type { ModelErrorV3, SceneEnvironment, SceneV4 } from '@thirdlight/project-model';
 import { composeV4, INSTANCE_FLOATS, RESOURCE_CREATING_OPS } from '@thirdlight/project-model';
 
@@ -74,6 +74,13 @@ function publishedBlobRefs(
  * is checked against the cross-scene rules; only the changed files are
  * written (one `W`, or a journaled transaction for several).
  */
+/** The delete ops a scene of the project can still need the record of, and the argument naming it. */
+const DELETES: Readonly<Record<string, { kind: DeletedKind; key: string }>> = {
+  deleteAsset: { kind: 'asset', key: 'assetId' },
+  deletePrefab: { kind: 'prefab', key: 'prefabId' },
+  deleteBehavior: { kind: 'behavior', key: 'behaviorId' },
+};
+
 export function runCommandV4(core: Core, s: ProjectSession, sent: unknown, D: string): MutationResult {
   const state = s.v4 as V4State;
   // A publish the host prepared runs with its prepared args and revision (`D` stays the sent request's).
@@ -296,9 +303,10 @@ export function runCommandV4(core: Core, s: ProjectSession, sent: unknown, D: st
   }
   const errors: ModelErrorV3[] = [];
   composeV4([...nextScenes.values()], nextContent, errors, newRevision);
-  if (errors.length > 0 && (op === 'deleteAsset' || op === 'deletePrefab')) {
+  const deleted = DELETES[op];
+  if (errors.length > 0 && deleted !== undefined) {
     // What no longer resolves in the other scenes names it.
-    return refuse(contentInUse(op === 'deleteAsset' ? 'asset' : 'prefab', String(args[op === 'deleteAsset' ? 'assetId' : 'prefabId']), errors));
+    return refuse(contentInUse(deleted.kind, String(args[deleted.key]), errors));
   }
   if (errors.length > 0) return refuse(projectRuleError(errors));
   if (strokeBuffer !== null) {

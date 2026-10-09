@@ -863,6 +863,8 @@ const M2_CHANGE_TYPE_BY_OP: Record<string, string> = {
   deleteTimeline: 'setTimeline',
   deleteAsset: 'removeAsset',
   deletePrefab: 'removePrefab',
+  deleteBehavior: 'publishBehavior',
+  revokeBehaviorTrust: 'acknowledgeBehaviorTrust',
   importAssets: 'importAssets',
   importResources: 'importResources',
   createEntities: 'pasteEntities',

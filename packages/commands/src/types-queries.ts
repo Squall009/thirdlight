@@ -96,6 +96,8 @@ export type QueryResult<T> =
       prefabs?: readonly T[];
       /** With `ids`: the ids asked for that name no record. */
       missing?: readonly string[];
+      /** `queryBehaviors` with `includeTrust`: every acknowledged script source (not paged). */
+      trust?: readonly { sourceDigest: string; acknowledgedRevision: number }[];
     }
   | { ok: false; op?: string; projectId?: string; error: CommandError };
 
