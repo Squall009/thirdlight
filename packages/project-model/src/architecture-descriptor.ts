@@ -25,12 +25,12 @@ export const architecture: ComponentDescriptor = {
   tooltip: 'Walls, mouldings, floors, vaults, roofs and repeated pieces generated at load from parameters: profiles swept along paths, things repeated along paths, and fills, on one trim sheet (Materials slot "architecture").',
   category: 'Rendering',
   value: obj('architecture', 'Architecture', "Generated from these parameters at load; points are offsets from the object's position (its rotation and scale are not applied).", [
-    json('elements', 'Elements', 'Sweeps {id, kind: "sweep", path, profile, openings?}, repeats {id, kind: "repeat", path, spacing, piece} and fills {id, kind: "fill", path, shape, slot}.', { required: true }),
-    json('profiles', 'Profiles', 'Named cross-sections {points: [[across, up], …], slots: [row per segment], closed?, smooth?, chamfer?}.'),
-    json('overrides', 'Overrides', 'Kit models in place of a segment or a corner: [{element, segment | corner, model: {assetId}}].'),
-    json('outlines', 'Outlines', 'Rooms (closed) and runs (open) styled by presets: [{id, path, preset, openings?, outside?, storeys?, storeyHeight?, holes?, stairs?}] (the preset\'s style graph makes their elements; a block layer\'s Rooms tool draws them).'),
-    json('buildings', 'Buildings', 'Rooms with a roof: [{id, path, preset, outside?, storeys?, openings?, roof?: {shape, rise?, overhang?, slot?}, interior?: {scene, offset?}}] (the Rooms tool draws them).'),
-    json('masks', 'Masks', 'Painted masks presets read: {name: {points: [[x, z, radius, weight], …]}}.'),
+    json('elements', 'Elements', 'Sweeps {id, kind: "sweep", path, profile, openings?}, repeats {id, kind: "repeat", path, spacing, piece} and fills {id, kind: "fill", path, shape, slot}.', { required: true, shape: 'ArchitectureElement[]' }),
+    json('profiles', 'Profiles', 'Named cross-sections {points: [[across, up], …], slots: [row per segment], closed?, smooth?, chamfer?}.', { shape: 'Record<string, ArchitectureProfile>' }),
+    json('overrides', 'Overrides', 'Kit models in place of a segment or a corner: [{element, segment | corner, model: {assetId}}].', { shape: 'ArchitectureOverride[]' }),
+    json('outlines', 'Outlines', 'Rooms (closed) and runs (open) styled by presets: [{id, path, preset, openings?, outside?, storeys?, storeyHeight?, holes?, stairs?}] (the preset\'s style graph makes their elements; a block layer\'s Rooms tool draws them).', { shape: 'ArchitectureOutline[]' }),
+    json('buildings', 'Buildings', 'Rooms with a roof: [{id, path, preset, outside?, storeys?, openings?, roof?: {shape, rise?, overhang?, slot?}, interior?: {scene, offset?}}] (the Rooms tool draws them).', { shape: 'ArchitectureBuilding[]' }),
+    json('masks', 'Masks', 'Painted masks presets read: {name: {points: [[x, z, radius, weight], …]}}.', { shape: 'Record<string, ArchitectureMask>' }),
     num('chunkSize', 'Chunk size', 'Metres a generated chunk covers (one draw per material each).', { min: L.chunkMin, max: L.chunkMax, step: 1, unit: 'm', default: ARCHITECTURE_CHUNK_DEFAULT }),
     int('seed', 'Seed', 'Seeds the variation of repeated copies.', { min: 0, max: 0xffffffff, default: 0 }),
     obj('ao', 'Baked AO', 'Vertex ambient occlusion in inside corners and where walls meet the ground.', [

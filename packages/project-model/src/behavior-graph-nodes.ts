@@ -607,7 +607,8 @@ const CONVERSIONS: GraphKindDef['conversions'] = [
   { from: 'vector', to: 'string', label: 'vector → text ("x, y, z")' },
 ];
 const CORE_CATEGORIES = ['Events', 'Flow', 'Variables', 'Functions', 'Constants', 'Maths', 'Logic', 'Text', 'Vectors', 'Lists', 'Maps', 'Random', 'Debug'];
-const API_CATEGORIES = [...new Set(BEHAVIOR_API_NODES.map((s) => s.category))];
+// A namespace whose name is also a core category (`ctx.random`, Random) shares it: one menu entry.
+const API_CATEGORIES = [...new Set(BEHAVIOR_API_NODES.map((s) => s.category))].filter((c) => !CORE_CATEGORIES.includes(c));
 const API_DEFS = BEHAVIOR_API_NODES.map(apiNodeDef);
 const VARIABLE_NODES = (inFunction: boolean): GraphNodeDef[] => BEHAVIOR_VARIABLE_KINDS.map((k) => variableNode(k, inFunction));
 

@@ -64,6 +64,9 @@ test('assets: the editor refuses a used one and deletes an unused one; MCP gets 
   await page.getByRole('button', { name: 'delete asset Pillar' }).click();
   await expect(page.getByTestId('asset-delete-error')).toContainText('asset "starter-pillar" is still used');
   await expect(page.locator('.tl-assets__list li[data-asset-id="starter-pillar"]')).toHaveCount(1);
+  // A refusal is not a save failure: the status bar names the refusal and still says saved.
+  await expect(page.locator('.tl-statusbar')).toContainText('error reference_in_use');
+  await expect(page.locator('.tl-statusbar')).toContainText('save: saved');
   // MCP: the same refusal.
   const refused = await command('deleteAsset', { assetId: 'starter-pillar' });
   expect(refused.isError).toBe(true);
@@ -130,6 +133,7 @@ test('assets: the editor refuses a used one and deletes an unused one; MCP gets 
   await expect(row).toContainText('used by script spinner');
   await row.getByRole('button', { name: `revoke trust ${digest.slice(0, 12)}` }).click();
   await expect(row.getByTestId('trust-revoke-error')).toContainText('is still used');
+  await expect(page.locator('.tl-statusbar')).toContainText('save: saved');
   await closeProjectSettings(page);
 
   // Off the ground, the script goes; then its source can be revoked; an MCP undo brings the entry back.

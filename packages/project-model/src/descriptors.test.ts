@@ -1023,8 +1023,8 @@ describe('descriptor registry', () => {
     // repeat their look and turn, about 3 KB; a block layer's cut-away, about 1.6 KB; kits on block types and layers,
     // about 2 KB; a block layer's walk and corner shading, about 1.7 KB; the terrain and its exclusions, about 1.6 KB; material rules and far ground, about 1 KB; the spline, its terrain
     // settings, mesh and pieces, about 8.7 KB; streaming rings on terrains and block layers, about 2.4 KB; height fog in the look
-    // and in presets, about 2.6 KB; the trim material's parameters and row table, about 6 KB; generated architecture, about 3 KB)
-    expect(JSON.stringify(DESCRIPTORS).length).toBeLessThan(313_000);
+    // and in presets, about 2.6 KB; the trim material's parameters and row table, about 6 KB; generated architecture, about 3 KB; the declared types of JSON values, about 0.6 KB)
+    expect(JSON.stringify(DESCRIPTORS).length).toBeLessThan(314_000);
     for (const c of DESCRIPTORS.components) expect(c.value.key).toBe(c.name);
   });
 

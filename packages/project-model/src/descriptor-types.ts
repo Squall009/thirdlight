@@ -230,6 +230,12 @@ export interface JsonFieldDescriptor extends FieldBase {
   readonly typedBy?: 'behaviorDeclaration' | 'animatorParameter' | 'propertyType' | 'materialParameter' | 'effectParameter' | 'uiBinding' | 'uiAction' | 'uiStyleRef' | 'uiWidget' | 'uiPadding' | 'uiStyle' | 'uiStyleState';
   /** `uiBinding`: the plain value a binding stands in for (the editor offers it or a view-model path). */
   readonly valueType?: 'number' | 'text' | 'bool' | 'texture' | 'entity';
+  /**
+   * The TypeScript type the value has, written with types this package
+   * exports (e.g. `ScatterRule[]`): the generated reference prints those
+   * declarations, so a value edited as JSON is documented field by field.
+   */
+  readonly shape?: string;
 }
 
 export type FieldDescriptor =

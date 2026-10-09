@@ -1218,8 +1218,10 @@ export class SessionClientCore {
         this.emit();
         return { ok: false, response: r };
       }
+      // A refusal is an answer: nothing was lost and the project is as saved as before
+      // (the error badge says why the edit was refused).
       this.error = { code: r.code, message: r.message ?? r.code };
-      this.save = 'error';
+      this.save = 'saved';
       this.emit();
       return { ok: false, response: r };
     }

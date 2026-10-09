@@ -178,8 +178,12 @@ function dtsText(order) {
 
 const LIB_OBJECTS = new Set(['Array', 'ReadonlyArray', 'Map', 'ReadonlyMap', 'Set', 'ReadonlySet', 'Function', 'String', 'Number', 'Boolean', 'Object', 'Promise', 'Date', 'RegExp', 'Error', 'Symbol']);
 
-/** The member table the editor's completion walks (`BEHAVIOR_API_TYPES`). */
-function memberTable(checker, exports) {
+/**
+ * The member table the editor's completion walks (`BEHAVIOR_API_TYPES`).
+ * Completion shows a doc's first paragraph, cut short; the generated
+ * reference (`fullDocs`) prints the whole comment.
+ */
+function memberTable(checker, exports, fullDocs = false) {
   const table = {};
   const flags = ts.TypeFormatFlags.NoTruncation | ts.TypeFormatFlags.UseSingleQuotesForStringLiteralType;
   const keyOf = (type, fallback) => {
@@ -209,7 +213,8 @@ function memberTable(checker, exports) {
       const nonNull = checker.getNonNullableType(ptype);
       const sigs = nonNull.getCallSignatures();
       const optional = (p.flags & ts.SymbolFlags.Optional) !== 0;
-      const doc = ts.displayPartsToString(p.getDocumentationComment(checker)).split('\n\n')[0].replace(/\s+/g, ' ').trim().slice(0, 240);
+      const text = ts.displayPartsToString(p.getDocumentationComment(checker));
+      const doc = fullDocs ? text.trim() : text.split('\n\n')[0].replace(/\s+/g, ' ').trim().slice(0, 240);
       const isMethod = sigs.length > 0 && checker.getPropertiesOfType(nonNull).length === 0;
       const member = { name: p.getName(), kind: isMethod ? 'method' : 'property' };
       if (isMethod) {
@@ -257,6 +262,17 @@ function memberTable(checker, exports) {
     }
   }
   return table;
+}
+
+/**
+ * The behavior API as data: the declarations it reaches (name and text, doc
+ * comments included, in walk order) and the member table with whole doc
+ * comments. The generated reference renders its script API pages from it.
+ */
+export function behaviorApiModel() {
+  const program = createProgram();
+  const { checker, exports, order } = collectDeclarations(program);
+  return { declarations: order, table: memberTable(checker, exports, true) };
 }
 
 /** The generated TypeScript module text. */

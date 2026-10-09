@@ -74,7 +74,8 @@ engine repo. Phase 31 starts after phase 30 (level building).
 |---|---|
 | 31.0 | done 2026-09-28 |
 | 31.1 | done 2026-10-09: `deleteBehavior` (refused while an object in any scene or a prefab carries the script; one undo), Project Settings → Script trust (list read at load via `queryBehaviors includeTrust`, `revokeBehaviorTrust` refused while a published script uses the source or library version), `tests/editor-op-reach.test.ts` (78 ops; 2 API-only by design). `deleteAsset`/`deletePrefab` (25.7c) verified present. |
-| 31.2–31.8 | — |
+| 31.2 | done 2026-10-09: `docs/manual/reference/` (62 files, pages ≤ 48 KB, anchored sections, `index.json` topic → page and section) built by `node tools/gen-reference.mjs` from the descriptors, `ValidatedOpArgs`, the runtime's `BehaviorContext`, `GRAPH_KINDS` and the packages' exported limits; `tools/gen-reference.test.mjs` fails naming the stale page. JSON-valued fields gained a `shape` (their declared type). A refused command no longer shows "save: error". |
+| 31.3–31.8 | — |
 
 ## 5. Decision log
 
@@ -117,3 +118,27 @@ engine repo. Phase 31 starts after phase 30 (level building).
   behavior's uses are its `behavior` components only (scenes, prefabs and
   so live block types): no script call takes a behavior id, so unlike
   assets and prefabs a string literal in a script does not block the delete.
+- 2026-10-09 (31.2): every content block already had a descriptor (the
+  descriptors test refuses a block without one), so "extend the descriptors
+  where missing" became: JSON-valued fields whose shape was only prose
+  (scatter and material rules, architecture elements, outlines and
+  buildings, block-type looks, terrain tiles and layers, the save settings
+  document, the readOnly document lists) name their declared type in a new
+  descriptor `shape` field, and the reference prints those declarations.
+  They stay JSON in the Inspector; turning them into structured fields would
+  change the editors — default chosen, owner to confirm.
+- 2026-10-09 (31.2): reference layout — one page per area (objects,
+  components by category, content blocks, scene environment, UI documents,
+  ops, types, script API, one page per graph kind, limits per package),
+  split past 48 KB; topics `component.<name>`, `content.<key>`, `op.<op>`,
+  `type.<Name>`, `ctx.<member>`, `script-type.<Name>`, `graph.<kind>`,
+  `node.<kind>.<type>`, `limit.<NAME>` for 31.6's lookup. Limits are the
+  exported constants named `MAX_…`, `…_LIMITS`, `…_DEFAULT(S)`, `…_CAP`,
+  `…_BUDGET` of seven packages, each under the file that defines it. The
+  framework's `test` graph kind is left out; a node several kinds share
+  (visual scripts, functions, libraries) is documented once and linked —
+  default chosen, owner to confirm.
+- 2026-10-09 (31.2): a refused command (an answer, not a lost edit) leaves
+  the status bar at "save: saved" with the refusal's code beside it; a
+  revision conflict and a lost answer still show "save: error". The visual
+  script catalogue listed Random twice (core and `ctx.random`); now once.
