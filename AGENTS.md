@@ -58,7 +58,8 @@ are in `docs/STATUS.md`; known defects are in `docs/audit-2026-09-22.md`.
   reads them before the next phase.
 - At the start of each phase, check for a newer three.js release: a patch
   release is taken in the phase's first item after reading its release
-  notes; a minor release is planned as its own item.
+  notes; a minor release is planned as its own item. Either goes through
+  `docs/three-upgrade-checklist.md` (the private three APIs the engine hooks).
 - Game projects (Sprout, Skyforge Tactics, …) live outside this repo and are
   never edited from here. Their requests reach the engine through their own
   docs; the engine reads them only to plan.
