@@ -7,9 +7,12 @@
  * back); a project that never set it keeps JSON. A project whose scenes are
  * in different forms (as a merge or an older engine may leave it) opens with
  * every cell, and a scene written afterwards moves to the project's form
- * while the other stays as it is. Paint survives a reopen in both forms. A
- * damaged binary chunk file is refused with its path.
+ * while the other stays as it is. Paint survives a reopen in both forms, and
+ * so does every other optional chunk field (edge pieces, wall paint, the
+ * scatter rules' copies) in a JSON project. A damaged binary chunk file is
+ * refused with its path.
  */
+import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -117,6 +120,45 @@ describe('block chunk files: binary and JSON', () => {
     // The paint came back from the JSON file: converting again carries it into the binary one.
     ok(s, 'setSettings', { settings: { block_chunk_storage: 1 } });
     expect(readBinaryChunkFile(readFileSync(join(blocksDir(p.dir, sid), `${layer}.0.0.bin`))).paint).toBeDefined();
+    s.close();
+  });
+
+  it('a JSON project keeps edge pieces, wall paint and block-layer scatter across a reopen', () => {
+    const p = project('json-fields');
+    let s = p.open();
+    ok(s, 'setSettings', { settings: { block_chunk_storage: 0 } });
+    const layer = buildLayer(s);
+    // The scatter rule's model (any bytes: the rule only names the asset).
+    const glb = new TextEncoder().encode('glTF a tuft');
+    expect(s.holdAssetBytes(PID, glb).ok).toBe(true);
+    const metrics = { nodes: 1, meshes: 1, primitives: 1, materials: 1, images: 0, textures: 0, vertices: 3, triangles: 1, animations: 0, animationChannels: 0, clipDurationMs: 0, decodedGeometryBytes: 36, decodedImageBytes: 0 };
+    ok(s, 'publishAsset', { mode: 'create', assetId: 'tuft', kind: 'model', displayName: 'Tuft', sourceDigest: createHash('sha256').update(glb).digest('hex'), sourceByteLength: glb.length, importRecipe: { profile: 'gltf-glb', recipeVersion: 1, toolchain: { three: '0.186.0' }, extensions: [] }, metrics, importedAt: '2026-10-09T00:00:00Z' });
+    ok(s, 'setBlockType', { block: { blockId: 'fence', name: 'Fence', variants: [{ color: '#996633' }], shape: 'full', placement: 'edge' } });
+    ok(s, 'setComponent', {
+      entityId: layer,
+      component: 'blockLayer',
+      value: { cellSize: [1, 0.5, 1], bounds: { min: [0, 0, 0], max: [40, 4, 40] }, wallPaint: true, scatter: [{ id: 'tufts', asset: { assetId: 'tuft' }, density: 0.5, scale: [1, 1], blocks: ['stone'] }] },
+    });
+    ok(s, 'editBlocks', {
+      entityId: layer,
+      edits: [
+        { kind: 'edges', at: [2, 1, 2, 1, 3, 1, 2, 1], edge: { block: 'fence' } },
+        { kind: 'paint', at: [5, 7], y: 1.25, radius: 2, strength: 1, falloff: 'constant', channel: 2, target: 'walls' },
+        { kind: 'bakeScatter' },
+      ],
+    });
+    const file = JSON.parse(readFileSync(join(blocksDir(p.dir, MAIN), `${layer}.0.0.json`), 'utf8')) as Record<string, unknown>;
+    const fields = ['edgePalette', 'edges', 'paint', 'wallPaint', 'scatter'] as const;
+    for (const k of fields) expect(file[k], k).toBeDefined();
+    const before = cells(s);
+    s.close();
+    s = p.open();
+    expect((s.query({ op: 'queryProject', projectId: PID }) as unknown as { ok: boolean }).ok).toBe(true);
+    expect(cells(s)).toEqual(before);
+    // What the reopen read is what was written: converting to binary carries every field over unchanged.
+    ok(s, 'setSettings', { settings: { block_chunk_storage: 1 } });
+    const chunk = readBinaryChunkFile(readFileSync(join(blocksDir(p.dir, MAIN), `${layer}.0.0.bin`)));
+    for (const k of fields) expect(chunk[k], k).toEqual(file[k]);
     s.close();
   });
 

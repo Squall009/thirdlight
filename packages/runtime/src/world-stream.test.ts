@@ -131,7 +131,7 @@ describe('world streaming in the simulation', () => {
     expect(gone.remove.length).toBe(256);
   });
 
-  it('a streamed terrain builds the tiles in its collision ring from the data the page sent, and lets data go', () => {
+  it('a streamed terrain builds the tiles in its collision ring from the data the page sent, tells the page which it wants, and lets data go', () => {
     const at = [[6, 0, 6]];
     const D = (n: number): string => String(n).repeat(64);
     const tiles = [];
@@ -147,12 +147,18 @@ describe('world streaming in the simulation', () => {
     const built = (): string[] => [...new Set([...p.live].map((id) => id.split(':')[1]!))].sort();
     // Within 24 m of (6, 6): tile 0,0; the tiles starting 32 m away are 26 m off.
     expect(built()).toEqual(['0,0']);
+    // The page is told which tiles the ring wants (it reads them wherever its camera is), and again when that changes.
+    const rings = (): unknown[] => grid.takeRenderChanges().filter((ch) => 'collisionRing' in ch);
+    expect(rings()).toEqual([{ collisionRing: 't', tiles: ['0,0'] }]);
+    grid.beginStep(2);
+    expect(rings()).toEqual([]);
     at[0] = [31, 0, 31];
     grid.beginStep(2);
     grid.flushCollision(p);
     grid.beginStep(3);
     grid.flushCollision(p);
     expect(built()).toEqual(['0,0', '0,1', '1,0', '1,1']);
+    expect(rings()).toEqual([{ collisionRing: 't', tiles: ['0,0', '0,1', '1,0', '1,1'] }]);
     // The page lets go of a tile's data: its collider stays while the tile is in the ring.
     grid.addTerrainData([{ digest: D(5), dropped: true }]);
     grid.flushCollision(p);

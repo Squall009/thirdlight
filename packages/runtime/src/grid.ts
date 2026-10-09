@@ -520,8 +520,18 @@ export interface GridArchitectureChange {
   readonly architecturePresets: Readonly<Record<string, string>>;
 }
 
-/** What the renderer follows: a chunk's cells, a layer's kits, a scatter copy scripts hid, showed or removed, or the architecture presets swapped. */
-export type GridRenderChange = GridChunkChange | GridKitChange | ScatterCopyChange | GridArchitectureChange;
+/**
+ * A streamed terrain's tiles its collision ring holds or waits for, all of
+ * them now (keys "x,z"): the page reads their data wherever its camera is,
+ * since the colliders are built from the tiles the page decodes.
+ */
+export interface GridCollisionRingChange {
+  readonly collisionRing: string;
+  readonly tiles: readonly string[];
+}
+
+/** What the renderer follows: a chunk's cells, a layer's kits, a scatter copy scripts hid, showed or removed, the architecture presets swapped, or the tiles a terrain's collision ring wants. */
+export type GridRenderChange = GridChunkChange | GridKitChange | ScatterCopyChange | GridArchitectureChange | GridCollisionRingChange;
 
 /** What scripts set for the layers' cut-aways (`setCutaway`, `setCutawaySubject`, `setCutawayPoint`); the renderer reads it. */
 export interface GridCutawayState {
@@ -600,6 +610,10 @@ export class RuntimeGrid {
   private readonly collide: boolean;
   private collisionDirty = new Map<string, Set<string>>();
   private renderDirty = new Map<string, Set<string>>();
+  /** Per streamed terrain, the tiles its collision ring wanted when the page was last told (joined), and the looks then. */
+  private ringSent = new Map<string, string>();
+  private ringLooks = -1;
+  private ringChanges: GridCollisionRingChange[] = [];
   private current: GridChange[] = [];
   private previous: readonly GridChange[] = Object.freeze([]);
   private writes = 0;
@@ -769,7 +783,10 @@ export class RuntimeGrid {
   removeLayers(ids: ReadonlySet<string>): string[] {
     const colliders: string[] = [...this.terrain.remove(ids), ...this.scatter.remove(ids), ...this.splines.remove(ids), ...this.architecture.remove(ids)];
     this.surface.remove(ids);
-    for (const id of ids) this.stream.remove(id);
+    for (const id of ids) {
+      this.stream.remove(id);
+      this.ringSent.delete(id);
+    }
     for (const id of ids) {
       const layer = this.layerMap.get(id);
       if (layer === undefined) continue;
@@ -1053,7 +1070,9 @@ export class RuntimeGrid {
   private followStream(stepIndex: number): void {
     if (!this.stream.active) return;
     this.stream.advance(stepIndex);
-    for (const c of this.stream.takeChanges()) {
+    const changes = this.stream.takeChanges();
+    if (changes.length > 0 || this.stream.looks !== this.ringLooks) this.noteRings();
+    for (const c of changes) {
       const keys = [...c.entered, ...c.left];
       if (c.ring === 'live') {
         const layer = this.layerMap.get(c.entityId);
@@ -1066,6 +1085,19 @@ export class RuntimeGrid {
       let dirty = this.collisionDirty.get(c.entityId);
       if (dirty === undefined) this.collisionDirty.set(c.entityId, (dirty = new Set()));
       for (const k of keys) dirty.add(k);
+    }
+  }
+
+  /** The streamed terrains whose collision ring wants other tiles than the page was last told: told again. */
+  private noteRings(): void {
+    this.ringLooks = this.stream.looks;
+    for (const id of this.stream.terrainIds()) {
+      const tiles = this.stream.terrainWanted(id)!;
+      const joined = tiles.join(';');
+      if (this.ringSent.get(id) === joined) continue;
+      this.ringSent.set(id, joined);
+      this.ringChanges = this.ringChanges.filter((c) => c.collisionRing !== id);
+      this.ringChanges.push({ collisionRing: id, tiles: Object.freeze(tiles) });
     }
   }
 
@@ -1117,6 +1149,10 @@ export class RuntimeGrid {
   /** The chunks to re-mesh since the last call, with their cells now. */
   takeRenderChanges(): GridRenderChange[] {
     let copies: GridRenderChange[] = this.scatter.takeChanges();
+    if (this.ringChanges.length > 0) {
+      copies = [...copies, ...this.ringChanges];
+      this.ringChanges = [];
+    }
     if (this.archDirty) {
       this.archDirty = false;
       copies = [...copies, { architecturePresets: Object.freeze(Object.fromEntries(this.archSwaps)) }];

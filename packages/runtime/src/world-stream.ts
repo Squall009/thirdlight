@@ -22,7 +22,9 @@
  *
  * The data collision reads arrives from the page (terrain tiles, decoded
  * where the page draws them); a tile in a ring whose data has not arrived
- * has no collider and is counted waiting.
+ * has no collider and is counted waiting. The grid tells the page which
+ * tiles the collision rings want (`GridCollisionRingChange`), so the page
+ * reads them round a character far from the camera too.
  *
  * Pure bookkeeping: the grid, the terrains' colliders, the scatter copies and
  * the live blocks ask it and are told what entered and left.
@@ -188,6 +190,27 @@ export class SimWorldStream {
       }
     }
     this.admit();
+  }
+
+  /** Looks taken so far (a consumer that follows the rings' contents reads them again when this moves). */
+  get looks(): number {
+    return this.rechecks;
+  }
+
+  /**
+   * A streamed terrain's tiles its collision ring holds or waits to admit
+   * (keys "x,z", sorted): the tiles whose data the page must read for the
+   * colliders, wherever the camera is (null: not a streamed terrain).
+   */
+  terrainWanted(entityId: string): string[] | null {
+    const o = this.objects.get(entityId);
+    if (o === undefined || o.kind !== 'terrain') return null;
+    return [...o.collision.members, ...o.collision.pending.map((p) => p.key)].sort();
+  }
+
+  /** The streamed terrains (ids, sorted). */
+  terrainIds(): string[] {
+    return [...this.objects.values()].filter((o) => o.kind === 'terrain').map((o) => o.entityId).sort();
   }
 
   /** What entered and left the rings since the last call (in a fixed order). */

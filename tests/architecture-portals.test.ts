@@ -143,6 +143,24 @@ describe('rooms and portals', () => {
     // Looking down through the hole from the upper room sees the lower one; looking away does not.
     expect(seen(stack, [3, 4.8, 3], [1.5, 0, 1.5]).rooms).toEqual(['low', 'up']);
     expect(seen(stack, [3, 4.8, 3], [3, 5, 20]).rooms).toEqual(['up']);
+    // Covered tops are kept apart, shut: from above, nothing of the stack is seen.
+    expect(stack.tops.map((t) => t?.kind ?? null)).toEqual(['top', 'top']);
+    const fromAbove = (cut: (r: number) => boolean): string[] => {
+      const v = walkRooms(stack, [2, 30, -2], view([2, 30, -2], [2, 0, 2]), () => true, roomVisibility(stack.rooms.length), cut);
+      return stack.rooms.filter((_, i) => v.rooms[i] === 1).map((r) => r.id);
+    };
+    expect(fromAbove(() => false)).toEqual([]);
+    // A cut-away hiding the roof opens the upper room to the sky (and the lower one through its hole, seen from steep
+    // enough above); with the upper
+    // floor cut too, the lower room is open from above by itself.
+    expect(fromAbove((r) => r === 1)).toEqual(['low', 'up']);
+    const solid = buildRoomGraph([{ id: 'o', origin: [0, 0, 0], rooms: [plan('low', 0, 3), plan('up', 3.2, 6.2)] }]);
+    const solidSeen = (cut: (r: number) => boolean): string[] => {
+      const v = walkRooms(solid, [2, 14, -6], view([2, 14, -6], [2, 0, 2]), () => true, roomVisibility(solid.rooms.length), cut);
+      return solid.rooms.filter((_, i) => v.rooms[i] === 1).map((r) => r.id);
+    };
+    expect(solidSeen((r) => r === 1)).toEqual(['up']);
+    expect(solidSeen(() => true)).toEqual(['low', 'up']);
   });
 
   it('a portal behind the eye has no picture; one in front is cut to the screen it covers', () => {

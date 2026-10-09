@@ -47,7 +47,10 @@ import type { N } from './effects-tsl';
 
 /** TSL untyped: three's typings lag the node API used here. */
 const TSL: N = TSLTyped;
-const { uniform, attribute, select, If } = TSL;
+const { uniform, attribute, select, If, positionView, positionViewDirection, positionWorld, normalView, normalWorld } = TSL;
+
+/** True everywhere (no surface value reaches 1e30); see `setup` of the layered light nodes for why it exists. */
+const SURFACE_ANCHOR: N = positionView.x.add(positionViewDirection.x).add(positionWorld.x).add(normalView.x).add(normalWorld.x).abs().lessThan(1e30);
 
 /** `object.userData[LIGHT_LAYERS_KEY]`: the light layers a drawable is in (absent: every layer). */
 export const LIGHT_LAYERS_KEY = '__tlLightLayers';
@@ -243,9 +246,16 @@ function layeredAnalytic(Base: AnalyticNodeClass, Shadow: ShadowNodeClass): Anal
      * skips the light altogether: the test is one value for the whole draw, so
      * the branch costs nothing per pixel, and a room's lamps are evaluated
      * only where they can light.
+     *
+     * The surface values every light reads (view position and direction, the
+     * normals, the world position its shadow and cookie read) are variables
+     * three declares where they are first used. Used first inside this branch,
+     * a draw the light leaves out never sets them, and every light after it
+     * lit the draw with unset values (black). The condition names them, so
+     * they are set before the branch.
      */
     override setup(builder: unknown): void {
-      If(this.factor.greaterThan(0.5), () => {
+      If(this.factor.greaterThan(0.5).and(SURFACE_ANCHOR), () => {
         super.setup(builder);
       });
     }

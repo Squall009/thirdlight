@@ -105,8 +105,10 @@
  *   resident, the overview (every tile at its coarsest level, which the build
  *   made) drawn past them without a crack; a player walks west across a tile
  *   border with a 1 m collision ring and never sinks; the camera flies 400 m
- *   off (every ground tile and block chunk let go, counted in the
- *   diagnostics) and back, and the picture is the same as before.
+ *   off (every ground tile and block chunk let go but the tiles the player's
+ *   collision ring wants, counted in the diagnostics; the player, far from
+ *   the camera now, still stands) and back, and the picture is the same as
+ *   before.
  */
 import { join } from 'node:path';
 

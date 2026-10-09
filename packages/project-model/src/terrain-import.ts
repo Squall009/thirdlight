@@ -74,8 +74,9 @@ export function decodeHeightmap(bytes: Uint8Array, o: HeightmapOptions): { ok: t
 /**
  * Lay a heightmap onto the terrain from tile `at`: the tiles it reaches are
  * made where missing (their samples past the image take its nearest edge, so
- * a new tile has no cliff) and their samples under the image take its
- * heights. `range` is what 0 and 65535 stand for (metres above the terrain's
+ * a new tile has no cliff, or the ground already there where they share an
+ * edge with a tile that was: nothing outside the image's footprint changes)
+ * and their samples under the image take its heights. `range` is what 0 and 65535 stand for (metres above the terrain's
  * object). Returns the tiles it added and the samples it set.
  */
 export function importHeightmap(s: TerrainSamples, map: Heightmap, at: readonly [number, number], range: readonly [number, number]): { added: number; samples: number } {
@@ -87,19 +88,32 @@ export function importHeightmap(s: TerrainSamples, map: Heightmap, at: readonly 
   const tilesZ = Math.max(1, Math.ceil((map.height - 1) / n));
   let added = 0;
   let set = 0;
+  /** The tiles this import made: a sample past the image they share with any other tile keeps that tile's height. */
+  const made = new Set<object>();
   for (let tz = at[1]; tz < at[1] + tilesZ; tz++)
     for (let tx = at[0]; tx < at[0] + tilesX; tx++) {
       const fresh = s.tile(tx, tz) === undefined;
       const t = fresh ? s.addTile(tx, tz) : s.writable(tx, tz)!;
-      if (fresh) added += 1;
+      if (fresh) {
+        added += 1;
+        made.add(t);
+      }
       for (let lz = 0; lz <= n; lz++) {
-        let row = (tz - at[1]) * n + lz;
-        if (row >= map.height && !fresh) continue;
-        row = Math.min(row, map.height - 1);
+        const row0 = (tz - at[1]) * n + lz;
+        if (row0 >= map.height && !fresh) continue;
+        const row = Math.min(row0, map.height - 1);
         for (let lx = 0; lx <= n; lx++) {
-          let col = (tx - at[0]) * n + lx;
-          if (col >= map.width && !fresh) continue;
-          col = Math.min(col, map.width - 1);
+          const col0 = (tx - at[0]) * n + lx;
+          if (col0 >= map.width && !fresh) continue;
+          const col = Math.min(col0, map.width - 1);
+          if ((row0 !== row || col0 !== col) && (lx === 0 || lz === 0 || lx === n || lz === n)) {
+            // Past the image on an edge a tile from before shares: that ground stays, this tile meets it.
+            const kept = s.holders(tx * n + lx, tz * n + lz, false).find((h) => !made.has(h.tile));
+            if (kept !== undefined) {
+              t.heights[lz * (n + 1) + lx] = kept.tile.heights[kept.i]!;
+              continue;
+            }
+          }
           const step = lut[map.samples[row * map.width + col]!]!;
           // Edge samples are shared with the neighbouring tiles: written in each, so no crack opens.
           if (lx === 0 || lz === 0 || lx === n || lz === n) s.setStep(tx * n + lx, tz * n + lz, step);

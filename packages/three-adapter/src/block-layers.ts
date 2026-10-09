@@ -627,7 +627,7 @@ export class BlockLayerView {
     // A layer's kits first: its chunks are meshed with them.
     for (const c of changes) if ('kits' in c) this.setGameKits(c.entityId, c.kits);
     for (const c of changes) {
-      if ('kits' in c || 'rule' in c || 'architecturePresets' in c) continue;
+      if ('kits' in c || 'rule' in c || 'architecturePresets' in c || 'collisionRing' in c) continue;
       let list = byLayer.get(c.entityId);
       if (list === undefined) byLayer.set(c.entityId, (list = []));
       list.push(c);
@@ -824,6 +824,11 @@ export class BlockLayerView {
     if (e === null) return false;
     const t = this.types.get(e.block);
     return t !== undefined && edgeBlocks(t, e);
+  }
+
+  /** Whether a cut-away zone, cut or fading, hides anything over a ground box from `floor` up (`CutawayDrawing.cutsOver`). */
+  cutsOver(x0: number, z0: number, x1: number, z1: number, floor: number): boolean {
+    return this.cut.cutsOver(x0, z0, x1, z1, floor);
   }
 
   /** Whether any layer has cut-away zones (the host finds the subject only then). */

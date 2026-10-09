@@ -334,6 +334,27 @@ export class CutawayDrawing {
     return fading;
   }
 
+  /**
+   * Whether a zone that is cut or fading hides anything over a ground box
+   * (world x0 z0 x1 z1) from height `floor` up: the roof or a floor above a
+   * room there is gone from the view, so the room lies open to the sky.
+   * Conservative: any part of a zone over the box counts.
+   */
+  cutsOver(x0: number, z0: number, x1: number, z1: number, floor: number): boolean {
+    for (const l of this.layers.values()) {
+      const [sx, sy, sz] = [l.cellSize[0]!, l.cellSize[1]!, l.cellSize[2]!];
+      const o = l.origin;
+      for (const z of l.zones) {
+        const st = l.states.get(z.key);
+        if (st === undefined || (st.fade === 0 && st.target === 0)) continue;
+        for (const b of z.boxes) {
+          if (b[0] * sx + o.x < x1 && b[3] * sx + o.x > x0 && b[2] * sz + o.z < z1 && b[5] * sz + o.z > z0 && b[4] * sy + o.y > floor) return true;
+        }
+      }
+    }
+    return false;
+  }
+
   diagnostics(): CutawayDiagnostics | null {
     if (this.layers.size === 0) return null;
     const d: CutawayDiagnostics = { zones: 0, cut: 0, fading: 0, meshes: 0 };

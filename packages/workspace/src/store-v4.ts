@@ -88,7 +88,7 @@ import { RETRY_RECORD_VERSION, RETRY_RETENTION, validateRetryBlock, type RetryRe
 import { snapshotForeignBytes } from './recovery';
 import { pointerSegment, type LoadDetail, type UnavailableReason } from './errors';
 import { writeAtomic, type WriteOps } from './write';
-import { CHUNK_REL_RE, CHUNK_TEMP_RE, chunkRel, readBinaryChunkFile, SCENE_CHUNK_FORMAT_KEY, sceneChunkFormat, type ChunkFileFormat } from './chunk-files';
+import { CHUNK_FILE_OPTIONAL_KEYS, CHUNK_REL_RE, CHUNK_TEMP_RE, chunkRel, readBinaryChunkFile, SCENE_CHUNK_FORMAT_KEY, sceneChunkFormat, type ChunkFileFormat } from './chunk-files';
 import { flushPending, journalInFlight, nextJournalName, scheduleFlush } from './journal-flush';
 import { layoutProjectJson } from './project-json';
 import { fileOfRecord, parseSidecar, PROJECT_OWN_ENTRIES, SIDECAR_FORMAT_PRE_ADDRESS, sidecarBytes, sidecarOf, sidecarPath, type RecordLike } from './asset-files';
@@ -106,8 +106,6 @@ const SCENE_FILE_KEYS = ['storageVersion', 'type', 'projectId', 'scene', 'retry'
 /** A scene file lists its block chunk files and names their form (only when it has some; chunk-files.ts). */
 const SCENE_FILE_OPTIONAL_KEYS = ['blockChunks', SCENE_CHUNK_FORMAT_KEY] as const;
 const CHUNK_FILE_KEYS = ['storageVersion', 'type', 'projectId', 'sceneId', 'entityId', 'cx', 'cz', 'palette', 'columns'] as const;
-/** A painted chunk's paint (block-paint.ts) and wall paint (block-wall-paint.ts); a chunk's edge pieces (block-edges.ts). */
-const CHUNK_FILE_OPTIONAL_KEYS = ['edgePalette', 'edges', 'paint', 'wallPaint'] as const;
 
 /*
  * One block-layer chunk per file (chunk-files.ts). The scene file lists
@@ -766,10 +764,7 @@ export function joinChunkFiles(
         cz: f.value['cz'],
         palette: f.value['palette'],
         columns: f.value['columns'],
-        ...('edgePalette' in f.value ? { edgePalette: f.value['edgePalette'] } : {}),
-        ...('edges' in f.value ? { edges: f.value['edges'] } : {}),
-        ...('paint' in f.value ? { paint: f.value['paint'] } : {}),
-        ...('wallPaint' in f.value ? { wallPaint: f.value['wallPaint'] } : {}),
+        ...Object.fromEntries(CHUNK_FILE_OPTIONAL_KEYS.filter((k) => k in f.value).map((k) => [k, f.value[k]])),
       };
       bytes = f.bytes;
     }

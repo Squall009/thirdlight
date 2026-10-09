@@ -9,7 +9,12 @@
  * Which surface answers: looking down from the point, each block layer's
  * ground at or below it (`surfaceBelow`: the colliders' shape; a point
  * inside blocks climbs to their top) and each terrain's ground under it
- * (`TerrainField`: the heightfield's triangles; none over a hole). The
+ * (`TerrainField`: the heightfield's triangles; none over a hole) when it
+ * lies at or below the point too (within {@link SURFACE_SINK_METRES}: feet
+ * sunk a little into the ground still stand on it), so a cellar or tunnel
+ * of blocks under a hill answers on its own floor. Terrain over the point
+ * answers only when nothing lies below it (a point inside the ground climbs
+ * to the surface, as a point inside blocks climbs to their top). The
  * highest of these wins; a block layer wins a tie, and terrain less than
  * {@link SURFACE_TIE_METRES} above it counts as one (a terrain sample's
  * height is rounded to its 16-bit step, so ground made to meet a block top
@@ -87,6 +92,13 @@ export interface SurfaceAt {
 /** How far terrain may stand over a block layer's top and still count as level with it (the blocks answer). */
 export const SURFACE_TIE_METRES = 0.01;
 
+/**
+ * How far terrain may stand over the asked point and still count as the
+ * ground under it (a foot sunk into the slope, a sample's 16-bit rounding):
+ * well under a storey, so ground over a cellar's ceiling never does.
+ */
+export const SURFACE_SINK_METRES = 0.25;
+
 /** The highest a block layer's own query starts from when the point has no height (its top row's top). */
 const topOf = (g: BlockGridReader): number => g.max[1]! * g.cellSize[1]!;
 
@@ -99,6 +111,8 @@ export function surfaceAt(sources: readonly SurfaceSource[], x: number, y: numbe
   if (!Number.isFinite(x) || !Number.isFinite(z) || Number.isNaN(y)) return null;
   // `rank`: the height compared (a block top raised by the tie, so terrain must clear it by more).
   let best: { height: number; rank: number; s: SurfaceSource; hit: unknown } | null = null;
+  /** The lowest terrain over the point: the answer only when nothing lies at or below it. */
+  let over: { s: SurfaceTerrainSource; hit: NonNullable<ReturnType<TerrainField['sample']>> } | null = null;
   for (const s of sources) {
     if (s.kind === 'blocks') {
       const o = s.origin;
@@ -112,9 +126,14 @@ export function surfaceAt(sources: readonly SurfaceSource[], x: number, y: numbe
     } else {
       const smp = s.field.sample(x, z);
       if (smp === null) continue;
+      if (smp.height > y + SURFACE_SINK_METRES) {
+        if (over === null || smp.height < over.hit.height) over = { s, hit: smp };
+        continue;
+      }
       if (best === null || smp.height > best.rank) best = { height: smp.height, rank: smp.height, s, hit: smp };
     }
   }
+  if (best === null && over !== null) best = { height: over.hit.height, rank: over.hit.height, s: over.s, hit: over.hit };
   if (best === null) return null;
   const s = best.s;
   if (s.kind === 'terrain') {

@@ -52,7 +52,7 @@ export interface AdapterArchitecture {
 export function createAdapterArchitecture(d: AdapterArchitectureDeps): AdapterArchitecture {
   const lib = d.materialLibrary;
   const r = d.rooms;
-  const rooms = new RoomCulling({ scene: r.scene, edgeClosed: (layer, x, y, z, axis) => r.blocks().edgeClosed(layer, x, y, z, axis), regroup: r.regroup, roomLights: r.roomLights, culling: r.culling, canvas: r.canvas, changed: d.changed });
+  const rooms = new RoomCulling({ scene: r.scene, edgeClosed: (layer, x, y, z, axis) => r.blocks().edgeClosed(layer, x, y, z, axis), cutsOver: (x0, z0, x1, z1, floor) => r.blocks().cutsOver(x0, z0, x1, z1, floor), regroup: r.regroup, roomLights: r.roomLights, culling: r.culling, canvas: r.canvas, changed: d.changed });
   const mapping = (id: string, extra: Readonly<Record<string, string>>): Readonly<Record<string, string>> | undefined => {
     const own = d.effectiveMaterials(id, (d.components(id) as { materials?: Record<string, string> } | undefined)?.materials);
     return Object.keys(extra).length === 0 ? own : { ...extra, ...(own ?? {}) };

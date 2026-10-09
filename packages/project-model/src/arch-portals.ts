@@ -11,7 +11,9 @@
  *   in a floor (the room below), and the top of a room nothing covers (the
  *   outside, the sky). A door piece standing in an opening (a layer edge
  *   piece, closed) shuts it: the portal names the cell edges across its
- *   foot.
+ *   foot. A covered room's top is a portal too, kept apart (`tops`): it is
+ *   shut until a cut-away hides the roof or the floor above, and then the
+ *   room lies open to the sky like a yard.
  * - What is seen: from the room the eye is in (or the outside), through
  *   each open portal whose picture on the screen still overlaps what is seen
  *   of the portal it was reached through (the screen rectangle narrows at
@@ -112,6 +114,8 @@ export class RoomGraph {
   readonly byRoom: number[][] = [];
   /** The portals onto the outside. */
   readonly outsidePortals: number[] = [];
+  /** Per room, its top when something covers it (a portal to the outside opened only by a cut-away; null: the room is open, its top is in `portals`). */
+  readonly tops: (GraphPortal | null)[] = [];
   private readonly grid = new Map<number, number[]>();
 
   /** Index a room (its ground cells of the lookup grid). */
@@ -119,6 +123,7 @@ export class RoomGraph {
     const i = this.rooms.length;
     this.rooms.push(r);
     this.byRoom.push([]);
+    this.tops.push(null);
     const [x0, z0, x1, z1] = r.box;
     for (let gx = Math.floor(x0 / GRID); gx <= Math.floor(x1 / GRID); gx++) {
       for (let gz = Math.floor(z0 / GRID); gz <= Math.floor(z1 / GRID); gz++) {
@@ -238,7 +243,9 @@ export function buildRoomGraph(objects: readonly RoomGraphObject[]): RoomGraph {
       if (below === ROOM_OUTSIDE || below === index) continue;
       g.addPortal({ a: index, b: below, kind: 'hole', corners: ring(h, ox, oz, room.floor), plane: Float64Array.of(0, 1, 0, -room.floor), door: null });
     }
-    if (!room.covered) g.addPortal({ a: index, b: ROOM_OUTSIDE, kind: 'top', corners: ring(p.points, ox, oz, room.top), plane: Float64Array.of(0, -1, 0, room.top), door: null });
+    const top: GraphPortal = { a: index, b: ROOM_OUTSIDE, kind: 'top', corners: ring(p.points, ox, oz, room.top), plane: Float64Array.of(0, -1, 0, room.top), door: null };
+    if (!room.covered) g.addPortal(top);
+    else g.tops[index] = top;
   }
   return g;
 }
@@ -375,10 +382,12 @@ function segmentDistance(x: number, y: number, z: number, ax: number, ay: number
 /**
  * Walk the portals from the eye (world point) for the view `m`: the rooms
  * seen and whether the outside is. `open(p)` says whether portal `p` lets
- * sight through (a closed door does not). `out` is filled (sized for the
- * graph's rooms by {@link roomVisibility}).
+ * sight through (a closed door does not). `cutOpen(r)` says whether a
+ * cut-away hides what covers room `r` (absent: none does), opening its top
+ * to the sky. `out` is filled (sized for the graph's rooms by
+ * {@link roomVisibility}).
  */
-export function walkRooms(g: RoomGraph, eye: ArrayLike<number>, m: ViewProjection, open: (portal: number) => boolean, out: RoomVisibility): RoomVisibility {
+export function walkRooms(g: RoomGraph, eye: ArrayLike<number>, m: ViewProjection, open: (portal: number) => boolean, out: RoomVisibility, cutOpen?: (room: number) => boolean): RoomVisibility {
   const n = g.rooms.length;
   if (out.rooms.length !== n) out.rooms = new Uint8Array(n);
   else out.rooms.fill(0);
@@ -407,7 +416,33 @@ export function walkRooms(g: RoomGraph, eye: ArrayLike<number>, m: ViewProjectio
     for (const r of g.near(ex, ey, ez, NEAR_ROOM)) push(r, -1, -1, 1, 1);
   }
   const rect = new Float64Array(4);
-  const cap = STEPS_PER_PORTAL * (g.portals.length + 1);
+  const cap = STEPS_PER_PORTAL * (g.portals.length + g.rooms.length + 1);
+  /** Sight from `node` (entered with x0 y0 x1 y1) through portal `p`; false when the walk gave up (everything is seen). */
+  const through = (p: GraphPortal, node: number, x0: number, y0: number, x1: number, y1: number): boolean => {
+    // A portal both of whose sides are the outside does not exist; an outside portal is reached from the outside's list.
+    const other = p.a === node ? p.b : p.a;
+    if (other === node) return true;
+    // Only from the side the walk comes from (an eye in the portal's plane passes either way).
+    const side = p.plane[0]! * ex + p.plane[1]! * ey + p.plane[2]! * ez + p.plane[3]!;
+    if (p.a === node ? side < -IN_PORTAL : side > IN_PORTAL) return true;
+    if (++out.steps > cap) {
+      // Never expected: give up seeing less and see everything.
+      out.rooms.fill(1);
+      out.outside = true;
+      return false;
+    }
+    let [a0, b0, a1, b1] = [x0, y0, x1, y1];
+    if (portalDistance(p.corners, ex, ey, ez) > IN_PORTAL) {
+      if (!portalRect(p.corners, m, rect)) return true;
+      a0 = Math.max(a0, rect[0]!);
+      b0 = Math.max(b0, rect[1]!);
+      a1 = Math.min(a1, rect[2]!);
+      b1 = Math.min(b1, rect[3]!);
+      if (a0 >= a1 || b0 >= b1) return true;
+    }
+    push(other, a0, b0, a1, b1);
+    return true;
+  };
   while (stack.length > 0) {
     const y1 = stack.pop()!;
     const x1 = stack.pop()!;
@@ -418,29 +453,19 @@ export function walkRooms(g: RoomGraph, eye: ArrayLike<number>, m: ViewProjectio
     else out.rooms[node] = 1;
     const list = node === ROOM_OUTSIDE ? g.outsidePortals : g.byRoom[node]!;
     for (const pi of list) {
-      const p = g.portals[pi]!;
-      // A portal both of whose sides are the outside does not exist; an outside portal is reached from the outside's list.
-      const other = p.a === node ? p.b : p.a;
-      if (other === node || !open(pi)) continue;
-      // Only from the side the walk comes from (an eye in the portal's plane passes either way).
-      const side = p.plane[0]! * ex + p.plane[1]! * ey + p.plane[2]! * ez + p.plane[3]!;
-      if (p.a === node ? side < -IN_PORTAL : side > IN_PORTAL) continue;
-      if (++out.steps > cap) {
-        // Never expected: give up seeing less and see everything.
-        out.rooms.fill(1);
-        out.outside = true;
-        return out;
+      if (!open(pi)) continue;
+      if (!through(g.portals[pi]!, node, x0, y0, x1, y1)) return out;
+    }
+    // Covered tops a cut-away opens: from a room to the sky, from the outside into every room opened so.
+    if (cutOpen === undefined) continue;
+    if (node !== ROOM_OUTSIDE) {
+      const top = g.tops[node];
+      if (top !== null && top !== undefined && cutOpen(node) && !through(top, node, x0, y0, x1, y1)) return out;
+    } else {
+      for (let r = 0; r < n; r++) {
+        const top = g.tops[r];
+        if (top !== null && top !== undefined && cutOpen(r) && !through(top, node, x0, y0, x1, y1)) return out;
       }
-      let [a0, b0, a1, b1] = [x0, y0, x1, y1];
-      if (portalDistance(p.corners, ex, ey, ez) > IN_PORTAL) {
-        if (!portalRect(p.corners, m, rect)) continue;
-        a0 = Math.max(a0, rect[0]!);
-        b0 = Math.max(b0, rect[1]!);
-        a1 = Math.min(a1, rect[2]!);
-        b1 = Math.min(b1, rect[3]!);
-        if (a0 >= a1 || b0 >= b1) continue;
-      }
-      push(other, a0, b0, a1, b1);
     }
   }
   return out;

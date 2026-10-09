@@ -6080,7 +6080,11 @@ everything (editing needs every tile and chunk).
   1,152 m for 257-sample tiles 2 m apart; past it the terrain is drawn from
   its **overview**); **collision** — colliders (empty: the render ring), round
   the camera, its target and every player character, so a character walking
-  far from the camera stands on built ground too; **scatter** — stored scatter
+  far from the camera stands on built ground too (the simulation tells the
+  page which terrain tiles its collision rings want, and the page reads them
+  wherever its camera is: a co-op player or a detached camera's character
+  is not left over a tile with no data; a tile still being read when a
+  character reaches it has no collider for those frames); **scatter** — stored scatter
   drawn (empty: the render ring; by 2,048 m groups); **live** (block layers)
   — live blocks' objects in the game (empty: the collision ring);
   **hysteresis** — how far past a ring something loaded may be before it goes
@@ -6241,7 +6245,11 @@ same way, from the same cells and tiles, so they agree.
   layer wins a tie and terrain within 1 cm above a block top
   (`SURFACE_TIE_METRES`: terrain heights are 16-bit steps). A block area on
   terrain therefore answers on its tops and the terrain round it; a bridge
-  answers only from above it.
+  answers only from above it. Terrain counts as below the point when it
+  stands at most 25 cm over it (`SURFACE_SINK_METRES`: a foot sunk into a
+  slope); higher terrain answers only when nothing lies below the point (a
+  point deep in the ground climbs to the surface), so a cellar or tunnel of
+  blocks under a hill answers on its own floor, not the hilltop.
 - Weights: on blocks, the paint the chunk's mesh shows there (hand paint
   over the layer's material rules); on terrain, the nearest sample's layers
   (baked rules under hand paint) — what the ground is drawn with.

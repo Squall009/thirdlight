@@ -54,7 +54,7 @@
 import type { ScatterSink } from './scatter-view';
 import * as THREE from 'three';
 import type { WebGPURenderer } from 'three/webgpu';
-import { flatTerrainTile, resolveStreamingRings, squareDistance, TerrainField, terrainFlatStep, terrainHeightOf, terrainTileBytes, terrainTileKey, terrainTileSize, TERRAIN_OVERVIEW_SAMPLES, type ResolvedStreamingRings, type TerrainComponent, type TerrainTile } from '@thirdlight/runtime';
+import { flatTerrainTile, resolveStreamingRings, squareDistance, TerrainField, terrainFlatStep, terrainHeightOf, terrainTileBytes, terrainTileKey, terrainTileSize, TERRAIN_OVERVIEW_SAMPLES, type GridRenderChange, type ResolvedStreamingRings, type TerrainComponent, type TerrainTile } from '@thirdlight/runtime';
 
 import { disposeSharingGeometry } from './dispose';
 import { applyEntityRenderFlags } from './entity-render-flags';
@@ -361,6 +361,8 @@ function ringTiles(rec: TerrainRec): number {
 export class TerrainView {
   private readonly deps: TerrainViewDeps;
   private readonly terrains = new Map<string, TerrainRec>();
+  /** Per streamed terrain, the tiles the simulation's collision ring wants ("x,z"): read wherever the eye is. */
+  private readonly simRings = new Map<string, ReadonlySet<string>>();
   /** Grid meshes by quad count (shared by every terrain with that tile layout). */
   private readonly grids = new Map<number, THREE.BufferGeometry>();
   private serials = 0;
@@ -957,9 +959,25 @@ export class TerrainView {
   // ---- streaming -------------------------------------------------------------------------
 
   /**
+   * The simulation's changes this view follows: the tiles a streamed
+   * terrain's collision ring wants (round the camera's target and every
+   * character), read and kept like the eye's ring, since the colliders are
+   * built from the tiles this page decodes.
+   */
+  applyRuntimeChanges(changes: readonly GridRenderChange[]): void {
+    for (const c of changes) {
+      if (!('collisionRing' in c)) continue;
+      this.simRings.set(c.collisionRing, new Set(c.tiles));
+      const rec = this.terrains.get(c.collisionRing);
+      if (rec !== undefined) rec.streamDirty = true;
+    }
+  }
+
+  /**
    * A streamed terrain's tiles for this frame's eye: those in its render
-   * ring (and its collision ring: the simulation's colliders read the page's
-   * tiles) are read and uploaded, those past it and its hysteresis go — but
+   * ring and the tiles the simulation's collision ring wants (its colliders
+   * read the page's tiles; that ring follows the camera's target and every
+   * character, not the eye) are read and uploaded, those past it and its hysteresis go — but
    * only once the overview's tile is there to draw in their place (old until
    * new). The ring reaches at least as far as the tiles' coarsest level
    * starts, so a full tile meets the overview's where both draw that level:
@@ -984,10 +1002,13 @@ export class TerrainView {
     const estimate = c.tileSamples * c.tileSamples * 10 + gpu;
     const cells: StreamCell[] = [];
     const keyOf = (t: TileRec): string => `${rec.id}/${terrainTileKey(t.x, t.z)}`;
+    const wanted = this.simRings.get(rec.id);
     for (const t of rec.tiles.values()) {
       const x0 = rec.origin[0] + t.x * size;
       const z0 = rec.origin[2] + t.z * size;
-      cells.push({ key: keyOf(t), d: squareDistance(x0, z0, x0 + size, z0 + size, eye[0]!, eye[2]!), bytes: t.tile !== null ? terrainTileBytes(t.tile) + gpu : estimate, resident: t.page >= 0 });
+      // A tile the simulation's collision ring wants is in the ring wherever the eye is.
+      const d = wanted?.has(terrainTileKey(t.x, t.z)) === true ? 0 : squareDistance(x0, z0, x0 + size, z0 + size, eye[0]!, eye[2]!);
+      cells.push({ key: keyOf(t), d, bytes: t.tile !== null ? terrainTileBytes(t.tile) + gpu : estimate, resident: t.page >= 0 });
     }
     const hold = stream.residency('terrain-tile', `terrain:${rec.id}`, cells, askingRing(ring));
     for (const t of rec.tiles.values()) {

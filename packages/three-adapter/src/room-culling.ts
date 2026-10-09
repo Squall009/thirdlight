@@ -55,6 +55,8 @@ export interface RoomCullingDeps {
   readonly scene: THREE.Scene;
   /** Whether a closed piece that blocks passage stands on a block layer's cell edge. */
   edgeClosed(layerId: string, x: number, y: number, z: number, axis: number): boolean;
+  /** Whether a cut-away, cut or fading, hides anything over a ground box from `floor` up (absent: no cut-aways). */
+  cutsOver?(x0: number, z0: number, x1: number, z1: number, floor: number): boolean;
   /** A drawable's room changed: its batch is made again. */
   regroup(o: THREE.Object3D): void;
   /** Whether the page has rooms changed: point and spot lights become room-bound (or plain again). */
@@ -137,6 +139,8 @@ export class RoomCulling implements BatchMembership {
   private readonly view = new Float64Array(16);
   private readonly eye = new Float64Array(3);
   private doorState = new Uint8Array(0);
+  /** Per room: 1 while a cut-away hides what covers it (its top opens to the sky). */
+  private cutState = new Uint8Array(0);
   private sceneCount = -1;
   private frames = 0;
   private hiddenAny = false;
@@ -269,13 +273,14 @@ export class RoomCulling implements BatchMembership {
       return;
     }
     const doorsChanged = this.readDoors(g);
+    const cutsChanged = this.readCuts(g);
     const viewChanged = this.readView(camera);
     let sweep = false;
-    if (doorsChanged || viewChanged || !this.walked) {
+    if (doorsChanged || cutsChanged || viewChanged || !this.walked) {
       const t0 = performance.now();
       const rooms = this.vis.rooms.slice();
       const outside = this.vis.outside;
-      walkRooms(g, this.eye, this.view, (p) => this.portalOpen(p), this.vis);
+      walkRooms(g, this.eye, this.view, (p) => this.portalOpen(p), this.vis, (r) => this.cutState[r] === 1);
       this.walked = true;
       this.d.walks += 1;
       this.d.walkMs = performance.now() - t0;
@@ -324,6 +329,7 @@ export class RoomCulling implements BatchMembership {
       this.indexOfKey.set(k, i);
     });
     this.doorState = new Uint8Array(g.portals.length);
+    this.cutState = new Uint8Array(g.rooms.length);
     this.walked = false;
     const any = g.rooms.length > 0;
     if (any !== this.bound) {
@@ -473,6 +479,21 @@ export class RoomCulling implements BatchMembership {
     });
     this.d.doors = doors;
     this.d.doorsClosed = closed;
+    return changed;
+  }
+
+  /** Read which covered rooms a cut-away opens to the sky; true when any changed. */
+  private readCuts(g: RoomGraph): boolean {
+    const cutsOver = this.deps.cutsOver;
+    if (cutsOver === undefined) return false;
+    let changed = false;
+    g.rooms.forEach((r, i) => {
+      const v = g.tops[i] !== null && cutsOver(r.box[0], r.box[1], r.box[2], r.box[3], r.floor) ? 1 : 0;
+      if (this.cutState[i] !== v) {
+        this.cutState[i] = v;
+        changed = true;
+      }
+    });
     return changed;
   }
 

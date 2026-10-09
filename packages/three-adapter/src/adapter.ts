@@ -1387,7 +1387,10 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     }
     // The block chunks the simulation changed, re-meshed before the draw.
     const gridChanges = archHost.takeSwaps((opts.runtime as { takeGridChanges?: () => GridRenderChange[] }).takeGridChanges?.() ?? []);
-    if (gridChanges.length > 0) blockView.applyRuntimeChanges(gridChanges);
+    if (gridChanges.length > 0) {
+      blockView.applyRuntimeChanges(gridChanges);
+      terrains.applyRuntimeChanges(gridChanges);
+    }
     if (stream !== null) stream.beginFrame(viewCull.view.eye);
     blockView.update(viewCull.view.eye);
     // Splines released and not realized again go now (one realized again kept drawing until its new data is in).

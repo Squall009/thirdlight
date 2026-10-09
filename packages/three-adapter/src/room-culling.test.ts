@@ -3,7 +3,8 @@
  * spanning rooms takes them per vertex (or one key when all its faces look
  * into one), the walk hides what no portal shows (still drawn by the shadow
  * cameras) and shows it again, a closed door piece hides the rooms behind
- * it, a lamp lights only its room's drawables, the room is part of a batch's
+ * it, a cut-away that hides the roofs opens the rooms under them to a view
+ * from above, a lamp lights only its room's drawables, the room is part of a batch's
  * key, and a page without rooms is left alone. Browser-free.
  */
 import * as THREE from 'three/webgpu';
@@ -11,6 +12,7 @@ import { describe, expect, it } from 'vitest';
 import { architectureStylesOf, expandArchitecture, type ArchitectureComponent, type ArchitectureOutline } from '@thirdlight/runtime';
 
 import { batchKey, batchKeyParts, BATCH_KEY } from './batching';
+import { CutawayDrawing } from './block-cutaway-view';
 import { LayeredPointLight, lightsObject, ROOM_ATTRIBUTE, ROOM_KEY, ROOM_VERTEX_KEYS } from './light-layers';
 import { portalsFromUrl, RoomCulling, ROOM_TAG_KEY } from './room-culling';
 import { OFF_VIEW_LAYER } from './view-hidden';
@@ -29,12 +31,12 @@ const ROW: ArchitectureComponent = {
   outlines: [room('a', box(0, 0, 4, 4)), room('b', box(4, 0, 8, 4), { openings: [{ id: 'door', at: 14.5, width: 1, bottom: 0, top: 2.1 }] }), room('c', box(8, 0, 12, 4), { openings: [{ id: 'door', at: 14.5, width: 1, bottom: 0, top: 2.1 }] })],
 };
 
-function setup(culling = true): { rooms: RoomCulling; scene: THREE.Scene; closed: Set<string>; regrouped: THREE.Object3D[]; bound: boolean[] } {
+function setup(culling = true, cuts?: CutawayDrawing): { rooms: RoomCulling; scene: THREE.Scene; closed: Set<string>; regrouped: THREE.Object3D[]; bound: boolean[] } {
   const scene = new THREE.Scene();
   const closed = new Set<string>();
   const regrouped: THREE.Object3D[] = [];
   const bound: boolean[] = [];
-  const rooms = new RoomCulling({ scene, edgeClosed: (layer, x, y, z, axis) => closed.has(`${layer}:${x},${y},${z},${axis}`), regroup: (o) => void regrouped.push(o), roomLights: (on) => void bound.push(on), culling, changed: () => undefined });
+  const rooms = new RoomCulling({ scene, edgeClosed: (layer, x, y, z, axis) => closed.has(`${layer}:${x},${y},${z},${axis}`), regroup: (o) => void regrouped.push(o), roomLights: (on) => void bound.push(on), culling, changed: () => undefined, ...(cuts !== undefined ? { cutsOver: (x0: number, z0: number, x1: number, z1: number, floor: number) => cuts.cutsOver(x0, z0, x1, z1, floor) } : {}) });
   return { rooms, scene, closed, regrouped, bound };
 }
 
@@ -96,6 +98,29 @@ describe('room culling', () => {
     expect(inView(c)).toBe(true);
     rooms.update(camera([3, 1.6, 1.5], [-10, 1.2, 1.5]));
     expect([a, b, c].map(inView)).toEqual([true, false, false]);
+  });
+
+  it('a cut-away hiding the roofs opens the rooms under them to a camera above; shut again when it is drawn', () => {
+    const cuts = new CutawayDrawing();
+    // A plane at row 6 of the layer (3 m, the rooms' tops): everything above it is hidden while the subject is below.
+    cuts.setLayer('floor', { cellSize: [1, 0.5, 1], bounds: { min: [0, 0, 0], max: [12, 12, 4] }, cutaway: { planes: [6], fade: 0 } } as never, new Map(), [0, 0, 0]);
+    const { rooms, scene } = setup(true, cuts);
+    placeRooms(rooms);
+    const [a, b, c] = [prop(scene, rooms, 2, 2), prop(scene, rooms, 6, 2), prop(scene, rooms, 10, 2)];
+    // An isometric look from outside, above the row: the rooms have no outer openings, their roofs drawn hide them.
+    const above = camera([6, 14, -10], [6, 0, 2]);
+    cuts.update(0, null);
+    rooms.update(above);
+    expect([a, b, c].map(inView)).toEqual([false, false, false]);
+    // The subject (the camera's target) in b: the roofs go, every room under them is open to the sky.
+    cuts.update(0, new THREE.Vector3(6, 1, 2));
+    rooms.update(above);
+    expect([a, b, c].map(inView)).toEqual([true, true, true]);
+    expect(rooms.diagnostics()).toMatchObject({ seen: 3, outside: true });
+    // The subject out from under the plane: the roofs drawn again, the rooms hidden.
+    cuts.update(0, new THREE.Vector3(6, 20, 2));
+    rooms.update(above);
+    expect([a, b, c].map(inView)).toEqual([false, false, false]);
   });
 
   it('without culling (?portals=off) nothing is hidden, the room tests stay', () => {

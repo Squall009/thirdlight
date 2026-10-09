@@ -5,6 +5,8 @@
  * overview's tiles are drawn wherever a full tile is not (and give way the
  * frame one is up); a tile past the ring goes only once its overview tile is
  * there, at the resource manager's settle; its decoded copy goes with it.
+ * Tiles the simulation's collision ring wants (a character far from the
+ * camera) are read and kept wherever the eye is.
  */
 import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
@@ -75,6 +77,15 @@ describe('terrain view streaming', () => {
     expect(store.tile('a'.repeat(64))).toBeUndefined();
     expect(e.streamed!.overviewDrawn).toBe(12 - e.streamed!.resident);
     expect(resources.observe().frees['terrain-tile']).toBe(3);
+    // A character 1 km from the camera: the simulation's collision ring wants tile 0 again; it is read and stays.
+    view.applyRuntimeChanges([{ collisionRing: 'ground', tiles: ['0,0'] }]);
+    for (let i = 0; i < 4; i++) await frame(1064);
+    expect(store.tile('a'.repeat(64))).toBeDefined();
+    expect(view.diagnostics().streamed!.resident).toBe(e.streamed!.resident + 1);
+    // No longer wanted: it goes again.
+    view.applyRuntimeChanges([{ collisionRing: 'ground', tiles: [] }]);
+    for (let i = 0; i < 4; i++) await frame(1064);
+    expect(store.tile('a'.repeat(64))).toBeUndefined();
     view.dispose();
   });
 });

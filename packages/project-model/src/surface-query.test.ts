@@ -86,6 +86,19 @@ describe('surfaceAt', () => {
     expect(surfaceAt([blocks([4, 0, 4]), terrain()], 6, 5, 6)!.source).toBe('blocks');
   });
 
+  it('a cellar under the ground answers on its own floor; a point sunk into the ground climbs to it', () => {
+    // The terrain at 1 m over a block floor whose top is at -2 m (a cellar under it).
+    const sources = [terrain(), blocks([4, -3, 4])];
+    expect(surfaceAt(sources, 6, -1, 6)).toMatchObject({ source: 'blocks', height: -2 });
+    expect(surfaceAt(sources, 6, 5, 6)).toMatchObject({ source: 'terrain' });
+    expect(surfaceAt(sources, 6, Infinity, 6)).toMatchObject({ source: 'terrain' });
+    // A foot a little in the ground still stands on it; a point deep in the ground with nothing under it climbs out.
+    expect(surfaceAt(sources, 6, 0.9, 6)).toMatchObject({ source: 'terrain' });
+    expect(surfaceAt([terrain()], 2, -4, 2)!.height).toBeCloseTo(1, 4);
+    // Under the ground with the cellar below: the cellar's floor, not the surface 3 m above.
+    expect(surfaceAt(sources, 6, -1.9, 6)).toMatchObject({ source: 'blocks', height: -2 });
+  });
+
   it('refuses a point that is not one', () => {
     expect(surfaceAt([terrain()], Number.NaN, 0, 0)).toBeNull();
     expect(surfaceAt([terrain()], 0, Number.NaN, 0)).toBeNull();

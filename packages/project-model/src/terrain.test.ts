@@ -305,6 +305,16 @@ describe('heightmap import', () => {
     expect(s.step(19, 11)).toBe(at(19, 11));
     expect(s.step(25, 15)).toBe(at(19, 11));
     expect(seams(s)).toBe(0);
+    // A tile made next to ground already there: the samples past the image on their shared edge keep that ground
+    // (no one-sample cliff cut into it), the new tile meets it without a seam.
+    const kept = new TerrainSamples({ ...COMP, heightRange: [0, 65535] }, new Map());
+    kept.addTile(1, 0);
+    for (let z = 0; z <= COMP.tileSamples - 1; z++) for (let x = 0; x <= COMP.tileSamples - 1; x++) kept.setStep(16 + x, z, 777 + x + z);
+    const before = new Map([...Array(17).keys()].map((z) => [z, kept.step(16, z)]));
+    importHeightmap(kept, { width: 17, height: 9, samples: new Uint16Array(17 * 9).fill(40000) }, [0, 0], [0, 65535]);
+    for (let z = 0; z <= 16; z++) expect(kept.step(16, z), `row ${z}`).toBe(z < 9 ? 40000 : before.get(z));
+    expect(kept.step(8, 12)).toBe(40000);
+    expect(seams(kept)).toBe(0);
     // Another range: the steps are what the heights are in the terrain's own range.
     const half = new TerrainSamples({ ...COMP, heightRange: [0, 100] }, new Map());
     importHeightmap(half, { width: 2, height: 2, samples: new Uint16Array([0, 65535, 65535, 0]) }, [0, 0], [0, 50]);

@@ -61,6 +61,8 @@ for (const variant of PRODUCT_RENDERER_VARIANTS) test(`a red point light tints a
   await colour.blur();
   await page.getByRole('slider', { name: 'light intensity' }).focus();
   await page.keyboard.press('End');
+  // The slider's edit is a command of its own: wait for it before the next one reads the revision.
+  await expect.poll(async () => ((await be.command({ op: 'queryEntity', projectId: be.projectId, args: { entityId: lightId } }))['entity'] as { components: { light: { intensity: number } } }).components.light.intensity, { timeout: 10_000 }).toBe(1000);
   const box = (await be.command({ op: 'queryEntities', projectId: be.projectId, args: { limit: 50, offset: 0 } }))['entities'] as { id: string; components: { box?: object; transform: { position: number[] } } }[];
   const boxPos = box.find((e) => e.components.box !== undefined)!.components.transform.position;
   const q = await be.command({ op: 'queryProject', projectId: be.projectId });

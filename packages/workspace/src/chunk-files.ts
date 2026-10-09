@@ -49,6 +49,15 @@ export function isChunkRel(rel: string, sceneId?: string): boolean {
   return CHUNK_REL_RE.test(rel) && (sceneId === undefined || rel.startsWith(`${chunkDirRel(sceneId)}/`));
 }
 
+/**
+ * A JSON chunk file's optional keys, each a `BlockChunk` field of the same
+ * name written only when present: the edge pieces (block-edges.ts), paint
+ * (block-paint.ts), wall paint (block-wall-paint.ts) and the scatter rules'
+ * copies (scatter.ts). The writer and the reader both go by this list, so a
+ * field one writes the other reads.
+ */
+export const CHUNK_FILE_OPTIONAL_KEYS = ['edgePalette', 'edges', 'paint', 'wallPaint', 'scatter'] as const satisfies readonly (keyof BlockChunk)[];
+
 /** The scene file's key naming its chunk files' form (absent: JSON). */
 export const SCENE_CHUNK_FORMAT_KEY = 'blockChunkFormat';
 
@@ -83,16 +92,11 @@ export function chunkFileBytes(projectId: string, sceneId: string, entityId: str
       `  "cz": ${chunk.cz}`,
       `  "palette": [\n${chunk.palette.map((c) => `    ${JSON.stringify(c)}`).join(',\n')}\n  ]`,
       `  "columns": [\n${chunk.columns.map((c) => `    ${JSON.stringify(c)}`).join(',\n')}\n  ]`,
-      // The chunk's edge pieces (one row per line), when it has some.
-      ...(chunk.edges !== undefined && chunk.edgePalette !== undefined
-        ? [`  "edgePalette": [\n${chunk.edgePalette.map((e) => `    ${JSON.stringify(e)}`).join(',\n')}\n  ]`, `  "edges": [\n${chunk.edges.map((r) => `    ${JSON.stringify(r)}`).join(',\n')}\n  ]`]
-        : []),
-      // The chunk's paint (one base64 line), when painted.
-      ...(chunk.paint !== undefined ? [`  "paint": ${JSON.stringify(chunk.paint)}`] : []),
-      // Its wall paint points (one base64 line), when any is painted.
-      ...(chunk.wallPaint !== undefined ? [`  "wallPaint": ${JSON.stringify(chunk.wallPaint)}`] : []),
-      // Its scatter rules' copies and hand edits (one base64 line), when it has any.
-      ...(chunk.scatter !== undefined ? [`  "scatter": ${JSON.stringify(chunk.scatter)}`] : []),
+      // The optional fields when present: arrays one row per line (a diff shows the rows that changed), base64 one line.
+      ...CHUNK_FILE_OPTIONAL_KEYS.filter((k) => chunk[k] !== undefined && (k !== 'edges' || chunk.edgePalette !== undefined) && (k !== 'edgePalette' || chunk.edges !== undefined)).map((k) => {
+        const v = chunk[k]!;
+        return Array.isArray(v) ? `  "${k}": [\n${(v as unknown[]).map((r) => `    ${JSON.stringify(r)}`).join(',\n')}\n  ]` : `  "${k}": ${JSON.stringify(v)}`;
+      }),
     ];
     bytes = new TextEncoder().encode(`{\n${head.join(',\n')}\n}\n`);
   }

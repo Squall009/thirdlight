@@ -73,6 +73,9 @@ let renderer: THREE.WebGLRenderer | null = null;
 /** Node kinds fed into the emissive (value outputs) — outputs, interfaces and calls are covered elsewhere. */
 const SKIP = new Set(['pbr', 'unlit', 'customLit', 'vertexOffset', 'functionInput', 'functionOutput', 'call', 'parameter']);
 const SAMPLING = new Set(['sampleTexture', 'normalMap', 'triplanar']);
+/** Kinds that exist only for pixels: in a vertex offset they read a stand-in (the scene depth reads "far", metres
+ * away), which would push the sphere out of view, so only their emissive use is drawn. */
+const PIXEL_ONLY = new Set(['sceneDepth']);
 
 const cases: Record<string, () => void> = {
   kinds() {
@@ -96,7 +99,7 @@ const cases: Record<string, () => void> = {
           edges: [
             { id: 'a', from: { node: 'x', port: out.id }, to: { node: 'm', port: 'a' } },
             { id: 'b', from: { node: 'k', port: 'value' }, to: { node: 'm', port: 'b' } },
-            { id: 'c', from: { node: 'm', port: 'out' }, to: { node: 'vo', port: 'offset' } },
+            ...(PIXEL_ONLY.has(type) ? [] : [{ id: 'c', from: { node: 'm', port: 'out' }, to: { node: 'vo', port: 'offset' } }]),
             { id: 'd', from: { node: 'x', port: out.id }, to: { node: 'e', port: 'a' } },
             { id: 'f', from: { node: 'ke', port: 'value' }, to: { node: 'e', port: 'b' } },
             { id: 'g', from: { node: 'e', port: 'out' }, to: { node: 'out', port: 'emissive' } },

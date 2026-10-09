@@ -957,7 +957,8 @@ export type StreamDiag = {
 /**
  * The streamed Play (both renderers): only the tiles round the camera are resident, the overview drawn past them;
  * the player walks west across a tile border with a 1 m collision ring and never falls; the camera flies 400 m off
- * (every ground tile and block chunk let go, as the diagnostics count) and back (the same picture).
+ * (every ground tile and block chunk let go but the player's ground, as the diagnostics count; the player stands) and
+ * back (the same picture).
  */
 export async function streamingPlay(psid: string, renderer: string): Promise<void> {
   const diag = async (): Promise<StreamDiag> => ((await relay(`${psid}/diagnostics`, {})).json as { diagnostics?: StreamDiag }).diagnostics ?? {};
@@ -1022,7 +1023,7 @@ export async function streamingPlay(psid: string, renderer: string): Promise<voi
   expect(start.y - lowest, `${renderer} streamed Play: never fell through (lowest y ${lowest})`).toBeLessThan(0.1);
   expect(after.runtime?.terrainMemory?.waiting ?? 0).toBe(0);
 
-  // The camera flies away: every ground tile and block chunk is let go (the overview drawn instead); then back.
+  // The camera flies away: every ground tile and block chunk is let go but the player's (the overview drawn instead); then back.
   // Full size: a crack between a full tile and the overview's is a pixel wide.
   const frame = async (): Promise<Image | null> => {
     const r = await relay(`${psid}/screenshot`, { maxWidth: 2048 });
@@ -1032,17 +1033,25 @@ export async function streamingPlay(psid: string, renderer: string): Promise<voi
     const r = await relay(`${psid}/control`, { command: 'debugCommand', name: 'place', args: { id: 'cam-main', x: p[0], y: p[1], z: p[2] } });
     expect(r.status, JSON.stringify(r.json).slice(0, 300)).toBe(200);
   };
-  /** Away: every ground tile and streamed block chunk let go (the overview drawn everywhere; the plaza, not streamed, keeps its one chunk). */
+  /**
+   * Away: every ground tile and streamed block chunk let go but the few the player's collision ring wants (the
+   * player stays where it walked, far from the camera now: the page keeps reading its ground for the colliders), the
+   * overview drawn everywhere else; the plaza, not streamed, keeps its one chunk. The player has not fallen.
+   */
   const flyAway = async (): Promise<StreamDiag> => {
     await place(AWAY);
     let away: StreamDiag = {};
     await expect
       .poll(async () => {
         away = await diag();
-        return `${away.renderer?.terrain?.streamed?.resident} ${away.renderer?.streaming?.kinds['terrain-tile']?.resident} ${away.renderer?.blocks?.chunks}`;
-      }, { timeout: 60_000, message: `${renderer} streamed Play: flown away, the tiles and chunks let go` })
-      .toBe('0 0 1');
-    expect(away.renderer!.terrain!.streamed!.overviewDrawn).toBe(TILES * TILES);
+        const kept = away.renderer?.terrain?.streamed?.resident ?? -1;
+        const held = away.renderer?.streaming?.kinds['terrain-tile']?.resident;
+        return `${kept >= 1 && kept <= 4 && held === kept ? 'the player\'s tiles' : `${kept} ${held}`} ${away.renderer?.blocks?.chunks}`;
+      }, { timeout: 60_000, message: `${renderer} streamed Play: flown away, the tiles and chunks let go but the player's` })
+      .toBe("the player's tiles 1");
+    expect(away.renderer!.terrain!.streamed!.overviewDrawn).toBe(TILES * TILES - away.renderer!.terrain!.streamed!.resident);
+    const stood = (await read())!.player!;
+    expect(stood.y, `${renderer} streamed Play: the player far from the camera stands (y ${stood.y}, walked ${walked.y})`).toBeGreaterThan(walked.y - 0.1);
     return away;
   };
   /** Back: settled round the camera again, its picture. */

@@ -261,7 +261,14 @@ test('a double-click opens each kind of item in its editor, an edit there is sav
       await expect.poll(() => named(kind, id), { message: `${kind} ${id} renamed` }).toBe(`${title} edited`);
       await expect(editorWindow(page).getByRole('tablist', { name: 'open items' }).getByRole('tab', { selected: true })).toContainText(`${title} edited`);
     }
-    await page.keyboard.press('Escape');
+    if (label === undefined) {
+      // A script opens in the code editor, which takes the focus a moment later and keeps an Escape that reaches it
+      // first for itself (its own widgets): Escape again until the window closes.
+      await expect(async () => {
+        await page.keyboard.press('Escape');
+        await expect(editorWindow(page)).toHaveCount(0, { timeout: 1_000 });
+      }).toPass({ timeout: 10_000 });
+    } else await page.keyboard.press('Escape');
     await expectDefaultView(page);
   };
   await opens('mat-one', 'material', 'Mat One', 'material');

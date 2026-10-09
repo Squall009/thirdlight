@@ -810,8 +810,8 @@ export class FrameMirror {
     if (s.saveReq !== undefined) for (const r of s.saveReq) this.saveReq.push(r);
     if (s.assetReq !== undefined) for (const r of s.assetReq) this.assetReq.push(r);
     if (s.problems !== undefined) for (const p of s.problems) this.problems.push(p);
-    // A layer's kits, each chunk and the architecture preset swaps: the latest of each (kits keyed apart from any chunk).
-    if (s.grid !== undefined) for (const g of s.grid) this.grid.set('architecturePresets' in g ? '|architecture' : 'kits' in g ? `${g.entityId}|kits` : 'rule' in g ? `${g.entityId}|scatter|${g.rule}|${g.cell[0]},${g.cell[1]}` : `${g.entityId}|${g.cx},${g.cz}`, g);
+    // A layer's kits, each chunk, the architecture preset swaps and a terrain's collision ring: the latest of each (kits keyed apart from any chunk).
+    if (s.grid !== undefined) for (const g of s.grid) this.grid.set('architecturePresets' in g ? '|architecture' : 'collisionRing' in g ? `${g.collisionRing}|ring` : 'kits' in g ? `${g.entityId}|kits` : 'rule' in g ? `${g.entityId}|scatter|${g.rule}|${g.cell[0]},${g.cell[1]}` : `${g.entityId}|${g.cx},${g.cz}`, g);
     if (s.mat !== undefined) {
       for (const c of s.mat) {
         const k = materialChangeKey(c);
