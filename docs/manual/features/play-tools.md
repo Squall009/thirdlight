@@ -1,10 +1,40 @@
 # Play tools
 
-What the MCP play tools (and their HTTP routes) do: driving a play step by
-step, the engine's version, headless play-tests, screenshots, replays,
-plays that ended, where a Play's start time went and how a Play loads.
+What the MCP play tools (and their HTTP routes) do: reading this manual
+over MCP, driving a play step by step, the engine's version, headless
+play-tests, screenshots, replays, plays that ended, where a Play's start time
+went and how a Play loads.
 Connecting MCP: [Deployment](../../deployment.md#mcp-coding-harness); step
 by step: [the play-testing guide](../guides/playtesting.md).
+
+## Reading the manual over MCP
+
+The MCP server's instructions tell an agent to start at
+`tl_docs {topic: "getting-started/first-project"}` and to look an op, a
+component or a script call up before using it. `tl_docs` answers from the
+manual of the running build:
+
+- no topic: the contents (the manual's index and the reference's topic
+  kinds with their counts);
+- a page: its path without `.md` (`guides/terrain`, `concepts/game-flow`,
+  `reference/ops`, `deployment`);
+- a section: `page#anchor`, from its heading to the next heading of its
+  level; a link copied from a page (`../guides/terrain.md#sculpting`) works
+  as it is;
+- a reference topic: `op.editBlocks`, `component.light`, `ctx.grid`,
+  `node.material.pbr`, `limit.MAX_TAGS`, `tool.tl_command` (a tool's full
+  text; `tool.tl_command.terrain` one area of it);
+- `query`: topic names and titles holding every word, best first (up to 40;
+  when nothing is named so, the sections whose text holds them).
+
+An answer carries at most 20,000 characters of text. A longer page or
+section comes in parts: the answer says `part`, `parts` and `next` (the
+call for the next part), and a page in parts lists its sections so you can
+ask for one. An unknown topic is `docs_topic_not_found` with suggestions.
+The tool descriptions in `tools/list` are short summaries; each points at
+its `tool.<name>` topic, which holds everything the description used to say.
+Over HTTP: `GET /api/v1/docs?topic=…` (or `query=…`, `part=n`) with any
+token.
 
 ## Driving a play step by step
 
@@ -35,7 +65,10 @@ again at every restart (a replay, a shell's New game).
 the backend started with, the build it started with (`dist/build-info.json`,
 written by `npm run build`), its start time, and `dist.newerThanProcess`: true
 when dist/ was rebuilt after the backend started — restart the service
-(`sudo systemctl restart thirdlight`) to run it. Graph materials are compiled
+(`sudo systemctl restart thirdlight`) to run it. `manual {dir, pages, topics}`
+says which manual `tl_docs` reads: the copy in `dist/docs/` the build made,
+read when the backend started (else the checkout's `docs/`), so it describes
+the code that runs. Graph materials are compiled
 by the backend when it loads a project and after every change:
 `tl_diagnostics` lists the broken ones in `materialProblems` (and logs a
 `material_graph_problems` entry when problems appear), and

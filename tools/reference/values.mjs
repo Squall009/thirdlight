@@ -21,9 +21,9 @@ export const VALUE_PACKAGES = ['project-model', 'commands', 'runtime', 'protocol
 /**
  * Single modules read beside the packages' entry points (not searched for
  * limits): the workspace's scene routing names the argument it reads before
- * the validator.
+ * the validator; the MCP adapter's tool texts are the MCP tools page.
  */
-export const VALUE_MODULES = { 'workspace/scene-routing': 'workspaceSceneRouting' };
+export const VALUE_MODULES = { 'workspace/scene-routing': 'workspaceSceneRouting', 'mcp-adapter/tool-docs': 'mcpToolDocs' };
 
 const ident = (pkg) => pkg.replace(/-(.)/g, (_, c) => c.toUpperCase());
 

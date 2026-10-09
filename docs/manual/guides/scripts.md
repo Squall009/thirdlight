@@ -49,36 +49,40 @@ Everything a script can do: [Scripting](../features/scripting.md) and the
 
 ## Through the API
 
-Scripts are published over HTTP (the same route the editor uses); MCP has
-no tool for a TypeScript source yet.
+Scripts are published through the route the editor's **Publish** uses:
+MCP's `tl_script_publish` sends to it, and so can any HTTP client.
 
 1. The library ([`setScriptLibrary`](../reference/ops-detail.md#op-setScriptLibrary)):
    `{"libraryId": "scoring", "name": "Scoring", "files": [{"path": "src/index.ts", "text": "…"}, {"path": "src/table.json", "text": "{ \"coin\": 5, \"gem\": 25 }\n"}]}`.
 2. The script's record ([`publishBehavior`](../reference/ops-detail.md#op-publishBehavior)):
    `{"behaviorId": "scorer", "displayName": "Scorer", "mode": "declaration-create", "declaration": {"properties": []}}`.
-3. The source, as a **container**: 2-space JSON with one trailing newline,
-   files in path order:
-   ```json
-   {
-     "graphVersion": 1,
-     "entryPath": "src/index.ts",
-     "requiredModules": ["@thirdlight/runtime"],
-     "ownedTransforms": [],
-     "files": [{ "path": "src/index.ts", "text": "…" }]
-   }
-   ```
-   Stage it: `POST /api/v1/projects/<id>/content/stages` with `{}` answers a
-   `stageId`; `PUT …/content/stages/<stageId>/bytes` with the bytes and the
-   headers `x-thirdlight-offset: 0` and `x-thirdlight-total: <length>`.
-4. Publish it: `POST …/content/behaviors/source` with
-   `{"stageId", "behaviorId": "scorer", "displayName": "Scorer", "expectedRevision", "requestId"}`.
-   The answer names the declaration the code declared. While a digest is
-   not acknowledged the answer is `behavior_trust_unacknowledged` with its
+3. Check it compiles: `tl_script_publish`
+   `{"behaviorId": "scorer", "check": true, "files": [{"path": "src/index.ts", "text": "…"}]}`
+   answers `compiled`, the diagnostics with their file and line, the
+   declaration the code declares and the source's `sourceDigest`. Nothing
+   is written.
+4. Publish it: the same with `"displayName": "Scorer"` and
+   `"expectedRevision"` instead of `check` (`ownedTransforms: ["@self"]`
+   when it moves its own object). While the source's digest is not
+   acknowledged the answer is `behavior_trust_unacknowledged` with its
    `sourceDigest`: send [`acknowledgeBehaviorTrust`](../reference/ops-detail.md#op-acknowledgeBehaviorTrust)
    `{"sourceDigest"}` and publish again. The script's source and each new
-   library version it uses are acknowledged once each.
-   `{"check": true, "behaviorId", "bytesBase64"}` on the same route compiles
-   without publishing.
+   library version it uses are acknowledged once each. The answer names the
+   new revision and the declaration.
+
+   Over HTTP the same request is `POST /api/v1/projects/<id>/content/behaviors/source`
+   with `{"behaviorId", "displayName", "expectedRevision", "requestId",
+   "container": {"files": [...], "ownedTransforms"?: [...]}}` (or
+   `{"check": true, "behaviorId", "container"}`). The backend puts the
+   files in the canonical source container. A source over the 1 MiB request
+   bound is staged instead: build the container yourself (2-space JSON with
+   one trailing newline, files in path order:
+   `{"graphVersion": 1, "entryPath": "src/index.ts", "requiredModules": ["@thirdlight/runtime"], "ownedTransforms": [], "files": [...]}`),
+   `POST /api/v1/projects/<id>/content/stages` with `{}` for a `stageId`,
+   `PUT …/content/stages/<stageId>/bytes` with the bytes and the headers
+   `x-thirdlight-offset: 0` and `x-thirdlight-total: <length>`, then send
+   `stageId` instead of `container`. A visual script publishes with
+   `graph: true` instead of either ([visual scripts](visual-scripts.md)).
 5. Attach it ([`setBehaviorProperties`](../reference/ops-detail.md#op-setBehaviorProperties)):
    `{"entityId": "<object>", "behaviorId": "scorer", "values": {"kind": "gem", "every": 0.5}}`.
 6. Play and observe: `counters.score` grows by 25 every half second;
@@ -110,9 +114,10 @@ to see as a graph; both publish the same kind of script.
   library. Keep per-object state in the script's state.
 - **Never use `Math.random` or the clock.** Use `ctx.random` and
   `ctx.timers`, so replays repeat the run.
-- **A publication keeps its stage for an hour**, and a project holds at
-  most 8 stages: a ninth publication within the hour is refused
-  (`stage_limits_exceeded`, `open_stages`) until the oldest expires.
+- **A staged publication's stage is kept** for a retry of the same
+  request until new uploads need its room; publishing again and again is
+  never refused for stages. A source sent as `files` (or `container`) uses
+  no stage.
 - **Unpublished edits are not played.** Play runs the published script;
   a running Play keeps the code it started with.
 

@@ -185,10 +185,11 @@ function, removing its last node removes it. Shared functions are `setGraph
 {graph: {graphId, kind: "behavior-library", name, graph}}` and `graphEdit
 {owner: {kind: "graph", id}}` (a change that breaks a script calling it is
 refused, naming the script). MCP creates a script with `publishBehavior
-{mode: "declaration-create", …, graph: {nodes, edges}}`; publishing is `POST
-/api/v1/projects/<id>/content/behaviors/source {graph: true, behaviorId,
-displayName, expectedRevision, requestId}` (`{check: true, graph: true,
-behaviorId}` compiles without publishing and returns the `sourceDigest`;
+{mode: "declaration-create", …, graph: {nodes, edges}}`; publishing is
+`tl_script_publish {behaviorId, graph: true, displayName, expectedRevision}`
+(over HTTP `POST /api/v1/projects/<id>/content/behaviors/source {graph: true,
+behaviorId, displayName, expectedRevision, requestId}`; `check: true` with
+`graph: true` compiles without publishing and returns the `sourceDigest`;
 a new digest must be acknowledged first with `acknowledgeBehaviorTrust
 {sourceDigest}`, the same step the editor's trust notice takes). The
 published record (`tl_content_query target="behaviors" behaviorId

@@ -48,12 +48,14 @@ shows wire values on hover and stops at breakpoints (**F9** on a node).
    ```
    Later edits are [`graphEdit`](../reference/ops-detail.md#op-graphEdit)
    `{"owner": {"kind": "behavior", "id": "jumpcount"}, "ops": [...]}`.
-2. Check it: `POST /api/v1/projects/<id>/content/behaviors/source` with
-   `{"check": true, "graph": true, "behaviorId": "jumpcount"}` answers
+2. Check it: MCP's `tl_script_publish` `{"behaviorId": "jumpcount", "graph": true, "check": true}`
+   (over HTTP: `POST /api/v1/projects/<id>/content/behaviors/source` with
+   `{"check": true, "graph": true, "behaviorId": "jumpcount"}`) answers
    `compiled`, the `sourceDigest` and the declaration (or the problems with
    their nodes).
 3. Acknowledge that digest ([`acknowledgeBehaviorTrust`](../reference/ops-detail.md#op-acknowledgeBehaviorTrust)),
-   then publish: the same route with `{"graph": true, "behaviorId", "displayName", "expectedRevision", "requestId"}`.
+   then publish: `tl_script_publish` `{"behaviorId", "graph": true, "displayName", "expectedRevision"}`
+   (over HTTP the same route with `{"graph": true, "behaviorId", "displayName", "expectedRevision", "requestId"}`).
 4. Attach it ([`setBehaviorProperties`](../reference/ops-detail.md#op-setBehaviorProperties)):
    `{"entityId": "<player>", "behaviorId": "jumpcount", "values": {"per_jump": 2}}`.
 5. Play; two jumps give `counters.jumps` = 4 in the observation.

@@ -28,8 +28,6 @@ import { isExportDirOf, listExports, zipDirectory } from './exports';
 import { makeAttached, makeErrorEvent, makePong, parseStrictJsonBytes, parseInboundEvent, encodeBinaryFreeStateFrame, sessionError, statusFor, WS_OUT_FRAME_MAX, WS_SCREENSHOT_ACK_MAX, PLAY_PROBLEM_KINDS_MAX, enforceDefaultFrameBound, validateGameControlResult, validateGameObservation, toWireChange, type SessionError } from '@thirdlight/protocol';
 import { openWorkspaceService, readMarker, type CommandError, type WorkspaceService } from '@thirdlight/workspace';
 import { mergeTimeouts, parseBackendConfig, type BackendConfig } from './config';
-import { publishBehaviorSource } from './behavior';
-import { diagnosticsWithNodes, generateGraphSource, graphProblemsFailure } from '@thirdlight/behavior-build';
 import { ContentRoutes, createAssetInspector, createBehaviorCompilerPort } from './content';
 import { loadMeshSimplifier, type MeshSimplifier } from '@thirdlight/asset-pipeline';
 import { createAssetFileCheck, reimportProblemLines } from './asset-files';
@@ -64,6 +62,8 @@ import { makePreviewRoutes } from './preview-routes';
 import { createPlayBuildCache } from './play-build';
 import { makeStaticRoutes } from './static-routes';
 import { makeAdminRoutes } from './admin-routes';
+import { makeBehaviorSourceRoutes } from './behavior-source-routes';
+import { loadManual, makeDocsRoute, manualSummary } from './docs';
 import { makePlayRoutes } from './play-routes';
 import { comparePin, engineIdentity, makeEngineInfo } from './engine';
 import { createMaterialProblemChecker, materialProblemLine, type MaterialRow } from './material-problems';
@@ -644,6 +644,9 @@ export function createBackend(
   };
   // ---------- The engine this process runs ----------
   const engineInfo = makeEngineInfo({ engineRoot: config.engineRoot, distDir: dirname(config.editorStaticDir), startedAtMs: Date.now() - process.uptime() * 1000 });
+  // The manual of the build this process runs: read once now (dist/docs/ the build copied; else the checkout's docs/).
+  const manual = loadManual([join(dirname(config.editorStaticDir), 'docs'), ...(config.engineRoot !== undefined ? [join(config.engineRoot, 'docs')] : [])]);
+  const docsRoute = makeDocsRoute({ manual, authorized: (req) => tokenScope(bearerToken(req), req) !== null, sendJson });
 
   const notifyMutationApplied = (
     projectId: string,
@@ -932,282 +935,6 @@ export function createBackend(
   // ---------- routes ----------
 
   /**
-   * `POST /api/v1/projects/:projectId/content/behaviors/source` — the additive
-   * behavior-source preparation+publication route.
-   *
-   * It runs the behavior-source facade: stage read → trust gate → injected
-   * compile → immutable blob, then the ordinary `publishBehavior{mode:'source'}`
-   * command through `workspace.runCommand` (the sole executor). No second
-   * commit path, no code evaluation.
-   */
-  const behaviorSourceRoute = async (req: IncomingMessage, res: ServerResponse, projectId: string): Promise<void> => {
-    const authError = requireAuth(req, projectId, false);
-    if (authError !== null) {
-      sendError(res, authError);
-      return;
-    }
-    const body = await readBody(req);
-    if (!body.ok) {
-      sendError(res, body.error);
-      return;
-    }
-    const strict = parseStrictJsonBytes(body.bytes.length === 0 ? new TextEncoder().encode('{}') : body.bytes);
-    if (!strict.ok) {
-      sendError(res, strict.error);
-      return;
-    }
-    const value = strict.value as Record<string, unknown>;
-    for (const key of Object.keys(value)) {
-      if (!['stageId', 'bytesBase64', 'behaviorId', 'displayName', 'declaration', 'expectedRevision', 'requestId', 'check', 'graph'].includes(key)) {
-        sendError(res, sessionError('field_unexpected', 'validation', `unknown field "${key}"`, { path: `/${key}` }));
-        return;
-      }
-    }
-    // `check: true` — compile only (the script editor's save and
-    // idle check). The same pinned compiler instance as publication; nothing
-    // is written (no stage, no blob, no derived cache, no revision) and no
-    // code runs, so the per-digest trust gate (which guards the runnable
-    // artifact) does not apply.
-    if (value.check !== undefined) {
-      await behaviorCheck(res, projectId, value);
-      return;
-    }
-    // `graph: true` — the source is generated from the behavior's
-    // visual-script graph (as stored now); then the same preparation and
-    // publication as any source (trust per exact digest, one command).
-    let graphSource: { bytes: Uint8Array; lineNodes: Record<string, (string | null)[]> } | null = null;
-    if (value.graph !== undefined) {
-      if (value.graph !== true || value.stageId !== undefined || value.bytesBase64 !== undefined) {
-        sendError(res, sessionError('field_value', 'validation', 'graph must be true and comes without stageId/bytesBase64 (the source is generated from the stored graph)', { path: '/graph' }));
-        return;
-      }
-      const gen = behaviorGraphSource(projectId, value.behaviorId);
-      if ('error' in gen) {
-        sendError(res, gen.error, gen.status);
-        return;
-      }
-      if (!gen.result.ok) {
-        const failure = graphProblemsFailure(gen.result.problems);
-        recordProblem(projectId, 'compile', failure.code, `Script ${String(value.behaviorId)} failed to compile: ${failure.diagnostics[0]?.message ?? failure.reason}`);
-        sendJson(res, 400, { ok: false, error: { code: failure.code, cls: 'validation', message: failure.diagnostics[0]?.message ?? 'the graph does not compile', diagnostics: failure.diagnostics } });
-        return;
-      }
-      graphSource = { bytes: gen.result.containerBytes, lineNodes: gen.result.lineNodes };
-    }
-    const behaviorId = value.behaviorId;
-    const displayName = value.displayName;
-    const declaration = value.declaration;
-    const expectedRevision = value.expectedRevision;
-    const requestId = value.requestId;
-    const stageId = value.stageId;
-    if (typeof behaviorId !== 'string' || !/^[a-z0-9][a-z0-9_-]{0,63}$/.test(behaviorId)) {
-      sendError(res, sessionError('field_value', 'validation', 'behaviorId must use the project-model ID syntax', { path: '/behaviorId' }));
-      return;
-    }
-    if (typeof displayName !== 'string' || displayName.length < 1 || displayName.length > 128) {
-      sendError(res, sessionError('field_value', 'validation', 'displayName must be a 1–128 character string', { path: '/displayName' }));
-      return;
-    }
-    // Optional when the source declares its properties in code
-    // (`export const properties`); a declaration sent along is then ignored.
-    if (declaration !== undefined && (typeof declaration !== 'object' || declaration === null || Array.isArray(declaration))) {
-      sendError(res, sessionError('field_type', 'validation', 'declaration must be a property-declaration object', { path: '/declaration' }));
-      return;
-    }
-    if (typeof expectedRevision !== 'number' || !Number.isInteger(expectedRevision) || expectedRevision < 0) {
-      sendError(res, sessionError('field_value', 'validation', 'expectedRevision must be an integer ≥ 0', { path: '/expectedRevision' }));
-      return;
-    }
-    if (typeof requestId !== 'string' || !/^req-[0-9a-f]{32}$/.test(requestId)) {
-      sendError(res, sessionError('field_value', 'validation', 'requestId must be req- + 32 hex', { path: '/requestId' }));
-      return;
-    }
-    const session = sessions.sessionForProject(projectId);
-    const origin: OriginDoc = session !== undefined ? { kind: 'browser', clientId: session.sessionId } : { kind: 'admin', clientId: 'operator' };
-    const outcome = await publishBehaviorSource(service, {
-      projectId,
-      ...(typeof stageId === 'string' ? { stageId } : {}),
-      ...(graphSource !== null ? { bytes: graphSource.bytes } : {}),
-      behaviorId,
-      displayName,
-      declaration: (declaration ?? { properties: [] }) as never,
-      expectedRevision,
-      requestId,
-      origin,
-    });
-    if (outcome.ok) {
-      // The editor follows this publication like any command, so its
-      // behavior list stays current without a resync.
-      if (outcome.result.duplicated === false) notifyMutationApplied(projectId, outcome.result.requestId, outcome.result.revision, origin, outcome.result.change);
-      sendJson(res, 200, {
-        ok: true,
-        behaviorId,
-        sourceDigest: outcome.prepared.sourceDigest,
-        outputDigest: outcome.prepared.outputDigest,
-        // The published declaration and where it came from.
-        declaration: outcome.prepared.declaration,
-        ...(outcome.prepared.declaredInCode === true ? { declaredInCode: true } : {}),
-        ...(outcome.prepared.sourceKind === 'graph' ? { sourceKind: 'graph' } : {}),
-        revision: outcome.result.revision,
-        requestId,
-      });
-      return;
-    }
-    if (outcome.kind === 'compile') {
-      recordProblem(projectId, 'compile', outcome.failure.code, `Script ${behaviorId} failed to compile: ${outcome.failure.reason}`);
-      const diagnostics = outcome.failure.diagnostics.slice(0, 32);
-      sendJson(res, 400, {
-        ok: false,
-        error: {
-          code: outcome.failure.code,
-          cls: 'validation',
-          message: outcome.failure.reason.slice(0, 256),
-          diagnostics: graphSource !== null ? diagnosticsWithNodes(diagnostics, graphSource.lineNodes) : diagnostics,
-        },
-      });
-      return;
-    }
-    sendJson(res, statusFor(outcome.error.cls), { ok: false, error: outcome.error });
-  };
-
-  /**
-   * The source generated from one behavior's stored visual-script
-   * graph (the generator is pure: the same graph gives the same bytes, so a
-   * check's digest is the digest the publication will ask trust for).
-   */
-  const behaviorGraphSource = (
-    projectId: string,
-    behaviorId: unknown,
-  ): { result: ReturnType<typeof generateGraphSource> } | { error: SessionError; status?: number } => {
-    if (typeof behaviorId !== 'string' || !/^[a-z0-9][a-z0-9_-]{0,63}$/.test(behaviorId)) {
-      return { error: sessionError('field_value', 'validation', 'behaviorId must use the project-model ID syntax', { path: '/behaviorId' }) };
-    }
-    const found = service.query({ op: 'queryBehaviors', projectId, args: { behaviorId, includeDeclaration: true, limit: 1, offset: 0 } }) as unknown as { ok: boolean; error?: CommandError; behaviors?: { behaviorId: string; graph?: unknown; functions?: unknown }[] };
-    if (!found.ok && found.error?.code !== 'behavior_not_found') return { error: workspaceError(found.error as CommandError) };
-    const record = found.behaviors?.find((b) => b.behaviorId === behaviorId);
-    if (record === undefined) return { error: sessionError('field_value', 'not_found', `no behavior "${behaviorId}"`, { path: '/behaviorId' }), status: 404 };
-    if (record.graph === undefined) return { error: sessionError('field_value', 'validation', `behavior "${behaviorId}" is not a visual script (it has no graph)`, { path: '/graph' }) };
-    // With the script's functions and the project's shared functions (their code is part of the digest-bound source).
-    const config = service.query({ op: 'queryGameConfig', projectId }) as unknown as { graphs?: unknown };
-    return { result: generateGraphSource(record.graph as Parameters<typeof generateGraphSource>[0], { functions: record.functions, graphs: config.graphs ?? [] }) };
-  };
-
-  /** The compile-only check of `POST …/content/behaviors/source` (`check: true`). */
-  const behaviorCheck = async (res: ServerResponse, projectId: string, value: Record<string, unknown>): Promise<void> => {
-    if (value.check !== true) {
-      sendError(res, sessionError('field_value', 'validation', 'check must be true', { path: '/check' }));
-      return;
-    }
-    // `{check: true, graph: true, behaviorId}` compiles the behavior's stored graph.
-    if (value.graph !== undefined) {
-      for (const key of Object.keys(value)) {
-        if (!['check', 'graph', 'behaviorId'].includes(key)) {
-          sendError(res, sessionError('field_unexpected', 'validation', `a graph check takes check, graph and behaviorId only ("${key}")`, { path: `/${key}` }));
-          return;
-        }
-      }
-      if (value.graph !== true) {
-        sendError(res, sessionError('field_value', 'validation', 'graph must be true', { path: '/graph' }));
-        return;
-      }
-      const gen = behaviorGraphSource(projectId, value.behaviorId);
-      if ('error' in gen) {
-        sendError(res, gen.error, gen.status);
-        return;
-      }
-      const behaviorId = value.behaviorId as string;
-      if (!gen.result.ok) {
-        const failure = graphProblemsFailure(gen.result.problems);
-        sendJson(res, 200, { ok: true, compiled: false, behaviorId, code: failure.code, reason: failure.reason, diagnostics: failure.diagnostics });
-        return;
-      }
-      const g = gen.result;
-      const warnings = g.problems.slice(0, 32).map((p) => ({ message: p.message, ...(p.nodeId !== undefined ? { nodeId: p.nodeId } : {}) }));
-      let compiled;
-      try {
-        compiled = await behaviorCompiler.compile({ behaviorId, declaration: g.declaration, containerBytes: g.containerBytes, pinnedModules: behaviorCompiler.pinnedModules });
-      } catch (e) {
-        compiled = { ok: false as const, code: 'behavior_compile_failed', reason: 'the compiler threw', diagnostics: [{ code: 'behavior_compile_failed', reason: 'throw', message: (e instanceof Error ? e.message : String(e)).slice(0, 256) }] };
-      }
-      if (compiled.ok) {
-        sendJson(res, 200, {
-          ok: true,
-          compiled: true,
-          behaviorId,
-          sourceDigest: compiled.manifest.sourceDigest,
-          outputByteLength: compiled.manifest.outputByteLength,
-          declaration: compiled.manifest.declaration,
-          declaredInCode: true,
-          sourceKind: 'graph',
-          diagnostics: [],
-          warnings,
-        });
-        return;
-      }
-      sendJson(res, 200, { ok: true, compiled: false, behaviorId, code: compiled.code, reason: String(compiled.reason).slice(0, 256), diagnostics: diagnosticsWithNodes(compiled.diagnostics.slice(0, 32), g.lineNodes), warnings });
-      return;
-    }
-    for (const key of Object.keys(value)) {
-      if (!['check', 'bytesBase64', 'behaviorId', 'declaration'].includes(key)) {
-        sendError(res, sessionError('field_unexpected', 'validation', `a check takes check, bytesBase64, behaviorId and declaration only ("${key}")`, { path: `/${key}` }));
-        return;
-      }
-    }
-    const behaviorId = value.behaviorId;
-    if (typeof behaviorId !== 'string' || !/^[a-z0-9][a-z0-9_-]{0,63}$/.test(behaviorId)) {
-      sendError(res, sessionError('field_value', 'validation', 'behaviorId must use the project-model ID syntax', { path: '/behaviorId' }));
-      return;
-    }
-    const b64 = value.bytesBase64;
-    if (typeof b64 !== 'string' || b64.length === 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(b64)) {
-      sendError(res, sessionError('field_value', 'validation', 'bytesBase64 must be the base64 of the source-graph container', { path: '/bytesBase64' }));
-      return;
-    }
-    const declaration = value.declaration;
-    if (declaration !== undefined && (typeof declaration !== 'object' || declaration === null || Array.isArray(declaration))) {
-      sendError(res, sessionError('field_type', 'validation', 'declaration must be a property-declaration object', { path: '/declaration' }));
-      return;
-    }
-    const bytes = new Uint8Array(Buffer.from(b64, 'base64'));
-    // `@lib/<id>` imports link the project's script libraries.
-    const libraries = service.scriptLibraryInputs(projectId);
-    let result;
-    try {
-      result = await behaviorCompiler.compile({
-        behaviorId,
-        declaration: (declaration ?? { properties: [] }) as never,
-        containerBytes: bytes,
-        pinnedModules: behaviorCompiler.pinnedModules,
-        ...(libraries.length > 0 ? { libraries } : {}),
-      });
-    } catch (e) {
-      result = { ok: false as const, code: 'behavior_compile_failed', reason: 'the compiler threw', diagnostics: [{ code: 'behavior_compile_failed', reason: 'throw', message: (e instanceof Error ? e.message : String(e)).slice(0, 256) }] };
-    }
-    if (result.ok) {
-      sendJson(res, 200, {
-        ok: true,
-        compiled: true,
-        behaviorId,
-        sourceDigest: result.manifest.sourceDigest,
-        outputByteLength: result.manifest.outputByteLength,
-        declaration: result.manifest.declaration,
-        ...(result.manifest.declaredInCode === true ? { declaredInCode: true } : {}),
-        ...(result.manifest.libraries !== undefined ? { libraries: result.manifest.libraries } : {}),
-        diagnostics: [],
-      });
-      return;
-    }
-    sendJson(res, 200, {
-      ok: true,
-      compiled: false,
-      behaviorId,
-      code: result.code,
-      reason: String(result.reason).slice(0, 256),
-      diagnostics: result.diagnostics.slice(0, 32),
-    });
-  };
-
-  /**
    * `POST …/content/libraries/check {libraryId, files}` — compile
    * one script library draft on its own (the script editor's idle check and
    * Compile): its files replace the stored library of that id (or add one)
@@ -1476,7 +1203,12 @@ export function createBackend(
             sendError(res, sessionError('unauthorized', 'validation', 'a valid bearer token is required'));
             return;
           }
-          sendJson(res, 200, { ok: true, engine: engineInfo() });
+          sendJson(res, 200, { ok: true, engine: { ...engineInfo(), manual: await manualSummary(manual) } });
+          return;
+        }
+        // GET /api/v1/docs — the manual and the generated reference of this build (topic, section or search)
+        if (parts.length === 3 && parts[2] === 'docs') {
+          await docsRoute(req, res, query);
           return;
         }
         // GET /api/v1/projects/:projectId/content/materials — the materials and their graph problems (paged)
@@ -1859,6 +1591,7 @@ export function createBackend(
   warmPlay = warmPlayBuild;
 
   const pinWarned = new Set<string>();
+  const { behaviorSourceRoute } = makeBehaviorSourceRoutes({ service, sessions, behaviorCompiler, sendJson, sendError, requireAuth, readBody, workspaceError, recordProblem, notifyMutationApplied });
   const { adminCreateProject, adminRegisterProject, adminUnregisterProject, adminProjectOp, adminExportRoute } = makeAdminRoutes({ config, behaviorCompiler, service, sendJson, sendError, requireAuth, readBody, workspaceError, recordProblem, ensureImported: assetFiles.ensureImported, textureSlots });
 
   const { serveStatic, previewCsp, locatorBaseHeaders, previewTemplate, previewShellHtml, isolationHeaders } = makeStaticRoutes({ config, sendJson });

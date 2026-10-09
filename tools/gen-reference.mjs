@@ -12,7 +12,8 @@
  *   (the model tools/gen-behavior-api.mjs builds the editor's typings from);
  * - node graphs: every registered graph kind's catalogue (`GRAPH_KINDS`);
  * - limits and defaults: the constants the packages export, each under the
- *   file that defines it.
+ *   file that defines it;
+ * - the MCP tools: the adapter's full tool texts (their descriptions point here).
  *
  * Output is plain markdown, one area per page (split when a page grows past
  * `PAGE_BYTES_MAX`), every section with a stable anchor, plus `index.md` and
@@ -36,6 +37,7 @@ import { limitPages } from './reference/pages-limits.mjs';
 import { descriptorShapeNames } from './reference/fields.mjs';
 import { opPages, typePages } from './reference/pages-ops.mjs';
 import { scriptPages } from './reference/pages-script.mjs';
+import { toolPages } from './reference/pages-tools.mjs';
 import { constantOwners, createModelProgram, declarationsNamed, opShapes, typeCollector } from './reference/ts-model.mjs';
 import { VALUE_PACKAGES, loadValues } from './reference/values.mjs';
 
@@ -111,6 +113,7 @@ export async function generateReference() {
     ...scriptPages(behaviorApiModel()),
     ...graphPages(pm.GRAPH_KINDS),
     ...limitPages(values, owners),
+    ...toolPages(values['mcp-adapter/tool-docs']),
   ];
   const files = new Set();
   for (const p of pages) {

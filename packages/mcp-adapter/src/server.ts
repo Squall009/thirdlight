@@ -21,6 +21,21 @@ import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { ListToolsRequestSchema, CallToolRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 import { TOOL_DEFINITIONS, handleToolCall, type McpContext } from './tools';
 
+/**
+ * The server instructions (the protocol's `instructions`, which a client
+ * shows its model once per session): where to start and how to learn the
+ * engine from the running build rather than from memory or the engine's
+ * source.
+ */
+export const MCP_INSTRUCTIONS =
+  'Thirdlight is a browser game editor and engine; these tools work on the game project of the folder you run in. ' +
+  'Start with tl_docs {topic: "getting-started/first-project"} and the contents (tl_docs with no topic). ' +
+  'Before you use an op, a component or a script call, look it up: tl_docs {topic: "op.<op>"}, "component.<name>", "ctx.<member>" ' +
+  '(the reference comes from the running build; tl_inspect target="engine" names that build). ' +
+  'There is one way to change a project: tl_command (and tl_script_publish for script code), the same commands the editor sends; ' +
+  'do not edit the project\'s files by hand while the backend has it open. Read with tl_inspect and tl_content_query; ' +
+  'test with tl_play_start, tl_input_exercise, tl_game_observe, tl_screenshot and tl_playtest.';
+
 export interface McpServerInfo {
   readonly name: string;
   readonly version: string;
@@ -38,6 +53,7 @@ export function createMcpServer(ctx: McpContext | McpContextProvider, info?: Mcp
   const serverInfo = info ?? { name: 'thirdlight-mcp', version: '0.1.0' };
   const server = new Server(serverInfo, {
     capabilities: { tools: { listChanged: false } },
+    instructions: MCP_INSTRUCTIONS,
   });
 
   server.setRequestHandler(ListToolsRequestSchema, () => ({

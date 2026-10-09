@@ -11,6 +11,8 @@ import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
+import { pageSections } from '../packages/backend/src/docs';
+
 const ROOT = resolve(fileURLToPath(import.meta.url), '..', '..');
 const MANUAL = join(ROOT, 'docs', 'manual');
 
@@ -27,34 +29,10 @@ function prose(text) {
   return text.replace(/^```[\s\S]*?^```/gm, '').replace(/`[^`\n]*`/g, '');
 }
 
-/** GitHub's heading anchor: lower case, punctuation dropped, spaces to hyphens, repeats numbered. */
-function slugs(text) {
-  const out = new Set();
-  const seen = new Map();
-  for (const m of prose(text).matchAll(/^#{1,6}\s+(.+?)\s*#*\s*$/gm)) {
-    const base = m[1]
-      .replace(/<[^>]+>/g, '')
-      .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
-      .toLowerCase()
-      .replace(/[^\p{L}\p{N}\s_-]/gu, '')
-      .replace(/\s/g, '-');
-    const n = seen.get(base) ?? 0;
-    seen.set(base, n + 1);
-    out.add(n === 0 ? base : `${base}-${n}`);
-  }
-  return out;
-}
-
 const anchorCache = new Map();
+/** A page's anchors as the backend's documentation lookup reads them (tl_docs answers every link this test passes). */
 function anchorsOf(file) {
-  if (!anchorCache.has(file)) {
-    // Headings are read from the full text (a heading may hold inline code); explicit anchors too.
-    const text = readFileSync(file, 'utf8');
-    const ids = [...text.matchAll(/<a id="([^"]+)"><\/a>/g)].map((m) => m[1]);
-    const headingText = text.replace(/^```[\s\S]*?^```/gm, '');
-    const all = new Set([...ids, ...slugs(headingText.replace(/`/g, ''))]);
-    anchorCache.set(file, all);
-  }
+  if (!anchorCache.has(file)) anchorCache.set(file, new Set(pageSections(readFileSync(file, 'utf8')).ids.keys()));
   return anchorCache.get(file);
 }
 
@@ -102,6 +80,6 @@ describe('manual links (docs/manual)', () => {
   });
 
   it('computes heading anchors as GitHub does', () => {
-    expect([...slugs("## Projects in a game's own folder\n## MCP (coding harness)\n## A\n## A")]).toEqual(['projects-in-a-games-own-folder', 'mcp-coding-harness', 'a', 'a-1']);
+    expect([...pageSections("## Projects in a game's own folder\n## MCP (coding harness)\n## A\n## A").ids.keys()]).toEqual(['projects-in-a-games-own-folder', 'mcp-coding-harness', 'a', 'a-1']);
   });
 });

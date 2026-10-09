@@ -4,14 +4,14 @@
  * pick a browser session, start/stop play, bounded input, observations and
  * screenshots.
  * A visual script built entirely over MCP (publishBehavior with a
- * graph, graphEdit), published through the editor's HTTP source route and
- * played with the MCP play tools; the editor shows the same graph (one
- * mutation path).
+ * graph, graphEdit), published with tl_script_publish (the editor's HTTP
+ * source route) and played with the MCP play tools; the editor shows the
+ * same graph (one mutation path). The server's instructions point at
+ * tl_docs, which answers from the manual the build copied to dist/docs.
  * The project organized over MCP (createFolder, moveResources, renameFolder,
  * each one undo): the files move on disk, ids stay, the index and the
  * editor's project window follow.
  */
-import { randomBytes } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
@@ -177,7 +177,7 @@ test('an MCP agent files entities into folders and sets folder flags (the editor
   }
 });
 
-test('an MCP agent builds a visual script with graphEdit, publishes it through the source route and plays it; the editor shows the same graph', async ({ page }) => {
+test('an MCP agent builds a visual script with graphEdit, publishes it with tl_script_publish and plays it; the editor shows the same graph', async ({ page }) => {
   test.setTimeout(180_000);
   await page.goto(be.editorUrl);
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
@@ -187,6 +187,13 @@ test('an MCP agent builds a visual script with graphEdit, publishes it through t
     expect(res.isError, JSON.stringify(res.body)).toBe(false);
     return res.body;
   };
+
+  // The agent learns the engine from the running build: instructions, then the manual dist/docs holds.
+  expect(mcp.getInstructions()).toContain('tl_docs');
+  const engine = (await call('tl_inspect', { target: 'engine' })).body.engine as { manual: { dir: string; pages: number } };
+  expect(engine.manual.dir).toBe(join(REPO, 'dist', 'docs'));
+  const lookup = (await mcp.callTool({ name: 'tl_docs', arguments: { topic: 'tool.tl_script_publish' } })) as { content: Array<{ text: string }> };
+  expect(lookup.content[1]?.text).toContain('graph: true');
 
   // Create the script (On start only), then add "Add to counter" and its exec wire in one graphEdit.
   await ok('publishBehavior', { behaviorId: 'mcp-gifts', displayName: 'MCP gifts', mode: 'declaration-create', declaration: { properties: [] }, graph: { nodes: [{ id: 'start', type: 'event.start', position: [0, 0] }], edges: [] } });
@@ -207,20 +214,16 @@ test('an MCP agent builds a visual script with graphEdit, publishes it through t
   await expect(page.locator('[data-node-id="give"]')).toBeVisible();
   await expect(view.getByLabel('compile status')).toHaveAttribute('data-status', 'ok', { timeout: 20_000 });
 
-  // Publish through the HTTP source route: compile check → trust acknowledgment (over MCP) → publish.
-  const route = async (body: Record<string, unknown>): Promise<Record<string, unknown>> => {
-    const r = await fetch(`${be.origin}/api/v1/projects/${be.projectId}/content/behaviors/source`, {
-      method: 'POST',
-      headers: { authorization: `Bearer ${be.token}`, 'content-type': 'application/json', origin: be.origin },
-      body: JSON.stringify(body),
-    });
-    const json = (await r.json()) as Record<string, unknown>;
-    expect(r.status, JSON.stringify(json)).toBe(200);
-    return json;
-  };
-  const digest = String((await route({ check: true, graph: true, behaviorId: 'mcp-gifts' }))['sourceDigest']);
+  // Publish with tl_script_publish (the editor's source route): compile check → trust acknowledgment → publish.
+  const checked = await call('tl_script_publish', { behaviorId: 'mcp-gifts', graph: true, check: true });
+  expect(checked.isError, JSON.stringify(checked.body)).toBe(false);
+  const digest = String(checked.body.sourceDigest);
+  const untrusted = await call('tl_script_publish', { behaviorId: 'mcp-gifts', graph: true, displayName: 'MCP gifts', expectedRevision: await rev() });
+  expect(untrusted.isError).toBe(true);
+  expect(JSON.stringify(untrusted.body)).toContain('behavior_trust_unacknowledged');
   await ok('acknowledgeBehaviorTrust', { sourceDigest: digest });
-  await route({ graph: true, behaviorId: 'mcp-gifts', displayName: 'MCP gifts', expectedRevision: await rev(), requestId: `req-${randomBytes(16).toString('hex')}` });
+  const published = await call('tl_script_publish', { behaviorId: 'mcp-gifts', graph: true, displayName: 'MCP gifts', expectedRevision: await rev() });
+  expect(published.isError, JSON.stringify(published.body)).toBe(false);
   const listed = (await call('tl_content_query', { target: 'behaviors', behaviorId: 'mcp-gifts', includeDeclaration: true })).body as { behaviors: { source?: { kind?: string; sourceDigest?: string } }[] };
   expect(listed.behaviors[0]?.source).toMatchObject({ kind: 'graph', sourceDigest: digest });
   await expect(view.getByText('published', { exact: true })).toBeVisible({ timeout: 20_000 });

@@ -66,5 +66,8 @@ What the engine offers, generated from its source: the objects, components and c
 | [Limits and defaults: project-model (part 2, from `modes.ts`)](limits-project-model-2.md) | 28 sections |
 | [Limits and defaults: protocol](limits-protocol.md) | `bake.ts`, `bridge.ts`, `content.ts`, `delivery.ts`, `diagnostics-bound.ts`, `errors.ts`, `http.ts`, `job-export.ts`, `m3.ts`, `play-problems.ts`, `ws-events.ts` |
 | [Limits and defaults: runtime](limits-runtime.md) | 25 sections |
+| [MCP tools (part 1, from tl_command)](mcp-tools-1.md) | `tl_command` |
+| [MCP tools (part 2, from tl_command: Animation: animator controllers)](mcp-tools-2.md) | `tl_content_job`, `tl_content_query`, `tl_content_upload` |
+| [MCP tools (part 3, from tl_diagnostics)](mcp-tools-3.md) | 13 sections |
 
-The topic kinds: `component`, `components`, `content`, `ctx`, `entity`, `graph`, `graphs`, `handles`, `limit`, `limits`, `node`, `op`, `ops`, `scene-environment`, `script-type`, `script`, `type`, `ui`.
+The topic kinds: `component`, `components`, `content`, `ctx`, `entity`, `graph`, `graphs`, `handles`, `limit`, `limits`, `node`, `op`, `ops`, `scene-environment`, `script-type`, `script`, `tool`, `type`, `ui`.

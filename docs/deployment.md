@@ -152,11 +152,21 @@ project instead (needed for projects in the data root).
 
 Optional: `THIRDLIGHT_MCP_CLIENT_ID` (recorded as the command origin),
 `THIRDLIGHT_MCP_TIMEOUT_MS`. The tools are listed by the server
-(`tl_inspect`, `tl_command`, `tl_diagnostics`, `tl_sessions`,
-`tl_play_start`/`tl_play_stop`, `tl_input_exercise`, `tl_game_control`,
-`tl_game_observe`, `tl_screenshot`, `tl_content_upload`, `tl_content_job`,
-`tl_content_query`, `tl_instance_buffer`, `tl_playtest`). What the play
-tools do: [Play tools](manual/features/play-tools.md).
+(`tl_docs`, `tl_inspect`, `tl_command`, `tl_script_publish`,
+`tl_diagnostics`, `tl_sessions`, `tl_play_start`/`tl_play_stop`,
+`tl_input_exercise`, `tl_game_control`, `tl_game_observe`, `tl_screenshot`,
+`tl_content_upload`, `tl_content_job`, `tl_content_query`,
+`tl_instance_buffer`, `tl_playtest`). What the play tools do:
+[Play tools](manual/features/play-tools.md).
+
+**The manual over MCP.** The server's instructions send an agent to
+`tl_docs` first; the tool descriptions are short and point into it.
+`tl_docs` answers from the manual the backend read when it started: the copy
+`npm run build` puts in `dist/docs/` (this manual, the generated reference and
+this page), or, when dist/ has none, the checkout's `docs/`. After pulling a
+newer engine, rebuild and restart the service so the manual matches the code
+it runs; `tl_inspect target="engine"` shows `manual.dir` and the build.
+`GET /api/v1/docs?topic=…|query=…&part=n` answers the same with any token.
 
 ### The headless editor
 

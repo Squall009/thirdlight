@@ -18,7 +18,7 @@
  */
 
 import esbuild from 'esbuild';
-import { readdirSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { cpSync, readdirSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import process from 'node:process';
 import { spawnSync } from 'node:child_process';
@@ -302,6 +302,13 @@ if (existsSync(join(root, BACKEND_ENTRY))) {
     minify: false,
   });
   console.log('build: backend (terrain erosion worker): packages/backend/src/erosion-worker.ts -> dist/backend/erosion-worker.mjs');
+  // The manual the backend serves (GET /api/v1/docs, MCP tl_docs), copied beside the bundle so a running
+  // backend answers with the manual of its own build, not of whatever the checkout holds later.
+  const docsOut = join(root, 'dist', 'docs');
+  rmSync(docsOut, { recursive: true, force: true });
+  cpSync(join(root, 'docs', 'manual'), join(docsOut, 'manual'), { recursive: true });
+  cpSync(join(root, 'docs', 'deployment.md'), join(docsOut, 'deployment.md'));
+  console.log('build: manual: docs/manual + docs/deployment.md -> dist/docs');
 } else {
   console.log(`build: backend: entry not present (${BACKEND_ENTRY}) — not built (packet 13)`);
 }

@@ -110,6 +110,21 @@ export class BackendClient {
     return this.request('GET', '/api/v1/engine');
   }
 
+  /** GET the manual of the build the backend runs: a topic (page, section or reference topic), a search, or the contents. */
+  docs(req: { topic?: string; query?: string; part?: number }): Promise<BackendResponse> {
+    const qs = [
+      ...(req.topic !== undefined ? [`topic=${encodeURIComponent(req.topic)}`] : []),
+      ...(req.query !== undefined ? [`query=${encodeURIComponent(req.query)}`] : []),
+      ...(req.part !== undefined ? [`part=${req.part}`] : []),
+    ].join('&');
+    return this.request('GET', `/api/v1/docs${qs.length > 0 ? `?${qs}` : ''}`);
+  }
+
+  /** POST a script source to the route the editor's Publish uses (publish, `check: true`, or `graph: true`). */
+  behaviorSource(projectId: string, body: Record<string, unknown>): Promise<BackendResponse> {
+    return this.request('POST', `/api/v1/projects/${encodeURIComponent(projectId)}/content/behaviors/source`, body);
+  }
+
   /** GET the materials and their graph problems (paged). */
   contentMaterials(projectId: string, q: { limit?: number; offset?: number; materialId?: string; withProblems?: boolean }): Promise<BackendResponse> {
     const qs = new URLSearchParams();

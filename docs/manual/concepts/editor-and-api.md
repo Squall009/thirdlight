@@ -33,7 +33,7 @@ Every op and its arguments are in the reference: [command ops](../reference/ops.
 |---|---|
 | The editor | Every panel, menu and handle. |
 | HTTP | `POST /api/v1/projects/<id>/commands`, with the token. |
-| AI tools | MCP's `tl_command` (and `tl_content_query` to read). |
+| AI tools | MCP's `tl_command` (and `tl_content_query` to read); script code with `tl_script_publish`, the editor's Publish route. |
 | Build scripts | Any of the above. |
 
 The editor sends every op except two that only tools need:
@@ -61,5 +61,13 @@ Both make the same project; mix them freely.
 - **Scripts** change the running game only (spawning, moving, loading
   scenes), never the project files.
 - **Exports** read the project and write a separate folder.
+
+## How an AI tool learns the engine
+
+An agent reads this manual through MCP: `tl_docs` answers its pages, the
+generated reference (every op, component, script call, node and limit) and
+each tool's full text, all from the running build. The server's
+instructions send it to the getting-started page first and to the reference
+before it uses an op. How it works: [Play tools: reading the manual over MCP](../features/play-tools.md#reading-the-manual-over-mcp).
 
 How to connect an AI tool: [Deployment: MCP](../../deployment.md#mcp-coding-harness).
