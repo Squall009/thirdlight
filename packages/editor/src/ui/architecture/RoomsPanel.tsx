@@ -14,9 +14,9 @@
  */
 import { useEffect, useState, type JSX } from 'react';
 import type { ArchitectureBuilding, ArchitectureComponent, ArchitectureOpening, ArchitectureOutline, ArchitectureRoomPlan, BlockEdit, BlockType, FurnishedProp } from '@thirdlight/project-model';
-import { ARCHITECTURE_ROOF_SHAPES } from '@thirdlight/runtime';
+import { ARCHITECTURE_ROOF_SHAPES, architectureOpeningEdges } from '@thirdlight/runtime';
 
-import { allOutlines, DEFAULT_ROOM_OPTIONS, isBuilding, openingEdges, withOutlineSet, type RoomToolMode, type RoomToolOptions } from '../../session/room-draw';
+import { allOutlines, DEFAULT_ROOM_OPTIONS, isBuilding, withOutlineSet, type RoomToolMode, type RoomToolOptions } from '../../session/room-draw';
 import { edgesEdit } from '../../session/block-brush';
 import type { BlockEditor } from '../../viewport/block-editor';
 import { BuildingPlanFields } from './BuildingPlanFields';
@@ -159,7 +159,7 @@ export function RoomsPanel(p: Props): JSX.Element {
     if (room === null || piece === '') return;
     const plan = b.plans.find((x) => x.outline === room.id && x.storey === (o.storey ?? 0));
     const floor = plan?.floor ?? room.path.points[0]?.[1] ?? 0;
-    const edges = openingEdges(room, o, floor, offset, p.cellSize);
+    const edges = architectureOpeningEdges(room.path, o, floor, offset, p.cellSize);
     const edits = edgesEdit(edges, { block: piece }, { min: [...p.bounds.min] as [number, number, number], max: [...p.bounds.max] as [number, number, number] });
     if (edits !== null) void p.edit('Put door piece', edits);
   };

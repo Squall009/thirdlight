@@ -79,7 +79,7 @@ import {
 } from '@thirdlight/project-model';
 
 import { LiveBlocks, edgeKeyOf, type LiveBlockChanges } from './live-blocks';
-import { walkNeighboursQuery, walkPathQuery, walkReachQuery, type GridWalkOptions, type GridWalkPlace, type WalkGraphCache, type WalkLayer } from './grid-walk';
+import { walkNeighboursQuery, walkPathQuery, walkReachQuery, type GridWalkOptions, type GridWalkPathOutcome, type GridWalkPlace, type WalkGraphCache, type WalkLayer } from './grid-walk';
 import type { PhysicsPort3D, StaticColliderSpec3D } from './ports';
 import { TerrainColliders, type TerrainLayerData, type TerrainTileData } from './terrain-collision';
 import { RuntimeSurface, type SurfaceLayerView } from './surface';
@@ -141,7 +141,6 @@ export interface GridCellInput {
   meta?: Record<string, number | string | boolean>;
 }
 
-/** An edge piece as scripts read it (`ctx.grid.edge`): a wall, door or fence on a cell's side. */
 /** One side of a linked door (world metres; `facing`: degrees about +Y turning +Z toward the way out of the door on that side). */
 export interface GridDoorSide {
   readonly position: readonly [number, number, number];
@@ -163,6 +162,7 @@ export interface GridDoorLink extends GridDoorSide {
   readonly to: GridDoorSide & { readonly scene: string };
 }
 
+/** An edge piece as scripts read it (`ctx.grid.edge`): a wall, door or fence on a cell's side. */
 export interface GridEdge {
   readonly block: string;
   /** 0, or 180: it faces the other way (a connected piece: the way its ends resolve). */
@@ -348,13 +348,19 @@ export interface BehaviorGrid {
    */
   walkNeighbours(layer: string, cell: readonly number[], options?: GridWalkOptions): readonly GridWalkPlace[];
   /**
-   * The cheapest walk between the places two cells name ([x, y, z] each), start and end included, each with the cost so far; null when there is none (or the search passes 65,536 places).
+   * The cheapest walk between the places two cells name ([x, y, z] each), start and end included, each with the cost so far; null when there is none (or the search passes 65,536 places: `pathOutcome` tells which).
    * @graphPure
    * @graphNode Walk path
    * @graphType from list
    * @graphType to list
    */
   path(layer: string, from: readonly number[], to: readonly number[], options?: GridWalkOptions): readonly GridWalkPlace[] | null;
+  /**
+   * Why the last `path` call answered as it did: "found"; "none" (no walk joins the two places); "limit" (the search passed 65,536 places first: a path may still exist, e.g. ask for a nearer cell); "invalid" (a layer, cell or option that does not fit, or no place at a cell). Null before the first call.
+   * @graphPure
+   * @graphNode Walk path outcome
+   */
+  pathOutcome(): GridWalkPathOutcome | null;
   /**
    * The places reachable from the place a cell names within a cost (metres, times any cost field), cheapest first, the start included (at most 65,536).
    * @graphPure
@@ -628,6 +634,8 @@ export class RuntimeGrid {
   private readonly live: LiveBlocks | null;
   /** Walk graphs kept between queries, per grid as shown (a new grid or kit view starts afresh; `walkGraphFor`). */
   private readonly walkGraphs: WalkGraphCache = new WeakMap();
+  /** The last walk path query's outcome (`pathOutcome`): a null path alone does not say whether the search gave up. */
+  private lastPathOutcome: GridWalkPathOutcome | null = null;
 
   /** `streamSources` gives world streaming's sources at a step boundary (absent: streamed objects stream around nothing). */
   constructor(types: readonly BlockType[], fields: readonly CellField[], collide: boolean, defaultMaxSlope = 45, materialIds?: readonly string[], prefabs?: ReadonlyMap<string, PrefabDefinition>, modelColliders?: ModelColliderTable, streamSources?: () => number[][], architectureStyles?: readonly ArchitectureGraphLike[], sceneOf?: (entityId: string) => string | undefined) {
@@ -1617,7 +1625,12 @@ export class RuntimeGrid {
       },
       path(layer, from, to, options) {
         const l = layerOf(layer);
-        return l === undefined || l.component.metadataOnly === true ? null : walkPathQuery(g.walkLayer(l), g.types, g.fieldByKey, g.defaultMaxSlope, from, to, options);
+        const answer = l === undefined || l.component.metadataOnly === true ? null : walkPathQuery(g.walkLayer(l), g.types, g.fieldByKey, g.defaultMaxSlope, from, to, options);
+        g.lastPathOutcome = answer?.outcome ?? 'invalid';
+        return answer?.path ?? null;
+      },
+      pathOutcome() {
+        return g.lastPathOutcome;
       },
       reachable(layer, from, maxCost, options) {
         const l = layerOf(layer);

@@ -27,6 +27,7 @@
  */
 import type { ModelErrorV2 } from './errors';
 import type { CellMetaValue } from './block-layers';
+import { TERRAIN_LAYER_MAX } from './terrain-sizes';
 
 /** A condition's range: 1 within [min, max] (an absent end is open), fading to 0 over `fade` beyond each end. */
 export interface RuleRange {
@@ -59,8 +60,6 @@ export interface SurfaceRule {
   meta?: Record<string, CellMetaValue>;
 }
 
-/** The layers a rule may name (one byte per layer index, as terrain tiles store them). */
-export const SURFACE_RULE_LAYER_MAX = 255;
 /** The layers a block layer's paint carries (its vertex colours' four weights). */
 export const SURFACE_RULE_BLOCK_LAYERS = 4;
 /** Metres a cavity is measured over when a rule names none. */
@@ -141,7 +140,7 @@ export function validateSurfaceRules(value: unknown, path: string, errors: Model
     err(errors, 'field_type', path, 'rules are a list of {layer, strength?, face?, height?, slope?, cavity?, noise?, weight?, blocks?, meta?}', value);
     return;
   }
-  const layerMax = blocks ? SURFACE_RULE_BLOCK_LAYERS - 1 : SURFACE_RULE_LAYER_MAX;
+  const layerMax = blocks ? SURFACE_RULE_BLOCK_LAYERS - 1 : TERRAIN_LAYER_MAX;
   value.forEach((r, i) => {
     const p = `${path}/${i}`;
     if (!isObj(r)) return err(errors, 'field_type', p, 'a rule is an object {layer, …conditions}', r);
@@ -291,9 +290,9 @@ export class SurfaceRuleSet {
   /** The farthest a rule's cavity reaches (metres; 0: none). */
   readonly reach: number;
   private readonly blockSets: (Set<string> | null)[];
-  private readonly w = new Float64Array(SURFACE_RULE_LAYER_MAX + 1);
+  private readonly w = new Float64Array(TERRAIN_LAYER_MAX + 1);
   /** The layers holding weight at the current point (the first `activeCount`). */
-  private readonly active = new Int32Array(SURFACE_RULE_LAYER_MAX + 1);
+  private readonly active = new Int32Array(TERRAIN_LAYER_MAX + 1);
   private activeCount = 0;
   /** The cavities measured at the current point, by radius (the first `cavityCount`; rules name a few radii). */
   private readonly cavityRadii = new Float64Array(8);

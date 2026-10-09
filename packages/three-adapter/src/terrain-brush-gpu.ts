@@ -38,6 +38,7 @@ import { NodeMaterial, QuadMesh, type WebGPURenderer } from 'three/webgpu';
 import { TERRAIN_NOISE_HASH, type BrushFalloff } from '@thirdlight/runtime';
 
 import type { N } from './effects-tsl';
+import { stepOf } from './terrain-material';
 
 /** TSL untyped: three's typings lag the node API used here. */
 const TSL: N = TSLTyped;
@@ -378,7 +379,6 @@ export class TerrainBrushGpu {
     const layer = int(u.layer);
     const { lx, lz } = this.sampleXZ();
     const byte = (x: N): N => floor(x.mul(255).add(0.5)).div(255);
-    const stepOf = (tx: N): N => floor(tx.r.mul(255).add(0.5)).mul(256).add(floor(tx.g.mul(255).add(0.5)));
     const falloff = (d2: N): N => {
       const r2 = u.radius.mul(u.radius);
       const k = float(1).sub(d2.div(r2));

@@ -34,7 +34,9 @@ import type {
 
 // ---- constants -------------------------------------------------
 
-export const ID_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/;
+/** The longest id the id syntax allows. */
+export const ID_MAX_LENGTH = 64;
+export const ID_RE = new RegExp(`^[a-z0-9][a-z0-9_-]{0,${ID_MAX_LENGTH - 1}}$`);
 const SEMVER_RE = /^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/;
 const TIMESTAMP_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/;
 const M1_SCENE_PATH = 'scenes/main.json';

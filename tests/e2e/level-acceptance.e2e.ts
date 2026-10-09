@@ -128,6 +128,8 @@ const FOG = { density: 0.0025, color: '#ffb070', height: 0, falloff: 0.03, start
 /** The far ground the fog hides (2 km ahead), and how far ahead the near reads and scatter counts stop (short of the fog's start). */
 const FAR_GROUND: [number, number] = [0, -1970];
 const NEAR_LIMIT = 110;
+/** The block area's south edge, a little past it: the plain terrain between it and the camera lies on this side. */
+const TERRAIN_COVER_FROM_Z = AREA_AT[2] + 24 + 0.5;
 const RESTYLE_KEY = 'KeyR';
 const ENTER_KEY = 'KeyB';
 
@@ -386,11 +388,15 @@ function judgeLevel(img: Image, b: Built): Judged {
     // Scatter: pixels of each rule's colour (every second one) over the near ground.
     terrainPosts: countNear(img, isChartreuse),
     blockBushes: countNear(img, isTeal),
-    terrainCover: countNear(img, isWhite),
+    // The terrain's white tufts counted only on the ground between the camera and the block area: nothing else white stands there
+    // (the rampart's white corner, farther in, projects above that ground's far line).
+    terrainCover: countNear(img, isWhite, TERRAIN_COVER_FROM_Z),
     blockCover: countNear(img, isLavender),
     ...judgeArchitecture(img, isSheetA, near),
   };
-  const min = (k: string): number => (/Posts|Bushes|Cover/.test(k) ? 20 * s * s : k === 'liveDoor' || k === 'rampartCorner' || k.startsWith('arch') ? 0.3 : 0.5);
+  // The tufts: lit ground passes the white test in a few dozen pixels with no tuft at all (23–35 measured with the tufts
+  // dark), the tufts in thousands; the bound sits between.
+  const min = (k: string): number => (k === 'terrainCover' ? 400 * s * s : /Posts|Bushes|Cover/.test(k) ? 20 * s * s : k === 'liveDoor' || k === 'rampartCorner' || k.startsWith('arch') ? 0.3 : 0.5);
   return { reads, ok: Object.entries(reads).every(([k, v]) => v >= min(k)), note: note() };
 }
 
@@ -406,9 +412,9 @@ function judgeArchitecture(img: Image, sheet: Pred, near = reader(img, CAMERA).n
   };
 }
 
-/** Pixels passing `test` (every second one) below the ground's line NEAR_LIMIT metres ahead: fogged ground beyond it may pass a colour test. */
-function countNear(img: Image, test: Pred): number {
-  const v = projectWith(CAMERA, img.width / img.height, [0, BASE, CAM_POS[2] - NEAR_LIMIT])![1];
+/** Pixels passing `test` (every second one) below the ground's line at world z `fromZ` (default NEAR_LIMIT metres ahead: fogged ground beyond it may pass a colour test). */
+function countNear(img: Image, test: Pred, fromZ = CAM_POS[2] - NEAR_LIMIT): number {
+  const v = projectWith(CAMERA, img.width / img.height, [0, BASE, fromZ])![1];
   let n = 0;
   for (let y = Math.ceil(v * img.height); y < img.height; y += 2) for (let x = 0; x < img.width; x += 2) if (test(...img.pixel(x, y))) n += 1;
   return n;
@@ -446,7 +452,8 @@ const restyled = (img: Image): Judged => {
 const inside = (img: Image): Judged => {
   const a = frameShareNear(img, INTERIOR_CAMERA, INTERIOR_WALL, isSheetA, 16);
   const b = frameShareNear(img, INTERIOR_CAMERA, INTERIOR_WALL, isSheetB, 16);
-  return { reads: { interiorSheetA: a, interiorSheetB: b }, ok: Math.max(a, b) > 0.5 };
+  // Entered after the swap: the interior's walls wear the swapped preset's sheet B, not A.
+  return { reads: { interiorSheetA: a, interiorSheetB: b }, ok: b > 0.5 && a < b };
 };
 
 /** The page's generated-architecture marks: chunks made (how many, where, the slowest's ms) and the first object drawn (ms from its parameters). */

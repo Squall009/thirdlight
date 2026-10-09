@@ -80,6 +80,13 @@ export const INSTANCE_DENSITY_SIZE_MIN = 0.0001;
 
 /** The largest instance-set chunk size (m). */
 export const MAX_INSTANCE_CHUNK_SIZE = 4096;
+/**
+ * The engine default chunk size (m) of an instance set (the project's
+ * `instance_chunk_m`, overridable per set). 32 m: a few seconds' walk for
+ * the default 1.8 m character and small next to a typical view distance, so
+ * a chunk out of view is culled.
+ */
+export const INSTANCE_CHUNK_METERS = 32;
 
 /** A model's LOD group settings (its import settings). */
 export interface ModelLodSettings {

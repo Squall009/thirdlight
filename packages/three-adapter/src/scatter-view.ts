@@ -29,7 +29,7 @@
  */
 import * as THREE from 'three';
 
-import { SCATTER_BLOB_DISTANCE, SCATTER_CHUNK_METERS_DEFAULT, SCATTER_COPY_FLOATS, decodeChunkScatter, instanceDensityOf, resolveStreamingRings, scatterCellBytes, scatterCellOfBlob, squareDistance, storedScatterRules, type BlockChunk, type BlockLayerComponent, type BlockType, type ScatterCell, type ScatterCopyChange, type ScatterRule, type StreamingRings, type StreamRing, type TerrainComponent } from '@thirdlight/runtime';
+import { SCATTER_BLOB_DISTANCE, SCATTER_CHUNK_METERS_DEFAULT, INSTANCE_FLOATS, decodeChunkScatter, instanceDensityOf, resolveStreamingRings, scatterCellBytes, scatterCellOfBlob, squareDistance, storedScatterRules, type BlockChunk, type BlockLayerComponent, type BlockType, type ScatterCell, type ScatterCopyChange, type ScatterRule, type StreamingRings, type StreamRing, type TerrainComponent } from '@thirdlight/runtime';
 
 import type { MeshWorkerPort } from './block-mesh-pool';
 import { COVER_FADE_START } from './cover-view';
@@ -42,6 +42,7 @@ import type { LodTuning } from './lod-switch';
 import { STATIC_CASTER_KEY } from './shadow-casters';
 import type { ModelInstance } from './visual';
 import { askingRing, eyeMoved, recheckMetres, type PageWorldStream, type StreamCell } from './world-stream';
+import { perfMark } from './perf-marks';
 
 /** The width (m) of the squares a rule's copies are drawn together in: a few draws for a landscape, a bounded rebuild per edit. */
 export const SCATTER_GROUP_METRES = 2048;
@@ -395,7 +396,7 @@ export class ScatterView {
         if (index < 0) continue;
         const t = Array.from(original);
         if (gone) t[7] = t[8] = t[9] = 0;
-        else if (set.blob && rule?.blobShadow !== undefined) t.splice(0, SCATTER_COPY_FLOATS, ...blobCopies(original, 1, rule.blobShadow));
+        else if (set.blob && rule?.blobShadow !== undefined) t.splice(0, INSTANCE_FLOATS, ...blobCopies(original, 1, rule.blobShadow));
         let w = writes.get(set);
         if (w === undefined) writes.set(set, (w = []));
         w.push({ index, transform: t });
@@ -406,8 +407,8 @@ export class ScatterView {
         const set = g.sets.find((s) => s.rule === c.rule && !s.blob);
         const index = set === undefined ? -1 : indexOfAddress(set.addrs, c.cell[0], c.cell[1]);
         if (index < 0) continue;
-        n.floats.set(original, index * SCATTER_COPY_FLOATS);
-        if (gone) n.floats[index * SCATTER_COPY_FLOATS + 7] = n.floats[index * SCATTER_COPY_FLOATS + 8] = n.floats[index * SCATTER_COPY_FLOATS + 9] = 0;
+        n.floats.set(original, index * INSTANCE_FLOATS);
+        if (gone) n.floats[index * INSTANCE_FLOATS + 7] = n.floats[index * INSTANCE_FLOATS + 8] = n.floats[index * INSTANCE_FLOATS + 9] = 0;
         this.dropNear(n);
       }
     }
@@ -785,7 +786,7 @@ export class ScatterView {
     const cells = [...src.cells.values()].filter((c) => c.group === g.key && c.cell !== null);
     let n = 0;
     for (const c of cells) n += (c.cell!.get(rule.id)?.cells.length ?? 0) / 2;
-    const floats = new Float32Array(n * SCATTER_COPY_FLOATS);
+    const floats = new Float32Array(n * INSTANCE_FLOATS);
     const addrs = new Int32Array(n * 2);
     let k = 0;
     for (const c of cells) {
@@ -796,8 +797,8 @@ export class ScatterView {
         const iz = copies.cells[i * 2 + 1]!;
         const state = states?.get(ix)?.get(iz);
         if (state === 'removed') continue;
-        floats.set(copies.copies.subarray(i * SCATTER_COPY_FLOATS, (i + 1) * SCATTER_COPY_FLOATS), k * SCATTER_COPY_FLOATS);
-        if (state === 'hidden') floats[k * SCATTER_COPY_FLOATS + 7] = floats[k * SCATTER_COPY_FLOATS + 8] = floats[k * SCATTER_COPY_FLOATS + 9] = 0;
+        floats.set(copies.copies.subarray(i * INSTANCE_FLOATS, (i + 1) * INSTANCE_FLOATS), k * INSTANCE_FLOATS);
+        if (state === 'hidden') floats[k * INSTANCE_FLOATS + 7] = floats[k * INSTANCE_FLOATS + 8] = floats[k * INSTANCE_FLOATS + 9] = 0;
         addrs[k * 2] = ix;
         addrs[k * 2 + 1] = iz;
         k += 1;
@@ -814,7 +815,7 @@ export class ScatterView {
       this.ready.push({ src, g, rule: rule.id, gen });
       return;
     }
-    const used = floats.subarray(0, k * SCATTER_COPY_FLOATS);
+    const used = floats.subarray(0, k * INSTANCE_FLOATS);
     const blobs = rule.blobShadow !== undefined ? blobCopies(used, k, rule.blobShadow) : null;
     this.send(src, g, rule.id, gen, 'main', template, used.slice(), k, this.options(rule, false, impostor));
     if (blobs !== null) this.send(src, g, rule.id, gen, 'blob', blobShadowTemplate(), blobs, k, this.options(rule, true));
@@ -946,7 +947,7 @@ export class ScatterView {
     m.frameMs = Math.max(m.frameMs, spent + swapMs);
     // What a set cost (the page's share over its frames, and the worker's), for measurements.
     const prepareMs = b.main?.ok === true ? b.main.ms : 0;
-    globalThis.performance?.mark?.('tl:scatter:made', { detail: { ms: Math.round(m.ms * 100) / 100, frameMs: Math.round(m.frameMs * 100) / 100, frames: m.frames, swapMs: Math.round(swapMs * 100) / 100, prepareMs: Math.round(prepareMs * 100) / 100, copies: b.count } });
+    perfMark('tl:scatter:made', { ms: Math.round(m.ms * 100) / 100, frameMs: Math.round(m.frameMs * 100) / 100, frames: m.frames, swapMs: Math.round(swapMs * 100) / 100, prepareMs: Math.round(prepareMs * 100) / 100, copies: b.count });
     return casts;
   }
 
@@ -1006,7 +1007,7 @@ export class ScatterView {
     const copies = c.cell?.get(rule);
     if (copies === undefined) return null;
     const i = indexOfAddress(copies.cells, ix, iz);
-    return i < 0 ? null : copies.copies.subarray(i * SCATTER_COPY_FLOATS, (i + 1) * SCATTER_COPY_FLOATS);
+    return i < 0 ? null : copies.copies.subarray(i * INSTANCE_FLOATS, (i + 1) * INSTANCE_FLOATS);
   }
 
   private show(g: Group, on: boolean): void {

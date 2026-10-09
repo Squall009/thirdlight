@@ -17,6 +17,7 @@
  * Pure.
  */
 import type { ModelErrorV2 } from './errors';
+import { TERRAIN_LAYER_MAX } from './terrain-sizes';
 import { ID_RE } from './validate';
 
 /** The bounds of one spline's values (per request: the 64 KiB command bounds a spline's points first). */
@@ -156,8 +157,6 @@ const SCATTER_FIELDS = ['margin', 'rules'];
 const MESH_FIELDS = ['kind', 'profile', 'offset', 'tiling', 'step', 'collision', 'castShadow', 'receiveShadow', 'flow', 'foam'];
 const PIECE_FIELDS = ['asset', 'spacing', 'start', 'offset', 'yaw', 'upright', 'collide', 'castShadow'];
 const DIGEST_RE = /^[0-9a-f]{64}$/;
-/** A material layer index (the terrain's one byte). */
-const LAYER_MAX = 255;
 const RULE_ID_RE = /^[A-Za-z0-9_-]{1,32}$/;
 
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -217,7 +216,7 @@ export function validateSplineComponent(value: unknown, path: string, errors: Mo
         if (!isObj(paint)) err(errors, 'field_type', pp, 'paint is {layer, strength?, width?, falloff?}', paint);
         else {
           only(paint, PAINT_FIELDS, pp, errors, 'paint');
-          if (!(Number.isInteger(paint['layer']) && (paint['layer'] as number) >= 0 && (paint['layer'] as number) <= LAYER_MAX)) err(errors, 'field_value', `${pp}/layer`, `layer is the material layer painted, 0-${LAYER_MAX}`, paint['layer']);
+          if (!(Number.isInteger(paint['layer']) && (paint['layer'] as number) >= 0 && (paint['layer'] as number) <= TERRAIN_LAYER_MAX)) err(errors, 'field_value', `${pp}/layer`, `layer is the material layer painted, 0-${TERRAIN_LAYER_MAX}`, paint['layer']);
           metres(paint, 'strength', pp, errors, 0.01, 1, '0.01-1');
           metres(paint, 'width', pp, errors, 0, L.widthMax, `0-${L.widthMax} metres`);
           metres(paint, 'falloff', pp, errors, 0, L.distanceMax, `0-${L.distanceMax} metres`);

@@ -57,4 +57,16 @@ describe('play checks', () => {
     const walk = withRegions(scene('a', [shot('c1'), layer({ walk: { from: 'spawn' } })]), ['roof']);
     expect(playChecks(content, [walk], ['a']).map((c) => c.message)).toEqual([expect.stringMatching(/names a region it does not have: "spawn".*walk check/)]);
   });
+
+  it("a cut-away may name the rooms drawn on its layer: outlines', buildings' storeys and a planned building's rooms", () => {
+    const rect = { points: [[0, 0, 0], [4, 0, 0], [4, 0, 4], [0, 0, 4]], closed: true };
+    const rooms = {
+      id: 'rooms',
+      components: { transform: T, architecture: { layer: 'ground', elements: [], outlines: [{ id: 'hall', preset: 'p', path: rect }], buildings: [{ id: 'shed', preset: 'p', path: rect, storeys: 2 }, { id: 'house', preset: 'p', path: rect, program: 'homes' }] } },
+    };
+    const layer = (regions: string[]) => ({ id: 'ground', components: { transform: T, blockLayer: { cellSize: [1, 1, 1], bounds: { min: [0, 0, 0], max: [8, 8, 8] }, cutaway: { regions: regions.map((region) => ({ region })) } } } });
+    expect(playChecks({}, [scene('a', [shot('c1'), rooms, layer(['hall', 'shed', 'shed-s1', 'house-r3', 'house-r2-s1'])])], ['a'])).toEqual([]);
+    const off = playChecks({}, [scene('a', [shot('c1'), rooms, layer(['shed-s2', 'house-x', 'barn'])])], ['a']);
+    expect(off.map((c) => c.message)).toEqual([expect.stringMatching(/"shed-s2", "house-x", "barn"/)]);
+  });
 });

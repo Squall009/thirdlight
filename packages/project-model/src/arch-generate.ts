@@ -49,14 +49,13 @@ import {
   architectureMaterialSlots,
 } from './architecture';
 import { canonicalJsonText, sha256HexOfText } from './sha256';
+import { INSTANCE_FLOATS } from './types-v3';
 import { defaultTrimSheet, type TrimRow, type TrimSheet, trimRowOf } from './trim-sheet';
 
 /** Bumped whenever the generator's output for the same parameters changes: part of every cache key. */
 export const ARCHITECTURE_GENERATOR_VERSION = 2;
 /** The most metres between a sweep's cross-sections (its vertex density for AO and paint). */
 export const ARCHITECTURE_SWEEP_CELL = 1;
-/** Floats per kit copy: position, rotation quaternion, scale (an instance set's layout). */
-export const ARCHITECTURE_COPY_FLOATS = 10;
 
 /** The trim sheets per material slot (`*`: any slot without its own). */
 export type ArchitectureSheets = Record<string, TrimSheet>;
@@ -1039,7 +1038,7 @@ export function architectureColliders(c: ArchitectureComponent, sheets: Architec
     for (const set of copies.finish()) {
       if (!set.collide) continue;
       set.ids.forEach((id, i) => {
-        const f = set.transforms.subarray(i * ARCHITECTURE_COPY_FLOATS, (i + 1) * ARCHITECTURE_COPY_FLOATS);
+        const f = set.transforms.subarray(i * INSTANCE_FLOATS, (i + 1) * INSTANCE_FLOATS);
         out.push({ id, kind: 'model', model: set.model, position: [f[0]!, f[1]!, f[2]!], rotation: [f[3]!, f[4]!, f[5]!, f[6]!], scale: [f[7]!, f[8]!, f[9]!] });
       });
     }

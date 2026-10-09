@@ -26,6 +26,7 @@
  */
 import { BINARY_HEADER_BYTES, hasBinaryMagic, readBinaryBlob, wrapBinaryBlob, type BinaryCompression } from './binary-container';
 import { TERRAIN_TILE_SAMPLES } from './terrain';
+import { TERRAIN_LAYER_MAX } from './terrain-sizes';
 
 /** The first bytes of a tile blob ("TLTR"). */
 export const TERRAIN_TILE_MAGIC = Object.freeze([0x54, 0x4c, 0x54, 0x52]);
@@ -37,8 +38,7 @@ export const TERRAIN_WEIGHT_BYTES = 8;
 export const TERRAIN_PAINT_BYTES = 9;
 /** The layers one sample blends (the strongest four). */
 export const TERRAIN_SAMPLE_LAYERS = 4;
-/** The most material layers a terrain can index (one byte per index). */
-export const TERRAIN_LAYER_MAX = 255;
+export { TERRAIN_LAYER_MAX };
 
 const FLAG_WEIGHTS = 1;
 const FLAG_HOLES = 2;
@@ -65,6 +65,12 @@ export function cloneTerrainTile(t: TerrainTile): TerrainTile {
 
 /** Bytes of the hole bitmask of a tile. */
 export const terrainHoleBytes = (samples: number): number => Math.ceil(((samples - 1) * (samples - 1)) / 8);
+
+/** A tile payload's length from its size and the maps it carries (its flags): the encoder writes it, the decoder and the blob's header are held to it. */
+function tilePayloadBytes(s: number, flags: number): number {
+  const n = s * s;
+  return PAYLOAD_HEAD + n * 2 + (flags & FLAG_WEIGHTS ? n * TERRAIN_WEIGHT_BYTES : 0) + (flags & FLAG_HOLES ? terrainHoleBytes(s) : 0) + (flags & FLAG_PAINT ? n * TERRAIN_PAINT_BYTES : 0);
+}
 
 /** What a decoded tile holds in memory (bytes). */
 export function terrainTileBytes(t: Pick<TerrainTile, 'samples' | 'weights' | 'holes' | 'paint'>): number {
@@ -174,7 +180,7 @@ export function encodeTerrainTile(t: TerrainTile): { payload: Uint8Array; flags:
   const holes = t.holes !== null && !isWhole(t.holes) ? t.holes : null;
   const paint = t.paint !== null && !isUnpainted(t.paint) ? t.paint : null;
   const flags = (weights !== null ? FLAG_WEIGHTS : 0) | (holes !== null ? FLAG_HOLES : 0) | (paint !== null ? FLAG_PAINT : 0);
-  const size = PAYLOAD_HEAD + n * 2 + (weights !== null ? n * TERRAIN_WEIGHT_BYTES : 0) + (holes !== null ? terrainHoleBytes(s) : 0) + (paint !== null ? n * TERRAIN_PAINT_BYTES : 0);
+  const size = tilePayloadBytes(s, flags);
   const out = new Uint8Array(size);
   out[0] = TERRAIN_TILE_LAYOUT;
   out[1] = Math.log2(s - 1);
@@ -211,7 +217,7 @@ export function decodeTerrainTile(payload: Uint8Array): TerrainTile {
   const flags = payload[2]!;
   if ((flags & ~(FLAG_WEIGHTS | FLAG_HOLES | FLAG_PAINT)) !== 0) throw new Error(`terrain tile binary: unknown maps ${flags}`);
   const n = s * s;
-  const size = PAYLOAD_HEAD + n * 2 + (flags & FLAG_WEIGHTS ? n * TERRAIN_WEIGHT_BYTES : 0) + (flags & FLAG_HOLES ? terrainHoleBytes(s) : 0) + (flags & FLAG_PAINT ? n * TERRAIN_PAINT_BYTES : 0);
+  const size = tilePayloadBytes(s, flags);
   if (payload.length !== size) throw new Error(`terrain tile binary: ${payload.length} bytes, the maps it names take ${size}`);
   let o = PAYLOAD_HEAD;
   const heights = new Uint16Array(n);
@@ -242,6 +248,10 @@ export function readTerrainTileBlob(blob: Uint8Array): { compression: BinaryComp
   const r = readBinaryBlob(blob, TERRAIN_TILE_MAGIC, 'terrain tile');
   const samples = 2 ** r.extra[0] + 1;
   if (!TERRAIN_TILE_SAMPLES.includes(samples)) throw new Error(`terrain tile binary: ${samples} samples is not a tile size`);
+  // The stated length is what a reader allocates before inflating: held to the size the header's tile size and maps take.
+  if ((r.extra[1] & ~(FLAG_WEIGHTS | FLAG_HOLES | FLAG_PAINT)) !== 0) throw new Error(`terrain tile binary: unknown maps ${r.extra[1]}`);
+  const size = tilePayloadBytes(samples, r.extra[1]);
+  if (r.rawLength !== size) throw new Error(`terrain tile binary: its header states ${r.rawLength} bytes, a tile of ${samples} samples with its maps takes ${size}`);
   return { compression: r.compression, rawLength: r.rawLength, samples, flags: r.extra[1], stored: r.stored };
 }
 

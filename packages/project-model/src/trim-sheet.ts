@@ -40,6 +40,7 @@
  * Pure data rules, no I/O: the editor, the backend's padding check, the
  * renderer and the generator share them (`@thirdlight/project-model/trim-sheet`).
  */
+import { MAX_TEXTURE_EDGE } from './content-limits';
 import { ID_RE } from './validate';
 
 /** A row's place on the sheet: pixel rows `top` (inclusive) to `bottom` (exclusive), counted from the image's top. */
@@ -65,8 +66,12 @@ export interface TrimSheet {
   rows: TrimRow[];
 }
 
-/** The largest sheet side (pixels): the textures' own limit on the GPUs the engine targets. */
-export const TRIM_SHEET_SIZE_MAX = 16384;
+/**
+ * The largest sheet side (pixels): a sheet's textures are textures, so their
+ * import limit is the sheet's (a larger table would validate and then name
+ * pixels no texture of it can have).
+ */
+export const TRIM_SHEET_SIZE_MAX = MAX_TEXTURE_EDGE;
 /** Texel density bounds (pixels per metre). */
 export const TRIM_DENSITY_MIN = 1;
 export const TRIM_DENSITY_MAX = 65536;

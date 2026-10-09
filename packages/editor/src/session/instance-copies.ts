@@ -10,7 +10,7 @@
  * undo just points back to it).
  */
 
-export const INSTANCE_FLOATS = 10;
+import { INSTANCE_FLOATS } from '@thirdlight/runtime';
 
 export interface CopyTransform {
   position: [number, number, number];

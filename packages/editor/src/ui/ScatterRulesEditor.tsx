@@ -16,7 +16,7 @@
  * Browser-only (React).
  */
 import { useEffect, useState, type JSX } from 'react';
-import { FOLIAGE_NEAR_METRES, SCATTER_COVER_DISTANCE_DEFAULT, SCATTER_LIMITS, SURFACE_RULE_BLOCK_LAYERS, SURFACE_RULE_LAYER_MAX, type RuleRange, type ScatterRule } from '@thirdlight/runtime';
+import { FOLIAGE_NEAR_METRES, SCATTER_COVER_DISTANCE_DEFAULT, SCATTER_LIMITS, SURFACE_RULE_BLOCK_LAYERS, TERRAIN_LAYER_MAX, type RuleRange, type ScatterRule } from '@thirdlight/runtime';
 
 import { RefPicker } from './catalog/RefPicker';
 import { ConditionField, SHARED_CONDITIONS, num } from './SurfaceRulesEditor';
@@ -42,7 +42,7 @@ export function ScatterRulesEditor(p: Props): JSX.Element {
   const [draft, setDraft] = useState<ScatterRule[]>(() => structuredClone([...p.rules]));
   const [busy, setBusy] = useState(false);
   useEffect(() => setDraft(structuredClone(JSON.parse(stored) as ScatterRule[])), [stored]);
-  const layerMax = p.blocks ? SURFACE_RULE_BLOCK_LAYERS - 1 : SURFACE_RULE_LAYER_MAX;
+  const layerMax = p.blocks ? SURFACE_RULE_BLOCK_LAYERS - 1 : TERRAIN_LAYER_MAX;
   const changed = JSON.stringify(draft) !== stored;
   const ready = draft.every((r) => r.asset.assetId !== '');
   const update = (i: number, patch: (r: ScatterRule) => ScatterRule): void => setDraft((d) => d.map((r, k) => (k === i ? patch(structuredClone(r)) : r)));

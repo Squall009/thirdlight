@@ -5,20 +5,21 @@
  */
 import * as THREE from 'three';
 import { describe, expect, it, vi } from 'vitest';
+import { INSTANCE_FLOATS } from '@thirdlight/runtime';
 
 import { INSTANCE_MATRIX_ATTRIBUTE, withEmptyInstanceDraws, type AttributeInstancedMesh } from './attribute-instancing';
 import { ChunkLodPicker, REPICK_MOVE_FRACTION, TAN_HALF_REFERENCE } from './instance-lod';
 import { hemiOctDecode, hemiOctEncode } from './impostor';
 import { LOD_CULL_LEVEL_KEY, LodTuning } from './lod-switch';
 import { CullView, STATIC_SHADOW_CAMERA_KEY, VIEW_CULL_KEY, ViewCuller } from './view-cull';
-import { beginInstanceSet, buildInstanceSet, chunkCopies, instanceSetPlan, INSTANCE_BUFFER_FLOATS, INSTANCE_CHUNK_COPIES, INSTANCE_MAX_CHUNKS, INSTANCE_MAX_SPATIAL_CHUNKS } from './instancing';
+import { beginInstanceSet, buildInstanceSet, chunkCopies, instanceSetPlan, INSTANCE_CHUNK_COPIES, INSTANCE_MAX_CHUNKS, INSTANCE_MAX_SPATIAL_CHUNKS } from './instancing';
 import { prepareInstanceSet } from './instance-prepare';
 import type { ModelInstance } from './visual';
 
 function copies(n: number, spread: number): Float32Array {
-  const f = new Float32Array(n * INSTANCE_BUFFER_FLOATS);
+  const f = new Float32Array(n * INSTANCE_FLOATS);
   for (let i = 0; i < n; i += 1) {
-    const o = i * INSTANCE_BUFFER_FLOATS;
+    const o = i * INSTANCE_FLOATS;
     f[o] = (i % 100) * spread;
     f[o + 1] = 0;
     f[o + 2] = Math.floor(i / 100) * spread;
@@ -479,11 +480,11 @@ describe('instance set arithmetic (the worker\'s and the page\'s)', () => {
     mesh.quaternion.setFromEuler(new THREE.Euler(0.2, 0.7, -0.1));
     root.add(mesh);
     const n = 300;
-    const f = new Float32Array(n * INSTANCE_BUFFER_FLOATS);
+    const f = new Float32Array(n * INSTANCE_FLOATS);
     for (let i = 0; i < n; i += 1) {
       const q = new THREE.Quaternion().setFromEuler(new THREE.Euler(i * 0.01, i * 0.37, 0));
       // Not quite unit: the build normalizes as three does.
-      f.set([i * 3.7, Math.sin(i) * 4, (i % 17) * 5.1, q.x * 1.001, q.y * 1.001, q.z * 1.001, q.w * 1.001, 1 + (i % 5) * 0.3, 1 + (i % 5) * 0.3, 1 + (i % 5) * 0.3], i * INSTANCE_BUFFER_FLOATS);
+      f.set([i * 3.7, Math.sin(i) * 4, (i % 17) * 5.1, q.x * 1.001, q.y * 1.001, q.z * 1.001, q.w * 1.001, 1 + (i % 5) * 0.3, 1 + (i % 5) * 0.3, 1 + (i % 5) * 0.3], i * INSTANCE_FLOATS);
     }
     const template = { glbRoot: root } as unknown as ModelInstance;
     const plan = instanceSetPlan(template, { chunkSize: 200 });

@@ -43,8 +43,6 @@ export const MAX_DECLARATION_BYTES = 32_768;
 /** A declared `string` property's length (code points) when it sets no `maxLength`, and the largest `maxLength` it may set. */
 export const DECLARATION_STRING_LENGTH_DEFAULT = 256;
 export const MAX_DECLARATION_STRING_LENGTH = 1024;
-/** Keys `content.settings` may hold: every key is one of the registry's (`M2_SETTINGS_KEYS`), so this only has to stay above it. */
-export const MAX_SETTINGS_KEYS = 64;
 /** Versions of one audio record (its file's size is bounded by `MAX_SOURCE_BYTES`, as every imported file's). */
 export const MAX_AUDIO_VERSIONS = 8;
 /** Versions of one texture asset record (PNG/JPEG/WebP/KTX2). */

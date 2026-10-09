@@ -13,11 +13,11 @@ import {
 import type { ModelErrorV2 } from './errors';
 import type { SettingsMap } from './types-v2';
 import { PROPERTY_KEY_RE } from './components';
-import { AUDIO_VOICE_CAP, AUDIO_VOICES_DEFAULT, MAX_SETTINGS_KEYS } from './content-limits';
+import { AUDIO_VOICE_CAP, AUDIO_VOICES_DEFAULT } from './content-limits';
 import { limitsError, sortedKeys } from './content-helpers';
 import { TEXTURE_BUDGET_DEFAULT_MB, TEXTURE_BUDGET_MAX_MB, TEXTURE_BUDGET_MIN_MB } from './texture-streaming';
 import { STREAMING_BUDGET_DEFAULT_MB, STREAMING_BUDGET_MAX_MB, STREAMING_BUDGET_MIN_MB } from './world-streaming';
-import { LOD_BIAS_DEFAULT, LOD_BIAS_MAX, LOD_BIAS_MIN, LOD_HYSTERESIS_DEFAULT, LOD_HYSTERESIS_MAX } from './model-lod';
+import { INSTANCE_CHUNK_METERS, LOD_BIAS_DEFAULT, LOD_BIAS_MAX, LOD_BIAS_MIN, LOD_HYSTERESIS_DEFAULT, LOD_HYSTERESIS_MAX, MAX_INSTANCE_CHUNK_SIZE } from './model-lod';
 import { VIEW_LENS_DEFAULTS, VIRTUAL_CAMERA_LIMITS } from './cameras';
 import { FRAME_RATE_CAPS } from './frame-rate-cap';
 import { AMBIENT_OCCLUSION_DEFAULT, AMBIENT_OCCLUSION_NEW_PROJECT, AMBIENT_OCCLUSION_SETTING_VALUES, ambientOcclusionSettingValue, RENDER_SCALE_DEFAULT, RENDER_SCALE_MAX, RENDER_SCALE_MIN } from './render-settings';
@@ -141,10 +141,8 @@ export const M2_SETTINGS_KEYS: readonly SettingsKeySpec[] = [
   // force one or the other (a 2D game may want stereo panning).
   // The size (m) of an instance set's spatial chunks, each culled on its own
   // (a set's own chunkSize overrides it; each chunk draws one level of detail
-  // for its copies unless the set asks for a level per copy). 32 m: a few seconds' walk for the default 1.8 m character and
-  // small next to a usual view distance, so chunks out of view are culled
-  // (three-adapter INSTANCE_CHUNK_METERS, the same value).
-  { key: 'instance_chunk_m', type: 'number', default: 32, min: 1, max: 4096, unit: 'm', optional: true, group: RENDERING_SETTINGS_GROUP, label: 'Instance chunk size', tooltip: 'Instance sets are drawn in square chunks of about this size (m), each hidden when out of view. Smaller: finer culling, more draw calls. A set can set its own.' },
+  // for its copies unless the set asks for a level per copy).
+  { key: 'instance_chunk_m', type: 'number', default: INSTANCE_CHUNK_METERS, min: 1, max: MAX_INSTANCE_CHUNK_SIZE, unit: 'm', optional: true, group: RENDERING_SETTINGS_GROUP, label: 'Instance chunk size', tooltip: 'Instance sets are drawn in square chunks of about this size (m), each hidden when out of view. Smaller: finer culling, more draw calls. A set can set its own.' },
   { key: 'audio_spatial', type: 'number', default: 0, values: [0, 1, 2], valueLabels: ['Automatic (2D: by distance to the player, 3D: panned)', 'By distance to the player (X)', 'Panned (listener on the camera)'], integer: true, unit: '', optional: true, group: 'Engine', label: 'Audio sources', tooltip: 'How audio sources are heard: by their X distance to the player (the 2D default, no panning) or through a panner with the listener on the active camera (the 3D default: left/right panning and each source\'s distance model). Script sounds with a position are always panned.' },
   // The texture budget of Play and the export (MiB; project-model
   // TEXTURE_BUDGET_DEFAULT_MB, where the default's reason is): streamed
@@ -283,8 +281,9 @@ export function validateSettings(settings: unknown, path: string, errors: ModelE
     return;
   }
   const keys = Object.keys(settings);
-  if (keys.length > MAX_SETTINGS_KEYS) {
-    errors.push(limitsError(path, 'settings_keys', keys.length, MAX_SETTINGS_KEYS, `content.settings may declare at most ${MAX_SETTINGS_KEYS} keys`));
+  // Every key must be the registry's, so its size is the bound (one less number kept by hand as settings are added).
+  if (keys.length > registry.size) {
+    errors.push(limitsError(path, 'settings_keys', keys.length, registry.size, `content.settings may declare at most ${registry.size} keys`));
   }
   for (const key of keys) {
     if (!PROPERTY_KEY_RE.test(key)) {

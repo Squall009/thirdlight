@@ -45,10 +45,15 @@ describe('ctx.grid walk queries', () => {
     const grid = new RuntimeGrid(TYPES, FIELDS, false);
     grid.addLayers([layer()]);
     const api = grid.api;
+    expect(api.pathOutcome()).toBeNull();
     expect(api.path('g', [2, 1, 2], [8, 1, 2])).toBeNull();
+    expect(api.pathOutcome()).toBe('none');
+    expect(api.path('nope', [2, 1, 2], [8, 1, 2])).toBeNull();
+    expect(api.pathOutcome()).toBe('invalid');
     // The lower leaf open: a walker a row high (the default headroom) passes, one two rows high does not.
     expect(api.setEdgeOpen('g', 5, 1, 9, '+x', true)).toBe(true);
     expect(api.path('g', [2, 1, 2], [8, 1, 2])).not.toBeNull();
+    expect(api.pathOutcome()).toBe('found');
     expect(api.path('g', [2, 1, 2], [8, 1, 2], { headroom: 1 })).toBeNull();
     expect(api.setEdgeOpen('g', 5, 2, 9, '+x', true)).toBe(true);
     const p = api.path('g', [2, 1, 2], [8, 1, 2], { headroom: 1 })!;
@@ -60,6 +65,25 @@ describe('ctx.grid walk queries', () => {
     expect(p.at(-1)!.cost).toBeCloseTo(p.length - 1, 9);
     // Neighbours of the doorway's west cell include the east one now.
     expect(api.walkNeighbours('g', [5, 0, 9]).map((n) => `${n.x},${n.z}`)).toContain('6,9');
+  });
+
+  it('tells a search that gave up at its place limit from one that found no way', () => {
+    // A 300 × 300 floor (90,000 places) with one cell walled in on all four sides: no way to it, and the search runs out first.
+    const comp: BlockLayerComponent = { cellSize: [1, 0.5, 1], bounds: { min: [0, 0, 0], max: [300, 4, 300] } };
+    const g = new BlockGrid(comp);
+    applyBlockEdits(g, [
+      { kind: 'fill', box: [0, 0, 0, 300, 1, 300], cell: { block: 'stone' } },
+      { kind: 'edges', at: [150, 1, 150, 0, 151, 1, 150, 0, 150, 1, 150, 1, 150, 1, 151, 1, 150, 2, 150, 0, 151, 2, 150, 0, 150, 2, 150, 1, 150, 2, 151, 1], edge: { block: 'wall' } },
+    ] as never, { types: new Map(TYPES.map((t) => [t.blockId, t])), stamps: new Map() });
+    const data = g.toData('big', null, g.takeDirty().chunks);
+    const grid = new RuntimeGrid(TYPES, FIELDS, false);
+    grid.addLayers([{ id: 'big', components: { transform: T, blockLayer: { ...comp, ...(data !== null ? { data } : {}) } } } as unknown as EntityV3]);
+    const api = grid.api;
+    expect(api.path('big', [0, 1, 0], [150, 1, 150])).toBeNull();
+    expect(api.pathOutcome()).toBe('limit');
+    // From inside the walled cell the search ends at once: none.
+    expect(api.path('big', [150, 1, 150], [0, 1, 0])).toBeNull();
+    expect(api.pathOutcome()).toBe('none');
   });
 
   it("takes the step limit from the layer's walk or the query; a kit's broken door lets through", () => {

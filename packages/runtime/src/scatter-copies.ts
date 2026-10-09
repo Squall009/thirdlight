@@ -25,7 +25,7 @@
  */
 import {
   CHUNK_SIZE,
-  SCATTER_COPY_FLOATS,
+  INSTANCE_FLOATS,
   decodeChunkScatter,
   storedScatterRules,
   terrainTileSize,
@@ -399,7 +399,7 @@ export class RuntimeScatter {
 
   /** The static collider of copy `c` of `copies` (its model's `_COL` parts at its scale; null: the model has none). */
   private colliderOf(s: Source, rule: ScatterRule, copies: Float32Array, c: number, address: string): StaticColliderSpec3D | null {
-    const o = c * SCATTER_COPY_FLOATS;
+    const o = c * INSTANCE_FLOATS;
     const scale = copies[o + 7]!;
     const shape = colliderShape3DOf({ type: 'model' }, [scale, copies[o + 8]!, copies[o + 9]!], { model: { asset: { assetId: rule.asset.assetId }, ...(rule.asset.piece !== undefined ? { piece: rule.asset.piece } : {}) } }, this.modelColliders !== undefined ? { modelColliders: this.modelColliders } : undefined);
     if (shape === null) return null;
@@ -456,7 +456,7 @@ export class RuntimeScatter {
   }
 
   private info(s: Source, rule: string, ix: number, iz: number, copies: Float32Array, index: number): ScatterCopyInfo {
-    const o = index * SCATTER_COPY_FLOATS;
+    const o = index * INSTANCE_FLOATS;
     const address = scatterAddress(s.entityId, rule, ix, iz);
     return Object.freeze({
       address,
@@ -509,7 +509,7 @@ export class RuntimeScatter {
             for (const [rule, copies] of cell) {
               if (options?.rule !== undefined && options.rule !== rule) continue;
               for (let i = 0; i < copies.cells.length / 2; i++) {
-                const o = i * SCATTER_COPY_FLOATS;
+                const o = i * INSTANCE_FLOATS;
                 const dx = s.origin[0] + copies.copies[o]! - px;
                 const dz = s.origin[2] + copies.copies[o + 2]! - pz;
                 const d = Math.hypot(dx, dz);

@@ -15,7 +15,7 @@
  *   sets over its base's, the masks each binds, the sheet each names. A
  *   change to a base reaches every preset derived from it.
  * - A mask drives a parameter by a value read at the outline's middle:
- *   world noise (30.12's lattice noise), the middle's world height, or a
+ *   world noise (`ruleNoise`, the material rules' lattice noise), the middle's world height, or a
  *   mask painted on the object; from the parameter's value where the mask
  *   is 0 to the binding's `to` where it is 1, within the parameter's range.
  * - A preset naming a trim sheet puts its elements on a material slot of

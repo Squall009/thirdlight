@@ -33,22 +33,17 @@ import type { CullView, ViewCullable } from './view-cull';
 import type { ModelInstance } from './visual';
 import { disposeObjectTree } from './dispose';
 import { ChunkLodPicker, TAN_HALF_REFERENCE, type CopyLodGroup } from './instance-lod';
-import { INSTANCE_BUFFER_FLOATS, INSTANCE_CHUNK_COPIES, prepareInstanceSet, writeCopyMatrices, type PreparedChunk, type PreparedInstanceSet, type PrepareOptions, type PrepareParts } from './instance-prepare';
+import { INSTANCE_CHUNK_METERS, INSTANCE_FLOATS } from '@thirdlight/runtime';
+import { INSTANCE_CHUNK_COPIES, prepareInstanceSet, writeCopyMatrices, type PreparedChunk, type PreparedInstanceSet, type PrepareOptions, type PrepareParts } from './instance-prepare';
 
-export { chunkCopies, INSTANCE_BUFFER_FLOATS, INSTANCE_CHUNK_COPIES, INSTANCE_MAX_CHUNKS, INSTANCE_MAX_SPATIAL_CHUNKS } from './instance-prepare';
+export { chunkCopies, INSTANCE_CHUNK_COPIES, INSTANCE_MAX_CHUNKS, INSTANCE_MAX_SPATIAL_CHUNKS } from './instance-prepare';
 import { LOD_CULL_LEVEL_KEY, LodTuning } from './lod-switch';
 import { KEEP_MATERIAL_KEY } from './material-keys';
 
 /** `mesh.userData[INSTANCE_SET_KEY]`: the mesh draws copies of an instance set (one chunk, one mesh and level). */
 export const INSTANCE_SET_KEY = 'tlInstanceSet';
 
-/**
- * The engine default chunk size (m) of an instance set (the
- * project's `instance_chunk_m`, overridable per set). 32 m: a few seconds'
- * walk for the default 1.8 m character and small next to a typical view
- * distance, so a chunk out of view is culled.
- */
-export const INSTANCE_CHUNK_METERS = 32;
+export { INSTANCE_CHUNK_METERS };
 
 export interface BuiltInstanceSet {
   /** Holds the instanced meshes; attach it under the entity's node. */
@@ -369,7 +364,7 @@ export function beginInstanceSet(template: ModelInstance, floats: Float32Array, 
       /** Per chunk touched: whether every copy written there shrank to nothing. */
       const touched = new Map<Chunk, boolean>();
       for (const { index, transform: t } of changes) {
-        if (index < 0 || index >= n || t.length < INSTANCE_BUFFER_FLOATS) continue;
+        if (index < 0 || index >= n || t.length < INSTANCE_FLOATS) continue;
         const chunk = chunks[chunkOf[index]!]!;
         const c = chunk.center;
         const slot = slotOf[index]!;

@@ -14,9 +14,8 @@
  * matrix maths is three's (`Matrix4.compose`, `multiplyMatrices`,
  * `Sphere.union`), so a set made here equals one made on the page.
  */
+import { INSTANCE_FLOATS } from '@thirdlight/runtime';
 
-/** Floats per copy in an instance buffer: position xyz, rotation quaternion xyzw, scale xyz. */
-export const INSTANCE_BUFFER_FLOATS = 10;
 /**
  * Copies per chunk the grid aims at (a chunk is one draw per mesh: large
  * enough to keep draws few and its matrices above three's uniform-buffer
@@ -384,17 +383,17 @@ export function composeCopy(t: ArrayLike<number>, offset: number, center: ArrayL
 
 /** Write copy `copy`'s matrix for every mesh into the chunk's matrix arrays at `slot`. */
 export function writeCopyMatrices(floats: ArrayLike<number>, copy: number, center: ArrayLike<number>, parts: PrepareParts, matrices: readonly Float32Array[], slot: number, place = new Float64Array(16)): void {
-  composeCopy(floats, copy * INSTANCE_BUFFER_FLOATS, center, place);
+  composeCopy(floats, copy * INSTANCE_FLOATS, center, place);
   for (let k = 0; k < matrices.length; k += 1) writeCopyMatrix(place, parts.locals, k * 16, matrices[k]!, slot * 16);
 }
 
 /** Make the arithmetic of a set of `count` copies of `floats` for a model of `parts` (see the module's header). */
 export function prepareInstanceSet(floats: Float32Array, count: number, parts: PrepareParts, options: PrepareOptions): PreparedInstanceSet {
-  const n = Math.max(0, Math.min(count, Math.floor(floats.length / INSTANCE_BUFFER_FLOATS)));
+  const n = Math.max(0, Math.min(count, Math.floor(floats.length / INSTANCE_FLOATS)));
   const meshes = Math.floor(parts.locals.length / 16);
   const positions = new Float32Array(n * 3);
   for (let i = 0; i < n; i += 1) {
-    const o = i * INSTANCE_BUFFER_FLOATS;
+    const o = i * INSTANCE_FLOATS;
     positions[i * 3] = floats[o]!;
     positions[i * 3 + 1] = floats[o + 1]!;
     positions[i * 3 + 2] = floats[o + 2]!;
@@ -446,7 +445,7 @@ export function prepareInstanceSet(floats: Float32Array, count: number, parts: P
       let sum = 0;
       for (let j = 0; j < k; j += 1) {
         const copy = copies[j]!;
-        const o = copy * INSTANCE_BUFFER_FLOATS;
+        const o = copy * INSTANCE_FLOATS;
         origins[j * 3] = floats[o]! - center[0]!;
         origins[j * 3 + 1] = floats[o + 1]! - center[1]!;
         origins[j * 3 + 2] = floats[o + 2]! - center[2]!;

@@ -22,6 +22,7 @@ import { PROBE_PACK_MAX_EDGE, type ProbeTileForGpu, type ProbeUploadRenderer } f
 import { ProbeLighting } from './probe-lighting';
 import { packedProbeDepth, packProbeTile, PROBE_TEXEL_BYTES, type PackedProbeTile } from './probe-pack';
 import { PROBE_ATLAS_SLACK, PROBE_RESIDENT_BYTES, pickResidentProbeTiles } from './probe-residency';
+import { perfMark } from './perf-marks';
 
 /** A bake record as the adapter carries it (`LightingBake.probes`, structurally). */
 export interface ProbeBakeLike {
@@ -331,7 +332,7 @@ export function createProbeLightingHost(scene: THREE.Scene, resources: ResourceM
         if (!markedResident && set.wanted().size > 0 && light.store.count >= set.wanted().size) {
           // A user-timing mark (the perf harness, DevTools): the first resident set is on the GPU.
           markedResident = true;
-          globalThis.performance?.mark?.('tl:probes:resident', { detail: { resident: light.store.count, beyondBudget: beyond, textureBytes: light.store.gpuBytes, uploadedBytes } });
+          perfMark('tl:probes:resident', { resident: light.store.count, beyondBudget: beyond, textureBytes: light.store.gpuBytes, uploadedBytes });
         }
         if (r.unplaced > 0) tell('probe_budget', `${r.unplaced} probe tiles did not fit the probe texture (${Math.round(budget / 1048576)} MB budget, ${PROBE_PACK_MAX_EDGE}-texel edge): their surfaces get the flat ambient light`);
       } catch (err) {

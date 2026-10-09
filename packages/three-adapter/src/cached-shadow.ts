@@ -44,6 +44,7 @@ import { DrawnCasters, isStaticCaster, type StaticShadowRevision } from './shado
 import { withEmptyInstanceDraws } from './attribute-instancing';
 import { STATIC_SHADOW_CAMERA_KEY } from './view-cull';
 import { shadowSeesCutaways } from './block-cutaway-view';
+import { perfMark } from './perf-marks';
 
 /** TSL untyped: three's typings lag the node API used here. */
 const TSL: N = TSLTyped;
@@ -442,7 +443,7 @@ export class CachedShadowNode extends ShadowBaseNodeBase {
     d.missed = false;
     if (this.staticDirty) {
       // The static map drawn again (measurements line it up with the frames: a large map is a GPU frame's worth).
-      globalThis.performance?.mark?.('tl:shadow:static');
+      perfMark('tl:shadow:static');
       s.draw(frame);
       this.staticDirty = false;
       this.drawnRevision = this.revision.value;

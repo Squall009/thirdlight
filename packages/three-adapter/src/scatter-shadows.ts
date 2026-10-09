@@ -15,7 +15,7 @@
 import * as THREE from 'three/webgpu';
 import * as TSLTyped from 'three/tsl';
 
-import { SCATTER_COPY_FLOATS } from '@thirdlight/runtime';
+import { INSTANCE_FLOATS } from '@thirdlight/runtime';
 
 import { CUTAWAY_LAYER } from './block-cutaway-view';
 import type { N } from './effects-tsl';
@@ -56,9 +56,9 @@ export function blobShadowTemplate(): ModelInstance {
 
 /** The blobs' placements: each copy's, its scale times `radius`, lifted a little off the ground. */
 export function blobCopies(floats: Float32Array, count: number, radius: number): Float32Array {
-  const out = floats.slice(0, count * SCATTER_COPY_FLOATS);
+  const out = floats.slice(0, count * INSTANCE_FLOATS);
   for (let i = 0; i < count; i++) {
-    const o = i * SCATTER_COPY_FLOATS;
+    const o = i * INSTANCE_FLOATS;
     out[o + 1] = out[o + 1]! + BLOB_LIFT;
     out[o + 7] = out[o + 7]! * radius;
     out[o + 8] = out[o + 8]! * radius;
@@ -81,7 +81,7 @@ export function copiesBySquare(floats: Float32Array, count: number, origin: read
   const out = new Map<string, number[]>();
   const S = SHADOW_RING_METRES;
   for (let i = 0; i < count; i++) {
-    const o = i * SCATTER_COPY_FLOATS;
+    const o = i * INSTANCE_FLOATS;
     const key = `${Math.floor((origin[0]! + floats[o]!) / S)},${Math.floor((origin[2]! + floats[o + 2]!) / S)}`;
     let list = out.get(key);
     if (list === undefined) out.set(key, (list = []));
@@ -92,8 +92,8 @@ export function copiesBySquare(floats: Float32Array, count: number, origin: read
 
 /** The copies at `indices` as their own buffer. */
 export function pickCopies(floats: Float32Array, indices: readonly number[]): Float32Array {
-  const out = new Float32Array(indices.length * SCATTER_COPY_FLOATS);
-  indices.forEach((i, k) => out.set(floats.subarray(i * SCATTER_COPY_FLOATS, (i + 1) * SCATTER_COPY_FLOATS), k * SCATTER_COPY_FLOATS));
+  const out = new Float32Array(indices.length * INSTANCE_FLOATS);
+  indices.forEach((i, k) => out.set(floats.subarray(i * INSTANCE_FLOATS, (i + 1) * INSTANCE_FLOATS), k * INSTANCE_FLOATS));
   return out;
 }
 

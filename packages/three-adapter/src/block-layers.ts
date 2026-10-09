@@ -93,6 +93,7 @@ import { ROOM_TAG_KEY } from './room-culling';
 import { BLOCK_AO_ATTRIBUTE } from './block-ao-lighting';
 import { currentLodLevel, LOD_CULL_LEVEL_KEY } from './lod-switch';
 import { askingRing, eyeMoved, recheckMetres, type PageWorldStream, type StreamCell } from './world-stream';
+import { perfMark } from './perf-marks';
 
 /**
  * An edit's chunks mesh on the page while their estimated cost (the layer's
@@ -520,7 +521,7 @@ export class BlockLayerView {
     const round = (v: number): number => Math.round(v * 10) / 10;
     const timing: BlockRestyleTiming = { ms: round(now - r.startedAt), chunks: r.chunks, frames: r.frames, longFrames: r.longFrames, longestFrameMs: round(r.longestFrameMs), longestFrameAt: r.longestFrameAt, longestUpdateMs: round(r.longestUpdateMs) };
     this.restyles = { count: this.restyles.count + 1, last: timing };
-    globalThis.performance?.mark?.('tl:blocks:restyle', { detail: timing });
+    perfMark('tl:blocks:restyle', timing);
     this.deps.restyling?.(false);
   }
 
@@ -700,7 +701,7 @@ export class BlockLayerView {
     this.followRestyle(t0);
     const ms = performance.now() - t0;
     // Streamed chunks came in (measurements line them up with the frames).
-    if (applied > 0 && this.deps.stream != null) globalThis.performance?.mark?.('tl:blocks:streamed', { detail: { applied, ms: Math.round(ms * 100) / 100 } });
+    if (applied > 0 && this.deps.stream != null) perfMark('tl:blocks:streamed', { applied, ms: Math.round(ms * 100) / 100 });
     this.stats.lastUpdate = { here, applied, ms };
     this.stats.meshedHere += here;
     this.stats.meshedInWorkers += applied;

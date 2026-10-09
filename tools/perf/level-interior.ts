@@ -21,9 +21,9 @@
  *
  * Pure: a function of the seed, so the measured content is the same every run.
  */
-import { ARCHITECTURE_FLOOR_ON_CELLS, MAX_LOCAL_LIGHTS, type ArchitectureOpening, type ArchitectureOutline } from '@thirdlight/project-model';
+import { ARCHITECTURE_FLOOR_ON_CELLS, architectureOpeningEdges, MAX_LOCAL_LIGHTS, type ArchitectureOpening, type ArchitectureOutline } from '@thirdlight/project-model';
 
-import { openingEdges, ROOM_OPENING_KINDS } from '../../packages/editor/src/session/room-draw';
+import { ROOM_OPENING_KINDS } from '../../packages/editor/src/session/room-draw';
 import { prng, type EntityValue } from './generate';
 import { LEVEL_SEED, LEVEL_SPEC, LEVEL_VERSION, levelProp, levelPropFiles, levelTransform, levelYaw, type LevelPlan, type LevelRoom } from './level';
 
@@ -159,7 +159,7 @@ export function levelInteriorPlan(seed = LEVEL_SEED): LevelPlan {
   const closedAt: number[] = [];
   for (const d of doorways) {
     if (d.open !== false) continue;
-    for (const e of openingEdges(outlines[d.room]!, d.opening, SLAB_TOP, [0, 0, 0], cellSize)) closedAt.push(...e);
+    for (const e of architectureOpeningEdges(outlines[d.room]!.path, d.opening, SLAB_TOP, [0, 0, 0], cellSize)) closedAt.push(...e);
   }
   const blockEdits: Record<string, unknown>[] = [
     { kind: 'fill', box: [0, 0, 0, L.x, SLAB_ROWS, L.z], cell: { block: 'soil' } },

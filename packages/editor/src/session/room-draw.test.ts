@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import type { ArchitectureComponent } from '@thirdlight/project-model';
+import { architectureOpeningEdges, architectureWallEdges, cellKeyOf } from '@thirdlight/runtime';
 
-import { groundArea2, moveWall, nearestSide, nextOutlineId, openingEdges, openingOn, rectPath, roomPath, sideDragOffset, snapCorner, straightSides, withOutline } from './room-draw';
+import { groundArea2, moveWall, nearestSide, nextOutlineId, openingOn, rectPath, roomPath, sideDragOffset, snapCorner, straightSides, withOutline } from './room-draw';
 
 const CELL = [1, 1, 1];
 
@@ -80,15 +81,23 @@ describe('the Rooms tool', () => {
 
   it('finds the cell edges a door piece goes on: the opening cells along its wall, the rows up to its head', () => {
     const o = { id: 'a', preset: 'starter-room', path: rectPath([0, 1, 0], [6, 1, 4])!, openings: [] };
+    const door = { id: 'd', at: 7.5, width: 1, bottom: 0, top: 2.1 };
     // 7.5 m round: the east side (x = 6), cell z 1; the floor 1 m up, the layer 2 cells along x.
-    expect(openingEdges(o, { id: 'd', at: 7.5, width: 1, bottom: 0, top: 2.1 }, 1, [2, 0, 0], CELL)).toEqual([
+    expect(architectureOpeningEdges(o.path, door, 1, [2, 0, 0], CELL)).toEqual([
       [8, 1, 1, 0],
       [8, 2, 1, 0],
     ]);
     // On the south side, two cells wide, walked +x.
-    expect(openingEdges(o, { id: 'd', at: 3, width: 2, bottom: 0, top: 1 }, 1, [0, 0, 0], CELL)).toEqual([
+    expect(architectureOpeningEdges(o.path, { id: 'd', at: 3, width: 2, bottom: 0, top: 1 }, 1, [0, 0, 0], CELL)).toEqual([
       [2, 1, 0, 1],
       [3, 1, 0, 1],
     ]);
+    // The cells the piece goes on are the ones the generated wall opens for the same door (one walk of the wall's cells).
+    const wall = { elements: [{ id: 'w', kind: 'sweep' as const, path: o.path, profile: 'w', wall: true, openings: [door] }], profiles: { w: { points: [[-0.1, 0], [0.1, 0], [0.1, 3], [-0.1, 3]] as [number, number][], slots: ['lower_wall'] } } };
+    const walls = architectureWallEdges(wall as unknown as ArchitectureComponent, [2, 0, 0], CELL);
+    const opened = [...walls].filter(([, blocks]) => !blocks).map(([key]) => key);
+    expect(architectureOpeningEdges(o.path, door, 1, [2, 0, 0], CELL).map(([x, y, z, axis]) => cellKeyOf(x, y, z) * 2 + axis)).toEqual(opened);
+    // Past the path's end (20 m round) an opening is cut there, as the generator cuts it, never wrapped onto the first side.
+    expect(architectureOpeningEdges(o.path, { ...door, at: 20.5 }, 1, [0, 0, 0], CELL)).toEqual([]);
   });
 });

@@ -168,6 +168,7 @@ export {
   INSTANCE_DENSITY_MIN_NEW,
   INSTANCE_DENSITY_START_DEFAULT,
   instanceDensityOf,
+  INSTANCE_CHUNK_METERS,
   LOD_BIAS_DEFAULT,
   LOD_BIAS_MAX,
   LOD_BIAS_MIN,
@@ -1357,7 +1358,6 @@ export {
   SURFACE_RULE_BLOCK_LAYERS,
   SURFACE_RULE_CAVITY_RADIUS,
   SURFACE_RULE_FIELDS,
-  SURFACE_RULE_LAYER_MAX,
   SURFACE_RULE_LIMITS,
   SurfaceRuleSet,
   canonicalSurfaceRules,
@@ -1377,7 +1377,6 @@ export {
   SCATTER_BLOB_DISTANCE,
   SCATTER_BLOB_MAGIC,
   SCATTER_CHUNK_METERS_DEFAULT,
-  SCATTER_COPY_FLOATS,
   SCATTER_COVER_DISTANCE_DEFAULT,
   SCATTER_LIMITS,
   SCATTER_RULE_FIELDS,
@@ -1463,7 +1462,6 @@ export {
 export { architectureDoorLinks, buildingInteriorEntity, buildingInteriorId, isBuildingDoor, withBuildingInteriors, type ArchitectureDoorLink, type ArchitectureDoorSide, type BuildingSourceEntity } from './arch-buildings';
 export { largestRectangles } from './arch-roof';
 export {
-  ARCHITECTURE_COPY_FLOATS,
   ARCHITECTURE_GENERATOR_VERSION,
   ARCHITECTURE_SWEEP_CELL,
   architectureChunkInput,
@@ -1540,7 +1538,7 @@ export { FLOOR_PLAN_TRIES, footprintZones, splitFloorPlan, type FloorPlan, type 
 export { FURNISH_CELL, furnishLights, furnishRoom, facingDir, facingOf, type FurnishedLight, type FurnishedProp, type FurnishOpening, type FurnishPin, type FurnishRoom } from './arch-furnish';
 export { buildingFloorPlan, buildingFrontDoors, floorPlanOutlines, propElement } from './arch-building-plan';
 export { furnishingLightEntity, furnishingLightId, furnishingLightsOf, withFurnishingLights, type DroppedFurnishingLights, type LightSourceEntity } from './arch-lights';
-export { architecturePaintOf, architectureRoomRegions, architectureWallEdges } from './arch-room-grid';
+export { architectureOpeningEdges, architecturePaintOf, architectureRoomRegions, architectureWallEdges } from './arch-room-grid';
 export { buildRoomGraph, portalDistance, portalRect, RoomGraph, roomVisibility, ROOM_OUTSIDE, walkRooms, type GraphPortal, type GraphPortalKind, type GraphRoom, type RoomGraphObject, type RoomVisibility, type ViewProjection } from './arch-portals';
 export { chunkLightmapLayout, type ChunkLightmapLayout } from './block-lightmap';
 // The instance brush (paint and erase copies of an instance set on a surface).

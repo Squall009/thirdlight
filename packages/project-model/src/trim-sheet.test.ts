@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
+import { MAX_TEXTURE_EDGE } from './content-limits';
 import {
   canonicalTrimSheet,
   defaultTrimSheet,
@@ -88,6 +89,10 @@ describe('trim sheet row table', () => {
     expect(trimSheetErrors(UNEQUAL)).toEqual([]);
     const bad = (patch: Record<string, unknown>): string[] => trimSheetErrors({ ...UNEQUAL, ...patch }).map((e) => e.path);
     expect(bad({ size: [0, 256] })).toEqual(['/size']);
+    // A sheet larger than a texture may be is refused where it is declared, in the table and in an imported layout alike.
+    expect(bad({ size: [MAX_TEXTURE_EDGE * 2, MAX_TEXTURE_EDGE * 2] })).toEqual(['/size']);
+    expect(bad({ size: [MAX_TEXTURE_EDGE, MAX_TEXTURE_EDGE] })).toEqual([]);
+    expect(trimSheetFromLayout({ format: 'trim/1', size: [MAX_TEXTURE_EDGE * 2, MAX_TEXTURE_EDGE * 2], texel_density_px_per_m: 256, gutter_px: 8, layers: [] }).ok).toBe(false);
     expect(bad({ padding: 1.5 })).toEqual(['/padding']);
     expect(bad({ texelDensity: 0 })).toEqual(['/texelDensity']);
     expect(bad({ rows: [] })).toEqual(['/rows']);

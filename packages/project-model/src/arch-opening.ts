@@ -13,12 +13,15 @@ import { profileBounds, resolveProfile, type SweepFrames, sweepPointAt, sweepPro
 import type { ArchitectureOpening, ArchitectureProfile } from './architecture';
 import { type TrimRow, type TrimSheet, trimRowDensity, trimRowV } from './trim-sheet';
 
+/** The opening's span along a path `length` metres long, kept inside it (an opening past an end is cut there, never wrapped round). */
+export function openingAlong(o: ArchitectureOpening, length: number): { a: number; b: number } {
+  return { a: Math.max(0, o.at - o.width / 2), b: Math.min(length, o.at + o.width / 2) };
+}
+
 /** The opening's span along the path and its heights, kept inside the path and the wall. */
 export function openingSpan(o: ArchitectureOpening, s: PathSamples, wall: readonly number[]): { a: number; b: number; bottom: number; top: number } {
   const [, , y0, y1] = profileBounds(wall);
-  const a = Math.max(0, o.at - o.width / 2);
-  const b = Math.min(s.length, o.at + o.width / 2);
-  return { a, b, bottom: Math.max(y0, o.bottom), top: Math.min(y1, o.top) };
+  return { ...openingAlong(o, s.length), bottom: Math.max(y0, o.bottom), top: Math.min(y1, o.top) };
 }
 
 /** A quad of four corners (one strip of `row`: u along 0→1 edge in metres, across 0 at the first two corners). */

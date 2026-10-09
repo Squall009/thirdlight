@@ -3,8 +3,8 @@
  * expand per group (a building with its rooms, rooms sharing walls, a run),
  * each group remembered by its own inputs, so an edit expands only the
  * groups it touches and keys only the chunks their elements reach. What it
- * makes is what a whole expansion makes (the same component, the same chunk
- * keys and bytes). With TL_PERF=1 an edit in a furnished village, a shared
+ * makes is what a whole expansion makes (every outline expanded as one
+ * group, nothing remembered: the same elements, rooms and chunk keys). With TL_PERF=1 an edit in a furnished village, a shared
  * wall dragged on a painted layer and the chunks' cost are timed.
  * Browser-free; the page's preview and drag are in the layered-material e2e.
  */
@@ -13,8 +13,8 @@ import { describe, expect, it } from 'vitest';
 import { ARCHITECTURE_PART_WEIGHT_MAX, architectureChunkInput, architectureChunkKeys, generateArchitectureChunk, joinArchitectureChunkParts, type ArchitectureChunk } from '../packages/project-model/src/arch-generate';
 import { architectureOutlineGroups } from '../packages/project-model/src/arch-groups';
 import { architecturePaintOf } from '../packages/project-model/src/arch-room-grid';
-import { expandArchitecture } from '../packages/project-model/src/arch-rooms';
-import { architectureStylesOf, type ArchitectureStyles } from '../packages/project-model/src/arch-style';
+import { expandArchitecture, expandArchitectureUngrouped } from '../packages/project-model/src/arch-rooms';
+import { architectureStylesOf, type ArchitectureExpansion, type ArchitectureStyles } from '../packages/project-model/src/arch-style';
 import type { ArchitectureBuilding, ArchitectureComponent, ArchitectureOutline, ArchitecturePaint } from '../packages/project-model/src/architecture';
 import { encodeWallPaint, wallPaintSteps, wallPointKey } from '../packages/project-model/src/block-wall-paint';
 import { defaultTrimSheet } from '../packages/project-model/src/trim-sheet';
@@ -83,6 +83,14 @@ function pageStep(c: ArchitectureComponent, table: ArchitectureStyles, before: M
   return { component, keys, changed, expandMs };
 }
 
+/** An expansion as sets (groups put their elements and rooms in group order, the ungrouped expansion in its own). */
+function asSets(x: ArchitectureExpansion): unknown {
+  const sorted = (xs: readonly unknown[] | undefined): string[] => (xs ?? []).map((v) => JSON.stringify(v)).sort();
+  const byKey = (o: Readonly<Record<string, unknown>> | undefined): [string, string][] => Object.entries(o ?? {}).map(([k, v]): [string, string] => [k, JSON.stringify(v)]).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+  const { elements, profiles, ...rest } = x.component;
+  return { rest: JSON.stringify(rest), elements: sorted(elements), profiles: byKey(profiles), materials: byKey(x.materials), problems: [...x.problems].sort(), presets: [...x.presets].sort(), rooms: sorted(x.rooms), props: sorted(x.props), lights: sorted(x.lights), planRooms: sorted(x.planRooms), swapped: x.swapped === true };
+}
+
 /** A chunk's bytes, every array (to compare two makings). */
 function bytesOfChunk(c: ArchitectureChunk): string {
   const parts: string[] = [`${c.cx},${c.cz}`, c.problems.join('|')];
@@ -106,9 +114,11 @@ describe('architecture expansion across edits', () => {
     const before = expandArchitecture(c0, ORIGIN, table);
     const edited: ArchitectureComponent = { ...c0, buildings: houses.map((b, i) => (i === 27 ? { ...b, layoutSeed: 999, openings: [{ id: 'front', at: 4, width: 1.2, bottom: 0, top: 2.1 }] } : b)) };
     const after = expandArchitecture(edited, ORIGIN, table);
+    // Grouped and remembered against every outline expanded together with nothing remembered.
+    expect(asSets(after)).toEqual(asSets(expandArchitectureUngrouped(edited, ORIGIN, fresh())));
+    // And against the same grouping with nothing remembered, in order: chunk keys hash their elements in order.
     const whole = expandArchitecture(edited, ORIGIN, fresh());
     expect(JSON.stringify(after)).toBe(JSON.stringify(whole));
-    expect([...after.presets]).toEqual([...whole.presets]);
     // Other houses' elements are the very objects made before; the edited house's are new.
     const kept = new Set(before.component.elements);
     const fresh27 = after.component.elements.filter((e) => !kept.has(e));
@@ -129,12 +139,12 @@ describe('architecture expansion across edits', () => {
     const paint = paintEverywhere();
     for (const wall of [16, 16.5, 17, 16]) {
       const c: ArchitectureComponent = { elements: [], outlines: roomGrid(wall), chunkSize: 16 };
-      expect(JSON.stringify(expandArchitecture(c, ORIGIN, table, { paint }))).toBe(JSON.stringify(expandArchitecture(c, ORIGIN, architectureStylesOf([]), { paint })));
+      expect(asSets(expandArchitecture(c, ORIGIN, table, { paint }))).toEqual(asSets(expandArchitectureUngrouped(c, ORIGIN, architectureStylesOf([]), { paint })));
     }
     const c: ArchitectureComponent = { elements: [], outlines: [...roomGrid(), { id: 'apart', preset: 'starter-hall', path: { points: box(60, 0, 66, 6), closed: true } }] };
     const preview = { preset: 'starter-hall', values: { wall_thickness: 0.4 } };
     for (const opts of [{ preview }, {}, { swaps: { 'starter-room': 'starter-room-tall' } }, { preview }]) {
-      expect(JSON.stringify(expandArchitecture(c, ORIGIN, table, opts))).toBe(JSON.stringify(expandArchitecture(c, ORIGIN, architectureStylesOf([]), opts)));
+      expect(asSets(expandArchitecture(c, ORIGIN, table, opts))).toEqual(asSets(expandArchitectureUngrouped(c, ORIGIN, architectureStylesOf([]), opts)));
     }
   });
 

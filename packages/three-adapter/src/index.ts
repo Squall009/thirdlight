@@ -138,7 +138,7 @@ export {
   type VisualResourceStore,
   type VisualResourceStoreOptions,
 } from './visual';
-export { buildInstanceSet, chunkCopies, INSTANCE_BUFFER_FLOATS, INSTANCE_CHUNK_COPIES, INSTANCE_CHUNK_METERS, INSTANCE_MAX_CHUNKS, INSTANCE_MAX_SPATIAL_CHUNKS, type BuiltInstanceSet } from './instancing';
+export { buildInstanceSet, chunkCopies, INSTANCE_CHUNK_COPIES, INSTANCE_CHUNK_METERS, INSTANCE_MAX_CHUNKS, INSTANCE_MAX_SPATIAL_CHUNKS, type BuiltInstanceSet } from './instancing';
 // Multi-piece GLBs (pieces, LOD groups, `_COL` colliders) and
 // vertex colours as shader data.
 export {

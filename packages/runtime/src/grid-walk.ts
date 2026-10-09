@@ -160,16 +160,32 @@ export function walkNeighboursQuery(layer: WalkLayer, types: ReadonlyMap<string,
   return Object.freeze(out);
 }
 
-/** The cheapest path between two cells' places, start and end included (null: none, too far to search, or options that do not fit). */
-export function walkPathQuery(layer: WalkLayer, types: ReadonlyMap<string, BlockType>, fields: ReadonlyMap<string, CellField>, defaultMaxSlope: number, from: unknown, to: unknown, options: unknown): readonly GridWalkPlace[] | null {
-  if (!cellArg(from) || !cellArg(to)) return null;
+/**
+ * Why a walk path query answered as it did: `found`; `none`, no walk joins
+ * the two places; `limit`, the search passed its place limit first (a path
+ * may still exist: a null path alone cannot tell the two apart); `invalid`,
+ * a layer, cell or option that does not fit, or no place at a cell.
+ */
+export type GridWalkPathOutcome = 'found' | 'none' | 'limit' | 'invalid';
+
+/** A walk path query's answer: the path (null unless found) and why. */
+export interface WalkPathAnswer {
+  path: readonly GridWalkPlace[] | null;
+  outcome: GridWalkPathOutcome;
+}
+
+const INVALID_PATH: WalkPathAnswer = Object.freeze({ path: null, outcome: 'invalid' });
+
+/** The cheapest path between two cells' places, start and end included, and why there is none when there is none. */
+export function walkPathQuery(layer: WalkLayer, types: ReadonlyMap<string, BlockType>, fields: ReadonlyMap<string, CellField>, defaultMaxSlope: number, from: unknown, to: unknown, options: unknown): WalkPathAnswer {
+  if (!cellArg(from) || !cellArg(to)) return INVALID_PATH;
   const q = walkGraphFor(layer, types, fields, defaultMaxSlope, options);
-  if (q === null) return null;
+  if (q === null) return INVALID_PATH;
   const a = q.graph.placeAt(...from);
   const b = q.graph.placeAt(...to);
-  if (a === null || b === null) return null;
+  if (a === null || b === null) return INVALID_PATH;
   const r = findWalkPath(q.graph, a, b, q.enter !== undefined ? { enter: q.enter } : {});
-  if (!r.ok) return null;
+  if (!r.ok) return { path: null, outcome: r.reason === 'limit' ? 'limit' : 'none' };
   // Each place with the cost so far.
   let cost = 0;
   const out: GridWalkPlace[] = [walkPlaceView(layer, r.places[0]!, 0)];
@@ -178,7 +194,7 @@ export function walkPathQuery(layer: WalkLayer, types: ReadonlyMap<string, Block
     cost += step.cost * (q.enter?.(step.place) ?? 1);
     out.push(walkPlaceView(layer, r.places[i]!, cost));
   }
-  return Object.freeze(out);
+  return { path: Object.freeze(out), outcome: 'found' };
 }
 
 /** The places reachable from a cell's place within a cost (m, times any cost field), cheapest first (empty: no place there, or options that do not fit). */

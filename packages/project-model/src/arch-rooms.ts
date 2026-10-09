@@ -443,6 +443,31 @@ export function expandArchitecture(c: ArchitectureComponent, origin: readonly nu
   return { component: { ...rest, elements, profiles, ...(paint !== null ? { paint } : {}) }, materials, problems: [...new Set(problems)], presets, rooms, ...(props.length > 0 ? { props } : {}), ...(lights.length > 0 ? { lights } : {}), ...(planRooms.length > 0 ? { planRooms } : {}), ...(swapped ? { swapped } : {}) };
 }
 
+/**
+ * Every outline expanded as one group, nothing remembered: what the grouped
+ * expansion must equal (as sets: groups put their elements and rooms in
+ * group order). Slower than {@link expandArchitecture}; the reference its
+ * tests hold the grouping and the memo to.
+ */
+export function expandArchitectureUngrouped(c: ArchitectureComponent, origin: readonly number[], table: ArchitectureStyles, opts: { swaps?: Readonly<Record<string, string>> | null; preview?: ArchitecturePreview | null; paint?: ArchitecturePaint | null } = {}): ArchitectureExpansion {
+  const buildings = c.buildings ?? [];
+  const outlines: ArchitectureOutline[] = [...(c.outlines ?? []), ...buildings];
+  const paint = opts.paint ?? null;
+  const x = expandGroup(c, outlines, outlines.map((_o, i) => i >= (c.outlines?.length ?? 0)), origin, table, opts);
+  const { outlines: _o, masks: _m, buildings: _b, interiorOf: _i, ...rest } = c;
+  return {
+    component: { ...rest, elements: [...c.elements, ...x.elements], profiles: { ...x.profiles }, ...(paint !== null ? { paint } : {}) },
+    materials: { ...x.materials },
+    problems: [...new Set(x.problems)],
+    presets: new Set(x.presets),
+    rooms: [...x.rooms],
+    ...(x.props.length > 0 ? { props: [...x.props] } : {}),
+    ...(x.lights.length > 0 ? { lights: [...x.lights] } : {}),
+    ...(x.planRooms.length > 0 ? { planRooms: [...x.planRooms] } : {}),
+    ...(x.swapped ? { swapped: true } : {}),
+  };
+}
+
 /** One group's share of an expansion, in its own order (remembered: never changed once made). */
 interface GroupExpansion {
   elements: readonly ArchitectureElement[];

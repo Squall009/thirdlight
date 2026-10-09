@@ -16,11 +16,13 @@
  *
  * Marks: every node program built and every render pipeline made, timed
  * (`tl:node-build`, `tl:pipeline`, detail: object, material, ms), which the
- * perf harness reads per window to show what still builds.
+ * perf harness reads per window to show what still builds (kept bounded:
+ * `perf-marks.ts`).
  *
  * Private API of the pinned three version (`_nodes`, `_pipelines`), guarded:
  * missing, nothing is installed.
  */
+import { perfMark } from './perf-marks';
 
 /** The mark of a node program built (detail: object, material, ms). */
 export const NODE_BUILD_MARK = 'tl:node-build';
@@ -95,7 +97,7 @@ export function installBuildMarks(renderer: unknown): boolean {
     if (!miss) return getForRender(ro, useAsync);
     const t0 = perf.now();
     const out = getForRender(ro, useAsync);
-    perf.mark(NODE_BUILD_MARK, { detail: detailOf(ro, perf.now() - t0) });
+    perfMark(NODE_BUILD_MARK, detailOf(ro, perf.now() - t0));
     return out;
   };
   const getRenderPipeline = pipelines._getRenderPipeline.bind(pipelines);
@@ -103,7 +105,7 @@ export function installBuildMarks(renderer: unknown): boolean {
     const before = pipelines.caches!.size;
     const t0 = perf.now();
     const out = getRenderPipeline(ro, ...rest);
-    if (pipelines.caches!.size > before) perf.mark(PIPELINE_MARK, { detail: detailOf(ro, perf.now() - t0) });
+    if (pipelines.caches!.size > before) perfMark(PIPELINE_MARK, detailOf(ro, perf.now() - t0));
     return out;
   };
   return true;

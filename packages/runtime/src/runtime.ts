@@ -20,7 +20,7 @@
  */
 import { RuntimeGrid, worldStreamSources, type GridCutawayState, type GridRenderChange } from './grid';
 import type { TerrainSimData } from './scatter-copies';
-import { fail, isPhysicsPort, isPlainObject, parseConfig, PHYSICS_PORT_REASON } from './runtime-config';
+import { fail } from './runtime-config';
 import { RuntimeMaterials, type MaterialRenderChange, type RuntimeMaterialCatalog } from './material-params';
 import { MAX_FRAME_ASSET_ANSWERS, RuntimeAssetHandles, validateAssetAnswers, type AssetHandleAnswer, type AssetHandleRequest } from './asset-handles';
 import { rideOnFrame } from './frame-queues';
@@ -32,17 +32,14 @@ import { RuntimeInputStatus, type InputBindingRequest } from './input-status';
 import type { BlockType, CellField } from '@thirdlight/project-model';
 import {
   ENGINE_TIMING_DEFAULTS,
-  controllerActionsOf,
-  controllerMovementOf,
   controllerTuningOf,
   controllerCapsuleOffsetZ,
-  resolveGameplaySettings,
-  viewLensOf,
   type EntityV3,
   type PrefabDefinition,
   type RuntimeUiDocumentRow,
   type UiEngineAction,
-  MAX_TRANSITION_FADE, SCRIPT_SAVE_LIMITS, UI_DEPRECATED_ENGINE_ACTIONS,
+  MAX_TRANSITION_FADE,
+  UI_DEPRECATED_ENGINE_ACTIONS,
 } from '@thirdlight/project-model';
 import {
   actionPhase,
@@ -53,7 +50,6 @@ import {
   type ActionFrame,
   type ActionSource,
   type DebugCommandCall,
-  type JumpPhase,
   type PointerSample,
 } from './actions';
 
@@ -65,8 +61,8 @@ import { EngineStatsHolder } from './engine-stats';
 import type { FramePacingStats } from './frame-pacing';
 import { FrameLoop } from './frame-loop';
 import { ModeState, type ModeView } from './modes';
-import { BehaviorHostError, BehaviorHostIntentLimit, compiledFramesOf, createTagQuery, graphNodeIdOf, type BehaviorDebugView, type BehaviorPropertyView, type CompiledFrame } from './behavior';
-import { character3DPhysicsOf, offsetEntities, playerCapsuleOf, type LiveTagIndex } from './scene-set';
+import { BehaviorHostError, BehaviorHostIntentLimit, compiledFramesOf, graphNodeIdOf, type BehaviorDebugView, type BehaviorPropertyView, type CompiledFrame } from './behavior';
+import { offsetEntities, playerCapsuleOf, type LiveTagIndex } from './scene-set';
 import { ColliderSystem } from './collider-system';
 import {
   BehaviorIntentError,
@@ -79,11 +75,9 @@ import {
   type BehaviorIntent,
   type BehaviorLogLevel,
   type IntentSet,
-  type IntentTransformWrite,
 } from './intents';
 import { DuplicateMoveError, PhaseViolationError, frozenContext, liveScopedState, phaseScopedState } from './guard';
-import { validatePhaseList } from './registry';
-import { deepFreeze, validateRuntimeSnapshot } from './snapshot';
+import { deepFreeze } from './snapshot';
 import { type AnimatorControllerLike, type AnimatorPose } from './animator';
 import { AnimatorSystem } from './animator-system';
 import { randomSeedOf } from './random';
@@ -93,7 +87,7 @@ import { DialogueRunner, validateDialogueInput, type DialogueInputRecord } from 
 import { cameraBlendOf, type CameraViewInfo } from './camera-brain';
 import { RuntimeViews } from './views';
 import { KeptObjects } from './kept';
-import { EnvironmentDirector, type EnvironmentSaveState } from './environment-director';
+import { EnvironmentDirector } from './environment-director';
 import type { ControllerIntents } from './intents';
 import { emptyControllerChannels, emptyMutableIntents, resetMutableIntents, type MutableControllerChannels, type MutableIntentSet } from './mutable-intents';
 import { colliderEntityOf, PHYSICS_QUERY_LIMIT, queryDistance, queryPositive, queryQuat, queryVec3 } from './physics-query-args';
@@ -106,7 +100,7 @@ import { GameplayBlocks, MAX_SIGNAL_NAME, type SceneTransitionRequest } from './
 import { createGameControl } from './game-control';
 import { SpawnScenes } from './spawn-scenes';
 import { createSceneControl, FADE_COLOR_RE, LIFECYCLE_RESTART_DEPRECATED, loadOp, sceneRequestProblem, type SceneOp, type SceneRequestHost, type TransitionSpec } from './scene-control';
-import { EntityAccess, type EntityFieldsSave, type LightOverride } from './entity-access';
+import { EntityAccess, type LightOverride } from './entity-access';
 import { SpawnRequests } from './spawn-requests';
 import { TransformMirror } from './step-buffers';
 import { FrameClock } from './frame-clock';
@@ -115,27 +109,19 @@ import { CHARACTER_IMPULSE_MAX, CharacterPlacement, ControllerPlacements } from 
 import { PhysicsPortFailure, PlayerControllers } from './player-controllers';
 import { actionDiagnostics, behaviorLogTotals, physicsDiagnostics } from './diagnostics-reads';
 import {
-  validateCharacterMoveResult,
-  validateCharacterMoveResult3D,
-  type CharacterClearanceResult,
   type CharacterMoveResult,
-  type CharacterMoveResult3D,
   type CharacterState3D,
   type PhysicsPort,
   type PhysicsPort3D,
-  type PhysicsVec3,
   type PhysicsHit,
   type PhysicsQueryFilter3D,
   type OverlapShape3D,
   type PhysicsQuat,
-  type StaticColliderSpec3D,
   type PhysicsResetPort,
   type PhysicsStepClient,
   type Vec2,
 } from './ports';
 import {
-  SIM_REGISTRY_BRAND,
-  SIMULATION_PHASE_ORDER,
   type BehaviorMessage,
   type BehaviorSceneControl,
   type BehaviorSpawnControl,
@@ -144,8 +130,6 @@ import {
   type RuntimeSceneRow,
   type SceneLoadOptions,
   type SceneLoadRequest,
-  type SceneLoadingView,
-  type SceneTransitionView,
   type SceneSetView,
   type SceneStatus,
   type EffectRequest,
@@ -153,18 +137,14 @@ import {
   type InterpolatedState,
   type InterpolatedVisitor,
   type StepPairVisitor,
-  type ModuleConfig,
   type ModelBounds,
   type ModuleResetContext,
   type Runtime,
   type RuntimeDiagnostics,
-  type RuntimeScene,
-  type RuntimeSnapshot,
   type RuntimeStateName,
   type SimEntityData,
   type SimState,
   type SimulationModule,
-  type SimulationModuleSpec,
   type SimulationPhase,
   type SimulationPhaseModule,
   type StepContext,
@@ -211,11 +191,11 @@ const MAX_ERROR_ENTRIES = 32;
 /** Dialogue inputs per input frame (DIALOGUE_LIMITS.frameInputs). */
 const DIALOGUE_FRAME_INPUTS = 8;
 
-interface BehaviorLogSink {
+export interface BehaviorLogSink {
   handler: ((moduleId: string, level: BehaviorLogLevel, message: string, at?: { file: string; line: number; column: number }) => void) | null;
 }
 
-interface ModuleEntry {
+export interface ModuleEntry {
   id: string;
   /** The declared phases; `['transform']` for an accepted M1 module. */
   phases: readonly SimulationPhase[];
@@ -252,7 +232,7 @@ class InputSourceError extends Error {
   readonly reason = 'input_source_threw';
 }
 
-function messageOf(e: unknown): string {
+export function messageOf(e: unknown): string {
   // Duck-typed: an artifact executed in another realm (the Node `vm` test host)
   // throws an Error that is not `instanceof` this realm's Error.
   if (typeof e === 'object' && e !== null && typeof (e as { message?: unknown }).message === 'string') {
@@ -269,7 +249,7 @@ function messageOf(e: unknown): string {
   return clipMessage(String(e));
 }
 
-function cloneTransform(t: TransformState): TransformState {
+export function cloneTransform(t: TransformState): TransformState {
   return {
     position: [t.position[0], t.position[1], t.position[2]],
     rotation: [t.rotation[0], t.rotation[1], t.rotation[2], t.rotation[3]],
@@ -284,405 +264,8 @@ function cloneCurr(curr: Map<string, TransformState>): Map<string, TransformStat
 }
 
 
-/**
- * Create a runtime instance. Validates the snapshot
- * (deep-freezing it on success), resolves the selected modules, validates
- * the M2 phase/ownership/exclusion rules, builds the initial mutable state
- * (`prev = curr = snapshot transforms`, stepIndex 0, simTime 0), and creates
- * one module instance per selection entry. No loop, timer, listener, or
- * renderer is installed at instantiate.
- */
-export function instantiateRuntime(
-  config: unknown,
-): { ok: true; runtime: Runtime } | { ok: false; error: RuntimeError } {
-  const parsed = parseConfig(config);
-  if ('error' in parsed) return { ok: false, error: parsed.error };
-  const { snapshot, registry, modules, actions, physics, physics3d, settings, clock, clockLabel, driverKind, hz, onFrame, variables, projectSettings, startMode } = parsed.cfg;
-
-  const snap = validateRuntimeSnapshot(snapshot);
-  if ('error' in snap) return { ok: false, error: snap.error };
-  // A start mode names one of the project's modes (ignored without modes).
-  if (startMode !== undefined && snap.modes !== undefined && !snap.modes.modes.some((m) => m.modeId === startMode)) {
-    return { ok: false, error: fail('config_invalid', `config field "startMode": the project has no game mode "${startMode}"`, { reason: 'reference', path: '/startMode' }) };
-  }
-  const { scene, sceneVersion, snapshotId, revision } = snap;
-  // The scene catalog (v4 only; null: one fixed scene).
-  const sceneRows = snap.scenes;
-
-  // Resolve the selection: unknown or duplicate
-  // module ID ⇒ config_invalid; stepping order is the REGISTRATION order.
-  const registered = registry[SIM_REGISTRY_BRAND];
-  if (new Set(modules).size !== modules.length) {
-    return {
-      ok: false,
-      error: fail('config_invalid', 'config field "modules" contains a duplicate module ID', {
-        reason: 'duplicate_module',
-        path: '/modules',
-      }),
-    };
-  }
-  const selection = new Set(modules);
-  const selected: SimulationModuleSpec[] = [];
-  for (const spec of registered.values()) {
-    if (selection.has(spec.id)) selected.push(spec);
-  }
-  for (const id of selection) {
-    if (!registered.has(id)) {
-      return {
-        ok: false,
-        error: fail('config_invalid', `unknown module id "${id}" (not present in the registry)`, {
-          reason: 'unknown_module',
-          path: '/modules',
-        }),
-      };
-    }
-  }
-
-  // Validate every declared phase list (non-empty, unique, canonical).
-  for (const spec of selected) {
-    if (spec.phases === undefined) continue;
-    const check = validatePhaseList(spec.phases);
-    if (!check.ok) {
-      return {
-        ok: false,
-        error: fail('config_invalid', `module "${spec.id}": ${check.message}`, {
-          reason: 'module_phases',
-          path: '/modules',
-        }),
-      };
-    }
-  }
-
-  const isM2 = selected.some((s) => s.phases !== undefined);
-  // Deep-freeze the snapshot (normative) — the input is
-  // never written to; all mutable data is in the simulation state.
-  // For a v3 scene, modules see the scene with folders and
-  // inactive entities resolved away (the input stays frozen as well).
-  const inputSnapshot = deepFreeze(snapshot as RuntimeSnapshot);
-  const frozenSnapshot = deepFreeze({ ...inputSnapshot, scene } as RuntimeSnapshot);
-
-  // Resolve + deep-freeze the gameplay settings.
-  const settingsResult = resolveSettings(settings);
-  if ('error' in settingsResult) return { ok: false, error: settingsResult.error };
-  const resolvedSettings = deepFreeze(settingsResult.settings);
-
-  // M2 module-set validation — before any instance is
-  // created and before any port method is called.
-  const controllerSpecs = selected.filter((s) => s.phases?.includes('controller') === true);
-  const controllerIds = scene.entities
-    .filter((e) => (e.components as { controller?: unknown }).controller !== undefined)
-    .map((e) => e.id);
-  if (isM2) {
-    const selectedIds = new Set(selected.map((s) => s.id));
-    for (const spec of selected) {
-      for (const excluded of spec.excludes ?? []) {
-        if (selectedIds.has(excluded)) {
-          return {
-            ok: false,
-            error: fail('module_combination_unsupported', `modules "${spec.id}" and "${excluded}" cannot coexist`, {
-              reason: `${spec.id}+${excluded}`,
-              detail: `${spec.id}+${excluded}`,
-            }),
-          };
-        }
-      }
-    }
-    if (controllerSpecs.length > 0 && controllerIds.length === 0) {
-      return {
-        ok: false,
-        error: fail(
-          'config_invalid',
-          'a controller module requires a components.controller entity (found 0)',
-          { reason: 'controller_target', path: '/modules' },
-        ),
-      };
-    }
-    const needsPort = selected.some((s) => s.requiresPhysicsPort === true);
-    // A 3D port serves a module that needs physics too (the 3D character controller).
-    if (needsPort && physics === undefined && physics3d === undefined) {
-      return {
-        ok: false,
-        error: fail('config_invalid', 'the selected module set requires an injected physics port', {
-          reason: PHYSICS_PORT_REASON,
-          path: '/physics',
-        }),
-      };
-    }
-  }
-
-  // Build the initial mutable state: prev = curr = the
-  // snapshot transforms (both deep copies — the snapshot is never aliased).
-  const order = scene.entities.map((e) => e.id);
-  const entities = new Map<string, SimEntityData>();
-  const prev = new Map<string, TransformState>();
-  const curr = new Map<string, TransformState>();
-  const colliderEntityIds = new Set<string>();
-  const controllerEntityIds: string[] = [];
-  for (const e of scene.entities) {
-    const t = e.components.transform;
-    const components = e.components;
-    const data: SimEntityData = { id: e.id, parentId: e.parentId ?? null, transform: cloneTransform(t) };
-    if (e.name !== undefined) data.name = e.name;
-    data.componentKinds = Object.freeze(Object.keys(components));
-    const box = components.box;
-    if (box) data.box = { size: [box.size[0], box.size[1], box.size[2]], material: { color: box.material.color } };
-    const v2 = components as { collider?: unknown; controller?: unknown };
-    if (v2.collider !== undefined) {
-      data.hasCollider = true;
-      colliderEntityIds.add(e.id);
-    }
-    if (v2.controller !== undefined) {
-      data.hasController = true;
-      controllerEntityIds.push(e.id);
-    }
-    entities.set(e.id, data);
-    prev.set(e.id, cloneTransform(t));
-    curr.set(e.id, cloneTransform(t));
-  }
-
-  // The view's lens while no virtual camera sets its own (the project's camera settings).
-  const viewLens = viewLensOf(resolvedSettings);
-
-  // One module instance per selection entry (created at instantiate). The
-  // behavior-log sink routes a behavior's accepted `ctx.log` entries into the
-  // runtime's own bounded diagnostics ring; the holder
-  // is bound to the RuntimeInstance once it exists (no log can be emitted
-  // before the first step).
-  const logSink: BehaviorLogSink = { handler: null };
-  // With a scene catalog the tag index follows loads/unloads.
-  const liveTags = sceneRows !== null ? createTagQuery(frozenSnapshot) : null;
-  const configFor = (specId: string): ModuleConfig => ({
-    fixedStepHz: hz,
-    settings: resolvedSettings,
-    sceneVersion,
-    behaviorLog: (level: BehaviorLogLevel, message: string, at?: { file: string; line: number; column: number }) => logSink.handler?.(specId, level, message, at),
-    ...(liveTags !== null ? { tags: liveTags } : {}),
-    // A 3D project (scripts may drive colliders through intents there).
-    ...(physics3d !== undefined ? { physicsDimension: 3 as const } : {}),
-    // The 3D character controller's read-only world queries.
-    ...(physics3d !== undefined
-      ? {
-          character3D: {
-            raycast: (origin: PhysicsVec3, direction: PhysicsVec3, maxDistance: number) => (typeof physics3d.raycast === 'function' ? physics3d.raycast(origin, direction, maxDistance) : null),
-            clearance: (origin: PhysicsVec3) => (typeof physics3d.characterClearance === 'function' ? physics3d.characterClearance(origin) : null),
-          },
-        }
-      : {}),
-  });
-  const entries: ModuleEntry[] = [];
-  const disposeCreated = (): void => {
-    for (const entry of entries) {
-      const d = entry.instance.dispose;
-      if (typeof d === 'function') {
-        try {
-          d.call(entry.instance);
-        } catch {
-          /* a failing module dispose must not break instantiation */
-        }
-      }
-    }
-  };
-  for (const spec of selected) {
-    let instance: SimulationModule | SimulationPhaseModule;
-    try {
-      instance = spec.create(frozenSnapshot, configFor(spec.id));
-    } catch (e) {
-      disposeCreated();
-      // A behavior host create() failure carries its own contract code
-      // (`config_invalid` prepare/instantiate/property, `transform_owner_forbidden`
-      // ownership) instead of the generic `module_create`.
-      if (e instanceof BehaviorHostError) {
-        return {
-          ok: false,
-          error: fail(e.code, `module "${spec.id}" create() failed: ${messageOf(e)}`, {
-            reason: e.reason,
-            moduleId: spec.id,
-            ...(e.detail !== undefined ? { detail: e.detail } : {}),
-          }),
-        };
-      }
-      return {
-        ok: false,
-        error: fail('config_invalid', `module "${spec.id}" create() threw: ${messageOf(e)}`, {
-          reason: 'module_create',
-        }),
-      };
-    }
-    if (typeof instance?.step !== 'function') {
-      disposeCreated();
-      return {
-        ok: false,
-        error: fail('config_invalid', `module "${spec.id}" create() did not return { step }`, {
-          reason: 'module_step',
-        }),
-      };
-    }
-    const phased = spec.phases !== undefined;
-    const phases: readonly SimulationPhase[] = phased ? (spec.phases as readonly SimulationPhase[]) : ['transform'];
-    if (phased) {
-      const owners = (instance as SimulationPhaseModule).transformOwners;
-      if (!Array.isArray(owners) || owners.some((o) => typeof o !== 'string')) {
-        disposeCreated();
-        return {
-          ok: false,
-          error: fail('config_invalid', `module "${spec.id}" must declare string transformOwners at create`, {
-            reason: 'module_owners',
-          }),
-        };
-      }
-    }
-    entries.push({ id: spec.id, phases, phased, instance, owners: [] });
-  }
-
-  // Transform ownership (declared at create), duplicate-writer
-  // and forbidden-entity rejection. A failure disposes every created
-  // instance — no runtime instance is created and no port method is called.
-  if (isM2) {
-    // First pass: collect owners, then detect duplicate claims and missing
-    // entities (the error table's order).
-    const ownerByEntity = new Map<string, string>();
-    for (let i = 0; i < entries.length; i += 1) {
-      const entry = entries[i]!;
-      const spec = selected[i]!;
-      const owners = entry.phased
-        ? (entry.instance as SimulationPhaseModule).transformOwners
-        : spec.legacyTransformOwners
-          ? spec.legacyTransformOwners(frozenSnapshot)
-          : [];
-      entry.owners = owners;
-      for (const entityId of owners) {
-        // An owner in a scene that is not loaded is checked when it loads.
-        if (!entities.has(entityId) && sceneRows === null) {
-          disposeCreated();
-          return {
-            ok: false,
-            error: fail('transform_owner_conflict', `module "${entry.id}" claims missing entity "${entityId}"`, {
-              reason: entityId,
-              moduleId: entry.id,
-            }),
-          };
-        }
-        const other = ownerByEntity.get(entityId);
-        if (other !== undefined && other !== entry.id) {
-          disposeCreated();
-          return {
-            ok: false,
-            error: fail('transform_owner_conflict', `entity "${entityId}" is claimed by "${other}" and "${entry.id}"`, {
-              reason: entityId,
-              moduleId: entry.id,
-            }),
-          };
-        }
-        ownerByEntity.set(entityId, entry.id);
-      }
-    }
-    // Second pass: physics-entity protections.
-    for (const entry of entries) {
-      const isController = entry.phases.includes('controller');
-      for (const entityId of entry.owners) {
-        // In a 3D project a transform-phase module (a script) may drive a collider
-        // that no mover moves — the runtime poses it as a kinematic body (ColliderSystem).
-        const drivable = physics3d !== undefined && ColliderSystem.drivable(scene.entities.find((x) => x.id === entityId)?.components);
-        if ((colliderEntityIds.has(entityId) || controllerEntityIds.includes(entityId)) && !isController && !drivable) {
-          disposeCreated();
-          return {
-            ok: false,
-            error: fail('transform_owner_forbidden', `module "${entry.id}" claims physics entity "${entityId}" without the controller phase`, {
-              reason: 'physics_entity',
-              moduleId: entry.id,
-              detail: 'physics_entity',
-            }),
-          };
-        }
-      }
-    }
-  }
-
-  // The start scenes as batches (members listed by the host;
-  // unlisted entities belong to the first start scene).
-  const startBatches: { sceneId: string; entities: EntityV3[] }[] = [];
-  if (sceneRows !== null) {
-    const starts = sceneRows.filter((r) => r.start);
-    const sceneOfEntity = new Map<string, string>();
-    for (const row of starts) for (const id of row.entityIds ?? []) sceneOfEntity.set(id, row.sceneId);
-    const bySceneId = new Map<string, EntityV3[]>(starts.map((r) => [r.sceneId, []]));
-    for (const e of scene.entities) {
-      bySceneId.get(sceneOfEntity.get(e.id) ?? starts[0]!.sceneId)!.push(e as unknown as EntityV3);
-    }
-    for (const row of starts) startBatches.push({ sceneId: row.sceneId, entities: bySceneId.get(row.sceneId)! });
-  }
-
-  const rt = new RuntimeInstance({
-    snapshotId,
-    revision,
-    hz,
-    clock,
-    clockLabel,
-    driverKind,
-    onFrame,
-    modules: selected.map((s) => s.id),
-    entries,
-    isM2,
-    timing: engineTimingSteps(hz),
-    actions,
-    physics,
-    ...(physics3d !== undefined ? { physics3d } : {}),
-    settings: resolvedSettings,
-    controllerEntityIds,
-    order,
-    entities,
-    viewLens,
-    prev,
-    curr,
-    logSink,
-    sceneRows,
-    startBatches,
-    liveTags,
-    // The tag index 3D queries filter by (the live one when the project has a scene catalog).
-    queryTags: liveTags ?? (physics3d !== undefined ? createTagQuery(frozenSnapshot) : null),
-    animatorControllers: snap.animators as unknown as readonly AnimatorControllerLike[],
-    initialEntities: scene.entities as unknown as readonly EntityV3[],
-    prefabs: snap.prefabs,
-    modelBounds: snap.modelBounds,
-    audioDurations: snap.audioDurations,
-    ...(snap.rigs !== undefined ? { rigs: snap.rigs } : {}),
-    ...(snap.modelColliders !== undefined ? { modelColliders: snap.modelColliders } : {}), ...(snap.architectureStyles !== undefined ? { architectureStyles: snap.architectureStyles } : {}),
-    ...(variables !== undefined ? { variables } : {}),
-    blockTypes: snap.blockTypes,
-    cellFields: snap.cellFields,
-    ...(snap.materialCatalog !== undefined ? { materialCatalog: snap.materialCatalog } : {}),
-    ...(snap.materialIds !== undefined ? { materialIds: snap.materialIds } : {}),
-    ...(snap.saveSchema !== undefined ? { saveSchema: snap.saveSchema } : {}),
-    ...(projectSettings !== undefined ? { projectSettings } : {}),
-    environmentPresets: snap.environmentPresets ?? [],
-    uiDocuments: snap.uiDocuments,
-    ...(snap.dialogue !== undefined ? { dialogue: snap.dialogue } : {}),
-    ...(snap.modes !== undefined ? { modes: snap.modes } : {}),
-    ...(startMode !== undefined ? { startMode } : {}),
-    ...(snap.timelines !== undefined ? { timelines: snap.timelines } : {}),
-    ...(snap.eventCues !== undefined ? { eventCues: snap.eventCues } : {}),
-    ...(snap.sceneList !== undefined ? { sceneList: snap.sceneList } : {}),
-  });
-  return { ok: true, runtime: rt };
-}
-
-function resolveSettings(input: unknown): { settings: GameplaySettings } | { error: RuntimeError } {
-  // project-model owns the settings registry and validation; the runtime
-  // consumes the resolved, frozen object.
-  const content = input === undefined ? {} : input;
-  const result = resolveGameplaySettings(content);
-  if (!result.ok) {
-    return {
-      error: fail('config_invalid', 'gameplay settings are invalid', {
-        reason: 'settings',
-        path: '/settings',
-      }),
-    };
-  }
-  return { settings: result.normalized };
-}
-
-interface RuntimeArgs {
+/** What the runtime is made of: `instantiateRuntime`'s validated, resolved inputs. */
+export interface RuntimeArgs {
   snapshotId: string;
   revision: number;
   hz: number;
@@ -724,8 +307,10 @@ interface RuntimeArgs {
   audioDurations: Readonly<Record<string, number>>;
   /** Model rigs (sockets are resolved on them). */
   rigs?: Readonly<Record<string, import('@thirdlight/project-model').ModelRig>>;
-  /** The models' `_COL` parts (colliders `{type: 'model'}` are made of them); generated architecture's style and preset graphs. */
-  modelColliders?: import('@thirdlight/project-model').ModelColliderTable; architectureStyles?: readonly import('@thirdlight/project-model').ArchitectureGraphLike[];
+  /** The models' `_COL` parts (colliders `{type: 'model'}` are made of them). */
+  modelColliders?: import('@thirdlight/project-model').ModelColliderTable;
+  /** Generated architecture's style and preset graphs. */
+  architectureStyles?: readonly import('@thirdlight/project-model').ArchitectureGraphLike[];
   /** Injected script variables (validated; ctx.save from step 0). */
   variables?: Readonly<Record<string, unknown>>;
   /** The block types and cell fields of the project's block layers. */
@@ -781,7 +366,7 @@ const nowMs = (): number => (typeof performance !== 'undefined' ? performance.no
 const NO_LOOKS: ReadonlyMap<string, import('./primitives').EntityLook> = new Map();
 const NO_IDS: ReadonlySet<string> = new Set();
 
-class RuntimeInstance implements Runtime {
+export class RuntimeInstance implements Runtime {
   private stateName: RuntimeStateName;
   private readonly snapshotId: string;
   private readonly revision: number;
@@ -1275,7 +860,18 @@ class RuntimeInstance implements Runtime {
     });
     this.spawnControl = this.spawnRequests.control();
     // The start scenes' block layers; in 3D their chunks collide (a 2D plane draws them only).
-    this.grid = new RuntimeGrid(args.blockTypes, args.cellFields, args.physics3d !== undefined, args.settings.max_slope_climb_deg, args.materialIds, this.prefabs, args.modelColliders, () => worldStreamSources(this.views.main.hasView() ? this.views.main.view() : null, this.controllers.ids, (id) => this.curr.get(id)?.position), args.architectureStyles, (id) => this.sceneOfEntity(id));
+    this.grid = new RuntimeGrid(
+      args.blockTypes,
+      args.cellFields,
+      args.physics3d !== undefined,
+      args.settings.max_slope_climb_deg,
+      args.materialIds,
+      this.prefabs,
+      args.modelColliders,
+      () => worldStreamSources(this.views.main.hasView() ? this.views.main.view() : null, this.controllers.ids, (id) => this.curr.get(id)?.position),
+      args.architectureStyles,
+      (id) => this.sceneOfEntity(id),
+    );
     this.grid.addLayers(args.initialEntities);
     this.grid.flushCollision(args.physics3d);
     // The start set's graph materials (the values scripts set per object).
@@ -3743,7 +3339,10 @@ class RuntimeInstance implements Runtime {
     const d = this.grid.takeLive((id) => this.entities.has(id), (b) => this.entityRefKeysOf(b));
     if (d === null) return true;
     this.removeSpawnedIds(new Set(d.remove.filter((id) => this.spawnedEntities.has(id))));
-    if (d.refused.length > 0) this.recordError({ code: 'spawn_refused', message: clipMessage(`live blocks not spawned: objects of the game already have the ids ${d.refused.slice(0, 4).join(', ')}`), stepIndex: this.stepIndex });
+    if (d.refused.length > 0) {
+      const message = clipMessage(`live blocks not spawned: objects of the game already have the ids ${d.refused.slice(0, 4).join(', ')}`);
+      this.recordError({ code: 'spawn_refused', message, stepIndex: this.stepIndex });
+    }
     return d.add.length === 0 || this.addSpawned(d.add, true);
   }
 
@@ -3944,7 +3543,10 @@ class RuntimeInstance implements Runtime {
       const debugCommands = this.debugCommands;
       fields['debug'] = { value: Object.freeze({ command: (name: string, options?: DebugCommandOptions) => debugCommands.declare(name, options, phase === 'intent') }), enumerable: true };
       // The block layers, the terrains' and layers' scatter copies, the splines, and the ground of both.
-      Object.assign(fields, { grid: { value: this.grid.api, enumerable: true }, scatter: { value: this.grid.scatter.api, enumerable: true }, splines: { value: this.grid.splines.api, enumerable: true }, surface: { value: this.grid.surface.api, enumerable: true } });
+      fields['grid'] = { value: this.grid.api, enumerable: true };
+      fields['scatter'] = { value: this.grid.scatter.api, enumerable: true };
+      fields['splines'] = { value: this.grid.splines.api, enumerable: true };
+      fields['surface'] = { value: this.grid.surface.api, enumerable: true };
       // Graph-material parameters per object.
       fields['materials'] = { value: this.materials.api, enumerable: true };
       // Generic component access (the behavior host names the writing script) and the shell's scene list.
@@ -4592,8 +4194,20 @@ class RuntimeInstance implements Runtime {
     const ea = this.entityAccess;
     if (ea.applied + ea.refused + ea.conflicts > 0) m2.entityWrites = { applied: ea.applied, refused: ea.refused, conflicts: ea.conflicts, inactive: ea.inactive().size };
     // Script messages refused at the per-step limit (only once one was: the warning); block layers' memory (with layers).
-    const queue = this.blocks?.messageQueueView() ?? null, blockMemory = this.grid.memory(), terrainMemory = this.grid.terrain.memory(), scatterCopies = this.grid.scatter.diagnostics(), splines = this.grid.splines.diagnostics(), architecture = this.grid.architecture.diagnostics(), worldStream = this.grid.stream.diagnostics();
-    Object.assign(m2, queue !== null ? { messageQueue: queue } : {}, blockMemory !== null ? { blockMemory } : {}, terrainMemory !== null ? { terrainMemory } : {}, scatterCopies !== null ? { scatterCopies } : {}, splines !== null ? { splines } : {}, architecture !== null ? { architecture } : {}, worldStream !== null ? { worldStream } : {});
+    const queue = this.blocks?.messageQueueView() ?? null;
+    if (queue !== null) m2.messageQueue = queue;
+    const blockMemory = this.grid.memory();
+    if (blockMemory !== null) m2.blockMemory = blockMemory;
+    const terrainMemory = this.grid.terrain.memory();
+    if (terrainMemory !== null) m2.terrainMemory = terrainMemory;
+    const scatterCopies = this.grid.scatter.diagnostics();
+    if (scatterCopies !== null) m2.scatterCopies = scatterCopies;
+    const splines = this.grid.splines.diagnostics();
+    if (splines !== null) m2.splines = splines;
+    const architecture = this.grid.architecture.diagnostics();
+    if (architecture !== null) m2.architecture = architecture;
+    const worldStream = this.grid.stream.diagnostics();
+    if (worldStream !== null) m2.worldStream = worldStream;
     if (this.failedModuleId !== undefined) m2.failedModuleId = this.failedModuleId;
     if (this.failedPhase !== undefined) m2.failedPhase = this.failedPhase;
     if (this.failedStepIndex !== undefined) m2.failedStepIndex = this.failedStepIndex;

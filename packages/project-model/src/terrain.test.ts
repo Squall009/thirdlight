@@ -114,6 +114,11 @@ describe('terrain tile binary', () => {
     expect(terrainTileBlobBytes(blob)).toBe(terrainTileBytes(t));
     expect(() => readTerrainTileBlob(new Uint8Array(16))).toThrow(/not a binary terrain tile/);
     expect(() => decodeTerrainTile(enc.payload.subarray(0, 20))).toThrow(/bytes/);
+    // A header stating more than its tile takes is refused before a reader allocates that much to inflate into.
+    const lying = blob.slice();
+    new DataView(lying.buffer).setUint32(8, 0x7fffffff, true);
+    expect(() => readTerrainTileBlob(lying)).toThrow(/states 2147483647 bytes/);
+    expect(() => readTerrainTileBlob(wrapTerrainTile('none', { payload: enc.payload, flags: 0 }, enc.payload))).toThrow(/states/);
   });
 });
 

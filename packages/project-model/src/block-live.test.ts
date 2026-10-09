@@ -6,8 +6,8 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { canonicalBlockType, composeBlockContent, rotatedFootprint, validateBlockType, type BlockType } from './block-layers';
-import { blockTypeLive, liveBlockIds, liveBlockPlacement, liveBlockPrefabProblem, liveBlockPrefix, liveBlockRootId, liveEdgeRootId } from './block-live';
+import { BLOCK_LIMITS, canonicalBlockType, composeBlockContent, rotatedFootprint, validateBlockType, type BlockType } from './block-layers';
+import { blockTypeLive, LIVE_CELL_PART_MAX, liveBlockIds, liveBlockPlacement, liveBlockPrefabProblem, liveBlockPrefix, liveBlockRootId, liveEdgeRootId } from './block-live';
 import { ID_RE } from './validate';
 import type { ModelErrorV2 } from './errors';
 
@@ -27,6 +27,11 @@ const door = (root: Record<string, unknown>, child: Record<string, unknown> = { 
 const LIVE: BlockType = { blockId: 'door', name: 'Door', variants: [{ prefab: 'door' }], shape: 'none', live: true };
 
 describe('live block types', () => {
+  it('keeps room in an id for the longest cell part the layer bounds allow', () => {
+    const lo = -BLOCK_LIMITS.coordinateXZ;
+    expect(liveEdgeRootId('a', lo, -BLOCK_LIMITS.coordinateY, lo, 0).length - 'a-'.length).toBe(LIVE_CELL_PART_MAX);
+  });
+
   it('live is a boolean, needs a prefab look, and is stored only when true', () => {
     expect(errs((e) => validateBlockType(LIVE, '', e))).toEqual([]);
     expect(errs((e) => validateBlockType({ ...LIVE, live: 'yes' }, '', e))[0]?.path).toBe('/live');

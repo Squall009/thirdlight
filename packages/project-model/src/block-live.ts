@@ -21,6 +21,7 @@
  * Pure data rules; the runtime keeps the entities (`runtime/src/live-blocks.ts`).
  */
 import type { BlockType } from './block-layers';
+import { ID_MAX_LENGTH } from './validate';
 
 /** The root's components that would move or animate the model the chunk draws merged: refused on a live block's prefab root. */
 export const LIVE_BLOCK_ROOT_REFUSED: readonly string[] = Object.freeze(['mover', 'patrol', 'gravity', 'animator', 'modelAnimation', 'socketAttach']);
@@ -30,12 +31,19 @@ export const LIVE_BLOCK_PREFAB_REFUSED: readonly string[] = Object.freeze(['cont
 /** The root components the spawned root leaves to the chunk mesh (its model is drawn merged with the blocks). */
 export const LIVE_BLOCK_ROOT_MERGED: readonly string[] = Object.freeze(['model', 'materials', 'materialParams']);
 
-/** The longest id the id syntax allows. */
-const ID_MAX = 64;
-/** Room kept for a child's `-<i>` (prefabs of up to 9,999 objects). */
+/**
+ * Room kept for a child's `-<i>`: up to 9,999 objects, above the prefab
+ * limit so raising that limit does not rename the live blocks of layers
+ * with ids near the length limit.
+ */
 const CHILD_SUFFIX_MAX = 5;
-/** The longest cell part (`m4096_m1024_m4096`, an edge's with its axis letter) the layer bounds allow. */
-const CELL_PART_MAX = 18;
+/**
+ * The longest cell part (`m4096_m1024_m4096`, an edge's with its axis
+ * letter) the layer bounds (`BLOCK_LIMITS`) allow. A number, not read from
+ * them: block-layers imports this module, so its limits are not there yet
+ * while this one loads; a test holds the two together.
+ */
+export const LIVE_CELL_PART_MAX = 18;
 
 const coord = (n: number): string => (n < 0 ? `m${-n}` : String(n));
 
@@ -50,7 +58,7 @@ function fnv1a(text: string): string {
 
 /** The prefix a layer's live block ids start with (its id, or a hash of a long one). */
 export function liveBlockPrefix(layerId: string): string {
-  return layerId.length + 1 + CELL_PART_MAX + CHILD_SUFFIX_MAX <= ID_MAX ? layerId : `l${fnv1a(layerId)}`;
+  return layerId.length + 1 + LIVE_CELL_PART_MAX + CHILD_SUFFIX_MAX <= ID_MAX_LENGTH ? layerId : `l${fnv1a(layerId)}`;
 }
 
 /** The id of a live block's root object (its anchor cell's). */

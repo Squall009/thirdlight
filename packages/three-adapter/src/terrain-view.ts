@@ -72,6 +72,7 @@ import { packTerrainTile, type TerrainTexels } from './terrain-pack-worker';
 import { askingRing, eyeMoved, recheckMetres, type PageWorldStream, type StreamCell } from './world-stream';
 import { terrainPackShape, type TerrainTileStore } from './terrain-tile-store';
 import { SphereSide, type CullView } from './view-cull';
+import { perfMark } from './perf-marks';
 
 /** Tiles per texture page: the array layers WebGL 2 and WebGPU both guarantee (256). */
 export const TERRAIN_PAGE_LAYERS = 256;
@@ -853,7 +854,7 @@ export class TerrainView {
             if (rec.coarse !== null) {
               rec.coarse.dirty = true;
               // A streamed tile in (measurements line it up with the frames).
-              globalThis.performance?.mark?.('tl:terrain:streamed', { detail: { tile: [t.x, t.z], uploadMs: Math.round((performance.now() - t0) * 100) / 100 } });
+              perfMark('tl:terrain:streamed', { tile: [t.x, t.z], uploadMs: Math.round((performance.now() - t0) * 100) / 100 });
             }
           }
           // Its macro texture shows what it was: drawn from its layers until baked again.

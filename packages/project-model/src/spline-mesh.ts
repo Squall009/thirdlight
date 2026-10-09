@@ -28,6 +28,7 @@
 import { hasBinaryMagic, readBinaryBlob, wrapBinaryBlob } from './binary-container';
 import { SPLINE_MESH_STEP_DEFAULT, SPLINE_SURFACE_OFFSET_DEFAULT, SPLINE_WATER_FLOW_DEFAULT, SPLINE_WATER_FOAM_DEFAULT, type SplineComponent, type SplinePieceSettings } from './spline';
 import { SplineCurve, type SplineFrame } from './spline-curve';
+import { INSTANCE_FLOATS } from './types-v3';
 
 /** Metres of curve one mesh piece covers (about: the curve's length divided evenly). */
 export const SPLINE_MESH_PIECE_METRES = 64;
@@ -35,8 +36,6 @@ export const SPLINE_MESH_PIECE_METRES = 64;
 export const SPLINE_MADE_MAGIC = Object.freeze([0x54, 0x4c, 0x53, 0x50]);
 /** The payload layout this engine writes and reads. */
 export const SPLINE_MADE_LAYOUT = 1;
-/** Floats a piece's copy takes (position, rotation quaternion, scale), as an instance set's. */
-const COPY_FLOATS = 10;
 
 /** One level of a mesh piece: its triangles over the piece's vertices and how far (m) its surface lies from the finest. */
 export interface SplineMeshLevel {
@@ -212,7 +211,7 @@ export function splinePieceCopies(c: SplineComponent, p: SplinePieceSettings): F
   const start = p.start ?? 0;
   if (start > curve.length) return new Float32Array(0);
   const n = Math.floor((curve.length - start) / p.spacing + 1e-9) + 1;
-  const out = new Float32Array(n * COPY_FLOATS);
+  const out = new Float32Array(n * INSTANCE_FLOATS);
   const [ox, oy] = p.offset ?? [0, 0];
   const yaw = ((p.yaw ?? 0) * Math.PI) / 180;
   const upright = p.upright !== false;
@@ -245,7 +244,7 @@ export function splinePieceCopies(c: SplineComponent, p: SplinePieceSettings): F
     const rx = upright ? -f.tz / rl : f.rx;
     const ry = upright ? 0 : f.ry;
     const rz = upright ? f.tx / rl : f.rz;
-    const o = k * COPY_FLOATS;
+    const o = k * INSTANCE_FLOATS;
     out[o] = f.x + rx * ox + up[0]! * oy;
     out[o + 1] = f.y + ry * ox + up[1]! * oy;
     out[o + 2] = f.z + rz * ox + up[2]! * oy;
@@ -345,7 +344,7 @@ export function encodeSplineMade(made: SplineMade): Uint8Array {
   u32(made.copies.length);
   for (const c of made.copies) {
     u32(c.index);
-    u32(c.copies.length / COPY_FLOATS);
+    u32(c.copies.length / INSTANCE_FLOATS);
     floats(c.copies);
   }
   return wrapBinaryBlob(SPLINE_MADE_MAGIC, 'none', payload.length, payload);
@@ -418,7 +417,7 @@ export function decodeSplineMade(blob: Uint8Array): SplineMade {
   for (let k = 0; k < cc; k++) {
     const index = u32();
     const n = u32();
-    copies.push({ index, copies: floats(n * COPY_FLOATS) });
+    copies.push({ index, copies: floats(n * INSTANCE_FLOATS) });
   }
   return { pieces, copies };
 }

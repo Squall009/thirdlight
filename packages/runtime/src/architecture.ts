@@ -61,6 +61,8 @@ interface Held {
 
 export class RuntimeArchitecture {
   private readonly held = new Map<string, Held>();
+  /** The door links of every held object, made on the first ask after an object came or went. */
+  private doorList: readonly GridDoorLink[] | null = null;
   private dirty = new Set<string>();
   private lastBuild: ArchitectureCollisionDiagnostics['lastBuild'] = null;
   private readonly styles: ArchitectureStyles;
@@ -120,8 +122,9 @@ export class RuntimeArchitecture {
     return rooms;
   }
 
-  /** The door links of the loaded objects (objects in id order; frozen). */
+  /** The door links of the loaded objects (objects in id order; frozen). Scripts and graphs ask every frame: kept until an object comes or goes. */
   doorLinks(): readonly GridDoorLink[] {
+    if (this.doorList !== null) return this.doorList;
     const out: GridDoorLink[] = [];
     for (const [id, h] of [...this.held].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) {
       if (h.component.buildings === undefined) continue;
@@ -130,7 +133,8 @@ export class RuntimeArchitecture {
       );
       out.push(...h.doors);
     }
-    return Object.freeze(out);
+    this.doorList = Object.freeze(out);
+    return this.doorList;
   }
 
   /** The door link nearest a world point within `reach` metres on the ground (null: none, or not a point). */
@@ -158,6 +162,7 @@ export class RuntimeArchitecture {
       if (c === undefined || !Array.isArray(c.elements)) continue;
       const p = e.components.transform?.position ?? [0, 0, 0];
       const old = this.held.get(e.id);
+      this.doorList = null;
       this.held.set(e.id, { component: c, origin: [p[0] ?? 0, p[1] ?? 0, p[2] ?? 0], doors: null, builtFrom: old?.builtFrom ?? null, built: old?.built ?? [] });
       this.dirty.add(e.id);
       if (c.layer !== undefined || old?.component.layer !== undefined) this.roomsRevision += 1;
@@ -172,6 +177,7 @@ export class RuntimeArchitecture {
       if (h !== undefined) out.push(...h.built);
       if (h?.component.layer !== undefined) this.roomsRevision += 1;
       this.held.delete(id);
+      this.doorList = null;
       this.dirty.delete(id);
     }
     return out;

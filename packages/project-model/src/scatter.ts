@@ -37,7 +37,9 @@
 import type { ModelErrorV2 } from './errors';
 import { brushHash, copyRotation } from './instance-brush';
 import { INSTANCE_DENSITY_SIZE_MIN, MAX_INSTANCE_CHUNK_SIZE } from './model-lod';
-import { canonicalRuleRange, ruleConditionsAt, ruleRangeAt, validateRuleConditions, validateRuleRange, SURFACE_RULE_BLOCK_LAYERS, SURFACE_RULE_CAVITY_RADIUS, SURFACE_RULE_LAYER_MAX, type RuleConditions, type RuleRange, type SurfacePoint } from './surface-rules';
+import { canonicalRuleRange, ruleConditionsAt, ruleRangeAt, validateRuleConditions, validateRuleRange, SURFACE_RULE_BLOCK_LAYERS, SURFACE_RULE_CAVITY_RADIUS, type RuleConditions, type RuleRange, type SurfacePoint } from './surface-rules';
+import { TERRAIN_LAYER_MAX } from './terrain-sizes';
+import { INSTANCE_FLOATS } from './types-v3';
 import { ID_RE } from './validate';
 import { decodeBase64, encodeBase64 } from './png-decode';
 
@@ -163,9 +165,6 @@ export const SCATTER_CHUNK_METERS_DEFAULT = 2048;
  */
 export const SCATTER_BAKE_MAX_CANDIDATES = 33_554_432;
 
-/** Floats per stored copy (the instance buffers' layout). */
-export const SCATTER_COPY_FLOATS = 10;
-
 const ID_PATTERN = /^[A-Za-z0-9_-]{1,32}$/;
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const finite = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
@@ -180,7 +179,7 @@ export function validateScatterRules(value: unknown, path: string, errors: Model
     return;
   }
   const L = SCATTER_LIMITS;
-  const layerMax = blocks ? SURFACE_RULE_BLOCK_LAYERS - 1 : SURFACE_RULE_LAYER_MAX;
+  const layerMax = blocks ? SURFACE_RULE_BLOCK_LAYERS - 1 : TERRAIN_LAYER_MAX;
   const ids = new Set<string>();
   value.forEach((r, i) => {
     const p = `${path}/${i}`;
@@ -507,7 +506,7 @@ export function bakeScatterCell(rules: readonly ScatterRule[], surface: ScatterS
           const [x, z] = placer.point(ix, iz);
           if (inside(area, x, z)) continue;
         } else if (rect === null) continue;
-        rows.push({ iz, ix, at: i * SCATTER_COPY_FLOATS, from: before.copies });
+        rows.push({ iz, ix, at: i * INSTANCE_FLOATS, from: before.copies });
       }
     }
     if (!empty) {
@@ -523,11 +522,11 @@ export function bakeScatterCell(rules: readonly ScatterRule[], surface: ScatterS
     }
     looked += placer.looked;
     rows.sort((a, b) => a.iz - b.iz || a.ix - b.ix);
-    const copies = new Float32Array(rows.length * SCATTER_COPY_FLOATS);
+    const copies = new Float32Array(rows.length * INSTANCE_FLOATS);
     const cells = new Int32Array(rows.length * 2);
     const fresh = Float32Array.from(made);
     rows.forEach((r, i) => {
-      copies.set((r.from ?? fresh).subarray(r.at, r.at + SCATTER_COPY_FLOATS), i * SCATTER_COPY_FLOATS);
+      copies.set((r.from ?? fresh).subarray(r.at, r.at + INSTANCE_FLOATS), i * INSTANCE_FLOATS);
       cells[i * 2] = r.ix;
       cells[i * 2 + 1] = r.iz;
     });
@@ -691,8 +690,8 @@ export function decodeScatterCell(bytes: Uint8Array): ScatterCell {
     const a = v.getUint32(o + 4, true);
     const e = v.getUint32(o + 8, true);
     o += 12;
-    need(o, n * SCATTER_COPY_FLOATS * 4 + (n + a + e) * 8);
-    const copies = new Float32Array(n * SCATTER_COPY_FLOATS);
+    need(o, n * INSTANCE_FLOATS * 4 + (n + a + e) * 8);
+    const copies = new Float32Array(n * INSTANCE_FLOATS);
     for (let i = 0; i < copies.length; i++, o += 4) copies[i] = v.getFloat32(o, true);
     const ints = (count: number): Int32Array => {
       const out = new Int32Array(count * 2);

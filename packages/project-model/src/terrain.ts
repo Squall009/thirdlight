@@ -24,9 +24,9 @@ import { canonicalSurfaceRules, validateSurfaceRules, type SurfaceRule } from '.
 import { canonicalScatterRules, validateScatterRules, type ScatterRule } from './scatter';
 import { canonicalTerrainLayers, validateTerrainLayers, type TerrainLayer } from './terrain-layers';
 import { canonicalStreamingRings, validateStreamingRings, type StreamingRings } from './world-streaming';
+import { TERRAIN_TILE_SAMPLES } from './terrain-sizes';
 
-/** The tile sizes a terrain may use (samples per side, 2ⁿ + 1). */
-export const TERRAIN_TILE_SAMPLES: readonly number[] = Object.freeze([17, 33, 65, 129, 257, 513, 1025]);
+export { TERRAIN_TILE_SAMPLES };
 /** A new terrain's tile size: 256 m tiles at 1 m spacing. */
 export const TERRAIN_TILE_SAMPLES_DEFAULT = 257;
 /** Metres between samples. */

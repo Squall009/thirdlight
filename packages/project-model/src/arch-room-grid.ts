@@ -20,17 +20,57 @@
  * Pure.
  */
 import { hashText64 } from './arch-math';
-import { openingSpan } from './arch-opening';
-import { samplePath } from './arch-path';
+import { openingAlong, openingSpan } from './arch-opening';
+import { type PathSamples, samplePath } from './arch-path';
 import { pointInPolygon } from './arch-mesh';
 import type { ArchitectureRoomPlan } from './arch-style';
 import { profileBounds, resolveProfile } from './arch-sweep';
-import type { ArchitectureComponent, ArchitecturePaint } from './architecture';
+import type { ArchitectureComponent, ArchitectureOpening, ArchitecturePaint, ArchitecturePath } from './architecture';
 import { cellKeyOf } from './block-grid';
 import type { BlockRegion } from './block-layers';
 
 /** How close to a cell line (in cells) a wall's path must run to stand on it. */
 const ON_LINE = 1e-3;
+
+/**
+ * Each layer cell a level, straight stretch of a sampled path standing on a
+ * cell line runs past (layer cells, the path placed at `offset`): `axis` 0
+ * on an x line (the cell's −x side), 1 on a z line; `line` the line's
+ * index, `k` the cell's along it, `d` the cell middle's distance along the
+ * path, `py` the stretch's height (object frame + offset). Stretches off the
+ * cell lines (arcs, diagonals) are skipped: the colliders keep those.
+ */
+function forEachLineCell(s: PathSamples, offset: readonly number[], cellSize: readonly number[], visit: (axis: 0 | 1, line: number, k: number, d: number, py: number) => void): void {
+  const [cs0, , cs2] = [cellSize[0]!, cellSize[1]!, cellSize[2]!];
+  const [ox, oy, oz] = [offset[0] ?? 0, offset[1] ?? 0, offset[2] ?? 0];
+  const segs = s.closed ? s.n : s.n - 1;
+  for (let j = 0; j < segs; j++) {
+    const a = j;
+    const b = (j + 1) % s.n;
+    const px = s.pos[a * 3]! + ox;
+    const py = s.pos[a * 3 + 1]! + oy;
+    const pz = s.pos[a * 3 + 2]! + oz;
+    const qx = s.pos[b * 3]! + ox;
+    const qz = s.pos[b * 3 + 2]! + oz;
+    if (Math.abs(s.pos[b * 3 + 1]! - s.pos[a * 3 + 1]!) > 1e-6) continue;
+    let axis: 0 | 1;
+    let line: number;
+    let lo: number;
+    let hi: number;
+    let start: number;
+    if (Math.abs(px - qx) < 1e-6 && Math.abs(px / cs0 - Math.round(px / cs0)) < ON_LINE) {
+      axis = 0;
+      line = Math.round(px / cs0);
+      [lo, hi, start] = [Math.min(pz, qz), Math.max(pz, qz), pz];
+    } else if (Math.abs(pz - qz) < 1e-6 && Math.abs(pz / cs2 - Math.round(pz / cs2)) < ON_LINE) {
+      axis = 1;
+      line = Math.round(pz / cs2);
+      [lo, hi, start] = [Math.min(px, qx), Math.max(px, qx), px];
+    } else continue;
+    const along = axis === 0 ? cs2 : cs0;
+    for (let k = Math.ceil(lo / along - 0.5 - 1e-9); (k + 0.5) * along < hi - 1e-9; k++) visit(axis, line, k, s.dist[j]! + Math.abs((k + 0.5) * along - start), py);
+  }
+}
 
 /**
  * The cell edges a component's walls stand on (layer cells): key
@@ -40,8 +80,7 @@ const ON_LINE = 1e-3;
  */
 export function architectureWallEdges(c: Pick<ArchitectureComponent, 'elements' | 'profiles'>, offset: readonly number[], cellSize: readonly number[]): Map<number, boolean> {
   const out = new Map<number, boolean>();
-  const [cs0, cs1, cs2] = [cellSize[0]!, cellSize[1]!, cellSize[2]!];
-  const [ox, oy, oz] = [offset[0] ?? 0, offset[1] ?? 0, offset[2] ?? 0];
+  const cs1 = cellSize[1]!;
   for (const e of c.elements) {
     if (e.kind !== 'sweep' || e.wall !== true) continue;
     const def = c.profiles?.[e.profile];
@@ -50,45 +89,41 @@ export function architectureWallEdges(c: Pick<ArchitectureComponent, 'elements' 
     const [, , y0, y1] = profileBounds(pts);
     const s = samplePath(e.path);
     const holes = (e.openings ?? []).map((o) => openingSpan(o, s, pts)).filter((h) => h.b > h.a && h.top > h.bottom);
-    const segs = s.closed ? s.n : s.n - 1;
-    for (let j = 0; j < segs; j++) {
-      const a = j;
-      const b = (j + 1) % s.n;
-      const px = s.pos[a * 3]! + ox;
-      const py = s.pos[a * 3 + 1]! + oy;
-      const pz = s.pos[a * 3 + 2]! + oz;
-      const qx = s.pos[b * 3]! + ox;
-      const qz = s.pos[b * 3 + 2]! + oz;
-      if (Math.abs(s.pos[b * 3 + 1]! - s.pos[a * 3 + 1]!) > 1e-6) continue;
-      let axis: 0 | 1;
-      let line: number;
-      let lo: number;
-      let hi: number;
-      let start: number;
-      if (Math.abs(px - qx) < 1e-6 && Math.abs(px / cs0 - Math.round(px / cs0)) < ON_LINE) {
-        axis = 0;
-        line = Math.round(px / cs0);
-        [lo, hi, start] = [Math.min(pz, qz), Math.max(pz, qz), pz];
-      } else if (Math.abs(pz - qz) < 1e-6 && Math.abs(pz / cs2 - Math.round(pz / cs2)) < ON_LINE) {
-        axis = 1;
-        line = Math.round(pz / cs2);
-        [lo, hi, start] = [Math.min(px, qx), Math.max(px, qx), px];
-      } else continue;
-      const along = axis === 0 ? cs2 : cs0;
+    forEachLineCell(s, offset, cellSize, (axis, line, k, d, py) => {
       const r0 = Math.ceil((py + y0) / cs1 - 0.5 - 1e-9);
       const r1 = Math.floor((py + y1) / cs1 - 0.5 + 1e-9);
-      for (let k = Math.ceil(lo / along - 0.5 - 1e-9); (k + 0.5) * along < hi - 1e-9; k++) {
-        const mid = (k + 0.5) * along;
-        const d = s.dist[j]! + Math.abs(mid - start);
-        for (let r = r0; r <= r1; r++) {
-          const h = (r + 0.5) * cs1 - py;
-          const open = holes.some((o) => d > o.a && d < o.b && h > o.bottom && h < o.top);
-          const key = (axis === 0 ? cellKeyOf(line, r, k) : cellKeyOf(k, r, line)) * 2 + axis;
-          out.set(key, (out.get(key) ?? false) || !open);
-        }
+      for (let r = r0; r <= r1; r++) {
+        const h = (r + 0.5) * cs1 - py;
+        const open = holes.some((o) => d > o.a && d < o.b && h > o.bottom && h < o.top);
+        const key = (axis === 0 ? cellKeyOf(line, r, k) : cellKeyOf(k, r, line)) * 2 + axis;
+        out.set(key, (out.get(key) ?? false) || !open);
       }
-    }
+    });
   }
+  return out;
+}
+
+/**
+ * The layer's cell edges one opening in a wall along `path` covers (layer
+ * cells: [x, y, z, axis]), where an edge piece (a door) goes in it: the
+ * cells along the wall's line whose middles its span holds, the span kept
+ * inside the path as the generator keeps it (`openingSpan`), in the rows
+ * between its sill and head above `floor` (object frame). The same cells
+ * {@link architectureWallEdges} opens for it. Empty when its stretch is
+ * not on a cell line.
+ */
+export function architectureOpeningEdges(path: ArchitecturePath, opening: ArchitectureOpening, floor: number, offset: readonly number[], cellSize: readonly number[]): [number, number, number, number][] {
+  const cs1 = cellSize[1]!;
+  const s = samplePath(path);
+  const { a, b } = openingAlong(opening, s.length);
+  const oy = offset[1] ?? 0;
+  const r0 = Math.ceil((floor + oy + opening.bottom) / cs1 - 0.5 - 1e-9);
+  const r1 = Math.floor((floor + oy + opening.top) / cs1 - 0.5 + 1e-9);
+  const out: [number, number, number, number][] = [];
+  forEachLineCell(s, offset, cellSize, (axis, line, k, d) => {
+    if (!(d > a && d < b)) return;
+    for (let r = r0; r <= r1; r++) out.push(axis === 0 ? [line, r, k, 0] : [k, r, line, 1]);
+  });
   return out;
 }
 

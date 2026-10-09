@@ -14,7 +14,7 @@
  * Browser-only (React).
  */
 import { useEffect, useState, type JSX } from 'react';
-import { SURFACE_RULE_BLOCK_LAYERS, SURFACE_RULE_CAVITY_RADIUS, SURFACE_RULE_LAYER_MAX, type RuleRange, type SurfaceRule } from '@thirdlight/runtime';
+import { SURFACE_RULE_BLOCK_LAYERS, SURFACE_RULE_CAVITY_RADIUS, TERRAIN_LAYER_MAX, type RuleRange, type SurfaceRule } from '@thirdlight/runtime';
 
 /** The conditions material and scatter rules share (`RuleConditions`). */
 export const SHARED_CONDITIONS: readonly ConditionSpec[] = [
@@ -110,7 +110,7 @@ export function SurfaceRulesEditor(p: Props): JSX.Element {
   const [draft, setDraft] = useState<SurfaceRule[]>(() => structuredClone([...p.rules]));
   const [busy, setBusy] = useState(false);
   useEffect(() => setDraft(structuredClone(JSON.parse(stored) as SurfaceRule[])), [stored]);
-  const layerMax = p.blocks ? SURFACE_RULE_BLOCK_LAYERS - 1 : SURFACE_RULE_LAYER_MAX;
+  const layerMax = p.blocks ? SURFACE_RULE_BLOCK_LAYERS - 1 : TERRAIN_LAYER_MAX;
   const changed = JSON.stringify(draft) !== stored;
   const update = (i: number, patch: (r: SurfaceRule) => SurfaceRule): void => setDraft((d) => d.map((r, k) => (k === i ? patch(structuredClone(r)) : r)));
   const move = (i: number, by: number): void =>

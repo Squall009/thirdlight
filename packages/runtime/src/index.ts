@@ -178,7 +178,8 @@ export {
 } from './registry';
 export { interpolateTransformInto } from './interp';
 export { cameraBlendOf, interpolateCameraPose, type CameraPoseLike } from './camera-brain';
-export { catchUpSteps, DROP_THROUGH_STEPS, EFFECT_MAX_QUEUED_REQUESTS, MAX_CATCHUP_SECONDS, SETTLE_PREROLL_STEPS, engineTimingSteps, instantiateRuntime } from './runtime';
+export { catchUpSteps, DROP_THROUGH_STEPS, EFFECT_MAX_QUEUED_REQUESTS, MAX_CATCHUP_SECONDS, SETTLE_PREROLL_STEPS, engineTimingSteps } from './runtime';
+export { instantiateRuntime } from './runtime-instantiate';
 // The per-step budget of 3D script queries; the pointer state the runtime keeps.
 export { PHYSICS_QUERY_LIMIT, type HeldPointer } from './runtime';
 export {
@@ -268,14 +269,13 @@ export { STREAMING_BUDGET_DEFAULT_MB, TERRAIN_OVERVIEW_SAMPLES, inStreamRing, re
 export { encodeTerrainOverview, encodeTerrainTile, terrainOverviewTile, wrapTerrainOverview, wrapTerrainTile } from '@thirdlight/project-model';
 export { STREAM_CHUNK_COST, STREAM_COLLIDER_SAMPLES_PER_STEP, STREAM_LIVE_SPAWNS_PER_STEP, STREAM_RECHECK_METRES, SimWorldStream, worldStreamSources, type SimStreamDiagnostics, type StreamRingChange } from './world-stream';
 // Rule scatter's stored copies (terrain tiles' blobs, block chunks' text), read by the renderer and the colliders.
-export { FOLIAGE_NEAR_METRES, SCATTER_BLOB_DISTANCE, SCATTER_CHUNK_METERS_DEFAULT, SCATTER_COPY_FLOATS, SCATTER_COVER_DISTANCE_DEFAULT, SCATTER_LIMITS, bakeScatterCell, blockScatterSurface, coverScatterRules, decodeChunkScatter, encodeChunkScatter, regionExcluder, scatterBlobOf, scatterCellOfBlob, scatterCellBytes, scatterReach, storedScatterRules, terrainScatterSurface, type ScatterCell, type ScatterCopies, type ScatterGround, type ScatterRect, type ScatterRegionLayer, type ScatterRule, type ScatterSurface } from '@thirdlight/project-model';
+export { FOLIAGE_NEAR_METRES, SCATTER_BLOB_DISTANCE, SCATTER_CHUNK_METERS_DEFAULT, INSTANCE_FLOATS, SCATTER_COVER_DISTANCE_DEFAULT, SCATTER_LIMITS, bakeScatterCell, blockScatterSurface, coverScatterRules, decodeChunkScatter, encodeChunkScatter, regionExcluder, scatterBlobOf, scatterCellOfBlob, scatterCellBytes, scatterReach, storedScatterRules, terrainScatterSurface, type ScatterCell, type ScatterCopies, type ScatterGround, type ScatterRect, type ScatterRegionLayer, type ScatterRule, type ScatterSurface } from '@thirdlight/project-model';
 export { TERRAIN_COLLIDER_PATCH_CELLS, TerrainColliders, terrainColliderId, terrainColliderPieces, type TerrainCollisionDiagnostics, type TerrainCollisionTile, type TerrainColliderPiece, type TerrainLayerData, type TerrainSimTile, type TerrainTileData } from './terrain-collision';
 export { RuntimeSurface, type BehaviorSurface, type SurfaceInfo } from './surface';
 export { RuntimeArchitecture, type ArchitectureCollisionDiagnostics, type ArchitectureLayerRooms } from './architecture';
 // Generated architecture: the generator the page's workers run, its blob and keys (made at load from parameters).
 export {
   ARCHITECTURE_CHUNK_DEFAULT,
-  ARCHITECTURE_COPY_FLOATS,
   ARCHITECTURE_LOD_DISTANCE_DEFAULT,
   ARCHITECTURE_MATERIAL_SLOT,
   ARCHITECTURE_PANE_MATERIAL_SLOT,
@@ -283,6 +283,7 @@ export {
   architecturePaintOf,
   architectureRoomRegions,
   architectureWallEdges,
+  architectureOpeningEdges,
   architectureSheets,
   architectureChunkKeys,
   architectureCopies,
@@ -442,6 +443,7 @@ export {
 // Levels of detail: the models' default switch points, the project's bias and hysteresis, instance density (defined once, in project-model).
 export {
   instanceDensityOf,
+  INSTANCE_CHUNK_METERS,
   LOD_BIAS_DEFAULT,
   LOD_HYSTERESIS_DEFAULT,
   LOD_REFERENCE_FOV_DEG,
@@ -486,7 +488,7 @@ export {
 export type { BehaviorDebug, DebugCommandArgs, DebugCommandArgSpec, DebugCommandArgType, DebugCommandOptions, DebugCommandSpec, DebugCommandState } from './types';
 // Block layers — ctx.grid, the runtime grid, and the pure grid/meshing helpers the renderer shares.
 export { GRID_WRITES_PER_STEP, RuntimeGrid, gridColliderId, type BehaviorGrid, type GridCell, type GridCellInput, type GridChange, type GridChunkChange, type GridCollisionRingChange, type GridCutawayState, type GridDiff, type GridKitChange, type GridArchitectureChange, type GridDoorLink, type GridDoorSide, type GridEdge, type GridEdgeInput, type GridPick, type GridRenderChange, type GridSurface, type GridVec3 } from './grid';
-export { type GridWalkOptions, type GridWalkPlace } from './grid-walk';
+export { type GridWalkOptions, type GridWalkPathOutcome, type GridWalkPlace } from './grid-walk';
 // Edge pieces: the editor's edge brush snaps and checks edges with the backend's rules.
 export { BLOCK_CONNECT_PIECES, BLOCK_EDGE_THICKNESS, edgeInBounds, edgeInBox, type BlockConnect, type BlockConnectPiece, type BlockEdge } from '@thirdlight/project-model';
 // The editor previews a block stroke locally with the same edit code the backend runs (then commits one editBlocks).
@@ -496,7 +498,7 @@ export { INSTANCE_BRUSH_DEFAULTS, INSTANCE_BRUSH_LIMITS, StrokeCandidates, candi
 // The paint brush and block-layer paint (the editor's Paint mode, the renderer's paint colours).
 export { BRUSH_FALLOFFS, PAINT_BRUSH_LIMITS, PAINT_CHANNELS, chunkMeshAO, chunkMeshPaint, chunkPaintColors, type BrushFalloff, type PaintBrush } from '@thirdlight/project-model';
 // Material rules (block chunks evaluate them when meshed; the editor edits them).
-export { SURFACE_RULE_BLOCK_LAYERS, SURFACE_RULE_CAVITY_RADIUS, SURFACE_RULE_LAYER_MAX, SurfaceRuleSet, type RuleRange, type SurfaceRule } from '@thirdlight/project-model';
+export { SURFACE_RULE_BLOCK_LAYERS, SURFACE_RULE_CAVITY_RADIUS, SurfaceRuleSet, type RuleRange, type SurfaceRule } from '@thirdlight/project-model';
 // The layers past a vec4 a per-layer material setting holds values for (the editor's layer table).
 export { MATERIAL_EXTRA_LAYERS_MAX } from '@thirdlight/project-model';
 // A prop's block footprint: the editor snaps props and writes footprints with the backend's geometry.

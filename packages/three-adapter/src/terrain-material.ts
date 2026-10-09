@@ -123,8 +123,8 @@ export interface TerrainSurface extends GraphSurface {
   sunlit(h: TerrainHorizonUniforms): N;
 }
 
-/** Decode a texel's 16-bit step (R high byte, G low byte). */
-const stepOf = (t: N): N => floor(t.r.mul(255).add(0.5)).mul(256).add(floor(t.g.mul(255).add(0.5)));
+/** Decode a texel's 16-bit step (R high byte, G low byte, as `terrain-texels.ts` packs it): every shader reading heights decodes through this. */
+export const stepOf = (t: N): N => floor(t.r.mul(255).add(0.5)).mul(256).add(floor(t.g.mul(255).add(0.5)));
 
 /**
  * The surface a terrain page's materials compile against: its height,

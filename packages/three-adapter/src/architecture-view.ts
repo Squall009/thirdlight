@@ -28,7 +28,7 @@
 import * as THREE from 'three';
 import {
   ARCHITECTURE_CHUNK_DEFAULT,
-  ARCHITECTURE_COPY_FLOATS,
+  INSTANCE_FLOATS,
   ARCHITECTURE_LOD_DISTANCE_DEFAULT,
   ARCHITECTURE_MATERIAL_SLOT,
   architectureChunkInput,
@@ -53,12 +53,13 @@ import {
 import { answerArchitectureJob, type ArchitectureJobReply, type ArchitectureJobRequest } from './architecture-worker';
 import type { MeshWorkerPort } from './block-mesh-pool';
 import { splitByCutaway } from './block-cutaway-view';
-import { buildInstanceSet, type BuiltInstanceSet } from './instancing';
+import { buildInstanceSet, INSTANCE_CHUNK_METERS, type BuiltInstanceSet } from './instancing';
 import type { LodTuning } from './lod-switch';
 import { ROOM_AT_KEY, ROOM_TAG_KEY } from './room-culling';
 import { STATIC_CASTER_KEY } from './shadow-casters';
 import type { ModelInstance } from './visual';
 import { STREAM_ARRIVAL_MS } from './world-stream';
+import { perfMark } from './perf-marks';
 
 /** At most this many generator workers (the block mesher, the simulation, the page and the GPU process want cores too). */
 export const ARCHITECTURE_WORKERS_MAX = 2;
@@ -66,8 +67,6 @@ export const ARCHITECTURE_WORKERS_MAX = 2;
 const IN_FLIGHT_PER_WORKER = 2;
 /** Made chunks kept in memory by key (an undo, or a slider dragged back, finds them made): a cache's bound, not a project's. */
 export const ARCHITECTURE_CACHE_BYTES = 64 * 1024 * 1024;
-/** The chunk size (m) kit copies are culled and given levels by. */
-const COPY_CHUNK_METRES = 32;
 /** Performance marks: each chunk made (detail {object, ms, where}) and each object whose chunks are all drawn (detail {object, ms, chunks, first}). */
 export const ARCHITECTURE_CHUNK_MARK = 'tl:arch:chunk';
 export const ARCHITECTURE_READY_MARK = 'tl:arch:ready';
@@ -215,6 +214,9 @@ interface Job {
   d: number;
 }
 
+/** No jobs (the cold-worker list once every worker is warm). */
+const NO_JOBS: readonly [number, Job & { worker: number }][] = [];
+
 /** What the view draws and makes (diagnostics). */
 export interface ArchitectureViewDiagnostics {
   objects: number;
@@ -300,7 +302,7 @@ export class ArchitectureView {
     const before = this.previewing;
     this.previewing = preview;
     const objects = this.remake((rec) => (before !== null && rec.presets.has(before.preset)) || (preview !== null && rec.presets.has(preview.preset)));
-    performance.mark(ARCHITECTURE_PREVIEW_MARK, { detail: { ms: performance.now() - t0, objects } });
+    perfMark(ARCHITECTURE_PREVIEW_MARK, { ms: performance.now() - t0, objects });
     return objects;
   }
 
@@ -466,7 +468,8 @@ export class ArchitectureView {
 
   /** Once a frame before the draw: drop released objects, send jobs nearest `eye` first, draw arrived chunks within the frame's arrival time. */
   update(eye: ArrayLike<number>): void {
-    for (const [id, rec] of [...this.recs]) {
+    // A Map may lose the entry being visited: no copy of it each frame.
+    for (const [id, rec] of this.recs) {
       if (!rec.leaving) continue;
       this.recs.delete(id);
       this.deps.rooms?.(id, rec.origin, rec.raw, null);
@@ -496,7 +499,8 @@ export class ArchitectureView {
     let left = this.deps.arrival?.left() ?? STREAM_ARRIVAL_MS;
     // While a worker is still starting (its script loading), the page makes the nearest chunks it was sent itself, a
     // frame's arrival time at a time: the spawn's chunks are not kept waiting on a worker's start.
-    const cold = [...this.jobs].filter(([, j]) => this.workers?.[j.worker]?.warm === false);
+    // Only while a worker is still starting (a frame's list of jobs is not made once all are warm).
+    const cold = this.workers?.some((w) => !w.warm) === true ? [...this.jobs].filter(([, j]) => this.workers?.[j.worker]?.warm === false) : NO_JOBS;
     if (cold.length > 0 && !this.pageMakes()) {
       const nearest = cold.map(([n, j]) => ({ n, j, d: this.distanceOf(j) })).sort((a, b) => a.d - b.d);
       let took = 0;
@@ -846,7 +850,7 @@ export class ArchitectureView {
     m[0] = m[0]! + 1;
     m[1] = m[1]! + reply.ms;
     m[2] = Math.max(m[2]!, reply.ms);
-    performance.mark(ARCHITECTURE_CHUNK_MARK, { detail: { object: job.id, chunk: job.ck, ms: reply.ms, where, ...(job.chunk !== undefined ? { part: true } : {}) } });
+    perfMark(ARCHITECTURE_CHUNK_MARK, { object: job.id, chunk: job.ck, ms: reply.ms, where, ...(job.chunk !== undefined ? { part: true } : {}) });
     this.remember(job.key, reply.chunk);
     this.sheetsOf.delete(job.key);
     if (job.chunk !== undefined) {
@@ -923,7 +927,7 @@ export class ArchitectureView {
     const ms = performance.now() - rec.since;
     this.lastReadyMs = ms;
     // `frame`: ms from the parameters to the first frame that could send their jobs (the rest is making and drawing).
-    performance.mark(ARCHITECTURE_READY_MARK, { detail: { object: id, ms, chunks: rec.chunks.size, first: !rec.everReady, frame: (rec.firstFrame ?? rec.since) - rec.since } });
+    perfMark(ARCHITECTURE_READY_MARK, { object: id, ms, chunks: rec.chunks.size, first: !rec.everReady, frame: (rec.firstFrame ?? rec.since) - rec.since });
     rec.everReady = true;
   }
 
@@ -1029,7 +1033,7 @@ export class ArchitectureView {
       if (t === null || t === undefined || s.transforms.length === 0) return;
       for (const part of this.copiesByRoom(rec.origin, s.transforms)) {
         const name = `architecture:${id}:${ck}:${s.model.assetId}${part.at === undefined ? '' : `:${part.room}`}`;
-        const built = buildInstanceSet(t, part.transforms, part.transforms.length / ARCHITECTURE_COPY_FLOATS, name, { chunkSize: COPY_CHUNK_METRES, ...(this.deps.tuning !== undefined ? { tuning: this.deps.tuning } : {}) });
+        const built = buildInstanceSet(t, part.transforms, part.transforms.length / INSTANCE_FLOATS, name, { chunkSize: INSTANCE_CHUNK_METERS, ...(this.deps.tuning !== undefined ? { tuning: this.deps.tuning } : {}) });
         for (const mesh of built.meshes) {
           mesh.castShadow = cast;
           mesh.receiveShadow = receive;
@@ -1064,11 +1068,11 @@ export class ArchitectureView {
    */
   private copiesByRoom(origin: readonly number[], transforms: Float32Array): { room: string; transforms: Float32Array; at?: readonly number[] | null }[] {
     const roomOf = this.deps.copyRoomAt;
-    const n = transforms.length / ARCHITECTURE_COPY_FLOATS;
+    const n = transforms.length / INSTANCE_FLOATS;
     if (roomOf === undefined || n === 0) return [{ room: '', transforms }];
     const parts = new Map<string, { copies: number[]; at: readonly number[] | null }>();
     for (let i = 0; i < n; i++) {
-      const o = i * ARCHITECTURE_COPY_FLOATS;
+      const o = i * INSTANCE_FLOATS;
       const at = [transforms[o]! + origin[0]!, transforms[o + 1]! + origin[1]!, transforms[o + 2]! + origin[2]!];
       const room = roomOf(at[0]!, at[1]!, at[2]!);
       if (room === undefined) return [{ room: '', transforms }];
@@ -1078,8 +1082,8 @@ export class ArchitectureView {
       p.copies.push(i);
     }
     return [...parts].map(([room, p]) => {
-      const out = new Float32Array(p.copies.length * ARCHITECTURE_COPY_FLOATS);
-      p.copies.forEach((c, k) => out.set(transforms.subarray(c * ARCHITECTURE_COPY_FLOATS, (c + 1) * ARCHITECTURE_COPY_FLOATS), k * ARCHITECTURE_COPY_FLOATS));
+      const out = new Float32Array(p.copies.length * INSTANCE_FLOATS);
+      p.copies.forEach((c, k) => out.set(transforms.subarray(c * INSTANCE_FLOATS, (c + 1) * INSTANCE_FLOATS), k * INSTANCE_FLOATS));
       return { room: room === '\u0000' ? 'wall' : room, transforms: out, at: p.at };
     });
   }
