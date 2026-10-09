@@ -119,6 +119,8 @@ export interface ArchitectureExpansion {
   problems: readonly string[];
   /** The presets the outlines resolved through (the chains, after swaps). */
   presets: ReadonlySet<string>;
+  /** Whether a swap changed any preset an outline, an outside or a planned room resolves (absent: none did). */
+  swapped?: boolean;
   /** Each room's storeys' floor plans (object frame; `arch-rooms.ts`). */
   rooms: readonly ArchitectureRoomPlan[];
   /** The props buildings' furnishing sets placed and pinned (object frame; absent: none). */

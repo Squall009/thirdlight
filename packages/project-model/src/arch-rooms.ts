@@ -405,6 +405,7 @@ export function expandArchitecture(c: ArchitectureComponent, origin: readonly nu
   const props: FurnishedProp[] = [];
   const lights: FurnishedLight[] = [];
   const planRooms: ArchitectureOutline[] = [];
+  let swapped = false;
   const append = <T>(to: T[], from: readonly T[]): void => {
     for (const v of from) to.push(v);
   };
@@ -436,9 +437,10 @@ export function expandArchitecture(c: ArchitectureComponent, origin: readonly nu
     append(props, x.props);
     append(lights, x.lights);
     append(planRooms, x.planRooms);
+    if (x.swapped) swapped = true;
   }
   const { outlines: _o, masks: _m, buildings: _b, interiorOf: _i, ...rest } = c;
-  return { component: { ...rest, elements, profiles, ...(paint !== null ? { paint } : {}) }, materials, problems: [...new Set(problems)], presets, rooms, ...(props.length > 0 ? { props } : {}), ...(lights.length > 0 ? { lights } : {}), ...(planRooms.length > 0 ? { planRooms } : {}) };
+  return { component: { ...rest, elements, profiles, ...(paint !== null ? { paint } : {}) }, materials, problems: [...new Set(problems)], presets, rooms, ...(props.length > 0 ? { props } : {}), ...(lights.length > 0 ? { lights } : {}), ...(planRooms.length > 0 ? { planRooms } : {}), ...(swapped ? { swapped } : {}) };
 }
 
 /** One group's share of an expansion, in its own order (remembered: never changed once made). */
@@ -453,6 +455,8 @@ interface GroupExpansion {
   props: readonly FurnishedProp[];
   lights: readonly FurnishedLight[];
   planRooms: readonly ArchitectureOutline[];
+  /** Whether a swap changed a preset it resolves. */
+  swapped: boolean;
 }
 
 /** A group of outlines (`flags`: which are buildings) expanded: the whole expansion's steps over only these. */
@@ -463,8 +467,10 @@ function expandGroup(c: ArchitectureComponent, outlines: readonly ArchitectureOu
   const materials: Record<string, string> = {};
   const problems: string[] = [];
   const presets = new Set<string>();
+  let swapped = false;
   const resolve = (o: ArchitectureOutline, presetId: string): { r: ResolvedArchitecturePreset; value: (name: string) => number } | null => {
     const id = opts.swaps?.[presetId] ?? presetId;
+    if (id !== presetId) swapped = true;
     const r = resolveArchitecturePreset(table, id, opts.preview);
     for (const p of r.chain) presets.add(p);
     if (r.problem !== null || r.style === null) {
@@ -785,7 +791,7 @@ function expandGroup(c: ArchitectureComponent, outlines: readonly ArchitectureOu
   elements.push(...stairs.filter((e) => !exteriorOnly.has(e)), ...exterior, ...roofs(styled, insts, planOf), ...props.map(propElement));
   const made: Record<string, ArchitectureProfile> = {};
   for (const name in profiles) if (profiles[name] !== c.profiles?.[name]) made[name] = profiles[name]!;
-  return { elements, profiles: made, materials, problems, presets, rooms, props, lights, planRooms };
+  return { elements, profiles: made, materials, problems, presets, rooms, props, lights, planRooms, swapped };
 }
 
 /** A pinned prop as placed (standing in `room`, "" for none). */

@@ -179,6 +179,30 @@ describe('generated architecture on the page', () => {
     expect(d.made.worker + d.made.page).toBe(0);
   });
 
+  it("an export's shipped meshes give way to generated ones when a script swaps only an outside preset, a building's too", async () => {
+    const path = { points: [[0, 0, 0], [8, 0, 0], [8, 0, 6], [0, 0, 6]] as [number, number, number][], closed: true as const };
+    const room: ArchitectureComponent = { elements: [], chunkSize: 16, outlines: [{ id: 'r', preset: 'starter-room', outside: 'starter-hall', path }] };
+    // A building alone in its object (no outlines): its facade's preset swapped.
+    const shed: ArchitectureComponent = { elements: [], chunkSize: 16, buildings: [{ id: 'b', preset: 'starter-room', outside: 'starter-hall', roof: { shape: 'hip' }, path }] };
+    for (const [id, c] of [['room', room], ['shed', shed]] as const) {
+      const expanded = expandArchitecture(c, [0, 0, 0], architectureStylesOf([])).component;
+      const keys = [...architectureChunkKeys(expanded, {}).values()];
+      const blob = encodeArchitectureChunks(keys.map((k) => generateArchitectureChunk(architectureChunkInput(expanded, k), {}, k.cx, k.cz)));
+      const shipped = makeView({ read: () => Promise.resolve(blob.slice().buffer) });
+      shipped.view.set(id, { ...c, baked: 'c'.repeat(64) }, [0, 0, 0]);
+      for (let i = 0; i < 500 && shipped.view.diagnostics().made.baked === 0; i++) await tick();
+      await settle(shipped.view);
+      const before = drawn(shipped.root);
+      expect(shipped.view.diagnostics().made.page, id).toBe(0);
+      // The outside's preset swapped (the inside's kept): what it dresses is the swapped preset's, made here.
+      shipped.view.setSwaps({ 'starter-hall': 'starter-room' });
+      await settle(shipped.view);
+      expect(shipped.view.diagnostics().made.page, id).toBeGreaterThan(0);
+      expect(drawn(shipped.root), id).not.toEqual(before);
+      shipped.view.dispose();
+    }
+  });
+
   it('a preset being dragged makes again only the objects its outlines reach, only their changed chunks, and the stored values come back from memory', async () => {
     const { view } = makeView();
     const room = (preset: string, x: number): ArchitectureComponent => ({ elements: [], chunkSize: 16, outlines: [{ id: 'r', preset, path: { points: [[x, 0, 0], [x + 8, 0, 0], [x + 8, 0, 6], [x, 0, 6]], closed: true } }] });
@@ -343,6 +367,47 @@ describe('kit copies and rooms', () => {
     rooms.update(look);
     const inView = (k: string): boolean => copies.get(k)!.layers.isEnabled(0);
     expect(['house/a', 'house/b', 'wall'].map(inView)).toEqual([false, true, true]);
+    view.dispose();
+  });
+  it("kit copies keep their models' materials: the object's (its `*` too) go on the generated meshes only", async () => {
+    const kit = new THREE.Group();
+    const own = new THREE.MeshStandardMaterial({ name: 'kit-own' });
+    kit.add(new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.4, 0.4), own));
+    const sheet = new THREE.MeshStandardMaterial({ name: 'trim-sheet' });
+    const root = new THREE.Group();
+    const { view } = makeView({
+      template: () => ({ glbRoot: kit }) as unknown as ModelInstance,
+      place: (r, shown) => (shown ? root.add(r) : root.remove(r)),
+      // An object mapping `*` to its sheet: every mesh under the root it is given wears it.
+      materials: (r) => {
+        const was = new Map<THREE.Mesh, THREE.Material | THREE.Material[]>();
+        r.traverse((o) => {
+          const m = o as THREE.Mesh;
+          if (m.isMesh !== true) return;
+          was.set(m, m.material);
+          m.material = sheet;
+        });
+        return () => was.forEach((mat, m) => (m.material = mat));
+      },
+    });
+    const component = {
+      elements: [{ id: 'chair', kind: 'repeat', path: { points: [[2, 0, 2], [3, 0, 2]] }, spacing: 100, piece: { model: { assetId: 'kit' } } }],
+      outlines: [{ id: 'a', preset: 'starter-room', path: { points: [[0, 0, 0], [4, 0, 0], [4, 0, 4], [0, 0, 4]], closed: true } }],
+    } as unknown as ArchitectureComponent;
+    view.set('house', component, [0, 0, 0]);
+    await settle(view);
+    const worn = { walls: new Set<string>(), copies: new Set<string>() };
+    root.traverse((o) => {
+      const m = o as THREE.Mesh;
+      if (m.isMesh !== true) return;
+      // A copy set is named after its model; the generated meshes after their slot.
+      let set: THREE.Object3D | null = m;
+      while (set !== null && !set.name.includes(':kit')) set = set.parent;
+      (set !== null ? worn.copies : worn.walls).add((m.material as THREE.Material).name);
+    });
+    expect([...worn.walls]).toEqual(['trim-sheet']);
+    expect(worn.copies.size).toBeGreaterThan(0);
+    expect(worn.copies.has('trim-sheet')).toBe(false);
     view.dispose();
   });
 });

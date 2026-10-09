@@ -85,10 +85,10 @@ export class RuntimeArchitecture {
     return this.styles.presets.has(id);
   }
 
-  /** The presets shown in place of others; objects with outlines build their colliders again. */
+  /** The presets shown in place of others; objects with outlines or buildings build their colliders again. */
   setSwaps(swaps: Readonly<Record<string, string>>): void {
     this.swaps = swaps;
-    for (const [id, h] of this.held) if ((h.component.outlines?.length ?? 0) > 0) this.dirty.add(id);
+    for (const [id, h] of this.held) if ((h.component.outlines?.length ?? 0) + (h.component.buildings?.length ?? 0) > 0) this.dirty.add(id);
     this.roomsRevision += 1;
   }
 

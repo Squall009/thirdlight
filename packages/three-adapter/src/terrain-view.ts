@@ -62,7 +62,7 @@ import { GRAPH_SURFACE_KEY, type MaterialLibrary, type MaterialOverridesLike } f
 import type { GraphSurface } from './material-graph';
 import { STATIC_CASTER_KEY } from './shadow-casters';
 import { defaultTerrainMaterial, terrainEye, terrainMacroMaterial, terrainSurface, terrainUniforms, terrainUvShift, type TerrainSurface, type TerrainUniforms } from './terrain-material';
-import { sameMacroSource, TERRAIN_HORIZON_METRES, TerrainMacroBaker, terrainMacroArrays, terrainMacroSize, terrainMacroSource, type TerrainMacroArrays } from './terrain-macro';
+import { sameMacroSource, TERRAIN_HORIZON_METRES, TerrainMacroBaker, terrainMacroArrays, terrainMacroSize, terrainMacroSource, type TerrainMacroArrays, type TerrainMacroJob } from './terrain-macro';
 import { gridGeometry, nodeGeometry } from './terrain-grid';
 import { PageNodes, selectTerrainNodes, splitFarNodes, terrainLodLayout, terrainLodRanges, TERRAIN_NODE_FLOATS, tileHeightBounds, type SelectStats, type SelectTile, type TerrainLodLayout, type TileHeightBounds } from './terrain-quadtree';
 import { metresPerStep, packFlat, packHeightNormalBorder, TERRAIN_TEXEL_BYTES } from './terrain-texels';
@@ -100,6 +100,12 @@ export const TERRAIN_UPLOAD_BUDGET_BYTES = 4 * 1024 * 1024;
 
 /** Degrees the sun turns before the far ground's horizon shadows are baked again (a day's sun: every few minutes). */
 const TERRAIN_SUN_TURN_DEGREES = 2;
+/**
+ * Tiles whose sunlight alone is baked again in a frame at most: each is a
+ * small draw on the GPU, which the frame's main-thread budget does not see,
+ * so a turned sun spreads its re-bake over frames.
+ */
+const TERRAIN_SUN_BAKES_PER_FRAME = 8;
 /** Main-thread time per frame spent baking macro textures (at least one tile a frame while any wait). */
 export const TERRAIN_MACRO_BUDGET_MS = 2;
 
@@ -168,8 +174,8 @@ export interface TerrainViewDiagnostics {
   errors: string[];
   /** Streamed terrains: tiles resident at full detail, the overview's tiles read and those drawn in place of a full tile, the render ring's reach (m). */
   streamed?: { resident: number; overviewTiles: number; overviewDrawn: number; ringMetres: number; streamMs?: number };
-  /** Far ground (terrains with a macro distance): tiles baked, waiting, bakes made and their main-thread ms in all, the last bake frame's ms, far nodes drawn and their draws. */
-  macro?: { baked: number; waiting: number; bakes: number; bakeMsTotal: number; bakeMs: number; bakeMsMax: number; farNodes: number; draws: number };
+  /** Far ground (terrains with a macro distance): tiles baked, waiting (a whole bake or the sunlight alone), bakes made (and sunlight alone baked again) and their main-thread ms in all, the last bake frame's ms, far nodes drawn and their draws. */
+  macro?: { baked: number; waiting: number; bakes: number; sunBakes: number; bakeMsTotal: number; bakeMs: number; bakeMsMax: number; farNodes: number; draws: number };
 }
 
 interface TileRec {
@@ -306,8 +312,9 @@ interface TerrainRec {
   reach: number;
   /** The stroke kind whose passes are to be built ahead (null: none, or built). */
   warm: TerrainBrushKind | null;
-  /** Tiles whose macro texture is to be baked (a terrain with a macro distance). */
+  /** Tiles whose macro texture is to be baked (a terrain with a macro distance), and baked ones whose sunlight is (the sun turned). */
   bakes: Set<TileRec>;
+  sunBakes: Set<TileRec>;
   /** A stroke being previewed, one settling, and the last one's figures. */
   stroke: StrokeRec | null;
   settle: SettleRec | null;
@@ -422,7 +429,7 @@ export class TerrainView {
     }
     if (rec === undefined) {
       const layout = terrainLodLayout(component.tileSamples, component.spacing);
-      rec = { id, component, origin: at, look, layout, uniforms: terrainUniforms(), tiles: new Map(), pages: [], hidden: parent?.hidden ?? false, leaving: false, dirty: true, uploads: new Set(), reheights: new Set(), serial: ++this.serials, reach: Number.NaN, field: null, stats: { nodes: 0, inView: 0, perLevel: [] }, bakes: new Set(), stroke: null, settle: null, lastStroke: null, warm: null, rings: null, coarse: null, overview: null, parent, ringMetres: 0, streamAt: null, streamDirty: true };
+      rec = { id, component, origin: at, look, layout, uniforms: terrainUniforms(), tiles: new Map(), pages: [], hidden: parent?.hidden ?? false, leaving: false, dirty: true, uploads: new Set(), reheights: new Set(), serial: ++this.serials, reach: Number.NaN, field: null, stats: { nodes: 0, inView: 0, perLevel: [] }, bakes: new Set(), sunBakes: new Set(), stroke: null, settle: null, lastStroke: null, warm: null, rings: null, coarse: null, overview: null, parent, ringMetres: 0, streamAt: null, streamDirty: true };
       this.terrains.set(id, rec);
     }
     rec.leaving = false;
@@ -907,7 +914,7 @@ export class TerrainView {
         gpuBytes += p.heights.image.data!.byteLength + p.layers.image.data!.byteLength + p.indices.image.data!.byteLength;
         if (p.nodes.count > 0) draws += 1;
         if (p.macro !== null) {
-          gpuBytes += p.macro.arrays.albedo.image.data!.byteLength + p.macro.arrays.normal.image.data!.byteLength;
+          gpuBytes += p.macro.arrays.albedo.image.data!.byteLength + p.macro.arrays.normal.image.data!.byteLength + p.macro.arrays.sun.image.data!.byteLength;
           if (p.macro.nodes.count > 0) draws += 1;
         }
       }
@@ -915,8 +922,8 @@ export class TerrainView {
     let macro: TerrainViewDiagnostics['macro'];
     for (const rec of this.terrains.values()) {
       if (rec.component.macroDistance === undefined) continue;
-      macro ??= { baked: 0, waiting: 0, bakes: this.baker?.bakes ?? 0, bakeMsTotal: Math.round(this.bakeMsTotal * 100) / 100, bakeMs: Math.round(this.lastBakeMs * 1000) / 1000, bakeMsMax: Math.round(this.bakeMsMax * 100) / 100, farNodes: 0, draws: 0 };
-      macro.waiting += rec.bakes.size;
+      macro ??= { baked: 0, waiting: 0, bakes: this.baker?.bakes ?? 0, sunBakes: this.baker?.sunBakes ?? 0, bakeMsTotal: Math.round(this.bakeMsTotal * 100) / 100, bakeMs: Math.round(this.lastBakeMs * 1000) / 1000, bakeMsMax: Math.round(this.bakeMsMax * 100) / 100, farNodes: 0, draws: 0 };
+      macro.waiting += rec.bakes.size + rec.sunBakes.size;
       for (const p of rec.pages) {
         if (p.macro === null) continue;
         for (const l of p.used) macro.baked += p.macro.baked[l] ?? 0;
@@ -1223,6 +1230,7 @@ export class TerrainView {
   private release(rec: TerrainRec, t: TileRec): void {
     rec.uploads.delete(t);
     rec.bakes.delete(t);
+    rec.sunBakes.delete(t);
     const macro = rec.pages[t.page]?.macro ?? null;
     if (macro !== null) macro.baked[t.layer] = 0;
     rec.reheights.delete(t);
@@ -1313,7 +1321,7 @@ export class TerrainView {
   /** A page's far ground: its macro arrays, the material reading them, and the mesh drawing the far nodes. */
   private makeMacro(rec: TerrainRec, page: Page, surface: TerrainSurface, capacity: number): PageMacro {
     const arrays = terrainMacroArrays(terrainMacroSize(rec.component.tileSamples), capacity);
-    const material = terrainMacroMaterial(surface, arrays.albedo, arrays.normal);
+    const material = terrainMacroMaterial(surface, arrays.albedo, arrays.normal, arrays.sun);
     const grid = this.grids.get(rec.layout.grid)!;
     const made = nodeGeometry(grid, 64);
     const mesh = new THREE.Mesh(made.geometry, material);
@@ -1344,14 +1352,10 @@ export class TerrainView {
     disposeSharingGeometry(m.geometry, m.own);
     m.arrays.albedo.dispose();
     m.arrays.normal.dispose();
+    m.arrays.sun.dispose();
     m.material.dispose();
   }
 
-  /**
-   * Bake the tiles waiting for a macro texture, within the frame's budget
-   * (at least one while any wait): a page whose material changed bakes every
-   * tile again. A bake waiting for its programs to compile stops the frame's.
-   */
   /** The tiles round `t` on its page (3 × 3, rows from −z, `t` in the middle; null: none there, or on another page). */
   private neighbourTiles(rec: TerrainRec, t: TileRec): (TileRec | null)[] {
     const out: (TileRec | null)[] = [];
@@ -1370,18 +1374,26 @@ export class TerrainView {
     return d === null || len < 1e-9 ? [0, 1, 0] : [d[0] / len, d[1] / len, d[2] / len];
   }
 
+  /**
+   * Bake the tiles waiting for a macro texture, within the frame's budget
+   * (at least one while any wait): a page whose material changed bakes every
+   * tile again. Then, a turned sun's: the sunlight alone of tiles baked
+   * before, a few a frame. A bake waiting for its programs to compile stops
+   * the frame's.
+   */
   private bakeMacros(renderer: WebGPURenderer | null): void {
     this.lastBakeMs = 0;
     if (renderer === null) return;
     const t0 = performance.now();
     let baked = 0;
-    // A turned sun: every far tile is baked again (its horizon shadow is the sun's), over frames as any bake.
+    let sunBaked = 0;
+    // A turned sun: every far tile's sunlight is baked again (its horizon shadow is the sun's), spread over frames.
     const sun = this.sunNow();
     const turned = this.bakedSun === null || sun[0] * this.bakedSun[0] + sun[1] * this.bakedSun[1] + sun[2] * this.bakedSun[2] < Math.cos(THREE.MathUtils.degToRad(TERRAIN_SUN_TURN_DEGREES));
     if (turned) this.bakedSun = sun;
     for (const rec of this.terrains.values()) {
       if (rec.component.macroDistance === undefined || rec.hidden) continue;
-      if (turned) for (const t of rec.tiles.values()) if (t.ready && rec.pages[t.page]?.macro != null) rec.bakes.add(t);
+      if (turned) for (const t of rec.tiles.values()) if (t.ready && rec.pages[t.page]?.macro != null) rec.sunBakes.add(t);
       for (const p of rec.pages) {
         const m = p.macro;
         if (m === null) continue;
@@ -1392,11 +1404,32 @@ export class TerrainView {
         for (const t of rec.tiles.values()) if (t.page === rec.pages.indexOf(p) && t.ready) rec.bakes.add(t);
         rec.dirty = true;
       }
-      if (rec.bakes.size === 0) continue;
+      if (rec.bakes.size === 0 && rec.sunBakes.size === 0) continue;
       const baker = this.bakerFor(renderer);
       const size = (rec.component.tileSamples - 1) * rec.component.spacing;
+      const range = rec.component.heightRange;
+      // The tile's height span: its root node's bounds (the last level's only node).
+      const root = (b: readonly Uint16Array[] | undefined, d: number): number => b?.[b.length - 1]?.[0] ?? d;
+      const jobOf = (t: TileRec, p: Page, m: PageMacro): TerrainMacroJob => ({
+        x: t.x * size,
+        z: t.z * size,
+        size,
+        layer: t.layer,
+        layout: rec.layout,
+        matrixWorld: p.mesh.matrixWorld,
+        low: terrainHeightOf(range, root(t.bounds?.min, 0)),
+        high: terrainHeightOf(range, root(t.bounds?.max, 65535)),
+        material: p.mesh.material as THREE.Material,
+        userData: p.mesh.userData,
+        arrays: m.arrays,
+        surface: p.surface,
+        neighbours: this.neighbourTiles(rec, t).map((n) => (n !== null && n.ready ? n.layer : -1)),
+        sun: this.bakedSun ?? sun,
+        reach: Math.min(rec.component.tileSamples - 1, TERRAIN_HORIZON_METRES / rec.component.spacing),
+      });
+      let waiting = false;
       for (const t of [...rec.bakes]) {
-        if (baked > 0 && performance.now() - t0 >= TERRAIN_MACRO_BUDGET_MS) break;
+        if (baked + sunBaked > 0 && performance.now() - t0 >= TERRAIN_MACRO_BUDGET_MS) break;
         const p = rec.pages[t.page];
         if (p?.macro == null || t.tile === null) {
           rec.bakes.delete(t);
@@ -1404,39 +1437,38 @@ export class TerrainView {
         }
         // Its texels up first (a bake draws what the page holds).
         if (!t.ready || t.pending !== null) continue;
-        const range = rec.component.heightRange;
-        // The tile's height span: its root node's bounds (the last level's only node).
-        const root = (b: readonly Uint16Array[] | undefined, d: number): number => b?.[b.length - 1]?.[0] ?? d;
-        const done = baker.bake({
-          x: t.x * size,
-          z: t.z * size,
-          size,
-          layer: t.layer,
-          layout: rec.layout,
-          matrixWorld: p.mesh.matrixWorld,
-          low: terrainHeightOf(range, root(t.bounds?.min, 0)),
-          high: terrainHeightOf(range, root(t.bounds?.max, 65535)),
-          material: p.mesh.material as THREE.Material,
-          userData: p.mesh.userData,
-          arrays: p.macro.arrays,
-          surface: p.surface,
-          neighbours: this.neighbourTiles(rec, t).map((n) => (n !== null && n.ready ? n.layer : -1)),
-          sun: this.bakedSun ?? sun,
-          reach: Math.min(rec.component.tileSamples - 1, TERRAIN_HORIZON_METRES / rec.component.spacing),
-        });
-        if (!done) {
-          this.deps.changed();
+        if (!baker.bake(jobOf(t, p, p.macro))) {
+          waiting = true;
           break;
         }
         p.macro.baked[t.layer] = 1;
         rec.bakes.delete(t);
+        // A whole bake bakes its sunlight too.
+        rec.sunBakes.delete(t);
         rec.dirty = true;
         baked += 1;
       }
-      if (rec.bakes.size > 0) this.deps.changed();
+      // Then the sunlight of tiles baked before the sun turned (a tile waiting for its whole bake gets it there).
+      for (const t of [...rec.sunBakes]) {
+        if (waiting || sunBaked >= TERRAIN_SUN_BAKES_PER_FRAME || (baked + sunBaked > 0 && performance.now() - t0 >= TERRAIN_MACRO_BUDGET_MS)) break;
+        const p = rec.pages[t.page];
+        if (p?.macro == null || t.tile === null || p.macro.baked[t.layer] !== 1 || rec.bakes.has(t)) {
+          rec.sunBakes.delete(t);
+          continue;
+        }
+        if (!t.ready || t.pending !== null) continue;
+        if (!baker.bakeSun(jobOf(t, p, p.macro))) {
+          waiting = true;
+          break;
+        }
+        rec.sunBakes.delete(t);
+        rec.dirty = true;
+        sunBaked += 1;
+      }
+      if (waiting || rec.bakes.size > 0 || rec.sunBakes.size > 0) this.deps.changed();
     }
     this.lastBakeMs = performance.now() - t0;
-    if (baked > 0) this.bakeMsTotal += this.lastBakeMs;
+    if (baked + sunBaked > 0) this.bakeMsTotal += this.lastBakeMs;
     this.bakeMsMax = Math.max(this.bakeMsMax, this.lastBakeMs);
   }
 

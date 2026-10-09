@@ -87,7 +87,7 @@ export function terrainUvShift(origin: readonly number[], uvOrigin: readonly num
 export const TERRAIN_DEFAULT_COLOURS: readonly string[] = Object.freeze(['#6f8a4a', '#8a6f4f', '#8a8580', '#c8b98a']);
 
 /**
- * What a far-ground bake reads to measure a tile's horizon (`horizon`): the
+ * What a far-ground bake reads to measure a tile's horizon (`sky`, `sunlit`): the
  * texture layers of the tile and its eight neighbours on the page (3 × 3,
  * rows from −z, the tile's own in the middle; −1 where a neighbour is not on
  * the page: the march stays on the tile's edge there), the direction toward
@@ -109,14 +109,18 @@ export interface TerrainSurface extends GraphSurface {
   readonly tileUv: N;
   readonly tileLayer: N;
   /**
-   * The ground's horizon round a pixel, measured over the heights (a bake's
-   * node, not a draw's: dozens of reads): x the share of the sky it sees
-   * (one less the mean sine of the horizon's angle over
-   * {@link TERRAIN_HORIZON_DIRECTIONS} directions, so a flat plain is 1 and
-   * a valley's floor less), y whether the sun clears the horizon toward it
-   * (1 lit, 0 behind the ground, soft over a few degrees).
+   * The share of the sky a pixel sees, measured over the heights (a bake's
+   * node, not a draw's: dozens of reads): one less the mean sine of the
+   * horizon's angle over {@link TERRAIN_HORIZON_DIRECTIONS} directions, so
+   * a flat plain is 1 and a valley's floor less. The sun does not change it.
    */
-  horizon(h: TerrainHorizonUniforms): N;
+  sky(h: TerrainHorizonUniforms): N;
+  /**
+   * Whether the sun clears the horizon toward it at a pixel (1 lit, 0 behind
+   * the ground, soft over a few degrees): one direction's reads, so a turned
+   * sun bakes this alone again.
+   */
+  sunlit(h: TerrainHorizonUniforms): N;
 }
 
 /** Decode a texel's 16-bit step (R high byte, G low byte). */
@@ -216,38 +220,47 @@ export function terrainSurface(key: string, heights: THREE.DataArrayTexture, lay
   };
   /**
    * The horizon measured as loops in the shader (unrolled, its dozens of reads would make a program that takes
-   * long to build): per direction — the fixed ones, then one toward the sun — the steepest rise (tangent, at least
-   * level) out to the reach, nearer reads closer together.
+   * long to build): along a direction, the steepest rise (tangent, at least level) out to the reach, nearer reads
+   * closer together.
    */
-  const horizon = (h: TerrainHorizonUniforms): N =>
+  const rise = (h: TerrainHorizonUniforms, s0: N, h0: N, dir: N): N => {
+    const best = float(0).toVar();
+    // Its own name: a loop nested in the sky's would otherwise shadow that loop's `i`.
+    Loop({ start: int(1), end: int(TERRAIN_HORIZON_STEPS + 1), type: 'int', condition: '<', name: 'j' }, ({ j }: { j: N }) => {
+      const f = float(j).div(TERRAIN_HORIZON_STEPS);
+      const d = max(h.reach.mul(f.mul(f)), 1);
+      best.assign(max(best, heightAtSample(h, s0.add(dir.mul(d))).sub(h0).div(d.mul(u.spacing))));
+    });
+    return best;
+  };
+  const sky = (h: TerrainHorizonUniforms): N =>
+    Fn(() => {
+      const s0 = vSample;
+      const h0 = heightAtSample(h, s0).toVar();
+      const open = float(0).toVar();
+      Loop({ start: int(0), end: int(TERRAIN_HORIZON_DIRECTIONS), type: 'int', condition: '<' }, ({ i }: { i: N }) => {
+        const a = float(i).mul((2 * Math.PI) / TERRAIN_HORIZON_DIRECTIONS);
+        // A variable: the direction is the outer loop's, fixed before the march's loop runs.
+        const best = rise(h, s0, h0, vec2(cos(a), sin(a)).toVar());
+        // The sky above the horizon in a fixed slice: 1 − sin(angle).
+        open.addAssign(float(1).sub(best.div(sqrt(best.mul(best).add(1)))));
+      });
+      return open.div(TERRAIN_HORIZON_DIRECTIONS);
+    })();
+  const sunlit = (h: TerrainHorizonUniforms): N =>
     Fn(() => {
       const s0 = vSample;
       const h0 = heightAtSample(h, s0).toVar();
       const across = length(h.sun.xz);
-      const toward = h.sun.xz.div(max(across, 1e-4));
-      const open = float(0).toVar();
-      const ridge = float(0).toVar();
-      Loop({ start: int(0), end: int(TERRAIN_HORIZON_DIRECTIONS + 1), type: 'int', condition: '<' }, ({ i }: { i: N }) => {
-        const a = float(i).mul((2 * Math.PI) / TERRAIN_HORIZON_DIRECTIONS);
-        const dir = select(i.lessThan(TERRAIN_HORIZON_DIRECTIONS), vec2(cos(a), sin(a)), toward).toVar();
-        const best = float(0).toVar();
-        Loop({ start: int(1), end: int(TERRAIN_HORIZON_STEPS + 1), type: 'int', condition: '<' }, ({ i: j }: { i: N }) => {
-          const f = float(j).div(TERRAIN_HORIZON_STEPS);
-          const d = max(h.reach.mul(f.mul(f)), 1);
-          best.assign(max(best, heightAtSample(h, s0.add(dir.mul(d))).sub(h0).div(d.mul(u.spacing))));
-        });
-        // The sky above the horizon in a fixed slice: 1 − sin(angle); the last direction is the sun's.
-        open.addAssign(select(i.lessThan(TERRAIN_HORIZON_DIRECTIONS), float(1).sub(best.div(sqrt(best.mul(best).add(1)))), float(0)));
-        ridge.assign(select(i.lessThan(TERRAIN_HORIZON_DIRECTIONS), ridge, best));
-      });
+      const ridge = rise(h, s0, h0, h.sun.xz.div(max(across, 1e-4)));
       const elevation = h.sun.y.div(max(across, 1e-4));
       // A sun straight overhead (no direction across) clears every horizon.
-      const sun = select(across.lessThan(1e-3), float(1), clamp(elevation.sub(ridge).div(0.1).add(0.5), 0, 1));
-      return vec2(open.div(TERRAIN_HORIZON_DIRECTIONS), sun);
+      return select(across.lessThan(1e-3), float(1), clamp(elevation.sub(ridge).div(0.1).add(0.5), 0, 1));
     })();
   return {
     key,
-    horizon,
+    sky,
+    sunlit,
     uv: () => vUv,
     vertexColor: (name) => (name === 'color' ? weights : null),
     position,
@@ -263,23 +276,25 @@ export function terrainSurface(key: string, heights: THREE.DataArrayTexture, lay
 export const terrainMacroFlip: N = uniform(0);
 
 /**
- * A terrain's look past its macro distance: each tile's baked albedo and
- * world normal (`terrain-macro.ts`) instead of the layer stack — two texture
- * reads besides the hole — lit as the layered ground is (rough, not metal).
+ * A terrain's look past its macro distance: each tile's baked albedo, world
+ * normal and sunlight (`terrain-macro.ts`) instead of the layer stack — three
+ * texture reads besides the hole — lit as the layered ground is (rough, not
+ * metal).
  * The bakes' horizon terms light it where nothing else does that far out:
  * the sky's share it sees darkens its ambient and probe light (as ambient
  * occlusion), and the sun behind the horizon shadows it (with the shadow
  * maps, where they reach).
  */
-export function terrainMacroMaterial(surface: TerrainSurface, albedo: THREE.DataArrayTexture, normal: THREE.DataArrayTexture): THREE.Material {
+export function terrainMacroMaterial(surface: TerrainSurface, albedo: THREE.DataArrayTexture, normal: THREE.DataArrayTexture, sun: THREE.DataArrayTexture): THREE.Material {
   const m = new MeshStandardNodeMaterial();
   const uv = vec2(surface.tileUv.x, mix(surface.tileUv.y, float(1).sub(surface.tileUv.y), terrainMacroFlip));
   const a = texture(albedo, uv).depth(surface.tileLayer);
   const baked = texture(normal, uv).depth(surface.tileLayer);
+  const lit = texture(sun, uv).depth(surface.tileLayer).a;
   const n = normalize(baked.xyz.mul(2).sub(1));
   m.colorNode = vec4(a.rgb, 1);
   m.aoNode = a.a;
-  (m as unknown as { receivedShadowNode: N }).receivedShadowNode = Fn(([shadow]: [N]) => shadow.mul(baked.a));
+  (m as unknown as { receivedShadowNode: N }).receivedShadowNode = Fn(([shadow]: [N]) => shadow.mul(lit));
   // The baked normal is in world space; the material's normal is the view's.
   m.normalNode = normalize(cameraViewMatrix.mul(vec4(n, 0)).xyz);
   m.positionNode = surface.position;

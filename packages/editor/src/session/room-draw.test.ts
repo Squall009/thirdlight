@@ -46,6 +46,38 @@ describe('the Rooms tool', () => {
     expect(next.outlines![1]!.path.points.filter((p) => p[0] === 4)).toHaveLength(0);
   });
 
+  it('keeps the doors on the other walls where they stood when a wall is dragged; a partly shared wall goes with it', () => {
+    // A: 10 × 4 (sides: 0 south z 0, 1 east x 10, 2 north z 4, 3 west x 0); a door on the south wall, an arch on the north.
+    const a = { id: 'a', preset: 'starter-room', path: rectPath([0, 0, 0], [10, 0, 4])!, openings: [{ id: 'door-1', at: 6.5, width: 1, bottom: 0, top: 2.1 }, { id: 'arch-1', at: 16, width: 2, bottom: 0, top: 2.6 }] };
+    // B north of A, sharing A's north wall over its whole length.
+    const b = { id: 'b', preset: 'starter-room', path: rectPath([0, 0, 4], [10, 0, 8])!, openings: [{ id: 'window-1', at: 26, width: 1, bottom: 0.9, top: 2 }] };
+    const c: ArchitectureComponent = { elements: [], outlines: [a, b] };
+    const where = (x: ArchitectureComponent, id: string, opening: string): [number, number] => {
+      const o = x.outlines!.find((q) => q.id === id)!;
+      const at = o.openings!.find((q) => q.id === opening)!.at;
+      const s = straightSides(o).find((q) => at >= q.start && at <= q.start + q.length)!;
+      const t = (at - s.start) / s.length;
+      return [s.a[0] + (s.b[0] - s.a[0]) * t, s.a[2] + (s.b[2] - s.a[2]) * t];
+    };
+    const before = { door: where(c, 'a', 'door-1'), arch: where(c, 'a', 'arch-1'), window: where(c, 'b', 'window-1') };
+    expect(before).toEqual({ door: [6.5, 0], arch: [8, 4], window: [0, 6] });
+    // A's east wall one cell in (x 10 → 9): the south side shrinks, so the arch on the north side and B's window would slide.
+    const east = moveWall(c, 'a', 1, 1);
+    expect(east.outlines![0]!.path.points.filter((p) => p[0] === 9)).toHaveLength(2);
+    expect({ door: where(east, 'a', 'door-1'), arch: where(east, 'a', 'arch-1'), window: where(east, 'b', 'window-1') }).toEqual(before);
+    // B's south wall is now longer than A's north wall (x 0–10 against 0–9): still shared, so a drag of A's north wall moves it too.
+    const north = moveWall(east, 'a', 2, -1);
+    expect(north.outlines![0]!.path.points.filter((p) => p[2] === 5)).toHaveLength(2);
+    expect(north.outlines![1]!.path.points.filter((p) => p[2] === 5)).toHaveLength(2);
+    expect(north.outlines![1]!.path.points.filter((p) => p[2] === 4)).toHaveLength(0);
+    // The arch went with its wall; the door and B's window stayed.
+    expect({ door: where(north, 'a', 'door-1'), arch: where(north, 'a', 'arch-1'), window: where(north, 'b', 'window-1') }).toEqual({ ...before, arch: [8, 5] });
+    // A room touching only at a corner is left alone.
+    const corner = { id: 'k', preset: 'starter-room', path: rectPath([10, 0, 0], [12, 0, 4])! };
+    const touched = moveWall({ elements: [], outlines: [b, corner] }, 'b', 0, 1);
+    expect(touched.outlines![1]).toBe(corner);
+  });
+
   it('finds the cell edges a door piece goes on: the opening cells along its wall, the rows up to its head', () => {
     const o = { id: 'a', preset: 'starter-room', path: rectPath([0, 1, 0], [6, 1, 4])!, openings: [] };
     // 7.5 m round: the east side (x = 6), cell z 1; the floor 1 m up, the layer 2 cells along x.

@@ -32,6 +32,9 @@
  *                                their meshes all the way, as recorded)
  *   --splines off                the landscape without its road and river (default: with them)
  *   --height-fog                 a height fog in the look over its exp2 fog (`LEVEL_HEIGHT_FOG`; default: none, as recorded)
+ *   --day-cycle                  a script blends the sun from dawn (low in the east) to dusk (low in the west) and back
+ *                                every 2 min (`ctx.environment.blend` over two presets each step): the far ground's
+ *                                horizon shadows (with --macro) and the static shadow map re-made as it turns
  *   --blocks-seam                the terrain meets the block layers (a blocks layer: their border followed over 8 m,
  *                                cut away under them) instead of lying under the area (default: under it, as recorded)
  *   --spline-edit                the landscape's editor Scene view open while a script moves a road point 5 m back and
@@ -46,6 +49,9 @@
  *                                the ground under it combined again, its rules and scatter baked again)
  *   --erode-edit                 the same with a script eroding a 64 m square beside the road every 4 s (one
  *                                `editTerrain` erode each, on the backend's worker; the seed alternates)
+ *   --sun-edit                   the same with the sun (the key light) turned 3° round the vertical every 4 s, as a day
+ *                                cycle turns it: past the far ground's re-bake step (every far tile's horizon shadow
+ *                                baked again, with --macro) and the static shadow map drawn again
  *   --edits-only                 only the editor edits (no export measured)
  *   --edit-profile               the edit windows' main thread by function (inclusive, a CPU profile each)
  *   --foliage off                the landscape's scatter without the foliage policy: every tree, rock and shrub casts
@@ -74,7 +80,7 @@ import { frameLine } from './village-run';
 import { hitches, installFrameClock, pageNow, rafTimes, type HitchWindow } from './blocks-run';
 import { FRAME_VIEWPORT } from './frame-run';
 import type { PerfBackend } from './backend';
-import { publishFileVia } from './build';
+import { publishBehaviorVia, publishFileVia } from './build';
 import { makePng } from '../../tests/e2e/png-make';
 
 /** The corner shading `--vertex-ao` gives the layer. */
@@ -135,6 +141,10 @@ export interface LevelReport {
   sculptEdit?: Partial<Record<FrameRenderer, EditRun>>;
   stampEdit?: Partial<Record<FrameRenderer, EditRun>>;
   erodeEdit?: Partial<Record<FrameRenderer, EditRun>>;
+  /** A script turned the sun from dawn to dusk and back (absent: a still sun). */
+  dayCycle?: boolean;
+  /** The key light turned in the editor's Scene view, recorded the same way. */
+  sunEdit?: Partial<Record<FrameRenderer, EditRun>>;
   query: string;
   builds: Partial<Record<LevelKind, LevelBuild & { exportMs: number }>>;
   classes: Partial<Record<LevelKind, Partial<Record<FrameRenderer, FrameRunResult>>>>;
@@ -240,7 +250,7 @@ export async function runLevelCli(argv: readonly string[]): Promise<void> {
   } catch {
     /* not a git checkout */
   }
-  const report: LevelReport = { reportVersion: 1, startedAt, commit, machine: { cpu: cpus()[0]?.model ?? 'unknown', cores: cpus().length }, version: LEVEL_VERSION, seed: LEVEL_SEED, ...(liveDoors > 0 ? { liveDoors } : {}), ...(has('edge-walls') ? { edgeWalls: true } : {}), ...(has('wall-paint') ? { wallPaint: true } : {}), ...(roofs !== 'none' ? { roofs } : {}), ...(has('kit-swap') ? { kitSwap: true } : {}), ...(has('vertex-ao') ? { vertexAO: LEVEL_VERTEX_AO } : {}), ...(has('rules') ? { rules: true } : {}), ...(projection > 0 ? { projection } : {}), ...(macro > 0 ? { macro } : {}), ...(foliage === 'off' ? { foliage: 'off' as const } : {}), ...(flight ? { flight: true } : {}), ...(impostorSize > 0 ? { impostorSize } : {}), ...(splines === 'off' ? { splines: 'off' as const } : {}), ...(has('blocks-seam') ? { blocksSeam: true } : {}), ...(has('height-fog') ? { heightFog: true } : {}), query, builds: {}, classes: {}, errors: [] };
+  const report: LevelReport = { reportVersion: 1, startedAt, commit, machine: { cpu: cpus()[0]?.model ?? 'unknown', cores: cpus().length }, version: LEVEL_VERSION, seed: LEVEL_SEED, ...(liveDoors > 0 ? { liveDoors } : {}), ...(has('edge-walls') ? { edgeWalls: true } : {}), ...(has('wall-paint') ? { wallPaint: true } : {}), ...(roofs !== 'none' ? { roofs } : {}), ...(has('kit-swap') ? { kitSwap: true } : {}), ...(has('vertex-ao') ? { vertexAO: LEVEL_VERTEX_AO } : {}), ...(has('rules') ? { rules: true } : {}), ...(projection > 0 ? { projection } : {}), ...(macro > 0 ? { macro } : {}), ...(foliage === 'off' ? { foliage: 'off' as const } : {}), ...(flight ? { flight: true } : {}), ...(impostorSize > 0 ? { impostorSize } : {}), ...(splines === 'off' ? { splines: 'off' as const } : {}), ...(has('blocks-seam') ? { blocksSeam: true } : {}), ...(has('height-fog') ? { heightFog: true } : {}), ...(has('day-cycle') ? { dayCycle: true } : {}), query, builds: {}, classes: {}, errors: [] };
 
   // Every class built and exported by one backend, then measured with it stopped (one backend or one browser at a time).
   const exportDirs: Partial<Record<LevelKind, string>> = {};
@@ -250,10 +260,12 @@ export async function runLevelCli(argv: readonly string[]): Promise<void> {
       const plan = kind === 'interior' ? levelInteriorPlan(LEVEL_SEED) : levelPlan(kind, LEVEL_SEED, liveDoors, has('edge-walls'), has('wall-paint'), roofs, has('kit-swap'), has('vertex-ao') ? LEVEL_VERTEX_AO : 0, has('rules'), projection, macro, foliage, flight, impostorSize, splines === 'on', !has('flight-plain'), has('blocks-seam'));
       const b = await buildLevel(be, `level-${kind}`, plan, log);
       if (has('height-fog')) await be.project(b.projectId).command('setEnvironment', { sceneId: 'scene-main', environment: { ...LEVEL_LOOK, heightFog: LEVEL_HEIGHT_FOG } });
+      if (has('day-cycle')) await dayCycle(be, b.projectId);
       if (has('spline-edit') && kind === 'landscape' && splines === 'on') report.splineEdit = await editWindows(be, b.projectId, renderers, 'spline', log, has('edit-profile'));
       if (has('sculpt-edit') && kind === 'landscape') report.sculptEdit = await editWindows(be, b.projectId, renderers, 'sculpt', log, has('edit-profile'));
       if (has('stamp-edit') && kind === 'landscape') report.stampEdit = await editWindows(be, b.projectId, renderers, 'stamp', log, has('edit-profile'));
       if (has('erode-edit') && kind === 'landscape') report.erodeEdit = await editWindows(be, b.projectId, renderers, 'erode', log, has('edit-profile'));
+      if (has('sun-edit') && kind === 'landscape') report.sunEdit = await editWindows(be, b.projectId, renderers, 'sun', log, has('edit-profile'));
       if (has('edits-only')) continue;
       const t = performance.now();
       const res = await be.post(`/api/v1/admin/projects/${b.projectId}/export`, {});
@@ -283,6 +295,7 @@ export async function runLevelCli(argv: readonly string[]): Promise<void> {
           // A set is made over frames: its most in one frame is what a refresh waits on, its whole the page's cost.
           if (made.length > 0) log(`level ${kind} ${r} scatter sets made: ${made.length}, main thread ≤ ${Math.max(...made.map((d) => d.frameMs ?? d.ms)).toFixed(2)} ms a frame (a set ≤ ${Math.max(...made.map((d) => d.ms)).toFixed(2)} ms over ≤ ${Math.max(...made.map((d) => d.frames ?? 1))} frames, mean ${(made.reduce((a, d) => a + d.ms, 0) / made.length).toFixed(2)}), prepared on the worker ≤ ${Math.max(...made.map((d) => d.prepareMs)).toFixed(2)} ms, ≤ ${Math.max(...made.map((d) => d.copies))} copies`);
           // At the display's rate a frame over 16.7 ms is one that missed a refresh (the intervals' jitter is not); uncapped, every interval over it counts.
+          if (has('day-cycle')) log(`level ${kind} ${r} day cycle: ${res.frames.n} frames in ${Math.round(recordMs / 1000)} s, ${vsync ? `${res.frames.missed ?? 0} missed a 60 Hz refresh (vsync)` : `${res.frames.long ?? 0} over ${LONG_FRAME_MS} ms (uncapped)`}, longest ${res.frames.max ?? '-'} ms`);
           if (flight) log(`level ${kind} ${r} flight: ${res.frames.n} frames in ${Math.round(recordMs / 1000)} s, ${vsync ? `${res.frames.missed ?? 0} missed a 60 Hz refresh (vsync)` : `${res.frames.long ?? 0} over ${LONG_FRAME_MS} ms (uncapped)`}, longest ${res.frames.max ?? '-'} ms`);
           // Each missed refresh and the engine's marks in the 50 ms before it (a set made, a node build): what it waited on.
           if (flight && has('missed-marks')) for (const at of res.frames.missedAt ?? []) log(`level ${kind} ${r} missed at ${at} ms: ${(res.marks ?? []).filter((m) => m.at <= at && m.at >= at - 50).map((m) => `${m.name} ${JSON.stringify(m.detail)}`).join('; ') || 'no mark'}`);
@@ -324,11 +337,45 @@ export async function runLevelCli(argv: readonly string[]): Promise<void> {
 
 /** How long the Scene view is watched after each scripted road edit (ms), and how many edits. */
 const SPLINE_EDIT_WINDOW_MS = 4000;
+/** Degrees a scripted sun edit turns the key light (more than the far ground's re-bake step). */
+const SUN_TURN_DEGREES = 3;
 const SPLINE_EDITS = 6;
 const SPLINE_IDLE_WINDOWS = 3;
 
 /** An edit window's frames, and what the page built in it: node programs and pipelines (by object), scatter sets made. */
 export type EditWindow = HitchWindow & { over16: number; nodeBuilds?: number; nodeBuildMs?: number; pipelines?: number; pipelineMs?: number; built?: string[]; setsMade?: number; setMs?: number };
+
+/** The day cycle's sun: low in the east at dawn, low in the west at dusk (where it points), and a half day's steps (120 a second). */
+const DAWN_SUN: [number, number, number] = [0.9, -0.3, -0.3];
+const DUSK_SUN: [number, number, number] = [-0.9, -0.3, -0.3];
+const HALF_DAY_STEPS = 7200;
+
+/** `--day-cycle`: two presets that differ only in the sun's direction, and a script blending between them each step. */
+async function dayCycle(be: PerfBackend, projectId: string): Promise<void> {
+  const p = be.project(projectId);
+  const cmd = (op: string, args: Record<string, unknown>): Promise<Record<string, unknown>> => p.command(op, args);
+  const preset = (presetId: string, direction: number[]): Record<string, unknown> => ({ presetId, name: presetId, lights: [{ type: 'directional', direction }] });
+  await cmd('setEnvironment', { environment: { presets: [preset('level-dawn', DAWN_SUN), preset('level-dusk', DUSK_SUN)] } });
+  const behavior = {
+    behaviorId: 'level-day',
+    displayName: 'Level day cycle',
+    ownedTransforms: [],
+    declaration: { properties: [] },
+    source: [
+      'export default {',
+      '  instantiate() { return {}; },',
+      '  step(state: any, ctx: any) {',
+      "    if (ctx.phase !== 'intent') return;",
+      `    const t = (ctx.stepIndex % ${2 * HALF_DAY_STEPS}) / ${HALF_DAY_STEPS};`,
+      "    ctx.environment.blend('level-dawn', 'level-dusk', t <= 1 ? t : 2 - t);",
+      '  },',
+      '};',
+    ].join('\n'),
+  };
+  await publishBehaviorVia(be, p, cmd, behavior);
+  const driver = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Day driver', transform: { position: [0, 0, 0] } }))['createdId']);
+  await cmd('setBehaviorProperties', { entityId: driver, behaviorId: behavior.behaviorId, values: {} });
+}
 
 /** What `--spline-edit` / `--sculpt-edit` record per renderer. */
 export interface EditRun {
@@ -354,7 +401,7 @@ const STAMP_ASSET = 'perf-stamp-cone';
  * baked again); the page re-reads and uploads the tiles and draws what is new. Each edit's round trip, the page's
  * frames in the window after it, and what three built meanwhile (the page's marks).
  */
-async function editWindows(be: PerfBackend, projectId: string, renderers: readonly FrameRenderer[], kind: 'spline' | 'sculpt' | 'stamp' | 'erode', log: (s: string) => void, profile = false): Promise<Partial<Record<FrameRenderer, EditRun>>> {
+async function editWindows(be: PerfBackend, projectId: string, renderers: readonly FrameRenderer[], kind: 'spline' | 'sculpt' | 'stamp' | 'erode' | 'sun', log: (s: string) => void, profile = false): Promise<Partial<Record<FrameRenderer, EditRun>>> {
   const p = be.project(projectId);
   const listed = ((await p.query('queryEntities', { limit: 4000, offset: 0 }))['entities'] as { id: string; name?: string; components: Record<string, unknown> }[]) ?? [];
   const road = listed.find((e) => e.name === 'Road' && e.components['spline'] !== undefined);
@@ -375,8 +422,15 @@ async function editWindows(be: PerfBackend, projectId: string, renderers: readon
     });
     await publishFileVia(be, projectId, (op, args) => p.command(op, args), { assetId: STAMP_ASSET, kind: 'texture', displayName: 'Stamp cone', bytes: cone });
   }
+  const sun = listed.find((e) => (e.components['light'] as { type?: string } | undefined)?.type === 'directional');
   const edit = async (k: number): Promise<void> => {
-    if (kind === 'stamp') {
+    if (kind === 'sun') {
+      if (sun === undefined) throw new Error('sun edit: no directional light');
+      const light = sun.components['light'] as { direction: number[] };
+      const [x, y, z] = light.direction as [number, number, number];
+      const a = ((k + 1) * SUN_TURN_DEGREES * Math.PI) / 180;
+      await p.command('setComponent', { entityId: sun.id, component: 'light', value: { ...light, direction: [x * Math.cos(a) - z * Math.sin(a), y, x * Math.sin(a) + z * Math.cos(a)] } });
+    } else if (kind === 'stamp') {
       const layers = k % 2 === 0 ? [{ id: 'perf-stamps', kind: 'stamps', stamps: [{ asset: STAMP_ASSET, at: sculptAt, size: STAMP_SIZE, height: STAMP_METRES }] }] : null;
       await p.command('setComponent', { entityId: terrain.id, component: 'terrain', value: { layers } });
     } else if (kind === 'erode') {
@@ -461,7 +515,7 @@ async function editWindows(be: PerfBackend, projectId: string, renderers: readon
         }
         out[r] = { roundTripMs, windows, idle };
         const show = (ws: EditWindow[]): string => ws.map((w) => `${w.frames} frames, ${w.over16 ?? 0} > 16.7 ms, worst ${w.worst} ms, p95 ${w.p95} ms, ${w.nodeBuilds} builds ${w.nodeBuildMs} ms, ${w.pipelines} pipelines ${w.pipelineMs} ms, ${w.setsMade} sets ${w.setMs} ms`).join('; ');
-        if (kind !== 'spline') log(`level landscape ${r} ${kind} at ${sculptAt.map((v) => v.toFixed(1)).join(', ')} (road point ${px.toFixed(1)}, ${pz.toFixed(1)})`);
+        if (kind !== 'spline' && kind !== 'sun') log(`level landscape ${r} ${kind} at ${sculptAt.map((v) => v.toFixed(1)).join(', ')} (road point ${px.toFixed(1)}, ${pz.toFixed(1)})`);
         log(`level landscape ${r} ${kind} edits: round trips ${roundTripMs.join(', ')} ms; page frames per window: ${show(windows)}; without edits: ${show(idle)}`);
         const built = new Map<string, number>();
         for (const w of windows) for (const b of w.built ?? []) built.set(b, (built.get(b) ?? 0) + 1);

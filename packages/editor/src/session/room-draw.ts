@@ -13,12 +13,14 @@
  * - Openings: a door, window or arch put on the wall nearest the pointer,
  *   whole cells wide, centred on the cells it covers.
  * - Wall drag: one straight side of an outline moved across itself by whole
- *   cells (its corners go with it).
+ *   cells (its corners go with it, a neighbour's wall along it too);
+ *   openings on the other sides stay where they stood.
  *
  * Points are metres in the rooms object's frame (its position is the
  * layer's, so they are also layer metres); y is the floor height drawn on.
  */
 import type { ArchitectureBuilding, ArchitectureComponent, ArchitectureOpening, ArchitectureOutline, ArchitecturePath } from '@thirdlight/project-model';
+import { sampleArchitecturePath, type ArchitecturePathSamples } from '@thirdlight/runtime';
 
 export type RoomToolMode = 'rect' | 'polygon' | 'path' | 'building' | 'door' | 'window' | 'arch' | 'walls';
 
@@ -219,47 +221,101 @@ export function sideDragOffset(s: OutlineSide, x0: number, z0: number, x1: numbe
   return Math.round(raw / step) * step;
 }
 
-/** The outline with side `index` moved `offset` metres to the right of its travel (both its corners). */
-export function moveSide(o: ArchitectureOutline, index: number, offset: number): ArchitectureOutline {
-  const side = straightSides(o).find((s) => s.index === index);
-  if (side === undefined || offset === 0) return o;
-  const [rx, rz] = rightOf(side);
-  const pts = o.path.points.map((p) => [...p] as Point3);
-  const i0 = index;
-  const i1 = (index + 1) % pts.length;
-  for (const i of [i0, i1]) pts[i] = [round6(pts[i]![0] + rx * offset), pts[i]![1], round6(pts[i]![2] + rz * offset)];
-  return { ...o, path: { ...o.path, points: pts } };
-}
-
 const samePoint = (p: readonly number[], q: readonly number[]): boolean => Math.abs(p[0]! - q[0]!) < 1e-6 && Math.abs(p[1]! - q[1]!) < 1e-6 && Math.abs(p[2]! - q[2]!) < 1e-6;
 
 /**
+ * An outline's openings after some of its corners moved, each kept where it
+ * stood on its own side. An opening's `at` is a distance along the whole
+ * outline, so a side that grew or shrank would slide every opening after it
+ * (and leave their door pieces behind in the layer). A side whose start
+ * corner stayed keeps its openings' distance from the start; one whose start
+ * moved and end stayed keeps their distance from the end; a side moved whole
+ * carries them along. An opening is kept inside its side when the side got
+ * shorter than where it stood.
+ */
+function openingsKept(before: ArchitectureOutline, after: ArchitectureOutline): ArchitectureOpening[] | undefined {
+  const list = before.openings;
+  if (list === undefined || list.length === 0) return list;
+  const pb = before.path.points;
+  const pa = after.path.points;
+  const n = pb.length;
+  const closed = before.path.closed === true;
+  const segs = closed ? n : n - 1;
+  if (segs < 1 || pa.length !== n) return list;
+  // The generator's own distances (arcs, chamfers and offsets in), so `at` keeps meaning what it draws.
+  const sb = sampleArchitecturePath(before.path);
+  const sa = sampleArchitecturePath(after.path);
+  const startOf = (s: ArchitecturePathSamples, k: number): number => s.pointDist[k]!;
+  const endOf = (s: ArchitecturePathSamples, k: number): number => (k + 1 < n ? s.pointDist[k + 1]! : s.length);
+  let changed = false;
+  const out = list.map((o) => {
+    const at = closed && sb.length > 0 ? ((o.at % sb.length) + sb.length) % sb.length : o.at;
+    let k = 0;
+    while (k + 1 < segs && startOf(sb, k + 1) <= at) k++;
+    const startMoved = !samePoint(pb[k]!, pa[k]!);
+    const endMoved = !samePoint(pb[(k + 1) % n]!, pa[(k + 1) % n]!);
+    if (!startMoved && !endMoved && startOf(sb, k) === startOf(sa, k)) return o;
+    const s0 = startOf(sa, k);
+    const s1 = endOf(sa, k);
+    let next = startMoved && !endMoved ? s1 - (endOf(sb, k) - at) : s0 + (at - startOf(sb, k));
+    const half = o.width / 2;
+    next = s1 - s0 >= o.width ? Math.max(s0 + half, Math.min(s1 - half, next)) : (s0 + s1) / 2;
+    next = round6(next);
+    if (next === o.at) return o;
+    changed = true;
+    return { ...o, at: next };
+  });
+  return changed ? out : list;
+}
+
+/** The outline with new corners, its openings kept on their sides. */
+function withCorners(o: ArchitectureOutline, points: Point3[]): ArchitectureOutline {
+  const next: ArchitectureOutline = { ...o, path: { ...o.path, points } };
+  const openings = openingsKept(o, next);
+  return openings === o.openings ? next : { ...next, openings: openings! };
+}
+
+/**
  * A wall dragged: side `index` of outline `id` moved `offset` metres to the
- * right of its travel, and the same wall of any room beside it (a side
- * between the same two corners) moved with it, so a shared wall stays shared.
+ * right of its travel, and the wall of any room beside it that runs along
+ * the same line over part of it or all (as the generator shares walls: one
+ * wall, partly or wholly shared) moved with it, so a shared wall stays
+ * shared. Openings stay where they stood on every other side.
  */
 export function moveWall(c: ArchitectureComponent, id: string, index: number, offset: number): ArchitectureComponent {
   const o = allOutlines(c).find((x) => x.id === id);
   const side = o === undefined ? undefined : straightSides(o).find((s) => s.index === index);
   if (o === undefined || side === undefined || offset === 0) return c;
-  const moved = moveSide(o, index, offset);
-  const a2 = moved.path.points[index]!;
-  const b2 = moved.path.points[(index + 1) % moved.path.points.length]!;
+  const [rx, rz] = rightOf(side);
+  const shift = (p: readonly number[]): Point3 => [round6(p[0]! + rx * offset), p[1]!, round6(p[2]! + rz * offset)];
+  const ux = (side.b[0] - side.a[0]) / (side.length || 1);
+  const uz = (side.b[2] - side.a[2]) / (side.length || 1);
+  /** Where a point lies against the side's line: across it and along it (metres). */
+  const across = (p: readonly number[]): number => (p[0]! - side.a[0]) * -uz + (p[2]! - side.a[2]) * ux;
+  const along = (p: readonly number[]): number => (p[0]! - side.a[0]) * ux + (p[2]! - side.a[2]) * uz;
   const move = <T extends ArchitectureOutline>(x: T): T => {
-    if (x.id === id) return moved as T;
+    if (x.id === id) {
+      const pts = x.path.points.map((p) => [...p] as Point3);
+      for (const i of [index, (index + 1) % pts.length]) pts[i] = shift(pts[i]!);
+      return withCorners(x, pts) as T;
+    }
+    if (x.path.curve === true) return x;
     const pts = x.path.points;
     const n = pts.length;
     const segs = x.path.closed === true ? n : n - 1;
     for (let i = 0; i < segs; i++) {
+      if ((x.path.bulges?.[i] ?? 0) !== 0) continue;
       const p = pts[i]!;
       const q = pts[(i + 1) % n]!;
-      const forward = samePoint(p, side.a) && samePoint(q, side.b);
-      const backward = samePoint(p, side.b) && samePoint(q, side.a);
-      if (!forward && !backward) continue;
+      if (Math.abs(across(p)) > 1e-6 || Math.abs(across(q)) > 1e-6 || Math.abs(p[1] - side.a[1]) > 1e-6 || Math.abs(q[1] - side.a[1]) > 1e-6) continue;
+      const lo = Math.max(0, Math.min(along(p), along(q)));
+      const hi = Math.min(side.length, Math.max(along(p), along(q)));
+      // Touching at a corner is not sharing: only a stretch of wall in common moves it.
+      if (hi - lo < 1e-5) continue;
       const next = pts.map((r) => [...r] as Point3);
-      next[i] = [...(forward ? a2 : b2)];
-      next[(i + 1) % n] = [...(forward ? b2 : a2)];
-      return { ...x, path: { ...x.path, points: next } };
+      next[i] = shift(p);
+      next[(i + 1) % n] = shift(q);
+      return withCorners(x, next) as T;
     }
     return x;
   };

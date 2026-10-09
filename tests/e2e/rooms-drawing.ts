@@ -11,7 +11,9 @@
  * into the back room; a fence path (posts and a rail, blue) drawn with the
  * Path mode in front of them, below the sight lines. The room inspector edits the door; the
  * Walls mode drags the back room's back wall three cells in and back two (the Scene view
- * regenerates only that room's chunks while dragging); the Paint texture
+ * regenerates only that room's chunks while dragging), then the front room's east wall a cell in and the
+ * wall the rooms share (now only partly) a cell back and both back again: the openings on the other
+ * walls stay where they stood and the shared wall moves with the front room's; the Paint texture
  * tool paints grime (paint layer 3) on the front wall's outer face.
  * Draw-to-visible and the drag's regeneration are timed from the marks.
  */
@@ -267,6 +269,56 @@ export async function drawRooms(page: Page, cmd: Cmd, query: Query, trimId: stri
   const mine = drag.ready.filter((r) => r.object === roomsId).map((r) => r.fromInput).sort((x, y) => x - y);
   const med = (xs: number[]): number => [...xs].sort((x, y) => x - y)[Math.floor(xs.length / 2)] ?? NaN;
   expect(mine.length).toBeGreaterThan(0);
+
+  // Openings stay on their own walls: the front room's east wall dragged a cell in shortens the sides before the
+  // arch's wall (its distance round the room changes); the arch stays where it stood, as does the door on the shared wall.
+  const dragWall = async (from: V3, to: V3): Promise<void> => {
+    const a = (await screen(page, from))!;
+    await page.mouse.move(a.x, a.y);
+    await page.mouse.down();
+    for (let k = 1; k <= 4; k++) {
+      const p = (await screen(page, [from[0] + ((to[0] - from[0]) * k) / 4, 0, from[2] + ((to[2] - from[2]) * k) / 4]))!;
+      await page.mouse.move(p.x, p.y);
+      await page.waitForTimeout(80);
+    }
+    await page.mouse.up();
+  };
+  const stored = await roomsObject();
+  /** Where the front room's openings stand (world x, z): `at` walked round its straight sides. */
+  const openingsAt = async (): Promise<Record<string, [number, number]>> => {
+    const o = (await roomsObject())!.architecture.outlines!.find((x) => x.id === 'room-1')!;
+    const pts = o.path.points;
+    const out: Record<string, [number, number]> = {};
+    for (const op of o.openings ?? []) {
+      let d = op.at;
+      for (let i = 0; i < pts.length; i++) {
+        const a = pts[i]!;
+        const b = pts[(i + 1) % pts.length]!;
+        const len = Math.hypot(b[0]! - a[0]!, b[2]! - a[2]!);
+        if (d <= len) {
+          out[op.id] = [LAYER_AT[0] + a[0]! + ((b[0]! - a[0]!) * d) / len, LAYER_AT[2] + a[2]! + ((b[2]! - a[2]!) * d) / len];
+          break;
+        }
+        d -= len;
+      }
+    }
+    return out;
+  };
+  const before = await openingsAt();
+  expect(before).toEqual({ 'arch-1': [190, -34], 'door-1': [188.5, -38] });
+  await dragWall([192, 0, -36], [191, 0, -36]);
+  await expect.poll(async () => (await roomsObject())?.architecture.outlines?.[0]?.path.points.filter((p) => p[0] === 9).length, { timeout: 15_000 }).toBe(2);
+  expect(await openingsAt()).toEqual(before);
+  // The shared wall, now longer on the back room's side (x 182–192 against 182–191), still moves with the front room's;
+  // the door goes with its wall, the arch stays.
+  await dragWall([186, 0, -38], [186, 0, -39]);
+  await expect.poll(async () => (await roomsObject())?.architecture.outlines?.slice(0, 2).map((o) => o.path.points.filter((p) => p[2] === 3).length), { timeout: 15_000 }).toEqual([2, 2]);
+  expect(await openingsAt()).toEqual({ 'arch-1': [190, -34], 'door-1': [188.5, -39] });
+  // Both dragged back: the rooms as they were stored.
+  await dragWall([186, 0, -39], [186, 0, -38]);
+  await expect.poll(async () => (await roomsObject())?.architecture.outlines?.[1]?.path.points.filter((p) => p[2] === 4).length, { timeout: 15_000 }).toBe(2);
+  await dragWall([191, 0, -36], [192, 0, -36]);
+  await expect.poll(async () => JSON.stringify((await roomsObject())?.architecture.outlines), { timeout: 15_000 }).toBe(JSON.stringify(stored?.architecture.outlines));
 
   // Grime: the Paint texture tool, paint layer 3 on walls, one dab on the front wall's outer face.
   await blocks.getByRole('toolbar', { name: 'block tools' }).getByRole('button', { name: 'Paint texture', exact: true }).click();

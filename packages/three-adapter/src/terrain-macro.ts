@@ -8,11 +8,13 @@
  * A bake draws the tile's finest nodes (no morph) with two unlit materials
  * made from the page's own material — its colour, and its shading normal
  * turned into world space — and with the ground's horizon measured over the
- * heights of the tile and its neighbours on the page (`TerrainSurface.horizon`):
- * the share of the sky each texel sees in the albedo's alpha (the far
- * ground's ambient occlusion) and whether the sun clears the horizon in the
- * normal's alpha (its shadow where no shadow map reaches; a turned sun bakes
- * the tiles again) — into a small target with an orthographic camera
+ * heights of the tile and its neighbours on the page (`TerrainSurface.sky`,
+ * `sunlit`): the share of the sky each texel sees in the albedo's alpha (the
+ * far ground's ambient occlusion) and whether the sun clears the horizon in
+ * a third array (its shadow where no shadow map reaches). A turned sun bakes
+ * that third array alone again: one direction's reads over a single quad grid
+ * across the tile, not the tile's look over its finest nodes, so a day's sun
+ * costs the far ground little — into a small target with an orthographic camera
  * over the tile, and copies the target into the tile's layer of the page's
  * macro arrays (the GPU only: nothing is read back). A material is compiled
  * ahead (`compileAsync`) before its first bake, so a bake never compiles on
@@ -43,10 +45,11 @@ export const TERRAIN_HORIZON_METRES = 256;
 /** Texels along a macro texture's side for a tile size. */
 export const terrainMacroSize = (tileSamples: number): number => Math.min(TERRAIN_MACRO_TEXELS, tileSamples - 1);
 
-/** A page's macro arrays: albedo (linear RGB) and world normal (× 0.5 + 0.5), one layer per tile. */
+/** A page's macro arrays, one layer per tile: albedo (linear RGB, the sky's share in alpha), world normal (× 0.5 + 0.5) and sunlight (alpha: 1 lit, 0 behind the horizon). */
 export interface TerrainMacroArrays {
   readonly albedo: THREE.DataArrayTexture;
   readonly normal: THREE.DataArrayTexture;
+  readonly sun: THREE.DataArrayTexture;
 }
 
 export function terrainMacroArrays(size: number, capacity: number): TerrainMacroArrays {
@@ -64,7 +67,7 @@ export function terrainMacroArrays(size: number, capacity: number): TerrainMacro
     t.needsUpdate = true;
     return t;
   };
-  return { albedo: make(), normal: make() };
+  return { albedo: make(), normal: make(), sun: make() };
 }
 
 /** One tile to bake: where it is, the page's material and surface data, and the layer it goes to. */
@@ -108,6 +111,8 @@ export const sameMacroSource = (a: readonly unknown[] | null, b: readonly unknow
 interface BakeMaterials {
   readonly albedo: THREE.Material;
   readonly normal: THREE.Material;
+  /** The sunlight alone (drawn over one node across the tile: it reads heights, not the look). */
+  readonly sun: THREE.Material;
   /** The source they were made from. */
   readonly from: readonly unknown[];
   /** Compiled for the renderer (false: compiling in the background). */
@@ -125,9 +130,12 @@ export class TerrainMacroBaker {
   private readonly horizon: TerrainHorizonUniforms & { neighbours: N; sun: N; reach: N } = { neighbours: uniformArray(new Array(9).fill(-1), 'float'), sun: uniform(new THREE.Vector3(0, 1, 0)), reach: uniform(1) };
   /** The finest nodes of a tile, by layout (cells and grid) and layer. */
   private geometry: { key: string; geometry: THREE.InstancedBufferGeometry; own: THREE.InterleavedBufferAttribute[]; buffer: THREE.InstancedInterleavedBuffer } | null = null;
+  /** One node across a whole tile (the sunlight's draw), by grid. */
+  private whole: { key: number; geometry: THREE.InstancedBufferGeometry; own: THREE.InterleavedBufferAttribute[]; buffer: THREE.InstancedInterleavedBuffer } | null = null;
   private readonly grids: Map<number, THREE.BufferGeometry>;
-  /** Tiles baked since the baker was made. */
+  /** Tiles baked since the baker was made, and their sunlight alone baked again (a turned sun). */
   bakes = 0;
+  sunBakes = 0;
 
   /** `horizon` false: the bakes leave the horizon out (the whole sky, the sun everywhere: a diagnostic comparison). */
   constructor(renderer: WebGPURenderer, grids: Map<number, THREE.BufferGeometry>, private readonly withHorizon = true) {
@@ -149,26 +157,47 @@ export class TerrainMacroBaker {
   bake(job: TerrainMacroJob): boolean {
     // The tile in place first: a material's programs compile against it.
     this.place(job);
+    this.horizonFor(job);
+    const mats = this.materialsFor(job.material, job.surface, job.arrays.albedo.image.width);
+    if (!mats.ready) return false;
+    this.draw(mats.albedo, job.arrays.albedo, job.layer);
+    this.draw(mats.normal, job.arrays.normal, job.layer);
+    this.placeWhole(job);
+    this.draw(mats.sun, job.arrays.sun, job.layer);
+    this.bakes += 1;
+    return true;
+  }
+
+  /** Bake a baked tile's sunlight alone again (the sun turned; true: done, false: its programs still compiling). */
+  bakeSun(job: TerrainMacroJob): boolean {
+    this.place(job);
+    this.horizonFor(job);
+    const mats = this.materialsFor(job.material, job.surface, job.arrays.albedo.image.width);
+    if (!mats.ready) return false;
+    this.placeWhole(job);
+    this.draw(mats.sun, job.arrays.sun, job.layer);
+    this.sunBakes += 1;
+    return true;
+  }
+
+  /** The horizon's uniforms for the job's tile: its neighbours on the page, the sun, the march's reach. */
+  private horizonFor(job: TerrainMacroJob): void {
     const values = (this.horizon.neighbours as { array: number[] }).array;
     for (let i = 0; i < 9; i++) values[i] = job.neighbours[i] ?? -1;
     (this.horizon.sun.value as THREE.Vector3).set(job.sun[0], job.sun[1], job.sun[2]);
     this.horizon.reach.value = job.reach;
-    const mats = this.materialsFor(job.material, job.surface, job.arrays.albedo.image.width);
-    if (!mats.ready) return false;
-    const size = job.arrays.albedo.image.width;
-    const rt = this.target(size);
+  }
+
+  /** Draw the mesh with `mat` into the target and copy it into layer `layer` of `dst`. */
+  private draw(mat: THREE.Material, dst: THREE.DataArrayTexture, layer: number): void {
+    const rt = this.target(dst.image.width);
     const r = this.renderer;
     const saved = r.getRenderTarget();
-    const at = new THREE.Vector3(0, 0, job.layer);
-    for (const [mat, dst] of [[mats.albedo, job.arrays.albedo], [mats.normal, job.arrays.normal]] as const) {
-      this.mesh.material = mat;
-      r.setRenderTarget(rt);
-      r.render(this.scene, this.camera);
-      r.copyTextureToTexture(rt.texture, dst, null, at);
-    }
+    this.mesh.material = mat;
+    r.setRenderTarget(rt);
+    r.render(this.scene, this.camera);
+    r.copyTextureToTexture(rt.texture, dst, null, new THREE.Vector3(0, 0, layer));
     r.setRenderTarget(saved);
-    this.bakes += 1;
-    return true;
   }
 
   dispose(): void {
@@ -176,6 +205,8 @@ export class TerrainMacroBaker {
     this.targets.clear();
     if (this.geometry !== null) disposeSharingGeometry(this.geometry.geometry, this.geometry.own);
     this.geometry = null;
+    if (this.whole !== null) disposeSharingGeometry(this.whole.geometry, this.whole.own);
+    this.whole = null;
   }
 
   /** The bake's two materials made from a page's material and surface (and compiled ahead). */
@@ -186,27 +217,33 @@ export class TerrainMacroBaker {
     if (m !== undefined) {
       m.albedo.dispose();
       m.normal.dispose();
+      m.sun.dispose();
     }
     const s = src as unknown as NodeMaterial & { color?: THREE.Color };
-    const horizon = this.withHorizon ? surface.horizon(this.horizon) : TSL.vec2(1, 1);
     const albedo = new MeshBasicNodeMaterial();
     const colour = s.colorNode ?? vec4(s.color?.r ?? 1, s.color?.g ?? 1, s.color?.b ?? 1, 1);
-    albedo.colorNode = vec4(colour.rgb, horizon.x);
+    albedo.colorNode = vec4(colour.rgb, this.withHorizon ? surface.sky(this.horizon) : 1);
     const normal = new MeshBasicNodeMaterial();
     // The shading normal (the material's, in the camera's view space) in world space.
     const world = s.normalNode != null ? normalize(cameraWorldMatrix.mul(vec4(s.normalNode, 0)).xyz) : normalWorld;
-    normal.colorNode = vec4(world.mul(0.5).add(0.5), horizon.y);
+    normal.colorNode = vec4(world.mul(0.5).add(0.5), 1);
+    const sun = new MeshBasicNodeMaterial();
+    const lit = this.withHorizon ? surface.sunlit(this.horizon) : TSL.float(1);
+    // In alpha, as the sky's share: alpha is written as it is (colour channels may be encoded for the target).
+    sun.colorNode = vec4(0, 0, 0, lit);
     // Holes are baked through (their ground's look under them): the far material cuts them per pixel itself, and a hole
     // left empty in the texture would darken the texels round it as they are filtered — a dark rim round every hole and
     // every block area standing in one.
-    for (const b of [albedo, normal]) {
-      b.positionNode = s.positionNode;
+    // The sunlight is drawn over one node across the tile: the surface's own placement (the look's is not read).
+    sun.positionNode = surface.position;
+    for (const b of [albedo, normal, sun]) {
+      if (b !== sun) b.positionNode = s.positionNode;
       // Written as they are, alpha included (an opaque material's alpha would be 1): the alphas hold the horizon.
       b.blending = THREE.NoBlending;
       b.side = THREE.FrontSide;
       b.toneMapped = false;
     }
-    m = { albedo, normal, from, ready: false };
+    m = { albedo, normal, sun, from, ready: false };
     this.materials.set(src, m);
     const made = m;
     // Compiled with a tile in place and the bake's target bound (the pipelines are made for what they draw into), so the
@@ -219,6 +256,9 @@ export class TerrainMacroBaker {
       this.mesh.material = mat;
       compiling.push(r.compileAsync(this.scene, this.camera));
     }
+    // The sunlight's too: its whole-tile node has the finest nodes' vertex layout, so the program is the same.
+    this.mesh.material = sun;
+    compiling.push(r.compileAsync(this.scene, this.camera));
     r.setRenderTarget(saved);
     void Promise.all(compiling)
       .then(() => {
@@ -277,6 +317,33 @@ export class TerrainMacroBaker {
     this.camera.lookAt(c.x, c.y - 1, c.z);
     this.camera.updateProjectionMatrix();
     this.camera.updateMatrixWorld(true);
+  }
+
+  /**
+   * One node across the whole tile in the mesh (after `place`: the camera is
+   * over the tile): the sunlight reads heights at each pixel's sample, which
+   * the grid's corners, on samples, interpolate exactly; the finest nodes'
+   * many small triangles would only shade each pixel many times over.
+   */
+  private placeWhole(job: TerrainMacroJob): void {
+    const { cells, grid } = job.layout;
+    if (this.whole?.key !== grid) {
+      if (this.whole !== null) disposeSharingGeometry(this.whole.geometry, this.whole.own);
+      const made = nodeGeometry(this.gridOf(grid), 1);
+      this.whole = { key: grid, ...made };
+      made.geometry.instanceCount = 1;
+    }
+    const d = this.whole.buffer.array as Float32Array;
+    d[0] = job.x;
+    d[1] = job.z;
+    d[2] = cells;
+    d[3] = job.layer;
+    d[4] = 0;
+    d[5] = 0;
+    d[6] = 1e9;
+    d[7] = 0;
+    this.whole.buffer.needsUpdate = true;
+    this.mesh.geometry = this.whole.geometry;
   }
 
   private gridOf(grid: number): THREE.BufferGeometry {

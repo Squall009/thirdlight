@@ -5254,7 +5254,7 @@ edited with the editor's Terrain tools.
 - **Far ground** (`macroDistance`, metres; optional, absent: the material's
   layers everywhere): each tile's look is baked from straight above into a
   small **macro texture** — its albedo and world normal (heights and normal
-  maps together), at most 128 texels a side (a smaller tile: one a cell) —
+  maps together), and its sunlight, at most 128 texels a side (a smaller tile: one a cell) —
   once its texels are up, again whenever it changes or its material does,
   on the GPU, within 2 ms of the page's time a frame. Holes are baked
   through (the ground's look under them; the far material cuts them itself),
@@ -5266,17 +5266,22 @@ edited with the editor's Terrain tools.
   and the sun behind its horizon shadows it (with the shadow maps where they
   reach) — mountains shade valleys and cast long evening shadows where no
   shadow map goes. A tile's neighbours are baked again when it changes; a
-  sun turned by more than 2° bakes every far tile again (over frames, as any
-  bake). Free in the draw (the bakes' unused alpha channels); a bake's
-  measure runs as loops in the shader (built ahead with the bake's other
-  programs). Needs a key light that casts a shadow for its sun part.
+  sun turned by more than 2° bakes every far tile's sunlight alone again
+  (a third texture a tile, drawn over one node across the tile: one
+  direction's reads), 8 tiles a frame at most, so a day cycle's sun costs
+  no missed frames (landscape class, 60 s of a sun swept dawn to dusk
+  and back every 2 min: 0 missed refreshes on both renderers, against 332
+  and 58 when it baked whole tiles). The sky's share rides in the albedo's
+  alpha; the sunlight's texture adds half again to the far ground's
+  memory (64 KB a 128² tile). A bake's measure runs as loops in the shader
+  (built ahead with the bake's other programs). Needs a key light that casts a shadow for its sun part.
   `?terrainHorizon=off` on a game page bakes without it (a comparison).
   Measured (terrain-cdlod e2e, export, the frame's far band): 1.3–1.9 of
   255 darker on average with it, the near ground unchanged; the most a
   frame spent baking at load 23–44 ms (the first bake's program use, as
   before: 23–27 ms without the horizon). Nodes wholly past the
   distance whose tile is baked are drawn by a second mesh per page from it:
-  two texture reads instead of the material's dozen (one more draw per
+  three texture reads instead of the material's dozen (one more draw per
   page). Both draw the same vertices, so they meet without a crack; the
   look switches where a node crosses the distance (put it where fog or
   distance hides the difference). Measured (Iris Xe, 1080p, the landscape
@@ -6203,6 +6208,10 @@ layer**, or MCP `setComponent terrain {layers}`) makes the ground meet it:
   adding the blocks layer 480 ms (4 tiles); a border column raised a row
   162 ms (one tile, plan 144 ms, encode 17 ms); a 2 m repaint at the border
   140 ms; an edit deep inside that moves no ground 113 ms, nothing written.
+  A wide blend costs by the ground it reaches (the nearest border is
+  found among the footprint's columns near a sample, not over the blend's
+  whole square): the same layer added at 32 m 0.4 s, 128 m 2.6 s, 256 m
+  7.3 s (the area grown by the blend re-baked).
   The backend does it: no frame of the editor or a game waits on it.
 - **Lighting**: both sides of the border are lit alike — the same
   material, normals that read across the border (the ground under the

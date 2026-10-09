@@ -13,7 +13,8 @@
  *   left out) where they differ; kit copies as instance sets of their models.
  *   The meshes stand still and cast into the cached static shadow map.
  *   They wear the object's materials for their slots (`architecture` or
- *   `*`): the trim material reads the generator's COLOR_0 (baked AO).
+ *   `*`): the trim material reads the generator's COLOR_0 (baked AO). Kit
+ *   copies wear their models' own.
  * - An export that ships meshes names its blob (`baked`): its chunks are
  *   drawn as they are, nothing is generated.
  * - An object drawn on a block layer (`layer`) is made with the layer's
@@ -93,7 +94,7 @@ export interface ArchitectureViewDeps {
   sheets(entityId: string, component: ArchitectureComponent, extra: Readonly<Record<string, string>>): ArchitectureSheets;
   /** The same for an object not realized yet (a scene prepared ahead), from its own `materials` (absent: as `sheets` with no object). */
   sheetsOf?(materials: Readonly<Record<string, string>> | undefined, component: ArchitectureComponent, extra: Readonly<Record<string, string>>): ArchitectureSheets;
-  /** Put the object's materials (over `extra`) on a chunk (the undo; null: none). */
+  /** Put the object's materials (over `extra`) on a chunk's generated meshes (the undo; null: none). */
   materials(root: THREE.Object3D, entityId: string, extra: Readonly<Record<string, string>>): (() => void) | null;
   /** The style and preset graphs outlines are made by (absent: the engine's starters only). */
   styles?: readonly ArchitectureGraphLike[] | null;
@@ -143,6 +144,8 @@ export interface ArchitectureViewDeps {
 
 interface BuiltChunk {
   readonly group: THREE.Group;
+  /** The generated meshes (under `group`, beside the kit copies): what the object's materials go on. */
+  readonly generated: THREE.Group;
   /** Its meshes of cut-away zones, registered with its layer under this key (null: none). */
   readonly cut: { readonly layer: string; readonly key: string } | null;
   readonly geometries: THREE.BufferGeometry[];
@@ -275,7 +278,7 @@ export class ArchitectureView {
     this.styles = architectureStylesOf(deps.styles ?? undefined);
   }
 
-  /** The style and preset graphs changed: objects with outlines are made again (unchanged chunks keep their keys). */
+  /** The style and preset graphs changed: objects with outlines or buildings are made again (unchanged chunks keep their keys). */
   setStyles(graphs: readonly ArchitectureGraphLike[] | null): void {
     this.styles = architectureStylesOf(graphs ?? undefined);
     this.remake(() => true);
@@ -310,11 +313,11 @@ export class ArchitectureView {
     return this.remake((rec) => rec.raw.layer === layerId, true);
   }
 
-  /** Expand again the objects with outlines that `which` picks, and ask for the chunks that changed. */
+  /** Expand again the objects with outlines or buildings that `which` picks, and ask for the chunks that changed. */
   private remake(which: (rec: Rec) => boolean, any = false): number {
     let n = 0;
     for (const [id, rec] of this.recs) {
-      if (rec.leaving || (!any && (rec.raw.outlines?.length ?? 0) === 0) || !which(rec)) continue;
+      if (rec.leaving || (!any && (rec.raw.outlines?.length ?? 0) + (rec.raw.buildings?.length ?? 0) === 0) || !which(rec)) continue;
       const sheetsBefore = JSON.stringify(rec.materials);
       this.expand(id, rec);
       n += 1;
@@ -330,8 +333,8 @@ export class ArchitectureView {
   private expand(id: string, rec: Rec): void {
     const paint = rec.raw.layer !== undefined ? (this.deps.paint?.(rec.raw.layer, rec.origin) ?? null) : null;
     const x = expandArchitecture(rec.raw, rec.origin, this.styles, { swaps: this.swaps, preview: this.previewing, paint });
-    // Shipped meshes are of the stored presets: a swapped or previewed one is generated here.
-    const restyled = rec.raw.baked !== undefined && (rec.raw.outlines ?? []).some((o) => this.swaps[o.preset] !== undefined || (this.previewing !== null && x.presets.has(this.previewing.preset)));
+    // Shipped meshes are of the stored presets: a swapped one (an inside, an outside, a building's or its planned rooms') or a previewed one is generated here.
+    const restyled = rec.raw.baked !== undefined && (x.swapped === true || (this.previewing !== null && x.presets.has(this.previewing.preset)));
     if (restyled) {
       const { baked: _baked, ...rest } = x.component;
       rec.component = rest;
@@ -942,6 +945,10 @@ export class ArchitectureView {
     group.name = `architecture:${id}:${ck}`;
     group.position.set(...rec.origin);
     const centre = new THREE.Vector3((ch.cx + 0.5) * size, 0, (ch.cz + 0.5) * size);
+    // The generated meshes apart from the kit copies: the object's materials (its `*` too) are for the slots the
+    // generator names, while a copy keeps its own model's materials.
+    const generated = new THREE.Group();
+    generated.name = `architecture:${id}:${ck}:generated`;
     const geometries: THREE.BufferGeometry[] = [];
     let triangles = 0;
     let draws = 0;
@@ -999,7 +1006,7 @@ export class ArchitectureView {
       triangles += l.indices.length / 3;
       draws += 1;
       if (l.farIndices.length === l.indices.length) {
-        group.add(levelOf(l.indices, 0));
+        generated.add(levelOf(l.indices, 0));
         continue;
       }
       // The near level and, past the LOD distance from the chunk's middle, the far one (detail left out).
@@ -1012,8 +1019,9 @@ export class ArchitectureView {
       const b = l.farIndices.length > 0 ? levelOf(l.farIndices, 1) : new THREE.Object3D();
       b.position.copy(centre).negate();
       lod.addLevel(b, lodDistance);
-      group.add(lod);
+      generated.add(lod);
     }
+    if (generated.children.length > 0) group.add(generated);
     const sets: BuiltInstanceSet[] = [];
     const undo: (() => void)[] = [];
     chunk.copies.forEach((s, i) => {
@@ -1036,12 +1044,12 @@ export class ArchitectureView {
       }
     });
     // The object's materials on the meshes (the first undo: a restyle replaces it).
-    undo.unshift(this.deps.materials(group, id, rec.materials) ?? ((): void => undefined));
+    undo.unshift(this.deps.materials(generated, id, rec.materials) ?? ((): void => undefined));
     group.updateMatrixWorld(true);
     if (ch.built !== null) this.dropBuilt(ch.built);
     const cut = cutMeshes.length > 0 ? { layer: rec.raw.layer!, key: `architecture:${id}:${ck}` } : null;
     if (cut !== null) this.deps.cutaway?.register(cut.layer, cut.key, cutMeshes);
-    ch.built = { group, geometries, sets, undo, triangles, draws, cut };
+    ch.built = { group, generated, geometries, sets, undo, triangles, draws, cut };
     ch.builtKey = key;
     if (!rec.hidden) this.deps.place(group, true);
     this.deps.shapeChanged();
@@ -1089,7 +1097,7 @@ export class ArchitectureView {
 
   private redress(id: string, b: BuiltChunk): void {
     b.undo[0]?.();
-    b.undo[0] = this.deps.materials(b.group, id, this.recs.get(id)?.materials ?? {}) ?? ((): void => undefined);
+    b.undo[0] = this.deps.materials(b.generated, id, this.recs.get(id)?.materials ?? {}) ?? ((): void => undefined);
   }
 
   private moveBuilt(rec: Rec, b: BuiltChunk): void {

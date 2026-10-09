@@ -292,6 +292,7 @@ export {
   generateArchitectureChunk,
   isArchitectureBlob,
   joinArchitectureChunkParts,
+  sampleArchitecturePath,
   type ArchitectureChunk,
   type ArchitectureChunkKey,
   type ArchitectureChunkPart,
@@ -302,6 +303,7 @@ export {
   type ArchitecturePaint,
   type ArchitecturePath,
   type ArchitectureStair,
+  type ArchitecturePathSamples,
   type ArchitectureSheets,
 } from '@thirdlight/project-model';
 // Architecture styles and presets: outlines made into elements by their presets' style graphs (page, workers, simulation alike).

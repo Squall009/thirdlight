@@ -99,6 +99,34 @@ interface Ground {
 
 const columnKey = (x: number, z: number): number => (x + 0x100000) * 0x200000 + (z + 0x100000);
 
+/** A layer's columns that may hold ground, by bin of CHUNK_SIZE columns (bin (x0, z0) first), with scratch for a search. */
+interface ColumnBins {
+  readonly x0: number;
+  readonly z0: number;
+  readonly w: number;
+  readonly h: number;
+  readonly has: Uint8Array;
+  /** Scratch: the bins a search may visit, their nearest distance and index. */
+  readonly md: Float64Array;
+  readonly at: Int32Array;
+}
+
+/**
+ * A search box's cell count from which the nearest border column is found
+ * bin by bin (below it, the box is scanned whole: as fast for a few metres of
+ * blend, and the blend's area grows with its square).
+ */
+const BIN_SEARCH_FROM_CELLS = 1024;
+
+/** The nearest border column found: its column, the border point on it (layer cells), and its distance (m). */
+interface Nearest {
+  x: number;
+  z: number;
+  px: number;
+  pz: number;
+  d: number;
+}
+
 /** One block layer's footprint and ground, read on demand. */
 class BlockGround {
   readonly cw: number;
@@ -112,6 +140,7 @@ class BlockGround {
   private gridMade: BlockGrid | null = null;
   private covers: Map<number, Map<number, readonly [number, number, number]>> | null = null;
   private readonly grounds = new Map<number, Ground | null>();
+  private binsMade: ColumnBins | null = null;
   /** The block layer's material rules (the paint its tops show is read through them). */
   readonly rules: SurfaceRuleSet | undefined;
   private readonly subdivision: number;
@@ -206,6 +235,41 @@ class BlockGround {
     return found;
   }
 
+  /**
+   * The columns that may hold ground, in bins CHUNK_SIZE columns a side: a
+   * chunk's own columns, and those a larger block anchored elsewhere covers.
+   * The nearest-border search skips empty bins, so its cost follows the
+   * footprint near a point rather than the blend's area.
+   */
+  bins(): ColumnBins {
+    if (this.binsMade !== null) return this.binsMade;
+    const keys: [number, number][] = [];
+    for (const c of this.src.data?.chunks ?? []) if (c.columns.length > 0) keys.push([c.cx, c.cz]);
+    for (const k of this.coversOf().keys()) {
+      const x = Math.floor(k / 0x200000) - 0x100000;
+      const z = (k % 0x200000) - 0x100000;
+      keys.push([Math.floor(x / CHUNK_SIZE), Math.floor(z / CHUNK_SIZE)]);
+    }
+    if (keys.length === 0) return (this.binsMade = { x0: 0, z0: 0, w: 0, h: 0, has: new Uint8Array(0), md: new Float64Array(0), at: new Int32Array(0) });
+    let x0 = Infinity;
+    let z0 = Infinity;
+    let x1 = -Infinity;
+    let z1 = -Infinity;
+    for (const [x, z] of keys) {
+      x0 = Math.min(x0, x);
+      z0 = Math.min(z0, z);
+      x1 = Math.max(x1, x);
+      z1 = Math.max(z1, z);
+    }
+    const w = x1 - x0 + 1;
+    const h = z1 - z0 + 1;
+    const has = new Uint8Array(w * h);
+    for (const [x, z] of keys) has[(z - z0) * w + (x - x0)] = 1;
+    let n = 0;
+    for (const v of has) n += v;
+    return (this.binsMade = { x0, z0, w, h, has, md: new Float64Array(n), at: new Int32Array(n) });
+  }
+
   /** The ground's height (layer-local metres) of column (x, z) at layer point (u, v) in cells (null: no block). */
   topAt(x: number, z: number, u: number, v: number): number | null {
     const gr = this.ground(x, z);
@@ -240,6 +304,96 @@ function touching(u: number, v: number): { xs: number[]; zs: number[] } {
   const xs = Math.abs(u - ru) < ON_LINE ? [ru - 1, ru] : [Math.floor(u)];
   const zs = Math.abs(v - rv) < ON_LINE ? [rv - 1, rv] : [Math.floor(v)];
   return { xs, zs };
+}
+
+/**
+ * The covered column in box [x0, x1] × [z0, z1] whose square comes nearest
+ * layer point (u, v), closer than `limit` metres: the nearest, the first in
+ * row order among equally near ones (null: none).
+ */
+function nearestByScan(l: BlockGround, u: number, v: number, x0: number, x1: number, z0: number, z1: number, limit: number): Nearest | null {
+  let out: Nearest | null = null;
+  let bd = limit;
+  for (let z = z0; z <= z1; z++) {
+    const pz = Math.min(z + 1, Math.max(z, v));
+    const dz = (pz - v) * l.cd;
+    if (dz * dz >= bd * bd) continue;
+    for (let x = x0; x <= x1; x++) {
+      const px = Math.min(x + 1, Math.max(x, u));
+      const dx = (px - u) * l.cw;
+      const d = Math.sqrt(dx * dx + dz * dz);
+      if (d >= bd) continue;
+      if (l.ground(x, z) === null) continue;
+      bd = d;
+      out = { x, z, px, pz, d };
+    }
+  }
+  return out;
+}
+
+/**
+ * The same column as {@link nearestByScan}, found by visiting the layer's
+ * non-empty bins nearest first and stopping once a bin lies farther than the
+ * best found: equally near columns are settled by row order, as the scan does.
+ */
+function nearestByBins(l: BlockGround, u: number, v: number, x0: number, x1: number, z0: number, z1: number, limit: number): Nearest | null {
+  const b = l.bins();
+  const bx0 = Math.max(b.x0, Math.floor(x0 / CHUNK_SIZE));
+  const bx1 = Math.min(b.x0 + b.w - 1, Math.floor(x1 / CHUNK_SIZE));
+  const bz0 = Math.max(b.z0, Math.floor(z0 / CHUNK_SIZE));
+  const bz1 = Math.min(b.z0 + b.h - 1, Math.floor(z1 / CHUNK_SIZE));
+  let n = 0;
+  for (let bz = bz0; bz <= bz1; bz++)
+    for (let bx = bx0; bx <= bx1; bx++) {
+      const i = (bz - b.z0) * b.w + (bx - b.x0);
+      if (b.has[i] === 0) continue;
+      // The bin's columns in the box, and the distance to the nearest point of their squares (no column in it is nearer).
+      const cx0 = Math.max(x0, bx * CHUNK_SIZE);
+      const cx1 = Math.min(x1, bx * CHUNK_SIZE + CHUNK_SIZE - 1);
+      const cz0 = Math.max(z0, bz * CHUNK_SIZE);
+      const cz1 = Math.min(z1, bz * CHUNK_SIZE + CHUNK_SIZE - 1);
+      const dx = (Math.min(cx1 + 1, Math.max(cx0, u)) - u) * l.cw;
+      const dz = (Math.min(cz1 + 1, Math.max(cz0, v)) - v) * l.cd;
+      const md = Math.sqrt(dx * dx + dz * dz);
+      if (md >= limit) continue;
+      b.md[n] = md;
+      b.at[n] = i;
+      n += 1;
+    }
+  let out: Nearest | null = null;
+  let bd = limit;
+  for (;;) {
+    // The nearest bin not visited yet.
+    let k = -1;
+    for (let j = 0; j < n; j++) if (b.md[j]! >= 0 && (k < 0 || b.md[j]! < b.md[k]!)) k = j;
+    if (k < 0) break;
+    const md = b.md[k]!;
+    // A bin as near as the best can still hold an equally near column earlier in row order.
+    if (out === null ? md >= bd : md > bd) break;
+    b.md[k] = -1;
+    const i = b.at[k]!;
+    const bx = b.x0 + (i % b.w);
+    const bz = b.z0 + Math.floor(i / b.w);
+    const cx0 = Math.max(x0, bx * CHUNK_SIZE);
+    const cx1 = Math.min(x1, bx * CHUNK_SIZE + CHUNK_SIZE - 1);
+    const cz0 = Math.max(z0, bz * CHUNK_SIZE);
+    const cz1 = Math.min(z1, bz * CHUNK_SIZE + CHUNK_SIZE - 1);
+    for (let z = cz0; z <= cz1; z++) {
+      const pz = Math.min(z + 1, Math.max(z, v));
+      const dz = (pz - v) * l.cd;
+      if (dz * dz > bd * bd) continue;
+      for (let x = cx0; x <= cx1; x++) {
+        const px = Math.min(x + 1, Math.max(x, u));
+        const dx = (px - u) * l.cw;
+        const d = Math.sqrt(dx * dx + dz * dz);
+        if (out === null ? d >= bd : d > bd || (d === bd && (z > out.z || (z === out.z && x > out.x)))) continue;
+        if (l.ground(x, z) === null) continue;
+        bd = d;
+        out = { x, z, px, pz, d };
+      }
+    }
+  }
+  return out;
 }
 
 /** What one sample of the terrain gets from the blocks (null: nothing reaches it). */
@@ -280,6 +434,8 @@ export class TerrainBlockSeam {
     readonly settings: TerrainBlocksSettings,
     comp: Pick<TerrainComponent, 'tileSamples' | 'spacing' | 'heightRange'>,
     private readonly origin: readonly number[],
+    /** The search box's cell count from which the nearest border is found by bins (both ways give the same samples). */
+    private readonly binSearchFrom = BIN_SEARCH_FROM_CELLS,
   ) {
     this.layers = sources.map((s) => new BlockGround(s)).filter((l) => l.rect !== null);
     this.n = comp.tileSamples - 1;
@@ -357,39 +513,30 @@ export class TerrainBlockSeam {
         return { height: l.oy + low, weight: 1, under: true, inside: !open, layer: li, paintAt: [u, v], column: col };
       }
       if (blend <= 0) continue;
-      // Outside: the nearest point of a covered column's square within the blend.
+      // Outside: the nearest point of a covered column's square within the blend (closer than an earlier layer's).
       const bx = blend / l.cw;
       const bz = blend / l.cd;
       const x0 = Math.floor(u - bx);
       const x1 = Math.floor(u + bx);
       const z0 = Math.floor(v - bz);
       const z1 = Math.floor(v + bz);
-      for (let z = z0; z <= z1; z++) {
-        const pz = Math.min(z + 1, Math.max(z, v));
-        const dz = (pz - v) * l.cd;
-        if (dz * dz >= bestD * bestD && bestD < Infinity) continue;
-        for (let x = x0; x <= x1; x++) {
-          const px = Math.min(x + 1, Math.max(x, u));
-          const dx = (px - u) * l.cw;
-          const d = Math.sqrt(dx * dx + dz * dz);
-          if (d >= blend || d >= bestD) continue;
-          if (l.ground(x, z) === null) continue;
-          // The border point's ground: the lowest top of the covered columns touching it.
-          const t = touching(px, pz);
-          let h = Infinity;
-          let c: [number, number] = [x, z];
-          for (const cz of t.zs)
-            for (const cx of t.xs) {
-              const y = l.topAt(cx, cz, px, pz);
-              if (y !== null && y < h) {
-                h = y;
-                c = [cx, cz];
-              }
-            }
-          bestD = d;
-          best = { height: l.oy + h, weight: smooth(1 - d / blend), under: false, inside: false, layer: li, paintAt: [px, pz], column: c };
+      const limit = Math.min(blend, bestD);
+      const n = (x1 - x0 + 1) * (z1 - z0 + 1) >= this.binSearchFrom ? nearestByBins(l, u, v, x0, x1, z0, z1, limit) : nearestByScan(l, u, v, x0, x1, z0, z1, limit);
+      if (n === null) continue;
+      // The border point's ground: the lowest top of the covered columns touching it.
+      const t = touching(n.px, n.pz);
+      let h = Infinity;
+      let c: [number, number] = [n.x, n.z];
+      for (const cz of t.zs)
+        for (const cx of t.xs) {
+          const y = l.topAt(cx, cz, n.px, n.pz);
+          if (y !== null && y < h) {
+            h = y;
+            c = [cx, cz];
+          }
         }
-      }
+      bestD = n.d;
+      best = { height: l.oy + h, weight: smooth(1 - n.d / blend), under: false, inside: false, layer: li, paintAt: [n.px, n.pz], column: c };
     }
     return best;
   }

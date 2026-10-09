@@ -26,6 +26,12 @@
  * them. A key makes a script swap every preset for its twin on trim sheet B
  * (every row purple): the walls, fence and pipe turn purple where they stood,
  * the prop stays where it was and pink; the outlines stored are unchanged. A
+ * shed (a building of its own object) wears a plain preset inside and the
+ * room preset as its facade: only its facade is swapped, and its roof (the
+ * facade's sheet) turns purple too.
+ * The export ships the architecture's meshes (`architecture_ship_meshes`):
+ * they are drawn as shipped, and the swap makes the swapped ones on the page
+ * (Play generates everything at load). A
  * second key goes through the building's door (`ctx.grid.doorLink`) into the
  * interior scene, whose camera shows the inside of the front wall in a sheet's
  * colour.
@@ -106,6 +112,8 @@ const INTERIOR_OFFSET: V3 = [0, 0, -400];
 const FENCE: readonly [number, number][] = [[-16, 8], [-6, 8]];
 const PIPE: readonly [number, number][] = [[6, 0], [10, 0]];
 const PROP_AT: V3 = [-8, BASE + 0.5, -4];
+/** A shed (a building, an object of its own) whose facade alone names a swapped preset. */
+const SHED = { x: [6, 10], z: [-7, -4] } as const;
 
 // ---- The camera: over the area's south side, looking north across it to the horizon.
 const CAM_POS: V3 = [0, 16, 30];
@@ -198,7 +206,7 @@ interface Built {
 }
 
 async function buildLevel(): Promise<Built> {
-  await cmd('setSettings', { settings: { camera_far_m: 5000, physics_dimension: 3 } });
+  await cmd('setSettings', { settings: { camera_far_m: 5000, physics_dimension: 3, architecture_ship_meshes: 1 } });
   for (const id of ['model-0001', 'spawn-0001', 'box-0001', 'box-0002', 'box-0003', 'box-0004', 'model-0002']) await cmd('deleteEntity', { entityId: id }).catch(() => undefined);
   // The layered material's arrays (layers red, green, blue, magenta), packed through the route.
   await publishLayerSources(be!);
@@ -309,6 +317,7 @@ async function buildLevel(): Promise<Built> {
     await cmd('setGraph', { graph: { graphId: `acc-${p}-a`, kind: 'architecture-preset', name: `${p} A`, graph: presetGraph(base, 'acc-trim-a', values) } });
     await cmd('setGraph', { graph: { graphId: `acc-${p}-b`, kind: 'architecture-preset', name: `${p} B`, graph: presetGraph(`acc-${p}-a`, 'acc-trim-b', {}) } });
   }
+  await cmd('setGraph', { graph: { graphId: 'acc-plain-a', kind: 'architecture-preset', name: 'plain A', graph: presetGraph('starter-room', 'acc-trim-a', {}) } });
   await cmd('createScene', { sceneId: 'acc-interior', name: 'Interior' });
   await cmd('createEntity', { sceneId: 'acc-interior', parentId: null, kind: 'group', name: 'Interior camera', transform: { position: INTERIOR_CAMERA.position, rotation: INTERIOR_CAMERA.rotation }, components: { virtualCamera: { rig: 'fixed', priority: 10, blend: 'cut', fovY: INTERIOR_CAMERA.fovY, near: 0.05, far: 60 } } });
   // The interior's own light: the building's walls keep the sun out.
@@ -325,6 +334,8 @@ async function buildLevel(): Promise<Built> {
     buildings: [{ id: 'building-1', preset: 'acc-room-a', outside: 'acc-room-a', storeys: 1, roof: { shape: 'hip' }, interior: { scene: 'acc-interior', offset: INTERIOR_OFFSET }, openings: [{ id: 'door-1', at: HOUSE_DOOR_AT, width: 1.2, bottom: 0, top: 2.2 }], path: rectangle(HOUSE) }],
   };
   await cmd('setComponent', { entityId: architecture, component: 'architecture', value: outlines });
+  const shed = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Shed', transform: { position: AREA_AT } }))['createdId']);
+  await cmd('setComponent', { entityId: shed, component: 'architecture', value: { layer: area, elements: [], buildings: [{ id: 'shed-1', preset: 'acc-plain-a', outside: 'acc-room-a', storeys: 1, roof: { shape: 'hip' }, path: rectangle(SHED) }] } });
   await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'box', name: 'Prop', transform: { position: PROP_AT }, box: { size: [1, 1, 1], material: { color: '#ff40a0' } } });
   await cmd('setInput', { input: { actions: [{ name: 'restyle', type: 'button', map: 'gameplay', bindings: [{ kind: 'key', code: RESTYLE_KEY }] }, { name: 'enterDoor', type: 'button', map: 'gameplay', bindings: [{ kind: 'key', code: ENTER_KEY }] }] } });
   await publishScript(be!, 'acc-level', LEVEL_SCRIPT, architecture);
@@ -390,6 +401,7 @@ function judgeArchitecture(img: Image, sheet: Pred, near = reader(img, CAMERA).n
     archFacade: near('facade', [HOUSE.x[0] + 1.5, BASE + 1.5, HOUSE.z[1] + 0.12], sheet),
     archFence: Math.max(near('fence post 2', [FENCE[0]![0] + 2, BASE + 0.7, FENCE[0]![1] + 0.26], sheet, 4), near('fence post 3', [FENCE[0]![0] + 4, BASE + 0.7, FENCE[0]![1] + 0.26], sheet, 4)),
     archPipe: near('pipe', [(PIPE[0]![0] + PIPE[1]![0]) / 2, BASE + 1.2, PIPE[0]![1] + 0.3], sheet, 4),
+    archShedRoof: near('shed roof', [(SHED.x[0] + SHED.x[1]) / 2, BASE + 3.4, SHED.z[1] - 0.6], sheet, 6),
     prop: near('prop', [PROP_AT[0], PROP_AT[1], PROP_AT[2] + 0.51], isPink),
   };
 }
@@ -524,11 +536,15 @@ test('level acceptance: blocks on a few km of terrain with rules, scatter, splin
         await until(shot, (img) => judgeLevel(img, built), `${renderer} export level`);
         const marks = await archTimes(game);
         console.log(`${renderer} export architecture: ${JSON.stringify(marks)}`);
-        expect(marks.chunks, `${renderer} export: architecture chunks generated`).toBeGreaterThan(0);
+        // Shipped: drawn as they are, nothing generated.
+        expect(marks.firstReadyMs, `${renderer} export: architecture drawn`).not.toBeNull();
+        expect(marks.chunks, `${renderer} export: shipped architecture, nothing generated`).toBe(0);
         const box = (await c.boundingBox())!;
         await game.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
         await press(game, RESTYLE_KEY);
         await until(shot, restyled, `${renderer} export restyled`);
+        // The swapped presets' objects made on the page (the shed's by its facade alone).
+        expect((await archTimes(game)).chunks, `${renderer} export: swapped architecture generated`).toBeGreaterThan(0);
         await press(game, ENTER_KEY);
         await until(shot, inside, `${renderer} export interior`);
         expect(errors).toEqual([]);

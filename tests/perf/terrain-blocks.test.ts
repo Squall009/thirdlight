@@ -9,8 +9,8 @@
  * it, painted): the re-bake when the blocks layer is added (cut, blend 8 m), then for single block edits — a border
  * column raised a row, a 4 × 4 patch of border columns repainted, a column deep inside raised — as the host plans
  * them (`splineRebakeRects` → `planTerrainSplineRebake`: heights and holes, rules and paint, scatter) and stores them
- * (the changed tiles encoded and gzipped). The numbers go to ~/.cache/thirdlight-perf/terrain-blocks.jsonl and the
- * phase plan's progress table.
+ * (the changed tiles encoded and gzipped); then the layer added again at blends of 8 to 256 m. The numbers go to
+ * ~/.cache/thirdlight-perf/terrain-blocks.jsonl and the phase plan's progress table.
  */
 import { appendFileSync, mkdirSync } from 'node:fs';
 import { homedir } from 'node:os';
@@ -43,6 +43,8 @@ const SCATTER: ScatterRule[] = [
   { id: 'rocks', asset: { assetId: 'kit' }, density: 0.0005, spacing: 6, align: 0.5, slope: { min: 15, fade: 5 } },
 ];
 const RANGE: [number, number] = [-64, 192];
+/** The blends the layer is added at once more (TL_BLENDS=8,32 to pick). */
+const BLENDS = (process.env['TL_BLENDS'] ?? '8,32,128,256').split(',').map(Number);
 const N = 2;
 const GROUND = 'ground-1';
 const AREA = 'area-1';
@@ -168,5 +170,8 @@ describe.skipIf(!ON)('terrain meeting a block area: re-bake costs', () => {
     data = next;
     next = edited(data, [{ kind: 'cells', at: [50, 2, 50], cell: { block: 'rock' } }]);
     step('a column deep inside raised a row', scene(comp, data), scene(comp, next));
+    data = next;
+    // The blend's reach: the layer added again at wider blends (the field allows up to 256 m).
+    for (const blend of BLENDS) step(`blocks layer added at blend ${blend} m`, scene({ ...comp, layers: [] }, data), scene({ ...comp, layers: [{ ...layer, blend }] }, data));
   }, 300_000);
 });

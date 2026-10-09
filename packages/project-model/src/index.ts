@@ -1513,6 +1513,8 @@ export {
 } from './arch-style';
 // Rooms and runs (closed and open outlines): shared walls, storeys, stairs; what a block layer reads of them.
 export { ARCHITECTURE_FLOOR_ON_CELLS, ARCHITECTURE_STAIR_SLOTS, ARCHITECTURE_STOREY_HEIGHT_FALLBACK, expandArchitecture, reversedPath } from './arch-rooms';
+// Distances along an outline as the generator measures them (arcs, chamfers and offsets in): where an opening's `at` falls.
+export { samplePath as sampleArchitecturePath, type PathSamples as ArchitecturePathSamples } from './arch-path';
 // Floor plans and furnishing: room programs and furnishing sets (games' graphs), the splitter and the placer.
 export {
   FLOOR_PLAN_COUNT_MAX,
