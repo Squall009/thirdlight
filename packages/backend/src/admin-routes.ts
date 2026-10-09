@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { exportProject, type ClosureTextureSlots, type ExportFs } from '@thirdlight/exporter';
 import { loadTemplate, resolveTemplateModules } from './templates';
 import { engineIdentity } from './engine';
+import { installSkill } from './skill-install.mjs';
 import { parseAdminNoArgsBody, parseAdminCreateProjectRequest, parseStrictJsonBytes, sessionError, statusFor, type SessionError } from '@thirdlight/protocol';
 import { type CommandError, type WorkspaceService } from '@thirdlight/workspace';
 import { type BackendConfig } from './config';
@@ -30,6 +31,16 @@ export interface AdminRoutesContext {
 
 export function makeAdminRoutes(ctx: AdminRoutesContext) {
   const { config, behaviorCompiler, service, sendJson, sendError, requireAuth, readBody, workspaceError, recordProblem, ensureImported, textureSlots } = ctx;
+
+  /** Install the skill into a new folder project; a failure leaves the project created and says why. */
+  const skillOutcome = (engineRoot: string, folder: string): { action: string; stamp: string | null } | { error: string } => {
+    try {
+      const r = installSkill(engineRoot, folder);
+      return { action: r.action, stamp: r.stamp };
+    } catch (e) {
+      return { error: e instanceof Error ? e.message : String(e) };
+    }
+  };
 
   const adminCreateProject = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
     const authError = requireAuth(req, '', true);
@@ -77,6 +88,11 @@ export function makeAdminRoutes(ctx: AdminRoutesContext) {
       // In the game's own folder: marker + thirdlight/ subfolder, registered, pinned to this engine.
       const engine = config.engineRoot !== undefined ? engineIdentity(config.engineRoot) : null;
       result = service.createProjectInFolder(folder, projectId, name, { ...(engine !== null ? { engine } : {}), ...(source !== undefined ? { source } : {}) });
+      if (result.ok && config.engineRoot !== undefined) {
+        // A game folder gets the engine's agent skill, so an AI tool started there learns how to work with this engine.
+        sendJson(res, result.created ? 201 : 200, { ...result, skill: skillOutcome(config.engineRoot, folder) });
+        return;
+      }
     } else if (source !== undefined) {
       result = service.createProjectFrom(projectId, name, source);
     } else {

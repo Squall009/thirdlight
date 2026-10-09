@@ -61,6 +61,8 @@ test('a project in a game folder: create, edit, reload, restart, backup/restore,
   expect(marker).toMatchObject({ thirdlightProject: 1, projectId: 'meadow', name: 'Meadow', projectDir: 'thirdlight' });
   expect((marker.engine as { lockfileDigest: string }).lockfileDigest).toMatch(/^[0-9a-f]{64}$/);
   expect(readFileSync(join(meadow, 'thirdlight', '.gitignore'), 'utf8')).toContain('.thirdlight/');
+  // The picker's create installs the engine's agent skill too.
+  expect(readFileSync(join(meadow, '.claude', 'skills', 'thirdlight', 'SKILL.md'), 'utf8')).toBe(readFileSync(join(REPO, 'skills', 'thirdlight', 'SKILL.md'), 'utf8'));
   expect(existsSync(join(dataRoot(), 'projects', 'meadow'))).toBe(false);
 
   // Edit; the scene lands in the game folder and survives a reload and a restart.

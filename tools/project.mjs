@@ -7,15 +7,17 @@
  *   node tools/project.mjs register <folder>          # open an existing folder (holding thirdlight.json)
  *   node tools/project.mjs unregister <projectId>     # forget it; files are never touched
  *   node tools/project.mjs list
- *   node tools/project.mjs check <folder> [--repin]   # the folder's engine pin vs this engine (offline)
+ *   node tools/project.mjs check <folder> [--repin]   # the folder's engine pin and skill vs this engine (offline)
+ *   node tools/project.mjs skill <folder> [--force]   # install or update the agent skill (offline)
  *   node tools/project.mjs export <folder|projectId> [--out DIR] [--force]
  *
  * Options: --origin URL (default $THIRDLIGHT_ORIGIN or http://127.0.0.1:8501),
  *          --token-file PATH (default ~/thirdlight/owner-token).
  *
  * Layout written by `create`: <folder>/thirdlight.json (project id, name,
- * engine pin) and <folder>/thirdlight/ (project.json, scenes/, sources/, and
- * a .gitignore keeping .thirdlight/ process state out of git).
+ * engine pin), <folder>/thirdlight/ (project.json, scenes/, sources/, and
+ * a .gitignore keeping .thirdlight/ process state out of git) and the
+ * engine's agent skill in <folder>/.claude/skills/thirdlight/.
  */
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -23,6 +25,8 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+
+import { SKILL_INSTALL_DIR, installSkill, skillStatus } from '@thirdlight/backend/skill';
 
 export const ENGINE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const MARKER = 'thirdlight.json';
@@ -62,6 +66,28 @@ export function checkPin(marker, engine = engineIdentity()) {
   if (pin.lockfileDigest !== undefined && pin.lockfileDigest !== engine.lockfileDigest) problems.push(`dependency lockfile: pinned ${pin.lockfileDigest.slice(0, 12)}…, this engine has ${engine.lockfileDigest.slice(0, 12)}…`);
   const commitNote = pin.commit !== undefined && pin.commit !== engine.commit ? `pinned commit ${pin.commit.slice(0, 12)}, this engine is at ${engine.commit.slice(0, 12)}` : null;
   return { problems, commitNote };
+}
+
+/** Warnings about the folder's installed skill against this engine's and the pinned engine version (none when all is well). */
+export function skillWarnings(folder, marker, root = ENGINE_ROOT) {
+  const st = skillStatus(root, folder);
+  const fix = `node tools/project.mjs skill ${folder}`;
+  const out = [];
+  if (st.state === 'missing') return [`no agent skill in ${SKILL_INSTALL_DIR}; install it with \`${fix}\``];
+  if (st.state === 'modified') out.push(`the agent skill was edited locally (${st.modified.join(', ')}); \`${fix} --force\` replaces it with this engine's`);
+  if (st.state === 'outdated') out.push(`the agent skill differs from this engine's (installed for engine ${st.installedStamp ?? 'unknown'}, this engine ships ${st.engineStamp ?? 'unknown'}); update it with \`${fix}\``);
+  const pinned = marker.engine?.version;
+  if (pinned !== undefined && st.installedStamp !== pinned) out.push(`the agent skill is stamped for engine ${st.installedStamp ?? 'unknown'}, the project is pinned to ${pinned}`);
+  return out;
+}
+
+/** Install or update the skill and say what happened; a locally edited copy is refused without --force. */
+function runSkillInstall(folder, force) {
+  const r = installSkill(ENGINE_ROOT, folder, { force });
+  if (r.action === 'refused') {
+    throw new CliError('skill_modified', `the agent skill in ${r.target} was edited locally (${r.modified.join(', ')}); nothing was changed. Keep your edits elsewhere and pass --force to replace it`);
+  }
+  return `skill ${r.action}: ${r.target} (engine ${r.stamp ?? 'unknown'})`;
 }
 
 function parse(argv) {
@@ -149,6 +175,8 @@ async function main() {
       if (!opts.id) throw new CliError('usage', 'create needs --id <projectId>');
       await api(opts, 'POST', '/admin/projects', { projectId: opts.id, name: opts.name ?? opts.id, folder, ...(opts.template ? { template: opts.template } : {}) });
       process.stdout.write(`created ${opts.id} in ${folder}\n  ${join(folder, MARKER)}\n  ${join(folder, 'thirdlight')}/\n`);
+      // The backend installs the skill of the engine it runs; this makes sure the folder has this engine's.
+      process.stdout.write(`  ${runSkillInstall(folder, false)}\n`);
     } else if (cmd === 'register') {
       const r = await api(opts, 'POST', '/admin/projects/register', { folder: absFolder(arg) });
       process.stdout.write(`registered ${r.projectId}${r.created ? '' : ' (already registered)'}\n`);
@@ -170,11 +198,17 @@ async function main() {
         return;
       }
       const { problems, commitNote } = checkPin(marker, engine);
+      for (const w of skillWarnings(folder, marker)) process.stderr.write(`check: warning: ${w}\n`);
       if (problems.length > 0) {
         process.stderr.write(`check: MISMATCH\n  ${problems.join('\n  ')}\n`);
         process.exit(1);
       }
       process.stdout.write(`check: OK — ${marker.projectId} matches engine ${engine.version}${commitNote ? ` (${commitNote})` : ''}\n`);
+    } else if (cmd === 'skill') {
+      const folder = absFolder(arg);
+      if (!existsSync(folder)) throw new CliError('usage', `${folder} does not exist`);
+      process.stdout.write(`${runSkillInstall(folder, opts.force)}\n`);
+      if (!existsSync(join(folder, MARKER))) process.stdout.write(`note: ${folder} holds no ${MARKER}; the MCP tools find a project only from a folder that has one\n`);
     } else if (cmd === 'export') {
       if (!arg) throw new CliError('usage', 'export needs a folder or a project id');
       let projectId = arg;
@@ -193,12 +227,12 @@ async function main() {
         process.stdout.write(`unpacked ${files} files into ${opts.out}\n`);
       }
     } else {
-      throw new CliError('usage', 'command must be create | register | unregister | list | check | export');
+      throw new CliError('usage', 'command must be create | register | unregister | list | check | skill | export');
     }
   } catch (e) {
     if (e instanceof CliError) {
       process.stderr.write(`project: ${e.message}\n`);
-      if (e.code === 'usage') process.stderr.write('usage: node tools/project.mjs create <folder> --id <id> [--name N] [--template T] | register <folder> | unregister <id> | list | check <folder> [--repin] | export <folder|id> [--out DIR] [--force]\n');
+      if (e.code === 'usage') process.stderr.write('usage: node tools/project.mjs create <folder> --id <id> [--name N] [--template T] | register <folder> | unregister <id> | list | check <folder> [--repin] | skill <folder> [--force] | export <folder|id> [--out DIR] [--force]\n');
       process.exit(e.code === 'usage' ? 2 : 1);
     }
     throw e;

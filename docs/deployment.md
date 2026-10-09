@@ -168,6 +168,12 @@ newer engine, rebuild and restart the service so the manual matches the code
 it runs; `tl_inspect target="engine"` shows `manual.dir` and the build.
 `GET /api/v1/docs?topic=…|query=…&part=n` answers the same with any token.
 
+**The skill.** A folder project created by `tools/project.mjs create` or the
+picker gets the engine's Claude Code skill in `.claude/skills/thirdlight/`
+(`tools/project.mjs skill <folder>` for an existing one; `check` warns when it
+is missing or stale). Setting up a game folder for an agent, step by step:
+[Working with an AI agent](manual/getting-started/agents.md).
+
 ### The headless editor
 
 Play tools use the owner's editor browser when it is connected to the
@@ -226,6 +232,7 @@ git pull
 NODE_ENV=development npm ci --include=dev
 npm start -- --build
 node tools/project.mjs check ~/projects/<game>    # per folder project; --repin once verified
+node tools/project.mjs skill ~/projects/<game>    # update its agent skill (refuses a locally edited copy)
 ```
 
 Projects in an older layout are upgraded the first time they are opened

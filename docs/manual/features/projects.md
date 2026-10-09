@@ -217,6 +217,7 @@ node tools/project.mjs register ~/projects/my-game       # an existing folder
 node tools/project.mjs unregister my-game                 # files are kept
 node tools/project.mjs list
 node tools/project.mjs check ~/projects/my-game [--repin] # this engine vs the pin (offline)
+node tools/project.mjs skill ~/projects/my-game [--force] # install or update the agent skill (offline)
 node tools/project.mjs export ~/projects/my-game --out ~/projects/my-game/build
 ```
 
@@ -227,3 +228,8 @@ different commit alone is normal after an upgrade; the project still opens.
 `project.mjs export` refuses a version or lockfile mismatch unless
 `--force`; `check --repin` records this engine once you have checked the
 game. The export is a static directory that needs nothing else.
+
+`create` (from the tool or the picker) also installs the engine's agent skill
+into `.claude/skills/thirdlight/`; `check` warns when that copy is missing,
+edited, or not the one this engine ships, and `skill` updates it (an edited
+copy only with `--force`). See [Working with an AI agent](../getting-started/agents.md).

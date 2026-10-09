@@ -25,6 +25,7 @@ backups, the MCP connection) is described in
 2. [Your first project](getting-started/first-project.md)
 3. [Your first Play](getting-started/first-play.md)
 4. [Your first export](getting-started/first-export.md)
+5. [Working with an AI agent](getting-started/agents.md)
 
 ## Concepts
 
