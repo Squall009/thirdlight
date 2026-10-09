@@ -36,6 +36,20 @@ export const PIPELINE_MARK = 'tl:pipeline';
  */
 export const RELEASED_BUILD_KEEP_MS = 10_000;
 
+/**
+ * The page flag that shortens the hold (`?buildKeep=<ms>`, 0 up to RELEASED_BUILD_KEEP_MS): a leak test
+ * that waits for every released program to really go waits the hold out after each loop; with a short hold
+ * the same hold, sweep and release run, sooner.
+ */
+export const BUILD_KEEP_URL_PARAM = 'buildKeep';
+
+/** The hold a page's query string asks for (ms; RELEASED_BUILD_KEEP_MS when absent or not a number). */
+export function buildKeepFromUrl(search: string): number {
+  const raw = new URLSearchParams(search).get(BUILD_KEEP_URL_PARAM);
+  const v = raw === null || raw === '' ? Number.NaN : Number(raw);
+  return Number.isFinite(v) && v >= 0 ? Math.min(RELEASED_BUILD_KEEP_MS, Math.round(v)) : RELEASED_BUILD_KEEP_MS;
+}
+
 interface RenderObjectLike {
   readonly isRenderObject?: boolean;
   readonly object?: { readonly name?: string } | null;

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { installBuildReuse } from './node-builds';
+import { buildKeepFromUrl, installBuildReuse, RELEASED_BUILD_KEEP_MS } from './node-builds';
 
 /**
  * The parts of three 0.186's NodeManager and Pipelines the reuse patches,
@@ -136,5 +136,18 @@ describe('installBuildReuse', () => {
     expect(installBuildReuse(s.renderer)).toBeNull();
     expect(installBuildReuse({})).toBeNull();
     expect(installBuildReuse(null)).toBeNull();
+  });
+});
+
+describe('buildKeepFromUrl', () => {
+  it('reads a shorter hold from the page flag and keeps the default otherwise', () => {
+    expect(buildKeepFromUrl('')).toBe(RELEASED_BUILD_KEEP_MS);
+    expect(buildKeepFromUrl('?buildKeep=500')).toBe(500);
+    expect(buildKeepFromUrl('?buildKeep=0')).toBe(0);
+    // Never longer than the product's hold, never a negative or unreadable one.
+    expect(buildKeepFromUrl('?buildKeep=600000')).toBe(RELEASED_BUILD_KEEP_MS);
+    expect(buildKeepFromUrl('?buildKeep=-5')).toBe(RELEASED_BUILD_KEEP_MS);
+    expect(buildKeepFromUrl('?buildKeep=soon')).toBe(RELEASED_BUILD_KEEP_MS);
+    expect(buildKeepFromUrl('?buildKeep=')).toBe(RELEASED_BUILD_KEEP_MS);
   });
 });

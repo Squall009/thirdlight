@@ -7,7 +7,7 @@
  * renderer and game mode, clearing the Play save).
  */
 import { useCallback, useEffect, useRef, useState, type Dispatch, type MutableRefObject, type SetStateAction } from 'react';
-import { BATCHING_URL_PARAM, batchingFromUrl, MERGING_URL_PARAM, mergingFromUrl, pageSearch, rendererPreferenceFromUrl, RENDERER_URL_PARAM, RENDER_URL_PARAMS, renderSettingsFromUrl, SHADOW_CACHE_URL_PARAM, shadowCacheFromUrl, SLOW_FRAMES_URL_PARAM, slowFramesFromUrl, UPSCALE_URL_PARAM, upscaleFilterFromUrl } from '@thirdlight/three-adapter';
+import { BATCHING_URL_PARAM, batchingFromUrl, BUILD_KEEP_URL_PARAM, buildKeepFromUrl, MERGING_URL_PARAM, RELEASED_BUILD_KEEP_MS, mergingFromUrl, pageSearch, rendererPreferenceFromUrl, RENDERER_URL_PARAM, RENDER_URL_PARAMS, renderSettingsFromUrl, SHADOW_CACHE_URL_PARAM, shadowCacheFromUrl, SLOW_FRAMES_URL_PARAM, slowFramesFromUrl, UPSCALE_URL_PARAM, upscaleFilterFromUrl } from '@thirdlight/three-adapter';
 import { FRAME_RATE_CAP_URL_PARAM, frameRateCapFromUrl, SIM_DELAY_URL_PARAM, simDelayFromUrl } from '@thirdlight/runtime';
 import type { readEditorConfig } from '../../config';
 import type { SessionClient } from '../../session/client';
@@ -354,7 +354,7 @@ export function usePlaySession(
   // and the render settings' ?ao=, ?renderScale=, ?dynamicResolution=, ?upscale=bilinear and ?slowFrames=).
   const previewSrc =
     playInfo?.playBase && playInfo.contentId !== null && playInfo.contentPath !== null
-      ? `${playInfo.playBase.replace(/\/$/, '')}${playInfo.contentPath}?play=${playInfo.playSessionId}&content=${playInfo.contentId}${urlRenderer.current !== null ? `&${RENDERER_URL_PARAM}=${urlRenderer.current}` : ''}${batchingFromUrl(pageSearch()) ? '' : `&${BATCHING_URL_PARAM}=off`}${mergingFromUrl(pageSearch()) ? '' : `&${MERGING_URL_PARAM}=off`}${shadowCacheFromUrl(pageSearch()) ? '' : `&${SHADOW_CACHE_URL_PARAM}=off`}${urlThreads.current !== null ? `&threads=${urlThreads.current}` : ''}${urlSimDelay.current > 0 ? `&${SIM_DELAY_URL_PARAM}=${urlSimDelay.current}` : ''}${urlFrameRateCap.current !== undefined ? `&${FRAME_RATE_CAP_URL_PARAM}=${urlFrameRateCap.current ?? 'none'}` : ''}${upscaleFilterFromUrl(pageSearch()) === 'bilinear' ? `&${UPSCALE_URL_PARAM}=bilinear` : ''}${slowFramesFromUrl(pageSearch()) > 0 ? `&${SLOW_FRAMES_URL_PARAM}=${slowFramesFromUrl(pageSearch()) / 1000}` : ''}${renderFlags(pageSearch())}`
+      ? `${playInfo.playBase.replace(/\/$/, '')}${playInfo.contentPath}?play=${playInfo.playSessionId}&content=${playInfo.contentId}${urlRenderer.current !== null ? `&${RENDERER_URL_PARAM}=${urlRenderer.current}` : ''}${batchingFromUrl(pageSearch()) ? '' : `&${BATCHING_URL_PARAM}=off`}${mergingFromUrl(pageSearch()) ? '' : `&${MERGING_URL_PARAM}=off`}${shadowCacheFromUrl(pageSearch()) ? '' : `&${SHADOW_CACHE_URL_PARAM}=off`}${urlThreads.current !== null ? `&threads=${urlThreads.current}` : ''}${urlSimDelay.current > 0 ? `&${SIM_DELAY_URL_PARAM}=${urlSimDelay.current}` : ''}${urlFrameRateCap.current !== undefined ? `&${FRAME_RATE_CAP_URL_PARAM}=${urlFrameRateCap.current ?? 'none'}` : ''}${upscaleFilterFromUrl(pageSearch()) === 'bilinear' ? `&${UPSCALE_URL_PARAM}=bilinear` : ''}${slowFramesFromUrl(pageSearch()) > 0 ? `&${SLOW_FRAMES_URL_PARAM}=${slowFramesFromUrl(pageSearch()) / 1000}` : ''}${renderFlags(pageSearch())}${buildKeepFromUrl(pageSearch()) !== RELEASED_BUILD_KEEP_MS ? `&${BUILD_KEEP_URL_PARAM}=${buildKeepFromUrl(pageSearch())}` : ''}`
       : null;
   /** Clears the running Play's save (the Saves panel), or null when nothing is running. */
   const clearPlaySave =

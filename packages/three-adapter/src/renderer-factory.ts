@@ -35,7 +35,7 @@ import { registerScreenSpaceOcclusion } from './post-ao';
 import { registerProbeLighting } from './probe-lighting';
 import { installLocalLightModes, vertexLightsFromUrl } from './local-lights';
 import { installProgramRelease, installVaoSweep, trackRenderer, trackTextureListeners } from './dispose';
-import { installBuildMarks, installBuildReuse, type BuildReuse } from './node-builds';
+import { buildKeepFromUrl, installBuildMarks, installBuildReuse, type BuildReuse } from './node-builds';
 
 export type RendererPreference = 'auto' | 'webgpu' | 'webgl2';
 export type RendererPreferenceSource = 'default' | 'setting' | 'url';
@@ -524,7 +524,7 @@ export function createRenderer(o: CreateRendererOptions): RendererHandle {
         // Node programs and pipelines made from now on, as marks (what a changing scene still builds).
         installBuildMarks(r);
         // A re-bake's new objects reuse the builds of the ones they replace (after the WebGL 2 release above).
-        buildReuse = installBuildReuse(r);
+        buildReuse = installBuildReuse(r, buildKeepFromUrl(pageSearch()));
         const onGpu = r.backend.isWebGPUBackend === true;
         publish({
           backend: onGpu ? 'webgpu' : 'webgl2',

@@ -63,8 +63,14 @@ test.afterEach(async () => {
 });
 
 const webgpuProject = (): boolean => test.info().project.name === 'webgpu';
+/**
+ * Released node programs and pipelines are held 10 s for a re-bake to reuse; the renderer counts here come
+ * back only once they really go, so each check waited the hold out. The pages hold them half a second
+ * (`buildKeep`, passed on to Play): the same hold, sweep and release, sooner.
+ */
+const BUILD_KEEP_MS = 500;
 /** The editor URL for this project's backend (`webgpu`: forced, so a fallback cannot pass silently). */
-const editorUrl = (): string => (webgpuProject() ? be.editorUrl.replace('#', '&renderer=webgpu#') : be.editorUrl);
+const editorUrl = (): string => be.editorUrl.replace('#', `${webgpuProject() ? '&renderer=webgpu' : ''}&buildKeep=${BUILD_KEEP_MS}#`);
 const load = (): string => loadavg().map((x) => x.toFixed(1)).join(' / ');
 
 async function query(op: string, args: Record<string, unknown> = {}): Promise<Record<string, unknown>> {
@@ -417,6 +423,8 @@ async function startPlay(page: Page): Promise<{ psid: string; relay: (path: stri
   const psid = String(((await (await started).json()) as { playSessionId: string }).playSessionId);
   const relay = (path: string, body: unknown = {}) => api(`play/${psid}/${path}`, body);
   await expect.poll(async () => (await relay('observe')).json['state'], { timeout: 60_000 }).toBe('running');
+  // The editor passed the short hold on to Play.
+  expect(new URL(String(await page.locator('iframe').first().getAttribute('src')), be.origin).searchParams.get('buildKeep')).toBe(String(BUILD_KEEP_MS));
   const frame = (): Frame => {
     const f = page.frames().find((x) => x !== page.mainFrame() && x.url().includes('/play'));
     if (f === undefined) throw new Error('no preview frame');
