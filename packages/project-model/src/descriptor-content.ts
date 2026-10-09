@@ -561,7 +561,7 @@ export const CONTENT: readonly ContentBlockDescriptor[] = [
     value: obj('shell', 'Game shell', 'Menus, HUD and the scene list of a game without the game session.', [
       obj('screens', 'Screens', 'The UI document drawn for each shell screen. Its buttons use the engine actions: new game, continue, resume, back, open a screen, save or load a slot, set a volume, rebind, next scene.', [
         ref('title', 'Title', 'Shown before play (the game waits behind it); absent: the game starts at once.', 'uiDocument'),
-        ref('pause', 'Pause', 'Shown while paused (absent: the engine\'s pause panel with Resume and Restart).', 'uiDocument'),
+        ref('pause', 'Pause', 'Shown while paused (absent: the engine\'s pause panel, with Resume only).', 'uiDocument'),
         ref('settings', 'Settings', 'Opened by the settings or open action (volumes, quality).', 'uiDocument'),
         ref('controls', 'Controls', 'The rebinding screen (rebind actions; $flow.input lists the actions and their keys).', 'uiDocument'),
         ref('save', 'Save', 'Save slots (project saves; $flow.saves lists them).', 'uiDocument'),

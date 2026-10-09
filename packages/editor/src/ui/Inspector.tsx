@@ -92,7 +92,7 @@ function TagControls(props: { entity: ProjectedEntity; flags: EffectiveEntityFla
     <div className="tl-inspector__section tl-inspector__tags" aria-label="tags">
       <div className="tl-panel__title">Tags</div>
       {tags.length === 0 ? (
-        <p className="tl-inspector__hint">No project tags yet (bottom dock → Tags).</p>
+        <p className="tl-inspector__hint">No project tags yet (File → Project Settings… → Tags).</p>
       ) : (
         tags.map((t) => {
           const bit = 1 << t.bit;

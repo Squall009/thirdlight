@@ -112,6 +112,8 @@ test('every component kind: added, edited (one undo) and removed through the Ins
   const row = page.locator('.tl-hierarchy__list li.tl-row.is-selected');
   const id = (await row.getAttribute('data-entity-id'))!;
   await expect(inspector(page).getByLabel('add component', { exact: true })).toBeVisible();
+  // A project without tags says where they are made today.
+  await expect(inspector(page).getByText('No project tags yet (File → Project Settings… → Tags).')).toBeVisible();
   for (const c of MENU) {
     await add(page, c.option);
     await expect.poll(comp(id, c.name), { message: `add ${c.name}` }).toMatchObject(c.added);

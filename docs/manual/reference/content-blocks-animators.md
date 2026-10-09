@@ -314,7 +314,7 @@ The menus around the game and its HUD, drawn with the project's UI documents: a 
 |---|---|---|---|---|
 | `screens` | object |  |  | **Screens.** The UI document drawn for each shell screen. Its buttons use the engine actions: new game, continue, resume, back, open a screen, save or load a slot, set a volume, rebind, next scene. |
 | `screens.title` | uiDocument id |  |  | **Title.** Shown before play (the game waits behind it); absent: the game starts at once. |
-| `screens.pause` | uiDocument id |  |  | **Pause.** Shown while paused (absent: the engine's pause panel with Resume and Restart). |
+| `screens.pause` | uiDocument id |  |  | **Pause.** Shown while paused (absent: the engine's pause panel, with Resume only). |
 | `screens.settings` | uiDocument id |  |  | **Settings.** Opened by the settings or open action (volumes, quality). |
 | `screens.controls` | uiDocument id |  |  | **Controls.** The rebinding screen (rebind actions; $flow.input lists the actions and their keys). |
 | `screens.save` | uiDocument id |  |  | **Save.** Save slots (project saves; $flow.saves lists them). |

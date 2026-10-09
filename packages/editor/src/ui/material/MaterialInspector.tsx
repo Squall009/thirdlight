@@ -456,7 +456,7 @@ export function MaterialMappingEditor(props: {
   return (
     <div className="tl-inspector__section" aria-label={props.label}>
       <div className="tl-panel__title">{props.label}</div>
-      {props.materials.length === 0 && <p className="tl-inspector__hint">No project materials yet (bottom dock → Materials).</p>}
+      {props.materials.length === 0 && <p className="tl-inspector__hint">No project materials yet (project window: create ▾ → Material).</p>}
       {rows.map((slot) => (
         <label key={slot} className="tl-field">
           <span className="tl-field__label">{slot === '*' ? 'all materials' : slot}</span>

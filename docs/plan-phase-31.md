@@ -75,7 +75,8 @@ engine repo. Phase 31 starts after phase 30 (level building).
 | 31.0 | done 2026-09-28 |
 | 31.1 | done 2026-10-09: `deleteBehavior` (refused while an object in any scene or a prefab carries the script; one undo), Project Settings → Script trust (list read at load via `queryBehaviors includeTrust`, `revokeBehaviorTrust` refused while a published script uses the source or library version), `tests/editor-op-reach.test.ts` (78 ops; 2 API-only by design). `deleteAsset`/`deletePrefab` (25.7c) verified present. |
 | 31.2 | done 2026-10-09: `docs/manual/reference/` (62 files, pages ≤ 48 KB, anchored sections, `index.json` topic → page and section) built by `node tools/gen-reference.mjs` from the descriptors, `ValidatedOpArgs`, the runtime's `BehaviorContext`, `GRAPH_KINDS` and the packages' exported limits; `tools/gen-reference.test.mjs` fails naming the stale page. JSON-valued fields gained a `shape` (their declared type). A refused command no longer shows "save: error". |
-| 31.3–31.8 | — |
+| 31.3 | done 2026-10-09: `docs/manual/index.md` (contents), `getting-started/` (install, first project, first Play, first export: editor path and API path), `concepts/` (11 pages), `guides/` (28 planned stubs with their file names for 31.4), `features/index.md` (the deployment.md section → page plan for 31.5); `tools/manual-links.test.mjs` checks every relative link and anchor (deployment.md included) and that no page is orphaned. Followed for real on a capped scratch backend: editor (picker → Starter → Crate edit and undo → Play, walk and jump → File → Export game… → zip) and API (templates, create, queryProject/setTransform/conflict/undo, play/observe/screenshot/stop with the headless editor, export, zip, `project.mjs create/export`); the export ran from `python3 -m http.server`, not from `file://`. Fixed on the way: two Inspector hints pointing at the old bottom-dock tabs, the shell's pause descriptor (Resume only); D220 logged. |
+| 31.4–31.8 | — |
 
 ## 5. Decision log
 
@@ -138,6 +139,7 @@ engine repo. Phase 31 starts after phase 30 (level building).
   framework's `test` graph kind is left out; a node several kinds share
   (visual scripts, functions, libraries) is documented once and linked —
   default chosen, owner to confirm.
+- 2026-10-09 (31.3): the manual's layout — `getting-started/`, `concepts/`, `guides/` (31.4: one page per task, the file names fixed now as stubs marked *planned*: the plan's list plus generated architecture, trim sheets, environment, game flow, co-op and performance, which the brief adds), `features/` (31.5: one page per feature area, the full descriptions moved out of `deployment.md`; `features/index.md` maps each deployment section to its page) and `reference/` (generated). Links into `deployment.md` are anchors the link test checks, so 31.5 moving a section fails the test until the links follow — default chosen, owner to confirm.
 - 2026-10-09 (31.2): a refused command (an answer, not a lost edit) leaves
   the status bar at "save: saved" with the refusal's code beside it; a
   revision conflict and a lost answer still show "save: error". The visual
