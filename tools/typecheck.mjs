@@ -10,8 +10,8 @@
  *      AND the EFFECTIVE compiler options must keep `strict: true`, all its
  *      sub-options, and declaration checking. Checking-disabling overrides
  *      and configs that do not extend the base fail before tsc runs.
- *   2. runs the pinned TypeScript 5.9.3 `tsc --noEmit` over the package
- *      tsconfig. Any type error ⇒ non-zero exit, tsc's own
+ *   2. runs the pinned TypeScript 5.9.3 `tsc --noEmit` (incremental: its
+ *      state per package in dist/.typecheck/) over the package tsconfig. Any type error ⇒ non-zero exit, tsc's own
  *      `file(line,col): error TSxxxx` listing. The editor's TSX is
  *      typechecked with the same tsc (jsx: react-jsx in the base config;
  *      the esbuild TSX loader builds it, this is the typecheck plane).
@@ -190,7 +190,12 @@ const TSC_PARALLEL = Math.max(1, Math.min(4, Math.floor(availableParallelism() /
 
 function tscRun(tscScript, root, name) {
   return new Promise((done) => {
-    const child = spawn(process.execPath, [tscScript, '--noEmit', '-p', join('packages', name)], { cwd: root });
+    // Incremental: tsc keeps each package's last check (file versions, dependency signatures, its
+    // diagnostics) and re-checks only what changed since. The gate's typecheck usually runs on code a
+    // build already checked, so it took a minute to repeat a clean result; an unchanged package now
+    // costs seconds and its earlier errors are still reported. Kept under dist/ (build output, ignored).
+    const info = join(root, 'dist', '.typecheck', `${name}.tsbuildinfo`);
+    const child = spawn(process.execPath, [tscScript, '--noEmit', '--incremental', '--tsBuildInfoFile', info, '-p', join('packages', name)], { cwd: root });
     let stdout = '';
     let stderr = '';
     child.stdout.setEncoding('utf8').on('data', (d) => { stdout += d; });

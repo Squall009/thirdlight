@@ -25,8 +25,10 @@
 # ~/.cache/thirdlight-logs/gate-<mode>-<time>/) and prints the last line GREEN or RED.
 # A failed full run reruns its failed tests once alone (load flakes on the
 # CPU-rendered host) before it says RED. TL_E2E_WORKERS sets Playwright's
-# worker count (default here: 2 — three workers peaked at 8.2 GB beside the
-# service and turned load into timeouts; the config's own default is 1).
+# worker count (the config's own default is 1). Here: 2 for fast and rerun, FULL_WORKERS for full on a GPU.
+# On the GPU host the 29 heaviest e2e files took 600 s on 2 workers and 471–478 s on 3, at
+# 4.7 and 5.6 GB of anonymous memory (6.5 GB with the page cache the cap reclaims), each test
+# about 5 % slower than on 2: the cap holds 3, not 4 (+0.9 GB a worker).
 set -u
 mode=${1:-}
 shift || true
@@ -34,9 +36,12 @@ cd "$(dirname "$0")/.."
 # The fast gate's smoke set: open and start, the authoring loop, Play and the export, scenes, the Inspector and
 # menus, rendering, MCP, a script in Play, and one project at scale (count-caps). Kept to ~2 min on 2 workers.
 SMOKE=(tests/e2e/start.e2e.ts tests/e2e/authoring-loop.e2e.ts tests/e2e/play-export.e2e.ts tests/e2e/scenes.e2e.ts tests/e2e/inspector.e2e.ts tests/e2e/menus.e2e.ts tests/e2e/rendering.e2e.ts tests/e2e/mcp.e2e.ts tests/e2e/script-api.e2e.ts tests/e2e/count-caps.e2e.ts)
-# The phase-end full gate's budget (both renderers, on the GPU host, 2 workers): a run over it says so in its
+# The phase-end full gate's budget (both renderers, on the GPU host, FULL_WORKERS): a run over it says so in its
 # summary; a phase that adds e2e time extends or replaces tests to stay inside it (AGENTS.md).
 FULL_BUDGET_MIN=15
+FULL_WORKERS=3
+# A worker count the caller set wins in every mode.
+workers_set=${TL_E2E_WORKERS:+1}
 export TL_E2E_WORKERS=${TL_E2E_WORKERS:-2}
 LOGS=$HOME/.cache/thirdlight-logs
 UNIT=thirdlight-gate
@@ -61,7 +66,7 @@ case "$mode" in
     sudo -n systemctl reset-failed "$UNIT" 2> /dev/null || true
     sudo -n systemd-run --unit="$UNIT" --quiet --collect -p MemoryMax="$need" -p MemorySwapMax=0 \
       --working-directory="$PWD" -- sudo -n -u "$(id -un)" -- env HOME="$HOME" PATH="$PATH" \
-      NODE_OPTIONS=--max-old-space-size=4096 TL_GATE_LOGS="$L" TL_E2E_WORKERS="$TL_E2E_WORKERS" \
+      NODE_OPTIONS=--max-old-space-size=4096 TL_GATE_LOGS="$L" ${workers_set:+TL_E2E_WORKERS="$TL_E2E_WORKERS"} \
       tools/gate.sh "$sub" "$@" || exit 1
     echo "started $UNIT ($sub), logs $L"
     exit 0 ;;
@@ -146,11 +151,15 @@ case "$mode" in
     perf_check || { touch "$LOGS/perf-failed"; done_ "RED perf (the village class's frame time; fix, then: tools/gate.sh rerun)"; }
     done_ GREEN ;;
   full)
+    # Measured on the GPU: a CPU-rendered host keeps 2 (SwiftShader slows every test past ~cores/3).
+    if [ -z "$workers_set" ] && node -e "import('./tests/e2e/browser-env.mjs').then((m) => process.exit(m.gpuAvailable() ? 0 : 1))"; then
+      export TL_E2E_WORKERS=$FULL_WORKERS
+    fi
     build_and_unit
     export TL_MEMORY=1
     PROJECTS=(--project=default)
     if [ "${1:-}" = "--both-renderers" ]; then export TL_E2E_ALL_VARIANTS=1; PROJECTS=(); fi
-    say "renderer: $(node -e "import('./tests/e2e/browser-env.mjs').then((m) => console.log(m.gpuAvailable() ? 'GPU' : 'SwiftShader (no usable GPU)'))") ${PROJECTS[*]:-both projects, all variants}"
+    say "renderer: $(node -e "import('./tests/e2e/browser-env.mjs').then((m) => console.log(m.gpuAvailable() ? 'GPU' : 'SwiftShader (no usable GPU)'))") ${PROJECTS[*]:-both projects, all variants}, ${TL_E2E_WORKERS} workers"
     if e2e e2e.log "${PROJECTS[@]}"; then done_ GREEN; fi
     grep -qE '^\s+[0-9]+ failed' "$L/e2e.log" || done_ "RED e2e (no summary)"
     say "rerunning the failed tests alone"

@@ -6639,6 +6639,9 @@ on an export's URL they apply directly):
   and back up after);
 - `?simDelayMs=N` — slows the simulation worker by N ms a frame (tests of the
   pipeline);
+- `?buildKeep=N` — holds a released node program or pipeline N ms (0 to the
+  default 10,000) for a re-bake to reuse, then releases it (leak tests read
+  the renderer's counts back sooner);
 - `?workers=off` (editor only) — the editor's jobs inline (block meshing
   in Play and the export has no switch: without `Worker` it meshes on the
   page).
@@ -7022,7 +7025,7 @@ renderer variant: `auto` (no flag) and `webgl2` (forced with `?renderer=`)
 in `default`, `webgpu` in `webgpu` (the `auto` variant only with
 `TL_E2E_ALL_VARIANTS=1` where no WebGPU adapter exists, since it then draws
 exactly like `webgl2`); `TL_E2E_WORKERS=<n>` runs spec files in parallel
-(`tools/gate.sh` uses 3); the shader-parity and env-parity specs
+(`tools/gate.sh` uses 2, its full gate 3 on a GPU host); the shader-parity and env-parity specs
 compare every shader type and environment with its reference image (drawn
 by the old WebGL renderer, frozen since phase 17.4) on WebGL 2 and on
 WebGPU.
