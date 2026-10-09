@@ -32,4 +32,4 @@ opened, and written back in the current format. Ids do not change, so
 references, recorded commands and replays stay valid. Problems says once
 what the upgrade changed. In a game's own folder, commit what the upgrade
 wrote (and commit or back up before opening). The details for each format
-version are in [Deployment: Migration notes](../../deployment.md#migration-notes).
+version are in [Migration notes](../features/migration.md#migration-notes).

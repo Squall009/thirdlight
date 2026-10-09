@@ -26,7 +26,7 @@ import { ID_RE } from './validate';
 import type { ModelErrorV2 } from './errors';
 import { canonicalSceneEnvironment, validateFog, validateHeightFog, validatePost, validateSky, validateWetness, type FogConfig, type HeightFogConfig, type PostConfig, type SkyConfig } from './materials';
 
-/** Engine limits of environment presets (documented in deployment.md). */
+/** Engine limits of environment presets (documented in docs/manual/features/environment.md). */
 export const ENVIRONMENT_PRESET_LIMITS = Object.freeze({
   /** Light entries per preset. */
   lights: 32,

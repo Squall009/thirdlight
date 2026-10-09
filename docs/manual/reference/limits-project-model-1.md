@@ -250,7 +250,7 @@ The limits and defaults `@thirdlight/project-model` defines, by source file. Val
 
 | Constant | Value | What it is |
 |---|---|---|
-| <a id="limit-environment-preset-limits"></a>`ENVIRONMENT_PRESET_LIMITS` | `{"lights":32,"intensity":1000,"lightmapIntensity":8}` | Engine limits of environment presets (documented in deployment.md). |
+| <a id="limit-environment-preset-limits"></a>`ENVIRONMENT_PRESET_LIMITS` | `{"lights":32,"intensity":1000,"lightmapIntensity":8}` | Engine limits of environment presets (documented in docs/manual/features/environment.md). |
 
 <a id="limits-project-model--event-cues"></a>
 ## `event-cues.ts`

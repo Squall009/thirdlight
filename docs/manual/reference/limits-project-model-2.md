@@ -62,7 +62,7 @@ The limits and defaults `@thirdlight/project-model` defines, by source file. Val
 
 | Constant | Value | What it is |
 |---|---|---|
-| <a id="limit-save-limits"></a>`SAVE_LIMITS` | `{"slots":99,"documentBytes":1048576,"thumbnailBytes":65536,"thumbnailSide":512,"settingsFields":64,"settingsText":256,"migrations":256,"version":1000000,"metaText":128,"metaBytes":4096,"metaKeyChars":32}` | Engine limits of project saves (documented in deployment.md). |
+| <a id="limit-save-limits"></a>`SAVE_LIMITS` | `{"slots":99,"documentBytes":1048576,"thumbnailBytes":65536,"thumbnailSide":512,"settingsFields":64,"settingsText":256,"migrations":256,"version":1000000,"metaText":128,"metaBytes":4096,"metaKeyChars":32}` | Engine limits of project saves (documented in docs/manual/features/saves.md). |
 | <a id="limit-save-thumbnail-default"></a>`SAVE_THUMBNAIL_DEFAULT` | `{"width":256,"height":144,"format":"jpeg","quality":0.8}` | Defaults (genre-neutral): a 16:9 picture small enough for a slot list, JPEG (every browser encodes it). |
 | <a id="limit-script-save-limits"></a>`SCRIPT_SAVE_LIMITS` | `{"keys":64,"valueChars":4096}` | A script's `ctx.save` store (and a play's injected variables, which fill it): keys, and a value's JSON characters. |
 
@@ -203,7 +203,7 @@ The limits and defaults `@thirdlight/project-model` defines, by source file. Val
 
 | Constant | Value | What it is |
 |---|---|---|
-| <a id="limit-timeline-limits"></a>`TIMELINE_LIMITS` | `{"tracks":32,"keys":256,"slots":16,"markers":64,"duration":600,"bytes":49152,"nameChars":128,"playing":8,"params":16}` | Engine limits of timelines (documented in deployment.md). |
+| <a id="limit-timeline-limits"></a>`TIMELINE_LIMITS` | `{"tracks":32,"keys":256,"slots":16,"markers":64,"duration":600,"bytes":49152,"nameChars":128,"playing":8,"params":16}` | Engine limits of timelines (documented in docs/manual/features/timelines.md). |
 
 <a id="limits-project-model--trim-sheet"></a>
 ## `trim-sheet.ts`

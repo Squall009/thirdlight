@@ -10,7 +10,7 @@ documents ([The game shell](../concepts/game-shell.md)), its scene order
 the shell's scene list, and anything like lives or a level timer is the
 game's own scripts over named counters. A project from an older engine that
 still has a `content.flow` is refused on open, naming it
-([Migration notes](../../deployment.md#migration-notes)).
+([Migration notes](migration.md#migration-notes)).
 
 ## Audio assets
 

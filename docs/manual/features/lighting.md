@@ -22,7 +22,7 @@ texture assets named `lightmap <scene> <n>`; a re-bake adds versions to them.
   Cycles uses OptiX when the GPU has 4 GB free, else the CPU; the result is
   denoised. One bake runs at a time. Without a bake host the button explains
   what to set. Setting the bake host up is part of running the server
-  ([Deployment](../../deployment.md)).
+  ([Deployment: requirements](../../deployment.md#requirements)).
 
 A bake whose static objects or baked/mixed lights changed since is shown as
 stale; it is still used until it is baked again or cleared (Clear bake). A

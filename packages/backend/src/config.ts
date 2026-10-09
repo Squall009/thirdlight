@@ -76,7 +76,7 @@ export interface BackendConfig {
    * editor and the preview origin cross-origin isolated (COOP + COEP), so the
    * Play page can use SharedArrayBuffer for the simulation worker's
    * transforms. Off by default: Play then streams them as messages (the same
-   * results; see docs/deployment.md).
+   * results; see docs/manual/features/physics.md).
    */
   crossOriginIsolation?: boolean;
   /**

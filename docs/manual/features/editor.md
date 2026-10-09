@@ -198,7 +198,7 @@ Every edit is one command and one undo step (Edit → Undo, Ctrl+Z); a
 refused edit says why under the section (e.g. "a block layer is its own
 level geometry") and changes nothing. Rules about what a game needs to
 start (a camera live, one player) are not checked per edit: Play and the
-export check them (see [The view, cameras and kept objects](../../deployment.md#the-view-cameras-and-kept-objects)).
+export check them (see [The view, cameras and kept objects](scenes-and-cameras.md#the-view-cameras-and-kept-objects)).
 
 **+ Add component** (and the Component menu, the same list) offers every
 component by category, with its presets (Light: directional, ambient, point,

@@ -7,7 +7,7 @@
  * ~/.cache/thirdlight-perf/reports/ (and `latest.json`).
  *
  * Run it with the runner: `node tools/perf/run.mjs [options]` (see
- * docs/deployment.md "Performance"). Not part of the default test runs.
+ * docs/manual/features/performance.md). Not part of the default test runs.
  */
 import { execFileSync } from 'node:child_process';
 import { copyFileSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';

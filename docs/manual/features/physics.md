@@ -176,7 +176,7 @@ In a 3D project:
   compound}` (MCP/HTTP) is what the Inspector's model collider buttons do
   (**Compound of _COL parts** included): one `setComponent`, one undo;
 - in Play and the export the player is a kinematic **3D character**
-  (below; cameras: [Cameras](../../deployment.md#cameras-virtual-cameras));
+  (below; cameras: [Cameras](scenes-and-cameras.md#cameras-virtual-cameras));
 - `tl_game_observe` reports such a play with `state: "running"`, its
   step and `player: { x, y, z }`; an exported page has the same observation
   in `window.__thirdlightObserve()`.
@@ -226,7 +226,7 @@ gets the 3D defaults (W/A/S/D and the arrow keys or the left stick move,
 Shift or the left-stick press runs, Space jumps); a project's own `move`
 action moves in 2D when it is a 2D axis (a 1D `move` only moves sideways).
 The vector is read relative to the active virtual camera's yaw (see
-[Cameras](../../deployment.md#cameras-virtual-cameras): forward walks away from the camera); a scene without virtual
+[Cameras](scenes-and-cameras.md#cameras-virtual-cameras): forward walks away from the camera); a scene without virtual
 cameras walks along world axes (+x input along +X, forward along −Z).
 `tl_input_exercise` frames take an optional `moveY` (the forward axis) and
 named `actions` (e.g. `run`).

@@ -66,7 +66,7 @@ its reason (the same line is next to its constant in the code):
 | Scenes / entities | As many scenes as the game needs; 16,384 entities per scene (a big world is several scenes loaded together) | A scene is one load unit and one file |
 | Prefabs | 1,024 entities and 16 levels per prefab; 1 MiB (the content file cap) | One definition is one file and one command's copy |
 | Collision layers / tags | 15 named layers (+ `default`) / 32 tags | Rapier's 16-bit collision groups / a 32-bit tag mask |
-| Local lights | 16 point and spot lights per scene, 16 drawn across loaded scenes (`MAX_LOCAL_LIGHTS`; a quality level's `localLights` may draw fewer); plus 16 effect-light slots (`EFFECT_LIGHT_LIMIT`) | Forward-lighting cost: every drawn light is evaluated on every lit object (per vertex where an object or light says so, see "Local lights per pixel or per vertex"); no clustered lighting yet |
+| Local lights | 16 point and spot lights per scene, 16 drawn across loaded scenes (`MAX_LOCAL_LIGHTS`; a quality level's `localLights` may draw fewer); plus 16 effect-light slots (`EFFECT_LIGHT_LIMIT`) | Forward-lighting cost: every drawn light is evaluated on every lit object (per vertex where an object or light says so, see [Local lights per pixel or per vertex](lighting.md#local-lights-per-pixel-or-per-vertex)); no clustered lighting yet |
 | Light layers | 8 (`LIGHT_LAYER_COUNT`) | Masks are small integers kept per object and per light; the names are labels in Project Settings |
 | Fog volumes | 16 per scene | A fixed-size uniform array in the shader |
 | Lightmaps | 16 atlases and 4,096 entries per scene bake, 64 baked lights | The bake's own format |

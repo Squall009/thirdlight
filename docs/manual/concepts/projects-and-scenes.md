@@ -13,7 +13,7 @@ A project lives in one of two places:
   holds `thirdlight.json` (a marker with the project id and the engine
   version it was pinned to), `thirdlight/` (the project's own files) and
   your assets and resources, by default in `assets/`. Commit all of them.
-  See [Deployment: Projects in a game's own folder](../../deployment.md#projects-in-a-games-own-folder).
+  See [Projects in a game's own folder](../features/projects.md#projects-in-a-games-own-folder).
 
 A project in the data folder is its own game folder: everything below is in
 one directory.

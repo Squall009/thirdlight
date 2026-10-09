@@ -78,7 +78,7 @@ node tools/project.mjs create ~/projects/my-game --id my-game --name "My game" -
 
 This writes `thirdlight.json` (the marker, with the engine version the
 project is pinned to) and `thirdlight/` (the project files) into the
-folder. See [Deployment: Projects in a game's own folder](../../deployment.md#projects-in-a-games-own-folder).
+folder. See [Projects in a game's own folder](../features/projects.md#projects-in-a-games-own-folder).
 
 A change is a **command**. Read the current revision first, then send the
 command with it:

@@ -48,6 +48,6 @@ and `quitToTitle`, or `ctx.lifecycle.restart()`. They restart the whole
 run. They still work but are deprecated: each use writes one line to
 Problems per Play naming its replacement. New games should not use them.
 Their exact behaviour is in
-[Deployment: Migration notes](../../deployment.md#the-run-restart-and-the-engines-new-game-deprecated).
+[Migration notes](../features/migration.md#the-run-restart-and-the-engines-new-game-deprecated).
 
 A full walk-through: [title, new game, restart and scene changes](../guides/game-flow.md).

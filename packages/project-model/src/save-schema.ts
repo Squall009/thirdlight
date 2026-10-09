@@ -40,7 +40,7 @@ import { fieldType, unexpectedField, withFound } from './validate';
 /** A script's `ctx.save` store (and a play's injected variables, which fill it): keys, and a value's JSON characters. */
 export const SCRIPT_SAVE_LIMITS = Object.freeze({ keys: 64, valueChars: 4096 });
 
-/** Engine limits of project saves (documented in deployment.md). */
+/** Engine limits of project saves (documented in docs/manual/features/saves.md). */
 export const SAVE_LIMITS = Object.freeze({
   /** Numbered slots a project may offer (1–99). */
   slots: 99,

@@ -58,7 +58,7 @@ export interface EffectRequestLike {
 }
 
 /**
- * Engine limits per executor (documented in docs/deployment.md): particles
+ * Engine limits per executor (documented in docs/manual/features/effects.md): particles
  * per system (a system's `maxParticles` is capped to it), particles
  * allocated over every playing effect (a play past it is refused), playing
  * effects at once.

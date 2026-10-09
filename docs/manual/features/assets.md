@@ -121,7 +121,7 @@ pieces load when it is chosen, not to draw its tile).
   menu for every kind of resource and scenes; the new item is named in place
   and opens in its editor (or the Inspector).
 - The folder chosen is where uploads land and new scenes and resources are
-  created ([Where new things go](../../deployment.md#projects)).
+  created ([Where new things go](projects.md#projects)).
 
 ## Supported glTF extensions
 
@@ -149,7 +149,7 @@ not declared in `extensionsUsed`, is refused too.
 An `.fbx` can be imported like a `.glb` (upload, "from project folder…", or
 MCP `tl_content_upload` with `dataBase64` or `projectPath`). The backend
 converts it with headless Blender (`THIRDLIGHT_BLENDER`, default `blender` on
-`PATH`; installing it is part of [running the server](../../deployment.md#projects-in-a-games-own-folder)) into a GLB — Y up, animations kept, textures
+`PATH`; installing it is part of [running the server](projects.md#projects-in-a-games-own-folder)) into a GLB — Y up, animations kept, textures
 embedded — and that GLB goes through the same import profile. The game only
 ever loads GLB:
 

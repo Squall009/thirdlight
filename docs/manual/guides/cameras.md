@@ -4,8 +4,7 @@
 level, and a script that blends between them when the player presses
 **interact**. Every rig and setting is in the
 [virtual camera reference](../reference/components-camera.md#component-virtualCamera);
-the full description is in [Deployment: Cameras](../../deployment.md#cameras-virtual-cameras)
-(it moves to the scenes and cameras feature page).
+the full description is in [Scenes and cameras](../features/scenes-and-cameras.md#cameras-virtual-cameras).
 
 A camera is a **shot**: an object with a **Virtual camera** component. The
 view shows the enabled camera with the highest **priority** (on a tie the

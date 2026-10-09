@@ -43,8 +43,7 @@ backups, the MCP connection) is described in
 ## Guides
 
 Each guide gives the editor path and the API path, and says which one to
-use and why. Guides marked *planned* are not written yet; their page says
-where to look meanwhile.
+use and why.
 
 - [Which tool for which job](guides/which-tool.md)
 - Building worlds
@@ -64,27 +63,27 @@ where to look meanwhile.
 - Game logic
   - [Write a script and a shared library](guides/scripts.md)
   - [Visual scripts](guides/visual-scripts.md)
-  - [Title, new game, restart and scene changes](guides/game-flow.md) *(planned)*
-  - [Game modes](guides/game-modes.md) *(planned)*
-  - [Saves](guides/saves.md) *(planned)*
-  - [Input and rebinding](guides/input.md) *(planned)*
-  - [Local co-op players](guides/co-op.md) *(planned)*
+  - [Title, new game, restart and scene changes](guides/game-flow.md)
+  - [Game modes](guides/game-modes.md)
+  - [Saves](guides/saves.md)
+  - [Input and rebinding](guides/input.md)
+  - [Local co-op players](guides/co-op.md)
 - Presentation
-  - [A HUD and menus with UI documents](guides/ui-documents.md) *(planned)*
-  - [Dialogue](guides/dialogue.md) *(planned)*
-  - [A cutscene with a timeline](guides/timelines.md) *(planned)*
+  - [A HUD and menus with UI documents](guides/ui-documents.md)
+  - [Dialogue](guides/dialogue.md)
+  - [A cutscene with a timeline](guides/timelines.md)
   - [Audio](guides/audio.md)
 - Shipping
-  - [Play-test with the headless runner](guides/playtesting.md) *(planned)*
+  - [Play-test with the headless runner](guides/playtesting.md)
   - [Measure and budget performance](guides/performance.md)
-  - [Export](guides/export.md) *(planned)*
+  - [Export](guides/export.md)
   - [Limits](guides/limits.md)
 
 ## Features
 
 [Features](features/index.md) holds the full description of each feature
-area, one page per area. Areas not moved yet are still described in
-[Deployment](../deployment.md); the features page says which.
+area, one page per area: everything a feature does, its settings and its
+edge cases.
 
 ## Reference
 

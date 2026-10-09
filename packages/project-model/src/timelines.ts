@@ -48,7 +48,7 @@ import { ID_RE } from './validate';
 import type { ModelErrorV2 } from './errors';
 import { isPlainObject } from './validate';
 
-/** Engine limits of timelines (documented in deployment.md). */
+/** Engine limits of timelines (documented in docs/manual/features/timelines.md). */
 export const TIMELINE_LIMITS = Object.freeze({
   /** Tracks per timeline. */
   tracks: 32,
