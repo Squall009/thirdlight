@@ -810,6 +810,11 @@ function createAdapter(
     // and ignores `setLinvel`, so for the sweep it is made velocity-based at
     // rest and turned back right after; its next pose is set below, and the
     // world step derives its velocity from that pose as always.
+    // A mover at rest (a held lift, a closed door) is swept as a fixed body:
+    // Rapier 0.20.0's controller stalls a character walking on a kinematic
+    // body that does not move (the move comes back zero, with no wall, from
+    // some point on, measured on a held 2 m lift), and a body at rest drags
+    // nothing, so as a fixed body the sweep is the same without the stall.
     const centreY = before.y + off.y;
     stilled.length = 0;
     for (let i = 0; i < kinematicList.length; i += 1) {
@@ -817,6 +822,11 @@ function createAdapter(
       const body = info.body;
       if (body.bodyType() !== RAPIER.RigidBodyType.KinematicPositionBased) continue;
       const v = body.linvel();
+      if (v.x === 0 && v.y === 0 && body.angvel() === 0) {
+        body.setBodyType(RAPIER.RigidBodyType.Fixed, false);
+        stilled.push(body);
+        continue;
+      }
       if (!(v.y > 0 && v.y >= Math.abs(v.x))) continue;
       if (centreY >= body.translation().y + info.top) continue;
       body.setBodyType(RAPIER.RigidBodyType.KinematicVelocityBased, false);

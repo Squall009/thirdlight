@@ -1,7 +1,9 @@
 /**
  * Two physics fixes in the port.
  * - A kinematic body rising beside the character (a gate opening) does not
- *   drag it up the wall; one the character stands on still moves it.
+ *   drag it up the wall; one the character stands on still moves it; one at
+ *   rest (a held lift) is walked across like the ground, never stalling the
+ *   walk (Rapier's controller stalled on it, placed or not).
  * - One-way platforms are ignored by the spawn clearance probe (a spawn inside
  *   one is free); they support only feet on their top.
  */
@@ -75,6 +77,26 @@ describe('a kinematic body rising beside the character', () => {
     }
     expect(s.last!.position.y - startY).toBeGreaterThan(0.9); // rode up ~1 m
     p.dispose();
+  });
+
+  it('a held one (at rest) is walked across from end to end, whether the character was placed on it or not', async () => {
+    for (const place of [false, true]) {
+      const p = await port({ x: -0.6, y: 2.12 }, [box('floor', 12, 0.2, 8, -0.2), box('lift', 1, 0.2, 0, 1, { kinematic: true })]);
+      if (place) {
+        p.clearCharacterMotion!();
+        p.placeCharacter!({ x: -0.6, y: 2.12 });
+      }
+      const s = { vy: 0 } as { vy: number; last?: CharacterMoveResult };
+      let stalled = 0;
+      for (let i = 0; i < 40; i += 1) {
+        const r = stepWith(p, s, 3, 'lift', { x: 0, y: 1 });
+        if (r.grounded && Math.abs(r.applied.x) < 1e-6) stalled += 1;
+      }
+      expect(stalled, `placed: ${place}`).toBe(0);
+      expect(s.last!.position.x, `placed: ${place}`).toBeCloseTo(-0.6 + 3 * 40 * DT, 3);
+      expect(s.last!.grounded).toBe(true);
+      p.dispose();
+    }
   });
 });
 
