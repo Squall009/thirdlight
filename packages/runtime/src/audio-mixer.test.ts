@@ -201,7 +201,9 @@ describe('audio intent log', () => {
     expect(mix.musicState()).toEqual({ owner: 'flow', track: null, duck: 1 });
     expect(mix.busVolume('music')).toBe(1);
     expect(mix.take().at(-1)).toEqual({ op: 'reset', stepIndex: 1 });
-    expect(mix.play('b')).toBe(2); // handles stay unique across runs
+    expect(mix.state()).toBeNull();
+    // Handles count from 1 again: a restarted run hands out the numbers the first run did.
+    expect(mix.play('b')).toBe(1);
   });
 });
 

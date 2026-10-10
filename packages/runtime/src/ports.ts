@@ -97,13 +97,14 @@ export interface PhysicsPort {
   overlap?(shape: OverlapShape, center: Vec2): string[];
   /**
    * Rebuild the world from the colliders it holds now, as if made afresh in
-   * one fixed order (the characters keep their places, from rest). A run
+   * one fixed order, each character at its origin in `origins` (absent id:
+   * the first; a character not listed keeps its place), from rest. A run
    * starts on it: a world's query structures keep the history of what moved
    * and what was added in it, and that history decides ties in a sweep (a
    * capsule on the seam of two colliders), so only a rebuilt world makes
    * every run start alike. Throws a port failure.
    */
-  restartWorld?(): void;
+  restartWorld?(origins?: readonly { characterId?: string; position: Vec2 }[]): void;
   dispose(): void;
 }
 
@@ -508,6 +509,13 @@ export interface PhysicsInitConfig3D {
    * (`character` is then a placeholder the port ignores; its step moves nothing).
    */
   noCharacter?: true;
+  /**
+   * The world is made for a run: its statics are built at the run's start
+   * (`restartWorld`, which every run begins with) instead of at creation as
+   * well, so a large world is built once before its first step. A step or a
+   * query before then builds them.
+   */
+  buildAtRunStart?: true;
 }
 
 /**
@@ -540,8 +548,8 @@ export interface PhysicsPort3D {
   characterClearance?(origin: PhysicsVec3, characterId?: string): CharacterClearanceResult3D;
   /** Re-place a character (its origin; absent id: the first) and return its clearance there; clears its motion caches. */
   placeCharacter?(origin: PhysicsVec3, characterId?: string): CharacterClearanceResult3D;
-  /** Rebuild the world from the colliders it holds now (see the 2D port's). */
-  restartWorld?(): void;
+  /** Rebuild the world from the colliders it holds now, the characters at `origins` (see the 2D port's). */
+  restartWorld?(origins?: readonly { characterId?: string; position: PhysicsVec3 }[]): void;
   dispose(): void;
 }
 

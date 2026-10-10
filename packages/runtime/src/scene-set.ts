@@ -79,7 +79,8 @@ export function playerPhysicsOf(controller: unknown): { offsetSkin: number; grou
  * (`noCharacter`: its colliders answer queries and carry movers — a scene
  * picked with the pointer need not have a player); it was null before, so a
  * 3D scene without a player had no physics at all. Null with neither a
- * controller nor a collider.
+ * controller nor a collider. The world is made for a runtime
+ * (`buildAtRunStart`).
  */
 export function physics3DConfigOf(
   entities: readonly { id: string; components?: unknown }[],
@@ -140,6 +141,8 @@ export function physics3DConfigOf(
     ...(noCharacter ? { noCharacter: true as const } : {}),
     solver: { hz: fixedStepHzOf(settings), gravityY: settings.gravity_y },
     controller: tuningOf(controller),
+    // A runtime starts every run with a rebuilt world: the statics are built then, once.
+    buildAtRunStart: true,
   };
 }
 

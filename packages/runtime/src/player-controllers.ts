@@ -403,20 +403,24 @@ export class PlayerControllers {
 
   /**
    * The start of a run, the first and every restarted one alike: every
-   * controller whose object is in the game is put back where its transform
-   * now says (a restart restored the authored one), from rest, holding
-   * nothing of the last run (its last result, fall speed, impulse or staged
-   * move); then the physics world is rebuilt from the colliders it holds,
-   * the bodies where they now are. A world's query structures keep the
-   * history of what was added and moved in it, and that history decides
-   * ties in a sweep (a body on the seam of two block chunks went another way
-   * in the first run than after a restart). On the 2D plane without a reset
-   * port the bodies stay. Throws a port failure.
+   * controller whose object is in the game starts where its transform now
+   * says (a restart restored the authored one), from rest, holding nothing of
+   * the last run (its last result, fall speed, impulse or staged move), in a
+   * physics world rebuilt from the colliders it holds with the bodies there.
+   * A world's query structures keep the history of what was added and moved
+   * in it, and that history decides ties in a sweep (a body on the seam of
+   * two block chunks went another way in the first run than after a
+   * restart). A port without a rebuild places each body; on the 2D plane
+   * without a reset port the bodies stay. Throws a port failure.
    */
   startRun(): void {
     this.clearImpulses();
     this.clearStaged();
     const curr = this.host.curr();
+    const port3 = this.host.physics3d;
+    const port = port3 ?? this.host.physics;
+    const rebuild = typeof port?.restartWorld === 'function';
+    const origins: { characterId?: string; position: { x: number; y: number; z: number } }[] = [];
     for (const id of this.ids) {
       const c = this.byId.get(id)!;
       c.last2D = undefined;
@@ -425,11 +429,20 @@ export class PlayerControllers {
       const t = curr.get(id);
       if (t === undefined) continue;
       const [x, y, z] = [t.position[0], t.position[1], t.position[2]];
-      if (this.host.physics3d !== undefined) this.place3D(id, x, y, z);
-      else this.place2D(id, x, y);
+      if (!rebuild) {
+        if (port3 !== undefined) this.place3D(id, x, y, z);
+        else this.place2D(id, x, y);
+        continue;
+      }
+      // The rebuilt world makes the body there: placing it first would only move it in the old world.
+      if (port3 === undefined && this.resetPort2D() === null) continue;
+      origins.push({ ...(c.portId !== undefined ? { characterId: c.portId } : {}), position: { x, y, z } });
+      this.host.placed(id);
     }
+    if (!rebuild) return;
     try {
-      (this.host.physics3d ?? this.host.physics)?.restartWorld?.();
+      if (port3 !== undefined) port3.restartWorld!(origins);
+      else this.host.physics!.restartWorld!(origins.map((o) => ({ ...(o.characterId !== undefined ? { characterId: o.characterId } : {}), position: { x: o.position.x, y: o.position.y } })));
     } catch (e) {
       throw new PhysicsPortFailure('threw', `physics port restartWorld() threw: ${messageOf(e)}`);
     }

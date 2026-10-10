@@ -206,7 +206,7 @@ mipmap streaming and Unreal's texture streaming pool do: the page first reads
 the file's metadata and its mip tail (every level up to 128 px, one small
 request), draws with it at once, and reads larger levels one at a time as the
 texture's size on screen asks for them, inside the project's **texture
-budget** (Project settings → Rendering → *Texture budget*, `texture_budget_mb`,
+budget** (Project settings → Quality → Rendering → *Texture budget*, `texture_budget_mb`,
 1–65,536 MiB, default 512: Unity's default, which a mid-range laptop's shared
 GPU memory holds with room to spare). When the budget is full the
 least-needed levels go first: levels nothing on screen needs now, then the
@@ -334,7 +334,7 @@ does not move it) and scaled with the object's (or copy's) size.
   a model with levels culls its other parts (meshes outside its `_LOD`
   groups) where its first group is culled, as an instance set's copies are.
   Block layers use the switch points but never cull (a chunk holds many models).
-- **Project** (Project Settings → Rendering): **LOD bias** (`lod_bias`,
+- **Project** (Project Settings → Quality → Rendering): **LOD bias** (`lod_bias`,
   0.25–4, default 1) divides every switch point and cull size — 2 keeps every
   level twice as far, 0.5 halves the distances (cheaper); **LOD hysteresis**
   (`lod_hysteresis`, 0–0.5, default 0.1) — a shown level switches back to the

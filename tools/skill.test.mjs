@@ -2,8 +2,8 @@
  * The agent skill the engine ships (`skills/thirdlight/`) and how it reaches a
  * game folder:
  *
- * - its stamp is this engine's version, so it cannot drift from the identity
- *   `tools/project.mjs` pins projects to;
+ * - the install stamps it with this engine's version and the skill's digest,
+ *   so the stamp changes whenever the skill does;
  * - it says how to work and lists no ops or fields (the running engine's
  *   `tl_docs` answers what exists), and every `tl_docs` topic it names
  *   resolves in this build's manual;
@@ -11,13 +11,16 @@
  *   edit without --force, and `check` warns about a missing, edited or older
  *   copy;
  * - creating a folder project installs it, through the backend (the editor's
- *   path) and through `project.mjs create`.
+ *   path) and through `project.mjs create`;
+ * - the install never writes or deletes outside the skill folder: names in a
+ *   (cloned) record that point outside are ignored, and a symbolic link on the
+ *   way refuses the install.
  *
  * Everything runs on scratch folders on the real filesystem; the tool runs as
  * the user runs it, in its own process.
  */
-import { spawn } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { spawn, spawnSync } from 'node:child_process';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -25,9 +28,9 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { MUTATION_OPS } from '../packages/commands/src/validate-request';
 import { loadManual } from '../packages/backend/src/docs';
-import { SKILL_INSTALL_DIR, SKILL_RECORD, SKILL_SOURCE_DIR, engineSkill, skillStamp } from '../packages/backend/src/skill-install.mjs';
+import { SKILL_INSTALL_DIR, SKILL_RECORD, SKILL_SOURCE_DIR, engineSkill, skillOfFiles, skillStamp } from '../packages/backend/src/skill-install.mjs';
 import { api, startBackend } from '../packages/backend/src/test-helpers';
-import { engineIdentity } from './project.mjs';
+import { engineIdentity, skillStampAt } from './project.mjs';
 
 const ROOT = resolve(fileURLToPath(import.meta.url), '..', '..');
 const TOOL = join(ROOT, 'tools', 'project.mjs');
@@ -41,6 +44,10 @@ const PAGE_TOPIC = /^(?:(?:getting-started|concepts|guides|features|reference)\/
 const REF_TOPIC = /^(?:op|component|ctx|content|node|limit|tool|type|script-type|graph)\.[\w.-]+$/;
 
 const text = (name) => readFileSync(join(SKILL_DIR, name), 'utf8');
+/** A file as the install writes it (SKILL.md carries the stamp). */
+const installedText = (name) => engineSkill(ROOT).files.get(name).toString('utf8');
+/** Whether the skill in this checkout is the one its HEAD commit holds. */
+const skillCommitted = () => spawnSync('git', ['-C', ROOT, 'diff', '--quiet', 'HEAD', '--', SKILL_SOURCE_DIR]).status === 0 && spawnSync('git', ['-C', ROOT, 'ls-files', '--others', '--exclude-standard', '--', SKILL_SOURCE_DIR], { encoding: 'utf8' }).stdout === '';
 const codeSpans = (t) => [...t.matchAll(/`([^`\n]+)`/g)].map((m) => m[1].trim());
 
 function run(args, opts = {}) {
@@ -66,12 +73,18 @@ const marker = (folder, version) =>
   writeFileSync(join(folder, 'thirdlight.json'), `${JSON.stringify({ thirdlightProject: 1, projectId: 'scratch', name: 'Scratch', projectDir: 'thirdlight', engine: { version } }, null, 2)}\n`);
 
 describe('the skill the engine ships', () => {
-  it('is stamped with this engine version, in Claude Code skill frontmatter', () => {
+  it('is stamped on install with this engine version and the skill digest, in Claude Code skill frontmatter', () => {
     const main = text('SKILL.md');
     expect(main.startsWith('---\nname: thirdlight\ndescription: ')).toBe(true);
-    expect(skillStamp(main)).toBe(engineIdentity(ROOT).version);
-    expect(engineSkill(ROOT).stamp).toBe(engineIdentity(ROOT).version);
     expect(main.split('\n').length).toBeLessThanOrEqual(300);
+    const skill = engineSkill(ROOT);
+    expect(skill.stamp).toMatch(new RegExp(`^${engineIdentity(ROOT).version.replace(/\./g, '\\.')}\\+[0-9a-f]{12}$`));
+    expect(skillStamp(skill.files.get('SKILL.md').toString('utf8'))).toBe(skill.stamp);
+    // Any change to any file of the skill changes the stamp; the same files give the same stamp.
+    const source = new Map(SKILL_FILES.map((f) => [f, Buffer.from(text(f))]));
+    expect(skillOfFiles(source, engineIdentity(ROOT).version).stamp).toBe(skill.stamp);
+    const edited = new Map(source).set('traps.md', Buffer.from(`${text('traps.md')}\n- one more trap\n`));
+    expect(skillOfFiles(edited, engineIdentity(ROOT).version).stamp).not.toBe(skill.stamp);
   });
 
   it('lists no ops or fields: only a few workflow ops, no tables, no field-definition lists', () => {
@@ -123,8 +136,8 @@ describe('project.mjs skill and check', () => {
     r = await run(['skill', game]);
     expect(r.status).toBe(0);
     expect(r.stdout).toContain('skill installed');
-    for (const f of SKILL_FILES) expect(readFileSync(join(installed, f), 'utf8')).toBe(text(f));
-    expect(JSON.parse(readFileSync(join(installed, SKILL_RECORD), 'utf8'))).toMatchObject({ stamp: engineIdentity(ROOT).version, digest: engineSkill(ROOT).digest });
+    for (const f of SKILL_FILES) expect(readFileSync(join(installed, f), 'utf8')).toBe(installedText(f));
+    expect(JSON.parse(readFileSync(join(installed, SKILL_RECORD), 'utf8'))).toMatchObject({ stamp: engineSkill(ROOT).stamp, digest: engineSkill(ROOT).digest });
     r = await run(['check', game]);
     expect(r.status).toBe(0);
     expect(r.stderr).not.toContain('warning');
@@ -144,7 +157,7 @@ describe('project.mjs skill and check', () => {
     r = await run(['skill', game, '--force']);
     expect(r.status).toBe(0);
     expect(r.stdout).toContain('skill updated');
-    expect(readFileSync(join(installed, 'traps.md'), 'utf8')).toBe(text('traps.md'));
+    expect(readFileSync(join(installed, 'traps.md'), 'utf8')).toBe(installedText('traps.md'));
   });
 
   it('warns about a copy an older engine installed, and updates it without --force', async () => {
@@ -169,9 +182,87 @@ describe('project.mjs skill and check', () => {
     expect(r.status).toBe(0);
     expect(r.stdout).toContain('skill updated');
     expect(existsSync(join(installed, 'retired.md'))).toBe(false);
-    expect(readFileSync(join(installed, 'SKILL.md'), 'utf8')).toBe(text('SKILL.md'));
+    expect(readFileSync(join(installed, 'SKILL.md'), 'utf8')).toBe(installedText('SKILL.md'));
     r = await run(['check', game]);
     expect(r.stderr).not.toContain('warning');
+  });
+});
+
+describe('the stamp against the pinned engine', () => {
+  it('check compares the installed stamp with the skill of the pinned commit, else with the pinned version', async () => {
+    const game = join(scratch, 'pinned');
+    mkdirSync(game);
+    const version = engineIdentity(ROOT).version;
+    const pinTo = (commit) => writeFileSync(join(game, 'thirdlight.json'), `${JSON.stringify({ thirdlightProject: 1, projectId: 'scratch', name: 'Scratch', projectDir: 'thirdlight', engine: { version, ...(commit !== undefined ? { commit } : {}) } }, null, 2)}\n`);
+    pinTo(undefined);
+    expect((await run(['skill', game])).status).toBe(0);
+    // The oldest commit with a skill ships another one than this checkout: its stamp is named.
+    const commits = spawnSync('git', ['-C', ROOT, 'log', '--format=%H', '--', SKILL_SOURCE_DIR], { encoding: 'utf8' }).stdout.trim().split('\n').filter((c) => c !== '');
+    const oldest = commits.at(-1);
+    expect(oldest).toBeDefined();
+    const oldStamp = skillStampAt(ROOT, oldest);
+    expect(oldStamp).toMatch(/^\d+\.\d+\.\d+\+[0-9a-f]{12}$/);
+    expect(oldStamp).not.toBe(engineSkill(ROOT).stamp);
+    pinTo(oldest);
+    let r = await run(['check', game]);
+    expect(r.status).toBe(0);
+    expect(r.stderr).toContain(`the engine the project is pinned to (commit ${oldest.slice(0, 12)}) ships ${oldStamp}`);
+    // A commit this checkout does not have: the version decides (the same version: no warning).
+    pinTo('0123456789abcdef0123456789abcdef01234567');
+    expect(skillStampAt(ROOT, '0123456789abcdef0123456789abcdef01234567')).toBeNull();
+    r = await run(['check', game]);
+    expect(r.stderr).not.toContain('pinned');
+  });
+});
+
+describe('the install stays inside the skill folder', () => {
+  it('ignores record names that point outside it, with --force too', async () => {
+    const game = join(scratch, 'record-escape');
+    mkdirSync(game);
+    marker(game, engineIdentity(ROOT).version);
+    expect((await run(['skill', game])).status).toBe(0);
+    const installed = join(game, SKILL_INSTALL_DIR);
+    // Files outside the skill folder a planted record names (the game folder's own file, a sibling's).
+    const victims = [join(game, 'keep.txt'), join(scratch, 'outside.txt')];
+    for (const v of victims) writeFileSync(v, 'keep me\n');
+    writeFileSync(join(installed, 'retired.md'), 'gone in the newer skill\n');
+    const record = JSON.parse(readFileSync(join(installed, SKILL_RECORD), 'utf8'));
+    for (const rel of ['../../../keep.txt', '../../../../outside.txt', 'a/../../../../keep.txt', join(scratch, 'outside.txt'), './retired.md', 'retired.md']) record.files[rel] = 'x'.repeat(64);
+    record.digest = 'old';
+    writeFileSync(join(installed, SKILL_RECORD), JSON.stringify(record));
+    // An edit too, so only --force installs.
+    writeFileSync(join(installed, 'traps.md'), 'edited\n');
+    const r = await run(['skill', game, '--force']);
+    expect(r.status, r.stderr).toBe(0);
+    for (const v of victims) expect(readFileSync(v, 'utf8'), v).toBe('keep me\n');
+    // A plain name the engine no longer ships is still removed.
+    expect(existsSync(join(installed, 'retired.md'))).toBe(false);
+    expect(readFileSync(join(installed, 'traps.md'), 'utf8')).toBe(installedText('traps.md'));
+  });
+
+  it('refuses, changing nothing, when a file or a folder on the way is a symbolic link', async () => {
+    const outside = join(scratch, 'link-target');
+    mkdirSync(outside);
+    writeFileSync(join(outside, 'SKILL.md'), 'not yours\n');
+    // The installed SKILL.md is a link to a file outside the game folder.
+    const fileLink = join(scratch, 'file-link');
+    mkdirSync(join(fileLink, SKILL_INSTALL_DIR), { recursive: true });
+    marker(fileLink, engineIdentity(ROOT).version);
+    symlinkSync(join(outside, 'SKILL.md'), join(fileLink, SKILL_INSTALL_DIR, 'SKILL.md'));
+    let r = await run(['skill', fileLink, '--force']);
+    expect(r.status).toBe(1);
+    expect(r.stderr).toContain('symbolic link');
+    expect(readFileSync(join(outside, 'SKILL.md'), 'utf8')).toBe('not yours\n');
+    expect(existsSync(join(fileLink, SKILL_INSTALL_DIR, SKILL_RECORD))).toBe(false);
+    // The game's .claude folder is a link to a folder outside it.
+    const dirLink = join(scratch, 'dir-link');
+    mkdirSync(dirLink);
+    marker(dirLink, engineIdentity(ROOT).version);
+    symlinkSync(outside, join(dirLink, '.claude'));
+    r = await run(['skill', dirLink]);
+    expect(r.status).toBe(1);
+    expect(r.stderr).toContain('symbolic link');
+    expect(existsSync(join(outside, 'skills'))).toBe(false);
   });
 });
 
@@ -182,8 +273,8 @@ describe('creating a folder project installs the skill', () => {
       const viaApi = join(scratch, 'via-api');
       const res = await api(`${tb.authUrl}/api/v1/admin/projects`, { body: { projectId: 'via-api', name: 'Via API', template: 'starter', folder: viaApi }, token: tb.adminToken, origin: null });
       expect(res.status).toBe(201);
-      expect(res.json).toMatchObject({ ok: true, skill: { action: 'installed', stamp: engineIdentity(ROOT).version } });
-      expect(readFileSync(join(viaApi, SKILL_INSTALL_DIR, 'SKILL.md'), 'utf8')).toBe(text('SKILL.md'));
+      expect(res.json).toMatchObject({ ok: true, skill: { action: 'installed', stamp: engineSkill(ROOT).stamp } });
+      expect(readFileSync(join(viaApi, SKILL_INSTALL_DIR, 'SKILL.md'), 'utf8')).toBe(installedText('SKILL.md'));
 
       const tokenFile = join(scratch, 'owner-token');
       writeFileSync(tokenFile, `${tb.adminToken}\n`);
@@ -192,10 +283,12 @@ describe('creating a folder project installs the skill', () => {
       expect(r.stderr).toBe('');
       expect(r.status).toBe(0);
       expect(r.stdout).toContain('skill unchanged');
-      expect(readFileSync(join(viaTool, SKILL_INSTALL_DIR, 'SKILL.md'), 'utf8')).toBe(text('SKILL.md'));
+      expect(readFileSync(join(viaTool, SKILL_INSTALL_DIR, 'SKILL.md'), 'utf8')).toBe(installedText('SKILL.md'));
       const check = await run(['check', viaTool]);
       expect(check.status).toBe(0);
-      expect(check.stderr).toBe('');
+      // The project is pinned to this checkout's commit: its skill is the one installed unless the skill has
+      // uncommitted changes, which check names (the installed copy is not the pinned engine's).
+      expect(check.stderr).toEqual(skillCommitted() ? '' : expect.stringContaining('the engine the project is pinned to'));
     } finally {
       await tb.teardown();
     }

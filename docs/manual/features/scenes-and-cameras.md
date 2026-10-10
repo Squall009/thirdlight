@@ -287,7 +287,7 @@ scenery), **Letterbox** (black bars over the top and bottom, each that share
 of the view height, blended with the camera) and a constant **Shake**
 (amplitude, frequency, rotation).
 
-**Depth precision.** Project settings → Rendering → **Depth precision**
+**Depth precision.** Project settings → Quality → Rendering → **Depth precision**
 (`depth_buffer`): Standard (the default), Logarithmic or Reversed Z. The last
 two keep close objects sharp while scenery kilometres away still sorts
 correctly; reversed Z needs WebGPU or a WebGL 2 browser with

@@ -368,9 +368,11 @@ export interface WorkspaceService {
   /**
    * `markStagePublished` — a publication made from the stage is committed:
    * the stage stays for a retry of that publication but gives way to new
-   * uploads instead of holding an open-stage slot. Non-authoritative.
+   * uploads instead of holding an open-stage slot; `sourceDigest` lets a
+   * retry of that publication find its bytes after the stage gave way.
+   * Non-authoritative.
    */
-  markStagePublished(projectId: string, stageId: string): StageDiscardResult;
+  markStagePublished(projectId: string, stageId: string, sourceDigest?: string): StageDiscardResult;
   /**
    * `inspectStage` — the injected bounded GLB inspector over the staged bytes:
    * non-authoritative proposal only, never an

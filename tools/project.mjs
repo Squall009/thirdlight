@@ -26,7 +26,7 @@ import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { SKILL_INSTALL_DIR, installSkill, skillStatus } from '@thirdlight/backend/skill';
+import { SKILL_INSTALL_DIR, SKILL_SOURCE_DIR, installSkill, skillOfFiles, skillStatus, stampVersion } from '@thirdlight/backend/skill';
 
 export const ENGINE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const MARKER = 'thirdlight.json';
@@ -76,14 +76,45 @@ export function skillWarnings(folder, marker, root = ENGINE_ROOT) {
   if (st.state === 'missing') return [`no agent skill in ${SKILL_INSTALL_DIR}; install it with \`${fix}\``];
   if (st.state === 'modified') out.push(`the agent skill was edited locally (${st.modified.join(', ')}); \`${fix} --force\` replaces it with this engine's`);
   if (st.state === 'outdated') out.push(`the agent skill differs from this engine's (installed for engine ${st.installedStamp ?? 'unknown'}, this engine ships ${st.engineStamp ?? 'unknown'}); update it with \`${fix}\``);
-  const pinned = marker.engine?.version;
-  if (pinned !== undefined && st.installedStamp !== pinned) out.push(`the agent skill is stamped for engine ${st.installedStamp ?? 'unknown'}, the project is pinned to ${pinned}`);
+  const pin = marker.engine ?? {};
+  // The skill of the engine the project is pinned to, when this checkout has the pinned commit; else the version.
+  const pinnedStamp = typeof pin.commit === 'string' ? skillStampAt(root, pin.commit) : null;
+  if (pinnedStamp !== null) {
+    if (st.installedStamp !== pinnedStamp) out.push(`the agent skill is stamped ${st.installedStamp ?? 'unknown'}, the engine the project is pinned to (commit ${pin.commit.slice(0, 12)}) ships ${pinnedStamp}; \`${fix}\` installs this engine's`);
+  } else if (pin.version !== undefined && stampVersion(st.installedStamp) !== pin.version) {
+    out.push(`the agent skill is stamped for engine ${st.installedStamp ?? 'unknown'}, the project is pinned to ${pin.version}`);
+  }
   return out;
+}
+
+/** The stamp of the skill the engine at `commit` installs (read with git from this checkout), or null when it has no such commit. */
+export function skillStampAt(root, commit) {
+  if (!/^[0-9a-f]{7,40}$/.test(commit)) return null;
+  const git = (args) => spawnSync('git', ['-C', root, ...args], { maxBuffer: 64 * 1024 * 1024 });
+  const list = git(['ls-tree', '-r', '-z', '--name-only', commit, '--', SKILL_SOURCE_DIR]);
+  const pkg = git(['show', `${commit}:package.json`]);
+  if (list.status !== 0 || pkg.status !== 0) return null;
+  const source = new Map();
+  for (const path of list.stdout.toString('utf8').split('\0').filter((p) => p !== '')) {
+    const file = git(['show', `${commit}:${path}`]);
+    if (file.status !== 0) return null;
+    source.set(path.slice(SKILL_SOURCE_DIR.length + 1), file.stdout);
+  }
+  try {
+    return skillOfFiles(source, String(JSON.parse(pkg.stdout.toString('utf8')).version)).stamp;
+  } catch {
+    return null;
+  }
 }
 
 /** Install or update the skill and say what happened; a locally edited copy is refused without --force. */
 function runSkillInstall(folder, force) {
-  const r = installSkill(ENGINE_ROOT, folder, { force });
+  let r;
+  try {
+    r = installSkill(ENGINE_ROOT, folder, { force });
+  } catch (e) {
+    throw new CliError('skill_refused', e instanceof Error ? e.message : String(e));
+  }
   if (r.action === 'refused') {
     throw new CliError('skill_modified', `the agent skill in ${r.target} was edited locally (${r.modified.join(', ')}); nothing was changed. Keep your edits elsewhere and pass --force to replace it`);
   }

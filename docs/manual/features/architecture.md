@@ -88,7 +88,7 @@ sliders — see [Architecture styles and presets](#architecture-styles-and-prese
   floors (`collide` on roofs and vaults adds theirs), a box per stamped
   piece copy, kit copies' `_COL` parts.
 - **Exports** ship the parameters; the game generates at load. Project
-  setting `architecture_ship_meshes` 1 (Settings → Engine, **Generated
+  setting `architecture_ship_meshes` 1 (Project Settings → Gameplay → Engine, **Generated
   architecture**) ships the meshes the same generator made too (one blob
   per object, named by the component's `baked`; larger download, nothing to
   generate).

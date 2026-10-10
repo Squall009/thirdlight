@@ -15,6 +15,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { expect, test, type Page } from './pw';
 
+import { engineSkill } from '../../packages/backend/src/skill-install.mjs';
 import { startBackend, type E2EBackend } from './backend';
 import { createBox } from './ui';
 
@@ -62,7 +63,7 @@ test('a project in a game folder: create, edit, reload, restart, backup/restore,
   expect((marker.engine as { lockfileDigest: string }).lockfileDigest).toMatch(/^[0-9a-f]{64}$/);
   expect(readFileSync(join(meadow, 'thirdlight', '.gitignore'), 'utf8')).toContain('.thirdlight/');
   // The picker's create installs the engine's agent skill too.
-  expect(readFileSync(join(meadow, '.claude', 'skills', 'thirdlight', 'SKILL.md'), 'utf8')).toBe(readFileSync(join(REPO, 'skills', 'thirdlight', 'SKILL.md'), 'utf8'));
+  expect(readFileSync(join(meadow, '.claude', 'skills', 'thirdlight', 'SKILL.md'), 'utf8')).toBe(engineSkill(REPO).files.get('SKILL.md')!.toString('utf8'));
   expect(existsSync(join(dataRoot(), 'projects', 'meadow'))).toBe(false);
 
   // Edit; the scene lands in the game folder and survives a reload and a restart.

@@ -210,8 +210,11 @@ describe('script sounds have an owner', () => {
     expect(g.rt.queueUiEvent!({ kind: 'restart', doc: '', widget: '', name: '' } as never).ok).toBe(true);
     g.tick(2);
     expect(g.commands.some((c) => c.op === 'reset')).toBe(true);
-    // The new run's director starts its own loop again; the old one is gone.
+    // The new run's director starts its own loop again, with the first run's handle (1): the host drops every
+    // voice on the reset command, which comes before the new play.
     expect(g.voices().length).toBe(1);
-    expect(g.voices()[0]![0]).not.toBe(1);
+    expect(g.voices()[0]![0]).toBe(1);
+    const reset = g.commands.findIndex((c) => c.op === 'reset');
+    expect(g.commands.map((c) => c.op).lastIndexOf('play')).toBeGreaterThan(reset);
   });
 });

@@ -51,7 +51,14 @@ everything (editing needs every tile and chunk).
   next steps), and they go when their chunk leaves it. A live block's lasting
   state belongs in its cell's metadata (as ever): an object that went and
   came back starts over.
-- **The budget** (Project settings → Rendering → **Streaming budget**,
+- **A run restart** (a play-test's next run, `tl_game_control` *replay*)
+  empties the collision and live rings and fills them again round the
+  start, as the first run did, so a run that ended far away starts like the
+  first one. A streamed terrain's tiles collide again once the page holds
+  their data; tiles the page let go while the player was away are read again,
+  and until then those tiles have no colliders (unverified whether a
+  restarted run then differs from the first).
+- **The budget** (Project settings → Quality → Rendering → **Streaming budget**,
   `streaming_budget_mb`, default 768 MiB): the memory streamed tiles (decoded
   data and their texture layers), chunk meshes and scatter groups may take.
   When it is full, what is kept past a ring (within its hysteresis) is let go

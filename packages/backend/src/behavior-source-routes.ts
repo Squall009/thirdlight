@@ -7,7 +7,7 @@
  */
 import { type IncomingMessage, type ServerResponse } from 'node:http';
 import { canonicalContainerText, diagnosticsWithNodes, generateGraphSource, graphProblemsFailure } from '@thirdlight/behavior-build';
-import { BEHAVIOR_ENTRY_PATH } from '@thirdlight/project-model/limits';
+import { BEHAVIOR_ENTRY_PATH, ID_RE } from '@thirdlight/project-model/limits';
 import { parseStrictJsonBytes, sessionError, statusFor, type SessionError } from '@thirdlight/protocol';
 import { type CommandError, type WorkspaceService } from '@thirdlight/workspace';
 
@@ -155,7 +155,7 @@ export function makeBehaviorSourceRoutes(ctx: BehaviorSourceRoutesContext) {
     const expectedRevision = value.expectedRevision;
     const requestId = value.requestId;
     const stageId = value.stageId;
-    if (typeof behaviorId !== 'string' || !/^[a-z0-9][a-z0-9_-]{0,63}$/.test(behaviorId)) {
+    if (typeof behaviorId !== 'string' || !ID_RE.test(behaviorId)) {
       sendError(res, sessionError('field_value', 'validation', 'behaviorId must use the project-model ID syntax', { path: '/behaviorId' }));
       return;
     }
@@ -234,7 +234,7 @@ export function makeBehaviorSourceRoutes(ctx: BehaviorSourceRoutesContext) {
     projectId: string,
     behaviorId: unknown,
   ): { result: ReturnType<typeof generateGraphSource> } | { error: SessionError; status?: number } => {
-    if (typeof behaviorId !== 'string' || !/^[a-z0-9][a-z0-9_-]{0,63}$/.test(behaviorId)) {
+    if (typeof behaviorId !== 'string' || !ID_RE.test(behaviorId)) {
       return { error: sessionError('field_value', 'validation', 'behaviorId must use the project-model ID syntax', { path: '/behaviorId' }) };
     }
     const found = service.query({ op: 'queryBehaviors', projectId, args: { behaviorId, includeDeclaration: true, limit: 1, offset: 0 } }) as unknown as { ok: boolean; error?: CommandError; behaviors?: { behaviorId: string; graph?: unknown; functions?: unknown }[] };
@@ -309,7 +309,7 @@ export function makeBehaviorSourceRoutes(ctx: BehaviorSourceRoutesContext) {
       }
     }
     const behaviorId = value.behaviorId;
-    if (typeof behaviorId !== 'string' || !/^[a-z0-9][a-z0-9_-]{0,63}$/.test(behaviorId)) {
+    if (typeof behaviorId !== 'string' || !ID_RE.test(behaviorId)) {
       sendError(res, sessionError('field_value', 'validation', 'behaviorId must use the project-model ID syntax', { path: '/behaviorId' }));
       return;
     }

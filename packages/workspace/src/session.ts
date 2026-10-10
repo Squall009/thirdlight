@@ -213,6 +213,14 @@ export interface ProjectSession {
    */
   preparedSources: Map<string, import('@thirdlight/behavior-build').PreparedBehaviorSource>;
   /**
+   * The source digest of each stage a committed publication was made from,
+   * oldest first. A published stage gives way to newer uploads; a retry of
+   * its publication (an answer lost on the way) then reads the same bytes
+   * from the immutable blob, so it is answered as a duplicate instead of
+   * `stage_not_found`. Never persisted (a restart forgets it).
+   */
+  publishedStages?: Map<string, string>;
+  /**
    * Staged script library edits (several patches, one commit) by
    * stageId, oldest first; never authoritative and never persisted (a
    * restart drops them). `commitScriptLibraryStage` reads only these.

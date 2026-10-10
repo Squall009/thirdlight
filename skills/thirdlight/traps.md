@@ -76,8 +76,6 @@ the exact fields and ops are in `tl_docs`.
 - **Nothing plays a sound before the first key press or click**; a
   headless play-test sees sounds as pending.
 - **A rebind listens to the real device**; test input cannot answer it.
-- **Two player controllers do not repeat their digests across restarts**
-  yet: compare observed fields instead (`guides/co-op`).
 - **Pointer picks in 3D need 3D physics**; the Starter's physics is the 2D
   plane.
 

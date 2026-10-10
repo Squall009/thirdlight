@@ -150,7 +150,8 @@ function splitParts(lines: string[], max: number): string[] {
 
 export class Manual {
   private readonly pages = new Map<string, Page>();
-  private readonly topics: Record<string, { page: string; section?: string }>;
+  /** A Map, not a plain object: a topic is any text a caller sends (`constructor`, `__proto__`). */
+  private readonly topics: ReadonlyMap<string, { page: string; section?: string }>;
   /** Where the pages were read from and when. */
   readonly dir: string;
 
@@ -174,7 +175,7 @@ export class Manual {
         topics = {};
       }
     }
-    this.topics = topics;
+    this.topics = new Map(Object.entries(topics));
   }
 
   get pageCount(): number {
@@ -182,7 +183,7 @@ export class Manual {
   }
 
   get topicCount(): number {
-    return Object.keys(this.topics).length;
+    return this.topics.size;
   }
 
   lookup(req: { topic?: string; query?: string; part?: number }): DocsAnswer {
@@ -193,7 +194,7 @@ export class Manual {
     if (req.topic === undefined || req.topic.trim() === '' || req.topic.trim() === 'contents') return this.answer('contents', 'contents', 'Contents', this.contents().split('\n'), part);
     const topic = normalizeTopic(req.topic);
     // A reference topic (op.editBlocks, component.light, tool.tl_command …) first, then a page or page#section.
-    const ref = this.topics[topic] ?? this.topics[req.topic.trim()];
+    const ref = this.topics.get(topic) ?? this.topics.get(req.topic.trim());
     const at = ref !== undefined ? { page: `reference/${ref.page.replace(/\.md$/, '')}`, section: ref.section } : { page: topic.split('#')[0]!, section: topic.includes('#') ? topic.slice(topic.indexOf('#') + 1) : undefined };
     // A link to a page in the same folder (`types-a-d.md#type-block-edit` inside the reference) carries no
     // folder; an agent copies it as it is, so a bare name that one folder holds answers as that page.
@@ -241,7 +242,7 @@ export class Manual {
   private contents(): string {
     const index = this.pages.get('index')?.text ?? '# Thirdlight manual\n';
     const kinds = new Map<string, string[]>();
-    for (const key of Object.keys(this.topics)) {
+    for (const key of this.topics.keys()) {
       const kind = key.split('.')[0]!;
       const list = kinds.get(kind) ?? [];
       list.push(key);
@@ -257,7 +258,7 @@ export class Manual {
       'a section is `page#anchor`, and a link in a page (`../guides/terrain.md#sculpting`) works as a topic as it is. ' +
       'A long page or section comes in parts: the answer names the next part. Search with `query` for topic names.\n\n' +
       '## Reference topics\n\n' +
-      `The generated reference answers these lookup keys (${Object.keys(this.topics).length} in all):\n\n` +
+      `The generated reference answers these lookup keys (${this.topics.size} in all):\n\n` +
       `${rows.join('\n')}\n`
     );
   }
@@ -282,7 +283,7 @@ export class Manual {
       const n = p.ids.get(section);
       return n === undefined ? p.title : p.sections[n]!.title;
     };
-    for (const [topic, at] of Object.entries(this.topics)) consider(topic, refSection(at.page, at.section));
+    for (const [topic, at] of this.topics) consider(topic, refSection(at.page, at.section));
     for (const page of this.pages.values()) {
       if (page.key.startsWith('reference/')) continue;
       consider(page.key, page.title);

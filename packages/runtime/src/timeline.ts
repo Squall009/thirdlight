@@ -476,6 +476,10 @@ export class TimelineSystem {
     // Handles count from 1 again: a script keeps the handle in its state, so a
     // restarted run must hand out the same numbers to reach the same digest.
     this.handleSerial = 0;
+    // The ended handles go too (a restarted run's handle 2 is not the last run's), and the state
+    // leaves the step digest until a timeline plays again, as in the first run.
+    this.ended.length = 0;
+    this.used = false;
     this.visible = NO_EVENTS;
     this.building = [];
     this.startArmed = true;

@@ -103,5 +103,5 @@ the same either way: change presets, never the outlines.
   lights.
 - **Generated at load:** an export ships parameters, and the player's
   browser makes the meshes. To ship meshes instead, turn on
-  **Project Settings → Engine → Generated architecture**
+  **Project Settings → Gameplay → Engine → Generated architecture**
   (`architecture_ship_meshes`): a larger download, nothing to generate.

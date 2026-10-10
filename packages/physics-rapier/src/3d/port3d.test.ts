@@ -113,6 +113,56 @@ describe('the Rapier 3D port', () => {
     port.dispose();
   });
 
+  it('a world made for a run builds its statics at the run start, once; a query before that builds them first', async () => {
+    const statics = [box('floor', [0, -0.5, 0], [5, 0.5, 5]), box('wall', [0, 0, -3], [5, 2, 0.5])];
+    const deferred = await portOf({ ...config(statics), buildAtRunStart: true });
+    // Only the capsule is in the world until the run starts; added and removed statics wait with them.
+    expect(deferred.diagnostics!()).toMatchObject({ worldColliderCount: 1 });
+    deferred.addStaticColliders!([box('late', [3, 0, 0], [0.5, 0.5, 0.5]), box('gone', [-3, 0, 0], [0.5, 0.5, 0.5])]);
+    deferred.removeStaticColliders!(['gone']);
+    expect(deferred.diagnostics!()).toMatchObject({ worldColliderCount: 1 });
+    deferred.restartWorld!([{ position: { x: 1, y: 3, z: 0 } }]);
+    expect(deferred.diagnostics!()).toMatchObject({ worldColliderCount: 4 });
+    // The character starts at the run's origin and falls onto the floor, as on a world built at creation.
+    const built = await portOf(config([...statics, box('late', [3, 0, 0], [0.5, 0.5, 0.5])], [1, 3, 0]));
+    built.restartWorld!();
+    expect(fall(deferred, 120).y).toEqual(fall(built, 120).y);
+    expect(deferred.raycast!({ x: -3, y: 3, z: 0 }, { x: 0, y: -1, z: 0 }, 10)).toMatchObject({ entityId: 'floor' });
+    // A ray before the run start sees the statics too (they are built for it).
+    const early = await portOf({ ...config(statics), buildAtRunStart: true });
+    expect(early.raycast!({ x: 0, y: 3, z: -3 }, { x: 0, y: -1, z: 0 }, 10)).toMatchObject({ entityId: 'wall' });
+    expect(early.diagnostics!()).toMatchObject({ worldColliderCount: 3 });
+    for (const p of [deferred, built, early]) p.dispose();
+  });
+
+  it('rebuilds meshes and heightfields from what the world holds: every rebuild is the same world', async () => {
+    // A mesh with a duplicate vertex (merged by the port) and a heightfield.
+    const mesh: StaticColliderSpec3D = { entityId: 'mesh', shape: { type: 'mesh', vertices: [-4, 0, -4, 4, 0, -4, 4, 0, 4, -4, 0, 4, 4, 0, 4], indices: [0, 2, 1, 0, 3, 4] }, position: { x: 0, y: 0, z: 0 }, rotation: IDENTITY };
+    const heights = new Float32Array(25).map((_, i) => (i % 5) * 0.1 + Math.floor(i / 5) * 0.05);
+    const field: StaticColliderSpec3D = { entityId: 'field', shape: { type: 'heightfield', cellsX: 4, cellsZ: 4, cellX: 1, cellZ: 1, heights }, position: { x: 10, y: 0, z: 0 }, rotation: IDENTITY };
+    const run = async (rebuilds: number, deferred: boolean): Promise<number[]> => {
+      const p = await portOf({ ...config([mesh, field], [1, 2, 1]), ...(deferred ? { buildAtRunStart: true as const } : {}) });
+      for (let i = 0; i < rebuilds; i++) p.restartWorld!();
+      const out: number[] = [];
+      // Walk across both: the mesh then (placed) the heightfield's slope.
+      for (let i = 0; i < 60; i++) {
+        p.stageCharacterMove({ x: 0.02, y: -0.05, z: 0.01 });
+        out.push(p.step().position.y);
+      }
+      p.restartWorld!([{ position: { x: 11, y: 2, z: 1.5 } }]);
+      for (let i = 0; i < 60; i++) {
+        p.stageCharacterMove({ x: 0.03, y: -0.05, z: 0 });
+        out.push(p.step().position.y);
+      }
+      expect(p.raycast!({ x: 12.5, y: 5, z: 2.5 }, { x: 0, y: -1, z: 0 }, 10)).toMatchObject({ entityId: 'field' });
+      p.dispose();
+      return out;
+    };
+    const once = await run(1, true);
+    expect(await run(2, true)).toEqual(once);
+    expect(await run(4, false)).toEqual(once);
+  });
+
   it('is deterministic: two runs give the same positions bit for bit', async () => {
     const cfg = config([box('floor', [0, -0.5, 0], [5, 0.5, 5]), box('step', [0.2, 0.2, 0.1], [0.3, 0.2, 0.3], { x: 0.1, y: 0.2, z: 0.05, w: Math.sqrt(1 - 0.01 - 0.04 - 0.0025) })]);
     const a = await portOf(cfg);

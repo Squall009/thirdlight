@@ -69,7 +69,7 @@ Run one from:
   commands (`help`), takes `giveItem lantern 2` (the declared order) or
   `giveItem count=2 item="iron key"`, and prints each call the game ran with
   its step. Play always has it. An exported game has it only when **Project
-  settings → Engine → Debug console in export** (`debug_console`) is on —
+  settings → Gameplay → Engine → Debug console in export** (`debug_console`) is on —
   off by default, so a release build never ships a console by accident.
   The same setting shows the export's build line (snapshot, build id,
   play state) at the top left; a release game shows only its own UI.
@@ -100,7 +100,7 @@ simulation keeps its fixed step and a frame that is not drawn runs its steps
 in the next drawn one, so a recorded replay plays the same at any cap. Four
 ways set it, all live:
 
-- the project setting **Rendering → Frame-rate cap** (`frame_rate_cap`: 0
+- the project setting **Quality → Rendering → Frame-rate cap** (`frame_rate_cap`: 0
   none, 30, 60, 120; Project Settings → Quality) — the start value;
 - a player's setting: a field of the save schema's settings document bound to
   the engine with `engine: 'frameRateCap'` — an enum of `30`, `60`, `120`

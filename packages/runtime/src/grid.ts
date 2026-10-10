@@ -86,7 +86,7 @@ import { RuntimeSurface, type SurfaceLayerView } from './surface';
 import { RuntimeScatter, type ScatterCopyChange, type TerrainScatterData, type TerrainSimData } from './scatter-copies';
 import { RuntimeSplines, type SplineSimData } from './splines';
 import { RuntimeArchitecture, type ArchitectureLayerRooms } from './architecture';
-import { SimWorldStream } from './world-stream';
+import { SimWorldStream, type StreamRingChange } from './world-stream';
 
 export { worldStreamSources } from './world-stream';
 
@@ -839,6 +839,12 @@ export class RuntimeGrid {
       this.reshow(layer);
       this.markAll(layer);
     }
+    // Streaming starts over: the rings empty now (their colliders go with the restart's flush) and fill again at
+    // the next step boundary from the run's start. The page is not told of the empty rings (it keeps its tiles).
+    if (this.stream.active) {
+      this.stream.restart();
+      this.applyStreamChanges(this.stream.takeChanges());
+    }
     // The authored kits again.
     for (const id of [...this.kitOverrides.keys()]) this.setKits(id, new Map());
     this.setArchSwaps([]);
@@ -1080,6 +1086,11 @@ export class RuntimeGrid {
     this.stream.advance(stepIndex);
     const changes = this.stream.takeChanges();
     if (changes.length > 0 || this.stream.looks !== this.ringLooks) this.noteRings();
+    this.applyStreamChanges(changes);
+  }
+
+  /** What entered and left the rings: the chunks and tiles to build or take off at the next flush. */
+  private applyStreamChanges(changes: readonly StreamRingChange[]): void {
     for (const c of changes) {
       const keys = [...c.entered, ...c.left];
       if (c.ring === 'live') {

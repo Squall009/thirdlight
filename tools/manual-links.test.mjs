@@ -79,6 +79,41 @@ describe('manual links (docs/manual)', () => {
     expect(orphans).toEqual([]);
   });
 
+  it('a number written with a link to a limit is that limit as generated', () => {
+    // The generated limit rows: anchor -> value (the backticked JSON cell).
+    const values = new Map();
+    for (const page of pages.filter((p) => /reference\/limits[\w-]*\.md$/.test(p))) {
+      for (const m of readFileSync(page, 'utf8').matchAll(/<a id="(limit-[\w-]+)"><\/a>`[^`]+` \| `([^`]*)`/g)) {
+        try {
+          values.set(m[1], JSON.parse(m[2]));
+        } catch {
+          // not a JSON value: not compared
+        }
+      }
+    }
+    expect(values.size).toBeGreaterThan(100);
+    const number = (t) => Number(t.replace(/,/g, ''));
+    const scaled = (n, unit) => (unit === 'KiB' ? [n, n * 1024] : unit === 'MiB' ? [n, n * 1024 * 1024] : unit === 'GiB' ? [n, n * 1024 ** 3] : [n]);
+    const wrong = [];
+    let checked = 0;
+    for (const page of pages.filter((p) => !p.startsWith(join(MANUAL, 'reference') + '/'))) {
+      const text = prose(readFileSync(page, 'utf8').replace(/\[`([A-Z][A-Z0-9_]+)`\]/g, '[$1]'));
+      // "[512 MiB](…#limit-x)": the number is the link; "16,384 objects ([`MAX_X`](…#limit-x))": the number before it.
+      const found = [
+        ...[...text.matchAll(/\[(\d[\d,.]*)\s*(KiB|MiB|GiB)?\]\([^)]*#(limit-[\w-]+)\)/g)].map((m) => [m[1], m[2], m[3]]),
+        ...[...text.matchAll(/(\d[\d,.]*)\s*(KiB|MiB|GiB)?[^\d()[\]]{0,40}\(\[[A-Z][A-Z0-9_]+\]\([^)]*#(limit-[\w-]+)\)\)/g)].map((m) => [m[1], m[2], m[3]]),
+      ];
+      for (const [num, unit, anchor] of found) {
+        const v = values.get(anchor);
+        if (typeof v !== 'number') continue;
+        checked += 1;
+        if (!scaled(number(num), unit).includes(v)) wrong.push(`${relative(ROOT, page)}: ${num}${unit ? ` ${unit}` : ''} links ${anchor} = ${v}`);
+      }
+    }
+    expect(wrong).toEqual([]);
+    expect(checked).toBeGreaterThan(5);
+  });
+
   it('computes heading anchors as GitHub does', () => {
     expect([...pageSections("## Projects in a game's own folder\n## MCP (coding harness)\n## A\n## A").ids.keys()]).toEqual(['projects-in-a-games-own-folder', 'mcp-coding-harness', 'a', 'a-1']);
   });

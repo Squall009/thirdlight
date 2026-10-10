@@ -149,6 +149,28 @@ export class SimWorldStream {
     this.objects.delete(entityId);
   }
 
+  /**
+   * A new run: every ring empties (what it held leaves, taken with
+   * `takeChanges`) and the next step boundary fills it again from where the
+   * sources are then, all at once as at an object's load. A restarted run
+   * then starts with the colliders and live blocks the first run started
+   * with, not with the rings round where the last run ended.
+   */
+  restart(): void {
+    for (const o of [...this.objects.values()].sort((a, b) => (a.entityId < b.entityId ? -1 : 1))) {
+      for (const [kind, s] of [['collision', o.collision], ['live', o.live]] as const) {
+        if (s === null) continue;
+        if (s.members.size > 0) this.changes.push({ entityId: o.entityId, ring: kind, entered: [], left: [...s.members].sort() });
+        s.members.clear();
+        s.pending = [];
+        s.fresh = true;
+      }
+    }
+    this.lookedFrom = null;
+    this.sources = [];
+    this.spawnsLeft = STREAM_LIVE_SPAWNS_PER_STEP;
+  }
+
   /** Whether an object streams. */
   streams(entityId: string): boolean {
     return this.objects.has(entityId);

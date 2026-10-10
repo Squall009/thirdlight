@@ -82,8 +82,9 @@ export async function publishBehaviorSource(
   if (!command.ok) return { ok: false, kind: 'error', error: command.error };
   // The source is now stored in the project's blobs: the stage stays only for a
   // retry of this request, so it must not hold one of the project's few
-  // open-stage slots (a session publishing often would be locked out).
-  if (request.stageId !== undefined) service.markStagePublished(request.projectId, request.stageId);
+  // open-stage slots (a session publishing often would be locked out). Once a
+  // newer upload has removed it, the retry reads the same bytes by digest.
+  if (request.stageId !== undefined) service.markStagePublished(request.projectId, request.stageId, prepared.prepared.sourceDigest);
   return { ok: true, prepared: prepared.prepared, result: command };
 }
 

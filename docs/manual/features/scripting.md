@@ -323,7 +323,7 @@ and Assets error nodes.
   API, without `stream`; names like timer names, at most 64 per object):
   draws from one never shift another, so adding a loot roll does not change
   how an enemy moves. The numbers come from the project setting **Random
-  seed** (Project settings → Engine, `random_seed`, 0–4294967295, default 0)
+  seed** (Project settings → Gameplay → Engine, `random_seed`, 0–4294967295, default 0)
   mixed with the script, the object and the stream name, so every run,
   replay, Play in the worker or on the main thread, and the export draw the
   same numbers; change the seed to reshuffle every choice of the game at

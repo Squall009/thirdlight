@@ -70,6 +70,14 @@ describe('the manual lookup', () => {
     expect(text(manual.lookup({ topic: 'limit.MAX_TAGS' }))).toContain('MAX_TAGS');
   });
 
+  it('answers names an object inherits as unknown topics, not as a failure', () => {
+    for (const topic of ['constructor', '__proto__', 'toString', 'hasOwnProperty', 'valueOf', 'constructor#x']) {
+      const a = manual.lookup({ topic });
+      expect(a.ok, topic).toBe(false);
+      if (!a.ok) expect(a.code, topic).toBe('docs_topic_not_found');
+    }
+  });
+
   it('bounds every answer and names the next part', () => {
     const first = manual.lookup({ topic: 'reference/graph-behavior-1' });
     if (!first.ok || first.kind === 'query') throw new Error('no page');

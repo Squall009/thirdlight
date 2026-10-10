@@ -83,6 +83,7 @@ import { locateMipParts, type MipPartFile } from './mip-parts';
 import { scanAssetFolder, writeUploadedFile, type FolderImportScan, type PreparedImportFile } from './folder-import';
 import { deepFreeze } from './isolate';
 import { sha256Hex } from './digest';
+import { rememberPublishedStage } from './behavior';
 import { ensureSession, type Core, type ProjectSession } from './session';
 import { restoreSidecars } from './session-v4';
 import { checkResourceFiles } from './resource-check';
@@ -517,7 +518,12 @@ export function contentOps(core: Core) {
   return {
     stageContent: (projectId: string, request: StageRequest): StageResult => run(projectId, (s) => stageContent(core, contentCtx(s), request)),
     discardStage: (projectId: string, stageId: string): StageDiscardResult => run(projectId, (s) => discardStage(core, contentCtx(s), stageId)),
-    markStagePublished: (projectId: string, stageId: string): StageDiscardResult => run(projectId, (s) => markStagePublished(core, contentCtx(s), stageId)),
+    markStagePublished: (projectId: string, stageId: string, sourceDigest?: string): StageDiscardResult =>
+      run(projectId, (s) => {
+        const r = markStagePublished(core, contentCtx(s), stageId);
+        if (r.ok && typeof sourceDigest === 'string' && /^[0-9a-f]{64}$/.test(sourceDigest)) rememberPublishedStage(s, stageId, sourceDigest);
+        return r;
+      }),
     /** The injected bounded inspector over the staged bytes; never mutates authoring state. */
     inspectStage: (projectId: string, stageId: string, options?: InspectStageOptions): InspectStageResult => run(projectId, (s) => inspectStage(core, contentCtx(s), stageId, options ?? {})),
     /** One folder of the game folder (importable files and subfolders). */

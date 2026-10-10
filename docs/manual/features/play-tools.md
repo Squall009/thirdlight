@@ -96,7 +96,11 @@ for observations inside the run) and whether the runs agreed. `--runs N`
 plays it N times, `--threads both` in the simulation worker and on a single
 thread; every run begins with a restart and the script is sent as exercises
 that hold the game in between, so the runs of a deterministic game give the
-same digests. `--driver bot.mjs` runs the project's own driver instead: a
+same digests. A restart starts the run as the first one started: the
+physics world rebuilt round the players' start places, scripts, timers,
+random numbers, counters, conversations, timelines, sounds and the save play
+time from the start, a streamed world's rings round the start (a streamed
+terrain once the page holds its start tiles). `--driver bot.mjs` runs the project's own driver instead: a
 Node module of the game folder whose default export `async (game) => result`
 plays each run with `game.step(frames)` (returns the observation after them),
 `game.wait(n)`, `game.observe()` and `game.log()` — a genre's test bot is

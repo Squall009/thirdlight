@@ -25,7 +25,7 @@ Use the same numbers for your own game unless you target something else.
 
 ## Look at it while you play
 
-- **The stats overlay:** **Project Settings → Engine → Stats overlay**
+- **The stats overlay:** **Project Settings → Gameplay → Engine → Stats overlay**
   (`stats_overlay` 1: shown, **F3** hides it; 2: hidden until F3). It shows
   fps, frame, CPU and GPU time, draws and triangles, texture and geometry
   memory, the object count, the quality level and the frame-rate cap, in

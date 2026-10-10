@@ -1210,8 +1210,11 @@ function createAdapter(
       if (gone.size > 0) for (const [handle, info] of [...colliderInfo]) if (gone.has(info.body)) colliderInfo.delete(handle);
       relist();
     },
-    restartWorld(): void {
+    restartWorld(origins?: readonly { characterId?: string; position: Vec2 }[]): void {
       assertLive('restartWorld');
+      for (const o of origins ?? []) if (!isFinite2(o?.position)) throw resetError('restartWorld origins must be finite { x, y } positions');
+      // The characters where the run starts them (the rebuilt world makes their capsules there, from rest).
+      for (const o of origins ?? []) bodyOf(o.characterId, 'restartWorld').position = { x: o.position.x, y: o.position.y };
       const next = newWorld(config);
       try {
         // The statics by id, then the characters in their order: the world then depends on what it holds only.

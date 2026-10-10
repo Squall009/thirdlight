@@ -2299,18 +2299,15 @@ export class RuntimeInstance implements Runtime {
   }
 
   /**
-   * Restart the run, at
-   * a step boundary: the start scenes (later loads unloaded, spawned copies
-   * gone), every object at its authored transform, the scripts started over
-   * (their reset hook, as a replay), cameras, animators, sockets, blocks,
-   * cells, material values, the UI and the start mode as at the start, the
-   * character placed where it started (from rest). `ctx.save` values stay (as
-   * across a replay), except that the start's variables are set again.
+   * Restart the run, at a step boundary: the start scenes (later loads unloaded, spawned copies
+   * gone), every object at its authored transform, the scripts started over (their reset hook, as a
+   * replay), cameras, animators, sockets, blocks, cells, material values, timelines, conversations,
+   * the UI and the start mode as at the start, the character placed where it started (from rest).
+   * `ctx.save` values stay (as across a replay), except that the start's variables are set again.
    * Returns false after a fail-stop.
    */
   private restartRun(ordinal: number): boolean {
     this.pendingRestart = false;
-    // Every start begins with the start's variables (other ctx.save values stay, as across a replay).
     this.applyStartVariables();
     // A new run — its steps count from here (tools compare a run with its replay by run step).
     this.runStartStep = ordinal - 1;
@@ -2348,6 +2345,9 @@ export class RuntimeInstance implements Runtime {
     this.removeSpawnedIds(new Set(this.grid.reset().filter((id) => this.spawnedEntities.has(id))));
     this.grid.flushCollision(this.physics3d);
     this.materials.reset();
+    // No conversation, no save document and no play time yet, as at the first start.
+    this.dialogue.resetRun();
+    this.saves.reset();
     this.ui.resetRun();
     this.modes.beginRun(ordinal);
     this.activeSpawn = null;

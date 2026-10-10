@@ -9,7 +9,7 @@ the engine from the engine itself, never from reading Thirdlight's source:
   call, graph node and limit.
 - **The Thirdlight skill** answers *how to work*: the workflow, where game
   rules go, game flow, play-testing, performance habits and common traps.
-  It lists no ops or fields; it points into `tl_docs`.
+  It keeps no list of ops or fields; it points into `tl_docs`.
 
 ## Set up a game folder for an agent
 
@@ -37,14 +37,21 @@ it serves.
 
 ## Keep the skill current
 
-The skill is stamped with the engine version it was written for (its
-`metadata` in `SKILL.md`), and the install keeps a record of every file it
-wrote (`.thirdlight-skill.json` beside them).
+The install stamps the skill with the engine it came from (its `metadata`
+in `SKILL.md`: the engine version and the first 12 characters of the skill's
+digest, such as `0.1.0+3fa2c1d9e0ab`, so the stamp changes whenever the
+skill does) and keeps a record of every file it wrote
+(`.thirdlight-skill.json` beside them).
 
 - `node tools/project.mjs check <folder>` warns when the folder has no
   skill, when the installed copy differs from the one this engine ships, when
-  its stamp differs from the engine version the project is pinned to, and
-  when someone edited it.
+  its stamp differs from the skill of the engine the project is pinned to
+  (read from the pinned commit; without that commit in the checkout, from
+  the pinned version), and when someone edited it.
+- The install writes only inside `.claude/skills/thirdlight/` and refuses
+  (changing nothing, `--force` included) when a folder or file on that path
+  is a symbolic link; a name in the record that points outside the folder is
+  ignored.
 - `node tools/project.mjs skill <folder>` installs or updates it. It never
   overwrites a copy you edited: it names the edited files and changes
   nothing. `--force` replaces it with the engine's. Keep your own notes for

@@ -58,7 +58,8 @@ them; each use writes one Problems line per Play naming its replacement:
 
 - **`restartLevel`** (UI engine action) restarts the whole run: the start
   scenes, every object as authored, every script fresh, the start mode, every
-  script sound stopped; `ctx.save` values stay. Use **`reloadScene`** (or
+  script sound stopped, no conversation or timeline running, the save play
+  time back to 0; `ctx.save` values stay. Use **`reloadScene`** (or
   `ctx.scenes.reload(sceneId)` in a script) for the scene that starts over,
   and reset what the game keeps itself (its counters, its `ctx.save` values,
   a kept player's place: `ctx.lifecycle.respawn` or the scene list's spawn).

@@ -525,9 +525,16 @@ export class AudioMixer {
     this.visible = out === null ? (this.visible.length === 0 ? this.visible : Object.freeze([])) : Object.freeze(out);
   }
 
-  /** A new run: script voices stop (no events), the music goes back to the flow, the duck and mix to 1. */
+  /**
+   * A new run: script voices stop (no events), the music goes back to the flow, the duck and mix to 1.
+   * Handles count from 1 again and the state leaves the digest until scripts use audio, as at the
+   * first start: a script (or a conversation's voice) keeps handles, so a restarted run must hand out
+   * the same numbers. The host drops every handle's voice on the reset command, before any new play.
+   */
   reset(): void {
     if (!this.used && this.voices.size === 0) return;
+    this.nextHandle = 0;
+    this.used = false;
     this.voices.clear();
     this.visible = Object.freeze([]);
     this.musicTrack = undefined;

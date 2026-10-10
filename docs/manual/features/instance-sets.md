@@ -58,7 +58,7 @@ detail. Copies have no ids, colliders or scripts.
 - **Chunks**: a set is drawn in chunks, each hidden when out of
   view. The copies are split
   by count (about 2048 per chunk) and by extent: no chunk is wider than the
-  chunk size, 32 m unless the project sets **Rendering → Instance chunk
+  chunk size, 32 m unless the project sets **Quality → Rendering → Instance chunk
   size** (`setSettings {instance_chunk_m}`, 1–4096 m) or the set its own
   (Inspector → Instance set → **Chunk size**, `instances.chunkSize`; `null`
   puts it back to the project's). A set needs at most 256 chunks; a wider one

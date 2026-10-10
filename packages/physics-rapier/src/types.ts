@@ -162,8 +162,8 @@ export interface RapierPhysicsPort extends PhysicsResetPort {
   raycast(origin: Vec2, direction: Vec2, maxDistance: number): RaycastHit | null;
   /** Ignore one-way colliders for the next `steps` steps, for a character (absent: the first). */
   dropThrough(steps: number, characterId?: string): void;
-  /** Rebuild the world from the colliders it holds now, in one fixed order (a run starts on it). */
-  restartWorld(): void;
+  /** Rebuild the world from the colliders it holds now, in one fixed order, the characters at `origins` (a run starts on it). */
+  restartWorld(origins?: readonly { characterId?: string; position: Vec2 }[]): void;
   diagnostics(): RapierPhysicsDiagnostics;
   dispose(): void;
 }

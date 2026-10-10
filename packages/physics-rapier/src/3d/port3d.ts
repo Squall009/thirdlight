@@ -89,7 +89,7 @@ export interface RapierPhysicsPort3D extends PhysicsPort3D {
   characterClearance(origin: PhysicsVec3, characterId?: string): CharacterClearanceResult3D;
   placeCharacter(origin: PhysicsVec3, characterId?: string): CharacterClearanceResult3D;
   lastResultOf(characterId: string): CharacterMoveResult3D | undefined;
-  restartWorld(): void;
+  restartWorld(origins?: readonly { characterId?: string; position: PhysicsVec3 }[]): void;
   diagnostics(): Rapier3DDiagnostics;
 }
 
@@ -320,6 +320,7 @@ function validateConfig(config: PhysicsInitConfig3D): ConfigProblem3D | null {
   // The named collision layers (bit 1 + index; "default" is bit 0 and never listed) and a world without a character.
   if (config.layers !== undefined && !(Array.isArray(config.layers) && config.layers.length <= 15 && config.layers.every((n) => typeof n === 'string' && n !== 'default') && new Set(config.layers).size === config.layers.length)) return { reason: 'invalid_config', message: 'layers must be up to 15 unique layer names (not "default")' };
   if (config.noCharacter !== undefined && config.noCharacter !== true) return { reason: 'invalid_config', message: 'noCharacter must be true or absent' };
+  if (config.buildAtRunStart !== undefined && config.buildAtRunStart !== true) return { reason: 'invalid_config', message: 'buildAtRunStart must be true or absent' };
   // Further characters (several player controllers): each its own object, origin, capsule and tuning.
   if (config.characters !== undefined) {
     if (!Array.isArray(config.characters) || config.noCharacter === true) return { reason: 'invalid_config', message: 'characters must be an array, in a world with a character' };
@@ -529,8 +530,9 @@ function mulQuat(a: PhysicsQuat, b: PhysicsQuat): PhysicsQuat {
  * placed shape (a compound's parts, each at its position and rotation in the
  * body's frame); every collider answers for the spec's entity.
  */
-function addStaticBody(world: RAPIER.World, spec: StaticColliderSpec3D, bits: LayerBits): { body: RAPIER.RigidBody; colliders: { collider: RAPIER.Collider; info: Collider3DInfo }[] } {
-  const shape = validateColliderShape3D(spec.shape);
+function addStaticBody(world: RAPIER.World, spec: StaticColliderSpec3D, bits: LayerBits, checked = false): { body: RAPIER.RigidBody; colliders: { collider: RAPIER.Collider; info: Collider3DInfo }[] } {
+  // A spec read back from a world's colliders was checked when first added (a rebuild skips the per-triangle check).
+  const shape = checked ? ({ ok: true, shape: spec.shape as ColliderShape3D } as const) : validateColliderShape3D(spec.shape);
   if (!shape.ok) throw new Error(`statics(${spec.entityId}): ${shape.detail}`);
   const parts = partsOf(shape.shape);
   const descs = parts.map((p) => colliderDescOf(p.shape));
@@ -623,9 +625,49 @@ function bothPredicates(a: ((c: RAPIER.Collider) => boolean) | undefined, b: ((c
   return (c) => a(c) && b(c);
 }
 
-function createAdapter(initialWorld: RAPIER.World, primary: CharacterBody3D, further: ReadonlyMap<string, CharacterBody3D>, config: PhysicsInitConfig3D, staticSpecs: Map<string, StaticColliderSpec3D>, bodies: Map<string, RAPIER.RigidBody>, infoByHandle: Map<number, Collider3DInfo>, bits: LayerBits): RapierPhysicsPort3D {
+const heavyShape = (s: ColliderPrimitive3D): boolean => s.type === 'mesh' || s.type === 'heightfield';
+const NO_HEIGHTS = new Float32Array(0);
+
+/**
+ * What the port keeps of a static once its colliders are built: the spec
+ * without a mesh's vertices and indices or a heightfield's heights, which the
+ * world's colliders hold already (a rebuild reads them back: `wholeSpec`).
+ * A streamed world's chunk meshes and terrain tiles stay in memory once.
+ */
+function keptSpec(spec: StaticColliderSpec3D): StaticColliderSpec3D {
+  const empty = (s: ColliderPrimitive3D): ColliderPrimitive3D => (s.type === 'mesh' ? { type: 'mesh', vertices: [], indices: [] } : s.type === 'heightfield' ? { ...s, heights: NO_HEIGHTS } : s);
+  const shape = spec.shape as ColliderShape3D;
+  if (shape.type === 'compound') return shape.parts.some((p) => heavyShape(p.shape)) ? { ...spec, shape: { type: 'compound', parts: shape.parts.map((p) => (heavyShape(p.shape) ? { ...p, shape: empty(p.shape) } : p)) } } : spec;
+  return heavyShape(shape) ? { ...spec, shape: empty(shape) } : spec;
+}
+
+/**
+ * A kept spec whole again, its arrays read back from the colliders it was
+ * built as (one per part, in order). Rapier holds a mesh as merged (its
+ * duplicate vertices and degenerate triangles gone), so building again from
+ * what it holds gives the same mesh, every time.
+ */
+function wholeSpec(kept: StaticColliderSpec3D, colliders: readonly RAPIER.Collider[]): StaticColliderSpec3D {
+  const fill = (s: ColliderPrimitive3D, c: RAPIER.Collider): ColliderPrimitive3D => {
+    if (s.type === 'mesh') return { type: 'mesh', vertices: c.vertices() as unknown as number[], indices: (c.indices() ?? new Uint32Array(0)) as unknown as number[] };
+    if (s.type === 'heightfield') return { ...s, heights: c.heightfieldHeights() };
+    return s;
+  };
+  const shape = kept.shape as ColliderShape3D;
+  if (shape.type === 'compound') return { ...kept, shape: { type: 'compound', parts: shape.parts.map((p, i) => (heavyShape(p.shape) ? { ...p, shape: fill(p.shape, colliders[i]!) } : p)) } };
+  return heavyShape(shape) ? { ...kept, shape: fill(shape, colliders[0]!) } : kept;
+}
+
+function createAdapter(initialWorld: RAPIER.World, primary: CharacterBody3D, further: ReadonlyMap<string, CharacterBody3D>, config: PhysicsInitConfig3D, staticSpecs: Map<string, StaticColliderSpec3D>, bodies: Map<string, RAPIER.RigidBody>, infoByHandle: Map<number, Collider3DInfo>, bits: LayerBits, collidersOf: Map<string, RAPIER.Collider[]>): RapierPhysicsPort3D {
   /** The world (`restartWorld` replaces it). */
   let world = initialWorld;
+  /**
+   * A world made for a run (`buildAtRunStart`) holds its statics as specs
+   * only until they are first needed: the run's start (`restartWorld`) builds
+   * them once, where building them at creation too would build every static
+   * twice before the first step. A step or a query before that builds them.
+   */
+  let deferred = config.buildAtRunStart === true;
   const noCharacter = config.noCharacter === true;
   /** Every character, the init config's first, then the further ones in their order (the step sweeps them in this order). */
   const chars: readonly CharacterBody3D[] = noCharacter ? [] : [primary, ...further.values()];
@@ -1053,6 +1095,66 @@ function createAdapter(initialWorld: RAPIER.World, primary: CharacterBody3D, fur
     };
   }
 
+  /**
+   * A fresh world from the statics (by id) and then the characters where
+   * they are, from rest; it replaces the old one, and one pipeline update
+   * lets the first sweep and any ray see every collider. The world then
+   * depends on what it holds only: its query structures keep the history of
+   * what was added and moved, and that history decides ties in a sweep.
+   */
+  const rebuild = (): void => {
+    const next = newWorld(config);
+    try {
+      const nextBodies = new Map<string, RAPIER.RigidBody>();
+      const nextInfo = new Map<number, Collider3DInfo>();
+      const nextColliders = new Map<string, RAPIER.Collider[]>();
+      const nextKept: [string, StaticColliderSpec3D][] = [];
+      for (const id of [...staticSpecs.keys()].sort()) {
+        const kept = staticSpecs.get(id)!;
+        const built = collidersOf.get(id);
+        const a = built === undefined ? addStaticBody(next, kept, bits) : addStaticBody(next, wholeSpec(kept, built), bits, true);
+        nextBodies.set(id, a.body);
+        nextColliders.set(id, a.colliders.map((c) => c.collider));
+        if (built === undefined) nextKept.push([id, keptSpec(kept)]);
+        for (const c of a.colliders) nextInfo.set(c.collider.handle, c.info);
+      }
+      const all = [primary, ...further.values()];
+      const capsules = all.map((b) => makeCapsule3D(next, { position: b.position, radius: b.shape.radius, halfHeight: b.shape.halfHeight, offset: b.shape.offset }, b.tuning));
+      // Nothing failed: the new world replaces the old one.
+      for (const b of all) world.removeCharacterController(b.controller);
+      world.free();
+      world = next;
+      bodies.clear();
+      for (const [id, body] of nextBodies) bodies.set(id, body);
+      infoByHandle.clear();
+      for (const [handle, info] of nextInfo) infoByHandle.set(handle, info);
+      collidersOf.clear();
+      for (const [id, list] of nextColliders) collidersOf.set(id, list);
+      for (const [id, kept] of nextKept) staticSpecs.set(id, kept);
+      characterHandles.clear();
+      all.forEach((b, i) => {
+        b.collider = capsules[i]!.collider;
+        b.controller = capsules[i]!.controller;
+        b.staged = null;
+        b.grounded = false;
+        b.retainedSupport = { x: 0, y: 1, z: 0 };
+        b.stepping = null;
+        b.last = undefined;
+        characterHandles.add(b.collider.handle);
+      });
+      if (noCharacter) primary.collider.setEnabled(false);
+    } catch (e) {
+      if (world !== next) next.free();
+      throw e;
+    }
+    deferred = false;
+    world.step();
+  };
+  /** The statics in the world before anything reads it (a deferred world's first use). */
+  const ensureBuilt = (): void => {
+    if (deferred) rebuild();
+  };
+
   return {
     dimension: 3,
     implementation: PHYSICS_3D_IMPLEMENTATION,
@@ -1064,6 +1166,7 @@ function createAdapter(initialWorld: RAPIER.World, primary: CharacterBody3D, fur
 
     step(): CharacterMoveResult3D {
       assertLive('step');
+      ensureBuilt();
       if (noCharacter) return stepWithoutCharacter();
       // Every character's sweep (the first, then the further ones); the movers move after them
       // (the runtime already added a carrying platform's motion to each request).
@@ -1094,6 +1197,7 @@ function createAdapter(initialWorld: RAPIER.World, primary: CharacterBody3D, fur
 
     raycast(origin: PhysicsVec3, direction: PhysicsVec3, maxDistance: number, filter?: PhysicsQueryFilter3D): RaycastHit3D | null {
       assertLive('raycast');
+      ensureBuilt();
       const len = Math.hypot(direction.x, direction.y, direction.z);
       if (!(len > 0) || !finite(maxDistance) || maxDistance <= 0 || !isVec3(origin)) return null;
       const u = { x: direction.x / len, y: direction.y / len, z: direction.z / len };
@@ -1108,6 +1212,7 @@ function createAdapter(initialWorld: RAPIER.World, primary: CharacterBody3D, fur
 
     overlap(shape: OverlapShape3D, center: PhysicsVec3, rotation?: PhysicsQuat, filter?: PhysicsQueryFilter3D): string[] {
       assertLive('overlap');
+      ensureBuilt();
       if (!isVec3(center) || (rotation !== undefined && !isQuat(rotation))) return [];
       const ok = (v: unknown): v is number => finite(v) && v > 0;
       let s: RAPIER.Shape | null = null;
@@ -1126,12 +1231,14 @@ function createAdapter(initialWorld: RAPIER.World, primary: CharacterBody3D, fur
 
     characterClearance(origin: PhysicsVec3, characterId?: string): CharacterClearanceResult3D {
       assertLive('characterClearance');
+      ensureBuilt();
       if (!isVec3(origin)) throw new Error('characterClearance origin must be a finite { x, y, z }');
       return computeClearance(bodyOf(characterId, 'characterClearance'), origin);
     },
 
     placeCharacter(origin: PhysicsVec3, characterId?: string): CharacterClearanceResult3D {
       assertLive('placeCharacter');
+      ensureBuilt();
       if (!isVec3(origin)) throw new Error('placeCharacter origin must be a finite { x, y, z }');
       const b = bodyOf(characterId, 'placeCharacter');
       b.position = { x: origin.x, y: origin.y, z: origin.z };
@@ -1151,14 +1258,20 @@ function createAdapter(initialWorld: RAPIER.World, primary: CharacterBody3D, fur
       specs.forEach((spec, i) => {
         const problem = validateSpec(spec, `statics(${String(spec?.entityId ?? i)})`);
         if (problem !== null) throw new Error(problem.message);
-        if (bodies.has(spec.entityId)) throw new Error(`static collider "${spec.entityId}" already exists`);
+        if (staticSpecs.has(spec.entityId)) throw new Error(`static collider "${spec.entityId}" already exists`);
       });
+      // Not built yet: kept as they are, for the first build.
+      if (deferred) {
+        for (const spec of specs) staticSpecs.set(spec.entityId, spec);
+        return;
+      }
       const added: { id: string; body: RAPIER.RigidBody }[] = [];
       try {
         for (const spec of specs) {
           const a = addStaticBody(world, spec, bits);
           bodies.set(spec.entityId, a.body);
-          staticSpecs.set(spec.entityId, spec);
+          staticSpecs.set(spec.entityId, keptSpec(spec));
+          collidersOf.set(spec.entityId, a.colliders.map((c) => c.collider));
           for (const c of a.colliders) infoByHandle.set(c.collider.handle, c.info);
           added.push({ id: spec.entityId, body: a.body });
         }
@@ -1168,6 +1281,7 @@ function createAdapter(initialWorld: RAPIER.World, primary: CharacterBody3D, fur
           world.removeRigidBody(a.body);
           bodies.delete(a.id);
           staticSpecs.delete(a.id);
+          collidersOf.delete(a.id);
         }
         throw e;
       }
@@ -1177,6 +1291,10 @@ function createAdapter(initialWorld: RAPIER.World, primary: CharacterBody3D, fur
 
     removeStaticColliders(entityIds: readonly string[]): void {
       assertLive('removeStaticColliders');
+      if (deferred) {
+        for (const id of entityIds) staticSpecs.delete(id);
+        return;
+      }
       // One pass over the collider records for the whole batch.
       const gone = new Set<unknown>();
       for (const id of entityIds) {
@@ -1186,57 +1304,27 @@ function createAdapter(initialWorld: RAPIER.World, primary: CharacterBody3D, fur
         world.removeRigidBody(body);
         bodies.delete(id);
         staticSpecs.delete(id);
+        collidersOf.delete(id);
         kinematicAt.delete(id);
       }
       if (gone.size > 0) for (const [handle, info] of [...infoByHandle]) if (gone.has(info.body)) infoByHandle.delete(handle);
       world.step();
     },
 
-    restartWorld(): void {
+    restartWorld(origins?: readonly { characterId?: string; position: PhysicsVec3 }[]): void {
       assertLive('restartWorld');
-      const next = newWorld(config);
-      try {
-        // The statics by id, then the characters in their order: the world then depends on what it holds only.
-        const nextBodies = new Map<string, RAPIER.RigidBody>();
-        const nextInfo = new Map<number, Collider3DInfo>();
-        for (const id of [...staticSpecs.keys()].sort()) {
-          const a = addStaticBody(next, staticSpecs.get(id)!, bits);
-          nextBodies.set(id, a.body);
-          for (const c of a.colliders) nextInfo.set(c.collider.handle, c.info);
-        }
-        const all = [primary, ...further.values()];
-        const capsules = all.map((b) => makeCapsule3D(next, { position: b.position, radius: b.shape.radius, halfHeight: b.shape.halfHeight, offset: b.shape.offset }, b.tuning));
-        // Nothing failed: the new world replaces the old one.
-        for (const b of all) world.removeCharacterController(b.controller);
-        world.free();
-        world = next;
-        bodies.clear();
-        for (const [id, body] of nextBodies) bodies.set(id, body);
-        infoByHandle.clear();
-        for (const [handle, info] of nextInfo) infoByHandle.set(handle, info);
-        characterHandles.clear();
-        all.forEach((b, i) => {
-          b.collider = capsules[i]!.collider;
-          b.controller = capsules[i]!.controller;
-          b.staged = null;
-          b.grounded = false;
-          b.retainedSupport = { x: 0, y: 1, z: 0 };
-          b.stepping = null;
-          b.last = undefined;
-          characterHandles.add(b.collider.handle);
-        });
-        if (noCharacter) primary.collider.setEnabled(false);
-      } catch (e) {
-        if (world !== next) next.free();
-        throw e;
+      for (const o of origins ?? []) if (!isVec3(o?.position)) throw new Error('restartWorld origins must be finite { x, y, z } positions');
+      // The characters where the run starts them (the rebuilt world makes their capsules there, from rest).
+      for (const o of origins ?? []) {
+        const b = bodyOf(o.characterId, 'restartWorld');
+        b.position = { x: o.position.x, y: o.position.y, z: o.position.z };
       }
+      rebuild();
       // The movers as made (no last pose to measure a move from).
       kinematicPoses = [];
       kinematicAt.clear();
       kinematicMoved = 0;
       stilled.length = 0;
-      // One pipeline update so the first sweep and any ray see every collider, as at creation.
-      world.step();
     },
 
     diagnostics(): Rapier3DDiagnostics {
@@ -1281,12 +1369,19 @@ export async function createPhysicsPort3D(config: PhysicsInitConfig3D, signal?: 
     world = newWorld(config);
     const bodies = new Map<string, RAPIER.RigidBody>();
     const staticSpecs = new Map<string, StaticColliderSpec3D>();
+    const collidersOf = new Map<string, RAPIER.Collider[]>();
     const infoByHandle = new Map<number, Collider3DInfo>();
     const bits = layerBitsOf(config.layers);
     for (const spec of config.statics) {
+      // A world made for a run builds its statics at the run's start (see `createAdapter`).
+      if (config.buildAtRunStart === true) {
+        staticSpecs.set(spec.entityId, spec);
+        continue;
+      }
       const added = addStaticBody(world, spec, bits);
       bodies.set(spec.entityId, added.body);
-      staticSpecs.set(spec.entityId, spec);
+      staticSpecs.set(spec.entityId, keptSpec(spec));
+      collidersOf.set(spec.entityId, added.colliders.map((c) => c.collider));
       for (const c of added.colliders) infoByHandle.set(c.collider.handle, c.info);
     }
     // The first character, then each further one (several player controllers), each with its own tuning.
@@ -1297,7 +1392,8 @@ export async function createPhysicsPort3D(config: PhysicsInitConfig3D, signal?: 
     for (const c of config.characters ?? []) further.set(c.id, makeCharacterBody3D(world, c, c.controller ?? config.controller));
     // One pipeline update so the first sweep and any ray see every collider (no dynamic bodies: nothing moves).
     world.step();
-    return { ok: true, port: createAdapter(world, primary, further, config, staticSpecs, bodies, infoByHandle, bits) };
+    // The adapter keeps the config without its statics: the specs it keeps are its own (arrays the world holds dropped).
+    return { ok: true, port: createAdapter(world, primary, further, { ...config, statics: [] }, staticSpecs, bodies, infoByHandle, bits, collidersOf) };
   } catch (error) {
     world?.free();
     return { ok: false, error: { code: 'physics_init_failed', reason: 'wasm_unavailable', message: `Rapier 3D world construction failed: ${error instanceof Error ? error.message : String(error)}` } };

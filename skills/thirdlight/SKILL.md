@@ -2,7 +2,7 @@
 name: thirdlight
 description: How to build and play-test a game made with the Thirdlight engine through its MCP tools (tl_docs, tl_command, tl_script_publish, tl_playtest) - the workflow, where game rules go, game flow, determinism, performance habits and common traps. Use whenever you work on a Thirdlight project (a folder holding thirdlight.json): its scenes, objects, scripts, UI, levels, saves or play-tests.
 metadata:
-  thirdlight-engine: "0.1.0"
+  thirdlight-engine: "stamped when installed"
 ---
 
 # Working on a Thirdlight game
@@ -11,10 +11,11 @@ Thirdlight is a browser game editor and engine. A backend holds the project;
 the editor, HTTP clients and you (over MCP) change it with the same commands.
 An exported game is a folder of static files that runs without Thirdlight.
 
-This skill says **how to work**. It lists no ops, components, fields or
-script calls on purpose: the running engine answers "what exists" through
-`tl_docs`, generated from its own source, so it is never stale. The skill
-was installed for the engine version in its `metadata` above; if
+This skill says **how to work**. It names only the few calls its workflow
+needs and keeps no list of ops, components, fields or script calls: the
+running engine answers "what exists" through `tl_docs`, generated from its
+own source, so it is never stale. The stamp in its `metadata` above names
+the engine it was installed from (version and skill digest); if
 `tl_inspect target="engine"` reports another version, trust `tl_docs`.
 
 Topics below are `tl_docs` topics: call `tl_docs {topic: "<topic>"}`.
@@ -141,7 +142,8 @@ must agree). `guides/playtesting`, `features/play-tools`.
   per-object state in the script's `state`. Runs that disagree name the
   first differing step.
 - **Errors.** Read `tl_diagnostics` after every play: a script that throws
-  stops the run even while observe still says running.
+  stops the run; observe then says `state: "failed"` with the error, and
+  `tl_playtest` ends with `playtest_game_failed`.
 - **A test bot is game code**: a driver module in this repository, run
   from the command line runner (`features/play-tools#headless-play-tests`).
 - **Observed, not claimed.** A screenshot shows pixels, not feel; a
