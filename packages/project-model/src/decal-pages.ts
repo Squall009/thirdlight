@@ -197,6 +197,30 @@ export function decalRectSafeMipLevel(size: number, rect: readonly [number, numb
   return safe;
 }
 
+/**
+ * Where a trim sheet's decal cell is sampled on the sheet itself, for a view
+ * that draws the sheet's own textures rather than the build's pages (the
+ * editor's Scene view): its rectangle [u0, v0, u1, v1] inset half a texel,
+ * and the deepest mip level whose bilinear reads stay inside its padded box
+ * (the sheet's gutter, as on a page made from the sheet). Null: no such cell.
+ */
+export function decalSheetCellSampling(sheet: TrimSheet, name: string): { rect: [number, number, number, number]; mip: number } | null {
+  const cell = trimCellOf(sheet, name);
+  if (cell === null) return null;
+  const [x, y, w, h] = cell.rect;
+  const [sw, sh] = sheet.size;
+  const pad = cellPad(sheet, cell.rect);
+  const levels = Math.floor(Math.log2(Math.max(sw, sh))) + 1;
+  const xs = [x + 0.5, x + Math.max(0.5, w - 0.5)];
+  const ys = [y + 0.5, y + Math.max(0.5, h - 0.5)];
+  let mip = 0;
+  for (let l = 1; l < levels; l++) {
+    if (!xs.every((c) => bilinearReadsInside(sw, l, c, pad[0], pad[2], true)) || !ys.every((c) => bilinearReadsInside(sh, l, c, pad[1], pad[3], true))) break;
+    mip = l;
+  }
+  return { rect: [xs[0]! / sw, ys[0]! / sh, xs[1]! / sw, ys[1]! / sh], mip };
+}
+
 /** A cell's padded box on its sheet: its pixels, the sheet's gutter round it, never past the halfway line to a neighbour (a cell or a row). */
 function cellPad(sheet: TrimSheet, rect: readonly [number, number, number, number]): [number, number, number, number] {
   const [x, y, w, h] = rect;

@@ -44,10 +44,10 @@
  * Pure three.js: textures come from an injected loader (the host resolves
  * bytes; nothing here fetches).
  */
-import { MAX_MATERIAL_INSTANCE_DEPTH, localLightModeOf, type TrimSheet } from '@thirdlight/runtime';
+import { decalSheetCellSampling, MAX_MATERIAL_INSTANCE_DEPTH, localLightModeOf, type TrimSheet } from '@thirdlight/runtime';
 import * as THREE from 'three';
 import * as TSL from 'three/tsl';
-import { MeshBasicNodeMaterial, type MeshStandardNodeMaterial, type NodeBuilder } from 'three/webgpu';
+import { MeshBasicNodeMaterial, MeshStandardNodeMaterial, type NodeBuilder } from 'three/webgpu';
 
 import {
   applyGraphNodes,
@@ -70,13 +70,15 @@ import {
 } from './material-graph';
 import { derivesTangentFrame, instanceOrigin, standardNodeMaterialFrom } from './node-materials';
 import { installTrimNodes, type TrimTextures } from './trim-material';
+import { decalPageArray, installDecalNodes, type DecalImages, type DecalPlace } from './decal-material';
+import { decalDrawOf, decalRenderOrder, decalSortOrder, installDecalDraw, removeDecalDraw, setDecalOrder, type DecalBlendMode } from './mesh-decals';
 import { decodeKtx2, isKtx2 } from './ktx2';
 import { textureHolds, type TextureHolds } from './texture-holds';
 import { SAMPLED_TEXTURES_KEY } from './texture-streaming';
 import { OBJECT_FRAME_KEY } from './static-merge';
 import { CHANGING_ALPHA_KEY } from './shadow-casters';
 import { LOCAL_LIGHTS_KEY } from './local-lights';
-import { KEEP_MATERIAL_KEY } from './material-keys';
+import { KEEP_MATERIAL_KEY, MATERIAL_NO_SHADOW_KEY } from './material-keys';
 import type { ResourceManager } from '@thirdlight/runtime';
 
 export type MaterialShaderName = 'standard' | 'foliage' | 'kit' | 'unlit' | 'water' | 'trim' | 'decal';
@@ -183,8 +185,7 @@ export type MaterialOverridesLike = Readonly<Record<string, Readonly<Record<stri
  */
 export const GRAPH_SURFACE_KEY = '__tlGraphSurface';
 
-/** Marks a mesh whose graph material does not cast shadows (the shadow flags respect it). */
-export const MATERIAL_NO_SHADOW_KEY = '__tlMaterialNoShadow';
+export { MATERIAL_NO_SHADOW_KEY };
 
 export interface WindLike {
   readonly direction: readonly [number, number];
@@ -388,7 +389,11 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
     nodeRefresh.get(m)?.();
   };
 
-  const defKeyOf = (d: MaterialDefLike): string => JSON.stringify(d);
+  /** What a built material depends on: its definition, and a decal's trim sheet (its cell and textures are read from there). */
+  const defKeyOf = (d: MaterialDefLike): string => {
+    const sheet = d.shader === 'decal' && d.decal !== undefined && d.decalPage === undefined ? defs.get(d.decal.sheet) : undefined;
+    return sheet === undefined ? JSON.stringify(d) : JSON.stringify([d, sheet.trim ?? null, sheet.textures]);
+  };
 
   /** A decoded texture, held for the material that draws with it. */
   const texture = (assetId: string, holder: THREE.Material | string): Promise<THREE.Texture | null> =>
@@ -419,6 +424,7 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
   /** `derived`: the meshes it goes on have no tangents (their frame comes from the texture coordinates). */
   const build = (def: MaterialDefLike, source: THREE.Material | null, derived: boolean): THREE.Material => {
     const p = def.params;
+    if (def.shader === 'decal') return buildDecal(def, source, derived);
     if (def.shader === 'unlit') {
       const src = source as THREE.MeshStandardMaterial | null;
       const colour = { color: new THREE.Color(typeof p['color'] === 'string' ? p['color'] : '#ffffff') };
@@ -450,15 +456,13 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
     const scale = p['normalScale'] !== undefined ? num(p['normalScale'], 1) : m.normalScale.x;
     m.normalScale.set(scale, (derived ? -1 : 1) * scale);
     if (p['doubleSided'] !== undefined || def.shader === 'foliage') m.side = p['doubleSided'] === false ? THREE.FrontSide : p['doubleSided'] === true || def.shader === 'foliage' ? THREE.DoubleSide : m.side;
+    // A model file's `*_decal` material under a project material that is not a decal: the file's decal drawing goes.
+    if (decalDrawOf(source) !== null) {
+      removeDecalDraw(m);
+      m.transparent = false;
+    }
     applyAlpha(m, p);
     if (def.shader === 'trim') return buildTrim(m, def);
-    // A decal material on a mesh is a see-through surface that never hides what is behind it. Its blend modes,
-    // depth push and sort order, and a trim sheet cell's textures, are the mesh decal drawing's; until then it
-    // draws its own textures, tint and opacity over the surface like any blended material.
-    if (def.shader === 'decal') {
-      m.transparent = true;
-      m.depthWrite = false;
-    }
     // The file's textures take the material's tiling too (clones: the file's stay as they are).
     if (p['tiling'] !== undefined || p['offset'] !== undefined) {
       for (const slot of ['map', 'normalMap', 'roughnessMap', 'metalnessMap', 'emissiveMap'] as const) {
@@ -486,6 +490,113 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
     else if (def.shader === 'water') installWaterNodes(m, p);
     return m;
   };
+
+  /**
+   * A decal material (`decal-material.ts`, drawn as `mesh-decals.ts` says): its images from the build's
+   * decal pages, else its trim sheet's cell, its own textures, or (a model file's material it is mapped over,
+   * with neither) the file's own maps. Never the file's material as a base: a decal's look is its own.
+   */
+  function buildDecal(def: MaterialDefLike, source: THREE.Material | null, derived: boolean): THREE.Material {
+    const p = def.params;
+    const blend: DecalBlendMode = p['blend'] === 'multiply' || p['blend'] === 'add' ? p['blend'] : 'blend';
+    const multiply = blend === 'multiply';
+    const m = (multiply ? new MeshBasicNodeMaterial() : new MeshStandardNodeMaterial()) as unknown as THREE.MeshStandardMaterial;
+    m.name = def.name;
+    m.color.set(typeof p['color'] === 'string' ? p['color'] : '#ffffff');
+    m.opacity = num(p['opacity'], 1);
+    if (!multiply) {
+      m.roughness = num(p['roughness'], 1);
+      m.metalness = num(p['metalness'], 0);
+      m.emissive.set(typeof p['emissive'] === 'string' ? p['emissive'] : '#000000');
+      m.emissiveIntensity = num(p['emissiveIntensity'], 0);
+      // The green turned around where the frame comes from the texture coordinates (as for every material).
+      const scale = num(p['normalScale'], 1);
+      m.normalScale.set(scale, (derived ? -1 : 1) * scale);
+    } else {
+      // Fog over a stain would multiply the fog colour into the surface: the surface under it is fogged already.
+      m.fog = false;
+    }
+    const images: DecalImages = { albedo: null, normal: null, orm: null, emissive: null, albedoComing: false };
+    const place: DecalPlace = { rect: [0, 0, 1, 1], mip: null, size: [1, 1] };
+    // The nodes are put on once the sources are known (below); an image arriving later rebuilds them.
+    let refresh = (): void => undefined;
+    const arrived = (): void => {
+      if (disposed || retired.has(m)) return;
+      refresh();
+      m.needsUpdate = true;
+      options.onChange?.();
+    };
+    const page = def.decalPage;
+    const sheet = def.decal !== undefined ? defs.get(def.decal.sheet) : undefined;
+    const cell = def.decal !== undefined && sheet?.trim !== undefined ? decalSheetCellSampling(sheet.trim, def.decal.cell) : null;
+    if (page !== undefined) {
+      // The build's pages: the place is the page's, each set's layer of its array.
+      place.rect = page.rect;
+      place.mip = page.mip;
+      images.albedoComing = page.albedo !== undefined;
+      for (const set of ['albedo', 'normal', 'orm'] as const) {
+        const ref = page[set];
+        if (ref === undefined) continue;
+        void texture(ref.texture, m).then((t) => {
+          if (t === null) return;
+          const a = decalPageArray(t);
+          const side = (a.image as { width?: number } | null)?.width ?? 1;
+          place.size = [side, side];
+          images[set] = { texture: a, layer: ref.layer };
+          arrived();
+        });
+      }
+    } else if (sheet !== undefined && cell !== null) {
+      // The sheet itself, read inside the cell and its gutter.
+      place.rect = cell.rect;
+      place.mip = cell.mip;
+      place.size = sheet.trim!.size;
+      images.albedoComing = sheet.textures['map'] !== undefined;
+      for (const [slot, set] of [['map', 'albedo'], ['normalMap', 'normal'], ['ormMap', 'orm']] as const) {
+        const id = sheet.textures[slot];
+        if (id === undefined) continue;
+        void texture(id, m).then((t) => {
+          if (t === null) return;
+          images[set] = { texture: decalTexture(m, t, slot === 'map'), layer: null };
+          arrived();
+        });
+      }
+    } else if (def.decal === undefined && Object.keys(def.textures).length > 0) {
+      images.albedoComing = def.textures['map'] !== undefined;
+      for (const [slot, set] of [['map', 'albedo'], ['normalMap', 'normal'], ['ormMap', 'orm'], ['emissiveMap', 'emissive']] as const) {
+        const id = def.textures[slot];
+        if (id === undefined) continue;
+        void texture(id, m).then((t) => {
+          if (t === null) return;
+          images[set] = { texture: decalTexture(m, t, slot === 'map' || slot === 'emissiveMap'), layer: null };
+          arrived();
+        });
+      }
+    } else if (def.decal === undefined && source instanceof THREE.MeshStandardMaterial) {
+      // A model file's decal geometry mapped to a decal material without images: the file's own.
+      if (source.map !== null) images.albedo = { texture: decalTexture(m, source.map, true), layer: null };
+      if (source.normalMap !== null) images.normal = { texture: decalTexture(m, source.normalMap, false), layer: null };
+      if (source.emissiveMap !== null) images.emissive = { texture: decalTexture(m, source.emissiveMap, true), layer: null };
+    }
+    refresh = installDecalNodes(m, p, images, place, multiply);
+    installDecalDraw(m, { blend, sortOrder: decalSortOrder(p['sortOrder']) });
+    return m;
+  }
+
+  /** A 2D texture as a decal reads it (its colour space, clamped at its edges), shared and held like every prepared copy. */
+  const decalTexture = (m: THREE.Material, t: THREE.Texture, colour: boolean): THREE.Texture =>
+    sharedTexture(m, `${t.uuid}|${colour ? 'srgb' : 'linear'}|decal`, () => {
+      const c = t.clone();
+      c.colorSpace = colour ? THREE.SRGBColorSpace : THREE.NoColorSpace;
+      c.wrapS = THREE.ClampToEdgeWrapping;
+      c.wrapT = THREE.ClampToEdgeWrapping;
+      c.flipY = false;
+      c.channel = 0;
+      c.repeat.set(1, 1);
+      c.offset.set(0, 0);
+      c.needsUpdate = true;
+      return c;
+    });
 
   /** A trim material: its three textures read by explicit nodes (`trim-material.ts`), rebuilt as each arrives. */
   function buildTrim(m: THREE.MeshStandardMaterial, def: MaterialDefLike): THREE.Material {
@@ -934,6 +1045,10 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
       else delete data[OVERRIDES_KEY];
       if (Object.keys(ids).length > 0) data[MATERIAL_IDS_KEY] = ids;
       else delete data[MATERIAL_IDS_KEY];
+      // A decal casts no shadow and draws in the decal order (mesh-decals.ts).
+      const order = decalRenderOrder(changed ? next : list);
+      if (order !== null) noShadow = true;
+      setDecalOrder(mesh, order);
       // The graph's "casts shadows" flag (the object's own flag is kept to restore).
       if (noShadow && data[MATERIAL_NO_SHADOW_KEY] === undefined) {
         data[MATERIAL_NO_SHADOW_KEY] = mesh.castShadow;

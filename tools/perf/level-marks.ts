@@ -16,13 +16,12 @@
  * The placements exist for every kind now, so each kind's measurement is the
  * same scene once its engine feature exists; what the engine can't draw yet
  * is refused at build time (`MARKS_NOT_BUILT`) rather than measured as
- * something it isn't. Two kinds have a stand-in that is drawn today, named
- * as such in the log and the report:
- * - mesh decals are quads of one blended standard material, lifted a few
- *   centimetres off the surface (each its own draw: the batcher takes no
- *   transparent mesh), not decal materials;
- * - painted props are their files with a 4-byte `COLOR_0` stream no material
- *   reads (the paint's memory and vertex layout, not its look).
+ * something it isn't. Mesh decals are the engine's: quads wearing one decal
+ * material with a stain image, laid a few millimetres over the surface
+ * (static, so they merge into the static cells). Painted props have a
+ * stand-in that is drawn today, named as such in the log and the report:
+ * their files with a 4-byte `COLOR_0` stream no material reads (the paint's
+ * memory and vertex layout, not its look).
  *
  * The area class has no generated architecture, so generated walls are
  * left to the interior class; the area's walls are block walls.
@@ -76,8 +75,8 @@ const MARK_SIDE: readonly [number, number] = [0.6, 1.4];
 const PROJECTOR_DEPTH = 0.5;
 /** A projector over a prop reaches through it (its depth in the prop's scales): the lathes are at most ~2 m across. */
 const PROP_PROJECTOR_DEPTH = 4;
-/** How far a mesh-decal stand-in sits off its surface (m): no depth offset exists for a material yet. */
-export const MESH_DECAL_LIFT = 0.03;
+/** How far a mesh decal sits over its surface (m): as an artist lays one; the decal's push toward the camera does the rest. */
+export const MESH_DECAL_LIFT = 0.005;
 /** Where the projected and clipped decals go (ground, walls, props) and where mesh decals go (ground, walls): shares of the count. */
 const PROJECTED_SPREAD = { ground: 0.5, wall: 0.3, prop: 0.2 } as const;
 const MESH_SPREAD = { ground: 0.6, wall: 0.4, prop: 0 } as const;
@@ -277,12 +276,13 @@ export function levelMarks(r: LevelMarkReceivers, o: LevelMarksOptions): LevelMa
 
 /** The suffix of a prop file's painted twin. */
 export const PAINTED_FILE_SUFFIX = '-painted';
-/** The mesh-decal stand-in's quad file, its glTF material and the project material that file maps it to. */
+/** The mesh decals' quad file, its glTF material, the decal material that file maps it to and that material's image. */
 export const MARK_QUAD = 'level-mark-quad';
 export const MARK_QUAD_MATERIAL = 'mark';
-export const MARK_STANDIN_MATERIAL = 'mat-level-mark';
+export const MARK_DECAL_MATERIAL = 'mat-level-mark';
+export const MARK_DECAL_IMAGE = 'level-mark-stain';
 
-/** The marks' entities drawn today: the mesh-decal stand-ins, static and casting no shadow. */
+/** The marks' entities drawn today: the mesh decals, static (the decal material casts no shadow). */
 export function markEntities(m: LevelMarks): EntityValue[] {
   return m.meshDecals.map((d, i) => {
     const lift = rotate(d.rotation, [0, 0, MESH_DECAL_LIFT]);
@@ -292,7 +292,7 @@ export function markEntities(m: LevelMarks): EntityValue[] {
       static: true,
       components: {
         transform: { position: [r3(d.position[0] + lift[0]), r3(d.position[1] + lift[1]), r3(d.position[2] + lift[2])], rotation: d.rotation, scale: [d.size[0], d.size[1], 1] },
-        model: { asset: { assetId: MARK_QUAD }, castShadow: false },
+        model: { asset: { assetId: MARK_QUAD } },
       },
     };
   });
@@ -312,7 +312,7 @@ export function markCounts(m: LevelMarks): Record<string, number> {
   const pairs = (list: LevelDecalPlacement[]): number => list.filter((d) => d.overlaps !== undefined).length;
   const c: Record<string, number> = {};
   if (m.decals.length > 0) Object.assign(c, { decals: m.decals.length, decalPairs: pairs(m.decals) });
-  if (m.meshDecals.length > 0) Object.assign(c, { meshDecalStandIns: m.meshDecals.length, meshDecalPairs: pairs(m.meshDecals) });
+  if (m.meshDecals.length > 0) Object.assign(c, { meshDecals: m.meshDecals.length, meshDecalPairs: pairs(m.meshDecals) });
   if (m.clippedDecals.length > 0) Object.assign(c, { clippedDecals: m.clippedDecals.length, clippedDecalPairs: pairs(m.clippedDecals) });
   if (m.paintedProps.length > 0) c['paintedPropStandIns'] = m.paintedProps.length;
   if (m.paintedCopies.length > 0) c['paintedCopies'] = m.paintedCopies.length;

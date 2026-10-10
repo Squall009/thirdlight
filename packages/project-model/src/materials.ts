@@ -26,7 +26,7 @@ import { MSAA_SAMPLE_COUNTS, PIXEL_RATIO_CAP_MAX, PIXEL_RATIO_CAP_MIN, QUALITY_L
 import { AMBIENT_OCCLUSION_KINDS, RENDER_SCALE_MAX, RENDER_SCALE_MIN } from './render-settings';
 import { canonicalTrimSheet, trimSheetErrors, type TrimSheet } from './trim-sheet';
 import { canonicalDecalPageRef, validateDecalPageRef, type DecalPageRef } from './decal-pages';
-import { DECAL_BLENDS, validateDecalCellRef, type DecalCellRef } from './decals';
+import { DECAL_BLENDS, DECAL_DEFAULTS, DECAL_LIMITS, validateDecalCellRef, type DecalCellRef } from './decals';
 
 export const MATERIAL_SHADERS = ['standard', 'foliage', 'kit', 'unlit', 'water', 'trim', 'decal'] as const;
 export type MaterialShader = (typeof MATERIAL_SHADERS)[number];
@@ -145,6 +145,8 @@ export const MATERIAL_PARAMS: Readonly<Record<MaterialShader, Readonly<Record<st
     emissive: color('#000000'),
     emissiveIntensity: num(0, 16, 0),
     blend: { kind: 'enum', values: DECAL_BLENDS, default: 'blend' },
+    // Where a mesh or clipped decal draws among the other decals: higher draws later, over lower ones.
+    sortOrder: num(DECAL_LIMITS.sortOrderMin, DECAL_LIMITS.sortOrderMax, DECAL_DEFAULTS.sortOrder),
   },
 };
 

@@ -27,6 +27,7 @@
  */
 import type { MaterialFunctionLike } from './material-graph';
 import { createDecalPages } from './decal-pages';
+import { setDecalDepthMode } from './mesh-decals';
 import { createMaterialLibrary, type MaterialDefLike, type MaterialLibrary, type WindLike } from './material-library';
 import { createAnimatorPlayer, type AnimatorPlayer, type AnimatorPoseLike } from './animator-player';
 import { addBoxLightmapUv, createLightmapSet, type LightingBakeLike, type LightmapSet } from './lightmaps';
@@ -896,7 +897,10 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     precompileWanted = 'start';
     // The depth buffer the renderer draws with (reversed Z falls back to standard without support).
     const depth = r as { reversedDepthBuffer?: boolean; logarithmicDepthBuffer?: boolean };
-    if (typeof canvasLike?.setAttribute === 'function') canvasLike.setAttribute('data-tl-depth', depth.reversedDepthBuffer === true ? 'reversed' : depth.logarithmicDepthBuffer === true ? 'logarithmic' : 'standard');
+    const depthMode = depth.reversedDepthBuffer === true ? 'reversed' : depth.logarithmicDepthBuffer === true ? 'logarithmic' : 'standard';
+    if (typeof canvasLike?.setAttribute === 'function') canvasLike.setAttribute('data-tl-depth', depthMode);
+    // Mesh decals take their fixed depth offset only with a standard depth buffer.
+    setDecalDepthMode(depthMode);
   }
 
   // The simulation's per-object look overrides (ctx.look): applied

@@ -1,13 +1,13 @@
 # Decals
 
-> **Growing.** This page grows as decals are built. What exists now is the
+> **Growing.** This page grows as decals are built. What exists now: the
 > data — the decal component, decal layers, decal materials and the decal
 > cells of trim sheets save, reopen, travel through MCP and ship with an
-> export — and the [decal pages](#decal-pages): Play and the export put the
-> decal materials' images on texture arrays and load them to the GPU.
-> **Nothing draws a decal component yet**: projected decals, mesh decals
-> and clipped decals are drawn by the items that follow, and this page will
-> say so when they do.
+> export — the [decal pages](#decal-pages) (Play and the export put the
+> decal materials' images on texture arrays), and [mesh decals](#mesh-decals),
+> which draw. **The decal component does not draw yet**: projected and
+> clipped decals are drawn by the items that follow, and this page will say
+> so when they do. How-to: [Decals](../guides/decals.md).
 
 Decals put the detail that breaks up repetition — dirt, cracks, stains,
 leaks, signs, puddles, scorch marks — on the surfaces of a level without new
@@ -70,10 +70,12 @@ A material with the **decal** shader (Project window: a material's shader
 → `decal`) is what decals draw with. Its parameters: **color** (a tint),
 **opacity**, **roughness** and **metalness** (factors on the ORM texture's;
 1 and 0 without one), **normalScale**, **aoIntensity**, **emissive** and
-**emissiveIntensity**, and **blend** — `blend`, `multiply` (darkens what is
+**emissiveIntensity**, **blend** — `blend`, `multiply` (darkens what is
 under it: stains) or `add` (adds light: glow) — how a mesh or clipped
-decal's lit colour goes over the surface. A projected decal blends channel
-by channel with its component's opacities instead.
+decal's lit colour goes over the surface, and **sortOrder** (−1000 to 1000,
+default 0: where mesh decals overlap, the higher draws on top). A projected
+decal blends channel by channel with its component's opacities and takes
+its component's sort order instead.
 
 Its images come from one of two sources (the Inspector's **source**):
 
@@ -88,9 +90,45 @@ Its images come from one of two sources (the Inspector's **source**):
 A decal material that draws a sheet's cell ships with that sheet in an
 export.
 
-Until mesh decals are drawn, a model wearing a decal material shows it as a
-plain see-through surface (its own textures, tint and opacity; no depth
-push, blend mode or sheet cell yet).
+## Mesh decals
+
+Any mesh wearing a decal material is a **mesh decal**: geometry authored
+for the mark (a quad, a strip along a curb, a splash over a corner) laid on
+a surface. Map a model's glTF material to a decal material (the asset's or
+the object's **materials**), or put one on a box. A glTF material whose
+name ends in `_decal` (any case) draws as a decal with the file's own
+textures by itself; a mapping to another material replaces that. A graph
+material draws as one when its output's **Decal** field is `blend`,
+`multiply` or `add` (its **Decal sort order** orders it).
+
+How it draws:
+
+- **Transparent, no depth written, no shadow cast**, after the opaque
+  scene; it is lit like the surface under it (light layers, probes, its
+  room, ambient occlusion). `multiply` is unlit: its colour (white where its
+  opacity is 0) multiplies the lit surface. `add` adds its lit colour.
+- **Pushed toward the camera** in the vertex stage, along the view ray, by
+  2 mm or 1 mm per metre of distance, whichever is more (never more than
+  half the distance): it keeps its place on screen and always wins the
+  depth test against the surface it lies in, with the standard, reversed-Z
+  and logarithmic depth buffers alike. A standard depth buffer also takes
+  one fixed polygon offset for grazing angles (the same for every decal, so
+  no extra pipeline). Lay the mesh on the surface or a few millimetres over
+  it; an object passing within the push of the surface may show through it
+  far away (8 cm at 80 m).
+- **Order:** before every other transparent surface (water, effects), in
+  sort order; decals of the same order sort by distance.
+- **Texture coordinates** 0–1 cover the decal's image (outside, the edge is
+  held); its reads stop at the image's safe mip level, so a far decal never
+  takes in a neighbour's pixels on its page.
+- **Draws:** decal meshes are batched like other meshes (copies of one mark
+  mesh are one instanced draw) and static ones merge into the static cells:
+  one draw per cell per decal material and sort order. 1,000 static mesh
+  decals of one material on the test level add 1–2 draws.
+- **Images:** Play and the export draw a decal material from the decal
+  pages (its own textures and sheet cell are not loaded there); the Scene
+  view draws its own textures or the sheet's cell directly, in the same
+  place and with the same safe mip level.
 
 ## Decal cells on trim sheets
 
@@ -156,7 +194,8 @@ page take milliseconds. On the GPU a page is 1 byte a texel with its mips:
 that does not stream. A page array is loaded while a loaded decal names a
 material on it and let go when the last such decal leaves (its scene
 unloaded), and it goes to the GPU as soon as it arrives, before anything
-draws it. There is no cap on decals or pages: a set holds as many pages as
+draws it (a mesh decal's material holds the arrays it draws with itself and
+uploads them with its first frame). There is no cap on decals or pages: a set holds as many pages as
 its decals need, split into several arrays when one would pass what a join
 takes. Play diagnostics show them as `renderer.decals` — `decals` (loaded
 decals with a page), `pages` (arrays), `layers`, `bytes`, `onGpu` and

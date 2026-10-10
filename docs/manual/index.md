@@ -58,6 +58,7 @@ use and why.
   - [Make and spawn a prefab](guides/prefabs.md)
   - [Material graphs](guides/material-graphs.md)
   - [Trim sheets](guides/trim-sheets.md)
+  - [Decals](guides/decals.md)
   - [Effects](guides/effects.md)
   - [The animator](guides/animator.md)
   - [Cameras](guides/cameras.md)

@@ -8,8 +8,9 @@
  * their files' digests (`decals-…`), so the same pages give the same ids
  * build after build; each decal material reaches the runtime with its place
  * on them (`decalPage`: the rectangle, its mip cap, each set's array and
- * layer). A decal material's own textures and its sheet still ship as they
- * did: the pages add to them.
+ * layer). A placed decal material reaches the runtime without its own
+ * textures or sheet cell: it draws from the pages, so no scene's
+ * dependencies name those files for it and the game never loads them.
  */
 import type { WorkspaceService, BlobFile } from '@thirdlight/workspace';
 import { DECAL_PAGE_SETS, decalPageRefs, planDecalPages, type DecalPageLayer, type DecalPageLayerRef, type DecalPageRef, type DecalPageSet, type DecalPageSheet, type ManifestAssetInputV2, type MaterialDef } from '@thirdlight/project-model';
@@ -125,11 +126,17 @@ export async function closureDecalPages(o: {
   return { ok: true, pages: { refs, rows, files, artifacts, size: plan.size, pages: plan.pages, notes: plan.notes } };
 }
 
-/** The materials with each decal material's place on the pages (`decalPage`); others as they are. */
+/**
+ * The materials with each decal material's place on the pages (`decalPage`); others as they are. A placed
+ * decal material draws from the pages only, so its own textures and its sheet cell are left out of the
+ * runtime material (nothing loads them for it).
+ */
 export function withDecalPages(materials: readonly MaterialDef[], refs: ReadonlyMap<string, DecalPageRef>): MaterialDef[] {
   if (refs.size === 0) return [...materials];
   return materials.map((m) => {
     const ref = refs.get(m.materialId);
-    return ref !== undefined ? { ...m, decalPage: ref } : m;
+    if (ref === undefined) return m;
+    const { decal: _cell, ...rest } = m;
+    return { ...rest, textures: {}, decalPage: ref };
   });
 }

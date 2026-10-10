@@ -144,7 +144,13 @@ describe('decal pages in a real export', () => {
     const coldMs = performance.now() - t0;
     expect(r.status, JSON.stringify(r.json).slice(0, 600)).toBe(200);
     const out = join(exportRoot, String((r.json as { outputDir: string }).outputDir));
-    const content = exportContentOf(out) as unknown as { assets: { assetId: string; sourceDigest: string }[]; materials: { materialId: string; decalPage?: DecalPageRef }[] };
+    const content = exportContentOf(out) as unknown as { assets: { assetId: string; sourceDigest: string }[]; materials: { materialId: string; decalPage?: DecalPageRef; textures: Record<string, string>; decal?: unknown }[] };
+    // A placed decal material draws from the pages only: no textures or sheet cell of its own reach the runtime.
+    for (const id of ['mat-crack', 'mat-mark']) {
+      const m = content.materials.find((x) => x.materialId === id)!;
+      expect([m.textures, m.decal]).toEqual([{}, undefined]);
+    }
+    console.log(`decal pages export ships: ${content.assets.map((a) => a.assetId).sort().join(' ')}`);
     const arrays = content.assets.filter((a) => a.assetId.startsWith('decals-'));
     // Albedo (sheet + composed), normal (sheet), ORM (sheet + composed mask page).
     expect(arrays).toHaveLength(3);

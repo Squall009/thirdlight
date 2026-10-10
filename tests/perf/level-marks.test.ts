@@ -65,21 +65,21 @@ describe('the level marks switches', () => {
     expect(marksNotBuilt(plan({ ...NO_LEVEL_MARKS, clippedDecals: 10 }).marks!)).toMatch(/--clipped-decals/);
   });
 
-  it('place mesh decals as stand-in quads lifted off the ground and the walls, static and shadowless', () => {
+  it('place mesh decals as quads laid over the ground and the walls, static', () => {
     const p = plan({ ...NO_LEVEL_MARKS, meshDecals: 120 });
     const marks = p.batches.flat().filter((e) => e.id.startsWith('mark-'));
     expect(marks).toHaveLength(120);
     expect(p.marks!.meshDecals.some((d) => d.surface === 'prop')).toBe(false);
-    expect(p.counts).toMatchObject({ meshDecalStandIns: 120 });
+    expect(p.counts).toMatchObject({ meshDecals: 120 });
     for (const [i, e] of marks.entries()) {
       const d = p.marks!.meshDecals[i]!;
       const t = e.components['transform'] as { position: number[]; rotation: number[]; scale: number[] };
       expect(e.static).toBe(true);
-      expect(e.components['model']).toEqual({ asset: { assetId: MARK_QUAD }, castShadow: false });
+      expect(e.components['model']).toEqual({ asset: { assetId: MARK_QUAD } });
       expect(t.scale).toEqual([d.size[0], d.size[1], 1]);
       const n = zAxis(d.rotation);
       const lift = (t.position[0]! - d.position[0]) * n[0] + (t.position[1]! - d.position[1]) * n[1] + (t.position[2]! - d.position[2]) * n[2];
-      expect(lift).toBeCloseTo(MESH_DECAL_LIFT, 2);
+      expect(lift).toBeCloseTo(MESH_DECAL_LIFT, 3);
     }
     expect(marksNotBuilt(p.marks!)).toBeNull();
   });

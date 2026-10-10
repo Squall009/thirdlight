@@ -42,6 +42,7 @@ import type { BatchKeyParts } from './batching';
 import { LIGHT_LAYERS_KEY, ROOM_KEY } from './light-layers';
 import { LOCAL_LIGHTS_KEY } from './local-lights';
 import { LOD_OWNER_KEY } from './lod-switch';
+import { decalRenderOrder } from './mesh-decals';
 import { STATIC_CASTER_KEY } from './shadow-casters';
 import { SphereSide, type CullView, type ViewCullable, type ViewCuller } from './view-cull';
 
@@ -510,7 +511,9 @@ export function createStaticMerger(options: StaticMergerOptions): StaticMerger {
     const e = mesh.matrixWorld.elements;
     const s = options.cellSize;
     const cell = `${Math.floor(e[12]! / s)},${Math.floor(e[13]! / s)},${Math.floor(e[14]! / s)}`;
-    return `${scope}|${parts.material.uuid}|${parts.castShadow ? 1 : 0}${parts.receiveShadow ? 1 : 0}${parts.lightLayers === LIGHT_LAYERS_ALL ? '' : `L${parts.lightLayers}`}${parts.localLights === undefined ? '' : `M${parts.localLights}`}${parts.room === undefined ? '' : `R${parts.room}`}|${cell}|${mergeLayout(mesh.geometry)}`;
+    // A decal's sort order is part of the key: one draw has one place among the decals.
+    const order = decalRenderOrder(parts.material);
+    return `${scope}|${parts.material.uuid}|${parts.castShadow ? 1 : 0}${parts.receiveShadow ? 1 : 0}${parts.lightLayers === LIGHT_LAYERS_ALL ? '' : `L${parts.lightLayers}`}${parts.localLights === undefined ? '' : `M${parts.localLights}`}${parts.room === undefined ? '' : `R${parts.room}`}${order === null ? '' : `D${order}`}|${cell}|${mergeLayout(mesh.geometry)}`;
   };
 
   const releaseBuilt = (b: Built): void => {
@@ -663,7 +666,8 @@ export function createStaticMerger(options: StaticMergerOptions): StaticMerger {
     // changes no shadow: a member is drawn through it or alone at the same place, and entering or leaving the
     // scene, or moving, is reported by the host.
     mesh.userData[STATIC_CASTER_KEY] = true;
-    mesh.renderOrder = MERGED_RENDER_ORDER;
+    // A decal cell draws in its decal order, after the opaque scene (mesh-decals.ts).
+    mesh.renderOrder = decalRenderOrder(cell.material) ?? MERGED_RENDER_ORDER;
     mesh.raycast = () => undefined;
     if (cell.built !== null) releaseBuilt(cell.built);
     const built = cullableCell({ mesh, geometry, template, index, vertices, vertexBytes, bounds });

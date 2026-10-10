@@ -90,7 +90,7 @@ import { makePng } from '../../tests/e2e/png-make';
 import { publishBehaviorVia, publishBufferVia, publishFileVia, splitBySize } from './build';
 import type { PerfBackend } from './backend';
 import { prng, type BehaviorPlan, type EntityValue } from './generate';
-import { levelMarks, markCounts, markEntities, marksNotBuilt, MARK_QUAD, MARK_QUAD_MATERIAL, MARK_STANDIN_MATERIAL, NO_LEVEL_MARKS, PAINTED_FILE_SUFFIX, type LevelMarks, type LevelMarksOptions } from './level-marks';
+import { levelMarks, markCounts, markEntities, marksNotBuilt, MARK_DECAL_IMAGE, MARK_DECAL_MATERIAL, MARK_QUAD, MARK_QUAD_MATERIAL, NO_LEVEL_MARKS, PAINTED_FILE_SUFFIX, type LevelMarks, type LevelMarksOptions } from './level-marks';
 import { coverKitGlb, propGlb, quadGlb, scatterKitGlb, type PropSpec } from './village-assets';
 
 /** Bump when the generated content changes. */
@@ -760,6 +760,17 @@ export function levelTerrainTextures(seed: number, size: number): { assetId: str
   return out;
 }
 
+/** A stain: a dark blot fading out to a clear edge, with grain (the mesh decals' image). */
+export function markStainPng(seed: number, size: number): Buffer {
+  const rnd = prng(seed * 31 + 17);
+  return makePng(size, size, (x, y) => {
+    const r = Math.hypot(x - size / 2 + 0.5, y - size / 2 + 0.5) / (size / 2);
+    const grain = 0.8 + 0.2 * rnd();
+    const a = Math.max(0, Math.min(1, (1 - r) * 2.5)) * grain;
+    return [Math.floor(70 * grain), Math.floor(55 * grain), Math.floor(40 * grain), Math.floor(255 * a)];
+  });
+}
+
 export interface LevelBuild {
   projectId: string;
   kind: LevelKind;
@@ -789,10 +800,11 @@ async function publishMarks(be: PerfBackend, projectId: string, cmd: (op: string
     if (painted.has(assetId)) await publishFileVia(be, projectId, cmd, { assetId, kind: 'model', displayName: assetId, bytes: propGlb(f.seed, f.spec, true) });
   }
   if (m.meshDecals.length > 0) {
-    // The mesh-decal stand-in: one blended standard material over a quad.
-    await cmd('setMaterial', { material: { materialId: MARK_STANDIN_MATERIAL, name: 'Level mark (stand-in)', shader: 'standard', params: { color: '#3a2e24', roughness: 0.9, alphaMode: 'blend', opacity: 0.6 }, textures: {} } });
+    // Mesh decals: one decal material (a stain image on the build's decal pages) over a quad.
+    await publishFileVia(be, projectId, cmd, { assetId: MARK_DECAL_IMAGE, kind: 'texture', displayName: 'Level mark stain', bytes: markStainPng(plan.seed, 256) });
+    await cmd('setMaterial', { material: { materialId: MARK_DECAL_MATERIAL, name: 'Level mark', shader: 'decal', params: { color: '#c8b8a8', roughness: 0.9 }, textures: { map: MARK_DECAL_IMAGE } } });
     await publishFileVia(be, projectId, cmd, { assetId: MARK_QUAD, kind: 'model', displayName: 'Level mark quad', bytes: quadGlb(MARK_QUAD_MATERIAL) });
-    await cmd('setAssetOptions', { assetId: MARK_QUAD, materials: { [MARK_QUAD_MATERIAL]: MARK_STANDIN_MATERIAL } });
+    await cmd('setAssetOptions', { assetId: MARK_QUAD, materials: { [MARK_QUAD_MATERIAL]: MARK_DECAL_MATERIAL } });
   }
 }
 

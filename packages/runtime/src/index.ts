@@ -479,6 +479,9 @@ export {
   // The trim material's sampling cap and the wet look the renderer draws (trim-sheet.ts, materials.ts).
   trimMaxFootprint,
   type TrimSheet,
+  // A decal material's sheet cell where a view draws the sheet itself, and the decals' sort-order range (decal-pages.ts, decals.ts).
+  decalSheetCellSampling,
+  DECAL_LIMITS,
   WET_ALBEDO_SCALE,
   WET_ROUGHNESS,
   MAX_SOURCE_BYTES,

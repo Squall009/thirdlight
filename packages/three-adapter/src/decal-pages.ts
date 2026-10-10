@@ -14,6 +14,7 @@
  */
 import type * as THREE from 'three';
 
+import { decalPageArray } from './decal-material';
 import type { DecalPageRefLike } from './material-library';
 import { textureByteSize } from './resource-bytes';
 import type { TextureHolds } from './texture-holds';
@@ -120,7 +121,8 @@ export function createDecalPages(o: {
       for (const a of arrays.values()) {
         if (a.texture === null || a.onGpu) continue;
         try {
-          renderer.initTexture(a.texture);
+          // The array the decal materials sample (a set of one page arrives as a 2D texture: viewed as an array).
+          renderer.initTexture(decalPageArray(a.texture));
           a.onGpu = true;
           any = true;
         } catch {

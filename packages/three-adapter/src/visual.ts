@@ -38,6 +38,7 @@ import { mergeOwnership, OwnershipLedger, type ResourceOwnership } from './owner
 import { applyTransformToObject3D, type AdapterQuat, type AdapterVec3 } from './sync';
 import { applyLodGroups, applyVertexColorMode, keepOnlyPiece, modelPieces, pieceBounds, pieceCollider2D,
   pieceCollider3D, pieceCollisionParts, stripCollisionNodes, type ModelCollider3D, type VertexColorMode } from './pieces';
+import { markFileDecals } from './mesh-decals';
 import { disposeObjectTree } from './dispose';
 import { objectResidentBytes, type ObjectResidentBytes } from './resource-bytes';
 
@@ -915,6 +916,8 @@ function createResource(descriptor: AssetVersionDescriptor, loaded: LoadedGlb, l
       stripCollisionNodes(glbRoot);
       applyLodGroups(glbRoot, options.lod);
       applyVertexColorMode(glbRoot, options.vertexColors ?? 'data');
+      // The file's `*_decal` materials draw as mesh decals (a project material mapped over one replaces it).
+      markFileDecals(glbRoot);
       const holder = new THREE.Group();
       holder.name = `asset:${descriptor.assetId}@v${descriptor.version}`;
       holder.add(glbRoot);

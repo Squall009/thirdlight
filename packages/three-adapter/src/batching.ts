@@ -19,7 +19,8 @@
  * Opt-in: only meshes a host marked with {@link BATCH_KEY} take part (a box,
  * the meshes of a placed model) — helpers, gizmos, sprites, effects and the
  * sky never do. A marked mesh is drawn on its own whenever it is not
- * batchable this frame: hidden, transparent (it needs back-to-front sorting),
+ * batchable this frame: hidden, transparent (it needs back-to-front sorting;
+ * a mesh decal does not: its group draws in its decal order, `mesh-decals.ts`),
  * skinned or morphed, several materials, a custom `onBeforeRender`, a render
  * order, other layers, per-object material parameters (a graph material's
  * `materialParams` are per-object uniforms, as are the values scripts set
@@ -60,6 +61,7 @@ import { LIGHT_LAYERS_ALL, type LocalLightMode } from '@thirdlight/runtime';
 import { createAttributeInstancedMesh, type AttributeInstancedMesh } from './attribute-instancing';
 import { LIGHT_LAYERS_KEY, objectLightLayers, ROOM_KEY, roomKeyOf } from './light-layers';
 import { LOCAL_LIGHTS_KEY, objectLocalLights } from './local-lights';
+import { decalRenderOrder } from './mesh-decals';
 import { OVERRIDES_KEY, RUNTIME_VALUES_KEY } from './material-graph';
 import { isStaticCaster, STATIC_CASTER_KEY } from './shadow-casters';
 import { createStaticMerger, MERGE_BACKGROUND_BUDGET_MS, MERGE_QUIET_MS, staticScopeOf, type StaticMergeDiagnostics, type StaticMerger } from './static-merge';
@@ -120,11 +122,13 @@ export function batchRefusal(mesh: THREE.Mesh): string | null {
   if (mesh.morphTargetInfluences !== undefined && mesh.morphTargetInfluences.length > 0) return 'morph targets';
   const mat = mesh.material;
   if (Array.isArray(mat) || mat === undefined || mat === null) return 'several materials';
-  if (mat.transparent === true) return 'transparent';
+  // A mesh decal is transparent but needs no sorting among its own: drawn together, in its decal order.
+  const decalOrder = decalRenderOrder(mat);
+  if (mat.transparent === true && decalOrder === null) return 'transparent';
   if (mat.visible === false) return 'material hidden';
   // The columns are applied before three's displacement (batches draw no displaced mesh).
   if ((mat as { displacementMap?: unknown }).displacementMap != null) return 'displacement map';
-  if (mesh.renderOrder !== 0) return 'render order';
+  if (mesh.renderOrder !== 0 && mesh.renderOrder !== decalOrder) return 'render order';
   if (mesh.onBeforeRender !== DEFAULT_ON_BEFORE_RENDER) return 'custom onBeforeRender';
   const layers = (mesh.userData[LAYERS_KEY] as number | undefined) ?? mesh.layers.mask;
   if (layers !== 1) return 'layers';
@@ -621,6 +625,8 @@ export function createAutoBatcher(scene: THREE.Scene, options: AutoBatcherOption
       if (g.parts.localLights !== undefined) mesh.userData[LOCAL_LIGHTS_KEY] = g.parts.localLights;
       if (g.parts.room !== undefined) mesh.userData[ROOM_KEY] = g.parts.room;
       mesh.userData['tlBatch'] = true;
+      // A decal group draws in its decal order (its material's; mesh-decals.ts).
+      mesh.renderOrder = decalRenderOrder(g.parts.material) ?? 0;
       // Picking goes to the members (they keep their entity ids); the batch is drawn only.
       mesh.raycast = () => undefined;
       g.inst = inst;

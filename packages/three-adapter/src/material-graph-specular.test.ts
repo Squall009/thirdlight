@@ -10,7 +10,7 @@
  * changes the text: re-record them then (the failure prints the new ones).
  */
 import * as THREE from 'three';
-import { WebGPURenderer, type MeshPhysicalNodeMaterial } from 'three/webgpu';
+import type { MeshPhysicalNodeMaterial, WebGPURenderer } from 'three/webgpu';
 import { describe, expect, it } from 'vitest';
 
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
@@ -18,37 +18,7 @@ import * as TSL from 'three/tsl';
 
 import { buildGraphMaterial, compileMaterialGraph, digestOf, graphNeedsPhysical, type GraphCompileEnv, type MaterialGraphLike } from './material-graph';
 import { createMaterialLibrary, type MaterialDefLike } from './material-library';
-
-/** What of three's WGSL node builder this reads and sets (its typings stop at the abstract builder). */
-interface Builder {
-  scene: THREE.Scene;
-  camera: THREE.Camera;
-  material: THREE.Material;
-  lightsNode: unknown;
-  build(): void;
-  readonly vertexShader: string;
-  readonly fragmentShader: string;
-}
-
-/** The vertex and fragment WGSL three builds for a mesh in a scene (its lights included). */
-function wgslOf(renderer: WebGPURenderer, scene: THREE.Scene, mesh: THREE.Mesh): string {
-  const camera = new THREE.PerspectiveCamera();
-  const lights: THREE.Light[] = [];
-  scene.traverse((o) => {
-    if ((o as THREE.Light).isLight === true) lights.push(o as THREE.Light);
-  });
-  const backend = (renderer as unknown as { backend: { createNodeBuilder(o: THREE.Object3D, r: WebGPURenderer): Builder } }).backend;
-  const b = backend.createNodeBuilder(mesh, renderer);
-  b.scene = scene;
-  b.camera = camera;
-  b.material = mesh.material as THREE.Material;
-  const lightsNode = renderer.lighting.getNode(scene) as unknown as { setLights(l: THREE.Light[]): void };
-  lightsNode.setLights(lights);
-  b.lightsNode = lightsNode;
-  b.build();
-  return `${b.vertexShader}\n${b.fragmentShader}`;
-}
-
+import { litScene, settle, wgslOf, wgslRenderer } from './test-wgsl';
 
 const n = (id: string, type: string, data?: Record<string, unknown>) => ({ id, type, position: [0, 0] as [number, number], ...(data !== undefined ? { data } : {}) });
 const e = (id: string, from: string, fp: string, to: string, tp: string) => ({ id, from: { node: from, port: fp }, to: { node: to, port: tp } });
@@ -90,9 +60,7 @@ async function compiledScene(graphs: Record<string, MaterialGraphLike>): Promise
   tex.needsUpdate = true;
   const library = createMaterialLibrary({ loadTexture: async () => tex });
   library.setMaterials(Object.entries(graphs).map(([id, g]) => graphDef(id, g)));
-  const scene = new THREE.Scene();
-  const sun = new THREE.DirectionalLight('#ffffff', 1.5);
-  scene.add(sun, new THREE.AmbientLight('#ffffff', 0.4));
+  const scene = litScene();
   const meshes: Record<string, THREE.Mesh> = {};
   for (const id of Object.keys(graphs)) {
     const m = new THREE.Mesh(new THREE.SphereGeometry(1, 8, 6), new THREE.MeshStandardMaterial());
@@ -101,12 +69,8 @@ async function compiledScene(graphs: Record<string, MaterialGraphLike>): Promise
     meshes[id] = m;
   }
   // The texture arrives through a promise; the graphs recompile with it.
-  for (let i = 0; i < 3; i++) await new Promise((r) => setTimeout(r, 0));
-  const canvas = { style: {}, width: 1, height: 1, addEventListener() {}, removeEventListener() {}, getContext: () => null };
-  const renderer = new WebGPURenderer({ canvas: canvas as unknown as HTMLCanvasElement });
-  // No device here: report no optional features (the same answer for every build compared).
-  (renderer as unknown as { hasFeature: () => boolean }).hasFeature = () => false;
-  return { renderer, scene, meshes };
+  await settle();
+  return { renderer: wgslRenderer(), scene, meshes };
 }
 
 describe('graph materials without specular keep their programs', () => {

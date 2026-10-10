@@ -60,6 +60,7 @@ import { LIT, litMainDirectionWorld, MeshCustomLitNodeMaterial } from './custom-
 import { instanceOrigin, normalGreenSign } from './node-materials';
 import { LOCAL_LIGHTS_KEY } from './local-lights';
 import { STEADY_SHAPE_KEY } from './shadow-casters';
+import { decalDrawOf, decalSortOrder, installDecalDraw, removeDecalDraw, type DecalDraw } from './mesh-decals';
 import { localLightModeOf, WORLD_UV_PERIOD_METRES, type LocalLightMode } from '@thirdlight/runtime';
 
 // TSL's typings do not follow values whose width is known only at run time.
@@ -209,8 +210,8 @@ export interface CompiledMaterialGraph {
     readonly litOpacity: N | null;
     readonly litAlphaTest: N | null;
   };
-  /** `localLights`: the output's local-light mode when it sets one (local-lights.ts). */
-  readonly flags: { readonly doubleSided: boolean; readonly transparent: boolean; readonly castShadows: boolean; readonly localLights?: LocalLightMode };
+  /** `localLights`: the output's local-light mode when it sets one (local-lights.ts); `decal`: drawn as a mesh decal (mesh-decals.ts). */
+  readonly flags: { readonly doubleSided: boolean; readonly transparent: boolean; readonly castShadows: boolean; readonly localLights?: LocalLightMode; readonly decal?: DecalDraw };
   /** Reads the clock or the wind (the host keeps rendering). */
   readonly animated: boolean;
   /** Reads the object's own frame (object-space position or normal, its origin, an object-space offset): never merged with others (static batching). */
@@ -503,9 +504,9 @@ export const COMPILER_FIELD_DEFAULTS: Readonly<Record<string, Readonly<Record<st
   dither: { pattern: 'bayer4' },
   worldUV: { plane: 'xz' },
   call: { function: '' },
-  pbr: { doubleSided: false, transparent: false, castShadows: true, localLights: 'object' },
-  unlit: { doubleSided: false, transparent: false, castShadows: true },
-  customLit: { doubleSided: false, transparent: false, castShadows: true, localLights: 'object' },
+  pbr: { doubleSided: false, transparent: false, castShadows: true, decal: 'off', decalSortOrder: 0, localLights: 'object' },
+  unlit: { doubleSided: false, transparent: false, castShadows: true, decal: 'off', decalSortOrder: 0 },
+  customLit: { doubleSided: false, transparent: false, castShadows: true, decal: 'off', decalSortOrder: 0, localLights: 'object' },
   vertexOffset: { space: 'object' },
   functionInput: { name: '', type: 'float', default: [0, 0, 0, 0] },
   functionOutput: { name: '', type: 'float' },
@@ -1546,7 +1547,13 @@ export function compileMaterialGraph(input: { graph: MaterialGraphLike; paramete
   return {
     surface,
     slots,
-    flags: { doubleSided: flag('doubleSided', false), transparent: flag('transparent', false), castShadows: flag('castShadows', true), ...((l) => (l !== undefined ? { localLights: l } : {}))(surfaceNode === null ? undefined : localLightModeOf(field(surfaceNode, 'localLights'))) },
+    flags: {
+      doubleSided: flag('doubleSided', false),
+      transparent: flag('transparent', false),
+      castShadows: flag('castShadows', true),
+      ...((l) => (l !== undefined ? { localLights: l } : {}))(surfaceNode === null ? undefined : localLightModeOf(field(surfaceNode, 'localLights'))),
+      ...((d) => (d === 'blend' || d === 'multiply' || d === 'add' ? { decal: { blend: d, sortOrder: decalSortOrder(field(surfaceNode!, 'decalSortOrder')) } } : {}))(surfaceNode === null ? undefined : field(surfaceNode, 'decal')),
+    },
     animated,
     objectFrame,
     cellUv: readsCellUv(input.graph),
@@ -1629,6 +1636,15 @@ export function applyGraphNodes(material: MeshBasicNodeMaterial | MeshStandardNo
   m.vertexColors = false; // COLOR_0 is read by Vertex colour nodes only
   m.side = c.flags.doubleSided ? THREE.DoubleSide : THREE.FrontSide;
   m.transparent = c.flags.transparent;
+  // A mesh decal: drawn over the surface under it (its push goes over the graph's own position).
+  if (c.flags.decal !== undefined) {
+    installDecalDraw(material, c.flags.decal);
+    // A stain: the graph's colour by its opacity, white elsewhere, which the blend multiplies into the surface.
+    m.outputNode = c.flags.decal.blend === 'multiply' ? TSL.vec4(TSL.mix(TSL.vec3(1, 1, 1), TSL.diffuseColor.rgb, TSL.saturate(TSL.diffuseColor.a)), 1) : null;
+  } else if (decalDrawOf(material) !== null) {
+    removeDecalDraw(material);
+    m.outputNode = null;
+  }
   if (c.flags.localLights !== undefined) m.userData[LOCAL_LIGHTS_KEY] = c.flags.localLights;
   else delete m.userData[LOCAL_LIGHTS_KEY];
   m.needsUpdate = true;

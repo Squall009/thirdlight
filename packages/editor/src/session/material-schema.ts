@@ -92,7 +92,7 @@ export const MATERIAL_PARAMS: Readonly<Record<MaterialShader, Readonly<Record<st
     doubleSided: bool(false),
     localLights: { kind: 'enum', values: ['object', 'pixel', 'vertex', 'none'], default: 'object' },
   },
-  // A decal: its own textures or a trim sheet's decal cell; `blend` for mesh and clipped decals.
+  // A decal: its own textures or a trim sheet's decal cell; `blend` and `sortOrder` for mesh and clipped decals.
   decal: {
     color: color('#ffffff'),
     opacity: num(0, 1, 1),
@@ -103,6 +103,7 @@ export const MATERIAL_PARAMS: Readonly<Record<MaterialShader, Readonly<Record<st
     emissive: color('#000000'),
     emissiveIntensity: num(0, 16, 0),
     blend: { kind: 'enum', values: ['blend', 'multiply', 'add'], default: 'blend' },
+    sortOrder: num(-1000, 1000, 0),
   },
 };
 

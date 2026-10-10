@@ -28,6 +28,7 @@
  * 18.3; `default` strings name its built-in sources).
  */
 import type { GraphFieldDef, GraphKindDef, GraphNodeDef, GraphPortDef, GraphValue } from './graph';
+import { DECAL_BLENDS, DECAL_DEFAULTS, DECAL_LIMITS } from './decals';
 import { MATERIAL_LOCAL_LIGHT_MODES } from './local-lights';
 
 /** The value types in widening order (the `auto` rule picks the widest connected). */
@@ -91,8 +92,16 @@ const SURFACE_FLAGS: readonly GraphFieldDef[] = [
   { key: 'transparent', label: 'Transparent', type: 'boolean', default: false },
   { key: 'castShadows', label: 'Casts shadows', type: 'boolean', default: true },
 ];
+/**
+ * A mesh decal (decals.ts): drawn over the surface under it with this blend, pushed toward the camera, no depth
+ * written, no shadow cast; `decalSortOrder` orders it among the other decals (higher draws later).
+ */
+const DECAL_FLAGS: readonly GraphFieldDef[] = [
+  { key: 'decal', label: 'Decal', type: 'enum', options: ['off', ...DECAL_BLENDS], default: 'off' },
+  { key: 'decalSortOrder', label: 'Decal sort order', type: 'number', default: DECAL_DEFAULTS.sortOrder, min: DECAL_LIMITS.sortOrderMin, max: DECAL_LIMITS.sortOrderMax },
+];
 /** A lit surface's flags: also how local lights reach it (local-lights.ts; `object` follows the object's mode). */
-const LIT_SURFACE_FLAGS: readonly GraphFieldDef[] = [...SURFACE_FLAGS, { key: 'localLights', label: 'Local lights', type: 'enum', options: MATERIAL_LOCAL_LIGHT_MODES, default: 'object' }];
+const LIT_SURFACE_FLAGS: readonly GraphFieldDef[] = [...SURFACE_FLAGS, { key: 'localLights', label: 'Local lights', type: 'enum', options: MATERIAL_LOCAL_LIGHT_MODES, default: 'object' }, ...DECAL_FLAGS];
 
 const INPUT_NODES: readonly GraphNodeDef[] = [
   { type: 'float', label: 'Float', category: 'Inputs', description: 'A constant number.', inputs: [], outputs: [port('value', 'value', 'float')], fields: [{ key: 'value', label: 'Value', type: 'number', default: 0, min: -1e6, max: 1e6 }] },
@@ -530,7 +539,7 @@ const OUTPUT_NODES: readonly GraphNodeDef[] = [
     description: 'A surface that ignores lights (its colour is what you see).',
     inputs: [port('color', 'colour', 'vec3', [1, 1, 1]), port('opacity', 'opacity', 'float', 1), port('alphaClip', 'alpha clip', 'float', 0)],
     outputs: [],
-    fields: SURFACE_FLAGS,
+    fields: [...SURFACE_FLAGS, ...DECAL_FLAGS],
     exclusive: 'surface',
   },
   {

@@ -58,7 +58,7 @@
  *                                into the static shadow map, the wind moves foliage everywhere, nothing thins out
  *                                (default: on, the engine's scatter defaults)
  *   --decals N                   N projected decals over the area's ground, walls and props, ~30 % in overlapping pairs
- *   --mesh-decals N              N mesh decals over its ground and walls (today a stand-in: blended quads, named so)
+ *   --mesh-decals N              N mesh decals over its ground and walls (quads of one decal material)
  *   --clipped-decals N           N clipped decals placed as --decals places them
  *   --painted N                  N placed props, then foliage copies, painted (props today a stand-in: an unread
  *                                4-byte stream); a kind the engine can't draw yet is refused, never measured as

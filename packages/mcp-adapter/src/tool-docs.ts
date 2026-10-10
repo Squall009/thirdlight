@@ -233,11 +233,15 @@ export const TOOL_DETAILS = {
     'new ids in one undo (references inside the copy are remapped; use it to duplicate or to copy between scenes). Materials: ' +
     'setMaterial {material: {materialId, name, shader: standard|foliage|kit|unlit|water|trim|decal, params: {...overrides}, textures: {slot: ' +
     'textureAssetId}}} creates or replaces one (on a model it starts from the file\'s own material and changes only what it sets); ' +
-    'a trim material carries trim {size, texelDensity, padding, rows, cells? [{name, rect: [x, y, w, h] px}] (decal cells)}; a decal material (params blend: blend|multiply|add, ' +
+    'a trim material carries trim {size, texelDensity, padding, rows, cells? [{name, rect: [x, y, w, h] px}] (decal cells)}; a decal material (params blend: blend|multiply|add, sortOrder -1000..1000, ' +
     'opacity, color, roughness, metalness, normalScale, aoIntensity, emissive, emissiveIntensity) draws its own map/normalMap/ormMap/emissiveMap or decal {sheet: trim materialId, cell: name} (not both). ' +
+    'Mesh decals: any mesh wearing a decal material (a model mapped to one with setAssetOptions/materials, a box) draws over the surface under it — transparent, no depth written, no shadow cast, ' +
+    'pushed toward the camera (lay it on or a few mm above the surface), blended by its blend, before other transparent surfaces in its sortOrder (higher on top); its UVs 0-1 cover the image. ' +
+    'Static ones merge: one draw per cell per decal material. A model file\'s own material named *_decal draws as a decal with its own textures unless mapped to another material; ' +
+    'a graph material is a decal when its output\'s decal field is blend|multiply|add (decalSortOrder orders it). ' +
     'Decals: a decal component {size [w,h,d] m (projects along the object\'s -Z), material (a decal material), mode?: projected|clipped, opacity? {albedo?, normal?, roughness?, metalness?, occlusion?, emission?} 0-1, ' +
     'normalFade? deg, edgeFade? [front, back], fadeDistance? m, sortOrder?, layers? (decal layer mask)}; box, model, instances, blockLayer, terrain, spline and architecture take decalLayers? (mask; absent: every layer, none on a skinned model). ' +
-    'Decals are data so far: nothing draws a decal component yet (see docs/manual/features/decals.md). ' +
+    'Mesh decals draw; the decal component (projected and clipped) is data so far: nothing draws it yet (see docs/manual/features/decals.md). ' +
     'deleteMaterial {materialId}; objects use them with setComponent "materials" {<source material name or "*">: materialId}, a ' +
     'model asset for every placement with setAssetOptions {assetId, materials: {...}|null}, a block type with setBlockType {block: {…, materials}}. ' +
     `A material instance is a material with instanceOf: <parent materialId> (a material or another instance, chains up to ${MAX_MATERIAL_INSTANCE_DEPTH}): it draws as its parent with ` +

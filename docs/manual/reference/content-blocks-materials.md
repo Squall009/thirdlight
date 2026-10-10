@@ -108,6 +108,7 @@ Project materials.
 | `materials[].params.emissive` | color | `"#000000"` |  | **Emissive.** The decal shader's emissive (absent: the file's value or the shader default). (applies when `../shader` is `decal`) |
 | `materials[].params.emissiveIntensity` | number | `0` | 0 – 16, step 0.1 | **Emissive Intensity.** The decal shader's emissive intensity (absent: the file's value or the shader default). (applies when `../shader` is `decal`) |
 | `materials[].params.blend` | enum: `blend`, `multiply`, `add` | `"blend"` |  | **Blend.** The decal shader's blend (absent: the file's value or the shader default). (applies when `../shader` is `decal`) |
+| `materials[].params.sortOrder` | number | `0` | -1000 – 1000, step 0.1 | **Sort Order.** The decal shader's sort order (absent: the file's value or the shader default). (applies when `../shader` is `decal`) |
 | `materials[].textures` | object | `{}` |  | **Textures.** Texture slots. (required) |
 | `materials[].textures.map` | asset id (texture) |  |  | **Map.** The standard shader's map texture. (applies when `../shader` is `standard`) |
 | `materials[].textures.normalMap` | asset id (texture) |  |  | **Normal Map.** The standard shader's normalMap texture. (applies when `../shader` is `standard`) |

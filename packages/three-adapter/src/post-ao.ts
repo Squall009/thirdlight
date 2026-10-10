@@ -38,6 +38,8 @@ import * as TSLTyped from 'three/tsl';
 import { ao as gtao } from 'three/examples/jsm/tsl/display/GTAONode.js';
 import { ssao } from 'three/examples/jsm/tsl/display/SSAONode.js';
 
+import { decalDrawOf } from './mesh-decals';
+
 /** TSL nodes are loosely typed here (three's node typings are generic-heavy). */
 type N = any;
 const TSL: N = TSLTyped;
@@ -110,7 +112,7 @@ export class ScreenSpaceOcclusion extends THREE.Light {
   }
 }
 
-/** The occlusion light's node: multiplies the lighting context's ambient occlusion (opaque materials only). */
+/** The occlusion light's node: multiplies the lighting context's ambient occlusion (opaque materials and mesh decals only). */
 class ScreenSpaceOcclusionNode extends (THREE.LightingNode as unknown as new () => { [k: string]: unknown }) {
   static get type(): string {
     return 'ScreenSpaceOcclusionNode';
@@ -121,7 +123,8 @@ class ScreenSpaceOcclusionNode extends (THREE.LightingNode as unknown as new () 
   }
 
   setup(builder: N): void {
-    if (builder.material?.transparent === true) return;
+    // A mesh decal lies on the surface the history saw, so it takes that surface's occlusion; other see-through surfaces do not.
+    if (builder.material?.transparent === true && decalDrawOf(builder.material) === null) return;
     const l = this.light;
     const occlusion = Fn(() => {
       const p = vec4(positionView, 1);
