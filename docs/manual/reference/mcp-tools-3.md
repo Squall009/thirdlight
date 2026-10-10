@@ -93,16 +93,16 @@ A headless play-test - play the game from its start with an input script and rep
 <a id="tool-tl_screenshot"></a>
 ## `tl_screenshot`
 
-Capture a bounded PNG (≤ 1 MiB, maxWidth 256–2048) of a play session as the player sees it (ui: false for the rendered frame alone).
+Capture a bounded PNG (≤ 1 MiB, maxWidth 256–2048) of a play session as the player sees it (ui: false for the rendered frame alone); the PNG comes back as an image block.
 
 In full:
 
-Capture a bounded screenshot (dataUrl ≤ 1 MiB, maxWidth 256–2048) from a play session's selected connected browser preview. Fails structurally if the play is not presented or the editor browser is not connected; a capture the preview cannot make says why (error.cause and message: e.g. screenshot_failed, bridge_message_refused, render_not_ready). A PNG over the bound comes back smaller (see width). A capture asked before the play's renderer drew its first frame (right after the start) waits for that frame within half the relay timeout; past it the answer is render_not_ready. The game's UI documents and overlays (fades, letterbox, menus) are drawn over the frame as the player sees them; ui: false captures the rendered frame alone.
+Capture a bounded screenshot (PNG data URL ≤ 1 MiB, maxWidth 256–2048) from a play session's selected connected browser preview. Fails structurally if the play is not presented or the editor browser is not connected; a capture the preview cannot make says why (error.cause and message: e.g. screenshot_failed, bridge_message_refused, render_not_ready). A PNG over the bound comes back smaller (see width). A capture asked before the play's renderer drew its first frame (right after the start) waits for that frame within half the relay timeout; past it the answer is render_not_ready. The game's UI documents and overlays (fades, letterbox, menus) are drawn over the frame as the player sees them; ui: false captures the rendered frame alone. The answer is two content blocks: the capture's JSON (width, height, snapshotId …; image names the PNG's type and base64 length) and the PNG itself as an MCP image, so a client that shows images to the model can look at it.
 
 <a id="tool-tl_script_publish"></a>
 ## `tl_script_publish`
 
-Publish a script's TypeScript source (files: [{path, text}], the entry src/index.ts; imports @lib/\<library> and its own .json files) or, with graph: true, a visual script from its stored graph; check: true compiles without publishing. The same route as the editor's Publish. A source not yet trusted answers behavior_trust_unacknowledged with its sourceDigest: tl_command acknowledgeBehaviorTrust {sourceDigest}, then publish again.
+Publish a script's TypeScript source (files: [{path, text}], the entry src/index.ts; imports @lib/\<library> and its own .json files) or, with graph: true, a visual script from its stored graph; check: true compiles without publishing. The same route as the editor's Publish; a new script needs its record first (tl_command publishBehavior, mode declaration-create). A source not yet trusted answers behavior_trust_unacknowledged with its sourceDigest: tl_command acknowledgeBehaviorTrust {sourceDigest}, then publish again.
 
 <a id="tool-tl_sessions"></a>
 ## `tl_sessions`

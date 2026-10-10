@@ -568,7 +568,8 @@ const PROPERTY_TYPES: readonly PropertyType[] = [
   'entityRef',
   'assetRef',
 ];
-const MODULE_BEHAVIOR_ID_RE = /^[a-z0-9-]+$/;
+/** Every behavior id the project model accepts (its ID syntax allows `_`) forms a module name. */
+const MODULE_BEHAVIOR_ID_RE = /^[a-z0-9_-]+$/;
 
 function isPlainObject(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);

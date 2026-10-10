@@ -546,7 +546,7 @@ function applyPublishBehaviorSource(
   if (existing === null) {
     return {
       ok: false,
-      error: behaviorNotFound(args.behaviorId, 'source publication requires an existing behavior record'),
+      error: behaviorNotFound(args.behaviorId, 'source publication requires an existing behavior record: create it first with publishBehavior {behaviorId, displayName, mode: "declaration-create", declaration: {properties: []}}'),
     };
   }
   if (prepared.sourceByteLength !== src.sourceByteLength) {

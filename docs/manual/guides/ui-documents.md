@@ -81,7 +81,12 @@ level, a theme per game) and to test them through observation.
   only when it is **Modal** or **Takes focus**; **First focus** picks the
   button that has it first.
 - **A text's `{…}` reads the view model**; `$flow.counters.items` is the
-  engine's, `dashGlyph` is yours. A path nobody set shows empty.
+  engine's, `dashGlyph` is yours. A path nobody set shows empty, and a
+  counter is unset until it first changes: `Items {$flow.counters.items}`
+  shows no number before the first pickup. To show 0 from the start, let a
+  script publish the value every step
+  (`ctx.ui.set('items', ctx.game.counter('items') ?? 0)`) and bind
+  `{items}` instead.
 - **Under the shell's pause screen nothing steps.** A button's UI event
   reaches scripts after the game resumes; list `resume` after it, or set
   **While shown** to *Scripts run*.

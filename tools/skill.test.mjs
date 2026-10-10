@@ -35,7 +35,7 @@ const SKILL_DIR = join(ROOT, SKILL_SOURCE_DIR);
 const SKILL_FILES = ['SKILL.md', 'traps.md'];
 
 /** Ops the skill may name: the workflow steps it describes, never a catalogue. */
-const ALLOWED_OPS = new Set(['createEntities', 'acknowledgeBehaviorTrust']);
+const ALLOWED_OPS = new Set(['createEntities', 'publishBehavior', 'acknowledgeBehaviorTrust']);
 /** A backticked page or section of the manual, or a reference topic. */
 const PAGE_TOPIC = /^(?:(?:getting-started|concepts|guides|features|reference)\/[\w-]+|deployment)(?:#[\w-]+)?$/;
 const REF_TOPIC = /^(?:op|component|ctx|content|node|limit|tool|type|script-type|graph)\.[\w.-]+$/;

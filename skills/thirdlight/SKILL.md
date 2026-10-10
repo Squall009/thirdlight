@@ -93,8 +93,9 @@ order, what an item is worth - is this project's code.
   the library's JSON files, so a balance change is one edit.
 - Small event wiring may be a visual script (`guides/visual-scripts`); it
   compiles to the same kind of script.
-- Publishing: `tl_script_publish` with `check: true` first (diagnostics
-  with file and line, nothing written), then publish with
+- Publishing: a new script needs its record first (`op.publishBehavior`,
+  mode `declaration-create`); then `tl_script_publish` with `check: true`
+  (diagnostics with file and line, nothing written), then publish with
   `expectedRevision`. A new source answers
   `behavior_trust_unacknowledged`: acknowledge its `sourceDigest` once
   (`op.acknowledgeBehaviorTrust`) and publish again. Then attach the

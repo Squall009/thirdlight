@@ -578,12 +578,14 @@ export const TOOL_DETAILS = {
     'Returns {ok, input, runs: [{threads, run, simulation, playSessionId, observations: [{runStep, digest (the run digest), fields}], runStep, digest, errors (script errors and logs), errorCount}], deterministic, mismatches}; ' +
     'a failure {ok: false, error {code, message}, runs (finished before it)}. A game that starts paused (a title screen) is refused: start it past the title (sceneId); a game that fails (a script throws) ends the test with playtest_game_failed and the error.',
   tl_screenshot:
-    `Capture a bounded screenshot (dataUrl ≤ ${SCREENSHOT_DATA_URL_MAX / 1_048_576} MiB, maxWidth ${SCREENSHOT_MAX_WIDTH_MIN}–${SCREENSHOT_MAX_WIDTH_MAX}) from a play session's ` +
+    `Capture a bounded screenshot (PNG data URL ≤ ${SCREENSHOT_DATA_URL_MAX / 1_048_576} MiB, maxWidth ${SCREENSHOT_MAX_WIDTH_MIN}–${SCREENSHOT_MAX_WIDTH_MAX}) from a play session's ` +
     'selected connected browser preview. Fails structurally if the play is not presented or the ' +
     'editor browser is not connected; a capture the preview cannot make says why (error.cause and ' +
     'message: e.g. screenshot_failed, bridge_message_refused, render_not_ready). A PNG over the bound comes back smaller (see width). ' +
     'A capture asked before the play\'s renderer drew its first frame (right after the start) waits for that frame within half the relay timeout; past it the answer is render_not_ready. ' +
-    'The game\'s UI documents and overlays (fades, letterbox, menus) are drawn over the frame as the player sees them; ui: false captures the rendered frame alone.',
+    'The game\'s UI documents and overlays (fades, letterbox, menus) are drawn over the frame as the player sees them; ui: false captures the rendered frame alone. ' +
+    'The answer is two content blocks: the capture\'s JSON (width, height, snapshotId …; image names the PNG\'s type and base64 length) and the PNG itself as an MCP image, ' +
+    'so a client that shows images to the model can look at it.',
 } as const;
 
 export type ToolName = keyof typeof TOOL_DETAILS | 'tl_docs' | 'tl_script_publish';
@@ -638,10 +640,11 @@ export const TOOL_SUMMARIES: Readonly<Record<ToolName, string>> = {
     'A headless play-test: play the game from its start with an input script (tl_input_exercise frames), several runs per threading mode, and report ' +
     'observations, run digests, script errors and whether the runs agree (deterministic).',
   tl_screenshot:
-    'Capture a bounded PNG (≤ 1 MiB, maxWidth 256–2048) of a play session as the player sees it (ui: false for the rendered frame alone).',
+    'Capture a bounded PNG (≤ 1 MiB, maxWidth 256–2048) of a play session as the player sees it (ui: false for the rendered frame alone); the PNG comes back as an image block.',
   tl_script_publish:
     'Publish a script\'s TypeScript source (files: [{path, text}], the entry src/index.ts; imports @lib/<library> and its own .json files) or, with graph: true, ' +
-    'a visual script from its stored graph; check: true compiles without publishing. The same route as the editor\'s Publish. A source not yet trusted ' +
+    'a visual script from its stored graph; check: true compiles without publishing. The same route as the editor\'s Publish; a new script needs its record first ' +
+    '(tl_command publishBehavior, mode declaration-create). A source not yet trusted ' +
     'answers behavior_trust_unacknowledged with its sourceDigest: tl_command acknowledgeBehaviorTrust {sourceDigest}, then publish again.',
 };
 

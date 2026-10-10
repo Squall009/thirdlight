@@ -214,6 +214,16 @@ describe('behavior host lifecycle', () => {
     expect(calls.filter((c) => c.kind === 'dispose')).toHaveLength(2);
   });
 
+  it('runs a behavior whose id has an underscore (the project model accepts it, so Play must too)', () => {
+    const calls: SpecCall[] = [];
+    const art = artifact('hud_label', () => {}, { calls });
+    const h = boot([art], sceneWithBehaviors([{ entityId: 'box-0001', behaviorId: 'hud_label' }]));
+    h.boot();
+    expect(h.diag().state).toBe('running');
+    expect(calls.filter((c) => c.kind === 'instantiate').map((c) => c.entityId)).toEqual(['box-0001']);
+    h.rt.dispose();
+  });
+
   it('gives each fresh runtime instance a fresh prepare() result', () => {
     let prepares = 0;
     const art = artifact('behavior-0001', () => {}, { prepare: () => ({ n: (prepares += 1) }) });
@@ -649,7 +659,7 @@ describe('public surface', () => {
   });
 
   it('does not expose a behavior host for a behaviorId that cannot form a module ID', () => {
-    const art = artifact('bad_id', () => {});
+    const art = artifact('Bad.Id', () => {});
     expect(() => createBehaviorModuleSpec({ declaration: { properties: [{ ...SPEED }] }, artifact: art })).toThrow(
       BehaviorHostError,
     );

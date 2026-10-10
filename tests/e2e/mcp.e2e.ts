@@ -44,9 +44,10 @@ test.afterEach(async () => {
   await be.stop();
 });
 
-async function call(name: string, args: Record<string, unknown> = {}): Promise<{ isError: boolean; body: Record<string, unknown> }> {
-  const res = (await mcp.callTool({ name, arguments: args })) as { isError?: boolean; content: Array<{ type: string; text: string }> };
-  return { isError: res.isError === true, body: JSON.parse(res.content[0]!.text) as Record<string, unknown> };
+async function call(name: string, args: Record<string, unknown> = {}): Promise<{ isError: boolean; body: Record<string, unknown>; image?: { data: string; mimeType: string } }> {
+  const res = (await mcp.callTool({ name, arguments: args })) as { isError?: boolean; content: Array<{ type: string; text?: string; data?: string; mimeType?: string }> };
+  const image = res.content.find((c) => c.type === 'image');
+  return { isError: res.isError === true, body: JSON.parse(res.content[0]!.text!) as Record<string, unknown>, ...(image !== undefined ? { image: { data: image.data!, mimeType: image.mimeType! } } : {}) };
 }
 
 test('an MCP agent inspects the selection, plays, observes, moves and captures the game', async ({ page }) => {
@@ -82,9 +83,11 @@ test('an MCP agent inspects the selection, plays, observes, moves and captures t
 
   const shot = await call('tl_screenshot', { playSessionId, maxWidth: 512 });
   expect(shot.isError, JSON.stringify(shot.body).slice(0, 300)).toBe(false);
-  expect(String(shot.body.dataUrl)).toMatch(/^data:image\/png;base64,/);
+  // The PNG is an image block an agent can look at, not base64 inside the JSON.
+  expect(shot.image?.mimeType).toBe('image/png');
+  expect(shot.body.dataUrl).toBeUndefined();
   // A drawn frame (the scene, not one flat colour), at most maxWidth wide.
-  const img = decodePng(Buffer.from(String(shot.body.dataUrl).slice('data:image/png;base64,'.length), 'base64'));
+  const img = decodePng(Buffer.from(shot.image!.data, 'base64'));
   expect(img.width).toBeLessThanOrEqual(512);
   const colours = new Set<string>();
   for (let y = 0; y < img.height; y += 8) for (let x = 0; x < img.width; x += 8) colours.add(img.pixel(x, y).slice(0, 3).join(','));

@@ -100,7 +100,7 @@ describe('registry', () => {
   it('module names outside the syntax ⇒ config_invalid', () => {
     const r = createSimulationRegistry();
     const spec = { id: 'x', create: () => ({ step() {} }) };
-    for (const bad of ['other.demo:x', 'thirdlight.demo', 'thirdlight.Demo:x', 'thirdlight.demo:Box', 'thirdlight.demo:x_1', '', 'thirdlight..demo:x']) {
+    for (const bad of ['other.demo:x', 'thirdlight.demo', 'thirdlight.Demo:x', 'thirdlight.demo:Box', 'thirdlight.demo:x.1', 'thirdlight.de_mo:x', '', 'thirdlight..demo:x']) {
       const res = registerSimulationModule(r, bad, spec);
       expect(res.ok, bad).toBe(false);
       if (!res.ok) expect(res.error.code).toBe('config_invalid');

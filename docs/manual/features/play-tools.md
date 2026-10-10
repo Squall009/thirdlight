@@ -113,7 +113,9 @@ frame alone. It always answers: a capture the preview cannot make comes back
 as `relay_failed` with the preview's code in `cause` (`screenshot_failed`,
 `render_failed`, `not_ready`) and its reason in the message. A PNG over the
 1 MiB bound is captured again at a smaller width; the reply's `width` says
-which. It works the same on the WebGPU and WebGL 2 renderers.
+which. It works the same on the WebGPU and WebGL 2 renderers. Over MCP the
+PNG comes back as an image block next to the reply's JSON, so an agent can
+look at it; the HTTP route answers it as a `dataUrl`.
 
 ## Replays
 

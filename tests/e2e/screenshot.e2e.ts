@@ -179,11 +179,13 @@ for (const variant of PRODUCT_RENDERER_VARIANTS) {
 
     const mcp = await mcpClient();
     try {
-      const res = (await mcp.callTool({ name: 'tl_screenshot', arguments: { playSessionId: psid, maxWidth: 1024 } })) as { isError?: boolean; content: Array<{ text: string }> };
-      const body = JSON.parse(res.content[0]!.text) as Record<string, unknown>;
+      const res = (await mcp.callTool({ name: 'tl_screenshot', arguments: { playSessionId: psid, maxWidth: 1024 } })) as { isError?: boolean; content: Array<{ type: string; text?: string; data?: string; mimeType?: string }> };
+      const body = JSON.parse(res.content[0]!.text!) as Record<string, unknown>;
       expect(res.isError === true, JSON.stringify(body).slice(0, 300)).toBe(false);
-      expect(String(body['dataUrl']).length).toBeGreaterThan(LARGE);
-      expect(pngOf(body['dataUrl']).width).toBe(body['width']);
+      const image = res.content.find((c) => c.type === 'image');
+      expect(image?.mimeType).toBe('image/png');
+      expect(String(image?.data).length).toBeGreaterThan(LARGE);
+      expect(pngOf(image?.data).width).toBe(body['width']);
     } finally {
       await mcp.close();
     }

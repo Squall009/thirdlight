@@ -4,7 +4,7 @@
  * The ONLY simulation extension point. Registration happens in engine source, at
  * build time: no string-to-code resolution, no dynamic `import` of
  * project content, no file- or URL-sourced modules. Name syntax:
- * `^thirdlight\.[a-z0-9-]+:[a-z0-9-]+$`. Duplicate registration ⇒
+ * `^thirdlight\.[a-z0-9-]+:[a-z0-9_-]+$`. Duplicate registration ⇒
  * `config_invalid` (rejected at registration time). The first segment
  * admits hyphens (package-style names).
  */
@@ -39,7 +39,8 @@ const demoBuiltinSpec: SimulationModuleSpec = {
 /** M1 registry contents: exactly one built-in module. */
 export const BUILTIN_MODULES: readonly SimulationModuleSpec[] = [demoBuiltinSpec];
 
-const MODULE_NAME_RE = /^thirdlight\.[a-z0-9-]+:[a-z0-9-]+$/;
+// The name takes `_` because a script's module is named by its behavior id, which the project model's ID syntax allows `_` in.
+const MODULE_NAME_RE = /^thirdlight\.[a-z0-9-]+:[a-z0-9_-]+$/;
 
 /**
  * Validate a declared phase list: non-empty, no
@@ -106,7 +107,7 @@ export function registerSimulationModule(
         code: 'config_invalid',
         reason: 'module_name',
         message: clipMessage(
-          `module name must match ^thirdlight\\.[a-z0-9-]+:[a-z0-9-]+$ (got ${JSON.stringify(String(id))})`,
+          `module name must match ^thirdlight\\.[a-z0-9-]+:[a-z0-9_-]+$ (got ${JSON.stringify(String(id))})`,
         ),
       },
     };

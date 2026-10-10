@@ -195,7 +195,9 @@ export class Manual {
     // A reference topic (op.editBlocks, component.light, tool.tl_command …) first, then a page or page#section.
     const ref = this.topics[topic] ?? this.topics[req.topic.trim()];
     const at = ref !== undefined ? { page: `reference/${ref.page.replace(/\.md$/, '')}`, section: ref.section } : { page: topic.split('#')[0]!, section: topic.includes('#') ? topic.slice(topic.indexOf('#') + 1) : undefined };
-    const page = this.pages.get(at.page);
+    // A link to a page in the same folder (`types-a-d.md#type-block-edit` inside the reference) carries no
+    // folder; an agent copies it as it is, so a bare name that one folder holds answers as that page.
+    const page = this.pages.get(at.page) ?? (at.page.includes('/') ? undefined : this.uniquePageNamed(at.page));
     if (page === undefined) return this.notFound(req.topic);
     if (at.section === undefined || at.section === '') {
       const answer = this.answer('page', req.topic.trim(), page.title, page.lines, part);
@@ -222,6 +224,11 @@ export class Manual {
       parts: parts.length,
       ...(part < parts.length ? { next: { topic, part: part + 1 } } : {}),
     };
+  }
+
+  private uniquePageNamed(name: string): Page | undefined {
+    const found = [...this.pages.values()].filter((p) => p.key.endsWith(`/${name}`));
+    return found.length === 1 ? found[0] : undefined;
   }
 
   private notFound(topic: string): DocsAnswer {

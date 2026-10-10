@@ -747,7 +747,13 @@ async function screenshot(ctx: McpContext, a: Record<string, unknown>): Promise<
   }
   if (a.ui !== undefined && typeof a.ui !== 'boolean') return toolError('ui must be true or false');
   const res = await ctx.client.screenshot(ctx.projectId, a.playSessionId, maxWidth, a.ui === false ? false : undefined);
-  return isObj(res.body) && res.body.ok === true ? toolOk(res.body) : surfaceBackendError(res);
+  if (!isObj(res.body) || res.body.ok !== true) return surfaceBackendError(res);
+  // The PNG goes out as an image block, the only form an agent can look at; as text it is
+  // hundreds of KB of base64 that clients cut short and nobody can see.
+  const { dataUrl, ...meta } = res.body;
+  const m = typeof dataUrl === 'string' ? /^data:(image\/[\w.+-]+);base64,(.*)$/s.exec(dataUrl) : null;
+  if (m === null) return toolOk(res.body);
+  return { content: [{ type: 'text', text: JSON.stringify({ ...meta, image: { mimeType: m[1], base64Bytes: m[2]!.length } }) }, { type: 'image', data: m[2]!, mimeType: m[1]! }] };
 }
 
 /** Bounded exclusive-test input relay (semantic actions only). */
